@@ -165,21 +165,59 @@ jobs:
           # Dogrulama katmani: MoltenVK uzerinde de API kullanimi 0 hata istenir.
           brew list --versions vulkan-validationlayers >/dev/null 2>&1 || brew install vulkan-validationlayers
 
-      # Loader brew dizinini (/opt/homebrew/share/vulkan) KENDILIGINDEN ARAMAZ:
-      # ICD ve katman yollarini acikca vermezsen "Vulkan cihazi yok" dersin ve
-      # sebebini goremezsin (olculdu 2026-09-14).
+      # Loader ICD'yi KENDILIGINDEN BULMAZ: yollari acikca vermezsen "Vulkan
+      # cihazi yok" dersin ve sebebini goremezsin.
+      #
+      # YOL "share" DEGIL "etc" (olculdu 2026-09-20, molten-vk 1.4.2). Homebrew
+      # formulunun son satiri:
+      #     (prefix/"etc/vulkan").install "MoltenVK/icd" => "icd.d"
+      # yani json <keg>/etc/vulkan/icd.d/ altinda. TulparLang'den devralinan
+      # recete "share/vulkan/icd.d" diyordu ve O YOL HIC VAR OLMADI — orada
+      # kurulum yumusak (uyari) oldugu icin is yesil kaliyor, VK_ICD_FILENAMES
+      # olmayan bir dosyayi gosteriyor, loader hicbir ICD bulamiyor ve butun
+      # GPU kapilari sessizce atlaniyordu. Olculen kanit, ayni koda ait
+      # 2026-09-17 kosumu: macOS "397 passed, 0 failed, 36 atlandi" vs Linux
+      # "... 7 atlandi" — 29 kapi fazladan atlanmis, is yine de YESIL.
+      # Bu yuzden burada yol ARANIR ve bulunamazsa is KIRMIZI olur.
       - name: Vulkan ortami + surucu gercekten var mi
         run: |
           set -euo pipefail
-          P="$(brew --prefix)"
-          echo "VK_ICD_FILENAMES=$P/share/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
-          echo "VK_DRIVER_FILES=$P/share/vulkan/icd.d/MoltenVK_icd.json"  >> "$GITHUB_ENV"
-          echo "VK_LAYER_PATH=$P/share/vulkan/explicit_layer.d"           >> "$GITHUB_ENV"
-          echo "VK_ADD_LAYER_PATH=$P/share/vulkan/explicit_layer.d"       >> "$GITHUB_ENV"
-          # Teshis: loader + MoltenVK + ICD json gercekten nerede?
-          ls -la "$P/lib/libvulkan"* "$P/lib/libMoltenVK"* "$P/share/vulkan/icd.d/" 2>&1 | head -12 || true
-          test -f "$P/share/vulkan/icd.d/MoltenVK_icd.json" || {
-            echo "::error::MoltenVK_icd.json YOK — ICD kurulmamis, butun GPU kapilari atlanirdi."; exit 1; }
+          MVK="$(brew --prefix molten-vk)"
+          VVL="$(brew --prefix vulkan-validationlayers)"
+
+          ICD=""
+          for c in "$MVK/etc/vulkan/icd.d/MoltenVK_icd.json" \
+                   "$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json" \
+                   "$MVK/share/vulkan/icd.d/MoltenVK_icd.json" \
+                   "$(brew --prefix)/share/vulkan/icd.d/MoltenVK_icd.json"; do
+            if [ -f "$c" ]; then ICD="$c"; break; fi
+          done
+          if [ -z "$ICD" ]; then
+            echo "::error::MoltenVK ICD json'u hicbir bilinen yolda YOK — loader cihaz bulamaz, butun GPU kapilari atlanirdi."
+            echo "keg icinde gercekte nerede:"
+            find "$MVK" -name 'MoltenVK_icd.json' 2>/dev/null | head || true
+            exit 1
+          fi
+          echo "ICD: $ICD"
+          cat "$ICD"
+
+          LAYERS="$VVL/share/vulkan/explicit_layer.d"
+          [ -d "$LAYERS" ] || LAYERS="$(brew --prefix)/share/vulkan/explicit_layer.d"
+          if [ ! -d "$LAYERS" ]; then
+            echo "::error::Dogrulama katmani dizini YOK — BestPractices kapisi sessizce atlanirdi."
+            exit 1
+          fi
+          echo "katmanlar: $LAYERS"
+
+          {
+            echo "VK_ICD_FILENAMES=$ICD"
+            echo "VK_DRIVER_FILES=$ICD"
+            echo "VK_LAYER_PATH=$LAYERS"
+            echo "VK_ADD_LAYER_PATH=$LAYERS"
+          } >> "$GITHUB_ENV"
+
+          # Teshis: loader gercekten duruyor mu?
+          ls -la "$(brew --prefix)/lib/libvulkan"* "$(brew --prefix)/lib/libMoltenVK"* 2>&1 | head -8 || true
 
       - name: Katman denetimi
         run: python3 tools/layer_check.py .

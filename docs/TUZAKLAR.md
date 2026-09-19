@@ -789,3 +789,32 @@ sonsuz sessiz bekleme CI'da en kötü sonuç, sınıra dayanırsak adıyla patl�
 Bir de ölçü notu: birikinti **yerelde hiç üremedi** — 15 worker'da 0, zorla 2 worker'da bile 0. macOS/arm64
 koşucusunda 276. "Yerelde üretemedim" bir düzeltmeyi geçersiz kılmaz ama sözleşmeyi ölçüyle değil
 **muhakemeyle** yazdığını bilerek yazmayı gerektirir.
+
+### 8bo. Kurulu sandığın sürücü hiç kurulmamıştı — "atlandı" sayısını iki platform arasında karşılaştır
+
+macOS CI ayağı eklenince ilk koşumda kırmızı geldi: `MoltenVK_icd.json YOK`. Sebep, devralınan
+reçetenin ICD json'ını `share/vulkan/icd.d/` altında aramasıydı. Homebrew formülü onu oraya
+**hiç koymuyor** — son satırı `(prefix/"etc/vulkan").install "MoltenVK/icd" => "icd.d"`, yani
+json `<keg>/etc/vulkan/icd.d/` altında (ölçüldü 2026-09-20, molten-vk 1.4.2).
+
+Asıl tuzak yolun yanlış olması değil, **yanlışlığın görünmemesiydi**. Aynı reçete TulparLang'in
+macOS işinde aylarca koştu; orada kurulum yumuşaktı (`|| echo "::warning::"`) ve ICD denetimi
+yoktu. Sonuç zinciri: `VK_ICD_FILENAMES` var olmayan bir dosyayı gösterdi → loader hiçbir ICD
+bulamadı → Vulkan cihazı yok → bütün RHI/renderer/içerik kapıları `ATLANDI` → iş **yeşil**.
+"397 passed, 0 failed" satırı doğruydu ve GPU yolu hakkında hiçbir şey söylemiyordu.
+
+Bunu görünür kılan tek şey **iki platformun atlama sayısını yan yana koymak** (aynı koşum,
+2026-09-17):
+
+```
+macOS : 397 passed, 0 failed, 36 atlandi
+linux : 397 passed, 0 failed,  7 atlandi
+```
+
+29 kapılık fark tek başına teşhisti. Tek platforma bakarken 36 sayısı masum görünür; ikisini
+karşılaştırınca "bu platformda bir aile hiç koşmuyor" diye okunur.
+
+Kural: bir sürücü/araç **kurulduğu iddia edilen** bir platformda, kurulumun başarısızlığı
+uyarı değil **hata** olmalı ve yol bulunamadığında iş kırmızıya dönmeli. Ayrıca yolu sabit
+yazma — ara ve bulamazsan `find` ile keg'in içini dök; formül yolu sürüm arası değiştirir.
+Bkz. [[8s]] (debug messenger'sız "etkin" katman da aynı sınıf: yeşil ama ölçmüyor).
