@@ -96,9 +96,13 @@ etmez; `ATLANDI: <sebep>` basar ve özet satırındaki sayaca girer. Bu yüzden:
 * `M` (atlandı) sayısını **oku**. Vulkan loader yoksa bütün RHI/renderer/içerik
   kapıları atlanır ve geriye kalan "passed" sayısı GPU hakkında hiçbir şey söylemez.
 * `TULPAR_ENGINE_NO_VULKAN=1` bu yolu zorlar — atlama mekanizmasının pozitif kontrolü.
-* CI (`.github/workflows/ci.yml`) Ubuntu'da **lavapipe** kurar ve Vulkan yolunun
-  gerçekten koştuğunu doğrular: "Vulkan loader yok" gerekçeli bir atlama görürse
-  işi **kırmızıya** çevirir.
+* CI (`.github/workflows/ci.yml`) **üç platform / iki mimari** koşar:
+  `linux` x86_64 (lavapipe), `macos` arm64 (MoltenVK), `windows` x86_64 (MSYS2).
+  İlk ikisinde Vulkan sürücüsü kurulur ve yolun gerçekten koştuğu doğrulanır —
+  "Vulkan yok" gerekçeli bir atlama işi **kırmızıya** çevirir; Windows'ta yazılım
+  ICD'si olmadığı için GPU kapıları beklendiği gibi atlanır ve sebepleri iş
+  özetine yazılır. macOS ayağı bir tekrar değil: fiber geçişi mimariye özel elle
+  yazılmış assembly ve **AArch64 dalı yalnız orada** koşuyor.
 * Zamanlama satırları (`[profiler]`, `[bilgi]`) bilgi basar, karar vermez.
 
 Penceresiz doğrulama kuralı: **doğrulamak için pencere açma.** Demo ve editör

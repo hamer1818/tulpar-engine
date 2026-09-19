@@ -8,9 +8,16 @@
 #   - kosan != kayitli        -> KIRMIZI (kayit tasmasi: test hic kosmamis olur)
 #   - failed > 0              -> KIRMIZI
 #   - atlanan kapilarin sebepleri is ozetine YAZILIR (gorunmeden kalmasin)
-# Ubuntu'da lavapipe kurulur, yani Vulkan yolunun gercekten kosmasi BEKLENIR:
-# "Vulkan ... yok" gerekceli tek bir atlama bile isi kirmiziya cevirir.
+# Ubuntu'da lavapipe, macOS'ta MoltenVK kurulur, yani Vulkan yolunun gercekten
+# kosmasi BEKLENIR: "Vulkan ... yok" gerekceli tek bir atlama bile isi kirmiziya
+# cevirir. Windows runner'inda yazilim ICD'si yok; orada GPU kapilari BEKLENEN
+# sekilde atlanir ve sebepleri is ozetine yazilir.
 # `continue-on-error` YOK; hicbir adim yumusatilmaz.
+#
+# UC PLATFORM, IKI MIMARI: linux/windows x86_64, macos arm64. macOS ayagi bir
+# "ayni seyi bir kez daha kosturma" degil — fiber gecisi MIMARIYE OZEL elle
+# yazilmis assembly (core/jobs/fiber_switch_{x86_64,aarch64}.S) ve AArch64 dali
+# yalniz burada kosuyor. O is olmadan is sisteminin yarisi CI'da olculmuyordu.
 # ===========================================================================
 name: CI
 
@@ -129,6 +136,132 @@ jobs:
           if [ -n "$vulkan_atlama" ]; then
             echo "$vulkan_atlama"
             echo "::error::Lavapipe kurulu oldugu halde Vulkan kapilari atlandi — loader/ICD gelmemis. 'passed' sayisi GPU yolu hakkinda hicbir sey soylemiyor."
+            exit 1
+          fi
+
+          exit "$kod"
+
+  macos:
+    name: macOS arm64 (AppleClang + MoltenVK)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # MoltenVK = Metal uzerinde Vulkan ICD'si. Motor loader'i LINK ZAMANINDA
+      # degil dlopen ile ariyor, yani paket gelmezse butun GPU kapilari atlanir
+      # ve "passed" sayisi GPU hakkinda hicbir sey soylemez. Bu yuzden kurulum
+      # UYARI degil HATA: sessizce "atlandi"ya dusmesin.
+      #
+      # vulkan-loader = libvulkan.1.dylib (ICD mekanizmasi), molten-vk = ICD'nin
+      # kendisi. Ikisi ayri: TulparLang'de ilk denemede yalniz molten-vk kuruldu
+      # ve loader bulunamadi (3 kapi GORUNUR atlandi, 2026-09-14).
+      - name: Bagimliliklar (MoltenVK dahil)
+        run: |
+          set -euo pipefail
+          brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
+          brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
+          brew list --versions vulkan-loader >/dev/null 2>&1 || brew install vulkan-loader
+          brew list --versions molten-vk     >/dev/null 2>&1 || brew install molten-vk
+          # Dogrulama katmani: MoltenVK uzerinde de API kullanimi 0 hata istenir.
+          brew list --versions vulkan-validationlayers >/dev/null 2>&1 || brew install vulkan-validationlayers
+
+      # Loader brew dizinini (/opt/homebrew/share/vulkan) KENDILIGINDEN ARAMAZ:
+      # ICD ve katman yollarini acikca vermezsen "Vulkan cihazi yok" dersin ve
+      # sebebini goremezsin (olculdu 2026-09-14).
+      - name: Vulkan ortami + surucu gercekten var mi
+        run: |
+          set -euo pipefail
+          P="$(brew --prefix)"
+          echo "VK_ICD_FILENAMES=$P/share/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
+          echo "VK_DRIVER_FILES=$P/share/vulkan/icd.d/MoltenVK_icd.json"  >> "$GITHUB_ENV"
+          echo "VK_LAYER_PATH=$P/share/vulkan/explicit_layer.d"           >> "$GITHUB_ENV"
+          echo "VK_ADD_LAYER_PATH=$P/share/vulkan/explicit_layer.d"       >> "$GITHUB_ENV"
+          # Teshis: loader + MoltenVK + ICD json gercekten nerede?
+          ls -la "$P/lib/libvulkan"* "$P/lib/libMoltenVK"* "$P/share/vulkan/icd.d/" 2>&1 | head -12 || true
+          test -f "$P/share/vulkan/icd.d/MoltenVK_icd.json" || {
+            echo "::error::MoltenVK_icd.json YOK — ICD kurulmamis, butun GPU kapilari atlanirdi."; exit 1; }
+
+      - name: Katman denetimi
+        run: python3 tools/layer_check.py .
+
+      - name: Yapilandir
+        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Derle
+        run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      # Kapinin POZITIF KONTROLU (Linux isindekinin esi, ayri platform ayri
+      # cikti): Vulkan'i kapatip atlama satirlarinin GERCEKTEN basildigini
+      # goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye uymayan
+      # bos bir grep olmadigi burada da kanitlanmis oluyor.
+      - name: Atlama mekanizmasinin pozitif kontrolu
+        run: |
+          set -uo pipefail
+          TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
+          n=$(grep -E 'ATLANDI:.*Vulkan' kontrol.log | grep -cv 'tukendi')
+          if [ "$n" -eq 0 ]; then
+            echo "::error::Pozitif kontrol basarisiz: TULPAR_ENGINE_NO_VULKAN=1 ile bile Vulkan atlama satiri basilmadi. Asagidaki Vulkan kapisi bos bir grep olurdu."
+            tail -40 kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+
+      - name: Testler + kapi
+        run: |
+          set -uo pipefail
+          ./yapi/engine_tests 2>&1 | tee sonuc.log
+          kod=${PIPESTATUS[0]}
+
+          ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
+          if [ -z "$ozet" ]; then
+            echo "::error::Ozet satiri YOK — engine_tests cokmus ya da asilmis olabilir."
+            exit 1
+          fi
+          echo "$ozet"
+
+          gecen=$(sed -E 's/^engine tests: ([0-9]+) passed.*/\1/'   <<< "$ozet")
+          kalan=$(sed -E 's/.*, ([0-9]+) failed.*/\1/'              <<< "$ozet")
+          atlanan=$(sed -E 's/.*, ([0-9]+) atlandi.*/\1/'           <<< "$ozet")
+          kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
+          kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
+
+          {
+            echo "### macOS arm64 (MoltenVK)"
+            echo ""
+            echo "\`$ozet\`"
+            echo ""
+            echo "AArch64 fiber gecisi (core/jobs/fiber_switch_aarch64.S) YALNIZ burada kosuyor."
+            echo ""
+            if [ "$atlanan" -gt 0 ]; then
+              echo "<details><summary>Atlanan $atlanan kapi</summary>"
+              echo ""
+              echo '```'
+              grep -E 'ATLANDI:' sonuc.log | sort | uniq -c | sort -rn
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -q 'KAYIT TASMASI' sonuc.log; then
+            echo "::error::Kayit tasmasi: bazi testler HIC kosmadi (tests/test.hpp icindeki Registry::kMax)."
+            exit 1
+          fi
+          if [ "$kosan" != "$kayitli" ]; then
+            echo "::error::Kayitli $kayitli testin yalnizca $kosan tanesi kosmus."
+            exit 1
+          fi
+          if [ "$kalan" != "0" ] || [ "$gecen" -le 0 ]; then
+            echo "::error::$kalan test kirmizi."
+            exit 1
+          fi
+
+          # MoltenVK KURULU (yukarida sert kapi). Yani Vulkan yolunun atlanmasi
+          # bir cevre sorunu degil, is akisinin kendi arizasidir.
+          vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
+          if [ -n "$vulkan_atlama" ]; then
+            echo "$vulkan_atlama"
+            echo "::error::MoltenVK kurulu oldugu halde Vulkan kapilari atlandi — loader/ICD gelmemis. 'passed' sayisi GPU yolu hakkinda hicbir sey soylemiyor."
             exit 1
           fi
 
