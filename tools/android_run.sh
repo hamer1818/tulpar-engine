@@ -3,15 +3,15 @@
 # Tulpar Engine — telefonda kosum (adb). NDK ile derler, NativeActivity APK'sini
 # paketler (android/package_apk.sh), kurar, secilen kipte baslatir ve logu toplar.
 #
-#   engine/tools/android_run.sh tests [filtre]   # engine_tests APK surecinde
-#   engine/tools/android_run.sh demo [kare] [--screenshot cikti.png]
+#   tools/android_run.sh tests [filtre]   # engine_tests APK surecinde
+#   tools/android_run.sh demo [kare] [--screenshot cikti.png]
 #
 # Neden APK: adb shell'deki ikili GPU'yu goremiyor (vkEnumeratePhysicalDevices 0,
 # SELinux/HAL, Huawei P20 Pro ile olculdu 2026-09-14). Uygulama sureci gorur.
 # Cikti: logcat "tulpar" etiketi + files/engine_log.txt (run-as ile cekilir).
 # ============================================================
 set -e
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # depo koku
 MODE="${1:-tests}"; shift || true
 NDK="${TULPAR_ANDROID_NDK:-}"
 if [ -z "$NDK" ]; then
@@ -25,7 +25,7 @@ PKG="dev.tulparlang.engine"
 ACT="$PKG/android.app.NativeActivity"
 
 echo "[1/5] derleme (NDK: $(basename "$NDK"), $ABI)"
-cmake -S "$ROOT/engine" -B "$BUILD" -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+cmake -S "$ROOT" -B "$BUILD" -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
       -DANDROID_ABI="$ABI" -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release -DENGINE_TRACY="${TULPAR_TRACY:-OFF}" -DENGINE_SWAPPY="${TULPAR_SWAPPY:-OFF}" >/dev/null 2>&1
 cmake --build "$BUILD" -j --target tulparengine engine_tests 2>&1 | grep -E "error|warning: unused" | grep -v third_party || true
 [ -f "$BUILD/libtulparengine.so" ] || { echo "HATA: libtulparengine.so uretilmedi"; exit 1; }
@@ -37,23 +37,23 @@ cp "$BUILD/libtulparengine.so" "$STAGE/lib/$ABI/"
 # Dogrulama katmani (Khronos, BestPractices+Arm = Mali linter): tests kipinde ve
 # TULPAR_VALIDATION=1 ile APK'ya girer; yukleyici debuggable uygulamanin lib
 # dizininden katman alir (Android 9+). Yoksa test ATLANDI der (sessiz yesil yok).
-VVL="$ROOT/engine/third_party/vvl-android/$ABI/libVkLayer_khronos_validation.so"
+VVL="$ROOT/third_party/vvl-android/$ABI/libVkLayer_khronos_validation.so"
 if [ "$MODE" = tests ] || [ "${TULPAR_VALIDATION:-0}" = 1 ]; then
     if [ -f "$VVL" ]; then cp "$VVL" "$STAGE/lib/$ABI/"; echo "  dogrulama katmani APK'da ($(du -h "$VVL" | cut -f1))"
-    else echo "  UYARI: dogrulama katmani yok -> engine/tools/fetch_vvl_android.sh (BestPractices testi ATLANDI olacak)"; fi
+    else echo "  UYARI: dogrulama katmani yok -> tools/fetch_vvl_android.sh (BestPractices testi ATLANDI olacak)"; fi
 fi
-cp "$ROOT/engine/platform/android/AndroidManifest.xml" "$STAGE/"
+cp "$ROOT/platform/android/AndroidManifest.xml" "$STAGE/"
 # Swappy: Java simi (SwappyDisplayManager) uygulamanin KENDI sinif yukleyicisinden
 # gelmeli; Swappy'nin bellekten yukledigi kopya lib dizinini goremez ve ilk sunum
 # asilir (Tuzaklar 8v; telefonda Android 10'da da olculdu). fetch_swappy.sh
 # libswappy_static.a icine gomulu dex'i classes.dex olarak cikarir; hasCode=true.
-SWAPPY_DEX="$ROOT/engine/third_party/swappy/libs/classes.dex"
+SWAPPY_DEX="$ROOT/third_party/swappy/libs/classes.dex"
 if [ "${TULPAR_SWAPPY:-OFF}" = ON ] && [ "${TULPAR_SWAPPY_DEX:-1}" = 1 ] && [ -f "$SWAPPY_DEX" ]; then
     cp "$SWAPPY_DEX" "$STAGE/classes.dex"
     sed -i 's/android:hasCode="false"/android:hasCode="true"/' "$STAGE/AndroidManifest.xml"
     echo "  swappy: classes.dex ($(stat -c %s "$SWAPPY_DEX") bayt) + hasCode=true"
 fi
-mkdir -p "$STAGE/assets" && cp "$ROOT"/engine/tests/assets/* "$ROOT"/engine/assets/fonts/*.ttf "$STAGE/assets/" # APK icine (host cikarir)
+mkdir -p "$STAGE/assets" && cp "$ROOT"/tests/assets/* "$ROOT"/assets/fonts/*.ttf "$STAGE/assets/" # APK icine (host cikarir)
 "$ROOT/android/package_apk.sh" "$STAGE" "$BUILD/tulparengine.apk" | grep -E "^\s+\+|HATA|apk" || true
 
 echo "[3/5] kurulum"

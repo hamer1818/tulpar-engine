@@ -2,11 +2,11 @@
 # Tracy uctan uca kontrol: istemci (ENGINE_TRACY=ON) -> tracy-capture -> tracy-csvexport.
 # Pencere yok. Arac ikilileri: TULPAR_TRACY_TOOLS (tracy-capture ve tracy-csvexport
 # iceren dizin). Kullanim:
-#   engine/tools/tracy_check.sh desktop     # build-linux-tracy/ + headless demo
-#   engine/tools/tracy_check.sh phone       # TULPAR_TRACY=1 android_run.sh demo + adb forward
+#   tools/tracy_check.sh desktop     # build-linux-tracy/ + headless demo
+#   tools/tracy_check.sh phone       # TULPAR_TRACY=1 android_run.sh demo + adb forward
 # Kapi: yakalanan izde "render" ve "sim" bolgeleri var ve kare sayisi >= beklenen.
 set -e
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # depo koku
 MODE="${1:-desktop}"
 TOOLS="${TULPAR_TRACY_TOOLS:-$HOME/.local/opt/tracy-tools}" # tracy v0.14.1 capture+csvexport (kaynaktan derlendi, 2026-09-14)
 [ -x "$TOOLS/tracy-capture" ] && [ -x "$TOOLS/tracy-csvexport" ] || { echo "HATA: TULPAR_TRACY_TOOLS altinda tracy-capture/tracy-csvexport yok"; exit 1; }
@@ -19,7 +19,7 @@ if ss -ltnp 2>/dev/null | grep -q ':8086 '; then
 fi
 if [ "$MODE" = desktop ]; then
     B="$ROOT/build-linux-tracy"
-    cmake -S "$ROOT/engine" -B "$B" -DCMAKE_BUILD_TYPE=Release -DENGINE_TRACY=ON >/dev/null
+    cmake -S "$ROOT" -B "$B" -DCMAKE_BUILD_TYPE=Release -DENGINE_TRACY=ON >/dev/null
     cmake --build "$B" -j --target engine_demo 2>&1 | grep -E "error" || true
     # Yakalama penceresi demonun icinde kalir: sunucu once kopar, istemci temiz
     # kapanir. (TRACY_NO_EXIT ile istemci sunucu gelene kadar beklerdi: yok.)
@@ -30,7 +30,7 @@ if [ "$MODE" = desktop ]; then
     wait $RUN || true
     grep -E "toplam" "${TMPDIR:-/tmp}/tulpar_tracy_desktop.log"
 else
-    TULPAR_TRACY=ON "$ROOT/engine/tools/android_run.sh" demo 900 > "${TMPDIR:-/tmp}/tulpar_tracy_phone.log" 2>&1 &
+    TULPAR_TRACY=ON "$ROOT/tools/android_run.sh" demo 900 > "${TMPDIR:-/tmp}/tulpar_tracy_phone.log" 2>&1 &
     RUN=$!
     # Uygulama baslayana kadar bekle (kurulum + baslat ~20 s), sonra yakala.
     for i in $(seq 1 60); do grep -q "baslat: demo" "${TMPDIR:-/tmp}/tulpar_tracy_phone.log" 2>/dev/null && break; sleep 1; done

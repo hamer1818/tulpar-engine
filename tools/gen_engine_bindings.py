@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """eng_* builtin ailesinin TEK kaynagi: bu tablo -> 4 uretilmis dosya.
 
-  runtime/engine_bindings.cpp          aot_eng_*_ptr (VMValue ABI) -> teng_* (C ABI)
-  src/aot/engine_builtins_table.inc    LLVM backend tablosu (ad, sembol, arite)
-  src/typeinfer/engine_builtins_sigs.inc  tip cikarimi imzalari
-  src/lsp/engine_builtins.inc          LSP tamamlama/hover
+Varsayilan olarak BU deponun icine, tulpar/generated/ altina yazar:
+
+  tulpar/generated/engine_bindings.cpp        aot_eng_*_ptr (VMValue ABI) -> teng_* (C ABI)
+  tulpar/generated/engine_builtins_table.inc  LLVM backend tablosu (ad, sembol, arite)
+  tulpar/generated/engine_builtins_sigs.inc   tip cikarimi imzalari
+  tulpar/generated/engine_builtins.inc        LSP tamamlama/hover
+
+`--tulpar <TulparLang-kok>` verilirse ayni dosyalari bir TulparLang calisma
+kopyasinin tarihsel yollarina kurar (runtime/, src/aot/, src/typeinfer/, src/lsp/).
+Derleyici deposu motoru artik tanimiyor; bu kip motoru bir TulparLang kopyasina
+yeniden baglamak isteyen icindir. Bkz. tulpar/README.md.
 
 Neden uretiliyor: "5 noktada baglama" (CLAUDE.md) elle yapilinca noktalar
 birbirinden kayiyor (typeinfer'da eksik imza = denetimsiz cagri; LSP'de eksik
@@ -224,14 +231,16 @@ MAX_ARGS = 8
 
 def gen_bindings(root):
     out = []
-    out.append("// URETILMIS DOSYA — engine/tools/gen_engine_bindings.py (SPEC tablosu). Elle duzenleme.")
+    out.append("// URETILMIS DOSYA — tulpar-engine/tools/gen_engine_bindings.py (SPEC tablosu). Elle duzenleme.")
     out.append("//")
     out.append("// Tulpar Engine kopru bindingleri: `import \"engine\"` eden programin cagirdigi")
     out.append("// aot_eng_*_ptr builtinleri (N-pointer VMValue ABI'si, aot_tm_* ile ayni) ->")
-    out.append("// engine/bridge/engine_api.h'deki duz skaler teng_* C API'si. libtulpar_engine.a")
-    out.append("// icinde yasar; link satirina yalniz backend->uses_engine isaretliyken girer.")
-    out.append('#include "../src/vm/vm.hpp"')
-    out.append('#include "../engine/bridge/engine_api.h"')
+    out.append("// bridge/engine_api.h'deki duz skaler teng_* C API'si. Android'de")
+    out.append("// libtulpar_engine_android.a icinde yasar (CMakeLists.txt, TULPAR_ROOT).")
+    # Include dizini tabanli (goreli DEGIL): hem bu depodan (-I<motor kok> -I<tulpar>/src)
+    # hem de bir TulparLang kopyasina kurulunca ayni satirlar cozulur.
+    out.append('#include "vm/vm.hpp"          // -I <TulparLang>/src')
+    out.append('#include "bridge/engine_api.h" // -I <tulpar-engine kok>')
     out.append("#include <cstdint>")
     out.append("#include <cstring>")
     out.append("")
@@ -281,14 +290,14 @@ def gen_bindings(root):
         out.append("}")
     out.append("} // extern \"C\"")
     out.append("")
-    write(os.path.join(root, "runtime", "engine_bindings.cpp"), "\n".join(out))
+    write(dest(root, "engine_bindings.cpp"), "\n".join(out))
 
 
 def gen_table(root):
     out = ["// URETILMIS DOSYA — engine/tools/gen_engine_bindings.py. {ad, sembol, arite} (TameBuiltin yerlesimi)."]
     for name, _ret, params, _doc in SPEC:
         out.append(f'    {{"{name}", "aot_{name}_ptr", {len(params)}}},')
-    write(os.path.join(root, "src", "aot", "engine_builtins_table.inc"), "\n".join(out) + "\n")
+    write(dest(root, "engine_builtins_table.inc"), "\n".join(out) + "\n")
 
 
 def gen_typeinfer(root):
@@ -296,7 +305,7 @@ def gen_typeinfer(root):
     for name, ret, params, _doc in SPEC:
         ps = ", ".join(TI_PARAM[t] for _, t in params)
         out.append(f'      {{"{name}", {TI_RET[ret]}, {{{ps}}}}},')
-    write(os.path.join(root, "src", "typeinfer", "engine_builtins_sigs.inc"), "\n".join(out) + "\n")
+    write(dest(root, "engine_builtins_sigs.inc"), "\n".join(out) + "\n")
 
 
 def gen_lsp(root):
@@ -306,7 +315,7 @@ def gen_lsp(root):
         sig = f"{name}({ps})" + (f": {LSP_T[ret]}" if ret != "void" else "")
         doc_c = doc.replace("\\", "\\\\").replace('"', '\\"')
         out.append(f'    {{"{name}", "{sig}", "{doc_c}"}},')
-    write(os.path.join(root, "src", "lsp", "engine_builtins.inc"), "\n".join(out) + "\n")
+    write(dest(root, "engine_builtins.inc"), "\n".join(out) + "\n")
 
 
 def write(path, text):
@@ -316,8 +325,60 @@ def write(path, text):
     print("yazildi:", os.path.relpath(path), f"({len(SPEC)} builtin)")
 
 
+# Dosya adi -> TulparLang calisma kopyasindaki tarihsel yol. Bu depoda hepsi
+# tulpar/generated/ altina duz yazilir; --tulpar ile asagidaki yerlere kurulur.
+TULPAR_PATHS = {
+    "engine_bindings.cpp": ("runtime",),
+    "engine_builtins_table.inc": ("src", "aot"),
+    "engine_builtins_sigs.inc": ("src", "typeinfer"),
+    "engine_builtins.inc": ("src", "lsp"),
+}
+
+# --tulpar verilmediginde None; verildiginde TulparLang kokunun mutlak yolu.
+_TULPAR_ROOT = None
+
+
+def dest(root, name):
+    """Uretilen dosyanin gidecegi yer.
+
+    Varsayilan: <motor kok>/tulpar/generated/<name>.
+    --tulpar <kok>: o TulparLang kopyasindaki tarihsel yol.
+    """
+    if _TULPAR_ROOT:
+        return os.path.join(_TULPAR_ROOT, *TULPAR_PATHS[name], name)
+    return os.path.join(root, "tulpar", "generated", name)
+
+
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    global _TULPAR_ROOT
+    argv = sys.argv[1:]
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    positional = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--tulpar", "--tulpar-root"):
+            if i + 1 >= len(argv):
+                print("hata: --tulpar bir TulparLang kok dizini ister", file=sys.stderr)
+                return 2
+            _TULPAR_ROOT = os.path.abspath(argv[i + 1])
+            i += 2
+            continue
+        if a in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        positional.append(a)
+        i += 1
+    if positional:
+        root = os.path.abspath(positional[0])
+
+    if _TULPAR_ROOT:
+        # Sessizce yanlis yere yazmaktansa erken dur: kok gercekten TulparLang mi?
+        probe = os.path.join(_TULPAR_ROOT, "src", "vm", "vm.hpp")
+        if not os.path.isfile(probe):
+            print(f"hata: {_TULPAR_ROOT} bir TulparLang kopyasi gibi durmuyor ({probe} yok)", file=sys.stderr)
+            return 2
+
     names = [s[0] for s in SPEC]
     assert len(names) == len(set(names)), "yinelenen ad"
     gen_bindings(root)

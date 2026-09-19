@@ -1,10 +1,10 @@
 #!/bin/bash
 # AGDK games-frame-pacing (Swappy) AAR'indan prefab statik kutuphaneleri ve basliklari
-# -> engine/third_party/swappy/{include,libs/<abi>} (libs gitignore'lu). Apache-2.0.
+# -> third_party/swappy/{include,libs/<abi>} (libs gitignore'lu). Apache-2.0.
 # Gradle gerekmez: Google Maven'dan dogrudan AAR (zip).
 set -e
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DST="$ROOT/engine/third_party/swappy"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # depo koku
+DST="$ROOT/third_party/swappy"
 META="https://dl.google.com/android/maven2/androidx/games/games-frame-pacing/maven-metadata.xml"
 VER="${1:-$(curl -s --fail "$META" | grep -o '<release>[^<]*' | sed 's/<release>//')}"
 [ -n "$VER" ] || { echo "HATA: surum bulunamadi"; exit 1; }

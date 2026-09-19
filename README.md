@@ -3,13 +3,17 @@
 Mobil öncelikli (ARM + Vulkan), tek stüdyoya özel C++17 oyun motoru. Genel amaçlı
 değil: kendi oyunlarımız için yazılıyor. Bu depo **motorun kendisidir** — TulparLang
 derleyicisinden [`git subtree split`](https://github.com/hamer1818/TulparLang) ile
-ayrıldı, geçmişi korunarak.
+ayrıldı, geçmişi korunarak. Ayrım 2026-09-20'de tamamlandı: dil deposunda artık
+motora ait hiçbir şey yok, derleyici yalnız dilin kendi özelliklerini derliyor.
 
-Plan ve ölçümler `docs/` altında: [PLAN.md](docs/PLAN.md) (mimari),
+Plan ve ölçümler `docs/` altında: [PLAN.md](docs/PLAN.md) (yol haritası),
+[MIMARI.md](docs/MIMARI.md) (mimari ve teknoloji kararları),
 [VIZYON.md](docs/VIZYON.md), [DURUM.md](docs/DURUM.md) (tek sayfa "ne var, ne ölçüldü,
 ne yok"), faz raporları [FAZ0](docs/FAZ0.md)–[FAZ8](docs/FAZ8.md),
 cihaz matrisi [CIHAZ-MATRISI.md](docs/CIHAZ-MATRISI.md),
 Tulpar köprüsü [KOPRU.md](docs/KOPRU.md).
+**Bir şey kırıldığında ilk bakılacak yer:** [TUZAKLAR.md](docs/TUZAKLAR.md) — motorun
+tekrar tekrar düştüğü 66 hata sınıfı (8a–8ap).
 
 ## Ağaç
 
@@ -26,9 +30,13 @@ sim/        L4  ECS, çizelgeleyici, Jolt fiziği, Recast/Detour navmesh, animas
 content/    L6  glTF 2.0 (cgltf+stb), KTX2/ASTC, sahne veri modeli (.sahne) ve blob (.sahneb)
 bridge/     L6  Tulpar köprüsü: düz skaler `teng_*` C ABI + masaüstü/Android host
 app/        L6  birleştirme kökü: engine_demo, engine_editor (ImGui+ImGuizmo)
+tulpar/     L6  motorun TulparLang tarafı: engine.tpr sarmalayıcı, üretilmiş köprü
+                bindingleri, örnek oyunlar, köprü testi (bkz. tulpar/README.md)
 tests/          engine_tests — tek ikili, bütün kapılar
 tools/          layer_check.py (ihlal = derleme hatası), compile_shaders.py,
-                gen_engine_bindings.py, texpack/sahnec/clodbake, android_run.sh, ...
+                gen_engine_bindings.py, texpack/sahnec/clodbake, android_run.sh,
+                faz8_shader_audit.py, layout_audit.py, ...
+android/host/   Kotlin Activity + JNI host (libtulparengine.so)
 third_party/    vendored: Vulkan başlıkları, Jolt, Recast, meshoptimizer, cgltf, stb,
                 miniaudio, astcenc, ImGui, Tracy, GLFW başlıkları
 ```
@@ -119,23 +127,23 @@ Motor C++ kalır, **oyun betikleri Tulpar'da yazılır**. Bağlantı `bridge/`:
   kalıbıyla, çarpışma ise **kuyrukla** verilir — callback olmadığı için.
 * `bridge/desktop_host.cpp` / `android_host.cpp` — pencere/yüzey/girdi (`BridgeHost`).
 * `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu **tek kaynaktır**: tek komutla
-  derleyici tarafındaki dört dosyayı birden üretir. Elle tutulan nokta olmadığı için
-  bağlama noktaları birbirinden kayamaz.
+  dört üretilmiş dosyayı birden yazar. Elle tutulan nokta olmadığı için bağlama
+  noktaları birbirinden kayamaz.
+* Köprünün TulparLang tarafı — `engine.tpr` sarmalayıcı, üretilmiş bindingler, örnek
+  oyunlar, köprü testi — **bu depodadır**: [`tulpar/`](tulpar/README.md).
 
-Derleyicinin kendisi — `src/`, `lib/engine.tpr` sarmalayıcısı, `runtime/engine_bindings.cpp`,
-`examples/engine_*.tpr` — **ayrı depodadır**: <https://github.com/hamer1818/TulparLang>.
-`docs/` içindeki belgelerde bu yollar olduğu gibi bırakıldı; hangi depoda oldukları her
-belgenin başındaki "Depo notu" kutusunda yazıyor.
+TulparLang derleyicisi (<https://github.com/hamer1818/TulparLang>) motoru **tanımıyor**:
+`eng_*` builtin'leri, `lib/engine.tpr` ve `engine_link_flags()` oradan kaldırıldı, o depo
+yalnız dili derliyor. Motoru bir TulparLang kopyasına yeniden bağlamak için
+`tools/gen_engine_bindings.py --tulpar <kök>` var; ayrıntısı
+[tulpar/README.md](tulpar/README.md).
+
+Tek dış bağımlılık, Android köprü arşivini kurarken istenen `TULPAR_ROOT`: bindingler
+derleyicinin değer ABI'sini (`VMValue`) gördüğü için `<TulparLang>/src/vm/vm.hpp`
+gerekir. Verilmezse `tulpar_engine_android` hedefi kurulmaz ve nedeni yazılır; motorun
+kendi hedefleri etkilenmez.
 
 Sözleşmenin tamamı: [docs/KOPRU.md](docs/KOPRU.md).
-
-## Bilinen boşluk
-
-`tools/` altındaki Android/Tracy kabuk betikleri (`android_run.sh`,
-`build_bridge_android.sh`, `fetch_vvl_android.sh`, `fetch_swappy.sh`, `tracy_check.sh`,
-`clang_syntax_check.sh`) hâlâ eski tek-depo yerleşimini varsayıyor: kök iki dizin yukarıda
-ve yollar `engine/` ön ekli. Bu depoda tek başına koşmazlar; ayrı bir düzeltme istiyorlar.
-CMake derlemesi, `engine_tests` ve `tools/layer_check.py` bundan etkilenmez.
 
 ## Lisans
 

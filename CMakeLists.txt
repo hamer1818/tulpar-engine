@@ -394,7 +394,7 @@ target_compile_options(engine_tests PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_C
 
 # --- Android NativeActivity host: libtulparengine.so (testler + demo ayni surecte) ---
 # adb shell'den GPU yok (vkEnumeratePhysicalDevices = 0, SELinux/HAL); APK sureci gerekir.
-# Paketleme/kosum: engine/tools/android_run.sh
+# Paketleme/kosum: tools/android_run.sh
 if(ANDROID)
   set(ENGINE_GLUE_DIR ${ANDROID_NDK}/sources/android/native_app_glue)
   add_library(tulparengine SHARED
@@ -429,17 +429,34 @@ if(ANDROID)
 
   # --- tulpar_engine_android: Tulpar oyununun (libtulpargame.so) motor tarafi ---
   # Kopru cekirdegi + NativeActivity host (android_main -> oyunun main'i) + glue +
-  # VMValue bindingleri (runtime/engine_bindings.cpp; Tulpar runtime basliklari ../src).
-  # engine/tools/build_bridge_android.sh bunu ve libengine_*.a'lari android/dist/<abi>/'ye kopyalar.
-  add_library(tulpar_engine_android STATIC
-      bridge/engine_api.cpp
-      bridge/android_host.cpp
-      app/virtual_stick.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/../runtime/engine_bindings.cpp
-      ${ENGINE_GLUE_DIR}/android_native_app_glue.c
-  )
-  target_include_directories(tulpar_engine_android PRIVATE ${ENGINE_GLUE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../src ${CMAKE_CURRENT_SOURCE_DIR}/../runtime)
-  target_compile_definitions(tulpar_engine_android PRIVATE TULPAR_RUNTIME_ONLY PLATFORM_LINUX ENGINE_SOURCE_DIR="/data/local/tmp/tulpar_engine")
-  target_compile_options(tulpar_engine_android PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off -Wno-deprecated-declarations)
-  target_link_libraries(tulpar_engine_android PUBLIC engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core android log ${CMAKE_DL_LIBS})
+  # VMValue bindingleri (tulpar/generated/engine_bindings.cpp, bu depoda).
+  # tools/build_bridge_android.sh bunu ve libengine_*.a'lari android/dist/<abi>/'ye kopyalar.
+  #
+  # TEK DIS BAGIMLILIK: bindingler TulparLang'in deger ABI'sini (VMValue/Obj*)
+  # gorur, yani <TulparLang>/src/vm/vm.hpp (+ bytecode.hpp) gerekir. O basliklar
+  # BU DEPOYA KOPYALANMADI: bir kopya, derleyici ABI'yi degistirdiginde SESSIZCE
+  # kayar ve uyusmazlik cihazda cokme olarak cikar. Bunun yerine yol acikca
+  # istenir; verilmediyse hedef kurulmaz ve nedeni yazilir.
+  set(TULPAR_ROOT "" CACHE PATH "TulparLang calisma kopyasinin koku (tulpar_engine_android icin; vm.hpp ABI basliklari)")
+  if(TULPAR_ROOT AND EXISTS "${TULPAR_ROOT}/src/vm/vm.hpp")
+      add_library(tulpar_engine_android STATIC
+          bridge/engine_api.cpp
+          bridge/android_host.cpp
+          app/virtual_stick.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/engine_bindings.cpp
+          ${ENGINE_GLUE_DIR}/android_native_app_glue.c
+      )
+      # Uretilen bindingler include DIZINI uzerinden cozulur ("vm/vm.hpp",
+      # "bridge/engine_api.h") — goreli yol yok, yani dosya iki yerlesimde de derlenir.
+      target_include_directories(tulpar_engine_android PRIVATE ${ENGINE_GLUE_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${TULPAR_ROOT}/src)
+      target_compile_definitions(tulpar_engine_android PRIVATE TULPAR_RUNTIME_ONLY PLATFORM_LINUX ENGINE_SOURCE_DIR="/data/local/tmp/tulpar_engine")
+      target_compile_options(tulpar_engine_android PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off -Wno-deprecated-declarations)
+      target_link_libraries(tulpar_engine_android PUBLIC engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core android log ${CMAKE_DL_LIBS})
+      message(STATUS "engine: tulpar_engine_android kuruldu (TULPAR_ROOT=${TULPAR_ROOT})")
+  elseif(TULPAR_ROOT)
+      message(FATAL_ERROR "engine: TULPAR_ROOT=${TULPAR_ROOT} ama ${TULPAR_ROOT}/src/vm/vm.hpp yok — TulparLang koku degil.")
+  else()
+      message(STATUS "engine: tulpar_engine_android ATLANDI (TULPAR_ROOT verilmedi). "
+                     "Motorun kendi Android hedefi 'tulparengine' bundan etkilenmez.")
+  endif()
 endif()

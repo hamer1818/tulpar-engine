@@ -1,11 +1,11 @@
 #!/bin/bash
 # Khronos Vulkan dogrulama katmani (Android ikilileri, Apache-2.0) -> gitignore'lu
-# engine/third_party/vvl-android/<abi>/. android_run.sh tests kipinde APK'ya koyar;
+# third_party/vvl-android/<abi>/. android_run.sh tests kipinde APK'ya koyar;
 # BestPractices + Arm kurallari (PerfDoc'un ardili) telefonda kosar.
 set -e
 VER="${1:-1.4.357.0}"
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DST="$ROOT/engine/third_party/vvl-android"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # depo koku
+DST="$ROOT/third_party/vvl-android"
 URL="https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/download/vulkan-sdk-$VER/android-binaries-$VER.tar.gz"
 TMP="$(mktemp -d)"
 echo "indiriliyor: $URL"

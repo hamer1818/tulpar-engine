@@ -105,3 +105,9 @@ __pycache__/
 
 # ==== Yerel ajan/arac durumu ====
 .claude/
+
+# Android Kotlin host (Gradle) ciktilari
+android/host/.gradle/
+android/host/build/
+android/host/app/build/
+android/host/local.properties
