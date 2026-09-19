@@ -111,3 +111,6 @@ android/host/.gradle/
 android/host/build/
 android/host/app/build/
 android/host/local.properties
+
+# Derleyici onbellegi (CI is alani icinde tutuluyor; yerelde de olusabilir)
+.ccache/

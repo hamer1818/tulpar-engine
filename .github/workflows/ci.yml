@@ -30,6 +30,20 @@ on:
 permissions:
   contents: read
 
+# Derleyici onbellegi (ccache) UC ISTE DE acik. Gerekce olculdu (2026-09-20):
+# 402 derleme biriminin 202'si (%50,2) vendored ve HIC DEGISMIYOR — Jolt 133,
+# astcenc 22, meshoptimizer 20, Recast/Detour 18, ImGui 7, cgltf/stb/miniaudio 2.
+# Onbelleksizken her kosum bunlari sifirdan derliyordu. Onbellek is alani
+# ICINDE tutuluyor (checkout'tan SONRA geri yukleniyor; checkout clean:true
+# oldugu icin once yuklenirse silinirdi).
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 400M
+  CCACHE_COMPRESS: "1"
+  # Derleyici ikilisinin ICERIGINE gore anahtarla: runner imaji gcc'yi ayni
+  # surum numarasiyla degistirirse mtime tabanli kontrol yanlis isabet verirdi.
+  CCACHE_COMPILERCHECK: content
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -48,7 +62,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build cmake g++ python3 libvulkan1 mesa-vulkan-drivers vulkan-tools
+            ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools
+
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}
+          restore-keys: ccache-linux-
 
       - name: Vulkan surucusu gercekten var mi
         run: vulkaninfo --summary
@@ -59,10 +80,18 @@ jobs:
         run: python3 tools/layer_check.py .
 
       - name: Yapilandir
-        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
         run: cmake --build yapi -j"$(nproc)"
+
+      # Isabet orani GORUNUR olsun: dusen bir oran "onbellek calisiyor sandim"
+      # diye sessizce gecmesin (yavaslamanin sebebi burada okunur).
+      - name: ccache isabet orani
+        run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Kapinin POZITIF KONTROLU: Vulkan'i kapatip atlama satirlarinin GERCEKTEN
       # basildigini goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye
@@ -141,6 +170,28 @@ jobs:
 
           exit "$kod"
 
+      # CALISTIRILABILIR CIKTILAR. Bunlar daha once hicbir yere gitmiyordu:
+      # CI derliyor, test ediyor ve atiyordu. Testler GECTIKTEN sonra yukleniyor
+      # ki "yesil olmayan ikili" indirilebilir olmasin.
+      - name: Ciktilari topla
+        run: |
+          set -euo pipefail
+          mkdir -p dagitim
+          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
+            if [ -x "yapi/$t" ]; then cp "yapi/$t" dagitim/; else echo "::warning::$t uretilmedi"; fi
+          done
+          # Sembolleri at: engine_editor striplenmemis 14 MB.
+          strip dagitim/* 2>/dev/null || true
+          ls -la dagitim/
+
+      - name: Ciktilari yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-linux-x86_64
+          path: dagitim/
+          if-no-files-found: error
+          retention-days: 14
+
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
     runs-on: macos-latest
@@ -160,6 +211,7 @@ jobs:
           set -euo pipefail
           brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
           brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
+          brew list --versions ccache >/dev/null 2>&1 || brew install ccache
           brew list --versions vulkan-loader >/dev/null 2>&1 || brew install vulkan-loader
           brew list --versions molten-vk     >/dev/null 2>&1 || brew install molten-vk
           # Dogrulama katmani: MoltenVK uzerinde de API kullanimi 0 hata istenir.
@@ -219,14 +271,27 @@ jobs:
           # Teshis: loader gercekten duruyor mu?
           ls -la "$(brew --prefix)/lib/libvulkan"* "$(brew --prefix)/lib/libMoltenVK"* 2>&1 | head -8 || true
 
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}
+          restore-keys: ccache-macos-
+
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
       - name: Yapilandir
-        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      - name: ccache isabet orani
+        run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Kapinin POZITIF KONTROLU (Linux isindekinin esi, ayri platform ayri
       # cikti): Vulkan'i kapatip atlama satirlarinin GERCEKTEN basildigini
@@ -305,6 +370,28 @@ jobs:
 
           exit "$kod"
 
+      # CALISTIRILABILIR CIKTILAR. Bunlar daha once hicbir yere gitmiyordu:
+      # CI derliyor, test ediyor ve atiyordu. Testler GECTIKTEN sonra yukleniyor
+      # ki "yesil olmayan ikili" indirilebilir olmasin.
+      - name: Ciktilari topla
+        run: |
+          set -euo pipefail
+          mkdir -p dagitim
+          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
+            if [ -x "yapi/$t" ]; then cp "yapi/$t" dagitim/; else echo "::warning::$t uretilmedi"; fi
+          done
+          # Sembolleri at: engine_editor striplenmemis 14 MB.
+          strip dagitim/* 2>/dev/null || true
+          ls -la dagitim/
+
+      - name: Ciktilari yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-macos-arm64
+          path: dagitim/
+          if-no-files-found: error
+          retention-days: 14
+
   windows:
     name: Windows x86_64 (MSYS2 MINGW64)
     runs-on: windows-latest
@@ -321,15 +408,20 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # update: false — "Final system upgrade" adimi olculdu 27-31 sn ve TEMEL
+      # IMAJI tazelemekten baska is yapmiyor; ihtiyac duydugumuz paketler zaten
+      # `install:` ile geliyor. Paket onbellegi (setup-msys2'nin kendi cache'i,
+      # ~168 MB, isabet ediyor) bundan bagimsiz calisiyor.
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          update: true
+          update: false
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
+            mingw-w64-x86_64-ccache
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -337,14 +429,27 @@ jobs:
       - name: Kanonik varliklar LF mi
         run: python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF ile cikarilmis; .gitattributes devreye girmemis."; exit 1; }
 
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}
+          restore-keys: ccache-windows-
+
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
       - name: Yapilandir
-        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
         run: cmake --build yapi -j"$(nproc)"
+
+      - name: ccache isabet orani
+        run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Windows runner'inda yazilim Vulkan ICD'si yok; RHI kapilari burada
       # ATLANDI olacak ve bu BEKLENEN durum. Ama gorunmez kalmasin: sebepler
@@ -400,3 +505,37 @@ jobs:
           fi
 
           exit "$kod"
+
+      # CALISTIRILABILIR CIKTILAR — Windows'ta DLL'LER SART. MinGW ile derlenen
+      # .exe, libstdc++-6 / libgcc_s_seh-1 / libwinpthread-1 olmadan MSYS2
+      # DISINDA acilmaz ("program baslatilamadi" hatasi). DLL listesi elle
+      # yazilmiyor: ldd ciktisindan /mingw64 altindakiler suzuluyor, boylece
+      # araç zinciri degisince liste kendiliginden guncelleniyor.
+      - name: Ciktilari topla (+ MinGW DLL'leri)
+        run: |
+          set -euo pipefail
+          mkdir -p dagitim
+          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
+            if [ -x "yapi/$t.exe" ]; then cp "yapi/$t.exe" dagitim/; else echo "::warning::$t.exe uretilmedi"; fi
+          done
+          for exe in dagitim/*.exe; do
+            ldd "$exe" | awk '/=> \/mingw64\//{print $3}'
+          done | sort -u | while read -r dll; do
+            [ -f "$dll" ] && cp -n "$dll" dagitim/
+          done
+          strip dagitim/*.exe 2>/dev/null || true
+          echo "--- paket icerigi ---"
+          ls -la dagitim/
+          # Kapi: DLL hic kopyalanmadiysa paket calismaz bir .exe yiginidir.
+          if ! ls dagitim/*.dll >/dev/null 2>&1; then
+            echo "::error::Hicbir MinGW DLL'i kopyalanmadi — bu paket MSYS2 disinda calismaz."
+            exit 1
+          fi
+
+      - name: Ciktilari yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-windows-x86_64
+          path: dagitim/
+          if-no-files-found: error
+          retention-days: 14
