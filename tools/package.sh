@@ -63,8 +63,21 @@ esac
 # Cikti: pakette bulunmasi gereken goreli yollar, satir basina bir tane.
 varlik_yollari() {
   command -v python3 >/dev/null 2>&1 || hata "python3 yok — varlik listesi turetilemez (kapi sessizce bos kalmasin diye duruyoruz)."
-  python3 - "$kok" <<'PY'
+  # `| tr -d '\r'`: MSYS2/MinGW python'u stdout'u METIN kipinde aciyor ve her
+  # \n'i \r\n yapiyor; bash tarafinda \r yolun PARCASI oluyor ve paket kapisi
+  # var olan dosyayi "YOK" sayiyor. Olculdu 2026-09-20, Windows CI:
+  #     kod 'assets/fonts/DejaVuSans.ttf<CR>' varligini istiyor ama ... YOK
+  # (mesajdaki satir kaymasi CR'nin ta kendisiydi). Asagida python tarafinda da
+  # newline sabitleniyor; bu boru hatti IKINCI savunma — baska bir python da
+  # ayni tuzaga dusurmesin.
+  python3 - "$kok" <<'PY' | tr -d '\r'
 import os, re, sys
+
+# Cikti satir sonu PLATFORMDAN BAGIMSIZ olsun (bkz. yukaridaki not).
+try:
+    sys.stdout.reconfigure(newline="\n")
+except AttributeError:  # py<3.7
+    pass
 
 kok = sys.argv[1]
 # NEREYI TARIYORUZ: paketlenen ikililerin gorebildigi butun katmanlar.

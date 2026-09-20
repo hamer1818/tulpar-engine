@@ -858,3 +858,37 @@ static_assert(sizeof kHedefAd > sizeof "cok_daha_uzun_bir_ad.wav", "...");
 **uzun** kalmalı, yoksa "kopya bütün mü" sorusu ölçülmez olur. Kapının boş
 olmadığı pozitif kontrolle doğrulandı — eski literal `static assertion failed`
 veriyor. Bir sonraki sefere çökme değil, derleme hatası olacak.
+
+### 8bq. MinGW python'u stdout'a CRLF basar — yol adının içine giren CR dosyayı "yok" gösterir
+
+Paketleme kapısı Linux ve macOS'ta yeşilken Windows'ta düştü:
+
+```
+##[error]kod 'assets/fonts/DejaVuSans.ttf
+' varligini istiyor ama kaynak agacinda YOK.
+```
+
+Mesajın ortasındaki satır kayması hatanın **kendisiydi**: yol `DejaVuSans.ttf\r`
+olmuştu. MSYS2/MinGW python'u `stdout`'u **metin kipinde** açıyor ve her `\n`'i
+`\r\n` yapıyor; liste bash'e boru ile geçtiği için `read` satır sonundaki `\r`'yi
+yolun parçası sayıyor, `[ -e ... ]` de var olan dosyayı bulamıyor.
+
+Tuzağın asıl sinsiliği: dosya **oradaydı**. Kapı doğru çalışıyordu, yanlış olan
+girdisiydi — ve hata mesajı CR'yi bastığı için ekranda "yol doğru görünüyor".
+
+İki katmanlı savunma:
+
+```bash
+python3 - "$kok" <<'PY' | tr -d '\r'      # ikinci savunma: baska python da dusurmesin
+...
+try: sys.stdout.reconfigure(newline="\n") # kok sebep: cikti platformdan bagimsiz
+except AttributeError: pass
+```
+
+Pozitif kontrolle doğrulandı: CRLF beslenince düzeltmesiz yol `$'\r'` taşıyor ve
+dosya bulunamıyor; `tr -d '\r'` sonrası bulunuyor.
+
+Genel kural: **python → bash boru hattı platformlar arası bir sınırdır.** Linux'ta
+`\n`, MinGW'de `\r\n`. Liste taşıyan her boru ya kaynakta newline'ı sabitlemeli ya
+da tüketicide `\r` süzmeli. `.gitattributes` bunu çözmez — sorun dosyalarda değil,
+çalışma zamanındaki stdout çevirisinde.
