@@ -818,3 +818,43 @@ Kural: bir sürücü/araç **kurulduğu iddia edilen** bir platformda, kurulumun
 uyarı değil **hata** olmalı ve yol bulunamadığında iş kırmızıya dönmeli. Ayrıca yolu sabit
 yazma — ara ve bulamazsan `find` ile keg'in içini dök; formül yolu sürüm arası değiştirir.
 Bkz. [[8s]] (debug messenger'sız "etkin" katman da aynı sınıf: yeşil ama ölçmüyor).
+
+### 8bp. Bir baytlık taşma yerelde sessiz, CI'da SIGABRT — "yerelde geçti" bir kanıt değil
+
+Birleştirilen editör işi yerelde **485/485, 0 düştü** verdi. Aynı ağaç Ubuntu CI'da çöktü:
+
+```
+RUN  multiedit_string_field_is_copied_whole
+*** buffer overflow detected ***: terminated
+COKME testi: multiedit_string_field_is_copied_whole (SIGABRT)
+```
+
+Sebep tek baytlıktı. Alan `char audio_clip[kSceneNameLen]` ve o sabitin yorumu
+`// NUL dahil` diyor, yani kapasite 32 **bayt**, 32 karakter değil. Test
+`"hedefin_kendi_uzun_dosya_adi.wav"` yazıyordu: 32 karakter + NUL = **33 bayt**.
+
+Asıl tuzak taşmanın kendisi değil, **nerede göründüğü**. glibc'nin
+`_FORTIFY_SOURCE` denetimi `strcpy`'ın hedef boyutunu derleyici çıkarabildiğinde
+devreye giriyor; bu da derleyici sürümüne, optimizasyon düzeyine ve dağıtımın
+varsayılan sertleştirmesine bağlı. Geliştirme makinesinde (CachyOS, GCC 16)
+sessizce geçti, Ubuntu koşucusunda süreci öldürdü. Ve öldürdüğü için **özet
+satırı hiç basılmadı** — paket "0 failed" bile diyemedi.
+
+İki sonuç:
+
+1. **"Yerelde 485/485 geçti" bellek güvenliği hakkında hiçbir şey söylemez.**
+   Sabit boyutlu alanlara yazan kod için ölçüm ya sanitizer'la ya da gerçekten
+   farklı bir dağıtımda yapılır.
+2. **Uzunluk kısıtı çalışma zamanına bırakılmaz.** Düzeltme literali kısaltmakla
+   bitmiyor; sınır artık derleme zamanında bağlı:
+
+```cpp
+static constexpr char kHedefAd[] = "hedefin_kendi_cok_uzun_adii.wav";
+static_assert(sizeof kHedefAd <= content::kSceneNameLen, "...");
+static_assert(sizeof kHedefAd > sizeof "cok_daha_uzun_bir_ad.wav", "...");
+```
+
+İkinci `static_assert` testin niyetini de kilitliyor: hedefin adı kaynaktan
+**uzun** kalmalı, yoksa "kopya bütün mü" sorusu ölçülmez olur. Kapının boş
+olmadığı pozitif kontrolle doğrulandı — eski literal `static assertion failed`
+veriyor. Bir sonraki sefere çökme değil, derleme hatası olacak.

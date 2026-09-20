@@ -72,7 +72,19 @@ ENGINE_TEST(multiedit_string_field_is_copied_whole) {
   SceneEntity after = before;
   std::strcpy(after.audio_clip, "cok_daha_uzun_bir_ad.wav");
   SceneEntity target{};
-  std::strcpy(target.audio_clip, "hedefin_kendi_uzun_dosya_adi.wav");
+  // Hedefin kendi adi KAYNAKTAN UZUN olmali: kopya "butun" degilse kuyruk kalir.
+  // Ama alan char[kSceneNameLen] ve o sabit "NUL dahil" demek — 32 karakterlik
+  // bir literal 33 bayt yazar ve BIR BAYT tasar. Olculdu 2026-09-20: yerelde
+  // sessiz gecti, Ubuntu CI'da glibc _FORTIFY_SOURCE bunu SIGABRT'a cevirdi
+  // ("*** buffer overflow detected ***"), yani paketin ozet satiri hic basilmadi.
+  // Bu yuzden uzunluk artik DERLEME ZAMANINDA kapiya bagli: bir sonraki sefere
+  // cokme degil, derleme hatasi olsun.
+  static constexpr char kHedefAd[] = "hedefin_kendi_cok_uzun_adii.wav";
+  static_assert(sizeof kHedefAd <= content::kSceneNameLen,
+                "hedef adi audio_clip alanina sigmiyor (NUL dahil)");
+  static_assert(sizeof kHedefAd > sizeof "cok_daha_uzun_bir_ad.wav",
+                "hedef adi kaynaktan UZUN olmali, yoksa test kuyruk kalmasini olcmez");
+  std::strcpy(target.audio_clip, kHedefAd);
   CHECK(app::multiedit_apply(before, after, &target));
   CHECK(std::strcmp(target.audio_clip, "cok_daha_uzun_bir_ad.wav") == 0);
 }
