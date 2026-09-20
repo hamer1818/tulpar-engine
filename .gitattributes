@@ -23,6 +23,16 @@
 # Kabuk betikleri: CRLF shebang'i bozar (`#!/bin/bash\r` -> "required file not found").
 *.sh         text eol=lf
 
+# Toplu is betikleri: TERSI. cmd'nin bekledigi satir sonu CRLF'tir ve depo
+# varsayilani (`eol=lf`) derle.bat'i Windows checkout'unda LF'e cevirirdi.
+# DURUST NOT: LF'in gercekten bozdugunu GOSTEREMEDIK — Wine'in cmd'si LF
+# surumunu de sorunsuz kosturdu (olculdu 2026-09-20). Ama Wine gercek cmd
+# degil; gercek cmd'nin `goto`/blok davranisi LF'te guvenilir bilinmiyor ve
+# yanilirsak bedeli kullanicinin elinde bozuk bir betik. Onlem olarak
+# sabitleniyor, olculmus bir kirilmaya karsi degil.
+*.bat        text eol=crlf
+*.cmd        text eol=crlf
+
 # Ayni bayt-esitlik sinifi: shader ornekleri ve test varliklari kapilarda
 # ozet/bayt sayisiyla karsilastiriliyor.
 *.tprs       text eol=lf

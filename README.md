@@ -43,6 +43,36 @@ third_party/    vendored: Vulkan başlıkları, Jolt, Recast, meshoptimizer, cgl
 
 ## Derleme
 
+### Tek komut
+
+```bash
+./derle.sh        # Linux / macOS
+derle.bat         # Windows (çift tıklanabilir)
+```
+
+Betik önce **bağımlılıkları adıyla** denetler, eksik olanın kurulum komutunu yazar ve
+"otomatik kurayım mı?" diye sorar; onaylarsanız kendisi kurar, sonra yapılandırıp derler.
+Amacı şu: eksik bir paket, CMake'in ortasında anlaşılmaz bir hata yerine **başta ve
+adıyla** görünsün.
+
+| Seçenek | Ne yapar |
+|---|---|
+| *(yok)* | Denetle → eksikse sor → derle |
+| `--otomatik` (`-y`) | Sormadan kur ve derle |
+| `--sadece-denetle` / `--denetle` | Yalnız rapor; kurmaz, derlemez |
+| `--temiz` | `yapi/` dizinini silip sıfırdan kurar |
+
+Paket yöneticisi tanınır: **pacman, apt, dnf, zypper, brew** (Windows'ta **pacman**).
+Tanınmayan bir sistemde betik uydurma bir komut yazmaz — eksikleri adıyla listeleyip
+elle kurmanızı ister.
+
+Zorunlu olmayan iki bağımlılık ayrı raporlanır, çünkü **derlemeyi engellemezler**:
+`ccache` (yeniden derlemeyi hızlandırır) ve `glslc` (shader **bayt** kapısı; yoksa özet
+kapısı yine koşar). Bir de *çalıştırma* bağımlılıkları var — `libvulkan` ve `libglfw`
+yoksa derleme yine biter, ama editör pencere açamaz. Betik bunu ayrıca söyler.
+
+### Elle
+
 Gerek duyulanlar: **CMake 3.14+**, C++17 derleyici (GCC ya da Clang), **Ninja** (ya da
 make), **python3** (katman denetimi ve shader araçları için). Vulkan SDK **gerekmez** —
 başlıklar vendored, loader çalışma zamanında `dlopen` ediliyor.
@@ -54,10 +84,12 @@ cmake --build yapi -j
 
 Windows'ta aynı komutlar **MSYS2 MINGW64** kabuğunda koşar. **MSVC desteklenmiyor**:
 fiber geçişi GNU sözdizimli `.S` dosyası (Win64 dalı MinGW için yazılı), derleme
-bayrakları da GCC/Clang yazımında.
+bayrakları da GCC/Clang yazımında. `derle.bat` MSYS2'yi bulamazsa `winget` ile kurmayı
+önerir; asıl işi (paket denetimi + derleme) `tools/derle_mingw.sh` yapar — mantık cmd ile
+bash arasında bölünmesin diye tek yerde durur.
 
 ```bash
-pacman -S --needed mingw-w64-x86_64-{gcc,cmake,ninja,python}
+pacman -S --needed mingw-w64-x86_64-{gcc,cmake,ninja,python,ccache,glfw}
 ```
 
 Android çapraz derlemesi üst ağaç istemez:
