@@ -38,6 +38,7 @@ const char *g_help = nullptr; // prop_help: bir sonraki satir tuketir
 PropVec3Layout g_vec3_layout;
 ComponentHeaderLayout g_hdr_layout;
 HierarchyRowLayout g_row_layout;
+HierarchyMenuLayout g_menu_layout;
 WidgetRect g_last_prop;
 
 // Son ImGui ogesinin etkinlik durumunu PropItem'e ekler (bilesik widget'lar
@@ -237,7 +238,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
   // panelini "oyuncak" gosteriyordu; sektor editorlerinde (UE5) eksen rengi
   // ince bir kenar isaretidir, yuzey degil.
   float badge_w = std::floor(ImGui::CalcTextSize("X").x + s.FramePadding.x);
-  const float overlap = s.FrameRounding;
+  const float overlap = 2.0f; // Rozet, girdi kutusunun sol kenarini ortsun ama metin/eksi isaretini ASLA kapatmasin
   const float gap = s.ItemInnerSpacing.x;
   float field_w = std::floor((w - 3.0f * (badge_w - overlap) - 2.0f * gap) / 3.0f);
   // Alan, iki yandaki dolgudan SONRA en az "-000.00" kadar metin tasimali.
@@ -610,11 +611,23 @@ const CreateMenuItem kCompEnvironment[] = {
     {"Su (Gerstner)", ICON_MD_WATER, content::kSceneWater, nullptr, 0},
     // ▦ (U+25A6): izgarali kare = voksel kafesi. Material'da karsiligi yok.
     {"Voksel D\xC3\xBCnyas\xC4\xB1", "\xE2\x96\xA6", content::kSceneVoxel, nullptr, 0},
-    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC (Skybox)", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
+    // Simgeler main'in Material Icons ailesinden kaliyor (tools/icon_check.py
+    // kapisi bunlari denetliyor); PR #7'nin ham U+25C9/U+2601 gliflerine
+    // donulmedi. Etiket PR #7'den: gokyuzu paneli artik atmosferi de
+    // (gunun saati, turbidite) tasiyor.
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
     {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", ICON_MD_LENS, content::kSceneRefProbe, nullptr, 0},
 };
 const CreateMenuItem kCompAI[] = {
     {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", ICON_MD_DIRECTIONS_RUN, content::kSceneNavAgent, nullptr, 0},
+};
+const CreateMenuItem kCompGameplay[] = {
+    // ♥ (U+2665): Kalp
+    {"Can / Z\xC4\xB1rh (Health)", "\xE2\x99\xA5", content::kSceneHealth, nullptr, 0},
+    // ⚔ (U+2694): Kiliclar
+    {"B\xC3\xBCy\xC3\xBC / Yetenek (GAS)", "\xE2\x9A\x94", content::kSceneAbility, nullptr, 0},
+    // ▣ (U+25A3): Kutu (Envanter cantasi gibi)
+    {"Envanter", "\xE2\x96\xA3", content::kSceneInventory, nullptr, 0},
 };
 const CreateMenuItem kComponentMenu[] = {
     {"Render", nullptr, 0, kCompModel, 2},
@@ -626,8 +639,9 @@ const CreateMenuItem kComponentMenu[] = {
     {"Ses", nullptr, 0, kCompAudio, 2},
     {"Betik", nullptr, 0, kCompScript, 1},
     {"Yapay Zeka (AI)", nullptr, 0, kCompAI, 1},
+    {"Oynan\xC4\xB1\xC5\x9F (Gameplay)", nullptr, 0, kCompGameplay, 3},
 };
-const uint32_t kComponentMenuCount = 9;
+const uint32_t kComponentMenuCount = 10;
 
 namespace {
 
@@ -974,6 +988,7 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
   const bool hovered = ImGui::IsItemHovered() ||
                        (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
                         ImGui::IsMouseHoveringRect(ImVec2(rr.x0, rr.y0), ImVec2(rr.x1, rr.y1)));
+  if (hovered && st) st->hovered_index = id;
   g_row_layout.arrow = g_row_layout.eye = g_row_layout.lock = WidgetRect{};
   const bool dbl = clicked && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
   if (clicked && !dbl) {
@@ -1021,8 +1036,23 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
       if (ImGui::MenuItem("Yap\xC4\xB1\xC5\x9Ft\xC4\xB1r", "Ctrl+V")) res.action = HierarchyAction::Paste;
       // Menunun SONUNDA: araya eklemek mevcut ogelerin konumunu kaydirir;
       // test_editor_widgets sentetik tiki konumla yapiyor (Sil = 3. oge).
+      // PR #7'nin dort ogesi de BUNUN ardinda; eski konumlar yine kaymiyor.
       ImGui::Separator();
       if (ImGui::MenuItem(ICON_MD_SAVE " Prefab olarak kaydet...")) res.action = HierarchyAction::SavePrefab;
+      ImGui::Separator();
+      if (ImGui::MenuItem(ICON_MD_CENTER_FOCUS_STRONG " Varl\xC4\xB1\xC4\x9F" "a odaklan", "F")) { res.action = HierarchyAction::Focus; res.index = id; }
+      if (ImGui::MenuItem(ICON_MD_ADD " Bo\xC5\x9F \xC3\xA7ocuk ekle")) { res.action = HierarchyAction::CreateChild; res.index = id; }
+      if (ImGui::MenuItem(r.hidden ? ICON_MD_VISIBILITY " G\xC3\xB6r\xC3\xBCn\xC3\xBCr yap" : ICON_MD_VISIBILITY_OFF " Gizle")) { res.action = HierarchyAction::Visibility; res.index = id; }
+      if (ImGui::MenuItem(r.locked ? ICON_MD_LOCK_OPEN " Kilidi a\xC3\xA7" : ICON_MD_LOCK " Kilitle")) { res.action = HierarchyAction::Lock; res.index = id; }
+      { // Kapilar icin: menunun GERCEK konumu (ImGui onu goruntu alanina
+        // sigdirmak icin kaydirmis olabilir), satir yuksekligi ve ilk ogenin
+        // ust kenari. Editor kodu bunlari kullanmaz.
+        const ImGuiWindow *pw = ImGui::GetCurrentWindow();
+        g_menu_layout.popup = {pw->Pos.x, pw->Pos.y, pw->Pos.x + pw->Size.x, pw->Pos.y + pw->Size.y};
+        g_menu_layout.item_h = ImGui::GetFrameHeight();
+        g_menu_layout.first_y = pw->Pos.y + pw->WindowPadding.y;
+        g_menu_layout.open = true;
+      }
       ImGui::EndPopup();
     }
     if (dbl) st->rename.begin(id, r.name); // cift tik: yerinde ad
@@ -1053,8 +1083,8 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
   const char *icon;
   Tone it;
   if (r.has_light) { icon = "\xE2\x98\x80"; it = Tone::Warn; }       // ☀
-  else if (r.has_model) { icon = "\xE2\x97\x86"; it = Tone::Text; }  // ◆
-  else if (r.has_body) { icon = "\xE2\x97\xBC"; it = Tone::AxisZ; }  // ◼
+  else if (r.has_model) { icon = "\xE2\x97\x86"; it = Tone::Accent; } // ◆ Accent (Canli Turkuaz)
+  else if (r.has_body) { icon = "\xE2\x97\xBC"; it = Tone::AxisZ; }  // ◼ (Mavi)
   else { icon = "\xE2\x97\x8B"; it = Tone::TextDim; }                // ○
   const float icon_col = std::floor(fs * 1.05f);
   const ImVec2 isz = ImGui::CalcTextSize(icon);
@@ -1132,6 +1162,9 @@ HierarchyResult hierarchy_root_drop_zone(HierarchyState *st) {
   const float avail = ImGui::GetContentRegionAvail().y;
   if (avail < 4.0f) return res; // yer yok: hicbir sey cizme (gorunmez oge de yok)
   ImGui::InvisibleButton("##kok_birakma", ImVec2(-FLT_MIN, avail));
+  if (ImGui::IsItemHovered() && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Right))) {
+    ImGui::OpenPopup("SahnePanelMenu");
+  }
   if (ImGui::BeginDragDropTarget()) {
     // Cerceve: birakilabilir alan GORUNSUN (sessiz hedef kullanilamaz).
     const WidgetRect z = item_rect();
@@ -1193,6 +1226,7 @@ void hierarchy_empty(const char *hint) { centered_hint(hint); }
 // Son yerlesim (kapilar)
 // =============================================================================
 
+const HierarchyMenuLayout &hierarchy_menu_last_layout() { return g_menu_layout; }
 const PropVec3Layout &prop_vec3_last_layout() { return g_vec3_layout; }
 const ComponentHeaderLayout &component_header_last_layout() { return g_hdr_layout; }
 const HierarchyRowLayout &hierarchy_row_last_layout() { return g_row_layout; }

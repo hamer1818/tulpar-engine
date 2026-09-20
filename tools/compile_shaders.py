@@ -52,6 +52,9 @@ def strip_debug_names(data):
 
 
 def find_compiler():
+    local_glslang = os.path.join(HERE, "glslang.exe")
+    if os.path.isfile(local_glslang):
+        return ("glslang", local_glslang)
     glslc = shutil.which("glslc")
     if glslc:
         return ("glslc", glslc)
@@ -85,8 +88,11 @@ def main():
         print("shader derleyicisi yok: glslc (shaderc) ya da glslang gerekli", file=sys.stderr)
         return 2
     print("derleyici: %s (%s)" % (kind, exe))
+    targets = [os.path.basename(a) for a in sys.argv[1:]]
     for name in sorted(os.listdir(SHADERS)):
         if not name.endswith((".vert", ".frag", ".comp")):
+            continue
+        if targets and name not in targets:
             continue
         src = os.path.join(SHADERS, name)
         spv = compile_one(kind, exe, src, os.path.splitext(name)[1])

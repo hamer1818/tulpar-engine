@@ -8,6 +8,7 @@
 #include "rhi/shaders/bloom_down_frag_spv.h"
 #include "rhi/shaders/bloom_up_frag_spv.h"
 #include "rhi/shaders/compose_frag_spv.h"
+#include "rhi/shaders/godray_frag_spv.h"
 #include "rhi/shaders/cull_comp_spv.h"
 #include "rhi/shaders/mesh_cull_vert_spv.h"
 #include "rhi/shaders/mesh_frag_spv.h"
@@ -1531,6 +1532,10 @@ void Renderer::shutdown() {
     if (bloom_img_[c]) a.vkDestroyImage(dev_->handle(), bloom_img_[c], nullptr);
     dev_->free_dedicated(&bloom_mem_[c]);
   }
+  if (godray_fb_) a.vkDestroyFramebuffer(dev_->handle(), godray_fb_, nullptr);
+  if (godray_view_) a.vkDestroyImageView(dev_->handle(), godray_view_, nullptr);
+  if (godray_img_) a.vkDestroyImage(dev_->handle(), godray_img_, nullptr);
+  dev_->free_dedicated(&godray_mem_);
   if (hdr_fb_) a.vkDestroyFramebuffer(dev_->handle(), hdr_fb_, nullptr);
   if (hdr_view_) a.vkDestroyImageView(dev_->handle(), hdr_view_, nullptr);
   if (hdr_depth_view_) a.vkDestroyImageView(dev_->handle(), hdr_depth_view_, nullptr);
@@ -1543,11 +1548,13 @@ void Renderer::shutdown() {
   if (pipe_bright_) a.vkDestroyPipeline(dev_->handle(), pipe_bright_, nullptr);
   if (pipe_down_) a.vkDestroyPipeline(dev_->handle(), pipe_down_, nullptr);
   if (pipe_up_) a.vkDestroyPipeline(dev_->handle(), pipe_up_, nullptr);
+  if (pipe_godray_) a.vkDestroyPipeline(dev_->handle(), pipe_godray_, nullptr);
   if (pipe_compose_) a.vkDestroyPipeline(dev_->handle(), pipe_compose_, nullptr);
   if (post_vs_) a.vkDestroyShaderModule(dev_->handle(), post_vs_, nullptr);
   if (bright_fs_) a.vkDestroyShaderModule(dev_->handle(), bright_fs_, nullptr);
   if (down_fs_) a.vkDestroyShaderModule(dev_->handle(), down_fs_, nullptr);
   if (up_fs_) a.vkDestroyShaderModule(dev_->handle(), up_fs_, nullptr);
+  if (godray_fs_) a.vkDestroyShaderModule(dev_->handle(), godray_fs_, nullptr);
   if (compose_fs_) a.vkDestroyShaderModule(dev_->handle(), compose_fs_, nullptr);
   if (post_pool_) a.vkDestroyDescriptorPool(dev_->handle(), post_pool_, nullptr);
   if (post_layout_) a.vkDestroyPipelineLayout(dev_->handle(), post_layout_, nullptr);
@@ -2558,13 +2565,14 @@ VkImageView Renderer::graph_view(uint8_t res, uint8_t level) const {
   case kResHdr: return hdr_view_;
   case kResDown: return bloom_view_[0][l];
   case kResUp: return bloom_view_[1][l];
+  case kResGodray: return godray_view_;
   default: return VK_NULL_HANDLE;
   }
 }
 
 void Renderer::graph_size(uint8_t res, uint8_t level, uint32_t *w, uint32_t *h) const {
   const uint32_t l = level < kMaxBloomMips ? level : 0;
-  if (res == kResDown || res == kResUp) {
+  if (res == kResDown || res == kResUp || res == kResGodray) {
     *w = bloom_w_[l] ? bloom_w_[l] : 1;
     *h = bloom_h_[l] ? bloom_h_[l] : 1;
     return;
@@ -2633,6 +2641,14 @@ bool Renderer::make_post(VkRenderPass target_rp) {
   gd.motion = temporal_.motion;
   gd.cull = cull_.enabled;
   gd.bloom_mips = bloom_mips_;
+  // gd.godray BILEREK ayarlanmiyor (PR #7'nin ekran-uzayi huzme gecisi henuz
+  // CANLI DEGIL). Sebep olculdu: en genis tablo (cull + golge + hareket +
+  // sahne + 6 mip bloom) tam kMaxGraphPasses = 16 gecis; godray 17. olurdu ve
+  // graph_build 0 donerdi -> make_post "graph tablosu kurulamadi (kapasite)"
+  // ile post'u TAMAMEN kapatirdi (bloom ve tonemap dahil). Acmak icin once
+  // kMaxGraphPasses buyutulmeli. Bugun editorun huzme kaydiraclari yalniz
+  // gunes/isik cekirdegi kuresi + bloom uzerinden gorunuyor; godray boru
+  // hatti (shader, pipeline, framebuffer, descriptor) kurulu ama kullanilmiyor.
   graph_n_ = graph_build(gd, graph_, kMaxGraphPasses);
   if (!graph_n_) { post_.disabled_reason = "graph tablosu kurulamadi (kapasite)"; return false; }
   if (const char *err = graph_validate(graph_, graph_n_)) {
@@ -2684,6 +2700,21 @@ bool Renderer::make_post(VkRenderPass target_rp) {
         post_.disabled_reason = "bloom gorunumu yaratilamadi";
         return false;
       }
+  }
+
+  // --- Godray hedefi (goruntu + gorunum) ------------------------------------
+  // FRAMEBUFFER'i BURADA yaratmiyoruz: bloom_rp_ henuz VK_NULL_HANDLE. Once
+  // oyleydi ve vkCreateFramebuffer NULL bir renderPass ile cagriliyordu --
+  // surucu VK_SUCCESS dondurdugu icin kurulum sessizce "basarili" oluyor,
+  // yalniz dogrulama katmani goruyordu (VUID-VkFramebufferCreateInfo-
+  // renderPass-parameter). Framebuffer bloom gecisinin yaninda yaratiliyor.
+  if (!make_post_image(hdr_fmt_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, bw, bh, 1, false, &godray_img_, &godray_mem_)) {
+    post_.disabled_reason = "godray hedefi yaratilamadi";
+    return false;
+  }
+  if (!make_view2d(a, d, godray_img_, hdr_fmt_, VK_IMAGE_ASPECT_COLOR_BIT, 0, &godray_view_)) {
+    post_.disabled_reason = "godray gorunumu yaratilamadi";
+    return false;
   }
 
   // --- HDR gecisi: cagiranin gecisiyle AYNI iskelet (depth prepass + renk) ---
@@ -2822,6 +2853,22 @@ bool Renderer::make_post(VkRenderPass target_rp) {
           return false;
         }
       }
+    // Godray hedefi bloom gecisini PAYLASIR (tek ek, ayni bicim, ayni duzen),
+    // bu yuzden framebuffer'i da bloom_rp_ CANLIYKEN burada yaratiyoruz.
+    {
+      VkFramebufferCreateInfo fi_g{};
+      fi_g.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+      fi_g.renderPass = bloom_rp_;
+      fi_g.attachmentCount = 1;
+      fi_g.pAttachments = &godray_view_;
+      fi_g.width = bloom_w_[0];
+      fi_g.height = bloom_h_[0];
+      fi_g.layers = 1;
+      if (a.vkCreateFramebuffer(d, &fi_g, nullptr, &godray_fb_) != VK_SUCCESS) {
+        post_.disabled_reason = "godray framebuffer yaratilamadi";
+        return false;
+      }
+    }
   }
   // --- Ornekleyici + descriptor (KURULUMDA yazilir, karede degismez) --------
   {
@@ -2913,12 +2960,13 @@ bool Renderer::make_post(VkRenderPass target_rp) {
   {
     VkShaderModuleCreateInfo smi{};
     smi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    struct { const uint32_t *code; uint32_t size; VkShaderModule *out; } mods[5] = {
+    struct { const uint32_t *code; uint32_t size; VkShaderModule *out; } mods[6] = {
         {post_vert_spv, post_vert_spv_size, &post_vs_},
         {bloom_bright_frag_spv, bloom_bright_frag_spv_size, &bright_fs_},
         {bloom_down_frag_spv, bloom_down_frag_spv_size, &down_fs_},
         {bloom_up_frag_spv, bloom_up_frag_spv_size, &up_fs_},
-        {compose_frag_spv, compose_frag_spv_size, &compose_fs_}};
+        {compose_frag_spv, compose_frag_spv_size, &compose_fs_},
+        {godray_frag_spv, godray_frag_spv_size, &godray_fs_}};
     for (auto &m : mods) {
       smi.codeSize = m.size;
       smi.pCode = m.code;
@@ -2929,6 +2977,7 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     }
     if (!make_post_pipe(bright_fs_, bloom_rp_, 0, &pipe_bright_) ||
         !make_post_pipe(down_fs_, bloom_rp_, 0, &pipe_down_) || !make_post_pipe(up_fs_, bloom_rp_, 0, &pipe_up_) ||
+        !make_post_pipe(godray_fs_, bloom_rp_, 0, &pipe_godray_) ||
         // Birlestirme CAGIRANIN gecisinde, renk subpass'inde (UI ile ayni yer).
         !make_post_pipe(compose_fs_, target_rp, 1, &pipe_compose_)) {
       post_.disabled_reason = "son islem boru hatti yaratilamadi";
@@ -2948,6 +2997,7 @@ bool Renderer::make_post(VkRenderPass target_rp) {
   uint64_t bytes = (uint64_t)post_w_ * post_h_ * cbytes + (uint64_t)post_w_ * post_h_ * (rhi::format_bits(dfmt) / 8);
   for (uint32_t c = 0; c < 2; c++)
     for (uint32_t i = 0; i < bloom_mips_; i++) bytes += (uint64_t)bloom_w_[i] * bloom_h_[i] * cbytes;
+  bytes += (uint64_t)bw * bh * cbytes; // godray hedefi
   post_.target_bytes = bytes;
   post_.disabled_reason = "";
   return true;
@@ -2991,13 +3041,14 @@ void Renderer::record_post_chain(VkCommandBuffer cb) {
     if (p.kind == PassKind::Bright) pipe = pipe_bright_;
     else if (p.kind == PassKind::Down) pipe = pipe_down_;
     else if (p.kind == PassKind::Up) pipe = pipe_up_;
+    else if (p.kind == PassKind::Godray) pipe = pipe_godray_;
     else continue;
     uint32_t w = 1, h = 1;
     graph_size(p.out, p.out_level, &w, &h);
     VkRenderPassBeginInfo rbi{};
     rbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rbi.renderPass = bloom_rp_;
-    rbi.framebuffer = bloom_fb_[p.out == kResDown ? 0 : 1][p.out_level];
+    rbi.framebuffer = (p.out == kResGodray) ? godray_fb_ : bloom_fb_[p.out == kResDown ? 0 : 1][p.out_level];
     rbi.renderArea = {{0, 0}, {w, h}};
     a.vkCmdBeginRenderPass(cb, &rbi, VK_SUBPASS_CONTENTS_INLINE);
     VkViewport vp{0, 0, (float)w, (float)h, 0.0f, 1.0f};
@@ -3020,6 +3071,38 @@ void Renderer::record_post_chain(VkCommandBuffer cb) {
     // Yalniz parlak gecis HDR hedefini okur: dolu alt-dikdortgen orani onda
     // anlamli, zincirin geri kalani kendi (tam dolu) hedeflerinden okur.
     push.q[0] = p.kind == PassKind::Bright ? scale_ : 1.0f;
+    if (p.kind == PassKind::Godray) {
+      Vec4 clip_sun;
+      if (godray_source_.w == 0.0f) {
+        Vec3 d = normalize(Vec3{godray_source_.x, godray_source_.y, godray_source_.z});
+        Vec4 to_sun = {-d.x, -d.y, -d.z, 0.0f};
+        clip_sun = proj_ * (view_ * to_sun);
+      } else {
+        clip_sun = proj_ * (view_ * godray_source_);
+      }
+      float uv_x = 0.5f, uv_y = 0.5f;
+      float exp = godray_exposure_;
+      if (clip_sun.w > 0.001f) {
+        uv_x = (clip_sun.x / clip_sun.w) * 0.5f + 0.5f;
+        uv_y = (clip_sun.y / clip_sun.w) * 0.5f + 0.5f;
+        // Kamera gorus acisina gore yumusak sonumleme (horizon fade)
+        // Gunes kenarlardan uzaklasirken ani kaybolmayi onler
+        float dist_sq = (uv_x - 0.5f) * (uv_x - 0.5f) + (uv_y - 0.5f) * (uv_y - 0.5f);
+        float edge_fade = dist_sq > 0.6f ? (1.0f - (dist_sq - 0.6f) / 1.5f) : 1.0f;
+        if (edge_fade < 0.0f) edge_fade = 0.0f;
+        exp *= edge_fade;
+      } else {
+        exp = 0.0f; // Gunes kameranin arkasindaysa huzme uretme
+      }
+      push.p[0] = uv_x;
+      push.p[1] = uv_y;
+      push.p[2] = godray_density_;
+      push.p[3] = godray_decay_;
+      push.q[0] = godray_weight_;
+      push.q[1] = exp;
+      push.q[2] = 64.0f; // num samples
+      push.q[3] = (float)stoch_frame_ * 0.0166667f; // canli acisal huzme kaymasi (zaman)
+    }
     a.vkCmdPushConstants(cb, post_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
     a.vkCmdDraw(cb, 3, 1, 0, 0); // tam ekran ucgeni (vertex tamponu yok)
     a.vkCmdEndRenderPass(cb);

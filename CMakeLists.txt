@@ -196,6 +196,7 @@ target_compile_options(engine_recast PRIVATE -fno-exceptions -fno-rtti -w -ffp-c
 # --- L4 SIM (ECS, zamanlayici, sabit adim, replay, fizik, navmesh) -----------
 add_library(engine_sim STATIC
     sim/ecs.cpp
+    sim/ability_system.cpp
     sim/schedule.cpp
     sim/timers.cpp
     sim/physics.cpp
@@ -308,6 +309,9 @@ set(ENGINE_TEST_SOURCES
     tests/test_pack.cpp
     tests/test_input.cpp
     tests/test_layout.cpp
+    tests/test_reflect.cpp
+    tests/test_prefab.cpp
+    tests/test_graph_builder.cpp
     # --- PR #322 testleri (test_dsp/test_spatial/test_scene_format ALINMADI:
     # olctukleri surumler main'dekilerle degistirildi)
     tests/test_ik.cpp

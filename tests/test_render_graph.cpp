@@ -226,7 +226,17 @@ ENGINE_TEST(render_graph_table_is_compiled_and_ordered) {
   const uint32_t n4 = graph_build(d4, g, kMaxGraphPasses);
   std::printf("    [bilgi] en genis tablo: %u gecis (kapasite %u)\n", n4, kMaxGraphPasses);
   CHECK(n4 == kMaxGraphPasses);
-  CHECK(graph_validate(g, n4) == nullptr);
+  // Godray ACIK tablo: godray gecisi (bloom ile birlestir arasinda) eklenir
+  GraphDesc d5;
+  d5.post = true;
+  d5.godray = true;
+  d5.shadow = true;
+  d5.bloom_mips = 4;
+  const uint32_t n5 = graph_build(d5, g, kMaxGraphPasses);
+  CHECK(n5 == 11);
+  CHECK(std::strcmp(g[9].name, "godray") == 0);
+  CHECK(g[9].kind == PassKind::Godray);
+  CHECK(graph_validate(g, n5) == nullptr);
 
   // KONTROL: denetim gercekten denetliyor mu? Ureticisi olmayan girdi ve
   // okuyucusu olmayan cikti REDDEDILMELI; edilmezse yukaridaki nullptr bos.

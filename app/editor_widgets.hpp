@@ -180,6 +180,7 @@ struct HierarchyState {
   HierarchyCollapse collapse;
   HierarchyRename rename;
   int32_t drag_source = -1; // suruklenen varlik (yalniz gosterim)
+  int32_t hovered_index = -1; // fare altindaki satir indeksi (-1 = satir yok)
 };
 enum class HierarchyAction : uint32_t {
   None = 0,
@@ -196,6 +197,8 @@ enum class HierarchyAction : uint32_t {
   Copy,       // baglam menusu: Kopyala
   Paste,      // baglam menusu: Yapistir
   SavePrefab, // baglam menusu: alt agaci prefab dosyasina kaydet
+  Focus,      // baglam menusu: Varliga odaklan (F)
+  CreateChild,// baglam menusu: Bos cocuk varlik ekle
 };
 struct HierarchyResult {
   HierarchyAction action = HierarchyAction::None;
@@ -243,6 +246,20 @@ struct HierarchyRowLayout {
   float text_x = 0;        // adin sol kenari (girinti kapisi bunu olcer)
   WidgetRect arrow, eye, lock; // agac dugmeleri (sentetik fare kapilari icin)
 };
+// Baglam menusunun son cizildigi ekran dikdortgeni + satir yuksekligi.
+// NEDEN: menu, fare konumunda ACILMAYABILIR -- ImGui popup'i goruntu alanina
+// SIGDIRIR ve gerekirse yukari kaydirir. Kapilar sentetik tiki "fare + i*satir"
+// diye hesaplarken bu kaydirmayi BILMIYORDU; menuye oge eklenip yukseklik
+// tavana degdiginde her tik bir oge asagi kayiyor ve kapi, ilgisiz bir oge
+// tiklandigi icin kirmizi oluyordu (olculdu: PR #7 birlesmesi, 4 yeni oge ->
+// popup 18 px yukari kaydi). Kapi artik konumu VARSAYMAZ, buradan OKUR.
+struct HierarchyMenuLayout {
+  WidgetRect popup;    // popup penceresinin ekran dikdortgeni
+  float item_h = 0;    // bir MenuItem satirinin yuksekligi
+  float first_y = 0;   // ilk ogenin ust kenari (popup ic dolgusu dahil)
+  bool open = false;   // bu kare menu cizildi mi
+};
+const HierarchyMenuLayout &hierarchy_menu_last_layout();
 const PropVec3Layout &prop_vec3_last_layout();
 const ComponentHeaderLayout &component_header_last_layout();
 const HierarchyRowLayout &hierarchy_row_last_layout();

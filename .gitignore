@@ -63,6 +63,7 @@ compile_commands.json
 .duzen_kapisi*.duzen
 *.kurtarma.json
 tulpar_kayit.txt
+.tulpar_son_sahneler
 # platform/crash.cpp cokme raporu (pozitif kontrol testi bilerek cokuyor)
 crash_*.txt
 # content/importer.hpp derleme onbellegi: girdinin ozeti + damga dosyalari.

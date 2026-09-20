@@ -203,7 +203,26 @@ void write_entity(Out &o, const SceneEntity &e) {
   }
   if (e.components & kSceneLight) {
     o.puts("  isik "); o.vec(e.light_color); o.ch(' '); o.num(e.light_intensity); o.ch(' '); o.num(e.light_radius);
-    o.puts(e.light_type == SceneLightType::Directional ? " yonlu\n" : " nokta\n");
+    const char *lt = " nokta\n";
+    if (e.light_type == SceneLightType::Directional) lt = " yonlu\n";
+    else if (e.light_type == SceneLightType::Spot) lt = " spot\n";
+    else if (e.light_type == SceneLightType::Rect) lt = " alan\n";
+    else if (e.light_type == SceneLightType::Capsule) lt = " tup\n";
+    else if (e.light_type == SceneLightType::Disk) lt = " disk\n";
+    o.puts(lt);
+    if (e.light_type == SceneLightType::Spot) {
+      o.puts("  spot_koni "); o.num(e.light_spot_inner); o.ch(' '); o.num(e.light_spot_outer); o.ch('\n');
+    } else if (e.light_type == SceneLightType::Rect || e.light_type == SceneLightType::Capsule || e.light_type == SceneLightType::Disk) {
+      o.puts("  isik_boyut "); o.num(e.light_width); o.ch(' '); o.num(e.light_height); o.ch('\n');
+    }
+    if (e.light_godray) {
+      o.puts("  isik_huzmesi acik "); o.num(e.light_godray_intensity); o.ch('\n');
+    }
+    // Varsayilan true; YALNIZ kapaliyken yazilir (bkz. `bayrak`) -- boylece
+    // golge doksun diyen eski sahnelerin metni bayt bayt ayni kalir. Alan
+    // scene_entity_equal'da KARSILASTIRILIYORDU ama hicbir yere yazilmiyordu:
+    // editorde kapatip kaydeden kullanici dosyayi acinca yine acik buluyordu.
+    if (!e.light_cast_shadow) o.puts("  isik_golge kapali\n");
   }
   if (e.components & kSceneBody) {
     o.puts("  govde ");
@@ -235,6 +254,19 @@ void write_entity(Out &o, const SceneEntity &e) {
     o.num(e.particle_lifetime_min); o.ch(' '); o.num(e.particle_lifetime_max); o.ch(' ');
     o.num(e.particle_size_start); o.ch(' '); o.num(e.particle_size_end); o.ch(' ');
     o.vec(e.particle_velocity); o.ch(' '); o.vec(e.particle_jitter); o.ch('\n');
+    // Renk/yercekimi/billboard alanlari scene_entity_equal'da vardi, YAZICIDA
+    // YOKTU: editorde ayarlanip kaydedilen deger geri okununca varsayilana
+    // donuyordu (sessiz kayip). Varsayilandan farkliysa yazilir; boylece
+    // mevcut .sahne dosyalarinin kanonik metni degismez.
+    const SceneEntity kPd{};
+    if (e.particle_color_start.x != kPd.particle_color_start.x || e.particle_color_start.y != kPd.particle_color_start.y ||
+        e.particle_color_start.z != kPd.particle_color_start.z || e.particle_color_end.x != kPd.particle_color_end.x ||
+        e.particle_color_end.y != kPd.particle_color_end.y || e.particle_color_end.z != kPd.particle_color_end.z) {
+      o.puts("  partikul_renk "); o.vec(e.particle_color_start); o.ch(' '); o.vec(e.particle_color_end); o.ch('\n');
+    }
+    if (e.particle_gravity != kPd.particle_gravity || e.particle_billboard_type != kPd.particle_billboard_type) {
+      o.puts("  partikul_fizik "); o.num(e.particle_gravity); o.ch(' '); o.num(e.particle_billboard_type); o.ch('\n');
+    }
   }
   if (e.components & kSceneTerrain) {
     o.puts("  arazi "); o.num(e.terrain_width); o.ch(' '); o.num(e.terrain_height); o.ch(' ');
@@ -271,6 +303,13 @@ void write_entity(Out &o, const SceneEntity &e) {
   if (e.components & kSceneReverb) {
     o.puts("  yanki "); o.num(e.reverb_decay); o.ch(' '); o.num(e.reverb_room_size); o.ch('\n');
   }
+  if (e.components & kSceneHealth) {
+    o.puts("  can "); o.num(e.health_current); o.ch(' '); o.num(e.health_max); o.ch('\n');
+  }
+  if (e.components & kSceneAbility) {
+    o.puts("  yetenek "); o.num(e.ability_id); o.ch(' '); o.num(e.ability_damage); o.ch(' '); o.num(e.ability_range); o.ch(' '); o.num(e.ability_cooldown); o.ch('\n');
+  }
+  if (e.components & kSceneInventory) o.puts("  envanter\n");
   o.puts("son\n");
 }
 } // namespace
@@ -285,7 +324,9 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
   if ((c & kSceneModel) && (a.asset != b.asset || !veq(a.tint, b.tint))) return false;
   if ((c & kSceneAnim) && (a.clip != b.clip || !feq(a.phase, b.phase) || !feq(a.speed, b.speed))) return false;
   if ((c & kSceneLight) && (!veq(a.light_color, b.light_color) || !feq(a.light_intensity, b.light_intensity) || !feq(a.light_radius, b.light_radius) ||
-                            a.light_type != b.light_type))
+                            a.light_type != b.light_type || !feq(a.light_spot_inner, b.light_spot_inner) || !feq(a.light_spot_outer, b.light_spot_outer) ||
+                            !feq(a.light_width, b.light_width) || !feq(a.light_height, b.light_height) || a.light_cast_shadow != b.light_cast_shadow ||
+                            a.light_godray != b.light_godray || !feq(a.light_godray_intensity, b.light_godray_intensity)))
     return false;
   if (c & kSceneBody) {
     if (a.shape != b.shape || a.dynamic != b.dynamic) return false;
@@ -317,9 +358,12 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
     if (!feq(a.particle_spawn_rate, b.particle_spawn_rate) || !feq(a.particle_lifetime_min, b.particle_lifetime_min) ||
         !feq(a.particle_lifetime_max, b.particle_lifetime_max) || !feq(a.particle_size_start, b.particle_size_start) ||
         !feq(a.particle_size_end, b.particle_size_end) || !veq(a.particle_velocity, b.particle_velocity) ||
-        !veq(a.particle_jitter, b.particle_jitter))
+        !veq(a.particle_jitter, b.particle_jitter) || !veq(a.particle_color_start, b.particle_color_start) ||
+        !veq(a.particle_color_end, b.particle_color_end) || !feq(a.particle_gravity, b.particle_gravity) ||
+        a.particle_billboard_type != b.particle_billboard_type)
       return false;
   }
+
   if (c & kSceneTerrain) {
     if (!feq(a.terrain_width, b.terrain_width) || !feq(a.terrain_height, b.terrain_height) ||
         !feq(a.terrain_cell, b.terrain_cell) || !feq(a.terrain_amp, b.terrain_amp) || !feq(a.terrain_freq, b.terrain_freq) ||
@@ -360,14 +404,31 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
   if (c & kSceneReverb) {
     if (!feq(a.reverb_decay, b.reverb_decay) || !feq(a.reverb_room_size, b.reverb_room_size)) return false;
   }
+  if (c & kSceneHealth) {
+    if (!feq(a.health_current, b.health_current) || !feq(a.health_max, b.health_max)) return false;
+  }
+  if (c & kSceneAbility) {
+    if (a.ability_id != b.ability_id || !feq(a.ability_damage, b.ability_damage) ||
+        !feq(a.ability_range, b.ability_range) || !feq(a.ability_cooldown, b.ability_cooldown))
+      return false;
+  }
+  // kSceneInventory'nin alani yok: bilesenin VARLIGI tek veridir (components
+  // zaten esitligin girisinde karsilastirildi). Yine de bitin burada ADI
+  // gecmeli, yoksa scene_check "ESITLIK yok" der -- ve hakli olur: bileseni
+  // esitlige hic sokmamak ile "alani yok" demek ayri seyler.
+  if (c & kSceneInventory) { /* alansiz bilesen */ }
   return true;
 }
 
 bool scene_world_equal(const SceneWorld &a, const SceneWorld &b) {
   return veq(a.sun_dir, b.sun_dir) && veq(a.ambient, b.ambient) && feq(a.sun_diffuse, b.sun_diffuse) &&
          veq(a.shadow_center, b.shadow_center) && feq(a.shadow_radius, b.shadow_radius) && feq(a.shadow_depth, b.shadow_depth) &&
-         veq(a.cam_target, b.cam_target) && feq(a.cam_yaw, b.cam_yaw) && feq(a.cam_pitch, b.cam_pitch) && feq(a.cam_radius, b.cam_radius);
+         veq(a.cam_target, b.cam_target) && feq(a.cam_yaw, b.cam_yaw) && feq(a.cam_pitch, b.cam_pitch) && feq(a.cam_radius, b.cam_radius) &&
+         a.godrays_enabled == b.godrays_enabled && feq(a.godray_density, b.godray_density) && feq(a.godray_weight, b.godray_weight) &&
+         feq(a.godray_decay, b.godray_decay) && feq(a.godray_exposure, b.godray_exposure) && feq(a.time_of_day, b.time_of_day) &&
+         feq(a.sky_turbidity, b.sky_turbidity);
 }
+
 
 int32_t SceneDesc::add_asset(const char *path) {
   for (uint32_t i = 0; i < asset_count; i++)
@@ -417,6 +478,24 @@ size_t scene_write(const SceneDesc &d, char *buf, size_t cap) {
   o.puts("isik-gunes "); o.num(d.sun_diffuse); o.ch('\n');
   o.puts("golge "); o.vec(d.shadow_center); o.ch(' '); o.num(d.shadow_radius); o.ch(' '); o.num(d.shadow_depth); o.ch('\n');
   o.puts("kamera "); o.vec(d.cam_target); o.ch(' '); o.num(d.cam_yaw); o.ch(' '); o.num(d.cam_pitch); o.ch(' '); o.num(d.cam_radius); o.ch('\n');
+  // Huzme (godray) ve gun/atmosfer: AYRISTIRICIDA dali vardi, yazicida YOKTU.
+  // Editorde acilan godray kaydedilip geri okundugunda kapali geliyordu ve
+  // scene_world_equal bu alanlari karsilastirdigi icin "kirli" bayragi hic
+  // temizlenmiyordu. Varsayilandan farkliysa yazilir: mevcut .sahne metinleri
+  // (ornegin tests/assets/editor.sahne) bayt bayt ayni kalir.
+  {
+    const SceneWorld kWd{};
+    if (d.godrays_enabled != kWd.godrays_enabled || d.godray_density != kWd.godray_density ||
+        d.godray_weight != kWd.godray_weight || d.godray_decay != kWd.godray_decay ||
+        d.godray_exposure != kWd.godray_exposure) {
+      o.puts("huzme "); o.puts(d.godrays_enabled ? "acik " : "kapali ");
+      o.num(d.godray_density); o.ch(' '); o.num(d.godray_weight); o.ch(' ');
+      o.num(d.godray_decay); o.ch(' '); o.num(d.godray_exposure); o.ch('\n');
+    }
+    if (d.time_of_day != kWd.time_of_day || d.sky_turbidity != kWd.sky_turbidity) {
+      o.puts("zaman "); o.num(d.time_of_day); o.ch(' '); o.num(d.sky_turbidity); o.ch('\n');
+    }
+  }
   for (uint32_t i = 0; i < d.asset_count; i++) { o.puts("kaynak "); o.str(d.assets[i]); o.ch('\n'); }
   for (uint32_t i = 0; i < d.entity_count; i++) write_entity(o, d.entities[i]);
   o.finish();
@@ -560,6 +639,12 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
              !p.vec(t + 6, &cur.particle_velocity) || !p.vec(t + 9, &cur.particle_jitter)))
           return false;
         seen_comp |= kSceneParticle;
+      } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "partikul_renk")) {
+        if (n != 7) return p.fail("partikul_renk br bg bb sr sg sb");
+        if (!p.vec(t + 1, &cur.particle_color_start) || !p.vec(t + 4, &cur.particle_color_end)) return false;
+      } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "partikul_fizik")) {
+        if (n != 3) return p.fail("partikul_fizik yercekimi billboard");
+        if (!p.num(t[1], &cur.particle_gravity) || !p.uint(t[2], &cur.particle_billboard_type)) return false;
       } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "omur")) {
         // --- Cok satirli partikul yaziminin devam satirlari. YAZICI bunlari
         // URETMEZ (tek satir yazar); yalniz okunurlar ki o bicimde yazilmis
@@ -629,22 +714,52 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         if (n != 3 || (seen_comp & kSceneReverb)) return p.fail("yanki sonumlenme oda_boyu (bir kez)");
         if (!p.num(t[1], &cur.reverb_decay) || !p.num(t[2], &cur.reverb_room_size)) return false;
         seen_comp |= kSceneReverb;
+      } else if (tok_is(t[0], "can")) {
+        if (n != 3 || (seen_comp & kSceneHealth)) return p.fail("can mevcut maks (bir kez)");
+        if (!p.num(t[1], &cur.health_current) || !p.num(t[2], &cur.health_max)) return false;
+        seen_comp |= kSceneHealth;
+      } else if (tok_is(t[0], "yetenek")) {
+        if (n != 5 || (seen_comp & kSceneAbility)) return p.fail("yetenek id hasar menzil bekleme (bir kez)");
+        if (!p.uint(t[1], &cur.ability_id) || !p.num(t[2], &cur.ability_damage) || !p.num(t[3], &cur.ability_range) || !p.num(t[4], &cur.ability_cooldown)) return false;
+        seen_comp |= kSceneAbility;
+      } else if (tok_is(t[0], "envanter")) {
+        if (n != 1 || (seen_comp & kSceneInventory)) return p.fail("envanter (bir kez)");
+        seen_comp |= kSceneInventory;
       } else if (tok_is(t[0], "animasyon")) {
         if (n != 4 || (seen_comp & kSceneAnim)) return p.fail("animasyon klip faz hiz (bir kez)");
         if (!p.uint(t[1], &cur.clip) || !p.num(t[2], &cur.phase) || !p.num(t[3], &cur.speed)) return false;
         seen_comp |= kSceneAnim;
       } else if (tok_is(t[0], "isik")) {
         // n==6: eski dosya (turu yok, varsayilan Nokta -- geriye donuk okunur).
-        // n>=7: 7. token tur anahtar sozcugu ("nokta"/"yonlu").
-        if (n < 6 || (seen_comp & kSceneLight)) return p.fail("isik r g b siddet yaricap [nokta|yonlu] (bir kez)");
+        // n>=7: 7. token tur anahtar sozcugu ("nokta"/"yonlu"/"spot"/"alan"/"tup"/"disk").
+        if (n < 6 || (seen_comp & kSceneLight)) return p.fail("isik r g b siddet yaricap [nokta|yonlu|spot|alan|tup|disk] (bir kez)");
         if (!p.vec(t + 1, &cur.light_color) || !p.num(t[4], &cur.light_intensity) || !p.num(t[5], &cur.light_radius)) return false;
         cur.light_type = SceneLightType::Point;
         if (n >= 7) {
           if (tok_is(t[6], "yonlu")) cur.light_type = SceneLightType::Directional;
           else if (tok_is(t[6], "nokta")) cur.light_type = SceneLightType::Point;
-          else return p.fail("isik turu nokta|yonlu olmali");
+          else if (tok_is(t[6], "spot")) cur.light_type = SceneLightType::Spot;
+          else if (tok_is(t[6], "alan")) cur.light_type = SceneLightType::Rect;
+          else if (tok_is(t[6], "tup")) cur.light_type = SceneLightType::Capsule;
+          else if (tok_is(t[6], "disk")) cur.light_type = SceneLightType::Disk;
+          else return p.fail("isik turu nokta|yonlu|spot|alan|tup|disk olmali");
         }
         seen_comp |= kSceneLight;
+      } else if (tok_is(t[0], "spot_koni")) {
+        if (n != 3) return p.fail("spot_koni ic dis");
+        if (!p.num(t[1], &cur.light_spot_inner) || !p.num(t[2], &cur.light_spot_outer)) return false;
+      } else if (tok_is(t[0], "isik_boyut")) {
+        if (n != 3) return p.fail("isik_boyut genislik yukseklik");
+        if (!p.num(t[1], &cur.light_width) || !p.num(t[2], &cur.light_height)) return false;
+      } else if (tok_is(t[0], "isik_golge")) {
+        if (n != 2) return p.fail("isik_golge acik|kapali");
+        cur.light_cast_shadow = !(tok_is(t[1], "kapali") || tok_is(t[1], "0"));
+      } else if (tok_is(t[0], "isik_huzmesi")) {
+        if (n < 2) return p.fail("isik_huzmesi acik|kapali [siddet]");
+        cur.light_godray = tok_is(t[1], "acik") || tok_is(t[1], "etkin") || tok_is(t[1], "1");
+        if (n >= 3) {
+          if (!p.num(t[2], &cur.light_godray_intensity)) return false;
+        }
       } else if (tok_is(t[0], "govde")) {
         if (seen_comp & kSceneBody) return p.fail("govde bir kez");
         const Tok *last = nullptr;
@@ -713,6 +828,14 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
       if (n != 7) return p.fail("kamera tx ty tz yaw pitch yaricap");
       if (!p.vec(t + 1, &out->cam_target) || !p.num(t[4], &out->cam_yaw) || !p.num(t[5], &out->cam_pitch) || !p.num(t[6], &out->cam_radius))
         return false;
+    } else if (tok_is(t[0], "huzme")) {
+      if (n != 6) return p.fail("huzme acik|kapali yogunluk agirlik sonum parlaklik");
+      out->godrays_enabled = tok_is(t[1], "acik");
+      if (!p.num(t[2], &out->godray_density) || !p.num(t[3], &out->godray_weight) ||
+          !p.num(t[4], &out->godray_decay) || !p.num(t[5], &out->godray_exposure)) return false;
+    } else if (tok_is(t[0], "zaman")) {
+      if (n != 3) return p.fail("zaman saat bulaniklik");
+      if (!p.num(t[1], &out->time_of_day) || !p.num(t[2], &out->sky_turbidity)) return false;
     } else if (tok_is(t[0], "son")) return p.fail("'son' varlik disinda");
     else return p.fail("bilinmeyen anahtar");
   }

@@ -57,6 +57,8 @@
 #include "app/editor_overlay.hpp"
 #include "app/editor_viewport.hpp"
 #include "app/editor_widgets.hpp"
+#include "app/editor_inspector.hpp"
+#include "app/editor_palette.hpp"
 #include "app/editor_multiedit.hpp"
 #include "content/prefab.hpp"
 #include "rhi/offscreen.hpp"
@@ -148,6 +150,17 @@ inline ImVec4 tone_col(Tone t, float a = 1.0f) {
   return ImVec4(c[0], c[1], c[2], c[3] * a);
 }
 
+inline ImU32 tone_u32(Tone t, float a = 1.0f) { return ImGui::GetColorU32(tone_col(t, a)); }
+
+inline ImVec4 tone(Tone t, float a = 1.0f) { return tone_col(t, a); }
+
+inline const char *editor_basename(const char *path) {
+  if (!path || !path[0]) return "";
+  const char *sl = std::strrchr(path, '/');
+  if (!sl) sl = std::strrchr(path, '\\');
+  return sl ? sl + 1 : path;
+}
+
 static int find_first_camera_entity(const content::SceneDesc &s) {
   for (uint32_t i = 0; i < s.entity_count; i++) {
     if ((s.entities[i].components & content::kSceneCamera) != 0 && (s.entities[i].flags & content::kSceneHidden) == 0) {
@@ -158,86 +171,113 @@ static int find_first_camera_entity(const content::SceneDesc &s) {
 }
 
 static void draw_stats_overlay(bool *open, float dt, const renderer::RendererStats &rs, const content::SceneDesc &scene,
-                               uint32_t vp_w, uint32_t vp_h, ViewportTab tab, const Arena &arena) {
+                               uint32_t vp_w, uint32_t vp_h, ViewportTab tab, const Arena &arena, const ViewportRect &vr) {
   if (!open || !*open) return;
-  ImGui::SetNextWindowBgAlpha(0.92f);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 10.0f));
-  ImGui::SetNextWindowSize(ImVec2(360.0f, 0.0f), ImGuiCond_FirstUseEver);
+  if (vr.w < 120.0f || vr.h < 120.0f) return;
 
-  if (ImGui::Begin("İstatistikler (Stats)###EngineStatsOverlay", open, ImGuiWindowFlags_NoSavedSettings)) {
+  // Modern Oyun Motoru Viewport HUD (Unreal / Dagor / Unity tarzı)
+  const float hud_w = 300.0f;
+  const float hud_x = vr.x + vr.w - hud_w - 12.0f;
+  const float hud_y = vr.y + 12.0f;
+
+  ImGui::SetNextWindowPos(ImVec2(hud_x, hud_y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(hud_w, 0.0f), ImGuiCond_Always);
+  ImGui::SetNextWindowBgAlpha(0.85f);
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, tone_col(Tone::Bg0, 0.90f));
+  ImGui::PushStyleColor(ImGuiCol_Border, tone_col(Tone::Line, 0.70f));
+
+  const ImGuiWindowFlags wf = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                              ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                              ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                              ImGuiWindowFlags_NoMove;
+
+  if (ImGui::Begin("##EngineStatsHUD", nullptr, wf)) {
     const float fps = dt > 0.0001f ? (1.0f / dt) : 0.0f;
     const float ms = dt * 1000.0f;
 
-    // 1) PERFORMANS BASLIGI
+    // Üst Başlık: İkon, FPS, ms, Kapat [✕]
     ImVec4 fps_col = (fps >= 55.0f) ? ImVec4(0.2f, 0.9f, 0.4f, 1.0f)
                                     : ((fps >= 30.0f) ? ImVec4(0.9f, 0.8f, 0.2f, 1.0f) : ImVec4(0.95f, 0.25f, 0.2f, 1.0f));
-    ImGui::TextColored(fps_col, "● %.1f FPS", (double)fps);
+    ImGui::TextColored(tone(Tone::Accent), ICON_MD_BAR_CHART);
     ImGui::SameLine();
-    ImGui::TextDisabled("(%.2f ms / kare)", (double)ms);
+    ImGui::TextColored(fps_col, "%.1f FPS", (double)fps);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%.2f ms)", (double)ms);
+
+    ImGui::SameLine(ImGui::GetWindowWidth() - 24.0f);
+    if (ImGui::SmallButton("\xE2\x9C\x95##close_hud")) { // ✕
+      *open = false;
+    }
 
     ImGui::Separator();
-    if (ImGui::CollapsingHeader( ICON_MD_BAR_CHART " Grafik & Geometri (Poly Count)", ImGuiTreeNodeFlags_DefaultOpen)) {
-      const ScenePolyStats poly = calculate_scene_poly_stats(scene);
-      ImGui::Columns(2, "poly_cols", false);
-      ImGui::TextUnformatted("Üçgenler (Tris):"); ImGui::NextColumn();
-      ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%u tris", poly.triangles); ImGui::NextColumn();
 
-      ImGui::TextUnformatted("Köşeler (Verts):"); ImGui::NextColumn();
-      ImGui::Text("%u verts", poly.vertices); ImGui::NextColumn();
+    // PR #7'nin duz `metric_row` yerlesimi korundu (dar, goruntu alanina
+    // yapisik HUD). main'in CollapsingHeader + Columns bolumleri BILGI olarak
+    // tasindi: koseler, mesh/doku, golge haritasi, etkin isik, arena, ARC,
+    // varlik sayisi ve gorunum kipi satirlari PR #7'nin listesinde YOKTU ve
+    // duserlerdi. Bicim PR #7'den, icerik iki taraftan.
+    const ScenePolyStats poly = calculate_scene_poly_stats(scene);
+    const float rss_mb = get_system_rss_mb();
+    const float vram_est = (float)(vp_w * vp_h * 8 * 2 + rs.textures * 1024 * 1024 * 4) / (1024.0f * 1024.0f);
 
-      ImGui::TextUnformatted("Çizim Çağrıları:"); ImGui::NextColumn();
-      ImGui::Text("%u batch", rs.draws); ImGui::NextColumn();
+    auto metric_row = [](const char *label, const char *val, ImVec4 val_col) {
+      ImGui::TextDisabled("%s", label);
+      ImGui::SameLine(150.0f);
+      ImGui::TextColored(val_col, "%s", val);
+    };
 
-      ImGui::TextUnformatted("Malzeme Bağlama:"); ImGui::NextColumn();
-      ImGui::Text("%u SetPass", rs.material_binds); ImGui::NextColumn();
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%u tris", poly.triangles);
+    metric_row("\xC3\x9C\xC3\xA7genler (Tris):", buf, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
 
-      ImGui::TextUnformatted("Yüklü Mesh / Doku:"); ImGui::NextColumn();
-      ImGui::Text("%u / %u", rs.meshes, rs.textures); ImGui::NextColumn();
+    std::snprintf(buf, sizeof buf, "%u verts", poly.vertices);
+    metric_row("K\xC3\xB6\xC5\x9F" "eler (Verts):", buf, tone(Tone::Text));
 
-      ImGui::TextUnformatted("Gölge Haritası:"); ImGui::NextColumn();
-      ImGui::Text("CSM 3x1024 D16"); ImGui::NextColumn();
+    std::snprintf(buf, sizeof buf, "%u batch", rs.draws);
+    metric_row("\xC3\x87izim \xC3\x87" "a\xC4\x9Fr\xC4\xB1s\xC4\xB1:", buf, tone(Tone::Text));
 
-      ImGui::TextUnformatted("Aktif Işık:"); ImGui::NextColumn();
-      ImGui::Text("%u değerlendirildi", rs.clusters.lights_evaluated); ImGui::NextColumn();
-      ImGui::Columns(1);
-    }
+    std::snprintf(buf, sizeof buf, "%u SetPass", rs.material_binds);
+    metric_row("Malzeme Ge\xC3\xA7i\xC5\x9Fi:", buf, tone(Tone::Text));
 
-    if (ImGui::CollapsingHeader( ICON_MD_SAVE " Bellek & Atık (Memory / GC)", ImGuiTreeNodeFlags_DefaultOpen)) {
-      const float rss_mb = get_system_rss_mb();
-      const float vram_est = (float)(vp_w * vp_h * 8 * 2 + rs.textures * 1024 * 1024 * 4) / (1024.0f * 1024.0f);
-      ImGui::Columns(2, "mem_cols", false);
-      ImGui::TextUnformatted("Sistem RAM (RSS):"); ImGui::NextColumn();
-      ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "%.1f MB", (double)rss_mb); ImGui::NextColumn();
+    std::snprintf(buf, sizeof buf, "%u / %u", rs.meshes, rs.textures);
+    metric_row("Mesh / Doku:", buf, tone(Tone::Text));
 
-      ImGui::TextUnformatted("GPU VRAM (Tahmini):"); ImGui::NextColumn();
-      ImGui::Text("%.1f MB", (double)vram_est); ImGui::NextColumn();
+    metric_row("G\xC3\xB6lge Haritas\xC4\xB1:", "CSM 3x1024 D16", tone(Tone::TextDim));
 
-      ImGui::TextUnformatted("Motor Arena Belleği:"); ImGui::NextColumn();
-      ImGui::Text("%.1f KB / Tepe %.1f KB", (double)arena.used() / 1024.0, (double)arena.capacity() / 1024.0); ImGui::NextColumn();
+    std::snprintf(buf, sizeof buf, "%u de\xC4\x9F" "erlendirildi", rs.clusters.lights_evaluated);
+    metric_row("Aktif I\xC5\x9F\xC4\xB1k:", buf, tone(Tone::Text));
 
-      ImGui::TextUnformatted("Sıcak Döngü Tahsisi:"); ImGui::NextColumn();
-      ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.4f, 1.0f), "0 Bayt (Sıfır Atık)"); ImGui::NextColumn();
+    ImGui::Separator();
 
-      ImGui::TextUnformatted("Tulpar ARC Durumu:"); ImGui::NextColumn();
-      ImGui::Text("Çöp Toplama Hazır (0 sızıntı)"); ImGui::NextColumn();
-      ImGui::Columns(1);
-    }
+    std::snprintf(buf, sizeof buf, "%.1f MB", (double)rss_mb);
+    metric_row("Sistem RAM:", buf, ImVec4(0.3f, 0.9f, 0.5f, 1.0f));
 
-    if (ImGui::CollapsingHeader( ICON_MD_PUBLIC " Dünya & Görünüm", ImGuiTreeNodeFlags_DefaultOpen)) {
-      ImGui::Columns(2, "world_cols", false);
-      ImGui::TextUnformatted("Sahne Varlıkları:"); ImGui::NextColumn();
-      ImGui::Text("%u varlık", scene.entity_count); ImGui::NextColumn();
+    std::snprintf(buf, sizeof buf, "%.1f MB", (double)vram_est);
+    metric_row("GPU VRAM:", buf, tone(Tone::Text));
 
-      ImGui::TextUnformatted("Görünüm Modu:"); ImGui::NextColumn();
-      ImGui::Text(tab == ViewportTab::Scene ?  ICON_MD_MOVIE " Sahne (Scene)" :  ICON_MD_SPORTS_ESPORTS " Oyun (Game)"); ImGui::NextColumn();
+    std::snprintf(buf, sizeof buf, "%.1f / %.1f KB", (double)arena.used() / 1024.0, (double)arena.capacity() / 1024.0);
+    metric_row("Motor Arena:", buf, tone(Tone::Text));
 
-      ImGui::TextUnformatted("Çözünürlük:"); ImGui::NextColumn();
-      ImGui::Text("%u x %u px", vp_w, vp_h); ImGui::NextColumn();
-      ImGui::Columns(1);
-    }
+    metric_row("S\xC4\xB1" "cak Tahsis:", "0 Bayt", ImVec4(0.2f, 0.8f, 0.4f, 1.0f));
+
+    metric_row("Tulpar ARC:", "0 s\xC4\xB1z\xC4\xB1nt\xC4\xB1", tone(Tone::TextDim));
+
+    ImGui::Separator();
+
+    std::snprintf(buf, sizeof buf, "%u varl\xC4\xB1k", scene.entity_count);
+    metric_row("Sahne Varl\xC4\xB1klar\xC4\xB1:", buf, tone(Tone::Text));
+
+    metric_row("G\xC3\xB6r\xC3\xBCn\xC3\xBCm Kipi:",
+               tab == ViewportTab::Scene ? ICON_MD_MOVIE " Sahne" : ICON_MD_SPORTS_ESPORTS " Oyun", tone(Tone::TextDim));
+
+    std::snprintf(buf, sizeof buf, "%u x %u px", vp_w, vp_h);
+    metric_row("\xC3\x87\xC3\xB6z\xC3\xBCn\xC3\xBCrl\xC3\xBCk:", buf, tone(Tone::TextDim));
   }
   ImGui::End();
+  ImGui::PopStyleColor(2);
   ImGui::PopStyleVar(2);
 }
 
@@ -338,7 +378,7 @@ struct EditorState {
   uint32_t water_hash[content::kSceneMaxEntities] = {};
   // Malzemeler ACILISTA kurulur. create_material kare icinde cagrilirsa
   // "kare basina 0 ayirma" kapisi duser (scene_runtime.cpp ayni notu tasiyor).
-  renderer::MaterialHandle terrain_mat{}, voxel_mat{}, water_mat{};
+  renderer::MaterialHandle terrain_mat{}, voxel_mat{}, water_mat{}, sun_mat{}, light_core_mat{};
   // Prosedurel uretimin GECICI alani: her uretimde mark/reset_to ile geri
   // sarilir. Motorun tek bellek kaynagi arena -- std::malloc DEGIL (AllocGate
   // global ayirmalari sayiyor). Ana `sys` arenasi DOGRUDAN kullanilamaz:
@@ -353,7 +393,7 @@ struct EditorState {
   float play_time = 0;
   // Surukleme / metin duzenleme: aktiflesince kopya, birakinca tek islem.
   SceneEntity edit_before;
-  bool edit_active = false, gizmo_was_using = false;
+  bool edit_active = false, gizmo_was_using = false, gizmo_was_over = false;
   // Grup suruklemesi: surukleme basindaki kopyalar; bitince selection_commit ile
   // gunluge TEK grup (her karede degil).
   int32_t drag_items[Selection::kMax] = {};
@@ -736,6 +776,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.voxel_mat = ren.create_material(ren.default_texture(), Vec3{1, 1, 1}, p);
     p.metallic = 0.0f; p.roughness = 0.1f;
     st.water_mat = ren.create_material(ren.default_texture(), Vec3{1, 1, 1}, p);
+    renderer::PbrParams sun_p;
+    sun_p.metallic = 0.0f; sun_p.roughness = 1.0f;
+    sun_p.emissive = Vec3{35.0f, 32.0f, 24.0f}; // Ultra-parlak HDR günes emisyonu
+    st.sun_mat = ren.create_material(ren.default_texture(), Vec3{1, 1, 1}, sun_p);
+    renderer::PbrParams core_p;
+    core_p.metallic = 0.0f; core_p.roughness = 1.0f;
+    core_p.emissive = Vec3{28.0f, 25.0f, 20.0f}; // Nokta/Spot isik cekirdegi
+    st.light_core_mat = ren.create_material(ren.default_texture(), Vec3{1, 1, 1}, core_p);
   }
   const char *adir = std::getenv("TULPAR_ENGINE_ASSETS");
   if (opts.scene_path) std::snprintf(st.scene_path, sizeof st.scene_path, "%s", opts.scene_path);
@@ -859,6 +907,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Gorunum kipi (UE5 "View Mode"): 0 Aydinlatmali, 1 Isiksiz (albedo),
   // 2 Carpisma (tel kutu), 3 Sinirlar (AABB). Eskiden burada hicbir sey
   // OKUMAYAN bir `wireframe_mode` bayragi vardi; dordu de gercekten ciziliyor.
+  // PR #7 o bayraga geri donuyordu; donulmedi -- dort kip de cizim yolunda
+  // canli.
   int view_mode = 0;
   bool show_stats = true;
   bool was_playing = false;
@@ -1078,8 +1128,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // ortasini bos birakmak yerine AYRI tablo: bosluklar sessizce "nesne"
       // olur ve iki kapsul "nesne_3" adini alirdi.
       static const char *const kPrimStem[] = {"kapsul", "silindir", "koni", "dortgen", "simit"};
+      static const char *const kExtraStem[] = {
+        "karakter", "arazi", "su", "voksel", "ruzgar",
+        "partikul", "skybox", "sonda", "betik", "ajan",
+        "can_varlik", "yetenek_varlik", "sandik", "eklem", "yanki"
+      };
       const char *stem = "nesne";
       if (kind >= content::kPrimCapsule && kind <= content::kPrimTorus) stem = kPrimStem[kind - content::kPrimCapsule];
+      else if (kind >= 30 && kind < 30 + (int)(sizeof(kExtraStem)/sizeof(kExtraStem[0]))) stem = kExtraStem[kind - 30];
+      else if (kind == 50) stem = "fizik_odasi";
+      else if (kind == 51) stem = "doga_paketi";
+      else if (kind == 52) stem = "rpg_sahnesi";
       else if (kind >= 0 && kind < (int)(sizeof(kStem)/sizeof(kStem[0]))) stem = kStem[kind];
       std::snprintf(e.name, sizeof e.name, "%s_%u", stem, st.scene.entity_count + 1);
       e.pos = cam.target;
@@ -1177,22 +1236,102 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         e.audio_loop = true;
         e.audio_spatial = true;
         break;
-      case 14: // Yönlü Işık
+      case 14: // Yönlü Işık (Güneş)
         e.components = content::kSceneLight;
         e.light_type = content::SceneLightType::Directional;
         e.light_color = Vec3{1.0f, 0.96f, 0.9f};
         e.light_intensity = 2.0f;
         e.rot_deg = Vec3{50.0f, -30.0f, 0.0f}; // asagi/yana bakan tipik gunes acisi
+        std::snprintf(e.name, sizeof e.name, "gunes_isigi");
+        break;
+      case 15: // Spot Işık (Koni)
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Spot;
+        e.light_color = Vec3{1.0f, 0.95f, 0.85f};
+        e.light_intensity = 5.0f;
+        e.light_radius = 12.0f;
+        e.light_spot_inner = 20.0f;
+        e.light_spot_outer = 35.0f;
+        e.rot_deg = Vec3{45.0f, 0.0f, 0.0f};
+        std::snprintf(e.name, sizeof e.name, "spot_isik");
+        break;
+      case 16: // Dikdörtgen / Alan Işık (LTC)
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Rect;
+        e.light_color = Vec3{1.0f, 1.0f, 1.0f};
+        e.light_intensity = 8.0f;
+        e.light_radius = 10.0f;
+        e.light_width = 1.6f;
+        e.light_height = 0.9f;
+        std::snprintf(e.name, sizeof e.name, "alan_isik");
+        break;
+      case 17: // Tüp / Kapsül Işık
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Capsule;
+        e.light_color = Vec3{0.8f, 0.9f, 1.0f};
+        e.light_intensity = 6.0f;
+        e.light_radius = 8.0f;
+        e.light_width = 2.0f;
+        std::snprintf(e.name, sizeof e.name, "tup_isik");
+        break;
+      case 18: // Disk Işık
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Disk;
+        e.light_color = Vec3{1.0f, 0.98f, 0.92f};
+        e.light_intensity = 6.0f;
+        e.light_radius = 8.0f;
+        e.light_width = 0.5f;
+        std::snprintf(e.name, sizeof e.name, "disk_isik");
+        break;
+      case 19: // Işık Hüzmeli Güneş (Sun + God Rays)
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Directional;
+        e.light_color = Vec3{1.0f, 0.94f, 0.82f};
+        e.light_intensity = 3.5f;
+        e.light_godray = true;
+        e.light_godray_intensity = 1.5f;
+        e.rot_deg = Vec3{35.0f, -45.0f, 0.0f};
+        std::snprintf(e.name, sizeof e.name, "gunes_godrays");
+        st.scene.godrays_enabled = true;
+        st.scene.godray_density = 0.9f;
+        st.scene.godray_weight = 0.6f;
+        st.scene.godray_decay = 0.96f;
+        st.scene.godray_exposure = 0.35f;
+        st.dirty = true;
+        break;
+      case 63: // Hacimsel Spot Işık (Volumetric Spotlight)
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Spot;
+        e.light_color = Vec3{0.95f, 0.92f, 1.0f};
+        e.light_intensity = 8.0f;
+        e.light_radius = 20.0f;
+        e.light_spot_inner = 18.0f;
+        e.light_spot_outer = 32.0f;
+        e.light_godray = true;
+        e.light_godray_intensity = 2.0f;
+        e.pos = Vec3{0.0f, 5.0f, 0.0f};
+        e.rot_deg = Vec3{60.0f, 0.0f, 0.0f};
+        std::snprintf(e.name, sizeof e.name, "hacimsel_spot");
+        st.scene.godrays_enabled = true;
+        st.dirty = true;
+        break;
+      case 64: // Işık Hüzmesi (God Ray Shafts)
+        e.components = content::kSceneLight;
+        e.light_type = content::SceneLightType::Directional;
+        e.light_color = Vec3{1.0f, 0.92f, 0.78f};
+        e.light_intensity = 4.0f;
+        e.light_godray = true;
+        e.light_godray_intensity = 2.0f;
+        e.rot_deg = Vec3{30.0f, -30.0f, 0.0f};
+        std::snprintf(e.name, sizeof e.name, "isik_huzmesi");
+        st.scene.godrays_enabled = true;
+        st.scene.godray_density = 1.0f;
+        st.scene.godray_weight = 0.65f;
+        st.scene.godray_decay = 0.97f;
+        st.scene.godray_exposure = 0.4f;
+        st.dirty = true;
         break;
       // --- Ilkel (prosedurel) geometriler ---------------------------------
-      // Bu kodlar kCreate3D menusunde ZATEN vardi ama buraya hic ulasmiyordu:
-      // cagiran `tb <= 14` ile kesiyordu ve switch de 14'te bitiyordu. Yani
-      // Kapsul/Silindir/Koni/Dortgen/Simit tiklandiginda HICBIR SEY olmuyordu
-      // (menude gorunur, tiklanir, sonuc yok).
-      //
-      // glTF kaynagi ARANMAZ: geometri motorun kendi ureteclerinden gelir
-      // (content/primitives.hpp), bu yuzden asset = -1 ve primitive = kind.
-      // Yuva numaralari menu kodlariyla AYNI secildi, arada esleme tablosu yok.
       case content::kPrimCapsule:  // Kapsül
       case content::kPrimCylinder: // Silindir
       case content::kPrimCone:     // Koni
@@ -1202,6 +1341,214 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         e.primitive = kind;
         e.asset = -1;
         break;
+      case 30: // Karakter Kontrolcüsü
+        e.components = content::kSceneCharacter | content::kSceneBody;
+        e.shape = content::SceneShape::Box;
+        e.half = Vec3{0.4f, 0.9f, 0.4f};
+        e.dynamic = true;
+        e.char_radius = 0.4f;
+        e.char_height = 1.8f;
+        e.char_mass = 75.0f;
+        e.char_max_slope = 45.0f;
+        break;
+      case 31: // Prosedürel Arazi (Terrain)
+        e.components = content::kSceneTerrain;
+        e.terrain_width = 64.0f;
+        e.terrain_height = 64.0f;
+        e.terrain_cell = 1.0f;
+        e.terrain_amp = 15.0f;
+        e.terrain_freq = 0.03f;
+        e.terrain_octaves = 4;
+        std::snprintf(e.name, sizeof e.name, "prosedurel_arazi");
+        break;
+      case 32: // Su (Gerstner)
+        e.components = content::kSceneWater;
+        e.wave_length = 8.0f;
+        e.wave_amplitude = 0.4f;
+        e.wave_speed = 1.2f;
+        e.wave_steepness = 0.3f;
+        e.wave_direction = Vec2{1.0f, 0.0f};
+        std::snprintf(e.name, sizeof e.name, "dinamik_su");
+        break;
+      case 33: // Voksel
+        e.components = content::kSceneVoxel;
+        e.voxel_size_x = 16;
+        e.voxel_size_y = 16;
+        e.voxel_size_z = 16;
+        e.voxel_cell = 0.5f;
+        break;
+      case 34: // Rüzgar
+        e.components = content::kSceneWind;
+        e.wind_strength = 5.0f;
+        e.wind_direction = Vec2{1.0f, 0.0f};
+        e.wind_gustiness = 0.5f;
+        e.wind_gust_freq = 1.0f;
+        break;
+      case 35: // Partikül: Yangın & Ateş (Fire & Embers)
+        e.components = content::kSceneParticle;
+        e.particle_spawn_rate = 60.0f;
+        e.particle_lifetime_min = 0.8f;
+        e.particle_lifetime_max = 1.8f;
+        e.particle_size_start = 0.25f;
+        e.particle_size_end = 0.02f;
+        e.particle_velocity = Vec3{0.0f, 3.0f, 0.0f};
+        e.particle_jitter = Vec3{0.4f, 0.8f, 0.4f};
+        e.particle_color_start = Vec3{1.0f, 0.65f, 0.1f};
+        e.particle_color_end = Vec3{0.3f, 0.1f, 0.05f};
+        e.particle_gravity = 0.5f;
+        e.particle_billboard_type = 0;
+        std::snprintf(e.name, sizeof e.name, "ates_efekti");
+        break;
+      case 36: // Gökyüzü / Atmosfer (Skybox & Atmosphere)
+        e.components = content::kSceneSkybox;
+        std::snprintf(e.name, sizeof e.name, "gokyuzu_atmosfer");
+        break;
+      case 60: // Partikül: Duman & Toz (Smoke & Dust)
+        e.components = content::kSceneParticle;
+        e.particle_spawn_rate = 25.0f;
+        e.particle_lifetime_min = 2.0f;
+        e.particle_lifetime_max = 4.0f;
+        e.particle_size_start = 0.1f;
+        e.particle_size_end = 0.8f;
+        e.particle_velocity = Vec3{0.1f, 1.2f, 0.0f};
+        e.particle_jitter = Vec3{0.3f, 0.3f, 0.3f};
+        e.particle_color_start = Vec3{0.4f, 0.4f, 0.4f};
+        e.particle_color_end = Vec3{0.1f, 0.1f, 0.1f};
+        e.particle_gravity = 0.2f;
+        e.particle_billboard_type = 0;
+        std::snprintf(e.name, sizeof e.name, "duman_efekti");
+        break;
+      case 61: // Partikül: Kıvılcım & Çarpışma (Sparks)
+        e.components = content::kSceneParticle;
+        e.particle_spawn_rate = 80.0f;
+        e.particle_lifetime_min = 0.4f;
+        e.particle_lifetime_max = 1.0f;
+        e.particle_size_start = 0.08f;
+        e.particle_size_end = 0.01f;
+        e.particle_velocity = Vec3{0.0f, 4.0f, 0.0f};
+        e.particle_jitter = Vec3{3.0f, 2.0f, 3.0f};
+        e.particle_color_start = Vec3{1.0f, 0.9f, 0.4f};
+        e.particle_color_end = Vec3{0.8f, 0.2f, 0.0f};
+        e.particle_gravity = -9.8f;
+        e.particle_billboard_type = 1;
+        std::snprintf(e.name, sizeof e.name, "kivilcim_efekti");
+        break;
+      case 62: // Partikül: Yağmur & Kar (Precipitation)
+        e.components = content::kSceneParticle;
+        e.particle_spawn_rate = 120.0f;
+        e.particle_lifetime_min = 1.5f;
+        e.particle_lifetime_max = 2.5f;
+        e.particle_size_start = 0.05f;
+        e.particle_size_end = 0.05f;
+        e.particle_velocity = Vec3{0.5f, -8.0f, 0.0f};
+        e.particle_jitter = Vec3{5.0f, 0.5f, 5.0f};
+        e.particle_color_start = Vec3{0.7f, 0.8f, 1.0f};
+        e.particle_color_end = Vec3{0.5f, 0.6f, 0.8f};
+        e.particle_gravity = -9.8f;
+        e.particle_billboard_type = 1;
+        std::snprintf(e.name, sizeof e.name, "yagmur_efekti");
+        break;
+      case 37: // Yansıma Sondası
+        e.components = content::kSceneRefProbe;
+        e.ref_probe_radius = 20.0f;
+        e.ref_probe_intensity = 1.0f;
+        std::snprintf(e.name, sizeof e.name, "yansima_sondasi");
+        break;
+      case 45: // Işık Hacmi Sondası (Irradiance GI Grid)
+        e.components = content::kSceneRefProbe;
+        e.ref_probe_radius = 15.0f;
+        e.ref_probe_intensity = 1.0f;
+        std::snprintf(e.name, sizeof e.name, "gi_isik_sondasi");
+        break;
+      case 46: // Sis Hacmi (Fog Volume)
+        e.components = content::kSceneReverb;
+        e.reverb_decay = 2.0f;
+        e.reverb_room_size = 1.0f;
+        std::snprintf(e.name, sizeof e.name, "sis_hacmi");
+        break;
+      case 38: // Betik
+        e.components = content::kSceneScript;
+        e.script_enabled = true;
+        std::snprintf(e.script_file, sizeof e.script_file, "main.tpr");
+        break;
+      case 39: // Yapay Zeka Ajanı
+        e.components = content::kSceneNavAgent | content::kSceneBody;
+        e.shape = content::SceneShape::Box;
+        e.half = Vec3{0.3f, 0.8f, 0.3f};
+        e.dynamic = true;
+        e.ai_speed = 3.5f;
+        e.ai_turn_speed = 180.0f;
+        break;
+      case 40: // Can & Zırh (Health)
+        e.components = content::kSceneHealth | content::kSceneBody;
+        e.shape = content::SceneShape::Box;
+        e.half = Vec3{0.5f, 0.5f, 0.5f};
+        e.health_current = 100.0f;
+        e.health_max = 100.0f;
+        break;
+      case 41: // Büyü & Yetenek (GAS)
+        e.components = content::kSceneAbility | content::kSceneHealth | content::kSceneBody;
+        e.shape = content::SceneShape::Box;
+        e.half = Vec3{0.5f, 0.5f, 0.5f};
+        e.health_current = 100.0f;
+        e.health_max = 100.0f;
+        e.ability_id = 1;
+        e.ability_damage = 35.0f;
+        e.ability_range = 15.0f;
+        e.ability_cooldown = 2.5f;
+        break;
+      case 42: // Envanter / Sandık
+        e.components = content::kSceneInventory | content::kSceneBody;
+        e.shape = content::SceneShape::Box;
+        e.half = Vec3{0.5f, 0.4f, 0.4f};
+        break;
+      case 43: // Fizik Eklemi
+        e.components = content::kSceneJoint;
+        e.joint_axis = Vec3{0.0f, 1.0f, 0.0f};
+        e.joint_limit_min = -45.0f;
+        e.joint_limit_max = 45.0f;
+        break;
+      case 44: // Yankı Alanı
+        e.components = content::kSceneReverb;
+        e.reverb_decay = 2.5f;
+        e.reverb_room_size = 0.7f;
+        std::snprintf(e.name, sizeof e.name, "yanki_alani");
+        break;
+      case 50: { // Şablon: Fizik Deney Odası
+        e.components = content::kSceneBody;
+        e.shape = content::SceneShape::Box;
+        e.half = Vec3{15.0f, 0.2f, 15.0f};
+        e.pos = Vec3{0.0f, -0.2f, 0.0f};
+        e.dynamic = false;
+        std::snprintf(e.name, sizeof e.name, "fizik_zemin");
+        break;
+      }
+      case 51: { // Şablon: Doğa Paketi
+        e.components = content::kSceneTerrain | content::kSceneWater | content::kSceneSkybox;
+        e.terrain_width = 64.0f;
+        e.terrain_height = 64.0f;
+        e.terrain_cell = 1.0f;
+        e.terrain_amp = 12.0f;
+        e.terrain_freq = 0.03f;
+        e.wave_length = 10.0f;
+        e.wave_amplitude = 0.3f;
+        std::snprintf(e.name, sizeof e.name, "doga_paketi");
+        break;
+      }
+      case 52: { // Şablon: RPG Sahnesi
+        e.components = content::kSceneCharacter | content::kSceneHealth | content::kSceneAbility | content::kSceneInventory;
+        e.char_radius = 0.4f;
+        e.char_height = 1.8f;
+        e.char_mass = 75.0f;
+        e.health_current = 100.0f;
+        e.health_max = 100.0f;
+        e.ability_id = 1;
+        e.ability_damage = 40.0f;
+        e.ability_range = 12.0f;
+        e.ability_cooldown = 2.0f;
+        std::snprintf(e.name, sizeof e.name, "kahraman_rpg");
+        break;
+      }
       default:
         if (kind == 2 || (kind == 0 && st.scene.asset_count)) { e.components = content::kSceneModel; e.asset = st.scene.asset_count ? 0 : -1; }
         if (kind == 3) e.components = content::kSceneLight;
@@ -1343,6 +1690,23 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       break;
     }
+    case HierarchyAction::Focus: {
+      st.sel.set_single(i);
+      static content::SceneBounds fb[content::kSceneMaxEntities];
+      const uint32_t nb = entity_world_bounds(st, phys, fb);
+      if ((uint32_t)i < nb) camera_focus(cam, fb[i]);
+      break;
+    }
+    case HierarchyAction::CreateChild: {
+      do_add(1);
+      if (st.scene.entity_count > 0) {
+        const uint32_t new_child = st.scene.entity_count - 1;
+        with_bodies(st, phys, [&] { st.hist.reparent(st.scene, new_child, i); });
+        st.sel.set_single(new_child);
+        st.tree.collapse.set(i, false);
+      }
+      break;
+    }
     }
   };
   // Kaynak tarayicidan ekleme: kaynak sahneye (varsa mevcut indeks) + o kaynakla
@@ -1387,6 +1751,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   } cc{&st,      &gizmo_op, &cam,     &phys,     &do_save, &do_compile,      &do_undo,         &do_redo,     &do_add,     &do_remove,
        &set_playing, &do_cut,   &do_copy, &do_paste,    &do_new_guarded,  &do_open_guarded, &do_save_as, &show_console, host};
   CommandTable cmds;
+  PaletteState palette_st;
   cmds.bind(CommandId::FileNew, [](void *c) { (*static_cast<CmdCtx *>(c)->newscene)(); }, &cc);
   cmds.bind(CommandId::FileOpen, [](void *c) { (*static_cast<CmdCtx *>(c)->open)(); }, &cc);
   cmds.bind(CommandId::FileSave, [](void *c) { (*static_cast<CmdCtx *>(c)->save)(); }, &cc);
@@ -1662,6 +2027,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     const InputGuards guards{ui.wants_text_input(), ui.wants_keyboard()};
     commands_poll_imgui(cmds, guards);
     if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) show_stats = !show_stats;
+    if ((ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_P, false)) ||
+        (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_K, false))) {
+      palette_toggle(palette_st);
+    }
     // --- CERCEVE: menu / arac / durum cubugu (editor_chrome.hpp; sira sozlesmesi
     // orada: uc cubuk da ana viewport'un WorkRect'ini daraltir, dockspace tam
     // aralarina oturur — ImGui daraltmayi bir kare gecikmeli uygular).
@@ -1832,11 +2201,20 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
       const bool stats_btn_active = show_stats;
       if (stats_btn_active) {
-        ImGui::PushStyleColor(ImGuiCol_Button, tone_col(Tone::Accent));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+        ImGui::PushStyleColor(ImGuiCol_Button, tone_col(Tone::Accent, 0.35f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone_col(Tone::Accent, 0.45f));
+        ImGui::PushStyleColor(ImGuiCol_Text, tone_col(Tone::AccentHi));
+      } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, tone_col(Tone::Bg2));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone_col(Tone::Bg3));
+        ImGui::PushStyleColor(ImGuiCol_Text, tone_col(Tone::TextDim));
       }
+      // Simge main'den (ICON_MD_*): PR #7'nin U+1F4CA emojisi ne DejaVuSans'ta
+      // ne Material Icons'ta var, tofu kutusu cizerdi (tools/icon_check.py).
+      // Pop sayisi PR #7'den ve DOGRU olan o: ustteki blok her iki dalda da
+      // UC renk itiyor, main'in kosullu "2" pop'u burada yigin sizdirirdi.
       if (ImGui::Button( ICON_MD_BAR_CHART " Stats")) show_stats = !show_stats;
-      if (stats_btn_active) ImGui::PopStyleColor(2);
+      ImGui::PopStyleColor(3);
       if (ImGui::IsItemHovered()) ImGui::SetTooltip("İstatistikler Panelini Aç / Kapat (FPS, Poligon, Bellek, Çöp)");
 
       ImGui::SameLine();
@@ -1957,6 +2335,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             ImGui::EndDragDropTarget();
           }
 
+          // --- ImGuizmo'yu BU pencereye bagla ---------------------------------
+          // ImGuizmo, fare kendi uzerinde mi diye IsHoveringWindow() ile bakar ve
+          // o da mDrawList'in SAHIBI pencereyi sorar. BeginFrame() bunu kendi
+          // tam ekran "gizmo" penceresine kurar; fare ise Gorunum panelinin
+          // uzerindedir. O yuzden IsHoveringWindow() su dala duser:
+          //     if (g.HoveredWindow != NULL) return false;   // baska pencere
+          // -> mbMouseOver = false -> GetMoveType() MT_NONE -> IsOver() HEP false,
+          // gizmo tiklamayi HIC almaz. Cizim listesini bu pencereye almak
+          // sahiplik sorusunu dogru yanitlatir (ayrica gizmo panelin kirpma
+          // dikdortgenine girer, panel disina tasmaz).
+          //
+          // SetRect de burada: Gorunum penceresinin EKRAN koordinatlari, ImGui'nin
+          // io.MousePos ile ayni uzayda.
+          ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+          ImGuizmo::SetRect(origin.x + offset_x, origin.y + offset_y, (float)vp.width(), (float)vp.height());
+
           if (view_tab == ViewportTab::Scene) {
             OverlayInfo oi;
             const Mat4 vm = camera_view(cam);
@@ -1967,7 +2361,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             oi.gizmo_op = gizmo_op;
             oi.gizmos_visible = st.gizmos.light_radius || st.gizmos.light_glyph || st.gizmos.shadow_volume || st.gizmos.sun_dir || st.gizmos.camera_frustum;
             oi.playing = st.playing;
-            oi.hovered = view_hovered;
+            oi.hovered = view_hovered && !st.gizmo_was_over && !st.gizmo_was_using;
             oi.focused = ImGui::IsWindowFocused();
             oi.frame_ms = dt * 1000.0f;
             oi.draw_calls = ren.stats().draws;
@@ -1996,6 +2390,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (ovres.gizmo_space_toggled) gizmo_space = gizmo_space == GizmoSpace::World ? GizmoSpace::Local : GizmoSpace::World;
 
     if (ImGui::Begin(kPanelSahneLabel)) {
+      st.tree.hovered_index = -1;
+      // "Sahne" sekmesine / basligina sag tiklandiginda menuyu ac:
+      if (ImGui::IsItemHovered() && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Right))) {
+        ImGui::OpenPopup("SahnePanelMenu");
+      }
       const int tb = hierarchy_toolbar(st.scene.entity_count, st.sel.count > 0);
       if (tb == 100) do_remove();
       // UST SINIR YOK. Burada `tb <= 14` yaziyordu ve kCreate3D menusunun
@@ -2074,6 +2473,26 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       ImGuiMultiSelectIO *ms_io = ImGui::BeginMultiSelect(
           ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_NoSelectAll, (int)st.sel.count, (int)st.scene.entity_count);
       ms_ext.ApplyRequests(ms_io); // satirlar CIZILMEDEN once: "hepsini temizle/sec"
+
+      // Sahne Kök Başlığı (Prowl / Unity Scene Root Header)
+      const bool scene_active = (st.sel.count == 0);
+      ImGui::PushStyleColor(ImGuiCol_Header, scene_active ? tone(Tone::Accent, 0.28f) : tone(Tone::Bg2, 0.40f));
+      ImGui::PushStyleColor(ImGuiCol_HeaderHovered, tone(Tone::Accent, 0.38f));
+      const char *scn_raw = st.scene_path[0] ? st.scene_path : "editor.sahne";
+      const char *sl = std::strrchr(scn_raw, '/');
+      if (!sl) sl = std::strrchr(scn_raw, '\\');
+      const char *scn_base = sl ? sl + 1 : scn_raw;
+      char scn_hdr[128];
+      std::snprintf(scn_hdr, sizeof scn_hdr, "  \xE2\x97\x8E  %s  (%u varl\xC4\xB1k)", scn_base, st.scene.entity_count);
+      if (ImGui::Selectable(scn_hdr, scene_active, ImGuiSelectableFlags_None, ImVec2(0, ImGui::GetFrameHeight() * 1.15f))) {
+        st.sel.clear(); // Sahne secilince varlik secimi kalkar ve Mufettis'te Dunya/Sahne ayarlari gorunur
+      }
+      ImGui::PopStyleColor(2);
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Sahne K\xC3\xB6k\xC3\xBC: T\xC4\xB1klayarak D\xC3\xBCnya ve Atmosfer ayarlar\xC4\xB1n\xC4\xB1 M\xC3\xBC" "fetti\xC5\x9F'te a\xC3\xA7\xC4\xB1n");
+      }
+      ImGui::Separator();
+
       for (uint32_t k = 0; k < n; k++) {
         const uint32_t i = (uint32_t)order[k];
         if (i >= st.scene.entity_count) continue;
@@ -2112,9 +2531,238 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (shown == 0)
         hierarchy_empty(st.scene.entity_count ? "S\xC3\xBCzge\xC3\xA7le e\xC5\x9Fle\xC5\x9F" "en varl\xC4\xB1k yok"
                                               : "Sahne bo\xC5\x9F \xE2\x80\x94 \xE2\x80\x9C+\xE2\x80\x9D ile varl\xC4\xB1k ekle");
-      // Listenin altindaki bosluk: buraya birakmak KOKE tasir.
+      // Listenin altindaki bosluk: buraya birakmak KOKE tasir, sag tiklamak SahnePanelMenu acar.
       const HierarchyResult zone = hierarchy_root_drop_zone(&st.tree);
       if (zone.action != HierarchyAction::None) act = zone;
+
+      // Sahne panelinin bos alanina / arka planina sag tiklandiginda (eger bir varlik satiri uzerinde degilsek) menuyu ac:
+      if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) &&
+          (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Right)) &&
+          st.tree.hovered_index < 0) {
+        ImGui::OpenPopup("SahnePanelMenu");
+      }
+
+      if (ImGui::BeginPopup("SahnePanelMenu")) {
+        // --- 1. YENİ VARLIK EKLE ---
+        if (ImGui::BeginMenu(ICON_MD_ADD "  Yeni Varl\xC4\xB1k Ekle...")) {
+          if (ImGui::MenuItem("\xE2\x97\x8B  Bo\xC5\x9F Varl\xC4\xB1k")) do_add(1);
+          if (ImGui::MenuItem("\xE2\x97\x86  Model (glTF)")) do_add(2);
+          if (ImGui::MenuItem("\xE2\x86\xBB  Animasyonlu Model")) do_add(9);
+          ImGui::Separator();
+          if (ImGui::BeginMenu("\xE2\x97\xBC  3B Nesneler (Primitives)")) {
+            if (ImGui::MenuItem("\xE2\x97\xBC  K\xC3\xBCp")) do_add(10);
+            if (ImGui::MenuItem("\xE2\x97\x8F  K\xC3\xBCre")) do_add(11);
+            if (ImGui::MenuItem("\xE2\x97\xBC  Kaps\xC3\xBCl")) do_add(content::kPrimCapsule);
+            if (ImGui::MenuItem("\xE2\x97\xBC  Silindir")) do_add(content::kPrimCylinder);
+            if (ImGui::MenuItem("\xE2\x97\xBC  Koni")) do_add(content::kPrimCone);
+            if (ImGui::MenuItem("\xE2\x96\xAC  D\xC3\xBCzlem / Zemin")) do_add(8);
+            if (ImGui::MenuItem("\xE2\x96\xAC  D\xC3\xB6rtgen (Quad)")) do_add(content::kPrimQuad);
+            if (ImGui::MenuItem("\xE2\x97\xBC  Simit (Torus)")) do_add(content::kPrimTorus);
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("\xE2\x98\x80  I\xC5\x9F\xC4\xB1k & Ayd\xC4\xB1nlatma")) {
+            if (ImGui::MenuItem("\xE2\x98\x80  Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F (Directional)")) do_add(14);
+            if (ImGui::MenuItem(ICON_MD_WB_SUNNY "  I\xC5\x9F\xC4\xB1k H\xC3\xBCzmeli G\xC3\xBCne\xC5\x9F (Sun + God Rays)")) do_add(19);
+            if (ImGui::MenuItem("\xE2\x97\x8F  Nokta I\xC5\x9F\xC4\xB1k (Point)")) do_add(3);
+            if (ImGui::MenuItem("\xE2\x86\x98  Spot I\xC5\x9F\xC4\xB1k (Spot Koni)")) do_add(15);
+            if (ImGui::MenuItem(ICON_MD_FLASHLIGHT_ON "  Hacimsel Spot I\xC5\x9F\xC4\xB1k (Volumetric)")) do_add(63);
+            if (ImGui::MenuItem(ICON_MD_AUTO_AWESOME "  I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi (God Rays Shafts)")) do_add(64);
+            ImGui::Separator();
+            if (ImGui::MenuItem("\xE2\x96\xAD  Alan / Dikd\xC3\xB6rtgen (Rect LTC)")) do_add(16);
+            if (ImGui::MenuItem("\xE2\x95\x90  T\xC3\xBCp / Kaps\xC3\xBCl I\xC5\x9F\xC4\xB1k")) do_add(17);
+            if (ImGui::MenuItem("\xE2\x97\x89  Disk I\xC5\x9F\xC4\xB1k")) do_add(18);
+            ImGui::EndMenu();
+          }
+          if (ImGui::MenuItem("\xE2\x98\x81  G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)")) do_add(36);
+          if (ImGui::MenuItem("\xE2\x96\xB2  Prosed\xC3\xBCrel Arazi (Terrain)")) do_add(31);
+          if (ImGui::MenuItem("\xE2\x89\x88  Dinamik Su (Ocean / Water)")) do_add(32);
+          ImGui::Separator();
+          if (ImGui::BeginMenu("\xE2\x97\x89  \xC3\x87" "evre Hacimleri (Volumes)")) {
+            if (ImGui::MenuItem("\xE2\x97\x89  Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)")) do_add(37);
+            if (ImGui::MenuItem("\xE2\x97\x87  I\xC5\x9F\xC4\xB1k Hacmi Sondas\xC4\xB1 (GI Grid)")) do_add(45);
+            if (ImGui::MenuItem("\xE2\x96\xA8  Hacimsel Sis Hacmi (Fog Volume)")) do_add(46);
+            if (ImGui::MenuItem("\xE2\x97\x8E  Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)")) do_add(44);
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("\xE2\x96\xB2  Do\xC4\x9F" "a & Zemin Akt\xC3\xB6rleri")) {
+            if (ImGui::MenuItem("\xE2\x96\xB2  Prosed\xC3\xBCrel Arazi (Terrain)")) do_add(31);
+            if (ImGui::MenuItem("\xE2\x89\x88  Dinamik Su (Gerstner)")) do_add(32);
+            if (ImGui::MenuItem("\xE2\x96\xA6  Voksel D\xC3\xBCnyas\xC4\xB1")) do_add(33);
+            if (ImGui::MenuItem("\xE2\x86\xAF  R\xC3\xBCzgar Alan\xC4\xB1")) do_add(34);
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("\xE2\x88\xB4  G\xC3\xB6rsel Efektler (VFX)")) {
+            if (ImGui::MenuItem("\xE2\x9A\xA1  Yang\xC4\xB1n & Ate\xC5\x9F (Fire & Embers)")) do_add(35);
+            if (ImGui::MenuItem("\xE2\x96\x91  Duman & Toz (Smoke & Dust)")) do_add(60);
+            if (ImGui::MenuItem("\xE2\x9A\xA1  K\xC4\xB1v\xC4\xB1lc\xC4\xB1m & \xC3\x87" "arp\xC4\xB1\xC5\x9Fma (Sparks)")) do_add(61);
+            if (ImGui::MenuItem("\xE2\x98\x94  Ya\xC4\x9Fmur & Kar (Precipitation)")) do_add(62);
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("\xE2\x97\xBC  Fizik Nesneleri")) {
+            if (ImGui::MenuItem("\xE2\x96\xA1  Sabit Kutu G\xC3\xB6vde")) do_add(4);
+            if (ImGui::MenuItem("\xE2\x97\x8B  Sabit K\xC3\xBCre G\xC3\xB6vde")) do_add(5);
+            if (ImGui::MenuItem("\xE2\x96\xA7  Dinamik Kutu G\xC3\xB6vde")) do_add(6);
+            if (ImGui::MenuItem("\xE2\x97\x8D  Dinamik K\xC3\xBCre G\xC3\xB6vde")) do_add(7);
+            if (ImGui::MenuItem("\xE2\x8A\x99  Karakter Kontrolc\xC3\xBC")) do_add(30);
+            if (ImGui::MenuItem("\xE2\x88\x9E  Fizik Eklemi (Joint)")) do_add(43);
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("\xE2\x9A\x94  Oynan\xC4\xB1\xC5\x9F & RPG")) {
+            if (ImGui::MenuItem("\xE2\x99\xA5  Can & Z\xC4\xB1rh Varl\xC4\xB1\xC4\x9F\xC4\xB1")) do_add(40);
+            if (ImGui::MenuItem("\xE2\x9A\x94  B\xC3\xBCy\xC3\xBC / Yetenek Varl\xC4\xB1\xC4\x9F\xC4\xB1 (GAS)")) do_add(41);
+            if (ImGui::MenuItem("\xE2\x96\xA3  Sand\xC4\xB1k / Envanter (Inventory)")) do_add(42);
+            if (ImGui::MenuItem("\xE2\x86\x92  Yapay Zeka Ajan\xC4\xB1 (NavAgent)")) do_add(39);
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("\xE2\x99\xAA  Ses & Akustik")) {
+            if (ImGui::MenuItem("\xE2\x99\xAA  3B Ses Kayna\xC4\x9F\xC4\xB1")) do_add(13);
+            if (ImGui::MenuItem("\xE2\x97\x8E  Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)")) do_add(44);
+            ImGui::EndMenu();
+          }
+          if (ImGui::MenuItem("\xE2\x96\xA3  Kamera Varl\xC4\xB1\xC4\x9F\xC4\xB1")) do_add(12);
+          if (ImGui::MenuItem("\xE2\x96\xA4  Tulpar Betik Nesnesi")) do_add(38);
+          ImGui::EndMenu();
+        }
+
+        // --- 2. HIZLI DEVRİMSEL ŞABLONLAR ---
+        if (ImGui::BeginMenu("\xE2\x9A\xA1  H\xC4\xB1zl\xC4\xB1 \xC5\x9E" "ablonlar (Haz\xC4\xB1r Kurulum)")) {
+          if (ImGui::MenuItem(ICON_MD_SCIENCE "  Fizik Test Odas\xC4\xB1 (Zemin + D\xC3\xBC\xC5\x9F" "enler)")) do_add(50);
+          if (ImGui::MenuItem(ICON_MD_LANDSCAPE "  Do\xC4\x9F" "a Paketi (G\xC3\xBCne\xC5\x9F + Skybox + Arazi + Su)")) do_add(51);
+          if (ImGui::MenuItem("\xE2\x9A\x94  RPG Sahnesi (Karakter + Yetenek + Sand\xC4\xB1k)")) do_add(52);
+          ImGui::EndMenu();
+        }
+
+        // --- 2.5 YEREL PREFAB İŞLEMLERİ (O3DE / Prowl Modeli) ---
+        if (ImGui::BeginMenu(ICON_MD_WIDGETS "  Prefab \xC4\xB0\xC5\x9Flemleri")) {
+          // PR #7 burada kendi tek-varlikli `.prefab` bicimini cagiriyordu ve
+          // yukleme yolu SABIT KODLUYDU ("SokakLambasi.prefab" / "Varlik.prefab"):
+          // baska adli bir prefab acilamazdi. Iki oge de main'in dosya diyalogu
+          // akisina baglandi -- alt agac cikarma, kaynak yeniden esleme,
+          // hepsi-ya-da-hicbiri ekleme ve TEK Ctrl+Z ile geri alma oradan gelir
+          // (bkz. content/prefab.hpp).
+          if (ImGui::MenuItem(ICON_MD_SAVE "  Se\xC3\xA7ili Varl\xC4\xB1\xC4\x9F\xC4\xB1 Prefab Kaydet", nullptr, false, st.sel.count > 0)) {
+            const int32_t s0 = st.sel.primary();
+            if (s0 >= 0 && s0 < (int32_t)st.scene.entity_count) {
+              prefab_root = s0;
+              dlg_intent = IntentPrefabSave;
+              file_dialog_open(dlg, FileDialogMode::Kaydet, st.scene_dir, ".prefab", "Prefab kaydet");
+            }
+          }
+          if (ImGui::MenuItem(ICON_MD_FOLDER_OPEN "  Prefab Y\xC3\xBCkle ve Sahneye Ekle...")) {
+            dlg_intent = IntentPrefabLoad;
+            file_dialog_open(dlg, FileDialogMode::Ac, st.scene_dir, ".prefab", "Prefab ekle");
+          }
+          ImGui::EndMenu();
+        }
+
+        ImGui::Separator();
+
+        // --- 3. DÜZENLEME & SEÇİM ---
+        const bool has_sel = st.sel.count > 0;
+        if (ImGui::MenuItem("Kes", "Ctrl+X", false, has_sel)) do_cut();
+        if (ImGui::MenuItem("Kopyala", "Ctrl+C", false, has_sel)) do_copy();
+        if (ImGui::MenuItem("Yap\xC4\xB1\xC5\x9Ft\xC4\xB1r", "Ctrl+V", false, st.clip_count > 0)) do_paste();
+        if (ImGui::MenuItem("\xC3\x87o\xC4\x9F" "alt", "Ctrl+D", false, has_sel)) do_add(0);
+        if (ImGui::MenuItem("Sil", "Del", false, has_sel)) do_remove();
+
+        ImGui::Separator();
+
+        if (ImGui::MenuItem("Se\xC3\xA7ime Odaklan (Focus)", "F", false, has_sel)) {
+          const int32_t s0 = st.sel.primary();
+          if (s0 >= 0 && s0 < (int32_t)st.scene.entity_count) {
+            cam.target = st.scene.entities[s0].pos;
+          }
+        }
+        if (ImGui::MenuItem("T\xC3\xBCm\xC3\xBCn\xC3\xBC Se\xC3\xA7", "Ctrl+A", false, st.scene.entity_count > 0)) {
+          st.sel.clear();
+          for (uint32_t k = st.scene.entity_count; k > 0; k--) st.sel.toggle((int32_t)(k - 1));
+        }
+        if (ImGui::MenuItem("Se\xC3\xA7imi Kald\xC4\xB1r", "Esc", false, has_sel)) {
+          st.sel.clear();
+        }
+
+        ImGui::Separator();
+
+        // --- 4. SROS & SAHNE ONARIM / OPTİMİZASYON ---
+        if (ImGui::BeginMenu(ICON_MD_BUILD "  SROS \xE2\x80\x94 Sahne Onar\xC4\xB1m ve Bak\xC4\xB1m")) {
+          if (ImGui::MenuItem("\xE2\x9A\xA1  Hatal\xC4\xB1 / S\xC4\xB1" "f\xC4\xB1r \xC3\x96l\xC3\xA7" "ekleri D\xC3\xBCzelt")) {
+            uint32_t fixed = 0;
+            for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+              SceneEntity &e = st.scene.entities[i];
+              if (e.scale.x <= 0.001f || e.scale.y <= 0.001f || e.scale.z <= 0.001f) {
+                e.scale = {1.0f, 1.0f, 1.0f};
+                fixed++;
+              }
+            }
+            if (fixed) { st.dirty = true; set_status(st, "SROS: %u varligin olcegi duzeltildi", fixed); }
+            else set_status(st, "SROS: Olcekler saglikli");
+          }
+          if (ImGui::MenuItem(ICON_MD_SHIELD "  Modellere Otomatik Collider Ekle")) {
+            uint32_t added = 0;
+            for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+              SceneEntity &e = st.scene.entities[i];
+              if ((e.components & content::kSceneModel) && !(e.components & content::kSceneBody)) {
+                e.components |= content::kSceneBody;
+                e.shape = content::SceneShape::Box;
+                e.half = {0.5f, 0.5f, 0.5f};
+                e.dynamic = false;
+                added++;
+              }
+            }
+            if (added) { st.dirty = true; set_status(st, "SROS: %u modele govde eklendi", added); }
+            else set_status(st, "SROS: Tum modeller zaten carpisana sahip");
+          }
+          if (ImGui::MenuItem("\xE2\x98\x80  S\xC3\xB6n\xC3\xBCk I\xC5\x9F\xC4\xB1klar\xC4\xB1 D\xC3\xBCzelt")) {
+            uint32_t lfix = 0;
+            for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+              SceneEntity &e = st.scene.entities[i];
+              if (e.components & content::kSceneLight) {
+                if (e.light_intensity <= 0.01f) { e.light_intensity = 2.0f; lfix++; }
+                if (e.light_radius <= 0.1f) { e.light_radius = 8.0f; lfix++; }
+              }
+            }
+            if (lfix) { st.dirty = true; set_status(st, "SROS: %u isik duzeltildi", lfix); }
+            else set_status(st, "SROS: Isiklar saglikli");
+          }
+          if (ImGui::MenuItem(ICON_MD_AUTO_FIX_HIGH "  T\xC3\xBCm Sahneyi Otomatik Onar (Quick Fix)")) {
+            uint32_t ops = 0;
+            for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+              SceneEntity &e = st.scene.entities[i];
+              if (e.scale.x <= 0.001f || e.scale.y <= 0.001f || e.scale.z <= 0.001f) {
+                e.scale = {1.0f, 1.0f, 1.0f}; ops++;
+              }
+              if ((e.components & content::kSceneModel) && !(e.components & content::kSceneBody)) {
+                e.components |= content::kSceneBody;
+                e.shape = content::SceneShape::Box;
+                e.half = {0.5f, 0.5f, 0.5f};
+                e.dynamic = false;
+                ops++;
+              }
+              if (e.components & content::kSceneLight) {
+                if (e.light_intensity <= 0.01f) { e.light_intensity = 2.0f; ops++; }
+                if (e.light_radius <= 0.1f) { e.light_radius = 8.0f; ops++; }
+              }
+            }
+            if (ops) { st.dirty = true; set_status(st, "SROS: Sahne genelinde %u sorun onarildi!", ops); }
+            else set_status(st, "SROS: Sahne 100%% saglikli, sorun bulunamadi");
+          }
+          ImGui::EndMenu();
+        }
+
+        // --- 5. AĞAÇ GÖRÜNÜMÜ ---
+        if (ImGui::BeginMenu(ICON_MD_FOLDER_OPEN "  G\xC3\xB6r\xC3\xBCn\xC3\xBCm ve Katlama")) {
+          if (ImGui::MenuItem("T\xC3\xBCm Katlamalar\xC4\xB1 A\xC3\xA7")) {
+            st.tree.collapse.clear();
+          }
+          if (ImGui::MenuItem("T\xC3\xBCm Katlamalar\xC4\xB1 Kapat")) {
+            for (uint32_t i = 0; i < st.scene.entity_count; i++) st.tree.collapse.set(i, true);
+          }
+          ImGui::EndMenu();
+        }
+
+        ImGui::EndPopup();
+      }
+      
       // F2: secili varligin adini YERINDE duzenle (panel odakliyken).
       if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && ImGui::IsKeyPressed(ImGuiKey_F2)) {
         const int32_t s0 = st.sel.primary();
@@ -2123,454 +2771,71 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       apply_hierarchy(act);
     }
     ImGui::End();
-    if (ImGui::Begin(kPanelOzelliklerLabel)) {
-      const int si = (int)st.sel.primary();
-      static int32_t last_inspected = -1;
-      if (last_inspected != si) {
-        st.edit_active = false;
-        last_inspected = si;
-      }
-      if (si >= 0 && si < (int)st.scene.entity_count) {
-        SceneEntity &e = st.scene.entities[si];
-        const bool has_m = (e.components & content::kSceneModel) != 0, has_l = (e.components & content::kSceneLight) != 0,
-                   has_b = (e.components & content::kSceneBody) != 0, has_a = (e.components & content::kSceneAnim) != 0,
-                   has_c = (e.components & content::kSceneCamera) != 0, has_s = (e.components & content::kSceneAudio) != 0,
-                   has_sc = (e.components & content::kSceneScript) != 0;
-        // Simgeler editor_widgets.cpp'nin menu tablolariyla BIREBIR ayni:
-        // menude bir sey gorup mufettiste baskasini gormek olmasin. Kamera /
-        // ses / betik ikon fontundan (Material Icons), otekiler metin
-        // fontunda gercekten bulunan kod noktalarindan. Emoji (U+1F3A5,
-        // U+1F50A, U+1F4DC) HIC kullanilmaz: iki fontta da yok, tofu cizer.
-        const char *icon = has_l ? "\xE2\x98\x80" : has_m ? "\xE2\x97\x86" : has_b ? "\xE2\x97\xBC" : has_c ? ICON_MD_VIDEOCAM : has_s ? ICON_MD_VOLUME_UP : has_sc ? ICON_MD_DESCRIPTION : "\xE2\x97\x8B";
-        const Tone icon_tone = has_l ? Tone::Warn : has_m ? Tone::Text : has_b ? Tone::AxisZ : has_c ? Tone::Accent : Tone::TextDim;
-        // Bilesen SAYISI MASKEDEN sayilir, yedi bayrak toplanarak degil: elle
-        // toplanan liste yeni bir bilesen eklendiginde sessizce eskiyordu
-        // (varliga arazi + su takiliyken baslik yine "0 bilesen" diyordu).
-        unsigned comp_n = 0;
-        for (uint32_t bits = e.components & content::kSceneComponentMask; bits; bits &= bits - 1) comp_n++;
-        char sub[96];
-        // Coklu secimde alanlar ana secilide DUZENLENIR ama degisiklik
-        // secimdeki digerlerine de YAYILIR (propagate_selection_edit).
-        if (st.sel.count > 1) std::snprintf(sub, sizeof sub, "%u nesne birlikte d\xC3\xBCzenleniyor \xC2\xB7 alanlar ana se\xC3\xA7iliden", st.sel.count);
-        else std::snprintf(sub, sizeof sub, "%u bile\xC5\x9F""en%s%s", comp_n,
-                           has_b ? (e.shape == content::SceneShape::Box ? " \xC2\xB7 kutu g\xC3\xB6vde" : " \xC2\xB7 k\xC3\xBCre g\xC3\xB6vde") : "",
-                           (has_b && e.dynamic) ? " \xC2\xB7 dinamik" : "");
-        track_edit(st, e, si, inspector_title(icon, e.name, sizeof e.name, sub, icon_tone));
-        // Ozellik aramasi (UE5 Details): 18 bilesen x onlarca alan -- aradigini
-        // bulmanin tek yolu. Hiyerarsinin arama kutusu yeniden kullanilir (ayni
-        // gorunum, ayni Turkce katlamali esleme). Filtre panelin SONUNDA
-        // temizlenir (component_add_button'un ustunde prop_set_filter(nullptr)).
-        hierarchy_search(st.prop_filter, sizeof st.prop_filter);
-        prop_set_filter(st.prop_filter);
-
-        section_label("D\xC3\x96N\xC3\x9C\xC5\x9E\xC3\x9CM");
-        if (prop_begin("donusum")) {
-          track_edit(st, e, si, prop_vec3("Konum", &e.pos.x, 0.05f));
-          prop_help("Euler derece; uygulama s\xC4\xB1ras\xC4\xB1 T\xC2\xB7Rz\xC2\xB7Ry\xC2\xB7Rx\xC2\xB7S");
-          track_edit(st, e, si, prop_vec3("D\xC3\xB6n\xC3\xBC\xC5\x9F", &e.rot_deg.x, 0.5f, 0, 0, "%.1f\xC2\xB0"));
-          track_edit(st, e, si, prop_vec3("\xC3\x96l\xC3\xA7""ek", &e.scale.x, 0.02f, 0.05f, 20.0f));
-          prop_end();
-        }
-        section_label("B\xC4\xB0LE\xC5\x9E""ENLER");
-        bool rem = false;
-        SceneEntity after = e;
-        if (has_m) {
-          if (component_header("\xE2\x97\x86", "Model", nullptr, &rem, true, Tone::Text)) {
-            if (prop_begin("model")) {
-              // Geometri kaynagi IKI turlu olabilir ve birbirini disar:
-              // ya glTF kaynagi (asset >= 0) ya prosedurel ilkel
-              // (primitive >= 0). Ikisi de dolu olursa scene_runtime ilkeli
-              // secer; secici bu yuzden ONCE sorulur ve secim otekini -1 yapar.
-              int prim_sel = 0;
-              static const int kPrimOf[] = {-1,
-                                            (int)content::kPrimCube,     (int)content::kPrimSphere,
-                                            (int)content::kPrimCapsule,  (int)content::kPrimCylinder,
-                                            (int)content::kPrimCone,     (int)content::kPrimPlane,
-                                            (int)content::kPrimQuad,     (int)content::kPrimTorus};
-              for (int k = 1; k < (int)(sizeof kPrimOf / sizeof kPrimOf[0]); k++)
-                if (e.primitive == kPrimOf[k]) { prim_sel = k; break; }
-              if (prop_combo("Geometri", &prim_sel,
-                             "Kaynaktan\0K\xC3\xBCp\0K\xC3\xBCre\0Kaps\xC3\xBCl\0Silindir\0Koni\0D\xC3\xBCzlem\0D\xC3\xB6rtgen\0Simit\0").changed) {
-                after = e;
-                after.primitive = kPrimOf[prim_sel];
-                if (after.primitive >= 0) after.asset = -1;
-                else if (after.asset < 0 && st.scene.asset_count) after.asset = 0;
-                commit(st, si, after);
-              }
-              if (e.primitive < 0) {
-                if (prop_asset("Kaynak", &after.asset, st.scene.assets, st.scene.asset_count).changed) commit(st, si, after);
-              }
-              track_edit(st, e, si, prop_color("Renk", &e.tint.x));
-              prop_end();
-            }
-            // --- PBR ---------------------------------------------------------
-            // Bu bes alan scene_runtime + renderer tarafindan GERCEKTEN shade
-            // ediliyor ve .sahne'ye yaziliyordu; editorde tek bir kaydirici
-            // yoktu. Isima Faz 0'da post acilana kadar 1.0'a kirpiliyordu, o
-            // yuzden simdi gercekten parliyor.
-            section_label("PBR MALZEME");
-            if (prop_begin("model_pbr")) {
-              prop_help("0 = dielektrik, 1 = metal. Ara degerler fiziksel DEGIL, karisimdir.");
-              track_edit(st, e, si, prop_float("Metaliklik", &e.metallic, 0.01f, 0.0f, 1.0f, "%.2f"));
-              prop_help("0 = ayna, 1 = tamamen mat (glTF gelenegi: varsayilan 1).");
-              track_edit(st, e, si, prop_float("P\xC3\xBCr\xC3\xBCzl\xC3\xBCl\xC3\xBCk", &e.roughness, 0.01f, 0.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Yans\xC4\xB1t\xC4\xB1rl\xC4\xB1k", &e.reflectance, 0.01f, 0.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_color("I\xC5\x9F\xC4\xB1ma rengi", &e.emissive.x));
-              prop_help("1'in uzerinde HDR: parlama (bloom) ancak burada gorunur.");
-              track_edit(st, e, si, prop_float("I\xC5\x9F\xC4\xB1ma \xC5\x9Fiddeti", &e.emissive_strength, 0.05f, 0.0f, 20.0f, "%.2f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneModel; commit(st, si, after); }
-        }
-        if (has_a) {
-          rem = false;
-          if (component_header("\xE2\x86\xBB", "Animasyon", nullptr, &rem, true, Tone::Accent)) {
-            if (prop_begin("anim")) {
-              // clip runtime'da kullaniliyor ama editorde hic ayarlanamiyordu
-              // (do_add her zaman 0 yaziyor). Yuklu modelin klip sayisi bilinir;
-              // bilinmiyorsa 0'da kalir.
-              int clip_i = (int)e.clip;
-              const uint32_t nclip = (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset])
-                                         ? st.models[e.asset].clip_count : 0;
-              if (prop_int("Klip", &clip_i, 0, nclip ? (int)nclip - 1 : 0).changed) {
-                after = e;
-                after.clip = (uint32_t)(clip_i < 0 ? 0 : clip_i);
-                commit(st, si, after);
-              }
-              track_edit(st, e, si, prop_float("Faz", &e.phase, 0.01f, 0.0f, 10.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.speed, 0.01f, 0.0f, 10.0f, "%.2f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneAnim; commit(st, si, after); }
-        }
-        if (has_l) {
-          rem = false;
-          after = e;
-          if (component_header("\xE2\x98\x80", "I\xC5\x9F\xC4\xB1k", nullptr, &rem, true, Tone::Warn)) {
-            if (prop_begin("isik")) {
-              int ltype = (int)e.light_type;
-              // "govde" bileseninin sekil combo'suyla AYNI desen: tur degisince
-              // tek islem olarak gunluge yazilir, alan gorunumu tipe gore degisir.
-              if (prop_combo("T\xC3\xBCr", &ltype, "Nokta\0Y\xC3\xB6nl\xC3\xBC\0").changed) {
-                after.light_type = (content::SceneLightType)ltype;
-                commit(st, si, after);
-              }
-              track_edit(st, e, si, prop_color("Renk", &e.light_color.x));
-              track_edit(st, e, si, prop_float("\xC5\x9Eiddet", &e.light_intensity, 0.05f, 0.0f, 100.0f, "%.2f"));
-              // Yaricap yalniz Nokta icin anlamli (Yonlu'de yon = varligin donusu,
-              // gizmo gunes-oku cizer; runtime'da HENUZ ayri bir yonlu terim shade
-              // etmez -- bkz. scene.hpp SceneLightType yorumu).
-              if (e.light_type == content::SceneLightType::Point)
-                track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.light_radius, 0.05f, 0.1f, 100.0f, "%.2f m"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneLight; commit(st, si, after); }
-        }
-        if (has_b) {
-          rem = false;
-          after = e;
-          if (component_header("\xE2\x97\xBC", "G\xC3\xB6vde", nullptr, &rem, true, Tone::AxisZ)) {
-            if (prop_begin("govde")) {
-              int shape = (int)e.shape;
-              if (prop_combo("\xC5\x9E""ekil", &shape, "Kutu\0K\xC3\xBCre\0").changed) { after.shape = (content::SceneShape)shape; commit(st, si, after); }
-              if (e.shape == content::SceneShape::Box) track_edit(st, e, si, prop_vec3("Yar\xC4\xB1m kenar", &e.half.x, 0.02f, 0.01f, 50.0f, "%.2f"));
-              else track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.radius, 0.02f, 0.01f, 50.0f, "%.2f"));
-              bool dyn = e.dynamic;
-              if (prop_check("Dinamik", &dyn).changed) { after = e; after.dynamic = dyn; commit(st, si, after); }
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneBody; commit(st, si, after); }
-        }
-        // --- PR #331 bilesenleri ------------------------------------------
-        // scene.hpp bunlarin alanlarini, scene_blob v6 dosya bicimini ve
-        // kComponentMenu'nun ekleme satirlarini uzun zamandir tasiyordu;
-        // MUFETTIS yoktu, yani bir varliga eklenebiliyor ama HICBIR ALANI
-        // duzenlenemiyordu. Hepsi ayni sozlesmeyi izler: baslik + prop_begin /
-        // prop_end + "kaldir" (rem) dali.
-        //
-        // Simgeler editor_widgets.cpp'nin menu satirlariyla BIREBIR ayni --
-        // menude bir sey gorup mufettiste baskasini gormek olmasin diye.
-        // Material karsiligi olanlar ICON_MD_*, olmayanlar metin fontunun
-        // (DejaVuSans) gercekten tasidigi kod noktalari.
-        if (e.components & content::kSceneCharacter) {
-          rem = false;
-          after = e;
-          if (component_header("\xE2\x8A\x99", "Karakter Kontrolc\xC3\xBC", nullptr, &rem, true, Tone::AxisY)) { // ⊙
-            if (prop_begin("karakter")) {
-              prop_help("Kapsul carpisan: yaricap + govde yuksekligi. Egim siniri, uzerinde YURUNEBILEN en dik yuzeyin acisidir.");
-              track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.char_radius, 0.01f, 0.05f, 5.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.char_height, 0.02f, 0.1f, 10.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("K\xC3\xBCtle", &e.char_mass, 0.5f, 1.0f, 500.0f, "%.1f kg"));
-              track_edit(st, e, si, prop_float("En Dik E\xC4\x9Fim", &e.char_max_slope, 0.5f, 0.0f, 89.0f, "%.1f\xC2\xB0"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneCharacter; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneJoint) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_LINK, "Fizik Eklemi (Joint)", nullptr, &rem, true, Tone::AxisZ)) {
-            if (prop_begin("eklem")) {
-              prop_help("Baglanan varlik INDEKSTIR (-1 = dunyaya bagli). Sinirlar eksen etrafindaki aci araligidir.");
-              track_edit(st, e, si, prop_int("Ba\xC4\x9Flanan Varl\xC4\xB1k", &e.joint_target, -1, (int)st.scene.entity_count - 1));
-              track_edit(st, e, si, prop_vec3("Eksen", &e.joint_axis.x, 0.01f, -1.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Alt S\xC4\xB1n\xC4\xB1r", &e.joint_limit_min, 1.0f, -180.0f, 180.0f, "%.1f\xC2\xB0"));
-              track_edit(st, e, si, prop_float("\xC3\x9Cst S\xC4\xB1n\xC4\xB1r", &e.joint_limit_max, 1.0f, -180.0f, 180.0f, "%.1f\xC2\xB0"));
-              track_edit(st, e, si, prop_float("Motor H\xC4\xB1z\xC4\xB1", &e.joint_motor_speed, 0.1f, 0.0f, 100.0f, "%.1f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneJoint; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneTerrain) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_TERRAIN, "Arazi (Terrain)", nullptr, &rem, true, Tone::AxisY)) {
-            if (prop_begin("arazi")) {
-              // DIKKAT (scene.hpp): genislik/uzunluk DUNYA olcusu DEGIL, izgara
-              // HUCRE SAYISIDIR. Etikete "m" yazmak 64 hucrelik bir araziyi 64
-              // metre sanmaya yol acardi.
-              prop_help("Genislik/uzunluk HUCRE SAYISIDIR; dunya boyu = (N-1) x hucre boyu. Alan degisince mesh yeniden uretilir.");
-              track_edit(st, e, si, prop_float("Geni\xC5\x9Flik (h\xC3\xBC" "cre)", &e.terrain_width, 1.0f, 2.0f, 512.0f, "%.0f"));
-              track_edit(st, e, si, prop_float("Uzunluk (h\xC3\xBC" "cre)", &e.terrain_height, 1.0f, 2.0f, 512.0f, "%.0f"));
-              track_edit(st, e, si, prop_float("H\xC3\xBC" "cre Boyu", &e.terrain_cell, 0.01f, 0.05f, 10.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.terrain_amp, 0.2f, 0.0f, 500.0f, "%.1f m"));
-              track_edit(st, e, si, prop_float("Frekans", &e.terrain_freq, 0.0005f, 0.0005f, 0.5f, "%.4f"));
-              track_edit(st, e, si, prop_int("Oktav", &e.terrain_octaves, 1, 8));
-              int seed = (int)e.terrain_seed;
-              const PropItem sit = prop_int("Tohum", &seed, 0, 65535);
-              if (sit.changed) e.terrain_seed = (uint32_t)(seed < 0 ? 0 : seed);
-              track_edit(st, e, si, sit);
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneTerrain; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneWater) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_WATER, "Su (Gerstner)", nullptr, &rem, true, Tone::Accent)) {
-            if (prop_begin("su")) {
-              // Vec2 icin ayri bir prop yok; iki prop_float ayni iki sayiyi
-              // gosterir ve her biri kendi undo islemini uretir.
-              prop_help("Sivrilik 1'e yaklastikca tepeler sivrilir; cok yuksekte yorungeler kesisir (dalga kivrilir).");
-              track_edit(st, e, si, prop_float("Dalga Boyu", &e.wave_length, 0.05f, 0.5f, 200.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("Genlik", &e.wave_amplitude, 0.01f, 0.0f, 20.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("Sivrilik", &e.wave_steepness, 0.005f, 0.0f, 1.0f, "%.3f"));
-              track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.wave_speed, 0.01f, 0.0f, 20.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Y\xC3\xB6n X", &e.wave_direction.x, 0.01f, -1.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Y\xC3\xB6n Y", &e.wave_direction.y, 0.01f, -1.0f, 1.0f, "%.2f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneWater; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneVoxel) {
-          rem = false;
-          after = e;
-          if (component_header("\xE2\x96\xA6", "Voksel D\xC3\xBCnyas\xC4\xB1", nullptr, &rem, true, Tone::Text)) { // ▦
-            if (prop_begin("voksel")) {
-              prop_help("Izgara olcusu HUCRE cinsinden. Hucre verisi henuz sahne bicimine girmedi: izgaraya sigan bir kure dolduruluyor.");
-              int sx = (int)e.voxel_size_x, sy = (int)e.voxel_size_y, sz = (int)e.voxel_size_z;
-              const PropItem ix = prop_int("Izgara X", &sx, 1, 128);
-              if (ix.changed) e.voxel_size_x = (uint32_t)sx;
-              track_edit(st, e, si, ix);
-              const PropItem iy = prop_int("Izgara Y", &sy, 1, 128);
-              if (iy.changed) e.voxel_size_y = (uint32_t)sy;
-              track_edit(st, e, si, iy);
-              const PropItem iz = prop_int("Izgara Z", &sz, 1, 128);
-              if (iz.changed) e.voxel_size_z = (uint32_t)sz;
-              track_edit(st, e, si, iz);
-              track_edit(st, e, si, prop_float("H\xC3\xBC" "cre Boyu", &e.voxel_cell, 0.01f, 0.05f, 10.0f, "%.2f m"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneVoxel; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneWind) {
-          rem = false;
-          after = e;
-          if (component_header("\xE2\x86\xAF", "R\xC3\xBCzgar Alan\xC4\xB1", nullptr, &rem, true, Tone::AccentLo)) { // ↯
-            if (prop_begin("ruzgar")) {
-              prop_help("Esinti (gust) siddetin uzerine binen dalgalanmanin genligi, siklik ise frekansidir.");
-              track_edit(st, e, si, prop_float("Y\xC3\xB6n X", &e.wind_direction.x, 0.01f, -1.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Y\xC3\xB6n Y", &e.wind_direction.y, 0.01f, -1.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("\xC5\x9Eiddet", &e.wind_strength, 0.02f, 0.0f, 50.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Esinti", &e.wind_gustiness, 0.01f, 0.0f, 1.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Esinti S\xC4\xB1kl\xC4\xB1\xC4\x9F\xC4\xB1", &e.wind_gust_freq, 0.01f, 0.0f, 10.0f, "%.2f Hz"));
-              int wseed = (int)e.wind_seed;
-              const PropItem wit = prop_int("Tohum", &wseed, 0, 65535);
-              if (wit.changed) e.wind_seed = (uint32_t)(wseed < 0 ? 0 : wseed);
-              track_edit(st, e, si, wit);
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneWind; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneParticle) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_AUTO_AWESOME, "Partik\xC3\xBCl Emitter", nullptr, &rem, true, Tone::Warn)) {
-            if (prop_begin("partikul")) {
-              prop_help("Sacilma, baslangic hizina eklenen RASTGELE bilesenin yariciplidir; 0 = hepsi ayni yone gider.");
-              track_edit(st, e, si, prop_float("Yayma H\xC4\xB1z\xC4\xB1", &e.particle_spawn_rate, 0.5f, 0.0f, 1000.0f, "%.1f /s"));
-              track_edit(st, e, si, prop_float("\xC3\x96m\xC3\xBCr (en az)", &e.particle_lifetime_min, 0.01f, 0.01f, 60.0f, "%.2f s"));
-              track_edit(st, e, si, prop_float("\xC3\x96m\xC3\xBCr (en \xC3\xA7ok)", &e.particle_lifetime_max, 0.01f, 0.01f, 60.0f, "%.2f s"));
-              track_edit(st, e, si, prop_float("Boy (ba\xC5\x9Flang\xC4\xB1\xC3\xA7)", &e.particle_size_start, 0.005f, 0.0f, 10.0f, "%.3f m"));
-              track_edit(st, e, si, prop_float("Boy (biti\xC5\x9F)", &e.particle_size_end, 0.005f, 0.0f, 10.0f, "%.3f m"));
-              track_edit(st, e, si, prop_vec3("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 H\xC4\xB1z\xC4\xB1", &e.particle_velocity.x, 0.02f));
-              track_edit(st, e, si, prop_vec3("Sa\xC3\xA7\xC4\xB1lma", &e.particle_jitter.x, 0.02f, 0.0f, 20.0f, "%.2f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneParticle; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneSkybox) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_CLOUD, "G\xC3\xB6ky\xC3\xBCz\xC3\xBC (Skybox)", nullptr, &rem, true, Tone::Accent)) {
-            if (prop_begin("gokyuzu")) {
-              // AYARI YOK ve bu bir eksiklik degil, sozlesme: scene.hpp
-              // "kSceneSkybox'in alani YOK: bileseni tasimak tek veridir".
-              // Bos bir "HDRI dosyasi" kutusu koymak, kaydedilmeyen ve hicbir
-              // seyi degistirmeyen bir alan gostermek olurdu.
-              prop_help("Bu bilesenin ayari yoktur: varlikta BULUNMASI gokyuzunu acar (dosyaya yazilan tek veri budur).");
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneSkybox; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneRefProbe) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_LENS, "Yans\xC4\xB1ma Sondas\xC4\xB1 (IBL)", nullptr, &rem, true, Tone::AxisX)) {
-            if (prop_begin("sonda")) {
-              track_edit(st, e, si, prop_float("Etki Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &e.ref_probe_radius, 0.1f, 0.5f, 200.0f, "%.1f m"));
-              track_edit(st, e, si, prop_float("\xC5\x9Eiddet", &e.ref_probe_intensity, 0.01f, 0.0f, 5.0f, "%.2f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneRefProbe; commit(st, si, after); }
-        }
-        if (has_c) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_VIDEOCAM, "Kamera", nullptr, &rem, true, Tone::Accent)) {
-            if (prop_begin("kamera")) {
-              track_edit(st, e, si, prop_float("G\xC3\xB6r\xC3\xBC\xC5\x9F A\xC3\xA7\xC4\xB1s\xC4\xB1 (FOV)", &e.cam_fov, 0.5f, 10.0f, 120.0f, "%.1f\xC2\xB0"));
-              track_edit(st, e, si, prop_float("Yak\xC4\xB1n K\xC4\xB1rpma", &e.cam_near, 0.01f, 0.01f, 10.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("Uzak K\xC4\xB1rpma", &e.cam_far, 1.0f, 1.0f, 5000.0f, "%.1f m"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneCamera; commit(st, si, after); }
-        }
-        if (has_s) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_VOLUME_UP, "Ses Kayna\xC4\x9F\xC4\xB1", nullptr, &rem, true, Tone::Warn)) {
-            if (prop_begin("ses")) {
-              track_edit(st, e, si, prop_text("Ses Dosyas\xC4\xB1", e.audio_clip, sizeof e.audio_clip));
-              track_edit(st, e, si, prop_float("Ses D\xC3\xBCzeyi", &e.audio_volume, 0.02f, 0.0f, 2.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Perde", &e.audio_pitch, 0.02f, 0.1f, 3.0f, "%.2f"));
-              bool loop = e.audio_loop;
-              if (prop_check("D\xC3\xB6ng\xC3\xBC", &loop).changed) { after = e; after.audio_loop = loop; commit(st, si, after); }
-              bool spat = e.audio_spatial;
-              if (prop_check("3B Uzamsal", &spat).changed) { after = e; after.audio_spatial = spat; commit(st, si, after); }
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneAudio; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneReverb) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_WAVES, "Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", nullptr, &rem, true, Tone::Warn)) {
-            if (prop_begin("yanki")) {
-              prop_help("Sonumlenme, yankinin duyulmaz olana kadar gecen suresi; oda buyuklugu ilk yansimalarin gecikmesidir.");
-              track_edit(st, e, si, prop_float("S\xC3\xB6n\xC3\xBCmlenme", &e.reverb_decay, 0.02f, 0.05f, 20.0f, "%.2f s"));
-              track_edit(st, e, si, prop_float("Oda B\xC3\xBCy\xC3\xBCkl\xC3\xBC\xC4\x9F\xC3\xBC", &e.reverb_room_size, 0.01f, 0.0f, 1.0f, "%.2f"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneReverb; commit(st, si, after); }
-        }
-        if (has_sc) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_DESCRIPTION, "Tulpar Betik", nullptr, &rem, true, Tone::AccentLo)) {
-            if (prop_begin("betik")) {
-              track_edit(st, e, si, prop_text("Betik (.tpr)", e.script_file, sizeof e.script_file));
-              bool en = e.script_enabled;
-              if (prop_check("Etkin", &en).changed) { after = e; after.script_enabled = en; commit(st, si, after); }
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneScript; commit(st, si, after); }
-        }
-        if (e.components & content::kSceneNavAgent) {
-          rem = false;
-          after = e;
-          if (component_header(ICON_MD_DIRECTIONS_RUN, "Yapay Zeka Ajan\xC4\xB1", nullptr, &rem, true, Tone::AccentLo)) {
-            if (prop_begin("ajan")) {
-              prop_help("Yol ARAMASI motorun (Detour); yolu YURUME isi oyun kodunda (lib/engine.tpr ajan_ilerlet). Bunlar o kodun okudugu ayarlar.");
-              track_edit(st, e, si, prop_vec3("Hedef Nokta", &e.ai_target.x, 0.05f));
-              track_edit(st, e, si, prop_float("Hareket H\xC4\xB1z\xC4\xB1", &e.ai_speed, 0.05f, 0.0f, 100.0f, "%.2f m/s"));
-              track_edit(st, e, si, prop_float("D\xC3\xB6n\xC3\xBC\xC5\x9F H\xC4\xB1z\xC4\xB1", &e.ai_turn_speed, 1.0f, 0.0f, 720.0f, "%.0f\xC2\xB0/s"));
-              prop_end();
-            }
-            component_end();
-          }
-          if (rem) { after = e; after.components &= ~content::kSceneNavAgent; commit(st, si, after); }
-        }
-        // Ekleme listesi kComponentMenu'den gelir: KATEGORILI, aranabilir ve ON
-        // SEKIZ bilesenin tamamini kapsar. Burada elle kurulan duz bir dizi
-        // vardi ve yalniz YEDI bileseni taniyordu -- Karakter / Partikul /
-        // Arazi / Voksel / Su / Ruzgar / Eklem / Gokyuzu / Sonda / Yanki /
-        // Ajan HICBIR YERDEN eklenemiyordu (bilesen bitleri, dosya bicimi ve
-        // menu tablosu hazirdi, eksik olan tek sey bu cagriydi).
-        // Takili olanlari eleme isini de widget yapar (existing_components),
-        // burada tek tek sormaya gerek yok.
-        prop_set_filter(nullptr); // ekleme listesi ve diger paneller suzgecten etkilenmesin
-        const uint32_t add = component_add_button(kComponentMenu, kComponentMenuCount, e.components);
-        if (add) { // 0 = secim yok; donus INDEKS degil BIT
-          after = e;
-          after.components |= add;
-          if (add == content::kSceneModel && after.asset < 0) after.asset = 0;
-          commit(st, si, after);
-        }
-      } else inspector_empty("Sahne listesinden bir varl\xC4\xB1k se\xC3\xA7");
-    }
-    ImGui::End();
-    // Dunya paneli: gunes/ortam/golge (gunluge SceneOp::World), kamera (canli; sahneye yazmak ayri islem).
-    if (ImGui::Begin(kPanelDunyaLabel)) {
-      section_label("G\xC3\x9CNE\xC5\x9E");
+    // Dunya + ortam ozellikleri TEK govdede: hem mufettisin icine gomulu
+    // bolum (PR #7) hem de ayri "Dunya" paneli (main) AYNI lambda'yi cagirir.
+    // Iki ayri kopya olsaydi biri otekinden sessizce ayrisirdi -- bu agacta
+    // tam bunun icin kapilar var (bkz. tools/scene_check.py).
+    auto draw_world_and_environment_properties = [&]() {
+      section_label("G\xC3\x9CNE\xC5\x9E VE ORTAM");
       if (prop_begin("gunes")) {
         track_world_edit(st, prop_vec3("Y\xC3\xB6n", &st.scene.sun_dir.x, 0.01f, -1.0f, 1.0f, "%.2f"));
         track_world_edit(st, prop_float("\xC5\x9Eiddet", &st.scene.sun_diffuse, 0.01f, 0.0f, 5.0f, "%.2f"));
         track_world_edit(st, prop_color("Ortam", &st.scene.ambient.x));
+        prop_end();
+      }
+      section_label("ATMOSFER VE G\xC3\x96KY\xC3\x9CZ\xC3\x9C");
+      if (prop_begin("atmosfer")) {
+        prop_help("Fiziksel atmosfer modeli (Nishita / Bruneton) ve 24 saatlik dinamik g\xC3\xBCne\xC5\x9F d\xC3\xB6ng\xC3\xBCs\xC3\xBC.");
+        float tod = st.scene.time_of_day;
+        const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, "%.1f:00");
+        if (pit.changed) {
+          st.scene.time_of_day = tod;
+          const float ang = (tod - 6.0f) * (3.14159265f / 12.0f);
+          st.scene.sun_dir.y = std::sin(ang);
+          st.scene.sun_dir.x = std::cos(ang) * 0.85f;
+          st.scene.sun_dir.z = 0.35f;
+          track_world_edit(st, pit);
+        }
+        ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 Zaman:");
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+        if (ImGui::SmallButton("\xC5\x9E" "afak 06:00")) {
+          st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f};
+          st.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("\xC3\x96\xC4\x9Fle 12:00")) {
+          st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f};
+          st.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Bat\xC4\xB1m 18:30")) {
+          st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f};
+          st.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Gece 00:00")) {
+          st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f};
+          st.dirty = true;
+        }
+        ImGui::PopStyleVar();
+
+        track_world_edit(st, prop_float("Bulan\xC4\xB1kl\xC4\xB1k", &st.scene.sky_turbidity, 0.05f, 1.0f, 10.0f, "%.2f"));
+        prop_end();
+      }
+
+      section_label("I\xC5\x9E\xC4\xB1K H\xC3\x9CZMELER\xC4\xB0 (GOD RAYS)");
+      if (prop_begin("godrays")) {
+        prop_help("Ekran-uzayi radial occlusion blur ile mobil TBDR (Mali/Adreno) dostu hafif isik huzmeleri.");
+        bool gr_on = st.scene.godrays_enabled;
+        if (prop_check("H\xC3\xBCzmeler Etkin", &gr_on).changed) {
+          st.scene.godrays_enabled = gr_on;
+          st.dirty = true;
+        }
+        track_world_edit(st, prop_float("H\xC3\xBCzme Yo\xC4\x9Funlu\xC4\x9Fu", &st.scene.godray_density, 0.02f, 0.1f, 2.0f, "%.2f"));
+        track_world_edit(st, prop_float("\xC3\x96rnek A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1", &st.scene.godray_weight, 0.02f, 0.05f, 1.0f, "%.2f"));
+        track_world_edit(st, prop_float("S\xC3\xB6n\xC3\xBCmleme (Decay)", &st.scene.godray_decay, 0.005f, 0.80f, 0.99f, "%.3f"));
+        track_world_edit(st, prop_float("Pozlama", &st.scene.godray_exposure, 0.01f, 0.01f, 1.0f, "%.2f"));
+        ImGui::TextDisabled("Mobil Opt: 1/4 \xC3\xA7\xC3\xB6z\xC3\xBCn\xC3\xBCrl\xC3\xBCkte <0.3ms");
         prop_end();
       }
       section_label("G\xC3\x96LGE HACM\xC4\xB0");
@@ -2580,12 +2845,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         track_world_edit(st, prop_float("Derinlik", &st.scene.shadow_depth, 0.5f, 1.0f, 2000.0f, "%.1f m"));
         prop_end();
       }
-      // --- Isik haritasi (GI): content/gi.hpp'nin bake+sorgu motoru daha once
-      // hicbir yerden cagrilmiyordu -- .sahneb runtime'i (engine_demo/koprü)
-      // okuyordu ama EDITOR viewport'u hep ham SceneDesc'ten ciziyordu, yani
-      // "devrimsel isik sistemi"nin bake tarafi hicbir zaman GORUNMUYORDU.
-      // Manuel buton: bake tum sahne uzerinde CPU ray-tracing, otomatik
-      // (her karede/duzenlemede) calistirmak pahali olurdu.
       section_label("I\xC5\x9E\xC4\xB1K HAR\xC4\xB0TASI (GI)");
       if (prop_begin("gi")) {
         prop_help("Statik i\xC5\x9F\xC4\xB1k/g\xC3\xB6lge \xC3\xB6nceden pi\xC5\x9Firilir (sonda \xC4\xB1zgaras\xC4\xB1, offline ray-tracing) ve viewport'ta \xC3\xB6nizlenir "
@@ -2602,10 +2861,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
         prop_end();
       }
-      // --- Gorunum: motorun ayarlanabilir render ozellikleri ------------
-      // Bunlarin hepsi ZATEN kodlanmis ama editorde hic yuzu yoktu. Sektor
-      // editorlerinde tam olarak burada dururlar (UE5: Post Process Volume +
-      // Scalability; Unity: Quality/Volume).
       section_label("G\xC3\x96R\xC3\x9CN\xC3\x9CM");
       if (prop_begin("golge_kalite")) {
         prop_help("G\xC3\xB6lge haritasi kapatilinca sahne duz aydinlanir; egilim degerleri golge akne/ayrilma dengesidir.");
@@ -2615,7 +2870,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         prop_end();
       }
       {
-        // Durum: SESSIZ kapanma yok -- ozellik kapaliysa SEBEBI yazilir.
         const renderer::ShadowInfo si = ren.shadow();
         if (!si.enabled)
           ImGui::TextDisabled("G\xC3\xB6lge kapal\xC4\xB1: %s",
@@ -2680,8 +2934,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         prop_float("U\xC3\xA7u\xC5\x9F h\xC4\xB1z\xC4\xB1", &cam.speed, 0.1f, 0.5f, 200.0f, "%.1f m/s");
         prop_end();
       }
-      // Kamera sahneye yalniz istekle yazilir (gunluge girer); canli kamera
-      // dosyayi kirletmez.
       const float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
       if (ImGui::Button("Sahneye yaz", ImVec2(bw, 0))) {
         content::SceneWorld w = st.scene.world();
@@ -2690,6 +2942,802 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       ImGui::SameLine();
       if (ImGui::Button("Sahnedekine git", ImVec2(bw, 0))) { cam.target = st.scene.cam_target; cam.yaw = st.scene.cam_yaw; cam.pitch = st.scene.cam_pitch; cam.radius = st.scene.cam_radius; }
+    };
+
+    if (ImGui::Begin(kPanelOzelliklerLabel)) {
+      const int si = (int)st.sel.primary();
+      static int32_t last_inspected = -1;
+      if (last_inspected != si) {
+        st.edit_active = false;
+        last_inspected = si;
+      }
+      if (si >= 0 && si < (int)st.scene.entity_count) {
+        SceneEntity &e = st.scene.entities[si];
+        const bool has_m = (e.components & content::kSceneModel) != 0, has_l = (e.components & content::kSceneLight) != 0,
+                   has_b = (e.components & content::kSceneBody) != 0, has_a = (e.components & content::kSceneAnim) != 0,
+                   has_c = (e.components & content::kSceneCamera) != 0, has_s = (e.components & content::kSceneAudio) != 0,
+                   has_sc = (e.components & content::kSceneScript) != 0;
+        // ▣ / ♪ / ▤ : kamera / ses / betik. Eskiden burada U+1F3A5, U+1F50A ve
+        // U+1F4DC emojileri vardi ve DejaVuSans'ta HICBIRI yok -- mufettis
+        // basliginda tofu kutusu ciziliyordu. Glifler editor_widgets.cpp'nin
+        // menu tablolariyla ayni (orada fontun cmap'i taranarak secildiler).
+        const char *icon = has_l ? "\xE2\x98\x80" : has_m ? "\xE2\x97\x86" : has_b ? "\xE2\x97\xBC" : has_c ? "\xE2\x96\xA3" : has_s ? "\xE2\x99\xAA" : has_sc ? "\xE2\x96\xA4" : "\xE2\x97\x8B";
+        const Tone icon_tone = has_l ? Tone::Warn : has_m ? Tone::Text : has_b ? Tone::AxisZ : has_c ? Tone::Accent : Tone::TextDim;
+        // Bilesen SAYISI MASKEDEN sayilir, yedi bayrak toplanarak degil: elle
+        // toplanan liste yeni bir bilesen eklendiginde sessizce eskiyordu
+        // (varliga arazi + su takiliyken baslik yine "0 bilesen" diyordu).
+        unsigned comp_n = 0;
+        for (uint32_t bits = e.components & content::kSceneComponentMask; bits; bits &= bits - 1) comp_n++;
+        char sub[96];
+        if (st.sel.count > 1) std::snprintf(sub, sizeof sub, "grup: %u se\xC3\xA7ili \xC2\xB7 alanlar ana se\xC3\xA7ilide, gizmo grubu ta\xC5\x9F\xC4\xB1r", st.sel.count);
+        else std::snprintf(sub, sizeof sub, "%u bile\xC5\x9F""en%s%s", comp_n,
+                           has_b ? (e.shape == content::SceneShape::Box ? " \xC2\xB7 kutu g\xC3\xB6vde" : " \xC2\xB7 k\xC3\xBCre g\xC3\xB6vde") : "",
+                           (has_b && e.dynamic) ? " \xC2\xB7 dinamik" : "");
+        track_edit(st, e, si, inspector_title(icon, e.name, sizeof e.name, sub, icon_tone));
+        // Ozellik aramasi (UE5 Details) -- main'den tasindi, PR #7'nin
+        // mufettisinde YOKTU. 21 bilesen x onlarca alan: aradigini bulmanin tek
+        // yolu. Hiyerarsinin arama kutusu yeniden kullanilir (ayni gorunum,
+        // ayni Turkce katlamali esleme). Filtre panelin SONUNDA temizlenir
+        // (component_add_button'un ustunde prop_set_filter(nullptr)).
+        hierarchy_search(st.prop_filter, sizeof st.prop_filter);
+        prop_set_filter(st.prop_filter);
+
+        // Prowl GameObjectInspector Hizli Eylemler
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::Bg2));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone(Tone::Bg3));
+        if (ImGui::SmallButton(" " ICON_MD_CONTENT_COPY " \xC3\x87o\xC4\x9F" "alt ")) do_add(0); // 📋 Çoğalt (Ctrl+D)
+        ImGui::SameLine();
+        if (ImGui::SmallButton(" \xE2\x9C\x95 Sil ")) do_remove(); // ✕ Sil (Del)
+        ImGui::SameLine();
+        if (ImGui::SmallButton(" " ICON_MD_CENTER_FOCUS_STRONG " Odaklan ")) cam.target = e.pos; // ⌖ Odaklan (F)
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
+        ImGui::Dummy(ImVec2(0.0f, 2.0f));
+
+        // Prowl & O3DE Donusum Karti (Transform Card)
+        bool tf_reset = false;
+        if (component_header("\xE2\x9C\x9F", "D\xC3\xB6n\xC3\xBC\xC5\x9F\xC3\xBCm (Transform)", nullptr, &tf_reset, true, Tone::Accent)) { // ✦
+          if (ImGui::BeginPopupContextItem("##tf_ctx")) {
+            if (ImGui::MenuItem("\xE2\x86\xBA  D\xC3\xB6n\xC3\xBC\xC5\x9F\xC3\xBCm\xC3\xBC S\xC4\xB1" "f\xC4\xB1rla")) tf_reset = true;
+            ImGui::EndPopup();
+          }
+          if (prop_begin("donusum")) {
+            track_edit(st, e, si, prop_vec3("Konum", &e.pos.x, 0.05f));
+            prop_help("Euler derece; uygulama s\xC4\xB1ras\xC4\xB1 T\xC2\xB7Rz\xC2\xB7Ry\xC2\xB7Rx\xC2\xB7S");
+            track_edit(st, e, si, prop_vec3("D\xC3\xB6n\xC3\xBC\xC5\x9F", &e.rot_deg.x, 0.5f, 0, 0, "%.1f\xC2\xB0"));
+            track_edit(st, e, si, prop_vec3("\xC3\x96l\xC3\xA7""ek", &e.scale.x, 0.02f, 0.05f, 20.0f));
+            prop_end();
+          }
+          component_end();
+        }
+        if (tf_reset) {
+          SceneEntity after_tf = e;
+          after_tf.pos = Vec3{0.0f, 0.0f, 0.0f};
+          after_tf.rot_deg = Vec3{0.0f, 0.0f, 0.0f};
+          after_tf.scale = Vec3{1.0f, 1.0f, 1.0f};
+          commit(st, si, after_tf);
+          set_status(st, "d\xC3\xB6n\xC3\xBC\xC5\x9F\xC3\xBCm s\xC4\xB1" "f\xC4\xB1rland\xC4\xB1: %s", e.name);
+        }
+        section_label("B\xC4\xB0LE\xC5\x9E""ENLER");
+        SceneEntity after = e;
+        ComponentCardAction act = ComponentCardAction::None;
+        if (has_m) {
+          act = ComponentCardAction::None;
+          if (begin_component_card("\xE2\x97\x86", "Model", content::kSceneModel, nullptr, &act, true, Tone::Text)) {
+            if (prop_begin("model")) {
+              // Geometri kaynagi IKI turlu olabilir ve birbirini disar: ya glTF
+              // kaynagi (asset >= 0) ya prosedurel ilkel (primitive >= 0). Ikisi
+              // de dolu olursa scene_runtime ilkeli secer; secici bu yuzden ONCE
+              // sorulur ve secim otekini -1 yapar. (main'den tasindi: PR #7'nin
+              // Model kartinda yalniz "Kaynak" vardi, ilkel secici DUSMUSTU --
+              // kCreateMenu'den eklenen Kapsul/Silindir/Koni/Dortgen/Simit
+              // mufettiste degistirilemez hale gelirdi.)
+              int prim_sel = 0;
+              static const int kPrimOf[] = {-1,
+                                            (int)content::kPrimCube,     (int)content::kPrimSphere,
+                                            (int)content::kPrimCapsule,  (int)content::kPrimCylinder,
+                                            (int)content::kPrimCone,     (int)content::kPrimPlane,
+                                            (int)content::kPrimQuad,     (int)content::kPrimTorus};
+              for (int k = 1; k < (int)(sizeof kPrimOf / sizeof kPrimOf[0]); k++)
+                if (e.primitive == kPrimOf[k]) { prim_sel = k; break; }
+              if (prop_combo("Geometri", &prim_sel,
+                             "Kaynaktan\0K\xC3\xBCp\0K\xC3\xBCre\0Kaps\xC3\xBCl\0Silindir\0Koni\0D\xC3\xBCzlem\0D\xC3\xB6rtgen\0Simit\0").changed) {
+                after = e;
+                after.primitive = kPrimOf[prim_sel];
+                if (after.primitive >= 0) after.asset = -1;
+                else if (after.asset < 0 && st.scene.asset_count) after.asset = 0;
+                commit(st, si, after);
+              }
+              if (e.primitive < 0) {
+                if (prop_asset("Kaynak", &after.asset, st.scene.assets, st.scene.asset_count).changed) commit(st, si, after);
+              }
+              track_edit(st, e, si, prop_color("Renk", &e.tint.x));
+              prop_end();
+            }
+            // --- PBR (main'den tasindi; PR #7'nin Model kartinda YOKTU) -------
+            // Bu bes alan scene_runtime + renderer tarafindan GERCEKTEN shade
+            // ediliyor ve .sahne'ye yaziliyor. Dusseydi kullanici metaliklik /
+            // puruzluluk / isima'yi editorden bir daha degistiremezdi.
+            section_label("PBR MALZEME");
+            if (prop_begin("model_pbr")) {
+              prop_help("0 = dielektrik, 1 = metal. Ara degerler fiziksel DEGIL, karisimdir.");
+              track_edit(st, e, si, prop_float("Metaliklik", &e.metallic, 0.01f, 0.0f, 1.0f, "%.2f"));
+              prop_help("0 = ayna, 1 = tamamen mat (glTF gelenegi: varsayilan 1).");
+              track_edit(st, e, si, prop_float("P\xC3\xBCr\xC3\xBCzl\xC3\xBCl\xC3\xBCk", &e.roughness, 0.01f, 0.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Yans\xC4\xB1t\xC4\xB1rl\xC4\xB1k", &e.reflectance, 0.01f, 0.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_color("I\xC5\x9F\xC4\xB1ma rengi", &e.emissive.x));
+              prop_help("1'in uzerinde HDR: parlama (bloom) ancak burada gorunur.");
+              track_edit(st, e, si, prop_float("I\xC5\x9F\xC4\xB1ma \xC5\x9Fiddeti", &e.emissive_strength, 0.05f, 0.0f, 20.0f, "%.2f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneModel, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (has_a) {
+          act = ComponentCardAction::None;
+          if (begin_component_card("\xE2\x86\xBB", "Animasyon", content::kSceneAnim, nullptr, &act, true, Tone::Accent)) {
+            if (prop_begin("anim")) {
+              track_edit(st, e, si, prop_float("Faz", &e.phase, 0.01f, 0.0f, 10.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.speed, 0.01f, 0.0f, 10.0f, "%.2f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneAnim, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (has_l) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x98\x80", "I\xC5\x9F\xC4\xB1k", content::kSceneLight, nullptr, &act, true, Tone::Warn)) {
+            if (prop_begin("isik")) {
+              int ltype = (int)e.light_type;
+              if (prop_combo("T\xC3\xBCr", &ltype, "Nokta (Point)\0Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F (Directional)\0Spot (Koni)\0Alan (Dikd\xC3\xB6rtgen LTC)\0T\xC3\xBCp (Kaps\xC3\xBCl)\0Disk\0").changed) {
+                after.light_type = (content::SceneLightType)ltype;
+                commit(st, si, after);
+              }
+              track_edit(st, e, si, prop_color("Renk", &e.light_color.x));
+
+              // Kelvin Renk Sicakligi Hizli Onayarlari
+              ImGui::TextDisabled("Kelvin \xC3\x96nayarlar\xC4\xB1:");
+              ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+              if (ImGui::SmallButton("1800K")) { after = e; after.light_color = Vec3{1.0f, 0.57f, 0.17f}; commit(st, si, after); }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("2700K")) { after = e; after.light_color = Vec3{1.0f, 0.73f, 0.43f}; commit(st, si, after); }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("3200K")) { after = e; after.light_color = Vec3{1.0f, 0.81f, 0.57f}; commit(st, si, after); }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("5500K")) { after = e; after.light_color = Vec3{1.0f, 0.96f, 0.90f}; commit(st, si, after); }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("6500K")) { after = e; after.light_color = Vec3{1.0f, 1.0f, 1.0f}; commit(st, si, after); }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("10000K")) { after = e; after.light_color = Vec3{0.80f, 0.88f, 1.0f}; commit(st, si, after); }
+              ImGui::PopStyleVar();
+
+              track_edit(st, e, si, prop_float("\xC5\x9Eiddet (Lux/lm)", &e.light_intensity, 0.05f, 0.0f, 500.0f, "%.2f"));
+              if (e.light_type != content::SceneLightType::Directional)
+                track_edit(st, e, si, prop_float("Etki Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &e.light_radius, 0.05f, 0.1f, 200.0f, "%.2f m"));
+
+              if (e.light_type == content::SceneLightType::Spot) {
+                track_edit(st, e, si, prop_float("\xC4\xB0\xC3\xA7 Koni A\xC3\xA7\xC4\xB1s\xC4\xB1", &e.light_spot_inner, 0.5f, 1.0f, 89.0f, "%.1f\xC2\xB0"));
+                track_edit(st, e, si, prop_float("D\xC4\xB1\xC5\x9F Koni A\xC3\xA7\xC4\xB1s\xC4\xB1", &e.light_spot_outer, 0.5f, 1.0f, 89.0f, "%.1f\xC2\xB0"));
+              } else if (e.light_type == content::SceneLightType::Rect) {
+                track_edit(st, e, si, prop_float("Geni\xC5\x9Flik", &e.light_width, 0.05f, 0.05f, 50.0f, "%.2f m"));
+                track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.light_height, 0.05f, 0.05f, 50.0f, "%.2f m"));
+              } else if (e.light_type == content::SceneLightType::Capsule) {
+                track_edit(st, e, si, prop_float("T\xC3\xBCp Uzunlu\xC4\x9Fu", &e.light_width, 0.05f, 0.05f, 50.0f, "%.2f m"));
+                track_edit(st, e, si, prop_float("T\xC3\xBCp Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &e.light_height, 0.01f, 0.01f, 5.0f, "%.2f m"));
+              } else if (e.light_type == content::SceneLightType::Disk) {
+                track_edit(st, e, si, prop_float("Disk Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &e.light_width, 0.02f, 0.02f, 20.0f, "%.2f m"));
+              }
+              bool cast_sh = e.light_cast_shadow;
+              if (prop_check("G\xC3\xB6lge D\xC3\xB6k (Shadows)", &cast_sh).changed) {
+                after = e; after.light_cast_shadow = cast_sh; commit(st, si, after);
+              }
+
+              ImGui::Separator();
+              ImGui::PushStyleColor(ImGuiCol_Text, tone_col(Tone::Warn));
+              ImGui::Text(ICON_MD_AUTO_AWESOME "  I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi (God Rays / Volumetric)");
+              ImGui::PopStyleColor();
+
+              bool gr_active = e.light_godray || (e.light_type == content::SceneLightType::Directional && st.scene.godrays_enabled);
+              if (prop_check("I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi (God Rays)", &gr_active).changed) {
+                after = e;
+                after.light_godray = gr_active;
+                st.scene.godrays_enabled = gr_active;
+                commit(st, si, after);
+                st.dirty = true;
+              }
+              if (gr_active) {
+                track_edit(st, e, si, prop_float("H\xC3\xBCzme G\xC3\xBC" "c\xC3\xBC (Intensity)", &e.light_godray_intensity, 0.05f, 0.1f, 5.0f, "%.2fx"));
+                prop_help("Bu isigin hacimsel sacilma ve atmosferik isik huzmelerine katki carpanidir.");
+
+                track_world_edit(st, prop_float("H\xC3\xBCzme Yo\xC4\x9Funlu\xC4\x9Fu (Density)", &st.scene.godray_density, 0.02f, 0.1f, 2.0f, "%.2f"));
+                track_world_edit(st, prop_float("\xC3\x96rnek A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1 (Weight)", &st.scene.godray_weight, 0.02f, 0.05f, 1.0f, "%.2f"));
+                track_world_edit(st, prop_float("S\xC3\xB6n\xC3\xBCmleme (Decay)", &st.scene.godray_decay, 0.005f, 0.80f, 0.99f, "%.3f"));
+                track_world_edit(st, prop_float("Pozlama (Exposure)", &st.scene.godray_exposure, 0.01f, 0.01f, 1.0f, "%.2f"));
+
+                ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 H\xC3\xBCzme \xC3\x96nayarlar\xC4\xB1:");
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+                if (ImGui::SmallButton("Do\xC4\x9F" "al G\xC3\xBCne\xC5\x9F")) {
+                  st.scene.godray_density = 0.8f; st.scene.godray_weight = 0.5f; st.scene.godray_decay = 0.95f; st.scene.godray_exposure = 0.3f; st.dirty = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Dramatik")) {
+                  st.scene.godray_density = 1.2f; st.scene.godray_weight = 0.7f; st.scene.godray_decay = 0.97f; st.scene.godray_exposure = 0.5f; st.dirty = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Hafif Sis")) {
+                  st.scene.godray_density = 0.5f; st.scene.godray_weight = 0.3f; st.scene.godray_decay = 0.92f; st.scene.godray_exposure = 0.2f; st.dirty = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Sinematik")) {
+                  st.scene.godray_density = 1.4f; st.scene.godray_weight = 0.8f; st.scene.godray_decay = 0.98f; st.scene.godray_exposure = 0.6f; st.dirty = true;
+                }
+                ImGui::PopStyleVar();
+              }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneLight, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (has_b) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x97\xBC", "G\xC3\xB6vde", content::kSceneBody, nullptr, &act, true, Tone::AxisZ)) {
+            if (prop_begin("govde")) {
+              int shape = (int)e.shape;
+              if (prop_combo("\xC5\x9E""ekil", &shape, "Kutu\0K\xC3\xBCre\0").changed) { after.shape = (content::SceneShape)shape; commit(st, si, after); }
+              if (e.shape == content::SceneShape::Box) track_edit(st, e, si, prop_vec3("Yar\xC4\xB1m kenar", &e.half.x, 0.02f, 0.01f, 50.0f, "%.2f"));
+              else track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.radius, 0.02f, 0.01f, 50.0f, "%.2f"));
+              bool dyn = e.dynamic;
+              if (prop_check("Dinamik", &dyn).changed) { after = e; after.dynamic = dyn; commit(st, si, after); }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneBody, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        // --- PR #331 bilesenleri ------------------------------------------
+        // scene.hpp bunlarin alanlarini, scene_blob v6 dosya bicimini ve
+        // kComponentMenu'nun ekleme satirlarini uzun zamandir tasiyordu;
+        // MUFETTIS yoktu, yani bir varliga eklenebiliyor ama HICBIR ALANI
+        // duzenlenemiyordu. Hepsi ayni sozlesmeyi izler: baslik + prop_begin /
+        // prop_end + "kaldir" (rem) dali.
+        //
+        // Simgeler METIN fontundan (DejaVuSans) gelir: depoda ikon TTF'i YOK,
+        // o yuzden ICON_MD_* makrolari kullanilmaz. Glifler editor_widgets.cpp
+        // menu satirlariyla BIREBIR ayni -- menude ▲ gorup mufettiste baska bir
+        // sey gormek olmasin diye.
+        if (e.components & content::kSceneCharacter) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x8A\x99", "Karakter Kontrolc\xC3\xBC", content::kSceneCharacter, nullptr, &act, true, Tone::AxisY)) { // ⊙
+            if (prop_begin("karakter")) {
+              prop_help("Kapsul carpisan: yaricap + govde yuksekligi. Egim siniri, uzerinde YURUNEBILEN en dik yuzeyin acisidir.");
+              track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.char_radius, 0.01f, 0.05f, 5.0f, "%.2f m"));
+              track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.char_height, 0.02f, 0.1f, 10.0f, "%.2f m"));
+              track_edit(st, e, si, prop_float("K\xC3\xBCtle", &e.char_mass, 0.5f, 1.0f, 500.0f, "%.1f kg"));
+              track_edit(st, e, si, prop_float("En Dik E\xC4\x9Fim", &e.char_max_slope, 0.5f, 0.0f, 89.0f, "%.1f\xC2\xB0"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneCharacter, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneJoint) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x88\x9E", "Fizik Eklemi (Joint)", content::kSceneJoint, nullptr, &act, true, Tone::AxisZ)) { // ∞
+            if (prop_begin("eklem")) {
+              prop_help("Baglanan varlik INDEKSTIR (-1 = dunyaya bagli). Sinirlar eksen etrafindaki aci araligidir.");
+              track_edit(st, e, si, prop_int("Ba\xC4\x9Flanan Varl\xC4\xB1k", &e.joint_target, -1, (int)st.scene.entity_count - 1));
+              track_edit(st, e, si, prop_vec3("Eksen", &e.joint_axis.x, 0.01f, -1.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Alt S\xC4\xB1n\xC4\xB1r", &e.joint_limit_min, 1.0f, -180.0f, 180.0f, "%.1f\xC2\xB0"));
+              track_edit(st, e, si, prop_float("\xC3\x9Cst S\xC4\xB1n\xC4\xB1r", &e.joint_limit_max, 1.0f, -180.0f, 180.0f, "%.1f\xC2\xB0"));
+              track_edit(st, e, si, prop_float("Motor H\xC4\xB1z\xC4\xB1", &e.joint_motor_speed, 0.1f, 0.0f, 100.0f, "%.1f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneJoint, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneTerrain) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x96\xB2", "Arazi (Terrain)", content::kSceneTerrain, nullptr, &act, true, Tone::AxisY)) { // ▲
+            if (prop_begin("arazi")) {
+              prop_help("Genislik/uzunluk HUCRE SAYISIDIR; dunya boyu = (N-1) x hucre boyu. Alan degisince mesh yeniden uretilir.");
+              track_edit(st, e, si, prop_float("Geni\xC5\x9Flik (h\xC3\xBC" "cre)", &e.terrain_width, 1.0f, 2.0f, 512.0f, "%.0f"));
+              track_edit(st, e, si, prop_float("Uzunluk (h\xC3\xBC" "cre)", &e.terrain_height, 1.0f, 2.0f, 512.0f, "%.0f"));
+              track_edit(st, e, si, prop_float("H\xC3\xBC" "cre Boyu", &e.terrain_cell, 0.01f, 0.05f, 10.0f, "%.2f m"));
+              track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.terrain_amp, 0.2f, 0.0f, 500.0f, "%.1f m"));
+              track_edit(st, e, si, prop_float("Frekans", &e.terrain_freq, 0.0005f, 0.0005f, 0.5f, "%.4f"));
+              track_edit(st, e, si, prop_int("Oktav", &e.terrain_octaves, 1, 8));
+              int seed = (int)e.terrain_seed;
+              const PropItem sit = prop_int("Tohum", &seed, 0, 65535);
+              if (sit.changed) e.terrain_seed = (uint32_t)(seed < 0 ? 0 : seed);
+              track_edit(st, e, si, sit);
+
+              ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 \xC5\x9E" "ekil \xC3\x96nayarlar\xC4\xB1:");
+              ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+              if (ImGui::SmallButton("D\xC3\xBCzl\xC3\xBCk")) {
+                after = e; after.terrain_amp = 3.0f; after.terrain_freq = 0.015f; after.terrain_octaves = 2; commit(st, si, after);
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Tepeler")) {
+                after = e; after.terrain_amp = 14.0f; after.terrain_freq = 0.03f; after.terrain_octaves = 4; commit(st, si, after);
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Da\xC4\x9F" "lar")) {
+                after = e; after.terrain_amp = 35.0f; after.terrain_freq = 0.045f; after.terrain_octaves = 6; commit(st, si, after);
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Kanyon")) {
+                after = e; after.terrain_amp = 25.0f; after.terrain_freq = 0.02f; after.terrain_octaves = 5; commit(st, si, after);
+              }
+              ImGui::PopStyleVar();
+
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneTerrain, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneWater) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x89\x88", "Su (Gerstner)", content::kSceneWater, nullptr, &act, true, Tone::Accent)) { // ≈
+            if (prop_begin("su")) {
+              prop_help("Sivrilik 1'e yaklastikca tepeler sivrilir; cok yuksekte yorungeler kesisir (dalga kivrilir).");
+              track_edit(st, e, si, prop_float("Dalga Boyu", &e.wave_length, 0.05f, 0.5f, 200.0f, "%.2f m"));
+              track_edit(st, e, si, prop_float("Genlik", &e.wave_amplitude, 0.01f, 0.0f, 20.0f, "%.2f m"));
+              track_edit(st, e, si, prop_float("Sivrilik", &e.wave_steepness, 0.005f, 0.0f, 1.0f, "%.3f"));
+              track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.wave_speed, 0.01f, 0.0f, 20.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Y\xC3\xB6n X", &e.wave_direction.x, 0.01f, -1.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Y\xC3\xB6n Y", &e.wave_direction.y, 0.01f, -1.0f, 1.0f, "%.2f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneWater, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneVoxel) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x96\xA6", "Voksel D\xC3\xBCnyas\xC4\xB1", content::kSceneVoxel, nullptr, &act, true, Tone::Text)) { // ▦
+            if (prop_begin("voksel")) {
+              prop_help("Izgara olcusu HUCRE cinsinden. Hucre verisi henuz sahne bicimine girmedi: izgaraya sigan bir kure dolduruluyor.");
+              int sx = (int)e.voxel_size_x, sy = (int)e.voxel_size_y, sz = (int)e.voxel_size_z;
+              const PropItem ix = prop_int("Izgara X", &sx, 1, 128);
+              if (ix.changed) e.voxel_size_x = (uint32_t)sx;
+              track_edit(st, e, si, ix);
+              const PropItem iy = prop_int("Izgara Y", &sy, 1, 128);
+              if (iy.changed) e.voxel_size_y = (uint32_t)sy;
+              track_edit(st, e, si, iy);
+              const PropItem iz = prop_int("Izgara Z", &sz, 1, 128);
+              if (iz.changed) e.voxel_size_z = (uint32_t)sz;
+              track_edit(st, e, si, iz);
+              track_edit(st, e, si, prop_float("H\xC3\xBC" "cre Boyu", &e.voxel_cell, 0.01f, 0.05f, 10.0f, "%.2f m"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneVoxel, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneWind) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x86\xAF", "R\xC3\xBCzgar Alan\xC4\xB1", content::kSceneWind, nullptr, &act, true, Tone::AccentLo)) { // ↯
+            if (prop_begin("ruzgar")) {
+              prop_help("Esinti (gust) siddetin uzerine binen dalgalanmanin genligi, siklik ise frekansidir.");
+              track_edit(st, e, si, prop_float("Y\xC3\xB6n X", &e.wind_direction.x, 0.01f, -1.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Y\xC3\xB6n Y", &e.wind_direction.y, 0.01f, -1.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("\xC5\x9Eiddet", &e.wind_strength, 0.02f, 0.0f, 50.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Esinti", &e.wind_gustiness, 0.01f, 0.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Esinti S\xC4\xB1kl\xC4\xB1\xC4\x9F\xC4\xB1", &e.wind_gust_freq, 0.01f, 0.0f, 10.0f, "%.2f Hz"));
+              int wseed = (int)e.wind_seed;
+              const PropItem wit = prop_int("Tohum", &wseed, 0, 65535);
+              if (wit.changed) e.wind_seed = (uint32_t)(wseed < 0 ? 0 : wseed);
+              track_edit(st, e, si, wit);
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneWind, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneParticle) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x88\xB4", "Partik\xC3\xBCl Emitter (VFX)", content::kSceneParticle, nullptr, &act, true, Tone::Warn)) { // ∴
+            if (prop_begin("partikul")) {
+              prop_help("Mobil uyumlu instanced billboard parcacik ureticisi. Renk ve boyut zamanla enterpole edilir.");
+              // Hizli VFX Onayarlari
+              ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 VFX \xC3\x96nayarlar\xC4\xB1:");
+              ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+              if (ImGui::SmallButton("Ate\xC5\x9F")) {
+                after = e;
+                after.particle_spawn_rate = 60.0f; after.particle_lifetime_min = 0.8f; after.particle_lifetime_max = 1.8f;
+                after.particle_size_start = 0.25f; after.particle_size_end = 0.02f;
+                after.particle_velocity = Vec3{0.0f, 3.0f, 0.0f}; after.particle_jitter = Vec3{0.4f, 0.8f, 0.4f};
+                after.particle_color_start = Vec3{1.0f, 0.65f, 0.1f}; after.particle_color_end = Vec3{0.3f, 0.1f, 0.05f};
+                after.particle_gravity = 0.5f; after.particle_billboard_type = 0;
+                commit(st, si, after);
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Duman")) {
+                after = e;
+                after.particle_spawn_rate = 25.0f; after.particle_lifetime_min = 2.0f; after.particle_lifetime_max = 4.0f;
+                after.particle_size_start = 0.1f; after.particle_size_end = 0.8f;
+                after.particle_velocity = Vec3{0.1f, 1.2f, 0.0f}; after.particle_jitter = Vec3{0.3f, 0.3f, 0.3f};
+                after.particle_color_start = Vec3{0.4f, 0.4f, 0.4f}; after.particle_color_end = Vec3{0.1f, 0.1f, 0.1f};
+                after.particle_gravity = 0.2f; after.particle_billboard_type = 0;
+                commit(st, si, after);
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("K\xC4\xB1v\xC4\xB1lc\xC4\xB1m")) {
+                after = e;
+                after.particle_spawn_rate = 80.0f; after.particle_lifetime_min = 0.4f; after.particle_lifetime_max = 1.0f;
+                after.particle_size_start = 0.08f; after.particle_size_end = 0.01f;
+                after.particle_velocity = Vec3{0.0f, 4.0f, 0.0f}; after.particle_jitter = Vec3{3.0f, 2.0f, 3.0f};
+                after.particle_color_start = Vec3{1.0f, 0.9f, 0.4f}; after.particle_color_end = Vec3{0.8f, 0.2f, 0.0f};
+                after.particle_gravity = -9.8f; after.particle_billboard_type = 1;
+                commit(st, si, after);
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Ya\xC4\x9Fmur")) {
+                after = e;
+                after.particle_spawn_rate = 120.0f; after.particle_lifetime_min = 1.5f; after.particle_lifetime_max = 2.5f;
+                after.particle_size_start = 0.05f; after.particle_size_end = 0.05f;
+                after.particle_velocity = Vec3{0.5f, -8.0f, 0.0f}; after.particle_jitter = Vec3{5.0f, 0.5f, 5.0f};
+                after.particle_color_start = Vec3{0.7f, 0.8f, 1.0f}; after.particle_color_end = Vec3{0.5f, 0.6f, 0.8f};
+                after.particle_gravity = -9.8f; after.particle_billboard_type = 1;
+                commit(st, si, after);
+              }
+              ImGui::PopStyleVar();
+
+              track_edit(st, e, si, prop_float("Yayma H\xC4\xB1z\xC4\xB1", &e.particle_spawn_rate, 0.5f, 0.0f, 1000.0f, "%.1f /s"));
+              track_edit(st, e, si, prop_float("\xC3\x96m\xC3\xBCr (en az)", &e.particle_lifetime_min, 0.01f, 0.01f, 60.0f, "%.2f s"));
+              track_edit(st, e, si, prop_float("\xC3\x96m\xC3\xBCr (en \xC3\xA7ok)", &e.particle_lifetime_max, 0.01f, 0.01f, 60.0f, "%.2f s"));
+              track_edit(st, e, si, prop_float("Boy (ba\xC5\x9Flang\xC4\xB1\xC3\xA7)", &e.particle_size_start, 0.005f, 0.0f, 10.0f, "%.3f m"));
+              track_edit(st, e, si, prop_float("Boy (biti\xC5\x9F)", &e.particle_size_end, 0.005f, 0.0f, 10.0f, "%.3f m"));
+              track_edit(st, e, si, prop_color("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 Rengi", &e.particle_color_start.x));
+              track_edit(st, e, si, prop_color("Biti\xC5\x9F Rengi", &e.particle_color_end.x));
+              track_edit(st, e, si, prop_vec3("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 H\xC4\xB1z\xC4\xB1", &e.particle_velocity.x, 0.02f));
+              track_edit(st, e, si, prop_vec3("Sa\xC3\xA7\xC4\xB1lma", &e.particle_jitter.x, 0.02f, 0.0f, 20.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Yer\xC3\xA7" "ekimi", &e.particle_gravity, 0.1f, -50.0f, 50.0f, "%.1f m/s\xC2\xB2"));
+
+              int bb = (int)e.particle_billboard_type;
+              if (prop_combo("Y\xC3\xB6nlenme Modu", &bb, "Kameraya D\xC3\xB6n\xC3\xBCk (Screen)\0H\xC4\xB1za G\xC3\xB6re Uzayan (Stretched)\0Yatay D\xC3\xBCzlem (Horizontal)\0").changed) {
+                after = e; after.particle_billboard_type = (uint32_t)bb; commit(st, si, after);
+              }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneParticle, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneSkybox) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x98\x81", "G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)", content::kSceneSkybox, nullptr, &act, true, Tone::Accent)) { // ☁
+            if (prop_begin("gokyuzu")) {
+              prop_help("Fiziksel atmosfer modeli (Nishita / Bruneton) ve dinamik g\xC3\xBCne\xC5\x9F d\xC3\xB6ng\xC3\xBCs\xC3\xBC.");
+              float tod = st.scene.time_of_day;
+              const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, "%.1f:00");
+              if (pit.changed) {
+                st.scene.time_of_day = tod;
+                const float ang = (tod - 6.0f) * (3.14159265f / 12.0f);
+                st.scene.sun_dir.y = std::sin(ang);
+                st.scene.sun_dir.x = std::cos(ang) * 0.85f;
+                st.scene.sun_dir.z = 0.35f;
+                track_world_edit(st, pit);
+              }
+              ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 Zaman:");
+              ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+              if (ImGui::SmallButton("\xC5\x9E" "afak 06:00")) {
+                st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f}; st.dirty = true;
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("\xC3\x96\xC4\x9Fle 12:00")) {
+                st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f}; st.dirty = true;
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Bat\xC4\xB1m 18:30")) {
+                st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f}; st.dirty = true;
+              }
+              ImGui::SameLine();
+              if (ImGui::SmallButton("Gece 00:00")) {
+                st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f}; st.dirty = true;
+              }
+              ImGui::PopStyleVar();
+
+              track_world_edit(st, prop_float("Atmosfer Bulan\xC4\xB1kl\xC4\xB1\xC4\x9F\xC4\xB1", &st.scene.sky_turbidity, 0.05f, 1.0f, 10.0f, "%.2f"));
+              track_world_edit(st, prop_float("G\xC3\xBCne\xC5\x9F \xC5\x9Eiddeti", &st.scene.sun_diffuse, 0.01f, 0.0f, 5.0f, "%.2f"));
+              track_world_edit(st, prop_color("Ortam I\xC5\x9F\xC4\xB1\xC4\x9F\xC4\xB1", &st.scene.ambient.x));
+
+              bool gr = st.scene.godrays_enabled;
+              if (prop_check("I\xC5\x9F\xC4\xB1k H\xC3\xBCzmeleri (God Rays)", &gr).changed) {
+                st.scene.godrays_enabled = gr;
+                st.dirty = true;
+              }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneSkybox, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneRefProbe) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x97\x89", "Yans\xC4\xB1ma Sondas\xC4\xB1 (IBL)", content::kSceneRefProbe, nullptr, &act, true, Tone::AxisX)) { // ◉
+            if (prop_begin("sonda")) {
+              track_edit(st, e, si, prop_float("Etki Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &e.ref_probe_radius, 0.1f, 0.5f, 200.0f, "%.1f m"));
+              track_edit(st, e, si, prop_float("\xC5\x9Eiddet", &e.ref_probe_intensity, 0.01f, 0.0f, 5.0f, "%.2f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneRefProbe, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (has_c) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x96\xA3", "Kamera", content::kSceneCamera, nullptr, &act, true, Tone::Accent)) { // ▣
+            if (prop_begin("kamera")) {
+              track_edit(st, e, si, prop_float("G\xC3\xB6r\xC3\xBC\xC5\x9F A\xC3\xA7\xC4\xB1s\xC4\xB1 (FOV)", &e.cam_fov, 0.5f, 10.0f, 120.0f, "%.1f\xC2\xB0"));
+              track_edit(st, e, si, prop_float("Yak\xC4\xB1n K\xC4\xB1rpma", &e.cam_near, 0.01f, 0.01f, 10.0f, "%.2f m"));
+              track_edit(st, e, si, prop_float("Uzak K\xC4\xB1rpma", &e.cam_far, 1.0f, 1.0f, 5000.0f, "%.1f m"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneCamera, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (has_s) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x99\xAA", "Ses Kayna\xC4\x9F\xC4\xB1", content::kSceneAudio, nullptr, &act, true, Tone::Warn)) { // ♪
+            if (prop_begin("ses")) {
+              track_edit(st, e, si, prop_text("Ses Dosyas\xC4\xB1", e.audio_clip, sizeof e.audio_clip));
+              track_edit(st, e, si, prop_float("Ses D\xC3\xBCzeyi", &e.audio_volume, 0.02f, 0.0f, 2.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Perde", &e.audio_pitch, 0.02f, 0.1f, 3.0f, "%.2f"));
+              bool loop = e.audio_loop;
+              if (prop_check("D\xC3\xB6ng\xC3\xBC", &loop).changed) { after = e; after.audio_loop = loop; commit(st, si, after); }
+              bool spat = e.audio_spatial;
+              if (prop_check("3B Uzamsal", &spat).changed) { after = e; after.audio_spatial = spat; commit(st, si, after); }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneAudio, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneReverb) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x97\x8E", "Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", content::kSceneReverb, nullptr, &act, true, Tone::Warn)) { // ◎
+            if (prop_begin("yanki")) {
+              prop_help("Sonumlenme, yankinin duyulmaz olana kadar gecen suresi; oda buyuklugu ilk yansimalarin gecikmesidir.");
+              track_edit(st, e, si, prop_float("S\xC3\xB6n\xC3\xBCmlenme", &e.reverb_decay, 0.02f, 0.05f, 20.0f, "%.2f s"));
+              track_edit(st, e, si, prop_float("Oda B\xC3\xBCy\xC3\xBCkl\xC3\xBC\xC4\x9F\xC3\xBC", &e.reverb_room_size, 0.01f, 0.0f, 1.0f, "%.2f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneReverb, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (has_sc) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x96\xA4", "Tulpar Betik", content::kSceneScript, nullptr, &act, true, Tone::AccentLo)) { // ▤
+            if (prop_begin("betik")) {
+              track_edit(st, e, si, prop_text("Betik (.tpr)", e.script_file, sizeof e.script_file));
+              bool en = e.script_enabled;
+              if (prop_check("Etkin", &en).changed) { after = e; after.script_enabled = en; commit(st, si, after); }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneScript, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneNavAgent) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x86\x92", "Yapay Zeka Ajan\xC4\xB1", content::kSceneNavAgent, nullptr, &act, true, Tone::AccentLo)) { // →
+            if (prop_begin("ajan")) {
+              prop_help("Yol ARAMASI motorun (Detour); yolu YURUME isi oyun kodunda (lib/engine.tpr ajan_ilerlet). Bunlar o kodun okudugu ayarlar.");
+              track_edit(st, e, si, prop_vec3("Hedef Nokta", &e.ai_target.x, 0.05f));
+              track_edit(st, e, si, prop_float("Hareket H\xC4\xB1z\xC4\xB1", &e.ai_speed, 0.05f, 0.0f, 100.0f, "%.2f m/s"));
+              track_edit(st, e, si, prop_float("D\xC3\xB6n\xC3\xBC\xC5\x9F H\xC4\xB1z\xC4\xB1", &e.ai_turn_speed, 1.0f, 0.0f, 720.0f, "%.0f\xC2\xB0/s"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneNavAgent, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneHealth) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x99\xA5", "Can / Z\xC4\xB1rh (Health)", content::kSceneHealth, nullptr, &act, true, Tone::Warn)) { // ♥
+            if (prop_begin("can")) {
+              prop_help("Oyun icindeki can durumu ve maksimum can kapasitesi.");
+              const float ratio = e.health_max > 0.0f ? ImClamp(e.health_current / e.health_max, 0.0f, 1.0f) : 0.0f;
+              char hp_bar[64];
+              std::snprintf(hp_bar, sizeof hp_bar, "%.0f / %.0f HP", e.health_current, e.health_max);
+              ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.85f, 0.22f, 0.22f, 1.0f));
+              ImGui::ProgressBar(ratio, ImVec2(-FLT_MIN, 0.0f), hp_bar);
+              ImGui::PopStyleColor();
+              track_edit(st, e, si, prop_float("Mevcut Can", &e.health_current, 1.0f, 0.0f, 10000.0f, "%.0f"));
+              track_edit(st, e, si, prop_float("Maksimum Can", &e.health_max, 1.0f, 1.0f, 10000.0f, "%.0f"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneHealth, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneAbility) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x9A\x94", "B\xC3\xBCy\xC3\xBC / Yetenek (GAS)", content::kSceneAbility, nullptr, &act, true, Tone::Accent)) { // ⚔
+            if (prop_begin("yetenek")) {
+              prop_help("Varligin temel yetenegi, hasari ve bekleme suresi.");
+              int aid = (int)e.ability_id;
+              const char *kAbilities = "0: Yak\xC4\xB1n D\xC3\xB6v\xC3\xBC\xC5\x9F (Melee)\0"
+                                       "1: Ate\xC5\x9F Topu (Fireball)\0"
+                                       "2: Buz Oku (Frost Arrow)\0"
+                                       "3: At\xC4\xB1lma (Dash)\0"
+                                       "4: Koruyucu Kalkan (Shield)\0";
+              if (prop_combo("Yetenek Tipi", &aid, kAbilities).changed) {
+                after = e;
+                after.ability_id = (uint32_t)(aid < 0 ? 0 : aid);
+                commit(st, si, after);
+              }
+              track_edit(st, e, si, prop_float("Temel Hasar", &e.ability_damage, 1.0f, 0.0f, 1000.0f, "%.1f"));
+              track_edit(st, e, si, prop_float("Etki Menzili", &e.ability_range, 0.5f, 0.0f, 100.0f, "%.1f m"));
+              track_edit(st, e, si, prop_float("Bekleme S\xC3\xBCresi", &e.ability_cooldown, 0.1f, 0.0f, 60.0f, "%.1f s"));
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneAbility, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        if (e.components & content::kSceneInventory) {
+          act = ComponentCardAction::None;
+          after = e;
+          if (begin_component_card("\xE2\x96\xA3", "Envanter (Inventory - 16 Yuva)", content::kSceneInventory, nullptr, &act, true, Tone::Text)) { // ▣
+            if (prop_begin("envanter")) {
+              prop_help("Varlik icin 16 yuvalik sabit bellekli deterministik envanter.");
+              ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 Yuva Genel Bak\xC4\xB1\xC5\x9F\xC4\xB1:");
+              for (int slot = 0; slot < 16; slot++) {
+                if (slot % 4 != 0) ImGui::SameLine();
+                char sbtn[32];
+                std::snprintf(sbtn, sizeof sbtn, "[#%02d]##slot%d", slot + 1, slot);
+                ImGui::Button(sbtn, ImVec2(55.0f, 26.0f));
+                if (ImGui::IsItemHovered()) {
+                  ImGui::SetTooltip("Yuva %d: Bo\xC5\x9F (Deterministik)", slot + 1);
+                }
+              }
+              prop_end();
+            }
+            end_component_card();
+          }
+          process_component_card_action(act, content::kSceneInventory, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        }
+        // Ekleme listesi kComponentMenu'den gelir: KATEGORILI, aranabilir ve ON
+        // SEKIZ bilesenin tamamini kapsar. Burada elle kurulan duz bir dizi
+        // vardi ve yalniz YEDI bileseni taniyordu -- Karakter / Partikul /
+        // Arazi / Voksel / Su / Ruzgar / Eklem / Gokyuzu / Sonda / Yanki /
+        // Ajan HICBIR YERDEN eklenemiyordu (bilesen bitleri, dosya bicimi ve
+        // menu tablosu hazirdi, eksik olan tek sey bu cagriydi).
+        // Takili olanlari eleme isini de widget yapar (existing_components),
+        // burada tek tek sormaya gerek yok.
+        prop_set_filter(nullptr); // ekleme listesi ve diger paneller suzgecten etkilenmesin
+        const uint32_t add = component_add_button(kComponentMenu, kComponentMenuCount, e.components);
+        if (add) { // 0 = secim yok; donus INDEKS degil BIT
+          after = e;
+          after.components |= add;
+          if (add == content::kSceneModel && after.asset < 0) after.asset = 0;
+          commit(st, si, after);
+        }
+      } else {
+        // --- SAHNE VE ORTAM GENEL ÖZELLİKLERİ (Scene & World Inspector) ---
+        // Prowl & O3DE standardı: Seçili varlık yokken arayüz boş bir çöl gibi
+        // kalmaz; aktif sahne başlığı, hızlı varlık ekleme butonları ve dünya/atmosfer
+        // ayarları zengin bir şekilde listelenir.
+        
+        // 1. Sahne Başlık Kartı
+        char scene_name_buf[128];
+        const char *raw_file = editor_basename(st.scene_path);
+        if (!raw_file || !raw_file[0]) raw_file = "isimsiz.sahne";
+        std::snprintf(scene_name_buf, sizeof scene_name_buf, "%s", raw_file);
+
+        char sub[128];
+        std::snprintf(sub, sizeof sub, "Sahne K\xC3\xB6k\xC3\xBC \xC2\xB7 %u varl\xC4\xB1k \xC2\xB7 %u kaynak",
+                      st.scene.entity_count, st.scene.asset_count);
+
+        ImGui::PushID("scene_header");
+        push_text_size(TextSize::Lg);
+        ImGui::TextColored(tone(Tone::Accent), "\xE2\x97\x8E");
+        ImGui::SameLine();
+        ImGui::TextUnformatted(scene_name_buf);
+        pop_text_size();
+        push_text_size(TextSize::Sm);
+        ImGui::TextColored(tone(Tone::TextDim), "%s", sub);
+        pop_text_size();
+        ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        ImGui::Separator();
+        ImGui::PopID();
+
+        // 2. Hızlı Varlık Oluşturma Matrisi (Prowl / Unity Quick Create)
+        ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 Varl\xC4\xB1k Ekle:");
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, tone_col(Tone::Bg2));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone_col(Tone::Bg3));
+
+        const float avail_w = ImGui::GetContentRegionAvail().x;
+        const float sp_x = ImGui::GetStyle().ItemSpacing.x;
+        const float btn_w = std::floor((avail_w - sp_x * 2.0f) / 3.0f);
+
+        // Satır 1: [ + Boş ] [ + Model ] [ + Işık ]
+        if (ImGui::Button("+ Bo\xC5\x9F", ImVec2(btn_w, 0))) do_add(1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Boş Varlık Oluştur (Empty Entity)");
+        ImGui::SameLine();
+        if (ImGui::Button("+ Model", ImVec2(btn_w, 0))) do_add(2);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("glTF / 3B Model Varlığı Ekle");
+        ImGui::SameLine();
+        if (ImGui::Button("+ I\xC5\x9F\xC4\xB1k", ImVec2(btn_w, 0))) do_add(3);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Noktasal Işık (Point Light) Ekle");
+
+        // Satır 2: [ + Küp ] [ + Su ] [ + Gök ]
+        if (ImGui::Button("+ K\xC3\xBCp", ImVec2(btn_w, 0))) do_add(10);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Temel Küp Primitifi Ekle");
+        ImGui::SameLine();
+        if (ImGui::Button("+ Su", ImVec2(btn_w, 0))) do_add(32);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dinamik Gerstner Su / Dalga Alanı Ekle");
+        ImGui::SameLine();
+        if (ImGui::Button("+ G\xC3\xB6k", ImVec2(btn_w, 0))) do_add(36);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Atmosfer ve Skybox Ekle");
+
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
+
+        ImGui::Dummy(ImVec2(0.0f, 3.0f));
+
+        // 3. Bilgilendirici İpucu Kartı (Kırpılmayan esnek şerit)
+        {
+          const ImVec2 cur = ImGui::GetCursorScreenPos();
+          const float hint_w = ImGui::GetContentRegionAvail().x;
+          ImDrawList *dl = ImGui::GetWindowDrawList();
+
+          ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+          ImGui::PushStyleColor(ImGuiCol_ChildBg, tone_col(Tone::Bg2, 0.55f));
+          if (ImGui::BeginChild("##scene_hint_card", ImVec2(hint_w, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar)) {
+            ImGui::TextColored(tone_col(Tone::Accent), ICON_MD_LIGHTBULB " \xC4\xB0" "pucu:");
+            ImGui::SameLine();
+            ImGui::TextWrapped("Bir nesnenin Transform ve bile\xC5\x9F" "enlerini d\xC3\xBCzenlemek i\xC3\xA7in soldaki Sahne listesinden se\xC3\xA7in.");
+          }
+          ImGui::EndChild();
+          ImGui::PopStyleColor();
+          ImGui::PopStyleVar();
+
+          // Sol kenarda şık 3px Accent şeridi
+          const ImVec2 end_cur = ImGui::GetCursorScreenPos();
+          dl->AddRectFilled(cur, ImVec2(cur.x + 3.0f, cur.y + (end_cur.y - cur.y)), tone_u32(Tone::Accent), 2.0f);
+        }
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+
+        // 4. Dünya ve Ortam Ayarları
+        draw_world_and_environment_properties();
+      }
+    }
+    ImGui::End();
+    // Dunya paneli: gunes/ortam/golge (gunluge SceneOp::World), kamera (canli; sahneye yazmak ayri islem).
+    if (ImGui::Begin(kPanelDunyaLabel)) {
+      draw_world_and_environment_properties();
     }
     ImGui::End();
     // Kaynak tarayici: sahne dosyasinin dizinindeki glTF'ler + sahnenin kaynak
@@ -2758,12 +3806,20 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // geri gelirler (bkz. docs/EDITOR-DURUM.md); o gune kadar var
     // olmayan bir yetenegi vaat eden panel tutulmaz.
     //
-    // DIKKAT: paneller silinirken onlarin ImGui::End()'i burada ARTIK olarak
-    // kalmisti. Begin'siz End, ImGui yigininda bir seviye asagi iner ve
-    // ortuk "Debug##Default" penceresini kapatmaya calisir:
+    // BURADA SAHIPSIZ bir ImGui::End() duruyordu ve HER KARE
     //   [imgui-error] In window 'Debug##Default': Calling End() too many times!
-    // HER KARE tekrarliyordu ve v0.1.0'a bu halde girdi. Panel silerken
-    // Begin/End CIFTININ ikisi de silinmeli.
+    // basiyordu; v0.1.0'a bu halde girdi.
+    //
+    // Iki bagimsiz olcum: (1) statik — editor_app.cpp 8 `ImGui::Begin(` ve 9
+    // `ImGui::End();` tasiyordu; (2) calisma zamani (gecici sonda) — bu noktada
+    // CurrentWindowStack.Size == 1, yani acik KULLANICI penceresi yok, End()
+    // eslesmemis. Begin'siz End, ImGui yigininda bir seviye asagi iner ve ortuk
+    // "Debug##Default" penceresini kapatmaya calisir.
+    //
+    // Kaynagi: maket paneller (Sequencer, Arazi Fircasi, Girdi Yoneticisi,
+    // Profiler) silinirken Begin'leri gitti, bu End agacta kaldi. Ustteki
+    // panellerin (Dunya, Kaynaklar, Materyal Graph) hepsi kendi End'ini zaten
+    // cagiriyor. KURAL: panel silerken Begin/End CIFTININ ikisi de silinmeli.
 
     // Begin CAGRILDIYSA End sart — donus degerinden BAGIMSIZ. Gardiyan
     // show_console olamaz: `&show_console` p_open olarak veriliyor, yani
@@ -2788,10 +3844,30 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                            (st.scene.entities[gz].flags & content::kSceneLocked) != 0;
     if (view_tab == ViewportTab::Scene && gz >= 0 && gz < (int32_t)st.scene.entity_count && !gz_locked) {
       SceneEntity &e = st.scene.entities[gz];
-      Mat4 proj_gl = proj;
-      proj_gl.m[1][1] = -proj_gl.m[1][1];
+      Mat4 proj_gl;
+      {
+        const float aspect = view_rect.h > 0 ? view_rect.w / view_rect.h : 1.0f;
+        const float znear = 0.1f, zfar = 200.0f;
+        if (cam.proj == CameraProjection::Perspective) {
+          const float f = 1.0f / std::tan(cam.fov_y * 0.5f);
+          proj_gl.m[0][0] = f / aspect;
+          proj_gl.m[1][1] = f;
+          proj_gl.m[2][2] = (zfar + znear) / (znear - zfar);
+          proj_gl.m[2][3] = -1.0f;
+          proj_gl.m[3][2] = (2.0f * znear * zfar) / (znear - zfar);
+          proj_gl.m[3][3] = 0.0f;
+        } else {
+          const float hh = cam.radius * std::tan(cam.fov_y * 0.5f);
+          const float hw = hh * aspect;
+          proj_gl.m[0][0] = 1.0f / hw;
+          proj_gl.m[1][1] = 1.0f / hh;
+          proj_gl.m[2][2] = -2.0f / (zfar - znear);
+          proj_gl.m[3][2] = -(zfar + znear) / (zfar - znear);
+          proj_gl.m[3][3] = 1.0f;
+        }
+      }
       ImGuizmo::SetOrthographic(false);
-      ImGuizmo::SetRect(view_rect.x, view_rect.y, view_rect.w, view_rect.h);
+      // SetRect/SetDrawlist Gorunum penceresinin ICINDE yapildi (yukarida).
       Mat4 mtx = content::scene_entity_world_matrix(st.scene, (uint32_t)gz);
       const ImGuizmo::OPERATION op = gizmo_op == 0 ? ImGuizmo::TRANSLATE : gizmo_op == 1 ? ImGuizmo::ROTATE : ImGuizmo::SCALE;
       const float snap_vec[3] = {snap_step, snap_step, snap_step};
@@ -2800,6 +3876,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                                                 gizmo_space == GizmoSpace::Local ? ImGuizmo::LOCAL : ImGuizmo::WORLD, &mtx.m[0][0], nullptr,
                                                 snap_on ? snap_vec : nullptr);
       const bool using_now = ImGuizmo::IsUsing();
+      // Gizmo bu tiklamayi ALDIYSA, kaplamanin ayni karede baslattigi kutu
+      // (marquee) suruklemesi IPTAL edilir. Kaplama ImGuizmo'dan ONCE
+      // cizildigi icin tiklamanin gizmoya mi sahneye mi gittigini o anda
+      // bilemez ve kutuyu baslatir; sonuc, gizmo okunu tutup surukleyince
+      // nesnenin tasinmasi yerine mavi secim kutusunun acilmasiydi.
+      //
+      // Kutu yalniz kMinBox'u gectiginde CIZILIR ve yalniz birakilinca
+      // secime doner; burada, ayni karede iptal edildigi icin ikisi de
+      // hic olmaz. Bir sonraki karede IsMouseClicked false oldugundan ayni
+      // basili tutma kutuyu yeniden baslatamaz.
+      if (using_now || ImGuizmo::IsOver()) viewport_box_cancel();
       if (using_now && !st.gizmo_was_using) { // surukleme basi: grubun tamaminin kopyasi
         st.edit_before = e;
         st.drag_count = 0;
@@ -2823,6 +3910,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.scene.entities[i].pos = st.drag_before[k].pos + delta;
         }
       }
+      bool gizmo_just_finished = false;
       if (!using_now && st.gizmo_was_using) { // surukleme sonu: gunluge TEK grup
         for (uint32_t k = 0; k < st.drag_count; k++) st.drag_after[k] = st.scene.entities[st.drag_items[k]];
         const uint32_t ops = selection_commit(st.scene, st.hist, st.drag_items, st.drag_count, st.drag_before, st.drag_after);
@@ -2832,9 +3920,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           if (ops > 1) set_status(st, "tasindi (%u varlik)", ops);
         }
         st.drag_count = 0;
+        gizmo_just_finished = true;
       }
       st.gizmo_was_using = using_now;
-    } else st.gizmo_was_using = false;
+      st.gizmo_was_over = ImGuizmo::IsOver();
+      // Secimi engellemek icin st.gizmo_was_using'i de guncelleyelim, ama box_done bu frame bitiyor.
+      // Eger gizmo bu kare bittiyse, box_done degeri marquee secimini tetiklememeli.
+      if (gizmo_just_finished) st.gizmo_was_over = true; // Secimi yutmasi icin kucuk bir hile
+    } else {
+      st.gizmo_was_using = false;
+      st.gizmo_was_over = false;
+    }
     // Tiklamayla secim: sol tus basildi (gecis), ImGui/gizmo uzerinde degil.
     {
       const bool lmb = in && in->mouse_down[0];
@@ -2851,7 +3947,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // bu da "tiklayinca hemen kapaniyor / secim tutmuyor" sikayetinin sebebiydi.
       const float psc = ui.pointer_scale();
       const ViewportPick pick = in ? vp.map_mouse(view_rect, (float)in->mouse_x * psc, (float)in->mouse_y * psc) : ViewportPick{};
-      if (view_tab == ViewportTab::Scene && ovres.box_done) {
+      // Gizmo kullaniliyorsa (veya az once birakildiysa) marquee secimi iptal.
+      const bool gizmo_active_or_just_finished = ImGuizmo::IsUsing() || st.gizmo_was_over;
+      if (view_tab == ViewportTab::Scene && ovres.box_done && !gizmo_active_or_just_finished) {
         // Kutu (marquee) secim: kaplama dikdortgeni verdi, izdusum testi saf
         // fonksiyonda (kamera ARKASINDAKI kutular orada eleniyor).
         static content::SceneBounds bb[content::kSceneMaxEntities];
@@ -3228,7 +4326,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       } else if (cr == ConfirmResult::Third) { run_pending(pending); pending = PendingNone; }
       else if (cr == ConfirmResult::Cancel) pending = PendingNone;
     }
-    draw_stats_overlay(&show_stats, dt, ren.stats(), st.scene, vp.width(), vp.height(), view_tab, sys);
+    draw_stats_overlay(&show_stats, dt, ren.stats(), st.scene, vp.width(), vp.height(), view_tab, sys, view_rect);
+    draw_command_palette(palette_st, cmds, st.scene, &st);
     ui.end_frame();
 
     // --- 3B cizim: veri modelinden (dunya isigi/golgesi de her kare modelden: panel canli) ---
@@ -3253,6 +4352,30 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     ren.set_exposure(st.render.exposure);
     ren.set_bloom(st.render.bloom_threshold, st.render.bloom_intensity);
     ren.set_bloom_shape(st.render.bloom_knee, st.render.bloom_radius);
+    
+    float gr_intensity = 0.0f;
+    Vec4 gr_source = {-st.scene.sun_dir.x, -st.scene.sun_dir.y, -st.scene.sun_dir.z, 0.0f};
+    if (st.scene.godrays_enabled) {
+      gr_intensity = 1.0f;
+      for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+        const content::SceneEntity &e = st.scene.entities[i];
+        if ((e.components & content::kSceneLight) && e.light_godray) {
+          gr_intensity = e.light_godray_intensity;
+          if (e.light_type == content::SceneLightType::Directional) {
+             Mat4 m = content::scene_entity_world_matrix(st.scene, i);
+             // Direction is typically -Z in local space
+             Vec3 forward = normalize(Vec3{-m.m[2][0], -m.m[2][1], -m.m[2][2]});
+             gr_source = {forward.x, forward.y, forward.z, 0.0f};
+          } else {
+             Mat4 m = content::scene_entity_world_matrix(st.scene, i);
+             gr_source = {m.m[3][0], m.m[3][1], m.m[3][2], 1.0f};
+          }
+          break;
+        }
+      }
+    }
+    ren.set_godrays(st.scene.godray_density, st.scene.godray_decay, st.scene.godray_weight, st.scene.godray_exposure * gr_intensity);
+    ren.set_godrays_source(gr_source);
     ren.set_render_scale(st.render.render_scale);
     ren.set_upscaler((renderer::UpscalerKind)st.render.upscaler, st.render.sharpness);
     ren.set_jitter(st.render.jitter);
@@ -3262,6 +4385,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // hazirlikta yapilir. Ozet ayni kaldikca hicbir sey calismaz -- duran bir
     // sahnede kare basina 0 GPU ayirmasi.
     for (uint32_t i = 0; i < st.scene.entity_count; i++) proc_refresh(st, ren, i);
+    for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+      const SceneEntity &e = st.scene.entities[i];
+      if (e.flags & content::kSceneHidden) continue;
+      // view_mode == 1 (Isiksiz / albedo) main'den geliyor ve BURADA duruyor:
+      // PR #7 isik toplamasini begin_frame ONCESI bir on-gecise tasidi (huzme
+      // kaynagi ve kumelenme oradan besleniyor), ama o kipin kapisini
+      // dusurmustu -- Isiksiz gorunumde sahne yine isikli cizilirdi.
+      if ((e.components & content::kSceneLight) && view_mode != 1) {
+        const bool simulated = st.playing && st.bodies_live && st.bodies[i].valid() && e.dynamic;
+        const Mat4 m = simulated ? content::scene_body_matrix(e, phys, st.bodies[i]) : content::scene_entity_world_matrix(st.scene, i);
+        renderer::PointLight pl;
+        pl.pos = {m.m[3][0], m.m[3][1], m.m[3][2]};
+        pl.radius = e.light_radius;
+        pl.color = e.light_color;
+        pl.intensity = e.light_intensity;
+        ren.add_point_light(pl);
+      }
+    }
     ren.begin_frame(headless ? 0 : frame_i);
     for (uint32_t i = 0; i < st.scene.entity_count; i++) {
       const SceneEntity &e = st.scene.entities[i];
@@ -3325,13 +4466,32 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // ikisini de ayni "kare" yapip birbirinden ayirt edilemez kilardi.
       if (!drew && !(e.components & (content::kSceneLight | content::kSceneCamera)))
         ren.draw(ds.cube, m * Mat4::scale({0.3f, 0.3f, 0.3f}), sel ? tint : Vec3{0.9f, 0.9f, 0.3f}); // bos varlik isareti
-      if ((e.components & content::kSceneLight) && view_mode != 1) {
-        renderer::PointLight pl;
-        pl.pos = {m.m[3][0], m.m[3][1], m.m[3][2]};
-        pl.radius = e.light_radius;
-        pl.color = e.light_color;
-        pl.intensity = e.light_intensity;
-        ren.add_point_light(pl);
+      // main'in ikinci add_point_light dongusu BURADAN kaldirildi: PR #7 ayni
+      // isiklari begin_frame oncesi on-geciste zaten ekliyor, ikisi birlikte
+      // her isigi IKI KEZ kaydediyordu (kume butcesi iki katina cikar, parlaklik
+      // ikiye katlanirdi). Kip kapisi on-gecise tasindi (yukari bak).
+    }
+    // --- RDR2 tarzi sinematik isik huzmesi (God Rays) cekirdek cizimi --------
+    // Sahnedeki engellerin (duvar, kutu) gunesi fiziksel olarak perdelemesi ve
+    // arkasindan gercek isik saftlari akmasi icin sahne derinlik testine tabi
+    // parlak bir gunes/isik cekirdegi cizilir.
+    if (st.scene.godrays_enabled && gr_intensity > 0.0f && st.prims[content::kPrimSphere].valid()) {
+      if (gr_source.w == 0.0f) {
+        // Yonlu gunes isigi (directional sun)
+        Vec3 sun_d = normalize(Vec3{gr_source.x, gr_source.y, gr_source.z});
+        Vec3 to_sun = {-sun_d.x, -sun_d.y, -sun_d.z};
+        Vec3 eye = camera_eye(cam);
+        float sun_dist = 150.0f; // zfar (200.0f) onunde, sahne nesnelerinin arkasinda
+        Vec3 sun_pos = eye + to_sun * sun_dist;
+        float sun_radius = sun_dist * 0.09f; // dogal gokyuzu gunes diski
+        Mat4 sun_m = Mat4::translate(sun_pos) * Mat4::scale(Vec3{sun_radius, sun_radius, sun_radius});
+        ren.draw(st.prims[content::kPrimSphere], st.sun_mat, sun_m, Vec3{1.0f, 0.96f, 0.88f});
+      } else {
+        // Nokta ya da spot isik (point / spot light)
+        Vec3 light_pos = {gr_source.x, gr_source.y, gr_source.z};
+        float core_radius = 0.35f;
+        Mat4 core_m = Mat4::translate(light_pos) * Mat4::scale(Vec3{core_radius, core_radius, core_radius});
+        ren.draw(st.prims[content::kPrimSphere], st.light_core_mat, core_m, Vec3{1.0f, 1.0f, 1.0f});
       }
     }
     // Isik yaricapi / golge hacmi / gunes yonu: motorun kendi draw'u ile ince kutular.

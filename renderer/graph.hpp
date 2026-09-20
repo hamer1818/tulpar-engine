@@ -32,6 +32,7 @@ enum class PassKind : uint8_t {
   Bright,  // parlak gecis (esik): HDR -> down[0]
   Down,    // indirgeme: down[i-1] -> down[i]
   Up,      // toplamali yukari ornekleme: down[i] + (down|up)[i+1] -> up[i]
+  Godray,  // screen-space godrays
   Compose, // tam ekran birlestirme (tone + bloom) -> CAGIRANIN hedefi
 };
 
@@ -49,6 +50,7 @@ enum GraphRes : uint8_t {
   // komutlari, surucunun dolayli okumasi) tablo DISINDA oldugu icin gecis
   // out_external isaretlidir — "olu gecis" denetimi onu atlar.
   kResCull = 6,
+  kResGodray = 7, // godray hedefi
   kResNone = 0xFF,
 };
 
@@ -81,6 +83,7 @@ struct GraphDesc {
   bool shadow = true;      // golge gecisi tabloda mi
   bool motion = false;     // hareket vektoru gecisi tabloda mi (Faz 5)
   bool cull = false;       // GPU cull compute gecisi tabloda mi (Faz 9)
+  bool godray = false;     // isik huzmesi gecisi tabloda mi
   uint32_t bloom_mips = 4; // post acikken 2..kMaxBloomMips
 };
 
@@ -103,7 +106,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
   if (mips < 2) mips = 2;
   if (mips > kMaxBloomMips) mips = kMaxBloomMips;
   const uint32_t need =
-      (d.cull ? 1u : 0u) + (d.shadow ? 1u : 0u) + (d.motion ? 1u : 0u) + 1u + (d.post ? (2u * mips) : 0u);
+      (d.cull ? 1u : 0u) + (d.shadow ? 1u : 0u) + (d.motion ? 1u : 0u) + 1u + (d.post ? (2u * mips + (d.godray ? 1u : 0u)) : 0u);
   if (cap < need || cap > kMaxGraphPasses) return 0;
   uint32_t n = 0;
   if (d.cull) {
@@ -177,12 +180,24 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
       p.out_level = (uint8_t)i;
       out[n++] = p;
     }
+    if (d.godray) {
+      GraphPass p;
+      p.name = "godray";
+      p.kind = PassKind::Godray;
+      p.in0 = kResDown;
+      p.in0_level = 0;
+      p.in1 = kResUp;
+      p.in1_level = 0;
+      p.out = kResGodray;
+      p.out_level = 0;
+      out[n++] = p;
+    }
     {
       GraphPass p;
       p.name = "birlestir";
       p.kind = PassKind::Compose;
       p.in0 = kResHdr;
-      p.in1 = kResUp;
+      p.in1 = d.godray ? (uint8_t)kResGodray : (uint8_t)kResUp;
       p.in1_level = 0;
       p.out = kResTarget;
       out[n++] = p;

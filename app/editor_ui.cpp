@@ -121,30 +121,29 @@ constexpr ImVec4 rgb(int r, int g, int b, float a = 1.0f) {
 }
 constexpr ImVec4 fade(ImVec4 c, float a) { return ImVec4(c.x, c.y, c.z, a); }
 
-constexpr ImVec4 kBg0 = rgb(0x0A, 0x09, 0x08);      // void: dok boslugu, panel arasi, guclu ayirac
-constexpr ImVec4 kInput = rgb(0x10, 0x0F, 0x0E);    // sunken: girdi kuyusu, liste zemini, arama
-constexpr ImVec4 kBg1 = rgb(0x1A, 0x19, 0x18);      // panel: ana zemin
-constexpr ImVec4 kBg2 = rgb(0x23, 0x22, 0x20);      // raised: baslik bandi, sekme seridi, tablo basligi
-constexpr ImVec4 kBg3 = rgb(0x30, 0x2E, 0x2B);      // control: dugme, birlesik denetim
-constexpr ImVec4 kBg4 = rgb(0x3C, 0x39, 0x36);      // control_hi: uzerine gelince
-constexpr ImVec4 kLine = rgb(0x2A, 0x28, 0x26);     // ince ayirac (tablo izgarasi, pencere kenari)
-constexpr ImVec4 kText = rgb(0xD8, 0xD5, 0xD0);     // ana metin (hafif SICAK beyaz)
-constexpr ImVec4 kTextDim = rgb(0x8C, 0x88, 0x82);  // etiket, ikincil bilgi
-constexpr ImVec4 kTextMute = rgb(0x5E, 0x5B, 0x57); // pasif, ipucu, yer tutucu
-// Vurgu: Tulpar turkuazi, DOYGUNLUGU DUSURULMUS. Bir karede ekranin
-// %5'inden azini kaplamali (bkz. docs/engine/EDITOR-TASARIM.md §3).
-constexpr ImVec4 kAccent = rgb(0x2F, 0x9B, 0x8F);
-constexpr ImVec4 kAccentHi = rgb(0x4F, 0xC4, 0xB6); // imlec, tik, baglanti
-constexpr ImVec4 kAccentLo = rgb(0x1E, 0x64, 0x5C); // basili tutamak
-constexpr ImVec4 kSelect = rgb(0x24, 0x40, 0x3D);   // liste/agac secim seridi -- DOYGUN DEGIL
-constexpr ImVec4 kWarn = rgb(0xD9, 0xA4, 0x41);     // kaydedilmemis, surukle hedefi
+constexpr ImVec4 kBg0 = rgb(0x10, 0x11, 0x14);      // void: derin obsidyen boslugu, dok arasi
+constexpr ImVec4 kInput = rgb(0x15, 0x16, 0x1A);    // sunken: cokuk girdi kuyusu, arama
+constexpr ImVec4 kBg1 = rgb(0x1A, 0x1C, 0x22);      // panel: ana slate panel zemini
+constexpr ImVec4 kBg2 = rgb(0x22, 0x25, 0x2D);      // raised: kartlar, sekme cubuklari, baslik bandi
+constexpr ImVec4 kBg3 = rgb(0x2B, 0x2E, 0x38);      // control: modern notr dugmeler
+constexpr ImVec4 kBg4 = rgb(0x38, 0x3D, 0x4A);      // control_hi: uzerine gelince
+constexpr ImVec4 kLine = rgb(0x28, 0x2C, 0x36);     // sleek 1px hairline ayirac ve cerceve
+constexpr ImVec4 kText = rgb(0xF1, 0xF3, 0xF7);     // ana metin (berrak net beyaz)
+constexpr ImVec4 kTextDim = rgb(0x94, 0x9D, 0xAB);  // etiket, ikincil bilgi
+constexpr ImVec4 kTextMute = rgb(0x56, 0x5D, 0x6B); // pasif, ipucu, yer tutucu
+// Vurgu: O3DE / Unreal / Prowl esintili modern kobalt/gokyuzu mavisi
+constexpr ImVec4 kAccent = rgb(0x25, 0x63, 0xEB);
+constexpr ImVec4 kAccentHi = rgb(0x38, 0xBD, 0xF8); // imlec, tik, baglanti
+constexpr ImVec4 kAccentLo = rgb(0x1D, 0x4E, 0xD8); // basili tutamak
+constexpr ImVec4 kSelect = rgb(0x1E, 0x29, 0x3B);   // liste/agac secim seridi
+constexpr ImVec4 kWarn = rgb(0xF5, 0x9E, 0x0B);     // kaydedilmemis, surukle hedefi
 constexpr ImVec4 kWhite = rgb(0xFF, 0xFF, 0xFF);    // yalniz saydam katmanlar icin
-// Eksen: doygunluk BILEREK dusuk -- eksen rengi bir KENAR ISARETI, yuzey degil.
-constexpr ImVec4 kAxisX = rgb(0xC0, 0x53, 0x4C);
-constexpr ImVec4 kAxisY = rgb(0x6B, 0x9E, 0x45);
-constexpr ImVec4 kAxisZ = rgb(0x4E, 0x79, 0xBE);
-constexpr ImVec4 kOk = rgb(0x5F, 0xA8, 0x5E);
-constexpr ImVec4 kErr = rgb(0xD2, 0x54, 0x4B);
+// Eksen renkleri: O3DE / Unreal / Blender standardi
+constexpr ImVec4 kAxisX = rgb(0xEF, 0x44, 0x44);
+constexpr ImVec4 kAxisY = rgb(0x22, 0xC5, 0x5E);
+constexpr ImVec4 kAxisZ = rgb(0x3B, 0x82, 0xF6);
+constexpr ImVec4 kOk = rgb(0x10, 0xB9, 0x81);
+constexpr ImVec4 kErr = rgb(0xEF, 0x44, 0x44);
 bool g_theme_srgb = false; // son editor_apply_theme'in srgb_target'i (editor_tone bunu izler)
 
 // sRGB (8-bit yazarken kastettigimiz deger) -> dogrusal. Alfa CEVRILMEZ.
@@ -154,44 +153,36 @@ float srgb_to_linear_ch(float c) {
 
 // Olculer: OLCEKSIZ taban. ScaleAllSizes bunlari scale ile carpar.
 void theme_sizes(ImGuiStyle &s) {
-  // 4 piksellik izgara. Onceki degerler (8x4 / 8x5) profesyonel araclara gore
-  // GEVSEKTI; sikilastirma ekrana ~%15 daha fazla bilgi sigdirir.
-  s.WindowPadding = ImVec2(8, 6);
-  s.FramePadding = ImVec2(6, 3);
-  s.ItemSpacing = ImVec2(6, 3);
-  s.ItemInnerSpacing = ImVec2(4, 2);
-  s.CellPadding = ImVec2(6, 3); // FramePadding ile ayni: tablo hucresi ve kutu ayni ritimde
+  s.WindowPadding = ImVec2(9, 9);
+  s.FramePadding = ImVec2(8, 4.5f);
+  s.ItemSpacing = ImVec2(8, 5.5f);
+  s.ItemInnerSpacing = ImVec2(6, 4.0f);
+  s.CellPadding = ImVec2(8, 4.5f);
   s.TouchExtraPadding = ImVec2(0, 0);
-  s.IndentSpacing = 14.0f;
-  s.ScrollbarSize = 12.0f;
-  s.GrabMinSize = 10.0f;
+  s.IndentSpacing = 16.0f;
+  s.ScrollbarSize = 13.0f;
+  s.GrabMinSize = 12.0f;
   s.WindowMinSize = ImVec2(180, 72);
   s.WindowBorderSize = 1.0f;
   s.ChildBorderSize = 1.0f;
   s.PopupBorderSize = 1.0f;
-  // Cerceve cizgisi YOK: ayrimi artik YUZEY TONU yapiyor (cokuk girdi /
-  // kabarik dugme). Ikisi birden olunca her kutunun etrafinda ikinci bir
-  // kontur olusuyor ve arayuz "cizgili" gorunuyordu.
-  s.FrameBorderSize = 0.0f;
+  s.FrameBorderSize = 1.0f;   // O3DE/UE5: Cerceve cizgisi dugme ve girdileri netlestirir
   s.TabBorderSize = 0.0f;
-  s.TabBarBorderSize = 1.0f;   // cubuk alt cizgisi: rengi TabSelected (= pencere zemini), yani sekme icerige AKAR
-  s.TabBarOverlineSize = 2.0f; // secili sekmenin uzerinde vurgu cizgisi
+  s.TabBarBorderSize = 1.0f;
+  s.TabBarOverlineSize = 2.5f; // secili sekmenin uzerinde belirgin vurgu cizgisi
   s.DockingSeparatorSize = 2.0f;
-  s.SeparatorTextBorderSize = 1.0f; // kalin cizgi baslik degil bolme gibi okunuyordu
+  s.SeparatorTextBorderSize = 1.0f;
   s.SeparatorTextPadding = ImVec2(16, 6);
-  // TEK yuvarlaklik (4): pencere, cocuk, acilir, kutu, tutamak, sekme — farkli
-  // yaricaplar yan yana gelince cerceve "duz/tutarsiz" okunuyordu.
-  // Sektor editorleri neredeyse KARE koseler kullanir (UE5 ~2px). Genis
-  // yaricap arayuzu "uygulama" degil "widget seti" gosterir.
+  // O3DE & Prowl Game Engine esintili sik mikro-yuvarlaklik (5px)
   s.WindowRounding = 0.0f; // doklanmis panel: kare
-  s.ChildRounding = 2.0f;
-  s.PopupRounding = 3.0f;
-  s.FrameRounding = 2.0f;
-  s.GrabRounding = 2.0f;
-  s.TabRounding = 2.0f;
-  s.ScrollbarRounding = 2.0f;
-  s.WindowTitleAlign = ImVec2(0.0f, 0.5f);          // sola dayali baslik (Unity/Godot)
-  s.WindowMenuButtonPosition = ImGuiDir_None;       // daraltma oku yok: baslik temiz
+  s.ChildRounding = 6.0f;
+  s.PopupRounding = 6.0f;
+  s.FrameRounding = 5.0f;  // dugmeler, girdi kutulari, sliderlar yuvarlak
+  s.GrabRounding = 5.0f;
+  s.TabRounding = 5.0f;    // sekmeler yuvarlak
+  s.ScrollbarRounding = 6.0f;
+  s.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+  s.WindowMenuButtonPosition = ImGuiDir_None;
   s.ColorButtonPosition = ImGuiDir_Right;
   s.ButtonTextAlign = ImVec2(0.5f, 0.5f);
   s.SelectableTextAlign = ImVec2(0.0f, 0.5f);
@@ -855,6 +846,30 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
           const Vec3 fwd{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
           const Vec3 dir = length_sq(fwd) > 1e-8f ? normalize(fwd) : Vec3{0, -1, 0};
           draws += arrow(ren, cube, p, p + dir * 1.2f, tint, is_sel ? th * 1.5f : th);
+          if (e.light_godray && is_sel) {
+            const Vec3 right{m.m[0][0], m.m[0][1], m.m[0][2]};
+            const Vec3 up{m.m[1][0], m.m[1][1], m.m[1][2]};
+            const float sp = 0.8f;
+            draws += arrow(ren, cube, p + right * sp, p + right * sp + dir * 1.5f, tint * 0.8f, th);
+            draws += arrow(ren, cube, p - right * sp, p - right * sp + dir * 1.5f, tint * 0.8f, th);
+            draws += arrow(ren, cube, p + up * sp, p + up * sp + dir * 1.5f, tint * 0.8f, th);
+            draws += arrow(ren, cube, p - up * sp, p - up * sp + dir * 1.5f, tint * 0.8f, th);
+          }
+        } else if (e.light_type == content::SceneLightType::Spot) {
+          draws += light_glyph(ren, cube, p, tint, is_sel ? th * 1.5f : th);
+          if (is_sel) {
+            const Vec3 fwd{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
+            const Vec3 dir = length_sq(fwd) > 1e-8f ? normalize(fwd) : Vec3{0, -1, 0};
+            const Vec3 right{m.m[0][0], m.m[0][1], m.m[0][2]};
+            const Vec3 up{m.m[1][0], m.m[1][1], m.m[1][2]};
+            const float r = e.light_radius > 0.5f ? (e.light_radius > 15.0f ? 15.0f : e.light_radius) : 5.0f;
+            const float cone_rad = std::tan(e.light_spot_outer * (3.14159265f / 180.0f)) * r;
+            const Vec3 base = p + dir * r;
+            draws += arrow(ren, cube, p, base + up * cone_rad, tint * 0.7f, th * 0.6f);
+            draws += arrow(ren, cube, p, base - up * cone_rad, tint * 0.7f, th * 0.6f);
+            draws += arrow(ren, cube, p, base + right * cone_rad, tint * 0.7f, th * 0.6f);
+            draws += arrow(ren, cube, p, base - right * cone_rad, tint * 0.7f, th * 0.6f);
+          }
         } else {
           draws += light_glyph(ren, cube, p, tint, is_sel ? th * 1.5f : th);
         }
