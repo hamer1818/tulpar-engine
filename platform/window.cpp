@@ -139,7 +139,31 @@ bool Window::open(const WindowConfig &cfg) {
     return false;
   }
   if (!g.vulkan_supported()) {
-    std::snprintf(err_, sizeof err_, "GLFW: Vulkan loader bulunamadi");
+    // glfwVulkanSupported() tek bir sey yapar: YUKLEYICI kitapligini acmayi
+    // dener (Windows'ta vulkan-1.dll, Linux'ta libvulkan.so.1). O kitaplik
+    // EKRAN KARTI SURUCUSUYLE gelir, bu paketle DEGIL — pakete konmasi da
+    // yanlis olurdu, cunku surucuye ait.
+    //
+    // Eski metin yalnizca "Vulkan loader bulunamadi" diyordu: DOGRU ama ise
+    // yaramaz. Kullanici sanal Windows 10'da tam bunu gordu (2026-09-20) ve
+    // hatanin motorda mi makinede mi oldugunu ayirt edemedi. Mesaj artik
+    // DOSYA ADINI ve NE YAPILACAGINI soyluyor; sanal makineler de aciktan
+    // aniliyor cunku en sik sebep o.
+#if defined(_WIN32)
+    std::snprintf(err_, sizeof err_,
+                  "GLFW: Vulkan yukleyicisi (vulkan-1.dll) bulunamadi. Bu dosya EKRAN KARTI "
+                  "SURUCUSU ile gelir, bu paketle degil. Suruculeri guncelleyin. NOT: sanal "
+                  "makinelerde (VirtualBox/Hyper-V, 3B kapali VMware) Vulkan cogunlukla YOKTUR.");
+#elif defined(__APPLE__)
+    std::snprintf(err_, sizeof err_,
+                  "GLFW: Vulkan yukleyicisi bulunamadi. macOS'ta Vulkan MoltenVK ile gelir: "
+                  "'brew install molten-vk' ya da Vulkan SDK kurun.");
+#else
+    std::snprintf(err_, sizeof err_,
+                  "GLFW: Vulkan yukleyicisi (libvulkan.so.1) bulunamadi. Dagitiminizdan kurun "
+                  "(orn. 'vulkan-icd-loader'/'libvulkan1') ve bir Vulkan SURUCUSU olsun "
+                  "(mesa-vulkan-drivers ya da uretici surucusu).");
+#endif
     return false;
   }
   g.window_hint(GLFW_CLIENT_API, GLFW_NO_API);
