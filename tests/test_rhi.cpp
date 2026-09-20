@@ -77,8 +77,12 @@ ENGINE_TEST(rhi_loader_and_device_caps) {
               "fragment_shading_rate=%d portability=%d\n",
               c.ext_subpass_merge_feedback, c.ext_graphics_pipeline_library, c.ext_host_image_copy,
               c.khr_fragment_shading_rate, c.khr_portability_subset);
+  // "kurulu degil" IKI FARKLI durumu ortuyordu; loader atlandiysa katman
+  // KURULU OLSA BILE var olamaz (katman bir loader mekanizmasidir).
   std::printf("    [bilgi] GPL kullanilabilir=%d; dogrulama katmani=%s\n", c.graphics_pipeline_library,
-              c.validation_layer ? "ETKIN" : "yok (VK_LAYER_KHRONOS_validation kurulu degil)");
+              c.validation_layer  ? "ETKIN"
+              : c.loader_bypassed ? "YOK — loader ATLANDI (dogrudan MoltenVK), katman zinciri kurulamaz"
+                                  : "yok (VK_LAYER_KHRONOS_validation kurulu degil)");
   CHECK(dev.ok());
   // Plan L2 "zorunlu" listesi (1.2 cekirdek) bir HIPOTEZ: Dusuk sinif cihaz
   // (Mali-G72, Vulkan 1.1, 2018 surucusu) ucunu de vermiyor. Kapi degil, veri:
@@ -269,7 +273,13 @@ ENGINE_TEST(rhi_validation_layer_reports_zero_errors) {
   Device dev;
   if (!open_device(sys, dev)) { test::skip("Vulkan cihazi yok"); return; }
   if (!dev.caps().validation_layer) {
-    test::skip("VK_LAYER_KHRONOS_validation yok — API kullanimi dogrulanmadi");
+    // IKI SEBEP AYRI: (a) katman kurulu degil = ortam eksigi;
+    // (b) loader ATLANDI (macOS dogrudan MoltenVK) = katman zinciri YOK,
+    // motorun kendi yolu. CI kapisi ayirt edebilsin (olculdu 2026-09-20).
+    if (dev.caps().loader_bypassed)
+      test::skip("loader ATLANDI (dogrudan MoltenVK) — katman zinciri YOK; API kullanimi dogrulanmadi");
+    else
+      test::skip("VK_LAYER_KHRONOS_validation yok — API kullanimi dogrulanmadi");
     dev.shutdown();
     return;
   }

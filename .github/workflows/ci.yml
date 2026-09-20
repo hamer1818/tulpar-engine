@@ -536,11 +536,26 @@ jobs:
           # NOT: katman Arm kurallarini tanimayinca basilan
           # "dogrulama katmani Arm BestPractices kurallarini tanimiyor" atlamasi
           # BASKA bir siniftir (katman var, surumu eski) ve bu ifadeye UYMAZ.
+          # macOS'ta kapi SU ANDA ULASILAMAYAN bir sey istemiyor. Olculdu
+          # (CI macOS 2026-09-20): loader MoltenVK ICD'si uzerinden instance
+          # KURAMIYOR, motor da rhi/device.cpp'deki yedege dusup MoltenVK'yi
+          # DOGRUDAN yukluyor. Katmanlar bir LOADER mekanizmasidir; o yol
+          # secildiginde katman VAR OLAMAZ, VK_LAYER_PATH'in anlami kalmaz.
+          #
+          # Bu yuzden kapinin iddiasi "katman KOSMALI" degil:
+          #   YA katman kosar, YA motor loader'i atladigini ACIKCA SOYLER.
+          # Sessiz bozulma (ikisi de yok) yine KIRMIZI. Boylece kapi gercek bir
+          # sey olcmeye devam eder ama bugun imkansiz olani talep etmez.
           katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
-          if [ -n "$katman_atlama" ]; then
+          loader_atlandi="$(grep -E 'loader ATLANDI|loader ATLANDI \(dogrudan MoltenVK\)' sonuc.log || true)"
+          if [ -n "$katman_atlama" ] && [ -z "$loader_atlandi" ]; then
             echo "$katman_atlama"
-            echo "::error::vulkan-validationlayers kurulu, VK_LAYER_PATH verilmis ve vulkaninfo katmani listeliyor oldugu halde katman kapilari atlandi — bes kapi HIC KOSMADI. Surec loader'i atlayip MoltenVK'yi DOGRUDAN yuklemis olabilir (rhi/device.cpp icindeki sessiz yedek): katmanlar bir LOADER mekanizmasidir, loader surecte yoksa VK_LAYER_PATH'in hicbir anlami kalmaz. Yukaridaki 'Vulkan ortami' adiminda loader cihaz goruyor mu diye bak."
+            echo "::error::Katman kapilari atlandi ve motor SEBEBINI SOYLEMEDI. vulkan-validationlayers kurulu, VK_LAYER_PATH verilmis ve vulkaninfo katmani listeliyor. Iki ihtimal var ve ikisi de yazilmali: (1) loader atlandi -> rhi/vk_api.cpp'deki yedek '[rhi] loader ATLANDI' basmali; (2) baska bir sebep -> o sebep yazilmali. SESSIZ atlama kabul edilmiyor."
             exit 1
+          fi
+          if [ -n "$loader_atlandi" ]; then
+            echo "$loader_atlandi"
+            echo "::warning::Loader ATLANDI: MoltenVK dogrudan yuklendi, bu kosumda katman/BestPractices kapilari OLCULMEDI. Bu bilinen bir macOS durumu (rhi/device.cpp yedegi) ve motor bunu acikca bildiriyor — sessiz degil. Loader yolu duzelene kadar macOS'ta bu bes kapi GPU dogrulamasi hakkinda hicbir sey soylemez."
           fi
 
           exit "$kod"

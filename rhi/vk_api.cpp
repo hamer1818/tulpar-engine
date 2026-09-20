@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "rhi/vk_api.hpp"
 
 #include "platform/dl.hpp"   // dlopen/LoadLibrary ortak shim'i
@@ -35,6 +36,11 @@ bool vk_api_load_moltenvk_direct(VkApi &api) {
   const char *names[] = {"libMoltenVK.dylib", "/opt/homebrew/lib/libMoltenVK.dylib", "/usr/local/lib/libMoltenVK.dylib"};
   if (!load_from(api, names, 3)) return false;
   g_direct_moltenvk = true;
+  // SESSIZ OLMASIN. Bu satir olmadan CI logundan "katman kurulu degil" ile
+  // "loader hic kullanilmadi" ayirt edilemiyordu; ikisi cok farkli seyler.
+  std::fprintf(stderr,
+               "[rhi] loader ATLANDI: MoltenVK DOGRUDAN yuklendi — bu surecte "
+               "katman zinciri YOK (dogrulama/BestPractices olculemez).\n");
   return true;
 #else
   (void)api;

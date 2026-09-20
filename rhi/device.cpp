@@ -200,7 +200,7 @@ bool Device::init_instance(VkApi &api, const DeviceConfig &cfg) {
   // bir kez bastan dene.
   if (r != VK_SUCCESS && !vk_api_is_direct_moltenvk(api)) {
     caps_ = DeviceCaps{};
-    if (vk_api_load_moltenvk_direct(api)) return init_instance(api, cfg);
+    if (vk_api_load_moltenvk_direct(api)) { const bool ok = init_instance(api, cfg); caps_.loader_bypassed = true; return ok; }
   }
 #endif
   if (r != VK_SUCCESS) {
@@ -224,7 +224,9 @@ bool Device::init_instance(VkApi &api, const DeviceConfig &cfg) {
         fail("loader cihaz gormuyor ve MoltenVK dogrudan yuklenemedi", VK_ERROR_INCOMPATIBLE_DRIVER);
         return false;
       }
-      return init_instance(api, cfg);
+      const bool ok = init_instance(api, cfg);
+      caps_.loader_bypassed = true;
+      return ok;
     }
   }
 #endif

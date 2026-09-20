@@ -993,3 +993,32 @@ Enjeksiyonsuz "artık çökmüyor" cümlesi ölçülmemiş bir iddiadır.
 **Genel kural:** bir kapının ardından gelen kod o kapının sonucuna bağlıysa
 kapı **dönmelidir**. Kırmızı bir test kırmızı kalmalı; çekirdek dökümü hem
 sebebi hem de geri kalan testleri yutar.
+
+### 8bu. Loader'ı atlayan yedek, katmanı da atlar — ve sessiz olduğu için "katman kurulu değil" gibi görünür
+
+macOS CI'da beş doğrulama kapısı `ATLANDI: VK_LAYER_KHRONOS_validation yok`
+diyordu. Paket **kuruluydu**, `VK_LAYER_PATH` **verilmişti**, `vulkaninfo`
+katmanı **listeliyordu**. Yine de yoktu.
+
+Sebep `rhi/vk_api.cpp` + `rhi/device.cpp`: loader MoltenVK ICD'si üzerinden
+instance kuramayınca motor sessizce `vk_api_load_moltenvk_direct()`'e düşüp
+loader'ı `dlclose` ediyor ve `libMoltenVK.dylib`'i doğrudan açıyor.
+**Katmanlar bir loader mekanizmasıdır** — o yol seçildiğinde katman var
+olamaz, `VK_LAYER_PATH` süreçte olmayan bir loader'a sesleniyor.
+
+Asıl tuzak yedek değil, **sessizliği**. Log'da tek fark "katman yok" satırıydı,
+ve o satır iki bambaşka durumu örtüyordu:
+
+* katman kurulu değil → **ortam eksiği**, dürüst atlama
+* loader atlandı → **motorun kendi yolu**, katman kurulmuş olsa bile ölçüm yok
+
+Düzeltme üç parçalı: yedek artık `[rhi] loader ATLANDI` basıyor,
+`DeviceCaps::loader_bypassed` bunu taşıyor, ve beş atlama mesajı sebebi
+ayırıyor. CI kapısı da iddiasını değiştirdi — **"katman koşmalı" değil,
+"ya katman koşar ya motor loader'ı atladığını söyler"**. Sessiz bozulma
+(ikisi de yok) hâlâ kırmızı; ama bugün imkânsız olan talep edilmiyor.
+
+Genel kural: **bir yedeğe düşmek ölçülebilir bir yolu ölçülemez bir yolla
+takas etmektir.** Takas sessizse, sonraki her "yeşil" o takasın üzerine
+kurulur. Yedek kendini bildirmeli ve bildirdiği şey `Caps`'e girmeli ki
+kapılar onu okuyabilsin.

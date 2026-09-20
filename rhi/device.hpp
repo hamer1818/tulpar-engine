@@ -38,6 +38,12 @@ struct DeviceCaps {
   bool graphics_pipeline_library = false; // uzanti + feature acik (kullanilabilir)
   bool validation_layer = false;          // VK_LAYER_KHRONOS_validation etkin
   bool best_practices = false;            // katmanin BestPractices + Arm kurallari acik (Mali linter)
+  // macOS: loader ATLANDI ve MoltenVK DOGRUDAN yuklendi. Katmanlar bir LOADER
+  // mekanizmasidir; bu yol secildiginde VK_LAYER_PATH ne derse desin katman
+  // YOKTUR. Eskiden bu SESSIZDI: test "dogrulama katmani=kurulu degil" diyordu
+  // ve logdan "katman kurulu degil" ile "loader hic kullanilmadi" ayirt
+  // edilemiyordu (olculdu CI macOS 2026-09-20). Artik tasiniyor.
+  bool loader_bypassed = false;
   bool debug_messenger = false;           // mesajlar sayiliyor (yoksa "0 hata" hicbir sey demek degil)
   bool ext_host_image_copy = false;
   bool khr_fragment_shading_rate = false;

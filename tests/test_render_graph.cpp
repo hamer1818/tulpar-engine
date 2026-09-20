@@ -482,7 +482,16 @@ ENGINE_TEST(render_graph_post_mali_best_practices) {
   dc.best_practices = true;
   if (!dev.init(sys, g_api_bp, dc)) { skip("Vulkan cihazi yok"); return; }
   if (!dev.caps().validation_layer) {
-    skip("VK_LAYER_KHRONOS_validation yok — post yolunun Mali denetimi kosmadi");
+    // Katman neden yok? IKI COK FARKLI SEBEP, eskiden tek mesaja sikistirilmisti:
+    //   (a) katman kurulu degil                     -> ortam eksigi
+    //   (b) loader ATLANDI (macOS dogrudan MoltenVK) -> katman zinciri YOK,
+    //       VK_LAYER_PATH ne derse desin hicbir sey degismez
+    // (b) bir ORTAM EKSIGI DEGIL, motorun kendi yolu. CI kapisi ikisini
+    // ayirt edebilsin diye metinler AYRI (olculdu CI macOS 2026-09-20).
+    if (dev.caps().loader_bypassed)
+      skip("loader ATLANDI (dogrudan MoltenVK) — katman zinciri YOK; post yolunun Mali denetimi kosmadi");
+    else
+      skip("VK_LAYER_KHRONOS_validation yok — post yolunun Mali denetimi kosmadi");
     dev.shutdown();
     return;
   }
@@ -947,7 +956,16 @@ ENGINE_TEST(render_graph_gpu_cull_mali_best_practices) {
   dc.best_practices = true;
   if (!dev.init(sys, g_api_bp, dc)) { skip("Vulkan cihazi yok"); return; }
   if (!dev.caps().validation_layer) {
-    skip("VK_LAYER_KHRONOS_validation yok — cull yolunun Mali denetimi kosmadi");
+    // Katman neden yok? IKI COK FARKLI SEBEP, eskiden tek mesaja sikistirilmisti:
+    //   (a) katman kurulu degil                     -> ortam eksigi
+    //   (b) loader ATLANDI (macOS dogrudan MoltenVK) -> katman zinciri YOK,
+    //       VK_LAYER_PATH ne derse desin hicbir sey degismez
+    // (b) bir ORTAM EKSIGI DEGIL, motorun kendi yolu. CI kapisi ikisini
+    // ayirt edebilsin diye metinler AYRI (olculdu CI macOS 2026-09-20).
+    if (dev.caps().loader_bypassed)
+      skip("loader ATLANDI (dogrudan MoltenVK) — katman zinciri YOK; cull yolunun Mali denetimi kosmadi");
+    else
+      skip("VK_LAYER_KHRONOS_validation yok — cull yolunun Mali denetimi kosmadi");
     dev.shutdown();
     return;
   }
