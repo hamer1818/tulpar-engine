@@ -895,64 +895,7 @@ jobs:
       # Ikincisinin kapisi tools/package.sh icinde (kaynaktan turetilen liste);
       # asagidaki kapi birincisini ITHALAT TABLOSUNDAN olcer.
       - name: Paket yerlesimi kapisi (+ MinGW DLL'leri)
-        run: |
-          set -uo pipefail
-          kok="paket/$AD"
-          eksik=0
-          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
-            if [ ! -f "$kok/$t.exe" ]; then
-              echo "::error::Pakette $t.exe yok."
-              eksik=1
-            fi
-          done
-          # DLL kapisi ITHALAT TABLOSUNDAN olculur, `ls *.dll` ile DEGIL:
-          # paket artik dlopen'lanan glfw3.dll'i de tasidigi icin "en az bir
-          # dll var" denetimi MinGW calisma zamani eksikken de yesil gorunurdu.
-          # Burada ikililerin GERCEKTEN ithal ettigi her MinGW DLL'i araniyor;
-          # dlopen'lananlarin kapisi tools/package.sh icindeki turetilmis
-          # listedir (ayri sinif, ayri kapi).
-          # OLCUM ADLA, KAYNAK YOLUYLA DEGIL. Once "$onek/" onekiyle suzuluyordu;
-          # paket DLL'leri artik .exe'nin YANINDA oldugu icin ldd onlari PAKET
-          # dizininden cozuyor ve hicbir yol "$onek/" ile baslamiyor. Sonuc:
-          # tam ve dogru bir paket "olcum yapilamadi" diye KIRMIZI donuyordu —
-          # yani duzeltmenin kendisi, duzeltmeyi denetleyen kapiyi kirdi
-          # (olculdu CI Windows 2026-09-20, v0.1.1 surum kosumu).
-          # Dogru soru "bu DLL /mingw64'ten mi geldi" degil, "ithal edilen her
-          # ad pakette VAR MI" — nereden cozuldugu onemsiz.
-          sistem_dll='KERNEL32|USER32|GDI32|SHELL32|ADVAPI32|msvcrt|ole32|OLEAUT32|WS2_32|COMDLG32|IMM32|SETUPAPI|CFGMGR32|bcrypt|RPCRT4|dwmapi|WINMM|VERSION|SHCORE|api-ms-|ntdll'
-          ithal="$(for exe in "$kok"/*.exe; do ldd "$exe" 2>/dev/null | awk '/=>/ {print $1}'; done \
-                   | sort -u | grep -viE "^($sistem_dll)" || true)"
-          if [ -z "$ithal" ]; then
-            echo "::error::Ikililerin ithal ettigi DLL HIC okunamadi (ldd calismadi mi?) — olcum yapilamadi."
-            eksik=1
-          else
-            while IFS= read -r ad; do
-              [ -n "$ad" ] || continue
-              ad="$(basename "$ad")"
-              if [ ! -f "$kok/$ad" ]; then
-                echo "::error::Pakette ithal edilen $ad yok — bu paket MSYS2 disinda calismaz."
-                eksik=1
-              fi
-            done <<< "$ithal"
-          fi
-          if ! ls "$kok"/assets/fonts/*.ttf >/dev/null 2>&1; then
-            echo "::error::Pakette assets/fonts/*.ttf yok."
-            eksik=1
-          fi
-          if [ ! -d "$kok/tests/assets" ]; then
-            echo "::error::Pakette tests/assets/ yok."
-            eksik=1
-          fi
-          if [ ! -f "$kok/OKUBENI.md" ]; then
-            echo "::error::Pakette OKUBENI.md yok."
-            eksik=1
-          fi
-          if [ "$eksik" -ne 0 ]; then
-            echo "Paket agaci:"
-            find "$kok" -maxdepth 2 | sort
-            exit 1
-          fi
-          echo "Paket yerlesimi tamam."
+        run: bash tools/paket_denetle.sh yapi "paket/$AD"
 
       # zip, MSYS2 paket listesine EKLENMEDI (liste CI ile birebir kalsin ve
       # setup-msys2 onbellegi isabet etsin). Zaten kurulu olan python3 ile

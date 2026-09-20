@@ -751,6 +751,19 @@ jobs:
       # kaynaktaki `dl_open(...)` cagrilarindan turetiliyor (ayni betik).
       # Betigin tamlik kapisi ayrica kodun istedigi her varligin pakette
       # oldugunu dogruluyor.
+      # PAKETLEME KAPISI PR'DA. Bu olcum onceden YALNIZ release.yml'de vardi:
+      # PR'lar yesil kalirken surum kosumu dusuyor, hata ancak ETIKET atilinca
+      # goruluyordu — v0.1.1 ve v0.1.2 tam bu yuzden dustu (biri yanlis
+      # suzgecten, digeri eksik sistem-DLL listesinden). Artik ayni betik
+      # (tools/paket_denetle.sh) hem burada hem surumde kosuyor: PR'da yesilse
+      # surumde de yesildir.
+      - name: Paketle + yerlesim/DLL kapisi
+        run: |
+          set -euo pipefail
+          mkdir -p paket/deneme
+          bash tools/package.sh yapi paket/deneme
+          bash tools/paket_denetle.sh yapi paket/deneme
+
       - name: Ciktilari topla (+ MinGW DLL'leri)
         run: bash tools/package.sh yapi dagitim
 
