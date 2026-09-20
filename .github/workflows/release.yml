@@ -40,12 +40,23 @@
 # headless). `engine_demo` / `engine_editor` ASLA calistirilmaz — paket icerigi
 # dosya varligiyla denetlenir, calistirmayla degil.
 #
-# ONBELLEK YOK (bilerek): CI'daki ccache geri yuklemesi burada KASITLI olarak
-# yok. Yayinlanan ikili, baska bir kosumun onbellegindeki nesnelerden degil,
-# TAM OLARAK BU KOSUMUN derledigi nesnelerden kurulur. Bedeli etiket basina bir
-# soguk derleme. MSYS2 paket listesi yine de CI ile birebir ayni birakildi
-# (ccache dahil) — boylece setup-msys2'nin kendi ~168 MB paket onbellegi isabet
-# ediyor; ccache yalnizca derleyici baslatici olarak BAGLANMIYOR.
+# ONBELLEK VAR (2026-09-20'de degistirildi). Onceden bilerek YOKTU; gerekce
+# "yayinlanan ikili baska bir kosumun onbellegindeki nesnelerden degil, tam
+# olarak bu kosumun derledigi nesnelerden kurulsun" idi. Bedeli olculdu ve
+# agirdi — `Derle` adimi, ayni agac icin:
+#     is        onbelleksiz   CI'da (ccache)
+#     Windows       252 sn          9 sn
+#     macOS         118 sn          5 sn
+#     Linux          79 sn          2 sn
+# Yaklasik 25-40 kat. Buna karsilik ccache ICERIK ADRESLIDIR: anahtar, on
+# islenmis kaynagin + derleyici IKILISININ ICERIGININ + bayraklarin hash'i
+# (CCACHE_COMPILERCHECK=content). Isabet demek "ayni girdi ayni derleyiciyle
+# derlendi" demek; farkli bir girdi asla isabet edemez. Onbellek kapsamı da
+# repo icidir ve bir etiket yalnizca VARSAYILAN DALIN onbellegini okur — o
+# onbellegi zehirleyebilen biri zaten main'e kod itebilir, yani yeni bir yol
+# acilmiyor.
+# Saglamasi: her is `ccache --show-stats` ciktisini IS OZETINE yaziyor, yani
+# "bu ikili ne kadar onbellekten geldi" sorusu olculebilir kaliyor.
 #
 # UCUNCU TARAF EYLEM PINLEME: burada tek ucuncu taraf eylem `msys2/setup-msys2`
 # ve CI ile AYNI etikete (`@v2`) pinli — surum akrabaligi bilerek korunuyor,
@@ -76,6 +87,15 @@ on:
 
 # En az yetki: varsayilan SALT OKUNUR. Yalnizca `yayin` isi bunu `write`a
 # yukseltir — derleme/test/paketleme isleri depoya yazamaz.
+# ccache: CI ile BIREBIR ayni ayarlar. Anahtar derleyici IKILISININ ICERIGI
+# (CCACHE_COMPILERCHECK=content) — runner imaji gcc'yi ayni surum numarasiyla
+# degistirirse mtime tabanli kontrol yanlis isabet verirdi.
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 400M
+  CCACHE_COMPRESS: "1"
+  CCACHE_COMPILERCHECK: content
+
 permissions:
   contents: read
 
@@ -225,14 +245,28 @@ jobs:
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
-      # Onbellek baslatici YOK: yayinlanan ikili bu kosumda derlenir (bkz. bas
-      # yorum). CI'daki -DCMAKE_*_COMPILER_LAUNCHER=ccache bayraklari burada
-      # bilerek atlandi.
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-surum-linux-${{ github.run_id }}
+          restore-keys: |
+            ccache-surum-linux-
+            ccache-linux-
+
       - name: Yapilandir
-        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
         run: cmake --build yapi -j"$(nproc)"
+
+      # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
+      # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
+      - name: ccache isabet orani
+        run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Kapinin POZITIF KONTROLU: Vulkan'i kapatip atlama satirlarinin GERCEKTEN
       # basildigini goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye
@@ -562,11 +596,28 @@ jobs:
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-surum-macos-${{ github.run_id }}
+          restore-keys: |
+            ccache-surum-macos-
+            ccache-macos-
+
       - name: Yapilandir
-        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
+      # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
+      - name: ccache isabet orani
+        run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Atlama mekanizmasinin pozitif kontrolu
         run: |
@@ -812,11 +863,28 @@ jobs:
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-surum-windows-${{ github.run_id }}
+          restore-keys: |
+            ccache-surum-windows-
+            ccache-windows-
+
       - name: Yapilandir
-        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
         run: cmake --build yapi -j"$(nproc)"
+
+      # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
+      # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
+      - name: ccache isabet orani
+        run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # ===== YAYIN KAPISI =====================================================
       # Windows runner'inda yazilim Vulkan ICD'si yok; RHI kapilari burada
