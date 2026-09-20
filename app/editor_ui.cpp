@@ -15,7 +15,11 @@
 #include <imgui_impl_vulkan.h>
 #include <ImGuizmo.h>
 
+#include <imgui_internal.h> // ErrorCallback: ImGui'nin kurtarilabilir kullanici hatalari
+
 namespace tulpar::engine::app {
+
+uint32_t g_imgui_errors = 0; // bkz. ErrorCallback (init icinde)
 
 namespace {
 struct LoaderCtx {
@@ -281,6 +285,9 @@ void theme_colors(ImGuiStyle &s) {
 }
 } // namespace
 
+uint32_t editor_ui_imgui_errors() { return g_imgui_errors; }
+void editor_ui_reset_imgui_errors() { g_imgui_errors = 0; }
+
 void editor_apply_theme(float scale, bool srgb_target) {
   if (!ImGui::GetCurrentContext()) return;
   if (!(scale > 0.0f)) scale = 1.0f; // NaN de buraya duser
@@ -373,6 +380,17 @@ bool EditorUi::init(rhi::Device &dev, VkRenderPass rp, uint32_t subpass, uint32_
   }
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
+  // ImGui KURTARILABILIR kullanici hatalarini (dengesiz Begin/End, fazladan
+  // PopStyleVar, ...) stdout'a basip devam eder. Basmak KAPI DEGILDIR: bir
+  // artik ImGui::End() her karede "Calling End() too many times!" yazdigi
+  // halde hicbir sey kizarmadi ve o haliyle v0.1.0'a girdi (2026-09-20).
+  // Artik sayiyoruz; sayaci editor_ui_imgui_errors() veriyor ve hem
+  // penceresiz kosum hem test onu SIFIR bekliyor.
+  ImGui::GetCurrentContext()->ErrorCallback =
+      [](ImGuiContext *, void *, const char *msg) {
+        g_imgui_errors++;
+        std::fprintf(stderr, "[editor-ui] ImGui kullanici hatasi: %s\n", msg ? msg : "(bos)");
+      };
   ImNodes::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   // Kendi imgui.ini'sini YAZMAZ: duzen kaliciligi editorun kendi belirlenimli

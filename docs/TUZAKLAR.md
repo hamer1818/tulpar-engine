@@ -892,3 +892,39 @@ Genel kural: **python → bash boru hattı platformlar arası bir sınırdır.**
 `\n`, MinGW'de `\r\n`. Liste taşıyan her boru ya kaynakta newline'ı sabitlemeli ya
 da tüketicide `\r` süzmeli. `.gitattributes` bunu çözmez — sorun dosyalarda değil,
 çalışma zamanındaki stdout çevirisinde.
+
+### 8br. ImGui hatayı BASAR ve devam eder — basmak kapı değildir
+
+`engine_editor` v0.1.0'da her karede şunu yazıyordu:
+
+```
+[01944] [imgui-error] In window 'Debug##Default': Calling End() too many times!
+```
+
+Sebep: #332 birleştirilirken dört maket panel (Sequencer, Arazi Fırçası, Girdi
+Yöneticisi, Profiler) kaldırıldı ama birinin `ImGui::End()`'i ağaçta kaldı.
+`Begin`siz `End`, ImGui yığınında bir seviye aşağı iner ve örtük
+`Debug##Default` penceresini kapatmaya çalışır.
+
+**Asıl tuzak hatanın kendisi değil, hiçbir şeyin kızarmamasıydı.** ImGui
+"kurtarılabilir kullanıcı hatası"nı `stdout`'a basıp devam eder; ne derleme ne
+test ne CI bunu görür. Editör testlerinin hepsi yeşildi, paket koşumu yeşildi,
+ve hata o hâliyle **yayınlanmış bir sürüme** girdi. Ben bu satırı kendi
+penceresiz koşumumda görüp geçmiştim — çıktıya bakmak, kapı kurmanın yerini
+tutmuyor.
+
+İki katmanlı kapı kuruldu (`ImGuiContext::ErrorCallback` bir sayaca bağlı):
+
+* `engine_editor --headless` sayaç sıfır değilse **çıkış 1** döner.
+* `editor_probe_render` HER sondada sayacı sıfırlar ve sonunda denetler — yani
+  editör arayüzüne dokunan **her test** bu sınıfın kapısı olur.
+
+Pozitif kontrolle doğrulandı: artık `End()` geri konunca penceresiz koşum
+çıkış 1 / 5 hata (kare başına bir) veriyor, geri alınca 0.
+
+İkinci, aynı ailedeki hata: konsol paneli `if (show_console) ImGui::End();`
+diye korunuyordu, ama `&show_console` `p_open` olarak veriliyor — kullanıcı
+pencerenin X'ine bastığında `Begin` bayrağı false yapar ve `End` o karede
+**atlanır** (bu sefer ters yönde dengesizlik). Kural: `Begin` çağrıldıysa `End`
+şarttır, dönüş değerinden ve bayrağın sonraki hâlinden **bağımsız** — bayrağı
+`Begin`den önce oku.

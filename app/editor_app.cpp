@@ -2757,10 +2757,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // ikinci kez ve kapatilamaz bicimde tekrarliyordu. Arkasi yazildiginda
     // geri gelirler (bkz. docs/EDITOR-DURUM.md); o gune kadar var
     // olmayan bir yetenegi vaat eden panel tutulmaz.
-    ImGui::End();
+    //
+    // DIKKAT: paneller silinirken onlarin ImGui::End()'i burada ARTIK olarak
+    // kalmisti. Begin'siz End, ImGui yigininda bir seviye asagi iner ve
+    // ortuk "Debug##Default" penceresini kapatmaya calisir:
+    //   [imgui-error] In window 'Debug##Default': Calling End() too many times!
+    // HER KARE tekrarliyordu ve v0.1.0'a bu halde girdi. Panel silerken
+    // Begin/End CIFTININ ikisi de silinmeli.
 
-    if (show_console && ImGui::Begin(kPanelKonsolLabel, &show_console)) console_panel(console_view);
-    if (show_console) ImGui::End(); // Begin false dondugunde de End ZORUNLU
+    // Begin CAGRILDIYSA End sart — donus degerinden BAGIMSIZ. Gardiyan
+    // show_console olamaz: `&show_console` p_open olarak veriliyor, yani
+    // kullanici pencerenin X'ine bastiginda Begin onu false yapar ve
+    // "if (show_console) End()" o karede End'i ATLAR (bu sefer ters yonde
+    // dengesizlik: "Begin/End mismatch"). Bayragi Begin'den ONCE oku.
+    if (show_console) {
+      const bool konsol_acik = ImGui::Begin(kPanelKonsolLabel, &show_console);
+      if (konsol_acik) console_panel(console_view);
+      ImGui::End();
+    }
     // Gizmo: ImGuizmo GL gelenegi (NDC y yukari) bekler; Vulkan projeksiyonun y'si tersken duzeltilir.
     // Surukleme tek islem: IsUsing baslarken kopya, bitince gunluge.
     const int32_t gz = st.sel.primary();
@@ -3379,8 +3393,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               frame_i, stt.p50_ns / 1e6, stt.p99_ns / 1e6, us.vertices, us.indices, us.draw_lists, ren.stats().draws, st.gizmo_draws,
               st.scene.entity_count, st.scene.asset_count, st.browse_count, st.hist.undo_count(), st.hist.redo_count(),
               st.dirty ? " (kaydedilmedi)" : "", st.sel.count, prim_end >= 0 ? st.scene.entities[prim_end].name : "-", tick_i);
+  bool imgui_hata_var = false;
   if (headless && opts.out_path) {
     if (rhi::write_ppm(opts.out_path, ores.pixels, oc.width, oc.height)) std::printf("[engine_editor] goruntu: %s\n", opts.out_path);
+  }
+  // IMGUI KULLANICI HATASI KAPISI. ImGui dengesiz Begin/End gibi hatalari
+  // kurtarip stdout'a basarak devam eder; BASMAK KAPI DEGILDIR. Bir artik
+  // ImGui::End() her karede hata yazdigi halde hicbir sey kizarmadi ve o
+  // haliyle v0.1.0'a girdi. Sayac sifir degilse penceresiz kosum KIRMIZI doner.
+  const uint32_t ui_hata = editor_ui_imgui_errors();
+  std::printf("[engine_editor] imgui kullanici hatasi: %u\n", ui_hata);
+  if (ui_hata != 0) {
+    std::fprintf(stderr,
+                 "[engine_editor] HATA: %u ImGui kullanici hatasi (dengesiz Begin/End, fazladan Pop*...). "
+                 "Arayuz yigini bozuk; sebep yukaridaki [editor-ui] satirlarinda.\n",
+                 ui_hata);
+    imgui_hata_var = true;
   }
   dev.api().vkDeviceWaitIdle(dev.handle());
   // IS SISTEMI ONCE SUSTURULUR — alt sistemlerden ONCE.
@@ -3422,6 +3450,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   if (off) rhi::offscreen_destroy(off);
   if (!headless) swap.shutdown();
   dev.shutdown();
+  if (imgui_hata_var) return 1;
   return 0;
 }
 

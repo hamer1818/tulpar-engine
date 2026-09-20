@@ -26,6 +26,12 @@ struct EditorUiStats {
 //                 dogrudan yazilir ve donanim onu DOGRUSAL sanip kodlar. true ise
 //                 palet sRGB -> dogrusal cevrilir, boylece ekranda yazilan altigen
 //                 degerin ta kendisi cikar (kontrol: false, gozle acik/yikanmis).
+// ImGui'nin KURTARILABILIR kullanici hatasi sayaci (dengesiz Begin/End vb.).
+// ImGui bunlari basip devam eder; basmak kapi degildir, bu yuzden sayiliyor.
+// Penceresiz kosum ve tests/test_editor_imgui.cpp SIFIR bekler.
+uint32_t editor_ui_imgui_errors();
+void editor_ui_reset_imgui_errors();
+
 void editor_apply_theme(float scale, bool srgb_target);
 
 // --- Palet DISA ACIK ---------------------------------------------------------

@@ -66,6 +66,14 @@ ProbeStatus editor_probe_render(EditorProbe &p) {
   ren.set_render_size(p.width, p.height);
   Rec rr{&ren, &ui};
   const uint32_t frames = p.frames ? p.frames : 1;
+  // IMGUI KULLANICI HATASI KAPISI — HER editor sondasinda.
+  // ImGui dengesiz Begin/End gibi hatalari kurtarip stdout'a basarak devam
+  // eder; BASMAK KAPI DEGILDIR. Bir artik ImGui::End() her karede hata
+  // yazdigi halde butun editor testleri yesil kaldi ve o haliyle v0.1.0'a
+  // girdi (2026-09-20). Kontrol tek bir teste degil SONDAYA konuldu: boylece
+  // editor arayuzune dokunan her test bu sinifin kapisi olur.
+  // Sayac kumulatif; her sondada sifirlanir.
+  app::editor_ui_reset_imgui_errors();
   for (uint32_t f = 0; f < frames; f++) {
     ui.begin_frame(nullptr, (float)p.width, (float)p.height, 1.0f / 60.0f);
     p.draw(p.ctx, f);
@@ -74,6 +82,15 @@ ProbeStatus editor_probe_render(EditorProbe &p) {
     p.indices = ui.stats().indices;
     ren.begin_frame(0);
     if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { fail(p, ores.error); status = ProbeStatus::Fail; break; }
+  }
+  if (status == ProbeStatus::Ok) {
+    const uint32_t ui_hata = app::editor_ui_imgui_errors();
+    if (ui_hata != 0) {
+      std::snprintf(p.err, sizeof p.err,
+                    "%u ImGui kullanici hatasi (dengesiz Begin/End, fazladan Pop*...); sebep [editor-ui] satirlarinda",
+                    ui_hata);
+      status = ProbeStatus::Fail;
+    }
   }
   if (status == ProbeStatus::Ok) {
     std::memcpy(g_pixels, ores.pixels, (size_t)p.width * p.height * 4);
