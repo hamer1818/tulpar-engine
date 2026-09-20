@@ -1912,6 +1912,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     frame.begin_frame();
     const platform::InputState *in = nullptr;
     uint32_t fw = width, fh = height;
+    // GIZMO SURUKLEME KAPISI — sentetik fare. Penceresiz kipte `in` bugune
+    // kadar HEP nullptr'di, yani gizmo ETKILESIMI hic kosmadi: oklar cizilse
+    // de tutup surukleme yolu kapisizdi. Kullanici bildirdi (2026-09-20):
+    // "oklar cikiyor ama hareket etmiyor, sag panelden degisiyor" — tam olarak
+    // bu bosluktan gecen sinif. Sentetik girdi GERCEK boru hattindan akiyor
+    // (editor_ui.cpp io.AddMouse*Event), yani kapi kisayol kullanmiyor.
+    static platform::InputState g_synth;
+    if (headless) in = &g_synth;
     if (!headless) {
       if (!host->poll(host->user, &fw, &fh)) running = false;
       in = host->input ? host->input(host->user) : nullptr;
@@ -3885,6 +3893,34 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                                                 gizmo_space == GizmoSpace::Local ? ImGuizmo::LOCAL : ImGuizmo::WORLD, &mtx.m[0][0], nullptr,
                                                 snap_on ? snap_vec : nullptr);
       const bool using_now = ImGuizmo::IsUsing();
+      // --- KAPININ KAPISI: sentetik girdi GERCEKTEN ImGui'ye ulasti mi? -----
+      // Surukleme kapisi kirmizi yaninca iki aciklama var: (a) gizmo bozuk,
+      // (b) sentetik fare ImGui'ye hic varmadi ve kapi yalniz kendi tesisatini
+      // olcuyor. Ayirt etmeden kok sebep SOYLENEMEZ, o yuzden ImGui'nin KENDI
+      // gordugu degerler ve ImGuizmo'nun durumu basiliyor.
+      // Penceresiz kapi gizmo'nun CALISTIGINI gosteriyor (surukleme kapisi,
+      // asagida). Kullanici ise pencereli kipte "oklar cikiyor ama hareket
+      // etmiyor" diyor. Fark girdi yolunda, ve pencereli yolu buradan
+      // olcemeyiz (pencere acmak yasak). Bu yuzden sonda ORTAM DEGISKENIYLE
+      // pencereli kipte de acilabiliyor: kullanici TULPAR_GIZMO_SONDA=1 ile
+      // acip surukleme denemesini yapiyor, cikti karari veriyor.
+      //   ImGui fare == gercek imlec degilse  -> koordinat uzayi (olcek/HiDPI)
+      //   over=0 ise                          -> ImGuizmo fareyi uzerinde saymiyor
+      //   over=1 using=0 ise                  -> tiklama gizmoya varmiyor
+      //   using=1 changed=0 ise               -> surukleme var, yazma yok
+      static const bool gz_sonda_acik = headless || std::getenv("TULPAR_GIZMO_SONDA") != nullptr;
+      const bool gz_sonda_kare = headless ? (frame_i >= 10 && frame_i <= 17)
+                                          : (ImGui::IsMouseDown(0) || ImGuizmo::IsOver());
+      if (gz_sonda_acik && gz_sonda_kare) {
+        const ImGuiIO &gio = ImGui::GetIO();
+        const ImGuiWindow *hw = ImGui::GetCurrentContext()->HoveredWindow;
+        std::printf("[engine_editor] gizmo sonda k%u: ImGui fare (%.0f,%.0f) bas=%d tik=%d | ekran %.0fx%.0f olcek %.2f | "
+                    "ustundeki pencere '%s' | ImGuizmo over=%d using=%d changed=%d\n",
+                    (unsigned)frame_i, gio.MousePos.x, gio.MousePos.y, (int)gio.MouseDown[0],
+                    (int)ImGui::IsMouseClicked(0), gio.DisplaySize.x, gio.DisplaySize.y,
+                    gio.DisplayFramebufferScale.x, hw ? hw->Name : "(yok)",
+                    (int)ImGuizmo::IsOver(), (int)using_now, (int)changed);
+      }
       // Gizmo bu tiklamayi ALDIYSA, kaplamanin ayni karede baslattigi kutu
       // (marquee) suruklemesi IPTAL edilir. Kaplama ImGuizmo'dan ONCE
       // cizildigi icin tiklamanin gizmoya mi sahneye mi gittigini o anda
@@ -4116,6 +4152,52 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   view_rect.h, view_rect.x, view_rect.y, view_rect.x + lx, view_rect.y + ly, hit >= 0 ? st.scene.entities[hit].name : "-",
                   outside.valid ? "HAYIR" : "evet", pok ? "OK" : "HATA");
       if (!pok) return 1;
+    }
+    // --- GIZMO SURUKLEME KAPISI (kare 10..14) -------------------------------
+    // Cizim kapisi DEGIL: "ok goruldu" ile "surukleyince tasindi" iki ayri sey.
+    // Senaryo gercek girdi olaylarina cevriliyor: uzerine gel -> bas -> tasi ->
+    // birak. ImGuizmo tiklamayi ancak IsMouseClicked(0) karesinde alir, bu
+    // yuzden konum ve basma AYRI karelerde.
+    static Vec3 gz_before{};
+    static float gz_px = 0, gz_py = 0;
+    if (headless && st.scene.entity_count && view_rect.w > 0 && opts.headless_frames >= 20) {
+      if (frame_i == 10) {
+        // ON KOSUL. Bir onceki penceresiz kapi oynatmayi baslatiyor, oynatma
+        // baslayinca sekme otomatik Oyun'a geciyor (bkz. ~1988) ve gizmo blogu
+        // `view_tab == Scene` istiyor. Kurulmazsa bu kapi URUNU degil, kendi
+        // zamanlama cakismasini olcer: ilk surumu tam oyle kirmizi yaniyordu
+        // (ImGuizmo::Manipulate hic kosmuyordu). Olculdu 2026-09-20.
+        st.playing = false;
+        view_tab = ViewportTab::Scene;
+        st.sel.set_single(0);
+        gizmo_op = 0; // TRANSLATE
+      } else if (frame_i == 12) {
+        gz_before = st.scene.entities[0].pos;
+        const Vec3 p0 = st.scene.entities[0].pos;
+        const Vec4 clip = proj * (view * Vec4{p0.x, p0.y, p0.z, 1.0f});
+        gz_px = view_rect.x + (clip.x / clip.w * 0.5f + 0.5f) * (float)vp.width();
+        gz_py = view_rect.y + (clip.y / clip.w * 0.5f + 0.5f) * (float)vp.height();
+        g_synth.mouse_x = gz_px; g_synth.mouse_y = gz_py; g_synth.mouse_down[0] = false;
+      } else if (frame_i == 13) {
+        g_synth.mouse_down[0] = true;              // tiklama karesi
+      } else if (frame_i == 14) {
+        g_synth.mouse_x = gz_px + 60.0; g_synth.mouse_y = gz_py + 25.0;
+      } else if (frame_i == 15) {
+        g_synth.mouse_down[0] = false;             // birak -> gunluge islensin
+      } else if (frame_i == 16) {
+        const Vec3 d = st.scene.entities[0].pos - gz_before;
+        const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        const bool moved = dist > 1e-4f;
+        std::printf("[engine_editor] gizmo surukleme kapisi: piksel (%.0f,%.0f) -> (+60,+25), konum delta (%.4f, %.4f, %.4f) |d|=%.4f, "
+                    "gunluk %u %s\n",
+                    gz_px, gz_py, d.x, d.y, d.z, dist, st.hist.undo_count(), moved ? "OK" : "HATA (gizmo girdiyi ALMADI)");
+        if (!moved) {
+          std::fprintf(stderr,
+                       "[engine_editor] HATA: gizmo cizildi ama SURUKLEME calismadi. Oklar gorunur olmasi girdinin\n"
+                       "  ulastigini GOSTERMEZ: cizim hover'a bagli degil, etkilesim bagli.\n");
+          return 1;
+        }
+      }
     }
     if (headless && frame_i == 6 && st.scene.entity_count >= 2) {
       // Pano kapisi: iki varlik kopyala -> yapistir -> sayi +2 ve yapistirilanin
