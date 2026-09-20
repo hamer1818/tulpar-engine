@@ -20,7 +20,11 @@
 #   - kosan != kayitli        -> KIRMIZI (kayit tasmasi: test hic kosmamis olur)
 #   - failed > 0              -> KIRMIZI
 # Ubuntu'da lavapipe, macOS'ta MoltenVK kurulur; gerekceli tek bir Vulkan
-# atlamasi bile isi kirmiziya cevirir. Windows runner'inda yazilim ICD'si yok,
+# atlamasi bile isi kirmiziya cevirir. Ikisinde de vulkan-validationlayers
+# KURULU (ve loader duzeyinde vulkaninfo ile dogrulaniyor), bu yuzden
+# "VK_LAYER_KHRONOS_validation yok" gerekceli tek bir atlama da isi KIRMIZI
+# yapar: bes dogrulama/Mali kapisi olcmeden gecmis demektir ve OLCULMEMIS bir
+# ikili YAYINLANMAZ. Windows runner'inda yazilim ICD'si yok,
 # orada GPU kapilari BEKLENEN sekilde atlanir ve sebepleri ozete yazilir.
 #
 # YAYINLANMAMIS BIR IKILI NASIL ENGELLENIYOR (dort katman):
@@ -185,10 +189,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools
+            ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
+            vulkan-validationlayers
 
-      - name: Vulkan surucusu gercekten var mi
-        run: vulkaninfo --summary
+      # Surucu VE dogrulama katmani: ikisi de LOADER duzeyinde goruluyor mu?
+      # "Paket kurulu" YETMEZ — manifest loader'in aramadigi bir dizindeyse ya da
+      # kitaplik acilmiyorsa loader katmani LISTELEMEZ; motor "katman yok" der ve
+      # dev.validation_errors()==0 isteyen BES kapi sessizce atlanir.
+      # Tam olarak bu oluyordu: apt listesinde vulkan-validationlayers HIC YOKTU,
+      # her kosumda 5 atlama basiliyordu ve is yine de YESIL geciyordu.
+      - name: Vulkan surucusu + dogrulama katmani gercekten var mi
+        run: |
+          set -uo pipefail
+          vulkaninfo --summary 2>&1 | tee vulkaninfo.log
+          # Iki ayri ariza, iki ayri mesaj: "vulkaninfo katman listesini hic
+          # basamadi" (loader/ICD sorunu) ile "bastı ama katman icinde yok"
+          # (manifest/yol sorunu) ayni hata metnine sigmaz — biri otekinin
+          # teshisini gizler.
+          if ! grep -q 'Instance Layers' vulkaninfo.log; then
+            echo "::error::vulkaninfo katman listesini HIC basamadi — loader instance kuramiyor. Katman kapilari degil, Vulkan yolunun kendisi bozuk."
+            tail -30 vulkaninfo.log || true
+            exit 1
+          fi
+          if ! grep -q 'VK_LAYER_KHRONOS_validation' vulkaninfo.log; then
+            echo "::error::VK_LAYER_KHRONOS_validation loader'in katman listesinde YOK — paket kurulu olsa bile dogrulama/Mali kapilari olcmeden atlanirdi."
+            echo "manifest gercekte nerede:"
+            ls -la /usr/share/vulkan/explicit_layer.d/ 2>&1 || true
+            dpkg -L vulkan-validationlayers 2>/dev/null | grep -E '\.json$|\.so' || true
+            echo "loader teshisi:"
+            VK_LOADER_DEBUG=warn vulkaninfo --summary 2>&1 | tail -40 || true
+            exit 1
+          fi
+          grep 'VK_LAYER_KHRONOS_validation' vulkaninfo.log
 
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
@@ -216,6 +248,33 @@ jobs:
             exit 1
           fi
           echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+
+      # IKINCI POZITIF KONTROL — bu sefer DOGRULAMA KATMANI kapisi icin.
+      # Katmani BILEREK gizliyoruz (VK_LAYER_PATH + VK_ADD_LAYER_PATH bos bir
+      # dizine; loader'a "explicit katmanlari yalniz burada ara" demektir) ve
+      # bes kapinin atlama satirini GERCEKTEN bastigini goruyoruz. Boylece
+      # asagidaki katman kapisinin hicbir seye uymayan bos bir grep olmadigi
+      # kanitlanir. Iki suzgec besini de kapsar (ad ALT DIZGI ile eslenir):
+      #   validation_layer  -> rhi_validation_layer_reports_zero_errors
+      #   mali_best_practices -> renderer_/render_graph_post_/render_graph_gpu_cull_/temporal_
+      - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        run: |
+          set -uo pipefail
+          # NOT: BSD mktemp (macOS) sablonsuz `mktemp -d` KABUL ETMEZ — bos bir
+          # $bos, VK_LAYER_PATH="" demek olurdu ve kontrol sessizce anlamini
+          # yitirirdi. Dizini kendimiz yaratiyoruz: her iki ayakta da ayni.
+          bos="${RUNNER_TEMP:-$PWD}/bos_katman_dizini"
+          rm -rf "$bos"; mkdir -p "$bos"
+          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests mali_best_practices  > katman_kontrol.log 2>&1 || true
+          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests validation_layer     >> katman_kontrol.log 2>&1 || true
+          # Asagidaki kapiyla AYNI ifade — kontrol ettigi sey de tam olarak o.
+          n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
+          if [ "$n" -lt 5 ]; then
+            echo "::error::Pozitif kontrol basarisiz: katman GIZLIYKEN beklenen 5 atlama satirindan yalnizca $n basildi. Asagidaki katman kapisi bos bir grep olurdu. (Kapi eklendi/silindiyse bu sayiyi guncelle.)"
+            tail -60 katman_kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
 
       # ===== YAYIN KAPISI =====================================================
       # Bu adim kirmizi olursa is biter: paketleme, arsivleme ve yukleme
@@ -275,6 +334,22 @@ jobs:
           if [ -n "$vulkan_atlama" ]; then
             echo "$vulkan_atlama"
             echo "::error::Lavapipe kurulu oldugu halde Vulkan kapilari atlandi — loader/ICD gelmemis. 'passed' sayisi GPU yolu hakkinda hicbir sey soylemiyor. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          # Dogrulama katmani da KURULU (apt vulkan-validationlayers) ve yukarida
+          # vulkaninfo ile loader duzeyinde LISTELENDIGI dogrulandi. Yani
+          # "VK_LAYER_KHRONOS_validation yok" diyen bir atlama bir cevre gercegi
+          # degil, is akisinin kendi arizasidir: basildiginda BES kapi
+          # (rhi_validation_layer_reports_zero_errors + dort Mali kapisi) hic
+          # kosmamis, dev.validation_errors()==0 iddiasi HIC OLCULMEMISTIR.
+          # NOT: katman Arm kurallarini tanimayinca basilan
+          # "dogrulama katmani Arm BestPractices kurallarini tanimiyor" atlamasi
+          # BASKA bir siniftir (katman var, surumu eski) ve bu ifadeye UYMAZ.
+          katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
+          if [ -n "$katman_atlama" ]; then
+            echo "$katman_atlama"
+            echo "::error::vulkan-validationlayers kurulu ve vulkaninfo katmani listeliyor oldugu halde katman kapilari atlandi — dogrulama/Mali kapilari HIC KOSMADI. 'passed' sayisi API kullanimi hakkinda hicbir sey soylemiyor. Surum YAYINLANMAYACAK."
             exit 1
           fi
 
@@ -381,6 +456,10 @@ jobs:
           brew list --versions vulkan-loader >/dev/null 2>&1 || brew install vulkan-loader
           brew list --versions molten-vk     >/dev/null 2>&1 || brew install molten-vk
           brew list --versions vulkan-validationlayers >/dev/null 2>&1 || brew install vulkan-validationlayers
+          # vulkaninfo: katmanin LOADER'a gorunup gorunmedigini bagimsiz olarak
+          # olcen tek arac (Linux ayagindaki kontrolun esi). brew formulu onu
+          # :test bagimliligi olarak tutuyor, yani kendiliginden GELMEZ.
+          brew list --versions vulkan-tools >/dev/null 2>&1 || brew install vulkan-tools
 
       # YOL "share" DEGIL "etc" (olculdu 2026-09-20, molten-vk 1.4.2). Homebrew
       # formulunun son satiri:
@@ -429,6 +508,53 @@ jobs:
 
           ls -la "$(brew --prefix)/lib/libvulkan"* "$(brew --prefix)/lib/libMoltenVK"* 2>&1 | head -8 || true
 
+          # KATMAN LOADER'A GORUNUYOR MU? Yukaridaki kontroller yalnizca
+          # "dosya duruyor" diyor; katmani ZINCIRE sokan sey loader'dir ve
+          # gordugunu ancak loader'a sorunca ogrenirsin. Bu adim GITHUB_ENV'e
+          # yazdigimiz degiskenleri kendi surecinde de export ederek vulkaninfo
+          # kosar (GITHUB_ENV yalnizca SONRAKI adimlari etkiler).
+          #
+          # Katman listelenmesi ICD'den bagimsizdir (manifest taramasi), yani bu
+          # kontrol MoltenVK calismiyor diye yanlis kirmizi vermez.
+          export VK_ICD_FILENAMES="$ICD" VK_DRIVER_FILES="$ICD"
+          export VK_LAYER_PATH="$LAYERS" VK_ADD_LAYER_PATH="$LAYERS"
+          vulkaninfo --summary > vulkaninfo.log 2>&1 || true
+          cat vulkaninfo.log || true
+          # Iki ayri ariza, iki ayri mesaj. vulkaninfo instance kuramazsa katman
+          # listesini HIC basmaz; o cikti ustunde "katman yok" demek teshisi
+          # yanlis yere tasirdi. Onun kendi mesaji var ve o mesaj tam da
+          # suphelendigimiz seyi olcuyor: loader, portability ICD'si uzerinden
+          # instance kurabiliyor mu?
+          if ! grep -q 'Instance Layers' vulkaninfo.log; then
+            echo "::error::vulkaninfo katman listesini HIC basamadi — loader MoltenVK ICD'si uzerinden instance kuramiyor. Motor bu durumda rhi/device.cpp'deki sessiz yedekle MoltenVK'yi DOGRUDAN yukler; o surecte loader yoktur, katman zinciri de yoktur ve VK_LAYER_PATH'in hicbir anlami kalmaz."
+            echo "loader teshisi:"
+            VK_LOADER_DEBUG=all vulkaninfo --summary 2>&1 | tail -60 || true
+            exit 1
+          fi
+          if ! grep -q 'VK_LAYER_KHRONOS_validation' vulkaninfo.log; then
+            echo "::error::VK_LAYER_KHRONOS_validation loader'in katman listesinde YOK (VK_LAYER_PATH=$LAYERS verilmisken) — dogrulama/Mali kapilari olcmeden atlanirdi."
+            echo "manifest gercekte nerede:"
+            find "$VVL" -name 'VkLayer_khronos_validation.json' 2>/dev/null | head || true
+            echo "loader teshisi:"
+            VK_LOADER_DEBUG=all vulkaninfo --summary 2>&1 | tail -60 || true
+            exit 1
+          fi
+          grep 'VK_LAYER_KHRONOS_validation' vulkaninfo.log
+
+          # TESHIS (kapi degil): loader MoltenVK ICD'si uzerinden bir CIHAZ
+          # gorebiliyor mu? Goremiyorsa motor rhi/device.cpp'deki SESSIZ yedege
+          # dusup MoltenVK'yi DOGRUDAN yukluyor demektir — o surecte loader hic
+          # yoktur, katmanlar bir loader mekanizmasi oldugu icin VK_LAYER_PATH'in
+          # de hicbir anlami kalmaz. Asagidaki katman kapisi kirmizi yanarsa
+          # once bu satira bak: "loader cihaz goruyor" + "katman atlandi"
+          # birlesimi teshisi motor tarafina tasir.
+          if grep -qE '^[[:space:]]*deviceName' vulkaninfo.log; then
+            echo "loader ICD uzerinden cihaz GORUYOR (yedege dusulmemesi beklenir):"
+            grep -E '^[[:space:]]*deviceName' vulkaninfo.log | head -4
+          else
+            echo "::warning::Loader MoltenVK ICD'si uzerinden HIC CIHAZ GORMUYOR. Motor dogrudan-MoltenVK yedegine duser; o surecte katman zinciri YOKTUR."
+          fi
+
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
@@ -449,6 +575,33 @@ jobs:
             exit 1
           fi
           echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+
+      # IKINCI POZITIF KONTROL — bu sefer DOGRULAMA KATMANI kapisi icin.
+      # Katmani BILEREK gizliyoruz (VK_LAYER_PATH + VK_ADD_LAYER_PATH bos bir
+      # dizine; loader'a "explicit katmanlari yalniz burada ara" demektir) ve
+      # bes kapinin atlama satirini GERCEKTEN bastigini goruyoruz. Boylece
+      # asagidaki katman kapisinin hicbir seye uymayan bos bir grep olmadigi
+      # kanitlanir. Iki suzgec besini de kapsar (ad ALT DIZGI ile eslenir):
+      #   validation_layer  -> rhi_validation_layer_reports_zero_errors
+      #   mali_best_practices -> renderer_/render_graph_post_/render_graph_gpu_cull_/temporal_
+      - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        run: |
+          set -uo pipefail
+          # NOT: BSD mktemp (macOS) sablonsuz `mktemp -d` KABUL ETMEZ — bos bir
+          # $bos, VK_LAYER_PATH="" demek olurdu ve kontrol sessizce anlamini
+          # yitirirdi. Dizini kendimiz yaratiyoruz: her iki ayakta da ayni.
+          bos="${RUNNER_TEMP:-$PWD}/bos_katman_dizini"
+          rm -rf "$bos"; mkdir -p "$bos"
+          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests mali_best_practices  > katman_kontrol.log 2>&1 || true
+          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests validation_layer     >> katman_kontrol.log 2>&1 || true
+          # Asagidaki kapiyla AYNI ifade — kontrol ettigi sey de tam olarak o.
+          n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
+          if [ "$n" -lt 5 ]; then
+            echo "::error::Pozitif kontrol basarisiz: katman GIZLIYKEN beklenen 5 atlama satirindan yalnizca $n basildi. Asagidaki katman kapisi bos bir grep olurdu. (Kapi eklendi/silindiyse bu sayiyi guncelle.)"
+            tail -60 katman_kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
 
       # ===== YAYIN KAPISI =====================================================
       - name: Testler + kapi
@@ -505,6 +658,22 @@ jobs:
           if [ -n "$vulkan_atlama" ]; then
             echo "$vulkan_atlama"
             echo "::error::MoltenVK kurulu oldugu halde Vulkan kapilari atlandi — loader/ICD gelmemis. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          # Dogrulama katmani da KURULU (apt vulkan-validationlayers) ve yukarida
+          # vulkaninfo ile loader duzeyinde LISTELENDIGI dogrulandi. Yani
+          # "VK_LAYER_KHRONOS_validation yok" diyen bir atlama bir cevre gercegi
+          # degil, is akisinin kendi arizasidir: basildiginda BES kapi
+          # (rhi_validation_layer_reports_zero_errors + dort Mali kapisi) hic
+          # kosmamis, dev.validation_errors()==0 iddiasi HIC OLCULMEMISTIR.
+          # NOT: katman Arm kurallarini tanimayinca basilan
+          # "dogrulama katmani Arm BestPractices kurallarini tanimiyor" atlamasi
+          # BASKA bir siniftir (katman var, surumu eski) ve bu ifadeye UYMAZ.
+          katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
+          if [ -n "$katman_atlama" ]; then
+            echo "$katman_atlama"
+            echo "::error::vulkan-validationlayers kurulu, VK_LAYER_PATH verilmis ve vulkaninfo katmani listeliyor oldugu halde katman kapilari atlandi — bes kapi HIC KOSMADI. Surec loader'i atlayip MoltenVK'yi DOGRUDAN yuklemis olabilir (rhi/device.cpp icindeki sessiz yedek): katmanlar bir LOADER mekanizmasidir, loader surecte yoksa VK_LAYER_PATH'in hicbir anlami kalmaz. Yukaridaki 'Vulkan ortami' adiminda loader cihaz goruyor mu diye bak. Surum YAYINLANMAYACAK."
             exit 1
           fi
 

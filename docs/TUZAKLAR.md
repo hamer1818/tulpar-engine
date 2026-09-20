@@ -928,3 +928,68 @@ pencerenin X'ine bastığında `Begin` bayrağı false yapar ve `End` o karede
 **atlanır** (bu sefer ters yönde dengesizlik). Kural: `Begin` çağrıldıysa `End`
 şarttır, dönüş değerinden ve bayrağın sonraki hâlinden **bağımsız** — bayrağı
 `Begin`den önce oku.
+
+### 8bs. Aynı süreçte tekrar tekrar `VkInstance` açmak glibc'nin static TLS havuzunu tüketir — hata "sürücü yok" gibi görünür
+
+`tests/editor_probe.cpp` her sondada bir `rhi::Device` (dolayısıyla bir
+`VkInstance`) açıp kapatıyor. Yükleyici `vkCreateInstance`'ta ICD'yi `dlopen`,
+`vkDestroyInstance`'ta `dlclose` ediyor. NVIDIA ICD'si `libnvidia-tls.so`'yu
+çekiyor ve o kütüphane **initial-exec TLS** kullanıyor: glibc'nin **sabit**
+"static TLS surplus" havuzundan yer istiyor. glibc bu havuzu `dlclose`'da ancak
+LIFO sırada geri alabiliyor, pratikte alamıyor.
+
+Ölçüldü (2026-09-20, RTX 5080 / NVIDIA 615.71.09): `engine_tests editor`
+**23 sonda** başarılı, **24.'sü** (dizin `#23`) düşüyor. Yükleyicinin dediği:
+
+```
+libnvidia-tls.so.615.71.09: cannot allocate memory in static TLS block
+loader_icd_scan: Failed loading library associated with ICD JSON libGLX_nvidia.so.0
+vkCreateInstance: Found no drivers!   -> VK_ERROR_INCOMPATIBLE_DRIVER
+```
+
+Tuzağın sinsiliği **hatanın adında**: `VK_ERROR_INCOMPATIBLE_DRIVER`, yani
+"sürücü yok". Makinede çalışan bir GPU var; tükenen şey **süreç içi** bir
+kaynak. Aynı nedenle **tam suite yeşildi**: orada başka bir test ICD'yi ayakta
+tutuyordu ve tavan hiç görünmüyordu — yani "filtreli koşum kırmızı, tam koşum
+yeşil" burada bir sıralama tuhaflığı değil, **ölçüm farkıydı**.
+
+**Çözüm:** ICD'yi hiç `dlclose` ettirme. Süreç ömrü boyunca yaşayan tek bir
+çıplak `VkInstance` (`pin_icd_once()`), yükleyicinin ICD'yi elinde tutmasını
+sağlar; static TLS bir kez harcanır. Düzeltmeden sonra aynı koşumda **72
+sondanın 72'si** açılıyor. Bağımsız pozitif kontrol: `GLIBC_TUNABLES=
+glibc.rtld.optional_static_tls=262144` de aynı koşumu yeşile çeviriyor — yani
+daralan kaynak gerçekten oydu.
+
+**Genel kural:** `dlopen`/`dlclose` çevrimi ücretsiz değildir. Bir testin aynı
+süreçte N kez açıp kapattığı her sürücü/eklenti için "N büyürse ne tükenir?"
+sorusu sorulmalı; ve "sürücü yok" diyen bir hata, **sürücünün yokluğunun
+kanıtı değildir**.
+
+### 8bt. `CHECK` DÖNMEZ — düşen bir sonda kırmızı testi çekirdek dökümüne çevirir, üstelik "atlandı" diye yalan söyler
+
+İki hata bir arada duruyordu:
+
+1. `tests/editor_probe.cpp` hem `vk_api_load()` hem `dev.init()` düştüğünde
+   `ProbeStatus::NoVulkan` dönüyordu. Çağrı yerleri de `if (st == NoVulkan)
+   { skip("Vulkan yok"); return; }` yazıyordu. Sonuç: çalışan bir GPU'da
+   `ATLANDI: Vulkan yok` — **gerçek bir hata, iyi huylu bir ortam atlaması
+   gibi görünüyordu** (bkz. 8br).
+2. `CHECK(editor_probe_render(p) == ProbeStatus::Ok);` başarısızlığı **kaydeder
+   ama dönmez**. Sonda düştüğünde `p.pixels` `nullptr`'dır ve hemen ardından
+   gelen `keep()`/`memcpy` SIGSEGV atar: `engine_tests editor` 139 ile ölüyor,
+   sebep ekrandan siliniyor ve **koşumun geri kalanı hiç koşmuyordu**.
+
+**Çözüm:** durumlar ayrıldı — `NoVulkan` (yükleyici yok), `NoDevice` (bu
+süreçte hiç cihaz açılamadı → görünür atlama), `Exhausted` (önce açıldı, sonra
+açılamaz oldu → **KIRMIZI**, çünkü bu ortam eksikliği değil tavandır), `Fail`.
+Çağrı yerleri `PROBE_OR_RETURN(p)` / `probe_not_ok(st, p, __FILE__, __LINE__)`
+ile "raporla ve DÖN" kalıbına geçti; `keep()` içine de bir ağ kondu (pikselsiz
+sondada çekirdek dökümü değil kırmızı).
+
+Pozitif kontrol kalıcı: `TULPAR_ENGINE_PROBE_LIMIT=n` n. sondadan sonrasını
+kasıtlı düşürür (`n=0` → `NoDevice`/atlama, `n>0` → `Exhausted`/kırmızı).
+Enjeksiyonsuz "artık çökmüyor" cümlesi ölçülmemiş bir iddiadır.
+
+**Genel kural:** bir kapının ardından gelen kod o kapının sonucuna bağlıysa
+kapı **dönmelidir**. Kırmızı bir test kırmızı kalmalı; çekirdek dökümü hem
+sebebi hem de geri kalan testleri yutar.

@@ -272,11 +272,9 @@ ENGINE_TEST(console_panel_draws_mixed_levels) {
   p.out_ppm = path;
   p.draw = draw_console_probe;
   p.ctx = &c;
+  // Temizlik gerektigi icin makro degil, ayni kapinin acik yazilmis hali.
   const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); app::console_clear(); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) { app::console_clear(); return; }
+  if (probe_not_ok(st, p, __FILE__, __LINE__)) { app::console_clear(); return; }
   std::printf("    [bilgi] panel: %u satir suzgecten gecti, clipper %u satir cizdi, %u vertex, halkada %u kayit\n", c.view.shown, c.view.clipped,
               p.vertices, app::console_size());
   CHECK(c.view.shown == app::console_size());
@@ -297,12 +295,13 @@ ENGINE_TEST(console_panel_draws_mixed_levels) {
   p2.out_ppm = path2;
   p2.draw = draw_console_probe;
   p2.ctx = &c2;
+  // KONTROL sondasi da SESSIZ GECEMEZ: eskiden `if (st2 == Ok)` kalibi dusen
+  // bir sondayi hic raporlamadan yutuyordu (kapi olcmedigi halde yesil).
   const ProbeStatus st2 = editor_probe_render(p2);
-  if (st2 == ProbeStatus::Ok) {
-    std::printf("    [bilgi] KONTROL (yalniz Hata): %u satir, %u vertex (hepsi: %u satir, %u vertex)\n", c2.view.shown, p2.vertices, c.view.shown,
-                p.vertices);
-    CHECK(c2.view.shown == 2 && c2.view.shown < c.view.shown);
-    CHECK(p2.vertices < p.vertices);
-  }
+  if (probe_not_ok(st2, p2, __FILE__, __LINE__)) { app::console_clear(); return; }
+  std::printf("    [bilgi] KONTROL (yalniz Hata): %u satir, %u vertex (hepsi: %u satir, %u vertex)\n", c2.view.shown, p2.vertices, c.view.shown,
+              p.vertices);
+  CHECK(c2.view.shown == 2 && c2.view.shown < c.view.shown);
+  CHECK(p2.vertices < p.vertices);
   app::console_clear();
 }

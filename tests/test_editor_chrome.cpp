@@ -224,6 +224,7 @@ void draw_chrome(void *vctx, uint32_t f) {
 // karsilastirma icin kopya alinir (ayirma yok: iki statik tampon).
 constexpr uint32_t kMaxPix = 1920u * 1080u * 4u;
 uint8_t g_pix_a[kMaxPix], g_pix_b[kMaxPix];
+char g_probe_err[512];
 
 ProbeStatus run_probe(Ctx &c, uint32_t w, uint32_t h, uint32_t frames, const char *name, uint8_t *copy, EditorProbe *out = nullptr) {
   EditorProbe p;
@@ -235,8 +236,10 @@ ProbeStatus run_probe(Ctx &c, uint32_t w, uint32_t h, uint32_t frames, const cha
   char path[512];
   if (name) { probe_path(path, sizeof path, name); p.out_ppm = path; }
   const ProbeStatus st = editor_probe_render(p);
+  // Sebep BURADA kaybolmasin: fikstur onbellekli, durumu baska testlerde
+  // okunuyor ve p yok oluyor. g_probe_err son sondanin sebebini tasir.
+  std::snprintf(g_probe_err, sizeof g_probe_err, "%s%s%s", name ? name : "", name ? ": " : "", p.err);
   if (st == ProbeStatus::Ok && copy) std::memcpy(copy, p.pixels, (size_t)w * h * 4);
-  if (st == ProbeStatus::Fail) std::printf("    [bilgi] sonda %s: %s\n", name ? name : "?", p.err);
   if (out) *out = p;
   return st;
 }
@@ -303,6 +306,7 @@ uint32_t model_violations(const app::CommandDesc *descs, uint32_t n) {
 struct Fixture {
   bool ran = false;
   ProbeStatus st = ProbeStatus::Fail;
+  char err[512] = {0}; // sondanin sebebi (fikstur onbellekli: p yok olur)
   uint32_t W = 1280, H = 720;
   uint32_t vertices_a = 0;
   float transport[4], seg[3][4], dot[4], name[4], save[4], gizvis[4], snap[4], msg_a[4], segs_a[4], msg_b[4], segs_b[4], bar[4];
@@ -320,6 +324,7 @@ const Fixture &fixture() {
   fill_state(g_ctx);
   EditorProbe p;
   g_fx.st = run_probe(g_ctx, g_fx.W, g_fx.H, 3, "chrome_stopped", g_pix_a, &p);
+  std::snprintf(g_fx.err, sizeof g_fx.err, "%s", g_probe_err);
   if (g_fx.st != ProbeStatus::Ok) return g_fx;
   g_fx.vertices_a = p.vertices;
   g_fx.stats_a = g_ctx.stats;
@@ -339,7 +344,7 @@ const Fixture &fixture() {
   ok = app::chrome_probe_rect(ChromeRect::StatusMessage, g_fx.msg_a) && ok;
   ok = app::chrome_probe_rect(ChromeRect::StatusSegments, g_fx.segs_a) && ok;
   ok = app::chrome_probe_rect(ChromeRect::StatusBar, g_fx.bar) && ok;
-  if (!ok) { std::printf("    [bilgi] fikstur A: bir sonda dikdortgeni kaydedilmedi\n"); g_fx.st = ProbeStatus::Fail; return g_fx; }
+  if (!ok) { std::snprintf(g_fx.err, sizeof g_fx.err, "fikstur A: bir sonda dikdortgeni kaydedilmedi"); g_fx.st = ProbeStatus::Fail; return g_fx; }
 
   g_ctx = Ctx{};
   bind_all(g_ctx);
@@ -351,6 +356,7 @@ const Fixture &fixture() {
   cnt(g_ctx, CommandId::ViewGizmos).checked = false;
   cnt(g_ctx, CommandId::FileSave).enabled = false;
   g_fx.st = run_probe(g_ctx, g_fx.W, g_fx.H, 3, "chrome_playing", g_pix_b, &p);
+  std::snprintf(g_fx.err, sizeof g_fx.err, "%s", g_probe_err);
   if (g_fx.st != ProbeStatus::Ok) return g_fx;
   ok = app::chrome_probe_rect(ChromeRect::StatusMessage, g_fx.msg_b);
   ok = app::chrome_probe_rect(ChromeRect::StatusSegments, g_fx.segs_b) && ok;
@@ -358,7 +364,7 @@ const Fixture &fixture() {
   ok = app::chrome_probe_rect(ChromeRect::Transport, tr_b) && ok;
   if (ok)
     for (int i = 0; i < 4; i++) ok = ok && std::fabs(tr_b[i] - g_fx.transport[i]) < 0.5f; // yerlesim A == B
-  if (!ok) { std::printf("    [bilgi] fikstur B: dikdortgen eksik ya da yerlesim A'dan farkli\n"); g_fx.st = ProbeStatus::Fail; }
+  if (!ok) { std::snprintf(g_fx.err, sizeof g_fx.err, "fikstur B: dikdortgen eksik ya da yerlesim A'dan farkli"); g_fx.st = ProbeStatus::Fail; }
   return g_fx;
 }
 
@@ -371,10 +377,7 @@ ENGINE_TEST(editor_probe_renders_font_and_glyphs) {
   probe_path(path, sizeof path, "probe_smoke");
   p.out_ppm = path;
   p.draw = draw_smoke;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] sonda: %u vertex\n", p.vertices);
   CHECK(p.vertices > 0);
 }
@@ -383,9 +386,7 @@ ENGINE_TEST(editor_probe_renders_font_and_glyphs) {
 // icin var; sayimlari da dogrular: 6 menu, 13 oge, 7 arac dugmesi, acik menude 4 oge.
 ENGINE_TEST(editor_chrome_showcase_renders_menu_toolbar_status_dock) {
   const Fixture &fx = fixture();
-  if (fx.st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(fx.st == ProbeStatus::Ok);
-  if (fx.st != ProbeStatus::Ok) return;
+  if (probe_not_ok(fx.st, fx.err, __FILE__, __LINE__)) return;
   std::printf("    [bilgi] vitrin A: %u vertex, menu %u, oge %u (cizilen %u), arac dugmesi %u; yukseklik menu %.0f arac %.0f durum %.0f\n", fx.vertices_a,
               fx.stats_a.menus_submitted, fx.stats_a.items_enumerated, fx.stats_a.items_submitted, fx.stats_a.tools_submitted, (double)fx.menu_h,
               (double)fx.tool_h, (double)fx.status_h);
@@ -454,8 +455,7 @@ ENGINE_TEST(editor_chrome_menu_item_click_invokes_command) {
   c.open_category = (int)CommandCategory::Edit;
   c.click_item = CommandId::EditUndo;
   ProbeStatus st = run_probe(c, 800, 450, 8, "chrome_menu_click", nullptr);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
+  if (probe_not_ok(st, g_probe_err, __FILE__, __LINE__)) return;
   uint32_t others = 0;
   for (uint32_t i = 0; i < app::kCommandCount; i++)
     if ((CommandId)(i + 1) != CommandId::EditUndo) others += c.cnt[i].hits;
@@ -471,7 +471,7 @@ ENGINE_TEST(editor_chrome_menu_item_click_invokes_command) {
   c.click_item = CommandId::EditUndo;
   cnt(c, CommandId::EditUndo).enabled = false;
   st = run_probe(c, 800, 450, 8, nullptr, nullptr);
-  CHECK(st == ProbeStatus::Ok);
+  if (probe_not_ok(st, g_probe_err, __FILE__, __LINE__)) return;
   std::printf("    [bilgi] menu tiklama KONTROL (pasif): Geri al %u kez (0 olmali), cizilen oge %u\n", cnt(c, CommandId::EditUndo).hits,
               c.stats.items_submitted);
   CHECK(cnt(c, CommandId::EditUndo).hits == 0);
@@ -483,9 +483,7 @@ ENGINE_TEST(editor_chrome_menu_item_click_invokes_command) {
 // Kontrol: Yakala dugmesi iki durumda da ayni (0 fark).
 ENGINE_TEST(editor_chrome_transport_and_gizmo_segments_reflect_state) {
   const Fixture &fx = fixture();
-  if (fx.st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(fx.st == ProbeStatus::Ok);
-  if (fx.st != ProbeStatus::Ok) return;
+  if (probe_not_ok(fx.st, fx.err, __FILE__, __LINE__)) return;
   // Etkin kip artik doygun Accent DEGIL, sakin Select zemini (bkz.
   // docs/engine/EDITOR-TASARIM.md §6 ve editor_chrome.cpp Look::Fill).
   // Testin ANLAMI degismedi: etkin dugme, kendisine ayrilmis tonda olmali
@@ -522,9 +520,7 @@ ENGINE_TEST(editor_chrome_transport_and_gizmo_segments_reflect_state) {
 // Kontrol: Yakala dugmesi ayni. Ad: taban ad (tam yol degil), sag kenarin icinde.
 ENGINE_TEST(editor_chrome_dirty_dot_marks_unsaved_scene) {
   const Fixture &fx = fixture();
-  if (fx.st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(fx.st == ProbeStatus::Ok);
-  if (fx.st != ProbeStatus::Ok) return;
+  if (probe_not_ok(fx.st, fx.err, __FILE__, __LINE__)) return;
   uint8_t warn[3];
   tone_srgb8(app::Tone::Warn, warn);
   const int d_warn = max_ch_diff(pix_at(g_pix_a, fx.W, (fx.dot[0] + fx.dot[2]) * 0.5f, (fx.dot[1] + fx.dot[3]) * 0.5f), warn);
@@ -546,9 +542,7 @@ ENGINE_TEST(editor_chrome_dirty_dot_marks_unsaved_scene) {
 // Kontrol: Yakala (tablo disi, iki durumda da acik) 0 fark.
 ENGINE_TEST(editor_chrome_enabled_and_checked_come_from_table) {
   const Fixture &fx = fixture();
-  if (fx.st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(fx.st == ProbeStatus::Ok);
-  if (fx.st != ProbeStatus::Ok) return;
+  if (probe_not_ok(fx.st, fx.err, __FILE__, __LINE__)) return;
   const uint32_t diff_save = rect_diff(g_pix_a, g_pix_b, fx.W, fx.H, fx.save);
   const uint32_t diff_giz = rect_diff(g_pix_a, g_pix_b, fx.W, fx.H, fx.gizvis);
   const uint32_t diff_snap = rect_diff(g_pix_a, g_pix_b, fx.W, fx.H, fx.snap);
@@ -576,8 +570,7 @@ ENGINE_TEST(editor_chrome_toolbar_clicks_route_to_table_and_snap_output) {
   c.steps[4].rect = ChromeRect::SnapToggle;
   c.n_steps = 5;
   const ProbeStatus st = run_probe(c, 800, 450, 1 + 3 * 5 + 2, nullptr, nullptr);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
+  if (probe_not_ok(st, g_probe_err, __FILE__, __LINE__)) return;
   uint32_t others = 0;
   for (uint32_t i = 0; i < app::kCommandCount; i++) {
     const CommandId id = (CommandId)(i + 1);
@@ -611,9 +604,7 @@ ENGINE_TEST(editor_chrome_toolbar_clicks_route_to_table_and_snap_output) {
 // menu cubugu -> alan sadece menu kadar daralir.
 ENGINE_TEST(editor_chrome_bars_shrink_work_area_for_dockspace) {
   const Fixture &fx = fixture();
-  if (fx.st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(fx.st == ProbeStatus::Ok);
-  if (fx.st != ProbeStatus::Ok) return;
+  if (probe_not_ok(fx.st, fx.err, __FILE__, __LINE__)) return;
   const float top = fx.menu_h + fx.tool_h;
   const float expect_size = (float)fx.H - top - fx.status_h;
   std::printf("    [bilgi] calisma alani: kare0 y=%.0f h=%.0f (gecikme), son kare y=%.0f h=%.0f; beklenen y=%.0f h=%.0f; Gorunum penceresi y %.0f..%.0f\n",
@@ -634,7 +625,7 @@ ENGINE_TEST(editor_chrome_bars_shrink_work_area_for_dockspace) {
   c.only_menu = true;
   const uint32_t W = 640, H = 360;
   const ProbeStatus st = run_probe(c, W, H, 3, nullptr, nullptr);
-  CHECK(st == ProbeStatus::Ok);
+  if (probe_not_ok(st, g_probe_err, __FILE__, __LINE__)) return;
   std::printf("    [bilgi] calisma alani KONTROL (yalniz menu, %ux%u): y=%.0f h=%.0f (menu %.0f)\n", W, H, (double)c.work_pos_y[1],
               (double)c.work_size_y[1], (double)c.menu_h);
   CHECK(std::fabs(c.work_pos_y[1] - c.menu_h) < 1.0f);
@@ -645,15 +636,13 @@ ENGINE_TEST(editor_chrome_bars_shrink_work_area_for_dockspace) {
 // kirpilir ve olcumler sagdan dusurulur; tek satir, sarmaz.
 ENGINE_TEST(editor_chrome_status_bar_never_overlaps_or_wraps) {
   const Fixture &fx = fixture();
-  if (fx.st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(fx.st == ProbeStatus::Ok);
-  if (fx.st != ProbeStatus::Ok) return;
+  if (probe_not_ok(fx.st, fx.err, __FILE__, __LINE__)) return;
   static Ctx c;
   c = Ctx{};
   bind_all(c);
   fill_state(c); // ayni uzun "yuklendi: <tam yol>" mesaji, 560 px'te sigmaz
   const ProbeStatus st = run_probe(c, 560, 400, 2, "chrome_status_narrow", nullptr);
-  CHECK(st == ProbeStatus::Ok);
+  if (probe_not_ok(st, g_probe_err, __FILE__, __LINE__)) return;
   float msg_n[4], segs_n[4], bar_n[4];
   CHECK(app::chrome_probe_rect(ChromeRect::StatusMessage, msg_n));
   CHECK(app::chrome_probe_rect(ChromeRect::StatusSegments, segs_n));

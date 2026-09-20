@@ -327,11 +327,9 @@ ENGINE_TEST(files_dialog_draws_sorted_filtered_list) {
   p.out_ppm = path;
   p.draw = draw_dialog_probe;
   p.ctx = &c;
+  // Temizlik (gecici dizin) gerektigi icin makro degil, acik yazilmis kapi.
   const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); rm_tree(t); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) { rm_tree(t); return; }
+  if (probe_not_ok(st, p, __FILE__, __LINE__)) { rm_tree(t); return; }
   std::printf("    [bilgi] diyalog (Ac, .sahne): dizin \"%s\", %u satir cizildi, %u vertex, eylem %d\n", c.dlg.dir, c.shown_last, p.vertices,
               c.action);
   CHECK(opened && c.dlg.list.ok);
@@ -355,12 +353,11 @@ ENGINE_TEST(files_dialog_draws_sorted_filtered_list) {
   p2.draw = draw_dialog_probe;
   p2.ctx = &c2;
   const ProbeStatus st2 = editor_probe_render(p2);
-  if (st2 == ProbeStatus::Ok) {
-    std::printf("    [bilgi] diyalog (Kaydet): ad \"%s\", %u satir, %u vertex (Ac: %u vertex)\n", c2.dlg.name, c2.shown_last, p2.vertices,
-                p.vertices);
-    CHECK(c2.shown_last == 4);
-    CHECK(p2.vertices > p.vertices); // ad kutusu + uyari seridi EK cizim
-  }
+  if (probe_not_ok(st2, p2, __FILE__, __LINE__)) { rm_tree(t); return; }
+  std::printf("    [bilgi] diyalog (Kaydet): ad \"%s\", %u satir, %u vertex (Ac: %u vertex)\n", c2.dlg.name, c2.shown_last, p2.vertices,
+              p.vertices);
+  CHECK(c2.shown_last == 4);
+  CHECK(p2.vertices > p.vertices); // ad kutusu + uyari seridi EK cizim
   rm_tree(t);
 }
 
@@ -377,11 +374,7 @@ ENGINE_TEST(files_confirm_modal_has_three_buttons) {
   p.out_ppm = path;
   p.draw = draw_confirm_probe;
   p.ctx = &c;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] onay kutusu: acik %s, sonuc %d, %u vertex\n", c.st.open ? "evet" : "hayir", c.result, p.vertices);
   CHECK(c.st.open);    // tiklanmadi: acik kalir
   CHECK(c.result == -1);
@@ -395,8 +388,7 @@ ENGINE_TEST(files_confirm_modal_has_three_buttons) {
   p2.draw = draw_confirm_probe;
   p2.ctx = &c2;
   const ProbeStatus st2 = editor_probe_render(p2);
-  if (st2 == ProbeStatus::Ok) {
-    std::printf("    [bilgi] KONTROL kapali onay kutusu: %u vertex (acik: %u)\n", p2.vertices, p.vertices);
-    CHECK(p2.vertices < p.vertices);
-  }
+  if (probe_not_ok(st2, p2, __FILE__, __LINE__)) return;
+  std::printf("    [bilgi] KONTROL kapali onay kutusu: %u vertex (acik: %u)\n", p2.vertices, p.vertices);
+  CHECK(p2.vertices < p.vertices);
 }

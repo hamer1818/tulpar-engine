@@ -246,11 +246,7 @@ ENGINE_TEST(editor_overlay_axis_x_endpoint_pixel_matches_palette) {
   p.out_ppm = path;
   p.draw = draw_overlay_probe;
   p.ctx = &c;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   CHECK(c.lay.gizmo && c.lay.top_row && c.lay.camera && c.lay.hint && c.lay.border);
   std::printf("    [bilgi] ust satir: %u hap (izdusum/kamera kipi/gizmo kipi/gizmo uzayi/istatistik)\n", c.lay.pills);
   CHECK(c.lay.pills == 5); // izdusum + kamera kipi + gizmo kipi + gizmo uzayi + istatistik
@@ -285,8 +281,7 @@ ENGINE_TEST(editor_overlay_axis_x_endpoint_pixel_matches_palette) {
   c.info.gizmo_op = 1;
   c.info.gizmos_visible = false;
   test_out_path(path, sizeof path, "overlay_hovered.ppm");
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] oynatiliyor + gizmolar kapali: %u hap (istatistik dusuyor: 960 px'e 7 hap sigmiyor)\n", c.lay.pills);
   // 7 aday (OYNATILIYOR + izdusum + kamera kipi + gizmo kipi + gizmo uzayi +
   // istatistik + "gizmolar kapali") 960 px'e sigmiyor; dusurme sirasinin en
@@ -309,10 +304,7 @@ ENGINE_TEST(editor_overlay_focus_border_changes_inner_edge_only) {
   for (int k = 0; k < 3; k++) {
     c.info.focused = foc[k];
     c.info.hovered = hov[k];
-    const ProbeStatus st = editor_probe_render(p);
-    if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-    CHECK(st == ProbeStatus::Ok);
-    if (st != ProbeStatus::Ok) return;
+    PROBE_OR_RETURN(p);
     std::memcpy(px[k], p.pixels, sizeof px[k]);
   }
   // Ic kenar seridi (1 px) ile icerisi ayri sayilir.
@@ -349,10 +341,7 @@ ENGINE_TEST(editor_overlay_tiny_rect_never_overflows) {
   static uint8_t px[2][480 * 320 * 4];
   for (int k = 0; k < 2; k++) {
     c.draw = k == 1;
-    const ProbeStatus st = editor_probe_render(p);
-    if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-    CHECK(st == ProbeStatus::Ok);
-    if (st != ProbeStatus::Ok) return;
+    PROBE_OR_RETURN(p);
     std::memcpy(px[k], p.pixels, sizeof px[k]);
   }
   uint32_t out_diff = 0, in_diff = 0;
@@ -371,8 +360,7 @@ ENGINE_TEST(editor_overlay_tiny_rect_never_overflows) {
   // cizmiyor" degil, "sigmayani atliyor".
   c.sub = app::ViewportRect{40, 30, 360, 240};
   c.draw = true;
-  const ProbeStatus st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] 360x240 kontrol: haplar %u gosterge %d kamera %d ipucu %d\n", c.lay.pills, (int)c.lay.gizmo, (int)c.lay.camera, (int)c.lay.hint);
   CHECK(c.lay.top_row && c.lay.gizmo && c.lay.camera);
 }
@@ -394,11 +382,7 @@ ENGINE_TEST(editor_overlay_nav_gizmo_click_returns_axis_outside_disc_does_not) {
   p.out_ppm = path;
   p.draw = draw_overlay_probe;
   p.ctx = &c;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] +X ucuna tik (%.0f,%.0f): tiklanan eksen %d (beklenen %d), ustunde %d, fare yutuldu %d, kare %d; PPM %s\n", (double)c.aim_x,
               (double)c.aim_y, c.axis_seen, (int)app::CameraAxis::PlusX, c.axis_hover_seen, (int)c.consumed_seen, c.axis_frame, path);
   CHECK(c.axis_seen == (int)app::CameraAxis::PlusX);
@@ -414,9 +398,7 @@ ENGINE_TEST(editor_overlay_nav_gizmo_click_returns_axis_outside_disc_does_not) {
   corner.synth_click = true;
   p.ctx = &corner;
   p.out_ppm = nullptr;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   const float dcx = corner.aim_x - corner.lay.gizmo_cx, dcy = corner.aim_y - corner.lay.gizmo_cy;
   const float disc_r = corner.lay.gizmo_r + corner.lay.gizmo_end_r + (float)(int)(17.0f * 0.25f);
   std::printf("    [bilgi] KONTROL disk kosesi (%.0f,%.0f): merkeze uzaklik %.1f, disk yaricapi %.1f (disinda), tiklanan eksen %d, fare yutuldu %d\n",
@@ -432,8 +414,7 @@ ENGINE_TEST(editor_overlay_nav_gizmo_click_returns_axis_outside_disc_does_not) {
   mid.aim = Aim::ImageMid;
   mid.synth_click = true;
   p.ctx = &mid;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] KONTROL goruntu ortasi (%.0f,%.0f): tiklanan eksen %d, fare yutuldu %d (ikisi de bos olmali)\n", (double)mid.aim_x,
               (double)mid.aim_y, mid.axis_seen, (int)mid.consumed_seen);
   CHECK(mid.axis_seen == -1 && !mid.consumed_seen);
@@ -445,9 +426,7 @@ ENGINE_TEST(editor_overlay_nav_gizmo_click_returns_axis_outside_disc_does_not) {
   sw.sweep = true;
   p.ctx = &sw;
   p.frames = 12;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   static const char *const kAxisName[6] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
   uint32_t ok = 0;
   for (int i = 0; i < 6; i++) {
@@ -479,10 +458,7 @@ ENGINE_TEST(editor_overlay_chips_toggle_projection_mode_and_gizmo_space) {
     p.ctx = &c;
     test_out_path(path, sizeof path, "overlay_chip_izdusum.ppm");
     p.out_ppm = k == 0 ? path : nullptr;
-    const ProbeStatus st = editor_probe_render(p);
-    if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-    CHECK(st == ProbeStatus::Ok);
-    if (st != ProbeStatus::Ok) return;
+    PROBE_OR_RETURN(p);
     seen[k][0] = c.ortho_seen;
     seen[k][1] = c.mode_seen;
     seen[k][2] = c.space_seen;
@@ -511,9 +487,7 @@ ENGINE_TEST(editor_overlay_chips_toggle_projection_mode_and_gizmo_space) {
     p.ctx = ctxs[k];
     if (k == 1) { test_out_path(path, sizeof path, "overlay_chip_orto.ppm"); p.out_ppm = path; }
     else p.out_ppm = nullptr;
-    const ProbeStatus st = editor_probe_render(p);
-    CHECK(st == ProbeStatus::Ok);
-    if (st != ProbeStatus::Ok) return;
+    PROBE_OR_RETURN(p);
     std::memcpy(px[k], p.pixels, sizeof px[k]);
   }
   const uint32_t d_label = probe_diff(px[0], px[1], 960 * 600), d_same = probe_diff(px[1], px[2], 960 * 600);
@@ -539,11 +513,7 @@ ENGINE_TEST(editor_overlay_box_select_draws_and_reports_only_on_real_drag) {
   p.draw = draw_overlay_probe;
   p.ctx = &c;
   p.out_ppm = nullptr;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] surukleme (%.0f,%.0f) -> (+%.0f,+%.0f): cizildi %d, birakildi kare %d, kutu (%.0f, %.0f)-(%.0f, %.0f)\n", (double)c.aim_x,
               (double)c.aim_y, (double)c.drag_dx, (double)c.drag_dy, (int)c.box_active_seen, c.box_done_frame, (double)c.box_seen[0],
               (double)c.box_seen[1], (double)c.box_seen[2], (double)c.box_seen[3]);
@@ -575,22 +545,12 @@ ENGINE_TEST(editor_overlay_box_select_draws_and_reports_only_on_real_drag) {
     p.ctx = two[k];
     if (k == 1) { test_out_path(path, sizeof path, "overlay_box_select.ppm"); p.out_ppm = path; }
     else p.out_ppm = nullptr;
-    st = editor_probe_render(p);
-    // Sonda DUSERSE SEBEBINI SOYLE: ciplak "st == Ok degil" satiri neyin
-    // olmadigini (Vulkan? bellek? katman?) soylemiyordu.
-    if (st != ProbeStatus::Ok)
-      std::printf("    [bilgi] sonda (k=%d) dustu: durum %d, sebep: %s\n", k, (int)st, p.err[0] ? p.err : "(bos)");
-    // Vulkan ORTADAN KALKTIYSA bu bir HATA degil, OLCUMSUZLUKTUR ve gorunur
-    // atlanir (testin basindaki NoVulkan kapisiyla ayni kural). Wine altinda
-    // olculdu (2026-09-18): ayni surecte cok sayida sonda ornegi acilinca
-    // sonrakiler NoVulkan doner — Tuzaklar 8al'in Wine'daki dusuk tavanli
-    // hali. Gercek Windows'ta bu tavan yeniden olculmeli.
-    if (st == ProbeStatus::NoVulkan) {
-      skip("Vulkan tukendi (ayni surecte cok sonda; Wine tavani) — kutu secim piksel kapisi olculmedi");
-      return;
-    }
-    CHECK(st == ProbeStatus::Ok);
-    if (st != ProbeStatus::Ok) return;
+    // Sonda DUSERSE SEBEBINI SOYLE ve TESTTEN CIK. Eskiden buradaki "cok
+    // sonda acilinca NoVulkan doner" notu (Wine, 2026-09-18) bu tavani IYI
+    // HUYLU bir atlama sayiyordu. Artik ayrim sondanin kendisinde: cihaz hic
+    // acilmadiysa NoDevice (atlanir), ONCE acilip sonra acilamaz olduysa
+    // Exhausted (KIRMIZI) — cunku ikincisi ortam eksikligi degil, tavandir.
+    PROBE_OR_RETURN(p);
     std::memcpy(px[k], p.pixels, sizeof px[k]);
   }
   CHECK(dragging.box_active_seen);
@@ -624,8 +584,7 @@ ENGINE_TEST(editor_overlay_box_select_draws_and_reports_only_on_real_drag) {
   p.frames = 7;
   p.out_ppm = nullptr;
   p.ctx = &tiny;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] KONTROL 3 px surukleme: cizildi %d, birakildi kare %d (ikisi de bos olmali)\n", (int)tiny.box_active_seen,
               tiny.box_done_frame);
   CHECK(!tiny.box_active_seen && tiny.box_done_frame == -1);
@@ -641,8 +600,7 @@ ENGINE_TEST(editor_overlay_box_select_draws_and_reports_only_on_real_drag) {
   off.drag_dy = 140.0f;
   off.release_frame = 5;
   p.ctx = &off;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] KONTROL goruntu ustunde degil: cizildi %d, birakildi kare %d (ikisi de bos olmali)\n", (int)off.box_active_seen,
               off.box_done_frame);
   CHECK(!off.box_active_seen && off.box_done_frame == -1);
@@ -714,11 +672,7 @@ ENGINE_TEST(editor_assets_panel_double_click_adds_hover_does_not) {
   p.out_ppm = path;
   p.draw = draw_assets_probe;
   p.ctx = &c;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] cift tik: add_index %d (kare %d), izgara %d sutun karo %.0fx%.0f, gosterilen %u, %u vertex\n", c.add_seen, c.add_frame,
               c.lay.cols, (double)c.lay.tile_w, (double)c.lay.tile_h, c.lay.shown, p.vertices);
   CHECK(c.lay.cols >= 2 && c.lay.shown == 5);
@@ -732,18 +686,14 @@ ENGINE_TEST(editor_assets_panel_double_click_adds_hover_does_not) {
   static uint8_t px_hover[640 * 420 * 4], px_plain[640 * 420 * 4];
   test_out_path(path, sizeof path, "assets_grid_hover.ppm");
   p.ctx = &h;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   std::memcpy(px_hover, p.pixels, sizeof px_hover);
   CHECK(h.add_seen == -1);
   AssetsCtx n;
   make_files(n);
   test_out_path(path, sizeof path, "assets_grid.ppm");
   p.ctx = &n;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   std::memcpy(px_plain, p.pixels, sizeof px_plain);
   const uint32_t d = probe_diff(px_hover, px_plain, 640 * 420);
   std::printf("    [bilgi] ustunde kontrolu: add_index %d, ustunde-duz piksel farki %u (>0: fare karodaydi)\n", h.add_seen, d);
@@ -754,11 +704,11 @@ ENGINE_TEST(editor_assets_panel_double_click_adds_hover_does_not) {
   std::snprintf(f.view.filter, sizeof f.view.filter, "yok_boyle");
   p.ctx = &f;
   p.out_ppm = nullptr;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok && f.lay.shown == 0 && f.lay.empty);
+  PROBE_OR_RETURN(p);
+  CHECK(f.lay.shown == 0 && f.lay.empty);
   std::snprintf(f.view.filter, sizeof f.view.filter, "GLB"); // buyuk/kucuk duyarsiz
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok && f.lay.shown == 1 && !f.lay.empty);
+  PROBE_OR_RETURN(p);
+  CHECK(f.lay.shown == 1 && !f.lay.empty);
 }
 
 ENGINE_TEST(editor_assets_panel_list_mode_and_empty_state_render) {
@@ -772,10 +722,7 @@ ENGINE_TEST(editor_assets_panel_list_mode_and_empty_state_render) {
   p.out_ppm = path;
   p.draw = draw_assets_probe;
   p.ctx = &c;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   CHECK(c.lay.cols == 1 && c.lay.shown == 5 && !c.lay.empty);
   const uint32_t list_verts = p.vertices;
   // Bos dizin: bos durum metni govdenin ORTASINDA — o bant zemin renginden
@@ -785,9 +732,7 @@ ENGINE_TEST(editor_assets_panel_list_mode_and_empty_state_render) {
   e.n = 0;
   test_out_path(path, sizeof path, "assets_empty.ppm");
   p.ctx = &e;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   CHECK(e.lay.empty && e.lay.shown == 0);
   const int cx = (int)(e.lay.body_x + e.lay.body_w * 0.5f), cy = (int)(e.lay.body_y + e.lay.body_h * 0.5f);
   uint8_t base[4];
@@ -918,11 +863,7 @@ ENGINE_TEST(editor_theme_dock_tab_active_blends_into_window) {
   p.out_ppm = path;
   p.draw = draw_dock_probe;
   p.ctx = &c;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
-  if (st != ProbeStatus::Ok) return;
+  PROBE_OR_RETURN(p);
   CHECK(c.found);
   if (!c.found) return;
   uint8_t a[4], b[4];
@@ -960,9 +901,7 @@ ENGINE_TEST(editor_overlay_ellipsize_left_keeps_tail_on_slash) {
     app::overlay_ellipsize_left(path, 4.0f, c->d, sizeof c->d); // hicbir sey sigmaz: en az "…" + 1 karakter
     c->w_a = ImGui::CalcTextSize(c->b).x;
   };
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] soldan kirpma: tam='%s' | '/tests/assets' genisligi='%s' | dar='%s' | 4px='%s'\n", cx.a, cx.b, cx.c, cx.d);
   CHECK(!std::strcmp(cx.a, "/mnt/veri/yazilim/Tulpar/engine/tests/assets"));
   CHECK(!std::strcmp(cx.b, "\xE2\x80\xA6/tests/assets"));

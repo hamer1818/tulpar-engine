@@ -269,7 +269,17 @@ void draw_empty_states(void *, uint32_t) {
 
 constexpr uint32_t kBufPx = 400 * 800;
 uint8_t g_buf_a[kBufPx * 4], g_buf_b[kBufPx * 4], g_buf_c[kBufPx * 4];
-void keep(uint8_t *dst, const EditorProbe &p) { std::memcpy(dst, p.pixels, (size_t)p.width * p.height * 4); }
+// AG: sonda dusmusse p.pixels nullptr'dir ve bu memcpy SIGSEGV atar. Cagri
+// yerleri PROBE_OR_RETURN ile korunuyor, yani buraya gelinmemeli; gelinirse
+// kosum CEKIRDEK DOKUMU degil KIRMIZI olsun (bir cokme sebebi gizler).
+void keep(uint8_t *dst, const EditorProbe &p) {
+  if (!p.pixels) {
+    std::printf("    FAIL keep(): sonda pikselsiz dondu (p.pixels == nullptr)\n");
+    Registry::failures++;
+    return;
+  }
+  std::memcpy(dst, p.pixels, (size_t)p.width * p.height * 4);
+}
 
 } // namespace
 
@@ -284,10 +294,7 @@ ENGINE_TEST(editor_widgets_mock_panels_render) {
   p.draw = draw_inspector;
   p.ctx = &im;
   p.frames = 3;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   std::printf("    [bilgi] Özellikler: %u vertex -> %s\n", p.vertices, path);
   CHECK(p.vertices > 400);
 
@@ -300,8 +307,7 @@ ENGINE_TEST(editor_widgets_mock_panels_render) {
   q.draw = draw_hierarchy;
   q.ctx = &hm;
   q.frames = 3;
-  st = editor_probe_render(q);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(q);
   std::printf("    [bilgi] Sahne: %u vertex -> %s\n", q.vertices, path2);
   CHECK(q.vertices > 200);
 
@@ -312,8 +318,7 @@ ENGINE_TEST(editor_widgets_mock_panels_render) {
   e.out_ppm = path3;
   e.draw = draw_empty_states;
   e.frames = 2;
-  st = editor_probe_render(e);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(e);
   std::printf("    [bilgi] bos durumlar: %u vertex -> %s\n", e.vertices, path3);
   CHECK(e.vertices > 50);
 }
@@ -331,10 +336,7 @@ ENGINE_TEST(editor_widgets_vec3_propitem_aggregates_subfields) {
   p.draw = draw_inspector_drag;
   p.ctx = &m;
   p.frames = 7;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   for (int f = 0; f < 7; f++)
     std::printf("    [bilgi] kare %d: changed=%d act=%d deact=%d deact_edit=%d ham_act=%d\n", f, m.frame_pos[f].changed, m.frame_pos[f].activated,
                 m.frame_pos[f].deactivated, m.frame_pos[f].deactivated_after_edit, m.raw_activated[f]);
@@ -357,7 +359,7 @@ ENGINE_TEST(editor_widgets_vec3_propitem_aggregates_subfields) {
   q.draw = draw_inspector_drag;
   q.ctx = &n;
   q.frames = 7;
-  CHECK(editor_probe_render(q) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(q);
   bool any = false;
   for (int f = 0; f < 7; f++) any |= n.frame_pos[f].activated || n.frame_pos[f].deactivated || n.frame_pos[f].changed || n.frame_pos[f].deactivated_after_edit;
   CHECK(!any);
@@ -374,9 +376,7 @@ ENGINE_TEST(editor_widgets_vec3_badges_carry_axis_tones) {
   p.draw = draw_inspector_drag;
   p.ctx = &m;
   p.frames = 3;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   static const app::Tone kT[3] = {app::Tone::AxisX, app::Tone::AxisY, app::Tone::AxisZ};
   for (int a = 0; a < 3; a++) {
     const app::WidgetRect b = m.konum.badge[a];
@@ -411,18 +411,14 @@ ENGINE_TEST(editor_widgets_component_header_toggle_and_remove) {
   p.draw = draw_inspector_drag;
   p.ctx = &m;
   p.frames = 3;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   keep(g_buf_a, p);
   const uint32_t n = p.width * p.height;
-  st = editor_probe_render(p); // ayni durum
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p); // ayni durum
   keep(g_buf_b, p);
   const uint32_t same = probe_diff(g_buf_a, g_buf_b, n);
   m.model_on = false;
-  st = editor_probe_render(p);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   keep(g_buf_c, p);
   const uint32_t diff = probe_diff(g_buf_a, g_buf_c, n);
   std::printf("    [bilgi] baslik etkin/etkin fark %u piksel (kontrol), etkin/devre disi fark %u piksel\n", same, diff);
@@ -437,7 +433,7 @@ ENGINE_TEST(editor_widgets_component_header_toggle_and_remove) {
   q.draw = draw_inspector_drag;
   q.ctx = &r;
   q.frames = 6;
-  CHECK(editor_probe_render(q) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(q);
   int hits = 0, hit_frame = -1;
   for (int f = 0; f < 6; f++) if (r.remove_hits[f]) { hits++; hit_frame = f; }
   std::printf("    [bilgi] kaldir: %d tetik, kare %d (birakma karesi 4 beklenir)\n", hits, hit_frame);
@@ -460,10 +456,7 @@ ENGINE_TEST(editor_widgets_color_swatch_session_is_one_edit) {
   p.draw = draw_color_probe;
   p.ctx = &a;
   p.frames = 11;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   int act = 0, deact = 0, after = 0, changed = 0, act_f = -1, deact_f = -1;
   for (int f = 0; f < 11; f++) {
     act += a.items[f].activated; deact += a.items[f].deactivated; after += a.items[f].deactivated_after_edit; changed += a.items[f].changed;
@@ -485,7 +478,7 @@ ENGINE_TEST(editor_widgets_color_swatch_session_is_one_edit) {
   q.draw = draw_color_probe;
   q.ctx = &b;
   q.frames = 11;
-  CHECK(editor_probe_render(q) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(q);
   act = deact = after = changed = 0; act_f = deact_f = -1;
   for (int f = 0; f < 11; f++) {
     act += b.items[f].activated; deact += b.items[f].deactivated; after += b.items[f].deactivated_after_edit; changed += b.items[f].changed;
@@ -532,16 +525,14 @@ ENGINE_TEST(editor_widgets_hierarchy_row_selection_and_ellipsis) {
   p.draw = draw_hierarchy;
   p.ctx = &m;
   p.frames = 2;
-  ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   keep(g_buf_a, p);
   const uint32_t n = p.width * p.height;
-  CHECK(editor_probe_render(p) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   keep(g_buf_b, p);
   const uint32_t same = probe_diff(g_buf_a, g_buf_b, n);
   m.second_selected = true;
-  CHECK(editor_probe_render(p) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   keep(g_buf_c, p);
   const uint32_t diff = probe_diff(g_buf_a, g_buf_c, n);
   std::printf("    [bilgi] satir secimsiz/secimsiz fark %u (kontrol), secimsiz/secili fark %u piksel\n", same, diff);
@@ -555,7 +546,7 @@ ENGINE_TEST(editor_widgets_hierarchy_row_selection_and_ellipsis) {
   q.draw = draw_hierarchy;
   q.ctx = &e;
   q.frames = 2;
-  CHECK(editor_probe_render(q) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(q);
   std::printf("    [bilgi] uzun ad -> \"%s\" (%.1f px, sinir %.1f px), kisa ad kirpildi=%d\n", e.long_row.text, e.long_row_text_w, e.long_row.text_max_w,
               e.short_row.ellipsized);
   CHECK(e.long_row.ellipsized);
@@ -677,6 +668,9 @@ bool any_action(const TreeMock &m, app::HierarchyAction a) { return first_action
 
 constexpr uint32_t kTreeW = 320, kTreeH = 420;
 uint8_t g_tree_px[kTreeW * kTreeH * 4];
+// run_tree sondayi kendi icinde yarattigi icin p.err cagirana ulasmiyordu;
+// "Ok degil" raporunun SEBEBI olmadan basilmasi tam olarak kacinilan sey.
+char g_tree_err[512];
 ProbeStatus run_tree(TreeMock &m, const char *stem, uint32_t frames = 10) {
   EditorProbe p;
   p.width = kTreeW; p.height = kTreeH;
@@ -687,9 +681,9 @@ ProbeStatus run_tree(TreeMock &m, const char *stem, uint32_t frames = 10) {
   p.ctx = &m;
   p.frames = frames;
   const ProbeStatus st = editor_probe_render(p);
+  std::snprintf(g_tree_err, sizeof g_tree_err, "%s", p.err);
   if (st == ProbeStatus::Ok && p.pixels) std::memcpy(g_tree_px, p.pixels, sizeof g_tree_px);
   if (st == ProbeStatus::Ok) std::printf("    [bilgi] %s: %u vertex -> %s\n", stem, p.vertices, path);
-  else if (st == ProbeStatus::Fail) std::printf("    [bilgi] sonda: %s\n", p.err);
   return st;
 }
 } // namespace
@@ -699,7 +693,7 @@ ProbeStatus run_tree(TreeMock &m, const char *stem, uint32_t frames = 10) {
 ENGINE_TEST(editor_widgets_tree_rows_indent_by_depth) {
   static TreeMock m;
   m = TreeMock{};
-  if (run_tree(m, "agac") == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
+  if (probe_not_ok(run_tree(m, "agac"), g_tree_err, __FILE__, __LINE__)) return;
   const float d0 = m.rows[0].text_x, d1 = m.rows[1].text_x, d2 = m.rows[3].text_x;
   const float step = d1 - d0;
   CHECK(step > 4.0f);
@@ -753,7 +747,7 @@ ENGINE_TEST(editor_widgets_tree_arrow_eye_lock_return_actions) {
   static TreeMock a;
   a = TreeMock{};
   a.click_arrow = 2;
-  if (run_tree(a, "agac_ok") == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
+  if (probe_not_ok(run_tree(a, "agac_ok"), g_tree_err, __FILE__, __LINE__)) return;
   const app::HierarchyResult tg = first_action(a, app::HierarchyAction::Toggle);
   CHECK(tg.action == app::HierarchyAction::Toggle && tg.index == 2);
   CHECK(!any_action(a, app::HierarchyAction::Select)); // ok tiklamak secmez
@@ -791,7 +785,7 @@ ENGINE_TEST(editor_widgets_tree_context_menu_returns_actions) {
   d = TreeMock{};
   d.right_click_row = 1;
   d.menu_item = 3; // Sil (ayirici yuzunden biraz asagida)
-  if (run_tree(d, "agac_menu_sil", 12) == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
+  if (probe_not_ok(run_tree(d, "agac_menu_sil", 12), g_tree_err, __FILE__, __LINE__)) return;
   const app::HierarchyResult del = first_action(d, app::HierarchyAction::Delete);
   CHECK(del.action == app::HierarchyAction::Delete && del.index == 1);
 
@@ -840,10 +834,7 @@ ENGINE_TEST(editor_widgets_tree_rename_commits_on_enter_and_cancels_on_esc) {
   p.draw = draw;
   p.ctx = &m;
   p.frames = 8;
-  const ProbeStatus st = editor_probe_render(p);
-  if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
-  if (st != ProbeStatus::Ok) std::printf("    [bilgi] sonda: %s\n", p.err);
-  CHECK(st == ProbeStatus::Ok);
+  PROBE_OR_RETURN(p);
   const app::HierarchyResult rn = first_action(m, app::HierarchyAction::Rename);
   CHECK(rn.action == app::HierarchyAction::Rename && rn.index == 2 && std::strcmp(rn.name, "Kahraman2") == 0);
   CHECK(!m.st.rename.active()); // kip kapandi
@@ -856,7 +847,7 @@ ENGINE_TEST(editor_widgets_tree_rename_commits_on_enter_and_cancels_on_esc) {
   ppm_path(path2, sizeof path2, "agac_ad_esc");
   q.out_ppm = path2;
   q.ctx = &e;
-  CHECK(editor_probe_render(q) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(q);
   CHECK(!any_action(e, app::HierarchyAction::Rename));
   CHECK(!e.st.rename.active());
   // Goruntu: kip ACIKKEN dur (Enter'dan once) ki yazan kisi kutuyu GORSUN.
@@ -868,7 +859,7 @@ ENGINE_TEST(editor_widgets_tree_rename_commits_on_enter_and_cancels_on_esc) {
   w.out_ppm = path3;
   w.ctx = &o;
   w.frames = 3; // Enter 3. karede gonderilir, 4'te islenir -> kutu acik kalir
-  CHECK(editor_probe_render(w) == ProbeStatus::Ok);
+  PROBE_OR_RETURN(w);
   CHECK(o.st.rename.active() && o.st.rename.index == 2);
   std::printf("    [bilgi] yerinde ad: Enter -> \"%s\" (varlik %d); Esc -> eylem yok; acik kip -> %s\n", rn.name, rn.index, path3);
 }
@@ -880,7 +871,7 @@ ENGINE_TEST(editor_widgets_tree_drag_drop_reparents) {
   m = TreeMock{};
   m.drag_from = 6; // Kamera
   m.drag_to = 2;   // Kahraman
-  if (run_tree(m, "agac_surukle", 12) == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
+  if (probe_not_ok(run_tree(m, "agac_surukle", 12), g_tree_err, __FILE__, __LINE__)) return;
   const app::HierarchyResult rp = first_action(m, app::HierarchyAction::Reparent);
   if (rp.action != app::HierarchyAction::Reparent) std::printf("    [bilgi] surukleme eylem uretmedi (ImGui surukleme esigi/kare takvimi)\n");
   CHECK(rp.action == app::HierarchyAction::Reparent);
