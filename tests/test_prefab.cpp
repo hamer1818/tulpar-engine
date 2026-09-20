@@ -3,7 +3,10 @@
 // kaynaga isaret edecegi bir durumu olcer.
 #include "tests/test.hpp"
 
+#include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <unistd.h>
 
 #include "content/prefab.hpp"
 
@@ -113,4 +116,110 @@ ENGINE_TEST(prefab_instantiate_is_all_or_nothing) {
   dst2.entity_count = 0; dst2.asset_count = 0;
   CHECK(prefab_instantiate(dst2, h, bad, Vec3{0, 0, 0}, nullptr) == 0);
   CHECK(dst2.entity_count == 0);
+}
+
+// --- PR #7'den tasinan kapilar -------------------------------------------------
+// PR #7 kendi `.prefab` metin bicimini ve ona ait iki testi getirmisti. Bicim
+// dusuruldu (gerekcesi content/prefab.hpp'de: SceneEntity icin IKINCI bir elle
+// yazilmis serilestirici, tools/scene_check.py kapisinin disinda kalir ve
+// kaciniz kacinilmaz olur). Testlerin OLCTUGU sey korundu ve motorun kanonik
+// yoluna tasindi: prefab_extract + scene_save/scene_load + prefab_instantiate.
+// Kazanc, ayni zamanda PR #7'nin YENI alanlarini (spot konisi, huzme, can)
+// gercek `.sahne` gidis-donusunde olcmesi -- ozgun test bunlari yalniz kendi
+// ozel biciminde goruyordu.
+ENGINE_TEST(prefab_roundtrip_keeps_light_and_health_fields) {
+  static SceneDesc src;
+  src.entity_count = 0; src.asset_count = 0;
+  const int32_t a = add(src, "SokakLambasi", -1);
+  SceneEntity &e = src.entities[a];
+  e.pos = Vec3{10.0f, 2.0f, -5.0f};
+  e.rot_deg = Vec3{0.0f, 45.0f, 0.0f};
+  e.scale = Vec3{1.2f, 1.2f, 1.2f};
+  e.components = kSceneLight | kSceneBody | kSceneHealth;
+  e.light_type = SceneLightType::Spot;
+  e.light_color = Vec3{1.0f, 0.85f, 0.6f};
+  e.light_intensity = 35.0f;
+  e.light_radius = 12.5f;
+  e.light_spot_inner = 20.0f;
+  e.light_spot_outer = 45.0f;
+  e.light_godray = true;
+  e.light_godray_intensity = 1.8f;
+  e.light_cast_shadow = false;
+  e.shape = SceneShape::Box;
+  e.half = Vec3{0.3f, 2.5f, 0.3f};
+  e.dynamic = false;
+  e.health_max = 250.0f;
+  e.health_current = 120.0f;
+  // Partikul: renk/yercekimi/billboard alanlari da PR #7'de ESITLIKTE vardi,
+  // yaziciyla ayristiricida YOKTU. Varsayilandan farkli degerler veriliyor ki
+  // "yalniz varsayilandan farkliysa yaz" kurali gercekten olculsun.
+  e.components |= kSceneParticle;
+  e.particle_spawn_rate = 42.0f;
+  e.particle_color_start = Vec3{0.1f, 0.2f, 0.3f};
+  e.particle_color_end = Vec3{0.9f, 0.8f, 0.7f};
+  e.particle_gravity = -9.81f;
+  e.particle_billboard_type = 2;
+
+  static SceneDesc pf;
+  CHECK(prefab_extract(src, a, &pf) == 1);
+
+  char tmpl[512];
+  test::tmp_template(tmpl, sizeof tmpl, "prefab");
+  const int fd = mkstemp(tmpl);
+  CHECK(fd >= 0);
+  if (fd < 0) return;
+  close(fd);
+
+  SceneError err{};
+  CHECK(scene_save(arena(), pf, tmpl, &err));
+  static SceneDesc back;
+  const bool ok = scene_load(arena(), tmpl, &back, &err);
+  if (!ok) std::printf("    [bilgi] %s: %s\n", tmpl, err.msg);
+  CHECK(ok);
+  unlink(tmpl);
+  if (!ok) return;
+
+  CHECK(back.entity_count == 1);
+  const SceneEntity &g = back.entities[0];
+  CHECK(std::strcmp(g.name, "SokakLambasi") == 0);
+  CHECK((g.components & kSceneLight) != 0 && (g.components & kSceneBody) != 0);
+  CHECK(g.light_type == SceneLightType::Spot);
+  CHECK(g.light_intensity == 35.0f);
+  CHECK(g.light_spot_inner == 20.0f && g.light_spot_outer == 45.0f);
+  CHECK(g.light_godray == true && g.light_godray_intensity == 1.8f);
+  // Bu ucu, PR #7'de ESITLIKTE vardi ama YAZICIDA yoktu: yaz-oku sonrasi
+  // sessizce varsayilana donuyorlardi. Kapi tam burada duruyor.
+  CHECK(g.light_cast_shadow == false);
+  CHECK(g.shape == SceneShape::Box && g.half.y == 2.5f);
+  CHECK(g.health_max == 250.0f && g.health_current == 120.0f);
+  CHECK(g.particle_color_start.x == 0.1f && g.particle_color_start.z == 0.3f);
+  CHECK(g.particle_color_end.x == 0.9f && g.particle_color_end.z == 0.7f);
+  CHECK(g.particle_gravity == -9.81f && g.particle_billboard_type == 2u);
+  // Varlik esitligi de tutmali (prefab koku orijine tasindigi icin pos haric).
+  CHECK(scene_entity_equal(pf.entities[0], g));
+}
+
+ENGINE_TEST(prefab_instantiate_places_character_at_spawn) {
+  static SceneDesc pf;
+  pf.entity_count = 0; pf.asset_count = 0;
+  const int32_t r = add(pf, "Robot", -1);
+  SceneEntity &e = pf.entities[r];
+  e.components = kSceneCharacter | kSceneHealth;
+  e.char_radius = 0.6f;
+  e.char_height = 1.8f;
+  e.health_max = 250.0f;
+  e.health_current = 250.0f;
+
+  static SceneDesc dst;
+  dst.entity_count = 0; dst.asset_count = 0;
+  SceneHistory h;
+  CHECK(h.init(arena(), 16));
+  uint32_t first = 0;
+  CHECK(prefab_instantiate(dst, h, pf, Vec3{15.0f, 0.0f, 30.0f}, &first) == 1);
+  CHECK(first == 0 && dst.entity_count == 1);
+  CHECK(dst.entities[0].pos.x == 15.0f && dst.entities[0].pos.y == 0.0f && dst.entities[0].pos.z == 30.0f);
+  CHECK(dst.entities[0].char_height == 1.8f);
+  CHECK(dst.entities[0].health_max == 250.0f);
+  // Tek Ctrl+Z ornegi geri alir.
+  CHECK(h.undo(dst) && dst.entity_count == 0);
 }

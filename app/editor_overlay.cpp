@@ -172,6 +172,12 @@ void overlay_project_axes(const float view[16], float radius, AxisProjection *ou
   }
 }
 
+// Suren kutu suruklemesini iptal eder (bkz. editor_overlay.hpp). active=false
+// yetiyor: kutu YALNIZ active iken buyur, cizilir ve birakilinca secime
+// doner; ayrica bir sonraki kare IsMouseClicked false oldugu icin yeniden
+// baslamaz -- ayni basili tutma bir daha kutu acmaz.
+void viewport_box_cancel() { g_box.active = false; }
+
 void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLayout *out_layout, OverlayResult *out_res) {
   OverlayLayout lay;
   OverlayResult res;
@@ -605,6 +611,50 @@ void empty_state(const char *msg) {
   ImGui::GetWindowDrawList()->AddText(ImVec2(x > p.x ? x : p.x, y > p.y ? y : p.y), tone_u32(Tone::TextDim), msg);
   ImGui::Dummy(ImVec2(avail.x, avail.y > ts.y ? avail.y : ts.y));
 }
+
+// Prowl Game Engine (AssetTypeStyles.cs) esinlenmesi: her dosya turune ozel simge, rozet ve renk
+struct AssetStyle {
+  const char *icon;
+  const char *badge;
+  Tone tone;
+};
+
+static AssetStyle asset_style_for_file(const char *path) {
+  if (!path) return {"\xE2\x97\x86", "VARLIK", Tone::TextDim};
+  const char *dot = std::strrchr(path, '.');
+  if (!dot) return {"\xE2\x97\x86", "VARLIK", Tone::TextDim};
+
+  // 3B Modeller / Aglar: Model simgesi, Vurgu
+  if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0) {
+    return {"\xE2\x97\x86", "MESH", Tone::Accent};
+  }
+  // Dokular / Resimler: Kutu/Resim, Eksen Z (Mavi)
+  if (std::strcmp(dot, ".png") == 0 || std::strcmp(dot, ".jpg") == 0 || std::strcmp(dot, ".jpeg") == 0 ||
+      std::strcmp(dot, ".dds") == 0 || std::strcmp(dot, ".ktx2") == 0 || std::strcmp(dot, ".hdr") == 0) {
+    return {"\xE2\x96\xA3", "TEX", Tone::AxisZ};
+  }
+  // Malzemeler: Kure/Halka, Uyari (Amber/Turuncu)
+  if (std::strcmp(dot, ".mat") == 0 || std::strcmp(dot, ".material") == 0) {
+    return {"\xE2\x97\x89", "MAT", Tone::Warn};
+  }
+  // Shaderlar: Simsek, Acik Vurgu
+  if (std::strcmp(dot, ".frag") == 0 || std::strcmp(dot, ".vert") == 0 || std::strcmp(dot, ".spv") == 0 || std::strcmp(dot, ".glsl") == 0) {
+    return {"\xE2\x9A\xA1", "SHDR", Tone::AccentHi};
+  }
+  // Sahneler: Kure, Turkuaz
+  if (std::strcmp(dot, ".sahne") == 0 || std::strcmp(dot, ".scene") == 0 || std::strcmp(dot, ".tscene") == 0) {
+    return {"\xE2\x97\x8E", "SCENE", Tone::Accent};
+  }
+  // Betikler: Belge, Yesil (Ok)
+  if (std::strcmp(dot, ".tpr") == 0 || std::strcmp(dot, ".tulpar") == 0 || std::strcmp(dot, ".lua") == 0) {
+    return {"\xE2\x96\xA4", "SCRIPT", Tone::Ok};
+  }
+  // Ses: Nota, Amber
+  if (std::strcmp(dot, ".wav") == 0 || std::strcmp(dot, ".mp3") == 0 || std::strcmp(dot, ".ogg") == 0) {
+    return {"\xE2\x99\xAA", "AUDIO", Tone::Warn};
+  }
+  return {"\xE2\x97\x86", "VARLIK", Tone::TextDim};
+}
 } // namespace
 
 void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32_t file_count, const char (*scene_assets)[content::kScenePathLen],
@@ -721,7 +771,6 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
       if (cols < 1) cols = 1;
       const ImVec2 origin = ImGui::GetCursorScreenPos();
       lay.origin_x = origin.x; lay.origin_y = origin.y; lay.tile_w = tw; lay.tile_h = th; lay.gap = sp; lay.cols = cols;
-      const float glyph_px = ImTrunc(tw * 0.42f);
       const float badge_px = ImTrunc(fs * 0.78f);
       const float btn = ImTrunc(fs * 1.25f);
       for (uint32_t i = 0; i < file_count; i++) {
@@ -735,28 +784,52 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         ImGui::InvisibleButton("##karo", ImVec2(tw, th));
         const bool hov = ImGui::IsItemHovered();
         const bool dbl = hov && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-        // Kart: zemin (ustundeyken bir ton acik), sahnedeyse vurgu kenarligi.
+        // Modern Oyun Motoru Varlık Kartı (Unreal / Prowl Content Browser)
         const ImVec2 q(p.x + tw, p.y + th);
+        const float thumb_h = std::floor(tw * 0.70f);
+        const ImVec2 thumb_br(q.x, p.y + thumb_h);
+
+        // 1. Kart Gövdesi ve Kenarlık
         cdl->AddRectFilled(p, q, hov ? tone_u32(Tone::Bg3) : tone_u32(Tone::Bg2), st.FrameRounding);
-        cdl->AddRect(p, q, f.in_scene ? tone_u32(Tone::Accent, 0.55f) : tone_u32(Tone::Line, 0.6f), st.FrameRounding, 1.0f);
-        // Kucuk resim yerine simge (◆): glTF'nin on izlemesi yok — durust bos.
-        static const char kDiamond[] = "\xE2\x97\x86";
-        const ImVec2 gs = ImGui::GetFont()->CalcTextSizeA(glyph_px, 3.4e38f, 0.0f, kDiamond);
-        const float thumb_h = tw; // ust kare
-        cdl->AddText(ImGui::GetFont(), glyph_px, ImVec2(p.x + (tw - gs.x) * 0.5f, p.y + (thumb_h - gs.y) * 0.5f),
-                     f.in_scene ? tone_u32(Tone::Accent, 0.9f) : tone_u32(Tone::Bg4), kDiamond);
-        // Ad: kucuk yazi, EN FAZLA IKI SATIR — ilk satir mumkunse '_' '-' '.'
-        // sinirinda kirilir, ikinci satir sagdan kirpik; tam ad ipucunda.
-        const bool cut = tile_name(cdl, name_px, f.name, ImVec2(p.x + st.FramePadding.x * 0.5f, p.y + thumb_h + fs * 0.2f), tw - st.FramePadding.x, text);
+        const ImU32 border_col = hov ? tone_u32(Tone::AccentHi, 0.85f) : (f.in_scene ? tone_u32(Tone::Accent, 0.40f) : tone_u32(Tone::Line, 0.60f));
+        cdl->AddRect(p, q, border_col, st.FrameRounding, 1.0f);
+
+        // 2. Üst Önizleme Kuyusu (Recessed Thumbnail Well)
+        cdl->AddRectFilled(p, thumb_br, tone_u32(Tone::Input), st.FrameRounding, ImDrawFlags_RoundCornersTop);
+        cdl->AddLine(ImVec2(p.x, thumb_br.y), thumb_br, tone_u32(Tone::Line, 0.50f));
+
+        // 3. Varlık Türü İkonu ve Rozeti
+        const AssetStyle as = asset_style_for_file(f.name);
+        const float real_glyph_px = std::floor(thumb_h * 0.46f);
+        const ImVec2 gs = ImGui::GetFont()->CalcTextSizeA(real_glyph_px, 3.4e38f, 0.0f, as.icon);
+        cdl->AddText(ImGui::GetFont(), real_glyph_px, ImVec2(p.x + (tw - gs.x) * 0.5f, p.y + (thumb_h - gs.y) * 0.5f),
+                     f.in_scene ? tone_u32(Tone::AccentHi) : tone_u32(as.tone, 0.90f), as.icon);
+
+        // Tür Rozeti (Sağ-Alt)
+        const float as_badge_w = ImGui::GetFont()->CalcTextSizeA(badge_px, 3.4e38f, 0.0f, as.badge).x + 8.0f;
+        badge(cdl, ImVec2(q.x - as_badge_w - 4.0f, p.y + thumb_h - badge_px - 6.0f), as.badge, badge_px, 4.0f, st.FrameRounding,
+              tone_u32(as.tone), tone_u32(Tone::Bg0, 0.80f), nullptr);
+
+        // Sahnede İndikatörü (Sol-Üst)
+        if (f.in_scene) {
+          badge(cdl, ImVec2(p.x + 4.0f, p.y + 4.0f), "\xE2\x97\x8F sahnede", badge_px, 5.0f, st.FrameRounding,
+                tone_u32(Tone::Ok), tone_u32(Tone::Bg0, 0.80f), nullptr);
+        }
+
+        // 4. Alt Dosya Adı Plakası
+        const bool cut = tile_name(cdl, name_px, f.name, ImVec2(p.x + st.FramePadding.x * 0.5f, p.y + thumb_h + 4.0f), tw - st.FramePadding.x, text);
         if (hov && cut) ImGui::SetTooltip("%s", f.name);
         // Surukle-birak kaynagi: karoyu goruntu alanina birakinca sahneye eklenir
-        // (hedef tarafi editor_app.cpp'deki "ASSET_FILE" yuku).
+        // (hedef tarafi editor_app.cpp'deki "ASSET_FILE" yuku). PR #7 karo
+        // cizimini yeniledi ama BU kaynagi dusurmustu: karo artik hicbir yere
+        // suruklenemiyordu. Cizim PR #7'den, surukle-birak main'den.
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
           ImGui::SetDragDropPayload("ASSET_FILE", f.name, std::strlen(f.name) + 1);
           ImGui::Text("Sahneye Ekle:\n%s", f.name);
           ImGui::EndDragDropSource();
         }
-        if (f.in_scene) badge(cdl, ImVec2(p.x + 4.0f, p.y + 4.0f), "sahnede", badge_px, 5.0f, st.FrameRounding, tone_u32(Tone::AccentHi), tone_u32(Tone::Accent, 0.25f), nullptr);
+        // main'in ayri `sahnede` rozeti BILEREK dusuruldu: PR #7 ayni rozeti
+        // ayni kosede (p+4,+4) zaten ve daha iyi ciziyor; ikisi ust uste binerdi.
         bool add = dbl;
         if (hov || ImGui::IsItemActive()) add |= add_button(ImVec2(q.x - btn - 4.0f, p.y + 4.0f), btn);
         if (add && out) out->add_index = (int)i;
@@ -785,8 +858,9 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         const ImVec2 q(p.x + w, p.y + row_h);
         if (hov) cdl->AddRectFilled(p, q, tone_u32(Tone::Bg3), st.FrameRounding);
         else if (shown & 1) cdl->AddRectFilled(p, q, tone_u32(Tone::White, 0.025f), st.FrameRounding);
+        const AssetStyle as = asset_style_for_file(f.name);
         float x = p.x + st.FramePadding.x;
-        cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), f.in_scene ? accent : tone_u32(Tone::Bg4), "\xE2\x97\x86"); // ◆
+        cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), f.in_scene ? accent : tone_u32(as.tone), as.icon);
         x += fs + st.ItemInnerSpacing.x;
         float right = q.x - st.FramePadding.x - btn - st.ItemInnerSpacing.x;
         if (f.in_scene) {
@@ -796,6 +870,11 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
                 tone_u32(Tone::Accent, 0.25f), nullptr);
           right -= badge_w + st.ItemInnerSpacing.x;
         }
+        const ImVec2 as_bs = ImGui::GetFont()->CalcTextSizeA(badge_px, 3.4e38f, 0.0f, as.badge);
+        const float as_badge_w = as_bs.x + 8.0f;
+        badge(cdl, ImVec2(right - as_badge_w, p.y + (row_h - as_bs.y - 2.0f) * 0.5f), as.badge, badge_px, 4.0f, st.FrameRounding, tone_u32(as.tone),
+              tone_u32(Tone::Bg0, 0.6f), nullptr);
+        right -= as_badge_w + st.ItemInnerSpacing.x;
         char nb[content::kScenePathLen + 4];
         editor_ellipsize(f.name, right - x, nb, sizeof nb);
         cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), text, nb);

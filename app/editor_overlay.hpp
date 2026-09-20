@@ -129,6 +129,18 @@ struct OverlayResult {
 // res.consumed_mouse true iken 3B secim isini ATMA ve kamerayi fareyle surme.
 void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLayout *out_layout = nullptr, OverlayResult *out_res = nullptr);
 
+// Suren kutu (marquee) surukleme varsa IPTAL eder: kutu ne cizilir ne secime
+// doner. Gizmo icin var. Kare sirasi soyle: kaplama, ImGuizmo::Manipulate'ten
+// ONCE ciziliyor, yani tiklamanin gizmoya mi sahneye mi gittigini kaplama o
+// anda BILEMEZ ve kutuyu baslatir. Manipulate kosup "bu tiklamayi ben aldim"
+// dedikten sonra cagiran bunu cagirir; kutu daha buyuyup gorunur hale
+// gelmeden ayni karede olur.
+//
+// ALTERNATIFI NEDEN DEGIL: kaplamanin gizmo durumunu bir ONCEKI kareden
+// okumasi (st.gizmo_was_over) fareyi gizmonun uzerine getirip AYNI karede
+// tiklayan durumu kaciriyor. Bu ise gecikmesiz.
+void viewport_box_cancel();
+
 // Kutu (marquee) secimin SAF matematigi — ImGui'siz, cihazsiz (kapi bunu olcer).
 //
 // Her sinir kutusunun 8 kosesi view_proj ile izdusurulur, ekran dikdortgenine

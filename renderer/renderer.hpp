@@ -446,6 +446,16 @@ public:
     cfg_.bloom_threshold = threshold;
     cfg_.bloom_intensity = intensity;
   }
+  // Godrays settings
+  void set_godrays(float density, float decay, float weight, float exposure) {
+    godray_density_ = density;
+    godray_decay_ = decay;
+    godray_weight_ = weight;
+    godray_exposure_ = exposure;
+  }
+  void set_godrays_source(Vec4 source) {
+    godray_source_ = source;
+  }
   void set_bloom_shape(float soft_knee, float radius) {
     cfg_.bloom_soft_knee = soft_knee;
     cfg_.bloom_radius = radius;
@@ -775,6 +785,8 @@ private:
   float diffuse_scale_ = 0.9f;
   Vec3 shadow_center_{0, 0, 0};
   float shadow_radius_ = 16.0f, shadow_depth_ = 60.0f;
+  float godray_density_ = 1.0f, godray_decay_ = 0.98f, godray_weight_ = 0.05f, godray_exposure_ = 1.0f;
+  Vec4 godray_source_{0, -1.0f, 0, 0.0f}; // w=0 direction, w=1 position
   uint64_t vertex_bytes_ = 0;
   Mat4 light_vp_[kMaxCascades]{};
   float cascade_radius_[kMaxCascades]{};
@@ -891,6 +903,10 @@ private:
   rhi::MemoryAlloc hdr_mem_{}, hdr_depth_mem_{};
   VkRenderPass hdr_rp_ = VK_NULL_HANDLE, bloom_rp_ = VK_NULL_HANDLE;
   VkFramebuffer hdr_fb_ = VK_NULL_HANDLE;
+  VkImage godray_img_ = VK_NULL_HANDLE;
+  VkImageView godray_view_ = VK_NULL_HANDLE;
+  VkFramebuffer godray_fb_ = VK_NULL_HANDLE;
+  rhi::MemoryAlloc godray_mem_{};
   // 0 = indirgeme zinciri, 1 = yukari zincir. Zincir basina TEK goruntu (mip'li):
   // mip basina ayri goruntu olsaydi her biri ayri vkAllocateMemory olurdu.
   VkImage bloom_img_[2] = {};
@@ -905,9 +921,9 @@ private:
   VkDescriptorPool post_pool_ = VK_NULL_HANDLE;
   VkDescriptorSet post_sets_[kMaxGraphPasses] = {};
   VkShaderModule post_vs_ = VK_NULL_HANDLE, bright_fs_ = VK_NULL_HANDLE, down_fs_ = VK_NULL_HANDLE,
-                 up_fs_ = VK_NULL_HANDLE, compose_fs_ = VK_NULL_HANDLE;
+                 up_fs_ = VK_NULL_HANDLE, compose_fs_ = VK_NULL_HANDLE, godray_fs_ = VK_NULL_HANDLE;
   VkPipeline pipe_bright_ = VK_NULL_HANDLE, pipe_down_ = VK_NULL_HANDLE, pipe_up_ = VK_NULL_HANDLE,
-             pipe_compose_ = VK_NULL_HANDLE;
+             pipe_compose_ = VK_NULL_HANDLE, pipe_godray_ = VK_NULL_HANDLE;
 
   // --- Faz 5: zamansal ------------------------------------------------------
   // Hareket gecisinin kare bloku (std140): gl_Position JITTER'LI matristen

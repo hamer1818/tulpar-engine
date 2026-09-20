@@ -646,9 +646,15 @@ void draw_tree(void *ctx, uint32_t frame) {
     if (frame == 4) io.AddMouseButtonEvent(1, false);
     // Menu 5. karede acilir; ogeler satir yuksekligi kadar asagida siralanir.
     if (m->menu_item >= 0) {
-      const float ih = ImGui::GetFrameHeight();
+      // Menunun ustu FARE KONUMU DEGILDIR: ImGui popup'i goruntu alanina
+      // sigdirmak icin yukari kaydirabilir (olculdu: menuye oge eklenince 18 px
+      // kaydi ve her tik bir oge asagi indi). Konum artik widget'in birakugi
+      // olcumden OKUNUYOR; oge yuksekligi/ayirici modeli aynen duruyor.
+      const app::HierarchyMenuLayout &ml = app::hierarchy_menu_last_layout();
+      const float ih = ml.open && ml.item_h > 0.0f ? ml.item_h : ImGui::GetFrameHeight();
+      const float top = ml.open ? ml.first_y : w.cy();
       const float mx = w.x0 + (w.x1 - w.x0) * 0.4f + 12.0f;
-      const float my = w.cy() + ih * (0.5f + (float)m->menu_item) + (m->menu_item == 3 ? 4.0f : 0.0f);
+      const float my = top + ih * (0.5f + (float)m->menu_item) + (m->menu_item == 3 ? 4.0f : 0.0f);
       if (frame == 6) io.AddMousePosEvent(mx, my);
       if (frame == 7) io.AddMouseButtonEvent(0, true);
       if (frame == 8) io.AddMouseButtonEvent(0, false);

@@ -49,19 +49,32 @@ enum SceneComponentBits : uint32_t {
   kSceneSkybox    = 1u << 15, // PBR gokyuzu kutusu
   kSceneRefProbe  = 1u << 16, // Yansima sondasi (IBL)
   kSceneReverb    = 1u << 17, // Ses yanki alani
+  // --- GAS (Yetenek ve Envanter Sistemi) ---------------------------------
+  kSceneHealth    = 1u << 18, // Can ve zirh verisi
+  kSceneAbility   = 1u << 19, // Büyü / yetenek tanımları
+  kSceneInventory = 1u << 20, // Envanter kapasitesi ve başlangıç eşyaları
 };
-// Bilesen bitlerinin TAMAMINI kapsayan maske (bit 0..17). Ayristirici, satir
+// Bilesen bitlerinin TAMAMINI kapsayan maske (bit 0..20). Ayristirici, satir
 // anahtarlarini tek bir `seen` maskesinde biriktirip sonunda BUNUNLA maskeler;
 // eskiden yerinde duran `0xFFu` sabiti yeni bitleri SESSIZCE kirpardi (varlik
 // diske yazilir, geri okunurken bileseni kaybolurdu). Yeni bir bit eklenince
 // burasi da buyumeli.
-constexpr uint32_t kSceneComponentMask = 0x0003FFFFu;
+constexpr uint32_t kSceneComponentMask = 0x001FFFFFu;
 enum class SceneShape : uint32_t { Box = 0, Sphere = 1 };
-// Nokta: kSceneLight'in eskiden BILDIGI tek tur (yaricapli, konum onemli).
-// Yonlu: entity-bazli yon gostergesi (gizmo gunes-oku cizer) -- Dunya panelindeki
-// TEK global gunes'ten AYRI, henuz runtime'da gercek ikinci bir yonlu terim
-// SHADE ETMEZ (bkz. PLAN takip notu); bugun editoryel/gorsel bir ayrimdir.
-enum class SceneLightType : uint32_t { Point = 0, Directional = 1 };
+// Nokta: kSceneLight'in standart omni turu (yaricapli, konum onemli).
+// Yonlu: entity-bazli yon gostergesi (gizmo gunes-oku cizer).
+// Spot: koni odakli isik (ic/dis aci).
+// Rect: LTC dikdortgen alan isigi.
+// Capsule: silindirik tup / cizgi isigi.
+// Disk: dairesel alan isigi.
+enum class SceneLightType : uint32_t {
+  Point       = 0,
+  Directional = 1,
+  Spot        = 2,
+  Rect        = 3,
+  Capsule     = 4,
+  Disk        = 5
+};
 // Varlik bayraklari — EDITOR gorunumu, oyun icerigi DEGIL: `.sahneb` derleyicisi
 // bunlara bakmaz (gizli bir varlik yine de blob'a girer), yalniz editor panelleri
 // okur. Sifir varsayilan ve dosyaya YAZILMAZ; boylece bayraksiz sahnelerin metni
@@ -102,6 +115,14 @@ struct SceneEntity {
   Vec3 light_color{1, 1, 1};
   float light_intensity = 1, light_radius = 5;
   SceneLightType light_type = SceneLightType::Point;
+  float light_spot_inner = 25.0f; // ic koni acisi (derece)
+  float light_spot_outer = 40.0f; // dis koni acisi (derece)
+  float light_width = 1.0f;       // alan isik genisligi / tup uzunlugu (metre)
+  float light_height = 0.5f;      // alan isik yuksekligi (metre)
+  bool  light_cast_shadow = true; // golge doksun mu
+  bool  light_godray = false;     // bu isik huzme / godray sacsin mi
+  float light_godray_intensity = 1.0f; // huzme carpan gucu
+
   // govde
   SceneShape shape = SceneShape::Box;
   Vec3 half{0.5f, 0.5f, 0.5f};
@@ -130,6 +151,10 @@ struct SceneEntity {
   float particle_size_start = 0.2f, particle_size_end = 0.0f;
   Vec3 particle_velocity{0, 2.0f, 0};
   Vec3 particle_jitter{1.0f, 0.5f, 1.0f};
+  Vec3 particle_color_start{1.0f, 0.6f, 0.1f}; // baslangic rengi (ates/turuncu)
+  Vec3 particle_color_end{0.2f, 0.2f, 0.2f};   // bitis rengi (duman/gri)
+  float particle_gravity = -2.0f;              // yercekimi ivmesi (m/s^2)
+  uint32_t particle_billboard_type = 0;        // 0: Screen-aligned, 1: Stretched/Velocity, 2: Horizontal
   // yapay zeka (kSceneNavAgent)
   Vec3 ai_target{0, 0, 0};
   float ai_speed = 3.0f;
@@ -169,6 +194,13 @@ struct SceneEntity {
   // biti "gokyuzu var mi"yi, bu alan HANGI gokyuzu oldugunu tasir; bos metin
   // = motorun gomulu varsayilan gokyuzu.
   char skybox_asset[kScenePathLen] = {0}; // HDRI / kup haritasi dosyasi
+  // GAS & Envanter (kSceneHealth, kSceneAbility, kSceneInventory)
+  float health_max = 100.0f;
+  float health_current = 100.0f;
+  uint32_t ability_id = 0;
+  float ability_damage = 10.0f;
+  float ability_range = 5.0f;
+  float ability_cooldown = 1.0f;
 };
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);
@@ -183,7 +215,17 @@ struct SceneWorld {
   float shadow_radius = 17.0f, shadow_depth = 70.0f;
   Vec3 cam_target{0, 1.0f, -3.0f};
   float cam_yaw = 0.7f, cam_pitch = 0.45f, cam_radius = 26.0f;
+  // Mobil uyumlu Isik Huzmeleri (God Rays / Crepuscular Rays)
+  bool  godrays_enabled = false;
+  float godray_density = 0.8f;   // huzme ornekleme yogunlugu
+  float godray_weight = 0.5f;    // huzme ornek agirligi
+  float godray_decay = 0.95f;    // sönümleme katsayisi
+  float godray_exposure = 0.3f;  // genel parlaklik
+  // Atmosfer & 24 Saat Gunes Dongusu
+  float time_of_day = 14.0f;     // 14:00 (saat)
+  float sky_turbidity = 2.5f;    // atmosfer bulanikligi
 };
+
 bool scene_world_equal(const SceneWorld &a, const SceneWorld &b); // bit-tam
 
 struct SceneDesc : SceneWorld {
