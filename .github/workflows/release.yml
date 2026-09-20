@@ -1,0 +1,935 @@
+# ===========================================================================
+# Tulpar Engine — SURUM (release)
+#
+# NEDEN VAR: CI'nin yukledigi `motor-*` eserleri bir DAGITIM KANALI DEGIL —
+# indirmek icin GitHub hesabi gerekiyor, 14 gunde siliniyorlar, kosum basina
+# zipleniyorlar ve depoda `gh release list` SIFIR surum gosteriyor. Bu is
+# akisi o bosluğu kapatir: `v*` kalibinda bir etiket itildiginde uc platformda
+# derler, TESTLERI KOSAR, paketler ve imzalanmis ozetleriyle birlikte bir
+# GitHub Release yayinlar.
+#
+# Kural (projenin kendi kurali): KOSMAYAN KAPI YESIL DEGILDIR.
+#   - `continue-on-error` YOK; hicbir adim yumusatilmaz.
+#   - `if: always()` / `if: failure()` YOK: bir kapi kirmizi olunca ondan
+#     sonraki hicbir sey (paketleme, arsivleme, yukleme, yayin) kosmaz.
+#   - Atlanan her sey GORUNUR: is ozetine yazilir, sessizce gecmez.
+#
+# TEST KAPISI CI ile AYNI: `engine tests: N passed, M failed, K atlandi
+# (N/N kosuldu)` ozet satiri PARSE edilir.
+#   - ozet satiri hic yoksa   -> KIRMIZI (cokme/asilma "0 failed" gibi okunamaz)
+#   - kosan != kayitli        -> KIRMIZI (kayit tasmasi: test hic kosmamis olur)
+#   - failed > 0              -> KIRMIZI
+# Ubuntu'da lavapipe, macOS'ta MoltenVK kurulur; gerekceli tek bir Vulkan
+# atlamasi bile isi kirmiziya cevirir. Windows runner'inda yazilim ICD'si yok,
+# orada GPU kapilari BEKLENEN sekilde atlanir ve sebepleri ozete yazilir.
+#
+# YAYINLANMAMIS BIR IKILI NASIL ENGELLENIYOR (dort katman):
+#   1. Her is icinde SIRA: test kapisi -> paketle -> arsivle -> yukle. Kapi
+#      sifirdan farkli donerse adim zinciri orada biter, arsiv URETILMEZ.
+#   2. `toplama` isi `needs: [linux, macos, windows]` — biri kirmizi/atlanmissa
+#      GitHub bu isi hic baslatmaz.
+#   3. `yayin` isi `needs: [toplama]` — ayni sekilde.
+#   4. `yayin` indirdigi arsivlerin SHA-256 ozetini YENIDEN dogrular; tutmazsa
+#      Release olusturulmaz.
+#
+# PENCERE ACILMAZ: burada yalnizca `engine_tests` kosar (CI'daki gibi
+# headless). `engine_demo` / `engine_editor` ASLA calistirilmaz — paket icerigi
+# dosya varligiyla denetlenir, calistirmayla degil.
+#
+# ONBELLEK YOK (bilerek): CI'daki ccache geri yuklemesi burada KASITLI olarak
+# yok. Yayinlanan ikili, baska bir kosumun onbellegindeki nesnelerden degil,
+# TAM OLARAK BU KOSUMUN derledigi nesnelerden kurulur. Bedeli etiket basina bir
+# soguk derleme. MSYS2 paket listesi yine de CI ile birebir ayni birakildi
+# (ccache dahil) — boylece setup-msys2'nin kendi ~168 MB paket onbellegi isabet
+# ediyor; ccache yalnizca derleyici baslatici olarak BAGLANMIYOR.
+#
+# UCUNCU TARAF EYLEM PINLEME: burada tek ucuncu taraf eylem `msys2/setup-msys2`
+# ve CI ile AYNI etikete (`@v2`) pinli — surum akrabaligi bilerek korunuyor,
+# cunku bu is akisinin gorevi CI'nin kanitlanmis arac zincirini AYNEN
+# tekrarlamak. Yayin adimi bir eylem degil, runner'da hazir gelen `gh`
+# komutunu kullanir (asagida gerekce).
+# ===========================================================================
+name: Surum
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # PROVA: etiket itmeden, hicbir sey yayinlamadan tum zinciri kosturmak icin.
+  # Varsayilan `prova: true` — yani elle tetiklenen bir kosum KENDILIGINDEN
+  # yayin yapmaz; yayin yalnizca bilincli olarak kutu kaldirilarak istenir.
+  workflow_dispatch:
+    inputs:
+      prova:
+        description: 'Prova: derle + test + paketle, YAYINLAMA (Release olusturulmaz)'
+        type: boolean
+        default: true
+      surum:
+        description: 'Prova icin surum etiketi (bos: v0.0.0-prova-<kisa sha>)'
+        type: string
+        required: false
+        default: ''
+
+# En az yetki: varsayilan SALT OKUNUR. Yalnizca `yayin` isi bunu `write`a
+# yukseltir — derleme/test/paketleme isleri depoya yazamaz.
+permissions:
+  contents: read
+
+# Yayin kosumu YARIDA KESILMEZ: `cancel-in-progress: false`. CI'da art arda
+# itilen commit'lerde eski kosumu iptal etmek dogru; bir surumu yarisinda
+# iptal etmek yarim yayin birakir.
+concurrency:
+  group: surum-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Surum adi ve "yayinlanacak mi" karari TEK YERDE verilir. Uc derleme isi de
+  # ayni dizeyi tuketir, yani arsiv adlari platformlar arasinda kayamaz.
+  # -------------------------------------------------------------------------
+  hazirlik:
+    name: Surum adi + yayin karari
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      surum: ${{ steps.karar.outputs.surum }}
+      yayinla: ${{ steps.karar.outputs.yayinla }}
+    steps:
+      # Kasitli olarak CHECKOUT YOK: bu isin kaynak koda ihtiyaci yok, yalnizca
+      # olay baglamina bakiyor.
+      - name: Karar
+        id: karar
+        env:
+          OLAY: ${{ github.event_name }}
+          REF_TIPI: ${{ github.ref_type }}
+          REF_ADI: ${{ github.ref_name }}
+          GIRDI_PROVA: ${{ inputs.prova }}
+          GIRDI_SURUM: ${{ inputs.surum }}
+        run: |
+          set -euo pipefail
+
+          # --- yayin karari -------------------------------------------------
+          yayinla="hayir"
+          if [ "$OLAY" = "push" ] && [ "$REF_TIPI" = "tag" ]; then
+            yayinla="evet"
+          elif [ "$OLAY" = "workflow_dispatch" ] && [ "$GIRDI_PROVA" = "false" ]; then
+            # "Prova"yi kapatmak yayin ISTEMEKTIR. Ama yayin yalnizca bir
+            # ETIKETTEN yapilabilir (Release bir etikete baglanir). Dal
+            # uzerinde istenirse SESSIZCE provaya dusurmek yerine KIRMIZI
+            # oluyoruz: "yayinla dedim, olmadi, kimse soylemedi" olmasin.
+            if [ "$REF_TIPI" != "tag" ]; then
+              echo "::error::Prova kapatildi (yayin istendi) ama bu kosum bir etiket uzerinde degil: ${REF_TIPI}/${REF_ADI}. Yayin yalnizca 'v*' etiketinden yapilir. Etiketi itin ya da 'gh workflow run release.yml --ref v0.1.0 -f prova=false' kullanin."
+              exit 1
+            fi
+            yayinla="evet"
+          fi
+
+          # --- surum adi ----------------------------------------------------
+          if [ "$REF_TIPI" = "tag" ]; then
+            surum="$REF_ADI"
+          elif [ -n "$GIRDI_SURUM" ]; then
+            surum="$GIRDI_SURUM"
+          else
+            surum="v0.0.0-prova-${GITHUB_SHA:0:7}"
+          fi
+
+          # Ad dosya adina giriyor: kalibi DAR tutuyoruz. Hem bicim hatasini
+          # (vfoo) hem de dosya adina sizabilecek karakterleri eler.
+          if ! printf '%s' "$surum" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+            echo "::error::Surum adi '$surum' beklenen kaliba uymuyor: vX.Y.Z ya da vX.Y.Z-onek (onekte yalnizca harf/rakam/nokta/tire)."
+            exit 1
+          fi
+
+          {
+            echo "surum=$surum"
+            echo "yayinla=$yayinla"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Surum: \`$surum\`"
+            echo ""
+            if [ "$yayinla" = "evet" ]; then
+              echo "Bu kosum **GitHub Release YAYINLAYACAK** (testler ucunde de gecerse)."
+            else
+              echo "Bu kosum bir **PROVA**: derlenir, test edilir, paketlenir; **Release olusturulmaz**."
+              echo "Arsivler kosum eseri (\`tulpar-engine-$surum\`) olarak indirilebilir."
+            fi
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| olay | \`$OLAY\` |"
+            echo "| ref | \`$REF_TIPI\` / \`$REF_ADI\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------------
+  # LINUX — CI'daki `linux` isinin arac zinciri birebir (lavapipe dahil).
+  # -------------------------------------------------------------------------
+  linux:
+    name: Linux x86_64 (GCC + lavapipe)
+    needs: hazirlik
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SURUM: ${{ needs.hazirlik.outputs.surum }}
+      PLATFORM: linux-x86_64
+      AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      # mesa-vulkan-drivers = lavapipe ICD (yazilim Vulkan). libvulkan1 = loader;
+      # motor onu link zamaninda degil dlopen ile ariyor, yani paket yoksa butun
+      # GPU kapilari atlanir ve "passed" sayisi GPU hakkinda hicbir sey soylemez.
+      - name: Bagimliliklar (lavapipe dahil)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools
+
+      - name: Vulkan surucusu gercekten var mi
+        run: vulkaninfo --summary
+
+      - name: Katman denetimi
+        run: python3 tools/layer_check.py .
+
+      # Onbellek baslatici YOK: yayinlanan ikili bu kosumda derlenir (bkz. bas
+      # yorum). CI'daki -DCMAKE_*_COMPILER_LAUNCHER=ccache bayraklari burada
+      # bilerek atlandi.
+      - name: Yapilandir
+        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Derle
+        run: cmake --build yapi -j"$(nproc)"
+
+      # Kapinin POZITIF KONTROLU: Vulkan'i kapatip atlama satirlarinin GERCEKTEN
+      # basildigini goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye
+      # uymayan bos bir grep olmadigi kanitlanmis oluyor.
+      - name: Atlama mekanizmasinin pozitif kontrolu
+        run: |
+          set -uo pipefail
+          TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
+          n=$(grep -E 'ATLANDI:.*Vulkan' kontrol.log | grep -cv 'tukendi')
+          if [ "$n" -eq 0 ]; then
+            echo "::error::Pozitif kontrol basarisiz: TULPAR_ENGINE_NO_VULKAN=1 ile bile Vulkan atlama satiri basilmadi. Asagidaki Vulkan kapisi bos bir grep olurdu."
+            tail -40 kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+
+      # ===== YAYIN KAPISI =====================================================
+      # Bu adim kirmizi olursa is biter: paketleme, arsivleme ve yukleme
+      # adimlarinin hicbiri kosmaz, yani test edilmemis bir ikili hicbir yere
+      # gitmez.
+      - name: Testler + kapi
+        run: |
+          set -uo pipefail
+          ./yapi/engine_tests 2>&1 | tee sonuc.log
+          kod=${PIPESTATUS[0]}
+
+          ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
+          if [ -z "$ozet" ]; then
+            echo "::error::Ozet satiri YOK — engine_tests cokmus ya da asilmis olabilir. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          echo "$ozet"
+
+          gecen=$(sed -E 's/^engine tests: ([0-9]+) passed.*/\1/'   <<< "$ozet")
+          kalan=$(sed -E 's/.*, ([0-9]+) failed.*/\1/'              <<< "$ozet")
+          atlanan=$(sed -E 's/.*, ([0-9]+) atlandi.*/\1/'           <<< "$ozet")
+          kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
+          kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
+
+          {
+            echo "### Linux (lavapipe) — surum kapisi"
+            echo ""
+            echo "\`$ozet\`"
+            echo ""
+            if [ "$atlanan" -gt 0 ]; then
+              echo "<details><summary>Atlanan $atlanan kapi</summary>"
+              echo ""
+              echo '```'
+              grep -E 'ATLANDI:' sonuc.log | sort | uniq -c | sort -rn
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -q 'KAYIT TASMASI' sonuc.log; then
+            echo "::error::Kayit tasmasi: bazi testler HIC kosmadi (tests/test.hpp icindeki Registry::kMax). Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          if [ "$kosan" != "$kayitli" ]; then
+            echo "::error::Kayitli $kayitli testin yalnizca $kosan tanesi kosmus. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          if [ "$kalan" != "0" ] || [ "$gecen" -le 0 ]; then
+            echo "::error::$kalan test kirmizi. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          # Ubuntu'da lavapipe KURULU. Yani Vulkan yolunun atlanmasi bir cevre
+          # sorunu degil, is akisinin kendi arizasidir: sessizce yesil gecmesin.
+          vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
+          if [ -n "$vulkan_atlama" ]; then
+            echo "$vulkan_atlama"
+            echo "::error::Lavapipe kurulu oldugu halde Vulkan kapilari atlandi — loader/ICD gelmemis. 'passed' sayisi GPU yolu hakkinda hicbir sey soylemiyor. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          exit "$kod"
+      # ===== /YAYIN KAPISI ====================================================
+
+      - name: Paketle (tools/package.sh)
+        run: |
+          set -euo pipefail
+          if [ ! -f tools/package.sh ]; then
+            echo "::error::tools/package.sh YOK — paketleme kapisi hic kosmadi. Kosmayan kapi yesil degildir."
+            exit 1
+          fi
+          mkdir -p "paket/$AD"
+          bash tools/package.sh yapi "paket/$AD"
+          find "paket/$AD" -maxdepth 2 | sort
+
+      # Paketin BICIMI denetlenir, icerigi CALISTIRILMAZ (pencere acilmaz).
+      # Eksik bir ikili burada UYARI degil HATA: yarim bir surum paketi
+      # kullaniciya "program baslatilamadi" olarak gider.
+      - name: Paket yerlesimi kapisi
+        run: |
+          set -uo pipefail
+          kok="paket/$AD"
+          eksik=0
+          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
+            if [ ! -f "$kok/$t" ]; then
+              echo "::error::Pakette $t yok."
+              eksik=1
+            fi
+          done
+          if ! ls "$kok"/assets/fonts/*.ttf >/dev/null 2>&1; then
+            echo "::error::Pakette assets/fonts/*.ttf yok."
+            eksik=1
+          fi
+          if [ ! -d "$kok/tests/assets" ]; then
+            echo "::error::Pakette tests/assets/ yok."
+            eksik=1
+          fi
+          if [ ! -f "$kok/OKUBENI.md" ]; then
+            echo "::error::Pakette OKUBENI.md yok."
+            eksik=1
+          fi
+          if [ "$eksik" -ne 0 ]; then
+            echo "Paket agaci:"
+            find "$kok" -maxdepth 2 | sort
+            exit 1
+          fi
+          echo "Paket yerlesimi tamam."
+
+      - name: Arsivle (.tar.gz)
+        run: |
+          set -euo pipefail
+          tar -czf "${AD}.tar.gz" -C paket "$AD"
+          # Arsiv bombasi kapisi: tek ust dizin olmali, yoksa kullanici acinca
+          # cwd'sine dosya sacar.
+          tar -tzf "${AD}.tar.gz" > icerik.txt
+          head -25 icerik.txt
+          adet="$(tr -cd '\n' < icerik.txt | wc -c | tr -d '[:space:]')"
+          ust="$(cut -d/ -f1 icerik.txt | sort -u)"
+          if [ "$ust" != "$AD" ]; then
+            echo "::error::Arsivde tek ust dizin yok (bulunan: $ust)."
+            exit 1
+          fi
+          if [ "$adet" -lt 6 ]; then
+            echo "::error::Arsivde yalnizca $adet girdi var — paket bos ya da yarim."
+            exit 1
+          fi
+          echo "Arsiv tamam: ${AD}.tar.gz ($adet girdi)"
+
+      - name: Arsivi yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsiv-linux-x86_64
+          path: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # macOS — CI'daki `macos` isinin arac zinciri birebir (MoltenVK dahil).
+  # AArch64 fiber gecisi (core/jobs/fiber_switch_aarch64.S) YALNIZ burada kosar.
+  # -------------------------------------------------------------------------
+  macos:
+    name: macOS arm64 (AppleClang + MoltenVK)
+    needs: hazirlik
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    env:
+      SURUM: ${{ needs.hazirlik.outputs.surum }}
+      PLATFORM: macos-arm64
+      AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      # vulkan-loader = libvulkan.1.dylib (ICD mekanizmasi), molten-vk = ICD'nin
+      # kendisi. Ikisi ayri: yalniz molten-vk kurulursa loader bulunamaz.
+      - name: Bagimliliklar (MoltenVK dahil)
+        run: |
+          set -euo pipefail
+          brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
+          brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
+          brew list --versions ccache >/dev/null 2>&1 || brew install ccache
+          brew list --versions vulkan-loader >/dev/null 2>&1 || brew install vulkan-loader
+          brew list --versions molten-vk     >/dev/null 2>&1 || brew install molten-vk
+          brew list --versions vulkan-validationlayers >/dev/null 2>&1 || brew install vulkan-validationlayers
+
+      # YOL "share" DEGIL "etc" (olculdu 2026-09-20, molten-vk 1.4.2). Homebrew
+      # formulunun son satiri:
+      #     (prefix/"etc/vulkan").install "MoltenVK/icd" => "icd.d"
+      # yani json <keg>/etc/vulkan/icd.d/ altinda. "share/vulkan/icd.d" diyen
+      # recete HIC VAR OLMAYAN bir yolu gosteriyordu: VK_ICD_FILENAMES olmayan
+      # bir dosyaya bakiyor, loader hicbir ICD bulamiyor ve butun GPU kapilari
+      # SESSIZCE atlaniyordu (is yine de yesil). Bu yuzden yol ARANIR,
+      # bulunamazsa is KIRMIZI olur.
+      - name: Vulkan ortami + surucu gercekten var mi
+        run: |
+          set -euo pipefail
+          MVK="$(brew --prefix molten-vk)"
+          VVL="$(brew --prefix vulkan-validationlayers)"
+
+          ICD=""
+          for c in "$MVK/etc/vulkan/icd.d/MoltenVK_icd.json" \
+                   "$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json" \
+                   "$MVK/share/vulkan/icd.d/MoltenVK_icd.json" \
+                   "$(brew --prefix)/share/vulkan/icd.d/MoltenVK_icd.json"; do
+            if [ -f "$c" ]; then ICD="$c"; break; fi
+          done
+          if [ -z "$ICD" ]; then
+            echo "::error::MoltenVK ICD json'u hicbir bilinen yolda YOK — loader cihaz bulamaz, butun GPU kapilari atlanirdi."
+            echo "keg icinde gercekte nerede:"
+            find "$MVK" -name 'MoltenVK_icd.json' 2>/dev/null | head || true
+            exit 1
+          fi
+          echo "ICD: $ICD"
+          cat "$ICD"
+
+          LAYERS="$VVL/share/vulkan/explicit_layer.d"
+          [ -d "$LAYERS" ] || LAYERS="$(brew --prefix)/share/vulkan/explicit_layer.d"
+          if [ ! -d "$LAYERS" ]; then
+            echo "::error::Dogrulama katmani dizini YOK — BestPractices kapisi sessizce atlanirdi."
+            exit 1
+          fi
+          echo "katmanlar: $LAYERS"
+
+          {
+            echo "VK_ICD_FILENAMES=$ICD"
+            echo "VK_DRIVER_FILES=$ICD"
+            echo "VK_LAYER_PATH=$LAYERS"
+            echo "VK_ADD_LAYER_PATH=$LAYERS"
+          } >> "$GITHUB_ENV"
+
+          ls -la "$(brew --prefix)/lib/libvulkan"* "$(brew --prefix)/lib/libMoltenVK"* 2>&1 | head -8 || true
+
+      - name: Katman denetimi
+        run: python3 tools/layer_check.py .
+
+      - name: Yapilandir
+        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Derle
+        run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      - name: Atlama mekanizmasinin pozitif kontrolu
+        run: |
+          set -uo pipefail
+          TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
+          n=$(grep -E 'ATLANDI:.*Vulkan' kontrol.log | grep -cv 'tukendi')
+          if [ "$n" -eq 0 ]; then
+            echo "::error::Pozitif kontrol basarisiz: TULPAR_ENGINE_NO_VULKAN=1 ile bile Vulkan atlama satiri basilmadi. Asagidaki Vulkan kapisi bos bir grep olurdu."
+            tail -40 kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+
+      # ===== YAYIN KAPISI =====================================================
+      - name: Testler + kapi
+        run: |
+          set -uo pipefail
+          ./yapi/engine_tests 2>&1 | tee sonuc.log
+          kod=${PIPESTATUS[0]}
+
+          ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
+          if [ -z "$ozet" ]; then
+            echo "::error::Ozet satiri YOK — engine_tests cokmus ya da asilmis olabilir. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          echo "$ozet"
+
+          gecen=$(sed -E 's/^engine tests: ([0-9]+) passed.*/\1/'   <<< "$ozet")
+          kalan=$(sed -E 's/.*, ([0-9]+) failed.*/\1/'              <<< "$ozet")
+          atlanan=$(sed -E 's/.*, ([0-9]+) atlandi.*/\1/'           <<< "$ozet")
+          kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
+          kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
+
+          {
+            echo "### macOS arm64 (MoltenVK) — surum kapisi"
+            echo ""
+            echo "\`$ozet\`"
+            echo ""
+            echo "AArch64 fiber gecisi (core/jobs/fiber_switch_aarch64.S) YALNIZ burada kosuyor."
+            echo ""
+            if [ "$atlanan" -gt 0 ]; then
+              echo "<details><summary>Atlanan $atlanan kapi</summary>"
+              echo ""
+              echo '```'
+              grep -E 'ATLANDI:' sonuc.log | sort | uniq -c | sort -rn
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -q 'KAYIT TASMASI' sonuc.log; then
+            echo "::error::Kayit tasmasi: bazi testler HIC kosmadi (tests/test.hpp icindeki Registry::kMax). Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          if [ "$kosan" != "$kayitli" ]; then
+            echo "::error::Kayitli $kayitli testin yalnizca $kosan tanesi kosmus. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          if [ "$kalan" != "0" ] || [ "$gecen" -le 0 ]; then
+            echo "::error::$kalan test kirmizi. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
+          if [ -n "$vulkan_atlama" ]; then
+            echo "$vulkan_atlama"
+            echo "::error::MoltenVK kurulu oldugu halde Vulkan kapilari atlandi — loader/ICD gelmemis. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          exit "$kod"
+      # ===== /YAYIN KAPISI ====================================================
+
+      - name: Paketle (tools/package.sh)
+        run: |
+          set -euo pipefail
+          if [ ! -f tools/package.sh ]; then
+            echo "::error::tools/package.sh YOK — paketleme kapisi hic kosmadi. Kosmayan kapi yesil degildir."
+            exit 1
+          fi
+          mkdir -p "paket/$AD"
+          bash tools/package.sh yapi "paket/$AD"
+          find "paket/$AD" -maxdepth 2 | sort
+
+      - name: Paket yerlesimi kapisi
+        run: |
+          set -uo pipefail
+          kok="paket/$AD"
+          eksik=0
+          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
+            if [ ! -f "$kok/$t" ]; then
+              echo "::error::Pakette $t yok."
+              eksik=1
+            fi
+          done
+          if ! ls "$kok"/assets/fonts/*.ttf >/dev/null 2>&1; then
+            echo "::error::Pakette assets/fonts/*.ttf yok."
+            eksik=1
+          fi
+          if [ ! -d "$kok/tests/assets" ]; then
+            echo "::error::Pakette tests/assets/ yok."
+            eksik=1
+          fi
+          if [ ! -f "$kok/OKUBENI.md" ]; then
+            echo "::error::Pakette OKUBENI.md yok."
+            eksik=1
+          fi
+          if [ "$eksik" -ne 0 ]; then
+            echo "Paket agaci:"
+            find "$kok" -maxdepth 2 | sort
+            exit 1
+          fi
+          echo "Paket yerlesimi tamam."
+
+      - name: Arsivle (.tar.gz)
+        run: |
+          set -euo pipefail
+          tar -czf "${AD}.tar.gz" -C paket "$AD"
+          tar -tzf "${AD}.tar.gz" > icerik.txt
+          head -25 icerik.txt
+          adet="$(tr -cd '\n' < icerik.txt | wc -c | tr -d '[:space:]')"
+          ust="$(cut -d/ -f1 icerik.txt | sort -u)"
+          if [ "$ust" != "$AD" ]; then
+            echo "::error::Arsivde tek ust dizin yok (bulunan: $ust)."
+            exit 1
+          fi
+          if [ "$adet" -lt 6 ]; then
+            echo "::error::Arsivde yalnizca $adet girdi var — paket bos ya da yarim."
+            exit 1
+          fi
+          echo "Arsiv tamam: ${AD}.tar.gz ($adet girdi)"
+
+      - name: Arsivi yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsiv-macos-arm64
+          path: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-macos-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # WINDOWS — CI'daki `windows` isinin arac zinciri birebir (MSYS2 MINGW64).
+  # -------------------------------------------------------------------------
+  windows:
+    name: Windows x86_64 (MSYS2 MINGW64)
+    needs: hazirlik
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      SURUM: ${{ needs.hazirlik.outputs.surum }}
+      PLATFORM: windows-x86_64
+      AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-windows-x86_64
+    steps:
+      # Satir sonlari .gitattributes ile LF'e sabitli (kanonik .sahne bayt-esitlik
+      # kapisi bunu sart kosuyor); autocrlf'i ayrica kapatiyoruz ki runner ayari
+      # .gitattributes'tan once devreye girmesin.
+      - name: Satir sonu ayari
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v4
+
+      # update: false — "Final system upgrade" adimi olculdu 27-31 sn ve TEMEL
+      # IMAJI tazelemekten baska is yapmiyor. Paket listesi CI ile BIREBIR AYNI
+      # (ccache dahil) ki setup-msys2'nin kendi paket onbellegi isabet etsin;
+      # ccache burada derleyici baslatici olarak BAGLANMIYOR.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-ccache
+
+      # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
+      # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
+      # hata yokken kirmizi doniyordu. Kapinin kapisi.
+      - name: Kanonik varliklar LF mi
+        run: python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF ile cikarilmis; .gitattributes devreye girmemis."; exit 1; }
+
+      - name: Katman denetimi
+        run: python3 tools/layer_check.py .
+
+      - name: Yapilandir
+        run: cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Derle
+        run: cmake --build yapi -j"$(nproc)"
+
+      # ===== YAYIN KAPISI =====================================================
+      # Windows runner'inda yazilim Vulkan ICD'si yok; RHI kapilari burada
+      # ATLANDI olacak ve bu BEKLENEN durum. Ama gorunmez kalmasin: sebepler
+      # is ozetine yazilir. Gercek Vulkan kapisi Linux/macOS islerinde.
+      - name: Testler + kapi
+        run: |
+          set -uo pipefail
+          ./yapi/engine_tests.exe 2>&1 | tee sonuc.log
+          kod=${PIPESTATUS[0]}
+
+          ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
+          if [ -z "$ozet" ]; then
+            echo "::error::Ozet satiri YOK — engine_tests cokmus ya da asilmis olabilir. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          echo "$ozet"
+
+          gecen=$(sed -E 's/^engine tests: ([0-9]+) passed.*/\1/'   <<< "$ozet")
+          kalan=$(sed -E 's/.*, ([0-9]+) failed.*/\1/'              <<< "$ozet")
+          atlanan=$(sed -E 's/.*, ([0-9]+) atlandi.*/\1/'           <<< "$ozet")
+          kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
+          kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
+
+          {
+            echo "### Windows (MSYS2 MINGW64) — surum kapisi"
+            echo ""
+            echo "\`$ozet\`"
+            echo ""
+            echo "Vulkan ICD'si yok: GPU kapilari burada atlanir, olculdukleri yer Linux/macOS isleri."
+            echo ""
+            if [ "$atlanan" -gt 0 ]; then
+              echo "<details><summary>Atlanan $atlanan kapi</summary>"
+              echo ""
+              echo '```'
+              grep -E 'ATLANDI:' sonuc.log | sort | uniq -c | sort -rn
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -q 'KAYIT TASMASI' sonuc.log; then
+            echo "::error::Kayit tasmasi: bazi testler HIC kosmadi (tests/test.hpp icindeki Registry::kMax). Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          if [ "$kosan" != "$kayitli" ]; then
+            echo "::error::Kayitli $kayitli testin yalnizca $kosan tanesi kosmus. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+          if [ "$kalan" != "0" ] || [ "$gecen" -le 0 ]; then
+            echo "::error::$kalan test kirmizi. Surum YAYINLANMAYACAK."
+            exit 1
+          fi
+
+          exit "$kod"
+      # ===== /YAYIN KAPISI ====================================================
+
+      - name: Paketle (tools/package.sh)
+        run: |
+          set -euo pipefail
+          if [ ! -f tools/package.sh ]; then
+            echo "::error::tools/package.sh YOK — paketleme kapisi hic kosmadi. Kosmayan kapi yesil degildir."
+            exit 1
+          fi
+          mkdir -p "paket/$AD"
+          bash tools/package.sh yapi "paket/$AD"
+          find "paket/$AD" -maxdepth 2 | sort
+
+      # Windows'ta DLL'LER SART: MinGW ile derlenen .exe, libstdc++-6 /
+      # libgcc_s_seh-1 / libwinpthread-1 olmadan MSYS2 DISINDA acilmaz
+      # ("program baslatilamadi"). package.sh onlari koymadiysa paket
+      # calismaz bir .exe yiginidir — bu yuzden burada sert kapi var.
+      - name: Paket yerlesimi kapisi (+ MinGW DLL'leri)
+        run: |
+          set -uo pipefail
+          kok="paket/$AD"
+          eksik=0
+          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
+            if [ ! -f "$kok/$t.exe" ]; then
+              echo "::error::Pakette $t.exe yok."
+              eksik=1
+            fi
+          done
+          if ! ls "$kok"/*.dll >/dev/null 2>&1; then
+            echo "::error::Pakette hicbir MinGW DLL'i yok — bu paket MSYS2 disinda calismaz."
+            eksik=1
+          fi
+          if ! ls "$kok"/assets/fonts/*.ttf >/dev/null 2>&1; then
+            echo "::error::Pakette assets/fonts/*.ttf yok."
+            eksik=1
+          fi
+          if [ ! -d "$kok/tests/assets" ]; then
+            echo "::error::Pakette tests/assets/ yok."
+            eksik=1
+          fi
+          if [ ! -f "$kok/OKUBENI.md" ]; then
+            echo "::error::Pakette OKUBENI.md yok."
+            eksik=1
+          fi
+          if [ "$eksik" -ne 0 ]; then
+            echo "Paket agaci:"
+            find "$kok" -maxdepth 2 | sort
+            exit 1
+          fi
+          echo "Paket yerlesimi tamam."
+
+      # zip, MSYS2 paket listesine EKLENMEDI (liste CI ile birebir kalsin ve
+      # setup-msys2 onbellegi isabet etsin). Zaten kurulu olan python3 ile
+      # arsivliyoruz; ayni adimda tek-ust-dizin kapisi da kosuyor.
+      - name: Arsivle (.zip)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, shutil, sys, zipfile
+          ad = os.environ["AD"]
+          shutil.make_archive(ad, "zip", root_dir="paket", base_dir=ad)
+          girdiler = zipfile.ZipFile(ad + ".zip").namelist()
+          if len(girdiler) < 6:
+              print(f"::error::Arsivde yalnizca {len(girdiler)} girdi var — paket bos ya da yarim.")
+              sys.exit(1)
+          ust = {g.split("/")[0] for g in girdiler}
+          if ust != {ad}:
+              print(f"::error::Arsivde tek ust dizin yok (bulunan: {sorted(ust)}).")
+              sys.exit(1)
+          for g in girdiler[:25]:
+              print(g)
+          print(f"Arsiv tamam: {ad}.zip ({len(girdiler)} girdi)")
+          PY
+
+      - name: Arsivi yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsiv-windows-x86_64
+          path: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # TOPLAMA — uc arsivi bir araya getirir ve SHA-256 ozet dosyasini uretir.
+  # `needs` ucunu de kapsiyor: bir platform kirmizi ya da atlanmissa GitHub bu
+  # isi HIC baslatmaz, dolayisiyla ne ozet dosyasi ne de yayin olusur.
+  # Bu is hem GERCEK yayinda hem PROVADA kosar; fark yalnizca bir sonraki iste.
+  # -------------------------------------------------------------------------
+  toplama:
+    name: Arsivler + SHA-256
+    needs: [hazirlik, linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SURUM: ${{ needs.hazirlik.outputs.surum }}
+      YAYINLA: ${{ needs.hazirlik.outputs.yayinla }}
+    steps:
+      - name: Arsivleri indir
+        uses: actions/download-artifact@v4
+        with:
+          pattern: arsiv-*
+          path: dagitim
+          merge-multiple: true
+
+      - name: Eksiksizlik kapisi + SHA-256
+        run: |
+          set -euo pipefail
+          cd dagitim
+          ls -la
+
+          bekle=(
+            "tulpar-engine-${SURUM}-linux-x86_64.tar.gz"
+            "tulpar-engine-${SURUM}-macos-arm64.tar.gz"
+            "tulpar-engine-${SURUM}-windows-x86_64.zip"
+          )
+          eksik=0
+          for f in "${bekle[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Beklenen arsiv yok: $f"
+              eksik=1
+            fi
+          done
+          if [ "$eksik" -ne 0 ]; then
+            echo "::error::Uc platformun arsivi eksiksiz gelmeden surum uretilmez."
+            exit 1
+          fi
+
+          # Baska bir sey sizmis mi? (yanlis adla yuklenmis bir arsiv sessizce
+          # yayina girmesin)
+          fazla="$(ls -1 | grep -vxF -e "${bekle[0]}" -e "${bekle[1]}" -e "${bekle[2]}" || true)"
+          if [ -n "$fazla" ]; then
+            echo "::error::Beklenmeyen dosya(lar) indirildi:"
+            echo "$fazla"
+            exit 1
+          fi
+
+          ozetler="tulpar-engine-${SURUM}-SHA256SUMS.txt"
+          sha256sum "${bekle[@]}" > "$ozetler"
+          # Uretilen dosya gercekten dogruluyor mu (bos/bozuk ozet dosyasi olmasin)
+          sha256sum -c "$ozetler"
+          cat "$ozetler"
+
+      - name: Ozet
+        run: |
+          set -euo pipefail
+          {
+            echo "### Surum paketleri — \`$SURUM\`"
+            echo ""
+            echo '```'
+            cat "dagitim/tulpar-engine-${SURUM}-SHA256SUMS.txt"
+            echo '```'
+            echo ""
+            if [ "$YAYINLA" = "evet" ]; then
+              echo "Siradaki is: **yayin** (GitHub Release olusturulacak)."
+            else
+              echo "**PROVA** — GitHub Release OLUSTURULMAYACAK. \`yayin\` isi bilerek atlaniyor;"
+              echo "Actions sayfasinda gri 'skipped' olarak gorunur. Arsivler bu kosumun"
+              echo "\`tulpar-engine-$SURUM\` eserinden indirilebilir."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Prova kosumunun TESLIMATI budur: arsivler + ozet dosyasi tek eser olarak.
+      # Gercek yayinda da yuklenir — `yayin` isi kaynagi buradan alir, yani
+      # yayinlanan baytlar test edilen baytlarla ayni eserden gelir.
+      - name: Paketleri eser olarak yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: tulpar-engine-${{ needs.hazirlik.outputs.surum }}
+          path: dagitim/
+          if-no-files-found: error
+          retention-days: 14
+
+  # -------------------------------------------------------------------------
+  # YAYIN — TEK yazma yetkili is. Yalnizca `hazirlik` "evet" dediyse kosar
+  # (= etiket itilmis bir kosum), ve yalnizca `toplama` yesilse — o da yalnizca
+  # uc test kapisi yesilse.
+  #
+  # NEDEN `gh release create`, ucuncu taraf eylem DEGIL: `softprops/action-gh-release`
+  # de is gorurdu ama yayin adimi `contents: write` tasiyan TEK adim; oraya
+  # ucuncu taraf kod sokmamak icin gerekce yok. `gh` runner imajinda HAZIR
+  # geliyor, `--generate-notes` istenen otomatik surum notlarini sunucu
+  # tarafinda uretiyor ve pinlenecek bir bagimlilik kalmiyor (pinlemenin en
+  # saglam bicimi: bagimliligi hic almamak). Depodaki tek ucuncu taraf eylem
+  # olan `msys2/setup-msys2` CI ile AYNI etikete (@v2) pinli.
+  # -------------------------------------------------------------------------
+  yayin:
+    name: GitHub Release yayinla
+    needs: [hazirlik, toplama]
+    if: needs.hazirlik.outputs.yayinla == 'evet'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SURUM: ${{ needs.hazirlik.outputs.surum }}
+    steps:
+      # Checkout YOK: `gh --repo` ile calisiyor. Yayin adiminin diskinde kaynak
+      # kod bulunmuyor.
+      - name: Paketleri indir
+        uses: actions/download-artifact@v4
+        with:
+          name: tulpar-engine-${{ needs.hazirlik.outputs.surum }}
+          path: dagitim
+
+      # Eser gidis-donusu bozulmus olabilir: yayinlanacak baytlarin ozeti,
+      # testlerin kostugu makinede hesaplanan ozetle AYNI mi?
+      - name: Butunluk kapisi (SHA-256 yeniden dogrulama)
+        run: |
+          set -euo pipefail
+          cd dagitim
+          ls -la
+          ozetler="tulpar-engine-${SURUM}-SHA256SUMS.txt"
+          if [ ! -f "$ozetler" ]; then
+            echo "::error::$ozetler yok — yayinlanacak baytlarin dogrulanacagi bir referans yok."
+            exit 1
+          fi
+          sha256sum -c "$ozetler"
+          echo "Butunluk tamam."
+
+      - name: Release olustur
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # --verify-tag: etiket uzakta gercekten yoksa Release uydurma bir
+          # referansa baglanmasin. Zaten var olan bir surume ikinci kez
+          # basilirsa `gh` hata verir (uzerine YAZMAZ) — istenen davranis.
+          gh release create "$SURUM" \
+            --repo "$DEPO" \
+            --title "Tulpar Engine $SURUM" \
+            --generate-notes \
+            --verify-tag \
+            "dagitim/tulpar-engine-${SURUM}-linux-x86_64.tar.gz" \
+            "dagitim/tulpar-engine-${SURUM}-macos-arm64.tar.gz" \
+            "dagitim/tulpar-engine-${SURUM}-windows-x86_64.zip" \
+            "dagitim/tulpar-engine-${SURUM}-SHA256SUMS.txt"
+
+          url="$(gh release view "$SURUM" --repo "$DEPO" --json url --jq .url)"
+          {
+            echo "### Yayinlandi"
+            echo ""
+            echo "$url"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -29,6 +29,7 @@ set(ENGINE_CXX_OPTS -fno-exceptions -fno-rtti -funwind-tables -Wall -Wextra)
 # --- L0 ---------------------------------------------------------------------
 add_library(engine_platform STATIC
     platform/fatal.cpp
+    platform/paths.cpp
     platform/time.cpp
     platform/memory.cpp
     platform/thread.cpp

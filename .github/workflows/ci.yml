@@ -170,19 +170,21 @@ jobs:
 
           exit "$kod"
 
-      # CALISTIRILABILIR CIKTILAR. Bunlar daha once hicbir yere gitmiyordu:
-      # CI derliyor, test ediyor ve atiyordu. Testler GECTIKTEN sonra yukleniyor
-      # ki "yesil olmayan ikili" indirilebilir olmasin.
+      # CALISTIRILABILIR CIKTILAR — ikililer VE onlarin actiklarinda okudugu
+      # varliklar. Paketleme mantigi YAML'de DEGIL tools/package.sh icinde:
+      # uc is de, insan da ayni betigi kosar (uc kopya uc ayri yere kayardi).
+      #
+      # Betik yalniz kopyalamiyor, sonunda TAMLIK KAPISI kosuyor: kodun
+      # istedigi her goreli varlik yolu (liste kaynak agacindaki dizgilerden
+      # TURETILIYOR, elle yazilmiyor) pakette duruyor mu? Eksik dosya isi
+      # KIRMIZI yapar. Sebep olculdu: varliksiz paket, ikililer varligi
+      # ENGINE_SOURCE_DIR (derleme zamani yol) altinda aradigi icin derleyen
+      # makinenin kaynak agaci olmayan hicbir yerde acilmiyordu.
+      #
+      # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
+      # olmasin.
       - name: Ciktilari topla
-        run: |
-          set -euo pipefail
-          mkdir -p dagitim
-          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
-            if [ -x "yapi/$t" ]; then cp "yapi/$t" dagitim/; else echo "::warning::$t uretilmedi"; fi
-          done
-          # Sembolleri at: engine_editor striplenmemis 14 MB.
-          strip dagitim/* 2>/dev/null || true
-          ls -la dagitim/
+        run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
         uses: actions/upload-artifact@v4
@@ -370,19 +372,21 @@ jobs:
 
           exit "$kod"
 
-      # CALISTIRILABILIR CIKTILAR. Bunlar daha once hicbir yere gitmiyordu:
-      # CI derliyor, test ediyor ve atiyordu. Testler GECTIKTEN sonra yukleniyor
-      # ki "yesil olmayan ikili" indirilebilir olmasin.
+      # CALISTIRILABILIR CIKTILAR — ikililer VE onlarin actiklarinda okudugu
+      # varliklar. Paketleme mantigi YAML'de DEGIL tools/package.sh icinde:
+      # uc is de, insan da ayni betigi kosar (uc kopya uc ayri yere kayardi).
+      #
+      # Betik yalniz kopyalamiyor, sonunda TAMLIK KAPISI kosuyor: kodun
+      # istedigi her goreli varlik yolu (liste kaynak agacindaki dizgilerden
+      # TURETILIYOR, elle yazilmiyor) pakette duruyor mu? Eksik dosya isi
+      # KIRMIZI yapar. Sebep olculdu: varliksiz paket, ikililer varligi
+      # ENGINE_SOURCE_DIR (derleme zamani yol) altinda aradigi icin derleyen
+      # makinenin kaynak agaci olmayan hicbir yerde acilmiyordu.
+      #
+      # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
+      # olmasin.
       - name: Ciktilari topla
-        run: |
-          set -euo pipefail
-          mkdir -p dagitim
-          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
-            if [ -x "yapi/$t" ]; then cp "yapi/$t" dagitim/; else echo "::warning::$t uretilmedi"; fi
-          done
-          # Sembolleri at: engine_editor striplenmemis 14 MB.
-          strip dagitim/* 2>/dev/null || true
-          ls -la dagitim/
+        run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
         uses: actions/upload-artifact@v4
@@ -506,31 +510,16 @@ jobs:
 
           exit "$kod"
 
-      # CALISTIRILABILIR CIKTILAR — Windows'ta DLL'LER SART. MinGW ile derlenen
-      # .exe, libstdc++-6 / libgcc_s_seh-1 / libwinpthread-1 olmadan MSYS2
-      # DISINDA acilmaz ("program baslatilamadi" hatasi). DLL listesi elle
-      # yazilmiyor: ldd ciktisindan /mingw64 altindakiler suzuluyor, boylece
-      # araç zinciri degisince liste kendiliginden guncelleniyor.
+      # CALISTIRILABILIR CIKTILAR — ikililer, varliklar VE Windows'ta SART olan
+      # DLL'ler. Hepsi tools/package.sh icinde (Linux/macOS isleriyle AYNI
+      # betik): MinGW ile derlenen .exe, libstdc++-6 / libgcc_s_seh-1 /
+      # libwinpthread-1 olmadan MSYS2 DISINDA acilmaz ("program baslatilamadi").
+      # DLL listesi elle yazilmiyor, ldd ciktisindan suzuluyor — arac zinciri
+      # degisince kendiliginden guncelleniyor — ve "hic DLL bulunamadi" hala
+      # isi KIRMIZI yapiyor. Betigin tamlik kapisi ayrica kodun istedigi her
+      # varligin pakette oldugunu dogruluyor.
       - name: Ciktilari topla (+ MinGW DLL'leri)
-        run: |
-          set -euo pipefail
-          mkdir -p dagitim
-          for t in engine_demo engine_editor engine_sahnec engine_texpack engine_clodbake; do
-            if [ -x "yapi/$t.exe" ]; then cp "yapi/$t.exe" dagitim/; else echo "::warning::$t.exe uretilmedi"; fi
-          done
-          for exe in dagitim/*.exe; do
-            ldd "$exe" | awk '/=> \/mingw64\//{print $3}'
-          done | sort -u | while read -r dll; do
-            [ -f "$dll" ] && cp -n "$dll" dagitim/
-          done
-          strip dagitim/*.exe 2>/dev/null || true
-          echo "--- paket icerigi ---"
-          ls -la dagitim/
-          # Kapi: DLL hic kopyalanmadiysa paket calismaz bir .exe yiginidir.
-          if ! ls dagitim/*.dll >/dev/null 2>&1; then
-            echo "::error::Hicbir MinGW DLL'i kopyalanmadi — bu paket MSYS2 disinda calismaz."
-            exit 1
-          fi
+        run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
         uses: actions/upload-artifact@v4

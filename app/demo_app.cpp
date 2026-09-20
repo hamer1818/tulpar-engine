@@ -18,6 +18,7 @@
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/crash.hpp"
+#include "platform/paths.hpp"
 #include "platform/time.hpp"
 #include "renderer/renderer.hpp"
 #include "rhi/device.hpp"
@@ -196,11 +197,11 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
   static content::PoseScratch pose_scratch;
   bool have_sphere = false, have_tube = false;
   uint32_t lod_counts[content::kModelMaxLods + 1] = {};
-  { // glTF kup (tests/assets ya da TULPAR_ENGINE_ASSETS): kutular bununla cizilir
+  { // glTF kup (TULPAR_ENGINE_ASSETS ya da platform::asset_path sirasi): kutular bununla cizilir
     char path[1024];
     const char *adir = std::getenv("TULPAR_ENGINE_ASSETS");
     if (adir && *adir) std::snprintf(path, sizeof path, "%s/checker_cube.gltf", adir);
-    else std::snprintf(path, sizeof path, "%s/tests/assets/checker_cube.gltf", ENGINE_SOURCE_DIR);
+    else platform::asset_path(path, sizeof path, "tests/assets/checker_cube.gltf");
     static content::Model model;
     static content::UploadedModel up;
     if (content::gltf_load(sys, path, &model) && content::upload_model(ren, sys, model, &up) && up.mesh_count && up.material_count) {
@@ -212,7 +213,7 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
     }
     // LOD kuresi (meshoptimizer): uc kure, kameraya uzakliga gore LOD0/1/2.
     if (adir && *adir) std::snprintf(path, sizeof path, "%s/lod_sphere.gltf", adir);
-    else std::snprintf(path, sizeof path, "%s/tests/assets/lod_sphere.gltf", ENGINE_SOURCE_DIR);
+    else platform::asset_path(path, sizeof path, "tests/assets/lod_sphere.gltf");
     if (content::gltf_load(sys, path, &sphere_model) && content::upload_model(ren, sys, sphere_model, &sphere_up) && sphere_up.mesh_count) {
       have_sphere = true;
       const content::ModelMesh &mm = sphere_model.meshes[0];
@@ -222,7 +223,7 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
     }
     // Iskeletli boru: 4 boru farkli fazda "bend" klibini oynar (kare indeksinden, belirlenimli).
     if (adir && *adir) std::snprintf(path, sizeof path, "%s/skin_tube.gltf", adir);
-    else std::snprintf(path, sizeof path, "%s/tests/assets/skin_tube.gltf", ENGINE_SOURCE_DIR);
+    else platform::asset_path(path, sizeof path, "tests/assets/skin_tube.gltf");
     if (content::gltf_load(sys, path, &tube_model) && tube_model.clip_count && content::upload_model(ren, sys, tube_model, &tube_up)) {
       have_tube = true;
       std::printf("[engine_demo] iskeletli boru: %u eklem, klip '%s' %.2f s (%zu -> %zu bayt)\n", tube_model.skins[0].joint_count,
@@ -266,7 +267,7 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
     char fpath[1024];
     const char *adir = std::getenv("TULPAR_ENGINE_ASSETS");
     if (adir && *adir) std::snprintf(fpath, sizeof fpath, "%s/DejaVuSans.ttf", adir);
-    else std::snprintf(fpath, sizeof fpath, "%s/assets/fonts/DejaVuSans.ttf", ENGINE_SOURCE_DIR);
+    else platform::asset_path(fpath, sizeof fpath, "assets/fonts/DejaVuSans.ttf");
     const float vis_h = headless ? (float)render_h : (float)swap.logical_extent().height;
     const float ui_px = vis_h / 1080.0f * 28.0f; // GORUNEN yukseklige gore (on-dondurmede goruntu dikey)
     if (font.load(sys, ren, fpath, ui_px > 12 ? ui_px : 12)) std::printf("[engine_demo] font: %s (%.0f px)\n", fpath, font.height());

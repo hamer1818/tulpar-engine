@@ -45,6 +45,7 @@
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/memory.hpp"   // os_page_size (RSS hesabi)
+#include "platform/paths.hpp"   // varlik yolu: ikilinin yani -> calisma dizini -> kaynak agaci
 #include "platform/time.hpp"
 #include "rhi/device.hpp"
 #include "app/editor_camera.hpp"
@@ -739,7 +740,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   const char *adir = std::getenv("TULPAR_ENGINE_ASSETS");
   if (opts.scene_path) std::snprintf(st.scene_path, sizeof st.scene_path, "%s", opts.scene_path);
   else if (adir && *adir) std::snprintf(st.scene_path, sizeof st.scene_path, "%s/editor.sahne", adir);
-  else std::snprintf(st.scene_path, sizeof st.scene_path, "%s/tests/assets/editor.sahne", ENGINE_SOURCE_DIR);
+  else platform::asset_path(st.scene_path, sizeof st.scene_path, "tests/assets/editor.sahne");
   content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
   {
     content::SceneError err{};
@@ -800,10 +801,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   EditorUi ui;
   {
     char fpath[1024], ipath[1024];
-    std::snprintf(fpath, sizeof fpath, "%s/assets/fonts/DejaVuSans.ttf", ENGINE_SOURCE_DIR);
+    platform::asset_path(fpath, sizeof fpath, "assets/fonts/DejaVuSans.ttf");
     // Ikon fontu (Material Icons, Apache-2.0) metin fontunun atlasina
     // birlestirilir; bkz. EditorUi::init. Bulunamazsa arayuz yine acilir.
-    std::snprintf(ipath, sizeof ipath, "%s/assets/fonts/" FONT_ICON_FILE_NAME_MD, ENGINE_SOURCE_DIR);
+    platform::asset_path(ipath, sizeof ipath, "assets/fonts/" FONT_ICON_FILE_NAME_MD);
     if (!ui.init(dev, rp, 1, image_count, fpath, 17.0f, 1.0f, true, ipath)) { std::fprintf(stderr, "editor ui: %s\n", ui.last_error()); return 1; }
     if (!ui.icons_ok())
       console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "ikon fontu yuklenemedi (%s): ikonlar bos kutu cizilecek", ipath);

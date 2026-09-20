@@ -3,6 +3,14 @@
 // hata her zaman. Son 64 log satiri halkada tutulur ve shutdown'da hata varsa
 // (ya da cokme isleyicisinden) dokulur: "nerede patladi" sorusunun cevabi
 // halkanin son satiri + son API cagrisidir.
+// ENGINE_SOURCE_DIR varsayilani BASLIKLARDAN ONCE kurulur: platform/paths.hpp
+// icindeki asset_path() sarmalayicisi bu makroyu DAHIL EDILDIGI YERDE
+// genisletir, yani tanim include'lardan sonra gelseydi bu derleme birimi
+// varsayilani kaybederdi (sessizce "." kalirdi).
+#ifndef ENGINE_SOURCE_DIR
+#define ENGINE_SOURCE_DIR "engine"
+#endif
+
 #include "bridge/engine_api.h"
 
 #include "platform/fs.hpp"
@@ -38,6 +46,7 @@
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/crash.hpp"
+#include "platform/paths.hpp"
 #include "platform/time.hpp"
 #include "renderer/renderer.hpp"
 #include "rhi/device.hpp"
@@ -45,10 +54,6 @@
 #include "rhi/swapchain.hpp"
 #include "sim/physics.hpp"
 #include "sim/schedule.hpp"
-
-#ifndef ENGINE_SOURCE_DIR
-#define ENGINE_SOURCE_DIR "engine"
-#endif
 
 using namespace tulpar::engine;
 
@@ -793,7 +798,7 @@ int teng_init(const char *title, int width, int height) {
       std::snprintf(cands[nc++], sizeof cands[0], "%s/DejaVuSans.ttf", adir);
       std::snprintf(cands[nc++], sizeof cands[0], "%s/fonts/DejaVuSans.ttf", adir);
     }
-    std::snprintf(cands[nc++], sizeof cands[0], "%s/assets/fonts/DejaVuSans.ttf", ENGINE_SOURCE_DIR);
+    platform::asset_path(cands[nc], sizeof cands[0], "assets/fonts/DejaVuSans.ttf"); nc++;
     std::snprintf(cands[nc++], sizeof cands[0], "/system/fonts/Roboto-Regular.ttf"); // Android
     std::snprintf(cands[nc++], sizeof cands[0], "/system/fonts/DroidSans.ttf");      // eski Android
     for (uint32_t i = 0; i < nc && !b.font_ok; i++) {
