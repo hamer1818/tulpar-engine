@@ -3909,7 +3909,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       //   over=1 using=0 ise                  -> tiklama gizmoya varmiyor
       //   using=1 changed=0 ise               -> surukleme var, yazma yok
       static const bool gz_sonda_acik = headless || std::getenv("TULPAR_GIZMO_SONDA") != nullptr;
-      const bool gz_sonda_kare = headless ? (frame_i >= 10 && frame_i <= 17)
+      const bool gz_sonda_kare = headless ? (frame_i >= 10 && frame_i <= 18)
                                           : (ImGui::IsMouseDown(0) || ImGuizmo::IsOver());
       if (gz_sonda_acik && gz_sonda_kare) {
         const ImGuiIO &gio = ImGui::GetIO();
@@ -4177,14 +4177,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         const Vec4 clip = proj * (view * Vec4{p0.x, p0.y, p0.z, 1.0f});
         gz_px = view_rect.x + (clip.x / clip.w * 0.5f + 0.5f) * (float)vp.width();
         gz_py = view_rect.y + (clip.y / clip.w * 0.5f + 0.5f) * (float)vp.height();
-        g_synth.mouse_x = gz_px; g_synth.mouse_y = gz_py; g_synth.mouse_down[0] = false;
+        g_synth.mouse_x = gz_px - 45.0f; g_synth.mouse_y = gz_py - 45.0f; g_synth.mouse_down[0] = false;
       } else if (frame_i == 13) {
-        g_synth.mouse_down[0] = true;              // tiklama karesi
+        g_synth.mouse_x = gz_px; g_synth.mouse_y = gz_py;   // okun uzerine GEL
       } else if (frame_i == 14) {
-        g_synth.mouse_x = gz_px + 60.0; g_synth.mouse_y = gz_py + 25.0;
+        g_synth.mouse_down[0] = true;              // tiklama karesi
       } else if (frame_i == 15) {
-        g_synth.mouse_down[0] = false;             // birak -> gunluge islensin
+        g_synth.mouse_x = gz_px + 60.0; g_synth.mouse_y = gz_py + 25.0;
       } else if (frame_i == 16) {
+        g_synth.mouse_down[0] = false;             // birak -> gunluge islensin
+      } else if (frame_i == 17) {
         const Vec3 d = st.scene.entities[0].pos - gz_before;
         const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
         const bool moved = dist > 1e-4f;
