@@ -428,7 +428,11 @@ jobs:
       # oyle bir hatayla cikti (tek `ls`e cok yol verilince KURULU
       # kutuphaneler "eksik" gorunuyordu). --sadece-denetle kurmaz, derlemez.
       - name: derle.sh bagimlilik denetimi (brew)
-        run: ./derle.sh --sadece-denetle
+        run: |
+          # Hangi bash kosuyor? mapfile duzeltmesi bash 3.2 icindi ve
+          # surumu OLCMEDEN "3.2'de sinandi" demek olurdu.
+          bash --version | head -1
+          ./derle.sh --sadece-denetle
 
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
@@ -660,6 +664,10 @@ jobs:
         shell: cmd
         env:
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+          # setup-msys2 MSYSTEM'i zaten ortama koyuyor; bos birakmazsak
+          # derle.bat'in kendi `set MSYSTEM=MINGW64` satiri SINANMAZ (o
+          # olmasa da is yururdu). Bos geciyoruz ki satir gercekten olculsun.
+          MSYSTEM: ''
         run: derle.bat --denetle
 
       - name: Katman denetimi
