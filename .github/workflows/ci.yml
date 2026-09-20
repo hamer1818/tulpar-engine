@@ -110,6 +110,14 @@ jobs:
 
       # Katman kurali mekaniktir: ihlal = derleme hatasi (engine_core'un on kosulu).
       # Derlemeden once ayrica acikca kosuyoruz ki mesaj derleyici ciktisinda kaybolmasin.
+      # derle.sh'in bagimlilik denetimini GERCEK apt uzerinde olcer.
+      # Neden onemli: kutuphane arama kodu yerelde (pacman) dogru gorunup
+      # baska bir dagitimda yanlis olcebiliyor — nitekim ilk surumu tam
+      # oyle bir hatayla cikti (tek `ls`e cok yol verilince KURULU
+      # kutuphaneler "eksik" gorunuyordu). --sadece-denetle kurmaz, derlemez.
+      - name: derle.sh bagimlilik denetimi (apt)
+        run: ./derle.sh --sadece-denetle
+
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
@@ -414,6 +422,14 @@ jobs:
           key: ccache-macos-${{ github.run_id }}
           restore-keys: ccache-macos-
 
+      # derle.sh'in bagimlilik denetimini GERCEK brew uzerinde olcer.
+      # Neden onemli: kutuphane arama kodu yerelde (pacman) dogru gorunup
+      # baska bir dagitimda yanlis olcebiliyor — nitekim ilk surumu tam
+      # oyle bir hatayla cikti (tek `ls`e cok yol verilince KURULU
+      # kutuphaneler "eksik" gorunuyordu). --sadece-denetle kurmaz, derlemez.
+      - name: derle.sh bagimlilik denetimi (brew)
+        run: ./derle.sh --sadece-denetle
+
       - name: Katman denetimi
         run: python3 tools/layer_check.py .
 
@@ -609,6 +625,7 @@ jobs:
       # `install:` ile geliyor. Paket onbellegi (setup-msys2'nin kendi cache'i,
       # ~168 MB, isabet ediyor) bundan bagimsiz calisiyor.
       - uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: MINGW64
           update: false
@@ -632,6 +649,18 @@ jobs:
           path: ${{ github.workspace }}/.ccache
           key: ccache-windows-${{ github.run_id }}
           restore-keys: ccache-windows-
+
+      # derle.bat GERCEK cmd'de kosuyor mu? Yerelde yalniz Wine altinda
+      # denenebildi ve Wine gercek cmd DEGIL: ornegin %cmdcmdline% orada bos
+      # donuyor. Bu adim farki kapatir. --denetle hicbir sey kurmaz ve
+      # DERLEMEZ; olctugu sey .bat -> bash gecisi (MSYSTEM/CHERE_INVOKING
+      # cagridan ONCE ortamda mi) ve bagimlilik raporunun gercek Windows'ta
+      # dogru cikmasi. Is zaten CI=1 oldugu icin hatada tus beklenmez.
+      - name: derle.bat gercek cmd'de (yalniz denetim)
+        shell: cmd
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: derle.bat --denetle
 
       - name: Katman denetimi
         run: python3 tools/layer_check.py .

@@ -45,20 +45,20 @@ fi
 # Bicim: "komut|zorunlu mu|ne ise yarar|pacman|apt|dnf|zypper|brew"
 # ZORUNLU = derleme icin sart. ISTEGE BAGLI = derleme yine olur, ama eksik
 # kalan bir sey olur (hiz, ya da CALISTIRMA icin gereken surucu).
-mapfile -t DEPS <<'LISTE'
+DEPS='
 cmake|1|derleme sistemi (>= 3.14)|cmake|cmake|cmake|cmake|cmake
 ninja|1|hizli derleyici surucusu|ninja|ninja-build|ninja-build|ninja|ninja
 c++|1|C++17 derleyicisi|gcc|g++|gcc-c++|gcc-c++|
 python3|1|kapi betikleri (katman/shader/sahne denetimi)|python|python3|python3|python3|python3
 ccache|0|yeniden derlemeyi ~10x hizlandirir|ccache|ccache|ccache|ccache|ccache
 glslc|0|shader BAYT kapisi (yoksa ozet kapisi yine kosar)|shaderc|glslc|glslc|shaderc|shaderc
-LISTE
+'
 
 # Calistirma zamani (derlemeyi engellemez ama editor acilmaz)
-mapfile -t CALISMA <<'LISTE'
+CALISMA='
 libvulkan|Vulkan yukleyicisi — SURUCU olmadan editor acilmaz|vulkan-icd-loader|libvulkan1|vulkan-loader|libvulkan1|vulkan-loader
 libglfw|pencere acma (masaustu kip)|glfw|libglfw3|glfw|libglfw3|glfw
-LISTE
+'
 
 paket_adi() { # $1=satir $2=alan indeksi(4..8)
   echo "$1" | cut -d'|' -f"$2"
@@ -90,7 +90,8 @@ echo
 eksik_zorunlu=(); eksik_istege=(); eksik_calisma=(); kur_listesi=()
 an=$(alan_no)
 
-for satir in "${DEPS[@]}"; do
+while IFS= read -r satir; do
+  [ -n "$satir" ] || continue
   komut="$(echo "$satir" | cut -d'|' -f1)"
   zorunlu="$(echo "$satir" | cut -d'|' -f2)"
   aciklama="$(echo "$satir" | cut -d'|' -f3)"
@@ -104,16 +105,17 @@ for satir in "${DEPS[@]}"; do
     printf "  ${S}·${N} %-10s %s  (istege bagli)\n" "$komut" "$aciklama"
     eksik_istege+=("$komut"); [ -n "$pkg" ] && kur_listesi+=("$pkg")
   fi
-done
+done <<< "$DEPS"
 
-for satir in "${CALISMA[@]}"; do
+while IFS= read -r satir; do
+  [ -n "$satir" ] || continue
   ad="$(echo "$satir" | cut -d'|' -f1)"
   aciklama="$(echo "$satir" | cut -d'|' -f2)"
   pkg=""; [ "$an" != 0 ] && pkg="$(echo "$satir" | cut -d'|' -f$((an-1)))"
   if kutuphane_var "$ad"; then printf "  ${Y}✓${N} %-10s %s\n" "$ad" "$aciklama"
   else printf "  ${S}·${N} %-10s %s  (calistirmak icin)\n" "$ad" "$aciklama"
        eksik_calisma+=("$ad"); [ -n "$pkg" ] && kur_listesi+=("$pkg"); fi
-done
+done <<< "$CALISMA"
 echo
 
 # --- Eksikse: anlat, sor, gerekirse kur -------------------------------------
