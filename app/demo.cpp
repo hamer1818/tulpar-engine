@@ -7,6 +7,7 @@
 
 #include "app/demo_app.hpp"
 #include "platform/crash.hpp"
+#include "platform/startup_report.hpp"
 #include "platform/window.hpp"
 #include "rhi/vk_api.hpp"
 
@@ -74,7 +75,9 @@ int main(int argc, char **argv) {
   wc.width = o.width;
   wc.height = o.height;
   wc.title = "Tulpar Engine — Faz 2 sahnesi (ESC: cikis)";
-  if (!win.open(wc)) { std::fprintf(stderr, "pencere: %s\n", win.last_error()); return 1; }
+  // Hata IKI yere: stderr (degismedi) + <ikili dizini>/engine_hata.log.
+  // .exe'ye cift tiklayan kullanici konsolu goremez; gunluk onun icin.
+  if (!win.open(wc)) { platform::startup_failure("pencere: %s", win.last_error()); return 1; }
   app::DemoHost host;
   host.user = &win;
   host.instance_extensions = glfw_exts;

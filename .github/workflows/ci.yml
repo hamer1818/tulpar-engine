@@ -69,7 +69,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
-            vulkan-validationlayers
+            vulkan-validationlayers libglfw3
 
       - name: ccache onbellegi
         uses: actions/cache@v4
@@ -291,6 +291,10 @@ jobs:
           brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
           brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
           brew list --versions ccache >/dev/null 2>&1 || brew install ccache
+          # GLFW: motor onu dlopen ile acar ve PAKETE KONUR (tools/package.sh
+          # kaynaktan turetir). Kurulu degilse paketleme adimi kirmizi doner —
+          # v0.1.0'in Windows zip'i tam olarak bu kutuphanesiz yayinlanmisti.
+          brew list --versions glfw   >/dev/null 2>&1 || brew install glfw
           brew list --versions vulkan-loader >/dev/null 2>&1 || brew install vulkan-loader
           brew list --versions molten-vk     >/dev/null 2>&1 || brew install molten-vk
           # Dogrulama katmani: MoltenVK uzerinde de API kullanimi 0 hata istenir.
@@ -614,6 +618,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-glfw
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -702,10 +707,13 @@ jobs:
       # DLL'ler. Hepsi tools/package.sh icinde (Linux/macOS isleriyle AYNI
       # betik): MinGW ile derlenen .exe, libstdc++-6 / libgcc_s_seh-1 /
       # libwinpthread-1 olmadan MSYS2 DISINDA acilmaz ("program baslatilamadi").
-      # DLL listesi elle yazilmiyor, ldd ciktisindan suzuluyor — arac zinciri
-      # degisince kendiliginden guncelleniyor — ve "hic DLL bulunamadi" hala
-      # isi KIRMIZI yapiyor. Betigin tamlik kapisi ayrica kodun istedigi her
-      # varligin pakette oldugunu dogruluyor.
+      # DLL listesi elle yazilmiyor, ikilinin ithalat tablosundan suzuluyor —
+      # arac zinciri degisince kendiliginden guncelleniyor — ve "hic DLL
+      # bulunamadi" hala isi KIRMIZI yapiyor. AYRI SINIF: dlopen'lanan
+      # kutuphaneler (glfw3.dll) ithalat tablosunda GORUNMEZ; onlarin listesi
+      # kaynaktaki `dl_open(...)` cagrilarindan turetiliyor (ayni betik).
+      # Betigin tamlik kapisi ayrica kodun istedigi her varligin pakette
+      # oldugunu dogruluyor.
       - name: Ciktilari topla (+ MinGW DLL'leri)
         run: bash tools/package.sh yapi dagitim
 

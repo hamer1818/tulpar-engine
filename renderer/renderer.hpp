@@ -203,6 +203,18 @@ struct RendererConfig {
   float exposure = 1.0f;
   bool tonemap = false;         // Reinhard c/(1+c); kapali: yalniz kirpma
   Vec3 post_clear{0, 0, 0};     // HDR hedefinin temizleme rengi (DOGRUSAL)
+
+  // --- Ekran-uzayi isik huzmeleri (godray) — VARSAYILAN KAPALI -------------
+  // false (varsayilan): tabloda godray gecisi YOKTUR, birlestirme bloom
+  // zincirinin tepesini (up[0]) okur ve bugunku goruntu BIT BIT korunur.
+  // true: tabloya bloom ile birlestirme ARASINA bir gecis girer (yari
+  // cozunurlukte tam ekran ucgeni + kendi hedefi) ve birlestirme onu okur.
+  // post kapaliyken anlamsiz (ic hedef yok) — sessizce yok sayilir.
+  //
+  // Bu KURULUM anahtari yalniz gecisin tabloda OLUP OLMADIGINI belirler;
+  // huzmenin o karede cizilip cizilmeyecegi set_godrays_enabled() ile kare
+  // icinde acilip kapanir (tablo, hedef ve descriptor'lar sabit kalir).
+  bool godrays = false;
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk
 
   // --- FAZ 9: GPU gorunurluk kumeleme + dolayli cizim — VARSAYILAN KAPALI ---
@@ -252,6 +264,15 @@ struct PostInfo {
   uint64_t target_bytes = 0; // ic hedeflerin toplam GPU baytI (olcum)
   uint32_t pass_count = 0;
   const char *pass_name[kMaxGraphPasses] = {};
+  // Godray gecisi TABLODA mi (RendererConfig::godrays). Kapiyi bu suruyor:
+  // "kaydiraci oynattim ama hicbir sey degismedi"nin sebebi gecisin tabloda
+  // olmamasiydi ve disaridan gorulemiyordu.
+  bool godray = false;
+  // Gecis tablosu KAPASITEYE sigmadi. Bu bir ORTAM eksigi degil (HDR bicimi
+  // yok, tile butcesi asildi gibi) PROGRAMLAMA hatasidir: graph_pass_count ile
+  // kMaxGraphPasses ayrismistir. Ayri bayrak, cunku sonucu da ayri: init()
+  // bunu gorurse post'u sessizce kapatmak yerine BASARISIZ doner.
+  bool capacity_error = false;
 };
 
 // Zamansal yolun DISARI VERDIGI durum: ne acik, degilse NEDEN, hangi bicim,
@@ -456,6 +477,16 @@ public:
   void set_godrays_source(Vec4 source) {
     godray_source_ = source;
   }
+  // Huzmeyi KARE ICINDE ac/kapa. RendererConfig::godrays acikken anlamli;
+  // kapaliyken gecis zaten tabloda degildir ve bu cagri yok sayilir.
+  //
+  // Kapali -> godray gecisi KAYDEDILMEZ ve birlestirme bloom zincirinin
+  // tepesini okuyan YEDEK descriptor kumesini baglar. Yani kapaliyken uretilen
+  // komut akisi RendererConfig::godrays = false ile BIREBIR aynidir (huzme
+  // hedefi ve boru hatti duruyor ama dokunulmuyor) — "kapaliyken goruntu
+  // degismez" iddiasi exposure'i 0'a cekmeye degil buna dayanir.
+  void set_godrays_enabled(bool on) { godrays_active_ = on; }
+  bool godrays_enabled() const { return post_.godray && godrays_active_; }
   void set_bloom_shape(float soft_knee, float radius) {
     cfg_.bloom_soft_knee = soft_knee;
     cfg_.bloom_radius = radius;
@@ -787,6 +818,7 @@ private:
   float shadow_radius_ = 16.0f, shadow_depth_ = 60.0f;
   float godray_density_ = 1.0f, godray_decay_ = 0.98f, godray_weight_ = 0.05f, godray_exposure_ = 1.0f;
   Vec4 godray_source_{0, -1.0f, 0, 0.0f}; // w=0 direction, w=1 position
+  bool godrays_active_ = true;            // kare ici anahtar (bkz. set_godrays_enabled)
   uint64_t vertex_bytes_ = 0;
   Mat4 light_vp_[kMaxCascades]{};
   float cascade_radius_[kMaxCascades]{};
@@ -920,6 +952,11 @@ private:
   VkPipelineLayout post_layout_ = VK_NULL_HANDLE;
   VkDescriptorPool post_pool_ = VK_NULL_HANDLE;
   VkDescriptorSet post_sets_[kMaxGraphPasses] = {};
+  // Birlestirmenin YEDEK kumesi: in1 = godray hedefi yerine bloom tepesi
+  // (up[0]). Yalniz cfg_.godrays acikken ayrilir; huzme kare icinde
+  // kapatildiginda birlestirme bunu baglar ve cikti godray hic derlenmemis
+  // gibi olur. Havuzla birlikte yok edilir (ayri teardown yok).
+  VkDescriptorSet compose_nogodray_set_ = VK_NULL_HANDLE;
   VkShaderModule post_vs_ = VK_NULL_HANDLE, bright_fs_ = VK_NULL_HANDLE, down_fs_ = VK_NULL_HANDLE,
                  up_fs_ = VK_NULL_HANDLE, compose_fs_ = VK_NULL_HANDLE, godray_fs_ = VK_NULL_HANDLE;
   VkPipeline pipe_bright_ = VK_NULL_HANDLE, pipe_down_ = VK_NULL_HANDLE, pipe_up_ = VK_NULL_HANDLE,

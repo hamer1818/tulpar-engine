@@ -190,7 +190,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
-            vulkan-validationlayers
+            vulkan-validationlayers libglfw3
 
       # Surucu VE dogrulama katmani: ikisi de LOADER duzeyinde goruluyor mu?
       # "Paket kurulu" YETMEZ — manifest loader'in aramadigi bir dizindeyse ya da
@@ -453,6 +453,10 @@ jobs:
           brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
           brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
           brew list --versions ccache >/dev/null 2>&1 || brew install ccache
+          # GLFW: motor onu dlopen ile acar ve PAKETE KONUR (tools/package.sh
+          # kaynaktan turetir). Kurulu degilse paketleme adimi kirmizi doner —
+          # v0.1.0'in Windows zip'i tam olarak bu kutuphanesiz yayinlanmisti.
+          brew list --versions glfw   >/dev/null 2>&1 || brew install glfw
           brew list --versions vulkan-loader >/dev/null 2>&1 || brew install vulkan-loader
           brew list --versions molten-vk     >/dev/null 2>&1 || brew install molten-vk
           brew list --versions vulkan-validationlayers >/dev/null 2>&1 || brew install vulkan-validationlayers
@@ -787,6 +791,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-glfw
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -871,10 +876,14 @@ jobs:
           bash tools/package.sh yapi "paket/$AD"
           find "paket/$AD" -maxdepth 2 | sort
 
-      # Windows'ta DLL'LER SART: MinGW ile derlenen .exe, libstdc++-6 /
-      # libgcc_s_seh-1 / libwinpthread-1 olmadan MSYS2 DISINDA acilmaz
-      # ("program baslatilamadi"). package.sh onlari koymadiysa paket
-      # calismaz bir .exe yiginidir — bu yuzden burada sert kapi var.
+      # Windows'ta DLL'LER SART ve IKI SINIF var:
+      #   * LINK edilenler: libstdc++-6 / libgcc_s_seh-1 / libwinpthread-1.
+      #     Olmadan .exe MSYS2 DISINDA hic acilmaz ("program baslatilamadi").
+      #   * dlopen EDILEN: glfw3.dll. Ithalat tablosunda GORUNMEZ; v0.1.0
+      #     zip'i tam bu yuzden GLFW'siz yayinlandi ve kullanicida
+      #     "pencere: GLFW yok (glfw3.dll)" deyip kapandi.
+      # Ikincisinin kapisi tools/package.sh icinde (kaynaktan turetilen liste);
+      # asagidaki kapi birincisini ITHALAT TABLOSUNDAN olcer.
       - name: Paket yerlesimi kapisi (+ MinGW DLL'leri)
         run: |
           set -uo pipefail
@@ -886,9 +895,27 @@ jobs:
               eksik=1
             fi
           done
-          if ! ls "$kok"/*.dll >/dev/null 2>&1; then
-            echo "::error::Pakette hicbir MinGW DLL'i yok — bu paket MSYS2 disinda calismaz."
+          # DLL kapisi ITHALAT TABLOSUNDAN olculur, `ls *.dll` ile DEGIL:
+          # paket artik dlopen'lanan glfw3.dll'i de tasidigi icin "en az bir
+          # dll var" denetimi MinGW calisma zamani eksikken de yesil gorunurdu.
+          # Burada ikililerin GERCEKTEN ithal ettigi her MinGW DLL'i araniyor;
+          # dlopen'lananlarin kapisi tools/package.sh icindeki turetilmis
+          # listedir (ayri sinif, ayri kapi).
+          onek="${MSYSTEM_PREFIX:-/mingw64}"
+          ithal="$(for exe in "$kok"/*.exe; do ldd "$exe" 2>/dev/null | awk '/=>/ {print $3}'; done \
+                   | sort -u | grep -i "^$onek/" || true)"
+          if [ -z "$ithal" ]; then
+            echo "::error::Ikililerin ithal ettigi MinGW DLL'i HIC bulunamadi (ldd $onek) — olcum yapilamadi."
             eksik=1
+          else
+            while IFS= read -r yol; do
+              [ -n "$yol" ] || continue
+              ad="$(basename "$yol")"
+              if [ ! -f "$kok/$ad" ]; then
+                echo "::error::Pakette ithal edilen $ad yok — bu paket MSYS2 disinda calismaz."
+                eksik=1
+              fi
+            done <<< "$ithal"
           fi
           if ! ls "$kok"/assets/fonts/*.ttf >/dev/null 2>&1; then
             echo "::error::Pakette assets/fonts/*.ttf yok."

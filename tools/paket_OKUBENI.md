@@ -16,7 +16,12 @@ engine_editor      sahne editörü (ImGui panelleri + ImGuizmo gizmoları)
 engine_sahnec      sahne derleyicisi: .sahne -> .sahneb (ve --check/--dump/--kanonik)
 engine_texpack     doku paketleyici: PNG -> ASTC mip zinciri -> .ktx2
 engine_clodbake    çevrimdışı cluster/LOD bake: .gltf -> .clod
+BASLAT-*.bat       (yalnız Windows) başlatıcılar — hata olursa konsolu açık tutar
 *.dll              (yalnız Windows) MinGW çalışma zamanı — silmeyin
+glfw3.dll          (Windows) pencere kütüphanesi: çalışma anında yüklenir, silmeyin
+libglfw.so.3       (Linux) aynısı
+libglfw.3.dylib    (macOS) aynısı
+lisanslar/         pakete konan kütüphanelerin lisansları (GLFW: zlib)
 assets/fonts/      arayüz ve HUD yazı tipleri (+ lisansları)
 tests/assets/      demo ve editörün açılışta yüklediği sahne ve modeller
 ```
@@ -24,6 +29,15 @@ tests/assets/      demo ve editörün açılışta yüklediği sahne ve modeller
 Windows'ta her ikilinin adı `.exe` ile biter (`engine_demo.exe` …).
 
 ## Çalıştırma
+
+**Windows'ta `BASLAT-engine_editor.bat` dosyasına çift tıklayın**, `.exe`'ye
+değil. Sebebi: `.exe` doğrudan çalıştırıldığında bir sorun çıkarsa konsol
+penceresi programla birlikte kapanır, hata satırı da onunla gider — ekranda
+hiçbir şey olmamış gibi görünür. Başlatıcı, çıkış kodu 0 değilse sebebi ekranda
+tutar ve bir tuşa basmanızı bekler.
+
+Program açılışta bir hatayla çıkarsa aynı satırı **ikililerin yanındaki
+`engine_hata.log`** dosyasına da yazar. Bir sorun bildirirken o dosyayı ekleyin.
 
 ```bash
 ./engine_demo                      # pencere açar (ESC: çıkış)
@@ -74,10 +88,18 @@ tek bir `GxY` yazımı ister (`--size 1280x720`). İkisi de bilerek kendi
 | `TULPAR_ENGINE_VK_VALIDATION` | Vulkan doğrulama katmanlarını açar (katmanlar kuruluysa) |
 | `TULPAR_ENGINE_AUDIO` | demoda ses cihazını açar |
 
-## Vulkan: SDK gerekmez, **sürücü gerekir**
+## Ne pakette, ne sizde olmalı
 
-Motor Vulkan loader'ını link zamanında değil, çalışma zamanında `dlopen`
-(`LoadLibrary`) ile açar. Bu yüzden:
+Motor iki kütüphaneyi link zamanında değil **çalışma anında** açar (`dlopen` /
+`LoadLibrary`): pencere için **GLFW**, çizim için **Vulkan loader**. İkisinin
+paketteki karşılığı bilerek farklı:
+
+| kütüphane | pakette mi | neden |
+|---|---|---|
+| GLFW (`glfw3.dll` / `libglfw.so.3` / `libglfw.3.dylib`) | **evet, yanında** | Windows'ta ve macOS'ta sistemde bulunmaz; olmadan pencere hiç açılmaz. Lisansı `lisanslar/glfw/` altında (zlib). Linux'ta sisteminizde kurulu bir GLFW varsa **o** kullanılır, paketteki yalnızca yedektir. |
+| Vulkan loader (`vulkan-1.dll` / `libvulkan.so.1`) | **hayır** | Loader yalnızca yönlendiricidir; çizen şey **sürücüdür (ICD)** ve loader'ı da sürücü kurulumu getirir. Yanımızda taşısaydık sürücüsü olmayan makinede yine hiçbir şey çalışmaz, sürücüsü olan makinede ise sistemdeki (genelde daha yeni) loader'ı gölgelerdi. |
+
+## Vulkan: SDK gerekmez, **sürücü gerekir**
 
 * **Vulkan SDK kurmanıza gerek yok** — başlıklar zaten derlenmiş durumda.
 * Ama bir **Vulkan sürücüsü (ICD)** olmalı. Yoksa program pencere açmadan
@@ -93,14 +115,34 @@ Kurulumu `vulkaninfo --summary` ile doğrulayabilirsiniz.
 
 ## Windows'a özel
 
-Yanındaki `*.dll` dosyaları MinGW çalışma zamanıdır (`libstdc++`, `libgcc`,
-`libwinpthread` …). İkililerle **aynı klasörde** durmak zorundalar; silinirse
-program "başlatılamadı" hatası verir. Paket, listeyi elle tutmak yerine
-`ldd` çıktısından üretir, yani araç zinciri değişince kendiliğinden güncellenir.
+Yanındaki `*.dll` dosyaları iki gruptur ve ikisi de **aynı klasörde** durmak
+zorundadır:
+
+* **MinGW çalışma zamanı** (`libstdc++-6`, `libgcc_s_seh-1`, `libwinpthread-1`).
+  Silinirse Windows "program başlatılamadı" der. Bu liste elle tutulmaz,
+  ikilinin ithalat tablosundan üretilir.
+* **`glfw3.dll`** — pencere kütüphanesi. İthalat tablosunda *görünmez*, çünkü
+  çalışma anında yüklenir. Silinirse program pencere açmadan şu satırla çıkar:
+  `pencere: GLFW yok (glfw3.dll): masaustu pencere acilamaz`.
+
+> v0.1.0 paketi tam olarak bu ikinci DLL'i taşımıyordu: paketleyici DLL'leri
+> `ldd` çıktısından buluyordu ve `ldd` tanımı gereği `dlopen`'lanan bir
+> kütüphaneyi göremez. Artık liste **kaynaktaki `dl_open(...)` çağrılarından**
+> türetiliyor ve eksikse iş kırmızıya döner.
+
+### Sorun giderme
+
+| belirti | sebep / çözüm |
+|---|---|
+| Çift tıklayınca bir an siyah pencere açılıp kapanıyor | Program bir hatayla çıktı. `BASLAT-engine_editor.bat` ile çalıştırın; satır ekranda kalır. `engine_hata.log` da aynı satırı içerir. |
+| `pencere: GLFW yok (glfw3.dll)` | `glfw3.dll` klasörden silinmiş ya da ikililer klasörden çıkarılmış. Paketi bütün halinde tutun. |
+| `Vulkan cihazi yok` / `GLFW: Vulkan loader bulunamadi` | GPU sürücüsü Vulkan içermiyor ya da güncel değil. Sürücüyü güncelleyin; `vulkaninfo --summary` ile doğrulayın. |
+| "program başlatılamadı" (`0xc000007b` vb.) | MinGW DLL'lerinden biri eksik. Paketi yeniden çıkarın. |
 
 ## Paket nasıl üretiliyor
 
 `tools/package.sh <yapi-dizini> <çıktı-dizini>` — CI de insan da aynı betiği
-koşar. Betik varlık listesini kaynaktan **türetir** ve paketi sonunda denetler;
-eksik bir dosya işi kırmızıya çevirir. Yalnız denetlemek için:
+koşar. Betik hem varlık listesini hem de **çalışma anında yüklenen kütüphane
+listesini** kaynaktan **türetir** (ikinci bir elle yazılmış liste yok) ve paketi
+sonunda denetler; eksik bir dosya işi kırmızıya çevirir. Yalnız denetlemek için:
 `tools/package.sh --denetle <çıktı-dizini>`.

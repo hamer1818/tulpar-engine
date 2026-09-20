@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "app/editor_app.hpp"
+#include "platform/startup_report.hpp"
 #include "platform/window.hpp"
 
 using namespace tulpar::engine;
@@ -43,7 +44,9 @@ int main(int argc, char **argv) {
   platform::Window win;
   platform::WindowConfig wc;
   wc.width = o.width; wc.height = o.height; wc.title = "Tulpar Editor";
-  if (!win.open(wc)) { std::fprintf(stderr, "pencere: %s\n", win.last_error()); return 1; }
+  // Hata IKI yere: stderr (degismedi) + <ikili dizini>/engine_hata.log.
+  // .exe'ye cift tiklayan kullanici konsolu goremez; gunluk onun icin.
+  if (!win.open(wc)) { platform::startup_failure("pencere: %s", win.last_error()); return 1; }
   app::EditorHost host;
   host.user = &win;
   host.instance_extensions = w_exts;

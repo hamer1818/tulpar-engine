@@ -4,7 +4,8 @@
 #include <cstdio>
 #include <cstring>
 
-#include "platform/dl.hpp"   // dlopen/LoadLibrary ortak shim'i
+#include "platform/dl.hpp"     // dlopen/LoadLibrary ortak shim'i
+#include "platform/paths.hpp"  // exe_dir: paketin yanindaki kopyayi bulmak icin
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -53,6 +54,13 @@ void on_char(GLFWwindow *, unsigned int cp) { if (g_char_count < InputState::kMa
 
 bool load_glfw(char *err, size_t n) {
   if (g.lib) return true;
+  // PAKET: gomulu lisans=third_party/glfw/LICENSE.md
+  //   Bu dizi tools/package.sh'in KAYNAKTAN okudugu tek adrestir: dagitim
+  //   paketine hangi kutuphanenin konacagi buradan turetilir, betikte ikinci
+  //   bir liste YOK. (Ikinci liste kayar: v0.1.0 Windows zip'i tam bu yuzden
+  //   glfw3.dll'siz cikti — paketleyici DLL'leri `ldd` ile buluyordu ve `ldd`
+  //   tanimi geregi dlopen'lanan bir kutuphaneyi GOREMEZ. Kullanici .exe'ye
+  //   cift tikladi, "GLFW yok" satiri konsolla birlikte kayboldu.)
   const char *names[] = {
 #if defined(_WIN32)
       // MSYS2/vcpkg "glfw3.dll" adiyla kurar; bazi dagitimlarda surumlu ad.
@@ -63,16 +71,39 @@ bool load_glfw(char *err, size_t n) {
       "libglfw.so.3", "libglfw.so",
 #endif
   };
+  // 1. SISTEM kopyasi (ciplak ad). Windows'ta LoadLibrary arama sirasi zaten
+  //    ikilinin dizininden baslar; POSIX'te dlopen ciplak adi yalniz kutuphane
+  //    yollarinda arar, yani bu adim "sistemde kurulu mu" demektir. Kurulu
+  //    surum KAZANIR: paketle gelen kopya bir YEDEK, sistemin onune gecmez
+  //    (dagitimin X11/Wayland yiginiyla uyumlu olan sistemdekidir).
   for (const char *nm : names) {
     g.lib = dl_open(nm);
     if (g.lib) break;
   }
+  // 2. PAKETIN yanindaki kopya: <ikili dizini>/<ad>. rpath/RUNPATH GEREKMEZ —
+  //    dlopen'a MUTLAK yol veriliyor. Indirilen arsivin, sisteminde GLFW
+  //    kurulu OLMAYAN bir makinede de acilmasi bu adima bagli.
+  if (!g.lib) {
+    char dir[1024];
+    if (exe_dir(dir, sizeof dir)) {
+      for (const char *nm : names) {
+        if (nm[0] == '/') continue;  // mutlak aday: 1. adimda zaten denendi
+        char yol[1280];
+        std::snprintf(yol, sizeof yol, "%s/%s", dir, nm);
+        g.lib = dl_open(yol);  // PAKET: turetilmis (adlar yukaridaki diziden)
+        if (g.lib) break;
+      }
+    }
+  }
   if (!g.lib) {
     std::snprintf(err, n,
 #if defined(_WIN32)
-                  "GLFW yok (glfw3.dll): masaustu pencere acilamaz"
+                  "GLFW yok (glfw3.dll): masaustu pencere acilamaz. Paketten "
+                  "calistiriyorsaniz glfw3.dll .exe ile AYNI klasorde olmali."
 #else
-                  "GLFW yok (libglfw.so.3 / libglfw.3.dylib): masaustu pencere acilamaz"
+                  "GLFW yok (libglfw.so.3 / libglfw.3.dylib): masaustu pencere "
+                  "acilamaz. Paketten calistiriyorsaniz kutuphane ikili ile AYNI "
+                  "klasorde olmali; sistem paketi: libglfw3 / brew install glfw."
 #endif
     );
     return false;

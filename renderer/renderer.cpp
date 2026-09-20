@@ -390,6 +390,12 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   if (cfg_.post) {
     post_.enabled = make_post(rp);
     if (!post_.enabled && !post_.disabled_reason[0]) post_.disabled_reason = "son islem hedefleri kurulamadi";
+    // Kapasite hatasi ORTAM eksigi degil KOD hatasidir (graph_pass_count ile
+    // kMaxGraphPasses ayrismis). Ortam eksiklerinde post'un kapanip yola devam
+    // etmesi DOGRU davranis; kapasitede degil — oyle olsaydi bloom ve tonemap
+    // sessizce yok olur, kimse fark etmezdi (PR #7'de tam olarak bu oldu).
+    // Burada init BASARISIZ doner ve sebep PostInfo'da kalir.
+    if (post_.capacity_error) return false;
   } else {
     post_.disabled_reason = "yapilandirmada kapali (post = false)";
   }
@@ -2641,16 +2647,25 @@ bool Renderer::make_post(VkRenderPass target_rp) {
   gd.motion = temporal_.motion;
   gd.cull = cull_.enabled;
   gd.bloom_mips = bloom_mips_;
-  // gd.godray BILEREK ayarlanmiyor (PR #7'nin ekran-uzayi huzme gecisi henuz
-  // CANLI DEGIL). Sebep olculdu: en genis tablo (cull + golge + hareket +
-  // sahne + 6 mip bloom) tam kMaxGraphPasses = 16 gecis; godray 17. olurdu ve
-  // graph_build 0 donerdi -> make_post "graph tablosu kurulamadi (kapasite)"
-  // ile post'u TAMAMEN kapatirdi (bloom ve tonemap dahil). Acmak icin once
-  // kMaxGraphPasses buyutulmeli. Bugun editorun huzme kaydiraclari yalniz
-  // gunes/isik cekirdegi kuresi + bloom uzerinden gorunuyor; godray boru
-  // hatti (shader, pipeline, framebuffer, descriptor) kurulu ama kullanilmiyor.
+  // Huzme gecisi ARTIK CANLI (opt-in). Kapasite hikayesi: en genis tablo
+  // cull + golge + hareket + sahne + 6 mip bloom + godray = 17 gecis ve
+  // kMaxGraphPasses artik tam bu sayidan TURETILIYOR (graph.hpp
+  // kGraphWidestTable). Once kapasite 16'ya elle sabitlenmisti; godray 17.
+  // gecis oldugu icin graph_build 0 doner, make_post da post'u TAMAMEN
+  // kapatirdi (bloom ve tonemap dahil) — bu yuzden gd.godray hic set
+  // edilmiyordu ve editorun kaydiraclari hicbir seye baglanmiyordu.
+  gd.godray = cfg_.godrays;
   graph_n_ = graph_build(gd, graph_, kMaxGraphPasses);
-  if (!graph_n_) { post_.disabled_reason = "graph tablosu kurulamadi (kapasite)"; return false; }
+  if (!graph_n_) {
+    // Buraya dusmek bir ORTAM eksigi degil kod hatasidir: graph_pass_count ile
+    // kMaxGraphPasses ayrismistir. Bayragi kaldir — init() bunu post'u sessizce
+    // kapatmak yerine HARD FAIL'e cevirir (asagidaki satir onceden yalnizca
+    // sebep yazip false donuyordu ve post sessizce yok oluyordu).
+    post_.capacity_error = true;
+    post_.disabled_reason = "graph tablosu kurulamadi (kapasite) — KOD HATASI: graph_pass_count / kMaxGraphPasses ayristi";
+    return false;
+  }
+  post_.godray = gd.godray;
   if (const char *err = graph_validate(graph_, graph_n_)) {
     graph_n_ = 0;
     post_.disabled_reason = err;
@@ -2910,10 +2925,12 @@ bool Renderer::make_post(VkRenderPass target_rp) {
       post_.disabled_reason = "son islem boru hatti duzeni yaratilamadi";
       return false;
     }
-    VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * graph_n_};
+    // +1: huzme acikken birlestirmenin YEDEK kumesi (in1 = bloom tepesi).
+    const uint32_t set_cap = graph_n_ + (post_.godray ? 1u : 0u);
+    VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * set_cap};
     VkDescriptorPoolCreateInfo dpi{};
     dpi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    dpi.maxSets = graph_n_;
+    dpi.maxSets = set_cap;
     dpi.poolSizeCount = 1;
     dpi.pPoolSizes = &ps;
     if (a.vkCreateDescriptorPool(d, &dpi, nullptr, &post_pool_) != VK_SUCCESS) {
@@ -2948,6 +2965,40 @@ bool Renderer::make_post(VkRenderPass target_rp) {
       for (uint32_t k = 0; k < 2; k++) {
         w[k].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         w[k].dstSet = post_sets_[i];
+        w[k].dstBinding = k;
+        w[k].descriptorCount = 1;
+        w[k].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[k].pImageInfo = &dii[k];
+      }
+      a.vkUpdateDescriptorSets(d, 2, w, 0, nullptr);
+    }
+    // Birlestirmenin YEDEK kumesi: huzme kare icinde kapatildiginda baglanir.
+    // Girdiler tam olarak godray tabloda YOKKEN olacaklari: in0 = HDR,
+    // in1 = bloom yukari zincirinin tepesi (up[0]). Boylece "huzme kapali"
+    // hali, cfg_.godrays = false ile kurulmus bir renderer'la ayni pikselleri
+    // uretir (exposure'i 0'a cekip gecisi yine kosturmak DEGIL).
+    if (post_.godray) {
+      VkDescriptorSetAllocateInfo dai{};
+      dai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      dai.descriptorPool = post_pool_;
+      dai.descriptorSetCount = 1;
+      dai.pSetLayouts = &post_set_layout_;
+      if (a.vkAllocateDescriptorSets(d, &dai, &compose_nogodray_set_) != VK_SUCCESS) {
+        post_.disabled_reason = "huzme yedek descriptor kumesi ayrilamadi";
+        return false;
+      }
+      VkImageView v0 = graph_view(kResHdr, 0);
+      VkImageView v1 = graph_view(kResUp, 0);
+      if (!v0 || !v1) {
+        post_.disabled_reason = "huzme yedek kumesinin girdisi cozulemedi";
+        return false;
+      }
+      VkDescriptorImageInfo dii[2] = {{post_sampler_, v0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+                                      {post_sampler_, v1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+      VkWriteDescriptorSet w[2]{};
+      for (uint32_t k = 0; k < 2; k++) {
+        w[k].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[k].dstSet = compose_nogodray_set_;
         w[k].dstBinding = k;
         w[k].descriptorCount = 1;
         w[k].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -3041,8 +3092,13 @@ void Renderer::record_post_chain(VkCommandBuffer cb) {
     if (p.kind == PassKind::Bright) pipe = pipe_bright_;
     else if (p.kind == PassKind::Down) pipe = pipe_down_;
     else if (p.kind == PassKind::Up) pipe = pipe_up_;
-    else if (p.kind == PassKind::Godray) pipe = pipe_godray_;
-    else continue;
+    else if (p.kind == PassKind::Godray) {
+      // Kare ici anahtar KAPALI: gecisi hic kaydetme. Birlestirme de yedek
+      // kumeyi baglayacagi icin (record_compose) huzme hedefine ne yazilir ne
+      // okunur — komut akisi godray tabloda yokmus gibi olur.
+      if (!godrays_active_) continue;
+      pipe = pipe_godray_;
+    } else continue;
     uint32_t w = 1, h = 1;
     graph_size(p.out, p.out_level, &w, &h);
     VkRenderPassBeginInfo rbi{};
@@ -3113,14 +3169,25 @@ void Renderer::record_compose(VkCommandBuffer cb) {
   rhi::VkApi &a = dev_->api();
   const uint32_t i = graph_n_ - 1; // tablonun son gecisi: cagiranin hedefine yazan
   const GraphPass &p = graph_[i];
+  // Huzme tabloda ama kare icinde KAPALI: godray hedefi yerine bloom tepesini
+  // okuyan yedek kumeyi bagla (o gecis de kaydedilmedi). Huzme tabloda hic
+  // yoksa p.in1 zaten up[0]'dir ve tablo kumesi dogru olandir.
+  const bool huzme_kapali = post_.godray && !godrays_active_;
+  VkDescriptorSet set = post_sets_[i];
+  uint8_t in1_res = p.in1, in1_lvl = p.in1_level;
+  if (huzme_kapali) {
+    set = compose_nogodray_set_;
+    in1_res = (uint8_t)kResUp; // texel'i GERCEKTEN baglanan kaynaktan turet
+    in1_lvl = 0;
+  }
   a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe_compose_);
-  a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, post_layout_, 0, 1, &post_sets_[i], 0, nullptr);
+  a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, post_layout_, 0, 1, &set, 0, nullptr);
   PostPush push{};
   uint32_t sw = 1, sh = 1;
   graph_size(p.in0, p.in0_level, &sw, &sh);
   push.texel[0] = 1.0f / (float)sw;
   push.texel[1] = 1.0f / (float)sh;
-  graph_size(p.in1, p.in1_level, &sw, &sh);
+  graph_size(in1_res, in1_lvl, &sw, &sh);
   push.texel[2] = 1.0f / (float)sw;
   push.texel[3] = 1.0f / (float)sh;
   push.p[0] = cfg_.exposure;

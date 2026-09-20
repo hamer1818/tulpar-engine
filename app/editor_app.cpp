@@ -739,6 +739,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   rc.post = true;
   rc.post_width = width;
   rc.post_height = height;
+  // --- Isik huzmesi (godray) gecisi TABLOYA girsin -------------------------
+  // Editorde huzme kaydiraclari (Yogunluk/Agirlik/Sonumleme/Pozlama) ve
+  // varlik basina "Isik Huzmesi" bayragi var; bunlar set_godrays* ile
+  // renderer'a ULASIYORDU ama gecis tabloda olmadigi icin hicbir sey
+  // cizmiyordu — kaydiraci oynatmak goruntuyu degistirmiyordu. Gecis burada
+  // tabloya alinir; AC/KAPA her kare sahnenin godrays_enabled alanindan
+  // gelir (asagida set_godrays_enabled). Sahne varsayilani KAPALI oldugu
+  // icin acilistaki goruntu degismez.
+  rc.godrays = true;
   // Ic hedefin temizleme rengi viewport gecisininkiyle AYNI olmali;
   // yoksa post acilinca arka plan aniden kararir (bridge bunu olcmustu).
   rc.post_clear = Vec3{vc.clear[0], vc.clear[1], vc.clear[2]};
@@ -4376,6 +4385,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     ren.set_godrays(st.scene.godray_density, st.scene.godray_decay, st.scene.godray_weight, st.scene.godray_exposure * gr_intensity);
     ren.set_godrays_source(gr_source);
+    // Gecisin o karede KAYDEDILIP kaydedilmeyecegi. Kapaliyken huzme gecisi
+    // hic kaydedilmez ve birlestirme bloom tepesini okur: sahnedeki kutu
+    // kapaliyken goruntu, huzme hic derlenmemis gibidir. gr_intensity 0 ise
+    // (godrays_enabled acik ama hicbir isik huzme sacmiyor) de kapat —
+    // bos bir tam ekran gecisi kaydetmenin anlami yok.
+    ren.set_godrays_enabled(st.scene.godrays_enabled && gr_intensity > 0.0f);
     ren.set_render_scale(st.render.render_scale);
     ren.set_upscaler((renderer::UpscalerKind)st.render.upscaler, st.render.sharpness);
     ren.set_jitter(st.render.jitter);

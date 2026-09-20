@@ -19,10 +19,19 @@
 
 namespace tulpar::engine::renderer {
 
-// Tablonun ust siniri: cull + golge + hareket + sahne + parlak + (mip-1)
-// indirgeme + (mip-1) yukari + birlestirme = 2*mip + 4. kMaxBloomMips = 6 -> 16.
-constexpr uint32_t kMaxGraphPasses = 16;
 constexpr uint32_t kMaxBloomMips = 6;
+
+// DIKKAT — AYNI ISIMDE IKINCI BIR SABIT VAR: renderer/graph_builder.hpp'deki
+// dinamik DAG derleyicisi (RenderGraphBuilder) BASKA bir sistemdir ve kendi
+// kapasitesini tasir. Eskiden o da `kMaxGraphPasses` adiniydi (deger 32) ve
+// ayni ad alanindaydi: iki baslik bir arada include edilse yeniden tanimlama
+// hatasi verirdi, edilmediginde de "kapasite 32" diye YANLIS okunuyordu. O
+// sabit kMaxBuilderPasses olarak ayrildi. BURADAKI sayi, Renderer'in gecis
+// tablosunun ve ona gore boyutlanan dizilerin (renderer.hpp: graph_,
+// post_sets_, PostInfo::pass_name) tek kapasitesidir.
+//
+// kMaxGraphPasses asagida, GraphDesc'ten SONRA tanimlanir: artik elle
+// sayilmaz, graph_pass_count()'tan TURETILIR (bkz. kGraphWidestTable).
 
 enum class PassKind : uint8_t {
   Cull,    // GPU gorunurluk kumeleme (COMPUTE; cikti TAMPON, goruntu degil)
@@ -87,6 +96,44 @@ struct GraphDesc {
   uint32_t bloom_mips = 4; // post acikken 2..kMaxBloomMips
 };
 
+// --- Kapasite TEK YERDEN turetilir ----------------------------------------
+// Gecis sayisinin formulu BIR kez yazilir (graph_pass_count) ve uc yerde
+// kullanilir: (1) graph_build'in kapasite kontrolu, (2) graph_build'in
+// "urettigim tablo beyan ettigimle AYNI mi" oz-denetimi, (3) asagidaki
+// static_assert. Once formul graph_build'in icine gomuluydu ve kapasite (16)
+// elle sayilmisti; godray gecisi eklenince en genis tablo 17 oldu, kapasite
+// 16 kaldi ve graph_build 0 donerek post'u SESSIZCE kapatiyordu (bloom ve
+// tonemap dahil). Bir daha olmasin diye sayi artik elle yazilmiyor.
+constexpr uint32_t graph_clamp_mips(uint32_t m) {
+  return m < 2u ? 2u : (m > kMaxBloomMips ? kMaxBloomMips : m);
+}
+// post acikken 2*mip = parlak(1) + indirgeme(mip-1) + yukari(mip-1) + birlestir(1).
+constexpr uint32_t graph_pass_count(const GraphDesc &d) {
+  return (d.cull ? 1u : 0u) + (d.shadow ? 1u : 0u) + (d.motion ? 1u : 0u) + 1u /*sahne*/ +
+         (d.post ? (2u * graph_clamp_mips(d.bloom_mips) + (d.godray ? 1u : 0u)) : 0u);
+}
+// Butun anahtarlari acik, mip zinciri en derin tablo: graph_build'in
+// uretebilecegi EN GENIS tablo. Yeni bir anahtar eklenince burasi da
+// guncellenmeli — unutulursa graph_build'in n != need oz-denetimi yakalar.
+constexpr GraphDesc graph_widest_desc() {
+  GraphDesc d;
+  d.post = true;
+  d.shadow = true;
+  d.motion = true;
+  d.cull = true;
+  d.godray = true;
+  d.bloom_mips = kMaxBloomMips;
+  return d;
+}
+constexpr uint32_t kGraphWidestTable = graph_pass_count(graph_widest_desc()); // 4 + 2*6 + 1 = 17
+
+// Renderer'in gecis tablosu kapasitesi. Tam olarak en genis tabloya esit:
+// buyugu bosa bellek, kucugu SESSIZ post kapanmasi demek.
+constexpr uint32_t kMaxGraphPasses = kGraphWidestTable;
+static_assert(kMaxGraphPasses >= kGraphWidestTable,
+              "kMaxGraphPasses en genis tabloyu almiyor: graph_build 0 doner ve post SESSIZCE kapanir "
+              "(bloom + tonemap dahil). Yeni gecis eklediysen graph_pass_count ve graph_widest_desc guncellenmeli.");
+
 namespace detail {
 // Ad dizgeleri sabit ve omurluk (tablo const char* tutar).
 inline const char *down_name(uint32_t i) {
@@ -102,13 +149,19 @@ inline const char *up_name(uint32_t i) {
 // Tabloyu uretir ve bagimlilik/layout alanlarini TURETIR. Donus: gecis sayisi
 // (0 = kapasite yetmedi).
 inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
-  uint32_t mips = d.bloom_mips;
-  if (mips < 2) mips = 2;
-  if (mips > kMaxBloomMips) mips = kMaxBloomMips;
-  const uint32_t need =
-      (d.cull ? 1u : 0u) + (d.shadow ? 1u : 0u) + (d.motion ? 1u : 0u) + 1u + (d.post ? (2u * mips + (d.godray ? 1u : 0u)) : 0u);
+  const uint32_t mips = graph_clamp_mips(d.bloom_mips);
+  const uint32_t need = graph_pass_count(d);
   if (cap < need || cap > kMaxGraphPasses) return 0;
   uint32_t n = 0;
+  // Yazmalar SINIRLI: `need` ile asagidaki uretim AYRISIRSA (yeni bir gecis
+  // eklenip graph_pass_count guncellenmezse) eskiden out[] sessizce TASARDI —
+  // kapasite kontrolu need'e bakiyordu, uretime degil. Simdi tasma bayraga
+  // dusuyor ve fonksiyon 0 donuyor; kurulum durur, sebep disari verilir.
+  bool tasti = false;
+  auto emit = [&](const GraphPass &p) {
+    if (n >= cap) { tasti = true; return; }
+    out[n++] = p;
+  };
   if (d.cull) {
     // ILK gecis: hem golge hem sahne onun yazdigi dolayli komutlari okur.
     GraphPass p;
@@ -116,14 +169,14 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
     p.kind = PassKind::Cull;
     p.out = kResCull;
     p.out_external = true; // tuketici cizim komutlari: tabloda gecis degil
-    out[n++] = p;
+    emit(p);
   }
   if (d.shadow) {
     GraphPass p;
     p.name = "golge";
     p.kind = PassKind::Shadow;
     p.out = kResShadow;
-    out[n++] = p;
+    emit(p);
   }
   if (d.motion) {
     // Kendi gecisi (kendi derinligi, transient): sahne gecisine ikinci bir renk
@@ -135,7 +188,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
     p.kind = PassKind::Motion;
     p.out = kResMotion;
     p.out_external = true; // tuketici (upscaler/TAA) henuz tabloda degil
-    out[n++] = p;
+    emit(p);
   }
   {
     GraphPass p;
@@ -143,7 +196,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
     p.kind = PassKind::Scene;
     p.in0 = d.shadow ? (uint8_t)kResShadow : (uint8_t)kResNone;
     p.out = d.post ? (uint8_t)kResHdr : (uint8_t)kResTarget;
-    out[n++] = p;
+    emit(p);
   }
   if (d.post) {
     {
@@ -153,7 +206,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
       p.in0 = kResHdr;
       p.out = kResDown;
       p.out_level = 0;
-      out[n++] = p;
+      emit(p);
     }
     for (uint32_t i = 1; i < mips; i++) {
       GraphPass p;
@@ -163,7 +216,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
       p.in0_level = (uint8_t)(i - 1);
       p.out = kResDown;
       p.out_level = (uint8_t)i;
-      out[n++] = p;
+      emit(p);
     }
     // Yukari zincir: en kucuk mip'ten baslar. i = mips-2 icin alt kaynak
     // indirgeme zincirinin son mip'i, digerlerinde bir onceki yukari cikti.
@@ -178,7 +231,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
       p.in1_level = (uint8_t)(i + 1); // alt seviye (yayilan)
       p.out = kResUp;
       p.out_level = (uint8_t)i;
-      out[n++] = p;
+      emit(p);
     }
     if (d.godray) {
       GraphPass p;
@@ -190,7 +243,7 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
       p.in1_level = 0;
       p.out = kResGodray;
       p.out_level = 0;
-      out[n++] = p;
+      emit(p);
     }
     {
       GraphPass p;
@@ -200,9 +253,14 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
       p.in1 = d.godray ? (uint8_t)kResGodray : (uint8_t)kResUp;
       p.in1_level = 0;
       p.out = kResTarget;
-      out[n++] = p;
+      emit(p);
     }
   }
+  // OZ-DENETIM: beyan edilen sayi (need) ile gercekten uretilen tablo ayni
+  // olmali. Ayrisma = graph_pass_count ile graph_build'in govdesi birbirinden
+  // kaymis demektir; tabloyu kullanmak yerine 0 don (cagiran post'u kapatir ve
+  // sebebi disari verir). Kapiyi tests/test_render_graph.cpp suruyor.
+  if (tasti || n != need) return 0;
   // --- TURETME: uretici eslesmesi + layout ---------------------------------
   for (uint32_t j = 0; j < n; j++) {
     const uint8_t ins[2] = {out[j].in0, out[j].in1};

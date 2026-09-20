@@ -216,16 +216,45 @@ ENGINE_TEST(render_graph_table_is_compiled_and_ordered) {
   const char *e3 = graph_validate(g, n3);
   std::printf("    [bilgi] kontrol: cull out_external kaldirildi -> \"%s\"\n", e3 ? e3 : "(kabul edildi!)");
   CHECK(e3 != nullptr);
-  // Ust sinir: cull + golge + hareket + sahne + 6 mip bloom = 16 = kapasite.
-  GraphDesc d4;
-  d4.post = true;
-  d4.shadow = true;
-  d4.motion = true;
-  d4.cull = true;
-  d4.bloom_mips = kMaxBloomMips;
+  // --- Ust sinir: EN GENIS tablo kapasiteye TAM oturmali -------------------
+  // Bu kapi PR #7'nin sessiz hatasini surekli olcer: godray gecisi eklendiginde
+  // en genis tablo 16'dan 17'ye cikti, kapasite 16'da kaldi ve graph_build 0
+  // donerek post'u TAMAMEN kapatti (bloom + tonemap dahil). Artik kapasite
+  // graph_pass_count'tan turetiliyor; asagisi o turetmenin kapisidir.
+  //
+  // "En genis" ARTIK ELLE yazilmiyor: graph_widest_desc() kullaniliyor, yani
+  // ileride bir anahtar eklenip burasi guncellenmezse kapi da onunla birlikte
+  // buyur ve yalan soylemez.
+  const GraphDesc d4 = graph_widest_desc();
   const uint32_t n4 = graph_build(d4, g, kMaxGraphPasses);
-  std::printf("    [bilgi] en genis tablo: %u gecis (kapasite %u)\n", n4, kMaxGraphPasses);
+  std::printf("    [bilgi] en genis tablo: %u gecis (kapasite %u, kGraphWidestTable %u)\n", n4, kMaxGraphPasses,
+              kGraphWidestTable);
+  std::printf("    [bilgi] tablo:");
+  for (uint32_t i = 0; i < n4; i++) std::printf(" %s", g[i].name);
+  std::printf("\n");
   CHECK(n4 == kMaxGraphPasses);
+  CHECK(kMaxGraphPasses == 17); // cull+golge+hareket+sahne + 2*6 bloom + godray
+  CHECK(graph_validate(g, n4) == nullptr);
+  // Huzme GERCEKTEN bu en genis tabloda: yoksa "17 gecis sigdi" baska bir seyi
+  // olcuyor olurdu.
+  bool godray_var = false;
+  for (uint32_t i = 0; i < n4; i++)
+    if (g[i].kind == PassKind::Godray) godray_var = true;
+  CHECK(godray_var);
+  // KONTROL 1: godray'siz en genis tablo TAM BIR EKSIK olmali. Esit cikarsa
+  // godray gecisi tabloya hic girmiyordur ve yukaridaki kapi bosa olcer.
+  GraphDesc d4b = d4;
+  d4b.godray = false;
+  const uint32_t n4b = graph_build(d4b, g, kMaxGraphPasses);
+  std::printf("    [bilgi] kontrol: godray KAPALI en genis tablo %u gecis (%u bekleniyor)\n", n4b, n4 - 1);
+  CHECK(n4b == n4 - 1);
+  // KONTROL 2: kapasite bir eksik olsaydi graph_build 0 DONMELI (tasma degil).
+  // PR #7'nin canli hatasinin birebir kopyasi; sessizce tasip out[]'un disina
+  // yazsaydi bu satir gecerdi ama bellek bozulurdu.
+  GraphPass dar[kMaxGraphPasses];
+  const uint32_t n4c = graph_build(d4, dar, kMaxGraphPasses - 1);
+  std::printf("    [bilgi] kontrol: kapasite %u iken en genis tablo -> %u (0 bekleniyor)\n", kMaxGraphPasses - 1, n4c);
+  CHECK(n4c == 0);
   // Godray ACIK tablo: godray gecisi (bloom ile birlestir arasinda) eklenir
   GraphDesc d5;
   d5.post = true;
@@ -463,6 +492,220 @@ ENGINE_TEST(render_graph_bloom_spreads_only_above_threshold) {
   CHECK(sonuk.merkez > 500); // nesne cizildi: "yayilmadi" bos olcum degil
   CHECK(sonuk.halka == 0);   // esik altinda: YAYILMAZ
   CHECK(sonuk_dusuk_esik.halka > 200); // kontrol: esik dusurulunce yayilir
+
+  ren.shutdown();
+  offscreen_destroy(off);
+}
+
+// --- 5b. Isik huzmesi (godray) gecisi GERCEKTEN piksel degistiriyor --------
+//
+// NEDEN BU KAPI VAR: godray boru hatti (shader + pipeline + framebuffer +
+// descriptor + editor kaydiraclari) PR #7'de eksiksiz kuruldu ama GraphDesc
+// ::godray hicbir yerde true yapilmadigi icin gecis tabloya hic girmedi.
+// Yani ozellik "var"di, hicbir seyi boyamiyordu ve hicbir kapi bunu
+// gormuyordu — tablo testi disinda kimse godray'i olcmuyordu. Ozelligi
+// aciyorsak, "acik" ile "kapali"nin FARKINI olcen bir kapi sart.
+//
+// UC OLCUM, ucu de kontrollu:
+//   A. Kurulumda KAPALI (cfg.godrays = false)            -> referans goruntu
+//   B. Kurulumda ACIK ama kare icinde kapali             -> A ile BIT BIT ayni
+//      (kontrol: huzme gecisinin varligi tek basina goruntuyu kirletmiyor)
+//   C. Kare icinde ACIK                                  -> A'dan belirgin farkli
+// Ve C'nin bos olmadigini gosteren NEGATIF kontroller: pozlama 0 ve gunes
+// kameranin ARKASINDA hallerinde goruntu yine A'ya donmeli. Donmezse C'deki
+// fark huzmeden degil baska bir seyden (ornegin farkli bir hedefe ugramaktan)
+// geliyordur.
+ENGINE_TEST(render_graph_godray_pass_changes_pixels) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  OrtakGpu &g = ortak_gpu();
+  if (!g.ok) { skip("Vulkan cihazi yok"); return; }
+  Device &dev = g.dev;
+  SystemArena &sys = g.sys;
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    skip("sanal GPU (Apple Paravirtual, CI macOS): piksel kapisi gercek cihazda olculur");
+    return;
+  }
+  const uint32_t W = 256, H = 256;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); return; }
+  static uint8_t kapali_px[W * H * 4], is_px[W * H * 4], yardimci_px[W * H * 4];
+
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0; // golge yok: olcum yalniz son islemi gorsun
+  rc.max_draws = 64;
+  rc.post = true;
+  rc.post_width = W;
+  rc.post_height = H;
+  rc.bloom_mips = 4;
+  rc.bloom_threshold = 0.2f;
+  rc.bloom_intensity = 0.8f; // 0 olsaydi birlestirme u_bloom'u hic okumazdi:
+                             // huzme de gorunmezdi ve kapi BOS olcerdi.
+
+  // --- A. Kurulumda KAPALI: referans ---------------------------------------
+  uint32_t a_pass = 0;
+  {
+    renderer::Renderer ren;
+    bool ok = ren.init(dev, sys, offscreen_render_pass(off), rc);
+    CHECK(ok);
+    if (!ok) { offscreen_destroy(off); return; }
+    const renderer::PostInfo pi = ren.post();
+    if (!pi.enabled) {
+      std::printf("    [bilgi] sebep: %s\n", pi.disabled_reason);
+      skip("son islem kurulamadi (HDR bicimi/hedefi yok): huzme kapisi kosmadi");
+      ren.shutdown();
+      offscreen_destroy(off);
+      return;
+    }
+    CHECK(!pi.godray); // varsayilan KAPALI olmali (bugunku yol bit bit korunur)
+    a_pass = pi.pass_count;
+    Sahne s = kur_sahne(ren, 4.0f);
+    ren.set_render_size(W, H);
+    Rec rr{&ren};
+    ren.begin_frame(0);
+    ren.draw(s.cube, Mat4::scale({0.6f, 0.6f, 0.6f}), {1, 1, 1});
+    bool r = offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before);
+    CHECK(r);
+    if (!r) { std::printf("    [bilgi] kare: %s\n", ores.error); ren.shutdown(); offscreen_destroy(off); return; }
+    std::memcpy(kapali_px, ores.pixels, sizeof kapali_px);
+    ren.shutdown();
+  }
+
+  // --- B / C. Kurulumda ACIK ------------------------------------------------
+  renderer::RendererConfig rcg = rc;
+  rcg.godrays = true;
+  renderer::Renderer ren;
+  bool ok = ren.init(dev, sys, offscreen_render_pass(off), rcg);
+  CHECK(ok);
+  if (!ok) { offscreen_destroy(off); return; }
+  const renderer::PostInfo pi = ren.post();
+  if (!pi.enabled) {
+    std::printf("    [bilgi] sebep: %s\n", pi.disabled_reason);
+    skip("son islem kurulamadi: huzme kapisi kosmadi");
+    ren.shutdown();
+    offscreen_destroy(off);
+    return;
+  }
+  // Gecis GERCEKTEN tabloda mi? Kapasite yetmezse graph_build 0 donerdi ve
+  // post tamamen kapanirdi; buraya gelmek bile o hatanin geri gelmedigi
+  // anlamina gelir ama sayiyi yine de olc.
+  CHECK(pi.godray);
+  std::printf("    [bilgi] gecis tablosu (%u, huzme ACIK):", pi.pass_count);
+  for (uint32_t i = 0; i < pi.pass_count; i++) std::printf(" %s", pi.pass_name[i]);
+  std::printf("\n");
+  CHECK(pi.pass_count == a_pass + 1); // tam bir gecis eklendi
+  bool tabloda = false;
+  for (uint32_t i = 0; i < pi.pass_count; i++)
+    if (std::strcmp(pi.pass_name[i], "godray") == 0) tabloda = i + 2 == pi.pass_count; // birlestirmeden hemen once
+  CHECK(tabloda);
+
+  Sahne s = kur_sahne(ren, 4.0f);
+  ren.set_render_size(W, H);
+  Rec rr{&ren};
+  // Tek kare cizip pikselleri hedefe kopyalar. DIKKAT: huzme shader'i kare
+  // sayacini (zaman) push sabiti olarak alir — ayni parametrelerle ardisik iki
+  // kare BIREBIR ayni degildir. Bu yuzden asagida "acik" olcumleri hep
+  // referansa (kapali) karsi yapilir, birbirlerine karsi degil.
+  auto kare = [&](uint8_t *hedef) {
+    ren.begin_frame(0);
+    ren.draw(s.cube, Mat4::scale({0.6f, 0.6f, 0.6f}), {1, 1, 1});
+    if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before)) return false;
+    std::memcpy(hedef, ores.pixels, W * H * 4);
+    return true;
+  };
+  // Iki ayri olcum, cunku ikisi ayri soru soruyor:
+  //   fark()     = KAC bayt degisti (kapsama). "Degisti mi / degismedi mi"ye
+  //                bakan kapilar bunu kullanir.
+  //   buyukluk() = TOPLAM |degisim| (siddet). Kapsama DOYAR — huzme bir bolgeyi
+  //                bir kez boyadiktan sonra pozlamayi artirmak degisen bayt
+  //                SAYISINI artirmaz, yalnizca degisimin buyuklugunu artirir.
+  //                Kaydirac kapisi once fark() ile yazilmisti ve iki cok
+  //                farkli pozlama ayni sayiyi (182660) verdigi icin hicbir sey
+  //                olcmuyordu.
+  auto fark = [&](const uint8_t *x, const uint8_t *y) {
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < W * H * 4; i++)
+      if (x[i] != y[i]) n++;
+    return n;
+  };
+  auto buyukluk = [&](const uint8_t *x, const uint8_t *y) {
+    uint64_t t = 0;
+    for (uint32_t i = 0; i < W * H * 4; i++) t += (uint64_t)(x[i] > y[i] ? x[i] - y[i] : y[i] - x[i]);
+    return t;
+  };
+
+  // --- B. Kare icinde KAPALI -> A ile BIT BIT ayni -------------------------
+  // Huzme gecisi kaydedilmez ve birlestirme yedek kumeyi (bloom tepesi) baglar.
+  // Fark 0 degilse "kapaliyken goruntu degismez" sozu tutulmuyordur.
+  ren.set_godrays_enabled(false);
+  CHECK(kare(yardimci_px));
+  const uint32_t f_kapali = fark(kapali_px, yardimci_px);
+  std::printf("    [bilgi] B: huzme tabloda ama kare icinde KAPALI -> referanstan fark %u bayt (0 bekleniyor)\n",
+              f_kapali);
+  CHECK(f_kapali == 0);
+
+  // --- C. Kare icinde ACIK -> belirgin fark --------------------------------
+  // Gunes kameranin ONUNDE bir dunya noktasi (w = 1). kur_sahne kamerayi
+  // (0,0,3)'ten merkeze bakacak sekilde kurar; (0,0,-5) ekranin ortasina duser.
+  ren.set_godrays_enabled(true);
+  ren.set_godrays(1.2f, 0.97f, 0.7f, 0.20f); // density, decay, weight, exposure
+  ren.set_godrays_source(Vec4{0.0f, 0.0f, -5.0f, 1.0f});
+  CHECK(kare(is_px));
+  const uint32_t f_acik = fark(kapali_px, is_px);
+  const uint64_t m_acik = buyukluk(kapali_px, is_px);
+  std::printf("    [bilgi] C: huzme ACIK -> referanstan fark %u bayt (%%%.2f), toplam siddet %llu\n", f_acik,
+              100.0 * (double)f_acik / (double)(W * H * 4), (unsigned long long)m_acik);
+  // En az piksellerin %5'i degismeli: huzme ekran uzayinda genis bir bolgeyi
+  // boyar, birkac piksellik bir kipirdanma "calisiyor" demek degildir.
+  CHECK(f_acik > (W * H * 4) / 20);
+
+  // --- KONTROL 1: pozlama 0 -> huzme yok, goruntu referansa DONMELI --------
+  // Bu, C'deki farkin gercekten huzme matematiginden geldigini gosterir:
+  // gecis yine kaydedilir, yine godray hedefine yazilir, birlestirme yine o
+  // hedefi okur — degisen tek sey carpanin 0 olmasi.
+  ren.set_godrays(1.2f, 0.97f, 0.7f, 0.0f);
+  CHECK(kare(yardimci_px));
+  const uint32_t f_poz0 = fark(kapali_px, yardimci_px);
+  std::printf("    [bilgi] kontrol: pozlama 0 -> referanstan fark %u bayt (0 bekleniyor)\n", f_poz0);
+  CHECK(f_poz0 == 0);
+
+  // --- KONTROL 2: gunes kameranin ARKASINDA -> huzme uretilmez -------------
+  // C++ tarafi clip.w <= 0 gorunce pozlamayi 0'a ceker (renderer.cpp).
+  ren.set_godrays(1.2f, 0.97f, 0.7f, 0.20f);
+  ren.set_godrays_source(Vec4{0.0f, 0.0f, 10.0f, 1.0f}); // kamera (0,0,3)'te, -z'ye bakiyor
+  CHECK(kare(yardimci_px));
+  const uint32_t f_arka = fark(kapali_px, yardimci_px);
+  std::printf("    [bilgi] kontrol: gunes kameranin ARKASINDA -> referanstan fark %u bayt (0 bekleniyor)\n", f_arka);
+  CHECK(f_arka == 0);
+
+  // --- KONTROL 3: kaydiraclar GERCEKTEN ulasiyor ---------------------------
+  // Editordeki Pozlama kaydiracinin karsiligi. TEK parametre degistirilir
+  // (pozlama 0.20 -> 0.02); yogunluk/sonumleme/agirlik C ile AYNI kalir, yani
+  // olculen fark yalniz o kaydiractan gelir. Esit cikarsa set_godrays() bir
+  // yere baglanmamis demektir.
+  //
+  // IKI TUZAK, ikisi de bu kapiyi yazarken yasandi:
+  //  1. Dort parametreyi birden kisinca (yogunluk 0.3 / agirlik 0.06 /
+  //     pozlama 0.05) katki 8 bitlik ciktida SIFIRA yuvarlandi: fark 0 bayt,
+  //     yani "hicbir sey cizilmedi". Esigi dusurmek yerine ayar GORUNUR
+  //     kalacak sekilde secildi.
+  //  2. Kapsama (degisen bayt SAYISI) DOYUYOR: pozlama 0.05 ile 0.60 ayni
+  //     182660 bayti degistiriyordu, cunku huzme ayni bolgeyi boyuyor yalnizca
+  //     daha parlak boyuyor. Bu yuzden karsilastirma SIDDET uzerinden yapilir.
+  ren.set_godrays_source(Vec4{0.0f, 0.0f, -5.0f, 1.0f});
+  ren.set_godrays(1.2f, 0.97f, 0.7f, 0.02f); // yalniz pozlama dustu
+  CHECK(kare(yardimci_px));
+  const uint32_t f_kisik = fark(kapali_px, yardimci_px);
+  const uint64_t m_kisik = buyukluk(kapali_px, yardimci_px);
+  std::printf("    [bilgi] kontrol: pozlama 0.02 -> %u bayt / siddet %llu; pozlama 0.20 -> %u bayt / siddet %llu\n",
+              f_kisik, (unsigned long long)m_kisik, f_acik, (unsigned long long)m_acik);
+  CHECK(f_kisik > 0);             // hala bir sey ciziliyor (olcum bos degil)
+  CHECK(m_acik > m_kisik * 3 / 2); // pozlama goruntuyu GERCEKTEN suruyor (siddet)
 
   ren.shutdown();
   offscreen_destroy(off);

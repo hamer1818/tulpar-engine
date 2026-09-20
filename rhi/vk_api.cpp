@@ -33,6 +33,9 @@ bool load_from(VkApi &api, const char *const *names, int n) {
 bool vk_api_load_moltenvk_direct(VkApi &api) {
 #if defined(__APPLE__)
   vk_api_unload(api);
+  // PAKET: sistem
+  //   MoltenVK dagitimla DEGIL kullanicinin kurdugu Vulkan yiginiyla gelir
+  //   (brew install molten-vk). Paketlenmez; yoksa cagiran GORUNUR sekilde atlar.
   const char *names[] = {"libMoltenVK.dylib", "/opt/homebrew/lib/libMoltenVK.dylib", "/usr/local/lib/libMoltenVK.dylib"};
   if (!load_from(api, names, 3)) return false;
   g_direct_moltenvk = true;
@@ -55,6 +58,19 @@ bool vk_api_load(VkApi &api) {
   // Pozitif kontrol: loader yokmus gibi davran — GORUNUR atlama yolu sinanir
   // (atlanan test sessizce yesil sayilmasin; ozet satiri "atlandi" gostermeli).
   if (const char *e = getenv("TULPAR_ENGINE_NO_VULKAN"); e && *e && *e != '0') return false;
+  // PAKET: sistem
+  //   Vulkan LOADER'i paketlenmez, SURUCUYLE gelir. Gerekce (lisans degil —
+  //   Khronos loader'i Apache-2.0'dir ve dagitilabilir, mesele dogruluk):
+  //     * Loader yalniz bir YONLENDIRICIDIR; cizen sey ICD'dir (surucu). ICD
+  //       manifestini kuran da surucu kurulumudur. Yani loader'i yanimizda
+  //       tasimak, surucusu olmayan makinede hicbir seyi calistirmaz —
+  //       yalnizca "cihaz yok" hatasini bir katman oteye tasir.
+  //     * Surucusu OLAN makinede sistem loader'i zaten vardir (Windows'ta
+  //       surucu kurulumu System32'ye vulkan-1.dll birakir) ve genelde bizim
+  //       dondurdugumuz kopyadan YENIDIR. Yanimizdaki eski bir loader onu
+  //       golgeleyip yeni uzanti/katman zincirlerini bozar.
+  //   Bu yuzden politika "sistem": paket kapisi bu aileyi ARAMAZ, ama
+  //   OKUBENI "Vulkan surucusu gerekir" der ve eksikligi gorunur hata olur.
   const char *names[] = {
 #if defined(_WIN32)
       // Windows'ta loader'in adi SABIT: vulkan-1.dll (Khronos ICD sozlesmesi).

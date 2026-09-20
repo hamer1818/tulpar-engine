@@ -28,7 +28,7 @@
 
 namespace tulpar::engine::renderer {
 
-constexpr uint32_t kMaxGraphPasses = 32;
+constexpr uint32_t kMaxBuilderPasses = 32;
 constexpr uint32_t kMaxGraphResources = 64;
 constexpr uint32_t kMaxPassIo = 8;
 constexpr uint32_t kMaxNameLength = 32;
@@ -69,7 +69,7 @@ public:
 
   // Yeni bir render geçişi (Pass) ekler
   int32_t add_pass(const char *name, bool has_side_effects = false) {
-    if (m_pass_count >= kMaxGraphPasses) return -1;
+    if (m_pass_count >= kMaxBuilderPasses) return -1;
     uint32_t idx = m_pass_count++;
     RenderPassNode &node = m_passes[idx];
     std::strncpy(node.name, name, kMaxNameLength - 1);
@@ -101,7 +101,7 @@ public:
 
   // Çıktısı hiçbir geçiş tarafından tüketilmeyen ölü geçişleri budar (Cull Unused Passes)
   void cull_unused_passes() {
-    bool needed_passes[kMaxGraphPasses] = {false};
+    bool needed_passes[kMaxBuilderPasses] = {false};
     bool needed_resources[kMaxGraphResources] = {false};
 
     // 1. Yan etkisi olan (ör. Swapchain/Backbuffer sunumu) tüm geçişleri işaretle
@@ -154,8 +154,8 @@ public:
 
     // Geçişler arası bağımlılık matrisi ve giriş dereceleri (in-degrees)
     // adj[A][B] == true: Pass A, Pass B'den önce yürütülmelidir (B, A'nın çıktısını okuyor)
-    bool adj[kMaxGraphPasses][kMaxGraphPasses] = {{false}};
-    uint32_t in_degree[kMaxGraphPasses] = {0};
+    bool adj[kMaxBuilderPasses][kMaxBuilderPasses] = {{false}};
+    uint32_t in_degree[kMaxBuilderPasses] = {0};
 
     for (uint32_t b = 0; b < m_pass_count; b++) {
       if (m_passes[b].culled) continue;
@@ -172,7 +172,7 @@ public:
     }
 
     // Kahn Algoritması Sırası
-    uint32_t queue[kMaxGraphPasses];
+    uint32_t queue[kMaxBuilderPasses];
     uint32_t q_head = 0;
     uint32_t q_tail = 0;
 
@@ -252,13 +252,13 @@ public:
   const ResourceLifetime &resource(uint32_t id) const { return m_resources[id]; }
 
 private:
-  RenderPassNode m_passes[kMaxGraphPasses];
+  RenderPassNode m_passes[kMaxBuilderPasses];
   uint32_t m_pass_count = 0;
 
   ResourceLifetime m_resources[kMaxGraphResources];
   uint32_t m_resource_count = 0;
 
-  uint32_t m_sorted_passes[kMaxGraphPasses] = {0};
+  uint32_t m_sorted_passes[kMaxBuilderPasses] = {0};
   uint32_t m_sorted_count = 0;
 };
 

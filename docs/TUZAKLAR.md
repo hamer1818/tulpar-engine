@@ -1022,3 +1022,49 @@ Genel kural: **bir yedeğe düşmek ölçülebilir bir yolu ölçülemez bir yol
 takas etmektir.** Takas sessizse, sonraki her "yeşil" o takasın üzerine
 kurulur. Yedek kendini bildirmeli ve bildirdiği şey `Caps`'e girmeli ki
 kapılar onu okuyabilsin.
+
+### 8bv. `ldd` `dlopen`'lanan kütüphaneyi GÖREMEZ — paket eksik çıktı ve kapı yeşil geçti
+
+Kullanıcı yayınlanmış **v0.1.0** Windows zip'ini indirdi, `engine_editor.exe`'ye çift
+tıkladı, program açılmadı. Wine altında aynı ikili tek satır basıyor:
+
+```
+pencere: GLFW yok (glfw3.dll): masaustu pencere acilamaz
+```
+
+Sebep paketleyicideydi. `tools/package.sh` Windows DLL'lerini `ldd` çıktısından
+süzüyordu ve **`ldd` tanımı gereği yalnız ithalat tablosunu okur.** GLFW ise link
+edilmez, `platform/window.cpp` içinde `dl_open("glfw3.dll")` ile *çalışma anında*
+yüklenir — ithalat tablosunda hiç yoktur. Üç MinGW DLL'i pakete girdi, GLFW girmedi.
+Paket kapısı da "en az bir `.dll` var mı" diye baktığı için **yeşil geçti**: kapı
+gerçekten var olan bir şeyi ölçüyordu, ama eksik olan şeyi değil.
+
+Üç ayrı ders var, üçü de ayrı ayrı tekrarlanabilir:
+
+1. **İki bağımlılık sınıfı vardır ve araçları farklıdır.** LINK edilenler ithalat
+   tablosundan (`ldd`/`objdump -p`) bulunur; `dlopen` edilenler **yalnız kaynaktan**
+   bulunur. Bir aracın gördüğü şeyi "bağımlılıkların hepsi" sanmak, aracın kör
+   noktasını sessiz bir boşluğa çevirir.
+2. **İkinci liste kayar.** Çözüm `package.sh`'a elle bir `glfw3.dll` satırı eklemek
+   değildi: liste artık kaynaktaki her `dl_open(...)` çağrısından türetiliyor ve
+   politikayı da kaynaktan okuyor (`// PAKET: gomulu|sistem|turetilmis`, ad dizisinin
+   üstünde). **İşaretsiz bir `dl_open` çağrısı HATADIR** — yeni bir çalışma zamanı
+   bağımlılığı eklendiğinde karar vermeye zorlar, varsayılana düşmez.
+3. **Konsol uygulaması hemen çıkarsa görünmez.** Hata stderr'e basılıyordu; çift
+   tıklayan kullanıcıda konsol programla birlikte kapandığı için ekranda *hiçbir şey*
+   olmuyordu. Artık aynı satır `<ikili dizini>/engine_hata.log` dosyasına da yazılıyor
+   (`platform/startup_report.cpp`) ve pakette `BASLAT-*.bat` başlatıcıları var —
+   çıkış kodu 0 değilse `pause` ile bekliyorlar. Hata **susturulmuyor**, görünür hale
+   getiriliyor.
+
+Neyin paketlendiği de bir karar: **GLFW gömülü** (Windows/macOS'ta sistemde yoktur;
+Linux'ta sistemdeki kazanır, paketteki yedektir — ikili `<exe dizini>/<ad>` yolunu
+*mutlak* olarak `dlopen` ettiği için rpath gerekmez), **Vulkan loader sistem**
+(loader yalnız yönlendiricidir, çizen ICD'dir ve loader'ı da sürücü kurulumu getirir;
+yanımızda taşımak sürücüsüz makinede hiçbir şeyi çalıştırmaz, sürücülü makinede ise
+daha yeni olan sistem loader'ını gölgeler).
+
+Pozitif kontrol (kapının gerçekten ölçtüğünün kanıtı): yeni kapı **yayınlanmış v0.1.0
+paketine** doğrultulduğunda kırmızı döner — `EKSIK dlopen kutuphanesi
+[platform/window.cpp:64]: adaylarin hicbiri pakette yok -> glfw3.dll libglfw3.dll
+glfw.dll`. Eski kapı aynı pakete "var *.dll (3 adet)" diyordu.
