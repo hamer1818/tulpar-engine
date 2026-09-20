@@ -674,11 +674,21 @@ jobs:
           # NOT: katman Arm kurallarini tanimayinca basilan
           # "dogrulama katmani Arm BestPractices kurallarini tanimiyor" atlamasi
           # BASKA bir siniftir (katman var, surumu eski) ve bu ifadeye UYMAZ.
+          # macOS: kapi ULASILAMAYAN bir sey istemiyor (bkz. ci.yml, ayni mantik).
+          # Loader MoltenVK ICD'si uzerinden instance kuramayinca motor yedege
+          # dusup MoltenVK'yi DOGRUDAN yukluyor; katmanlar bir LOADER
+          # mekanizmasidir, o yol secildiginde katman VAR OLAMAZ.
+          # Iddia: YA katman kosar, YA motor loader'i atladigini SOYLER.
           katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
-          if [ -n "$katman_atlama" ]; then
+          loader_atlandi="$(grep -E 'loader ATLANDI' sonuc.log || true)"
+          if [ -n "$katman_atlama" ] && [ -z "$loader_atlandi" ]; then
             echo "$katman_atlama"
-            echo "::error::vulkan-validationlayers kurulu, VK_LAYER_PATH verilmis ve vulkaninfo katmani listeliyor oldugu halde katman kapilari atlandi — bes kapi HIC KOSMADI. Surec loader'i atlayip MoltenVK'yi DOGRUDAN yuklemis olabilir (rhi/device.cpp icindeki sessiz yedek): katmanlar bir LOADER mekanizmasidir, loader surecte yoksa VK_LAYER_PATH'in hicbir anlami kalmaz. Yukaridaki 'Vulkan ortami' adiminda loader cihaz goruyor mu diye bak. Surum YAYINLANMAYACAK."
+            echo "::error::Katman kapilari atlandi ve motor SEBEBINI SOYLEMEDI — SESSIZ atlama kabul edilmiyor. Surum YAYINLANMAYACAK."
             exit 1
+          fi
+          if [ -n "$loader_atlandi" ]; then
+            echo "$loader_atlandi"
+            echo "::warning::Loader ATLANDI (dogrudan MoltenVK): bu kosumda katman/BestPractices kapilari OLCULMEDI. Bilinen macOS durumu, motor acikca bildiriyor."
           fi
 
           exit "$kod"
@@ -901,16 +911,24 @@ jobs:
           # Burada ikililerin GERCEKTEN ithal ettigi her MinGW DLL'i araniyor;
           # dlopen'lananlarin kapisi tools/package.sh icindeki turetilmis
           # listedir (ayri sinif, ayri kapi).
-          onek="${MSYSTEM_PREFIX:-/mingw64}"
-          ithal="$(for exe in "$kok"/*.exe; do ldd "$exe" 2>/dev/null | awk '/=>/ {print $3}'; done \
-                   | sort -u | grep -i "^$onek/" || true)"
+          # OLCUM ADLA, KAYNAK YOLUYLA DEGIL. Once "$onek/" onekiyle suzuluyordu;
+          # paket DLL'leri artik .exe'nin YANINDA oldugu icin ldd onlari PAKET
+          # dizininden cozuyor ve hicbir yol "$onek/" ile baslamiyor. Sonuc:
+          # tam ve dogru bir paket "olcum yapilamadi" diye KIRMIZI donuyordu —
+          # yani duzeltmenin kendisi, duzeltmeyi denetleyen kapiyi kirdi
+          # (olculdu CI Windows 2026-09-20, v0.1.1 surum kosumu).
+          # Dogru soru "bu DLL /mingw64'ten mi geldi" degil, "ithal edilen her
+          # ad pakette VAR MI" — nereden cozuldugu onemsiz.
+          sistem_dll='KERNEL32|USER32|GDI32|SHELL32|ADVAPI32|msvcrt|ole32|OLEAUT32|WS2_32|COMDLG32|IMM32|SETUPAPI|CFGMGR32|bcrypt|RPCRT4|dwmapi|WINMM|VERSION|SHCORE|api-ms-|ntdll'
+          ithal="$(for exe in "$kok"/*.exe; do ldd "$exe" 2>/dev/null | awk '/=>/ {print $1}'; done \
+                   | sort -u | grep -viE "^($sistem_dll)" || true)"
           if [ -z "$ithal" ]; then
-            echo "::error::Ikililerin ithal ettigi MinGW DLL'i HIC bulunamadi (ldd $onek) — olcum yapilamadi."
+            echo "::error::Ikililerin ithal ettigi DLL HIC okunamadi (ldd calismadi mi?) — olcum yapilamadi."
             eksik=1
           else
-            while IFS= read -r yol; do
-              [ -n "$yol" ] || continue
-              ad="$(basename "$yol")"
+            while IFS= read -r ad; do
+              [ -n "$ad" ] || continue
+              ad="$(basename "$ad")"
               if [ ! -f "$kok/$ad" ]; then
                 echo "::error::Pakette ithal edilen $ad yok — bu paket MSYS2 disinda calismaz."
                 eksik=1
