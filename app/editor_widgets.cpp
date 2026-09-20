@@ -16,6 +16,7 @@
 #include <cstring>
 
 #include <imgui.h>
+#include <IconsMaterialDesign.h> // ikon makrolari (IconFontCppHeaders, Zlib)
 #include <imgui_internal.h> // ClearActiveID (arama kutusu temizlenince metin durumu da sifirlansin)
 
 namespace tulpar::engine::app {
@@ -149,7 +150,9 @@ uint32_t fold(const char *s, char *out, uint32_t cap) {
   return n;
 }
 
-// Cizimle buyutec (DejaVuSans'ta U+2315 ⌕ YOK; glif yerine iki ilkel).
+// Cizimle buyutec. Metin fontunda (DejaVuSans) U+2315 yok; ikon fontu
+// birlestikten sonra ICON_MD_SEARCH da kullanilabilir ama bu cizim
+// olceklenirken daha keskin duruyor ve ikon fontu yuklenemezse de calisir.
 void draw_magnifier(ImDrawList *dl, ImVec2 c, float size, ImU32 col) {
   const float r = size * 0.30f;
   const float t = size > 14.0f ? 1.6f : 1.2f;
@@ -203,7 +206,20 @@ void prop_end() {
 
 void prop_help(const char *text) { g_help = text; }
 
+// --- Ozellik aramasi ------------------------------------------------------
+// UE5 Details panelinin arama kutusu: 40 alanli bir bilesende aradigini
+// bulmanin tek yolu. Filtre bos degilse, etiketi eslesmeyen prop_* satiri
+// HIC cizilmez ve bos PropItem doner (degisiklik yok = gunluge islem yok).
+// Esleme hiyerarsi aramasiyla AYNI kuraldir (Turkce harf katlamali).
+namespace {
+const char *g_prop_filter = nullptr;
+bool prop_visible(const char *label) { return !g_prop_filter || hierarchy_filter_match(label, g_prop_filter); }
+} // namespace
+void prop_set_filter(const char *filter) { g_prop_filter = (filter && *filter) ? filter : nullptr; }
+bool prop_filter_active() { return g_prop_filter != nullptr; }
+
 PropItem prop_vec3(const char *label, float v[3], float speed, float min, float max, const char *fmt) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -279,6 +295,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
 }
 
 PropItem prop_float(const char *label, float *v, float speed, float min, float max, const char *fmt) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -289,6 +306,7 @@ PropItem prop_float(const char *label, float *v, float speed, float min, float m
 }
 
 PropItem prop_int(const char *label, int *v, int min, int max) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -301,6 +319,7 @@ PropItem prop_int(const char *label, int *v, int min, int max) {
 }
 
 PropItem prop_text(const char *label, char *buf, uint32_t cap) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -310,6 +329,7 @@ PropItem prop_text(const char *label, char *buf, uint32_t cap) {
 }
 
 PropItem prop_color(const char *label, float rgb[3]) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -369,6 +389,7 @@ PropItem prop_color(const char *label, float rgb[3]) {
 }
 
 PropItem prop_check(const char *label, bool *v) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -378,6 +399,7 @@ PropItem prop_check(const char *label, bool *v) {
 }
 
 PropItem prop_combo(const char *label, int *v, const char *items_zero_separated) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -387,6 +409,7 @@ PropItem prop_combo(const char *label, int *v, const char *items_zero_separated)
 }
 
 PropItem prop_asset(const char *label, int *index, const char (*names)[128], uint32_t count) {
+  if (!prop_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -550,10 +573,12 @@ int component_add_button(const char *const *names, uint32_t count) {
 // isimli sabitten yaziliyor: ham "1u << 5" yazilsaydi scene.hpp'de bir bit
 // numarasi kaydiginda menu SESSIZCE yanlis bileseni eklerdi.
 //
-// Simgeler METIN fontundan gelir -- depoda ikon TTF'i yok ve gelmeyecek, o
-// yuzden ICON_MD_* makrolari kullanilmaz. Yalniz DejaVuSans'ta gercekten
-// bulunan kod noktalari secildi; emoji (U+1F3A5, U+1F50A) fontta YOK ve
-// menude tofu kutusu olarak ciziliyordu.
+// SIMGELER: depoda artik bir IKON FONTU var (assets/fonts/MaterialIcons-
+// Regular.ttf; editor_ui.cpp onu metin atlasina MergeMode ile birlestirir),
+// bu yuzden Material'da net bir karsiligi olan satirlar ICON_MD_* makrosunu
+// kullanir. Karsiligi olmayan ya da metin glifi daha okunur olan satirlar
+// DejaVuSans kod noktasinda birakildi. Emoji (U+1F3A5, U+1F50A) HICBIR
+// fontta yok -- menude tofu kutusu cizerdi, kullanilmaz.
 const CreateMenuItem kCompModel[] = {
     {"Model (glTF)", "\xE2\x97\x86", content::kSceneModel, nullptr, 0}, // ◆
     {"Animasyon", "\xE2\x86\xBB", content::kSceneAnim, nullptr, 0},     // ↻
@@ -564,48 +589,32 @@ const CreateMenuItem kCompLight[] = {
 const CreateMenuItem kCompPhysics[] = {
     {"Fizik G\xC3\xB6vdesi", "\xE2\x97\xBC", content::kSceneBody, nullptr, 0},         // ◼
     {"Karakter Kontrolc\xC3\xBC", "\xE2\x8A\x99", content::kSceneCharacter, nullptr, 0}, // ⊙
-    // ∞ (U+221E): ic ice iki halka = iki govdeyi birlestiren baglanti.
-    // ICON_MD_LINK yerine; zincir glifi DejaVuSans'ta yok.
-    {"Fizik Eklemi (Joint)", "\xE2\x88\x9E", content::kSceneJoint, nullptr, 0},
+    {"Fizik Eklemi (Joint)", ICON_MD_LINK, content::kSceneJoint, nullptr, 0},
 };
 const CreateMenuItem kCompCamera[] = {
-    // ▣ (U+25A3): objektif/diyafram cagrisimi. ICON_MD_VIDEOCAM yerine --
-    // eski U+1F3A5 emojisi DejaVuSans'ta yok, menude tofu ciziliyordu.
-    {"Kamera", "\xE2\x96\xA3", content::kSceneCamera, nullptr, 0},
+    {"Kamera", ICON_MD_VIDEOCAM, content::kSceneCamera, nullptr, 0},
 };
 const CreateMenuItem kCompAudio[] = {
-    // ♪ (U+266A): ICON_MD_VOLUME_UP yerine; hoparlor glifi ve U+1F50A
-    // emojisi fontta yok, nota var.
-    {"Ses Kayna\xC4\x9F\xC4\xB1", "\xE2\x99\xAA", content::kSceneAudio, nullptr, 0},
-    // ◎ (U+25CE): ic ice cemberler = yayilan yanki. ICON_MD_WAVES yerine.
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", "\xE2\x97\x8E", content::kSceneReverb, nullptr, 0},
+    {"Ses Kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, content::kSceneAudio, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", ICON_MD_WAVES, content::kSceneReverb, nullptr, 0},
 };
 const CreateMenuItem kCompScript[] = {
-    // ▤ (U+25A4): satirli sayfa = belge. ICON_MD_DESCRIPTION yerine.
-    {"Tulpar Betik", "\xE2\x96\xA4", content::kSceneScript, nullptr, 0},
+    {"Tulpar Betik", ICON_MD_DESCRIPTION, content::kSceneScript, nullptr, 0},
 };
 const CreateMenuItem kCompVFX[] = {
-    // ∴ (U+2234): uc nokta = parcacik bulutu. ICON_MD_AUTO_AWESOME yerine.
-    {"Partik\xC3\xBCl Emitter", "\xE2\x88\xB4", content::kSceneParticle, nullptr, 0},
+    {"Partik\xC3\xBCl Emitter", ICON_MD_AUTO_AWESOME, content::kSceneParticle, nullptr, 0},
     {"R\xC3\xBCzgar Alan\xC4\xB1", "\xE2\x86\xAF", content::kSceneWind, nullptr, 0}, // ↯
 };
 const CreateMenuItem kCompEnvironment[] = {
-    // ▲ (U+25B2): dag silueti. ICON_MD_TERRAIN yerine.
-    {"Arazi (Terrain)", "\xE2\x96\xB2", content::kSceneTerrain, nullptr, 0},
-    // ≈ (U+2248): iki dalga cizgisi = su yuzeyi. ICON_MD_WATER yerine.
-    {"Su (Gerstner)", "\xE2\x89\x88", content::kSceneWater, nullptr, 0},
-    // ▦ (U+25A6): izgarali kare = voksel kafesi.
+    {"Arazi (Terrain)", ICON_MD_TERRAIN, content::kSceneTerrain, nullptr, 0},
+    {"Su (Gerstner)", ICON_MD_WATER, content::kSceneWater, nullptr, 0},
+    // ▦ (U+25A6): izgarali kare = voksel kafesi. Material'da karsiligi yok.
     {"Voksel D\xC3\xBCnyas\xC4\xB1", "\xE2\x96\xA6", content::kSceneVoxel, nullptr, 0},
-    // ☁ (U+2601): ICON_MD_CLOUD yerine; ayni fontta ☀ (U+2600) zaten
-    // kullaniliyor, komsu kod noktasi da var (olculdu).
-    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC (Skybox)", "\xE2\x98\x81", content::kSceneSkybox, nullptr, 0},
-    // ◉ (U+25C9): parlayan kure = yansima sondasi. ICON_MD_LENS yerine.
-    {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", "\xE2\x97\x89", content::kSceneRefProbe, nullptr, 0},
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC (Skybox)", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
+    {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", ICON_MD_LENS, content::kSceneRefProbe, nullptr, 0},
 };
 const CreateMenuItem kCompAI[] = {
-    // → (U+2192): yol izleyen ajan. ICON_MD_DIRECTIONS_RUN yerine; kosan
-    // insan glifi (emoji) fontta yok.
-    {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", "\xE2\x86\x92", content::kSceneNavAgent, nullptr, 0},
+    {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", ICON_MD_DIRECTIONS_RUN, content::kSceneNavAgent, nullptr, 0},
 };
 const CreateMenuItem kComponentMenu[] = {
     {"Render", nullptr, 0, kCompModel, 2},
@@ -699,9 +708,10 @@ uint32_t component_add_button(const CreateMenuItem *items, uint32_t count, uint3
       filter[0] = 0;
       ImGui::SetKeyboardFocusHere();
     }
-    // Ipucunda buyutec GLIFI yok: U+2315 DejaVuSans'ta bulunmuyor (bkz.
-    // hierarchy_search -- orada simge glif yerine cizgiyle ciziliyor).
-    ImGui::InputTextWithHint("##arama", "Ara...", filter, sizeof filter);
+    // Buyutec IKON FONTUNDAN gelir (U+2315 DejaVuSans'ta yok). hierarchy_search
+    // simgeyi hala cizgiyle ciziyor: orada ikon metnin icinde degil kutunun
+    // uzerinde duruyor ve her olcekte keskin kalmasi gerekiyor.
+    ImGui::InputTextWithHint("##arama", ICON_MD_SEARCH " Ara...", filter, sizeof filter);
     ImGui::Separator();
     if (count == 0 || !category_has_visible_leaf(items, count, existing_components, nullptr)) {
       ImGui::TextDisabled("Eklenecek bileşen kalmadı");
@@ -741,8 +751,7 @@ const CreateMenuItem kCreatePhysics[] = {
     {"Dinamik K\xC3\xBCre G\xC3\xB6vde", "\xE2\x97\x8D", 7, nullptr, 0}, // ◍
 };
 const CreateMenuItem kCreateAudio[] = {
-    // ♪: ICON_MD_VOLUME_UP yerine (bkz. kCompAudio).
-    {"Ses Kayna\xC4\x9F\xC4\xB1", "\xE2\x99\xAA", 13, nullptr, 0},
+    {"Ses Kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, 13, nullptr, 0},
 };
 const CreateMenuItem kCreateMenu[] = {
     {"Bo\xC5\x9F Varl\xC4\xB1k", "\xE2\x97\x8B", 1, nullptr, 0}, // ○
@@ -754,8 +763,7 @@ const CreateMenuItem kCreateMenu[] = {
     {"I\xC5\x9F\xC4\xB1k", "\xE2\x98\x80", 0, kCreateLight, 2}, // ☀
     {"Fizik", nullptr, 0, kCreatePhysics, 4},
     {"Ses", nullptr, 0, kCreateAudio, 1},
-    // ▣: ICON_MD_VIDEOCAM yerine (bkz. kCompCamera).
-    {"Kamera Varl\xC4\xB1\xC4\x9F\xC4\xB1", "\xE2\x96\xA3", 12, nullptr, 0},
+    {"Kamera Varl\xC4\xB1\xC4\x9F\xC4\xB1", ICON_MD_VIDEOCAM, 12, nullptr, 0},
 };
 const uint32_t kCreateMenuCount = 8;
 
@@ -1011,6 +1019,10 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
       if (ImGui::MenuItem("Kes", "Ctrl+X")) res.action = HierarchyAction::Cut;
       if (ImGui::MenuItem("Kopyala", "Ctrl+C")) res.action = HierarchyAction::Copy;
       if (ImGui::MenuItem("Yap\xC4\xB1\xC5\x9Ft\xC4\xB1r", "Ctrl+V")) res.action = HierarchyAction::Paste;
+      // Menunun SONUNDA: araya eklemek mevcut ogelerin konumunu kaydirir;
+      // test_editor_widgets sentetik tiki konumla yapiyor (Sil = 3. oge).
+      ImGui::Separator();
+      if (ImGui::MenuItem(ICON_MD_SAVE " Prefab olarak kaydet...")) res.action = HierarchyAction::SavePrefab;
       ImGui::EndPopup();
     }
     if (dbl) st->rename.begin(id, r.name); // cift tik: yerinde ad

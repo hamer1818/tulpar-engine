@@ -164,7 +164,11 @@ struct SceneEntity {
   // voksel (kSceneVoxel)
   uint32_t voxel_size_x = 16, voxel_size_y = 16, voxel_size_z = 16;
   float voxel_cell = 1.0f;
-  // kSceneSkybox'in alani YOK: bileseni tasimak (gokyuzu var mi) tek veridir.
+  // gokyuzu (kSceneSkybox). Panelde sabit bir dugme vardi, ARKASINDA ALAN DA
+  // YOKTU: bileseni eklemek ve HDRI secmek hicbir sey kaydetmiyordu. Bilesen
+  // biti "gokyuzu var mi"yi, bu alan HANGI gokyuzu oldugunu tasir; bos metin
+  // = motorun gomulu varsayilan gokyuzu.
+  char skybox_asset[kScenePathLen] = {0}; // HDRI / kup haritasi dosyasi
 };
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);

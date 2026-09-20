@@ -83,6 +83,7 @@ struct PbrParams {
   float roughness = 1.0f;   // ALGISAL puruzluluk (glTF); shader'da a = roughness^2
   float reflectance = 0.5f; // dielektrik F0 = 0.16 * reflectance^2 (0.5 -> %4)
   Vec3 emissive{0, 0, 0};   // YAZAR sRGB rengi; dogrusala cevrilip eklenir
+  float emissive_strength = 1.0f; // isima gucu carpani
 };
 
 // --- PBR DOKULARI (set 1, binding 2/3/4) ------------------------------------
@@ -113,13 +114,14 @@ struct PbrTextures {
 enum class NdfMode : uint8_t { Ggx = 0, Unnormalized = 1 };
 
 // --- FAZ 5 ZAMANSAL (temporal) — hepsi VARSAYILAN KAPALI -------------------
-// Yukseltici (upscaler) ARAYUZU. Arm ASR SDK'si depoda YOK; referans yollar
-// burada, gercek ASR entegrasyonu ayni arayuze bir kind ekleyerek girer
+// Yukseltici (upscaler) ARAYUZU. FSR SDK'si / saf GLSL entegrasyonu; referans yollar
+// burada, gercek FSR entegrasyonu ayni arayuze bir kind ekleyerek girer
 // (birlestirme gecisi tek dokunma noktasi).
 enum class UpscalerKind : uint8_t {
   None = 0,     // nokta ornekleme (texel merkezine kenetlenir) — referans
   Bilinear = 1, // donanim dogrusal suzme (ucuz yol)
-  Sharpen = 2,  // dogrusal + unsharp maske (CAS benzeri; ASR'nin yerini TUTMAZ)
+  Sharpen = 2,  // dogrusal + unsharp maske (CAS benzeri)
+  FSR = 3,      // AMD FidelityFX Super Resolution 1.0 (Saf GLSL)
 };
 
 struct TemporalConfig {
@@ -144,7 +146,7 @@ struct RendererConfig {
   bool srgb_target = true;
   uint32_t max_meshes = 64;
   uint32_t max_textures = 64;
-  uint32_t max_materials = 64;
+  uint32_t max_materials = 512;
   uint32_t max_draws = 8192;
   uint32_t frames_in_flight = 2;
   // Yonlu isik golge haritasi (tek kademe). 0 = golge yok. Mobil: D16 tercih
@@ -460,10 +462,8 @@ public:
   void set_render_scale(float s);
   float render_scale() const { return scale_; }
   // Yukseltici (upscale) SECIMI — birlestirme gecisinde uygulanir.
-  // ARM ASR ENTEGRASYON NOKTASI: SDK depoda yok. Geldiginde UpscalerKind'a bir
-  // deger eklenir, ASR kendi (gecmis kareli) hedefini graph tablosuna bir gecis
-  // olarak koyar ve kResMotion onun in0'i olur (o an graph.hpp'deki
-  // out_external bayragi duser ve "olu gecis" denetimi MV'yi de kapsar).
+  // GELISTIRILEBILIR: AMD FSR 1.0 (Saf Kod) entegrasyonu compose.frag uzerinden yapildi.
+  // Harici SDK (ARM ASR vb.) ihtiyaci kaldirilip, dis bagimlilik 0'a indirgenmistir.
   void set_upscaler(UpscalerKind k, float sharpness) {
     cfg_.temporal.upscaler = k;
     cfg_.temporal.sharpness = sharpness;

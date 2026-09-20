@@ -100,8 +100,16 @@ void draw_inspector(void *ctx, uint32_t frame) {
     }
     app::component_end();
   }
+  // IKI cesit de ciziliyor: duz ad listesi alan ESKI asiri yukleme ve agac +
+  // suzgec alan YENI asiri yukleme. Ayri ImGui kimlik kapsamlari kullaniyorlar
+  // ("bilesen_ekle" / "bilesen_ekle_agac"), bu yuzden ayni pencerede
+  // CAKISMIYORLAR ve tek maket ikisinin de cizimini kapsiyor.
   static const char *const kAdd[] = {"\xE2\x86\xBB  Animasyon"};
   app::component_add_button(kAdd, 1);
+  // Model + Isik + Govde takili sayilir: widget bunlari listeden elemeli,
+  // geri kalanlari gostermeli. Donus bit oldugu icin burada yok sayilir.
+  app::component_add_button(app::kComponentMenu, app::kComponentMenuCount,
+                            content::kSceneModel | content::kSceneLight | content::kSceneBody);
   ImGui::End();
 }
 

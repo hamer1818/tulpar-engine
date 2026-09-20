@@ -44,6 +44,10 @@ bool prop_begin(const char *id, float label_fraction = 0.38f);
 void prop_end();
 // Bir SONRAKI satirin etiket ipucuna eklenecek aciklama (tek kare gecerli).
 void prop_help(const char *text);
+// Ozellik aramasi: bos degilse etiketi eslesmeyen prop_* satirlari cizilmez.
+// Cagiran panel basinda ayarlar, panel sonunda nullptr ile temizler.
+void prop_set_filter(const char *filter);
+bool prop_filter_active();
 
 // Uc DragFloat, her birinin solunda AxisX/AxisY/AxisZ dolgulu X/Y/Z rozeti
 // (Unity/Godot). min == max: sinirsiz. Rozet alanin sol kenarina yapisiktir.
@@ -86,8 +90,10 @@ void component_end();
 // (8/10/11/20..24 ayni zamanda content/primitives.hpp yuva numaralaridir --
 // bu esitlik BILEREK kuruldu, arada esleme tablosu yok), kComponentMenu'de
 // content::kSceneXxx BITI.
-// icon UTF-8 bir gliftir ya da nullptr. IKON FONTU YOK (depoda ikon TTF'i
-// bulunmuyor), o yuzden yalniz metin fontunda gercekten olan kod noktalari.
+// icon UTF-8 bir gliftir ya da nullptr: ya ICON_MD_* (Material Icons, metin
+// atlasina birlestirilir) ya da DejaVuSans'ta gercekten bulunan bir kod
+// noktasi. Ikon fontu yuklenemezse ICON_MD_* satirlari eksik-glif kutusu
+// cizer, ad yine okunur (bkz. EditorUi::icons_ok).
 struct CreateMenuItem {
   const char *label;
   const char *icon;              // UTF-8 glif ya da nullptr
@@ -189,6 +195,7 @@ enum class HierarchyAction : uint32_t {
   Cut,        // baglam menusu: Kes
   Copy,       // baglam menusu: Kopyala
   Paste,      // baglam menusu: Yapistir
+  SavePrefab, // baglam menusu: alt agaci prefab dosyasina kaydet
 };
 struct HierarchyResult {
   HierarchyAction action = HierarchyAction::None;

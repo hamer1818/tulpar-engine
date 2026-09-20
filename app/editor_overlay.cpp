@@ -749,6 +749,13 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         // sinirinda kirilir, ikinci satir sagdan kirpik; tam ad ipucunda.
         const bool cut = tile_name(cdl, name_px, f.name, ImVec2(p.x + st.FramePadding.x * 0.5f, p.y + thumb_h + fs * 0.2f), tw - st.FramePadding.x, text);
         if (hov && cut) ImGui::SetTooltip("%s", f.name);
+        // Surukle-birak kaynagi: karoyu goruntu alanina birakinca sahneye eklenir
+        // (hedef tarafi editor_app.cpp'deki "ASSET_FILE" yuku).
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+          ImGui::SetDragDropPayload("ASSET_FILE", f.name, std::strlen(f.name) + 1);
+          ImGui::Text("Sahneye Ekle:\n%s", f.name);
+          ImGui::EndDragDropSource();
+        }
         if (f.in_scene) badge(cdl, ImVec2(p.x + 4.0f, p.y + 4.0f), "sahnede", badge_px, 5.0f, st.FrameRounding, tone_u32(Tone::AccentHi), tone_u32(Tone::Accent, 0.25f), nullptr);
         bool add = dbl;
         if (hov || ImGui::IsItemActive()) add |= add_button(ImVec2(q.x - btn - 4.0f, p.y + 4.0f), btn);
@@ -793,6 +800,12 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         editor_ellipsize(f.name, right - x, nb, sizeof nb);
         cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), text, nb);
         if (hov && std::strcmp(nb, f.name) != 0) ImGui::SetTooltip("%s", f.name);
+        // Surukle-birak kaynagi (liste gorunumu).
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+          ImGui::SetDragDropPayload("ASSET_FILE", f.name, std::strlen(f.name) + 1);
+          ImGui::Text("Sahneye Ekle:\n%s", f.name);
+          ImGui::EndDragDropSource();
+        }
         bool add = dbl;
         if (hov || ImGui::IsItemActive()) add |= add_button(ImVec2(q.x - st.FramePadding.x - btn, p.y + (row_h - btn) * 0.5f), btn);
         if (add && out) out->add_index = (int)i;

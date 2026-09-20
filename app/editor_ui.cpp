@@ -9,7 +9,9 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <IconsMaterialDesign.h>
 #include <imgui.h>
+#include <imnodes.h>
 #include <imgui_impl_vulkan.h>
 #include <ImGuizmo.h>
 
@@ -360,7 +362,7 @@ uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap) {
 }
 
 bool EditorUi::init(rhi::Device &dev, VkRenderPass rp, uint32_t subpass, uint32_t image_count, const char *font_ttf, float font_px,
-                    float ui_scale, bool srgb_target) {
+                    float ui_scale, bool srgb_target, const char *icon_ttf) {
   dev_ = &dev;
   static LoaderCtx lc;
   lc.api = &dev.api();
@@ -371,6 +373,7 @@ bool EditorUi::init(rhi::Device &dev, VkRenderPass rp, uint32_t subpass, uint32_
   }
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
+  ImNodes::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   // Kendi imgui.ini'sini YAZMAZ: duzen kaliciligi editorun kendi belirlenimli
   // dosyasinin isi (ImGui'nin ini'si karenin yan etkisi olarak yazilir, headless
@@ -404,6 +407,28 @@ bool EditorUi::init(rhi::Device &dev, VkRenderPass rp, uint32_t subpass, uint32_
       const float px = font_px > 8.0f ? font_px : 18.0f;
       io.Fonts->AddFontFromFileTTF(font_ttf, px);
       font_px_ = px;
+      // --- Ikon fontu AYNI atlasa birlestirilir ----------------------------
+      // MergeMode: ikinci font ayri bir ImFont DEGIL, oncekinin devamidir --
+      // yani "ICON_MD_SAVE Kaydet" tek bir Text() cagrisinda yazilabilir,
+      // PushFont/PopFont gerekmez. Her ImGui tabanli editorun yaptigi sey.
+      //
+      // ImGui 1.92'de GlyphRanges *LEGACY* (imgui.h:3759): glifler talep
+      // uzerine yuklenir, bu yuzden klasik "aralik tablosu" tarifine gerek
+      // yok. GlyphMinAdvanceX ikonlari tek genislige oturtur (etiketler
+      // hizali kalsin); GlyphOffset.y ikonu metin taban cizgisine indirir --
+      // ikon fontlarinin kutusu metin fontundan farkli oturur.
+      if (icon_ttf && *icon_ttf) {
+        FILE *g = std::fopen(icon_ttf, "rb");
+        if (g) {
+          std::fclose(g);
+          ImFontConfig cfg;
+          cfg.MergeMode = true;
+          cfg.PixelSnapH = true;
+          cfg.GlyphMinAdvanceX = px;          // tek genislik: ikonlar sutun gibi hizalanir
+          cfg.GlyphOffset = ImVec2(0.0f, 3.0f); // taban cizgisine indir (17 px metinde olculdu)
+          icons_ok_ = io.Fonts->AddFontFromFileTTF(icon_ttf, px, &cfg) != nullptr;
+        }
+      }
     }
   }
   srgb_target_ = srgb_target;
@@ -426,6 +451,7 @@ bool EditorUi::init(rhi::Device &dev, VkRenderPass rp, uint32_t subpass, uint32_
   ii.MinAllocationSize = 1024 * 1024; // BestPractices: kucuk ayirma uyarisi yok
   if (!ImGui_ImplVulkan_Init(&ii)) {
     std::snprintf(err_, sizeof err_, "ImGui_ImplVulkan_Init basarisiz");
+    ImNodes::DestroyContext();
     ImGui::DestroyContext();
     return false;
   }
@@ -437,6 +463,7 @@ void EditorUi::shutdown() {
   if (!ok_) return;
   dev_->api().vkDeviceWaitIdle(dev_->handle());
   ImGui_ImplVulkan_Shutdown();
+  ImNodes::DestroyContext();
   ImGui::DestroyContext();
   ok_ = false;
 }
@@ -845,6 +872,29 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
     draws += arrow(ren, cube, d.shadow_center, d.shadow_center + dir * len, {1.0f, 0.85f, 0.25f}, th * 1.5f);
   }
   return draws;
+}
+
+// Donusumlu tel kutu: 12 kenar YEREL uzayda kurulur, sonra m ile dunyaya
+// tasinir. wire_box eksen hizali (AABB) cizer; carpisma hacmi ise govdeyle
+// birlikte DONER -- dondurulmus bir kutu govdesini AABB ile gostermek
+// carpismanin gercekte nerede oldugu hakkinda yalan soylerdi.
+uint32_t editor_wire_box_m(renderer::Renderer &ren, renderer::MeshHandle cube, const Mat4 &m, Vec3 half, Vec3 color,
+                           float th) {
+  uint32_t n = 0;
+  const Vec3 h = half;
+  for (int a = 0; a < 4; a++) {
+    const float s0 = (a & 1) ? 1.0f : -1.0f, s1 = (a & 2) ? 1.0f : -1.0f;
+    ren.draw(cube, m * Mat4::translate({0, s0 * h.y, s1 * h.z}) * Mat4::scale({h.x * 2 + th, th, th}), color); n++;
+    ren.draw(cube, m * Mat4::translate({s0 * h.x, 0, s1 * h.z}) * Mat4::scale({th, h.y * 2 + th, th}), color); n++;
+    ren.draw(cube, m * Mat4::translate({s0 * h.x, s1 * h.y, 0}) * Mat4::scale({th, th, h.z * 2 + th}), color); n++;
+  }
+  return n;
+}
+
+uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th) {
+  uint32_t n = 0;
+  wire_box(ren, cube, (lo + hi) * 0.5f, (hi - lo) * 0.5f, color, th, &n);
+  return n;
 }
 
 } // namespace tulpar::engine::app

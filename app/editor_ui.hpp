@@ -71,9 +71,17 @@ public:
   // goruntu sayisi (>= 2). font_ttf: varsa TrueType (Turkce glifler), yoksa gomulu.
   // ui_scale: DPI / kullanici olcegi (bkz. set_ui_scale). srgb_target: bkz.
   // editor_apply_theme. Eski dort-argumanli cagrilar degismeden derlenir.
+  // icon_ttf: metin fontunun atlasina BIRLESTIRILECEK ikon fontu (Material
+  // Icons). null/bulunamadi: sessizce atlanir, arayuz calisir ama ikon
+  // yerine eksik-glif kutusu cizilir. Neden gerekli: DejaVuSans bir METIN
+  // fontudur ve editorun kullandigi sembollerin bir kismini (kamera, ses,
+  // betik, istatistik... olculdu: 16 kod noktasi, 34 cagri) ICERMEZ.
   bool init(rhi::Device &dev, VkRenderPass rp, uint32_t subpass, uint32_t image_count, const char *font_ttf, float font_px,
-            float ui_scale = 1.0f, bool srgb_target = true);
+            float ui_scale = 1.0f, bool srgb_target = true, const char *icon_ttf = nullptr);
   void shutdown();
+  // Ikon fontu atlasa birlestirildi mi. false ise ICON_MD_* glifleri
+  // eksik-glif kutusu olarak cizilir (font dosyasi bulunamadi).
+  bool icons_ok() const { return icons_ok_; }
   // Kare: girdi (null = headless, girdi yok), gorunen olcu (GORUNTU piksel), dt.
   void begin_frame(const platform::InputState *in, float width, float height, float dt);
   void end_frame(); // ImGui::Render
@@ -121,6 +129,7 @@ private:
   float pointer_scale_ = 1.0f;
   float font_px_ = 0;
   bool srgb_target_ = true;
+  bool icons_ok_ = false; // ikon fontu atlasa girdi mi (kapilar bunu sorar)
   EditorUiStats stats_{};
   char err_[128] = {0};
 };
@@ -201,6 +210,11 @@ struct GizmoOptions {
   float thickness = 0.06f;     // tel kalinligi (dunya birimi)
 };
 // Donus: yapilan ren.draw cagrisi sayisi (secili isik daha parlak cizilir).
+// Gorunum kipleri (Carpisma / Sinirlar) icin tel kutular. _m: yerel yarim
+// olcu + dunya matrisi (govdeyle doner); _aabb: eksen hizali dunya kutusu.
+uint32_t editor_wire_box_m(renderer::Renderer &ren, renderer::MeshHandle cube, const Mat4 &m, Vec3 half, Vec3 color,
+                           float th);
+uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th);
 uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, const content::SceneDesc &d, const int32_t *sel,
                             uint32_t n, const GizmoOptions &o);
 

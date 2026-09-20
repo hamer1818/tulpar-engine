@@ -13,6 +13,10 @@ constexpr float kDeg2Rad = 3.14159265358979f / 180.0f;
 uint32_t bits_of(float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; }
 bool feq(float a, float b) { return bits_of(a) == bits_of(b); }
 bool veq(Vec3 a, Vec3 b) { return feq(a.x, b.x) && feq(a.y, b.y) && feq(a.z, b.z); }
+// Vec2 icin AYRI: su/ruzgar yonu Vec2. Yazicida vec2() vardi ama ESITLIK yolu
+// veq(Vec3) cagirmisti — ayni derleme hatasinin ikinci yuzu (Vec2 -> Vec3
+// ortulu donusum yok).
+bool veq2(Vec2 a, Vec2 b) { return feq(a.x, b.x) && feq(a.y, b.y); }
 
 // --- yazici: bayt sayar, kapasite asilsa da uzunlugu dogru dondurur ---
 struct Out {
@@ -41,12 +45,20 @@ struct Out {
   void vec2(Vec2 v) { num(v.x); ch(' '); num(v.y); }
   // Tamsayi alanlari (tohum, izgara boyu, yuva indeksi) float'a CEVRILMEDEN
   // yazilir: float mantissasi 24 bit, yani 2^24'un ustundeki bir uint32 tohum
-  // (`terrain_seed`, `wind_seed`) num() yolundan gecerse SESSIZCE yuvarlanirdi.
+  // (`terrain_seed`, `wind_seed`) float yolundan gecerse SESSIZCE yuvarlanirdi.
+  // ASIRI YUKLEME (ayri bir `inum` adi degil): tools/scene_check.py yazici
+  // satirlarinin JETON sayisini `o.num(`/`o.vec(` cagrilarini sayarak olcuyor;
+  // baska adli bir yazici o sayimda GORUNMEZ olur ve kapi, jeton sayisi dogru
+  // olan satirlari yanlislikla kirmizi yapardi. int32/uint32 icin AYRI
+  // asiri yuklemeler var cunku tek bir `long long` asiri yuklemesi float ile
+  // BELIRSIZ kalirdi (ikisi de donusum sirasinda).
   void inum(long long v) {
     char tmp[24];
     std::snprintf(tmp, sizeof tmp, "%lld", v);
     puts(tmp);
   }
+  void num(int32_t v) { inum((long long)v); }
+  void num(uint32_t v) { inum((long long)v); }
   void str(const char *s) { ch('"'); puts(s); ch('"'); }
   void finish() {
     if (buf && cap) buf[len < cap ? len : cap - 1] = 0;
@@ -168,7 +180,12 @@ void write_entity(Out &o, const SceneEntity &e) {
   if (e.parent >= 0) { o.puts("  ebeveyn "); o.num((float)e.parent); o.ch('\n'); }
   if (e.flags) { o.puts("  bayrak "); o.num((float)e.flags); o.ch('\n'); }
   if (e.components & kSceneModel) {
-    o.puts("  model "); o.num((float)e.asset); o.ch(' '); o.vec(e.tint); o.ch('\n');
+    // `kaynak` ayirici: satirin ikinci jetonu ne oldugunu SOYLER, sayinin
+    // yorumu konuma degil anahtar sozcuge bagli. Okuyucu ayirici olmayan eski
+    // satiri (`model 0 1 1 1`) da kabul ediyor, yani bu yalnizca yazicinin
+    // kanonik bicimi. Kaynak indeksi -1 olabilir: varlik glTF'ten degil
+    // asagidaki `ilkel` satirindaki prosedurel mesh'ten cizilir.
+    o.puts("  model kaynak "); o.num(e.asset); o.ch(' '); o.vec(e.tint); o.ch('\n');
   }
   // `ilkel` ve `malzeme` bir bilesen DEGIL, model alanlarinin uzantisi — ve
   // ikisi de yalniz VARSAYILANDAN FARKLIYSA yazilir. Sebep kanonik bicim
@@ -176,7 +193,7 @@ void write_entity(Out &o, const SceneEntity &e) {
   // ikisi de varsayilanda, yani bu iki satir hic cikmiyor ve dosya bayt bayt
   // ayni kaliyor. Bilesen bitine BAGLANMADILAR cunku `primitive >= 0` olan bir
   // varlikta kSceneModel olmayabilir; kosul degere bakar, bite degil.
-  if (e.primitive >= 0) { o.puts("  ilkel "); o.inum(e.primitive); o.ch('\n'); }
+  if (e.primitive >= 0) { o.puts("  ilkel "); o.num(e.primitive); o.ch('\n'); }
   if (!material_is_default(e)) {
     o.puts("  malzeme "); o.num(e.metallic); o.ch(' '); o.num(e.roughness); o.ch(' '); o.num(e.reflectance);
     o.ch(' '); o.vec(e.emissive); o.ch(' '); o.num(e.emissive_strength); o.ch('\n');
@@ -222,11 +239,11 @@ void write_entity(Out &o, const SceneEntity &e) {
   if (e.components & kSceneTerrain) {
     o.puts("  arazi "); o.num(e.terrain_width); o.ch(' '); o.num(e.terrain_height); o.ch(' ');
     o.num(e.terrain_cell); o.ch(' '); o.num(e.terrain_amp); o.ch(' '); o.num(e.terrain_freq); o.ch(' ');
-    o.inum(e.terrain_octaves); o.ch(' '); o.inum(e.terrain_seed); o.ch('\n');
+    o.num(e.terrain_octaves); o.ch(' '); o.num(e.terrain_seed); o.ch('\n');
   }
   if (e.components & kSceneVoxel) {
-    o.puts("  voksel "); o.inum(e.voxel_size_x); o.ch(' '); o.inum(e.voxel_size_y); o.ch(' ');
-    o.inum(e.voxel_size_z); o.ch(' '); o.num(e.voxel_cell); o.ch('\n');
+    o.puts("  voksel "); o.num(e.voxel_size_x); o.ch(' '); o.num(e.voxel_size_y); o.ch(' ');
+    o.num(e.voxel_size_z); o.ch(' '); o.num(e.voxel_cell); o.ch('\n');
   }
   if (e.components & kSceneWater) {
     o.puts("  su "); o.num(e.wave_length); o.ch(' '); o.num(e.wave_amplitude); o.ch(' ');
@@ -234,16 +251,20 @@ void write_entity(Out &o, const SceneEntity &e) {
   }
   if (e.components & kSceneWind) {
     o.puts("  ruzgar "); o.vec2(e.wind_direction); o.ch(' '); o.num(e.wind_strength); o.ch(' ');
-    o.num(e.wind_gustiness); o.ch(' '); o.num(e.wind_gust_freq); o.ch(' '); o.inum(e.wind_seed); o.ch('\n');
+    o.num(e.wind_gustiness); o.ch(' '); o.num(e.wind_gust_freq); o.ch(' '); o.num(e.wind_seed); o.ch('\n');
   }
   if (e.components & kSceneNavAgent) {
     o.puts("  ajan "); o.vec(e.ai_target); o.ch(' '); o.num(e.ai_speed); o.ch(' '); o.num(e.ai_turn_speed); o.ch('\n');
   }
   if (e.components & kSceneJoint) {
-    o.puts("  eklem "); o.inum(e.joint_target); o.ch(' '); o.vec(e.joint_axis); o.ch(' ');
+    o.puts("  eklem "); o.num(e.joint_target); o.ch(' '); o.vec(e.joint_axis); o.ch(' ');
     o.num(e.joint_limit_min); o.ch(' '); o.num(e.joint_limit_max); o.ch(' '); o.num(e.joint_motor_speed); o.ch('\n');
   }
-  if (e.components & kSceneSkybox) o.puts("  gokyuzu\n"); // alani yok: bilesenin VARLIGI tek veri
+  // Gokyuzu: bilesen biti "var mi"yi, tirnakli yol HANGISI oldugunu tasir.
+  // Alan eklenmeden once yalniz bit yaziliyordu ve panelde secilen HDRI
+  // kaydedilmiyordu (sessiz kayip). Yol bos olsa da tirnakli jeton YAZILIR:
+  // kanonik bicim tek sekilli olsun, okuyucu iki ayri satir bicimi aramasin.
+  if (e.components & kSceneSkybox) { o.puts("  gokyuzu "); o.str(e.skybox_asset); o.ch('\n'); }
   if (e.components & kSceneRefProbe) {
     o.puts("  yansima "); o.num(e.ref_probe_radius); o.ch(' '); o.num(e.ref_probe_intensity); o.ch('\n');
   }
@@ -313,11 +334,11 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
   if (c & kSceneWater) {
     if (!feq(a.wave_length, b.wave_length) || !feq(a.wave_amplitude, b.wave_amplitude) ||
         !feq(a.wave_steepness, b.wave_steepness) || !feq(a.wave_speed, b.wave_speed) ||
-        !feq(a.wave_direction.x, b.wave_direction.x) || !feq(a.wave_direction.y, b.wave_direction.y))
+        !veq2(a.wave_direction, b.wave_direction))
       return false;
   }
   if (c & kSceneWind) {
-    if (!feq(a.wind_direction.x, b.wind_direction.x) || !feq(a.wind_direction.y, b.wind_direction.y) ||
+    if (!veq2(a.wind_direction, b.wind_direction) ||
         !feq(a.wind_strength, b.wind_strength) || !feq(a.wind_gustiness, b.wind_gustiness) ||
         !feq(a.wind_gust_freq, b.wind_gust_freq) || a.wind_seed != b.wind_seed)
       return false;
@@ -330,13 +351,15 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
         !feq(a.joint_limit_max, b.joint_limit_max) || !feq(a.joint_motor_speed, b.joint_motor_speed))
       return false;
   }
+  if (c & kSceneSkybox) {
+    if (std::strcmp(a.skybox_asset, b.skybox_asset) != 0) return false;
+  }
   if (c & kSceneRefProbe) {
     if (!feq(a.ref_probe_radius, b.ref_probe_radius) || !feq(a.ref_probe_intensity, b.ref_probe_intensity)) return false;
   }
   if (c & kSceneReverb) {
     if (!feq(a.reverb_decay, b.reverb_decay) || !feq(a.reverb_room_size, b.reverb_room_size)) return false;
   }
-  // kSceneSkybox: alani yok, `components` esitligi yukarida zaten olculdu.
   return true;
 }
 
@@ -405,14 +428,16 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
   Parser p{err};
   bool in_entity = false, header = false;
   SceneEntity cur{};
-  uint32_t seen = 0; // varlik icinde gorulen anahtarlar (yineleme yasak)
-  // Bilesen OLMAYAN satirlarin "gordum" bitleri. 1u<<8..1u<<12'deydiler;
-  // PR #331 bilesen bitlerini 1<<7..1<<17'ye tasiyinca kKonum ile kSceneParticle
-  // AYNI bit oldu — yani bir `konum` satiri varliga partikul bileseni takardi.
-  // Bit-24 ve ustu bilesen maskesinin (kSceneComponentMask) DISINDA duruyor.
+  // IKI AYRI maske (tek bir `seen` degil): bilesen bitleri ve bilesen OLMAYAN
+  // satirlarin "gordum" bitleri. Tek maskede tutuldugunda kKonum (1<<8) ile
+  // kSceneParticle AYNI bit olmustu — bir `konum` satiri varliga partikul
+  // bileseni takiyordu. Ayirmak o sinifi kokten kapatir: `seen_comp` yalniz
+  // gercek bilesenleri tasir ve dogrudan `components`a gider.
+  uint32_t seen_comp = 0; // varligin bilesen bitleri (kScene*)
+  uint32_t seen_keys = 0; // bilesen olmayan satirlar (yineleme yasak)
   enum : uint32_t {
-    kKonum = 1u << 24, kDonus = 1u << 25, kOlcek = 1u << 26, kEbeveyn = 1u << 27,
-    kBayrak = 1u << 28, kIlkel = 1u << 29, kMalzeme = 1u << 30
+    kKonum = 1u << 0, kDonus = 1u << 1, kOlcek = 1u << 2, kEbeveyn = 1u << 3,
+    kBayrak = 1u << 4, kIlkel = 1u << 5, kMalzeme = 1u << 6
   };
   // Ebeveyn satirlari: ILERI referans serbest oldugu icin gecerlilik ancak
   // dosya bitince olculebilir; hata yine de DOGRU satiri gostersin diye her
@@ -449,100 +474,138 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         continue;
       }
       if (tok_is(t[0], "konum")) {
-        if (n != 4 || (seen & kKonum)) return p.fail("konum x y z (bir kez)");
-        seen |= kKonum;
+        if (n != 4 || (seen_keys & kKonum)) return p.fail("konum x y z (bir kez)");
+        seen_keys |= kKonum;
         if (!p.vec(t + 1, &cur.pos)) return false;
       } else if (tok_is(t[0], "donus")) {
-        if (n != 4 || (seen & kDonus)) return p.fail("donus x y z (bir kez)");
-        seen |= kDonus;
+        if (n != 4 || (seen_keys & kDonus)) return p.fail("donus x y z (bir kez)");
+        seen_keys |= kDonus;
         if (!p.vec(t + 1, &cur.rot_deg)) return false;
       } else if (tok_is(t[0], "olcek")) {
-        if (n != 4 || (seen & kOlcek)) return p.fail("olcek x y z (bir kez)");
-        seen |= kOlcek;
+        if (n != 4 || (seen_keys & kOlcek)) return p.fail("olcek x y z (bir kez)");
+        seen_keys |= kOlcek;
         if (!p.vec(t + 1, &cur.scale)) return false;
       } else if (tok_is(t[0], "ebeveyn")) {
-        if (n != 2 || (seen & kEbeveyn)) return p.fail("ebeveyn <indeks> (bir kez)");
-        seen |= kEbeveyn;
+        if (n != 2 || (seen_keys & kEbeveyn)) return p.fail("ebeveyn <indeks> (bir kez)");
+        seen_keys |= kEbeveyn;
         uint32_t pi = 0;
         if (!p.uint(t[1], &pi)) return false;
         if (pi >= kSceneMaxEntities) return p.fail("ebeveyn indeksi sinir disi");
         cur.parent = (int32_t)pi;
         cur_parent_line = p.line; // gecerlilik dosya bitince olculur
       } else if (tok_is(t[0], "bayrak")) {
-        if (n != 2 || (seen & kBayrak)) return p.fail("bayrak <maske> (bir kez)");
-        seen |= kBayrak;
+        if (n != 2 || (seen_keys & kBayrak)) return p.fail("bayrak <maske> (bir kez)");
+        seen_keys |= kBayrak;
         uint32_t fl = 0;
         if (!p.uint(t[1], &fl)) return false;
         if (fl & ~(uint32_t)(kSceneHidden | kSceneLocked)) return p.fail("bilinmeyen bayrak biti");
         cur.flags = fl;
       } else if (tok_is(t[0], "model")) {
-        if (n != 5 || (seen & kSceneModel)) return p.fail("model kaynak r g b (bir kez)");
+        if (seen_comp & kSceneModel) return p.fail("model (bir kez)");
+        // Ikinci jeton AYIRICI olabilir: `kaynak` (glTF kaynak indeksi, yazicinin
+        // kanonik bicimi) ya da `ilkel` (prosedurel yuva). Ayirici YOKSA satir
+        // eski bicimdedir (`model 0 1 1 1`) ve kaynak indeksi olarak okunur —
+        // boylece bu tarihten once yazilmis her .sahne dosyasi acilmaya
+        // devam eder.
+        size_t num_start = 1;
+        bool is_prim = false;
+        if (n >= 2 && tok_is(t[1], "ilkel")) { is_prim = true; num_start = 2; }
+        else if (n >= 2 && tok_is(t[1], "kaynak")) { num_start = 2; }
+        if (n != num_start + 4) return p.fail("model [kaynak|ilkel] <indeks> r g b (bir kez)");
         int32_t a = 0;
         // -1 serbest: varlik bir glTF kaynagina DEGIL, `ilkel` satirindaki
         // prosedurel mesh'e baglidir (SceneRuntime ilkeli kaynaga tercih eder).
-        if (!p.sint(t[1], &a)) return false;
-        if (a < -1 || (a >= 0 && (uint32_t)a >= out->asset_count))
-          return p.fail("model kaynak indeksi tanimsiz (kaynak satiri once gelmeli)");
-        cur.asset = a;
-        if (!p.vec(t + 2, &cur.tint)) return false;
-        seen |= kSceneModel;
+        if (!p.sint(t[num_start], &a)) return false;
+        if (is_prim) {
+          if (a < 0) return p.fail("model ilkel yuvasi negatif olamaz");
+          cur.primitive = a;
+          seen_keys |= kIlkel; // ayri bir `ilkel` satiri ARTIK gelemez (ikisi ayni alan)
+        } else {
+          if (a < -1 || (a >= 0 && (uint32_t)a >= out->asset_count))
+            return p.fail("model kaynak indeksi tanimsiz (kaynak satiri once gelmeli)");
+          cur.asset = a;
+        }
+        if (!p.vec(t + num_start + 1, &cur.tint)) return false;
+        seen_comp |= kSceneModel;
       } else if (tok_is(t[0], "ilkel")) {
-        if (n != 2 || (seen & kIlkel)) return p.fail("ilkel <yuva> (bir kez)");
-        seen |= kIlkel;
+        if (n != 2 || (seen_keys & kIlkel)) return p.fail("ilkel <yuva> (bir kez)");
+        seen_keys |= kIlkel;
         if (!p.sint(t[1], &cur.primitive)) return false;
         if (cur.primitive < -1) return p.fail("ilkel yuvasi negatif olamaz (-1 = yok)");
-      } else if (tok_is(t[0], "malzeme")) {
-        if (n != 8 || (seen & kMalzeme)) return p.fail("malzeme metalik puruz yansitma er eg eb siddet (bir kez)");
-        seen |= kMalzeme;
+      } else if (tok_is(t[0], "malzeme") || tok_is(t[0], "pbr")) {
+        // `pbr`: ayni satirin eski/diger adi. Yazici `malzeme` uretir; okuma
+        // tarafi ikisini de kabul eder ki iki dalda yazilmis dosyalar da
+        // acilsin (jeton sayisi ve alan sirasi AYNI).
+        if (n != 8 || (seen_keys & kMalzeme)) return p.fail("malzeme metalik puruz yansitma er eg eb siddet (bir kez)");
+        seen_keys |= kMalzeme;
         if (!p.num(t[1], &cur.metallic) || !p.num(t[2], &cur.roughness) || !p.num(t[3], &cur.reflectance) ||
             !p.vec(t + 4, &cur.emissive) || !p.num(t[7], &cur.emissive_strength))
           return false;
       } else if (tok_is(t[0], "karakter")) {
-        if (n != 5 || (seen & kSceneCharacter)) return p.fail("karakter yaricap yukseklik kutle egim (bir kez)");
+        if (n != 5 || (seen_comp & kSceneCharacter)) return p.fail("karakter yaricap yukseklik kutle egim (bir kez)");
         if (!p.num(t[1], &cur.char_radius) || !p.num(t[2], &cur.char_height) || !p.num(t[3], &cur.char_mass) ||
             !p.num(t[4], &cur.char_max_slope))
           return false;
-        seen |= kSceneCharacter;
+        seen_comp |= kSceneCharacter;
       } else if (tok_is(t[0], "partikul")) {
-        if (n != 12 || (seen & kSceneParticle))
-          return p.fail("partikul hiz omur_min omur_max boy_bas boy_son vx vy vz jx jy jz (bir kez)");
-        if (!p.num(t[1], &cur.particle_spawn_rate) || !p.num(t[2], &cur.particle_lifetime_min) ||
-            !p.num(t[3], &cur.particle_lifetime_max) || !p.num(t[4], &cur.particle_size_start) ||
-            !p.num(t[5], &cur.particle_size_end) || !p.vec(t + 6, &cur.particle_velocity) ||
-            !p.vec(t + 9, &cur.particle_jitter))
+        if (seen_comp & kSceneParticle) return p.fail("partikul (bir kez)");
+        // 12 jeton = yazicinin kanonik TEK satiri. 2 jeton = ayni bilesenin
+        // cok satirli yazimi (`partikul hiz` + omur/boyut/hiz/dagilim); okuma
+        // tarafi ikisini de alir, yazan taraf hep tek satir uretir.
+        if (n != 12 && n != 2) return p.fail("partikul hiz [omur_min omur_max boy_bas boy_son vx vy vz jx jy jz]");
+        if (!p.num(t[1], &cur.particle_spawn_rate)) return false;
+        if (n == 12 &&
+            (!p.num(t[2], &cur.particle_lifetime_min) || !p.num(t[3], &cur.particle_lifetime_max) ||
+             !p.num(t[4], &cur.particle_size_start) || !p.num(t[5], &cur.particle_size_end) ||
+             !p.vec(t + 6, &cur.particle_velocity) || !p.vec(t + 9, &cur.particle_jitter)))
           return false;
-        seen |= kSceneParticle;
+        seen_comp |= kSceneParticle;
+      } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "omur")) {
+        // --- Cok satirli partikul yaziminin devam satirlari. YAZICI bunlari
+        // URETMEZ (tek satir yazar); yalniz okunurlar ki o bicimde yazilmis
+        // dosyalar alan kaybetmeden acilsin.
+        if (n != 3) return p.fail("omur min max");
+        if (!p.num(t[1], &cur.particle_lifetime_min) || !p.num(t[2], &cur.particle_lifetime_max)) return false;
+      } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "boyut")) {
+        if (n != 3) return p.fail("boyut baslangic bitis");
+        if (!p.num(t[1], &cur.particle_size_start) || !p.num(t[2], &cur.particle_size_end)) return false;
+      } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "hiz")) {
+        if (n != 4) return p.fail("hiz x y z");
+        if (!p.vec(t + 1, &cur.particle_velocity)) return false;
+      } else if ((seen_comp & kSceneParticle) && tok_is(t[0], "dagilim")) {
+        if (n != 4) return p.fail("dagilim x y z");
+        if (!p.vec(t + 1, &cur.particle_jitter)) return false;
       } else if (tok_is(t[0], "arazi")) {
-        if (n != 8 || (seen & kSceneTerrain)) return p.fail("arazi en boy hucre genlik frekans oktav tohum (bir kez)");
+        if (n != 8 || (seen_comp & kSceneTerrain)) return p.fail("arazi en boy hucre genlik frekans oktav tohum (bir kez)");
         if (!p.num(t[1], &cur.terrain_width) || !p.num(t[2], &cur.terrain_height) || !p.num(t[3], &cur.terrain_cell) ||
             !p.num(t[4], &cur.terrain_amp) || !p.num(t[5], &cur.terrain_freq) || !p.sint(t[6], &cur.terrain_octaves) ||
             !p.uint(t[7], &cur.terrain_seed))
           return false;
-        seen |= kSceneTerrain;
+        seen_comp |= kSceneTerrain;
       } else if (tok_is(t[0], "voksel")) {
-        if (n != 5 || (seen & kSceneVoxel)) return p.fail("voksel nx ny nz hucre (bir kez)");
+        if (n != 5 || (seen_comp & kSceneVoxel)) return p.fail("voksel nx ny nz hucre (bir kez)");
         if (!p.uint(t[1], &cur.voxel_size_x) || !p.uint(t[2], &cur.voxel_size_y) || !p.uint(t[3], &cur.voxel_size_z) ||
             !p.num(t[4], &cur.voxel_cell))
           return false;
-        seen |= kSceneVoxel;
+        seen_comp |= kSceneVoxel;
       } else if (tok_is(t[0], "su")) {
-        if (n != 7 || (seen & kSceneWater)) return p.fail("su dalga_boyu genlik sivrilik hiz dx dy (bir kez)");
+        if (n != 7 || (seen_comp & kSceneWater)) return p.fail("su dalga_boyu genlik sivrilik hiz dx dy (bir kez)");
         if (!p.num(t[1], &cur.wave_length) || !p.num(t[2], &cur.wave_amplitude) || !p.num(t[3], &cur.wave_steepness) ||
             !p.num(t[4], &cur.wave_speed) || !p.vec2(t + 5, &cur.wave_direction))
           return false;
-        seen |= kSceneWater;
+        seen_comp |= kSceneWater;
       } else if (tok_is(t[0], "ruzgar")) {
-        if (n != 7 || (seen & kSceneWind)) return p.fail("ruzgar dx dy siddet dalgalanma frekans tohum (bir kez)");
+        if (n != 7 || (seen_comp & kSceneWind)) return p.fail("ruzgar dx dy siddet dalgalanma frekans tohum (bir kez)");
         if (!p.vec2(t + 1, &cur.wind_direction) || !p.num(t[3], &cur.wind_strength) || !p.num(t[4], &cur.wind_gustiness) ||
             !p.num(t[5], &cur.wind_gust_freq) || !p.uint(t[6], &cur.wind_seed))
           return false;
-        seen |= kSceneWind;
+        seen_comp |= kSceneWind;
       } else if (tok_is(t[0], "ajan")) {
-        if (n != 6 || (seen & kSceneNavAgent)) return p.fail("ajan hx hy hz hiz donus_hizi (bir kez)");
+        if (n != 6 || (seen_comp & kSceneNavAgent)) return p.fail("ajan hx hy hz hiz donus_hizi (bir kez)");
         if (!p.vec(t + 1, &cur.ai_target) || !p.num(t[4], &cur.ai_speed) || !p.num(t[5], &cur.ai_turn_speed)) return false;
-        seen |= kSceneNavAgent;
+        seen_comp |= kSceneNavAgent;
       } else if (tok_is(t[0], "eklem")) {
-        if (n != 8 || (seen & kSceneJoint)) return p.fail("eklem hedef ax ay az alt ust motor (bir kez)");
+        if (n != 8 || (seen_comp & kSceneJoint)) return p.fail("eklem hedef ax ay az alt ust motor (bir kez)");
         if (!p.sint(t[1], &cur.joint_target) || !p.vec(t + 2, &cur.joint_axis) || !p.num(t[5], &cur.joint_limit_min) ||
             !p.num(t[6], &cur.joint_limit_max) || !p.num(t[7], &cur.joint_motor_speed))
           return false;
@@ -550,26 +613,30 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         // yuzden burada yalniz kaba sinir denetlenir; -1 = eklem serbest ucu.
         if (cur.joint_target < -1 || cur.joint_target >= (int32_t)kSceneMaxEntities)
           return p.fail("eklem hedef indeksi sinir disi");
-        seen |= kSceneJoint;
+        seen_comp |= kSceneJoint;
       } else if (tok_is(t[0], "gokyuzu")) {
-        if (n != 1 || (seen & kSceneSkybox)) return p.fail("gokyuzu tek basina olmali (bir kez)");
-        seen |= kSceneSkybox;
-      } else if (tok_is(t[0], "yansima")) {
-        if (n != 3 || (seen & kSceneRefProbe)) return p.fail("yansima yaricap siddet (bir kez)");
+        // n==2: yazicinin bicimi (tirnakli HDRI yolu). n==1: alan eklenmeden
+        // once yazilmis dosyalar — bilesen takilir, yol bos kalir.
+        if (n > 2 || (seen_comp & kSceneSkybox)) return p.fail("gokyuzu [\"dosya\"] (bir kez)");
+        if (n == 2 && !p.str(t[1], cur.skybox_asset, sizeof cur.skybox_asset)) return false;
+        seen_comp |= kSceneSkybox;
+      } else if (tok_is(t[0], "yansima") || tok_is(t[0], "sonda")) {
+        // `sonda`: ayni satirin diger adi (yalniz okunur; yazici `yansima` uretir).
+        if (n != 3 || (seen_comp & kSceneRefProbe)) return p.fail("yansima yaricap siddet (bir kez)");
         if (!p.num(t[1], &cur.ref_probe_radius) || !p.num(t[2], &cur.ref_probe_intensity)) return false;
-        seen |= kSceneRefProbe;
+        seen_comp |= kSceneRefProbe;
       } else if (tok_is(t[0], "yanki")) {
-        if (n != 3 || (seen & kSceneReverb)) return p.fail("yanki sonumlenme oda_boyu (bir kez)");
+        if (n != 3 || (seen_comp & kSceneReverb)) return p.fail("yanki sonumlenme oda_boyu (bir kez)");
         if (!p.num(t[1], &cur.reverb_decay) || !p.num(t[2], &cur.reverb_room_size)) return false;
-        seen |= kSceneReverb;
+        seen_comp |= kSceneReverb;
       } else if (tok_is(t[0], "animasyon")) {
-        if (n != 4 || (seen & kSceneAnim)) return p.fail("animasyon klip faz hiz (bir kez)");
+        if (n != 4 || (seen_comp & kSceneAnim)) return p.fail("animasyon klip faz hiz (bir kez)");
         if (!p.uint(t[1], &cur.clip) || !p.num(t[2], &cur.phase) || !p.num(t[3], &cur.speed)) return false;
-        seen |= kSceneAnim;
+        seen_comp |= kSceneAnim;
       } else if (tok_is(t[0], "isik")) {
         // n==6: eski dosya (turu yok, varsayilan Nokta -- geriye donuk okunur).
         // n>=7: 7. token tur anahtar sozcugu ("nokta"/"yonlu").
-        if (n < 6 || (seen & kSceneLight)) return p.fail("isik r g b siddet yaricap [nokta|yonlu] (bir kez)");
+        if (n < 6 || (seen_comp & kSceneLight)) return p.fail("isik r g b siddet yaricap [nokta|yonlu] (bir kez)");
         if (!p.vec(t + 1, &cur.light_color) || !p.num(t[4], &cur.light_intensity) || !p.num(t[5], &cur.light_radius)) return false;
         cur.light_type = SceneLightType::Point;
         if (n >= 7) {
@@ -577,9 +644,9 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
           else if (tok_is(t[6], "nokta")) cur.light_type = SceneLightType::Point;
           else return p.fail("isik turu nokta|yonlu olmali");
         }
-        seen |= kSceneLight;
+        seen_comp |= kSceneLight;
       } else if (tok_is(t[0], "govde")) {
-        if (seen & kSceneBody) return p.fail("govde bir kez");
+        if (seen_comp & kSceneBody) return p.fail("govde bir kez");
         const Tok *last = nullptr;
         if (n >= 2 && tok_is(t[1], "kutu")) {
           if (n != 6) return p.fail("govde kutu hx hy hz dinamik|sabit");
@@ -595,31 +662,32 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         if (tok_is(*last, "dinamik")) cur.dynamic = true;
         else if (tok_is(*last, "sabit")) cur.dynamic = false;
         else return p.fail("govde sonu dinamik|sabit");
-        seen |= kSceneBody;
+        seen_comp |= kSceneBody;
       } else if (tok_is(t[0], "kamera")) {
-        if (n != 4 || (seen & kSceneCamera)) return p.fail("kamera fov yakin uzak (bir kez)");
+        if (n != 4 || (seen_comp & kSceneCamera)) return p.fail("kamera fov yakin uzak (bir kez)");
         if (!p.num(t[1], &cur.cam_fov) || !p.num(t[2], &cur.cam_near) || !p.num(t[3], &cur.cam_far)) return false;
-        seen |= kSceneCamera;
+        seen_comp |= kSceneCamera;
       } else if (tok_is(t[0], "ses")) {
-        if (n < 4 || (seen & kSceneAudio)) return p.fail("ses \"klip\" ses_duzeyi perde [dongu|tek] [uzamsal|2b] (bir kez)");
+        if (n < 4 || (seen_comp & kSceneAudio)) return p.fail("ses \"klip\" ses_duzeyi perde [dongu|tek] [uzamsal|2b] (bir kez)");
         if (!p.str(t[1], cur.audio_clip, sizeof cur.audio_clip) || !p.num(t[2], &cur.audio_volume) || !p.num(t[3], &cur.audio_pitch)) return false;
         if (n >= 5) cur.audio_loop = tok_is(t[4], "dongu");
         if (n >= 6) cur.audio_spatial = tok_is(t[5], "uzamsal");
-        seen |= kSceneAudio;
+        seen_comp |= kSceneAudio;
       } else if (tok_is(t[0], "betik")) {
-        if (n < 2 || (seen & kSceneScript)) return p.fail("betik \"dosya\" [etkin|kapali] (bir kez)");
+        if (n < 2 || (seen_comp & kSceneScript)) return p.fail("betik \"dosya\" [etkin|kapali] (bir kez)");
         if (!p.str(t[1], cur.script_file, sizeof cur.script_file)) return false;
         if (n >= 3) cur.script_enabled = tok_is(t[2], "etkin");
-        seen |= kSceneScript;
+        seen_comp |= kSceneScript;
       } else return p.fail("varlik icinde bilinmeyen anahtar");
-      cur.components = seen & kSceneComponentMask;
+      cur.components = seen_comp & kSceneComponentMask;
       continue;
     }
     // ust duzey
     if (tok_is(t[0], "nesne")) {
       if (n != 2) return p.fail("nesne \"ad\"");
       cur = SceneEntity{};
-      seen = 0;
+      seen_comp = 0;
+      seen_keys = 0;
       cur_parent_line = 0;
       if (!p.str(t[1], cur.name, sizeof cur.name)) return false;
       if (cur.name[0] == 0) return p.fail("varlik adi bos");
@@ -922,7 +990,14 @@ SceneBounds scene_entity_local_bounds(const SceneEntity &e, const SceneBounds *m
     b.lo = {b.lo.x < lo.x ? b.lo.x : lo.x, b.lo.y < lo.y ? b.lo.y : lo.y, b.lo.z < lo.z ? b.lo.z : lo.z};
     b.hi = {b.hi.x > hi.x ? b.hi.x : hi.x, b.hi.y > hi.y ? b.hi.y : hi.y, b.hi.z > hi.z ? b.hi.z : hi.z};
   };
-  if ((e.components & kSceneModel) && model) grow(model->lo, model->hi);
+  // Prosedurel ilkelin glTF sinirlari YOKTUR (model == nullptr), bu yuzden
+  // ureteclerin varsayilan olculerini kapsayan birim kutu kullanilir. Olmazsa
+  // bir kapsul/simit yalniz 0.15'lik ISARET kutusuyla secilirdi: kullanici
+  // nesnenin ustune tiklar, hicbir sey secilmez.
+  // YAKLASIM: silindir/koni gibi bazi ureteclerin y ekseni 1 birime kadar
+  // cikar; secim kutusu o durumda gercek geometriden kucuktur.
+  if ((e.components & kSceneModel) && e.primitive >= 0) grow({-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f});
+  else if ((e.components & kSceneModel) && model) grow(model->lo, model->hi);
   if (e.components & kSceneBody) {
     if (e.shape == SceneShape::Box) grow(e.half * -1.0f, e.half);
     else grow({-e.radius, -e.radius, -e.radius}, {e.radius, e.radius, e.radius});

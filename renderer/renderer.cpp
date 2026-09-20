@@ -1154,7 +1154,7 @@ void Renderer::write_material_ubo(uint32_t id) {
   u.pbr[2] = m.pbr.reflectance;
   u.pbr[3] = m.is_pbr ? 1.0f : 0.0f;
   const Vec3 e = srgb_to_linear(m.pbr.emissive); // yazar sRGB verir
-  u.emissive[0] = e.x; u.emissive[1] = e.y; u.emissive[2] = e.z; u.emissive[3] = 0.0f;
+  u.emissive[0] = e.x; u.emissive[1] = e.y; u.emissive[2] = e.z; u.emissive[3] = m.pbr.emissive_strength;
   // Doku maskeleri: shader bunlara gore MALZEME BASINA TEKDUZE dallanir.
   // Maske 0 iken o sampler'a HIC dokunulmaz — dokusuz malzemenin goruntusu de
   // maliyeti de degismez (A/B md5 kapisi bunu olcuyor).

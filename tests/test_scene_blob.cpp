@@ -329,6 +329,35 @@ ENGINE_TEST(scene_blob_carries_new_component_tables) {
   std::printf("    [bilgi] v6 blob %zu bayt (bilesensiz kontrol %zu bayt)\n", n, pn);
 }
 
+// PR #332 (CagriKibar): KANONIK sahnenin (fill) metin gidis-donusu. Yukaridaki
+// v6 kapisi genisletilmis sahneyi olcuyor; bu kapi TEMEL sahnenin yaz->oku->yaz
+// baytlarinin ayni kaldigini ayrica olcer -- iki kapsam da korunuyor.
+ENGINE_TEST(scene_roundtrip_equality) {
+  static SceneDesc d;
+  fill(d);
+
+  // 1. Yaz (d -> buf1). scene_write METIN yazar: char*, uint8_t* degil.
+  static char buf1[32768];
+  const size_t n1 = scene_write(d, buf1, sizeof buf1);
+  CHECK(n1 > 0 && n1 < sizeof buf1);
+
+  // 2. Oku (buf1 -> d2). scene_read diye bir sey yok; metin ayristirici
+  // scene_parse(text, len, out, err).
+  static SceneDesc d2;
+  SceneError err{};
+  const bool ok = scene_parse(buf1, n1, &d2, &err);
+  CHECK(ok);
+
+  // 3. Yaz (d2 -> buf2)
+  static char buf2[32768];
+  const size_t n2 = scene_write(d2, buf2, sizeof buf2);
+  CHECK(n2 == n1);
+
+  // 4. Eşitlik (buf1 == buf2)
+  CHECK(std::memcmp(buf1, buf2, n1) == 0);
+  std::printf("    [bilgi] roundtrip test: yaz-oku-yaz esitligi OK (%zu bayt, sifir veri kaybi)\n", n1);
+}
+
 ENGINE_TEST(scene_blob_open_rejects_corruption) {
   static SceneDesc d;
   fill(d);
