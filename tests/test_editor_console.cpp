@@ -31,8 +31,6 @@ using namespace tulpar::engine;
 using namespace tulpar::engine::test;
 
 namespace {
-constexpr const char *kOut = "/tmp/claude-1000/-mnt-veri-yazilim-Tulpar/1bc55e54-3de0-46ed-9830-7196bb6ac65e/scratchpad/agent-c2";
-void out_path(char *buf, size_t n, const char *name) { std::snprintf(buf, n, "%s/%s", kOut, name); }
 
 // Halkadaki SON kaydin metni (yoksa "").
 const char *last_msg() {
@@ -270,7 +268,7 @@ ENGINE_TEST(console_panel_draws_mixed_levels) {
   p.height = 420;
   p.frames = 3;
   char path[512];
-  out_path(path, sizeof path, "konsol_paneli.ppm");
+  test_out_path(path, sizeof path, "konsol_paneli.ppm");
   p.out_ppm = path;
   p.draw = draw_console_probe;
   p.ctx = &c;
@@ -295,7 +293,7 @@ ENGINE_TEST(console_panel_draws_mixed_levels) {
   p2.height = 420;
   p2.frames = 3;
   char path2[512];
-  out_path(path2, sizeof path2, "konsol_paneli_suzgecli.ppm");
+  test_out_path(path2, sizeof path2, "konsol_paneli_suzgecli.ppm");
   p2.out_ppm = path2;
   p2.draw = draw_console_probe;
   p2.ctx = &c2;

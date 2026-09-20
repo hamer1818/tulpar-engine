@@ -31,8 +31,6 @@ using namespace tulpar::engine;
 using namespace tulpar::engine::test;
 
 namespace {
-constexpr const char *kOut = "/tmp/claude-1000/-mnt-veri-yazilim-Tulpar/1bc55e54-3de0-46ed-9830-7196bb6ac65e/scratchpad/agent-c";
-void out_path(char *buf, size_t n, const char *name) { std::snprintf(buf, n, "%s/%s", kOut, name); }
 
 // Dogrusal ton -> sRGB 8 bit. Offscreen hedef _SRGB: donanim yazarken kodlar,
 // okunan bayt paletteki altigen degerin ta kendisidir (+-1 yuvarlama).
@@ -244,7 +242,7 @@ ENGINE_TEST(editor_overlay_axis_x_endpoint_pixel_matches_palette) {
   EditorProbe p;
   p.width = 960; p.height = 600;
   char path[512];
-  out_path(path, sizeof path, "overlay_focused.ppm");
+  test_out_path(path, sizeof path, "overlay_focused.ppm");
   p.out_ppm = path;
   p.draw = draw_overlay_probe;
   p.ctx = &c;
@@ -286,7 +284,7 @@ ENGINE_TEST(editor_overlay_axis_x_endpoint_pixel_matches_palette) {
   c.info.playing = true;
   c.info.gizmo_op = 1;
   c.info.gizmos_visible = false;
-  out_path(path, sizeof path, "overlay_hovered.ppm");
+  test_out_path(path, sizeof path, "overlay_hovered.ppm");
   st = editor_probe_render(p);
   CHECK(st == ProbeStatus::Ok);
   std::printf("    [bilgi] oynatiliyor + gizmolar kapali: %u hap (istatistik dusuyor: 960 px'e 7 hap sigmiyor)\n", c.lay.pills);
@@ -392,7 +390,7 @@ ENGINE_TEST(editor_overlay_nav_gizmo_click_returns_axis_outside_disc_does_not) {
   p.width = 960; p.height = 600;
   p.frames = 8;
   char path[512];
-  out_path(path, sizeof path, "overlay_gizmo_hover.ppm");
+  test_out_path(path, sizeof path, "overlay_gizmo_hover.ppm");
   p.out_ppm = path;
   p.draw = draw_overlay_probe;
   p.ctx = &c;
@@ -479,7 +477,7 @@ ENGINE_TEST(editor_overlay_chips_toggle_projection_mode_and_gizmo_space) {
     c.aim = cases[k].aim;
     c.synth_click = true;
     p.ctx = &c;
-    out_path(path, sizeof path, "overlay_chip_izdusum.ppm");
+    test_out_path(path, sizeof path, "overlay_chip_izdusum.ppm");
     p.out_ppm = k == 0 ? path : nullptr;
     const ProbeStatus st = editor_probe_render(p);
     if (st == ProbeStatus::NoVulkan) { skip("Vulkan yok"); return; }
@@ -511,7 +509,7 @@ ENGINE_TEST(editor_overlay_chips_toggle_projection_mode_and_gizmo_space) {
   p.out_ppm = nullptr;
   for (int k = 0; k < 3; k++) {
     p.ctx = ctxs[k];
-    if (k == 1) { out_path(path, sizeof path, "overlay_chip_orto.ppm"); p.out_ppm = path; }
+    if (k == 1) { test_out_path(path, sizeof path, "overlay_chip_orto.ppm"); p.out_ppm = path; }
     else p.out_ppm = nullptr;
     const ProbeStatus st = editor_probe_render(p);
     CHECK(st == ProbeStatus::Ok);
@@ -575,7 +573,7 @@ ENGINE_TEST(editor_overlay_box_select_draws_and_reports_only_on_real_drag) {
   char path[512];
   for (int k = 0; k < 2; k++) {
     p.ctx = two[k];
-    if (k == 1) { out_path(path, sizeof path, "overlay_box_select.ppm"); p.out_ppm = path; }
+    if (k == 1) { test_out_path(path, sizeof path, "overlay_box_select.ppm"); p.out_ppm = path; }
     else p.out_ppm = nullptr;
     st = editor_probe_render(p);
     // Sonda DUSERSE SEBEBINI SOYLE: ciplak "st == Ok degil" satiri neyin
@@ -712,7 +710,7 @@ ENGINE_TEST(editor_assets_panel_double_click_adds_hover_does_not) {
   p.width = 640; p.height = 420;
   p.frames = 8;
   char path[512];
-  out_path(path, sizeof path, "assets_grid_dblclick.ppm");
+  test_out_path(path, sizeof path, "assets_grid_dblclick.ppm");
   p.out_ppm = path;
   p.draw = draw_assets_probe;
   p.ctx = &c;
@@ -732,7 +730,7 @@ ENGINE_TEST(editor_assets_panel_double_click_adds_hover_does_not) {
   make_files(h);
   h.synth_hover = true;
   static uint8_t px_hover[640 * 420 * 4], px_plain[640 * 420 * 4];
-  out_path(path, sizeof path, "assets_grid_hover.ppm");
+  test_out_path(path, sizeof path, "assets_grid_hover.ppm");
   p.ctx = &h;
   st = editor_probe_render(p);
   CHECK(st == ProbeStatus::Ok);
@@ -741,7 +739,7 @@ ENGINE_TEST(editor_assets_panel_double_click_adds_hover_does_not) {
   CHECK(h.add_seen == -1);
   AssetsCtx n;
   make_files(n);
-  out_path(path, sizeof path, "assets_grid.ppm");
+  test_out_path(path, sizeof path, "assets_grid.ppm");
   p.ctx = &n;
   st = editor_probe_render(p);
   CHECK(st == ProbeStatus::Ok);
@@ -770,7 +768,7 @@ ENGINE_TEST(editor_assets_panel_list_mode_and_empty_state_render) {
   EditorProbe p;
   p.width = 480; p.height = 420; // dar: dikey yigin duzeni (genis paneller yan yana)
   char path[512];
-  out_path(path, sizeof path, "assets_list.ppm");
+  test_out_path(path, sizeof path, "assets_list.ppm");
   p.out_ppm = path;
   p.draw = draw_assets_probe;
   p.ctx = &c;
@@ -785,7 +783,7 @@ ENGINE_TEST(editor_assets_panel_list_mode_and_empty_state_render) {
   AssetsCtx e;
   make_files(e);
   e.n = 0;
-  out_path(path, sizeof path, "assets_empty.ppm");
+  test_out_path(path, sizeof path, "assets_empty.ppm");
   p.ctx = &e;
   st = editor_probe_render(p);
   CHECK(st == ProbeStatus::Ok);
@@ -916,7 +914,7 @@ ENGINE_TEST(editor_theme_dock_tab_active_blends_into_window) {
   p.width = 1100; p.height = 680;
   p.frames = 4;
   char path[512];
-  out_path(path, sizeof path, "dock.ppm");
+  test_out_path(path, sizeof path, "dock.ppm");
   p.out_ppm = path;
   p.draw = draw_dock_probe;
   p.ctx = &c;
@@ -1073,7 +1071,7 @@ ENGINE_TEST(editor_gizmo_shadow_volume_is_subtler_than_light_box) {
   CHECK(n_on == 26); // light_glyph/camera_frustum bu all_on'da kapali (yukarida)
   if (rhi::offscreen_render_custom(off, oc, gz_rec_scene, &ren, &ores, gz_rec_shadow)) {
     char path[512];
-    out_path(path, sizeof path, "gizmo_3d.ppm");
+    test_out_path(path, sizeof path, "gizmo_3d.ppm");
     rhi::write_ppm(path, ores.pixels, W, H);
     std::printf("    [bilgi] gizmo PPM: %s\n", path);
   }

@@ -12,18 +12,54 @@
 
 namespace tulpar::engine::test {
 
+// Teshis ciktilarinin (PPM ekran goruntuleri) yazilacagi dizin.
+//
+// Eskiden uc test dosyasinda BIR OTURUMUN gecici dizini sabit yazilmisti
+// ("/tmp/claude-1000/.../<oturum-uuid>/scratchpad/agent-c2"). O yol baska
+// hicbir makinede yok; CI kosucusunda da yoktu. Testler duşmuyordu — cunku
+// kimse yazmanin BASARDIGINI denetlemiyordu — ama teshis goruntuleri sessizce
+// hicbir yere gitmiyordu. Yani "yesil" kosumun elinde kanit yoktu.
+//
+// Sira: TULPAR_ENGINE_OUT -> TMPDIR -> /tmp (Windows'ta TEMP/TMP).
+inline const char *test_out_dir() {
+  static char dir[512] = {0};
+  if (dir[0]) return dir;
+  const char *c = std::getenv("TULPAR_ENGINE_OUT");
+  if (!c || !*c) c = std::getenv("TMPDIR");
+#if defined(_WIN32)
+  if (!c || !*c) c = std::getenv("TEMP");
+  if (!c || !*c) c = std::getenv("TMP");
+  if (!c || !*c) c = ".";
+#else
+  if (!c || !*c) c = "/tmp";
+#endif
+  std::snprintf(dir, sizeof dir, "%s", c);
+  // Sondaki ayiraci at ki "<dir>/<ad>" iki egik cizgi uretmesin.
+  size_t n = std::strlen(dir);
+  while (n > 1 && (dir[n - 1] == '/' || dir[n - 1] == '\\')) dir[--n] = 0;
+  return dir;
+}
+
+inline void test_out_path(char *buf, size_t n, const char *name) {
+  std::snprintf(buf, n, "%s/%s", test_out_dir(), name);
+}
+
 using TestFn = void (*)();
 struct Case {
   const char *name;
   TestFn fn;
 };
 struct Registry {
-  // 512: bugun 397 test var. TAVAN SESSIZ DEGIL — asilirsa `overflow` sayar ve
+  // 640: bugun 485 test var. TAVAN SESSIZ DEGIL — asilirsa `overflow` sayar ve
   // kosum KIRMIZI doner (bkz. Registrar). 2026-09-17'de tam bu tavan sessizce
   // asildi: PR #322 test sayisini 165'ten 397'ye cikardi, tavan 256'ydi ve 141
   // test HIC KAYDOLMADI. Ozet satiri "256 passed, 0 failed" diyordu; o sayi bir
   // OLCUM DEGIL, tavanin kendisiydi ve kimse sormadi.
-  static constexpr int kMax = 512;
+  //
+  // 512 -> 640 (2026-09-20): editor Faz A-C birlesince 485'e cikildi, yani pay
+  // %5'e inmisti. Tavan artik gurultulu dusse de, DOLMADAN once buyutmek daha
+  // ucuz: sabit dizi, 640 * sizeof(Case) = ~10 KB.
+  static constexpr int kMax = 640;
   static Case cases[kMax];
   static int count;
   static int failures;      // mevcut testteki CHECK basarisizliklari

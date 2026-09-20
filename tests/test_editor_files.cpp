@@ -33,8 +33,6 @@ using namespace tulpar::engine;
 using namespace tulpar::engine::test;
 
 namespace {
-constexpr const char *kOut = "/tmp/claude-1000/-mnt-veri-yazilim-Tulpar/1bc55e54-3de0-46ed-9830-7196bb6ac65e/scratchpad/agent-c2";
-void out_path(char *buf, size_t n, const char *name) { std::snprintf(buf, n, "%s/%s", kOut, name); }
 
 // Gecici agac: <tmp>/tul_dosya_XXXXXX/{alt_sahneler/, *.sahne, *.png}
 struct TempTree {
@@ -325,7 +323,7 @@ ENGINE_TEST(files_dialog_draws_sorted_filtered_list) {
   p.height = 480;
   p.frames = 3;
   char path[512];
-  out_path(path, sizeof path, "dosya_diyalogu_ac.ppm");
+  test_out_path(path, sizeof path, "dosya_diyalogu_ac.ppm");
   p.out_ppm = path;
   p.draw = draw_dialog_probe;
   p.ctx = &c;
@@ -352,7 +350,7 @@ ENGINE_TEST(files_dialog_draws_sorted_filtered_list) {
   p2.height = 480;
   p2.frames = 3;
   char path2[512];
-  out_path(path2, sizeof path2, "dosya_diyalogu_kaydet.ppm");
+  test_out_path(path2, sizeof path2, "dosya_diyalogu_kaydet.ppm");
   p2.out_ppm = path2;
   p2.draw = draw_dialog_probe;
   p2.ctx = &c2;
@@ -375,7 +373,7 @@ ENGINE_TEST(files_confirm_modal_has_three_buttons) {
   p.height = 360;
   p.frames = 3;
   char path[512];
-  out_path(path, sizeof path, "onay_kutusu.ppm");
+  test_out_path(path, sizeof path, "onay_kutusu.ppm");
   p.out_ppm = path;
   p.draw = draw_confirm_probe;
   p.ctx = &c;
