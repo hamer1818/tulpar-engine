@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — ui.frag'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: eb9b94629743bdee9f4c492ee18600211365283a50aac1a40971830ffa4ad4ad
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t ui_frag_spv[] = {

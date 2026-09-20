@@ -629,11 +629,22 @@ def audit(verbose=False, overrides=None):
 # 5) Tazelik (istege bagli): depodaki *_spv.h gercekten bu GLSL'den mi?
 # =========================================================================
 def freshness():
+    # glslc yoksa ESKIDEN buradan 0 donuyordu: denetim "YESIL" diyordu ama
+    # tazeligi HIC olcmemisti -- CI'da (glslc yok) tam olarak bu oluyordu.
+    # Artik arac gerektirmeyen ozet kapisina (tools/shader_check.py, baslikta
+    # `// KAYNAK-SHA256:`) DUSER; yani glslc olmadan da gercekten olcer.
     glslc = shutil.which("glslc")
     if not glslc:
-        print("  ATLANDI: glslc yok — depodaki *_spv.h'nin GLSL ile tazeligi OLCULMEDI")
-        print("  UYARI: bayat bir *_spv.h bu denetimi de yaniltir (yerlesim eski shader'dan okunur)")
-        return 0
+        print("  glslc yok -> bayt karsilastirmasi KOSMADI; arac gerektirmeyen")
+        print("  ozet kapisina dusuluyor (baslikta // KAYNAK-SHA256):")
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import shader_check
+        bad, lines = shader_check.hash_layer(SHADERS)
+        print("\n".join("  " + l for l in lines))
+        if bad:
+            print("  UYARI: bayat bir *_spv.h bu denetimi de yaniltir "
+                  "(yerlesim eski shader'dan okunur)")
+        return bad
     bad = 0
     for name in sorted(os.listdir(SHADERS)):
         if not name.endswith((".vert", ".frag", ".comp")):

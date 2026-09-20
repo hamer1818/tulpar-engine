@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — triangle.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 8f68d5d889723713ece2600dc7e63b09b1c38111bd09fb885f7a8e2024f55db5
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t triangle_vert_spv[] = {

@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — mesh_skin.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: f6fc1b17d6b160048938e015d8da06da64282599e2e5d837f8c83a150ffc40b6
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t mesh_skin_vert_spv[] = {

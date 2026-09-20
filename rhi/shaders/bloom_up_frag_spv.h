@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — bloom_up.frag'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 99bf7adbd36cd66221dba1b5c9076d2f83a6d6ed3b84e4c0e6b2772eaeb285b7
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t bloom_up_frag_spv[] = {

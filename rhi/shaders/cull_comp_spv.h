@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — cull.comp'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 58e06d03835fba7b381c5acb4b737ca697861d029cb82e50c84b42aeebd3d78f
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t cull_comp_spv[] = {

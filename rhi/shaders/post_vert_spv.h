@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — post.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 769826224d837c6014e008d513a55bd903e981c39476125a199490cc90f5b797
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t post_vert_spv[] = {

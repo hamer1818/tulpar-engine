@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — ui.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 4031e110c73ca5a53cdce506fbe8bf9992680583a3c348656e814f2bc2ee6190
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t ui_vert_spv[] = {

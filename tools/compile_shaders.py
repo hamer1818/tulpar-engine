@@ -5,7 +5,15 @@ Faz 1: shader'lar GLSL (glslc). Plan Faz 8'e kadar Slang diyordu; bu makinede
 ve CI'da slangc yok (Arch'taki `slang` paketi S-Lang kutuphanesi, shader
 Slang degil). Uretilen .h dosyalari DEPOYA GIRER: CI'da glslc gerekmez ve
 byte'lar deterministiktir. Yeniden uretmek: python3 engine/tools/compile_shaders.py
+
+Uretilen her baslik KENDI KAYNAGININ SHA-256'sini tasir (`// KAYNAK-SHA256:`)
+ve hangi derleyiciyle uretildigini yazar (`// URETEC:`). tools/shader_check.py
+kapisi bu iki satira dayanir: kaynak degisip baslik yeniden uretilmediginde
+ozet tutmaz ve derleme KIRMIZI doner -- glslc olmayan makinelerde de. Ozet
+satirini elle duzenlemek kapiyi delmez: glslc varsa bayt karsilastirmasi da
+kosar.
 """
+import hashlib
 import os
 import struct
 import shutil
@@ -64,6 +72,23 @@ def find_compiler():
     return (None, None)
 
 
+def compiler_id(kind, exe):
+    """Baslige yazilacak TEK SATIRLIK derleyici kimligi.
+
+    Amaci sifirlama degil, DURUSTLUK: bayt karsilastirmasi yalniz basliklari
+    ureten derleyiciyle anlamli. Kimlik tutmuyorsa shader_check.py bayt
+    karsilastirmasini KOSMADIGINI soyler (sessizce gecmez), ozet kapisi yine
+    kosar.
+    """
+    r = subprocess.run([exe, "--version"], capture_output=True)
+    txt = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
+    lines = [l.strip() for l in txt.splitlines() if l.strip()]
+    if kind == "glslc":
+        # glslc --version: 1. satir shaderc surumu, 2. satir SPIRV-Tools surumu
+        return "glslc " + " ".join(lines[:2]) if lines else "glslc ?"
+    return "glslang " + (lines[0] if lines else "?")
+
+
 STAGE = {".vert": "vert", ".frag": "frag", ".comp": "comp"}
 
 
@@ -87,7 +112,8 @@ def main():
     if not exe:
         print("shader derleyicisi yok: glslc (shaderc) ya da glslang gerekli", file=sys.stderr)
         return 2
-    print("derleyici: %s (%s)" % (kind, exe))
+    cid = compiler_id(kind, exe)
+    print("derleyici: %s (%s) -> %s" % (kind, exe, cid))
     targets = [os.path.basename(a) for a in sys.argv[1:]]
     for name in sorted(os.listdir(SHADERS)):
         if not name.endswith((".vert", ".frag", ".comp")):
@@ -95,6 +121,8 @@ def main():
         if targets and name not in targets:
             continue
         src = os.path.join(SHADERS, name)
+        with open(src, "rb") as fh:
+            src_sha = hashlib.sha256(fh.read()).hexdigest()
         spv = compile_one(kind, exe, src, os.path.splitext(name)[1])
         if spv.returncode != 0:
             print(spv.stderr.decode(), file=sys.stderr)
@@ -104,8 +132,14 @@ def main():
         ident = name.replace(".", "_")
         words = [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
         out = os.path.join(SHADERS, ident + "_spv.h")
-        with open(out, "w") as f:
+        # encoding ACIKCA utf-8: yerel ayara birakildiginda baslik satirindaki
+        # em-dash cp1252 olarak yaziliyordu (depodaki eski godray_frag_spv.h
+        # boyle bozulmustu: 0x97 baytiyla, artik gecerli UTF-8 degil).
+        with open(out, "w", encoding="utf-8") as f:
             f.write("// URETILMIS DOSYA — %s'den compile_shaders.py ile. Elle duzenleme.\n" % name)
+            # Tazelik kapisinin (tools/shader_check.py) dayandigi iki satir.
+            f.write("// KAYNAK-SHA256: %s\n" % src_sha)
+            f.write("// URETEC: %s\n" % cid)
             f.write("#pragma once\n#include <cstdint>\n")
             f.write("static const uint32_t %s_spv[] = {\n" % ident)
             for i in range(0, len(words), 8):

@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — ui_overdraw.frag'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 16cc79c33d7eb93e449c1699e28509c6504fdbc3baf7cd9539c7f4cfd87b3430
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t ui_overdraw_frag_spv[] = {

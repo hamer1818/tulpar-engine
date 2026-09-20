@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — shadow.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 7955a836cc95eb9de8b0506008d71801c964d821c5b73d40bc195652f7361916
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t shadow_vert_spv[] = {

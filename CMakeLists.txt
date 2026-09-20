@@ -73,6 +73,21 @@ add_custom_target(engine_scene_check
     VERBATIM
 )
 
+# --- Shader tazelik denetimi ------------------------------------------------
+# Shader'lar GLSL yazilir, CEVRIMDISI derlenir, `rhi/shaders/*_spv.h` olarak
+# DEPOYA girer (kosum aninda shader derlemesi yok). GLSL degistiginde basligi
+# yeniden uretmeyi hicbir sey ZORLAMIYORDU: ne CMake, ne CI, ne bir test.
+# Olculdu (EP-01): compose.frag'in FSR1/RCAS dali (kind == 3) kaynakta vardi,
+# depodaki SPIR-V'de YOKTU -- UpscalerKind::FSR secen kod hata da uyari da
+# almadan bilinear kosuyordu. Kapi CI'da da olcsun diye ozet katmani glslc
+# GEREKTIRMEZ (baslik kaynaginin SHA-256'sini tasir); glslc varsa ustune bayt
+# karsilastirmasi da kosar, yoksa bunu GORUNUR sekilde yazar.
+add_custom_target(engine_shader_check
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/tools/shader_check.py ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "engine: uretilmis SPIR-V <-> GLSL tazelik denetimi (bayat = build hatasi)"
+    VERBATIM
+)
+
 # --- L1 ---------------------------------------------------------------------
 add_library(engine_core STATIC
     core/memory/arena.cpp
@@ -125,7 +140,7 @@ add_library(engine_rhi STATIC
 target_include_directories(engine_rhi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan)
 target_link_libraries(engine_rhi PUBLIC engine_core ${CMAKE_DL_LIBS})
 target_compile_options(engine_rhi PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
-add_dependencies(engine_rhi engine_layer_check)
+add_dependencies(engine_rhi engine_layer_check engine_shader_check)
 
 # --- Jolt Physics (vendored, engine/third_party/jolt) ------------------------
 # Plan Faz 2: "yazma, bagla". Bayraklar: platformlar arasi belirlenimlilik
@@ -239,7 +254,7 @@ add_library(engine_renderer STATIC renderer/renderer.cpp renderer/cluster.cpp re
 target_include_directories(engine_renderer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/debug_draw)
 target_link_libraries(engine_renderer PUBLIC engine_rhi engine_meshopt)
 target_compile_options(engine_renderer PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off)
-add_dependencies(engine_renderer engine_layer_check)
+add_dependencies(engine_renderer engine_layer_check engine_shader_check)
 
 # --- L6 CONTENT: glTF (cgltf) + goruntu (stb_image), yalniz yukleme aninda malloc ---
 add_library(engine_content STATIC content/gltf.cpp content/meshopt.cpp content/ktx2.cpp content/font.cpp content/scene.cpp content/scene_blob.cpp content/scene_runtime.cpp content/primitives.cpp content/prefab.cpp content/vendored_impl.c

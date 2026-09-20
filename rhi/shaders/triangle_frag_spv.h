@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — triangle.frag'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 62744165ca9240ceb1d74595e1e4353e3ef83747a96a97ace6e30253a0bf3a96
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t triangle_frag_spv[] = {

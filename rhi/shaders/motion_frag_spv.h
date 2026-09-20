@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — motion.frag'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 1c4144f1b6d2c48a65c4c1af55e7312e3da9d57714651380ffe82fc6f2ecf783
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t motion_frag_spv[] = {

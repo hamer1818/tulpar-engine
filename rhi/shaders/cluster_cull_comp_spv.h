@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — cluster_cull.comp'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: fd2db77a598d0a45ff5afa00f230a5caa92b9c2015a6293b30754537e25c49e6
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t cluster_cull_comp_spv[] = {

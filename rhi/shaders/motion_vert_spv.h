@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — motion.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: 11cf2d5f5f40ffbd4165187ab5c47ea8dc0141112e54afe829790ffa294fb781
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t motion_vert_spv[] = {

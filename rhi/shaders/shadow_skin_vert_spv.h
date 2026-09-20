@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — shadow_skin.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: ded42b3a1ccba77b5e95a0a668b6e1c41b4fa56a92a7b276dc3ffdfac93ef485
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t shadow_skin_vert_spv[] = {

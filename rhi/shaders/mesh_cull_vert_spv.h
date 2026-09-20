@@ -1,4 +1,6 @@
 // URETILMIS DOSYA — mesh_cull.vert'den compile_shaders.py ile. Elle duzenleme.
+// KAYNAK-SHA256: c077a1446cbe62f3237e45da196873848addc086df51ca2819c4d4121e407aa2
+// URETEC: glslc 2026.3 1:1.4.357.0
 #pragma once
 #include <cstdint>
 static const uint32_t mesh_cull_vert_spv[] = {
