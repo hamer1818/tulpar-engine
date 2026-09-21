@@ -139,6 +139,8 @@ etmez; `ATLANDI: <sebep>` basar ve özet satırındaki sayaca girer. Bu yüzden:
   (`motor-*`) yeniden kullanır. Yalnız `README.md` / `docs/*.md` değişen PR'da
   işler koşar ama adımları atlanır (check yine yeşil raporlar). Sürüm
   **yalnız** `v*` etiketinde (`release.yml`), `main` push'unda değil.
+  Ölçüldü (2026-09-21): PR #19 birleşince `main` koşumu üç platformda da
+  derlemeden PR artefaktını yükledi, boyutlar bayt bayt aynı.
   İlk ikisinde Vulkan sürücüsü kurulur ve yolun gerçekten koştuğu doğrulanır —
   "Vulkan yok" gerekçeli bir atlama işi **kırmızıya** çevirir; Windows'ta yazılım
   ICD'si olmadığı için GPU kapıları beklendiği gibi atlanır ve sebepleri iş
