@@ -1,0 +1,69 @@
+# Auto-merge — TulparLang'deki auto-merge.yml'in motor deposundaki esi
+# (2026-09-21). Taslak olmayan her PR, zorunlu check'ler (ci.yml'deki uc is:
+# "Linux x86_64 (GCC + lavapipe)", "macOS arm64 (AppleClang + MoltenVK)",
+# "Windows x86_64 (MSYS2 MINGW64)") yesile doner donmez SQUASH ile
+# birlesmek uzere kuyruga alinir.
+#
+# BU OTOMASYONUN DOGRULUGU `strict` AYARINA BAGLI. main'in dal korumasindaki
+# "require branches to be up to date before merging"
+# (`required_status_checks.strict`) ACIK olmali. Zincir:
+#   1. `strict` kapaliysa bir PR ESKI bir main'e karsi yesile doner.
+#   2. ci.yml'in main-push isi PR'in artefaktini YENIDEN KULLANIYOR ve o
+#      durumda derleme/test/paketleme adimlarinin HEPSINI atliyor.
+#   3. Yani birlesmis sonucu hicbir sey sinamiyor.
+# `strict` acikken dal main'i iceriyor demektir; squash sonrasi main'in agaci
+# PR'in agacina ESIT olur, yeniden kullanma guvenilir hale gelir. `strict`i
+# kapatan, ayni anda ci.yml'deki yeniden kullanmayi da kapatmali.
+#
+# Bu is akisi olmadan her PR'da elle "Enable auto-merge" (ya da
+# `gh pr merge --auto`) gerekir. Kapiyi GEVSETMEZ: birlesmeyi yine dal
+# korumasi (uc yesil is) serbest birakir; burasi yalniz otomasyon.
+#
+# Neden GITHUB_TOKEN degil AUTOMERGE_PAT: GITHUB_TOKEN ile yapilan birlesme
+# main'e "token'in push'u" sayilir ve GitHub asagi akis push/workflow_run
+# olaylarini BILEREK bastirir — ci.yml'in main-push isi hic tetiklenmezdi
+# (TulparLang'de olculdu). Depoya sinirli, Contents + Pull requests
+# okuma/yazma yetkili ince taneli bir PAT bu korumaya takilmaz.
+#
+# KURULUM (tek elle adim): depo Settings -> Secrets -> Actions ->
+# `AUTOMERGE_PAT`. Yoksa bu is ACIKCA kirmizi olur (asagidaki kontrol) —
+# zorunlu check degildir, PR'i engellemez, yalniz auto-merge acilmaz.
+
+name: Auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Ayni PR'a her push'ta (`synchronize`) ayni cagri kuyruga girer; ilki bayragi
+# zaten koydu, sonrakiler no-op. Devam edeni iptal etmek kuyrugu bosaltir.
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  enable-auto-merge:
+    # Taslaklar (hala WIP) ve fork PR'lari atlanir: GitHub fork'tan gelen
+    # pull_request'te gizli anahtarlari (AUTOMERGE_PAT dahil) vermez.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: AUTOMERGE_PAT var mi
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_PAT }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::AUTOMERGE_PAT gizli anahtari yok — auto-merge acilamadi. Depo Settings > Secrets > Actions altina, Contents + Pull requests okuma/yazma yetkili ince taneli bir PAT olarak ekle (TulparLang'deki ile ayni kurulum)."
+            exit 1
+          fi
+      - name: Auto-merge ac (squash)
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_PAT }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash

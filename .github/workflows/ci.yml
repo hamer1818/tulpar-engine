@@ -27,14 +27,35 @@
 # ===========================================================================
 name: CI
 
+# =====================================================================
+# NE ZAMAN KOSAR — TulparLang (build.yml) ile AYNI model (2026-09-21):
+#   * main/master/develop'a push  -> derle + test + paketle; main'de PR'in
+#     artefakti yeniden kullanilir (asagida "yeniden kullan" adimi).
+#   * main/master'a acilan PR      -> derle + test + paketle (uc platform).
+#     Baska bir dala acilan PR CI ALMAZ (TulparLang'de de almaz); katmanli
+#     PR'larin ust katmani ancak main'e dondugunde olculur.
+#   * `v*` etiketi                 -> BURADA DEGIL, release.yml (ayni uc is
+#     + paketleme + yayin). TulparLang bunu build.yml icinde yapar; burada
+#     ayri dosya, davranis ayni: surum yalniz etikette, main push'ta degil.
+#   * workflow_dispatch            -> elle prova.
+# NE ZAMAN MAIN'E GIRER: auto-merge.yml her taslak-olmayan PR'da squash
+# auto-merge'u acar; main'in dal korumasi bu dosyadaki UC isi (adiyla)
+# zorunlu sayar ve `strict` (dal guncel olmali). Ucu yesil -> squash.
+# DOCS-ONLY: yalniz README/docs degisen bir PR'da isler yine KOSAR (zorunlu
+# check adi yesil raporlasin diye) ama her adim atlanir.
+# =====================================================================
 on:
   push:
-    branches: [main]
+    branches: [main, master, develop]
   pull_request:
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
   contents: read
+  # `actions: read` — main push'undaki "yeniden kullan" adimi PR kosumunun
+  # artefaktini listeleyip indirir.
+  actions: read
 
 # Derleyici onbellegi (ccache) UC ISTE DE acik. Gerekce olculdu (2026-09-20):
 # 402 derleme biriminin 202'si (%50,2) vendored ve HIC DEGISMIYOR — Jolt 133,
@@ -50,21 +71,111 @@ env:
   # surum numarasiyla degistirirse mtime tabanli kontrol yanlis isabet verirdi.
   CCACHE_COMPILERCHECK: content
 
+# Ayni ref'e ust uste push: eski kosum iptal. main HARIC — main'deki kosum
+# PR artefaktini yeniden kullanan yol; yarida iptal edilirse main'in HEAD'i
+# icin hic sonuc kalmaz (TulparLang'deki ayni istisna).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Yalniz belge degisen bir PR (README, docs/*.md) ikiliyi degistiremez;
+  # uc platformda tam derleme bosa gider. Bayrak burada BIR KEZ hesaplanir,
+  # uc is `needs` ile alir ve her adimini bayraga gore atlar. Isler yine
+  # KOSAR: dal korumasi zorunlu check'i ADIYLA bekler ve "skipped" bir isi
+  # "success" saymaz (TulparLang PR #142'de olculdu) — butun adimlari
+  # atlanan is yesil raporlar.
+  detect-docs-only:
+    name: Belge-degisikligi tespiti
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: docs_only bayragi
+        id: detect
+        shell: bash
+        run: |
+          if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "Ust commit yok — tam derleme."
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only HEAD^..HEAD)
+          echo "HEAD^..HEAD degisen dosyalar:"
+          printf '  %s\n' $changed
+          # Ikiliyi HICBIR SEKILDE etkileyemeyecek yollar. Liste dar tutuldu:
+          # tools/*.md dahil degil (arac belgeleri paketlenen dosya olabilir).
+          non_docs=$(echo "$changed" | grep -vE '^(README\.md|docs/[^/]+\.md|tulpar/README\.md)$' || true)
+          if [ -n "$changed" ] && [ -z "$non_docs" ]; then
+            echo "Yalniz belge degismis — derleme adimlari atlanacak."
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Kod degismis — tam derleme."
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   linux:
     name: Linux x86_64 (GCC + lavapipe)
+    needs: detect-docs-only
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
+
+      # main'e squash-merge ile gelen commit'in PR'i zaten yesil kostu; ayni
+      # agaci uc platformda yeniden derlemek bosa 15-25 dk. PR kosumunun
+      # artefakti (dagitim/) indirilir ve asagidaki "Ciktilari yukle" adimi
+      # onu aynen yeniden yukler; derleme/test/paketleme adimlari atlanir.
+      # Arama basarisizsa sifirdan derlenir (en kotu durumda davranis eski).
+      # DOGRULUGU main'in `strict` dal korumasina bagli (TulparLang
+      # auto-merge.yml basligindaki zincir): dal main'i iceriyorsa squash
+      # sonrasi main'in agaci PR'in agacina esittir.
+      - name: PR artefaktini yeniden kullanmayi dene
+        id: reuse
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTEFAKT: motor-linux-x86_64
+        run: |
+          set -e
+          pr_num=$(git log -1 --format='%s' | grep -oE '\(#[0-9]+\)' | tr -d '(#)' || true)
+          if [ -z "$pr_num" ]; then
+            echo "Commit basliginda PR numarasi yok — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          head_sha=$(gh pr view "$pr_num" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+          if [ -z "$head_sha" ]; then
+            echo "PR #$pr_num okunamadi — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          run_id=$(gh run list --workflow='CI' --status=success --limit=30 \
+                     --json databaseId,headSha \
+                     --jq ".[] | select(.headSha==\"$head_sha\") | .databaseId" | head -1)
+          if [ -z "$run_id" ]; then
+            echo "PR #$pr_num head $head_sha icin yesil CI kosumu yok — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "PR #$pr_num kosumu $run_id artefakti ($ARTEFAKT) yeniden kullaniliyor"
+          set +e
+          rm -rf dagitim && mkdir -p dagitim
+          if ! gh run download "$run_id" -n "$ARTEFAKT" -D dagitim; then
+            echo "Artefakt indirilemedi — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$(ls -A dagitim)" ]; then
+            echo "Artefakt bos — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ls -la dagitim
+          echo "reused=true" >> "$GITHUB_OUTPUT"
 
       # mesa-vulkan-drivers = lavapipe ICD (yazilim Vulkan). libvulkan1 = loader;
       # motor onu link zamaninda degil dlopen ile ariyor, yani paket yoksa butun
       # GPU kapilari atlanir ve "passed" sayisi GPU hakkinda hicbir sey soylemez.
       - name: Bagimliliklar (lavapipe dahil)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -72,6 +183,7 @@ jobs:
             vulkan-validationlayers libglfw3
 
       - name: ccache onbellegi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -85,6 +197,7 @@ jobs:
       # Tam olarak bu oluyordu: apt listesinde vulkan-validationlayers HIC YOKTU,
       # her kosumda 5 atlama basiliyordu ve is yine de YESIL geciyordu.
       - name: Vulkan surucusu + dogrulama katmani gercekten var mi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           vulkaninfo --summary 2>&1 | tee vulkaninfo.log
@@ -116,29 +229,35 @@ jobs:
       # oyle bir hatayla cikti (tek `ls`e cok yol verilince KURULU
       # kutuphaneler "eksik" gorunuyordu). --sadece-denetle kurmaz, derlemez.
       - name: derle.sh bagimlilik denetimi (apt)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ./derle.sh --sadece-denetle
 
       - name: Katman denetimi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 tools/layer_check.py .
 
       - name: Yapilandir
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
 
       # Isabet orani GORUNUR olsun: dusen bir oran "onbellek calisiyor sandim"
       # diye sessizce gecmesin (yavaslamanin sebebi burada okunur).
       - name: ccache isabet orani
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Kapinin POZITIF KONTROLU: Vulkan'i kapatip atlama satirlarinin GERCEKTEN
       # basildigini goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye
       # uymayan bos bir grep olmadigi kanitlanmis oluyor.
       - name: Atlama mekanizmasinin pozitif kontrolu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
@@ -160,6 +279,7 @@ jobs:
       #   validation_layer  -> rhi_validation_layer_reports_zero_errors
       #   mali_best_practices -> renderer_/render_graph_post_/render_graph_gpu_cull_/temporal_
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           # NOT: BSD mktemp (macOS) sablonsuz `mktemp -d` KABUL ETMEZ — bos bir
@@ -179,6 +299,7 @@ jobs:
           echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
 
       - name: Testler + kapi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           ./yapi/engine_tests 2>&1 | tee sonuc.log
@@ -269,9 +390,11 @@ jobs:
       # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
       # olmasin.
       - name: Ciktilari topla
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: motor-linux-x86_64
@@ -281,9 +404,58 @@ jobs:
 
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
+    needs: detect-docs-only
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
+
+      # main'e squash-merge ile gelen commit'in PR'i zaten yesil kostu; ayni
+      # agaci uc platformda yeniden derlemek bosa 15-25 dk. PR kosumunun
+      # artefakti (dagitim/) indirilir ve asagidaki "Ciktilari yukle" adimi
+      # onu aynen yeniden yukler; derleme/test/paketleme adimlari atlanir.
+      # Arama basarisizsa sifirdan derlenir (en kotu durumda davranis eski).
+      # DOGRULUGU main'in `strict` dal korumasina bagli (TulparLang
+      # auto-merge.yml basligindaki zincir): dal main'i iceriyorsa squash
+      # sonrasi main'in agaci PR'in agacina esittir.
+      - name: PR artefaktini yeniden kullanmayi dene
+        id: reuse
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTEFAKT: motor-macos-arm64
+        run: |
+          set -e
+          pr_num=$(git log -1 --format='%s' | grep -oE '\(#[0-9]+\)' | tr -d '(#)' || true)
+          if [ -z "$pr_num" ]; then
+            echo "Commit basliginda PR numarasi yok — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          head_sha=$(gh pr view "$pr_num" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+          if [ -z "$head_sha" ]; then
+            echo "PR #$pr_num okunamadi — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          run_id=$(gh run list --workflow='CI' --status=success --limit=30 \
+                     --json databaseId,headSha \
+                     --jq ".[] | select(.headSha==\"$head_sha\") | .databaseId" | head -1)
+          if [ -z "$run_id" ]; then
+            echo "PR #$pr_num head $head_sha icin yesil CI kosumu yok — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "PR #$pr_num kosumu $run_id artefakti ($ARTEFAKT) yeniden kullaniliyor"
+          set +e
+          rm -rf dagitim && mkdir -p dagitim
+          if ! gh run download "$run_id" -n "$ARTEFAKT" -D dagitim; then
+            echo "Artefakt indirilemedi — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$(ls -A dagitim)" ]; then
+            echo "Artefakt bos — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ls -la dagitim
+          echo "reused=true" >> "$GITHUB_OUTPUT"
 
       # MoltenVK = Metal uzerinde Vulkan ICD'si. Motor loader'i LINK ZAMANINDA
       # degil dlopen ile ariyor, yani paket gelmezse butun GPU kapilari atlanir
@@ -294,6 +466,7 @@ jobs:
       # kendisi. Ikisi ayri: TulparLang'de ilk denemede yalniz molten-vk kuruldu
       # ve loader bulunamadi (3 kapi GORUNUR atlandi, 2026-09-14).
       - name: Bagimliliklar (MoltenVK dahil)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
@@ -329,6 +502,7 @@ jobs:
       # "... 7 atlandi" — 29 kapi fazladan atlanmis, is yine de YESIL.
       # Bu yuzden burada yol ARANIR ve bulunamazsa is KIRMIZI olur.
       - name: Vulkan ortami + surucu gercekten var mi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           MVK="$(brew --prefix molten-vk)"
@@ -416,6 +590,7 @@ jobs:
           fi
 
       - name: ccache onbellegi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -428,6 +603,7 @@ jobs:
       # oyle bir hatayla cikti (tek `ls`e cok yol verilince KURULU
       # kutuphaneler "eksik" gorunuyordu). --sadece-denetle kurmaz, derlemez.
       - name: derle.sh bagimlilik denetimi (brew)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           # Hangi bash kosuyor? mapfile duzeltmesi bash 3.2 icindi ve
           # surumu OLCMEDEN "3.2'de sinandi" demek olurdu.
@@ -435,18 +611,22 @@ jobs:
           ./derle.sh --sadece-denetle
 
       - name: Katman denetimi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 tools/layer_check.py .
 
       - name: Yapilandir
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
 
       - name: ccache isabet orani
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Kapinin POZITIF KONTROLU (Linux isindekinin esi, ayri platform ayri
@@ -454,6 +634,7 @@ jobs:
       # goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye uymayan
       # bos bir grep olmadigi burada da kanitlanmis oluyor.
       - name: Atlama mekanizmasinin pozitif kontrolu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
@@ -474,6 +655,7 @@ jobs:
       #   validation_layer  -> rhi_validation_layer_reports_zero_errors
       #   mali_best_practices -> renderer_/render_graph_post_/render_graph_gpu_cull_/temporal_
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           # NOT: BSD mktemp (macOS) sablonsuz `mktemp -d` KABUL ETMEZ — bos bir
@@ -493,6 +675,7 @@ jobs:
           echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
 
       - name: Testler + kapi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           ./yapi/engine_tests 2>&1 | tee sonuc.log
@@ -598,9 +781,11 @@ jobs:
       # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
       # olmasin.
       - name: Ciktilari topla
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: motor-macos-arm64
@@ -610,6 +795,7 @@ jobs:
 
   windows:
     name: Windows x86_64 (MSYS2 MINGW64)
+    needs: detect-docs-only
     runs-on: windows-latest
     defaults:
       run:
@@ -619,16 +805,67 @@ jobs:
       # kapisi bunu sart kosuyor); autocrlf'i ayrica kapatiyoruz ki runner ayari
       # .gitattributes'tan once devreye girmesin.
       - name: Satir sonu ayari
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
         shell: bash
         run: git config --global core.autocrlf input
 
       - uses: actions/checkout@v4
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
+
+      # main'e squash-merge ile gelen commit'in PR'i zaten yesil kostu; ayni
+      # agaci uc platformda yeniden derlemek bosa 15-25 dk. PR kosumunun
+      # artefakti (dagitim/) indirilir ve asagidaki "Ciktilari yukle" adimi
+      # onu aynen yeniden yukler; derleme/test/paketleme adimlari atlanir.
+      # Arama basarisizsa sifirdan derlenir (en kotu durumda davranis eski).
+      # DOGRULUGU main'in `strict` dal korumasina bagli (TulparLang
+      # auto-merge.yml basligindaki zincir): dal main'i iceriyorsa squash
+      # sonrasi main'in agaci PR'in agacina esittir.
+      - name: PR artefaktini yeniden kullanmayi dene
+        id: reuse
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTEFAKT: motor-windows-x86_64
+        run: |
+          set -e
+          pr_num=$(git log -1 --format='%s' | grep -oE '\(#[0-9]+\)' | tr -d '(#)' || true)
+          if [ -z "$pr_num" ]; then
+            echo "Commit basliginda PR numarasi yok — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          head_sha=$(gh pr view "$pr_num" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+          if [ -z "$head_sha" ]; then
+            echo "PR #$pr_num okunamadi — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          run_id=$(gh run list --workflow='CI' --status=success --limit=30 \
+                     --json databaseId,headSha \
+                     --jq ".[] | select(.headSha==\"$head_sha\") | .databaseId" | head -1)
+          if [ -z "$run_id" ]; then
+            echo "PR #$pr_num head $head_sha icin yesil CI kosumu yok — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "PR #$pr_num kosumu $run_id artefakti ($ARTEFAKT) yeniden kullaniliyor"
+          set +e
+          rm -rf dagitim && mkdir -p dagitim
+          if ! gh run download "$run_id" -n "$ARTEFAKT" -D dagitim; then
+            echo "Artefakt indirilemedi — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$(ls -A dagitim)" ]; then
+            echo "Artefakt bos — sifirdan derleniyor."
+            echo "reused=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ls -la dagitim
+          echo "reused=true" >> "$GITHUB_OUTPUT"
 
       # update: false — "Final system upgrade" adimi olculdu 27-31 sn ve TEMEL
       # IMAJI tazelemekten baska is yapmiyor; ihtiyac duydugumuz paketler zaten
       # `install:` ile geliyor. Paket onbellegi (setup-msys2'nin kendi cache'i,
       # ~168 MB, isabet ediyor) bundan bagimsiz calisiyor.
       - uses: msys2/setup-msys2@v2
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         id: msys2
         with:
           msystem: MINGW64
@@ -645,9 +882,11 @@ jobs:
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
       # hata yokken kirmizi doniyordu. Kapinin kapisi.
       - name: Kanonik varliklar LF mi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF ile cikarilmis; .gitattributes devreye girmemis."; exit 1; }
 
       - name: ccache onbellegi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -661,6 +900,7 @@ jobs:
       # cagridan ONCE ortamda mi) ve bagimlilik raporunun gercek Windows'ta
       # dogru cikmasi. Is zaten CI=1 oldugu icin hatada tus beklenmez.
       - name: derle.bat gercek cmd'de (yalniz denetim)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         shell: cmd
         env:
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
@@ -671,24 +911,29 @@ jobs:
         run: derle.bat --denetle
 
       - name: Katman denetimi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 tools/layer_check.py .
 
       - name: Yapilandir
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Derle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
 
       - name: ccache isabet orani
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Windows runner'inda yazilim Vulkan ICD'si yok; RHI kapilari burada
       # ATLANDI olacak ve bu BEKLENEN durum. Ama gorunmez kalmasin: sebepler
       # is ozetine yazilir. Gercek Vulkan kapisi Linux isinde.
       - name: Testler + kapi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           ./yapi/engine_tests.exe 2>&1 | tee sonuc.log
@@ -758,6 +1003,7 @@ jobs:
       # (tools/paket_denetle.sh) hem burada hem surumde kosuyor: PR'da yesilse
       # surumde de yesildir.
       - name: Paketle + yerlesim/DLL kapisi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           mkdir -p paket/deneme
@@ -765,9 +1011,11 @@ jobs:
           bash tools/paket_denetle.sh yapi paket/deneme
 
       - name: Ciktilari topla (+ MinGW DLL'leri)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: motor-windows-x86_64

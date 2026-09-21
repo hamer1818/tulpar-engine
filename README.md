@@ -130,6 +130,15 @@ etmez; `ATLANDI: <sebep>` basar ve özet satırındaki sayaca girer. Bu yüzden:
 * `TULPAR_ENGINE_NO_VULKAN=1` bu yolu zorlar — atlama mekanizmasının pozitif kontrolü.
 * CI (`.github/workflows/ci.yml`) **üç platform / iki mimari** koşar:
   `linux` x86_64 (lavapipe), `macos` arm64 (MoltenVK), `windows` x86_64 (MSYS2).
+  **Ne zaman, nasıl — TulparLang ile aynı model (2026-09-21):** `main`'e açılan
+  her PR üç işi koşturur; üçü `main`'in dal korumasında **zorunlu** ve dal
+  `main`'i içermek zorunda (`strict`). `.github/workflows/auto-merge.yml` taslak
+  olmayan her PR'da squash auto-merge'ü açar (gizli anahtar `AUTOMERGE_PAT`):
+  üç iş yeşil olunca PR kendiliğinden `main`'e girer, dal silinir. `main`'e
+  gelen squash commit'inde CI yeniden derlemez, PR koşumunun artefaktını
+  (`motor-*`) yeniden kullanır. Yalnız `README.md` / `docs/*.md` değişen PR'da
+  işler koşar ama adımları atlanır (check yine yeşil raporlar). Sürüm
+  **yalnız** `v*` etiketinde (`release.yml`), `main` push'unda değil.
   İlk ikisinde Vulkan sürücüsü kurulur ve yolun gerçekten koştuğu doğrulanır —
   "Vulkan yok" gerekçeli bir atlama işi **kırmızıya** çevirir; Windows'ta yazılım
   ICD'si olmadığı için GPU kapıları beklendiği gibi atlanır ve sebepleri iş
