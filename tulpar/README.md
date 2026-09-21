@@ -15,8 +15,8 @@ tulpar/
     engine_builtins.inc        LSP tamamlama/hover
   examples/               engine_ilk_oyun.tpr, engine_arena.tpr, engine_aksiyon.tpr
                           (aksiyon: TulparLang P0 dil özellikleri — `enum Ekran/Durum/Hal`,
-                          `yon_hesapla(): (float, float)`; düşman kaydı P1 `Dusman[]` gelene
-                          kadar paralel dizilerde)
+                          `yon_hesapla(): (float, float)`, düşman kaydı tek `Dusman[]`
+                          — 11 paralel dizi 2026-09-21'de kalktı)
   tests/engine_bridge.test.tpr   uçtan uca köprü testi (Tulpar tarafı)
 ```
 

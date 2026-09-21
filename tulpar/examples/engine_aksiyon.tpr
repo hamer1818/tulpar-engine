@@ -121,22 +121,28 @@ bool g_kapi_acik = false;
 // Kodda kurulan yedek düzenin varlıkları (bölüm geçişinde silinir)
 array g_kod = [];
 
-// ---- Düşmanlar: paralel diziler (arcade deseni) ---------------------------
-// Tekil float struct artık kutusuz (TulparLang P0.3) ama kutusuz struct DİZİSİ
-// yok: `Dusman[]` P1'de. Kutulu dizide struct her kare 11 string-anahtarlı
-// aç/paketle demek olurdu; o yüzden kayıt paralel dizilerde kalıyor.
+// ---- Düşmanlar: tek tipli struct dizisi (TulparLang P1.1) ------------------
+// 2026-09-21'e kadar 11 PARALEL DİZİ idi (`array d_id`, `d_can`, … `d_flas`):
+// kutulu bir dizideki struct string-anahtarlı nesneye dönüştüğü için her
+// `dusmanlar[i].can` bir arama olurdu. `Dusman[]` elemanları ardışık ve kutusuz tutar,
+// alan erişimi işaretçi + GEP'tir. Ölçüm (benchmarks/dusman_dizisi): aynı iş
+// 2000 varlık × 500 karede 7,2 ms, paralel dizilerle 10,8 ms.
 enum Hal { DEVRIYE, KOVALA }
-array d_id = [];
-array d_can = [];
-array d_hal = [];            // Hal.DEVRIYE / Hal.KOVALA
-array d_ax = [];
-array d_az = [];
-array d_bx = [];
-array d_bz = [];
-array d_hedef = [];          // 0 -> A noktası, 1 -> B noktası
-array d_yaw = [];            // bakış yönü (radyan)
-array d_kayip = [];          // kaç saniyedir göremiyor
-array d_flas = [];           // vuruş flaşı süresi
+enum Nokta { A, B }          // devriye hedefi (eskiden 0/1 sihirli sayı)
+struct Dusman {
+    int id;                  // motor varlık tutamacı
+    int can;
+    Hal hal;
+    float ax;                // devriye A noktası
+    float az;
+    float bx;                // devriye B noktası
+    float bz;
+    Nokta hedef;
+    float yaw;               // bakış yönü (radyan)
+    float kayip;             // kaç saniyedir göremiyor
+    float flas;              // vuruş flaşı süresi
+}
+Dusman[] dusmanlar = [];
 
 // ---- Renkler ----------------------------------------------------------------
 int RENK_OYUNCU = 0;
@@ -215,43 +221,25 @@ func dusman_ekle(x, z, ax, az, bx, bz) {
         logla("UYARI dusman kurulamadi (" + toString(x) + "," + toString(z) + ")");
         return;
     }
-    push(d_id, id);
-    push(d_can, DUSMAN_CAN_MAX);
-    push(d_hal, Hal.DEVRIYE);
-    push(d_ax, ax);
-    push(d_az, az);
-    push(d_bx, bx);
-    push(d_bz, bz);
-    push(d_hedef, 0);
-    push(d_yaw, 0.0);
-    push(d_kayip, 0.0);
-    push(d_flas, 0.0);
+    push(dusmanlar, { id: id, can: DUSMAN_CAN_MAX, hal: Hal.DEVRIYE,
+              ax: ax, az: az, bx: bx, bz: bz, hedef: Nokta.A,
+              yaw: 0.0, kayip: 0.0, flas: 0.0 });
 }
 
 func dusmanlari_bosalt() {
     int i = 0;
-    while (i < len(d_id)) {
-        if (canli(d_id[i])) { sil(d_id[i]); }
+    while (i < len(dusmanlar)) {
+        if (canli(dusmanlar[i].id)) { sil(dusmanlar[i].id); }
         i = i + 1;
     }
-    d_id = [];
-    d_can = [];
-    d_hal = [];
-    d_ax = [];
-    d_az = [];
-    d_bx = [];
-    d_bz = [];
-    d_hedef = [];
-    d_yaw = [];
-    d_kayip = [];
-    d_flas = [];
+    dusmanlar = [];
 }
 
 func canli_dusman(): int {
     int n = 0;
     int i = 0;
-    while (i < len(d_id)) {
-        if (d_can[i] > 0) { n = n + 1; }
+    while (i < len(dusmanlar)) {
+        if (dusmanlar[i].can > 0) { n = n + 1; }
         i = i + 1;
     }
     return n;
@@ -376,7 +364,7 @@ func bolum_kur(n) {
     // kendini yeniler ("The Truth" dongusunun oyun ayagi). Kodda kurulan yedek
     // duzende izlenecek dosya yoktur.
     if (g_sahneden) { sahne_izle(true); }
-    logla("bolum " + toString(n) + " hazir: " + toString(len(d_id)) + " dusman, kapi (" + toString(g_kapi_x) + "," + toString(g_kapi_z) + ")");
+    logla("bolum " + toString(n) + " hazir: " + toString(len(dusmanlar)) + " dusman, kapi (" + toString(g_kapi_x) + "," + toString(g_kapi_z) + ")");
 }
 
 // ---- Ayarlar: kalici kayit --------------------------------------------------
@@ -564,26 +552,26 @@ func vurus_yap() {
     while (k < n) {
         int id = yakin_id(k);
         int i = 0;
-        while (i < len(d_id)) {
-            if (d_id[i] == id && d_can[i] > 0) {
+        while (i < len(dusmanlar)) {
+            if (dusmanlar[i].id == id && dusmanlar[i].can > 0) {
                 float dx = konum_x(id) - px;
                 float dz = konum_z(id) - pz;
                 float uz = sqrt(dx * dx + dz * dz);
                 if (uz < 0.001) { uz = 1.0; }
                 itme(id, dx / uz * VURUS_ITME, 3.2, dz / uz * VURUS_ITME);
-                d_can[i] = d_can[i] - VURUS_HASAR;
-                d_flas[i] = 0.14;
-                d_hal[i] = Hal.KOVALA;
-                d_kayip[i] = 0.0;
+                dusmanlar[i].can = dusmanlar[i].can - VURUS_HASAR;
+                dusmanlar[i].flas = 0.14;
+                dusmanlar[i].hal = Hal.KOVALA;
+                dusmanlar[i].kayip = 0.0;
                 renk_ver(id, RENK_FLAS);
                 vuran = vuran + 1;
-                if (d_can[i] <= 0) {
+                if (dusmanlar[i].can <= 0) {
                     g_skor = g_skor + 100;
                     g_oldurulen = g_oldurulen + 1;
                     sil(id);
                     logla("dusman " + toString(i) + " dustu (kalan " + toString(canli_dusman()) + ")");
                 }
-                i = len(d_id);
+                i = len(dusmanlar);
             } else {
                 i = i + 1;
             }
@@ -660,9 +648,9 @@ func otopilot(d) {
     int hedef = -1;
     float en_yakin_uz = 9999.0;
     int i = 0;
-    while (i < len(d_id)) {
-        if (d_can[i] > 0) {
-            float u = uzaklik2b(px, pz, konum_x(d_id[i]), konum_z(d_id[i]));
+    while (i < len(dusmanlar)) {
+        if (dusmanlar[i].can > 0) {
+            float u = uzaklik2b(px, pz, konum_x(dusmanlar[i].id), konum_z(dusmanlar[i].id));
             if (u < en_yakin_uz) {
                 en_yakin_uz = u;
                 hedef = i;
@@ -673,8 +661,8 @@ func otopilot(d) {
     float tx = g_kapi_x;
     float tz = g_kapi_z;
     if (hedef >= 0) {
-        tx = konum_x(d_id[hedef]);
-        tz = konum_z(d_id[hedef]);
+        tx = konum_x(dusmanlar[hedef].id);
+        tz = konum_z(dusmanlar[hedef].id);
     } else {
         if (!g_kapi_acik) { return; }
     }
@@ -695,10 +683,10 @@ func otopilot(d) {
 // Durum makinesi: 0 DEVRİYE (A<->B), 1 KOVALAMA. Geçiş: mesafe + görüş açısı +
 // ışın görüş hattı. Kovalamadan devriyeye: KAYIP_SURE boyunca görememe.
 func dusman_guncelle(i, d) {
-    int id = d_id[i];
-    if (d_can[i] <= 0) { return; }
+    int id = dusmanlar[i].id;
+    if (dusmanlar[i].can <= 0) { return; }
     if (!canli(id)) {
-        d_can[i] = 0;
+        dusmanlar[i].can = 0;
         return;
     }
     float ex = konum_x(id);
@@ -712,54 +700,54 @@ func dusman_guncelle(i, d) {
     if (uz < GORUS_MENZIL) {
         float gx = (px - ex) / uz;
         float gz = (pz - ez) / uz;
-        float bx = 0.0 - sin(d_yaw[i]);
-        float bz = 0.0 - cos(d_yaw[i]);
+        float bx = 0.0 - sin(dusmanlar[i].yaw);
+        float bz = 0.0 - cos(dusmanlar[i].yaw);
         float nok = gx * bx + gz * bz;
-        if (d_hal[i] == Hal.KOVALA || nok > GORUS_COS) {
+        if (dusmanlar[i].hal == Hal.KOVALA || nok > GORUS_COS) {
             if (gorus_var(id, g_oyuncu)) { goruyor = true; }
         }
     }
     if (goruyor) {
-        if (d_hal[i] == Hal.DEVRIYE) {
-            d_hal[i] = Hal.KOVALA;
+        if (dusmanlar[i].hal == Hal.DEVRIYE) {
+            dusmanlar[i].hal = Hal.KOVALA;
             logla("dusman " + toString(i) + " KOVALAMAYA gecti (uz " + toString(uz) + ")");
         }
-        d_kayip[i] = 0.0;
+        dusmanlar[i].kayip = 0.0;
     } else {
-        if (d_hal[i] == Hal.KOVALA) {
-            d_kayip[i] = d_kayip[i] + d;
-            if (d_kayip[i] > KAYIP_SURE) {
-                d_hal[i] = Hal.DEVRIYE;
+        if (dusmanlar[i].hal == Hal.KOVALA) {
+            dusmanlar[i].kayip = dusmanlar[i].kayip + d;
+            if (dusmanlar[i].kayip > KAYIP_SURE) {
+                dusmanlar[i].hal = Hal.DEVRIYE;
                 logla("dusman " + toString(i) + " oyuncuyu kaybetti, DEVRIYEYE dondu");
             }
         }
     }
 
-    float hx = d_ax[i];
-    float hz = d_az[i];
+    float hx = dusmanlar[i].ax;
+    float hz = dusmanlar[i].az;
     float hiz = DUSMAN_HIZ_DEVRIYE;
-    if (d_hal[i] == Hal.KOVALA) {
+    if (dusmanlar[i].hal == Hal.KOVALA) {
         hx = px;
         hz = pz;
         hiz = DUSMAN_HIZ_KOVALA;
     } else {
-        if (d_hedef[i] == 1) {
-            hx = d_bx[i];
-            hz = d_bz[i];
+        if (dusmanlar[i].hedef == Nokta.B) {
+            hx = dusmanlar[i].bx;
+            hz = dusmanlar[i].bz;
         }
         if (uzaklik2b(ex, ez, hx, hz) < 1.0) {
-            if (d_hedef[i] == 0) { d_hedef[i] = 1; } else { d_hedef[i] = 0; }
+            if (dusmanlar[i].hedef == Nokta.A) { dusmanlar[i].hedef = Nokta.B; } else { dusmanlar[i].hedef = Nokta.A; }
         }
     }
 
     float yx, yz = yon_hesapla(id, ex, ez, hx, hz);
     if (yx != 0.0 || yz != 0.0) {
-        d_yaw[i] = atan2(0.0 - yx, 0.0 - yz);
-        if (d_hal[i] != Hal.KOVALA || uz > TEMAS_MENZIL * 0.8) {
+        dusmanlar[i].yaw = atan2(0.0 - yx, 0.0 - yz);
+        if (dusmanlar[i].hal != Hal.KOVALA || uz > TEMAS_MENZIL * 0.8) {
             yuru(id, yx * hiz, yz * hiz);
         }
     }
-    don_ver(id, d_yaw[i] * 57.29578);
+    don_ver(id, dusmanlar[i].yaw * 57.29578);
 
     // Temas hasarı (çarpışma olayı yok: mesafe eşiği + hasar beklemesi).
     if (uz < TEMAS_MENZIL && g_durum == Durum.OYNA) {
@@ -767,19 +755,19 @@ func dusman_guncelle(i, d) {
     }
 
     // Vuruş flaşı bitince rengi durumuna göre geri koy.
-    if (d_flas[i] > 0.0) {
-        d_flas[i] = d_flas[i] - d;
-        if (d_flas[i] <= 0.0) {
-            d_flas[i] = 0.0;
-            if (d_hal[i] == Hal.KOVALA) { renk_ver(id, RENK_KOVALA); } else { renk_ver(id, RENK_DEVRIYE); }
+    if (dusmanlar[i].flas > 0.0) {
+        dusmanlar[i].flas = dusmanlar[i].flas - d;
+        if (dusmanlar[i].flas <= 0.0) {
+            dusmanlar[i].flas = 0.0;
+            if (dusmanlar[i].hal == Hal.KOVALA) { renk_ver(id, RENK_KOVALA); } else { renk_ver(id, RENK_DEVRIYE); }
         }
     } else {
-        if (d_hal[i] == Hal.KOVALA) { renk_ver(id, RENK_KOVALA); } else { renk_ver(id, RENK_DEVRIYE); }
+        if (dusmanlar[i].hal == Hal.KOVALA) { renk_ver(id, RENK_KOVALA); } else { renk_ver(id, RENK_DEVRIYE); }
     }
 
     // Arenadan düşen düşman (savurulmuş olabilir) ölmüş sayılır.
     if (konum_y(id) < -4.0) {
-        d_can[i] = 0;
+        dusmanlar[i].can = 0;
         g_skor = g_skor + 100;
         g_oldurulen = g_oldurulen + 1;
         sil(id);
@@ -1034,7 +1022,7 @@ func main() {
             if (g_durum == Durum.OYNA) {
                 oyuncu_guncelle(d);
                 int i = 0;
-                while (i < len(d_id)) {
+                while (i < len(dusmanlar)) {
                     dusman_guncelle(i, d);
                     i = i + 1;
                 }

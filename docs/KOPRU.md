@@ -12,8 +12,9 @@
 
 PLAN §11 zaten "L5 gameplay Tulpar'dadır, aynı ikiliye linklenir, script sınırı yoktur" diyordu; eksik olan
 onu taşıyan arayüzdü. Tulpar bugün işaretçi, atomik ve callback FFI vermiyor (kutusuz **tekil** struct,
-`enum` ve çoklu dönüş 2026-09-21'den beri var — TulparLang `plans/08_oyun_dili_p0.md`; kutusuz struct
-**dizisi** ve struct geçişli ABI hâlâ yok, P1) — bu yüzden
+`enum`, çoklu dönüş ve **kutusuz struct dizisi** (`Dusman[]`) 2026-09-21'den beri var — TulparLang
+`plans/08_oyun_dili_p0.md`; struct GEÇİŞLİ ABI hâlâ yok, yani köprü imzaları düz skaler kalıyor) —
+bu yüzden
 köprü **düz skalerlerle** konuşur: `int`, `double`, `const char*`. Struct yok, callback yok, sahiplik yok.
 Motor tarafı bütün durumu kendi tutar; Tulpar tarafı **tamsayı tutamaçlarla** (varlık id'si) konuşur.
 
