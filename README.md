@@ -137,8 +137,16 @@ etmez; `ATLANDI: <sebep>` basar ve özet satırındaki sayaca girer. Bu yüzden:
   üç iş yeşil olunca PR kendiliğinden `main`'e girer, dal silinir. `main`'e
   gelen squash commit'inde CI yeniden derlemez, PR koşumunun artefaktını
   (`motor-*`) yeniden kullanır. Yalnız `README.md` / `docs/*.md` değişen PR'da
-  işler koşar ama adımları atlanır (check yine yeşil raporlar). Sürüm
-  **yalnız** `v*` etiketinde (`release.yml`), `main` push'unda değil.
+  işler koşar ama adımları atlanır (check yine yeşil raporlar).
+* **Sürüm otomatik (2026-09-21):** `main`'e giren her değişiklik bir sürüm
+  çıkarır. `.github/workflows/otomatik-surum.yml` bir sonraki SemVer adımını
+  hesaplayıp etiketi iter (varsayılan **yama**: `v0.1.4` → `v0.1.5`; PR
+  açıklamasına tek satır `Surum: minor` ya da `Surum: major` yazarak
+  büyütürsünüz), `release.yml` o etiketi görüp **üç platformda derleyip
+  testleri koşturduktan sonra** Release'i yayınlar. Ölçülmemiş ikili
+  yayınlanmaz. Yalnız belge değişen merge'de ve zaten etiketli bir commit'te
+  sürüm çıkmaz (ikisi de iş özetine yazılır). Elle `v*` etiketi itmek hâlâ
+  çalışır.
   Ölçüldü (2026-09-21): PR #19 birleşince `main` koşumu üç platformda da
   derlemeden PR artefaktını yükledi, boyutlar bayt bayt aynı.
   İlk ikisinde Vulkan sürücüsü kurulur ve yolun gerçekten koştuğu doğrulanır —
