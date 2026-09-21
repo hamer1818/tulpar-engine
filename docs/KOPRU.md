@@ -11,7 +11,9 @@
 ## 1. Neden köprü, neden bugün
 
 PLAN §11 zaten "L5 gameplay Tulpar'dadır, aynı ikiliye linklenir, script sınırı yoktur" diyordu; eksik olan
-onu taşıyan arayüzdü. Tulpar bugün kutusuz struct, işaretçi, atomik ve callback FFI vermiyor — bu yüzden
+onu taşıyan arayüzdü. Tulpar bugün işaretçi, atomik ve callback FFI vermiyor (kutusuz **tekil** struct,
+`enum` ve çoklu dönüş 2026-09-21'den beri var — TulparLang `plans/08_oyun_dili_p0.md`; kutusuz struct
+**dizisi** ve struct geçişli ABI hâlâ yok, P1) — bu yüzden
 köprü **düz skalerlerle** konuşur: `int`, `double`, `const char*`. Struct yok, callback yok, sahiplik yok.
 Motor tarafı bütün durumu kendi tutar; Tulpar tarafı **tamsayı tutamaçlarla** (varlık id'si) konuşur.
 
@@ -28,7 +30,7 @@ AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İ
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
 | binding | `runtime/engine_bindings.cpp` (**üretilmiş**) | `aot_eng_*_ptr` (VMValue ABI) → `teng_*` |
 | sarmalayıcı | `lib/engine.tpr` (gömülü, 386 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`) |
-| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (1070) | saf Tulpar |
+| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (1097) | saf Tulpar |
 
 **Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut dört dosya üretir:
 binding (`runtime/engine_bindings.cpp`), backend tablosu (`src/aot/engine_builtins_table.inc`), typeinfer
