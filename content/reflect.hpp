@@ -140,7 +140,13 @@ inline constexpr FieldMeta kAudioFields[] = {
 
 // 9. BETİK (kSceneScript)
 inline constexpr FieldMeta kScriptFields[] = {
-  {"Betik Dosyasi", "##script_file", FieldType::String, offsetof(content::SceneEntity, script_file), content::kSceneNameLen, 0.0f, 0.0f, 0.0f, nullptr, "Tulpar betik (.tpr) yolu", nullptr, 0.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
+  // GENISLIK ALANIN KENDISINI IZLEMEK ZORUNDA: FieldMeta::size salt belge
+  // degil, asagida `reset_component_to_defaults` icinde memset ve
+  // `copy_component_data` icinde memcpy BOYUTU olarak kullaniliyor. Burasi
+  // kSceneNameLen'de birakilsaydi "bileseni sifirla" ilk 32 bayti temizleyip
+  // kuyrugu birakirdi; strcmp ve strlen bunu goremez ama coklu duzenleme
+  // (editor_multiedit.cpp, sizeof kullaniyor) gorurdu — sessiz sapma.
+  {"Betik Dosyasi", "##script_file", FieldType::String, offsetof(content::SceneEntity, script_file), content::kSceneScriptLen, 0.0f, 0.0f, 0.0f, nullptr, "Tulpar betik (.tpr) yolu", nullptr, 0.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
   {"Etkin", "##script_en", FieldType::Bool, offsetof(content::SceneEntity, script_enabled), sizeof(bool), 0.0f, 1.0f, 1.0f, nullptr, "Betik calissin mi?", nullptr, 1.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
 };
 

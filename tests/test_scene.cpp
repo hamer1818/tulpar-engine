@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 
+#include "content/reflect.hpp"
 #include "content/scene.hpp"
 #include "core/memory/arena.hpp"
 #include "sim/physics.hpp"
@@ -265,6 +266,88 @@ ENGINE_TEST(scene_file_editor_sahne_is_canonical) {
   scene_dir_of("c.sahne", dir, sizeof dir); CHECK(std::strcmp(dir, ".") == 0);
   scene_dir_of("/c.sahne", dir, sizeof dir); CHECK(std::strcmp(dir, "/") == 0);
   std::printf("    [bilgi] editor.sahne: %u varlik, %u kaynak, %zu bayt kanonik\n", d.entity_count, d.asset_count, raw_n);
+}
+
+// Betik alani bir AD degil YOL tutar: editor tarayicisi iki kokten
+// ozyinelemeli topluyor, yani deger "tulpar/examples/engine_arena.tpr" gibi
+// dizinli geliyor. Alan 2026-09-22'de kSceneNameLen (32) -> kSceneScriptLen
+// (128) genisletildi; olculdu, depodaki bes .tpr'nin ucu 32'ye SIGMIYOR
+// (17/32/34/35/35 bayt).
+//
+// Kapi UC seyi birden olcuyor, cunku ucu de ayri ayri sessizce bozulabilir:
+//   1. Uzun yol metin biciminde gidip donuyor (yazici/ayristirici sizeof ile
+//      suruluyor, ama bunu SOYLEMEK gerekiyor).
+//   2. POZITIF KONTROL — reflect::reset_component_to_defaults yolun TAMAMINI
+//      siliyor. FieldMeta::size salt belge degil, memset/memcpy boyutu;
+//      content/reflect.hpp'de kSceneNameLen'de birakilsaydi ilk 32 bayt
+//      temizlenir, kuyruk kalirdi. strcmp ve strlen bunu GOREMEZ (NUL ilk
+//      32'nin icinde), ama coklu duzenleme sizeof ile 128 baytin hepsini
+//      karsilastirdigi icin GORURDU — yesil CI'da sapma.
+//   3. NEGATIF KONTROL — alana sigmayan bir yol SESSIZCE KIRPILMIYOR,
+//      ayristirma hatasi oluyor. Kirpilan bir betik yolu var olmayan bir
+//      dosyayi gosterir ve bunu kimse soylemez.
+ENGINE_TEST(scene_script_path_survives_a_long_path) {
+  static SceneDesc a, b;
+  static char t1[64 << 10], t2[64 << 10];
+
+  // 120 karakterlik yol: 32'yi acikca asiyor, 128'e siginin altinda kaliyor.
+  char uzun[kSceneScriptLen];
+  const char *govde = "tulpar/examples/davranis/dusman/";
+  std::snprintf(uzun, sizeof uzun, "%s", govde);
+  size_t n = std::strlen(uzun);
+  while (n < 120 - 4) { uzun[n++] = 'a' + (char)(n % 26); }
+  std::snprintf(uzun + n, sizeof uzun - n, ".tpr");
+  CHECK(std::strlen(uzun) == 120);
+
+  a = SceneDesc{};
+  SceneEntity &e = a.entities[a.entity_count++];
+  std::snprintf(e.name, sizeof e.name, "betikli");
+  e.components = kSceneScript;
+  std::snprintf(e.script_file, sizeof e.script_file, "%s", uzun);
+  e.script_enabled = false; // varsayilan true: deger GERCEKTEN tasiniyor mu
+
+  const size_t n1 = scene_write(a, t1, sizeof t1);
+  CHECK(n1 > 0 && n1 < sizeof t1);
+  SceneError err{};
+  const bool ok = scene_parse(t1, n1, &b, &err);
+  if (!ok) std::printf("    [bilgi] ayristirma: %s\n", err.msg);
+  CHECK(ok);
+  CHECK(b.entity_count == 1);
+  CHECK(std::strcmp(b.entities[0].script_file, uzun) == 0);
+  CHECK(b.entities[0].script_enabled == false);
+  CHECK(scene_entity_equal(a.entities[0], b.entities[0]));
+  const size_t n2 = scene_write(b, t2, sizeof t2);
+  CHECK(n1 == n2 && std::memcmp(t1, t2, n1) == 0); // bayt bayt ayni
+
+  // 2. POZITIF KONTROL: bilesen sifirlamasi yolun KUYRUGUNU da temizlemeli.
+  SceneEntity r = b.entities[0];
+  reflect::reset_component_to_defaults(r, kSceneScript);
+  bool tamamen_sifir = true;
+  for (uint32_t i = 0; i < kSceneScriptLen; i++)
+    if (r.script_file[i] != 0) { tamamen_sifir = false; break; }
+  CHECK(tamamen_sifir); // reflect kSceneNameLen'de kalsaydi r.script_file[100] != 0
+
+  // 3. NEGATIF KONTROL: sigmayan yol REDDEDILMELI, kirpilmamali.
+  char tasan[8 << 10];
+  char yol[kSceneScriptLen + 96];
+  std::memset(yol, 'y', sizeof yol - 6);
+  std::snprintf(yol + sizeof yol - 6, 6, ".tpr");
+  std::snprintf(tasan, sizeof tasan,
+                "tulpar-sahne 1\nnesne \"x\"\n  betik \"%s\" etkin\nson\n", yol);
+  static SceneDesc kotu;
+  SceneError err2{};
+  const bool red = !scene_parse(tasan, std::strlen(tasan), &kotu, &err2);
+  if (!red) std::printf("    [bilgi] KIRPILDI: \"%s\"\n", kotu.entities[0].script_file);
+  CHECK(red);
+
+  // Bilgi satiri SONUC degil OLCUM basar: ilk hali "sifirlama kuyrugu da
+  // temizledi" diyordu ve kontrol DUSERKEN bile ayni cumleyi basiyordu.
+  // Duden bir kapinin yaninda yalan soyleyen bir satir, bakan insani yanlis
+  // yere gonderir (bugun ucuncu kez ogrenildi).
+  uint32_t kalan = 0;
+  for (uint32_t i = 0; i < kSceneScriptLen; i++) kalan += r.script_file[i] ? 1u : 0u;
+  std::printf("    [bilgi] betik yolu %zu bayt (alan %u); sifirlama sonrasi kalan sifir-disi bayt: %u; reddedilen yol %zu bayt\n",
+              std::strlen(uzun), kSceneScriptLen, kalan, std::strlen(yol));
 }
 
 ENGINE_TEST(scene_bodies_spawn_and_settle_in_physics) {
