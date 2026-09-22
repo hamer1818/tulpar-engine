@@ -21,6 +21,22 @@ constexpr uint32_t kSceneMaxEntities = 256;
 constexpr uint32_t kSceneMaxAssets = 16;
 constexpr uint32_t kSceneNameLen = 32;   // NUL dahil
 constexpr uint32_t kScenePathLen = 128;  // NUL dahil
+// Betik alani bir AD degil YOLDUR: editor tarayicisi IKI kokten toplar (sahne
+// dizini + deponun `tulpar/` agaci) ve ikisi de ozyinelemelidir, yani deger
+// "tulpar/examples/engine_arena.tpr" gibi dizinli gelir.
+//
+// kSceneNameLen (32) YETMIYOR — olculdu 2026-09-22, depodaki bes .tpr'nin
+// koke goreli uzunluklari: 17 / 32 / 34 / 35 / 35. Ucu sigmiyor.
+//
+// Ayri sabit, kSceneNameLen'i buyutmek DEGIL: o yol `name` ve `audio_clip`
+// alanlarini da genisletir, blob metin tablosunu varlik basina ~96 bayt sisirir
+// ve satir ici yeniden adlandirmayi (editor_widgets.hpp HierarchyRename) 127
+// karakterlik adlara acardi. Ad 32'de yetiyor.
+constexpr uint32_t kSceneScriptLen = 128;  // NUL dahil
+// Denetci secicisi (editor_widgets.hpp `prop_asset`) satirlari `char[128]`
+// olarak aliyor. Genislikler ayrilirsa secilen yol SESSIZCE kirpilir.
+static_assert(kSceneScriptLen == kScenePathLen,
+              "betik alani secici satir genisligiyle ayni olmali");
 // Agac derinligi TAVANI (kok = 0). Tavan OLMAK ZORUNDA: ebeveyn zinciri veri
 // dosyasindan gelir, yani dusmanca/bozuk girdi olabilir; ozyineleme yok, her
 // yurume bu sayida adimda durur. Asilmasi sessiz kirpma DEGIL, hatadir.
@@ -136,7 +152,7 @@ struct SceneEntity {
   float audio_volume = 1.0f, audio_pitch = 1.0f;
   bool audio_loop = false, audio_spatial = true;
   // betik
-  char script_file[kSceneNameLen] = {0};
+  char script_file[kSceneScriptLen] = {0};
   bool script_enabled = true;
   // --- PR #331 bilesenleri ------------------------------------------------
   // Hepsi kendi bilesen bitine baglidir: bit yoksa alanlar VERI DEGILDIR
