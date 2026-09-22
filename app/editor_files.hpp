@@ -68,6 +68,43 @@ struct FileListResult {
 // duyarsiz); dizinler her zaman gecer.
 FileListResult file_list_dir(const char *dir, const char *ext, FileEntry *out, uint32_t cap);
 
+// --- Ozyinelemeli dizin yurumesi --------------------------------------------
+// file_list_dir TEK KATMANDIR ve bu cogu is icin dogru. Betik tarayicisi degil:
+// `.tpr` dosyalari alt dizinlerde yasiyor (tulpar/examples/, tulpar/tests/) —
+// olculdu 2026-09-22, depodaki bes .tpr'nin DORDU kokun altinda.
+//
+// TAVANLI, cunku kok bir VERI dizinidir: derin ya da dongulu bir agac (sembolik
+// bag) olabilir. Tavan asilinca SESSIZ KIRPMA YOK, sayilir — file_list_dir'in
+// `truncated` sozlesmesi burada alti sayaca aciliyor, cunku "dosya sigmadi",
+// "derinlige takildi", "kuyruk doldu" ve "dizin acilamadi" AYRI olgular. Tek
+// sayaca toplamak, gercek bir sorunu tavan gurultusu gibi gosterirdi.
+constexpr uint32_t kFileTreeMaxDepth = 8;   // kok = 0
+constexpr uint32_t kFileTreeMaxDirs = 128;  // kuyruga giren dizin tavani
+
+struct FileTreeResult {
+  uint32_t count = 0;         // out'a yazilan dosya
+  uint32_t truncated = 0;     // cap'e ya da kFileNameLen'e SIGMAYAN dosya
+  uint32_t dirs_visited = 0;  // basariyla acilan dizin (kok dahil)
+  uint32_t depth_clipped = 0; // derinlik tavani yuzunden INILMEYEN dizin
+  uint32_t dirs_clipped = 0;  // kuyruk tavani yuzunden INILMEYEN dizin
+  uint32_t dirs_failed = 0;   // acilamayan ALT dizin (izin, yaris) — kok haric
+  bool ok = false;            // KOK acilabildi mi
+  char err[192] = {0};        // kok acilamadiysa gorunur sebep
+};
+// root altindaki `ext` uzantili butun dosyalar. out[i].name KOKE GORELI yoldur
+// ("examples/engine_arena.tpr"), taban ad DEGIL: iki alt dizindeki ayni adli
+// iki dosya birbirini gizlemesin. out[i].dir HEP false — dizinler dondurulmez,
+// yalniz yurunur.
+//
+// Siralama TAM GORELI YOLA gore, tek bir toplam sira: boylece kuyrugun kesif
+// sirasi (ve dolayisiyla readdir'in dosya sistemine bagli sirasi) sonucu
+// etkilemiyor. Belirlenimlilik file_list_dir ile ayni gerekce.
+//
+// OZYINELEME YOK — acik bir kuyruk. Ev kurali content/scene.hpp'de yaziyor:
+// veriden gelen derinlik ozyinelemeyle yurunmez, her yurume sayili adimda durur.
+FileTreeResult file_list_tree(const char *root, const char *ext, FileEntry *out, uint32_t cap,
+                              uint32_t max_depth = kFileTreeMaxDepth);
+
 // --- Dosya diyalogu (ImGui kipli pencere) -----------------------------------
 enum class FileDialogMode : uint8_t { Ac, Kaydet };
 enum class FileDialogAction : uint8_t { None, Accepted, Cancelled };
