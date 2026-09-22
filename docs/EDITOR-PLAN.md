@@ -77,6 +77,10 @@ Sektörde sahne ağacı birinci sınıftır: dönüşüm kalıtımı, klasörlem
   (alan tablosu), reflection gelince tablo üretime döner.
 * **Editörde script derleme/hot-reload.** Köprü zaten `.sahneb` sıcak yüklemeyi
   yapıyor; oyun kodu Tulpar ve AOT — editöre gömmek ayrı bir iş.
+  **Karıştırmayın:** betik **ataması** artık kapsamda ve geldi (2026-09-22) —
+  editör `.tpr` dosyalarını listeliyor, nesneye atıyor, atama bloba giriyor ve
+  oyun `eng_scene_script` ile okuyor. Kapsam dışı kalan tek şey betiği
+  **derlemek/çalıştırmak**; o callback FFI istiyor.
 
 ## 4. Fazlar ve KAPILAR
 

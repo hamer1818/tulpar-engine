@@ -1,0 +1,16 @@
+// Davranış etiketi — "kovala".
+//
+// Bu dosya ÇALIŞTIRILMIYOR ve bu bir eksiklik değil, mimarinin kendisi:
+// motor `.tpr` yürütmüyor (köprü ABI'si düz skaler, callback yok — bkz.
+// docs/KOPRU.md §8). Sahnedeki `betik "davranis/kovala.tpr"` satırı bir
+// ETİKETTİR; onu davranışa bağlayan yer oyunun kendi döngüsüdür
+// (examples/engine_betik_dagitimi.tpr içindeki `davranis_cozumle`).
+//
+// Peki dosya neden VAR? İki sebep:
+//   1. Editörün betik seçicisi gerçek dosyaları tarıyor. Dosya olmasaydı
+//      tasarımcı bu adı listeden seçemez, elle yazmak zorunda kalırdı —
+//      ve yazım hatası ancak oyun koşarken anlaşılırdı.
+//   2. Etiketin ne anlama geldiği bir yerde yazmalı. Burası o yer.
+//
+// SÖZLEŞME: oyuncuya doğru sabit hızla yürü, yarım metreden yakınsa dur.
+// Bunu uygulayan kod engine_betik_dagitimi.tpr içinde DAVRANIS_KOVALA.
