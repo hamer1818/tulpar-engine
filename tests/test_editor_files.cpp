@@ -59,6 +59,44 @@ bool make_tree(TempTree &t) {
          touch(t.root, "notlar.txt");
   return t.ok;
 }
+// Derin agac: ozyinelemeli yurume icin. <tmp>/tul_agac_XXXXXX/
+//   a.tpr
+//   bir/b.tpr
+//   bir/iki/c.tpr
+//   bir/iki/uc/d.tpr
+//   bir/gurultu.txt          <- suzgec kontrolu
+// Dizinler ve dosyalar KASTEN ters/karisik sirada yaratilir.
+struct DeepTree {
+  char root[512] = {0};
+  bool ok = false;
+};
+bool make_deep(DeepTree &t) {
+  if (!tmp_mkdir(t.root, sizeof t.root, "tul_agac")) return false;
+  char d1[1024], d2[1024], d3[1024];
+  std::snprintf(d1, sizeof d1, "%s/bir", t.root);
+  std::snprintf(d2, sizeof d2, "%s/bir/iki", t.root);
+  std::snprintf(d3, sizeof d3, "%s/bir/iki/uc", t.root);
+  if (tulpar::engine::platform::fs_mkdir_one(d1) != 0) return false;
+  if (tulpar::engine::platform::fs_mkdir_one(d2) != 0) return false;
+  if (tulpar::engine::platform::fs_mkdir_one(d3) != 0) return false;
+  t.ok = touch(d3, "d.tpr") && touch(d2, "c.tpr") && touch(d1, "b.tpr") && touch(t.root, "a.tpr") && touch(d1, "gurultu.txt");
+  return t.ok;
+}
+void rm_deep(const DeepTree &t) {
+  if (!t.root[0]) return;
+  char p[1024];
+  const char *paths[5] = {"bir/iki/uc/d.tpr", "bir/iki/c.tpr", "bir/b.tpr", "a.tpr", "bir/gurultu.txt"};
+  for (const char *f : paths) {
+    std::snprintf(p, sizeof p, "%s/%s", t.root, f);
+    std::remove(p);
+  }
+  const char *dirs[3] = {"bir/iki/uc", "bir/iki", "bir"};
+  for (const char *d : dirs) {
+    std::snprintf(p, sizeof p, "%s/%s", t.root, d);
+    ::rmdir(p);
+  }
+  ::rmdir(t.root);
+}
 void rm_tree(const TempTree &t) {
   if (!t.root[0]) return;
   const char *files[5] = {"zemin.sahne", "arena.sahne", "bolum1.sahne", "kapak.png", "notlar.txt"};
@@ -166,6 +204,79 @@ ENGINE_TEST(files_list_dir_is_sorted_and_filtered) {
   std::printf("    [bilgi] KONTROL olmayan dizin: ok=%s, hata=\"%s\"\n", bad.ok ? "true (HATA)" : "false", bad.err);
   CHECK(!bad.ok && bad.err[0] != 0);
   rm_tree(t);
+}
+
+// --- 2b) Ozyinelemeli yurume -------------------------------------------------
+// file_list_dir TEK KATMAN; `.tpr` dosyalari alt dizinlerde yasiyor. Bu kapi
+// yurumenin GERCEKTEN indigini ve TAVANLARIN gercek oldugunu ayri ayri olcuyor
+// — bir tavan "dekoratif" olursa (asildiginda sayilmadan devam ederse) bir gun
+// sessizce yarim liste dondurur.
+ENGINE_TEST(files_list_tree_walks_recursively_and_reports_caps) {
+  DeepTree t;
+  if (!make_deep(t)) { skip("gecici agac yaratilamadi"); return; }
+  static app::FileEntry items[app::kFileListMax];
+
+  const app::FileTreeResult r = app::file_list_tree(t.root, ".tpr", items, app::kFileListMax);
+  char names[512] = {0};
+  for (uint32_t i = 0; i < r.count; i++) {
+    std::strncat(names, items[i].name, sizeof names - std::strlen(names) - 1);
+    std::strncat(names, " ", sizeof names - std::strlen(names) - 1);
+  }
+  std::printf("    [bilgi] yurume: %u dosya, %u dizin acildi, kirpilan %u/%u/%u (cap/derinlik/kuyruk) -> %s\n", r.count, r.dirs_visited,
+              r.truncated, r.depth_clipped, r.dirs_clipped, names);
+  CHECK(r.ok && r.count == 4 && r.dirs_visited == 4);
+  // OZYINELEME KANITI: '/' iceren bir ad, tek katmanin YAPISI GEREGI
+  // uretemeyecegi sey.
+  CHECK(std::strcmp(items[0].name, "a.tpr") == 0);
+  CHECK(std::strcmp(items[1].name, "bir/b.tpr") == 0);
+  CHECK(std::strcmp(items[2].name, "bir/iki/c.tpr") == 0);
+  CHECK(std::strcmp(items[3].name, "bir/iki/uc/d.tpr") == 0);
+  bool sirali = true;
+  for (uint32_t i = 1; i < r.count; i++)
+    if (std::strcmp(items[i - 1].name, items[i].name) >= 0) sirali = false;
+  CHECK(sirali);
+  CHECK(r.truncated == 0 && r.depth_clipped == 0 && r.dirs_clipped == 0 && r.dirs_failed == 0);
+  // KONTROL: suzgec gercekten eliyor — agacta bir .txt VAR.
+  bool txt_var = false;
+  for (uint32_t i = 0; i < r.count; i++)
+    if (std::strstr(items[i].name, ".txt")) txt_var = true;
+  static app::FileEntry hepsi[app::kFileListMax];
+  const app::FileTreeResult ra = app::file_list_tree(t.root, nullptr, hepsi, app::kFileListMax);
+  bool txt_suzgecsiz = false;
+  for (uint32_t i = 0; i < ra.count; i++)
+    if (std::strstr(hepsi[i].name, ".txt")) txt_suzgecsiz = true;
+  std::printf("    [bilgi] KONTROL suzgec: .txt suzgecte %s / suzgecsiz %s\n", txt_var ? "VAR (HATA)" : "yok", txt_suzgecsiz ? "var" : "YOK");
+  CHECK(!txt_var && txt_suzgecsiz && ra.count == 5);
+
+  // KONTROL: DERINLIK TAVANI gercek. max_depth=0 -> yalniz kok, ve inilmeyen
+  // dizin SAYILIR. Tavan dekoratif olsaydi count yine 4 cikardi.
+  const app::FileTreeResult d0 = app::file_list_tree(t.root, ".tpr", items, app::kFileListMax, 0);
+  std::printf("    [bilgi] KONTROL derinlik 0: %u dosya, derinlikte kirpilan %u\n", d0.count, d0.depth_clipped);
+  CHECK(d0.ok && d0.count == 1 && std::strcmp(items[0].name, "a.tpr") == 0 && d0.depth_clipped == 1);
+
+  // KONTROL: CAP gercek VE kirpma SIRALAMADAN SONRA — tutulan iki dosya
+  // sozluk sirasina gore ILK ikisi olmali, readdir ne verdiyse o degil.
+  const app::FileTreeResult c2 = app::file_list_tree(t.root, ".tpr", items, 2);
+  std::printf("    [bilgi] KONTROL cap 2: %u dosya (%s, %s), kirpilan %u\n", c2.count, items[0].name, items[1].name, c2.truncated);
+  CHECK(c2.count == 2 && c2.truncated == 2);
+  CHECK(std::strcmp(items[0].name, "a.tpr") == 0 && std::strcmp(items[1].name, "bir/b.tpr") == 0);
+
+  // KONTROL: olmayan kok SESSIZ BOS degil, GORUNUR hata.
+  const app::FileTreeResult yok = app::file_list_tree("/boyle/bir/dizin/yok", ".tpr", items, app::kFileListMax);
+  std::printf("    [bilgi] KONTROL olmayan kok: ok=%s, hata=\"%s\"\n", yok.ok ? "true (HATA)" : "false", yok.err);
+  CHECK(!yok.ok && yok.err[0] != 0 && yok.count == 0);
+
+  rm_deep(t);
+
+  // Depodaki GERCEK agac: kapinin sentetik agaca degil, is gorecegi veriye de
+  // oturdugunu gosterir. Sayilar > ile: PR 6 buraya yeni .tpr ekleyecek.
+  const app::FileTreeResult gercek = app::file_list_tree(ENGINE_SOURCE_DIR "/tulpar", ".tpr", items, app::kFileListMax);
+  bool ic_ice = false;
+  for (uint32_t i = 0; i < gercek.count; i++)
+    if (std::strchr(items[i].name, '/')) ic_ice = true;
+  std::printf("    [bilgi] gercek agac (tulpar/): %u .tpr, %u dizin, alt dizinde olan %s\n", gercek.count, gercek.dirs_visited,
+              ic_ice ? "var" : "YOK");
+  CHECK(gercek.ok && gercek.count >= 5 && ic_ice);
 }
 
 // --- 3/4) Son dosyalar ------------------------------------------------------

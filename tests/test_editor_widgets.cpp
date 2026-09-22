@@ -281,7 +281,73 @@ void keep(uint8_t *dst, const EditorProbe &p) {
   std::memcpy(dst, p.pixels, (size_t)p.width * p.height * 4);
 }
 
+// Betik secicisi maketi: gercek panelin kullandigi sekil — `char[][128]`
+// tablosu + indeks. Liste BOS ve DOLU iki durumda ciziliyor.
+struct ScriptPickerMock {
+  char scripts[8][content::kScenePathLen] = {};
+  uint32_t count = 0;
+  int sel = -1;
+  char path[content::kSceneScriptLen] = {0};
+  bool enabled = true;
+};
+void draw_script_card(void *ctx, uint32_t) {
+  auto *m = static_cast<ScriptPickerMock *>(ctx);
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(ImVec2(380, 220));
+  ImGui::Begin("Betik", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+  if (app::prop_begin("betik")) {
+    if (app::prop_asset("Betik (.tpr)", &m->sel, m->scripts, m->count).changed && m->sel >= 0)
+      std::snprintf(m->path, sizeof m->path, "%s", m->scripts[m->sel]);
+    app::prop_text("Yol (elle)", m->path, sizeof m->path);
+    app::prop_check("Etkin", &m->enabled);
+    app::prop_end();
+  }
+  ImGui::End();
+}
+
 } // namespace
+
+// Betik secicisi GERCEKTEN listeyi okuyor mu? Kontrol: ayni kart BOS listeyle
+// de ciziliyor ve iki kare BIRBIRINDEN FARKLI olmali. Fark yoksa secici sabit
+// bir kutu ciziyor, listeyi hic okumuyor demektir — testi gecen ama hicbir sey
+// gostermeyen bir arayuz.
+ENGINE_TEST(editor_script_picker_draws_the_list) {
+  static ScriptPickerMock dolu, bos;
+  const char *yollar[5] = {"tulpar/engine.tpr", "tulpar/examples/engine_aksiyon.tpr", "tulpar/examples/engine_arena.tpr",
+                           "tulpar/examples/engine_ilk_oyun.tpr", "tulpar/tests/engine_bridge.test.tpr"};
+  for (uint32_t i = 0; i < 5; i++) std::snprintf(dolu.scripts[i], sizeof dolu.scripts[i], "%s", yollar[i]);
+  dolu.count = 5;
+  dolu.sel = 2;
+  std::snprintf(dolu.path, sizeof dolu.path, "%s", yollar[2]);
+
+  static uint8_t dolu_px[380 * 220 * 4];
+  EditorProbe p;
+  p.width = 380; p.height = 220;
+  char path[512];
+  ppm_path(path, sizeof path, "betik_secici");
+  p.out_ppm = path;
+  p.draw = draw_script_card;
+  p.ctx = &dolu;
+  p.frames = 3;
+  PROBE_OR_RETURN(p);
+  keep(dolu_px, p);
+  std::printf("    [bilgi] betik secici (5 yol, secili=%d): %u vertex -> %s\n", dolu.sel, p.vertices, path);
+  CHECK(p.vertices > 200);
+
+  EditorProbe q;
+  q.width = 380; q.height = 220;
+  q.draw = draw_script_card;
+  q.ctx = &bos; // count = 0: secici DEVRE DISI cizilmeli
+  q.frames = 3;
+  PROBE_OR_RETURN(q);
+  uint32_t farkli = 0;
+  if (q.pixels)
+    for (uint32_t i = 0; i < (uint32_t)q.width * q.height * 4; i++)
+      if (dolu_px[i] != q.pixels[i]) farkli++;
+  std::printf("    [bilgi] KONTROL bos liste: %u vertex, dolu kareden farkli bayt %u\n", q.vertices, farkli);
+  CHECK(farkli > 0); // secici listeyi gercekten okuyor
+  CHECK(!std::strcmp(dolu.path, "tulpar/examples/engine_arena.tpr"));
+}
 
 // Maketler: Ozellikler + Sahne + bos durumlar; PPM yazilir, vertex > 0.
 ENGINE_TEST(editor_widgets_mock_panels_render) {
