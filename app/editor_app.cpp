@@ -468,8 +468,20 @@ struct EditorState {
   RenderSettings render;    // golge/pozlama/bloom/olceklendirme (oturum ayari)
   GizmoOptions gizmos;      // isik yaricapi / golge hacmi / gunes yonu
   uint32_t gizmo_draws = 0; // son karede gizmolarin yaptigi cizim sayisi
-  AssetFile browse[64];     // kaynak tarayici (sahne dosyasinin dizini)
+  // Tarayici tavani 64'ten 128'e: liste artik glTF'lerin YANI SIRA .tpr
+  // dosyalarini da tasiyor. Olculdu 2026-09-22: tests/assets'te 4 glTF,
+  // depoda 5 .tpr — 128 yaklasik 14 kat bosluk birakiyor.
+  static constexpr uint32_t kBrowseCap = 128;
+  AssetFile browse[kBrowseCap]; // kaynak tarayici: ONCE modeller, SONRA betikler
   uint32_t browse_count = 0;
+  uint32_t browse_models = 0;   // ilk bu kadari MODEL (browse[0] invaryanti)
+  // Betik listesi AYRI da tutuluyor: denetci secicisi (prop_asset) ardisik bir
+  // `char[][128]` tablosu istiyor, AssetFile dizisinden dilim alinamaz.
+  char scripts[kBrowseCap][content::kScenePathLen] = {};
+  uint32_t script_count = 0;
+  ScriptScanResult script_scan;
+  char tulpar_dir[1024] = {0};       // depo `tulpar/` koku (acilista cozulur)
+  FileEntry scan_scratch[kFileListMax]; // file_list_tree kaziyicisi
   char status[160];
   char filter[64] = {0}; // Sahne paneli suzgeci
   char prop_filter[64] = {0}; // Ozellikler paneli aramasi (UE5 Details aramasi)
@@ -563,6 +575,35 @@ void set_status(EditorState &st, const char *fmt, ...) {
   // metinden turetiliyor ("KAYDEDILEMEDI" -> Hata), siniflandirici konsolunkiyle
   // AYNI — iki yerde iki kural olmasin.
   console_log_raw(console_classify_level(st.status, false), kConsoleTagEditor, st.status);
+}
+
+// Kaynak tarayicisini yeniden kurar: ONCE modeller (editor_scan_assets), SONRA
+// betikler (editor_scan_scripts) — ayni diziye EKLEYEREK.
+//
+// ADA GORE GLOBAL SIRALAMA DEGIL, ve sebebi olculdu: headless kaynak tarayici
+// kapisi `st.browse[0].name` ile bir varlik ekleyip onun kSceneModel almasini
+// bekliyor. Karisik siralamada "engine_arena.tpr" one gecer ve o kapi kirmiziya
+// doner. Modeller once durdugu surece invaryant korunuyor.
+//
+// editor_scan_assets'e DOKUNULMUYOR: `only_gltf` kontrolu (tests/test_editor)
+// onun sozlesmesini kilitliyor.
+void rescan_browse(EditorState &st) {
+  st.browse_models = editor_scan_assets(st.scene_dir, st.scene, st.browse, EditorState::kBrowseCap);
+  st.browse_count = st.browse_models;
+  st.script_scan = editor_scan_scripts(st.scene_dir, st.tulpar_dir, st.scripts, EditorState::kBrowseCap, st.scan_scratch, kFileListMax);
+  st.script_count = st.script_scan.count;
+  for (uint32_t k = 0; k < st.script_count && st.browse_count < EditorState::kBrowseCap; k++) {
+    AssetFile &f = st.browse[st.browse_count++];
+    std::snprintf(f.name, sizeof f.name, "%s", st.scripts[k]);
+    f.kind = AssetKind::Script;
+    f.in_scene = false;
+    f.index = -1;
+  }
+  // Tavan asimi SESSIZ kalmiyor: eksik bir liste "o betik yok" gibi gorunur.
+  if (st.script_scan.truncated || st.script_scan.clipped)
+    set_status(st, "betik taramasi: %u atlandi, %u dizine inilmedi (tavan)", st.script_scan.truncated, st.script_scan.clipped);
+  else if (st.script_scan.err[0])
+    set_status(st, "betik taramasi: %s", st.script_scan.err);
 }
 
 void bodies_spawn(EditorState &st, sim::Physics &ph) {
@@ -1349,6 +1390,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   else if (adir && *adir) std::snprintf(st.scene_path, sizeof st.scene_path, "%s/editor.sahne", adir);
   else platform::asset_path(st.scene_path, sizeof st.scene_path, "tests/assets/editor.sahne");
   content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
+  // Betik tarayicisinin IKINCI koku: deponun `tulpar/` agaci. asset_path exe
+  // dizini -> cwd -> ENGINE_SOURCE_DIR sirasiyla deniyor ve BULAMAZSA son
+  // denedigi yolu tamponda BIRAKIYOR, yani durum satiri hangi yola baktigimizi
+  // soyleyebiliyor (sahne yolu icin de ayni cagri kullaniliyor).
+  platform::asset_path(st.tulpar_dir, sizeof st.tulpar_dir, "tulpar");
   {
     content::SceneError err{};
     if (!content::scene_load(sys, st.scene_path, &st.scene, &err)) {
@@ -1373,7 +1419,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     return st.have[i];
   };
   for (uint32_t i = 0; i < st.scene.asset_count; i++) load_asset((int32_t)i);
-  st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
+  rescan_browse(st);
   std::printf("[engine_editor] sahne %s: %u varlik, %u kaynak\n", st.scene_path, st.scene.entity_count, st.scene.asset_count);
   console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "sahne %s: %u varlik, %u kaynak", st.scene_path, st.scene.entity_count,
               st.scene.asset_count);
@@ -1552,7 +1598,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!content::scene_save(frame, st.scene, path, &err)) { set_status(st, "KAYDEDILEMEDI: %s", err.msg); return false; }
     std::snprintf(st.scene_path, sizeof st.scene_path, "%s", path);
     content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
-    st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
+    rescan_browse(st);
     st.dirty = false;
     recent_push(st.scene_path);
     recent_save(recent_file);
@@ -1583,7 +1629,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
     for (uint32_t i = 0; i < content::kSceneMaxAssets; i++) st.have[i] = false;
     for (uint32_t i = 0; i < st.scene.asset_count; i++) load_asset((int32_t)i);
-    st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
+    rescan_browse(st);
     cam.target = st.scene.cam_target; cam.yaw = st.scene.cam_yaw; cam.pitch = st.scene.cam_pitch; cam.radius = st.scene.cam_radius;
     st.clip_count = 0; // pano baska bir sahnenin varliklarini tasiyordu
     recent_push(st.scene_path);
@@ -1605,7 +1651,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.scene_path[0] = 0; // ADSIZ: ilk Kaydet "Farkli kaydet"e duser
     for (uint32_t i = 0; i < content::kSceneMaxAssets; i++) st.have[i] = false;
     st.clip_count = 0;
-    st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
+    rescan_browse(st);
     set_status(st, "yeni sahne (henuz kaydedilmedi)");
   };
   auto run_pending = [&](int a) {
@@ -2461,7 +2507,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.dirty = true;
     if (a >= 0 && !st.have[a]) load_asset(a);
     st.sel.set_single((int32_t)st.scene.entity_count - 1);
-    st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
+    rescan_browse(st);
     set_status(st, "kaynak eklendi: %s (%s)", file, (a >= 0 && st.have[a]) ? "yuklendi" : "YUKLENEMEDI");
   };
   // --- Komut tablosu: menu, arac cubugu ve kisayollar TEK kaynaktan ----------
@@ -5802,9 +5848,37 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (has_sc) {
           act = ComponentCardAction::None;
           after = e;
-          if (begin_component_card("\xE2\x96\xA4", "Tulpar Betik", content::kSceneScript, nullptr, &act, true, Tone::AccentLo)) { // ▤
+          if (begin_component_card(ICON_MD_CODE, "Tulpar Betik", content::kSceneScript, nullptr, &act, true, Tone::AccentLo)) {
             if (prop_begin("betik")) {
-              track_edit(st, e, si, prop_text("Betik (.tpr)", e.script_file, sizeof e.script_file));
+              prop_help("Motor bu betigi CALISTIRMAZ. Atama bir ETIKETTIR: derlenmis sahneye gider, "
+                        "oyun kendi dongusunde okuyup ada gore dallanir. (Kopru ABI'si duz skaler, "
+                        "callback yok — bkz. docs/KOPRU.md.)");
+              // Secici INDEKS ister, alan METIN tutar. Her karede dogrusal
+              // arama: n taranan betik sayisi (olculdu: depoda 5) ve bu kod
+              // yalniz kart ACIKKEN kosuyor — ayri bir esleme tablosu tutmak
+              // (ve onu her taramada tazelemek) daha pahali olurdu.
+              int sel = -1;
+              for (uint32_t k = 0; k < st.script_count; k++)
+                if (!std::strcmp(st.scripts[k], e.script_file)) { sel = (int)k; break; }
+              if (prop_asset("Betik (.tpr)", &sel, st.scripts, st.script_count).changed && sel >= 0) {
+                after = e;
+                std::snprintf(after.script_file, sizeof after.script_file, "%s", st.scripts[sel]);
+                commit(st, si, after);
+              }
+              // Karo/liste'den surukleyip BURAYA birakmak da atar.
+              if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("SCRIPT_FILE")) {
+                  after = e;
+                  std::snprintf(after.script_file, sizeof after.script_file, "%s", (const char *)pl->Data);
+                  commit(st, si, after);
+                }
+                ImGui::EndDragDropTarget();
+              }
+              // Listede OLMAYAN bir yol (elle yazilmis, baska depodan gelmis)
+              // SILINMIYOR: secici onu "-" gosterir ama uzerine yazmaz, metin
+              // alani oldugu gibi durur. Tarama kokleri ve tavanlari var; bu
+              // alan olmasaydi disaridaki bir betik hic atanamazdi.
+              track_edit(st, e, si, prop_text("Yol (elle)", e.script_file, sizeof e.script_file));
               bool en = e.script_enabled;
               if (prop_check("Etkin", &en).changed) { after = e; after.script_enabled = en; commit(st, si, after); }
               prop_end();
@@ -6029,12 +6103,28 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (ImGui::Begin(kPanelKaynaklarLabel)) {
       AssetsAction act;
       assets_panel(st.assets_view, st.scene_dir, st.browse, st.browse_count, st.scene.assets, st.have, st.scene.asset_count, &act);
-      if (act.refresh) st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
+      if (act.refresh) rescan_browse(st);
       if (act.add_index >= 0 && act.add_index < (int)st.browse_count) {
         // Once kopyala: do_add_asset listeyi yeniden tarar, isaretci bayatlar.
         char add_file[content::kScenePathLen];
+        const bool betik = st.browse[act.add_index].kind == AssetKind::Script;
         std::snprintf(add_file, sizeof add_file, "%s", st.browse[act.add_index].name);
-        do_add_asset(add_file);
+        if (betik) {
+          // Bir .tpr sahneye KAYNAK olarak eklenemez (kaynak tablosu modeller
+          // icin). Secili varlik varsa dogrudan ATANIYOR — cift tiklamanin
+          // hicbir sey yapmamasi kullaniciya "bozuk" diye gorunurdu.
+          const int si = (int)st.sel.primary();
+          if (si >= 0 && si < (int)st.scene.entity_count) {
+            SceneEntity after = st.scene.entities[si];
+            after.components |= content::kSceneScript;
+            std::snprintf(after.script_file, sizeof after.script_file, "%s", add_file);
+            if (commit(st, si, after)) set_status(st, "betik atandi: %s -> %s", st.scene.entities[si].name, add_file);
+          } else {
+            set_status(st, "betik atamak icin once bir varlik secin: %s", add_file);
+          }
+        } else {
+          do_add_asset(add_file);
+        }
       }
     }
     ImGui::End();
@@ -6372,8 +6462,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (!gok) return 1;
       // Kaynak tarayici kapisi: dizindeki glTF'ler bulunmali, secilen kaynakla
       // eklenen varlik kSceneModel almali; geri al sahneyi bayt bayt geri getirmeli.
-      st.browse_count = editor_scan_assets(st.scene_dir, st.scene, st.browse, 64);
-      if (st.browse_count == 0) {
+      rescan_browse(st);
+      // MODEL sayisina bakiyoruz, browse_count'a DEGIL: liste artik betikleri de
+      // tasiyor ve glTF'si olmayan ama .tpr'si olan bir dizinde browse_count > 0
+      // olurdu — kapi o zaman bir betigi model diye eklemeye calisip
+      // ANLAMSIZ bir kirmizi verirdi.
+      if (st.browse_models == 0) {
         std::printf("[engine_editor] kaynak tarayici kapisi: ATLANDI (dizinde .gltf/.glb yok: %s)\n", st.scene_dir);
       } else {
         const uint32_t n_before = st.scene.entity_count;

@@ -824,8 +824,15 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         // cizimini yeniledi ama BU kaynagi dusurmustu: karo artik hicbir yere
         // suruklenemiyordu. Cizim PR #7'den, surukle-birak main'den.
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-          ImGui::SetDragDropPayload("ASSET_FILE", f.name, std::strlen(f.name) + 1);
-          ImGui::Text("Sahneye Ekle:\n%s", f.name);
+          // AYRI yuk tipi, ortak yuk + hedefte reddetme DEGIL: ImGui birakma
+          // vurgusunu AcceptDragDropPayload'dan ONCE ciziyor, yani ortak tipte
+          // goruntu alani bir .tpr icin de "birak" der, sonra sessizce yutardi.
+          const bool betik = f.kind == AssetKind::Script;
+          ImGui::SetDragDropPayload(betik ? "SCRIPT_FILE" : "ASSET_FILE", f.name, std::strlen(f.name) + 1);
+          // Dizgi BOLUNDU: "\x9F" hemen ardindan 'e' gelirse C++ hex kacisini
+          // acgozlu okur ("\x9Fe") ve char araligini asar — katman kapisi bunu
+          // derleme zamaninda yakaliyor.
+          ImGui::Text(betik ? "Beti\xC4\x9F" "e Ata:\n%s" : "Sahneye Ekle:\n%s", f.name); // Betiğe Ata
           ImGui::EndDragDropSource();
         }
         // main'in ayri `sahnede` rozeti BILEREK dusuruldu: PR #7 ayni rozeti
@@ -881,8 +888,15 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         if (hov && std::strcmp(nb, f.name) != 0) ImGui::SetTooltip("%s", f.name);
         // Surukle-birak kaynagi (liste gorunumu).
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-          ImGui::SetDragDropPayload("ASSET_FILE", f.name, std::strlen(f.name) + 1);
-          ImGui::Text("Sahneye Ekle:\n%s", f.name);
+          // AYRI yuk tipi, ortak yuk + hedefte reddetme DEGIL: ImGui birakma
+          // vurgusunu AcceptDragDropPayload'dan ONCE ciziyor, yani ortak tipte
+          // goruntu alani bir .tpr icin de "birak" der, sonra sessizce yutardi.
+          const bool betik = f.kind == AssetKind::Script;
+          ImGui::SetDragDropPayload(betik ? "SCRIPT_FILE" : "ASSET_FILE", f.name, std::strlen(f.name) + 1);
+          // Dizgi BOLUNDU: "\x9F" hemen ardindan 'e' gelirse C++ hex kacisini
+          // acgozlu okur ("\x9Fe") ve char araligini asar — katman kapisi bunu
+          // derleme zamaninda yakaliyor.
+          ImGui::Text(betik ? "Beti\xC4\x9F" "e Ata:\n%s" : "Sahneye Ekle:\n%s", f.name); // Betiğe Ata
           ImGui::EndDragDropSource();
         }
         bool add = dbl;

@@ -45,6 +45,7 @@ nesne "kup_dusen"
   olcek 1 1 1
   model kaynak 2 1 1 1
   govde kutu 0.5 0.5 0.5 dinamik
+  betik "tulpar/examples/engine_ilk_oyun.tpr" etkin
 son
 nesne "duvar_sabit"
   konum -6 0.75 3

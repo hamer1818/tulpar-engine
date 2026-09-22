@@ -298,6 +298,55 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
 // Olcum: ayni sahne iki kez kapali (KONTROL: cizim farki 0, piksel farki 0),
 // sonra acik (cizim sayisi ve piksel artar). Cizim sayisi KAYITTA sayilir
 // (Tuzaklar 8aa): stats() her zaman offscreen_render_custom'dan SONRA okunur.
+// Betik tarayicisi: IKI kok (sahne dizini + depo `tulpar/` agaci), ozyinelemeli.
+// Modellerden AYRI bir fonksiyon, cunku sozlesmeleri farkli — bu kapi ikisinin
+// karismadigini da olcuyor.
+ENGINE_TEST(editor_script_scan_lists_tpr_from_both_roots) {
+  static char scripts[128][content::kScenePathLen];
+  static app::FileEntry scratch[app::kFileListMax];
+  char scene_dir[1024], tulpar_dir[1024];
+  std::snprintf(scene_dir, sizeof scene_dir, "%s/tests/assets", ENGINE_SOURCE_DIR);
+  std::snprintf(tulpar_dir, sizeof tulpar_dir, "%s/tulpar", ENGINE_SOURCE_DIR);
+
+  const app::ScriptScanResult r = app::editor_scan_scripts(scene_dir, tulpar_dir, scripts, 128, scratch, app::kFileListMax);
+  char liste[768] = {0};
+  for (uint32_t i = 0; i < r.count && std::strlen(liste) < sizeof liste - 64; i++) {
+    std::strncat(liste, scripts[i], sizeof liste - std::strlen(liste) - 1);
+    std::strncat(liste, " ", sizeof liste - std::strlen(liste) - 1);
+  }
+  bool yalniz_tpr = true, onekli_var = false, ic_ice = false;
+  for (uint32_t i = 0; i < r.count; i++) {
+    if (!ends_with(scripts[i], ".tpr")) yalniz_tpr = false;
+    if (!std::strncmp(scripts[i], "tulpar/", 7)) onekli_var = true;
+    if (std::strchr(scripts[i], '/')) ic_ice = true;
+  }
+  std::printf("    [bilgi] betik taramasi: %u dosya (sahne kok %s, tulpar kok %s) -> %s\n", r.count, r.scene_ok ? "ok" : "YOK",
+              r.tulpar_ok ? "ok" : "YOK", liste);
+  CHECK(r.tulpar_ok && r.count >= 5);
+  // KONTROL: iki kokte de .gltf/.sahne/.md VAR; hicbiri listeye girmemeli.
+  CHECK(yalniz_tpr);
+  // Onek SART: iki kokte de main.tpr olabilir, hangisi oldugu anlasilmali.
+  CHECK(onekli_var);
+  // Ozyineleme kaniti: tek katman '/' iceren bir ad uretemez.
+  CHECK(ic_ice);
+  CHECK(r.truncated == 0 && r.clipped == 0);
+
+  // KONTROL: ikinci kok acilamazsa BIRINCININ sonuclari silinmiyor ve sebep
+  // gorunuyor. (Tek cagrida birlestirilseydi eksik bir kok listeyi bosaltirdi.)
+  const app::ScriptScanResult yok = app::editor_scan_scripts(scene_dir, "/boyle/bir/kok/yok", scripts, 128, scratch, app::kFileListMax);
+  std::printf("    [bilgi] KONTROL eksik ikinci kok: tulpar_ok=%s, sahne kok=%s, hata=\"%s\"\n", yok.tulpar_ok ? "true (HATA)" : "false",
+              yok.scene_ok ? "ok" : "YOK", yok.err);
+  CHECK(!yok.tulpar_ok && yok.err[0] != 0 && yok.scene_ok);
+
+  // KONTROL: model tarayicisi .tpr'ye DOKUNMUYOR — iki sozlesme ayri kaldi.
+  static content::SceneDesc d;
+  d = content::SceneDesc{};
+  app::AssetFile modeller[32];
+  const uint32_t nm = app::editor_scan_assets(tulpar_dir, d, modeller, 32);
+  std::printf("    [bilgi] KONTROL model tarayicisi tulpar/ icinde: %u dosya (0 olmali)\n", nm);
+  CHECK(nm == 0);
+}
+
 ENGINE_TEST(editor_light_and_shadow_gizmos_draw_with_control) {
   if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok"); return; }
   static SystemArena sys;

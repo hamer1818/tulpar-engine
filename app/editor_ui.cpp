@@ -648,6 +648,43 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
   return n;
 }
 
+ScriptScanResult editor_scan_scripts(const char *scene_dir, const char *tulpar_root,
+                                     char (*out)[content::kScenePathLen], uint32_t cap,
+                                     FileEntry *scratch, uint32_t scratch_cap) {
+  ScriptScanResult r{};
+  if (!out || cap == 0 || !scratch || scratch_cap == 0) return r;
+
+  // Tek bir kokten toplayip `out`a ekleyen yerel yardimci. Onek bos olabilir
+  // (sahne dizini) ya da "tulpar/" olabilir.
+  auto topla = [&](const char *kok, const char *onek, bool &ok_out) {
+    if (!kok || !*kok) return;
+    const FileTreeResult t = file_list_tree(kok, ".tpr", scratch, scratch_cap);
+    ok_out = t.ok;
+    if (!t.ok) {
+      if (r.err[0] == 0) std::snprintf(r.err, sizeof r.err, "%s", t.err);
+      return;
+    }
+    r.truncated += t.truncated;
+    r.clipped += t.depth_clipped + t.dirs_clipped;
+    for (uint32_t i = 0; i < t.count; i++) {
+      if (r.count >= cap) { r.truncated++; continue; }
+      const int n = onek && *onek ? std::snprintf(out[r.count], content::kScenePathLen, "%s%s", onek, scratch[i].name)
+                                  : std::snprintf(out[r.count], content::kScenePathLen, "%s", scratch[i].name);
+      // SESSIZ KIRPMA YOK: sigmayan yol listeye girmez, sayilir. Kirpilmis bir
+      // betik yolu var olmayan bir dosyayi gosterir ve bunu kimse soylemez.
+      if (n < 0 || n >= (int)content::kScenePathLen) { out[r.count][0] = 0; r.truncated++; continue; }
+      r.count++;
+    }
+  };
+
+  topla(scene_dir, nullptr, r.scene_ok);
+  // Ikinci kok BIRINCININ sonuclarini silmez: biri acilamazsa digeri yine
+  // listelenir. (Ilk hali ikisini tek cagrida birlestirseydi eksik bir kok
+  // butun listeyi bosaltirdi.)
+  topla(tulpar_root, "tulpar/", r.tulpar_ok);
+  return r;
+}
+
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset) {
   if (out_asset) *out_asset = -1;
   if (!file || !*file) return 0;

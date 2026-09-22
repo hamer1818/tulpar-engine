@@ -6,6 +6,7 @@
 #pragma once
 #include <cstdint>
 
+#include "app/editor_files.hpp" // FileEntry — betik tarayicisinin kaziyici tamponu
 #include "content/scene.hpp"
 #include "platform/window.hpp"
 #include "renderer/renderer.hpp"
@@ -182,14 +183,52 @@ private:
 };
 
 // Kaynak tarayici: sahne dosyasinin dizinindeki glTF dosyalari (POSIX dirent).
+// Tarayici listesi artik IKI tur tasiyor. Tur bir bayrak degil ENUM, cunku
+// davranis her yerde ayrisiyor: modeller sahneye eklenir, betikler secili
+// varliga ATANIR; surukleme yukleri bile farkli ("ASSET_FILE" / "SCRIPT_FILE").
+enum class AssetKind : uint8_t { Model, Script };
 struct AssetFile {
   char name[content::kScenePathLen] = {0};
   bool in_scene = false; // sahnenin kaynak tablosunda kayitli mi
   int32_t index = -1;    // kayitliysa kaynak indeksi
+  AssetKind kind = AssetKind::Model;
 };
 // dir icindeki *.gltf / *.glb dosyalari, ada gore sirali (belirlenimli: readdir
 // sirasi dosya sistemine bagli). Donus: bulunan sayi (cap ile sinirli).
 uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetFile *out, uint32_t cap);
+
+// --- Tulpar betikleri (.tpr) ------------------------------------------------
+// AYRI fonksiyon, editor_scan_assets'i genisletmek DEGIL. Iki sebep:
+//   * O tarayici `.gltf`/`.glb` sozlesmesiyle kapili (tests/test_editor.cpp
+//     `only_gltf` kontrolu tam bunu olcuyor) ve headless kaynak tarayici
+//     kapisi (editor_app.cpp) `browse[0]`in bir MODEL oldugunu varsayiyor.
+//   * Betik taramasi IKI kokten ve OZYINELEMELI; modeller tek dizin, tek
+//     katman. Ayni fonksiyona iki farkli sozlesme sigmaz.
+//
+// Kokler: sahne dosyasinin dizini (oyunun kendi betikleri) ve deponun
+// `tulpar/` agaci (ornekler + engine.tpr). Olculdu 2026-09-22: depodaki bes
+// .tpr'nin dordu `tulpar/` altinda, yani tek kok yetmiyor.
+//
+// Cikti `char[][kScenePathLen]`, AssetFile DEGIL: denetci secicisi
+// (editor_widgets.hpp `prop_asset`) tam bu tipi istiyor, araya bir esleme
+// tablosu koymamak icin.
+struct ScriptScanResult {
+  uint32_t count = 0;      // out'a yazilan betik
+  uint32_t truncated = 0;  // cap'e ya da ad tavanina sigmayan
+  uint32_t clipped = 0;    // derinlik/kuyruk tavani yuzunden inilmeyen dizin
+  bool scene_ok = false;   // sahne dizini acilabildi mi
+  bool tulpar_ok = false;  // tulpar/ koku acilabildi mi
+  char err[192] = {0};     // ilk acilamayan kokun sebebi ("" = ikisi de acildi)
+};
+// Sahne dizini isabetleri o dizine GORELI saklanir; `tulpar/` isabetleri
+// "tulpar/" onekiyle. Onek SART: iki kokte de `main.tpr` olabilir ve onun
+// hangisi oldugu atamadan anlasilmali. Sahne blogu ONCE, tulpar/ blogu SONRA;
+// her blok kendi icinde sirali (global siralama DEGIL — iki kok ayri kalsin).
+//
+// `scratch` cagirana ait: fonksiyon yigina buyuk tampon koymuyor.
+ScriptScanResult editor_scan_scripts(const char *scene_dir, const char *tulpar_root,
+                                     char (*out)[content::kScenePathLen], uint32_t cap,
+                                     FileEntry *scratch, uint32_t scratch_cap);
 // Kaynagi sahneye ekler (varsa mevcut indeks) ve o kaynakla yeni bir varlik
 // kurar (kSceneModel). Kaynak tablosu eklemesi gunluge GIRMEZ (tablo append-only;
 // geri al varligi siler, kaynak satiri kalir). Donus: gunluge giren islem sayisi
