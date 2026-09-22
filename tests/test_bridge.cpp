@@ -166,6 +166,16 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     content::SceneError serr{};
     const bool authored = content::scene_load(arena, src, &desc, &serr);
     if (!authored) std::printf("    [bilgi] sahne kaynagi yok (%s): %s\n", src, serr.msg);
+    // KAPALI bir betik BELLEKTE ekleniyor, editor.sahne'ye DEGIL: o dosya
+    // "kanonik metin" kapisinin oznesi ve buraya bir satir daha koymak bu
+    // testin ihtiyacini paylasilan bir fixture'a tasirdi. Amac dar: "atanmis
+    // ama kapali" durumunu kosturmak.
+    for (uint32_t i = 0; i < desc.entity_count; i++) {
+      if (std::strcmp(desc.entities[i].name, "kure_1") != 0) continue;
+      desc.entities[i].components |= content::kSceneScript;
+      std::snprintf(desc.entities[i].script_file, sizeof desc.entities[i].script_file, "tulpar/examples/engine_arena.tpr");
+      desc.entities[i].script_enabled = false;
+    }
     if (authored && content::scene_blob_save(arena, desc, blob, &serr)) {
       sahne_kapisi = true;
       const int draws_before = teng_draw_count();
@@ -201,6 +211,35 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       // Sinir disi sahne dizini de hata verir, 0 doner.
       CHECK(teng_scene_x(9999) == 0.0);
       CHECK(teng_error_count() == errs_dup + 3);
+
+      // --- 4.5b) BETIK ATAMASI: editorde atanan .tpr oyuna ulasiyor mu? ---
+      // Motor betigi CALISTIRMIYOR; tasidigi sey bir ETIKET. Kapi dort durumu
+      // birden ayirt ediyor, cunku ucu ayni goruntuyu verebilir ve oyun
+      // yanlis dallanir.
+      const int kure = teng_scene_find("kure_1");
+      CHECK(kure >= 0);
+      if (kup >= 0 && kure >= 0 && duvar >= 0) {
+        // 1) ETKIN: yol okunuyor, bayrak 1.
+        CHECK(std::strcmp(teng_scene_script(kup), "tulpar/examples/engine_ilk_oyun.tpr") == 0);
+        CHECK(teng_scene_script_enabled(kup) == 1);
+        // 2) KAPALI: yol YINE okunuyor ama bayrak 0. Ikisini bos metne
+        //    dusurmek tasarimcinin kapattigi betigi gorunmez yapardi.
+        CHECK(std::strcmp(teng_scene_script(kure), "tulpar/examples/engine_arena.tpr") == 0);
+        CHECK(teng_scene_script_enabled(kure) == 0);
+        // 3) KONTROL — bileseni YOK: bos metin ve bu bir HATA DEGIL.
+        const int errs_before_script = teng_error_count();
+        CHECK(teng_scene_script(duvar)[0] == 0);
+        CHECK(teng_scene_script_enabled(duvar) == 0);
+        CHECK(teng_error_count() == errs_before_script);
+        // 4) KONTROL — sinir disi: yine bos metin AMA hata sayaci artiyor.
+        //    Bu olmadan (3)'teki bos donusun sinir denetiminden mi yoksa
+        //    tesaduften mi geldigi anlasilmazdi.
+        CHECK(teng_scene_script(9999)[0] == 0);
+        CHECK(teng_error_count() == errs_before_script + 1);
+        std::printf("    [bilgi] betik atamasi: kup=\"%s\"(etkin %d) kure_1=\"%s\"(etkin %d) duvar=\"%s\" — bileseni yok HATA degil, sinir disi hata\n",
+                    teng_scene_script(kup), teng_scene_script_enabled(kup), teng_scene_script(kure), teng_scene_script_enabled(kure),
+                    teng_scene_script(duvar));
+      }
 
       // --- 4.6) SAHNE VARLIGINA KUVVET: dinamik govde itilir ---
       // (Sahne bugune kadar yalniz okunuyordu; kuvvet olmadan bolum icinde
@@ -465,7 +504,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // Ortamdan gelen hatalar (ses cihazi yok, kaynak yok) ayri sayilir; onlar
   // kasitli degil ve makineye gore degisir.
   int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/;
-  if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/;
+  if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/;
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;
   const int errs_total = teng_error_count() - err0 - ortam_hatasi;

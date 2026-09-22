@@ -38,6 +38,8 @@
     {"eng_scene_y", "eng_scene_y(i: int): float", "Sahne varliginin y'si."},
     {"eng_scene_z", "eng_scene_z(i: int): float", "Sahne varliginin z'si."},
     {"eng_scene_name", "eng_scene_name(i: int): str", "Sahne varliginin adi."},
+    {"eng_scene_script", "eng_scene_script(i: int): str", "Varliga editorde atanmis Tulpar betiginin (.tpr) yolu; betik bileseni yoksa bos metin. Motor bu betigi CALISTIRMAZ -- yol bir ETIKETTIR, oyun kendi dongusunde okuyup ada gore dallanir (kopru ABI'si duz skaler, callback yok)."},
+    {"eng_scene_script_enabled", "eng_scene_script_enabled(i: int): bool", "Varligin betik bileseni ETKIN mi (editordeki 'Etkin' kutusu). Bileseni olmayan varlikta false. Ayri erisimci, cunku 'atanmamis' ile 'atanmis ama kapali' AYRI olgular."},
     {"eng_scene_unload", "eng_scene_unload(): bool", "Sahneyi bosaltir: govdeler fizikten cikar, cizim durur. Sonra eng_scene_load yeniden cagrilabilir (bolum gecisi)."},
     {"eng_scene_loaded", "eng_scene_loaded(): bool", "Su an yuklu bir sahne var mi."},
     {"eng_scene_vx", "eng_scene_vx(i: int): float", "Sahne varliginin hizi x (govdesizse 0)."},

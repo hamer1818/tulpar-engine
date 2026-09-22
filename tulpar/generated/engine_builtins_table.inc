@@ -38,6 +38,8 @@
     {"eng_scene_y", "aot_eng_scene_y_ptr", 1},
     {"eng_scene_z", "aot_eng_scene_z_ptr", 1},
     {"eng_scene_name", "aot_eng_scene_name_ptr", 1},
+    {"eng_scene_script", "aot_eng_scene_script_ptr", 1},
+    {"eng_scene_script_enabled", "aot_eng_scene_script_enabled_ptr", 1},
     {"eng_scene_unload", "aot_eng_scene_unload_ptr", 0},
     {"eng_scene_loaded", "aot_eng_scene_loaded_ptr", 0},
     {"eng_scene_vx", "aot_eng_scene_vx_ptr", 1},
