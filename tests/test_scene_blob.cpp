@@ -195,11 +195,17 @@ void fill_v6(SceneDesc &d) {
   std::snprintf(e.name, sizeof e.name, "hepsi");
   e.pos = {1.5f, -2.25f, 3.125f}; e.rot_deg = {15, 30, 45}; e.scale = {2, 0.5f, 1};
   e.components = kSceneModel | kSceneCharacter | kSceneParticle | kSceneTerrain | kSceneVoxel | kSceneWater |
-                 kSceneWind | kSceneNavAgent | kSceneJoint | kSceneSkybox | kSceneRefProbe | kSceneReverb;
+                 kSceneWind | kSceneNavAgent | kSceneJoint | kSceneSkybox | kSceneRefProbe | kSceneReverb |
+                 kSceneScript; // v7
   e.asset = 0; e.tint = {0.85f, 0.9f, 1.0f};
   e.primitive = 24; e.metallic = 0.75f; e.roughness = 0.125f; e.reflectance = 0.9f;
   e.emissive = {1.0f / 3.0f, 0.5f, 7.0f}; e.emissive_strength = 2.5f;
   e.char_radius = 0.42f; e.char_height = 1.83f; e.char_mass = 81.5f; e.char_max_slope = 37.25f;
+  // Betik yolu 100+ bayt: METIN TABLOSU MUHASEBESININ pozitif kontrolu
+  // (scene_blob.cpp plan_of). Kisa bir yol muhasebe hatasini GIZLER — komsu
+  // bolumun ilk baytlarini henuz ezmez ve her sey yesil gorunur.
+  std::snprintf(e.script_file, sizeof e.script_file, "tulpar/examples/davranis/dusman/kovalayan_saldirgan_yapay_zeka_surum_iki.tpr");
+  e.script_enabled = false; // varsayilan true: deger GERCEKTEN tasiniyor mu
   e.particle_spawn_rate = 123.5f; e.particle_lifetime_min = 0.25f; e.particle_lifetime_max = 4.5f;
   e.particle_size_start = 0.75f; e.particle_size_end = 0.125f;
   e.particle_velocity = {-1, 2.5f, 3}; e.particle_jitter = {0.5f, 0.25f, 0.75f};
@@ -316,6 +322,21 @@ ENGINE_TEST(scene_blob_carries_new_component_tables) {
         v3eq(v.draws[0].emissive, e.emissive));
   // Kaynaksiz ilkel (editorun "Kapsul" menusu): asset -1 blob'da REDDEDILMEZ.
   CHECK(v.draws[1].entity == 2 && v.draws[1].asset == -1 && v.draws[1].primitive == 20);
+  // v7 betik tablosu. `flags` bit0 = etkin; fixture'da KAPALI, yani deger
+  // gercekten tasiniyor (varsayilan true olsaydi bu kontrol bos olurdu).
+  CHECK(v.h->script_count == 1 && v.scripts != nullptr);
+  if (v.scripts) {
+    CHECK(v.scripts[0].entity == 0 && (v.scripts[0].flags & 1u) == 0);
+    CHECK(!std::strcmp(v.script_path(0), e.script_file));
+    CHECK(v.scripts[0].path_len == (uint32_t)std::strlen(e.script_file));
+  }
+  // POZITIF KONTROL — metin tablosu muhasebesi (scene_blob.cpp plan_of).
+  // 100+ baytlik betik yolu interne edilirken KOMSU metinler ezilmemeli.
+  // Muhasebe satiri unutulsaydi ozet bunu yakalayamazdi (bozulmadan SONRA
+  // hesaplaniyor) ve table_ok da yakalayamazdi (ofsetler dogru); hata tam
+  // burada, bozuk bir kaynak yolu ya da varlik adi olarak gorunur.
+  CHECK(!std::strcmp(v.asset_path(0), "lod_sphere.gltf"));
+  CHECK(!std::strcmp(v.entity_name(0), "hepsi"));
   // KONTROL: bilesensiz sahnede tablolar bos.
   static SceneDesc plain;
   fill(plain);
@@ -324,7 +345,7 @@ ENGINE_TEST(scene_blob_carries_new_component_tables) {
   SceneBlobView pv;
   CHECK(pb && scene_blob_open(pb, pn, &pv, &err));
   CHECK(pv.h->particle_count == 0 && pv.h->terrain_count == 0 && pv.h->voxel_count == 0 && pv.h->water_count == 0 &&
-        pv.h->wind_count == 0 && pv.h->character_count == 0);
+        pv.h->wind_count == 0 && pv.h->character_count == 0 && pv.h->script_count == 0);
   CHECK(pv.draws[0].primitive == -1 && feq(pv.draws[0].roughness, 1.0f)); // varsayilan malzeme
   std::printf("    [bilgi] v6 blob %zu bayt (bilesensiz kontrol %zu bayt)\n", n, pn);
 }
@@ -361,6 +382,15 @@ ENGINE_TEST(scene_roundtrip_equality) {
 ENGINE_TEST(scene_blob_open_rejects_corruption) {
   static SceneDesc d;
   fill(d);
+  // Betik bileseni YEREL olarak ekleniyor, `fill`e DEGIL: `fill` ayni zamanda
+  // "bilesensiz sahnede tablolar bos" kontrolunun temeli ve oraya bir bilesen
+  // koymak o kontrolun anlamini yok eder (olculdu — kontrol hemen kirmizi
+  // dondu). Buradaki tek amac v7 sinir denetimlerini kosturacak bir kayit.
+  if (d.entity_count) {
+    SceneEntity &se = d.entities[d.entity_count - 1];
+    se.components |= kSceneScript;
+    std::snprintf(se.script_file, sizeof se.script_file, "tulpar/examples/engine_arena.tpr");
+  }
   size_t n = 0;
   void *good = compile_to(d, &n);
   CHECK(good);
@@ -410,6 +440,24 @@ ENGINE_TEST(scene_blob_open_rejects_corruption) {
   // 8) endian isareti
   reset(); hdr()->endian = 0x04030201u; rehash();
   CHECK(!scene_blob_open(bad, n, &v, &err) && std::strstr(err.msg, "bayt sirasi"));
+  // 8b) v7 betik tablosu: yol metin tablosunun DISINDA / kayit tanimsiz
+  // varliga bakiyor. Iki yeni dogrulama dali baska hicbir test tarafindan
+  // kosturulmuyor — yazilip hic sinanmamis bir sinir denetimi, olmayan bir
+  // sinir denetimidir.
+  if (hdr()->script_count) {
+    reset();
+    { auto *sc = reinterpret_cast<SceneBlobScript *>(bad + hdr()->script_offset); sc[0].path = hdr()->string_size; }
+    rehash();
+    CHECK(!scene_blob_open(bad, n, &v, &err) && std::strstr(err.msg, "betik yolu"));
+    reset();
+    { auto *sc = reinterpret_cast<SceneBlobScript *>(bad + hdr()->script_offset); sc[0].entity = hdr()->entity_count; }
+    rehash();
+    CHECK(!scene_blob_open(bad, n, &v, &err) && std::strstr(err.msg, "betik kaydi"));
+    std::printf("    [bilgi] betik tablosu bozulmasi: yol metin disi ve kayit tanimsiz varlik -> ikisi de reddedildi\n");
+  } else {
+    std::printf("    FAIL fixture'da betik bileseni YOK: 8b hic kosmadi\n");
+    Registry::failures++;
+  }
   // 9) hizasiz isaretci
   reset();
   CHECK(!scene_blob_open(bad + 4, n, &v, &err) && std::strstr(err.msg, "hizali"));
@@ -920,12 +968,13 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 6);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 7);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
-  // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK) ve 5 (v6 bilesen
+  // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
   // tablolari YOK; bu numarayla bir dosya hic uretilmedi ama reddi yine de
-  // olculuyor). Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
+  // olculuyor) ve 6 (betik tablosu YOK).
+  // Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
   // kendiliginden kapsanir; yalniz yukaridaki sabit guncellenir.
   SceneBlobView v;
   SceneError err{};

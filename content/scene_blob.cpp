@@ -29,9 +29,10 @@ struct Plan {
   uint32_t draws = 0, anims = 0, lights = 0, bodies = 0, strings = 0, residents = 0, nav = 0;
   uint32_t dag_meshes = 0, dag_nodes = 0, dag_indices = 0, dag_children = 0, gi_probes = 0;
   uint32_t particles = 0, terrains = 0, voxels = 0, waters = 0, winds = 0, characters = 0; // v6
+  uint32_t scripts = 0;                                                                   // v7
   size_t off_asset = 0, off_entity = 0, off_draw = 0, off_anim = 0, off_light = 0, off_body = 0, off_string = 0, off_resident = 0,
          off_nav = 0, off_dag_mesh = 0, off_dag_node = 0, off_dag_index = 0, off_dag_child = 0, off_gi = 0,
-         off_particle = 0, off_terrain = 0, off_voxel = 0, off_water = 0, off_wind = 0, off_character = 0, total = 0;
+         off_particle = 0, off_terrain = 0, off_voxel = 0, off_water = 0, off_wind = 0, off_character = 0, off_script = 0, total = 0;
 };
 Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   Plan p;
@@ -63,6 +64,16 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
     if (e.components & kSceneWater) p.waters++;
     if (e.components & kSceneWind) p.winds++;
     if (e.components & kSceneCharacter) p.characters++;
+    if (e.components & kSceneScript) {
+      p.scripts++;
+      // METIN TABLOSU MUHASEBESI — atlanmasi en kolay, sonucu en sinsi satir.
+      // `intern()` yazim sirasinda burada sayilan bayta guveniyor; eksik
+      // sayilirsa tablonun DISINA, komsu bolumun uzerine yazar. Ozet bunu
+      // YAKALAYAMAZ (bozulmadan SONRA hesaplaniyor), table_ok da yakalayamaz
+      // (ofsetler dogru) — alakasiz bir testte bozuk bir varlik adi olarak
+      // patlar. Kapisi: uzun yollu fixture + komsu metinlerin kontrolu.
+      p.strings += (uint32_t)std::strlen(e.script_file) + 1;
+    }
     p.strings += (uint32_t)std::strlen(e.name) + 1;
   }
   if (p.strings == 0) p.strings = 1; // en az bir NUL: ofset 0 her zaman gecerli
@@ -89,6 +100,7 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   p.off_water = o; o = align_up(o + sizeof(SceneBlobWater) * p.waters);
   p.off_wind = o; o = align_up(o + sizeof(SceneBlobWind) * p.winds);
   p.off_character = o; o = align_up(o + sizeof(SceneBlobCharacter) * p.characters);
+  p.off_script = o; o = align_up(o + sizeof(SceneBlobScript) * p.scripts); // v7
   p.total = o;
   return p;
 }
@@ -155,6 +167,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   h.water_count = p.waters; h.water_offset = (uint32_t)p.off_water;
   h.wind_count = p.winds; h.wind_offset = (uint32_t)p.off_wind;
   h.character_count = p.characters; h.character_offset = (uint32_t)p.off_character;
+  h.script_count = p.scripts; h.script_offset = (uint32_t)p.off_script; // v7
   if (x) {
     h.resident_cpu = x->resident_cpu; h.resident_gpu = x->resident_gpu;
     h.peak_transient = x->peak_transient; h.peak_bytes = x->peak_bytes;
@@ -194,6 +207,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   auto *waters = reinterpret_cast<SceneBlobWater *>(b + p.off_water);
   auto *winds = reinterpret_cast<SceneBlobWind *>(b + p.off_wind);
   auto *characters = reinterpret_cast<SceneBlobCharacter *>(b + p.off_character);
+  auto *scripts = reinterpret_cast<SceneBlobScript *>(b + p.off_script);
   char *strings = reinterpret_cast<char *>(b + p.off_string);
   uint32_t soff = 0;
   auto intern = [&](const char *s) {
@@ -211,6 +225,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   }
   uint32_t nd = 0, na = 0, nl = 0, nb = 0;
   uint32_t npart = 0, nterr = 0, nvox = 0, nwat = 0, nwind = 0, nchar = 0; // v6
+  uint32_t nscript = 0;                                                   // v7
   Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
   for (uint32_t i = 0; i < d.entity_count; i++) {
     const SceneEntity &e = d.entities[i];
@@ -304,6 +319,14 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
       ch.radius = e.char_radius; ch.height = e.char_height; ch.mass = e.char_mass; ch.max_slope = e.char_max_slope;
       characters[nchar++] = ch;
     }
+    if (e.components & kSceneScript) {
+      SceneBlobScript sc{};
+      sc.entity = i;
+      sc.path_len = (uint32_t)std::strlen(e.script_file);
+      sc.path = intern(e.script_file); // plan_of ile AYNI sira: belirlenimli
+      sc.flags = e.script_enabled ? 1u : 0u;
+      scripts[nscript++] = sc;
+    }
     ents[i] = be;
     const SceneBounds wb = scene_world_bounds(scene_entity_local_bounds(e, nullptr), m);
     lo = vmin(lo, wb.lo); hi = vmax(hi, wb.hi);
@@ -377,8 +400,10 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   if (!table_ok(h->water_offset, h->water_count, sizeof(SceneBlobWater), size)) return E.fail("su tablosu sinir disi");
   if (!table_ok(h->wind_offset, h->wind_count, sizeof(SceneBlobWind), size)) return E.fail("ruzgar tablosu sinir disi");
   if (!table_ok(h->character_offset, h->character_count, sizeof(SceneBlobCharacter), size)) return E.fail("karakter tablosu sinir disi");
+  if (!table_ok(h->script_offset, h->script_count, sizeof(SceneBlobScript), size)) return E.fail("betik tablosu sinir disi");
   if (h->particle_count > h->entity_count || h->terrain_count > h->entity_count || h->voxel_count > h->entity_count ||
-      h->water_count > h->entity_count || h->wind_count > h->entity_count || h->character_count > h->entity_count)
+      h->water_count > h->entity_count || h->wind_count > h->entity_count || h->character_count > h->entity_count ||
+      h->script_count > h->entity_count)
     return E.fail("v6 tablo sayisi varlik sayisindan buyuk");
   const uint8_t *b = static_cast<const uint8_t *>(data);
   const char *strings = reinterpret_cast<const char *>(b + h->string_offset);
@@ -404,6 +429,7 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   v.waters = h->water_count ? reinterpret_cast<const SceneBlobWater *>(b + h->water_offset) : nullptr;
   v.winds = h->wind_count ? reinterpret_cast<const SceneBlobWind *>(b + h->wind_offset) : nullptr;
   v.characters = h->character_count ? reinterpret_cast<const SceneBlobCharacter *>(b + h->character_offset) : nullptr;
+  v.scripts = h->script_count ? reinterpret_cast<const SceneBlobScript *>(b + h->script_offset) : nullptr;
   v.strings = strings;
   for (uint32_t i = 0; i < h->resident_count; i++)
     if (v.residents[i].asset >= h->asset_count) return E.fail("yerlesik kaydi tanimsiz kaynaga bakiyor");
@@ -422,6 +448,8 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
     if (v.winds[i].entity >= h->entity_count) return E.fail("ruzgar kaydi tanimsiz varliga bakiyor");
   for (uint32_t i = 0; i < h->character_count; i++)
     if (v.characters[i].entity >= h->entity_count) return E.fail("karakter kaydi tanimsiz varliga bakiyor");
+  for (uint32_t i = 0; i < h->script_count; i++)
+    if (v.scripts[i].entity >= h->entity_count) return E.fail("betik kaydi tanimsiz varliga bakiyor");
   // Kume DAG: her dilim tablolarin icinde mi, dugum araliklari dilimin icinde mi,
   // cocuk baglantilari gecerli dugumu mu gosteriyor, indeksler mesh vertex'i mi.
   for (uint32_t i = 0; i < h->dag_mesh_count; i++) {
@@ -461,6 +489,8 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   }
   for (uint32_t i = 0; i < h->asset_count; i++)
     if (v.assets[i].path >= h->string_size || v.assets[i].path + v.assets[i].path_len >= h->string_size) return E.fail("kaynak yolu metin disi");
+  for (uint32_t i = 0; i < h->script_count; i++)
+    if (v.scripts[i].path >= h->string_size || v.scripts[i].path + v.scripts[i].path_len >= h->string_size) return E.fail("betik yolu metin disi");
   for (uint32_t i = 0; i < h->entity_count; i++) {
     const SceneBlobEntity &e = v.entities[i];
     if (e.name >= h->string_size) return E.fail("varlik adi metin disi");
