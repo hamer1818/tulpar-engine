@@ -196,6 +196,104 @@ FileListResult file_list_dir(const char *dir, const char *ext, FileEntry *out, u
   return r;
 }
 
+FileTreeResult file_list_tree(const char *root, const char *ext, FileEntry *out, uint32_t cap,
+                              uint32_t max_depth) {
+  FileTreeResult r{};
+  if (!root || !*root || !out || cap == 0) {
+    std::snprintf(r.err, sizeof r.err, "dizin yolu yok");
+    return r;
+  }
+  if (max_depth > kFileTreeMaxDepth) max_depth = kFileTreeMaxDepth;
+
+  // BFS kuyrugu: koke goreli dizin yollari. Ozyineleme YOK (content/scene.hpp
+  // ev kurali) — veriden gelen derinlik yigini tuketemez.
+  struct QItem {
+    char rel[kFileNameLen];
+    uint32_t depth;
+  };
+  QItem q[kFileTreeMaxDirs];
+  static_assert(sizeof q <= 24u << 10, "kuyruk yigin butcesi (yaklasik 16 KB)");
+  uint32_t qn = 0, qi = 0;
+  q[qn].rel[0] = 0;
+  q[qn].depth = 0;
+  qn++;
+
+  char full[kFilePathLen];
+  char rel[kFileNameLen];
+  while (qi < qn) {
+    const QItem cur = q[qi++];
+    if (cur.rel[0]) {
+      if (!file_path_join(root, cur.rel, full, sizeof full)) { r.dirs_failed++; continue; }
+    } else {
+      std::snprintf(full, sizeof full, "%s", root);
+    }
+    DIR *dp = ::opendir(full);
+    if (!dp) {
+      // KOK acilamadiysa bu bir hata; alt dizin acilamadiysa (izin, yaris)
+      // yurume SURER ve sayilir. Ikisini ayni sepete koymak "kok yok" ile
+      // "bir alt dizin okunamadi"yi karistirirdi.
+      if (cur.depth == 0) {
+        std::snprintf(r.err, sizeof r.err, "Dizin a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", full); // Dizin açılamadı
+        return r;
+      }
+      r.dirs_failed++;
+      continue;
+    }
+    if (cur.depth == 0) r.ok = true;
+    r.dirs_visited++;
+
+    for (struct dirent *de = ::readdir(dp); de; de = ::readdir(dp)) {
+      const char *nm = de->d_name;
+      if (nm[0] == '.') continue; // gizli girdiler + "." + ".."
+      char child[kFilePathLen];
+      if (!file_path_join(full, nm, child, sizeof child)) { r.truncated++; continue; }
+      // d_type yerine stat: bazi dosya sistemleri DT_UNKNOWN doner
+      // (file_list_dir'deki ayni gerekce).
+      const bool isdir = file_is_dir(child);
+
+      // Koke goreli yol: "alt/dizin/dosya.tpr".
+      if (cur.rel[0]) {
+        if ((int)std::snprintf(rel, sizeof rel, "%s/%s", cur.rel, nm) >= (int)sizeof rel) {
+          if (isdir) r.dirs_failed++; else r.truncated++;
+          continue;
+        }
+      } else {
+        if ((int)std::snprintf(rel, sizeof rel, "%s", nm) >= (int)sizeof rel) {
+          if (isdir) r.dirs_failed++; else r.truncated++;
+          continue;
+        }
+      }
+
+      if (isdir) {
+        if (cur.depth + 1 > max_depth) { r.depth_clipped++; continue; }
+        if (qn >= kFileTreeMaxDirs) { r.dirs_clipped++; continue; }
+        std::snprintf(q[qn].rel, sizeof q[qn].rel, "%s", rel);
+        q[qn].depth = cur.depth + 1;
+        qn++;
+        continue;
+      }
+      if (ext && *ext && !ends_with_ci(nm, ext)) continue;
+
+      // Siralama TAM GORELI YOLA gore ve KIRPMA SIRALAMADAN SONRA: cap
+      // dolduysa, yeni gelen sondakinden kucukse onu iceri alip en buyugu
+      // disari atiyoruz. Boylece sonuc "readdir neyi once verdiyse o" degil,
+      // her zaman sozluk sirasina gore ILK cap tanesi.
+      if (r.count >= cap) {
+        if (std::strcmp(rel, out[cap - 1].name) >= 0) { r.truncated++; continue; }
+        r.truncated++; // disari atilan sondaki
+      } else {
+        r.count++;
+      }
+      uint32_t k = r.count - 1;
+      while (k > 0 && std::strcmp(out[k - 1].name, rel) > 0) { out[k] = out[k - 1]; k--; }
+      std::snprintf(out[k].name, sizeof out[k].name, "%s", rel);
+      out[k].dir = false;
+    }
+    ::closedir(dp);
+  }
+  return r;
+}
+
 // --- Son dosyalar -----------------------------------------------------------
 void recent_clear() {
   g_recent.count = 0;
