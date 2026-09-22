@@ -72,6 +72,35 @@ const char *teng_scene_name(int i);
 // Donen isaretci blob'un metin tablosunu gosterir; uretilmis baglama zaten
 // VM'e KOPYALIYOR (tm_make_str), yani omru cagri ile sinirli.
 const char *teng_scene_script(int i);
+
+// --- MOTOR -> TULPAR: betik yasam dongusu ----------------------------------
+// Kopru bugune kadar TEK YONLUYDU (Tulpar cagirir, motor cevap verir) ve bunun
+// sebebi FFI'nin callback tasimamasiydi. Bu yon TULPAR TARAFINDAN kuruluyor:
+// dil tarafi zaten bir fonksiyonu ADIYLA cozup cagirabiliyor (`call()`),
+// motorun ihtiyaci olan tek sey o yetenege duz C uzerinden erisim.
+//
+// Motor burada Tulpar TIPI GORMUYOR — iki islev isaretcisi, `const char*` ve
+// `double`. Dil tarafi degisirse (VMValue yerlesimi, GC) motor derlemesi
+// etkilenmez; sozlesme bu iki imzada duruyor.
+typedef struct TengScriptVm {
+  // Boyle bir Tulpar fonksiyonu VAR mi. Motor bunu YUKLEME aninda soruyor ve
+  // cevabi varlik basina sakliyor: eksik bir kanca her karede degil BIR KEZ
+  // bildirilmeli, yoksa gunluk 60 Hz ile dolar.
+  int (*has)(const char *fn);
+  // Cagir. argc <= 8 (Tulpar'in dinamik cagri tavani). Donus: cagrildi mi.
+  int (*call)(const char *fn, const double *args, int argc);
+} TengScriptVm;
+// Tulpar tarafi bunu eng_init sirasinda BIR KEZ kuruyor. nullptr: betik
+// yasam dongusu KAPALI (motor yalnizca atamayi tasir — eski davranis).
+void teng_set_script_vm(const TengScriptVm *vm);
+// Betik kancalarinin kosup kosmadigi. Kapali oldugunda (VM kurulmamis ya da
+// sahnede betik yok) 0. Kapilar bunu okuyor.
+int teng_script_hooks_active(void);
+// Kac betik kancasi cagrildi (baslat + guncelle toplami). Kapi sayaci.
+int teng_script_call_count(void);
+// Cozulemeyen kanca sayisi: betik atanmis ama fonksiyon ikilide YOK. Sessiz
+// kalmasi en tehlikeli durum — nesne hicbir sey yapmaz ve sebebi gorunmez.
+int teng_script_missing_count(void);
 // "Atanmamis" ile "atanmis ama KAPALI" ayri olgular: ikisini bos metne
 // dusurmek, tasarimcinin kapattigi bir betigi gorunmez yapardi.
 int teng_scene_script_enabled(int i); // bileseni yoksa 0

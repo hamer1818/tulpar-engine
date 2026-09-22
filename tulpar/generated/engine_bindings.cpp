@@ -7,6 +7,7 @@
 #include "vm/vm.hpp"          // -I <TulparLang>/src
 #include "bridge/engine_api.h" // -I <tulpar-engine kok>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 extern "C" ObjString *vm_alloc_string_aot(void *vm, const char *chars, int length);
@@ -34,8 +35,46 @@ VMValue tm_make_str(const char *s) {
 }
 } // namespace
 
+// Tulpar calisma zamani: bir fonksiyonu ADIYLA cozup cagirir. `call()`
+// builtin'inin kullandigi mekanizmanin ta kendisi — motor icin YENI bir
+// derleyici ozelligi gerekmedi, var olan dinamik cagri yolu aciliyor.
+extern "C" VMValue aot_call_dynamic_n(VMValue func_name, VMValue *args, int argc);
+
+#if defined(_WIN32)
+#include <windows.h>
+static void *eng_sym(const char *n) { return (void *)GetProcAddress(GetModuleHandleA(nullptr), n); }
+#else
+#include <dlfcn.h>
+static void *eng_sym(const char *n) { return dlsym(RTLD_DEFAULT, n); }
+#endif
+
+namespace {
+// AOT'ta bir Tulpar fonksiyonu `t_<ad>` sembolu olur. VAR MI sorusu
+// cagirmadan yanitlanmali: aot_call_dynamic_n bulamadiginda CALISMA
+// ZAMANI HATASI basiyor ve motor 'bu kanca yok' demeyi her karede
+// tekrarlardi. Motor cevabi yukleme aninda bir kez soruyor.
+int eng_script_has(const char *fn) {
+  if (!fn || !*fn) return 0;
+  char sym[192];
+  const int n = std::snprintf(sym, sizeof sym, "t_%s", fn);
+  if (n <= 0 || (size_t)n >= sizeof sym) return 0;
+  return eng_sym(sym) != nullptr;
+}
+int eng_script_call(const char *fn, const double *args, int argc) {
+  if (!fn || !*fn) return 0;
+  if (argc < 0) argc = 0;
+  if (argc > 8) argc = 8; // Tulpar dinamik cagri tavani
+  VMValue a[8];
+  for (int i = 0; i < argc; i++) a[i] = VM_FLOAT(args ? args[i] : 0.0);
+  aot_call_dynamic_n(tm_make_str(fn), a, argc);
+  return 1;
+}
+const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call};
+} // namespace
+
 extern "C" {
 VMValue aot_eng_init_ptr(VMValue *title, VMValue *w, VMValue *h) {
+  teng_set_script_vm(&kEngScriptVm);
   return VM_BOOL(teng_init(tm_str(title), (int)tm_int(w), (int)tm_int(h)) != 0);
 }
 VMValue aot_eng_running_ptr(void) {

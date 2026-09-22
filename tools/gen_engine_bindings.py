@@ -246,6 +246,7 @@ def gen_bindings(root):
     out.append('#include "vm/vm.hpp"          // -I <TulparLang>/src')
     out.append('#include "bridge/engine_api.h" // -I <tulpar-engine kok>')
     out.append("#include <cstdint>")
+    out.append("#include <cstdio>")  # snprintf — betik kanca adlarini kurar
     out.append("#include <cstring>")
     out.append("")
     out.append("extern \"C\" ObjString *vm_alloc_string_aot(void *vm, const char *chars, int length);")
@@ -271,6 +272,47 @@ def gen_bindings(root):
     out.append("  ObjString *o = vm_alloc_string_aot(nullptr, s, (int)strlen(s));")
     out.append("  return VM_OBJ((Obj *)o);")
     out.append("}")
+    # --- MOTOR -> TULPAR geri cagrim koprusu ---------------------------------
+    # Kopru bugune kadar tek yonluydu. Bu yonu KURAN taraf dil tarafidir ve
+    # sebebi katmanlama: motor Tulpar tipi (VMValue, ObjString, GC) GORMEMELI.
+    # Burada duz C imzali iki shim var; motor yalnizca onlari biliyor.
+    out.append("} // namespace")
+    out.append("")
+    out.append("// Tulpar calisma zamani: bir fonksiyonu ADIYLA cozup cagirir. `call()`")
+    out.append("// builtin'inin kullandigi mekanizmanin ta kendisi — motor icin YENI bir")
+    out.append("// derleyici ozelligi gerekmedi, var olan dinamik cagri yolu aciliyor.")
+    out.append("extern \"C\" VMValue aot_call_dynamic_n(VMValue func_name, VMValue *args, int argc);")
+    out.append("")
+    out.append("#if defined(_WIN32)")
+    out.append("#include <windows.h>")
+    out.append("static void *eng_sym(const char *n) { return (void *)GetProcAddress(GetModuleHandleA(nullptr), n); }")
+    out.append("#else")
+    out.append("#include <dlfcn.h>")
+    out.append("static void *eng_sym(const char *n) { return dlsym(RTLD_DEFAULT, n); }")
+    out.append("#endif")
+    out.append("")
+    out.append("namespace {")
+    out.append("// AOT'ta bir Tulpar fonksiyonu `t_<ad>` sembolu olur. VAR MI sorusu")
+    out.append("// cagirmadan yanitlanmali: aot_call_dynamic_n bulamadiginda CALISMA")
+    out.append("// ZAMANI HATASI basiyor ve motor 'bu kanca yok' demeyi her karede")
+    out.append("// tekrarlardi. Motor cevabi yukleme aninda bir kez soruyor.")
+    out.append("int eng_script_has(const char *fn) {")
+    out.append("  if (!fn || !*fn) return 0;")
+    out.append("  char sym[192];")
+    out.append("  const int n = std::snprintf(sym, sizeof sym, \"t_%s\", fn);")
+    out.append("  if (n <= 0 || (size_t)n >= sizeof sym) return 0;")
+    out.append("  return eng_sym(sym) != nullptr;")
+    out.append("}")
+    out.append("int eng_script_call(const char *fn, const double *args, int argc) {")
+    out.append("  if (!fn || !*fn) return 0;")
+    out.append("  if (argc < 0) argc = 0;")
+    out.append("  if (argc > 8) argc = 8; // Tulpar dinamik cagri tavani")
+    out.append("  VMValue a[8];")
+    out.append("  for (int i = 0; i < argc; i++) a[i] = VM_FLOAT(args ? args[i] : 0.0);")
+    out.append("  aot_call_dynamic_n(tm_make_str(fn), a, argc);")
+    out.append("  return 1;")
+    out.append("}")
+    out.append("const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call};")
     out.append("} // namespace")
     out.append("")
     out.append("extern \"C\" {")
@@ -279,6 +321,12 @@ def gen_bindings(root):
         sig = ", ".join(f"VMValue *{p}" for p, _ in params) or "void"
         call = ", ".join(UNPACK[t].format(v=p) for p, t in params)
         out.append(f"VMValue aot_{name}_ptr({sig}) {{")
+        if name == "eng_init":
+            # VM kurulumu eng_init'in ICINDE: motor acilmadan once kurulmali
+            # (kancalar sahne yuklenirken cozuluyor) ve oyunun ayri bir cagri
+            # yapmayi unutmasi mumkun OLMAMALI — unutulan kurulum, sessizce
+            # calismayan betikler demek.
+            out.append("  teng_set_script_vm(&kEngScriptVm);")
         expr = f"t{name}({call})"
         if ret == "void":
             out.append(f"  {expr};")

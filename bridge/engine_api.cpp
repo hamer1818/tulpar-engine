@@ -309,6 +309,24 @@ struct Bridge {
   bool scene_ok = false;
   char scene_dir[1024] = {0};
   uint32_t scene_loads = 0; // bolum gecisi: her yukleme kaynak ayirir (arena + GPU)
+  // --- betik yasam dongusu ---------------------------------------------
+  // Kancalar YUKLEME aninda cozuluyor, kare icinde DEGIL: `has` bir sembol
+  // aramasi ve onu 60 Hz ile yapmak hem pahali hem gereksiz (ikili degismiyor).
+  // Cozum sonucu varlik basina saklaniyor.
+  struct ScriptHook {
+    char base[96] = {0}; // "davranis/kovala.tpr" -> "kovala"
+    bool guncelle = false;
+    bool bitir = false;
+    bool carpisma = false;
+  };
+  ScriptHook script[content::kSceneMaxEntities];
+  bool script_any = false;
+  // Carpisma dagitimi butun halkayi tarar; hic kancasi olmayan bir oyun bu
+  // taramayi HIC yapmasin diye ayri bayrak. (`script_any` yetmez: yalniz
+  // `guncelle` kullanan bir oyunda da acik olurdu.)
+  bool script_carpisma_any = false;
+  uint32_t script_calls = 0;
+  uint32_t script_missing = 0;
   // animasyon: tek calisma alani (yaklasik 46 KB), kare icinde ayirma yok
   content::PoseScratch pose_scratch;
   uint32_t last_posed = 0; // son karede pozla cizilen model sayisi
@@ -902,6 +920,78 @@ int teng_frame_begin(void) {
   return b.have_window ? 1 : 0;
 }
 
+// Betik VM'i Bridge'in DISINDA duruyor ve sebebi siralama: dil tarafi onu
+// `aot_eng_init_ptr` icinde, `teng_init`ten ONCE kuruyor — o anda Bridge
+// (`g`) henuz YOK. Icinde saklansaydi kurulum sessizce kaybolurdu ve butun
+// kancalar hic cozulmezdi (olculdu: ilk yazimda tam bu oldu).
+static const TengScriptVm *g_svm = nullptr;
+
+// --- Betik yasam dongusu ---------------------------------------------------
+// Yol -> taban ad: "davranis/kovala.tpr" -> "kovala". Fonksiyon adlari bu
+// tabandan turuyor (`kovala_baslat`, `kovala_guncelle`, ...). SOZLESME bu ve
+// tek yerde duruyor; iki yerde olsaydi biri degisip oteki kalirdi.
+static void script_base_name(const char *path, char *out, size_t cap) {
+  out[0] = 0;
+  if (!path || !*path) return;
+  const char *b = path;
+  for (const char *p = path; *p; p++)
+    if (*p == '/' || *p == '\\') b = p + 1;
+  size_t n = 0;
+  while (b[n] && b[n] != '.' && n + 1 < cap) { out[n] = b[n]; n++; }
+  out[n] = 0;
+}
+// "<taban>_<kanca>" kur. Tampon tasarsa bos doner (cagiran YOK sayar).
+static bool script_fn_name(const char *base, const char *hook, char *out, size_t cap) {
+  const int n = std::snprintf(out, cap, "%s_%s", base, hook);
+  return n > 0 && (size_t)n < cap;
+}
+static bool script_has(const Bridge &b, const char *base, const char *hook) {
+  (void)b;
+  if (!g_svm || !g_svm->has) return false;
+  char fn[160];
+  if (!script_fn_name(base, hook, fn, sizeof fn)) return false;
+  return g_svm->has(fn) != 0;
+}
+static void script_call(Bridge &b, const char *base, const char *hook, const double *args, int argc) {
+  if (!g_svm || !g_svm->call) return;
+  char fn[160];
+  if (!script_fn_name(base, hook, fn, sizeof fn)) return;
+  if (g_svm->call(fn, args, argc)) b.script_calls++;
+}
+static int scene_idx_of_body(sim::BodyId b); // asagida; carpisma eslemesi icin
+
+// `bitir`i butun kancali varliklara dagit, sonra tabloyu KAPAT.
+// Kapatmak sart: bu fonksiyon iki yerden cagriliyor (bosaltma ve kapanis) ve
+// ikisi ust uste gelebilir. Kapatilmasaydi ikinci cagri `bitir`i IKINCI KEZ
+// calistirirdi — betik tarafinda "iki kez oldum" olarak gorunur ve sebebi
+// motor icinde aranirdi.
+static void script_fire_bitir(Bridge &b, const char *why) {
+  if (!b.script_any) return;
+  uint32_t n = 0;
+  for (uint32_t i = 0; i < content::kSceneMaxEntities; i++) {
+    if (!b.script[i].bitir) continue;
+    const double a[1] = {(double)i};
+    script_call(b, b.script[i].base, "bitir", a, 1);
+    n++;
+  }
+  for (uint32_t i = 0; i < content::kSceneMaxEntities; i++) b.script[i] = Bridge::ScriptHook{};
+  b.script_any = false;
+  b.script_carpisma_any = false;
+  if (n) BINFO("betik: %u varlikta `bitir` calisti (%s)", n, why);
+}
+
+// Tek bir carpisma olayini tek bir betige ilet.
+// Imza: <taban>_carpisma(id, diger, olay, x, y, z, hiz) — 7 arguman.
+// `diger` = karsi tarafin sahne indisi, kopru varligi ya da sahne disi govde
+// ise -1. Yuzey normali BILEREK yok: 7 + 3 = 10 ve dinamik cagrinin tavani 8.
+// Yerine halka indisi (`olay`) gidiyor; betik ayrintiyi ayni kare icinde
+// `eng_carpisma_nx(olay)` ... ile okur — halka bir SONRAKI karenin sim
+// adimlarina kadar duruyor (bkz. teng_frame_end'deki temizleme notu).
+static void script_fire_carpisma(Bridge &b, int me, int other, uint32_t ev, const sim::ContactEvent &e) {
+  const double a[7] = {(double)me, (double)other, (double)ev, e.point.x, e.point.y, e.point.z, (double)e.speed};
+  script_call(b, b.script[me].base, "carpisma", a, 7);
+}
+
 void teng_frame_end(void) {
   if (!ready("teng_frame_end")) return;
   Bridge &b = *g;
@@ -922,6 +1012,41 @@ void teng_frame_end(void) {
     b.phys.clear_contacts();
     for (uint32_t t = 0; t < ticks; t++) { b.phys.step(b.fs.step_s, 1); b.tick++; }
     if (ticks == b.fs.max_ticks_per_frame) BDBG("kare %u: sim %u tick ile kirpildi (dt %.3f)", b.frame, ticks, b.dt);
+  }
+  if (b.script_carpisma_any && b.scene_ok) {
+    // Carpisma kancasi `guncelle`den ONCE: olay bu karenin sim adimlarinda
+    // olustu, betik ayni karenin `guncelle`sinde ona gore davranabilsin.
+    // Halka su anda DOLU — adimlardan hemen once temizlendi, adimlar doldurdu.
+    //
+    // Maliyet: olay basina iki `scene_idx_of_body` ve her biri sahne
+    // varliklarini tariyor. Tavanlar 256 olay ve 256 varlik, yani en kotu
+    // 131 072 uint32 karsilastirmasi — fizik adiminin yaninda olculemez, ama
+    // bayrak kapaliyken bu dongunun kendisi de kosmuyor.
+    //
+    // Ayni cift bir karede BIRDEN COK olay uretebilir (temas noktasi basina,
+    // sim adimi basina) ve kanca her olay icin cagrilir. Motor tekillestirmez:
+    // "uc noktadan carpti" ile "uc kez carpti" farkini yalniz oyun bilir.
+    ENGINE_ZONE("betik");
+    const uint32_t n = b.phys.contact_count();
+    for (uint32_t k = 0; k < n; k++) {
+      const sim::ContactEvent e = b.phys.contact(k);
+      const int ia = scene_idx_of_body(e.a), ib = scene_idx_of_body(e.b);
+      // Iki taraf da betikliyse IKISI de haber alir: bir olay, iki cagri.
+      if (ia >= 0 && b.script[ia].carpisma) script_fire_carpisma(b, ia, ib, k, e);
+      if (ib >= 0 && b.script[ib].carpisma) script_fire_carpisma(b, ib, ia, k, e);
+    }
+  }
+  if (b.script_any && b.scene_ok) {
+    // `guncelle` SIM ADIMLARINDAN SONRA: betigin okudugu konum ve hiz, o
+    // karenin fizik sonucu olsun. Once cagirmak betige BIR KARE ESKI durumu
+    // gosterirdi ve "kovalama neden geriden geliyor" diye aranirdi.
+    ENGINE_ZONE("betik");
+    const content::SceneBlobView &v = b.srt.view();
+    for (uint32_t i = 0; i < v.h->entity_count && i < content::kSceneMaxEntities; i++) {
+      if (!b.script[i].guncelle) continue;
+      const double a[2] = {(double)i, b.dt};
+      script_call(b, b.script[i].base, "guncelle", a, 2);
+    }
   }
   {
     // Animasyon zamani kare basina BIR kez ilerler — cizim yapilmasa da (arka
@@ -975,6 +1100,12 @@ void teng_shutdown(void) {
   if (!g) return;
   Bridge &b = *g;
   if (!b.inited) { BDBG("shutdown: kurulmamis motor, atlandi"); return; }
+  // Betiklere `bitir`, YIKIM SIRASINDAN once: is sistemi, fizik ve cihaz hala
+  // ayakta, yani kanca icinden motoru cagirmak guvenli. Asagi alinsaydi
+  // (jobs.shutdown()'dan sonra) kanca icindeki bir sorgu cop okurdu.
+  // `teng_scene_unload` buradan CAGRILMIYOR — kapanis sahneyi kendi
+  // sirasiyla (b.srt.despawn) bosaltiyor, iki yol da ayni tabloyu kapatiyor.
+  if (b.scene_ok) script_fire_bitir(b, "kapanis");
   static uint64_t scratch[1200]; // profiler sozlesmesi: kare kapasitesinin 2 KATI (ilk yari ornek, ikinci yari siralama)
   const FrameStats st = b.prof.frame_stats(Span<uint64_t>(scratch, 1200), 0);
   BINFO("kapanis: %u kare, %.1f s, p50 %.2f ms p99 %.2f ms, varlik %u (en yuksek yuva %u), govde %u, model %u, hata %u, uyari %u",
@@ -1105,12 +1236,69 @@ int teng_scene_load(const char *path) {
   file_stamp_pub(b.watch_path, &b.watch_mtime, &b.watch_size);
   b.watch_pending = false;
   b.watch_last_frame = b.frame;
+  // --- Betik kancalarini COZ ve `baslat`i cagir --------------------------
+  // YUKLEME aninda, kare icinde degil: `has` bir sembol aramasi ve ikili
+  // kosum boyunca degismiyor. Eksik bir kanca BIR KEZ bildiriliyor; her
+  // karede bildirmek 60 Hz'lik bir gunluk selidir ve gercek hatayi gomer.
+  b.script_any = false;
+  b.script_carpisma_any = false;
+  b.script_calls = 0;
+  b.script_missing = 0;
+  for (uint32_t i = 0; i < v.h->entity_count && i < content::kSceneMaxEntities; i++) {
+    Bridge::ScriptHook &h = b.script[i];
+    h = Bridge::ScriptHook{};
+    if (!(v.entities[i].components & content::kSceneScript)) continue;
+    const content::SceneBlobScript *rec = nullptr;
+    for (uint32_t k = 0; k < v.h->script_count; k++)
+      if (v.scripts[k].entity == i) { rec = &v.scripts[k]; break; }
+    if (!rec || !(rec->flags & 1u)) continue; // atanmamis ya da KAPALI
+    script_base_name(v.str(rec->path), h.base, sizeof h.base);
+    if (!h.base[0]) continue;
+    if (!g_svm) {
+      // Betik atanmis ama dil tarafi kancalari kurmamis. Sessiz kalmasi
+      // "atama neden hicbir sey yapmiyor" sorusunu doguruyordu.
+      BDBG("betik \"%s\" atanmis ama betik VM'i kurulu degil (eng_init'ten once teng_set_script_vm)", v.str(rec->path));
+      continue;
+    }
+    const bool baslat = script_has(b, h.base, "baslat");
+    h.guncelle = script_has(b, h.base, "guncelle");
+    h.bitir = script_has(b, h.base, "bitir");
+    h.carpisma = script_has(b, h.base, "carpisma");
+    if (!baslat && !h.guncelle && !h.bitir && !h.carpisma) {
+      // EN TEHLIKELI DURUM: atama var, fonksiyon YOK. AOT'ta betik ancak
+      // oyunun ikilisine derlenmisse (import edilmisse) vardir; tasarimci
+      // editorde atadi diye kendiliginden gelmez.
+      BERR("betik kancasi YOK: \"%s\" -> %s_baslat/_guncelle/_bitir/_carpisma bulunamadi (oyun bu dosyayi import etti mi?)", v.str(rec->path),
+           h.base);
+      b.script_missing++;
+      continue;
+    }
+    b.script_any = true;
+    if (h.carpisma) b.script_carpisma_any = true;
+    if (baslat) {
+      const double a[1] = {(double)i};
+      script_call(b, h.base, "baslat", a, 1);
+    }
+  }
+  if (b.script_any) BINFO("betik kancalari: %u cagri, %u eksik", b.script_calls, b.script_missing);
+
   b.nav_ok = b.nav.init(b.sys, v, 2048);
   if (b.nav_ok) BINFO("navmesh hazir: %u poligon, ozet %016llx (sorgu yolunda ayirma yok)", b.nav.polys(), (unsigned long long)b.nav.data_hash());
   else if (v.has_nav()) BERR("sahnede navmesh verisi var ama sorgu kurulamadi (%s) — kovalama duz yola duser", path);
   else BDBG("sahnede navmesh yok (bake edilmedi: sabit kutu govdeli yurunebilir zemin gerekir) — kovalama duz yola duser");
   return 1;
 }
+void teng_set_script_vm(const TengScriptVm *vm) {
+  g_svm = vm;
+  // Kurulum sahne YUKLENMEDEN once olmali (kancalar yuklemede cozuluyor).
+  // Yuklu bir sahne varsa bunu SOYLE: sessiz kalirsa atamalar calismaz ve
+  // sebebi gorunmez.
+  if (g && g->scene_ok) BERR("teng_set_script_vm: sahne zaten yuklu, kancalar cozulmedi");
+}
+int teng_script_hooks_active(void) { return g && g->script_any ? 1 : 0; }
+int teng_script_call_count(void) { return g ? (int)g->script_calls : 0; }
+int teng_script_missing_count(void) { return g ? (int)g->script_missing : 0; }
+
 int teng_scene_count(void) { return g && g->scene_ok ? (int)g->srt.view().h->entity_count : 0; }
 int teng_scene_find(const char *name) {
   CALLF("teng_scene_find", "%s", name ? name : "");
@@ -1199,6 +1387,11 @@ int teng_scene_unload(void) {
   if (!ready("teng_scene_unload")) return 0;
   Bridge &b = *g;
   if (!b.scene_ok) { BERR("teng_scene_unload: yuklu sahne yok"); return 0; }
+  // `bitir` YIKIMDAN ONCE: betik bu cagri icinde hala sahneyi sorgulayabilsin
+  // (konum, govde, komsu). despawn'dan sonra cagirmak ona BOS bir sahne
+  // gosterirdi ve betik yazari "neden hep 0 okuyorum" diye arardi.
+  // Sicak yukleme de buradan gecer: bitir -> yeniden yukle -> baslat.
+  script_fire_bitir(b, b.reloading ? "sicak yukleme" : "sahne bosaltma");
   const uint32_t ents = b.srt.view().h->entity_count, bodies = b.srt.stats().bodies;
   b.srt.despawn(b.phys);
   b.nav.shutdown(); // Detour nesneleri; veri arenada kalir (bir sonraki yukleme yeni kopya alir)

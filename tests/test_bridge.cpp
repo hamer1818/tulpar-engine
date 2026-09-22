@@ -212,6 +212,125 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       CHECK(teng_scene_x(9999) == 0.0);
       CHECK(teng_error_count() == errs_dup + 3);
 
+      // --- 4.5c) BETIK YASAM DONGUSU: motor betigi CAGIRIYOR mu? ---------
+      // Sahte bir betik VM'i kuruluyor: Tulpar'a hic ihtiyac yok, olculen sey
+      // MOTORUN davranisi. Kayit tutuyor, boylece "cagrildi mi" sorusu
+      // dolayli degil DOGRUDAN yanitlaniyor.
+      {
+        static int n_baslat = 0, n_guncelle = 0, n_bitir = 0, n_carpisma = 0, n_yok = 0;
+        static char son[160];
+        static double son_carp[8] = {0};
+        static int son_carp_argc = -1, carp_indis_hatali = 0;
+        n_baslat = 0; n_guncelle = 0; n_bitir = 0; n_carpisma = 0; n_yok = 0; son[0] = 0;
+        son_carp_argc = -1; carp_indis_hatali = 0;
+        struct Sahte {
+          static int has(const char *fn) {
+            // "henuz_yazilmadi_*" BILEREK yok: eksik kanca yolunu olcuyoruz.
+            if (std::strstr(fn, "henuz_yazilmadi")) { n_yok++; return 0; }
+            return std::strstr(fn, "_baslat") || std::strstr(fn, "_guncelle") || std::strstr(fn, "_bitir") || std::strstr(fn, "_carpisma") ? 1 : 0;
+          }
+          static int call(const char *fn, const double *args, int argc) {
+            std::snprintf(son, sizeof son, "%s(%d)", fn, argc);
+            if (std::strstr(fn, "_baslat")) { n_baslat++; if (argc != 1) { std::printf("    FAIL baslat argc=%d (1 olmali)\n", argc); Registry::failures++; } }
+            if (std::strstr(fn, "_guncelle")) { n_guncelle++; if (argc != 2) { std::printf("    FAIL guncelle argc=%d (2 olmali)\n", argc); Registry::failures++; } }
+            if (std::strstr(fn, "_bitir")) { n_bitir++; if (argc != 1) { std::printf("    FAIL bitir argc=%d (1 olmali)\n", argc); Registry::failures++; } }
+            if (std::strstr(fn, "_carpisma")) {
+              n_carpisma++;
+              son_carp_argc = argc;
+              for (int i = 0; i < argc && i < 8; i++) son_carp[i] = args[i];
+              if (argc != 7) { std::printf("    FAIL carpisma argc=%d (7 olmali)\n", argc); Registry::failures++; }
+              // POZITIF KONTROL, kanca ICINDEN: `olay` bir halka indisi ve
+              // SOZLESME o indisin kanca suresince okunabilir olmasi. Ayni
+              // temas noktasi iki yoldan geliyor (arguman + halka); tutmazsa
+              // indis yanlis ve `eng_carpisma_nx(olay)` alakasiz bir olayi
+              // okurdu — sessizce, cunku her ikisi de gecerli sayi.
+              else if (teng_collision_x((int)args[2]) != args[3]) carp_indis_hatali++;
+            }
+            (void)args;
+            return 1;
+          }
+        };
+        const TengScriptVm vm{Sahte::has, Sahte::call};
+        const int errs_hook = teng_error_count();
+        teng_scene_unload();
+        teng_set_script_vm(&vm);
+        CHECK(teng_scene_load(blob) == 1);
+        // kup_dusen ETKIN betikli, kure_1 KAPALI, digerleri bilesensiz.
+        // Yani tam BIR varlik icin baslat beklenir.
+        CHECK(n_baslat == 1);
+        CHECK(teng_script_hooks_active() == 1);
+        // KONTROL: kapali betik cozulmuyor — kure_1 icin hic sorulmadi.
+        // (Sorulsaydi n_baslat 2 olurdu.)
+        const int b0 = n_guncelle;
+        run_frames(5);
+        std::printf("    [bilgi] betik yasam dongusu: baslat %d, guncelle %d (5 kare), eksik %d, son cagri \"%s\"\n", n_baslat,
+                    n_guncelle - b0, teng_script_missing_count(), son);
+        // Her kare TAM bir guncelle: az olsa kancalar duruyor, cok olsa
+        // birden fazla yerden cagriliyor demektir.
+        CHECK(n_guncelle - b0 == 5);
+        CHECK(n_baslat == 1); // baslat TEKRARLANMADI
+        CHECK(teng_script_call_count() >= 6);
+
+        // --- carpisma kancasi: fizik olayi betige ULASIYOR mu? ------------
+        // editor.sahne'de zemin YOK (kup_dusen sonsuza duser), o yuzden
+        // carpacak seyi TEST KURUYOR: olayin ne zaman olustugu sahnenin
+        // tesadufune degil buradaki duzene bagli olsun.
+        const int kupi = teng_scene_find("kup_dusen");
+        CHECK(kupi >= 0);
+        CHECK(n_carpisma == 0); // KONTROL: carpmadan ONCE sifir
+        const int zemin = teng_spawn_box(teng_scene_x(kupi), teng_scene_y(kupi) - 1.5, teng_scene_z(kupi), 1.5, 0.5, 1.5, 0, 0x606060);
+        CHECK(zemin != 0);
+        teng_scene_set_velocity(kupi, 0, -20, 0); // 1 m'lik bosluk birkac karede kapanir
+        int carp_kare = 0;
+        while (n_carpisma == 0 && carp_kare < 240) { teng_frame_begin(); teng_frame_end(); carp_kare++; }
+        std::printf("    [bilgi] carpisma kancasi: %d karede %d cagri, argc %d, id %.0f, diger %.0f, olay %.0f, nokta y %.2f, hiz %.2f\n",
+                    carp_kare, n_carpisma, son_carp_argc, son_carp[0], son_carp[1], son_carp[2], son_carp[4], son_carp[6]);
+        CHECK(n_carpisma > 0);
+        CHECK(son_carp_argc == 7);
+        CHECK((int)son_carp[0] == kupi); // kanca DOGRU varliga gitti
+        // Karsi taraf bir KOPRU varligi (sahnede degil) -> -1. Bu ayni
+        // zamanda "her govde sahne varligidir" varsayiminin kontrolu.
+        CHECK((int)son_carp[1] == -1);
+        CHECK(carp_indis_hatali == 0);
+        teng_despawn(zemin);
+        // Guncelle sayaci carpisma karelerinde de artti; sonraki olcumler
+        // taze bir tabandan baslasin.
+        run_frames(1);
+        // KONTROL: EKSIK kanca sessiz kalmiyor — hata sayaci artti.
+        // editor.sahne'de bilerek yazilmamis bir betik YOK, o yuzden bu
+        // kontrol bellekte eklenen varlikla yapiliyor (asagida).
+        CHECK(teng_error_count() == errs_hook);
+        // --- bitir kancasi: sahne bosalirken betik haber aliyor mu? ------
+        // Bosaltma YIKIMDAN once cagirmali; kanca icinde sahne hala okunur
+        // olmali. Burada olculen sey sayilar, o sozlesmenin kendisi degil —
+        // onu motor tarafindaki yorum tasiyor.
+        const int bitir0 = n_bitir;
+        teng_scene_unload();
+        std::printf("    [bilgi] bitir kancasi: bosaltmada %d cagri (1 olmali: tek etkin betikli varlik)\n", n_bitir - bitir0);
+        CHECK(n_bitir - bitir0 == 1);
+        CHECK(teng_script_hooks_active() == 0); // tablo KAPANDI
+        // VM'i KALDIR: kancalar susmali (eski davranis geri gelmeli).
+        teng_set_script_vm(nullptr);
+        CHECK(teng_scene_load(blob) == 1);
+        const int b1 = n_guncelle;
+        run_frames(5);
+        std::printf("    [bilgi] KONTROL VM kaldirildi: 5 karede guncelle %d (0 olmali), kancalar etkin %d\n", n_guncelle - b1,
+                    teng_script_hooks_active());
+        CHECK(n_guncelle - b1 == 0 && teng_script_hooks_active() == 0);
+        // KONTROL: VM yokken bosaltma `bitir` de CAGIRMAZ (kanca cozulmedi).
+        // Bu, yukaridaki 1'in "her bosaltmada bir kez" degil "cozulmus kanca
+        // varsa bir kez" oldugunu gosteriyor.
+        const int bitir1 = n_bitir;
+        // SIRA ONEMLI: once bosalt, SONRA VM'i kur. Tersi motorun kendi
+        // uyarisini tetikliyor ("sahne zaten yuklu, kancalar cozulmedi") —
+        // ve bu testin ilk yaziminda tam olarak oyle oldu, kasitli hata
+        // sayaci 16/15 dedi. Kapi kendi kuralini kendi uzerimde olctu.
+        teng_scene_unload();
+        CHECK(n_bitir == bitir1);
+        teng_set_script_vm(&vm); // sonraki bolumler icin geri kur
+        CHECK(teng_scene_load(blob) == 1);
+      }
+
       // --- 4.5b) BETIK ATAMASI: editorde atanan .tpr oyuna ulasiyor mu? ---
       // Motor betigi CALISTIRMIYOR; tasidigi sey bir ETIKET. Kapi dort durumu
       // birden ayirt ediyor, cunku ucu ayni goruntuyu verebilir ve oyun
