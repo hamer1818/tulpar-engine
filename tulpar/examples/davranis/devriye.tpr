@@ -1,6 +1,28 @@
-// Davranış etiketi — "devriye".
+// Davranış — "devriye". Motor tarafından çalıştırılır (bkz. kovala.tpr).
 //
-// Bkz. kovala.tpr: bu dosya çalıştırılmıyor, bir ETİKET tanımlıyor.
+//   devriye_baslat(id)        sahne yüklenince bir kez
+//   devriye_guncelle(id, dt)  her kare
+//   devriye_bitir(id)         sahne boşalırken
+//
+// `carpisma` BİLEREK yok: kancalar isteğe bağlı, motor bulamadığını atlar.
+// (Dördünün de bulunamaması ayrı bir durum ve o GÖRÜNÜR hata basar.)
 //
 // SÖZLEŞME: x ekseninde sinüs eğrisiyle gidip gel, oyuncuyu umursama.
-// Bunu uygulayan kod engine_betik_dagitimi.tpr içinde DAVRANIS_DEVRIYE.
+
+float DEVRIYE_HIZ = 2.0;
+float devriye_faz = 0.0;
+
+func devriye_baslat(id) {
+    devriye_faz = 0.0;
+    logla("devriye basladi: " + sahne_adi(id));
+}
+
+func devriye_bitir(id) {
+    logla("devriye bitti: faz " + toString(devriye_faz));
+    devriye_faz = 0.0;
+}
+
+func devriye_guncelle(id, d) {
+    devriye_faz = devriye_faz + d;
+    sahne_hiz_ver(id, sin(devriye_faz) * DEVRIYE_HIZ, sahne_hiz_y(id), 0.0);
+}

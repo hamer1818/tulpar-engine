@@ -1,16 +1,67 @@
-// Davranış etiketi — "kovala".
+// Davranış — "kovala". Bu dosya MOTOR TARAFINDAN ÇALIŞTIRILIR.
 //
-// Bu dosya ÇALIŞTIRILMIYOR ve bu bir eksiklik değil, mimarinin kendisi:
-// motor `.tpr` yürütmüyor (köprü ABI'si düz skaler, callback yok — bkz.
-// docs/KOPRU.md §8). Sahnedeki `betik "davranis/kovala.tpr"` satırı bir
-// ETİKETTİR; onu davranışa bağlayan yer oyunun kendi döngüsüdür
-// (examples/engine_betik_dagitimi.tpr içindeki `davranis_cozumle`).
+// Sahnede bir nesneye `betik "davranis/kovala.tpr"` atandığında motor, dosya
+// adının tabanından türeyen fonksiyonları ADIYLA çözer ve çağırır:
 //
-// Peki dosya neden VAR? İki sebep:
-//   1. Editörün betik seçicisi gerçek dosyaları tarıyor. Dosya olmasaydı
-//      tasarımcı bu adı listeden seçemez, elle yazmak zorunda kalırdı —
-//      ve yazım hatası ancak oyun koşarken anlaşılırdı.
-//   2. Etiketin ne anlama geldiği bir yerde yazmalı. Burası o yer.
+//   kovala_baslat(id)                            sahne yüklenince bir kez
+//   kovala_guncelle(id, dt)                      her kare, fizik adımından SONRA
+//   kovala_carpisma(id, diger, olay, x,y,z, hiz) her çarpışma olayı için
+//   kovala_bitir(id)                             sahne boşalırken / kapanışta
+//
+// Dördü de İSTEĞE BAĞLI: motor hangisi varsa onu çağırır (bkz. devriye.tpr —
+// orada `carpisma` yok ve bu bir eksiklik değil).
+//
+// AOT SINIRI — bu dosya oyunun ikilisine derlenmiş olmalı, yani oyun onu
+// `import` etmeli. Editörde atamak tek başına yetmez; motor fonksiyonu
+// bulamazsa yükleme anında GÖRÜNÜR hata basar, sessizce boş geçmez.
 //
 // SÖZLEŞME: oyuncuya doğru sabit hızla yürü, yarım metreden yakınsa dur.
-// Bunu uygulayan kod engine_betik_dagitimi.tpr içinde DAVRANIS_KOVALA.
+
+float KOVALA_HIZ = 2.5;
+float KOVALA_YAKIN = 0.75;
+int kovala_hedef = -1;
+int kovala_carpti = 0;
+
+func kovala_baslat(id) {
+    // Hedefi BİR KEZ bul: `sahne_bul` ada göre tabloyu tarıyor, kare içinde
+    // yapmak her nesne için her karede bir tarama demek olurdu.
+    kovala_hedef = sahne_bul("oyuncu");
+    logla("kovala basladi: " + sahne_adi(id));
+}
+
+// `diger` = karşı tarafın sahne indisi, köprü varlığı ya da sahne dışı gövde
+// ise -1. `olay` çarpışma halkasındaki indis: normal, şiddet gibi ayrıntı
+// AYNI KARE içinde `carpisma_ny(olay)` ile okunabilir (motor 7 argümanla
+// sınırlı, dinamik çağrının tavanı 8).
+func kovala_carpisma(id, diger, olay, x, y, z, hiz) {
+    // SÜZGEÇ BETİĞİN İŞİ. Zemin her kare temas üretiyor, yani kancanın
+    // çağrılması tek başına "önemli bir şey oldu" demek değil. Motor
+    // tekilleştirmiyor da: "üç noktadan çarptı" ile "üç kez çarptı" farkını
+    // yalnız oyun bilir.
+    if (diger != kovala_hedef) { return; }
+    kovala_carpti = kovala_carpti + 1;
+    if (kovala_carpti == 1) {
+        logla("kovala YAKALADI: hiz " + toString(hiz) + " normal y " + toString(carpisma_ny(olay)));
+    }
+}
+
+// Sahne boşalırken (bölüm geçişi, sıcak yükleme, kapanış) bir kez. Sahne bu
+// çağrı sırasında HÂLÂ okunabilir; yıkımdan sonra çağrılsaydı `sahne_adi(id)`
+// boş dönerdi.
+func kovala_bitir(id) {
+    logla("kovala bitti: " + sahne_adi(id) + ", " + toString(kovala_carpti) + " kez yakaladi");
+    kovala_hedef = -1;
+    kovala_carpti = 0;
+}
+
+func kovala_guncelle(id, d) {
+    if (kovala_hedef < 0) { return; }
+    float dx = sahne_x(kovala_hedef) - sahne_x(id);
+    float dz = sahne_z(kovala_hedef) - sahne_z(id);
+    float u = sqrt(dx * dx + dz * dz);
+    if (u > KOVALA_YAKIN) {
+        sahne_hiz_ver(id, dx / u * KOVALA_HIZ, sahne_hiz_y(id), dz / u * KOVALA_HIZ);
+    } else {
+        sahne_hiz_ver(id, 0.0, sahne_hiz_y(id), 0.0);
+    }
+}

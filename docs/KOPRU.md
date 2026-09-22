@@ -139,6 +139,102 @@ Kapıların kontrolleri: kutu **zeminli** y=0.480 / **zeminsiz** y=−15.13; sah
 37 402 piksel fark, **iki boş kare arasında 0** (yazıcı sabit çıktı vermiyor); ölü id çağrısı hata sayacını
 **tam bir** artırır, canlı id **artırmaz**; geçersiz tuş adı hata, geçerli ad sessiz.
 
+## 7.9 Motor → Tulpar: betik yaşam döngüsü
+
+Köprü uzun süre **tek yönlüydü** (Tulpar çağırır, motor cevap verir) ve sebebi FFI'nin callback
+taşımamasıydı. Bu yön **dil tarafından** kurulur, çünkü Tulpar zaten bir fonksiyonu **adıyla** çözüp
+çağırabiliyor (`call()` builtin'inin mekanizması). Motor için yeni bir derleyici özelliği gerekmedi.
+
+Motor **Tulpar tipi görmez**. `bridge/engine_api.h` iki işlev işaretçisi alır:
+
+```c
+typedef struct TengScriptVm {
+  int (*has)(const char *fn);                                   // böyle bir fonksiyon var mı
+  int (*call)(const char *fn, const double *args, int argc);    // çağır (argc <= 8)
+} TengScriptVm;
+void teng_set_script_vm(const TengScriptVm *vm);
+```
+
+Kurulum `aot_eng_init_ptr` içinde, `teng_init`ten **önce** yapılır — bu yüzden VM işaretçisi
+`Bridge`in **dışında** bir dosya-kapsamlı değişkende durur; içinde saklansaydı o anda `Bridge`
+henüz yok olduğu için kurulum sessizce kaybolurdu.
+
+**Ad sözleşmesi:** `betik "davranis/kovala.tpr"` → taban `kovala` → dört kanca:
+
+| kanca | imza | ne zaman |
+|---|---|---|
+| `baslat` | `kovala_baslat(id)` | sahne yüklenince bir kez |
+| `guncelle` | `kovala_guncelle(id, dt)` | her kare, **sim adımlarından sonra** |
+| `carpisma` | `kovala_carpisma(id, diger, olay, x, y, z, hiz)` | her çarpışma olayı, `guncelle`den **önce** |
+| `bitir` | `kovala_bitir(id)` | sahne boşalırken / sıcak yüklemede / kapanışta |
+
+Dördü de **isteğe bağlı**: motor hangisini bulursa onu çağırır. Hiçbiri bulunamazsa bu ayrı bir
+durumdur ve görünür hata basar (aşağı bak).
+
+Kancalar **yükleme anında** çözülür, kare içinde değil: `has` bir sembol araması ve ikili koşum
+boyunca değişmiyor.
+
+**`guncelle` sim adımlarından SONRA**: betiğin okuduğu konum ve hız o karenin fizik sonucu olsun.
+Önce çağrılsaydı betiğe **bir kare eski** durum görünürdü ve "kovalama neden geriden geliyor" diye
+aranırdı.
+
+**`carpisma` `guncelle`den ÖNCE**: olay bu karenin sim adımlarında oluştu, betik aynı karenin
+`guncelle`sinde ona göre davranabilsin.
+
+- `diger` = karşı tarafın **sahne indisi**; köprü varlığı ya da sahne dışı bir gövde ise **-1**.
+- `olay` = çarpışma halkasındaki indis. Yüzey normali argüman olarak **yok**, çünkü 7 + 3 = 10 ve
+  dinamik çağrının tavanı 8; ayrıntı aynı kare içinde `carpisma_ny(olay)` … ile okunur (halka bir
+  sonraki karenin sim adımlarına kadar duruyor).
+- **Motor tekilleştirmez.** Aynı çift bir karede birden çok olay üretebilir (temas noktası başına,
+  sim adımı başına) ve kanca her olay için çağrılır; zemin üstünde duran bir gövde her kare temas
+  üretir. Süzgeç betiğin işi: "üç noktadan çarptı" ile "üç kez çarptı" farkını yalnız oyun bilir.
+- İki taraf da betikliyse **ikisi de** haber alır: bir olay, iki çağrı.
+- Kancası olmayan bir oyun halkayı hiç taramaz (ayrı bayrak; `guncelle` kullanan bir oyunda da
+  açık olan `script_any` yetmezdi).
+
+**`bitir` yıkımdan ÖNCE** çağrılır: betik bu çağrı sırasında sahneyi hâlâ sorgulayabilir
+(`sahne_adi(id)`, konum, gövde). `despawn`dan sonra çağrılsaydı betiğe **boş** bir sahne görünürdü.
+Kapanışta da iş sistemi/fizik/cihaz sökülmeden önce çalışır, yani kanca içinden motor çağırmak
+güvenlidir. Çağrıldıktan sonra kanca tablosu **kapanır**: boşaltma ve kapanış üst üste gelebilir ve
+kapanmasaydı `bitir` ikinci kez koşardı. Sıcak yükleme de buradan geçer: `bitir` → yeniden yükle →
+`baslat`.
+
+Sahne varlıkları tek tek silinemediği için `bitir`in tetikleyicisi **sahne boşalması**dır, varlık
+ölümü değil. Köprünün kendi ürettiği varlıklar (`eng_kutu_uret` …) bu yaşam döngüsünün dışında.
+
+**AOT SINIRI — en önemli madde.** Tulpar'da yorumlayıcı yok: bir betik ancak oyunun ikilisine
+**derlenmişse** (yani oyun onu `import` etmişse) çalışır. Tasarımcının editörde atamış olması
+yetmez. Motor bunu yükleme anında **görünür hata** ile söyler:
+
+```
+HATA betik kancasi YOK: "davranis/henuz_yazilmadi.tpr" ->
+     henuz_yazilmadi_baslat/_guncelle/_bitir/_carpisma bulunamadi (oyun bu dosyayi import etti mi?)
+```
+
+Sessiz kalsaydı nesne hiçbir şey yapmaz ve sebebi "acaba fizik mi bozuk" diye aranırdı.
+
+Kapalı betik (editördeki "Etkin" kutusu) hiç çözülmez.
+
+**Ölçüldü** (2026-09-22, `tulpar/examples/engine_betik_dagitimi.tpr`, 240 kare pencersiz):
+
+```
+[tpr] kovala basladi: kovalayan
+[tpr] devriye basladi: devriye
+HATA betik kancasi YOK: "davranis/henuz_yazilmadi.tpr" -> ... (oyun bu dosyayi import etti mi?)
+betik kancalari: 2 cagri, 1 eksik
+[tpr] kovala YAKALADI: hiz 2.4979166984558105 normal y 7.361173288700229e-07   (kare 192)
+[tpr] kovala bitti: kovalayan, 1 kez yakaladi                                   (kare 240)
+[tpr] devriye bitti: faz 4.000000208616257
+betik: 2 varlikta `bitir` calisti (kapanis)
+```
+
+Normal y'nin ~0 olması yan yana iki kürenin yatay teması demek — sayı halkadan `carpisma_ny(olay)`
+ile, yani kancaya verilen indisin **canlı** olduğunun kanıtı. Zemin temasları log'da yok: betiğin
+`diger != kovala_hedef` süzgeci onları eliyor.
+
+Motor tarafı kapısı Tulpar'a hiç ihtiyaç duymaz — `tests/test_bridge.cpp` sahte bir `TengScriptVm`
+kurar ve dört kancanın da argüman sayısını, hedefini ve `olay` indisinin okunabilirliğini ölçer.
+
 ## 8. Kapsam: `SPEC` = `engine_api.h` = **177 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
@@ -167,10 +263,8 @@ taşımıyor. Bunun görünür sonuçları var: (1) **çarpışma olayı geri ç
 adımındaki temaslar sabit boy halkaya yazılır, oyun karede okur (2026-09-16); (2) çok değerli sorgular
 "hesapla + erişimci" kalıbıyla verilir (`eng_nav_nearest` sonra `eng_nav_near_x/y/z`), çünkü çıktı
 parametresi yok; (3) onay kutusu ve kaydırıcı **yeni değeri döndürür**, betik geri yazar;
-(4) **betik yürütme yok** — motor editörde atanan `.tpr` yolunu *taşır* (`eng_scene_script`,
-`eng_scene_script_enabled`), çalıştırmaz. Atama bir **etikettir**; dağıtımı oyun kendi döngüsünde
-yapar (bkz. `tulpar/examples/engine_betik_dagitimi.tpr`). Nesne başına gerçek yürütme callback FFI
-ister ve o yok. Üçü de aynı kalıbın örneği: motor **veriyi verir**, kararı Tulpar verir.
+(4) motor **Tulpar'a geri çağrı yapabilir** ama bunu KENDİSİ kuramaz — köprüyü dil tarafı kurar
+(aşağı bak).
 
 **Ne motorda YOK ve bilerek yok:** yol TAKİBİ. Motor yol ARAR (Detour); ajanı yolda yürütmek
 `lib/engine.tpr` içinde saf Tulpar'dadır (`ajan_olustur` / `ajan_hedef` / `ajan_ilerlet`). Takip oynanış
