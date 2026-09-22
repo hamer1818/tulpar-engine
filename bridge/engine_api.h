@@ -65,6 +65,16 @@ double teng_scene_x(int i);
 double teng_scene_y(int i);
 double teng_scene_z(int i);
 const char *teng_scene_name(int i);
+// Varliga atanmis .tpr yolu. Motor betigi CALISTIRMAZ (callback FFI yok): bu
+// bir "yokla ve dallan" erisimcisi — carpisma halkasi ve eng_nav_near_* ile
+// ayni kalip. Betik bileseni yoksa "" (nullptr DEGIL: ailenin kurali) ve bu
+// bir HATA degildir; sinir disi indeks hata sayacini artirir.
+// Donen isaretci blob'un metin tablosunu gosterir; uretilmis baglama zaten
+// VM'e KOPYALIYOR (tm_make_str), yani omru cagri ile sinirli.
+const char *teng_scene_script(int i);
+// "Atanmamis" ile "atanmis ama KAPALI" ayri olgular: ikisini bos metne
+// dusurmek, tasarimcinin kapattigi bir betigi gorunmez yapardi.
+int teng_scene_script_enabled(int i); // bileseni yoksa 0
 // Sahne govdeleri okunur DEGIL, itilebilir de: dinamik olmayan varlikta hata
 // loglanir ve cagri yok sayilir (sessiz yutma yok).
 double teng_scene_vx(int i);

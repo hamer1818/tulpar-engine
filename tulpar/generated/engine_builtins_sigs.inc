@@ -38,6 +38,8 @@
       {"eng_scene_y", TYPE_FLOAT, {TYPE_INT}},
       {"eng_scene_z", TYPE_FLOAT, {TYPE_INT}},
       {"eng_scene_name", TYPE_STRING, {TYPE_INT}},
+      {"eng_scene_script", TYPE_STRING, {TYPE_INT}},
+      {"eng_scene_script_enabled", TYPE_BOOL, {TYPE_INT}},
       {"eng_scene_unload", TYPE_BOOL, {}},
       {"eng_scene_loaded", TYPE_BOOL, {}},
       {"eng_scene_vx", TYPE_FLOAT, {TYPE_INT}},

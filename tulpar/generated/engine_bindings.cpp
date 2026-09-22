@@ -165,6 +165,12 @@ VMValue aot_eng_scene_z_ptr(VMValue *i) {
 VMValue aot_eng_scene_name_ptr(VMValue *i) {
   return tm_make_str(teng_scene_name((int)tm_int(i)));
 }
+VMValue aot_eng_scene_script_ptr(VMValue *i) {
+  return tm_make_str(teng_scene_script((int)tm_int(i)));
+}
+VMValue aot_eng_scene_script_enabled_ptr(VMValue *i) {
+  return VM_BOOL(teng_scene_script_enabled((int)tm_int(i)) != 0);
+}
 VMValue aot_eng_scene_unload_ptr(void) {
   return VM_BOOL(teng_scene_unload() != 0);
 }

@@ -1130,6 +1130,32 @@ double teng_scene_y(int i) { return scene_idx_ok(i, "teng_scene_y") ? g->srt.ent
 double teng_scene_z(int i) { return scene_idx_ok(i, "teng_scene_z") ? g->srt.entity_matrix((uint32_t)i, &g->phys).m[3][2] : 0; }
 const char *teng_scene_name(int i) { return scene_idx_ok(i, "teng_scene_name") ? g->srt.view().entity_name((uint32_t)i) : ""; }
 
+// Varliga atanmis betik kaydi. Blob'da varliktan tabloya GERI ISARETCI yok
+// (v6 tablolariyla ayni sozlesme), o yuzden tablo taraniyor. n = betikli
+// varlik sayisi (<= 256) ve bu cagrinin KARE ICINDE yapilmasi beklenmiyor:
+// ornek (tulpar/examples) atamalari yuklemede BIR KEZ okuyup kendi tablosunu
+// kuruyor — her cagri VM'de yeni bir string ayiriyor (tm_make_str).
+//
+// Bileseni olmayan varlik HATA DEGIL: sessizce nullptr doner. Sinir disi
+// indeks ise hatadir ve scene_idx_ok onu loglar. Ikisi ayri kalmali, yoksa
+// "betigi yok" ile "boyle bir varlik yok" ayni goruntuyu verirdi.
+static const content::SceneBlobScript *scene_script_rec(int i, const char *fn) {
+  if (!scene_idx_ok(i, fn)) return nullptr;
+  const content::SceneBlobView &v = g->srt.view();
+  if (!(v.entities[i].components & content::kSceneScript)) return nullptr;
+  for (uint32_t k = 0; k < v.h->script_count; k++)
+    if (v.scripts[k].entity == (uint32_t)i) return &v.scripts[k];
+  return nullptr;
+}
+const char *teng_scene_script(int i) {
+  const content::SceneBlobScript *s = scene_script_rec(i, "teng_scene_script");
+  return s ? g->srt.view().str(s->path) : "";
+}
+int teng_scene_script_enabled(int i) {
+  const content::SceneBlobScript *s = scene_script_rec(i, "teng_scene_script_enabled");
+  return s && (s->flags & 1u) ? 1 : 0;
+}
+
 // Sahne varligina bagli govde. Okuma tarafi govdesiz varlikta SESSIZ 0 doner
 // (kopru varliklarindaki teng_vx ile ayni kural); yazma tarafi hata loglar.
 static sim::BodyId scene_body(int i, const char *fn) {

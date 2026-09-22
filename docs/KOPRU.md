@@ -139,7 +139,7 @@ Kapıların kontrolleri: kutu **zeminli** y=0.480 / **zeminsiz** y=−15.13; sah
 37 402 piksel fark, **iki boş kare arasında 0** (yazıcı sabit çıktı vermiyor); ölü id çağrısı hata sayacını
 **tam bir** artırır, canlı id **artırmaz**; geçersiz tuş adı hata, geçerli ad sessiz.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **175 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **177 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -149,7 +149,7 @@ bölüm yorumlarına göre):
 |---|---:|---|
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | dünya / kamera | 11 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, kamera (göz+hedef ya da yörünge), kamera konumu |
-| derlenmiş sahne (`.sahneb`) | 15 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü |
+| derlenmiş sahne (`.sahneb`) | 17 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi** |
 | varlıklar (köprü sahibi) | 23 | kutu / küre / zemin / model / ışık üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
 | girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare |
@@ -166,7 +166,11 @@ bölüm yorumlarına göre):
 taşımıyor. Bunun görünür sonuçları var: (1) **çarpışma olayı geri çağrım değil kuyruktur** — fizik
 adımındaki temaslar sabit boy halkaya yazılır, oyun karede okur (2026-09-16); (2) çok değerli sorgular
 "hesapla + erişimci" kalıbıyla verilir (`eng_nav_nearest` sonra `eng_nav_near_x/y/z`), çünkü çıktı
-parametresi yok; (3) onay kutusu ve kaydırıcı **yeni değeri döndürür**, betik geri yazar.
+parametresi yok; (3) onay kutusu ve kaydırıcı **yeni değeri döndürür**, betik geri yazar;
+(4) **betik yürütme yok** — motor editörde atanan `.tpr` yolunu *taşır* (`eng_scene_script`,
+`eng_scene_script_enabled`), çalıştırmaz. Atama bir **etikettir**; dağıtımı oyun kendi döngüsünde
+yapar (bkz. `tulpar/examples/engine_betik_dagitimi.tpr`). Nesne başına gerçek yürütme callback FFI
+ister ve o yok. Üçü de aynı kalıbın örneği: motor **veriyi verir**, kararı Tulpar verir.
 
 **Ne motorda YOK ve bilerek yok:** yol TAKİBİ. Motor yol ARAR (Detour); ajanı yolda yürütmek
 `lib/engine.tpr` içinde saf Tulpar'dadır (`ajan_olustur` / `ajan_hedef` / `ajan_ilerlet`). Takip oynanış
