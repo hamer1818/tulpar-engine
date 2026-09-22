@@ -34,13 +34,19 @@
 namespace tulpar::engine::content {
 
 constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
+// v7: betik (.tpr) atamasi — editorde varliga atanan Tulpar betigi artik
+// derlenmis sahneye giriyor ve oyun onu okuyabiliyor (eng_scene_script).
+// YALNIZ betik: Camera/Audio tablolari bu yukseltmeye BINMEDI, cunku onlarin
+// okuyan tarafi yok ve okuyani olmayan bir tablo yazmak "bloba yazilir,
+// OKUNMAZ" durumunu uretir — v6'da tam boyle iki hata (wave_speed, char_mass)
+// hayatta kalmisti. Okuyani olan tablo yazilir.
 // v6: prosedurel/arkaplan bilesen tablolari (partikul, arazi, voksel, su,
 // ruzgar, karakter); v5: SceneBlobDraw'a ilkel geometri + PBR malzemesi;
 // v4: GI sonda izgarasi; v3: kume DAG; v2: yerlesik kume / navmesh.
 // v5 ARA SURUM olarak atlanmadi — v5'i yazan bir .sahneb hic uretilmedi
 // (bicim bu agacta v4'ten dogrudan v6'ya gecti), numara yalniz #331'in
 // tarihcesiyle hizali kalsin diye tutuluyor.
-constexpr uint32_t kSceneBlobVersion = 6;
+constexpr uint32_t kSceneBlobVersion = 7;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -100,6 +106,13 @@ struct SceneBlobHeader {
   uint32_t water_count, water_offset;         // SceneBlobWater[]
   uint32_t wind_count, wind_offset;           // SceneBlobWind[]
   uint32_t character_count, character_offset; // SceneBlobCharacter[]
+  // --- v7: betik tablosu ---------------------------------------------------
+  // Yine SONA: v6 blob'larinin ilk N bayti ayni yerlesimde kaliyor.
+  // Iki `reserved`: baslik 16 HIZALI olmak zorunda (asagidaki static_assert)
+  // ve iki u32 eklemek hizayi bozuyordu. Bosluk degil, sonraki v7 alanlarinin
+  // yeri — ayni gerekce gi_reserved*'ta da var.
+  uint32_t script_count, script_offset;       // SceneBlobScript[]
+  uint32_t script_reserved0, script_reserved1;
 };
 // GI sondasi: 6 yonlu ambient cube + dogrudan gunes gorunurlugu.
 // Yuz sirasi +X,-X,+Y,-Y,+Z,-Z; deger E(n)/pi, DOGRUSAL RGB (gi.hpp sozlesmesi).
@@ -240,6 +253,21 @@ struct SceneBlobCharacter {
   float max_slope;
   uint32_t reserved[3];
 }; // 32 bayt
+// v7 — varliga atanmis Tulpar betigi (.tpr).
+//
+// Yol METIN TABLOSUNDA yasar, kayitta DEGIL: tablo zaten var, zaten ozete
+// giriyor ve zaten sinir denetimli (SceneBlobAsset::path ile ayni kalip).
+// 128 baytlik satir ici bir alan kaydi 144 bayta cikarir ve varlik basina
+// ~110 bayt bos dolgu tasirdi.
+//
+// `enabled` yerine `flags`: 31 bit bos kaliyor, yani sonraki bir betik
+// bayragi (otomatik baslat, kare atlama) SURUM YUKSELTMEDEN buraya oturur.
+struct SceneBlobScript {
+  uint32_t entity;
+  uint32_t path;     // metin tablosu ofseti
+  uint32_t path_len; // NUL haric
+  uint32_t flags;    // bit0: etkin (SceneEntity::script_enabled)
+}; // 16 bayt
 
 static_assert(sizeof(SceneBlobHeader) % kSceneBlobAlign == 0, "baslik 16 hizali");
 static_assert(sizeof(SceneBlobResident) == 32, "yerlesik kaydi 32 bayt (dosya formati)");
@@ -251,6 +279,7 @@ static_assert(sizeof(SceneBlobEntity) == 128 && sizeof(SceneBlobLight) == 48 && 
 static_assert(sizeof(SceneBlobParticle) == 48 && sizeof(SceneBlobTerrain) == 48 && sizeof(SceneBlobWater) == 32 &&
                   sizeof(SceneBlobWind) == 32 && sizeof(SceneBlobVoxel) == 32 && sizeof(SceneBlobCharacter) == 32,
               "v6 kayit boyutlari sabit (dosya formati)");
+static_assert(sizeof(SceneBlobScript) == 16, "v7 betik kaydi 16 bayt (dosya formati)");
 
 // Acilmis blob: isaretciler blob'un icine bakar (kopya yok). Blob bellegi
 // gorunumden uzun yasamali ve 16 hizali olmali.
@@ -270,6 +299,7 @@ struct SceneBlobView {
   const SceneBlobWater *waters = nullptr;
   const SceneBlobWind *winds = nullptr;
   const SceneBlobCharacter *characters = nullptr;
+  const SceneBlobScript *scripts = nullptr; // v7
   const SceneBlobResident *residents = nullptr;
   const uint8_t *nav = nullptr; // bake edilmis Detour verisi (SALT OKUNUR; nav_size bayt)
   const SceneBlobDagMesh *dag_meshes = nullptr;
@@ -281,6 +311,9 @@ struct SceneBlobView {
   const char *str(uint32_t off) const { return strings + off; }
   const char *asset_path(uint32_t i) const { return str(assets[i].path); }
   const char *entity_name(uint32_t i) const { return str(entities[i].name); }
+  // i BETIK TABLOSU indeksi, varlik indeksi DEGIL (tabloda geri isaretci yok,
+  // v6 tablolariyla ayni sozlesme).
+  const char *script_path(uint32_t i) const { return str(scripts[i].path); }
   uint64_t hash() const { return ((uint64_t)h->hash_hi << 32) | h->hash_lo; }
   SceneWorld world() const;
   Mat4 entity_matrix(uint32_t i) const;
