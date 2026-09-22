@@ -49,7 +49,7 @@ Bu belgedeki tablolar şu üç kaynağın kesişiminden çıkarıldı:
 | 3 | Body | + | + | + | + | **tam** |
 | 4 | Camera | + | + | **−** | **−** | editörde çalışır, **oyunda kaybolur** |
 | 5 | Audio | + | + | **−** | **−** | hiçbir yerde ses çalmaz |
-| 6 | Script | + | + | **−** | **−** | `.tpr` hiçbir yorumlayıcıya gitmez |
+| 6 | Script | + | + | **+** | **~** | atama bloba girer; motor **çalıştırmaz**, oyun `eng_scene_script` ile yoklar |
 | 7 | Character | **−** | + | + | **−** | paneli yok, blob'a yazılır, **okunmaz** |
 | 8 | Particle | **−** | + | + | +² | paneli yok, **çizilmiyor** (§2.C) |
 | 9 | Terrain | + | + | + | + | **tam** |
@@ -250,7 +250,9 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 | C.4 | **Anim klip seçici** + **Model ilkel seçici** | Runtime ikisini de okuyor |
 | C.5 | **Panel düzeni menüye** — `layout_save`/`layout_load` için komut + menü girişi | Altyapı tam; **en düşük emek / en yüksek his farkı** |
 | C.6 | **Bileşen başına aç/kapa** — `SceneEntity::components_enabled` maskesi | `component_header`'ın `enabled` parametresi zaten hazır |
-| C.7 | Blob: Camera / Audio / Script / Character / Wind tablolarını **okuyan** taraf | Yazan taraf var; tek sürüm bump (`kSceneBlobVersion` 5 → 6) hepsini kapsar |
+| C.7a | ~~Blob: Script~~ **BİTTİ** (v7) | Yazan + okuyan taraf: `SceneBlobScript`, `eng_scene_script` / `eng_scene_script_enabled` |
+| C.7b | Blob: Camera / Audio tablolarını yazan **ve** okuyan taraf | Ne yazanı ne okuyanı var. Not: eski satır "tek sürüm bump 5 → 6 hepsini kapsar" diyordu, **yanlış çıktı** — v6 bunları taşımadı, v7 yalnız Script'i aldı |
+| C.7c | Blob: Character / Wind tablolarını **okuyan** taraf | Yazan taraf v6'da geldi, okuyan yok — "bloba yazılır, okunmaz" |
 
 ### Faz D — yeni çalışma zamanı *(pahalı, sırayla)*
 
@@ -262,7 +264,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 | D.4 | Reverb | `audio/dsp.hpp` |
 | D.5 | Rüzgâr — **önce tüketici shader** (foliage/vertex animasyonu), sonra bileşen | `content/wind.cpp` değer üretiyor, okuyan yok |
 | D.6 | Skybox + IBL — **önce renderer'da yol açılmalı**, bugün hiç yok | ölçülmeli |
-| D.7 | Betik (`.tpr`) çalışma zamanı | `bridge/engine_api.cpp` C ABI |
+| D.7 | Betik (`.tpr`) **yürütme** çalışma zamanı | **Yoklama** modeli geldi (v7 + `eng_scene_script`): atama taşınıyor, dağıtımı oyun yapıyor — `tulpar/examples/engine_betik_dagitimi.tpr`. Nesne başına gerçek **yürütme** hâlâ yok ve callback FFI istiyor (derleyici deposu) |
 
 ### Faz E — editör kabuğu *(sektör seviyesi)*
 
@@ -342,7 +344,7 @@ Her faz sonunda:
 4. `./build.sh test` → yeşil *(bugün 475 test, tavan 512)*
 
 Kırılması **beklenen** kapılar: `tests/test_scene.cpp:226` (kanonik sahne — Faz A.1 alan
-eklediğinde), `tests/test_scene_blob.cpp` sürüm sabiti (Faz C.7'de 6'ya çıkar).
+eklediğinde), `tests/test_scene_blob.cpp` sürüm sabiti (v7'de 7'ye çıktı; her bump bu sabiti de günceller).
 
 Gözle sınanacaklar:
 

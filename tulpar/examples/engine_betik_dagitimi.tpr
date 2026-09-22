@@ -1,0 +1,151 @@
+// Tulpar Engine — betik DAĞITIMI: editörde atanan `.tpr`, oyunda davranış.
+//
+//   engine_editor --scene examples/assets/betik_dagitimi.sahne   # düzenle
+//   engine_sahnec examples/assets/betik_dagitimi.sahne           # -> .sahneb
+//   ./tulpar examples/engine_betik_dagitimi.tpr                  # oyna
+//
+// Pencersiz doğrulama:
+//   TULPAR_ENGINE_HEADLESS=180 TULPAR_ENGINE_OUT=/tmp/bd.ppm ./tulpar examples/engine_betik_dagitimi.tpr
+//
+// ---------------------------------------------------------------------------
+// MOTOR `.tpr` ÇALIŞTIRMAZ. Bu bir eksiklik değil, köprünün sınırı: ABI düz
+// skaler, callback yok (docs/KOPRU.md §8). Sahnedeki `betik "..."` satırı bir
+// ETİKETTİR — motor onu taşır (`sahne_betik`), yorumlamaz. Etiketi davranışa
+// bağlayan tek yer burası.
+//
+// Bu örnek üç şeyi göstermek için var ve üçü de kolayca yanlış yapılır:
+//
+//   1. ATAMA YÜKLEMEDE BİR KEZ OKUNUR, her kare değil. `sahne_betik` her
+//      çağrıda VM'de yeni bir metin ayırıyor (köprü blob işaretçisini
+//      kopyalıyor) ve blob tablosunu tarıyor. Kare içinde yapmak varlık
+//      başına bir tahsis demek olurdu. Kare içinde TAMSAYI kodla dallanıyoruz.
+//
+//   2. "KAPALI" İLE "ATANMAMIŞ" AYRI. İkisi de davranışsız kalır ama biri
+//      tasarımcının bilinçli kararıdır ve log onu ayırt eder. Köprü bunun
+//      için iki ayrı erişimci veriyor (`sahne_betik` / `sahne_betik_etkin`).
+//
+//   3. TANINMAYAN ETİKET SESSİZ KALMAZ. Sahnede yazım hatası ya da henüz
+//      yazılmamış bir davranış varsa uyarı basılır — yoksa nesne hiçbir şey
+//      yapmaz ve sebebi "acaba fizik mi bozuk" diye aranır.
+// ---------------------------------------------------------------------------
+//
+// Not: test koşucusunda derlenir, çalıştırılmaz (pencere/GPU ister).
+
+import "engine";
+
+int DAVRANIS_YOK = 0;
+int DAVRANIS_KOVALA = 1;
+int DAVRANIS_DEVRIYE = 2;
+
+float KOVALA_HIZ = 2.5;
+float DEVRIYE_HIZ = 2.0;
+float YAKIN = 0.75;
+
+// Etiket -> davranış kodu. Tek yer: yeni bir davranış eklemek demek buraya
+// bir satır ve `davranis/` altına bir dosya eklemek demek.
+func davranis_cozumle(yol): int {
+    if (yol == "davranis/kovala.tpr")  { return DAVRANIS_KOVALA; }
+    if (yol == "davranis/devriye.tpr") { return DAVRANIS_DEVRIYE; }
+    return DAVRANIS_YOK;
+}
+
+array g_davranis = [];
+array g_faz = [];
+int g_oyuncu = -1;
+
+// Sahnedeki atamaları okuyup indeks -> davranış tablosunu kurar.
+// AYRI FONKSİYON, çünkü sıcak yükleme (editörde "Derle") sonrası YENİDEN
+// çağrılmalı: indeksler ve atamalar değişmiş olabilir.
+func tablo_kur() {
+    g_davranis = [];
+    g_faz = [];
+    int atanan = 0;
+    int kapali = 0;
+    int taninmayan = 0;
+    int i = 0;
+    while (i < sahne_sayisi()) {
+        str yol = sahne_betik(i);
+        int kod = DAVRANIS_YOK;
+        if (yol == "") {
+            // Bileşeni yok: sessiz ve normal. Sahnedeki zemin, oyuncu, duvar.
+        } else if (!sahne_betik_etkin(i)) {
+            // Tasarımcı BİLEREK kapatmış. Sessiz geçmek yanlış olurdu:
+            // "neden hareket etmiyor" sorusunun cevabı tam burada.
+            logla("betik KAPALI: " + sahne_adi(i) + " -> " + yol);
+            kapali = kapali + 1;
+        } else {
+            kod = davranis_cozumle(yol);
+            if (kod == DAVRANIS_YOK) {
+                logla("UYARI taninmayan betik: " + sahne_adi(i) + " -> " + yol);
+                taninmayan = taninmayan + 1;
+            } else {
+                atanan = atanan + 1;
+            }
+        }
+        push(g_davranis, kod);
+        push(g_faz, 0.0);
+        i = i + 1;
+    }
+    logla("betik dagitimi: " + toString(atanan) + "/" + toString(sahne_sayisi()) +
+          " varlik davranisli, " + toString(kapali) + " kapali, " +
+          toString(taninmayan) + " taninmayan");
+}
+
+func main() {
+    log_seviyesi(2);
+    if (!motor_ac("Tulpar Engine — betik dagitimi", 1280, 720)) {
+        print("motor acilamadi: " + eng_last_error());
+        return;
+    }
+    gunes(0.45, 1.0, 0.3, 0.95);
+    ortam(renk(36, 39, 48));
+    golge_hacmi(0, 1, 0, 16, 50);
+
+    if (!sahne_yukle("examples/assets/betik_dagitimi.sahneb")) {
+        print("sahne yok — once: engine_sahnec examples/assets/betik_dagitimi.sahne");
+        motor_kapat();
+        return;
+    }
+    sahne_izle(true);   // editorde "Derle" -> blob degisir -> asagida yakalanir
+    tablo_kur();
+    g_oyuncu = sahne_bul("oyuncu");
+
+    while (calisiyor()) {
+        if (kare_basla()) {
+            yazi("Betik dagitimi: turuncu kovalar, mavi devriye gezer", 12, 12, 1.0, renk(235, 238, 245));
+        }
+        float d = dt();
+
+        // SICAK YUKLEME: blob degistiyse indeksler ve atamalar da degismis
+        // olabilir. Tabloyu tazelemeden surmek, davranisi YANLIS nesneye
+        // uygulamak demektir — sessiz ve bulunmasi zor bir hata.
+        if (sahne_yenilendi()) {
+            logla("sahne yenilendi -> betik tablosu yeniden kuruluyor");
+            tablo_kur();
+            g_oyuncu = sahne_bul("oyuncu");
+        }
+
+        int k = 0;
+        while (k < len(g_davranis)) {
+            // DAGITIM: her kare, ama metin karsilastirmasi YOK — tamsayi kodu.
+            if (g_davranis[k] == DAVRANIS_KOVALA && g_oyuncu >= 0) {
+                float dx = sahne_x(g_oyuncu) - sahne_x(k);
+                float dz = sahne_z(g_oyuncu) - sahne_z(k);
+                float u = sqrt(dx * dx + dz * dz);
+                if (u > YAKIN) {
+                    sahne_hiz_ver(k, dx / u * KOVALA_HIZ, sahne_hiz_y(k), dz / u * KOVALA_HIZ);
+                } else {
+                    sahne_hiz_ver(k, 0.0, sahne_hiz_y(k), 0.0);
+                }
+            } else if (g_davranis[k] == DAVRANIS_DEVRIYE) {
+                g_faz[k] = g_faz[k] + d;
+                sahne_hiz_ver(k, sin(g_faz[k]) * DEVRIYE_HIZ, sahne_hiz_y(k), 0.0);
+            }
+            k = k + 1;
+        }
+        kare_bitir();
+    }
+    motor_kapat();
+}
+
+main();

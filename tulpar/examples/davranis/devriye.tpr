@@ -1,0 +1,6 @@
+// Davranış etiketi — "devriye".
+//
+// Bkz. kovala.tpr: bu dosya çalıştırılmıyor, bir ETİKET tanımlıyor.
+//
+// SÖZLEŞME: x ekseninde sinüs eğrisiyle gidip gel, oyuncuyu umursama.
+// Bunu uygulayan kod engine_betik_dagitimi.tpr içinde DAVRANIS_DEVRIYE.
