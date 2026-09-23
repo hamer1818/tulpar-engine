@@ -175,7 +175,7 @@ for x in engine_editor engine_demo engine_tests engine_sahnec engine_texpack eng
   [ -x "$yapi/$x" ] && printf "    %-16s %s\n" "$x" "$(du -h "$yapi/$x" | cut -f1)"
 done
 echo
-echo "  Editoru ac:        ./$yapi/engine_editor tests/assets/editor.sahne"
+echo "  Editoru ac:        ./editor.sh [x.sahne]"
 echo "  Testleri kostur:   DISPLAY= ./$yapi/engine_tests"
 echo "  Penceresiz kanit:  ./$yapi/engine_editor --headless 30 --out kare.ppm"
 if [ ${#eksik_calisma[@]} -gt 0 ]; then

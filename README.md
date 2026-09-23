@@ -113,6 +113,35 @@ Seçenekler: `ENGINE_MEM_CANARY` (arena taşma kanaryaları, varsayılan ON — 
 | `engine_texpack` | PNG → ASTC mip zinciri → `.ktx2` |
 | `engine_clodbake` | çevrimdışı cluster/LOD bake |
 
+### Editörü açmak
+
+```bash
+./editor.sh                   # Linux / macOS — varsayılan sahne (tests/assets/editor.sahne)
+./editor.sh yol/x.sahne       # verilen sahneyle
+editor.bat                    # Windows (çift tıklanabilir)
+```
+
+İkili yoksa önce `derle.sh`'yi (Windows'ta `tools/derle_mingw.sh`) bağımlılık denetimiyle
+birlikte koşturur. Varsa **artımlı** derler: kaynak değiştiyse editör taze açılır,
+değişmediyse ninja hiçbir şey yapmadan döner (ölçüldü 2026-09-23, Linux 16 çekirdek:
+165–179 ms, kapılar dahil). Derleme düşerse editör **açılmaz** — eski ikiliyi açmak,
+yaptığınız değişikliği görüyormuşsunuz gibi yanıltırdı.
+
+| Seçenek | Ne yapar |
+|---|---|
+| `yol/x.sahne` | Sahne. Çağırdığınız dizine göre çözülür; yoksa betik başta durur |
+| `--derleme-yok` | Derlemeyi atla, mevcut ikiliyi aç |
+| `--headless N --out k.ppm` | Penceresiz N kare, son kareyi yaz |
+| `--size WxH`, `--validation` | Editöre aynen geçer |
+| `--bekleme-yok` | (`editor.bat`) Hatada tuş bekleme |
+
+Tanınmayan seçenek **reddedilir**, editöre geçirilmez: editör tanımadığı argümanı sessizce
+yok sayar, yani `--headles 30` gibi bir yazım hatası hata vermeden pencere açardı.
+
+**Doğrudan ikiliyi çağırırken dikkat:** `engine_editor` sahneyi yalnız `--scene` ile alır.
+Çıplak yol (`engine_editor x.sahne`) **sessizce yok sayılır** ve varsayılan sahne açılır;
+varsayılanı verdiğinizde fark görünmez. `editor.sh` çıplak yolu `--scene`'e çevirir.
+
 ## Test
 
 ```bash
