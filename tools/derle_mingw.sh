@@ -137,7 +137,6 @@ for x in engine_editor engine_demo engine_tests engine_sahnec engine_texpack eng
   [ -f "$yapi/$x.exe" ] && printf "    %-16s %s\n" "$x.exe" "$(du -h "$yapi/$x.exe" | cut -f1)"
 done
 echo
-bilgi "Editoru calistirmak icin -- DLL'ler /mingw64/bin'de oldugu icin MINGW64 kabugundan:"
-echo "    ./$yapi/engine_editor.exe tests/assets/editor.sahne"
+bilgi "Editoru ac: editor.bat (cift tiklanabilir) ya da bu MINGW64 kabugundan ./editor.sh [x.sahne]"
 echo "  Testleri kostur:   ./$yapi/engine_tests.exe"
 echo "  Cift tiklanabilir, DLL'leri yanina alan paket icin: tools/package.sh"
