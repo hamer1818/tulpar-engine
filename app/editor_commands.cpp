@@ -126,6 +126,12 @@ constexpr CommandDesc k_defaults[] = {
      "Oynatmayi dondurur; govdeler yerinde kalir (F10 ile kare ilerlet)"},
     {CommandId::PlayStep, CommandCategory::Play, kCmdNone, kKeyF10, kChordNone, "oynat.kare_ilerlet", "Kare ilerlet",
      "Duraklatilmisken TEK sabit fizik adimi ilerletir"},
+    // F5'in ikizi DEGIL: F5 sahnenin fizigini EDITOR ICINDE kosturur, betik
+    // calismaz. Bu, oyunun kendi .tpr kodunu motoru taniyan derleyiciyle ayri
+    // bir surecte ve kendi penceresinde calistirir (bkz. app/editor_game.hpp).
+    {CommandId::PlayRunGame, CommandCategory::Play, kCmdCheckable, chord_of(kModCtrl, kKeyF5), kChordNone, "oynat.oyunu_calistir",
+     "Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r / durdur",
+     "Sahneyi derler, onu yukleyen Tulpar oyununu ayri pencerede calistirir; ciktisi Konsol'a akar"},
 };
 
 constexpr uint32_t k_default_count = (uint32_t)(sizeof(k_defaults) / sizeof(k_defaults[0]));

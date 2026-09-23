@@ -21,6 +21,10 @@ struct EditorOptions {
   uint32_t width = 1280, height = 720;
   bool validation = false;
   const char *scene_path = nullptr; // null: tests/assets/editor.sahne
+  // --komut: 2. karede calistirilacak komutun DEGISMEZ anahtari
+  // ("oynat.oyunu_calistir", "dosya.derle" ...). Otomasyon ve penceresiz
+  // dogrulama icin; bilinmeyen anahtar editoru 2 ile bitirir (sessiz degil).
+  const char *command = nullptr;
 };
 
 struct EditorHost {

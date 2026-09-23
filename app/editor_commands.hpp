@@ -82,6 +82,7 @@ enum class CommandId : uint16_t {
   PlayToggle,     // F5
   PlayPause,      // F6  (oynatilirken duraklat; govdeler yerinde kalir)
   PlayStep,       // F10 (duraklatilmisken TEK sabit adim ilerlet)
+  PlayRunGame,    // Ctrl+F5 (Tulpar oyununu AYRI surecte derle + calistir / durdur)
   Count
 };
 // Tablo boyu. None sayilmaz; descs[(uint32_t)id - 1] dogrudan indekstir

@@ -90,6 +90,22 @@ int engine_tests_main(int argc, char **argv) {
   // Sahte kod editoru (test_editor.cpp "Dis editorde ac"): editor programi
   // [program, dosya] ile baslatir, ek bayrak koyamaz. Kip ORTAMDAN secilir;
   // degisken yalniz o kapinin cocuguna verilir, normal kosumda tanimsiz.
+  // Sahte derleyici (test_editor_game.cpp "Oyunu calistir"): editor onu
+  // [derleyici, oyun.tpr] ile baslatir. Uzun satir, satir sonsuz kuyruk ve
+  // cikis kodu 5 — gunluk akisinin satir KAYBETMEDIGINI olcmek icin.
+  if (const char *m = std::getenv("TULPAR_TEST_SAHTE_DERLEYICI")) {
+    if (argc == 2) {
+      const int uyu = std::atoi(m);
+      if (uyu > 0) for (int i = 0; i < uyu; i++) tulpar::engine::platform::thread_sleep_us(1000);
+      char cwd[1024] = {0};
+      if (!getcwd(cwd, sizeof cwd)) cwd[0] = 0;
+      std::printf("oyun:%s\ncwd:%s\n", argv[1], cwd);
+      for (int i = 0; i < 1300; i++) std::putchar('u'); // part tamponundan (512) uzun
+      std::printf("\nson satir sonsuz");
+      std::fflush(stdout);
+      return 5;
+    }
+  }
   if (const char *o = std::getenv("TULPAR_TEST_SAHTE_EDITOR")) {
     if (argc == 2) {
       FILE *f = std::fopen(o, "wb");

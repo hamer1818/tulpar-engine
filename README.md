@@ -133,10 +133,36 @@ yaptığınız değişikliği görüyormuşsunuz gibi yanıltırdı.
 | `--derleme-yok` | Derlemeyi atla, mevcut ikiliyi aç |
 | `--headless N --out k.ppm` | Penceresiz N kare, son kareyi yaz |
 | `--size WxH`, `--validation` | Editöre aynen geçer |
+| `--komut anahtar` | Açılışta bir komut çalıştırır (`oynat.oyunu_calistir`, `dosya.derle` …); bilinmeyen anahtar editörü 2 ile bitirir |
 | `--bekleme-yok` | (`editor.bat`) Hatada tuş bekleme |
 
 Tanınmayan seçenek **reddedilir**, editöre geçirilmez: editör tanımadığı argümanı sessizce
 yok sayar, yani `--headles 30` gibi bir yazım hatası hata vermeden pencere açardı.
+
+### Oyunu editörden çalıştırmak
+
+**Oynat → Oyunu çalıştır / durdur** (Ctrl+F5), ya da seçili nesnenin **Tulpar Betik** kartındaki
+düğme. F5'in ikizi değil: F5 sahnenin fiziğini editörün içinde koşturur ve betik çalışmaz; bu ise
+sahneyi derler, onu yükleyen Tulpar oyununu **ayrı bir süreçte, kendi penceresinde** çalıştırır ve
+çıktısını Konsol'a akıtır. Betik kancaları (`<ad>_baslat` …) ancak burada koşar.
+
+- **Oyun kendiliğinden bulunur:** `tulpar/` altında `"<sahne>.sahneb"` metnini içeren `.tpr`
+  (`*.test.tpr` sayılmaz). Tek aday yoksa editör tahmin etmez, sorar; seçim oturum boyunca kalır.
+- **Derleyici: kurulu `tulpar` kullanılamaz** — TulparLang motoru 2026-09-20'den beri tanımıyor
+  (`import "engine"` derlenmez). Motoru tanıyan derleyiciyi bir kez kurun:
+
+  ```bash
+  tools/motor_derleyici.sh               # ../Tulpar kopyasından; o kopyaya DOKUNMAZ (git worktree)
+  tools/motor_derleyici.sh --dogrula     # kurulu olanı bir motor oyunuyla dene
+  ```
+
+  Çıktı `yapi/tulpar-motor/tulpar`; `TULPAR_MOTOR_DERLEYICI` ile başka biri verilebilir. Köprü
+  derleyici deposunun `86e2c4e` commit'inin **tersi** uygulanarak geri bağlanıyor: derleyici o
+  dosyaları değiştirdikçe tutmayabilir ve betik o zaman adıyla durur. Windows'ta henüz yok.
+- **Penceresiz doğrulama:** `TULPAR_ENGINE_HEADLESS=240 ./editor.sh x.sahne --headless 5 --komut
+  oynat.oyunu_calistir` — editör oyunun bitmesini bekler, oyunun satırlarını `[oyun]` önekiyle basar.
+- "Derle" artık navmesh'i de bake ediyor (`engine_sahnec` ile bayt bayt aynı blob); önceden
+  etmiyordu ve sıcak yüklenen bir oyun navmesh'ini kaybediyordu.
 
 **Doğrudan ikiliyi çağırırken dikkat:** `engine_editor` sahneyi yalnız `--scene` ile alır.
 Çıplak yol (`engine_editor x.sahne`) **sessizce yok sayılır** ve varsayılan sahne açılır;

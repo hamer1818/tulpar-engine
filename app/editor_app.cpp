@@ -26,6 +26,7 @@
 #include <ImGuizmo.h>
 
 #include "app/demo_scene.hpp"
+#include "app/editor_game.hpp"
 #include "app/editor_ui.hpp"
 #include "content/gi.hpp"
 #include "content/gltf.hpp"
@@ -37,6 +38,7 @@
 #include "content/vfx_graph.hpp"
 #include "content/scene.hpp"
 #include "content/scene_blob.hpp"
+#include "content/scene_compile.hpp"
 #include "sim/voxel_smoke.hpp"
 #include "audio/mixer.hpp"
 #include "audio/spatial.hpp"
@@ -63,6 +65,7 @@
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/memory.hpp"   // os_page_size (RSS hesabi)
+#include "platform/thread.hpp"
 #include "platform/paths.hpp"   // varlik yolu: ikilinin yani -> calisma dizini -> kaynak agaci
 #include "platform/time.hpp"
 #include "rhi/device.hpp"
@@ -1532,7 +1535,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Ayni dosya diyalogu uc is icin acilir; kabul edildiginde NE yapilacagini
   // bu belirler. Eskiden yalniz dlg.mode (Ac/Kaydet) soruluyordu -- prefab
   // kaydetmek sahneyi kaydetmekle karisirdi.
-  enum DialogIntent { IntentScene = 0, IntentPrefabSave = 1, IntentPrefabLoad = 2, IntentScriptNew = 3 };
+  enum DialogIntent { IntentScene = 0, IntentPrefabSave = 1, IntentPrefabLoad = 2, IntentScriptNew = 3, IntentGamePick = 4 };
   DialogIntent dlg_intent = IntentScene;
   // "Yeni betik" diyalogu HANGI varlik icin acildi. Diyalog kareler boyunca
   // acik kalir ve bu arada secim degisebilir; secime bakarak atasaydik
@@ -1675,16 +1678,87 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   auto do_open_guarded = [&]() { guard_then(PendingOpen); };
   // Derle: veri modeli -> runtime blob (.sahneb, sahne dosyasinin yanina; PLAN §6).
   // Kaydet gibi kamerayi da yazar; dosyayi degil bellekteki sahneyi derler.
-  auto do_compile = [&]() {
+  auto do_compile = [&]() -> bool {
     st.scene.cam_target = cam.target; st.scene.cam_yaw = cam.yaw; st.scene.cam_pitch = cam.pitch; st.scene.cam_radius = cam.radius;
     char out[1024];
-    if (!content::scene_blob_path_for(st.scene_path, out, sizeof out)) { set_status(st, "DERLENEMEDI: yol cok uzun"); return; }
+    if (!content::scene_blob_path_for(st.scene_path, out, sizeof out)) { set_status(st, "DERLENEMEDI: yol cok uzun"); return false; }
     content::SceneError err{};
-    if (!content::scene_blob_save(frame, st.scene, out, &err)) { set_status(st, "DERLENEMEDI: %s", err.msg); return; }
+    // Navmesh BAKE EDILIR (engine_sahnec gibi). Eskiden edilmiyordu: "Derle"
+    // navmesh'siz bir blob yaziyordu, sahne_izle ile calisan bir oyun sicak
+    // yuklemede navmesh'ini KAYBEDIYOR ve kovalama sessizce duz yola dusuyordu
+    // (olculdu 2026-09-23: betik_dagitimi editorden 2304 bayt, sahnec 2896 bayt,
+    // oyun "sahnede navmesh yok" dedi). Kaynak olcumu (measure_resident)
+    // KAPALI: modelleri 8 MB'lik kare arenasina yuklerdi; o rapor sahnec'te.
+    content::SceneCompileOptions copt;
+    copt.measure_resident = false;
+    copt.bake_nav = true;
+    content::SceneBlobExtras extras;
+    content::SceneCompileReport crep;
+    const bool ek = content::scene_compile(frame, st.scene, st.scene_dir, copt, &extras, &crep);
+    if (!ek) console_log(ConsoleLevel::Uyari, kConsoleTagScene, "derle: navmesh bake adimi basarisiz (arena?) — blob navmesh'SIZ yazildi");
+    if (!content::scene_blob_save_ex(frame, st.scene, ek ? &extras : nullptr, out, &err)) { set_status(st, "DERLENEMEDI: %s", err.msg); return false; }
     content::SceneBlobView v;
-    if (!content::scene_blob_load(frame, out, &v, &err)) { set_status(st, "DERLENDI ama acilamadi: %s", err.msg); return; }
+    if (!content::scene_blob_load(frame, out, &v, &err)) { set_status(st, "DERLENDI ama acilamadi: %s", err.msg); return false; }
     set_status(st, "derlendi: %s (%u bayt, %u cizim, %u isik, %u govde, ozet %08x)", out, v.h->total_size, v.h->draw_count, v.h->light_count,
                v.h->body_count, (unsigned)v.h->hash_lo);
+    return true;
+  };
+  // --- Oyunu calistir (Ctrl+F5) -------------------------------------------
+  // Ayri surec: motoru taniyan derleyici oyunu derler ve kendi penceresinde
+  // calistirir; cikti gunluk dosyasindan Konsol'a akar (bkz. editor_game.hpp).
+  static GameRun oyun;
+  bool komut_hata = false;
+  // Oyun satiri: Konsol + stdout (editor.sh'nin terminali ve penceresiz kip de gorsun).
+  void (*oyun_satiri)(void *, const char *) = [](void *, const char *line) {
+    console_log(ConsoleLevel::Bilgi, "oyun", "%s", line);
+    std::printf("[oyun] %s\n", line);
+  };
+  static char oyun_secim[content::kScenePathLen] = {0}; // tulpar/ koke GORELI (disindaysa mutlak)
+  auto run_game_with = [&](const char *game) {
+    char exe[1024], comp[1024], why[512], log[1200], err[512];
+    if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
+    if (!game_find_compiler(exe, comp, sizeof comp, why, sizeof why)) {
+      set_status(st, "oyun calistirilamadi: derleyici yok (Konsol)");
+      console_log(ConsoleLevel::Hata, "oyun", "%s", why);
+      return;
+    }
+    std::snprintf(log, sizeof log, "%s/oyun.log", exe);
+    if (!game_run_start(oyun, comp, st.tulpar_dir, game, log, err, sizeof err)) {
+      set_status(st, "oyun baslatilamadi: %s", err);
+      console_log(ConsoleLevel::Hata, "oyun", "baslatilamadi: %s", err);
+      return;
+    }
+    set_status(st, "oyun calisiyor: %s", game);
+    console_log(ConsoleLevel::Bilgi, "oyun", "calistiriliyor: %s %s (dizin %s, gunluk %s)", comp, game, st.tulpar_dir, log);
+  };
+  auto do_run_game = [&]() {
+    if (oyun.state == GameRunState::Running) {
+      game_run_stop(oyun);
+      set_status(st, "oyun durduruluyor: %s", oyun.game);
+      return;
+    }
+    if (!st.scene_path[0]) { set_status(st, "oyun calistirilamadi: once sahneyi kaydedin (oyun .sahneb yukler)"); return; }
+    // Oyun sahneyi DISKTEKI blobdan yukler: bellekteki son hal once derlenir.
+    // Derlenemezse calistirmak eski blobu gosterirdi ve degisiklik "gelmedi" sanilirdi.
+    if (!do_compile()) return;
+    if (oyun_secim[0]) { run_game_with(oyun_secim); return; }
+    static char bulunan[8][content::kScenePathLen];
+    static FileEntry tarama[kFileListMax];
+    static char metin[256 * 1024];
+    const GameFindResult r = game_find_for_scene(st.tulpar_dir, st.scene_path, bulunan, 8, tarama, kFileListMax, metin, sizeof metin);
+    if (r.too_big) console_log(ConsoleLevel::Uyari, "oyun", "%u .tpr 256 KB'tan buyuk, oyun aramasinda OKUNMADI", r.too_big);
+    if (r.count == 1) {
+      std::snprintf(oyun_secim, sizeof oyun_secim, "%s", bulunan[0]);
+      console_log(ConsoleLevel::Bilgi, "oyun", "bu sahneyi yukleyen oyun: %s (%u .tpr tarandi)", oyun_secim, r.scanned);
+      run_game_with(oyun_secim);
+      return;
+    }
+    // Sifir ya da birden cok: tahmin ETMIYORUZ, soruyoruz. Yanlis oyunu
+    // calistirmak baska bir sahneyi acar ve kullanici bunu editorun hatasi sanar.
+    if (r.count == 0) console_log(ConsoleLevel::Uyari, "oyun", "tulpar/ altinda bu sahneyi (.sahneb) yukleyen oyun bulunamadi: secin");
+    for (uint32_t i = 0; i < r.count && i < 8; i++) console_log(ConsoleLevel::Uyari, "oyun", "aday %u: %s", i + 1, bulunan[i]);
+    dlg_intent = IntentGamePick;
+    file_dialog_open(dlg, FileDialogMode::Ac, st.tulpar_dir, ".tpr", r.count ? "Hangi oyun? (birden cok aday)" : "Oyun sec (.tpr)");
   };
   // GI onizleme pisirme: sahne+yuklu modellerden bellek-ici bake -> derle ->
   // ac (ayni scene_blob_compile_ex/scene_blob_open yolu, DISK YOK). Dunya
@@ -2634,6 +2708,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   cmds.bind(CommandId::PlayPause, [](void *c) { EditorState *s = static_cast<CmdCtx *>(c)->st; s->paused = !s->paused; }, &cc,
             [](const void *c) { return static_cast<const CmdCtx *>(c)->st->playing; },
             [](const void *c) { return static_cast<const CmdCtx *>(c)->st->paused; });
+  struct GameCmdCtx {
+    decltype(&do_run_game) run;
+    const GameRun *g;
+  } gcx{&do_run_game, &oyun};
+  cmds.bind(CommandId::PlayRunGame, [](void *c) { (*static_cast<GameCmdCtx *>(c)->run)(); }, &gcx, nullptr,
+            [](const void *c) { return static_cast<const GameCmdCtx *>(c)->g->state == GameRunState::Running; });
   cmds.bind(CommandId::PlayStep, [](void *c) { static_cast<CmdCtx *>(c)->st->step_request++; }, &cc,
             [](const void *c) {
               const EditorState *s = static_cast<const CmdCtx *>(c)->st;
@@ -2722,6 +2802,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     ENGINE_ZONE("frame");
     console_set_frame(frame_i);
     console_capture_drain(); // kare basina BIR kez; yakalama kapaliysa no-op
+    if (frame_i == 1 && opts.command) {
+      // Ikinci kare: ilk karede panel/sahne kurulumu biter, komut kurulmus bir
+      // editorde calissin.
+      bool bulundu = false;
+      for (uint32_t k = 1; k <= kCommandCount && !bulundu; k++)
+        if (!std::strcmp(cmds.desc((CommandId)k).key, opts.command)) {
+          bulundu = true;
+          const bool calisti = cmds.invoke((CommandId)k);
+          std::printf("[engine_editor] --komut %s: %s\n", opts.command, calisti ? "calisti" : "ETKIN DEGIL, calismadi");
+        }
+      if (!bulundu) { std::printf("[engine_editor] --komut %s: BOYLE BIR KOMUT YOK\n", opts.command); komut_hata = true; }
+    }
+    if (oyun.state == GameRunState::Running) {
+      const GameRunState ns = game_run_poll(oyun, oyun_satiri, nullptr);
+      if (ns != GameRunState::Running) {
+        const bool iyi = ns == GameRunState::Finished && oyun.exit_code == 0;
+        console_log(iyi ? ConsoleLevel::Bilgi : ConsoleLevel::Hata, "oyun", "oyun bitti: %s, cikis kodu %d, %u satir (gunluk %s)", oyun.game,
+                    oyun.exit_code, oyun.lines, oyun.log_path);
+        set_status(st, "oyun bitti: cikis kodu %d%s", oyun.exit_code, iyi ? "" : " (Konsol)");
+      }
+    }
     uint64_t now = platform::now_ns();
     float dt = (float)((now - last_ns) / 1e9);
     last_ns = now;
@@ -5916,6 +6017,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               }
             }
             ImGui::EndDisabled();
+            // Betigi GERCEKTEN kosturmanin yolu: oyunu ayri surecte calistir.
+            // Ust arac seridinde yer yok (800 px'te Kaydet/Derle seridin disina
+            // tasiyordu, olculdu); komut Oynat menusunde ve Ctrl+F5'te de var.
+            {
+              const bool kosuyor = cmds.checked(CommandId::PlayRunGame);
+              if (ImGui::SmallButton(kosuyor ? ICON_MD_STOP " Oyunu durdur" : ICON_MD_PLAY_ARROW " Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r"))
+                cmds.invoke(CommandId::PlayRunGame);
+              if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Ctrl+F5. Sahneyi derler, onu y\xC3\xBCkleyen oyunu motoru tan\xC4\xB1yan derleyiciyle ayr\xC4\xB1 pencerede "
+                                  "\xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r; \xC3\xA7\xC4\xB1kt\xC4\xB1 Konsol'a akar.");
+            }
             end_component_card();
           }
           process_component_card_action(act, content::kSceneScript, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
@@ -6797,6 +6909,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           }
         }
         dlg_intent = IntentScene;
+      } else if (fa == FileDialogAction::Accepted && dlg_intent == IntentGamePick) {
+        // tulpar/ altindaysa ona GORELI (derleyici oradan cagrilir), degilse mutlak.
+        const size_t tn = std::strlen(st.tulpar_dir);
+        const char *rel = (tn && !std::strncmp(dlg.path, st.tulpar_dir, tn) && (dlg.path[tn] == '/' || dlg.path[tn] == '\\')) ? dlg.path + tn + 1 : dlg.path;
+        std::snprintf(oyun_secim, sizeof oyun_secim, "%s", rel);
+        console_log(ConsoleLevel::Bilgi, "oyun", "oyun secildi: %s (bu oturumda hatirlanir)", oyun_secim);
+        dlg_intent = IntentScene;
+        run_game_with(oyun_secim);
       } else if (fa == FileDialogAction::Accepted && dlg_intent == IntentScriptNew) {
         // Etiket tarayicinin kuraliyla: listede ayni satir secili gorunsun.
         // Import yolu yalniz tulpar/ altinda biliniyor (oyunlar oradan derleniyor).
@@ -7448,6 +7568,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     else
       std::printf("[engine_editor] panel duzeni kaydedilemedi: %s\n", le.msg);
   }
+  // Editorden baslatilan oyun editorle KAPANIR: sahipsiz kalan bir oyun
+  // penceresi, editor tekrar acilinca "neden iki oyun var" sorusu olurdu.
+  // PENCERESIZ kipte istisna: oyun BEKLENIR (en cok 120 s) — dogrulama
+  // yolu (--headless N --komut oynat.oyunu_calistir) oyunun sonucunu gormeli.
+  if (oyun.state == GameRunState::Running && headless) {
+    std::printf("[engine_editor] penceresiz: oyunun bitmesi bekleniyor (%s)\n", oyun.game);
+    for (int i = 0; i < 12000 && game_run_poll(oyun, oyun_satiri, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
+  }
+  if (oyun.state == GameRunState::Running) {
+    game_run_stop(oyun);
+    for (int i = 0; i < 200 && game_run_poll(oyun, oyun_satiri, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
+    std::printf("[engine_editor] calisan oyun durduruldu: %s\n", oyun.game);
+  }
+  if (oyun.state != GameRunState::Idle)
+    std::printf("[engine_editor] oyun: %s, durum %s, cikis kodu %d, %u satir\n", oyun.game,
+                oyun.state == GameRunState::Finished ? "bitti" : oyun.state == GameRunState::Failed ? "BASARISIZ" : "?", oyun.exit_code, oyun.lines);
   jobs.shutdown();
   bodies_remove(st, phys);
   // VIEWPORT ImGui'DEN ONCE KAPANIR: doku descriptor'i ImGui'nin havuzundan
@@ -7462,6 +7598,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   if (!headless) swap.shutdown();
   dev.shutdown();
   if (imgui_hata_var) return 1;
+  if (komut_hata) return 2;
   return 0;
 }
 
