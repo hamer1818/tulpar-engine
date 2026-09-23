@@ -167,6 +167,8 @@ henüz yok olduğu için kurulum sessizce kaybolurdu.
 | `guncelle` | `kovala_guncelle(id, dt)` | her kare, **sim adımlarından sonra** |
 | `carpisma` | `kovala_carpisma(id, diger, olay, x, y, z, hiz)` | her çarpışma olayı, `guncelle`den **önce** |
 | `bitir` | `kovala_bitir(id)` | sahne boşalırken / sıcak yüklemede / kapanışta |
+| `tetik_girdi` / `tetik_cikti` | `alarm_tetik_girdi(id, diger, kopru)` | **bölgenin** betiği: bir gövde tetik hacmine girdi/çıktı |
+| `bolge_girdi` / `bolge_cikti` | `devriye_bolge_girdi(id, bolge)` | **girenin** betiği: kendisi bir tetik hacmine girdi/çıktı |
 
 Dördü de **isteğe bağlı**: motor hangisini bulursa onu çağırır. Hiçbiri bulunamazsa bu ayrı bir
 durumdur ve görünür hata basar (aşağı bak).
@@ -198,6 +200,25 @@ Kapanışta da iş sistemi/fizik/cihaz sökülmeden önce çalışır, yani kanc
 güvenlidir. Çağrıldıktan sonra kanca tablosu **kapanır**: boşaltma ve kapanış üst üste gelebilir ve
 kapanmasaydı `bitir` ikinci kez koşardı. Sıcak yükleme de buradan geçer: `bitir` → yeniden yükle →
 `baslat`.
+
+**Tetik (bölge) kancaları.** Gövde kartında "Tetik" işaretli gövde (metinde govde satırının ardından
+tek başına `tetik`, blobda `SceneBlobBody::flags` bit0) çarpışma **tepkisi üretmez**, içinden geçilir.
+İki taraf ayrı adlarla haber alır: bölgenin betiği `<ad>_tetik_girdi(id, diger, kopru)` — `diger` giren
+gövdenin sahne indisi ya da -1, `kopru` köprünün ürettiği varlığın id'si ya da 0 (oyuncu çoğu oyunda
+kodla üretiliyor) — girenin betiği `<ad>_bolge_girdi(id, bolge)`. Aynı olayda önce bölgenin kancası.
+
+- Sensör **kinematik ve hep uyanık** kuruluyor, statik değil: Jolt'ta statik sensör yalnız aktif
+  gövdeleri görür ve içinde **uyuyan** gövde için "çıktı" üretir. Ölçüldü (2026-09-23): sensörü geçici
+  olarak statik yapınca zemine inip uyuyan top için sahte bir çıkış geldi; kinematik ile 0.
+- Kendi nesne katmanında: statik gövdeler (zemin) bölgeye **girmez**, sensörler birbirini görmez.
+- Işın testi sensörü **görmez** (görünmez bir hacim görüş hattını kesmez); sensör teması çarpışma
+  halkasına **girmez** (bölgeden geçmek çarpmak değil).
+- Jolt geri çağrımları iş parçacıklarından belirsiz sırada geliyor; köprü olayları (adım, sensör,
+  diğer) ile sıralayıp dağıtıyor — aynı sahne her koşumda aynı kanca sırasını görür (iki koşumun
+  `[tpr]` satırları aynı çıktı).
+- Başlangıçta içeride duran gövde ilk adımda "girdi" sayılır; içindeyken silinen gövde bir "çıktı"
+  bırakır. `tetik_*` yazılmış ama varlık tetik değilse motor bunu yüklemede **hata** olarak söyler.
+- **Kapsam dışı:** karakter denetleyicisi (`CharacterVirtual`) gövde değil, tetik tetiklemez.
 
 Sahne varlıkları tek tek silinemediği için `bitir`in tetikleyicisi **sahne boşalması**dır, varlık
 ölümü değil. Köprünün kendi ürettiği varlıklar (`eng_kutu_uret` …) bu yaşam döngüsünün dışında.

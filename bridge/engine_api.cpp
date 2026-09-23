@@ -15,6 +15,7 @@
 
 #include "platform/fs.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -318,6 +319,11 @@ struct Bridge {
     bool guncelle = false;
     bool bitir = false;
     bool carpisma = false;
+    // Tetik: BOLGENIN betigi (tetik_*) ve bolgeye giren varligin betigi
+    // (bolge_*) ayri adlar. Tek ad olsaydi "ben mi girdim, bana mi girildi"
+    // sorusunu her betik kendisi cozmek zorunda kalirdi.
+    bool tetik_girdi = false, tetik_cikti = false;
+    bool bolge_girdi = false, bolge_cikti = false;
   };
   ScriptHook script[content::kSceneMaxEntities];
   bool script_any = false;
@@ -325,6 +331,7 @@ struct Bridge {
   // taramayi HIC yapmasin diye ayri bayrak. (`script_any` yetmez: yalniz
   // `guncelle` kullanan bir oyunda da acik olurdu.)
   bool script_carpisma_any = false;
+  bool script_tetik_any = false; // tetik_* ya da bolge_* kancasi olan en az bir varlik
   uint32_t script_calls = 0;
   uint32_t script_missing = 0;
   // animasyon: tek calisma alani (yaklasik 46 KB), kare icinde ayirma yok
@@ -959,6 +966,7 @@ static void script_call(Bridge &b, const char *base, const char *hook, const dou
   if (g_svm->call(fn, args, argc)) b.script_calls++;
 }
 static int scene_idx_of_body(sim::BodyId b); // asagida; carpisma eslemesi icin
+static int ent_id_of_body(sim::BodyId b);    // asagida; tetige giren KOPRU varligi
 
 // `bitir`i butun kancali varliklara dagit, sonra tabloyu KAPAT.
 // Kapatmak sart: bu fonksiyon iki yerden cagriliyor (bosaltma ve kapanis) ve
@@ -977,6 +985,7 @@ static void script_fire_bitir(Bridge &b, const char *why) {
   for (uint32_t i = 0; i < content::kSceneMaxEntities; i++) b.script[i] = Bridge::ScriptHook{};
   b.script_any = false;
   b.script_carpisma_any = false;
+  b.script_tetik_any = false;
   if (n) BINFO("betik: %u varlikta `bitir` calisti (%s)", n, why);
 }
 
@@ -1012,6 +1021,41 @@ void teng_frame_end(void) {
     b.phys.clear_contacts();
     for (uint32_t t = 0; t < ticks; t++) { b.phys.step(b.fs.step_s, 1); b.tick++; }
     if (ticks == b.fs.max_ticks_per_frame) BDBG("kare %u: sim %u tick ile kirpildi (dt %.3f)", b.frame, ticks, b.dt);
+  }
+  if (b.script_tetik_any && b.scene_ok) {
+    // TETIK kancalari: carpismadan ve guncelle'den ONCE (olay bu karenin sim
+    // adimlarinda oldu). Jolt geri cagrimlari is parcaciklarindan BELIRSIZ
+    // sirada gelir; (adim, sensor, diger, cikis-once) ile siralanip oyle
+    // dagitiliyor ki ayni sahne her kosumda ayni kanca sirasini gorsun.
+    // Ayni adimda bir cift hem girip hem cikamaz, adimlar arasi sira
+    // kronolojik kalir.
+    ENGINE_ZONE("betik");
+    static sim::SensorEvent sirali[512];
+    uint32_t n = b.phys.sensor_event_count();
+    if (n > 512) n = 512; // halka tavani (PhysicsConfig::max_sensor_events) bunun altinda
+    for (uint32_t k = 0; k < n; k++) sirali[k] = b.phys.sensor_event(k);
+    std::sort(sirali, sirali + n, [](const sim::SensorEvent &x, const sim::SensorEvent &y) {
+      if (x.step != y.step) return x.step < y.step;
+      if (x.sensor.v != y.sensor.v) return x.sensor.v < y.sensor.v;
+      if (x.other.v != y.other.v) return x.other.v < y.other.v;
+      return (int)x.enter < (int)y.enter;
+    });
+    for (uint32_t k = 0; k < n; k++) {
+      const sim::SensorEvent &e = sirali[k];
+      const int bolge = scene_idx_of_body(e.sensor), diger = scene_idx_of_body(e.other);
+      // Bolgenin betigi: <ad>_tetik_girdi(id, diger, kopru). `diger` sahne
+      // indisi ya da -1; `kopru` koprunun urettigi varligin id'si ya da 0 —
+      // oyuncu cogu oyunda sahnede degil, kodla uretiliyor.
+      if (bolge >= 0 && (e.enter ? b.script[bolge].tetik_girdi : b.script[bolge].tetik_cikti)) {
+        const double a[3] = {(double)bolge, (double)diger, (double)ent_id_of_body(e.other)};
+        script_call(b, b.script[bolge].base, e.enter ? "tetik_girdi" : "tetik_cikti", a, 3);
+      }
+      // Girenin betigi: <ad>_bolge_girdi(id, bolge).
+      if (diger >= 0 && bolge >= 0 && (e.enter ? b.script[diger].bolge_girdi : b.script[diger].bolge_cikti)) {
+        const double a[2] = {(double)diger, (double)bolge};
+        script_call(b, b.script[diger].base, e.enter ? "bolge_girdi" : "bolge_cikti", a, 2);
+      }
+    }
   }
   if (b.script_carpisma_any && b.scene_ok) {
     // Carpisma kancasi `guncelle`den ONCE: olay bu karenin sim adimlarinda
@@ -1242,6 +1286,7 @@ int teng_scene_load(const char *path) {
   // karede bildirmek 60 Hz'lik bir gunluk selidir ve gercek hatayi gomer.
   b.script_any = false;
   b.script_carpisma_any = false;
+  b.script_tetik_any = false;
   b.script_calls = 0;
   b.script_missing = 0;
   for (uint32_t i = 0; i < v.h->entity_count && i < content::kSceneMaxEntities; i++) {
@@ -1264,17 +1309,28 @@ int teng_scene_load(const char *path) {
     h.guncelle = script_has(b, h.base, "guncelle");
     h.bitir = script_has(b, h.base, "bitir");
     h.carpisma = script_has(b, h.base, "carpisma");
-    if (!baslat && !h.guncelle && !h.bitir && !h.carpisma) {
+    h.tetik_girdi = script_has(b, h.base, "tetik_girdi");
+    h.tetik_cikti = script_has(b, h.base, "tetik_cikti");
+    h.bolge_girdi = script_has(b, h.base, "bolge_girdi");
+    h.bolge_cikti = script_has(b, h.base, "bolge_cikti");
+    const bool tetikli = h.tetik_girdi || h.tetik_cikti || h.bolge_girdi || h.bolge_cikti;
+    // tetik_* yazilmis ama varlik tetik DEGIL: kanca hic cagrilmaz. Sessiz
+    // kalsaydi tasarimci "bolge neden calismiyor" diye betige bakardi.
+    if ((h.tetik_girdi || h.tetik_cikti) && !(b.phys.is_sensor(b.srt.entity_body(i))))
+      BERR("betik \"%s\": %s_tetik_* var ama \"%s\" bir TETIK hacmi degil (govde + tetik gerekli) — kanca cagrilmayacak", v.str(rec->path),
+           h.base, v.entity_name(i));
+    if (!baslat && !h.guncelle && !h.bitir && !h.carpisma && !tetikli) {
       // EN TEHLIKELI DURUM: atama var, fonksiyon YOK. AOT'ta betik ancak
       // oyunun ikilisine derlenmisse (import edilmisse) vardir; tasarimci
       // editorde atadi diye kendiliginden gelmez.
-      BERR("betik kancasi YOK: \"%s\" -> %s_baslat/_guncelle/_bitir/_carpisma bulunamadi (oyun bu dosyayi import etti mi?)", v.str(rec->path),
-           h.base);
+      BERR("betik kancasi YOK: \"%s\" -> %s_baslat/_guncelle/_bitir/_carpisma/_tetik_*/_bolge_* bulunamadi (oyun bu dosyayi import etti mi?)",
+           v.str(rec->path), h.base);
       b.script_missing++;
       continue;
     }
     b.script_any = true;
     if (h.carpisma) b.script_carpisma_any = true;
+    if (tetikli) b.script_tetik_any = true;
     if (baslat) {
       const double a[1] = {(double)i};
       script_call(b, h.base, "baslat", a, 1);

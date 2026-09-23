@@ -112,6 +112,7 @@ inline constexpr FieldMeta kBodyFields[] = {
   {"Yarim Kenar", "##bhalf", FieldType::Vec3, offsetof(content::SceneEntity, half), sizeof(Vec3), 0.01f, 50.0f, 0.02f, "%.2f m", "Kutu carpisan icin yarim kenar uzunluklari", nullptr, 0.5f, Vec2{0, 0}, Vec3{0.5f, 0.5f, 0.5f}},
   {"Yaricap", "##bradius", FieldType::Float, offsetof(content::SceneEntity, radius), sizeof(float), 0.01f, 50.0f, 0.02f, "%.2f m", "Kure carpisan yaricapi", nullptr, 0.5f, Vec2{0, 0}, Vec3{0, 0, 0}},
   {"Dinamik", "##bdyn", FieldType::Bool, offsetof(content::SceneEntity, dynamic), sizeof(bool), 0.0f, 1.0f, 1.0f, nullptr, "Isaretliyse yercekimi ve kuvvetlerden etkilenir", nullptr, 0.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
+  {"Tetik", "##bsensor", FieldType::Bool, offsetof(content::SceneEntity, body_sensor), sizeof(bool), 0.0f, 1.0f, 1.0f, nullptr, "Carpisma tepkisi yok; icine giren/cikan govde betige bildirilir (<ad>_tetik_girdi)", nullptr, 0.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
 };
 
 // 6. KAMERA (kSceneCamera)

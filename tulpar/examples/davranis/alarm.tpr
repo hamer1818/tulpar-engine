@@ -1,0 +1,38 @@
+// Davranış — "alarm". Bir TETİK hacmine (bölge) atanır; motor çağırır.
+//
+//   alarm_tetik_girdi(id, diger, kopru)   bir gövde bölgeye GİRDİ
+//   alarm_tetik_cikti(id, diger, kopru)   bir gövde bölgeden ÇIKTI
+//
+// `id` bölgenin kendisi. `diger` giren gövdenin sahne indisi, sahnede değilse
+// -1; o zaman `kopru` köprünün ürettiği varlığın id'si (oyunun kodla ürettiği
+// oyuncu gibi), o da değilse 0.
+//
+// Bölge ancak "Tetik" işaretli bir gövdeyse çalışır (editör: Gövde kartı →
+// Tetik). Tetik gövde carpışma TEPKİSİ üretmez, içinden geçilir; statik
+// gövdeler (zemin) bölgeye "girmez". Başlangıçta içeride duran gövde de ilk
+// adımda "girdi" sayılır.
+//
+// Aynı betik birden çok bölgeye atanabilir: fonksiyonlar `id` ile hangi
+// bölgenin çağrıldığını bilir; aşağıdaki sayaç ise bütün alarm bölgelerinin
+// ORTAK toplamıdır (betik değişkenleri bölge başına değil).
+
+int alarm_giris = 0;
+
+func alarm_kim(diger, kopru): str {
+    if (diger >= 0) { return sahne_adi(diger); }
+    if (kopru != 0) { return "kopru varligi #" + toString(kopru); }
+    return "?";
+}
+
+func alarm_tetik_girdi(id, diger, kopru) {
+    alarm_giris = alarm_giris + 1;
+    logla("ALARM " + sahne_adi(id) + ": " + alarm_kim(diger, kopru) + " girdi");
+}
+
+func alarm_tetik_cikti(id, diger, kopru) {
+    logla("ALARM " + sahne_adi(id) + ": " + alarm_kim(diger, kopru) + " cikti");
+}
+
+func alarm_bitir(id) {
+    logla("alarm bitti: " + sahne_adi(id) + " (toplam giris " + toString(alarm_giris) + ")");
+}

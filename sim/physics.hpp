@@ -20,6 +20,9 @@ struct PhysicsConfig {
   // `contact_overflow()` artar — sessizce kirpilmaz; kirpilma gorunur olmazsa
   // oyun "carpma gelmedi" sanip yanlis mantik kurar.
   uint32_t max_contact_events = 256;
+  // Bir karede tutulacak TETIK (sensor) giris/cikis olayi. Ayni sozlesme:
+  // dolarsa duser ve `sensor_overflow()` sayar.
+  uint32_t max_sensor_events = 128;
   uint32_t temp_bytes = 8u << 20; // Jolt gecici ayirici (adim ici yigin)
   uint32_t threads = 0;           // Jolt thread havuzu icin (jobs == nullptr ise): 0 = donanim-1
   JobSystem *jobs = nullptr;      // verilirse Jolt job'lari BIZIM fiber job sisteminde kosar
@@ -56,6 +59,18 @@ struct ContactEvent {
   Vec3 point{};  // dunya uzayinda temas noktasi
   Vec3 normal{}; // a'dan b'ye bakan yuzey normali
   float speed = 0;
+};
+
+// TETIK OLAYI. Bir govde bir sensorun (tetik hacmi) ICINE girdi ya da CIKTI.
+// Carpisma degil: sensor carpisma TEPKISI uretmez, icinden gecilir.
+// `step` olayin oldugu fizik adiminin sirasi: Jolt geri cagrimlari is
+// parcaciklarindan BELIRSIZ sirada gelir, tuketici (step, sensor, other)
+// ile siralayip belirlenimli sira elde eder — ayni adimda bir cift hem girip
+// hem cikamaz, adimlar arasi sira ise kronolojik kalir.
+struct SensorEvent {
+  BodyId sensor{}, other{};
+  uint32_t step = 0;
+  bool enter = false;
 };
 
 // --- Karakter denetleyicisi tipleri (PR #322'den) -------------------------
@@ -104,6 +119,19 @@ public:
 
   BodyId add_box(Vec3 half_extent, Vec3 pos, Quat rot, bool dynamic);
   BodyId add_sphere(float radius, Vec3 pos, bool dynamic);
+  // TETIK (sensor) hacmi: carpisma tepkisi YOK, icine giren/cikan hareketli
+  // govdeler sensor_event olarak gelir. KINEMATIK ve hep UYANIK kurulur,
+  // statik degil: Jolt'ta statik sensor yalniz AKTIF govdeleri gorur ve icinde
+  // UYUYAN bir govde icin "cikti" uretir (Body::SetIsSensor notu) — oyuncu
+  // durunca "bolgeden cikti" demek olurdu. OLCULDU (2026-09-23, kapi
+  // physics_sensor_reports_enter_exit_without_response, sensoru gecici olarak
+  // Static yapip): zemine inip uyuyan top icin "yatak: cikis 1" — sahte cikis.
+  // Kinematik + uyanik ile 0. Kendi nesne katmaninda: statik
+  // govdeleri ve baska sensorleri gormez (zemin "bolgeye girdi" demez).
+  // Isin testi sensorleri ATLAR (gorunmez bir hacim gorus hattini kesmez).
+  BodyId add_sensor_box(Vec3 half_extent, Vec3 pos, Quat rot);
+  BodyId add_sensor_sphere(float radius, Vec3 pos);
+  bool is_sensor(BodyId id) const;
   void remove(BodyId id);
 
   void step(float dt, int collision_steps = 1);
@@ -149,7 +177,15 @@ public:
   uint32_t contact_count() const;
   ContactEvent contact(uint32_t i) const;
   uint32_t contact_overflow() const; // halkaya sigmayip DUSEN olay sayisi
-  void clear_contacts();
+  void clear_contacts(); // tetik olaylarini da temizler (ayni kare sozlesmesi)
+
+  // --- Tetik olaylari ---------------------------------------------------
+  // Temas halkasiyla ayni yasam dongusu: step() doldurur, clear_contacts()
+  // bosaltir. Sensor ile hareketli govde temaslari TEMAS halkasina GIRMEZ
+  // (bir bolgeden gecmek carpmak degil).
+  uint32_t sensor_event_count() const;
+  SensorEvent sensor_event(uint32_t i) const;
+  uint32_t sensor_overflow() const;
 
   // Belirlenimlilik olcusu: tum govdelerin konum/donus bitleri (FNV-1a).
   uint64_t state_hash() const;

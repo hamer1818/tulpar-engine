@@ -56,3 +56,19 @@ nesne "taninmayan"
   govde kure 0.5 dinamik
   betik "tulpar/examples/davranis/henuz_yazilmadi.tpr" etkin
 son
+nesne "alarm_bolgesi"
+  konum 0 1 6
+  donus 0 0 0
+  olcek 1 1 1
+  govde kutu 2 1 2 sabit
+  tetik
+  betik "tulpar/examples/davranis/alarm.tpr" etkin
+son
+nesne "gecit"
+  konum 6.5 1 -2
+  donus 0 0 0
+  olcek 1 1 1
+  govde kutu 0.5 1 1.5 sabit
+  tetik
+  betik "tulpar/examples/davranis/alarm.tpr" etkin
+son

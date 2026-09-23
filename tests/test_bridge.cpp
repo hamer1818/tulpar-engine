@@ -221,12 +221,22 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         static char son[160];
         static double son_carp[8] = {0};
         static int son_carp_argc = -1, carp_indis_hatali = 0;
+        // Tetik: sira + argumanlar. "T+"/"T-" bolgenin, "B+"/"B-" girenin kancasi.
+        static char tetik_iz[128];
+        static double tetik_arg[4][3];
+        static int n_tetik = 0;
+        tetik_iz[0] = 0; n_tetik = 0;
         n_baslat = 0; n_guncelle = 0; n_bitir = 0; n_carpisma = 0; n_yok = 0; son[0] = 0;
         son_carp_argc = -1; carp_indis_hatali = 0;
         struct Sahte {
           static int has(const char *fn) {
             // "henuz_yazilmadi_*" BILEREK yok: eksik kanca yolunu olcuyoruz.
             if (std::strstr(fn, "henuz_yazilmadi")) { n_yok++; return 0; }
+            // tetik_* YALNIZ "alarm" tabaninda: baska (tetik olmayan) bir
+            // varlikta tetik_* bulunsaydi motor bunu hata olarak bildirir —
+            // dogru davranis, ama bu kapinin kasitli hata sayacini bozardi.
+            if (std::strstr(fn, "_tetik_")) return std::strncmp(fn, "alarm_", 6) == 0 ? 1 : 0;
+            if (std::strstr(fn, "_bolge_")) return 1;
             return std::strstr(fn, "_baslat") || std::strstr(fn, "_guncelle") || std::strstr(fn, "_bitir") || std::strstr(fn, "_carpisma") ? 1 : 0;
           }
           static int call(const char *fn, const double *args, int argc) {
@@ -245,6 +255,16 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
               // indis yanlis ve `eng_carpisma_nx(olay)` alakasiz bir olayi
               // okurdu — sessizce, cunku her ikisi de gecerli sayi.
               else if (teng_collision_x((int)args[2]) != args[3]) carp_indis_hatali++;
+            }
+            const bool tg = std::strstr(fn, "_tetik_girdi"), tc = std::strstr(fn, "_tetik_cikti");
+            const bool bg = std::strstr(fn, "_bolge_girdi"), bc = std::strstr(fn, "_bolge_cikti");
+            if (tg || tc || bg || bc) {
+              const size_t l = std::strlen(tetik_iz);
+              std::snprintf(tetik_iz + l, sizeof tetik_iz - l, "%s%s ", tg || tc ? "T" : "B", tg || bg ? "+" : "-");
+              if (n_tetik < 4) for (int i = 0; i < 3; i++) tetik_arg[n_tetik][i] = i < argc ? args[i] : -99;
+              n_tetik++;
+              const int bekle = tg || tc ? 3 : 2;
+              if (argc != bekle) { std::printf("    FAIL %s argc=%d (%d olmali)\n", fn, argc, bekle); Registry::failures++; }
             }
             (void)args;
             return 1;
@@ -327,6 +347,47 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         // sayaci 16/15 dedi. Kapi kendi kuralini kendi uzerimde olctu.
         teng_scene_unload();
         CHECK(n_bitir == bitir1);
+
+        // --- tetik / bolge kancalari -------------------------------------
+        // kup_dusen'in dusus yoluna bir TETIK hacmi (y 1.5..2.5) BELLEKTE
+        // ekleniyor (editor.sahne kanonik metin kapisinin oznesi). Kup
+        // (yarim kenar 0.5) y=6'dan duser: alt yuzu 2.5'e inince girer, ust
+        // yuzu 1.5'in altina inince cikar. Zemin yok, kup durmadan gecer —
+        // sensor tepki vermiyorsa.
+        {
+          static content::SceneDesc tet;
+          tet = desc;
+          content::SceneEntity al{};
+          std::snprintf(al.name, sizeof al.name, "alarm");
+          al.components = content::kSceneBody | content::kSceneScript;
+          al.pos = Vec3{6, 2, 3};
+          al.shape = content::SceneShape::Box;
+          al.half = Vec3{1.5f, 0.5f, 1.5f};
+          al.body_sensor = true;
+          al.script_enabled = true;
+          std::snprintf(al.script_file, sizeof al.script_file, "tulpar/examples/davranis/alarm.tpr");
+          CHECK(tet.insert_entity(tet.entity_count, al));
+          char tblob[800];
+          std::snprintf(tblob, sizeof tblob, "%s/_kopru_tetik.sahneb", assets_dir());
+          CHECK(content::scene_blob_save(arena, tet, tblob, &serr));
+          const int errs_t = teng_error_count();
+          teng_set_script_vm(&vm);
+          CHECK(teng_scene_load(tblob) == 1);
+          const int ai = teng_scene_find("alarm"), ki = teng_scene_find("kup_dusen");
+          int kare = 0;
+          for (; kare < 150 && n_tetik < 4; kare++) { teng_frame_begin(); teng_frame_end(); }
+          std::printf("    [bilgi] tetik kancalari: %d karede \"%s\" (alarm=%d kup=%d); ilk T+ (%.0f, %.0f, %.0f), ilk B+ (%.0f, %.0f)\n", kare,
+                      tetik_iz, ai, ki, tetik_arg[0][0], tetik_arg[0][1], tetik_arg[0][2], tetik_arg[1][0], tetik_arg[1][1]);
+          // Sira: once giris (bolge sonra giren), sonra cikis. Ayni olayda
+          // bolgenin kancasi girenin kancasindan ONCE — motordaki sira.
+          CHECK(!std::strcmp(tetik_iz, "T+ B+ T- B- "));
+          CHECK((int)tetik_arg[0][0] == ai && (int)tetik_arg[0][1] == ki && (int)tetik_arg[0][2] == 0); // kopru varligi degil -> 0
+          CHECK((int)tetik_arg[1][0] == ki && (int)tetik_arg[1][1] == ai);
+          CHECK(teng_scene_y(ki) < 1.0); // kup sensorun icinden GECTI (tepki yok)
+          CHECK(teng_error_count() == errs_t);
+          teng_scene_unload();
+          std::remove(tblob);
+        }
         teng_set_script_vm(&vm); // sonraki bolumler icin geri kur
         CHECK(teng_scene_load(blob) == 1);
       }

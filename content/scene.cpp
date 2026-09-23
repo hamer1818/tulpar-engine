@@ -230,6 +230,9 @@ void write_entity(Out &o, const SceneEntity &e) {
     else { o.puts("kure "); o.num(e.radius); }
     o.puts(e.dynamic ? " dinamik" : " sabit");
     o.ch('\n');
+    // Ayri satir, govde satirinin SONUNA jeton degil: eski sahneler bayt bayt
+    // ayni kalir ve tetik olmayan govde icin hicbir sey yazilmaz.
+    if (e.body_sensor) o.puts("  tetik\n");
   }
   if (e.components & kSceneCamera) {
     o.puts("  kamera "); o.num(e.cam_fov); o.ch(' '); o.num(e.cam_near); o.ch(' '); o.num(e.cam_far); o.ch('\n');
@@ -338,7 +341,7 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
                             a.light_godray != b.light_godray || !feq(a.light_godray_intensity, b.light_godray_intensity)))
     return false;
   if (c & kSceneBody) {
-    if (a.shape != b.shape || a.dynamic != b.dynamic) return false;
+    if (a.shape != b.shape || a.dynamic != b.dynamic || a.body_sensor != b.body_sensor) return false;
     if (a.shape == SceneShape::Box ? !veq(a.half, b.half) : !feq(a.radius, b.radius)) return false;
   }
   if (c & kSceneCamera) {
@@ -815,6 +818,13 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         else if (tok_is(*last, "sabit")) cur.dynamic = false;
         else return p.fail("govde sonu dinamik|sabit");
         seen_comp |= kSceneBody;
+      } else if (tok_is(t[0], "tetik")) {
+        // Yazici `tetik`i govde satirinin HEMEN ardina yazar; once govde gelmeli.
+        if (n != 1) return p.fail("tetik (arguman almaz)");
+        if (!(seen_comp & kSceneBody)) return p.fail("tetik: once govde satiri");
+        if (cur.dynamic) return p.fail("tetik govde dinamik olamaz (sabit yazin)");
+        if (cur.body_sensor) return p.fail("tetik bir kez");
+        cur.body_sensor = true;
       } else if (tok_is(t[0], "kamera")) {
         if (n != 4 || (seen_comp & kSceneCamera)) return p.fail("kamera fov yakin uzak (bir kez)");
         if (!p.num(t[1], &cur.cam_fov) || !p.num(t[2], &cur.cam_near) || !p.num(t[3], &cur.cam_far)) return false;
@@ -1237,7 +1247,10 @@ uint32_t scene_spawn_bodies(const SceneDesc &d, sim::Physics &ph, sim::BodyId *i
     const Mat4 wm = scene_entity_world_matrix(d, i);
     const Vec3 wp{wm.m[3][0], wm.m[3][1], wm.m[3][2]};
     const Vec3 ws = scene_entity_world_scale(d, i);
-    if (e.shape == SceneShape::Box) ids[i] = ph.add_box(e.half * ws, wp, scene_entity_world_rotation(d, i), e.dynamic);
+    if (e.body_sensor) {
+      if (e.shape == SceneShape::Box) ids[i] = ph.add_sensor_box(e.half * ws, wp, scene_entity_world_rotation(d, i));
+      else ids[i] = ph.add_sensor_sphere(e.radius * ws.x, wp);
+    } else if (e.shape == SceneShape::Box) ids[i] = ph.add_box(e.half * ws, wp, scene_entity_world_rotation(d, i), e.dynamic);
     else ids[i] = ph.add_sphere(e.radius * ws.x, wp, e.dynamic);
     if (ids[i].valid()) n++;
   }

@@ -813,3 +813,46 @@ ENGINE_TEST(scene_tree_bodies_spawn_at_world_transform) {
   std::printf("    [bilgi] govde konumu: ebeveynli (%.2f,%.2f,%.2f), ebeveynsiz (%.2f,%.2f,%.2f)\n", (double)linked_pos.x,
               (double)linked_pos.y, (double)linked_pos.z, (double)free_pos.x, (double)free_pos.y, (double)free_pos.z);
 }
+
+// Tetik bayragi: ayri `tetik` satiri, govdenin ardinda. Olculen: gidis-donus,
+// eski sahnenin baytlarinin DEGISMEMESI (bayrak yoksa satir da yok), esitlik
+// karsilastirmasinin bayragi gormesi ve uc ret sebebi.
+ENGINE_TEST(scene_body_sensor_roundtrips_and_rejects_bad_forms) {
+  static SceneDesc d, d2;
+  static char t[512];
+  SceneError err{};
+  d = SceneDesc{};
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "alarm");
+  e.components = kSceneBody;
+  e.shape = SceneShape::Box;
+  e.half = {2, 1.5f, 2};
+  e.body_sensor = true;
+  CHECK(d.insert_entity(0, e));
+  size_t n = scene_write(d, t, sizeof t);
+  std::printf("    [bilgi] tetik yazimi:\n%.*s", (int)n, t);
+  CHECK(std::strstr(t, "  govde kutu 2 1.5 2 sabit\n  tetik\n") != nullptr);
+  CHECK(scene_parse(t, n, &d2, &err));
+  CHECK(d2.entities[0].body_sensor && scene_entity_equal(d.entities[0], d2.entities[0]));
+  // KONTROL: esitlik bayragi GORUYOR (gormeseydi geri al/kirli bayragi yanilirdi).
+  SceneEntity f = d.entities[0];
+  f.body_sensor = false;
+  CHECK(!scene_entity_equal(d.entities[0], f));
+  // KONTROL: tetik olmayan govde icin hicbir sey yazilmiyor (eski sahneler bayt bayt ayni).
+  d.entities[0].body_sensor = false;
+  n = scene_write(d, t, sizeof t);
+  CHECK(std::strstr(t, "tetik") == nullptr);
+
+  const char *once = "tulpar-sahne 1\nnesne \"x\"\n  tetik\n  govde kutu 1 1 1 sabit\nson\n";
+  const char *dinamik = "tulpar-sahne 1\nnesne \"x\"\n  govde kutu 1 1 1 dinamik\n  tetik\nson\n";
+  const char *iki = "tulpar-sahne 1\nnesne \"x\"\n  govde kure 1 sabit\n  tetik\n  tetik\nson\n";
+  const char *vakalar[] = {once, dinamik, iki};
+  int red = 0;
+  for (const char *v : vakalar) {
+    err = SceneError{};
+    if (!scene_parse(v, std::strlen(v), &d2, &err)) { red++; std::printf("    [bilgi] ret: satir %d: %s\n", err.line, err.msg); }
+  }
+  CHECK(red == 3);
+  const char *kure = "tulpar-sahne 1\nnesne \"x\"\n  govde kure 1 sabit\n  tetik\nson\n";
+  CHECK(scene_parse(kure, std::strlen(kure), &d2, &err) && d2.entities[0].body_sensor && d2.entities[0].shape == SceneShape::Sphere);
+}

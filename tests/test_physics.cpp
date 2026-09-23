@@ -341,3 +341,92 @@ ENGINE_TEST(physics_character_controller) {
 
   ph.shutdown();
 }
+
+// TETIK (sensor) hacmi. Olculen: (1) icinden gecen govde DURMUYOR ve tam bir
+// giris + bir cikis uretiyor, (2) sensor temasi TEMAS halkasina girmiyor,
+// (3) icinde UYUYAN govde icin sahte "cikti" YOK — sensorun kinematik ve hep
+// uyanik kurulmasinin sebebi bu (statik sensor uyuyan govdeyi kaybeder),
+// (4) statik govde bolgeye "girmiyor", (5) isin testi sensoru gormuyor,
+// (6) halka dolunca olay sayilarak dusuyor, (7) icindeyken silinen govde
+// bir "cikti" birakiyor.
+ENGINE_TEST(physics_sensor_reports_enter_exit_without_response) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "sensor");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  CHECK(ph.init(sys, cfg));
+  const BodyId zemin = ph.add_box({20, 1, 20}, {0, -1, 0}, Quat::identity(), false); // ust yuzu y=0
+  const BodyId gecit = ph.add_sensor_box({1, 1, 1}, {0, 3, 0}, Quat::identity());      // y 2..4
+  const BodyId yatak = ph.add_sensor_box({1, 1, 1}, {0, 0.5f, 0}, Quat::identity());   // zemine BINDIRILMIS
+  const BodyId top = ph.add_sphere(0.5f, {0, 6.0f, 0}, true);
+  CHECK(gecit.valid() && yatak.valid() && top.valid());
+  CHECK(ph.is_sensor(gecit) && ph.is_sensor(yatak) && !ph.is_sensor(top) && !ph.is_sensor(zemin));
+
+  int gir_gecit = 0, cik_gecit = 0, gir_yatak = 0, cik_yatak = 0, zemin_olayi = 0, sensor_temasi = 0;
+  uint32_t gir_adim = 0, cik_adim = 0;
+  for (int i = 0; i < 600; i++) {
+    ph.clear_contacts();
+    ph.step(1.0f / 60.0f);
+    for (uint32_t k = 0; k < ph.sensor_event_count(); k++) {
+      const SensorEvent e = ph.sensor_event(k);
+      if (e.other.v == zemin.v) zemin_olayi++;
+      if (e.sensor.v == gecit.v) { if (e.enter) { gir_gecit++; gir_adim = e.step; } else { cik_gecit++; cik_adim = e.step; } }
+      if (e.sensor.v == yatak.v) { if (e.enter) gir_yatak++; else cik_yatak++; }
+    }
+    for (uint32_t k = 0; k < ph.contact_count(); k++) {
+      const ContactEvent c = ph.contact(k);
+      if (ph.is_sensor(c.a) || ph.is_sensor(c.b)) sensor_temasi++;
+    }
+  }
+  const float son_y = ph.position(top).y;
+  const bool uyudu = !ph.is_active(top);
+  std::printf("    [bilgi] gecit: giris %d (adim %u), cikis %d (adim %u); yatak: giris %d, cikis %d; top y %.3f, uyudu %d; "
+              "zemin olayi %d, halkada sensor temasi %d\n",
+              gir_gecit, gir_adim, cik_gecit, cik_adim, gir_yatak, cik_yatak, (double)son_y, (int)uyudu, zemin_olayi, sensor_temasi);
+  CHECK(gir_gecit == 1 && cik_gecit == 1 && gir_adim < cik_adim);
+  CHECK(son_y > 0.4f && son_y < 0.6f); // sensor TUTMADI, top zemine indi
+  CHECK(sensor_temasi == 0);
+  CHECK(zemin_olayi == 0);
+  // Uyku KONTROLU anlamli olsun diye once ON KOSUL: top gercekten uyudu.
+  CHECK(uyudu);
+  CHECK(gir_yatak == 1 && cik_yatak == 0);
+
+  // Isin: yukaridan asagi. Gecit (y 2..4) YOK sayilmali; ilk carpma top ya da zemin.
+  RayHit h;
+  CHECK(ph.raycast({0, 10, 0}, {0, -1, 0}, 20, &h));
+  std::printf("    [bilgi] isin: mesafe %.2f (gecit 6'da, top ~9'da), govde sensor mu %d\n", (double)h.distance, (int)ph.is_sensor(h.body));
+  CHECK(!ph.is_sensor(h.body) && h.distance > 8.0f);
+
+  // Icindeyken silinen govde: Jolt bir sonraki adimda OnContactRemoved veriyor.
+  ph.remove(top);
+  int silinme_cikisi = 0;
+  for (int i = 0; i < 3; i++) {
+    ph.clear_contacts();
+    ph.step(1.0f / 60.0f);
+    for (uint32_t k = 0; k < ph.sensor_event_count(); k++)
+      if (!ph.sensor_event(k).enter && ph.sensor_event(k).other.v == top.v) silinme_cikisi++;
+  }
+  std::printf("    [bilgi] icindeyken silinen govde: %d cikis olayi\n", silinme_cikisi);
+  CHECK(silinme_cikisi == 1);
+  ph.shutdown();
+
+  // Halka tasmasi: 1 yuvalik halka, ayni adimda giren uc top.
+  Physics dar;
+  PhysicsConfig dc;
+  dc.threads = 1;
+  dc.max_sensor_events = 1;
+  CHECK(dar.init(sys, dc));
+  dar.add_sensor_box({5, 1, 5}, {0, 3, 0}, Quat::identity());
+  for (int i = 0; i < 3; i++) dar.add_sphere(0.5f, {-3.0f + 3.0f * i, 4.6f, 0}, true);
+  uint32_t en_cok = 0, dusen = 0;
+  for (int i = 0; i < 30; i++) {
+    dar.clear_contacts();
+    dar.step(1.0f / 60.0f);
+    if (dar.sensor_event_count() > en_cok) en_cok = dar.sensor_event_count();
+    dusen += dar.sensor_overflow();
+  }
+  std::printf("    [bilgi] 1 yuvalik halka: en cok %u olay, dusen %u (sessiz degil)\n", en_cok, dusen);
+  CHECK(en_cok == 1 && dusen >= 2);
+  dar.shutdown();
+}

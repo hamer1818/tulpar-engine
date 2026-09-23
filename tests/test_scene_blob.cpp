@@ -1713,3 +1713,31 @@ ENGINE_TEST(scene_blob_hierarchy_matches_flattened_scene) {
   std::printf("    [bilgi] hiyerarsik blob %zu bayt ozet %016llx == duz ikiz; ebeveyn oynayinca %016llx, naif duzlestirme %016llx\n", nh,
               (unsigned long long)vh.hash(), (unsigned long long)v2.hash(), (unsigned long long)vn.hash());
 }
+
+// Tetik bayragi blobda: SceneBlobBody::flags (eski reserved0). Olculen: tetik
+// govde bit0'i tasiyor, siradan govde 0 — yani bu degisiklikten ONCE yazilmis
+// v7 bloblarindaki sifir "tetik degil" okunuyor ve surum yukseltmesi gerekmiyor.
+ENGINE_TEST(scene_blob_carries_body_sensor_flag) {
+  static SceneDesc d;
+  d = SceneDesc{};
+  SceneEntity e{};
+  e.components = kSceneBody;
+  std::snprintf(e.name, sizeof e.name, "duvar");
+  CHECK(d.insert_entity(0, e));
+  std::snprintf(e.name, sizeof e.name, "alarm");
+  e.body_sensor = true;
+  e.shape = SceneShape::Sphere;
+  e.radius = 3;
+  CHECK(d.insert_entity(1, e));
+  size_t n = 0;
+  void *buf = compile_to(d, &n);
+  CHECK(buf != nullptr);
+  SceneBlobView v;
+  SceneError err{};
+  CHECK(buf && scene_blob_open(buf, n, &v, &err));
+  CHECK(v.h->body_count == 2);
+  uint32_t duvar = 99, alarm = 99;
+  for (uint32_t k = 0; k < v.h->body_count; k++) (v.bodies[k].entity == 0 ? duvar : alarm) = v.bodies[k].flags;
+  std::printf("    [bilgi] govde bayraklari: duvar %u, alarm %u\n", duvar, alarm);
+  CHECK(duvar == 0 && alarm == kSceneBlobBodySensor);
+}

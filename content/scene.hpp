@@ -144,6 +144,9 @@ struct SceneEntity {
   Vec3 half{0.5f, 0.5f, 0.5f};
   float radius = 0.5f;
   bool dynamic = false;
+  // TETIK hacmi: carpisma tepkisi yok, icine giren/cikan govde bildirilir
+  // (sim::Physics::add_sensor_*). Dinamik OLAMAZ — ayristirici reddeder.
+  bool body_sensor = false;
   // kamera
   float cam_fov = 60.0f;
   float cam_near = 0.1f, cam_far = 200.0f;
