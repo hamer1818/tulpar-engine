@@ -5897,6 +5897,25 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             }
             if (ImGui::IsItemHovered())
               ImGui::SetTooltip("Dosya ad\xC4\xB1 kanca ad\xC4\xB1 olur: kovala.tpr -> kovala_baslat, kovala_guncelle ...");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(e.script_file[0] == 0);
+            if (ImGui::SmallButton(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6rde a\xC3\xA7")) {
+              char yol[1024], kim[1024], err[640];
+              if (!editor_script_resolve(e.script_file, st.scene_dir, st.tulpar_dir, yol, sizeof yol)) {
+                set_status(st, "betik yolu cozulemedi: %s", e.script_file);
+              } else if (!file_exists(yol)) {
+                // Etiket sahnede duruyor ama dosya yok: once "Yeni betik".
+                set_status(st, "betik dosyasi YOK: %s (etiket %s)", yol, e.script_file);
+                console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "betik dosyasi yok: %s (etiket %s)", yol, e.script_file);
+              } else if (editor_open_in_code_editor(yol, kim, sizeof kim, err, sizeof err)) {
+                set_status(st, "acildi: %s", yol);
+                console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "betik acildi: %s -> %s", yol, kim);
+              } else {
+                set_status(st, "%s", err);
+                console_log(ConsoleLevel::Hata, kConsoleTagEditor, "%s", err);
+              }
+            }
+            ImGui::EndDisabled();
             end_component_card();
           }
           process_component_card_action(act, content::kSceneScript, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });

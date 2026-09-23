@@ -1,4 +1,5 @@
 #include "app/editor_ui.hpp"
+#include "platform/process.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -782,6 +783,89 @@ bool editor_script_create(const char *abs_path, const char *import_path, char *e
   if (std::fclose(f) != 0 || !ok) return red("yazma yarida kaldi: %s", abs_path);
   if (err && err_cap) err[0] = 0;
   return true;
+}
+
+bool editor_script_resolve(const char *label, const char *scene_dir, const char *tulpar_root, char *out, uint32_t cap) {
+  if (!label || !*label || !out || cap == 0) return false;
+  const bool mutlak = label[0] == '/' || label[0] == '\\' ||
+                      (((label[0] | 0x20) >= 'a' && (label[0] | 0x20) <= 'z') && label[1] == ':');
+  int w;
+  if (mutlak) w = std::snprintf(out, cap, "%s", label);
+  else if (!std::strncmp(label, "tulpar/", 7) && tulpar_root && *tulpar_root) w = std::snprintf(out, cap, "%s/%s", tulpar_root, label + 7);
+  else if (scene_dir && *scene_dir) w = std::snprintf(out, cap, "%s/%s", scene_dir, label);
+  else w = std::snprintf(out, cap, "%s", label);
+  if (w < 0 || (uint32_t)w >= cap) { out[0] = 0; return false; }
+  return true;
+}
+
+bool editor_open_with_candidates(const char *path, const CodeEditorCandidate *c, uint32_t cn, char *used, uint32_t used_cap, char *err,
+                                 uint32_t err_cap) {
+  if (used && used_cap) used[0] = 0;
+  if (err && err_cap) err[0] = 0;
+  if (!path || !*path) { if (err && err_cap) std::snprintf(err, err_cap, "yol bos"); return false; }
+  char denenen[512] = {0};
+  for (uint32_t i = 0; i < cn; i++) {
+    const CodeEditorCandidate &a = c[i];
+    if (!a.prog || !*a.prog) continue;
+    char tam[1024];
+    // PATH'te yoksa baslatmayi denemeden gec: "code yok" bir hata degil, sirada
+    // bir sonraki var. Ama hata metnine GIRER — hicbiri acilmazsa kullanici
+    // neyin denendigini gormeli.
+    if (!platform::process_find_in_path(a.prog, tam, sizeof tam)) {
+      const size_t l = std::strlen(denenen);
+      std::snprintf(denenen + l, sizeof denenen - l, "%s%s (yok)", l ? ", " : "", a.prog);
+      continue;
+    }
+    const char *argv[4];
+    int n = 0;
+    argv[n++] = tam;
+    if (a.pre_arg) argv[n++] = a.pre_arg;
+    argv[n++] = path;
+    argv[n] = nullptr;
+    platform::ProcessSpec s;
+    s.argv = argv;
+    char e[256];
+    if (platform::process_start_detached(s, e, sizeof e)) {
+      if (used && used_cap) std::snprintf(used, used_cap, "%s", tam);
+      return true;
+    }
+    const size_t l = std::strlen(denenen);
+    std::snprintf(denenen + l, sizeof denenen - l, "%s%s (%s)", l ? ", " : "", a.prog, e);
+  }
+  if (err && err_cap)
+    std::snprintf(err, err_cap, "kod editoru acilamadi: %s. TULPAR_KOD_EDITORU ile bir program verin", denenen[0] ? denenen : "aday yok");
+  return false;
+}
+
+bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap, char *err, uint32_t err_cap) {
+  char ozel[512] = {0}, vsc[1024] = {0};
+  const char *env = std::getenv("TULPAR_KOD_EDITORU");
+  if (env && *env) std::snprintf(ozel, sizeof ozel, "%s", env);
+#if defined(_WIN32)
+  // VS Code'un PATH'teki `code.cmd`si CALISTIRILMIYOR: .cmd'yi CreateProcessW
+  // cmd.exe ile acar ve yol cmd kurallarindan (& ^ %) gecer. Yerine .cmd'nin
+  // bir ust dizinindeki Code.exe (VS Code'un kendi yerlesimi: <kok>\bin\code.cmd).
+  char cmdp[1024];
+  if (platform::process_find_in_path("code.cmd", cmdp, sizeof cmdp)) {
+    char *sl = std::strrchr(cmdp, '\\');
+    if (sl) { *sl = 0; sl = std::strrchr(cmdp, '\\'); }
+    if (sl) { *sl = 0; std::snprintf(vsc, sizeof vsc, "%s\\Code.exe", cmdp); }
+  }
+  if (!vsc[0] || !file_exists(vsc)) {
+    const char *la = std::getenv("LOCALAPPDATA");
+    vsc[0] = 0;
+    if (la) std::snprintf(vsc, sizeof vsc, "%s\\Programs\\Microsoft VS Code\\Code.exe", la);
+    if (vsc[0] && !file_exists(vsc)) vsc[0] = 0;
+  }
+  const CodeEditorCandidate adaylar[] = {{ozel, nullptr}, {vsc, nullptr}, {"notepad.exe", nullptr}};
+#elif defined(__APPLE__)
+  (void)vsc;
+  const CodeEditorCandidate adaylar[] = {{ozel, nullptr}, {"code", nullptr}, {"open", "-t"}};
+#else
+  (void)vsc;
+  const CodeEditorCandidate adaylar[] = {{ozel, nullptr}, {"code", nullptr}, {"codium", nullptr}, {"xdg-open", nullptr}};
+#endif
+  return editor_open_with_candidates(path, adaylar, (uint32_t)(sizeof adaylar / sizeof adaylar[0]), used, used_cap, err, err_cap);
 }
 
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset) {

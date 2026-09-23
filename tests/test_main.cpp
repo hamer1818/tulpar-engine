@@ -2,13 +2,16 @@
 
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <initializer_list>
+#include <cstdlib>
 #include <cstring>
 #include <unistd.h>
 
 #include "core/jobs/job_system.hpp"
 #include "core/memory/arena.hpp"
 #include "platform/crash.hpp"
+#include "platform/thread.hpp"
 
 const char *g_engine_tests_exe = nullptr;
 
@@ -65,8 +68,41 @@ using namespace tulpar::engine::test;
 
 // APK icinde host cagirir (main yok: ENGINE_TESTS_NO_MAIN). argv[0] yoksa
 // cocuk surec isteyen testler gorunur atlanir.
+// Surec kapisinin (test_process.cpp) kobayi: aldigi argv'yi UZUNLUK ONEKLI
+// olarak dosyaya yazar (bos arguman ve satir sonu da ayirt edilsin), calisma
+// dizinini ekler, stdout'a bir satir basar ve 7 ile cikar. Olculen sey
+// cocugun GERCEKTEN ne aldigi — ebeveynin ne gonderdigini sandigi degil.
+static int argv_yankila(int argc, char **argv) {
+  FILE *f = std::fopen(argv[2], "wb");
+  if (!f) return 3;
+  for (int i = 3; i < argc; i++) std::fprintf(f, "%u:%s\n", (unsigned)std::strlen(argv[i]), argv[i]);
+  char cwd[1024] = {0};
+  if (getcwd(cwd, sizeof cwd)) std::fprintf(f, "cwd:%s\n", cwd);
+  std::fclose(f);
+  std::printf("yankila: %d arguman\n", argc - 3);
+  std::fflush(stdout);
+  return 7;
+}
+
 int engine_tests_main(int argc, char **argv) {
   g_engine_tests_exe = (argc > 0 && argv && argv[0] && argv[0][0]) ? argv[0] : nullptr;
+  if (argc >= 3 && std::strcmp(argv[1], "--argv-yankila") == 0) return argv_yankila(argc, argv);
+  // Sahte kod editoru (test_editor.cpp "Dis editorde ac"): editor programi
+  // [program, dosya] ile baslatir, ek bayrak koyamaz. Kip ORTAMDAN secilir;
+  // degisken yalniz o kapinin cocuguna verilir, normal kosumda tanimsiz.
+  if (const char *o = std::getenv("TULPAR_TEST_SAHTE_EDITOR")) {
+    if (argc == 2) {
+      FILE *f = std::fopen(o, "wb");
+      if (!f) return 3;
+      std::fprintf(f, "%s", argv[1]);
+      std::fclose(f);
+      return 0;
+    }
+  }
+  if (argc >= 3 && std::strcmp(argv[1], "--uyu") == 0) {
+    for (int i = 0; i < std::atoi(argv[2]); i++) tulpar::engine::platform::thread_sleep_us(1000);
+    return 0;
+  }
   if (argc >= 3 && std::strcmp(argv[1], "--crash-child") == 0) {
     tulpar::engine::platform::CrashConfig cfg;
     cfg.report_dir = argv[2];
