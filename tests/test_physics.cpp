@@ -430,3 +430,57 @@ ENGINE_TEST(physics_sensor_reports_enter_exit_without_response) {
   CHECK(en_cok == 1 && dusen >= 2);
   dar.shutdown();
 }
+
+// Sensoru tasimak temaslari KORUMALI. Olculen: iceride kalacak kadar kaydirma
+// 0 olay, govdeyi disarida birakacak kaydirma tam 1 cikis, geri getirme 1
+// giris; KONTROL: ayni yerde silip yeniden kurmak (kopru teng_set_pos'un eski
+// yolu) icerde DURAN govde icin sahte bir GIRDI uretiyor.
+ENGINE_TEST(physics_sensor_move_keeps_contacts) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "sensor_move");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  CHECK(ph.init(sys, cfg));
+  ph.add_box({20, 1, 20}, {0, -1, 0}, Quat::identity(), false);
+  const BodyId bolge = ph.add_sensor_box({2, 2, 2}, {0, 1, 0}, Quat::identity());
+  const BodyId top = ph.add_sphere(0.5f, {0, 0.5f, 0}, true);
+  CHECK(!ph.move_sensor(top, {0, 0, 0}, Quat::identity())); // KONTROL: sensor olmayan tasinmaz
+  auto adim = [&](int n, int *gir, int *cik) {
+    for (int i = 0; i < n; i++) {
+      ph.clear_contacts();
+      ph.step(1.0f / 60.0f);
+      for (uint32_t k = 0; k < ph.sensor_event_count(); k++) {
+        const SensorEvent e = ph.sensor_event(k);
+        if (e.sensor.v != bolge.v || e.other.v != top.v) continue;
+        (e.enter ? *gir : *cik)++;
+      }
+    }
+  };
+  int g0 = 0, c0 = 0, g1 = 0, c1 = 0, g2 = 0, c2 = 0, g3 = 0, c3 = 0;
+  adim(30, &g0, &c0);                                        // ilk giris
+  CHECK(ph.move_sensor(bolge, {0.5f, 1, 0}, Quat::identity())); // top hala icerde
+  adim(30, &g1, &c1);
+  CHECK(ph.move_sensor(bolge, {10, 1, 0}, Quat::identity()));   // top disarida kaldi
+  adim(30, &g2, &c2);
+  CHECK(ph.move_sensor(bolge, {0, 1, 0}, Quat::identity()));    // geri
+  adim(30, &g3, &c3);
+  std::printf("    [bilgi] sensor tasima: ilk %d/%d, icerde kaydir %d/%d, disari %d/%d, geri %d/%d (giris/cikis)\n", g0, c0, g1, c1, g2, c2, g3, c3);
+  CHECK(g0 == 1 && c0 == 0);
+  CHECK(g1 == 0 && c1 == 0); // silip kurma olsaydi 1/1
+  CHECK(g2 == 0 && c2 == 1);
+  CHECK(g3 == 1 && c3 == 0);
+  // KONTROL: silip kur. Top yerinden oynamadi ama yeni sensor onu "yeni gelmis" gorur.
+  ph.remove(bolge);
+  const BodyId yeni = ph.add_sensor_box({2, 2, 2}, {0, 1, 0}, Quat::identity());
+  int sahte = 0;
+  for (int i = 0; i < 5; i++) {
+    ph.clear_contacts();
+    ph.step(1.0f / 60.0f);
+    for (uint32_t k = 0; k < ph.sensor_event_count(); k++)
+      if (ph.sensor_event(k).sensor.v == yeni.v && ph.sensor_event(k).enter) sahte++;
+  }
+  std::printf("    [bilgi] KONTROL silip kur: yerinden oynamayan top icin %d sahte giris\n", sahte);
+  CHECK(sahte == 1);
+  ph.shutdown();
+}

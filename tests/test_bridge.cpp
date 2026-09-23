@@ -621,6 +621,67 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     }
   }
 
+  // --- 10b) KODLA TETIK: gorunmez bolge, kuyruk, tasima -----------------------
+  // Sahnenin uzaginda (30, *, 30): sabit bir zemin kutusu, onun ustune binen
+  // bir TETIK kutusu ve yukaridan birakilan bir kure. Kure tetigin icinden
+  // gecip zemine iner ve ICERDE kalir. Olculen: giris olayinin kimlikleri,
+  // tetigin cizilmemesi ve yakinlik sorgusunda gorunmemesi, TASIMANIN
+  // icerde duran kure icin olay uretmemesi, disari tasimanin tek cikis.
+  {
+    const int errs0 = teng_error_count();
+    run_frames(1);
+    const int cizim0 = teng_draw_count();
+    const int zem = teng_spawn_box(30, 0, 30, 3, 0.5, 3, 0, 0x404040);       // ust yuz y=0.5
+    const int tet = teng_spawn_trigger_box(30, 1.5, 30, 2, 1, 2);            // y 0.5..2.5
+    const int top = teng_spawn_sphere(30, 5, 30, 0.5, 1, 0xff8800);
+    CHECK(zem && tet && top && teng_alive(tet));
+    CHECK(teng_trigger_count() == 0); // KONTROL: henuz adim yok
+    run_frames(1);
+    const int cizim1 = teng_draw_count();
+    std::printf("    [bilgi] tetik cizilmiyor: 3 varlik eklendi, cizim %d -> %d (+2 olmali: zemin + kure)\n", cizim0, cizim1);
+    CHECK(cizim1 - cizim0 == 2);
+    int gir = 0, cik = 0, bilinmeyen = 0, gir_kare = -1;
+    int bolge_sahne = 99, diger_sahne = 99;
+    auto tara = [&](int kare) {
+      for (int i = 0; i < teng_trigger_count(); i++) {
+        if (teng_trigger_zone(i) != tet || teng_trigger_other(i) != top) { bilinmeyen++; continue; }
+        bolge_sahne = teng_trigger_zone_scene(i);
+        diger_sahne = teng_trigger_other_scene(i);
+        if (teng_trigger_entered(i)) { gir++; if (gir_kare < 0) gir_kare = kare; }
+        else cik++;
+      }
+    };
+    for (int f = 0; f < 150; f++) { teng_frame_begin(); teng_frame_end(); tara(f); }
+    const double top_y = teng_y(top);
+    std::printf("    [bilgi] kodla tetik: giris %d (kare %d), cikis %d, bilinmeyen %d; kure y %.2f (zeminde, tetigin ICINDE)\n", gir, gir_kare, cik,
+                bilinmeyen, top_y);
+    CHECK(gir == 1 && cik == 0 && bilinmeyen == 0);
+    CHECK(bolge_sahne == -1 && diger_sahne == -1); // ikisi de kopru varligi
+    CHECK(top_y > 0.8 && top_y < 1.2);             // tetik TUTMADI, zemin tuttu
+    // Yakinlik: tetik merkezinde 0.1'lik sorgu tetigi DONDURMEZ (hedef degil).
+    const int yakin = teng_nearest(30, 1.5, 30, 3.0, 0);
+    CHECK(yakin != tet);
+    // Tasima: kure icerde kalacak kadar kaydir -> olay YOK (silip kursaydi sahte giris).
+    teng_set_pos(tet, 30.4, 1.5, 30);
+    int g1 = gir, c1 = cik;
+    for (int f = 0; f < 10; f++) { teng_frame_begin(); teng_frame_end(); tara(1000 + f); }
+    const int tasi_olay = (gir - g1) + (cik - c1);
+    // Disari tasi -> tam bir cikis.
+    teng_set_pos(tet, 40, 1.5, 30);
+    g1 = gir; c1 = cik;
+    for (int f = 0; f < 10; f++) { teng_frame_begin(); teng_frame_end(); tara(2000 + f); }
+    std::printf("    [bilgi] tetik tasima: icerde kaydirinca %d olay (0 olmali), disari tasiyinca giris %d cikis %d\n", tasi_olay, gir - g1, cik - c1);
+    CHECK(tasi_olay == 0);
+    CHECK(gir - g1 == 0 && cik - c1 == 1);
+    CHECK(teng_error_count() == errs0);
+    // KONTROL: sinir disi olay dizini hata loglar (sessiz 0 "olay yok" gibi okunurdu).
+    CHECK(teng_trigger_zone(9999) == 0);
+    CHECK(teng_error_count() == errs0 + 1);
+    teng_despawn(top);
+    teng_despawn(tet);
+    teng_despawn(zem);
+  }
+
   // --- 11) SES: calan ses sayaci ve tepe deger; KONTROL: durdurunca sifir ----
   {
     int a_ok = teng_audio_open(0, 0);
@@ -683,7 +744,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // --- 12) Kapanis: kasitli hata sayisi (kosan kapilara gore) ----------------
   // Ortamdan gelen hatalar (ses cihazi yok, kaynak yok) ayri sayilir; onlar
   // kasitli degil ve makineye gore degisir.
-  int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/;
+  int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/;
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/;
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;

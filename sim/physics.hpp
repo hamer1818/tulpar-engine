@@ -132,6 +132,11 @@ public:
   BodyId add_sensor_box(Vec3 half_extent, Vec3 pos, Quat rot);
   BodyId add_sensor_sphere(float radius, Vec3 pos);
   bool is_sensor(BodyId id) const;
+  // Sensoru TASI (isinla). Govdeyi silip yeniden kurmak DEGIL: o yol icerde
+  // DURAN her govde icin sahte bir "girdi" uretir (yeni sensor onu yeni gelmis
+  // gorur — olculdu, kapi physics_sensor_move_keeps_contacts). Tasima temaslari
+  // korur; yalniz gercekten sinirdan gecenler olay uretir. Sensor degilse false.
+  bool move_sensor(BodyId id, Vec3 pos, Quat rot);
   void remove(BodyId id);
 
   void step(float dt, int collision_steps = 1);

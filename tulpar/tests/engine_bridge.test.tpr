@@ -162,11 +162,23 @@ func run_ses() {
 // 10) Model animasyonu: klip bilgileri + varlığa klip atama.
 //     KONTROL: olmayan klip hata verir; döngülü klip bitmez, döngüsüz biter.
 func run_animasyon() {
-    int m = model_yukle("engine/tests/assets/skin_tube.gltf");
-    if (m < 0) {
+    // Yol adayları: motor deposunda testler tulpar/ içinden koşar (varlık
+    // ../tests/assets'te); "engine/..." motorun derleyici deposunun içinde
+    // yaşadığı eski yerleşimden kalma. Tek yol bırakılsaydı kapı yeni
+    // yerleşimde hep ATLANIYORDU (ölçüldü 2026-09-23) ve kimse fark etmedi.
+    array adaylar = ["../tests/assets/skin_tube.gltf", "tests/assets/skin_tube.gltf", "engine/tests/assets/skin_tube.gltf"];
+    str yol = "";
+    int a = 0;
+    while (a < len(adaylar) && yol == "") {
+        if (file_exists(adaylar[a])) { yol = adaylar[a]; }
+        a = a + 1;
+    }
+    if (yol == "") {
         print("    ATLANDI: skin_tube.gltf yok — animasyon kapisi kosmadi");
         return;
     }
+    int m = model_yukle(yol);
+    assert(m >= 0, "skin_tube.gltf bulundu ama yuklenemedi: " + yol);
     assert_eq_int(klip_sayisi(m), 1);
     assert_eq_str(klip_adi(m, 0), "bend");
     float sure = klip_suresi(m, 0);
@@ -752,6 +764,64 @@ func run_carpisma() {
     sil(top);
 }
 
+func run_tetik() {
+    // Ürün: zeminin üstüne binen görünmez bir TETİK kutusu, yukarıdan bırakılan
+    // küre içinden geçip zemine iner ve içeride kalır. Tetik tutmamalı (tepki
+    // yok), giriş olayı doğru kimliklerle gelmeli, çıkış gelmemeli.
+    int zemin = kutu(50.0, 0.0, 50.0, 3.0, 0.5, 3.0, false, renk(90, 90, 100));  // üst yüz y=0.5
+    int bolge = tetik_kutu(50.0, 1.5, 50.0, 2.0, 1.0, 2.0);                     // y 0.5..2.5
+    int top = kure(50.0, 5.0, 50.0, 0.5, true, renk(220, 80, 60));
+    assert(bolge > 0, "tetik id gecerli olmali");
+    int gir = 0;
+    int cik = 0;
+    int yabanci = 0;
+    int sahne_bolge = 99;
+    int k = 0;
+    while (k < 150) {
+        kare(1);
+        int n = tetik_olay_sayisi();
+        int i = 0;
+        while (i < n) {
+            if (tetik_olay_bolge(i) == bolge && tetik_olay_diger(i) == top) {
+                sahne_bolge = tetik_olay_bolge_sahne(i);
+                if (tetik_olay_girdi(i)) { gir = gir + 1; } else { cik = cik + 1; }
+            } else {
+                yabanci = yabanci + 1;
+            }
+            i = i + 1;
+        }
+        k = k + 1;
+    }
+    float y = konum_y(top);
+    assert(gir == 1, "tam bir giris olmali, " + toString(gir));
+    assert(cik == 0, "kure icerde kaldi, cikis olmamali, " + toString(cik));
+    assert(yabanci == 0, "baska olay olmamali (zemin tetige girmez), " + toString(yabanci));
+    assert(sahne_bolge == -1, "kopru tetiginin sahne dizini -1 olmali");
+    assert(y > 0.8 && y < 1.2, "tetik tutmamali, zemin tutmali, y=" + toString(y));
+    assert(tetik_olay_dusen() == 0, "halka tasmamali");
+
+    // KONTROL: tetiği uzağa taşı — içerideki küre için tam BİR çıkış.
+    isinla(bolge, 60.0, 1.5, 50.0);
+    int cik2 = 0;
+    k = 0;
+    while (k < 10) {
+        kare(1);
+        int n2 = tetik_olay_sayisi();
+        int j = 0;
+        while (j < n2) {
+            if (tetik_olay_bolge(j) == bolge && !tetik_olay_girdi(j)) { cik2 = cik2 + 1; }
+            j = j + 1;
+        }
+        k = k + 1;
+    }
+    assert(cik2 == 1, "tasininca tam bir cikis olmali, " + toString(cik2));
+    print("    [bilgi] tetik: giris " + toString(gir) + ", icerde cikis " + toString(cik) + ", kure y " + toString(y)
+        + "; tasininca cikis " + toString(cik2));
+    sil(top);
+    sil(bolge);
+    sil(zemin);
+}
+
 if (!kur()) {
     print("  ATLANDI: motor kurulamadi (" + eng_last_error() + ") — GPU/Vulkan yok");
 } else {
@@ -774,6 +844,7 @@ if (!kur()) {
     test("sahne sicak yeniden yukleme", "run_sicak_yukleme");
     test("carpisma olaylari: kuyruk, siddet, kontrol", "run_carpisma");
     test("navmesh ajani: yol takibi, duran ajan kontrolu", "run_ajan");
+    test("tetik: gorunmez bolge, giris kuyrugu, tasima", "run_tetik");
     motor_kapat();
 }
 test_summary();

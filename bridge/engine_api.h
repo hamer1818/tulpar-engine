@@ -117,6 +117,12 @@ void teng_scene_impulse(int i, double ix, double iy, double iz); // hiz += i
 int teng_spawn_box(double x, double y, double z, double hx, double hy, double hz, int dynamic, int64_t color);
 int teng_spawn_sphere(double x, double y, double z, double radius, int dynamic, int64_t color);
 int teng_spawn_ground(double half_size, int64_t color); // dama dokulu duzlem + ince sabit kutu govde
+// Tetik (bolge) hacimleri: GORUNMEZ, carpisma tepkisi yok, yakinlik
+// sorgularinda (teng_overlap/nearest) hedef degil. Icine giren/cikan govdeler
+// teng_trigger_* kuyrugunda. teng_set_pos/teng_set_yaw tetigi TASIR (yeniden
+// kurmaz; kurmak icerde duran govde icin sahte "girdi" uretirdi).
+int teng_spawn_trigger_box(double x, double y, double z, double hx, double hy, double hz);
+int teng_spawn_trigger_sphere(double x, double y, double z, double radius);
 int teng_load_model(const char *path);                  // glTF; -1 hata
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint);
 int teng_spawn_light(double x, double y, double z, int64_t color, double intensity, double radius);
@@ -286,6 +292,20 @@ double teng_collision_nx(int i);     // A'dan B'ye yuzey normali
 double teng_collision_ny(int i);
 double teng_collision_nz(int i);
 double teng_collision_speed(int i);  // temas noktasinda normal boyu goreli hiz (m/s) = carpma siddeti
+
+// --- tetik olaylari (kuyruk) -------------------------------------------------
+// Bu karenin giris/cikislari, BELIRLENIMLI sirada (adim, sensor, diger). Hem
+// koprunun urettigi (teng_spawn_trigger_*) hem sahnede tanimlanan tetikler.
+// Sahne tetiklerinin betik kancalari (<ad>_tetik_girdi ...) ayrica calisir;
+// bu kuyruk betik atamayan oyun icin. Carpisma kuyruguyla ayni omur: bir
+// sonraki teng_frame_end'e kadar gecerli; gecersiz indis hata loglar.
+int teng_trigger_count(void);
+int teng_trigger_dropped(void);        // halkaya sigmayip DUSEN (0 degilse olay kaybolmus)
+int teng_trigger_zone(int i);          // bolge: kopru varlik id'si (0 = sahne tetigi)
+int teng_trigger_zone_scene(int i);    // bolge: sahne dizini (-1 = kopru tetigi)
+int teng_trigger_other(int i);         // giren/cikan: kopru varlik id'si (0 = degil)
+int teng_trigger_other_scene(int i);   // giren/cikan: sahne dizini (-1 = degil)
+int teng_trigger_entered(int i);       // 1 girdi, 0 cikti
 
 // --- navmesh (sahne blob'undaki bake; runtime yalniz SORGULAR) ---------------
 // Veri engine_sahnec'in Recast bake'i: sahnedeki SABIT KUTU govdelerden. Sahnede

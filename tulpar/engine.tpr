@@ -129,6 +129,13 @@ func kure(x, y, z, r, dinamik, renk_): int { return eng_spawn_sphere(x, y, z, r,
 func sphere(x, y, z, r, dynamic, color): int { return eng_spawn_sphere(x, y, z, r, dynamic, color); }
 func zemin_kur(yarim, renk_): int { return eng_spawn_ground(yarim, renk_); }
 func ground(half, color): int { return eng_spawn_ground(half, color); }
+// Tetik (bölge): GÖRÜNMEZ, çarpışma tepkisi yok, içinden geçilir. Giren/çıkan
+// gövdeler `tetik_olay_*` kuyruğunda. `isinla(id, x, y, z)` tetiği TAŞIR —
+// içeride duran gövde için sahte "girdi" üretmez.
+func tetik_kutu(x, y, z, hx, hy, hz): int { return eng_spawn_trigger_box(x, y, z, hx, hy, hz); }
+func trigger_box(x, y, z, hx, hy, hz): int { return eng_spawn_trigger_box(x, y, z, hx, hy, hz); }
+func tetik_kure(x, y, z, r): int { return eng_spawn_trigger_sphere(x, y, z, r); }
+func trigger_sphere(x, y, z, r): int { return eng_spawn_trigger_sphere(x, y, z, r); }
 func model_yukle(yol): int { return eng_load_model(yol); }
 func model_koy(m, x, y, z, olcek, renk_): int { return eng_spawn_model(m, x, y, z, olcek, renk_); }
 func isik(x, y, z, renk_, siddet, yaricap): int { return eng_spawn_light(x, y, z, renk_, siddet, yaricap); }
@@ -213,6 +220,31 @@ func carpisma_nz(i): float { return eng_collision_nz(i); }
 func collision_nz(i): float { return eng_collision_nz(i); }
 func carpisma_siddeti(i): float { return eng_collision_speed(i); }
 func collision_speed(i): float { return eng_collision_speed(i); }
+
+// ---- Tetik olayları (kuyruk) --------------------------------------------------
+// Bu karede bir tetik hacmine GİREN ve ÇIKAN gövdeler, belirlenimli sırada.
+// Koddan üretilen (`tetik_kutu`) ve sahnede tanımlanan tetiklerin ikisi de.
+//
+//     int n = tetik_olay_sayisi();
+//     for (int i = 0; i < n; i = i + 1) {
+//         if (tetik_olay_bolge(i) == kapi && tetik_olay_diger(i) == oyuncu && tetik_olay_girdi(i)) { kapiyi_ac(); }
+//     }
+//
+// Sahne tetiklerine betik atandıysa `<ad>_tetik_girdi` kancaları AYRICA çalışır.
+func tetik_olay_sayisi(): int { return eng_trigger_count(); }
+func trigger_event_count(): int { return eng_trigger_count(); }
+func tetik_olay_dusen(): int { return eng_trigger_dropped(); }
+func trigger_event_dropped(): int { return eng_trigger_dropped(); }
+func tetik_olay_bolge(i): int { return eng_trigger_zone(i); }
+func trigger_event_zone(i): int { return eng_trigger_zone(i); }
+func tetik_olay_bolge_sahne(i): int { return eng_trigger_zone_scene(i); }
+func trigger_event_zone_scene(i): int { return eng_trigger_zone_scene(i); }
+func tetik_olay_diger(i): int { return eng_trigger_other(i); }
+func trigger_event_other(i): int { return eng_trigger_other(i); }
+func tetik_olay_diger_sahne(i): int { return eng_trigger_other_scene(i); }
+func trigger_event_other_scene(i): int { return eng_trigger_other_scene(i); }
+func tetik_olay_girdi(i): bool { return eng_trigger_entered(i); }
+func trigger_event_entered(i): bool { return eng_trigger_entered(i); }
 
 // Yerde mi — ışınla: varlığın ALTINDAN (merkez - `alt`) aşağı `mesafe` kadar
 // ışın atar. `yerde()`nin dikey hız tahmininden sağlamdır (kutu üstünde
