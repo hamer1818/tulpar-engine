@@ -250,6 +250,25 @@ bool editor_script_label(const char *abs_path, const char *scene_dir, const char
 // guncelle + bitir govdeleri. `import_path` bos olabilir (bilinmiyorsa).
 // Donus: yazilan bayt; 0 = sigmadi.
 uint32_t editor_script_skeleton(const char *base, const char *import_path, char *out, uint32_t cap);
+// Etiketi diskteki dosyaya cevir — editor_script_label'in TERSI: "tulpar/"
+// onekli -> tulpar_root altinda, mutlak -> aynen, digeri -> sahne dizinine
+// goreli. Dosya VAR OLMASA da yolu yazar (cagiran "bulunamadi: <yol>" desin).
+bool editor_script_resolve(const char *label, const char *scene_dir, const char *tulpar_root, char *out, uint32_t cap);
+// Dosyayi kod editorunde ac, BEKLEMEDEN (editor kapansa da acik kalir).
+// Sira: TULPAR_KOD_EDITORU (tek program adi/yolu, arguman ALMAZ — kabuk yok),
+// sonra `code` (VS Code), sonra platformun varsayilani (Linux xdg-open,
+// macOS `open -t`, Windows notepad). $EDITOR BILEREK kullanilmiyor: genelde
+// vim/nano gibi terminal editorudur ve terminalsiz baslatilinca bos kalir.
+// `used` hangi programin acildigini yazar; basarisizsa `err` denenenleri.
+bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap, char *err, uint32_t err_cap);
+// Yukaridakinin cekirdegi, aday listesi disaridan: kapi GERCEK bir kod
+// editoru acmadan (CI'da ve gelistiricinin masasinda) sirayi olcebilsin.
+struct CodeEditorCandidate {
+  const char *prog;    // PATH'te aranir; bos/null atlanir
+  const char *pre_arg; // dosyadan ONCE tek arguman (macOS `open -t`), null = yok
+};
+bool editor_open_with_candidates(const char *path, const CodeEditorCandidate *c, uint32_t n, char *used, uint32_t used_cap, char *err,
+                                 uint32_t err_cap);
 // Dosyayi yaz. Var olan dosyanin UZERINE YAZMAZ (kullanicinin kodunu siler);
 // ad gecersizse de yazmaz. `err` Turkce sebep.
 bool editor_script_create(const char *abs_path, const char *import_path, char *err, uint32_t err_cap);

@@ -10,6 +10,7 @@
 //  5) Isik/golge gizmolari: acikken cizim sayisi ve piksel artar
 //     (kontrol: kapaliyken fark 0).
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 
@@ -20,6 +21,8 @@
 #include "rhi/device.hpp"
 #include "rhi/offscreen.hpp"
 #include "rhi/vk_api.hpp"
+#include "platform/paths.hpp"
+#include "platform/thread.hpp"
 #include "tests/test.hpp"
 
 #include <imgui.h>
@@ -423,6 +426,63 @@ ENGINE_TEST(editor_script_new_writes_skeleton_the_bridge_can_resolve) {
   CHECK(!app::editor_script_create(yol, "", err, sizeof err) && !app::file_exists(yol));
   std::snprintf(yol, sizeof yol, "%s/kovala.txt", dir);
   CHECK(!app::editor_script_create(yol, "", err, sizeof err) && !app::file_exists(yol));
+}
+
+// "Dis editorde ac": etiket -> dosya cozumu ve kod editoru sirasi. GERCEK bir
+// editor ACILMAZ: aday listesi disaridan veriliyor ve "editor" engine_tests'in
+// kendisi (TULPAR_TEST_SAHTE_EDITOR kipi: aldigi dosya yolunu yazar).
+ENGINE_TEST(editor_script_open_resolves_label_and_walks_candidates) {
+  char y[512];
+  CHECK(app::editor_script_resolve("tulpar/examples/davranis/kovala.tpr", "/s/sahne", "/r/tulpar", y, sizeof y) &&
+        !std::strcmp(y, "/r/tulpar/examples/davranis/kovala.tpr"));
+  CHECK(app::editor_script_resolve("davranis/k.tpr", "/s/sahne", "/r/tulpar", y, sizeof y) && !std::strcmp(y, "/s/sahne/davranis/k.tpr"));
+  CHECK(app::editor_script_resolve("/mutlak/k.tpr", "/s/sahne", "/r/tulpar", y, sizeof y) && !std::strcmp(y, "/mutlak/k.tpr"));
+  CHECK(app::editor_script_resolve("C:\\oyun\\k.tpr", "/s/sahne", "/r/tulpar", y, sizeof y) && !std::strcmp(y, "C:\\oyun\\k.tpr"));
+  // Gidis-donus: tarayicinin etiketi GERI ayni dosyaya cozuluyor.
+  char lab[128];
+  CHECK(app::editor_script_label("/r/tulpar/examples/k.tpr", "/s/sahne", "/r/tulpar", lab, sizeof lab));
+  CHECK(app::editor_script_resolve(lab, "/s/sahne", "/r/tulpar", y, sizeof y) && !std::strcmp(y, "/r/tulpar/examples/k.tpr"));
+
+  char d[1024], exe[1100];
+  if (!platform::exe_dir(d, sizeof d)) { test::skip("engine_tests'in kendi yolu bulunamadi (exe_dir)"); return; }
+#if defined(_WIN32)
+  std::snprintf(exe, sizeof exe, "%s\\engine_tests.exe", d);
+#else
+  std::snprintf(exe, sizeof exe, "%s/engine_tests", d);
+#endif
+  char dir[512], hedef[700], cikti[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "dis editor"));
+  // Bosluk ve '&' iceren dosya adi: kabuktan ya da cmd'den gecseydi bolunurdu.
+  std::snprintf(hedef, sizeof hedef, "%s/kov ala & co.tpr", dir);
+  std::snprintf(cikti, sizeof cikti, "%s/aldigi.txt", dir);
+  if (FILE *f = std::fopen(hedef, "wb")) std::fclose(f);
+#if defined(_WIN32)
+  _putenv_s("TULPAR_TEST_SAHTE_EDITOR", cikti);
+#else
+  setenv("TULPAR_TEST_SAHTE_EDITOR", cikti, 1);
+#endif
+  // Ilk aday YOK: sira bir sonrakine gecmeli ve denenen hata metnine girmeli.
+  const app::CodeEditorCandidate c[] = {{"boyle_bir_editor_yok_4711", nullptr}, {nullptr, nullptr}, {exe, nullptr}};
+  char used[1024], err[640];
+  const bool ok = app::editor_open_with_candidates(hedef, c, 3, used, sizeof used, err, sizeof err);
+  char got[700] = {0};
+  for (int ms = 0; ok && ms < 10000 && !got[0]; ms += 5) {
+    platform::thread_sleep_us(5000);
+    if (FILE *f = std::fopen(cikti, "rb")) { size_t n = std::fread(got, 1, sizeof got - 1, f); got[n] = 0; std::fclose(f); }
+  }
+  std::printf("    [bilgi] acan: %s, editorun aldigi: \"%s\"\n", used, got);
+  CHECK(ok);
+  CHECK(!std::strcmp(got, hedef)); // yol TEK arguman olarak, bozulmadan
+  // KONTROL: hicbir aday yoksa false ve denenenler adiyla.
+  const app::CodeEditorCandidate yok[] = {{"boyle_bir_editor_yok_4711", nullptr}, {"bu_da_yok_4712", nullptr}};
+  const bool ok2 = app::editor_open_with_candidates(hedef, yok, 2, used, sizeof used, err, sizeof err);
+  std::printf("    [bilgi] KONTROL aday yok: \"%s\"\n", err);
+  CHECK(!ok2 && std::strstr(err, "boyle_bir_editor_yok_4711 (yok)") && std::strstr(err, "bu_da_yok_4712 (yok)"));
+#if defined(_WIN32)
+  _putenv_s("TULPAR_TEST_SAHTE_EDITOR", "");
+#else
+  unsetenv("TULPAR_TEST_SAHTE_EDITOR");
+#endif
 }
 
 ENGINE_TEST(editor_light_and_shadow_gizmos_draw_with_control) {

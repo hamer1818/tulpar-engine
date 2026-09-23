@@ -94,9 +94,10 @@ func sahne_yukle(yol): bool { return eng_scene_load(yol); }
 func scene_load(path): bool { return eng_scene_load(path); }
 func sahne_bul(ad): int { return eng_scene_find(ad); }
 func sahne_adi(i): str { return eng_scene_name(i); }
-// Varlığa editörde atanmış .tpr yolu. Motor bu betiği ÇALIŞTIRMAZ — yol bir
-// ETİKETTİR, dağıtımı oyun yapar (bkz. examples/engine_betik_dagitimi.tpr).
-// Yüklemede BİR KEZ okuyun: her çağrı VM'de yeni bir metin ayırıyor.
+// Varlığa editörde atanmış .tpr yolu. Motor bu betiği kendisi ÇALIŞTIRIR
+// (<ad>_baslat/_guncelle/_carpisma/_bitir, bkz. docs/KOPRU.md 7.9); bu erişimci
+// yolu OKUMAK isteyen oyun için. Yüklemede BİR KEZ okuyun: her çağrı VM'de
+// yeni bir metin ayırıyor.
 func sahne_betik(i): str { return eng_scene_script(i); }
 // "Atanmamış" ile "atanmış ama kapalı" AYRI: ikincisinde yol yine okunur.
 func sahne_betik_etkin(i): bool { return eng_scene_script_enabled(i); }

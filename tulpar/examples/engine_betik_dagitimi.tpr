@@ -9,7 +9,7 @@
 //
 // ---------------------------------------------------------------------------
 // DAĞITIM KODU BU DOSYADA YOK ve olayın tamamı bu. Sahnede bir nesneye
-// `betik "davranis/kovala.tpr"` atandığında motor, dosya adının tabanından
+// `betik "tulpar/examples/davranis/kovala.tpr"` atandığında motor, dosya adının tabanından
 // türeyen fonksiyonları kendisi çözüp çağırıyor:
 //
 //   kovala_baslat(id)                            sahne yüklenince bir kez

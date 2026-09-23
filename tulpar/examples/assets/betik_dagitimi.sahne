@@ -27,7 +27,7 @@ nesne "kovalayan"
   model kaynak -1 0.9 0.55 0.15
   ilkel 11
   govde kure 0.5 dinamik
-  betik "davranis/kovala.tpr" etkin
+  betik "tulpar/examples/davranis/kovala.tpr" etkin
 son
 nesne "devriye"
   konum 4 1 -2
@@ -36,7 +36,7 @@ nesne "devriye"
   model kaynak -1 0.3 0.7 0.9
   ilkel 11
   govde kure 0.5 dinamik
-  betik "davranis/devriye.tpr" etkin
+  betik "tulpar/examples/davranis/devriye.tpr" etkin
 son
 nesne "uyuyan"
   konum 0 1 -6
@@ -45,7 +45,7 @@ nesne "uyuyan"
   model kaynak -1 0.45 0.45 0.5
   ilkel 11
   govde kure 0.5 dinamik
-  betik "davranis/kovala.tpr" kapali
+  betik "tulpar/examples/davranis/kovala.tpr" kapali
 son
 nesne "taninmayan"
   konum -8 1 -6
@@ -54,5 +54,5 @@ nesne "taninmayan"
   model kaynak -1 0.6 0.35 0.7
   ilkel 11
   govde kure 0.5 dinamik
-  betik "davranis/henuz_yazilmadi.tpr" etkin
+  betik "tulpar/examples/davranis/henuz_yazilmadi.tpr" etkin
 son

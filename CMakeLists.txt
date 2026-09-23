@@ -40,6 +40,7 @@ add_library(engine_platform STATIC
     platform/gesture.cpp
     platform/thermal.cpp
     platform/perf_hint.cpp
+    platform/process.cpp
 )
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -308,6 +309,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_profiler.cpp
     tests/test_frame_gate.cpp
     tests/test_crash.cpp
+    tests/test_process.cpp
     tests/test_math.cpp
     tests/test_containers.cpp
     tests/test_rhi.cpp

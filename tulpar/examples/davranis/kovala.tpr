@@ -1,6 +1,6 @@
 // Davranış — "kovala". Bu dosya MOTOR TARAFINDAN ÇALIŞTIRILIR.
 //
-// Sahnede bir nesneye `betik "davranis/kovala.tpr"` atandığında motor, dosya
+// Sahnede bir nesneye `betik "tulpar/examples/davranis/kovala.tpr"` atandığında motor, dosya
 // adının tabanından türeyen fonksiyonları ADIYLA çözer ve çağırır:
 //
 //   kovala_baslat(id)                            sahne yüklenince bir kez
