@@ -6,6 +6,7 @@
 #   ./editor.sh --derleme-yok              derlemeyi atla, mevcut ikiliyi ac
 #   ./editor.sh --headless 30 --out k.ppm  penceresiz dogrulama
 #   ./editor.sh --size 1600x900 --validation
+#   ./editor.sh x.sahne --komut oynat.oyunu_calistir   acilista bir komut calistir
 #
 # Ikili yoksa once derle.sh'yi (Windows'ta tools/derle_mingw.sh) kosturur,
 # bagimlilik denetimi dahil. Ikili varsa ARTIMLI derleme yapar: kaynak
@@ -41,8 +42,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --derleme-yok) derleme=0 ;;
     --bekleme-yok) ;; # editor.bat'in secenegi; bat onu buraya da iletiyor, burada etkisiz
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    --headless|--size)
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --headless|--size|--komut)
       [ $# -ge 2 ] || { hata "$1 bir deger ister (--help)"; exit 2; }
       gecir+=("$1" "$2"); shift ;;
     --out)

@@ -35,6 +35,10 @@ satır ekle, betiği yeniden koştur. Elle tutulan nokta olmadığı için CLAUD
 
 ## Bir TulparLang kopyasına kurmak
 
+**Kısa yol:** `tools/motor_derleyici.sh` aşağıdaki elle bağlamanın tamamını bir `git worktree`
+içinde yapar (kullanıcının kopyasına dokunmaz) ve `yapi/tulpar-motor/tulpar` üretir; editörün
+"Oyunu çalıştır"ı onu kullanır. Aşağısı neyin bağlandığını anlatıyor.
+
 Derleyici deposu motoru artık tanımıyor. Motoru bir TulparLang çalışma kopyasına
 yeniden bağlamak istersen dosyaları tarihsel yerlerine kuran kip var:
 

@@ -49,7 +49,7 @@ Bu belgedeki tablolar şu üç kaynağın kesişiminden çıkarıldı:
 | 3 | Body | + | + | + | + | **tam** |
 | 4 | Camera | + | + | **−** | **−** | editörde çalışır, **oyunda kaybolur** |
 | 5 | Audio | + | + | **−** | **−** | hiçbir yerde ses çalmaz |
-| 6 | Script | + | + | **+** | **+** | motor betiği **çalıştırır**: `<taban>_baslat` / `_guncelle` adıyla çözülür (bkz. KOPRU §7.9). Kartta **Yeni betik**: iskeleti yazar ve atar (var olan dosyanın üzerine yazmaz) |
+| 6 | Script | + | + | **+** | **+** | motor betiği **çalıştırır**: `<taban>_baslat` / `_guncelle` adıyla çözülür (bkz. KOPRU §7.9). Kartta **Yeni betik** (iskeleti yazar ve atar, üzerine yazmaz), **Dış editörde aç** (`platform/process`), **Oyunu çalıştır** (Ctrl+F5, ayrı süreç; motoru tanıyan derleyici `tools/motor_derleyici.sh`) |
 | 7 | Character | **−** | + | + | **−** | paneli yok, blob'a yazılır, **okunmaz** |
 | 8 | Particle | **−** | + | + | +² | paneli yok, **çizilmiyor** (§2.C) |
 | 9 | Terrain | + | + | + | + | **tam** |
