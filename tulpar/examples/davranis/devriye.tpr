@@ -3,6 +3,8 @@
 //   devriye_baslat(id)        sahne yüklenince bir kez
 //   devriye_guncelle(id, dt)  her kare
 //   devriye_bitir(id)         sahne boşalırken
+//   devriye_bolge_girdi(id, bolge)  bir TETİK hacmine girdi (bölgenin kendi
+//   devriye_bolge_cikti(id, bolge)  betiğinden ayrı: bu, GİRENİN tarafı)
 //
 // `carpisma` BİLEREK yok: kancalar isteğe bağlı, motor bulamadığını atlar.
 // (Dördünün de bulunamaması ayrı bir durum ve o GÖRÜNÜR hata basar.)
@@ -20,6 +22,14 @@ func devriye_baslat(id) {
 func devriye_bitir(id) {
     logla("devriye bitti: faz " + toString(devriye_faz));
     devriye_faz = 0.0;
+}
+
+func devriye_bolge_girdi(id, bolge) {
+    logla("devriye bolgeye girdi: " + sahne_adi(bolge));
+}
+
+func devriye_bolge_cikti(id, bolge) {
+    logla("devriye bolgeden cikti: " + sahne_adi(bolge));
 }
 
 func devriye_guncelle(id, d) {

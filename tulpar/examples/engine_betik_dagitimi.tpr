@@ -17,7 +17,10 @@
 //   kovala_carpisma(id, diger, olay, x,y,z, hiz) her çarpışma olayı için
 //   kovala_bitir(id)                             sahne boşalırken / kapanışta
 //
-// Dördü de isteğe bağlı; motor hangisi varsa onu çağırır.
+// Dördü de isteğe bağlı; motor hangisi varsa onu çağırır. Tetik hacimleri
+// (bölgeler) için iki kanca daha var: bölgenin betiğinde <ad>_tetik_girdi /
+// _tetik_cikti, girenin betiğinde <ad>_bolge_girdi / _bolge_cikti — bu
+// sahnede "alarm_bolgesi" oyuncuyu, "gecit" devriyenin yolunu kapsıyor.
 //
 // Oyun döngüsünde tek bir `if betik == "..."` satırı yok. Yeni bir davranış
 // eklemek = `davranis/` altına bir dosya koymak + onu import etmek.
@@ -34,6 +37,7 @@
 import "engine";
 import "examples/davranis/kovala.tpr";
 import "examples/davranis/devriye.tpr";
+import "examples/davranis/alarm.tpr";
 
 func main() {
     log_seviyesi(2);

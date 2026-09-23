@@ -119,6 +119,10 @@ void jolt_global_init() {
 namespace Layers {
 constexpr JPH::ObjectLayer NON_MOVING = 0;
 constexpr JPH::ObjectLayer MOVING = 1;
+// Tetik hacimleri. Genis fazda MOVING katmaninda durur; asagidaki iki filtre
+// OLDUGU GIBI dogru: SENSOR yalniz MOVING ile eslesir (a==MOVING||b==MOVING),
+// yani statik govdeler ve baska sensorler onu hic gormez.
+constexpr JPH::ObjectLayer SENSOR = 2;
 } // namespace Layers
 namespace BPLayers {
 constexpr JPH::BroadPhaseLayer NON_MOVING(0);
@@ -272,9 +276,33 @@ public:
   uint32_t dropped() const { return dropped_.load(std::memory_order_relaxed); }
   const ContactEvent &at(uint32_t i) const { return buf_[i]; }
 
+  void setup_sensors(SensorEvent *buf, uint32_t cap, const uint8_t *is_sensor, uint32_t max_bodies) {
+    sbuf_ = buf; scap_ = cap; is_sensor_ = is_sensor; max_bodies_ = max_bodies;
+  }
+  void clear_sensors() { snext_.store(0, std::memory_order_relaxed); sdropped_.store(0, std::memory_order_relaxed); }
+  uint32_t sensor_count() const {
+    const uint32_t n = snext_.load(std::memory_order_acquire);
+    return n < scap_ ? n : scap_;
+  }
+  uint32_t sensor_dropped() const { return sdropped_.load(std::memory_order_relaxed); }
+  const SensorEvent &sensor_at(uint32_t i) const { return sbuf_[i]; }
+  uint32_t step_no = 0; // step() disinda yazilir, geri cagrimda okunur
+
   void OnContactAdded(const JPH::Body &b1, const JPH::Body &b2, const JPH::ContactManifold &m,
                       JPH::ContactSettings &) override {
+    if (b1.IsSensor() || b2.IsSensor()) {
+      record_sensor(b1.IsSensor() ? b1.GetID() : b2.GetID(), b1.IsSensor() ? b2.GetID() : b1.GetID(), true);
+      return;
+    }
     record(b1, b2, m);
+  }
+  // Cikis: govdelere ERISILEMEZ (Jolt: hepsi kilitli, biri silinmis olabilir),
+  // o yuzden "sensor mu" sorusu init'te ayrilan kimlik tablosundan cevaplanir.
+  // Tablo yalniz step() DISINDA yazilir (add/remove), burada salt okunur.
+  void OnContactRemoved(const JPH::SubShapeIDPair &p) override {
+    const JPH::BodyID a = p.GetBody1ID(), b = p.GetBody2ID();
+    if (sensor_flag(a)) record_sensor(a, b, false);
+    else if (sensor_flag(b)) record_sensor(b, a, false);
   }
   // Kalici temaslar KAYDEDILMIYOR: bir kutunun zeminde durmasi her adimda olay
   // uretirdi ve halka tek karede dolardi. Oyunun sordugu soru "ne zaman
@@ -302,10 +330,39 @@ private:
     const float rel = (v2 - v1).Dot(m.mWorldSpaceNormal);
     e.speed = rel < 0 ? -rel : rel;
   }
+  bool sensor_flag(JPH::BodyID id) const {
+    const uint32_t i = id.GetIndex();
+    return is_sensor_ && i < max_bodies_ && is_sensor_[i] != 0;
+  }
+  void record_sensor(JPH::BodyID sensor, JPH::BodyID other, bool enter) {
+    if (!sbuf_ || !scap_) return;
+    const uint32_t slot = snext_.fetch_add(1, std::memory_order_acq_rel);
+    if (slot >= scap_) {
+      sdropped_.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+    SensorEvent &e = sbuf_[slot];
+    e.sensor.v = sensor.GetIndexAndSequenceNumber();
+    e.other.v = other.GetIndexAndSequenceNumber();
+    e.step = step_no;
+    e.enter = enter;
+  }
   ContactEvent *buf_ = nullptr;
   uint32_t cap_ = 0;
   std::atomic<uint32_t> next_{0};
   std::atomic<uint32_t> dropped_{0};
+  SensorEvent *sbuf_ = nullptr;
+  uint32_t scap_ = 0;
+  std::atomic<uint32_t> snext_{0};
+  std::atomic<uint32_t> sdropped_{0};
+  const uint8_t *is_sensor_ = nullptr;
+  uint32_t max_bodies_ = 0;
+};
+
+// Isin testinin nesne katmani suzgeci: tetik hacimleri gorunmezdir.
+class NotSensorLayer final : public JPH::ObjectLayerFilter {
+public:
+  bool ShouldCollide(JPH::ObjectLayer l) const override { return l != Layers::SENSOR; }
 };
 
 uint64_t fnv1a(const void *p, size_t n, uint64_t h) {
@@ -337,6 +394,7 @@ struct Physics::Impl {
   uint64_t allocs_before_step = 0;
   uint64_t allocs_last_step = 0;
   ContactRing contacts;
+  uint8_t *is_sensor = nullptr; // govde INDEKSI -> sensor mu (max_bodies)
   CharacterSlot *chars = nullptr;
   uint32_t char_cap = 0;
 };
@@ -409,6 +467,17 @@ bool Physics::init(Arena &arena, const PhysicsConfig &cfg) {
     impl_->contacts.setup(static_cast<ContactEvent *>(cbuf), cfg.max_contact_events);
     impl_->system.SetContactListener(&impl_->contacts);
   }
+  impl_->is_sensor = arena.alloc_array<uint8_t>(cfg.max_bodies);
+  if (!impl_->is_sensor) return false;
+  for (uint32_t i = 0; i < cfg.max_bodies; i++) impl_->is_sensor[i] = 0;
+  if (cfg.max_sensor_events) {
+    SensorEvent *sb = arena.alloc_array<SensorEvent>(cfg.max_sensor_events);
+    if (!sb) return false;
+    impl_->contacts.setup_sensors(sb, cfg.max_sensor_events, impl_->is_sensor, cfg.max_bodies);
+    // Dinleyici yalniz temas halkasi varken kuruluyordu; tetik olaylari da
+    // ayni nesneden gectigi icin her durumda kurulur.
+    impl_->system.SetContactListener(&impl_->contacts);
+  }
 
   // Karakter slotlari: TUM bellek burada, adim icinde tahsis YOK (A2).
   if (cfg.max_characters > 0) {
@@ -442,6 +511,31 @@ static BodyId add_body(Physics::Impl *impl, const JPH::ShapeRefC &shape, Vec3 po
   return BodyId{id.GetIndexAndSequenceNumber()};
 }
 
+static BodyId add_sensor(Physics::Impl *impl, const JPH::ShapeRefC &shape, Vec3 pos, Quat rot) {
+  JPH::BodyCreationSettings s(shape, to_jph(pos), to_jph(rot), JPH::EMotionType::Kinematic, Layers::SENSOR);
+  s.mIsSensor = true;
+  // Hic uyumasin: uyuyan sensor ICINDEKI uyuyan govdeyi kaybeder ("cikti").
+  s.mAllowSleeping = false;
+  JPH::BodyID id = impl->system.GetBodyInterface().CreateAndAddBody(s, JPH::EActivation::Activate);
+  if (id.IsInvalid()) return BodyId{};
+  if (id.GetIndex() < impl->cfg.max_bodies) impl->is_sensor[id.GetIndex()] = 1;
+  return BodyId{id.GetIndexAndSequenceNumber()};
+}
+
+BodyId Physics::add_sensor_box(Vec3 half, Vec3 pos, Quat rot) {
+  JPH::ShapeRefC shape = new JPH::BoxShape(to_jph(half));
+  return add_sensor(impl_, shape, pos, rot);
+}
+BodyId Physics::add_sensor_sphere(float radius, Vec3 pos) {
+  JPH::ShapeRefC shape = new JPH::SphereShape(radius);
+  return add_sensor(impl_, shape, pos, Quat::identity());
+}
+bool Physics::is_sensor(BodyId id) const {
+  if (!impl_ || !id.valid()) return false;
+  const uint32_t i = JPH::BodyID(id.v).GetIndex();
+  return i < impl_->cfg.max_bodies && impl_->is_sensor[i] != 0;
+}
+
 BodyId Physics::add_box(Vec3 half, Vec3 pos, Quat rot, bool dynamic) {
   JPH::ShapeRefC shape = new JPH::BoxShape(to_jph(half));
   return add_body(impl_, shape, pos, rot, dynamic);
@@ -456,6 +550,7 @@ void Physics::remove(BodyId id) {
   if (!id.valid()) return;
   JPH::BodyID b(id.v);
   JPH::BodyInterface &bi = impl_->system.GetBodyInterface();
+  if (b.GetIndex() < impl_->cfg.max_bodies) impl_->is_sensor[b.GetIndex()] = 0; // yuva baska govdeye gecebilir
   bi.RemoveBody(b);
   bi.DestroyBody(b);
 }
@@ -464,6 +559,7 @@ void Physics::step(float dt, int collision_steps) {
   impl_->allocs_before_step = g_allocs.load(std::memory_order_relaxed);
   static bool trace_env = std::getenv("TULPAR_ENGINE_JOLT_ALLOC_TRACE") != nullptr;
   g_trace = trace_env;
+  impl_->contacts.step_no++;
   impl_->system.Update(dt, collision_steps, impl_->temp, impl_->jobs);
   g_trace = false;
   update_characters(impl_, dt);
@@ -477,7 +573,15 @@ ContactEvent Physics::contact(uint32_t i) const {
   return impl_->contacts.at(i);
 }
 void Physics::clear_contacts() {
-  if (impl_) impl_->contacts.clear();
+  if (!impl_) return;
+  impl_->contacts.clear();
+  impl_->contacts.clear_sensors();
+}
+uint32_t Physics::sensor_event_count() const { return impl_ ? impl_->contacts.sensor_count() : 0; }
+uint32_t Physics::sensor_overflow() const { return impl_ ? impl_->contacts.sensor_dropped() : 0; }
+SensorEvent Physics::sensor_event(uint32_t i) const {
+  if (!impl_ || i >= impl_->contacts.sensor_count()) return SensorEvent{};
+  return impl_->contacts.sensor_at(i);
 }
 
 bool Physics::raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit) const {
@@ -488,7 +592,8 @@ bool Physics::raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit) co
   const JPH::Vec3 d = to_jph(dir * (1.0f / len)) * max_distance;
   const JPH::RRayCast ray{to_jph(origin), d};
   JPH::RayCastResult res;
-  if (!impl_->system.GetNarrowPhaseQuery().CastRay(ray, res)) return false;
+  const NotSensorLayer gorunur;
+  if (!impl_->system.GetNarrowPhaseQuery().CastRay(ray, res, {}, gorunur)) return false;
   if (hit) {
     hit->body = BodyId{res.mBodyID.GetIndexAndSequenceNumber()};
     hit->distance = res.mFraction * max_distance;

@@ -2366,10 +2366,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         std::snprintf(e.name, sizeof e.name, "yanki_alani");
         break;
       case 47: // Tetikleyici Hacim (Trigger Volume)
+        // Eskiden yalniz ADI tetikti: duz statik kutu, icinden gecilemiyordu
+        // ve hicbir sey bildirmiyordu. Artik gercek sensor.
         e.components = content::kSceneBody;
         e.shape = content::SceneShape::Box;
         e.half = Vec3{2.0f, 1.5f, 2.0f};
         e.dynamic = false;
+        e.body_sensor = true;
         std::snprintf(e.name, sizeof e.name, "tetikleyici_hacim");
         break;
       case 48: // Engelleme Hacmi (Blocking Volume)
@@ -4765,8 +4768,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               if (prop_combo("\xC5\x9E""ekil", &shape, "Kutu\0K\xC3\xBCre\0").changed) { after.shape = (content::SceneShape)shape; commit(st, si, after); }
               if (e.shape == content::SceneShape::Box) track_edit(st, e, si, prop_vec3("Yar\xC4\xB1m kenar", &e.half.x, 0.02f, 0.01f, 50.0f, "%.2f"));
               else track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.radius, 0.02f, 0.01f, 50.0f, "%.2f"));
+              // Tetik dinamik olamaz (ayristirici reddeder): tetikken Dinamik
+              // kutusu soluk, tetik acilinca dinamik kapanir — kaydedilemeyen
+              // bir durumu arayuzde kurmak mumkun olmasin.
               bool dyn = e.dynamic;
+              ImGui::BeginDisabled(e.body_sensor);
               if (prop_check("Dinamik", &dyn).changed) { after = e; after.dynamic = dyn; commit(st, si, after); }
+              ImGui::EndDisabled();
+              bool sen = e.body_sensor;
+              prop_help("Carpisma tepkisi YOK, icinden gecilir. Icine giren/cikan govde betige bildirilir: bolgenin betigine "
+                        "<ad>_tetik_girdi(id, diger, kopru) / _tetik_cikti, girenin betigine <ad>_bolge_girdi(id, bolge) / _bolge_cikti.");
+              if (prop_check("Tetik (b\xC3\xB6lge)", &sen).changed) {
+                after = e;
+                after.body_sensor = sen;
+                if (sen) after.dynamic = false;
+                commit(st, si, after);
+              }
               prop_end();
             }
             end_component_card();

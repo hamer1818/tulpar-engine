@@ -61,6 +61,7 @@ const Leaf kLeaves[] = {
     {offsetof(SceneEntity, half.z), sizeof(float), "half.z"},
     {offsetof(SceneEntity, radius), sizeof(float), "radius"},
     {offsetof(SceneEntity, dynamic), sizeof(bool), "dynamic"},
+    {offsetof(SceneEntity, body_sensor), sizeof(bool), "body_sensor"},
     {offsetof(SceneEntity, cam_fov), sizeof(float), "cam_fov"},
     {offsetof(SceneEntity, cam_near), sizeof(float), "cam_near"},
     {offsetof(SceneEntity, cam_far), sizeof(float), "cam_far"},

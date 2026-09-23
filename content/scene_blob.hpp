@@ -194,8 +194,12 @@ struct SceneBlobLight {
   // BUYUTMEMEK icin -- yeni alan degil, var olan bosluk yeniden kullanildi).
   float radius, reserved[3];
 };
+// flags bit0 = TETIK (sensor). Alan eskiden `reserved0`di ve yazar onu HEP
+// sifirliyordu (SceneBlobBody bo{}), yani v7 bloblari surum yukseltmeden
+// dogru okunur: eski blobda tetik yok. light_type ile ayni desen.
+constexpr uint32_t kSceneBlobBodySensor = 1u;
 struct SceneBlobBody {
-  uint32_t entity, shape, dynamic, reserved0;
+  uint32_t entity, shape, dynamic, flags;
   float half[3], radius;        // OLCEKLI (yazar olcegi uygulanmis; sim'e giden deger)
   float pos[3], reserved1;
   float quat[4];

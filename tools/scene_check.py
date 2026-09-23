@@ -62,7 +62,11 @@ def read(root):
 # Anahtar COK KELIMELI olabilir: o.puts("  model ilkel ") -> anahtar "model",
 # ama satira IKI jeton koyar. Tek kelimeye zorlamak "pbr"yi ayri bir anahtar
 # sanmaya yol aciyordu (aslinda model satirinin devami).
-KW_START = re.compile(r'o\.puts\("(\s*[a-z0-9_-]+(?:\s+[a-z0-9_-]+)*\s*)"\)')
+# Satir sonu dizginin ICINDE de olabilir: o.puts("  tetik\n"). Bu bicim
+# eskiden GORUNMUYORDU (regex "\n"i kelime saymiyordu) ve `isik_golge` ile
+# `tetik` satirlari kapidan hic gecmiyordu — yazicida bir yazim hatasi
+# ayristiriciyla uyusmazligi gizlerdi. Ikinci grup o satiri KAPATIR.
+KW_START = re.compile(r'o\.puts\("(\s*[a-z0-9_-]+(?:\s+[a-z0-9_-]+)*\s*)(\\n)?"\)')
 CALL = re.compile(r'o\.(num|vec2|vec|str)\(')
 NEWLINE = re.compile(r"o\.ch\('\\n'\)")
 # o.puts("kutu ") gibi govde icindeki sabit kelimeler de birer jetondur.
@@ -112,6 +116,9 @@ def writer_lines(src):
                     cur_kw, cur_tok, cur_line = words[0], len(words), ln
                 else:
                     cur_tok += len(words)  # govde icinde sabit kelime ("kutu", "omur"...)
+                if m.group(2):  # dizgi "\n" ile bitiyor: satir burada kapanir
+                    out.append((cur_kw, cur_tok, cur_line))
+                    cur_kw = None
             elif kind == "call":
                 if cur_kw is not None:
                     cur_tok += EMIT[m.group(1)]

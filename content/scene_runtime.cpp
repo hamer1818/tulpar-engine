@@ -346,7 +346,10 @@ uint32_t SceneRuntime::spawn(sim::Physics &ph) {
   uint32_t n = 0;
   for (uint32_t i = 0; i < view_.h->body_count; i++) {
     const SceneBlobBody &b = view_.bodies[i];
-    if (b.shape == (uint32_t)SceneShape::Box) body_ids_[i] = ph.add_box(v3(b.half), v3(b.pos), q4(b.quat), b.dynamic != 0);
+    if (b.flags & kSceneBlobBodySensor) {
+      if (b.shape == (uint32_t)SceneShape::Box) body_ids_[i] = ph.add_sensor_box(v3(b.half), v3(b.pos), q4(b.quat));
+      else body_ids_[i] = ph.add_sensor_sphere(b.radius, v3(b.pos));
+    } else if (b.shape == (uint32_t)SceneShape::Box) body_ids_[i] = ph.add_box(v3(b.half), v3(b.pos), q4(b.quat), b.dynamic != 0);
     else body_ids_[i] = ph.add_sphere(b.radius, v3(b.pos), b.dynamic != 0);
     if (body_ids_[i].valid()) n++;
   }

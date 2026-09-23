@@ -265,6 +265,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
     if (e.components & kSceneBody) {
       SceneBlobBody bo{};
       bo.entity = i; bo.shape = (uint32_t)e.shape; bo.dynamic = e.dynamic ? 1u : 0u;
+      bo.flags = e.body_sensor ? kSceneBlobBodySensor : 0u;
       put3(bo.half, e.half * wscale); bo.radius = e.radius * wscale.x; // scene_spawn_bodies ile ayni (DUNYA olcegi)
       put3(bo.pos, {m.m[3][0], m.m[3][1], m.m[3][2]});
       bo.quat[0] = q.x; bo.quat[1] = q.y; bo.quat[2] = q.z; bo.quat[3] = q.w;

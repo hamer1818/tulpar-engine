@@ -265,7 +265,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 | D.5 | Rüzgâr — **önce tüketici shader** (foliage/vertex animasyonu), sonra bileşen | `content/wind.cpp` değer üretiyor, okuyan yok |
 | D.6 | Skybox + IBL — **önce renderer'da yol açılmalı**, bugün hiç yok | ölçülmeli |
 | D.7 | ~~Betik (`.tpr`) yürütme çalışma zamanı~~ **BİTTİ** | `TengScriptVm` köprüsü + dört kanca: `baslat`, `guncelle`, `carpisma`, `bitir` (KOPRU §7.9). Derleyici değişikliği GEREKMEDİ: Tulpar'ın `call()` mekanizması (ada göre çözüp çağırma) düz C üzerinden açıldı |
-| D.8 | **Tetik / bölge kancası** — `tetik_girdi` / `tetik_cikti` | Kanca yazmakla olmaz, **önce sensör diye bir şey yok**. Editördeki "Tetikleyici Hacim" (`editor_app.cpp:2290`) yalnız `kSceneBody` + statik kutu adı `tetikleyici_hacim`; sahne biçiminde sensör bayrağı, `sim/physics` içinde Jolt sensör gövdesi (`mIsSensor`), blobda alan ve **giriş/çıkış kenarı** (çarpışma halkası kare başına durum verir, tetik ise `girdi`/`cikti` geçişi ister) yok. Yani bu, içerik + sim + editör boyunca dikey bir iş; `carpisma` gibi mevcut veriyi dağıtmak değil |
+| D.8 | ~~Tetik / bölge kancası~~ **BİTTİ** | Kinematik + hep uyanık Jolt sensörü (statik sensör uyuyan gövde için sahte "çıktı" veriyordu — ölçüldü), `.sahne`'de `tetik` satırı, blobda `SceneBlobBody::flags` bit0 (sürüm yükseltmesi yok), köprüde `<ad>_tetik_girdi/_cikti` (bölge) ve `<ad>_bolge_girdi/_cikti` (giren), KOPRU §7.9. Editördeki "Tetikleyici Hacim" artık gerçek sensör. Kapsam dışı: karakter denetleyicisi tetiklemez (gövde değil) |
 
 ### Faz E — editör kabuğu *(sektör seviyesi)*
 
