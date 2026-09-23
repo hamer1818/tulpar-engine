@@ -258,7 +258,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 
 | # | İş | Bağlanacağı yer |
 |---|---|---|
-| D.1 | Karakter kontrolcüsü | `sim/physics.cpp` → `CharacterVirtual` |
+| D.1 | Karakter kontrolcüsü — **kısmen**: kodla üretilen karakter oyunlara açık (`karakter(...)`, KOPRU §8, `tulpar/examples/engine_karakter.tpr`); kalan iş, sahnede yerleştirilen karakter bileşenini (C.7c) çalışma zamanında doğurmak ve oyunun ona sahne dizininden erişmesi | `sim/physics.cpp` → `CharacterVirtual` |
 | D.2 | Ses kaynağı → mixer voice | `audio/mixer.cpp` + `audio/spatial.hpp` |
 | D.3 | NavAgent → yol bulma | `sim/navmesh.cpp` |
 | D.4 | Reverb | `audio/dsp.hpp` |

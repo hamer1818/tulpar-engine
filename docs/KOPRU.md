@@ -222,9 +222,11 @@ kodla üretiliyor) — girenin betiği `<ad>_bolge_girdi(id, bolge)`. Aynı olay
   görünmez, yakınlık sorgusunda hedef değil; `isinla` tetiği **taşır**, yeniden kurmaz (yeniden
   kurmak içeride duran gövde için sahte bir "girdi" üretiyordu — ölçüldü). Betiği yok; olayları
   `tetik_olay_*` kuyruğunda. Kuyruk sahne tetiklerini de taşır, betik atamayan oyun için.
-- **Kapsam dışı:** karakter denetleyicisi (`CharacterVirtual`) gövde değil, tetik tetiklemez —
-  ve köprüde karakter API'si yok, yani bugün hiçbir oyun onu kullanamıyor (oyuncu her örnekte
-  dinamik bir küre, o tetikler).
+- **Karakter denetleyicisi tetikler:** sanal karakterin dünyada gövdesi yok; ona kendi katmanında
+  (yalnız sensörlerle eşleşen) kinematik bir **iç gövde** veriliyor. Ölçüldü: iç gövdesiz karakter
+  geçitten geçerken 0 giriş üretti, iç gövdeyle 1 giriş + 1 çıkış; içeride uzun süre dururken sahte
+  çıkış yok. İç gövde dinamik/statik gövdelerle **rijit temas kurmaz** (itmeyi sanal karakter
+  kendisi yapıyor; ikinci bir iten gövde kutuları iki kat iterdi).
 
 Sahne varlıkları tek tek silinemediği için `bitir`in tetikleyicisi **sahne boşalması**dır, varlık
 ölümü değil. Köprünün kendi ürettiği varlıklar (`eng_kutu_uret` …) bu yaşam döngüsünün dışında.
@@ -262,7 +264,7 @@ ile, yani kancaya verilen indisin **canlı** olduğunun kanıtı. Zemin temaslar
 Motor tarafı kapısı Tulpar'a hiç ihtiyaç duymaz — `tests/test_bridge.cpp` sahte bir `TengScriptVm`
 kurar ve dört kancanın da argüman sayısını, hedefini ve `olay` indisinin okunabilirliğini ölçer.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **186 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **191 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -285,10 +287,25 @@ bölüm yorumlarına göre):
 | navmesh (blob'daki bake) | 13 | bake var mı, poligon sayısı, yol iste, yol kısmi mi, yol noktaları, **en yakın nokta** (mesh dışındaki konumu yapıştır), **doğru görüş** (`raycast` + çarpma parametresi) |
 | çarpışma olayları | 13 | sayı, düşen, iki taraf (köprü id + sahne dizini), temas noktası, normal, şiddet — kuyruk |
 | tetik olayları | 7 | sayı, düşen, bölge ve giren/çıkan (köprü id + sahne dizini), girdi mi — kuyruk, **belirlenimli sıra** |
+| karakter denetleyicisi | 5 | üret (sanal kapsül), yürü + zıpla isteği, zeminde mi, zemin durumu, zıplama hızı — konum/hız/ışınla/sil/yakınlık/ışın/tetik mevcut varlık fonksiyonlarıyla |
 | ölçüm | 4 | çizim / gövde / ışık sayısı, son kare p50 |
 
 (Çarpışma ailesi 2026-09-23'e kadar bu tabloda YOKTU: satırların toplamı 164 veriyordu,
 başlık 177 diyordu. Toplam artık başlıkla eşit.)
+
+**Karakter denetleyicisi** (`karakter(x, y, z, r, boy, renk)`): Jolt `CharacterVirtual` — rampada
+kaymaz, 0.4 m'ye kadar basamağı yürüyerek çıkar, zemine yapışır, dinamik gövdeleri en çok 100 N ile
+iter. Konum **ayak tabanı**. Hız `karakter_yuru(id, vx, vz, zipla)` ile verilir: yatay istek
+**kalıcı** (durmak için 0, 0), zıplama kenar-tetikli, dikey hız motorun. `konum_*`, `hiz_*`,
+`isinla` (hız sıfır), `sil`, `en_yakin`, ışın (karaktere **çarpar**) ve tetikler karakterde de
+çalışır; `hiz_ver`/`itme` karakterde **hata** verir (sessizce yok sayılsaydı "neden itilmiyor"
+diye aranırdı). Işının `skip_id`'si karakterde iç gövdeyi Jolt filtresiyle tam atlıyor; küre ve
+kutuda eski yaklaşım duruyor, çünkü mevcut oyunların dengesi ona kurulu (ölçüm ve gerekçe
+`teng_raycast` yorumunda: tam filtre engine_aksiyon'da 9 öldürmeyi 7'ye indirdi). Örnek:
+`tulpar/examples/engine_karakter.tpr` (merdiven, tetik, zıplanan duvar; penceresiz kipte kendi
+oynar, `[kapi]` satırı iki koşumda aynı). Kapsam dışı: karakterin kendi çarpışma olayları
+(sanal temaslar) çarpışma kuyruğuna girmiyor; sahnede yerleştirilen karakter bileşeni hâlâ
+çalışma zamanında doğurulmuyor (EDITOR-DURUM C.7c / D.1).
 
 **Ne verilmez (bilinçli):** struct, callback, işaretçi, çıktı parametresi — Tulpar'ın bugünkü FFI'si
 taşımıyor. Bunun görünür sonuçları var: (1) **çarpışma olayı geri çağrım değil kuyruktur** — fizik

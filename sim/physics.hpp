@@ -128,7 +128,9 @@ public:
   // Static yapip): zemine inip uyuyan top icin "yatak: cikis 1" — sahte cikis.
   // Kinematik + uyanik ile 0. Kendi nesne katmaninda: statik
   // govdeleri ve baska sensorleri gormez (zemin "bolgeye girdi" demez).
-  // Isin testi sensorleri ATLAR (gorunmez bir hacim gorus hattini kesmez).
+  // Isin testi sensorleri ATLAR (gorunmez bir hacim gorus hattini kesmez);
+  // karakterlere ise CARPAR (ic govde) — dinamik kure oyuncuya carpan
+  // gorus hatti mantigi karakter oyuncuda da ayni calissin.
   BodyId add_sensor_box(Vec3 half_extent, Vec3 pos, Quat rot);
   BodyId add_sensor_sphere(float radius, Vec3 pos);
   bool is_sensor(BodyId id) const;
@@ -145,7 +147,12 @@ public:
   // step() gerekir (genis faz agaci orada guncellenir), yoksa yeni govde
   // bulunmayabilir. Adimlamayi/durumu DEGISTIRMEZ: salt okunur sorgu, altin
   // ozet etkilenmez. dir sifir uzunlukluysa ya da max_distance <= 0 ise false.
-  bool raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit = nullptr) const;
+  // `ignore`: bu govde YOK sayilir (Jolt IgnoreSingleBodyFilter). Kendi
+  // govdesinin icinden baslayan isin (zemin denetimi, gorus hatti) icin.
+  // Kopru bunu KARAKTERDE kullaniyor; kure/kutuda oyun dengesi eski yaklasima
+  // ("govdeyi kusatan kure kadar ileriden yeniden at") kurulu oldugu icin o
+  // yol duruyor — gerekcesi ve olcumu bridge/engine_api.cpp teng_raycast'te.
+  bool raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit = nullptr, BodyId ignore = BodyId{}) const;
 
   // --- Karakter ------------------------------------------------------
   // Gecersiz yapilandirmada (height <= 2*radius, radius <= 0, havuz dolu)
@@ -160,6 +167,13 @@ public:
   // `jump` KENAR-TETIKLI: uygulandigi kare tuketilir, basili tutmak
   // zincirleme ziplama yapmaz.
   void set_character_input(CharacterId id, Vec3 desired_horizontal_velocity, bool jump);
+
+  // Ic govde (tetik ve isin testi icin karakterin dunyadaki izi). Karakter
+  // basina BIR govde daha: stats().bodies bunu da sayar.
+  BodyId character_body(CharacterId id) const;
+  // Isinla: konum + ic govde, hiz SIFIR.
+  void set_character_position(CharacterId id, Vec3 pos);
+  void set_character_jump_speed(CharacterId id, float speed);
 
   Vec3 character_position(CharacterId id) const;
   Vec3 character_velocity(CharacterId id) const;

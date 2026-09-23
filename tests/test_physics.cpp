@@ -484,3 +484,79 @@ ENGINE_TEST(physics_sensor_move_keeps_contacts) {
   CHECK(sahte == 1);
   ph.shutdown();
 }
+
+// Karakter (sanal, govdesiz) TETIKLERI tetikliyor mu. Olculen: ic govde
+// uzerinden tam bir giris + bir cikis, icerde UZUN sure dururken sahte cikis
+// YOK, isin karaktere carpiyor (ic govde), ic govde dinamik kutuyla RIJIT temas
+// kurmuyor (temas halkasinda ic govde gecmiyor) ve isinlama ic govdeyi tasiyor.
+ENGINE_TEST(physics_character_triggers_sensors_through_inner_body) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "char_sensor");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  cfg.max_characters = 2;
+  CHECK(ph.init(sys, cfg));
+  ph.add_box({50, 1, 50}, {0, -1, 0}, Quat::identity(), false); // ust yuz y=0
+  const BodyId gecit = ph.add_sensor_box({0.5f, 1.5f, 3}, {3, 1.5f, 0}, Quat::identity()); // x 2.5..3.5
+  const BodyId yatak = ph.add_sensor_box({2, 2, 2}, {10, 2, 0}, Quat::identity());         // x 8..12
+  // Yol ustunde kucuk bir dinamik kutu (0.2 m): karakter onunla ETKILESIR
+  // (basamak cikma ile ustunden gecer — step_up 0.4 m) ve bu sirada ic govde
+  // temas halkasinda GORUNMEMELI. Ilk yazimda 0.6 m (~216 kg) kutu vardi:
+  // karakter ona dayanip durdu (itme gucu 100 N < surtunme ~424 N) — fizik
+  // dogruydu, beklenti yanlisti.
+  const BodyId kutu = ph.add_box({0.1f, 0.1f, 0.1f}, {6, 0.1f, 0}, Quat::identity(), true);
+  CharacterConfig cc;
+  cc.position = {0, 0, 0};
+  const CharacterId ch = ph.add_character(cc);
+  CHECK(ch.valid());
+  const BodyId ic = ph.character_body(ch);
+  CHECK(ic.valid() && !ph.is_sensor(ic));
+
+  int gir_g = 0, cik_g = 0, gir_y = 0, cik_y = 0, ic_temas = 0;
+  auto adim = [&](int n) {
+    for (int i = 0; i < n; i++) {
+      ph.clear_contacts();
+      ph.step(1.0f / 60.0f);
+      for (uint32_t k = 0; k < ph.sensor_event_count(); k++) {
+        const SensorEvent e = ph.sensor_event(k);
+        if (e.other.v != ic.v) continue;
+        if (e.sensor.v == gecit.v) (e.enter ? gir_g : cik_g)++;
+        if (e.sensor.v == yatak.v) (e.enter ? gir_y : cik_y)++;
+      }
+      for (uint32_t k = 0; k < ph.contact_count(); k++)
+        if (ph.contact(k).a.v == ic.v || ph.contact(k).b.v == ic.v) ic_temas++;
+    }
+  };
+  // 2 m/s ile +x: gecitten gecer, kutuya carpar (iter), yataga girer.
+  ph.set_character_input(ch, {2, 0, 0}, false);
+  adim(300); // 5 s -> ~10 m
+  const Vec3 p = ph.character_position(ch);
+  // Yatakta DUR ve uzun bekle: ic govde uyusa bile sahte cikis olmamali.
+  ph.set_character_input(ch, {0, 0, 0}, false);
+  const float x_dur = ph.character_position(ch).x;
+  adim(400);
+  std::printf("    [bilgi] karakter tetik: gecit giris %d cikis %d, yatak giris %d cikis %d (x %.2f, durdu %.2f); ic govde rijit temas %d; "
+              "kutu x %.2f\n",
+              gir_g, cik_g, gir_y, cik_y, (double)p.x, (double)x_dur, ic_temas, (double)ph.position(kutu).x);
+  CHECK(gir_g == 1 && cik_g == 1);
+  CHECK(x_dur > 8.5f && x_dur < 11.5f);
+  CHECK(gir_y == 1 && cik_y == 0);
+  CHECK(ic_temas == 0);
+
+  // Isin: karakterin tepesinden asagi -> ic govdeye carpar.
+  RayHit h;
+  const Vec3 cp = ph.character_position(ch);
+  CHECK(ph.raycast({cp.x, cp.y + 5, cp.z}, {0, -1, 0}, 10, &h));
+  std::printf("    [bilgi] isin karaktere: govde %s, mesafe %.2f (tepe ~%.2f)\n", h.body.v == ic.v ? "IC GOVDE" : "baska", (double)h.distance,
+              (double)(5.0f - cc.height));
+  CHECK(h.body.v == ic.v);
+
+  // Isinla yataktan disari: tek cikis (ic govde de tasindi).
+  ph.set_character_position(ch, {20, 0, 0});
+  adim(5);
+  std::printf("    [bilgi] isinlama: yatak cikis %d (1 olmali), karakter x %.2f, hiz %.2f\n", cik_y, (double)ph.character_position(ch).x,
+              (double)length(ph.character_velocity(ch)));
+  CHECK(cik_y == 1);
+  ph.shutdown();
+}

@@ -251,6 +251,23 @@ VMValue aot_eng_spawn_trigger_box_ptr(VMValue *x, VMValue *y, VMValue *z, VMValu
 VMValue aot_eng_spawn_trigger_sphere_ptr(VMValue *x, VMValue *y, VMValue *z, VMValue *radius) {
   return VM_INT((int64_t)teng_spawn_trigger_sphere(tm_num(x), tm_num(y), tm_num(z), tm_num(radius)));
 }
+VMValue aot_eng_spawn_character_ptr(VMValue *x, VMValue *y, VMValue *z, VMValue *radius, VMValue *height, VMValue *color) {
+  return VM_INT((int64_t)teng_spawn_character(tm_num(x), tm_num(y), tm_num(z), tm_num(radius), tm_num(height), tm_int(color)));
+}
+VMValue aot_eng_character_move_ptr(VMValue *id, VMValue *vx, VMValue *vz, VMValue *jump) {
+  teng_character_move((int)tm_int(id), tm_num(vx), tm_num(vz), (int)tm_int(jump));
+  return VM_VOID();
+}
+VMValue aot_eng_character_grounded_ptr(VMValue *id) {
+  return VM_BOOL(teng_character_grounded((int)tm_int(id)) != 0);
+}
+VMValue aot_eng_character_ground_state_ptr(VMValue *id) {
+  return VM_INT((int64_t)teng_character_ground_state((int)tm_int(id)));
+}
+VMValue aot_eng_character_set_jump_ptr(VMValue *id, VMValue *speed) {
+  teng_character_set_jump((int)tm_int(id), tm_num(speed));
+  return VM_VOID();
+}
 VMValue aot_eng_load_model_ptr(VMValue *path) {
   return VM_INT((int64_t)teng_load_model(tm_str(path)));
 }

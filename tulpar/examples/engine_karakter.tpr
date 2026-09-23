@@ -1,0 +1,121 @@
+// Tulpar Engine — KARAKTER denetleyicisi: basamak çıkma, zıplama, tetik bölge.
+//
+// Çalıştır (pencere):   tulpar examples/engine_karakter.tpr
+// Pencersiz doğrulama:  TULPAR_ENGINE_HEADLESS=420 TULPAR_ENGINE_OUT=/tmp/k.ppm tulpar examples/engine_karakter.tpr
+// (Motor oyunu için motoru TANIYAN derleyici gerekir: tools/motor_derleyici.sh.)
+//
+// Oyuncu bir dinamik küre DEĞİL, karakter denetleyicisi: rampada kaymaz,
+// 0.4 m'ye kadar basamağı YÜRÜYEREK çıkar, zemine yapışır. Merdivenin
+// tepesinde görünmez bir "hazine" bölgesi var; girince işaret kutusu yeşile
+// döner. Duvarın üstüne ancak zıplayarak çıkılır.
+//
+// WASD / ok tuşları: yürü   boşluk: zıpla   R: başa dön
+// Pencersiz kipte oyun kendi kendine oynar (otopilot) ve sonunda tek satırlık
+// bir [kapi] özeti basar — belirlenimli, iki koşum aynı satırı verir.
+
+import "engine";
+
+float HIZ = 3.0;
+float ZIPLAMA = 5.5;            // ~1.5 m tepe: 1.2 m'lik duvar zıplanır, yürünmez
+float BASAMAK = 0.3;            // her basamağın yüksekliği (<= 0.4: yürüyerek çıkılır)
+
+func main() {
+    log_seviyesi(2);
+    if (!motor_ac("Tulpar Engine — karakter", 1280, 720)) {
+        print("motor acilamadi: " + eng_last_error());
+        return;
+    }
+    gunes(0.4, 1.0, 0.3, 0.9);
+    ortam(renk(40, 44, 54));
+    golge_hacmi(2, 1, 0, 16, 60);
+    zemin_kur(20, ACIK_GRI);
+
+    // Merdiven: üç basamak (+x yönünde, x -2.4..0), sonra düz bir sahanlık (x 0..3.6).
+    int i = 0;
+    while (i < 3) {
+        float h = BASAMAK * (i + 1);
+        kutu(-2.0 + i * 0.8, h * 0.5, 0, 0.4, h * 0.5, 1.5, false, renk(150 + i * 30, 120, 90));
+        i = i + 1;
+    }
+    float sahanlik = BASAMAK * 3.0;
+    kutu(1.8, sahanlik * 0.5, 0, 1.8, sahanlik * 0.5, 1.5, false, renk(200, 160, 110));
+    // Sahanlığın ucunda 1.2 m'lik duvar (x 3.0..3.6): yürüyerek aşılmaz, zıplanır.
+    kutu(3.3, sahanlik + 0.6, 0, 0.3, 0.6, 1.5, false, renk(120, 90, 80));
+    // Hazine bölgesi (görünmez, x 1.0..2.2) + üstünde işaret kutusu.
+    int hazine = tetik_kutu(1.6, sahanlik + 0.9, 0, 0.6, 0.9, 1.2);
+    int isaret = kutu(1.6, sahanlik + 2.4, 0, 0.15, 0.15, 0.15, false, KIRMIZI);
+
+    int oyuncu = karakter(-6.0, 0.0, 0.0, 0.3, 1.8, renk(60, 150, 255));
+    karakter_ziplama(oyuncu, ZIPLAMA);
+
+    bool otopilot = eng_headless();
+    float en_yuksek = 0.0;
+    int ziplama = 0;
+    int hazine_giris = 0;
+    int hazine_cikis = 0;
+    bool duvar_asildi = false;
+
+    while (calisiyor()) {
+        kare_basla();
+        float t = zaman();
+        float vx = yon_x() * HIZ;
+        float vz = 0.0 - yon_y() * HIZ;
+        bool zipla = eylem_basildi() && karakter_yerde(oyuncu);
+        if (otopilot) {
+            // 0-2.6 s: merdiveni YÜRÜYEREK çık, hazinede dur; 2.6-4 s: bekle
+            // (durana sahte "çıktı" gelmemeli); 4 s: duvara yürü, zıpla, aş.
+            vx = 0.0;
+            vz = 0.0;
+            zipla = false;
+            if (t < 2.6) { vx = HIZ; }
+            if (t >= 4.0 && t < 6.0) { vx = HIZ; }
+            if (t >= 4.0 && ziplama == 0 && konum_x(oyuncu) > 2.2 && karakter_yerde(oyuncu)) { zipla = true; }
+        }
+        if (zipla) {
+            ziplama = ziplama + 1;
+            logla("zipla (x " + toString(konum_x(oyuncu)) + ")");
+        }
+        karakter_yuru(oyuncu, vx, vz, zipla);
+        if (tus_basildi("R")) { isinla(oyuncu, -6.0, 0.0, 0.0); logla("basa don"); }
+        if (tus("ESC")) { cikis_iste(); }
+
+        // Tetik kuyruğu: hazine bölgesine giren/çıkan.
+        int n = tetik_olay_sayisi();
+        int j = 0;
+        while (j < n) {
+            if (tetik_olay_bolge(j) == hazine && tetik_olay_diger(j) == oyuncu) {
+                if (tetik_olay_girdi(j)) {
+                    hazine_giris = hazine_giris + 1;
+                    renk_ver(isaret, YESIL);
+                    logla("HAZINE: bolgeye girildi (ayak y " + toString(konum_y(oyuncu)) + ")");
+                } else {
+                    hazine_cikis = hazine_cikis + 1;
+                    renk_ver(isaret, KIRMIZI);
+                    logla("HAZINE: bolgeden cikildi");
+                }
+            }
+            j = j + 1;
+        }
+        float y = konum_y(oyuncu);
+        if (y > en_yuksek) { en_yuksek = y; }
+        if (!duvar_asildi && konum_x(oyuncu) > 3.9) {
+            duvar_asildi = true;
+            logla("duvar asildi");
+        }
+
+        float px = konum_x(oyuncu);
+        kamera(px - 2.0, y + 4.0, 9.0, px + 1.0, y + 0.8, 0.0);
+        durum_seridi();
+        yazi("WASD: yuru   bosluk: zipla   R: basa don", 22, 56, 1.0, ACIK_GRI);
+        if (hazine_giris > 0) { yazi("hazine bulundu", 22, 92, 1.2, YESIL); }
+        kare_bitir();
+    }
+    // Belirlenimli özet: pencersiz kipte iki koşum aynı satırı basar.
+    print("[kapi] kare=" + toString(kare_no()) + " en_yuksek_ayak=" + toString(toInt(en_yuksek * 100.0))
+        + "cm hazine_giris=" + toString(hazine_giris) + " hazine_cikis=" + toString(hazine_cikis)
+        + " ziplama=" + toString(ziplama) + " duvar_asildi=" + toString(duvar_asildi)
+        + " hata=" + toString(hata_sayisi()));
+    motor_kapat();
+}
+
+main();

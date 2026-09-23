@@ -136,6 +136,21 @@ func tetik_kutu(x, y, z, hx, hy, hz): int { return eng_spawn_trigger_box(x, y, z
 func trigger_box(x, y, z, hx, hy, hz): int { return eng_spawn_trigger_box(x, y, z, hx, hy, hz); }
 func tetik_kure(x, y, z, r): int { return eng_spawn_trigger_sphere(x, y, z, r); }
 func trigger_sphere(x, y, z, r): int { return eng_spawn_trigger_sphere(x, y, z, r); }
+// Karakter denetleyicisi: sanal kapsül — rampada kaymaz, 0.4 m basamak çıkar,
+// zemine yapışır, dinamik gövdeleri iter. Konum AYAK tabanı (konum_y = ayak).
+// `karakter_yuru` isteği KALICI: durdurmak için (id, 0, 0, false). Dikey hız
+// motorun: yerçekimi + zıplama. `itme`/`hiz_ver` karakterde HATA verir.
+// `konum_*`, `isinla`, `sil`, `en_yakin`, ışın ve tetikler karakterde de çalışır.
+func karakter(x, y, z, r, boy, renk_): int { return eng_spawn_character(x, y, z, r, boy, renk_); }
+func character(x, y, z, r, height, color): int { return eng_spawn_character(x, y, z, r, height, color); }
+func karakter_yuru(id, vx, vz, zipla) { eng_character_move(id, vx, vz, zipla); }
+func character_move(id, vx, vz, jump) { eng_character_move(id, vx, vz, jump); }
+func karakter_yerde(id): bool { return eng_character_grounded(id); }
+func character_grounded(id): bool { return eng_character_grounded(id); }
+func karakter_zemin(id): int { return eng_character_ground_state(id); }
+func character_ground_state(id): int { return eng_character_ground_state(id); }
+func karakter_ziplama(id, hiz) { eng_character_set_jump(id, hiz); }
+func character_set_jump(id, speed) { eng_character_set_jump(id, speed); }
 func model_yukle(yol): int { return eng_load_model(yol); }
 func model_koy(m, x, y, z, olcek, renk_): int { return eng_spawn_model(m, x, y, z, olcek, renk_); }
 func isik(x, y, z, renk_, siddet, yaricap): int { return eng_spawn_light(x, y, z, renk_, siddet, yaricap); }
