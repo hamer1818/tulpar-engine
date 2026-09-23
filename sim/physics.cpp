@@ -9,6 +9,7 @@
 #include <Jolt/Core/JobSystemWithBarrier.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
@@ -123,6 +124,12 @@ constexpr JPH::ObjectLayer MOVING = 1;
 // OLDUGU GIBI dogru: SENSOR yalniz MOVING ile eslesir (a==MOVING||b==MOVING),
 // yani statik govdeler ve baska sensorler onu hic gormez.
 constexpr JPH::ObjectLayer SENSOR = 2;
+// Karakterin IC govdesi (CharacterVirtualSettings::mInnerBodyShape). Karakter
+// sanal oldugu icin dunyada govdesi yok; ic govde ona "varlik" veriyor: tetik
+// hacimleri onu gorur, isin testi ona carpar. Yalniz SENSOR ile eslesir —
+// dinamik/statik govdelerle RIJIT temas kurmaz (itme/carpisma zaten sanal
+// karakterin kendi isi; ic govde ikinci kez itseydi kutular iki kat itilirdi).
+constexpr JPH::ObjectLayer CHARACTER = 3;
 } // namespace Layers
 namespace BPLayers {
 constexpr JPH::BroadPhaseLayer NON_MOVING(0);
@@ -151,6 +158,7 @@ public:
 class ObjectPairFilter final : public JPH::ObjectLayerPairFilter {
 public:
   bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
+    if (a == Layers::CHARACTER || b == Layers::CHARACTER) return a == Layers::SENSOR || b == Layers::SENSOR;
     return a == Layers::MOVING || b == Layers::MOVING;
   }
 };
@@ -589,7 +597,7 @@ SensorEvent Physics::sensor_event(uint32_t i) const {
   return impl_->contacts.sensor_at(i);
 }
 
-bool Physics::raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit) const {
+bool Physics::raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit, BodyId ignore) const {
   if (hit) *hit = RayHit{};
   if (!impl_ || max_distance <= 0.0f) return false;
   const float len = length(dir);
@@ -598,7 +606,8 @@ bool Physics::raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit) co
   const JPH::RRayCast ray{to_jph(origin), d};
   JPH::RayCastResult res;
   const NotSensorLayer gorunur;
-  if (!impl_->system.GetNarrowPhaseQuery().CastRay(ray, res, {}, gorunur)) return false;
+  const JPH::IgnoreSingleBodyFilter haric(ignore.valid() ? JPH::BodyID(ignore.v) : JPH::BodyID());
+  if (!impl_->system.GetNarrowPhaseQuery().CastRay(ray, res, {}, gorunur, haric)) return false;
   if (hit) {
     hit->body = BodyId{res.mBodyID.GetIndexAndSequenceNumber()};
     hit->distance = res.mFraction * max_distance;
@@ -656,6 +665,15 @@ CharacterId Physics::add_character(const CharacterConfig &cfg) {
   // Varsayilan (-1e10) HER temasi destek sayardi -- duvara surtunen
   // karakter havada ziplayabilirdi.
   cs.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -cfg.radius);
+  // Ic govde: ayni kapsul, kinematik, CHARACTER katmaninda. Jolt onu her
+  // guncellemede karakterin konumuna isinlar (UpdateInnerBodyTransform).
+  // Tetik bunu kinematik-vs-sensor kuraliyla gorur (Body::sFindColliding
+  // PairsCanCollide), ek bayrak gerekmez; uyuyan ic govdeyi de gorur, cunku
+  // sensor hep uyanik. OLCULDU (2026-09-23, physics_character_triggers_...,
+  // bu iki satir kapatilarak): ic govdesiz karakter gecitten gecerken 0 giris
+  // uretti; ic govdeyle 1 giris + 1 cikis.
+  cs.mInnerBodyShape = shape;
+  cs.mInnerBodyLayer = Layers::CHARACTER;
 
   CharacterSlot &slot = impl_->chars[idx];
   slot.ch = new JPH::CharacterVirtual(&cs, to_jph(cfg.position), JPH::Quat::sIdentity(), &impl_->system);
@@ -665,6 +683,23 @@ CharacterId Physics::add_character(const CharacterConfig &cfg) {
   slot.step_up = cfg.step_up;
   slot.alive = true;
   return CharacterId{idx};
+}
+
+BodyId Physics::character_body(CharacterId id) const {
+  const CharacterSlot *s = char_slot(impl_, id);
+  if (!s) return BodyId{};
+  const JPH::BodyID b = s->ch->GetInnerBodyID();
+  return b.IsInvalid() ? BodyId{} : BodyId{b.GetIndexAndSequenceNumber()};
+}
+void Physics::set_character_position(CharacterId id, Vec3 pos) {
+  CharacterSlot *s = char_slot(impl_, id);
+  if (!s) return;
+  s->ch->SetPosition(to_jph(pos)); // ic govdeyi de tasir (Jolt SetPosition)
+  s->ch->SetLinearVelocity(JPH::Vec3::sZero()); // isinlama hizi sifirlar (kopru set_pos sozlesmesi)
+}
+void Physics::set_character_jump_speed(CharacterId id, float speed) {
+  CharacterSlot *s = char_slot(impl_, id);
+  if (s && speed >= 0.0f) s->jump_speed = speed;
 }
 
 void Physics::remove_character(CharacterId id) {

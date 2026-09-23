@@ -682,6 +682,79 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     teng_despawn(zem);
   }
 
+  // --- 10c) KARAKTER DENETLEYICISI --------------------------------------------
+  // Sahnenin uzaginda (70, *, 70): zemin kutusu (ust yuz y=0.5), yolun ustunde
+  // bir tetik. Karakter havada dogar, iner, +x'e 2 m/s yurur, tetigi gecer,
+  // zipar, isinlanir. Olculen: iniste zemin, yurume mesafesi (hiz x zaman),
+  // tetik kuyrugunda KARAKTERIN id'si (ic govde eslemesi), isinin karaktere
+  // carpmasi ve skip_id ile karakterin icinden atilan isinin ayagin altindaki
+  // zemini BULMASI (eski yaklasik atlama bunu kacirirdi), en_yakin'da gorunmesi,
+  // hiz_ver'in karakterde HATA vermesi.
+  {
+    const int errs0 = teng_error_count();
+    const int zem = teng_spawn_box(70, 0, 70, 20, 0.5, 20, 0, 0x404040);
+    const int tet = teng_spawn_trigger_box(72, 1.5, 70, 0.5, 1, 2); // x 71.5..72.5 (yurume 70 -> 73)
+    const int ch = teng_spawn_character(70, 2.0, 70, 0.3, 1.8, 0x3399ff);
+    CHECK(zem && tet && ch);
+    int inis = -1;
+    for (int f = 0; f < 120 && inis < 0; f++) { teng_frame_begin(); teng_frame_end(); if (teng_character_grounded(ch)) inis = f; }
+    const double ayak = teng_y(ch);
+    std::printf("    [bilgi] karakter: %d. karede indi, ayak y %.3f (zemin 0.5), zemin durumu %d\n", inis, ayak, teng_character_ground_state(ch));
+    CHECK(inis > 0 && ayak > 0.45 && ayak < 0.55);
+    CHECK(teng_character_ground_state(ch) == 0);
+    // Yuru: 2 m/s x 90 kare (1.5 s) -> ~3 m. Tetik yolun ustunde.
+    const double x0 = teng_x(ch);
+    teng_character_move(ch, 2.0, 0.0, 0);
+    int gir = 0, cik = 0;
+    for (int f = 0; f < 90; f++) {
+      teng_frame_begin(); teng_frame_end();
+      for (int i = 0; i < teng_trigger_count(); i++)
+        if (teng_trigger_zone(i) == tet && teng_trigger_other(i) == ch) (teng_trigger_entered(i) ? gir : cik)++;
+    }
+    const double yol = teng_x(ch) - x0;
+    std::printf("    [bilgi] karakter yurudu: %.2f m (analitik 3.00), hiz x %.2f; tetik giris %d cikis %d\n", yol, teng_vx(ch), gir, cik);
+    CHECK(yol > 2.7 && yol < 3.1);
+    CHECK(gir == 1 && cik == 1); // tetigin icinden gecti, kuyrukta KARAKTERIN id'si
+    // Isin: tepeden asagi karaktere carpar; skip_id ile karakterin ICINDEN
+    // atilan isin ayagin altindaki zemini bulur.
+    const double cx = teng_x(ch), cz = teng_z(ch);
+    const double d_ust = teng_raycast(cx, 5.0, cz, 0, -1, 0, 10, 0);
+    const int vurulan = teng_ray_id();
+    const double d_ic = teng_raycast(cx, ayak + 0.9, cz, 0, -1, 0, 3, ch);
+    const int vurulan_ic = teng_ray_id();
+    std::printf("    [bilgi] isin: tepeden %.2f m -> #%d (karakter #%d); icinden skip ile %.2f m -> #%d (zemin #%d)\n", d_ust, vurulan, ch, d_ic,
+                vurulan_ic, zem);
+    CHECK(vurulan == ch);
+    CHECK(vurulan_ic == zem && d_ic > 0.85 && d_ic < 0.95);
+    CHECK(teng_nearest(cx, 1.0, cz, 2.0, 0) == ch);
+    // Zipla: dur, bir kez zipla, havaya kalk, geri in.
+    teng_character_move(ch, 0.0, 0.0, 1);
+    double tepe = ayak;
+    int havada = 0, yere = -1;
+    for (int f = 0; f < 120; f++) {
+      teng_frame_begin(); teng_frame_end();
+      if (f == 0) teng_character_move(ch, 0.0, 0.0, 0); // kenar-tetikli: istek bir kez
+      if (teng_y(ch) > tepe) tepe = teng_y(ch);
+      if (!teng_character_grounded(ch)) havada++;
+      else if (havada > 0 && yere < 0) yere = f;
+    }
+    std::printf("    [bilgi] ziplama: tepe %.2f m (v=4 -> analitik 0.82 m), %d kare havada, %d. karede indi\n", tepe - ayak, havada, yere);
+    CHECK(tepe - ayak > 0.7 && tepe - ayak < 0.95);
+    CHECK(yere > 0);
+    // Isinla: konum + hiz sifir.
+    teng_set_pos(ch, 80, 3.0, 70);
+    CHECK(std::fabs(teng_x(ch) - 80.0) < 1e-3 && teng_vx(ch) == 0.0);
+    CHECK(teng_error_count() == errs0);
+    // KONTROL: karakterde hiz_ver HATA (sessizce yok sayilsaydi "karakter neden itilmiyor" diye aranirdi).
+    teng_set_velocity(ch, 5, 0, 0);
+    CHECK(teng_error_count() == errs0 + 1);
+    const int govde_once = teng_body_count();
+    teng_despawn(ch);
+    CHECK(!teng_alive(ch) && teng_body_count() == govde_once - 1); // ic govde de gitti
+    teng_despawn(tet);
+    teng_despawn(zem);
+  }
+
   // --- 11) SES: calan ses sayaci ve tepe deger; KONTROL: durdurunca sifir ----
   {
     int a_ok = teng_audio_open(0, 0);
@@ -744,7 +817,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // --- 12) Kapanis: kasitli hata sayisi (kosan kapilara gore) ----------------
   // Ortamdan gelen hatalar (ses cihazi yok, kaynak yok) ayri sayilir; onlar
   // kasitli degil ve makineye gore degisir.
-  int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/;
+  int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/ + 1 /*karakterde hiz_ver*/;
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/;
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;

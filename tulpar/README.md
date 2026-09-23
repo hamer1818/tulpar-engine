@@ -13,7 +13,9 @@ tulpar/
     engine_builtins_table.inc  LLVM backend tablosu (ad, sembol, arite)
     engine_builtins_sigs.inc   tip çıkarımı imzaları
     engine_builtins.inc        LSP tamamlama/hover
-  examples/               engine_ilk_oyun.tpr, engine_arena.tpr, engine_aksiyon.tpr
+  examples/               engine_ilk_oyun.tpr, engine_arena.tpr, engine_aksiyon.tpr,
+                          engine_betik_dagitimi.tpr (betik kancalari + tetik bolgeleri),
+                          engine_karakter.tpr (karakter denetleyicisi: basamak, ziplama, tetik)
                           (aksiyon: TulparLang P0 dil özellikleri — `enum Ekran/Durum/Hal`,
                           `yon_hesapla(): (float, float)`, düşman kaydı tek `Dusman[]`
                           — 11 paralel dizi 2026-09-21'de kalktı)
@@ -22,7 +24,7 @@ tulpar/
 
 ## Tek kaynak kuralı
 
-186 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
+191 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
 tablosudur. Dört dosya da tek komutla üretilir:
 
 ```bash

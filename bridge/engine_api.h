@@ -123,6 +123,17 @@ int teng_spawn_ground(double half_size, int64_t color); // dama dokulu duzlem + 
 // kurmaz; kurmak icerde duran govde icin sahte "girdi" uretirdi).
 int teng_spawn_trigger_box(double x, double y, double z, double hx, double hy, double hz);
 int teng_spawn_trigger_sphere(double x, double y, double z, double radius);
+// Karakter denetleyicisi: sanal kapsul (rampada kaymaz, 0.4 m basamak cikar,
+// zemine yapisir, dinamik govdeleri en cok 100 N ile iter). Konum AYAK
+// TABANI; teng_x/y/z, teng_vx/vy/vz, teng_set_pos (isinla, hiz sifir),
+// teng_despawn, yakinlik ve isin sorgulari karakterde de calisir; isin
+// karaktere CARPAR (ic govde), tetikler onu gorur. teng_set_velocity /
+// teng_impulse karakterde HATA: hizi teng_character_move verir.
+int teng_spawn_character(double x, double y, double z, double radius, double height, int64_t color); // boy > 2*yaricap
+void teng_character_move(int id, double vx, double vz, int jump); // yatay istek KALICI (durmak icin 0,0); jump kenar-tetikli
+int teng_character_grounded(int id);
+int teng_character_ground_state(int id); // 0 zeminde, 1 dik yamac (kayar), 2 desteksiz, 3 havada
+void teng_character_set_jump(int id, double speed); // ziplama hizi m/s (varsayilan 4.0)
 int teng_load_model(const char *path);                  // glTF; -1 hata
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint);
 int teng_spawn_light(double x, double y, double z, int64_t color, double intensity, double radius);

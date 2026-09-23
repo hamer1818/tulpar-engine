@@ -65,9 +65,9 @@ constexpr uint32_t kMaxModels = 16;
 constexpr uint32_t kMaxClips = 32;  // ses klibi (dosya + sentetik ton)
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
 constexpr uint32_t kMaxHud = 1024;
+constexpr uint32_t kRayRetries = 4;    // skip_id (eski yol) icin yeniden atma denemesi
 constexpr uint32_t kMaxOverlap = 64;   // kure sorgusu sonuc tavani (sabit dizi, 0 ayirma)
 constexpr uint32_t kMaxNavPoints = 32; // navmesh duz yolunun kose sayisi tavani
-constexpr uint32_t kRayRetries = 4;    // skip_id icin yeniden atma denemesi
 constexpr uint32_t kHudTextBytes = 64 << 10;
 constexpr uint32_t kLogRing = 64;
 constexpr uint32_t kMaxUiIds = 64;     // kare basina widget (sabit dizi, kare ici ayirma yok)
@@ -215,7 +215,7 @@ void save_ensure(void) {
 // ---------------------------------------------------------------------------
 // Varlik tablosu: nesil etiketli id ((nesil<<16)|yuva), 0 gecersiz.
 // ---------------------------------------------------------------------------
-enum class Kind : uint8_t { Empty = 0, Box, Sphere, Ground, Model, Light };
+enum class Kind : uint8_t { Empty = 0, Box, Sphere, Ground, Model, Light, Character };
 const char *kind_name(Kind k) {
   switch (k) {
   case Kind::Box: return "kutu";
@@ -223,6 +223,7 @@ const char *kind_name(Kind k) {
   case Kind::Ground: return "zemin";
   case Kind::Model: return "model";
   case Kind::Light: return "isik";
+  case Kind::Character: return "karakter";
   default: return "bos";
   }
 }
@@ -234,6 +235,11 @@ struct Ent {
   // Tetik hacmi (eng_trigger_*): gorunmez, carpisma tepkisi yok, yakinlik
   // sorgularinda hedef degil. Kind yine Box/Sphere — sekil bilgisi ayni.
   bool sensor = false;
+  // Karakter denetleyicisi (Kind::Character): sanal kapsul, sim'in
+  // CharacterVirtual'i. `body` ic govdedir (tetik + isin icin) ve SAHIBI
+  // karakterdir — dogrudan phys.remove EDILMEZ, remove_character ile gider.
+  sim::CharacterId ch{};
+  float height = 1.8f;
   Vec3 pos{0, 0, 0}, half{0.5f, 0.5f, 0.5f}, color{1, 1, 1};
   float radius = 0.5f, scale = 1.0f, yaw_deg = 0;
   float intensity = 1, light_radius = 5;
@@ -339,6 +345,7 @@ struct Bridge {
   // kancalar hem eng_trigger_* sorgulari BURADAN okur: iki yol ayni sirayi
   // gorsun. Bir sonraki teng_frame_end'e kadar gecerli (carpisma halkasi gibi).
   static constexpr uint32_t kMaxTrigger = 256;
+  uint32_t phys_max_characters = 16; // karakter havuzu (init'te sabit, A2)
   sim::SensorEvent tetik[kMaxTrigger];
   uint32_t tetik_n = 0;
   uint32_t script_calls = 0;
@@ -472,7 +479,9 @@ int alloc_slot(Kind k) {
 }
 void free_slot(uint32_t slot) {
   Ent &e = g->ents[slot];
-  if (e.body.valid()) g->phys.remove(e.body);
+  if (e.kind == Kind::Character) g->phys.remove_character(e.ch); // ic govdeyi de o kaldirir
+  else if (e.body.valid()) g->phys.remove(e.body);
+  e.ch = sim::CharacterId{};
   e.alive = false;
   e.body = sim::BodyId{};
   e.gen = (uint16_t)(e.gen + 1 == 0 ? 1 : e.gen + 1);
@@ -488,7 +497,11 @@ bool make_body(Ent &e, const char *fn) {
   if (!e.body.valid()) { BERR("%s: fizik govdesi kurulamadi (%s @ %.2f %.2f %.2f)", fn, kind_name(e.kind), e.pos.x, e.pos.y, e.pos.z); return false; }
   return true;
 }
-Vec3 ent_pos(const Ent &e) { return e.body.valid() && e.dynamic ? g->phys.position(e.body) : e.pos; }
+// Karakterde konum AYAK TABANI (Jolt CharacterVirtual sozlesmesi), govde merkezi degil.
+Vec3 ent_pos(const Ent &e) {
+  if (e.kind == Kind::Character) return g->phys.character_position(e.ch);
+  return e.body.valid() && e.dynamic ? g->phys.position(e.body) : e.pos;
+}
 // Ses cihazi kapaliyken gelen cagri: ILK 3 tanesi HATA, sonrasi ayrinti.
 // Neden: oyun her atista ses calar; cihaz yoksa her kare HATA basmak hem logu
 // hem hata sayacini doldurur ve gercek hatalari gizler. Kapali oldugu yine
@@ -502,6 +515,10 @@ bool audio_live(const char *fn) {
   return false;
 }
 Mat4 ent_matrix(const Ent &e) {
+  if (e.kind == Kind::Character) { // cizim merkezi: ayak + yarim boy
+    const Vec3 p = g->phys.character_position(e.ch);
+    return Mat4::translate({p.x, p.y + e.height * 0.5f * e.scale, p.z}) * to_mat4(yaw_quat(e.yaw_deg));
+  }
   if (e.body.valid() && e.dynamic) return Mat4::translate(g->phys.position(e.body)) * to_mat4(g->phys.rotation(e.body));
   return Mat4::translate(e.pos) * to_mat4(yaw_quat(e.yaw_deg));
 }
@@ -585,6 +602,8 @@ void render_frame() {
     switch (e.kind) {
     case Kind::Box: b.ren.draw(b.cube, ent_matrix(e) * Mat4::scale(e.half * 2.0f * e.scale), e.color); drawn++; break;
     case Kind::Sphere: { const float d = e.radius * 2.0f * e.scale; b.ren.draw(b.sphere, ent_matrix(e) * Mat4::scale({d, d, d}), e.color); drawn++; break; }
+    // Kapsul mesh'i yok: kure mesh'i (2r, boy, 2r) olceklenir — ayni kusatma, yuvarlak uclar.
+    case Kind::Character: { const float d = e.radius * 2.0f * e.scale; b.ren.draw(b.sphere, ent_matrix(e) * Mat4::scale({d, e.height * e.scale, d}), e.color); drawn++; break; }
     case Kind::Ground: b.ren.draw(b.plane, b.ground_mat, Mat4::translate({e.pos.x, e.pos.y + e.half.y, e.pos.z}) * Mat4::scale({e.half.x * 2, 1, e.half.z * 2}), e.color); drawn++; break;
     case Kind::Model:
       if (e.asset >= 0 && (uint32_t)e.asset < b.model_count) {
@@ -817,6 +836,7 @@ int teng_init(const char *title, int width, int height) {
     sim::PhysicsConfig pcfg;
     pcfg.jobs = &b.jobs;
     pcfg.max_sensor_events = Bridge::kMaxTrigger; // sirali tampon ayni boyda: kirpma yok
+    pcfg.max_characters = b.phys_max_characters;
     pcfg.gravity = b.gravity;
     if (!b.phys.init(b.sys, pcfg)) { BERR("fizik (Jolt) kurulamadi"); return 0; }
     BDBG("fizik hazir: yercekimi (%.2f %.2f %.2f), sabit adim %.4f s", b.gravity.x, b.gravity.y, b.gravity.z, b.fs.step_s);
@@ -1205,7 +1225,14 @@ void teng_shutdown(void) {
   b.nav.shutdown();
   b.nav_ok = false;
   if (b.scene_ok) b.srt.despawn(b.phys);
-  for (uint32_t i = 0; i < b.ent_high; i++) if (b.ents[i].alive && b.ents[i].body.valid()) b.phys.remove(b.ents[i].body);
+  for (uint32_t i = 0; i < b.ent_high; i++) {
+    Ent &e = b.ents[i];
+    if (!e.alive) continue;
+    // Karakterin ic govdesi KARAKTERIN: once govdeyi silmek, phys.shutdown
+    // karakteri yok ederken ayni govdeyi ikinci kez silmeye calisirdi.
+    if (e.kind == Kind::Character) b.phys.remove_character(e.ch);
+    else if (e.body.valid()) b.phys.remove(e.body);
+  }
   b.phys.shutdown();
   b.ren.shutdown();
   if (b.off) rhi::offscreen_destroy(b.off);
@@ -1542,6 +1569,68 @@ int teng_spawn_trigger_sphere(double x, double y, double z, double radius) {
   BDBG("tetik kure #%d yuva %d (%.2f %.2f %.2f) r%.2f", id, s, x, y, z, radius);
   return id;
 }
+// --- karakter denetleyicisi -----------------------------------------------------
+// Sanal kapsul (sim::Physics CharacterVirtual): rampada kaymaz, basamak cikar
+// (0.4 m), zemine yapisir; dinamik govdeleri iter (en cok 100 N). Konum AYAK
+// tabani. Hiz teng_character_move ile verilir (yatay istek KALICI; durmak icin
+// 0,0), dikey hiz motorun (yercekimi + zipla).
+static Ent *character_of(int id, const char *fn) {
+  const int32_t s = slot_of(id, fn);
+  if (s < 0) return nullptr;
+  Ent &e = g->ents[s];
+  if (e.kind != Kind::Character) { BERR("%s: #%d karakter degil (%s)", fn, id, kind_name(e.kind)); return nullptr; }
+  return &e;
+}
+int teng_spawn_character(double x, double y, double z, double radius, double height, int64_t color) {
+  CALLF("teng_spawn_character", "(%.2f %.2f %.2f) r%.2f boy %.2f %08llx", x, y, z, radius, height, (unsigned long long)color);
+  if (!ready("teng_spawn_character")) return 0;
+  // Kapsul yarim-silindiri boy/2 - r; sifir ya da negatifse gecersiz (sim de reddeder).
+  if (radius <= 0 || height <= 2.0 * radius) {
+    BERR("teng_spawn_character: yaricap pozitif ve boy > 2*yaricap olmali (r %.2f, boy %.2f)", radius, height);
+    return 0;
+  }
+  const int s = alloc_slot(Kind::Character);
+  if (s < 0) return 0;
+  Ent &e = g->ents[s];
+  e.pos = {(float)x, (float)y, (float)z}; e.radius = (float)radius; e.height = (float)height; e.color = color_of(color);
+  sim::CharacterConfig cc;
+  cc.radius = e.radius;
+  cc.height = e.height;
+  cc.position = e.pos;
+  e.ch = g->phys.add_character(cc);
+  if (!e.ch.valid()) {
+    BERR("teng_spawn_character: karakter kurulamadi (havuz dolu? en cok %u karakter)", g->phys_max_characters);
+    free_slot((uint32_t)s);
+    return 0;
+  }
+  e.body = g->phys.character_body(e.ch);
+  const int id = make_id((uint32_t)s);
+  BDBG("karakter #%d yuva %d (%.2f %.2f %.2f) r%.2f boy %.2f", id, s, x, y, z, radius, height);
+  return id;
+}
+void teng_character_move(int id, double vx, double vz, int jump) {
+  CALLF("teng_character_move", "#%d (%.2f %.2f) zipla %d", id, vx, vz, jump);
+  if (!ready("teng_character_move")) return;
+  Ent *e = character_of(id, "teng_character_move");
+  if (e) g->phys.set_character_input(e->ch, {(float)vx, 0.0f, (float)vz}, jump != 0);
+}
+int teng_character_grounded(int id) {
+  if (!ready("teng_character_grounded")) return 0;
+  Ent *e = character_of(id, "teng_character_grounded");
+  return e && g->phys.character_grounded(e->ch) ? 1 : 0;
+}
+int teng_character_ground_state(int id) {
+  if (!ready("teng_character_ground_state")) return 3;
+  Ent *e = character_of(id, "teng_character_ground_state");
+  return e ? (int)g->phys.character_ground_state(e->ch) : 3;
+}
+void teng_character_set_jump(int id, double speed) {
+  CALLF("teng_character_set_jump", "#%d %.2f", id, speed);
+  if (!ready("teng_character_set_jump")) return;
+  if (speed < 0) { BERR("teng_character_set_jump: hiz negatif olamaz (%.2f)", speed); return; }
+  Ent *e = character_of(id, "teng_character_set_jump");
+  if (e) g->phys.set_character_jump_speed(e->ch, (float)speed);
+}
 int teng_spawn_ground(double half_size, int64_t color) {
   CALLF("teng_spawn_ground", "yarim %.1f %08llx", half_size, (unsigned long long)color);
   if (!ready("teng_spawn_ground")) return 0;
@@ -1616,6 +1705,7 @@ void teng_set_pos(int id, double x, double y, double z) {
   // Tetik TASINIR, yeniden kurulmaz: yeniden kurmak icerde duran her govde
   // icin sahte bir "girdi" uretirdi (olculdu: physics_sensor_move_keeps_contacts).
   if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
+  if (e.kind == Kind::Character) { g->phys.set_character_position(e.ch, e.pos); return; } // ayak konumu, hiz sifir
   if (e.body.valid()) { // Jolt'ta konum yazma yok: govde yeniden kurulur (hiz sifirlanir)
     g->phys.remove(e.body);
     e.body = sim::BodyId{};
@@ -1643,16 +1733,23 @@ void teng_set_yaw(int id, double yaw_deg) {
   Ent &e = g->ents[s];
   e.yaw_deg = (float)yaw_deg;
   if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
+  if (e.kind == Kind::Character) return; // kapsul dik eksende simetrik: yaw yalniz cizimde
   if (e.body.valid() && !e.dynamic) { g->phys.remove(e.body); e.body = sim::BodyId{}; make_body(e, "teng_set_yaw"); }
 }
-double teng_vx(int id) { const int32_t s = slot_of(id, "teng_vx"); return s < 0 || !g->ents[s].body.valid() ? 0 : g->phys.linear_velocity(g->ents[s].body).x; }
-double teng_vy(int id) { const int32_t s = slot_of(id, "teng_vy"); return s < 0 || !g->ents[s].body.valid() ? 0 : g->phys.linear_velocity(g->ents[s].body).y; }
-double teng_vz(int id) { const int32_t s = slot_of(id, "teng_vz"); return s < 0 || !g->ents[s].body.valid() ? 0 : g->phys.linear_velocity(g->ents[s].body).z; }
+// Karakterde hiz ic govdeden DEGIL karakterden: ic govde isinlanarak tasinir, kendi hizi hep sifir.
+static Vec3 ent_vel(const Ent &e) {
+  if (e.kind == Kind::Character) return g->phys.character_velocity(e.ch);
+  return e.body.valid() ? g->phys.linear_velocity(e.body) : Vec3{0, 0, 0};
+}
+double teng_vx(int id) { const int32_t s = slot_of(id, "teng_vx"); return s < 0 ? 0 : ent_vel(g->ents[s]).x; }
+double teng_vy(int id) { const int32_t s = slot_of(id, "teng_vy"); return s < 0 ? 0 : ent_vel(g->ents[s]).y; }
+double teng_vz(int id) { const int32_t s = slot_of(id, "teng_vz"); return s < 0 ? 0 : ent_vel(g->ents[s]).z; }
 void teng_set_velocity(int id, double vx, double vy, double vz) {
   CALLF("teng_set_velocity", "#%d (%.2f %.2f %.2f)", id, vx, vy, vz);
   const int32_t s = slot_of(id, "teng_set_velocity");
   if (s < 0) return;
   Ent &e = g->ents[s];
+  if (e.kind == Kind::Character) { BERR("teng_set_velocity: #%d karakter — hizi eng_character_move verir (yatay istek + zipla)", id); return; }
   if (!e.body.valid() || !e.dynamic) { BERR("teng_set_velocity: #%d dinamik govde degil (%s)", id, kind_name(e.kind)); return; }
   g->phys.set_linear_velocity(e.body, {(float)vx, (float)vy, (float)vz});
 }
@@ -1661,12 +1758,18 @@ void teng_impulse(int id, double ix, double iy, double iz) {
   const int32_t s = slot_of(id, "teng_impulse");
   if (s < 0) return;
   Ent &e = g->ents[s];
+  if (e.kind == Kind::Character) { BERR("teng_impulse: #%d karakter — hizi eng_character_move verir (yatay istek + zipla)", id); return; }
   if (!e.body.valid() || !e.dynamic) { BERR("teng_impulse: #%d dinamik govde degil (%s)", id, kind_name(e.kind)); return; }
   const Vec3 v = g->phys.linear_velocity(e.body);
   g->phys.set_linear_velocity(e.body, {v.x + (float)ix, v.y + (float)iy, v.z + (float)iz});
 }
 int teng_is_dynamic(int id) { const int32_t s = slot_of(id, "teng_is_dynamic"); return s >= 0 && g->ents[s].dynamic ? 1 : 0; }
-int teng_awake(int id) { const int32_t s = slot_of(id, "teng_awake"); return s >= 0 && g->ents[s].body.valid() && g->phys.is_active(g->ents[s].body) ? 1 : 0; }
+int teng_awake(int id) {
+  const int32_t s = slot_of(id, "teng_awake");
+  if (s < 0) return 0;
+  if (g->ents[s].kind == Kind::Character) return 1; // karakter her adimda guncellenir, uyumaz
+  return g->ents[s].body.valid() && g->phys.is_active(g->ents[s].body) ? 1 : 0;
+}
 
 // --- model animasyonu -------------------------------------------------------
 // Klip modele aittir (glTF animasyonu), varliga ATANIR. Atanmis klip her kare
@@ -2372,6 +2475,7 @@ static float ent_bound_radius(const Ent &e) {
   case Kind::Sphere: return e.radius * e.scale;
   case Kind::Box: return length(e.half) * e.scale;
   case Kind::Model: return 0.5f * e.scale; // govdesiz: nominal kutu olcusu
+  case Kind::Character: return (e.height * 0.5f > e.radius ? e.height * 0.5f : e.radius) * e.scale;
   default: return 0.0f;
   }
 }
@@ -2389,24 +2493,40 @@ double teng_raycast(double ox, double oy, double oz, double dx, double dy, doubl
   const float dl = length(dir);
   if (dl <= 1e-6f) { BERR("teng_raycast: yon vektoru sifir uzunlukta"); return -1.0; }
   dir = dir * (1.0f / dl);
-  // skip_id: Jolt sorgusunda filtre yok, bu yuzden atlanacak govdeye carpinca
-  // carpma noktasinin bir tik otesinden yeniden atariz.
+  // skip_id iki yoldan biriyle atlanir:
+  //  - KARAKTER: govdesi (ic govde) sorguda YOK sayilir (Jolt
+  //    IgnoreSingleBodyFilter) — tam sonuc.
+  //  - digerleri: ESKI yaklasim — atlanacak govdeye carpinca onu kusatan kure
+  //    kadar ileriden yeniden at. O kurenin icindeki baska carpmalar atlanir.
+  // Neden iki yol: tam filtre dogru olani, ama mevcut oyunlarin dengesi eski
+  // yaklasimla kurulmus. OLCULDU (2026-09-24, engine_aksiyon 3200 kare,
+  // butun turlere tam filtre uygulanarak): oldurulen 9 -> 7, kalan dusman
+  // 0 -> 2, durum KAZANDIN -> OYNA (otopilot bitiremedi): dusmanlarin
+  // engel yoklamasi yanlarindaki duvari artik goruyor.
+  // Oyunu bozmamak icin eski turlerde eski yol duruyor. Karakterde eski yol
+  // KULLANILAMAZ: kusatma yarim boy oldugu icin karakterin ortasindan asagi
+  // isin zemine 0.90 m yerine 1.82 m dedi (zemin yuzeyini gecip kutunun
+  // icinden yeniden atti) — olculdu, kapi 10c.
   sim::BodyId skip{};
+  bool skip_tam = false;
   float skip_span = 0.02f;
   if (skip_id != 0) {
     const int32_t s = slot_of(skip_id, "teng_raycast");
-    if (s >= 0) { skip = b.ents[s].body; skip_span = 2.0f * ent_bound_radius(b.ents[s]) + 0.02f; }
+    if (s >= 0) {
+      skip = b.ents[s].body;
+      skip_tam = b.ents[s].kind == Kind::Character;
+      skip_span = 2.0f * ent_bound_radius(b.ents[s]) + 0.02f;
+    }
   }
   Vec3 org{(float)ox, (float)oy, (float)oz};
   float remaining = (float)max_dist, traveled = 0.0f;
   for (uint32_t attempt = 0; attempt < kRayRetries && remaining > 0.0f; attempt++) {
     sim::RayHit h{};
-    if (!b.phys.raycast(org, dir, remaining, &h)) break;
-    if (skip.valid() && h.body.v == skip.v) {
+    if (!b.phys.raycast(org, dir, remaining, &h, skip_tam ? skip : sim::BodyId{})) break;
+    if (!skip_tam && skip.valid() && h.body.v == skip.v) {
       // Isin atlanacak govdenin ICINDEN basliyorsa Jolt mesafe 0 verir; 0.01
       // ilerlemek her denemede ayni govdeyi bulur, bu yuzden govdeyi kusatan
-      // kureyi TAMAMEN geceriz (yaklasiklik: o kurenin icindeki baska bir
-      // carpma atlanir; menzilli savas icin kabul edilebilir).
+      // kureyi TAMAMEN geceriz.
       const float adv = h.distance > 1e-4f ? h.distance + 0.01f : skip_span;
       org = org + dir * adv;
       traveled += adv;
