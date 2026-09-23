@@ -92,6 +92,10 @@ typedef struct TengScriptVm {
 } TengScriptVm;
 // Tulpar tarafi bunu eng_init sirasinda BIR KEZ kuruyor. nullptr: betik
 // yasam dongusu KAPALI (motor yalnizca atamayi tasir — eski davranis).
+// ISARETCI KOPYALANMAZ: gosterdigi yapi, kaldirilana (nullptr) ya da motor
+// kapanana kadar YASAMALI — statik depolama. Uretilmis baglama statik bir
+// kEngScriptVm veriyor; yiginda duran bir yapi vermek, kapsamdan cikinca her
+// kare cop isaretci cagirir.
 void teng_set_script_vm(const TengScriptVm *vm);
 // Betik kancalarinin kosup kosmadigi. Kapali oldugunda (VM kurulmamis ya da
 // sahnede betik yok) 0. Kapilar bunu okuyor.
@@ -112,6 +116,15 @@ double teng_scene_vz(int i);
 int teng_scene_is_dynamic(int i);
 void teng_scene_set_velocity(int i, double vx, double vy, double vz);
 void teng_scene_impulse(int i, double ix, double iy, double iz); // hiz += i
+// Sahne karakterleri: editordeki "Karakter Kontrolcusu" bileseni sahne
+// yuklenince karakter olarak dogar (ayni varlikta govde bileseni varsa o
+// dogurulmaz). Kapsul yazar konumuna ORTALI: teng_scene_x/y/z MERKEZI verir
+// (koprunun kendi karakteri ise ayak tabanini). teng_scene_vx/vy/vz karakter
+// hizini okur; teng_scene_set_velocity / teng_scene_impulse karakterde HATA.
+int teng_scene_is_character(int i);
+void teng_scene_character_move(int i, double vx, double vz, int jump); // yatay istek KALICI, jump kenar-tetikli
+int teng_scene_character_grounded(int i);
+void teng_scene_character_set_jump(int i, double speed);
 
 // --- varliklar (kopru sahibi) ------------------------------------------------
 int teng_spawn_box(double x, double y, double z, double hx, double hy, double hz, int dynamic, int64_t color);

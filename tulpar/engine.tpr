@@ -112,6 +112,19 @@ func sahne_dinamik(i): bool { return eng_scene_is_dynamic(i); }
 func sahne_hiz_ver(i, vx, vy, vz) { eng_scene_set_velocity(i, vx, vy, vz); }
 func sahne_itme(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
 func scene_impulse(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
+// Sahne karakteri: editörde "Karakter Kontrolcüsü" bileşeni olan varlık sahne
+// yüklenince karakter olarak doğar (aynı varlıktaki gövde bileşeni doğurulmaz,
+// karakter onun yerini alır). Kapsül yazar konumuna ORTALI: sahne_y(i) MERKEZ
+// (koddan üretilen `karakter`de konum ayak tabanı). `sahne_hiz_ver`/`sahne_itme`
+// karakterde HATA verir — hızı `sahne_karakter_yuru` verir; istek KALICI.
+func sahne_karakter_mi(i): bool { return eng_scene_is_character(i); }
+func scene_is_character(i): bool { return eng_scene_is_character(i); }
+func sahne_karakter_yuru(i, vx, vz, zipla) { eng_scene_character_move(i, vx, vz, zipla); }
+func scene_character_move(i, vx, vz, jump) { eng_scene_character_move(i, vx, vz, jump); }
+func sahne_karakter_yerde(i): bool { return eng_scene_character_grounded(i); }
+func scene_character_grounded(i): bool { return eng_scene_character_grounded(i); }
+func sahne_karakter_ziplama(i, hiz) { eng_scene_character_set_jump(i, hiz); }
+func scene_character_set_jump(i, speed) { eng_scene_character_set_jump(i, speed); }
 // Bolum gecisi: once bosalt (govdeler fizikten cikar), sonra yenisini yukle.
 func sahne_bosalt(): bool { return eng_scene_unload(); }
 func scene_unload(): bool { return eng_scene_unload(); }

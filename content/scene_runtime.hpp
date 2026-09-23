@@ -69,6 +69,12 @@ private:
 struct SceneRuntimeStats {
   uint32_t assets_loaded = 0, assets_failed = 0;
   uint32_t draws = 0, lights = 0, bodies = 0; // son kare / kurulum
+  // Karakter bilesenli varliklar (kSceneCharacter) fizikte karakter olarak
+  // dogar. `characters_failed`: gecersiz boyut (boy <= 2*yaricap) ya da havuz
+  // dolu — sessiz degil, kopru hata olarak loglar. `char_bodies_replaced`:
+  // ayni varlikta govde bileseni de vardi ve DOGURULMADI (karakter onun yerini
+  // aliyor; ikisi birden olsaydi karakter kendi kutusuna takilirdi).
+  uint32_t characters = 0, characters_failed = 0, char_bodies_replaced = 0;
   uint32_t lod[kModelMaxLods + 1] = {};       // son kare: LOD0/1/2 secim sayilari
 };
 
@@ -104,8 +110,14 @@ public:
   // gecersiz). Kopru bunu KUVVET uygulamak icin kullanir: sahne varliklari
   // yalniz okunabilir degil, itilebilir de olsun.
   sim::BodyId entity_body(uint32_t i) const;
-  // Varligin govdesi dinamik mi (sabit govdeye kuvvet uygulanamaz).
+  // Varligin govdesi dinamik mi (sabit govdeye kuvvet uygulanamaz). Karakter
+  // DEGIL: onun hizi karakter girdisiyle verilir.
   bool entity_dynamic(uint32_t i) const;
+  // Varligin karakteri (kSceneCharacter; fizikte degilse ya da dogamadiysa
+  // gecersiz). SAHNE SOZLESMESI: kapsul varligin yazar konumuna ORTALANIR
+  // (govde bileseni gibi); entity_matrix de kapsul merkezini verir. Koprunun
+  // kendi karakteri (teng_spawn_character) ise AYAK tabanini kullanir.
+  sim::CharacterId entity_character(uint32_t i) const;
   // Govdeler su an fizikte mi (spawn edildi, despawn edilmedi).
   bool bodies_live() const { return bodies_live_; }
 
@@ -116,6 +128,10 @@ private:
   bool have_[kSceneMaxAssets] = {};
   sim::BodyId *body_ids_ = nullptr; // [body_count]
   bool bodies_live_ = false;
+  // Karakterler: tablo indeksiyle (view_.characters), varliktan tabloya ent_char_.
+  sim::CharacterId *char_ids_ = nullptr; // [character_count]
+  sim::BodyId *char_body_ = nullptr;     // [character_count] ic govde (tetik/isin eslemesi)
+  int32_t *ent_char_ = nullptr;          // [entity_count] -> tablo indeksi, -1 yok
   PoseScratch *pose_scratch_ = nullptr;
   SceneRuntimeStats stats_;
   SceneGi gi_; // ok()==false (bake yok) ise apply_world eski davranista kalir

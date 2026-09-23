@@ -236,6 +236,20 @@ VMValue aot_eng_scene_impulse_ptr(VMValue *i, VMValue *ix, VMValue *iy, VMValue 
   teng_scene_impulse((int)tm_int(i), tm_num(ix), tm_num(iy), tm_num(iz));
   return VM_VOID();
 }
+VMValue aot_eng_scene_is_character_ptr(VMValue *i) {
+  return VM_BOOL(teng_scene_is_character((int)tm_int(i)) != 0);
+}
+VMValue aot_eng_scene_character_move_ptr(VMValue *i, VMValue *vx, VMValue *vz, VMValue *jump) {
+  teng_scene_character_move((int)tm_int(i), tm_num(vx), tm_num(vz), (int)tm_int(jump));
+  return VM_VOID();
+}
+VMValue aot_eng_scene_character_grounded_ptr(VMValue *i) {
+  return VM_BOOL(teng_scene_character_grounded((int)tm_int(i)) != 0);
+}
+VMValue aot_eng_scene_character_set_jump_ptr(VMValue *i, VMValue *speed) {
+  teng_scene_character_set_jump((int)tm_int(i), tm_num(speed));
+  return VM_VOID();
+}
 VMValue aot_eng_spawn_box_ptr(VMValue *x, VMValue *y, VMValue *z, VMValue *hx, VMValue *hy, VMValue *hz, VMValue *dynamic, VMValue *color) {
   return VM_INT((int64_t)teng_spawn_box(tm_num(x), tm_num(y), tm_num(z), tm_num(hx), tm_num(hy), tm_num(hz), (int)tm_int(dynamic), tm_int(color)));
 }

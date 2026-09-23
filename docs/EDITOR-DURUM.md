@@ -50,7 +50,7 @@ Bu belgedeki tablolar şu üç kaynağın kesişiminden çıkarıldı:
 | 4 | Camera | + | + | **−** | **−** | editörde çalışır, **oyunda kaybolur** |
 | 5 | Audio | + | + | **−** | **−** | hiçbir yerde ses çalmaz |
 | 6 | Script | + | + | **+** | **+** | motor betiği **çalıştırır**: `<taban>_baslat` / `_guncelle` adıyla çözülür (bkz. KOPRU §7.9). Kartta **Yeni betik** (iskeleti yazar ve atar, üzerine yazmaz), **Dış editörde aç** (`platform/process`), **Oyunu çalıştır** (Ctrl+F5, ayrı süreç; motoru tanıyan derleyici `tools/motor_derleyici.sh`) |
-| 7 | Character | **−** | + | + | **−** | paneli yok, blob'a yazılır, **okunmaz** |
+| 7 | Character | **+** | + | + | **+** | "Karakter Kontrolcüsü" kartı; sahne yüklenince karakter olarak **doğar** (kapsül ortalı, aynı varlıktaki gövde doğurulmaz), `sahne_karakter_yuru` ile sürülür (KOPRU §8) |
 | 8 | Particle | **−** | + | + | +² | paneli yok, **çizilmiyor** (§2.C) |
 | 9 | Terrain | + | + | + | + | **tam** |
 | 10 | Voxel | **−** | + | + | + | **paneli yok**, gerisi çalışıyor |
@@ -192,7 +192,7 @@ Aşağıdaki sütun tahmin değil, dosya araması sonucu.
 | Terrain | `content/terrain.cpp/.hpp` | ✅ var, bağlı |
 | Water | `content/water_wave.cpp/.hpp` | ✅ var, bağlı |
 | Voxel | `content/voxel.cpp/.hpp` | ✅ var, bağlı |
-| Character | `sim/physics.cpp` → `CharacterVirtual` | ✅ var, **bağlanmamış** |
+| Character | `sim/physics.cpp` → `CharacterVirtual` | ✅ var, **bağlandı**: köprü (`karakter`) + sahne çalışma zamanı (`SceneRuntime::spawn`) |
 | NavAgent | `sim/navmesh.cpp/.hpp` | ✅ var, **bağlanmamış** |
 | Audio / Reverb | `audio/mixer.cpp`, `audio/spatial.hpp`, `audio/dsp.hpp` | ✅ var, **bağlanmamış** |
 | Wind | `content/wind.cpp/.hpp` | ✅ var, **tüketici shader yok** |
@@ -252,13 +252,13 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 | C.6 | **Bileşen başına aç/kapa** — `SceneEntity::components_enabled` maskesi | `component_header`'ın `enabled` parametresi zaten hazır |
 | C.7a | ~~Blob: Script~~ **BİTTİ** (v7) | Yazan + okuyan taraf: `SceneBlobScript`, `eng_scene_script` / `eng_scene_script_enabled` |
 | C.7b | Blob: Camera / Audio tablolarını yazan **ve** okuyan taraf | Ne yazanı ne okuyanı var. Not: eski satır "tek sürüm bump 5 → 6 hepsini kapsar" diyordu, **yanlış çıktı** — v6 bunları taşımadı, v7 yalnız Script'i aldı |
-| C.7c | Blob: Character / Wind tablolarını **okuyan** taraf | Yazan taraf v6'da geldi, okuyan yok — "bloba yazılır, okunmaz" |
+| C.7c | Blob: ~~Character~~ / Wind tablolarını **okuyan** taraf | Character **BİTTİ** (SceneRuntime karakter olarak doğuruyor). Wind'in hâlâ okuyanı yok — "bloba yazılır, okunmaz" (D.5: önce tüketici shader) |
 
 ### Faz D — yeni çalışma zamanı *(pahalı, sırayla)*
 
 | # | İş | Bağlanacağı yer |
 |---|---|---|
-| D.1 | Karakter kontrolcüsü — **kısmen**: kodla üretilen karakter oyunlara açık (`karakter(...)`, KOPRU §8, `tulpar/examples/engine_karakter.tpr`); kalan iş, sahnede yerleştirilen karakter bileşenini (C.7c) çalışma zamanında doğurmak ve oyunun ona sahne dizininden erişmesi | `sim/physics.cpp` → `CharacterVirtual` |
+| D.1 | ~~Karakter kontrolcüsü~~ **BİTTİ** (editörün F5'i hariç) | Kodla üretilen (`karakter(...)`) ve sahnede yerleştirilen karakter (`sahne_karakter_yuru(i, ...)`) oyunda doğuyor, tetik ve ışın dahil (KOPRU §8). Kalan: editörün iç "Oynat"ı (F5) hâlâ yalnız gövde koşturuyor — karakterli varlık orada gövdesiyle (varsa) düşer, karakter olarak yürümez | `sim/physics.cpp` → `CharacterVirtual` |
 | D.2 | Ses kaynağı → mixer voice | `audio/mixer.cpp` + `audio/spatial.hpp` |
 | D.3 | NavAgent → yol bulma | `sim/navmesh.cpp` |
 | D.4 | Reverb | `audio/dsp.hpp` |

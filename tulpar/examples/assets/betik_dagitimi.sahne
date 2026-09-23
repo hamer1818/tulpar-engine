@@ -72,3 +72,20 @@ nesne "gecit"
   tetik
   betik "tulpar/examples/davranis/alarm.tpr" etkin
 son
+nesne "kule"
+  konum 0 1 -9
+  donus 0 0 0
+  olcek 1 1 1
+  govde kutu 1 1 1.5 sabit
+  tetik
+  betik "tulpar/examples/davranis/alarm.tpr" etkin
+son
+nesne "nobetci"
+  konum -3 0.9 -9
+  donus 0 0 0
+  olcek 0.6 1.8 0.6
+  model kaynak -1 0.95 0.85 0.3
+  ilkel 11
+  betik "tulpar/examples/davranis/nobet.tpr" etkin
+  karakter 0.3 1.8 70 45
+son
