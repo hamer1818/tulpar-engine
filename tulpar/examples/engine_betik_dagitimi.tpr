@@ -21,6 +21,8 @@
 // (bölgeler) için iki kanca daha var: bölgenin betiğinde <ad>_tetik_girdi /
 // _tetik_cikti, girenin betiğinde <ad>_bolge_girdi / _bolge_cikti — bu
 // sahnede "alarm_bolgesi" oyuncuyu, "gecit" devriyenin yolunu kapsıyor.
+// "nobetci" bir SAHNE KARAKTERİ (Karakter Kontrolcüsü bileşeni): betiği onu
+// `sahne_karakter_yuru` ile "kule" bölgesinin içinden gidip getiriyor.
 //
 // Oyun döngüsünde tek bir `if betik == "..."` satırı yok. Yeni bir davranış
 // eklemek = `davranis/` altına bir dosya koymak + onu import etmek.
@@ -38,6 +40,7 @@ import "engine";
 import "examples/davranis/kovala.tpr";
 import "examples/davranis/devriye.tpr";
 import "examples/davranis/alarm.tpr";
+import "examples/davranis/nobet.tpr";
 
 func main() {
     log_seviyesi(2);
@@ -58,7 +61,7 @@ func main() {
 
     while (calisiyor()) {
         if (kare_basla()) {
-            yazi("Betik yasam dongusu: turuncu kovalar, mavi devriye gezer", 12, 12, 1.0, renk(235, 238, 245));
+            yazi("Betik yasam dongusu: turuncu kovalar, mavi devriye gezer, sari nobetci (sahne karakteri) kuleden gecer", 12, 12, 1.0, renk(235, 238, 245));
         }
         // Sıcak yükleme: editörde "Derle" -> blob değişir -> motor kancaları
         // YENİDEN çözer. Oyunun yapacağı bir şey yok; tablo motorda.

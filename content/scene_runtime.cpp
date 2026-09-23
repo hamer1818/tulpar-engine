@@ -213,6 +213,18 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   body_ids_ = view.h->body_count ? arena.alloc_array<sim::BodyId>(view.h->body_count) : nullptr;
   if (view.h->body_count && !body_ids_) return false;
   for (uint32_t i = 0; i < view.h->body_count; i++) body_ids_[i] = sim::BodyId{};
+  const uint32_t nc = view.h->character_count;
+  char_ids_ = nc ? arena.alloc_array<sim::CharacterId>(nc) : nullptr;
+  char_body_ = nc ? arena.alloc_array<sim::BodyId>(nc) : nullptr;
+  ent_char_ = view.h->entity_count ? arena.alloc_array<int32_t>(view.h->entity_count) : nullptr;
+  if ((nc && (!char_ids_ || !char_body_)) || (view.h->entity_count && !ent_char_)) return false;
+  for (uint32_t i = 0; i < view.h->entity_count; i++) ent_char_[i] = -1;
+  for (uint32_t k = 0; k < nc; k++) {
+    char_ids_[k] = sim::CharacterId{};
+    char_body_[k] = sim::BodyId{};
+    const uint32_t e = view.characters[k].entity;
+    if (e < view.h->entity_count && ent_char_[e] < 0) ent_char_[e] = (int32_t)k; // blob dogrulamasi sinir disini zaten reddeder
+  }
   pose_scratch_ = view.h->anim_count ? arena.alloc_array<PoseScratch>(1) : nullptr;
   if (view.h->anim_count && !pose_scratch_) return false;
   char path[1024];
@@ -344,14 +356,38 @@ void SceneRuntime::apply_world(renderer::Renderer &r) const {
 uint32_t SceneRuntime::spawn(sim::Physics &ph) {
   if (bodies_live_) return stats_.bodies;
   uint32_t n = 0;
+  stats_.characters = stats_.characters_failed = stats_.char_bodies_replaced = 0;
   for (uint32_t i = 0; i < view_.h->body_count; i++) {
     const SceneBlobBody &b = view_.bodies[i];
+    // Karakterli varligin govdesi DOGURULMAZ: karakter onun yerini alir.
+    // Editorun "Karakter Kontrolcusu" hazir nesnesi ikisini birden koyuyor
+    // (editorun F5'i yalniz govde kostuyor); calisma zamaninda ikisi birden
+    // olsaydi sanal karakter kendi kutusuyla ic ice dogardi. OLCULDU
+    // (2026-09-24, kopru kapisi 4.5d, bu satir kapatilarak): 1.5 s x 2 m/s
+    // yurume 3.00 m yerine 3.79 m cikti — ic ice dogan kutu karakteri itti.
+    if (b.entity < view_.h->entity_count && ent_char_ && ent_char_[b.entity] >= 0) { stats_.char_bodies_replaced++; continue; }
     if (b.flags & kSceneBlobBodySensor) {
       if (b.shape == (uint32_t)SceneShape::Box) body_ids_[i] = ph.add_sensor_box(v3(b.half), v3(b.pos), q4(b.quat));
       else body_ids_[i] = ph.add_sensor_sphere(b.radius, v3(b.pos));
     } else if (b.shape == (uint32_t)SceneShape::Box) body_ids_[i] = ph.add_box(v3(b.half), v3(b.pos), q4(b.quat), b.dynamic != 0);
     else body_ids_[i] = ph.add_sphere(b.radius, v3(b.pos), b.dynamic != 0);
     if (body_ids_[i].valid()) n++;
+  }
+  for (uint32_t k = 0; k < view_.h->character_count; k++) {
+    const SceneBlobCharacter &c = view_.characters[k];
+    // Kapsul varligin yazar konumuna ORTALI (govde bileseni gibi); Jolt'un
+    // karakteri AYAK tabanindan konumlanir -> yarim boy asagi.
+    const Mat4 w = view_.entity_matrix(c.entity);
+    sim::CharacterConfig cc;
+    cc.radius = c.radius;
+    cc.height = c.height;
+    cc.mass = c.mass;
+    cc.max_slope_deg = c.max_slope;
+    cc.position = {w.m[3][0], w.m[3][1] - c.height * 0.5f, w.m[3][2]};
+    char_ids_[k] = ph.add_character(cc); // gecersiz boyut / dolu havuz: gecersiz id (sim reddeder)
+    if (!char_ids_[k].valid()) { stats_.characters_failed++; continue; }
+    char_body_[k] = ph.character_body(char_ids_[k]);
+    stats_.characters++;
   }
   bodies_live_ = true;
   stats_.bodies = n;
@@ -363,12 +399,31 @@ void SceneRuntime::despawn(sim::Physics &ph) {
     if (body_ids_[i].valid()) ph.remove(body_ids_[i]);
     body_ids_[i] = sim::BodyId{};
   }
+  for (uint32_t k = 0; k < view_.h->character_count; k++) {
+    if (char_ids_[k].valid()) ph.remove_character(char_ids_[k]); // ic govdeyi de o kaldirir
+    char_ids_[k] = sim::CharacterId{};
+    char_body_[k] = sim::BodyId{};
+  }
+  stats_.characters = 0;
   bodies_live_ = false;
   stats_.bodies = 0;
 }
 
 Mat4 SceneRuntime::entity_matrix(uint32_t i, const sim::Physics *ph) const {
   const SceneBlobEntity &e = view_.entities[i];
+  if (ph && bodies_live_ && ent_char_ && ent_char_[i] >= 0) {
+    const int32_t k = ent_char_[i];
+    if (char_ids_[k].valid()) {
+      // Yazar donusumu (donus + olcek) korunur, yalniz ORTA nokta karakterden:
+      // ayak + yarim boy. Karakter kipirdamadiysa yazar konumuyla ayni yer.
+      Mat4 m = view_.entity_matrix(i);
+      const Vec3 f = ph->character_position(char_ids_[k]);
+      m.m[3][0] = f.x;
+      m.m[3][1] = f.y + view_.characters[k].height * 0.5f;
+      m.m[3][2] = f.z;
+      return m;
+    }
+  }
   if (ph && bodies_live_ && e.body >= 0) {
     const SceneBlobBody &b = view_.bodies[e.body];
     const sim::BodyId id = body_ids_[e.body];
@@ -379,13 +434,20 @@ Mat4 SceneRuntime::entity_matrix(uint32_t i, const sim::Physics *ph) const {
 
 sim::BodyId SceneRuntime::entity_body(uint32_t i) const {
   if (!bodies_live_ || i >= view_.h->entity_count) return sim::BodyId{};
+  if (ent_char_ && ent_char_[i] >= 0) return char_body_[ent_char_[i]]; // karakterin ic govdesi
   const int32_t b = view_.entities[i].body;
   if (b < 0 || (uint32_t)b >= view_.h->body_count) return sim::BodyId{};
   return body_ids_[b];
 }
 
+sim::CharacterId SceneRuntime::entity_character(uint32_t i) const {
+  if (!bodies_live_ || i >= view_.h->entity_count || !ent_char_ || ent_char_[i] < 0) return sim::CharacterId{};
+  return char_ids_[ent_char_[i]];
+}
+
 bool SceneRuntime::entity_dynamic(uint32_t i) const {
   if (i >= view_.h->entity_count) return false;
+  if (ent_char_ && ent_char_[i] >= 0) return false; // karakter: hizi girdiyle
   const int32_t b = view_.entities[i].body;
   return b >= 0 && (uint32_t)b < view_.h->body_count && view_.bodies[b].dynamic != 0;
 }

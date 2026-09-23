@@ -1,0 +1,39 @@
+// Davranış — "nobet". Bir SAHNE KARAKTERİNE atanır: editörde nesneye
+// "Karakter Kontrolcüsü" bileşeni + bu betik. Motor çağırır.
+//
+//   nobet_baslat(id)               sahne yüklenince bir kez
+//   nobet_guncelle(id, dt)         her kare: gidip gel
+//   nobet_bolge_girdi(id, bolge)   bir tetik hacmine girdi (girenin tarafı)
+//   nobet_bolge_cikti(id, bolge)
+//
+// Sahne karakteri bir fizik gövdesi DEĞİL: hızı `sahne_karakter_yuru` verir
+// (istek kalıcı), `sahne_hiz_ver` onda HATA verir. Rampada kaymaz, 0.4 m'ye
+// kadar basamağı yürüyerek çıkar. Konumu kapsülün ORTASI (gövde bileşeni gibi).
+
+float NOBET_HIZ = 2.0;
+float NOBET_YARIM_TUR = 2.5;   // saniye: bir yöne bu kadar, sonra geri
+float nobet_t = 0.0;
+float nobet_yon = 1.0;
+
+func nobet_baslat(id) {
+    nobet_t = 0.0;
+    nobet_yon = 1.0;
+    logla("nobet basladi: " + sahne_adi(id) + " (karakter " + toString(sahne_karakter_mi(id)) + ")");
+}
+
+func nobet_guncelle(id, d) {
+    nobet_t = nobet_t + d;
+    if (nobet_t >= NOBET_YARIM_TUR) {
+        nobet_t = nobet_t - NOBET_YARIM_TUR;
+        nobet_yon = 0.0 - nobet_yon;
+    }
+    sahne_karakter_yuru(id, nobet_yon * NOBET_HIZ, 0.0, false);
+}
+
+func nobet_bolge_girdi(id, bolge) {
+    logla("nobet bolgeye girdi: " + sahne_adi(bolge));
+}
+
+func nobet_bolge_cikti(id, bolge) {
+    logla("nobet bolgeden cikti: " + sahne_adi(bolge));
+}

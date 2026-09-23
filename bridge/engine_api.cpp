@@ -1320,6 +1320,12 @@ int teng_scene_load(const char *path) {
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
+  if (b.srt.stats().characters || b.srt.stats().characters_failed)
+    BINFO("sahne karakterleri: %u dogdu (%u varligin govde bileseni DOGURULMADI: karakter onun yerini aldi)", b.srt.stats().characters,
+          b.srt.stats().char_bodies_replaced);
+  if (b.srt.stats().characters_failed)
+    BERR("sahne: %u karakter DOGAMADI (boy > 2*yaricap olmali; ya da karakter havuzu dolu, en cok %u)", b.srt.stats().characters_failed,
+         b.phys_max_characters);
   // Navmesh: bake DERLEME aninda yapildi (engine_sahnec), burada yalniz sorgu
   // nesnesi kurulur. Bake yoksa hata degil: oyun duz yol + isin testine duser.
   b.nav_n = 0;
@@ -1457,6 +1463,11 @@ static sim::BodyId scene_body(int i, const char *fn) {
 }
 static bool scene_body_writable(int i, const char *fn, sim::BodyId *out) {
   if (!scene_idx_ok(i, fn)) return false;
+  if (g->srt.entity_character((uint32_t)i).valid()) {
+    BERR("%s: sahne varligi %d (\"%s\") karakter — hizi sahne_karakter_yuru verir; cagri yok sayildi", fn, i,
+         g->srt.view().entity_name((uint32_t)i));
+    return false;
+  }
   const sim::BodyId b = g->srt.entity_body((uint32_t)i);
   if (!b.valid() || !g->srt.entity_dynamic((uint32_t)i)) {
     BERR("%s: sahne varligi %d (\"%s\") dinamik govde degil (%s) — cagri yok sayildi", fn, i, g->srt.view().entity_name((uint32_t)i),
@@ -1466,10 +1477,43 @@ static bool scene_body_writable(int i, const char *fn, sim::BodyId *out) {
   *out = b;
   return true;
 }
-double teng_scene_vx(int i) { const sim::BodyId b = scene_body(i, "teng_scene_vx"); return b.valid() ? g->phys.linear_velocity(b).x : 0.0; }
-double teng_scene_vy(int i) { const sim::BodyId b = scene_body(i, "teng_scene_vy"); return b.valid() ? g->phys.linear_velocity(b).y : 0.0; }
-double teng_scene_vz(int i) { const sim::BodyId b = scene_body(i, "teng_scene_vz"); return b.valid() ? g->phys.linear_velocity(b).z : 0.0; }
+// Karakterde hiz karakterden (ic govde isinlanarak tasinir, kendi hizi sifir).
+static Vec3 scene_vel(int i, const char *fn) {
+  if (!scene_idx_ok(i, fn)) return Vec3{0, 0, 0};
+  const sim::CharacterId c = g->srt.entity_character((uint32_t)i);
+  if (c.valid()) return g->phys.character_velocity(c);
+  const sim::BodyId b = g->srt.entity_body((uint32_t)i);
+  return b.valid() ? g->phys.linear_velocity(b) : Vec3{0, 0, 0};
+}
+double teng_scene_vx(int i) { return scene_vel(i, "teng_scene_vx").x; }
+double teng_scene_vy(int i) { return scene_vel(i, "teng_scene_vy").y; }
+double teng_scene_vz(int i) { return scene_vel(i, "teng_scene_vz").z; }
 int teng_scene_is_dynamic(int i) { return scene_idx_ok(i, "teng_scene_is_dynamic") && g->srt.entity_dynamic((uint32_t)i) ? 1 : 0; }
+// --- sahne karakterleri (kSceneCharacter) -----------------------------------------
+// Editorde "Karakter Kontrolcusu" bileseni olan varlik sahne yuklenince
+// karakter olarak dogar; kapsul yazar konumuna ORTALI, sahne_y(i) merkezi verir.
+static sim::CharacterId scene_char(int i, const char *fn) {
+  if (!scene_idx_ok(i, fn)) return sim::CharacterId{};
+  const sim::CharacterId c = g->srt.entity_character((uint32_t)i);
+  if (!c.valid()) BERR("%s: sahne varligi %d (\"%s\") karakter degil (bileseni yok ya da dogamadi)", fn, i, g->srt.view().entity_name((uint32_t)i));
+  return c;
+}
+int teng_scene_is_character(int i) { return scene_idx_ok(i, "teng_scene_is_character") && g->srt.entity_character((uint32_t)i).valid() ? 1 : 0; }
+void teng_scene_character_move(int i, double vx, double vz, int jump) {
+  CALLF("teng_scene_character_move", "%d (%.2f %.2f) zipla %d", i, vx, vz, jump);
+  const sim::CharacterId c = scene_char(i, "teng_scene_character_move");
+  if (c.valid()) g->phys.set_character_input(c, {(float)vx, 0.0f, (float)vz}, jump != 0);
+}
+int teng_scene_character_grounded(int i) {
+  const sim::CharacterId c = scene_char(i, "teng_scene_character_grounded");
+  return c.valid() && g->phys.character_grounded(c) ? 1 : 0;
+}
+void teng_scene_character_set_jump(int i, double speed) {
+  CALLF("teng_scene_character_set_jump", "%d %.2f", i, speed);
+  if (speed < 0) { BERR("teng_scene_character_set_jump: hiz negatif olamaz (%.2f)", speed); return; }
+  const sim::CharacterId c = scene_char(i, "teng_scene_character_set_jump");
+  if (c.valid()) g->phys.set_character_jump_speed(c, (float)speed);
+}
 void teng_scene_set_velocity(int i, double vx, double vy, double vz) {
   CALLF("teng_scene_set_velocity", "%d (%.2f %.2f %.2f)", i, vx, vy, vz);
   sim::BodyId b;

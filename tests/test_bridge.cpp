@@ -270,7 +270,11 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
             return 1;
           }
         };
-        const TengScriptVm vm{Sahte::has, Sahte::call};
+        // STATIK: motor isaretciyi kopyalamiyor ve bu blok bitince de kurulu
+        // kaliyor ("sonraki bolumler icin geri kur"). Ilk yazimda yigindaydi:
+        // blok kapaninca sonraki her kare, kapsami bitmis bir yapinin islev
+        // isaretcilerini okuyordu (tanimsiz davranis; sans eseri bozulmadi).
+        static const TengScriptVm vm{Sahte::has, Sahte::call};
         const int errs_hook = teng_error_count();
         teng_scene_unload();
         teng_set_script_vm(&vm);
@@ -390,6 +394,77 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         }
         teng_set_script_vm(&vm); // sonraki bolumler icin geri kur
         CHECK(teng_scene_load(blob) == 1);
+      }
+
+      // --- 4.5d) SAHNE KARAKTERI: editorde yerlestirilen karakter dogar mi? ---
+      // Bellekte (editor.sahne kanonik metin kapisinin oznesi): uzakta bir zemin
+      // kutusu, ustunde editorun "Karakter Kontrolcusu" hazir nesnesinin AYNISI
+      // (karakter + dinamik kutu govdesi) ve yolunda bir tetik. Olculen: govde
+      // DOGURULMADI (karakter yerini aldi), ilk konum yazar konumunda (kapsul
+      // ORTALI), sahne API'siyle yurume, tetik kuyrugunda SAHNE dizini, hiz_ver HATA.
+      {
+        static content::SceneDesc kd;
+        kd = desc;
+        content::SceneEntity z{};
+        std::snprintf(z.name, sizeof z.name, "k_zemin");
+        z.components = content::kSceneBody;
+        z.pos = Vec3{100, -0.5f, 100};
+        z.half = Vec3{10, 0.5f, 10}; // ust yuz y=0
+        CHECK(kd.insert_entity(kd.entity_count, z));
+        content::SceneEntity nb{};
+        std::snprintf(nb.name, sizeof nb.name, "nobetci");
+        nb.components = content::kSceneCharacter | content::kSceneBody; // editor hazir nesnesiyle ayni ikili
+        nb.pos = Vec3{100, 0.9f, 100};                                   // ORTA nokta: ayak y=0
+        nb.half = Vec3{0.4f, 0.9f, 0.4f};
+        nb.dynamic = true;
+        nb.char_radius = 0.4f;
+        nb.char_height = 1.8f;
+        CHECK(kd.insert_entity(kd.entity_count, nb));
+        content::SceneEntity kt{};
+        std::snprintf(kt.name, sizeof kt.name, "k_gecit");
+        kt.components = content::kSceneBody;
+        kt.pos = Vec3{102, 1, 100};
+        kt.half = Vec3{0.5f, 1, 2};
+        kt.body_sensor = true;
+        CHECK(kd.insert_entity(kd.entity_count, kt));
+        char kblob[800];
+        std::snprintf(kblob, sizeof kblob, "%s/_kopru_karakter.sahneb", assets_dir());
+        CHECK(content::scene_blob_save(arena, kd, kblob, &serr));
+        teng_scene_unload();
+        const int govde0 = teng_body_count();
+        CHECK(teng_scene_load(kblob) == 1);
+        const int ni = teng_scene_find("nobetci"), gi = teng_scene_find("k_gecit");
+        // editor.sahne'nin 3 govdesi (kup, duvar) + k_zemin + k_gecit + karakterin IC govdesi;
+        // nobetci'nin KUTU govdesi YOK.
+        const int govde1 = teng_body_count();
+        std::printf("    [bilgi] sahne karakteri: nobetci=%d karakter %d (k_zemin karakter %d), fizik govdesi %d -> %d, ilk merkez y %.3f\n", ni,
+                    teng_scene_is_character(ni), teng_scene_is_character(teng_scene_find("k_zemin")), govde0, govde1, teng_scene_y(ni));
+        CHECK(ni >= 0 && gi >= 0 && teng_scene_is_character(ni) == 1 && teng_scene_is_character(gi) == 0);
+        // 5 = kup_dusen + duvar_sabit + k_zemin + k_gecit + karakterin ic govdesi.
+        // Nobetci'nin kutu govdesi de dogsaydi 6 olurdu (karakter kendi kutusuna takilirdi).
+        CHECK(govde1 - govde0 == 5);
+        CHECK(std::fabs(teng_scene_y(ni) - 0.9) < 1e-3 && std::fabs(teng_scene_x(ni) - 100.0) < 1e-3); // kapsul ORTALI
+        const double x0 = teng_scene_x(ni);
+        teng_scene_character_move(ni, 2.0, 0.0, 0);
+        int gir = 0, cik = 0;
+        for (int f = 0; f < 90; f++) {
+          teng_frame_begin(); teng_frame_end();
+          for (int i = 0; i < teng_trigger_count(); i++)
+            if (teng_trigger_zone_scene(i) == gi && teng_trigger_other_scene(i) == ni) (teng_trigger_entered(i) ? gir : cik)++;
+        }
+        const double yol = teng_scene_x(ni) - x0;
+        std::printf("    [bilgi] sahne karakteri yurudu %.2f m (analitik 3.00), merkez y %.3f, zeminde %d, hiz x %.2f; gecit giris %d cikis %d\n", yol,
+                    teng_scene_y(ni), teng_scene_character_grounded(ni), teng_scene_vx(ni), gir, cik);
+        CHECK(yol > 2.7 && yol < 3.1);
+        CHECK(teng_scene_character_grounded(ni) == 1 && std::fabs(teng_scene_y(ni) - 0.9) < 0.05);
+        CHECK(gir == 1 && cik == 1);
+        const int errs_k = teng_error_count();
+        teng_scene_set_velocity(ni, 5, 0, 0); // KONTROL: karakterde HATA
+        CHECK(teng_error_count() == errs_k + 1);
+        teng_scene_unload();
+        CHECK(teng_body_count() == govde0); // karakter ic govdesiyle birlikte gitti
+        std::remove(kblob);
+        CHECK(teng_scene_load(blob) == 1); // sonraki bolumler icin geri
       }
 
       // --- 4.5b) BETIK ATAMASI: editorde atanan .tpr oyuna ulasiyor mu? ---
@@ -818,7 +893,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // Ortamdan gelen hatalar (ses cihazi yok, kaynak yok) ayri sayilir; onlar
   // kasitli degil ve makineye gore degisir.
   int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/ + 1 /*karakterde hiz_ver*/;
-  if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/;
+  if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;
   const int errs_total = teng_error_count() - err0 - ortam_hatasi;

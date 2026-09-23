@@ -81,6 +81,10 @@ SPEC = [
     ("eng_scene_is_dynamic", "bool", [("i", "int")], "Sahne varliginin govdesi dinamik mi (kuvvet uygulanabilir mi)."),
     ("eng_scene_set_velocity", "void", [("i", "int"), ("vx", "num"), ("vy", "num"), ("vz", "num")], "Sahne govdesinin hizi (dinamik degilse hata loglanir, cagri yok sayilir)."),
     ("eng_scene_impulse", "void", [("i", "int"), ("ix", "num"), ("iy", "num"), ("iz", "num")], "Sahne govdesinin hizina ekler (dinamik degilse hata loglanir)."),
+    ("eng_scene_is_character", "bool", [("i", "int")], "Sahne varligi karakter mi (Karakter Kontrolcusu bileseni + dogdu)."),
+    ("eng_scene_character_move", "void", [("i", "int"), ("vx", "num"), ("vz", "num"), ("jump", "flag")], "Sahne karakterine yatay hiz istegi (KALICI; durmak icin 0,0) + zipla (kenar-tetikli)."),
+    ("eng_scene_character_grounded", "bool", [("i", "int")], "Sahne karakteri zeminde mi."),
+    ("eng_scene_character_set_jump", "void", [("i", "int"), ("speed", "num")], "Sahne karakterinin ziplama hizi (m/s)."),
     # varliklar
     ("eng_spawn_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num"), ("dynamic", "flag"), ("color", "color")], "Kutu (yarim kenarlar) + fizik govdesi. Donus: varlik id (0 hata)."),
     ("eng_spawn_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("dynamic", "flag"), ("color", "color")], "Kure + fizik govdesi. Donus: varlik id."),

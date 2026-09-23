@@ -264,7 +264,7 @@ ile, yani kancaya verilen indisin **canlı** olduğunun kanıtı. Zemin temaslar
 Motor tarafı kapısı Tulpar'a hiç ihtiyaç duymaz — `tests/test_bridge.cpp` sahte bir `TengScriptVm`
 kurar ve dört kancanın da argüman sayısını, hedefini ve `olay` indisinin okunabilirliğini ölçer.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **191 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **195 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -274,7 +274,7 @@ bölüm yorumlarına göre):
 |---|---:|---|
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | dünya / kamera | 11 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, kamera (göz+hedef ya da yörünge), kamera konumu |
-| derlenmiş sahne (`.sahneb`) | 17 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi** |
+| derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 25 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
 | girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare |
@@ -304,8 +304,16 @@ kutuda eski yaklaşım duruyor, çünkü mevcut oyunların dengesi ona kurulu (�
 `teng_raycast` yorumunda: tam filtre engine_aksiyon'da 9 öldürmeyi 7'ye indirdi). Örnek:
 `tulpar/examples/engine_karakter.tpr` (merdiven, tetik, zıplanan duvar; penceresiz kipte kendi
 oynar, `[kapi]` satırı iki koşumda aynı). Kapsam dışı: karakterin kendi çarpışma olayları
-(sanal temaslar) çarpışma kuyruğuna girmiyor; sahnede yerleştirilen karakter bileşeni hâlâ
-çalışma zamanında doğurulmuyor (EDITOR-DURUM C.7c / D.1).
+(sanal temaslar) çarpışma kuyruğuna girmiyor.
+
+**Sahne karakteri:** editörde "Karakter Kontrolcüsü" bileşeni olan varlık sahne yüklenince karakter
+olarak doğar (blob v6'dan beri karakter tablosunu yazıyordu, okuyan yoktu). Kapsül yazar konumuna
+**ortalı** — gövde bileşeni gibi; `sahne_y(i)` merkezi verir (koddan üretilen karakterde konum ayak
+tabanı: iki sözleşme bilerek farklı, biri yazarın yerleştirdiği nesneye, öteki koda uyuyor). Aynı
+varlıkta gövde bileşeni de varsa (editörün hazır nesnesi ikisini birden koyuyor) gövde
+**doğurulmuyor**: ölçüldü, ikisi birden doğunca iç içe kutu karakteri itti ve 3.00 m'lik yürüme
+3.79 m çıktı. Sürmek için `sahne_karakter_yuru(i, vx, vz, zipla)`; betik kancaları ve tetikler sahne
+dizinleriyle çalışır. Örnek: `engine_betik_dagitimi`'ndeki "nobetci" (`davranis/nobet.tpr`).
 
 **Ne verilmez (bilinçli):** struct, callback, işaretçi, çıktı parametresi — Tulpar'ın bugünkü FFI'si
 taşımıyor. Bunun görünür sonuçları var: (1) **çarpışma olayı geri çağrım değil kuyruktur** — fizik
