@@ -229,6 +229,31 @@ struct ScriptScanResult {
 ScriptScanResult editor_scan_scripts(const char *scene_dir, const char *tulpar_root,
                                      char (*out)[content::kScenePathLen], uint32_t cap,
                                      FileEntry *scratch, uint32_t scratch_cap);
+// --- Yeni betik ------------------------------------------------------------
+// Motor kancayi DOSYA ADINDAN kuruyor: "davranis/kovala.tpr" -> taban
+// "kovala" -> `kovala_baslat`, `kovala_guncelle` ... (bridge/engine_api.cpp,
+// script_base_name). Buradaki taban kurali ONUNLA AYNI: son '/' ya da '\\'
+// sonrasi, ilk '.' oncesi. Farkli olsaydi editorun yazdigi iskelet
+// derlenirdi ama motor fonksiyonu ASLA bulamazdi.
+void editor_script_base(const char *path, char *out, uint32_t cap);
+// Taban bir fonksiyon adi onekine donusebilir mi: ASCII harf/rakam/_,
+// rakamla baslamaz. Tulpar'in lexer'i UTF-8 tanimlayiciya izin veriyor ama
+// kanca `t_<ad>` sembolu olarak dlsym ile araniyor ve ASCII disi sembol
+// adinin uc platformda da cozuldugu OLCULMEDI — o yuzden reddediliyor.
+// `why` doluysa neden reddedildigini yazar.
+bool editor_script_name_ok(const char *base, char *why, uint32_t why_cap);
+// Mutlak yoldan atama etiketi — tarayicinin (editor_scan_scripts) kurali:
+// sahne dizini altindaysa ona GORELI, tulpar/ altindaysa "tulpar/" onekli,
+// ikisi de degilse mutlak yol aynen. Etiket listede ayni satiri gostersin.
+bool editor_script_label(const char *abs_path, const char *scene_dir, const char *tulpar_root, char *out, uint32_t cap);
+// Iskelet metni: dort kancanin imzasi, import hatirlaticisi, baslat +
+// guncelle + bitir govdeleri. `import_path` bos olabilir (bilinmiyorsa).
+// Donus: yazilan bayt; 0 = sigmadi.
+uint32_t editor_script_skeleton(const char *base, const char *import_path, char *out, uint32_t cap);
+// Dosyayi yaz. Var olan dosyanin UZERINE YAZMAZ (kullanicinin kodunu siler);
+// ad gecersizse de yazmaz. `err` Turkce sebep.
+bool editor_script_create(const char *abs_path, const char *import_path, char *err, uint32_t err_cap);
+
 // Kaynagi sahneye ekler (varsa mevcut indeks) ve o kaynakla yeni bir varlik
 // kurar (kSceneModel). Kaynak tablosu eklemesi gunluge GIRMEZ (tablo append-only;
 // geri al varligi siler, kaynak satiri kalir). Donus: gunluge giren islem sayisi

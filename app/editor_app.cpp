@@ -1532,8 +1532,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Ayni dosya diyalogu uc is icin acilir; kabul edildiginde NE yapilacagini
   // bu belirler. Eskiden yalniz dlg.mode (Ac/Kaydet) soruluyordu -- prefab
   // kaydetmek sahneyi kaydetmekle karisirdi.
-  enum DialogIntent { IntentScene = 0, IntentPrefabSave = 1, IntentPrefabLoad = 2 };
+  enum DialogIntent { IntentScene = 0, IntentPrefabSave = 1, IntentPrefabLoad = 2, IntentScriptNew = 3 };
   DialogIntent dlg_intent = IntentScene;
+  // "Yeni betik" diyalogu HANGI varlik icin acildi. Diyalog kareler boyunca
+  // acik kalir ve bu arada secim degisebilir; secime bakarak atasaydik
+  // betik kullanicinin sonradan tikladigi nesneye giderdi.
+  int32_t script_new_target = -1;
   int32_t prefab_root = -1;
   static ConfirmState confirm;
   bool show_console = true;
@@ -5850,9 +5854,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           after = e;
           if (begin_component_card(ICON_MD_CODE, "Tulpar Betik", content::kSceneScript, nullptr, &act, true, Tone::AccentLo)) {
             if (prop_begin("betik")) {
-              prop_help("Motor bu betigi CALISTIRMAZ. Atama bir ETIKETTIR: derlenmis sahneye gider, "
-                        "oyun kendi dongusunde okuyup ada gore dallanir. (Kopru ABI'si duz skaler, "
-                        "callback yok — bkz. docs/KOPRU.md.)");
+              prop_help("Motor bu betigi CALISTIRIR: dosya adindan turetilen <ad>_baslat(id), "
+                        "<ad>_guncelle(id, dt), <ad>_carpisma(...), <ad>_bitir(id) fonksiyonlarini "
+                        "adiyla cagirir. SART: oyun bu dosyayi import etmeli (AOT; import edilmeyen "
+                        "betik yoktur, motor yuklemede hata basar). Bkz. docs/KOPRU.md 7.9.");
               // Secici INDEKS ister, alan METIN tutar. Her karede dogrusal
               // arama: n taranan betik sayisi (olculdu: depoda 5) ve bu kod
               // yalniz kart ACIKKEN kosuyor — ayri bir esleme tablosu tutmak
@@ -5883,6 +5888,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               if (prop_check("Etkin", &en).changed) { after = e; after.script_enabled = en; commit(st, si, after); }
               prop_end();
             }
+            // Yeni betik: iskeleti yazar ve BU varliga atar. Diyalog tek
+            // bosaltma yerinden (kipli pencereler bolumu) sonuclanir.
+            if (ImGui::SmallButton(ICON_MD_ADD " Yeni betik")) {
+              dlg_intent = IntentScriptNew;
+              script_new_target = si;
+              file_dialog_open(dlg, FileDialogMode::Kaydet, st.scene_dir, ".tpr", "Yeni betik");
+            }
+            if (ImGui::IsItemHovered())
+              ImGui::SetTooltip("Dosya ad\xC4\xB1 kanca ad\xC4\xB1 olur: kovala.tpr -> kovala_baslat, kovala_guncelle ...");
             end_component_card();
           }
           process_component_card_action(act, content::kSceneScript, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
@@ -6764,6 +6778,33 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           }
         }
         dlg_intent = IntentScene;
+      } else if (fa == FileDialogAction::Accepted && dlg_intent == IntentScriptNew) {
+        // Etiket tarayicinin kuraliyla: listede ayni satir secili gorunsun.
+        // Import yolu yalniz tulpar/ altinda biliniyor (oyunlar oradan derleniyor).
+        char label[content::kSceneScriptLen], err[256];
+        const bool lab_ok = editor_script_label(dlg.path, st.scene_dir, st.tulpar_dir, label, sizeof label);
+        const char *imp = lab_ok && !std::strncmp(label, "tulpar/", 7) ? label + 7 : "";
+        const int32_t ti = script_new_target;
+        if (!lab_ok) {
+          set_status(st, "betik yolu %u bayta sigmiyor: %s", (unsigned)sizeof label, dlg.path);
+        } else if (ti < 0 || (uint32_t)ti >= st.scene.entity_count) {
+          set_status(st, "betik olusturulmadi: hedef nesne artik yok");
+        } else if (!editor_script_create(dlg.path, imp, err, sizeof err)) {
+          set_status(st, "betik olusturulmadi: %s", err);
+          console_log(ConsoleLevel::Hata, kConsoleTagEditor, "betik olusturulmadi: %s", err);
+        } else {
+          content::SceneEntity ne = st.scene.entities[ti];
+          ne.components |= content::kSceneScript;
+          ne.script_enabled = true;
+          std::snprintf(ne.script_file, sizeof ne.script_file, "%s", label);
+          commit(st, ti, ne);
+          rescan_browse(st);
+          set_status(st, "betik olusturuldu ve atandi: %s", label);
+          console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "betik olusturuldu: %s -> %s (oyun import etmeli: %s)", dlg.path,
+                      st.scene.entities[ti].name, imp[0] ? imp : "?");
+        }
+        dlg_intent = IntentScene;
+        script_new_target = -1;
       } else if (fa == FileDialogAction::Accepted) {
         if (dlg.mode == FileDialogMode::Ac) load_scene_from(dlg.path);
         else if (save_scene_to(dlg.path) && pending != PendingNone) { run_pending(pending); pending = PendingNone; }

@@ -685,6 +685,105 @@ ScriptScanResult editor_scan_scripts(const char *scene_dir, const char *tulpar_r
   return r;
 }
 
+void editor_script_base(const char *path, char *out, uint32_t cap) {
+  if (!out || cap == 0) return;
+  out[0] = 0;
+  if (!path || !*path) return;
+  const char *b = path;
+  for (const char *p = path; *p; p++)
+    if (*p == '/' || *p == '\\') b = p + 1;
+  uint32_t n = 0;
+  while (b[n] && b[n] != '.' && n + 1 < cap) { out[n] = b[n]; n++; }
+  out[n] = 0;
+}
+
+bool editor_script_name_ok(const char *base, char *why, uint32_t why_cap) {
+  auto red = [&](const char *m) { if (why && why_cap) std::snprintf(why, why_cap, "%s", m); return false; };
+  if (!base || !*base) return red("dosya adi bos");
+  if (base[0] >= '0' && base[0] <= '9') return red("dosya adi rakamla baslayamaz (kanca adi bir fonksiyon adi)");
+  for (const char *p = base; *p; p++) {
+    const unsigned char c = (unsigned char)*p;
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+    if (ok) continue;
+    if (c > 127) return red("dosya adinda Turkce/ASCII disi harf var: kanca sembolu boyle bir adla OLCULMEDI");
+    return red("dosya adinda yalniz harf, rakam ve _ olabilir ('-', bosluk olmaz)");
+  }
+  if (why && why_cap) why[0] = 0;
+  return true;
+}
+
+bool editor_script_label(const char *abs_path, const char *scene_dir, const char *tulpar_root, char *out, uint32_t cap) {
+  if (!abs_path || !out || cap == 0) return false;
+  // "kok/" oneki mi? Sondaki '/' SART: "/a/tulpar2/x.tpr" "/a/tulpar" altinda DEGIL.
+  auto altinda = [&](const char *kok) -> const char * {
+    if (!kok || !*kok) return nullptr;
+    size_t n = std::strlen(kok);
+    while (n > 1 && (kok[n - 1] == '/' || kok[n - 1] == '\\')) n--;
+    if (std::strncmp(abs_path, kok, n) != 0) return nullptr;
+    if (abs_path[n] != '/' && abs_path[n] != '\\') return nullptr;
+    return abs_path + n + 1;
+  };
+  int w;
+  if (const char *r = altinda(scene_dir)) w = std::snprintf(out, cap, "%s", r);
+  else if (const char *t = altinda(tulpar_root)) w = std::snprintf(out, cap, "tulpar/%s", t);
+  else w = std::snprintf(out, cap, "%s", abs_path);
+  if (w < 0 || (uint32_t)w >= cap) { out[0] = 0; return false; } // KIRPMA YOK: kirpik yol baska dosyayi gosterir
+  return true;
+}
+
+uint32_t editor_script_skeleton(const char *base, const char *import_path, char *out, uint32_t cap) {
+  if (!base || !out || cap == 0) return 0;
+  const char *imp = import_path && *import_path ? import_path : "<oyunun import kokunden bu dosyanin yolu>";
+  const int w = std::snprintf(out, cap,
+    "// Davran\xC4\xB1\xC5\x9F \xE2\x80\x94 \"%s\". Bu dosya MOTOR TARAFINDAN \xC3\x87" "ALI\xC5\x9ETIRILIR.\n"
+    "//\n"
+    "// Edit\xC3\xB6rde bir nesneye atan\xC4\xB1nca motor, dosya ad\xC4\xB1ndan t\xC3\xBCreyen fonksiyonlar\xC4\xB1\n"
+    "// ADIYLA \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r. D\xC3\xB6rd\xC3\xBC de iste\xC4\x9F" "e ba\xC4\x9Fl\xC4\xB1; kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n\xC4\xB1 sil:\n"
+    "//\n"
+    "//   %s_baslat(id)                            sahne y\xC3\xBCklenince bir kez\n"
+    "//   %s_guncelle(id, dt)                      her kare, fizik ad\xC4\xB1m\xC4\xB1ndan SONRA\n"
+    "//   %s_carpisma(id, diger, olay, x,y,z, hiz) her \xC3\xA7" "arp\xC4\xB1\xC5\x9Fma olay\xC4\xB1\n"
+    "//   %s_bitir(id)                             sahne bo\xC5\x9F" "al\xC4\xB1rken / kapan\xC4\xB1\xC5\x9Fta\n"
+    "//\n"
+    "// AOT SINIRI: oyun bu dosyay\xC4\xB1 import ETMEL\xC4\xB0, yoksa motor y\xC3\xBCklemede\n"
+    "// \"betik kancasi YOK\" hatas\xC4\xB1 basar:\n"
+    "//\n"
+    "//   import \"%s\";\n"
+    "\n"
+    "func %s_baslat(id) {\n"
+    "    logla(\"%s basladi: \" + sahne_adi(id));\n"
+    "}\n"
+    "\n"
+    "func %s_guncelle(id, d) {\n"
+    "    // her kare: sahne_x(id), sahne_hiz_ver(id, vx, vy, vz) ...\n"
+    "}\n"
+    "\n"
+    "func %s_bitir(id) {\n"
+    "}\n",
+    base, base, base, base, base, imp, base, base, base, base);
+  if (w < 0 || (uint32_t)w >= cap) { out[0] = 0; return 0; }
+  return (uint32_t)w;
+}
+
+bool editor_script_create(const char *abs_path, const char *import_path, char *err, uint32_t err_cap) {
+  auto red = [&](const char *fmt, const char *a) { if (err && err_cap) std::snprintf(err, err_cap, fmt, a); return false; };
+  if (!abs_path || !*abs_path) return red("%s", "yol bos");
+  if (!ends_with_ci(abs_path, ".tpr")) return red("uzanti .tpr olmali: %s", abs_path);
+  char base[128], why[160];
+  editor_script_base(abs_path, base, sizeof base);
+  if (!editor_script_name_ok(base, why, sizeof why)) return red("%s", why);
+  if (file_exists(abs_path)) return red("dosya zaten var, uzerine YAZILMADI: %s", abs_path);
+  static char buf[4096]; // iskelet ~1.3 KB; kare disi, tek thread (editor UI)
+  const uint32_t n = editor_script_skeleton(base, import_path, buf, sizeof buf);
+  if (!n) return red("%s", "iskelet tampona sigmadi");
+  FILE *f = std::fopen(abs_path, "wb");
+  if (!f) return red("yazmak icin acilamadi: %s", abs_path);
+  const bool ok = std::fwrite(buf, 1, n, f) == n;
+  if (std::fclose(f) != 0 || !ok) return red("yazma yarida kaldi: %s", abs_path);
+  if (err && err_cap) err[0] = 0;
+  return true;
+}
+
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset) {
   if (out_asset) *out_asset = -1;
   if (!file || !*file) return 0;

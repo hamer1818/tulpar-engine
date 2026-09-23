@@ -347,6 +347,84 @@ ENGINE_TEST(editor_script_scan_lists_tpr_from_both_roots) {
   CHECK(nm == 0);
 }
 
+// "Yeni betik" dugmesinin arkasi. Olculen sey: editorun yazdigi iskelet,
+// motorun ARAYACAGI adlari tasiyor mu (bridge/engine_api.cpp script_base_name
+// + "<taban>_<kanca>"), ve dosya olustururken kullanicinin kodunu silmiyor mu.
+ENGINE_TEST(editor_script_new_writes_skeleton_the_bridge_can_resolve) {
+  char b[128];
+  // Taban kurali kopruyle AYNI: son ayirac sonrasi, ILK nokta oncesi.
+  app::editor_script_base("tulpar/examples/davranis/kovala.tpr", b, sizeof b);
+  CHECK(!std::strcmp(b, "kovala"));
+  app::editor_script_base("C:\\oyun\\betik\\devriye.tpr", b, sizeof b);
+  CHECK(!std::strcmp(b, "devriye")); // Windows ayraci
+  app::editor_script_base("x/a.b.tpr", b, sizeof b);
+  CHECK(!std::strcmp(b, "a")); // "a.b" DEGIL: kopru ilk noktada kesiyor
+
+  char why[160];
+  CHECK(app::editor_script_name_ok("kovala", why, sizeof why));
+  CHECK(app::editor_script_name_ok("_ic_2", why, sizeof why));
+  // KONTROL: her ret AYRI bir sebeple ve sebep bos degil.
+  const char *kotu[] = {"", "2kovala", "kov-ala", "kov ala", "kovalay\xC4\xB1" "c\xC4\xB1"};
+  int red = 0;
+  for (const char *k : kotu) {
+    why[0] = 0;
+    if (!app::editor_script_name_ok(k, why, sizeof why) && why[0]) red++;
+    else std::printf("    FAIL ad kabul edildi ya da sebep bos: \"%s\"\n", k);
+  }
+  CHECK(red == 5);
+
+  // Etiket = tarayicinin kurali (listede ayni satir secili gorunsun).
+  char lab[128];
+  CHECK(app::editor_script_label("/s/sahne/davranis/k.tpr", "/s/sahne", "/r/tulpar", lab, sizeof lab) && !std::strcmp(lab, "davranis/k.tpr"));
+  CHECK(app::editor_script_label("/r/tulpar/examples/k.tpr", "/s/sahne", "/r/tulpar/", lab, sizeof lab) &&
+        !std::strcmp(lab, "tulpar/examples/k.tpr"));
+  // KONTROL: onek eslesmesi dizin SINIRINDA. "/r/tulpar2" "/r/tulpar" altinda degil.
+  CHECK(app::editor_script_label("/r/tulpar2/k.tpr", "/s/sahne", "/r/tulpar", lab, sizeof lab) && !std::strcmp(lab, "/r/tulpar2/k.tpr"));
+  // KONTROL: sigmayan etiket kirpilmiyor, reddediliyor.
+  char dar[8];
+  CHECK(!app::editor_script_label("/s/sahne/davranis/k.tpr", "/s/sahne", "/r/tulpar", dar, sizeof dar) && dar[0] == 0);
+
+  // Iskelet: motorun cagiracagi tam adlar + import hatirlaticisi.
+  static char sk[4096];
+  const uint32_t n = app::editor_script_skeleton("kovala", "examples/davranis/kovala.tpr", sk, sizeof sk);
+  // Iskelet teshis ciktisi olarak da yaziliyor: gercek Tulpar derleyicisiyle
+  // denetlenebilsin (motor deposunun CI'i .tpr derlemiyor).
+  char sk_yol[512];
+  test::test_out_path(sk_yol, sizeof sk_yol, "betik_iskelet.tpr");
+  if (FILE *sf = std::fopen(sk_yol, "wb")) { std::fwrite(sk, 1, std::strlen(sk), sf); std::fclose(sf); }
+  std::printf("    [bilgi] iskelet %u bayt -> %s\n", n, sk_yol);
+  CHECK(n > 0);
+  CHECK(std::strstr(sk, "func kovala_baslat(id) {"));
+  CHECK(std::strstr(sk, "func kovala_guncelle(id, d) {"));
+  CHECK(std::strstr(sk, "func kovala_bitir(id) {"));
+  CHECK(std::strstr(sk, "import \"examples/davranis/kovala.tpr\";"));
+  CHECK(!std::strstr(sk, "func main")); // betik OYUN degil; main oyunun dosyasinda
+  CHECK(app::editor_script_skeleton("kovala", "", sk, 16) == 0); // sigmayinca 0, yarim metin yok
+
+  // Dosya olusturma.
+  char dir[512], yol[640], err[256];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "betik_yeni"));
+  std::snprintf(yol, sizeof yol, "%s/kovala.tpr", dir);
+  CHECK(app::editor_script_create(yol, "", err, sizeof err));
+  CHECK(app::file_exists(yol));
+  // KONTROL: var olan dosyanin UZERINE YAZMIYOR. Kullanici kodu yerine koyup
+  // tekrar dener; ikinci cagri reddetmeli ve icerik aynen kalmali.
+  FILE *f = std::fopen(yol, "wb");
+  CHECK(f != nullptr);
+  if (f) { std::fputs("func kovala_baslat(id) { /* KULLANICI KODU */ }\n", f); std::fclose(f); }
+  CHECK(!app::editor_script_create(yol, "", err, sizeof err));
+  std::printf("    [bilgi] ikinci olusturma reddi: \"%s\"\n", err);
+  char ic[128] = {0};
+  f = std::fopen(yol, "rb");
+  if (f) { size_t got = std::fread(ic, 1, sizeof ic - 1, f); ic[got] = 0; std::fclose(f); }
+  CHECK(std::strstr(ic, "KULLANICI KODU") != nullptr);
+  // KONTROL: gecersiz ad dosya BIRAKMIYOR (kanca asla cozulmeyecek bir dosya).
+  std::snprintf(yol, sizeof yol, "%s/kov-ala.tpr", dir);
+  CHECK(!app::editor_script_create(yol, "", err, sizeof err) && !app::file_exists(yol));
+  std::snprintf(yol, sizeof yol, "%s/kovala.txt", dir);
+  CHECK(!app::editor_script_create(yol, "", err, sizeof err) && !app::file_exists(yol));
+}
+
 ENGINE_TEST(editor_light_and_shadow_gizmos_draw_with_control) {
   if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok"); return; }
   static SystemArena sys;
