@@ -245,6 +245,12 @@ VMValue aot_eng_spawn_sphere_ptr(VMValue *x, VMValue *y, VMValue *z, VMValue *ra
 VMValue aot_eng_spawn_ground_ptr(VMValue *half_size, VMValue *color) {
   return VM_INT((int64_t)teng_spawn_ground(tm_num(half_size), tm_int(color)));
 }
+VMValue aot_eng_spawn_trigger_box_ptr(VMValue *x, VMValue *y, VMValue *z, VMValue *hx, VMValue *hy, VMValue *hz) {
+  return VM_INT((int64_t)teng_spawn_trigger_box(tm_num(x), tm_num(y), tm_num(z), tm_num(hx), tm_num(hy), tm_num(hz)));
+}
+VMValue aot_eng_spawn_trigger_sphere_ptr(VMValue *x, VMValue *y, VMValue *z, VMValue *radius) {
+  return VM_INT((int64_t)teng_spawn_trigger_sphere(tm_num(x), tm_num(y), tm_num(z), tm_num(radius)));
+}
 VMValue aot_eng_load_model_ptr(VMValue *path) {
   return VM_INT((int64_t)teng_load_model(tm_str(path)));
 }
@@ -498,6 +504,27 @@ VMValue aot_eng_collision_nz_ptr(VMValue *i) {
 }
 VMValue aot_eng_collision_speed_ptr(VMValue *i) {
   return VM_FLOAT(teng_collision_speed((int)tm_int(i)));
+}
+VMValue aot_eng_trigger_count_ptr(void) {
+  return VM_INT((int64_t)teng_trigger_count());
+}
+VMValue aot_eng_trigger_dropped_ptr(void) {
+  return VM_INT((int64_t)teng_trigger_dropped());
+}
+VMValue aot_eng_trigger_zone_ptr(VMValue *i) {
+  return VM_INT((int64_t)teng_trigger_zone((int)tm_int(i)));
+}
+VMValue aot_eng_trigger_zone_scene_ptr(VMValue *i) {
+  return VM_INT((int64_t)teng_trigger_zone_scene((int)tm_int(i)));
+}
+VMValue aot_eng_trigger_other_ptr(VMValue *i) {
+  return VM_INT((int64_t)teng_trigger_other((int)tm_int(i)));
+}
+VMValue aot_eng_trigger_other_scene_ptr(VMValue *i) {
+  return VM_INT((int64_t)teng_trigger_other_scene((int)tm_int(i)));
+}
+VMValue aot_eng_trigger_entered_ptr(VMValue *i) {
+  return VM_BOOL(teng_trigger_entered((int)tm_int(i)) != 0);
 }
 VMValue aot_eng_nav_ok_ptr(void) {
   return VM_BOOL(teng_nav_ok() != 0);

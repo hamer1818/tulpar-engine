@@ -231,6 +231,9 @@ struct Ent {
   bool alive = false;
   Kind kind = Kind::Empty;
   bool dynamic = false;
+  // Tetik hacmi (eng_trigger_*): gorunmez, carpisma tepkisi yok, yakinlik
+  // sorgularinda hedef degil. Kind yine Box/Sphere — sekil bilgisi ayni.
+  bool sensor = false;
   Vec3 pos{0, 0, 0}, half{0.5f, 0.5f, 0.5f}, color{1, 1, 1};
   float radius = 0.5f, scale = 1.0f, yaw_deg = 0;
   float intensity = 1, light_radius = 5;
@@ -332,6 +335,12 @@ struct Bridge {
   // `guncelle` kullanan bir oyunda da acik olurdu.)
   bool script_carpisma_any = false;
   bool script_tetik_any = false; // tetik_* ya da bolge_* kancasi olan en az bir varlik
+  // Bu karenin tetik olaylari, SIRALI (adim, sensor, diger, cikis-once). Hem
+  // kancalar hem eng_trigger_* sorgulari BURADAN okur: iki yol ayni sirayi
+  // gorsun. Bir sonraki teng_frame_end'e kadar gecerli (carpisma halkasi gibi).
+  static constexpr uint32_t kMaxTrigger = 256;
+  sim::SensorEvent tetik[kMaxTrigger];
+  uint32_t tetik_n = 0;
   uint32_t script_calls = 0;
   uint32_t script_missing = 0;
   // animasyon: tek calisma alani (yaklasik 46 KB), kare icinde ayirma yok
@@ -386,6 +395,7 @@ struct Bridge {
   float ray_dist = -1;
   Vec3 ray_point{0, 0, 0}, ray_normal{0, 0, 0};
   int ray_id = 0, ray_scene = -1;
+  uint32_t trigger_warn_frame = 0xFFFFFFFFu;
   uint32_t collision_warn_frame = 0xFFFFFFFFu; // tasma uyarisi kare basina bir kez
   struct OverlapHit { int id; float dist; };
   OverlapHit ovl[kMaxOverlap];
@@ -470,7 +480,9 @@ void free_slot(uint32_t slot) {
 }
 Quat yaw_quat(float yaw_deg) { return Quat::axis_angle({0, 1, 0}, yaw_deg * kBridgePi / 180.0f); }
 bool make_body(Ent &e, const char *fn) {
-  if (e.kind == Kind::Box || e.kind == Kind::Ground) e.body = g->phys.add_box(e.half, e.pos, yaw_quat(e.yaw_deg), e.dynamic);
+  if (e.sensor && e.kind == Kind::Box) e.body = g->phys.add_sensor_box(e.half, e.pos, yaw_quat(e.yaw_deg));
+  else if (e.sensor && e.kind == Kind::Sphere) e.body = g->phys.add_sensor_sphere(e.radius, e.pos);
+  else if (e.kind == Kind::Box || e.kind == Kind::Ground) e.body = g->phys.add_box(e.half, e.pos, yaw_quat(e.yaw_deg), e.dynamic);
   else if (e.kind == Kind::Sphere) e.body = g->phys.add_sphere(e.radius, e.pos, e.dynamic);
   else return true;
   if (!e.body.valid()) { BERR("%s: fizik govdesi kurulamadi (%s @ %.2f %.2f %.2f)", fn, kind_name(e.kind), e.pos.x, e.pos.y, e.pos.z); return false; }
@@ -569,7 +581,7 @@ void render_frame() {
   b.last_posed = 0;
   for (uint32_t i = 0; i < b.ent_high; i++) {
     Ent &e = b.ents[i];
-    if (!e.alive) continue;
+    if (!e.alive || e.sensor) continue; // tetik hacmi GORUNMEZ (oyun isterse ustune kendisi kutu cizer)
     switch (e.kind) {
     case Kind::Box: b.ren.draw(b.cube, ent_matrix(e) * Mat4::scale(e.half * 2.0f * e.scale), e.color); drawn++; break;
     case Kind::Sphere: { const float d = e.radius * 2.0f * e.scale; b.ren.draw(b.sphere, ent_matrix(e) * Mat4::scale({d, d, d}), e.color); drawn++; break; }
@@ -804,6 +816,7 @@ int teng_init(const char *title, int width, int height) {
   {
     sim::PhysicsConfig pcfg;
     pcfg.jobs = &b.jobs;
+    pcfg.max_sensor_events = Bridge::kMaxTrigger; // sirali tampon ayni boyda: kirpma yok
     pcfg.gravity = b.gravity;
     if (!b.phys.init(b.sys, pcfg)) { BERR("fizik (Jolt) kurulamadi"); return 0; }
     BDBG("fizik hazir: yercekimi (%.2f %.2f %.2f), sabit adim %.4f s", b.gravity.x, b.gravity.y, b.gravity.z, b.fs.step_s);
@@ -1022,26 +1035,35 @@ void teng_frame_end(void) {
     for (uint32_t t = 0; t < ticks; t++) { b.phys.step(b.fs.step_s, 1); b.tick++; }
     if (ticks == b.fs.max_ticks_per_frame) BDBG("kare %u: sim %u tick ile kirpildi (dt %.3f)", b.frame, ticks, b.dt);
   }
-  if (b.script_tetik_any && b.scene_ok) {
-    // TETIK kancalari: carpismadan ve guncelle'den ONCE (olay bu karenin sim
-    // adimlarinda oldu). Jolt geri cagrimlari is parcaciklarindan BELIRSIZ
-    // sirada gelir; (adim, sensor, diger, cikis-once) ile siralanip oyle
-    // dagitiliyor ki ayni sahne her kosumda ayni kanca sirasini gorsun.
-    // Ayni adimda bir cift hem girip hem cikamaz, adimlar arasi sira
+  {
+    // TETIK olaylari her kare SIRALANIR — kanca olsun olmasin, cunku
+    // eng_trigger_* sorgulari da buradan okur. Jolt geri cagrimlari is
+    // parcaciklarindan BELIRSIZ sirada gelir; (adim, sensor, diger, cikis-once)
+    // ile siralanmis tampon, ayni sahnenin her kosumda ayni sirayi gormesini
+    // sagliyor. Ayni adimda bir cift hem girip hem cikamaz; adimlar arasi sira
     // kronolojik kalir.
-    ENGINE_ZONE("betik");
-    static sim::SensorEvent sirali[512];
     uint32_t n = b.phys.sensor_event_count();
-    if (n > 512) n = 512; // halka tavani (PhysicsConfig::max_sensor_events) bunun altinda
-    for (uint32_t k = 0; k < n; k++) sirali[k] = b.phys.sensor_event(k);
-    std::sort(sirali, sirali + n, [](const sim::SensorEvent &x, const sim::SensorEvent &y) {
+    if (n > Bridge::kMaxTrigger) n = Bridge::kMaxTrigger; // halka ayni boyda kuruldu; buraya gelmez
+    for (uint32_t k = 0; k < n; k++) b.tetik[k] = b.phys.sensor_event(k);
+    std::sort(b.tetik, b.tetik + n, [](const sim::SensorEvent &x, const sim::SensorEvent &y) {
       if (x.step != y.step) return x.step < y.step;
       if (x.sensor.v != y.sensor.v) return x.sensor.v < y.sensor.v;
       if (x.other.v != y.other.v) return x.other.v < y.other.v;
       return (int)x.enter < (int)y.enter;
     });
-    for (uint32_t k = 0; k < n; k++) {
-      const sim::SensorEvent &e = sirali[k];
+    b.tetik_n = n;
+    if (b.phys.sensor_overflow() && b.frame != b.trigger_warn_frame) {
+      b.trigger_warn_frame = b.frame;
+      BERR("tetik: %u olay DUSTU (halka %u yuva) — ayni karede cok fazla giris/cikis", b.phys.sensor_overflow(), Bridge::kMaxTrigger);
+    }
+  }
+  if (b.script_tetik_any && b.scene_ok) {
+    // Kancalar: carpismadan ve guncelle'den ONCE (olay bu karenin adimlarinda).
+    // Yalniz SAHNE tetikleri: koprunun urettigi tetigin betigi yok, onun
+    // olaylari eng_trigger_* kuyrugunda.
+    ENGINE_ZONE("betik");
+    for (uint32_t k = 0; k < b.tetik_n; k++) {
+      const sim::SensorEvent &e = b.tetik[k];
       const int bolge = scene_idx_of_body(e.sensor), diger = scene_idx_of_body(e.other);
       // Bolgenin betigi: <ad>_tetik_girdi(id, diger, kopru). `diger` sahne
       // indisi ya da -1; `kopru` koprunun urettigi varligin id'si ya da 0 —
@@ -1456,6 +1478,7 @@ int teng_scene_unload(void) {
   b.nav_near_ok = false;
   b.nav_ray_t = 1.0f;
   b.scene_ok = false; // cizim + sorgular durur; teng_scene_load yeniden kabul eder
+  b.tetik_n = 0;      // bu karenin tetik olaylari silinen govdeleri gosteriyordu
   // Betik bosalttiysa izleme hedefi de duser: bosaltilmis bir sahne, dosyasi
   // degisti diye kendiliginden GERI GELMEZ. Sicak yukleme kendi icinde bosaltir
   // (b.reloading), orada hedef korunur.
@@ -1489,6 +1512,34 @@ int teng_spawn_sphere(double x, double y, double z, double radius, int dynamic, 
   if (!make_body(e, "teng_spawn_sphere")) { free_slot((uint32_t)s); return 0; }
   const int id = make_id((uint32_t)s);
   BDBG("kure #%d yuva %d %s (%.2f %.2f %.2f) r%.2f", id, s, e.dynamic ? "dinamik" : "sabit", x, y, z, radius);
+  return id;
+}
+// Tetik hacimleri: gorunmez, carpisma tepkisi yok; icine giren/cikan govdeler
+// eng_trigger_* kuyrugunda. Sahnede tanimlanan tetiklerin kod ikizi.
+int teng_spawn_trigger_box(double x, double y, double z, double hx, double hy, double hz) {
+  CALLF("teng_spawn_trigger_box", "(%.2f %.2f %.2f) yarim (%.2f %.2f %.2f)", x, y, z, hx, hy, hz);
+  if (!ready("teng_spawn_trigger_box")) return 0;
+  if (hx <= 0 || hy <= 0 || hz <= 0) { BERR("teng_spawn_trigger_box: yarim kenar pozitif olmali (%.2f %.2f %.2f)", hx, hy, hz); return 0; }
+  const int s = alloc_slot(Kind::Box);
+  if (s < 0) return 0;
+  Ent &e = g->ents[s];
+  e.pos = {(float)x, (float)y, (float)z}; e.half = {(float)hx, (float)hy, (float)hz}; e.sensor = true;
+  if (!make_body(e, "teng_spawn_trigger_box")) { free_slot((uint32_t)s); return 0; }
+  const int id = make_id((uint32_t)s);
+  BDBG("tetik kutu #%d yuva %d (%.2f %.2f %.2f)", id, s, x, y, z);
+  return id;
+}
+int teng_spawn_trigger_sphere(double x, double y, double z, double radius) {
+  CALLF("teng_spawn_trigger_sphere", "(%.2f %.2f %.2f) r%.2f", x, y, z, radius);
+  if (!ready("teng_spawn_trigger_sphere")) return 0;
+  if (radius <= 0) { BERR("teng_spawn_trigger_sphere: yaricap pozitif olmali (%.2f)", radius); return 0; }
+  const int s = alloc_slot(Kind::Sphere);
+  if (s < 0) return 0;
+  Ent &e = g->ents[s];
+  e.pos = {(float)x, (float)y, (float)z}; e.radius = (float)radius; e.sensor = true;
+  if (!make_body(e, "teng_spawn_trigger_sphere")) { free_slot((uint32_t)s); return 0; }
+  const int id = make_id((uint32_t)s);
+  BDBG("tetik kure #%d yuva %d (%.2f %.2f %.2f) r%.2f", id, s, x, y, z, radius);
   return id;
 }
 int teng_spawn_ground(double half_size, int64_t color) {
@@ -1562,6 +1613,9 @@ void teng_set_pos(int id, double x, double y, double z) {
   if (s < 0) return;
   Ent &e = g->ents[s];
   e.pos = {(float)x, (float)y, (float)z};
+  // Tetik TASINIR, yeniden kurulmaz: yeniden kurmak icerde duran her govde
+  // icin sahte bir "girdi" uretirdi (olculdu: physics_sensor_move_keeps_contacts).
+  if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
   if (e.body.valid()) { // Jolt'ta konum yazma yok: govde yeniden kurulur (hiz sifirlanir)
     g->phys.remove(e.body);
     e.body = sim::BodyId{};
@@ -1588,6 +1642,7 @@ void teng_set_yaw(int id, double yaw_deg) {
   if (s < 0) return;
   Ent &e = g->ents[s];
   e.yaw_deg = (float)yaw_deg;
+  if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
   if (e.body.valid() && !e.dynamic) { g->phys.remove(e.body); e.body = sim::BodyId{}; make_body(e, "teng_set_yaw"); }
 }
 double teng_vx(int id) { const int32_t s = slot_of(id, "teng_vx"); return s < 0 || !g->ents[s].body.valid() ? 0 : g->phys.linear_velocity(g->ents[s].body).x; }
@@ -2392,8 +2447,9 @@ static uint32_t overlap_query(const char *fn, double x, double y, double z, doub
   for (uint32_t i = 0; i < b.ent_high; i++) {
     const Ent &e = b.ents[i];
     if (!e.alive || (int32_t)i == skip_slot) continue;
-    // Zemin her sorguyu doldururdu (tek dev govde), isigin govdesi yok.
-    if (e.kind == Kind::Ground || e.kind == Kind::Light) continue;
+    // Zemin her sorguyu doldururdu (tek dev govde), isigin govdesi yok. Tetik
+    // hacmi de HEDEF degil: "en yakin dusman" sorgusu bolgeyi dondurmesin.
+    if (e.kind == Kind::Ground || e.kind == Kind::Light || e.sensor) continue;
     const float d = length(ent_pos(e) - c);
     if (d > (float)radius + ent_bound_radius(e)) continue;
     if (b.ovl_n >= kMaxOverlap) { full = true; break; }
@@ -2500,6 +2556,40 @@ double teng_collision_nz(int i) {
 double teng_collision_speed(int i) {
   const sim::ContactEvent *e = contact_at("teng_collision_speed", i);
   return e ? e->speed : 0.0;
+}
+
+// --- Tetik olaylari -----------------------------------------------------------
+// Sirali tampondan (teng_frame_end). Gecersiz indis SESSIZCE 0 donmez, hata
+// loglar — carpisma kuyruguyla ayni sozlesme.
+static const sim::SensorEvent *trigger_at(const char *who, int i) {
+  if (!ready(who)) return nullptr;
+  if (i < 0 || (uint32_t)i >= g->tetik_n) {
+    BERR("%s: tetik olay dizini %d sinir disi (%u olay)", who, i, g->tetik_n);
+    return nullptr;
+  }
+  return &g->tetik[i];
+}
+int teng_trigger_count(void) { return ready("teng_trigger_count") ? (int)g->tetik_n : 0; }
+int teng_trigger_dropped(void) { return g ? (int)g->phys.sensor_overflow() : 0; }
+int teng_trigger_zone(int i) {
+  const sim::SensorEvent *e = trigger_at("teng_trigger_zone", i);
+  return e ? ent_id_of_body(e->sensor) : 0;
+}
+int teng_trigger_zone_scene(int i) {
+  const sim::SensorEvent *e = trigger_at("teng_trigger_zone_scene", i);
+  return e ? scene_idx_of_body(e->sensor) : -1;
+}
+int teng_trigger_other(int i) {
+  const sim::SensorEvent *e = trigger_at("teng_trigger_other", i);
+  return e ? ent_id_of_body(e->other) : 0;
+}
+int teng_trigger_other_scene(int i) {
+  const sim::SensorEvent *e = trigger_at("teng_trigger_other_scene", i);
+  return e ? scene_idx_of_body(e->other) : -1;
+}
+int teng_trigger_entered(int i) {
+  const sim::SensorEvent *e = trigger_at("teng_trigger_entered", i);
+  return e && e->enter ? 1 : 0;
 }
 
 int teng_nav_partial(void) { return g && g->nav_partial ? 1 : 0; }

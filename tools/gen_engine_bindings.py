@@ -85,6 +85,8 @@ SPEC = [
     ("eng_spawn_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num"), ("dynamic", "flag"), ("color", "color")], "Kutu (yarim kenarlar) + fizik govdesi. Donus: varlik id (0 hata)."),
     ("eng_spawn_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("dynamic", "flag"), ("color", "color")], "Kure + fizik govdesi. Donus: varlik id."),
     ("eng_spawn_ground", "int", [("half_size", "num"), ("color", "color")], "Dama dokulu zemin (ust yuz y=0) + sabit govde. Donus: varlik id."),
+    ("eng_spawn_trigger_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num")], "Tetik (bolge) kutusu: GORUNMEZ, carpisma tepkisi yok; icine giren/cikan govdeler eng_trigger_* kuyrugunda. eng_set_pos tasir. Donus: varlik id."),
+    ("eng_spawn_trigger_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num")], "Tetik (bolge) kuresi. Donus: varlik id."),
     ("eng_load_model", "int", [("path", "str")], "glTF modeli yukler. Donus: model tutamaci, -1 hata."),
     ("eng_spawn_model", "int", [("asset", "int"), ("x", "num"), ("y", "num"), ("z", "num"), ("scale", "num"), ("tint", "color")], "Model varligi (govdesiz). Donus: varlik id."),
     ("eng_spawn_light", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("color", "color"), ("intensity", "num"), ("radius", "num")], "Nokta isik. Donus: varlik id."),
@@ -171,6 +173,14 @@ SPEC = [
     ("eng_collision_ny", "float", [("i", "int")], "i. carpismanin yuzey normali y."),
     ("eng_collision_nz", "float", [("i", "int")], "i. carpismanin yuzey normali z."),
     ("eng_collision_speed", "float", [("i", "int")], "i. carpismanin SIDDETI: temas noktasinda normal boyu goreli hiz (m/s). Sert/yumusak carpma ayrimi bununla yapilir."),
+    # tetik olaylari (kuyruk; belirlenimli sira)
+    ("eng_trigger_count", "int", [], "Bu karenin tetik giris/cikis olayi sayisi (kopru + sahne tetikleri). Sira belirlenimli."),
+    ("eng_trigger_dropped", "int", [], "Halkaya sigmayip DUSEN tetik olayi. 0 degilse olay kaybolmus."),
+    ("eng_trigger_zone", "int", [("i", "int")], "i. olayin BOLGESI: kopru varlik id'si (0 = sahne tetigi)."),
+    ("eng_trigger_zone_scene", "int", [("i", "int")], "i. olayin bolgesinin SAHNE dizini (-1 = kopru tetigi)."),
+    ("eng_trigger_other", "int", [("i", "int")], "i. olayda giren/cikan: kopru varlik id'si (0 = kopru varligi degil)."),
+    ("eng_trigger_other_scene", "int", [("i", "int")], "i. olayda giren/cikanin sahne dizini (-1 = sahne varligi degil)."),
+    ("eng_trigger_entered", "bool", [("i", "int")], "i. olay giris mi (false = cikis)."),
     # navmesh: bake engine_sahnec'te (sahnedeki sabit kutu govdeler), runtime yalniz sorgular
     ("eng_nav_ok", "bool", [], "Yuklu sahnede bake edilmis navmesh var mi (yoksa oyun duz yola duser)."),
     ("eng_nav_polys", "int", [], "Navmesh poligon sayisi."),

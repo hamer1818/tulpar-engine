@@ -218,7 +218,13 @@ kodla üretiliyor) — girenin betiği `<ad>_bolge_girdi(id, bolge)`. Aynı olay
   `[tpr]` satırları aynı çıktı).
 - Başlangıçta içeride duran gövde ilk adımda "girdi" sayılır; içindeyken silinen gövde bir "çıktı"
   bırakır. `tetik_*` yazılmış ama varlık tetik değilse motor bunu yüklemede **hata** olarak söyler.
-- **Kapsam dışı:** karakter denetleyicisi (`CharacterVirtual`) gövde değil, tetik tetiklemez.
+- **Kodla üretilen tetik:** `tetik_kutu(x, y, z, hx, hy, hz)` / `tetik_kure(x, y, z, r)` —
+  görünmez, yakınlık sorgusunda hedef değil; `isinla` tetiği **taşır**, yeniden kurmaz (yeniden
+  kurmak içeride duran gövde için sahte bir "girdi" üretiyordu — ölçüldü). Betiği yok; olayları
+  `tetik_olay_*` kuyruğunda. Kuyruk sahne tetiklerini de taşır, betik atamayan oyun için.
+- **Kapsam dışı:** karakter denetleyicisi (`CharacterVirtual`) gövde değil, tetik tetiklemez —
+  ve köprüde karakter API'si yok, yani bugün hiçbir oyun onu kullanamıyor (oyuncu her örnekte
+  dinamik bir küre, o tetikler).
 
 Sahne varlıkları tek tek silinemediği için `bitir`in tetikleyicisi **sahne boşalması**dır, varlık
 ölümü değil. Köprünün kendi ürettiği varlıklar (`eng_kutu_uret` …) bu yaşam döngüsünün dışında.
@@ -256,7 +262,7 @@ ile, yani kancaya verilen indisin **canlı** olduğunun kanıtı. Zemin temaslar
 Motor tarafı kapısı Tulpar'a hiç ihtiyaç duymaz — `tests/test_bridge.cpp` sahte bir `TengScriptVm`
 kurar ve dört kancanın da argüman sayısını, hedefini ve `olay` indisinin okunabilirliğini ölçer.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **177 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **186 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -267,7 +273,7 @@ bölüm yorumlarına göre):
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | dünya / kamera | 11 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, kamera (göz+hedef ya da yörünge), kamera konumu |
 | derlenmiş sahne (`.sahneb`) | 17 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi** |
-| varlıklar (köprü sahibi) | 23 | kutu / küre / zemin / model / ışık üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
+| varlıklar (köprü sahibi) | 25 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
 | girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare |
 | 2B arayüz (HUD) | 3 | `eng_text`, `eng_rect`, `eng_text_width` — kare içinde kuyruklanır, `frame_end` çizer |
@@ -277,7 +283,12 @@ bölüm yorumlarına göre):
 | ses | 13 | cihaz aç/kapat/durum/arka uç, klip yükle (WAV/FLAC/MP3), sentetik ton, çal, bip, durdur, hepsini durdur, ana seviye, çalan ses, tepe genlik |
 | sorgular: ışın + yakınlık | 13 | `eng_raycast` (+ nokta / normal / çarpılan köprü varlığı / çarpılan sahne varlığı), **küre örtüşmesi** (yakından uzağa sıralı), en yakın |
 | navmesh (blob'daki bake) | 13 | bake var mı, poligon sayısı, yol iste, yol kısmi mi, yol noktaları, **en yakın nokta** (mesh dışındaki konumu yapıştır), **doğru görüş** (`raycast` + çarpma parametresi) |
+| çarpışma olayları | 13 | sayı, düşen, iki taraf (köprü id + sahne dizini), temas noktası, normal, şiddet — kuyruk |
+| tetik olayları | 7 | sayı, düşen, bölge ve giren/çıkan (köprü id + sahne dizini), girdi mi — kuyruk, **belirlenimli sıra** |
 | ölçüm | 4 | çizim / gövde / ışık sayısı, son kare p50 |
+
+(Çarpışma ailesi 2026-09-23'e kadar bu tabloda YOKTU: satırların toplamı 164 veriyordu,
+başlık 177 diyordu. Toplam artık başlıkla eşit.)
 
 **Ne verilmez (bilinçli):** struct, callback, işaretçi, çıktı parametresi — Tulpar'ın bugünkü FFI'si
 taşımıyor. Bunun görünür sonuçları var: (1) **çarpışma olayı geri çağrım değil kuyruktur** — fizik

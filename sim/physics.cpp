@@ -530,6 +530,11 @@ BodyId Physics::add_sensor_sphere(float radius, Vec3 pos) {
   JPH::ShapeRefC shape = new JPH::SphereShape(radius);
   return add_sensor(impl_, shape, pos, Quat::identity());
 }
+bool Physics::move_sensor(BodyId id, Vec3 pos, Quat rot) {
+  if (!is_sensor(id)) return false;
+  impl_->system.GetBodyInterface().SetPositionAndRotation(JPH::BodyID(id.v), to_jph(pos), to_jph(rot), JPH::EActivation::Activate);
+  return true;
+}
 bool Physics::is_sensor(BodyId id) const {
   if (!impl_ || !id.valid()) return false;
   const uint32_t i = JPH::BodyID(id.v).GetIndex();
