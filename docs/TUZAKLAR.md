@@ -1125,3 +1125,22 @@ yaptığı gibi **aynı grupta** bir torun başlatır. Grup kill'i kapatılınca
 **Ders:** "süreç bitti" izlenen sürecin bittiğini söyler, işin bittiğini değil. Başka
 bir programı başlatan bir program başlatıyorsan, öldürdüğün şey o programın kendisi
 değil, **ağacı** olmalı.
+
+### 8by. Kare ortasında bırakılan ImGui dokusu — cihaz kaybı (`VK_ERROR_DEVICE_LOST`)
+
+**Belirti** (2026-09-24, penceresiz kapı): gömülü oynatma kapısı OK dedi, bir kare
+sonra editör `kare: gonderim: vkWaitForFences (VK_ERROR_DEVICE_LOST)` ile düştü.
+
+**Sebep:** Oyun sekmesinin dokusu (`EditorGameView`), oyun kapanınca **kare ortasında**,
+yani panel çizildikten sonra bırakılıyordu. O karenin ImGui çizim listesi dokunun
+descriptor'ına zaten başvurmuştu. Liste kaydedilince GPU yok edilmiş bir görünümü
+örnekledi. Aynı tehlike ilk karede de vardı: doku ilk kare gelince, panelden sonra
+kuruluyordu. Ölçü değişseydi eskisini yine kare ortasında yıkacaktı.
+
+**Düzeltme:** doku yalnız **kare başında** kurulur ve bırakılır (poll'dan hemen sonra,
+`ui.begin_frame`'den önce). O an bu karenin hiçbir çizimi kurulmamıştır. Kare içindeki
+yol (`oyun_kare_hazirla`) yalnız kopyalar, hiçbir şey ayırmaz ya da yıkmaz.
+
+**Ders:** ImGui'ye verilen bir dokunun ömrü **çizim listesinin** ömrüdür, panel
+kodunun değil. "Artık gösterilmiyor" bir sonraki kareden itibaren doğrudur; bu karenin
+listesi onu hâlâ tutuyor.

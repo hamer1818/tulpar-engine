@@ -1,8 +1,9 @@
 // Tulpar Engine — betik YAŞAM DÖNGÜSÜ: motor atanan `.tpr`'yi çalıştırır.
 //
-//   engine_editor --scene examples/assets/betik_dagitimi.sahne   # düzenle
+//   engine_editor --scene examples/assets/betik_dagitimi.sahne   # düzenle; F5 bu oyunu
+//                                                                # editörün Oyun sekmesinde oynatır
 //   engine_sahnec examples/assets/betik_dagitimi.sahne           # -> .sahneb
-//   ./tulpar examples/engine_betik_dagitimi.tpr                  # oyna
+//   ./tulpar examples/engine_betik_dagitimi.tpr                  # oyna (kendi penceresi)
 //
 // Pencersiz doğrulama:
 //   TULPAR_ENGINE_HEADLESS=180 TULPAR_ENGINE_OUT=/tmp/bd.ppm ./tulpar examples/engine_betik_dagitimi.tpr

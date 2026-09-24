@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "platform/time.hpp"
+
 namespace tulpar::engine::app {
 
 bool game_find_compiler(const char *exe_dir, char *out, uint32_t cap, char *why, uint32_t why_cap) {
@@ -75,26 +77,53 @@ GameFindResult game_find_for_scene(const char *tulpar_root, const char *scene_pa
   return r;
 }
 
-bool game_run_start(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path, char *err,
-                    uint32_t err_cap) {
+namespace {
+bool start_common(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path, uint32_t w, uint32_t h,
+                  bool embedded, char *err, uint32_t err_cap) {
   if (r.state == GameRunState::Running) {
     if (err && err_cap) std::snprintf(err, err_cap, "oyun zaten calisiyor: %s", r.game);
     return false;
   }
+  r.chan.close(); // onceki gomulu oynatmanin eslemesi (surec bitti, kanal kaldi)
   r = GameRun{};
   std::snprintf(r.log_path, sizeof r.log_path, "%s", log_path ? log_path : "");
   std::snprintf(r.game, sizeof r.game, "%s", game_rel ? game_rel : "");
+  static char env_kanal[128];
+  const char *env[] = {env_kanal, nullptr};
+  if (embedded) {
+    char cerr[256];
+    if (!r.chan.create(w, h, cerr, sizeof cerr)) {
+      if (err && err_cap) std::snprintf(err, err_cap, "gomulu kanal acilamadi: %s", cerr);
+      r.state = GameRunState::Failed;
+      return false;
+    }
+    std::snprintf(env_kanal, sizeof env_kanal, "%s=%s", platform::kGameChannelEnv, r.chan.name());
+    r.embedded = true;
+  }
   const char *argv[] = {compiler, game_rel, nullptr};
   platform::ProcessSpec s;
   s.argv = argv;
   s.cwd = tulpar_root;
   s.log_path = r.log_path[0] ? r.log_path : nullptr;
+  s.env = embedded ? env : nullptr;
   if (!platform::process_start(r.proc, s, err, err_cap)) {
+    r.chan.close();
     r.state = GameRunState::Failed;
     return false;
   }
+  r.chan.beat();
   r.state = GameRunState::Running;
   return true;
+}
+} // namespace
+
+bool game_run_start(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path, char *err,
+                    uint32_t err_cap) {
+  return start_common(r, compiler, tulpar_root, game_rel, log_path, 0, 0, false, err, err_cap);
+}
+bool game_run_start_embedded(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path,
+                             uint32_t w, uint32_t h, char *err, uint32_t err_cap) {
+  return start_common(r, compiler, tulpar_root, game_rel, log_path, w, h, true, err, err_cap);
 }
 
 namespace {
@@ -140,6 +169,15 @@ void drain(GameRun &r, void (*on_line)(void *, const char *), void *user, bool h
 
 GameRunState game_run_poll(GameRun &r, void (*on_line)(void *, const char *), void *user) {
   if (r.state != GameRunState::Running) return r.state;
+  if (r.embedded && r.chan.ok()) {
+    r.chan.beat(); // "editor burada" — durursa oyun kendini kapatir
+    // Oyun baglandi: ad artik gereksiz; iki taraf da coksa /dev/shm'de kalmasin.
+    if (r.chan.child_state() != platform::GameChildState::None) r.chan.unlink();
+    if (r.stop_ns && !r.killed && platform::now_ns() - r.stop_ns > kGameStopGraceNs) {
+      platform::process_kill(r.proc);
+      r.killed = true;
+    }
+  }
   int code = 0;
   const platform::ProcessState ps = platform::process_poll(r.proc, &code);
   if (ps == platform::ProcessState::Running) {
@@ -151,9 +189,20 @@ GameRunState game_run_poll(GameRun &r, void (*on_line)(void *, const char *), vo
   drain(r, on_line, user, true);
   r.exit_code = code;
   r.state = ps == platform::ProcessState::Exited ? GameRunState::Finished : GameRunState::Failed;
+  // Gomulu: esleme birakilir. Editor kanaldan gelen kareyi HEMEN kendi
+  // hazirlama tamponuna kopyaliyor, yani kimse eslemeye isaretci tutmuyor.
+  if (r.embedded) r.chan.close();
   return r.state;
 }
 
-bool game_run_stop(GameRun &r) { return r.state == GameRunState::Running && platform::process_kill(r.proc); }
+bool game_run_stop(GameRun &r) {
+  if (r.state != GameRunState::Running) return false;
+  if (r.embedded && r.chan.ok() && !r.killed) {
+    if (!r.stop_ns) r.stop_ns = platform::now_ns();
+    r.chan.request_stop();
+    return true;
+  }
+  return platform::process_kill(r.proc);
+}
 
 } // namespace tulpar::engine::app

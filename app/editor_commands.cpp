@@ -118,20 +118,21 @@ constexpr CommandDesc k_defaults[] = {
     // Bilesim esitligi degistiricileri DE karsilastirdigi icin o ayiklama artik
     // kendiliginden dogru: Ctrl basiliyken ham S ESLESMEZ.
     {CommandId::GizmoScale, CommandCategory::Gizmo, kCmdCheckable, kKeyS, kChordNone, "gizmo.olcekle", "\xC3\x96l\xC3\xA7""ekle", "ImGuizmo kipi: olcekleme"},
+    // F5: sahneyi yukleyen oyunu BETIKLERIYLE, Oyun sekmesinin icinde oynatir
+    // (ayri surec, gomulu kanal; app/editor_game.hpp). Oyun ya da derleyici
+    // yoksa editorun fizik onizlemesine duser ve nedenini Konsol'a yazar.
     {CommandId::PlayToggle, CommandCategory::Play, kCmdCheckable, kKeyF5, kChordNone, "oynat.baslat_durdur", "Oynat / Durdur",
-     "Sim'i sabit adimda calistirir; durunca govdeler kaldirilir"},
-    // Duraklat DURDURMAK DEGILDIR: govdeler yerinde kalir, yalniz zaman akmaz.
-    // Durdur (PlayToggle) govdeleri kaldirir ve veri modeli yeniden gecerlidir.
+     "Oyunu betikleriyle Oyun sekmesinde oynatir (yoksa fizik onizlemesi); Durdur oynatma oncesine doner"},
+    // Duraklat DURDURMAK DEGILDIR: oyun (ya da govdeler) yerinde kalir, yalniz zaman akmaz.
     {CommandId::PlayPause, CommandCategory::Play, kCmdCheckable, kKeyF6, kChordNone, "oynat.duraklat", "Duraklat",
-     "Oynatmayi dondurur; govdeler yerinde kalir (F10 ile kare ilerlet)"},
+     "Oynatmayi dondurur: betik, fizik ve zaman durur (F10 ile kare ilerlet)"},
     {CommandId::PlayStep, CommandCategory::Play, kCmdNone, kKeyF10, kChordNone, "oynat.kare_ilerlet", "Kare ilerlet",
-     "Duraklatilmisken TEK sabit fizik adimi ilerletir"},
-    // F5'in ikizi DEGIL: F5 sahnenin fizigini EDITOR ICINDE kosturur, betik
-    // calismaz. Bu, oyunun kendi .tpr kodunu motoru taniyan derleyiciyle ayri
-    // bir surecte ve kendi penceresinde calistirir (bkz. app/editor_game.hpp).
+     "Duraklatilmisken TEK kare ilerletir"},
+    // F5 ile AYNI ikili; fark goruntunun yeri: bu, oyunu KENDI penceresinde
+    // calistirir (tam ekran denemek, editorsuz olcmek icin).
     {CommandId::PlayRunGame, CommandCategory::Play, kCmdCheckable, chord_of(kModCtrl, kKeyF5), kChordNone, "oynat.oyunu_calistir",
      "Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r / durdur",
-     "Sahneyi derler, onu yukleyen Tulpar oyununu ayri pencerede calistirir; ciktisi Konsol'a akar"},
+     "Sahneyi derler, onu yukleyen Tulpar oyununu KENDI penceresinde calistirir; ciktisi Konsol'a akar"},
 };
 
 constexpr uint32_t k_default_count = (uint32_t)(sizeof(k_defaults) / sizeof(k_defaults[0]));
@@ -265,6 +266,7 @@ uint32_t command_shortcut_text(Chord c, char *buf, uint32_t cap) {
 }
 
 bool command_accepts_input(const CommandDesc &d, const InputGuards &g) {
+  if (g.game_input) return d.category == CommandCategory::Play;
   if (d.flags & kCmdWhileTyping) return true;
   if (g.text_input) return false;
   // Ham kisayol icin TEK basina "metin yazilmiyor" yetmez: ImGui klavyeyi
