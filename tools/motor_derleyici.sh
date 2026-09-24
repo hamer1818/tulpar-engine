@@ -71,6 +71,21 @@ dogrula() {
   if ! grep -q "kapanis:" "$log"; then hata "oyun bitti ama motor kapanis raporu YOK — gunluk: $log"; return 1; fi
   iyi "motoru taniyan derleyici calisiyor: $d"
   grep "kapanis:" "$log" | head -1 | sed 's/^/    /'
+  # Dil sondasi: motorun Tulpar kitapligi ve ornek oyunlar struct alanina
+  # bilesik atama kullaniyor (`dusmanlar[i].can -= 50`). TulparLang #344'ten
+  # (2026-09-24) once bu SESSIZCE hicbir sey yapmiyordu: oyun derlenir ve
+  # calisir, ama dusmanlar olmez. Hata vermeyen bir derleyiciyle kurulum
+  # "tamam" dememeli.
+  local sonda="$hedef/dil_sondasi.tpr"
+  printf 'struct D { int can; }\nD[] d = [];\nfunc main() { push(d, { can: 100 }); d[0].can -= 30; print("sonda " + toString(d[0].can)); }\nmain();\n' > "$sonda"
+  local cevap
+  cevap="$(cd "$hedef" && "$d" "$sonda" 2>&1 | tail -1)"
+  if [ "$cevap" != "sonda 70" ]; then
+    hata "derleyici struct alanina bilesik atamayi yanlis yapiyor ('d[0].can -= 30' -> '$cevap', beklenen 'sonda 70')"
+    echo "  TulparLang #344 oncesi bir kopya: $tulpar_src icinde 'git pull' yapip bu betigi yeniden calistirin." >&2
+    return 1
+  fi
+  iyi "dil sondasi: struct alanina bilesik atama dogru ($cevap)"
 }
 [ "$sadece_dogrula" = 1 ] && { dogrula; exit $?; }
 
