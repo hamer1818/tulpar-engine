@@ -13,6 +13,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include <cwchar>
 #else
 #include <cerrno>
 #include <csignal>
@@ -20,6 +22,10 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <crt_externs.h> // _NSGetEnviron: macOS'ta `environ` yalniz ana ikilide garanti
+#endif
+extern char **environ;
 #endif
 
 namespace tulpar::engine::platform {
@@ -78,10 +84,49 @@ bool widen(const char *s, wchar_t *out, int cap) {
   const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, out, cap);
   return n > 0;
 }
-bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, char *err, size_t cap) {
+// Ortam blogu: cagiranin ortami + s.env ekleri (ayni ad EKTEN gelir; Windows'ta
+// ad buyuk/kucuk harf duyarsiz). "=C:=C:\\..." gibi '=' ile baslayan gizli
+// girdiler korunur (ad '=' SONRASINDAN aranir).
+bool env_key_eq_w(const wchar_t *a, const wchar_t *b) {
+  const wchar_t *ea = wcschr(a + 1, L'='), *eb = wcschr(b + 1, L'=');
+  if (!ea || !eb || (ea - a) != (eb - b)) return false;
+  return _wcsnicmp(a, b, (size_t)(ea - a)) == 0;
+}
+bool build_env_w(const char *const *add, wchar_t *out, size_t cap, char *err, size_t ecap) {
+  static wchar_t adds[64][1024];
+  uint32_t na = 0;
+  for (const char *const *a = add; *a; a++) {
+    if (na >= 64 || !std::strchr(*a, '=') || !widen(*a, adds[na], 1024)) { say(err, ecap, "ortam eki gecersiz ya da cok fazla: %s", *a); return false; }
+    na++;
+  }
+  size_t n = 0;
+  auto put = [&](const wchar_t *e) {
+    const size_t l = wcslen(e);
+    if (n + l + 2 > cap) return false;
+    std::memcpy(out + n, e, (l + 1) * sizeof(wchar_t));
+    n += l + 1;
+    return true;
+  };
+  wchar_t *blk = GetEnvironmentStringsW();
+  bool ok = blk != nullptr;
+  for (const wchar_t *e = blk; ok && e && *e; e += wcslen(e) + 1) {
+    bool ezildi = false;
+    for (uint32_t i = 0; i < na && !ezildi; i++) ezildi = env_key_eq_w(e, adds[i]);
+    if (!ezildi) ok = put(e);
+  }
+  if (blk) FreeEnvironmentStringsW(blk);
+  for (uint32_t i = 0; ok && i < na; i++) ok = put(adds[i]);
+  if (!ok) { say(err, ecap, "ortam blogu %zu karakter sinirini asti", cap); return false; }
+  out[n] = 0; // cift NUL: blok sonu
+  return true;
+}
+bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out, char *err, size_t cap) {
   static char cmd8[32768];
   static wchar_t cmd[32768], cwd[1024], log[1024];
+  static wchar_t envblk[65536];
+  if (job_out) *job_out = nullptr;
   if (!s.argv || !s.argv[0]) { say(err, cap, "bos komut"); return false; }
+  if (s.env && !build_env_w(s.env, envblk, 65536, err, cap)) return false;
   if (!process_quote_windows(s.argv, cmd8, sizeof cmd8)) { say(err, cap, "komut satiri 32 KB sinirini asti"); return false; }
   if (!widen(cmd8, cmd, 32768) || (s.cwd && !widen(s.cwd, cwd, 1024)) || (s.log_path && !widen(s.log_path, log, 1024))) {
     say(err, cap, "gecersiz UTF-8 yol/arguman");
@@ -100,17 +145,34 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, char *err, size
   }
   // Gunluge yazan cocuk icin konsol penceresi ACILMAZ (derleyici her
   // "Oynat"ta bir kara pencere yakip sondururdu).
-  const DWORD flags = CREATE_UNICODE_ENVIRONMENT | (detached ? DETACHED_PROCESS : 0) | (s.log_path ? CREATE_NO_WINDOW : 0);
+  // Is nesnesi (agac kill'i, process.hpp "SUREC AGACI"): cocuk ASKIDA
+  // baslatilir, ise alinir, sonra yurutulur — yoksa is nesnesine girmeden
+  // kendi cocugunu baslatabilirdi ve o torun agacin disinda kalirdi.
+  HANDLE job = nullptr;
+  if (!detached) {
+    job = CreateJobObjectW(nullptr, nullptr);
+    if (job) {
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION li{};
+      li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof li)) { CloseHandle(job); job = nullptr; }
+    }
+  }
+  const DWORD flags = CREATE_UNICODE_ENVIRONMENT | (detached ? DETACHED_PROCESS : 0) | (s.log_path ? CREATE_NO_WINDOW : 0) | (job ? CREATE_SUSPENDED : 0);
   PROCESS_INFORMATION pi{};
-  const BOOL ok = CreateProcessW(nullptr, cmd, nullptr, nullptr, s.log_path ? TRUE : FALSE, flags, nullptr, s.cwd ? cwd : nullptr, &si, &pi);
+  const BOOL ok = CreateProcessW(nullptr, cmd, nullptr, nullptr, s.log_path ? TRUE : FALSE, flags, s.env ? envblk : nullptr, s.cwd ? cwd : nullptr, &si, &pi);
   const DWORD e = ok ? 0 : GetLastError();
   if (lh != INVALID_HANDLE_VALUE) CloseHandle(lh);
   if (!ok) {
+    if (job) CloseHandle(job);
     if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) say(err, cap, "program bulunamadi: %s", s.argv[0]);
     else if (e == ERROR_DIRECTORY) say(err, cap, "calisma dizini yok: %s", s.cwd ? s.cwd : "");
     else say(err, cap, "CreateProcessW basarisiz (%s hata %d)", s.argv[0], (int)e);
     return false;
   }
+  if (job && !AssignProcessToJobObject(job, pi.hProcess)) { CloseHandle(job); job = nullptr; } // kill yalniz cocuga duser
+  if (flags & CREATE_SUSPENDED) ResumeThread(pi.hThread);
+  if (job_out) *job_out = job;
+  else if (job) CloseHandle(job);
   CloseHandle(pi.hThread);
   if (out) *out = pi.hProcess;
   else CloseHandle(pi.hProcess);
@@ -119,13 +181,14 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, char *err, size
 } // namespace
 
 bool process_start(Process &p, const ProcessSpec &s, char *err, size_t cap) {
-  HANDLE h = nullptr;
-  if (!spawn_win(s, false, &h, err, cap)) return false;
+  HANDLE h = nullptr, job = nullptr;
+  if (!spawn_win(s, false, &h, &job, err, cap)) return false;
   p.handle = (intptr_t)h;
+  p.job = (intptr_t)job;
   p.running = true;
   return true;
 }
-bool process_start_detached(const ProcessSpec &s, char *err, size_t cap) { return spawn_win(s, true, nullptr, err, cap); }
+bool process_start_detached(const ProcessSpec &s, char *err, size_t cap) { return spawn_win(s, true, nullptr, nullptr, err, cap); }
 ProcessState process_poll(Process &p, int *code) {
   if (!p.running) return ProcessState::Failed;
   const HANDLE h = (HANDLE)p.handle;
@@ -134,13 +197,20 @@ ProcessState process_poll(Process &p, int *code) {
   DWORD c = 0;
   const bool ok = w == WAIT_OBJECT_0 && GetExitCodeProcess(h, &c);
   CloseHandle(h);
+  // Is tutamaci kapaninca KILL_ON_JOB_CLOSE geride kalan torunlari da kapatir.
+  if (p.job) CloseHandle((HANDLE)p.job);
   p.handle = 0;
+  p.job = 0;
   p.running = false;
   if (!ok) return ProcessState::Failed;
   if (code) *code = (int)c;
   return ProcessState::Exited;
 }
-bool process_kill(Process &p) { return p.running && TerminateProcess((HANDLE)p.handle, 1) != 0; }
+bool process_kill(Process &p) {
+  if (!p.running) return false;
+  if (p.job && TerminateJobObject((HANDLE)p.job, 1)) return true;
+  return TerminateProcess((HANDLE)p.handle, 1) != 0;
+}
 bool process_find_in_path(const char *name, char *out, size_t cap) {
   static wchar_t wn[1024], buf[1024];
   if (!name || !*name || !out || cap == 0 || !widen(name, wn, 1024)) return false;
@@ -174,8 +244,43 @@ bool set_cloexec(int fd) {
   const int fl = ::fcntl(fd, F_GETFD);
   return fl >= 0 && ::fcntl(fd, F_SETFD, fl | FD_CLOEXEC) == 0;
 }
+char **&environ_ref() {
+#if defined(__APPLE__)
+  return *_NSGetEnviron();
+#else
+  return environ;
+#endif
+}
+// Ortam ekleri ebeveynde, fork'tan ONCE kurulur (cocukta malloc yok): mevcut
+// girdilerin isaretcileri + ekler. Cocuk yalniz `environ` isaretcisini
+// degistirir (async-signal-safe bir atama) ve execvp onu kullanir.
+bool env_key_eq(const char *a, const char *b) {
+  const char *ea = std::strchr(a, '='), *eb = std::strchr(b, '=');
+  return ea && eb && (ea - a) == (eb - b) && std::strncmp(a, b, (size_t)(ea - a)) == 0;
+}
+constexpr size_t kMaxEnv = 4096;
+bool build_env(const char *const *add, char **out, char *err, size_t cap) {
+  size_t n = 0;
+  for (const char *const *a = add; *a; a++)
+    if (!std::strchr(*a, '=')) { say(err, cap, "ortam eki AD=deger biciminde degil: %s", *a); return false; }
+  for (char **e = environ_ref(); e && *e; e++) {
+    bool ezildi = false;
+    for (const char *const *a = add; *a && !ezildi; a++) ezildi = env_key_eq(*e, *a);
+    if (ezildi) continue;
+    if (n + 1 >= kMaxEnv) { say(err, cap, "ortam %zu girdi sinirini asti", kMaxEnv); return false; }
+    out[n++] = *e;
+  }
+  for (const char *const *a = add; *a; a++) {
+    if (n + 1 >= kMaxEnv) { say(err, cap, "ortam %zu girdi sinirini asti", kMaxEnv); return false; }
+    out[n++] = const_cast<char *>(*a);
+  }
+  out[n] = nullptr;
+  return true;
+}
 bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, size_t cap) {
   if (!s.argv || !s.argv[0]) { say(err, cap, "bos komut"); return false; }
+  static char *envp[kMaxEnv];
+  if (s.env && !build_env(s.env, envp, err, cap)) return false;
   int pfd[2];
   // pipe2 macOS'ta yok: pipe + fcntl. Arada fork eden baska thread olursa
   // uc sizabilir; editorde surec baslatan tek yer UI thread'i.
@@ -194,6 +299,9 @@ bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, siz
   }
   if (pid == 0) {
     ::close(pfd[0]);
+    // Kendi surec grubu: process_kill butun agaci (derleyici + oyun) alir.
+    if (!detached) ::setpgid(0, 0);
+    if (s.env) environ_ref() = envp;
     if (detached) {
       ::setsid(); // editorun sinyal grubundan ayril: Ctrl+C editoru oldurur, kod editorunu DEGIL
       const pid_t g = ::fork();
@@ -212,6 +320,9 @@ bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, siz
     ::execvp(s.argv[0], const_cast<char *const *>(s.argv));
     child_fail(pfd[1], 'e');
   }
+  // Ebeveyn de grubu kurar: cocuk setpgid'e varmadan kill gelirse bile grup
+  // var (standart ikili cagri; exec sonrasi EACCES zararsiz).
+  if (!detached) ::setpgid(pid, pid);
   ::close(pfd[1]);
   if (logfd >= 0) ::close(logfd);
   // exec basarirsa CLOEXEC boruyu kapatir ve read 0 doner; basarisizsa
@@ -253,7 +364,12 @@ ProcessState process_poll(Process &p, int *code) {
   if (code) *code = WIFEXITED(st) ? WEXITSTATUS(st) : WIFSIGNALED(st) ? 128 + WTERMSIG(st) : -1;
   return ProcessState::Exited;
 }
-bool process_kill(Process &p) { return p.running && ::kill((pid_t)p.handle, SIGTERM) == 0; }
+bool process_kill(Process &p) {
+  if (!p.running) return false;
+  // Grup: cocuk + baslattigi her sey (process.hpp "SUREC AGACI").
+  if (::kill(-(pid_t)p.handle, SIGTERM) == 0) return true;
+  return ::kill((pid_t)p.handle, SIGTERM) == 0;
+}
 bool process_find_in_path(const char *name, char *out, size_t cap) {
   if (!name || !*name || !out || cap == 0) return false;
   auto calisir = [](const char *f) {

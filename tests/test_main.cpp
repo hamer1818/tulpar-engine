@@ -14,6 +14,10 @@
 #include "platform/thread.hpp"
 
 const char *g_engine_tests_exe = nullptr;
+#if !defined(__ANDROID__)
+int game_channel_child_main(int argc, char **argv); // tests/test_game_channel.cpp (-1: cocuk kipi degil)
+#endif
+int process_test_child_main(int argc, char **argv); // tests/test_process.cpp (-1: cocuk kipi degil)
 
 namespace {
 // Cokme cocugu: rapor testinin kobayi. noinline: sembol cozumu onu bulmali.
@@ -87,6 +91,12 @@ static int argv_yankila(int argc, char **argv) {
 int engine_tests_main(int argc, char **argv) {
   g_engine_tests_exe = (argc > 0 && argv && argv[0] && argv[0][0]) ? argv[0] : nullptr;
   if (argc >= 3 && std::strcmp(argv[1], "--argv-yankila") == 0) return argv_yankila(argc, argv);
+#if !defined(__ANDROID__)
+  // Gomulu oyun kanali kobaylari (--gomulu-sahte, --gomulu-kopru).
+  if (const int r = game_channel_child_main(argc, argv); r >= 0) return r;
+#endif
+  // Surec kobaylari (--ortam-yankila, --torun-baslat).
+  if (const int r = process_test_child_main(argc, argv); r >= 0) return r;
   // Sahte kod editoru (test_editor.cpp "Dis editorde ac"): editor programi
   // [program, dosya] ile baslatir, ek bayrak koyamaz. Kip ORTAMDAN secilir;
   // degisken yalniz o kapinin cocuguna verilir, normal kosumda tanimsiz.

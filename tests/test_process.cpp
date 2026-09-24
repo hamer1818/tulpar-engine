@@ -11,7 +11,15 @@
 #include "tests/test.hpp"
 #if !defined(_WIN32)
 #include <cerrno>
+#include <csignal>
 #include <sys/wait.h>
+#include <unistd.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <process.h>
+#include <windows.h>
 #endif
 
 using namespace tulpar::engine;
@@ -219,4 +227,173 @@ ENGINE_TEST(process_find_in_path_finds_real_programs_only) {
   CHECK(platform::process_find_in_path(var, out, sizeof out));
   std::printf("    [bilgi] PATH'te %s -> %s\n", var, out);
   CHECK(!platform::process_find_in_path("boyle_bir_program_yok_tulpar_4711", out, sizeof out));
+}
+
+// --- Cocuk kipleri (test_main.cpp cagirir; -1 = bu kip degil) ---------------
+namespace {
+// Torun: AYNI surec grubunda/isinde (derleyicinin oyunu kosturmasi gibi:
+// tulpar kendi cocugu icin yeni grup ACMIYOR). platform::process_start
+// kullanilamaz — o her cocugu kendi grubunun lideri yapiyor.
+long spawn_grandchild(const char *exe) {
+#if defined(_WIN32)
+  const intptr_t h = _spawnl(_P_NOWAIT, exe, exe, "--uyu", "30000", (const char *)nullptr);
+  return h == -1 ? -1 : (long)GetProcessId((HANDLE)h);
+#else
+  const pid_t pid = ::fork();
+  if (pid == 0) {
+    ::execl(exe, exe, "--uyu", "30000", (char *)nullptr);
+    ::_exit(127);
+  }
+  return pid;
+#endif
+}
+bool pid_alive(long pid) {
+#if defined(_WIN32)
+  HANDLE h = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+  if (!h) return false;
+  const bool alive = WaitForSingleObject(h, 0) == WAIT_TIMEOUT;
+  CloseHandle(h);
+  return alive;
+#else
+  if (::kill((pid_t)pid, 0) != 0) return false;
+  // Zombi (olmus, henuz toplanmamis) canli sayilmaz. Linux'ta /proc'tan;
+  // macOS'ta launchd yetimi hemen topluyor.
+  char path[64], buf[256];
+  std::snprintf(path, sizeof path, "/proc/%ld/stat", pid);
+  FILE *f = std::fopen(path, "rb");
+  if (!f) return true;
+  const size_t n = std::fread(buf, 1, sizeof buf - 1, f);
+  std::fclose(f);
+  buf[n] = 0;
+  const char *rp = std::strrchr(buf, ')');
+  return !(rp && rp[1] == ' ' && rp[2] == 'Z');
+#endif
+}
+void kill_pid(long pid) {
+#if defined(_WIN32)
+  HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+  if (h) { TerminateProcess(h, 1); CloseHandle(h); }
+#else
+  ::kill((pid_t)pid, SIGKILL);
+#endif
+}
+} // namespace
+
+int process_test_child_main(int argc, char **argv) {
+  // --ortam-yankila <cikti> AD...: her ad icin "AD=deger" ya da "AD YOK" satiri.
+  if (argc >= 3 && !std::strcmp(argv[1], "--ortam-yankila")) {
+    FILE *f = std::fopen(argv[2], "wb");
+    if (!f) return 3;
+    for (int i = 3; i < argc; i++) {
+      const char *v = std::getenv(argv[i]);
+      if (v) std::fprintf(f, "%s=%s\n", argv[i], v);
+      else std::fprintf(f, "%s YOK\n", argv[i]);
+    }
+    std::fclose(f);
+    return 0;
+  }
+  // --torun-baslat <pid dosyasi> <exe>: torunu baslat, pid'ini yaz, 30 s uyu.
+  if (argc >= 4 && !std::strcmp(argv[1], "--torun-baslat")) {
+    const long g = spawn_grandchild(argv[3]);
+    if (g <= 0) return 4;
+    char tmp[1100];
+    std::snprintf(tmp, sizeof tmp, "%s.yaz", argv[2]);
+    FILE *f = std::fopen(tmp, "wb");
+    if (!f) return 3;
+    std::fprintf(f, "%ld\n", g);
+    std::fclose(f);
+    std::rename(tmp, argv[2]); // yarim yazilmis dosya okunmasin
+    for (int i = 0; i < 30000; i++) platform::thread_sleep_us(1000);
+    return 0;
+  }
+  return -1;
+}
+
+// Ortam ekleri: cocuk GORUR, ayni ad EZILIR (iki kez gecmez), ebeveynin
+// kendi ortami DEGISMEZ, miras kalan degisken yerinde kalir.
+ENGINE_TEST(process_env_reaches_the_child_and_overrides) {
+  char exe[1100];
+  if (!self_exe(exe, sizeof exe)) { test::skip("engine_tests'in kendi yolu bulunamadi (exe_dir)"); return; }
+  char dir[512], out[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "ortam"));
+  std::snprintf(out, sizeof out, "%s/ortam.txt", dir);
+#if defined(_WIN32)
+  _putenv_s("TULPAR_TEST_ORTAM_A", "ebeveyn");
+  _putenv_s("TULPAR_TEST_ORTAM_C", "miras");
+#else
+  setenv("TULPAR_TEST_ORTAM_A", "ebeveyn", 1);
+  setenv("TULPAR_TEST_ORTAM_C", "miras", 1);
+#endif
+  const char *env[] = {"TULPAR_TEST_ORTAM_A=cocuk degeri", "TULPAR_TEST_ORTAM_B=b=c", nullptr};
+  const char *argv[] = {exe, "--ortam-yankila", out, "TULPAR_TEST_ORTAM_A", "TULPAR_TEST_ORTAM_B", "TULPAR_TEST_ORTAM_C", "TULPAR_TEST_ORTAM_YOK", nullptr};
+  platform::ProcessSpec s;
+  s.argv = argv;
+  s.env = env;
+  platform::Process p;
+  char err[256] = {0};
+  const bool b = platform::process_start(p, s, err, sizeof err);
+  if (!b) std::printf("    FAIL baslatilamadi: %s\n", err);
+  CHECK(b);
+  CHECK((b ? wait_exit(p) : -1) == 0);
+  char got[1024];
+  slurp(out, got, sizeof got);
+  std::printf("    [bilgi] cocugun ortami:\n%s", got);
+  CHECK(!std::strcmp(got, "TULPAR_TEST_ORTAM_A=cocuk degeri\nTULPAR_TEST_ORTAM_B=b=c\nTULPAR_TEST_ORTAM_C=miras\nTULPAR_TEST_ORTAM_YOK YOK\n"));
+  const char *a = std::getenv("TULPAR_TEST_ORTAM_A");
+  CHECK(a && !std::strcmp(a, "ebeveyn")); // ebeveyn degismedi
+  // Bicimsiz ek: GURULTULU red, cocuk baslamaz.
+  const char *kotu[] = {"ESITTIR_YOK", nullptr};
+  s.env = kotu;
+  err[0] = 0;
+  CHECK(!platform::process_start(p, s, err, sizeof err));
+  std::printf("    [bilgi] bicimsiz ek: \"%s\"\n", err);
+#if defined(_WIN32)
+  _putenv_s("TULPAR_TEST_ORTAM_A", "");
+  _putenv_s("TULPAR_TEST_ORTAM_C", "");
+#else
+  unsetenv("TULPAR_TEST_ORTAM_A");
+  unsetenv("TULPAR_TEST_ORTAM_C");
+#endif
+}
+
+// process_kill butun AGACI alir. Olculen gercek hata (2026-09-24): editorun
+// "Durdur"u `tulpar oyun.tpr`'yi oldururdu, oyunun kendisi (derleyicinin
+// cocugu) calismaya devam ederdi. Kobay ayni sekli kuruyor: cocuk, AYNI
+// grupta bir torun baslatir; cocugu oldurunce torun da olmeli.
+ENGINE_TEST(process_kill_takes_the_whole_tree) {
+  char exe[1100];
+  if (!self_exe(exe, sizeof exe)) { test::skip("engine_tests'in kendi yolu bulunamadi (exe_dir)"); return; }
+  char dir[512], pidf[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "agac"));
+  std::snprintf(pidf, sizeof pidf, "%s/torun.pid", dir);
+  const char *argv[] = {exe, "--torun-baslat", pidf, exe, nullptr};
+  platform::ProcessSpec s;
+  s.argv = argv;
+  platform::Process p;
+  char err[256] = {0};
+  const bool b = platform::process_start(p, s, err, sizeof err);
+  if (!b) std::printf("    FAIL baslatilamadi: %s\n", err);
+  CHECK(b);
+  if (!b) return;
+  long torun = -1;
+  for (int i = 0; i < 10000 && torun <= 0; i++) {
+    char buf[64];
+    if (slurp(pidf, buf, sizeof buf)) torun = std::atol(buf);
+    else platform::thread_sleep_us(1000);
+  }
+  CHECK(torun > 0);
+  const bool once = torun > 0 && pid_alive(torun);
+  CHECK(platform::process_kill(p));
+  const int code = wait_exit(p);
+  bool oldu = false;
+  int ms = 0;
+  for (; ms < 5000 && torun > 0; ms++) {
+    if (!pid_alive(torun)) { oldu = true; break; }
+    platform::thread_sleep_us(1000);
+  }
+  std::printf("    [bilgi] torun %ld: kill oncesi %s, cocuk cikis %d, torun %s (%d ms)\n", torun, once ? "canli" : "OLU", code,
+              oldu ? "OLDU" : "HALA CALISIYOR", ms);
+  CHECK(once);
+  CHECK(oldu);
+  if (!oldu && torun > 0) kill_pid(torun); // basarisizlikta sizinti birakma
 }

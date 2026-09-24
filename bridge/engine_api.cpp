@@ -47,7 +47,9 @@
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/crash.hpp"
+#include "platform/game_channel.hpp"
 #include "platform/paths.hpp"
+#include "platform/thread.hpp"
 #include "platform/time.hpp"
 #include "renderer/renderer.hpp"
 #include "rhi/device.hpp"
@@ -392,6 +394,19 @@ struct Bridge {
   bool cur_keys[512] = {};
   const platform::TouchState *touch = nullptr;
   app::VirtualStick stick;
+  // --- gomulu kip (editorun F5'i; platform/game_channel.hpp) ---------------
+  // Oyun editorun ICINDE oynatilir: cizim offscreen (headless yolu), kare
+  // kanala yazilir, girdi ve denetim kanaldan okunur. `headless` de true
+  // (cizim yolu ayni), ama kullanici VAR: teng_headless 0 doner, dt gercek
+  // saat, kare siniri yok.
+  bool embed = false;
+  platform::GameChannelChild chan;
+  platform::InputState embed_in;
+  platform::TouchState embed_touch;
+  uint64_t embed_next_ns = 0;   // kare temposu (60 Hz): editor 60 Hz gosterir, fazlasi bosa
+  uint64_t embed_timeout_ns = 5000000000ull; // editor bu kadar sessizse oyun kapanir
+  uint32_t embed_published = 0, embed_pauses = 0, embed_steps = 0;
+  bool embed_in_pause = false;
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
@@ -563,6 +578,55 @@ int key_code(const char *name) {
   return -1;
 }
 
+// Gomulu kip, kare basi: tempo, duraklatma, durdurma, editorun sagligi.
+// Donus: bu kare duraklatmadaki TEK ADIM mi (dt bir kare sayilir).
+//
+// Duraklatma oyunun KENDI dongusunu durdurur: kare_basla() donmez. Betik,
+// fizik, zaman, animasyon — hepsi ayni yerde durur, cunku hepsi bu karenin
+// icinde. Beklerken durdurma ve editorun olumu yine denetlenir (bekleyen
+// oyun editor kapaninca asili kalmasin).
+bool embed_frame_wait(Bridge &b) {
+  constexpr uint64_t kFrameNs = 16666667ull;
+  uint64_t now = platform::now_ns();
+  if (b.embed_next_ns > now) platform::thread_sleep_us((uint32_t)((b.embed_next_ns - now) / 1000u));
+  now = platform::now_ns();
+  b.embed_next_ns = (b.embed_next_ns + kFrameNs > now) ? b.embed_next_ns + kFrameNs : now + kFrameNs;
+  bool step = false;
+  if (b.chan.paused() && !b.chan.stop_requested()) {
+    if (!b.embed_in_pause) { // gecis: tek adimlar yeni bir duraklatma sayilmaz
+      b.embed_in_pause = true;
+      b.embed_pauses++;
+      b.chan.set_state(platform::GameChildState::Paused);
+      BINFO("gomulu: duraklatildi (kare %u)", b.frame);
+    }
+    while (b.chan.paused() && !b.chan.stop_requested() && b.chan.host_alive(platform::now_ns(), b.embed_timeout_ns)) {
+      if (b.chan.take_step()) { step = true; b.embed_steps++; break; }
+      b.chan.beat();
+      platform::thread_sleep_us(4000);
+    }
+    if (!b.chan.paused()) {
+      b.embed_in_pause = false;
+      b.chan.set_state(platform::GameChildState::Running);
+      BINFO("gomulu: devam (kare %u)", b.frame);
+    }
+    // Duraklamada gecen sure dt'ye girmesin (fizik bir anda bosalmasin).
+    b.last_ns = platform::now_ns();
+    b.embed_next_ns = b.last_ns + kFrameNs;
+  }
+  if (b.chan.stop_requested()) {
+    if (b.running) BINFO("gomulu: editor durdurdu (kare %u)", b.frame);
+    b.running = false;
+  } else if (!b.chan.host_alive(platform::now_ns(), b.embed_timeout_ns)) {
+    if (b.running) {
+      blog(1, "UYARI gomulu: editor %.1f s'dir sessiz (kapandi ya da dondu) -> oyun kapaniyor (kare %u)", b.embed_timeout_ns / 1e9, b.frame);
+      g_log.warnings++;
+    }
+    b.running = false;
+  }
+  b.chan.beat();
+  return step;
+}
+
 void render_frame() {
   Bridge &b = *g;
   // En-boy orani GORUNEN yonden; Android on-dondurmede goruntu fiziksel olarak
@@ -676,7 +740,9 @@ void teng_log(const char *msg) { blog(1, "[tpr] %s", msg ? msg : ""); }
 const char *teng_last_error(void) { return g ? g->err : ""; }
 int teng_error_count(void) { return (int)g_log.errors; }
 int teng_warning_count(void) { return (int)g_log.warnings; }
-int teng_headless(void) { return g && g->headless ? 1 : 0; }
+// Gomulu kipte cizim headless yolundan gider ama OYUNCU VAR: oyunlar bunu
+// "otopilot" diye okuyor (engine_karakter.tpr), editorde otopilot oynamasin.
+int teng_headless(void) { return g && g->headless && !g->embed ? 1 : 0; }
 void teng_set_headless(int frames, const char *out_ppm) {
   if (!g) g = new (g_storage) Bridge();
   g->headless = frames > 0;
@@ -714,8 +780,29 @@ int teng_init(const char *title, int width, int height) {
   std::snprintf(b.title, sizeof b.title, "%s", title ? title : "Tulpar");
   b.width = width > 0 ? (uint32_t)width : 1280;
   b.height = height > 0 ? (uint32_t)height : 720;
-  BINFO("kurulum: \"%s\" %ux%u, log seviyesi %d, kip %s%s", b.title, b.width, b.height, g_log.level, b.headless ? "headless" : "pencere",
-        b.headless ? "" : " (TULPAR_ENGINE_HEADLESS=N ile pencersiz)");
+  // Gomulu kip: editor kanali acti ve adini verdi. Baglanamazsak PENCEREYE
+  // DUSMUYORUZ: editor goruntunun kendi sekmesine gelmesini bekliyor; ayri bir
+  // pencere acilsa "F5 ne yapti" sorusu cevapsiz kalirdi. Hata editorun
+  // Konsol'una oyunun ciktisindan duser.
+  if (const char *gm = std::getenv(platform::kGameChannelEnv); gm && *gm) {
+    char cerr[256] = {0};
+    if (!b.chan.attach(gm, cerr, sizeof cerr)) {
+      BERR("gomulu kip: %s", cerr);
+      std::snprintf(b.err, sizeof b.err, "gomulu kanal: %s", cerr);
+      return 0;
+    }
+    b.embed = true;
+    b.headless = true;
+    b.headless_frames = 0;
+    if (const char *to = std::getenv("TULPAR_ENGINE_GOMULU_ZAMAN_ASIMI_MS"); to && *to && std::atoi(to) > 0)
+      b.embed_timeout_ns = (uint64_t)std::atoi(to) * 1000000ull;
+    BINFO("gomulu kip: kanal %s, kare %ux%u (oyunun istedigi %ux%u yerine editorun Oyun sekmesi), editor %.1f s susarsa kapanir", gm,
+          b.chan.width(), b.chan.height(), b.width, b.height, b.embed_timeout_ns / 1e9);
+    b.width = b.chan.width();
+    b.height = b.chan.height();
+  }
+  BINFO("kurulum: \"%s\" %ux%u, log seviyesi %d, kip %s%s", b.title, b.width, b.height, g_log.level,
+        b.embed ? "gomulu (editor)" : b.headless ? "headless" : "pencere", b.headless ? "" : " (TULPAR_ENGINE_HEADLESS=N ile pencersiz)");
   platform::CrashConfig cc;
   cc.report_dir = ".";
   cc.build_id = "tulpar_engine_bridge";
@@ -869,7 +956,8 @@ int teng_init(const char *title, int width, int height) {
   b.t0_ns = b.last_ns = platform::now_ns();
   b.inited = true;
   b.running = true;
-  BINFO("motor hazir (%s, %s)", b.headless ? "headless" : "pencere", b.dev.caps().device_name);
+  if (b.embed) b.chan.set_state(platform::GameChildState::Running);
+  BINFO("motor hazir (%s, %s)", b.embed ? "gomulu" : b.headless ? "headless" : "pencere", b.dev.caps().device_name);
   {
     // PSO onbellegi GORUNUR olmali: sessizce kapali kaldigi bir platformda
     // (Android'de XDG_CACHE_HOME/HOME/TMPDIR uculu tanimsizdir) hicbir sey
@@ -905,11 +993,14 @@ int teng_frame_begin(void) {
   g_log.last_call = "teng_frame_begin";
   if (b.in_frame) { BERR("teng_frame_begin: onceki kare teng_frame_end ile kapanmadi (kare %u)", b.frame); }
   b.in_frame = true;
+  bool embed_step = false;
+  if (b.embed) embed_step = embed_frame_wait(b);
   const uint64_t now = platform::now_ns();
   b.dt = (float)((now - b.last_ns) / 1e9);
   b.last_ns = now;
   if (b.dt > 0.25f) b.dt = 0.25f;
-  if (b.headless) b.dt = 1.0f / 60.0f;
+  if (b.headless && !b.embed) b.dt = 1.0f / 60.0f;
+  if (embed_step) b.dt = 1.0f / 60.0f; // duraklatmada tek adim: gecen gercek sure degil, BIR kare
   b.time_s += b.dt;
   b.prof.begin_frame();
   b.frame_arena.begin_frame();
@@ -954,6 +1045,22 @@ int teng_frame_begin(void) {
     b.touch = b.host.touch ? b.host.touch(b.host.user) : nullptr;
     if (b.in) { std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys); std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys); }
     if (b.touch) b.stick.update(*b.touch, now);
+  } else if (b.embed) {
+    // Girdi editorden: Oyun sekmesi odaktayken editorun penceresinin tuslari,
+    // fare KARE pikselinde. Fare -> parmak 0 (masaustu host ile ayni kural).
+    b.chan.read_input(b.embed_in);
+    b.in = &b.embed_in;
+    platform::TouchState &t = b.embed_touch;
+    t.width = (float)b.fb_w; t.height = (float)b.fb_h;
+    t.time_ns = now;
+    const bool down = b.embed_in.mouse_down[0];
+    if (down && !t.find(0)) t.begin(0, (float)b.embed_in.mouse_x, (float)b.embed_in.mouse_y);
+    else if (down) t.move(0, (float)b.embed_in.mouse_x, (float)b.embed_in.mouse_y);
+    else t.end(0);
+    b.touch = &t;
+    std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys);
+    std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
+    b.stick.update(*b.touch, now);
   }
   BTRACE("kare %u basladi dt=%.4f pencere=%d dokunus=%u", b.frame, b.dt, (int)b.have_window, b.touch ? b.touch->count : 0u);
   return b.have_window ? 1 : 0;
@@ -1156,6 +1263,14 @@ void teng_frame_end(void) {
   if (b.have_window) {
     ENGINE_ZONE("render");
     render_frame();
+    // Gomulu: kare kanala. Okunan pikseller offscreen'in (sRGB kodlu RGBA8,
+    // ekrandaki gibi); editor bayti bayt gosterir. Basarisiz kare YAZILMAZ —
+    // editor bir onceki kareyi gostermeye devam eder, hata logda.
+    if (b.embed && b.ores.ok && b.ores.pixels) {
+      std::memcpy(b.chan.frame_slot(), b.ores.pixels, (size_t)b.oc.width * b.oc.height * 4u);
+      b.chan.publish(b.frame);
+      b.embed_published++;
+    }
   } else { b.hud_n = 0; b.hud_text_n = 0; }
   b.prof.end_frame();
   b.frame++;
@@ -1170,7 +1285,7 @@ void teng_frame_end(void) {
     BDBG("kare %u | p50 %.2f ms p99 %.2f ms | cizim %u | isik %u | varlik %u | govde %u | tick %u", b.frame, st.p50_ns / 1e6, st.p99_ns / 1e6,
          b.ren.stats().draws, b.last_lights, b.ent_alive, b.phys.stats().bodies, b.tick);
   }
-  if (b.headless && b.frame >= b.headless_frames) {
+  if (b.headless && !b.embed && b.frame >= b.headless_frames) {
     b.running = false;
     BINFO("headless: %u kare tamamlandi", b.frame);
     if (b.out_ppm[0]) {
@@ -1238,6 +1353,11 @@ void teng_shutdown(void) {
   if (!b.headless) b.swap.shutdown();
   b.dev.shutdown();
   if (b.host_open) bridge::bridge_host_close(&b.host);
+  if (b.embed) {
+    BINFO("gomulu kip kapandi: %u kare yayimlandi, %u duraklatma, %u tek adim", b.embed_published, b.embed_pauses, b.embed_steps);
+    b.chan.close(); // durum "cikti": editor sureci beklerken bunu gorur
+    b.embed = false;
+  }
   b.inited = false;
   b.running = false;
   if (g_log.errors) dump_ring("kapanista hata vardi");
