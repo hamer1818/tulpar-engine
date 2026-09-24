@@ -298,7 +298,7 @@ bölüm yorumlarına göre):
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 25 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
-| girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare |
+| girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |
 | 2B arayüz (HUD) | 3 | `eng_text`, `eng_rect`, `eng_text_width` — kare içinde kuyruklanır, `frame_end` çizer |
 | anlık-kip arayüz | 12 | `ui_begin`/`ui_end`, tema, etkin/pasif, panel, etiket, **düğme**, **onay kutusu**, **kaydırıcı**, basılı mı, tıklama sayacı, pencersiz doğrulama için **enjekte tıklama** |
 | kalıcı kayıt | 10 | dosya bağla, yol, sayı/metin yaz-oku, var mı, diske yaz, temizle, sayı |
@@ -421,3 +421,23 @@ Pencersiz doğrulama aynı betikle: `TULPAR_ENGINE_HEADLESS=600 TULPAR_ENGINE_OU
 - Tek motor örneği (global bağlam): iki pencere / iki dünya yok, gerekmedi.
 - Kaynak (model) 16, varlık 4096, ses klibi ve arayüz durumu sabit kapasiteli — diziler sabit, 0 ayırma.
 - Parlama açıkken pencere yeniden boyutlanırsa iç hedef init ölçüsünde kalır (birleştirme gerilir).
+
+### 8.3 Masaüstünde girdi: fare bir faredir
+
+Masaüstünde (pencere ve editörün gömülü kipi) girdi klavye ve fareden gelir. Dokunmatik
+API'leri masaüstünde boş döner: `dokunus_sayisi()` 0, sanal çubuk 0, `eylem()` false.
+
+| ne | masaüstü | dokunmatik (Android ya da `TULPAR_ENGINE_DOKUNMATIK=1`) |
+|---|---|---|
+| yürü (`yon_x` / `yon_y`) | WASD ve ok tuşları | + sol yarım ekran sürükleme |
+| bakış (`eng_look_dx`) | sağ fare tuşu basılıyken yatay sürükleme | sağ yarım ekran sürükleme |
+| eylem (`eylem()`) | yok (oyun bir tuşa bağlar) | sağ yarıma kısa dokunuş |
+| fare (`fare_x`, `eng_mouse_down`) | var | var |
+
+Eskiden fare parmak 0'dı: masaüstünde sol tıkla sürüklemek sanal çubuğu oynatıyor,
+sağ yarıma tıklamak "eylem" sayılıyordu ve fareyle bakış yoktu. Kullanıcı (2026-09-24)
+"kontroller garip" dedi. Mobil kontrolleri masaüstünde denemek için taklit hâlâ var:
+`TULPAR_ENGINE_DOKUNMATIK=1` fareyi parmak 0 yapar. Kapılar:
+`bridge_embedded_game_draws_into_the_editor_channel` (sağ tuş sürükleme bakış verir, sol tık
+dokunuş değildir) ve `bridge_embedded_touch_emulation_is_opt_in` (taklit açıkken sol tık
+dokunuştur: aynı kontrolün pozitif kontrolü).

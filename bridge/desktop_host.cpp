@@ -1,7 +1,16 @@
-// L6 BRIDGE — masaustu host: platform::Window (GLFW 3 dlopen). Fare = parmak 0
-// (dokunmatik API'si masaustunde de calissin), klavye InputState'ten.
+// L6 BRIDGE — masaustu host: platform::Window (GLFW 3 dlopen). Klavye ve fare
+// InputState'ten.
+//
+// FARE BIR FARE: eskiden fare parmak 0'di (dokunmatik API'si masaustunde de
+// calissin diye). Sonucu masaustunde tuhaf kontrol: sol yarimda sol tikla
+// surukleyince sanal cubuk karakteri yurutuyordu, sagda tiklama "eylem"di ve
+// fareyle bakis yoktu (kullanici, 2026-09-24: "kontroller garip"). Artik
+// dokunmatik taklidi YALNIZ istenince acik: TULPAR_ENGINE_DOKUNMATIK=1 (mobil
+// kontrolleri masaustunde denemek icin). Fareyle bakis (sag tus surukleme)
+// koprunun cekirdeginde, host'tan bagimsiz (engine_api.cpp mouse_look).
 #if !defined(__ANDROID__)
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "bridge/bridge_host.hpp"
@@ -58,10 +67,13 @@ bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h
   out->instance_extensions = d_exts;
   out->create_surface = d_surface;
   out->poll = d_poll;
-  out->touch = d_touch;
+  const char *dk = std::getenv("TULPAR_ENGINE_DOKUNMATIK");
+  const bool dokun = dk && *dk && dk[0] != '0';
+  out->touch = dokun ? d_touch : nullptr;
   out->input = d_input;
   out->close = d_close;
-  std::printf("[engine_bridge] host: masaustu pencere (GLFW) %ux%u \"%s\"\n", w, h, title);
+  std::printf("[engine_bridge] host: masaustu pencere (GLFW) %ux%u \"%s\", girdi klavye + fare%s\n", w, h, title,
+              dokun ? ", dokunmatik taklidi ACIK (fare = parmak 0)" : " (TULPAR_ENGINE_DOKUNMATIK=1: fare parmak olur)");
   return true;
 }
 void bridge_host_close(BridgeHost *h) {

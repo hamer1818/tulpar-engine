@@ -407,6 +407,12 @@ struct Bridge {
   uint64_t embed_timeout_ns = 5000000000ull; // editor bu kadar sessizse oyun kapanir
   uint32_t embed_published = 0, embed_pauses = 0, embed_steps = 0;
   bool embed_in_pause = false;
+  bool embed_touch_on = false; // TULPAR_ENGINE_DOKUNMATIK: fare parmak 0 olsun mu (masaustu host ile ayni kural)
+  // Fareyle bakis (masaustu): sag tus basiliyken yatay surukleme, piksel/kare.
+  // teng_look_dx dokunmatik bakisin (sag yarim surukleme) USTUNE ekler.
+  float mouse_look_dx = 0;
+  double look_prev_x = 0;
+  bool look_prev_ok = false;
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
@@ -794,6 +800,7 @@ int teng_init(const char *title, int width, int height) {
     b.embed = true;
     b.headless = true;
     b.headless_frames = 0;
+    if (const char *dk = std::getenv("TULPAR_ENGINE_DOKUNMATIK"); dk && *dk && dk[0] != '0') b.embed_touch_on = true;
     if (const char *to = std::getenv("TULPAR_ENGINE_GOMULU_ZAMAN_ASIMI_MS"); to && *to && std::atoi(to) > 0)
       b.embed_timeout_ns = (uint64_t)std::atoi(to) * 1000000ull;
     BINFO("gomulu kip: kanal %s, kare %ux%u (oyunun istedigi %ux%u yerine editorun Oyun sekmesi), editor %.1f s susarsa kapanir", gm,
@@ -1050,17 +1057,29 @@ int teng_frame_begin(void) {
     // fare KARE pikselinde. Fare -> parmak 0 (masaustu host ile ayni kural).
     b.chan.read_input(b.embed_in);
     b.in = &b.embed_in;
-    platform::TouchState &t = b.embed_touch;
-    t.width = (float)b.fb_w; t.height = (float)b.fb_h;
-    t.time_ns = now;
-    const bool down = b.embed_in.mouse_down[0];
-    if (down && !t.find(0)) t.begin(0, (float)b.embed_in.mouse_x, (float)b.embed_in.mouse_y);
-    else if (down) t.move(0, (float)b.embed_in.mouse_x, (float)b.embed_in.mouse_y);
-    else t.end(0);
-    b.touch = &t;
+    // Fare parmak 0 YALNIZ istenince (masaustu host ile ayni kural, desktop_host.cpp).
+    b.touch = nullptr;
+    if (b.embed_touch_on) {
+      platform::TouchState &t = b.embed_touch;
+      t.width = (float)b.fb_w; t.height = (float)b.fb_h;
+      t.time_ns = now;
+      const bool down = b.embed_in.mouse_down[0];
+      if (down && !t.find(0)) t.begin(0, (float)b.embed_in.mouse_x, (float)b.embed_in.mouse_y);
+      else if (down) t.move(0, (float)b.embed_in.mouse_x, (float)b.embed_in.mouse_y);
+      else t.end(0);
+      b.touch = &t;
+      b.stick.update(*b.touch, now);
+    }
     std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys);
     std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
-    b.stick.update(*b.touch, now);
+  }
+  // Fareyle bakis: sag tus basiliyken yatay surukleme. Tus birakikken de konum
+  // izlenir, yoksa basildigi karede "son konumdan buraya" sicrama bakis olurdu.
+  b.mouse_look_dx = 0;
+  if (b.in) {
+    if (b.in->mouse_down[1] && b.look_prev_ok) b.mouse_look_dx = (float)(b.in->mouse_x - b.look_prev_x);
+    b.look_prev_x = b.in->mouse_x;
+    b.look_prev_ok = true;
   }
   BTRACE("kare %u basladi dt=%.4f pencere=%d dokunus=%u", b.frame, b.dt, (int)b.have_window, b.touch ? b.touch->count : 0u);
   return b.have_window ? 1 : 0;
@@ -2030,7 +2049,7 @@ double teng_touch_y(int i) {
 double teng_stick_x(void) { return g ? g->stick.move.x : 0; }
 double teng_stick_y(void) { return g ? g->stick.move.y : 0; }
 int teng_stick_action(void) { return g && g->stick.action ? 1 : 0; }
-double teng_look_dx(void) { return g ? g->stick.look_delta.x : 0; }
+double teng_look_dx(void) { return g ? g->stick.look_delta.x + g->mouse_look_dx : 0; }
 double teng_mouse_x(void) { return g && g->in ? g->in->mouse_x : 0; }
 double teng_mouse_y(void) { return g && g->in ? g->in->mouse_y : 0; }
 int teng_mouse_down(int button) { return g && g->in && button >= 0 && button < 3 && g->in->mouse_down[button] ? 1 : 0; }

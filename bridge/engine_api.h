@@ -187,7 +187,7 @@ double teng_touch_y(int i);
 double teng_stick_x(void); // sanal joystick -1..1 (sol yarim ekran surukleme)
 double teng_stick_y(void);
 int teng_stick_action(void); // sag yarim kisa dokunus (bu karede)
-double teng_look_dx(void);   // sag yarim surukleme, piksel/kare
+double teng_look_dx(void);   // bakis, piksel/kare: sag fare tusuyla surukleme + (dokunmatik) sag yarim surukleme
 double teng_mouse_x(void);
 double teng_mouse_y(void);
 int teng_mouse_down(int button);

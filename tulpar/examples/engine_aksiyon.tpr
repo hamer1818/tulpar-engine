@@ -11,10 +11,13 @@
 // Android:  ./tulpar build --target=android examples/engine_aksiyon.tpr out/aksiyon --apk
 //
 // OYNANIŞ
-//   WASD / sol yarım ekran  yürü (kameraya göre)      SPACE  zıpla
-//   SOL-SAĞ ok ya da Q/E    kamerayı döndür           SHIFT  atılma (dash)
-//   J / fare sol / sağ yarım ekrana dokunuş           vuruş (fizik tabanlı: düşmanı savurur)
-//   R oyun sonunda yeniden başlatır, ESC duraklatır (menüde çıkar).
+//   WASD / ok tuşları / sol yarım ekran   yürü (kameraya göre)   SPACE  zıpla
+//   sağ fare tuşuyla sürükle / Q-E / sağ yarım ekran sürükleme   kamerayı döndür
+//   J / sol tık / sağ yarım ekrana dokunuş   vuruş (fizik tabanlı: düşmanı savurur)
+//   SHIFT  atılma (dash)   R oyun sonunda yeniden başlatır, ESC duraklatır (menüde çıkar).
+// Tuş bırakılınca oyuncu DURUR (yerdeyken fren). Eskiden fizik topu yuvarlanmaya
+// devam ediyordu: bırakıldıktan 3 s sonra 15.7 m kaymış, hâlâ 4.8 m/s ile
+// gidiyordu (ölçüldü 2026-09-24) — kullanıcı "kontroller garip" dedi.
 //
 // OYUN KABUĞU: ana menü (Başla / Ayarlar / Çıkış), duraklat (ESC ya da sağ
 // üstteki "||" düğmesi — dokunmatikte ESC yok) ve ayarlar (ses seviyesi,
@@ -50,8 +53,18 @@ import "engine";
 float OYUNCU_R = 0.45;
 float OYUNCU_HIZ = 6.0;
 float ZIPLAMA = 6.4;
-float ATILMA_GUC = 9.5;
+// Fren: yerde ve girdi yokken yatay hız her saniye bu oranla söner (kare başına
+// 1 - FREN*d; 60 Hz'de kare başına %20). 6 m/s'den ~0.4 m'de durur.
+float FREN = 12.0;
+// Atılma: bu yatay hızla bu kadar süre (girdi ve fren askıda). Eskiden bir
+// dürtüydü ve basılı tutulan tuşun bir sonraki karedeki yuru()'su onu siliyordu:
+// yürürken atılma neredeyse hiç işlemiyordu.
+float ATILMA_HIZ = 15.0;
+float ATILMA_SURE = 0.18;
 float ATILMA_BEKLE = 1.1;
+// Darbe: düşman vurunca oyuncu bu kadar süre savrulur (girdi ve fren askıda),
+// yoksa fren ya da yuru() itmeyi hemen yutardı.
+float ITILME_SURE = 0.22;
 float VURUS_ON = 1.0;        // vuruş küresinin merkezi oyuncunun kaç metre önünde
 float VURUS_R = 1.25;        // vuruş küresinin yarıçapı
 float VURUS_BEKLE = 0.40;
@@ -92,7 +105,21 @@ Durum g_durum = Durum.OYNA;
 float g_afis_t = 0.0;
 float g_hasar_t = 0.0;
 float g_vurus_t = 0.0;
-float g_atilma_t = 0.0;
+float g_atilma_t = 0.0;     // atılma bekleme süresi (tekrar atılana kadar)
+float g_atilma_kalan = 0.0; // atılmanın kendisi: bu süre boyunca hız atılmanın
+float g_atilma_x = 0.0;
+float g_atilma_z = 0.0;
+float g_serbest_t = 0.0;    // darbe: girdi ve fren askıda, hız fiziğin
+bool g_fare_once = false;   // sol tık KENARI için önceki karenin durumu
+// Otopilot fren ölçümü: her öldürmeden sonra 0.5 s girdi bırakılır, bu sürede
+// kayılan yol ölçülür (kapı sınırı KAYMA_SINIR). Darbe alınan ölçüm sayılmaz.
+float g_op_birak = 0.0;
+float g_op_birak_x = 0.0;
+float g_op_birak_z = 0.0;
+bool g_op_birak_gecerli = false;
+int g_op_son_oldurulen = 0;
+int g_kayma_olcum = 0;
+float g_kayma_max = 0.0;
 float g_bolum_t = 0.0;
 float g_kam_yaw = 0.0;
 float g_oyuncu_yaw = 0.0;
@@ -449,7 +476,7 @@ func menu_ciz() {
         ayarlari_yaz();
         cikis_iste();
     }
-    etiket("WASD yuru  SPACE zipla  SHIFT atilma  J vurus  ESC duraklat", x - 10, y + 220, 0.72, GRI);
+    etiket("WASD/oklar yuru  SPACE zipla  SHIFT atil  J/sol tik vur  sag tik+surukle kamera  ESC duraklat", x - 60, y + 220, 0.72, GRI);
 }
 
 func duraklat_ciz() {
@@ -529,26 +556,25 @@ func otopilot_menu() {
 }
 
 // ---- Girdi ------------------------------------------------------------------
-func girdi_ileri(): float {
-    float v = cubuk_y();
-    if (tus("W")) { v = v + 1.0; }
-    if (tus("S")) { v = v - 1.0; }
-    if (v > 1.0) { v = 1.0; }
-    if (v < -1.0) { v = -1.0; }
-    return v;
-}
+// WASD + ok tuşları + sanal çubuk tek vektör (engine.tpr yon_x/yon_y). Oklar
+// eskiden kamerayı döndürüyordu; artık yürütür, kamera fare (sağ tuş) ve Q/E'de.
+func girdi_ileri(): float { return yon_y(); }
+func girdi_yan(): float { return yon_x(); }
 
-func girdi_yan(): float {
-    float v = cubuk_x();
-    if (tus("D")) { v = v + 1.0; }
-    if (tus("A")) { v = v - 1.0; }
-    if (v > 1.0) { v = 1.0; }
-    if (v < -1.0) { v = -1.0; }
-    return v;
-}
-
+// Sol tık KENARI: basılı tutmak her VURUS_BEKLE'de bir savurmasın. (Oyun
+// sekmesine odak için yapılan tık da tek vuruş sayılır.)
 func vurus_istendi(): bool {
-    return tus_basildi("J") || eylem() || eng_mouse_down(0);
+    bool fare = eng_mouse_down(0);
+    bool kenar = fare && !g_fare_once;
+    g_fare_once = fare;
+    return tus_basildi("J") || eylem() || kenar;
+}
+
+// Yerde, girdi yokken yatay hız söner. Dikey hız (düşüş, zıplama) dokunulmaz.
+func fren(id, d) {
+    float k = 1.0 - FREN * d;
+    if (k < 0.0) { k = 0.0; }
+    yuru(id, hiz_x(id) * k, hiz_z(id) * k);
 }
 
 // ---- Savaş ------------------------------------------------------------------
@@ -606,6 +632,9 @@ func oyuncuya_hasar(kaynak_x, kaynak_z, hasar) {
     float uz = sqrt(dx * dx + dz * dz);
     if (uz < 0.001) { uz = 1.0; }
     itme(g_oyuncu, dx / uz * 5.0, 2.6, dz / uz * 5.0);
+    g_serbest_t = ITILME_SURE; // savrulma hissedilsin: girdi/fren bir an askıda
+    g_atilma_kalan = 0.0;      // darbe atılmayı keser
+    g_op_birak_gecerli = false; // otopilot fren ölçümü darbeyle bozuldu
     if (g_can <= 0) {
         g_can = 0;
         g_durum = Durum.SON;
@@ -635,17 +664,18 @@ func oyuncu_guncelle(d) {
     if (uz > 0.001) {
         hx = hx / uz;
         hz = hz / uz;
-        g_oyuncu_yaw = atan2(0.0 - hx, 0.0 - hz);
-        yuru(g_oyuncu, hx * OYUNCU_HIZ, hz * OYUNCU_HIZ);
     }
     bool yerde_mi = yerde_isin(g_oyuncu, OYUNCU_R + 0.06, 0.22);
+    if (tus_basildi("SHIFT") && g_atilma_t <= 0.0 && uz > 0.001 && g_serbest_t <= 0.0) {
+        g_atilma_t = ATILMA_BEKLE;
+        g_atilma_kalan = ATILMA_SURE;
+        g_atilma_x = hx;
+        g_atilma_z = hz;
+        logla("atilma");
+    }
+    oyuncu_hareket(hx, hz, uz > 0.001, yerde_mi, d);
     if (tus_basildi("SPACE") && yerde_mi) {
         itme(g_oyuncu, 0, ZIPLAMA, 0);
-    }
-    if (tus_basildi("SHIFT") && g_atilma_t <= 0.0 && uz > 0.001) {
-        g_atilma_t = ATILMA_BEKLE;
-        itme(g_oyuncu, hx * ATILMA_GUC, 1.2, hz * ATILMA_GUC);
-        logla("atilma");
     }
     if (vurus_istendi()) { vurus_yap(); }
     // Arenadan düşerse geri getir (ve biraz canını al: ceza görünür olsun).
@@ -656,9 +686,47 @@ func oyuncu_guncelle(d) {
     }
 }
 
+// Hareketin TEK yolu (oyuncu da otopilot da buradan geçer, kapı gerçek hareketi
+// ölçsün). Sıra: atılma > darbe > girdi > fren.
+func oyuncu_hareket(hx, hz, girdi, yerde_mi, d) {
+    if (g_atilma_kalan > 0.0) {
+        yuru(g_oyuncu, g_atilma_x * ATILMA_HIZ, g_atilma_z * ATILMA_HIZ);
+        g_oyuncu_yaw = atan2(0.0 - g_atilma_x, 0.0 - g_atilma_z);
+        return;
+    }
+    if (g_serbest_t > 0.0) { return; } // savruluyor: hız fiziğin
+    if (girdi) {
+        g_oyuncu_yaw = atan2(0.0 - hx, 0.0 - hz);
+        yuru(g_oyuncu, hx * OYUNCU_HIZ, hz * OYUNCU_HIZ);
+        return;
+    }
+    if (yerde_mi) { fren(g_oyuncu, d); } // havadayken momentum korunur
+}
+
 // Pencersiz doğrulama kipinde betik kendi oynar: en yakın düşmana gider, vurur;
 // düşman kalmadıysa açılan kapıya yürür. Aynı yön hesabı (navmesh + ışın) ile.
+// Her öldürmeden sonra 0.5 s girdiyi BIRAKIR ve kayılan yolu ölçer: tuşu
+// bırakan oyuncunun durduğunun kanıtı (kapı: KAYMA_SINIR).
 func otopilot(d) {
+    bool yerde_op = yerde_isin(g_oyuncu, OYUNCU_R + 0.06, 0.22);
+    if (g_oldurulen > g_op_son_oldurulen) {
+        g_op_son_oldurulen = g_oldurulen;
+        g_op_birak = 0.5;
+        g_op_birak_x = konum_x(g_oyuncu);
+        g_op_birak_z = konum_z(g_oyuncu);
+        g_op_birak_gecerli = true;
+    }
+    if (g_op_birak > 0.0) {
+        oyuncu_hareket(0.0, 0.0, false, yerde_op, d);
+        g_op_birak = g_op_birak - d;
+        if (g_op_birak <= 0.0 && g_op_birak_gecerli) {
+            float kay = uzaklik2b(g_op_birak_x, g_op_birak_z, konum_x(g_oyuncu), konum_z(g_oyuncu));
+            g_kayma_olcum = g_kayma_olcum + 1;
+            if (kay > g_kayma_max) { g_kayma_max = kay; }
+            logla("fren olcumu: girdi birakildi, 0.5 s'de " + toString(kay) + " m kaydi");
+        }
+        return;
+    }
     float px = konum_x(g_oyuncu);
     float pz = konum_z(g_oyuncu);
     int hedef = -1;
@@ -680,14 +748,12 @@ func otopilot(d) {
         tx = konum_x(dusmanlar[hedef].id);
         tz = konum_z(dusmanlar[hedef].id);
     } else {
-        if (!g_kapi_acik) { return; }
+        if (!g_kapi_acik) { oyuncu_hareket(0.0, 0.0, false, yerde_op, d); return; }
     }
     float yx, yz = yon_hesapla(g_oyuncu, px, pz, tx, tz);
-    if (yx != 0.0 || yz != 0.0) {
-        g_oyuncu_yaw = atan2(0.0 - yx, 0.0 - yz);
-        yuru(g_oyuncu, yx * OYUNCU_HIZ, yz * OYUNCU_HIZ);
-        g_kam_yaw = g_oyuncu_yaw;
-    }
+    bool yuruyor = yx != 0.0 || yz != 0.0;
+    oyuncu_hareket(yx, yz, yuruyor, yerde_op, d);
+    if (yuruyor) { g_kam_yaw = g_oyuncu_yaw; }
     if (hedef >= 0 && en_yakin_uz < VURUS_ON + VURUS_R) { vurus_yap(); }
     if (konum_y(g_oyuncu) < -4.0) {
         isinla(g_oyuncu, 0, 2.0, 8.0);
@@ -794,8 +860,10 @@ func dusman_guncelle(i, d) {
 // ---- Kamera -----------------------------------------------------------------
 func kamera_guncelle(d) {
     float donus = 0.0;
-    if (tus("LEFT") || tus("Q")) { donus = donus - 1.0; }
-    if (tus("RIGHT") || tus("E")) { donus = donus + 1.0; }
+    if (tus("Q")) { donus = donus - 1.0; }
+    if (tus("E")) { donus = donus + 1.0; }
+    // eng_look_dx: masaüstünde sağ fare tuşuyla sürükleme, dokunmatikte sağ
+    // yarım ekran sürükleme (köprü ikisini toplar). Oklar artık yürütür.
     g_kam_yaw = g_kam_yaw + donus * 2.3 * d + eng_look_dx() * 0.006;
     kamera_yorunge(konum_x(g_oyuncu), konum_y(g_oyuncu) + 1.0, konum_z(g_oyuncu), g_kam_yaw, 0.40, 9.5);
 }
@@ -819,7 +887,7 @@ func hud_ciz() {
     str hedef_metni = "dusman " + toString(kalan);
     if (kalan == 0) { hedef_metni = "KAPIYA GIT"; }
     yazi("bolum " + toString(g_bolum) + "   " + hedef_metni + "   skor " + toString(g_skor), 20, 92, 1.1, SARI);
-    yazi("WASD yuru  SPACE zipla  SHIFT atilma  J/fare vurus  Q-E kamera", 20, 122, 0.8, ACIK_GRI);
+    yazi("WASD/oklar yuru  SPACE zipla  SHIFT atil  J/sol tik vur  sag tik+surukle ya da Q-E kamera", 20, 122, 0.8, ACIK_GRI);
     if (g_kapi_acik) {
         float uz = uzaklik2b(konum_x(g_oyuncu), konum_z(g_oyuncu), g_kapi_x, g_kapi_z);
         yazi("kapi acik — " + toString(toInt(uz)) + " m", 20, 146, 0.9, RENK_KAPI);
@@ -863,6 +931,8 @@ func yeniden_basla() {
     g_hasar_t = 0.0;
     g_vurus_t = 0.0;
     g_atilma_t = 0.0;
+    g_atilma_kalan = 0.0;
+    g_serbest_t = 0.0;
     g_durum = Durum.AFIS;
     g_afis_t = AFIS_SURE;
     bolum_kur(1);
@@ -892,6 +962,10 @@ func bolum_bitti_mi(): bool {
 // iddia degil ON KOSUL bozuktu. Iddialar aynen duruyor; yalniz on kosul
 // olculen degere (%10 pay ile) cekildi.
 int KAPI_MIN_KARE = 1000;
+// Fren kapısı: otopilot her öldürmeden sonra girdiyi 0.5 s bırakır; bu sürede
+// kayılan yol bu sınırın altında olmalı. Frensiz (eski) oyuncu aynı sürede
+// 2.8 m kayıyordu (ölçüldü 2026-09-24); frenli 6 m/s'den beklenen ~0.4 m.
+float KAYMA_SINIR = 1.0;
 
 // ---- Doğrulama kapısı -------------------------------------------------------
 // Pencersiz koşumda otopilotun ÖLÇTÜĞÜ sayılar beklenen aralıkta mı.
@@ -906,6 +980,7 @@ func kapi_raporu() {
     int hata = hata_sayisi() - g_kurulum_hatasi - g_kurulum_hatasi_ek;
     int kare = kare_no();
     print("[kapi] kare=" + toString(kare) + " bolum=" + toString(g_bolum) + " gecis=" + toString(g_gecis_sayisi) + " oldurulen=" + toString(g_oldurulen) + " kalan_dusman=" + toString(canli_dusman()) + " can=" + toString(g_can) + " skor=" + toString(g_skor) + " durum=" + toString(g_durum) + " navmesh=" + toString(g_nav) + " dongu_hatasi=" + toString(hata) + " kurulum_hatasi=" + toString(g_kurulum_hatasi + g_kurulum_hatasi_ek) + " uyari=" + toString(uyari_sayisi()));
+    print("[kapi] fren: " + toString(g_kayma_olcum) + " olcum, girdi birakilinca 0.5 s'de en cok " + toString(g_kayma_max) + " m kayma (sinir " + toString(KAYMA_SINIR) + ")");
     print("[kapi] kayit: dosyadan ses=" + toString(g_kayit_ses) + " rekor=" + toString(disk_rekor) + " (bellekte ses=" + toString(g_ses_ayari) + " rekor=" + toString(g_rekor) + ")");
     print("[kapi] menu: adim=" + toString(g_op_adim) + " ui_tik=" + toString(ui_tiklama()) + " ekran=" + toString(g_ekran) + " ses_ayari=" + toString(g_ses_ayari) + " kayitli_ses=" + toString(g_kayit_ses) + " rekor=" + toString(g_rekor) + " kayit=" + kayit_yolu() + " sahne_yenileme=" + toString(g_yenileme));
     bool ok = true;
@@ -926,6 +1001,14 @@ func kapi_raporu() {
     }
     if (dilim_kosuldu && g_oldurulen < 4) {
         print("[kapi] BASARISIZ: otopilot en az 4 dusman oldurmeliydi, " + toString(g_oldurulen));
+        ok = false;
+    }
+    if (dilim_kosuldu && g_kayma_olcum < 1) {
+        print("[kapi] BASARISIZ: fren olcumu hic yapilmadi (darbesiz bir birakma bekleniyordu)");
+        ok = false;
+    }
+    if (g_kayma_olcum > 0 && g_kayma_max >= KAYMA_SINIR) {
+        print("[kapi] BASARISIZ: tus birakilinca oyuncu durmuyor: 0.5 s'de " + toString(g_kayma_max) + " m kaydi (sinir " + toString(KAYMA_SINIR) + ")");
         ok = false;
     }
     if (dilim_kosuldu && g_gecis_sayisi < 1) {
@@ -1029,6 +1112,8 @@ func main() {
             if (g_vurus_t > 0.0) { g_vurus_t = g_vurus_t - d; }
             if (g_hasar_t > 0.0) { g_hasar_t = g_hasar_t - d; }
             if (g_atilma_t > 0.0) { g_atilma_t = g_atilma_t - d; }
+            if (g_atilma_kalan > 0.0) { g_atilma_kalan = g_atilma_kalan - d; }
+            if (g_serbest_t > 0.0) { g_serbest_t = g_serbest_t - d; }
 
             if (g_durum == Durum.AFIS) {
                 g_afis_t = g_afis_t - d;

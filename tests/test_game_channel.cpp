@@ -127,11 +127,18 @@ int bridge_game() {
   if (teng_headless() != 0) { teng_shutdown(); return 11; } // gomulu: oyuncu VAR, otopilot degil
   const int64_t kirmizi = ((int64_t)230 << 24) | ((int64_t)30 << 16) | ((int64_t)30 << 8) | 255;
   const int64_t yesil = ((int64_t)30 << 24) | ((int64_t)220 << 16) | ((int64_t)40 << 8) | 255;
+  const int64_t mavi = ((int64_t)40 << 24) | ((int64_t)80 << 16) | ((int64_t)235 << 8) | 255;
+  const int64_t beyaz = ((int64_t)240 << 24) | ((int64_t)240 << 16) | ((int64_t)240 << 8) | 255;
   teng_camera(0, 0.5, 3.0, 0, 0.5, 0);
   const int kutu = teng_spawn_box(0, 0.5, 0, 1.2, 1.2, 0.2, 0, kirmizi);
   while (teng_running()) {
     teng_frame_begin();
-    teng_set_color(kutu, teng_key_down("W") ? yesil : kirmizi);
+    // Oncelik: dokunus (beyaz) > fareyle bakis (mavi) > W (yesil) > hicbiri (kirmizi).
+    int64_t c = kirmizi;
+    if (teng_key_down("W")) c = yesil;
+    if (teng_look_dx() > 0.5) c = mavi;
+    if (teng_touch_count() > 0) c = beyaz;
+    teng_set_color(kutu, c);
     teng_frame_end();
   }
   const int w = teng_width(), h = teng_height();
@@ -362,6 +369,27 @@ ENGINE_TEST(bridge_embedded_game_draws_into_the_editor_channel) {
   std::printf("    [bilgi] W basili: merkez RGB %d %d %d (kare %u)\n", merkez(0), merkez(1), merkez(2), fr);
   h.set_input(nullptr, 0, 0);
   CHECK(wait_for(h, 3000, [&] { h.acquire(&px, &fr); return merkez(0) > merkez(1) + 60; }));
+  // Fareyle bakis (masaustu): sag tus basili + saga surukleme -> eng_look_dx > 0
+  // -> mavi. Sag tus birakilinca fare hareket etse de bakis durur -> kirmizi.
+  static platform::InputState fare;
+  fare = platform::InputState{};
+  fare.mouse_down[1] = true;
+  double mx = 10;
+  const bool bakti = wait_for(h, 3000, [&] { mx += 1; h.set_input(&fare, mx, 20); h.acquire(&px, &fr); return merkez(2) > merkez(0) + 60; });
+  std::printf("    [bilgi] sag tus surukleme: merkez RGB %d %d %d (mavi = bakis)\n", merkez(0), merkez(1), merkez(2));
+  CHECK(bakti);
+  fare.mouse_down[1] = false;
+  CHECK(wait_for(h, 3000, [&] { mx += 1; h.set_input(&fare, mx, 20); h.acquire(&px, &fr); return merkez(0) > merkez(2) + 60; }));
+  // Sol tik DOKUNUS DEGIL (varsayilan): basili tutulurken dokunus sayisi 0
+  // kalmali -> kutu kirmizi, beyaz degil. Taklit ACIKKEN beyaza dondugunu
+  // (kontrolun olctugunu) bridge_embedded_touch_emulation_is_opt_in olcer.
+  fare.mouse_down[0] = true;
+  h.set_input(&fare, mx, 20);
+  wait_for(h, 300, [] { return false; });
+  h.acquire(&px, &fr);
+  std::printf("    [bilgi] sol tik basili: merkez RGB %d %d %d (beyaz olmamali)\n", merkez(0), merkez(1), merkez(2));
+  CHECK(merkez(0) > merkez(1) + 60 && merkez(0) > merkez(2) + 60);
+  h.set_input(nullptr, 0, 0);
   // Tempo: gomulu kip 60 Hz'e kilitli (editor fazlasini gostermiyor). 96x64
   // bir kutu tempo olmadan yuzlerce kare/s verirdi — ust sinir TEMPOYU olcer.
   const uint32_t a0 = h.published();
@@ -389,5 +417,59 @@ ENGINE_TEST(bridge_embedded_game_draws_into_the_editor_channel) {
   std::printf("    [bilgi] durdur -> cikis %d, durum %s\n", code, platform::game_child_state_str(h.child_state()));
   if (code != 0) dok();
   CHECK(code == 0 && h.child_state() == platform::GameChildState::Exited);
+  h.close();
+}
+
+// Dokunmatik taklidi YALNIZ istenince: TULPAR_ENGINE_DOKUNMATIK=1 ile sol tik
+// parmak 0 olur (mobil kontrolleri masaustunde denemek icin). Bu ayni zamanda
+// ustteki kapinin "sol tik dokunus degil" kontrolunun POZITIF kontrolu: renk
+// gercekten dokunusa bagli.
+ENGINE_TEST(bridge_embedded_touch_emulation_is_opt_in) {
+  char exe[1100];
+  if (!self_exe(exe, sizeof exe)) { test::skip("engine_tests'in kendi yolu bulunamadi (exe_dir)"); return; }
+  if (std::getenv("TULPAR_ENGINE_NO_VULKAN")) { test::skip("TULPAR_ENGINE_NO_VULKAN"); return; }
+  constexpr uint32_t W = 64, H = 48;
+  static platform::GameChannelHost h;
+  char err[256];
+  if (!h.create(W, H, err, sizeof err)) { std::printf("    [bilgi] %s\n", err); CHECK(false); return; }
+  static platform::Process p;
+  p = platform::Process{};
+  char dir[512], log[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "gomulu_dokun"));
+  std::snprintf(log, sizeof log, "%s/oyun.log", dir);
+  if (!spawn_child(p, exe, "--gomulu-kopru", h, "TULPAR_ENGINE_DOKUNMATIK=1", log)) { CHECK(false); h.close(); return; }
+  int code = 0;
+  bool bitti = false;
+  const bool geldi = wait_for(h, 30000, [&] {
+    if (platform::process_poll(p, &code) != platform::ProcessState::Running) { bitti = true; return true; }
+    return h.published() >= 2;
+  });
+  if (bitti) {
+    std::printf("    [bilgi] kopru oyunu kare vermeden cikti: kod %d\n", code);
+    if (code == 10) { test::skip("Vulkan cihazi/kurulum yok (kopru kurulamadi)"); h.close(); return; }
+    CHECK(false);
+    h.close();
+    return;
+  }
+  CHECK(geldi);
+  const uint8_t *px = nullptr;
+  uint32_t fr = 0;
+  auto merkez = [&](int ch) { return px ? (int)px[((H / 2) * W + W / 2) * 4 + ch] : -1; };
+  static platform::InputState fare;
+  fare = platform::InputState{};
+  fare.mouse_down[0] = true;
+  h.set_input(&fare, W / 2, H / 2);
+  const bool beyaz = wait_for(h, 3000, [&] {
+    h.acquire(&px, &fr);
+    // Beyaz kutu isikla ~160'a iner (olculdu: 162 164 169); kirmizi/mavi/yesilde
+    // en az bir kanal 60'in altinda kaliyor.
+    return merkez(0) > 120 && merkez(1) > 120 && merkez(2) > 120;
+  });
+  std::printf("    [bilgi] taklit ACIK, sol tik basili: merkez RGB %d %d %d (beyaz = dokunus)\n", merkez(0), merkez(1), merkez(2));
+  CHECK(beyaz);
+  h.set_input(nullptr, 0, 0);
+  h.request_stop();
+  code = wait_exit(p, 10000, &h);
+  CHECK(code == 0);
   h.close();
 }
