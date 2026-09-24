@@ -210,6 +210,30 @@ VMValue aot_eng_scene_script_ptr(VMValue *i) {
 VMValue aot_eng_scene_script_enabled_ptr(VMValue *i) {
   return VM_BOOL(teng_scene_script_enabled((int)tm_int(i)) != 0);
 }
+VMValue aot_eng_scene_prop_num_ptr(VMValue *i, VMValue *name, VMValue *def) {
+  return VM_FLOAT(teng_scene_prop_num((int)tm_int(i), tm_str(name), tm_num(def)));
+}
+VMValue aot_eng_scene_prop_int_ptr(VMValue *i, VMValue *name, VMValue *def) {
+  return VM_INT((int64_t)teng_scene_prop_int((int)tm_int(i), tm_str(name), (int)tm_int(def)));
+}
+VMValue aot_eng_scene_prop_flag_ptr(VMValue *i, VMValue *name, VMValue *def) {
+  return VM_BOOL(teng_scene_prop_flag((int)tm_int(i), tm_str(name), (int)tm_int(def)) != 0);
+}
+VMValue aot_eng_scene_prop_point_ptr(VMValue *i, VMValue *name, VMValue *lx, VMValue *ly, VMValue *lz) {
+  return VM_BOOL(teng_scene_prop_point((int)tm_int(i), tm_str(name), tm_num(lx), tm_num(ly), tm_num(lz)) != 0);
+}
+VMValue aot_eng_scene_prop_px_ptr(void) {
+  return VM_FLOAT(teng_scene_prop_px());
+}
+VMValue aot_eng_scene_prop_py_ptr(void) {
+  return VM_FLOAT(teng_scene_prop_py());
+}
+VMValue aot_eng_scene_prop_pz_ptr(void) {
+  return VM_FLOAT(teng_scene_prop_pz());
+}
+VMValue aot_eng_scene_prop_has_ptr(VMValue *i, VMValue *name) {
+  return VM_BOOL(teng_scene_prop_has((int)tm_int(i), tm_str(name)) != 0);
+}
 VMValue aot_eng_scene_unload_ptr(void) {
   return VM_BOOL(teng_scene_unload() != 0);
 }

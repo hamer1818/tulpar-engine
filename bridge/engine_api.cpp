@@ -356,6 +356,15 @@ struct Bridge {
   // `guncelle` kullanan bir oyunda da acik olurdu.)
   bool script_carpisma_any = false;
   bool script_tetik_any = false; // tetik_* ya da bolge_* kancasi olan en az bir varlik
+  // --- nesne ozellikleri (E4) ---------------------------------------------
+  // Varlik basina ARALIK blob'un ozellik tablosunda. Tablo (varlik, ad) ile
+  // sirali (scene_blob_open olcuyor), yani bir varligin kayitlari ardisik ve
+  // aralik YUKLEMEDE tek geciste kurulur — `baslat` kancalarindan ONCE, cunku
+  // ozellik okumanin beklenen yeri tam orasi. Sabit dizi (A2): 256 varlik x 16
+  // = 4096 kayit < 65536, u16 yeter. Sorgu yalniz aralik icinde tarar.
+  uint16_t prop_first[content::kSceneMaxEntities] = {};
+  uint16_t prop_n[content::kSceneMaxEntities] = {};
+  double prop_pt[3] = {0, 0, 0}; // son teng_scene_prop_point sonucu ("hesapla sonra oku")
   // Bu karenin tetik olaylari, SIRALI (adim, sensor, diger, cikis-once). Hem
   // kancalar hem eng_trigger_* sorgulari BURADAN okur: iki yol ayni sirayi
   // gorsun. Bir sonraki teng_frame_end'e kadar gecerli (carpisma halkasi gibi).
@@ -1732,6 +1741,19 @@ int teng_scene_load(const char *path) {
   const uint32_t nb = b.srt.spawn(b.phys);
   b.scene_ok = true;
   b.scene_loads++;
+  // Nesne ozellikleri: varlik basina aralik. Betik `baslat`lari asagida
+  // cagriliyor ve ozellik okumanin yeri orasi — aralik ONLARDAN ONCE hazir
+  // olmali (sonra kurulsaydi baslat her ozelligi varsayilan okurdu: sessiz).
+  {
+    const content::SceneBlobView &pv = b.srt.view();
+    std::memset(b.prop_n, 0, sizeof b.prop_n);
+    for (uint32_t k = 0; k < pv.h->prop_count; k++) {
+      const uint32_t e = pv.props[k].entity; // scene_blob_open: < entity_count <= kSceneMaxEntities, sirali
+      if (b.prop_n[e] == 0) b.prop_first[e] = (uint16_t)k;
+      b.prop_n[e]++;
+    }
+    if (pv.h->prop_count) BINFO("sahne ozellikleri: %u kayit (varlik basina en cok %u; nokta DUNYA uzayinda)", pv.h->prop_count, content::kSceneMaxProps);
+  }
   if (b.scene_loads > 1)
     BDBG("bolum %u: her yukleme kaynak AYIRIR (arena + GPU doku/mesh); bolum sayisi cok artarsa kapasite dolar", b.scene_loads);
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
@@ -1990,6 +2012,110 @@ int teng_scene_script_enabled(int i) {
   return s && (s->flags & 1u) ? 1 : 0;
 }
 
+// --- nesne ozellikleri (E4) -------------------------------------------------
+// Sozlesme engine_api.h'de. Uc sonuc AYRI tutulur, cunku ikisi ayni `def`
+// donusunu verir ve betik yazari farki gormeli:
+//   Found    ustune yazilmis kayit (tur dogru)
+//   Missing  kayit yok -> `def`, HATA DEGIL (olagan: tasarimci deger girmedi)
+//   Bad      HATA (sayilir) -> `def`: sinir disi indeks, ad kurali, tur uyusmazligi
+enum class PropLook { Found, Missing, Bad };
+static const char *prop_type_name(uint32_t t) {
+  switch (t) {
+  case content::kScenePropSayi: return "sayi";
+  case content::kScenePropTam: return "tam";
+  case content::kScenePropBayrak: return "bayrak";
+  case content::kScenePropNokta: return "nokta";
+  default: return "?";
+  }
+}
+// Indeks ONCEDEN dogrulanmis olmali (scene_idx_ok). type 0: tur sorulmaz (has).
+static PropLook scene_prop_look(int i, const char *name, uint32_t type, const char *fn, const content::SceneBlobProp **out) {
+  *out = nullptr;
+  const content::SceneBlobView &v = g->srt.view();
+  // Ad kurali blob'unkiyle AYNI (scene_prop_name_ok): kurala uymayan ad blob'da
+  // BULUNAMAZ, yani cagri her zaman varsayilani dondururdu. Uzunluk once ve
+  // sinirli olculur (Tulpar metni NUL'lu, ama 24 bayttan fazlasina bakmaya gerek yok).
+  size_t n = 0;
+  if (name)
+    while (n < content::kScenePropNameLen && name[n]) n++;
+  if (n >= content::kScenePropNameLen) {
+    BERR("%s: sahne varligi %d: ozellik adi %u karakterden uzun (\"%.*s...\") — editor boyle bir ad yazamaz, varsayilan donuyor", fn, i,
+         content::kScenePropNameLen - 1, (int)(content::kScenePropNameLen - 1), name);
+    return PropLook::Bad;
+  }
+  if (!content::scene_prop_name_ok(name)) {
+    BERR("%s: sahne varligi %d: ozellik adi gecersiz \"%s\" (yalniz a-z 0-9 _, 1..23 karakter) — hic eslesmez, varsayilan donuyor", fn, i,
+         name ? name : "");
+    return PropLook::Bad;
+  }
+  const uint32_t f = g->prop_first[i], cnt = g->prop_n[i];
+  for (uint32_t k = 0; k < cnt; k++) {
+    const content::SceneBlobProp &r = v.props[f + k];
+    const int c = std::strcmp(r.name, name);
+    if (c > 0) break; // aralik ada gore sirali: gecildi
+    if (c != 0) continue;
+    if (type && r.type != type) {
+      BERR("%s: sahne varligi %d (\"%s\") ozelligi \"%s\" %s — %s olarak okunamaz, varsayilan donuyor", fn, i, v.entity_name((uint32_t)i), name,
+           prop_type_name(r.type), prop_type_name(type));
+      return PropLook::Bad;
+    }
+    *out = &r;
+    return PropLook::Found;
+  }
+  return PropLook::Missing;
+}
+double teng_scene_prop_num(int i, const char *name, double def) {
+  CALLF("teng_scene_prop_num", "%d \"%s\" %g", i, name ? name : "", def);
+  if (!scene_idx_ok(i, "teng_scene_prop_num")) return def;
+  const content::SceneBlobProp *r;
+  return scene_prop_look(i, name, content::kScenePropSayi, "teng_scene_prop_num", &r) == PropLook::Found ? (double)r->v[0] : def;
+}
+int teng_scene_prop_int(int i, const char *name, int def) {
+  CALLF("teng_scene_prop_int", "%d \"%s\" %d", i, name ? name : "", def);
+  if (!scene_idx_ok(i, "teng_scene_prop_int")) return def;
+  const content::SceneBlobProp *r;
+  // v[0] tamsayi ve |v| <= 2^24: scene_blob_open olctu, (int) donusumu tam.
+  return scene_prop_look(i, name, content::kScenePropTam, "teng_scene_prop_int", &r) == PropLook::Found ? (int)r->v[0] : def;
+}
+int teng_scene_prop_flag(int i, const char *name, int def) {
+  CALLF("teng_scene_prop_flag", "%d \"%s\" %d", i, name ? name : "", def);
+  if (!scene_idx_ok(i, "teng_scene_prop_flag")) return def;
+  const content::SceneBlobProp *r;
+  return scene_prop_look(i, name, content::kScenePropBayrak, "teng_scene_prop_flag", &r) == PropLook::Found ? (r->v[0] != 0.0f ? 1 : 0) : def;
+}
+int teng_scene_prop_point(int i, const char *name, double lx, double ly, double lz) {
+  CALLF("teng_scene_prop_point", "%d \"%s\" (%g %g %g)", i, name ? name : "", lx, ly, lz);
+  double *pt = g ? g->prop_pt : nullptr;
+  if (!scene_idx_ok(i, "teng_scene_prop_point")) {
+    // Varlik yok: cevrilecek bir donusum de yok (scene_prop_point_world'un
+    // gecersiz indeks kurali). Varsayilan oldugu gibi.
+    if (pt) { pt[0] = lx; pt[1] = ly; pt[2] = lz; }
+    return 0;
+  }
+  const content::SceneBlobProp *r;
+  if (scene_prop_look(i, name, content::kScenePropNokta, "teng_scene_prop_point", &r) == PropLook::Found) {
+    pt[0] = r->v[0]; pt[1] = r->v[1]; pt[2] = r->v[2]; // blob'da zaten DUNYA
+    return 1;
+  }
+  // Varsayilan (yok ya da HATA): varlik gecerli, yani DERLEYICININ kuraliyla
+  // dunyaya cevrilir. Oyun HATA'da da calismaya devam etsin: varsayilan nokta
+  // yine dogru yerde (hata sayaci artmis, logda).
+  const float local[3] = {(float)lx, (float)ly, (float)lz};
+  float w[3];
+  g->srt.view().point_world((uint32_t)i, local, w);
+  pt[0] = w[0]; pt[1] = w[1]; pt[2] = w[2];
+  return 0;
+}
+double teng_scene_prop_px(void) { return g ? g->prop_pt[0] : 0.0; }
+double teng_scene_prop_py(void) { return g ? g->prop_pt[1] : 0.0; }
+double teng_scene_prop_pz(void) { return g ? g->prop_pt[2] : 0.0; }
+int teng_scene_prop_has(int i, const char *name) {
+  CALLF("teng_scene_prop_has", "%d \"%s\"", i, name ? name : "");
+  if (!scene_idx_ok(i, "teng_scene_prop_has")) return 0;
+  const content::SceneBlobProp *r;
+  return scene_prop_look(i, name, 0, "teng_scene_prop_has", &r) == PropLook::Found ? 1 : 0;
+}
+
 // Sahne varligina bagli govde. Okuma tarafi govdesiz varlikta SESSIZ 0 doner
 // (kopru varliklarindaki teng_vx ile ayni kural); yazma tarafi hata loglar.
 static sim::BodyId scene_body(int i, const char *fn) {
@@ -2085,6 +2211,7 @@ int teng_scene_unload(void) {
   b.nav_ray_t = 1.0f;
   b.scene_ok = false; // cizim + sorgular durur; teng_scene_load yeniden kabul eder
   b.tetik_n = 0;      // bu karenin tetik olaylari silinen govdeleri gosteriyordu
+  std::memset(b.prop_n, 0, sizeof b.prop_n); // ozellik araliklari eski blob'u gosteriyordu
   // Betik bosalttiysa izleme hedefi de duser: bosaltilmis bir sahne, dosyasi
   // degisti diye kendiliginden GERI GELMEZ. Sicak yukleme kendi icinde bosaltir
   // (b.reloading), orada hedef korunur.

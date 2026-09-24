@@ -1858,15 +1858,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     content::SceneCompileReport crep;
     const bool ek = content::scene_compile(frame, st.scene, st.scene_dir, copt, &extras, &crep);
     if (!ek) console_log(ConsoleLevel::Uyari, kConsoleTagScene, "derle: navmesh bake adimi basarisiz (arena?) — blob navmesh'SIZ yazildi");
-    // Nesne ozellikleri (E3) .sahneb'ye HENUZ girmiyor (blob v8 = E4): sessiz
-    // kayip degil, engine_sahnec ile ayni uyari.
-    uint32_t oz_varlik = 0, oz_toplam = 0;
-    for (uint32_t i = 0; i < st.scene.entity_count; i++)
-      if (st.scene.entities[i].prop_count) { oz_varlik++; oz_toplam += st.scene.entities[i].prop_count; }
-    if (oz_toplam)
-      console_log(ConsoleLevel::Uyari, kConsoleTagScene,
-                  "derle: %u varlikta %u nesne ozelligi var; .sahneb bunlari henuz TASIMIYOR (E4), oyun betigin varsayilanlarini gorur",
-                  oz_varlik, oz_toplam);
+    // Nesne ozellikleri (E3) blob v8'den beri .sahneb'de (E4): E3'un burada
+    // bastigi "henuz tasimiyor" uyarisi kalkti.
     if (!content::scene_blob_save_ex(frame, st.scene, ek ? &extras : nullptr, out, &err)) { set_status(st, "DERLENEMEDI: %s", err.msg); return false; }
     content::SceneBlobView v;
     if (!content::scene_blob_load(frame, out, &v, &err)) { set_status(st, "DERLENDI ama acilamadi: %s", err.msg); return false; }

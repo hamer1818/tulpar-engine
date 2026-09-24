@@ -387,7 +387,85 @@ Kapsam dışı: karakter denetleyicisinin sanal temasları çarpışma halkasın
 kancası yalnız sahne bölgelerinde çalışır (kodla üretilen bölgeye giren sahne varlığını bölgenin
 kendi `tetik_girdi`si `diger_sahne` ile görür).
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **199 builtin**
+## 7.11 Nesne özellikleri: editörde varlık başına değer (2026-09-25, E4)
+
+Tasarımcı aynı betiği on düşmana verir ve her birine editörde **kendi** değerini yazar
+(`can = 250`, `hiz = 5`, devriye noktası) — kod yazmadan. Veri modeli ve `.sahne` biçimi E3'te
+geldi (`ozellik_tam "can" 250` …); bu adımda değerler `.sahneb`'ye (blob **v8**) ve köprüye
+girdi. E3'ten beri `engine_sahnec` ile editörün **Derle**'si "özellikler `.sahneb`'ye girmiyor"
+uyarısı basıyordu; o uyarı kalktı.
+
+**Yalnız üstüne yazılanlar taşınır.** Varsayılan betiğin KODUNDA yaşar ve çağrıya argüman
+olarak gelir; sahnede kayıt yoksa o argüman **değişmeden** döner ve bu **hata değildir**.
+
+```tulpar
+func muhafiz_baslat(i) {                                   // examples/davranis/muhafiz.tpr
+    int can = ozellik_tam(i, "can", 100);
+    float hiz = ozellik_sayi(i, "hiz", 3.5);
+    bool kalkan = ozellik_bayrak(i, "kalkan", false);
+    Vec3 a = ozellik_nokta(i, "devriye_a", v3(-2.0, 0.0, 0.0));
+}
+```
+
+Adı ve varsayılanı **literal** olan bir çağrı bildirimin kendisidir: editör (E5) betiği tarayıp
+denetçide "can: 100 (varsayılan)" gösterecek. Ad/varsayılan bir değişkenden gelirse değer yine
+okunur, yalnız denetçide listelenmez.
+
+| builtin | Tulpar (TR / EN) | ne yapar |
+|---|---|---|
+| `eng_scene_prop_num(i, ad, vars)` | `ozellik_sayi` / `prop_num` | `sayi` (float); yazılmamışsa `vars` |
+| `eng_scene_prop_int(i, ad, vars)` | `ozellik_tam` / `prop_int` | `tam` (\|v\| ≤ 2^24, float'ta tam) |
+| `eng_scene_prop_flag(i, ad, vars)` | `ozellik_bayrak` / `prop_flag` | `bayrak` (evet/hayır) |
+| `eng_scene_prop_point(i, ad, lx, ly, lz)` + `_px/_py/_pz` | `ozellik_nokta` / `prop_point` (→ `Vec3`) | `nokta`, **dünya** konumu; "hesapla sonra oku" |
+| `eng_scene_prop_has(i, ad)` | `ozellik_var` / `prop_has` | üstüne yazılmış mı (herhangi tür) |
+
+**`nokta` dünya uzayında.** Blob düzleştirilmiş bir sahne (§ sahne ağacı): üstüne yazılmış nokta
+derlemede `scene_prop_point_world` ile çevrilir — varlığın dünya konumu + dünya dönüşü × yerel
+ofset, **ölçek yok** ("2 m ileride" varlık büyütülünce 4 m olmasın). Yazılmamış noktanın
+varsayılanı (betikteki yerel ofset) köprüde **aynı kuralla** çevrilir
+(`SceneBlobView::point_world`: blob'daki `pos` + `quat`, aynı işlem sırası). Sonuç ölçüldü:
+aynı yerel ofsetten varsayılan ve üstüne yazılmış nokta **bit-tam aynı** dünya noktasını verir
+(C++ 4.8 ve Tulpar `run_ozellik`). Nokta varlığın **yazar** pozuna bağlı: düşman yürüse de devriye
+noktası tasarımcının koyduğu yerde kalır. Geçersiz dizinde çevrilecek dönüşüm yoktur:
+`(lx, ly, lz)` olduğu gibi döner.
+
+**Hata kuralları** (sayaç artar, varsayılan döner — oyun durmaz): sınır dışı/sahnesiz dizin; tür
+uyuşmazlığı (`tam`ı nokta olarak okumak; noktada varsayılan yine dünyaya çevrilir); 23
+karakteri aşan ya da `[a-z0-9_]` dışı ad — editör böyle bir ad yazamaz, yani o çağrı **hiç**
+eşleşmez ve sessiz kalsaydı bir yazım hatası "tasarımcı değer girmedi" gibi görünürdü. Eksik
+özellik (`ozellik_tam(i, "zirh", 0)`, kayıt yok) hata **değildir**.
+
+**Doğumda oku** (`_baslat`), karede değil. Değerler sahne boyunca değişmez. Köprü yüklemede
+varlık başına bir **aralık** kurar (`prop_first/prop_n[256]`, sabit dizi, tek geçiş; blob kayıtları
+`(varlık, ad)` ile sıralı olduğu için) — ve bunu `_baslat` kancalarından **önce** yapar, çünkü
+okumanın beklenen yeri orası (kapı: sahte VM'in `_baslat`ı `can = 250` okuyor; aralık sonra
+kurulsaydı -1, yani varsayılan okunurdu, sessizce). Okuma aralık içinde ada göre tarar
+(≤ 16 kayıt), kare içinde **ayırma yok** (AllocGate: okuyan 10 kare 0, 1.5 M okuma 0).
+
+Ölçülen okuma maliyeti (AMD Ryzen 7 9800X3D / RTX 5080 masaüstü, GCC 16.2.1 Release,
+2026-09-25; `bridge_runs_a_scripted_game_headless` 4.8, 1e5 okuma × 5 koşumun medyanı, C
+ABI doğrudan — Tulpar çağrı yükü hariç; üç koşumun en düşüğü–en yükseği): bulunan özellik
+**6.8–8.2 ns**, eksik özellik (4 kaydın tamamı taranır) **12.4–15.7 ns**, varsayılan nokta
+(tarama + dünya çevirisi) **17.7–21.8 ns**. Doğumda okunan birkaç değer için ihmal edilebilir;
+yine de kare içinde okumanın gerekçesi yok.
+
+**Blob v8** (`content/scene_blob.hpp`): `SceneBlobProp {entity, type, v[3], name[24], reserved}`
+= **48 B**; başlık büyümedi (v7'nin `script_reserved0/1`'i `prop_count/prop_offset` oldu), tablo
+en sonda (özelliksiz sahnenin bölüm ofsetleri v7'dekiyle aynı), özet aralığı değişmedi. Ad
+**kayıtta**, metin tablosunda değil — metin muhasebesine (`plan_of`/`intern`) 16 kalem daha eklemek
+v7'de belgelenen "eksik sayılırsa komşu bölümü ezer, özet yakalamaz" riskini büyütürdü.
+`scene_blob_open` her kaydı doğrular ve köprünün her varsayımını ölçer: tablo sınırı/hizası,
+varlık dizini, tür (1..4), ad (24 baytta NUL, `[a-z0-9_]{1,23}`, NUL sonrası sıfır), değer (sonlu;
+`tam` tamsayı ve ≤ 2^24; `bayrak` 0|1; kullanılmayan bileşen +0), sıra `(varlık, ad)`, tekillik,
+varlık başına ≤ 16. Her dal bir bozulma fixture'ıyla koşuyor (`scene_blob_open_rejects_corrupt_prop_records`,
+23 vaka). `engine_sahnec --dump` tabloyu basar (nokta dünya değeriyle).
+
+Örnek: `tulpar/examples/assets/ozellik.sahne` — dönük (0 90 0), ölçekli (2) bir kaidenin
+çocuğu olan "muhafiz" (dört tür üstüne yazılmış) ve dönüşsüz "muhafiz_2" (hepsi varsayılan);
+ikisine de `davranis/muhafiz.tpr`. Muhafızın `devriye_a`sı yerel (-2 0 -1.5) → dünya
+(8.5 3 -4); dönüşsüz hesap (konum + yerel) 3.54 m ötede olurdu — kapının pozitif kontrolü.
+
+## 8. Kapsam: `SPEC` = `engine_api.h` = **207 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -399,6 +477,7 @@ bölüm yorumlarına göre):
 | dünya / kamera | 11 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, kamera (göz+hedef ya da yörünge), kamera konumu |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 25 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
+| nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |
 | kodla betik bağlama | 4 | bağla (`baslat` hemen), çöz (`bitir`), bağlı betiğin adı, bağlı varlık sayısı — kancalar sahneninkilerle aynı yerde (§7.10) |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
 | girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |

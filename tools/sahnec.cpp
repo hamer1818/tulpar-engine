@@ -103,6 +103,20 @@ void dump(const SceneBlobView &v) {
     if (e.body >= 0) std::printf(" govde[%d]=%s %s", e.body, v.bodies[e.body].shape == 0 ? "kutu" : "kure", v.bodies[e.body].dynamic ? "dinamik" : "sabit");
     std::printf("\n");
   }
+  // v8: nesne ozellikleri, (varlik, ad) sirasiyla — tablonun kendi sirasi.
+  // `nokta` blob'da DUNYA uzayinda: .sahne'deki yerel ofset degil (fark,
+  // varligin dunya konumu + donusu; olcek etkilemez).
+  std::printf("  ozellikler: %u kayit @%u\n", h.prop_count, h.prop_offset);
+  for (uint32_t k = 0; k < h.prop_count; k++) {
+    const SceneBlobProp &r = v.props[k];
+    std::printf("    varlik %u \"%s\" ", r.entity, v.entity_name(r.entity));
+    switch (r.type) {
+    case kScenePropSayi: std::printf("sayi \"%s\" %g\n", r.name, r.v[0]); break;
+    case kScenePropTam: std::printf("tam \"%s\" %d\n", r.name, (int)r.v[0]); break;
+    case kScenePropBayrak: std::printf("bayrak \"%s\" %s\n", r.name, r.v[0] != 0.0f ? "evet" : "hayir"); break;
+    default: std::printf("nokta \"%s\" (%g %g %g) dunya\n", r.name, r.v[0], r.v[1], r.v[2]); break;
+    }
+  }
 }
 
 void report_compile(const SceneCompileReport &rep, bool cache_on) {
@@ -339,19 +353,17 @@ int main(int argc, char **argv) {
   scene_blob_compile_ex(d, fast ? nullptr : &extras, buf, need);
   SceneBlobView v;
   if (!scene_blob_open(buf, need, &v, &err)) { std::fprintf(stderr, "derlenen blob acilamadi: %s\n", err.msg); return 1; }
-  // Nesne ozellikleri (E3) .sahne'de var ama .sahneb bicimi onlari HENUZ
-  // tasimiyor (blob v8 = E4). Sessiz kayip olmasin: oyun o varliklarda
-  // betigin varsayilanini gorur, bunu derleyen kisi bilmeli.
-  uint32_t oz_varlik = 0, oz_toplam = 0;
-  for (uint32_t i = 0; i < d.entity_count; i++)
-    if (d.entities[i].prop_count) { oz_varlik++; oz_toplam += d.entities[i].prop_count; }
-  if (oz_toplam)
-    std::fprintf(stderr, "%s: UYARI: %u varlikta %u nesne ozelligi var; .sahneb bunlari henuz TASIMIYOR (E4), "
-                         "oyun betigin varsayilanlarini gorur\n", in, oz_varlik, oz_toplam);
+  // Nesne ozellikleri (E3) blob v8'den beri .sahneb'de (E4); E3'un buradaki
+  // "henuz tasimiyor" uyarisi kalkti. Kac kaydin girdigi derleme satirinda.
+  // Tablo (varlik, ad) ile sirali (scene_blob_open olctu): varlik degisimi = yeni varlik.
+  uint32_t oz_varlik = 0;
+  for (uint32_t k = 0; k < v.h->prop_count; k++)
+    if (k == 0 || v.props[k].entity != v.props[k - 1].entity) oz_varlik++;
   if (!check) {
     if (!scene_blob_save_ex(sys, d, fast ? nullptr : &extras, out, &err)) { std::fprintf(stderr, "%s: %s\n", out, err.msg); return 1; }
     std::printf("%s -> %s: %u varlik, %u kaynak, %u cizim, %u isik, %u govde, %zu bayt, ozet %016llx\n", in, out, v.h->entity_count,
                 v.h->asset_count, v.h->draw_count, v.h->light_count, v.h->body_count, need, (unsigned long long)v.hash());
+    if (v.h->prop_count) std::printf("  nesne ozellikleri: %u varlikta %u kayit (nokta DUNYA uzayinda)\n", oz_varlik, v.h->prop_count);
     if (!fast) report_compile(rep, opt.cache != nullptr);
   } else {
     dump(v);

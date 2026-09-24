@@ -21,12 +21,14 @@ tulpar/
                           (aksiyon: TulparLang P0 dil özellikleri — `enum Ekran/Durum/Hal`,
                           `yon_hesapla(): (float, float)`, düşman kaydı tek `Dusman[]`
                           — 11 paralel dizi 2026-09-21'de kalktı)
+                          nesne özellikleri: assets/ozellik.sahne + davranis/muhafiz.tpr
+                          (`ozellik_tam/_sayi/_bayrak/_nokta` — docs/KOPRU.md 7.11)
   tests/engine_bridge.test.tpr   uçtan uca köprü testi (Tulpar tarafı)
 ```
 
 ## Tek kaynak kuralı
 
-199 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
+207 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
 tablosudur. Dört dosya da tek komutla üretilir:
 
 ```bash

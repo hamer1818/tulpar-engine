@@ -236,6 +236,28 @@ void fill_v6(SceneDesc &d) {
   std::snprintf(g.name, sizeof g.name, "kapsul");
   g.components = kSceneModel; g.asset = -1; g.primitive = 20; g.tint = {0.2f, 0.7f, 0.4f};
   d.insert_entity(d.entity_count, g);
+  // v8 — nesne ozellikleri. Dort tur de, iki varlikta; 23 karakterlik (tavan)
+  // adlar; `tam`in alt siniri (-2^24); ustune yazilmis `bayrak` = hayir (0 —
+  // "yok" ile karistirilmamali). `nokta`lar DONDURULMUS varliklarda: "hepsi"
+  // kokte donuk (15/30/45) ve esit olmayan olcekli, "cocuk" donuk bir
+  // EBEVEYNIN altinda — dunya degeri yerelden farkli olmak ZORUNDA (donusum
+  // gercekten uygulaniyor mu kapisinin pozitif kontrolu).
+  const float can[3] = {250, 0, 0}, hiz[3] = {5.5f, 0, 0}, evet[3] = {1, 0, 0}, hayir[3] = {0, 0, 0};
+  const float devriye[3] = {-2.0f, 0.0f, -1.5f}, borc[3] = {-16777216.0f, 0, 0}, kucuk[3] = {1e-5f, 0, 0};
+  SceneEntity &h = d.entities[0];
+  scene_prop_set(h, "can", kScenePropTam, can);
+  scene_prop_set(h, "hiz", kScenePropSayi, hiz);
+  scene_prop_set(h, "kalkan", kScenePropBayrak, evet);
+  scene_prop_set(h, "devriye_noktasi_uzun_ad", kScenePropNokta, devriye); // 23 karakter
+  SceneEntity c{};
+  std::snprintf(c.name, sizeof c.name, "cocuk");
+  c.parent = 0; // "hepsi"
+  c.pos = {1.0f, 0.5f, -2.0f}; c.rot_deg = {0, 20, 0};
+  scene_prop_set(c, "devriye_a", kScenePropNokta, devriye);
+  scene_prop_set(c, "zzzzzzzzzzzzzzzzzzzzzzz", kScenePropSayi, kucuk); // 23 karakter, sirada sonda
+  scene_prop_set(c, "borc", kScenePropTam, borc);
+  scene_prop_set(c, "kilit", kScenePropBayrak, hayir);
+  d.insert_entity(d.entity_count, c);
 }
 } // namespace
 
@@ -346,6 +368,10 @@ ENGINE_TEST(scene_blob_carries_new_component_tables) {
   CHECK(pb && scene_blob_open(pb, pn, &pv, &err));
   CHECK(pv.h->particle_count == 0 && pv.h->terrain_count == 0 && pv.h->voxel_count == 0 && pv.h->water_count == 0 &&
         pv.h->wind_count == 0 && pv.h->character_count == 0 && pv.h->script_count == 0);
+  // v8 bos ozellik tablosu: sayi 0, isaretci YOK, ofset blob sonunda (tablo en
+  // sonda ve bos) — ozelliksiz sahnenin bolum yerlesimi v7'dekiyle ayni.
+  CHECK(pv.h->prop_count == 0 && pv.props == nullptr && pv.h->prop_offset == pv.h->total_size);
+  CHECK(v.h->prop_count == 8 && v.props != nullptr); // KONTROL: dolu fixture'da tablo dolu
   CHECK(pv.draws[0].primitive == -1 && feq(pv.draws[0].roughness, 1.0f)); // varsayilan malzeme
   std::printf("    [bilgi] v6 blob %zu bayt (bilesensiz kontrol %zu bayt)\n", n, pn);
 }
@@ -968,12 +994,13 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 7);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 8);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
   // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
   // tablolari YOK; bu numarayla bir dosya hic uretilmedi ama reddi yine de
-  // olculuyor) ve 6 (betik tablosu YOK).
+  // olculuyor), 6 (betik tablosu YOK) ve 7 (ozellik tablosu YOK: v7 blobu
+  // okunsaydi prop_offset alani eski `script_reserved1` = 0 olurdu).
   // Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
   // kendiliginden kapsanir; yalniz yukaridaki sabit guncellenir.
   SceneBlobView v;
@@ -1740,4 +1767,251 @@ ENGINE_TEST(scene_blob_carries_body_sensor_flag) {
   for (uint32_t k = 0; k < v.h->body_count; k++) (v.bodies[k].entity == 0 ? duvar : alarm) = v.bodies[k].flags;
   std::printf("    [bilgi] govde bayraklari: duvar %u, alarm %u\n", duvar, alarm);
   CHECK(duvar == 0 && alarm == kSceneBlobBodySensor);
+}
+
+// v8 — nesne ozellikleri blob'da. Olculen: her kayit veri modelindeki
+// ozelligin AYNISI (tur, ad, deger bit-tam); tablo (varlik, ad) ile sirali;
+// `nokta` DUNYA uzayinda ve scene_prop_point_world ile bit-tam; blob tarafinin
+// cevirisi (SceneBlobView::point_world — koprunun VARSAYILAN noktayi cevirdigi
+// yol) derleyicininkiyle bit-tam; olcek noktayi ITMEZ. KONTROLLER: donuk
+// varlikta dunya degeri yerelden ve "donussuz" hesaptan FARKLI (donusum
+// gercekten uygulaniyor); donussuz kokte dunya = konum + yerel TAM; tek ulp
+// degisince ozet degisir (tablo ozete giriyor); sirasiz bir SceneDesc sirali
+// blob verir, yinelenen ad blob'u ACILAMAZ yapar (sessiz secim yok).
+ENGINE_TEST(scene_blob_carries_props_sorted_in_world_space) {
+  static SceneDesc d;
+  fill_v6(d);
+  CHECK(d.entity_count == 4 && d.entities[0].prop_count == 4 && d.entities[3].prop_count == 4 && d.entities[3].parent == 0);
+  size_t n = 0, n2 = 0;
+  void *blob = compile_to(d, &n);
+  void *blob2 = compile_to(d, &n2);
+  CHECK(blob && blob2 && n == n2 && std::memcmp(blob, blob2, n) == 0); // belirlenimli
+  SceneBlobView v;
+  SceneError err{};
+  const bool ok = blob && scene_blob_open(blob, n, &v, &err);
+  if (!ok && blob) std::printf("    [bilgi] acma: %s\n", err.msg);
+  CHECK(ok);
+  if (!ok) return;
+  CHECK(v.h->prop_count == 8 && v.props != nullptr && v.h->prop_offset % kSceneBlobAlign == 0);
+  CHECK(v.h->prop_offset >= v.h->script_offset + v.h->script_count * sizeof(SceneBlobScript)); // tablo betik tablosundan SONRA
+  bool match = true, sorted = true, world_bits = true, same_math = true, tail_zero = true;
+  uint32_t nokta = 0;
+  for (uint32_t k = 0; k < v.h->prop_count; k++) {
+    const SceneBlobProp &r = v.props[k];
+    const SceneProp *sp = r.entity < d.entity_count ? scene_prop_find(d.entities[r.entity], r.name) : nullptr;
+    if (!sp || sp->type != r.type || r.reserved != 0) { match = false; continue; }
+    const char *nul = static_cast<const char *>(std::memchr(r.name, 0, sizeof r.name));
+    for (const char *c = nul ? nul : r.name + sizeof r.name; c < r.name + sizeof r.name; c++)
+      if (*c) tail_zero = false;
+    if (r.type == kScenePropNokta) {
+      nokta++;
+      float w[3], bw[3];
+      scene_prop_point_world(d, r.entity, sp->v, w);
+      v.point_world(r.entity, sp->v, bw);
+      if (!feq(w[0], r.v[0]) || !feq(w[1], r.v[1]) || !feq(w[2], r.v[2])) world_bits = false;
+      if (!feq(bw[0], r.v[0]) || !feq(bw[1], r.v[1]) || !feq(bw[2], r.v[2])) same_math = false;
+    } else if (!feq(r.v[0], sp->v[0]) || !feq(r.v[1], 0.0f) || !feq(r.v[2], 0.0f)) {
+      match = false;
+    }
+    if (k > 0) {
+      const SceneBlobProp &q = v.props[k - 1];
+      if (!(q.entity < r.entity || (q.entity == r.entity && std::strcmp(q.name, r.name) < 0))) sorted = false;
+    }
+  }
+  std::printf("    [bilgi] ozellik tablosu: %u kayit @%u (48 B/kayit), %u nokta; eslesme %d sira %d dunya-bit %d blob-cevirisi %d kuyruk %d\n",
+              v.h->prop_count, v.h->prop_offset, nokta, (int)match, (int)sorted, (int)world_bits, (int)same_math, (int)tail_zero);
+  CHECK(match && sorted && world_bits && same_math && tail_zero && nokta == 2);
+  // Tablo sirasi (varlik, ad): hepsi(0): can, devriye_noktasi_uzun_ad, hiz, kalkan; cocuk(3): borc, devriye_a, kilit, zzz...
+  const char *beklenen[8] = {"can", "devriye_noktasi_uzun_ad", "hiz", "kalkan", "borc", "devriye_a", "kilit", "zzzzzzzzzzzzzzzzzzzzzzz"};
+  bool order = true;
+  for (uint32_t k = 0; k < 8; k++)
+    if (std::strcmp(v.props[k].name, beklenen[k]) != 0 || v.props[k].entity != (k < 4 ? 0u : 3u)) order = false;
+  CHECK(order);
+  CHECK(v.props[0].type == kScenePropTam && feq(v.props[0].v[0], 250.0f));
+  CHECK(v.props[4].type == kScenePropTam && feq(v.props[4].v[0], -16777216.0f)); // tam alt siniri
+  CHECK(v.props[6].type == kScenePropBayrak && feq(v.props[6].v[0], 0.0f));      // ustune yazilmis "hayir"
+  CHECK(v.props[7].type == kScenePropSayi && feq(v.props[7].v[0], 1e-5f));
+  // POZITIF KONTROL — donusum UYGULANDI. Yerel (-2, 0, -1.5); donuk kokte ve
+  // donuk ebeveynli cocukta dunya degeri ne yerel ne de "konum + yerel"
+  // (donussuz) olabilir. Derleyici yereli oldugu gibi yazsaydi ilk fark 0,
+  // donusu unutsaydi ikinci fark 0 olurdu.
+  auto dist = [](const float *a, Vec3 b) { const Vec3 dv{a[0] - b.x, a[1] - b.y, a[2] - b.z}; return std::sqrt(dot(dv, dv)); };
+  const Vec3 yerel{-2.0f, 0.0f, -1.5f};
+  const SceneBlobProp &ph = v.props[1], &pc = v.props[5];
+  const float *hpos = v.entities[0].pos, *cpos = v.entities[3].pos;
+  const Vec3 hp{hpos[0], hpos[1], hpos[2]}, cp{cpos[0], cpos[1], cpos[2]};
+  const float h_yerel = dist(ph.v, yerel), h_donussuz = dist(ph.v, hp + yerel);
+  const float c_yerel = dist(pc.v, yerel), c_donussuz = dist(pc.v, cp + yerel);
+  // Olcek ITMEZ: "hepsi" (2, 0.5, 1) olcekli; noktanin varliga uzakligi yerel
+  // ofsetin boyu (2.5) — olcek uygulansaydi boy degisirdi (x 2 -> 4.27).
+  const float h_boy = dist(ph.v, hp), c_boy = dist(pc.v, cp);
+  std::printf("    [bilgi] nokta dunya: hepsi (%.4f %.4f %.4f) yerelden %.3f, donussuzden %.3f, varliga %.4f; cocuk (%.4f %.4f %.4f) yerelden %.3f, "
+              "donussuzden %.3f, varliga %.4f (yerel boy 2.5)\n",
+              ph.v[0], ph.v[1], ph.v[2], h_yerel, h_donussuz, h_boy, pc.v[0], pc.v[1], pc.v[2], c_yerel, c_donussuz, c_boy);
+  CHECK(h_yerel > 0.5f && h_donussuz > 0.5f && c_yerel > 0.5f && c_donussuz > 0.5f);
+  CHECK(std::fabs(h_boy - 2.5f) < 1e-5f && std::fabs(c_boy - 2.5f) < 1e-5f);
+  // KONTROL: donussuz KOK varlikta dunya = konum + yerel, BIT-TAM (birim
+  // kuaterniyonla rotate tam; donussuz kok matrisi cevirisi konumun kendisi).
+  {
+    static SceneDesc r;
+    scene_desc_reset(r);
+    SceneEntity e{};
+    std::snprintf(e.name, sizeof e.name, "duz");
+    e.pos = {3.0f, 1.0f, -7.0f};
+    const float lp[3] = {-2.0f, 0.0f, -1.5f};
+    CHECK(scene_prop_set(e, "p", kScenePropNokta, lp));
+    CHECK(r.insert_entity(0, e));
+    size_t rn = 0;
+    void *rb = compile_to(r, &rn);
+    SceneBlobView rv;
+    CHECK(rb && scene_blob_open(rb, rn, &rv, &err) && rv.h->prop_count == 1);
+    if (rv.props) CHECK(feq(rv.props[0].v[0], 1.0f) && feq(rv.props[0].v[1], 1.0f) && feq(rv.props[0].v[2], -8.5f));
+  }
+  // KONTROL: tablo OZETE giriyor — tek ulp degisince baytlar ve ozet degisir.
+  {
+    static SceneDesc c;
+    c = d;
+    SceneProp *sp = &c.entities[0].props[2]; // "hiz"
+    CHECK(!std::strcmp(sp->name, "hiz"));
+    sp->v[0] = std::nextafterf(sp->v[0], 1000.0f);
+    size_t cn = 0;
+    void *cb = compile_to(c, &cn);
+    SceneBlobView cv;
+    CHECK(cb && cn == n && std::memcmp(cb, blob, n) != 0 && scene_blob_open(cb, cn, &cv, &err) && cv.hash() != v.hash());
+  }
+  // KONTROL: sirasiz SceneDesc (elle kurulmus: scene_prop_set sirayi korurdu)
+  // SIRALI blob verir; yinelenen ad yazilir ve blob ACILAMAZ (derleyen gorur).
+  {
+    static SceneDesc u;
+    scene_desc_reset(u);
+    SceneEntity e{};
+    std::snprintf(e.name, sizeof e.name, "sirasiz");
+    std::snprintf(e.props[0].name, sizeof e.props[0].name, "zeta");
+    e.props[0].type = kScenePropSayi; e.props[0].v[0] = 1;
+    std::snprintf(e.props[1].name, sizeof e.props[1].name, "alfa");
+    e.props[1].type = kScenePropSayi; e.props[1].v[0] = 2;
+    e.prop_count = 2;
+    CHECK(u.insert_entity(0, e));
+    size_t un = 0;
+    void *ub = compile_to(u, &un);
+    SceneBlobView uv;
+    CHECK(ub && scene_blob_open(ub, un, &uv, &err) && uv.h->prop_count == 2);
+    if (uv.props) CHECK(!std::strcmp(uv.props[0].name, "alfa") && !std::strcmp(uv.props[1].name, "zeta") && feq(uv.props[0].v[0], 2.0f));
+    std::snprintf(u.entities[0].props[0].name, sizeof u.entities[0].props[0].name, "alfa"); // yinelenen
+    ub = compile_to(u, &un);
+    CHECK(ub && !scene_blob_open(ub, un, &uv, &err) && std::strstr(err.msg, "yinelenen"));
+    std::printf("    [bilgi] sirasiz desc -> sirali blob; yinelenen ad -> \"%s\"\n", err.msg);
+  }
+}
+
+// v8 — bozuk ozellik kaydi REDDEDILIR. Kopru bu tabloya guvenerek okur (entity
+// dizi indeksi, ardisik aralik, strcmp), yani her dogrulama dali bir fixture
+// ile KOSTURULUR: yazilip hic sinanmamis bir sinir denetimi olmayan bir sinir
+// denetimidir (betik tablosu kapisiyla ayni ders). Her bozulmadan sonra ozet
+// YENIDEN hesaplanir: ozet tek savunma degil, burada dogrulamanin kendisi
+// olculuyor. Pozitif kontrol: bozulmamis kopya once ve sonra acilir; 16
+// kayitli varlik (tavan) gecerlidir.
+ENGINE_TEST(scene_blob_open_rejects_corrupt_prop_records) {
+  static SceneDesc d;
+  scene_desc_reset(d);
+  SceneEntity a{};
+  std::snprintf(a.name, sizeof a.name, "a");
+  for (uint32_t k = 0; k < kSceneMaxProps; k++) {
+    char nm[8];
+    std::snprintf(nm, sizeof nm, "p%02u", k);
+    const uint32_t t = k == 1 ? kScenePropTam : k == 2 ? kScenePropBayrak : k == 3 ? kScenePropNokta : kScenePropSayi;
+    const float val[3] = {k == 2 ? 1.0f : (float)k, k == 3 ? 1.0f : 0.0f, k == 3 ? 2.0f : 0.0f};
+    CHECK(scene_prop_set(a, nm, t, val));
+  }
+  CHECK(a.prop_count == kSceneMaxProps);
+  CHECK(d.insert_entity(0, a));
+  SceneEntity b{};
+  std::snprintf(b.name, sizeof b.name, "b");
+  const float one[3] = {1, 0, 0};
+  CHECK(scene_prop_set(b, "q1", kScenePropSayi, one) && scene_prop_set(b, "zz", kScenePropSayi, one)); // ikisi de "p15"ten sonra
+  CHECK(d.insert_entity(1, b));
+  size_t n = 0;
+  void *good = compile_to(d, &n);
+  CHECK(good);
+  if (!good) return;
+  uint8_t *bad = static_cast<uint8_t *>(arena().alloc(n, kSceneBlobAlign));
+  CHECK(bad);
+  if (!bad) return;
+  SceneBlobView v;
+  SceneError err{};
+  auto reset = [&] { std::memcpy(bad, good, n); };
+  auto hdr = [&]() { return reinterpret_cast<SceneBlobHeader *>(bad); };
+  const uint32_t prop_off = reinterpret_cast<const SceneBlobHeader *>(good)->prop_offset;
+  auto rec = [&](uint32_t k) { return reinterpret_cast<SceneBlobProp *>(bad + prop_off) + k; };
+  auto rehash = [&] {
+    const size_t from = offsetof(SceneBlobHeader, header_size);
+    const uint64_t hv = scene_blob_fnv1a(bad + from, n - from);
+    hdr()->hash_lo = (uint32_t)(hv & 0xFFFFFFFFu); hdr()->hash_hi = (uint32_t)(hv >> 32);
+  };
+  // Pozitif kontrol: kopya acilir, 16 kayitli varlik (tavan) kabul edilir.
+  reset();
+  CHECK(scene_blob_open(bad, n, &v, &err) && v.h->prop_count == 18);
+  uint32_t reddedilen = 0, vaka = 0;
+  auto expect = [&](const char *ne, const char *anahtar) {
+    vaka++;
+    rehash();
+    const bool acildi = scene_blob_open(bad, n, &v, &err);
+    const bool dogru = !acildi && std::strstr(err.msg, anahtar) != nullptr;
+    if (dogru) reddedilen++;
+    else std::printf("    FAIL ozellik bozulmasi \"%s\": %s (beklenen \"%s\")\n", ne, acildi ? "ACILDI" : err.msg, anahtar);
+    CHECK(dogru);
+    reset();
+  };
+  const float nan = std::nanf("");
+  // tablo sinirlari
+  reset(); hdr()->prop_offset = hdr()->total_size; expect("ofset blob sonunda, sayi > 0", "ozellik tablosu sinir disi");
+  reset(); hdr()->prop_offset += 4; expect("ofset hizasiz", "ozellik tablosu sinir disi");
+  reset(); hdr()->prop_count += 1; expect("sayi tablo disina tasiyor", "ozellik tablosu sinir disi");
+  reset(); hdr()->prop_offset = 16; expect("ofset baslik icinde", "ozellik tablosu sinir disi");
+  // kayit alanlari
+  reset(); rec(17)->entity = hdr()->entity_count; expect("tanimsiz varlik", "tanimsiz varliga");
+  reset(); rec(5)->type = 0; expect("tur 0", "turu bilinmiyor");
+  reset(); rec(5)->type = 5; expect("tur 5", "turu bilinmiyor");
+  reset(); std::memset(rec(5)->name, 'a', kScenePropNameLen); expect("ad NUL'suz (24 bayt)", "NUL ile bitmiyor");
+  reset(); rec(5)->name[0] = 'P'; expect("ad buyuk harf", "adi gecersiz");
+  reset(); std::memset(rec(5)->name, 0, kScenePropNameLen); expect("ad bos", "adi gecersiz");
+  reset(); rec(5)->name[1] = (char)0xC4; rec(5)->name[2] = (char)0xB1; expect("ad Turkce harf", "adi gecersiz");
+  reset(); rec(5)->name[10] = 'x'; expect("ad kuyrugu dolu", "NUL sonrasi");
+  // degerler (kayit 0 sayi, 1 tam, 2 bayrak, 3 nokta)
+  reset(); rec(0)->v[0] = nan; expect("sayi NaN", "degeri gecersiz");
+  reset(); rec(0)->v[1] = 1.0f; expect("sayi kullanilmayan v[1] dolu", "degeri gecersiz");
+  reset(); rec(0)->v[2] = -0.0f; expect("sayi kullanilmayan v[2] = -0", "degeri gecersiz");
+  reset(); rec(1)->v[0] = 2.5f; expect("tam kesirli", "degeri gecersiz");
+  reset(); rec(1)->v[0] = 16777218.0f; expect("tam 2^24 ustu", "degeri gecersiz");
+  reset(); rec(2)->v[0] = 2.0f; expect("bayrak 2", "degeri gecersiz");
+  reset(); rec(3)->v[2] = INFINITY; expect("nokta sonsuz", "degeri gecersiz");
+  // sira / tekillik / tavan
+  reset(); std::memcpy(rec(4)->name, "p05", 4); std::memcpy(rec(5)->name, "p04", 4); expect("ayni varlikta ad azaliyor", "ad azaliyor");
+  // 16 (b/q1) -> 17 (a/zz): varlik dizini 1'den 0'a DUSUYOR (adlar artan).
+  reset(); rec(17)->entity = 0; expect("varlik dizini azaliyor", "varlik dizini azaliyor");
+  reset(); std::memcpy(rec(1)->name, "p00", 4); rec(1)->type = kScenePropSayi; expect("yinelenen (varlik, ad)", "yinelenen");
+  // b/q1'i a'ya tasi: a'da p00..p15, q1 = 17 kayit, sirali ve tekil — yalniz tavan reddeder.
+  reset(); rec(16)->entity = 0; expect("varlikta 17 kayit", "fazla ozellik");
+  // Son: bozulmamis kopya hala acilir (test blob'u kalici bozmadi).
+  reset();
+  CHECK(scene_blob_open(bad, n, &v, &err));
+  std::printf("    [bilgi] ozellik bozulmasi: %u/%u vaka reddedildi (her dal kendi anahtariyla)\n", reddedilen, vaka);
+  CHECK(reddedilen == vaka && vaka == 23);
+  // BOS tablo: ozelliksiz sahne acilir; bos tabloda da ofset hizasi olculur.
+  static SceneDesc e;
+  scene_desc_reset(e);
+  SceneEntity x{};
+  std::snprintf(x.name, sizeof x.name, "ozelliksiz");
+  CHECK(e.insert_entity(0, x));
+  size_t en = 0;
+  void *eb = compile_to(e, &en);
+  CHECK(eb && scene_blob_open(eb, en, &v, &err) && v.h->prop_count == 0 && v.props == nullptr);
+  if (eb) {
+    auto *eh = reinterpret_cast<SceneBlobHeader *>(eb);
+    eh->prop_offset += 4;
+    const size_t from = offsetof(SceneBlobHeader, header_size);
+    const uint64_t hv = scene_blob_fnv1a(static_cast<uint8_t *>(eb) + from, en - from);
+    eh->hash_lo = (uint32_t)(hv & 0xFFFFFFFFu); eh->hash_hi = (uint32_t)(hv >> 32);
+    CHECK(!scene_blob_open(eb, en, &v, &err) && std::strstr(err.msg, "ozellik tablosu sinir disi"));
+  }
 }
