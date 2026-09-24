@@ -70,6 +70,8 @@ OffscreenTarget *offscreen_create(Device &dev, Arena &arena, const OffscreenConf
                                   OffscreenResult *out);
 // Bir kare: kayit + gonderim + bekleme + piksel geri okuma. Bizim kodda
 // ayirma YOK (AllocGate ile test edilir); out->pixels arenadan (kurulumda).
+// Vulkan nesnesi de kurulmaz: komut tamponu Device'in onceden ayrilmis tek
+// seferlik yuvasindan (Tuzaklar 8cd; kapi tests/test_vk_steady.cpp).
 bool offscreen_render_frame(OffscreenTarget *t, const OffscreenConfig &cfg, OffscreenResult *out);
 void offscreen_destroy(OffscreenTarget *t);
 VkRenderPass offscreen_render_pass(OffscreenTarget *t);

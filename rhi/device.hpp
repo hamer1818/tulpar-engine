@@ -157,9 +157,19 @@ public:
   uint32_t memory_allocation_count() const { return block_count_; }
   uint32_t dedicated_allocation_count() const { return dedicated_count_; }
 
-  // Tek seferlik komut tamponu: kaydet, gonder, bekle (Faz 1 offscreen).
+  // Tek seferlik komut tamponu: kaydet, gonder, bekle (offscreen kare, yukleme).
+  // Tamponlar init'te ONCEDEN ayrilir (kOneShotSlots, A2) ve her kullanimda
+  // sifirlanip yeniden kaydedilir. Eskiden her cagri vkAllocateCommandBuffers
+  // yapip tamponu HIC birakmiyordu: penceresiz her kare surucunun komut
+  // bellegine bir kare dolusu komut ekliyordu (Tuzaklar 8cd). Ic ice kullanim
+  // (bir kayit surerken yukleme) kOneShotSlots'a kadar; yuva kalmazsa
+  // VK_NULL_HANDLE doner ve one_shot_exhausted() sayar — sessiz buyume yok.
+  // Tek thread (cmd_pool_ ve one_shot_fence_ paylasilan; eskiden de oyleydi).
+  static constexpr uint32_t kOneShotSlots = 4;
   VkCommandBuffer begin_one_shot();
   bool end_one_shot_and_wait(VkCommandBuffer cb, uint64_t timeout_ns = 5000000000ull);
+  uint32_t one_shot_exhausted() const { return one_shot_exhausted_; }
+  uint32_t one_shot_in_flight() const;
 
 private:
   bool pick_physical(const DeviceConfig &cfg, VkSurfaceKHR surface);
@@ -181,6 +191,9 @@ private:
   VkCommandPool cmd_pool_ = VK_NULL_HANDLE;
   PsoCache pso_;
   VkFence one_shot_fence_ = VK_NULL_HANDLE;
+  VkCommandBuffer one_shot_cbs_[kOneShotSlots] = {};
+  bool one_shot_busy_[kOneShotSlots] = {};
+  uint32_t one_shot_exhausted_ = 0;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
   uint32_t validation_errors_ = 0;
   uint32_t validation_warnings_ = 0, bp_warnings_ = 0, bp_arm_warnings_ = 0, bp_id_n_ = 0;

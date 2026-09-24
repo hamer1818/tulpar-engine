@@ -1266,3 +1266,60 @@ farklı izleri say.
 **Ders:** "iş parçacığından yazılan halka" belirlenimli bir simülasyonun içinde bile
 belirlenimli değildir. Sıra bir sözleşmeyse onu tüketici **kurar** (sıralar); üreticinin
 geliş sırasına güvenen her okuyucu bu tuzağa açıktır.
+
+### 8cd. `AllocGate` "kare içi new 0" diyordu, süreç kare başına 330 KB büyüyordu — sürücü belleği bizim sayacımızdan geçmez
+
+**Belirti** (2026-09-25, RTX 5080, sürücü 615.71.09, Linux; doğrulama katmanı kurulu
+değil): `engine_demo --headless N --scene tulpar/examples/assets/salon1.sahneb` kare başına
+~327 KB büyüyordu — tepe RSS 300 karede 345 MB, 1500 karede 738 MB. Büyüme
+`/proc/<pid>/smaps`'ta `/dev/nvidiactl` eşlemelerindeydi (4 s'de 64 eşleme / 123 MB → 20 s'de
+150 / 300 MB); `[heap]` ve anonim bellek düzdü. Köprüde (`TULPAR_ENGINE_HEADLESS`) aynı sınıf:
+boş oyun döngüsü 62 KB/kare, 50 kutu 138, 200 kutu 360 KB/kare — çizim başına ~1.5 KB. Demo
+aynı satırda `kare ici new (en cok) 0` basıyordu ve hiçbir kapı kırmızı değildi.
+
+**Sebep:** `Device::begin_one_shot()` her çağrıda `vkAllocateCommandBuffers` yapıyor,
+`end_one_shot_and_wait()` tamponu hiç bırakmıyordu (`vkFreeCommandBuffers` yok, havuz hiç
+sıfırlanmıyor). Penceresiz her kare `offscreen_render_custom` ile bir tek seferlik tampon
+kaydediyor; kare başına bir kare dolusu komut (gölge kademeleri + ana geçiş; çizim başına
+bağlama, push constant, draw) sürücünün komut belleğinde kalıyordu. Sayaçla ölçüldü: 294
+kararlı karede `CommandBuffer +294/-0`, başka hiçbir tür sıfırdan farklı değil. Yükleme
+yolları da (`create_mesh`, `update_mesh_vertices`, `create_texture*`, `read_motion`) çağrı
+başına bir tampon sızdırıyordu — bu kısım pencereli kipte de geçerliydi.
+
+**Neden görünmedi — iki maskeleme:**
+1. AllocGate *bizim* `operator new`'umuzu sayar. Sürücü belleğini kendi `mmap`/ioctl'üyle
+   alır, bizim ayırıcımıza hiç uğramaz. "Kare içinde 0 ayırma" yalnız CPU yığınımız için
+   doğruydu.
+2. Pencereli yol (`Swapchain::acquire`) ön-ayrılmış iki tamponu `vkResetCommandBuffer` ile
+   yeniden kullanıyor, yani geliştiricinin pencerede baktığı yol temizdi. Sızan yol
+   penceresiz doğrulama, `engine_tests` ve **editörün F5'i** (gömülü oyun: köprü headless
+   yoldan çizip kareyi kanala yazıyor; oynandığı sürece büyür).
+
+**Düzeltme:** tek seferlik tamponlar `init_device`'ta bir kez ayrılıyor
+(`Device::kOneShotSlots = 4`), her kullanımda `vkResetCommandBuffer` + yeniden kayıt. İç içe
+kullanım kapasiteye kadar çalışıyor; yuva kalmazsa `VK_NULL_HANDLE` dönüyor ve
+`one_shot_exhausted()` sayıyor (sessiz büyüme yok). Bekleme zaman aşımına uğrarsa yuva meşgul
+kalıyor: GPU'da bekleyen tamponu yeniden kaydetmek tanımsız davranış olurdu. Sonra, aynı
+komut: RSS 4 s'den 20 s'ye 248 820 kB sabit, nvidiactl 37 eşleme / 77 MB sabit. Köprü, 200
+kutu: 6–18 s arası 288 308 kB sabit. Görüntü özeti değişmedi (`a32dcdbd870d8766`).
+
+**Kapı:** `rhi/vk_api.cpp` `vk_counters_*`. VkApi tablosundaki bütün `vkCreate*`/`vkAllocate*`
+ve `vkDestroy*`/`vkFree*` giriş noktaları ince bir ara yordamla sarılıyor ve cihaz başına
+sayılıyor (8an gereği her yuva kendi gerçek yordamlarını tutar). `Device::init_device` takar;
+takılamazsa cihaz açılmaz. `tests/test_vk_steady.cpp`: 8 kare ısınma + 32 kare, varsayılan ve
+post+huzme yolunda her türün kurma **ve** bırakma farkı 0 olmalı. Pozitif kontrol aynı
+ölçümle kasıtlı olarak kare başına bırakılmayan bir komut tamponu ve bir fence kur-yık çifti
+yapıyor; kapı `CommandBuffer +32/-0 Fence +32/-32` diye tam sayıyor. Eski `begin_one_shot`
+geri konunca kapı iki yolda da kırmızı döndü (`CommandBuffer +32/-0`). Çalışma anında
+görünür hali: demo satırında `kare ici vk kurma (en cok) N`, köprü kapanışında
+`kapanis (vk nesne, kare 6..N)`.
+
+**Kör noktalar (bilerek söyleniyor):** ImGui (editör) Vulkan'ı kendi tablosundan
+(`vkGetInstanceProcAddr`) çağırıyor; sayaç onu görmez. Sürücünün `vkCreate*`'e bağlı olmayan
+iç havuz büyümesi de sayılmaz. Kapı *bizim kodun* ne yaptığını ölçer (kesin). Sürücünün ne
+yaptığı RSS/smaps ile ölçülür ve iddia edilmez.
+
+**Ders:** "kare içinde 0 ayırma" derken hangi ayırıcıyı kastettiğini söyle. Bir sayaç yalnız
+kendi geçtiği yolu görür; sahibi başkası olan bellek (sürücü, GPU, dosya eşlemesi) için ya
+ayrı bir sayaç ya da doğrudan süreç ölçümü (RSS, smaps) gerekir. Penceresiz doğrulama yolu da
+pencereli yolun "aynısı" değildir: kaynak yaşam döngüleri farklıysa o farkı ayrıca kapıla.

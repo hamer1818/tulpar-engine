@@ -375,6 +375,15 @@ bool Device::init_device(VkSurfaceKHR surface) {
     return false;
   }
   vk_api_load_device(api, device_);
+  // Nesne sayaci (Tuzaklar 8cd) tablo BU cihazin gercek yordamlarini tasirken
+  // takilir; PSO kancasi asagida onun USTUNE biner (sirasi kaldirirken tersine).
+  // Sayilmayan cihaz kararli-kare kapisinda kor nokta olurdu: acilmaz.
+  if (!vk_counters_install(api, device_)) {
+    fail("Vulkan nesne sayaci takilamadi (yuva yok ya da tablo zaten kancali)", VK_ERROR_INITIALIZATION_FAILED);
+    api.vkDestroyDevice(device_, nullptr);
+    device_ = VK_NULL_HANDLE;
+    return false;
+  }
   api.vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
   api.vkGetPhysicalDeviceMemoryProperties(phys_, &mem_props_);
   for (uint32_t i = 0; i < mem_props_.memoryTypeCount; i++)
@@ -393,6 +402,20 @@ bool Device::init_device(VkSurfaceKHR surface) {
   VkFenceCreateInfo fci{};
   fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   api.vkCreateFence(device_, &fci, nullptr, &one_shot_fence_);
+  { // Tek seferlik tamponlar BURADA, bir kez (Tuzaklar 8cd): kare icinde ayirma yok.
+    VkCommandBufferAllocateInfo ai{};
+    ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ai.commandPool = cmd_pool_;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = kOneShotSlots;
+    r = api.vkAllocateCommandBuffers(device_, &ai, one_shot_cbs_);
+    if (r != VK_SUCCESS) {
+      fail("vkAllocateCommandBuffers (tek seferlik)", r);
+      return false;
+    }
+    for (bool &b : one_shot_busy_) b = false;
+    one_shot_exhausted_ = 0;
+  }
 
   // Kalici PSO onbellegi + VkApi kancasi. Kanca vk_api_load_device'tan SONRA
   // takilir: o cagri tabloyu bastan doldurur ve kancayi silerdi (Tuzaklar 8an).
@@ -631,21 +654,42 @@ bool Device::allocate(const VkMemoryRequirements &req, VkMemoryPropertyFlags fla
 }
 
 VkCommandBuffer Device::begin_one_shot() {
-  VkCommandBufferAllocateInfo ai{};
-  ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  ai.commandPool = cmd_pool_;
-  ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  ai.commandBufferCount = 1;
-  VkCommandBuffer cb = VK_NULL_HANDLE;
-  if (api_->vkAllocateCommandBuffers(device_, &ai, &cb) != VK_SUCCESS) return VK_NULL_HANDLE;
-  VkCommandBufferBeginInfo bi{};
-  bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  api_->vkBeginCommandBuffer(cb, &bi);
-  return cb;
+  for (uint32_t i = 0; i < kOneShotSlots; i++) {
+    if (one_shot_busy_[i] || !one_shot_cbs_[i]) continue;
+    VkCommandBuffer cb = one_shot_cbs_[i];
+    // Havuz RESET_COMMAND_BUFFER_BIT ile kuruldu: tampon tek basina sifirlanir.
+    // Sifirlama (flags 0) surucunun o tampona verdigi komut bellegini ELDE
+    // TUTAR ve yeniden kullanir — kararli durumda bellek sabit kalir. Tampon
+    // burada bekleyen (pending) DEGIL: end_one_shot_and_wait yuvayi ancak
+    // fence beklendikten sonra birakir.
+    api_->vkResetCommandBuffer(cb, 0);
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (api_->vkBeginCommandBuffer(cb, &bi) != VK_SUCCESS) return VK_NULL_HANDLE;
+    one_shot_busy_[i] = true;
+    return cb;
+  }
+  one_shot_exhausted_++;
+  fail("tek seferlik komut tamponu yuvasi kalmadi (kOneShotSlots; ic ice begin_one_shot ya da bitirilmemis kayit)",
+       VK_ERROR_OUT_OF_HOST_MEMORY);
+  return VK_NULL_HANDLE;
+}
+
+uint32_t Device::one_shot_in_flight() const {
+  uint32_t n = 0;
+  for (bool b : one_shot_busy_) n += b ? 1u : 0u;
+  return n;
 }
 
 bool Device::end_one_shot_and_wait(VkCommandBuffer cb, uint64_t timeout_ns) {
+  int slot = -1;
+  for (uint32_t i = 0; i < kOneShotSlots; i++)
+    if (cb && one_shot_cbs_[i] == cb && one_shot_busy_[i]) slot = (int)i;
+  if (slot < 0) {
+    fail("end_one_shot_and_wait: begin_one_shot'tan gelmeyen tampon", VK_ERROR_INITIALIZATION_FAILED);
+    return false;
+  }
   api_->vkEndCommandBuffer(cb);
   VkSubmitInfo si{};
   si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -654,14 +698,18 @@ bool Device::end_one_shot_and_wait(VkCommandBuffer cb, uint64_t timeout_ns) {
   api_->vkResetFences(device_, 1, &one_shot_fence_);
   VkResult r = api_->vkQueueSubmit(queue_, 1, &si, one_shot_fence_);
   if (r != VK_SUCCESS) {
+    one_shot_busy_[slot] = false; // gonderilmedi: GPU'da degil, yuva geri
     fail("vkQueueSubmit", r);
     return false;
   }
   r = api_->vkWaitForFences(device_, 1, &one_shot_fence_, VK_TRUE, timeout_ns);
   if (r != VK_SUCCESS) {
+    // Yuva MESGUL kalir: tampon GPU'da hala bekliyor olabilir, yeniden
+    // kaydetmek tanimsiz davranis olurdu. Tukenirse begin_one_shot sayar.
     fail("vkWaitForFences", r);
     return false;
   }
+  one_shot_busy_[slot] = false;
   return true;
 }
 
@@ -680,6 +728,7 @@ void Device::shutdown() {
       api.vkFreeMemory(device_, blocks_[i].memory, nullptr);
     }
     block_count_ = 0;
+    vk_counters_remove(api, device_); // PSO kancasindan SONRA (o bunun ustunde)
     api.vkDestroyDevice(device_, nullptr);
     device_ = VK_NULL_HANDLE;
   }

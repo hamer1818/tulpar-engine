@@ -5,6 +5,7 @@
 // yuzeyi bu tablodan ibarettir (plan L2: ince tut).
 #pragma once
 #define VK_NO_PROTOTYPES 1
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 namespace tulpar::engine::rhi {
@@ -143,5 +144,49 @@ void vk_api_load_instance(VkApi &api, VkInstance instance);
 void vk_api_load_device(VkApi &api, VkDevice device);
 void vk_api_unload(VkApi &api);
 const char *vk_result_str(VkResult r);
+
+// --- Vulkan nesne sayaci (Tuzaklar 8cd) -------------------------------------
+// AllocGate yalniz BIZIM `operator new`'umuzu gorur. Surucu kendi bellegini
+// kendi mmap'iyle alir (NVIDIA: /dev/nvidiactl eslemeleri) ve oraya hic
+// ugramaz: her kare bir komut tamponu ayirip birakmayan kod "kare ici new 0"
+// derken surecin RSS'i kare basina ~330 KB buyuyordu (olculdu RTX 5080,
+// surucu 615.71.09, 2026-09-25). Bu sayac o boslugu kapatir: kurma/ayirma
+// ve yikma/birakma giris noktalari VkApi tablosunda ince bir ara yordamla
+// sarilir, CIHAZ BASINA sayilir. Kararli karede `created` farki 0 olmali
+// (engine_tests: vk_steady_frames_create_no_vulkan_objects).
+//
+// Sayilan sey CAGRI sayisidir, nesne degil (vkAllocateCommandBuffers(n=2) = 1).
+// Havuzdan ayrilan (komut tamponu, descriptor set) nesneler havuz yok edilince
+// ortuk birakilir; `released` onlari gormez — "canli nesne" degil "cagri" say.
+enum class VkObj : uint8_t {
+  CommandBuffer, DescriptorSet, Memory, Buffer, Image, ImageView, Sampler, Fence, Semaphore, QueryPool,
+  Framebuffer, RenderPass, ShaderModule, PipelineLayout, PipelineCache, Pipeline, DescriptorSetLayout,
+  DescriptorPool, CommandPool, Swapchain,
+  Count
+};
+constexpr uint32_t kVkObjCount = (uint32_t)VkObj::Count;
+const char *vk_obj_name(VkObj k); // "CommandBuffer" ...
+
+struct VkObjCounts {
+  uint64_t created[kVkObjCount] = {};  // vkCreate*/vkAllocate* cagrisi
+  uint64_t released[kVkObjCount] = {}; // vkDestroy*/vkFree* cagrisi
+  uint64_t total_created() const {
+    uint64_t n = 0;
+    for (uint32_t i = 0; i < kVkObjCount; i++) n += created[i];
+    return n;
+  }
+};
+// a - b (alan alan); kare/pencere farki icin.
+VkObjCounts vk_obj_counts_diff(const VkObjCounts &a, const VkObjCounts &b);
+
+// Device::init_device cagirir (vk_api_load_device'tan HEMEN sonra — tablo o an
+// bu cihazin gercek yordamlarini tasir; 8an). Yuva yoksa false: cihaz acilmaz
+// (sayilmayan cihaz sessiz bir kor nokta olurdu).
+bool vk_counters_install(VkApi &api, VkDevice dev);
+void vk_counters_remove(VkApi &api, VkDevice dev);
+// Cihazin sayaclari (anlik goruntu). Cihaz sayilmiyorsa false.
+bool vk_counters_read(VkDevice dev, VkObjCounts *out);
+// Yuvasi olmayan cihazdan gelen cagri (0 olmali).
+uint64_t vk_counters_unrouted();
 
 } // namespace tulpar::engine::rhi

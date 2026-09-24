@@ -423,6 +423,11 @@ struct Bridge {
   double time_s = 0;
   uint32_t frame = 0, tick = 0;
   float fps = 0;
+  // Vulkan nesne kurma/birakma (Tuzaklar 8cd): AllocGate surucunun bellegini
+  // gormez. Kare 6'dan itibaren biriken fark kapanista basilir; betik kare
+  // icinde varlik/doku yaratiyorsa sifirdan buyuk olabilir (bilgi, kapi degil).
+  rhi::VkObjCounts vk_prev{}, vk_steady{};
+  uint64_t vk_frame_max = 0;
   // girdi
   const platform::InputState *in = nullptr;
   bool prev_keys[512] = {};
@@ -1024,6 +1029,7 @@ int teng_init(const char *title, int width, int height) {
   }
   b.cam_eye = {0, 8, 14}; b.cam_target = {0, 0, 0};
   b.t0_ns = b.last_ns = platform::now_ns();
+  rhi::vk_counters_read(b.dev.handle(), &b.vk_prev);
   b.inited = true;
   b.running = true;
   if (b.embed) b.chan.set_state(platform::GameChildState::Running);
@@ -1535,6 +1541,19 @@ void teng_frame_end(void) {
   b.prof.end_frame();
   b.frame++;
   g_log.frame = b.frame;
+  {
+    rhi::VkObjCounts now{};
+    rhi::vk_counters_read(b.dev.handle(), &now);
+    const rhi::VkObjCounts d = rhi::vk_obj_counts_diff(now, b.vk_prev);
+    b.vk_prev = now;
+    if (b.frame > 5) {
+      if (d.total_created() > b.vk_frame_max) b.vk_frame_max = d.total_created();
+      for (uint32_t k = 0; k < rhi::kVkObjCount; k++) {
+        b.vk_steady.created[k] += d.created[k];
+        b.vk_steady.released[k] += d.released[k];
+      }
+    }
+  }
   // Sahne dosyasi izleyicisi: kare CIZILDIKTEN sonra (sahne kaynaklari kare
   // ortasinda degismesin).
   scene_watch_tick();
@@ -1580,6 +1599,18 @@ void teng_shutdown(void) {
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
         b.ui.injects, b.scene_reloads, g_save.loaded ? g_save.path : "acilmadi", g_save.n, g_save.writes, g_save.bad_lines);
+  {
+    // Surucu bellegi AllocGate'e gorunmez; bu satir onun gorunur hali (Tuzaklar 8cd).
+    char kinds[512];
+    uint32_t kn = 0;
+    kinds[0] = 0;
+    for (uint32_t k = 0; k < rhi::kVkObjCount && kn + 64 < sizeof kinds; k++)
+      if (b.vk_steady.created[k] || b.vk_steady.released[k])
+        kn += (uint32_t)std::snprintf(kinds + kn, sizeof kinds - kn, " %s +%llu/-%llu", rhi::vk_obj_name((rhi::VkObj)k),
+                                      (unsigned long long)b.vk_steady.created[k], (unsigned long long)b.vk_steady.released[k]);
+    BINFO("kapanis (vk nesne, kare 6..%u): %llu kurma (kare basina en cok %llu)%s", b.frame,
+          (unsigned long long)b.vk_steady.total_created(), (unsigned long long)b.vk_frame_max, kinds);
+  }
   // Kirli ayar kaybolmasin: betik eng_save_write cagirmayi unutsa bile kapanista yazilir.
   if (g_save.dirty) { BINFO("kayit kirli: kapanista diske yaziliyor"); teng_save_write(); }
   // Ses ONCE kapanir: cihaz thread'i klip orneklerini arenadan okuyor.
