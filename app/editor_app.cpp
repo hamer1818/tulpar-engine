@@ -76,6 +76,7 @@
 #include "app/editor_files.hpp"
 #include "app/editor_layout.hpp"
 #include "app/editor_overlay.hpp"
+#include "app/editor_game_view.hpp"
 #include "app/editor_viewport.hpp"
 #include "app/editor_widgets.hpp"
 #include "app/editor_inspector.hpp"
@@ -309,6 +310,7 @@ struct RecordCtx {
   EditorUi *ui;
   EditorViewport *vp;
   rhi::Device *dev;
+  EditorGameView *game = nullptr; // F5 gomulu oyunun karesi (yeni kare varsa yuklenir)
 };
 // ANA GECIS ARTIK YALNIZ ImGui ICERIYOR. 3B sahne kendi VIEWPORT gecisine,
 // yani ImGui'nin doku olarak ornekleyebilecegi offscreen hedefe ciziliyor.
@@ -338,6 +340,8 @@ void before_cb(VkCommandBuffer cb, void *user) {
     c->r->ui_record(cb);
     c->vp->end_pass(cb);
   }
+  // Oyunun karesi: kopya + duzen gecisi, ana gecisten (ImGui orneklemeden) ONCE.
+  if (c->game) c->game->record_upload(cb);
 }
 
 void entity_from_matrix(SceneEntity &e, const Mat4 &mat) {
@@ -499,6 +503,10 @@ struct EditorState {
   // yalniz zaman akmaz. step_request duraklatilmisken tek adim ilerletir.
   bool paused = false;
   uint32_t step_request = 0;
+  // F5 GOMULU oynatma: oyun ayri surecte (Ctrl+F5 ile ayni ikili), karesi Oyun
+  // sekmesinde. playing de true (arayuz ayni: Durdur, Oyun sekmesi, geri alma
+  // isareti), ama editorun kendi fizigi DOGMAZ — sahneyi oyun oynatiyor.
+  bool play_embedded = false;
   // GI (isik probe) onizleme -- SADECE EDITOR, .sahne/.sahneb'e YAZILMAZ.
   // "Isik Haritasini Pisir" butonuyla bellekte pisirilir (ayni bellek-ici
   // bake->derle->ac yolu .sahneb derleyicisinin kullandigi, disk YOK).
@@ -1584,6 +1592,41 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Isaret gunlugun GRUP derinligi (bir kullanici eylemi = bir grup).
   static uint32_t play_group_mark = 0;
   static bool play_dirty_mark = false;
+  // Editorden baslatilan oyun: Ctrl+F5 (kendi penceresi) ya da F5 (gomulu, Oyun
+  // sekmesi). TEK yuva: ikisi ayni anda kosmaz (ikisi de ayni .sahneb'i okur).
+  static GameRun oyun;
+  static EditorGameView oyun_goruntu; // F5: oyunun karesi (Oyun sekmesi dokusu)
+  // Durdur -> oyun kendi `bitir` yolundan cikana kadar gecen sure boyunca
+  // Konsol'a akan satirlar bu oynatmaya ait; bu bayrak "kapaniyor" durumunu tutar.
+  static bool oyun_kapaniyor = false;
+  // Oyun sekmesinin SON cizim olcusu (panel yerlesiminden, en-boy secimiyle):
+  // F5 kanali bu olcude acar, oyun da bu olcude cizer — kare panele 1:1 oturur.
+  static uint32_t oyun_cizim_w = 0, oyun_cizim_h = 0;
+  static bool oyun_odak_iste = false;         // oynatma basladi: Gorunum paneline odak
+  static bool gomulu_secim_bekliyor = false;  // oyun secici F5 icin acildi (secilince gomulu baslar)
+  static uint64_t oyun_baslangic_ns = 0;
+  static bool oyun_girdi_odak = false; // ONCEKI karede Oyun sekmesi odaktaydi: klavye oyunun
+  static ViewportRect oyun_rect{};     // oyun karesinin EKRAN dikdortgeni (fare -> kare pikseli)
+  static bool gorunum_odak = false;    // Gorunum paneli bu karede odakta
+  rctx.game = &oyun_goruntu;
+  // Kanaldan yeni kare -> Oyun sekmesi dokusunun bu ucus yuvasindaki hazirlama
+  // tamponu. Kayittan (before_cb) HEMEN once cagrilir: yuvanin cit'i acquire'da
+  // beklenmis, yani GPU o tamponu artik okumuyor. Doku oynatma basina bir kez,
+  // kare BASINDA kurulur (asagida) — burada ayirma yok.
+  auto oyun_kare_hazirla = [&](uint32_t slot) {
+    if (!st.play_embedded || !oyun.chan.ok()) return;
+    // Doku kare basinda kuruldu; olcu tutmuyorsa (kurulamadi) bu kare atlanir.
+    if (!oyun_goruntu.ok() || oyun_goruntu.width() != oyun.chan.width() || oyun_goruntu.height() != oyun.chan.height()) return;
+    const uint8_t *px = nullptr;
+    uint32_t fr = 0;
+    if (!oyun.chan.acquire(&px, &fr) || !px) return;
+    if (oyun_goruntu.stages() == 0) {
+      const double s0 = (platform::now_ns() - oyun_baslangic_ns) / 1e9;
+      set_status(st, "oynat: %s — Oyun sekmesinde (tikla: klavye oyuna; F5 durdur, F6 duraklat)", oyun.game);
+      console_log(ConsoleLevel::Bilgi, "oyun", "F5: ilk kare %.1f s'de geldi (%ux%u)", s0, oyun.chan.width(), oyun.chan.height());
+    }
+    oyun_goruntu.stage(px, slot);
+  };
   auto set_playing = [&](bool p) {
     if (p == st.playing) return;
     st.playing = p;
@@ -1593,22 +1636,32 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (p) {
       play_group_mark = st.groups.depth();
       play_dirty_mark = st.dirty;
-      bodies_spawn(st, phys);
-      // F5 FIZIK onizlemesi: Tulpar betikleri AOT derlenir ve oyunun ikilisinde
-      // yasar, editorun icinde KOSMAZ. Sessiz kalsaydi "kovalayan neden
-      // kovalamiyor" diye aranirdi; yolu (Ctrl+F5) burada soyluyoruz.
-      uint32_t betikli = 0;
-      for (uint32_t i = 0; i < st.scene.entity_count; i++)
-        if ((st.scene.entities[i].components & content::kSceneScript) && st.scene.entities[i].script_enabled) betikli++;
-      if (betikli) {
-        set_status(st, "oynat: FIZIK onizlemesi — %u betik burada kosmaz, oyunu calistirmak icin Ctrl+F5", betikli);
-        console_log(ConsoleLevel::Uyari, kConsoleTagEditor,
-                    "F5 fizik onizlemesi: %u varligin betigi editorde KOSMAZ (AOT: betik oyunun ikilisinde). Betikleriyle calistirmak icin "
-                    "Oynat > Oyunu calistir (Ctrl+F5)",
-                    betikli);
+      // Gomulu oynatmada sahneyi OYUN oynatiyor: editorun govdeleri dogmaz.
+      if (!st.play_embedded) {
+        bodies_spawn(st, phys);
+        // F5 FIZIK onizlemesi (oyun ya da derleyici bulunamadi): Tulpar
+        // betikleri oyunun ikilisinde yasar, editorun icinde KOSMAZ. Sessiz
+        // kalsaydi "kovalayan neden kovalamiyor" diye aranirdi.
+        uint32_t betikli = 0;
+        for (uint32_t i = 0; i < st.scene.entity_count; i++)
+          if ((st.scene.entities[i].components & content::kSceneScript) && st.scene.entities[i].script_enabled) betikli++;
+        if (betikli) {
+          set_status(st, "oynat: FIZIK onizlemesi — %u betik kosmuyor (Konsol: neden)", betikli);
+          console_log(ConsoleLevel::Uyari, kConsoleTagEditor,
+                      "F5 fizik onizlemesi: %u varligin betigi KOSMUYOR. Betikler oyunun ikilisinde yasar; F5 onu gomulu "
+                      "calistiramadi (sebep ustteki satirda)",
+                      betikli);
+        }
       }
     } else {
-      bodies_remove(st, phys); // durdur: veri modeli (yazar donusumu) gecerli
+      if (st.play_embedded) {
+        // Oyun kendi `bitir` yolundan kapanir (kanal: durdur); kalan satirlar
+        // Konsol'a akmaya devam eder. Editorun sahnesine oyun HIC dokunmadi.
+        st.play_embedded = false;
+        if (oyun.state == GameRunState::Running) { game_run_stop(oyun); oyun_kapaniyor = true; }
+      } else {
+        bodies_remove(st, phys); // durdur: veri modeli (yazar donusumu) gecerli
+      }
       uint32_t geri = 0;
       while (st.groups.depth() > play_group_mark && st.hist.undo_count() > 0) {
         const uint32_t k = st.groups.undo_size();
@@ -1770,7 +1823,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // --- Oyunu calistir (Ctrl+F5) -------------------------------------------
   // Ayri surec: motoru taniyan derleyici oyunu derler ve kendi penceresinde
   // calistirir; cikti gunluk dosyasindan Konsol'a akar (bkz. editor_game.hpp).
-  static GameRun oyun;
+  // `oyun` yuvasi set_playing'in ustunde (F5 de ayni yuvayi kullaniyor).
   bool komut_hata = false;
   // Oyun satiri: Konsol + stdout (editor.sh'nin terminali ve penceresiz kip de gorsun).
   void (*oyun_satiri)(void *, const char *) = [](void *, const char *line) {
@@ -1796,6 +1849,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     console_log(ConsoleLevel::Bilgi, "oyun", "calistiriliyor: %s %s (dizin %s, gunluk %s)", comp, game, st.tulpar_dir, log);
   };
   auto do_run_game = [&]() {
+    if (st.play_embedded) {
+      set_status(st, "oyun F5 ile Oyun sekmesinde oynuyor: durdurmak icin F5");
+      return;
+    }
     if (oyun.state == GameRunState::Running) {
       game_run_stop(oyun);
       set_status(st, "oyun durduruluyor: %s", oyun.game);
@@ -1822,7 +1879,83 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (r.count == 0) console_log(ConsoleLevel::Uyari, "oyun", "tulpar/ altinda bu sahneyi (.sahneb) yukleyen oyun bulunamadi: secin");
     for (uint32_t i = 0; i < r.count && i < 8; i++) console_log(ConsoleLevel::Uyari, "oyun", "aday %u: %s", i + 1, bulunan[i]);
     dlg_intent = IntentGamePick;
+    gomulu_secim_bekliyor = false;
     file_dialog_open(dlg, FileDialogMode::Ac, st.tulpar_dir, ".tpr", r.count ? "Hangi oyun? (birden cok aday)" : "Oyun sec (.tpr)");
+  };
+  // --- F5: sahneyi BETIKLERIYLE, Oyun sekmesinde oynat ------------------------
+  // Kullanici (2026-09-24): "F5 ile baslattigimiz sahneleri Ctrl+F5 ile
+  // yapilmadan da ayni seyi oynatmasi gerekiyor". Tulpar'da yorumlayici yok;
+  // betik oyunun ikilisinde kosar. F5 o ikiliyi Ctrl+F5 ile AYNI yoldan
+  // (sahneyi derle -> onu yukleyen oyunu bul -> motoru taniyan derleyici)
+  // baslatir, tek fark karenin gomulu kanaldan Oyun sekmesine gelmesi.
+  // Yol tikanirsa (sahne kaydedilmemis, oyun yok, derleyici yok) editorun
+  // FIZIK onizlemesine dusulur ve NEDEN Konsol'a yazilir — sessiz degil.
+  auto start_embedded_with = [&](const char *game) -> bool {
+    char exe[1024], comp[1024], why[512], log[1200], err[512];
+    if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
+    if (!game_find_compiler(exe, comp, sizeof comp, why, sizeof why)) {
+      console_log(ConsoleLevel::Hata, "oyun", "F5: %s", why);
+      return false;
+    }
+    uint32_t w = oyun_cizim_w ? oyun_cizim_w : vp.width(), h = oyun_cizim_h ? oyun_cizim_h : vp.height();
+    if (w < 16) w = 16;
+    if (h < 16) h = 16;
+    if (w > platform::kGameChannelMaxSide) w = platform::kGameChannelMaxSide;
+    if (h > platform::kGameChannelMaxSide) h = platform::kGameChannelMaxSide;
+    std::snprintf(log, sizeof log, "%s/oyun.log", exe);
+    if (!game_run_start_embedded(oyun, comp, st.tulpar_dir, game, log, w, h, err, sizeof err)) {
+      console_log(ConsoleLevel::Hata, "oyun", "F5: baslatilamadi: %s", err);
+      return false;
+    }
+    st.play_embedded = true;
+    set_playing(true);
+    oyun_odak_iste = true;
+    oyun_kapaniyor = false;
+    oyun_baslangic_ns = platform::now_ns();
+    set_status(st, "oynat: %s derleniyor (Oyun sekmesi %ux%u; F5 durdurur)", game, w, h);
+    console_log(ConsoleLevel::Bilgi, "oyun", "F5: %s Oyun sekmesinde calistiriliyor (%ux%u, derleyici %s, gunluk %s)", game, w, h, comp, log);
+    return true;
+  };
+  auto play_start_auto = [&](bool allow_embedded) {
+    if (st.playing) return;
+    if (oyun.state == GameRunState::Running) {
+      set_status(st, oyun_kapaniyor ? "onceki oynatma hala kapaniyor: bir an sonra tekrar deneyin"
+                                    : "oynatilamadi: ayri pencerede bir oyun calisiyor (Ctrl+F5 ile durdurun)");
+      return;
+    }
+    const char *neden = nullptr;
+    if (!allow_embedded) neden = "penceresiz kip (gomulu oyun yalniz acikca istenince)";
+    else if (!st.scene_path[0]) neden = "sahne henuz kaydedilmedi (oyun sahneyi diskteki .sahneb'den yukler)";
+    if (!neden) {
+      // Oyun sahneyi DISKTEKI blobdan yukler: bellekteki son hal once derlenir.
+      if (!do_compile()) return; // durum cubugu sebebi soyluyor; eski blobla oynatmak yaniltirdi
+      if (oyun_secim[0]) {
+        if (start_embedded_with(oyun_secim)) return;
+        neden = "oyun gomulu baslatilamadi (Konsol)";
+      } else {
+        static char bulunan[8][content::kScenePathLen];
+        static FileEntry tarama[kFileListMax];
+        static char metin[256 * 1024];
+        const GameFindResult r = game_find_for_scene(st.tulpar_dir, st.scene_path, bulunan, 8, tarama, kFileListMax, metin, sizeof metin);
+        if (r.count == 1) {
+          std::snprintf(oyun_secim, sizeof oyun_secim, "%s", bulunan[0]);
+          console_log(ConsoleLevel::Bilgi, "oyun", "bu sahneyi yukleyen oyun: %s (%u .tpr tarandi)", oyun_secim, r.scanned);
+          if (start_embedded_with(oyun_secim)) return;
+          neden = "oyun gomulu baslatilamadi (Konsol)";
+        } else if (r.count > 1) {
+          for (uint32_t i = 0; i < r.count && i < 8; i++) console_log(ConsoleLevel::Uyari, "oyun", "aday %u: %s", i + 1, bulunan[i]);
+          dlg_intent = IntentGamePick;
+          gomulu_secim_bekliyor = true;
+          file_dialog_open(dlg, FileDialogMode::Ac, st.tulpar_dir, ".tpr", "F5: hangi oyun? (birden cok aday)");
+          set_status(st, "F5: bu sahneyi birden cok oyun yukluyor, secin");
+          return;
+        } else {
+          neden = "tulpar/ altinda bu sahneyi (.sahneb) yukleyen oyun yok";
+        }
+      }
+    }
+    console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "F5 fizik onizlemesi: %s", neden);
+    set_playing(true);
   };
   // GI onizleme pisirme: sahne+yuklu modellerden bellek-ici bake -> derle ->
   // ac (ayni scene_blob_compile_ex/scene_blob_open yolu, DISK YOK). Dunya
@@ -2680,8 +2813,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     decltype(&do_save_as) saveas;
     bool *show_console;
     const EditorHost *host; // tam ekran: yetenek host'ta (headless'ta nullptr)
+    decltype(&play_start_auto) play_auto; // F5 baslat: gomulu oyun ya da fizik onizlemesi
   } cc{&st,      &gizmo_op, &cam,     &phys,     &do_save, &do_compile,      &do_undo,         &do_redo,     &do_add,     &do_remove,
-       &set_playing, &do_cut,   &do_copy, &do_paste,    &do_new_guarded,  &do_open_guarded, &do_save_as, &show_console, host};
+       &set_playing, &do_cut,   &do_copy, &do_paste,    &do_new_guarded,  &do_open_guarded, &do_save_as, &show_console, host, &play_start_auto};
   CommandTable cmds;
   PaletteState palette_st;
   cmds.bind(CommandId::FileNew, [](void *c) { (*static_cast<CmdCtx *>(c)->newscene)(); }, &cc);
@@ -2769,7 +2903,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   cmds.bind(CommandId::PlayToggle,
             [](void *c) {
               CmdCtx *x = static_cast<CmdCtx *>(c);
-              (*x->play)(!x->st->playing);
+              // Baslat: gomulu oyun (olmazsa fizik onizlemesi). Penceresiz kipte
+              // (host yok) yalniz fizik: kapilar belirlenimli kalsin, gomulu
+              // yol kendi kapisinda ACIKCA istenir.
+              if (x->st->playing) (*x->play)(false);
+              else (*x->play_auto)(x->host != nullptr);
             },
             &cc, nullptr, [](const void *c) { return static_cast<const CmdCtx *>(c)->st->playing; });
   cmds.bind(CommandId::PlayPause, [](void *c) { EditorState *s = static_cast<CmdCtx *>(c)->st; s->paused = !s->paused; }, &cc,
@@ -2780,7 +2918,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     const GameRun *g;
   } gcx{&do_run_game, &oyun};
   cmds.bind(CommandId::PlayRunGame, [](void *c) { (*static_cast<GameCmdCtx *>(c)->run)(); }, &gcx, nullptr,
-            [](const void *c) { return static_cast<const GameCmdCtx *>(c)->g->state == GameRunState::Running; });
+            [](const void *c) {
+              const GameRun *g = static_cast<const GameCmdCtx *>(c)->g;
+              return g->state == GameRunState::Running && !g->embedded; // F5'in oyunu "ayri pencerede calisiyor" gorunmesin
+            });
   cmds.bind(CommandId::PlayStep, [](void *c) { static_cast<CmdCtx *>(c)->st->step_request++; }, &cc,
             [](const void *c) {
               const EditorState *s = static_cast<const CmdCtx *>(c)->st;
@@ -2888,6 +3029,36 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         console_log(iyi ? ConsoleLevel::Bilgi : ConsoleLevel::Hata, "oyun", "oyun bitti: %s, cikis kodu %d, %u satir (gunluk %s)", oyun.game,
                     oyun.exit_code, oyun.lines, oyun.log_path);
         set_status(st, "oyun bitti: cikis kodu %d%s", oyun.exit_code, iyi ? "" : " (Konsol)");
+        if (st.play_embedded) {
+          // Oyun KENDISI kapandi (cikis_iste, cokme, derleme hatasi): oynatma
+          // da biter. Hic kare gelmediyse sebep neredeyse her zaman derleyicidir.
+          const bool kare_yok = !oyun_goruntu.has_frame();
+          set_playing(false);
+          if (kare_yok) set_status(st, "oyun baslamadi: cikis kodu %d — derleme/kurulum hatasi (Konsol)", oyun.exit_code);
+          else set_status(st, "oyun kapandi: cikis kodu %d%s", oyun.exit_code, iyi ? "" : " (Konsol)");
+        }
+        oyun_kapaniyor = false;
+      }
+    }
+    // Oyun sekmesi dokusu YALNIZ burada, kare BASINDA kurulur/birakilir: bu
+    // karenin ImGui cizimi henuz kurulmadi, yani hicbir cizim komutu eski
+    // descriptor'a basvurmuyor. Kare ortasinda (panelden sonra) birakmak
+    // ImGui'nin ayni karede cizecegi dokuyu yok ederdi — olculdu: kapi
+    // durdurduktan sonra editor VK_ERROR_DEVICE_LOST ile dustu.
+    if (st.play_embedded && oyun.chan.ok()) {
+      if (!oyun_goruntu.ok() || oyun_goruntu.width() != oyun.chan.width() || oyun_goruntu.height() != oyun.chan.height()) {
+        if (!oyun_goruntu.init(dev, oyun.chan.width(), oyun.chan.height(), true))
+          console_log(ConsoleLevel::Hata, "oyun", "Oyun sekmesi dokusu kurulamadi: %s", oyun_goruntu.last_error());
+      }
+    } else if (!st.play_embedded && oyun_goruntu.ok()) {
+      oyun_goruntu.shutdown(); // oynatma bitti: oynatma basina ayrilan her sey birakilir
+    }
+    // Gomulu oyun: duraklat / tek adim editorun kendi bayraklarindan (F6, F10).
+    if (st.play_embedded && oyun.chan.ok()) {
+      oyun.chan.set_paused(st.paused);
+      if (st.step_request) {
+        if (st.paused) oyun.chan.request_step();
+        st.step_request = 0;
       }
     }
     uint64_t now = platform::now_ns();
@@ -2982,11 +3153,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // Sim: yalniz oynatilirken (sabit adim). Duraklatilmisken zaman AKMAZ ama
     // govdeler yerinde durur; F10 tek adim ilerletir. fs.advance duraklamada
     // cagrilmaz — yoksa birikmis zaman devam edince bir anda bosalirdi.
-    if (st.playing && !st.paused) {
+    if (st.playing && !st.paused && !st.play_embedded) {
       ENGINE_ZONE("sim");
       uint32_t ticks = fs.advance(dt);
       for (uint32_t t = 0; t < ticks; t++) { scene.tick(fs.step_s, tick_i++); st.play_time += fs.step_s; }
-    } else if (st.playing && st.paused && st.step_request) {
+    } else if (st.playing && st.paused && st.step_request && !st.play_embedded) {
       ENGINE_ZONE("sim");
       scene.tick(fs.step_s, tick_i++);
       st.play_time += fs.step_s;
@@ -3115,10 +3286,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     ren.clear_point_lights();
 
     // --- ImGui paneller ---
+    {
+      // Oyun odaktayken ImGui'nin klavye gezintisi KAPALI: oklar ve bosluk
+      // oyunun. Acik kalsaydi bosluk (zipla) odakli bir dugmeye basar, oklar
+      // paneller arasinda gezerdi.
+      ImGuiIO &gio = ImGui::GetIO();
+      if (oyun_girdi_odak && st.play_embedded) gio.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+      else gio.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    }
     ui.begin_frame(in, (float)fw, (float)fh, dt);
     // Kisayollar: komut tablosundan. Koruma kurali tablonun (ham T/R/S/Delete
     // metin yazarken VE kaydirac suruklerken kapali; Ctrl+* yalniz metinde kapali).
-    const InputGuards guards{ui.wants_text_input(), ui.wants_keyboard()};
+    InputGuards guards{ui.wants_text_input(), ui.wants_keyboard()};
+    guards.game_input = oyun_girdi_odak && st.play_embedded; // klavye oyunun: yalniz Oynat komutlari
     commands_poll_imgui(cmds, guards);
     if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) show_stats = !show_stats;
     if ((ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_P, false)) ||
@@ -3409,11 +3589,52 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (draw_h < 1.0f) draw_h = 1.0f;
         vp.resize((uint32_t)draw_w, (uint32_t)draw_h);
         ren.set_render_size(vp.width(), vp.height());
+        {
+          // F5'in acacagi kanalin olcusu: Oyun sekmesinin cizim alani, secili
+          // en-boy oraniyla (sekme su an Sahne olsa da). Oyun bu olcude cizer.
+          float gw = avail.x, gh = avail.y;
+          if (game_aspect != GameAspect::Free) {
+            float ar = 16.0f / 9.0f;
+            if (game_aspect == GameAspect::Aspect16_10) ar = 16.0f / 10.0f;
+            else if (game_aspect == GameAspect::Aspect4_3) ar = 4.0f / 3.0f;
+            else if (game_aspect == GameAspect::Aspect21_9) ar = 21.0f / 9.0f;
+            else if (game_aspect == GameAspect::Aspect1_1) ar = 1.0f;
+            if (gw / gh > ar) gw = std::floor(gh * ar);
+            else gh = std::floor(gw / ar);
+          }
+          oyun_cizim_w = (uint32_t)gw;
+          oyun_cizim_h = (uint32_t)gh;
+        }
+        const bool oyun_sekmede = st.play_embedded && view_tab == ViewportTab::Game;
         if (vp.texture_id()) {
           if (offset_x > 0.0f || offset_y > 0.0f) {
             ImGui::SetCursorScreenPos(ImVec2(origin.x + offset_x, origin.y + offset_y));
           }
-          ImGui::Image((ImTextureID)vp.texture_id(), ImVec2((float)vp.width(), (float)vp.height()));
+          if (oyun_sekmede) {
+            // GOMULU OYUN: karesi kanal olcusunde; alana en-boy korunarak oturur.
+            const float kw = (float)(oyun.chan.ok() ? oyun.chan.width() : oyun_goruntu.width() ? oyun_goruntu.width() : vp.width());
+            const float kh = (float)(oyun.chan.ok() ? oyun.chan.height() : oyun_goruntu.height() ? oyun_goruntu.height() : vp.height());
+            const float sc = std::fmin(draw_w / kw, draw_h / kh);
+            const float iw = std::floor(kw * sc), ih = std::floor(kh * sc);
+            const ImVec2 p0(std::floor(origin.x + offset_x + (draw_w - iw) * 0.5f), std::floor(origin.y + offset_y + (draw_h - ih) * 0.5f));
+            ImDrawList *gdl = ImGui::GetWindowDrawList();
+            gdl->AddRectFilled(ImVec2(origin.x + offset_x, origin.y + offset_y), ImVec2(origin.x + offset_x + draw_w, origin.y + offset_y + draw_h),
+                               IM_COL32(8, 8, 8, 255));
+            ImGui::SetCursorScreenPos(p0);
+            if (oyun_goruntu.has_frame() && oyun_goruntu.texture_id()) {
+              ImGui::Image((ImTextureID)oyun_goruntu.texture_id(), ImVec2(iw, ih));
+            } else {
+              ImGui::Dummy(ImVec2(iw, ih));
+              char bek[160];
+              const double gecen = (platform::now_ns() - oyun_baslangic_ns) / 1e9;
+              std::snprintf(bek, sizeof bek, ICON_MD_HOURGLASS_TOP " %s derleniyor / baslatiliyor... %.1f s", oyun.game, gecen);
+              const ImVec2 ts = ImGui::CalcTextSize(bek);
+              gdl->AddText(ImVec2(p0.x + (iw - ts.x) * 0.5f, p0.y + (ih - ts.y) * 0.5f), IM_COL32(200, 205, 215, 255), bek);
+            }
+            oyun_rect = ViewportRect{p0.x, p0.y, iw, ih};
+          } else {
+            ImGui::Image((ImTextureID)vp.texture_id(), ImVec2((float)vp.width(), (float)vp.height()));
+          }
           view_hovered = ImGui::IsItemHovered();
           // Surukle-birak HEDEFI: Kaynaklar panelinden suruklenen dosya
           // goruntunun uzerine birakilinca sahneye eklenir (kaynagi
@@ -3595,8 +3816,30 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
         view_rect = ViewportRect{origin.x + offset_x, origin.y + offset_y, (float)vp.width(), (float)vp.height()};
       }
+      // Oynatma basladi: klavye oyuna gitsin diye panel odaga alinir.
+      if (oyun_odak_iste) { ImGui::SetWindowFocus(); oyun_odak_iste = false; }
+      gorunum_odak = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    } else {
+      gorunum_odak = false;
     }
     ImGui::End();
+    // --- Gomulu oyun girdisi --------------------------------------------------
+    // Oyun sekmesi odaktayken editorun tuslari ve faresi OYUNA gider (fare
+    // kare pikseline cevrilir). Odak disinda hicbir tus basili degildir: baska
+    // bir panelde yazilan harf oyunda karakteri yurutmesin.
+    if (st.play_embedded && oyun.chan.ok()) {
+      oyun_girdi_odak = view_tab == ViewportTab::Game && gorunum_odak;
+      if (oyun_girdi_odak && in && oyun_rect.w > 0 && oyun_rect.h > 0) {
+        const ImVec2 m = ImGui::GetIO().MousePos;
+        const double fx = (m.x - oyun_rect.x) / oyun_rect.w * oyun.chan.width();
+        const double fy = (m.y - oyun_rect.y) / oyun_rect.h * oyun.chan.height();
+        oyun.chan.set_input(in, fx, fy);
+      } else {
+        oyun.chan.set_input(nullptr, 0, 0);
+      }
+    } else {
+      oyun_girdi_odak = false;
+    }
     // --- Kaplamadan gelen gezinme eylemleri (cip/gosterge tiklamalari) ------
     if (ovres.axis_clicked >= 0) {
       camera_align(cam, (CameraAxis)ovres.axis_clicked);
@@ -6951,6 +7194,191 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (!bastan) return 1;
       }
     }
+    // GOMULU OYNATMA KAPISI (F5 betikleriyle, Oyun sekmesinde). Kullanici
+    // bildirdi (2026-09-24): "F5 ile hicbir sey olmuyor, Ctrl+F5'e gerek
+    // kalmadan ayni seyi oynatmali". Olculen, sirayla:
+    //   (a) F5 oyunu GOMULU baslatti (fizik onizlemesine dusmedi) ve kare geldi;
+    //   (b) betikler KOSUYOR: 0.6 s arayla iki karenin ornekleri farkli;
+    //   (c) duraklatmada kare AKMIYOR, tek adim tam BIR kare;
+    //   (d) Oyun sekmesinde gorunen piksel OYUNUN pikseli (editorun kendi
+    //       cizimi ya da bekleme yazisi degil);
+    //   (e) oynarken yapilan duzenleme durdurunca geri aliniyor;
+    //   (f) Durdur oyunu kendi `bitir` yolundan kapatiyor (cikis 0, oldurulmeden).
+    // Sahneyi yukleyen oyun ya da motoru taniyan derleyici yoksa ATLANDI der,
+    // OK DEMEZ (CI'da derleyici yok; kapi yerelde kosar).
+    if (headless && opts.headless_frames >= 50 && frame_i >= 40 && frame_i <= 45) {
+      static bool g_atla = false, g_bitir_goruldu = false;
+      static uint32_t g_ornek_w = 0, g_ornek_h = 0;
+      static uint8_t g_a[1024 * 1024 * 3], g_b[1024 * 1024 * 3];
+      static double g_ilk_kare_s = 0;
+      static uint32_t g_hareket = 0, g_ornek = 0, g_p0 = 0, g_p1 = 0, g_p2 = 0;
+      static int32_t g_ed = -1;
+      static float g_x_once = 0;
+      static bool g_stats_once = true;
+      auto ornekle = [&](uint8_t *out) {
+        const uint8_t *px = nullptr;
+        uint32_t fr = 0;
+        oyun.chan.acquire(&px, &fr);
+        const uint32_t w = oyun.chan.width(), h = oyun.chan.height();
+        g_ornek_w = w / 4 < 1024 ? w / 4 : 1024;
+        g_ornek_h = h / 4 < 1024 ? h / 4 : 1024;
+        for (uint32_t y = 0; y < g_ornek_h; y++)
+          for (uint32_t x = 0; x < g_ornek_w; x++) {
+            const uint8_t *q = px ? px + ((size_t)(y * 4) * w + x * 4) * 4 : nullptr;
+            uint8_t *o = out + ((size_t)y * g_ornek_w + x) * 3;
+            o[0] = q ? q[0] : 0; o[1] = q ? q[1] : 0; o[2] = q ? q[2] : 0;
+          }
+      };
+      auto bekle = [&](uint32_t ms) { // poll + kalp atisi (oyun editoru canli gorsun)
+        for (uint32_t i = 0; i < ms / 10; i++) { game_run_poll(oyun, oyun_satiri, nullptr); platform::thread_sleep_us(10000); }
+      };
+      if (frame_i == 40) {
+        if (st.playing) set_playing(false); // onceki kapilarin fizik oynatmasi
+        char exe[1024], comp[1024], why[512];
+        if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
+        static char bul[8][content::kScenePathLen];
+        static FileEntry tar[kFileListMax];
+        static char met[256 * 1024];
+        const GameFindResult r = st.scene_path[0] ? game_find_for_scene(st.tulpar_dir, st.scene_path, bul, 8, tar, kFileListMax, met, sizeof met)
+                                                  : GameFindResult{};
+        if (r.count != 1) {
+          std::printf("[engine_editor] gomulu oynatma kapisi: ATLANDI (bu sahneyi yukleyen %u oyun var, tek olmali: %s)\n", r.count, st.scene_path);
+          g_atla = true;
+        } else if (!game_find_compiler(exe, comp, sizeof comp, why, sizeof why)) {
+          std::printf("[engine_editor] gomulu oynatma kapisi: ATLANDI (%s)\n", why);
+          g_atla = true;
+        } else {
+          play_start_auto(true);
+          if (!st.play_embedded) {
+            std::printf("[engine_editor] gomulu oynatma kapisi: HATA — F5 oyunu gomulu baslatmadi (oynat %d; Konsol'a bakin)\n", (int)st.playing);
+            return 1;
+          }
+          view_tab = ViewportTab::Game;
+        }
+      } else if (g_atla) {
+        // atlandi
+      } else if (frame_i == 41) {
+        const uint64_t t0 = oyun_baslangic_ns;
+        for (int i = 0; i < 9000 && oyun.state == GameRunState::Running && oyun.chan.published() < 20; i++) {
+          game_run_poll(oyun, oyun_satiri, nullptr);
+          platform::thread_sleep_us(10000);
+        }
+        g_ilk_kare_s = (platform::now_ns() - t0) / 1e9;
+        if (oyun.state != GameRunState::Running || oyun.chan.published() < 20) {
+          std::printf("[engine_editor] gomulu oynatma kapisi: HATA — oyun %.1f s icinde 20 kare vermedi (durum %d, cikis %d, kare %u)\n", g_ilk_kare_s,
+                      (int)oyun.state, oyun.exit_code, oyun.chan.ok() ? oyun.chan.published() : 0u);
+          return 1;
+        }
+        // (b) betikler kosuyor mu: 0.6 s arayla iki kare.
+        ornekle(g_a);
+        bekle(600);
+        ornekle(g_b);
+        g_ornek = g_ornek_w * g_ornek_h;
+        g_hareket = 0;
+        for (uint32_t i = 0; i < g_ornek; i++) {
+          const int dr = g_a[i * 3] - g_b[i * 3], dg = g_a[i * 3 + 1] - g_b[i * 3 + 1], db = g_a[i * 3 + 2] - g_b[i * 3 + 2];
+          if (dr * dr + dg * dg + db * db > 24 * 24) g_hareket++;
+        }
+        // (e) oynarken duzenleme (durdurunca geri alinmali).
+        g_ed = st.scene.entity_count ? 0 : -1;
+        if (g_ed >= 0) {
+          g_x_once = st.scene.entities[g_ed].pos.x;
+          SceneEntity after = st.scene.entities[g_ed];
+          after.pos.x += 3.0f;
+          commit(st, g_ed, after);
+        }
+        // (c) duraklat: F6'nin yaptigi (bayrak kare basinda kanala gider).
+        st.paused = true;
+        oyun.chan.set_paused(true);
+        for (int i = 0; i < 300 && oyun.chan.child_state() != platform::GameChildState::Paused; i++) bekle(10);
+        g_p0 = oyun.chan.published();
+        bekle(300);
+        g_p1 = oyun.chan.published();
+        oyun.chan.request_step();
+        for (int i = 0; i < 200 && oyun.chan.published() == g_p1; i++) bekle(10);
+        bekle(100);
+        g_p2 = oyun.chan.published();
+        // Oyun duraklatilmis: son kare SABIT, (d) icin bir sonraki kareler onu yukleyip cizer.
+        // Istatistik kaplamasi Oyun sekmesinin ustunde durur (sag ust kose,
+        // karenin ~%40'i): olcum OYUNU olcsun, kaplamayi degil. 45'te geri gelir.
+        g_stats_once = show_stats;
+        show_stats = false;
+      } else if (frame_i == 44) {
+        // (d) 42 ve 43. kareler oyunun (sabit) karesini yukledi ve cizdi; ores
+        // 43'un bilesik goruntusu. Oyun dikdortgeninin icinde izgara ornekleri
+        // oyunun kendi pikseliyle karsilastirilir.
+        const uint8_t *px = nullptr;
+        uint32_t fr = 0;
+        oyun.chan.acquire(&px, &fr);
+        uint32_t ayni = 0, bos = 0, toplam = 0, renk = 0;
+        uint32_t renkler[16] = {};
+        const uint32_t gw = oyun.chan.width(), gh = oyun.chan.height();
+        if (px && oyun_rect.w > 4 && oyun_rect.h > 4) {
+          for (uint32_t j = 1; j < 18; j++)
+            for (uint32_t i = 1; i < 32; i++) {
+              const float sx = oyun_rect.x + oyun_rect.w * (float)i / 32.0f, sy = oyun_rect.y + oyun_rect.h * (float)j / 18.0f;
+              const uint32_t ex = (uint32_t)sx, ey = (uint32_t)sy;
+              if (ex >= oc.width || ey >= oc.height) continue;
+              const uint32_t kx = (uint32_t)((sx - oyun_rect.x) / oyun_rect.w * (float)gw), ky = (uint32_t)((sy - oyun_rect.y) / oyun_rect.h * (float)gh);
+              const uint8_t *e = ores.pixels + ((size_t)ey * oc.width + ex) * 4;
+              const uint8_t *k = px + ((size_t)(ky < gh ? ky : gh - 1) * gw + (kx < gw ? kx : gw - 1)) * 4;
+              toplam++;
+              if (std::abs(e[0] - k[0]) <= 12 && std::abs(e[1] - k[1]) <= 12 && std::abs(e[2] - k[2]) <= 12) ayni++;
+              if (e[0] <= 10 && e[1] <= 10 && e[2] <= 10) bos++;
+              const uint32_t c = ((uint32_t)k[0] << 16) | ((uint32_t)k[1] << 8) | k[2];
+              bool var = false;
+              for (uint32_t q = 0; q < renk && q < 16; q++) var = var || renkler[q] == c;
+              if (!var && renk < 16) renkler[renk++] = c;
+            }
+        }
+        const double oran = toplam ? (double)ayni / toplam : 0.0;
+        // KONTROL: kare tek renk olsaydi "ayni" hicbir sey kanitlamazdi; bekleme
+        // yazisi ya da siyah kutu cizilseydi ornekler letterbox rengine duserdi.
+        const bool goruntu_ok = toplam >= 400 && oran >= 0.90 && renk >= 8 && bos * 2 < toplam && oyun_goruntu.uploads() > 0;
+        // Hareket yalniz sahnede ETKIN betik varsa beklenir: betiksiz bir sahnede
+        // oyunu oyuncu surer, girdi olmadan durmasi dogru davranistir.
+        uint32_t betikli = 0;
+        for (uint32_t i = 0; i < st.scene.entity_count; i++)
+          if ((st.scene.entities[i].components & content::kSceneScript) && st.scene.entities[i].script_enabled) betikli++;
+        const bool hareket_ok = betikli == 0 || g_hareket >= 20;
+        const bool durak_ok = g_p1 == g_p0 && g_p2 == g_p1 + 1;
+        std::printf("[engine_editor] gomulu oynatma kapisi: %s %ux%u, ilk 20 kare %.1f s | %u betikli varlik, hareket %u/%u ornek degisti (0.6 s) %s | "
+                    "duraklatma %u -> %u (300 ms), tek adim -> %u %s | Oyun sekmesi %u/%u ornek oyunun pikseli (%.0f%%, %u+ renk, %u yukleme) %s\n",
+                    oyun.game, gw, gh, g_ilk_kare_s, betikli, g_hareket, g_ornek, hareket_ok ? (betikli ? "OK" : "(betik yok: beklenmedi)") : "HATA", g_p0, g_p1, g_p2, durak_ok ? "OK" : "HATA", ayni,
+                    toplam, oran * 100.0, renk, oyun_goruntu.uploads(), goruntu_ok ? "OK" : "HATA");
+        if (!(hareket_ok && durak_ok && goruntu_ok)) return 1;
+      } else if (frame_i == 45) {
+        // (f) Durdur: F5'in yaptigi. (e) geri alma da burada olur.
+        show_stats = g_stats_once;
+        st.paused = false;
+        const uint64_t t0 = platform::now_ns();
+        set_playing(false);
+        g_bitir_goruldu = false;
+        void (*yakala)(void *, const char *) = [](void *u, const char *line) {
+          if (std::strstr(line, "`bitir` calisti")) *static_cast<bool *>(u) = true;
+          console_log(ConsoleLevel::Bilgi, "oyun", "%s", line);
+          std::printf("[oyun] %s\n", line);
+        };
+        for (int i = 0; i < 1000 && oyun.state == GameRunState::Running; i++) {
+          game_run_poll(oyun, yakala, &g_bitir_goruldu);
+          platform::thread_sleep_us(10000);
+        }
+        const double ms = (platform::now_ns() - t0) / 1e6;
+        uint32_t betikli = 0; // `bitir` ozeti yalniz betikli sahnede basilir
+        for (uint32_t i = 0; i < st.scene.entity_count; i++)
+          if ((st.scene.entities[i].components & content::kSceneScript) && st.scene.entities[i].script_enabled) betikli++;
+        if (!betikli) g_bitir_goruldu = true;
+        const bool geri = g_ed < 0 || st.scene.entities[g_ed].pos.x == g_x_once;
+        const bool temiz = oyun.state == GameRunState::Finished && oyun.exit_code == 0 && !oyun.killed;
+        std::printf("[engine_editor] gomulu durdur kapisi: oyun %.0f ms'de kapandi (cikis %d, olduruldu %s), bitir kancasi %s%s, "
+                    "oynarken duzenleme geri alindi %s, oynat %d gomulu %d %s\n",
+                    ms, oyun.exit_code, oyun.killed ? "EVET" : "hayir", g_bitir_goruldu ? "kostu" : "GORULMEDI", betikli ? "" : " (betik yok)",
+                    geri ? "evet" : "HAYIR", (int)st.playing,
+                    (int)st.play_embedded, (temiz && g_bitir_goruldu && geri && !st.playing && !st.play_embedded) ? "OK" : "HATA");
+        oyun_kapaniyor = false; // doku bir sonraki kare BASINDA birakilir (bu karenin cizimi onu kullanabilir)
+        if (!(temiz && g_bitir_goruldu && geri && !st.playing && !st.play_embedded)) return 1;
+      }
+    }
     if (headless && frame_i >= 2 && frame_i <= 5) {
       // E1 duzen kaliciligi kapisi: kaydet -> A; dosyadan yukle -> (bir kare sonra,
       // dugum dikdortgenleri DockSpace'te turetilir) B; A == B BIT-TAM. Pozitif
@@ -7071,7 +7499,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         std::snprintf(oyun_secim, sizeof oyun_secim, "%s", rel);
         console_log(ConsoleLevel::Bilgi, "oyun", "oyun secildi: %s (bu oturumda hatirlanir)", oyun_secim);
         dlg_intent = IntentScene;
-        run_game_with(oyun_secim);
+        if (gomulu_secim_bekliyor) { // F5 sordu: secilen oyun Oyun sekmesinde
+          gomulu_secim_bekliyor = false;
+          if (!st.playing && !start_embedded_with(oyun_secim)) {
+            console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "F5 fizik onizlemesi: secilen oyun gomulu baslatilamadi (Konsol)");
+            set_playing(true);
+          }
+        } else {
+          run_game_with(oyun_secim);
+        }
       } else if (fa == FileDialogAction::Accepted && dlg_intent == IntentScriptNew) {
         // Etiket tarayicinin kuraliyla: listede ayni satir secili gorunsun.
         // Import yolu yalniz tulpar/ altinda biliniyor (oyunlar oradan derleniyor).
@@ -7102,7 +7538,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       } else if (fa == FileDialogAction::Accepted) {
         if (dlg.mode == FileDialogMode::Ac) load_scene_from(dlg.path);
         else if (save_scene_to(dlg.path) && pending != PendingNone) { run_pending(pending); pending = PendingNone; }
-      } else if (fa == FileDialogAction::Cancelled) { pending = PendingNone; dlg_intent = IntentScene; }
+      } else if (fa == FileDialogAction::Cancelled) {
+        pending = PendingNone;
+        dlg_intent = IntentScene;
+        if (gomulu_secim_bekliyor) { gomulu_secim_bekliyor = false; set_status(st, "F5 iptal: oyun secilmedi"); }
+      }
     }
     if (confirm.open) {
       char msg[320];
@@ -7650,6 +8090,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     st.gizmo_draws = editor_draw_gizmos(ren, ds.cube, st.scene, st.sel.items, st.sel.count, st.gizmos);
     if (headless) {
+      oyun_kare_hazirla(0); // penceresiz kare senkron: tek yuva yeter
       if (!rhi::offscreen_render_custom(off, oc, record_cb, &rctx, &ores, before_cb)) { std::fprintf(stderr, "kare: %s\n", ores.error); return 1; }
     } else {
       rhi::FrameContext fc;
@@ -7661,6 +8102,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // `record_cb` yapiyor. Headless yol record_cb'den gectigi icin calisti,
         // pencereli yol gecmedigi icin hicbir sey cizmedi. Ayni hata, tek yolda
         // duzeltilmis hali. Artik tek kaynak var.
+        oyun_kare_hazirla(fc.frame_index);
         before_cb(fc.cmd, &rctx);   // golge + viewport (ikisi de KENDI gecisi)
         swap.begin_render_pass(fc);
         record_cb(fc.cmd, &rctx);   // subpass ilerlet + ImGui
@@ -7740,7 +8182,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   }
   if (oyun.state == GameRunState::Running) {
     game_run_stop(oyun);
-    for (int i = 0; i < 200 && game_run_poll(oyun, oyun_satiri, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
+    // Gomulu oyun `bitir` yolundan kendisi cikar; kGameStopGraceNs (3 s)
+    // asilirsa poll agaci oldurur. 5 s: ikisine de yer var.
+    for (int i = 0; i < 500 && game_run_poll(oyun, oyun_satiri, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
     std::printf("[engine_editor] calisan oyun durduruldu: %s\n", oyun.game);
   }
   if (oyun.state != GameRunState::Idle)
@@ -7752,6 +8196,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // geliyor, once ImGui kapanirsa o set'i iade edecek yer kalmaz. Eklenmedigi
   // ilk halde dogrulama katmani kapanista VUID-vkDestroyDevice-device-05137
   // veriyordu (cihaz yok edilirken cocuk nesneler duruyor).
+  oyun_goruntu.shutdown(); // descriptor'i ImGui havuzundan: ImGui'den ONCE (viewport ile ayni kural)
   vp.shutdown();
   ui.shutdown();
   scene.shutdown();

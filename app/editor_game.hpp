@@ -7,15 +7,20 @@
 //      hatasi sebebi soylemez. Bu yuzden yalniz motoru taniyan derleyici
 //      aranir: TULPAR_MOTOR_DERLEYICI, sonra <editor dizini>/tulpar-motor/tulpar
 //      (tools/motor_derleyici.sh kurar). PATH'teki `tulpar`a DUSULMEZ.
-//   2. Oyun ayri bir SUREC. Editorun ic "Oynat"i (F5) sahnenin fizigini editor
-//      icinde koşturur; bu ise oyunun KENDI kodunu, kendi penceresinde calistirir.
-//      Betik kancalari (<ad>_baslat ...) yalniz burada kosar.
+//   2. Oyun ayri bir SUREC, iki bicimde:
+//      - Ctrl+F5 (game_run_start): oyun KENDI penceresinde.
+//      - F5 (game_run_start_embedded): AYNI ikili, ayni kopru; pencere yerine
+//        karesini gomulu kanaldan (platform/game_channel.hpp) editorun Oyun
+//        sekmesine verir, girdiyi ve durdur/duraklat'i oradan alir.
+//      Betik kancalari (<ad>_baslat ...) ikisinde de oyunun ikilisinde kosar;
+//      editorun kendi "fizik onizlemesi" yalniz oyun/derleyici yoksa kalir.
 #pragma once
 
 #include <cstdint>
 
 #include "app/editor_files.hpp"
 #include "content/scene.hpp"
+#include "platform/game_channel.hpp"
 #include "platform/process.hpp"
 
 namespace tulpar::engine::app {
@@ -50,17 +55,32 @@ struct GameRun {
   uint32_t part_len = 0;
   uint32_t lines = 0;         // Konsol'a verilen satir
   int exit_code = 0;
+  // --- gomulu (F5) ---
+  bool embedded = false;
+  platform::GameChannelHost chan;
+  uint64_t stop_ns = 0;       // durdurma istendi (0: hayir). Kanal oyunu nazikce kapatir;
+  bool killed = false;        // kGameStopGraceNs icinde cikmazsa agac oldurulur
 };
+// Gomulu oyun durdurulunca kendi `bitir` yolundan cikmasi icin taninan sure.
+// Asilirsa (betik sonsuz dongude, kare_bitir'e hic donmuyor) surec AGACI
+// oldurulur — Durdur hicbir kosulda "hicbir sey olmadi"ya donusmesin.
+constexpr uint64_t kGameStopGraceNs = 3000000000ull;
 
 // Baslat: `compiler game_rel`, calisma dizini tulpar_root, ciktisi log_path'e.
 bool game_run_start(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path, char *err,
                     uint32_t err_cap);
+// Gomulu baslat: w x h kanal acilir, adi cocuga TULPAR_ENGINE_GOMULU ile verilir.
+bool game_run_start_embedded(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path,
+                             uint32_t w, uint32_t h, char *err, uint32_t err_cap);
 // Her kare cagrilir, bloklamaz: gunluge eklenen TAM satirlari on_line'a verir.
 // Surec bitince kalan her seyi (sondaki yarim satir dahil) bosaltir ve
 // Finished doner (exit_code dolu). Satir basina en cok part boyu; daha uzunu
 // bolunur, KAYBOLMAZ.
 GameRunState game_run_poll(GameRun &r, void (*on_line)(void *user, const char *line), void *user);
-// Durdur (surec oldurulur, sonraki poll Finished/Failed toplar).
+// Durdur. Pencereli: surec agaci oldurulur. Gomulu: kanaldan durdurma istenir
+// (oyun `bitir` kancalarini kosturup kendisi cikar), kGameStopGraceNs asilirsa
+// agac oldurulur. Her iki durumda sonraki poll'lar Finished/Failed toplar.
+// Gomulu kipte poll kanala kalp atisi da verir: poll edilmeyen oyun kapanir.
 bool game_run_stop(GameRun &r);
 
 } // namespace tulpar::engine::app

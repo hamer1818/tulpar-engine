@@ -664,3 +664,39 @@ ENGINE_TEST(editor_chrome_status_bar_never_overlaps_or_wraps) {
   CHECK(fx.bar[3] - fx.bar[1] < 2.0f * line_h);  // tek satir: yukseklik iki satira yetmez
   CHECK(bar_n[3] - bar_n[1] < 2.0f * line_h);
 }
+
+// Gomulu oyun odaktayken (F5, Oyun sekmesi) klavye OYUNUN: yalniz Oynat
+// komutlari gecer. Olculen: kisayolu olan her komut icin kabul/ret, tabloya
+// karsi. KONTROL: ayni kisayollar game_input kapaliyken editore gidiyor —
+// yoksa "ret" korumanin degil kisayolun kendisinin sonucu olabilirdi.
+ENGINE_TEST(editor_commands_game_input_lets_only_play_through) {
+  const app::CommandDesc *d = app::command_defaults();
+  app::InputGuards oyun{};
+  oyun.game_input = true;
+  const app::InputGuards editor{};
+  uint32_t kisayollu = 0, gecen = 0, oynat = 0, yanlis = 0;
+  for (uint32_t i = 0; i < app::kCommandCount; i++) {
+    if (d[i].shortcut == app::kChordNone) continue;
+    kisayollu++;
+    const bool kabul = app::command_accepts_input(d[i], oyun);
+    const bool play = d[i].category == CommandCategory::Play;
+    if (kabul) gecen++;
+    if (play) oynat++;
+    if (kabul != play) { yanlis++; std::printf("    FAIL %s: oyun odaktayken %s\n", d[i].key, kabul ? "GECTI" : "gecmedi"); }
+  }
+  std::printf("    [bilgi] kisayollu %u komut: oyun odaktayken %u gecti (Oynat kategorisi %u)\n", kisayollu, gecen, oynat);
+  CHECK(yanlis == 0 && gecen == oynat && oynat >= 4);
+  // Somut: R (oyunda "basa don") gizmo dondurmeye GECMEZ; F5 durdurur.
+  const app::Chord r = app::command_default(CommandId::GizmoRotate).shortcut;
+  const app::Chord f5 = app::command_default(CommandId::PlayToggle).shortcut;
+  const app::Chord ctrl_s = app::command_default(CommandId::FileSave).shortcut;
+  CHECK(app::commands_match(d, app::kCommandCount, r, oyun) == nullptr);
+  CHECK(app::commands_match(d, app::kCommandCount, ctrl_s, oyun) == nullptr);
+  const app::CommandDesc *m = app::commands_match(d, app::kCommandCount, f5, oyun);
+  CHECK(m && m->id == CommandId::PlayToggle);
+  // KONTROL: editor odaktayken ayni tuslar editore gider.
+  const app::CommandDesc *mr = app::commands_match(d, app::kCommandCount, r, editor);
+  const app::CommandDesc *ms = app::commands_match(d, app::kCommandCount, ctrl_s, editor);
+  CHECK(mr && mr->id == CommandId::GizmoRotate);
+  CHECK(ms && ms->id == CommandId::FileSave);
+}

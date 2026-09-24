@@ -49,7 +49,7 @@ Bu belgedeki tablolar şu üç kaynağın kesişiminden çıkarıldı:
 | 3 | Body | + | + | + | + | **tam** |
 | 4 | Camera | + | + | **−** | **−** | editörde çalışır, **oyunda kaybolur** |
 | 5 | Audio | + | + | **−** | **−** | hiçbir yerde ses çalmaz |
-| 6 | Script | + | + | **+** | **+** | motor betiği **çalıştırır**: `<taban>_baslat` / `_guncelle` adıyla çözülür (bkz. KOPRU §7.9). Kartta **Yeni betik** (iskeleti yazar ve atar, üzerine yazmaz), **Dış editörde aç** (`platform/process`), **Oyunu çalıştır** (Ctrl+F5, ayrı süreç; motoru tanıyan derleyici `tools/motor_derleyici.sh`) |
+| 6 | Script | + | + | **+** | **+** | motor betiği **çalıştırır**: `<taban>_baslat` / `_guncelle` adıyla çözülür (bkz. KOPRU §7.9). Kartta **Yeni betik** (iskeleti yazar ve atar, üzerine yazmaz), **Dış editörde aç** (`platform/process`), **F5** betikleriyle Oyun sekmesinde oynatır (gömülü, ayrı süreç), **Oyunu çalıştır** (Ctrl+F5) aynı ikiliyi kendi penceresinde; ikisi de motoru tanıyan derleyiciyi ister (`tools/motor_derleyici.sh`) |
 | 7 | Character | **+** | + | + | **+** | "Karakter Kontrolcüsü" kartı; sahne yüklenince (oyunda ve editörün F5'inde) karakter olarak **doğar** (kapsül ortalı, aynı varlıktaki gövde doğurulmaz), `sahne_karakter_yuru` ile sürülür (KOPRU §8) |
 | 8 | Particle | **−** | + | + | +² | paneli yok, **çizilmiyor** (§2.C) |
 | 9 | Terrain | + | + | + | + | **tam** |
@@ -258,7 +258,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 
 | # | İş | Bağlanacağı yer |
 |---|---|---|
-| D.1 | ~~Karakter kontrolcüsü~~ **BİTTİ** | Kodla üretilen (`karakter(...)`) ve sahnede yerleştirilen karakter (`sahne_karakter_yuru(i, ...)`) oyunda doğuyor, tetik ve ışın dahil (KOPRU §8). Editörün F5'i de karakteri doğuruyor (`scene_spawn_live`: karakterli varlığın gövdesi doğmaz, kapsül ortalı; Çarpışma görünümünde mavi kapsül kutusu). F5 betik koşturmaz (fizik önizlemesi; başlarken betik sayısını ve Ctrl+F5'i söylüyor). **Durdur** oynatma öncesine tam döner: oynatırken yapılan düzenlemeler geri alınır (Ctrl+Y geri getirir). F5'in fiziği hiç adımlamadığı hata: TUZAKLAR 8bw | `sim/physics.cpp` → `CharacterVirtual` |
+| D.1 | ~~Karakter kontrolcüsü~~ **BİTTİ** | Kodla üretilen (`karakter(...)`) ve sahnede yerleştirilen karakter (`sahne_karakter_yuru(i, ...)`) oyunda doğuyor, tetik ve ışın dahil (KOPRU §8). Editörün F5'i de karakteri doğuruyor (`scene_spawn_live`: karakterli varlığın gövdesi doğmaz, kapsül ortalı; Çarpışma görünümünde mavi kapsül kutusu). **F5 betikleri koşturur**: sahneyi yükleyen oyunu Ctrl+F5 ile aynı ikiliyle, ayrı süreçte başlatır ve karesini Oyun sekmesinde gösterir (`platform/game_channel`, KOPRU §5.1); sekme odaktayken klavye ve fare oyuna gider, F6/F10 oyunu duraklatır/ilerletir. Oyun ya da derleyici yoksa fizik önizlemesine düşer ve nedenini Konsol'a yazar. **Durdur** oynatma öncesine tam döner: oynatırken yapılan düzenlemeler geri alınır (Ctrl+Y geri getirir). F5'in fiziği hiç adımlamadığı hata: TUZAKLAR 8bw | `sim/physics.cpp` → `CharacterVirtual` |
 | D.2 | Ses kaynağı → mixer voice | `audio/mixer.cpp` + `audio/spatial.hpp` |
 | D.3 | NavAgent → yol bulma | `sim/navmesh.cpp` |
 | D.4 | Reverb | `audio/dsp.hpp` |

@@ -134,9 +134,15 @@ struct CommandConflict {
 struct InputGuards {
   bool text_input = false;        // EditorUi::wants_text_input()
   bool keyboard_captured = false; // EditorUi::wants_keyboard() (kaydirac surukleme dahil)
+  // Klavye OYUNUN: F5 ile gomulu oynayan oyunun Oyun sekmesi odakta. Oyunun
+  // W/R/Delete/Esc'si editore GITMEZ (R "basa don" iken gizmo dondurmeye
+  // gecmek, Delete bir varligi silmek olurdu). Yalniz Oynat komutlari
+  // (F5 durdur, F6 duraklat, F10 adim, Ctrl+F5) gecer — oyundan cikmanin yolu.
+  bool game_input = false;
 };
 
 // Kim ne zaman eslesir:
+//   game_input                     -> YALNIZ Oynat kategorisi (baska hicbir kural onu acmaz)
 //   kCmdWhileTyping isaretli       -> her zaman (metin kutusunun icinde bile)
 //   ham kisayol (T, Delete, Esc)   -> !text_input VE !keyboard_captured
 //   degistiricili (Ctrl+S ...)     -> !text_input
