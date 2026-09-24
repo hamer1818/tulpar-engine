@@ -2,8 +2,7 @@
 // Motor C++; OYUN MANTIĞININ TAMAMI bu dosyada, Tulpar'da.
 //
 //   ./tulpar examples/engine_aksiyon.tpr                     # oyna (pencere)
-//   engine_sahnec examples/assets/salon1.sahne               # bölüm 1 blob'u (editörün F5'i kendisi derler)
-//   engine_sahnec examples/assets/salon2.sahne               # bölüm 2 blob'u
+//   (salon1/salon2.sahneb motor derlenirken üretilir; editörün F5'i de kendisi derler)
 //
 // Pencersiz doğrulama (OTOPİLOT açılır: betik kendi oynar, sayılar ölçülür):
 //   TULPAR_ENGINE_HEADLESS=3200 DISPLAY= ./tulpar examples/engine_aksiyon.tpr
@@ -24,7 +23,7 @@
 // Düşman: DEVRİYE (iki nokta arası) ve KOVALAMA; geçiş görüş menzili + bakış
 // konisi + görüş hattı. Yol ve görüş motorun Tulpar kitaplığında (engine.tpr
 // yol_yonu, goruyor_mu): navmesh varsa Detour yolu, yoksa düz çizgi + duvardan
-// kayma. `.sahneb` yoksa (türetilmiş, gitignore'lu) salon KODDA kurulur.
+// kayma. Harita yalnız sahneden gelir: `.sahneb` yoksa oyun nedenini söyleyip kapanır.
 //
 // 2026-09-24: dilin olanaklarıyla yeniden yazıldı (for/break, +=, else if,
 // kutusuz Vec3, kitaplıktaki yön/görüş). Oyun aynı: 3200 karelik kapı özeti ve
@@ -97,11 +96,9 @@ float g_serbest_t = 0.0;      // darbe: hız fiziğin
 bool g_fare_once = false;     // sol tık KENARI için
 float g_kam_yaw = 0.0;
 float g_oyuncu_yaw = 0.0;
-bool g_sahneden = false;
 Vec3 g_kapi = { x: 0.0, y: 0.0, z: 0.0 };
 float g_kapi_r = 2.0;
 bool g_kapi_acik = false;
-array g_kod = [];             // kodda kurulan yedek salonun varlıkları
 // Ayarlar + rekor (kalıcı kayıt); parlama motor_ac'tan ÖNCE okunur.
 float g_ses_ayari = 0.7;
 bool g_parlama_ayari = true;
@@ -172,50 +169,22 @@ func sahne_dene(ad): bool {
     return false;
 }
 
-// Yedek düzen: sahne blob'u yoksa aynı salonu KODDA kur (navmesh olmaz).
-func salonu_kodda_kur(n) {
-    float y = n == 2 ? 16.0 : 13.0;
-    int duvar = renk(76, 84, 100);
-    int sutun = renk(128, 100, 82);
-    push(g_kod, zemin_kur(y, renk(104, 112, 126)));
-    push(g_kod, kutu(0, 1.25, 0 - y, y, 1.25, 0.5, false, duvar));
-    push(g_kod, kutu(0, 1.25, y, y, 1.25, 0.5, false, duvar));
-    push(g_kod, kutu(0 - y, 1.25, 0, 0.5, 1.25, y, false, duvar));
-    push(g_kod, kutu(y, 1.25, 0, 0.5, 1.25, y, false, duvar));
-    if (n == 1) {
-        for (int k = 0; k < 4; k++) {
-            push(g_kod, kutu(k % 2 == 0 ? -6 : 6, 1.5, k < 2 ? -6 : 6, 1.2, 1.5, 1.2, false, sutun));
-        }
-        push(g_kod, kutu(0, 0.6, 0, 3.0, 0.6, 0.6, false, sutun));
-        push(g_kod, isik(0, 4, -8, renk(255, 198, 114), 4.0, 14.0));
-    } else {
-        push(g_kod, kutu(-3, 1.25, -2, 10.0, 1.25, 0.6, false, duvar));
-        push(g_kod, kutu(6.4, 1.25, 4, 0.6, 1.25, 6.5, false, duvar));
-        push(g_kod, kutu(-11, 1.5, 8, 1.1, 1.5, 1.1, false, sutun));
-        push(g_kod, kutu(11, 1.5, -9, 1.1, 1.5, 1.1, false, sutun));
-        push(g_kod, kutu(-9, 1.5, -10, 1.1, 1.5, 1.1, false, sutun));
-        push(g_kod, isik(-9, 4.5, 2, renk(255, 128, 90), 4.5, 16.0));
-    }
-}
-
-// Bölümü kurar: sahne (ya da kod yedeği) + oyuncu + düşmanlar + kapı.
+// Bölümü kurar: sahne + oyuncu + düşmanlar + kapı.
 func bolum_kur(n) {
     dusmanlari_bosalt();
-    for (id in g_kod) { if (canli(id)) { sil(id); } }
-    g_kod = [];
     if (g_oyuncu != 0 && canli(g_oyuncu)) { sil(g_oyuncu); }
     if (sahne_yuklu()) { sahne_bosalt(); }
     int hata_once = hata_sayisi();
     // Ad LİTERAL kalmalı: editörün F5'i sahneyi yükleyen oyunu bu dizgiyle bulur.
-    g_sahneden = sahne_dene(n == 1 ? "salon1.sahneb" : "salon2.sahneb");
+    bool yuklendi = sahne_dene(n == 1 ? "salon1.sahneb" : "salon2.sahneb");
     g_kurulum_hatasi += hata_sayisi() - hata_once;
-    if (g_sahneden) {
-        logla(t"bolum {n}: sahneden {sahne_sayisi()} varlik, navmesh {nav_var()} ({nav_poligon()} poligon)");
-        sahne_izle(true); // sıcak yükleme: editörde "Derle" -> oyun kendini yeniler
-    } else {
-        logla(t"UYARI salon{n}.sahneb yok -> salon KODDA kuruldu (navmesh yok). Derlemek icin: engine_sahnec examples/assets/salon{n}.sahne");
-        salonu_kodda_kur(n);
+    if (!yuklendi) {
+        print(t"HATA salon{n}.sahneb yuklenemedi (yok ya da bozuk): ornek sahneler motor derlenirken uretilir (./derle.sh). Elle: engine_sahnec examples/assets/salon{n}.sahne");
+        cikis_iste();
+        return;
     }
+    logla(t"bolum {n}: sahneden {sahne_sayisi()} varlik, navmesh {nav_var()} ({nav_poligon()} poligon)");
+    sahne_izle(true); // sıcak yükleme: editörde "Derle" -> oyun kendini yeniler
     g_oyuncu_yaw = 0.0;
     g_kam_yaw = 0.0;
     g_kapi_acik = false;

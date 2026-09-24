@@ -423,6 +423,28 @@ if(NOT ANDROID)
     add_executable(engine_sahnec tools/sahnec.cpp)
     target_link_libraries(engine_sahnec PRIVATE engine_content engine_core ${CMAKE_DL_LIBS})
     target_compile_options(engine_sahnec PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
+    # --- Ornek oyunlarin sahneleri: .sahne -> .sahneb DERLEMEDE.
+    # .sahneb turetilmis ve gitignore'lu: temiz klonda yoktu, bu yuzden ornekler
+    # ayni haritayi bir de KODDA kuruyordu (aksiyon: 24 satirlik yedek salon) ya da
+    # "once engine_sahnec" deyip duruyordu. Blob kaynagin YANINA yazilir, cunku
+    # oyunlar onu orada ariyor. engine_sahnec'e bagli: blob surumu degisince
+    # (content/) ornekler kendiliginden yeniden derlenir, "eski blob" kalmaz.
+    # Glob bilincli: yeni ornek sahne listeye eklenmeyi unutulamaz.
+    file(GLOB ENGINE_EXAMPLE_SCENES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.sahne)
+    file(GLOB ENGINE_EXAMPLE_MODELS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.gltf
+                                                      ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.glb)
+    set(ENGINE_EXAMPLE_BLOBS)
+    foreach(sahne ${ENGINE_EXAMPLE_SCENES})
+        string(REGEX REPLACE "\\.sahne$" ".sahneb" blob "${sahne}")
+        get_filename_component(ad "${sahne}" NAME)
+        add_custom_command(OUTPUT "${blob}"
+            COMMAND engine_sahnec "${sahne}" "${blob}" --onbellek "${CMAKE_CURRENT_BINARY_DIR}/.tulpar_onbellek"
+            DEPENDS engine_sahnec "${sahne}" ${ENGINE_EXAMPLE_MODELS}
+            COMMENT "ornek sahne: ${ad} -> .sahneb"
+            VERBATIM)
+        list(APPEND ENGINE_EXAMPLE_BLOBS "${blob}")
+    endforeach()
+    add_custom_target(engine_example_scenes ALL DEPENDS ${ENGINE_EXAMPLE_BLOBS})
     # --- engine_clodbake: glTF -> cluster LOD DAG -> .clod (sahne derleyicisinin
     # GEOMETRI dilimi). MeshDecimationTools (MIT) burada derlenir; sadelestirme
     # varlik basina BIR KEZ, cevrimdisi yapilir -- cihazda maliyeti sifirdir.

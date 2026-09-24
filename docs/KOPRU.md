@@ -124,9 +124,13 @@ Font: APK varlığı yoksa `/system/fonts/Roboto-Regular.ttf` yedeği devreye gi
 
 ```bash
 engine_editor --scene examples/assets/arena.sahne   # düzenle (kullanıcı açar)
-engine_sahnec examples/assets/arena.sahne           # -> arena.sahneb (runtime blob)
+engine_sahnec examples/assets/arena.sahne           # -> arena.sahneb (elle; ornekler derlemede uretilir)
 ./tulpar examples/engine_arena.tpr                  # oyna
 ```
+
+`tulpar/examples/assets/*.sahne` motor derlenirken `.sahneb`'e çevrilir (CMake hedefi `engine_example_scenes`,
+`engine_sahnec`'e ve modellere bağlı): temiz klonda da blob hazırdır, blob sürümü değişince örnekler kendiliğinden
+yeniden derlenir. Bu yüzden `engine_aksiyon.tpr` haritayı ikinci kez kodda kurmaz; blob yoksa nedenini söyleyip kapanır.
 
 `eng_scene_load` blob'u açar: modeller, ışıklar, gövdeler ve dünya ayarları (güneş, ortam, gölge hacmi)
 sahneden gelir; **kamera betiğin** (oyun onu her kare sürer). Sahne varlıkları `eng_scene_find(ad)` ile
