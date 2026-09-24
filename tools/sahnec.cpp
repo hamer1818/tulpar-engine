@@ -339,6 +339,15 @@ int main(int argc, char **argv) {
   scene_blob_compile_ex(d, fast ? nullptr : &extras, buf, need);
   SceneBlobView v;
   if (!scene_blob_open(buf, need, &v, &err)) { std::fprintf(stderr, "derlenen blob acilamadi: %s\n", err.msg); return 1; }
+  // Nesne ozellikleri (E3) .sahne'de var ama .sahneb bicimi onlari HENUZ
+  // tasimiyor (blob v8 = E4). Sessiz kayip olmasin: oyun o varliklarda
+  // betigin varsayilanini gorur, bunu derleyen kisi bilmeli.
+  uint32_t oz_varlik = 0, oz_toplam = 0;
+  for (uint32_t i = 0; i < d.entity_count; i++)
+    if (d.entities[i].prop_count) { oz_varlik++; oz_toplam += d.entities[i].prop_count; }
+  if (oz_toplam)
+    std::fprintf(stderr, "%s: UYARI: %u varlikta %u nesne ozelligi var; .sahneb bunlari henuz TASIMIYOR (E4), "
+                         "oyun betigin varsayilanlarini gorur\n", in, oz_varlik, oz_toplam);
   if (!check) {
     if (!scene_blob_save_ex(sys, d, fast ? nullptr : &extras, out, &err)) { std::fprintf(stderr, "%s: %s\n", out, err.msg); return 1; }
     std::printf("%s -> %s: %u varlik, %u kaynak, %u cizim, %u isik, %u govde, %zu bayt, ozet %016llx\n", in, out, v.h->entity_count,

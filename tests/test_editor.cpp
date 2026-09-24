@@ -143,7 +143,7 @@ ENGINE_TEST(editor_scene_matrix_matches_gizmo_convention) {
 namespace {
 // Kapilar icin kucuk sahne: uc adli varlik, bileseni yok.
 void make_scene(content::SceneDesc &d) {
-  d = content::SceneDesc{};
+  content::scene_desc_reset(d);
   for (int i = 0; i < 3; i++) {
     content::SceneEntity e{};
     std::snprintf(e.name, sizeof e.name, "nesne_%d", i);
@@ -167,7 +167,7 @@ bool ends_with(const char *s, const char *suf) {
 // alindiktan sonra metin baslangic metniyle ayni olmali.
 // KONTROL: tek geri al yetmemeli (yoksa "grup" tek islemdir, kapi bos olur).
 ENGINE_TEST(editor_multi_select_group_move_and_delete_undo_as_one) {
-  content::SceneDesc d;
+  static content::SceneDesc d; // ~370 KB: yigina konmaz (CMake 128 KB cerceve kapisi)
   make_scene(d);
   content::SceneHistory h;
   CHECK(h.init(gate_arena(), 64));
@@ -242,7 +242,7 @@ ENGINE_TEST(editor_multi_select_group_move_and_delete_undo_as_one) {
 // KONTROLLER: olmayan dizin 0 dosya; dizindeki .png listeye GIRMEZ (dosyanin
 // var oldugu ayrica dogrulanir, yoksa filtre kapisi bos olurdu); bos ad 0 islem.
 ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
-  content::SceneDesc d{};
+  static content::SceneDesc d{}; // ~370 KB: yigina konmaz (cerceve kapisi)
   CHECK(d.add_asset("lod_sphere.gltf") == 0);
   char dir[512], png[640];
   std::snprintf(dir, sizeof dir, "%s/tests/assets", ENGINE_SOURCE_DIR);
@@ -365,7 +365,7 @@ ENGINE_TEST(editor_script_scan_lists_tpr_from_both_roots) {
 
   // KONTROL: model tarayicisi .tpr'ye DOKUNMUYOR — iki sozlesme ayri kaldi.
   static content::SceneDesc d;
-  d = content::SceneDesc{};
+  content::scene_desc_reset(d);
   app::AssetFile modeller[32];
   const uint32_t nm = app::editor_scan_assets(tulpar_dir, d, modeller, 32);
   std::printf("    [bilgi] KONTROL model tarayicisi tulpar/ icinde: %u dosya (0 olmali)\n", nm);
@@ -534,7 +534,7 @@ ENGINE_TEST(editor_light_and_shadow_gizmos_draw_with_control) {
   ren.set_render_size(W, H);
   ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.2f}), {0.2f, 0.2f, 0.25f}, 0.9f);
 
-  content::SceneDesc d{};
+  static content::SceneDesc d{}; // ~370 KB: yigina konmaz (cerceve kapisi)
   d.shadow_center = {0, 0, 0};
   d.shadow_radius = 3.0f;
   d.sun_dir = {0.4f, 1.0f, 0.2f};
@@ -621,7 +621,7 @@ ENGINE_TEST(editor_camera_and_directional_light_gizmos_draw_with_control) {
   ren.set_render_size(W, H);
   ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.2f}), {0.2f, 0.2f, 0.25f}, 0.9f);
 
-  content::SceneDesc d{};
+  static content::SceneDesc d{}; // ~370 KB: yigina konmaz (cerceve kapisi)
   content::SceneEntity ce{};
   std::snprintf(ce.name, sizeof ce.name, "kam");
   ce.components = content::kSceneCamera;

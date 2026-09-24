@@ -49,7 +49,7 @@ bool v3eq(const float *a, Vec3 b) { return feq(a[0], b.x) && feq(a[1], b.y) && f
 
 // Her bilesen turu + zor sayilar; bir varlik iki bilesenli, biri bos.
 void fill(SceneDesc &d) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   d.sun_dir = {0.5f, 1.0f, 0.35f};
   d.ambient = {1.0f / 3.0f, 0.17f, 1e-5f};
   d.shadow_depth = 123456.789f;
@@ -176,7 +176,7 @@ ENGINE_TEST(scene_blob_compile_is_deterministic_and_matches_desc) {
   CHECK(scene_blob_open(b3, n3, &v3, &err) && v3.hash() != v.hash());
   // Bos sahne de derlenir ve acilir.
   static SceneDesc empty;
-  empty = SceneDesc{};
+  scene_desc_reset(empty);
   size_t ne = 0;
   void *be = compile_to(empty, &ne);
   SceneBlobView ve;
@@ -189,7 +189,7 @@ namespace {
 // mevcut testler fill()'in varlik/tablo sayilarina birebir bakiyor, onu
 // buyutmek onlari kirardi.
 void fill_v6(SceneDesc &d) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   d.add_asset("lod_sphere.gltf");
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "hepsi");
@@ -693,7 +693,7 @@ bool within(uint64_t got, uint64_t expect, double tol) {
 // Kaynakli sahne: her kaynaga bir model varligi.
 void fill_assets(SceneDesc &d, uint32_t n) {
   static const char *names[3] = {"checker_cube.gltf", "lod_sphere.gltf", "skin_tube.gltf"};
-  d = SceneDesc{};
+  scene_desc_reset(d);
   for (uint32_t i = 0; i < n && i < 3; i++) {
     d.add_asset(names[i]);
     SceneEntity e{};
@@ -707,7 +707,7 @@ void fill_assets(SceneDesc &d, uint32_t n) {
 // Navmesh sahnesi: 20x20 sabit zemin + gecidi olan duvar (test_navmesh ile ayni
 // yerlesim, ama SAHNE VARLIKLARI olarak — corbayi derleyici cikarir).
 void fill_nav_scene(SceneDesc &d, bool obstacle) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "zemin");
   e.pos = {0, -0.5f, 0};
@@ -1094,7 +1094,7 @@ ENGINE_TEST(scene_compile_bakes_cluster_dag_per_device_class) {
   asset_path(path, sizeof path, "lod_sphere.gltf");
   scene_dir_of(path, dir, sizeof dir);
   static SceneDesc d;
-  d = SceneDesc{};
+  scene_desc_reset(d);
   d.add_asset("lod_sphere.gltf");
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "kure");
@@ -1184,7 +1184,7 @@ bool gi_open(const SceneDesc &d, const SceneBlobExtras &x, SceneBlobView *v, Sce
 }
 // Zemin + istege bagli cati/duvar; gunes ve ortam cagirandan.
 void gi_ground_scene(SceneDesc &d, Vec3 sun_dir, float sun_diffuse) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   d.sun_dir = sun_dir;
   d.sun_diffuse = sun_diffuse;
   d.ambient = {0.2f, 0.2f, 0.2f};
@@ -1611,7 +1611,7 @@ ENGINE_TEST(scene_compile_bakes_gi_probes_with_model_triangles) {
 // Kontrol: ebeveyn oynatilinca hiyerarsik blob DEGISIR, duz ikiz AYNI kalir.
 namespace {
 void fill_hier(SceneDesc &d) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   d.add_asset("lod_sphere.gltf");
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "kok"); // yalniz oteleme
@@ -1719,7 +1719,7 @@ ENGINE_TEST(scene_blob_hierarchy_matches_flattened_scene) {
 // v7 bloblarindaki sifir "tetik degil" okunuyor ve surum yukseltmesi gerekmiyor.
 ENGINE_TEST(scene_blob_carries_body_sensor_flag) {
   static SceneDesc d;
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   e.components = kSceneBody;
   std::snprintf(e.name, sizeof e.name, "duvar");

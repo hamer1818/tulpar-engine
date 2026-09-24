@@ -27,6 +27,51 @@ option(ENGINE_TRACY "Tracy profiler istemcisi (third_party/tracy, BSD-3): profil
 # bagli uyari CI'i kirmasin; kod uyarisiz tutulur.
 set(ENGINE_CXX_OPTS -fno-exceptions -fno-rtti -funwind-tables -Wall -Wextra)
 
+# --- Yigin cercevesi tavani: 128 KB (E3, 2026-09-25) --------------------------
+# NEDEN: SceneDesc yuzlerce KB (olculdu 2026-09-25, x86_64 GCC 16.2: E3 nesne
+# ozelliklerinden once 213 144 B, sonra 378 008 B). Editorun "sahne ac" lambdasi
+# onu YIGINA koyuyordu (`content::SceneDesc nd;`) ve kimse bir sey demiyordu:
+# Linux'un 8 MB ana yigini bunu sindiriyor, Windows'un 1 MB'lik yigini ise
+# boyle ikisini ust uste gorunce cokerdi -- ve yalniz o kullanicida. Cerceve
+# boyu DERLEME aninda bilinir; o yuzden bu bir test degil, derleme hatasi.
+#
+# BAYRAK IKI DERLEYICIDE FARKLI YAZILIYOR (olculdu 2026-09-25, GCC 16.2.1 /
+# Clang 22.1.8, 200 KB'lik cerceve):
+#   GCC:   -Werror=frame-larger-than=N    -> hata. Clang bu yazimi "bilinmeyen
+#          uyari secenegi" deyip YOK SAYAR: macOS ayagi hicbir sey olcmezdi.
+#   Clang: -Wframe-larger-than=N -Werror=frame-larger-than -> hata. GCC ikinci
+#          bayragi "boyle bir secenek yok" diye REDDEDER.
+# Bu yuzden asagidaki POZITIF KONTROL yapilandirmada kosar: secilen bayraklarla
+# 200 KB'lik bir cerceve DERLENMEMELI, 1 KB'lik bir cerceve DERLENMELI. Ikisinden
+# biri tutmazsa yapilandirma durur -- "bayrak var sanilirken hic olcmuyordu"
+# (Tuzaklar 8bd) bu kapida olamaz.
+set(ENGINE_FRAME_LIMIT 131072)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set(ENGINE_FRAME_OPTS -Wframe-larger-than=${ENGINE_FRAME_LIMIT} -Werror=frame-larger-than)
+else()
+  set(ENGINE_FRAME_OPTS -Werror=frame-larger-than=${ENGINE_FRAME_LIMIT})
+endif()
+include(CheckCXXSourceCompiles)
+string(REPLACE ";" " " _engine_frame_flags "${ENGINE_FRAME_OPTS}")
+set(_engine_saved_flags "${CMAKE_REQUIRED_FLAGS}")
+set(CMAKE_REQUIRED_FLAGS "${_engine_frame_flags}")
+check_cxx_source_compiles("
+int main(int argc, char **) { volatile char b[1024]; b[argc] = 1; return b[argc + 1]; }"
+  ENGINE_FRAME_GATE_SMALL_OK)
+check_cxx_source_compiles("
+int main(int argc, char **) { volatile char b[204800]; b[argc] = 1; return b[argc + 1]; }"
+  ENGINE_FRAME_GATE_BIG_PASSES)
+set(CMAKE_REQUIRED_FLAGS "${_engine_saved_flags}")
+if(NOT ENGINE_FRAME_GATE_SMALL_OK)
+  message(FATAL_ERROR "yigin cercevesi kapisi: 1 KB'lik cerceve '${_engine_frame_flags}' ile DERLENMEDI -- "
+                      "bayrak bu derleyicide (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}) baska yaziliyor")
+endif()
+if(ENGINE_FRAME_GATE_BIG_PASSES)
+  message(FATAL_ERROR "yigin cercevesi kapisi: 200 KB'lik cerceve '${_engine_frame_flags}' ile DERLENDI -- "
+                      "kapi bu derleyicide (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}) hicbir sey olcmuyor")
+endif()
+list(APPEND ENGINE_CXX_OPTS ${ENGINE_FRAME_OPTS})
+
 # --- L0 ---------------------------------------------------------------------
 add_library(engine_platform STATIC
     platform/fatal.cpp
@@ -75,7 +120,12 @@ add_custom_target(engine_icon_check
 # degisip oteki degismediginde derleyici susar: sahne yazilir, geri okunamaz
 # ya da ALANLAR KAYAR (olculdu: arazi/su/ruzgar/voksel dortu de birer fazla
 # jeton bekliyordu, pbr dali kMaxTok yuzunden hic ulasilamiyordu).
+# Once kapinin KENDI sinamasi (--oz-sinama): kucuk fiksturlerde bozuk yazici/
+# ayristirici ciftini YAKALIYOR, dogrusunu geciriyor mu. Kapi bir seyi
+# olcemez hale gelirse (kalip kaydi, tirnakli operand gorunmez) derleme burada
+# durur — "0 uyusmazlik" satiri ancak bundan sonra bir sey soyler.
 add_custom_target(engine_scene_check
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/scene_check.py --oz-sinama
     COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/scene_check.py ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "engine: .sahne yazici/ayristirici uyum denetimi"
     VERBATIM

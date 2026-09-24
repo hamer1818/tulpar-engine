@@ -150,6 +150,12 @@ inline constexpr FieldMeta kScriptFields[] = {
   {"Betik Dosyasi", "##script_file", FieldType::String, offsetof(content::SceneEntity, script_file), content::kSceneScriptLen, 0.0f, 0.0f, 0.0f, nullptr, "Tulpar betik (.tpr) yolu", nullptr, 0.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
   {"Etkin", "##script_en", FieldType::Bool, offsetof(content::SceneEntity, script_enabled), sizeof(bool), 0.0f, 1.0f, 1.0f, nullptr, "Betik calissin mi?", nullptr, 1.0f, Vec2{0, 0}, Vec3{0, 0, 0}},
 };
+// Yukaridaki uyari DERLEYICIYE de soyletilir: genislik alanin kendisinden
+// ayrilirsa sifirlama/kopya yolun kuyrugunu birakir. Nesne ozellikleri (E3)
+// bu tabloya girmez; betik kartinin sifirla/kopyala eylemleri onlari ayrica
+// tasir (asagida reset_component_to_defaults / copy_component_data).
+static_assert(content::kSceneScriptLen == sizeof(content::SceneEntity::script_file),
+              "kScriptFields betik yolu genisligi alanla ayni olmali");
 
 // 10. PARTİKÜL YAYICI (kSceneParticle)
 inline constexpr FieldMeta kParticleFields[] = {
@@ -328,6 +334,16 @@ inline void reset_component_to_defaults(content::SceneEntity &e, uint32_t comp_b
         break;
     }
   }
+  // Nesne ozellikleri (E3) BETIK KARTININ eylemlerine dahil: degerlerin
+  // ANLAMI betikten gelir (varsayilanlar betigin kodunda), yani "Betik
+  // bilesenini sifirla" = betigin varsayilanlarina don = ustune yazilanlar
+  // silinir. FieldMeta tablosuna GIRMEZLER: tek bir sabit genislikli alan
+  // degil, ada gore sirali bir liste (props + prop_count). "Bileseni kaldir"
+  // ise ozellikleri SILMEZ (scene.hpp: bilesen bitinden bagimsiz veri).
+  if (comp_bit == content::kSceneScript) {
+    for (uint32_t k = 0; k < content::kSceneMaxProps; k++) e.props[k] = content::SceneProp{};
+    e.prop_count = 0;
+  }
 }
 
 inline void copy_component_data(const content::SceneEntity &src, content::SceneEntity &dst, uint32_t comp_bit) {
@@ -339,6 +355,14 @@ inline void copy_component_data(const content::SceneEntity &src, content::SceneE
   for (size_t i = 0; i < meta->field_count; i++) {
     const FieldMeta &f = meta->fields[i];
     std::memcpy(dst_base + f.offset, src_base + f.offset, f.size);
+  }
+  // Betik kartinin Kopyala/Yapistir'i ozellikleri de tasir (bkz. sifirlama):
+  // betik yolu gelip degerleri gelmeseydi yapistirilan dusman betigin
+  // varsayilanlariyla dogardi. Liste BUTUN olarak gecer (birlestirme degil):
+  // yapistir = kaynaktaki durumun aynisi.
+  if (comp_bit == content::kSceneScript) {
+    for (uint32_t k = 0; k < content::kSceneMaxProps; k++) dst.props[k] = src.props[k];
+    dst.prop_count = src.prop_count;
   }
 }
 

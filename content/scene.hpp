@@ -100,6 +100,43 @@ enum SceneEntityFlags : uint32_t {
   kSceneLocked = 1u << 1, // kilitli (gizmo/surukleme degistiremez)
 };
 
+// --- Nesne OZELLIKLERI (E3) --------------------------------------------------
+// Tasarimcinin varlik basina verdigi degerler: `can = 250`, `hiz = 5`, devriye
+// noktalari. Betik ayni kodu on dusmana verir, her biri kendi degerini okur.
+//
+// YALNIZ USTUNE YAZILANLAR saklanir. Varsayilan betigin KODUNDA yasar (E5
+// editoru onu oradan tarar); burada bir ozellik yoksa "betigin varsayilani"
+// demektir. Varsayilani buraya kopyalamak, betik degisince eski degerin
+// sessizce kalmasi demek olurdu.
+//
+// Ozellikler BILESEN BITINDEN BAGIMSIZ veridir (Tuzaklar 8x'in istisnasi,
+// bilincli): varliga aittirler, betik bilesenine degil. Betik bileseni
+// kaldirilsa da dosyaya yazilir ve esitlikte karsilastirilir; bileseni geri
+// eklemek degerleri geri getirir. Bilesene bagli olsalardi "betigi kaldir ->
+// kaydet -> geri ekle" tasarimcinin 16 degerini sessizce silerdi.
+//
+// DIKKAT: burada `kScene... = 1u << N` biciminde sabit YAZMA — tools/
+// scene_check.py o bicimi BILESEN BITI sayar ve YAZ/OKU/ESITLIK arar.
+constexpr uint32_t kSceneMaxProps = 16;
+constexpr uint32_t kScenePropNameLen = 24; // NUL dahil: ad en cok 23 karakter
+// Tur kodlari; 0 bilerek bos (sifirlanmis bir SceneProp gecerli bir tur
+// tasimasin). Metin anahtarlari: ozellik_sayi / _tam / _bayrak / _nokta.
+enum ScenePropType : uint32_t {
+  kScenePropSayi = 1,   // float, v[0]
+  kScenePropTam = 2,    // tamsayi, v[0]; |v| <= 2^24 (float'ta TAM temsil edilir)
+  kScenePropBayrak = 3, // v[0] = 0 | 1 (metinde hayir | evet)
+  kScenePropNokta = 4,  // v[0..2] = VARLIGA GORE YEREL ofset (scene_prop_point_world)
+};
+// `tam` float'ta tasinir: 2^24'e kadar her tamsayi tam temsil edilir, otesi
+// yuvarlanirdi. Tavan ayristiricida VE scene_prop_set'te uygulanir.
+constexpr float kScenePropTamMax = 16777216.0f;
+struct SceneProp {
+  char name[kScenePropNameLen]; // [a-z0-9_]{1,23}, NUL'dan sonrasi SIFIR (bayt karsilastirmasi)
+  uint32_t type;                // ScenePropType
+  float v[3];                   // tura gore kullanilmayanlar SIFIR (scene_prop_set kanonik yazar)
+};
+static_assert(sizeof(SceneProp) == 40, "SceneProp 40 bayt: ad 24 + tur 4 + deger 12");
+
 struct SceneEntity {
   char name[kSceneNameLen];
   Vec3 pos{0, 0, 0}, rot_deg{0, 0, 0}, scale{1, 1, 1}; // YEREL (ebeveyne gore)
@@ -227,9 +264,43 @@ struct SceneEntity {
   float ability_damage = 10.0f;
   float ability_range = 5.0f;
   float ability_cooldown = 1.0f;
+  // Nesne ozellikleri (E3): ADA GORE SIRALI, yalniz ilk prop_count tanesi
+  // veri. `= {}`: varsayilan kurulumda da sifir — coklu duzenleme ve gunluk
+  // baytlara bakiyor, kalinti bayt "degisti" diye okunurdu.
+  SceneProp props[kSceneMaxProps] = {};
+  uint32_t prop_count = 0;
 };
-// Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar).
+// BUTCE KAPISI, yerlesim sozlesmesi DEGIL. Olculdu 2026-09-25, x86_64 GCC
+// 16.2.1 (Linux): E3 oncesi 824 B, ozelliklerle 1468 B (+16 x 40 + 4). En genis
+// hizalama 4 bayt (float/int32; bool 1), yani AArch64 / MinGW / Android ayni sayi.
+// NEDEN: SceneEntity cogalir — SceneDesc'te 256 kez (213 144 -> 378 008 B),
+// gunlukte islem basina 2 kez x 256 islem (SceneOp 2104 -> 3392 B, yani
+// 526 -> 848 KB), editor durumunda 3 x 256 kez (surukleme once/sonra + pano).
+// Buyume bilincli olmali: bu sayi degisince arena payini (editorun "sistem
+// arenasi" satiri) ve yigin cercevelerini (CMake 128 KB kapisi) yeniden olc.
+// Tuzaklar 8aw: sizeof alan SIRASI degisimini gormez; burada gormesi
+// gerekmiyor, ikili yerlesime dayanan tuketici yok (.sahneb kendi bicimi).
+static_assert(sizeof(SceneEntity) == 1468, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
+// Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar)
+// + ozellikler (bilesenden bagimsiz, yukarida).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);
+
+// --- Ozellik yardimcilari (E3) -----------------------------------------------
+// Ad kurali: [a-z0-9_], 1..23 karakter. Buyuk harf/Turkce karakter yok: ad
+// Tulpar kodunda bir anahtar olarak gececek ve dosya ASCII.
+bool scene_prop_name_ok(const char *name);
+// Ada gore arama; yoksa nullptr.
+const SceneProp *scene_prop_find(const SceneEntity &e, const char *name);
+// Ekle ya da ustune yaz (tur degisebilir). Sirali ekleme: dizi hep ada gore
+// sirali kalir. REDDEDER (false, HICBIR SEYI degistirmez): ad gecersiz, tur
+// 1..4 disi, deger sonlu degil, `tam` tamsayi degil ya da |v| > 2^24, ya da
+// ad yeni ve yer yok (kSceneMaxProps). Degeri KANONIK yazar: bayrak 0|1,
+// tam'da -0 -> 0, kullanilmayan v bilesenleri ve adin kuyrugu sifir.
+bool scene_prop_set(SceneEntity &e, const char *name, uint32_t type, const float v[3]);
+// Ada gore sil; yoksa false.
+bool scene_prop_remove(SceneEntity &e, const char *name);
+// Iki ozellik ayni mi: ad, tur ve TURUN KULLANDIGI degerler (bit-tam).
+bool scene_prop_equal(const SceneProp &a, const SceneProp &b);
 
 // Dunya ayarlari (varlik disi): gunes/ortam isigi, golge hacmi, yazar kamerasi.
 // Ayri struct: editorde tek islem olarak gunluge girer (SceneOp::World).
@@ -288,6 +359,15 @@ struct SceneDesc : SceneWorld {
   bool remove_entity(uint32_t at);
 };
 
+// SceneDesc'i YERINDE varsayilana dondurur (`d = SceneDesc{}` ile ayni sonuc).
+// NEDEN AYRI: `d = SceneDesc{}` Clang'da ~370 KB'lik bir GECICIYI yigina kurup
+// kopyaliyor; GCC ayni satiri yerinde kuruyor. Olculdu 2026-09-25: Clang 22.1
+// Release'te scene_parse cercevesi 380 552 B, GCC 16.2'de CMake'in 128 KB
+// cerceve kapisinin altinda. Yani hata yalniz macOS (AppleClang) / Android'de
+// gorunurdu. Yerinde kurulum (placement new) yeni uyeleri de kendiliginden
+// kapsar; elle alan alan sifirlamak bir uyeyi unuturdu.
+void scene_desc_reset(SceneDesc &d);
+
 struct SceneError {
   char msg[160];
   uint32_t line = 0; // 0 = satirsiz (dosya acilamadi vb.)
@@ -331,6 +411,12 @@ Quat scene_entity_world_rotation(const SceneDesc &d, uint32_t i);
 // matrisi (scene_entity_world_matrix) her durumda tamdir; yaklasim yalniz
 // rijit govde / GI gibi T-R-S isteyen tuketicileri ilgilendirir.
 Vec3 scene_entity_world_scale(const SceneDesc &d, uint32_t i);
+// `nokta` ozelliginin DUNYA konumu: varligin dunya konumu + dunya donusu x
+// yerel ofset. OLCEK ETKILEMEZ (bilincli): devriye noktasi "2 metre ileride"
+// demek; varligi 3 kat buyutmek noktayi 6 metreye itmemeli. Nokta varlikla
+// DONER ve TASINIR (ebeveyn zinciri dahil), yani prefab/kopya baska yere
+// konunca noktalari da onunla gider. Gecersiz indeks: out = local.
+void scene_prop_point_world(const SceneDesc &d, uint32_t i, const float local[3], float out[3]);
 // Belirlenimli on-sirali gezinti: kokler indeks sirasinda, her dugumun
 // cocuklari indeks sirasinda. Donus: dugum sayisi (cap asilsa da dogru sayar,
 // yalniz ilk cap tanesi yazilir). Panelin cizdigi sira budur.

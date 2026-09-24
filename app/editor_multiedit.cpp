@@ -153,7 +153,51 @@ const Leaf kLeaves[] = {
 
 uint32_t multiedit_leaf_count() { return (uint32_t)(sizeof kLeaves / sizeof kLeaves[0]); }
 
-bool multiedit_apply(const SceneEntity &before, const SceneEntity &after, SceneEntity *target) {
+namespace {
+// Ozellik listesi: ADA GORE birlestirme (bkz. baslik). Yaprak tablosuna
+// konamaz — props[k] baska varlikta baska ada karsilik gelir; bayt bayt
+// kopyalamak hedefin kendi ozelliklerini silip ana secilininkini yazardi.
+// tools/scene_check.py `props`/`prop_count` muafiyetini YALNIZ bu dosyanin
+// KODUNDA (yorum sayilmaz) scene_prop_set ve scene_prop_remove cagrilari
+// varsa verir; --oz-sinama bunun iki yonunu de sinar.
+bool merge_props(const SceneEntity &before, const SceneEntity &after, SceneEntity *t, MultieditStats *st) {
+  bool diff = before.prop_count != after.prop_count;
+  for (uint32_t k = 0; !diff && k < after.prop_count && k < content::kSceneMaxProps; k++)
+    diff = !content::scene_prop_equal(before.props[k], after.props[k]);
+  if (!diff) return false;
+  if (std::strcmp(t->script_file, after.script_file) != 0) {
+    if (st) st->props_script_skipped++;
+    return false;
+  }
+  bool changed = false;
+  // 1. Kaldirilanlar: before'da var, after'da yok.
+  for (uint32_t k = 0; k < before.prop_count && k < content::kSceneMaxProps; k++) {
+    const char *name = before.props[k].name;
+    if (content::scene_prop_find(after, name)) continue;
+    if (content::scene_prop_remove(*t, name)) {
+      changed = true;
+      if (st) st->props_applied++;
+    }
+  }
+  // 2. Eklenen / degisenler: after'da var, before'da yok ya da farkli.
+  for (uint32_t k = 0; k < after.prop_count && k < content::kSceneMaxProps; k++) {
+    const content::SceneProp &p = after.props[k];
+    const content::SceneProp *was = content::scene_prop_find(before, p.name);
+    if (was && content::scene_prop_equal(*was, p)) continue; // ana secilide degismedi
+    const content::SceneProp *has = content::scene_prop_find(*t, p.name);
+    if (has && content::scene_prop_equal(*has, p)) continue; // hedefte zaten ayni
+    if (!content::scene_prop_set(*t, p.name, p.type, p.v)) {
+      if (st) st->props_overflow++; // hedef dolu: sessiz dusurme yok, sayilir
+      continue;
+    }
+    changed = true;
+    if (st) st->props_applied++;
+  }
+  return changed;
+}
+} // namespace
+
+bool multiedit_apply(const SceneEntity &before, const SceneEntity &after, SceneEntity *target, MultieditStats *stats) {
   const auto *b = reinterpret_cast<const unsigned char *>(&before);
   const auto *a = reinterpret_cast<const unsigned char *>(&after);
   auto *t = reinterpret_cast<unsigned char *>(target);
@@ -173,6 +217,9 @@ bool multiedit_apply(const SceneEntity &before, const SceneEntity &after, SceneE
   const uint32_t add_f = after.flags & ~before.flags, del_f = before.flags & ~after.flags;
   const uint32_t f = (target->flags | add_f) & ~del_f;
   if (f != target->flags) { target->flags = f; changed = true; }
+  // Ozellikler EN SONDA: betik yolu (bir yaprak) bu duzenlemede degistiyse
+  // hedef artik yeni betigi tasiyor ve karsilastirma onunla yapilir.
+  if (merge_props(before, after, target, stats)) changed = true;
   return changed;
 }
 

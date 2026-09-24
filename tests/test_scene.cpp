@@ -33,7 +33,7 @@ bool feq(float a, float b) { uint32_t x, y; std::memcpy(&x, &a, 4); std::memcpy(
 // bilerek sifirlanmaz: olmayan bilesenin alanlari (ornegin isik varliginda
 // kalan `phase`) veri degildir, gidis-donus esitligi bunlari saymamali.
 void fill(SceneDesc &d) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   d.sun_dir = {0.5f, 1.0f, 0.35f};
   d.ambient = {1.0f / 3.0f, 0.17f, 1e-5f};
   d.cam_yaw = -0.0f;
@@ -119,7 +119,7 @@ ENGINE_TEST(scene_light_type_roundtrips_and_defaults_to_point) {
 
   // Yaz-oku: tur her zaman aciktan yazilir (govde'nin dinamik|sabit'i gibi).
   static char t[256];
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "gunes");
   e.components = kSceneLight;
@@ -299,7 +299,7 @@ ENGINE_TEST(scene_script_path_survives_a_long_path) {
   std::snprintf(uzun + n, sizeof uzun - n, ".tpr");
   CHECK(std::strlen(uzun) == 120);
 
-  a = SceneDesc{};
+  scene_desc_reset(a);
   SceneEntity &e = a.entities[a.entity_count++];
   std::snprintf(e.name, sizeof e.name, "betikli");
   e.components = kSceneScript;
@@ -358,7 +358,7 @@ ENGINE_TEST(scene_bodies_spawn_and_settle_in_physics) {
   cfg.threads = 1;
   if (!ph.init(arena(), cfg)) { CHECK(false); return; }
   auto build = [&](bool with_floor) {
-    d = SceneDesc{};
+    scene_desc_reset(d);
     SceneEntity e{};
     if (with_floor) {
       std::snprintf(e.name, sizeof e.name, "zemin");
@@ -465,7 +465,7 @@ namespace {
 // gelen varlik) ve ikinci bir kok. Ileri referans bilerek var: bicim
 // "ebeveyn-once" siralama SART KOSMUYOR, tutarliligi dogrulama sagliyor.
 void fill_tree(SceneDesc &d) {
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "kok");
   e.pos = {2, -1, 0.5f};
@@ -614,7 +614,7 @@ ENGINE_TEST(scene_tree_world_matrix_composes_chain) {
 ENGINE_TEST(scene_tree_reparent_keeps_world_and_undo_is_byte_exact) {
   static SceneDesc d, snapshot;
   static char t_orig[64 << 10], t_now[64 << 10];
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "ebeveyn");
   e.pos = {2, 1, -3}; e.rot_deg = {0, 40, 0}; e.scale = {1.5f, 1.5f, 1.5f};
@@ -677,7 +677,7 @@ ENGINE_TEST(scene_tree_reparent_keeps_world_and_undo_is_byte_exact) {
   CHECK(worst2 < 1e-4f);
   // Derinlik tavani: dolu bir zincirin dibine baska zincir eklenemez.
   static SceneDesc deep;
-  deep = SceneDesc{};
+  scene_desc_reset(deep);
   for (uint32_t i = 0; i <= kSceneMaxDepth; i++) {
     SceneEntity v{};
     std::snprintf(v.name, sizeof v.name, "v%u", i);
@@ -723,7 +723,7 @@ ENGINE_TEST(scene_tree_remove_keeps_indices_and_undo_restores_children) {
   // 0 A(kok) 1 B(A) 2 C(B) 3 D(A) 4 E(kok) 5 F(E)
   static SceneDesc d;
   static char t_orig[64 << 10], t_now[64 << 10];
-  d = SceneDesc{};
+  scene_desc_reset(d);
   const int32_t parents[6] = {-1, 0, 1, 0, -1, 4};
   const char *names[6] = {"A", "B", "C", "D", "E", "F"};
   for (uint32_t i = 0; i < 6; i++) {
@@ -782,7 +782,7 @@ ENGINE_TEST(scene_tree_bodies_spawn_at_world_transform) {
   cfg.threads = 1;
   if (!ph.init(arena(), cfg)) { CHECK(false); return; }
   auto build = [&](bool linked) {
-    d = SceneDesc{};
+    scene_desc_reset(d);
     SceneEntity e{};
     std::snprintf(e.name, sizeof e.name, "platform"); // govdesiz tasiyici
     e.pos = {10, 4, -2};
@@ -821,7 +821,7 @@ ENGINE_TEST(scene_body_sensor_roundtrips_and_rejects_bad_forms) {
   static SceneDesc d, d2;
   static char t[512];
   SceneError err{};
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "alarm");
   e.components = kSceneBody;
@@ -871,7 +871,7 @@ ENGINE_TEST(scene_spawn_live_spawns_characters_and_replaces_their_bodies) {
   sim::Physics ph;
   CHECK(ph.init(sys, cfg));
   static SceneDesc d;
-  d = SceneDesc{};
+  scene_desc_reset(d);
   SceneEntity e{};
   std::snprintf(e.name, sizeof e.name, "zemin");
   e.pos = {0, -1, 0}; e.components = kSceneBody; e.half = {20, 1, 20}; e.dynamic = false; // ust yuz y=0
@@ -913,4 +913,346 @@ ENGINE_TEST(scene_spawn_live_spawns_characters_and_replaces_their_bodies) {
   CHECK(eski == 2 && ids[1].valid());
   scene_remove_bodies(ph, ids, d.entity_count);
   ph.shutdown();
+}
+
+// ============================================================================
+// Nesne OZELLIKLERI (E3): varlik basina tasarimci degerleri (can, hiz, devriye
+// noktalari). Veri modeli + metin bicimi + esitlik/gunluk. Her ret bir
+// POZITIF KONTROLLE eslesir (ayni satirin gecerli hali kabul edilir), yoksa
+// "reddetti" demek "hicbir seyi kabul etmiyor" ile ayirt edilemezdi.
+// ============================================================================
+namespace {
+bool prop1(SceneEntity &e, const char *name, uint32_t type, float x) {
+  const float v[3] = {x, 0.0f, 0.0f};
+  return scene_prop_set(e, name, type, v);
+}
+bool sign_bit(float f) { uint32_t u; std::memcpy(&u, &f, 4); return (u >> 31) != 0; }
+bool props_same(const SceneEntity &a, const SceneEntity &b) {
+  if (a.prop_count != b.prop_count) return false;
+  for (uint32_t k = 0; k < a.prop_count; k++)
+    if (!scene_prop_equal(a.props[k], b.props[k])) return false;
+  return true;
+}
+} // namespace
+
+// Dort turun hepsi yaz -> oku -> yaz BAYT BAYT ayni; satirlar betik satirinin
+// hemen ardinda ve ADA GORE sirali (karisik sirada eklendi). "Zor" sayilar:
+// 1/3 (en kisa bit-tam ondalik), -0 (sayi turunde KORUNUR), -2^24 (tam tavani).
+// KONTROLLER: tek ulp degisince metin degisir; ozelliksiz varlik "ozellik"
+// kelimesini HIC yazmaz; dosyada karisik sira okununca kanoniklesir.
+ENGINE_TEST(scene_props_roundtrip_all_types_byte_exact) {
+  static SceneDesc a, b, c;
+  static char t1[16 << 10], t2[16 << 10], t3[16 << 10];
+  scene_desc_reset(a);
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "dusman");
+  e.components = kSceneScript | kSceneCharacter;
+  std::snprintf(e.script_file, sizeof e.script_file, "davranis/dusman.tpr");
+  const float nokta[3] = {-2.0f, 0.0f, -1.5f};
+  CHECK(prop1(e, "yon_z", kScenePropSayi, -0.0f));
+  CHECK(prop1(e, "kalkan", kScenePropBayrak, 1.0f));
+  CHECK(prop1(e, "hiz", kScenePropSayi, 1.0f / 3.0f));
+  CHECK(scene_prop_set(e, "devriye_a", kScenePropNokta, nokta));
+  CHECK(prop1(e, "can", kScenePropTam, 250.0f));
+  CHECK(prop1(e, "borc", kScenePropTam, -16777216.0f));
+  CHECK(e.prop_count == 6);
+  bool sirali = true;
+  for (uint32_t k = 1; k < e.prop_count; k++) sirali = sirali && std::strcmp(e.props[k - 1].name, e.props[k].name) < 0;
+  CHECK(sirali);
+  CHECK(a.insert_entity(0, e));
+  SceneEntity sade{};
+  std::snprintf(sade.name, sizeof sade.name, "sade");
+  CHECK(a.insert_entity(1, sade));
+
+  const size_t n1 = scene_write(a, t1, sizeof t1);
+  CHECK(n1 > 0 && n1 < sizeof t1);
+  // Sabit sekilli satirlar (tahmin edilebilir sayilar) harfiyen:
+  CHECK(std::strstr(t1, "  ozellik_tam \"borc\" -16777216\n  ozellik_tam \"can\" 250\n"
+                        "  ozellik_nokta \"devriye_a\" -2 0 -1.5\n") != nullptr);
+  CHECK(std::strstr(t1, "  ozellik_bayrak \"kalkan\" evet\n") != nullptr);
+  CHECK(std::strstr(t1, "  ozellik_sayi \"yon_z\" -0\n") != nullptr);
+  // Yer: betik < ozellikler < karakter (betik satirinin HEMEN ardi).
+  const char *pb = std::strstr(t1, "  betik ");
+  const char *po = std::strstr(t1, "  ozellik_");
+  const char *pk = std::strstr(t1, "  karakter ");
+  CHECK(pb && po && pk && pb < po && po < pk);
+  if (pb && po) CHECK(std::strchr(pb, '\n') + 1 == po);
+  // Ozelliksiz varlik: tek bayt yok.
+  const char *ps = std::strstr(t1, "nesne \"sade\"");
+  CHECK(ps && std::strstr(ps, "ozellik") == nullptr);
+
+  SceneError err{};
+  const bool ok = scene_parse(t1, n1, &b, &err);
+  if (!ok) std::printf("    [bilgi] ayristirma: %s\n", err.msg);
+  CHECK(ok);
+  CHECK(b.entity_count == 2 && b.entities[0].prop_count == 6 && b.entities[1].prop_count == 0);
+  CHECK(scene_entity_equal(a.entities[0], b.entities[0]));
+  const size_t n2 = scene_write(b, t2, sizeof t2);
+  CHECK(n1 == n2 && std::memcmp(t1, t2, n1) == 0);
+  const SceneProp *hz = scene_prop_find(b.entities[0], "hiz");
+  const SceneProp *yz = scene_prop_find(b.entities[0], "yon_z");
+  const SceneProp *dv = scene_prop_find(b.entities[0], "devriye_a");
+  CHECK(hz && feq(hz->v[0], 1.0f / 3.0f));
+  CHECK(yz && yz->v[0] == 0.0f && sign_bit(yz->v[0])); // -0 bit-tam
+  CHECK(dv && dv->type == kScenePropNokta && feq(dv->v[2], -1.5f));
+
+  // KONTROL: tek ulp -> farkli metin (yazici sabit cikti vermiyor).
+  c = b;
+  SceneProp *cp = nullptr;
+  for (uint32_t k = 0; k < c.entities[0].prop_count; k++)
+    if (!std::strcmp(c.entities[0].props[k].name, "devriye_a")) cp = &c.entities[0].props[k];
+  CHECK(cp != nullptr);
+  if (cp) cp->v[1] = std::nextafterf(cp->v[1], 1.0f);
+  const size_t n3 = scene_write(c, t3, sizeof t3);
+  CHECK(!(n3 == n1 && std::memcmp(t1, t3, n1) == 0));
+  CHECK(!scene_entity_equal(b.entities[0], c.entities[0]));
+
+  // KONTROL: dosyada ters sira -> okuma kanoniklestirir.
+  const char *ters = "tulpar-sahne 1\nnesne \"x\"\n  ozellik_bayrak \"b\" hayir\n  ozellik_sayi \"a\" 2\nson\n";
+  CHECK(scene_parse(ters, std::strlen(ters), &c, &err));
+  scene_write(c, t3, sizeof t3);
+  CHECK(std::strstr(t3, "  ozellik_sayi \"a\" 2\n  ozellik_bayrak \"b\" hayir\n") != nullptr);
+
+  // Betiksiz varlik: ozellikler betik satirinin OLACAGI yerde (ses < ozellik < karakter).
+  scene_desc_reset(c);
+  SceneEntity s{};
+  std::snprintf(s.name, sizeof s.name, "kapi");
+  s.components = kSceneAudio | kSceneCharacter;
+  std::snprintf(s.audio_clip, sizeof s.audio_clip, "gicirti.wav");
+  CHECK(prop1(s, "kilitli", kScenePropBayrak, 0.0f));
+  CHECK(c.insert_entity(0, s));
+  scene_write(c, t3, sizeof t3);
+  const char *qs = std::strstr(t3, "  ses ");
+  const char *qo = std::strstr(t3, "  ozellik_bayrak \"kilitli\" hayir\n");
+  const char *qk = std::strstr(t3, "  karakter ");
+  CHECK(qs && qo && qk && qs < qo && qo < qk);
+  const char *hs = std::strstr(t1, "\"hiz\" ");
+  std::printf("    [bilgi] ozellikli sahne %zu bayt, 6 ozellik (4 tur) gidis-donus bayt-esit; hiz satiri: %.*s\n", n1,
+              hs ? (int)(std::strchr(hs, '\n') - hs) : 0, hs ? hs : "");
+}
+
+// Kapasite: 16 ozellik kabul (pozitif kontrol), 17. REDDEDILIR — API'de
+// false + hicbir bayt degismez, metinde satir numarali hata. Dolu varlikta
+// MEVCUT bir ada yazmak serbest (yer istemez). API'nin diger retleri de burada:
+// gecersiz ad/tur, sonlu olmayan deger, tamsayi olmayan / 2^24'u asan `tam`.
+ENGINE_TEST(scene_props_capacity_16_ok_17th_rejected) {
+  SceneEntity e{};
+  char ad[16];
+  for (uint32_t i = 0; i < kSceneMaxProps; i++) {
+    std::snprintf(ad, sizeof ad, "p%02u", i);
+    CHECK(prop1(e, ad, kScenePropSayi, (float)i));
+  }
+  CHECK(e.prop_count == kSceneMaxProps);
+  static SceneEntity dolu;
+  dolu = e;
+  CHECK(!prop1(e, "yeni", kScenePropSayi, 1.0f));    // 17. ad: RED
+  CHECK(std::memcmp(&e, &dolu, sizeof e) == 0);        // ve HICBIR SEY degismedi
+  CHECK(prop1(e, "p03", kScenePropTam, 7.0f));         // dolu iken mevcut ada yazma serbest
+  CHECK(e.prop_count == kSceneMaxProps && scene_prop_find(e, "p03")->type == kScenePropTam);
+  CHECK(scene_prop_remove(e, "p00") && e.prop_count == kSceneMaxProps - 1);
+  CHECK(!scene_prop_remove(e, "p00"));                 // ikinci kez: yok
+  CHECK(prop1(e, "yeni", kScenePropSayi, 1.0f));       // yer acildi: KONTROL (ret kapasitedendi)
+  // Silinen yuva sifirlandi: bayt karsilastiran yollar kalinti gormez.
+  SceneEntity t{};
+  CHECK(prop1(t, "a", kScenePropSayi, 1.0f) && prop1(t, "b", kScenePropSayi, 2.0f) && scene_prop_remove(t, "b"));
+  static const SceneProp kBos{};
+  CHECK(std::memcmp(&t.props[1], &kBos, sizeof kBos) == 0);
+
+  // Diger API retleri (her biri + gecerli esi).
+  SceneEntity r{};
+  CHECK(!prop1(r, "Hiz", kScenePropSayi, 1) && prop1(r, "hiz", kScenePropSayi, 1));
+  CHECK(!prop1(r, "", kScenePropSayi, 1) && !prop1(r, nullptr, kScenePropSayi, 1));
+  CHECK(!prop1(r, "abcdefghijklmnopqrstuvwx", kScenePropSayi, 1)); // 24 karakter
+  CHECK(prop1(r, "abcdefghijklmnopqrstuvw", kScenePropSayi, 1));   // 23: tavan
+  CHECK(!prop1(r, "x", 0, 1) && !prop1(r, "x", 5, 1));
+  CHECK(!prop1(r, "x", kScenePropSayi, std::nanf("")) && !prop1(r, "x", kScenePropSayi, INFINITY));
+  CHECK(!prop1(r, "x", kScenePropTam, 2.5f) && !prop1(r, "x", kScenePropTam, 16777218.0f));
+  CHECK(prop1(r, "x", kScenePropTam, -16777216.0f));
+  CHECK(prop1(r, "z", kScenePropTam, -0.0f) && !sign_bit(scene_prop_find(r, "z")->v[0])); // tam: -0 -> 0
+  CHECK(prop1(r, "k", kScenePropBayrak, 5.0f) && scene_prop_find(r, "k")->v[0] == 1.0f);  // bayrak: 0|1
+  CHECK(scene_prop_name_ok("devriye_2") && !scene_prop_name_ok("devriye-2") && !scene_prop_name_ok("h\xC4\xB1z"));
+
+  // Metin: 16 satir kabul, 17 ret — hata SATIRI 17. ozelligin satiri.
+  static SceneDesc d;
+  static char txt[8 << 10];
+  for (uint32_t extra = 0; extra < 2; extra++) {
+    size_t n = (size_t)std::snprintf(txt, sizeof txt, "tulpar-sahne 1\nnesne \"x\"\n");
+    for (uint32_t i = 0; i < kSceneMaxProps + extra; i++)
+      n += (size_t)std::snprintf(txt + n, sizeof txt - n, "  ozellik_sayi \"p%02u\" 1\n", i);
+    n += (size_t)std::snprintf(txt + n, sizeof txt - n, "son\n");
+    SceneError err{};
+    const bool ok = scene_parse(txt, n, &d, &err);
+    CHECK(ok == (extra == 0));
+    if (extra == 0) {
+      CHECK(d.entity_count == 1 && d.entities[0].prop_count == kSceneMaxProps);
+    } else {
+      CHECK(err.line == 3 + kSceneMaxProps && std::strstr(err.msg, "cok fazla ozellik") != nullptr);
+      std::printf("    [bilgi] 17. ozellik: %s\n", err.msg);
+    }
+  }
+}
+
+// Her ayristirma reddi SATIR NUMARALI ve her birinin gecerli bir esi var
+// (pozitif kontrol). Hicbiri kirpma ya da sessiz dusurme degil.
+ENGINE_TEST(scene_props_parse_errors_have_line_and_positive_controls) {
+  struct Durum {
+    const char *govde; // nesne blogunun ici (satir 3'ten baslar)
+    bool kabul;
+    uint32_t satir;    // ret beklenen satir
+    const char *parca; // hata metninde gecmeli
+  };
+  static const Durum kDurum[] = {
+      {"  ozellik_sayi \"hiz\" 5\n  ozellik_tam \"can\" 3\n", true, 0, nullptr},
+      {"  ozellik_sayi \"hiz\" 5\n  ozellik_tam \"hiz\" 3\n", false, 4, "yinelenen"},
+      {"  ozellik_sayi \"hiz_2\" 5\n", true, 0, nullptr},
+      {"  ozellik_sayi \"Hiz\" 5\n", false, 3, "gecersiz ozellik adi"},
+      {"  ozellik_sayi \"a-b\" 5\n", false, 3, "gecersiz ozellik adi"},
+      {"  ozellik_sayi \"\" 5\n", false, 3, "gecersiz ozellik adi"},
+      {"  ozellik_sayi \"h\xC4\xB1z\" 5\n", false, 3, "gecersiz ozellik adi"},
+      {"  ozellik_sayi \"abcdefghijklmnopqrstuvw\" 5\n", true, 0, nullptr},
+      {"  ozellik_sayi \"abcdefghijklmnopqrstuvwx\" 5\n", false, 3, "cok uzun"},
+      {"  ozellik_sayi hiz 5\n", false, 3, "tirnakli"},
+      {"  ozellik_sayi \"a\" nan\n", false, 3, "gecersiz sayi"},
+      {"  ozellik_tam \"can\" 16777216\n  ozellik_tam \"eksi\" -16777216\n", true, 0, nullptr},
+      {"  ozellik_tam \"can\" 2.5\n", false, 3, "tamsayi"},
+      {"  ozellik_tam \"can\" 1e3\n", false, 3, "tamsayi"},
+      {"  ozellik_tam \"can\" 16777217\n", false, 3, "2^24"},
+      {"  ozellik_tam \"can\" -16777217\n", false, 3, "2^24"},
+      {"  ozellik_bayrak \"k\" evet\n  ozellik_bayrak \"l\" hayir\n", true, 0, nullptr},
+      {"  ozellik_bayrak \"k\" belki\n", false, 3, "evet|hayir"},
+      {"  ozellik_bayrak \"k\" 1\n", false, 3, "evet|hayir"},
+      {"  ozellik_sayi \"a\" 1\n", true, 0, nullptr},
+      {"  ozellik_sayi \"a\"\n", false, 3, "ozellik_sayi"},
+      {"  ozellik_sayi \"a\" 1 2\n", false, 3, "ozellik_sayi"},
+      {"  ozellik_nokta \"a\" 1 2 3\n", true, 0, nullptr},
+      {"  ozellik_nokta \"a\" 1 2\n", false, 3, "ozellik_nokta"},
+      {"  ozellik_nokta \"a\" 1 2 3 4\n", false, 3, "ozellik_nokta"},
+      {"  ozellik_nokta \"a\" 1 x 3\n", false, 3, "gecersiz sayi"},
+  };
+  static SceneDesc d;
+  static char txt[2048];
+  uint32_t kabul = 0, ret = 0;
+  for (const Durum &k : kDurum) {
+    const int n = std::snprintf(txt, sizeof txt, "tulpar-sahne 1\nnesne \"x\"\n%sson\n", k.govde);
+    SceneError err{};
+    const bool ok = scene_parse(txt, (size_t)n, &d, &err);
+    const bool dogru = ok == k.kabul && (ok || (err.line == k.satir && std::strstr(err.msg, k.parca) != nullptr));
+    if (!dogru) std::printf("    [bilgi] BEKLENMEDIK: %s-> %s (satir %u: %s)\n", k.govde, ok ? "kabul" : "ret", err.line, err.msg);
+    CHECK(dogru);
+    if (ok) kabul++;
+    else ret++;
+  }
+  std::printf("    [bilgi] %u durum: %u kabul (pozitif kontrol), %u satir numarali ret\n",
+              (uint32_t)(sizeof kDurum / sizeof kDurum[0]), kabul, ret);
+}
+
+// Esitlik ozellikleri gorur (bilesen biti OLMADAN da) -> yalniz ozellik
+// degistiren set_entity gunluge girer ve geri alma baytlari geri getirir.
+// Esitlik ozellikleri gormeseydi ilk set_entity "no-op" sayilir, Ctrl+Z
+// ozelligi SESSIZCE atlardi (Tuzaklar 8x). KONTROL: ayni degerle ikinci
+// set_entity islem EKLEMEZ.
+ENGINE_TEST(scene_props_edit_is_an_undo_op_and_undo_restores_bytes) {
+  static SceneDesc d;
+  static char t0[4096], tson[4096], tn[4096];
+  scene_desc_reset(d);
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "kapi");
+  e.components = kSceneModel; // betik biti YOK: ozellikler yine veri
+  CHECK(d.insert_entity(0, e));
+  const size_t n0 = scene_write(d, t0, sizeof t0);
+  SceneHistory h;
+  CHECK(h.init(arena(), 16));
+
+  SceneEntity x = d.entities[0];
+  CHECK(prop1(x, "acik", kScenePropBayrak, 1.0f));
+  CHECK(!scene_entity_equal(d.entities[0], x));
+  CHECK(h.set_entity(d, 0, x));  // 1: ekle
+  CHECK(!h.set_entity(d, 0, x)); // KONTROL: ayni deger, islem yok
+  x = d.entities[0];
+  CHECK(prop1(x, "hiz", kScenePropSayi, 5.0f));
+  CHECK(h.set_entity(d, 0, x));  // 2: ikinci ozellik
+  x = d.entities[0];
+  CHECK(prop1(x, "acik", kScenePropBayrak, 0.0f));
+  CHECK(h.set_entity(d, 0, x));  // 3: yalniz DEGER degisti
+  x = d.entities[0];
+  CHECK(scene_prop_remove(x, "hiz"));
+  CHECK(h.set_entity(d, 0, x));  // 4: silme
+  CHECK(h.undo_count() == 4);
+  const size_t nson = scene_write(d, tson, sizeof tson);
+  CHECK(std::strstr(tson, "  ozellik_bayrak \"acik\" hayir\n") != nullptr && std::strstr(tson, "\"hiz\"") == nullptr);
+  CHECK(!(nson == n0 && std::memcmp(t0, tson, n0) == 0));
+  uint32_t geri = 0;
+  while (h.undo(d)) geri++;
+  size_t nn = scene_write(d, tn, sizeof tn);
+  CHECK(geri == 4 && nn == n0 && std::memcmp(t0, tn, n0) == 0); // geri al = baslangic baytlari
+  CHECK(d.entities[0].prop_count == 0);
+  uint32_t ileri = 0;
+  while (h.redo(d)) ileri++;
+  nn = scene_write(d, tn, sizeof tn);
+  CHECK(ileri == 4 && nn == nson && std::memcmp(tson, tn, nson) == 0); // yinele = son baytlar
+  std::printf("    [bilgi] yalniz-ozellik duzenlemesi: 4 islem gunlukte, geri al %u / yinele %u bayt-esit\n", geri, ileri);
+}
+
+// `nokta` DUNYA konumu: varligin dunya konumu + dunya donusu x yerel ofset;
+// OLCEK ETKILEMEZ. Kok varlik: (1,2,3), Y ekseninde 90 derece, olcek 5 ->
+// yerel (1,0,0) dunyada (1,2,2) (olcek uygulansaydi (1,2,-2)). Cocuk: ebeveyn
+// olcegi cocugun KONUMUNU etkiler (matristen), ofseti etkilemez.
+ENGINE_TEST(scene_prop_point_world_rotates_moves_and_ignores_scale) {
+  static SceneDesc d;
+  scene_desc_reset(d);
+  SceneEntity k{};
+  std::snprintf(k.name, sizeof k.name, "kok");
+  k.pos = {1, 2, 3};
+  k.rot_deg = {0, 90, 0};
+  k.scale = {5, 5, 5};
+  CHECK(d.insert_entity(0, k));
+  SceneEntity c{};
+  std::snprintf(c.name, sizeof c.name, "cocuk");
+  c.parent = 0;
+  c.pos = {0, 0, 1}; // ebeveyn uzayinda: dunyada kok + R(90) * 5 * (0,0,1) = (1+5, 2, 3)
+  CHECK(d.insert_entity(1, c));
+  const float yerel[3] = {1, 0, 0};
+  float w[3];
+  scene_prop_point_world(d, 0, yerel, w);
+  std::printf("    [bilgi] kok: yerel (1,0,0) -> dunya (%.4f, %.4f, %.4f), beklenen (1, 2, 2)\n", w[0], w[1], w[2]);
+  CHECK(std::fabs(w[0] - 1.0f) < 1e-4f && std::fabs(w[1] - 2.0f) < 1e-4f && std::fabs(w[2] - 2.0f) < 1e-4f);
+  const float yukari[3] = {0, 1, 0};
+  scene_prop_point_world(d, 1, yukari, w);
+  const Mat4 cm = scene_entity_world_matrix(d, 1);
+  std::printf("    [bilgi] cocuk: dunya konumu (%.4f, %.4f, %.4f), yerel (0,1,0) -> (%.4f, %.4f, %.4f)\n", cm.m[3][0], cm.m[3][1],
+              cm.m[3][2], w[0], w[1], w[2]);
+  CHECK(std::fabs(cm.m[3][0] - 6.0f) < 1e-4f); // ebeveyn olcegi KONUMA girdi
+  CHECK(std::fabs(w[0] - cm.m[3][0]) < 1e-4f && std::fabs(w[1] - (cm.m[3][1] + 1.0f)) < 1e-4f &&
+        std::fabs(w[2] - cm.m[3][2]) < 1e-4f); // ofset olceksiz: +1, +5 degil
+  // Varlik tasinirsa nokta onunla gider (yerel ofset ayni).
+  d.entities[0].pos = {11, 2, 3};
+  scene_prop_point_world(d, 0, yerel, w);
+  CHECK(std::fabs(w[0] - 11.0f) < 1e-4f && std::fabs(w[2] - 2.0f) < 1e-4f);
+  // Gecersiz indeks: yerel aynen doner.
+  scene_prop_point_world(d, 99, yerel, w);
+  CHECK(w[0] == 1.0f && w[1] == 0.0f && w[2] == 0.0f);
+}
+
+// Betik karti: Sifirla ozellikleri SILER (degerler betigin varsayilanina
+// doner), Kopyala/Yapistir TASIR (kaynagin aynisi, birlesim degil). KONTROL:
+// baska bir bilesenin (Isik) sifirlanmasi ozelliklere dokunmaz.
+ENGINE_TEST(scene_props_travel_with_script_card_reset_and_copy) {
+  SceneEntity e{};
+  e.components = kSceneScript | kSceneLight;
+  std::snprintf(e.script_file, sizeof e.script_file, "dusman.tpr");
+  CHECK(prop1(e, "can", kScenePropTam, 250.0f) && prop1(e, "hiz", kScenePropSayi, 5.0f));
+  SceneEntity isik = e;
+  reflect::reset_component_to_defaults(isik, kSceneLight);
+  CHECK(props_same(isik, e)); // KONTROL: baska kart ozelliklere dokunmaz
+  SceneEntity dst{};
+  dst.components = kSceneScript;
+  CHECK(prop1(dst, "eski", kScenePropSayi, 1.0f));
+  reflect::copy_component_data(e, dst, kSceneScript);
+  CHECK(std::strcmp(dst.script_file, "dusman.tpr") == 0 && props_same(dst, e));
+  CHECK(scene_prop_find(dst, "eski") == nullptr); // yapistir = kaynagin AYNISI
+  reflect::reset_component_to_defaults(e, kSceneScript);
+  static const SceneProp kBos{};
+  bool bos = e.prop_count == 0;
+  for (uint32_t k = 0; k < kSceneMaxProps; k++) bos = bos && std::memcmp(&e.props[k], &kBos, sizeof kBos) == 0;
+  CHECK(bos);
 }

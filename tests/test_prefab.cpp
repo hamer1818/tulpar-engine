@@ -235,3 +235,64 @@ ENGINE_TEST(prefab_instantiate_places_character_at_spawn) {
   // Tek Ctrl+Z ornegi geri alir.
   CHECK(h.undo(dst) && dst.entity_count == 0);
 }
+
+// Nesne ozellikleri (E3) prefab'la GIDER: prefab bir .sahne dosyasi, yani
+// cikar -> kaydet -> yukle -> ornekle zincirinin her halkasinda ozellikler
+// ayni kalmali. `nokta` YEREL ofset: ornek baska yere konunca dunya noktasi
+// onunla tasinir, yerel deger degismez (yeniden esleme gerektirmez).
+// KONTROL: ozelliksiz kardes varlik ozelliksiz kalir (baska varliga sizmaz).
+ENGINE_TEST(prefab_props_survive_extract_file_and_instantiate) {
+  static SceneDesc src;
+  src.entity_count = 0; src.asset_count = 0;
+  const int32_t r = add(src, "devriyeci", -1);
+  const int32_t k = add(src, "fener", r);
+  src.entities[r].pos = Vec3{40, 0, 40};
+  src.entities[r].components = kSceneScript;
+  std::snprintf(src.entities[r].script_file, sizeof src.entities[r].script_file, "davranis/devriye.tpr");
+  const float can[3] = {250, 0, 0}, hiz[3] = {5.5f, 0, 0}, a[3] = {-2, 0, -1.5f}, b[3] = {3, 0, 4};
+  CHECK(scene_prop_set(src.entities[r], "can", kScenePropTam, can));
+  CHECK(scene_prop_set(src.entities[r], "hiz", kScenePropSayi, hiz));
+  CHECK(scene_prop_set(src.entities[r], "devriye_a", kScenePropNokta, a));
+  CHECK(scene_prop_set(src.entities[r], "devriye_b", kScenePropNokta, b));
+  (void)k;
+
+  static SceneDesc pf;
+  CHECK(prefab_extract(src, r, &pf) == 2);
+  CHECK(pf.entities[0].prop_count == 4 && pf.entities[1].prop_count == 0);
+
+  char tmpl[512];
+  test::tmp_template(tmpl, sizeof tmpl, "prefab_oz");
+  const int fd = mkstemp(tmpl);
+  CHECK(fd >= 0);
+  if (fd < 0) return;
+  close(fd);
+  SceneError err{};
+  CHECK(scene_save(arena(), pf, tmpl, &err));
+  static SceneDesc back;
+  const bool ok = scene_load(arena(), tmpl, &back, &err);
+  if (!ok) std::printf("    [bilgi] %s: %s\n", tmpl, err.msg);
+  unlink(tmpl);
+  CHECK(ok);
+  if (!ok) return;
+  CHECK(back.entity_count == 2 && scene_entity_equal(back.entities[0], pf.entities[0]));
+  CHECK(back.entities[1].prop_count == 0);
+
+  static SceneDesc dst;
+  dst.entity_count = 0; dst.asset_count = 0;
+  SceneHistory h;
+  CHECK(h.init(arena(), 16));
+  uint32_t first = 0;
+  CHECK(prefab_instantiate(dst, h, back, Vec3{-10, 0, 7}, &first) == 2);
+  const SceneEntity &g = dst.entities[first];
+  CHECK(g.prop_count == 4 && dst.entities[first + 1].prop_count == 0);
+  const SceneProp *pa = scene_prop_find(g, "devriye_a");
+  CHECK(pa && pa->v[0] == -2.0f && pa->v[2] == -1.5f); // yerel ofset AYNEN
+  if (pa) {
+    float w[3];
+    scene_prop_point_world(dst, first, pa->v, w);
+    std::printf("    [bilgi] ornek (-10,0,7): devriye_a yerel (-2,0,-1.5) -> dunya (%.2f, %.2f, %.2f)\n", w[0], w[1], w[2]);
+    CHECK(w[0] == -12.0f && w[1] == 0.0f && w[2] == 5.5f); // noktalar ornekle birlikte tasindi
+  }
+  const SceneProp *pc = scene_prop_find(g, "can");
+  CHECK(pc && pc->type == kScenePropTam && pc->v[0] == 250.0f);
+}
