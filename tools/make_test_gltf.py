@@ -11,10 +11,14 @@ import base64, json, os, struct, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(HERE), "tests", "assets", "checker_cube.gltf")
-# Ornek sahneler (arena, salon1/2, sicak_kucuk) ayni kupu KENDI dizinlerinden
-# yukler (kaynak yolu sahnenin yanindan cozulur). Tek uretici iki kopyayi birden
-# yazar: elle kopyalanan ikinci dosya bir gun sessizce ayrisirdi.
-OUT_EXAMPLES = os.path.join(os.path.dirname(HERE), "tulpar", "examples", "assets", "checker_cube.gltf")
+# Ornek sahnelerin (arena, salon1/2, sicak_kucuk) kupu: AYNI mesh ve doku, ama
+# pivot MERKEZDE. Test kupunun dugumu +0.5 y otelenmis (y=0'da yere otursun);
+# sahneler ise govdeyi varligin konumunda merkezli kurar. O kupla her model
+# carpisma kutusunun olcek.y*0.5 USTUNDE cizildi — zemin yarim metre yukarida,
+# karakterler "yerin icinde" (olculdu: 32 varligin 32'si kayik, sutunlarda
+# 1.5 m; kapi: editor_game_example_scene_models_sit_on_their_colliders).
+# Tek uretici ikisini birden yazar: elle tutulan kopya bir gun ayrisirdi.
+OUT_EXAMPLES = os.path.join(os.path.dirname(HERE), "tulpar", "examples", "assets", "dama_kup.gltf")
 OUT_SPHERE = os.path.join(os.path.dirname(HERE), "tests", "assets", "lod_sphere.gltf")
 OUT_SKIN = os.path.join(os.path.dirname(HERE), "tests", "assets", "skin_tube.gltf")
 OUT_PBR = os.path.join(os.path.dirname(HERE), "tests", "assets", "pbr_plane.gltf")
@@ -85,7 +89,9 @@ def main():
             {"bufferView": 3, "componentType": 5123, "count": len(idx), "type": "SCALAR"},
         ],
     }
-    for out in (OUT, OUT_EXAMPLES):
+    for out, node in ((OUT, {"mesh": 0, "name": "checker_cube", "translation": [0, 0.5, 0]}),
+                      (OUT_EXAMPLES, {"mesh": 0, "name": "dama_kup"})):
+        g["nodes"] = [node]
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, "w") as f:
             json.dump(g, f, separators=(",", ":"), sort_keys=True)

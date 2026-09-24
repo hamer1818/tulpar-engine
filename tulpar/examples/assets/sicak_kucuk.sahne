@@ -4,7 +4,7 @@ isik-ortam 0.14 0.15 0.19
 isik-gunes 0.9
 golge 0 1 0 12 50
 kamera 0 1 4 0 0.5 10
-kaynak "checker_cube.gltf"
+kaynak "dama_kup.gltf"
 nesne "zemin"
   konum 0 -0.5 0
   donus 0 0 0
