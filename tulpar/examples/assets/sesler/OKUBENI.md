@@ -11,4 +11,4 @@ Biçim: mono, 16 bit PCM, 22050 Hz. Dosya yoksa arena oyunu sentetik bir tona d�
 
 Kaynak: TulparLang deposunda `examples/assets/sesler/` (motor ayrılmadan önceki son hâli,
 86e2c4e'nin ebeveyni). Depo ayrılırken yalnız `.sahne` dosyaları taşınmıştı; bu dosya ve
-`../checker_cube.gltf` geride kalmıştı (Tuzaklar 8bz).
+örnek sahnelerin küpü (bugün `../dama_kup.gltf`) geride kalmıştı (Tuzaklar 8bz, 8ca).

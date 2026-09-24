@@ -2,11 +2,13 @@
 // taniyan derleyiciyi bulma ve oyunun ciktisini SATIR KAYBETMEDEN akitma.
 // Gercek derleyici CI'da yok (motoru taniyan derleyici ayri kurulur); surec
 // kapisinin kobayi engine_tests'in kendisi (TULPAR_TEST_SAHTE_DERLEYICI kipi).
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "app/editor_game.hpp"
+#include "content/gltf.hpp"
 #include "content/scene.hpp"
 #include "core/memory/arena.hpp"
 #include "platform/paths.hpp"
@@ -240,4 +242,68 @@ ENGINE_TEST(editor_game_example_scenes_and_games_find_their_assets) {
   // KONTROL: tarama bir sey buldu — bos dizinde "0 eksik" hicbir sey kanitlamaz.
   CHECK(sahne >= 5 && kaynak >= 4 && atif >= 6);
   CHECK(eksik == 0);
+}
+
+// Ornek sahnelerde GORUNEN model ile CARPISAN kutu ayni yerde mi. Kullanici
+// (2026-09-24): "yerin icine girmis ana karakter ve dusman karakterler".
+// Sahneler govdeyi varligin konumunda MERKEZLI kurar (`govde kutu 0.5 ...`),
+// model ise kendi pivotuyla cizilir. checker_cube.gltf'in dugumu +0.5 y
+// otelenmis (test/demo icin: kup y=0'da yere otursun) — sahnede her model
+// carpisma kutusunun olcek.y * 0.5 USTUNDE cizildi: zemin yarim metre yukarida,
+// karakterler onun "icinde". Kapi: model+kutu govdeli her varlikta modelin
+// sinir kutusu (varlik uzayinda) govdenin kutusuyla ortusmeli.
+ENGINE_TEST(editor_game_example_scene_models_sit_on_their_colliders) {
+  char kok[1024];
+  std::snprintf(kok, sizeof kok, "%s/tulpar", ENGINE_SOURCE_DIR);
+  static app::FileEntry liste[app::kFileListMax];
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(64u << 20, "ornek_ortusme");
+  static content::SceneDesc d;
+  static content::Model m[content::kSceneMaxAssets];
+  bool yuklu[content::kSceneMaxAssets];
+  uint32_t olculen = 0, kayik = 0;
+  float en_kotu = 0;
+  char en_kotu_ad[160] = "-";
+  const app::FileTreeResult ts = app::file_list_tree(kok, ".sahne", liste, app::kFileListMax);
+  CHECK(ts.ok);
+  for (uint32_t i = 0; i < ts.count; i++) {
+    char yol[1200], dir[1200], k[1400];
+    std::snprintf(yol, sizeof yol, "%s/%s", kok, liste[i].name);
+    sys.reset_to(0);
+    content::SceneError err{};
+    if (!content::scene_load(sys, yol, &d, &err)) continue; // okunamayan sahneyi kaynak kapisi sayar
+    content::scene_dir_of(yol, dir, sizeof dir);
+    for (uint32_t a = 0; a < d.asset_count; a++) {
+      std::snprintf(k, sizeof k, "%s/%s", dir, d.assets[a]);
+      m[a] = content::Model{};
+      yuklu[a] = content::gltf_load(sys, k, &m[a]);
+    }
+    for (uint32_t e = 0; e < d.entity_count; e++) {
+      const content::SceneEntity &x = d.entities[e];
+      if (!(x.components & content::kSceneModel) || !(x.components & content::kSceneBody) || x.shape != content::SceneShape::Box) continue;
+      if (x.asset < 0 || (uint32_t)x.asset >= d.asset_count || !yuklu[x.asset]) continue;
+      const content::Model &mm = m[x.asset];
+      // Varlik uzayinda (olcekten once): govde merkezde, yari boyu `half`.
+      const Vec3 c = (mm.bounds_min + mm.bounds_max) * 0.5f;
+      const Vec3 yb = (mm.bounds_max - mm.bounds_min) * 0.5f;
+      // Metre cinsinden kayma: olcekle carpilmis merkez farki + yari boy farki.
+      const float dx = std::fabs(c.x) * x.scale.x + std::fabs(yb.x - x.half.x) * x.scale.x;
+      const float dy = std::fabs(c.y) * x.scale.y + std::fabs(yb.y - x.half.y) * x.scale.y;
+      const float dz = std::fabs(c.z) * x.scale.z + std::fabs(yb.z - x.half.z) * x.scale.z;
+      const float kay = dx > dy ? (dx > dz ? dx : dz) : (dy > dz ? dy : dz);
+      olculen++;
+      if (kay > 0.01f) {
+        kayik++;
+        if (kay > en_kotu) {
+          en_kotu = kay;
+          std::snprintf(en_kotu_ad, sizeof en_kotu_ad, "%s/%s (model merkezi y %+.2f, olcek y %.2f)", liste[i].name, x.name, (double)c.y,
+                        (double)x.scale.y);
+        }
+      }
+    }
+  }
+  std::printf("    [bilgi] model+kutu govdeli %u varlik: %u tanesinde gorunen model carpisma kutusundan kayik, en kotu %.2f m: %s\n", olculen, kayik,
+              (double)en_kotu, en_kotu_ad);
+  CHECK(olculen >= 20); // KONTROL: olcum bos degil (dort sahne, zemin + duvar + sutun + kasa)
+  CHECK(kayik == 0);
 }

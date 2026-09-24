@@ -1166,7 +1166,8 @@ oyun "çalışıyor" göründü. Üç şey hatayı gizledi:
   `kaynak` satırı bıraktığını (tablo günlüğün dışında büyüyordu) hiç ölçmemişti.
 
 **Düzeltme:** kaynaklar geri geldi. `checker_cube.gltf`'yi `tools/make_test_gltf.py` artık
-iki yere birden yazıyor, kopya elle tutulmuyor. Oyunun çıktı satırlarının düzeyi satırın
+iki yere birden yazıyor, kopya elle tutulmuyor. (Aynı gün: örneklerin kopyası merkez
+pivotlu `dama_kup.gltf` oldu, bkz. 8ca.) Oyunun çıktı satırlarının düzeyi satırın
 kendisinden okunuyor (HATA kırmızı, sayaca girer). Kaynak tablosuna ekleme günlüğe girdi
 (`SceneHistory::add_asset`): geri al, sahneyi bayt bayt eklemeden önceki hâline döndürüyor.
 
@@ -1178,3 +1179,31 @@ geri gelmeden kırmızı: 4 sahnede `checker_cube.gltf yok`, 2 oyunda
 **Ders:** bir depoyu bölerken taşınan dosyanın **bağımlılıklarını** da say: sahne bir
 dosyadır ama kaynak tablosu başka dosyalara işaret eder. "Yüklendi" demek "çizildi"
 demek değildir. Ölçü, kaynak sayacı (`kaynak 0/1`) olmalıydı.
+
+### 8ca. Pivot kayması — karakterler "yerin içinde", duvarlar havada
+
+**Belirti** (2026-09-24, kullanıcı; 8bz'nin düzeltmesinden hemen sonra): harita görünür
+oldu, ama "yerin içine girmiş ana karakter ve düşman karakterler".
+
+**Sebep:** sahneler gövdeyi varlığın konumunda **merkezli** kurar (`govde kutu 0.5 0.5 0.5`,
+ölçekle çarpılır). Model ise kendi pivotuyla çizilir. `checker_cube.gltf`'in düğümü y'de
++0.5 ötelenmiş: test ve demo için küp y=0'da yere otursun diye. Sahnede her model
+çarpışma kutusunun `ölçek.y × 0.5` **üstünde** çizildi. Zeminin görünen yüzü fiziğinkinden
+0.5 m yukarıdaydı ve karakterler fiziğin zemininde, yani görünen zeminin 0.5 m içinde
+duruyordu. Duvarlar 1.25 m, sütunlar 1.5 m havadaydı. Ölçüldü: model ve kutu gövdeli 32
+varlığın 32'si kayıktı. Harita görünmezken (8bz) bu kayma da görünmüyordu: tek hata
+ötekini örtüyordu.
+
+**Düzeltme:** örnek sahneler aynı mesh ve dokuyla ama **merkez pivotlu** bir küp kullanıyor
+(`dama_kup.gltf`). Onu da `tools/make_test_gltf.py` üretiyor. Test küpü (`tests/assets`)
+değişmedi, testleri ve demo ona göre kurulu.
+
+**Pozitif kontrol:** `editor_game_example_scene_models_sit_on_their_colliders`. Model ve
+kutu gövdeli her varlıkta modelin sınır kutusu, varlık uzayında gövdenin kutusuyla
+örtüşmeli. Eski küple kırmızı: `32 tanesinde ... kayik, en kotu 1.50 m:
+salon1.sahne/sutun_kb (model merkezi y +0.50, olcek y 3.00)`. Yeni küple 0.
+`engine_aksiyon.tpr` 3200 karelik belirlenimli özeti bayt bayt aynı kaldı: fizik hiç
+değişmedi, yalnız görüntü fiziğe oturdu.
+
+**Ders:** görünen şey ile çarpışan şey iki ayrı veridir ve ancak **ikisi birlikte**
+ölçülürse örtüştükleri bilinir. Bir modelin pivotu, onu kullanan her sahnenin sözleşmesidir.
