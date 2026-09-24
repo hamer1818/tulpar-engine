@@ -1,0 +1,17 @@
+// Davranış — "tuzak". KODLA üretilen bir TETİĞE bağlanır, motor çağırır:
+//
+//   betik_ata(tetik_kutu(x, 1, z, 0.9, 1, 0.9), "tuzak");
+//
+//   tuzak_tetik_girdi(id, diger, diger_sahne)   bir gövde bölgeye GİRDİ
+//
+// `diger` giren KÖPRÜ varlığı (0 = köprü varlığı değil; o zaman
+// `diger_sahne` onun sahne dizini). Tuzak yalnız "dusman" betikli varlığı
+// yakar: oyuncu ve ötekiler içinden geçer.
+
+int tuzak_yakilan = 0;
+
+func tuzak_tetik_girdi(id, diger) {
+    if (betik_adi(diger) != "dusman") { return; }
+    tuzak_yakilan += 1;
+    sil(diger);
+}

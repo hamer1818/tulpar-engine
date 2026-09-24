@@ -1061,6 +1061,114 @@ func run_yerlesim() {
         + " (4 beklenen), olcek " + toString(ui_olcek()));
 }
 
+// ---------------------------------------------------------------------------
+// Kodla üretilen varlığa betik bağlama (betik_ata). Aşağıdaki `tb_*`, `tb2_*`,
+// `tbz_*` fonksiyonları MOTOR tarafından çağrılır (adıyla çözülür) — bu kapı
+// C++ kapısının sahte VM'inin göremediğini ölçüyor: gerçek Tulpar kancası,
+// gerçek dinamik çağrı, float gelen id'nin köprü id'siyle eşitliği.
+// `tb_iz` çağrı SIRASINI tutar ("B:" baslat, "G" güncelle yazılmaz, "C:" çarpışma, ...).
+int tb_baslat_n = 0;
+int tb_bitir_n = 0;
+int tb_guncelle_n = 0;
+int tb_carpisma_n = 0;
+int tb_son_id = 0;
+float tb_son_dt = 0.0;
+int tb_carp_diger = -99;
+int tb_carp_diger_sahne = -99;
+float tb_carp_hiz = 0.0;
+int tb_bitirde_canli = 0;
+str tb_iz = "";
+func tb_baslat(id) { tb_baslat_n += 1; tb_son_id = toInt(id); tb_iz = tb_iz + "b" + toString(toInt(id) % 65536) + " "; }
+func tb_guncelle(id, d) { tb_guncelle_n += 1; tb_son_dt = d; }
+func tb_carpisma(id, diger, olay, x, y, z, hiz, diger_sahne) {
+    if (tb_carpisma_n == 0) {
+        tb_carp_diger = toInt(diger);
+        tb_carp_diger_sahne = toInt(diger_sahne);
+        tb_carp_hiz = hiz;
+    }
+    tb_carpisma_n += 1;
+}
+func tb_bolge_girdi(id, bolge, bolge_sahne) { tb_iz = tb_iz + "B+" + toString(toInt(bolge_sahne)) + " "; }
+func tb_bitir(id) {
+    tb_bitir_n += 1;
+    if (canli(id)) { tb_bitirde_canli += 1; }
+    tb_iz = tb_iz + "x" + toString(toInt(id) % 65536) + " ";
+}
+func tb2_baslat(id) { tb_iz = tb_iz + "b2 "; }
+func tb2_bitir(id) { tb_iz = tb_iz + "x2 "; }
+func tbz_tetik_girdi(id, diger, diger_sahne) { tb_iz = tb_iz + "T+" + toString(toInt(diger_sahne)) + " "; }
+func tbz_bitir(id) { tb_iz = tb_iz + "xz "; }
+
+func run_betik_bagla() {
+    int zemin = kutu(130.0, 0.0, 130.0, 10.0, 0.5, 10.0, false, renk(90, 90, 100));  // üst yüz y=0.5
+    int a = kure(130.0, 3.0, 130.0, 0.4, true, renk(220, 80, 60));
+    int hata0 = hata_sayisi();
+    // 1) Bağla: baslat HEMEN, id KÖPRÜ id'si (float gelir, int'e eşit).
+    assert(betik_ata(a, "davranis/tb.tpr"), "betik_ata true donmeli");
+    assert_eq_int(tb_baslat_n, 1);
+    assert_eq_int(tb_son_id, a);
+    assert(betik_adi(a) == "tb", "taban ad 'tb' olmali, " + betik_adi(a));
+    assert_eq_int(betikli_sayisi(), 1);
+    // 2) Güncelle: her kare TAM BİR, dt = 1/60 (pencersiz).
+    kare(5);
+    assert_eq_int(tb_guncelle_n, 5);
+    assert(tb_son_dt > 0.0166 && tb_son_dt < 0.0167, "dt 1/60 olmali, " + toString(tb_son_dt));
+    // 3) Çarpışma: zemine düşer; diger = zeminin köprü id'si, son argüman -1.
+    //    KONTROL: çarpmadan önce 0.
+    assert_eq_int(tb_carpisma_n, 0);
+    int k = 0;
+    while (k < 180 && tb_carpisma_n == 0) { kare(1); k += 1; }
+    assert(tb_carpisma_n > 0, "carpisma kancasi gelmeliydi");
+    assert_eq_int(tb_carp_diger, zemin);
+    assert_eq_int(tb_carp_diger_sahne, -1);
+    assert(tb_carp_hiz > 3.0 && tb_carp_hiz < 9.0, "~2 m serbest dusus: hiz ~6.3, " + toString(tb_carp_hiz));
+    // 4) Tetik: kodla üretilen bölgenin betiği ÖNCE, girenin betiği SONRA.
+    int z = tetik_kutu(135.0, 2.0, 130.0, 1.0, 0.5, 1.0);
+    int b = kure(135.0, 3.5, 130.0, 0.4, true, renk(80, 200, 60));
+    assert(betik_ata(z, "tbz"), "tetige betik baglanmali");
+    assert(betik_ata(b, "tb"), "ikinci kureye betik baglanmali");
+    tb_iz = "";
+    k = 0;
+    while (k < 120 && tb_iz == "") { kare(1); k += 1; }
+    assert(tb_iz == "T+-1 B+-1 ", "once bolge (T+) sonra giren (B+), sahne dizinleri -1: '" + tb_iz + "'");
+    // 5) Kancası olmayan ad: HATA + false, önceki bağlantı DEĞİŞMEZ.
+    int h1 = hata_sayisi();
+    assert(!betik_ata(a, "yok_boyle"), "kancasiz ad reddedilmeli");
+    assert_eq_int(hata_sayisi(), h1 + 1);
+    assert(betik_adi(a) == "tb", "reddedilen baglama oncekini degistirmemeli");
+    // 6) İkinci bağlama: önce eskinin bitir'i, sonra yeninin baslat'ı.
+    tb_iz = "";
+    assert(betik_ata(a, "tb2"), "yeniden baglama true donmeli");
+    assert(tb_iz == "x" + toString(a % 65536) + " b2 ", "sira bitir(eski) -> baslat(yeni) olmali: '" + tb_iz + "'");
+    // 7) Çöz: bitir; ikinci çöz sessiz false (hata değil).
+    tb_iz = "";
+    int h2 = hata_sayisi();
+    assert(betik_kaldir(a), "betik_kaldir true donmeli");
+    assert(!betik_kaldir(a), "ikinci betik_kaldir false donmeli");
+    assert(tb_iz == "x2 ", "cozunce tb2_bitir: '" + tb_iz + "'");
+    assert_eq_int(hata_sayisi(), h2);
+    assert(canli(a), "coz varligi silmemeli");
+    // 8) Sil: bitir BİR kez, varlık bitir sırasında canlı.
+    int bitir0 = tb_bitir_n;
+    sil(b);
+    assert_eq_int(tb_bitir_n, bitir0 + 1);
+    assert_eq_int(tb_bitirde_canli, tb_bitir_n);
+    // 9) KONTROL — ölü id: HATA + false.
+    int h3 = hata_sayisi();
+    assert(!betik_ata(b, "tb"), "olu id reddedilmeli");
+    assert_eq_int(hata_sayisi(), h3 + 1);
+    // Her baslat'a bir bitir (tb: a ve b, ikisi de bitti).
+    assert_eq_int(tb_baslat_n, tb_bitir_n);
+    sil(z);
+    assert_eq_int(betikli_sayisi(), 0);
+    assert_eq_int(hata_sayisi(), hata0 + 2);
+    print("    [bilgi] betik_ata: id " + toString(tb_son_id) + ", guncelle 5/5, carpisma diger #" + toString(tb_carp_diger)
+        + " (zemin #" + toString(zemin) + ") hiz " + toString(tb_carp_hiz) + ", baslat " + toString(tb_baslat_n) + " / bitir "
+        + toString(tb_bitir_n) + ", kasitli hata " + toString(hata_sayisi() - hata0));
+    sil(a);
+    sil(zemin);
+}
+
 if (!kur()) {
     print("  ATLANDI: motor kurulamadi (" + eng_last_error() + ") — GPU/Vulkan yok");
 } else {
@@ -1088,6 +1196,7 @@ if (!kur()) {
     test("tetik: gorunmez bolge, giris kuyrugu, tasima", "run_tetik");
     test("karakter: inis, yurume, tetik, ziplama", "run_karakter");
     test("arayuz yerlesimi: alt alta, adla/oranla tiklama, kontrol", "run_yerlesim");
+    test("betik_ata: kodla uretilen varliga kanca, sira, bitir, hata", "run_betik_bagla");
     motor_kapat();
 }
 test_summary();

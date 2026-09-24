@@ -116,6 +116,12 @@ SPEC = [
     ("eng_impulse", "void", [("id", "int"), ("ix", "num"), ("iy", "num"), ("iz", "num")], "Hiza ekler (ziplama, itme)."),
     ("eng_is_dynamic", "bool", [("id", "int")], "Dinamik govde mi."),
     ("eng_awake", "bool", [("id", "int")], "Govde uyanik mi (hareket ediyor)."),
+    # kodla uretilen varliga betik baglama (sahnedeki `betik "x.tpr"` atamasinin kod ikizi)
+    ("eng_script_attach", "bool", [("id", "int"), ("name", "str")],
+     "Kopru varligina davranis betigi BAGLAR: \"davranis/dusman.tpr\" ya da \"dusman\" -> <taban>_baslat(id) hemen, <taban>_guncelle(id, dt) her kare (yuva sirasi, fizikten sonra), _carpisma(id, diger, olay, x, y, z, hiz, diger_sahne), _tetik_girdi/_cikti(id, diger, diger_sahne), _bolge_girdi/_cikti(id, bolge, bolge_sahne), _bitir(id). `id` ve `diger` KOPRU id'si (0 = kopru varligi degil), son arguman SAHNE dizini (-1). Ikinci baglama oncekinin yerini alir (once onun _bitir'i). Hic kancasi bulunamayan ad, olu id ya da dolu havuz: HATA + false, onceki baglanti degismez."),
+    ("eng_script_detach", "bool", [("id", "int")], "Bagli betigi cozer: once baglanti kalkar, sonra <taban>_bitir(id) (varlik hala canli). false = bagli betik yoktu (hata degil). eng_despawn ve kapanis da _bitir'i kendisi cagirir."),
+    ("eng_script_name", "str", [("id", "int")], "Varliga bagli betigin taban adi (\"dusman\"); betik yoksa ya da id 0 ise bos metin (hata degil; kanca icinde betik_adi(diger) guvenli). Olu id HATA."),
+    ("eng_script_count", "int", [], "Betik bagli kopru varligi sayisi (havuz tavani 512)."),
     # model animasyonu
     ("eng_model_clip_count", "int", [("asset", "int")], "Modelin animasyon klip sayisi (glTF animations)."),
     ("eng_model_clip_duration", "float", [("asset", "int"), ("clip", "int")], "Klibin suresi (s)."),
