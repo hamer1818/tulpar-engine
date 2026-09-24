@@ -319,6 +319,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_math.cpp
     tests/test_containers.cpp
     tests/test_rhi.cpp
+    tests/test_vk_steady.cpp
     tests/test_audio.cpp
     tests/test_sim.cpp
     tests/test_physics.cpp

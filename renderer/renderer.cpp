@@ -61,6 +61,7 @@ bool Renderer::upload(VkBuffer dst, const void *data, VkDeviceSize size, VkBuffe
     return false;
   std::memcpy(sm.mapped, data, (size_t)size);
   VkCommandBuffer cb = dev_->begin_one_shot();
+  if (!cb) { a.vkDestroyBuffer(dev_->handle(), staging, nullptr); return false; } // tek seferlik yuva yok (Tuzaklar 8cd): NULL'a kayit cokerdi
   VkBufferCopy region{0, 0, size};
   a.vkCmdCopyBuffer(cb, staging, dst, 1, &region);
   bool ok = dev_->end_one_shot_and_wait(cb);
@@ -139,6 +140,7 @@ bool Renderer::upload_packed(VkBuffer dst, const Vertex *v, const SkinnedVertex 
     for (uint32_t i = 0; i < n; i++) pack_vertex(v[i], &dstv[i]);
   }
   VkCommandBuffer cb = dev_->begin_one_shot();
+  if (!cb) { a.vkDestroyBuffer(dev_->handle(), staging, nullptr); return false; } // tek seferlik yuva yok (Tuzaklar 8cd): NULL'a kayit cokerdi
   VkBufferCopy region{0, 0, size};
   a.vkCmdCopyBuffer(cb, staging, dst, 1, &region);
   const bool ok = dev_->end_one_shot_and_wait(cb);
@@ -1098,6 +1100,7 @@ TextureHandle Renderer::create_texture(const uint8_t *rgba, uint32_t w, uint32_t
     return TextureHandle{};
   std::memcpy(sm.mapped, rgba, (size_t)bytes);
   VkCommandBuffer cb = dev_->begin_one_shot();
+  if (!cb) { a.vkDestroyBuffer(dev_->handle(), staging, nullptr); return TextureHandle{}; } // tek seferlik yuva yok (Tuzaklar 8cd): NULL'a kayit cokerdi
   image_barrier(a, cb, t.image, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
   VkBufferImageCopy region{};
@@ -1750,6 +1753,7 @@ TextureHandle Renderer::create_texture_levels(VkFormat fmt, uint32_t w, uint32_t
     mw = mw > 1 ? mw / 2 : 1; mh = mh > 1 ? mh / 2 : 1;
   }
   VkCommandBuffer cb = dev_->begin_one_shot();
+  if (!cb) { a.vkDestroyBuffer(dev_->handle(), staging, nullptr); return TextureHandle{}; } // tek seferlik yuva yok (Tuzaklar 8cd): NULL'a kayit cokerdi
   image_barrier(a, cb, t.image, 0, levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
   a.vkCmdCopyBufferToImage(cb, staging, t.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, levels, regions);

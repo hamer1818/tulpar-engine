@@ -314,6 +314,12 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
   uint64_t last_ns = platform::now_ns(), report_ns = last_ns, start_ns = last_ns;
   uint32_t frame_i = 0, tick_i = 0;
   uint64_t frame_allocs_max = 0;
+  // AllocGate'in Vulkan ikizi (Tuzaklar 8cd): surucu bellegi operator new'e
+  // ugramaz; kare basina vkCreate*/vkAllocate* sayisi ayrica izlenir.
+  // `vk_steady` 6. kareden itibaren biriken fark (isinma haric).
+  uint64_t frame_vk_max = 0;
+  rhi::VkObjCounts vk_prev{}, vk_steady{};
+  rhi::vk_counters_read(dev.handle(), &vk_prev);
   uint64_t sim_ns = 0, render_ns = 0, acquire_ns = 0, ubo_ns = 0, draw_ns = 0, record_ns = 0, submit_ns = 0;
   float hud_fps = 0, hud_ms = 0;
   uint32_t report_frames = 0;
@@ -467,6 +473,19 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
     prof.end_frame();
     uint64_t fa = AllocGate::end_frame();
     if (frame_i > 5 && fa > frame_allocs_max) frame_allocs_max = fa;
+    {
+      rhi::VkObjCounts vk_now{};
+      rhi::vk_counters_read(dev.handle(), &vk_now);
+      const rhi::VkObjCounts d = rhi::vk_obj_counts_diff(vk_now, vk_prev);
+      vk_prev = vk_now;
+      if (frame_i > 5) {
+        if (d.total_created() > frame_vk_max) frame_vk_max = d.total_created();
+        for (uint32_t k = 0; k < rhi::kVkObjCount; k++) {
+          vk_steady.created[k] += d.created[k];
+          vk_steady.released[k] += d.released[k];
+        }
+      }
+    }
     frame_i++;
     if (headless && frame_i >= headless_frames) running = false;
     if (opts.max_frames && frame_i >= opts.max_frames) running = false;
@@ -477,11 +496,11 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
       double rf = report_frames ? (double)report_frames : 1.0;
       hud_ms = (float)(st.p50_ns / 1e6);
       hud_fps = hud_ms > 0 ? 1000.0f / hud_ms : 0;
-      std::printf("[engine_demo] kare %u | p50 %.2f ms p99 %.2f ms max %.2f ms | sim %.2f render %.2f (bekle+acquire %.2f, ubo %.2f, draw-listesi %.2f, kayit %.2f, submit+present %.2f) ms/kare | cizim %u | lod %u/%u/%u | isik %u (kume %u) | kare ici new (en cok) %llu | ozet %016llx\n",
+      std::printf("[engine_demo] kare %u | p50 %.2f ms p99 %.2f ms max %.2f ms | sim %.2f render %.2f (bekle+acquire %.2f, ubo %.2f, draw-listesi %.2f, kayit %.2f, submit+present %.2f) ms/kare | cizim %u | lod %u/%u/%u | isik %u (kume %u) | kare ici new (en cok) %llu | kare ici vk kurma (en cok) %llu | ozet %016llx\n",
                   frame_i, st.p50_ns / 1e6, st.p99_ns / 1e6, st.max_ns / 1e6, sim_ns / rf / 1e6, render_ns / rf / 1e6,
                   acquire_ns / rf / 1e6, ubo_ns / rf / 1e6, draw_ns / rf / 1e6, record_ns / rf / 1e6, submit_ns / rf / 1e6,
                   ren.stats().draws, lod_counts[0], lod_counts[1], lod_counts[2], ren.point_light_count(), ren.stats().clusters.clusters_touched,
-                  (unsigned long long)frame_allocs_max, (unsigned long long)scene.content_hash());
+                  (unsigned long long)frame_allocs_max, (unsigned long long)frame_vk_max, (unsigned long long)scene.content_hash());
       if (interactive) {
         Vec3 pp = scene.player_position();
         std::printf("[engine_demo] oyuncu (%.2f, %.2f, %.2f) cubuk (%.2f, %.2f) dokunus %u\n", pp.x, pp.y, pp.z, stick.move.x,
@@ -496,6 +515,19 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
   }
   double total_s = (platform::now_ns() - start_ns) / 1e9;
   std::printf("[engine_demo] toplam %u kare, %.1f s, ortalama %.1f fps\n", frame_i, total_s, total_s > 0 ? frame_i / total_s : 0.0);
+  // Kararli karelerde (6..son) Vulkan nesne kurma/birakma: yalniz sifir olmayan
+  // turler basilir; hic yoksa "0" — satirin yoklugu olcumun yoklugu olmasin.
+  std::printf("[engine_demo] vk nesne (kare 6..%u, kurma/birakma):", frame_i);
+  {
+    bool any = false;
+    for (uint32_t k = 0; k < rhi::kVkObjCount; k++)
+      if (vk_steady.created[k] || vk_steady.released[k]) {
+        std::printf(" %s +%llu/-%llu", rhi::vk_obj_name((rhi::VkObj)k), (unsigned long long)vk_steady.created[k],
+                    (unsigned long long)vk_steady.released[k]);
+        any = true;
+      }
+    std::printf("%s (yonlendirilemeyen %llu)\n", any ? "" : " 0", (unsigned long long)rhi::vk_counters_unrouted());
+  }
   if (have_blob) {
     const content::SceneRuntimeStats ss = srt.stats();
     std::printf("[engine_demo] sahne blob son kare: %u cizim, %u isik, %u govde\n", ss.draws, ss.lights, ss.bodies);
