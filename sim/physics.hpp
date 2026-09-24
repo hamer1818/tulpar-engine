@@ -148,10 +148,9 @@ public:
   // bulunmayabilir. Adimlamayi/durumu DEGISTIRMEZ: salt okunur sorgu, altin
   // ozet etkilenmez. dir sifir uzunlukluysa ya da max_distance <= 0 ise false.
   // `ignore`: bu govde YOK sayilir (Jolt IgnoreSingleBodyFilter). Kendi
-  // govdesinin icinden baslayan isin (zemin denetimi, gorus hatti) icin.
-  // Kopru bunu KARAKTERDE kullaniyor; kure/kutuda oyun dengesi eski yaklasima
-  // ("govdeyi kusatan kure kadar ileriden yeniden at") kurulu oldugu icin o
-  // yol duruyor — gerekcesi ve olcumu bridge/engine_api.cpp teng_raycast'te.
+  // govdesinin icinden baslayan isin (zemin denetimi, gorus hatti) icin;
+  // kopru skip_id'yi her turde bununla atliyor (eski yaklasik yol ve neden
+  // kaldirildigi: bridge/engine_api.cpp teng_raycast).
   bool raycast(Vec3 origin, Vec3 dir, float max_distance, RayHit *hit = nullptr, BodyId ignore = BodyId{}) const;
 
   // --- Karakter ------------------------------------------------------

@@ -407,6 +407,7 @@ struct EditorState {
   content::PoseScratch pose_scratch;
   sim::BodyId bodies[content::kSceneMaxEntities];
   sim::CharacterId chars[content::kSceneMaxEntities];
+  content::SceneLiveStats live; // son bodies_spawn'in olcumu
   bool bodies_live = false;
   // Malzeme graf paneli (ImNodes) acik mi. Panel ONIZLEMEDIR: tek sabit dugum
   // cizer, hicbir malzemeye baglanmaz -- rozeti bunu acikca soyler.
@@ -527,6 +528,7 @@ void clamp_selection(EditorState &st) {
 }
 
 // Fare pikselinden dunya isini (kamera tabanindan; matris tersi gerekmez).
+Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i); // asagida, bodies_spawn yaninda
 // Tum varliklarin dunya AABB'si (secim icin) — model sinirlari yuklu modelden.
 content::SceneBounds entity_world_bounds_one(const EditorState &st, const sim::Physics &phys, uint32_t i) {
   const SceneEntity &e = st.scene.entities[i];
@@ -536,8 +538,7 @@ content::SceneBounds entity_world_bounds_one(const EditorState &st, const sim::P
     mbs = {st.models[e.asset].bounds_min, st.models[e.asset].bounds_max};
     mb = &mbs;
   }
-  const bool simulated = st.playing && st.bodies_live && st.bodies[i].valid() && e.dynamic;
-  const Mat4 m = simulated ? content::scene_body_matrix(e, phys, st.bodies[i]) : content::scene_entity_world_matrix(st.scene, i);
+  const Mat4 m = live_matrix(st, phys, i);
   return content::scene_world_bounds(content::scene_entity_local_bounds(e, mb), m);
 }
 
@@ -609,15 +610,35 @@ void rescan_browse(EditorState &st) {
     set_status(st, "betik taramasi: %s", st.script_scan.err);
 }
 
+// Oynat (F5): govdeler + KARAKTERLER fizige. SceneRuntime ile ayni kural
+// (scene_spawn_live): karakterli varligin govdesi dogmaz. Eskiden yalniz govde
+// dogurulurdu — "Karakter Kontrolcusu" konan nesne F5'te kutu gibi devrilirdi,
+// oyunda ise karakter olarak dururdu; iki kip farkli seyi gosteriyordu.
 void bodies_spawn(EditorState &st, sim::Physics &ph) {
   if (st.bodies_live) return;
-  content::scene_spawn_bodies(st.scene, ph, st.bodies);
+  st.live = content::scene_spawn_live(st.scene, ph, st.bodies, st.chars);
   st.bodies_live = true;
+  if (st.live.characters || st.live.characters_failed)
+    console_log(ConsoleLevel::Bilgi, kConsoleTagScene, "oynat: %u govde, %u karakter (%u govde bileseni karakterin yerine gecti)",
+                st.live.bodies, st.live.characters, st.live.bodies_replaced);
+  if (st.live.characters_failed)
+    console_log(ConsoleLevel::Hata, kConsoleTagScene, "oynat: %u karakter DOGAMADI — boy > 2*yaricap olmali (Karakter karti), ya da havuz dolu",
+                st.live.characters_failed);
 }
 void bodies_remove(EditorState &st, sim::Physics &ph) {
   if (!st.bodies_live) return;
-  content::scene_remove_bodies(ph, st.bodies, st.scene.entity_count);
+  content::scene_remove_live(ph, st.bodies, st.chars, st.scene.entity_count);
   st.bodies_live = false;
+}
+// Varligin bu karedeki dunya matrisi: oynatilirken sim'den (dinamik govde ya
+// da karakter), degilse yazar donusumu. Dort cizim/secim yolu bunu kullanir.
+Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i) {
+  const SceneEntity &e = st.scene.entities[i];
+  if (st.playing && st.bodies_live) {
+    if (st.chars[i].valid()) return content::scene_character_matrix(st.scene, i, phys, st.chars[i]);
+    if (st.bodies[i].valid() && e.dynamic) return content::scene_body_matrix(e, phys, st.bodies[i]);
+  }
+  return content::scene_entity_world_matrix(st.scene, i);
 }
 // Varlik listesini degistiren islemler (ekle/sil/geri al/yinele) oynarken
 // govde indekslerini kaydirir: once govdeler cikar, sonra yeniden girer.
@@ -7063,8 +7084,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // kaynagi ve kumelenme oradan besleniyor), ama o kipin kapisini
       // dusurmustu -- Isiksiz gorunumde sahne yine isikli cizilirdi.
       if ((e.components & content::kSceneLight) && view_mode != 1) {
-        const bool simulated = st.playing && st.bodies_live && st.bodies[i].valid() && e.dynamic;
-        const Mat4 m = simulated ? content::scene_body_matrix(e, phys, st.bodies[i]) : content::scene_entity_world_matrix(st.scene, i);
+        const Mat4 m = live_matrix(st, phys, i);
         renderer::PointLight pl;
         pl.pos = {m.m[3][0], m.m[3][1], m.m[3][2]};
         pl.radius = e.light_radius;
@@ -7088,9 +7108,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     ren.begin_frame(headless ? 0 : frame_i);
     for (uint32_t i = 0; i < st.scene.entity_count; i++) {
       const SceneEntity &e = st.scene.entities[i];
-      const bool simulated = st.playing && st.bodies_live && st.bodies[i].valid() && e.dynamic;
       if (e.flags & content::kSceneHidden) continue; // panelde gozu kapatilmis varlik CIZILMEZ
-      const Mat4 m = simulated ? content::scene_body_matrix(e, phys, st.bodies[i]) : content::scene_entity_world_matrix(st.scene, i);
+      const Mat4 m = live_matrix(st, phys, i);
       const bool sel = st.sel.contains((int32_t)i);
       Vec3 tint = sel ? Vec3{1.0f, 0.9f, 0.4f} : e.tint;
       if (st.scene.fog_enabled && !sel) {
@@ -7467,9 +7486,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (view_mode == 2) { // Carpisma: govdeyle DONEN tel kutu; dinamik turuncu, sabit yesil.
       for (uint32_t i = 0; i < st.scene.entity_count; i++) {
         const SceneEntity &e = st.scene.entities[i];
-        if (!(e.components & content::kSceneBody) || (e.flags & content::kSceneHidden)) continue;
-        const bool simulated = st.playing && st.bodies_live && st.bodies[i].valid() && e.dynamic;
-        const Mat4 m = simulated ? content::scene_body_matrix(e, phys, st.bodies[i]) : content::scene_entity_world_matrix(st.scene, i);
+        if (e.flags & content::kSceneHidden) continue;
+        const bool karakter = e.components & content::kSceneCharacter;
+        if (!karakter && !(e.components & content::kSceneBody)) continue;
+        const Mat4 m = live_matrix(st, phys, i);
+        // Karakter: kapsulun kusatan kutusu (r, boy/2, r), mavi. Govdesi de varsa
+        // o govde oynatmada DOGMUYOR (karakter yerini aldi) — kutusu cizilmez.
+        if (karakter) {
+          editor_wire_box_m(ren, ds.cube, m, Vec3{e.char_radius, e.char_height * 0.5f, e.char_radius},
+                            st.sel.contains((int32_t)i) ? Vec3{1.0f, 0.95f, 0.4f} : Vec3{0.3f, 0.6f, 1.0f}, 0.03f);
+          continue;
+        }
         const Vec3 half = e.shape == content::SceneShape::Box ? e.half : Vec3{e.radius, e.radius, e.radius};
         const Vec3 col = st.sel.contains((int32_t)i) ? Vec3{1.0f, 0.95f, 0.4f}
                          : e.dynamic ? Vec3{1.0f, 0.55f, 0.15f} : Vec3{0.25f, 0.9f, 0.35f};
@@ -7537,10 +7564,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   FrameStats stt = prof.frame_stats(Span<uint64_t>(scratch, 1200), 0);
   const EditorUiStats us = ui.stats();
   const int32_t prim_end = st.sel.primary();
-  std::printf("[engine_editor] %u kare | p50 %.2f ms p99 %.2f ms | ui %u vertex %u indeks %u liste | cizim %u (gizmo %u) | nesne %u | kaynak %u/%u dosya | gunluk %u/%u%s | secili %u (%s) | tick %u\n",
+  std::printf("[engine_editor] %u kare | p50 %.2f ms p99 %.2f ms | ui %u vertex %u indeks %u liste | cizim %u (gizmo %u) | nesne %u | kaynak %u/%u dosya | gunluk %u/%u%s | secili %u (%s) | tick %u | oynat: govde %u karakter %u (yerine gecen %u, dogamayan %u)\n",
               frame_i, stt.p50_ns / 1e6, stt.p99_ns / 1e6, us.vertices, us.indices, us.draw_lists, ren.stats().draws, st.gizmo_draws,
               st.scene.entity_count, st.scene.asset_count, st.browse_count, st.hist.undo_count(), st.hist.redo_count(),
-              st.dirty ? " (kaydedilmedi)" : "", st.sel.count, prim_end >= 0 ? st.scene.entities[prim_end].name : "-", tick_i);
+              st.dirty ? " (kaydedilmedi)" : "", st.sel.count, prim_end >= 0 ? st.scene.entities[prim_end].name : "-", tick_i, st.live.bodies,
+              st.live.characters, st.live.bodies_replaced, st.live.characters_failed);
   bool imgui_hata_var = false;
   if (headless && opts.out_path) {
     if (rhi::write_ppm(opts.out_path, ores.pixels, oc.width, oc.height)) std::printf("[engine_editor] goruntu: %s\n", opts.out_path);

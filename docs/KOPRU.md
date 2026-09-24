@@ -299,9 +299,11 @@ iter. Konum **ayak tabanı**. Hız `karakter_yuru(id, vx, vz, zipla)` ile verili
 **kalıcı** (durmak için 0, 0), zıplama kenar-tetikli, dikey hız motorun. `konum_*`, `hiz_*`,
 `isinla` (hız sıfır), `sil`, `en_yakin`, ışın (karaktere **çarpar**) ve tetikler karakterde de
 çalışır; `hiz_ver`/`itme` karakterde **hata** verir (sessizce yok sayılsaydı "neden itilmiyor"
-diye aranırdı). Işının `skip_id`'si karakterde iç gövdeyi Jolt filtresiyle tam atlıyor; küre ve
-kutuda eski yaklaşım duruyor, çünkü mevcut oyunların dengesi ona kurulu (ölçüm ve gerekçe
-`teng_raycast` yorumunda: tam filtre engine_aksiyon'da 9 öldürmeyi 7'ye indirdi). Örnek:
+diye aranırdı). Işının `skip_id`'si her türde **tam**: o gövde Jolt filtresiyle yok sayılır. Eski
+yaklaşım (çarpınca gövdeyi kuşatan küre kadar ileriden yeniden at) gövdeye bitişik ~1 m'lik bir kör
+bölge bırakıyordu; `engine_aksiyon` farkında olmadan buna göre dengelenmişti — düşmanın engel
+yoklaması oyuncudan **sekiyordu**. Tam filtreye geçince oyun yeniden ayarlandı (engel yoklaması
+yalnız sahne geometrisini engel sayar, vuruş hasarı 34 → 50); ölçüm tablosu oyunun başında. Örnek:
 `tulpar/examples/engine_karakter.tpr` (merdiven, tetik, zıplanan duvar; penceresiz kipte kendi
 oynar, `[kapi]` satırı iki koşumda aynı). Kapsam dışı: karakterin kendi çarpışma olayları
 (sanal temaslar) çarpışma kuyruğuna girmiyor.

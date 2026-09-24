@@ -372,6 +372,24 @@ void scene_remove_bodies(sim::Physics &ph, sim::BodyId *ids, uint32_t n);
 // Dinamik govdenin sim'deki yeri: T(sim) * R(sim) * S(yazar).
 Mat4 scene_body_matrix(const SceneEntity &e, const sim::Physics &ph, sim::BodyId id);
 
+// Govdeler + KARAKTERLER (kSceneCharacter) — editorun oynatma kipi. SceneRuntime
+// ile AYNI kural: karakterli varligin govde bileseni DOGURULMAZ (karakter onun
+// yerini alir; editorun "Karakter Kontrolcusu" hazir nesnesi ikisini birden
+// koyuyor, ikisi dogsaydi karakter kendi kutusuyla ic ice dogardi). Kapsul
+// varligin yazar konumuna ORTALI (Jolt'un ayak tabanindan yarim boy asagi).
+// `chars` null ise yalniz govdeler, eski davranis (scene_spawn_bodies).
+struct SceneLiveStats {
+  uint32_t bodies = 0;
+  uint32_t characters = 0;
+  uint32_t characters_failed = 0; // boy <= 2*yaricap ya da havuz dolu — sessiz degil, cagiran soyler
+  uint32_t bodies_replaced = 0;   // karakter yuzunden dogurulmayan govde
+};
+SceneLiveStats scene_spawn_live(const SceneDesc &d, sim::Physics &ph, sim::BodyId *ids, sim::CharacterId *chars);
+void scene_remove_live(sim::Physics &ph, sim::BodyId *ids, sim::CharacterId *chars, uint32_t n);
+// Karakterli varligin sim'deki yeri: yazar donusumu (donus + olcek) korunur,
+// yalniz ORTA nokta karakterden (ayak + yarim boy).
+Mat4 scene_character_matrix(const SceneDesc &d, uint32_t i, const sim::Physics &ph, sim::CharacterId c);
+
 // Islem gunlugu: her degisiklik once/sonra kopyasiyla kaydedilir. Yeni islem
 // yinele kuyrugunu siler; kapasite dolunca en eski dusuruIur.
 struct SceneOp {
