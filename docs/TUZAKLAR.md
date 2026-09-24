@@ -1207,3 +1207,27 @@ değişmedi, yalnız görüntü fiziğe oturdu.
 
 **Ders:** görünen şey ile çarpışan şey iki ayrı veridir ve ancak **ikisi birlikte**
 ölçülürse örtüştükleri bilinir. Bir modelin pivotu, onu kullanan her sahnenin sözleşmesidir.
+
+### 8cb. Doğrulama kapısı kullanıcının dosyasını, kendi bozduğu sahneden yeniden yazıyordu
+
+**Belirti** (2026-09-24, bir ajanın ölçümüyle): editörün derlediği `salon1.sahneb`
+8112 bayt ve 27 navmesh poligonuydu. `engine_sahnec`'in aynı `.sahne`'den derlediği ise
+8160 bayt ve 28 poligon. Döküm farkı gösterdi: diskteki blob'da zemin (0, -0.5, 0) yerine
+(2.81, -1.53, 0.56) konumundaydı. `betik_dagitimi.sahneb` de aynı şekilde bozuktu. Oyunu
+doğrudan çalıştıran biri zemini bir metre aşağıda görürdü. Editörün F5'i sahneyi her seferinde
+yeniden derlediği için editörde hiçbir şey görünmüyordu.
+
+**Sebep:** penceresiz kapılar sırayla aynı sahne üzerinde çalışıyor ve hepsi yaptığını geri
+almıyor. Gizmo sürükleme kapısı varlık 0'ı sürükleyip bırakıyor. Gömülü oynatma kapısı (#43)
+sonra F5'i çağırıyor. F5 bellekteki sahneyi, yani **kapıların değiştirdiği** sahneyi, oyunun
+okuduğu diskteki `.sahneb`'e derledi. Blob türetilmiş ve gitignore'lu olduğu için hiçbir git
+farkı bunu göstermedi.
+
+**Düzeltme:** gömülü oynatma kapısı başlamadan önce sahneyi dosyadan yeniden okuyor. Artık
+editörün derlediği blob ile `engine_sahnec`'inki arasında yalnız bilinçli fark kalıyor:
+editör kaynak ölçümü yapmıyor. Navmesh aynı: 28 poligon, 4344 bayt. Bozuk blob'lar yeniden
+derlendi.
+
+**Ders:** bir kapı kullanıcının dosyasına yazıyorsa girdisi kullanıcının verisi olmalı,
+önceki kapıların artığı değil. "Türetilmiş dosya" demek "önemsiz dosya" demek değil: oyun onu
+okuyor.

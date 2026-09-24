@@ -7258,6 +7258,28 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       };
       if (frame_i == 40) {
         if (st.playing) set_playing(false); // onceki kapilarin fizik oynatmasi
+        // SAHNE DOSYADAN YENIDEN: onceki kapilar sahneyi degistirdi ve hepsi geri
+        // almiyor (gizmo surukleme kapisi varlik 0'i surukleyip birakiyor). F5
+        // sahneyi DISKTEKI blob'a derler; kapi degismis sahneyi derleseydi
+        // kullanicinin .sahneb'i bozulurdu. Olculdu (2026-09-24): bu satir
+        // yokken `--headless 50 --scene salon1.sahne` salon1.sahneb'deki zemini
+        // (0, -0.5, 0) -> (2.81, -1.53, 0.56) yaziyordu; oyun dogrudan
+        // calistirilinca zemin bir metre asagidaydi. load_scene_from degil:
+        // o "son dosyalar" listesine de yaziyor (kapi kullanici ayarina dokunmasin).
+        if (st.scene_path[0]) {
+          static content::SceneDesc temiz;
+          content::SceneError serr{};
+          if (!content::scene_load(sys, st.scene_path, &temiz, &serr)) {
+            std::printf("[engine_editor] gomulu oynatma kapisi: HATA — sahne yeniden okunamadi: %s\n", serr.msg);
+            return 1;
+          }
+          with_bodies(st, phys, [&] {
+            st.scene = temiz;
+            st.hist.clear();
+            st.groups.clear();
+            st.sel.clear();
+          });
+        }
         char exe[1024], comp[1024], why[512];
         if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
         static char bul[8][content::kScenePathLen];
