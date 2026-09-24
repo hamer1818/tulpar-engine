@@ -1575,13 +1575,56 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     recent_load(recent_file); // dosya yoksa false doner, liste bos kalir — HATA DEGIL
     recent_push(st.scene_path);
   }
+  // DURDUR = oynatma oncesine TAM donus (Unity/Godot'daki gibi):
+  //  - govdeler + karakterler fizikten cikar, cizim yazar donusumune doner;
+  //  - duraklatma, tek adim istegi ve oynatma suresi sifirlanir;
+  //  - OYNATMA SIRASINDA yapilan duzenlemeler GERI ALINIR. Kaybolmazlar:
+  //    yinele (Ctrl+Y) onlari geri getirir. Eskiden kaliyordu — oynatirken bir
+  //    degeri deneyip durdurunca sahne "oynatma oncesi" DEGILDI.
+  // Isaret gunlugun GRUP derinligi (bir kullanici eylemi = bir grup).
+  static uint32_t play_group_mark = 0;
+  static bool play_dirty_mark = false;
   auto set_playing = [&](bool p) {
     if (p == st.playing) return;
     st.playing = p;
     st.paused = false; // durdur/baslat duraklatmayi da sifirlar
     st.step_request = 0;
-    if (p) { st.play_time = 0; bodies_spawn(st, phys); }
-    else bodies_remove(st, phys); // durdur: veri modeli (yazar donusumu) gecerli
+    st.play_time = 0;
+    if (p) {
+      play_group_mark = st.groups.depth();
+      play_dirty_mark = st.dirty;
+      bodies_spawn(st, phys);
+      // F5 FIZIK onizlemesi: Tulpar betikleri AOT derlenir ve oyunun ikilisinde
+      // yasar, editorun icinde KOSMAZ. Sessiz kalsaydi "kovalayan neden
+      // kovalamiyor" diye aranirdi; yolu (Ctrl+F5) burada soyluyoruz.
+      uint32_t betikli = 0;
+      for (uint32_t i = 0; i < st.scene.entity_count; i++)
+        if ((st.scene.entities[i].components & content::kSceneScript) && st.scene.entities[i].script_enabled) betikli++;
+      if (betikli) {
+        set_status(st, "oynat: FIZIK onizlemesi — %u betik burada kosmaz, oyunu calistirmak icin Ctrl+F5", betikli);
+        console_log(ConsoleLevel::Uyari, kConsoleTagEditor,
+                    "F5 fizik onizlemesi: %u varligin betigi editorde KOSMAZ (AOT: betik oyunun ikilisinde). Betikleriyle calistirmak icin "
+                    "Oynat > Oyunu calistir (Ctrl+F5)",
+                    betikli);
+      }
+    } else {
+      bodies_remove(st, phys); // durdur: veri modeli (yazar donusumu) gecerli
+      uint32_t geri = 0;
+      while (st.groups.depth() > play_group_mark && st.hist.undo_count() > 0) {
+        const uint32_t k = st.groups.undo_size();
+        for (uint32_t i = 0; i < k && st.hist.undo(st.scene); i++) geri++;
+      }
+      if (geri) {
+        clamp_selection(st);
+        // Butun oynatma duzenlemeleri geri alindiysa kirli bayragi da oynatma
+        // oncesine doner (yalniz oynatirken kirlenen sahne "kaydedilmedi" demesin).
+        if (st.groups.depth() == play_group_mark) st.dirty = play_dirty_mark;
+        set_status(st, "durduruldu: oynatma sirasindaki %u duzenleme geri alindi (Ctrl+Y geri getirir)", geri);
+        console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "durdur: oynatma sirasindaki %u duzenleme geri alindi (yinele ile geri gelir)", geri);
+      } else {
+        set_status(st, "durduruldu: sahne oynatma oncesine dondu");
+      }
+    }
   };
   // Geri al / yinele GRUP isler: bir kullanici eylemi gunlukte N islem olabilir
   // (grup tasima = N set_entity, grup silme = N remove_entity). Sinirlar OpGroups'ta;
@@ -6817,21 +6860,95 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     // Duraklatma kapisi (kare 7-9): duraklatilmisken tick DURUR, F10 TEK adim
     // ilerletir. Kontrol duraklatmanin kendisidir: duraklamadan once tick akiyor.
+    // TICK SAYACI TEK BASINA KANIT DEGIL: bu kapi eskiden yalniz sayaci
+    // olcuyordu ve editor kipinde fizik HIC adimlanmazken yesil yaniyordu
+    // (DemoScene::tick bos zamanlayici). Simdi bir dinamik govdenin KONUMU da
+    // olculuyor: duraklamada y sabit, tek adimda degisiyor.
+    auto ilk_dinamik = [&]() -> int32_t {
+      for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+        const SceneEntity &e = st.scene.entities[i];
+        if ((e.components & content::kSceneBody) && e.dynamic && !e.body_sensor && !(e.components & content::kSceneCharacter)) return (int32_t)i;
+      }
+      return -1;
+    };
     if (headless && frame_i >= 7 && frame_i <= 9 && st.playing) {
       static uint32_t t_pause = 0, t_hold = 0;
+      static float y_pause = 0, y_hold = 0;
+      const int32_t di = ilk_dinamik();
+      const float y_now = di >= 0 ? live_matrix(st, phys, (uint32_t)di).m[3][1] : 0.0f;
       if (frame_i == 7) {
         t_pause = tick_i;
+        y_pause = y_now;
         st.paused = true;
       } else if (frame_i == 8) {
         t_hold = tick_i;
+        y_hold = y_now;
         st.step_request = 1;
       } else {
         const bool held = t_hold == t_pause;      // duraklatma: tick akmadi
         const bool stepped = tick_i == t_hold + 1; // tek adim: tam bir tick
-        std::printf("[engine_editor] duraklatma kapisi: tick %u -> %u (duraklatildi, akmadi %s) -> %u (tek adim %s) %s\n", t_pause, t_hold,
-                    held ? "evet" : "HAYIR", tick_i, stepped ? "evet" : "HAYIR", (held && stepped) ? "OK" : "HATA");
-        if (!(held && stepped)) return 1;
+        // Govde yoksa (sahnede dinamik govde yok) konum kolu ATLANIR ve soylenir.
+        const bool y_held = di < 0 || y_hold == y_pause;
+        const bool y_stepped = di < 0 || y_now != y_hold;
+        const bool ok = held && stepped && y_held && y_stepped;
+        std::printf("[engine_editor] duraklatma kapisi: tick %u -> %u (duraklatildi, akmadi %s) -> %u (tek adim %s); govde %s y %.4f -> %.4f "
+                    "(sabit %s) -> %.4f (adimda degisti %s) %s\n",
+                    t_pause, t_hold, held ? "evet" : "HAYIR", tick_i, stepped ? "evet" : "HAYIR",
+                    di >= 0 ? st.scene.entities[di].name : "(dinamik govde yok: konum kolu ATLANDI)", (double)y_pause, (double)y_hold,
+                    y_held ? "evet" : "HAYIR", (double)y_now, y_stepped ? "evet" : "HAYIR", ok ? "OK" : "HATA");
+        if (!ok) return 1;
         st.paused = false;
+      }
+    }
+    // DURDUR kapisi (kare 20-33, >= 36 kare; diger kapilar kare <= 18 ve
+    // gizmo kapisi oynatmayi kapatiyor, o yuzden burada YENIDEN baslatilir).
+    // Olculen: (a) oynatirken fizik gercekten kostu (dinamik govde yazar
+    // konumundan ayrildi); (b) oynatma sirasinda bir duzenleme yapilir;
+    // DURDUR'da govde yazar konumuna doner, duzenleme GERI alinir ve
+    // yinelenebilir; (c) yeniden OYNAT govdeyi kaldigi yerden degil yazar
+    // konumundan baslatir. Govde ya da varlik yoksa kapi OK DEMEZ, ATLANDI der.
+    if (headless && opts.headless_frames >= 36 && frame_i >= 20 && frame_i <= 33) {
+      static int32_t di = -1, ed = -1;
+      static float y_yazar = 0, y_oynarken = 0, x_once = 0;
+      static uint32_t redo_once = 0;
+      if (frame_i == 20) {
+        di = ilk_dinamik();
+        ed = st.scene.entity_count > 0 ? 0 : -1;
+        if (di < 0 || ed < 0) std::printf("[engine_editor] durdur kapisi: ATLANDI (sahnede dinamik govde ya da varlik yok)\n");
+        if (!st.playing) set_playing(true);
+      } else if (di < 0 || ed < 0) {
+        // atlandi
+      } else if (frame_i == 30) {
+        if (!st.playing) { std::printf("[engine_editor] durdur kapisi: HATA — 20. karede baslatilan oynatma 30. karede kapali\n"); return 1; }
+        y_yazar = content::scene_entity_world_matrix(st.scene, (uint32_t)di).m[3][1];
+        y_oynarken = live_matrix(st, phys, (uint32_t)di).m[3][1];
+        x_once = st.scene.entities[ed].pos.x;
+        SceneEntity after = st.scene.entities[ed];
+        after.pos.x += 2.0f; // oynatma SIRASINDA duzenleme
+        commit(st, ed, after);
+        redo_once = st.hist.redo_count();
+      } else if (frame_i == 31) {
+        set_playing(false);
+      } else if (frame_i == 32) {
+        const float y_dur = live_matrix(st, phys, (uint32_t)di).m[3][1];
+        const bool kosmustu = std::fabs(y_oynarken - y_yazar) > 0.05f;
+        const bool dondu = !st.playing && !st.bodies_live && y_dur == y_yazar;
+        const bool geri = st.scene.entities[ed].pos.x == x_once && st.hist.redo_count() > redo_once;
+        std::printf("[engine_editor] durdur kapisi: govde %s y yazar %.3f, oynarken %.3f (fizik kostu %s), durdurunca %.3f (yazara dondu %s); "
+                    "\"%s\" oynarken x %.2f -> %.2f, durdurunca %.2f (geri alindi %s, yinelenebilir %u) %s\n",
+                    st.scene.entities[di].name, (double)y_yazar, (double)y_oynarken, kosmustu ? "evet" : "HAYIR", (double)y_dur,
+                    dondu ? "evet" : "HAYIR", st.scene.entities[ed].name, (double)x_once, (double)(x_once + 2.0f), (double)st.scene.entities[ed].pos.x,
+                    geri ? "evet" : "HAYIR", st.hist.redo_count(), (kosmustu && dondu && geri) ? "OK" : "HATA");
+        if (!(kosmustu && dondu && geri)) return 1;
+        set_playing(true);
+      } else if (frame_i == 33) {
+        // Bir adim sonra govde yazar konumunun hemen altinda (en cok bir
+        // adimlik dusus), 30. karedeki dusmus yerinde DEGIL.
+        const float y_yeni = live_matrix(st, phys, (uint32_t)di).m[3][1];
+        const bool bastan = std::fabs(y_yeni - y_yazar) < 0.01f;
+        std::printf("[engine_editor] yeniden oynat kapisi: govde y %.3f (yazar %.3f, durmadan once %.3f) -> bastan basladi %s %s\n",
+                    (double)y_yeni, (double)y_yazar, (double)y_oynarken, bastan ? "evet" : "HAYIR", bastan ? "OK" : "HATA");
+        if (!bastan) return 1;
       }
     }
     if (headless && frame_i >= 2 && frame_i <= 5) {

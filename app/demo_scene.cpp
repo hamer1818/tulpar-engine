@@ -165,6 +165,7 @@ void demo_sys_phys(SystemCtx &c) {
 
 bool DemoScene::init(Arena &arena, JobSystem *jobs, bool with_content) {
   g_scene = this;
+  content_ = with_content;
   if (!build_nav(nav_)) return false;
   PhysicsConfig pc; pc.jobs = jobs;
   // Editor (with_content=false) sahnedeki karakterleri F5'te dogurur; havuz
@@ -246,6 +247,16 @@ void DemoScene::shutdown() {
 }
 
 void DemoScene::tick(float dt, uint32_t tick_index) {
+  // Editor kipi (icerik yok): zamanlayici kurulmadi, fizik burada adimlanir.
+  // 2026-09-24'e kadar bu dal YOKTU ve sched_.run bos zamanlayiciyla (sifir
+  // asama) donuyordu: editorde F5 tick sayacini ilerletiyor, fizigi HIC
+  // adimlamiyordu — "Oynat'a bastim, hicbir sey kipirdamadi". Editorun
+  // duraklatma kapisi yalniz tick SAYACINI olcuyordu, o yuzden kimse gormedi.
+  if (!content_) {
+    phys_.step(dt, 1);
+    particles_.update(dt);
+    return;
+  }
   sched_.run(world_, dt, nullptr, tick_index);
   particles_.update(dt); // ECS disinda, duz havuz -- ayri bir sistem olmaya GEREK yok
 }

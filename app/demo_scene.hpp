@@ -73,6 +73,11 @@ private:
   Vec2 player_cmd_{0, 0};
   bool player_jump_ = false;
   float player_speed_ = 5.0f;
+  // Demo icerigi kuruldu mu (init with_content). Editor kipinde (false)
+  // zamanlayici HIC kurulmuyor; tick() fizigi DOGRUDAN adimlar. Eskiden
+  // sched_.run bos zamanlayiciyla hicbir sey yapmiyordu: editorun F5'i tick
+  // sayacini ilerletip fizigi HIC adimlamiyordu (bkz. tick()).
+  bool content_ = true;
   sim::Joint joints_[kJoints];
   // Ajan AI: TEK PAYLASILAN agac tanimi (agent_bt_), calisma-zamani durumu
   // her Agent'in KENDI bt_state[] dizisinde -- sim/behavior_tree.hpp'nin

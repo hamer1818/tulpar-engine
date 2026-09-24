@@ -258,7 +258,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 
 | # | İş | Bağlanacağı yer |
 |---|---|---|
-| D.1 | ~~Karakter kontrolcüsü~~ **BİTTİ** | Kodla üretilen (`karakter(...)`) ve sahnede yerleştirilen karakter (`sahne_karakter_yuru(i, ...)`) oyunda doğuyor, tetik ve ışın dahil (KOPRU §8). Editörün F5'i de karakteri doğuruyor (`scene_spawn_live`: karakterli varlığın gövdesi doğmaz, kapsül ortalı; Çarpışma görünümünde mavi kapsül kutusu). F5 betik koşturmaz, karakter orada yalnız durur | `sim/physics.cpp` → `CharacterVirtual` |
+| D.1 | ~~Karakter kontrolcüsü~~ **BİTTİ** | Kodla üretilen (`karakter(...)`) ve sahnede yerleştirilen karakter (`sahne_karakter_yuru(i, ...)`) oyunda doğuyor, tetik ve ışın dahil (KOPRU §8). Editörün F5'i de karakteri doğuruyor (`scene_spawn_live`: karakterli varlığın gövdesi doğmaz, kapsül ortalı; Çarpışma görünümünde mavi kapsül kutusu). F5 betik koşturmaz (fizik önizlemesi; başlarken betik sayısını ve Ctrl+F5'i söylüyor). **Durdur** oynatma öncesine tam döner: oynatırken yapılan düzenlemeler geri alınır (Ctrl+Y geri getirir). F5'in fiziği hiç adımlamadığı hata: TUZAKLAR 8bw | `sim/physics.cpp` → `CharacterVirtual` |
 | D.2 | Ses kaynağı → mixer voice | `audio/mixer.cpp` + `audio/spatial.hpp` |
 | D.3 | NavAgent → yol bulma | `sim/navmesh.cpp` |
 | D.4 | Reverb | `audio/dsp.hpp` |
