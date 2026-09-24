@@ -184,7 +184,8 @@ ENGINE_TEST(editor_game_example_scenes_and_games_find_their_assets) {
   if (sys.capacity() == 0) sys.reserve(32u << 20, "ornek_kaynak");
   static content::SceneDesc d;
   uint32_t sahne = 0, kaynak = 0, eksik = 0, tpr = 0, atif = 0;
-  auto var_mi = [](const char *yol) {
+  auto var_mi = [](const char *yol) { // DOSYA: dizin sayilmaz (fopen Linux'ta dizini de acar)
+    if (app::file_is_dir(yol)) return false;
     FILE *f = std::fopen(yol, "rb");
     if (!f) return false;
     std::fclose(f);
@@ -228,7 +229,11 @@ ENGINE_TEST(editor_game_example_scenes_and_games_find_their_assets) {
       if (rl > 7 && !std::strcmp(rel + rl - 7, ".sahneb")) rel[rl - 1] = 0;
       atif++;
       std::snprintf(k, sizeof k, "%s/%s", kok, rel);
-      if (!var_mi(k)) { std::printf("    FAIL %s: \"%s\" yok\n", liste[i].name, rel); eksik++; }
+      // "examples/assets/" + ad gibi ONEK: dizin olarak aranir. fopen dizini
+      // Linux'ta acar, Windows'ta acmaz — dosya denetimiyle aransaydi kapi
+      // platforma gore farkli cevap verirdi (Windows CI'da oyle oldu).
+      const bool dizin = rel[0] && rel[std::strlen(rel) - 1] == '/';
+      if (dizin ? !app::file_is_dir(k) : !var_mi(k)) { std::printf("    FAIL %s: \"%s\" yok\n", liste[i].name, rel); eksik++; }
     }
   }
   std::printf("    [bilgi] %u sahne / %u kaynak, %u .tpr / %u \"examples/assets/\" atfi, eksik %u\n", sahne, kaynak, tpr, atif, eksik);
