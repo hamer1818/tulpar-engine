@@ -949,6 +949,118 @@ func run_karakter() {
     sil(zemin);
 }
 
+// Arayüz yerleşimi (engine.tpr, 2026-09-24, saf Tulpar): imleç widget'ları alt
+// alta dizer, test tıklaması koordinatsız (adla / kaydırıcıda oranla).
+// KONTROLLER: adla tıklama YALNIZ o düğmeyi tetikler (komşusu tetiklenmez);
+// olmayan ad, yanlış tür, aralık dışı oran false döner + UYARI sayar ve
+// tıklama ENJEKTE ETMEZ (sonraki karede hiçbir şey tetiklenmez); taşan pencere
+// UYARI verir, sığan vermez; köprü hata sayacı hiç artmaz.
+bool g_yA = false;
+bool g_yB = false;
+float g_ys = 0.1;     // kaydırıcı [0, 1]
+float g_yr = 10.0;    // kaydırıcı [10, 50]
+bool g_yc = false;
+
+func yer_kare(float x, float y, float w, float satir, float ara) {
+    kare_basla();
+    ui_basla();
+    ui_yerlesim(x, y, w, satir, ara);
+    g_yA = ui_dugme("Yer A");
+    g_yB = ui_dugme("Yer B");
+    g_ys = ui_kaydirici("Yer ses", g_ys, 0.0, 1.0);
+    g_yr = ui_kaydirici("Yer aralik", g_yr, 10.0, 50.0);
+    g_yc = ui_onay_kutusu("Yer onay", g_yc);
+    ui_bitir();
+    kare_bitir();
+}
+func yer_duz() { yer_kare(20, 6, 200, 30, 8); }   // ölçek 1: satır adımı 38 px
+
+func yer_pencere_kare(bool iki_dugme) {
+    kare_basla();
+    ui_basla();
+    ui_pencere("Yer pencere", 280, 150, 0);
+    ui_dugme("Pencere D1");
+    if (iki_dugme) { ui_dugme("Pencere D2"); }
+    ui_pencere_bitir();
+    ui_bitir();
+    kare_bitir();
+}
+
+func run_yerlesim() {
+    int h0 = hata_sayisi();
+    int u0 = ui_uyari_sayisi();
+    int t0 = ui_tiklama();
+    ui_olcek_sabitle(1.0);
+    // (a) alt alta, doğru yerde: x/genişlik/yükseklik ortak, y 38 px adımla
+    yer_duz();
+    assert(!g_yA && !g_yB, "tiklama yokken dugme tetiklenmemeli");
+    assert_eq_float(ui_oge_x("Yer onay"), 20.0);
+    assert_eq_float(ui_oge_w("Yer ses"), 200.0);
+    assert_eq_float(ui_oge_h("Yer B"), 30.0);
+    assert_eq_float(ui_oge_y("Yer A"), 6.0);
+    assert_eq_float(ui_oge_y("Yer B"), 44.0);
+    assert_eq_float(ui_oge_y("Yer ses"), 82.0);
+    assert_eq_float(ui_oge_y("Yer aralik"), 120.0);
+    assert_eq_float(ui_oge_y("Yer onay"), 158.0);
+    // (b) adla tıklama o düğmeyi tetikler; KONTROL: komşusu tetiklenmez
+    assert(ui_test_tikla_ad("Yer B"), "kayitli ad icin true donmeli");
+    yer_duz();
+    assert(g_yB, "adla tiklama 'Yer B'yi tetiklemeli");
+    assert(!g_yA, "KONTROL: 'Yer B' tiklamasi 'Yer A'yi tetiklememeli");
+    ui_test_tikla_ad("Yer A");
+    yer_duz();
+    assert(g_yA && !g_yB, "adla tiklama 'Yer A'yi tetiklemeli, 'Yer B'yi degil");
+    assert_eq_int(ui_tiklama(), t0 + 2);
+    // (c) oranlı tıklama: izin %25'i TAM 0.25 (720p menüdeki ses ayarı), %75'i [10, 50]'de TAM 40
+    assert(ui_test_tikla_oran("Yer ses", 0.25), "kaydirici oranli tiklama true donmeli");
+    yer_duz();
+    assert_eq_float(g_ys, 0.25);
+    ui_test_tikla_oran("Yer aralik", 0.75);
+    yer_duz();
+    assert_eq_float(g_yr, 40.0);
+    ui_test_tikla_ad("Yer onay");
+    yer_duz();
+    assert(g_yc, "adla tiklama onay kutusunu acmali");
+    assert_eq_int(ui_tiklama(), t0 + 3);   // kaydırıcı tıklama saymaz, onay sayar
+    // (d) KONTROL: olmayan ad false + UYARI, tıklama enjekte EDİLMEZ
+    assert(!ui_test_tikla_ad("Yer yok"), "olmayan ad false donmeli");
+    assert_eq_int(ui_uyari_sayisi(), u0 + 1);
+    yer_duz();
+    assert(!g_yA && !g_yB, "olmayan ada tiklama hicbir dugmeyi tetiklememeli");
+    assert(g_yc, "olmayan ada tiklama onay kutusunu degistirmemeli");
+    assert_eq_int(ui_tiklama(), t0 + 3);
+    // (e) KONTROL: düğmeye oranlı tıklama ve aralık dışı oran reddedilir
+    assert(!ui_test_tikla_oran("Yer A", 0.5), "dugme kaydirici degil: false donmeli");
+    assert(!ui_test_tikla_oran("Yer ses", 1.5), "aralik disi oran false donmeli");
+    assert_eq_int(ui_uyari_sayisi(), u0 + 3);
+    yer_duz();
+    assert(!g_yA, "reddedilen oranli tiklama dugmeyi tetiklememeli");
+    assert_eq_float(g_ys, 0.25);
+    // (f) pencere: ortalı (320x200), başlık altında imleç; sığan UYARI vermez, taşan verir
+    yer_pencere_kare(false);
+    assert_eq_int(ui_uyari_sayisi(), u0 + 3);
+    assert_eq_float(ui_oge_x("Pencere D1"), 44.0);   // (320-280)/2 + 24 pay
+    assert_eq_float(ui_oge_w("Pencere D1"), 232.0);
+    assert_eq_float(ui_oge_y("Pencere D1"), 91.0);   // (200-150)/2 + 24 + başlık 28 + 14
+    assert_eq_float(ui_oge_x("Pencere D1") + ui_oge_w("Pencere D1") / 2.0, genislik() / 2.0);
+    yer_pencere_kare(true);
+    assert_eq_int(ui_uyari_sayisi(), u0 + 4);
+    // (g) otomatik ölçek: yukseklik()/720; yerleşim ölçüleri onunla çarpılır ve tam piksele iner
+    ui_olcek_sabitle(0.0);
+    assert_close(ui_olcek(), 200.0 / 720.0, 0.000000001);
+    assert_close(ui_px(72), 20.0, 0.000000001);
+    yer_kare(36, 36, 360, 72, 36);
+    assert_eq_float(ui_oge_x("Yer A"), 10.0);
+    assert_eq_float(ui_oge_y("Yer A"), 10.0);
+    assert_eq_float(ui_oge_w("Yer A"), 100.0);
+    assert_eq_float(ui_oge_h("Yer A"), 20.0);
+    assert_eq_float(ui_oge_y("Yer B"), 40.0);        // kayıt EN SON yeri tutar
+    assert_eq_int(hata_sayisi(), h0);
+    print("    [bilgi] yerlesim: y 6/44/82/120/158, adla " + toString(ui_tiklama() - t0) + " tiklama, oran 0.25 -> "
+        + toString(g_ys) + ", 0.75 -> " + toString(g_yr) + ", uyari " + toString(ui_uyari_sayisi() - u0)
+        + " (4 beklenen), olcek " + toString(ui_olcek()));
+}
+
 if (!kur()) {
     print("  ATLANDI: motor kurulamadi (" + eng_last_error() + ") — GPU/Vulkan yok");
 } else {
@@ -975,6 +1087,7 @@ if (!kur()) {
     test("navmesh ajani: yol takibi, duran ajan kontrolu", "run_ajan");
     test("tetik: gorunmez bolge, giris kuyrugu, tasima", "run_tetik");
     test("karakter: inis, yurume, tetik, ziplama", "run_karakter");
+    test("arayuz yerlesimi: alt alta, adla/oranla tiklama, kontrol", "run_yerlesim");
     motor_kapat();
 }
 test_summary();

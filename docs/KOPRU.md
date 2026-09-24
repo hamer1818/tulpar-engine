@@ -30,8 +30,8 @@ AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İ
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
 | binding | `runtime/engine_bindings.cpp` (**üretilmiş**) | `aot_eng_*_ptr` (VMValue ABI) → `teng_*` |
-| sarmalayıcı | `lib/engine.tpr` (gömülü, 771 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`); `Vec3` ve oyun yardımcıları (`yol_yonu`, `goruyor_mu`) |
-| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (1097) | saf Tulpar |
+| sarmalayıcı | `lib/engine.tpr` (gömülü, 1011 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
+| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (720) | saf Tulpar |
 
 **Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut dört dosya üretir:
 binding (`runtime/engine_bindings.cpp`), backend tablosu (`src/aot/engine_builtins_table.inc`), typeinfer
@@ -367,6 +367,38 @@ yeniden yazıldı: 1187 satırdan 729'a; 3200 karelik doğrulama özeti bayt bay
 struct alanına bileşik atama kullanıyor (`dusmanlar[i].can -= 50`); bu TulparLang #344'ten önce sessizce
 hiçbir şey yapmıyordu. `tools/motor_derleyici.sh` kurulumdan sonra bunu bir sonda programıyla doğrular.
 
+**Arayüz yerleşimi (2026-09-24, yalnız `lib/engine.tpr`; köprü değişmedi).** Anlık-kip widget'ları
+(`dugme(ad, x, y, w, h)` …) her düğmenin yerini ister; menü kodu yerleri elle topluyordu
+(`y + 70`, `y + 140`) ve pencersiz doğrulama her düğmenin tıklama noktasını ayrı bir globalde
+saklıyordu. Kitaplık artık bir **dikey yığın** veriyor: imleç (x, y, genişlik, satır yüksekliği,
+aralık) widget'ları alt alta dizer.
+- `ui_pencere(baslik, w, h, renk)` ekranda ortalanmış başlıklı panel kurar ve imleci içine koyar;
+  `ui_dugme(ad)`, `ui_kaydirici(ad, deger, en_az, en_cok)`, `ui_onay_kutusu(ad, deger)`,
+  `ui_etiket(yazi, olcek, renk)` / `ui_etiket_orta`, `ui_bosluk(h)`, `ui_satir(h)` / `ui_ara(a)`
+  koordinat almaz. `ui_pencere_bitir()` içerik panele sığmadıysa **UYARI** verir ve gereken
+  yüksekliği söyler (panel içerikten ÖNCE çizilir; önceki karenin ölçüsüyle otomatik boy seçilseydi
+  ilk karedeki konum farklı olur, o karede istenen test tıklaması ıskalardı). Panelsiz yığın:
+  `ui_yerlesim(x, y, w, satir, ara)`. EN ikizleri `ui_window`, `layout_button`, `layout_slider` …
+- **Ölçek:** yerleşimdeki her sayı 720p'lik tasarım birimidir, `ui_olcek()` = `yukseklik() / 720` ile
+  çarpılır; köprünün fontu da yükseklikle yüklendiği için (1080p'de 28 px) düğme ve yazısı birlikte
+  büyür. Koordinatlı widget'lar ham piksel almaya devam eder, onlar için `ui_px(v)`. Dikdörtgenler tam
+  piksele yuvarlanır: oranlı tıklama float'ta TAM düşer (izin %25'i 0.25 verir; 0.3 ise
+  0.30000001192092896 — float32 izin hesabı, ölçüldü).
+- **Adla test tıklaması:** her widget (koordinatlılar da) dikdörtgenini adıyla kaydeder.
+  `ui_test_tikla_ad("Basla")`, kaydırıcıda `ui_test_tikla_oran("Ses", 0.25)` (izin payı 12 px:
+  `teng_ui_slider`'daki `pad` ile aynı olmalı, `run_yerlesim` ölçer). Kayıt adın **en son** çizildiği
+  yeri tutar (Gölge Salonları "Basla"yı menünün çizilmediği karede istiyor; tıklama sonraki karede menü
+  gelince tüketiliyor). Hiç çizilmemiş ad, yanlış tür, [0, 1] dışı oran false döner + UYARI +
+  `ui_uyari_sayisi()`; kayıt 128 adla sınırlı, dolunca UYARI.
+
+Kapı `run_yerlesim` (konumlar, adla/oranla tıklama; KONTROL: komşu düğme tetiklenmez, ıskalayan ad
+tıklama enjekte etmez, taşan pencere uyarır). Kitaplık üç kez bilerek bozuldu (pay 12 -> 10, tıklama
+noktası kaydırıldı, ıskalama sessiz yapıldı): üçünde de test kırmızı. Gölge Salonları'nın üç ekranı
+bununla yazıldı — koordinat alan widget çağrısı 21 -> 0, kod satırı 49 -> 38; otopilotun menü
+kısmı 17 -> 8. Enjekte tıklamalar eskisiyle **kare kare** aynı (k0 Ayarlar, k1 kaydırıcı, k2 Geri,
+k3 Başla) ve 3200 karelik `[kapi]` özeti bayt bayt aynı. Kapsam dışı: HUD hâlâ sabit piksel
+(2400x1080'de "CAN" yazısı çubuğa sığmıyor), yatay (yan yana) yerleşim yok.
+
 ### 8.1 Bir oyunun tam yaşam döngüsü (gerçek çağrı adlarıyla)
 
 `lib/engine.tpr` sarmalayıcıları ve `examples/engine_aksiyon.tpr`'nin akışı:
@@ -427,7 +459,8 @@ func main() {
 ```
 
 Pencersiz doğrulama aynı betikle: `TULPAR_ENGINE_HEADLESS=600 TULPAR_ENGINE_OUT=/tmp/x.ppm DISPLAY= ./tulpar oyun.tpr`
-(menü akışı da ölçülsün diye `ui_test_tikla` ile enjekte tıklama; "Gölge Salonları" böyle koşuyor).
+(menü akışı da ölçülsün diye enjekte tıklama: `ui_test_tikla(x, y)` ya da koordinatsız
+`ui_test_tikla_ad("Basla")`; "Gölge Salonları" ikincisiyle koşuyor).
 
 ### 8.2 Hâlâ olmayanlar
 - **Çarpışma olayı yok** (konum/hız/ışın/küre sorgusu var); callback FFI gelmeden geri çağrı yok.
