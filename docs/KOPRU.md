@@ -439,14 +439,16 @@ eşleşmez ve sessiz kalsaydı bir yazım hatası "tasarımcı değer girmedi" g
 varlık başına bir **aralık** kurar (`prop_first/prop_n[256]`, sabit dizi, tek geçiş; blob kayıtları
 `(varlık, ad)` ile sıralı olduğu için) — ve bunu `_baslat` kancalarından **önce** yapar, çünkü
 okumanın beklenen yeri orası (kapı: sahte VM'in `_baslat`ı `can = 250` okuyor; aralık sonra
-kurulsaydı -1, yani varsayılan okunurdu, sessizce). Okuma aralık içinde ada göre tarar
+kurulsaydı -1, yani varsayılan okunurdu, sessizce). Aynı sebeple **navmesh** de artık kancalardan
+önce kuruluyor: eskiden kanca döngüsünün sonundaydı ve `baslat` içinde `nav_var()` navmesh'li
+sahnede de false dönüyordu (Tuzaklar 8cg). Okuma aralık içinde ada göre tarar
 (≤ 16 kayıt), kare içinde **ayırma yok** (AllocGate: okuyan 10 kare 0, 1.5 M okuma 0).
 
 Ölçülen okuma maliyeti (AMD Ryzen 7 9800X3D / RTX 5080 masaüstü, GCC 16.2.1 Release,
 2026-09-25; `bridge_runs_a_scripted_game_headless` 4.8, 1e5 okuma × 5 koşumun medyanı, C
-ABI doğrudan — Tulpar çağrı yükü hariç; üç koşumun en düşüğü–en yükseği): bulunan özellik
-**6.8–8.2 ns**, eksik özellik (4 kaydın tamamı taranır) **12.4–15.7 ns**, varsayılan nokta
-(tarama + dünya çevirisi) **17.7–21.8 ns**. Doğumda okunan birkaç değer için ihmal edilebilir;
+ABI doğrudan — Tulpar çağrı yükü hariç; dört koşumun en düşüğü–en yükseği): bulunan özellik
+**6.6–8.2 ns**, eksik özellik (4 kaydın tamamı taranır) **12.4–15.7 ns**, varsayılan nokta
+(tarama + dünya çevirisi) **17.4–21.8 ns**. Doğumda okunan birkaç değer için ihmal edilebilir;
 yine de kare içinde okumanın gerekçesi yok.
 
 **Blob v8** (`content/scene_blob.hpp`): `SceneBlobProp {entity, type, v[3], name[24], reserved}`

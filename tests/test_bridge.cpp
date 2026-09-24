@@ -36,6 +36,7 @@
 #include "bridge/engine_api.h"
 #include "content/scene.hpp"
 #include "content/scene_blob.hpp"
+#include "content/scene_compile.hpp"
 #include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
 #include "platform/thread.hpp"
@@ -636,12 +637,14 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       //   kaide    kok, DONUK (0 90 0), olcekli (2 2 2); ozelliksiz
       //   muhafiz  kaide'nin COCUGU, betikli ("ozbekci"); dort tur ustune yazilmis
       //   er       kok, donussuz; ozelliksiz (her okuma varsayilan)
+      //   zemin    sabit kutu govde: navmesh BAKE edilir (editorun Derle'si gibi)
       // Olculen: ustune yazilmis vs varsayilan (4 tur + has); eksik ozellik HATA
       // SAYMAZ, varsayilan DEGISMEDEN doner; tur uyusmazligi / uzun ad / gecersiz
       // ad / sinir disi HATA sayar; donuk ebeveynli noktanin dunya degeri
       // donussuz hesaptan FARKLI (pozitif kontrol); ayni yerel ofsetli varsayilan
       // ile ustune yazilmis nokta BIT-TAM ayni (tek kural); baslat kancasi
-      // ozelligi GORUYOR (aralik kancalardan once kuruldu); okuyan karelerde
+      // ozelligi GORUYOR (aralik kancalardan once kuruldu) ve navmesh'i de
+      // (Tuzaklar 8cg: nav eskiden kancalardan SONRA kuruluyordu); okuyan karelerde
       // AllocGate 0; okuma basina ns (1e5 okuma, 5 kosumun medyani).
       {
         static content::SceneDesc od;
@@ -663,18 +666,33 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         content::SceneEntity er{};
         std::snprintf(er.name, sizeof er.name, "er");
         er.pos = Vec3{-3, 0, 2};
-        CHECK(od.insert_entity(0, ka) && od.insert_entity(1, mu) && od.insert_entity(2, er));
+        content::SceneEntity ze{};
+        std::snprintf(ze.name, sizeof ze.name, "zemin");
+        ze.components = content::kSceneBody;
+        ze.pos = Vec3{0, -0.5f, 0};
+        ze.half = Vec3{20, 0.5f, 20}; // ust yuz y=0, sabit: navmesh bake girdisi
+        CHECK(od.insert_entity(0, ka) && od.insert_entity(1, mu) && od.insert_entity(2, er) && od.insert_entity(3, ze));
         char oblob[800];
         std::snprintf(oblob, sizeof oblob, "%s/_kopru_ozellik.sahneb", assets_dir());
-        CHECK(content::scene_blob_save(arena, od, oblob, &serr));
+        content::SceneCompileOptions copt;
+        copt.measure_resident = false; // kaynak yok; yalniz navmesh (editorun Derle'si ile ayni ayar)
+        copt.bake_nav = true;
+        content::SceneBlobExtras ox;
+        content::SceneCompileReport orep;
+        CHECK(content::scene_compile(arena, od, assets_dir(), copt, &ox, &orep) && orep.nav_ok);
+        CHECK(content::scene_blob_save_ex(arena, od, &ox, oblob, &serr));
         // Betik VM'i: yalniz ozbekci_baslat var; icinden ozellik okur. Aralik
         // kancalardan SONRA kurulsaydi burada -1 (varsayilan) okunurdu — sessizce.
-        static int oz_baslat_n = 0, oz_baslat_can = 0;
-        oz_baslat_n = 0; oz_baslat_can = 0;
+        static int oz_baslat_n = 0, oz_baslat_can = 0, oz_baslat_nav = -1;
+        oz_baslat_n = 0; oz_baslat_can = 0; oz_baslat_nav = -1;
         struct OzVm {
           static int has(const char *fn) { return std::strcmp(fn, "ozbekci_baslat") == 0 ? 1 : 0; }
           static int call(const char *fn, const double *args, int argc) {
-            if (!std::strcmp(fn, "ozbekci_baslat") && argc == 1) { oz_baslat_n++; oz_baslat_can = teng_scene_prop_int((int)args[0], "can", -1); }
+            if (!std::strcmp(fn, "ozbekci_baslat") && argc == 1) {
+              oz_baslat_n++;
+              oz_baslat_can = teng_scene_prop_int((int)args[0], "can", -1);
+              oz_baslat_nav = teng_nav_ok();
+            }
             return 1;
           }
         };
@@ -686,9 +704,11 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         CHECK(teng_error_count() == e0);
         const int ki = teng_scene_find("kaide"), mi = teng_scene_find("muhafiz"), ei = teng_scene_find("er");
         CHECK(ki == 0 && mi == 1 && ei == 2);
-        std::printf("    [bilgi] ozellik: baslat %d kez, baslat icinde can = %d (250 olmali; -1 = aralik kancalardan SONRA kurulmus)\n", oz_baslat_n,
-                    oz_baslat_can);
+        std::printf("    [bilgi] ozellik: baslat %d kez, baslat icinde can = %d (250 olmali; -1 = aralik kancalardan SONRA kurulmus), "
+                    "nav_ok = %d (1 olmali; yuklemeden sonra %d)\n",
+                    oz_baslat_n, oz_baslat_can, oz_baslat_nav, teng_nav_ok());
         CHECK(oz_baslat_n == 1 && oz_baslat_can == 250);
+        CHECK(teng_nav_ok() == 1 && oz_baslat_nav == 1); // Tuzaklar 8cg: baslat navmesh'i GORUYOR
         // (a) ustune yazilmis vs varsayilan — HATA YOK.
         CHECK(teng_scene_prop_int(mi, "can", 100) == 250 && teng_scene_prop_int(ei, "can", 100) == 100);
         CHECK(teng_scene_prop_num(mi, "hiz", 3.0) == 5.5);

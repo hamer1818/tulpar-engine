@@ -1767,8 +1767,17 @@ int teng_scene_load(const char *path) {
          b.phys_max_characters);
   // Navmesh: bake DERLEME aninda yapildi (engine_sahnec), burada yalniz sorgu
   // nesnesi kurulur. Bake yoksa hata degil: oyun duz yol + isin testine duser.
+  // Betik `baslat`larindan ONCE (Tuzaklar 8cg): eskiden bu blok kanca
+  // dongusunun SONUNDAYDI ve baslat icinde nav_var() navmesh'li sahnede de
+  // false donuyordu — "navmesh yok, duz yola dus" diyen bir betik sessizce
+  // yanlis dala giriyordu (olculdu 2026-09-25: baslat'ta false, yuklemeden
+  // sonra true).
   b.nav_n = 0;
   b.nav_partial = false;
+  b.nav_ok = b.nav.init(b.sys, v, 2048);
+  if (b.nav_ok) BINFO("navmesh hazir: %u poligon, ozet %016llx (sorgu yolunda ayirma yok)", b.nav.polys(), (unsigned long long)b.nav.data_hash());
+  else if (v.has_nav()) BERR("sahnede navmesh verisi var ama sorgu kurulamadi (%s) — kovalama duz yola duser", path);
+  else BDBG("sahnede navmesh yok (bake edilmedi: sabit kutu govdeli yurunebilir zemin gerekir) — kovalama duz yola duser");
   // Sicak yeniden yukleme damgasi: bu dosyanin YUKLENEN hali.
   std::snprintf(b.watch_path, sizeof b.watch_path, "%s", path);
   file_stamp_pub(b.watch_path, &b.watch_mtime, &b.watch_size);
@@ -1825,10 +1834,6 @@ int teng_scene_load(const char *path) {
   }
   if (b.script_any) BINFO("betik kancalari: %u cagri, %u eksik", b.script_calls, b.script_missing);
 
-  b.nav_ok = b.nav.init(b.sys, v, 2048);
-  if (b.nav_ok) BINFO("navmesh hazir: %u poligon, ozet %016llx (sorgu yolunda ayirma yok)", b.nav.polys(), (unsigned long long)b.nav.data_hash());
-  else if (v.has_nav()) BERR("sahnede navmesh verisi var ama sorgu kurulamadi (%s) — kovalama duz yola duser", path);
-  else BDBG("sahnede navmesh yok (bake edilmedi: sabit kutu govdeli yurunebilir zemin gerekir) — kovalama duz yola duser");
   return 1;
 }
 void teng_set_script_vm(const TengScriptVm *vm) {

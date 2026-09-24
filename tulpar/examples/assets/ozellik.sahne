@@ -5,11 +5,12 @@ isik-gunes 0.9
 golge 4 1 -2 14 50
 kamera 4 1 -2 0.6 0.5 18
 nesne "zemin"
-  konum 4 0 -2
+  konum 4 -0.5 -2
   donus 0 0 0
   olcek 24 1 24
   model kaynak -1 0.34 0.38 0.44
   ilkel 8
+  govde kutu 0.5 0.5 0.5 sabit
 son
 nesne "muhafiz_2"
   konum -3 1 2

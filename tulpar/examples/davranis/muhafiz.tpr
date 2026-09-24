@@ -20,6 +20,7 @@ int muhafiz_sayisi = 0;
 int muhafiz_can_toplam = 0;
 int muhafiz_kalkanli = 0;
 float muhafiz_hiz_toplam = 0.0;
+int muhafiz_navli = 0;     // baslat'ta navmesh'i gören (Tuzaklar 8cg: eskiden hep 0)
 
 func muhafiz_baslat(i) {
     int can = ozellik_tam(i, "can", 100);
@@ -30,6 +31,9 @@ func muhafiz_baslat(i) {
     muhafiz_can_toplam += can;
     muhafiz_hiz_toplam += hiz;
     if (kalkan) { muhafiz_kalkanli += 1; }
+    // Devriye navmesh üzerinden mi, düz mü? Karar DOĞUMDA verilir — navmesh
+    // bu kanca çağrılmadan önce kurulmuş olmalı (motor öyle kuruyor).
+    if (nav_var()) { muhafiz_navli += 1; }
     logla("muhafiz " + sahne_adi(i) + ": can " + toString(can) + ", hiz " + toString(hiz) + ", kalkan " + toString(kalkan)
         + ", devriye_a (" + toString(a.x) + " " + toString(a.y) + " " + toString(a.z) + ")");
 }
