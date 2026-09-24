@@ -1,0 +1,42 @@
+tulpar-sahne 1
+isik-yon 0.4 1 0.3
+isik-ortam 0.14 0.15 0.19
+isik-gunes 0.9
+golge 4 1 -2 14 50
+kamera 4 1 -2 0.6 0.5 18
+nesne "zemin"
+  konum 4 -0.5 -2
+  donus 0 0 0
+  olcek 24 1 24
+  model kaynak -1 0.34 0.38 0.44
+  ilkel 8
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "muhafiz_2"
+  konum -3 1 2
+  donus 0 0 0
+  olcek 1 1 1
+  model kaynak -1 0.3 0.7 0.9
+  ilkel 11
+  betik "tulpar/examples/davranis/muhafiz.tpr" etkin
+son
+nesne "kaide"
+  konum 10 1 -4
+  donus 0 90 0
+  olcek 2 2 2
+  model kaynak -1 0.62 0.45 0.3
+  ilkel 10
+son
+nesne "muhafiz"
+  konum 1 1 0
+  donus 0 0 0
+  olcek 0.5 0.5 0.5
+  ebeveyn 2
+  model kaynak -1 0.85 0.25 0.2
+  ilkel 11
+  betik "tulpar/examples/davranis/muhafiz.tpr" etkin
+  ozellik_tam "can" 250
+  ozellik_nokta "devriye_a" -2 0 -1.5
+  ozellik_sayi "hiz" 5.5
+  ozellik_bayrak "kalkan" evet
+son

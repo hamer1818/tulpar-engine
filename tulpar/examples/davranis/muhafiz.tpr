@@ -1,0 +1,39 @@
+// Davranış — "muhafiz": NESNE ÖZELLİKLERİ örneği (E4). Motor çağırır:
+//
+//   muhafiz_baslat(i)    sahne yüklenince bir kez — özellikler BURADA okunur
+//
+// Aynı betik birden çok muhafıza atanır (tulpar/examples/assets/ozellik.sahne);
+// tasarımcı editörde her birine KENDİ değerini verir: can, hiz, kalkan,
+// devriye_a. Verilmeyen değer aşağıdaki varsayılandır ve o varsayılan BURADA,
+// kodda yaşar — sahne yalnız üstüne yazılanları taşır. Adı ve varsayılanı
+// LİTERAL olan her `ozellik_*` çağrısı, editörün (E5) tarayıp denetçide
+// göstereceği bildirimdir.
+//
+// `ozellik_nokta` DÜNYA konumu döner: varsayılan yerel ofset (muhafıza göre)
+// da editördeki değer de aynı kuralla çevrilir (muhafızın editördeki konumu +
+// dönüşü; ölçek yok). Devriye noktası muhafız yürüse de yerinde kalır.
+//
+// Betik değişkenleri varlık başına DEĞİL, betik başına: aşağıdakiler bütün
+// muhafızların ortak toplamı (tests/engine_bridge.test.tpr → run_ozellik okur).
+
+int muhafiz_sayisi = 0;
+int muhafiz_can_toplam = 0;
+int muhafiz_kalkanli = 0;
+float muhafiz_hiz_toplam = 0.0;
+int muhafiz_navli = 0;     // baslat'ta navmesh'i gören (Tuzaklar 8cg: eskiden hep 0)
+
+func muhafiz_baslat(i) {
+    int can = ozellik_tam(i, "can", 100);
+    float hiz = ozellik_sayi(i, "hiz", 3.5);
+    bool kalkan = ozellik_bayrak(i, "kalkan", false);
+    Vec3 a = ozellik_nokta(i, "devriye_a", v3(-2.0, 0.0, 0.0));
+    muhafiz_sayisi += 1;
+    muhafiz_can_toplam += can;
+    muhafiz_hiz_toplam += hiz;
+    if (kalkan) { muhafiz_kalkanli += 1; }
+    // Devriye navmesh üzerinden mi, düz mü? Karar DOĞUMDA verilir — navmesh
+    // bu kanca çağrılmadan önce kurulmuş olmalı (motor öyle kuruyor).
+    if (nav_var()) { muhafiz_navli += 1; }
+    logla("muhafiz " + sahne_adi(i) + ": can " + toString(can) + ", hiz " + toString(hiz) + ", kalkan " + toString(kalkan)
+        + ", devriye_a (" + toString(a.x) + " " + toString(a.y) + " " + toString(a.z) + ")");
+}

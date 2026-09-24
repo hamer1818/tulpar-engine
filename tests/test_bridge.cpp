@@ -18,9 +18,14 @@
 //                   icinden sil/bagla/uret, havuz tavani; KONTROL: kancasiz ad ve
 //                   olu id HATA sayar, sahne sayaci etkilenmez, kapanista
 //                   toplam baslat == toplam bitir.
+//   ozellikler      teng_scene_prop_* (4.8): ustune yazilmis vs varsayilan (4 tur),
+//                   baslat icinden okuma, nokta dunya uzayinda; KONTROL: donuk
+//                   ebeveynli nokta donussuzden farkli, eksik ozellik hata SAYMAZ,
+//                   tur uyusmazligi / ad kurali / sinir disi sayar, AllocGate 0.
 //
 // Tek surecte tek motor ornegi var (global baglam): bu dosya init/shutdown'u
 // BIR kez yapar ve tum kapilar o oturumun icinde kosar.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -31,8 +36,11 @@
 #include "bridge/engine_api.h"
 #include "content/scene.hpp"
 #include "content/scene_blob.hpp"
+#include "content/scene_compile.hpp"
+#include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
 #include "platform/thread.hpp"
+#include "platform/time.hpp"
 #include "rhi/vk_api.hpp"
 #if defined(_WIN32)
 #include <cstdlib>
@@ -229,6 +237,8 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // Kapi bayraklari: kasitli hata sayisi hangi bolumlerin kostuguna bagli.
   bool sahne_kapisi = false, anim_kapisi = false, ses_kapisi = false;
   int ortam_hatasi = 0; // ortamdan gelen (kasitsiz) hatalar: cihaz/kaynak yok
+  int oz_hata = 0;      // 4.8 nesne ozellikleri: kasitli hatalar (orada tek tek sayilir)
+  const TengScriptVm *sahte_vm = nullptr; // 4.5c'nin VM'i (4.8 kendi VM'ini kurup geri koyar)
   {
     static SystemArena arena;
     if (arena.capacity() == 0) arena.reserve(64u << 20, "bridge_scene_test");
@@ -348,6 +358,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         // blok kapaninca sonraki her kare, kapsami bitmis bir yapinin islev
         // isaretcilerini okuyordu (tanimsiz davranis; sans eseri bozulmadi).
         static const TengScriptVm vm{Sahte::has, Sahte::call};
+        sahte_vm = &vm;
         const int errs_hook = teng_error_count();
         teng_scene_unload();
         teng_set_script_vm(&vm);
@@ -620,6 +631,196 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         CHECK(teng_draw_count() == draws_scene);
         std::printf("    [bilgi] bolum gecisi: cizim %d -> %d -> %d, govde %d -> %d -> %d\n", draws_scene, draws_empty, teng_draw_count(),
                     bodies_scene, bodies_empty, teng_body_count());
+      }
+      // --- 4.8) NESNE OZELLIKLERI (E4): editorde verilen deger oyuna ulasiyor mu? ---
+      // Bellekte kucuk bir sahne (editor.sahne kanonik metin kapisinin oznesi):
+      //   kaide    kok, DONUK (0 90 0), olcekli (2 2 2); ozelliksiz
+      //   muhafiz  kaide'nin COCUGU, betikli ("ozbekci"); dort tur ustune yazilmis
+      //   er       kok, donussuz; ozelliksiz (her okuma varsayilan)
+      //   zemin    sabit kutu govde: navmesh BAKE edilir (editorun Derle'si gibi)
+      // Olculen: ustune yazilmis vs varsayilan (4 tur + has); eksik ozellik HATA
+      // SAYMAZ, varsayilan DEGISMEDEN doner; tur uyusmazligi / uzun ad / gecersiz
+      // ad / sinir disi HATA sayar; donuk ebeveynli noktanin dunya degeri
+      // donussuz hesaptan FARKLI (pozitif kontrol); ayni yerel ofsetli varsayilan
+      // ile ustune yazilmis nokta BIT-TAM ayni (tek kural); baslat kancasi
+      // ozelligi GORUYOR (aralik kancalardan once kuruldu) ve navmesh'i de
+      // (Tuzaklar 8cg: nav eskiden kancalardan SONRA kuruluyordu); okuyan karelerde
+      // AllocGate 0; okuma basina ns (1e5 okuma, 5 kosumun medyani).
+      {
+        static content::SceneDesc od;
+        content::scene_desc_reset(od);
+        content::SceneEntity ka{};
+        std::snprintf(ka.name, sizeof ka.name, "kaide");
+        ka.pos = Vec3{10, 0, -4}; ka.rot_deg = Vec3{0, 90, 0}; ka.scale = Vec3{2, 2, 2};
+        content::SceneEntity mu{};
+        std::snprintf(mu.name, sizeof mu.name, "muhafiz");
+        mu.parent = 0;
+        mu.pos = Vec3{1, 0, 0};
+        mu.components = content::kSceneScript;
+        mu.script_enabled = true;
+        std::snprintf(mu.script_file, sizeof mu.script_file, "davranis/ozbekci.tpr");
+        const float can[3] = {250, 0, 0}, hiz[3] = {5.5f, 0, 0}, evet[3] = {1, 0, 0}, dev[3] = {-2.0f, 0.0f, -1.5f};
+        CHECK(content::scene_prop_set(mu, "can", content::kScenePropTam, can) && content::scene_prop_set(mu, "hiz", content::kScenePropSayi, hiz) &&
+              content::scene_prop_set(mu, "kalkan", content::kScenePropBayrak, evet) &&
+              content::scene_prop_set(mu, "devriye_a", content::kScenePropNokta, dev));
+        content::SceneEntity er{};
+        std::snprintf(er.name, sizeof er.name, "er");
+        er.pos = Vec3{-3, 0, 2};
+        content::SceneEntity ze{};
+        std::snprintf(ze.name, sizeof ze.name, "zemin");
+        ze.components = content::kSceneBody;
+        ze.pos = Vec3{0, -0.5f, 0};
+        ze.half = Vec3{20, 0.5f, 20}; // ust yuz y=0, sabit: navmesh bake girdisi
+        CHECK(od.insert_entity(0, ka) && od.insert_entity(1, mu) && od.insert_entity(2, er) && od.insert_entity(3, ze));
+        char oblob[800];
+        std::snprintf(oblob, sizeof oblob, "%s/_kopru_ozellik.sahneb", assets_dir());
+        content::SceneCompileOptions copt;
+        copt.measure_resident = false; // kaynak yok; yalniz navmesh (editorun Derle'si ile ayni ayar)
+        copt.bake_nav = true;
+        content::SceneBlobExtras ox;
+        content::SceneCompileReport orep;
+        CHECK(content::scene_compile(arena, od, assets_dir(), copt, &ox, &orep) && orep.nav_ok);
+        CHECK(content::scene_blob_save_ex(arena, od, &ox, oblob, &serr));
+        // Betik VM'i: yalniz ozbekci_baslat var; icinden ozellik okur. Aralik
+        // kancalardan SONRA kurulsaydi burada -1 (varsayilan) okunurdu — sessizce.
+        static int oz_baslat_n = 0, oz_baslat_can = 0, oz_baslat_nav = -1;
+        oz_baslat_n = 0; oz_baslat_can = 0; oz_baslat_nav = -1;
+        struct OzVm {
+          static int has(const char *fn) { return std::strcmp(fn, "ozbekci_baslat") == 0 ? 1 : 0; }
+          static int call(const char *fn, const double *args, int argc) {
+            if (!std::strcmp(fn, "ozbekci_baslat") && argc == 1) {
+              oz_baslat_n++;
+              oz_baslat_can = teng_scene_prop_int((int)args[0], "can", -1);
+              oz_baslat_nav = teng_nav_ok();
+            }
+            return 1;
+          }
+        };
+        static const TengScriptVm ozvm{OzVm::has, OzVm::call};
+        teng_scene_unload();
+        teng_set_script_vm(&ozvm);
+        const int e0 = teng_error_count();
+        CHECK(teng_scene_load(oblob) == 1);
+        CHECK(teng_error_count() == e0);
+        const int ki = teng_scene_find("kaide"), mi = teng_scene_find("muhafiz"), ei = teng_scene_find("er");
+        CHECK(ki == 0 && mi == 1 && ei == 2);
+        std::printf("    [bilgi] ozellik: baslat %d kez, baslat icinde can = %d (250 olmali; -1 = aralik kancalardan SONRA kurulmus), "
+                    "nav_ok = %d (1 olmali; yuklemeden sonra %d)\n",
+                    oz_baslat_n, oz_baslat_can, oz_baslat_nav, teng_nav_ok());
+        CHECK(oz_baslat_n == 1 && oz_baslat_can == 250);
+        CHECK(teng_nav_ok() == 1 && oz_baslat_nav == 1); // Tuzaklar 8cg: baslat navmesh'i GORUYOR
+        // (a) ustune yazilmis vs varsayilan — HATA YOK.
+        CHECK(teng_scene_prop_int(mi, "can", 100) == 250 && teng_scene_prop_int(ei, "can", 100) == 100);
+        CHECK(teng_scene_prop_num(mi, "hiz", 3.0) == 5.5);
+        CHECK(teng_scene_prop_num(ei, "hiz", 0.1) == 0.1); // varsayilan DEGISMEDEN (float'a yuvarlanmadan) doner
+        CHECK(teng_scene_prop_flag(mi, "kalkan", 0) == 1 && teng_scene_prop_flag(ei, "kalkan", 0) == 0 && teng_scene_prop_flag(ei, "kalkan", 1) == 1);
+        CHECK(teng_scene_prop_has(mi, "can") == 1 && teng_scene_prop_has(mi, "devriye_a") == 1 && teng_scene_prop_has(ei, "can") == 0 &&
+              teng_scene_prop_has(mi, "yok") == 0);
+        CHECK(teng_scene_prop_int(mi, "abcdefghijklmnopqrstuvw", 7) == 7); // 23 karakter: gecerli ad, yok -> hata DEGIL (sinir kontrolu)
+        // nokta: ustune yazilmis -> blob'daki DUNYA degeri = scene_prop_point_world (bit-tam).
+        float wexp[3];
+        content::scene_prop_point_world(od, (uint32_t)mi, dev, wexp);
+        CHECK(teng_scene_prop_point(mi, "devriye_a", 0, 0, 0) == 1);
+        const double mx = teng_scene_prop_px(), my = teng_scene_prop_py(), mz = teng_scene_prop_pz();
+        CHECK(mx == (double)wexp[0] && my == (double)wexp[1] && mz == (double)wexp[2]);
+        // varsayilan nokta, donussuz kok: dunya = konum + yerel, TAM.
+        CHECK(teng_scene_prop_point(ei, "devriye_a", -2.0, 0.0, -1.5) == 0);
+        CHECK(teng_scene_prop_px() == -5.0 && teng_scene_prop_py() == 0.0 && teng_scene_prop_pz() == 0.5);
+        // (b) TEK KURAL: ayni yerel ofsetli VARSAYILAN (muhafiz'da "yok_nokta")
+        // ustune yazilmis devriye_a ile BIT-TAM ayni dunya noktasini verir.
+        CHECK(teng_scene_prop_point(mi, "yok_nokta", -2.0, 0.0, -1.5) == 0);
+        const bool ayni = teng_scene_prop_px() == mx && teng_scene_prop_py() == my && teng_scene_prop_pz() == mz;
+        CHECK(ayni);
+        CHECK(teng_error_count() == e0); // eksik ozellik HATA degil (8 okuma yukarida)
+        // (c) POZITIF KONTROL: donuk ebeveyn noktayi dondurdu. Donussuz hesap
+        // (varligin dunya konumu + yerel) ve yerelin kendisi FARKLI olmali.
+        const double wpx = teng_scene_x(mi), wpy = teng_scene_y(mi), wpz = teng_scene_z(mi);
+        const double d_donussuz = std::sqrt((mx - (wpx - 2.0)) * (mx - (wpx - 2.0)) + (my - wpy) * (my - wpy) + (mz - (wpz - 1.5)) * (mz - (wpz - 1.5)));
+        const double d_boy = std::sqrt((mx - wpx) * (mx - wpx) + (my - wpy) * (my - wpy) + (mz - wpz) * (mz - wpz));
+        std::printf("    [bilgi] ozellik nokta: muhafiz (%.4f %.4f %.4f) @ (%.4f %.4f %.4f), donussuzden %.3f m, varliga %.4f (yerel boy 2.5; olcek 2 "
+                    "uygulansaydi 5.0); er varsayilani (-5 0 0.5) tam; ayni ofset varsayilan == ustune yazilmis: %s\n",
+                    mx, my, mz, wpx, wpy, wpz, d_donussuz, d_boy, ayni ? "bit-tam" : "FARKLI");
+        CHECK(d_donussuz > 1.0);
+        CHECK(std::fabs(d_boy - 2.5) < 1e-5);
+        // (d) HATALAR: sayilir, varsayilan doner.
+        int e = teng_error_count();
+        CHECK(teng_scene_prop_point(mi, "can", -2.0, 0.0, -1.5) == 0); // tam'i nokta olarak
+        CHECK(teng_scene_prop_px() == mx && teng_scene_prop_pz() == mz); // varsayilan YINE dunyaya cevrildi (oyun calismaya devam)
+        CHECK(teng_scene_prop_int(mi, "hiz", 7) == 7);        // sayi'yi tam olarak
+        CHECK(teng_scene_prop_num(mi, "kalkan", 1.5) == 1.5); // bayrak'i sayi olarak
+        CHECK(teng_scene_prop_flag(mi, "devriye_a", 1) == 1); // nokta'yi bayrak olarak
+        CHECK(teng_error_count() == e + 4);
+        e = teng_error_count();
+        CHECK(teng_scene_prop_int(mi, "abcdefghijklmnopqrstuvwx", 9) == 9); // 24 karakter
+        CHECK(teng_scene_prop_num(mi, "Can", 2.0) == 2.0);                  // editor boyle ad yazamaz
+        CHECK(teng_scene_prop_has(mi, "") == 0);
+        CHECK(teng_error_count() == e + 3);
+        e = teng_error_count();
+        CHECK(teng_scene_prop_int(9999, "can", 4) == 4 && teng_scene_prop_has(-1, "can") == 0);
+        CHECK(teng_scene_prop_point(9999, "devriye_a", 1.0, 2.0, 3.0) == 0);
+        CHECK(teng_scene_prop_px() == 1.0 && teng_scene_prop_py() == 2.0 && teng_scene_prop_pz() == 3.0); // cevrilemez: oldugu gibi
+        CHECK(teng_error_count() == e + 3);
+        oz_hata += 10;
+        // (e) AllocGate: ozellik okuyan kareler. KONTROL penceresi ayni kareleri
+        // okumadan kosar — kare kendisi ayiriyorsa fark orada gorunur.
+        uint64_t al_kontrol = 0, al_okuma = 0, al_dongu = 0;
+        double acc = 0;
+        {
+          AllocGate::begin_frame();
+          for (int f = 0; f < 10; f++) { teng_frame_begin(); teng_frame_end(); }
+          al_kontrol = AllocGate::end_frame();
+          AllocGate::begin_frame();
+          for (int f = 0; f < 10; f++) {
+            teng_frame_begin();
+            for (int i = 0; i < 3; i++) {
+              acc += teng_scene_prop_num(i, "hiz", 1.0) + teng_scene_prop_int(i, "can", 1) + teng_scene_prop_flag(i, "kalkan", 0) +
+                     teng_scene_prop_has(i, "can");
+              teng_scene_prop_point(i, "devriye_a", 0.5, 0, 0);
+              acc += teng_scene_prop_px();
+            }
+            teng_frame_end();
+          }
+          al_okuma = AllocGate::end_frame();
+        }
+        // (f) okuma basina maliyet: 1e5 okuma x 5 kosum, medyan. Uc bicim:
+        // bulunan (aralikta ilk kayit), eksik (araligin tamami taranir),
+        // varsayilan nokta (tarama + dunya cevirisi).
+        constexpr int kOkuma = 100000;
+        double ns_bul[5], ns_yok[5], ns_nok[5];
+        AllocGate::begin_frame();
+        for (int r = 0; r < 5; r++) {
+          uint64_t t0 = platform::now_ns();
+          for (int k = 0; k < kOkuma; k++) acc += teng_scene_prop_int(mi, "can", k);
+          uint64_t t1 = platform::now_ns();
+          for (int k = 0; k < kOkuma; k++) acc += teng_scene_prop_num(mi, "zzz_yok", (double)k);
+          uint64_t t2 = platform::now_ns();
+          for (int k = 0; k < kOkuma; k++) { teng_scene_prop_point(mi, "yok_nokta", (double)k, 0, 0); acc += teng_scene_prop_px(); }
+          uint64_t t3 = platform::now_ns();
+          ns_bul[r] = (double)(t1 - t0) / kOkuma;
+          ns_yok[r] = (double)(t2 - t1) / kOkuma;
+          ns_nok[r] = (double)(t3 - t2) / kOkuma;
+        }
+        al_dongu = AllocGate::end_frame();
+        std::sort(ns_bul, ns_bul + 5);
+        std::sort(ns_yok, ns_yok + 5);
+        std::sort(ns_nok, ns_nok + 5);
+        std::printf("    [bilgi] ozellik okuma maliyeti (1e5 x 5, medyan): bulunan %.1f ns, eksik (4 kayit taranir) %.1f ns, varsayilan nokta %.1f ns "
+                    "[%s]; AllocGate: kontrol 10 kare %llu, okuyan 10 kare %llu, 1.5e6 okuma %llu (toplam %.0f)\n",
+                    ns_bul[2], ns_yok[2], ns_nok[2], teng_gpu_name(), (unsigned long long)al_kontrol, (unsigned long long)al_okuma,
+                    (unsigned long long)al_dongu, acc);
+        // Iddia ikiye ayrilir (test_rhi ile ayni sinif): (a) BIZIM kod — okuma
+        // dongusu karesiz, surucusuz: 0, her cihazda; (b) okuyan KARELER surucuyu
+        // da sayar (global new ayni surec). Surucu kare icinde ayirmiyorsa
+        // (olculdu: NVIDIA 0) okuyan kareler de 0 olmali; ayiriyorsa (test_rhi:
+        // MoltenVK 28/kare) sayi CIHAZ VERISI — basilir, iddia edilmez.
+        CHECK(al_dongu == 0);
+        if (al_kontrol == 0) CHECK(al_okuma == 0);
+        else skip("surucu kare icinde operator new cagiriyor (test_rhi: MoltenVK sinifi): okuyan-kare sayisi cihaz verisi; okuma dongusu 0 olculdu");
+        CHECK(teng_error_count() == e + 3); // olcum dongulerinde hata yok
+        teng_scene_unload();
+        std::remove(oblob);
+        teng_set_script_vm(sahte_vm); // 4.5c'nin VM'i: onceki durum aynen geri
+        CHECK(teng_scene_load(blob) == 1);
       }
       unlink(blob);
     } else if (authored) {
@@ -1234,6 +1435,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/ + 1 /*karakterde hiz_ver*/;
   beklenen += kod_hata; // 10d: kodla betik baglamanin kasitli reddleri (orada tek tek sayildi)
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
+  beklenen += oz_hata; // 4.8: nesne ozelliklerinin kasitli hatalari (tur uyusmazligi, ad kurali, sinir disi)
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;
   const int errs_total = teng_error_count() - err0 - ortam_hatasi;

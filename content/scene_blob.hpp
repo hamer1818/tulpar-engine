@@ -34,6 +34,18 @@
 namespace tulpar::engine::content {
 
 constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
+// v8: nesne OZELLIKLERI (E4) — editorde varliga verilen, betigin varsayilaninin
+// USTUNE yazilmis degerler (can = 250, hiz = 5, devriye noktalari) artik
+// derlenmis sahneye giriyor. v7'nin kurali burada da uygulandi: tablo, onu
+// OKUYAN taraf (kopru: eng_scene_prop_*) ile AYNI degisiklikte geldi. E3'ten bu
+// yana engine_sahnec ve editorun Derle'si "ozellikler .sahneb'ye girmiyor"
+// uyarisi basiyordu; o uyari bu surumle kalkti. Baslik BUYUMEDI: v7'nin
+// script_reserved0/1'i prop_count/prop_offset oldu (v7 notu tam bunu soyluyordu:
+// "sonraki v7 alanlarinin yeri"). Ozet DEGISMEDI: FNV-1a 64 [header_size,
+// total) araligini kapsiyor; yeni baslik alanlari da yeni tablo da o aralikta.
+// Tablo plan_of'ta EN SONDA (betik tablosundan sonra): ozelliksiz bir sahnenin
+// bolum ofsetleri ve toplam boyu v7'dekiyle ayni; degisen yalniz surum,
+// prop_offset (bos tablo: blob sonu) ve ozet.
 // v7: betik (.tpr) atamasi — editorde varliga atanan Tulpar betigi artik
 // derlenmis sahneye giriyor ve oyun onu okuyabiliyor (eng_scene_script).
 // YALNIZ betik: Camera/Audio tablolari bu yukseltmeye BINMEDI, cunku onlarin
@@ -46,7 +58,7 @@ constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
 // v5 ARA SURUM olarak atlanmadi — v5'i yazan bir .sahneb hic uretilmedi
 // (bicim bu agacta v4'ten dogrudan v6'ya gecti), numara yalniz #331'in
 // tarihcesiyle hizali kalsin diye tutuluyor.
-constexpr uint32_t kSceneBlobVersion = 7;
+constexpr uint32_t kSceneBlobVersion = 8;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -108,11 +120,12 @@ struct SceneBlobHeader {
   uint32_t character_count, character_offset; // SceneBlobCharacter[]
   // --- v7: betik tablosu ---------------------------------------------------
   // Yine SONA: v6 blob'larinin ilk N bayti ayni yerlesimde kaliyor.
-  // Iki `reserved`: baslik 16 HIZALI olmak zorunda (asagidaki static_assert)
-  // ve iki u32 eklemek hizayi bozuyordu. Bosluk degil, sonraki v7 alanlarinin
-  // yeri — ayni gerekce gi_reserved*'ta da var.
+  // v7'de burada iki `reserved` vardi: baslik 16 HIZALI olmak zorunda
+  // (asagidaki static_assert) ve iki u32 eklemek hizayi bozuyordu. Bosluk
+  // degildi, sonraki alanlarin yeriydi — v8 onlari kullandi (asagida).
   uint32_t script_count, script_offset;       // SceneBlobScript[]
-  uint32_t script_reserved0, script_reserved1;
+  // --- v8: ozellik tablosu (v7'nin iki `script_reserved` alaninin yerinde) --
+  uint32_t prop_count, prop_offset;           // SceneBlobProp[] ((varlik, ad) ile SIRALI)
 };
 // GI sondasi: 6 yonlu ambient cube + dogrudan gunes gorunurlugu.
 // Yuz sirasi +X,-X,+Y,-Y,+Z,-Z; deger E(n)/pi, DOGRUSAL RGB (gi.hpp sozlesmesi).
@@ -273,6 +286,32 @@ struct SceneBlobScript {
   uint32_t flags;    // bit0: etkin (SceneEntity::script_enabled)
 }; // 16 bayt
 
+// v8 — nesne ozelligi (SceneEntity::props'un derlenmis hali).
+//
+// Ad KAYDIN ICINDE, metin tablosunda DEGIL. Metin tablosu muhasebesi
+// (scene_blob.cpp plan_of) intern()'e sayilan bayta guveniyor ve eksik
+// sayilirsa KOMSU bolumun ustune yaziyor — ozet de table_ok da bunu
+// yakalayamiyor (v7'de belgelendi). Oraya varlik basina 16 kalem daha eklemek o
+// riski buyuturdu; 24 baytlik sabit alan kendi sinirini tasiyor ve
+// scene_blob_open onu KAYIT BASINA dogruluyor (NUL, karakter kumesi, kuyruk).
+//
+// Kayitlar (varlik dizini, ad) ile SIRALI ve ayni (varlik, ad) iki kez YOK:
+// kopru varlik basina araligi yuklemede TEK geciste kurar, sorgu aralik icinde
+// tarar (<= kSceneMaxProps kayit). Siralama/tekillik scene_blob_open'da olculur.
+//
+// `nokta` DUNYA uzayindadir: blob duzlestirilmis bir sahne (SceneBlobEntity ile
+// ayni sozlesme), yerel ofset blob'a girmez. Deger scene_prop_point_world ile
+// derlenir; runtime'in ustune yazilMAMIS bir noktayi ayni sonuca cevirmesi icin
+// SceneBlobView::point_world var (bit-tam ayni islem sirasi).
+// Turun kullanmadigi v bilesenleri SIFIR (+0, bit bit) — acilista olculur.
+struct SceneBlobProp {
+  uint32_t entity;                // varlik dizini (< entity_count)
+  uint32_t type;                  // ScenePropType (kSceneProp*: 1..4)
+  float v[3];                     // sayi / tam / bayrak: v[0]; nokta: DUNYA konumu
+  char name[kScenePropNameLen];   // [a-z0-9_]{1,23} + NUL, NUL'dan sonrasi SIFIR
+  uint32_t reserved;              // 0: kayit 16'nin kati + sonraki bir bayragin yeri
+}; // 48 bayt
+
 static_assert(sizeof(SceneBlobHeader) % kSceneBlobAlign == 0, "baslik 16 hizali");
 static_assert(sizeof(SceneBlobResident) == 32, "yerlesik kaydi 32 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobDagNode) == 80 && sizeof(SceneBlobDagMesh) == 48, "DAG kayit boyutlari sabit (dosya formati)");
@@ -284,6 +323,7 @@ static_assert(sizeof(SceneBlobParticle) == 48 && sizeof(SceneBlobTerrain) == 48 
                   sizeof(SceneBlobWind) == 32 && sizeof(SceneBlobVoxel) == 32 && sizeof(SceneBlobCharacter) == 32,
               "v6 kayit boyutlari sabit (dosya formati)");
 static_assert(sizeof(SceneBlobScript) == 16, "v7 betik kaydi 16 bayt (dosya formati)");
+static_assert(sizeof(SceneBlobProp) == 48 && sizeof(SceneBlobProp) % kSceneBlobAlign == 0, "v8 ozellik kaydi 48 bayt (dosya formati)");
 
 // Acilmis blob: isaretciler blob'un icine bakar (kopya yok). Blob bellegi
 // gorunumden uzun yasamali ve 16 hizali olmali.
@@ -304,6 +344,7 @@ struct SceneBlobView {
   const SceneBlobWind *winds = nullptr;
   const SceneBlobCharacter *characters = nullptr;
   const SceneBlobScript *scripts = nullptr; // v7
+  const SceneBlobProp *props = nullptr;     // v8 ((varlik, ad) ile sirali; bossa nullptr)
   const SceneBlobResident *residents = nullptr;
   const uint8_t *nav = nullptr; // bake edilmis Detour verisi (SALT OKUNUR; nav_size bayt)
   const SceneBlobDagMesh *dag_meshes = nullptr;
@@ -321,6 +362,13 @@ struct SceneBlobView {
   uint64_t hash() const { return ((uint64_t)h->hash_hi << 32) | h->hash_lo; }
   SceneWorld world() const;
   Mat4 entity_matrix(uint32_t i) const;
+  // Varliga gore YEREL ofset -> DUNYA: dunya konumu (pos) + dunya donusu (quat)
+  // x yerel; olcek UYGULANMAZ. scene_prop_point_world ile AYNI islem sirasi ve
+  // AYNI girdiler (pos = dunya matrisinin cevirisi, quat =
+  // scene_entity_world_rotation), yani sonuc onunla BIT-TAM ayni: ustune
+  // yazilmis nokta (derleyici cevirdi) ile ustune yazilmamis varsayilan (runtime
+  // cevirir) ayni kurala uyar. Sinir disi i: out = local.
+  void point_world(uint32_t i, const float local[3], float out[3]) const;
   uint32_t nav_size() const { return h->nav_size; }
   bool has_nav() const { return nav != nullptr && h->nav_size > 0; }
   bool has_dag() const { return dag_meshes != nullptr && h->dag_mesh_count > 0; }

@@ -30,10 +30,25 @@ struct Plan {
   uint32_t dag_meshes = 0, dag_nodes = 0, dag_indices = 0, dag_children = 0, gi_probes = 0;
   uint32_t particles = 0, terrains = 0, voxels = 0, waters = 0, winds = 0, characters = 0; // v6
   uint32_t scripts = 0;                                                                   // v7
+  uint32_t props = 0;                                                                     // v8
   size_t off_asset = 0, off_entity = 0, off_draw = 0, off_anim = 0, off_light = 0, off_body = 0, off_string = 0, off_resident = 0,
          off_nav = 0, off_dag_mesh = 0, off_dag_node = 0, off_dag_index = 0, off_dag_child = 0, off_gi = 0,
-         off_particle = 0, off_terrain = 0, off_voxel = 0, off_water = 0, off_wind = 0, off_character = 0, off_script = 0, total = 0;
+         off_particle = 0, off_terrain = 0, off_voxel = 0, off_water = 0, off_wind = 0, off_character = 0, off_script = 0,
+         off_prop = 0, total = 0;
 };
+// Varligin blob'a giden ozellik sayisi. SceneEntity::props sabit 16 yuvali;
+// prop_count'u scene_prop_set ve ayristirici 16'da tutuyor — buradaki kirpma
+// yalniz bozuk (elle kurulmus) bir SceneDesc'te dizi disini okumamak icin.
+uint32_t entity_prop_count(const SceneEntity &e) { return e.prop_count < kSceneMaxProps ? e.prop_count : kSceneMaxProps; }
+// Turun kullandigi v bilesenleri; bilinmeyen tur 0 (hicbiri kopyalanmaz,
+// scene_blob_open turu reddeder).
+uint32_t blob_prop_arity(uint32_t type) {
+  switch (type) {
+  case kScenePropSayi: case kScenePropTam: case kScenePropBayrak: return 1;
+  case kScenePropNokta: return 3;
+  default: return 0;
+  }
+}
 Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   Plan p;
   if (x) {
@@ -74,6 +89,10 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
       // patlar. Kapisi: uzun yollu fixture + komsu metinlerin kontrolu.
       p.strings += (uint32_t)std::strlen(e.script_file) + 1;
     }
+    // v8: ozellik adlari KAYITTA (metin tablosunda degil), yani burada metin
+    // muhasebesine bir kalem EKLENMIYOR — bilincli (scene_blob.hpp SceneBlobProp).
+    // Ozellikler bilesen bitinden bagimsiz (scene.hpp E3): bit sorulmuyor.
+    p.props += entity_prop_count(e);
     p.strings += (uint32_t)std::strlen(e.name) + 1;
   }
   if (p.strings == 0) p.strings = 1; // en az bir NUL: ofset 0 her zaman gecerli
@@ -101,6 +120,7 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   p.off_wind = o; o = align_up(o + sizeof(SceneBlobWind) * p.winds);
   p.off_character = o; o = align_up(o + sizeof(SceneBlobCharacter) * p.characters);
   p.off_script = o; o = align_up(o + sizeof(SceneBlobScript) * p.scripts); // v7
+  p.off_prop = o; o = align_up(o + sizeof(SceneBlobProp) * p.props);       // v8: EN SONDA (onceki ofsetler kaymaz)
   p.total = o;
   return p;
 }
@@ -168,6 +188,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   h.wind_count = p.winds; h.wind_offset = (uint32_t)p.off_wind;
   h.character_count = p.characters; h.character_offset = (uint32_t)p.off_character;
   h.script_count = p.scripts; h.script_offset = (uint32_t)p.off_script; // v7
+  h.prop_count = p.props; h.prop_offset = (uint32_t)p.off_prop;         // v8
   if (x) {
     h.resident_cpu = x->resident_cpu; h.resident_gpu = x->resident_gpu;
     h.peak_transient = x->peak_transient; h.peak_bytes = x->peak_bytes;
@@ -208,6 +229,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   auto *winds = reinterpret_cast<SceneBlobWind *>(b + p.off_wind);
   auto *characters = reinterpret_cast<SceneBlobCharacter *>(b + p.off_character);
   auto *scripts = reinterpret_cast<SceneBlobScript *>(b + p.off_script);
+  auto *props = reinterpret_cast<SceneBlobProp *>(b + p.off_prop);
   char *strings = reinterpret_cast<char *>(b + p.off_string);
   uint32_t soff = 0;
   auto intern = [&](const char *s) {
@@ -226,6 +248,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   uint32_t nd = 0, na = 0, nl = 0, nb = 0;
   uint32_t npart = 0, nterr = 0, nvox = 0, nwat = 0, nwind = 0, nchar = 0; // v6
   uint32_t nscript = 0;                                                   // v7
+  uint32_t nprop = 0;                                                     // v8
   Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
   for (uint32_t i = 0; i < d.entity_count; i++) {
     const SceneEntity &e = d.entities[i];
@@ -328,6 +351,41 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
       sc.flags = e.script_enabled ? 1u : 0u;
       scripts[nscript++] = sc;
     }
+    // v8 ozellikleri: (varlik, ad) SIRASI dosya formatinin parcasi (kopru
+    // araligi tek geciste kurar). SceneEntity::props zaten ada gore sirali
+    // tutuluyor (scene_prop_set); yine de burada SIRALANIYOR — elle kurulmus
+    // sirasiz bir SceneDesc sirasiz blob yazmasin. Yinelenen ad AYIKLANMAZ:
+    // yazilir ve scene_blob_open onu reddeder (derleyen gorur; sessiz secim yok).
+    {
+      const uint32_t np = entity_prop_count(e);
+      uint32_t ord[kSceneMaxProps];
+      for (uint32_t k = 0; k < np; k++) {
+        uint32_t j = k;
+        while (j > 0 && std::strncmp(e.props[ord[j - 1]].name, e.props[k].name, kScenePropNameLen) > 0) { ord[j] = ord[j - 1]; j--; }
+        ord[j] = k;
+      }
+      for (uint32_t k = 0; k < np; k++) {
+        const SceneProp &sp = e.props[ord[k]];
+        SceneBlobProp r{};
+        r.entity = i;
+        r.type = sp.type;
+        // Ad: NUL'a kadar (en cok 24 bayt); kuyruk r{}'den SIFIR — bellekteki
+        // kuyrukta kalinti olsa bile blob baytlari belirlenimli. NUL'suz ad
+        // 24 bayt kopyalanir ve acilista reddedilir.
+        size_t nl = 0;
+        while (nl < kScenePropNameLen && sp.name[nl]) nl++;
+        std::memcpy(r.name, sp.name, nl);
+        if (sp.type == kScenePropNokta) {
+          // Blob DUNYA uzayinda (duzlestirilmis): SceneBlobView::point_world ile
+          // ayni sonuc (bit-tam; test_scene_blob olcer).
+          scene_prop_point_world(d, i, sp.v, r.v);
+        } else {
+          const uint32_t n = blob_prop_arity(sp.type); // kullanilmayanlar r{}'den 0
+          for (uint32_t c = 0; c < n; c++) r.v[c] = sp.v[c];
+        }
+        props[nprop++] = r;
+      }
+    }
     ents[i] = be;
     const SceneBounds wb = scene_world_bounds(scene_entity_local_bounds(e, nullptr), m);
     lo = vmin(lo, wb.lo); hi = vmax(hi, wb.hi);
@@ -402,6 +460,7 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   if (!table_ok(h->wind_offset, h->wind_count, sizeof(SceneBlobWind), size)) return E.fail("ruzgar tablosu sinir disi");
   if (!table_ok(h->character_offset, h->character_count, sizeof(SceneBlobCharacter), size)) return E.fail("karakter tablosu sinir disi");
   if (!table_ok(h->script_offset, h->script_count, sizeof(SceneBlobScript), size)) return E.fail("betik tablosu sinir disi");
+  if (!table_ok(h->prop_offset, h->prop_count, sizeof(SceneBlobProp), size)) return E.fail("ozellik tablosu sinir disi"); // v8
   if (h->particle_count > h->entity_count || h->terrain_count > h->entity_count || h->voxel_count > h->entity_count ||
       h->water_count > h->entity_count || h->wind_count > h->entity_count || h->character_count > h->entity_count ||
       h->script_count > h->entity_count)
@@ -431,6 +490,7 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   v.winds = h->wind_count ? reinterpret_cast<const SceneBlobWind *>(b + h->wind_offset) : nullptr;
   v.characters = h->character_count ? reinterpret_cast<const SceneBlobCharacter *>(b + h->character_offset) : nullptr;
   v.scripts = h->script_count ? reinterpret_cast<const SceneBlobScript *>(b + h->script_offset) : nullptr;
+  v.props = h->prop_count ? reinterpret_cast<const SceneBlobProp *>(b + h->prop_offset) : nullptr;
   v.strings = strings;
   for (uint32_t i = 0; i < h->resident_count; i++)
     if (v.residents[i].asset >= h->asset_count) return E.fail("yerlesik kaydi tanimsiz kaynaga bakiyor");
@@ -510,6 +570,52 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
     if (e.light >= 0 && v.lights[e.light].entity != i) return E.fail("isik tablosu varlikla tutarsiz");
     if (e.body >= 0 && v.bodies[e.body].entity != i) return E.fail("govde tablosu varlikla tutarsiz");
   }
+  // v8 ozellikleri. Kopru bu tabloya GUVENEREK okur: varlik basina araligi
+  // tek geciste kurar (entity'yi DIZI INDEKSI yapar, ardisiklik varsayar) ve
+  // adi strcmp ile karsilastirir (NUL varsayar). Her varsayim burada olculur;
+  // bozuk bir kayit yukleme aninda anlamli bir hatayla durur, oyunun icinde
+  // yanlis bir degere ya da dizi disi okumaya donusmez.
+  {
+    uint32_t run = 0;
+    for (uint32_t k = 0; k < h->prop_count; k++) {
+      const SceneBlobProp &r = v.props[k];
+      if (r.entity >= h->entity_count) return E.fail("ozellik kaydi tanimsiz varliga bakiyor");
+      if (r.type < kScenePropSayi || r.type > kScenePropNokta) return E.fail("ozellik turu bilinmiyor (1..4 disi)");
+      const char *nul = static_cast<const char *>(std::memchr(r.name, 0, kScenePropNameLen));
+      if (!nul) return E.fail("ozellik adi 24 baytta NUL ile bitmiyor");
+      if (!scene_prop_name_ok(r.name)) return E.fail("ozellik adi gecersiz (a-z 0-9 _, 1..23 karakter)");
+      for (const char *c = nul; c < r.name + kScenePropNameLen; c++)
+        if (*c) return E.fail("ozellik adinin NUL sonrasi sifir degil");
+      // Deger: sonlu; tam tamsayi ve |v| <= 2^24 (scene_prop_set ile ayni
+      // tavan); bayrak 0|1; turun KULLANMADIGI bilesenler bit bit +0 (derleyici
+      // yalniz kullanilanlari yazar).
+      const uint32_t n = blob_prop_arity(r.type);
+      bool val_ok = true;
+      for (uint32_t c = 0; c < 3; c++) {
+        uint32_t bits;
+        std::memcpy(&bits, &r.v[c], 4);
+        if (c < n ? !std::isfinite(r.v[c]) : bits != 0u) val_ok = false;
+      }
+      if (val_ok && r.type == kScenePropTam && (std::fabs(r.v[0]) > kScenePropTamMax || r.v[0] != std::trunc(r.v[0]))) val_ok = false;
+      if (val_ok && r.type == kScenePropBayrak && r.v[0] != 0.0f && r.v[0] != 1.0f) val_ok = false;
+      if (!val_ok) return E.fail("ozellik degeri gecersiz (sonlu degil, tam/bayrak disi ya da kullanilmayan bilesen dolu)");
+      if (k > 0) {
+        const SceneBlobProp &q = v.props[k - 1];
+        if (q.entity > r.entity) return E.fail("ozellik kayitlari sirasiz (varlik dizini azaliyor)");
+        if (q.entity == r.entity) {
+          const int c = std::strcmp(q.name, r.name); // ikisi de yukarida NUL'lu olculdu
+          if (c == 0) return E.fail("ozellik kaydi yinelenen (ayni varlik, ayni ad)");
+          if (c > 0) return E.fail("ozellik kayitlari sirasiz (ayni varlikta ad azaliyor)");
+          run++;
+        } else run = 1;
+      } else run = 1;
+      if (run > kSceneMaxProps) {
+        char m[96];
+        std::snprintf(m, sizeof m, "varlik %u'de %u'dan fazla ozellik kaydi (kSceneMaxProps)", r.entity, kSceneMaxProps);
+        return E.fail(m);
+      }
+    }
+  }
   *out = v;
   return true;
 }
@@ -527,6 +633,19 @@ Mat4 SceneBlobView::entity_matrix(uint32_t i) const {
   Mat4 m;
   std::memcpy(&m.m[0][0], entities[i].world, sizeof m.m);
   return m;
+}
+void SceneBlobView::point_world(uint32_t i, const float local[3], float out[3]) const {
+  if (!h || i >= h->entity_count) { out[0] = local[0]; out[1] = local[1]; out[2] = local[2]; return; }
+  // scene_prop_point_world'un AYNISI, SceneDesc yerine blob'dan: pos orada
+  // wm.m[3] (burada entity.pos = ayni matrisin cevirisi), donus orada
+  // scene_entity_world_rotation (burada entity.quat = ayni kuaterniyon).
+  // Islem sirasi da ayni: once rotate, sonra toplama — bit-tam esitlik buna bagli.
+  const SceneBlobEntity &e = entities[i];
+  const Quat q{e.quat[0], e.quat[1], e.quat[2], e.quat[3]};
+  const Vec3 r = rotate(q, Vec3{local[0], local[1], local[2]});
+  out[0] = e.pos[0] + r.x;
+  out[1] = e.pos[1] + r.y;
+  out[2] = e.pos[2] + r.z;
 }
 
 bool scene_blob_save(Arena &scratch, const SceneDesc &d, const char *path, SceneError *err) {

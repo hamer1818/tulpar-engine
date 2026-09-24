@@ -1371,3 +1371,29 @@ aynı satır eski kalıpla eşleşmemeli (sınamanın yeni bir şey ölçtüğü
 
 **Ders:** "0 uyuşmazlık" bir ölçüm değil, ölçülen satır sayısıyla birlikte okunur. Kapı
 kaç şey gördüğünü basmalı ve gördüklerinin kümesi elle doğrulanmalı.
+
+### 8cg. Yükleme ortasında çağrılan kanca, kendisinden SONRA kurulan veriyi "yok" görür — hata değil, varsayılan
+
+**Belirti** (2026-09-25, E4): `teng_scene_load` betiklerin `<ad>_baslat` kancalarını sahne
+kurulumunun **ortasında** çağırıyor; navmesh sorgu nesnesi ise kanca döngüsünün **sonunda**
+kuruluyordu. Navmesh'li bir sahnede `baslat` içinde `nav_var()` **false** döndü, yüklemeden hemen
+sonra **true** (ölçüldü: sabit zeminli iki varlıklı sahne, motoru tanıyan derleyiciyle). Hata
+sayacı artmadı — "navmesh yok, düz yola düş" dalı meşru bir dal, betik sessizce yanlış yola
+girer. `nav_yol` çağıran betik ise yanlış sebepli bir HATA görürdü ("sahnede navmesh yok").
+Aynı sınıf E4'ün kendi tasarımında da vardı: varlık başına özellik aralığı kancalardan sonra
+kurulsaydı `baslat`taki her `ozellik_*` **varsayılanı** okurdu — ki "özellik yok" da hata değil,
+olağan durum. Sorunun çekirdeği bu: sorgu "henüz hazır değil" ile "yok"u AYIRMIYOR ve ikincisi
+geçerli bir cevap.
+
+**Düzeltme:** kancaların okuyabileceği her şey (özellik aralığı, navmesh) kanca döngüsünden
+**önce** kuruluyor; `teng_scene_load`'da ikisinin yanında sebep yazıyor. Kapılar: C++
+`bridge_runs_a_scripted_game_headless` 4.8 — sahte VM'in `baslat`ı `can` (250) ve
+`teng_nav_ok()` (1) okuyor; Tulpar `run_ozellik` — iki muhafızın gerçek `muhafiz_baslat`ı can
+toplamı 350 ve navmesh 2/2. Pozitif kontroller (mutant, 2026-09-25): aralık kurulumu kanca
+döngüsünün ardına taşınınca 4.8 `can = -1` ile kırmızı; navmesh eski yerine (döngünün sonuna)
+geri konunca 4.8 `nav_ok = 0` ile kırmızı.
+
+**Ders:** yükleme sırasında dışarıya (betiğe, geri çağrıma) açılan her nokta bir **sıra
+sözleşmesidir**: o noktadan sonra kurulan her şey, çağrılan kod için "yok"tur. "Yok" geçerli bir
+cevapsa (varsayılan, düz yol, boş liste) bu sessiz bir bozulmadır. Kancayı çağırmadan önce
+kancanın okuyabileceği her yüzeyi kur; olmuyorsa sorgu "hazır değil" diye HATA versin.

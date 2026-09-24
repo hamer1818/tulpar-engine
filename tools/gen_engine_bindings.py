@@ -73,6 +73,22 @@ SPEC = [
      "Varliga editorde atanmis Tulpar betiginin (.tpr) yolu; betik bileseni yoksa bos metin. Motor bu betigi CALISTIRMAZ -- yol bir ETIKETTIR, oyun kendi dongusunde okuyup ada gore dallanir (kopru ABI'si duz skaler, callback yok)."),
     ("eng_scene_script_enabled", "bool", [("i", "int")],
      "Varligin betik bileseni ETKIN mi (editordeki 'Etkin' kutusu). Bileseni olmayan varlikta false. Ayri erisimci, cunku 'atanmamis' ile 'atanmis ama kapali' AYRI olgular."),
+    # nesne ozellikleri (E4): editorde varliga verilen, betigin varsayilaninin USTUNE yazilmis degerler.
+    # Ustune yazilmamis ozellik HATA DEGIL (def doner); sinir disi indeks, ad kurali ve tur uyusmazligi HATA.
+    # Dogum aninda (<ad>_baslat) oku, kare icinde degil.
+    ("eng_scene_prop_num", "float", [("i", "int"), ("name", "str"), ("def", "num")],
+     "Sahne varliginin `sayi` ozelligi (editorde ustune yazilan deger); yazilmamissa def DEGISMEDEN doner (hata degil). Tur uyusmazligi, sinir disi indeks, 23 karakteri asan ya da a-z 0-9 _ disi ad HATA sayar ve def doner. Dogum aninda (baslat) oku."),
+    ("eng_scene_prop_int", "int", [("i", "int"), ("name", "str"), ("def", "int")],
+     "Sahne varliginin `tam` ozelligi (|v| <= 2^24); yazilmamissa def. Hata kurallari eng_scene_prop_num ile ayni."),
+    ("eng_scene_prop_flag", "bool", [("i", "int"), ("name", "str"), ("def", "flag")],
+     "Sahne varliginin `bayrak` ozelligi (evet/hayir); yazilmamissa def. Hata kurallari eng_scene_prop_num ile ayni."),
+    ("eng_scene_prop_point", "bool", [("i", "int"), ("name", "str"), ("lx", "num"), ("ly", "num"), ("lz", "num")],
+     "Sahne varliginin `nokta` ozelligini DUNYA konumu olarak hesaplar; sonuc eng_scene_prop_px/py/pz. (lx,ly,lz) varsayilan YEREL ofset. true = deger sahneden (ustune yazilmis), false = varsayilan; ikisi de ayni kuralla dunyaya cevrilir (varligin yazar konumu + donusu, olcek yok), yani ayni ofset ayni noktayi verir. Sinir disi indekste (lx,ly,lz) oldugu gibi."),
+    ("eng_scene_prop_px", "float", [], "Son eng_scene_prop_point sonucunun x'i (dunya)."),
+    ("eng_scene_prop_py", "float", [], "Son eng_scene_prop_point sonucunun y'si (dunya)."),
+    ("eng_scene_prop_pz", "float", [], "Son eng_scene_prop_point sonucunun z'si (dunya)."),
+    ("eng_scene_prop_has", "bool", [("i", "int"), ("name", "str")],
+     "Sahne varliginda bu ozellik editorde ustune yazilmis mi (herhangi tur). Yoksa false (hata degil)."),
     ("eng_scene_unload", "bool", [], "Sahneyi bosaltir: govdeler fizikten cikar, cizim durur. Sonra eng_scene_load yeniden cagrilabilir (bolum gecisi)."),
     ("eng_scene_loaded", "bool", [], "Su an yuklu bir sahne var mi."),
     ("eng_scene_vx", "float", [("i", "int")], "Sahne varliginin hizi x (govdesizse 0)."),

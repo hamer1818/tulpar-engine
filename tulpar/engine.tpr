@@ -265,6 +265,44 @@ func itme_v(int id, Vec3 v) { eng_impulse(id, v.x, v.y, v.z); }
 // Yatay hız ver, dikey hızı (düşüş, zıplama) KORU: `yuru`nun vektör ikizi.
 func yuru_v(int id, Vec3 v) { eng_set_velocity(id, v.x, eng_vy(id), v.z); }
 
+// ---- Nesne özellikleri: editörde varlık başına değerler ----------------------
+// Tasarımcı aynı betiği on düşmana verir, her birine editörde kendi değerini
+// yazar (can = 250, hız = 5, devriye noktaları). Sahne YALNIZ üstüne yazılanları
+// taşır; VARSAYILAN BU ÇAĞRIDA, betiğin kodunda yaşar:
+//
+//     func dusman_baslat(i) {
+//         int can = ozellik_tam(i, "can", 100);
+//         float hiz = ozellik_sayi(i, "hiz", 3.5);
+//         bool kalkan = ozellik_bayrak(i, "kalkan", false);
+//         Vec3 a = ozellik_nokta(i, "devriye_a", v3(-2.0, 0.0, 0.0));
+//     }
+//
+// BİLDİRİM BUDUR: adı ve varsayılanı LİTERAL olan bir çağrı, editörün (E5)
+// betikte tarayıp denetçide "can: 100 (varsayılan)" diye göstereceği satırdır.
+// Ad ya da varsayılan bir değişkenden gelirse editör onu göremez — değer yine
+// okunur, yalnız denetçide listelenmez.
+// Kurallar: ad [a-z0-9_], en çok 23 karakter. Üstüne yazılmamışsa varsayılan
+// DEĞİŞMEDEN döner (hata değil). Tür uyuşmazlığı (`tam`ı nokta olarak okumak),
+// kurala uymayan ad ve geçersiz dizin HATA sayar (`hata_sayisi`) ve varsayılanı
+// döner. DOĞUMDA oku (`_baslat`), karede değil: değer sahne boyunca değişmez.
+// `ozellik_nokta` DÜNYA konumu döner: varsayılan yerel ofset (varlığa göre)
+// ve editördeki değer AYNI kuralla çevrilir — varlığın editördeki konumu +
+// dönüşü, ölçek yok. Nokta varlığın YAZAR pozuna bağlı: düşman yürüse de
+// devriye noktası tasarımcının koyduğu yerde kalır.
+func ozellik_sayi(i, ad, vars): float { return eng_scene_prop_num(i, ad, vars); }
+func ozellik_tam(i, ad, vars): int { return eng_scene_prop_int(i, ad, vars); }
+func ozellik_bayrak(i, ad, vars): bool { return eng_scene_prop_flag(i, ad, vars); }
+func ozellik_nokta(int i, str ad, Vec3 vars): Vec3 {
+    eng_scene_prop_point(i, ad, vars.x, vars.y, vars.z);
+    return { x: eng_scene_prop_px(), y: eng_scene_prop_py(), z: eng_scene_prop_pz() };
+}
+func ozellik_var(i, ad): bool { return eng_scene_prop_has(i, ad); }
+func prop_num(i, name, def): float { return eng_scene_prop_num(i, name, def); }
+func prop_int(i, name, def): int { return eng_scene_prop_int(i, name, def); }
+func prop_flag(i, name, def): bool { return eng_scene_prop_flag(i, name, def); }
+func prop_point(int i, str name, Vec3 def): Vec3 { return ozellik_nokta(i, name, def); }
+func prop_has(i, name): bool { return eng_scene_prop_has(i, name); }
+
 // ---- Sorgular: ışın testi ve yakınlık ---------------------------------------
 // Köprüde çarpışma OLAYI yok (callback FFI yok); savaş ve yapay zekâ bu iki
 // SORGU ile yazılır: "önümde ne var" (ışın) ve "yakınımda kim var" (küre).

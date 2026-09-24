@@ -72,6 +72,37 @@ const char *teng_scene_name(int i);
 // Donen isaretci blob'un metin tablosunu gosterir; uretilmis baglama zaten
 // VM'e KOPYALIYOR (tm_make_str), yani omru cagri ile sinirli.
 const char *teng_scene_script(int i);
+// --- nesne OZELLIKLERI (E4): editorde varliga verilen degerler ---------------
+// Tasarimci ayni betigi on varliga verir, her birine kendi degerini yazar
+// (can = 250, hiz = 5, devriye noktasi). Blob YALNIZ ustune yazilanlari tasir;
+// varsayilan BETIGIN KODUNDA yasar ve cagriya `def` olarak gelir. Ustune
+// yazilmamissa `def` DEGISMEDEN doner ve bu HATA DEGILDIR (olagan durum).
+// HATA (sayac artar, `def` doner): sinir disi / sahnesiz indeks; ad 23
+// karakterden uzun ya da [a-z0-9_] disi (editor boyle bir ad YAZAMAZ, yani o
+// cagri hicbir zaman eslesmez — sessiz kalsaydi yazim hatasi "tasarimci deger
+// girmedi" gibi gorunurdu); tur uyusmazligi (`tam` bir ozelligi nokta olarak
+// okumak gibi).
+// OKUMA ZAMANI: dogum aninda (<ad>_baslat), kare icinde DEGIL. Degerler blob
+// yuklenince degismez; her cagri aralik icinde ada gore tarar (<= 16 kayit).
+// Kare icinde ayirma yok (AllocGate ile olculdu, test_bridge 4.8). Maliyet:
+// bkz. docs/KOPRU.md 7.11 (olculen ns/okuma).
+double teng_scene_prop_num(int i, const char *name, double def);  // sayi
+int teng_scene_prop_int(int i, const char *name, int def);        // tam
+int teng_scene_prop_flag(int i, const char *name, int def);       // bayrak: ustune yazilmissa 0|1
+// nokta: "hesapla sonra oku" (tek cagri uc deger donduremez). (lx, ly, lz)
+// betigin varsayilan YEREL ofsetidir. Donus 1: deger sahneden (ustune
+// yazilmis; blob'daki DUNYA degeri), 0: varsayilan — o da AYNI kuralla dunyaya
+// cevrilir (varligin blob'daki YAZAR konumu + donusu; olcek yok,
+// SceneBlobView::point_world = derleyicinin scene_prop_point_world'u). Yani
+// varsayilan ile ustune yazilmis nokta ayni yerel ofsetten ayni dunya noktasini
+// verir. Nokta YAZAR pozuna gore: dinamik bir varlik yurumus olsa da devriye
+// noktasi tasarimcinin koydugu yerde kalir. Sinir disi indekste cevrilemez:
+// px/py/pz = (lx, ly, lz) oldugu gibi.
+int teng_scene_prop_point(int i, const char *name, double lx, double ly, double lz);
+double teng_scene_prop_px(void); // son teng_scene_prop_point sonucu (dunya)
+double teng_scene_prop_py(void);
+double teng_scene_prop_pz(void);
+int teng_scene_prop_has(int i, const char *name); // ustune yazilmis mi (herhangi tur)
 
 // --- MOTOR -> TULPAR: betik yasam dongusu ----------------------------------
 // Kopru bugune kadar TEK YONLUYDU (Tulpar cagirir, motor cevap verir) ve bunun

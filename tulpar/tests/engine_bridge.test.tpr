@@ -10,6 +10,9 @@
 // (Tuzaklar: özetsiz suite hiç kırmızıya dönemez).
 import "test";
 import "engine";
+// Nesne özellikleri kapısı (run_ozellik): ozellik.sahne'deki iki muhafızın
+// `muhafiz_baslat` kancası GERÇEK Tulpar kancası olarak koşsun diye.
+import "examples/davranis/muhafiz.tpr";
 
 int g_kutu = 0;
 int g_zemin = 0;
@@ -1169,6 +1172,90 @@ func run_betik_bagla() {
     sil(zemin);
 }
 
+// Nesne özellikleri (E4): editörde varlığa verilen değerler Tulpar'a ulaşıyor
+// mu. Sahne: examples/assets/ozellik.sahne — "muhafiz" DÖNÜK (0 90 0) ve
+// ölçekli (2) bir kaidenin çocuğu, dört türü de üstüne yazılmış; "muhafiz_2"
+// dönüşsüz kök, hiçbir şey yazılmamış. İkisine de davranis/muhafiz.tpr atanmış.
+// KONTROLLER: yazılmamış özellik varsayılanı DEĞİŞMEDEN verir ve HATA SAYMAZ;
+// `baslat` kancası özelliği görüyor (can toplamı 250 + 100); dönük ebeveynli
+// noktanın dünya değeri dönüşsüz hesaptan FARKLI; aynı yerel ofsetli varsayılan
+// ile üstüne yazılmış nokta BİT-TAM aynı (tek kural); tür uyuşmazlığı ve uzun
+// ad HATA sayar ve varsayılanı döner; `baslat` navmesh'i de görüyor (8cg).
+func run_ozellik() {
+    array yollar = ["examples/assets/ozellik.sahneb", "assets/ozellik.sahneb"];
+    str blob = "";
+    int k = 0;
+    while (k < len(yollar)) {
+        if (file_exists(yollar[k])) { blob = yollar[k]; k = len(yollar); } else { k = k + 1; }
+    }
+    if (len(blob) == 0) {
+        print("    ATLANDI: ozellik.sahneb yok (engine_example_scenes ile derlenir) — nesne ozellikleri kapisi kosmadi");
+        return;
+    }
+    if (sahne_yuklu()) { sahne_bosalt(); }
+    int h0 = hata_sayisi();
+    muhafiz_sayisi = 0;
+    muhafiz_can_toplam = 0;
+    muhafiz_kalkanli = 0;
+    muhafiz_hiz_toplam = 0.0;
+    muhafiz_navli = 0;
+    assert(sahne_yukle(blob), "ozellik sahnesi yuklenmeli: " + blob);
+    assert_eq_int(hata_sayisi(), h0);
+    int m = sahne_bul("muhafiz");
+    int m2 = sahne_bul("muhafiz_2");
+    assert(m >= 0 && m2 >= 0, "iki muhafiz da sahnede olmali");
+    // baslat kancası özellikleri GÖRDÜ: 250 (üstüne yazılmış) + 100 (varsayılan).
+    assert_eq_int(muhafiz_sayisi, 2);
+    assert_eq_int(muhafiz_can_toplam, 350);
+    assert_eq_int(muhafiz_kalkanli, 1);
+    assert_eq_float(muhafiz_hiz_toplam, 9.0);
+    // Tuzaklar 8cg: navmesh baslat'tan ÖNCE kuruluyor — iki muhafız da gördü.
+    assert(nav_var(), "ozellik sahnesinde navmesh olmali (sabit zemin bake edildi)");
+    assert_eq_int(muhafiz_navli, 2);
+    // Üstüne yazılmış vs varsayılan, dört tür + var mı (TR ve EN ikizleri).
+    assert_eq_int(ozellik_tam(m, "can", 100), 250);
+    assert_eq_int(ozellik_tam(m2, "can", 100), 100);
+    assert_eq_int(prop_int(m, "can", 0), 250);
+    assert_eq_float(ozellik_sayi(m, "hiz", 3.5), 5.5);
+    assert(ozellik_sayi(m2, "hiz", 0.1) == 0.1, "varsayilan DEGISMEDEN donmeli (float'a yuvarlanmadan)");
+    assert_eq_float(prop_num(m, "hiz", 0.0), 5.5);
+    assert(ozellik_bayrak(m, "kalkan", false), "kalkan ustune yazilmis: evet");
+    assert(!ozellik_bayrak(m2, "kalkan", false), "kalkan yazilmamis: varsayilan hayir");
+    assert(ozellik_bayrak(m2, "kalkan", true), "kalkan yazilmamis: varsayilan evet");
+    assert(prop_flag(m, "kalkan", false), "EN ikiz: kalkan evet");
+    assert(ozellik_var(m, "devriye_a") && !ozellik_var(m2, "devriye_a") && prop_has(m, "can"), "var mi");
+    assert_eq_int(hata_sayisi(), h0);   // KONTROL: eksik ozellik HATA degil
+    // Nokta: üstüne yazılmış -> DÜNYA. Muhafız (10, 3, -6); dönüş 90° Y:
+    // yerel (-2, 0, -1.5) -> (-1.5, 0, 2) -> dünya (8.5, 3, -4).
+    Vec3 a = ozellik_nokta(m, "devriye_a", v3(0.0, 0.0, 0.0));
+    assert_close(a.x, 8.5, 0.0001);
+    assert_close(a.y, 3.0, 0.0001);
+    assert_close(a.z, 0.0 - 4.0, 0.0001);
+    Vec3 pm = sahne_konum(m);
+    Vec3 donussuz = v_topla(pm, v3(-2.0, 0.0, -1.5));
+    float fark = sqrt((a.x - donussuz.x) * (a.x - donussuz.x) + (a.z - donussuz.z) * (a.z - donussuz.z));
+    assert(fark > 1.0, "POZITIF KONTROL: donuk ebeveyn noktayi dondurmeli, fark " + toString(fark));
+    // Varsayılan nokta, dönüşsüz kök: dünya = konum + yerel, TAM.
+    Vec3 b = ozellik_nokta(m2, "devriye_a", v3(-2.0, 0.0, 0.0));
+    assert(b.x == 0.0 - 5.0 && b.y == 1.0 && b.z == 2.0, "donussuz kokte varsayilan = konum + yerel");
+    // TEK KURAL: aynı yerel ofsetli varsayılan == üstüne yazılmış (bit-tam).
+    Vec3 c = ozellik_nokta(m, "yok_nokta", v3(-2.0, 0.0, -1.5));
+    assert(c.x == a.x && c.y == a.y && c.z == a.z, "ayni ofset: varsayilan ve ustune yazilmis ayni nokta");
+    Vec3 d = prop_point(m, "devriye_a", v3(0.0, 0.0, 0.0));
+    assert(d.x == a.x && d.z == a.z, "EN ikiz: prop_point");
+    assert_eq_int(hata_sayisi(), h0);
+    // HATALAR: tür uyuşmazlığı, uzun ad — sayılır, varsayılan döner.
+    Vec3 e = ozellik_nokta(m, "can", v3(-2.0, 0.0, -1.5));
+    assert(e.x == a.x && e.z == a.z, "tur uyusmazliginda varsayilan yine dunyaya cevrilmeli");
+    assert_eq_int(ozellik_tam(m, "hiz", 7), 7);
+    assert_eq_int(ozellik_tam(m, "abcdefghijklmnopqrstuvwx", 9), 9);
+    assert_eq_int(hata_sayisi(), h0 + 3);
+    print("    [bilgi] ozellik: muhafiz can " + toString(ozellik_tam(m, "can", 100)) + " / muhafiz_2 " + toString(ozellik_tam(m2, "can", 100))
+        + ", baslat toplami " + toString(muhafiz_can_toplam) + "; devriye_a dunya (" + toString(a.x) + " " + toString(a.y) + " " + toString(a.z)
+        + "), donussuz hesaptan " + toString(fark) + " m; kasitli hata " + toString(hata_sayisi() - h0));
+    sahne_bosalt();
+}
+
 if (!kur()) {
     print("  ATLANDI: motor kurulamadi (" + eng_last_error() + ") — GPU/Vulkan yok");
 } else {
@@ -1197,6 +1284,7 @@ if (!kur()) {
     test("karakter: inis, yurume, tetik, ziplama", "run_karakter");
     test("arayuz yerlesimi: alt alta, adla/oranla tiklama, kontrol", "run_yerlesim");
     test("betik_ata: kodla uretilen varliga kanca, sira, bitir, hata", "run_betik_bagla");
+    test("nesne ozellikleri: ustune yazilmis/varsayilan, dunya noktasi, hata", "run_ozellik");
     motor_kapat();
 }
 test_summary();
