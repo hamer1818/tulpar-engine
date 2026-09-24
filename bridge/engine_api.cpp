@@ -65,7 +65,6 @@ constexpr uint32_t kMaxModels = 16;
 constexpr uint32_t kMaxClips = 32;  // ses klibi (dosya + sentetik ton)
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
 constexpr uint32_t kMaxHud = 1024;
-constexpr uint32_t kRayRetries = 4;    // skip_id (eski yol) icin yeniden atma denemesi
 constexpr uint32_t kMaxOverlap = 64;   // kure sorgusu sonuc tavani (sabit dizi, 0 ayirma)
 constexpr uint32_t kMaxNavPoints = 32; // navmesh duz yolunun kose sayisi tavani
 constexpr uint32_t kHudTextBytes = 64 << 10;
@@ -2537,47 +2536,24 @@ double teng_raycast(double ox, double oy, double oz, double dx, double dy, doubl
   const float dl = length(dir);
   if (dl <= 1e-6f) { BERR("teng_raycast: yon vektoru sifir uzunlukta"); return -1.0; }
   dir = dir * (1.0f / dl);
-  // skip_id iki yoldan biriyle atlanir:
-  //  - KARAKTER: govdesi (ic govde) sorguda YOK sayilir (Jolt
-  //    IgnoreSingleBodyFilter) — tam sonuc.
-  //  - digerleri: ESKI yaklasim — atlanacak govdeye carpinca onu kusatan kure
-  //    kadar ileriden yeniden at. O kurenin icindeki baska carpmalar atlanir.
-  // Neden iki yol: tam filtre dogru olani, ama mevcut oyunlarin dengesi eski
-  // yaklasimla kurulmus. OLCULDU (2026-09-24, engine_aksiyon 3200 kare,
-  // butun turlere tam filtre uygulanarak): oldurulen 9 -> 7, kalan dusman
-  // 0 -> 2, durum KAZANDIN -> OYNA (otopilot bitiremedi): dusmanlarin
-  // engel yoklamasi yanlarindaki duvari artik goruyor.
-  // Oyunu bozmamak icin eski turlerde eski yol duruyor. Karakterde eski yol
-  // KULLANILAMAZ: kusatma yarim boy oldugu icin karakterin ortasindan asagi
-  // isin zemine 0.90 m yerine 1.82 m dedi (zemin yuzeyini gecip kutunun
-  // icinden yeniden atti) — olculdu, kapi 10c.
+  // skip_id: o varligin govdesi sorguda YOK sayilir (Jolt IgnoreSingleBodyFilter)
+  // — tam sonuc, her turde. ESKI yol (2026-09-24'e kadar): atlanacak govdeye
+  // carpinca onu kusatan kure kadar ileriden yeniden at; o kurenin icindeki
+  // baska carpmalar ATLANIYORDU. Kurede bu, govdeye bitisik ~1 m'lik bir kor
+  // bolge demekti: dusmanin engel yoklamasi bitisik duvari gormuyor, gorus
+  // hatti bitisik duvarin icinden geciyordu. Karakterde daha kotuydu (kusatma
+  // yarim boy): ortadan asagi isin zemine 0.90 m yerine 1.82 m dedi (kapi 10c).
+  // Tam filtreye gecis engine_aksiyon'un dengesini oynatti (oyun eski kor
+  // bolgeye gore ayarlanmisti); oyun yeniden ayarlandi, olcumu oyunun basinda.
   sim::BodyId skip{};
-  bool skip_tam = false;
-  float skip_span = 0.02f;
   if (skip_id != 0) {
     const int32_t s = slot_of(skip_id, "teng_raycast");
-    if (s >= 0) {
-      skip = b.ents[s].body;
-      skip_tam = b.ents[s].kind == Kind::Character;
-      skip_span = 2.0f * ent_bound_radius(b.ents[s]) + 0.02f;
-    }
+    if (s >= 0) skip = b.ents[s].body;
   }
-  Vec3 org{(float)ox, (float)oy, (float)oz};
-  float remaining = (float)max_dist, traveled = 0.0f;
-  for (uint32_t attempt = 0; attempt < kRayRetries && remaining > 0.0f; attempt++) {
-    sim::RayHit h{};
-    if (!b.phys.raycast(org, dir, remaining, &h, skip_tam ? skip : sim::BodyId{})) break;
-    if (!skip_tam && skip.valid() && h.body.v == skip.v) {
-      // Isin atlanacak govdenin ICINDEN basliyorsa Jolt mesafe 0 verir; 0.01
-      // ilerlemek her denemede ayni govdeyi bulur, bu yuzden govdeyi kusatan
-      // kureyi TAMAMEN geceriz.
-      const float adv = h.distance > 1e-4f ? h.distance + 0.01f : skip_span;
-      org = org + dir * adv;
-      traveled += adv;
-      remaining -= adv;
-      continue;
-    }
-    b.ray_dist = traveled + h.distance;
+  const Vec3 org{(float)ox, (float)oy, (float)oz};
+  sim::RayHit h{};
+  if (b.phys.raycast(org, dir, (float)max_dist, &h, skip)) {
+    b.ray_dist = h.distance;
     b.ray_point = h.point;
     b.ray_normal = h.normal;
     b.ray_id = ent_id_of_body(h.body);

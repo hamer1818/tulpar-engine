@@ -856,3 +856,61 @@ ENGINE_TEST(scene_body_sensor_roundtrips_and_rejects_bad_forms) {
   const char *kure = "tulpar-sahne 1\nnesne \"x\"\n  govde kure 1 sabit\n  tetik\nson\n";
   CHECK(scene_parse(kure, std::strlen(kure), &d2, &err) && d2.entities[0].body_sensor && d2.entities[0].shape == SceneShape::Sphere);
 }
+
+// Editorun F5'i: govdeler + karakterler (scene_spawn_live). Olculen: karakterli
+// varligin KUTU govdesi dogmuyor (karakter yerini aliyor), karakter yazar
+// konumuna ORTALI doguyor ve zemine indikten sonra matrisi kapsul merkezini
+// veriyor; eski scene_spawn_bodies (chars=null) ise kutuyu yine doguruyor —
+// eski davranis degismedi. KONTROL: gecersiz boy sayilarak reddediliyor.
+ENGINE_TEST(scene_spawn_live_spawns_characters_and_replaces_their_bodies) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(16u << 20, "scene-live");
+  sim::PhysicsConfig cfg;
+  cfg.threads = 1;
+  cfg.max_characters = 4;
+  sim::Physics ph;
+  CHECK(ph.init(sys, cfg));
+  static SceneDesc d;
+  d = SceneDesc{};
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "zemin");
+  e.pos = {0, -1, 0}; e.components = kSceneBody; e.half = {20, 1, 20}; e.dynamic = false; // ust yuz y=0
+  d.insert_entity(d.entity_count, e);
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "kahraman"); // editorun hazir nesnesiyle AYNI ikili: karakter + dinamik kutu
+  e.pos = {0, 3, 0}; e.components = kSceneCharacter | kSceneBody; e.half = {0.4f, 0.9f, 0.4f}; e.dynamic = true;
+  e.char_radius = 0.4f; e.char_height = 1.8f;
+  d.insert_entity(d.entity_count, e);
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "bozuk");
+  e.pos = {5, 3, 0}; e.components = kSceneCharacter; e.char_radius = 1.0f; e.char_height = 1.0f; // boy <= 2r: gecersiz
+  d.insert_entity(d.entity_count, e);
+
+  static sim::BodyId ids[kSceneMaxEntities];
+  static sim::CharacterId chars[kSceneMaxEntities];
+  const SceneLiveStats st = scene_spawn_live(d, ph, ids, chars);
+  std::printf("    [bilgi] canli: govde %u (yerine gecen %u), karakter %u, dogamayan %u; fizikte %u govde\n", st.bodies, st.bodies_replaced,
+              st.characters, st.characters_failed, ph.stats().bodies);
+  CHECK(st.bodies == 1 && st.bodies_replaced == 1); // kahramanin kutusu YOK
+  CHECK(st.characters == 1 && st.characters_failed == 1);
+  CHECK(!ids[1].valid() && chars[1].valid() && !chars[2].valid());
+  CHECK(ph.stats().bodies == 2); // zemin + karakterin ic govdesi
+  // Yazar konumu MERKEZ (y=3): ayak 3 - 0.9 = 2.1. Dususten sonra ayak 0, merkez 0.9.
+  Mat4 m = scene_character_matrix(d, 1, ph, chars[1]);
+  CHECK(std::fabs(m.m[3][1] - 3.0f) < 1e-4f);
+  for (int i = 0; i < 180; i++) ph.step(1.0f / 60.0f, 1);
+  m = scene_character_matrix(d, 1, ph, chars[1]);
+  const float ayak = ph.character_position(chars[1]).y;
+  std::printf("    [bilgi] 3 s sonra karakter ayak y %.3f, matris merkez y %.3f (0.9 olmali), zeminde %d\n", ayak, m.m[3][1],
+              (int)ph.character_grounded(chars[1]));
+  CHECK(ph.character_grounded(chars[1]) && std::fabs(m.m[3][1] - 0.9f) < 0.05f);
+  scene_remove_live(ph, ids, chars, d.entity_count);
+  CHECK(!chars[1].valid() && !ids[0].valid() && ph.stats().bodies == 0);
+
+  // KONTROL: eski yol (chars=null) kutuyu doguruyor — scene_spawn_bodies degismedi.
+  const uint32_t eski = scene_spawn_bodies(d, ph, ids);
+  std::printf("    [bilgi] KONTROL scene_spawn_bodies (karaktersiz): %u govde (2 olmali: zemin + kahramanin kutusu)\n", eski);
+  CHECK(eski == 2 && ids[1].valid());
+  scene_remove_bodies(ph, ids, d.entity_count);
+  ph.shutdown();
+}

@@ -56,7 +56,17 @@ float VURUS_ON = 1.0;        // vuruş küresinin merkezi oyuncunun kaç metre �
 float VURUS_R = 1.25;        // vuruş küresinin yarıçapı
 float VURUS_BEKLE = 0.40;
 float VURUS_ITME = 9.0;
-int VURUS_HASAR = 34;
+// 34 -> 50 (2026-09-24): köprünün ışını tam oldu (atlanan gövdeye bitişik kör
+// bölge kalktı). Eski kör bölge düşmanın engel yoklamasını oyuncudan
+// SEKTİRİYORDU — istenmeyen bir "mesafe koru" davranışı — ve otopilot bu
+// zayıflatılmış düşmana göre dengelenmişti. Düşman artık oyuncuya gerçekten
+// ulaşıyor (temas hasarı aynı: 11 / 0.85 s); 34 hasarla otopilot 2. bölümde
+// ölüyordu. Ölçüldü (3200 kare, aynı otopilot):
+//   34 hasar: 8 öldü, can 0, OYUNCU ÖLDÜ      TEMAS_HASAR 8:   9 öldü, can 13
+//   HASAR_BEKLE 1.25: 9 öldü, can 4           50 hasar:        9 öldü, can 26, KAZANDI
+// 50 seçildi: düşmanın tehdidi olduğu gibi kalıyor, oyuncunun vuruşu iki
+// vuruşta öldürüyor ve kapı sayıları eski taban çizgisiyle birebir.
+int VURUS_HASAR = 50;
 int OYUNCU_CAN_MAX = 100;
 int DUSMAN_CAN_MAX = 100;
 float DUSMAN_R = 0.5;
@@ -197,9 +207,15 @@ func yon_hesapla(id, fx, fz, tx, tz): (float, float) {
     if (uz < 0.0001) { return 0.0, 0.0; }
     hx = hx / uz;
     hz = hz / uz;
-    // Engelden kaçınma: ilerideki duvarın normali boyunca kay (sürtün, takılma).
+    // Engelden kaçınma: ilerideki DUVARIN normali boyunca kay (sürtün, takılma).
+    // Yalnız sahne geometrisi (isin_id() == 0): oyuncu ve düşmanlar engel
+    // DEĞİL. Köprünün ışını 2026-09-24'e kadar atlanan gövdeye bitişik ~1 m'yi
+    // görmüyordu ve bu süzgeç olmadan da oyun tutuyordu; ışın tam olunca
+    // kovalayan düşman oyuncuyu "duvar" sanıp ondan sekiyor, oyuncu da
+    // düşmandan sekip duvara yaslanıp kalıyordu (ölçüldü: 3200 karede 2
+    // düşman 1.9 m mesafede asılı, oyuncu doğu duvarında sabit).
     float d = isin(fx, 0.55, fz, hx, 0, hz, 1.5, id);
-    if (d >= 0.0) {
+    if (d >= 0.0 && isin_id() == 0) {
         float nx = isin_nx();
         float nz = isin_nz();
         float nok = hx * nx + hz * nz;

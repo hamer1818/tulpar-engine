@@ -1235,12 +1235,16 @@ int32_t scene_pick(const SceneBounds *bounds, uint32_t n, Vec3 origin, Vec3 dir,
   return best;
 }
 
-uint32_t scene_spawn_bodies(const SceneDesc &d, sim::Physics &ph, sim::BodyId *ids) {
+uint32_t scene_spawn_bodies(const SceneDesc &d, sim::Physics &ph, sim::BodyId *ids) { return scene_spawn_live(d, ph, ids, nullptr).bodies; }
+SceneLiveStats scene_spawn_live(const SceneDesc &d, sim::Physics &ph, sim::BodyId *ids, sim::CharacterId *chars) {
+  SceneLiveStats st;
   uint32_t n = 0;
   for (uint32_t i = 0; i < d.entity_count; i++) {
     const SceneEntity &e = d.entities[i];
     ids[i] = sim::BodyId{};
+    if (chars) chars[i] = sim::CharacterId{};
     if (!(e.components & kSceneBody)) continue;
+    if (chars && (e.components & kSceneCharacter)) { st.bodies_replaced++; continue; }
     // DUNYA donusumu: cocuk govde gorundugu yerde dogar. Kok varlikta bu
     // degerler yerel olanlarla bit-tam ayni (erken donus), yani duz sahnelerde
     // sim davranisi degismez.
@@ -1254,13 +1258,42 @@ uint32_t scene_spawn_bodies(const SceneDesc &d, sim::Physics &ph, sim::BodyId *i
     else ids[i] = ph.add_sphere(e.radius * ws.x, wp, e.dynamic);
     if (ids[i].valid()) n++;
   }
-  return n;
+  st.bodies = n;
+  if (!chars) return st;
+  for (uint32_t i = 0; i < d.entity_count; i++) {
+    const SceneEntity &e = d.entities[i];
+    if (!(e.components & kSceneCharacter)) continue;
+    const Mat4 wm = scene_entity_world_matrix(d, i);
+    sim::CharacterConfig cc;
+    cc.radius = e.char_radius;
+    cc.height = e.char_height;
+    cc.mass = e.char_mass;
+    cc.max_slope_deg = e.char_max_slope;
+    cc.position = {wm.m[3][0], wm.m[3][1] - e.char_height * 0.5f, wm.m[3][2]};
+    chars[i] = ph.add_character(cc);
+    if (chars[i].valid()) st.characters++;
+    else st.characters_failed++;
+  }
+  return st;
 }
-void scene_remove_bodies(sim::Physics &ph, sim::BodyId *ids, uint32_t n) {
+void scene_remove_bodies(sim::Physics &ph, sim::BodyId *ids, uint32_t n) { scene_remove_live(ph, ids, nullptr, n); }
+void scene_remove_live(sim::Physics &ph, sim::BodyId *ids, sim::CharacterId *chars, uint32_t n) {
   for (uint32_t i = 0; i < n; i++) {
     if (ids[i].valid()) ph.remove(ids[i]);
     ids[i] = sim::BodyId{};
+    if (chars) {
+      if (chars[i].valid()) ph.remove_character(chars[i]);
+      chars[i] = sim::CharacterId{};
+    }
   }
+}
+Mat4 scene_character_matrix(const SceneDesc &d, uint32_t i, const sim::Physics &ph, sim::CharacterId c) {
+  Mat4 m = scene_entity_world_matrix(d, i);
+  const Vec3 f = ph.character_position(c);
+  m.m[3][0] = f.x;
+  m.m[3][1] = f.y + d.entities[i].char_height * 0.5f;
+  m.m[3][2] = f.z;
+  return m;
 }
 Mat4 scene_body_matrix(const SceneEntity &e, const sim::Physics &ph, sim::BodyId id) {
   return Mat4::translate(ph.position(id)) * to_mat4(ph.rotation(id)) * Mat4::scale(e.scale);

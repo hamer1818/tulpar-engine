@@ -167,6 +167,9 @@ bool DemoScene::init(Arena &arena, JobSystem *jobs, bool with_content) {
   g_scene = this;
   if (!build_nav(nav_)) return false;
   PhysicsConfig pc; pc.jobs = jobs;
+  // Editor (with_content=false) sahnedeki karakterleri F5'te dogurur; havuz
+  // init'te sabit (A2). Demo icerigi karakter kullanmiyor, varsayilan kalir.
+  if (!with_content) pc.max_characters = 32;
   if (!phys_.init(arena, pc)) return false;
   // Buradan sonrasi demo ICERIGIDIR. with_content=false (editor) verildiginde
   // hicbiri kurulmaz: cagirana BOS bir fizik dunyasi ve navmesh kalir.
