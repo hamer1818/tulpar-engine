@@ -681,10 +681,11 @@ func durum_seridi() {
 //     ses = kaydirici("Ses", 40, 200, 380, 46, ses, 0.0, 1.0);
 // Sıra her karede: ui_basla() -> widget'lar -> ui_bitir(). İşaretçi sırası:
 // enjeksiyon (pencersiz test) > dokunmatik parmak 0 > fare sol tuşu.
-func ui_basla() { eng_ui_begin(); }
-func ui_bitir() { eng_ui_end(); }
-func ui_begin() { eng_ui_begin(); }
-func ui_end() { eng_ui_end(); }
+// Koordinatsız yerleşim (ui_pencere, ui_dugme ...) aşağıda, "Arayüz yerleşimi".
+func ui_basla() { eng_ui_begin(); _yr_sifirla(); }
+func ui_bitir() { _yr_kare_sonu(); eng_ui_end(); }
+func ui_begin() { ui_basla(); }
+func ui_end() { ui_bitir(); }
 func ui_tema(panel_renk, yazi_renk, vurgu) { eng_ui_theme(panel_renk, yazi_renk, vurgu); }
 func ui_theme(panel_color, text_color, accent) { eng_ui_theme(panel_color, text_color, accent); }
 // Devre dışı widget SOLUK çizilir ve değeri DEĞİŞMEZ (tıklama yutulur).
@@ -693,12 +694,13 @@ func ui_enable(on) { eng_ui_enable(on); }
 func panel(x, y, w, h, renk_) { eng_ui_panel(x, y, w, h, renk_); }
 func etiket(yazi_, x, y, olcek, renk_) { eng_ui_label(yazi_, x, y, olcek, renk_); }
 func label(text, x, y, scale, color) { eng_ui_label(text, x, y, scale, color); }
-func dugme(ad, x, y, w, h): bool { return eng_ui_button(ad, x, y, w, h); }
-func button(label_, x, y, w, h): bool { return eng_ui_button(label_, x, y, w, h); }
-func onay_kutusu(ad, x, y, w, h, deger): bool { return eng_ui_checkbox(ad, x, y, w, h, deger); }
-func checkbox(label_, x, y, w, h, value): bool { return eng_ui_checkbox(label_, x, y, w, h, value); }
-func kaydirici(ad, x, y, w, h, deger, en_az, en_cok): float { return eng_ui_slider(ad, x, y, w, h, deger, en_az, en_cok); }
-func slider(label_, x, y, w, h, value, min_v, max_v): float { return eng_ui_slider(label_, x, y, w, h, value, min_v, max_v); }
+// Her widget dikdörtgenini ADIYLA kaydeder (ui_test_tikla_ad, aşağıda).
+func dugme(ad, x, y, w, h): bool { _ui_kaydet(ad, 1, x, y, w, h); return eng_ui_button(ad, x, y, w, h); }
+func button(label_, x, y, w, h): bool { return dugme(label_, x, y, w, h); }
+func onay_kutusu(ad, x, y, w, h, deger): bool { _ui_kaydet(ad, 2, x, y, w, h); return eng_ui_checkbox(ad, x, y, w, h, deger); }
+func checkbox(label_, x, y, w, h, value): bool { return onay_kutusu(label_, x, y, w, h, value); }
+func kaydirici(ad, x, y, w, h, deger, en_az, en_cok): float { _ui_kaydet(ad, 3, x, y, w, h); return eng_ui_slider(ad, x, y, w, h, deger, en_az, en_cok); }
+func slider(label_, x, y, w, h, value, min_v, max_v): float { return kaydirici(label_, x, y, w, h, value, min_v, max_v); }
 // Bir widget basılı/sürükleniyor mu — menü açıkken oyun girdisini bastırmak için.
 func ui_basili(): bool { return eng_ui_active(); }
 func ui_active(): bool { return eng_ui_active(); }
@@ -711,6 +713,244 @@ func ui_test_click(x, y) { eng_ui_test_click(x, y); }
 // Ekranda yatay ortalanmış bir kutunun sol kenarı (menü yerleşimi).
 func ui_orta_x(w): float { return (genislik() - w) / 2.0; }
 func ui_center_x(w): float { return (genislik() - w) / 2.0; }
+
+// ---- Arayüz yerleşimi: koordinatsız widget'lar ------------------------------
+// Yukarıdaki widget'lar her düğmenin yerini ister. "Gölge Salonları"nda menü
+// kodu yerleri elle topluyordu (`dugme("Ayarlar", x, y + 70, w, 56)`) ve
+// pencersiz doğrulama her düğmenin tıklama noktasını ayrı bir globalde
+// saklıyordu (g_c_basla, g_c_ses ...). Burada DİKEY YIĞIN: bir imleç (x, y,
+// genişlik, satır yüksekliği, aralık) widget'ları alt alta dizer:
+//
+//     ui_pencere("AYARLAR", 472, 400, 0);        // ortalanmış, başlıklı panel
+//     ses = ui_kaydirici("Ses", ses, 0.0, 1.0);
+//     parlama = ui_onay_kutusu("Parlama", parlama);
+//     if (ui_dugme("Geri")) { ekran = Ekran.MENU; }
+//     ui_pencere_bitir();                         // içerik sığmadıysa UYARI
+//
+// ÖLÇEK: yerleşimdeki her sayı 720p'lik TASARIM birimidir, ui_olcek()
+// (= yukseklik() / 720) ile çarpılır. Köprünün fontu da ekran yüksekliğiyle
+// yüklenir (1080p'de 28 px), yani düğme ve içindeki yazı birlikte büyür; 720p'de
+// ölçek tam 1. Koordinatlı widget'lar (`dugme(ad, x, y, w, h)`) ham PİKSEL
+// almaya devam eder; onlar için ui_px(v). Dikdörtgenler tam piksele yuvarlanır:
+// kenar keskin kalır ve oranlı test tıklaması float'ta TAM düşer.
+//
+// ADLA TEST TIKLAMASI: her widget (koordinatlılar da) dikdörtgenini ADIYLA
+// kaydeder; pencersiz doğrulama koordinat bilmeden tıklar:
+//     ui_test_tikla_ad("Basla");             // sonraki karede tetiklenir
+//     ui_test_tikla_oran("Ses", 0.25);       // kaydırıcı izinin %25'i -> 0.25
+// Kayıt adın EN SON çizildiği yeri tutar: bu kare çizilmemiş ekranın düğmesi de
+// istenebilir; tıklama sonraki karede tüketilir, düğme o karede oradaysa
+// tetiklenir. Hiç çizilmemiş ad, yanlış tür ve [0, 1] dışı oran SESSİZ geçmez:
+// false döner, UYARI loglanır, ui_uyari_sayisi() artar (köprünün
+// uyari_sayisi()'ndan AYRI, Tulpar tarafı).
+float UI_TASARIM_Y = 720.0;      // tasarım biriminin referans ekran yüksekliği
+// Font 1080p'de 28 px (bridge/engine_api.cpp: vis_h / 1080 * 28) -> 720p'de
+// 18.67: ui_etiket bir satırı (ölçek x) bu kadar ilerletir. Font en az 12 px:
+// 463 px'ten alçak ekranda yazı satırdan biraz taşar.
+float _UI_YAZI_BOY = 18.6667;
+// Kaydırıcı izinin iki yandaki payı, PİKSEL (ölçeklenmez): teng_ui_slider'daki
+// `pad` ile AYNI olmalı. run_yerlesim oranlı tıklamanın TAM değeri verdiğini
+// ölçer; biri değişip öteki kalırsa kırmızı.
+float _UI_KAYDIRICI_PAY = 12.0;
+float _UI_PENCERE_PAY = 24.0;    // pencere iç kenar boşluğu (tasarım birimi)
+float _UI_BASLIK_OLCEK = 1.5;
+int _UI_KAYIT_MAX = 128;         // ayrı widget adı; dolunca UYARI, sessiz büyüme yok
+
+float _ui_sabit_olcek = 0.0;     // 0 = otomatik (yukseklik() / 720)
+int _ui_uyari = 0;
+bool _ui_kayit_dolu = false;
+bool _ui_tasma_bildirildi = false;
+str _ui_tasma_son = "";
+// Ad kaydı. tur: 1 düğme, 2 onay kutusu, 3 kaydırıcı (köprünün kimlik türleri).
+array _ui_ad = [];
+array _ui_tur = [];
+array _ui_x = [];
+array _ui_y = [];
+array _ui_w = [];
+array _ui_h = [];
+// İmleç: konum ve genişlik PİKSEL; satır yüksekliği ve aralık TASARIM biriminde.
+float _yr_x = 0.0;
+float _yr_y = 0.0;
+float _yr_w = 0.0;
+float _yr_s = 1.0;
+float _yr_satir = 56.0;
+float _yr_ara = 14.0;
+float _yr_alt = 0.0;             // son yerleşen öğenin alt kenarı (piksel)
+bool _yr_pencere_acik = false;
+str _yr_pencere = "";
+float _yr_px = 0.0;
+float _yr_py = 0.0;
+float _yr_pw = 0.0;
+float _yr_ph = 0.0;
+float _yr_ph_tasarim = 0.0;
+
+func ui_olcek(): float {
+    if (_ui_sabit_olcek > 0.0) { return _ui_sabit_olcek; }
+    return yukseklik() / UI_TASARIM_Y;
+}
+func ui_scale(): float { return ui_olcek(); }
+// Ölçeği sabitle (1.0 = tasarım birimi piksel; test ve piksel-mükemmel HUD).
+// 0 otomatiğe döner.
+func ui_olcek_sabitle(float s) { _ui_sabit_olcek = s; }
+func ui_px(float v): float { return v * ui_olcek(); }
+func ui_uyari_sayisi(): int { return _ui_uyari; }
+func ui_warning_count(): int { return _ui_uyari; }
+
+func _ui_yuvarla(float v): float { return floor(v + 0.5); }
+func _ui_uyar(str msg) {
+    _ui_uyari += 1;
+    eng_log("UYARI " + msg);
+}
+func _ui_bul(ad): int {
+    for (int i = 0; i < len(_ui_ad); i++) {
+        if (_ui_ad[i] == ad) { return i; }
+    }
+    return -1;
+}
+func _ui_kaydet(ad, int tur, float x, float y, float w, float h) {
+    int i = _ui_bul(ad);
+    if (i < 0) {
+        if (len(_ui_ad) >= _UI_KAYIT_MAX) {
+            if (!_ui_kayit_dolu) { _ui_kayit_dolu = true; _ui_uyar(t"arayuz ad kaydi dolu ({_UI_KAYIT_MAX}): '{ad}' ve sonraki yeni adlar adla tiklanamaz (etiketi her kare degisen widget mi?)"); }
+            return;
+        }
+        push(_ui_ad, ad); push(_ui_tur, tur);
+        push(_ui_x, x); push(_ui_y, y); push(_ui_w, w); push(_ui_h, h);
+        return;
+    }
+    _ui_tur[i] = tur;
+    _ui_x[i] = x; _ui_y[i] = y; _ui_w[i] = w; _ui_h[i] = h;
+}
+
+// ui_basla: imleç varsayılana. Genişlik 0: yerleşim kurulmadan çağrılan
+// ui_dugme köprüde HATA sayar, geçen karenin yerine sessizce çizmez.
+func _yr_sifirla() {
+    _yr_s = ui_olcek();
+    _yr_x = 0.0; _yr_y = 0.0; _yr_w = 0.0; _yr_alt = 0.0;
+    _yr_satir = 56.0; _yr_ara = 14.0;
+    _yr_pencere_acik = false;
+}
+func _yr_kare_sonu() {
+    if (_yr_pencere_acik) { _ui_uyar(t"ui_bitir: '{_yr_pencere}' penceresi ui_pencere_bitir ile kapatilmadi"); }
+    _yr_pencere_acik = false;
+}
+// Sıradaki satır: tam piksel y ve yükseklik; imleç satır + aralık kadar iner.
+func _yr_yer(float boy): (float, float) {
+    float y = _ui_yuvarla(_yr_y);
+    float h = _ui_yuvarla(boy * _yr_s);
+    _yr_y += (boy + _yr_ara) * _yr_s;
+    _yr_alt = y + h;
+    return y, h;
+}
+
+// Dikey yığın başlat: sol üst (x, y), genişlik, satır yüksekliği, aralık.
+func ui_yerlesim(float x, float y, float w, float satir, float ara) {
+    _yr_s = ui_olcek();
+    _yr_x = _ui_yuvarla(x * _yr_s);
+    _yr_y = y * _yr_s;
+    _yr_w = _ui_yuvarla(w * _yr_s);
+    _yr_satir = satir;
+    _yr_ara = ara;
+    _yr_alt = _yr_y;
+}
+func layout_begin(float x, float y, float w, float row_h, float gap) { ui_yerlesim(x, y, w, row_h, gap); }
+func ui_satir(float h) { _yr_satir = h; }
+func ui_ara(float a) { _yr_ara = a; }
+func ui_bosluk(float h) { _yr_y += h * _yr_s; }
+func layout_space(float h) { ui_bosluk(h); }
+
+func ui_dugme(ad): bool {
+    float y, h = _yr_yer(_yr_satir);
+    return dugme(ad, _yr_x, y, _yr_w, h);
+}
+func layout_button(label_): bool { return ui_dugme(label_); }
+func ui_onay_kutusu(ad, deger): bool {
+    float y, h = _yr_yer(_yr_satir);
+    return onay_kutusu(ad, _yr_x, y, _yr_w, h, deger);
+}
+func layout_checkbox(label_, value): bool { return ui_onay_kutusu(label_, value); }
+func ui_kaydirici(ad, deger, en_az, en_cok): float {
+    float y, h = _yr_yer(_yr_satir);
+    return kaydirici(ad, _yr_x, y, _yr_w, h, deger, en_az, en_cok);
+}
+func layout_slider(label_, value, min_v, max_v): float { return ui_kaydirici(label_, value, min_v, max_v); }
+// Yazı satırı (sola yaslı / ortalı). Satır yüksekliği fonttan: ölçek x 18.67.
+func ui_etiket(yazi_, float olcek, int renk_) {
+    float y, h = _yr_yer(_UI_YAZI_BOY * olcek);
+    eng_ui_label(yazi_, _yr_x, y, olcek, renk_);
+}
+func layout_label(text, float scale, int color) { ui_etiket(text, scale, color); }
+func ui_etiket_orta(yazi_, float olcek, int renk_) {
+    float y, h = _yr_yer(_UI_YAZI_BOY * olcek);
+    eng_ui_label(yazi_, _ui_yuvarla(_yr_x + (_yr_w - eng_text_width(yazi_, olcek)) / 2.0), y, olcek, renk_);
+}
+
+// Ekranda ORTALANMIŞ panel + başlık; imleç içine kurulur (satır 56, aralık 14;
+// değiştirmek için ardından ui_satir / ui_ara). w, h panelin DIŞ ölçüsü
+// (tasarım birimi); ekrandan genişse ekrana sığdırılır. renk_ 0 = tema.
+// Başlık "" ise başlık satırı yok. Kapatan: ui_pencere_bitir().
+func ui_pencere(baslik, float w, float h, int renk_) {
+    if (_yr_pencere_acik) { _ui_uyar(t"ui_pencere '{baslik}': onceki '{_yr_pencere}' penceresi kapatilmadi"); }
+    float s = ui_olcek();
+    float pw = _ui_yuvarla(min(w * s, genislik() - 16.0 * s));
+    float ph = _ui_yuvarla(h * s);
+    float px = _ui_yuvarla((genislik() - pw) / 2.0);
+    float py = _ui_yuvarla((yukseklik() - ph) / 2.0);
+    eng_ui_panel(px, py, pw, ph, renk_);
+    float pay = _ui_yuvarla(_UI_PENCERE_PAY * s);
+    _yr_s = s;
+    _yr_x = px + pay; _yr_y = py + pay; _yr_w = pw - 2.0 * pay; _yr_alt = _yr_y;
+    _yr_satir = 56.0; _yr_ara = 14.0;
+    _yr_pencere_acik = true;
+    _yr_pencere = baslik;
+    _yr_px = px; _yr_py = py; _yr_pw = pw; _yr_ph = ph; _yr_ph_tasarim = h;
+    if (len(baslik) > 0) { ui_etiket(baslik, _UI_BASLIK_OLCEK, 0); }
+}
+func ui_window(title, float w, float h, int color) { ui_pencere(title, w, h, color); }
+// İçerik panelin iç alanından taştıysa UYARI (gereken yükseklikle, bir kez),
+// sonra imleci panelin ALTINA taşır: pencereye bağlı bir ipucu satırı için.
+func ui_pencere_bitir() {
+    if (!_yr_pencere_acik) { _ui_uyar("ui_pencere_bitir: acik pencere yok"); return; }
+    _yr_pencere_acik = false;
+    float pay = _ui_yuvarla(_UI_PENCERE_PAY * _yr_s);
+    if (_yr_alt > _yr_py + _yr_ph - pay && (!_ui_tasma_bildirildi || _ui_tasma_son != _yr_pencere)) {
+        _ui_tasma_bildirildi = true;
+        _ui_tasma_son = _yr_pencere;
+        int gereken = toInt((_yr_alt + pay - _yr_py) / _yr_s + 0.999);
+        _ui_uyar(t"ui_pencere '{_yr_pencere}': icerik panele sigmadi, gereken yukseklik {gereken} (verilen {_yr_ph_tasarim})");
+    }
+    _yr_x = _yr_px;
+    _yr_w = _yr_pw;
+    _yr_y = _yr_py + _yr_ph + _yr_ara * _yr_s;
+    _yr_alt = _yr_y;
+}
+func ui_window_end() { ui_pencere_bitir(); }
+
+// Kayıttaki dikdörtgen (piksel, en son çizildiği yer); ad yoksa -1.
+func ui_oge_var(ad): bool { return _ui_bul(ad) >= 0; }
+func ui_oge_x(ad): float { int i = _ui_bul(ad); if (i < 0) { return -1.0; } return _ui_x[i]; }
+func ui_oge_y(ad): float { int i = _ui_bul(ad); if (i < 0) { return -1.0; } return _ui_y[i]; }
+func ui_oge_w(ad): float { int i = _ui_bul(ad); if (i < 0) { return -1.0; } return _ui_w[i]; }
+func ui_oge_h(ad): float { int i = _ui_bul(ad); if (i < 0) { return -1.0; } return _ui_h[i]; }
+
+// Pencersiz doğrulama: adıyla tıkla (dikdörtgenin ortası). false = tıklama YOK.
+func ui_test_tikla_ad(ad): bool {
+    int i = _ui_bul(ad);
+    if (i < 0) { _ui_uyar(t"ui_test_tikla_ad: '{ad}' adinda widget hic cizilmedi, tiklama YOK"); return false; }
+    eng_ui_test_click(_ui_x[i] + _ui_w[i] / 2.0, _ui_y[i] + _ui_h[i] / 2.0);
+    return true;
+}
+func ui_test_click_name(name): bool { return ui_test_tikla_ad(name); }
+// Kaydırıcıyı izinin `oran`ına (0..1) tıkla: değer en_az + oran * (en_cok - en_az).
+func ui_test_tikla_oran(ad, float oran): bool {
+    int i = _ui_bul(ad);
+    if (i < 0) { _ui_uyar(t"ui_test_tikla_oran: '{ad}' adinda widget hic cizilmedi, tiklama YOK"); return false; }
+    if (_ui_tur[i] != 3) { _ui_uyar(t"ui_test_tikla_oran: '{ad}' kaydirici degil (tur {_ui_tur[i]}), tiklama YOK"); return false; }
+    if (oran < 0.0 || oran > 1.0) { _ui_uyar(t"ui_test_tikla_oran: '{ad}' orani {oran} [0, 1] disinda, tiklama YOK"); return false; }
+    eng_ui_test_click(_ui_x[i] + _UI_KAYDIRICI_PAY + (_ui_w[i] - 2.0 * _UI_KAYDIRICI_PAY) * oran, _ui_y[i] + _ui_h[i] / 2.0);
+    return true;
+}
+func ui_test_click_ratio(name, float ratio): bool { return ui_test_tikla_oran(name, ratio); }
 
 // ---- Kalıcı kayıt: ayarlar ve en yüksek skor -------------------------------
 // Motor KURULMADAN da çalışır: parlama gibi ayarlar `motor_ac`'tan ÖNCE okunur.

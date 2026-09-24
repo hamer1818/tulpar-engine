@@ -29,6 +29,8 @@
 // 2026-09-24: dilin olanaklarıyla yeniden yazıldı (for/break, +=, else if,
 // kutusuz Vec3, kitaplıktaki yön/görüş). Oyun aynı: 3200 karelik kapı özeti ve
 // fren ölçümü eski sürümle BAYT BAYT aynı (bkz. PR). 927 kod satırından bu hale.
+// Aynı gün: menü/duraklat/ayarlar kitaplığın yerleşimiyle (engine.tpr "Arayüz
+// yerleşimi") — hiçbir widget koordinat almıyor, otopilot düğmeleri ADIYLA tıklıyor.
 
 import "engine";
 
@@ -296,57 +298,49 @@ func oyuna_basla() {
     logla("oyun basladi (menuden)");
 }
 
+// Yerleşim kitaplıkta (engine.tpr "Arayüz yerleşimi"): pencere ortalanır,
+// widget'lar alt alta dizilir, ölçüler ekran yüksekliğiyle ölçeklenir.
+int RENK_PENCERE = renk_a(10, 12, 18, 228);
+int RENK_KARART = renk_a(0, 0, 0, 120);
+
 func menu_ciz() {
-    float w = 380.0;
-    float x = ui_orta_x(w);
-    float y = yukseklik() * 0.30;
-    panel(x - 26, y - 104, w + 52, 400, renk_a(10, 12, 18, 225));
-    etiket("GOLGE SALONLARI", x, y - 86, 1.7, BEYAZ);
-    etiket(t"rekor {g_rekor}   |   Tulpar Engine", x, y - 44, 0.85, ACIK_GRI);
-    g_c_basla = v3(x + w / 2, y + 28, 0.0);
-    if (dugme("Basla", x, y, w, 56)) { oyuna_basla(); }
-    g_c_ayar = v3(x + w / 2, y + 98, 0.0);
-    if (dugme("Ayarlar", x, y + 70, w, 56)) { g_ayar_donus = Ekran.MENU; g_ekran = Ekran.AYAR; }
-    if (dugme("Cikis", x, y + 140, w, 56)) { ayarlari_yaz(); cikis_iste(); }
-    etiket("WASD/oklar yuru  SPACE zipla  SHIFT atil  J/sol tik vur  sag tik+surukle kamera  ESC duraklat", x - 60, y + 220, 0.72, GRI);
+    ui_pencere("GOLGE SALONLARI", 432, 320, RENK_PENCERE);
+    ui_etiket(t"rekor {g_rekor}   |   Tulpar Engine", 0.85, ACIK_GRI);
+    if (ui_dugme("Basla")) { oyuna_basla(); }
+    if (ui_dugme("Ayarlar")) { g_ayar_donus = Ekran.MENU; g_ekran = Ekran.AYAR; }
+    if (ui_dugme("Cikis")) { ayarlari_yaz(); cikis_iste(); }
+    ui_pencere_bitir();
+    ui_etiket_orta("WASD/oklar yuru  SPACE zipla  SHIFT atil  J/sol tik vur  sag tik+surukle kamera  ESC duraklat", 0.72, GRI);
 }
 
 func duraklat_ciz() {
-    float w = 340.0;
-    float x = ui_orta_x(w);
-    float y = yukseklik() * 0.30;
-    dikdortgen(0, 0, genislik(), yukseklik(), renk_a(0, 0, 0, 120));
-    panel(x - 24, y - 70, w + 48, 330, renk_a(10, 12, 18, 230));
-    etiket("DURAKLADI", x, y - 54, 1.5, BEYAZ);
-    if (dugme("Devam", x, y, w, 56)) { g_ekran = Ekran.OYUN; }
-    if (dugme("Ayarlara git", x, y + 70, w, 56)) { g_ayar_donus = Ekran.DURAKLAT; g_ekran = Ekran.AYAR; }
-    if (dugme("Ana menu", x, y + 140, w, 56)) {
+    dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
+    ui_pencere("DURAKLADI", 388, 286, RENK_PENCERE);
+    if (ui_dugme("Devam")) { g_ekran = Ekran.OYUN; }
+    if (ui_dugme("Ayarlara git")) { g_ayar_donus = Ekran.DURAKLAT; g_ekran = Ekran.AYAR; }
+    if (ui_dugme("Ana menu")) {
         g_rekor = rekor_guncelle("aksiyon_rekor", g_skor);
         g_oynandi = true;
         g_ekran = Ekran.MENU;
     }
+    ui_pencere_bitir();
 }
 
 // Parlama motor kurulumunda açılır: onay kutusu YENİDEN BAŞLATINCA etkir.
 func ayar_ciz() {
-    float w = 420.0;
-    float x = ui_orta_x(w);
-    float y = yukseklik() * 0.22;
-    dikdortgen(0, 0, genislik(), yukseklik(), renk_a(0, 0, 0, 120));
-    panel(x - 26, y - 70, w + 52, 420, renk_a(10, 12, 18, 232));
-    etiket("AYARLAR", x, y - 54, 1.5, BEYAZ);
-    g_c_ses = v3(x + 12 + (w - 24) * 0.25, y + 24, 0.0); // kaydırıcı izinin %25'i (12 px pay)
+    dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
+    ui_pencere("AYARLAR", 472, 400, RENK_PENCERE);
     float onceki = g_ses_ayari;
-    g_ses_ayari = kaydirici("Ses seviyesi", x, y, w, 48, g_ses_ayari, 0.0, 1.0);
+    g_ses_ayari = ui_kaydirici("Ses seviyesi", g_ses_ayari, 0.0, 1.0);
     if (g_ses_ayari != onceki) { ses_uygula(); }
-    g_parlama_ayari = onay_kutusu("Parlama (yeniden baslatinca)", x, y + 62, w, 46, g_parlama_ayari);
-    etiket("motor: " + eng_gpu_name(), x + 10, y + 124, 0.72, ACIK_GRI);
-    etiket(t"cozunurluk {genislik()}x{yukseklik()}   parlama simdi {parlama_acik()}", x + 10, y + 150, 0.72, ACIK_GRI);
+    g_parlama_ayari = ui_onay_kutusu("Parlama (yeniden baslatinca)", g_parlama_ayari);
+    ui_etiket("motor: " + eng_gpu_name(), 0.72, ACIK_GRI);
+    ui_etiket(t"cozunurluk {genislik()}x{yukseklik()}   parlama simdi {parlama_acik()}", 0.72, ACIK_GRI);
     str nav_metni = nav_var() ? t"{nav_poligon()} poligon" : "yok";
-    etiket(t"navmesh {nav_metni}   ses cihazi {g_ses_var}", x + 10, y + 176, 0.72, ACIK_GRI);
-    etiket(t"sahne izleme acik — editorde Derle, oyun kendini yeniler ({g_yenileme})", x + 10, y + 202, 0.72, ACIK_GRI);
-    g_c_geri = v3(x + w / 2, y + 262, 0.0);
-    if (dugme("Geri", x, y + 234, w, 56)) { ayarlari_yaz(); g_ekran = g_ayar_donus; }
+    ui_etiket(t"navmesh {nav_metni}   ses cihazi {g_ses_var}", 0.72, ACIK_GRI);
+    ui_etiket(t"sahne izleme acik: editorde Derle, oyun kendini yeniler ({g_yenileme})", 0.72, ACIK_GRI);
+    if (ui_dugme("Geri")) { ayarlari_yaz(); g_ekran = g_ayar_donus; }
+    ui_pencere_bitir();
 }
 
 // ---- Oyuncu -----------------------------------------------------------------
@@ -510,7 +504,7 @@ func hud_ciz() {
     if (g_hasar_t > 0.0) { dikdortgen(0, 0, genislik(), 6, renk(232, 74, 64)); }
     if (g_yenileme_t > 0.0) { yazi(t"SAHNE YENIDEN YUKLENDI ({g_yenileme})", 20, 196, 1.0, RENK_KAPI); }
     // Dokunmatikte ESC yok: duraklat düğmesi sağ üstte.
-    if (g_ekran == Ekran.OYUN && dugme("||", genislik() - 76, 14, 56, 40)) { g_ekran = Ekran.DURAKLAT; }
+    if (g_ekran == Ekran.OYUN && dugme("||", genislik() - ui_px(76), ui_px(14), ui_px(56), ui_px(40))) { g_ekran = Ekran.DURAKLAT; }
     if (g_durum == Durum.AFIS) { yazi(t"BOLUM {g_bolum}", 20, 210, 2.4, BEYAZ); }
     if (g_durum == Durum.SON || g_durum == Durum.KAZANDIN) {
         bool kazandi = g_durum == Durum.KAZANDIN;
@@ -617,12 +611,9 @@ bool g_otopilot = false;
 int g_kurulum_hatasi = 0;     // bölüm kurarken motorun logladığı hata (bozuk blob vb.)
 int g_kurulum_hatasi_ek = 0;  // motor kurulumunda (parlama/font)
 float g_kayit_ses = -1.0;     // diske yazılan ses ayarı geri okundu
-// Menü: otopilotun tıklayacağı noktalar çizim anında kaydedilir.
-Vec3 g_c_basla = { x: 0.0, y: 0.0, z: 0.0 };
-Vec3 g_c_ayar = { x: 0.0, y: 0.0, z: 0.0 };
-Vec3 g_c_geri = { x: 0.0, y: 0.0, z: 0.0 };
-Vec3 g_c_ses = { x: 0.0, y: 0.0, z: 0.0 };
-int g_op_adim = 0;            // menü adımı: 0 ayarlar, 1 kaydırıcı, 2 geri, 3 başla, 4 bitti
+// Menü akışı: adım başına ADIYLA tıklanan widget (1: kaydırıcı, izinin %25'i).
+array OP_MENU_ADIM = ["Ayarlar", "Ses seviyesi", "Geri", "Basla"];
+int g_op_adim = 0;            // 4 = bitti
 // Fren ölçümü: her öldürmeden sonra 0.5 s girdi bırakılır, kayılan yol ölçülür.
 float g_op_birak = 0.0;
 Vec3 g_op_birak_p = { x: 0.0, y: 0.0, z: 0.0 };
@@ -635,15 +626,14 @@ int KAPI_MIN_KARE = 1000;
 // Frensiz (eski) oyuncu 0.5 s'de 2.8 m kayıyordu; frenli ~0.3 m.
 float KAYMA_SINIR = 1.0;
 
-// Menüyü BETİK geçer: köprüye tek karelik bas+bırak enjekte edilir (Ayarlar ->
-// kaydırıcı -> Geri -> Başla). Tıklama bir SONRAKİ karede tüketilir.
+// Menüyü BETİK geçer: köprüye tek karelik bas+bırak enjekte edilir, widget
+// ADIYLA bulunur. Tıklama bir SONRAKİ karede tüketilir. "Basla" menünün
+// çizilmediği karede (ayarlar kapanırken) istenir: kayıt en son yerini tutar.
 func otopilot_menu() {
     if (!g_otopilot || g_op_adim >= 4) { return; }
     Ekran gerek = g_op_adim == 0 || g_op_adim == 3 ? Ekran.MENU : Ekran.AYAR;
     if (g_ekran != gerek) { return; }
-    Vec3 c = g_c_basla;
-    if (g_op_adim == 0) { c = g_c_ayar; } else if (g_op_adim == 1) { c = g_c_ses; } else if (g_op_adim == 2) { c = g_c_geri; }
-    ui_test_tikla(c.x, c.y);
+    if (g_op_adim == 1) { ui_test_tikla_oran(OP_MENU_ADIM[1], 0.25); } else { ui_test_tikla_ad(OP_MENU_ADIM[g_op_adim]); }
     g_op_adim += 1;
 }
 
@@ -712,6 +702,7 @@ func kapi_raporu() {
     if (dilim && g_gecis_sayisi < 1) { push(sorun, "en az bir bolum gecisi bekleniyordu"); }
     if (g_can < 1 || g_can > OYUNCU_CAN_MAX) { push(sorun, t"can araligi disi: {g_can}"); }
     if (g_op_adim < 4) { push(sorun, t"otopilot menu akisini bitirmedi, adim={g_op_adim}"); }
+    if (ui_uyari_sayisi() != 0) { push(sorun, t"arayuz yerlesim uyarisi {ui_uyari_sayisi()} (adla tiklama iskasi ya da pencere tasmasi; 0 olmali)"); }
     if (ui_tiklama() < 3) { push(sorun, t"en az 3 arayuz tiklamasi bekleniyordu (Ayarlar/Geri/Basla), {ui_tiklama()}"); }
     if (g_ekran != Ekran.OYUN) { push(sorun, t"menuden oyuna gecilmemis, ekran={g_ekran}"); }
     if (g_ses_ayari < 0.05 || g_ses_ayari > 0.95) { push(sorun, t"kaydirici ses ayarini beklenen aralikta degistirmedi: {g_ses_ayari}"); }
