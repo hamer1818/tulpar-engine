@@ -1068,3 +1068,33 @@ Pozitif kontrol (kapının gerçekten ölçtüğünün kanıtı): yeni kapı **y
 paketine** doğrultulduğunda kırmızı döner — `EKSIK dlopen kutuphanesi
 [platform/window.cpp:64]: adaylarin hicbiri pakette yok -> glfw3.dll libglfw3.dll
 glfw.dll`. Eski kapı aynı pakete "var *.dll (3 adet)" diyordu.
+
+### 8bw. Sayaç ilerliyor, iş yapılmıyor — editörün F5'i fiziği hiç adımlamıyordu
+
+**Belirti** (2026-09-24, kullanıcı): editörde F5 → "ekranda hiçbir hareketlenme yok".
+Durum çubuğunda `tick` artıyordu, "Durdur" düğmesi görünüyordu, duraklatma kapısı
+yeşildi.
+
+**Sebep:** editör `DemoScene`'i demo içeriği OLMADAN kuruyor (`init(..., with_content
+= false)`) ve `init` o dalda zamanlayıcıyı kurmadan dönüyordu. `DemoScene::tick` ise
+her şeyi zamanlayıcıya bırakıyordu: `sched_.run` sıfır aşamalı bir zamanlayıcıyla
+**hiçbir şey yapmadan** döndü. Fizik adımı (`demo_sys_phys`) yalnız demo içeriğiyle
+kayıtlıydı. Editörün tick sayacı ise döngüde AYRI artıyordu — yani "oynatma çalışıyor"
+izlenimini veren tek şey kendi sayacıydı. Hata motor deposuna taşınırken (#4)
+girmişti ve F5'e karakter eklenene kadar (#40) kimse fark etmedi, çünkü...
+
+**...kapı SAYACI ölçüyordu:** penceresiz "duraklatma kapısı" `tick_i`'nin duraklamada
+durup F10'da bir arttığını doğruluyordu. Sayaç fizikten bağımsız arttığı için kapı,
+fizik hiç koşmazken yeşil yandı.
+
+**Düzeltme:** editör kipinde `tick` fiziği doğrudan adımlar. Kapı artık bir dinamik
+gövdenin **konumunu** da ölçüyor (duraklamada y sabit, tek adımda değişiyor) ve yeni bir
+"durdur" kapısı var: oynarken gövde yazar konumundan ayrıldı mı, durdurunca yazar
+konumuna döndü mü, yeniden oynatınca baştan mı başladı.
+
+**Pozitif kontrol:** yeni kapı eski `tick` ile (fizik dalı kapatılarak) **kırmızı**:
+`govde kup_dusen y 6.0000 -> 6.0000 (sabit evet) -> 6.0000 (adimda degisti HAYIR) HATA`.
+Eski kapı aynı durumda "OK" diyordu.
+
+**Ders:** bir sayaç, ölçülmek istenen işin YAN ÜRÜNÜ değilse kanıt değildir. "Kaç kez
+çağrıldı" yerine "çağrı dünyada neyi değiştirdi"yi ölç — burada: gövdenin y'si.
