@@ -86,6 +86,20 @@ dogrula() {
     return 1
   fi
   iyi "dil sondasi: struct alanina bilesik atama dogru ($cevap)"
+  # Ikinci sonda: import edilen modulun struct'lari. engine.tpr'nin `Vec3`'u
+  # import edilen modulde tanimli; TulparLang #345'ten (2026-09-25) once bu tur
+  # hic kaydedilmiyordu: her `v3()` malloc'lanan, hic birakilmayan bir nesneydi
+  # (10M cagri 1013 ms / 4.65 GB; ana programdaki esi 37 ms / 2.5 MB) ve modulde
+  # `D[]` derlenmiyordu. Eski derleyicide bu sonda DERLENMEZ.
+  printf 'struct M { int can; }\nM[] ms = [];\nfunc m_ekle() { push(ms, { can: 5 }); ms[0].can -= 2; }\nfunc m_can(): int { return ms[0].can; }\n' > "$hedef/sonda_modul.tpr"
+  printf 'import "sonda_modul.tpr";\nfunc main() { m_ekle(); print("modul " + toString(m_can())); }\nmain();\n' > "$hedef/dil_sondasi2.tpr"
+  cevap="$(cd "$hedef" && "$d" dil_sondasi2.tpr 2>&1 | tail -1)"
+  if [ "$cevap" != "modul 3" ]; then
+    hata "derleyici import edilen modulun struct'larini tanimiyor ('$cevap', beklenen 'modul 3') — Vec3 her cagrida bellek ayirir"
+    echo "  TulparLang #345 oncesi bir kopya: $tulpar_src icinde 'git pull' yapip bu betigi yeniden calistirin." >&2
+    return 1
+  fi
+  iyi "dil sondasi: import edilen struct kutusuz ($cevap)"
 }
 [ "$sadece_dogrula" = 1 ] && { dogrula; exit $?; }
 
