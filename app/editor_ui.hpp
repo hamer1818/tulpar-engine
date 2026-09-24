@@ -274,9 +274,12 @@ bool editor_open_with_candidates(const char *path, const CodeEditorCandidate *c,
 bool editor_script_create(const char *abs_path, const char *import_path, char *err, uint32_t err_cap);
 
 // Kaynagi sahneye ekler (varsa mevcut indeks) ve o kaynakla yeni bir varlik
-// kurar (kSceneModel). Kaynak tablosu eklemesi gunluge GIRMEZ (tablo append-only;
-// geri al varligi siler, kaynak satiri kalir). Donus: gunluge giren islem sayisi
-// (0 = eklenemedi); out_asset = kaynak indeksi.
+// kurar (kSceneModel). YENI kaynak da gunluge girer (SceneHistory::add_asset):
+// geri al once varligi, sonra kaynak satirini kaldirir — sahne bayt bayt
+// eklemeden onceki hale doner. (Eskiden tablo append-only idi ve geri almadan
+// sonra kimsenin kullanmadigi bir `kaynak` satiri kaliyordu.) Donus: gunluge
+// giren islem sayisi — yeni kaynakla 2, mevcut kaynakla 1, eklenemediyse 0 —
+// cagiran onu TEK grup olarak iter; out_asset = kaynak indeksi.
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset);
 
 // Surukleme bitince grubu gunluge yazar: once hepsi 'before'a dondurulur, sonra

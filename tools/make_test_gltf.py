@@ -11,6 +11,10 @@ import base64, json, os, struct, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(HERE), "tests", "assets", "checker_cube.gltf")
+# Ornek sahneler (arena, salon1/2, sicak_kucuk) ayni kupu KENDI dizinlerinden
+# yukler (kaynak yolu sahnenin yanindan cozulur). Tek uretici iki kopyayi birden
+# yazar: elle kopyalanan ikinci dosya bir gun sessizce ayrisirdi.
+OUT_EXAMPLES = os.path.join(os.path.dirname(HERE), "tulpar", "examples", "assets", "checker_cube.gltf")
 OUT_SPHERE = os.path.join(os.path.dirname(HERE), "tests", "assets", "lod_sphere.gltf")
 OUT_SKIN = os.path.join(os.path.dirname(HERE), "tests", "assets", "skin_tube.gltf")
 OUT_PBR = os.path.join(os.path.dirname(HERE), "tests", "assets", "pbr_plane.gltf")
@@ -81,10 +85,11 @@ def main():
             {"bufferView": 3, "componentType": 5123, "count": len(idx), "type": "SCALAR"},
         ],
     }
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w") as f:
-        json.dump(g, f, separators=(",", ":"), sort_keys=True)
-    print("%s (%d bayt): %d vertex, %d indeks, %dx%d PNG" % (OUT, os.path.getsize(OUT), len(pos), len(idx), w, h))
+    for out in (OUT, OUT_EXAMPLES):
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w") as f:
+            json.dump(g, f, separators=(",", ":"), sort_keys=True)
+        print("%s (%d bayt): %d vertex, %d indeks, %dx%d PNG" % (out, os.path.getsize(out), len(pos), len(idx), w, h))
 
 
 def sphere():

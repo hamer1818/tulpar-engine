@@ -274,7 +274,8 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(h.init(gate_arena(), 32));
   const uint32_t n_ent = d.entity_count, n_asset = d.asset_count;
   int32_t a = -1;
-  CHECK(app::editor_add_asset_entity(d, h, "checker_cube.gltf", Vec3{1, 2, 3}, &a) == 1);
+  // Yeni kaynak: iki islem (kaynak satiri + varlik), ikisi de geri alinabilir.
+  CHECK(app::editor_add_asset_entity(d, h, "checker_cube.gltf", Vec3{1, 2, 3}, &a) == 2);
   CHECK(a == (int32_t)n_asset && d.asset_count == n_asset + 1);
   CHECK(d.entity_count == n_ent + 1);
   const content::SceneEntity &e = d.entities[d.entity_count - 1];
@@ -284,7 +285,7 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(e.pos == want_pos);
   int32_t a2 = -1;
   CHECK(app::editor_add_asset_entity(d, h, "checker_cube.gltf", Vec3{0, 0, 0}, &a2) == 1);
-  CHECK(a2 == a && d.asset_count == n_asset + 1); // ayni kaynak tabloya ikinci kez girmez
+  CHECK(a2 == a && d.asset_count == n_asset + 1); // ayni kaynak tabloya ikinci kez girmez: tek islem
   CHECK(app::editor_add_asset_entity(d, h, "", Vec3{}, nullptr) == 0); // KONTROL
   const uint32_t n2 = app::editor_scan_assets(dir, d, files, 16);
   uint32_t marked = 0;
@@ -293,6 +294,27 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(marked == 2); // yeni kaynak listede "sahnede" gorunur
   CHECK(h.undo(d) && h.undo(d));
   CHECK(d.entity_count == n_ent);
+  CHECK(d.asset_count == n_asset + 1); // varliklar gitti, kaynak satiri henuz yerinde (ucuncu islem)
+  CHECK(h.undo(d));
+  CHECK(d.asset_count == n_asset); // geri al kaynak satirini da kaldirdi: tablo eklemeden onceki hal
+  // Yinele ayni indeksi geri getirir, varlik da ayni kaynaga baglanir.
+  CHECK(h.redo(d) && d.asset_count == n_asset + 1 && !std::strcmp(d.assets[a], "checker_cube.gltf"));
+  CHECK(h.redo(d) && d.entities[d.entity_count - 1].asset == a);
+  // KONTROL: kaynagi kullanan varlik varken kaynak satiri geri ALINMAZ (gunluk
+  // sahneyle ayrismissa tabloyu kaydirmak indeksleri bozardi).
+  content::SceneHistory h2;
+  CHECK(h2.init(gate_arena(), 8));
+  content::SceneDesc &d2 = d; // ayni sahne: son kaynak kullaniliyor
+  int32_t a3 = -1;
+  CHECK(h2.add_asset(d2, "baska_kaynak.gltf", &a3) && a3 == (int32_t)d2.asset_count - 1);
+  content::SceneEntity kul{};
+  std::snprintf(kul.name, sizeof kul.name, "kullanan");
+  kul.components = content::kSceneModel;
+  kul.asset = a3;
+  d2.insert_entity(d2.entity_count, kul); // gunluk DISINDA: ayrismis durum
+  CHECK(!h2.undo(d2) && d2.asset_count == (uint32_t)a3 + 1);
+  d2.remove_entity(d2.entity_count - 1);
+  CHECK(h2.undo(d2) && d2.asset_count == (uint32_t)a3);
   std::printf("    [bilgi] kaynak tarayici: %s -> %u glTF (sirali %s, yalniz glTF %s), eklenen varlik kaynak %d model bileseniyle\n", dir, n,
               sorted ? "evet" : "HAYIR", only_gltf ? "evet" : "HAYIR", a);
 }

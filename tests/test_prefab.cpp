@@ -89,6 +89,18 @@ ENGINE_TEST(prefab_instantiate_appends_with_remapped_indices) {
   CHECK(dst.asset_count == 2 && dst.entities[3].asset == 1);          // yol ile eslendi, YENI eklenmedi
   // Geri alinabilir: iki ekleme gunlukte.
   CHECK(h.undo(dst) && h.undo(dst) && dst.entity_count == 2);
+  // YENI kaynak getiren prefab: kaynak satiri da gunluge girer ve TEK grup
+  // (ops) geri alininca sahne kaynak tablosuyla birlikte eski haline doner.
+  // Eskiden tablo gunlugun disinda buyuyordu, geri almadan sonra `kaynak`
+  // satiri kaliyordu.
+  static SceneDesc pf2;
+  pf2.entity_count = 0; pf2.asset_count = 0;
+  add(pf2, "yeni", -1, pf2.add_asset("z.gltf"));
+  uint32_t ops = 0;
+  CHECK(prefab_instantiate(dst, h, pf2, Vec3{0, 0, 0}, &first, &ops) == 1);
+  CHECK(ops == 2 && dst.asset_count == 3 && dst.entities[first].asset == 2);
+  for (uint32_t i = 0; i < ops; i++) CHECK(h.undo(dst));
+  CHECK(dst.entity_count == 2 && dst.asset_count == 2);
 }
 
 // Hepsi ya da hicbiri: yer yoksa HICBIR sey eklenmemeli.

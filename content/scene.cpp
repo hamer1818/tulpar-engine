@@ -1356,6 +1356,19 @@ bool SceneHistory::set_world(SceneDesc &d, const SceneWorld &after) {
   d.set_world(after);
   return push(op);
 }
+bool SceneHistory::add_asset(SceneDesc &d, const char *path, int32_t *index) {
+  if (index) *index = -1;
+  if (!path) return false;
+  const uint32_t n0 = d.asset_count;
+  const int32_t a = d.add_asset(path);
+  if (index) *index = a;
+  if (a < 0 || (uint32_t)a < n0) return false; // sigmadi ya da zaten vardi: islem yok
+  SceneOp op{};
+  op.kind = SceneOp::Asset;
+  op.index = (uint32_t)a;
+  std::snprintf(op.asset_path, sizeof op.asset_path, "%s", path);
+  return push(op);
+}
 bool SceneHistory::undo(SceneDesc &d) {
   if (cursor_ == 0) return false;
   const SceneOp &op = ops_[cursor_ - 1];
@@ -1370,6 +1383,15 @@ bool SceneHistory::undo(SceneDesc &d) {
       if (op.child_mask[k >> 5] & (1u << (k & 31))) d.entities[k].parent = (int32_t)op.index;
     break;
   case SceneOp::World: d.set_world(op.world_before); break;
+  case SceneOp::Asset:
+    // Yalniz SON kaynak ve onu kullanan varlik kalmamissa: aksi gunlugun
+    // sahneyle ayristigi demek, tabloyu kaydirmak butun asset indekslerini bozardi.
+    if (d.asset_count == 0 || op.index != d.asset_count - 1) return false;
+    for (uint32_t k = 0; k < d.entity_count; k++)
+      if (d.entities[k].asset == (int32_t)op.index) return false;
+    d.assets[op.index][0] = 0;
+    d.asset_count--;
+    break;
   }
   cursor_--;
   return true;
@@ -1382,6 +1404,9 @@ bool SceneHistory::redo(SceneDesc &d) {
   case SceneOp::Add: if (!d.insert_entity(op.index, op.after)) return false; break;
   case SceneOp::Remove: if (!d.remove_entity(op.index)) return false; break;
   case SceneOp::World: d.set_world(op.world_after); break;
+  case SceneOp::Asset:
+    if (op.index != d.asset_count || d.add_asset(op.asset_path) != (int32_t)op.index) return false;
+    break;
   }
   cursor_++;
   return true;

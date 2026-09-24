@@ -64,7 +64,8 @@ uint32_t prefab_extract(const SceneDesc &src, int32_t root, SceneDesc *out) {
   return out->entity_count;
 }
 
-uint32_t prefab_instantiate(SceneDesc &dst, SceneHistory &h, const SceneDesc &prefab, Vec3 at, uint32_t *first_index) {
+uint32_t prefab_instantiate(SceneDesc &dst, SceneHistory &h, const SceneDesc &prefab, Vec3 at, uint32_t *first_index, uint32_t *ops) {
+  if (ops) *ops = 0;
   const uint32_t n = prefab.entity_count;
   if (n == 0 || dst.entity_count + n > kSceneMaxEntities) return 0;
 
@@ -84,7 +85,9 @@ uint32_t prefab_instantiate(SceneDesc &dst, SceneHistory &h, const SceneDesc &pr
   }
 
   int32_t amap[kSceneMaxAssets];
-  for (uint32_t a = 0; a < prefab.asset_count; a++) amap[a] = dst.add_asset(prefab.assets[a]);
+  uint32_t aops = 0;
+  for (uint32_t a = 0; a < prefab.asset_count; a++)
+    if (h.add_asset(dst, prefab.assets[a], &amap[a])) aops++;
 
   const uint32_t base = dst.entity_count;
   uint32_t added = 0;
@@ -100,6 +103,7 @@ uint32_t prefab_instantiate(SceneDesc &dst, SceneHistory &h, const SceneDesc &pr
     added++;
   }
   if (first_index) *first_index = base;
+  if (ops) *ops = added + aops;
   return added;
 }
 
