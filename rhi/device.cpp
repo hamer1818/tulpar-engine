@@ -488,7 +488,11 @@ bool Device::pick_physical(const DeviceConfig &cfg, VkSurfaceKHR surface) {
   ext_descriptor_indexing_ = ext_timeline_semaphore_ = ext_buffer_device_address_ = false;
   uint32_t en = 0;
   api.vkEnumerateDeviceExtensionProperties(phys_, nullptr, &en, nullptr);
-  VkExtensionProperties ext[512];
+  // STATIK: 512 x 260 B = 130 KB. Yigindayken bu fonksiyonun cercevesi
+  // 134 704 B'ydi ve CMake'in 128 KB cerceve kapisini kirdi (olculdu
+  // 2026-09-25, GCC 16.2). Yalniz cihaz kurulumunda, tek is parcacigindan
+  // cagrilir; her cagri tamponu bastan doldurur.
+  static VkExtensionProperties ext[512];
   if (en > 512) en = 512;
   api.vkEnumerateDeviceExtensionProperties(phys_, nullptr, &en, ext);
   for (uint32_t i = 0; i < en; i++) {

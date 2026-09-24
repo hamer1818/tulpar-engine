@@ -1323,3 +1323,51 @@ yaptığı RSS/smaps ile ölçülür ve iddia edilmez.
 kendi geçtiği yolu görür; sahibi başkası olan bellek (sürücü, GPU, dosya eşlemesi) için ya
 ayrı bir sayaç ya da doğrudan süreç ölçümü (RSS, smaps) gerekir. Penceresiz doğrulama yolu da
 pencereli yolun "aynısı" değildir: kaynak yaşam döngüleri farklıysa o farkı ayrıca kapıla.
+
+### 8ce. Derleyici bayrağı bir derleyicide hata, ötekinde "bilinmeyen uyarı" — kapı yalnız bir platformda ölçer
+
+**Belirti** (2026-09-25, E3 nesne özellikleri): `SceneDesc` 213 KB'tan 378 KB'a büyüyecekti ve
+editörün "sahne aç" lambdası onu **yığına** koyuyordu (`content::SceneDesc nd;`). Linux'un 8 MB
+ana yığını bunu sindirir; Windows'un 1 MB'lık yığını iki tanesini üst üste görünce çöker — ve
+yalnız o kullanıcıda. Kapı olarak `-Werror=frame-larger-than=131072` eklendi. GCC 16.2'de
+200 KB'lık çerçeve **hata** verdi. Clang 22.1'de aynı bayrak `warning: unknown warning option
+'-Werror=frame-larger-than=131072'` diyip **hiçbir şey ölçmedi**: macOS ayağı (AppleClang)
+yeşil kalırdı. Clang'ın yazımı (`-Wframe-larger-than=N -Werror=frame-larger-than`) ise GCC'de
+"böyle bir seçenek yok" diye **reddediliyor**.
+
+**Düzeltme:** CMake derleyiciye göre yazımı seçer ve yapılandırmada **pozitif kontrol** koşar:
+seçilen bayraklarla 200 KB'lık çerçeve DERLENMEMELİ, 1 KB'lık derlenmeli; ikisinden biri
+tutmazsa `FATAL_ERROR`. Ölçüldü: Clang'a GCC yazımı zorlanınca yapılandırma "200 KB'lık çerçeve
+DERLENDİ" diye durdu; GCC'ye Clang yazımı zorlanınca "1 KB'lık çerçeve DERLENMEDİ" diye durdu.
+
+**Kapının ilk yakaladıkları** (E3 öncesi kod, GCC 16.2 Release): editör `nd` lambdası 213 392 B,
+"yeni sahne" lambdası 213 152 B, `editor_run` 342 672 B (lambdalar içine gömülünce),
+`rhi/device.cpp` uzantı listesi 134 704 B (512 × `VkExtensionProperties`), beş test
+`SceneDesc`'i yığında tutuyordu, bir test iki dosya diyaloğu bağlamını (141 344 B). Hepsi
+statik yapıldı. `SceneDesc` çıkınca `editor_run` 131 520 B'da kaldı: altı adet 16 KB'lık
+yordamsal doku tamponu aynı blokta, derleyici yuvalarını paylaştıramıyor (yerel değişkenler
+`-fdump-tree-optimized` ile tek tek sayıldı) — onlar da statik.
+
+**Ders:** `-Werror=<x>` yazan bir kapı, **her** CI derleyicisinde bir kez kırmızıya
+düşürülmeden kurulmuş sayılmaz. "Bilinmeyen uyarı seçeneği" bir uyarıdır, hata değil: bayrak
+sessizce hiçbir şey yapmaz ve derleme yeşil geçer.
+
+### 8cf. Satır başını kalıpla arayan kapı, kalıba uymayan satırı GÖRMEZ — ve görmediğini söylemez
+
+**Belirti** (2026-09-25): `tools/scene_check.py` yazıcı satırlarını `o.puts("  kw ")` kalıbıyla
+arıyordu. Tırnakla başlayan operandlı satırlar (`o.puts("  betik \"")`, `o.puts("  ses \"")`)
+kalıba uymuyor, `o.puts(lt)` gibi değişkenle kapanan satır ise kapanmıyor ve bir sonrakiyle
+birleşiyordu. Ölçüldü, aynı (E3 öncesi) `scene.cpp` üzerinde: eski kapı `write_entity`'de 35
+satır görüyordu, doğrusu 38 — `betik`, `ses`, `spot_koni` **hiç** ölçülmüyordu; `isik`
+`spot_koni`'yi yutup 9 jeton sayılıyordu (gerçeği 7). Üçü de ayrıştırıcıyla uyuşuyordu: kapı
+şansla yeşildi. E3'ün `ozellik_*` satırları da tırnaklı ad taşıyor.
+
+**Düzeltme:** kapı artık yazıcının çıktı akışını **benzetiyor** (dizgi kaçışları çözülür, tırnak
+açık/kapalı bir durum, değişken gövdedeki atamalarından çözülür) ve satırları ayrıştırıcının
+`split()` kuralıyla jetonluyor. Çözülemeyen ifade tırnak dışındaysa KIRMIZI (sessizce 0 jeton
+saymak kapıyı kör ederdi). `--oz-sinama` modu CMake'te her derlemede önce koşar: tırnaklı
+operandlı bozuk fikstür (yazıcı 2 jeton, ayrıştırıcı `n != 3`) yakalanmalı, doğrusu geçmeli,
+aynı satır eski kalıpla eşleşmemeli (sınamanın yeni bir şey ölçtüğünün kanıtı).
+
+**Ders:** "0 uyuşmazlık" bir ölçüm değil, ölçülen satır sayısıyla birlikte okunur. Kapı
+kaç şey gördüğünü basmalı ve gördüklerinin kümesi elle doğrulanmalı.

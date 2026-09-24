@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new> // scene_desc_reset: yerinde kurulum (ayirma DEGIL)
 
 namespace tulpar::engine::content {
 
@@ -158,6 +159,41 @@ struct Parser {
     out[t.n] = 0;
     return true;
   }
+  // `ozellik_<tur> "ad" <deger...>` satiri (E3). Jeton sayisi cagiranda
+  // denetlenir; burada ad + deger. Her ret SATIR NUMARALI ve hicbiri kirpma
+  // ya da sessiz dusurme degil: kirpilan bir ad betikte BASKA bir anahtara
+  // denk gelir, dusurulen bir deger betigin varsayilanina doner — ikisi de
+  // hata vermeden yanlis oyun demek.
+  bool prop(SceneEntity &e, const Tok *t, uint32_t type) {
+    if (!t[1].quoted) return fail("ozellik adi tirnakli olmali");
+    if (t[1].n >= kScenePropNameLen) return fail("ozellik adi cok uzun (en cok 23 karakter)");
+    char name[kScenePropNameLen];
+    std::memcpy(name, t[1].s, t[1].n);
+    name[t[1].n] = 0;
+    if (!scene_prop_name_ok(name)) return fail("gecersiz ozellik adi (yalniz a-z 0-9 _)");
+    if (scene_prop_find(e, name)) return fail("yinelenen ozellik adi");
+    if (e.prop_count >= kSceneMaxProps) return fail("cok fazla ozellik (varlik basina en cok 16)");
+    float v[3] = {0, 0, 0};
+    if (type == kScenePropSayi) {
+      if (!num(t[2], &v[0])) return false;
+    } else if (type == kScenePropTam) {
+      int32_t iv = 0;
+      if (!sint(t[2], &iv)) return false;
+      if (iv > (int32_t)kScenePropTamMax || iv < -(int32_t)kScenePropTamMax)
+        return fail("ozellik_tam 2^24 sinirini asiyor (float'ta tam temsil edilmez)");
+      v[0] = (float)iv;
+    } else if (type == kScenePropBayrak) {
+      if (tok_is(t[2], "evet")) v[0] = 1.0f;
+      else if (tok_is(t[2], "hayir")) v[0] = 0.0f;
+      else return fail("ozellik_bayrak evet|hayir bekleniyor");
+    } else {
+      if (!num(t[2], &v[0]) || !num(t[3], &v[1]) || !num(t[4], &v[2])) return false;
+    }
+    // Sirali ekleme: dosyadaki sira ne olursa olsun bellekte (ve yazilinca
+    // metinde) ada gore sirali — okuma kanoniklestirir.
+    if (!scene_prop_set(e, name, type, v)) return fail("ozellik kabul edilmedi");
+    return true;
+  }
 };
 
 // Malzeme alanlari SceneEntity'nin varsayilanlarinda mi (bit-tam). Yazici
@@ -245,6 +281,25 @@ void write_entity(Out &o, const SceneEntity &e) {
   }
   if (e.components & kSceneScript) {
     o.puts("  betik \""); o.puts(e.script_file); o.puts(e.script_enabled ? "\" etkin\n" : "\" kapali\n");
+  }
+  // Nesne ozellikleri (E3): betik satirinin HEMEN ardina (betik yoksa ayni
+  // yere), ada gore SIRALI — dizi zaten sirali tutuluyor (scene_prop_set).
+  // Bilesen bitine bagli DEGIL (scene.hpp). prop_count == 0 iken tek bayt
+  // yazilmaz: ozelliksiz sahnelerin metni E3 oncesiyle bayt bayt ayni.
+  // Tur basina SABIT SEKILLI satir: jeton sayisi tura bagli, satirin ic
+  // yapisina degil (scene_check her satiri ayri olcer).
+  for (uint32_t k = 0; k < e.prop_count && k < kSceneMaxProps; k++) {
+    const SceneProp &p = e.props[k];
+    if (p.type == kScenePropSayi) {
+      o.puts("  ozellik_sayi "); o.str(p.name); o.ch(' '); o.num(p.v[0]); o.ch('\n');
+    } else if (p.type == kScenePropTam) {
+      o.puts("  ozellik_tam "); o.str(p.name); o.ch(' '); o.num((int32_t)p.v[0]); o.ch('\n');
+    } else if (p.type == kScenePropBayrak) {
+      o.puts("  ozellik_bayrak "); o.str(p.name); o.puts(p.v[0] != 0.0f ? " evet\n" : " hayir\n");
+    } else if (p.type == kScenePropNokta) {
+      o.puts("  ozellik_nokta "); o.str(p.name); o.ch(' ');
+      o.num(p.v[0]); o.ch(' '); o.num(p.v[1]); o.ch(' '); o.num(p.v[2]); o.ch('\n');
+    }
   }
   // --- PR #331 bilesenleri. Sira SABIT (yazici = kanonik bicim); bit sirasiyla
   // ayni gitmesi bilincli, yeni bir bilesen eklenince sona eklenir.
@@ -433,6 +488,103 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
   // gecmeli, yoksa scene_check "ESITLIK yok" der -- ve hakli olur: bileseni
   // esitlige hic sokmamak ile "alani yok" demek ayri seyler.
   if (c & kSceneInventory) { /* alansiz bilesen */ }
+  // Ozellikler KOSULSUZ (bilesen bitinden bagimsiz veri, scene.hpp). Burada
+  // olmasalardi yalniz bir ozellik degistiren duzenleme "no-op" sayilir,
+  // gunluge girmez ve Ctrl+Z onu SESSIZCE atlardi (Tuzaklar 8x'in ikinci
+  // yuzu). Dizi sirali tutuldugu icin sira sira karsilastirmak yeter.
+  if (a.prop_count != b.prop_count) return false;
+  for (uint32_t k = 0; k < a.prop_count && k < kSceneMaxProps; k++)
+    if (!scene_prop_equal(a.props[k], b.props[k])) return false;
+  return true;
+}
+
+// --- nesne ozellikleri (E3) ---------------------------------------------------
+namespace {
+// Tur basina kullanilan deger sayisi; gecersiz tur 0.
+uint32_t prop_arity(uint32_t type) {
+  switch (type) {
+  case kScenePropSayi: case kScenePropTam: case kScenePropBayrak: return 1;
+  case kScenePropNokta: return 3;
+  default: return 0;
+  }
+}
+// Sirali dizide `name`in yeri: bulunduysa *found = true ve indeksi, yoksa
+// ekleme noktasi (ilk buyuk ad).
+uint32_t prop_lower_bound(const SceneEntity &e, const char *name, bool *found) {
+  const uint32_t n = e.prop_count < kSceneMaxProps ? e.prop_count : kSceneMaxProps;
+  for (uint32_t k = 0; k < n; k++) {
+    const int c = std::strcmp(e.props[k].name, name);
+    if (c == 0) { *found = true; return k; }
+    if (c > 0) { *found = false; return k; }
+  }
+  *found = false;
+  return n;
+}
+} // namespace
+
+bool scene_prop_name_ok(const char *name) {
+  if (!name) return false;
+  size_t n = 0;
+  for (; name[n]; n++) {
+    const char ch = name[n];
+    const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_';
+    if (!ok || n + 1 >= kScenePropNameLen) return false; // n+1 karakter NUL'a yer birakmali
+  }
+  return n > 0;
+}
+
+const SceneProp *scene_prop_find(const SceneEntity &e, const char *name) {
+  if (!name) return nullptr;
+  bool found = false;
+  const uint32_t k = prop_lower_bound(e, name, &found);
+  return found ? &e.props[k] : nullptr;
+}
+
+bool scene_prop_equal(const SceneProp &a, const SceneProp &b) {
+  if (a.type != b.type || std::strcmp(a.name, b.name) != 0) return false;
+  const uint32_t n = prop_arity(a.type);
+  for (uint32_t i = 0; i < n; i++)
+    if (!feq(a.v[i], b.v[i])) return false;
+  return true;
+}
+
+bool scene_prop_set(SceneEntity &e, const char *name, uint32_t type, const float v[3]) {
+  const uint32_t arity = prop_arity(type);
+  if (!scene_prop_name_ok(name) || arity == 0 || !v) return false;
+  // Kanonik deger: yazicinin bit-tam geri okuyabilecegi bicim. Reddedilen
+  // hicbir deger diziye GIRMEZ (dosyaya yazilip geri okunamayan bir sahne
+  // uretmek yerine burada durur).
+  SceneProp p{};
+  std::memcpy(p.name, name, std::strlen(name)); // ad_ok: < kScenePropNameLen, kuyruk {} ile sifir
+  p.type = type;
+  for (uint32_t i = 0; i < arity; i++) {
+    if (!std::isfinite(v[i])) return false;
+    p.v[i] = v[i];
+  }
+  if (type == kScenePropTam) {
+    if (std::fabs(p.v[0]) > kScenePropTamMax || p.v[0] != std::trunc(p.v[0])) return false;
+    p.v[0] = (float)(int32_t)p.v[0]; // -0 -> 0: yazici "0" yazar, geri okunan +0
+  } else if (type == kScenePropBayrak) {
+    p.v[0] = p.v[0] != 0.0f ? 1.0f : 0.0f;
+  }
+  bool found = false;
+  const uint32_t k = prop_lower_bound(e, name, &found);
+  if (found) { e.props[k] = p; return true; }
+  if (e.prop_count >= kSceneMaxProps) return false; // dolu: SESSIZCE dusurme yok, cagiran sayar
+  for (uint32_t j = e.prop_count; j > k; j--) e.props[j] = e.props[j - 1];
+  e.props[k] = p;
+  e.prop_count++;
+  return true;
+}
+
+bool scene_prop_remove(SceneEntity &e, const char *name) {
+  if (!name) return false;
+  bool found = false;
+  const uint32_t k = prop_lower_bound(e, name, &found);
+  if (!found) return false;
+  for (uint32_t j = k + 1; j < e.prop_count; j++) e.props[j - 1] = e.props[j];
+  e.prop_count--;
+  e.props[e.prop_count] = SceneProp{}; // bosalan yuva sifir: bayt karsilastiran yollar kalinti gormesin
   return true;
 }
 
@@ -448,6 +600,13 @@ bool scene_world_equal(const SceneWorld &a, const SceneWorld &b) {
          feq(a.fog_base_height, b.fog_base_height) && veq(a.fog_color, b.fog_color) && feq(a.fog_scattering, b.fog_scattering);
 }
 
+
+void scene_desc_reset(SceneDesc &d) {
+  // SceneDesc ozel yikicisiz, sabit/referans uyesiz bir toplam (aggregate):
+  // eski nesnenin omru biter, ayni adreste varsayilan kurulan yenisi baslar;
+  // eski isaretciler/referanslar yeni nesneyi gosterir. Ayirma yok (placement).
+  ::new (static_cast<void *>(&d)) SceneDesc{};
+}
 
 int32_t SceneDesc::add_asset(const char *path) {
   for (uint32_t i = 0; i < asset_count; i++)
@@ -532,7 +691,7 @@ size_t scene_write(const SceneDesc &d, char *buf, size_t cap) {
 }
 
 bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) {
-  *out = SceneDesc{};
+  scene_desc_reset(*out); // yigina gecici kurmadan (scene.hpp)
   Parser p{err};
   bool in_entity = false, header = false;
   SceneEntity cur{};
@@ -840,6 +999,22 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         if (!p.str(t[1], cur.script_file, sizeof cur.script_file)) return false;
         if (n >= 3) cur.script_enabled = tok_is(t[2], "etkin");
         seen_comp |= kSceneScript;
+      } else if (tok_is(t[0], "ozellik_sayi")) {
+        if (n != 3) return p.fail("ozellik_sayi \"ad\" deger");
+        // Nesne ozellikleri (E3): ayni anahtar YINELENEBILIR (her satir bir
+        // ozellik); yinelenen AD, 17. ozellik ve gecersiz ad Parser::prop'ta
+        // satir numarasiyla reddedilir. Tur basina sabit jeton sayisi (jeton
+        // denetimi dal satirinin 3 satir icinde kalmali: scene_check oraya bakar).
+        if (!p.prop(cur, t, kScenePropSayi)) return false;
+      } else if (tok_is(t[0], "ozellik_tam")) {
+        if (n != 3) return p.fail("ozellik_tam \"ad\" tamsayi");
+        if (!p.prop(cur, t, kScenePropTam)) return false;
+      } else if (tok_is(t[0], "ozellik_bayrak")) {
+        if (n != 3) return p.fail("ozellik_bayrak \"ad\" evet|hayir");
+        if (!p.prop(cur, t, kScenePropBayrak)) return false;
+      } else if (tok_is(t[0], "ozellik_nokta")) {
+        if (n != 5) return p.fail("ozellik_nokta \"ad\" x y z");
+        if (!p.prop(cur, t, kScenePropNokta)) return false;
       } else return p.fail("varlik icinde bilinmeyen anahtar");
       cur.components = seen_comp & kSceneComponentMask;
       continue;
@@ -1086,6 +1261,17 @@ Vec3 scene_entity_world_scale(const SceneDesc &d, uint32_t i) {
   Vec3 s = d.entities[chain[n - 1]].scale;
   for (uint32_t k = n - 1; k > 0; k--) s = s * d.entities[chain[k - 1]].scale;
   return s;
+}
+
+void scene_prop_point_world(const SceneDesc &d, uint32_t i, const float local[3], float out[3]) {
+  if (i >= d.entity_count) { out[0] = local[0]; out[1] = local[1]; out[2] = local[2]; return; }
+  // Konum dunya MATRISINDEN (ebeveyn olcegi konumu dogru etkiler), donus
+  // kuaterniyon zincirinden; varligin kendi olcegi ofsete UYGULANMAZ (scene.hpp).
+  const Mat4 wm = scene_entity_world_matrix(d, i);
+  const Vec3 r = rotate(scene_entity_world_rotation(d, i), Vec3{local[0], local[1], local[2]});
+  out[0] = wm.m[3][0] + r.x;
+  out[1] = wm.m[3][1] + r.y;
+  out[2] = wm.m[3][2] + r.z;
 }
 
 uint32_t scene_tree_order(const SceneDesc &d, int32_t *out, uint32_t cap) {

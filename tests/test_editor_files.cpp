@@ -426,7 +426,7 @@ void draw_confirm_probe(void *ctx, uint32_t frame) {
 ENGINE_TEST(files_dialog_draws_sorted_filtered_list) {
   TempTree t;
   if (!make_tree(t)) { skip("gecici dizin yaratilamadi"); return; }
-  DialogCtx c;
+  static DialogCtx c; // iki diyalog baglami ~140 KB: yigina sigmaz (CMake 128 KB cerceve kapisi)
   const bool opened = app::file_dialog_open(c.dlg, app::FileDialogMode::Ac, t.root, ".sahne", "Sahne a\xC3\xA7");
   c.dlg.sel = 1; // "arena.sahne" secili gorunsun
   EditorProbe p;
@@ -449,7 +449,7 @@ ENGINE_TEST(files_dialog_draws_sorted_filtered_list) {
   CHECK(p.vertices > 500);
 
   // KONTROL: Kaydet kipi, suzgecsiz — ad kutusu ve DAHA COK satir cizilir.
-  DialogCtx c2;
+  static DialogCtx c2;
   app::file_dialog_open(c2.dlg, app::FileDialogMode::Kaydet, t.root, ".sahne", "Farkl\xC4\xB1 kaydet");
   std::snprintf(c2.dlg.name, sizeof c2.dlg.name, "arena.sahne");
   c2.dlg.ask_overwrite = true; // uzerine yazma seridi goruntuye girsin

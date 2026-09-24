@@ -668,13 +668,24 @@ template <class F> void with_bodies(EditorState &st, sim::Physics &ph, F &&f) {
 uint32_t propagate_selection_edit(EditorState &st, int index, const SceneEntity &before, const SceneEntity &after) {
   if (st.sel.count < 2 || !st.sel.contains(index)) return 0;
   uint32_t n = 0;
+  MultieditStats ms;
   for (uint32_t k = 0; k < st.sel.count; k++) {
     const int32_t j = st.sel.items[k];
     if (j == index || j < 0 || j >= (int32_t)st.scene.entity_count) continue;
     SceneEntity x = st.scene.entities[j];
-    if (!multiedit_apply(before, after, &x)) continue;
+    if (!multiedit_apply(before, after, &x, &ms)) continue;
     if (st.hist.set_entity(st.scene, (uint32_t)j, x)) n++;
   }
+  // Nesne ozellikleri (E3): yayilmayan her deger GORUNUR. Dolu hedef (16
+  // ozellik) reddedildi — kullanici "hepsine yazdim" sanmasin; betigi farkli
+  // hedef ise bilincli atlandi, yine de soylenir.
+  if (ms.props_overflow)
+    console_log(ConsoleLevel::Uyari, kConsoleTagEditor,
+                "coklu duzenleme: %u ozellik yazilamadi (hedefte %u ozellik tavani dolu)", ms.props_overflow,
+                content::kSceneMaxProps);
+  if (ms.props_script_skipped)
+    console_log(ConsoleLevel::Bilgi, kConsoleTagEditor,
+                "coklu duzenleme: ozellikler %u varliga yayilmadi (betikleri farkli)", ms.props_script_skipped);
   return n;
 }
 
@@ -1282,7 +1293,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
   // --- Sahne dosyasi (veri modeli) ---
   static EditorState st;
-  st.hist.init(sys, 256);
+  // Donus DENETLENIR: gunluk kurulamazsa set_entity degisikligi uygular ama
+  // KAYDETMEZ ve Ctrl+Z sessizce hicbir sey yapmaz. 256 x sizeof(SceneOp)
+  // sistem arenasindan; olcumu kosum sonundaki "sistem arenasi" satirinda.
+  if (!st.hist.init(sys, 256)) {
+    std::fprintf(stderr, "[engine_editor] HATA: gunluk (256 islem) sistem arenasina sigmadi\n");
+    return 1;
+  }
   st.gi_arena.reserve(32u << 20, "editor_gi_preview"); // bake + blob derleme scratch'i
   // Prosedurel geometri GECICI alani (yukselti/voksel/dalga tamponlari). AYRI
   // arena: her uretimden sonra reset_to ile geri sarilir; `sys` uzerinde
@@ -1322,8 +1339,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     part_p.metallic = 0.0f; part_p.roughness = 0.8f;
     part_p.emissive_strength = 2.5f; // Parlayan gorsel efektler & bloom
 
+    // Asagidaki alti 16 KB'lik doku tamponu STATIK: ayni blokta yan yana
+    // yasadiklari icin derleyici yuvalarini paylastiramiyor ve editor_run'in
+    // cercevesine 96 KB ekliyorlardi. E3 (SceneEntity 824 -> 1468 B) ile
+    // cerceve 131 520 B'ye cikti ve CMake'in 128 KB kapisini kirdi (olculdu
+    // 2026-09-25, GCC 16.2, -fdump-tree-optimized ile yerel tek tek sayildi).
+    // Yalniz acilista bir kez doldurulur; create_texture veriyi kopyalar.
     // Usulsel Gaussian Dairesel Yumusak Alfa Dokusu (64x64) - Karton kutu sis/duman yerine ipeksi vfx
-    alignas(16) uint8_t gauss_px[64 * 64 * 4];
+    alignas(16) static uint8_t gauss_px[64 * 64 * 4];
     for (int y = 0; y < 64; y++) {
       for (int x = 0; x < 64; x++) {
         const float nx = (float(x) - 31.5f) / 31.5f;
@@ -1343,7 +1366,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.particle_mat = ren.create_material(st.particle_tex, Vec3{1, 1, 1}, part_p);
 
     // Dama Tahtasi (Checkerboard 64x64)
-    alignas(16) uint8_t chk_px[64 * 64 * 4];
+    alignas(16) static uint8_t chk_px[64 * 64 * 4];
     for (int y = 0; y < 64; y++) {
       for (int x = 0; x < 64; x++) {
         const bool dark = (((x / 8) + (y / 8)) & 1) != 0;
@@ -1355,7 +1378,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.tex_checker = ren.create_texture(chk_px, 64, 64, true, true);
 
     // Prosedurel Tas / Tugla Normal Haritasi (64x64)
-    alignas(16) uint8_t norm_px[64 * 64 * 4];
+    alignas(16) static uint8_t norm_px[64 * 64 * 4];
     for (int y = 0; y < 64; y++) {
       for (int x = 0; x < 64; x++) {
         const int bx = x % 16, by = y % 8;
@@ -1373,7 +1396,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.tex_brick_normal = ren.create_texture(norm_px, 64, 64, true, false);
 
     // Prosedurel ORM Haritasi (64x64, R=Occlusion, G=Roughness, B=Metallic)
-    alignas(16) uint8_t orm_px[64 * 64 * 4];
+    alignas(16) static uint8_t orm_px[64 * 64 * 4];
     for (int y = 0; y < 64; y++) {
       for (int x = 0; x < 64; x++) {
         const int bx = x % 16, by = y % 8;
@@ -1387,7 +1410,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.tex_rough_orm = ren.create_texture(orm_px, 64, 64, true, false);
 
     // Izgara Haritasi (Grid 64x64)
-    alignas(16) uint8_t grid_px[64 * 64 * 4];
+    alignas(16) static uint8_t grid_px[64 * 64 * 4];
     for (int y = 0; y < 64; y++) {
       for (int x = 0; x < 64; x++) {
         const bool line = (x % 16 == 0 || y % 16 == 0 || x == 63 || y == 63);
@@ -1399,7 +1422,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.tex_grid = ren.create_texture(grid_px, 64, 64, true, true);
 
     // Ahsap / Halka Haritasi (Wood 64x64)
-    alignas(16) uint8_t wood_px[64 * 64 * 4];
+    alignas(16) static uint8_t wood_px[64 * 64 * 4];
     for (int y = 0; y < 64; y++) {
       for (int x = 0; x < 64; x++) {
         const float r = std::sqrt(float(x * x + (y * 4) * (y * 4))) * 0.15f;
@@ -1752,7 +1775,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // kamera) yenilenir ve GUNLUK SIFIRLANIR — eski sahnenin geri al kayitlari
   // yeni sahneye uygulanamaz (indeksler baska bir sahneye ait).
   auto load_scene_from = [&](const char *path) {
-    content::SceneDesc nd;
+    // STATIK: SceneDesc yuzlerce KB (scene.hpp) ve Windows ana yigini 1 MB.
+    // Yigindaki hali CMake'in 128 KB cerceve kapisini kirdi (olculdu
+    // 2026-09-25, GCC 16.2, E3 oncesi: bu lambda 213 392 B, editor_run
+    // 342 672 B). Tek is parcacigi, yeniden girilmez; scene_parse her
+    // yuklemede *out'u bastan kurar, onceki sahneden kalinti tasinmaz.
+    static content::SceneDesc nd;
     content::SceneError err{};
     if (!content::scene_load(sys, path, &nd, &err)) { set_status(st, "ACILAMADI: %s (%s)", path, err.msg); return false; }
     with_bodies(st, phys, [&] {
@@ -1777,7 +1805,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     return true;
   };
   auto do_new = [&]() {
-    content::SceneDesc fresh; // varsayilan dunya + 0 varlik
+    // Varsayilan dunya + 0 varlik. STATIK ve const: yukaridaki `nd` ile ayni
+    // sebep (yigin cercevesi kapisi); hic yazilmadigi icin her cagrida taze.
+    static const content::SceneDesc fresh{};
     with_bodies(st, phys, [&] {
       st.scene = fresh;
       st.hist.clear();
@@ -1828,6 +1858,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     content::SceneCompileReport crep;
     const bool ek = content::scene_compile(frame, st.scene, st.scene_dir, copt, &extras, &crep);
     if (!ek) console_log(ConsoleLevel::Uyari, kConsoleTagScene, "derle: navmesh bake adimi basarisiz (arena?) — blob navmesh'SIZ yazildi");
+    // Nesne ozellikleri (E3) .sahneb'ye HENUZ girmiyor (blob v8 = E4): sessiz
+    // kayip degil, engine_sahnec ile ayni uyari.
+    uint32_t oz_varlik = 0, oz_toplam = 0;
+    for (uint32_t i = 0; i < st.scene.entity_count; i++)
+      if (st.scene.entities[i].prop_count) { oz_varlik++; oz_toplam += st.scene.entities[i].prop_count; }
+    if (oz_toplam)
+      console_log(ConsoleLevel::Uyari, kConsoleTagScene,
+                  "derle: %u varlikta %u nesne ozelligi var; .sahneb bunlari henuz TASIMIYOR (E4), oyun betigin varsayilanlarini gorur",
+                  oz_varlik, oz_toplam);
     if (!content::scene_blob_save_ex(frame, st.scene, ek ? &extras : nullptr, out, &err)) { set_status(st, "DERLENEMEDI: %s", err.msg); return false; }
     content::SceneBlobView v;
     if (!content::scene_blob_load(frame, out, &v, &err)) { set_status(st, "DERLENDI ama acilamadi: %s", err.msg); return false; }
@@ -8174,6 +8213,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               st.scene.entity_count, st.scene.asset_count, st.browse_count, st.hist.undo_count(), st.hist.redo_count(),
               st.dirty ? " (kaydedilmedi)" : "", st.sel.count, prim_end >= 0 ? st.scene.entities[prim_end].name : "-", tick_i, st.live.bodies,
               st.live.characters, st.live.bodies_replaced, st.live.characters_failed);
+  // Sistem arenasi OLCUMU. Gunluk (SceneHistory) 256 islemlik SABIT bir dizi
+  // ve her islem iki SceneEntity tasir: varlik buyudukce (E3 ozellikleri,
+  // 824 -> 1468 B) gunluk de buyur. Rezerv (512 MB) Fatal politikali, yani
+  // tasma sessiz degil; bu satir payin NE KADAR kaldigini gorunur kilar.
+  std::printf("[engine_editor] sistem arenasi: %.1f / %.1f MB (tepe %.1f MB) | gunluk %u islem x %zu B = %.1f KB\n",
+              (double)sys.used() / (1024.0 * 1024.0), (double)sys.capacity() / (1024.0 * 1024.0),
+              (double)sys.stats().peak / (1024.0 * 1024.0), 256u, sizeof(content::SceneOp),
+              256.0 * (double)sizeof(content::SceneOp) / 1024.0);
   bool imgui_hata_var = false;
   if (headless && opts.out_path) {
     if (rhi::write_ppm(opts.out_path, ores.pixels, oc.width, oc.height)) std::printf("[engine_editor] goruntu: %s\n", opts.out_path);

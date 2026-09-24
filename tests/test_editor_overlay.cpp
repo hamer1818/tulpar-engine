@@ -956,7 +956,7 @@ ENGINE_TEST(editor_gizmo_shadow_volume_is_subtler_than_light_box) {
   ren.set_render_size(W, H);
   ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.2f}), {0.2f, 0.2f, 0.25f}, 0.9f);
 
-  content::SceneDesc d{};
+  static content::SceneDesc d{}; // ~370 KB: yigina konmaz (CMake 128 KB cerceve kapisi)
   d.shadow_center = {0, 0, 0};
   d.shadow_radius = 3.0f;
   d.sun_dir = {0.4f, 1.0f, 0.2f};
