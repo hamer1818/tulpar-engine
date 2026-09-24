@@ -1144,3 +1144,37 @@ yol (`oyun_kare_hazirla`) yalnız kopyalar, hiçbir şey ayırmaz ya da yıkmaz.
 **Ders:** ImGui'ye verilen bir dokunun ömrü **çizim listesinin** ömrüdür, panel
 kodunun değil. "Artık gösterilmiyor" bir sonraki kareden itibaren doğrudur; bu karenin
 listesi onu hâlâ tutuyor.
+
+### 8bz. Oyun çalışıyor, harita görünmüyor — depo ayrılırken kaynaklar geride kaldı
+
+**Belirti** (2026-09-24, kullanıcı): editörde `salon1.sahne` açılıp F5'le oynatılınca
+"haritayı göremiyorum, yalnız düşman küpler var". Zemin, duvarlar ve sütunlar yok, ama
+oyuncu duvarlardan geçemiyor.
+
+**Sebep:** motor TulparLang'dan ayrılırken (#1) `examples/assets/` altından yalnız `.sahne`
+dosyaları taşındı. Sahnelerin kaynağı `checker_cube.gltf` ve arena oyununun
+`sesler/altin.wav`'ı derleyici deposunda kaldı. Dört örnek sahnenin (arena, salon1,
+salon2, sıcak_küçük) bütün geometrisi o tek modeli kullanıyor. Model yüklenemeyince
+çalışma zamanı o varlıkları **hiç çizmedi**, gövdeleri ise doğdu. Çarpışma çalıştığı için
+oyun "çalışıyor" göründü. Üç şey hatayı gizledi:
+- Editör modelsiz gövdeyi gri çarpışma kutusu olarak çiziyor. Harita editörde yerinde
+  görünüyordu.
+- Köprünün `HATA sahne: 1 kaynak yuklenemedi` satırı editörün Konsol'una **bilgi**
+  rengiyle düşüyordu, hata sayacı 0 kaldı.
+- Editörün penceresiz "kaynak tarayıcı" kapısı örnek dizinde glTF olmadığı için ATLANDI
+  diyordu. O kapı da kaynaksız sahnede Ctrl+Z'nin geride kimsenin kullanmadığı bir
+  `kaynak` satırı bıraktığını (tablo günlüğün dışında büyüyordu) hiç ölçmemişti.
+
+**Düzeltme:** kaynaklar geri geldi. `checker_cube.gltf`'yi `tools/make_test_gltf.py` artık
+iki yere birden yazıyor, kopya elle tutulmuyor. Oyunun çıktı satırlarının düzeyi satırın
+kendisinden okunuyor (HATA kırmızı, sayaca girer). Kaynak tablosuna ekleme günlüğe girdi
+(`SceneHistory::add_asset`): geri al, sahneyi bayt bayt eklemeden önceki hâline döndürüyor.
+
+**Pozitif kontrol:** `editor_game_example_scenes_and_games_find_their_assets` kaynaklar
+geri gelmeden kırmızı: 4 sahnede `checker_cube.gltf yok`, 2 oyunda
+`examples/assets/sesler/altin.wav yok`. Kaynak tarayıcı kapısı eski ekleme yoluyla
+`betik_dagitimi.sahne`'de `geri al -> baslangic baytlari HAYIR HATA` dedi.
+
+**Ders:** bir depoyu bölerken taşınan dosyanın **bağımlılıklarını** da say: sahne bir
+dosyadır ama kaynak tablosu başka dosyalara işaret eder. "Yüklendi" demek "çizildi"
+demek değildir. Ölçü, kaynak sayacı (`kaynak 0/1`) olmalıydı.

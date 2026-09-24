@@ -28,9 +28,9 @@ namespace tulpar::engine::content {
 // Donus: cikarilan varlik sayisi; 0 = gecersiz kok.
 uint32_t prefab_extract(const SceneDesc &src, int32_t root, SceneDesc *out);
 
-// `prefab`i `dst`nin SONUNA ekler; varliklar h uzerinden (geri alinabilir),
-// kaynaklar dst.add_asset ile (yol ayniysa mevcut indeks). Kok(ler) `at`
-// konumuna tasinir.
+// `prefab`i `dst`nin SONUNA ekler; varliklar VE yeni kaynaklar h uzerinden
+// (geri alinabilir; yol ayniysa mevcut kaynak indeksi, islem yok). Kok(ler)
+// `at` konumuna tasinir.
 //
 // HEPSI YA DA HICBIRI: varlik ya da kaynak tablosu yetmeyecekse, ya da prefab
 // bir cocugu ebeveyninden once listeliyorsa (elle bozulmus dosya) HICBIR sey
@@ -38,6 +38,9 @@ uint32_t prefab_extract(const SceneDesc &src, int32_t root, SceneDesc *out);
 // sahneyi bozardi.
 //
 // Donus: eklenen varlik sayisi. first_index verildiyse ilk eklenenin indeksi.
-uint32_t prefab_instantiate(SceneDesc &dst, SceneHistory &h, const SceneDesc &prefab, Vec3 at, uint32_t *first_index);
+// ops verildiyse gunluge giren TOPLAM islem (varliklar + yeni kaynaklar):
+// cagiran TEK Ctrl+Z icin grubu bu sayiyla iter.
+uint32_t prefab_instantiate(SceneDesc &dst, SceneHistory &h, const SceneDesc &prefab, Vec3 at, uint32_t *first_index,
+                            uint32_t *ops = nullptr);
 
 } // namespace tulpar::engine::content

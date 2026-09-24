@@ -393,11 +393,12 @@ Mat4 scene_character_matrix(const SceneDesc &d, uint32_t i, const sim::Physics &
 // Islem gunlugu: her degisiklik once/sonra kopyasiyla kaydedilir. Yeni islem
 // yinele kuyrugunu siler; kapasite dolunca en eski dusuruIur.
 struct SceneOp {
-  enum Kind : uint32_t { Set = 0, Add = 1, Remove = 2, World = 3 };
+  enum Kind : uint32_t { Set = 0, Add = 1, Remove = 2, World = 3, Asset = 4 };
   Kind kind;
   uint32_t index;
   SceneEntity before, after;
   SceneWorld world_before, world_after; // yalniz World
+  char asset_path[kScenePathLen];       // yalniz Asset: tabloya SONA eklenen kaynak
   // Yalniz Remove: silinen dugumun cocuklarinin SILINMEDEN ONCEKI indeksleri.
   // Silme onlari buyukbabaya bagladigi icin sonradan bulunamazlar (gercek
   // buyukbaba cocuklariyla karisirlar) — geri alma bit-tam olsun diye 32 bayt
@@ -417,6 +418,15 @@ public:
   // Donus: gunluge islem girdi mi (ayni ebeveyn / gecersiz istek: false).
   bool reparent(SceneDesc &d, uint32_t child, int32_t new_parent);
   bool set_world(SceneDesc &d, const SceneWorld &after); // esitse kaydetmez (false)
+  // Kaynak tablosuna ekle, GERI ALINABILIR. Kaynak zaten varsa islem YOK (false),
+  // *index mevcut indeks; yeni ise sona eklenir ve kaydedilir (true). Sigmazsa
+  // *index = -1, false. Eskiden tablo gunlugun DISINDA buyuyordu: kaynakla
+  // varlik ekleyip Ctrl+Z yapinca varlik gidiyor, sahnede kimsenin kullanmadigi
+  // bir `kaynak` satiri kaliyordu (penceresiz "kaynak tarayici" kapisi bunu,
+  // kaynaksiz bir sahne kaynakli bir dizinde acilinca yakaladi).
+  // Geri alma yalniz SON kaynagi kaldirir: sonra eklenen her sey (ona
+  // basvuran varliklar dahil) LIFO geregi ondan once geri alinmis olur.
+  bool add_asset(SceneDesc &d, const char *path, int32_t *index);
   bool undo(SceneDesc &d);
   bool redo(SceneDesc &d);
   uint32_t undo_count() const { return cursor_; }

@@ -871,7 +871,9 @@ bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap,
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset) {
   if (out_asset) *out_asset = -1;
   if (!file || !*file) return 0;
-  const int32_t a = d.add_asset(file);
+  int32_t a = -1;
+  // Yeni kaynak gunluge girer (geri alinabilir); varsa islem yok.
+  const uint32_t aops = h.add_asset(d, file, &a) ? 1u : 0u;
   if (a < 0) return 0; // kaynak tablosu dolu
   if (out_asset) *out_asset = a;
   char stem[content::kSceneNameLen] = {0};
@@ -883,7 +885,7 @@ uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h
   e.pos = pos;
   e.components = content::kSceneModel;
   e.asset = a;
-  return h.add_entity(d, e) ? 1u : 0u;
+  return h.add_entity(d, e) ? aops + 1u : aops;
 }
 
 uint32_t selection_commit(content::SceneDesc &d, content::SceneHistory &h, const int32_t *sel, uint32_t n,

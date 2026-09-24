@@ -7,6 +7,8 @@
 #include <cstring>
 
 #include "app/editor_game.hpp"
+#include "content/scene.hpp"
+#include "core/memory/arena.hpp"
 #include "platform/paths.hpp"
 #include "platform/thread.hpp"
 #include "tests/test.hpp"
@@ -162,4 +164,75 @@ ENGINE_TEST(editor_game_stop_ends_a_running_game) {
   }
   std::printf("    [bilgi] durdurulan oyun %d ms'de bitti, cikis %d\n", ms, r.exit_code);
   CHECK(st == app::GameRunState::Finished && r.exit_code != 0 && ms < 5000);
+}
+
+// Ornek sahneler ve oyunlar KAYNAKLARINI buluyor mu. Depo TulparLang'dan
+// ayrilirken (#1) yalniz .sahne dosyalari tasindi, kaynaklari (checker_cube.gltf,
+// sesler/altin.wav) geride kaldi. Oyun yine calisiyordu: govdeler vardi,
+// carpisma calisiyordu, yalniz zemin, duvar ve sutunlar CIZILMIYORDU (kullanici,
+// 2026-09-24: "haritayi goremiyorum, yalniz dusman kupler var"). Editor modelsiz
+// govdeyi gri kutu cizdigi icin orada her sey yerinde gorunuyordu; koprunun
+// "kaynak yuklenemedi" satiri da oyunun ciktisinda kayboluyordu.
+//   1) tulpar/ altindaki her .sahne: kaynaklari sahnenin yaninda var mi.
+//   2) her .tpr: "examples/assets/..." dizgi sabitleri tulpar/ altinda var mi
+//      (oyunlar tulpar/ kokunden calisir).
+ENGINE_TEST(editor_game_example_scenes_and_games_find_their_assets) {
+  char kok[1024];
+  std::snprintf(kok, sizeof kok, "%s/tulpar", ENGINE_SOURCE_DIR);
+  static app::FileEntry liste[app::kFileListMax];
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "ornek_kaynak");
+  static content::SceneDesc d;
+  uint32_t sahne = 0, kaynak = 0, eksik = 0, tpr = 0, atif = 0;
+  auto var_mi = [](const char *yol) {
+    FILE *f = std::fopen(yol, "rb");
+    if (!f) return false;
+    std::fclose(f);
+    return true;
+  };
+  const app::FileTreeResult ts = app::file_list_tree(kok, ".sahne", liste, app::kFileListMax);
+  CHECK(ts.ok && !ts.truncated);
+  for (uint32_t i = 0; i < ts.count; i++) {
+    char yol[1200], dir[1200], k[1400];
+    std::snprintf(yol, sizeof yol, "%s/%s", kok, liste[i].name);
+    content::SceneError err{};
+    sys.reset_to(0);
+    if (!content::scene_load(sys, yol, &d, &err)) { std::printf("    FAIL %s okunamadi: %s\n", liste[i].name, err.msg); eksik++; continue; }
+    sahne++;
+    content::scene_dir_of(yol, dir, sizeof dir);
+    for (uint32_t a = 0; a < d.asset_count; a++) {
+      kaynak++;
+      std::snprintf(k, sizeof k, "%s/%s", dir, d.assets[a]);
+      if (!var_mi(k)) { std::printf("    FAIL %s: kaynak \"%s\" yok (%s)\n", liste[i].name, d.assets[a], k); eksik++; }
+    }
+  }
+  const app::FileTreeResult tt = app::file_list_tree(kok, ".tpr", liste, app::kFileListMax);
+  CHECK(tt.ok && !tt.truncated);
+  static char metin[256 * 1024];
+  for (uint32_t i = 0; i < tt.count; i++) {
+    char yol[1200];
+    std::snprintf(yol, sizeof yol, "%s/%s", kok, liste[i].name);
+    FILE *f = std::fopen(yol, "rb");
+    if (!f) continue;
+    const size_t n = std::fread(metin, 1, sizeof metin - 1, f);
+    std::fclose(f);
+    metin[n] = 0;
+    tpr++;
+    for (const char *p = std::strstr(metin, "\"examples/assets/"); p; p = std::strstr(p + 1, "\"examples/assets/")) {
+      const char *son = std::strchr(p + 1, '"');
+      if (!son || son - p > 400) continue;
+      char rel[512], k[1600];
+      std::snprintf(rel, sizeof rel, "%.*s", (int)(son - p - 1), p + 1);
+      // Derlenmis blob (.sahneb) turetilmis ve gitignore'lu: kaynagi (.sahne) aranir.
+      const size_t rl = std::strlen(rel);
+      if (rl > 7 && !std::strcmp(rel + rl - 7, ".sahneb")) rel[rl - 1] = 0;
+      atif++;
+      std::snprintf(k, sizeof k, "%s/%s", kok, rel);
+      if (!var_mi(k)) { std::printf("    FAIL %s: \"%s\" yok\n", liste[i].name, rel); eksik++; }
+    }
+  }
+  std::printf("    [bilgi] %u sahne / %u kaynak, %u .tpr / %u \"examples/assets/\" atfi, eksik %u\n", sahne, kaynak, tpr, atif, eksik);
+  // KONTROL: tarama bir sey buldu — bos dizinde "0 eksik" hicbir sey kanitlamaz.
+  CHECK(sahne >= 5 && kaynak >= 4 && atif >= 6);
+  CHECK(eksik == 0);
 }

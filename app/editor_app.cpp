@@ -1451,6 +1451,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     return st.have[i];
   };
   for (uint32_t i = 0; i < st.scene.asset_count; i++) load_asset((int32_t)i);
+  // Gunluk bir kaynak satirini kaldirdiysa (geri al; SceneHistory::add_asset) o
+  // yuvanin modeli artik sahnenin degil: `have` dusurulur, yoksa ayni indekse
+  // sonra BASKA bir kaynak gelince eski model cizilirdi. Yinele satiri geri
+  // getirirse model yeniden yuklenir. n0: islemden onceki kaynak sayisi.
+  auto assets_after_history = [&](uint32_t n0) {
+    for (uint32_t i = st.scene.asset_count; i < n0 && i < content::kSceneMaxAssets; i++) st.have[i] = false;
+    for (uint32_t i = n0; i < st.scene.asset_count; i++)
+      if (!st.have[i]) load_asset((int32_t)i);
+  };
   rescan_browse(st);
   std::printf("[engine_editor] sahne %s: %u varlik, %u kaynak\n", st.scene_path, st.scene.entity_count, st.scene.asset_count);
   console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "sahne %s: %u varlik, %u kaynak", st.scene_path, st.scene.entity_count,
@@ -1663,10 +1672,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         bodies_remove(st, phys); // durdur: veri modeli (yazar donusumu) gecerli
       }
       uint32_t geri = 0;
+      const uint32_t na0 = st.scene.asset_count;
       while (st.groups.depth() > play_group_mark && st.hist.undo_count() > 0) {
         const uint32_t k = st.groups.undo_size();
         for (uint32_t i = 0; i < k && st.hist.undo(st.scene); i++) geri++;
       }
+      assets_after_history(na0);
       if (geri) {
         clamp_selection(st);
         // Butun oynatma duzenlemeleri geri alindiysa kirli bayragi da oynatma
@@ -1696,18 +1707,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (st.hist.undo_count() == 0) return;
     const uint32_t k = st.groups.undo_size();
     uint32_t done = 0;
+    const uint32_t na0 = st.scene.asset_count;
     with_bodies(st, phys, [&] {
       for (uint32_t i = 0; i < k && st.hist.undo(st.scene); i++) done++;
     });
+    assets_after_history(na0);
     if (done) { st.dirty = true; clamp_selection(st); set_status(st, "geri alindi (%u islem, %u kaldi)", done, st.hist.undo_count()); }
   };
   auto do_redo = [&]() {
     if (st.hist.redo_count() == 0) return;
     const uint32_t k = st.groups.redo_size();
     uint32_t done = 0;
+    const uint32_t na0 = st.scene.asset_count;
     with_bodies(st, phys, [&] {
       for (uint32_t i = 0; i < k && st.hist.redo(st.scene); i++) done++;
     });
+    assets_after_history(na0);
     if (done) { st.dirty = true; clamp_selection(st); set_status(st, "yinelendi (%u islem, %u kaldi)", done, st.hist.redo_count()); }
   };
   auto do_save_as = [&]() {
@@ -1826,8 +1841,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // `oyun` yuvasi set_playing'in ustunde (F5 de ayni yuvayi kullaniyor).
   bool komut_hata = false;
   // Oyun satiri: Konsol + stdout (editor.sh'nin terminali ve penceresiz kip de gorsun).
+  // Duzey satirin KENDISINDEN (motorun kurali: "HATA", "UYARI"): koprunun
+  // "HATA sahne: 1 kaynak yuklenemedi" satiri eskiden bilgi rengindeydi ve
+  // hata sayacina girmiyordu — harita gorunmezken Konsol "0 hata" diyordu.
+  // Iki bosluk girintili satirlar koprunun kapanista TEKRAR bastigi log
+  // halkasi: ayni hatayi ikinci kez saymamak icin bilgi kalir.
   void (*oyun_satiri)(void *, const char *) = [](void *, const char *line) {
-    console_log(ConsoleLevel::Bilgi, "oyun", "%s", line);
+    const ConsoleLevel lv = (line[0] == ' ' && line[1] == ' ') ? ConsoleLevel::Bilgi : console_classify_level(line, false);
+    console_log(lv, "oyun", "%s", line);
     std::printf("[oyun] %s\n", line);
   };
   static char oyun_secim[content::kScenePathLen] = {0}; // tulpar/ koke GORELI (disindaysa mutlak)
@@ -6939,14 +6960,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (st.browse_models == 0) {
         std::printf("[engine_editor] kaynak tarayici kapisi: ATLANDI (dizinde .gltf/.glb yok: %s)\n", st.scene_dir);
       } else {
-        const uint32_t n_before = st.scene.entity_count;
+        const uint32_t n_before = st.scene.entity_count, na_before = st.scene.asset_count;
         int32_t a = -1;
         const uint32_t aops = editor_add_asset_entity(st.scene, st.hist, st.browse[0].name, Vec3{0, 0, 0}, &a);
         if (aops) st.groups.push(aops);
+        // Sahnede henuz olmayan kaynak IKI islem (kaynak satiri + varlik), olan bir.
+        const bool yeni_kaynak = st.scene.asset_count == na_before + 1;
         const SceneEntity &ne = st.scene.entities[st.scene.entity_count ? st.scene.entity_count - 1 : 0];
-        const bool added = aops == 1 && st.scene.entity_count == n_before + 1 && (ne.components & content::kSceneModel) != 0 && ne.asset == a && a >= 0;
-        std::printf("[engine_editor] kaynak tarayici kapisi: %u dosya (ilk \"%s\"), varlik \"%s\" kaynak %d, model bileseni %s", st.browse_count,
-                    st.browse[0].name, added ? ne.name : "-", a, added ? "var" : "YOK");
+        const bool added = aops == (yeni_kaynak ? 2u : 1u) && st.scene.entity_count == n_before + 1 && (ne.components & content::kSceneModel) != 0 &&
+                           ne.asset == a && a >= 0;
+        std::printf("[engine_editor] kaynak tarayici kapisi: %u dosya (ilk \"%s\"), varlik \"%s\" kaynak %d (%s, %u islem), model bileseni %s", st.browse_count,
+                    st.browse[0].name, added ? ne.name : "-", a, yeni_kaynak ? "yeni" : "sahnede vardi", aops, added ? "var" : "YOK");
         do_undo();
         content::scene_write(st.scene, txt_c, sizeof txt_c);
         const bool aok = added && std::strcmp(txt_a, txt_c) == 0 && st.scene.entity_count == n_before;
@@ -7478,12 +7502,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         } else {
           // Hepsi ya da hicbiri (bkz. prefab_instantiate): yer yoksa 0 doner
           // ve sahneye tek varlik bile eklenmez.
-          uint32_t first = 0, n = 0;
-          with_bodies(st, phys, [&] { n = prefab_instantiate(st.scene, st.hist, pf, cam.target, &first); });
+          uint32_t first = 0, n = 0, pops = 0;
+          with_bodies(st, phys, [&] { n = prefab_instantiate(st.scene, st.hist, pf, cam.target, &first, &pops); });
           if (!n) {
             set_status(st, "prefab eklenemedi: sahnede ya da kaynak tablosunda yer yok");
           } else {
-            st.groups.push(n); // tek Ctrl+Z butun prefab'i geri alir
+            st.groups.push(pops); // tek Ctrl+Z butun prefab'i (yeni kaynak satirlari dahil) geri alir
             st.dirty = true;
             for (uint32_t a = 0; a < st.scene.asset_count; a++)
               if (!st.have[a]) load_asset((int32_t)a); // prefab'in getirdigi yeni kaynaklar
