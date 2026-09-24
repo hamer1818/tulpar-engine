@@ -57,6 +57,48 @@ Yeni builtin = `SPEC`'e bir satır + `engine_api.h/.cpp`'de uygulama + `python3 
 - **Çıktı parametresi yok:** Tulpar'da işaretçi/çıktı parametresi olmadığı için onay kutusu ve kaydırıcı
   **yeni değeri döndürür** ve betik geri yazar (`ses = kaydirici(..., ses, 0, 1)`).
 - **Kalıcı kayıt motor kurulmadan da çalışır:** parlama gibi ayarlar `eng_init`'ten **önce** okunur.
+- **Kare belleği:** `kare_basla()` ile `kare_bitir()` arasında Tulpar'ın ayırdığı metin, dizi ve
+  nesne kare sonunda **geri sarılır** (§3.1). Kareler arası yaşayacak durum **global**'de durur.
+
+### 3.1 Kare belleği (2026-09-25)
+
+Tulpar'ın AOT çalışma zamanı metni (`t"..."`, `+`, `toString`, motorun döndürdüğü metin, kanca
+çağrısı başına kurulan ad) bir bump arenasından, dizi/nesne literallerini malloc'tan ayırır ve
+ikisini de kendiliğinden **hiç** geri vermez. Ölçüldü (RTX 5080 masaüstü, #52 sonrası):
+`engine_aksiyon` kare başına ~2.5 KB büyüyordu (saatte ~550–680 MB). `engine.tpr` artık her
+`kare_basla`'da `arena_save`, her `kare_bitir`'de **önce** `eng_frame_end` (kancalar onun içinde
+koşar), **sonra** `arena_drop` yapıyor — wings'in istek başına, tame `run()`'ının kare başına
+yaptığının karşılığı. Kare **dışında** (kurulum, iki kare arası, döngüden sonra) ayrılan kalıcıdır.
+Sonra: 12000 karede 5, 20000 karede 2 KB/1000 kare (19000 karede +40 KB).
+
+Neden tame'in "bir kez save, her kare restore" modeli değil: o modelde iki kare **arasında**
+üretilen değer de bir sonraki restore'da silinir (sonda: `str s = ...; kare(); print(s)` çöp
+basıyor). Test koşucusu ve döngü dışı kod tam bunu yapar.
+
+Kural, sondalarla (kare içinde yaz → geri sar → arenayı çöple ez → oku; TulparLang 3eee948):
+
+| kalıp | sonuç |
+|---|---|
+| global'e düz atama: `g = t"..."`, `g = [..]`, `g = {..}`, str alanlı struct | **güvenli** — derin kopya (ama her atama bir kalıcı malloc: her karede atanan global metin sızar) |
+| global dizi/nesne öğesi, push, iç içe dizi: `g[i] = s`, `push(g, s)`, `g[i] += s` | **güvenli** — yazma bariyeri kopyalar |
+| skaler/enum global, `Vec3` gibi kutusuz struct ve alanları, str alanlı struct'ın alanı | **güvenli** |
+| kareden **önce** kurulmuş tipli struct dizisine push / öğe yazma / `g[i].can -= 50` | **güvenli** |
+| kareden önce kurulmuş **yerel** diziye push / öğe yazma | **güvenli** |
+| **global metne bileşik atama** `g_metin += x` | **GÜVENSİZ** — kalıcılaştırılmıyor; `g_metin = g_metin + x` yaz |
+| tipli struct dizisini kare içinde **yeniden atamak** (`g = []`) ya da kare içinde kurulmuşunu kalıcı bir kaba koymak | **GÜVENSİZ** — dizi kare sonunda serbest kalır; yuvaları yeniden kullan |
+| döngü **dışında** bildirilmiş yerel'e kare içinde metin/dizi/nesne atayıp sonraki karede okumak | **GÜVENSİZ** — global yap |
+
+İlk iki GÜVENSİZ satırın sebebi derleyicide (`+=` global kalıcılaştırmasına girmiyor,
+`aot_persist` struct dizisini tanımıyor); ayrıntı `docs/TUZAKLAR.md` 8ch.
+
+Kapatmak: ilk kareden **önce** `kare_bellegi(false)` (EN `frame_memory(false)`) ya da
+`TULPAR_KARE_BELLEK=0`; kapalıysa motor logu bunu bir kez söyler. `kare_bellegi_acik()`,
+`kare_bellegi_kare()` (geri sarılan kare sayısı) ve `bellek_kb()` (`eng_rss_kb`, süreç RSS'i)
+kapı içindir. Ham `eng_frame_begin`/`eng_frame_end` kare belleğini **kullanmaz**.
+
+Kapı: `engine_aksiyon.tpr` `[kapi] bellek:` satırı — RSS eğimi 1000. kareden son kareye, sınır
+600 KB/1000 kare, ve geri sarılan kare = koşan kare. Pozitif kontrol `TULPAR_KARE_BELLEK=0`:
+3200 karede 1805, 12000 karede 2522 KB/1000 kare → BAŞARISIZ.
 
 ## 4. Hata ayıklama yüzeyi (kullanıcı isteği: "olabildiğince her şeyi logla")
 

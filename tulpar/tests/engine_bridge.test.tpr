@@ -1256,6 +1256,49 @@ func run_ozellik() {
     sahne_bosalt();
 }
 
+// ---------------------------------------------------------------------------
+// Kare belleği (engine.tpr "Kare belleği", docs/TUZAKLAR.md 8ch): kare_basla ile
+// kare_bitir arasında ayrılan metin ve dizi kare sonunda geri sarılır; global'e
+// yazılan KALIR. POZİTİF KONTROL: aynı iş kare DIŞINDA yapılınca RSS büyür —
+// bellek_kb() büyümeyi görüyor, "kare içinde büyümedi" boş bir ölçüm değil.
+// Kare başına ~4 MB (10000 x ~430 B metin + dizi). Ölçüldü 2026-09-25, RTX 5080
+// masaüstü: kare içinde 8 karede +0 KB, aynı iş kare dışında +34204 KB.
+str g_kb_kalici = "";
+func kb_cop(int n): int {
+    array a = [];
+    for (int i = 0; i < n; i++) {
+        push(a, "kare-bellegi-sondasi-" + toString(i) + "-................................................................");
+    }
+    return len(a);
+}
+func run_kare_bellegi() {
+    if (!kare_bellegi_acik()) { print("    ATLANDI: kare bellegi kapali (TULPAR_KARE_BELLEK=0)"); return; }
+    int n = 10000;
+    int k0 = kare_bellegi_kare();
+    kare_basla();
+    kb_cop(n);           // ısınma: arena blokları ve dizi tamponu bir kez dokunulur
+    kare_bitir();
+    int r0 = bellek_kb();
+    assert(r0 > 0, "bellek_kb() olcemiyor (0)");
+    for (int k = 0; k < 8; k++) {
+        kare_basla();
+        assert_eq_int(kb_cop(n), n);
+        g_kb_kalici = "kalici-" + toString(k);
+        kare_bitir();
+    }
+    int r1 = bellek_kb();
+    for (int k = 0; k < 8; k++) { kb_cop(n); }   // KONTROL: aynı iş kare DIŞINDA
+    int r2 = bellek_kb();
+    int ic = r1 - r0;
+    int dis = r2 - r1;
+    assert_eq_int(kare_bellegi_kare(), k0 + 9);
+    assert_eq_str(g_kb_kalici, "kalici-7");
+    assert(ic < 1024, "kare icinde ayrilan geri sarilmali: 8 karede " + toString(ic) + " KB buyudu");
+    assert(dis > 8192, "KONTROL: kare disinda ayni is RSS'i buyutmeliydi (olcu aleti goruyor mu?): " + toString(dis) + " KB");
+    print("    [bilgi] kare bellegi: 8 kare x " + toString(n) + " metin -> RSS " + toString(ic) + " KB; ayni is kare disinda "
+        + toString(dis) + " KB; geri sarilan kare " + toString(kare_bellegi_kare() - k0));
+}
+
 if (!kur()) {
     print("  ATLANDI: motor kurulamadi (" + eng_last_error() + ") — GPU/Vulkan yok");
 } else {
@@ -1285,6 +1328,7 @@ if (!kur()) {
     test("arayuz yerlesimi: alt alta, adla/oranla tiklama, kontrol", "run_yerlesim");
     test("betik_ata: kodla uretilen varliga kanca, sira, bitir, hata", "run_betik_bagla");
     test("nesne ozellikleri: ustune yazilmis/varsayilan, dunya noktasi, hata", "run_ozellik");
+    test("kare bellegi: kare ici geri sarilir, global kalir, kare disi kontrol", "run_kare_bellegi");
     motor_kapat();
 }
 test_summary();

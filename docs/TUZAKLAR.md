@@ -1397,3 +1397,67 @@ geri konunca 4.8 `nav_ok = 0` ile kırmızı.
 sözleşmesidir**: o noktadan sonra kurulan her şey, çağrılan kod için "yok"tur. "Yok" geçerli bir
 cevapsa (varsayılan, düz yol, boş liste) bu sessiz bir bozulmadır. Kancayı çağırmadan önce
 kancanın okuyabileceği her yüzeyi kur; olmuyorsa sorgu "hazır değil" diye HATA versin.
+
+### 8ch. Tulpar çalışma zamanı kareyi hiç geri vermiyordu — ve geri sarım açılınca üç kalıp sessizce bozuluyor
+
+**Belirti** (2026-09-25, RTX 5080 masaüstü, Linux; #52 ve TulparLang #345 sonrası):
+`engine_aksiyon` 20000 kare penceresiz koşarken RSS 25. saniyede 334 416 kB, 285. saniyede
+383 272 kB — ~188 KB/s. Kare cinsinden (yeni ikili, kare belleği kapalı:
+`TULPAR_KARE_BELLEK=0`, 1000. kareden 12000. kareye): **2522 KB / 1000 kare**, saatte ~550–680 MB.
+C++ tarafı düzdü: 8cd'nin Vulkan nesne sayacı 20000 karede toplam 8 kurma (bölüm 2 yüklemesi),
+kare başına büyüyen tür yok. Hiçbir kapı kırmızı değildi.
+
+**Sebep:** TulparLang'ın AOT çalışma zamanı metni (`t"..."`, `+`, `toString`, `tm_make_str` —
+motorun döndürdüğü her metin ve **her kanca çağrısında** kurulan fonksiyon adı) 1 MB'lık bir bump
+arenasından (`aot_arena_alloc`), dizi/nesne literallerini malloc'tan ayırır. Arena yalnız
+`arena_save`/`arena_restore` ile geri sarılır; dizi/nesne yalnız bir arena noktası AÇIKKEN
+"bölge"ye kaydedilir ve o noktayla birlikte serbest kalır. wings istek başına, tame `run()` kare
+başına bunu yapıyor; motor oyunları (`engine.tpr` `kare_basla`/`kare_bitir`) yapmıyordu.
+
+**Düzeltme:** `kare_basla` `arena_save`, `kare_bitir` önce `eng_frame_end` (kancalar onun içinde
+koşar) sonra `arena_drop`. Kare **başına** nokta, tame'in "bir kez save, her kare restore"u
+değil: o modelde iki kare ARASINDA üretilen değer (test koşucusu, döngü dışı kod) bir sonraki
+restore'da siliniyor — sonda: `str s = "arakare-1007"; kare(); print(s)` → `COPCOPCOP0`. Sonra:
+3200 karede 0, 12000 karede 5, 20000 karede 2 KB/1000 kare (19000 karede +40 KB; dış örnekleyici
+10. saniyeden 285.'ye 325 948 → 325 996 kB).
+
+**Sessiz bozulma — geri sarım üç kalıbı kırar** (sondalar: kare içinde yaz → geri sar →
+arenayı çöple ez → oku; TulparLang 3eee948):
+1. **Global metne bileşik atama** `g_metin += x`. Derleyicinin global kalıcılaştırması
+   (`llvm_backend.cpp` "assign.autopersist") yalnız DÜZ atamada; `AST_COMPOUND_ASSIGN` onu
+   atlıyor. Sonda: "1", "12", "123" beklenirken `COPCOPCOP0`, `COPCOPCOP02`, `COPCOPCOP023`.
+   `g = g + x` doğru.
+2. **Tipli struct dizisini kare içinde yeniden atamak** (`Dusman[] g; ... g = [];`) ya da kare
+   içinde kurulmuş struct dizisini kalıcı bir kaba koymak. `aot_sarr_new` diziyi bölgeye
+   kaydediyor, `aot_persist` ise yalnız STRING/ARRAY/OBJECT'i derin kopyalıyor, struct dizisini
+   skaler gibi AYNEN döndürüyor → global, kare sonunda `free` edilmiş başlığa bağlı kalıyor.
+   Sonda: sonraki okuma "indeksleme hedefi bir struct dizisi degil" (çökmezse kullanımdan sonra
+   serbest bellek). `engine_aksiyon` `dusmanlari_bosalt()` tam bunu yapıyordu — bölüm 2 geçişi
+   (k713) ve yeniden başlatma KARE İÇİNDE; yuvaları yeniden kullanacak şekilde düzeltildi.
+3. **Döngü dışında bildirilmiş yerele** kare içinde metin/dizi/nesne atayıp sonraki karede
+   okumak: yazma bariyeri yalnız global'i ve kalıcı kabı görür. Sonda: metin çöp, dizi boş,
+   nesne "get islemi icin gecersiz hedef".
+Güvenli olanlar (aynı sondalar): global'e düz atama (derin kopya), global dizi/nesne öğesi ve
+push (bariyer), `g[i] += s`, skaler/enum/`Vec3` globaller, kareden önce kurulmuş tipli struct
+dizisine push/öğe/alan yazma, kareden önce kurulmuş yerel diziye push. Tam tablo `docs/KOPRU.md` §3.1.
+Bozulma değil ama aynı aile: global'e her düz atama bir KALICI malloc kopyadır ve kare belleği
+onu geri vermez — her karede atanan global metin sızar (`engine.tpr` `ui_pencere` başlığı her
+karede kopyalıyordu; artık yalnız değişince).
+
+**Kapı:** `engine_aksiyon.tpr` `[kapi] bellek:` — `bellek_kb()` (`eng_rss_kb` →
+`platform::os_resident_bytes`) 1000. karede ve son karede; eğim > 600 KB/1000 kare ya da geri
+sarılan kare ≠ koşan kare → BAŞARISIZ. Pozitif kontrol `TULPAR_KARE_BELLEK=0`: 3200 karede 1805,
+12000 karede 2524 KB/1000 kare → BAŞARISIZ. Ölçü aletinin kendi kapısı
+`platform_resident_bytes_counts_touched_pages_only`: 64 MB rezerv +0 kB, dokununca +65 536 kB,
+bırakınca −65 536 kB; statm'in 1. alanını (sanal boyut) okuyan sürüm aynı testte kırmızı
+(rezerv +65 536, dokunma +0). Tulpar kapısı (`engine_bridge.test.tpr` "kare bellegi"): 8 kare ×
+~4 MB metin → +0 kB, aynı iş kare DIŞINDA +34 204 kB.
+
+**Kör noktalar (bilerek söyleniyor):** 1 ve 2 derleyicide düzelmeli (bileşik atamaya
+kalıcılaştırma, `aot_persist`'e struct dizisi); burada yalnız kural ve kapı var. RSS kapısı
+yalnız `engine_aksiyon`'un yolunu ölçer; diğer örnekler ve `davranis/` betikleri elle denetlendi
+(yalnız skaler global, kareden önce kurulmuş diziler). CI `.tpr` koşturmuyor: kapı yereldir.
+
+**Ders:** Bir geri sarım (arena, havuz sıfırlama) eklemek "bu değer kalıcı mı" sorusunu her
+atamada sorulur hale getirir. Güvenli kalıpları SONDAYLA say, varsayma: derleyicinin "otomatik
+kalıcılaştırması" yalnız gördüğü atama biçimlerini kapsıyor ve kapsamadığını söylemiyor.
