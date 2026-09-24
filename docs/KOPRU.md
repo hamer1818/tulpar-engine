@@ -469,7 +469,7 @@ varlık başına ≤ 16. Her dal bir bozulma fixture'ıyla koşuyor (`scene_blob
 ikisine de `davranis/muhafiz.tpr`. Muhafızın `devriye_a`sı yerel (-2 0 -1.5) → dünya
 (8.5 3 -4); dönüşsüz hesap (konum + yerel) 3.54 m ötede olurdu — kapının pozitif kontrolü.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **207 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **208 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -495,7 +495,7 @@ bölüm yorumlarına göre):
 | çarpışma olayları | 13 | sayı, düşen, iki taraf (köprü id + sahne dizini), temas noktası, normal, şiddet — kuyruk |
 | tetik olayları | 7 | sayı, düşen, bölge ve giren/çıkan (köprü id + sahne dizini), girdi mi — kuyruk, **belirlenimli sıra** |
 | karakter denetleyicisi | 5 | üret (sanal kapsül), yürü + zıpla isteği, zeminde mi, zemin durumu, zıplama hızı — konum/hız/ışınla/sil/yakınlık/ışın/tetik mevcut varlık fonksiyonlarıyla |
-| ölçüm | 4 | çizim / gövde / ışık sayısı, son kare p50 |
+| ölçüm | 5 | çizim / gövde / ışık sayısı, son kare p50, **süreç RSS** (`eng_rss_kb` = `bellek_kb()`, kare belleği kapısının aleti) |
 
 (Çarpışma ailesi 2026-09-23'e kadar bu tabloda YOKTU: satırların toplamı 164 veriyordu,
 başlık 177 diyordu. Toplam artık başlıkla eşit.)

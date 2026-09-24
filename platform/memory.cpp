@@ -13,9 +13,14 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <psapi.h> // GetProcessMemoryInfo (os_resident_bytes)
 #else
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <mach/mach.h> // task_info (os_resident_bytes)
+#endif
 #endif
 
 namespace tulpar::engine::platform {
@@ -63,6 +68,40 @@ bool os_protect_none(void *p, size_t bytes) {
   return VirtualProtect(p, bytes, PAGE_NOACCESS, &old) != 0;
 #else
   return mprotect(p, bytes, PROT_NONE) == 0;
+#endif
+}
+
+size_t os_resident_bytes() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS pmc;
+  if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc)) return (size_t)pmc.WorkingSetSize;
+  return 0;
+#elif defined(__APPLE__)
+  mach_task_basic_info_data_t info;
+  mach_msg_type_number_t n = MACH_TASK_BASIC_INFO_COUNT;
+  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &n) != KERN_SUCCESS) return 0;
+  return (size_t)info.resident_size;
+#else
+  // /proc/self/statm: "boyut yerlesik paylasilan ..." SAYFA cinsinden. Ilk
+  // alan SANAL boyut — onu okumak rezerv edilen her bayti "kullanilan"
+  // sayardi; ikinci alan yerlesik. fopen yok: FILE malloc ile ayriliyor.
+  const int fd = open("/proc/self/statm", O_RDONLY);
+  if (fd < 0) return 0;
+  char buf[128];
+  const ssize_t n = read(fd, buf, sizeof buf - 1);
+  close(fd);
+  if (n <= 0) return 0;
+  buf[n] = 0;
+  const char *p = buf;
+  while (*p && *p != ' ') p++; // 1. alani (sanal boyut) atla
+  while (*p == ' ') p++;
+  size_t pages = 0;
+  bool any = false;
+  for (; *p >= '0' && *p <= '9'; p++) {
+    pages = pages * 10 + (size_t)(*p - '0');
+    any = true;
+  }
+  return any ? pages * os_page_size() : 0;
 #endif
 }
 

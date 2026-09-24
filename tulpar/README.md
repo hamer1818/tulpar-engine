@@ -28,7 +28,7 @@ tulpar/
 
 ## Tek kaynak kuralı
 
-207 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
+208 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
 tablosudur. Dört dosya da tek komutla üretilir:
 
 ```bash

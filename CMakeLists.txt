@@ -97,6 +97,12 @@ target_link_libraries(engine_platform PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(engine_platform PUBLIC rt)
 endif()
+# psapi: os_resident_bytes (platform/memory.cpp, GetProcessMemoryInfo). Yeni
+# MinGW'de cagri kernel32'deki K32GetProcessMemoryInfo'ya da cozulur; eski
+# PSAPI_VERSION=1 basliklarinda psapi.dll ister. Baglamak iki durumda da dogru.
+if(WIN32)
+    target_link_libraries(engine_platform PUBLIC psapi)
+endif()
 
 # --- Katman denetimi --------------------------------------------------------
 add_custom_target(engine_layer_check

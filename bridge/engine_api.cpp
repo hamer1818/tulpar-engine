@@ -48,6 +48,7 @@
 #include "core/profiler/profiler.hpp"
 #include "platform/crash.hpp"
 #include "platform/game_channel.hpp"
+#include "platform/memory.hpp" // os_resident_bytes (teng_rss_kb)
 #include "platform/paths.hpp"
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
@@ -3481,5 +3482,6 @@ double teng_frame_ms(void) {
   const FrameStats st = g->prof.frame_stats(Span<uint64_t>(scratch, 1200), 120);
   return st.p50_ns / 1e6;
 }
+int teng_rss_kb(void) { return (int)(platform::os_resident_bytes() / 1024); }
 
 } // extern "C"
