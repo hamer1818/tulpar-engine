@@ -32,10 +32,27 @@ struct ProcessSpec {
   const char *const *argv = nullptr; // NULL ile biter; argv[0] = program (PATH'te aranir)
   const char *cwd = nullptr;         // null: cagiranin dizini
   const char *log_path = nullptr;    // null: cagiranin stdout/stderr'i; dolu: ikisi de BU dosyaya (kesilerek)
+  // Cocugun ortamina EKLER: "AD=deger" dizgileri, NULL ile biter. Cocuk
+  // cagiranin ortamini + bunlari gorur; ayni ad varsa BU deger kazanir (iki
+  // kez gecmez). Cagiranin KENDI ortami degismez — setenv yapip fork etmek
+  // cok thread'li editorde baska bir thread'in getenv'ine yaris olurdu.
+  const char *const *env = nullptr;
 };
 
+// SUREC AGACI: process_kill yalniz dogrudan cocugu DEGIL, onun baslattigi
+// her seyi de sonlandirir. Sebep olculdu (2026-09-24, Linux): `tulpar oyun.tpr`
+// oyunu derleyip KENDI cocugu olarak kosturuyor (/tmp/.tulpar_run.<pid>);
+// derleyiciye SIGTERM gitti, oyun init'e devredilip calismaya DEVAM etti —
+// editorun "Durdur"u oyun penceresini kapatmiyordu. Cozum:
+//   - POSIX: cocuk kendi surec grubunun lideri (setpgid), kill gruba gider.
+//     Bedeli: terminaldeki Ctrl+C artik cocuga GITMEZ (baska grup); editor
+//     kapanirken calisan oyunu kendisi durdurur.
+//   - Windows: cocuk bir is nesnesine (Job) alinir, kill isi sonlandirir.
+//     KILL_ON_JOB_CLOSE: editor oldugunde de agac kapanir.
+// Ayrik (detached) surec bunlarin disinda: kod editoru editordan bagimsiz yasar.
 struct Process {
-  intptr_t handle = 0; // POSIX: pid, Windows: HANDLE
+  intptr_t handle = 0; // POSIX: pid (= surec grubu), Windows: HANDLE
+  intptr_t job = 0;    // Windows: is nesnesi (0: alinamadi, kill yalniz cocuga)
   bool running = false;
 };
 
@@ -49,8 +66,9 @@ bool process_start(Process &p, const ProcessSpec &s, char *err, size_t err_cap);
 bool process_start_detached(const ProcessSpec &s, char *err, size_t err_cap);
 // Bloklamaz. Exited: *exit_code dolu, tutamac kapatildi. Failed: izlenemedi.
 ProcessState process_poll(Process &p, int *exit_code);
-// Zorla sonlandir (POSIX SIGTERM, Windows TerminateProcess). Tutamac
-// process_poll ile toplanir — kill tek basina zombi birakmayi ONLEMEZ.
+// Zorla sonlandir: butun AGAC (POSIX surec grubuna SIGTERM, Windows
+// TerminateJobObject; yukariya bak). Tutamac process_poll ile toplanir — kill
+// tek basina zombi birakmayi ONLEMEZ.
 bool process_kill(Process &p);
 
 // Windows komut satiri kurali, platformdan BAGIMSIZ saf fonksiyon: kapi onu

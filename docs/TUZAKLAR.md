@@ -1098,3 +1098,30 @@ Eski kapı aynı durumda "OK" diyordu.
 
 **Ders:** bir sayaç, ölçülmek istenen işin YAN ÜRÜNÜ değilse kanıt değildir. "Kaç kez
 çağrıldı" yerine "çağrı dünyada neyi değiştirdi"yi ölç — burada: gövdenin y'si.
+
+### 8bx. Ebeveyni öldürmek çocuğu öldürmez — "Durdur" oyun penceresini kapatmıyordu
+
+**Belirti** (2026-09-24, ölçüldü): editörün "Oyunu çalıştır"ı (Ctrl+F5) durdurulunca
+Konsol "oyun durduruluyor" diyor, süreç bitiyor, ama oyun penceresi açık kalıyor.
+
+**Sebep:** editör `tulpar oyun.tpr`'yi başlatıyor; `tulpar` oyunu derleyip **kendi
+çocuğu** olarak koşturuyor (`/tmp/.tulpar_run.<pid>`). `process_kill` yalnız doğrudan
+çocuğa, yani derleyiciye SIGTERM gönderiyordu. Ölçüm: derleyicinin pid'ine SIGTERM →
+derleyici öldü, oyun init'e devredildi (ebeveyn 1942) ve çalışmaya devam etti. Editör
+"süreç bitti" gördü, çünkü izlediği süreç gerçekten bitmişti. Windows'ta
+`TerminateProcess` aynı şekilde yalnız `tulpar.exe`'yi alır.
+
+**Düzeltme:** `platform::process_start` her (ayrık olmayan) çocuğu bir **ağacın** kökü
+yapar ve `process_kill` ağacı alır. POSIX'te çocuk kendi süreç grubunun lideri
+(`setpgid`), kill gruba (`kill(-pid)`) gider. Windows'ta çocuk askıda başlatılır, bir
+iş nesnesine (Job, `KILL_ON_JOB_CLOSE`) alınır, sonra yürütülür; kill işi sonlandırır.
+Bedeli: terminaldeki Ctrl+C artık oyuna gitmez (başka grup). Editörün gömülü oyunu
+(F5) bunu kalp atışıyla kapatır: editör susarsa oyun 5 s içinde kendini kapatır.
+
+**Pozitif kontrol:** `process_kill_takes_the_whole_tree`. Kobay çocuk, derleyicinin
+yaptığı gibi **aynı grupta** bir torun başlatır. Grup kill'i kapatılınca kapı kırmızı:
+`torun ...: kill oncesi canli, cocuk cikis 143, torun HALA CALISIYOR (5000 ms)`.
+
+**Ders:** "süreç bitti" izlenen sürecin bittiğini söyler, işin bittiğini değil. Başka
+bir programı başlatan bir program başlatıyorsan, öldürdüğün şey o programın kendisi
+değil, **ağacı** olmalı.

@@ -85,6 +85,27 @@ TULPAR_ENGINE_HEADLESS=120 TULPAR_ENGINE_OUT=/tmp/oyun.ppm ./tulpar examples/eng
 Pencere yerine offscreen render pass, N kare, son kare PPM. Kural aynı: **ben pencere açmam**, görsel
 doğrulamayı kullanıcı ya da emülatör/cihaz ekran görüntüsü yapar (`no-raylib-windows-verify` ile aynı disiplin).
 
+### 5.1 Gömülü kip (editörün F5'i)
+
+`TULPAR_ENGINE_GOMULU=<kanal adı>` tanımlıysa `teng_init` pencere açmaz. Editörün açtığı paylaşımlı
+belleğe (`platform/game_channel.hpp`) bağlanır ve oyunu editörün **Oyun sekmesinin içinde** oynatır:
+
+| ne | nasıl |
+|---|---|
+| çizim | headless yolu (offscreen); her kare kanala yazılır, editör onu Oyun sekmesinde gösterir |
+| ölçü | kanalın ölçüsü (editörün Oyun sekmesi); `motor_ac`'ın istediği ölçü **yerine** geçer ve loglanır |
+| girdi | editör, Oyun sekmesi odaktayken kendi tuşlarını ve fareyi (kare pikselinde) yollar; `tus`, `fare_x`, dokunuş aynı yoldan okunur |
+| zaman | gerçek saat, 60 Hz tempo (ölçüldü: 59.7 kare/s; tempo kapatılınca aynı sahne 6851 kare/s — kapı üst sınırla tempoyu ölçüyor) |
+| `teng_headless` | **0**: kullanıcı var, oyunlar otopilota geçmesin |
+| duraklat / tek adım | oyunun kendi döngüsü `kare_basla` içinde bekler; betik, fizik, zaman aynı yerde durur |
+| durdur | `calisiyor()` bir sonraki karede 0 döner, oyun kendi `bitir` yolundan kapanır |
+| editör ölürse | kalp atışı 5 s durursa oyun kendini kapatır (`TULPAR_ENGINE_GOMULU_ZAMAN_ASIMI_MS` ile değişir) |
+
+Kanal açılamazsa oyun **pencereye düşmez**, `motor_ac` false döner ve sebep loglanır: editör görüntünün
+sekmesine gelmesini bekliyor, ayrı bir pencere "F5 ne yaptı" sorusunu cevapsız bırakırdı. Kapılar
+`tests/test_game_channel.cpp`: protokol (tek süreç, iki eşleme), gerçek süreç sınırı (GPU'suz kobay) ve
+gerçek köprü (kutu çizer, editörden gelen W rengini değiştirir).
+
 ## 6. Android
 
 `tulpar build --target=android oyun.tpr out --apk`. `import "engine"` gören AOT, tame yerine motor
