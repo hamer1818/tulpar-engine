@@ -216,7 +216,10 @@ func script_count(): int { return eng_script_count(); }
 // Konum, hız ve yön TEK değer olarak taşınır. Eskiden oyun kodu bileşenleri
 // tek tek okuyup ayrı değişkenlerde tutuyordu (engine_aksiyon.tpr: 27 satır
 // yalnız konum_x/y/z, 17 satır elle sin/cos/sqrt). `Vec3` Tulpar'ın KUTUSUZ
-// struct'ı: üç double, yığın ayırması yok, alan erişimi doğrudan.
+// struct'ı: üç double, yığın ayırması yok, alan erişimi doğrudan. Bu, TulparLang
+// #345'ten (2026-09-25) beri doğru: öncesinde import edilen modülün struct'ı hiç
+// kaydedilmiyordu ve her `v3()` bırakılmayan bir nesneydi (ölçüldü, RTX 5080 masaüstü:
+// 10M çağrı 1013 ms / 4.65 GB; şimdi 38 ms / 2.5 MB). tools/motor_derleyici.sh bunu sonduyor.
 // XZ yardımcıları yatay düzlemdir (yerçekimi Y): yürüme, bakış, mesafe.
 struct Vec3 { float x; float y; float z; }
 func v3(float x, float y, float z): Vec3 { return { x: x, y: y, z: z }; }
