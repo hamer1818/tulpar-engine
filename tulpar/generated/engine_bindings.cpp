@@ -349,6 +349,18 @@ VMValue aot_eng_is_dynamic_ptr(VMValue *id) {
 VMValue aot_eng_awake_ptr(VMValue *id) {
   return VM_BOOL(teng_awake((int)tm_int(id)) != 0);
 }
+VMValue aot_eng_script_attach_ptr(VMValue *id, VMValue *name) {
+  return VM_BOOL(teng_script_attach((int)tm_int(id), tm_str(name)) != 0);
+}
+VMValue aot_eng_script_detach_ptr(VMValue *id) {
+  return VM_BOOL(teng_script_detach((int)tm_int(id)) != 0);
+}
+VMValue aot_eng_script_name_ptr(VMValue *id) {
+  return tm_make_str(teng_script_name((int)tm_int(id)));
+}
+VMValue aot_eng_script_count_ptr(void) {
+  return VM_INT((int64_t)teng_script_count());
+}
 VMValue aot_eng_model_clip_count_ptr(VMValue *asset) {
   return VM_INT((int64_t)teng_model_clip_count((int)tm_int(asset)));
 }

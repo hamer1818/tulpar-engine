@@ -1231,3 +1231,38 @@ derlendi.
 **Ders:** bir kapı kullanıcının dosyasına yazıyorsa girdisi kullanıcının verisi olmalı,
 önceki kapıların artığı değil. "Türetilmiş dosya" demek "önemsiz dosya" demek değil: oyun onu
 okuyor.
+
+### 8cc. Çarpışma halkasının SIRASI koşumdan koşuma değişir — kümesi değişmez
+
+**Belirti** (2026-09-24, kodla betik bağlama işi sırasında, masaüstü 16 iş parçacığı): 48
+küre aynı adımda zemine düşüyor, oyun kuyruğu indis sırasıyla okuyor
+(`carpisma_a(i)`/`carpisma_b(i)`). 8 koşumda **8 farklı** sıra; aynı listeler sıralanınca
+**1** küme. Olayların kendisi belirlenimli, sırası değil. Hiçbir kapı kızarmıyordu: iki
+koşumun `[kapi]` satırı yalnız sıraya bağlı mantık varsa ayrışır (iki düşman aynı karede
+oyuncuya çarpar ve "ilk işlenen öldürdü"; bir çarpışma kancası ötekinin varlığını siler).
+
+**Sebep:** `ContactRing::OnContactAdded` Jolt'un iş parçacıklarından çağrılıyor ve yuvayı
+`fetch_add` ile alıyor: halka olayların **geliş** sırası. Tetik olayları bu yüzden
+`teng_frame_end`'de (adım, sensör, diğer) ile sıralanıyordu; temaslar hiç sıralanmıyordu.
+`JPH_CROSS_PLATFORM_DETERMINISTIC` simülasyonu belirlenimli yapar, geri çağrım sırasını değil.
+
+**Düzeltme (kodla bağlanan betikler):** `bound_fire_carpisma` kanca çağrılarını toplar ve
+(yuva, karşı gövde, nokta, şiddet) ile sıralayıp öyle çağırır; `olay` yine halka indisi.
+Ölçüldü: aynı 48 küreye `betik_ata(k, "sonda")` ile bağlı `sonda_carpisma` kancasının çağrı
+izi (sıra özeti) 8 koşumda **1** farklı, aynı karelerin halka izi **8/8** farklı.
+
+**Bilerek değişmeyen:** sahne `<ad>_carpisma` kancaları ve kuyruğu indis sırasıyla okuyan oyun
+kodu hâlâ halka sırasını görür (sahne kancalarının davranışı o işte değişmesin istendi).
+Onları da sıralamak ayrı bir davranış değişikliği. O güne kadar **kural:** halkayı sıraya bağlı
+mantıkla okuma; gerekiyorsa önce kendin sırala (ör. köprü id'siyle).
+
+**Pozitif kontrol:** `bridge_runs_a_scripted_game_headless` 10d — 32 küre aynı adımda iner,
+bağlama sırası yuva sırasının TERSİ; kancalar yuva sırasıyla gelmeli (`yuva sirasini bozan 0`).
+Aynı karelerin halka sırası bilgi satırında basılır. Koşumlar arası ölçüm tek süreçte
+yapılamadığı için sonda Tulpar'da: 48 `kure` + `betik_ata`, kanca içinde
+`iz = (iz * 31 + yuva + 1) % 1000000007`, ana döngüde halka için aynısı; 8 kez koştur,
+farklı izleri say.
+
+**Ders:** "iş parçacığından yazılan halka" belirlenimli bir simülasyonun içinde bile
+belirlenimli değildir. Sıra bir sözleşmeyse onu tüketici **kurar** (sıralar); üreticinin
+geliş sırasına güvenen her okuyucu bu tuzağa açıktır.

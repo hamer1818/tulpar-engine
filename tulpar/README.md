@@ -15,7 +15,9 @@ tulpar/
     engine_builtins.inc        LSP tamamlama/hover
   examples/               engine_ilk_oyun.tpr, engine_arena.tpr, engine_aksiyon.tpr,
                           engine_betik_dagitimi.tpr (betik kancalari + tetik bolgeleri),
-                          engine_karakter.tpr (karakter denetleyicisi: basamak, ziplama, tetik)
+                          engine_karakter.tpr (karakter denetleyicisi: basamak, ziplama, tetik),
+                          engine_dalga.tpr (kodla uretilen dusmanlara `betik_ata`; davranislar
+                          davranis/dusman.tpr + davranis/tuzak.tpr — docs/KOPRU.md 7.10)
                           (aksiyon: TulparLang P0 dil özellikleri — `enum Ekran/Durum/Hal`,
                           `yon_hesapla(): (float, float)`, düşman kaydı tek `Dusman[]`
                           — 11 paralel dizi 2026-09-21'de kalktı)
@@ -24,7 +26,7 @@ tulpar/
 
 ## Tek kaynak kuralı
 
-195 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
+199 `eng_*` builtin'in tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`
 tablosudur. Dört dosya da tek komutla üretilir:
 
 ```bash

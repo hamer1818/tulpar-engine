@@ -14,6 +14,10 @@
 //                   poz iki kez cizilince fark 0.
 //   ses             calan ses sayaci ve tepe deger artar; KONTROL: durdurunca
 //                   ikisi de sifirlanir. Cihaz yoksa GORUNUR atlanir.
+//   kodla betik     teng_script_attach (10d): kanca sirasi ve argumanlari, kanca
+//                   icinden sil/bagla/uret, havuz tavani; KONTROL: kancasiz ad ve
+//                   olu id HATA sayar, sahne sayaci etkilenmez, kapanista
+//                   toplam baslat == toplam bitir.
 //
 // Tek surecte tek motor ornegi var (global baglam): bu dosya init/shutdown'u
 // BIR kez yapar ve tum kapilar o oturumun icinde kosar.
@@ -81,6 +85,75 @@ const char *assets_dir() {
   std::snprintf(buf, sizeof buf, "%s/tests/assets", ENGINE_SOURCE_DIR);
   return buf;
 }
+
+// KODLA BAGLANAN betikler icin sahte VM (10d). Tulpar'a gerek yok: olculen
+// sey MOTORUN kimi, ne zaman, hangi argumanlarla cagirdigi. Her cagri sabit bir
+// kayda duser (STL yok, ayirma yok); birkac "betik" motoru kanca ICINDEN
+// yeniden cagirir — sil / bagla / uret yeniden giris yollarini kosturmak icin.
+namespace kod {
+struct Cagri {
+  char fn[40];
+  double a[8];
+  int argc;
+  int kare;  // teng_frame() cagri aninda
+  int canli; // teng_alive(id) cagri aninda (bitir'de 1 olmali)
+};
+constexpr int kMax = 8192; // ~0.9 MB statik; tasma sayilir ve kapi onu 0 bekler
+Cagri kayit[kMax];
+int n = 0, tasma = 0;
+bool kaydet = true;
+int baslat = 0, bitir = 0; // kayittan bagimsiz toplamlar (her baslat'a bir bitir)
+int dogan = 0, dogurgan_kare = -1, intihar_ata = -1;
+// Her betikte baslat + bitir var: "her baslat'a tam bir bitir" invaryanti
+// toplamlarla olculebilsin (kapanista baslat == bitir).
+const char *const kVar[] = {"dusman_baslat",     "dusman_guncelle",   "dusman_carpisma", "dusman_bitir",     "dusman_bolge_girdi",
+                            "dusman_bolge_cikti", "tuzak_baslat",      "tuzak_tetik_girdi", "tuzak_tetik_cikti", "tuzak_bitir",
+                            "iz_baslat",          "iz_bitir",          "intihar_baslat",  "intihar_guncelle",  "intihar_bitir",
+                            "dogurgan_baslat",    "dogurgan_guncelle", "dogurgan_bitir"};
+int has(const char *fn) {
+  for (const char *v : kVar)
+    if (std::strcmp(fn, v) == 0) return 1;
+  return 0; // "yok_*" ve digerleri: kanca YOK yolu
+}
+int call(const char *fn, const double *a, int argc) {
+  const int id = argc > 0 ? (int)a[0] : 0;
+  if (std::strstr(fn, "_baslat")) baslat++;
+  if (std::strstr(fn, "_bitir")) bitir++;
+  if (kaydet) {
+    if (n < kMax) {
+      Cagri &c = kayit[n++];
+      std::snprintf(c.fn, sizeof c.fn, "%s", fn);
+      for (int i = 0; i < 8; i++) c.a[i] = i < argc ? a[i] : -999;
+      c.argc = argc;
+      c.kare = teng_frame();
+      c.canli = teng_alive(id);
+    } else tasma++;
+  }
+  // Yeniden giris yollari (kanca icinden motor):
+  if (!std::strcmp(fn, "intihar_guncelle")) teng_despawn(id);            // guncelle dongusunde kendini sil
+  else if (!std::strcmp(fn, "intihar_bitir")) {                           // bitir icinde: kendine bagla (RED) + kendini sil (yok sayilir)
+    intihar_ata = teng_script_attach(id, "dusman");
+    teng_despawn(id);
+  } else if (!std::strcmp(fn, "dogurgan_guncelle") && !dogan) {           // guncelle dongusunde URET + BAGLA
+    dogan = teng_spawn_sphere(teng_x(id) + 2.0, 0.9, teng_z(id), 0.4, 1, 0x30c030ff);
+    teng_script_attach(dogan, "dusman");
+    dogurgan_kare = teng_frame();
+  }
+  return 1;
+}
+int say(const char *fn, int id) {
+  int k = 0;
+  for (int i = 0; i < n; i++)
+    if (!std::strcmp(kayit[i].fn, fn) && (id == 0 || (int)kayit[i].a[0] == id)) k++;
+  return k;
+}
+int ilk(const char *fn, int id, int from = 0) {
+  for (int i = from; i < n; i++)
+    if (!std::strcmp(kayit[i].fn, fn) && (id == 0 || (int)kayit[i].a[0] == id)) return i;
+  return -1;
+}
+const TengScriptVm vm{has, call};
+} // namespace kod
 } // namespace
 
 ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
@@ -830,6 +903,272 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     teng_despawn(zem);
   }
 
+  // --- 10d) KODLA URETILEN VARLIGA BETIK BAGLAMA -----------------------------
+  // Sahne kancalarinin kod ikizi (teng_script_attach). Olculen: `id` KOPRU id'si
+  // (sahne indisi degil), guncelle YUVA sirasiyla (baglama sirasiyla degil),
+  // carpisma argumanlari (diger = kopru id, diger_sahne = -1 / sahne dizini),
+  // tetik: once bolgenin kancasi sonra girenin, sil/coz/yeniden bagla/kapanis
+  // hepsinde TAM BIR bitir, bitir sirasinda varlik canli, kanca icinden sil /
+  // bagla / uret, havuz tavani, sahne sayaclarinin ETKILENMEMESI. Kasitli
+  // hatalar tek tek sayilir (kod_hata), kapanis toplamina eklenir.
+  int kod_hata = 0;
+  {
+    teng_set_script_vm(&kod::vm);
+    const int errs0 = teng_error_count();
+    const int zem = teng_spawn_box(110, 0, 110, 20, 0.5, 20, 0, 0x404040); // ust yuz y=0.5
+    // A, B, C sirali uretilir (artan yuva); BAGLAMA sirasi TERS. SABIT kureler:
+    // zeminle temas olayi uretmesinler (guncelle sayimi yalniz guncelle olsun).
+    const int A = teng_spawn_sphere(100, 0.9, 100, 0.4, 0, 0xff0000ff);
+    const int B = teng_spawn_sphere(102, 0.9, 100, 0.4, 0, 0x00ff00ff);
+    const int C = teng_spawn_sphere(104, 0.9, 100, 0.4, 0, 0x0000ffff);
+    CHECK(zem && A && B && C);
+    const int yA = A & 0xFFFF, yB = B & 0xFFFF, yC = C & 0xFFFF;
+    CHECK(yA < yB && yB < yC);
+    CHECK(teng_script_count() == 0);
+    CHECK(teng_script_attach(C, "dusman") == 1);
+    CHECK(teng_script_attach(A, "davranis/dusman.tpr") == 1); // yol verilirse taban ad
+    CHECK(teng_script_attach(B, "dusman.tpr") == 1);
+    CHECK(teng_script_count() == 3);
+    CHECK(std::strcmp(teng_script_name(A), "dusman") == 0 && std::strcmp(teng_script_name(zem), "") == 0);
+    // baslat HEMEN, baglama sirasiyla; `id` kopru id'si (nesil<<16 -> >= 65536:
+    // sahne indisi olsaydi < 256 olurdu).
+    CHECK(kod::n == 3 && kod::say("dusman_baslat", 0) == 3);
+    if (kod::n == 3) {
+      CHECK((int)kod::kayit[0].a[0] == C && (int)kod::kayit[1].a[0] == A && (int)kod::kayit[2].a[0] == B);
+      CHECK(kod::kayit[0].argc == 1 && kod::kayit[0].a[0] >= 65536.0);
+    }
+    // guncelle: her kare TAM BIR, YUVA sirasi (A, B, C), dt headless 1/60.
+    const int g0 = kod::n;
+    run_frames(3);
+    CHECK(kod::n - g0 == 9);
+    bool sira_ok = kod::n - g0 == 9;
+    for (int f = 0; f < 3 && sira_ok; f++) {
+      const kod::Cagri *c = &kod::kayit[g0 + f * 3];
+      sira_ok = !std::strcmp(c[0].fn, "dusman_guncelle") && (int)c[0].a[0] == A && (int)c[1].a[0] == B && (int)c[2].a[0] == C &&
+                c[0].argc == 2 && std::fabs(c[0].a[1] - 1.0 / 60.0) < 1e-6 && c[0].kare == c[2].kare;
+    }
+    std::printf("    [bilgi] kodla betik: baslat sirasi C,A,B (baglama), guncelle sirasi A,B,C (yuva %d<%d<%d): %s\n", yA, yB, yC,
+                sira_ok ? "dogru" : "YANLIS");
+    CHECK(sira_ok);
+
+    // --- carpisma: kure havadan zemine; diger = zeminin KOPRU id'si ------
+    const int D = teng_spawn_sphere(115, 3.0, 110, 0.4, 1, 0xffaa00ff);
+    const int Z = teng_spawn_trigger_box(115, 2.0, 110, 1.0, 0.5, 1.0); // y 1.5..2.5: D icinden gecer
+    CHECK(teng_script_attach(D, "dusman") == 1 && teng_script_attach(Z, "tuzak") == 1);
+    // KONTROL: carpmadan once sifir carpisma cagrisi.
+    CHECK(kod::say("dusman_carpisma", D) == 0);
+    int kare = 0;
+    while (kod::say("dusman_carpisma", D) == 0 && kare < 180) { run_frames(1); kare++; }
+    const int ic = kod::ilk("dusman_carpisma", D);
+    CHECK(ic >= 0);
+    if (ic >= 0) {
+      const kod::Cagri &c = kod::kayit[ic];
+      std::printf("    [bilgi] kodla carpisma: %d karede, argc %d, id #%.0f diger #%.0f (zemin #%d) olay %.0f nokta y %.2f hiz %.2f diger_sahne %.0f\n",
+                  kare, c.argc, c.a[0], c.a[1], zem, c.a[2], c.a[4], c.a[6], c.a[7]);
+      CHECK(c.argc == 8 && (int)c.a[1] == zem && (int)c.a[7] == -1);
+      CHECK(c.a[6] > 3.0 && c.a[6] < 9.0); // ~2.1 m serbest dusus: v ~ 6.4 m/s
+    }
+    // tetik: D, Z'nin icinden gecti. Her olayda ONCE bolgenin kancasi.
+    const int tg = kod::ilk("tuzak_tetik_girdi", Z), bg = kod::ilk("dusman_bolge_girdi", D);
+    const int tc = kod::ilk("tuzak_tetik_cikti", Z), bc = kod::ilk("dusman_bolge_cikti", D);
+    std::printf("    [bilgi] kodla tetik: T+ %d B+ %d T- %d B- %d (kayit sirasi)\n", tg, bg, tc, bc);
+    CHECK(tg >= 0 && bg == tg + 1 && tc > bg && bc == tc + 1);
+    if (tg >= 0 && bg >= 0) {
+      CHECK(kod::kayit[tg].argc == 3 && (int)kod::kayit[tg].a[1] == D && (int)kod::kayit[tg].a[2] == -1);
+      CHECK(kod::kayit[bg].argc == 3 && (int)kod::kayit[bg].a[1] == Z && (int)kod::kayit[bg].a[2] == -1);
+    }
+
+    // --- sahne tarafi: diger = 0, SON arguman sahne dizini ----------------
+    // Bellekte kucuk bir sahne: sabit blok + tetik bolge + dinamik kup.
+    // Kodla uretilen F sahne bolgesinden gecip sahne blogunun ustune duser;
+    // sahne kupu KODLA uretilen bir bolgeden (Z2) gecer.
+    {
+      static SystemArena sarena;
+      if (sarena.capacity() == 0) sarena.reserve(16u << 20, "bridge_kod_betik");
+      static content::SceneDesc sd; // buyuk: yigina sigmaz, tek kullanim
+      content::SceneEntity blok{};
+      std::snprintf(blok.name, sizeof blok.name, "s_blok");
+      blok.components = content::kSceneBody;
+      blok.pos = Vec3{155, 0, 150};
+      blok.half = Vec3{12, 0.5f, 2}; // ust yuz y=0.5, x 143..167
+      content::SceneEntity bolge{};
+      std::snprintf(bolge.name, sizeof bolge.name, "s_bolge");
+      bolge.components = content::kSceneBody;
+      bolge.pos = Vec3{150, 2, 150};
+      bolge.half = Vec3{1, 0.5f, 1};
+      bolge.body_sensor = true;
+      content::SceneEntity kup{};
+      std::snprintf(kup.name, sizeof kup.name, "s_kup");
+      kup.components = content::kSceneBody;
+      kup.pos = Vec3{160, 4, 150};
+      kup.half = Vec3{0.3f, 0.3f, 0.3f};
+      kup.dynamic = true;
+      CHECK(sd.insert_entity(0, blok) && sd.insert_entity(1, bolge) && sd.insert_entity(2, kup));
+      char sblob[800];
+      std::snprintf(sblob, sizeof sblob, "%s/_kopru_kod_betik.sahneb", assets_dir());
+      content::SceneError se{};
+      CHECK(content::scene_blob_save(sarena, sd, sblob, &se));
+      const int Z2 = teng_spawn_trigger_box(160, 2.0, 150, 1.0, 0.5, 1.0);
+      CHECK(Z2 && teng_script_attach(Z2, "tuzak") == 1);
+      if (teng_scene_loaded()) teng_scene_unload();
+      CHECK(teng_scene_load(sblob) == 1);
+      const int iblok = teng_scene_find("s_blok"), ibolge = teng_scene_find("s_bolge"), ikup = teng_scene_find("s_kup");
+      const int F = teng_spawn_sphere(150, 3.0, 150, 0.4, 1, 0xaa00ffff);
+      CHECK(F && teng_script_attach(F, "dusman") == 1);
+      kare = 0;
+      while ((kod::say("dusman_carpisma", F) == 0 || kod::say("tuzak_tetik_girdi", Z2) == 0) && kare < 240) { run_frames(1); kare++; }
+      const int fb = kod::ilk("dusman_bolge_girdi", F), fc = kod::ilk("dusman_carpisma", F), zg = kod::ilk("tuzak_tetik_girdi", Z2);
+      CHECK(fb >= 0 && fc >= 0 && zg >= 0);
+      if (fb >= 0 && fc >= 0 && zg >= 0) {
+        const kod::Cagri &b1 = kod::kayit[fb], &c1 = kod::kayit[fc], &z1 = kod::kayit[zg];
+        std::printf("    [bilgi] kod<->sahne: F bolge_girdi(bolge #%.0f, bolge_sahne %.0f; s_bolge=%d), carpisma(diger #%.0f, diger_sahne %.0f; s_blok=%d), "
+                    "Z2 tetik_girdi(diger #%.0f, diger_sahne %.0f; s_kup=%d)\n",
+                    b1.a[1], b1.a[2], ibolge, c1.a[1], c1.a[7], iblok, z1.a[1], z1.a[2], ikup);
+        CHECK((int)b1.a[1] == 0 && (int)b1.a[2] == ibolge);
+        CHECK((int)c1.a[1] == 0 && (int)c1.a[7] == iblok);
+        CHECK((int)z1.a[1] == 0 && (int)z1.a[2] == ikup);
+      }
+      // Sahne sayaci kodla baglanan cagrilari SAYMIYOR: yukleme onu sifirladi,
+      // sahnede betik yok, bu karelerde yalniz kopru kancalari kostu.
+      std::printf("    [bilgi] sahne kanca sayaci bu karelerde %d (0 olmali: kopru kancalari ayri sayilir)\n", teng_script_call_count());
+      CHECK(teng_script_call_count() == 0);
+      teng_scene_unload();
+      std::remove(sblob);
+      teng_despawn(F);
+      teng_despawn(Z2);
+      CHECK(kod::say("dusman_bitir", F) == 1 && kod::say("tuzak_bitir", Z2) == 1);
+    }
+
+    // --- belirlenimli carpisma sirasi: 32 kure AYNI adimda zemine ----------
+    // Halka is parcaciklarindan yaziliyor (Tuzaklar 8cc); kancalar YUVA sirasiyla
+    // gelmeli. Baglama sirasi yine TERS.
+    {
+      int kk[32];
+      for (int i = 0; i < 32; i++) kk[i] = teng_spawn_sphere(112 + (i % 8) * 1.5, 1.2, 116 + (i / 8) * 1.5, 0.4, 1, 0x8080ffff);
+      for (int i = 31; i >= 0; i--) CHECK(teng_script_attach(kk[i], "dusman") == 1);
+      int halka_sirasiz = 0, kanca_sirasiz = 0, toplam = 0;
+      for (int f = 0; f < 30; f++) {
+        const int f0 = kod::n;
+        run_frames(1);
+        // bu karenin kopru carpisma kancalari: yuva sirasi azalmamali
+        int son = -1;
+        for (int i = f0; i < kod::n; i++) {
+          if (std::strcmp(kod::kayit[i].fn, "dusman_carpisma")) continue;
+          const int y = (int)kod::kayit[i].a[0] & 0xFFFF;
+          if (y < son) kanca_sirasiz++;
+          son = y;
+          toplam++;
+        }
+        // KONTROL (bilgi): ayni karenin HALKA sirasi — siralama olmasaydi kancalar bunu izlerdi.
+        int hs = -1;
+        for (int i = 0; i < teng_collision_count(); i++) {
+          const int a = teng_collision_a(i), b = teng_collision_b(i);
+          const int y = ((a > b ? a : b) & 0xFFFF);
+          if (y < hs) halka_sirasiz++;
+          hs = y;
+        }
+      }
+      std::printf("    [bilgi] carpisma sirasi: %d kopru kancasi, yuva sirasini bozan %d (0 olmali); ayni karelerin HALKA sirasinda %d ters adim\n",
+                  toplam, kanca_sirasiz, halka_sirasiz);
+      CHECK(toplam >= 32 && kanca_sirasiz == 0);
+      for (int i = 0; i < 32; i++) teng_despawn(kk[i]);
+    }
+
+    // --- hatalar: gorunur, onceki baglanti DEGISMEZ -------------------------
+    int e = teng_error_count();
+    const int n0 = kod::n;
+    CHECK(teng_script_attach(A, "yok_boyle") == 0); // kanca YOK
+    CHECK(teng_error_count() == e + 1 && std::strcmp(teng_script_name(A), "dusman") == 0 && kod::n == n0); // bitir/baslat yok
+    kod_hata++;
+    const int E = teng_spawn_sphere(90, 0.9, 90, 0.4, 1, 0xffffffff);
+    teng_despawn(E);
+    e = teng_error_count();
+    CHECK(teng_script_attach(E, "dusman") == 0 && teng_script_detach(E) == 0 && teng_script_name(E)[0] == 0); // olu id: uc hata
+    CHECK(teng_script_attach(0, "dusman") == 0);                                                           // id 0: hata
+    CHECK(teng_error_count() == e + 4);
+    kod_hata += 4;
+    // KONTROL: coz/ad'da id 0 ailenin "yok"u — sessiz (kanca icinde betik_adi(diger), diger = 0).
+    CHECK(teng_script_detach(0) == 0 && teng_script_name(0)[0] == 0 && teng_error_count() == e + 4);
+    teng_set_script_vm(nullptr);
+    e = teng_error_count();
+    CHECK(teng_script_attach(B, "iz") == 0 && teng_error_count() == e + 1); // VM yok
+    kod_hata++;
+    teng_set_script_vm(&kod::vm);
+    // tetik_* kancali betik TETIK olmayan varliga: hata, ama baglanir (sahneyle ayni kural).
+    const int K = teng_spawn_sphere(92, 0.9, 92, 0.4, 1, 0xffffffff);
+    e = teng_error_count();
+    CHECK(teng_script_attach(K, "tuzak") == 1 && teng_error_count() == e + 1);
+    kod_hata++;
+    teng_despawn(K);
+
+    // --- yeniden baglama: ONCE eskinin bitir'i, SONRA yeninin baslat'i ------
+    int r0 = kod::n;
+    CHECK(teng_script_attach(A, "iz") == 1);
+    CHECK(kod::n == r0 + 2 && kod::n >= 2 && !std::strcmp(kod::kayit[r0].fn, "dusman_bitir") && !std::strcmp(kod::kayit[r0 + 1].fn, "iz_baslat"));
+    CHECK(kod::n > r0 && kod::kayit[r0].canli == 1); // bitir sirasinda varlik canli
+    CHECK(std::strcmp(teng_script_name(A), "iz") == 0 && teng_script_count() == 5); // A B C D Z
+    // --- coz: bitir; ikinci coz sessiz 0 (hata degil) ------------------------
+    e = teng_error_count();
+    r0 = kod::n;
+    CHECK(teng_script_detach(A) == 1 && kod::n == r0 + 1 && !std::strcmp(kod::kayit[r0].fn, "iz_bitir"));
+    CHECK(teng_script_detach(A) == 0 && teng_error_count() == e && teng_script_name(A)[0] == 0);
+    CHECK(teng_alive(A) == 1); // coz varligi SILMEZ
+    // --- sil: bitir bir kez, varlik bitir sirasinda canli --------------------
+    r0 = kod::n;
+    teng_despawn(B);
+    CHECK(kod::say("dusman_bitir", B) == 1 && kod::n > r0 && kod::kayit[kod::n - 1].canli == 1);
+    CHECK(teng_script_count() == 3); // C D Z
+
+    // --- kanca icinden: guncelle'de kendini sil, bitir'de kendine bagla + sil --
+    const int X = teng_spawn_sphere(94, 0.9, 94, 0.4, 1, 0xffffffff);
+    CHECK(teng_script_attach(X, "intihar") == 1);
+    e = teng_error_count();
+    run_frames(1);
+    CHECK(teng_alive(X) == 0 && kod::say("intihar_guncelle", X) == 1 && kod::say("intihar_bitir", X) == 1);
+    CHECK(kod::intihar_ata == 0 && teng_error_count() == e + 1); // bitir icinden kendine bagla REDDEDILDI
+    kod_hata++;
+    CHECK(teng_script_count() == 3);
+    // --- kanca icinden URET + BAGLA: yeni betik o karede GUNCELLENMEZ -------
+    const int Y = teng_spawn_sphere(96, 0.9, 96, 0.4, 1, 0xffffffff);
+    CHECK(teng_script_attach(Y, "dogurgan") == 1);
+    run_frames(3);
+    CHECK(kod::dogan != 0);
+    const int dg = kod::ilk("dusman_guncelle", kod::dogan);
+    std::printf("    [bilgi] kanca icinden baglanan #%d: dogdugu kare %d, ilk guncelle kare %d (bir sonraki olmali)\n", kod::dogan, kod::dogurgan_kare,
+                dg >= 0 ? kod::kayit[dg].kare : -1);
+    CHECK(dg >= 0 && kod::kayit[dg].kare == kod::dogurgan_kare + 1);
+    CHECK(kod::say("dusman_baslat", kod::dogan) == 1);
+
+    // --- havuz tavani: dolunca HATA, sessiz buyume yok ----------------------
+    {
+      static int isiklar[600];
+      int ok = 0, red = 0;
+      kod::kaydet = false;
+      const int once = teng_script_count();
+      const int m = 512 - once + 3; // tavanin 3 fazlasi: tam 3 red beklenir
+      e = teng_error_count();
+      for (int i = 0; i < m && i < 600; i++) {
+        isiklar[i] = teng_spawn_light(0, -50, 0, 0xffffffff, 0.0, 1.0);
+        if (teng_script_attach(isiklar[i], "iz")) ok++;
+        else red++;
+      }
+      std::printf("    [bilgi] betik havuzu: %d bagli + %d yeni = %d (tavan), %d reddedildi, hata +%d\n", once, ok, teng_script_count(), red,
+                  teng_error_count() - e);
+      CHECK(once + ok == 512 && teng_script_count() == 512 && red == 3 && teng_error_count() == e + red);
+      kod_hata += red;
+      for (int i = 0; i < m && i < 600; i++) teng_despawn(isiklar[i]);
+      kod::kaydet = true;
+    }
+    CHECK(kod::tasma == 0);
+    CHECK(teng_error_count() - errs0 == kod_hata);
+    teng_despawn(D);
+    teng_despawn(Z);
+    teng_despawn(zem);
+    std::printf("    [bilgi] kodla betik: %d cagri kaydedildi, baslat %d / bitir %d, bagli %d (kapanista bitir alacak), kasitli hata %d\n", kod::n,
+                kod::baslat, kod::bitir, teng_script_count(), kod_hata);
+    // C, Y ve dogan BAGLI kaliyor: kapanis bitir'i asagida olculur.
+  }
+
   // --- 11) SES: calan ses sayaci ve tepe deger; KONTROL: durdurunca sifir ----
   {
     int a_ok = teng_audio_open(0, 0);
@@ -893,6 +1232,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // Ortamdan gelen hatalar (ses cihazi yok, kaynak yok) ayri sayilir; onlar
   // kasitli degil ve makineye gore degisir.
   int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/ + 1 /*karakterde hiz_ver*/;
+  beklenen += kod_hata; // 10d: kodla betik baglamanin kasitli reddleri (orada tek tek sayildi)
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;
@@ -902,5 +1242,19 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   CHECK(errs_total == beklenen);
   teng_close();
   CHECK(teng_running() == 0);
+  // Kapanis: hala bagli betiklere (10d'den C, Y, dogan) TAM BIR bitir, yuva
+  // sirasiyla. Invaryant: toplam baslat == toplam bitir (her baslat'a bir bitir).
+  const int bagli = teng_script_count(), bitir0 = kod::bitir, kn0 = kod::n;
   teng_shutdown();
+  int kap_sira = 1, son_yuva = -1;
+  for (int i = kn0; i < kod::n; i++) {
+    const int y = (int)kod::kayit[i].a[0] & 0xFFFF;
+    if (y < son_yuva || !std::strstr(kod::kayit[i].fn, "_bitir") || kod::kayit[i].canli != 1) kap_sira = 0;
+    son_yuva = y;
+  }
+  std::printf("    [bilgi] kapanis: %d bagli -> %d bitir (yuva sirasi %s); toplam baslat %d / bitir %d\n", bagli, kod::bitir - bitir0,
+              kap_sira ? "dogru" : "YANLIS", kod::baslat, kod::bitir);
+  CHECK(bagli == 3 && kod::bitir - bitir0 == bagli && kap_sira);
+  CHECK(kod::baslat == kod::bitir);
+  CHECK(teng_script_count() == 0);
 }

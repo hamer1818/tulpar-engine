@@ -108,6 +108,36 @@ int teng_script_missing_count(void);
 // "Atanmamis" ile "atanmis ama KAPALI" ayri olgular: ikisini bos metne
 // dusurmek, tasarimcinin kapattigi bir betigi gorunmez yapardi.
 int teng_scene_script_enabled(int i); // bileseni yoksa 0
+
+// --- KODLA uretilen varliga betik baglama ------------------------------------
+// Sahnedeki `betik "davranis/x.tpr"` atamasinin KOD ikizi. Kopru varligina
+// (kutu, kure, karakter, tetik, model ...) bir davranis baglanir; motor
+// kancalari sahne kancalariyla AYNI yerde ve AYNI asama sirasiyla cagirir
+// (teng_frame_end, sim adimlarindan SONRA: tetik -> carpisma -> guncelle; her
+// asamada once sahne kancalari, sonra bunlar). Fark: `id` KOPRU id'si.
+//
+//   <ad>_baslat(id)                                            baglaninca, HEMEN
+//   <ad>_guncelle(id, dt)                                      her kare, YUVA sirasi
+//   <ad>_carpisma(id, diger, olay, x, y, z, hiz, diger_sahne)  her temas olayi (yuva sirasi)
+//   <ad>_tetik_girdi/_tetik_cikti(id, diger, diger_sahne)      varlik bir TETIKse: biri girdi/cikti
+//   <ad>_bolge_girdi/_bolge_cikti(id, bolge, bolge_sahne)      varlik bir tetige girdi/cikti
+//   <ad>_bitir(id)                                             coz / sil / yeniden bagla / kapanis
+//
+// Kimlik kurali: ikinci arguman (`diger`, `bolge`) `id` ile AYNI uzayda — kopru
+// id'si, 0 = kopru varligi degil; SON arguman ayni tarafin SAHNE dizini, -1 =
+// sahne varligi degil. Sondaki arguman istege bagli: Tulpar'in dinamik cagrisi
+// fazla argumani dusurur, betik `(id, diger)` yazabilir.
+// Her `_baslat`a TAM BIR `_bitir`: coz, sil, ikinci baglama (ONCEKININ bitir'i,
+// sonra yenisinin baslat'i) ve kapanis hepsi bitir cagirir; bitir sirasinda
+// varlik HALA canli (sorgulanabilir), baglanti ise coktan kaldirilmistir.
+// Ad: "davranis/dusman.tpr" ya da "dusman" -> taban "dusman" (sahneyle ayni kural).
+// Olu id her ucunde HATA + 0/"". id 0: baglamada HATA (cogu zaman basarisiz bir
+// uretimin donusu), coz/ad'da sessiz 0/"" (ailenin "0 = yok" kurali; kanca
+// icinde `betik_adi(diger)` diger = 0 iken cagrilabilsin).
+int teng_script_attach(int id, const char *name); // 1 baglandi; 0 reddedildi (sebep HATA olarak logda; onceki baglanti degismez)
+int teng_script_detach(int id);                   // 1 cozuldu (_bitir cagrildi); 0 bagli betik yoktu (hata degil)
+const char *teng_script_name(int id);             // bagli betigin taban adi; yoksa "" (hata degil)
+int teng_script_count(void);                      // betik bagli kopru varligi sayisi
 // Sahne govdeleri okunur DEGIL, itilebilir de: dinamik olmayan varlikta hata
 // loglanir ve cagri yok sayilir (sessiz yutma yok).
 double teng_scene_vx(int i);
@@ -303,6 +333,9 @@ int teng_nearest(double x, double y, double z, double radius, int skip_id); // e
 // Sessiz kirpilma YOK: halka dolarsa teng_collision_dropped() artar. Oyun bunu
 // okuyup kapasiteyi buyutmeli ya da olayi daha erken tuketmeli — "carpma
 // gelmedi" sanmak en kotu sonuctur.
+// SIRA belirlenimli DEGIL: olaylar Jolt'un is parcaciklarindan yaziliyor, ayni
+// sahne her kosumda ayni olaylari farkli sirada verir (Tuzaklar 8cc). Kodla
+// baglanan betiklerin carpisma kancalari bu yuzden SIRALANIP cagriliyor.
 int teng_collision_count(void);      // bu karedeki olay sayisi
 int teng_collision_dropped(void);    // halkaya sigmayip DUSEN olay sayisi
 int teng_collision_a(int i);         // taraf A: kopru varlik id'si (0 = kopru varligi degil)

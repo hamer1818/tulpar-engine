@@ -1,0 +1,76 @@
+// Tulpar Engine — DALGA: koddan üretilen düşmanlara davranış BAĞLAMA.
+//
+// Çalıştır (pencere):   tulpar examples/engine_dalga.tpr
+// Pencersiz doğrulama:  TULPAR_ENGINE_HEADLESS=2400 DISPLAY= tulpar examples/engine_dalga.tpr
+// (Motor oyunu için motoru TANIYAN derleyici gerekir: tools/motor_derleyici.sh.)
+//
+// Dalga dalga düşman gelir; her biri `betik_ata(d, "dusman")` ile davranışını
+// alır ve oyun onları bir daha ELLE DOLAŞMAZ: düşman dizisi yok, düşman
+// döngüsü yok. Kovalamayı `davranis/dusman.tpr`, tuzakları (görünmez tetik
+// bölgeleri) `davranis/tuzak.tpr` yazıyor; motor ikisini de kare sonunda,
+// fizikten sonra çağırıyor. Oyunun bildiği tek şey dalganın bitip bitmediği.
+//
+// WASD / ok tuşları: yürü. Turuncu levhalar tuzak: düşmanı oraya çek.
+// Pencersiz kipte oyuncu tuzakların üstünden geçen bir daire çizer (otopilot)
+// ve sonda tek satırlık, belirlenimli bir [kapi] özeti basar.
+
+import "engine";
+import "examples/davranis/dusman.tpr";
+import "examples/davranis/tuzak.tpr";
+
+int DALGA_SAYISI = 4;
+
+// Arenanın kenarında 2 + 2*dalga düşman. Bağla ve bırak.
+func dalga_uret(int dalga) {
+    int n = 2 + dalga * 2;
+    for (int i = 0; i < n; i++) {
+        float a = 6.2831853 * i / n + dalga;
+        betik_ata(kure(cos(a) * 11.0, 0.5, sin(a) * 11.0, 0.4, true, renk(220, 70, 60)), "dusman");
+    }
+    logla(t"dalga {dalga}: {n} dusman");
+}
+
+func main() {
+    if (!motor_ac("Tulpar Engine — dalga", 1280, 720)) {
+        print("motor acilamadi: " + eng_last_error());
+        return;
+    }
+    gunes(0.4, 1.0, 0.3, 0.9);
+    ortam(renk(38, 42, 52));
+    zemin_kur(14, ACIK_GRI);
+    // Dört tuzak, 5 m yarıçaplı dairenin üstünde; turuncu levha yeri gösterir.
+    for (int k = 0; k < 4; k++) {
+        float a = 1.5707963 * k + 0.7853981;
+        betik_ata(tetik_kutu(cos(a) * 5.0, 1.0, sin(a) * 5.0, 1.4, 1.0, 1.4), "tuzak");
+        kutu(cos(a) * 5.0, -0.045, sin(a) * 5.0, 1.4, 0.05, 1.4, false, TURUNCU);
+    }
+    int oyuncu = kure(5.0, 0.5, 0.0, 0.5, true, renk(60, 150, 255));
+    dusman_hedef = oyuncu;
+    bool otopilot = eng_headless();
+    int dalga = 0;
+    int can = 10;
+    while (calisiyor()) {
+        kare_basla();
+        if (dusman_canli == 0) {
+            if (dalga == DALGA_SAYISI) { cikis_iste(); } else { dalga += 1; dalga_uret(dalga); }
+        }
+        Vec3 p = konum(oyuncu);
+        Vec3 v = v3(yon_x() * 5.0, 0.0, 0.0 - yon_y() * 5.0);
+        if (otopilot) {
+            // Daire: teğet hız + daireye çeken düzeltme (çarpışmalar itse de yol kaymaz).
+            float w = zaman() * 0.9;
+            Vec3 hedef = v3(cos(w) * 5.0, 0.0, sin(w) * 5.0);
+            v = v_topla(v3(0.0 - sin(w) * 4.5, 0.0, cos(w) * 4.5), v_olcek(v_fark(hedef, p), 2.0));
+        }
+        yuru_v(oyuncu, v);
+        can = 10 - dusman_carpan;
+        if (can <= 0) { cikis_iste(); }
+        kamera(p.x, 16.0, p.z + 11.0, p.x, 0.0, p.z);
+        yazi(t"dalga {dalga}/{DALGA_SAYISI}   dusman {dusman_canli}   tuzakta {tuzak_yakilan}   can {can}", 16, 16, 1.3, BEYAZ);
+        kare_bitir();
+    }
+    print(t"[kapi] kare={kare_no()} dalga={dalga} dogan={dusman_dogan} tuzakta={tuzak_yakilan} carpan={dusman_carpan} kalan={dusman_canli} bagli={betikli_sayisi()} can={can} hata={hata_sayisi()}");
+    motor_kapat();
+}
+
+main();

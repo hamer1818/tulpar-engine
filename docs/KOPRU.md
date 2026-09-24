@@ -30,8 +30,8 @@ AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İ
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
 | binding | `runtime/engine_bindings.cpp` (**üretilmiş**) | `aot_eng_*_ptr` (VMValue ABI) → `teng_*` |
-| sarmalayıcı | `lib/engine.tpr` (gömülü, 1011 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
-| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (720) | saf Tulpar |
+| sarmalayıcı | `lib/engine.tpr` (gömülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
+| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (720), `engine_dalga.tpr` (76 + davranışlar 57) | saf Tulpar |
 
 **Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut dört dosya üretir:
 binding (`runtime/engine_bindings.cpp`), backend tablosu (`src/aot/engine_builtins_table.inc`), typeinfer
@@ -250,7 +250,8 @@ kodla üretiliyor) — girenin betiği `<ad>_bolge_girdi(id, bolge)`. Aynı olay
   kendisi yapıyor; ikinci bir iten gövde kutuları iki kat iterdi).
 
 Sahne varlıkları tek tek silinemediği için `bitir`in tetikleyicisi **sahne boşalması**dır, varlık
-ölümü değil. Köprünün kendi ürettiği varlıklar (`eng_kutu_uret` …) bu yaşam döngüsünün dışında.
+ölümü değil. Köprünün kendi ürettiği varlıklar (`kutu`, `kure`, `karakter`, `tetik_kutu` …) bu
+tabloya girmez; onlara betik **kodla** bağlanır — §7.10.
 
 **AOT SINIRI — en önemli madde.** Tulpar'da yorumlayıcı yok: bir betik ancak oyunun ikilisine
 **derlenmişse** (yani oyun onu `import` etmişse) çalışır. Tasarımcının editörde atamış olması
@@ -285,7 +286,104 @@ ile, yani kancaya verilen indisin **canlı** olduğunun kanıtı. Zemin temaslar
 Motor tarafı kapısı Tulpar'a hiç ihtiyaç duymaz — `tests/test_bridge.cpp` sahte bir `TengScriptVm`
 kurar ve dört kancanın da argüman sayısını, hedefini ve `olay` indisinin okunabilirliğini ölçer.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **195 builtin**
+## 7.10 Kodla üretilen varlığa betik bağlama (2026-09-24)
+
+Sahne kancaları yalnız editörde yerleştirilen varlıklara gidiyordu; `kutu`, `kure`, `karakter`,
+`tetik_kutu` ile **kodla** üretilen varlıkları oyun kendi dizisinde tutup her karede elle
+dolaşıyordu. Aynı yaşam döngüsü artık onlara da bağlanıyor:
+
+```tulpar
+int d = kure(x, 0.5, z, 0.4, true, KIRMIZI);
+betik_ata(d, "dusman");          // ya da "davranis/dusman.tpr": taban ad, sahneyle aynı kural
+```
+
+| builtin | Tulpar | ne yapar |
+|---|---|---|
+| `eng_script_attach(id, ad)` | `betik_ata` / `script_attach` | bağla; `<ad>_baslat(id)` **hemen**. false = reddedildi (sebep HATA olarak logda) |
+| `eng_script_detach(id)` | `betik_kaldir` / `script_detach` | çöz; önce bağlantı kalkar, sonra `<ad>_bitir(id)`. false = bağlı betik yoktu (hata değil) |
+| `eng_script_name(id)` | `betik_adi` / `script_name` | bağlı betiğin taban adı, yoksa `""` |
+| `eng_script_count()` | `betikli_sayisi` / `script_count` | betik bağlı köprü varlığı sayısı |
+
+**Kancalar** sahne kancalarının adlarıyla, **aynı yerde ve aynı aşama sırasıyla** çağrılır —
+`eng_frame_end` içinde, sim adımlarından SONRA: tetik → çarpışma → güncelle. Her aşamada önce
+sahne kancaları (eski yerlerinde, eski sıralarıyla), sonra kodla bağlananlar.
+
+| kanca | imza | ne zaman / sıra |
+|---|---|---|
+| `baslat` | `dusman_baslat(id)` | `betik_ata` çağrısının içinde, hemen |
+| `guncelle` | `dusman_guncelle(id, dt)` | her kare, **yuva sırasıyla** (bağlama sırasıyla değil) |
+| `carpisma` | `dusman_carpisma(id, diger, olay, x, y, z, hiz, diger_sahne)` | her temas olayı; **(yuva, karşı gövde, nokta, şiddet) ile sıralı** |
+| `tetik_girdi` / `tetik_cikti` | `tuzak_tetik_girdi(id, diger, diger_sahne)` | varlık kodla üretilmiş bir **tetik**se: biri girdi/çıktı |
+| `bolge_girdi` / `bolge_cikti` | `dusman_bolge_girdi(id, bolge, bolge_sahne)` | varlık bir tetiğe (sahneden ya da koddan) girdi/çıktı |
+| `bitir` | `dusman_bitir(id)` | `betik_kaldir`, `sil`, ikinci `betik_ata`, kapanış |
+
+**Kimlik kuralı — `diger` ne?** İkinci argüman `id` ile **aynı uzaydadır**: sahne kancasında sahne
+indisi (-1 = değil), kodla bağlananda **köprü id'si** (0 = köprü varlığı değil). Son argüman
+aynı tarafın **karşı uzaydaki** kimliği: köprü kancasında sahne dizini (-1 = değil). Sahnedeki
+`tetik_girdi(id, diger, kopru)` ile aynı desen, uzaylar yer değiştirmiş. Böylece kodla üretilen
+bir düşman, köprü varlığı oyuncuya da (`diger` = oyuncu), editörde yerleştirilmiş bir duvara da
+(`diger` = 0, `diger_sahne` = duvarın dizini) çarptığını tek kancada ayırır. Sondaki argüman
+**isteğe bağlı**: Tulpar'ın dinamik çağrısı callee'nin aritesine göre fazlasını düşürür (ölçüldü:
+7 parametreli `sonda_carpisma` 8 argümanla hatasız çağrıldı), `tuzak_tetik_girdi(id, diger)`
+yazmak yeter. Çarpışmada 8 argüman dinamik çağrının tavanı; yüzey normali sahnedeki gibi
+`carpisma_nx(olay)` ile okunur.
+
+**Yaşam döngüsü kuralları** (hepsi `tests/test_bridge.cpp` 10d'de ölçülü):
+- **Her `baslat`a tam bir `bitir`.** `bitir` sırasında varlık hâlâ canlı (konum, hız, ad okunur),
+  bağlantı ise çoktan kalkmıştır — kanca içinden aynı varlığa `sil` / `betik_kaldir` ikinci bir
+  `bitir` doğurmaz. Kapı sonda `baslat` toplamı = `bitir` toplamı ölçüyor (551 = 551).
+- **İkinci `betik_ata` öncekinin YERİNE geçer**: önce eskinin `bitir`i, sonra yeninin `baslat`ı.
+  Durum makinesi böyle kurulur (`betik_ata(d, "kovala")` düşman oyuncuyu görünce). Aynı adla tekrar
+  bağlamak betiği yeniden başlatır. **Reddedilen** bağlama öncekine dokunmaz.
+- **`sil(id)`** bağlı betiğin `bitir`ini yıkımdan ÖNCE çağırır; **kapanışta** (`motor_kapat`)
+  bağlı kalan her varlık yuva sırasıyla `bitir` alır — iş sistemi ve fizik sökülmeden önce.
+- **Kanca içinden** üretip bağlamak serbest; yeni bağlantı o karenin kalan kancalarını görmez
+  (olaylar ondan önce oluştu), ilk `guncelle`si bir sonraki karede (ölçüldü: doğduğu kare 1216,
+  ilk güncelle 1217). Oyun kodundan (kare içinde) bağlanan ise aynı karenin sonunda her şeyi görür.
+- Kendi `bitir`inin içinden varlığa betik bağlanamaz (HATA); kendini silmek yok sayılır (dıştaki
+  `sil` tamamlar, çift serbest bırakma yok).
+- Sahne geçişi (`sahne_bosalt` / sıcak yükleme) kodla bağlananları **etkilemez**: ömürleri köprü
+  varlığınınki. Sayaçları da ayrı (`teng_script_call_count` sahne yüklemesinde sıfırlanıyor).
+
+**Görünür hatalar** (sessiz 0 yok): hiç kancası bulunamayan ad
+(`HATA betik kancasi YOK: #262145 "yok_boyle" -> yok_boyle_baslat/_guncelle/.../_bolge_* bulunamadi (oyun bu dosyayi import etti mi?)`
+— sahnedekinin aynısı), ölü id (her üç çağrıda), id 0 ile bağlama, VM kurulu değil, `tetik_*`
+kancalı betik tetik olmayan varlığa (bağlanır ama kanca çağrılmaz — sahneyle aynı kural), kapanışta
+bağlama, havuz dolu. **Kapasite sabit**: 512 bağlantı (`kMaxBoundScripts`, köprü nesnesinde sabit
+dizi); dolunca HATA + false, reddedilenler kapanış raporunda sayılır. `betik_adi(0)` ve
+`betik_kaldir(0)` ailenin "0 = yok" kuralıyla sessizdir — kanca içinde `betik_adi(diger)` diger = 0
+iken güvenle çağrılsın.
+
+**Belirlenimlilik.** `guncelle` yuva sırası; tetik olayları zaten (adım, sensör, diğer) ile
+sıralıydı. Çarpışma halkası ise **değildi**: Jolt temasları iş parçacıklarından yazıyor, aynı sahne
+her koşumda aynı olayları **farklı sırada** veriyor (Tuzaklar 8cc). Kodla bağlanan çarpışma
+kancaları bu yüzden toplanıp sıralanarak çağrılıyor. Ölçüldü (2026-09-24, masaüstü, 8 koşum, 48
+küre aynı adımda zemine): kanca çağrı izi **1/8** farklı, aynı karelerin halka izi **8/8** farklı.
+Sahne `carpisma` kancaları eski (halka) sırasında kaldı — davranışları bu işte değişmesin diye.
+
+**Örnek: `tulpar/examples/engine_dalga.tpr`** — dört dalga düşman (4 + 6 + 8 + 10), her biri
+`betik_ata(d, "dusman")`, dört görünmez tuzak `betik_ata(tetik_kutu(...), "tuzak")`. Oyunun
+döngüsünde düşman dizisi ve düşman döngüsü **yok**; dalganın bittiğini `dusman_canli` sayacından
+okur (betik değişkeni: varlık başına değil, betik başına). Satır sayısı (yorumlar dahil / yorumsuz
+kod): oyun 76 / 53, `davranis/dusman.tpr` 40 / 19, `davranis/tuzak.tpr` 17 / 6. Pencersiz kipte
+kendi oynar:
+
+```
+$ TULPAR_ENGINE_HEADLESS=2400 DISPLAY= ./tulpar examples/engine_dalga.tpr
+[kapi] kare=972 dalga=4 dogan=28 tuzakta=25 carpan=3 kalan=0 bagli=4 can=7 hata=0
+```
+
+(4 koşumda bayt bayt aynı; `bagli=4` kapanışa kalan dört tuzak, onlar da `motor_kapat`ta `bitir`
+alıyor.) Kapılar: C++ `bridge_runs_a_scripted_game_headless` bölüm 10d (sahte VM: sıra, argüman,
+yeniden giriş, havuz tavanı, kapanış), Tulpar `tests/engine_bridge.test.tpr` →
+`run_betik_bagla` (gerçek Tulpar kancaları, float gelen id'nin köprü id'sine eşitliği).
+
+Kapsam dışı: karakter denetleyicisinin sanal temasları çarpışma halkasına girmediği için
+**karakter**e bağlı betik `carpisma` almaz (tetik ve `guncelle` alır); sahne varlığının `bolge_*`
+kancası yalnız sahne bölgelerinde çalışır (kodla üretilen bölgeye giren sahne varlığını bölgenin
+kendi `tetik_girdi`si `diger_sahne` ile görür).
+
+## 8. Kapsam: `SPEC` = `engine_api.h` = **199 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -297,6 +395,7 @@ bölüm yorumlarına göre):
 | dünya / kamera | 11 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, kamera (göz+hedef ya da yörünge), kamera konumu |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 25 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
+| kodla betik bağlama | 4 | bağla (`baslat` hemen), çöz (`bitir`), bağlı betiğin adı, bağlı varlık sayısı — kancalar sahneninkilerle aynı yerde (§7.10) |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
 | girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |
 | 2B arayüz (HUD) | 3 | `eng_text`, `eng_rect`, `eng_text_width` — kare içinde kuyruklanır, `frame_end` çizer |

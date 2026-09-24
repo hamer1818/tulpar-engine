@@ -1,0 +1,40 @@
+// Davranış — "dusman". KODLA üretilen bir varlığa bağlanır, motor çağırır:
+//
+//   int d = kure(x, 0.5, z, 0.4, true, KIRMIZI);
+//   betik_ata(d, "dusman");
+//
+//   dusman_baslat(id)                             bağlanınca, hemen
+//   dusman_guncelle(id, dt)                       her kare, fizikten SONRA (yuva sırası)
+//   dusman_carpisma(id, diger, olay, x, y, z, hiz) her temas olayı
+//   dusman_bitir(id)                              sil / betik_kaldir / kapanış
+//
+// `id` ve `diger` KÖPRÜ id'si (sahnedeki kancalarda sahne indisi). Sekizinci
+// argüman `diger_sahne` burada yazılmadı: fazla argümanı dil düşürür.
+//
+// Betik değişkenleri varlık başına DEĞİL, betik başına: aşağıdaki sayaçlar
+// bütün düşmanların ortak toplamı — oyun dalganın bittiğini buradan okur.
+
+int dusman_hedef = 0;      // oyun atar: kovalanan köprü varlığı
+float DUSMAN_HIZ = 3.2;
+int dusman_canli = 0;
+int dusman_dogan = 0;
+int dusman_carpan = 0;     // hedefe değip kendini feda eden
+
+func dusman_baslat(id) {
+    dusman_canli += 1;
+    dusman_dogan += 1;
+}
+
+func dusman_guncelle(id, d) {
+    if (!canli(dusman_hedef)) { return; }
+    yuru_v(id, v_olcek(yol_yonu(id, konum(dusman_hedef)), DUSMAN_HIZ));
+}
+
+func dusman_carpisma(id, diger, olay, x, y, z, hiz) {
+    // Süzgeç betiğin işi: zemin ve öteki düşmanlar da temas üretir.
+    if (diger != dusman_hedef) { return; }
+    dusman_carpan += 1;
+    sil(id);    // kanca içinden sil: `dusman_bitir`i motor çağırır
+}
+
+func dusman_bitir(id) { dusman_canli -= 1; }

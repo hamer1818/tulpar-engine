@@ -183,6 +183,35 @@ func hiz_x(id): float { return eng_vx(id); }
 func hiz_y(id): float { return eng_vy(id); }
 func hiz_z(id): float { return eng_vz(id); }
 
+// ---- Kodla üretilen varlığa betik bağlama -------------------------------------
+// Sahnedeki `betik "davranis/x.tpr"` atamasının KOD ikizi: oyun düşmanı kendi
+// dizisinde tutup her karede elle dolaşmaz, davranışı bağlar ve bırakır.
+//
+//     int d = kure(x, 0.5, z, 0.4, true, KIRMIZI);
+//     betik_ata(d, "dusman");       // ya da "davranis/dusman.tpr" — taban ad
+//
+// Motor `dusman_*` kancalarını SAHNE kancalarıyla aynı yerde çağırır (kare
+// sonunda, fizikten sonra: tetik -> çarpışma -> güncelle; yuva sırası):
+//   dusman_baslat(id)                                     bağlanınca, hemen
+//   dusman_guncelle(id, dt)                               her kare
+//   dusman_carpisma(id, diger, olay, x, y, z, hiz, diger_sahne)
+//   dusman_tetik_girdi / _cikti(id, diger, diger_sahne)   varlık bir TETİKse
+//   dusman_bolge_girdi / _cikti(id, bolge, bolge_sahne)   varlık bir tetiğe girdi/çıktı
+//   dusman_bitir(id)                                      betik_kaldir / sil / yeniden bağla / kapanış
+// `id`, `diger`, `bolge` KÖPRÜ id'si (0 = köprü varlığı değil); son argüman
+// aynı tarafın SAHNE dizini (-1 = değil) ve isteğe bağlı (yazılmayabilir).
+// İkinci `betik_ata` öncekinin YERİNE geçer: önce onun `_bitir`i, sonra
+// yeninin `_baslat`ı. Kancası bulunamayan ad (import edilmemiş dosya) HATA
+// basar ve false döner. Betik değişkenleri varlık başına DEĞİL, betik başına.
+func betik_ata(id, ad): bool { return eng_script_attach(id, ad); }
+func script_attach(id, name): bool { return eng_script_attach(id, name); }
+func betik_kaldir(id): bool { return eng_script_detach(id); }
+func script_detach(id): bool { return eng_script_detach(id); }
+func betik_adi(id): str { return eng_script_name(id); }
+func script_name(id): str { return eng_script_name(id); }
+func betikli_sayisi(): int { return eng_script_count(); }
+func script_count(): int { return eng_script_count(); }
+
 // ---- Vektör: dilin kutusuz struct'ı -------------------------------------------
 // Konum, hız ve yön TEK değer olarak taşınır. Eskiden oyun kodu bileşenleri
 // tek tek okuyup ayrı değişkenlerde tutuyordu (engine_aksiyon.tpr: 27 satır
