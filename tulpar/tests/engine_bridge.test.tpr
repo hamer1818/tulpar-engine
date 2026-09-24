@@ -320,6 +320,81 @@ func run_isin() {
     sil(hedef);
 }
 
+// Vektör kitaplığı (engine.tpr, 2026-09-24): Vec3 ve XZ yardımcıları.
+func run_vektor() {
+    Vec3 a = v3(1.0, 2.0, 3.0);
+    Vec3 b = v_topla(a, v_olcek(v3(1.0, 1.0, 1.0), 2.0));
+    assert_close(b.x, 3.0, 0.000001);
+    assert_close(b.z, 5.0, 0.000001);
+    Vec3 f = v_fark(b, a);
+    assert_close(f.y, 2.0, 0.000001);
+    // Yatay uzaklık Y'yi YOK sayar (3-4-5 üçgeni, y farkı 5).
+    assert_close(uzaklik_xz(v3(0.0, 5.0, 0.0), v3(3.0, 0.0, 4.0)), 5.0, 0.000001);
+    Vec3 y = yon_xz(v3(0.0, 0.0, 0.0), v3(3.0, 9.0, 4.0), v3(7.0, 7.0, 7.0));
+    assert_close(y.x, 0.6, 0.000001);
+    assert_close(y.z, 0.8, 0.000001);
+    assert_close(y.y, 0.0, 0.000001);
+    // KONTROL: iki nokta üst üsteyse bölme yok, yedek döner.
+    Vec3 yedek = yon_xz(v3(1.0, 0.0, 1.0), v3(1.0, 3.0, 1.0), v3(7.0, 0.0, 0.0));
+    assert_close(yedek.x, 7.0, 0.000001);
+    Vec3 n = normal_xz(v3(3.0, 7.0, 4.0));
+    assert_close(n.x, 0.6, 0.000001);
+    assert_close(uzunluk_xz(n), 1.0, 0.000001);
+    // Yaw 0 -Z'ye bakar; yaw -> yön -> yaw gidiş dönüşü.
+    Vec3 ileri = yaw_yonu(0.0);
+    assert_close(ileri.z, -1.0, 0.000001);
+    assert_close(yon_yaw(yaw_yonu(1.2)), 1.2, 0.000001);
+    // Kamera yaw 0: ileri girdi -Z, sağ girdi +X.
+    Vec3 kg = kameraya_gore(0.0, 0.0, 1.0);
+    assert_close(kg.z, -1.0, 0.000001);
+    Vec3 ks = kameraya_gore(0.0, 1.0, 0.0);
+    assert_close(ks.x, 1.0, 0.000001);
+    int k = kutu(70.0, 0.5, 70.0, 0.25, 0.25, 0.25, false, GRI);
+    Vec3 p = konum(k);
+    assert_close(p.x, 70.0, 0.000001);
+    assert_close(p.z, 70.0, 0.000001);
+    sil(k);
+}
+
+// Yön ve görüş (engine.tpr yol_yonu / goruyor_mu): Tulpar'daki oyun
+// yardımcıları. Boş bir köşede (x=80..90), navmesh sorgusu oraya ulaşmaz.
+func run_yol_gorus() {
+    int ajan = kutu(80.0, 0.5, 0.0, 0.4, 0.4, 0.4, false, MAVI);
+    kare(2);
+    Vec3 y = yol_yonu(ajan, v3(80.0, 0.0, -10.0));
+    assert_close(y.z, -1.0, 0.0001);
+    assert_close(y.x, 0.0, 0.0001);
+    // Hedefteyse sıfır yön (hareket yok).
+    Vec3 sifir = yol_yonu(ajan, v3(80.0, 0.0, 0.0));
+    assert_close(uzunluk_xz(sifir), 0.0, 0.000001);
+    // KONTROL: önündeki KÖPRÜ varlığı engel sayılmaz (yalnız sahne geometrisi):
+    // sayılsaydı kovalayan düşman oyuncudan sekerdi.
+    int engel = kutu(80.0, 0.5, -1.2, 2.0, 0.5, 0.25, false, GRI);
+    kare(2);
+    Vec3 y2 = yol_yonu(ajan, v3(80.0, 0.0, -10.0));
+    assert_close(y2.z, -1.0, 0.0001);
+    sil(engel);
+    // Görüş: bakan yaw 0 (-Z'ye bakar).
+    int bakan = kutu(90.0, 0.5, 0.0, 0.3, 0.3, 0.3, false, MAVI);
+    int onde = kutu(90.0, 0.5, -5.0, 0.3, 0.3, 0.3, false, KIRMIZI);
+    int arkada = kutu(90.0, 0.5, 5.0, 0.3, 0.3, 0.3, false, KIRMIZI);
+    kare(2);
+    assert(goruyor_mu(bakan, onde, 0.0, 13.0, 0.3), "onundeki hedef gorulmeli");
+    assert(!goruyor_mu(bakan, arkada, 0.0, 13.0, 0.3), "arkadaki hedef koni disinda");
+    assert(goruyor_mu(bakan, arkada, 0.0, 13.0, -2.0), "koni kapaliyken arkadaki de gorulur");
+    assert(!goruyor_mu(bakan, onde, 0.0, 3.0, 0.3), "menzil disi gorulmemeli");
+    int duvar = kutu(90.0, 1.0, -2.5, 2.0, 1.0, 0.2, false, GRI);
+    kare(2);
+    assert(!goruyor_mu(bakan, onde, 0.0, 13.0, 0.3), "duvar arkasi gorulmemeli");
+    sil(duvar);
+    kare(2);
+    assert(goruyor_mu(bakan, onde, 0.0, 13.0, 0.3), "duvar kalkinca yine gorulur");
+    sil(ajan);
+    sil(bakan);
+    sil(onde);
+    sil(arkada);
+}
+
 // 13) Küre sorgusu: yakındaki gövde bulunur, KONTROL: uzaktaki bulunmaz.
 //     Sıralama yakından uzağa; silinen varlık bir daha çıkmaz.
 func run_yakinlik() {
@@ -890,6 +965,8 @@ if (!kur()) {
     test("sahne kuvveti ve bolum gecisi", "run_sahne");
     test("isin testi: bilinen mesafe, iska kontrolu", "run_isin");
     test("kure sorgusu: yakin bulunur, uzak bulunmaz", "run_yakinlik");
+    test("vektor kitapligi: Vec3 ve XZ yardimcilari", "run_vektor");
+    test("yol yonu ve gorus: koni, menzil, duvar", "run_yol_gorus");
     test("navmesh: sahne yolu, meshsiz sahne kontrolu", "run_nav");
     test("arayuz: dugme/onay/kaydirici, enjekte tiklama", "run_ui");
     test("kalici kayit: yaz-oku, varsayilan, bozuk dosya", "run_kayit");

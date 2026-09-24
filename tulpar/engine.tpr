@@ -183,6 +183,56 @@ func hiz_x(id): float { return eng_vx(id); }
 func hiz_y(id): float { return eng_vy(id); }
 func hiz_z(id): float { return eng_vz(id); }
 
+// ---- Vektör: dilin kutusuz struct'ı -------------------------------------------
+// Konum, hız ve yön TEK değer olarak taşınır. Eskiden oyun kodu bileşenleri
+// tek tek okuyup ayrı değişkenlerde tutuyordu (engine_aksiyon.tpr: 27 satır
+// yalnız konum_x/y/z, 17 satır elle sin/cos/sqrt). `Vec3` Tulpar'ın KUTUSUZ
+// struct'ı: üç double, yığın ayırması yok, alan erişimi doğrudan.
+// XZ yardımcıları yatay düzlemdir (yerçekimi Y): yürüme, bakış, mesafe.
+struct Vec3 { float x; float y; float z; }
+func v3(float x, float y, float z): Vec3 { return { x: x, y: y, z: z }; }
+func konum(int id): Vec3 { return { x: eng_x(id), y: eng_y(id), z: eng_z(id) }; }
+func position(int id): Vec3 { return konum(id); }
+func sahne_konum(int i): Vec3 { return { x: eng_scene_x(i), y: eng_scene_y(i), z: eng_scene_z(i) }; }
+func v_topla(Vec3 a, Vec3 b): Vec3 { return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }; }
+func v_fark(Vec3 a, Vec3 b): Vec3 { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
+func v_olcek(Vec3 a, float s): Vec3 { return { x: a.x * s, y: a.y * s, z: a.z * s }; }
+// Yatay uzaklık (a'dan b'ye).
+func uzaklik_xz(Vec3 a, Vec3 b): float {
+    float dx = b.x - a.x;
+    float dz = b.z - a.z;
+    return sqrt(dx * dx + dz * dz);
+}
+func distance_xz(Vec3 a, Vec3 b): float { return uzaklik_xz(a, b); }
+// a'dan b'ye YATAY birim yön. Çok yakınsa (1 mm) sıfır DEĞİL, `yedek` döner:
+// bölme sıfıra düşmesin ve çağıran "hangi yöne" sorusunu kendisi cevaplasın.
+func yon_xz(Vec3 a, Vec3 b, Vec3 yedek): Vec3 {
+    float dx = b.x - a.x;
+    float dz = b.z - a.z;
+    float uz = sqrt(dx * dx + dz * dz);
+    if (uz < 0.001) { return yedek; }
+    return { x: dx / uz, y: 0.0, z: dz / uz };
+}
+// Yatay vektörü birim boya getir; sıfıra yakınsa olduğu gibi döner.
+func normal_xz(Vec3 v): Vec3 {
+    float uz = sqrt(v.x * v.x + v.z * v.z);
+    if (uz <= 0.001) { return v; }
+    return { x: v.x / uz, y: 0.0, z: v.z / uz };
+}
+func uzunluk_xz(Vec3 v): float { return sqrt(v.x * v.x + v.z * v.z); }
+// Yaw (radyan) <-> ileri yön. Motorun kuralı: yaw 0 -Z'ye bakar.
+func yaw_yonu(float yaw): Vec3 { return { x: 0.0 - sin(yaw), y: 0.0, z: 0.0 - cos(yaw) }; }
+func yon_yaw(Vec3 v): float { return atan2(0.0 - v.x, 0.0 - v.z); }
+// Kameraya göre hareket: girdi (sağ, ileri) -> dünya yönü (yatay).
+func kameraya_gore(float kam_yaw, float sag, float ileri): Vec3 {
+    return { x: cos(kam_yaw) * sag + (0.0 - sin(kam_yaw)) * ileri, y: 0.0,
+             z: (0.0 - sin(kam_yaw)) * sag + (0.0 - cos(kam_yaw)) * ileri };
+}
+func isinla_v(int id, Vec3 p) { eng_set_pos(id, p.x, p.y, p.z); }
+func itme_v(int id, Vec3 v) { eng_impulse(id, v.x, v.y, v.z); }
+// Yatay hız ver, dikey hızı (düşüş, zıplama) KORU: `yuru`nun vektör ikizi.
+func yuru_v(int id, Vec3 v) { eng_set_velocity(id, v.x, eng_vy(id), v.z); }
+
 // ---- Sorgular: ışın testi ve yakınlık ---------------------------------------
 // Köprüde çarpışma OLAYI yok (callback FFI yok); savaş ve yapay zekâ bu iki
 // SORGU ile yazılır: "önümde ne var" (ışın) ve "yakınımda kim var" (küre).
@@ -325,6 +375,70 @@ func nav_gorus(fx, fy, fz, tx, ty, tz): bool { return eng_nav_raycast(fx, fy, fz
 func nav_raycast(fx, fy, fz, tx, ty, tz): bool { return eng_nav_raycast(fx, fy, fz, tx, ty, tz); }
 func nav_gorus_t(): float { return eng_nav_ray_t(); }
 func nav_ray_t(): float { return eng_nav_ray_t(); }
+
+// ---- Oyun yardımcıları: yön ve görüş ------------------------------------------
+// Her aksiyon oyununun yeniden yazdığı iki parça. Unity'de NavMeshAgent,
+// Godot'da NavigationAgent3D bunları hazır verir; burada Tulpar'da, tek yerde.
+// Eskiden engine_aksiyon.tpr'deydi (39 + 15 satır).
+
+// `id`den `hedef`e YATAY birim yön. Navmesh varsa Detour düz yolunun ilk
+// anlamlı (0.6 m'den uzak) köşesine, yoksa düz çizgiye. Önünde 1.5 m içinde
+// SAHNE geometrisi (isin_id() == 0) varsa yüzey normali boyunca kayar:
+// duvara sürtünür, takılmaz. Oyuncu ve diğer varlıklar engel SAYILMAZ —
+// sayılsaydı kovalayan düşman oyuncuyu "duvar" sanıp ondan sekerdi
+// (ölçüldü 2026-09-24: 3200 karede iki düşman 1.9 m'de asılı kalıyordu).
+// Hedefteyse (0, 0, 0).
+func yol_yonu(int id, Vec3 hedef): Vec3 {
+    Vec3 p = konum(id);
+    float hx = hedef.x - p.x;
+    float hz = hedef.z - p.z;
+    if (eng_nav_ok()) {
+        int n = eng_nav_path(p.x, 0.3, p.z, hedef.x, 0.3, hedef.z);
+        for (int k = 1; k < n; k++) {
+            float wx = eng_nav_x(k) - p.x;
+            float wz = eng_nav_z(k) - p.z;
+            if (wx * wx + wz * wz > 0.36) {
+                hx = wx;
+                hz = wz;
+                break;
+            }
+        }
+    }
+    float uz = sqrt(hx * hx + hz * hz);
+    if (uz < 0.0001) { return v3(0.0, 0.0, 0.0); }
+    hx = hx / uz;
+    hz = hz / uz;
+    // Engel ışını bel hizasından (0.55 m): alçak bir kenarın üstünden geçer.
+    float d = eng_raycast(p.x, 0.55, p.z, hx, 0, hz, 1.5, id);
+    if (d >= 0.0 && eng_ray_id() == 0) {
+        float nx = eng_ray_nx();
+        float nz = eng_ray_nz();
+        float nok = hx * nx + hz * nz;
+        hx = hx - nx * nok * 1.7;
+        hz = hz - nz * nok * 1.7;
+        float u2 = sqrt(hx * hx + hz * hz);
+        if (u2 > 0.0001) {
+            hx = hx / u2;
+            hz = hz / u2;
+        }
+    }
+    return v3(hx, 0.0, hz);
+}
+func path_direction(int id, Vec3 target): Vec3 { return yol_yonu(id, target); }
+
+// `bakan`, `hedef`i görüyor mu: menzil + bakış konisi + görüş hattı (ışın).
+// `cos_esik` bakış yönüyle nokta çarpımın alt sınırı (0.3 ~ ±72 derece);
+// -1'in altı koniyi kapatır (ör. zaten kovalarken: yalnız menzil ve hat).
+func goruyor_mu(int bakan, int hedef, float bakis_yaw, float menzil, float cos_esik): bool {
+    Vec3 a = konum(bakan);
+    Vec3 b = konum(hedef);
+    float uz = uzaklik_xz(a, b);
+    if (uz >= menzil) { return false; }
+    float nok = (b.x - a.x) / uz * (0.0 - sin(bakis_yaw)) + (b.z - a.z) / uz * (0.0 - cos(bakis_yaw));
+    if (nok <= cos_esik) { return false; }
+    return gorus_var(bakan, hedef);
+}
+func can_see(int viewer, int target, float yaw, float range, float cos_min): bool { return goruyor_mu(viewer, target, yaw, range, cos_min); }
 
 // ---- Navmesh ajanı: yol TAKİBİ ---------------------------------------------
 // Motorda ajan YOK ve bilerek yok. Yol ARAMA motorda (Detour, C++); yol

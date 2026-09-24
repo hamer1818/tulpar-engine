@@ -30,7 +30,7 @@ AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İ
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
 | binding | `runtime/engine_bindings.cpp` (**üretilmiş**) | `aot_eng_*_ptr` (VMValue ABI) → `teng_*` |
-| sarmalayıcı | `lib/engine.tpr` (gömülü, 386 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`) |
+| sarmalayıcı | `lib/engine.tpr` (gömülü, 771 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`); `Vec3` ve oyun yardımcıları (`yol_yonu`, `goruyor_mu`) |
 | oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (1097) | saf Tulpar |
 
 **Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut dört dosya üretir:
@@ -353,6 +353,20 @@ aynı davranışa mahkûm ederdi. Beğenmeyen bu katmanı kopyalar, motoru deği
 başına **kopyalanır**: motorun nokta tamponu tektir, iki ajan aynı karede yol ararsa kopyalamayan bir
 tasarım sessizce birbirinin yolunu takip ederdi (kapı bunu ölçüyor — `tests/engine_bridge.test.tpr`).
 
+**Tulpar kitaplığındaki oyun parçaları (2026-09-24).** Köprü düz skaler kalıyor; vektör ve oynanış
+yardımcıları `lib/engine.tpr`'de, Tulpar'ın kendisinde:
+- `Vec3` (dilin kutusuz struct'ı): `konum(id)`, `yuru_v`, `itme_v`, `isinla_v`, `yon_xz`, `uzaklik_xz`,
+  `normal_xz`, `yaw_yonu` / `yon_yaw`, `kameraya_gore`. Bileşenleri tek tek okuyup ayrı değişkende
+  tutmak "Gölge Salonları"nda 27 satırdı.
+- `yol_yonu(id, hedef)`: navmesh varsa Detour yolunun ilk köşesi, yoksa düz çizgi; önündeki SAHNE
+  geometrisinden normal boyunca kayar (köprü varlıkları engel sayılmaz).
+- `goruyor_mu(bakan, hedef, yaw, menzil, cos_esik)`: menzil + bakış konisi + görüş hattı.
+
+Hepsinin kapısı `tests/engine_bridge.test.tpr` (`run_vektor`, `run_yol_gorus`). Aksiyon oyunu bunlarla
+yeniden yazıldı: 1187 satırdan 729'a; 3200 karelik doğrulama özeti bayt bayt aynı kaldı. Oyun kodu
+struct alanına bileşik atama kullanıyor (`dusmanlar[i].can -= 50`); bu TulparLang #344'ten önce sessizce
+hiçbir şey yapmıyordu. `tools/motor_derleyici.sh` kurulumdan sonra bunu bir sonda programıyla doğrular.
+
 ### 8.1 Bir oyunun tam yaşam döngüsü (gerçek çağrı adlarıyla)
 
 `lib/engine.tpr` sarmalayıcıları ve `examples/engine_aksiyon.tpr`'nin akışı:
@@ -374,6 +388,7 @@ func main() {
     if (!sahne_yukle("examples/assets/salon1.sahneb")) { zemin_kur(20, ACIK_GRI); }
     sahne_izle(true);                              // editörde "Derle" -> oyun kendini yeniler
     int oyuncu = kure(0, 1, 0, 0.5, true, KIRMIZI);
+    int skor = 0;
     if (ses_var()) { ses_seviyesi(ses_ayari); }
 
     // 3) Kare döngüsü
@@ -387,13 +402,13 @@ func main() {
         if (eylem_basildi() && yerde(oyuncu)) { itme(oyuncu, 0, 6, 0); }
 
         // sorgu tabanlı oynanış: önde küre sorgusu = vuruş
-        int n = yakinlar(konum_x(oyuncu), konum_y(oyuncu), konum_z(oyuncu), 2.0, oyuncu);
-        int i = 0;
-        while (i < n) { itme(yakin_id(i), 0, 3, 0); i = i + 1; }
+        Vec3 p = konum(oyuncu);
+        int n = yakinlar(p.x, p.y, p.z, 2.0, oyuncu);
+        for (int i = 0; i < n; i++) { itme(yakin_id(i), 0, 3, 0); }
 
         // kamera + HUD
-        kamera_takip(konum_x(oyuncu), konum_y(oyuncu), konum_z(oyuncu), 9.0, 4.0, 0.0);
-        yazi("skor 0", 16, 16, 2.0, BEYAZ);
+        kamera_takip(p.x, p.y, p.z, 9.0, 4.0, 0.0);
+        yazi(t"skor {skor}", 16, 16, 2.0, BEYAZ);
 
         // menü/ayar: anlık-kip arayüz (aynı kare içinde)
         ui_basla();
