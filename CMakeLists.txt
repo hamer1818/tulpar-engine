@@ -161,6 +161,7 @@ add_library(engine_core STATIC
     core/jobs/job_graph.cpp
     core/memory/ebr.cpp
     core/event.cpp
+    core/build_info.cpp
     core/math/bvh.cpp
     core/math/spatial_hash.cpp
     core/math/nn.cpp
@@ -169,6 +170,15 @@ add_library(engine_core STATIC
     core/jobs/fiber_switch_aarch64.S
 )
 target_link_libraries(engine_core PUBLIC engine_platform)
+# Ikilinin surumu (core/build_info.hpp). Bos = kaynak derlemesi; release.yml her
+# isde -DTULPAR_SURUM=$SURUM verir. Kalip release.yml'deki `hazirlik` kalibinin
+# AYNISI: bozuk deger yapilandirmada HATA, ikiliye sizmaz. Makro YALNIZ
+# build_info.cpp'ye tanimlanir — surum degisince tek nesne dosyasi derlenir.
+set(TULPAR_SURUM "" CACHE STRING "Gomulu surum etiketi (vX.Y.Z[-onek]); bos = kaynak derlemesi")
+if(NOT TULPAR_SURUM STREQUAL "" AND NOT TULPAR_SURUM MATCHES "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$")
+    message(FATAL_ERROR "TULPAR_SURUM='${TULPAR_SURUM}' beklenen kaliba uymuyor: vX.Y.Z ya da vX.Y.Z-onek")
+endif()
+set_source_files_properties(core/build_info.cpp PROPERTIES COMPILE_DEFINITIONS "TULPAR_SURUM=\"${TULPAR_SURUM}\"")
 if(ENGINE_TRACY)
     # Kapaliyken sifir maliyet (makrolar bos). Acikken: talep uzerine (sunucu
     # baglaninca kayit), ornekleme/sistem izleme/callstack kapali (mobilde izin yok),
@@ -372,6 +382,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_frame_gate.cpp
     tests/test_crash.cpp
     tests/test_process.cpp
+    tests/test_build_info.cpp
     tests/test_math.cpp
     tests/test_containers.cpp
     tests/test_rhi.cpp
