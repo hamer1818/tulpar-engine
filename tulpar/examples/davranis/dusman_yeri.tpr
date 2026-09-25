@@ -1,0 +1,46 @@
+// Yerleşim tipi — "dusman_yeri": editörde yerleştirilen DÜŞMAN DOĞUŞ NOKTASI (E7).
+//
+//   dusman_yeri_baslat(i)    sahne yüklenince bir kez: sahne dizini listeye yazılır
+//   dusman_yeri_bitir(i)     sahne boşalırken: liste boşalır
+//
+// Davranış DEĞİL, bölüm VERİSİ. Tasarımcı editörde boş bir varlık koyar (model
+// yok, gövde yok: fizik ve çizim listesi değişmez), bu betiği atar ve düşmanın
+// sayılarını "Özellikler"de o varlık için yazar. Düşmanın kendisini oyun kurar
+// (engine_aksiyon.tpr `bolum_kur`): sahneyi yükler — `baslat` her işaretin
+// dizinini SAHNE SIRASIYLA ekler — sonra her işaretten bir düşman üretir:
+// konum işaretin konumu (kutunun MERKEZİ), sayılar aşağıdaki erişimcilerden.
+// Liste YÜKLÜ sahneyi yansıtır: sahne boşalınca (bölüm geçişi, sıcak yükleme,
+// kapanış) `bitir` onu boşaltır, oyunun ayrıca temizlemesi gerekmez.
+//
+// Erişimcilerin gövdesi özelliğin BİLDİRİMİDİR (docs/KOPRU.md §7.11): adı ve
+// varsayılanı literal, editör bu satırları tarayıp denetçide gösterir.
+// Varsayılanlar "Gölge Salonları"nın sıradan düşmanı; patron gibi farklı bir
+// düşman kod değil, sahnede üstüne yazılmış değerdir. `devriye_a/_b` işarete
+// göre YEREL ofset (dönüş dahil, ölçek hariç) ve DÜNYA konumu olarak döner.
+//
+// Oyun modülün global'lerini doğrudan okumaz, fonksiyonları çağırır: sayaç ve
+// liste burada doğar, burada değişir. Liste kare içinde (bölüm geçişi) dolar:
+// global diziye push ve öğe yazma kalıcıdır (engine.tpr "Kare belleği");
+// diziyi YENİDEN ATAMAMAK için yuvalar yeniden kullanılır.
+
+int[] _dusman_yerleri = [];
+int _dusman_yeri_n = 0;
+
+func dusman_yeri_baslat(i) {
+    int k = toInt(i);
+    if (_dusman_yeri_n < len(_dusman_yerleri)) { _dusman_yerleri[_dusman_yeri_n] = k; } else { push(_dusman_yerleri, k); }
+    _dusman_yeri_n += 1;
+}
+// Sahne boşalırken HER işaret için çağrılır; hepsi birlikte gider.
+func dusman_yeri_bitir(i) { _dusman_yeri_n = 0; }
+
+func dusman_yeri_sayisi(): int { return _dusman_yeri_n; }
+func dusman_yeri_dizin(int k): int { return _dusman_yerleri[k]; }
+
+func dusman_yeri_can(i): int { return ozellik_tam(i, "can", 100); }
+func dusman_yeri_yaricap(i): float { return ozellik_sayi(i, "yaricap", 0.5); }
+func dusman_yeri_hiz_devriye(i): float { return ozellik_sayi(i, "hiz_devriye", 2.2); }
+func dusman_yeri_hiz_kovala(i): float { return ozellik_sayi(i, "hiz_kovala", 4.2); }
+func dusman_yeri_hasar(i): int { return ozellik_tam(i, "hasar", 11); }
+func dusman_yeri_devriye_a(i): Vec3 { return ozellik_nokta(i, "devriye_a", v3(-2.0, 0.0, 0.0)); }
+func dusman_yeri_devriye_b(i): Vec3 { return ozellik_nokta(i, "devriye_b", v3(2.0, 0.0, 0.0)); }

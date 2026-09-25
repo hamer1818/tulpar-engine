@@ -31,7 +31,7 @@ AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İ
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
 | binding | `runtime/engine_bindings.cpp` (**üretilmiş**) | `aot_eng_*_ptr` (VMValue ABI) → `teng_*` |
 | sarmalayıcı | `lib/engine.tpr` (gömülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
-| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (720), `engine_dalga.tpr` (76 + davranışlar 57) | saf Tulpar |
+| oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (758 + bölüm işaretleri 97), `engine_dalga.tpr` (76 + davranışlar 57) | saf Tulpar |
 
 **Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut dört dosya üretir:
 binding (`runtime/engine_bindings.cpp`), backend tablosu (`src/aot/engine_builtins_table.inc`), typeinfer
@@ -176,6 +176,7 @@ engine_sahnec examples/assets/arena.sahne           # -> arena.sahneb (elle; orn
 `tulpar/examples/assets/*.sahne` motor derlenirken `.sahneb`'e çevrilir (CMake hedefi `engine_example_scenes`,
 `engine_sahnec`'e ve modellere bağlı): temiz klonda da blob hazırdır, blob sürümü değişince örnekler kendiliğinden
 yeniden derlenir. Bu yüzden `engine_aksiyon.tpr` haritayı ikinci kez kodda kurmaz; blob yoksa nedenini söyleyip kapanır.
+Bölüm verisini de (oyuncu başlangıcı, kapı, düşmanlar ve sayıları) sahnedeki işaretlerden okur (§7.11, E7).
 
 `eng_scene_load` blob'u açar: modeller, ışıklar, gövdeler ve dünya ayarları (güneş, ortam, gölge hacmi)
 sahneden gelir; **kamera betiğin** (oyun onu her kare sürer). Sahne varlıkları `eng_scene_find(ad)` ile
@@ -591,6 +592,26 @@ yetim yok, bellek içi yetim fikstürü aynı ölçümle yakalanıyor) ve pencer
 piksel işaretini kaybetti, betiğin varsayılan noktasında işaret belirdi. Ölçüldü (RTX 5080,
 2026-09-25, `ozellik.sahne`): işaret pikseli beklenen renkten 0 uzakta, kaldırınca 255, varsayılan
 noktada 0 (önce 255).
+
+**Bölüm verisi sahnede (E7, 2026-09-25).** "Gölge Salonları" bölümlerini artık kodda kurmuyor:
+oyuncunun doğduğu yer, kapı ve dokuz düşmanın her biri editörde yerleştirilen bir **işaret** —
+tipini betiği söyleyen varlık. Tipler `tulpar/examples/davranis/`'te: `oyuncu_baslangic.tpr` (boş
+varlık), `kapi.tpr` (kapının görünen şeridine, `kapi_serit`, atanır; `yaricap`), `dusman_yeri.tpr`
+(boş varlık; `can`, `yaricap`, `hiz_devriye`, `hiz_kovala`, `hasar`, `devriye_a/_b`). Boş işaretin
+modeli ve gövdesi yok: çizim ve gövde sayısı değişmedi (11 / 10), navmesh özetleri aynı. Tipin
+`_baslat`ı sahne dizinini modülün listesine yazar (sahne sırasıyla), `_bitir`i siler — liste yüklü
+sahneyi yansıtır, sıcak yüklemede eski dizin kalmaz. Oyun yükledikten sonra listeyi **erişimci
+fonksiyonlarla** okur (modül global'ine doğrudan dokunmaz) ve köprü varlıklarını üretir; bölümde
+başlangıç ya da kapı yoksa (ya da birden çoksa) nedenini söyleyip kapanır. Erişimcinin gövdesi
+bildirimin kendisi: `func dusman_yeri_can(i): int { return ozellik_tam(i, "can", 100); }`.
+Düşmanın sayıları `Dusman` kaydında örnek başına durur; temas menzili yarıçapla büyür
+(yarıçap + 0.75 — eski sabit 1.25 = 0.5 + 0.75). Yani patron bir `.sahne` değişikliğidir, kod değil.
+Ölçüldü (RTX 5080, 2026-09-25, 3200 kare penceresiz): `[kapi]` özetinin ilk dört satırı ve 40
+satırlık olay günlüğü eskisiyle **bayt bayt aynı**; tek fark bölüm başındaki sahne varlık sayısı
+(13 → 18 / 19). Kapının `yaricap` üstüne yazması (salon2: 2.4) f32'de 2.4000000953674316 —
+günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import edilmezse yükleme işaret
+başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
+ediyor.
 
 ## 8. Kapsam: `SPEC` = `engine_api.h` = **208 builtin**
 

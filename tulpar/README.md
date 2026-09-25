@@ -25,6 +25,9 @@ tulpar/
                           — 11 paralel dizi 2026-09-21'de kalktı)
                           nesne özellikleri: assets/ozellik.sahne + davranis/muhafiz.tpr
                           (`ozellik_tam/_sayi/_bayrak/_nokta` — docs/KOPRU.md 7.11)
+                          bolum isaretleri (E7): aksiyonun oyuncu baslangici, kapisi ve
+                          dusmanlari assets/salon1/2.sahne'de; tipler davranis/oyuncu_baslangic.tpr,
+                          kapi.tpr, dusman_yeri.tpr (docs/KOPRU.md 7.11)
   tests/engine_bridge.test.tpr   uçtan uca köprü testi (Tulpar tarafı)
 ```
 

@@ -1,0 +1,25 @@
+// Yerleşim tipi — "kapi": bölümün ÇIKIŞ KAPISI (E7).
+//
+//   kapi_baslat(i)    sahne yüklenince bir kez: sahne dizini kaydedilir
+//   kapi_bitir(i)     sahne boşalırken: kayıt silinir
+//
+// Davranış DEĞİL, bölüm VERİSİ (bkz. dusman_yeri.tpr). Salonlarda kapının
+// görünen şeridine ("kapi_serit") atanır: kapı nerede çiziliyorsa orada.
+// Düşmanlar temizlenince oyuncunun şeridin merkezine YATAY uzaklığı
+// `yaricap`ın altına inerse bölüm biter (engine_aksiyon.tpr `bolum_bitti_mi`).
+// Bölümde tam BİR kapı olmalı: oyun sayıyı denetler, yoksa ya da birden
+// çoksa nedenini söyleyip kapanır.
+
+int _kapi_dizin = -1;
+int _kapi_n = 0;
+
+func kapi_baslat(i) {
+    _kapi_dizin = toInt(i);
+    _kapi_n += 1;
+}
+func kapi_bitir(i) { _kapi_dizin = -1; _kapi_n = 0; }
+
+func kapi_sayisi(): int { return _kapi_n; }
+func kapi_dizini(): int { return _kapi_dizin; }
+
+func kapi_yaricap(i): float { return ozellik_sayi(i, "yaricap", 2.2); }
