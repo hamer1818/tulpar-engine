@@ -423,6 +423,10 @@ int teng_draw_count(void);
 int teng_body_count(void);
 int teng_light_count(void);
 double teng_frame_ms(void); // son kare p50 (profiler)
+// Surecin yerlesik bellegi (RSS), KB (platform::os_resident_bytes). Motor
+// kurulmadan da calisir; olculemezse 0. Tulpar'da bellek_kb(): kare arenasi
+// kapisi (engine_aksiyon.tpr) bununla olcer.
+int teng_rss_kb(void);
 
 #ifdef __cplusplus
 }

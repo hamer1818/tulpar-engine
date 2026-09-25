@@ -739,4 +739,7 @@ VMValue aot_eng_light_count_ptr(void) {
 VMValue aot_eng_frame_ms_ptr(void) {
   return VM_FLOAT(teng_frame_ms());
 }
+VMValue aot_eng_rss_kb_ptr(void) {
+  return VM_INT((int64_t)teng_rss_kb());
+}
 } // extern "C"

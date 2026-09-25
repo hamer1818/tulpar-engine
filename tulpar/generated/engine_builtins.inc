@@ -206,3 +206,4 @@
     {"eng_body_count", "eng_body_count(): int", "Fizikteki govde sayisi."},
     {"eng_light_count", "eng_light_count(): int", "Son karede nokta isik sayisi."},
     {"eng_frame_ms", "eng_frame_ms(): float", "Son 120 karenin p50 suresi (ms)."},
+    {"eng_rss_kb", "eng_rss_kb(): int", "Surecin yerlesik bellegi (RSS), KB: Linux/Android /proc/self/statm, macOS task_info, Windows GetProcessMemoryInfo. Olculemezse 0. Motor kurulmadan da calisir, kare icinde cagrilabilir (ayirma yok)."},

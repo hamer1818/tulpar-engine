@@ -206,3 +206,4 @@
     {"eng_body_count", "aot_eng_body_count_ptr", 0},
     {"eng_light_count", "aot_eng_light_count_ptr", 0},
     {"eng_frame_ms", "aot_eng_frame_ms_ptr", 0},
+    {"eng_rss_kb", "aot_eng_rss_kb_ptr", 0},

@@ -53,10 +53,94 @@ func running_e(): bool { return eng_running(); }
 func motor_kapat() { eng_shutdown(); }
 func engine_close() { eng_shutdown(); }
 func cikis_iste() { eng_close(); }
-func kare_basla(): bool { return eng_frame_begin(); }
-func kare_bitir() { eng_frame_end(); }
-func frame_begin_e(): bool { return eng_frame_begin(); }
-func frame_end_e() { eng_frame_end(); }
+
+// ---- Kare belleği (kare arenası) --------------------------------------------
+// Tulpar'ın AOT çalışma zamanı metni (`t"..."`, `+`, toString, motorun döndürdüğü
+// ve kanca çağrısı başına kurduğu adlar) bir BUMP arenasından, dizi/nesne
+// literallerini malloc'tan ayırır ve ikisini de HİÇ geri vermez. Ölçüldü
+// (2026-09-25, RTX 5080 masaüstü, engine_aksiyon, #52 sonrası): RSS 2522 KB /
+// 1000 kare büyüyordu (~188 KB/s, saatte ~600 MB); geri sarımla 12000 karede
+// 5 KB / 1000 kare. kare_basla ile kare_bitir ARASINDA
+// ayrılan her şey artık kare sonunda geri sarılır (arena_save / arena_drop;
+// wings'in istek başına, tame run()'ının kare başına yaptığı şey). Kancalar
+// eng_frame_end'in İÇİNDE koşar: onların metni de geri kazanılır.
+//
+// KURAL — kareler arası yaşayacak durum GLOBAL'de durur. Sondalarla ölçüldü
+// (2026-09-25, TulparLang 3eee948; kare içinde yaz -> geri sar -> arenayı çöple
+// ez -> oku):
+//   GÜVENLİ  global'e düz atama (`g = t"..."`, `g = [..]`, `g = {..}`, str alanlı
+//            struct): çalışma zamanı kalıcıya DERİN KOPYALAR.
+//            Global dizi/nesne öğesine yazma ve push (`g[i] = s`, `push(g, s)`,
+//            iç içe dizi de): yazma bariyeri kopyalar. `g[i] += s` de güvenli.
+//            Skaler global, enum, Vec3 gibi kutusuz struct ve alanları.
+//            Tipli struct dizisine (`Dusman[] g`) push / `g[i] = ...` /
+//            `g[i].can -= 50` — dizi KAREDEN ÖNCE kurulduysa.
+//            Kareden ÖNCE kurulmuş yerel diziye push / öğe yazma.
+//   GÜVENSİZ (sessiz bozulma ya da çökme; bkz. docs/TUZAKLAR.md 8ch):
+//            Global METNE bileşik atama: `g_metin += x` kalıcılaştırılmıyor —
+//            `g_metin = g_metin + x` yaz.
+//            Tipli struct dizisini kare içinde YENİDEN ATAMAK (`g = []`) ya da
+//            kare içinde kurulmuş bir struct dizisini kalıcı bir kaba koymak:
+//            dizi kare sonunda serbest kalır. Boşaltmak için yuvaları yeniden
+//            kullan (engine_aksiyon.tpr dusmanlari_bosalt).
+//            Döngünün DIŞINDA bildirilmiş bir YEREL'e kare içinde metin/dizi/
+//            nesne atayıp sonraki karede okumak: global yap.
+// Kare DIŞINDA (motor_ac öncesi, iki kare arası, döngüden sonra) ayrılan
+// kalıcıdır — geri sarım yalnız kare_basla..kare_bitir aralığıdır.
+// Kapatmak: ilk kareden ÖNCE kare_bellegi(false), ya da TULPAR_KARE_BELLEK=0.
+// Ham eng_frame_begin/eng_frame_end kare belleğini KULLANMAZ.
+bool _kb_acik = true;
+bool _kb_karar = false;          // ilk kare_basla'da bir kez: ortam okunur
+int _kb_cp = -1;                 // açık karenin arena noktası; -1 = kare dışı
+int _kb_kare = 0;                // geri sarılan kare sayısı
+bool _kb_dolu_bildirildi = false;
+
+func _kb_karar_ver() {
+    _kb_karar = true;
+    if (env("TULPAR_KARE_BELLEK") == "0") { _kb_acik = false; }
+    if (!_kb_acik) { eng_log("kare bellegi KAPALI (kare_bellegi(false) ya da TULPAR_KARE_BELLEK=0): kare icinde ayrilan metin/dizi geri kazanilmiyor"); }
+}
+func kare_basla(): bool {
+    if (!_kb_karar) { _kb_karar_ver(); }
+    if (_kb_acik && _kb_cp < 0) {
+        _kb_cp = arena_save();
+        // arena_save'in nokta yığını 32'lik; dolduysa -1 döner ve bu kare geri
+        // kazanılmaz. Sessiz geçmesin.
+        if (_kb_cp < 0 && !_kb_dolu_bildirildi) {
+            _kb_dolu_bildirildi = true;
+            eng_log("UYARI kare bellegi: arena_save -1 dondu (nokta yigini dolu), kareler geri kazanilmiyor");
+        }
+    }
+    return eng_frame_begin();
+}
+func kare_bitir() {
+    eng_frame_end();
+    if (_kb_cp >= 0) {
+        arena_drop(_kb_cp);
+        _kb_cp = -1;
+        _kb_kare += 1;
+    }
+}
+func frame_begin_e(): bool { return kare_basla(); }
+func frame_end_e() { kare_bitir(); }
+// Kare belleğini aç/kapat: İLK kare_basla'dan ÖNCE. Sonra çağrılırsa yok sayılır
+// ve loglanır (açık bir karenin ortasında kapatmak geri sarımı yarım bırakırdı).
+func kare_bellegi(bool ac) {
+    if (_kb_karar) { eng_log("UYARI kare_bellegi: ilk kareden sonra cagrildi, yok sayildi (kare_basla'dan once cagir)"); return; }
+    _kb_acik = ac;
+}
+func frame_memory(bool on) { kare_bellegi(on); }
+func kare_bellegi_acik(): bool {
+    if (!_kb_karar) { return _kb_acik && env("TULPAR_KARE_BELLEK") != "0"; }
+    return _kb_acik;
+}
+func frame_memory_on(): bool { return kare_bellegi_acik(); }
+// Geri sarılan kare sayısı (kapı: bellek açıkken kare sayısına eşit olmalı).
+func kare_bellegi_kare(): int { return _kb_kare; }
+func frame_memory_frames(): int { return _kb_kare; }
+// Sürecin yerleşik belleği (RSS), KB. Motor kurulmadan da çalışır.
+func bellek_kb(): int { return eng_rss_kb(); }
+func memory_kb(): int { return eng_rss_kb(); }
 func dt(): float { return eng_dt(); }
 func zaman(): float { return eng_time(); }
 func kare_no(): int { return eng_frame(); }
@@ -972,7 +1056,10 @@ func ui_pencere(baslik, float w, float h, int renk_) {
     _yr_x = px + pay; _yr_y = py + pay; _yr_w = pw - 2.0 * pay; _yr_alt = _yr_y;
     _yr_satir = 56.0; _yr_ara = 14.0;
     _yr_pencere_acik = true;
-    _yr_pencere = baslik;
+    // Global metne atama her seferinde KALICI kopya (malloc) üretir ve kare
+    // belleği onu geri vermez: her karede çizilen menü kare başına bir kopya
+    // sızdırırdı. Yalnız başlık değişince kopyala.
+    if (_yr_pencere != baslik) { _yr_pencere = baslik; }
     _yr_px = px; _yr_py = py; _yr_pw = pw; _yr_ph = ph; _yr_ph_tasarim = h;
     if (len(baslik) > 0) { ui_etiket(baslik, _UI_BASLIK_OLCEK, 0); }
 }

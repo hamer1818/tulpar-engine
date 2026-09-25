@@ -64,7 +64,7 @@
 #include "core/math/noise.hpp"
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
-#include "platform/memory.hpp"   // os_page_size (RSS hesabi)
+#include "platform/memory.hpp"   // os_resident_bytes (durum cubugu RSS)
 #include "platform/thread.hpp"
 #include "platform/paths.hpp"   // varlik yolu: ikilinin yani -> calisma dizini -> kaynak agaci
 #include "platform/time.hpp"
@@ -112,28 +112,13 @@ enum class GameAspect : uint8_t {
   Aspect1_1,
 };
 
-// Surecin yerlesik bellegi (RSS), MB. Windows'ta /proc YOK ve `sysconf` da
-// yok: orada Win32'nin kendi sayaci kullaniliyor. Sayi yalnizca durum
+// Surecin yerlesik bellegi (RSS), MB. Olcum L0'da (platform::os_resident_bytes:
+// Linux/Android /proc, macOS task_info, Windows GetProcessMemoryInfo) — Tulpar
+// koprusunun bellek_kb()'si de ayni sayaci okur. Eskiden burada ayri bir kopya
+// vardi ve macOS'ta /proc olmadigi icin hep 0 gosteriyordu. Sayi yalnizca durum
 // cubugunda GOSTERILIYOR, bir kapi degil — bulunamazsa 0 doner.
 static float get_system_rss_mb() {
-#if defined(_WIN32)
-  PROCESS_MEMORY_COUNTERS pmc;
-  if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc))
-    return (float)((double)pmc.WorkingSetSize / (1024.0 * 1024.0));
-  return 0.0f;
-#else
-  FILE *f = std::fopen("/proc/self/statm", "r");
-  if (!f) return 0.0f;
-  unsigned long size = 0, resident = 0;
-  if (std::fscanf(f, "%lu %lu", &size, &resident) == 2) {
-    std::fclose(f);
-    // Sayfa boyu L0'dan: sysconf POSIX'e ozgu (platform/memory.hpp).
-    const size_t page_size = platform::os_page_size();
-    return (float)((double)resident * (double)page_size / (1024.0 * 1024.0));
-  }
-  std::fclose(f);
-  return 0.0f;
-#endif
+  return (float)((double)platform::os_resident_bytes() / (1024.0 * 1024.0));
 }
 
 struct ScenePolyStats {

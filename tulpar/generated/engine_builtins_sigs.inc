@@ -206,3 +206,4 @@
       {"eng_body_count", TYPE_INT, {}},
       {"eng_light_count", TYPE_INT, {}},
       {"eng_frame_ms", TYPE_FLOAT, {}},
+      {"eng_rss_kb", TYPE_INT, {}},

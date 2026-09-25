@@ -121,18 +121,28 @@ struct Dusman {
     float flas;               // vuruş flaşı süresi
 }
 Dusman[] dusmanlar = [];
+// Dizi kare içinde YENİDEN ATANMAZ: bölüm geçişi kare içinde olur ve kare
+// belleği (engine.tpr "Kare belleği") kare içinde kurulan struct dizisini kare
+// sonunda serbest bırakır — `dusmanlar = []` global'i ölü belleğe bağlardı
+// (sonda 2026-09-25: sonraki okuma "indeksleme hedefi bir struct dizisi degil").
+// Yuvalar yeniden kullanılır: kullanılmayan yuva ölü düşmandır (can 0), her
+// döngü onu zaten atlıyor.
+int g_dusman_n = 0;
 
 // ---- Düşmanlar --------------------------------------------------------------
 func dusman_ekle(x, z, ax, az, bx, bz) {
     int id = kutu(x, DUSMAN_R, z, DUSMAN_R, DUSMAN_R, DUSMAN_R, true, RENK_DEVRIYE);
     if (id == 0) { logla(t"UYARI dusman kurulamadi ({x},{z})"); return; }
-    push(dusmanlar, { id: id, can: DUSMAN_CAN_MAX, hal: Hal.DEVRIYE, ax: ax, az: az, bx: bx, bz: bz,
-                      hedef: Nokta.A, yaw: 0.0, kayip: 0.0, flas: 0.0 });
+    Dusman yeni = { id: id, can: DUSMAN_CAN_MAX, hal: Hal.DEVRIYE, ax: ax, az: az, bx: bx, bz: bz,
+                    hedef: Nokta.A, yaw: 0.0, kayip: 0.0, flas: 0.0 };
+    if (g_dusman_n < len(dusmanlar)) { dusmanlar[g_dusman_n] = yeni; } else { push(dusmanlar, yeni); }
+    g_dusman_n += 1;
 }
 
 func dusmanlari_bosalt() {
     for (dm in dusmanlar) { if (canli(dm.id)) { sil(dm.id); } }
-    dusmanlar = [];
+    for (int i = 0; i < len(dusmanlar); i++) { dusmanlar[i].can = 0; }
+    g_dusman_n = 0;
 }
 
 func canli_dusman(): int {
@@ -206,7 +216,7 @@ func bolum_kur(n) {
         dusman_ekle(2.0, 8.0, 0.0, 5.0, 4.0, 12.0);
         dusman_ekle(12.0, 2.0, 13.0, -1.0, 11.0, 6.0);
     }
-    logla(t"bolum {n} hazir: {len(dusmanlar)} dusman, kapi ({g_kapi.x},{g_kapi.z})");
+    logla(t"bolum {n} hazir: {g_dusman_n} dusman, kapi ({g_kapi.x},{g_kapi.z})");
 }
 
 func yeniden_basla() {
@@ -561,6 +571,7 @@ func main() {
             else { ayarlari_yaz(); cikis_iste(); }
         }
         kare_bitir();
+        if (g_otopilot) { bellek_ornekle(); }
     }
     // Skor rekor olarak kalır (pencersiz doğrulama da): kalıcılık böyle ölçülür.
     g_rekor = rekor_guncelle("aksiyon_rekor", g_skor);
@@ -594,6 +605,27 @@ float g_kayma_max = 0.0;
 int KAPI_MIN_KARE = 1000;
 // Frensiz (eski) oyuncu 0.5 s'de 2.8 m kayıyordu; frenli ~0.3 m.
 float KAYMA_SINIR = 1.0;
+// Kare belleği kapısı: RSS BELLEK_ILK_KARE'de ve son karede okunur (bellek_kb).
+// İlk 1000 kare dışarıda: sahne, navmesh, font, sürücü önbellekleri ısınır ve
+// bölüm 2 k713'te yüklenir (ölçüldü 2026-09-25) — bunlar sızıntı değil.
+int BELLEK_ILK_KARE = 1000;
+int BELLEK_PENCERE_MIN = 2000;   // daha kısa pencerede eğim gürültüdür: ATLANDI
+// Sınır, KB / 1000 kare. Ölçüldü 2026-09-25, RTX 5080 masaüstü (Linux, NVIDIA),
+// TulparLang 3eee948:
+//   kare belleği AÇIK:  3200 kare 0, 12000 kare 5, 20000 kare 2 KB/1000 kare (19000 karede +40 KB)
+//   KAPALI (TULPAR_KARE_BELLEK=0, pozitif kontrol): 3200 kare 1805, 12000 kare 2522
+// 600: en kısa pencerede (2000 kare) arenanın TEK bir 1 MB blok adımını (512)
+// taşır, kapalının en küçük ölçümünün (1805) üçte biri.
+int BELLEK_SINIR_KB = 600;
+int g_bellek_ilk = 0;
+int g_bellek_son = 0;
+int g_bellek_son_kare = 0;
+
+func bellek_ornekle() {
+    int k = kare_no();
+    if (k == BELLEK_ILK_KARE) { g_bellek_ilk = bellek_kb(); }
+    if (k >= BELLEK_ILK_KARE) { g_bellek_son = bellek_kb(); g_bellek_son_kare = k; }
+}
 
 // Menüyü BETİK geçer: köprüye tek karelik bas+bırak enjekte edilir, widget
 // ADIYLA bulunur. Tıklama bir SONRAKİ karede tüketilir. "Basla" menünün
@@ -657,6 +689,15 @@ func kapi_raporu() {
     print(t"[kapi] fren: {g_kayma_olcum} olcum, girdi birakilinca 0.5 s'de en cok {g_kayma_max} m kayma (sinir {KAYMA_SINIR})");
     print(t"[kapi] kayit: dosyadan ses={g_kayit_ses} rekor={disk_rekor} (bellekte ses={g_ses_ayari} rekor={g_rekor})");
     print(t"[kapi] menu: adim={g_op_adim} ui_tik={ui_tiklama()} ekran={g_ekran} ses_ayari={g_ses_ayari} kayitli_ses={g_kayit_ses} rekor={g_rekor} kayit={kayit_yolu()} sahne_yenileme={g_yenileme}");
+    // Bellek: RSS eğimi, 1000 kare başına KB. Kare belleği açıkken geri sarılan
+    // kare sayısı kare sayısına eşit olmalı (kare_basla/kare_bitir eşleşiyor mu).
+    int bellek_pencere = g_bellek_son_kare - BELLEK_ILK_KARE;
+    bool bellek_olculdu = g_bellek_ilk > 0 && bellek_pencere >= BELLEK_PENCERE_MIN;
+    int bellek_egim = bellek_pencere > 0 ? (g_bellek_son - g_bellek_ilk) * 1000 / bellek_pencere : 0;
+    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
+    if (!bellek_olculdu) {
+        print(t"[kapi] ATLANDI: bellek kapisi >= {BELLEK_ILK_KARE + BELLEK_PENCERE_MIN} kare ister (pencere {bellek_pencere}, ilk olcum {g_bellek_ilk} KB)");
+    }
     // Dikey dilim yalnız bütçe yetiyorsa: pencere açılamayınca köprü 60 karelik
     // yedeğe düşer ve orada 4 düşman + bölüm geçişi yapısal olarak imkânsızdır.
     bool dilim = kare >= KAPI_MIN_KARE;
@@ -680,6 +721,8 @@ func kapi_raporu() {
     // Rekor diske yalnız "skor > eski rekor" iken yazılır: skoru 0 kalan kısa
     // koşumda yazma beklenmez (dosya boş, okuma -1 döner).
     if (g_rekor > 0 && disk_rekor != g_rekor) { push(sorun, t"rekor diske yazilmamis: dosyada {disk_rekor}, bellekte {g_rekor}"); }
+    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
+    if (kare_bellegi_acik() && kare_bellegi_kare() != kare) { push(sorun, t"kare bellegi {kare_bellegi_kare()} kare geri sardi, {kare} kare kostu (kare_basla/kare_bitir eslesmiyor)"); }
     for (s in sorun) { print("[kapi] BASARISIZ: " + s); }
     if (len(sorun) > 0) { exit(1); }
     print(dilim ? "[kapi] TAMAM — dikey dilim pencersiz kostu, olculen sayilar araliginda"
