@@ -481,6 +481,9 @@ if(NOT ANDROID)
     # Guncelleyici cekirdegi (app/updater): curl/tar alt surecleri + kurulum
     # agaci. Yalniz masaustu editorunde yasar; Android'de guncelleme magazadan.
     list(APPEND ENGINE_TEST_SOURCES tests/test_updater.cpp app/updater.cpp)
+    # Guncelleme ARAYUZU (app/editor_update): Yardim menusu, rozet, pencereler,
+    # ayar dosyasi, --guncelleme/--surum. Cekirdegin ustunde; ayni kosul.
+    list(APPEND ENGINE_TEST_SOURCES tests/test_editor_update.cpp app/editor_update.cpp)
 endif()
 
 add_executable(engine_tests ${ENGINE_TEST_SOURCES} app/virtual_stick.cpp core/memory/alloc_gate_override.cpp)
@@ -530,6 +533,7 @@ if(NOT ANDROID)
     target_compile_options(engine_clodbake PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
     # --- engine_editor: motor duzenleme kipinde (ImGui paneller + ImGuizmo), masaustu / headless
     add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/demo_scene.cpp app/updater.cpp)
+    target_sources(engine_editor PRIVATE app/editor_update.cpp) # guncelleme arayuzu (Yardim menusu, rozet, --guncelleme)
     target_link_libraries(engine_editor PRIVATE engine_content engine_renderer engine_sim engine_audio engine_rhi engine_core engine_imgui ${CMAKE_DL_LIBS})
     if(WIN32)
         # psapi: durum cubugundaki RSS sayaci (GetProcessMemoryInfo). /proc yok.

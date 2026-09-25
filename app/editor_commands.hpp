@@ -83,6 +83,9 @@ enum class CommandId : uint16_t {
   PlayPause,      // F6  (oynatilirken duraklat; govdeler yerinde kalir)
   PlayStep,       // F10 (duraklatilmisken TEK sabit adim ilerlet)
   PlayRunGame,    // Ctrl+F5 (Tulpar oyununu AYRI surecte derle + calistir / durdur)
+  HelpCheckUpdates, // (kisayolsuz) GitHub'da yeni surum var mi; pencereyi acar
+  HelpAutoCheck,    // (kisayolsuz) acilista + gunde bir otomatik denetim ac/kapa
+  HelpAbout,        // (kisayolsuz) surum, platform, kurulum dizini, guncelleyici durumu
   Count
 };
 // Tablo boyu. None sayilmaz; descs[(uint32_t)id - 1] dogrudan indekstir
@@ -90,7 +93,8 @@ enum class CommandId : uint16_t {
 constexpr uint32_t kCommandCount = (uint32_t)CommandId::Count - 1;
 
 // Menu cubugu basliklari. Sira = menulerin soldan saga sirasi.
-enum class CommandCategory : uint8_t { File, Edit, Select, View, Gizmo, Play, Count };
+// Yardim EN SAGDA (masaustu gelenegi: Unity/Blender/Godot'da da son menu).
+enum class CommandCategory : uint8_t { File, Edit, Select, View, Gizmo, Play, Help, Count };
 constexpr uint32_t kCommandCategoryCount = (uint32_t)CommandCategory::Count;
 
 // Komut bayraklari — arayuzun komutu NASIL gosterecegini anlatan meta veri.

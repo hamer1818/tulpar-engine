@@ -1,8 +1,10 @@
 # Editör içi güncelleme — çekirdek
 
 GitHub'da yeni bir Release çıkınca editör onu bulur, indirir, doğrular ve kurulu
-paketin yerine koyar. Bu belge **çekirdeği** anlatır (`app/updater.{hpp,cpp}`);
-menü, pencere ve yeniden başlatma editör arayüzünün işidir. Sözleşme başlığı
+paketin yerine koyar. Bu belge önce **çekirdeği** anlatır (`app/updater.{hpp,cpp}`);
+menü, rozet, pencere, ayar dosyası, komut satırı ve yeniden başlatma editör
+arayüzünün işidir (`app/editor_update.{hpp,cpp}`) — aşağıda
+[Kullanıcı akışı](#kullanıcı-akışı-editör-arayüzü). Sözleşme başlığı
 `app/updater.hpp` — adlar iki tarafın ortak dilidir, **eklenebilir, değiştirilemez**.
 
 Paket biçimi (`SURUM.txt`, `DOSYALAR.txt`) paketleyicide tanımlı:
@@ -74,6 +76,176 @@ döner. Hiçbir adım bir karede bütün paketi özetlemez.
 | paket | `pakette SURUM.txt bicimsiz: ...`, `SURUM.txt uyusmuyor: '...' (beklenen '...')`, `yeni paket reddedildi: DOSYALAR.txt N. satir: guvensiz yol reddedildi: ../x`, `paket dosyasi bozuk (ozet tutmuyor): ...` |
 | kurulum | `kurulum basarisiz, N tasima geri alindi: <sebep>` |
 | en kötü durum | `kurulum basarisiz (...) VE GERI ALMA EKSIK: N adim geri alinamadi — yedek: <dizin>`. Yedek ve açılan paket SİLİNMEZ, `.guncelleme/GERI-ALMA-EKSIK.txt` yazılır; o varken `check()` çalışmaz, `cleanup()` hiçbir şey silmez, sonraki `init` Disabled (yedek eski dosyaların tek kopyası olabilir — elle kurtarma). |
+
+## Kullanıcı akışı (editör arayüzü)
+
+Kod: `app/editor_update.{hpp,cpp}` (editör bağlaması `app/editor_app.cpp`'de birkaç satır,
+komut satırı `app/editor.cpp`). Çekirdeği **yalnız bu dosya sürer**: `check()` ve
+`download()` tek bir kapıdan geçer ve sayılır (`UpdateUi::requests`).
+
+### Menü
+
+**Yardım** (menü çubuğunun en sağındaki kategori; komut tablosunda, kısayolsuz):
+
+| öğe | anahtar (`--komut`) | ne yapar |
+|---|---|---|
+| Güncellemeleri denetle… | `yardim.guncelleme_denetle` | Pencereyi açar ve denetler. Kaynak derlemesinde (Disabled) de **etkin**: pencere sebebi ve `git pull && ./derle.sh` yolunu söyler — soluk bir satır sebebini söylemezdi. |
+| Otomatik denetle ✓ | `yardim.otomatik_denetle` | Aç/kapa; ayar dosyasına yazılır. |
+| Hakkında | `yardim.hakkinda` | Sürüm, platform, kurulum dizini, ayar dosyası, güncelleyicinin durumu (+ Disabled/Failed sebebi), otomatik denetim (son denetim, açılıştaki karar), atlanan sürüm. |
+
+### Rozet
+
+Menü çubuğunun sağında, ürün adının solunda, tıklanabilir hap: `⬆ v0.3.0`. Görünür
+olduğu durumlar: **Available** (kurulu sürümden yeni ve atlanmamış — elle denetimde
+atlanmış olan da görünür), indirme/doğrulama/açma (`⬆ v0.3.0  %40`), **Staged**
+(`⬆ v0.3.0 hazır`), **Failed** (sürüm biliniyorsa `⬆ v0.3.0 hata` — tekrar denemenin
+yolu). Tıklayınca güncelleme penceresi açılır. Rozet yokken (`ChromeState::update_badge`
+nullptr) menü çubuğu ImGui'ye **tek ek çağrı** göndermez. İkon: U+2B06, DejaVuSans'ta
+(icon_check yeşil).
+
+### Güncelleme penceresi (kipli)
+
+| durum | içerik | düğmeler |
+|---|---|---|
+| Disabled | "Güncelleyici kapalı" + `reason()`; sürüm boşsa kaynak derlemesi açıklaması + `git pull && ./derle.sh` (Windows: `derle.bat`) + Kopyala | Kapat |
+| Idle | "Henüz denetlenmedi." | Şimdi denetle / Kapat |
+| Checking | belirsiz (akan) ilerleme çubuğu | İptal / Arka planda sürsün |
+| UpToDate | ✓ En son sürüm kurulu (vX) | Kapat |
+| Available | yeni sürüm, yayın tarihi, kurulu sürüm, paket adı + boyutu; **sürüm notları** (kaydırılabilir, sarılmış); `notes_truncated` ise "Notlar kısaltıldı — devamı GitHub'da" + **Bağlantıyı kopyala** / **Tarayıcıda aç** (yalnız `https://github.com/` ile başlayan adres açılır) | **İndir ve kur** / Sonra / Bu sürümü atla |
+| Downloading / Verifying / Extracting | aynı sürüm bloğu + ilerleme çubuğu (`progress() < 0` ise akan) | İptal / Arka planda sürsün |
+| Staged | "vY kurulmaya hazır"; N dosya güncellenecek (yeni/değişen/kaldırılan), M aynı; **korunacak kullanıcı dosyaları** listesi `yol → yol.yeni` açıklamasıyla | **Kur ve yeniden başlat** / Sonra |
+| Installed | ✓ kuruldu; yeniden başlatma başarısızsa sebep | (Kapat) |
+| Failed | sürüm biliniyorsa sürüm bloğu; `reason()`; "Kurulum dizini değişmedi." | **Tekrar dene** / Kapat |
+
+*Tekrar dene* başarısız adım indirmeyse `check()` + (Available gelince) `download()`
+zincirini yeniden kurar; denetimdeyse yalnız `check()`. Esc = Sonra. Pencere
+kapatılınca iş arka planda sürer, rozet ilerlemeyi gösterir.
+
+### Kur ve yeniden başlat
+
+1. Oynatma sürüyorsa **önce durur** (oynatma düzenlemeleri geri alınır, kirli bayrağı
+   oynatma öncesine döner).
+2. Sahne kirliyse mevcut onay kutusu sorulur: **Kaydet ve devam et / Kaydetmeden devam
+   et / Vazgeç** (adsız sahnede Kaydet, Farklı kaydet diyaloğunu açar; bekleyen eylem
+   kabul edilince sürer).
+3. `install()` (senkron, < 1 ms). Başarısızsa kurulum dizini eski haline dönmüştür;
+   pencere sebep ve *Tekrar dene* ile yeniden açılır, durum çubuğu kırmızı.
+4. Başarılıysa editör **normal kapanış yolundan** çıkar (panel düzeni, son dosyalar
+   yazılır; süren iş varsa `cancel()`), en sonda `<kurulum>/engine_editor[.exe]` **aynı
+   argümanlarla** `process_start_detached` ile başlar. `--scene` açık sahnenin yoluyla
+   değişir (kaydedilmiş açık sahne yeniden açılsın; adsız sahnede orijinal argüman kalır).
+   Yeni süreç kapanıştan **sonra** başlar: önce başlasaydı eski editörün yazacağı düzen
+   dosyasını okuyacaktı. Windows'ta argv ANSI → UTF-8 çevrilir (Tuzaklar 8cl).
+   Başlatılamazsa sebep `engine_hata.log`'a da yazılır (pencere kapanmak üzere).
+
+### Ayar dosyası ve otomatik denetim
+
+`$HOME/.tulpar_guncelleme` (HOME yoksa `%USERPROFILE%`, o da yoksa ikilinin dizini):
+
+```
+# Tulpar Editor guncelleme ayarlari (editor yazar; elle de duzenlenebilir)
+otomatik evet
+son_denetim 1790000000
+atla v0.3.0
+```
+
+`otomatik evet|hayir` (varsayılan evet; `hayır` da kabul), `son_denetim <unix sn>` (son
+**başarılı** denetim), `atla <etiket>` (tek jeton, sürüm kalıbında). Bilinmeyen anahtar,
+bozuk değer, 4 KB'tan uzun dosya: **yok sayılır ve sayılır** (Konsol'a uyarı). Yazma
+geçici dosya + yerine taşıma (yarım dosya kalmaz). Penceresiz kip ve komut satırı
+dosyaya **yazmaz**.
+
+Açılışta (`update_ui_init`): Disabled değilse ve penceresiz değilse `cleanup()`; sonra
+karar (`upd_auto_decide`, ilk tutan sebep):
+
+| sıra | sebep | sonuç |
+|---|---|---|
+| 1 | güncelleyici Disabled | denetim yok |
+| 2 | **penceresiz kip** | denetim yok — ağ yok |
+| 3 | `TULPAR_GUNCELLEME=0` | denetim yok |
+| 4 | ayarda `otomatik hayir` | denetim yok |
+| 5 | son denetim 24 saatten yeni | kalan süre sonra (oturum sürerse) |
+| — | hiçbiri | **hemen denetle** |
+
+Saat geri gittiyse (son denetim gelecekte) "yeni" sayılmaz — yanlış saatli makinede
+otomatik denetim hiç koşmazdı. Uzun oturumda 24 saatte bir yeniden: tek tamsayı
+karşılaştırması, saat editörün kare başında **zaten okuduğu** monoton `now_ns`
+(kare başına ek syscall yok). Atlanan etiket otomatik denetimde rozet göstermez, elle
+denetimde görünür.
+
+### Ağ kuralı ve kapıları
+
+- Penceresiz kip Updater'a **hiçbir** istek vermez: ne otomatik denetim ne menü komutu
+  (`--komut yardim.guncelleme_denetle` dahil). İstek kapıda reddedilir ve reddi sayılır.
+- Penceresiz editörün sonunda **güncelleme kapısı**: `Updater istegi 0` olmalı; pozitif
+  kontrol aynı koşuda menü komutunun gövdesini çağırır, **red 1** olmalı (kaynak
+  derlemesinde — Disabled — de ölçülür). İhlal = editör 1 ile çıkar.
+- `engine_tests` aynı kapıyı **etkin** bir güncelleyiciyle koşturur (sahte paket dizini,
+  otomatik açık, hiç denetlenmemiş): tek engel penceresiz kip. Pozitif kontrol:
+  aynı yapılandırma pencereli kurulunca aynı sayaç **1** olur ve `file://` fikstür
+  Available döner.
+
+### Komut satırı (pencere/Vulkan açmadan)
+
+```
+engine_editor --surum                  # "<sürüm|kaynak derlemesi> <platform>", 0
+engine_editor --guncelleme denetle     # 0 güncel, 10 yeni sürüm var, 1 hata, 2 bilinmeyen fiil
+engine_editor --guncelleme kur         # denetle + indir + doğrula + aç + plan + kur; 0/1 (yeniden başlatmaz)
+```
+
+`poll()` 20 ms uykuyla sürülür; denetimde 120 s, indirmede 30 dk zaman aşımı
+(`cancel()`). Ağ'a **yalnız** kullanıcı bu bayrakları verince çıkılır.
+
+### Ortam değişkenleri
+
+| ad | etki |
+|---|---|
+| `TULPAR_GUNCELLEME=0` | otomatik denetimi kapatır (elle denetim çalışır) |
+| `TULPAR_GUNCELLEME_URL` | API adresi (çekirdek okur; `file://` de kabul) — sınama |
+| `TULPAR_GUNCELLEME_DIZIN` | kurulum dizini (varsayılan: ikilinin dizini) — sınama; Windows'ta ASCII yol |
+| `TULPAR_GUNCELLEME_SURUM` | kurulu sürüm yerine geçen etiket — sınama |
+
+### Konsol
+
+Etiket `guncelleme`: her durum geçişi bir satır (denetleniyor / güncel / yeni sürüm /
+indiriliyor / doğrulanıyor / açılıyor / kurulmaya hazır + korunan her dosya / kuruldu /
+başarısız + sebep / iptal), ayar dosyası uyarıları, penceresiz red.
+
+### Ölçümler (arayüz)
+
+Makine: AMD Ryzen 7 9800X3D + RTX 5080, Linux (CachyOS), GCC 16.2 Release — 2026-09-25.
+
+| ne | sayı | nerede |
+|---|---|---|
+| editörün kare başı yolu, boşta (`update_ui_poll` + `update_ui_badge` + kapalı `update_ui_draw`) | **4.6 ns/kare** (10⁶ kare), `operator new` 0 | `editor_update_headless_never_requests_positive_control_counts` |
+| pencereler kapalı, rozet yok: ImGui köşe sayısı | `update_ui_draw` ile **216 == 216** onsuz | `editor_update_badge_and_window_render_headless` |
+| penceresiz editör, 60 kare p50 (aynı sahne, önce/sonra iç içe 5'er koşu, medyan; "önce" = güncelleme özelliğinden önceki main `f3babc6`) | önce **13.08 ms**, sonra **12.99 ms** (ilk tur 13.00 / 13.01) | elle (`--headless 60`) |
+| açılış (1 karelik penceresiz koşunun duvar süresi, 5 koşu medyanı) | önce **159 ms**, sonra **158 ms** (ilk tur 158 / 160) | elle (`--headless 1`) |
+| aynı ölçüm, güncelleyici **etkin** (sahte paket dizini) | p50 **13.18 ms**, açılış **140 ms** | elle |
+
+### Testler (`tests/test_editor_update.cpp`)
+
+| kapı | pozitif kontrolü |
+|---|---|
+| ayar dosyası gidiş-dönüş bayt bayt; 8 bozuk satır yok sayılır ve sayılır | geçerli satırlar (boşluk/CRLF) uygulanır; ikinci kayıt hedef varken yerine taşır |
+| otomatik karar: her sebep tek başına | hepsi tutunca Go; tam 24 saat Go, 24 s − 1 Recent |
+| rozet kuralları + metni, yeniden başlatma argv'si | sığmayan argv kırpılmaz (0) |
+| penceresiz: istek 0, menü komutu reddedildi (red 1), ayar dosyası yazılmadı, kare yolu 0 ayırma | **aynı** yapılandırma pencereli: istek 1, `file://` fikstür Available, rozet `⬆ v9.9.9`, son denetim yazıldı |
+| sonda: sahte Available → rozete tıkla → pencere açılır ve çizilir; fare pencereyi tarar, kimlik çakışması 0; Staged/İndiriliyor/Failed/Disabled/Hakkında çizilir (PPM) | Available değilken (Idle) rozet yok, rozet alanında piksel farkı; kapalı pencerelerde köşe sayısı eşit |
+| gerçek ikili: `--surum`, `--guncelleme denetle` = 10 | fikstür kurulu sürüme eşitken 0; bilinmeyen fiil 2 |
+| gerçek ikili: `--guncelleme kur` uçtan uca (tar + SHA256SUMS + latest.json, file://) | kullanıcının dosyası yerinde, yenisi `.yeni`; bilinmeyen fiilde kurulum dizinine dokunulmaz |
+| gerçek ikili: penceresiz editörün güncelleme kapısı, **etkin** güncelleyiciyle | karar metni "penceresiz" (Disabled değil: kapı gerçekten kipi ölçüyor) |
+
+### Bilinen sınırlar (arayüz)
+
+- Kur + yeniden başlat zinciri penceresiz kipte **bilerek** koşturulamaz (penceresiz kip
+  indirmez); parçaları ayrı ölçülür: `kur` uçtan uca (CLI), yeniden başlatma argv'si
+  (birim), onay kutusu mevcut desen. Pencereli akış elle doğrulanır.
+- Başarısız otomatik denetim (ağ yok) sessiz değildir (Konsol'da uyarı satırı; elle denetim ve indirme hatası kırmızı) ama
+  rozet göstermez; bir sonraki deneme 24 saat sonra ya da bir sonraki açılışta.
+- Aynı makinede iki editör aynı ayar dosyasını paylaşır (son yazan kazanır).
+- macOS: paket bir `.app` değil; yeniden başlatma çıplak ikiliyi açar (bugünkü paketle
+  aynı).
 
 ## Paket biçimi (PR #63) ve çekirdeğin yeniden denetimi
 

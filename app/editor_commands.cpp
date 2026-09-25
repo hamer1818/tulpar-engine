@@ -133,6 +133,16 @@ constexpr CommandDesc k_defaults[] = {
     {CommandId::PlayRunGame, CommandCategory::Play, kCmdCheckable, chord_of(kModCtrl, kKeyF5), kChordNone, "oynat.oyunu_calistir",
      "Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r / durdur",
      "Sahneyi derler, onu yukleyen Tulpar oyununu KENDI penceresinde calistirir; ciktisi Konsol'a akar"},
+    // Yardim: editor ici guncelleme (app/editor_update.hpp). Kisayolsuz — nadir
+    // kullanilir, tus haritasinda yer kaplamasin. Kaynak derlemesinde de ETKIN:
+    // pencere "neden kapali"yi ve "git pull && ./derle.sh" yolunu soyler (soluk
+    // bir satir sebebini soylemezdi).
+    {CommandId::HelpCheckUpdates, CommandCategory::Help, kCmdNone, kChordNone, kChordNone, "yardim.guncelleme_denetle",
+     "G\xC3\xBCncellemeleri denetle\xE2\x80\xA6", "GitHub'daki en son surumu sorar; yenisi varsa indirip kurmayi onerir"},
+    {CommandId::HelpAutoCheck, CommandCategory::Help, kCmdCheckable, kChordNone, kChordNone, "yardim.otomatik_denetle", "Otomatik denetle",
+     "Acilista ve gunde bir kez yeni surumu kendiliginden sorar (~/.tulpar_guncelleme)"},
+    {CommandId::HelpAbout, CommandCategory::Help, kCmdNone, kChordNone, kChordNone, "yardim.hakkinda", "Hakk\xC4\xB1nda",
+     "Surum, platform, kurulum dizini ve guncelleyicinin durumu"},
 };
 
 constexpr uint32_t k_default_count = (uint32_t)(sizeof(k_defaults) / sizeof(k_defaults[0]));
@@ -211,7 +221,8 @@ const char *key_name(Chord k) {
   }
 }
 
-constexpr const char *k_category_names[kCommandCategoryCount] = {"Dosya", "D\xC3\xBCzen", "Se\xC3\xA7im", "G\xC3\xB6r\xC3\xBCn\xC3\xBCm", "Gizmo", "Oynat"};
+constexpr const char *k_category_names[kCommandCategoryCount] = {"Dosya", "D\xC3\xBCzen", "Se\xC3\xA7im", "G\xC3\xB6r\xC3\xBCn\xC3\xBCm", "Gizmo", "Oynat",
+                                                                 "Yard\xC4\xB1m"};
 
 // id -> dizi indeksi. Gecersiz id icin kCommandCount (= "yok") doner.
 uint32_t index_of(CommandId id) {

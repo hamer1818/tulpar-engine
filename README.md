@@ -169,6 +169,26 @@ sahneyi derler, onu yükleyen Tulpar oyununu **ayrı bir süreçte, kendi pencer
 - "Derle" artık navmesh'i de bake ediyor (`engine_sahnec` ile bayt bayt aynı blob); önceden
   etmiyordu ve sıcak yüklenen bir oyun navmesh'ini kaybediyordu.
 
+### Editörü güncellemek
+
+Paketten kurulmuş editör GitHub'daki yeni sürümü kendisi bulur: **Yardım → Güncellemeleri
+denetle…** (ya da yeni sürüm varken menü çubuğunun sağındaki **⬆ vX.Y.Z** rozeti) pencereyi açar —
+sürüm notları, **İndir ve kur** / **Sonra** / **Bu sürümü atla**. İndirme SHA-256 ile doğrulanır,
+kurmadan önce kaç dosyanın değişeceği ve **sizin değiştirdiğiniz** hangi dosyaların korunacağı
+(`<ad>.yeni`) gösterilir; **Kur ve yeniden başlat** kaydedilmemiş sahneyi önce sorar, editörü aynı
+argümanlarla yeniden açar. **Yardım → Otomatik denetle** açılışta ve günde bir kez sorar (ayar
+`~/.tulpar_guncelleme`; `TULPAR_GUNCELLEME=0` kapatır). Penceresiz kip (`--headless`) **hiçbir
+zaman** ağa çıkmaz.
+
+```bash
+engine_editor --surum                  # "v0.3.0 linux-x86_64" ya da "kaynak derlemesi linux-x86_64"
+engine_editor --guncelleme denetle     # çıkış: 0 güncel, 10 yeni sürüm var, 1 hata
+engine_editor --guncelleme kur         # indir + doğrula + kur (yeniden başlatmaz)
+```
+
+Kaynaktan derlenmiş editörde güncelleyici kapalıdır (`yapi/`nin üzerine paket açmak ağacı
+bozardı); pencere sebebini ve `git pull && ./derle.sh` yolunu söyler. Ayrıntı: `docs/GUNCELLEME.md`.
+
 **Doğrudan ikiliyi çağırırken dikkat:** `engine_editor` sahneyi yalnız `--scene` ile alır.
 Çıplak yol (`engine_editor x.sahne`) **sessizce yok sayılır** ve varsayılan sahne açılır;
 varsayılanı verdiğinizde fark görünmez. `editor.sh` çıplak yolu `--scene`'e çevirir.

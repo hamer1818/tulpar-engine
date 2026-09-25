@@ -1595,3 +1595,28 @@ yolunu gerçekten koşturur.
 karakterleri içermeli. ASCII fikstür, kodlama farkı olan iki yolu da "doğru" ölçer. Aynı
 süreçte iki kodlama (ACP ile çalışan eski yol, UTF-8 bekleyen yeni yol) varsa sınır açıkça
 çizilir: yeni kod eski yardımcının çıktısını (`exe_dir`) kullanmaz.
+
+### 8cm. "Sıfır istek" kapısı, ölçtüğü özellik KAPALIYKEN kendiliğinden geçer — kaynak derlemesinde güncelleyici hep kapalı
+
+**Bulgu** (2026-09-25, editör içi güncelleme arayüzü, `app/editor_update`): kapının iddiası
+"penceresiz editör güncelleyiciye hiç istek göndermez (sayaç 0)". CI ve geliştirici editörü
+kaynaktan derler: `build_version()` boş → güncelleyici **Disabled** → hiçbir yol istek
+göndermez; penceresiz koruması silinse bile sayaç 0 kalır. Kapı yeşil, ölçtüğü şey yok. Aynı
+sınıf fikstürde de yaşandı: çekirdek manifest biçimini sıkılaştırınca (`SURUM.txt`
+listelenmeli, satırlar bayt sıralı) arayüz testinin sahte paketi geçersiz oldu ve güncelleyici
+sessizce Disabled'a düştü — "penceresiz: istek 0" yine geçti. Yakalayan yalnız testin ayrıca
+sorduğu `durum != Disabled` satırıydı.
+
+**Neden sessiz:** "0" hem "koruma çalıştı" hem "korunacak iş hiç yoktu" demektir; sayaç ikisini
+ayırmaz. Kaynak derlemesi CI'ın TEK yapılandırması olduğu için ikinci anlam her koşumda doğrudur.
+
+**Düzeltme:** (1) kapı önce özelliğin AÇIK olduğunu iddia eder (`durum != Disabled`, karar metni
+"penceresiz" — "kapalı" değil); (2) `engine_tests` penceresiz editörü **etkin** bir fikstürle
+(sahte paket dizini + sürüm ezmesi, `TULPAR_GUNCELLEME_DIZIN`/`_SURUM`) koşturur; (3) editörün
+kendi kapısı reddi ayrıca sayar: menü yolu penceresiz kipte Disabled denetiminden ÖNCE
+reddedilir, `red 1` kaynak derlemesinde de ölçülür; (4) pozitif kontrol aynı yapılandırmanın
+pencerelisi: aynı sayaç 1 olur ve `file://` fikstür Available döner.
+
+**Ders:** "X hiç olmadı" iddiası, X'in OLABİLDİĞİ bir yapılandırmada ölçülür ve kapı o
+yapılandırmada olduğunu kendisi doğrular. Sıfır sayan her kapının yanında "burada sıfırdan
+fazlası mümkündü" satırı durur.

@@ -92,8 +92,9 @@ float status_font_base() {
 
 // --- Menu ayiraclari ---------------------------------------------------------
 // Bu komutlardan ONCE ayirac (kategoride ilk degilse): Kaydet | Derle,
-// Geri al / Yinele | Ekle / Sil. Menu modeli ile cizim ayni listeyi kullanir.
-constexpr CommandId k_separator_before[] = {CommandId::FileCompile, CommandId::EditDuplicate};
+// Geri al / Yinele | Ekle / Sil, guncelleme | Hakkinda. Menu modeli ile cizim
+// ayni listeyi kullanir.
+constexpr CommandId k_separator_before[] = {CommandId::FileCompile, CommandId::EditDuplicate, CommandId::HelpAbout};
 bool separator_before(CommandId id) {
   for (const CommandId s : k_separator_before)
     if (s == id) return true;
@@ -242,6 +243,7 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
   rec_clear(g_menu_hdr, kCommandCategoryCount);
   rec_clear(g_menu_item, kCommandCount);
   g_rects[(int)ChromeRect::MenuBar] = RectRec{};
+  g_rects[(int)ChromeRect::UpdateBadge] = RectRec{};
   g_stats = ChromeStats{};
   if (!ImGui::GetCurrentContext()) return;
 
@@ -301,10 +303,36 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
     ImGui::EndMenu();
   }
 
-  // Sag uc: urun adi, soluk. Sahne adi arac cubugunda (kirli noktasiyla birlikte).
+  // Sag uc: [guncelleme rozeti] urun adi (soluk). Sahne adi arac cubugunda
+  // (kirli noktasiyla birlikte).
   static const char kBrand[] = "Tulpar Editör";
   const float bw = ImGui::CalcTextSize(kBrand).x;
-  ImGui::SameLine(ImGui::GetWindowWidth() - bw - st.WindowPadding.x);
+  const float brand_x = ImGui::GetWindowWidth() - bw - st.WindowPadding.x;
+  // Rozet: yalniz metin varsa (yoksa ImGui'ye tek ek cagri bile gitmez). Hap
+  // bicimli, vurgu kenarlikli: "tiklanabilir bildirim" — menu basligiyla
+  // karismasin. Yukseklik menu satirinin kendisi (tiklama alani), hap onun
+  // icinde dikeyde ortalanir.
+  if (s.update_badge && s.update_badge[0]) {
+    const ImVec2 ts = ImGui::CalcTextSize(s.update_badge);
+    const float w = IM_TRUNC(ts.x + st.FramePadding.x * 2.0f);
+    const float h = ImGui::GetFrameHeight();
+    ImGui::SameLine(brand_x - st.ItemSpacing.x * 2.0f - w);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton("##guncelleme_rozeti", ImVec2(w, h));
+    const bool hov = ImGui::IsItemHovered();
+    rec_item(g_rects[(int)ChromeRect::UpdateBadge]);
+    const float inset = IM_TRUNC((h - ts.y) * 0.5f) - 1.0f > 0.0f ? IM_TRUNC((h - ts.y) * 0.5f) - 1.0f : 0.0f;
+    const ImVec2 a(p.x, p.y + inset), b(p.x + w, p.y + h - inset);
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    const float rr = (b.y - a.y) * 0.5f;
+    dl->AddRectFilled(a, b, tone_u32(Tone::Accent, hov ? 0.45f : 0.22f), rr);
+    dl->AddRect(a, b, tone_u32(Tone::Accent), rr, 1.0f); // 1.92.8+: (.., rounding, THICKNESS)
+    dl->AddText(ImVec2(IM_TRUNC(p.x + (w - ts.x) * 0.5f), IM_TRUNC(p.y + (h - ts.y) * 0.5f)), tone_u32(Tone::AccentHi), s.update_badge);
+    if (s.update_badge_tip) tip_last_item(s.update_badge_tip);
+    g_stats.badge_submitted++;
+    if (clicked && extra.on_badge) extra.on_badge(extra.ctx);
+  }
+  ImGui::SameLine(brand_x);
   ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextDim));
   ImGui::TextUnformatted(kBrand);
   ImGui::PopStyleColor();
