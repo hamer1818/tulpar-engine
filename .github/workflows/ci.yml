@@ -389,8 +389,15 @@ jobs:
       #
       # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
       # olmasin.
+      # Paket kokune SURUM.txt ("kaynak linux-x86_64": CI surumsuz derler) ve
+      # DOSYALAR.txt da yazilir; manifest kapisi (tools/paket_manifest.py)
+      # betigin --denetle adiminda PR'da da olcer. TULPAR_PAKET_PLATFORM:
+      # ikilinin basligindan turetilen platform bu isin etiketiyle celisirse
+      # KIRMIZI (release.yml'deki PLATFORM ile ayni deger).
       - name: Ciktilari topla
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        env:
+          TULPAR_PAKET_PLATFORM: linux-x86_64
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
@@ -780,8 +787,11 @@ jobs:
       #
       # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
       # olmasin.
+      # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki ayni adim.
       - name: Ciktilari topla
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        env:
+          TULPAR_PAKET_PLATFORM: macos-arm64
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
@@ -1002,8 +1012,11 @@ jobs:
       # suzgecten, digeri eksik sistem-DLL listesinden). Artik ayni betik
       # (tools/paket_denetle.sh) hem burada hem surumde kosuyor: PR'da yesilse
       # surumde de yesildir.
+      # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki "Ciktilari topla".
       - name: Paketle + yerlesim/DLL kapisi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        env:
+          TULPAR_PAKET_PLATFORM: windows-x86_64
         run: |
           set -euo pipefail
           mkdir -p paket/deneme
@@ -1012,6 +1025,8 @@ jobs:
 
       - name: Ciktilari topla (+ MinGW DLL'leri)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        env:
+          TULPAR_PAKET_PLATFORM: windows-x86_64
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle

@@ -19,6 +19,15 @@
 #           assets/fonts/<ttf + lisanslar>
 #           tests/assets/<demo ve editorun yukledigi varliklar>
 #           OKUBENI.md
+#           SURUM.txt              "<surum> <platform>\n" (kaynak derlemesi:
+#                                  "kaynak <platform>"); ikilideki isaretten
+#           DOSYALAR.txt           her dosyanin SHA-256'si, `sha256sum` bicimi
+#
+# SURUM.txt + DOSYALAR.txt editor ici guncelleyicinin (app/updater.hpp)
+# dayandigi MANIFESTTIR: "hangi surum" ve "kullanici bu dosyayi degistirdi
+# mi" sorularinin cevabi. Kesin bicim, symlink/bos dizin kurali ve kapinin
+# oz-sinamasi tools/paket_manifest.py basliginda. Paketin EN SON adimi olarak
+# yazilir (strip'ten SONRA: ozet, dagitilan baytin ozeti olmali).
 #
 # NEDEN VARLIKLAR DA PAKETTE (olculdu): ikililer varlik yollarini
 # "<exe dizini>/<goreli yol>" -> "<calisma dizini>/<goreli yol>" ->
@@ -768,6 +777,13 @@ paketle() {
   for t in "${IKILILER[@]}"; do
     [ -f "$cikti/$t$EXE" ] && strip "$cikti/$t$EXE" 2>/dev/null || true
   done
+
+  # 6) Manifest: SURUM.txt + DOSYALAR.txt. EN SON adim — bundan sonra pakete
+  # dokunan her sey (strip dahil) ozeti bayatlatir ve denetle() onu yakalar.
+  # Surum ELLE verilmez: engine_editor'daki `tulpar-engine-surum:` isaretinden
+  # okunur, platform ikilinin basligindan (bkz. tools/paket_manifest.py).
+  python3 "$kok/tools/paket_manifest.py" yaz "$cikti" || \
+    ci_hata "paket manifesti (SURUM.txt/DOSYALAR.txt) yazilamadi (yukaridaki satirlara bak)."
 }
 
 # --- Tamlik kapisi ---------------------------------------------------------
@@ -878,11 +894,33 @@ denetle() {
     done
   fi
 
+  # --- Manifest (SURUM.txt + DOSYALAR.txt) ---------------------------------
+  # Guncelleyici kullanicinin degistirdigi dosyayi DOSYALAR.txt'deki ozetle
+  # taniyor; yanlis bir satir ya bir kullanici dosyasini sessizce ezer ya da
+  # temiz bir paketi "bozuk" sayar. Kapi once KENDINI sinar (bozuk paketleri
+  # yakaliyor, temizini geciriyor mu), sonra bu paketi olcer: her satirin
+  # ozeti, listede olmayan/pakette olmayan dosya, sira, satir sonu, SURUM.txt
+  # = ikilideki surum + platform.
+  echo "  --- manifest (SURUM.txt + DOSYALAR.txt) ---"
+  local oz
+  if ! oz="$(python3 "$kok/tools/paket_manifest.py" --oz-sinama 2>&1)"; then
+    printf '%s\n' "$oz" >&2
+    ci_hata "manifest kapisinin oz-sinamasi KIRMIZI — kapi bozuk paketi yakalayamiyor ya da temizini geciremiyor; olcumune guvenilmez."
+  fi
+  # Ozet satiri + (varsa) GORUNUR atlamalar.
+  printf '%s\n' "$oz" | tr -d '\r' | grep -E 'ATLANDI:|sinama tuttu' | sed 's/^/  /' || true
+  if python3 "$kok/tools/paket_manifest.py" denetle "$cikti"; then
+    say=$((say + 1))
+  else
+    echo "  EKSIK   gecerli bir manifest (yukaridaki MANIFEST satirlari)"
+    eksik=$((eksik + 1))
+  fi
+
   [ "$say" -gt 0 ] || ci_hata "Turetilen varlik listesi BOS — kapi hicbir sey olcmuyordu."
   if [ "$eksik" -gt 0 ]; then
     ci_hata "Paket eksik: $eksik ogenin karsiligi yok. Bu paket calistirilabilir degil, yayinlanmaz."
   fi
-  echo "tamlik kapisi TAMAM: $say oge (varlik + dlopen kutuphanesi/lisansi + baslatici) + ${#IKILILER[@]} ikili + OKUBENI.md yerinde."
+  echo "tamlik kapisi TAMAM: $say oge (varlik + dlopen kutuphanesi/lisansi + baslatici + manifest) + ${#IKILILER[@]} ikili + OKUBENI.md yerinde."
 }
 
 # --- Giris -----------------------------------------------------------------

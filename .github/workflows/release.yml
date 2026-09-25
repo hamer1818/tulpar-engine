@@ -422,7 +422,9 @@ jobs:
             exit 1
           fi
           mkdir -p "paket/$AD"
-          bash tools/package.sh yapi "paket/$AD"
+          # TULPAR_PAKET_PLATFORM: SURUM.txt'nin platformu ikilinin basligindan
+          # turetilir; bu isin etiketiyle (PLATFORM) celisirse paketleme DURUR.
+          TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh yapi "paket/$AD"
           find "paket/$AD" -maxdepth 2 | sort
 
       # Paketin BICIMI denetlenir, icerigi CALISTIRILMAZ (pencere acilmaz).
@@ -451,12 +453,55 @@ jobs:
             echo "::error::Pakette OKUBENI.md yok."
             eksik=1
           fi
+          for f in SURUM.txt DOSYALAR.txt; do
+            if [ ! -s "$kok/$f" ]; then
+              echo "::error::Pakette $f yok — editor ici guncelleyici bu paketi taniyamaz."
+              eksik=1
+            fi
+          done
           if [ "$eksik" -ne 0 ]; then
             echo "Paket agaci:"
             find "$kok" -maxdepth 2 | sort
             exit 1
           fi
           echo "Paket yerlesimi tamam."
+
+      # EDITOR ICI GUNCELLEYICININ MANIFESTI (tools/paket_manifest.py). package.sh
+      # onu yazdi ve --denetle ile olctu (her ozet, fazla/eksik dosya, sira,
+      # satir sonu, SURUM.txt = ikilideki isaret + baslik). Burada iki BAGIMSIZ
+      # olcum daha:
+      #   1. SURUM.txt bayt bayt "$SURUM $PLATFORM\n" mi — ikiliyle degil,
+      #      `hazirlik` isinin KARARIYLA karsilastirma (ikili yanlis surumle
+      #      derlenmis olsaydi package.sh ikisini yine tutarli bulurdu).
+      #   2. DOSYALAR.txt STANDART aracla (sha256sum -c; yoksa shasum -a 256 -c)
+      #      dogrulaniyor mu — elle guncellemenin yolu bu komut, guncelleyici de
+      #      ayni bicimi okuyor. POZITIF KONTROL: bir kopyada tek bayt
+      #      degistirince ayni komut DUSMELI, yoksa dogrulama bir sey olcmuyordur.
+      - name: Manifest kapisi (SURUM.txt + DOSYALAR.txt)
+        run: |
+          set -euo pipefail
+          kok="paket/$AD"
+          if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
+          printf '%s %s\n' "$SURUM" "$PLATFORM" > beklenen_SURUM.txt
+          if ! cmp -s beklenen_SURUM.txt "$kok/SURUM.txt"; then
+            echo "::error::SURUM.txt '$(tr -d '\r\n' < "$kok/SURUM.txt" || true)', beklenen '$SURUM $PLATFORM' (tek satir, LF)."
+            od -c "$kok/SURUM.txt" | head -5 || true
+            exit 1
+          fi
+          if ! ( cd "$kok" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula.log 2>&1; then
+            grep -v ': OK$' dogrula.log || true
+            echo "::error::'${dogrula[*]} DOSYALAR.txt' paket kokunde GECMEDI."
+            exit 1
+          fi
+          rm -rf manifest_kontrol
+          cp -R "$kok" manifest_kontrol
+          printf 'x' >> manifest_kontrol/OKUBENI.md
+          if ( cd manifest_kontrol && "${dogrula[@]}" DOSYALAR.txt ) > /dev/null 2>&1; then
+            echo "::error::Pozitif kontrol basarisiz: OKUBENI.md degistirildigi halde '${dogrula[*]}' GECTI — yukaridaki dogrulama bir sey olcmuyor."
+            exit 1
+          fi
+          rm -rf manifest_kontrol
+          echo "Manifest tamam: SURUM.txt = '$SURUM $PLATFORM'; ${dogrula[*]}: $(wc -l < "$kok/DOSYALAR.txt" | tr -d ' ') dosya gecti, tek bayti degismis kopyada DUSTU."
 
       - name: Arsivle (.tar.gz)
         run: |
@@ -476,7 +521,47 @@ jobs:
             echo "::error::Arsivde yalnizca $adet girdi var — paket bos ya da yarim."
             exit 1
           fi
+          for f in SURUM.txt DOSYALAR.txt; do
+            if ! grep -qxF "$AD/$f" icerik.txt; then
+              echo "::error::Arsivde $AD/$f yok — guncelleyici bu paketi taniyamaz."
+              exit 1
+            fi
+          done
           echo "Arsiv tamam: ${AD}.tar.gz ($adet girdi)"
+
+      # KULLANICININ (VE GUNCELLEYICININ) ELINE GECEN BAYTLAR: arsivi GERI ac ve
+      # ayni kapilardan gecir. Guncelleyici Linux/macOS'ta sistemin `tar`i ile
+      # aciyor (app/updater.hpp); burada da o. Arsivdeki DOSYA girdisi sayisi
+      # da DOSYALAR.txt'ye esit olmali (+1: kendisi): macOS tar'i bir gun
+      # `._` AppleDouble girdileri eklerse macOS'ta acilirken xattr'a donusur,
+      # acilan agacta GORUNMEZ — onlari yalniz arsiv listesi yakalar.
+      - name: Arsivden acilan paket kapisi
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
+          rm -rf acilan
+          mkdir acilan
+          tar -xzf "${AD}.tar.gz" -C acilan
+          TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh --denetle "acilan/$AD"
+          if ! cmp -s beklenen_SURUM.txt "acilan/$AD/SURUM.txt"; then
+            echo "::error::Arsivden acilan SURUM.txt '$SURUM $PLATFORM' degil."
+            exit 1
+          fi
+          if ! ( cd "acilan/$AD" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula_acilan.log 2>&1; then
+            grep -v ': OK$' dogrula_acilan.log || true
+            echo "::error::Arsivden acilan pakette '${dogrula[*]} DOSYALAR.txt' GECMEDI — arsivleme baytlari degistirdi."
+            exit 1
+          fi
+          dosya="$(grep -cv '/$' icerik.txt || true)"
+          liste="$(wc -l < "acilan/$AD/DOSYALAR.txt" | tr -d '[:space:]')"
+          if [ "$dosya" -ne $((liste + 1)) ]; then
+            echo "::error::Arsivde $dosya dosya girdisi var; DOSYALAR.txt $liste dosya + kendisi = $((liste + 1)) diyor."
+            grep -v '/$' icerik.txt | sed "s|^$AD/||" | LC_ALL=C sort > arsiv_dosyalari.txt
+            { cut -c67- "acilan/$AD/DOSYALAR.txt"; echo DOSYALAR.txt; } | LC_ALL=C sort | diff - arsiv_dosyalari.txt || true
+            exit 1
+          fi
+          rm -rf acilan
+          echo "Acilan paket tamam: $dosya dosya girdisi; tamlik + manifest kapisi ve ${dogrula[*]} arsivden acilan agacta da gecti."
 
       - name: Arsivi yukle
         uses: actions/upload-artifact@v4
@@ -801,7 +886,9 @@ jobs:
             exit 1
           fi
           mkdir -p "paket/$AD"
-          bash tools/package.sh yapi "paket/$AD"
+          # TULPAR_PAKET_PLATFORM: SURUM.txt'nin platformu ikilinin basligindan
+          # turetilir; bu isin etiketiyle (PLATFORM) celisirse paketleme DURUR.
+          TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh yapi "paket/$AD"
           find "paket/$AD" -maxdepth 2 | sort
 
       - name: Paket yerlesimi kapisi
@@ -827,12 +914,55 @@ jobs:
             echo "::error::Pakette OKUBENI.md yok."
             eksik=1
           fi
+          for f in SURUM.txt DOSYALAR.txt; do
+            if [ ! -s "$kok/$f" ]; then
+              echo "::error::Pakette $f yok — editor ici guncelleyici bu paketi taniyamaz."
+              eksik=1
+            fi
+          done
           if [ "$eksik" -ne 0 ]; then
             echo "Paket agaci:"
             find "$kok" -maxdepth 2 | sort
             exit 1
           fi
           echo "Paket yerlesimi tamam."
+
+      # EDITOR ICI GUNCELLEYICININ MANIFESTI (tools/paket_manifest.py). package.sh
+      # onu yazdi ve --denetle ile olctu (her ozet, fazla/eksik dosya, sira,
+      # satir sonu, SURUM.txt = ikilideki isaret + baslik). Burada iki BAGIMSIZ
+      # olcum daha:
+      #   1. SURUM.txt bayt bayt "$SURUM $PLATFORM\n" mi — ikiliyle degil,
+      #      `hazirlik` isinin KARARIYLA karsilastirma (ikili yanlis surumle
+      #      derlenmis olsaydi package.sh ikisini yine tutarli bulurdu).
+      #   2. DOSYALAR.txt STANDART aracla (sha256sum -c; yoksa shasum -a 256 -c)
+      #      dogrulaniyor mu — elle guncellemenin yolu bu komut, guncelleyici de
+      #      ayni bicimi okuyor. POZITIF KONTROL: bir kopyada tek bayt
+      #      degistirince ayni komut DUSMELI, yoksa dogrulama bir sey olcmuyordur.
+      - name: Manifest kapisi (SURUM.txt + DOSYALAR.txt)
+        run: |
+          set -euo pipefail
+          kok="paket/$AD"
+          if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
+          printf '%s %s\n' "$SURUM" "$PLATFORM" > beklenen_SURUM.txt
+          if ! cmp -s beklenen_SURUM.txt "$kok/SURUM.txt"; then
+            echo "::error::SURUM.txt '$(tr -d '\r\n' < "$kok/SURUM.txt" || true)', beklenen '$SURUM $PLATFORM' (tek satir, LF)."
+            od -c "$kok/SURUM.txt" | head -5 || true
+            exit 1
+          fi
+          if ! ( cd "$kok" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula.log 2>&1; then
+            grep -v ': OK$' dogrula.log || true
+            echo "::error::'${dogrula[*]} DOSYALAR.txt' paket kokunde GECMEDI."
+            exit 1
+          fi
+          rm -rf manifest_kontrol
+          cp -R "$kok" manifest_kontrol
+          printf 'x' >> manifest_kontrol/OKUBENI.md
+          if ( cd manifest_kontrol && "${dogrula[@]}" DOSYALAR.txt ) > /dev/null 2>&1; then
+            echo "::error::Pozitif kontrol basarisiz: OKUBENI.md degistirildigi halde '${dogrula[*]}' GECTI — yukaridaki dogrulama bir sey olcmuyor."
+            exit 1
+          fi
+          rm -rf manifest_kontrol
+          echo "Manifest tamam: SURUM.txt = '$SURUM $PLATFORM'; ${dogrula[*]}: $(wc -l < "$kok/DOSYALAR.txt" | tr -d ' ') dosya gecti, tek bayti degismis kopyada DUSTU."
 
       - name: Arsivle (.tar.gz)
         run: |
@@ -850,7 +980,47 @@ jobs:
             echo "::error::Arsivde yalnizca $adet girdi var — paket bos ya da yarim."
             exit 1
           fi
+          for f in SURUM.txt DOSYALAR.txt; do
+            if ! grep -qxF "$AD/$f" icerik.txt; then
+              echo "::error::Arsivde $AD/$f yok — guncelleyici bu paketi taniyamaz."
+              exit 1
+            fi
+          done
           echo "Arsiv tamam: ${AD}.tar.gz ($adet girdi)"
+
+      # KULLANICININ (VE GUNCELLEYICININ) ELINE GECEN BAYTLAR: arsivi GERI ac ve
+      # ayni kapilardan gecir. Guncelleyici Linux/macOS'ta sistemin `tar`i ile
+      # aciyor (app/updater.hpp); burada da o. Arsivdeki DOSYA girdisi sayisi
+      # da DOSYALAR.txt'ye esit olmali (+1: kendisi): macOS tar'i bir gun
+      # `._` AppleDouble girdileri eklerse macOS'ta acilirken xattr'a donusur,
+      # acilan agacta GORUNMEZ — onlari yalniz arsiv listesi yakalar.
+      - name: Arsivden acilan paket kapisi
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
+          rm -rf acilan
+          mkdir acilan
+          tar -xzf "${AD}.tar.gz" -C acilan
+          TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh --denetle "acilan/$AD"
+          if ! cmp -s beklenen_SURUM.txt "acilan/$AD/SURUM.txt"; then
+            echo "::error::Arsivden acilan SURUM.txt '$SURUM $PLATFORM' degil."
+            exit 1
+          fi
+          if ! ( cd "acilan/$AD" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula_acilan.log 2>&1; then
+            grep -v ': OK$' dogrula_acilan.log || true
+            echo "::error::Arsivden acilan pakette '${dogrula[*]} DOSYALAR.txt' GECMEDI — arsivleme baytlari degistirdi."
+            exit 1
+          fi
+          dosya="$(grep -cv '/$' icerik.txt || true)"
+          liste="$(wc -l < "acilan/$AD/DOSYALAR.txt" | tr -d '[:space:]')"
+          if [ "$dosya" -ne $((liste + 1)) ]; then
+            echo "::error::Arsivde $dosya dosya girdisi var; DOSYALAR.txt $liste dosya + kendisi = $((liste + 1)) diyor."
+            grep -v '/$' icerik.txt | sed "s|^$AD/||" | LC_ALL=C sort > arsiv_dosyalari.txt
+            { cut -c67- "acilan/$AD/DOSYALAR.txt"; echo DOSYALAR.txt; } | LC_ALL=C sort | diff - arsiv_dosyalari.txt || true
+            exit 1
+          fi
+          rm -rf acilan
+          echo "Acilan paket tamam: $dosya dosya girdisi; tamlik + manifest kapisi ve ${dogrula[*]} arsivden acilan agacta da gecti."
 
       - name: Arsivi yukle
         uses: actions/upload-artifact@v4
@@ -1023,7 +1193,9 @@ jobs:
             exit 1
           fi
           mkdir -p "paket/$AD"
-          bash tools/package.sh yapi "paket/$AD"
+          # TULPAR_PAKET_PLATFORM: SURUM.txt'nin platformu ikilinin basligindan
+          # turetilir; bu isin etiketiyle (PLATFORM) celisirse paketleme DURUR.
+          TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh yapi "paket/$AD"
           find "paket/$AD" -maxdepth 2 | sort
 
       # Windows'ta DLL'LER SART ve IKI SINIF var:
@@ -1036,6 +1208,36 @@ jobs:
       # asagidaki kapi birincisini ITHALAT TABLOSUNDAN olcer.
       - name: Paket yerlesimi kapisi (+ MinGW DLL'leri)
         run: bash tools/paket_denetle.sh yapi "paket/$AD"
+
+      # EDITOR ICI GUNCELLEYICININ MANIFESTI — Linux/macOS islerindeki adimla
+      # AYNI metin (gerekceler orada). MSYS2'de sha256sum var (coreutils).
+      # SATIR SONU: DOSYALAR.txt ve SURUM.txt Windows'ta da yalniz LF;
+      # `cmp` bayt bayt karsilastirdigi icin bir CRLF sizmasi burada KIRMIZI.
+      - name: Manifest kapisi (SURUM.txt + DOSYALAR.txt)
+        run: |
+          set -euo pipefail
+          kok="paket/$AD"
+          if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
+          printf '%s %s\n' "$SURUM" "$PLATFORM" > beklenen_SURUM.txt
+          if ! cmp -s beklenen_SURUM.txt "$kok/SURUM.txt"; then
+            echo "::error::SURUM.txt '$(tr -d '\r\n' < "$kok/SURUM.txt" || true)', beklenen '$SURUM $PLATFORM' (tek satir, LF)."
+            od -c "$kok/SURUM.txt" | head -5 || true
+            exit 1
+          fi
+          if ! ( cd "$kok" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula.log 2>&1; then
+            grep -v ': OK$' dogrula.log || true
+            echo "::error::'${dogrula[*]} DOSYALAR.txt' paket kokunde GECMEDI."
+            exit 1
+          fi
+          rm -rf manifest_kontrol
+          cp -R "$kok" manifest_kontrol
+          printf 'x' >> manifest_kontrol/OKUBENI.md
+          if ( cd manifest_kontrol && "${dogrula[@]}" DOSYALAR.txt ) > /dev/null 2>&1; then
+            echo "::error::Pozitif kontrol basarisiz: OKUBENI.md degistirildigi halde '${dogrula[*]}' GECTI — yukaridaki dogrulama bir sey olcmuyor."
+            exit 1
+          fi
+          rm -rf manifest_kontrol
+          echo "Manifest tamam: SURUM.txt = '$SURUM $PLATFORM'; ${dogrula[*]}: $(wc -l < "$kok/DOSYALAR.txt" | tr -d ' ') dosya gecti, tek bayti degismis kopyada DUSTU."
 
       # zip, MSYS2 paket listesine EKLENMEDI (liste CI ile birebir kalsin ve
       # setup-msys2 onbellegi isabet etsin). Zaten kurulu olan python3 ile
@@ -1055,10 +1257,55 @@ jobs:
           if ust != {ad}:
               print(f"::error::Arsivde tek ust dizin yok (bulunan: {sorted(ust)}).")
               sys.exit(1)
+          for f in ("SURUM.txt", "DOSYALAR.txt"):
+              if f"{ad}/{f}" not in girdiler:
+                  print(f"::error::Arsivde {ad}/{f} yok — guncelleyici bu paketi taniyamaz.")
+                  sys.exit(1)
           for g in girdiler[:25]:
               print(g)
           print(f"Arsiv tamam: {ad}.zip ({len(girdiler)} girdi)")
           PY
+
+      # KULLANICININ (VE GUNCELLEYICININ) ELINE GECEN BAYTLAR: zip'i GERI ac ve
+      # ayni kapilardan gecir. Guncelleyici Windows'ta zip'i TAM YOLLA
+      # %SystemRoot%\System32\tar.exe (bsdtar) ile aciyor (app/updater.hpp);
+      # burada da TAM OLARAK o arac. MSYS2'nin GNU tar'i zip acamaz; python
+      # zipfile ile acmak ise guncelleyicinin yolunu olcmezdi.
+      - name: Arsivden acilan paket kapisi (System32 tar)
+        run: |
+          set -euo pipefail
+          systar="$(cygpath -u "${SYSTEMROOT:-${WINDIR:-C:/Windows}}")/System32/tar.exe"
+          if [ ! -f "$systar" ]; then
+            echo "::error::$systar yok — guncelleyicinin zip acma yolu bu runner'da olculemiyor."
+            exit 1
+          fi
+          "$systar" --version
+          rm -rf acilan
+          mkdir acilan
+          ( cd acilan && "$systar" -xf "../${AD}.zip" )
+          TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh --denetle "acilan/$AD"
+          if ! cmp -s beklenen_SURUM.txt "acilan/$AD/SURUM.txt"; then
+            echo "::error::Arsivden acilan SURUM.txt '$SURUM $PLATFORM' degil."
+            exit 1
+          fi
+          if ! ( cd "acilan/$AD" && sha256sum -c DOSYALAR.txt ) > dogrula_acilan.log 2>&1; then
+            grep -v ': OK$' dogrula_acilan.log || true
+            echo "::error::Arsivden acilan pakette 'sha256sum -c DOSYALAR.txt' GECMEDI — arsivleme baytlari degistirdi."
+            exit 1
+          fi
+          # zip'teki DOSYA girdisi sayisi = DOSYALAR.txt satiri + 1 (kendisi).
+          python3 - <<'PY'
+          import os, sys, zipfile
+          ad = os.environ["AD"]
+          dosya = [g for g in zipfile.ZipFile(ad + ".zip").namelist() if not g.endswith("/")]
+          with open(os.path.join("acilan", ad, "DOSYALAR.txt"), "rb") as f:
+              liste = f.read().count(b"\n")
+          if len(dosya) != liste + 1:
+              print(f"::error::Zip'te {len(dosya)} dosya girdisi var; DOSYALAR.txt {liste} dosya + kendisi = {liste + 1} diyor.")
+              sys.exit(1)
+          print(f"Acilan paket tamam: {len(dosya)} dosya girdisi; tamlik + manifest kapisi ve sha256sum -c System32 tar ile acilan agacta da gecti.")
+          PY
+          rm -rf acilan
 
       - name: Arsivi yukle
         uses: actions/upload-artifact@v4
