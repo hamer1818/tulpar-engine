@@ -423,6 +423,7 @@ kodu vendor'lanabilecek bir kaynak olup olmadığını söyler — bu satırlar�
 |---|---|---|---|---|
 | Çoklu nesne düzenleme | Details | Inspector | ✅ **yapıldı** — 101 alan-yaprağı, bit alanları ayrı | kendi (veri modeli) |
 | Özellik araması | Details arama | — | ✅ **yapıldı** | hiyerarşi aramasının yeniden kullanımı |
+| Betik değişkenini varlık başına düzenleme | Instance Editable | `[SerializeField]` | ✅ **yapıldı** (E5) — betikten taranan bildirimler, varsayılan/üstüne yazma/yetim, görünümde `nokta` işareti | kendi (betik tarayıcı, `app/editor_props`) |
 | Görünüm kipleri | View Mode | Draw Mode | ✅ Aydınlatmalı / Işıksız / Çarpışma / Sınırlar — ❌ tel kafes | tel kafes: barycentric (shader işi) |
 | Prefab / Blueprint | Blueprint | Prefab | ✅ **yapıldı** — kaydet + örnekle, geri alınabilir | `.sahne` biçimi yeniden kullanıldı |
 | Panel düzeni kalıcılığı | var | var | ✅ **yapıldı** — aç/kapa otomatik + menü | mevcut `editor_layout` |

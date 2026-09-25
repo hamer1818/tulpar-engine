@@ -44,6 +44,19 @@ bool prop_begin(const char *id, float label_fraction = 0.38f);
 void prop_end();
 // Bir SONRAKI satirin etiket ipucuna eklenecek aciklama (tek kare gecerli).
 void prop_help(const char *text);
+// Bir SONRAKI satirin etiket tonu (varsayilan TextDim). Nesne ozellikleri:
+// ustune yazilmis deger parlak, betigin varsayilani soluk, yetim Warn.
+void prop_label_tone(Tone t);
+// Bir SONRAKI satirin deger hucresinin SAGINDA `w` piksel bos birakir; satir
+// cizildikten hemen sonra prop_trailing_button o yere simge dugmesi koyar
+// (ozelliklerde "varsayilana don" / "sil"). Tek satirlik.
+void prop_reserve_trailing(float w);
+// Ayrilmis yere saydam simge dugmesi; icon == nullptr: yer bos kalir (hizali
+// satirlar icin). Donus: basildi. Satir suzgecle GIZLENDIYSE hicbir sey cizmez
+// ve false doner (dugme baska bir satirin yanina kaymaz).
+bool prop_trailing_button(const char *icon, const char *tooltip);
+// Son prop_* cagrisi bir satir CIZDI mi (suzgec gizlemediyse true).
+bool prop_row_drawn();
 // Ozellik aramasi: bos degilse etiketi eslesmeyen prop_* satirlari cizilmez.
 // Cagiran panel basinda ayarlar, panel sonunda nullptr ile temizler.
 void prop_set_filter(const char *filter);
@@ -53,7 +66,7 @@ bool prop_filter_active();
 // (Unity/Godot). min == max: sinirsiz. Rozet alanin sol kenarina yapisiktir.
 PropItem prop_vec3(const char *label, float v[3], float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
 PropItem prop_float(const char *label, float *v, float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
-PropItem prop_int(const char *label, int *v, int min = 0, int max = 0);
+PropItem prop_int(const char *label, int *v, int min = 0, int max = 0, const char *fmt = "%d");
 PropItem prop_text(const char *label, char *buf, uint32_t cap);
 // Satir genisliginde renk ornegi (uzerinde altigen kod); tiklayinca secici
 // acilir. Bir secici oturumu = bir duzenleme: activated acilista,
@@ -265,5 +278,7 @@ const ComponentHeaderLayout &component_header_last_layout();
 const HierarchyRowLayout &hierarchy_row_last_layout();
 // Son prop_* satirinin ana widget dikdortgeni (renk ornegi, kutu, onay...).
 const WidgetRect &prop_last_rect();
+// Son CIZILEN prop_trailing_button dikdortgeni.
+const WidgetRect &prop_trailing_last_rect();
 
 } // namespace tulpar::engine::app
