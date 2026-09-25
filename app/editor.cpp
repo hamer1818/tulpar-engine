@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "app/editor_app.hpp"
+#include "core/build_info.hpp"
 #include "platform/startup_report.hpp"
 #include "platform/window.hpp"
 
@@ -44,7 +45,12 @@ int main(int argc, char **argv) {
   if (o.headless_frames > 0) return app::editor_run(o, nullptr);
   platform::Window win;
   platform::WindowConfig wc;
-  wc.width = o.width; wc.height = o.height; wc.title = "Tulpar Editor";
+  // Baslikta surum: kullanici hangi paketi calistirdigini gorur (hata
+  // bildiriminde ilk soru). Kaynak derlemesinde surum bos, baslik eskisi gibi.
+  char title[64];
+  const char *surum = build_version();
+  std::snprintf(title, sizeof title, surum[0] ? "Tulpar Editor %s" : "Tulpar Editor", surum);
+  wc.width = o.width; wc.height = o.height; wc.title = title;
   // Hata IKI yere: stderr (degismedi) + <ikili dizini>/engine_hata.log.
   // .exe'ye cift tiklayan kullanici konsolu goremez; gunluk onun icin.
   if (!win.open(wc)) { platform::startup_failure("pencere: %s", win.last_error()); return 1; }

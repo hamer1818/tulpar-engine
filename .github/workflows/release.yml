@@ -258,10 +258,34 @@ jobs:
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DTULPAR_SURUM="$SURUM"
 
       - name: Derle
         run: cmake --build yapi -j"$(nproc)"
+
+      # Surum ve platform ikiliye GERCEKTEN gomuldu mu (core/build_info.cpp'deki
+      # isaret dizgisi). "-D verildi ama ikili bilmiyor" (makro yanlis dosyaya,
+      # onbellekten eski nesne) editorun guncelleyicisini SESSIZCE kapatirdi:
+      # paket kendini "kaynak derlemesi" sanardi. Esitlik TAM aranir — on-ek
+      # eslesmesi v0.1.4'u v0.1.43'te de bulurdu. -m1: grep ilk satirda durur,
+      # boru yok (pipefail + erken kapanan okuyucu tuzagi, Tuzaklar 8cj).
+      - name: Surum ikilide mi
+        run: |
+          set -euo pipefail
+          exe=yapi/engine_editor
+          if [ -f "$exe.exe" ]; then exe="$exe.exe"; fi
+          gomulu="$(LC_ALL=C grep -a -o -m1 -E 'tulpar-engine-surum:[0-9A-Za-z.-]*' "$exe" || true)"
+          gomulu="${gomulu%%$'\n'*}"
+          if [ "$gomulu" != "tulpar-engine-surum:${SURUM}" ]; then
+            echo "::error::engine_editor'a gomulu surum '${gomulu:-YOK}', beklenen 'tulpar-engine-surum:${SURUM}'."
+            exit 1
+          fi
+          if ! LC_ALL=C grep -a -q -F "$PLATFORM" "$exe"; then
+            echo "::error::engine_editor'da platform etiketi '$PLATFORM' yok — core/build_info.cpp bu derleyici makrolarinda baska bir etiket seciyor; guncelleyici yanlis arsivi isterdi."
+            exit 1
+          fi
+          echo "gomulu: $gomulu ($PLATFORM)"
 
       # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
       # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
@@ -609,10 +633,34 @@ jobs:
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DTULPAR_SURUM="$SURUM"
 
       - name: Derle
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      # Surum ve platform ikiliye GERCEKTEN gomuldu mu (core/build_info.cpp'deki
+      # isaret dizgisi). "-D verildi ama ikili bilmiyor" (makro yanlis dosyaya,
+      # onbellekten eski nesne) editorun guncelleyicisini SESSIZCE kapatirdi:
+      # paket kendini "kaynak derlemesi" sanardi. Esitlik TAM aranir — on-ek
+      # eslesmesi v0.1.4'u v0.1.43'te de bulurdu. -m1: grep ilk satirda durur,
+      # boru yok (pipefail + erken kapanan okuyucu tuzagi, Tuzaklar 8cj).
+      - name: Surum ikilide mi
+        run: |
+          set -euo pipefail
+          exe=yapi/engine_editor
+          if [ -f "$exe.exe" ]; then exe="$exe.exe"; fi
+          gomulu="$(LC_ALL=C grep -a -o -m1 -E 'tulpar-engine-surum:[0-9A-Za-z.-]*' "$exe" || true)"
+          gomulu="${gomulu%%$'\n'*}"
+          if [ "$gomulu" != "tulpar-engine-surum:${SURUM}" ]; then
+            echo "::error::engine_editor'a gomulu surum '${gomulu:-YOK}', beklenen 'tulpar-engine-surum:${SURUM}'."
+            exit 1
+          fi
+          if ! LC_ALL=C grep -a -q -F "$PLATFORM" "$exe"; then
+            echo "::error::engine_editor'da platform etiketi '$PLATFORM' yok — core/build_info.cpp bu derleyici makrolarinda baska bir etiket seciyor; guncelleyici yanlis arsivi isterdi."
+            exit 1
+          fi
+          echo "gomulu: $gomulu ($PLATFORM)"
 
       # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
       # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
@@ -876,10 +924,34 @@ jobs:
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DTULPAR_SURUM="$SURUM"
 
       - name: Derle
         run: cmake --build yapi -j"$(nproc)"
+
+      # Surum ve platform ikiliye GERCEKTEN gomuldu mu (core/build_info.cpp'deki
+      # isaret dizgisi). "-D verildi ama ikili bilmiyor" (makro yanlis dosyaya,
+      # onbellekten eski nesne) editorun guncelleyicisini SESSIZCE kapatirdi:
+      # paket kendini "kaynak derlemesi" sanardi. Esitlik TAM aranir — on-ek
+      # eslesmesi v0.1.4'u v0.1.43'te de bulurdu. -m1: grep ilk satirda durur,
+      # boru yok (pipefail + erken kapanan okuyucu tuzagi, Tuzaklar 8cj).
+      - name: Surum ikilide mi
+        run: |
+          set -euo pipefail
+          exe=yapi/engine_editor
+          if [ -f "$exe.exe" ]; then exe="$exe.exe"; fi
+          gomulu="$(LC_ALL=C grep -a -o -m1 -E 'tulpar-engine-surum:[0-9A-Za-z.-]*' "$exe" || true)"
+          gomulu="${gomulu%%$'\n'*}"
+          if [ "$gomulu" != "tulpar-engine-surum:${SURUM}" ]; then
+            echo "::error::engine_editor'a gomulu surum '${gomulu:-YOK}', beklenen 'tulpar-engine-surum:${SURUM}'."
+            exit 1
+          fi
+          if ! LC_ALL=C grep -a -q -F "$PLATFORM" "$exe"; then
+            echo "::error::engine_editor'da platform etiketi '$PLATFORM' yok — core/build_info.cpp bu derleyici makrolarinda baska bir etiket seciyor; guncelleyici yanlis arsivi isterdi."
+            exit 1
+          fi
+          echo "gomulu: $gomulu ($PLATFORM)"
 
       # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
       # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.

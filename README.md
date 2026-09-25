@@ -101,6 +101,8 @@ cmake -S . -B build-android -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.tool
 
 Seçenekler: `ENGINE_MEM_CANARY` (arena taşma kanaryaları, varsayılan ON — ship'te kapat),
 `ENGINE_TRACY` (Tracy istemcisi, varsayılan OFF), `ENGINE_SWAPPY` (Android kare temposu).
+`TULPAR_SURUM` (ikiliye gömülen sürüm etiketi `vX.Y.Z[-önek]`; boş = kaynak derlemesi, editör
+başlığında ve güncelleyicide görünür — `release.yml` her platformda verir ve gömüldüğünü ikilide arar).
 
 ### Ne çıkıyor
 
