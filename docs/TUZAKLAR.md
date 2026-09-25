@@ -1620,3 +1620,26 @@ pencerelisi: aynı sayaç 1 olur ve `file://` fikstür Available döner.
 **Ders:** "X hiç olmadı" iddiası, X'in OLABİLDİĞİ bir yapılandırmada ölçülür ve kapı o
 yapılandırmada olduğunu kendisi doğrular. Sıfır sayan her kapının yanında "burada sıfırdan
 fazlası mümkündü" satırı durur.
+
+### 8cn. `Surum: minor` PR açıklamasında yazıldı, squash commit'ine hiç gelmedi — iki özellik sürümü sessizce yama çıktı
+
+**Bulgu** (2026-09-25, editör içi güncelleme, #66): PR açıklamasında tek satır `Surum: minor`
+vardı, `otomatik-surum.yml` yine **yama** çıkardı: v0.2.0 yerine v0.1.47. Geriye bakınca #56
+(kare belleği, `Surum: minor`) da aynı yoldan v0.1.37 olmuştu. İş akışının kendi yorumu
+"squash merge PR gövdesini commit gövdesine koyduğu için PR'da yazmak yeterli" diyordu; bu
+depoda **yanlış**: `squash_merge_commit_message = COMMIT_MESSAGES` — squash gövdesi dal
+commit'lerinin mesajlarıdır, PR açıklaması oraya hiç girmez.
+
+**Neden sessiz:** "seviye bulunamadı" ile "seviye istenmedi" aynı sonucu verir (yama) ve her
+iki durumda da sürüm çıkar, Release yayınlanır, iş yeşildir. İş özetindeki `artis: patch`
+satırı doğruydu ama kimse "minor istemiştim" diye karşılaştırmadı.
+
+**Düzeltme:** iş akışı birleşen PR'ı commit'ten API ile bulur (`commits/<sha>/pulls`, main'e
+birleşmiş olan), açıklamasını da okur; PR ile commit mesajından BÜYÜK seviye kazanır. İş
+özetinde seviyenin **kaynağı** yazılır (`minor (PR #66 açıklaması)`). API okunamazsa uyarı +
+özet satırı, sessiz düşüş yok. Pozitif kontrol (yerel, 2026-09-25, iş akışı adımının kendisi
+gerçek PR'larla): #66 → minor, #56 → minor (ikisi de eskiden yama), #65/#63 → yama, geçersiz
+belirteç → uyarı + commit mesajı.
+
+**Ders:** bir yapılandırma satırının "nereye gittiği" varsayılmaz, okunduğu yerde ölçülür.
+Depo ayarı (squash mesajı) değişebilen bir girdi; ayara değil, verinin asıl kaynağına (PR) bak.
