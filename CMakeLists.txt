@@ -86,6 +86,7 @@ add_library(engine_platform STATIC
     platform/thermal.cpp
     platform/perf_hint.cpp
     platform/process.cpp
+    platform/fs_ops.cpp
     platform/game_channel.cpp
 )
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
@@ -166,6 +167,7 @@ add_library(engine_core STATIC
     core/math/spatial_hash.cpp
     core/math/nn.cpp
     core/profiler/profiler.cpp
+    core/crypto/sha256.cpp
     core/jobs/fiber_switch_x86_64.S
     core/jobs/fiber_switch_aarch64.S
 )
@@ -383,6 +385,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_crash.cpp
     tests/test_process.cpp
     tests/test_build_info.cpp
+    tests/test_sha256.cpp
     tests/test_math.cpp
     tests/test_containers.cpp
     tests/test_rhi.cpp
@@ -475,6 +478,9 @@ if(NOT ANDROID)
     target_compile_definitions(engine_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
     target_compile_options(engine_imgui PRIVATE -fno-exceptions -fno-rtti -w)
     list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_game_channel.cpp)
+    # Guncelleyici cekirdegi (app/updater): curl/tar alt surecleri + kurulum
+    # agaci. Yalniz masaustu editorunde yasar; Android'de guncelleme magazadan.
+    list(APPEND ENGINE_TEST_SOURCES tests/test_updater.cpp app/updater.cpp)
 endif()
 
 add_executable(engine_tests ${ENGINE_TEST_SOURCES} app/virtual_stick.cpp core/memory/alloc_gate_override.cpp)
@@ -523,7 +529,7 @@ if(NOT ANDROID)
     # derleme bayraklari burada da uygulanabilir.
     target_compile_options(engine_clodbake PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
     # --- engine_editor: motor duzenleme kipinde (ImGui paneller + ImGuizmo), masaustu / headless
-    add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/demo_scene.cpp)
+    add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/demo_scene.cpp app/updater.cpp)
     target_link_libraries(engine_editor PRIVATE engine_content engine_renderer engine_sim engine_audio engine_rhi engine_core engine_imgui ${CMAKE_DL_LIBS})
     if(WIN32)
         # psapi: durum cubugundaki RSS sayaci (GetProcessMemoryInfo). /proc yok.
