@@ -120,6 +120,24 @@ typedef struct TengScriptVm {
   int (*has)(const char *fn);
   // Cagir. argc <= 8 (Tulpar'in dinamik cagri tavani). Donus: cagrildi mi.
   int (*call)(const char *fn, const double *args, int argc);
+  // --- HIZLI YOL (istege bagli; SONA eklendi) ------------------------------
+  // `resolve` adi YUKLEMEDE bir kez cozer: donus opak bir giris noktasi
+  // (nullptr = yok), `*arity` onun parametre sayisi (-1 = bilinmiyor; o zaman
+  // argc'ye guvenilir). `invoke` onu kare icinde ADSIZ cagirir: ad kurma yok,
+  // hash yok, ayirma yok. Eksik parametre VOID ile doldurulur, fazlasi duser.
+  // Neden: `call` yolu Tulpar'da adi HER CAGRIDA yeni bir dizgiye kopyaliyor
+  // (72 bayt). Olculdu (2026-09-25, RTX 5080 + Ryzen 7 9800X3D masaustu, 200
+  // bos kanca, tools/kanca_olcumu.py): eski yol kanca basina ~52-68 ns; kare
+  // bellegi (engine.tpr, #56) dizgiyi kare sonunda geri sariyor, kapaliyken
+  // (TULPAR_KARE_BELLEK=0) ya da kare disi cagrida kare basina +14.4 KB
+  // KALICI. Bu yol ~4.5-9 ns, iki durumda da kancaya dusen buyume 0.
+  // Bu iki alan YALNIZ teng_set_script_vm_v2 ile kurulan VM'de okunur (asagi
+  // bak); ikisi birden verilmeli, biri null ise eski yol (`{has, call}` ile
+  // kurulan sahte VM'ler). Kancayi cozen VM kurulumdan sonra DEGISIRSE
+  // saklanan isaretci o VM'e verilmez: cagri yeni VM'in `call`una ADIYLA
+  // gider (eski yolun davranisi).
+  void *(*resolve)(const char *fn, int *arity);
+  int (*invoke)(void *fn, int arity, const double *args, int argc);
 } TengScriptVm;
 // Tulpar tarafi bunu eng_init sirasinda BIR KEZ kuruyor. nullptr: betik
 // yasam dongusu KAPALI (motor yalnizca atamayi tasir — eski davranis).
@@ -128,6 +146,14 @@ typedef struct TengScriptVm {
 // kEngScriptVm veriyor; yiginda duran bir yapi vermek, kapsamdan cikinca her
 // kare cop isaretci cagirir.
 void teng_set_script_vm(const TengScriptVm *vm);
+// SURUM KAYMASINA KARSI iki kurulum. teng_set_script_vm yapinin YALNIZ ilk iki
+// alanini (has, call) okur: resolve/invoke'u bilmeyen ESKI bir baglama (2
+// alanli kEngScriptVm; motordan once kurulmus bir derleyicinin
+// libtulpar_runtime'i) yeni motor arsiviyle linklenirse motor o yapinin
+// SONUNDAKI bellegi isaretci diye okumasin. Dort alani okuyan kurulum bu;
+// uretilmis baglama bunu cagirir. Eski motor arsivinde sembol YOK, yani yeni
+// baglama + eski motor link'te ADIYLA duser (sessiz degil).
+void teng_set_script_vm_v2(const TengScriptVm *vm);
 // Betik kancalarinin kosup kosmadigi. Kapali oldugunda (VM kurulmamis ya da
 // sahnede betik yok) 0. Kapilar bunu okuyor.
 int teng_script_hooks_active(void);
@@ -169,6 +195,18 @@ int teng_script_attach(int id, const char *name); // 1 baglandi; 0 reddedildi (s
 int teng_script_detach(int id);                   // 1 cozuldu (_bitir cagrildi); 0 bagli betik yoktu (hata degil)
 const char *teng_script_name(int id);             // bagli betigin taban adi; yoksa "" (hata degil)
 int teng_script_count(void);                      // betik bagli kopru varligi sayisi
+
+// --- teshis: govde -> varlik eslemesi (SPEC'te YOK; C++ kapilari icin) -------
+// Carpisma/tetik/isin sonuclarindaki Jolt govdesinden kopru varligina ve sahne
+// dizinine gecis govde INDEKSIYLE O(1) (kopru init'te fizigin govde tavani
+// kadar tablo ayirir). TULPAR_ENGINE_GOVDE_DENETIM=1 (teng_init'te okunur):
+// her esleme sorgusu eski dogrusal taramayla da yapilir, fark HATA loglar.
+// Denetim yalniz GOZLER: donen deger yine eslemeninkidir.
+int teng_body_map_audit_checks(void);     // denetlenen sorgu sayisi (denetim kapaliyken 0)
+int teng_body_map_audit_mismatches(void); // esleme != tarama sayisi
+// YALNIZ TEST (pozitif kontrol): varligin govdesinin esleme girdisini boz /
+// ikinci cagri geri al (XOR). 1 = girdi vardi ve degisti.
+int teng_debug_body_map_corrupt(int id);
 // Sahne govdeleri okunur DEGIL, itilebilir de: dinamik olmayan varlikta hata
 // loglanir ve cagri yok sayilir (sessiz yutma yok).
 double teng_scene_vx(int i);

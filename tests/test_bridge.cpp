@@ -27,6 +27,7 @@
 // BIR kez yapar ve tum kapilar o oturumun icinde kosar.
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -160,8 +161,154 @@ int ilk(const char *fn, int id, int from = 0) {
     if (!std::strcmp(kayit[i].fn, fn) && (id == 0 || (int)kayit[i].a[0] == id)) return i;
   return -1;
 }
-const TengScriptVm vm{has, call};
+// Eski yol (resolve/invoke YOK): motor kancayi `has` ile sorar, adla `call` eder.
+const TengScriptVm vm{has, call, nullptr, nullptr};
 } // namespace kod
+
+// KANCA HIZLI YOLU icin sahte VM'ler (10c2). Ayni "betikler" iki VM'den gecer:
+//   eski  {has, call}                  motor adi her cagrida kurar
+//   hizli {has, call, resolve, invoke}  motor YUKLEMEDE cozer, kare icinde isaretciyle cagirir
+// `resolve` tablo indisini opak isaretci olarak verir, `invoke` onu ada geri
+// cevirip AYNI kayda yazar: iki kosumun kaydi ayni olmali. Kayit STL'siz,
+// sabit dizi; tasma sayilir ve kapi onu 0 bekler.
+namespace hiz {
+struct Kayit {
+  char fn[32];
+  double a[8];
+  int argc;
+  int kare; // kosumun ilk karesine gore
+};
+constexpr int kMax = 3000;
+struct Iz {
+  Kayit k[kMax];
+  int n = 0, tasma = 0;
+  int ids[16]; // bu kosumda uretilen kopru id'leri (normallestirme)
+  int id_n = 0;
+};
+Iz iz[3];     // 0 eski, 1 hizli, 2 hizli + BIR kanca dusuruldu (pozitif kontrol)
+int aktif = 0;
+int kare0 = 0;
+// Hangi kanca "var" ve hizli yolda hangi ariteyle. -1: arite bilinmiyor (dlsym
+// yedegi), motor argc'yi gecirir. Aritenin cagriyi etkilemesi sahte VM'in isi
+// degil (uretilmis eng_script_invoke'un isi); burada yalniz motorun resolve'un
+// verdigi ariteyi invoke'a AYNEN tasidigi olculur.
+struct Tanim { const char *ad; int arite; };
+const Tanim kTanim[] = {
+    {"hdev_baslat", 1},      {"hdev_guncelle", 2},     {"hdev_carpisma", 7},    {"hdev_bolge_girdi", 2},
+    {"hdev_bolge_cikti", 2}, {"hdev_bitir", 1},        {"halarm_baslat", 1},    {"halarm_tetik_girdi", 3},
+    {"halarm_tetik_cikti", 3}, {"halarm_bitir", -1},   {"kdev_baslat", 1},      {"kdev_guncelle", 2},
+    {"kdev_carpisma", 8},    {"kdev_bolge_girdi", 3},  {"kdev_bolge_cikti", 3}, {"kdev_bitir", -1},
+    {"ktuzak_tetik_girdi", 3}, {"ktuzak_tetik_cikti", 3}, {"ktuzak_bitir", 1},
+    {"hdokuz_guncelle", 9}, // tavan disi: motor hizli yolda REDDETMELI (HATA)
+};
+constexpr int kTanimN = (int)(sizeof kTanim / sizeof kTanim[0]);
+const char *dusur = nullptr; // pozitif kontrol: hizli VM bu kancayi "yok" der
+int has_n = 0, call_n = 0, resolve_n = 0, invoke_n = 0, arite_uyumsuz = 0;
+int bul(const char *fn) {
+  for (int i = 0; i < kTanimN; i++)
+    if (!std::strcmp(kTanim[i].ad, fn)) return i;
+  return -1;
+}
+void kaydet(const char *fn, const double *a, int argc) {
+  Iz &z = iz[aktif];
+  if (z.n >= kMax) { z.tasma++; return; }
+  Kayit &c = z.k[z.n++];
+  std::snprintf(c.fn, sizeof c.fn, "%s", fn);
+  for (int i = 0; i < 8; i++) c.a[i] = i < argc ? a[i] : -999;
+  c.argc = argc;
+  c.kare = teng_frame() - kare0;
+}
+int has(const char *fn) { has_n++; return bul(fn) >= 0 ? 1 : 0; }
+int call(const char *fn, const double *a, int argc) { call_n++; kaydet(fn, a, argc); return 1; }
+void *resolve(const char *fn, int *arity) {
+  resolve_n++;
+  const int i = bul(fn);
+  if (i < 0 || (dusur && !std::strcmp(dusur, fn))) { if (arity) *arity = -1; return nullptr; }
+  if (arity) *arity = kTanim[i].arite;
+  return (void *)(uintptr_t)(i + 1); // opak: motor ICINE bakmaz
+}
+int invoke(void *fn, int arity, const double *a, int argc) {
+  invoke_n++;
+  const int i = (int)(uintptr_t)fn - 1;
+  if (i < 0 || i >= kTanimN) { arite_uyumsuz++; return 0; }
+  if (arity != kTanim[i].arite) arite_uyumsuz++;
+  kaydet(kTanim[i].ad, a, argc);
+  return 1;
+}
+const TengScriptVm eski{has, call, nullptr, nullptr};
+const TengScriptVm hizli{has, call, resolve, invoke};
+// Karsilastirma bicimi: kopru id'leri (nesil kosumdan kosuma degisir) kosumun
+// uretim sirasina, carpisma `olay` indisi (halka SIRASI belirlenimli degil,
+// Tuzaklar 8cc) 0'a cekilir; sonra her kare kendi icinde (ad, argumanlar) ile
+// siralanir — ayni karedeki sahne carpisma kancalari halka sirasiyla gelir.
+void normallestir(Iz &z) {
+  for (int r = 0; r < z.n; r++) {
+    Kayit &c = z.k[r];
+    for (int i = 0; i < c.argc && i < 8; i++) {
+      if (c.a[i] < 65536.0) continue;
+      for (int k = 0; k < z.id_n; k++)
+        if ((int)c.a[i] == z.ids[k]) { c.a[i] = 1e7 + k; break; }
+    }
+    if (std::strstr(c.fn, "_carpisma") && c.argc > 2) c.a[2] = 0;
+  }
+  std::sort(z.k, z.k + z.n, [](const Kayit &x, const Kayit &y) {
+    if (x.kare != y.kare) return x.kare < y.kare;
+    const int c = std::strcmp(x.fn, y.fn);
+    if (c) return c < 0;
+    if (x.argc != y.argc) return x.argc < y.argc;
+    for (int i = 0; i < 8; i++)
+      if (x.a[i] != y.a[i]) return x.a[i] < y.a[i];
+    return false;
+  });
+}
+// Ilk farkli kaydin sirasi; -1 ayni.
+int ilk_fark(const Iz &x, const Iz &y) {
+  const int n = x.n < y.n ? x.n : y.n;
+  for (int r = 0; r < n; r++) {
+    const Kayit &p = x.k[r], &q = y.k[r];
+    if (p.kare != q.kare || std::strcmp(p.fn, q.fn) || p.argc != q.argc) return r;
+    for (int i = 0; i < 8; i++)
+      if (p.a[i] != q.a[i]) return r;
+  }
+  return x.n == y.n ? -1 : n;
+}
+int say(const Iz &z, const char *onek) {
+  int k = 0;
+  for (int r = 0; r < z.n; r++)
+    if (!std::strncmp(z.k[r].fn, onek, std::strlen(onek))) k++;
+  return k;
+}
+// Tek kosum: VM'i kur, sahneyi yukle, kopru varliklarini uret + bagla, `kare`
+// kare kostur, sil + bosalt. Kayit iz[hangi]'ye. Uc kosum AYNI sirayla ayni
+// cagrilari yapar; sahne ve kopru govdeleri her kosumda sifirdan kurulur.
+// Dinamik-dinamik temas BILEREK yok: Jolt o ciftte govde1'i kimlik sirasiyla
+// secer ve kimlikler kosumdan kosuma degisir (temas noktasi karsi yuzeye
+// gecerdi). Butun temaslar dinamik kure -> sabit sahne zemini.
+void kosum(int hangi, const TengScriptVm *vm, const char *blob, int kare) {
+  aktif = hangi;
+  Iz &z = iz[hangi];
+  z.n = z.tasma = z.id_n = 0;
+  kare0 = teng_frame();
+  if (vm->resolve) teng_set_script_vm_v2(vm); // uretilmis baglamanin kurulumu
+  else teng_set_script_vm(vm);
+  CHECK(teng_scene_load(blob) == 1);
+  // K1 sahne kulesinden (halarm) gecip sahne zeminine duser; K3 kodla
+  // kurulan tetigin (K2, ktuzak) icinden gecip zemine duser.
+  const int k1 = teng_spawn_sphere(304, 4.0, 300, 0.4, 1, 0xff0000ff);
+  const int k2 = teng_spawn_trigger_box(296, 1.5, 300, 1.0, 0.5, 1.0);
+  const int k3 = teng_spawn_sphere(296, 4.5, 300, 0.4, 1, 0x00ff00ff);
+  z.ids[z.id_n++] = k1;
+  z.ids[z.id_n++] = k2;
+  z.ids[z.id_n++] = k3;
+  CHECK(k1 && k2 && k3);
+  CHECK(teng_script_attach(k1, "kdev") == 1 && teng_script_attach(k2, "ktuzak") == 1 && teng_script_attach(k3, "kdev") == 1);
+  run_frames(kare);
+  teng_despawn(k1);
+  teng_despawn(k2);
+  teng_despawn(k3);
+  teng_scene_unload();
+}
+} // namespace hiz
 } // namespace
 
 ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
@@ -176,7 +323,12 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
 
   teng_log_level(1); // kapi ciktisi sessiz kalsin; HATA yine gorunur
   teng_set_headless(100000, nullptr); // kare sinirina takilma: donguyu test surer
+  // Govde eslemesi DENETIMI bu oturumun TAMAMINDA acik: her carpisma / tetik /
+  // isin eslemesi eski dogrusal taramayla da yapilir ve fark HATA sayar — yani
+  // asagidaki butun bolumler eslemeyi de olcuyor (10c2 toplami okur).
+  setenv("TULPAR_ENGINE_GOVDE_DENETIM", "1", 1);
   const int ok = teng_init("kopru kapisi", kW, kH);
+  unsetenv("TULPAR_ENGINE_GOVDE_DENETIM"); // yalniz teng_init'te okunur
   if (!ok) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
   CHECK(teng_headless() == 1);
   CHECK(teng_running() == 1);
@@ -357,7 +509,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         // kaliyor ("sonraki bolumler icin geri kur"). Ilk yazimda yigindaydi:
         // blok kapaninca sonraki her kare, kapsami bitmis bir yapinin islev
         // isaretcilerini okuyordu (tanimsiz davranis; sans eseri bozulmadi).
-        static const TengScriptVm vm{Sahte::has, Sahte::call};
+        static const TengScriptVm vm{Sahte::has, Sahte::call, nullptr, nullptr}; // eski yol: resolve/invoke yok
         sahte_vm = &vm;
         const int errs_hook = teng_error_count();
         teng_scene_unload();
@@ -696,7 +848,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
             return 1;
           }
         };
-        static const TengScriptVm ozvm{OzVm::has, OzVm::call};
+        static const TengScriptVm ozvm{OzVm::has, OzVm::call, nullptr, nullptr}; // eski yol
         teng_scene_unload();
         teng_set_script_vm(&ozvm);
         const int e0 = teng_error_count();
@@ -1104,6 +1256,170 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     teng_despawn(zem);
   }
 
+  // --- 10c2) KANCA HIZLI YOLU + GOVDE ESLEMESI --------------------------------
+  // Kancalar artik YUKLEMEDE cozulup kare icinde isaretciyle cagriliyor
+  // (TengScriptVm::resolve/invoke); eski yol her cagrida adi kuruyordu ve
+  // Tulpar tarafinda her cagri yeni bir dizgi ayiriyordu. Iddia: AYNI betikli
+  // sahne eski ve hizli VM'le AYNI cagri izini uretir — her kanca turu, sahne
+  // ve kodla baglanan, arguman arguman. Pozitif kontrol: hizli VM'den BIR kanca
+  // dusurulunce iz ayrisir ve kapi bunu gorur. Ayrica: hizli yol gercekten
+  // kullanildi (hizli kosumda `has` ve `call` 0 kez), VM degisince isaretci
+  // yeni VM'e verilmez, 8'den fazla parametreli kanca reddedilir. Govde
+  // eslemesi (O(1)) bu oturum boyunca TULPAR_ENGINE_GOVDE_DENETIM ile her
+  // sorguda eski dogrusal taramaya karsi denetleniyor; pozitif kontrol bir
+  // girdiyi bozup uyusmazligin sayildigini olcer.
+  int hiz_hata = 0;
+  {
+    static SystemArena harena;
+    if (harena.capacity() == 0) harena.reserve(16u << 20, "bridge_hizli_yol");
+    static content::SceneDesc hd;
+    content::SceneEntity zm{};
+    std::snprintf(zm.name, sizeof zm.name, "h_zemin");
+    zm.components = content::kSceneBody;
+    zm.pos = Vec3{300, -0.5f, 300};
+    zm.half = Vec3{8, 0.5f, 8}; // ust yuz y=0
+    content::SceneEntity tp{};
+    std::snprintf(tp.name, sizeof tp.name, "h_top");
+    tp.components = content::kSceneBody | content::kSceneScript;
+    tp.pos = Vec3{300, 3, 300};
+    tp.shape = content::SceneShape::Sphere;
+    tp.radius = 0.4f;
+    tp.dynamic = true;
+    std::snprintf(tp.script_file, sizeof tp.script_file, "davranis/hdev.tpr");
+    content::SceneEntity bl{};
+    std::snprintf(bl.name, sizeof bl.name, "h_bolge");
+    bl.components = content::kSceneBody | content::kSceneScript;
+    bl.pos = Vec3{300, 1.5f, 300};
+    bl.half = Vec3{1, 0.5f, 1}; // y 1..2: h_top icinden gecer
+    bl.body_sensor = true;
+    std::snprintf(bl.script_file, sizeof bl.script_file, "davranis/halarm.tpr");
+    content::SceneEntity ku = bl;
+    std::snprintf(ku.name, sizeof ku.name, "h_kule");
+    ku.pos = Vec3{304, 1.5f, 300}; // K1 icinden gecer
+    CHECK(hd.insert_entity(0, zm) && hd.insert_entity(1, tp) && hd.insert_entity(2, bl) && hd.insert_entity(3, ku));
+    char hblob[800];
+    std::snprintf(hblob, sizeof hblob, "%s/_kopru_hizli_yol.sahneb", assets_dir());
+    content::SceneError he{};
+    CHECK(content::scene_blob_save(harena, hd, hblob, &he));
+    if (teng_scene_loaded()) teng_scene_unload();
+
+    const int errs0 = teng_error_count();
+    const int denetim0 = teng_body_map_audit_checks();
+    constexpr int kKare = 90;
+    hiz::has_n = hiz::call_n = hiz::resolve_n = hiz::invoke_n = hiz::arite_uyumsuz = 0;
+    hiz::kosum(0, &hiz::eski, hblob, kKare);
+    const int e_has = hiz::has_n, e_call = hiz::call_n, e_res = hiz::resolve_n, e_inv = hiz::invoke_n;
+    hiz::has_n = hiz::call_n = hiz::resolve_n = hiz::invoke_n = 0;
+    hiz::kosum(1, &hiz::hizli, hblob, kKare);
+    const int h_has = hiz::has_n, h_call = hiz::call_n, h_res = hiz::resolve_n, h_inv = hiz::invoke_n;
+    hiz::dusur = "kdev_bolge_girdi"; // POZITIF KONTROL: hizli VM bu kancayi "yok" der
+    hiz::kosum(2, &hiz::hizli, hblob, kKare);
+    hiz::dusur = nullptr;
+    CHECK(teng_error_count() == errs0); // uc kosum da temiz
+    std::remove(hblob);
+    for (int i = 0; i < 3; i++) {
+      CHECK(hiz::iz[i].tasma == 0);
+      hiz::normallestir(hiz::iz[i]);
+    }
+    const hiz::Iz &e = hiz::iz[0], &h = hiz::iz[1], &d = hiz::iz[2];
+    const int fark = hiz::ilk_fark(e, h), fark_kontrol = hiz::ilk_fark(e, d);
+    std::printf("    [bilgi] kanca izi (%d kare): eski %d cagri (has %d, call %d), hizli %d cagri (resolve %d, invoke %d, has %d, call %d); "
+                "ilk fark %d (-1 olmali)\n",
+                kKare, e.n, e_has, e_call, h.n, h_res, h_inv, h_has, h_call, fark);
+    std::printf("    [bilgi] kanca turleri (eski): baslat %d guncelle %d carpisma %d tetik %d bolge %d bitir %d; hdev_carpisma %d kdev_carpisma %d\n",
+                hiz::say(e, "hdev_baslat") + hiz::say(e, "kdev_baslat"), hiz::say(e, "hdev_guncelle") + hiz::say(e, "kdev_guncelle"),
+                hiz::say(e, "hdev_carpisma") + hiz::say(e, "kdev_carpisma"), hiz::say(e, "halarm_tetik") + hiz::say(e, "ktuzak_tetik"),
+                hiz::say(e, "hdev_bolge") + hiz::say(e, "kdev_bolge"), hiz::say(e, "hdev_bitir") + hiz::say(e, "halarm_bitir") +
+                    hiz::say(e, "kdev_bitir") + hiz::say(e, "ktuzak_bitir"),
+                hiz::say(e, "hdev_carpisma"), hiz::say(e, "kdev_carpisma"));
+    std::printf("    [bilgi] POZITIF KONTROL (kdev_bolge_girdi dusuruldu): %d cagri, eskiyle ilk fark %d (>= 0 olmali), eksik %d\n", d.n,
+                fark_kontrol, e.n - d.n);
+    // Kapsam: her kanca turu iki tarafta da (sahne + kod) en az bir kez kostu.
+    CHECK(hiz::say(e, "hdev_baslat") == 1 && hiz::say(e, "halarm_baslat") == 2 && hiz::say(e, "kdev_baslat") == 2);
+    CHECK(hiz::say(e, "hdev_guncelle") == kKare && hiz::say(e, "kdev_guncelle") == 2 * kKare);
+    CHECK(hiz::say(e, "hdev_carpisma") >= 1 && hiz::say(e, "kdev_carpisma") >= 2);
+    CHECK(hiz::say(e, "halarm_tetik_girdi") >= 2 && hiz::say(e, "halarm_tetik_cikti") >= 2 && hiz::say(e, "ktuzak_tetik_girdi") >= 1);
+    CHECK(hiz::say(e, "hdev_bolge_girdi") >= 1 && hiz::say(e, "kdev_bolge_girdi") >= 2 && hiz::say(e, "kdev_bolge_cikti") >= 2);
+    CHECK(hiz::say(e, "hdev_bitir") == 1 && hiz::say(e, "halarm_bitir") == 2 && hiz::say(e, "kdev_bitir") == 2 && hiz::say(e, "ktuzak_bitir") == 1);
+    // Asil iddia: iki yol ayni izi uretti.
+    CHECK(e.n > 0 && fark == -1);
+    // POZITIF KONTROL: dusurulen kanca izi ayirdi ve eksik tam o kancanin sayisi.
+    CHECK(fark_kontrol >= 0 && e.n - d.n == hiz::say(e, "kdev_bolge_girdi") && hiz::say(d, "kdev_bolge_girdi") == 0);
+    // Yol gercekten ayriydi: eski kosum yalniz has/call, hizli kosum yalniz resolve/invoke.
+    CHECK(e_has > 0 && e_res == 0 && e_inv == 0 && e_call == e.n);
+    CHECK(h_res > 0 && h_has == 0 && h_call == 0 && h_inv == h.n && hiz::arite_uyumsuz == 0);
+
+    // SURUM KAYMASI: 4 alanli yapi ESKI setter'la kurulursa motor resolve/invoke'a
+    // DOKUNMAZ (eski baglama 2 alanli; sonrasi cop olabilirdi) — adla calisir.
+    {
+      teng_set_script_vm(&hiz::hizli);
+      hiz::aktif = 0;
+      hiz::iz[0].n = 0;
+      hiz::has_n = hiz::call_n = hiz::resolve_n = hiz::invoke_n = 0;
+      const int k = teng_spawn_light(300, -50, 300, 0xffffffff, 0.0, 1.0);
+      CHECK(teng_script_attach(k, "kdev") == 1);
+      run_frames(1);
+      std::printf("    [bilgi] eski setter + 4 alanli yapi: has %d call %d, resolve %d invoke %d (0/0 olmali)\n", hiz::has_n, hiz::call_n,
+                  hiz::resolve_n, hiz::invoke_n);
+      CHECK(hiz::has_n > 0 && hiz::call_n >= 2 && hiz::resolve_n == 0 && hiz::invoke_n == 0);
+      teng_despawn(k);
+    }
+    // VM kurulumdan sonra degisirse isaretci YENI VM'e verilmez: cagri adla gider.
+    {
+      teng_set_script_vm_v2(&hiz::hizli);
+      hiz::aktif = 0;
+      hiz::iz[0].n = 0;
+      const int k = teng_spawn_light(300, -50, 300, 0xffffffff, 0.0, 1.0);
+      CHECK(teng_script_attach(k, "kdev") == 1); // hizli yolda cozuldu (baslat invoke ile)
+      hiz::call_n = hiz::invoke_n = 0;
+      teng_set_script_vm(&hiz::eski);
+      run_frames(1);
+      const int eski_call = hiz::call_n, eski_inv = hiz::invoke_n;
+      teng_set_script_vm_v2(&hiz::hizli);
+      run_frames(1);
+      std::printf("    [bilgi] VM degisimi: eski VM'le 1 kare call %d invoke %d (1/0 olmali), cozen VM geri gelince invoke %d (1 olmali)\n", eski_call,
+                  eski_inv, hiz::invoke_n - eski_inv);
+      CHECK(eski_call == 1 && eski_inv == 0 && hiz::invoke_n - eski_inv == 1 && hiz::call_n == eski_call);
+      teng_despawn(k);
+    }
+    // Tavan: 9 parametreli kanca hizli yolda REDDEDILIR (eski yol 8'de sessizce keserdi).
+    {
+      const int e9 = teng_error_count();
+      const int k = teng_spawn_light(300, -50, 300, 0xffffffff, 0.0, 1.0);
+      CHECK(teng_script_attach(k, "hdokuz") == 0);
+      CHECK(teng_error_count() == e9 + 2); // arite HATA + "kanca YOK" HATA
+      hiz_hata += 2;
+      teng_despawn(k);
+    }
+
+    // Govde eslemesi: denetim bu oturumda KOSTU (olcu kor degil) ve su ana kadar temiz.
+    const int denetim1 = teng_body_map_audit_checks(), uyusmaz1 = teng_body_map_audit_mismatches();
+    std::printf("    [bilgi] govde eslemesi denetimi: oturum basindan %d sorgu (bu bolumde %d), %d uyusmazlik\n", denetim1, denetim1 - denetim0, uyusmaz1);
+    CHECK(denetim1 - denetim0 > 100 && uyusmaz1 == 0);
+    // POZITIF KONTROL: bir girdiyi boz -> isin sonucu "kopru varligi degil" der,
+    // denetim tam BIR uyusmazlik ve BIR hata sayar; geri alinca temiz.
+    {
+      const int kutu = teng_spawn_box(320, 0, 320, 1, 0.5, 1, 0, 0x808080ff);
+      run_frames(1); // genis faz agaci
+      const int e1 = teng_error_count();
+      teng_raycast(320, 5, 320, 0, -1, 0, 10, 0);
+      const int saglam = teng_ray_id();
+      CHECK(teng_debug_body_map_corrupt(kutu) == 1);
+      teng_raycast(320, 5, 320, 0, -1, 0, 10, 0);
+      const int bozuk = teng_ray_id();
+      const int uyusmaz2 = teng_body_map_audit_mismatches(), e2 = teng_error_count();
+      CHECK(teng_debug_body_map_corrupt(kutu) == 1); // geri al
+      teng_raycast(320, 5, 320, 0, -1, 0, 10, 0);
+      const int onarilmis = teng_ray_id();
+      std::printf("    [bilgi] govde eslemesi POZITIF KONTROL: isin #%d -> bozuk girdiyle #%d (0 olmali), uyusmazlik +%d hata +%d (1/1), onarinca #%d\n",
+                  saglam, bozuk, uyusmaz2 - uyusmaz1, e2 - e1, onarilmis);
+      CHECK(saglam == kutu && bozuk == 0 && onarilmis == kutu);
+      CHECK(uyusmaz2 - uyusmaz1 == 1 && e2 - e1 == 1 && teng_body_map_audit_mismatches() == uyusmaz2 && teng_error_count() == e2);
+      hiz_hata += 1;
+      teng_despawn(kutu);
+    }
+  }
+
   // --- 10d) KODLA URETILEN VARLIGA BETIK BAGLAMA -----------------------------
   // Sahne kancalarinin kod ikizi (teng_script_attach). Olculen: `id` KOPRU id'si
   // (sahne indisi degil), guncelle YUVA sirasiyla (baglama sirasiyla degil),
@@ -1434,6 +1750,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // kasitli degil ve makineye gore degisir.
   int beklenen = 2 /*olu id*/ + 1 /*kare disi HUD*/ + 1 /*gecersiz tus adi*/ + 1 /*model olmayan varlikta animasyon*/ + 1 /*sinir disi tetik olayi*/ + 1 /*karakterde hiz_ver*/;
   beklenen += kod_hata; // 10d: kodla betik baglamanin kasitli reddleri (orada tek tek sayildi)
+  beklenen += hiz_hata; // 10c2: 9 parametreli kanca (2) + bozulan esleme girdisi (1)
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
   beklenen += oz_hata; // 4.8: nesne ozelliklerinin kasitli hatalari (tur uyusmazligi, ad kurali, sinir disi)
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
@@ -1442,6 +1759,10 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   std::printf("    [bilgi] kasitli hata %d/%d (sahne kapisi %d, animasyon %d, ses %d), ortam hatasi %d, uyari %d\n", errs_total, beklenen,
               (int)sahne_kapisi, (int)anim_kapisi, (int)ses_kapisi, ortam_hatasi, teng_warning_count());
   CHECK(errs_total == beklenen);
+  // Govde eslemesi: oturumun TAMAMINDA tek uyusmazlik, 10c2'nin kasitli bozdugu.
+  std::printf("    [bilgi] govde eslemesi denetimi (oturum): %d sorgu, %d uyusmazlik (1 olmali: pozitif kontrol)\n", teng_body_map_audit_checks(),
+              teng_body_map_audit_mismatches());
+  CHECK(teng_body_map_audit_mismatches() == 1);
   teng_close();
   CHECK(teng_running() == 0);
   // Kapanis: hala bagli betiklere (10d'den C, Y, dogan) TAM BIR bitir, yuva

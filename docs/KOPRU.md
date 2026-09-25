@@ -117,6 +117,9 @@ Her `teng_*` çağrısı log seviyesine göre basılır ve **her seviyede** 64 s
 - Betikten: `logla("…")` → `[tpr]` önekiyle aynı akışa. (`log()` Tulpar'da **doğal logaritmadır**, ad çakışır.)
 - Android'de aynı akış logcat'e (`tulpar` etiketi) ve `files/engine_log.txt`'ye gider.
 - Pencere açılamazsa motor **headless'a düşer** ve bunu UYARI olarak yazar — betik yine koşar.
+- `TULPAR_ENGINE_GOVDE_DENETIM=1`: gövde → varlık eşlemesinin her sorgusu eski doğrusal taramayla
+  karşılaştırılır, fark HATA (§7.9). Kapanış satırları kanca çözümünü (`betik cozumu`: hızlı yol /
+  adla) ve kanca dağıtımının duvar saatini (`betik dagitimi`: çağrı başına ns) de basar.
 
 ## 5. Doğrulama kipi (pencere açmadan)
 
@@ -212,15 +215,55 @@ Köprü uzun süre **tek yönlüydü** (Tulpar çağırır, motor cevap verir) v
 taşımamasıydı. Bu yön **dil tarafından** kurulur, çünkü Tulpar zaten bir fonksiyonu **adıyla** çözüp
 çağırabiliyor (`call()` builtin'inin mekanizması). Motor için yeni bir derleyici özelliği gerekmedi.
 
-Motor **Tulpar tipi görmez**. `bridge/engine_api.h` iki işlev işaretçisi alır:
+Motor **Tulpar tipi görmez**. `bridge/engine_api.h` dört işlev işaretçisi alır:
 
 ```c
 typedef struct TengScriptVm {
   int (*has)(const char *fn);                                   // böyle bir fonksiyon var mı
-  int (*call)(const char *fn, const double *args, int argc);    // çağır (argc <= 8)
+  int (*call)(const char *fn, const double *args, int argc);    // adla çağır (argc <= 8)
+  // hızlı yol (2026-09-25; ikisi birden ya da hiç):
+  void *(*resolve)(const char *fn, int *arity);                 // YÜKLEMEDE çöz: opak giriş noktası + arite
+  int (*invoke)(void *fn, int arity, const double *args, int argc); // kare içinde ADSIZ çağır
 } TengScriptVm;
-void teng_set_script_vm(const TengScriptVm *vm);
+void teng_set_script_vm(const TengScriptVm *vm);     // YALNIZ has/call okunur
+void teng_set_script_vm_v2(const TengScriptVm *vm);  // dört alan (üretilmiş bağlama bunu çağırır)
 ```
+
+**Hızlı yol.** `call` yolu Tulpar'da adı her çağrıda yeni bir `ObjString`'e kopyalıyordu
+(`aot_call_dynamic_n` adı dizgi olarak istiyor) ve o dizgi hiç sıfırlanmayan AOT arenasında
+kalıyordu. Artık motor her kanca türünü (`baslat` … `bolge_cikti`, 8 tür) **yüklemede** `resolve`
+ile bir kez çözüp işaretçi + aritesini varlık başına saklıyor; kare içindeki çağrı `invoke(fn,
+arity, args, argc)` — ad kurma, hash, ayırma yok. Üretilmiş bağlama `resolve`'u TulparLang'ın
+`aot_func_lookup`'ına bağlar (çağrı önbelleği, sonra `dlsym("t_<ad>")`); `invoke` tam `arity`
+işaretçiyle çağırır (eksik parametre VOID, fazlası düşer; arite -1 ise argc). Kurallar:
+- `resolve`/`invoke` null bırakılırsa (`{has, call}` sahte VM'leri) eski yol.
+- **Sürüm kayması:** eski `teng_set_script_vm` yapının yalnız ilk iki alanını okur. Motordan önce
+  kurulmuş bir derleyicinin runtime'ı (2 alanlı `kEngScriptVm`) yeni motor arşiviyle linklenirse
+  motor o yapının sonundaki belleği işaretçi diye okumaz; adla çalışır ve bunu bir kez söyler
+  ("betik VM'i ESKI kurulumla geldi … tools/motor_derleyici.sh"). Ters yön (yeni bağlama + eski
+  motor arşivi) `teng_set_script_vm_v2` sembolü olmadığı için link'te adıyla düşer.
+- Kancayı çözen VM sonradan **değişirse** saklanan işaretçi yeni VM'e verilmez; çağrı adla gider.
+- 8'den fazla parametreli kanca hızlı yolda **reddedilir** (HATA; eski yol 8'de sessizce kesiyordu).
+- `tools/motor_derleyici.sh`, `aot_func_lookup` içermeyen bir TulparLang kopyasında derlemeden
+  **önce** durur ("TulparLang'ı güncelleyin").
+
+Ölçüldü (2026-09-25, RTX 5080 + Ryzen 7 9800X3D masaüstü, `tools/kanca_olcumu.py`: 200 köprü
+varlığı, boş `guncelle`, 2000 pencersiz kare, 700 kare ısınma, kancasız kontrol koşumuna göre; beş
+oturum × üç koşum, son ikisi kare belleği (#56) üzerinde — oturumlar arası sapma ns'de, bellekte değil):
+
+| | kanca başına | kare başına kalıcı büyüme, kare belleği KAPALI (`TULPAR_KARE_BELLEK=0`, #56 öncesi) | kare belleği açık (varsayılan) |
+|---|---|---|---|
+| eski (`call`, adla) | 51.6–67.6 ns | **+14.4 KB** (çağrı başına 72 bayt) | kontrolle aynı: dizgi kare sonunda geri sarılıyor |
+| hızlı (`resolve`/`invoke`) | 4.5–9.2 ns | kontrolle aynı (fark −5…−9 bayt/kare) | kontrolle aynı |
+
+Kare belleği (#56) eski yolun dizgisini kare sonunda geri veriyor; kare **dışında** çağrılan kanca
+(sahne yüklemesindeki `baslat`, kare arasında `betik_ata`) ve kare belleğini kapatan oyun için
+kalıcıydı. Hızlı yolda ayırma hiç yok.
+
+Kapı: `tests/test_bridge.cpp` 10c2 — aynı betikli sahne (sahne + kodla bağlanan, sekiz kanca
+türünün hepsi) eski ve hızlı sahte VM'le koşar, iki çağrı izi argüman argüman aynı olmalı;
+**pozitif kontrol** hızlı VM'den bir kancayı düşürür ve iz ayrışmalı. Hızlı koşumda `has`/`call`
+**0** kez çağrılmalı (yol gerçekten ayrı).
 
 Kurulum `aot_eng_init_ptr` içinde, `teng_init`ten **önce** yapılır — bu yüzden VM işaretçisi
 `Bridge`in **dışında** bir dosya-kapsamlı değişkende durur; içinde saklansaydı o anda `Bridge`
@@ -240,8 +283,19 @@ henüz yok olduğu için kurulum sessizce kaybolurdu.
 Dördü de **isteğe bağlı**: motor hangisini bulursa onu çağırır. Hiçbiri bulunamazsa bu ayrı bir
 durumdur ve görünür hata basar (aşağı bak).
 
-Kancalar **yükleme anında** çözülür, kare içinde değil: `has` bir sembol araması ve ikili koşum
-boyunca değişmiyor.
+Kancalar **yükleme anında** çözülür, kare içinde değil: `has`/`resolve` bir sembol araması ve
+ikili koşum boyunca değişmiyor. Sıcak yükleme (boşalt → yükle) yeniden çözer.
+
+**Gövde → varlık eşlemesi.** Çarpışma, tetik ve ışın sonuçlarındaki Jolt gövdesinden köprü
+varlığına (`diger`), sahne dizinine (`diger_sahne`) ve betikli yuvaya geçiş eskiden olay başına
+**doğrusal taramaydı** (`ent_high` ≤ 4096, betik havuzu 512, sahne varlıkları). Artık gövde
+**indeksiyle** O(1): köprü init'te fiziğin gövde tavanı kadar tablo ayırır (A2), girdi tam
+kimliği (indeks + sıra numarası) taşır ve bayat girdi reddedilir; her gövde kurma/silme noktası
+tabloyu günceller. `TULPAR_ENGINE_GOVDE_DENETIM=1` her sorguyu eski taramayla da yapar ve farkı
+HATA sayar (kapanış satırı: `kapanis (govde eslemesi): N sorgu denetlendi, M uyusmazlik`).
+Ölçüldü (2026-09-25): engine_aksiyon 3200 karede 5028, engine_dalga 594, engine_betik_dagitimi
+33, engine_bridge.test.tpr 34, köprü C++ kapısı 442 sorgu — **0** uyuşmazlık; kapının pozitif
+kontrolü bir girdiyi bozar (`teng_debug_body_map_corrupt`) ve tam bir uyuşmazlık + bir HATA görür.
 
 **`guncelle` sim adımlarından SONRA**: betiğin okuduğu konum ve hız o karenin fizik sonucu olsun.
 Önce çağrılsaydı betiğe **bir kare eski** durum görünürdü ve "kovalama neden geriden geliyor" diye

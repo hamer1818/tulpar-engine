@@ -324,6 +324,11 @@ def gen_bindings(root):
     out.append("// builtin'inin kullandigi mekanizmanin ta kendisi — motor icin YENI bir")
     out.append("// derleyici ozelligi gerekmedi, var olan dinamik cagri yolu aciliyor.")
     out.append("extern \"C\" VMValue aot_call_dynamic_n(VMValue func_name, VMValue *args, int argc);")
+    # HIZLI YOL: TulparLang'in aot_func_lookup'i (calisma zamani, runtime_bindings.cpp).
+    # Yoksa link DUSER — tools/motor_derleyici.sh bunu derlemeden once sorar.
+    out.append("// Adla coz, CAGIRMADAN ve AYIRMADAN: kutulu `t_<ad>` giris noktasi + kayitli")
+    out.append("// arite (-1 = bilinmiyor). TulparLang'da; motor kancalari yuklemede bununla cozer.")
+    out.append("extern \"C\" void *aot_func_lookup(const char *name, int *arity);")
     out.append("")
     out.append("#if defined(_WIN32)")
     out.append("#include <windows.h>")
@@ -354,7 +359,44 @@ def gen_bindings(root):
     out.append("  aot_call_dynamic_n(tm_make_str(fn), a, argc);")
     out.append("  return 1;")
     out.append("}")
-    out.append("const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call};")
+    # Kare icinde ADSIZ cagri. eng_script_call her cagrida adi bir ObjString'e
+    # kopyaliyordu (tm_make_str, 72 bayt): olculdu 2026-09-25 (RTX 5080 masaustu,
+    # tools/kanca_olcumu.py), 200 bos kanca: kanca basina ~52-68 ns; kare bellegi
+    # kapaliyken (TULPAR_KARE_BELLEK=0, #56 oncesi) kare basina +14.4 KB kalici.
+    # Hizli yol ~4.5-9 ns ve kancaya dusen buyume 0.
+    out.append("// HIZLI YOL. Motor kancayi YUKLEMEDE bir kez cozer (resolve), kare icinde")
+    out.append("// isaretciyle cagirir (invoke): ad kurma, hash, dizgi ayirma YOK. eng_script_call")
+    out.append("// her cagrida adi yeni bir ObjString'e kopyaliyordu (tm_make_str) ve o dizgi")
+    out.append("// hic sifirlanmayan arenada kaliyordu.")
+    out.append("void *eng_script_resolve(const char *fn, int *arity) {")
+    out.append("  if (arity) *arity = -1;")
+    out.append("  if (!fn || !*fn) return nullptr;")
+    out.append("  return aot_func_lookup(fn, arity);")
+    out.append("}")
+    out.append("// `fn`: `void t_<ad>(VMValue *sonuc, VMValue *a0, ...)`. Cagri TAM `arity` isaretciyle")
+    out.append("// yapilir (wasm'in tipli call_indirect'i baska sayiyi affetmez): eksik parametre VOID,")
+    out.append("// fazlasi duser; arity -1 (dlsym yedegi, arite bilinmiyor) ise argc'ye guvenilir.")
+    out.append("// Argumanlar VM_FLOAT: eng_script_call ile ayni (tipli `int` parametreyi cagrilan cevirir).")
+    out.append("int eng_script_invoke(void *fn, int arity, const double *args, int argc) {")
+    out.append("  if (!fn) return 0;")
+    out.append("  if (argc < 0) argc = 0;")
+    out.append("  if (argc > 8) argc = 8; // Tulpar dinamik cagri tavani")
+    out.append("  const int n = arity >= 0 ? arity : argc;")
+    out.append("  if (n > 8) return 0; // motor 8'den fazla parametreli kancayi cozmez; buraya gelmez")
+    out.append("  VMValue a[8];")
+    out.append("  for (int i = 0; i < n; i++) a[i] = i < argc ? VM_FLOAT(args ? args[i] : 0.0) : VM_VOID();")
+    out.append("  VMValue r = VM_VOID();")
+    out.append("  typedef VMValue *P;")
+    out.append("  switch (n) {")
+    for n in range(0, 9):
+        ps = ", ".join(["P"] * (n + 1))
+        av = ", ".join(["&r"] + [f"&a[{i}]" for i in range(n)])
+        out.append(f"  case {n}: ((void (*)({ps}))fn)({av}); break;")
+    out.append("  default: return 0;")
+    out.append("  }")
+    out.append("  return 1;")
+    out.append("}")
+    out.append("const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call, eng_script_resolve, eng_script_invoke};")
     out.append("} // namespace")
     out.append("")
     out.append("extern \"C\" {")
@@ -368,7 +410,10 @@ def gen_bindings(root):
             # (kancalar sahne yuklenirken cozuluyor) ve oyunun ayri bir cagri
             # yapmayi unutmasi mumkun OLMAMALI — unutulan kurulum, sessizce
             # calismayan betikler demek.
-            out.append("  teng_set_script_vm(&kEngScriptVm);")
+            # _v2: dort alan (resolve/invoke dahil). Eski teng_set_script_vm
+            # yalniz has/call okur — surum kaymasinda motor yapinin sonunu
+            # isaretci diye okumasin (engine_api.h).
+            out.append("  teng_set_script_vm_v2(&kEngScriptVm);")
         expr = f"t{name}({call})"
         if ret == "void":
             out.append(f"  {expr};")

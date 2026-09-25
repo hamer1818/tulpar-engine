@@ -549,6 +549,13 @@ bool Physics::is_sensor(BodyId id) const {
   return i < impl_->cfg.max_bodies && impl_->is_sensor[i] != 0;
 }
 
+uint32_t Physics::body_index(BodyId id) const {
+  if (!impl_ || !id.valid()) return 0xFFFFFFFFu;
+  const uint32_t i = JPH::BodyID(id.v).GetIndex();
+  return i < impl_->cfg.max_bodies ? i : 0xFFFFFFFFu;
+}
+uint32_t Physics::max_bodies() const { return impl_ ? impl_->cfg.max_bodies : 0; }
+
 BodyId Physics::add_box(Vec3 half, Vec3 pos, Quat rot, bool dynamic) {
   JPH::ShapeRefC shape = new JPH::BoxShape(to_jph(half));
   return add_body(impl_, shape, pos, rot, dynamic);
