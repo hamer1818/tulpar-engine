@@ -200,8 +200,12 @@ void log_transition(UpdateUi &u, UpdState from, UpdState to) {
     // Kullanicinin baslattigi is (elle denetim, indirme) basarisizsa Hata;
     // OTOMATIK denetim (cogunlukla "ag yok") yalniz Uyari — cevrimdisi bir
     // makinede her acilista kirmizi satir gurultuden ibaret olurdu.
-    console_log((u.manual || u.download_stage) ? ConsoleLevel::Hata : ConsoleLevel::Uyari, kTag,
-                "ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z (%s): %s \xE2\x80\x94 kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi", upd_state_name(from), u.upd.reason());
+    if (upd_reason_rollback_incomplete(u.upd.reason()))
+      console_log(ConsoleLevel::Hata, kTag, "KURULUM YARIM KALDI (%s): %s \xE2\x80\x94 %s/.guncelleme/ elle incelenmeli", upd_state_name(from),
+                  u.upd.reason(), u.install_dir);
+    else
+      console_log((u.manual || u.download_stage) ? ConsoleLevel::Hata : ConsoleLevel::Uyari, kTag,
+                  "ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z (%s): %s \xE2\x80\x94 kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi", upd_state_name(from), u.upd.reason());
     break;
   case UpdState::Idle:
     if (busy(from)) console_log(ConsoleLevel::Uyari, kTag, "iptal edildi");
@@ -270,6 +274,27 @@ bool open_url(const char *url, char *err, uint32_t cap) {
 #endif
   char used[256];
   return editor_open_with_candidates(url, c, 1, used, sizeof used, err, cap);
+}
+
+// GERI ALMA EKSIK (cekirdegin en kotu durumu): kurulum dizini KARISIK olabilir,
+// yedek eski dosyalarin TEK kopyasi olabilir. "Kurulum dizini degismedi" burada
+// YALAN olurdu; kullanici neyin nerede oldugunu gormeli ve elle kurtarmali.
+void rollback_warning(UpdateUi &u) {
+  u.draw_rollback_warning++;
+  ImGui::Spacing();
+  ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::Err));
+  text_wrapped("Kurulum dizini KARI\xC5\x9EIK durumda olabilir: baz\xC4\xB1 dosyalar yeni, baz\xC4\xB1lar\xC4\xB1 eski. "
+               "Eski dosyalar\xC4\xB1n tek kopyas\xC4\xB1 yedek dizininde olabilir \xE2\x80\x94 edit\xC3\xB6r onu S\xC4\xB0LMEZ ve "
+               "i\xC5\x9F" "aret kalkana kadar yeni g\xC3\xBCncelleme denemez.");
+  ImGui::PopStyleColor();
+  char line[kUpdPathCap + 96];
+  std::snprintf(line, sizeof line, "Elle kurtar\xC4\xB1n: %s/.guncelleme/ (yedek-*/ ve GERI-ALMA-EKSIK.txt). Ayr\xC4\xB1nt\xC4\xB1: docs/GUNCELLEME.md",
+                u.install_dir[0] ? u.install_dir : "<kurulum dizini>");
+  text_wrapped(line);
+  if (ImGui::SmallButton("Yolu kopyala")) {
+    std::snprintf(line, sizeof line, "%s/.guncelleme", u.install_dir);
+    ImGui::SetClipboardText(line);
+  }
 }
 
 void release_links(UpdateUi &u, const UpdRelease &r) {
@@ -378,6 +403,7 @@ UpdUiAction draw_update_window(UpdateUi &u) {
     ImGui::TextUnformatted("G\xC3\xBCncelleyici kapal\xC4\xB1");
     ImGui::PopStyleColor();
     if (reason && *reason) text_wrapped(reason);
+    if (upd_reason_rollback_incomplete(reason)) rollback_warning(u);
     if (!u.current_version[0]) {
       ImGui::Spacing();
       text_wrapped("Bu edit\xC3\xB6r kaynaktan derlenmi\xC5\x9F; s\xC3\xBCr\xC3\xBCm paketi kendini g\xC3\xBCncelleyemez (yapi/ dizinini bozard\xC4\xB1). Kaynak a\xC4\x9F" "ac\xC4\xB1nda:");
@@ -487,22 +513,30 @@ UpdUiAction draw_update_window(UpdateUi &u) {
       text_dim("Edit\xC3\xB6r yeniden ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor\xE2\x80\xA6");
     }
     break;
-  case UpdState::Failed:
-    if (r.tag[0]) release_block(u, r);
+  case UpdState::Failed: {
+    const bool yarim = upd_reason_rollback_incomplete(reason);
+    if (r.tag[0] && !yarim) release_block(u, r);
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::Err));
-    ImGui::TextUnformatted("Ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z");
+    ImGui::TextUnformatted(yarim ? "Kurulum YARIM KALDI" : "Ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z");
     ImGui::PopStyleColor();
     text_wrapped(reason && *reason ? reason : "(sebep bildirilmedi)");
-    text_dim("Kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi.");
-    ImGui::Spacing();
-    if (primary_button("Tekrar dene")) {
-      u.retry_download = u.download_stage; // indirmedeyse: denetim bitince indirmeye devam
-      request_check(u, true);
+    if (yarim) {
+      rollback_warning(u);
+      ImGui::Spacing();
+      if (ImGui::Button("Kapat")) close_window(u); // Tekrar dene YOK: cekirdek isaret varken denetlemez
+    } else {
+      text_dim("Kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi.");
+      ImGui::Spacing();
+      if (primary_button("Tekrar dene")) {
+        u.retry_download = u.download_stage; // indirmedeyse: denetim bitince indirmeye devam
+        request_check(u, true);
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Kapat")) close_window(u);
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Kapat")) close_window(u);
     break;
+  }
   }
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && u.window_open) close_window(u); // Esc = Sonra
   ImGui::EndPopup();
@@ -752,6 +786,10 @@ uint32_t upd_badge_text(UpdState s, const char *tag, float progress, char *out, 
   return (uint32_t)n < cap ? (uint32_t)n : cap - 1;
 }
 
+bool upd_reason_rollback_incomplete(const char *reason) {
+  return reason && (std::strstr(reason, "GERI ALMA EKSIK") || std::strstr(reason, "geri almasi eksik"));
+}
+
 void upd_date_short(const char *iso, char *out, uint32_t cap) {
   if (!out || cap == 0) return;
   out[0] = 0;
@@ -924,7 +962,10 @@ bool update_ui_install(UpdateUi &u, char *err, size_t err_cap) {
   if (!e[0]) std::snprintf(e, sizeof e, "bilinmeyen hata");
   std::snprintf(u.last_error, sizeof u.last_error, "%s", e);
   if (err && err_cap) std::snprintf(err, err_cap, "%s", e);
-  console_log(ConsoleLevel::Hata, kTag, "kurulum ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z: %s \xE2\x80\x94 kurulum dizini eski haline d\xC3\xB6nd\xC3\xBC", e);
+  if (upd_reason_rollback_incomplete(e))
+    console_log(ConsoleLevel::Hata, kTag, "KURULUM YARIM KALDI: %s \xE2\x80\x94 %s/.guncelleme/ elle incelenmeli", e, u.install_dir);
+  else
+    console_log(ConsoleLevel::Hata, kTag, "kurulum ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z: %s \xE2\x80\x94 kurulum dizini eski haline d\xC3\xB6nd\xC3\xBC", e);
   u.last_state = u.upd.state();
   update_ui_open_window(u); // sebebi ve "Tekrar dene"yi goster
   return false;
@@ -1150,7 +1191,10 @@ int update_cli(const char *verb) {
               p.add + p.replace + p.remove, p.add, p.replace, p.remove, p.same, p.kept_user);
   for (uint32_t i = 0; i < up.kept_count(); i++) std::printf("  korunuyor: %s (yenisi %s.yeni)\n", up.kept_path(i), up.kept_path(i));
   if (!up.install(err, sizeof err)) {
-    std::fprintf(stderr, "kurulamad\xC4\xB1: %s \xE2\x80\x94 kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi\n", err);
+    if (upd_reason_rollback_incomplete(err))
+      std::fprintf(stderr, "KURULUM YARIM KALDI: %s \xE2\x80\x94 %s/.guncelleme/ elle incelenmeli\n", err, r.install_dir);
+    else
+      std::fprintf(stderr, "kurulamad\xC4\xB1: %s \xE2\x80\x94 kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi\n", err);
     return kUpdCliError;
   }
   std::printf("kuruldu: %s -> %s. Edit\xC3\xB6r\xC3\xBC yeniden ba\xC5\x9Flat\xC4\xB1n.\n", r.version, rel.tag);

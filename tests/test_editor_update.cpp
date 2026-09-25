@@ -287,6 +287,13 @@ ENGINE_TEST(editor_update_badge_rules_and_text) {
   CHECK(!std::strcmp(d, "2026-09-25"));
   app::upd_date_short("dun", d, sizeof d);
   CHECK(!std::strcmp(d, "dun"));
+  // En kotu durum metinleri (app/updater.cpp'deki set_reason kaliplari) taninir;
+  // siradan hata ve Disabled sebepleri TANINMAZ (kontrol).
+  CHECK(app::upd_reason_rollback_incomplete("kurulum basarisiz (x) VE GERI ALMA EKSIK: 1 adim geri alinamadi"));
+  CHECK(app::upd_reason_rollback_incomplete("onceki bir guncellemenin geri almasi eksik kaldi \xE2\x80\x94 x"));
+  CHECK(!app::upd_reason_rollback_incomplete("kurulum basarisiz, 3 tasima geri alindi: disk dolu"));
+  CHECK(!app::upd_reason_rollback_incomplete("kaynak derlemesi (surum yok): ..."));
+  CHECK(!app::upd_reason_rollback_incomplete(nullptr));
 }
 
 ENGINE_TEST(editor_update_restart_argv_keeps_args) {
@@ -569,26 +576,35 @@ ENGINE_TEST(editor_update_badge_and_window_render_headless) {
   static const char *kept[] = {"tests/assets/editor.sahne", "assets/fonts/OKUBENI.txt"};
   app::UpdPlanSummary plan;
   plan.add = 3; plan.replace = 41; plan.remove = 1; plan.same = 120; plan.kept_user = 2;
-  struct Vaka { UpdState s; const char *ad; const char *sebep; };
-  const Vaka vakalar[] = {{UpdState::Staged, "guncelleme_staged", ""},
-                          {UpdState::Downloading, "guncelleme_indiriliyor", ""},
-                          {UpdState::Failed, "guncelleme_failed", "SHA-256 tutmadi: tulpar-engine-v0.3.0-linux-x86_64.tar.gz"},
-                          {UpdState::Disabled, "guncelleme_disabled", "kaynak derlemesi (build_version bos)"}};
+  // uyari: "geri alma eksik" kirmizi kutusu cizilmeli mi. Cekirdegin en kotu
+  // durumu (kurulum yarim) GORUNUR olmali; siradan bir hata "kurulum dizini
+  // degismedi" der ve kutu CIZILMEZ (kontrol).
+  struct Vaka { UpdState s; const char *ad; const char *sebep; bool uyari; };
+  const Vaka vakalar[] = {
+      {UpdState::Staged, "guncelleme_staged", "", false},
+      {UpdState::Downloading, "guncelleme_indiriliyor", "", false},
+      {UpdState::Failed, "guncelleme_failed", "paket ozeti tutmuyor (bozuk ya da yarim indirme): tulpar-engine-v0.3.0-linux-x86_64.tar.gz", false},
+      {UpdState::Failed, "guncelleme_yarim",
+       "kurulum basarisiz (tasima reddedildi) VE GERI ALMA EKSIK: 2 adim geri alinamadi \xE2\x80\x94 yedek: /kur/.guncelleme/yedek-v0.2.9", true},
+      {UpdState::Disabled, "guncelleme_disabled", "kaynak derlemesi (surum yok): guncelleme yalniz paketlenmis surumlerde calisir", false},
+      {UpdState::Disabled, "guncelleme_disabled_yarim",
+       "onceki bir guncellemenin geri almasi eksik kaldi \xE2\x80\x94 /kur/.guncelleme elle incelenmeli (GERI-ALMA-EKSIK.txt)", true}};
   for (const Vaka &v : vakalar) {
     app::update_ui_test_inject(u, v.s, &fake_release(), 0.4f, &plan, kept, 2, v.sebep);
     // Disabled vakasi kaynak derlemesini canlandirir: surum bos -> yeniden derleme yolu gorunur.
     std::snprintf(u.current_version, sizeof u.current_version, "%s", v.s == UpdState::Disabled ? "" : "v0.2.9");
     app::update_ui_open_window(u);
-    const uint32_t w0 = u.draw_update_win;
+    const uint32_t w0 = u.draw_update_win, y0 = u.draw_rollback_warning;
     c = DrawCtx{};
     for (uint32_t i = 1; i <= app::kCommandCount; i++) c.t.bind((app::CommandId)i, no_cmd, nullptr);
     c.u = &u;
     c.scan_window = true;
     st = run(c, 30, v.ad, &p);
     if (probe_not_ok(st, p.err, __FILE__, __LINE__)) return;
-    std::printf("    [bilgi] %s: govde %u kare, kimlik cakismasi %u, rozet %s\n", v.ad, u.draw_update_win - w0, c.conflicts,
-                c.badge_frames ? "var" : "yok");
+    std::printf("    [bilgi] %s: govde %u kare, kimlik cakismasi %u, rozet %s, geri-alma-eksik uyarisi %u kare\n", v.ad, u.draw_update_win - w0,
+                c.conflicts, c.badge_frames ? "var" : "yok", u.draw_rollback_warning - y0);
     CHECK(u.draw_update_win - w0 >= 29); // ilk kare otomatik boyutlanma icin gizli olabilir
+    CHECK((u.draw_rollback_warning - y0 > 0) == v.uyari);
     CHECK(c.conflicts == 0);
     CHECK((c.badge_frames > 0) == (v.s != UpdState::Disabled)); // Disabled: rozet yok; digerleri: var
   }

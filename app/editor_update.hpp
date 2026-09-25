@@ -93,6 +93,10 @@ bool upd_badge_visible(UpdState s, bool newer, const char *tag, const char *skip
 // "<ok> v1.2.3", indirirken "<ok> v1.2.3  %40", hazirken "<ok> v1.2.3 hazir" (ok = U+2B06).
 // Donus: yazilan uzunluk.
 uint32_t upd_badge_text(UpdState s, const char *tag, float progress, char *out, uint32_t cap);
+// Cekirdegin EN KOTU durumu: kurulum basarisiz VE geri alma eksik kaldi (ya da
+// onceki bir kurulumdan kalan GERI-ALMA-EKSIK isareti). Arayuz bunu "kurulum
+// dizini degismedi" diye GOSTEREMEZ; ayri, kirmizi, elle kurtarma talimatli.
+bool upd_reason_rollback_incomplete(const char *reason);
 // "2026-09-25T09:44:12Z" -> "2026-09-25" (bicim tanimsizsa oldugu gibi).
 void upd_date_short(const char *iso, char *out, uint32_t cap);
 
@@ -169,6 +173,7 @@ struct UpdateUi {
   uint32_t draw_calls = 0;       // update_ui_draw cagrisi
   uint32_t draw_update_win = 0;  // guncelleme penceresinin govdesi cizildi (BeginPopupModal true)
   uint32_t draw_about_win = 0;   // Hakkinda govdesi cizildi
+  uint32_t draw_rollback_warning = 0; // "geri alma eksik" uyarisi cizildi (kapi: en kotu durum GORUNUR)
 };
 
 // Updater'i kurar, ayar dosyasini okur, cleanup() (Disabled degilse) ve

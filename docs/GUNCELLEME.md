@@ -107,7 +107,7 @@ nullptr) menü çubuğu ImGui'ye **tek ek çağrı** göndermez. İkon: U+2B06, 
 
 | durum | içerik | düğmeler |
 |---|---|---|
-| Disabled | "Güncelleyici kapalı" + `reason()`; sürüm boşsa kaynak derlemesi açıklaması + `git pull && ./derle.sh` (Windows: `derle.bat`) + Kopyala | Kapat |
+| Disabled | "Güncelleyici kapalı" + `reason()`; sürüm boşsa kaynak derlemesi açıklaması + `git pull && ./derle.sh` (Windows: `derle.bat`) + Kopyala; `GERI-ALMA-EKSIK` işareti yüzünden kapalıysa aşağıdaki kırmızı kurtarma kutusu | Kapat |
 | Idle | "Henüz denetlenmedi." | Şimdi denetle / Kapat |
 | Checking | belirsiz (akan) ilerleme çubuğu | İptal / Arka planda sürsün |
 | UpToDate | ✓ En son sürüm kurulu (vX) | Kapat |
@@ -116,6 +116,7 @@ nullptr) menü çubuğu ImGui'ye **tek ek çağrı** göndermez. İkon: U+2B06, 
 | Staged | "vY kurulmaya hazır"; N dosya güncellenecek (yeni/değişen/kaldırılan), M aynı; **korunacak kullanıcı dosyaları** listesi `yol → yol.yeni` açıklamasıyla | **Kur ve yeniden başlat** / Sonra |
 | Installed | ✓ kuruldu; yeniden başlatma başarısızsa sebep | (Kapat) |
 | Failed | sürüm biliniyorsa sürüm bloğu; `reason()`; "Kurulum dizini değişmedi." | **Tekrar dene** / Kapat |
+| Failed, **geri alma eksik** (`... VE GERI ALMA EKSIK ...`) | "Kurulum YARIM KALDI" + `reason()` + kırmızı kutu: dizin karışık olabilir, eski dosyaların tek kopyası yedekte olabilir, editör onu silmez ve işaret kalkana kadar denemez; `<kurulum>/.guncelleme/` yolu + Yolu kopyala. "Değişmedi" **yazılmaz** (yalan olurdu), Konsol'da `KURULUM YARIM KALDI` | Kapat (Tekrar dene yok: çekirdek işaret varken denetlemez) |
 
 *Tekrar dene* başarısız adım indirmeyse `check()` + (Available gelince) `download()`
 zincirini yeniden kurar; denetimdeyse yalnız `check()`. Esc = Sonra. Pencere
@@ -232,6 +233,7 @@ Makine: AMD Ryzen 7 9800X3D + RTX 5080, Linux (CachyOS), GCC 16.2 Release — 20
 | rozet kuralları + metni, yeniden başlatma argv'si | sığmayan argv kırpılmaz (0) |
 | penceresiz: istek 0, menü komutu reddedildi (red 1), ayar dosyası yazılmadı, kare yolu 0 ayırma | **aynı** yapılandırma pencereli: istek 1, `file://` fikstür Available, rozet `⬆ v9.9.9`, son denetim yazıldı |
 | sonda: sahte Available → rozete tıkla → pencere açılır ve çizilir; fare pencereyi tarar, kimlik çakışması 0; Staged/İndiriliyor/Failed/Disabled/Hakkında çizilir (PPM) | Available değilken (Idle) rozet yok, rozet alanında piksel farkı; kapalı pencerelerde köşe sayısı eşit |
+| sonda: "geri alma eksik" (Failed ve Disabled metinleri, çekirdeğin `set_reason` kalıpları) kırmızı kurtarma kutusunu HER karede çizer | sıradan Failed ("paket özeti tutmuyor") ve sıradan Disabled kutuyu **çizmez** |
 | gerçek ikili: `--surum`, `--guncelleme denetle` = 10 | fikstür kurulu sürüme eşitken 0; bilinmeyen fiil 2 |
 | gerçek ikili: `--guncelleme kur` uçtan uca (tar + SHA256SUMS + latest.json, file://) | kullanıcının dosyası yerinde, yenisi `.yeni`; bilinmeyen fiilde kurulum dizinine dokunulmaz |
 | gerçek ikili: penceresiz editörün güncelleme kapısı, **etkin** güncelleyiciyle | karar metni "penceresiz" (Disabled değil: kapı gerçekten kipi ölçüyor) |
