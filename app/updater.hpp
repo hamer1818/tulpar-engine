@@ -47,7 +47,10 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace tulpar::engine::core {
+// Arena `tulpar::engine` ad alaninda (core/memory/arena.hpp). Sozlesmenin ilk
+// yaziminda `core::Arena` diye ileri bildirilmisti: o ad alaninda Arena YOK,
+// yani init'i gercek bir arenayla cagiran her kod derlenmezdi.
+namespace tulpar::engine {
 class Arena;
 }
 
@@ -58,6 +61,15 @@ constexpr uint32_t kUpdUrlLen = 512;
 constexpr uint32_t kUpdNotesLen = 16384; // Release notu; tasarsa notes_truncated
 constexpr uint32_t kUpdErrLen = 256;
 constexpr uint32_t kUpdPathLen = 256;    // paket ici goreli yol
+
+// Kapasiteler (A2: init'te sabit, dolarsa SAYILAN acik hata — sessiz kirpma
+// yok). Olculdu 2026-09-25 (tools/package.sh, Linux x86_64 yerel derleme):
+// paket 16 dosya, goreli yol ortalama 22 / en uzun 38 karakter; Windows
+// paketi DLL'lerle birkac duzine. 2048 dosya ve 128 KB yol havuzu ~50x pay.
+constexpr uint32_t kUpdMaxFiles = 2048;          // manifest basina dosya
+constexpr uint32_t kUpdPathPool = 128 * 1024;    // manifest basina yol baytlari
+constexpr uint32_t kUpdTextCap = 256 * 1024;     // latest.json / DOSYALAR.txt tamponu (gercek yanit ~9 KB)
+constexpr uint32_t kUpdHashBudget = 1024 * 1024; // poll basina ozetlenen bayt (varsayilan)
 
 // Varsayilan kaynak. TULPAR_GUNCELLEME_URL ortam degiskeni bunu ezer (testler
 // ve yerel sinama icin; o durumda file:// de kabul edilir).
@@ -99,6 +111,19 @@ bool upd_release_parse(const char *json, size_t len, const char *platform, UpdRe
 // "<64 hex> *<ad>"). Bulunamaz ya da hex bozuksa false.
 bool upd_sums_find(const char *text, size_t len, const char *name, uint8_t out_sha[32]);
 
+// DOSYALAR.txt'deki bir goreli yol guvenli mi: bos degil, < kUpdPathLen,
+// '/' ile baslamaz, '\\' ve ':' (surucu harfi, NTFS akisi) icermez, `.`/`..`/bos
+// bilesen yok, kontrol karakteri yok, `DOSYALAR.txt`in kendisi ve
+// `.guncelleme/` altindakiler degil. Reddedilen tek bir satir BUTUN paketi
+// reddeder (kurulum dizininin disina yazan bir manifest yarim uygulanmaz).
+bool upd_manifest_path_ok(const char *path, size_t len);
+
+// curl cikis kodu (+ stderr metni) -> Turkce sebep. 6/7 ag yok, 22 HTTP
+// hatasi (stderr'deki durum kodundan: 403/429 GitHub istek siniri, 404 yok),
+// 28 zaman asimi, 1 protokol reddi (https disi), 37 file:// okunamadi;
+// bilinmeyen kod: "curl cikis kodu N: <stderr son satiri>". code 0: false.
+bool upd_curl_reason(int code, const char *stderr_text, char *out, size_t cap);
+
 // --- Durum makinesi --------------------------------------------------------
 
 enum class UpdState : uint8_t {
@@ -130,13 +155,26 @@ struct UpdaterConfig {
   const char *api_url = nullptr;         // null: kUpdDefaultApiUrl (ya da TULPAR_GUNCELLEME_URL)
   const char *install_dir = nullptr;     // null: platform::exe_dir()
   bool allow_file_urls = false;          // file:// kabul (yalniz test / ortam ezmesi)
+  uint32_t hash_budget_bytes = 0;        // poll basina SHA-256 baytlari; 0: kUpdHashBudget
+};
+
+// Sayaclar: reddedilen/sigmayan her sey burada gorunur (sessiz kirpma yok).
+struct UpdCounters {
+  uint32_t manifest_rejected = 0; // upd_manifest_path_ok'tan gecmeyen / tekrar eden satir
+  uint32_t capacity_overflow = 0; // kUpdMaxFiles / kUpdPathPool / kUpdTextCap asimi
+  uint64_t hashed_bytes = 0;      // bu surecte ozetlenen toplam
+  uint32_t hash_polls = 0;        // ozet yapan poll sayisi (kareye bolundugunun kaniti)
 };
 
 class Updater {
 public:
   // Butun calisma bellegi `a`dan (A2). Disabled olmak init HATASI DEGILDIR:
   // init true doner, state() Disabled, reason() sebep.
-  bool init(core::Arena &a, const UpdaterConfig &c, char *err, size_t err_cap);
+  // Arena `arena_bytes()` kadar yer ayirabilmeli; ayiramazsa init false doner
+  // (arenanin Fatal politikasina hic dusmeden, once kalan yer denetlenir).
+  // Disabled iken buyuk tamponlar HIC ayrilmaz (kaynak derlemesi odemez).
+  bool init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap);
+  static size_t arena_bytes(); // init'in en cok isteyecegi (kanarya payi dahil)
 
   void check();                           // Idle/UpToDate/Available/Failed -> Checking
   void download();                        // Available -> Downloading -> Verifying -> Extracting -> Staged
@@ -151,7 +189,9 @@ public:
   bool newer_than_current() const;        // release() kurulu surumden yeni mi
   UpdPlanSummary plan_summary() const;    // Staged ve sonrasi
   uint32_t kept_count() const;            // <ad>.yeni olarak yazilanlar (arayuz listesi)
-  const char *kept_path(uint32_t i) const;
+  const char *kept_path(uint32_t i) const; // GORELI yol, `.yeni` EKSIZ (orn. "tests/assets/editor.sahne")
+  const UpdCounters &counters() const;
+  const char *install_dir() const;        // cozulmus kurulum dizini (UTF-8)
 
   // Acilista bir kez: `.guncelleme/` altindaki eski yedekleri ve yarim kalmis
   // indirme/acma dizinlerini siler. Silinemeyen (Windows'ta hala acik) dosya
