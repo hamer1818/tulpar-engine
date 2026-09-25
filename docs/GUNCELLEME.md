@@ -32,7 +32,8 @@ döner. Hiçbir adım bir karede bütün paketi özetlemez.
 |---|---|
 | bellek | `Updater::arena_bytes()` kadar arena (ölçüldü: 1 267 144 B, kanarya payı dahil). Disabled iken yalnız `Impl` ayrılır (ölçüldü: 28 832 B). Yer yoksa `init` **false** döner, arenanın Fatal politikasına düşmez. |
 | `poll()` | Editör her kare çağırır. İş yoksa O(1) (ölçüldü: ~1 ns), `operator new` yok (AllocGate ile ölçülür). |
-| `cleanup(dir)` | Açılışta **bir kez** (`init`'ten önce ya da sonra). `.guncelleme/` altını siler (eski yedekler, yarım indirmeler). Silinemeyen dosya (Windows'ta eski süreç hâlâ açık) hata değil, sonraki açılışa kalır. |
+| `cleanup(dir)` | Açılışta **bir kez** (`init`'ten önce ya da sonra). `.guncelleme/` altını siler (eski yedekler, yarım indirmeler). Silinemeyen dosya (Windows'ta eski süreç hâlâ açık) hata değil, sonraki açılışa kalır. `GERI-ALMA-EKSIK.txt` işareti varsa HİÇBİR ŞEY silmez. |
+| `release().html_url` | Yalnız `https://github.com/` ile başlıyorsa dolu (arayüz tarayıcıda açabilir); aksi boş. |
 | `cancel()` | Çalışan curl/tar'ı öldürür ve toplar (en çok ~5 s bloklar), çalışma alanını siler. Editör kapanırken iş sürüyorsa çağrılmalı: POSIX'te curl yetim kalıp indirmeye devam ederdi (Windows'ta iş nesnesi zaten kapatır). |
 | `install()` | Yalnız `Staged`'de. Senkron (yalnız yeniden adlandırma; ölçüldü < 1 ms). Başarıda `Installed`: yeni ikililer diskte, **çalışan süreç eski** — arayüz yeniden başlatmayı önerir. |
 | `kept_path(i)` | GÖRELİ yol, `.yeni` EKSİZ (ör. `tests/assets/editor.sahne`); yenisi `<yol>.yeni` olarak yanında. |
@@ -55,6 +56,7 @@ döner. Hiçbir adım bir karede bütün paketi özetlemez.
 | `SURUM.txt` = `kaynak <platform>` | `surumsuz paket (SURUM.txt: kaynak) — ...` |
 | `SURUM.txt` ≠ çalışan sürüm/platform | `kurulu SURUM.txt (... ...) calisan editorle (... ...) uyusmuyor` |
 | kurulu manifest geçersiz | `kurulu manifest gecersiz: DOSYALAR.txt N. satir: ...` |
+| önceki kurulumun geri alması eksik (`.guncelleme/GERI-ALMA-EKSIK.txt`) | `onceki bir guncellemenin geri almasi eksik kaldi — ... elle incelenmeli ...` |
 | dizin yazılamaz | `kurulum dizini yazilamaz: ... (hata N)` |
 
 **Failed** (kurulum dizini DEĞİŞMEDİ; `check()` ile yeniden denenir):
@@ -71,7 +73,7 @@ döner. Hiçbir adım bir karede bütün paketi özetlemez.
 | açma | `paket acilamadi (tar cikis kodu N): ...`, `paket koku bulunamadi ...` |
 | paket | `pakette SURUM.txt bicimsiz: ...`, `SURUM.txt uyusmuyor: '...' (beklenen '...')`, `yeni paket reddedildi: DOSYALAR.txt N. satir: guvensiz yol reddedildi: ../x`, `paket dosyasi bozuk (ozet tutmuyor): ...` |
 | kurulum | `kurulum basarisiz, N tasima geri alindi: <sebep>` |
-| en kötü durum | `kurulum basarisiz (...) VE GERI ALMA EKSIK: N adim geri alinamadi — yedek: <dizin>` (yedek ve açılan paket SİLİNMEZ) |
+| en kötü durum | `kurulum basarisiz (...) VE GERI ALMA EKSIK: N adim geri alinamadi — yedek: <dizin>`. Yedek ve açılan paket SİLİNMEZ, `.guncelleme/GERI-ALMA-EKSIK.txt` yazılır; o varken `check()` çalışmaz, `cleanup()` hiçbir şey silmez, sonraki `init` Disabled (yedek eski dosyaların tek kopyası olabilir — elle kurtarma). |
 
 ## Paket biçimi (PR #63) ve çekirdeğin yeniden denetimi
 
@@ -207,6 +209,7 @@ System32 `tar -a -cf` ile zip). Kurulum dizininin adında Türkçe harf var
 | uçtan uca: add/replace/same/kept_user/remove + salt-okunur dosya + önceki `.yeni` | kareye bölme: `hash_polls ≥ 3 MB / 64 KB`; poll'larda AllocGate 0 |
 | arşivde tek bayt bozuk → Failed | ağaç anlık görüntüsü (sıradan bağımsız, boş dizin dahil) **bayt bayt aynı**; anlık görüntünün kendisi tek bayt/boş dizin farkını yakalar |
 | `test_fail_after(k)`: k = 0, 1, 3, 5, 9, 10, 11, 13 (ilk, salt-okunur, yeni dizinden önce/sonra, işleme noktası) | kapalı kapıyla (k = 14) aynı fikstür KURULUR ve ağaç değişir |
+| `GERI-ALMA-EKSIK.txt` varken `init` Disabled, `cleanup` yedeği silmez | işaret kalkınca aynı `cleanup` yedeği siler, `init` etkin |
 | manifestte `../x`, SURUM.txt uyuşmazlığı | kurulum dışına hiçbir şey yazılmaz, ağaç aynı |
 | adres politikası: üretimde `file://` → curl `protokol`; `https://evil.example.com` → çekirdek reddi; yok dosya → `okunamadi` | ağaç aynı |
 | mutasyonla doğrulandı (2026-09-25): geri almayı ve arşiv özet karşılaştırmasını kapatınca iki kapı KIRMIZI | — |

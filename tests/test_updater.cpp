@@ -1023,6 +1023,21 @@ ENGINE_TEST(updater_disabled_conditions) {
   CHECK(write_str(base, "DOSYALAR.txt", good));
   CHECK(try_init(c).st == UpdState::Idle); // geri: yine etkin
 
+  // Geri almasi EKSIK kalmis bir kurulumun isareti: init Disabled, cleanup
+  // HICBIR SEY silmez (yedek eski dosyalarin tek kopyasi olabilir).
+  CHECK(write_str(base, ".guncelleme/GERI-ALMA-EKSIK.txt", "sebep\n"));
+  CHECK(write_str(base, ".guncelleme/yedek-v0.0.9/engine_editor", "tek kopya\n"));
+  CHECK(disabled_with(c, "geri almasi eksik"));
+  Updater::cleanup(base);
+  CHECK(file_is(base, ".guncelleme/yedek-v0.0.9/engine_editor", "tek kopya\n"));
+  // Pozitif kontrol: isaret kalkinca cleanup ayni yedegi siler, init etkin.
+  char mk[1024];
+  path_join(mk, sizeof mk, base, ".guncelleme/GERI-ALMA-EKSIK.txt");
+  CHECK(platform::fs_remove_file(mk));
+  Updater::cleanup(base);
+  CHECK(!platform::fs_exists(g));
+  CHECK(try_init(c).st == UpdState::Idle);
+
 #if !defined(_WIN32)
   if (::geteuid() != 0) {
     // Yazilamaz dizin (root her yere yazar: orada olculemez).

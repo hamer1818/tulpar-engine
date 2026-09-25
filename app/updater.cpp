@@ -44,6 +44,10 @@ constexpr uint32_t kMaxOpensPerPoll = 64; // cok kucuk dosyada acma maliyeti de 
 constexpr const char *kManifestName = "DOSYALAR.txt";
 constexpr const char *kVersionName = "SURUM.txt";
 constexpr const char *kGDir = ".guncelleme";
+// Geri alma EKSIK kaldiysa `.guncelleme/` altina yazilir: yedek o an eski
+// dosyalarin TEK kopyasini tasiyabilir. Isaret varken cleanup() hicbir sey
+// silmez, init() Disabled olur, install() yedegi silmez — elle kurtarma icin.
+constexpr const char *kBrokenMarker = "GERI-ALMA-EKSIK.txt";
 
 static_assert((kSlots & (kSlots - 1)) == 0, "kSlots 2^n olmali");
 static_assert(kSlots >= 2 * kUpdMaxFiles, "karma tablosu en az yari bos kalmali");
@@ -856,6 +860,7 @@ struct Updater::Impl {
   uint32_t kept_n = 0;
   int32_t fail_after = -1;
   uint32_t moves = 0;
+  bool broken = false; // geri alma eksik: check/download/install KAPALI (kBrokenMarker)
 
   char pa[kFull], pb[kFull]; // gecici yollar
 
@@ -993,6 +998,8 @@ void Updater::Impl::on_check_done(int code) {
     rel_valid = false;
     return;
   }
+  // Arayuz Release sayfasini tarayicida acabilir: yalniz github.com sayfasi.
+  if (!starts_with(rel.html_url, "https://github.com/")) rel.html_url[0] = 0;
   rel_valid = true;
   work = Work::None;
   pk = ProcKind::None;
@@ -1452,6 +1459,11 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     m.set_reason("kurulum dizininde %s yok — paket kurulumu degil (%s)", kManifestName, m.inst);
     return true;
   }
+  join(m.pb, sizeof m.pb, m.gdir, kBrokenMarker);
+  if (platform::fs_exists(m.pb)) {
+    m.set_reason("onceki bir guncellemenin geri almasi eksik kaldi — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
+    return true;
+  }
 
   // Kurulu SURUM.txt: paketleyicinin yazdigi kimlik. `kaynak` = surumsuz
   // (TULPAR_SURUM bos) CI paketi: hangi Release'in "daha yeni" oldugu
@@ -1556,6 +1568,7 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
 void Updater::check() {
   if (!m_) return;
   Impl &m = *m_;
+  if (m.broken) return;
   if (m.state != UpdState::Idle && m.state != UpdState::UpToDate && m.state != UpdState::Available &&
       m.state != UpdState::Failed)
     return;
@@ -1607,6 +1620,9 @@ bool Updater::install(char *err, size_t err_cap) {
       m.set_reason("kurulum basarisiz (%s) VE GERI ALMA EKSIK: %u adim geri alinamadi — yedek: %s", why, bad, m.bak);
       m.state = UpdState::Failed;
       m.work = Work::None;
+      m.broken = true;
+      char mk[kFull];
+      if (join(mk, sizeof mk, m.gdir, kBrokenMarker)) platform::fs_write_all(mk, m.reason, std::strlen(m.reason));
     } else {
       m.fail("kurulum basarisiz, %u tasima geri alindi: %s", moved, why);
       platform::fs_remove_tree(m.bak);
@@ -1722,6 +1738,8 @@ void Updater::cleanup(const char *install_dir) {
   else if (!platform::fs_exe_dir_utf8(dir, sizeof dir)) return;
   CleanCtx c;
   if (!join(c.gdir, sizeof c.gdir, dir, kGDir) || !platform::fs_is_dir(c.gdir)) return;
+  char mk[kFull];
+  if (!join(mk, sizeof mk, c.gdir, kBrokenMarker) || platform::fs_exists(mk)) return; // elle kurtarma: dokunma
   platform::fs_list_dir(c.gdir, clean_entry, &c);
   platform::fs_rmdir(c.gdir);
 }

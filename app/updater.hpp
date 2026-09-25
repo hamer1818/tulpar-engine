@@ -207,7 +207,10 @@ public:
 
   // Acilista bir kez: `.guncelleme/` altindaki eski yedekleri ve yarim kalmis
   // indirme/acma dizinlerini siler. Silinemeyen (Windows'ta hala acik) dosya
-  // HATA DEGILDIR, bir sonraki acilisa kalir.
+  // HATA DEGILDIR, bir sonraki acilisa kalir. Istisna: bir kurulumun geri
+  // almasi EKSIK kaldiysa `.guncelleme/GERI-ALMA-EKSIK.txt` yazilir; o varken
+  // cleanup hicbir sey silmez ve init Disabled doner (yedek eski dosyalarin
+  // tek kopyasi olabilir — elle kurtarma).
   static void cleanup(const char *install_dir);
 
   // Kapi: install() sirasinda k. tasimada yapay hata (geri alma yolunun
