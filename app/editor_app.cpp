@@ -82,6 +82,7 @@
 #include "app/editor_inspector.hpp"
 #include "app/editor_palette.hpp"
 #include "app/editor_multiedit.hpp"
+#include "app/editor_props.hpp"
 #include "content/prefab.hpp"
 #include "rhi/offscreen.hpp"
 #include "rhi/swapchain.hpp"
@@ -512,6 +513,13 @@ struct EditorState {
   bool ribbon_initialized = false;
   sim::VoxelSmokeGrid smoke_grid;
   bool smoke_initialized = false;
+  // Nesne ozellikleri (E5): betik yolu -> bildirimler. Disk yalniz denetcinin
+  // betik karti cizilirken ve en cok kPropRestatFrames karede bir sorulur;
+  // gorunum isaretleri yalniz BAKAR (prop_cache_peek). 283 216 B (olculdu
+  // 2026-09-25, x86_64 GCC 16.2.1; 256 KB'si tarama metni) — EditorState
+  // statik, yigina girmez.
+  PropCache props;
+  uint32_t prop_markers_drawn = 0; // son karede cizilen `nokta` isareti (penceresiz kapi okur)
 };
 
 // Varlik silindikten / geri alindiktan sonra secimi gecerli tut.
@@ -1168,6 +1176,114 @@ bool commit(EditorState &st, int index, const SceneEntity &after) {
   st.groups.push(1 + propagate_selection_edit(st, index, before, after));
   st.dirty = true;
   return true;
+}
+
+// --- Nesne ozellikleri (E5) ----------------------------------------------------
+// Varligin betiginin taramasi. may_io: disk sorulabilir mi (denetci karti
+// cizilirken evet; gorunum isaretleri yalniz onbellege bakar). note: taranamadiysa
+// gorunur sebep. Donus: tarama (Ok) ya da nullptr.
+const PropCacheEntry *entity_prop_scan(EditorState &st, const SceneEntity &e, uint32_t frame, bool may_io, char *note, uint32_t note_cap) {
+  if (note && note_cap) note[0] = 0;
+  if (!(e.components & content::kSceneScript)) return nullptr;
+  if (!e.script_file[0]) {
+    if (note && note_cap) std::snprintf(note, note_cap, "betik atanmam\xC4\xB1\xC5\x9F");
+    return nullptr;
+  }
+  char yol[1024];
+  if (!editor_script_resolve(e.script_file, st.scene_dir, st.tulpar_dir, yol, sizeof yol)) {
+    if (note && note_cap) std::snprintf(note, note_cap, "yol \xC3\xA7\xC3\xB6z\xC3\xBClemedi: %s", e.script_file);
+    return nullptr;
+  }
+  const PropCacheEntry *ce = prop_cache_get(st.props, yol, frame, may_io);
+  if (!ce) {
+    if (note && note_cap) std::snprintf(note, note_cap, "%s", may_io ? "yol \xC3\xA7ok uzun" : "hen\xC3\xBCz taranmad\xC4\xB1");
+    return nullptr;
+  }
+  if (ce->state != PropCacheState::Ok) {
+    if (note && note_cap) std::snprintf(note, note_cap, "%s: %s", prop_cache_state_text(ce->state), yol);
+    return nullptr;
+  }
+  return ce;
+}
+
+// Denetcinin Ozellikler bolumu: surekli widget'lar track_edit'ten, ayrik
+// eylemler commit'ten gecer — ikisi de propagate_selection_edit ile coklu
+// secimde AYNI betigi tasiyan digerlerine ada gore yayilir.
+void props_section(EditorState &st, SceneEntity &e, int si, SceneEntity &after, uint32_t frame) {
+  char note[1200];
+  PropsPanelInput in;
+  in.has_script = (e.components & content::kSceneScript) != 0;
+  const PropCacheEntry *ce = entity_prop_scan(st, e, frame, true, note, sizeof note);
+  if (ce) {
+    in.scan = &ce->res;
+    in.decls = ce->decls;
+    in.decl_count = ce->res.count < kPropDeclMax ? ce->res.count : kPropDeclMax;
+  } else {
+    in.note = note;
+  }
+  struct Ctx {
+    EditorState *st;
+    SceneEntity *e;
+    int si;
+  } ctx{&st, &e, si};
+  after = e;
+  const PropsPanelResult r = props_panel(
+      e, after, in, [](void *u, const PropItem &it) { Ctx *c = static_cast<Ctx *>(u); track_edit(*c->st, *c->e, c->si, it); }, &ctx);
+  if (r.commit) commit(st, si, after);
+}
+
+// Gorunum: secili varligin `nokta` ozellikleri — varliktan noktaya cizgi +
+// eskenar dortgen + ad. Konum DUNYA (scene_prop_point_world: yazar pozu,
+// olcek yok; kopru ve derleyiciyle ayni kural). Surukleme YOK (E6).
+// Renk: ustune yazilmis AccentHi (buyuk), betik varsayilani AccentHi (kucuk,
+// soluk cizgi), yetim Warn. Donus: cizilen isaret sayisi.
+constexpr float kPropMarkerR = 6.0f, kPropMarkerDefR = 4.5f;
+bool project_to_view(const Mat4 &vp_mat, const ViewportRect &vr, const float w[3], ImVec2 *out) {
+  const Vec4 clip = vp_mat * Vec4{w[0], w[1], w[2], 1.0f};
+  if (clip.w <= 0.01f) return false; // kameranin arkasinda
+  out->x = vr.x + (clip.x / clip.w * 0.5f + 0.5f) * vr.w;
+  out->y = vr.y + (clip.y / clip.w * 0.5f + 0.5f) * vr.h; // Vulkan: NDC y asagi
+  return true;
+}
+uint32_t draw_prop_markers(EditorState &st, uint32_t ent, const Mat4 &vp_mat, const ViewportRect &vr, uint32_t frame) {
+  if (ent >= st.scene.entity_count) return 0;
+  const PropCacheEntry *ce = entity_prop_scan(st, st.scene.entities[ent], frame, false, nullptr, 0);
+  static PropMarker mk[kPropDeclMax + content::kSceneMaxProps];
+  const uint32_t n = prop_marker_points(st.scene, ent, ce ? ce->decls : nullptr, ce ? ce->res.count : 0, ce != nullptr, mk,
+                                        kPropDeclMax + content::kSceneMaxProps);
+  if (n == 0) return 0;
+  const Mat4 wm = content::scene_entity_world_matrix(st.scene, ent);
+  const Vec4 o4 = wm * Vec4{0.0f, 0.0f, 0.0f, 1.0f};
+  const float o[3] = {o4.x, o4.y, o4.z};
+  ImVec2 so;
+  const bool so_ok = project_to_view(vp_mat, vr, o, &so);
+  ImDrawList *dl = ImGui::GetWindowDrawList();
+  float c[4];
+  editor_tone(Tone::AccentHi, c);
+  const ImU32 col_ov = ImGui::GetColorU32(ImVec4(c[0], c[1], c[2], 1.0f));
+  const ImU32 col_def_line = ImGui::GetColorU32(ImVec4(c[0], c[1], c[2], 0.55f));
+  editor_tone(Tone::Warn, c);
+  const ImU32 col_orphan = ImGui::GetColorU32(ImVec4(c[0], c[1], c[2], 1.0f));
+  editor_tone(Tone::Bg0, c);
+  const ImU32 col_edge = ImGui::GetColorU32(ImVec4(c[0], c[1], c[2], 1.0f));
+  editor_tone(Tone::TextDim, c);
+  const ImU32 col_text = ImGui::GetColorU32(ImVec4(c[0], c[1], c[2], 1.0f));
+  uint32_t drawn = 0;
+  const uint32_t lim = n < kPropDeclMax + content::kSceneMaxProps ? n : kPropDeclMax + content::kSceneMaxProps;
+  for (uint32_t k = 0; k < lim; k++) {
+    ImVec2 sp;
+    if (!project_to_view(vp_mat, vr, mk[k].world, &sp)) continue;
+    const bool def = mk[k].kind == kPropMarkerDefault, orphan = mk[k].kind == kPropMarkerOrphan;
+    const ImU32 col = orphan ? col_orphan : col_ov;
+    const float r = def ? kPropMarkerDefR : kPropMarkerR;
+    if (so_ok) dl->AddLine(so, sp, def ? col_def_line : col, def ? 1.0f : 1.5f);
+    const ImVec2 a(sp.x, sp.y - r), b(sp.x + r, sp.y), cc(sp.x, sp.y + r), d(sp.x - r, sp.y);
+    dl->AddQuadFilled(a, b, cc, d, col);
+    dl->AddQuad(ImVec2(a.x, a.y - 1.0f), ImVec2(b.x + 1.0f, b.y), ImVec2(cc.x, cc.y + 1.0f), ImVec2(d.x - 1.0f, d.y), col_edge, 1.0f);
+    dl->AddText(ImVec2(sp.x + r + 3.0f, sp.y - r - 8.0f), orphan ? col_orphan : col_text, mk[k].name);
+    drawn++;
+  }
+  return drawn;
 }
 } // namespace
 
@@ -3734,6 +3850,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             if (view_mode >= 0 && view_mode < 6) oi.shading = s_shading_labels[view_mode];
             oi.hint = "Sağ tık döndür · orta tuş kaydır · F odak";
             viewport_overlay(ViewportRect{origin.x + offset_x, origin.y + offset_y, (float)vp.width(), (float)vp.height()}, oi, nullptr, &ovres);
+
+            // Nesne ozellikleri (E5): secili varligin `nokta`lari. Oynarken
+            // cizilmez — nokta YAZAR pozuna bagli, yuruyen varliktan cizgi yanlis okunurdu.
+            if (!st.playing) {
+              const int32_t mp = st.sel.primary();
+              if (mp >= 0 && mp < (int32_t)st.scene.entity_count)
+                st.prop_markers_drawn = draw_prop_markers(st, (uint32_t)mp, proj * view,
+                                                          ViewportRect{origin.x + offset_x, origin.y + offset_y, (float)vp.width(), (float)vp.height()},
+                                                          frame_i);
+            }
 
             // Arazi Fırçası ve 3B İmleç Halkası (Görünüm Paneli çizim listesi içinde)
             const int32_t t_prim = st.sel.primary();
@@ -6390,9 +6516,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 ImGui::SetTooltip("Ctrl+F5. Sahneyi derler, onu y\xC3\xBCkleyen oyunu motoru tan\xC4\xB1yan derleyiciyle ayr\xC4\xB1 pencerede "
                                   "\xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r; \xC3\xA7\xC4\xB1kt\xC4\xB1 Konsol'a akar.");
             }
+            // Nesne ozellikleri (E5): betigin bildirdikleri + bu varligin
+            // ustune yazdiklari. Betik disk taramasi YALNIZ burada (kart acik).
+            props_section(st, e, si, after, frame_i);
             end_component_card();
           }
           process_component_card_action(act, content::kSceneScript, e, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); });
+        } else if (e.prop_count > 0) {
+          // Betik bileseni kaldirilmis ama ozellikler duruyor (E3: bilesenden
+          // bagimsiz — betigi geri eklemek degerleri geri getirir). Ham gosterilir.
+          props_section(st, e, si, after, frame_i);
         }
         if (e.components & content::kSceneNavAgent) {
           act = ComponentCardAction::None;
@@ -7440,6 +7573,154 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                     (int)st.play_embedded, (temiz && g_bitir_goruldu && geri && !st.playing && !st.play_embedded) ? "OK" : "HATA");
         oyun_kapaniyor = false; // doku bir sonraki kare BASINDA birakilir (bu karenin cizimi onu kullanabilir)
         if (!(temiz && g_bitir_goruldu && geri && !st.playing && !st.play_embedded)) return 1;
+      }
+    }
+    // --- NESNE OZELLIGI ISARET KAPISI (E5; kare 46-50, >= 52 kare) ------------
+    // Gorunum isareti uctan uca: secili varligin `nokta` ozelligi (dunyaya
+    // scene_prop_point_world ile cevrilmis) gorunumde GERCEKTEN cizildi mi —
+    // piksel, bilesik karede (ImGui dahil). POZITIF KONTROL: ustune yazma
+    // kaldirilinca AYNI piksel isaret rengini kaybetmeli (yoksa olculen isaret
+    // degil, arka plandir). Betik noktayi bildiriyorsa ikinci yon de olculur:
+    // kaldirinca betigin VARSAYILAN noktasinda isaret belirmeli (tarama ->
+    // onbellek -> isaret yolu), ustune yazmayken orada OLMAMALI.
+    // Aday: nokta ustune yazmasi olan ilk varlik (ozellik.sahne: "muhafiz" —
+    // donuk ve olcekli kaidenin cocugu, yani donusum de olculuyor); yoksa
+    // gecici bir fikstur yazilir ("kapi_nokta"). Kamera noktaya cevrilir.
+    // Hepsi geri alinir; sahne baytlari baslangicla ayni olmali.
+    if (headless && opts.headless_frames >= 52 && frame_i >= 46 && frame_i <= 50 && st.scene.entity_count && view_rect.w > 0) {
+      static int32_t pk_ent = -1, pk_sel0 = -1;
+      static char pk_name[content::kScenePropNameLen];
+      static float pk_ov_w[3], pk_def_w[3];
+      static bool pk_has_def = false, pk_injected = false, pk_stats = true;
+      static uint32_t pk_ops = 0, pk_drawn_a = 0, pk_drawn_b = 0;
+      static EditorCamera pk_cam;
+      static char pk_txt0[65536], pk_txt1[65536];
+      static size_t pk_n0 = 0;
+      static uint8_t pk_ov_a[4], pk_ov_b[4], pk_def_a[4], pk_def_b[4];
+      auto piksel = [&](const float w[3], uint8_t out[4]) {
+        out[0] = out[1] = out[2] = out[3] = 0;
+        ImVec2 sp;
+        if (!project_to_view(proj * view, view_rect, w, &sp)) return false;
+        if (sp.x < 0 || sp.y < 0 || (uint32_t)sp.x >= oc.width || (uint32_t)sp.y >= oc.height) return false;
+        const uint8_t *q = ores.pixels + ((size_t)(uint32_t)sp.y * oc.width + (uint32_t)sp.x) * 4;
+        out[0] = q[0]; out[1] = q[1]; out[2] = q[2]; out[3] = q[3];
+        return true;
+      };
+      if (frame_i == 46) {
+        if (st.playing) set_playing(false); // onceki kapilarin oynatmasi
+        view_tab = ViewportTab::Scene;
+        pk_sel0 = st.sel.primary();
+        pk_n0 = content::scene_write(st.scene, pk_txt0, sizeof pk_txt0);
+        pk_ent = -1;
+        pk_injected = pk_has_def = false;
+        pk_ops = 0;
+        // Aday: nokta ustune yazmasi olan ve betik varsayilani (bildirildiyse)
+        // ondan FARKLI ilk varlik — ayniysa kaldirmak pikseli degistirmezdi.
+        for (uint32_t i = 0; i < st.scene.entity_count && pk_ent < 0; i++) {
+          const SceneEntity &x = st.scene.entities[i];
+          const PropCacheEntry *ce = entity_prop_scan(st, x, frame_i, true, nullptr, 0);
+          for (uint32_t k = 0; k < x.prop_count && pk_ent < 0; k++) {
+            if (x.props[k].type != content::kScenePropNokta) continue;
+            const PropDecl *d = ce ? prop_decl_find(ce->decls, ce->res.count, x.props[k].name) : nullptr;
+            const bool def_ok = d && d->type == content::kScenePropNokta && !(d->flags & kPropDeclDefaultUnknown);
+            if (def_ok && !std::memcmp(d->def, x.props[k].v, sizeof d->def)) continue;
+            pk_ent = (int32_t)i;
+            std::snprintf(pk_name, sizeof pk_name, "%s", x.props[k].name);
+            content::scene_prop_point_world(st.scene, i, x.props[k].v, pk_ov_w);
+            if (def_ok) { pk_has_def = true; content::scene_prop_point_world(st.scene, i, d->def, pk_def_w); }
+          }
+        }
+        if (pk_ent < 0) { // fikstur: yer olan ilk varliga gecici bir nokta
+          for (uint32_t i = 0; i < st.scene.entity_count && pk_ent < 0; i++) {
+            SceneEntity a = st.scene.entities[i];
+            const float v[3] = {1.5f, 0.0f, 1.0f};
+            if (!content::scene_prop_set(a, "kapi_nokta", content::kScenePropNokta, v)) continue;
+            if (!st.hist.set_entity(st.scene, i, a)) continue;
+            st.groups.push(1);
+            pk_ops++;
+            pk_ent = (int32_t)i;
+            pk_injected = true;
+            std::snprintf(pk_name, sizeof pk_name, "kapi_nokta");
+            content::scene_prop_point_world(st.scene, i, v, pk_ov_w);
+          }
+        }
+        if (pk_ent < 0) {
+          std::printf("[engine_editor] ozellik isaret kapisi: HATA — ne nokta ozellikli varlik var ne fikstur yazilabildi\n");
+          return 1;
+        }
+        pk_cam = cam;
+        // Istatistik kaplamasi gorunumun sag ust ceyregini ORTUYOR (olculdu
+        // 2026-09-25, 1280x720: x >= 678): isaret onun altinda kalirsa kapi
+        // arayuzu degil kaplamayi olcerdi. Gomulu oynatma kapisi da ayni seyi yapiyor.
+        pk_stats = show_stats;
+        show_stats = false;
+        cam.mode = CameraMode::Orbit;
+        cam.proj = CameraProjection::Perspective;
+        cam.target = Vec3{pk_ov_w[0], pk_ov_w[1], pk_ov_w[2]};
+        cam.radius = 6.0f;
+        st.sel.set_single(pk_ent);
+      } else if (frame_i == 48 && pk_ent >= 0) {
+        // 47. kare yeni kamera + secimle cizildi; ores onun bilesik goruntusu.
+        pk_drawn_a = st.prop_markers_drawn;
+        piksel(pk_ov_w, pk_ov_a);
+        if (pk_has_def) piksel(pk_def_w, pk_def_a);
+        SceneEntity b = st.scene.entities[pk_ent];
+        if (content::scene_prop_remove(b, pk_name) && st.hist.set_entity(st.scene, (uint32_t)pk_ent, b)) {
+          st.groups.push(1);
+          pk_ops++;
+        }
+      } else if (frame_i == 50 && pk_ent >= 0) {
+        pk_drawn_b = st.prop_markers_drawn;
+        const bool ov_b_ok = piksel(pk_ov_w, pk_ov_b);
+        if (pk_has_def) piksel(pk_def_w, pk_def_b);
+        // Beklenen renk: AccentHi, sRGB hedefte (oc.srgb) palet dogrusal verilir
+        // ve donanim geri kodlar — yani piksel paletin altigen degeri.
+        float c[4];
+        editor_tone(Tone::AccentHi, c);
+        int bek[3];
+        for (int k = 0; k < 3; k++) {
+          const float x = c[k] <= 0.0031308f ? c[k] * 12.92f : 1.055f * std::pow(c[k], 1.0f / 2.4f) - 0.055f;
+          bek[k] = (int)(x * 255.0f + 0.5f);
+        }
+        auto uzak = [&](const uint8_t *p) { return std::abs(p[0] - bek[0]) + std::abs(p[1] - bek[1]) + std::abs(p[2] - bek[2]); };
+        const int d_ov_a = uzak(pk_ov_a), d_ov_b = uzak(pk_ov_b);
+        const int d_def_a = pk_has_def ? uzak(pk_def_a) : -1, d_def_b = pk_has_def ? uzak(pk_def_b) : -1;
+        // Esikler: isaret dolgusu tek renk, merkez pikseli kenar yumusatmasinin
+        // disinda (olculdu 2026-09-25, RTX 5080: fark 0; arka plan 255-349).
+        // Kontrol icin arka planin en az 90 uzakta olmasi istenir.
+        const bool ov_ok = d_ov_a <= 30 && ov_b_ok && d_ov_b >= 90;
+        const bool def_ok = !pk_has_def || (d_def_b <= 30 && d_def_a >= 90);
+        for (uint32_t k = 0; k < pk_ops; k++) do_undo();
+        const size_t n1 = content::scene_write(st.scene, pk_txt1, sizeof pk_txt1);
+        const bool geri = pk_n0 < sizeof pk_txt0 && n1 == pk_n0 && std::strcmp(pk_txt0, pk_txt1) == 0;
+        cam = pk_cam;
+        show_stats = pk_stats;
+        if (pk_sel0 >= 0 && pk_sel0 < (int32_t)st.scene.entity_count) st.sel.set_single(pk_sel0);
+        else st.sel.clear();
+        st.dirty = false;
+        const bool ok = ov_ok && def_ok && geri && pk_drawn_a >= 1;
+        std::printf("[engine_editor] ozellik isaret kapisi: \"%s\".%s%s dunya (%.2f %.2f %.2f), %u isaret; isaret pikseli fark %d (<=30) %s, "
+                    "KONTROL ustune yazma kaldirilinca fark %d (>=90) %s",
+                    st.scene.entities[pk_ent].name, pk_name, pk_injected ? " (fikstur)" : "", (double)pk_ov_w[0], (double)pk_ov_w[1],
+                    (double)pk_ov_w[2], pk_drawn_a, d_ov_a, d_ov_a <= 30 ? "evet" : "HAYIR", d_ov_b, d_ov_b >= 90 ? "evet" : "HAYIR");
+        if (pk_has_def)
+          std::printf(", betik varsayilani (%.2f %.2f %.2f) kaldirinca belirdi fark %d %s, once yoktu fark %d %s", (double)pk_def_w[0],
+                      (double)pk_def_w[1], (double)pk_def_w[2], d_def_b, d_def_b <= 30 ? "evet" : "HAYIR", d_def_a, d_def_a >= 90 ? "evet" : "HAYIR");
+        else
+          std::printf(", betik varsayilani: bildirilmemis (olculmedi)");
+        std::printf(", isaret sayisi kaldirinca %u, geri al baslangic baytlari %s %s\n", pk_drawn_b, geri ? "evet" : "HAYIR", ok ? "OK" : "HATA");
+        if (!ok) {
+          // Teshis: beklenen ve olculen pikseller + kare (kapinin gordugu goruntu).
+          std::printf("[engine_editor]   beklenen (%d %d %d) | isaret once (%u %u %u) sonra (%u %u %u) | varsayilan once (%u %u %u) sonra (%u %u %u)\n",
+                      bek[0], bek[1], bek[2], pk_ov_a[0], pk_ov_a[1], pk_ov_a[2], pk_ov_b[0], pk_ov_b[1], pk_ov_b[2], pk_def_a[0], pk_def_a[1],
+                      pk_def_a[2], pk_def_b[0], pk_def_b[1], pk_def_b[2]);
+          char kare[1200];
+          const char *td = std::getenv("TMPDIR");
+          std::snprintf(kare, sizeof kare, "%s/ozellik_isaret_kapisi.ppm", td && *td ? td : ".");
+          if (rhi::write_ppm(kare, ores.pixels, oc.width, oc.height)) std::printf("[engine_editor]   kapinin karesi: %s\n", kare);
+        }
+        pk_ent = -1;
+        if (!ok) return 1;
       }
     }
     if (headless && frame_i >= 2 && frame_i <= 5) {

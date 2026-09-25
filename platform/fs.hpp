@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>   // ::rename (POSIX dali)
 
 #if defined(_WIN32)
@@ -85,6 +86,45 @@ inline void *fs_map_readonly(const char *path, size_t *out_size) {
   *out_size = (size_t)st.st_size;
   return p;
 #endif
+}
+
+// DOSYA DAMGASI: (degisim zamani ns, boyut). "Dosya degisti mi" sorusunun
+// ortak cevabi — koprunun sicak yeniden yuklemesi (teng_file_mtime, sahne
+// izleyicisi) ve editorun betik ozellik taramasi (app/editor_props) ayni
+// damgaya bakar. Eskiden yalniz kopruda (engine_api.cpp) duruyordu; editor
+// kopruye baglanmadigi icin ikinci bir kopya yazilacakti — Windows ayrintisi
+// (asagida) kopyalanirken dusmesin diye TEK yerde.
+//
+// Windows: CRT `struct stat`i yalniz SANIYE cozunurluklu st_mtime verir ve
+// ayni saniye icinde ayni boyutta yazilan yeni icerik "degismemis" gorunur
+// (olculdu 2026-09-18, tests/engine_bridge.test.tpr "kopya dosya damgasini
+// ilerletmeli" dustu). Win32'nin kendi API'si 100 ns cozunurluklu FILETIME
+// veriyor; boyut da oradan (stat'a hic gerek yok).
+// DEVIR (epoch) HER PLATFORMDA UNIX (1970-01-01 UTC): FILETIME 1601-01-01'den
+// sayar; cevrilmeden verilseydi Windows'ta "saniye (epoch)" sozlesmesi
+// (teng_file_mtime) 11 644 473 600 s kayik olurdu ve iki damgayi KARSILASTIRAN
+// her kapi yine yesil kalirdi (Tuzaklar 8ci).
+// Donus: false = dosya yok / okunamiyor (ciktilara dokunulmaz).
+inline bool fs_file_stamp(const char *path, int64_t *mtime_ns, int64_t *size) {
+  if (!path || !*path || !mtime_ns || !size) return false;
+#if defined(_WIN32)
+  WIN32_FILE_ATTRIBUTE_DATA fad;
+  if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad)) return false;
+  const uint64_t ft = ((uint64_t)fad.ftLastWriteTime.dwHighDateTime << 32) | fad.ftLastWriteTime.dwLowDateTime;
+  constexpr int64_t kFiletimeToUnix = 116444736000000000ll; // 1601 -> 1970, 100 ns biriminde
+  *mtime_ns = ((int64_t)ft - kFiletimeToUnix) * 100ll;      // 100 ns birimi -> ns
+  *size = (int64_t)(((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow);
+#else
+  struct stat st;
+  if (::stat(path, &st) != 0) return false;
+#if defined(__APPLE__)
+  *mtime_ns = (int64_t)st.st_mtimespec.tv_sec * 1000000000ll + st.st_mtimespec.tv_nsec;
+#else
+  *mtime_ns = (int64_t)st.st_mtim.tv_sec * 1000000000ll + st.st_mtim.tv_nsec;
+#endif
+  *size = (int64_t)st.st_size;
+#endif
+  return true;
 }
 
 inline void fs_unmap(void *p, size_t size) {

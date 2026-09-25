@@ -23,17 +23,6 @@
 #include <cstring>
 #include <new>
 
-#include <sys/stat.h> // sahne sicak yeniden yukleme: dosya degisim zamani
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>  // GetFileAttributesExA: 100 ns cozunurluklu mtime
-#endif
-
 #include "app/virtual_stick.hpp"
 #include "audio/clip.hpp"
 #include "audio/device.hpp"
@@ -2921,28 +2910,10 @@ int teng_save_write(void) {
 // Dosyanin (mtime, boyut) damgasi izlenir. Degisim GORULUNCE hemen yuklenmez:
 // bir kontrol daha beklenir ve damga ayni cikarsa yuklenir — editor/derleyici
 // dosyayi yazarken yakalanan YARIM blob'u yuklememek icin.
+// Govde platform/fs.hpp'ye tasindi (editorun betik ozellik taramasi da ayni
+// damgaya bakiyor; Windows'un saniye cozunurluklu stat tuzagi orada anlatildi).
 static bool file_stamp_pub(const char *path, int64_t *mtime, int64_t *size) {
-  struct stat st;
-  if (!path || !*path || stat(path, &st) != 0) return false;
-#if defined(__APPLE__)
-  *mtime = (int64_t)st.st_mtimespec.tv_sec * 1000000000ll + st.st_mtimespec.tv_nsec;
-#elif defined(_WIN32)
-  // Windows CRT'sinin `struct stat`i yalniz SANIYE cozunurluklu st_mtime verir
-  // ve bu sicak yeniden yukleme icin YETMEZ: ayni saniye icinde ayni boyutta
-  // yazilan yeni icerik "degismemis" gorunur (olculdu 2026-09-18,
-  // tests/engine_bridge.test.tpr "kopya dosya damgasini ilerletmeli" dustu).
-  // Win32'nin kendi API'si 100 ns cozunurluklu FILETIME veriyor; onu
-  // kullaniyoruz. stat yalniz "dosya var mi" denetimi icin kaldi.
-  WIN32_FILE_ATTRIBUTE_DATA fad;
-  if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad)) return false;
-  const uint64_t ft = ((uint64_t)fad.ftLastWriteTime.dwHighDateTime << 32) |
-                      fad.ftLastWriteTime.dwLowDateTime;
-  *mtime = (int64_t)(ft * 100ull);   // 100 ns birimi -> ns
-#else
-  *mtime = (int64_t)st.st_mtim.tv_sec * 1000000000ll + st.st_mtim.tv_nsec;
-#endif
-  *size = (int64_t)st.st_size;
-  return true;
+  return platform::fs_file_stamp(path, mtime, size);
 }
 static void scene_watch_tick(void) {
   Bridge &b = *g;

@@ -449,9 +449,11 @@ func muhafiz_baslat(i) {                                   // examples/davranis/
 }
 ```
 
-Adı ve varsayılanı **literal** olan bir çağrı bildirimin kendisidir: editör (E5) betiği tarayıp
-denetçide "can: 100 (varsayılan)" gösterecek. Ad/varsayılan bir değişkenden gelirse değer yine
-okunur, yalnız denetçide listelenmez.
+Adı ve varsayılanı **literal** olan bir çağrı bildirimin kendisidir: editör betiği tarayıp
+denetçide gösterir (E5, aşağıda "Editör"). Ad bir değişkenden gelirse değer oyunda yine okunur,
+yalnız denetçi onu **listeleyemez** (tarama "adı literal değil" diye sayar). Varsayılan literal
+değilse (`ozellik_sayi(i, "hiz", HIZ)`) satır **yine listelenir** — tasarımcı üstüne yazabilir —
+ama varsayılanı "kodda" diye gösterilir; sayı uydurulmaz.
 
 | builtin | Tulpar (TR / EN) | ne yapar |
 |---|---|---|
@@ -510,6 +512,31 @@ varlık başına ≤ 16. Her dal bir bozulma fixture'ıyla koşuyor (`scene_blob
 çocuğu olan "muhafiz" (dört tür üstüne yazılmış) ve dönüşsüz "muhafiz_2" (hepsi varsayılan);
 ikisine de `davranis/muhafiz.tpr`. Muhafızın `devriye_a`sı yerel (-2 0 -1.5) → dünya
 (8.5 3 -4); dönüşsüz hesap (konum + yerel) 3.54 m ötede olurdu — kapının pozitif kontrolü.
+
+**Editör (E5).** "Tulpar Betik" kartının **Özellikler** bölümü betiğin bildirdiği her özelliği
+bir satır olarak gösterir (tür başına alan: sayı / tamsayı / onay kutusu / X-Y-Z). Üstüne
+yazılmamış değer soluk ve "varsayılan" yazılı; alanı değiştirmek bu varlığa üstüne yazma
+oluşturur, ↺ onu siler (varsayılana döner). Hepsi geri alınabilir ve çoklu seçimde **aynı
+betiği taşıyan** diğer varlıklara ada göre yayılır (E3 kuralı). Sahnede olup betiğin okumadığı
+ya da başka türle okuduğu üstüne yazma **yetimdir**: uyarı tonunda, salt okunur, sil düğmeli —
+çünkü oyunda etkisizdir (betikte ad değişince eski ad sahnede sessizce kalırdı). Betik bileşeni
+olmayan varlığın özellikleri ham gösterilir. Taramanın sorunları (literal olmayan varsayılan,
+çatışan bildirim, 32 bildirim tavanı, geçersiz ad) ilk satır numarasıyla tek satırda yazılır.
+Görünümde seçili varlığın `nokta`ları çizilir: varlıktan çizgi + eşkenar dörtgen + ad (büyük =
+üstüne yazılmış, küçük = varsayılan, turuncu = yetim); sürükleme sonraki adım (E6).
+
+Tarayıcı Tulpar'ın sözcükleyicisini izler (`//` ve iç içe **girmeyen** `/* */`, `"..."` ve
+`t"...{ifade}..."` dizeleri atlanır; `func`/`fonksiyon`/`fonk`/`islev` ardındaki ad TANIMDIR;
+`.` ardındaki ad üyedir) — gramer ve sınırlar `app/editor_props.hpp`'nin başında. Betik dosyası
+kart açıkken en çok 30 karede bir (60 Hz'de 0.5 s) damgasıyla (`platform::fs_file_stamp`:
+mtime ns + boyut) sorulur, değişince yeniden taranır; kod editöründe kaydedip dönen tasarımcı
+değişikliği yarım saniyede görür. Kapılar: `editor_props_*` (her literal biçimi; yorum/dize/tanım
+tuzakları, her biri aynı çağrının tuzak dışında bulunduğu pozitif kontrolle; depo: örnek sahnelerde
+yetim yok, bellek içi yetim fikstürü aynı ölçümle yakalanıyor) ve penceresiz editörün
+`ozellik isaret kapisi` (kare 46–50): `nokta` pikseli çizildi, üstüne yazma kaldırılınca **aynı**
+piksel işaretini kaybetti, betiğin varsayılan noktasında işaret belirdi. Ölçüldü (RTX 5080,
+2026-09-25, `ozellik.sahne`): işaret pikseli beklenen renkten 0 uzakta, kaldırınca 255, varsayılan
+noktada 0 (önce 255).
 
 ## 8. Kapsam: `SPEC` = `engine_api.h` = **208 builtin**
 

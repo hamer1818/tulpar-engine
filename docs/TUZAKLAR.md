@@ -1461,3 +1461,29 @@ yalnız `engine_aksiyon`'un yolunu ölçer; diğer örnekler ve `davranis/` beti
 **Ders:** Bir geri sarım (arena, havuz sıfırlama) eklemek "bu değer kalıcı mı" sorusunu her
 atamada sorulur hale getirir. Güvenli kalıpları SONDAYLA say, varsayma: derleyicinin "otomatik
 kalıcılaştırması" yalnız gördüğü atama biçimlerini kapsıyor ve kapsamadığını söylemiyor.
+
+### 8ci. İki damgayı karşılaştıran kapı damganın DEĞERİNİ ölçmez — Windows'ta `dosya_zamani()` negatifti
+
+**Belirti** (2026-09-25, E5; hata hesaplandı ve Linux'ta benzetildi, düzeltme Windows CI'da
+ölçüldü): `teng_file_mtime` / `dosya_zamani` sözleşmesi "saniye (epoch)". Windows dalı
+`GetFileAttributesExA`'nın FILETIME'ını `(int64_t)(ft * 100)` ile ns'ye çeviriyordu. FILETIME
+1601-01-01'den 100 ns sayar (Microsoft tanımı); 2026'daki bir dosya için bu 1601'den
+13 434 793 600 s = 1.34·10¹⁹ ns — `int64` tavanının (9.22·10¹⁸) **üstü**. İşaretliye çevrim
+sarıyor: dönen değer ≈ **−5.01·10⁹ s** (Unix devrinde 1811 yılı). Tek kapı
+(`engine_bridge.test.tpr` "kopya dosya damgasını ilerletmeli") iki damgayı **karşılaştırıyor**:
+sarma o aralıkta tekdüze kaldığı için sıra doğru, üç platform yeşil. Damgayı saatle ya da başka
+bir makinenin damgasıyla karşılaştıran bir betik yalnız Windows'ta sessizce yanlış karar verirdi.
+Yardımcı, editör de kullanabilsin diye köprüden `platform/fs.hpp`'ye taşınırken bulundu.
+
+**Düzeltme:** `platform::fs_file_stamp` her platformda Unix devrinden ns verir (Windows:
+`(ft − 116 444 736 000 000 000) × 100`, 2026 için 1.79·10¹⁸ — sığar); köprünün `file_stamp_pub`'ı
+ona devreder. Kapı MUTLAK değeri ölçer: `editor_props_cache_rescans_on_change_and_throttles_disk`
+dosyanın mtime'ını `utime` ile 1 700 000 000 s'ye ayarlar ve damganın **tam** 1.7·10¹⁸ ns olmasını
+ister. Ölçüldü (Windows x86_64 MSYS2 CI, 2026-09-25): taze dosya 1 790 321 424 166 334 500 ns
+(Unix devri, 100 ns adımlı), ayarlanan 1 700 000 000 000 000 000 ns TAM. Pozitif kontrol (mutant,
+Linux, 2026-09-25): POSIX dalına 1601 kayması eklenince damga −5 011 949 563 967 458 915 ns
+okundu — yukarıdaki hesapla aynı sarma — ve kapı KIRMIZI.
+
+**Ders:** "değişti mi" kapısı "değer ne" sözleşmesini ölçmez. Bir API mutlak bir birim/devir vaat
+ediyorsa kapısı en az bir **bilinen girdiyi** mutlak olarak karşılaştırmalı; iki çıktıyı
+birbiriyle karşılaştırmak her ortak kaymayı (devir, birim, sarma) gizler.

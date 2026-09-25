@@ -35,6 +35,14 @@ WidgetRect item_rect() {
 }
 
 const char *g_help = nullptr; // prop_help: bir sonraki satir tuketir
+// Tek atimlik satir durumu (prop_label tuketir; satir suzgecle gizlenirse
+// prop_row_skip SIFIRLAR — yoksa bir sonraki, ilgisiz satira sizardi).
+Tone g_label_tone = Tone::TextDim;  // prop_label_tone
+float g_trailing_w = 0.0f;          // prop_reserve_trailing: bir sonraki satir
+float g_row_trailing = 0.0f;        // CIZILEN satirin ayrilmis sag payi
+float g_row_right = 0.0f;           // cizilen satirin deger hucresinin sag kenari (ekran)
+bool g_row_drawn = false;           // son prop_* satir cizdi mi
+WidgetRect g_trailing_rect;
 PropVec3Layout g_vec3_layout;
 ComponentHeaderLayout g_hdr_layout;
 HierarchyRowLayout g_row_layout;
@@ -59,7 +67,7 @@ void prop_label(const char *label) {
   ImGui::AlignTextToFramePadding();
   char buf[96];
   editor_ellipsize(label, ImGui::GetContentRegionAvail().x, buf, sizeof buf);
-  ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextDim));
+  ImGui::PushStyleColor(ImGuiCol_Text, tone(g_label_tone));
   ImGui::TextUnformatted(buf);
   ImGui::PopStyleColor();
   const bool cut = std::strcmp(buf, label) != 0;
@@ -68,8 +76,21 @@ void prop_label(const char *label) {
     else ImGui::SetTooltip("%s", label);
   }
   g_help = nullptr;
+  g_label_tone = Tone::TextDim;
   ImGui::TableSetColumnIndex(1);
-  ImGui::SetNextItemWidth(-FLT_MIN);
+  g_row_right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+  g_row_trailing = g_trailing_w > 0.0f ? g_trailing_w + ImGui::GetStyle().ItemInnerSpacing.x : 0.0f;
+  g_trailing_w = 0.0f;
+  g_row_drawn = true;
+  ImGui::SetNextItemWidth(g_row_trailing > 0.0f ? -g_row_trailing : -FLT_MIN);
+}
+// Satir suzgecle gizlendi: tek atimlik durumlar bir sonraki satira SIZMASIN.
+void prop_row_skip() {
+  g_help = nullptr;
+  g_label_tone = Tone::TextDim;
+  g_trailing_w = 0.0f;
+  g_row_trailing = 0.0f;
+  g_row_drawn = false;
 }
 
 // Saydam zeminli, ustune gelince beliren kucuk simge dugmesi (baslik "✕",
@@ -206,6 +227,22 @@ void prop_end() {
 }
 
 void prop_help(const char *text) { g_help = text; }
+void prop_label_tone(Tone t) { g_label_tone = t; }
+void prop_reserve_trailing(float w) { g_trailing_w = w > 0.0f ? w : 0.0f; }
+bool prop_row_drawn() { return g_row_drawn; }
+bool prop_trailing_button(const char *icon, const char *tooltip) {
+  const bool ready = g_row_drawn && g_row_trailing > 0.0f;
+  const float w = g_row_trailing - ImGui::GetStyle().ItemInnerSpacing.x;
+  g_trailing_w = 0.0f;
+  g_row_trailing = 0.0f;
+  if (!ready || !icon) return false;
+  ImGui::SameLine(0.0f, 0.0f);
+  ImGui::SetCursorScreenPos(ImVec2(g_row_right - w, ImGui::GetCursorScreenPos().y));
+  const bool pressed = ghost_button(icon, w);
+  g_trailing_rect = item_rect();
+  if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", tooltip);
+  return pressed;
+}
 
 // --- Ozellik aramasi ------------------------------------------------------
 // UE5 Details panelinin arama kutusu: 40 alanli bir bilesende aradigini
@@ -215,17 +252,22 @@ void prop_help(const char *text) { g_help = text; }
 namespace {
 const char *g_prop_filter = nullptr;
 bool prop_visible(const char *label) { return !g_prop_filter || hierarchy_filter_match(label, g_prop_filter); }
+bool prop_row_visible(const char *label) {
+  if (prop_visible(label)) return true;
+  prop_row_skip();
+  return false;
+}
 } // namespace
 void prop_set_filter(const char *filter) { g_prop_filter = (filter && *filter) ? filter : nullptr; }
 bool prop_filter_active() { return g_prop_filter != nullptr; }
 
 PropItem prop_vec3(const char *label, float v[3], float speed, float min, float max, const char *fmt) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
   const ImGuiStyle &s = ImGui::GetStyle();
-  const float w = ImGui::GetContentRegionAvail().x;
+  const float w = ImGui::GetContentRegionAvail().x - g_row_trailing; // ayrilmis sag pay (prop_reserve_trailing)
   const float h = ImGui::GetFrameHeight();
   static const char *const kAxis[3] = {"X", "Y", "Z"};
   static const Tone kTone[3] = {Tone::AxisX, Tone::AxisY, Tone::AxisZ};
@@ -296,7 +338,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
 }
 
 PropItem prop_float(const char *label, float *v, float speed, float min, float max, const char *fmt) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -306,21 +348,21 @@ PropItem prop_float(const char *label, float *v, float speed, float min, float m
   return it;
 }
 
-PropItem prop_int(const char *label, int *v, int min, int max) {
-  if (!prop_visible(label)) return PropItem{};
+PropItem prop_int(const char *label, int *v, int min, int max, const char *fmt) {
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
   // Surukleme (kaydirac degil): tamsayi alanlari (klip indeksi, sayac) icin
   // Unity'nin metin alani gibi okunur; 0.2 hiz = 5 piksel/birim.
   const ImGuiSliderFlags sf = (min < max) ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-  accumulate(it, ImGui::DragInt("##v", v, 0.2f, min, max, "%d", sf));
+  accumulate(it, ImGui::DragInt("##v", v, 0.2f, min, max, fmt ? fmt : "%d", sf));
   ImGui::PopID();
   return it;
 }
 
 PropItem prop_text(const char *label, char *buf, uint32_t cap) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -330,12 +372,12 @@ PropItem prop_text(const char *label, char *buf, uint32_t cap) {
 }
 
 PropItem prop_color(const char *label, float rgb[3]) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
   const ImGuiStyle &s = ImGui::GetStyle();
-  const float w = ImGui::GetContentRegionAvail().x;
+  const float w = ImGui::GetContentRegionAvail().x - g_row_trailing; // ayrilmis sag pay (prop_reserve_trailing)
   const float h = ImGui::GetFrameHeight();
   ImGuiStorage *st = ImGui::GetStateStorage();
   const ImGuiID k_open = ImGui::GetID("acik"), k_seen = ImGui::GetID("kare");
@@ -390,7 +432,7 @@ PropItem prop_color(const char *label, float rgb[3]) {
 }
 
 PropItem prop_check(const char *label, bool *v) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -400,7 +442,7 @@ PropItem prop_check(const char *label, bool *v) {
 }
 
 PropItem prop_combo(const char *label, int *v, const char *items_zero_separated) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -410,7 +452,7 @@ PropItem prop_combo(const char *label, int *v, const char *items_zero_separated)
 }
 
 PropItem prop_asset(const char *label, int *index, const char (*names)[128], uint32_t count) {
-  if (!prop_visible(label)) return PropItem{};
+  if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
   prop_label(label);
@@ -1286,5 +1328,6 @@ const PropVec3Layout &prop_vec3_last_layout() { return g_vec3_layout; }
 const ComponentHeaderLayout &component_header_last_layout() { return g_hdr_layout; }
 const HierarchyRowLayout &hierarchy_row_last_layout() { return g_row_layout; }
 const WidgetRect &prop_last_rect() { return g_last_prop; }
+const WidgetRect &prop_trailing_last_rect() { return g_trailing_rect; }
 
 } // namespace tulpar::engine::app
