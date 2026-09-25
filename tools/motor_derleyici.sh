@@ -100,6 +100,19 @@ dogrula() {
     return 1
   fi
   iyi "dil sondasi: import edilen struct kutusuz ($cevap)"
+  # Ucuncu sonda: kare bellegi (engine.tpr her kareyi arena_save/arena_drop ile
+  # sariyor, Tuzaklar 8ch). TulparLang #347'den (2026-09-25) once global dizgiye
+  # `+=` kalici kopyaya gitmiyordu: geri sarimdan sonra deger cop ("<object>")
+  # olur, oyun hata vermez. Olculdu: eski derleyici 'arena <object>', yenisi
+  # 'arena k0k1k2'.
+  printf 'str g = "";\nfunc main() {\n    for (int k = 0; k < 3; k++) {\n        var wm = arena_save();\n        g += "k" + toString(k);\n        arena_drop(wm);\n        var wz = arena_save();\n        array cop = [];\n        for (int j = 0; j < 3000; j++) { push(cop, "COPCOPCOP" + toString(j)); }\n        arena_drop(wz);\n    }\n    print("arena " + g);\n}\nmain();\n' > "$hedef/dil_sondasi3.tpr"
+  cevap="$(cd "$hedef" && "$d" dil_sondasi3.tpr 2>&1 | tail -1)"
+  if [ "$cevap" != "arena k0k1k2" ]; then
+    hata "derleyici kare belleginde global dizgiye '+=' degerini koruyamiyor ('$cevap', beklenen 'arena k0k1k2') — oyun metinleri sessizce bozulur"
+    echo "  TulparLang #347 oncesi bir kopya: $tulpar_src icinde 'git pull' yapip bu betigi yeniden calistirin." >&2
+    return 1
+  fi
+  iyi "dil sondasi: kare belleginde global '+=' kalici ($cevap)"
 }
 [ "$sadece_dogrula" = 1 ] && { dogrula; exit $?; }
 
