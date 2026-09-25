@@ -15,6 +15,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include <cwchar>
 #else
 #include <cerrno>
 #include <dirent.h>
@@ -36,10 +38,11 @@ int fs_last_error() { return g_last_error; }
 #if defined(_WIN32)
 // ============================================================================
 // Windows: UTF-8 -> UTF-16, W-API. Yiginda 32 K karakterlik tampon YOK
-// (cerceve kapisi + Windows'un 1 MB ana yigini): 2048 karakter yeter, uzun
-// yollar icin `\\?\` oneki MAX_PATH'i (260) kaldirir.
+// (Windows'un ana yigini 1 MB ve fs_remove_tree ozyinelemeli): UTF-8 yol
+// tavani kPath = 1024 bayt en cok 1024 UTF-16 birimi eder; `\\?\UNC\` oneki
+// icin pay. Uzun yollar icin `\\?\` oneki MAX_PATH'i (260) kaldirir.
 namespace {
-constexpr int kWPath = 2048;
+constexpr int kWPath = (int)kPath + 16;
 
 // '/' -> '\'. Uzun yol mutlak ve normallestirilmis olmali: `\\?\` ile Win32
 // artik `.`/`..`/`/` yorumlamaz, bu yuzden once GetFullPathNameW.

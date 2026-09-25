@@ -860,7 +860,7 @@ struct Updater::Impl {
   char pa[kFull], pb[kFull]; // gecici yollar
 
   // --- yardimcilar ---
-  void set_reason(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
+  __attribute__((format(printf, 2, 3))) void set_reason(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     std::vsnprintf(reason, sizeof reason, fmt, ap);
@@ -885,7 +885,7 @@ struct Updater::Impl {
     platform::fs_remove_tree(work_dir);
     platform::fs_rmdir(gdir); // bos degilse (yedekler) basarisiz olur: dogru
   }
-  void fail(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
+  __attribute__((format(printf, 2, 3))) void fail(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     std::vsnprintf(reason, sizeof reason, fmt, ap);
