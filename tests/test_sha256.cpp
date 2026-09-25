@@ -139,7 +139,7 @@ ENGINE_TEST(sha256_throughput_measured) {
   const uint64_t dt = platform::now_ns() - t0;
   test::escape(d);
   const double mbs = (double)(kBuf * reps) / (1024.0 * 1024.0) / ((double)dt / 1e9);
-  std::printf("    [olcum] sha256: %.0f MB/s (%d x %zu MB, tasinabilir yazim) -> 1 MB poll butcesi ~%.2f ms\n",
-              mbs, reps, kBuf >> 20, 1000.0 / mbs);
+  std::printf("    [olcum] sha256: %.0f MB/s (%d x %zu MB, tasinabilir yazim) -> 512 KB poll butcesi (kUpdHashBudget) ~%.2f ms\n",
+              mbs, reps, kBuf >> 20, 500.0 / mbs);
   CHECK(mbs > 1.0); // yalniz "calisti" — hiz iddiasi yok, sayi basilir
 }

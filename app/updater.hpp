@@ -69,7 +69,12 @@ constexpr uint32_t kUpdPathLen = 256;    // paket ici goreli yol
 constexpr uint32_t kUpdMaxFiles = 2048;          // manifest basina dosya
 constexpr uint32_t kUpdPathPool = 128 * 1024;    // manifest basina yol baytlari
 constexpr uint32_t kUpdTextCap = 256 * 1024;     // latest.json / DOSYALAR.txt tamponu (gercek yanit ~9 KB)
-constexpr uint32_t kUpdHashBudget = 1024 * 1024; // poll basina ozetlenen bayt (varsayilan)
+// Poll basina ozetlenen bayt (varsayilan). 1 MB'den 512 KB'a indi: SHA-256
+// CI kosucularinda 179-238 MB/s olculdu (2026-09-25, PR #64: Windows 179,
+// Linux 232, macOS 238; yerel Ryzen 9800X3D 417-434) -> 1 MB = 4.2-5.6 ms,
+// 60 Hz karenin ucte biri. 512 KB: 1.2-2.8 ms. Gercek paket (~50 MB ozet)
+// 60 Hz'de ~1.7 s'de biter.
+constexpr uint32_t kUpdHashBudget = 512 * 1024;
 
 // Varsayilan kaynak. TULPAR_GUNCELLEME_URL ortam degiskeni bunu ezer (testler
 // ve yerel sinama icin; o durumda file:// de kabul edilir).

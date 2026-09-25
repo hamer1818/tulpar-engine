@@ -32,7 +32,7 @@ döner. Hiçbir adım bir karede bütün paketi özetlemez.
 |---|---|
 | bellek | `Updater::arena_bytes()` kadar arena (ölçüldü: 1 267 144 B, kanarya payı dahil). Disabled iken yalnız `Impl` ayrılır (ölçüldü: 28 832 B). Yer yoksa `init` **false** döner, arenanın Fatal politikasına düşmez. |
 | `poll()` | Editör her kare çağırır. İş yoksa O(1) (ölçüldü: ~1 ns), `operator new` yok (AllocGate ile ölçülür). |
-| `cleanup(dir)` | Açılışta **bir kez** (`init`'ten önce ya da sonra). `.guncelleme/` altını siler (eski yedekler, yarım indirmeler). Silinemeyen dosya (Windows'ta eski süreç hâlâ açık) hata değil, sonraki açılışa kalır. `GERI-ALMA-EKSIK.txt` işareti varsa HİÇBİR ŞEY silmez. |
+| `cleanup(dir)` | Açılışta **bir kez**, ilk `check()`ten ÖNCE (bir iş sürerken çağrılırsa onun çalışma alanını da siler). `.guncelleme/` altını siler (eski yedekler, yarım indirmeler). Silinemeyen dosya (Windows'ta eski süreç hâlâ açık) hata değil, sonraki açılışa kalır. `GERI-ALMA-EKSIK.txt` işareti varsa HİÇBİR ŞEY silmez. |
 | `release().html_url` | Yalnız `https://github.com/` ile başlıyorsa dolu (arayüz tarayıcıda açabilir); aksi boş. |
 | `cancel()` | Çalışan curl/tar'ı öldürür ve toplar (en çok ~5 s bloklar), çalışma alanını siler. Editör kapanırken iş sürüyorsa çağrılmalı: POSIX'te curl yetim kalıp indirmeye devam ederdi (Windows'ta iş nesnesi zaten kapatır). |
 | `install()` | Yalnız `Staged`'de. Senkron (yalnız yeniden adlandırma; ölçüldü < 1 ms). Başarıda `Installed`: yeni ikililer diskte, **çalışan süreç eski** — arayüz yeniden başlatmayı önerir. |
@@ -178,20 +178,24 @@ eski süreç kapanınca silinebilir — bu yüzden yedekler bir sonraki açılı
 
 ## Ölçümler
 
-Makine: AMD Ryzen 7 9800X3D, Linux (CachyOS), GCC 16.2.1 `-O2` Release, curl 8.22.0,
-GNU tar 1.35 — 2026-09-25.
+Yerel makine: AMD Ryzen 7 9800X3D, Linux (CachyOS), GCC 16.2.1 `-O2` Release, curl 8.22.0,
+GNU tar 1.35 — 2026-09-25. CI koşucuları: PR #64 koşumu 36123092308 (2026-09-25).
 
 | ne | sayı | nerede |
 |---|---|---|
-| SHA-256 (taşınabilir yazım, SHA-NI yok) | **417–434 MB/s** → 1 MB poll bütçesi ≈ 2.3–2.4 ms | `sha256_throughput_measured` |
-| boşta `poll()` | **0.77–0.97 ns/çağrı** (10⁷ çağrı), `operator new` 0 | `updater_idle_poll_is_o1_and_allocation_free` |
-| uçtan uca fikstür (file://, 3 MB ikili, 64 KB bütçe) | denetim 2.8–3.3 ms; indirme+doğrulama+açma+plan 22–30 ms / ~115 poll; kurulum 0.1–0.2 ms; toplam **26–41 ms**; özetlenen 6.3 MB / 98 poll; poll'larda `operator new` 0 | `updater_end_to_end_install_via_file_urls` |
-| gerçek CI paketi, elle (prova-manifest, run 36121622990, linux-x86_64, 6.7 MB arşiv, 17 dosya, varsayılan 1 MB bütçe) | Staged'e **247 ms / 124 poll**, özetlenen 50.8 MB / 49 poll; plan add 0 / replace 2 / same 14 / kept 1 / remove 1; kurulumdan sonra `sha256sum -c DOSYALAR.txt` yalnız kullanıcının değiştirdiği dosyada tutmuyor (tasarım gereği) | elle (`engine_tests`'e girmez: ağa/artefakta bağlı) |
+| SHA-256 (taşınabilir yazım, SHA-NI yok) — yerel | **417–434 MB/s** | `sha256_throughput_measured` |
+| SHA-256 — CI | Windows (MSYS2) **179**, Linux **232**, macOS arm64 **238 MB/s** | aynı test, CI |
+| boşta `poll()` | yerel **0.77–1.01 ns**; CI Linux 1.36, macOS 1.31, Windows 1.88 ns/çağrı (10⁷ çağrı); `operator new` her yerde 0 | `updater_idle_poll_is_o1_and_allocation_free` |
+| uçtan uca fikstür (file://, 3 MB ikili, 64 KB bütçe) — yerel | denetim 2.8–3.3 ms; indirme+doğrulama+açma+plan 22–30 ms / ~115 poll; kurulum 0.1–0.2 ms; toplam **26–41 ms**; özetlenen 6.3 MB / 98 poll; poll'larda `operator new` 0 | `updater_end_to_end_install_via_file_urls` |
+| uçtan uca fikstür — CI | toplam Linux **94 ms**, macOS **92 ms**, Windows **188 ms** (Windows: `kurulum-Çağrı` dizini W-API ile; kurulum 3.4 ms). Her yerde özet 98 poll'a bölündü. Windows'taki poll sayısı (~200 000) testin 0.5 ms uykusunun orada ~0'a yuvarlanmasından: ölçüm döngüsü, çekirdek değil. | aynı test, CI |
+| gerçek CI paketi, elle (prova-manifest, run 36121622990, linux-x86_64, 6.7 MB arşiv, 17 dosya, o zamanki varsayılan 1 MB bütçe) | Staged'e **247 ms / 124 poll**, özetlenen 50.8 MB / 49 poll; plan add 0 / replace 2 / same 14 / kept 1 / remove 1; kurulumdan sonra `sha256sum -c DOSYALAR.txt` yalnız kullanıcının değiştirdiği dosyada tutmuyor (tasarım gereği) | elle (`engine_tests`'e girmez: ağa/artefakta bağlı) |
 
-Varsayılan bütçe (`kUpdHashBudget` = 1 MB) bu ölçümle seçildi: 60 Hz karede ~2.4 ms.
-Telefon sınıfı çekirdekte (taşınabilir SHA-256 tipik olarak 5–10× yavaş) aynı bütçe
-bir kareyi aşabilir — ama güncelleyici yalnız masaüstü editörde (Android'de güncelleme
-mağazadan). `UpdaterConfig::hash_budget_bytes` ile değiştirilir.
+Varsayılan bütçe (`kUpdHashBudget`) ilk yazımda 1 MB'ti ve yalnız yerel ölçüme
+dayanıyordu (≈2.4 ms/kare). CI koşucularında SHA-256 yarı hızda çıktı (179–238 MB/s):
+1 MB orada 4.2–5.6 ms, 60 Hz karenin üçte biri. Bütçe **512 KB**'a indi: yerelde
+~1.2 ms, CI sınıfı makinede ~2.1–2.8 ms. Gerçek paket (~50 MB özet: arşiv + paket +
+kurulu dosyalar) 60 Hz'de ~1.7 s'de biter. Güncelleyici yalnız masaüstü editörde
+(Android'de güncelleme mağazadan). `UpdaterConfig::hash_budget_bytes` ile değiştirilir.
 
 ## Testler ve pozitif kontroller
 
