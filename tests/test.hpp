@@ -59,7 +59,10 @@ struct Registry {
   // 512 -> 640 (2026-09-20): editor Faz A-C birlesince 485'e cikildi, yani pay
   // %5'e inmisti. Tavan artik gurultulu dusse de, DOLMADAN once buyutmek daha
   // ucuz: sabit dizi, 640 * sizeof(Case) = ~10 KB.
-  static constexpr int kMax = 640;
+  //
+  // 640 -> 768 (2026-09-25): guncelleyici cekirdegi (test_updater/test_sha256)
+  // ile 603'e cikildi, pay yine %6'ya inmisti; arayuz testleri de geliyor.
+  static constexpr int kMax = 768;
   static Case cases[kMax];
   static int count;
   static int failures;      // mevcut testteki CHECK basarisizliklari

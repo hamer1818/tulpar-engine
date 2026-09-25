@@ -11,7 +11,7 @@ Plan ve ölçümler `docs/` altında: [PLAN.md](docs/PLAN.md) (yol haritası),
 [VIZYON.md](docs/VIZYON.md), [DURUM.md](docs/DURUM.md) (tek sayfa "ne var, ne ölçüldü,
 ne yok"), faz raporları [FAZ0](docs/FAZ0.md)–[FAZ8](docs/FAZ8.md),
 cihaz matrisi [CIHAZ-MATRISI.md](docs/CIHAZ-MATRISI.md),
-Tulpar köprüsü [KOPRU.md](docs/KOPRU.md).
+Tulpar köprüsü [KOPRU.md](docs/KOPRU.md), editör içi güncelleme [GUNCELLEME.md](docs/GUNCELLEME.md).
 **Bir şey kırıldığında ilk bakılacak yer:** [TUZAKLAR.md](docs/TUZAKLAR.md) — motorun
 tekrar tekrar düştüğü 66 hata sınıfı (8a–8ap).
 
@@ -103,6 +103,9 @@ Seçenekler: `ENGINE_MEM_CANARY` (arena taşma kanaryaları, varsayılan ON — 
 `ENGINE_TRACY` (Tracy istemcisi, varsayılan OFF), `ENGINE_SWAPPY` (Android kare temposu).
 `TULPAR_SURUM` (ikiliye gömülen sürüm etiketi `vX.Y.Z[-önek]`; boş = kaynak derlemesi, editör
 başlığında ve güncelleyicide görünür — `release.yml` her platformda verir ve gömüldüğünü ikilide arar).
+Editör içi güncelleyici (`app/updater`) yalnız paketlenmiş, sürümlü bir kurulumda açılır
+(`SURUM.txt` + `DOSYALAR.txt`); Release'i curl ile indirir, SHA-256 ile doğrular, kullanıcının
+değiştirdiği dosyayı ezmez ve kurulumu geri alınabilir yapar — [GUNCELLEME.md](docs/GUNCELLEME.md).
 
 ### Ne çıkıyor
 

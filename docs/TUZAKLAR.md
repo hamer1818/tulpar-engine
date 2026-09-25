@@ -1565,3 +1565,33 @@ her kare tazeleyen bir yol varsa, o alanı "sürükleme başı" diye okuyan her 
 karenin farkını görür — ve tek karelik ya da tek varlıklı bir sürüklemeyi ölçen kapı bunu
 göremez. Sürükleme tabanı, sürüklemenin sahibi olan yolda ve başka kimsenin yazmadığı bir
 alanda tutulur.
+
+### 8cl. ASCII yolda A-API ile W-API aynı sonucu verir — Türkçe kullanıcı adında ayrışır ve ASCII geçici dizinde koşan kapı farkı HİÇ görmez
+
+**Bulgu** (2026-09-25, editör içi güncelleyici çekirdeği, kod okuması; ölçümü Windows CI'da
+Türkçe harfli fikstür yapar): güncelleyici kullanıcının indirdiği paketi yerinde değiştirir —
+`C:\Users\Çağrı\Downloads\tulpar-engine-...\`. Motorun Windows yolları bugüne kadar A-API'lerle
+(`GetModuleFileNameA` → `platform::exe_dir()`, `CreateFileA`, `MoveFileExA`, `fopen`) çalışıyor:
+yol baytları **sistem kod sayfasında** (Türkçe Windows'ta 1254) taşınıyor ve kendi içinde
+tutarlı. Güncelleyici ise yolu UTF-8 kabul edip UTF-16'ya çevirerek W-API'ye veriyor. İkisi
+karışınca (`exe_dir()`'in ACP baytlarını UTF-8 sanıp `MultiByteToWideChar(CP_UTF8, ...)`)
+dönüşüm ya reddedilir ya başka harfler üretir ve kurulum "yok" görünür — **yalnız** adında
+ASCII dışı harf olan makinede. İngilizce Windows'ta (ACP 1252) `ğ`/`ı` hiç temsil edilemez;
+A-API orada zaten `?` görür. Alt süreç argümanı da aynı sınıfa girer: System32 `curl.exe`/
+`tar.exe` argv'yi ACP'den geçirebilir.
+
+**Neden sessiz:** CI koşucusunun ve geliştiricinin geçici dizini ASCII (`C:\Users\RUNNER~1\...`,
+`/tmp`). ASCII'de CP_ACP == CP_UTF8, A-API == W-API: bütün kapılar yeşil, fark hiçbir koşumda
+görünmez. Hata yalnız kullanıcının makinesinde ve güncelleme anında çıkar.
+
+**Düzeltme:** `platform/fs_ops.{hpp,cpp}` — her yol UTF-8, Windows'ta UTF-16'ya çevrilip W-API
+(uzun yolda `\\?\` öneki); kurulum dizini `fs_exe_dir_utf8()` (`GetModuleFileNameW`) ile,
+`exe_dir()` ile DEĞİL. curl/tar'a yalnız **göreli ASCII** argüman gider, çalışma dizini
+`CreateProcessW`'ye UTF-16 olarak verilir. Kapı: `tests/test_updater.cpp` kurulum dizinini
+bilerek `kurulum-Çağrı` adıyla kurar (uçtan uca, geri alma, `fs_move`); Windows CI ayağı W
+yolunu gerçekten koşturur.
+
+**Ders:** bir yol kodlaması hatasını yakalayacak kapının girdisi o kodlamanın AYRIŞTIĞI
+karakterleri içermeli. ASCII fikstür, kodlama farkı olan iki yolu da "doğru" ölçer. Aynı
+süreçte iki kodlama (ACP ile çalışan eski yol, UTF-8 bekleyen yeni yol) varsa sınır açıkça
+çizilir: yeni kod eski yardımcının çıktısını (`exe_dir`) kullanmaz.

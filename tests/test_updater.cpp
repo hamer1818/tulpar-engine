@@ -873,7 +873,7 @@ ENGINE_TEST(updater_fs_move_never_overwrites) {
 }
 
 namespace {
-// Taze arenayla init (etkin her init ~1.7 MB tampon ayirir).
+// Taze arenayla init (etkin her init ~1.2 MB tampon ayirir; olcum asagida basilir).
 struct InitResult {
   bool ok;
   UpdState st;
@@ -923,6 +923,8 @@ ENGINE_TEST(updater_disabled_conditions) {
     CHECK(u.state() == UpdState::Disabled); // hicbir sey baslamaz
     // Disabled iken buyuk tamponlar ayrilmaz: yalniz Impl.
     CHECK(arena.used() < 128 * 1024);
+    std::printf("    [olcum] arena: Disabled %zu B, etkin en cok %zu B (Updater::arena_bytes)\n", arena.used(),
+                Updater::arena_bytes());
   }
   {
     UpdaterConfig k = c;
