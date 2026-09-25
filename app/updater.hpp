@@ -111,12 +111,24 @@ bool upd_release_parse(const char *json, size_t len, const char *platform, UpdRe
 // "<64 hex> *<ad>"). Bulunamaz ya da hex bozuksa false.
 bool upd_sums_find(const char *text, size_t len, const char *name, uint8_t out_sha[32]);
 
-// DOSYALAR.txt'deki bir goreli yol guvenli mi: bos degil, < kUpdPathLen,
-// '/' ile baslamaz, '\\' ve ':' (surucu harfi, NTFS akisi) icermez, `.`/`..`/bos
-// bilesen yok, kontrol karakteri yok, `DOSYALAR.txt`in kendisi ve
-// `.guncelleme/` altindakiler degil. Reddedilen tek bir satir BUTUN paketi
-// reddeder (kurulum dizininin disina yazan bir manifest yarim uygulanmaz).
+// DOSYALAR.txt'deki bir goreli yol gecerli mi — tools/paket_manifest.py ile
+// AYNI kural (savunma derinligi: paketleyici de denetler, burada yeniden):
+// bos degil, < kUpdPathLen, parcalar `/` ile ayrilir ve her parca
+// ^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$ (yani `.` ile BASLAMAZ: `.`/`..`, gizli
+// dosya ve `.guncelleme/` disarida; '\\', ':', bosluk, ASCII disi yok);
+// `.yeni` ile bitmez; kok `DOSYALAR.txt`in kendisi degil. Manifestin
+// butunu icin ek kurallar (updater.cpp parse_manifest): `<64 kucuk hex>
+// <iki bosluk><yol>\n`, CR yok, bayt sirali, tekrarsiz, harf duyarsiz
+// cakisma yok, SURUM.txt listelenir. Tek bir ihlal BUTUN paketi reddeder
+// (kurulum dizininin disina yazan bir manifest yarim uygulanmaz).
 bool upd_manifest_path_ok(const char *path, size_t len);
+
+// SURUM.txt: TAM OLARAK `<surum> <platform>\n` (tek satir, CR yok). <surum>
+// vX.Y.Z[-onek] ya da `kaynak` (surumsuz CI paketi); <platform>
+// linux-x86_64 | linux-aarch64 | macos-arm64 | macos-x86_64 | windows-x86_64.
+// Kurulu SURUM.txt `kaynak` ise ya da calisan surum/platformla uyusmuyorsa
+// guncelleyici Disabled'dir; yeni paketinki Release etiketine esit olmali.
+bool upd_surum_parse(const char *text, size_t len, char *version, size_t vcap, char *platform, size_t pcap);
 
 // curl cikis kodu (+ stderr metni) -> Turkce sebep. 6/7 ag yok, 22 HTTP
 // hatasi (stderr'deki durum kodundan: 403/429 GitHub istek siniri, 404 yok),
@@ -150,10 +162,10 @@ struct UpdPlanSummary {
 };
 
 struct UpdaterConfig {
-  const char *current_version = nullptr; // build_version(); bos -> Disabled
+  const char *current_version = nullptr; // build_version(); bos -> Disabled. Kurulu SURUM.txt ile AYNI olmali
   const char *platform = nullptr;        // build_platform()
   const char *api_url = nullptr;         // null: kUpdDefaultApiUrl (ya da TULPAR_GUNCELLEME_URL)
-  const char *install_dir = nullptr;     // null: platform::exe_dir()
+  const char *install_dir = nullptr;     // UTF-8. null: calisan ikilinin dizini (Windows'ta W-API ile; platform::exe_dir A-API'dir)
   bool allow_file_urls = false;          // file:// kabul (yalniz test / ortam ezmesi)
   uint32_t hash_budget_bytes = 0;        // poll basina SHA-256 baytlari; 0: kUpdHashBudget
 };

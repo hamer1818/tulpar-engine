@@ -416,31 +416,48 @@ struct Manifest {
   uint32_t n = 0;
   char *pool = nullptr;
   uint32_t pool_used = 0;
-  uint32_t *slots = nullptr;
+  uint32_t *slots = nullptr;    // tam yol -> indeks + 1
+  uint32_t *ci_slots = nullptr; // ASCII kucuk harfe indirilmis yol -> indeks + 1
 
   const char *path(uint32_t i) const { return pool + e[i].off; }
   void reset() {
     n = 0;
     pool_used = 0;
     std::memset(slots, 0, sizeof(uint32_t) * kSlots);
+    std::memset(ci_slots, 0, sizeof(uint32_t) * kSlots);
   }
-  static uint32_t hash(const char *p, size_t len) {
+  static char low(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+  static uint32_t hash(const char *p, size_t len, bool ci) {
     uint32_t h = 2166136261u;
-    for (size_t i = 0; i < len; i++) h = (h ^ (uint8_t)p[i]) * 16777619u;
+    for (size_t i = 0; i < len; i++) h = (h ^ (uint8_t)(ci ? low(p[i]) : p[i])) * 16777619u;
     return h;
   }
-  int32_t find(const char *p, size_t len) const {
-    for (uint32_t s = hash(p, len) & (kSlots - 1);; s = (s + 1) & (kSlots - 1)) {
-      const uint32_t v = slots[s];
+  static bool eq(const char *a, const char *b, size_t len, bool ci) {
+    if (!ci) return std::memcmp(a, b, len) == 0;
+    for (size_t i = 0; i < len; i++)
+      if (low(a[i]) != low(b[i])) return false;
+    return true;
+  }
+  int32_t find_in(const uint32_t *tab, const char *p, size_t len, bool ci) const {
+    for (uint32_t s = hash(p, len, ci) & (kSlots - 1);; s = (s + 1) & (kSlots - 1)) {
+      const uint32_t v = tab[s];
       if (!v) return -1;
       const ManEntry &m = e[v - 1];
-      if (m.len == len && std::memcmp(pool + m.off, p, len) == 0) return (int32_t)(v - 1);
+      if (m.len == len && eq(pool + m.off, p, len, ci)) return (int32_t)(v - 1);
     }
+  }
+  int32_t find(const char *p, size_t len) const { return find_in(slots, p, len, false); }
+  int32_t find_ci(const char *p, size_t len) const { return find_in(ci_slots, p, len, true); }
+  void insert(uint32_t *tab, uint32_t idx, bool ci) {
+    uint32_t s = hash(path(idx), e[idx].len, ci) & (kSlots - 1);
+    while (tab[s]) s = (s + 1) & (kSlots - 1);
+    tab[s] = idx + 1;
   }
 };
 
 // sha256sum satiri: "<64 hex>  <ad>" ya da "<64 hex> *<ad>" (+ istege bagli \r).
-// Donus: bicim tuttu mu; ad [name, name+name_len).
+// Release'in SHA256SUMS dosyasi icin (GNU sha256sum uretir). Donus: bicim
+// tuttu mu; ad [name, name+name_len).
 bool sums_line(const char *line, size_t len, uint8_t sha[32], const char **name, size_t *name_len) {
   if (len && line[len - 1] == '\r') len--;
   if (len < 67 || line[64] != ' ' || (line[65] != ' ' && line[65] != '*')) return false;
@@ -450,34 +467,49 @@ bool sums_line(const char *line, size_t len, uint8_t sha[32], const char **name,
   return *name_len > 0;
 }
 
+// DOSYALAR.txt — tools/paket_manifest.py'nin yazdigi KESIN bicim (PR #63):
+//   * her satir `<64 KUCUK hex><iki bosluk><yol>\n`; `*` yok, CR yok, bos
+//     satir yok, dosya `\n` ile biter;
+//   * yollar BAYT sirasinda (LC_ALL=C) ve tekrarsiz; buyuk/kucuk harf
+//     duyarsiz iki yol cakismaz (macOS/Windows'ta ayni dosya);
+//   * her yol upd_manifest_path_ok'tan gecer; SURUM.txt listelenir.
+// Paketleyici bunlari zaten denetliyor; burada YENIDEN denetlenir (savunma
+// derinligi): ihlal eden tek satir butun manifesti reddeder.
 bool parse_manifest(const char *text, size_t len, Manifest &m, UpdCounters &ctr, char *err, size_t cap) {
   m.reset();
+  auto reject = [&](uint32_t line, const char *why, const char *p, size_t pl) {
+    ctr.manifest_rejected++;
+    if (p) say(err, cap, "%s %u. satir: %s: %.*s", kManifestName, line, why, (int)(pl > 120 ? 120 : pl), p);
+    else say(err, cap, "%s %u. satir: %s", kManifestName, line, why);
+    return false;
+  };
+  if (len == 0) { say(err, cap, "%s bos", kManifestName); return false; }
+  if (std::memchr(text, '\r', len)) return reject(0, "CR iceriyor (satir sonu yalniz \\n olmali)", nullptr, 0);
+  if (text[len - 1] != '\n') return reject(0, "son satir \\n ile bitmiyor", nullptr, 0);
   uint32_t line_no = 0;
+  const char *prev = nullptr;
+  size_t prev_len = 0;
   for (size_t i = 0; i < len;) {
     const char *ls = text + i;
     const char *nl = static_cast<const char *>(std::memchr(ls, '\n', len - i));
-    const size_t ll = nl ? (size_t)(nl - ls) : len - i;
-    i += ll + (nl ? 1 : 0);
+    const size_t ll = (size_t)(nl - ls); // son satir da \n ile biter (yukarida denetlendi)
+    i += ll + 1;
     line_no++;
-    if (ll == 0 || (ll == 1 && ls[0] == '\r')) continue;
+    bool hex_ok = ll >= 67 && ls[64] == ' ' && ls[65] == ' ';
+    for (int k = 0; hex_ok && k < 64; k++) hex_ok = (ls[k] >= '0' && ls[k] <= '9') || (ls[k] >= 'a' && ls[k] <= 'f');
     uint8_t sha[32];
-    const char *name;
-    size_t nlen;
-    if (!sums_line(ls, ll, sha, &name, &nlen)) {
-      ctr.manifest_rejected++;
-      say(err, cap, "%s %u. satir bicimsiz (beklenen: <64 hex>  <yol>)", kManifestName, line_no);
-      return false;
+    if (!hex_ok || !sha256_from_hex(ls, 64, sha))
+      return reject(line_no, "bicim bozuk (beklenen: <64 kucuk hex>  <yol>)", ls, ll);
+    const char *name = ls + 66;
+    const size_t nlen = ll - 66;
+    if (!upd_manifest_path_ok(name, nlen)) return reject(line_no, "guvensiz yol reddedildi", name, nlen);
+    if (m.find(name, nlen) >= 0) return reject(line_no, "yol iki kez", name, nlen);
+    if (prev) {
+      const int c = std::memcmp(prev, name, prev_len < nlen ? prev_len : nlen);
+      if (c > 0 || (c == 0 && prev_len > nlen)) return reject(line_no, "bayt sirali degil", name, nlen);
     }
-    if (!upd_manifest_path_ok(name, nlen)) {
-      ctr.manifest_rejected++;
-      say(err, cap, "%s %u. satir: guvensiz yol reddedildi: %.*s", kManifestName, line_no, (int)(nlen > 120 ? 120 : nlen), name);
-      return false;
-    }
-    if (m.find(name, nlen) >= 0) {
-      ctr.manifest_rejected++;
-      say(err, cap, "%s %u. satir: yol iki kez: %.*s", kManifestName, line_no, (int)nlen, name);
-      return false;
-    }
+    if (m.find_ci(name, nlen) >= 0)
+      return reject(line_no, "baska bir yolla yalniz harf buyuklugunde ayrisiyor", name, nlen);
     if (m.n >= kUpdMaxFiles || m.pool_used + nlen + 1 > kUpdPathPool) {
       ctr.capacity_overflow++;
       say(err, cap, "%s kapasiteyi asti (%u dosya / %u B yol siniri)", kManifestName, kUpdMaxFiles, kUpdPathPool);
@@ -491,13 +523,15 @@ bool parse_manifest(const char *text, size_t len, Manifest &m, UpdCounters &ctr,
     m.pool[m.pool_used + nlen] = 0;
     m.pool_used += (uint32_t)nlen + 1;
     std::memcpy(e.sha, sha, 32);
-    uint32_t s = Manifest::hash(name, nlen) & (kSlots - 1);
-    while (m.slots[s]) s = (s + 1) & (kSlots - 1);
-    m.slots[s] = m.n + 1;
+    m.insert(m.slots, m.n, false);
+    m.insert(m.ci_slots, m.n, true);
+    prev = m.path(m.n);
+    prev_len = nlen;
     m.n++;
   }
-  if (m.n == 0) {
-    say(err, cap, "%s bos", kManifestName);
+  if (m.find(kVersionName, std::strlen(kVersionName)) < 0) {
+    ctr.manifest_rejected++;
+    say(err, cap, "%s %s'i listelemiyor", kManifestName, kVersionName);
     return false;
   }
   return true;
@@ -667,25 +701,54 @@ bool upd_sums_find(const char *text, size_t len, const char *name, uint8_t out_s
 
 bool upd_manifest_path_ok(const char *path, size_t len) {
   if (!path || len == 0 || len >= kUpdPathLen) return false;
-  if (path[0] == '/') return false;
-  for (size_t i = 0; i < len; i++) {
-    const uint8_t c = (uint8_t)path[i];
-    if (c < 0x20 || c == 0x7F || c == '\\' || c == ':') return false;
-  }
+  // Parca: ^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$ (tools/paket_manifest.py PARCA).
+  // `.` ile baslayamaz: `.`/`..` (yol gecisi), gizli dosya ve `.guncelleme/`
+  // (guncelleyicinin kendi alani) boylece disarida kalir. '/', '\', ':',
+  // bosluk, kontrol karakteri ve ASCII disi bayt izinli kumede yok.
   size_t s = 0;
-  bool first = true;
   for (size_t i = 0; i <= len; i++) {
-    if (i < len && path[i] != '/') continue;
-    const size_t cl = i - s;
-    const char *c = path + s;
-    if (cl == 0) return false;                                      // "a//b", sondaki "/"
-    if ((cl == 1 && c[0] == '.') || (cl == 2 && c[0] == '.' && c[1] == '.')) return false;
-    if (c[cl - 1] == '.' || c[cl - 1] == ' ') return false;          // Windows sondaki nokta/boslugu siler: takma ad
-    if (first && cl == std::strlen(kGDir) && std::memcmp(c, kGDir, cl) == 0) return false;
-    first = false;
+    if (i < len && path[i] != '/') {
+      const char c = path[i];
+      const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' ||
+                      c == '+' || c == '-' || (c == '.' && i != s);
+      if (!ok) return false;
+      continue;
+    }
+    if (i == s) return false; // bos parca: bastaki '/', "a//b", sondaki '/'
     s = i + 1;
   }
+  // `<ad>.yeni` guncelleyicinin kullanici-degistirdi adlariyla cakisir.
+  static constexpr char kYeni[] = ".yeni";
+  if (len >= sizeof kYeni - 1 && std::memcmp(path + len - (sizeof kYeni - 1), kYeni, sizeof kYeni - 1) == 0) return false;
   if (len == std::strlen(kManifestName) && std::memcmp(path, kManifestName, len) == 0) return false;
+  return true;
+}
+
+bool upd_surum_parse(const char *text, size_t len, char *version, size_t vcap, char *platform, size_t pcap) {
+  // Tam olarak "<surum> <platform>\n": tek satir, CR yok, baska satir yok.
+  if (!text || len < 4 || text[len - 1] != '\n') return false;
+  const char *sp = static_cast<const char *>(std::memchr(text, ' ', len));
+  if (!sp || sp == text) return false;
+  const size_t vl = (size_t)(sp - text), pl = len - 1 - vl - 1;
+  if (pl == 0 || vl >= vcap || pl >= pcap || vl >= kUpdTagLen) return false;
+  for (size_t i = 0; i < len - 1; i++) {
+    const char c = text[i];
+    if (c == '\n' || c == '\r' || (i != vl && c == ' ') || (uint8_t)c < 0x20 || (uint8_t)c >= 0x7F) return false;
+  }
+  char v[kUpdTagLen], p[32];
+  if (pl >= sizeof p) return false;
+  std::memcpy(v, text, vl);
+  v[vl] = 0;
+  std::memcpy(p, sp + 1, pl);
+  p[pl] = 0;
+  UpdVersion tmp;
+  if (std::strcmp(v, "kaynak") != 0 && !upd_version_parse(v, &tmp)) return false;
+  static const char *const kPlat[] = {"linux-x86_64", "linux-aarch64", "macos-arm64", "macos-x86_64", "windows-x86_64"};
+  bool known = false;
+  for (const char *k : kPlat) known = known || std::strcmp(p, k) == 0;
+  if (!known) return false;
+  std::memcpy(version, v, vl + 1);
+  std::memcpy(platform, p, pl + 1);
   return true;
 }
 
@@ -1079,19 +1142,21 @@ void Updater::Impl::begin_stage() {
       return;
     }
   }
-  // 2. SURUM.txt: ilk satir "<tag> <platform>".
+  // 2. SURUM.txt: tam olarak "<tag> <platform>\n" (upd_surum_parse).
   if (!join(pa, sizeof pa, root, kVersionName)) { fail("yol cok uzun"); return; }
-  char sv[256];
+  char sv[128];
   bool trunc = false;
   const int64_t sn = platform::fs_read_all(pa, sv, sizeof sv, &trunc);
   if (sn < 0) { fail("pakette %s yok", kVersionName); return; }
-  size_t l = 0;
-  while (sv[l] && sv[l] != '\n' && sv[l] != '\r') l++;
-  sv[l] = 0;
-  char want[128];
-  say(want, sizeof want, "%s %s", rel.tag, platform);
-  if (std::strcmp(sv, want) != 0) {
-    fail("%s uyusmuyor: '%.60s' (beklenen '%s')", kVersionName, sv, want);
+  char sver[kUpdTagLen], splat[32];
+  if (trunc || !upd_surum_parse(sv, (size_t)sn, sver, sizeof sver, splat, sizeof splat)) {
+    for (char *c = sv; *c; c++)
+      if (*c == '\n' || *c == '\r') *c = ' ';
+    fail("pakette %s bicimsiz: '%.60s'", kVersionName, sv);
+    return;
+  }
+  if (std::strcmp(sver, rel.tag) != 0 || std::strcmp(splat, platform) != 0) {
+    fail("%s uyusmuyor: '%s %s' (beklenen '%s %s')", kVersionName, sver, splat, rel.tag, platform);
     return;
   }
   // 3. Yeni manifest.
@@ -1331,11 +1396,11 @@ uint32_t Updater::Impl::rollback() {
 
 namespace {
 // Her blok icin kanarya basligi (16) + kanarya (8) + hizalama payi (<= 16):
-// blok basina 64 B ust sinir. Impl + 10 tampon = 11 blok.
+// blok basina 64 B ust sinir. Impl + 12 tampon = 13 blok.
 constexpr size_t kBlockSlack = 64;
 size_t buffers_bytes() {
-  const size_t man = sizeof(ManEntry) * kUpdMaxFiles + kUpdPathPool + sizeof(uint32_t) * kSlots;
-  return 10 * kBlockSlack + kUpdTextCap + kIoBuf + 2 * man + sizeof(JEntry) * kJournalCap +
+  const size_t man = sizeof(ManEntry) * kUpdMaxFiles + kUpdPathPool + 2 * sizeof(uint32_t) * kSlots;
+  return 12 * kBlockSlack + kUpdTextCap + kIoBuf + 2 * man + sizeof(JEntry) * kJournalCap +
          sizeof(uint32_t) * kUpdMaxFiles;
 }
 } // namespace
@@ -1388,6 +1453,31 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     return true;
   }
 
+  // Kurulu SURUM.txt: paketleyicinin yazdigi kimlik. `kaynak` = surumsuz
+  // (TULPAR_SURUM bos) CI paketi: hangi Release'in "daha yeni" oldugu
+  // bilinemez. Calisan ikilinin surumu/platformuyla ayrisiyorsa kurulum
+  // karisik (elle kopyalanmis ikili): manifest hangi surumu anlatiyor
+  // belli degil, dokunulmaz.
+  {
+    char sv[128], sver[kUpdTagLen], splat[32];
+    join(m.pb, sizeof m.pb, m.inst, kVersionName);
+    bool st = false;
+    const int64_t sn = platform::fs_read_all(m.pb, sv, sizeof sv, &st);
+    if (sn < 0) { m.set_reason("kurulumda %s yok — paket kurulumu degil", kVersionName); return true; }
+    if (st || !upd_surum_parse(sv, (size_t)sn, sver, sizeof sver, splat, sizeof splat)) {
+      m.set_reason("kurulu %s bicimsiz", kVersionName);
+      return true;
+    }
+    if (std::strcmp(sver, "kaynak") == 0) {
+      m.set_reason("surumsuz paket (%s: kaynak) — guncelleme yalniz surumlu Release paketlerinde calisir", kVersionName);
+      return true;
+    }
+    if (std::strcmp(sver, m.cur_tag) != 0 || std::strcmp(splat, m.platform) != 0) {
+      m.set_reason("kurulu %s (%s %s) calisan editorle (%s %s) uyusmuyor", kVersionName, sver, splat, m.cur_tag, m.platform);
+      return true;
+    }
+  }
+
   // --- Calisma bellegi (yalniz etkinken) ---
   const size_t need = buffers_bytes();
   if (a.remaining() < need) {
@@ -1402,11 +1492,12 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     mf->e = a.alloc_array<ManEntry>(kUpdMaxFiles);
     mf->pool = a.alloc_array<char>(kUpdPathPool);
     mf->slots = a.alloc_array_zeroed<uint32_t>(kSlots);
+    mf->ci_slots = a.alloc_array_zeroed<uint32_t>(kSlots);
   }
   m.journal = a.alloc_array<JEntry>(kJournalCap);
   m.kept = a.alloc_array<uint32_t>(kUpdMaxFiles);
-  if (!m.text || !m.io || !m.oldm.e || !m.oldm.pool || !m.oldm.slots || !m.newm.e || !m.newm.pool ||
-      !m.newm.slots || !m.journal || !m.kept) {
+  if (!m.text || !m.io || !m.oldm.e || !m.oldm.pool || !m.oldm.slots || !m.oldm.ci_slots || !m.newm.e ||
+      !m.newm.pool || !m.newm.slots || !m.newm.ci_slots || !m.journal || !m.kept) {
     say(err, err_cap, "arena yetersiz (guncelleyici tamponlari)");
     m.set_reason("arena yetersiz");
     return false;

@@ -110,6 +110,26 @@ bool fs_rmdir(const char *path) {
   wchar_t w[kWPath];
   if (!wpath(path, w, kWPath)) return false;
   if (RemoveDirectoryW(w)) return true;
+  DWORD e = GetLastError();
+  if (e == ERROR_ACCESS_DENIED) {
+    const DWORD a = GetFileAttributesW(w);
+    if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_READONLY)) {
+      SetFileAttributesW(w, a & ~(DWORD)FILE_ATTRIBUTE_READONLY);
+      if (RemoveDirectoryW(w)) return true;
+      e = GetLastError();
+    }
+  }
+  g_last_error = (int)e;
+  return false;
+}
+
+bool fs_set_readonly(const char *path, bool readonly) {
+  wchar_t w[kWPath];
+  if (!wpath(path, w, kWPath)) return false;
+  const DWORD a = GetFileAttributesW(w);
+  if (a == INVALID_FILE_ATTRIBUTES) { g_last_error = (int)GetLastError(); return false; }
+  const DWORD na = readonly ? (a | FILE_ATTRIBUTE_READONLY) : (a & ~(DWORD)FILE_ATTRIBUTE_READONLY);
+  if (na == a || SetFileAttributesW(w, na)) return true;
   g_last_error = (int)GetLastError();
   return false;
 }
@@ -284,6 +304,15 @@ bool fs_rmdir(const char *path) {
 
 bool fs_remove_file(const char *path) {
   if (path && ::unlink(path) == 0) return true;
+  g_last_error = errno;
+  return false;
+}
+
+bool fs_set_readonly(const char *path, bool readonly) {
+  struct stat st;
+  if (!path || ::stat(path, &st) != 0) { g_last_error = errno; return false; }
+  const mode_t m = readonly ? (st.st_mode & ~(mode_t)0222) : (st.st_mode | 0200);
+  if (::chmod(path, m & 07777) == 0) return true;
   g_last_error = errno;
   return false;
 }

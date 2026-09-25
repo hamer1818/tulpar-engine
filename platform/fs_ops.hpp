@@ -85,6 +85,11 @@ size_t fs_exe_dir_utf8(char *buf, size_t n);
 // PATH'e BAKILMAZ); POSIX'te PATH'te aranir. Yoksa false.
 bool fs_system_tool(const char *name, char *out, size_t cap);
 
+// Salt-okunur isareti (POSIX: yazma bitleri; Windows: READONLY ozniteligi).
+// Paketler salt-okunur dosya tasiyabilir (macOS libglfw.3.dylib 0444);
+// testler bu durumu yeniden uretmek icin kullanir.
+bool fs_set_readonly(const char *path, bool readonly);
+
 // Mutlak yol (UTF-8; POSIX realpath — yol VAR olmali; Windows
 // GetFullPathNameW). Testlerin file:// adresi kurmasi icin.
 bool fs_abs_path(const char *path, char *out, size_t cap);

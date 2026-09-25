@@ -262,24 +262,60 @@ ENGINE_TEST(updater_sums_find_formats) {
   CHECK(!upd_sums_find(sums, std::strlen(sums), "yok.zip", d));
 }
 
+// tools/paket_manifest.py PARCA kurali ile ayni: ^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$
 ENGINE_TEST(updater_manifest_path_rules) {
   const char *ok[] = {"engine_editor", "tests/assets/editor.sahne", "lisanslar/glfw/LICENSE.md", "a.b/c",
-                      ".gizli", "a/.guncelleme", "k\xC3\xBC" "t\xC3\xBC" "phane/dosya.txt", "DOSYALAR.txt.eski"};
+                      "libstdc++-6.dll", "a/b_c-d+e.f", "DOSYALAR.txt.eski", "alt/DOSYALAR.txt", "a.", "yeni",
+                      "x.yeni.txt"};
   for (const char *p : ok) {
     if (!upd_manifest_path_ok(p, std::strlen(p))) std::printf("    gecerli yol REDDEDILDI: %s\n", p);
     CHECK(upd_manifest_path_ok(p, std::strlen(p)));
   }
   const char *bad[] = {"", "/etc/passwd", "../x", "a/../../x", "a/..", "./a", "a/./b", "a//b", "a/", "C:/x",
-                       "c:x", "a\\b", "..\\x", "a/b:akis", "a\tb", "DOSYALAR.txt", ".guncelleme/yedek/x",
-                       ".guncelleme", "a.", "a/b ", "nokta./x"};
+                       "c:x", "a\\b", "..\\x", "a/b:akis", "a\tb", "a b", "DOSYALAR.txt", ".guncelleme/yedek/x",
+                       ".guncelleme", ".gizli", "a/.gizli", "editor.sahne.yeni", "a/b.yeni",
+                       "k\xC3\xBC" "t\xC3\xBC" "phane/dosya.txt", "a\r", "a*"};
   for (const char *p : bad) {
-    if (upd_manifest_path_ok(p, std::strlen(p))) std::printf("    guvensiz yol KABUL edildi: '%s'\n", p);
+    if (upd_manifest_path_ok(p, std::strlen(p))) std::printf("    gecersiz yol KABUL edildi: '%s'\n", p);
     CHECK(!upd_manifest_path_ok(p, std::strlen(p)));
   }
   char longp[300];
   std::memset(longp, 'a', sizeof longp);
   CHECK(upd_manifest_path_ok(longp, kUpdPathLen - 1));
   CHECK(!upd_manifest_path_ok(longp, kUpdPathLen));
+}
+
+ENGINE_TEST(updater_surum_txt_strict) {
+  char v[kUpdTagLen], p[32];
+  struct Ok { const char *text, *v, *p; };
+  const Ok oks[] = {{"v0.2.0 linux-x86_64\n", "v0.2.0", "linux-x86_64"},
+                    {"v1.0.0-rc.1 windows-x86_64\n", "v1.0.0-rc.1", "windows-x86_64"},
+                    {"kaynak macos-arm64\n", "kaynak", "macos-arm64"},
+                    {"v0.1.42 linux-aarch64\n", "v0.1.42", "linux-aarch64"},
+                    {"v0.1.42 macos-x86_64\n", "v0.1.42", "macos-x86_64"}};
+  for (const Ok &o : oks) {
+    const bool ok = upd_surum_parse(o.text, std::strlen(o.text), v, sizeof v, p, sizeof p);
+    if (!ok) std::printf("    gecerli SURUM.txt REDDEDILDI: %s", o.text);
+    CHECK(ok && streq(v, o.v) && streq(p, o.p));
+  }
+  const char *bad[] = {"v0.2.0 linux-x86_64",           // \n yok
+                       "v0.2.0 linux-x86_64\r\n",        // CR
+                       "v0.2.0 linux-x86_64\n\n",        // ikinci satir
+                       "v0.2.0 linux-x86_64\nfazla\n",
+                       "v0.2.0  linux-x86_64\n",         // iki bosluk
+                       "v0.2.0 linux-riscv64\n",         // bilinmeyen platform
+                       "0.2.0 linux-x86_64\n",           // 'v' yok
+                       "v0.2 linux-x86_64\n",
+                       "Kaynak linux-x86_64\n",
+                       " linux-x86_64\n",
+                       "v0.2.0\n",
+                       "v0.2.0 linux-x86_64 fazla\n",
+                       ""};
+  for (const char *b : bad) {
+    const bool ok = upd_surum_parse(b, std::strlen(b), v, sizeof v, p, sizeof p);
+    if (ok) std::printf("    bicimsiz SURUM.txt KABUL edildi: [%s]\n", b);
+    CHECK(!ok);
+  }
 }
 
 ENGINE_TEST(updater_curl_reason_table) {
@@ -460,15 +496,49 @@ uint8_t *big_blob(uint32_t seed) {
   return buf;
 }
 
-bool mem_sha_line(char *out, size_t cap, size_t *n, const void *data, size_t len, const char *rel) {
-  uint8_t d[32];
-  sha256(data, len, d);
-  char h[65];
-  sha256_to_hex(d, h);
-  const int w = std::snprintf(out + *n, cap - *n, "%s  %s\n", h, rel);
-  if (w <= 0 || (size_t)w >= cap - *n) return false;
-  *n += (size_t)w;
-  return true;
+// DOSYALAR.txt uretici — tools/paket_manifest.py'nin bicimi: satirlar yola
+// gore BAYT sirali (strcmp = unsigned char karsilastirmasi = LC_ALL=C sort),
+// `<64 kucuk hex>  <yol>\n`.
+struct ManBuilder {
+  struct Line {
+    char path[256];
+    char hex[65];
+  };
+  Line lines[32];
+  uint32_t n = 0;
+  bool ok = true;
+  void add(const void *data, size_t len, const char *rel) {
+    if (n >= 32) { ok = false; return; }
+    uint8_t d[32];
+    sha256(data, len, d);
+    sha256_to_hex(d, lines[n].hex);
+    std::snprintf(lines[n].path, sizeof lines[n].path, "%s", rel);
+    n++;
+  }
+  void add_str(const char *s, const char *rel) { add(s, std::strlen(s), rel); }
+  // Siralayip yaz (ekleme sirasi: az girdi).
+  bool write(const char *dir) {
+    for (uint32_t i = 1; i < n; i++)
+      for (uint32_t j = i; j > 0 && std::strcmp(lines[j - 1].path, lines[j].path) > 0; j--) {
+        Line t = lines[j];
+        lines[j] = lines[j - 1];
+        lines[j - 1] = t;
+      }
+    static char out[8192];
+    size_t len = 0;
+    for (uint32_t i = 0; i < n; i++) {
+      const int w = std::snprintf(out + len, sizeof out - len, "%s  %s\n", lines[i].hex, lines[i].path);
+      if (w <= 0 || (size_t)w >= sizeof out - len) return false;
+      len += (size_t)w;
+    }
+    return ok && write_file(dir, "DOSYALAR.txt", out, len);
+  }
+};
+
+// Salt-okunur dosya (macOS paketindeki libglfw.3.dylib 0444 gibi).
+bool write_readonly(const char *dir, const char *rel, const char *s) {
+  char p[1024];
+  return write_str(dir, rel, s) && path_join(p, sizeof p, dir, rel) && platform::fs_set_readonly(p, true);
 }
 
 // file:// adresi: mutlak yol, '\' -> '/', bosluk ve ASCII disi % ile.
@@ -518,6 +588,7 @@ int run_wait(const char *const *argv, const char *cwd, char *err, size_t cap) {
 //   engine_editor           eski ikili (degismemis)            -> replace
 //   OKUBENI.md              degismemis                          -> replace
 //   SURUM.txt               degismemis                          -> replace
+//   libglfw.3.dylib         SALT OKUNUR (macOS paketi 0444)     -> replace
 //   tests/assets/editor.sahne  KULLANICI DEGISTIRDI             -> kept (.yeni)
 //   tests/assets/editor.sahne.yeni  onceki guncellemeden kalma  -> yedege
 //   lisanslar/glfw/LICENSE.md  yenisiyle ayni                    -> same
@@ -536,27 +607,33 @@ const char *kSilDegisOrig = "silinecekti\n";
 const char *kSilDegisUser = "silinecekti ama kullanici degistirdi\n";
 const char *kNewReadme = "yeni okubeni\n";
 const char *kNewLicense = "yeni kutuphane lisansi\n";
+const char *kOldLib = "glfw 3.3 (salt okunur)\n";
+const char *kNewLib = "glfw 3.4 (salt okunur)\n";
 
 bool build_install(const char *inst) {
   char surum[64];
   std::snprintf(surum, sizeof surum, "v0.1.0 %s\n", kPlat);
-  static char man[4096];
-  size_t n = 0;
+  ManBuilder mb;
   bool ok = platform::fs_mkdir_p(inst);
-  ok = ok && write_str(inst, "engine_editor", kOldEditor) && mem_sha_line(man, sizeof man, &n, kOldEditor, std::strlen(kOldEditor), "engine_editor");
-  ok = ok && write_str(inst, "OKUBENI.md", kOldReadme) && mem_sha_line(man, sizeof man, &n, kOldReadme, std::strlen(kOldReadme), "OKUBENI.md");
-  ok = ok && write_str(inst, "SURUM.txt", surum) && mem_sha_line(man, sizeof man, &n, surum, std::strlen(surum), "SURUM.txt");
-  ok = ok && write_str(inst, "eski_arac", kEskiArac) && mem_sha_line(man, sizeof man, &n, kEskiArac, std::strlen(kEskiArac), "eski_arac");
-  ok = ok && write_str(inst, "lisanslar/glfw/LICENSE.md", kLicense) &&
-       mem_sha_line(man, sizeof man, &n, kLicense, std::strlen(kLicense), "lisanslar/glfw/LICENSE.md");
-  ok = ok && write_str(inst, "silinmis_degismis.txt", kSilDegisUser) &&
-       mem_sha_line(man, sizeof man, &n, kSilDegisOrig, std::strlen(kSilDegisOrig), "silinmis_degismis.txt");
-  ok = ok && write_str(inst, "tests/assets/editor.sahne", kSahneUser) &&
-       mem_sha_line(man, sizeof man, &n, kSahneV1, std::strlen(kSahneV1), "tests/assets/editor.sahne");
+  ok = ok && write_str(inst, "engine_editor", kOldEditor);
+  mb.add_str(kOldEditor, "engine_editor");
+  ok = ok && write_str(inst, "OKUBENI.md", kOldReadme);
+  mb.add_str(kOldReadme, "OKUBENI.md");
+  ok = ok && write_str(inst, "SURUM.txt", surum);
+  mb.add_str(surum, "SURUM.txt");
+  ok = ok && write_str(inst, "eski_arac", kEskiArac);
+  mb.add_str(kEskiArac, "eski_arac");
+  ok = ok && write_str(inst, "lisanslar/glfw/LICENSE.md", kLicense);
+  mb.add_str(kLicense, "lisanslar/glfw/LICENSE.md");
+  ok = ok && write_readonly(inst, "libglfw.3.dylib", kOldLib);
+  mb.add_str(kOldLib, "libglfw.3.dylib");
+  ok = ok && write_str(inst, "silinmis_degismis.txt", kSilDegisUser);
+  mb.add_str(kSilDegisOrig, "silinmis_degismis.txt");
+  ok = ok && write_str(inst, "tests/assets/editor.sahne", kSahneUser);
+  mb.add_str(kSahneV1, "tests/assets/editor.sahne");
   ok = ok && write_str(inst, "tests/assets/editor.sahne.yeni", "onceki guncellemenin yenisi\n");
   ok = ok && write_str(inst, "kullanici_notu.txt", "benim notum\n");
-  ok = ok && write_file(inst, "DOSYALAR.txt", man, n);
-  return ok;
+  return ok && mb.write(inst);
 }
 
 bool build_release(Fix &f, const FixOpt &o) {
@@ -569,19 +646,23 @@ bool build_release(Fix &f, const FixOpt &o) {
   if (!big) return false;
   char surum[64];
   std::snprintf(surum, sizeof surum, "%s %s\n", o.bad_surum ? "v0.1.9" : o.tag, kPlat);
-  static char man[4096];
-  size_t n = 0;
-  bool ok = write_file(pkg, "engine_editor", big, kBigLen) && mem_sha_line(man, sizeof man, &n, big, kBigLen, "engine_editor");
-  ok = ok && write_str(pkg, "OKUBENI.md", kNewReadme) && mem_sha_line(man, sizeof man, &n, kNewReadme, std::strlen(kNewReadme), "OKUBENI.md");
-  ok = ok && write_str(pkg, "SURUM.txt", surum) && mem_sha_line(man, sizeof man, &n, surum, std::strlen(surum), "SURUM.txt");
-  ok = ok && write_str(pkg, "lisanslar/glfw/LICENSE.md", kLicense) &&
-       mem_sha_line(man, sizeof man, &n, kLicense, std::strlen(kLicense), "lisanslar/glfw/LICENSE.md");
-  ok = ok && write_str(pkg, "lisanslar/yeni/LICENSE", kNewLicense) &&
-       mem_sha_line(man, sizeof man, &n, kNewLicense, std::strlen(kNewLicense), "lisanslar/yeni/LICENSE");
-  ok = ok && write_str(pkg, "tests/assets/editor.sahne", kSahneV2) &&
-       mem_sha_line(man, sizeof man, &n, kSahneV2, std::strlen(kSahneV2), "tests/assets/editor.sahne");
-  if (o.evil_manifest) ok = ok && mem_sha_line(man, sizeof man, &n, "x", 1, "../x");
-  ok = ok && write_file(pkg, "DOSYALAR.txt", man, n);
+  ManBuilder mb;
+  bool ok = write_file(pkg, "engine_editor", big, kBigLen);
+  mb.add(big, kBigLen, "engine_editor");
+  ok = ok && write_str(pkg, "OKUBENI.md", kNewReadme);
+  mb.add_str(kNewReadme, "OKUBENI.md");
+  ok = ok && write_str(pkg, "SURUM.txt", surum);
+  mb.add_str(surum, "SURUM.txt");
+  ok = ok && write_str(pkg, "lisanslar/glfw/LICENSE.md", kLicense);
+  mb.add_str(kLicense, "lisanslar/glfw/LICENSE.md");
+  ok = ok && write_str(pkg, "lisanslar/yeni/LICENSE", kNewLicense);
+  mb.add_str(kNewLicense, "lisanslar/yeni/LICENSE");
+  ok = ok && write_readonly(pkg, "libglfw.3.dylib", kNewLib);
+  mb.add_str(kNewLib, "libglfw.3.dylib");
+  ok = ok && write_str(pkg, "tests/assets/editor.sahne", kSahneV2);
+  mb.add_str(kSahneV2, "tests/assets/editor.sahne");
+  if (o.evil_manifest) mb.add_str("x", "../x");
+  ok = ok && mb.write(pkg);
   if (!ok) return false;
 
   // Arsiv: alt surecte, GORELI yollarla (Windows'ta System32 tar ile zip).
@@ -791,69 +872,160 @@ ENGINE_TEST(updater_fs_move_never_overwrites) {
   CHECK(platform::fs_remove_tree(base) && !platform::fs_exists(base));
 }
 
+namespace {
+// Taze arenayla init (etkin her init ~1.7 MB tampon ayirir).
+struct InitResult {
+  bool ok;
+  UpdState st;
+  char reason[kUpdErrLen];
+  char err[256];
+  uint32_t rejected;
+};
+InitResult try_init(const UpdaterConfig &c) {
+  InitResult r{};
+  SystemArena a;
+  if (!a.reserve(Updater::arena_bytes(), "upd_init")) return r;
+  Updater u;
+  r.ok = u.init(a, c, r.err, sizeof r.err);
+  r.st = u.state();
+  std::snprintf(r.reason, sizeof r.reason, "%s", u.reason());
+  r.rejected = u.counters().manifest_rejected;
+  return r;
+}
+bool disabled_with(const UpdaterConfig &c, const char *why, uint32_t rejected = 0) {
+  const InitResult r = try_init(c);
+  const bool ok = r.ok && r.st == UpdState::Disabled && contains(r.reason, why) && r.rejected == rejected;
+  if (!ok)
+    std::printf("    beklenen Disabled '%s' (red %u), olan: init %d, %s, '%s', red %u\n", why, rejected, (int)r.ok,
+                upd_state_name(r.st), r.reason, r.rejected);
+  return ok;
+}
+} // namespace
+
 ENGINE_TEST(updater_disabled_conditions) {
-  SystemArena arena;
-  // Etkin her init tamponlarini ayirir: uc etkin init + Disabled olanlar.
-  CHECK(arena.reserve(Updater::arena_bytes() * 4, "upd_disabled"));
-  char base[1024], err[256];
+  char base[1024];
   CHECK(test::tmp_mkdir(base, sizeof base, "upd_dis"));
   UpdaterConfig c;
   c.platform = kPlat;
   c.install_dir = base;
   c.current_version = "v0.1.0";
-  const size_t used0 = arena.used();
   {
+    SystemArena arena;
+    CHECK(arena.reserve(Updater::arena_bytes(), "upd_kaynak"));
     Updater u; // surum yok: kaynak derlemesi
     UpdaterConfig k = c;
     k.current_version = "";
+    char err[256];
     CHECK(u.init(arena, k, err, sizeof err));
     CHECK(u.state() == UpdState::Disabled && contains(u.reason(), "kaynak derlemesi"));
     u.check();
     u.poll();
     CHECK(u.state() == UpdState::Disabled); // hicbir sey baslamaz
+    // Disabled iken buyuk tamponlar ayrilmaz: yalniz Impl.
+    CHECK(arena.used() < 128 * 1024);
   }
-  // Disabled iken buyuk tamponlar ayrilmaz: yalniz Impl (~40 KB).
-  CHECK(arena.used() - used0 < 128 * 1024);
   {
-    Updater u;
     UpdaterConfig k = c;
     k.platform = "linux-riscv64";
-    CHECK(u.init(arena, k, err, sizeof err) && u.state() == UpdState::Disabled && contains(u.reason(), "platform"));
+    CHECK(disabled_with(k, "platform"));
+    k.platform = "linux-aarch64"; // paketlenir ama Release'te YAYINLANMIYOR
+    CHECK(disabled_with(k, "platform"));
   }
+  CHECK(disabled_with(c, "DOSYALAR.txt yok"));
+
+  // Gecerli kurulum: SURUM.txt + x, bayt sirali ("SURUM.txt" < "x").
+  char surum[64];
+  std::snprintf(surum, sizeof surum, "v0.1.0 %s\n", kPlat);
+  auto line = [](const char *content, const char *rel, char *out, size_t cap) {
+    uint8_t d[32];
+    sha256(content, std::strlen(content), d);
+    char h[65];
+    sha256_to_hex(d, h);
+    std::snprintf(out, cap, "%s  %s\n", h, rel);
+  };
+  char ls[128], lx[128], good[256];
+  line(surum, "SURUM.txt", ls, sizeof ls);
+  line("x", "x", lx, sizeof lx);
+  std::snprintf(good, sizeof good, "%s%s", ls, lx);
+  CHECK(write_str(base, "x", "x"));
+  CHECK(write_str(base, "DOSYALAR.txt", good));
+  CHECK(disabled_with(c, "SURUM.txt yok"));
+  CHECK(write_str(base, "SURUM.txt", surum));
+  // Pozitif kontrol: ayni dizin artik ETKIN.
   {
-    Updater u; // DOSYALAR.txt yok
-    CHECK(u.init(arena, c, err, sizeof err) && u.state() == UpdState::Disabled && contains(u.reason(), "DOSYALAR.txt"));
-  }
-  // Pozitif kontrol: DOSYALAR.txt eklenince ayni dizin ETKIN olur.
-  uint8_t d[32];
-  sha256("x", 1, d);
-  char h[65], line[128];
-  sha256_to_hex(d, h);
-  std::snprintf(line, sizeof line, "%s  x\n", h);
-  CHECK(write_str(base, "DOSYALAR.txt", line) && write_str(base, "x", "x"));
-  {
-    Updater u;
-    CHECK(u.init(arena, c, err, sizeof err));
-    if (u.state() != UpdState::Idle) std::printf("    sebep: %s\n", u.reason());
-    CHECK(u.state() == UpdState::Idle && streq(u.install_dir(), base));
+    const InitResult r = try_init(c);
+    if (r.st != UpdState::Idle) std::printf("    sebep: %s\n", r.reason);
+    CHECK(r.ok && r.st == UpdState::Idle);
   }
   // Yazma sinamasi iz birakmaz.
   char g[1024];
   path_join(g, sizeof g, base, ".guncelleme");
   CHECK(!platform::fs_exists(g));
-  {
-    Updater u; // guvensiz kurulu manifest
-    CHECK(write_str(base, "DOSYALAR.txt", "0000000000000000000000000000000000000000000000000000000000000000  ../x\n"));
-    CHECK(u.init(arena, c, err, sizeof err) && u.state() == UpdState::Disabled && contains(u.reason(), "guvensiz"));
-    CHECK(u.counters().manifest_rejected == 1);
-    CHECK(write_str(base, "DOSYALAR.txt", line));
+
+  // --- Kurulu SURUM.txt ---
+  char buf[512];
+  std::snprintf(buf, sizeof buf, "kaynak %s\n", kPlat);
+  CHECK(write_str(base, "SURUM.txt", buf));
+  CHECK(disabled_with(c, "surumsuz"));
+  std::snprintf(buf, sizeof buf, "v0.0.9 %s\n", kPlat);
+  CHECK(write_str(base, "SURUM.txt", buf));
+  CHECK(disabled_with(c, "uyusmuyor"));
+  std::snprintf(buf, sizeof buf, "v0.1.0 %s\n", std::strcmp(kPlat, "linux-x86_64") == 0 ? "macos-arm64" : "linux-x86_64");
+  CHECK(write_str(base, "SURUM.txt", buf));
+  CHECK(disabled_with(c, "uyusmuyor"));
+  std::snprintf(buf, sizeof buf, "v0.1.0 %s\r\n", kPlat);
+  CHECK(write_str(base, "SURUM.txt", buf));
+  CHECK(disabled_with(c, "bicimsiz"));
+  CHECK(write_str(base, "SURUM.txt", surum));
+
+  // --- Kurulu DOSYALAR.txt: KESIN bicim (tools/paket_manifest.py) ---
+  struct Bad { const char *why; char text[512]; uint32_t rejected; };
+  static Bad bads[12];
+  int nb = 0;
+  auto add = [&](const char *why, uint32_t rej, const char *fmt, const char *a, const char *b) {
+    Bad &x = bads[nb++];
+    x.why = why;
+    x.rejected = rej;
+    std::snprintf(x.text, sizeof x.text, fmt, a, b);
+  };
+  char ls_cr[160], lx_up[160], lx_star[160], lx_one[160], lsurum_low[160], lyeni[160], ldots[160];
+  std::snprintf(ls_cr, sizeof ls_cr, "%.*s\r\n", (int)std::strlen(ls) - 1, ls);
+  std::snprintf(lx_up, sizeof lx_up, "%s", lx);
+  for (int i = 0; i < 64; i++)
+    if (lx_up[i] >= 'a' && lx_up[i] <= 'f') lx_up[i] = (char)(lx_up[i] - 32);
+  std::snprintf(lx_star, sizeof lx_star, "%.64s *x\n", lx);
+  std::snprintf(lx_one, sizeof lx_one, "%.64s x\n", lx);
+  std::snprintf(lsurum_low, sizeof lsurum_low, "%.64s  surum.txt\n", lx);
+  std::snprintf(lyeni, sizeof lyeni, "%.64s  x.yeni\n", lx);
+  std::snprintf(ldots, sizeof ldots, "%.64s  ../x\n", lx);
+  add("CR", 1, "%s%s", ls_cr, lx);
+  add("bitmiyor", 1, "%s%s", ls, "");
+  bads[nb - 1].text[std::strlen(bads[nb - 1].text) - 1] = 0; // son \n'i at
+  add("bicim bozuk", 1, "%s%s", ls, lx_up);
+  add("bicim bozuk", 1, "%s%s", ls, lx_star);
+  add("bicim bozuk", 1, "%s%s", ls, lx_one);
+  add("sirali degil", 1, "%s%s", lx, ls);
+  add("iki kez", 1, "%s%s", ls, ls);
+  add("harf buyuklugunde", 1, "%s%s", ls, lsurum_low);
+  add("listelemiyor", 1, "%s%s", lx, "");
+  add("guvensiz yol", 1, "%s%s", ls, lyeni);
+  add("guvensiz yol", 1, "%s%s", ldots, ls);
+  add("bos", 0, "%s%s", "", "");
+  for (int i = 0; i < nb; i++) {
+    CHECK(write_str(base, "DOSYALAR.txt", bads[i].text));
+    if (!disabled_with(c, bads[i].why, bads[i].rejected)) {
+      std::printf("    vaka %d:\n%s\n", i, bads[i].text);
+      CHECK(false);
+    }
   }
+  CHECK(write_str(base, "DOSYALAR.txt", good));
+  CHECK(try_init(c).st == UpdState::Idle); // geri: yine etkin
+
 #if !defined(_WIN32)
   if (::geteuid() != 0) {
-    Updater u; // yazilamaz dizin (root her yere yazar: orada olculemez)
+    // Yazilamaz dizin (root her yere yazar: orada olculemez).
     CHECK(::chmod(base, 0555) == 0);
-    CHECK(u.init(arena, c, err, sizeof err) && u.state() == UpdState::Disabled && contains(u.reason(), "yazilamaz"));
-    if (!contains(u.reason(), "yazilamaz")) std::printf("    sebep: %s / %s\n", upd_state_name(u.state()), u.reason());
+    CHECK(disabled_with(c, "yazilamaz"));
     CHECK(::chmod(base, 0755) == 0);
   }
 #endif
@@ -862,6 +1034,7 @@ ENGINE_TEST(updater_disabled_conditions) {
     SystemArena small;
     CHECK(small.reserve(96 * 1024, "upd_kucuk"));
     Updater u;
+    char err[256];
     CHECK(!u.init(small, c, err, sizeof err) && contains(err, "arena yetersiz"));
     CHECK(small.stats().overflow_count == 0);
   }
@@ -940,7 +1113,7 @@ ENGINE_TEST(updater_end_to_end_install_via_file_urls) {
 
   const UpdPlanSummary p = r.u.plan_summary();
   std::printf("    plan: add %u replace %u same %u kept %u remove %u\n", p.add, p.replace, p.same, p.kept_user, p.remove);
-  CHECK(p.add == 1 && p.replace == 3 && p.same == 1 && p.kept_user == 1 && p.remove == 1);
+  CHECK(p.add == 1 && p.replace == 4 && p.same == 1 && p.kept_user == 1 && p.remove == 1);
   CHECK(r.u.kept_count() == 1 && streq(r.u.kept_path(0), "tests/assets/editor.sahne"));
   CHECK(streq(r.u.kept_path(1), ""));
 
@@ -964,6 +1137,7 @@ ENGINE_TEST(updater_end_to_end_install_via_file_urls) {
   CHECK(file_is(f.inst, "tests/assets/editor.sahne.yeni", kSahneV2));
   CHECK(file_is(f.inst, "lisanslar/glfw/LICENSE.md", kLicense));
   CHECK(file_is(f.inst, "lisanslar/yeni/LICENSE", kNewLicense));
+  CHECK(file_is(f.inst, "libglfw.3.dylib", kNewLib));
   CHECK(!exists(f.inst, "eski_arac"));
   CHECK(file_is(f.inst, "silinmis_degismis.txt", kSilDegisUser));
   CHECK(file_is(f.inst, "kullanici_notu.txt", "benim notum\n"));
@@ -973,6 +1147,7 @@ ENGINE_TEST(updater_end_to_end_install_via_file_urls) {
   CHECK(file_is(bak, "eski_arac", kEskiArac));
   CHECK(file_is(bak, "engine_editor", kOldEditor));
   CHECK(file_is(bak, "OKUBENI.md", kOldReadme));
+  CHECK(file_is(bak, "libglfw.3.dylib", kOldLib));
   CHECK(file_is(bak, "tests/assets/editor.sahne.yeni", "onceki guncellemenin yenisi\n"));
   CHECK(exists(bak, "DOSYALAR.txt"));
   // Yeni DOSYALAR.txt paketinkiyle bayt bayt ayni.
@@ -1035,9 +1210,14 @@ ENGINE_TEST(updater_install_rollback_restores_tree_bytewise) {
   FixOpt o;
   if (skip_if_no_tools(f, fix_make(f, o))) return;
   const Snap before = snapshot(f.inst);
-  // Plan: remove 1 + yedege replace 3 + onceki .yeni 1 + yerine (add 1 +
-  // replace 3 + kept 1) + manifest 2 = 12 tasima (dizin yaratmalar haric).
-  const int32_t ks[] = {0, 1, 4, 6, 9, 11};
+  // Plan: remove 1 + yedege replace 4 + onceki .yeni 1 + yerine (add 1 +
+  // replace 4 + kept 1) + manifest 2 = 14 tasima (dizin yaratmalar haric).
+  // Manifest sirasi: OKUBENI, SURUM, engine_editor, libglfw (salt okunur),
+  // lisanslar/glfw (ayni), lisanslar/yeni (YENI dizin), tests/assets/editor.sahne.
+  // k=0 ilk tasima; 3/9 salt-okunur dosyanin yedege/yerine tasinmasi; 10
+  // lisanslar/yeni'nin yerine konmasi (dizin yaratildi, geri almada silinmeli);
+  // 11 yeni dizin YARATILDIKTAN sonraki tasima; 13 isleme noktasinin kendisi.
+  const int32_t ks[] = {0, 1, 3, 5, 9, 10, 11, 13};
   for (int32_t k : ks) {
     Run r;
     CHECK(r.init(f));
@@ -1059,7 +1239,7 @@ ENGINE_TEST(updater_install_rollback_restores_tree_bytewise) {
   Run r;
   CHECK(r.init(f));
   CHECK(r.to_staged() == UpdState::Staged);
-  r.u.test_fail_after(12); // 12 tasima var: 13.'ye hic gelinmez
+  r.u.test_fail_after(14); // 14 tasima var: 15.'ye hic gelinmez
   char err[256];
   CHECK(r.u.install(err, sizeof err) && r.u.state() == UpdState::Installed);
   CHECK(!snap_eq(before, snapshot(f.inst)));
