@@ -1,0 +1,26 @@
+// Yerleşim tipi — "oyuncu_baslangic": oyuncunun DOĞDUĞU nokta (E7).
+//
+//   oyuncu_baslangic_baslat(i)    sahne yüklenince bir kez: sahne dizini kaydedilir
+//   oyuncu_baslangic_bitir(i)     sahne boşalırken: kayıt silinir
+//
+// Davranış DEĞİL, bölüm VERİSİ (bkz. dusman_yeri.tpr): boş bir varlık, konumu
+// oyuncu küresinin MERKEZİ. Oyuncu arenadan düşerse de buraya döner. Bölümde
+// tam BİR başlangıç olmalı: oyun sayıyı denetler, yoksa ya da birden çoksa
+// nedenini söyleyip kapanır — (0, 0, 0)'da sessizce doğmak yerine.
+//
+// Neden ada göre arama (`sahne_bul("oyuncu_baslangic")`) değil: ad editörde
+// serbest yazılır ve tekil olması denetlenmez — ikinci bir aynı adlı varlık
+// sessizce "ilk bulunan" olurdu. Tip betikle verilince her işaret kancadan
+// geçer ve SAYILIR; kapı ve düşman işaretleriyle aynı kural.
+
+int _oyuncu_baslangic_dizin = -1;
+int _oyuncu_baslangic_n = 0;
+
+func oyuncu_baslangic_baslat(i) {
+    _oyuncu_baslangic_dizin = toInt(i);
+    _oyuncu_baslangic_n += 1;
+}
+func oyuncu_baslangic_bitir(i) { _oyuncu_baslangic_dizin = -1; _oyuncu_baslangic_n = 0; }
+
+func oyuncu_baslangic_sayisi(): int { return _oyuncu_baslangic_n; }
+func oyuncu_baslangic_dizini(): int { return _oyuncu_baslangic_dizin; }

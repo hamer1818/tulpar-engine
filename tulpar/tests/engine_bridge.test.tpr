@@ -13,6 +13,12 @@ import "engine";
 // Nesne özellikleri kapısı (run_ozellik): ozellik.sahne'deki iki muhafızın
 // `muhafiz_baslat` kancası GERÇEK Tulpar kancası olarak koşsun diye.
 import "examples/davranis/muhafiz.tpr";
+// salon1.sahneb (navmesh, ajan, sıcak yükleme kapıları) bölüm işaretleri taşıyor
+// (engine_aksiyon, E7): tipleri import edilmezse her yükleme işaret başına
+// "betik kancasi YOK" HATA'sı basardı.
+import "examples/davranis/oyuncu_baslangic.tpr";
+import "examples/davranis/kapi.tpr";
+import "examples/davranis/dusman_yeri.tpr";
 
 int g_kutu = 0;
 int g_zemin = 0;

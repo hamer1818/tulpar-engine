@@ -25,6 +25,15 @@
 // yol_yonu, goruyor_mu): navmesh varsa Detour yolu, yoksa düz çizgi + duvardan
 // kayma. Harita yalnız sahneden gelir: `.sahneb` yoksa oyun nedenini söyleyip kapanır.
 //
+// BÖLÜM VERİSİ DE SAHNEDE (2026-09-25, E7): oyuncunun doğduğu yer, kapı ve her
+// düşman editörde yerleştirilen bir İŞARET — betiği tipini söyleyen boş varlık
+// (davranis/oyuncu_baslangic.tpr, kapi.tpr, dusman_yeri.tpr). Düşmanın canı,
+// hızları, yarıçapı, temas hasarı ve devriye noktaları işaretin "Özellikler"inde
+// varlık başına; bu dosyada tek bir koordinat yok. Yeni bir düşman ya da patron
+// kod değil, sahnede bir işaret. Otopilot koşumu aynı: 3200 karelik kapı özeti ve
+// olay günlüğü önceki sürümle BAYT BAYT aynı (bkz. PR; tek fark sahnenin varlık
+// sayısı). Bilerek değişen tek şey: arenadan düşen oyuncu BÖLÜMÜN başlangıcına döner.
+//
 // 2026-09-24: dilin olanaklarıyla yeniden yazıldı (for/break, +=, else if,
 // kutusuz Vec3, kitaplıktaki yön/görüş). Oyun aynı: 3200 karelik kapı özeti ve
 // fren ölçümü eski sürümle BAYT BAYT aynı (bkz. PR). 927 kod satırından bu hale.
@@ -32,6 +41,11 @@
 // yerleşimi") — hiçbir widget koordinat almıyor, otopilot düğmeleri ADIYLA tıklıyor.
 
 import "engine";
+// Bölüm işaretlerinin tipleri: sahne yüklenirken motor `<tip>_baslat`ı çağırır
+// ve AOT'ta betik ancak oyunun ikilisine derlenmişse vardır — import şart.
+import "examples/davranis/oyuncu_baslangic.tpr";
+import "examples/davranis/kapi.tpr";
+import "examples/davranis/dusman_yeri.tpr";
 
 // ---- Ayarlar ----------------------------------------------------------------
 float OYUNCU_R = 0.45;
@@ -50,15 +64,15 @@ float VURUS_ITME = 9.0;
 // 2026-09-24: 34 -> can 0; 50 -> 9 öldü, can 26, KAZANDI).
 int VURUS_HASAR = 50;
 int OYUNCU_CAN_MAX = 100;
-int DUSMAN_CAN_MAX = 100;
-float DUSMAN_R = 0.5;
-float DUSMAN_HIZ_DEVRIYE = 2.2;
-float DUSMAN_HIZ_KOVALA = 4.2;
+// Düşmanın canı, hızları, yarıçapı ve temas hasarı SAHNEDE, işaret başına
+// (davranis/dusman_yeri.tpr varsayılanları). Burada yalnız bütün düşmanların
+// paylaştığı algı kuralları.
 float GORUS_MENZIL = 13.0;
 float GORUS_COS = 0.30;      // bakış konisi (~±72 derece)
 float KAYIP_SURE = 2.5;      // bu kadar göremezse devriyeye döner
-float TEMAS_MENZIL = 1.25;
-int TEMAS_HASAR = 11;
+// Temas menzili = düşmanın yarıçapı + bu pay: büyük düşman (patron) uzaktan
+// değer. Eski sabit 1.25 = 0.5 + 0.75, yani sıradan düşmanda aynı sayı.
+float TEMAS_PAY = 0.75;
 float HASAR_BEKLE = 0.85;
 float AFIS_SURE = 2.2;
 
@@ -96,6 +110,7 @@ float g_serbest_t = 0.0;      // darbe: hız fiziğin
 bool g_fare_once = false;     // sol tık KENARI için
 float g_kam_yaw = 0.0;
 float g_oyuncu_yaw = 0.0;
+Vec3 g_baslangic = { x: 0.0, y: 0.0, z: 0.0 };   // oyuncunun doğduğu (ve düşünce döndüğü) yer
 Vec3 g_kapi = { x: 0.0, y: 0.0, z: 0.0 };
 float g_kapi_r = 2.0;
 bool g_kapi_acik = false;
@@ -110,6 +125,10 @@ float g_yenileme_t = 0.0;
 struct Dusman {
     int id;
     int can;
+    float r;                  // yarıçap (temas menzili bununla)
+    float hiz_devriye;
+    float hiz_kovala;
+    int hasar;                // temas hasarı
     Hal hal;
     float ax;                 // devriye A noktası
     float az;
@@ -130,11 +149,18 @@ Dusman[] dusmanlar = [];
 int g_dusman_n = 0;
 
 // ---- Düşmanlar --------------------------------------------------------------
-func dusman_ekle(x, z, ax, az, bx, bz) {
-    int id = kutu(x, DUSMAN_R, z, DUSMAN_R, DUSMAN_R, DUSMAN_R, true, RENK_DEVRIYE);
-    if (id == 0) { logla(t"UYARI dusman kurulamadi ({x},{z})"); return; }
-    Dusman yeni = { id: id, can: DUSMAN_CAN_MAX, hal: Hal.DEVRIYE, ax: ax, az: az, bx: bx, bz: bz,
-                    hedef: Nokta.A, yaw: 0.0, kayip: 0.0, flas: 0.0 };
+// Sahnedeki bir "dusman_yeri" işaretinden (sahne dizini `i`) düşman: konum
+// işaretin konumu (kutunun merkezi), bütün sayılar işaretin özellikleri.
+func dusman_ekle(int i) {
+    Vec3 p = sahne_konum(i);
+    float r = dusman_yeri_yaricap(i);
+    int id = kutu(p.x, p.y, p.z, r, r, r, true, RENK_DEVRIYE);
+    if (id == 0) { logla(t"UYARI dusman kurulamadi ({p.x},{p.z})"); return; }
+    Vec3 a = dusman_yeri_devriye_a(i);
+    Vec3 b = dusman_yeri_devriye_b(i);
+    Dusman yeni = { id: id, can: dusman_yeri_can(i), r: r, hiz_devriye: dusman_yeri_hiz_devriye(i),
+                    hiz_kovala: dusman_yeri_hiz_kovala(i), hasar: dusman_yeri_hasar(i), hal: Hal.DEVRIYE,
+                    ax: a.x, az: a.z, bx: b.x, bz: b.z, hedef: Nokta.A, yaw: 0.0, kayip: 0.0, flas: 0.0 };
     if (g_dusman_n < len(dusmanlar)) { dusmanlar[g_dusman_n] = yeni; } else { push(dusmanlar, yeni); }
     g_dusman_n += 1;
 }
@@ -179,11 +205,20 @@ func sahne_dene(ad): bool {
     return false;
 }
 
-// Bölümü kurar: sahne + oyuncu + düşmanlar + kapı.
+// Bölümde TEK olması gereken işaret (oyuncu başlangıcı, kapı): yoksa ya da
+// birden çoksa oyun nedenini söyleyip kapanır — sessizce (0, 0, 0)'da doğmak yerine.
+func tek_isaret(str isaret, int adet, n): bool {
+    if (adet == 1) { return true; }
+    print(t"HATA salon{n}: sahnede {adet} '{isaret}' isareti var, tam 1 olmali (editorde bos bir varliga betik tulpar/examples/davranis/{isaret}.tpr)");
+    cikis_iste();
+    return false;
+}
+
+// Bölümü kurar: sahne, sonra sahnedeki işaretlerden oyuncu + kapı + düşmanlar.
 func bolum_kur(n) {
     dusmanlari_bosalt();
     if (g_oyuncu != 0 && canli(g_oyuncu)) { sil(g_oyuncu); }
-    if (sahne_yuklu()) { sahne_bosalt(); }
+    if (sahne_yuklu()) { sahne_bosalt(); }   // işaret listeleri boşalır (`<tip>_bitir`)
     int hata_once = hata_sayisi();
     // Ad LİTERAL kalmalı: editörün F5'i sahneyi yükleyen oyunu bu dizgiyle bulur.
     bool yuklendi = sahne_dene(n == 1 ? "salon1.sahneb" : "salon2.sahneb");
@@ -193,29 +228,18 @@ func bolum_kur(n) {
         cikis_iste();
         return;
     }
+    // Yükleme işaret listelerini doldurdu (`<tip>_baslat`, sahne sırasıyla).
     logla(t"bolum {n}: sahneden {sahne_sayisi()} varlik, navmesh {nav_var()} ({nav_poligon()} poligon)");
     sahne_izle(true); // sıcak yükleme: editörde "Derle" -> oyun kendini yeniler
     g_oyuncu_yaw = 0.0;
     g_kam_yaw = 0.0;
     g_kapi_acik = false;
-    if (n == 1) {
-        g_oyuncu = kure(0.0, 1.0, 9.0, OYUNCU_R, true, RENK_OYUNCU);
-        g_kapi = v3(0.0, 0.0, -11.5);
-        g_kapi_r = 2.2;
-        dusman_ekle(-8.0, -8.0, -10.0, -8.0, -3.0, -9.5);
-        dusman_ekle(8.0, -8.0, 10.0, -8.0, 3.0, -9.5);
-        dusman_ekle(-9.5, 4.0, -10.0, 1.5, -10.0, 9.5);
-        dusman_ekle(9.5, 4.0, 10.0, 1.5, 10.0, 9.5);
-    } else {
-        g_oyuncu = kure(-12.0, 1.0, 12.0, OYUNCU_R, true, RENK_OYUNCU);
-        g_kapi = v3(12.0, 0.0, 12.0);
-        g_kapi_r = 2.4;
-        dusman_ekle(-12.0, -8.0, -13.0, -10.0, -6.0, -6.0);
-        dusman_ekle(10.0, -10.0, 12.0, -12.5, 9.0, -5.0);
-        dusman_ekle(-8.0, 8.0, -12.0, 6.0, -4.0, 11.0);
-        dusman_ekle(2.0, 8.0, 0.0, 5.0, 4.0, 12.0);
-        dusman_ekle(12.0, 2.0, 13.0, -1.0, 11.0, 6.0);
-    }
+    if (!tek_isaret("oyuncu_baslangic", oyuncu_baslangic_sayisi(), n) || !tek_isaret("kapi", kapi_sayisi(), n)) { return; }
+    g_baslangic = sahne_konum(oyuncu_baslangic_dizini());
+    g_oyuncu = kure(g_baslangic.x, g_baslangic.y, g_baslangic.z, OYUNCU_R, true, RENK_OYUNCU);
+    g_kapi = sahne_konum(kapi_dizini());
+    g_kapi_r = kapi_yaricap(kapi_dizini());
+    for (int k = 0; k < dusman_yeri_sayisi(); k++) { dusman_ekle(dusman_yeri_dizin(k)); }
     logla(t"bolum {n} hazir: {g_dusman_n} dusman, kapi ({g_kapi.x},{g_kapi.z})");
 }
 
@@ -409,10 +433,11 @@ func oyuncu_guncelle(float d) {
     if (konum_y(g_oyuncu) < -4.0) { dustu(); }
 }
 
-// Arenadan düşerse geri getir; biraz can al ki ceza görünsün.
+// Arenadan düşerse bölümün başlangıcına geri getir; biraz can al ki ceza görünsün.
+// (Eskiden iki bölümde de bölüm 1'in (0, 2, 8)'i. Otopilot hiç düşmüyor.)
 func dustu() {
-    isinla(g_oyuncu, 0, 2.0, 8.0);
-    oyuncuya_hasar(v3(0.0, 0.0, 8.0), 10);
+    isinla_v(g_oyuncu, g_baslangic);
+    oyuncuya_hasar(g_baslangic, 10);
     logla("oyuncu dustu, geri getirildi");
 }
 
@@ -437,21 +462,22 @@ func dusman_guncelle(i, float d) {
         }
     }
     Vec3 hedef = p;
-    float hiz = DUSMAN_HIZ_KOVALA;
+    float hiz = dm.hiz_kovala;
     if (dm.hal == Hal.DEVRIYE) {
         hedef = v3(dm.ax, 0.0, dm.az);
         if (dm.hedef == Nokta.B) { hedef = v3(dm.bx, 0.0, dm.bz); }
-        hiz = DUSMAN_HIZ_DEVRIYE;
+        hiz = dm.hiz_devriye;
         if (uzaklik_xz(e, hedef) < 1.0) { dm.hedef = dm.hedef == Nokta.A ? Nokta.B : Nokta.A; }
     }
+    float temas = dm.r + TEMAS_PAY;
     Vec3 y = yol_yonu(dm.id, hedef);
     if (y.x != 0.0 || y.z != 0.0) {
         dm.yaw = yon_yaw(y);
         // Kovalarken temas menzilinin içinde durur (itişip kaymasın).
-        if (dm.hal != Hal.KOVALA || uz > TEMAS_MENZIL * 0.8) { yuru_v(dm.id, v_olcek(y, hiz)); }
+        if (dm.hal != Hal.KOVALA || uz > temas * 0.8) { yuru_v(dm.id, v_olcek(y, hiz)); }
     }
     don_ver(dm.id, dm.yaw * 57.29578);
-    if (uz < TEMAS_MENZIL && g_durum == Durum.OYNA) { oyuncuya_hasar(e, TEMAS_HASAR); }
+    if (uz < temas && g_durum == Durum.OYNA) { oyuncuya_hasar(e, dm.hasar); }
     // Vuruş flaşı bitince renk duruma göre.
     if (dm.flas > 0.0) { dm.flas = max(0.0, dm.flas - d); }
     if (dm.flas <= 0.0) { renk_ver(dm.id, dm.hal == Hal.KOVALA ? RENK_KOVALA : RENK_DEVRIYE); }
