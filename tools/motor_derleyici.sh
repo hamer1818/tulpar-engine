@@ -132,7 +132,7 @@ bilgi "TulparLang: $tulpar_src ($(git -C "$tulpar_src" rev-parse --short HEAD))"
 # Uretilmis baglama betik kancalarini TulparLang'in aot_func_lookup'iyla cozuyor
 # (yuklemede bir kez; kare icinde adsiz cagri). Eski bir kopyada bu, LLVM arka
 # ucu dakikalarca derlendikten SONRA "undefined reference" ile duserdi — derleme
-# HEAD'den yapiliyor, soru da HEAD'e. `grep -q` DEGIL (Tuzaklar 8ci): ilk
+# HEAD'den yapiliyor, soru da HEAD'e. `grep -q` DEGIL (Tuzaklar 8cj): ilk
 # eslesmede cikar, `git show` SIGPIPE alir ve `pipefail` ile boru hatti "yok"
 # der (olculdu: bu satirin ilk hali aot_func_lookup'LI kopyayi da reddetti).
 if ! git -C "$tulpar_src" show HEAD:src/vm/runtime_bindings.cpp 2>/dev/null | grep 'aot_func_lookup(const char' >/dev/null; then
