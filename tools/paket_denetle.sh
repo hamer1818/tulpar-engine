@@ -31,6 +31,10 @@ done
 ls "$kok"/assets/fonts/*.ttf >/dev/null 2>&1 || hata "Pakette assets/fonts/*.ttf yok."
 [ -d "$kok/tests/assets" ] || hata "Pakette tests/assets/ yok."
 [ -f "$kok/OKUBENI.md" ]   || hata "Pakette OKUBENI.md yok."
+# Guncelleyicinin manifesti. Icerigini tools/paket_manifest.py olcer (package.sh
+# --denetle); burada yalniz VARLIK: dosyasiz paket guncelleyicide Disabled olur.
+[ -s "$kok/SURUM.txt" ]    || hata "Pakette SURUM.txt yok."
+[ -s "$kok/DOSYALAR.txt" ] || hata "Pakette DOSYALAR.txt yok."
 
 if [ "$win" = 1 ]; then
   # GEREKSINIM **YAPI AGACINDAN** TURETILIR, PAKETTEN DEGIL.

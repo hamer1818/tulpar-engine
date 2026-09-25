@@ -24,9 +24,13 @@ libglfw.3.dylib    (macOS) aynısı
 lisanslar/         pakete konan kütüphanelerin lisansları (GLFW: zlib)
 assets/fonts/      arayüz ve HUD yazı tipleri (+ lisansları)
 tests/assets/      demo ve editörün açılışta yüklediği sahne ve modeller
+SURUM.txt          bu paketin sürümü ve platformu — elle DÜZENLEMEYİN
+DOSYALAR.txt       paketteki her dosyanın SHA-256 özeti — elle DÜZENLEMEYİN
 ```
 
 Windows'ta her ikilinin adı `.exe` ile biter (`engine_demo.exe` …).
+`SURUM.txt` ve `DOSYALAR.txt` güncelleyicinin dayanağıdır; ne işe yaradıkları
+aşağıda, [Güncelleme](#güncelleme) bölümünde.
 
 ## Çalıştırma
 
@@ -139,10 +143,98 @@ zorundadır:
 | `Vulkan cihazi yok` / `GLFW: Vulkan loader bulunamadi` | GPU sürücüsü Vulkan içermiyor ya da güncel değil. Sürücüyü güncelleyin; `vulkaninfo --summary` ile doğrulayın. |
 | "program başlatılamadı" (`0xc000007b` vb.) | MinGW DLL'lerinden biri eksik. Paketi yeniden çıkarın. |
 
+## Güncelleme
+
+### Editörden
+
+**Yardım → Güncellemeleri denetle.** Editör GitHub'daki son sürümü sorar;
+daha yenisi varsa notlarını gösterir. Onay verirseniz:
+
+1. bu platformun arşivini indirir ve özetini aynı sürümün
+   `tulpar-engine-<sürüm>-SHA256SUMS.txt` dosyasıyla karşılaştırır,
+2. arşivi `.guncelleme/` altına açar ve açılan **her dosyayı** yeni paketin
+   `DOSYALAR.txt`'si ile doğrular,
+3. ancak bundan sonra kurulu dosyaların yerine koyar. Yeni sürüm editörü
+   yeniden başlatınca devreye girer.
+
+Bilmeniz gerekenler:
+
+* **Paket klasörü yazılabilir olmalı.** Güncelleme dosyaları *bu klasörün
+  içinde* değiştirir. Yönetici izni isteyen bir yere (`C:\Program Files`,
+  `/opt`, `/Applications`) açtıysanız güncelleme başarısız olur ve klasör
+  **hiç değişmez**; paketi kendi kullanıcınızın yazabildiği bir yere taşıyın.
+* **Değiştirdiğiniz dosyalar ezilmez.** Bir paket dosyasının özeti eski
+  `DOSYALAR.txt`'dekinden farklıysa onu siz değiştirmişsinizdir (örnek:
+  editörde kaydettiğiniz `tests/assets/editor.sahne`). O dosya yerinde kalır,
+  yeni sürümü yanına **`<ad>.yeni`** olarak yazılır ve editör bunları
+  listeler. İki sürümü birleştirmek size kalır; birleştirdikten sonra
+  `.yeni` dosyasını silebilirsiniz.
+* **`.guncelleme/` dizini** güncelleyicinin çalışma alanıdır: indirilen
+  arşiv, açılan paket ve `yedek-<eski sürüm>/` (yerinden alınan eski
+  dosyalar). Kurulum bir adımda başarısız olursa o ana kadar yapılan her
+  değişiklik geri alınır, klasör eski haline döner. Eski yedekler bir sonraki
+  açılışta silinir (Windows'ta çalışan eski `.exe` ancak program kapanınca
+  silinebildiği için). Editör kapalıyken bu dizini elle silmek güvenlidir.
+* **Güncelleme kapalı görünüyorsa** sebebi pencerede yazar. En sık iki sebep:
+  editör kaynaktan derlenmiştir (`SURUM.txt` `kaynak …` der) ya da klasörde
+  `DOSYALAR.txt` yoktur.
+* **Sınır:** bütünlük SHA-256 özetleriyle korunur, imzayla değil. Bu, bozuk ya
+  da yarım indirmeye karşı korur; GitHub hesabının ele geçirilmesine karşı
+  korumaz.
+
+### `SURUM.txt` ve `DOSYALAR.txt` — elle düzenlemeyin
+
+İkisi de paketlenirken üretilir.
+
+* **`SURUM.txt`** — tek satır: `<sürüm> <platform>`, örneğin
+  `v0.2.0 linux-x86_64`. Sürüm `engine_editor` ikilisinin içine gömülü
+  sürümden okunur; kaynaktan derlenmiş bir pakette `kaynak <platform>` yazar.
+* **`DOSYALAR.txt`** — paketteki her dosyanın (kendisi hariç) SHA-256 özeti,
+  standart `sha256sum` biçiminde (`<64 onaltılık>  <göreli yol>`).
+  Güncelleyici "bu dosyayı kullanıcı değiştirdi mi?" sorusunu **buna bakarak**
+  cevaplar.
+
+Bu dosyaları düzenlerseniz güncelleyici yanlış karar verir: `DOSYALAR.txt`'yi
+silerseniz güncelleme kapanır; bir satırı değiştirdiğiniz dosyanın yeni
+özetiyle güncellerseniz o dosya "değişmemiş" sayılır ve korunmak yerine
+yenisiyle değiştirilir.
+
+Paketin bozulmadığını (ya da hangi dosyaları değiştirdiğinizi) görmek için
+paket klasöründe:
+
+```bash
+sha256sum -c --quiet DOSYALAR.txt          # Linux, MSYS2: yalnız farklı/eksik olanlar basılır
+shasum -a 256 -c DOSYALAR.txt | grep -v ': OK$'   # macOS
+```
+
+```powershell
+# Windows PowerShell
+Get-Content DOSYALAR.txt | ForEach-Object {
+  $h, $p = $_ -split '  ', 2
+  if (-not (Test-Path $p) -or (Get-FileHash $p -Algorithm SHA256).Hash.ToLower() -ne $h) { "FARKLI: $p" }
+}
+```
+
+### Elle güncelleme
+
+1. GitHub'daki **Releases** sayfasından platformunuzun arşivini
+   (`tulpar-engine-<sürüm>-<platform>.tar.gz`, Windows'ta `.zip`) ve
+   `tulpar-engine-<sürüm>-SHA256SUMS.txt` dosyasını indirin.
+2. Arşivi doğrulayın: `sha256sum -c --ignore-missing tulpar-engine-<sürüm>-SHA256SUMS.txt`
+   (macOS: `shasum -a 256 <arşiv>` çıktısını özet dosyasındaki satırla,
+   Windows: `Get-FileHash <arşiv>` çıktısını karşılaştırın).
+3. Arşivi **yeni bir klasöre** açın; eskisinin üzerine açmayın.
+4. Eski klasörde değiştirdiğiniz dosyaları yukarıdaki `sha256sum -c` komutuyla
+   bulun ve yenisine taşıyın (sahneleriniz vb.). Eski klasörü sonra
+   silebilirsiniz.
+
 ## Paket nasıl üretiliyor
 
 `tools/package.sh <yapi-dizini> <çıktı-dizini>` — CI de insan da aynı betiği
 koşar. Betik hem varlık listesini hem de **çalışma anında yüklenen kütüphane
 listesini** kaynaktan **türetir** (ikinci bir elle yazılmış liste yok) ve paketi
-sonunda denetler; eksik bir dosya işi kırmızıya çevirir. Yalnız denetlemek için:
+sonunda denetler; eksik bir dosya işi kırmızıya çevirir. Son adımda
+`SURUM.txt` ve `DOSYALAR.txt`'yi yazar (`tools/paket_manifest.py`); denetim her
+satırın özetini, listede olmayan ya da pakette olmayan dosyayı ve sürümün
+ikiliyle aynı olduğunu da ölçer. Yalnız denetlemek için:
 `tools/package.sh --denetle <çıktı-dizini>`.
