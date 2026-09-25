@@ -89,3 +89,12 @@ nesne "nobetci"
   betik "tulpar/examples/davranis/nobet.tpr" etkin
   karakter 0.3 1.8 70 45
 son
+nesne "devriye_2"
+  konum 4 1 2
+  donus 0 0 0
+  olcek 1 1 1
+  model kaynak -1 0.35 0.55 0.95
+  ilkel 11
+  govde kure 0.5 dinamik
+  betik "tulpar/examples/davranis/devriye.tpr" etkin
+son

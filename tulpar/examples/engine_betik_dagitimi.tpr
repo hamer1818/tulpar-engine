@@ -24,6 +24,10 @@
 // sahnede "alarm_bolgesi" oyuncuyu, "gecit" devriyenin yolunu kapsıyor.
 // "nobetci" bir SAHNE KARAKTERİ (Karakter Kontrolcüsü bileşeni): betiği onu
 // `sahne_karakter_yuru` ile "kule" bölgesinin içinden gidip getiriyor.
+// "devriye" ve "devriye_2" AYNI betiği koşar: motor aynı fonksiyonları her
+// biri için çağırır, yani betiğin durumu VARLIK BAŞINA tutulmalı (devriye.tpr
+// fazı `yuva(id)` ile indekslenen bir dizide tutuyor; tek bir global iki
+// devriyede ortak saat olurdu — kapanıştaki "faz" satırları ikisi için ayrı).
 //
 // Oyun döngüsünde tek bir `if betik == "..."` satırı yok. Yeni bir davranış
 // eklemek = `davranis/` altına bir dosya koymak + onu import etmek.
