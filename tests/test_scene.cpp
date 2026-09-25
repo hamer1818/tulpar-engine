@@ -1233,6 +1233,84 @@ ENGINE_TEST(scene_prop_point_world_rotates_moves_and_ignores_scale) {
   CHECK(w[0] == 1.0f && w[1] == 0.0f && w[2] == 0.0f);
 }
 
+// E6 (editorde nokta surukleme): scene_prop_point_local, point_world'un TERSI.
+// Uc katli zincir: her katta baska eksenlerde donus ve ESIT OLMAYAN olcek —
+// yani ebeveyn donusu, ebeveyn olcegi ve varligin kendi olcegi uc ayri yoldan
+// sonuca girebilir. Iki yon de olculur: yerel -> dunya -> yerel ve
+// dunya -> yerel -> dunya, 1e-5 icinde.
+// POZITIF KONTROL (kapi gercekten TERS'i mi olcuyor?): iki "dogal" yanlis ters
+// ayni turda DUSMELI —
+//   (a) ebeveyn donusunu unutmak (varligin yalniz KENDI donusu),
+//   (b) dunya matrisinin tersi (olcegi de geri alir; point_world olcek uygulamaz).
+ENGINE_TEST(scene_prop_point_local_inverts_point_world_through_parent_chain) {
+  static SceneDesc d;
+  scene_desc_reset(d);
+  SceneEntity k{};
+  std::snprintf(k.name, sizeof k.name, "kok");
+  k.pos = {3, -1, 2};
+  k.rot_deg = {10, 35, -25};
+  k.scale = {2, 2, 2};
+  CHECK(d.insert_entity(0, k));
+  SceneEntity o{};
+  std::snprintf(o.name, sizeof o.name, "orta");
+  o.parent = 0;
+  o.pos = {1, 2, -1};
+  o.rot_deg = {0, -60, 15};
+  o.scale = {0.5f, 1.5f, 0.75f};
+  CHECK(d.insert_entity(1, o));
+  SceneEntity y{};
+  std::snprintf(y.name, sizeof y.name, "yaprak");
+  y.parent = 1;
+  y.pos = {-0.5f, 0.3f, 2};
+  y.rot_deg = {45, 0, 90};
+  y.scale = {3, 3, 3};
+  CHECK(d.insert_entity(2, y));
+  CHECK(scene_tree_depth(d, 2) == 2);
+
+  const float yereller[5][3] = {{0, 0, 0}, {1, 0, 0}, {-2, 0.5f, 3}, {7.25f, -3, 0.125f}, {-0.01f, 12, -6.5f}};
+  float en_kotu_yerel = 0, en_kotu_dunya = 0, kotu_a = 1e9f, kotu_b = 1e9f;
+  for (uint32_t ent = 0; ent < 3; ent++) {
+    for (const auto &l : yereller) {
+      float w[3], l2[3], w2[3];
+      scene_prop_point_world(d, ent, l, w);
+      scene_prop_point_local(d, ent, w, l2);
+      scene_prop_point_world(d, ent, l2, w2);
+      for (int c = 0; c < 3; c++) {
+        const float el = std::fabs(l2[c] - l[c]), ew = std::fabs(w2[c] - w[c]);
+        if (el > en_kotu_yerel) en_kotu_yerel = el;
+        if (ew > en_kotu_dunya) en_kotu_dunya = ew;
+      }
+      if (ent != 2 || (l[0] == 0 && l[1] == 0 && l[2] == 0)) continue; // kontroller: cocukta, sifir olmayan ofsette
+      const Mat4 wm = scene_entity_world_matrix(d, ent);
+      const Vec3 rel{w[0] - wm.m[3][0], w[1] - wm.m[3][1], w[2] - wm.m[3][2]};
+      // (a) ebeveyn donusu unutuldu
+      const Vec3 la = rotate(conjugate(scene_entity_rotation(d.entities[ent])), rel);
+      // (b) dunya matrisinin tersi (olcek de geri alinir)
+      const Vec4 lb4 = inverse(wm) * Vec4{w[0], w[1], w[2], 1.0f};
+      float ea = 0, eb = 0;
+      const float la3[3] = {la.x, la.y, la.z}, lb3[3] = {lb4.x, lb4.y, lb4.z};
+      for (int c = 0; c < 3; c++) {
+        ea = std::fabs(la3[c] - l[c]) > ea ? std::fabs(la3[c] - l[c]) : ea;
+        eb = std::fabs(lb3[c] - l[c]) > eb ? std::fabs(lb3[c] - l[c]) : eb;
+      }
+      if (ea < kotu_a) kotu_a = ea;
+      if (eb < kotu_b) kotu_b = eb;
+    }
+  }
+  std::printf("    [bilgi] 3 varlik x 5 ofset: en kotu yerel hata %.2e, dunya hata %.2e (esik 1e-5); KONTROL en iyi yanlis ters "
+              "(a) ebeveyn donusu yok %.3f, (b) matris tersi %.3f (esik > 0.1)\n",
+              (double)en_kotu_yerel, (double)en_kotu_dunya, (double)kotu_a, (double)kotu_b);
+  CHECK(en_kotu_yerel < 1e-5f);
+  CHECK(en_kotu_dunya < 1e-5f);
+  CHECK(kotu_a > 0.1f);
+  CHECK(kotu_b > 0.1f);
+  // Gecersiz indeks: dunya aynen doner (point_world'un aynasi).
+  const float w9[3] = {4, 5, 6};
+  float l9[3];
+  scene_prop_point_local(d, 99, w9, l9);
+  CHECK(l9[0] == 4.0f && l9[1] == 5.0f && l9[2] == 6.0f);
+}
+
 // Betik karti: Sifirla ozellikleri SILER (degerler betigin varsayilanina
 // doner), Kopyala/Yapistir TASIR (kaynagin aynisi, birlesim degil). KONTROL:
 // baska bir bilesenin (Isik) sifirlanmasi ozelliklere dokunmaz.

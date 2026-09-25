@@ -1531,3 +1531,37 @@ yedek zaten buluyordu).
 (`grep -q`, `head -1`, `sed q`) koşul olarak kullanılamaz: sonucu tüketicinin değil
 yazanın çıkış kodu belirler. Koşul gerekiyorsa tüketici girdiyi sonuna kadar okumalı ya da
 çıktı önce bir değişkene alınmalı.
+
+### 8ck. Denetçi her kare `edit_before`ı tazeliyor — gizmo sürüklemesi onu "başlangıç" sanıyordu
+
+**Belirti** (2026-09-25, E6; penceresiz editör, RTX 5080, `ozellik.sahne`): yeni `nokta
+surukleme kapisi` ilk koşumda noktanın yerel değerini tam beklenen kadar değiştirdi ama
+günlüğe **0 işlem** yazdı — geri al hiçbir şeyi geri getirmedi. Aynı kapının KONTROLÜ (kip
+kapalıyken iki seçili varlığı gizmoyla sürüklemek) ikinci, eski bir sessiz bozulmayı gösterdi:
+yan varlık bırakışta **başlangıcına döndü** (ana seçiliye göre sapma 0.529 m) ve günlüğe 2 değil
+1 işlem girdi. Çoklu seçimde gizmo sürüklemesi yalnız ana seçiliyi taşıyordu.
+
+**Sebep:** `EditorState::edit_before` iki sahibin ortak alanı. `track_edit` (denetçinin her
+sürekli widget'ı çağırır) widget etkin DEĞİLKEN her kare `edit_before = e` yapar — "etkinleşirse
+elimde son hal olsun". Denetçi gizmodan ÖNCE çizilir ve gizmo sürüklerken hiçbir widget etkin
+değildir; yani `edit_before` her kare **sürüklenmiş hale** yenilenir. (1) Nokta sürüklemesi
+bırakışta `edit_before`ı "önce" diye günlüğe verdi: önce == sonra, `set_entity` işlem yazmadı.
+(2) Grup sürüklemesi deltayı `e.pos - edit_before.pos` ile alıyordu: yalnız SON karenin artımı.
+Bırakış karesinde ImGuizmo yine `changed` döndürüyor (gizmo sondası: k17 `using=0 changed=1`),
+artım 0 ve yan varlıklar `drag_before + 0`a — başlangıca — dönüyor; `selection_commit`
+değişmeyeni yazmaz. Yakalayan kapı yoktu: çoklu seçim kapısı grubu `selection_translate` ile
+taşıyor, gizmoyla değil; gizmo sürükleme kapısı tek varlık sürüklüyor.
+
+**Düzeltme:** Sürüklemenin tabanı, sürükleme BAŞINDA alınan ve kimsenin yenilemediği kopya:
+nokta için `pe_drag_before`, grup için ana seçilinin `drag_before` girdisi. Kapı: `nokta
+surukleme kapisi` (kare 51–59) — kontrol sürüklemesinde yan varlık ana seçiliyle AYNI deltayı
+almalı (sapma < 1e-5), günlükte 2 işlem / 1 grup; nokta sürüklemesinde TAM 1 işlem / 1 grup ve
+geri al sahne baytlarını geri getirmeli. Ölçüldü (RTX 5080, 2026-09-25, `ozellik.sahne`):
+düzeltmeden önce nokta 0 işlem, yan sapma 0.529 m / 1 işlem (kapı KIRMIZI); sonra nokta 1 işlem /
+1 grup, yan sapma 0 / 2 işlem / 1 grup; `salon1.sahne` ve `tests/assets/editor.sahne` aynı.
+
+**Ders:** "başlangıç kopyası" ile "son bilinen hal" aynı alanda tutulamaz. Bir anlık görüntüyü
+her kare tazeleyen bir yol varsa, o alanı "sürükleme başı" diye okuyan her yol yalnız son
+karenin farkını görür — ve tek karelik ya da tek varlıklı bir sürüklemeyi ölçen kapı bunu
+göremez. Sürükleme tabanı, sürüklemenin sahibi olan yolda ve başka kimsenin yazmadığı bir
+alanda tutulur.

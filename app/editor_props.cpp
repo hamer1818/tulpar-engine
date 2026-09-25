@@ -473,6 +473,75 @@ uint32_t prop_marker_points(const content::SceneDesc &s, uint32_t ent, const Pro
 }
 
 // =============================================================================
+// Nokta duzenleme kipi (E6)
+// =============================================================================
+const char *prop_edit_state_text(PropEditState s) {
+  switch (s) {
+  case PropEditState::Ok: return "s\xC3\xBCr\xC3\xBCklenebilir";
+  case PropEditState::NoEntity: return "varl\xC4\xB1k yok";
+  case PropEditState::Locked: return "varl\xC4\xB1k kilitli";
+  case PropEditState::NotScanned: return "betik taranmad\xC4\xB1 (bildirim bilinmiyor)";
+  case PropEditState::NotDeclared: return "betik bu noktay\xC4\xB1 okumuyor";
+  case PropEditState::NoPosition: return "varsay\xC4\xB1lan kodda hesaplan\xC4\xB1yor: \xC3\xB6nce de\xC4\x9F" "er yaz";
+  case PropEditState::Full: return "varl\xC4\xB1kta 16 \xC3\xB6zellik dolu";
+  }
+  return "?";
+}
+
+PropEditState prop_edit_state_entity(const SceneEntity &e, const char *name, const PropDecl *d, uint32_t n, bool scanned,
+                                     float out_local[3], bool *is_override) {
+  if (is_override) *is_override = false;
+  if (!name || !name[0]) return PropEditState::NoEntity;
+  // Sira denetci satirinin gorunur sebebiyle ayni: once kilit (gizmo da yok),
+  // sonra bildirim, sonra konum/yer.
+  if (e.flags & content::kSceneLocked) return PropEditState::Locked;
+  if (!scanned) return PropEditState::NotScanned;
+  const PropDecl *x = prop_decl_find(d, n, name);
+  if (!x || x->type != content::kScenePropNokta) return PropEditState::NotDeclared;
+  const SceneProp *ov = content::scene_prop_find(e, name);
+  if (ov && ov->type == content::kScenePropNokta) {
+    if (out_local) { out_local[0] = ov->v[0]; out_local[1] = ov->v[1]; out_local[2] = ov->v[2]; }
+    if (is_override) *is_override = true;
+    return PropEditState::Ok;
+  }
+  if (x->flags & kPropDeclDefaultUnknown) return PropEditState::NoPosition;
+  // Ayni adla BASKA turde bir yazma varsa scene_prop_set onu yerinde degistirir
+  // (yer gerekmez); yalniz ad YOKSA tavan sorulur.
+  if (!ov && e.prop_count >= content::kSceneMaxProps) return PropEditState::Full;
+  if (out_local) { out_local[0] = x->def[0]; out_local[1] = x->def[1]; out_local[2] = x->def[2]; }
+  return PropEditState::Ok;
+}
+
+PropEditState prop_edit_state(const content::SceneDesc &s, int32_t ent, const char *name, const PropDecl *d, uint32_t n, bool scanned,
+                              float out_local[3], bool *is_override) {
+  if (is_override) *is_override = false;
+  if (ent < 0 || (uint32_t)ent >= s.entity_count) return PropEditState::NoEntity;
+  return prop_edit_state_entity(s.entities[ent], name, d, n, scanned, out_local, is_override);
+}
+
+bool prop_point_set_world(content::SceneDesc &s, uint32_t ent, const char *name, const float world[3], float out_local[3]) {
+  if (ent >= s.entity_count) return false;
+  float l[3];
+  content::scene_prop_point_local(s, ent, world, l);
+  if (!content::scene_prop_set(s.entities[ent], name, content::kScenePropNokta, l)) return false;
+  if (out_local) { out_local[0] = l[0]; out_local[1] = l[1]; out_local[2] = l[2]; }
+  return true;
+}
+
+int32_t prop_marker_hit(const PropMarkerScreen *m, uint32_t n, float mx, float my, float r) {
+  int32_t best = -1;
+  float best_d = 0.0f;
+  for (uint32_t i = 0; i < n; i++) {
+    if (!m[i].visible || !m[i].editable) continue;
+    const float dx = m[i].x - mx, dy = m[i].y - my;
+    const float d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+    if (d > r) continue;
+    if (best < 0 || d <= best_d) { best = (int32_t)i; best_d = d; } // <=: esitlikte sonra cizilen (ustteki)
+  }
+  return best;
+}
+
+// =============================================================================
 // Onbellek
 // =============================================================================
 const char *prop_cache_state_text(PropCacheState s) {
@@ -598,7 +667,7 @@ void call_item(void (*on_item)(void *, const PropItem &), void *user, const Prop
 
 // Bildirilmis tek ozellik satiri.
 void decl_row(SceneEntity &e, SceneEntity &after, const PropDecl &d, void (*on_item)(void *, const PropItem &), void *user,
-              PropsPanelResult &r) {
+              const char *point_edit, PropsPanelResult &r) {
   const SceneProp *ov = content::scene_prop_find(e, d.name);
   const bool is_ov = ov && ov->type == d.type;
   const bool unknown = (d.flags & kPropDeclDefaultUnknown) != 0;
@@ -622,9 +691,12 @@ void decl_row(SceneEntity &e, SceneEntity &after, const PropDecl &d, void (*on_i
                   type_text(d.type), defs, d.line);
 
   const float bw = ImGui::GetFrameHeight();
+  // Nokta satirinda IKI dugme: ✥ (gorunumde surukle, E6) + ↺. Digerlerinde
+  // yalniz ↺ — ↺ her satirda en sagda kalir, sutun hizasi bozulmaz.
+  const bool is_point = d.type == content::kScenePropNokta;
   prop_help(help);
   prop_label_tone(is_ov ? Tone::Text : Tone::TextDim);
-  prop_reserve_trailing(bw);
+  prop_reserve_trailing(is_point ? bw * 2.0f : bw);
   if (!is_ov) ImGui::PushStyleColor(ImGuiCol_Text, tone4(Tone::TextDim));
   if (full) ImGui::BeginDisabled();
   // Varsayilan satirinda deger SOLUK ve "varsayilan" yazili; bilinmeyen
@@ -675,6 +747,25 @@ void decl_row(SceneEntity &e, SceneEntity &after, const PropDecl &d, void (*on_i
   }
   if (full) ImGui::EndDisabled();
   if (!is_ov) ImGui::PopStyleColor();
+  // ✥ nokta duzenleme kipi (E6): kural prop_edit_state — kapaliysa ipucu
+  // SEBEBI soyler (kilitli, varsayilan kodda, 16 dolu). Karar editorun: panel
+  // yalniz "bu ad icin ac/kapa" niyetini doner.
+  if (is_point && prop_row_drawn()) {
+    const bool on = point_edit && !std::strcmp(point_edit, d.name);
+    const PropEditState ps = prop_edit_state_entity(e, d.name, &d, 1, true, nullptr, nullptr);
+    char tip[160];
+    if (on) std::snprintf(tip, sizeof tip, "Nokta d\xC3\xBCzenlemeyi bitir (Esc)");
+    else if (ps == PropEditState::Ok) std::snprintf(tip, sizeof tip, "Noktay\xC4\xB1 g\xC3\xB6r\xC3\xBCn\xC3\xBCmde s\xC3\xBCr\xC3\xBCkle (gizmo noktaya ta\xC5\x9F\xC4\xB1n\xC4\xB1r)");
+    else std::snprintf(tip, sizeof tip, "S\xC3\xBCr\xC3\xBCklenemez: %s", prop_edit_state_text(ps));
+    const bool enabled = on || ps == PropEditState::Ok;
+    if (prop_trailing_slot(ICON_MD_OPEN_WITH, tip, bw, on, !enabled)) {
+      r.point_toggle = true;
+      std::snprintf(r.point_name, sizeof r.point_name, "%s", d.name);
+    }
+    r.point_rect = prop_trailing_slot_last_rect();
+    r.point_buttons++;
+    if (enabled) r.point_enabled++;
+  }
   // Sifirla: ustune yazmayi SIL (varsayilana don). Varsayilan satirinda yer
   // yine ayrilir ki bildirim satirlari hizali kalsin.
   if (prop_trailing_button(is_ov ? ICON_MD_REPLAY : nullptr, "Varsay\xC4\xB1lana d\xC3\xB6n (betikteki de\xC4\x9F" "er)")) {
@@ -735,7 +826,7 @@ PropsPanelResult props_panel(SceneEntity &e, SceneEntity &after, const PropsPane
   if (scanned && in.decl_count > 0 && prop_begin("ozellik_bildirim")) {
     for (uint32_t i = 0; i < in.decl_count; i++) {
       ImGui::PushID(in.decls[i].name);
-      decl_row(e, after, in.decls[i], on_item, user, r);
+      decl_row(e, after, in.decls[i], on_item, user, in.point_edit, r);
       ImGui::PopID();
     }
     prop_end();
@@ -793,7 +884,10 @@ PropsPanelResult props_panel(SceneEntity &e, SceneEntity &after, const PropsPane
     r.diagnostics = true;
   }
   if (scanned && in.decl_count > 0)
-    wrapped(tone4(Tone::TextMute), "Soluk = betikteki varsay\xC4\xB1lan \xC2\xB7 " ICON_MD_REPLAY " varsay\xC4\xB1lana d\xC3\xB6n");
+    wrapped(tone4(Tone::TextMute), r.point_buttons > 0
+                                       ? "Soluk = betikteki varsay\xC4\xB1lan \xC2\xB7 " ICON_MD_REPLAY " varsay\xC4\xB1lana d\xC3\xB6n \xC2\xB7 " ICON_MD_OPEN_WITH
+                                         " noktay\xC4\xB1 g\xC3\xB6r\xC3\xBCn\xC3\xBCmde s\xC3\xBCr\xC3\xBCkle"
+                                       : "Soluk = betikteki varsay\xC4\xB1lan \xC2\xB7 " ICON_MD_REPLAY " varsay\xC4\xB1lana d\xC3\xB6n");
   return r;
 }
 

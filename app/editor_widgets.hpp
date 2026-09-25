@@ -55,6 +55,14 @@ void prop_reserve_trailing(float w);
 // satirlar icin). Donus: basildi. Satir suzgecle GIZLENDIYSE hicbir sey cizmez
 // ve false doner (dugme baska bir satirin yanina kaymaz).
 bool prop_trailing_button(const char *icon, const char *tooltip);
+// Ayrilmis sag payin SOLUNDAN `w` genislikte simge dugmesi ve payin o kadari
+// TUKETILIR; kalan pay sonraki prop_trailing_slot / prop_trailing_button'a
+// kalir (nokta satiri: "noktayi surukle" + "varsayilana don" yan yana, E6).
+// on: basili/etkin gosterim (vurgu zemini). disabled: soluk, tiklanamaz ama
+// ipucu yine gorunur (neden kapali oldugunu soyler). Satir gizlendiyse ya da
+// pay yetmiyorsa hicbir sey cizmez ve false doner. Dikdortgen
+// prop_trailing_slot_last_rect'e yazilir (prop_trailing_last_rect DEGISMEZ).
+bool prop_trailing_slot(const char *icon, const char *tooltip, float w, bool on = false, bool disabled = false);
 // Son prop_* cagrisi bir satir CIZDI mi (suzgec gizlemediyse true).
 bool prop_row_drawn();
 // Ozellik aramasi: bos degilse etiketi eslesmeyen prop_* satirlari cizilmez.
@@ -280,5 +288,7 @@ const HierarchyRowLayout &hierarchy_row_last_layout();
 const WidgetRect &prop_last_rect();
 // Son CIZILEN prop_trailing_button dikdortgeni.
 const WidgetRect &prop_trailing_last_rect();
+// Son CIZILEN prop_trailing_slot dikdortgeni.
+const WidgetRect &prop_trailing_slot_last_rect();
 
 } // namespace tulpar::engine::app
