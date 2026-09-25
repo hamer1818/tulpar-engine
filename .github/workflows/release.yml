@@ -482,10 +482,14 @@ jobs:
           set -euo pipefail
           kok="paket/$AD"
           if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
-          printf '%s %s\n' "$SURUM" "$PLATFORM" > beklenen_SURUM.txt
-          if ! cmp -s beklenen_SURUM.txt "$kok/SURUM.txt"; then
-            echo "::error::SURUM.txt '$(tr -d '\r\n' < "$kok/SURUM.txt" || true)', beklenen '$SURUM $PLATFORM' (tek satir, LF)."
-            od -c "$kok/SURUM.txt" | head -5 || true
+          # Bayt bayt karsilastirma, dis arac (cmp/od) OLMADAN: MSYS2'nin temel
+          # kurulumunda diffutils'in varligina guvenmiyoruz. `printf x` sondaki
+          # \n'i komut ikamesinin budamasindan korur; %q CR'yi gorunur basar.
+          beklenen="$SURUM $PLATFORM"$'\n'
+          gercek="$(cat "$kok/SURUM.txt"; printf x)"
+          gercek="${gercek%x}"
+          if [ "$gercek" != "$beklenen" ]; then
+            echo "::error::SURUM.txt $(printf '%q' "$gercek"), beklenen $(printf '%q' "$beklenen") (tek satir, LF)."
             exit 1
           fi
           if ! ( cd "$kok" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula.log 2>&1; then
@@ -543,8 +547,11 @@ jobs:
           mkdir acilan
           tar -xzf "${AD}.tar.gz" -C acilan
           TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh --denetle "acilan/$AD"
-          if ! cmp -s beklenen_SURUM.txt "acilan/$AD/SURUM.txt"; then
-            echo "::error::Arsivden acilan SURUM.txt '$SURUM $PLATFORM' degil."
+          beklenen="$SURUM $PLATFORM"$'\n'
+          gercek="$(cat "acilan/$AD/SURUM.txt"; printf x)"
+          gercek="${gercek%x}"
+          if [ "$gercek" != "$beklenen" ]; then
+            echo "::error::Arsivden acilan SURUM.txt $(printf '%q' "$gercek"), beklenen $(printf '%q' "$beklenen")."
             exit 1
           fi
           if ! ( cd "acilan/$AD" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula_acilan.log 2>&1; then
@@ -943,10 +950,14 @@ jobs:
           set -euo pipefail
           kok="paket/$AD"
           if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
-          printf '%s %s\n' "$SURUM" "$PLATFORM" > beklenen_SURUM.txt
-          if ! cmp -s beklenen_SURUM.txt "$kok/SURUM.txt"; then
-            echo "::error::SURUM.txt '$(tr -d '\r\n' < "$kok/SURUM.txt" || true)', beklenen '$SURUM $PLATFORM' (tek satir, LF)."
-            od -c "$kok/SURUM.txt" | head -5 || true
+          # Bayt bayt karsilastirma, dis arac (cmp/od) OLMADAN: MSYS2'nin temel
+          # kurulumunda diffutils'in varligina guvenmiyoruz. `printf x` sondaki
+          # \n'i komut ikamesinin budamasindan korur; %q CR'yi gorunur basar.
+          beklenen="$SURUM $PLATFORM"$'\n'
+          gercek="$(cat "$kok/SURUM.txt"; printf x)"
+          gercek="${gercek%x}"
+          if [ "$gercek" != "$beklenen" ]; then
+            echo "::error::SURUM.txt $(printf '%q' "$gercek"), beklenen $(printf '%q' "$beklenen") (tek satir, LF)."
             exit 1
           fi
           if ! ( cd "$kok" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula.log 2>&1; then
@@ -1002,8 +1013,11 @@ jobs:
           mkdir acilan
           tar -xzf "${AD}.tar.gz" -C acilan
           TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh --denetle "acilan/$AD"
-          if ! cmp -s beklenen_SURUM.txt "acilan/$AD/SURUM.txt"; then
-            echo "::error::Arsivden acilan SURUM.txt '$SURUM $PLATFORM' degil."
+          beklenen="$SURUM $PLATFORM"$'\n'
+          gercek="$(cat "acilan/$AD/SURUM.txt"; printf x)"
+          gercek="${gercek%x}"
+          if [ "$gercek" != "$beklenen" ]; then
+            echo "::error::Arsivden acilan SURUM.txt $(printf '%q' "$gercek"), beklenen $(printf '%q' "$beklenen")."
             exit 1
           fi
           if ! ( cd "acilan/$AD" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula_acilan.log 2>&1; then
@@ -1212,16 +1226,20 @@ jobs:
       # EDITOR ICI GUNCELLEYICININ MANIFESTI — Linux/macOS islerindeki adimla
       # AYNI metin (gerekceler orada). MSYS2'de sha256sum var (coreutils).
       # SATIR SONU: DOSYALAR.txt ve SURUM.txt Windows'ta da yalniz LF;
-      # `cmp` bayt bayt karsilastirdigi icin bir CRLF sizmasi burada KIRMIZI.
+      # karsilastirma bayt bayt oldugu icin bir CRLF sizmasi burada KIRMIZI.
       - name: Manifest kapisi (SURUM.txt + DOSYALAR.txt)
         run: |
           set -euo pipefail
           kok="paket/$AD"
           if command -v sha256sum >/dev/null 2>&1; then dogrula=(sha256sum -c); else dogrula=(shasum -a 256 -c); fi
-          printf '%s %s\n' "$SURUM" "$PLATFORM" > beklenen_SURUM.txt
-          if ! cmp -s beklenen_SURUM.txt "$kok/SURUM.txt"; then
-            echo "::error::SURUM.txt '$(tr -d '\r\n' < "$kok/SURUM.txt" || true)', beklenen '$SURUM $PLATFORM' (tek satir, LF)."
-            od -c "$kok/SURUM.txt" | head -5 || true
+          # Bayt bayt karsilastirma, dis arac (cmp/od) OLMADAN: MSYS2'nin temel
+          # kurulumunda diffutils'in varligina guvenmiyoruz. `printf x` sondaki
+          # \n'i komut ikamesinin budamasindan korur; %q CR'yi gorunur basar.
+          beklenen="$SURUM $PLATFORM"$'\n'
+          gercek="$(cat "$kok/SURUM.txt"; printf x)"
+          gercek="${gercek%x}"
+          if [ "$gercek" != "$beklenen" ]; then
+            echo "::error::SURUM.txt $(printf '%q' "$gercek"), beklenen $(printf '%q' "$beklenen") (tek satir, LF)."
             exit 1
           fi
           if ! ( cd "$kok" && "${dogrula[@]}" DOSYALAR.txt ) > dogrula.log 2>&1; then
@@ -1284,8 +1302,11 @@ jobs:
           mkdir acilan
           ( cd acilan && "$systar" -xf "../${AD}.zip" )
           TULPAR_PAKET_PLATFORM="$PLATFORM" bash tools/package.sh --denetle "acilan/$AD"
-          if ! cmp -s beklenen_SURUM.txt "acilan/$AD/SURUM.txt"; then
-            echo "::error::Arsivden acilan SURUM.txt '$SURUM $PLATFORM' degil."
+          beklenen="$SURUM $PLATFORM"$'\n'
+          gercek="$(cat "acilan/$AD/SURUM.txt"; printf x)"
+          gercek="${gercek%x}"
+          if [ "$gercek" != "$beklenen" ]; then
+            echo "::error::Arsivden acilan SURUM.txt $(printf '%q' "$gercek"), beklenen $(printf '%q' "$beklenen")."
             exit 1
           fi
           if ! ( cd "acilan/$AD" && sha256sum -c DOSYALAR.txt ) > dogrula_acilan.log 2>&1; then
