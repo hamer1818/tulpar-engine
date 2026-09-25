@@ -154,8 +154,14 @@ daha yenisi varsa notlarını gösterir. Onay verirseniz:
    `tulpar-engine-<sürüm>-SHA256SUMS.txt` dosyasıyla karşılaştırır,
 2. arşivi `.guncelleme/` altına açar ve açılan **her dosyayı** yeni paketin
    `DOSYALAR.txt`'si ile doğrular,
-3. ancak bundan sonra kurulu dosyaların yerine koyar. Yeni sürüm editörü
-   yeniden başlatınca devreye girer.
+3. ancak bundan sonra kurulu dosyaların yerine koyar ve editörü **aynı
+   argümanlarla yeniden başlatır** (kaydedilmemiş sahne varsa önce sorar:
+   *Kaydet ve devam et / Kaydetmeden devam et / Vazgeç*).
+
+Yeni sürüm varken menü çubuğunun sağında **⬆ vX.Y.Z** rozeti görünür;
+tıklayınca aynı pencere açılır. İndirme sürerken pencereyi kapatabilirsiniz
+(*Arka planda sürsün*): rozet ilerlemeyi gösterir. **Bu sürümü atla** o
+sürümün rozetini gizler; elle denetlediğinizde yine görünür.
 
 Bilmeniz gerekenler:
 
@@ -181,6 +187,25 @@ Bilmeniz gerekenler:
 * **Sınır:** bütünlük SHA-256 özetleriyle korunur, imzayla değil. Bu, bozuk ya
   da yarım indirmeye karşı korur; GitHub hesabının ele geçirilmesine karşı
   korumaz.
+
+### Otomatik denetim
+
+**Yardım → Otomatik denetle** (varsayılan açık) editör açılırken ve uzun
+oturumda günde bir kez yeni sürümü sorar; ağ trafiği bir JSON isteğidir.
+Ayar ev dizininizdeki `.tulpar_guncelleme` dosyasındadır (`otomatik evet|hayir`,
+`son_denetim`, `atla <sürüm>`); `TULPAR_GUNCELLEME=0` ortam değişkeni de
+kapatır. **Yardım → Hakkında** sürümü, platformu, kurulum klasörünü ve
+güncelleyicinin durumunu gösterir.
+
+### Komut satırından
+
+```
+engine_editor --surum                 # kurulu sürüm ve platform
+engine_editor --guncelleme denetle    # çıkış kodu: 0 güncel, 10 yeni sürüm var, 1 hata
+engine_editor --guncelleme kur        # indir + doğrula + kur (editörü yeniden başlatmaz)
+```
+
+İkisi de pencere açmaz; editör kapalıyken çalıştırın.
 
 ### `SURUM.txt` ve `DOSYALAR.txt` — elle düzenlemeyin
 

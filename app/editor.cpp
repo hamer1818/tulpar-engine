@@ -1,10 +1,13 @@
 // engine_editor — masaustu editor (GLFW dlopen pencere) ya da headless.
 //   engine_editor [--scene x.sahne] [--headless N --out x.ppm] [--size WxH] [--validation] [--komut anahtar]
+//   engine_editor --surum                     surum + platform, cikar
+//   engine_editor --guncelleme denetle|kur    editor ici guncelleme, PENCERESIZ (app/editor_update.hpp)
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "app/editor_app.hpp"
+#include "app/editor_update.hpp"
 #include "core/build_info.hpp"
 #include "platform/startup_report.hpp"
 #include "platform/window.hpp"
@@ -32,7 +35,15 @@ bool w_is_fullscreen(void *user) { return static_cast<platform::Window *>(user)-
 } // namespace
 
 int main(int argc, char **argv) {
+  // Pencere, Vulkan ve sahne ACILMADAN once: surum sorgusu ve komut satirindan
+  // guncelleme. Ag'a YALNIZ kullanici --guncelleme verince cikilir.
+  for (int i = 1; i < argc; i++) {
+    if (!std::strcmp(argv[i], "--surum")) return app::update_cli_version();
+    if (!std::strcmp(argv[i], "--guncelleme")) return app::update_cli(i + 1 < argc ? argv[i + 1] : nullptr);
+  }
   app::EditorOptions o;
+  o.argc = argc;
+  o.argv = argv;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--headless") && i + 1 < argc) o.headless_frames = (uint32_t)std::atoi(argv[++i]);
     else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) o.out_path = argv[++i];

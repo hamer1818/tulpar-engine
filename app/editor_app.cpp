@@ -67,6 +67,7 @@
 #include "platform/memory.hpp"   // os_resident_bytes (durum cubugu RSS)
 #include "platform/thread.hpp"
 #include "platform/paths.hpp"   // varlik yolu: ikilinin yani -> calisma dizini -> kaynak agaci
+#include "platform/startup_report.hpp" // guncelleme sonrasi yeniden baslatma hatasi: engine_hata.log
 #include "platform/time.hpp"
 #include "rhi/device.hpp"
 #include "app/editor_camera.hpp"
@@ -83,6 +84,7 @@
 #include "app/editor_palette.hpp"
 #include "app/editor_multiedit.hpp"
 #include "app/editor_props.hpp"
+#include "app/editor_update.hpp"
 #include "content/prefab.hpp"
 #include "rhi/offscreen.hpp"
 #include "rhi/swapchain.hpp"
@@ -1864,7 +1866,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   int32_t prefab_root = -1;
   static ConfirmState confirm;
   bool show_console = true;
-  enum PendingAction { PendingNone = 0, PendingNew = 1, PendingOpen = 2, PendingOpenPath = 3 };
+  // PendingUpdate: indirilmis guncellemeyi kur + yeniden baslat (kirli sahne ONCE sorulur).
+  enum PendingAction { PendingNone = 0, PendingNew = 1, PendingOpen = 2, PendingOpenPath = 3, PendingUpdate = 4 };
   int pending = PendingNone;
   char pending_path[1024] = {0}; // "Son dosyalar"dan secilen yol
   char recent_file[1024];
@@ -1874,6 +1877,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     recent_load(recent_file); // dosya yoksa false doner, liste bos kalir — HATA DEGIL
     recent_push(st.scene_path);
   }
+  // --- Editor ici guncelleme (app/editor_update.hpp) -------------------------
+  // Updater'in calisma bellegi sistem arenasindan (A2). PENCERESIZ KIPTE AG YOK:
+  // ne otomatik denetim ne menu komutu — kapi dongu bitince olcer (asagida
+  // "guncelleme kapisi"). static: UpdateUi surum notu tamponlariyla ~40 KB.
+  static UpdateUi upd_ui;
+  {
+    UpdateUiConfig uc;
+    uc.headless = headless;
+    update_ui_init(upd_ui, sys, uc, platform::now_ns());
+  }
+  bool restart_after_update = false; // kurulum basarili: kapanisin SONUNDA yeni ikili baslar
   // DURDUR = oynatma oncesine TAM donus (Unity/Godot'daki gibi):
   //  - govdeler + karakterler fizikten cikar, cizim yazar donusumune doner;
   //  - duraklatma, tek adim istegi ve oynatma suresi sifirlanir;
@@ -2082,10 +2096,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     rescan_browse(st);
     set_status(st, "yeni sahne (henuz kaydedilmedi)");
   };
+  // Guncellemeyi kur (Staged -> Installed). Basariliysa editor NORMAL kapanis
+  // yolundan cikar; yeni ikili kapanisin sonunda, panel duzeni kaydedildikten
+  // SONRA baslar (once baslasaydi eski editorun kaydettigi duzeni okuyamazdi).
+  auto do_update_install = [&]() {
+    if (st.playing) set_playing(false);
+    char e[256];
+    if (!update_ui_install(upd_ui, e, sizeof e)) {
+      // Geri alma eksikse "degismedi" YALAN olur (pencere kurtarma yolunu gosterir).
+      if (upd_reason_rollback_incomplete(e)) set_status(st, "GUNCELLEME YARIM KALDI: %s (.guncelleme/ elle incelenmeli)", e);
+      else set_status(st, "GUNCELLEME KURULAMADI: %s (kurulum dizini degismedi)", e);
+      return;
+    }
+    set_status(st, "guncelleme kuruldu: editor yeniden baslatiliyor");
+    restart_after_update = true;
+    running = false;
+  };
   auto run_pending = [&](int a) {
     if (a == PendingNew) do_new();
     else if (a == PendingOpen) { dlg_intent = IntentScene; file_dialog_open(dlg, FileDialogMode::Ac, st.scene_dir, ".sahne", "Sahne a\xC3\xA7"); }
     else if (a == PendingOpenPath && pending_path[0]) load_scene_from(pending_path);
+    else if (a == PendingUpdate) do_update_install();
   };
   // KIRLI SAHNE KORUMASI: kaydedilmemis is varken Yeni/Ac ONCE sorar. Onay kipli
   // oldugu icin eylem ERTELENIR (pending) ve cevap gelince calisir.
@@ -3247,6 +3278,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               const EditorState *s = static_cast<const CmdCtx *>(c)->st;
               return s->playing && s->paused;
             });
+  // Yardim: editor ici guncelleme. Geri cagrilar dogrudan UpdateUi'ye gider;
+  // penceresiz kipte ag reddi update_ui_* icinde (Updater'a giden TEK kapi).
+  cmds.bind(CommandId::HelpCheckUpdates, [](void *c) { update_ui_check(*static_cast<UpdateUi *>(c), true); }, &upd_ui);
+  cmds.bind(CommandId::HelpAutoCheck, [](void *c) { update_ui_toggle_auto(*static_cast<UpdateUi *>(c)); }, &upd_ui, nullptr,
+            [](const void *c) { return static_cast<const UpdateUi *>(c)->settings.auto_check; });
+  cmds.bind(CommandId::HelpAbout, [](void *c) { update_ui_open_about(*static_cast<UpdateUi *>(c)); }, &upd_ui);
   // Dosya menusune "Son dosyalar" alt menusu: komut tablosu KOMUT tasir, bu ise
   // bir veri listesi — chrome'un ek oge kancasindan geliyor.
   struct MenuExtraCtx {
@@ -3254,9 +3291,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     int open_action;
     int *view_mode = nullptr;
     EditorState *st = nullptr;
-  } mx{&guard_then, PendingOpenPath, &view_mode, &st};
+    UpdateUi *upd = nullptr; // menu cubugundaki guncelleme rozeti
+  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui};
   ChromeMenuExtra menu_extra;
   menu_extra.ctx = &mx;
+  menu_extra.on_badge = [](void *ctx) {
+    MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
+    if (m && m->upd) update_ui_open_window(*m->upd);
+  };
   menu_extra.fn = [](void *ctx, CommandCategory cat) {
     MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
     if (!m) return;
@@ -3382,6 +3424,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
     }
     uint64_t now = platform::now_ns();
+    // Guncelleyici: is yoksa O(1). Saat bu satirin ZATEN okudugu `now` (kare
+    // basina ek syscall yok); 24 saatlik otomatik denetim de onunla olculur.
+    update_ui_poll(upd_ui, now);
     float dt = (float)((now - last_ns) / 1e9);
     last_ns = now;
     if (dt > 0.25f) dt = 0.25f;
@@ -3654,6 +3699,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     cs.gizmos_visible = st.gizmos.light_radius || st.gizmos.light_glyph || st.gizmos.shadow_volume || st.gizmos.sun_dir || st.gizmos.camera_frustum || st.gizmos.env_volumes;
     const Vec3 eye = camera_eye(cam);
     cs.cam_eye[0] = eye.x; cs.cam_eye[1] = eye.y; cs.cam_eye[2] = eye.z;
+    // Yeni surum rozeti: nullptr iken menu cubugu ImGui'ye ek is gondermez.
+    cs.update_badge = update_ui_badge(upd_ui);
+    cs.update_badge_tip = cs.update_badge ? "Yeni s\xC3\xBCr\xC3\xBCm \xE2\x80\x94 ayr\xC4\xB1nt\xC4\xB1, s\xC3\xBCr\xC3\xBCm notlar\xC4\xB1 ve kurulum i\xC3\xA7in t\xC4\xB1klay\xC4\xB1n" : nullptr;
     chrome_menu_bar(cmds, cs, menu_extra);
     ChromeOutput co;
     chrome_toolbar(cmds, cs, &co);
@@ -8476,11 +8524,23 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (gomulu_secim_bekliyor) { gomulu_secim_bekliyor = false; set_status(st, "F5 iptal: oyun secilmedi"); }
       }
     }
+    // Guncelleme + Hakkinda pencereleri: ikisi de kapaliyken ImGui'ye dokunmaz.
+    // "Kur ve yeniden baslat": once oynatma durur (oynatma duzenlemeleri geri
+    // alinir, kirli bayragi oynatma oncesine doner), SONRA kirli sahne sorulur
+    // (Kaydet ve devam / Kaydetmeden / Vazgec — asagidaki ayni onay kutusu).
+    if (update_ui_draw(upd_ui) == UpdUiAction::InstallAndRestart) {
+      if (st.playing) set_playing(false);
+      guard_then(PendingUpdate);
+    }
     if (confirm.open) {
       char msg[320];
-      std::snprintf(msg, sizeof msg, "\x22%s\x22 dosyasinda kaydedilmemis degisiklikler var.\nNe yapilsin?",
-                    st.scene_path[0] ? file_path_base(st.scene_path) : "adsiz sahne");
-      const ConfirmResult cr = confirm_modal(confirm, "Sahne kaydedilmedi", msg, "Kaydet", "Vazge\xC3\xA7", "Kaydetme");
+      const bool upd_bekliyor = pending == PendingUpdate;
+      const char *ad = st.scene_path[0] ? file_path_base(st.scene_path) : "adsiz sahne";
+      if (upd_bekliyor)
+        std::snprintf(msg, sizeof msg, "\x22%s\x22 dosyas\xC4\xB1nda kaydedilmemi\xC5\x9F de\xC4\x9Fi\xC5\x9Fiklikler var.\nG\xC3\xBCncelleme kurulup edit\xC3\xB6r yeniden ba\xC5\x9Flat\xC4\xB1lacak.", ad);
+      else std::snprintf(msg, sizeof msg, "\x22%s\x22 dosyasinda kaydedilmemis degisiklikler var.\nNe yapilsin?", ad);
+      const ConfirmResult cr = upd_bekliyor ? confirm_modal(confirm, "G\xC3\xBCncellemeden \xC3\xB6nce", msg, "Kaydet ve devam et", "Vazge\xC3\xA7", "Kaydetmeden devam et")
+                                            : confirm_modal(confirm, "Sahne kaydedilmedi", msg, "Kaydet", "Vazge\xC3\xA7", "Kaydetme");
       if (cr == ConfirmResult::Ok) {
         do_save(); // adsiz sahnede diyalog acar: bekleyen eylem orada kosar
         if (!st.dirty && pending != PendingNone) { run_pending(pending); pending = PendingNone; }
@@ -9051,6 +9111,26 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     frame_i++;
     if (headless && frame_i >= opts.headless_frames) running = false;
   }
+  // GUNCELLEME KAPISI (penceresiz): Updater'a HICBIR istek gitmemis olmali —
+  // otomatik denetim (karar: penceresiz) ve kosum boyunca hicbir yol. Pozitif
+  // kontrol ayni yolu DENER: menu komutunun govdesi (elle denetim) burada
+  // cagrilir ve reddedilmeli (red sayaci 1 artar, istek sayaci 0 kalir). Istek
+  // sayacinin gercekten saydigi engine_tests'te olculur (pencereli yapilandirma,
+  // file:// fikstur: 1). Pencere cizilmez: dongu bitti. Kaynak derlemesinde
+  // guncelleyici Disabled: "istek 0" orada kendiliginden dogru, olcen red
+  // sayacidir (Tuzaklar 8cm).
+  if (headless) {
+    const uint32_t red0 = upd_ui.refused_headless;
+    update_ui_check(upd_ui, true);
+    update_ui_poll(upd_ui, platform::now_ns());
+    const bool red_ok = upd_ui.refused_headless == red0 + 1;
+    const bool ok = upd_ui.requests == 0 && red_ok;
+    std::printf("[engine_editor] guncelleme kapisi: durum %s, otomatik karar \"%s\", Updater istegi %u, KONTROL elle denetim reddedildi %s (red %u) %s\n",
+                upd_state_name(update_ui_state(upd_ui)), upd_auto_why_text(upd_ui.auto_why), upd_ui.requests, red_ok ? "evet" : "HAYIR",
+                upd_ui.refused_headless, ok ? "OK" : "HATA");
+    upd_ui.window_open = false;
+    if (!ok) return 1;
+  }
   static uint64_t scratch[1200]; // 2x kare kapasitesi (profiler sozlesmesi); 600 iken 300+ karede assert
   FrameStats stt = prof.frame_stats(Span<uint64_t>(scratch, 1200), 0);
   const EditorUiStats us = ui.stats();
@@ -9112,6 +9192,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     else
       std::printf("[engine_editor] panel duzeni kaydedilemedi: %s\n", le.msg);
   }
+  // Guncelleme denetimi/indirmesi suruyorsa curl/tar editorle birlikte kapanir
+  // (POSIX'te yetim kalip indirmeye devam ederdi; docs/GUNCELLEME.md cancel()).
+  if (update_ui_shutdown(upd_ui)) std::printf("[engine_editor] guncelleme: suren is iptal edildi (editor kapaniyor)\n");
   // Editorden baslatilan oyun editorle KAPANIR: sahipsiz kalan bir oyun
   // penceresi, editor tekrar acilinca "neden iki oyun var" sorusu olurdu.
   // PENCERESIZ kipte istisna: oyun BEKLENIR (en cok 120 s) — dogrulama
@@ -9144,6 +9227,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   if (off) rhi::offscreen_destroy(off);
   if (!headless) swap.shutdown();
   dev.shutdown();
+  // Guncelleme kurulduysa yeni ikili SIMDI baslar: panel duzeni ve son dosyalar
+  // yazildi, eski surecin hicbir kaynagi (GPU, pencere dosyasi) kalmadi. Hata
+  // olursa kullanicinin gorecegi yere de yazilir (engine_hata.log): pencere
+  // kapanmak uzere, durum cubugu artik yok.
+  if (restart_after_update) {
+    char e[512] = {0};
+    if (update_ui_restart(upd_ui, opts.argc, opts.argv, st.scene_path, e, sizeof e))
+      std::printf("[engine_editor] guncelleme: yeni surum baslatildi\n");
+    else
+      platform::startup_failure("guncelleme kuruldu ama yeni editor baslatilamadi: %s — editoru elle acin", e);
+  }
   if (imgui_hata_var) return 1;
   if (komut_hata) return 2;
   return 0;

@@ -53,6 +53,11 @@ struct ChromeState {
                                      // tablodaki checked() sorgusunu kullanir (menu ile ayni kaynak)
   const char *status = nullptr;      // durum mesaji (solda, soluk, sigmazsa "…")
   float cam_eye[3] = {0, 0, 0};      // kamera gozu (durum cubugu sag ucu)
+  // Menu cubugunun sagindaki guncelleme rozeti (app/editor_update.hpp,
+  // update_ui_badge). nullptr = rozet YOK ve ImGui'ye hicbir ek is gitmez.
+  // Tiklaninca ChromeMenuExtra::on_badge cagrilir.
+  const char *update_badge = nullptr;
+  const char *update_badge_tip = nullptr; // ipucu (nullptr = yok)
 };
 
 // Arac cubugundan uygulamaya donen tek sey: yakalama. Yakalama bir KOMUT degil
@@ -73,6 +78,8 @@ struct ChromeOutput {
 struct ChromeMenuExtra {
   void (*fn)(void *ctx, CommandCategory cat) = nullptr;
   void *ctx = nullptr;
+  // Guncelleme rozeti tiklandi (ChromeState::update_badge doluyken). Ayni ctx.
+  void (*on_badge)(void *ctx) = nullptr;
 };
 void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extra = ChromeMenuExtra{});
 
@@ -111,6 +118,7 @@ enum class ChromeRect : uint8_t {
   Transport, GizmoSegments, SnapToggle, SnapValue, GizmoVisible, // arac cubugu parcalari
   SceneName, DirtyDot,                                      // sag blok: ad + nokta hucresi (nokta cizilmese de hucre var)
   StatusMessage, StatusSegments,                            // durum cubugu: sol mesaj, sag olcum blogu
+  UpdateBadge,                                              // menu cubugu: guncelleme rozeti (yalniz cizildiyse)
   Count
 };
 bool chrome_probe_rect(ChromeRect r, float out[4]);
@@ -124,6 +132,7 @@ struct ChromeStats {
   uint32_t items_enumerated = 0; // modelden gecen komut girdisi (ayirac haric) — acik/kapali fark etmez
   uint32_t items_submitted = 0;  // gercekten cizilen MenuItem (yalniz acik menuler)
   uint32_t tools_submitted = 0;  // arac cubugunda cizilen komut dugmesi
+  uint32_t badge_submitted = 0;  // menu cubugunda cizilen guncelleme rozeti (0 ya da 1)
 };
 ChromeStats chrome_stats();
 
