@@ -1,0 +1,57 @@
+// Tulpar Engine — betik kancasi OLCUMU: dagitimin kanca basina maliyeti ve
+// kare basina kalici bellek buyumesi. Oyun degil, olcu.
+//
+//   python3 tools/kanca_olcumu.py                 # derle + 2000 kare + egim (Linux)
+//   cd tulpar && TULPAR_ENGINE_HEADLESS=2000 ../yapi/tulpar-motor/tulpar examples/engine_kanca_olcumu.tpr
+//
+// N kopru varligi (govdesiz isik: fizik ve cizim maliyeti yok) `bos` betigine
+// baglanir; `bos_guncelle` BOS, yani olculen sure dagitimin kendisidir.
+// Iki sayi basilir:
+//   - motorun kapanis satiri "kapanis (betik dagitimi): ... cagri basina X ns"
+//     (teng_frame_end'in kanca asamalarinin duvar saati / kare ici cagri)
+//   - her 100 karede bir "olcu kare K" isaret satiri; tools/kanca_olcumu.py
+//     o anda surecin VmRSS'ini okur ve kare basina kalici buyumeyi (egim)
+//     hesaplar. Tulpar'in read_file'i /proc dosyalarini okuyamiyor (boyut 0
+//     bildiriyorlar), olcu bu yuzden disaridan.
+// Kanca basina adla cagri (eski yol) her cagrida dizgi ayiriyordu; kare bellegi
+// (#56) onu kare sonunda geri veriyor, TULPAR_KARE_BELLEK=0 ile (ya da kare
+// disinda cagrilan kancada) hic sifirlanmayan arenada kaliyordu: egim cagri
+// sayisiyla orantili cikardi (tools/kanca_olcumu.py --kare-bellegi-kapali).
+// Olculen degerler ve makine: docs/KOPRU.md 7.9 ("Hizli yol").
+
+import "engine";
+
+int N = 200;
+int OLCU_ARALIK = 100;
+
+func bos_baslat(id) { }
+func bos_guncelle(id, d) { }
+func bos_bitir(id) { }
+
+func main() {
+    log_seviyesi(1);
+    // Varlik sayisi: TULPAR_KANCA_OLCU_N (0 = kancasiz KONTROL kosumu: motorun
+    // ve surucunun kanca disi buyumesi; olcu betigi farki kancaya yazar).
+    str n_env = env("TULPAR_KANCA_OLCU_N");
+    if (len(n_env) > 0) { N = toInt(n_env); }
+    if (!motor_ac("kanca olcumu", 320, 200)) {
+        print("motor acilamadi: " + eng_last_error());
+        return;
+    }
+    int bagli = 0;
+    for (int i = 0; i < N; i = i + 1) {
+        int id = isik(0, -50, 0, renk(255, 255, 255), 0.0, 1.0);
+        if (betik_ata(id, "bos")) { bagli = bagli + 1; }
+    }
+    while (calisiyor()) {
+        kare_basla();
+        kare_bitir();
+        // Isaret satiri: logla stdout'u HER satirda bosaltir, olcu betigi
+        // (tools/kanca_olcumu.py) VmRSS'i tam bu karede okur.
+        if (kare_no() % OLCU_ARALIK == 0) { logla("olcu kare " + toString(kare_no())); }
+    }
+    print("[olcu] bagli=" + toString(bagli) + " hata=" + toString(hata_sayisi()));
+    motor_kapat();
+}
+
+main();

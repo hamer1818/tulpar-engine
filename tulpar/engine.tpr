@@ -287,6 +287,16 @@ func hiz_z(id): float { return eng_vz(id); }
 // İkinci `betik_ata` öncekinin YERİNE geçer: önce onun `_bitir`i, sonra
 // yeninin `_baslat`ı. Kancası bulunamayan ad (import edilmemiş dosya) HATA
 // basar ve false döner. Betik değişkenleri varlık başına DEĞİL, betik başına.
+//
+// Varlık BAŞINA durum (zamanlayıcı, faz, sayaç) için diziyi `yuva(id)` ile
+// indeksle: köprü id'sinin yuva kısmı ((nesil<<16)|yuva -> yuva, < 4096).
+// Sahne kancalarının `id`'si zaten sahne DİZİNİ ve yuva(i) == i (yükleme başına
+// yoğun: 0..varlık sayısı-1). Tek bir modül globali iki varlıkta ORTAK saat
+// olur: ikisi de her kare aynı değişkeni ilerletir (davranis/devriye.tpr eskiden
+// böyleydi). Aynı betik hem sahnede hem kodla bağlanıyorsa iki uzay çakışır
+// (sahne dizini 3 ile köprü yuvası 3 aynı hücre): o durumda iki dizi tut.
+func yuva(id): int { return toInt(id) % 65536; }
+func slot_of(id): int { return toInt(id) % 65536; }
 func betik_ata(id, ad): bool { return eng_script_attach(id, ad); }
 func script_attach(id, name): bool { return eng_script_attach(id, name); }
 func betik_kaldir(id): bool { return eng_script_detach(id); }

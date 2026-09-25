@@ -71,7 +71,11 @@ kutuphane_var() {
   # kurulu kutuphane "eksik" gorunur. Olculdu 2026-09-20; her yol AYRI denenir.
   local ad="$1" d
   if command -v ldconfig >/dev/null 2>&1; then
-    if ldconfig -p 2>/dev/null | grep -q -- "$ad"; then return 0; fi
+    # `grep -q` DEGIL (Tuzaklar 8cj): ilk eslesmede cikar, `ldconfig` SIGPIPE
+    # alir (141) ve `pipefail` ile bu dal HER ZAMAN "yok" derdi. Olculdu
+    # (2026-09-25): libvulkan/libglfw/libc icin 141; yalniz asagidaki glob
+    # yedegi buldugu icin fark edilmedi.
+    if ldconfig -p 2>/dev/null | grep -- "$ad" >/dev/null; then return 0; fi
   fi
   for d in /usr/lib /usr/lib64 /lib /lib64 /usr/local/lib /opt/homebrew/lib \
            /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do

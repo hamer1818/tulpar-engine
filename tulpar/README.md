@@ -17,7 +17,9 @@ tulpar/
                           engine_betik_dagitimi.tpr (betik kancalari + tetik bolgeleri),
                           engine_karakter.tpr (karakter denetleyicisi: basamak, ziplama, tetik),
                           engine_dalga.tpr (kodla uretilen dusmanlara `betik_ata`; davranislar
-                          davranis/dusman.tpr + davranis/tuzak.tpr — docs/KOPRU.md 7.10)
+                          davranis/dusman.tpr + davranis/tuzak.tpr — docs/KOPRU.md 7.10),
+                          engine_kanca_olcumu.tpr (olcu, oyun degil: kanca basina ns ve
+                          kare basina bellek; tools/kanca_olcumu.py kosturur)
                           (aksiyon: TulparLang P0 dil özellikleri — `enum Ekran/Durum/Hal`,
                           `yon_hesapla(): (float, float)`, düşman kaydı tek `Dusman[]`
                           — 11 paralel dizi 2026-09-21'de kalktı)

@@ -39,6 +39,9 @@ VMValue tm_make_str(const char *s) {
 // builtin'inin kullandigi mekanizmanin ta kendisi — motor icin YENI bir
 // derleyici ozelligi gerekmedi, var olan dinamik cagri yolu aciliyor.
 extern "C" VMValue aot_call_dynamic_n(VMValue func_name, VMValue *args, int argc);
+// Adla coz, CAGIRMADAN ve AYIRMADAN: kutulu `t_<ad>` giris noktasi + kayitli
+// arite (-1 = bilinmiyor). TulparLang'da; motor kancalari yuklemede bununla cozer.
+extern "C" void *aot_func_lookup(const char *name, int *arity);
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -69,12 +72,49 @@ int eng_script_call(const char *fn, const double *args, int argc) {
   aot_call_dynamic_n(tm_make_str(fn), a, argc);
   return 1;
 }
-const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call};
+// HIZLI YOL. Motor kancayi YUKLEMEDE bir kez cozer (resolve), kare icinde
+// isaretciyle cagirir (invoke): ad kurma, hash, dizgi ayirma YOK. eng_script_call
+// her cagrida adi yeni bir ObjString'e kopyaliyordu (tm_make_str) ve o dizgi
+// hic sifirlanmayan arenada kaliyordu.
+void *eng_script_resolve(const char *fn, int *arity) {
+  if (arity) *arity = -1;
+  if (!fn || !*fn) return nullptr;
+  return aot_func_lookup(fn, arity);
+}
+// `fn`: `void t_<ad>(VMValue *sonuc, VMValue *a0, ...)`. Cagri TAM `arity` isaretciyle
+// yapilir (wasm'in tipli call_indirect'i baska sayiyi affetmez): eksik parametre VOID,
+// fazlasi duser; arity -1 (dlsym yedegi, arite bilinmiyor) ise argc'ye guvenilir.
+// Argumanlar VM_FLOAT: eng_script_call ile ayni (tipli `int` parametreyi cagrilan cevirir).
+int eng_script_invoke(void *fn, int arity, const double *args, int argc) {
+  if (!fn) return 0;
+  if (argc < 0) argc = 0;
+  if (argc > 8) argc = 8; // Tulpar dinamik cagri tavani
+  const int n = arity >= 0 ? arity : argc;
+  if (n > 8) return 0; // motor 8'den fazla parametreli kancayi cozmez; buraya gelmez
+  VMValue a[8];
+  for (int i = 0; i < n; i++) a[i] = i < argc ? VM_FLOAT(args ? args[i] : 0.0) : VM_VOID();
+  VMValue r = VM_VOID();
+  typedef VMValue *P;
+  switch (n) {
+  case 0: ((void (*)(P))fn)(&r); break;
+  case 1: ((void (*)(P, P))fn)(&r, &a[0]); break;
+  case 2: ((void (*)(P, P, P))fn)(&r, &a[0], &a[1]); break;
+  case 3: ((void (*)(P, P, P, P))fn)(&r, &a[0], &a[1], &a[2]); break;
+  case 4: ((void (*)(P, P, P, P, P))fn)(&r, &a[0], &a[1], &a[2], &a[3]); break;
+  case 5: ((void (*)(P, P, P, P, P, P))fn)(&r, &a[0], &a[1], &a[2], &a[3], &a[4]); break;
+  case 6: ((void (*)(P, P, P, P, P, P, P))fn)(&r, &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]); break;
+  case 7: ((void (*)(P, P, P, P, P, P, P, P))fn)(&r, &a[0], &a[1], &a[2], &a[3], &a[4], &a[5], &a[6]); break;
+  case 8: ((void (*)(P, P, P, P, P, P, P, P, P))fn)(&r, &a[0], &a[1], &a[2], &a[3], &a[4], &a[5], &a[6], &a[7]); break;
+  default: return 0;
+  }
+  return 1;
+}
+const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call, eng_script_resolve, eng_script_invoke};
 } // namespace
 
 extern "C" {
 VMValue aot_eng_init_ptr(VMValue *title, VMValue *w, VMValue *h) {
-  teng_set_script_vm(&kEngScriptVm);
+  teng_set_script_vm_v2(&kEngScriptVm);
   return VM_BOOL(teng_init(tm_str(title), (int)tm_int(w), (int)tm_int(h)) != 0);
 }
 VMValue aot_eng_running_ptr(void) {

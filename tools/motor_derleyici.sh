@@ -129,6 +129,17 @@ fi
 git -C "$tulpar_src" cat-file -e "$ayrilma^{commit}" 2>/dev/null \
   || { hata "$tulpar_src icinde $ayrilma commit'i yok (sig klon mu? git fetch --unshallow)"; exit 1; }
 bilgi "TulparLang: $tulpar_src ($(git -C "$tulpar_src" rev-parse --short HEAD))"
+# Uretilmis baglama betik kancalarini TulparLang'in aot_func_lookup'iyla cozuyor
+# (yuklemede bir kez; kare icinde adsiz cagri). Eski bir kopyada bu, LLVM arka
+# ucu dakikalarca derlendikten SONRA "undefined reference" ile duserdi — derleme
+# HEAD'den yapiliyor, soru da HEAD'e. `grep -q` DEGIL (Tuzaklar 8cj): ilk
+# eslesmede cikar, `git show` SIGPIPE alir ve `pipefail` ile boru hatti "yok"
+# der (olculdu: bu satirin ilk hali aot_func_lookup'LI kopyayi da reddetti).
+if ! git -C "$tulpar_src" show HEAD:src/vm/runtime_bindings.cpp 2>/dev/null | grep 'aot_func_lookup(const char' >/dev/null; then
+  hata "$tulpar_src (HEAD $(git -C "$tulpar_src" rev-parse --short HEAD)) aot_func_lookup icermiyor — TulparLang'ı güncelleyin (git pull)"
+  echo "  Motor betik kancalarini yuklemede bu islevle cozuyor; onsuz uretilmis baglama linklenemez." >&2
+  exit 1
+fi
 
 # Motor arsivleri once: derleyici oyunu linklerken yapi/libengine_*.a'yi arar.
 [ -f yapi/libengine_bridge.a ] || { hata "yapi/libengine_bridge.a yok — once ./derle.sh"; exit 1; }

@@ -134,6 +134,14 @@ public:
   BodyId add_sensor_box(Vec3 half_extent, Vec3 pos, Quat rot);
   BodyId add_sensor_sphere(float radius, Vec3 pos);
   bool is_sensor(BodyId id) const;
+  // Govdenin Jolt INDEKSI: kimligin yuva kismi, sira numarasi olmadan; her
+  // zaman < max_bodies(). Silinen govdenin indeksi YENI bir govdeye gecebilir
+  // (sira numarasi farkli olur), yani indeks tek basina kimlik DEGIL: indeksle
+  // tutulan bir tablo tam kimligi (BodyId::v) de saklayip karsilastirmali.
+  // Kopru carpisma/tetik olayindaki govdeden varligini bununla O(1) buluyor.
+  // Gecersiz kimlik ya da kurulmamis fizik: 0xFFFFFFFF.
+  uint32_t body_index(BodyId id) const;
+  uint32_t max_bodies() const; // init'teki PhysicsConfig::max_bodies (0: kurulmamis)
   // Sensoru TASI (isinla). Govdeyi silip yeniden kurmak DEGIL: o yol icerde
   // DURAN her govde icin sahte bir "girdi" uretir (yeni sensor onu yeni gelmis
   // gorur — olculdu, kapi physics_sensor_move_keeps_contacts). Tasima temaslari

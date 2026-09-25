@@ -10,18 +10,31 @@
 // (Dördünün de bulunamaması ayrı bir durum ve o GÖRÜNÜR hata basar.)
 //
 // SÖZLEŞME: x ekseninde sinüs eğrisiyle gidip gel, oyuncuyu umursama.
+//
+// DURUM VARLIK BAŞINA. Motor aynı fonksiyonları sahnedeki HER devriye için
+// çağırır; faz eskiden tek bir modül globaliydi (`float devriye_faz`) ve iki
+// devriyede ortak saat oluyordu: ikisi de her kare aynı değişkeni ilerletiyor,
+// faz iki kat hızla akıyor, ilk `bitir` ötekinin fazını da sıfırlıyordu
+// (ölçüldü 2026-09-25, betik_dagitimi.sahne'de iki devriye, 180 kare: "faz 6.0"
+// ve "faz 0" — doğrusu ikisi de 3.0 — ve ilk devriye geçide 81. yerine 65.
+// karede giriyordu: tek devriyeli sahnedeki yolunu bile bozuyordu). Dizi
+// `yuva(id)` ile indeksleniyor: sahne kancasında id sahne DİZİNİ (yükleme
+// başına 0..n-1), `_baslat` diziyi gerektiği kadar büyütür.
 
 float DEVRIYE_HIZ = 2.0;
-float devriye_faz = 0.0;
+float[] devriye_faz = [];
 
 func devriye_baslat(id) {
-    devriye_faz = 0.0;
+    int i = yuva(id);
+    while (length(devriye_faz) <= i) { push(devriye_faz, 0.0); }
+    devriye_faz[i] = 0.0;
     logla("devriye basladi: " + sahne_adi(id));
 }
 
 func devriye_bitir(id) {
-    logla("devriye bitti: faz " + toString(devriye_faz));
-    devriye_faz = 0.0;
+    int i = yuva(id);
+    logla("devriye bitti: " + sahne_adi(id) + ", faz " + toString(devriye_faz[i]));
+    devriye_faz[i] = 0.0;
 }
 
 func devriye_bolge_girdi(id, bolge) {
@@ -33,6 +46,7 @@ func devriye_bolge_cikti(id, bolge) {
 }
 
 func devriye_guncelle(id, d) {
-    devriye_faz = devriye_faz + d;
-    sahne_hiz_ver(id, sin(devriye_faz) * DEVRIYE_HIZ, sahne_hiz_y(id), 0.0);
+    int i = yuva(id);
+    devriye_faz[i] = devriye_faz[i] + d;
+    sahne_hiz_ver(id, sin(devriye_faz[i]) * DEVRIYE_HIZ, sahne_hiz_y(id), 0.0);
 }

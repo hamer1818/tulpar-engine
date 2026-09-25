@@ -338,6 +338,13 @@ struct Bridge {
     // sorusunu her betik kendisi cozmek zorunda kalirdi.
     bool tetik_girdi = false, tetik_cikti = false;
     bool bolge_girdi = false, bolge_cikti = false;
+    // HIZLI YOL (VM `resolve`/`invoke` veriyorsa): kanca turu basina cozulmus
+    // giris noktasi ve aritesi. Kare icindeki cagri bunlarla yapilir — ad
+    // kurma (snprintf), hash ve ayirma YOK. `vm`: cozen VM; kurulu VM
+    // degismisse isaretci ona verilmez, cagri adla gider (eski yolun davranisi).
+    void *fn[8] = {};
+    int8_t arity[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    const TengScriptVm *vm = nullptr;
   };
   ScriptHook script[content::kSceneMaxEntities];
   bool script_any = false;
@@ -385,6 +392,27 @@ struct Bridge {
   bool script_dispatching = false; // teng_frame_end kanca asamalari suruyor
   bool closing = false;            // teng_shutdown bitir'leri: yeni baglanti yok
   uint32_t bound_attaches = 0, bound_calls = 0, bound_rejected = 0;
+  // Kanca dagitiminin DUVAR SAATI (teng_frame_end'in kanca asamalari, kanca
+  // govdeleri dahil) ve o surede yapilan cagri. Tracy'siz olcu: bos govdeli
+  // kancalarla ns/cagri dogrudan dagitim maliyetidir. Kapanista basilir.
+  uint64_t hook_ns = 0, hook_timed_calls = 0;
+  uint32_t hook_fast = 0, hook_slow = 0; // cozulen kanca: hizli yol / ad yolu (kapanis raporu)
+  // --- govde -> varlik eslemesi (O(1)) ------------------------------------
+  // Jolt govde INDEKSI -> kopru yuvasi / sahne dizini. Tablo init'te
+  // fizigin govde tavani kadar arenadan (A2); `v` tam kimlik (indeks + sira
+  // numarasi): indeks yeniden kullanilinca bayat girdi reddedilir. Her govde
+  // kurma/silme noktasi (make_body, karakter, free_slot, isinla, sahne
+  // yukle/bosalt, kapanis) tabloyu gunceller. Eskiden olay basina dogrusal
+  // tarama vardi: ent_high (<= 4096) / betik havuzu (512) / sahne varliklari.
+  struct BodyMapEntry {
+    uint32_t v = 0xFFFFFFFFu;
+    int32_t slot = -1;  // kopru yuvasi (Ent), -1 = kopru govdesi degil
+    int32_t scene = -1; // sahne dizini, -1 = sahne govdesi degil
+  };
+  BodyMapEntry *bmap = nullptr;
+  uint32_t bmap_n = 0;
+  bool bmap_audit = false; // TULPAR_ENGINE_GOVDE_DENETIM=1
+  uint32_t bmap_checks = 0, bmap_mismatch = 0, bmap_miss_set = 0;
   // animasyon: tek calisma alani (yaklasik 46 KB), kare icinde ayirma yok
   content::PoseScratch pose_scratch;
   uint32_t last_posed = 0; // son karede pozla cizilen model sayisi
@@ -543,6 +571,46 @@ void bound_release(Bridge &b, uint32_t slot) {
   if (b.bound_n) b.bound_n--;
   bound_refresh(b);
 }
+// --- govde eslemesi bakimi (Bridge::bmap) ----------------------------------
+// Govde KURAN ve SILEN her yol bunlari cagirir. Unutulan bir `put` esleme
+// sorgusunu "yok"a dusurur, unutulan bir `drop` ise zararsizdir (girdi tam
+// kimligi tasir; indeks yeni govdeye gecince sira numarasi tutmaz). Denetim
+// kipi (TULPAR_ENGINE_GOVDE_DENETIM=1) ilkini dogrusal taramayla yakalar.
+void bmap_put(sim::BodyId body, int32_t slot, int32_t scene) {
+  if (!g || !g->bmap || !body.valid()) return;
+  const uint32_t i = g->phys.body_index(body);
+  if (i >= g->bmap_n) {
+    // Olmamali: Jolt indeksi max_bodies'in altinda. Olursa sorgu "yok" der.
+    g->bmap_miss_set++;
+    BERR("govde eslemesi: govde %08x indeksi %u tablo disi (%u) — esleme YOK", body.v, i, g->bmap_n);
+    return;
+  }
+  Bridge::BodyMapEntry &m = g->bmap[i];
+  // Ayni govde birden cok sahne varliginda: ILK varlik kazanir (dogrusal
+  // taramanin dondurdugu). Yukleme varliklari artan sirada yazar.
+  if (scene >= 0 && m.v == body.v && m.scene >= 0) return;
+  m.v = body.v;
+  m.slot = slot;
+  m.scene = scene;
+}
+void bmap_drop(sim::BodyId body) {
+  if (!g || !g->bmap || !body.valid()) return;
+  const uint32_t i = g->phys.body_index(body);
+  if (i >= g->bmap_n) return;
+  if (g->bmap[i].v == body.v) g->bmap[i] = Bridge::BodyMapEntry{};
+}
+// Sahne govdeleri: srt.spawn'dan SONRA (entity_body ancak o zaman gecerli),
+// srt.despawn'dan ONCE.
+void bmap_scene(bool put) {
+  if (!g || !g->scene_ok) return;
+  const uint32_t n = g->srt.view().h->entity_count;
+  for (uint32_t i = 0; i < n; i++) {
+    const sim::BodyId sb = g->srt.entity_body(i);
+    if (!sb.valid()) continue;
+    if (put) bmap_put(sb, -1, (int32_t)i);
+    else bmap_drop(sb);
+  }
+}
 int alloc_slot(Kind k) {
   for (uint32_t i = 0; i < kMaxEntities; i++) {
     Ent &e = g->ents[i];
@@ -566,6 +634,7 @@ void free_slot(uint32_t slot) {
   bound_release(*g, slot);
   e.dying = false;
   e.bitir_running = false;
+  bmap_drop(e.body); // karakterde ic govde: remove_character onu da kaldirir
   if (e.kind == Kind::Character) g->phys.remove_character(e.ch); // ic govdeyi de o kaldirir
   else if (e.body.valid()) g->phys.remove(e.body);
   e.ch = sim::CharacterId{};
@@ -582,6 +651,7 @@ bool make_body(Ent &e, const char *fn) {
   else if (e.kind == Kind::Sphere) e.body = g->phys.add_sphere(e.radius, e.pos, e.dynamic);
   else return true;
   if (!e.body.valid()) { BERR("%s: fizik govdesi kurulamadi (%s @ %.2f %.2f %.2f)", fn, kind_name(e.kind), e.pos.x, e.pos.y, e.pos.z); return false; }
+  bmap_put(e.body, (int32_t)(&e - g->ents), -1);
   return true;
 }
 // Karakterde konum AYAK TABANI (Jolt CharacterVirtual sozlesmesi), govde merkezi degil.
@@ -1000,6 +1070,15 @@ int teng_init(const char *title, int width, int height) {
     pcfg.gravity = b.gravity;
     if (!b.phys.init(b.sys, pcfg)) { BERR("fizik (Jolt) kurulamadi"); return 0; }
     BDBG("fizik hazir: yercekimi (%.2f %.2f %.2f), sabit adim %.4f s", b.gravity.x, b.gravity.y, b.gravity.z, b.fs.step_s);
+    // Govde -> varlik eslemesi: fizigin govde tavani kadar, BIR KEZ (A2).
+    b.bmap_n = b.phys.max_bodies();
+    b.bmap = b.sys.alloc_array<Bridge::BodyMapEntry>(b.bmap_n);
+    if (!b.bmap) { BERR("govde eslemesi ayrilamadi (%u girdi)", b.bmap_n); return 0; }
+    for (uint32_t i = 0; i < b.bmap_n; i++) b.bmap[i] = Bridge::BodyMapEntry{};
+    b.bmap_checks = b.bmap_mismatch = b.bmap_miss_set = 0;
+    if (const char *gd = std::getenv("TULPAR_ENGINE_GOVDE_DENETIM"); gd && *gd && gd[0] != '0') b.bmap_audit = true;
+    if (b.bmap_audit)
+      BINFO("govde eslemesi DENETIMI acik (TULPAR_ENGINE_GOVDE_DENETIM): her sorgu dogrusal taramayla karsilastiriliyor, %u girdi", b.bmap_n);
   }
   // Font (HUD): aday listesi sirayla denenir, HER deneme loglanir — "metin
   // cikmiyor" sikayetinin cevabi logdadir. Android'de APK varligi olmayabilir,
@@ -1158,6 +1237,9 @@ int teng_frame_begin(void) {
 // (`g`) henuz YOK. Icinde saklansaydi kurulum sessizce kaybolurdu ve butun
 // kancalar hic cozulmezdi (olculdu: ilk yazimda tam bu oldu).
 static const TengScriptVm *g_svm = nullptr;
+// g_svm teng_set_script_vm_v2 ile mi kuruldu: yalniz o zaman resolve/invoke
+// alanlari VAR sayilir (eski setter'la gelen yapi 2 alanli olabilir).
+static bool g_svm_v2 = false;
 
 // --- Betik yasam dongusu ---------------------------------------------------
 // Yol -> taban ad: "davranis/kovala.tpr" -> "kovala". Fonksiyon adlari bu
@@ -1178,32 +1260,84 @@ static bool script_fn_name(const char *base, const char *hook, char *out, size_t
   const int n = std::snprintf(out, cap, "%s_%s", base, hook);
   return n > 0 && (size_t)n < cap;
 }
-static bool script_has(const Bridge &b, const char *base, const char *hook) {
-  (void)b;
-  if (!g_svm || !g_svm->has) return false;
+// Kanca turleri: ScriptHook::fn/arity dizini. Ad sirasi SOZLESME (kanca adi
+// "<taban>_<ad>"); ekleme sona.
+enum HookKind : int {
+  kHookBaslat = 0,
+  kHookGuncelle,
+  kHookBitir,
+  kHookCarpisma,
+  kHookTetikGirdi,
+  kHookTetikCikti,
+  kHookBolgeGirdi,
+  kHookBolgeCikti,
+  kHookKinds
+};
+static const char *const kHookName[kHookKinds] = {"baslat", "guncelle", "bitir", "carpisma", "tetik_girdi", "tetik_cikti", "bolge_girdi", "bolge_cikti"};
+static_assert(kHookKinds == (int)(sizeof(Bridge::ScriptHook::fn) / sizeof(void *)), "ScriptHook::fn kanca turu sayisi kadar");
+static bool svm_fast(const TengScriptVm *vm) { return vm && g_svm_v2 && vm->resolve && vm->invoke; }
+// Tek kanca turunu coz. Hizli yol: VM'in `resolve`u (isaretci + arite
+// saklanir); eski yol: `has`. Arite 8'i asiyorsa kanca YOK sayilir ve bu
+// HATA: dinamik cagrinin tavani 8 ve fazlasini gecirmek cagrilanin cop
+// isaretci okumasi demek (eski yol da 8'de kesiyordu — sessizce).
+static bool script_lookup(Bridge &b, Bridge::ScriptHook &h, int k) {
+  h.fn[k] = nullptr;
+  h.arity[k] = -1;
+  const TengScriptVm *vm = g_svm;
+  if (!vm) return false;
   char fn[160];
-  if (!script_fn_name(base, hook, fn, sizeof fn)) return false;
-  return g_svm->has(fn) != 0;
+  if (!script_fn_name(h.base, kHookName[k], fn, sizeof fn)) return false;
+  if (svm_fast(vm)) {
+    int ar = -1;
+    void *p = vm->resolve(fn, &ar);
+    if (!p) return false;
+    if (ar > 8) {
+      BERR("betik kancasi %s %d parametreli: dinamik cagri tavani 8 — kanca YOK sayildi", fn, ar);
+      return false;
+    }
+    h.fn[k] = p;
+    h.arity[k] = (int8_t)ar;
+    b.hook_fast++;
+    return true;
+  }
+  if (!vm->has || vm->has(fn) == 0) return false;
+  b.hook_slow++;
+  return true;
 }
-static void script_call(Bridge &b, const char *base, const char *hook, const double *args, int argc) {
-  if (!g_svm || !g_svm->call) return;
-  char fn[160];
-  if (!script_fn_name(base, hook, fn, sizeof fn)) return;
-  if (g_svm->call(fn, args, argc)) b.script_calls++;
+// Kanca CAGRISI. Isaretci ve arite YEREL kopyaya alinir: kanca icinden havuz /
+// tablo degisebilir (bound_unbind_fire ile ayni kural) ve `h` o anda baska bir
+// seyi gosterebilir. Kurulu VM kancayi cozen VM degilse isaretci ona verilmez:
+// ad yolu (eski davranis).
+static bool hook_invoke(const Bridge::ScriptHook &h, int k, const double *args, int argc) {
+  const TengScriptVm *vm = g_svm;
+  if (!vm) return false;
+  void *fn = h.fn[k];
+  const int ar = h.arity[k];
+  if (fn && h.vm == vm && g_svm_v2 && vm->invoke) return vm->invoke(fn, ar, args, argc) != 0;
+  if (!vm->call) return false;
+  char name[160];
+  if (!script_fn_name(h.base, kHookName[k], name, sizeof name)) return false; // ad once kurulur: cagri tabloyu degistirse de ad sabit
+  return vm->call(name, args, argc) != 0;
 }
-// Kancalari COZ: `h.base` dolu olmali. Donus: `_baslat` var mi (saklanmiyor:
-// yalniz bir kez, cozum aninda cagriliyor). Sahne yuklemesi ve kodla baglama
-// AYNI cozumu kullanir — iki kopya olsaydi biri yeni bir kanca alip oteki
-// almazdi ve "sahnede calisiyor, kodda calismiyor" diye aranirdi.
-static bool script_resolve(const Bridge &b, Bridge::ScriptHook &h) {
-  const bool baslat = script_has(b, h.base, "baslat");
-  h.guncelle = script_has(b, h.base, "guncelle");
-  h.bitir = script_has(b, h.base, "bitir");
-  h.carpisma = script_has(b, h.base, "carpisma");
-  h.tetik_girdi = script_has(b, h.base, "tetik_girdi");
-  h.tetik_cikti = script_has(b, h.base, "tetik_cikti");
-  h.bolge_girdi = script_has(b, h.base, "bolge_girdi");
-  h.bolge_cikti = script_has(b, h.base, "bolge_cikti");
+static void script_call(Bridge &b, const Bridge::ScriptHook &h, int k, const double *args, int argc) {
+  if (hook_invoke(h, k, args, argc)) b.script_calls++;
+}
+// Kancalari COZ: `h.base` dolu olmali. Donus: `_baslat` var mi (bool olarak
+// saklanmiyor: yalniz bir kez, cozum aninda cagriliyor; isaretcisi fn[]'de).
+// Sahne yuklemesi ve kodla baglama AYNI cozumu kullanir — iki kopya olsaydi
+// biri yeni bir kanca alip oteki almazdi ve "sahnede calisiyor, kodda
+// calismiyor" diye aranirdi. Sicak yukleme de buradan gecer (bosalt -> yukle):
+// isaretciler surec boyunca sabit, yeniden cozum ayni sonucu verir.
+static bool script_resolve(Bridge &b, Bridge::ScriptHook &h) {
+  h.vm = g_svm;
+  const bool baslat = script_lookup(b, h, kHookBaslat);
+  h.guncelle = script_lookup(b, h, kHookGuncelle);
+  h.bitir = script_lookup(b, h, kHookBitir);
+  h.carpisma = script_lookup(b, h, kHookCarpisma);
+  h.tetik_girdi = script_lookup(b, h, kHookTetikGirdi);
+  h.tetik_cikti = script_lookup(b, h, kHookTetikCikti);
+  h.bolge_girdi = script_lookup(b, h, kHookBolgeGirdi);
+  h.bolge_cikti = script_lookup(b, h, kHookBolgeCikti);
   return baslat;
 }
 static int scene_idx_of_body(sim::BodyId b); // asagida; carpisma eslemesi icin
@@ -1212,11 +1346,8 @@ static int ent_id_of_body(sim::BodyId b);    // asagida; tetige giren KOPRU varl
 // --- Kodla baglanan betikler: dagitim --------------------------------------
 // Sayac sahneninkinden AYRI: sahne sayaci her yuklemede sifirlaniyor, bunlar
 // varligin omrune bagli ve sahne gecisini asiyor.
-static void bound_call(Bridge &b, const char *base, const char *hook, const double *args, int argc) {
-  if (!g_svm || !g_svm->call) return;
-  char fn[160];
-  if (!script_fn_name(base, hook, fn, sizeof fn)) return; // ad tamponu once doluyor: cagri havuzu degistirse de ad sabit
-  if (g_svm->call(fn, args, argc)) b.bound_calls++;
+static void bound_call(Bridge &b, const Bridge::ScriptHook &h, int k, const double *args, int argc) {
+  if (hook_invoke(h, k, args, argc)) b.bound_calls++;
 }
 // Baglantiyi COZ, sonra `_bitir(id)`. Sira bilerek boyle: kanca icinden ayni
 // varliga `betik_kaldir` / `sil` gelirse baglanti coktan yok, ikinci bitir
@@ -1224,34 +1355,22 @@ static void bound_call(Bridge &b, const char *base, const char *hook, const doub
 static void bound_unbind_fire(Bridge &b, uint32_t slot, const char *why) {
   Ent &e = b.ents[slot];
   if (e.bound < 0) return;
-  const Bridge::BoundScript &bs = b.bound[e.bound];
-  char base[kScriptBaseLen];
-  std::memcpy(base, bs.h.base, sizeof base);
-  const bool bitir = bs.h.bitir;
+  // KOPYA: bound_release havuz girdisini siliyor (ad + cozulmus isaretciler).
+  const Bridge::ScriptHook h = b.bound[e.bound].h;
+  const bool bitir = h.bitir;
   const int id = make_id(slot);
   const uint16_t gen = e.gen;
   bound_release(b, slot);
-  BDBG("betik \"%s\" #%d'den cozuldu (%s)%s", base, id, why, bitir ? "" : " — _bitir yok");
+  BDBG("betik \"%s\" #%d'den cozuldu (%s)%s", h.base, id, why, bitir ? "" : " — _bitir yok");
   if (!bitir) return;
   e.bitir_running = true;
   const double a[1] = {(double)id};
-  bound_call(b, base, "bitir", a, 1);
+  bound_call(b, h, kHookBitir, a, 1);
   // Kanca varligi silmis (ve yuva yeniden kullanilmis) olabilir: yalniz ayni
   // nesildeyse kilidi kaldir.
   if (b.ents[slot].gen == gen) b.ents[slot].bitir_running = false;
 }
-// Govdeden BETIKLI kopru varliginin yuvasi (-1 = yok). Havuz taranir (<= 512),
-// butun varliklar degil: carpisma halkasinin her olayi icin cagriliyor.
-static int bound_slot_of_body(const Bridge &b, sim::BodyId body) {
-  if (!body.valid() || !b.bound_n) return -1;
-  for (uint32_t k = 0; k < kMaxBoundScripts; k++) {
-    const int32_t s = b.bound[k].slot;
-    if (s < 0) continue;
-    const Ent &e = b.ents[s];
-    if (e.alive && e.body.valid() && e.body.v == body.v) return s;
-  }
-  return -1;
-}
+static int bound_slot_of_body(Bridge &b, sim::BodyId body); // asagida (govde eslemesi)
 // Tek bir tetik olayini kodla baglanan betiklere dagit: once BOLGENIN betigi,
 // sonra GIRENIN (sahne kancalariyla ayni sira). Girenin yuvasi bolge kancasindan
 // SONRA aranir: bolge kancasi gireni silmis olabilir.
@@ -1261,7 +1380,7 @@ static void bound_fire_tetik(Bridge &b, const sim::SensorEvent &e) {
     const Bridge::BoundScript &bs = b.bound[b.ents[zs].bound];
     if (!bs.defer && (e.enter ? bs.h.tetik_girdi : bs.h.tetik_cikti)) {
       const double a[3] = {(double)make_id((uint32_t)zs), (double)ent_id_of_body(e.other), (double)scene_idx_of_body(e.other)};
-      bound_call(b, bs.h.base, e.enter ? "tetik_girdi" : "tetik_cikti", a, 3);
+      bound_call(b, bs.h, e.enter ? kHookTetikGirdi : kHookTetikCikti, a, 3);
     }
   }
   const int os = bound_slot_of_body(b, e.other);
@@ -1269,7 +1388,7 @@ static void bound_fire_tetik(Bridge &b, const sim::SensorEvent &e) {
     const Bridge::BoundScript &bs = b.bound[b.ents[os].bound];
     if (!bs.defer && (e.enter ? bs.h.bolge_girdi : bs.h.bolge_cikti)) {
       const double a[3] = {(double)make_id((uint32_t)os), (double)ent_id_of_body(e.sensor), (double)scene_idx_of_body(e.sensor)};
-      bound_call(b, bs.h.base, e.enter ? "bolge_girdi" : "bolge_cikti", a, 3);
+      bound_call(b, bs.h, e.enter ? kHookBolgeGirdi : kHookBolgeCikti, a, 3);
     }
   }
 }
@@ -1322,7 +1441,7 @@ static void bound_fire_carpisma(Bridge &b) {
     other.v = h.other;
     const double a[8] = {(double)make_id((uint32_t)h.slot), (double)ent_id_of_body(other), (double)h.k, h.px, h.py, h.pz, (double)h.speed,
                          (double)scene_idx_of_body(other)};
-    bound_call(b, bs.h.base, "carpisma", a, 8);
+    bound_call(b, bs.h, kHookCarpisma, a, 8);
   }
 }
 // `guncelle`: YUVA sirasi. Dongu sirasinda silinen varlik atlanir, kurulan
@@ -1334,7 +1453,7 @@ static void bound_fire_guncelle(Bridge &b) {
     const Bridge::BoundScript &bs = b.bound[e.bound];
     if (bs.defer || !bs.h.guncelle) continue;
     const double a[2] = {(double)make_id(i), b.dt};
-    bound_call(b, bs.h.base, "guncelle", a, 2);
+    bound_call(b, bs.h, kHookGuncelle, a, 2);
   }
 }
 // Kapanis: butun baglantilara `_bitir`, YUVA sirasiyla. Yeni baglanti
@@ -1361,7 +1480,7 @@ static void script_fire_bitir(Bridge &b, const char *why) {
   for (uint32_t i = 0; i < content::kSceneMaxEntities; i++) {
     if (!b.script[i].bitir) continue;
     const double a[1] = {(double)i};
-    script_call(b, b.script[i].base, "bitir", a, 1);
+    script_call(b, b.script[i], kHookBitir, a, 1);
     n++;
   }
   for (uint32_t i = 0; i < content::kSceneMaxEntities; i++) b.script[i] = Bridge::ScriptHook{};
@@ -1380,7 +1499,7 @@ static void script_fire_bitir(Bridge &b, const char *why) {
 // adimlarina kadar duruyor (bkz. teng_frame_end'deki temizleme notu).
 static void script_fire_carpisma(Bridge &b, int me, int other, uint32_t ev, const sim::ContactEvent &e) {
   const double a[7] = {(double)me, (double)other, (double)ev, e.point.x, e.point.y, e.point.z, (double)e.speed};
-  script_call(b, b.script[me].base, "carpisma", a, 7);
+  script_call(b, b.script[me], kHookCarpisma, a, 7);
 }
 
 void teng_frame_end(void) {
@@ -1430,6 +1549,9 @@ void teng_frame_end(void) {
   // kancalari (degismedi), SONRA kodla baglanan betikler. Bu surede kurulan
   // baglanti `defer` ile isaretlenir ve o karenin kalanini gormez.
   b.script_dispatching = true;
+  const bool kanca_var = b.script_any || b.bound_n;
+  const uint64_t kanca_t0 = kanca_var ? platform::now_ns() : 0;
+  const uint64_t kanca_c0 = (uint64_t)b.script_calls + b.bound_calls;
   const bool sahne_tetik = b.script_tetik_any && b.scene_ok;
   if (sahne_tetik || b.bound_tetik_any) {
     // Kancalar: carpismadan ve guncelle'den ONCE (olay bu karenin adimlarinda).
@@ -1443,12 +1565,12 @@ void teng_frame_end(void) {
         // oyuncu cogu oyunda sahnede degil, kodla uretiliyor.
         if (bolge >= 0 && (e.enter ? b.script[bolge].tetik_girdi : b.script[bolge].tetik_cikti)) {
           const double a[3] = {(double)bolge, (double)diger, (double)ent_id_of_body(e.other)};
-          script_call(b, b.script[bolge].base, e.enter ? "tetik_girdi" : "tetik_cikti", a, 3);
+          script_call(b, b.script[bolge], e.enter ? kHookTetikGirdi : kHookTetikCikti, a, 3);
         }
         // Girenin betigi: <ad>_bolge_girdi(id, bolge).
         if (diger >= 0 && bolge >= 0 && (e.enter ? b.script[diger].bolge_girdi : b.script[diger].bolge_cikti)) {
           const double a[2] = {(double)diger, (double)bolge};
-          script_call(b, b.script[diger].base, e.enter ? "bolge_girdi" : "bolge_cikti", a, 2);
+          script_call(b, b.script[diger], e.enter ? kHookBolgeGirdi : kHookBolgeCikti, a, 2);
         }
       }
       // Kodla baglanan: kodla uretilen tetigin betigi + tetige giren kopru
@@ -1493,7 +1615,7 @@ void teng_frame_end(void) {
     for (uint32_t i = 0; i < v.h->entity_count && i < content::kSceneMaxEntities; i++) {
       if (!b.script[i].guncelle) continue;
       const double a[2] = {(double)i, b.dt};
-      script_call(b, b.script[i].base, "guncelle", a, 2);
+      script_call(b, b.script[i], kHookGuncelle, a, 2);
     }
   }
   if (b.bound_guncelle_any) {
@@ -1501,6 +1623,13 @@ void teng_frame_end(void) {
     bound_fire_guncelle(b);
   }
   b.script_dispatching = false;
+  if (kanca_var) {
+    b.hook_ns += platform::now_ns() - kanca_t0;
+    // script_calls sahne yuklemesinde sifirlanir: kanca icinden yeniden yukleme
+    // sayaci geri sarabilir, o kare olcuye girmez (negatif fark).
+    const uint64_t c1 = (uint64_t)b.script_calls + b.bound_calls;
+    if (c1 >= kanca_c0) b.hook_timed_calls += c1 - kanca_c0;
+  }
   if (b.bound_deferred) {
     for (uint32_t k = 0; k < kMaxBoundScripts; k++) b.bound[k].defer = false;
     b.bound_deferred = false;
@@ -1587,6 +1716,13 @@ void teng_shutdown(void) {
   // Kodla baglanan betikler de ayni gerekceyle burada (yuva sirasiyla): bitir
   // icinden konum/govde sorgusu hala gecerli.
   bound_fire_all_bitir(b, "kapanis");
+  if (b.hook_fast || b.hook_slow)
+    BINFO("kapanis (betik cozumu): %u kanca isaretciyle (hizli yol), %u kanca adla (eski yol)", b.hook_fast, b.hook_slow);
+  if (b.bmap_audit || b.bmap_miss_set)
+    BINFO("kapanis (govde eslemesi): %u sorgu denetlendi, %u uyusmazlik, %u tablo disi indeks", b.bmap_checks, b.bmap_mismatch, b.bmap_miss_set);
+  if (b.hook_timed_calls)
+    BINFO("kapanis (betik dagitimi): kare icinde %llu kanca cagrisi, %.2f ms, cagri basina %.1f ns (kanca govdeleri dahil)",
+          (unsigned long long)b.hook_timed_calls, b.hook_ns / 1e6, (double)b.hook_ns / (double)b.hook_timed_calls);
   if (b.bound_attaches || b.bound_rejected)
     BINFO("kapanis (betik baglama): %u baglama, %u reddedilen, %u kanca cagrisi, en cok %u bagli varlik (tavan %u)", b.bound_attaches,
           b.bound_rejected, b.bound_calls, b.bound_peak, kMaxBoundScripts);
@@ -1634,10 +1770,11 @@ void teng_shutdown(void) {
   b.jobs.shutdown();
   b.nav.shutdown();
   b.nav_ok = false;
-  if (b.scene_ok) b.srt.despawn(b.phys);
+  if (b.scene_ok) { bmap_scene(false); b.srt.despawn(b.phys); }
   for (uint32_t i = 0; i < b.ent_high; i++) {
     Ent &e = b.ents[i];
     if (!e.alive) continue;
+    bmap_drop(e.body);
     // Karakterin ic govdesi KARAKTERIN: once govdeyi silmek, phys.shutdown
     // karakteri yok ederken ayni govdeyi ikinci kez silmeye calisirdi.
     if (e.kind == Kind::Character) b.phys.remove_character(e.ch);
@@ -1730,6 +1867,7 @@ int teng_scene_load(const char *path) {
   b.shadow_center = w.shadow_center; b.shadow_radius = w.shadow_radius; b.shadow_depth = w.shadow_depth;
   const uint32_t nb = b.srt.spawn(b.phys);
   b.scene_ok = true;
+  bmap_scene(true); // govde -> sahne dizini (entity_body ancak spawn'dan sonra gecerli)
   b.scene_loads++;
   // Nesne ozellikleri: varlik basina aralik. Betik `baslat`lari asagida
   // cagriliyor ve ozellik okumanin yeri orasi — aralik ONLARDAN ONCE hazir
@@ -1819,20 +1957,31 @@ int teng_scene_load(const char *path) {
     if (tetikli) b.script_tetik_any = true;
     if (baslat) {
       const double a[1] = {(double)i};
-      script_call(b, h.base, "baslat", a, 1);
+      script_call(b, h, kHookBaslat, a, 1);
     }
   }
   if (b.script_any) BINFO("betik kancalari: %u cagri, %u eksik", b.script_calls, b.script_missing);
 
   return 1;
 }
-void teng_set_script_vm(const TengScriptVm *vm) {
+static void svm_set(const TengScriptVm *vm, bool v2, const char *fn) {
   g_svm = vm;
+  g_svm_v2 = vm && v2;
+  // Eski kurulum gercek bir oyunda: derleyici bu motordan ESKI bir baglamayla
+  // kurulmus olabilir. Calisir (adla cagri), ama soylenmeli — bir kez.
+  static bool eski_soylendi = false;
+  if (vm && !v2 && !eski_soylendi) {
+    eski_soylendi = true;
+    BINFO("betik VM'i ESKI kurulumla geldi (teng_set_script_vm: yalniz has/call) — kancalar adla cagrilacak; oyun motoru tanimayan "
+          "eski bir derleyiciyle mi kuruldu? tools/motor_derleyici.sh");
+  }
   // Kurulum sahne YUKLENMEDEN once olmali (kancalar yuklemede cozuluyor).
   // Yuklu bir sahne varsa bunu SOYLE: sessiz kalirsa atamalar calismaz ve
   // sebebi gorunmez.
-  if (g && g->scene_ok) BERR("teng_set_script_vm: sahne zaten yuklu, kancalar cozulmedi");
+  if (g && g->scene_ok) BERR("%s: sahne zaten yuklu, kancalar cozulmedi", fn);
 }
+void teng_set_script_vm(const TengScriptVm *vm) { svm_set(vm, false, "teng_set_script_vm"); }
+void teng_set_script_vm_v2(const TengScriptVm *vm) { svm_set(vm, true, "teng_set_script_vm_v2"); }
 int teng_script_hooks_active(void) { return g && g->script_any ? 1 : 0; }
 int teng_script_call_count(void) { return g ? (int)g->script_calls : 0; }
 int teng_script_missing_count(void) { return g ? (int)g->script_missing : 0; }
@@ -1942,7 +2091,7 @@ int teng_script_attach(int id, const char *name) {
        (int)h.guncelle, (int)h.carpisma, (int)tetikli, (int)h.bitir, bs.defer ? " (kanca icinden: sonraki kareden itibaren)" : "");
   if (baslat) {
     const double a[1] = {(double)id};
-    bound_call(b, h.base, "baslat", a, 1);
+    bound_call(b, h, kHookBaslat, a, 1);
   }
   return 1;
 }
@@ -2198,6 +2347,7 @@ int teng_scene_unload(void) {
   // Sicak yukleme de buradan gecer: bitir -> yeniden yukle -> baslat.
   script_fire_bitir(b, b.reloading ? "sicak yukleme" : "sahne bosaltma");
   const uint32_t ents = b.srt.view().h->entity_count, bodies = b.srt.stats().bodies;
+  bmap_scene(false);
   b.srt.despawn(b.phys);
   b.nav.shutdown(); // Detour nesneleri; veri arenada kalir (bir sonraki yukleme yeni kopya alir)
   b.nav_ok = false;
@@ -2305,6 +2455,7 @@ int teng_spawn_character(double x, double y, double z, double radius, double hei
     return 0;
   }
   e.body = g->phys.character_body(e.ch);
+  bmap_put(e.body, s, -1); // ic govde: tetik ve isin sonuclari karakteri bulsun
   const int id = make_id((uint32_t)s);
   BDBG("karakter #%d yuva %d (%.2f %.2f %.2f) r%.2f boy %.2f", id, s, x, y, z, radius, height);
   return id;
@@ -2417,6 +2568,7 @@ void teng_set_pos(int id, double x, double y, double z) {
   if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
   if (e.kind == Kind::Character) { g->phys.set_character_position(e.ch, e.pos); return; } // ayak konumu, hiz sifir
   if (e.body.valid()) { // Jolt'ta konum yazma yok: govde yeniden kurulur (hiz sifirlanir)
+    bmap_drop(e.body);
     g->phys.remove(e.body);
     e.body = sim::BodyId{};
     if (!make_body(e, "teng_set_pos")) BERR("teng_set_pos: govde yeniden kurulamadi #%d", id);
@@ -2444,7 +2596,7 @@ void teng_set_yaw(int id, double yaw_deg) {
   e.yaw_deg = (float)yaw_deg;
   if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
   if (e.kind == Kind::Character) return; // kapsul dik eksende simetrik: yaw yalniz cizimde
-  if (e.body.valid() && !e.dynamic) { g->phys.remove(e.body); e.body = sim::BodyId{}; make_body(e, "teng_set_yaw"); }
+  if (e.body.valid() && !e.dynamic) { bmap_drop(e.body); g->phys.remove(e.body); e.body = sim::BodyId{}; make_body(e, "teng_set_yaw"); }
 }
 // Karakterde hiz ic govdeden DEGIL karakterden: ic govde isinlanarak tasinir, kendi hizi hep sifir.
 static Vec3 ent_vel(const Ent &e) {
@@ -3141,17 +3293,41 @@ double teng_audio_peak(void) { return g && g->audio_ok ? (double)g->mixer.stats(
 // olmadigi icin carpisma OLAYI veremiyoruz; bu iki SORGU onun yerini tutuyor
 // (dusman gorus hatti, kilic menzili, zemin kontrolu).
 
-// Jolt govde id'sinden kopru varlik id'si (0 = kopru varligi degil).
-static int ent_id_of_body(sim::BodyId b) {
-  if (!g || !b.valid()) return 0;
+// --- Jolt govdesinden varliga: O(1) esleme (Bridge::bmap) --------------------
+// Carpisma halkasinin, tetik kuyrugunun ve isin testinin her sonucu bu uc
+// sorgudan geciyor. Eskiden ucu de dogrusal taramaydi (ent_high <= 4096,
+// betik havuzu 512, sahne varliklari); tablo artik govde indeksiyle dogrudan
+// okunuyor. Tablodan gelen cevap bir de VARLIGIN kendisine karsi dogrulanir
+// (canli mi, govdesi gercekten bu mu): bayat girdi "yok" olur, yanlis varlik
+// olmaz.
+static int bmap_slot_raw(sim::BodyId b) {
+  if (!g || !g->bmap || !b.valid()) return -1;
+  const uint32_t i = g->phys.body_index(b);
+  if (i >= g->bmap_n) return -1;
+  const Bridge::BodyMapEntry &m = g->bmap[i];
+  if (m.v != b.v || m.slot < 0 || (uint32_t)m.slot >= kMaxEntities) return -1;
+  const Ent &e = g->ents[m.slot];
+  return e.alive && e.body.v == b.v ? m.slot : -1;
+}
+static int bmap_scene_raw(sim::BodyId b) {
+  if (!g || !g->bmap || !g->scene_ok || !b.valid()) return -1;
+  const uint32_t i = g->phys.body_index(b);
+  if (i >= g->bmap_n) return -1;
+  const Bridge::BodyMapEntry &m = g->bmap[i];
+  if (m.v != b.v || m.scene < 0 || (uint32_t)m.scene >= g->srt.view().h->entity_count) return -1;
+  return g->srt.entity_body((uint32_t)m.scene).v == b.v ? m.scene : -1;
+}
+// ESKI dogrusal taramalar — yalniz denetim kipinde (TULPAR_ENGINE_GOVDE_DENETIM)
+// kosar; eslemenin olcut cubugu.
+static int scan_slot_of_body(sim::BodyId b) {
+  if (!g || !b.valid()) return -1;
   for (uint32_t i = 0; i < g->ent_high; i++) {
     const Ent &e = g->ents[i];
-    if (e.alive && e.body.valid() && e.body.v == b.v) return make_id(i);
+    if (e.alive && e.body.valid() && e.body.v == b.v) return (int)i;
   }
-  return 0;
+  return -1;
 }
-// Jolt govde id'sinden sahne varlik dizini (-1 = sahne govdesi degil).
-static int scene_idx_of_body(sim::BodyId b) {
+static int scan_scene_of_body(sim::BodyId b) {
   if (!g || !g->scene_ok || !b.valid()) return -1;
   const uint32_t n = g->srt.view().h->entity_count;
   for (uint32_t i = 0; i < n; i++) {
@@ -3159,6 +3335,61 @@ static int scene_idx_of_body(sim::BodyId b) {
     if (sb.valid() && sb.v == b.v) return (int)i;
   }
   return -1;
+}
+static int scan_bound_slot_of_body(sim::BodyId body) {
+  if (!g || !body.valid() || !g->bound_n) return -1;
+  for (uint32_t k = 0; k < kMaxBoundScripts; k++) {
+    const int32_t s = g->bound[k].slot;
+    if (s < 0) continue;
+    const Ent &e = g->ents[s];
+    if (e.alive && e.body.valid() && e.body.v == body.v) return s;
+  }
+  return -1;
+}
+// Denetim: esleme != tarama. HATA loglar (ilk 8'i satir basar, gerisi sayilir
+// ve kapanis satirinda gorunur) ve ESLEMENIN cevabini dondurmeye devam eder —
+// denetim davranisi degistirmez, yalniz gozler.
+static void bmap_denetle(const char *ne, sim::BodyId b, int esleme, int tarama) {
+  g->bmap_checks++;
+  if (esleme == tarama) return;
+  g->bmap_mismatch++;
+  if (g->bmap_mismatch <= 8)
+    BERR("govde eslemesi UYUSMAZLIGI (%s): govde %08x indeks %u -> esleme %d, dogrusal tarama %d", ne, b.v, g->phys.body_index(b), esleme, tarama);
+  else
+    g_log.errors++; // satir basilmadi ama hata SAYILDI (kapanista toplam)
+}
+// Jolt govde id'sinden kopru varlik id'si (0 = kopru varligi degil).
+static int ent_id_of_body(sim::BodyId b) {
+  const int s = bmap_slot_raw(b);
+  if (g && g->bmap_audit && b.valid()) bmap_denetle("kopru varligi", b, s, scan_slot_of_body(b));
+  return s >= 0 ? make_id((uint32_t)s) : 0;
+}
+// Jolt govde id'sinden sahne varlik dizini (-1 = sahne govdesi degil).
+static int scene_idx_of_body(sim::BodyId b) {
+  const int i = bmap_scene_raw(b);
+  if (g && g->bmap_audit && b.valid()) bmap_denetle("sahne varligi", b, i, scan_scene_of_body(b));
+  return i;
+}
+// Govdeden BETIKLI kopru varliginin yuvasi (-1 = yok).
+static int bound_slot_of_body(Bridge &b, sim::BodyId body) {
+  int s = b.bound_n ? bmap_slot_raw(body) : -1;
+  if (s >= 0 && b.ents[s].bound < 0) s = -1;
+  if (b.bmap_audit && body.valid()) bmap_denetle("betikli kopru varligi", body, s, scan_bound_slot_of_body(body));
+  return s;
+}
+int teng_body_map_audit_checks(void) { return g ? (int)g->bmap_checks : 0; }
+int teng_body_map_audit_mismatches(void) { return g ? (int)g->bmap_mismatch : 0; }
+int teng_debug_body_map_corrupt(int id) {
+  const int32_t s = slot_of(id, "teng_debug_body_map_corrupt");
+  if (s < 0 || !g->bmap) return 0;
+  const sim::BodyId body = g->ents[s].body;
+  const uint32_t i = g->phys.body_index(body);
+  if (!body.valid() || i >= g->bmap_n) return 0;
+  // Tam kimligin sira numarasi bitlerini ters cevir: girdi "baska bir govdenin"
+  // gibi gorunur, sorgu yok der. Ikinci cagri geri alir.
+  g->bmap[i].v ^= 0xFF000000u;
+  BINFO("govde eslemesi: #%d (govde %08x) girdisi TEST icin %s", id, body.v, g->bmap[i].v == body.v ? "geri alindi" : "bozuldu");
+  return 1;
 }
 
 // Varligin sinir yaricapi (kure sorgusu icin kaba kusatma).

@@ -9,25 +9,32 @@
 // Sahne karakteri bir fizik gövdesi DEĞİL: hızı `sahne_karakter_yuru` verir
 // (istek kalıcı), `sahne_hiz_ver` onda HATA verir. Rampada kaymaz, 0.4 m'ye
 // kadar basamağı yürüyerek çıkar. Konumu kapsülün ORTASI (gövde bileşeni gibi).
+//
+// Zamanlayıcı ve yön VARLIK BAŞINA (`yuva(id)` = sahne dizini): iki nöbetçi
+// tek bir global saati paylaşsaydı ikisi de her kare onu ilerletir, yarım tur
+// iki kat hızlı dönerdi (aynı kalıp; hata devriye.tpr'de ölçüldü).
 
 float NOBET_HIZ = 2.0;
 float NOBET_YARIM_TUR = 2.5;   // saniye: bir yöne bu kadar, sonra geri
-float nobet_t = 0.0;
-float nobet_yon = 1.0;
+float[] nobet_t = [];
+float[] nobet_yon = [];
 
 func nobet_baslat(id) {
-    nobet_t = 0.0;
-    nobet_yon = 1.0;
+    int i = yuva(id);
+    while (length(nobet_t) <= i) { push(nobet_t, 0.0); push(nobet_yon, 1.0); }
+    nobet_t[i] = 0.0;
+    nobet_yon[i] = 1.0;
     logla("nobet basladi: " + sahne_adi(id) + " (karakter " + toString(sahne_karakter_mi(id)) + ")");
 }
 
 func nobet_guncelle(id, d) {
-    nobet_t = nobet_t + d;
-    if (nobet_t >= NOBET_YARIM_TUR) {
-        nobet_t = nobet_t - NOBET_YARIM_TUR;
-        nobet_yon = 0.0 - nobet_yon;
+    int i = yuva(id);
+    nobet_t[i] = nobet_t[i] + d;
+    if (nobet_t[i] >= NOBET_YARIM_TUR) {
+        nobet_t[i] = nobet_t[i] - NOBET_YARIM_TUR;
+        nobet_yon[i] = 0.0 - nobet_yon[i];
     }
-    sahne_karakter_yuru(id, nobet_yon * NOBET_HIZ, 0.0, false);
+    sahne_karakter_yuru(id, nobet_yon[i] * NOBET_HIZ, 0.0, false);
 }
 
 func nobet_bolge_girdi(id, bolge) {

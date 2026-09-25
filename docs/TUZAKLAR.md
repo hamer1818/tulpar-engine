@@ -1324,6 +1324,21 @@ kendi geçtiği yolu görür; sahibi başkası olan bellek (sürücü, GPU, dosy
 ayrı bir sayaç ya da doğrudan süreç ölçümü (RSS, smaps) gerekir. Penceresiz doğrulama yolu da
 pencereli yolun "aynısı" değildir: kaynak yaşam döngüleri farklıysa o farkı ayrıca kapıla.
 
+**Aynı sınıf, üçüncü ayırıcı: dilin çalışma zamanı** (2026-09-25, RTX 5080 + Ryzen 7
+9800X3D). Betik kancaları `TengScriptVm::call(ad, ...)` ile çağrılıyordu; Tulpar tarafı
+(`eng_script_call`) adı HER çağrıda bir `ObjString`'e kopyalıyor ve o dizgi hiç
+sıfırlanmayan AOT dizgi arenasında kalıyordu. 200 boş `guncelle` kancası: kare başına
+**+14.4 KB** kalıcı (çağrı başına 72 bayt), `AllocGate` ve Vulkan sayacı ikisi de 0 —
+bellek dilin `malloc`'undan geçiyordu. Kare belleği (8ch) kare İÇİNDEKİ kancanın dizgisini
+kare sonunda geri sarıyor; kare dışındaki kanca (yüklemede `baslat`) ve `TULPAR_KARE_BELLEK=0`
+için kalıcıydı. Düzeltme: kanca yüklemede bir kez çözülüyor (`resolve`), kare içinde adsız
+çağrılıyor (`invoke`); aynı ölçümde (kare belleği kapalı) kancaya düşen büyüme 0.
+Ölçü `tools/kanca_olcumu.py`. **Ölçümün kendi tuzağı:** eğim 300. kareden başlatılınca
+kancasız koşum da +1.4 KB/kare "büyüyordu" — köprü profiler'inin 600 karelik halkası ilk
+dokunuşta RSS'e giriyor (kare 500..3000 smaps farkı yalnız +192 kB, anonim bellek düz).
+Isınma 700 kare ve **kancasız kontrol koşumu** olmadan kalan küçük bir eğim "hâlâ
+sızıyor" diye okunurdu.
+
 ### 8ce. Derleyici bayrağı bir derleyicide hata, ötekinde "bilinmeyen uyarı" — kapı yalnız bir platformda ölçer
 
 **Belirti** (2026-09-25, E3 nesne özellikleri): `SceneDesc` 213 KB'tan 378 KB'a büyüyecekti ve
@@ -1487,3 +1502,32 @@ okundu — yukarıdaki hesapla aynı sarma — ve kapı KIRMIZI.
 **Ders:** "değişti mi" kapısı "değer ne" sözleşmesini ölçmez. Bir API mutlak bir birim/devir vaat
 ediyorsa kapısı en az bir **bilinen girdiyi** mutlak olarak karşılaştırmalı; iki çıktıyı
 birbiriyle karşılaştırmak her ortak kaymayı (devir, birim, sarma) gizler.
+
+### 8cj. `pipefail` + `| grep -q`: erken çıkan tüketici boru hattını "yok"a çevirir
+
+**Belirti** (2026-09-25): `tools/motor_derleyici.sh`'ye eklenen soru — "TulparLang
+kopyası `aot_func_lookup` içeriyor mu" — fonksiyonu İÇEREN kopyayı da reddetti
+(`git show HEAD:src/vm/runtime_bindings.cpp | grep -q 'aot_func_lookup(const char'`).
+
+**Sebep:** `grep -q` ilk eşleşmede çıkar. Yazan taraf (`git show`, `ldconfig -p`) kalan
+çıktıyı yazarken SIGPIPE alır ve 141 ile ölür; `set -o pipefail` boru hattının durumunu
+141 yapar, `if` "yok" der. Yalnız çıktı boru arabelleğini (Linux 64 KB) aşıyor ve eşleşme
+erken geliyorsa olur — yani girdiye göre değişir, küçük bir denemede görünmez.
+
+**Aynı sınıf, fark edilmemiş hali:** `derle.sh`'nin `kutuphane_var`'ı
+`ldconfig -p | grep -q -- "$ad"` yapıyordu (bu makinede 288 KB çıktı). Ölçüldü:
+libvulkan, libglfw, libc.so, libzstd için **hep 141** — ldconfig dalı ölüydü. Rapor doğru
+görünüyordu çünkü altındaki glob yedeği (`/usr/lib`, `/usr/lib64`, ...) kütüphaneleri
+buluyordu; kütüphanesi yalnız ldconfig'in bildiği bir yerde olan dağıtımda "eksik" derdi.
+
+**Düzeltme:** `grep KALIP >/dev/null` (girdinin tamamını okur, SIGPIPE yok). İki yerde de.
+**Pozitif kontrol:** `bash -c 'set -o pipefail; ldconfig -p | grep -q libvulkan; echo $?'`
+→ 141, aynısı `grep ... >/dev/null` ile → 0; `motor_derleyici.sh`'nin sorusu eski
+TulparLang (3eee948) ile kırmızı ("TulparLang'ı güncelleyin"), yenisiyle yeşil ölçüldü.
+`derle.sh --sadece-denetle` raporu düzeltmeden önce ve sonra bayt bayt aynı (bu makinede
+yedek zaten buluyordu).
+
+**Ders:** `pipefail`'li bir betikte boru hattının sonunda erken çıkan bir tüketici
+(`grep -q`, `head -1`, `sed q`) koşul olarak kullanılamaz: sonucu tüketicinin değil
+yazanın çıkış kodu belirler. Koşul gerekiyorsa tüketici girdiyi sonuna kadar okumalı ya da
+çıktı önce bir değişkene alınmalı.
