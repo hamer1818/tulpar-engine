@@ -2103,7 +2103,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (st.playing) set_playing(false);
     char e[256];
     if (!update_ui_install(upd_ui, e, sizeof e)) {
-      set_status(st, "GUNCELLEME KURULAMADI: %s (kurulum dizini degismedi)", e);
+      // Geri alma eksikse "degismedi" YALAN olur (pencere kurtarma yolunu gosterir).
+      if (upd_reason_rollback_incomplete(e)) set_status(st, "GUNCELLEME YARIM KALDI: %s (.guncelleme/ elle incelenmeli)", e);
+      else set_status(st, "GUNCELLEME KURULAMADI: %s (kurulum dizini degismedi)", e);
       return;
     }
     set_status(st, "guncelleme kuruldu: editor yeniden baslatiliyor");
