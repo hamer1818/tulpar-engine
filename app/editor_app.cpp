@@ -520,6 +520,28 @@ struct EditorState {
   // statik, yigina girmez.
   PropCache props;
   uint32_t prop_markers_drawn = 0; // son karede cizilen `nokta` isareti (penceresiz kapi okur)
+  // Nokta duzenleme kipi (E6): denetcideki ✥ ya da gorunumde isaretin
+  // eskenar dortgeni ANA secilinin bir noktasini kipe alir; editorun TEK
+  // gizmosu varlik yerine noktanin DUNYA konumunda durur (yalniz tasima).
+  // Kip varlik INDEKSI + ADla tutulur ve her kare (gizmo blogundan once)
+  // prop_edit_validate ile yeniden sorulur: secim, kilit, bildirim, oynatma.
+  int32_t pe_entity = -1;                          // -1: kip KAPALI
+  char pe_name[content::kScenePropNameLen] = {0};
+  uint32_t pe_sel_count = 0;                       // girildigindeki secim sayisi (degisirse cik)
+  // Surukleme NOKTAYI mi tasiyor: surukleme BASINDA kip acikti. Birakis bu
+  // bayraga gore islenir (o anki kipe gore degil) — surukleme ortasinda Esc
+  // kipi kapatsa bile birakis nokta islemi olarak TEK islemle gunluge girer.
+  bool pe_drag = false;
+  bool pe_exit_after_drag = false; // surukleme sirasinda cikis istendi: birakista cik
+  float pe_drag_world[3] = {0, 0, 0}; // son surukleme karesinde gizmonun verdigi DUNYA konumu (kapi okur)
+  uint32_t pe_drag_writes = 0;        // son suruklemede noktaya yazilan kare (kapi okur)
+  int32_t pe_drag_entity = -1;        // surukleme basindaki varlik
+  // Surukleme basindaki varlik — edit_before DEGIL: denetci her kare (widget
+  // etkin degilken) track_edit'te edit_before'u SIMDIKI varlikla yeniler ve
+  // denetci gizmodan once cizilir; birakista edit_before suruklenmis hali
+  // tasir, "once == sonra" olur ve gunluge islem DUSMEZ (Tuzaklar 8ck, olculdu).
+  SceneEntity pe_drag_before;
+  uint32_t pe_drag_undo = 0, pe_drag_redo = 0; // surukleme basinda gunluk (degistiyse kopya bayat)
 };
 
 // Varlik silindikten / geri alindiktan sonra secimi gecerli tut.
@@ -1206,6 +1228,61 @@ const PropCacheEntry *entity_prop_scan(EditorState &st, const SceneEntity &e, ui
   return ce;
 }
 
+// --- Nokta duzenleme kipi (E6) -------------------------------------------------
+// Kipin noktasi: tarama ONBELLEKTEN (disk yok — gizmo ve isaretler her kare
+// sorar; diske giden denetci karti) + kural (editor_props: prop_edit_state).
+// Ok ise out_local = su anki yerel deger.
+PropEditState prop_edit_point(EditorState &st, int32_t ent, const char *name, uint32_t frame, float out_local[3], bool *is_ov) {
+  if (ent < 0 || ent >= (int32_t)st.scene.entity_count) return PropEditState::NoEntity;
+  const PropCacheEntry *ce = entity_prop_scan(st, st.scene.entities[ent], frame, false, nullptr, 0);
+  const uint32_t n = ce ? (ce->res.count < kPropDeclMax ? ce->res.count : kPropDeclMax) : 0;
+  return prop_edit_state(st.scene, ent, name, ce ? ce->decls : nullptr, n, ce != nullptr, out_local, is_ov);
+}
+bool prop_edit_active(const EditorState &st) { return st.pe_entity >= 0; }
+// Kipe gir: ✥ ve isaret tiki AYNI yoldan. Kural tutmazsa kip ACILMAZ ve sebep
+// durum cubuguna yazilir (sessiz "hicbir sey olmadi" yok).
+bool prop_edit_enter(EditorState &st, int32_t ent, const char *name, uint32_t frame) {
+  if (st.pe_drag) return false; // surukleme ortasinda kip degismez (birakis tek islem)
+  const PropEditState ps = prop_edit_point(st, ent, name, frame, nullptr, nullptr);
+  if (ps != PropEditState::Ok) {
+    set_status(st, "nokta duzenlenemez: %s.%s (%s)", ent >= 0 && ent < (int32_t)st.scene.entity_count ? st.scene.entities[ent].name : "-",
+               name ? name : "-", prop_edit_state_text(ps));
+    return false;
+  }
+  st.pe_entity = ent;
+  std::snprintf(st.pe_name, sizeof st.pe_name, "%s", name);
+  st.pe_sel_count = st.sel.count;
+  st.pe_exit_after_drag = false;
+  set_status(st, "nokta duzenleme: %s.%s (gizmo noktada; Esc ya da tekrar " ICON_MD_OPEN_WITH " ile cik)", st.scene.entities[ent].name,
+             st.pe_name);
+  return true;
+}
+// Kipten cik. Surukleme surerken cikis BIRAKISA ertelenir: birakis nokta
+// islemi olarak gunluge girer, sonra kip kapanir.
+void prop_edit_exit(EditorState &st, const char *why) {
+  if (!prop_edit_active(st)) return;
+  if (st.pe_drag) { st.pe_exit_after_drag = true; return; }
+  set_status(st, "nokta duzenleme bitti: %s", why);
+  st.pe_entity = -1;
+  st.pe_name[0] = 0;
+  st.pe_exit_after_drag = false;
+}
+// Her kare, gizmo blogundan ONCE: kip hala gecerli mi? Secim degisti (ana
+// secili ya da secim sayisi), oynatma basladi, varlik kilitlendi, betik noktayi
+// artik okumuyor, konumu bilinmiyor... — biri tutarsa kip kapanir ve SEBEP
+// soylenir. Surukleme surerken karar birakisa kalir.
+void prop_edit_validate(EditorState &st, uint32_t frame) {
+  if (!prop_edit_active(st) || st.pe_drag) return;
+  const char *why = nullptr;
+  if (st.playing) why = "oynatma basladi";
+  else if (st.sel.primary() != st.pe_entity || st.sel.count != st.pe_sel_count) why = "secim degisti";
+  else {
+    const PropEditState ps = prop_edit_point(st, st.pe_entity, st.pe_name, frame, nullptr, nullptr);
+    if (ps != PropEditState::Ok) why = prop_edit_state_text(ps);
+  }
+  if (why) prop_edit_exit(st, why);
+}
+
 // Denetcinin Ozellikler bolumu: surekli widget'lar track_edit'ten, ayrik
 // eylemler commit'ten gecer — ikisi de propagate_selection_edit ile coklu
 // secimde AYNI betigi tasiyan digerlerine ada gore yayilir.
@@ -1221,6 +1298,7 @@ void props_section(EditorState &st, SceneEntity &e, int si, SceneEntity &after, 
   } else {
     in.note = note;
   }
+  in.point_edit = st.pe_entity == si ? st.pe_name : nullptr;
   struct Ctx {
     EditorState *st;
     SceneEntity *e;
@@ -1230,13 +1308,19 @@ void props_section(EditorState &st, SceneEntity &e, int si, SceneEntity &after, 
   const PropsPanelResult r = props_panel(
       e, after, in, [](void *u, const PropItem &it) { Ctx *c = static_cast<Ctx *>(u); track_edit(*c->st, *c->e, c->si, it); }, &ctx);
   if (r.commit) commit(st, si, after);
+  // ✥: ayni nokta kipteyse kapat, degilse (baska nokta / kip kapali) ona gec.
+  if (r.point_toggle) {
+    if (st.pe_entity == si && !std::strcmp(st.pe_name, r.point_name)) prop_edit_exit(st, ICON_MD_OPEN_WITH);
+    else prop_edit_enter(st, si, r.point_name, frame);
+  }
 }
 
 // Gorunum: secili varligin `nokta` ozellikleri — varliktan noktaya cizgi +
 // eskenar dortgen + ad. Konum DUNYA (scene_prop_point_world: yazar pozu,
-// olcek yok; kopru ve derleyiciyle ayni kural). Surukleme YOK (E6).
-// Renk: ustune yazilmis AccentHi (buyuk), betik varsayilani AccentHi (kucuk,
-// soluk cizgi), yetim Warn. Donus: cizilen isaret sayisi.
+// olcek yok; kopru ve derleyiciyle ayni kural). Surukleme (E6) gizmoyla:
+// kipteki noktanin cevresinde halka. Renk: ustune yazilmis AccentHi (buyuk),
+// betik varsayilani AccentHi (kucuk, soluk cizgi), yetim Warn. Donus: cizilen
+// isaret sayisi.
 constexpr float kPropMarkerR = 6.0f, kPropMarkerDefR = 4.5f;
 bool project_to_view(const Mat4 &vp_mat, const ViewportRect &vr, const float w[3], ImVec2 *out) {
   const Vec4 clip = vp_mat * Vec4{w[0], w[1], w[2], 1.0f};
@@ -1281,9 +1365,83 @@ uint32_t draw_prop_markers(EditorState &st, uint32_t ent, const Mat4 &vp_mat, co
     dl->AddQuadFilled(a, b, cc, d, col);
     dl->AddQuad(ImVec2(a.x, a.y - 1.0f), ImVec2(b.x + 1.0f, b.y), ImVec2(cc.x, cc.y + 1.0f), ImVec2(d.x - 1.0f, d.y), col_edge, 1.0f);
     dl->AddText(ImVec2(sp.x + r + 3.0f, sp.y - r - 8.0f), orphan ? col_orphan : col_text, mk[k].name);
+    if (st.pe_entity == (int32_t)ent && !orphan && !std::strcmp(st.pe_name, mk[k].name))
+      dl->AddCircle(sp, kPropMarkerHitR + 2.0f, col_ov, 0, 1.5f); // kipteki nokta
     drawn++;
   }
   return drawn;
+}
+// Gorunumde tiklanan isaret (E6): `ent`in DUZENLENEBILIR noktalarindan
+// (sx, sy) ekran konumuna en yakini — draw_prop_markers'in cizdigi AYNI
+// isaretler, AYNI izdusum. Yetim ve kurali tutmayan (kilitli, varsayilan kodda,
+// 16 dolu) isaret aday degildir: tik varlik secimine duser. Donus: isabet.
+bool prop_marker_pick(EditorState &st, uint32_t ent, const Mat4 &vp_mat, const ViewportRect &vr, float sx, float sy, uint32_t frame,
+                      char *out_name, uint32_t cap) {
+  if (ent >= st.scene.entity_count) return false;
+  const PropCacheEntry *ce = entity_prop_scan(st, st.scene.entities[ent], frame, false, nullptr, 0);
+  constexpr uint32_t kCap = kPropDeclMax + content::kSceneMaxProps;
+  static PropMarker mk[kCap];
+  static PropMarkerScreen sc[kCap];
+  const uint32_t n = prop_marker_points(st.scene, ent, ce ? ce->decls : nullptr, ce ? ce->res.count : 0, ce != nullptr, mk, kCap);
+  const uint32_t lim = n < kCap ? n : kCap;
+  for (uint32_t k = 0; k < lim; k++) {
+    ImVec2 sp;
+    sc[k].visible = project_to_view(vp_mat, vr, mk[k].world, &sp);
+    sc[k].x = sp.x;
+    sc[k].y = sp.y;
+    sc[k].editable = mk[k].kind != kPropMarkerOrphan &&
+                     prop_edit_point(st, (int32_t)ent, mk[k].name, frame, nullptr, nullptr) == PropEditState::Ok;
+  }
+  const int32_t hit = prop_marker_hit(sc, lim, sx, sy, kPropMarkerHitR);
+  if (hit < 0) return false;
+  std::snprintf(out_name, cap, "%s", mk[hit].name);
+  return true;
+}
+
+// E6 penceresiz kapilarinin adayi: suruklenebilir bir nokta. Once USTUNE
+// YAZMASI olan (ozellik.sahne: "muhafiz" — donuk ve olcekli kaidenin cocugu,
+// yani ebeveyn zinciri de olculur), sonra yalniz betik VARSAYILANI olan;
+// ikisi de yoksa FIKSTUR: kilitsiz, gizli olmayan, betiksiz ilk varliga
+// tulpar/examples/davranis/muhafiz.tpr atanir (devriye_a, varsayilan
+// (-2, 0, 0), ustune yazma YOK — surukleme ustune yazmayi YARATMA yolunu
+// olcer). Fikstur gunluge girer (*ops islem); kapi sonunda geri alinir.
+// Betik diskten taranir (onbellege girsin; gorunum yollari yalniz bakar).
+// Donus: varlik indeksi, bulunamadiysa -1.
+int32_t prop_edit_gate_candidate(EditorState &st, uint32_t frame, char *name, uint32_t cap, uint32_t *ops, bool *fixture) {
+  *ops = 0;
+  *fixture = false;
+  for (int pass = 0; pass < 2; pass++) { // 0: ustune yazmali, 1: yalniz varsayilan
+    for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+      const PropCacheEntry *ce = entity_prop_scan(st, st.scene.entities[i], frame, true, nullptr, 0);
+      if (!ce) continue;
+      const uint32_t n = ce->res.count < kPropDeclMax ? ce->res.count : kPropDeclMax;
+      for (uint32_t k = 0; k < n; k++) {
+        if (ce->decls[k].type != content::kScenePropNokta) continue;
+        bool ov = false;
+        if (prop_edit_point(st, (int32_t)i, ce->decls[k].name, frame, nullptr, &ov) != PropEditState::Ok) continue;
+        if (pass == 0 && !ov) continue;
+        std::snprintf(name, cap, "%s", ce->decls[k].name);
+        return (int32_t)i;
+      }
+    }
+  }
+  for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+    SceneEntity a = st.scene.entities[i];
+    if ((a.flags & (content::kSceneLocked | content::kSceneHidden)) || (a.components & content::kSceneScript) ||
+        a.prop_count >= content::kSceneMaxProps)
+      continue;
+    a.components |= content::kSceneScript;
+    std::snprintf(a.script_file, sizeof a.script_file, "%s", "tulpar/examples/davranis/muhafiz.tpr");
+    a.script_enabled = true;
+    if (!st.hist.set_entity(st.scene, i, a)) continue;
+    st.groups.push(1);
+    (*ops)++;
+    *fixture = true;
+    entity_prop_scan(st, st.scene.entities[i], frame, true, nullptr, 0);
+    std::snprintf(name, cap, "%s", "devriye_a");
+    return prop_edit_point(st, (int32_t)i, name, frame, nullptr, nullptr) == PropEditState::Ok ? (int32_t)i : -1;
+  }
+  return -1;
 }
 } // namespace
 
@@ -2997,7 +3155,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               for (uint32_t i = s->scene.entity_count; i > 0; i--) s->sel.toggle((int32_t)(i - 1));
             },
             &cc, [](const void *c) { return static_cast<const CmdCtx *>(c)->st->scene.entity_count > 0; });
-  cmds.bind(CommandId::SelectClear, [](void *c) { static_cast<CmdCtx *>(c)->st->sel.clear(); }, &cc,
+  // Esc once ETKIN ARACI birakir (Unity/Blender): nokta duzenleme kipindeyse
+  // yalniz kipten cikar, secim kalir; ikinci Esc secimi temizler.
+  cmds.bind(CommandId::SelectClear,
+            [](void *c) {
+              EditorState *s = static_cast<CmdCtx *>(c)->st;
+              if (prop_edit_active(*s)) prop_edit_exit(*s, "Esc");
+              else s->sel.clear();
+            },
+            &cc,
             [](const void *c) { return static_cast<const CmdCtx *>(c)->st->sel.count > 0; });
   cmds.bind(CommandId::ViewGizmos,
             [](void *c) { // gizmolarin tamami ac/kapa
@@ -3849,6 +4015,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             };
             if (view_mode >= 0 && view_mode < 6) oi.shading = s_shading_labels[view_mode];
             oi.hint = "Sağ tık döndür · orta tuş kaydır · F odak";
+            // Nokta duzenleme kipi (E6): ipucu kipi ve cikisi soyler; gizmo
+            // yalniz tasir (arac cubugundaki dondur/olcekle bu kipte gecmez).
+            static char s_pe_hint[160];
+            if (prop_edit_active(st) && st.pe_entity < (int32_t)st.scene.entity_count) {
+              std::snprintf(s_pe_hint, sizeof s_pe_hint, ICON_MD_OPEN_WITH " nokta: %s.%s \xC2\xB7 Esc \xC3\xA7\xC4\xB1k",
+                            st.scene.entities[st.pe_entity].name, st.pe_name);
+              oi.hint = s_pe_hint;
+              oi.gizmo_op = 0;
+            }
             viewport_overlay(ViewportRect{origin.x + offset_x, origin.y + offset_y, (float)vp.width(), (float)vp.height()}, oi, nullptr, &ovres);
 
             // Nesne ozellikleri (E5): secili varligin `nokta`lari. Oynarken
@@ -6855,6 +7030,41 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // kolaylastirir (ImGuizmo::IsOver artik isin yolunu kapatmaz).
     const bool gz_locked = gz >= 0 && gz < (int32_t)st.scene.entity_count &&
                            (st.scene.entities[gz].flags & content::kSceneLocked) != 0;
+    // NOKTA DUZENLEME KIPI (E6). Gizmo tek kalir — ImGuizmo'nun IsUsing/IsOver
+    // durumu kimlige bagli ve asagidaki surukleme basi/sonu mantigi o tek
+    // kimlige dayaniyor; ikinci bir Manipulate cagrisi o durumu paylasirdi.
+    // Kipte yalniz VERDIGIMIZ MATRIS degisir: varligin dunya matrisi yerine
+    // "noktanin dunya konumu x varligin dunya donusu" (donus, Yerel eksen
+    // kipinde oklarin varligin eksenlerine hizalanmasi icin; olcek yok).
+    // Once kip gecerli mi (secim, kilit, bildirim) — matris secilmeden.
+    prop_edit_validate(st, frame_i);
+    // Nokta suruklemesini bitir: gunluge TEK islem (surukleme basindaki kopya
+    // -> simdiki varlik), coklu secimde de yalniz ANA secilinin noktasi
+    // (grup suruklemesi varlik konumu icindir; noktayi baska varliklara
+    // "ayni delta" diye yaymak onlarin YEREL eksenlerinde baska yer demek).
+    // Gunluk surukleme SIRASINDA degistiyse (geri al, sil) kopya bayattir:
+    // islem YAZILMAZ ve soylenir — bayat kopyayi geri yazmak baska bir
+    // varligi ezebilirdi.
+    auto finish_point_drag = [&]() {
+      if (!st.pe_drag) return;
+      st.pe_drag = false;
+      const int32_t pi = st.pe_drag_entity;
+      const bool fresh = pi >= 0 && pi < (int32_t)st.scene.entity_count && st.hist.undo_count() == st.pe_drag_undo &&
+                         st.hist.redo_count() == st.pe_drag_redo;
+      if (!fresh) {
+        set_status(st, "nokta suruklemesi gunluge yazilmadi: surukleme sirasinda sahne degisti");
+      } else {
+        const SceneEntity after = st.scene.entities[pi];
+        st.scene.entities[pi] = st.pe_drag_before;
+        if (st.hist.set_entity(st.scene, (uint32_t)pi, after)) {
+          st.groups.push(1);
+          st.dirty = true;
+          const content::SceneProp *pp = content::scene_prop_find(after, st.pe_name);
+          if (pp) set_status(st, "nokta: %s.%s = (%.2f %.2f %.2f) yerel", after.name, st.pe_name, (double)pp->v[0], (double)pp->v[1], (double)pp->v[2]);
+        }
+      }
+      if (st.pe_exit_after_drag) prop_edit_exit(st, "surukleme bitti, cikis istenmisti");
+    };
     if (view_tab == ViewportTab::Scene && gz >= 0 && gz < (int32_t)st.scene.entity_count && !gz_locked) {
       SceneEntity &e = st.scene.entities[gz];
       Mat4 proj_gl;
@@ -6881,8 +7091,32 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       ImGuizmo::SetOrthographic(false);
       // SetRect/SetDrawlist Gorunum penceresinin ICINDE yapildi (yukarida).
-      Mat4 mtx = content::scene_entity_world_matrix(st.scene, (uint32_t)gz);
-      const ImGuizmo::OPERATION op = gizmo_op == 0 ? ImGuizmo::TRANSLATE : gizmo_op == 1 ? ImGuizmo::ROTATE : ImGuizmo::SCALE;
+      // Nokta mi: surukleme SURERKEN baslangictaki karar gecerli (kip ortada
+      // kapansa bile ImGuizmo ayni suruklemeyi surduruyor); degilse kip.
+      bool pt = false;
+      float pt_w[3] = {0, 0, 0};
+      if (st.pe_drag) {
+        pt = st.pe_drag_entity == gz;
+        if (!pt) { // ana secili surukleme ortasinda degisti: noktanin islemi kapanir,
+          finish_point_drag();
+          st.gizmo_was_using = false; // suren surukleme yeni varligin BASI sayilsin (kopyasi alinsin, gunluge girsin)
+        }
+      } else {
+        pt = prop_edit_active(st) && st.pe_entity == gz;
+      }
+      if (pt) {
+        float l[3];
+        if (prop_edit_point(st, gz, st.pe_name, frame_i, l, nullptr) == PropEditState::Ok)
+          content::scene_prop_point_world(st.scene, (uint32_t)gz, l, pt_w);
+        else if (st.pe_drag)
+          std::memcpy(pt_w, st.pe_drag_world, sizeof pt_w); // surukleme ortasinda kural degisti: son konumda tut
+        else
+          pt = false; // validate'ten sonra olamaz; yine de varliga dus, noktayi uydurma
+      }
+      Mat4 mtx = pt ? Mat4::translate(Vec3{pt_w[0], pt_w[1], pt_w[2]}) * to_mat4(content::scene_entity_world_rotation(st.scene, (uint32_t)gz))
+                    : content::scene_entity_world_matrix(st.scene, (uint32_t)gz);
+      const ImGuizmo::OPERATION op = pt ? ImGuizmo::TRANSLATE
+                                        : gizmo_op == 0 ? ImGuizmo::TRANSLATE : gizmo_op == 1 ? ImGuizmo::ROTATE : ImGuizmo::SCALE;
       const float snap_vec[3] = {snap_step, snap_step, snap_step};
       ImGuizmo::SetOrthographic(cam.proj == CameraProjection::Ortho);
       const bool changed = !st.terrain_brush.active ? ImGuizmo::Manipulate(&view.m[0][0], &proj_gl.m[0][0], op,
@@ -6928,7 +7162,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // hic olmaz. Bir sonraki karede IsMouseClicked false oldugundan ayni
       // basili tutma kutuyu yeniden baslatamaz.
       if (using_now || ImGuizmo::IsOver()) viewport_box_cancel();
-      if (using_now && !st.gizmo_was_using) { // surukleme basi: grubun tamaminin kopyasi
+      if (using_now && !st.gizmo_was_using && pt) { // NOKTA suruklemesi basi: yalniz bu varligin kopyasi
+        st.pe_drag_before = e;
+        st.drag_count = 0;
+        st.pe_drag = true;
+        st.pe_drag_entity = gz;
+        st.pe_drag_undo = st.hist.undo_count();
+        st.pe_drag_redo = st.hist.redo_count();
+        st.pe_drag_writes = 0;
+        std::memcpy(st.pe_drag_world, pt_w, sizeof pt_w);
+      } else if (using_now && !st.gizmo_was_using) { // surukleme basi: grubun tamaminin kopyasi
         st.edit_before = e;
         st.drag_count = 0;
         for (uint32_t k = 0; k < st.sel.count; k++) { // bayat indeks varsa disarida kalir
@@ -6939,12 +7182,30 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.drag_count++;
         }
       }
-      if (changed) {
+      if (changed && st.pe_drag) {
+        // Gizmonun verdigi DUNYA konumu -> yerel ofset (scene_prop_point_local,
+        // point_world'un tersi; olcek yok). Nokta varsayilandaysa ilk yazma
+        // ustune yazmayi YARATIR. Varligin donusumune DOKUNULMAZ.
+        const float w[3] = {mtx.m[3][0], mtx.m[3][1], mtx.m[3][2]};
+        if (prop_point_set_world(st.scene, (uint32_t)gz, st.pe_name, w, nullptr)) {
+          std::memcpy(st.pe_drag_world, w, sizeof w);
+          st.pe_drag_writes++;
+        }
+      } else if (changed) {
         // Gizmo DUNYA uzayinda calisir, varligin alanlari YERELDIR: ebeveynli bir
         // varlikta dunya matrisini dogrudan yazmak konumu ebeveynin katina cikarirdi.
         entity_from_matrix(e, content::scene_world_to_local_matrix(st.scene, (uint32_t)gz, mtx));
         // Grup: ana secilinin KONUM deltasi digerlerine (dondur/olcek ana varlikta kalir).
-        const Vec3 delta = e.pos - st.edit_before.pos;
+        // Taban ana secilinin SURUKLEME BASINDAKI kopyasi (drag_before) — edit_before
+        // DEGIL: denetci gizmodan once cizilir ve widget etkin degilken her kare
+        // edit_before'u simdiki varlikla yeniler (track_edit). Taban o olunca delta
+        // yalniz SON karenin artimiydi; yan varliklar geride kalip birakista
+        // baslangica donuyordu ve gunluge yalniz ana secili giriyordu (Tuzaklar 8ck,
+        // olculdu 2026-09-25: nokta surukleme kapisinin KONTROLU, yan sapma 0.53 m).
+        Vec3 base = e.pos;
+        for (uint32_t k = 0; k < st.drag_count; k++)
+          if (st.drag_items[k] == gz) base = st.drag_before[k].pos;
+        const Vec3 delta = e.pos - base;
         for (uint32_t k = 0; k < st.drag_count; k++) {
           const int32_t i = st.drag_items[k];
           if (i == gz || i < 0 || i >= (int32_t)st.scene.entity_count) continue;
@@ -6952,7 +7213,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
       bool gizmo_just_finished = false;
-      if (!using_now && st.gizmo_was_using) { // surukleme sonu: gunluge TEK grup
+      if (!using_now && st.gizmo_was_using && st.pe_drag) { // nokta suruklemesi sonu: gunluge TEK islem
+        finish_point_drag();
+        gizmo_just_finished = true;
+      } else if (!using_now && st.gizmo_was_using) { // surukleme sonu: gunluge TEK grup
         for (uint32_t k = 0; k < st.drag_count; k++) st.drag_after[k] = st.scene.entities[st.drag_items[k]];
         const uint32_t ops = selection_commit(st.scene, st.hist, st.drag_items, st.drag_count, st.drag_before, st.drag_after);
         if (ops) {
@@ -6969,6 +7233,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // Eger gizmo bu kare bittiyse, box_done degeri marquee secimini tetiklememeli.
       if (gizmo_just_finished) st.gizmo_was_over = true; // Secimi yutmasi icin kucuk bir hile
     } else {
+      finish_point_drag(); // gizmo bu kare yok (sekme/kilit/secim): yarim nokta suruklemesi gunlugesiz kalmasin
       st.gizmo_was_using = false;
       st.gizmo_was_over = false;
     }
@@ -6988,6 +7253,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // bu da "tiklayinca hemen kapaniyor / secim tutmuyor" sikayetinin sebebiydi.
       const float psc = ui.pointer_scale();
       const ViewportPick pick = in ? vp.map_mouse(view_rect, (float)in->mouse_x * psc, (float)in->mouse_y * psc) : ViewportPick{};
+      char pe_pick_name[content::kScenePropNameLen] = {0}; // tiklanan nokta isareti (E6)
       // Gizmo kullaniliyorsa (veya az once birakildiysa) marquee secimi iptal.
       const bool gizmo_active_or_just_finished = ImGuizmo::IsUsing() || st.gizmo_was_over;
 
@@ -7006,6 +7272,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           if (!st.sel.contains(ent)) st.sel.toggle(ent);
         }
         set_status(st, "kutu secim: %u varlik", st.sel.count);
+      } else if (view_tab == ViewportTab::Scene && pressed && pick.valid && view_hovered && !ovres.consumed_mouse && !ImGuizmo::IsUsing() &&
+                 !ImGuizmo::IsOver() && !st.terrain_brush.active && !st.playing && st.sel.primary() >= 0 &&
+                 prop_marker_pick(st, (uint32_t)st.sel.primary(), proj * view, view_rect, (float)in->mouse_x * psc, (float)in->mouse_y * psc,
+                                  frame_i, pe_pick_name, sizeof pe_pick_name)) {
+        // Nokta isareti (E6): varlik seciminden ONCE, ekran uzayinda. Isinla
+        // AABB secimi isareti hic bilmez — isaret varligin sinirinin disinda
+        // kalir ve tik arkadaki zemini secerdi. Cizimle ayni izdusum ve ayni
+        // aday kurali (yetim / kilitli / konumu bilinmeyen aday degil). Secim
+        // DEGISMEZ: kip ana secilinin noktasidir. Ayni noktaya ikinci tik kipte kalir.
+        if (!(st.pe_entity == st.sel.primary() && !std::strcmp(st.pe_name, pe_pick_name)))
+          prop_edit_enter(st, st.sel.primary(), pe_pick_name, frame_i);
       } else if (view_tab == ViewportTab::Scene && pressed && pick.valid && view_hovered && !ovres.consumed_mouse && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !st.terrain_brush.active) {
         static content::SceneBounds wb[content::kSceneMaxEntities];
         static int32_t wmap[content::kSceneMaxEntities];
@@ -7720,6 +7997,317 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           if (rhi::write_ppm(kare, ores.pixels, oc.width, oc.height)) std::printf("[engine_editor]   kapinin karesi: %s\n", kare);
         }
         pk_ent = -1;
+        if (!ok) return 1;
+      }
+    }
+    // --- E6 NOKTA DUZENLEME KAPILARI ---------------------------------------------
+    // Ortak kurulum: aday (prop_edit_gate_candidate) secilir, kamera varlik ile
+    // noktanin ORTASINA bakar ve bakis ikisini birlestiren dogruya DIK (yatayda)
+    // cevrilir — varligin gizmosu ile noktanin isareti ekranda ayri dursun
+    // (ust uste binerlerse tik gizmoya gider ve kapi isareti degil gizmoyu olcer).
+    auto pe_kapi_kamera = [&](int32_t ent, const char *name) {
+      float l[3] = {0, 0, 0}, p[3];
+      prop_edit_point(st, ent, name, frame_i, l, nullptr);
+      content::scene_prop_point_world(st.scene, (uint32_t)ent, l, p);
+      const Mat4 wm = content::scene_entity_world_matrix(st.scene, (uint32_t)ent);
+      const Vec3 o{wm.m[3][0], wm.m[3][1], wm.m[3][2]}, pp{p[0], p[1], p[2]};
+      const Vec3 dv = pp - o;
+      const float hl = std::sqrt(dv.x * dv.x + dv.z * dv.z);
+      cam.mode = CameraMode::Orbit;
+      cam.proj = CameraProjection::Perspective;
+      cam.target = (o + pp) * 0.5f;
+      cam.yaw = hl > 1e-3f ? std::atan2(-dv.z, dv.x) : 0.6f; // orbit_dir yatayi (sin, cos) . (dx, dz) = 0
+      cam.pitch = 0.35f;
+      const float r = 2.5f * length(dv);
+      cam.radius = r > 6.0f ? r : 6.0f;
+    };
+    // Verilen matrislerle noktanin (local != nullptr) ya da varligin ekran pikseli.
+    auto pe_kapi_piksel = [&](const Mat4 &vpm, int32_t ent, const float *local, float *sx, float *sy) {
+      float w[3];
+      if (local) {
+        content::scene_prop_point_world(st.scene, (uint32_t)ent, local, w);
+      } else {
+        const Mat4 wm = content::scene_entity_world_matrix(st.scene, (uint32_t)ent);
+        w[0] = wm.m[3][0]; w[1] = wm.m[3][1]; w[2] = wm.m[3][2];
+      }
+      ImVec2 sp;
+      const bool ok = project_to_view(vpm, view_rect, w, &sp);
+      *sx = sp.x;
+      *sy = sp.y;
+      return ok && sp.x > view_rect.x && sp.y > view_rect.y && sp.x < view_rect.x + view_rect.w && sp.y < view_rect.y + view_rect.h;
+    };
+    // --- NOKTA ISARETI TIKLAMA KAPISI (E6, kare 34-39, >= 40 kare) --------------
+    // Olculen: gorunumde isaretin eskenar dortgenine sentetik TIK (uzerine gel ->
+    // bas -> birak; gizmo surukleme kapisiyla AYNI girdi yolu, g_synth) kipi O
+    // nokta icin ACAR ve secimi DEGISTIRMEZ (tik varlik secimine dusmedi).
+    // POZITIF KONTROL: ayni piksele ayni tik varlik KILITLIYKEN kipi ACMAZ —
+    // kapi "her tik kipi acar"i degil isaret kuralini olcuyor. Durdur kapisi
+    // (20-33) oynatmayi acik birakiyor; burada kapatilir. Hepsi geri alinir.
+    if (headless && opts.headless_frames >= 40 && frame_i >= 34 && frame_i <= 39 && st.scene.entity_count && view_rect.w > 0) {
+      static int32_t tk_ent = -1, tk_sel0 = -1, tk_sel_a = -1;
+      static char tk_name[content::kScenePropNameLen];
+      static uint32_t tk_ops = 0, tk_selc_a = 0, tk_flags0 = 0;
+      static bool tk_fix = false, tk_stats = true, tk_on_a = false, tk_px_ok = false, tk_over = false;
+      static float tk_px = 0, tk_py = 0;
+      static EditorCamera tk_cam;
+      static char tk_txt0[65536], tk_txt1[65536];
+      static size_t tk_n0 = 0;
+      if (frame_i == 34) {
+        if (st.playing) set_playing(false);
+        view_tab = ViewportTab::Scene;
+        prop_edit_exit(st, "kapi");
+        tk_sel0 = st.sel.primary();
+        tk_n0 = content::scene_write(st.scene, tk_txt0, sizeof tk_txt0);
+        tk_ent = prop_edit_gate_candidate(st, frame_i, tk_name, sizeof tk_name, &tk_ops, &tk_fix);
+        if (tk_ent < 0) {
+          std::printf("[engine_editor] nokta isaret tiklama kapisi: HATA — suruklenebilir nokta yok ve fikstur (muhafiz.tpr devriye_a) kurulamadi\n");
+          return 1;
+        }
+        tk_cam = cam;
+        tk_stats = show_stats;
+        show_stats = false; // istatistik kaplamasi gorunumun sag ustunu ortuyor (E5 kapisindaki olcum)
+        pe_kapi_kamera(tk_ent, tk_name);
+        st.sel.set_single(tk_ent);
+        g_synth.mouse_down[0] = false;
+      } else if (tk_ent < 0) {
+        // kurulamadi (yukarida dondu)
+      } else if (frame_i == 35) {
+        float l[3];
+        prop_edit_point(st, tk_ent, tk_name, frame_i, l, nullptr);
+        tk_px_ok = pe_kapi_piksel(proj * view, tk_ent, l, &tk_px, &tk_py); // 35. kare yeni kamerayla cizildi
+        g_synth.mouse_x = tk_px; g_synth.mouse_y = tk_py; // isaretin uzerine GEL
+      } else if (frame_i == 36) {
+        tk_over = st.gizmo_was_over; // teshis: isaret varligin gizmosunun altinda mi
+        g_synth.mouse_down[0] = true; // tik (37. kare)
+      } else if (frame_i == 37) {
+        tk_on_a = st.pe_entity == tk_ent && !std::strcmp(st.pe_name, tk_name);
+        tk_sel_a = st.sel.primary();
+        tk_selc_a = st.sel.count;
+        g_synth.mouse_down[0] = false;
+        prop_edit_exit(st, "kapi");
+        // KONTROL: kilit (bayrak dogrudan — gunluge girmez, 39'da geri konur).
+        tk_flags0 = st.scene.entities[tk_ent].flags;
+        st.scene.entities[tk_ent].flags |= content::kSceneLocked;
+      } else if (frame_i == 38) {
+        g_synth.mouse_down[0] = true; // ayni piksel, ayni tik (39. kare)
+      } else if (frame_i == 39) {
+        const bool on_b = prop_edit_active(st);
+        g_synth.mouse_down[0] = false;
+        st.scene.entities[tk_ent].flags = tk_flags0;
+        prop_edit_exit(st, "kapi");
+        for (uint32_t k = 0; k < tk_ops; k++) do_undo();
+        const size_t n1 = content::scene_write(st.scene, tk_txt1, sizeof tk_txt1);
+        const bool geri = tk_n0 < sizeof tk_txt0 && n1 == tk_n0 && std::strcmp(tk_txt0, tk_txt1) == 0;
+        cam = tk_cam;
+        show_stats = tk_stats;
+        if (tk_sel0 >= 0 && tk_sel0 < (int32_t)st.scene.entity_count) st.sel.set_single(tk_sel0);
+        else st.sel.clear();
+        st.dirty = false;
+        const bool sel_ok = tk_sel_a == tk_ent && tk_selc_a == 1;
+        const bool ok = tk_px_ok && tk_on_a && sel_ok && !on_b && geri;
+        std::printf("[engine_editor] nokta isaret tiklama kapisi: \"%s\".%s%s piksel (%.0f,%.0f)%s -> kip acildi %s, secim ayni %s; "
+                    "KONTROL kilitliyken ayni tik kipi acmadi %s; geri al baslangic baytlari %s %s\n",
+                    st.scene.entities[tk_ent].name, tk_name, tk_fix ? " (fikstur)" : "", (double)tk_px, (double)tk_py,
+                    tk_px_ok ? "" : " GORUNUM DISI", tk_on_a ? "evet" : "HAYIR", sel_ok ? "evet" : "HAYIR", !on_b ? "evet" : "HAYIR",
+                    geri ? "evet" : "HAYIR", ok ? "OK" : "HATA");
+        if (!ok && tk_over)
+          std::printf("[engine_editor]   isaret pikseli varligin gizmosunun ustunde (ImGuizmo over): tik gizmoya gitti\n");
+        tk_ent = -1;
+        if (!ok) return 1;
+      }
+    }
+    // --- NOKTA SURUKLEME KAPISI (E6, kare 51-59, >= 60 kare) ---------------------
+    // Olculen, ayni aday ve AYNI kamerada, gizmo surukleme kapisinin (10-17)
+    // sentetik girdisiyle (gizmonun merkezine gel -> bas -> (+60,+25) -> birak):
+    //   KONTROL (52-55): kip KAPALIYKEN surukleme VARLIGI tasir, noktanin YEREL
+    //     degeri bit-tam ayni kalir — yani girdi gizmoya ulasiyor ve asagidaki
+    //     farki yaratan KIP. Secimde ikinci ("yan", akrabasi olmayan) bir varlik
+    //     da var: grup suruklemesi onu ANA SECILIYLE AYNI delta kadar tasimali
+    //     (Tuzaklar 8ck: delta her kare yenilenen edit_before'dan alininca yan
+    //     varlik yalniz SON karenin artimini aliyordu), gunluge 2 islem / 1 grup.
+    //   KIP (55-59, ✥ ile ayni giris yolu prop_edit_enter): ayni surukleme
+    //     yalniz NOKTAYI tasir: varligin donusumu (ve noktadan baska HER alani)
+    //     degismez; yerel deger, gizmonun verdigi dunya deltasinin varligin
+    //     dunya donusunun TERSIYLE cevrilmis hali kadar degisir (beklenen deger
+    //     BAGIMSIZ yoldan: kuaterniyon zinciri degil dunya MATRISININ normlanmis
+    //     sutunlari); point_world(yeni yerel) gizmonun konumuna oturur; gunluge
+    //     TAM 1 islem (grup derinligi +1); geri al sahne baytlarini geri getirir.
+    //     Coklu secim: yalniz ANA secilinin noktasi — yan varlik bit-tam ayni.
+    // Fikstur adayda (ustune yazma yok) surukleme ustune yazmayi YARATIR.
+    if (headless && opts.headless_frames >= 60 && frame_i >= 51 && frame_i <= 59 && st.scene.entity_count && view_rect.w > 0) {
+      static int32_t sg_ent = -1, sg_sel0 = -1, sg_yan = -1;
+      static char sg_name[content::kScenePropNameLen];
+      static uint32_t sg_ops = 0, sg_undo0 = 0, sg_undo1 = 0, sg_depth0 = 0, sg_depth1 = 0, sg_ctrl_ops = 0, sg_ctrl_groups = 0;
+      static float sg_ctrl_yan_err = 0;
+      static SceneEntity sg_yan0;
+      static bool sg_fix = false, sg_stats = true, sg_ov0 = false, sg_ctrl_moved = false, sg_ctrl_same = false, sg_ctrl_back = false,
+                  sg_entered = false, sg_px_ok = false;
+      static float sg_px = 0, sg_py = 0, sg_l0[3], sg_w0[3], sg_ctrl_d = 0;
+      static SceneEntity sg_e0;
+      static EditorCamera sg_cam;
+      static char sg_pre[65536], sg_mid[65536], sg_tmp[65536];
+      static size_t sg_npre = 0, sg_nmid = 0;
+      if (frame_i == 51) {
+        if (st.playing) set_playing(false); // gomulu oynatma kapisinin artigi
+        view_tab = ViewportTab::Scene;
+        gizmo_op = 0; // TASI (kontrol suruklemesi varligi tasisin)
+        prop_edit_exit(st, "kapi");
+        sg_sel0 = st.sel.primary();
+        sg_npre = content::scene_write(st.scene, sg_pre, sizeof sg_pre);
+        sg_ent = prop_edit_gate_candidate(st, frame_i, sg_name, sizeof sg_name, &sg_ops, &sg_fix);
+        if (sg_ent < 0) {
+          std::printf("[engine_editor] nokta surukleme kapisi: HATA — suruklenebilir nokta yok ve fikstur (muhafiz.tpr devriye_a) kurulamadi\n");
+          return 1;
+        }
+        sg_nmid = content::scene_write(st.scene, sg_mid, sizeof sg_mid); // fiksturden sonra, suruklemelerden once
+        sg_cam = cam;
+        sg_stats = show_stats;
+        show_stats = false;
+        pe_kapi_kamera(sg_ent, sg_name);
+        st.sel.set_single(sg_ent);
+        // Yan varlik: kilitsiz, gizli degil ve adayla AKRABA degil (ebeveynini
+        // grup halinde tasimak cocugu iki kez tasirdi — o baska bir sozlesme).
+        sg_yan = -1;
+        for (uint32_t i = 0; i < st.scene.entity_count && sg_yan < 0; i++) {
+          if ((int32_t)i == sg_ent || (st.scene.entities[i].flags & (content::kSceneLocked | content::kSceneHidden))) continue;
+          bool akraba = false;
+          for (int32_t a = st.scene.entities[sg_ent].parent, g = 0; a >= 0 && g < 64; a = st.scene.entities[a].parent, g++)
+            if (a == (int32_t)i) akraba = true;
+          for (int32_t a = st.scene.entities[i].parent, g = 0; a >= 0 && g < 64; a = st.scene.entities[a].parent, g++)
+            if (a == sg_ent) akraba = true;
+          if (!akraba) sg_yan = (int32_t)i;
+        }
+        if (sg_yan >= 0) { // toggle en son ekleneni ANA secili yapar: once yan, sonra aday
+          st.sel.set_single(sg_yan);
+          st.sel.toggle(sg_ent);
+        }
+        // 52. karenin matrisleri kameradan BIRE BIR (girdisiz karede camera_update
+        // kamerayi degistirmez): varligin pikseli simdiden bilinir, 52 uzerine gelme karesi olur.
+        const Mat4 vpm = camera_projection(cam, vp.aspect(), 0.1f, 200.0f) * camera_view(cam);
+        sg_px_ok = pe_kapi_piksel(vpm, sg_ent, nullptr, &sg_px, &sg_py);
+        g_synth.mouse_x = sg_px; g_synth.mouse_y = sg_py; g_synth.mouse_down[0] = false;
+      } else if (sg_ent < 0) {
+        // kurulamadi
+      } else if (frame_i == 52) {
+        float ax, ay; // tahmin bu karenin GERCEK matrisiyle ayni mi (degilse duzelt, soyle)
+        sg_px_ok = pe_kapi_piksel(proj * view, sg_ent, nullptr, &ax, &ay) && sg_px_ok;
+        if (std::fabs(ax - sg_px) > 0.5f || std::fabs(ay - sg_py) > 0.5f) {
+          std::printf("[engine_editor]   nokta surukleme kapisi: piksel tahmini (%.1f,%.1f) != gercek (%.1f,%.1f); duzeltildi\n", (double)sg_px,
+                      (double)sg_py, (double)ax, (double)ay);
+          sg_px = ax; sg_py = ay;
+          g_synth.mouse_x = sg_px; g_synth.mouse_y = sg_py;
+        }
+        sg_e0 = st.scene.entities[sg_ent];
+        if (sg_yan >= 0) sg_yan0 = st.scene.entities[sg_yan];
+        prop_edit_point(st, sg_ent, sg_name, frame_i, sg_l0, &sg_ov0);
+        sg_undo0 = st.hist.undo_count();
+        sg_depth0 = st.groups.depth();
+        g_synth.mouse_down[0] = true; // KONTROL: kip kapali, varligin gizmosunu bas (53)
+      } else if (frame_i == 53) {
+        g_synth.mouse_x = sg_px + 60.0f; g_synth.mouse_y = sg_py + 25.0f;
+      } else if (frame_i == 54) {
+        g_synth.mouse_down[0] = false; // birak (55): gunluge
+      } else if (frame_i == 55) {
+        const SceneEntity &x = st.scene.entities[sg_ent];
+        const Vec3 d = x.pos - sg_e0.pos;
+        sg_ctrl_d = length(d);
+        sg_ctrl_moved = sg_ctrl_d > 1e-4f;
+        float l[3] = {0, 0, 0};
+        bool ov = false;
+        prop_edit_point(st, sg_ent, sg_name, frame_i, l, &ov);
+        sg_ctrl_same = ov == sg_ov0 && !std::memcmp(l, sg_l0, sizeof l);
+        sg_ctrl_ops = st.hist.undo_count() - sg_undo0;
+        sg_ctrl_groups = st.groups.depth() - sg_depth0;
+        sg_ctrl_yan_err = 0;
+        if (sg_yan >= 0) sg_ctrl_yan_err = length((st.scene.entities[sg_yan].pos - sg_yan0.pos) - d); // yan AYNI delta
+        do_undo();
+        const size_t n = content::scene_write(st.scene, sg_tmp, sizeof sg_tmp);
+        sg_ctrl_back = n == sg_nmid && std::strcmp(sg_tmp, sg_mid) == 0;
+        // KIP: denetcideki ✥ ile AYNI giris yolu.
+        sg_entered = prop_edit_enter(st, sg_ent, sg_name, frame_i);
+        sg_e0 = st.scene.entities[sg_ent];
+        if (sg_yan >= 0) sg_yan0 = st.scene.entities[sg_yan];
+        prop_edit_point(st, sg_ent, sg_name, frame_i, sg_l0, &sg_ov0);
+        content::scene_prop_point_world(st.scene, (uint32_t)sg_ent, sg_l0, sg_w0);
+        sg_undo1 = st.hist.undo_count();
+        sg_depth1 = st.groups.depth();
+        sg_px_ok = pe_kapi_piksel(proj * view, sg_ent, sg_l0, &sg_px, &sg_py) && sg_px_ok; // kamera ayni
+        g_synth.mouse_x = sg_px; g_synth.mouse_y = sg_py; g_synth.mouse_down[0] = false; // noktanin gizmosuna GEL (56)
+      } else if (frame_i == 56) {
+        g_synth.mouse_down[0] = true; // bas (57)
+      } else if (frame_i == 57) {
+        g_synth.mouse_x = sg_px + 60.0f; g_synth.mouse_y = sg_py + 25.0f; // tasi (58)
+      } else if (frame_i == 58) {
+        g_synth.mouse_down[0] = false; // birak (59): gunluge TEK islem
+      } else if (frame_i == 59) {
+        const SceneEntity &x = st.scene.entities[sg_ent];
+        const bool still = prop_edit_active(st) && st.pe_entity == sg_ent;
+        const uint32_t ops = st.hist.undo_count() - sg_undo1, groups = st.groups.depth() - sg_depth1;
+        // Donusum degismedi: pos/donus/olcek/ebeveyn bit-tam.
+        const bool tf_same = !std::memcmp(&x.pos, &sg_e0.pos, sizeof x.pos) && !std::memcmp(&x.rot_deg, &sg_e0.rot_deg, sizeof x.rot_deg) &&
+                             !std::memcmp(&x.scale, &sg_e0.scale, sizeof x.scale) && x.parent == sg_e0.parent;
+        // Noktadan BASKA hicbir alan degismedi: noktayi eski haline cevirince varlik bit-tam ayni.
+        SceneEntity back = x;
+        if (sg_ov0) content::scene_prop_set(back, sg_name, content::kScenePropNokta, sg_l0);
+        else content::scene_prop_remove(back, sg_name);
+        const bool only_point = content::scene_entity_equal(back, sg_e0);
+        const content::SceneProp *np = content::scene_prop_find(x, sg_name);
+        const bool has = np && np->type == content::kScenePropNokta;
+        float l1[3] = {0, 0, 0};
+        if (has) { l1[0] = np->v[0]; l1[1] = np->v[1]; l1[2] = np->v[2]; }
+        // Beklenen yerel: eski + R^T (dunya deltasi); R dunya MATRISININ normlanmis
+        // sutunlari (kuaterniyon zincirinden bagimsiz yol; egik olmayan zincirde ayni donus).
+        const Mat4 wm = content::scene_entity_world_matrix(st.scene, (uint32_t)sg_ent);
+        Vec3 c[3];
+        for (int k = 0; k < 3; k++) c[k] = normalize(Vec3{wm.m[k][0], wm.m[k][1], wm.m[k][2]});
+        const Vec3 dw{st.pe_drag_world[0] - sg_w0[0], st.pe_drag_world[1] - sg_w0[1], st.pe_drag_world[2] - sg_w0[2]};
+        const float bek[3] = {sg_l0[0] + dot(c[0], dw), sg_l0[1] + dot(c[1], dw), sg_l0[2] + dot(c[2], dw)};
+        float hata_bek = 0, hata_w = 0, dl = 0;
+        float w1[3];
+        content::scene_prop_point_world(st.scene, (uint32_t)sg_ent, l1, w1);
+        for (int k = 0; k < 3; k++) {
+          hata_bek = std::fabs(l1[k] - bek[k]) > hata_bek ? std::fabs(l1[k] - bek[k]) : hata_bek;
+          hata_w = std::fabs(w1[k] - st.pe_drag_world[k]) > hata_w ? std::fabs(w1[k] - st.pe_drag_world[k]) : hata_w;
+          dl += (l1[k] - sg_l0[k]) * (l1[k] - sg_l0[k]);
+        }
+        dl = std::sqrt(dl);
+        const bool moved = has && dl > 1e-3f && st.pe_drag_writes > 0;
+        const bool yan_same = sg_yan < 0 || content::scene_entity_equal(st.scene.entities[sg_yan], sg_yan0);
+        do_undo();
+        const size_t n = content::scene_write(st.scene, sg_tmp, sizeof sg_tmp);
+        const bool geri_nokta = n == sg_nmid && std::strcmp(sg_tmp, sg_mid) == 0;
+        prop_edit_exit(st, "kapi");
+        for (uint32_t k = 0; k < sg_ops; k++) do_undo();
+        const size_t n2 = content::scene_write(st.scene, sg_tmp, sizeof sg_tmp);
+        const bool geri = sg_npre < sizeof sg_pre && n2 == sg_npre && std::strcmp(sg_tmp, sg_pre) == 0;
+        cam = sg_cam;
+        show_stats = sg_stats;
+        if (sg_sel0 >= 0 && sg_sel0 < (int32_t)st.scene.entity_count) st.sel.set_single(sg_sel0);
+        else st.sel.clear();
+        st.dirty = false;
+        const uint32_t ctrl_ops_bek = sg_yan >= 0 ? 2u : 1u;
+        const bool ctrl_ok = sg_ctrl_moved && sg_ctrl_same && sg_ctrl_ops == ctrl_ops_bek && sg_ctrl_groups == 1 && sg_ctrl_yan_err < 1e-5f &&
+                             sg_ctrl_back;
+        const bool ok = sg_px_ok && ctrl_ok && sg_entered && still && moved && tf_same && only_point && yan_same && hata_bek < 1e-3f &&
+                        hata_w < 1e-4f && ops == 1 && groups == 1 && geri_nokta && geri;
+        std::printf("[engine_editor] nokta surukleme kapisi: \"%s\".%s%s (%s) yerel (%.3f %.3f %.3f) -> (%.3f %.3f %.3f) |d|=%.3f, "
+                    "gizmo dunya deltasi (%.3f %.3f %.3f); beklenen yerelden sapma %.1e (<1e-3) %s, dunyaya oturma %.1e (<1e-4) %s, "
+                    "donusum ayni %s, noktadan baska alan ayni %s, yan \"%s\" ayni %s, gunluk %u islem / %u grup (1) %s, kip suruyor %s, "
+                    "geri al -> baytlar %s; KONTROL kip kapaliyken varlik |d|=%.3f tasindi %s, nokta yereli ayni %s, yan ayni deltayla %s "
+                    "(sapma %.1e), %u islem / %u grup (%u/1) %s, geri al %s; fikstur geri %s %s\n",
+                    st.scene.entities[sg_ent].name, sg_name, sg_fix ? " (fikstur)" : "", sg_ov0 ? "ustune yazma" : "varsayilandan",
+                    (double)sg_l0[0], (double)sg_l0[1], (double)sg_l0[2], (double)l1[0], (double)l1[1], (double)l1[2], (double)dl, (double)dw.x,
+                    (double)dw.y, (double)dw.z, (double)hata_bek, hata_bek < 1e-3f ? "evet" : "HAYIR", (double)hata_w,
+                    hata_w < 1e-4f ? "evet" : "HAYIR", tf_same ? "evet" : "HAYIR", only_point ? "evet" : "HAYIR",
+                    sg_yan >= 0 ? st.scene.entities[sg_yan].name : "-", yan_same ? "evet" : "HAYIR", ops, groups,
+                    (ops == 1 && groups == 1) ? "evet" : "HAYIR", still ? "evet" : "HAYIR", geri_nokta ? "evet" : "HAYIR", (double)sg_ctrl_d,
+                    sg_ctrl_moved ? "evet" : "HAYIR", sg_ctrl_same ? "evet" : "HAYIR", sg_ctrl_yan_err < 1e-5f ? "evet" : "HAYIR",
+                    (double)sg_ctrl_yan_err, sg_ctrl_ops, sg_ctrl_groups, ctrl_ops_bek,
+                    (sg_ctrl_ops == ctrl_ops_bek && sg_ctrl_groups == 1) ? "evet" : "HAYIR", sg_ctrl_back ? "evet" : "HAYIR",
+                    geri ? "evet" : "HAYIR", ok ? "OK" : "HATA");
+        if (!ok && !sg_px_ok) std::printf("[engine_editor]   varlik ya da nokta gorunum DISINDA kaldi (kamera kurulumu)\n");
+        if (!ok && !sg_entered) std::printf("[engine_editor]   kip ACILMADI (durum cubugu: %s)\n", st.status);
+        sg_ent = -1;
         if (!ok) return 1;
       }
     }

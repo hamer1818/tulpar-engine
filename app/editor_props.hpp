@@ -111,6 +111,55 @@ struct PropMarker {
 uint32_t prop_marker_points(const content::SceneDesc &s, uint32_t ent, const PropDecl *d, uint32_t n, bool scanned, PropMarker *out,
                             uint32_t cap);
 
+// --- Nokta duzenleme kipi (E6) -------------------------------------------------
+// Denetcideki ✥ ya da gorunumde bir isaretin eskenar dortgeni, secili varligin
+// BIR noktasini kipe alir: editorun TEK gizmosu varligin yerine noktanin DUNYA
+// konumunda durur (yalniz tasima), her surukleme karesi yerel ofsete geri
+// cevrilir (content::scene_prop_point_local, point_world'un tersi) ve
+// birakinca gunluge TEK islem girer. Kural denetci satiriyla AYNI:
+// suruklenebilir nokta = denetcide DUZENLENEBILIR nokta satiri. Kip durumu ve
+// gizmo tesisati editor_app'te; buradakiler saf (ImGui yok) ve test_editor_props
+// olcuyor.
+enum class PropEditState : uint8_t {
+  Ok = 0,
+  NoEntity,    // indeks gecersiz / ad bos
+  Locked,      // varlik kilitli (kSceneLocked): gizmo gibi nokta da degismez
+  NotScanned,  // betik yok / taranamadi: bildirim bilinmiyor (satirlar salt okunur)
+  NotDeclared, // betik bu adi `nokta` olarak okumuyor (yetim, tur farkli ya da hic yok)
+  NoPosition,  // varsayilan kodda hesaplaniyor, ustune yazma yok: konum bilinmiyor
+  Full,        // nokta varsayilanda ve varlikta 16 ozellik dolu: ustune yazma yaratilamaz
+};
+const char *prop_edit_state_text(PropEditState s);
+// `name` noktasi bu varlikta suruklenebilir mi. Ok ise out_local = su anki
+// yerel deger (ustune yazma, yoksa betigin varsayilani) ve *is_override.
+// out_local / is_override nullptr olabilir.
+PropEditState prop_edit_state_entity(const content::SceneEntity &e, const char *name, const PropDecl *d, uint32_t n, bool scanned,
+                                     float out_local[3], bool *is_override);
+// Ayni kural, sahne indeksiyle (gecersiz indeks: NoEntity).
+PropEditState prop_edit_state(const content::SceneDesc &s, int32_t ent, const char *name, const PropDecl *d, uint32_t n, bool scanned,
+                              float out_local[3], bool *is_override);
+
+// Surukleme karesi: dunya konumunu yerel ofsete cevirip `name`e yazar (ustune
+// yazma yoksa YARATIR — varsayilandan surukleme). false: indeks gecersiz ya da
+// scene_prop_set reddetti (tavan dolu, sonlu olmayan deger); varlik DEGISMEZ.
+// out_local nullptr olabilir. Ebeveyn zinciri ve olcek kurali point_local'in.
+bool prop_point_set_world(content::SceneDesc &s, uint32_t ent, const char *name, const float world[3], float out_local[3]);
+
+// Gorunumde isaret secimi (ekran uzayi). Eskenar dortgen bir L1 topudur:
+// |dx| + |dy| <= r tam olarak cizilen sekildir. Aday: visible && editable.
+// Birden cok aday: EN YAKINI; esitlikte SONRA cizilen (ustte gorunen).
+// Donus: indeks, yoksa -1.
+struct PropMarkerScreen {
+  float x = 0, y = 0;     // ekran konumu (gorunum paneli dahil, ImGui uzayi)
+  bool visible = false;   // kameranin onunde (izdusum gecerli)
+  bool editable = false;  // prop_edit_state == Ok
+};
+// Isabet yaricapi: buyuk isaretin yaricapi (6 px, editor_app kPropMarkerR) +
+// 3 px pay. Kucuk (varsayilan) isaret de ayni payla tutulur: 4.5 px'lik bir
+// hedefe tiklamak imlecle zor.
+constexpr float kPropMarkerHitR = 9.0f;
+int32_t prop_marker_hit(const PropMarkerScreen *m, uint32_t n, float mx, float my, float r);
+
 // --- Onbellek ---------------------------------------------------------------
 // Bir betik kac bildirim tasiyabilir: 32. Varlik basina ozellik tavani 16
 // (kSceneMaxProps); betik 16'dan fazlasini BILDIREBILIR (hepsine ayni anda
@@ -184,6 +233,7 @@ struct PropsPanelInput {
   const PropScanResult *scan = nullptr; // nullptr: betik TARANAMADI (note sebebi soyler)
   const char *note = nullptr;           // taranamadiysa gorunur sebep ("betik dosyasi yok: ...")
   bool has_script = true;               // false: betik bileseni yok, ozellikler HAM gosterilir
+  const char *point_edit = nullptr;     // E6: kipteki nokta (bu varligin); ✥ basili cizilir. nullptr = kip kapali
 };
 struct PropsPanelResult {
   bool commit = false;          // ayrik eylem: `after` yeni varlik
@@ -191,6 +241,13 @@ struct PropsPanelResult {
   uint32_t rows_overridden = 0; // bunlarin ustune yazilmis olani
   uint32_t rows_orphan = 0;     // cizilen yetim / ham satir
   bool diagnostics = false;     // tarama sorunu satiri cizildi
+  // E6: bir nokta satirinin ✥ dugmesine basildi — kip bu ad icin ac/kapa
+  // (karari editor verir; panel yalniz niyet dondurur).
+  bool point_toggle = false;
+  char point_name[content::kScenePropNameLen] = {0};
+  uint32_t point_buttons = 0;   // cizilen ✥ (nokta satiri) — kapali olanlar dahil
+  uint32_t point_enabled = 0;   // bunlarin tiklanabilir olani (prop_edit_state Ok)
+  WidgetRect point_rect;        // son cizilen ✥ (kapilar tiklar)
 };
 PropsPanelResult props_panel(content::SceneEntity &e, content::SceneEntity &after, const PropsPanelInput &in,
                              void (*on_item)(void *user, const PropItem &it), void *user);

@@ -1274,6 +1274,21 @@ void scene_prop_point_world(const SceneDesc &d, uint32_t i, const float local[3]
   out[2] = wm.m[3][2] + r.z;
 }
 
+void scene_prop_point_local(const SceneDesc &d, uint32_t i, const float world[3], float out_local[3]) {
+  if (i >= d.entity_count) { out_local[0] = world[0]; out_local[1] = world[1]; out_local[2] = world[2]; return; }
+  // point_world'un adimlari ters sirada: once dunya konumunu cikar, sonra
+  // dunya donusunun TERSI (birim kuaterniyon: eslenik) ile dondur. Ebeveyn
+  // zinciri iki yolda da AYNI fonksiyonlardan gelir (matris sutunu + donus
+  // zinciri); birini "kendi donusu" ile kisaltmak cocuk varlikta noktayi
+  // ebeveynin donusu kadar kaydirirdi (test_scene pozitif kontrolu).
+  const Mat4 wm = scene_entity_world_matrix(d, i);
+  const Vec3 rel{world[0] - wm.m[3][0], world[1] - wm.m[3][1], world[2] - wm.m[3][2]};
+  const Vec3 l = rotate(conjugate(scene_entity_world_rotation(d, i)), rel);
+  out_local[0] = l.x;
+  out_local[1] = l.y;
+  out_local[2] = l.z;
+}
+
 uint32_t scene_tree_order(const SceneDesc &d, int32_t *out, uint32_t cap) {
   // Acik yigin: her seviyede "su ana kadar taranan varlik indeksi". Sira
   // BELIRLENIMLI: kokler indeks sirasinda, cocuklar indeks sirasinda.

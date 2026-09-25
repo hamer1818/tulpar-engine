@@ -417,6 +417,12 @@ Vec3 scene_entity_world_scale(const SceneDesc &d, uint32_t i);
 // DONER ve TASINIR (ebeveyn zinciri dahil), yani prefab/kopya baska yere
 // konunca noktalari da onunla gider. Gecersiz indeks: out = local.
 void scene_prop_point_world(const SceneDesc &d, uint32_t i, const float local[3], float out[3]);
+// scene_prop_point_world'un TERSI (E6, editorde noktayi gorunumde surukleme):
+// yerel = ters(dunya donusu) x (dunya - varligin dunya konumu). Ayni iki
+// kaynak (dunya matrisinin oteleme sutunu + kuaterniyon zinciri), olcek YOK —
+// yani world(local(p)) == p (float yuvarlamasi icinde) ve varlik 3 kat
+// buyukken surukleme ofseti 3'e BOLMEZ. Gecersiz indeks: out = world.
+void scene_prop_point_local(const SceneDesc &d, uint32_t i, const float world[3], float out_local[3]);
 // Belirlenimli on-sirali gezinti: kokler indeks sirasinda, her dugumun
 // cocuklari indeks sirasinda. Donus: dugum sayisi (cap asilsa da dogru sayar,
 // yalniz ilk cap tanesi yazilir). Panelin cizdigi sira budur.

@@ -43,6 +43,7 @@ float g_row_trailing = 0.0f;        // CIZILEN satirin ayrilmis sag payi
 float g_row_right = 0.0f;           // cizilen satirin deger hucresinin sag kenari (ekran)
 bool g_row_drawn = false;           // son prop_* satir cizdi mi
 WidgetRect g_trailing_rect;
+WidgetRect g_slot_rect;
 PropVec3Layout g_vec3_layout;
 ComponentHeaderLayout g_hdr_layout;
 HierarchyRowLayout g_row_layout;
@@ -95,12 +96,14 @@ void prop_row_skip() {
 
 // Saydam zeminli, ustune gelince beliren kucuk simge dugmesi (baslik "✕",
 // arama temizleme). Donus: basildi.
-bool ghost_button(const char *label, float size) {
+// on: etkin bir kipin dugmesi (nokta duzenleme ✥) — vurgu zemini ve parlak
+// simge, ustune gelinmese de gorunur.
+bool ghost_button(const char *label, float size, bool on = false) {
   const ImGuiStyle &s = ImGui::GetStyle();
-  ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::Bg0, 0.0f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone(Tone::Bg4));
+  ImGui::PushStyleColor(ImGuiCol_Button, on ? tone(Tone::AccentLo) : tone(Tone::Bg0, 0.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, on ? tone(Tone::Accent) : tone(Tone::Bg4));
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, tone(Tone::AccentLo));
-  ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextDim));
+  ImGui::PushStyleColor(ImGuiCol_Text, on ? tone(Tone::AccentHi) : tone(Tone::TextDim));
   ImGui::PushStyleColor(ImGuiCol_Border, tone(Tone::Bg0, 0.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
   ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s.FrameRounding * 0.75f);
@@ -241,6 +244,22 @@ bool prop_trailing_button(const char *icon, const char *tooltip) {
   const bool pressed = ghost_button(icon, w);
   g_trailing_rect = item_rect();
   if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", tooltip);
+  return pressed;
+}
+bool prop_trailing_slot(const char *icon, const char *tooltip, float w, bool on, bool disabled) {
+  const float sp = ImGui::GetStyle().ItemInnerSpacing.x;
+  const float avail = g_row_trailing - sp; // payin kalan genisligi (dugme alani)
+  if (!g_row_drawn || w <= 0.0f || avail + 0.5f < w) return false;
+  const float x = g_row_right - avail;      // kalan payin sol kenari
+  g_row_trailing -= w;                      // sonraki dugme kalan paya
+  if (!icon) return false;
+  ImGui::SameLine(0.0f, 0.0f);
+  ImGui::SetCursorScreenPos(ImVec2(x, ImGui::GetCursorScreenPos().y));
+  if (disabled) ImGui::BeginDisabled();
+  const bool pressed = ghost_button(icon, w, on) && !disabled;
+  if (disabled) ImGui::EndDisabled();
+  g_slot_rect = item_rect();
+  if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tooltip);
   return pressed;
 }
 
@@ -1329,5 +1348,6 @@ const ComponentHeaderLayout &component_header_last_layout() { return g_hdr_layou
 const HierarchyRowLayout &hierarchy_row_last_layout() { return g_row_layout; }
 const WidgetRect &prop_last_rect() { return g_last_prop; }
 const WidgetRect &prop_trailing_last_rect() { return g_trailing_rect; }
+const WidgetRect &prop_trailing_slot_last_rect() { return g_slot_rect; }
 
 } // namespace tulpar::engine::app

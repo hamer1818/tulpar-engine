@@ -491,6 +491,151 @@ ENGINE_TEST(editor_props_cache_rescans_on_change_and_throttles_disk) {
   std::remove(buyuk);
 }
 
+// --- Nokta duzenleme kipi (E6) ------------------------------------------------------
+// Kural: suruklenebilir nokta = denetcide DUZENLENEBILIR nokta satiri. Her
+// "hayir" sebebinin POZITIF KONTROLU ayni turda: sebep kalkinca Ok.
+ENGINE_TEST(editor_props_point_edit_state_rules) {
+  static app::PropDecl d[8];
+  const app::PropScanResult r = tara("ozellik_nokta(i, \"a\", v3(1, 0, 0)); ozellik_nokta(i, \"b\", konum(i)); ozellik_sayi(i, \"hiz\", 2);", d, 8);
+  CHECK(r.count == 3 && r.bad_default == 1);
+  content::SceneEntity e{};
+  e.components = content::kSceneScript;
+  float l[3] = {9, 9, 9};
+  bool ov = true;
+  // Varsayilandan: Ok, yerel = betigin varsayilani, ustune yazma yok.
+  CHECK(app::prop_edit_state_entity(e, "a", d, r.count, true, l, &ov) == app::PropEditState::Ok);
+  CHECK(l[0] == 1.0f && l[1] == 0.0f && l[2] == 0.0f && !ov);
+  // Ustune yazma: Ok, yerel = ustune yazma.
+  const float va[3] = {4, 5, 6};
+  CHECK(content::scene_prop_set(e, "a", content::kScenePropNokta, va));
+  CHECK(app::prop_edit_state_entity(e, "a", d, r.count, true, l, &ov) == app::PropEditState::Ok);
+  CHECK(l[0] == 4.0f && l[1] == 5.0f && l[2] == 6.0f && ov);
+  // Kilitli: gizmo gibi nokta da degismez. KONTROL: kilit kalkinca Ok.
+  e.flags |= content::kSceneLocked;
+  CHECK(app::prop_edit_state_entity(e, "a", d, r.count, true, l, &ov) == app::PropEditState::Locked);
+  e.flags &= ~content::kSceneLocked;
+  CHECK(app::prop_edit_state_entity(e, "a", d, r.count, true, nullptr, nullptr) == app::PropEditState::Ok);
+  // Taranmamis betik: bildirim bilinmez (satirlar salt okunur).
+  CHECK(app::prop_edit_state_entity(e, "a", d, r.count, false, l, &ov) == app::PropEditState::NotScanned);
+  // Bildirilmemis ad / nokta olmayan tur / yetim ustune yazma.
+  CHECK(app::prop_edit_state_entity(e, "yok", d, r.count, true, l, &ov) == app::PropEditState::NotDeclared);
+  CHECK(app::prop_edit_state_entity(e, "hiz", d, r.count, true, l, &ov) == app::PropEditState::NotDeclared);
+  const float vy[3] = {1, 1, 1};
+  CHECK(content::scene_prop_set(e, "yetim", content::kScenePropNokta, vy));
+  CHECK(app::prop_edit_state_entity(e, "yetim", d, r.count, true, l, &ov) == app::PropEditState::NotDeclared);
+  // Varsayilani kodda hesaplanan nokta: konum yok. KONTROL: ustune yazilinca Ok.
+  CHECK(app::prop_edit_state_entity(e, "b", d, r.count, true, l, &ov) == app::PropEditState::NoPosition);
+  CHECK(content::scene_prop_set(e, "b", content::kScenePropNokta, vy));
+  CHECK(app::prop_edit_state_entity(e, "b", d, r.count, true, l, &ov) == app::PropEditState::Ok && ov);
+  // Tavan: varsayilandaki nokta, 16 ozellik doluyken ustune yazma YARATAMAZ.
+  // KONTROL: ayni doluluktayken ustune yazmasi OLAN nokta Ok (yer gerekmez).
+  content::SceneEntity f{};
+  f.components = content::kSceneScript;
+  for (uint32_t k = 0; k < content::kSceneMaxProps; k++) {
+    char ad[16];
+    std::snprintf(ad, sizeof ad, "p%02u", k);
+    CHECK(content::scene_prop_set(f, ad, content::kScenePropSayi, vy));
+  }
+  CHECK(f.prop_count == content::kSceneMaxProps);
+  CHECK(app::prop_edit_state_entity(f, "a", d, r.count, true, l, &ov) == app::PropEditState::Full);
+  f.props[content::kSceneMaxProps - 1] = content::SceneProp{};
+  f.prop_count--;
+  CHECK(content::scene_prop_set(f, "a", content::kScenePropNokta, va) && f.prop_count == content::kSceneMaxProps);
+  CHECK(app::prop_edit_state_entity(f, "a", d, r.count, true, l, &ov) == app::PropEditState::Ok);
+  // Sahne indeksiyle: gecersiz indeks ve bos ad.
+  static content::SceneDesc s;
+  s.entity_count = 1;
+  s.entities[0] = e;
+  CHECK(app::prop_edit_state(s, 0, "a", d, r.count, true, l, &ov) == app::PropEditState::Ok);
+  CHECK(app::prop_edit_state(s, 1, "a", d, r.count, true, l, &ov) == app::PropEditState::NoEntity);
+  CHECK(app::prop_edit_state(s, -1, "a", d, r.count, true, l, &ov) == app::PropEditState::NoEntity);
+  CHECK(app::prop_edit_state(s, 0, "", d, r.count, true, l, &ov) == app::PropEditState::NoEntity);
+  for (int k = 0; k <= (int)app::PropEditState::Full; k++) CHECK(app::prop_edit_state_text((app::PropEditState)k)[0] != '?');
+}
+
+// Surukleme karesinin yazmasi: dunya -> yerel (point_world'un tersi) ve ustune
+// yazmayi YARATIR; varligin donusumune dokunmaz. Dolu varlikta REDDEDER ve
+// varlik bayt bayt ayni kalir. KONTROL: bir yer acilinca ayni cagri yazar.
+ENGINE_TEST(editor_props_point_set_world_creates_override_and_inverts) {
+  static content::SceneDesc s;
+  s.entity_count = 2;
+  content::SceneEntity &p = s.entities[0];
+  p = content::SceneEntity{};
+  p.pos = Vec3{10, 1, -4};
+  p.rot_deg = Vec3{0, 90, 0};
+  p.scale = Vec3{2, 2, 2};
+  content::SceneEntity &c = s.entities[1];
+  c = content::SceneEntity{};
+  c.parent = 0;
+  c.pos = Vec3{1, 1, 0};
+  c.rot_deg = Vec3{20, -35, 10};
+  c.scale = Vec3{0.5f, 0.5f, 0.5f};
+  const content::SceneEntity c0 = c;
+  const float hedef[3] = {8.25f, 3.5f, -3.75f};
+  float l[3];
+  CHECK(app::prop_point_set_world(s, 1, "devriye_a", hedef, l));
+  const content::SceneProp *pp = content::scene_prop_find(s.entities[1], "devriye_a");
+  CHECK(pp && pp->type == content::kScenePropNokta && pp->v[0] == l[0] && pp->v[1] == l[1] && pp->v[2] == l[2]);
+  float w[3];
+  content::scene_prop_point_world(s, 1, l, w);
+  float hata = 0;
+  for (int k = 0; k < 3; k++) hata = std::fabs(w[k] - hedef[k]) > hata ? std::fabs(w[k] - hedef[k]) : hata;
+  std::printf("    [bilgi] cocuk (donuk+olcekli ebeveyn): dunya (%.2f %.2f %.2f) -> yerel (%.4f %.4f %.4f) -> dunya hata %.1e\n",
+              (double)hedef[0], (double)hedef[1], (double)hedef[2], (double)l[0], (double)l[1], (double)l[2], (double)hata);
+  CHECK(hata < 1e-5f);
+  // Yalniz nokta degisti: ozelligi silince varlik bayt bayt ilk hali.
+  content::SceneEntity geri = s.entities[1];
+  CHECK(content::scene_prop_remove(geri, "devriye_a"));
+  CHECK(content::scene_entity_equal(geri, c0));
+  // Gecersiz indeks: false.
+  CHECK(!app::prop_point_set_world(s, 2, "devriye_a", hedef, l));
+  // Dolu varlik (16, "devriye_a" yok): reddeder, varlik degismez.
+  content::SceneEntity &d = s.entities[0];
+  const float v1[3] = {1, 0, 0};
+  for (uint32_t k = 0; k < content::kSceneMaxProps; k++) {
+    char ad[16];
+    std::snprintf(ad, sizeof ad, "p%02u", k);
+    CHECK(content::scene_prop_set(d, ad, content::kScenePropSayi, v1));
+  }
+  const content::SceneEntity d0 = d;
+  CHECK(!app::prop_point_set_world(s, 0, "devriye_a", hedef, l));
+  CHECK(content::scene_entity_equal(d, d0));
+  // KONTROL: yer acilinca ayni cagri yazar.
+  CHECK(content::scene_prop_remove(d, "p00"));
+  CHECK(app::prop_point_set_world(s, 0, "devriye_a", hedef, nullptr));
+  CHECK(content::scene_prop_find(d, "devriye_a") != nullptr);
+}
+
+// Isaret secimi ekran uzayinda ve SEKLI eskenar dortgen (L1 topu): kosegende
+// daire testinin tutacagi ama dortgenin DISINDA kalan nokta tutmaz. En yakin
+// kazanir; esitlikte sonra cizilen (ustte gorunen). Gorunmeyen / duzenlenemeyen
+// aday degil — KONTROL: ayni isaret duzenlenebilir olunca tutar.
+ENGINE_TEST(editor_props_marker_hit_is_diamond_nearest_editable) {
+  const float r = app::kPropMarkerHitR;
+  app::PropMarkerScreen m[3];
+  m[0].x = 100; m[0].y = 100; m[0].visible = true; m[0].editable = true;
+  CHECK(app::prop_marker_hit(m, 1, 100, 100, r) == 0);
+  CHECK(app::prop_marker_hit(m, 1, 100 + r, 100, r) == 0);          // kose: tam sinirda
+  CHECK(app::prop_marker_hit(m, 1, 100 + r + 0.5f, 100, r) == -1);  // kosenin disi
+  // Kosegen: Oklid uzakligi 0.85r (daire tutardi), L1 1.2r (dortgenin disi).
+  CHECK(app::prop_marker_hit(m, 1, 100 + 0.6f * r, 100 + 0.6f * r, r) == -1);
+  CHECK(app::prop_marker_hit(m, 1, 100 + 0.45f * r, 100 + 0.45f * r, r) == 0); // L1 0.9r: icinde
+  // Iki aday: en yakin kazanir; esitlikte SONRAKI (ustte cizilen).
+  m[1] = m[0];
+  m[1].x = 106;
+  CHECK(app::prop_marker_hit(m, 2, 104, 100, r) == 1);
+  CHECK(app::prop_marker_hit(m, 2, 102, 100, r) == 0);
+  CHECK(app::prop_marker_hit(m, 2, 103, 100, r) == 1); // esit uzaklik
+  // Gorunmeyen / duzenlenemeyen atlanir; KONTROL: duzenlenebilir olunca tutar.
+  m[2].x = 200; m[2].y = 200; m[2].visible = true; m[2].editable = false;
+  CHECK(app::prop_marker_hit(m, 3, 200, 200, r) == -1);
+  m[2].editable = true;
+  CHECK(app::prop_marker_hit(m, 3, 200, 200, r) == 2);
+  m[2].visible = false;
+  CHECK(app::prop_marker_hit(m, 3, 200, 200, r) == -1);
+  CHECK(app::prop_marker_hit(m, 0, 100, 100, r) == -1);
+}
+
 // --- Denetci bolumu (sonda) ---------------------------------------------------------
 namespace {
 struct PanelMock {
@@ -499,6 +644,11 @@ struct PanelMock {
   app::PropScanResult scan;
   bool with_decls = true;
   bool click_reset = false;
+  bool click_point = false;          // E6: ✥ dugmesine tikla
+  const char *point_edit = nullptr;  // E6: kipteki nokta (✥ basili cizilir)
+  bool toggled = false;              // herhangi bir karede point_toggle
+  char toggled_name[content::kScenePropNameLen] = {0};
+  app::WidgetRect point{};
   app::PropsPanelResult res[8];
   uint32_t items = 0;       // on_item cagrisi
   bool committed = false;   // herhangi bir karede commit
@@ -516,6 +666,7 @@ void draw_panel(void *ctx, uint32_t frame) {
   in.scan = &m->scan;
   in.decls = m->with_decls ? m->d : nullptr;
   in.decl_count = m->with_decls ? m->scan.count : 0;
+  in.point_edit = m->point_edit;
   m->after = m->e;
   const app::PropsPanelResult r = app::props_panel(m->e, m->after, in, on_item, m);
   // Son CIZILEN sag dugme: yetimsiz fiksturde bu "kalkan"in sifirla
@@ -523,12 +674,15 @@ void draw_panel(void *ctx, uint32_t frame) {
   // Yerlesim ikinci karede oturur: dikdortgen 1. karede alinir, fare ayni
   // karede kuyruga girer (bir SONRAKI karede islenir).
   if (frame == 1) m->reset = app::prop_trailing_last_rect();
+  if (frame == 1) m->point = r.point_rect;
   if (frame < 8) m->res[frame] = r;
   if (r.commit) { m->committed = true; m->committed_after = m->after; }
+  if (r.point_toggle) { m->toggled = true; std::snprintf(m->toggled_name, sizeof m->toggled_name, "%s", r.point_name); }
   ImGui::End();
   ImGuiIO &io = ImGui::GetIO();
-  if (m->click_reset) {
-    if (frame == 1) io.AddMousePosEvent(m->reset.cx(), m->reset.cy());
+  if (m->click_reset || m->click_point) {
+    const app::WidgetRect &t = m->click_reset ? m->reset : m->point;
+    if (frame == 1) io.AddMousePosEvent(t.cx(), t.cy());
     if (frame == 2) io.AddMouseButtonEvent(0, true);
     if (frame == 3) io.AddMouseButtonEvent(0, false);
   }
@@ -604,4 +758,70 @@ ENGINE_TEST(editor_props_panel_draws_declarations_and_resets) {
   std::printf("    [bilgi] sifirla tiki (%.0f, %.0f): commit %s, \"kalkan\" silindi, \"can\" kaldi %s\n", tik.reset.cx(), tik.reset.cy(),
               tik.committed ? "evet" : "HAYIR", silindi ? "evet" : "HAYIR");
   CHECK(silindi);
+}
+
+// ✥ (E6): nokta satirinda "gorunumde surukle" dugmesi. Olculen: dugme YALNIZ
+// nokta satirinda cizilir (fiksturde 1 nokta bildirimi), tiklayinca panel o
+// ADI dondurur ve varliga DOKUNMAZ (kip karari editorun); kipteyken basili
+// cizilir — KONTROL: ayni kare kip kapaliyken FARKLI. Kilitli varlikta dugme
+// kapali ve tik niyet DONDURMEZ — KONTROL: kilitsiz ayni tik dondurur (ustte).
+// Eski dugmeler yerinde: ↺ en sagda kalir (E5 sifirla tiki bu dosyada ayrica).
+ENGINE_TEST(editor_props_panel_point_button_toggles_and_respects_lock) {
+  static PanelMock tik, acik, kapali, kilit;
+  panel_fixture(tik, false);
+  tik.click_point = true;
+  EditorProbe t;
+  t.width = 380; t.height = 420;
+  t.draw = draw_panel;
+  t.ctx = &tik;
+  t.frames = 6;
+  PROBE_OR_RETURN(t);
+  const app::PropsPanelResult &r = tik.res[5];
+  std::printf("    [bilgi] \xE2\x9C\xA5 dugmesi: %u cizildi (%u acik) @(%.0f, %.0f); tik -> niyet %s \"%s\", varlik degismedi %s\n", r.point_buttons,
+              r.point_enabled, tik.point.cx(), tik.point.cy(), tik.toggled ? "evet" : "HAYIR", tik.toggled_name,
+              !tik.committed && tik.e.prop_count == 2 ? "evet" : "HAYIR");
+  CHECK(r.point_buttons == 1 && r.point_enabled == 1);
+  CHECK(tik.toggled && !std::strcmp(tik.toggled_name, "devriye_a"));
+  CHECK(!tik.committed && tik.e.prop_count == 2 && !content::scene_prop_find(tik.e, "devriye_a"));
+  // ↺ dugmesi ✥'nin SAGINDA (ayni satir degil ama ayni sutun duzeni): kalkan'in ↺'si en sagda.
+  CHECK(tik.reset.x0 > tik.point.x0);
+
+  // Kipte basili gorunum. KONTROL: kip kapaliyken ayni sahne farkli piksel.
+  static uint8_t acik_px[380 * 420 * 4];
+  panel_fixture(acik, false);
+  acik.point_edit = "devriye_a";
+  EditorProbe a;
+  a.width = 380; a.height = 420;
+  char path[512];
+  std::snprintf(path, sizeof path, "%s/editor_props_point_on.ppm", tmp_dir());
+  a.out_ppm = path;
+  a.draw = draw_panel;
+  a.ctx = &acik;
+  a.frames = 3;
+  PROBE_OR_RETURN(a);
+  std::memcpy(acik_px, a.pixels, sizeof acik_px);
+  panel_fixture(kapali, false);
+  EditorProbe k;
+  k.width = 380; k.height = 420;
+  k.draw = draw_panel;
+  k.ctx = &kapali;
+  k.frames = 3;
+  PROBE_OR_RETURN(k);
+  const uint32_t fark = probe_diff(acik_px, k.pixels, 380u * 420u);
+  std::printf("    [bilgi] kipte basili \xE2\x9C\xA5: kapaliya gore %u piksel farkli -> %s\n", fark, path);
+  CHECK(fark > 20);
+
+  // Kilitli varlik: dugme kapali, tik niyet dondurmez.
+  panel_fixture(kilit, false);
+  kilit.e.flags |= content::kSceneLocked;
+  kilit.click_point = true;
+  EditorProbe l;
+  l.width = 380; l.height = 420;
+  l.draw = draw_panel;
+  l.ctx = &kilit;
+  l.frames = 6;
+  PROBE_OR_RETURN(l);
+  std::printf("    [bilgi] kilitli: %u dugme, %u acik; tik -> niyet %s\n", kilit.res[5].point_buttons, kilit.res[5].point_enabled,
+              kilit.toggled ? "EVET" : "hayir");
+  CHECK(kilit.res[5].point_buttons == 1 && kilit.res[5].point_enabled == 0 && !kilit.toggled);
 }

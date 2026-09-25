@@ -578,7 +578,35 @@ ya da başka türle okuduğu üstüne yazma **yetimdir**: uyarı tonunda, salt o
 olmayan varlığın özellikleri ham gösterilir. Taramanın sorunları (literal olmayan varsayılan,
 çatışan bildirim, 32 bildirim tavanı, geçersiz ad) ilk satır numarasıyla tek satırda yazılır.
 Görünümde seçili varlığın `nokta`ları çizilir: varlıktan çizgi + eşkenar dörtgen + ad (büyük =
-üstüne yazılmış, küçük = varsayılan, turuncu = yetim); sürükleme sonraki adım (E6).
+üstüne yazılmış, küçük = varsayılan, turuncu = yetim).
+
+**Nokta sürükleme (E6).** Nokta satırındaki ✥ düğmesi ya da görünümde işaretin eşkenar
+dörtgenine tık (varlık seçiminden ÖNCE, ekran uzayında) o noktayı **kipe** alır: editörün tek
+gizmosu varlığın yerine noktanın dünya konumunda durur (yalnız taşıma; Yerel eksen kipinde oklar
+varlığın dönüşüne hizalı; Yakala açıksa ImGuizmo'nun taşıma adımı). Her sürükleme karesi
+`content::scene_prop_point_local` ile yerel ofsete çevrilir — `scene_prop_point_world`'un tam
+tersi: yerel = ters(dünya dönüşü) × (dünya − varlığın dünya konumu), ölçek yok. Nokta
+varsayılandaysa ilk kare üstüne yazmayı yaratır; bırakınca günlüğe **tek** işlem girer, varlığın
+dönüşümü değişmez. Çoklu seçimde yalnız **ana seçilinin** noktası taşınır (aynı delta başka
+varlığın yerel ekseninde başka bir yer demek). Kural denetçi satırıyla aynı: kilitli varlık,
+taranmamış betik, yetim ya da varsayılanı kodda hesaplanan (üstüne yazması olmayan) nokta, 16
+özelliği dolu varlıkta varsayılan nokta sürüklenemez — ✥ kapalı, ipucu sebebi söyler. Kipten
+çıkış: Esc (seçimi temizlemeden önce), ✥'ye tekrar tık, seçim değişince, oynatma başlayınca
+ya da nokta artık kurala uymayınca (durum çubuğu sebebi yazar); ↺ ile varsayılanı bilinen
+noktaya dönmek kipi kapatmaz, gizmo varsayılana atlar. Görünümün sağ altında kip ipucu
+(`✥ nokta: muhafiz.devriye_a · Esc çık`), işaretin çevresinde halka.
+Kapılar: `scene_prop_point_local_inverts_point_world_through_parent_chain` (üç katlı dönük ve
+eşit olmayan ölçekli zincirde gidiş-dönüş, ölçüldü en kötü 2.9e-6 < 1e-5; pozitif kontrol: ebeveyn
+dönüşünü unutan ters 0.41, dünya matrisinin tersi 0.89 sapar), `editor_props_point_*` /
+`editor_props_marker_hit_*` / `editor_props_panel_point_button_*` ve penceresiz editörün iki
+kapısı: `nokta isaret tiklama kapisi` (kare 34–39, ≥ 40 kare; tık kipi açar, seçim aynı;
+kontrol: kilitliyken aynı tık açmaz) ve `nokta surukleme kapisi` (kare 51–59, **≥ 60 kare**;
+aynı sentetik sürükleme kip kapalıyken varlığı + yan seçiliyi aynı deltayla taşır, kipte yalnız
+noktayı: dönüşüm bit-tam aynı, yerel değer gizmonun dünya deltasının bağımsız yoldan — dünya
+matrisinin normlanmış sütunları — çevrilmiş hali kadar değişir, günlüğe 1 işlem, geri al baytları
+getirir). Ölçüldü (RTX 5080, 2026-09-25, `ozellik.sahne`): muhafızın `devriye_a`sı yerel
+(-2 0 -1.5) → (-2.697 -0.382 -2.197), beklenenden sapma 7.2e-7; `salon1.sahne` ve
+`tests/assets/editor.sahne` fikstürle (üstüne yazma yokken — yaratma yolu) aynı kapıdan geçti.
 
 Tarayıcı Tulpar'ın sözcükleyicisini izler (`//` ve iç içe **girmeyen** `/* */`, `"..."` ve
 `t"...{ifade}..."` dizeleri atlanır; `func`/`fonksiyon`/`fonk`/`islev` ardındaki ad TANIMDIR;
