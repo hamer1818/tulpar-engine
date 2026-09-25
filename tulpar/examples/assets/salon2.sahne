@@ -141,3 +141,15 @@ nesne "dusman_5"
   ozellik_nokta "devriye_a" 1 0 -3
   ozellik_nokta "devriye_b" -1 0 4
 son
+nesne "patron"
+  konum -2 0.75 6
+  donus 0 0 0
+  olcek 1 1 1
+  betik "tulpar/examples/davranis/dusman_yeri.tpr" etkin
+  ozellik_tam "can" 250
+  ozellik_nokta "devriye_a" -3 0 0
+  ozellik_nokta "devriye_b" 3 0 0
+  ozellik_tam "hasar" 18
+  ozellik_sayi "hiz_kovala" 3.5
+  ozellik_sayi "yaricap" 0.75
+son
