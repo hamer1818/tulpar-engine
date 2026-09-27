@@ -11,7 +11,27 @@
 >
 > Prototip: [`tools/tpr_shader.py`](../tools/tpr_shader.py) ·
 > Örnekler: `tests/assets/shader/*.tprs` ·
-> Kapı: `tests/faz8_shader_audit.py` (derleyici deposunda)
+> Kapı: [`tools/faz8_shader_audit.py`](../tools/faz8_shader_audit.py) (motor deposunda; hiçbir
+> otomasyona bağlı değil, elle koşulur) · Gramer denetimi: `tools/tpr_shader.py --tulpar-parse`
+
+> **Güncel durum (2026-09-27, ölçüldü — aşağıdaki "Bugün" sütunları `b6f593e` tabanıdır):**
+> - **8.1 gramer dilimi bitti.** G1 `int(x)/float(x)`, G3 `T[N]`, G4 bit işleçleri `& | ^ ~ << >>` (+
+>   atamalı biçimleri) ve `0x`/`0b` literalleri, G5 `const` TulparLang'de var (#323; testleri
+>   `tests/gramer_bosluklari.test.tpr`, `tests/bit_islemleri.test.tpr`). Yani §2'deki **T8, T10,
+>   T16, T19** "yok" değil. **T7:** tekil kutusuz struct (P0.3) ve tipli struct dizisi `D[]` (P1.1)
+>   2026-09-21'den beri var — açık yerleşim/`std140` hâlâ yok.
+> - `--tulpar-parse`: **18/19** `.tprs` parse hatasız; kalan `mesh.frag` yalnız `0u/1u` işaretsiz
+>   sonekinden düşüyor (T3 = 8.2 kapsamı). Bu denetim 2026-09-20'den (depo ayrılması) 2026-09-27'ye
+>   kadar ikiliyi `../tulpar`'da arıyor, bulamıyor ve **"ATLANDI" deyip hiçbir şey ölçmüyordu**;
+>   artık `TULPAR_BIN` → `yapi/tulpar-motor/tulpar` → kardeş depo → `PATH` sırasıyla arıyor.
+> - Motor artık **23** shader (`godray.frag`, `cluster_cull.comp` eklendi); prototip hâlâ 19'unu
+>   kapsıyor.
+> - **Bayt kapısı:** depodaki `*_spv.h` glslang 16.6.0 ile üretildi; başka bir `glslc` her shader'da
+>   üreteç kimliğinden 12 bayt farklı çıkıyor ve kapı "0/19 aynı" diyordu. Artık iki taraf AYNI
+>   yerel derleyiciden geçiyor (çevrilmiş `.tprs` ↔ referans GLSL'in yerel derlemesi): 2026-09-27'de
+>   **18/19 bayt aynı**, `compose.frag.tprs` FSR1 RCAS koluyla yeniden taşındı; `mesh.frag.tprs`
+>   bayat (kaynak PBR + stokastik ışıklarla 105 → 369 satıra büyüdü; `constant_id`, `uintBitsToFloat`,
+>   `findLSB`, üçlü işleç, `uvec2` SSBO ister — 8.2 ile birlikte yeniden taşınmalı).
 
 ---
 
@@ -329,7 +349,7 @@ Her dilimin **kapısı** var; kapısı ölçmeyen dilim yok.
 | Dilim | İş | Kapı | Tahmini büyüklük |
 |---|---|---|---|
 | **8.0** | *(bitti — bu belge)* Fizibilite: alt küme + GLSL üretimi + bayt kapısı | 19/21 shader bayt aynı; 11/19 bugünkü gramerden geçiyor | ~1 200 satır Python, **teslim edildi** |
-| **8.1 Gramer boşlukları** | G1 (`float(x)` çağrısı), G3 (`T[N]`), G4 (bit işlemleri `& \| ^ ~ << >>` + atamalı biçimleri), G5 (`const`). Lexer + `parse_type` + `parse_type_decl` + öncelik merdiveni | `--tulpar-parse` **19/19** parse hatasız; mevcut `tests/typeinfer` ve `build.sh test/suites` yeşil kalır | Küçük: ~300–500 satır `src/lexer` + `src/parser`, + typeinfer/LSP kuyruğu |
+| **8.1 Gramer boşlukları** ✅ *(bitti — TulparLang #323; 18/19, kalan T3)* | G1 (`float(x)` çağrısı), G3 (`T[N]`), G4 (bit işlemleri `& \| ^ ~ << >>` + atamalı biçimleri), G5 (`const`). Lexer + `parse_type` + `parse_type_decl` + öncelik merdiveni | `--tulpar-parse` **19/19** parse hatasız; mevcut `tests/typeinfer` ve `build.sh test/suites` yeşil kalır | Küçük: ~300–500 satır `src/lexer` + `src/parser`, + typeinfer/LSP kuyruğu |
 | **8.2 GPU tip sistemi** | `f32`, `uint`, `vec2/3/4`, `ivec/uvec`, `mat3/mat4`, swizzle — **yalnız shader bağlamında**, CPU tarafına dokunmadan. `DataType` yerine ayrı bir GPU tip tablosu | `.tprs` **tip hatası** üretebiliyor: `vec3 c = texture(...)` artık `glslc`'ye kalmadan yakalanıyor; pozitif kontrol o satırın katmanını `cevirici`'ye kaydırır | Orta: yeni tip tablosu + ifade tipleme; ~1 500 satır. **PLAN §11 "sistem alt kümesi" ile aynı iş** |
 | **8.3 Ön uç Tulpar'a taşınır** | Python prototipi atılır; `src/` içinde `.tprs` → GLSL. `tulpar shader` alt komutu; `compile_shaders.py` yerini alır | Aynı bayt kapısı **19/19** yeni çeviriciyle; `engine_tests` etkilenmez | Orta: prototip zaten tasarımı sabitledi |
 | **8.4 Yerleşim doğrulaması** | `std140/std430` ofsetleri Tulpar tarafında hesaplanır, C++ `Renderer::Frame` / `Push` ile **karşılaştırılır** | Bilerek kaydırılmış bir CPU struct'ı kapıyı kırmızı yapar (pozitif kontrol) | Küçük-orta. **Faz 8'in ilk gerçek kazancı buradan gelir** — bugün hiçbir şey bunu denetlemiyor |

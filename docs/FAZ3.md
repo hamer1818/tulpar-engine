@@ -1186,8 +1186,10 @@ Aynı gün `mesh.frag`'a PBR girince kapı onu **görünür şekilde atlamaya** 
 GLSL'in özetini taşıyor, özet tutmazsa "referans değişmiş" der. Yani bugün **18 bayt-aynı + 1 görünür
 atlama**. Bu doğru davranış — ne yanlış suçlama ne ölçmeden geçme; yeni PBR sürümünü taşımak 8.1'in `const`
 ve `out` parametre maddelerini gerektiriyor.
-Kapı `tests/faz8_shader_audit.py`, `build.sh suites` içinde; en kritik kontrolü aynı boyutta ama farklı
-içerikli bir SPIR-V üretip farkı görmesi — o olmadan "bayt aynı" doğrulanmamış bir iddia olurdu.
+Kapı `tools/faz8_shader_audit.py` (yazıldığında derleyici deposunda `tests/` altındaydı ve `build.sh suites`
+içindeydi; motor ayrılınca buraya geldi ve **hiçbir otomasyona bağlanmadı** — elle koşulur, 2026-09-27
+notu); en kritik kontrolü aynı boyutta ama farklı içerikli bir SPIR-V üretip farkı görmesi — o olmadan
+"bayt aynı" doğrulanmamış bir iddia olurdu.
 
 **Gramer boşluğu küçük** (4 madde), **tip sistemi boşluğu büyük** ve §11'in sistem alt kümesiyle aynı iş.
 Yani Faz 8'i kritik yoldan çıkaran karar hâlâ doğru.

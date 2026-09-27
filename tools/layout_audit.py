@@ -27,7 +27,8 @@ uretip denetimin KIRMIZI dondugunu de olcer:
 Kontrollerden biri kirmizi donmezse kapi "BOZUK" deyip 2 ile cikar — sessiz
 yesil yok.
 
-Kosum:  python3 tests/layout_audit.py
+Kosum:  python3 tools/layout_audit.py
+Hicbir otomasyona (CMake kapilari, CI, derle.sh) bagli DEGIL — elle kosulur.
 Cikis:  0 temiz | 1 uyusmazlik | 2 kapinin kendisi olcmuyor | 3 arac yok
 """
 import os

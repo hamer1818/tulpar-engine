@@ -498,7 +498,10 @@ Bu tablo motorun **neden hem daha hızlı hem daha küçük** olduğunun tamamı
 > **Fizibilite dilimi bitti (8.0):** `tools/tpr_shader.py` Tulpar sözdiziminin bir GPU alt kümesini
 > (`.tprs`) GLSL'e çeviriyor; motorun 21 shader'ından **19'u taşındı** ve çevrilenlerin SPIR-V'si depodaki
 > `*_spv.h` ile **bayt bayt aynı** (en ağırı `mesh.frag` dahil). Taşınamayan ikisi: dizi kurucu literali ve
-> compute. Kapı: `tests/faz8_shader_audit.py` (`build.sh suites` içinde; glslc yoksa görünür atlar).
+> compute. Kapı: `tools/faz8_shader_audit.py` — **hiçbir otomasyona bağlı DEĞİL** (bu satır
+> "`build.sh suites` içinde" diyordu; depo ayrılınca motor deposuna geldi ve ne CMake kapılarına ne CI'a
+> bağlandı), elle koşulur; glslc yoksa görünür atlar. Durum 2026-09-27: 18/19 bayt aynı (yerel derleyiciyle
+> iki taraflı), `mesh.frag.tprs` PBR sonrası bayat — ayrıntı `docs/FAZ8.md` başı.
 >
 > **Sıralamanın sonucu, kararı değiştirmiyor:** gramer boşluğu küçük (4 madde: `float(x)` çağrısı, `T[N]`,
 > bit işlemleri, `const`), ama tip sistemi boşluğu (f32/vektör/matris/swizzle/kutusuz struct) **§11'in

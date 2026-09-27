@@ -26,9 +26,9 @@ sozlugunde gerekcesiyle kayitlidir ya da KIRMIZI olur — kapsam sessizce
 daralamaz.
 
 Kosum:
-    python3 engine/tools/layout_check.py            # denetim (cikis 0/1)
-    python3 engine/tools/layout_check.py --kontrol  # + iki pozitif kontrol
-    python3 engine/tools/layout_check.py --ayrinti  # her alani bas
+    python3 tools/layout_check.py            # denetim (cikis 0/1)
+    python3 tools/layout_check.py --kontrol  # + iki pozitif kontrol
+    python3 tools/layout_check.py --ayrinti  # her alani bas
 """
 import os
 import re
@@ -634,11 +634,27 @@ def freshness():
     # Artik arac gerektirmeyen ozet kapisina (tools/shader_check.py, baslikta
     # `// KAYNAK-SHA256:`) DUSER; yani glslc olmadan da gercekten olcer.
     glslc = shutil.which("glslc")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import shader_check
+    # FARKLI URETEC = bayt karsilastirmasi ANLAMSIZ. Basliklar glslang 16.6.0
+    # ile uretilmis; baska bir glslc ayni kaynaktan her shader'da farkli bayt
+    # (uretec kimligi) veriyor ve bu denetim 23 shader'in 23'unu "BAYAT"
+    # diye KIRMIZI basiyordu (olculdu 2026-09-27, glslc 2026.3) — yerlesim
+    # sonucu "0 UYUSMAZLIK" iken cikis 1. Kimlik tanimi shader_check.py ile
+    # ayni; tutmuyorsa arac gerektirmeyen ozet kapisina dusulur.
+    if glslc:
+        mine = shader_check.local_glslc_id(glslc)
+        gens = shader_check.header_generators(SHADERS)
+        if gens != {mine}:
+            print("  glslc var ama basliklari ureten derleyici DEGIL -> bayt "
+                  "karsilastirmasi KOSMADI")
+            print("    yerel    : %s" % mine)
+            for g in sorted(gens):
+                print("    baslikta : %s" % g)
+            glslc = None
     if not glslc:
-        print("  glslc yok -> bayt karsilastirmasi KOSMADI; arac gerektirmeyen")
-        print("  ozet kapisina dusuluyor (baslikta // KAYNAK-SHA256):")
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import shader_check
+        print("  bayt karsilastirmasi KOSMADI; arac gerektirmeyen ozet "
+              "kapisina dusuluyor (baslikta // KAYNAK-SHA256):")
         bad, lines = shader_check.hash_layer(SHADERS)
         print("\n".join("  " + l for l in lines))
         if bad:

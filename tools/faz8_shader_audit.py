@@ -19,8 +19,23 @@ Ne olcer
 glslc yoksa SPIR-V'ye bagli adimlar ACIKCA "ATLANDI" yazar ve sayilir;
 sessizce gecmez.
 
-Kosum:  python3 tests/faz8_shader_audit.py
-build.sh'e BAGLI DEGILDIR; elle calistirilir.
+REFERANS AYNI DERLEYICIDEN (2026-09-27)
+---------------------------------------
+Bayt karsilastirmasi eskiden depodaki *_spv.h ile yapiliyordu. O basliklar
+glslang 16.6.0 ile uretilmis (`// URETEC:`); bu makinedeki glslc 2026.3 ayni
+kaynaktan her shader'da 12 bayt farkli (uretec kimligi) SPIR-V veriyor. Sonuc:
+denetim "0/19 bayt ayni, 17 kirmizi" diyordu — cevirici hakkinda HICBIR SEY
+soylemeden. Ustelik "degistirilmis sabit" pozitif kontrolu de farki basliga
+karsi olctugu icin bu durumda HER ZAMAN yesil veriyordu (bos kontrol).
+Artik iki taraf AYNI yerel derleyiciden geciyor: cevrilmis .tprs'in SPIR-V'si,
+referans GLSL'in (rhi/shaders/<ad>) YEREL derlemesiyle karsilastiriliyor ve
+pozitif kontrol degismis sabiti degismemis .tprs'in yerel derlemesine karsi
+olcuyor. Basliklarla bayt esitligi ancak uretec kimligi tutunca (ayrica)
+raporlanir. Kimlik denetimi tools/shader_check.py'deki ile ayni.
+
+Kosum:  python3 tools/faz8_shader_audit.py
+Hicbir kapiya bagli DEGIL (CMake/CI/derle.sh); elle calistirilir. Once
+docs/PLAN.md ve docs/FAZ3.md "build.sh suites icinde" diyordu — yanlis.
 """
 
 import importlib.util
@@ -93,6 +108,21 @@ def main():
     tool = load_tool()
     have_glslc = shutil.which("glslc") is not None
     tmp = tempfile.mkdtemp(prefix="faz8audit")
+    # Basliklari ureten derleyici ile yereldeki ayni mi? (shader_check.py ile
+    # ayni kimlik tanimi.) Ayniysa baslikla bayt esitligi de raporlanir.
+    same_gen = False
+    ids = ""
+    if have_glslc:
+        spec = importlib.util.spec_from_file_location(
+            "shader_check", os.path.join(REPO, "tools", "shader_check.py"))
+        sc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sc)
+        mine = sc.local_glslc_id(shutil.which("glslc"))
+        gens = sc.header_generators(tool.REPO_SHADERS)
+        same_gen = gens == {mine}
+        ids = "yerel: %s | basliklar: %s" % (mine, ", ".join(sorted(gens)))
+        print("derleyici kimligi — %s -> baslikla bayt karsilastirmasi %s"
+              % (ids, "KOSUYOR" if same_gen else "KOSMADI (farkli uretec)"))
 
     def derle(glsl, stage):
         """(bayt, hata) — glslc yoksa (None, 'glslc yok')."""
@@ -121,7 +151,16 @@ def main():
             first = (err or "").strip().splitlines()
             a.kirmizi("%-24s glslc: %s" % (base, first[0] if first else "?"))
             continue
-        ref = tool.header_bytes(base)
+        # Referans: ayni yerel derleyiciyle derlenmis ORIJINAL GLSL.
+        refsrc = tool.source_path(base)
+        ref = None
+        if os.path.exists(refsrc):
+            ref, rerr = derle(open(refsrc).read(), tool.tprs_stage(path))
+            if ref is None:
+                a.kirmizi("%-24s referans GLSL yerelde derlenmedi: %s"
+                          % (base, (rerr or "?").strip().splitlines()[0]))
+                continue
+        hdr = tool.header_bytes(base) if same_gen else None
         pin = tool.pinned_digest(open(path).read())
         now = tool.source_digest(base)
         if ref is None:
@@ -133,14 +172,18 @@ def main():
             a.atlandi("%-24s kaynak GLSL degismis (%s -> %s); .tprs yeniden "
                       "ported edilmeli" % (base, pin, now))
         elif ref == data:
-            a.yesil("%-24s %5d bayt, *_spv.h ile BAYT AYNI" % (base, len(data)))
+            ek = ""
+            if hdr is not None:
+                ek = ", *_spv.h ile de AYNI" if hdr == data else ", *_spv.h'den FARKLI"
+            a.yesil("%-24s %5d bayt, referans GLSL ile BAYT AYNI%s"
+                    % (base, len(data), ek))
             ayni += 1
         else:
             a.kirmizi("%-24s SPIR-V farkli (%d vs referans %d bayt)"
                       % (base, len(data), len(ref)))
     if files and have_glslc:
-        print("  [bilgi] %d/%d dosya depodaki SPIR-V ile bayt ayni "
-              "(%d atlandi: kaynak degismis)"
+        print("  [bilgi] %d/%d dosya referans GLSL'in yerel derlemesiyle bayt "
+              "ayni (%d atlandi: kaynak degismis)"
               % (ayni, len(files), a.skip))
 
     # ---------------------------------------------------------------- 2
@@ -182,7 +225,10 @@ def main():
             with open(p, "w") as fh:
                 fh.write(src.replace("c * 0.25", "c * 0.26"))
             data, err = derle(tool.translate(p), "frag")
-            ref = tool.header_bytes("bloom_down.frag")
+            # Karsi taraf: DEGISMEMIS .tprs'in ayni derleyiciyle derlemesi.
+            # (Basliga karsi olcmek, farkli uretecte her zaman "farkli" der
+            # ve bu kontrolu bos yere yesil yapardi.)
+            ref, _ = derle(tool.translate(ornek), "frag")
             if data is None:
                 a.kirmizi("degistirilmis sabit   glslc derleyemedi: %s" % err)
             elif data == ref:
