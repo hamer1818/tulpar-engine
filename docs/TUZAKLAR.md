@@ -281,6 +281,11 @@ o yüzden arayüz doğru çıktı. Kural: Android'de en-boy oranı **logical_ext
 render de düzgündür" çıkarımı YANLIŞ; iki yol dönüşü ayrı alıyor. Tuzaklar 8k/8r'nin köprüdeki tekrarı.
 
 ### 8ac. Tulpar'da bit kaydırma ve onaltılık literal yok; `log` doğal logaritmadır
+
+> **Güncel (2026-09-27):** başlığın ilk yarısı ARTIK DOĞRU DEĞİL — `<<`, `>>`, `&`, `|`, `^`, `~` ve
+> `0x`/`0b` literalleri TulparLang #323'ten (a025b44) beri var (ölçüldü: `(200 << 24) | 0xE63946FF`
+> derleniyor). Kalan ders geçerli: gömülü kütüphanedeki hata `(stdin):N` diye çıkar, ve `log`
+> matematik fonksiyonudur.
 Köprü sarmalayıcısı ilk sürümde `(r << 24) | ...` ve `0xE63946FF` yazdı: **ikisi de lexer'da yok**, gömülü
 kütüphane sessizce ayrıştırılamadı ve hata "senin dosyanda 44. satır" diye değil, `(stdin):44` diye çıktı
 (gömülü kaynak). Ayrıca `log("...")` yazınca "fonksiyon bulunamadı" değil, **matematik `log`una** çakışma
@@ -533,6 +538,12 @@ Asıl bulgu: `static_assert(sizeof(X) == N)` bu sınıfın **yarısını** yakal
 **hâlâ geçti**, ama GPU'nun okuduğu `pbr` alanı artık `emissive`'in baytlarını okuyordu. İddia edilmedi,
 **derleyiciye sorduruldu**: bozuk tanım + depodaki assert ayrı bir TU'da derlendi ve geçti.
 
+> **Not (2026-09-27):** `tools/layout_audit.py` hiçbir otomasyona (CMake kapıları, CI, `derle.sh`)
+> bağlı değil — elle koşulur. Ve başka bir `glslc` sürümüyle koşulunca, yerleşim sonucu "0
+> UYUŞMAZLIK" iken `*_spv.h` tazelik alt denetimi 23 shader'ın 23'ünü "BAYAT" diye KIRMIZI basıp
+> çıkış 1 veriyordu (üreteç kimliği farkı, bkz. `shader_check.py`). Artık üreteç tutmazsa bayt
+> karşılaştırması KOŞMADI deyip araç gerektirmeyen özet kapısına düşüyor.
+
 `tools/layout_audit.py` + `tools/spirv_reflect.py` bunu alan alan denetliyor (ofset / boyut / dizi
 adımı / matris adımı). Üç tasarım kararı, hepsi bir kör noktayı kapatıyor:
 1. **Yerleşim SPIR-V'den okunuyor, GLSL metninden değil.** GLSL'den std140 kurallarını yeniden
@@ -639,6 +650,11 @@ koşturmuştum. Gömülü stdlib `configure_file()` ile üretiliyor, yani **yeni
 
 Teşhis tek komut: `grep -c "<kontrol metni>" src/embedded_libs.h`. 0 ise ölçtüğün şey eski kopyadır.
 Doğru sıra: `cmake -S . -B build-linux && cmake --build build-linux --target tulpar`.
+
+> **Güncel (2026-09-27, TulparLang #350):** artık `cmake --build` YETER — her gömülü `lib/*.tpr`
+> `CMAKE_CONFIGURE_DEPENDS`'te, değişince cmake kendiliğinden yeniden koşuyor. Derleyici deposunun
+> `build.sh suites`'i ilk adımda `tests/gomulu_stdlib_tazelik.py` ile ikilinin bu ağacın lib
+> dosyalarını AYNEN taşıdığını ölçüyor. Ders (kontrolün ürüne girdiğini kanıtla) aynen geçerli.
 
 Genel kural: bir pozitif kontrol beklendiği gibi kırmızıya dönmüyorsa **önce kontrolün derlenmiş ürüne
 girdiğini kanıtla**, sonra ölçütü sorgula. İki farklı arıza aynı belirtiyi veriyor.

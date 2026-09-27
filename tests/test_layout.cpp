@@ -11,7 +11,7 @@
 // urettigi ve depoya giren baytlar) burada AYRISTIRILIR, `OpMemberDecorate
 // Offset` okunur ve gercek C++ tipleriyle `offsetof` uzerinden karsilastirilir.
 //
-// Kardes arac: `engine/tools/layout_check.py` — o, ozel (private) struct'lar
+// Kardes arac: `tools/layout_check.py` — o, ozel (private) struct'lar
 // dahil BUTUN bloklari kapsar (uretilmis bir sonda TU'su ile) ve blok/uye
 // adlarini GLSL kaynagindan alir. Bu test, engine_tests'in normal kosumunda
 // da yakalansin diye erisilebilir tipleri baglar.

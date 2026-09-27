@@ -23,11 +23,12 @@
 //
 // Loglama: TULPAR_ENGINE_LOG=0..3 (3 = her çağrı), betikten `logla("...")` (log() doğal logaritmadır).
 // Pencersiz: TULPAR_ENGINE_HEADLESS=N (N kare) + TULPAR_ENGINE_OUT=x.ppm.
-// Renkler paketlenmiş int: (r<<24)|(g<<16)|(b<<8)|a — onaltılık literal yok, renk(r,g,b) kullan.
+// Renkler paketlenmiş int: (r<<24)|(g<<16)|(b<<8)|a — renk(r,g,b) en okunur yol. (`<<`, `|` ve
+// 0x literali TulparLang #323'ten beri var; aşağıdaki ondalık sabitler o günden kalma, doğru.)
 // ============================================
 
 // ---- Renkler ----------------------------------------------------------------
-// Onaltilik literal yok (lexer): degerler ondalik, yorumda r,g,b. rgb icin renk(r,g,b).
+// Degerler ondalik (tarihsel: 0x literali #323'e kadar yoktu), yorumda r,g,b. rgb icin renk(r,g,b).
 int BEYAZ = 4294967295;  int WHITE_E = 4294967295;   // 255,255,255
 int SIYAH = 255;  int BLACK_E = 255;   // 0,0,0
 int KIRMIZI = 3862513407;  int RED_E = 3862513407;   // 230,57,70
@@ -41,7 +42,7 @@ int ACIK_GRI = 3470056191;   // 206,212,218
 int KOYU = 572926975;   // 34,38,43
 int SEFFAF_SIYAH = 120;   // 0,0,0,120
 
-// Bit kaydirma operatoru YOK (lexer): tame'in rgb()'siyle ayni carpma bicimi.
+// Carpma bicimi tame'in rgb()'siyle ayni (tarihsel: `<<` #323'e kadar yoktu; sonuc ayni).
 func renk(r, g, b): int { return r * 16777216 + g * 65536 + b * 256 + 255; }
 func renk_a(r, g, b, a): int { return r * 16777216 + g * 65536 + b * 256 + a; }
 
@@ -1170,8 +1171,10 @@ func sahne_yenileme_sayisi(): int { return eng_scene_reload_count(); }
 func scene_reload_count(): int { return eng_scene_reload_count(); }
 func sahne_yolu(): str { return eng_scene_path(); }
 func scene_path(): str { return eng_scene_path(); }
-// İkili dosya kopyalama: .sahneb gibi NUL içeren bloblar Tulpar string'ine
-// sığmaz (read_file/write_file metin içindir).
+// İkili dosya kopyalama (yerel C yolu). Tarihsel gerekçe "NUL içeren bloblar Tulpar
+// string'ine sığmaz" idi; ölçüm (2026-09-27, Linux AOT) read_file/write_file'ın NUL'u KORUDUĞUNU
+// gösteriyor (A\0B\0\1\xffC gidiş-dönüş bayt aynı) — Tulpar tarafında bunu kilitleyen test yok,
+// kopya için bu yol yine de daha hızlı ve ara string üretmiyor.
 func dosya_kopyala(kaynak, hedef): bool { return eng_file_copy(kaynak, hedef); }
 func file_copy(src, dst): bool { return eng_file_copy(src, dst); }
 func dosya_zamani(yol): float { return eng_file_mtime(yol); }

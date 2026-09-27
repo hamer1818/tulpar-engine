@@ -942,6 +942,37 @@ def known_gaps(src):
     return g
 
 
+def find_tulpar():
+    """Denetimde kullanilacak `tulpar` ikilisi, ve NEREDEN bulundugu.
+
+    Eskiden yalniz `os.path.dirname(ENGINE)/tulpar` aranirdi — depo
+    ayrilmadan onceki yerlesim (motor derleyici deposunun ALT dizinindeydi).
+    Ayrilmadan sonra bu yol `/mnt/veri/yazilim/tulpar` oldu, yani hicbir
+    zaman var olmayan bir dizin: denetim 2026-09-20'den beri her kosumda
+    "ATLANDI" deyip HICBIR SEY olcmuyordu (olculdu 2026-09-27). Sira:
+      1. $TULPAR_BIN (acik secim)
+      2. yapi/tulpar-motor/tulpar (tools/motor_derleyici.sh'in urettigi)
+      3. kardes derleyici deposu: ../Tulpar/tulpar, ../TulparLang/tulpar,
+         ../tulpar/tulpar
+      4. PATH'teki `tulpar`
+    """
+    cands = []
+    env = os.environ.get("TULPAR_BIN")
+    if env:
+        cands.append(("TULPAR_BIN", env))
+    cands.append(("motor_derleyici.sh", os.path.join(ENGINE, "yapi", "tulpar-motor", "tulpar")))
+    parent = os.path.dirname(ENGINE)
+    for d in ("Tulpar", "TulparLang", "tulpar"):
+        cands.append(("kardes depo", os.path.join(parent, d, "tulpar")))
+    w = shutil.which("tulpar")
+    if w:
+        cands.append(("PATH", w))
+    for why, c in cands:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c, why
+    return None, "aranan: " + ", ".join(c for _, c in cands)
+
+
 def cmd_tulpar_parse(directory):
     """.tprs dosyalari BUGUNKU Tulpar ayristiricisindan geciyor mu?
 
@@ -950,11 +981,16 @@ def cmd_tulpar_parse(directory):
     dusmesi BEKLENIR ve o bosluk kapandiginda kendiliginden yesile doner;
     BEKLENMEYEN bir dusus regresyondur ve denetimi kirmizi yapar.
     """
-    repo = os.path.dirname(ENGINE)
-    binpath = os.path.join(repo, "tulpar")
-    if not os.path.exists(binpath):
-        print("ATLANDI: %s yok (once derle)" % binpath)
-        return 0
+    binpath, why = find_tulpar()
+    if not binpath:
+        # Gorunur atlama; sessiz yesil degil. `--zorunlu` ile KIRMIZI.
+        print("ATLANDI: tulpar ikilisi bulunamadi (%s). TULPAR_BIN=<yol> ver "
+              "ya da tools/motor_derleyici.sh kostur." % why)
+        return 1 if os.environ.get("TPRS_ZORUNLU") == "1" else 0
+    ver = subprocess.run([binpath, "version"], capture_output=True, text=True)
+    print("tulpar: %s (%s) — %s" % (binpath, why,
+                                     (ver.stdout or ver.stderr).strip().splitlines()[0]
+                                     if (ver.stdout or ver.stderr).strip() else "?"))
     import tempfile
     files = sorted(f for f in os.listdir(directory) if f.endswith(".tprs"))
     tmp = tempfile.mkdtemp(prefix="tprsparse")
