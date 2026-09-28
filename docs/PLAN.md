@@ -1353,6 +1353,29 @@ Faz 0'a eklendi — profiler ve crash reporter ile aynı sırada, çünkü üç�
 Render alanında arama. Sırayla bunlar:
 
 1. **Derleme süresi ve iterasyon hızı.** Whole-program compilation güzel ama tam derleme 10 dakika sürerse motor kullanılamaz. Incremental derleme, modüler linkleme, Zig'in in-place binary patching çalışması. Bu, Faz 2'nin gizli riski
+
+   > **Ölçüm ve karar (2026-09-28, TulparLang K098).** Ryzen 7 9800X3D, TulparLang main
+   > (`TULPAR_AOT_TIME=1` faz dökümü, önbelleksiz `tulpar build`, 2 tur, aynı sonuç ±%3):
+   >
+   > | program | toplam | codegen | optimize (O3) | obje emit | link |
+   > |---|---:|---:|---:|---:|---:|
+   > | `engine_aksiyon.tpr` (759 satır + `engine.tpr` 1181) | **1,03 s** | 19 ms | 0,50 s | 0,42 s | 75 ms |
+   > | `engine_ilk_oyun.tpr` | 0,66 s | 11 ms | 0,30 s | 0,25 s | 73 ms |
+   > | `scene3d_collector.tpr` (`lib/scene3d.tpr` 16,7 bin satır gömülü) | 10,1 s | 0,22 s | 5,3 s | 4,1 s | 64 ms |
+   > | aynı, `--debug` (O3 yok) | 6,9 s | 0,23 s | 0,08 s | 6,4 s | 65 ms |
+   >
+   > Okuma: (1) motor oyunları bugün **~1 saniyede** derleniyor; iterasyon hızı ölçekte bir risk,
+   > bugün değil. (2) Süre ayrıştırma/typecheck/codegen'de DEĞİL (<%3), tamamı LLVM'de: O3 +
+   > makine kodu üretimi, ikisi yaklaşık eşit. Link (~70 ms) önemsiz — **modüler link ve Zig tarzı
+   > ikili yama bugün kazandırmaz**. (3) Süre, programın kullandığı değil İÇE AKTARDIĞI kodla
+   > büyüyor: `scene3d_collector` 2 928 fonksiyonun 2 183'ünü O3'ten sonra da taşıyor, çünkü her
+   > üst düzey fonksiyon `call()` dağıtım önbelleğine açılışta kaydediliyor (`aot_register_func`)
+   > ve bu yüzden ölü kod elemesi onları silemiyor. İki aday, ikisi de derleyici işi ve ölçüm
+   > ister: (a) yalnız `call()`/`get()`/`listen()` gibi ADLA çağrılan fonksiyonları kaydetmek
+   > (DCE açılır), (b) içe aktarılan modülleri bir kez derleyip önbellekte tutmak (artımlı
+   > derleme; bedeli modüller arası satır içi almanın kaybı — tüm-program O3 bugünkü hızın
+   > kaynağı, bkz. TulparLang K096). Karar: motor tarafında şimdilik eylem yok; eşik "motor
+   > oyunu > 5 s" olursa (a) ile başla.
 2. **Editor mimarisi ve The Truth veri modeli.** L7 hâlâ üç satır. "İşin %90'ı" dediğimiz alan en az planlanmış alan
 3. **Netcode ve deterministik simülasyon.** Faz 5'te fizik seçimini kilitliyoruz; netcode kararı o seçimi etkiliyor, sonraya bırakılamaz
 4. **Animasyon sistemi.** Planda tek satır. Sıkıştırma, blend ağacı, root motion, IK — hepsi mimariyi etkiler
