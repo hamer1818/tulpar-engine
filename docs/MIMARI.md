@@ -1253,7 +1253,7 @@ Faz 0'a eklendi — profiler ve crash reporter ile aynı sırada, çünkü üç�
 
 Render alanında arama. Sırayla bunlar:
 
-1. **Derleme süresi ve iterasyon hızı.** Whole-program compilation güzel ama tam derleme 10 dakika sürerse motor kullanılamaz. Incremental derleme, modüler linkleme, Zig'in in-place binary patching çalışması. Bu, Faz 2'nin gizli riski
+1. **Derleme süresi ve iterasyon hızı.** Whole-program compilation güzel ama tam derleme 10 dakika sürerse motor kullanılamaz. Incremental derleme, modüler linkleme, Zig'in in-place binary patching çalışması. Bu, Faz 2'nin gizli riski — **ölçüldü 2026-09-28, bkz. PLAN.md G.5 madde 1** (motor oyunu ~1 s; süre LLVM'de, link önemsiz).
 2. **Editor mimarisi ve The Truth veri modeli.** L7 hâlâ üç satır. "İşin %90'ı" dediğimiz alan en az planlanmış alan
 3. **Netcode ve deterministik simülasyon.** Faz 5'te fizik seçimini kilitliyoruz; netcode kararı o seçimi etkiliyor, sonraya bırakılamaz
 4. **Animasyon sistemi.** Planda tek satır. Sıkıştırma, blend ağacı, root motion, IK — hepsi mimariyi etkiler
