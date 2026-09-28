@@ -131,7 +131,7 @@ Ayrıntı: [FAZ3.md](FAZ3.md) "Faz 6 kalanı + Faz 8 fizibilitesi", tuzaklar 8aq
 ## 6.1 Ne yok (sonraki aşama adayları; tarama belgesine karşı tam liste: `BOSLUK-TARAMASI.md`)
 1. ~~Sahne veri modeli + dosya formatı~~ ✅, ~~runtime blob derleyici~~ ✅, ~~bake çıktıları blob'a (navmesh, ışık haritası)~~ ✅ 2026-09-15 (navmesh v2, küme DAG v3, GI sondası v4). Kalan: **telefon demosunda blob**.
 2. ~~**Editör**~~ ✅ çoklu seçim, kaynak tarayıcı, ışık/gölge/güneş gizmoları geldi. Kalan: oynat/durdur sim geri sarımı, implot ile kare zamanı grafiği.
-3. ~~**Tulpar bağlaması**~~ ✅ 2026-09-15: `bridge/` + `lib/engine.tpr` + üç örnek oyun; köprü **175 builtin** (ses, animasyon, navmesh, ışın/örtüşme sorguları, anlık-kip arayüz, kalıcı kayıt, sıcak yükleme, **çarpışma olayları** dahil — bkz. [KOPRU.md](KOPRU.md)).
+3. ~~**Tulpar bağlaması**~~ ✅ 2026-09-15: `bridge/` + `lib/engine.tpr` + üç örnek oyun; köprü **175 builtin** (2026-09-27 sayımı: `tools/gen_engine_bindings.py` `SPEC` **208** satır) (ses, animasyon, navmesh, ışın/örtüşme sorguları, anlık-kip arayüz, kalıcı kayıt, sıcak yükleme, **çarpışma olayları** dahil — bkz. [KOPRU.md](KOPRU.md)).
    **Çarpışma olayı geldi (2026-09-16):** callback FFI olmadığı için geri çağrım değil **kuyruk** — fizik
    adımında oluşan temaslar sabit boy halkaya yazılır, oyun karede okur. Halka dolarsa olaylar sessizce
    kırpılmaz, `carpisma_dusen()` sayar ve motor karede bir kez hata logluyor.
