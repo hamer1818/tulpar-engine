@@ -1,0 +1,40 @@
+// Tulpar Engine — TABAN BELLEK OLCUMU (PLAN §5 "Engine + Tulpar runtime
+// baseline"). Oyun degil, olcu.
+//
+//   cd tulpar && TULPAR_ENGINE_HEADLESS=300 DISPLAY= ../yapi/tulpar-motor/tulpar examples/engine_taban_bellek.tpr
+//   python3 ../tools/taban_bellek.py smaps_k60.txt     # smaps'i gruplara ayir
+//
+// Bos sahne; VmRSS (`bellek_kb()`) dort noktada basilir: motor ACILMADAN once
+// (motor + Tulpar runtime kodu, surucu yok), acilistan hemen sonra, 60. karede
+// ve son karede. 60. karede /proc/self/smaps dosyaya yazilir: toplam RSS'in ne
+// kadari SURUCU (nvidia/mesa/mali kutuphaneleri + aygit eslemeleri), ne kadari
+// BIZIM (ikili, dokunulmus motor arenasi, heap) ayirmak icin. `TULPAR_ENGINE_NO_VULKAN=1`
+// ile motor ACILMIYOR, o yuzden "motor acik, surucu yok" olcumu bu betikle yok.
+// Olculen degerler ve makine: docs/PLAN.md §5 (2026-09-28).
+//
+// Not: Tulpar'in read_file'i /proc dosyalarini artik okuyabiliyor (TulparLang
+// #367); engine_kanca_olcumu.tpr'nin "okuyamiyor" notu o tarihten oncesi.
+import "engine";
+
+func main() {
+    int once = eng_rss_kb();
+    write_file("smaps_once.txt", read_file("/proc/self/smaps"));
+    if (!motor_ac("taban bellek", 1280, 720)) { print("motor acilamadi: " + eng_last_error()); return; }
+    int acilis = bellek_kb();
+    int k = 0;
+    int k60 = 0;
+    while (calisiyor()) {
+        kare_basla();
+        kare_bitir();
+        k = k + 1;
+        if (k == 60) {
+            k60 = bellek_kb();
+            write_file("smaps_k60.txt", read_file("/proc/self/smaps"));
+        }
+    }
+    int son = bellek_kb();
+    print("RSS_KB once=" + toString(once) + " acilis=" + toString(acilis) + " k60=" + toString(k60) +
+          " son=" + toString(son) + " kare=" + toString(k) + " gpu=" + eng_gpu_name());
+    motor_kapat();
+}
+main();
