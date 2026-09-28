@@ -84,12 +84,15 @@ Kural, sondalarla (kare içinde yaz → geri sar → arenayı çöple ez → oku
 | skaler/enum global, `Vec3` gibi kutusuz struct ve alanları, str alanlı struct'ın alanı | **güvenli** |
 | kareden **önce** kurulmuş tipli struct dizisine push / öğe yazma / `g[i].can -= 50` | **güvenli** |
 | kareden önce kurulmuş **yerel** diziye push / öğe yazma | **güvenli** |
-| **global metne bileşik atama** `g_metin += x` | **GÜVENSİZ** — kalıcılaştırılmıyor; `g_metin = g_metin + x` yaz |
-| tipli struct dizisini kare içinde **yeniden atamak** (`g = []`) ya da kare içinde kurulmuşunu kalıcı bir kaba koymak | **GÜVENSİZ** — dizi kare sonunda serbest kalır; yuvaları yeniden kullan |
+| global metne bileşik atama `g_metin += x` | **güvenli** (TulparLang v3.15.5+, #347) — önceden kalıcılaştırılmıyordu |
+| tipli struct dizisini kare içinde yeniden atamak (`g = []`) ya da kare içinde kurulmuşunu kalıcı bir kaba koymak | **güvenli** (TulparLang v3.15.5+, #347) — önceden dizi kare sonunda serbest kalıyordu; eski derleyiciyle yuvaları yeniden kullan |
 | döngü **dışında** bildirilmiş yerel'e kare içinde metin/dizi/nesne atayıp sonraki karede okumak | **GÜVENSİZ** — global yap |
 
-İlk iki GÜVENSİZ satırın sebebi derleyicide (`+=` global kalıcılaştırmasına girmiyor,
-`aot_persist` struct dizisini tanımıyor); ayrıntı `docs/TUZAKLAR.md` 8ch.
+Eskiden GÜVENSİZ olan `+=` ve struct dizisi satırlarının sebebi derleyicideydi (`+=` global
+kalıcılaştırmasına girmiyordu, `aot_persist` struct dizisini tanımıyordu); TulparLang #347
+(v3.15.5, 2026-09-27) ikisini de düzeltti ve `tests/arena_kalicilik.test.tpr` ile kilitledi.
+Kalan tek GÜVENSİZ satır (döngü dışında bildirilmiş yerel) hâlâ açık — TulparLang envanterinde
+K131. Ayrıntı `docs/TUZAKLAR.md` 8ch.
 
 Kapatmak: ilk kareden **önce** `kare_bellegi(false)` (EN `frame_memory(false)`) ya da
 `TULPAR_KARE_BELLEK=0`; kapalıysa motor logu bunu bir kez söyler. `kare_bellegi_acik()`,
@@ -821,7 +824,9 @@ Pencersiz doğrulama aynı betikle: `TULPAR_ENGINE_HEADLESS=600 TULPAR_ENGINE_OU
 `ui_test_tikla_ad("Basla")`; "Gölge Salonları" ikincisiyle koşuyor).
 
 ### 8.2 Hâlâ olmayanlar
-- **Çarpışma olayı yok** (konum/hız/ışın/küre sorgusu var); callback FFI gelmeden geri çağrı yok.
+- ~~Çarpışma olayı yok~~ — bayattı: çarpışma **kuyrukla** veriliyor ve `<ad>_carpisma` kancası
+  var (yukarıda "Ne verilmez" ve §3). Kalan: callback FFI yok — motor Tulpar'ı yalnız dil tarafının
+  kurduğu köprüden çağırabiliyor.
 - **Ajan / yol takibi köprüde yok**: navmesh **sorgusu** var (`eng_nav_*`, blob'daki bake), ama motorun
   ajan sistemi (kalabalık, kaçınma) dışarı verilmiyor — yolu betik kendisi takip eder.
 - Tek motor örneği (global bağlam): iki pencere / iki dünya yok, gerekmedi.

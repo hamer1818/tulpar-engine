@@ -140,10 +140,11 @@ struct Dusman {
     float flas;               // vuruş flaşı süresi
 }
 Dusman[] dusmanlar = [];
-// Dizi kare içinde YENİDEN ATANMAZ: bölüm geçişi kare içinde olur ve kare
-// belleği (engine.tpr "Kare belleği") kare içinde kurulan struct dizisini kare
-// sonunda serbest bırakır — `dusmanlar = []` global'i ölü belleğe bağlardı
-// (sonda 2026-09-25: sonraki okuma "indeksleme hedefi bir struct dizisi degil").
+// Dizi kare içinde YENİDEN ATANMAZ. Tarihsel gerekçe: bölüm geçişi kare içinde
+// olur ve kare belleği kare içinde kurulan struct dizisini kare sonunda serbest
+// bırakıyordu — `dusmanlar = []` global'i ölü belleğe bağlardı (sonda 2026-09-25).
+// TulparLang #347 (v3.15.5) bunu derleyicide düzeltti; yuva yeniden kullanımı
+// yine de doğru tasarım (ayırma yok) ve eski derleyiciyle de çalışır.
 // Yuvalar yeniden kullanılır: kullanılmayan yuva ölü düşmandır (can 0), her
 // döngü onu zaten atlıyor.
 int g_dusman_n = 0;

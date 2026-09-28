@@ -75,7 +75,7 @@ byte-eşitlikle kanıtlayabilir, benzerlik metriğine gerek kalmadan.
 | Nerede | Ne söylüyor |
 |---|---|
 | `src/parser/ast_nodes.hpp` (`enum DataType`) | 15 tip: `INT, FLOAT, STRING, BOOL, CUSTOM, ARRAY, ARRAY_*, JSON, VOID, UNSPECIFIED`. **Vektör/matris yok.** |
-| `src/aot/llvm_backend.cpp:2420` | `backend->float_type = LLVMDoubleTypeInContext(...)` → Tulpar `float` = **f64**. `int` = i64. **f32 yok, fp16 yok, işaretsiz tip yok.** |
+| `src/aot/llvm_backend.cpp` (`float_type =`, 2026-09-28: satır 2509; satır numarası kayar, sembolle ara) | `backend->float_type = LLVMDoubleTypeInContext(...)` → Tulpar `float` = **f64**. `int` = i64. **f32 yok, fp16 yok, işaretsiz tip yok.** |
 | `src/lexer/lexer.cpp:572–610` | `&` ve `|` yalnız `&&` / `\|\|` (ve `match` için `TOKEN_PIPE`) olarak tanınıyor. Tek başına `&` → `Lexer Error: Unknown character '&'`. **Bit işlemleri sözcük düzeyinde yok.** |
 | `src/parser/parser.cpp:1608–1640` (`parse_type`) | `[]` soneki yalnız **boş** biçimde; `T[3]` ayrışmaz. Tanınmayan tanımlayıcı → `TYPE_CUSTOM`. |
 | `src/parser/parser.cpp:609–634` (`parse_type_decl`) | Struct alanı katı `<tip> <ad>;`. `field_custom_types` **her zaman `nullopt`** yazılıyor, `field_defaults` her zaman `nullptr`. Yerleşim/hizalama/boyut bilgisi yok. |

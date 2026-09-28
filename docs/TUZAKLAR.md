@@ -1453,7 +1453,9 @@ restore'da siliniyor — sonda: `str s = "arakare-1007"; kare(); print(s)` → `
 10. saniyeden 285.'ye 325 948 → 325 996 kB).
 
 **Sessiz bozulma — geri sarım üç kalıbı kırar** (sondalar: kare içinde yaz → geri sar →
-arenayı çöple ez → oku; TulparLang 3eee948):
+arenayı çöple ez → oku; TulparLang 3eee948). **Güncel (2026-09-28):** 1. ve 2. TulparLang #347
+(v3.15.5) ile derleyicide DÜZELDİ ve orada `tests/arena_kalicilik.test.tpr` ile kilitli; 3. hâlâ
+açık (TulparLang envanteri K131). Aşağıdaki metin tarihsel teşhis olarak duruyor:
 1. **Global metne bileşik atama** `g_metin += x`. Derleyicinin global kalıcılaştırması
    (`llvm_backend.cpp` "assign.autopersist") yalnız DÜZ atamada; `AST_COMPOUND_ASSIGN` onu
    atlıyor. Sonda: "1", "12", "123" beklenirken `COPCOPCOP0`, `COPCOPCOP02`, `COPCOPCOP023`.

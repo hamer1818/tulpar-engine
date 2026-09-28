@@ -576,11 +576,13 @@ Yarın başlanacaksa sırayla bunlar:
 
 ## 11. Tulpar Fizibilite ve Dil Kararı (⚠️ REV 2026-09-14)
 
-Plan, Tulpar'dan aşağıdakileri bekliyor. **Hiçbiri bugün derleyicide yok.** Kaynak: `struct` oluşturma her yerde `vm_allocate_object` ile heap'te kutulu (`llvm_backend.cpp`); native i64 yolu yalnız `int` dönen ve tüm parametreleri `int` olan fonksiyonlar (`native_abi_eligible`); işaretçi / atomik / `unsafe` anahtar kelimesi yok; tipsiz yol tipli yolun 21 katı yavaş (11,88 vs 0,56 ms, ölçüldü).
+Plan, Tulpar'dan aşağıdakileri bekliyor. **Yazıldığında (2026-09-14) hiçbiri derleyicide yoktu.** Kaynak: `struct` oluşturma her yerde `vm_allocate_object` ile heap'te kutulu (`llvm_backend.cpp`); native i64 yolu yalnız `int` dönen ve tüm parametreleri `int` olan fonksiyonlar (`native_abi_eligible`); işaretçi / atomik / `unsafe` anahtar kelimesi yok; tipsiz yol tipli yolun 21 katı yavaş (11,88 vs 0,56 ms, ölçüldü).
+
+> **Güncel (2026-09-28):** tekil **kutusuz struct** (float alanlılar dahil, P0.3) ve **tipli struct dizisi** `Dusman[]` (SoA değil ama kutusuz eleman, P1.1) TulparLang'de 2026-09-21'den beri var; **kare arenası** (`arena_save`/`arena_restore`/`arena_drop`, motorda "kare belleği") kare içi ayırmayı her kare geri veriyor. Hâlâ yok: açık yerleşim/hizalama (`@repr(C)`), `f32`, işaretçi/`unsafe`, statik denetimli ayırmasız fonksiyon (`@no_alloc`), atomik, reflection — TulparLang envanteri K035–K041.
 
 | Gereken | Kim istiyor | Bugün | Ne zaman |
 |---|---|---|---|
-| Kutusuz `struct` (değer tipi, açık yerleşim, hizalama) | L5 ayırma yasağı, ECS layout, CPU-GPU layout doğrulaması | Yok | Sistem alt kümesi (önce) |
+| Kutusuz `struct` (değer tipi, açık yerleşim, hizalama) | L5 ayırma yasağı, ECS layout, CPU-GPU layout doğrulaması | **Kısmen** (2026-09-21): kutusuz tekil struct + `T[]`; açık yerleşim/hizalama yok | Sistem alt kümesi (önce) |
 | İşaretçi / `unsafe` blok, arenaya yerleştirme | L1'in Tulpar'a taşınması, Vulkan/Jolt bağlama | Yok | Sistem alt kümesi |
 | Statik denetimli ayırmasız fonksiyon | L5 "compiler enforce eder" | Yok | Sistem alt kümesi |
 | Atomik, thread-local, bellek sıralaması | Job sistemi Tulpar'da | Yok | Sistem alt kümesi |
