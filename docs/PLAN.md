@@ -336,7 +336,9 @@ Toplam **16.6 ms**. Sustained clock'ta (peak'in ~%60'ı) planlanır.
 | FrameArena | 8 MB |
 | Pay | 52 MB |
 
-⚠️ REV **[hedef, ölçülmedi]** — kanıt yönünde veri: bugünkü Tulpar AOT ikilisi 2,97 MB, boş program 0,28 ms (Performance.md); motor katmanı eklenince yeniden ölçülür. **12 MB baseline** en somut farkımız: Unity IL2CPP baseline'ı 60-120 MB, Godot 40-60 MB. İçerik koymadan önceki fark bu.
+⚠️ REV **[hedef — masaüstünde ölçüldü 2026-09-28, cihazda ölçülmedi]** — kanıt yönünde veri: bugünkü Tulpar AOT ikilisi 2,97 MB, boş program 0,28 ms (Performance.md).
+
+> **Ölçüm (2026-09-28, masaüstü: Ryzen 7 9800X3D + RTX 5080, NVIDIA sürücüsü, Linux; TulparLang main + `tools/motor_derleyici.sh`).** Boş sahne, `TULPAR_ENGINE_HEADLESS` ile pencersiz, `bellek_kb()` (`eng_rss_kb` = süreç VmRSS) ve `/proc/self/smaps`. Motorsuz boş Tulpar programı: **2,5 MB** VmRSS. Motorlu ikili, `eng_init`'ten ÖNCE: **3,6 MB** (motor + Tulpar runtime kodu yüklü, sürücü yok). `eng_init`'ten SONRA: VmRSS **283–324 MB** (üç koşum), 60. karede ve 120/300. karede aynı (+0,1 MB içinde — kare başına büyüme yok). smaps dökümü 60. karede (Rss toplamı 204,6 MB; VmRSS'teki kalan ~80 MB smaps'te görünmüyor — sürücünün aygıt eşlemeleri): NVIDIA/GL kütüphaneleri **134,4 MB**, diğer paylaşılan kütüphaneler 27,4 MB, anonim (malloc + sürücü yığınları) 18,6 MB, `[heap]` 12,4 MB, **motor arenası 8,2 MB dokunulmuş** (512 MB rezervden), ikili 3,3 MB. Yani **bizim kodumuzun** payı (ikili + dokunulmuş arena + motorun heap'i) ~12–24 MB aralığında — 12 MB hedefi *sürücüsüz* kısımda tutuyor; toplam süreç RSS'ini **sürücü belirliyor** (bu masaüstünde ~260 MB+). Sürücüsüz (`TULPAR_ENGINE_NO_VULKAN=1`) `eng_init` açılmıyor, o yüzden "motor açık, sürücü yok" ölçümü yok. **Mali cihaz ölçümü yapılmadı** (kullanıcıda) — asıl bütçe o sayıyla doğrulanmalı. Sonda: TulparLang envanteri K221. **12 MB baseline** en somut farkımız: Unity IL2CPP baseline'ı 60-120 MB, Godot 40-60 MB. İçerik koymadan önceki fark bu.
 
 ### Kurulum boyutu — RAM'den daha sert bir kısıt
 
@@ -1317,7 +1319,7 @@ Bunu bizim §5'teki bellek bütçesine uygula:
 
 | Motor | Baseline | 12 MB'a göre fark | Dönüşüm etkisi |
 |---|---|---|---|
-| Tulpar | ~12 MB | — | referans |
+| Tulpar | ~12 MB (hedef; masaüstünde motor+runtime kodu + arena ~12–24 MB, sürücü hariç — §5, 2026-09-28) | — | referans |
 | Godot | 40-60 MB | +28-48 MB | **~%5-8 daha düşük kurulum** |
 | Unity (IL2CPP) | 60-120 MB | +48-108 MB | **~%8-18 daha düşük kurulum** |
 
