@@ -113,6 +113,20 @@ dogrula() {
     return 1
   fi
   iyi "dil sondasi: kare belleginde global '+=' kalici ($cevap)"
+  # Dorduncu sonda: 8ch'nin ikinci kalibi — tipli struct dizisi global'ini
+  # kare icinde yeniden kurmak (`g = []; push(g, ...)`, bolum gecisi tam
+  # budur). TulparLang #347 oncesi aot_persist struct dizisini tanimiyordu:
+  # geri sarimdan sonra global olu bellege bakar. Olculdu (2026-09-28):
+  # v3.15.2 'indeksleme hedefi bir struct dizisi degil' ile dusuyor, #347
+  # sonrasi 'dizi 2 12 22'.
+  printf 'struct P { int x; }\nP[] g = [];\nfunc mk(int x): P { P p; p.x = x; return p; }\nfunc main() {\n    for (int k = 0; k < 3; k++) {\n        var wm = arena_save();\n        g = [];\n        push(g, mk(10 + k));\n        push(g, mk(20 + k));\n        arena_drop(wm);\n        var wz = arena_save();\n        array cop = [];\n        for (int j = 0; j < 3000; j++) { push(cop, "COPCOPCOP" + toString(j)); }\n        arena_drop(wz);\n    }\n    print("dizi " + toString(len(g)) + " " + toString(g[0].x) + " " + toString(g[1].x));\n}\nmain();\n' > "$hedef/dil_sondasi4.tpr"
+  cevap="$(cd "$hedef" && "$d" dil_sondasi4.tpr 2>&1 | tail -1)"
+  if [ "$cevap" != "dizi 2 12 22" ]; then
+    hata "derleyici kare icinde yeniden kurulan struct dizisi global'ini koruyamiyor ('$cevap', beklenen 'dizi 2 12 22') — bolum gecisinde dusman listesi olu bellege bakar"
+    echo "  TulparLang #347 oncesi bir kopya: $tulpar_src icinde 'git pull' yapip bu betigi yeniden calistirin." >&2
+    return 1
+  fi
+  iyi "dil sondasi: kare icinde yeniden kurulan struct dizisi kalici ($cevap)"
 }
 [ "$sadece_dogrula" = 1 ] && { dogrula; exit $?; }
 
