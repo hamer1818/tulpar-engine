@@ -1486,8 +1486,11 @@ bırakınca −65 536 kB; statm'in 1. alanını (sanal boyut) okuyan sürüm ayn
 (rezerv +65 536, dokunma +0). Tulpar kapısı (`engine_bridge.test.tpr` "kare bellegi"): 8 kare ×
 ~4 MB metin → +0 kB, aynı iş kare DIŞINDA +34 204 kB.
 
-**Kör noktalar (bilerek söyleniyor):** 1 ve 2 derleyicide düzelmeli (bileşik atamaya
-kalıcılaştırma, `aot_persist`'e struct dizisi); burada yalnız kural ve kapı var. RSS kapısı
+**Kör noktalar (bilerek söyleniyor):** ~~1 ve 2 derleyicide düzelmeli (bileşik atamaya
+kalıcılaştırma, `aot_persist`'e struct dizisi)~~ — ikisi de TulparLang #347'de düzeldi (yukarıdaki
+"Güncel" notu); `tools/motor_derleyici.sh --dogrula` ikisini de sondayla sınıyor (üçüncü ve
+dördüncü dil sondası, #72) ve #347 öncesi bir derleyiciyi reddediyor. 3. kalıp (döngü dışında
+bildirilmiş yerel) hâlâ açık, TulparLang K131. RSS kapısı
 yalnız `engine_aksiyon`'un yolunu ölçer; diğer örnekler ve `davranis/` betikleri elle denetlendi
 (yalnız skaler global, kareden önce kurulmuş diziler). CI `.tpr` koşturmuyor: kapı yereldir.
 
