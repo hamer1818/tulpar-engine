@@ -21,8 +21,10 @@
 #
 # KIRILGAN NOKTA (BILEREK SOYLENIYOR): kopru 86e2c4e'nin TERSI uygulanarak
 # geri geliyor. Derleyici o dosyalara dokundukca ters yama tutmayabilir;
-# tutmazsa betik burada ve adiyla durur. Kalici cozum derleyiciye motor icin
-# bir eklenti noktasi — bu betigin kapsami degil.
+# tutmazsa betik burada ve adiyla durur. aot_pipeline.cpp'nin farki ayrica
+# tools/motor_kopru/aot_pipeline.patch'te tutulur (ters yama orada 2026-10-01'de
+# tutmaz oldu). Kalici cozum derleyiciye motor icin bir eklenti noktasi (K303)
+# — bu betigin kapsami degil.
 set -uo pipefail
 
 K='\033[0;31m'; Y='\033[0;32m'; S='\033[0;33m'; M='\033[0;36m'; N='\033[0m'
@@ -172,9 +174,23 @@ fi
 
 # --- Kopruyu geri bagla -------------------------------------------------------
 bilgi "kopru geri baglaniyor ($ayrilma tersi, ${#DOSYALAR[@]} dosya)"
-if ! git -C "$tulpar_src" show "$ayrilma" -- "${DOSYALAR[@]}" | git -C "$wt" apply -R; then
+# aot_pipeline.cpp ters yamadan HARIC: derleyici link satirlarini 86e2c4e'den
+# sonra degistirdi (K225 TULPAR_CC #368: "clang++" -> aot_link_driver()), ters
+# yama 2026-10-01'de orada tutmaz oldu. O dosyanin kopru farki guncel main'e
+# karsi elle cozulup tools/motor_kopru/aot_pipeline.patch'te tutuluyor ve uc
+# yollu (-3) uygulaniyor: derleyici o satirlara yeniden dokunursa yama yine
+# tutmaz ve betik ASAGIDA adiyla durur — cakisma isaretli kaynak derlenmez.
+ters=()
+for d in "${DOSYALAR[@]}"; do [ "$d" = src/aot/aot_pipeline.cpp ] || ters+=("$d"); done
+if ! git -C "$tulpar_src" show "$ayrilma" -- "${ters[@]}" | git -C "$wt" apply -R; then
   hata "$ayrilma'nin tersi artik TEMIZ UYGULANMIYOR: derleyici o dosyalari degistirmis."
   echo "  Tarifin guncellenmesi gerekiyor; ters yamayi zorlamak yanlis bir derleyici uretirdi."
+  exit 1
+fi
+if ! git -C "$wt" apply -3 "$kok/tools/motor_kopru/aot_pipeline.patch"; then
+  hata "tools/motor_kopru/aot_pipeline.patch artik TEMIZ UYGULANMIYOR (derleyici link satirlarini degistirmis)."
+  echo "  Yamayi guncel derleyiciye karsi yeniden uret: catismayi $wt icinde coz," >&2
+  echo "  sonra: git -C $wt diff HEAD -- src/aot/aot_pipeline.cpp > tools/motor_kopru/aot_pipeline.patch" >&2
   exit 1
 fi
 # Motor alt agaci derlenmez: hazir yapi/ arsivleri kullanilir.
