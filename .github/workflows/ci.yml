@@ -827,10 +827,16 @@ jobs:
       # piksel kapilari atlanir, kapi satirlari GPU'dan bagimsiz (oyun mantigi).
       # Indirilenler SHA256SUMS.txt ile dogrulanir: yanlis/yarim bir ikiliyle
       # "kopru kirildi" sanilmasin.
+      # llvm@18 (Homebrew): yayinlanmis tulpar-macos-universal (v3.38.0) KENDI
+      # BASINA ACILMIYOR — /opt/homebrew/opt/llvm@18/lib/libunwind.1.dylib'e
+      # dinamik bagli, yoksa dyld "Library not loaded" ile abort (olculdu
+      # 2026-10-02, bu isin ilk kosumu). TulparLang'in kendi macOS CI'i da
+      # llvm@18 kuruyor; kullanicinin makinesinde de ayni on kosul var.
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
+          brew list --versions llvm@18 >/dev/null 2>&1 || brew install llvm@18
           d="$RUNNER_TEMP/tulpar"
           mkdir -p "$d"
           url=https://github.com/hamer1818/TulparLang/releases/latest/download
