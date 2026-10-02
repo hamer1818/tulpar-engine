@@ -29,6 +29,7 @@ tulpar/
                           dusmanlari assets/salon1/2.sahne'de; tipler davranis/oyuncu_baslangic.tpr,
                           kapi.tpr, dusman_yeri.tpr (docs/KOPRU.md 7.11)
   tests/engine_bridge.test.tpr   uçtan uca köprü testi (Tulpar tarafı)
+  tests/engine_gpusuz.test.tpr   GPU'suz köprü: kurulumsuz teng_* çağrıları + düşen kurulumun sözleşmesi
 ```
 
 ## Çalıştırmak
@@ -44,7 +45,12 @@ TULPAR_ENGINE_HEADLESS=60 DISPLAY= tulpar examples/engine_dalga.tpr   # tulpar.t
 tulpar --ext ../yapi/tulpar-ext examples/engine_dalga.tpr              # ya da açıkça
 TULPAR_EXT_PATH=/yol/tulpar-ext tulpar oyun.tpr                        # ya da ortamdan
 tools/tulpar_dogrula.sh --tam        # (depo kökünden) zincirin tamamı + taban çizgileri
+tools/tulpar_dogrula.sh --tam --gpusuz-izinli   # GPU'suz makine (Windows CI): GPU kapıları ATLANDI sayılır
 ```
+
+Platformlar: bildirimde `link.linux`, `link.macos`, `link.windows` (MSYS2 MINGW64; `tulpar.exe`
+AOT linkini MINGW64 `clang++` ile yapar — `mingw-w64-x86_64-clang` + `-openssl` kurulu olmalı) ve
+`link.android`. Windows'ta motorun kare döngüsü henüz ölçülmedi (CI GPU'suz, docs/KOPRU.md §2.1).
 
 Bulunma sırası `--ext` → `TULPAR_EXT_PATH` → `tulpar.toml [ext]`; aynı adlı eklentide önce
 gelen kazanır. Editörün F5/Ctrl+F5'i `PATH`'teki `tulpar`ı (önce `--ext <paket> version`

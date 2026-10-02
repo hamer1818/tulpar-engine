@@ -6,7 +6,7 @@
   "link": {
     "linux": {"lib_dirs": ["lib"], "libs": ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim", "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast", "engine_meshopt", "engine_astcenc"], "group": true, "flags": ["-lpthread"]},
     "macos": {"lib_dirs": ["lib"], "libs": ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim", "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast", "engine_meshopt", "engine_astcenc"], "flags": ["-lpthread"]},
-    "windows": {"lib_dirs": ["lib"], "libs": ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim", "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast", "engine_meshopt", "engine_astcenc"], "group": true, "flags": []},
+    "windows": {"lib_dirs": ["lib"], "libs": ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim", "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast", "engine_meshopt", "engine_astcenc"], "group": true, "flags": ["-lpsapi", "-lpthread"]},
     "android": {"lib_dirs": ["android/{abi}"], "libs": ["tulpar_engine_android", "engine_content", "engine_renderer", "engine_sim", "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast", "engine_meshopt", "engine_astcenc"], "group": true}
   },
   "functions": [

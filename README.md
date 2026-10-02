@@ -164,6 +164,7 @@ sahneyi derler, onu yükleyen Tulpar oyununu **ayrı bir süreçte, kendi pencer
   ```bash
   tools/tulpar_dogrula.sh          # duman + pozitif kontroller + 4 dil sondası
   tools/tulpar_dogrula.sh --tam    # + dalga/aksiyon kapı satırları, köprü testi, 6 örnek
+  tools/tulpar_dogrula.sh --tam --gpusuz-izinli   # GPU'suz makine: GPU kapıları ATLANDI sayılır
   ```
 - **Penceresiz doğrulama:** `TULPAR_ENGINE_HEADLESS=240 ./editor.sh x.sahne --headless 5 --komut
   oynat.oyunu_calistir` — editör oyunun bitmesini bekler, oyunun satırlarını `[oyun]` önekiyle basar.
