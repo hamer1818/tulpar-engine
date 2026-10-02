@@ -120,6 +120,11 @@ elif [ $rc -eq 0 ] && grep -q "^motor acilamadi: " "$gun/duman.log"; then
   fi
 else
   dus "engine_ilk_oyun kosmadi ya da motor kapanis raporu yok (rc=$rc)"; tail -12 "$gun/duman.log" >&2
+  # Link dustuyse tanimsiz adlar (link.<platform> neyi eksik birakti) tekillestirilmis.
+  if grep -qE 'undefined reference to|Undefined symbols' "$gun/duman.log"; then
+    echo "  tanimsiz semboller (tekil, ilk 25):" >&2
+    grep -oE "undefined reference to .[^']*" "$gun/duman.log" | sed 's/undefined reference to .//' | sort -u | head -25 | sed 's/^/    /' >&2
+  fi
 fi
 
 # --- Pozitif kontrol: eklentisiz ayni program DUSMELI --------------------------

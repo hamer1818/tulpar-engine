@@ -311,7 +311,7 @@ DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_rend
 # miniaudio da WASAPI/ole32'yi kendisi yukluyor. Olculdu (2026-10-02, CI
 # MINGW64 GCC): motor ikililerinin ithalat tablosunda KERNEL32 + msvcrt +
 # MinGW calisma zamani DLL'lerinden baska sistem DLL'i yok (engine_demo.exe).
-WINDOWS_FLAGS = ["-lpsapi", "-lpthread"]
+WINDOWS_FLAGS = []  # GECICI POZITIF KONTROL
 # Android: yapistirici + NativeActivity kabugu + kopru tek arsivde
 # (tulpar_engine_android, CMakeLists.txt); tools/build_bridge_android.sh
 # paketin android/<abi>/ dizinine koyar.
@@ -347,7 +347,7 @@ def manifest_text():
                                             "flags": ["-lpthread"]}, ensure_ascii=False) + ",",
              '    "macos": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "flags": ["-lpthread"]},
                                            ensure_ascii=False) + ",",
-             '    "windows": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "group": True,
+             '    "windows": ' + json.dumps({"lib_dirs": ["lib"], "libs": [l for l in DESKTOP_LIBS if l != "engine_rhi"], "group": True,
                                               "flags": WINDOWS_FLAGS}, ensure_ascii=False) + ",",
              '    "android": ' + json.dumps({"lib_dirs": ["android/{abi}"], "libs": ANDROID_LIBS, "group": True},
                                              ensure_ascii=False),
