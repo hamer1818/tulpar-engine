@@ -10,7 +10,8 @@ buradan uretiyor:
   tulpar/generated/tulpar-ext.json      eklenti bildirimi: 208 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
-                                        gore link kitapliklari
+                                        gore link kitapliklari (linux, macos,
+                                        windows, android)
   bridge/tulpar_ext_abi.inc             ABI KILIDI: her satir bir imza; derleme
                                         bridge/tulpar_abi.cpp'de onu teng_*'in
                                         GERCEK bildirimine atar — tip kayarsa
@@ -301,6 +302,16 @@ SYMBOL_OVERRIDE = {"eng_init": "teng_tulpar_init"}
 DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim",
                 "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt",
                 "engine_recast", "engine_meshopt", "engine_astcenc"]
+# Windows (MSYS2 MINGW64): ayni arsivler, ayni grup (TulparLang'in Windows
+# linki de GNU ld; surucu MINGW64 clang++, -static). Sistem kitapliklari
+# CMake'in hedeflerine yazdiklarinin AYNISI: psapi (engine_platform PUBLIC,
+# os_resident_bytes) + Threads::Threads. Gerisi (kernel32, user32, advapi32,
+# shell32, msvcrt) suruculerin varsayilan listesinde. Vulkan ve GLFW link
+# DEGIL, calisma zamaninda LoadLibrary (rhi/vk_api.cpp, platform/window.cpp);
+# miniaudio da WASAPI/ole32'yi kendisi yukluyor. Olculdu (2026-10-02, CI
+# MINGW64 GCC): motor ikililerinin ithalat tablosunda KERNEL32 + msvcrt +
+# MinGW calisma zamani DLL'lerinden baska sistem DLL'i yok (engine_demo.exe).
+WINDOWS_FLAGS = ["-lpsapi", "-lpthread"]
 # Android: yapistirici + NativeActivity kabugu + kopru tek arsivde
 # (tulpar_engine_android, CMakeLists.txt); tools/build_bridge_android.sh
 # paketin android/<abi>/ dizinine koyar.
@@ -336,6 +347,8 @@ def manifest_text():
                                             "flags": ["-lpthread"]}, ensure_ascii=False) + ",",
              '    "macos": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "flags": ["-lpthread"]},
                                            ensure_ascii=False) + ",",
+             '    "windows": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "group": True,
+                                              "flags": WINDOWS_FLAGS}, ensure_ascii=False) + ",",
              '    "android": ' + json.dumps({"lib_dirs": ["android/{abi}"], "libs": ANDROID_LIBS, "group": True},
                                              ensure_ascii=False),
              "  },",
