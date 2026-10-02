@@ -1,0 +1,12 @@
+# Tulpar Engine'in Tulpar tarafi (ornek oyunlar, kopru testi).
+#
+# [ext]: motorun YEREL EKLENTI paketi (TulparLang K303). Motor derlemesi onu
+# yapi/tulpar-ext/ altina koyar (tulpar-ext.json + engine.tpr + arsivler);
+# bu satir sayesinde bu dizinden kurulu `tulpar` dogrudan calisir:
+#   cd tulpar && TULPAR_ENGINE_HEADLESS=60 DISPLAY= tulpar examples/engine_dalga.tpr
+# Baska bir derleme dizini icin `tulpar --ext <dizin>` ya da TULPAR_EXT_PATH
+# bunu ezer (ayni adli eklentide once gelen kazanir).
+name = "tulpar-engine-ornekler"
+
+[ext]
+paths = ["../yapi/tulpar-ext"]

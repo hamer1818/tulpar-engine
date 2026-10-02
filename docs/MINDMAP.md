@@ -67,8 +67,10 @@ Immediate-mode dörtgen kuyruğu (`Renderer::ui_*`, aynı subpass, alfa), **mant
 ## Tulpar köprüsü (2026-09-15) → [KOPRU.md](KOPRU.md), [FAZ3.md](FAZ3.md)
 **Karar (kullanıcı):** motor C++, oyun betikleri Tulpar — aynı ikilide, script sınırı yok (PLAN §11'in L5'i).
 `bridge/` düz skaler C ABI (`teng_*`, **156 fonksiyon**: struct/callback yok, bugünkü FFI'nin taşıdığı kadar);
-`runtime/engine_bindings.cpp` + backend tablosu + typeinfer imzaları + LSP girdileri **tek `SPEC`'ten üretilir**
-(`tools/gen_engine_bindings.py`) — "5 noktada bağlama" artık mekanik. `lib/engine.tpr` TR/EN sarmalayıcı,
+2026-10-02'den (TulparLang K303) beri motor derleyiciye **yerel eklenti** olarak bağlanır: `tulpar-ext.json`
+bildirimi + ABI kilidi **tek `SPEC`'ten üretilir** (`tools/gen_engine_bindings.py`), paket `yapi/tulpar-ext/`,
+`tulpar --ext yapi/tulpar-ext oyun.tpr` ([KOPRU §2.1](KOPRU.md)); önceki VMValue bindingleri + ters yamalı
+derleyici (`motor_derleyici.sh`) kalktı. `tulpar/engine.tpr` TR/EN sarmalayıcı,
 `examples/engine_ilk_oyun.tpr` ilk oyun. Emülatörde 60 fps, dokunmatik + skor döngüsü Tulpar'da. Her çağrı
 loglanır (`TULPAR_ENGINE_LOG=0..3`), kapanışta hata varsa 64 satırlık halka dökülür. Tuzaklar 8ab–8ae.
 Aileler: yaşam döngüsü, dünya/kamera, derlenmiş sahne + **sıcak yükleme**, varlık/fizik, girdi, HUD,

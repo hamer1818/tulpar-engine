@@ -1,27 +1,42 @@
 #!/usr/bin/env python3
-"""eng_* builtin ailesinin TEK kaynagi: bu tablo -> 4 uretilmis dosya.
+"""eng_* ailesinin TEK kaynagi: SPEC tablosu -> motorun Tulpar YEREL EKLENTISI.
 
-Varsayilan olarak BU deponun icine, tulpar/generated/ altina yazar:
+TulparLang derleyicisi motoru ADIYLA tanimiyor (2026-09-20'den beri) ve
+2026-10-02'den (TulparLang K303) beri tanimasi da gerekmiyor: derleyicinin
+genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
+fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
+buradan uretiyor:
 
-  tulpar/generated/engine_bindings.cpp        aot_eng_*_ptr (VMValue ABI) -> teng_* (C ABI)
-  tulpar/generated/engine_builtins_table.inc  LLVM backend tablosu (ad, sembol, arite)
-  tulpar/generated/engine_builtins_sigs.inc   tip cikarimi imzalari
-  tulpar/generated/engine_builtins.inc        LSP tamamlama/hover
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 208 fonksiyon (ad, C
+                                        sembolu, parametre/donus tipi, belge),
+                                        modul (engine -> engine.tpr), platforma
+                                        gore link kitapliklari
+  bridge/tulpar_ext_abi.inc             ABI KILIDI: her satir bir imza; derleme
+                                        bridge/tulpar_abi.cpp'de onu teng_*'in
+                                        GERCEK bildirimine atar — tip kayarsa
+                                        motor DERLENMEZ, sembol yoksa testler
+                                        LINKLENMEZ (derleyici C tarafini
+                                        goremez; bu kilit gorur)
 
-`--tulpar <TulparLang-kok>` verilirse ayni dosyalari bir TulparLang calisma
-kopyasinin tarihsel yollarina kurar (runtime/, src/aot/, src/typeinfer/, src/lsp/).
-Derleyici deposu motoru artik tanimiyor; bu kip motoru bir TulparLang kopyasina
-yeniden baglamak isteyen icindir. Bkz. tulpar/README.md.
+Derleme (CMake) bunlari yapi/tulpar-ext/ altinda bir PAKETE koyar: bildirim +
+engine.tpr + lib/libengine_*.a. Kurulu `tulpar`:
+  tulpar --ext yapi/tulpar-ext oyun.tpr      (ya da TULPAR_EXT_PATH /
+                                             tulpar/tulpar.toml [ext] paths)
 
-Neden uretiliyor: "5 noktada baglama" (CLAUDE.md) elle yapilinca noktalar
-birbirinden kayiyor (typeinfer'da eksik imza = denetimsiz cagri; LSP'de eksik
-= tamamlama yok). Tek tablo, tek komut: `python3 engine/tools/gen_engine_bindings.py`.
-Uretilen dosyalar depoya girer (build'de python sart olmasin); degistirmek icin
-BU dosyayi duzenle ve yeniden uret.
+`--denetle`: depodaki uretilmis dosyalar bu tablonun SIMDIKI ciktisiyla bayt
+bayt ayni mi (CMake on kosulu: bayat = derleme hatasi). `--oz-sinama`:
+denetimin kendisinin bir farki yakaladigini gosterir (pozitif kontrol).
 
-Parametre tipleri: num (int ya da float, koordinat/olcu), int, color (0xRRGGBBAA int),
-str, flag (bool ya da int). Donus: void, bool, int, float, str.
+Eskiden (motor_derleyici.sh donemi) bu betik dort dosya uretip bir TulparLang
+kopyasina kuruyordu: VMValue bindingleri + derleyici tablolari. O yol
+derleyicinin ic ABI'sine (VMValue, ObjString yerlesimi) baglanmisti ve iki
+gunde iki kez kirildi; K303 ile kalkti. Bkz. docs/KOPRU.md.
+
+Parametre tipleri (SPEC): num (int ya da float -> C double), int (C int),
+color (0xRRGGBBAA -> C int64_t), str (const char *), flag (bool ya da int ->
+C int). Donus: void, bool (C int), int (C int), float (C double), str.
 """
+import json
 import os
 import sys
 
@@ -267,263 +282,167 @@ SPEC = [
     ("eng_rss_kb", "int", [], "Surecin yerlesik bellegi (RSS), KB: Linux/Android /proc/self/statm, macOS task_info, Windows GetProcessMemoryInfo. Olculemezse 0. Motor kurulmadan da calisir, kare icinde cagrilabilir (ayirma yok)."),
 ]
 
-C_PARAM = {"num": "double", "int": "int", "color": "int64_t", "str": "const char *", "flag": "int"}
-UNPACK = {"num": "tm_num({v})", "int": "(int)tm_int({v})", "color": "tm_int({v})", "str": "tm_str({v})", "flag": "(int)tm_int({v})"}
-TI_PARAM = {"num": "TYPE_UNKNOWN", "int": "TYPE_INT", "color": "TYPE_INT", "str": "TYPE_STRING", "flag": "TYPE_UNKNOWN"}
-TI_RET = {"void": "TYPE_VOID", "bool": "TYPE_BOOL", "int": "TYPE_INT", "float": "TYPE_FLOAT", "str": "TYPE_STRING"}
-LSP_T = {"num": "num", "int": "int", "color": "int", "str": "str", "flag": "bool", "void": "void", "bool": "bool", "float": "float"}
-MAX_ARGS = 8
+# SPEC tipi -> bildirim (tulpar-ext.json) tipi. Bildirim tipleri C'yi soyler:
+# i32 = int, i64 = int64_t, f64 = double, bool = int (0/1), str = const char *.
+EXT_PARAM = {"num": "f64", "int": "i32", "color": "i64", "str": "str", "flag": "bool"}
+EXT_RET = {"void": "void", "bool": "bool", "int": "i32", "float": "f64", "str": "str"}
+# Bildirim tipi -> C tipi (ABI kilidi bununla yazilir; teng_*'in gercek
+# bildirimine atanir).
+C_TYPE = {"i32": "int", "i64": "int64_t", "f64": "double", "bool": "int", "str": "const char *", "void": "void"}
+
+# Tulpar'dan cagrilan sembol. Tek istisna eng_init: once betik VM'ini kuran
+# yapistirici (bridge/tulpar_kopru.cpp) — kurulum eng_init'in ICINDE ki oyun
+# onu unutamasin (unutulan kurulum = sessizce calismayan betikler).
+SYMBOL_OVERRIDE = {"eng_init": "teng_tulpar_init"}
+
+# Motor arsivleri: GNU ld tek gecis -> grup (arsivler birbirine capraz bagli).
+# engine_tulpar (yapistirici) teng_*'i ve TulparLang runtime'inin tulpar_ext_*
+# ABI'sini cagirir; derleyici -ltulpar_runtime'i eklentiden SONRA koyar.
+DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim",
+                "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt",
+                "engine_recast", "engine_meshopt", "engine_astcenc"]
+# Android: yapistirici + NativeActivity kabugu + kopru tek arsivde
+# (tulpar_engine_android, CMakeLists.txt); tools/build_bridge_android.sh
+# paketin android/<abi>/ dizinine koyar.
+ANDROID_LIBS = ["tulpar_engine_android", "engine_content", "engine_renderer", "engine_sim", "engine_rhi",
+                "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast",
+                "engine_meshopt", "engine_astcenc"]
 
 
-def gen_bindings(root):
-    out = []
-    out.append("// URETILMIS DOSYA — tulpar-engine/tools/gen_engine_bindings.py (SPEC tablosu). Elle duzenleme.")
-    out.append("//")
-    out.append("// Tulpar Engine kopru bindingleri: `import \"engine\"` eden programin cagirdigi")
-    out.append("// aot_eng_*_ptr builtinleri (N-pointer VMValue ABI'si, aot_tm_* ile ayni) ->")
-    out.append("// bridge/engine_api.h'deki duz skaler teng_* C API'si. Android'de")
-    out.append("// libtulpar_engine_android.a icinde yasar (CMakeLists.txt, TULPAR_ROOT).")
-    # Include dizini tabanli (goreli DEGIL): hem bu depodan (-I<motor kok> -I<tulpar>/src)
-    # hem de bir TulparLang kopyasina kurulunca ayni satirlar cozulur.
-    out.append('#include "vm/vm.hpp"          // -I <TulparLang>/src')
-    out.append('#include "bridge/engine_api.h" // -I <tulpar-engine kok>')
-    out.append("#include <cstdint>")
-    out.append("#include <cstdio>")  # snprintf — betik kanca adlarini kurar
-    out.append("#include <cstring>")
-    out.append("")
-    out.append("extern \"C\" ObjString *vm_alloc_string_aot(void *vm, const char *chars, int length);")
-    out.append("")
-    out.append("namespace {")
-    out.append("double tm_num(const VMValue *v) {")
-    out.append("  if (!v) return 0.0;")
-    out.append("  if (IS_INT(*v)) return (double)AS_INT(*v);")
-    out.append("  if (IS_FLOAT(*v)) return AS_FLOAT(*v);")
-    out.append("  if (IS_BOOL(*v)) return AS_BOOL(*v) ? 1.0 : 0.0;")
-    out.append("  return 0.0;")
-    out.append("}")
-    out.append("int64_t tm_int(const VMValue *v) {")
-    out.append("  if (!v) return 0;")
-    out.append("  if (IS_INT(*v)) return AS_INT(*v);")
-    out.append("  if (IS_FLOAT(*v)) return (int64_t)AS_FLOAT(*v);")
-    out.append("  if (IS_BOOL(*v)) return AS_BOOL(*v) ? 1 : 0;")
-    out.append("  return 0;")
-    out.append("}")
-    out.append("const char *tm_str(const VMValue *v) { return v && IS_STRING(*v) ? AS_STRING(*v)->chars : \"\"; }")
-    out.append("VMValue tm_make_str(const char *s) {")
-    out.append("  if (!s) s = \"\";")
-    out.append("  ObjString *o = vm_alloc_string_aot(nullptr, s, (int)strlen(s));")
-    out.append("  return VM_OBJ((Obj *)o);")
-    out.append("}")
-    # --- MOTOR -> TULPAR geri cagrim koprusu ---------------------------------
-    # Kopru bugune kadar tek yonluydu. Bu yonu KURAN taraf dil tarafidir ve
-    # sebebi katmanlama: motor Tulpar tipi (VMValue, ObjString, GC) GORMEMELI.
-    # Burada duz C imzali iki shim var; motor yalnizca onlari biliyor.
-    out.append("} // namespace")
-    out.append("")
-    out.append("// Tulpar calisma zamani: bir fonksiyonu ADIYLA cozup cagirir. `call()`")
-    out.append("// builtin'inin kullandigi mekanizmanin ta kendisi — motor icin YENI bir")
-    out.append("// derleyici ozelligi gerekmedi, var olan dinamik cagri yolu aciliyor.")
-    out.append("extern \"C\" VMValue aot_call_dynamic_n(VMValue func_name, VMValue *args, int argc);")
-    # HIZLI YOL: TulparLang'in aot_func_lookup'i (calisma zamani, runtime_bindings.cpp).
-    # Yoksa link DUSER — tools/motor_derleyici.sh bunu derlemeden once sorar.
-    out.append("// Adla coz, CAGIRMADAN ve AYIRMADAN: kutulu `t_<ad>` giris noktasi + kayitli")
-    out.append("// arite (-1 = bilinmiyor). TulparLang'da; motor kancalari yuklemede bununla cozer.")
-    out.append("extern \"C\" void *aot_func_lookup(const char *name, int *arity);")
-    out.append("")
-    out.append("#if defined(_WIN32)")
-    out.append("#include <windows.h>")
-    out.append("static void *eng_sym(const char *n) { return (void *)GetProcAddress(GetModuleHandleA(nullptr), n); }")
-    out.append("#else")
-    out.append("#include <dlfcn.h>")
-    out.append("static void *eng_sym(const char *n) { return dlsym(RTLD_DEFAULT, n); }")
-    out.append("#endif")
-    out.append("")
-    out.append("namespace {")
-    out.append("// AOT'ta bir Tulpar fonksiyonu `t_<ad>` sembolu olur. VAR MI sorusu")
-    out.append("// cagirmadan yanitlanmali: aot_call_dynamic_n bulamadiginda CALISMA")
-    out.append("// ZAMANI HATASI basiyor ve motor 'bu kanca yok' demeyi her karede")
-    out.append("// tekrarlardi. Motor cevabi yukleme aninda bir kez soruyor.")
-    out.append("int eng_script_has(const char *fn) {")
-    out.append("  if (!fn || !*fn) return 0;")
-    out.append("  char sym[192];")
-    out.append("  const int n = std::snprintf(sym, sizeof sym, \"t_%s\", fn);")
-    out.append("  if (n <= 0 || (size_t)n >= sizeof sym) return 0;")
-    out.append("  return eng_sym(sym) != nullptr;")
-    out.append("}")
-    out.append("int eng_script_call(const char *fn, const double *args, int argc) {")
-    out.append("  if (!fn || !*fn) return 0;")
-    out.append("  if (argc < 0) argc = 0;")
-    out.append("  if (argc > 8) argc = 8; // Tulpar dinamik cagri tavani")
-    out.append("  VMValue a[8];")
-    out.append("  for (int i = 0; i < argc; i++) a[i] = VM_FLOAT(args ? args[i] : 0.0);")
-    out.append("  aot_call_dynamic_n(tm_make_str(fn), a, argc);")
-    out.append("  return 1;")
-    out.append("}")
-    # Kare icinde ADSIZ cagri. eng_script_call her cagrida adi bir ObjString'e
-    # kopyaliyordu (tm_make_str, 72 bayt): olculdu 2026-09-25 (RTX 5080 masaustu,
-    # tools/kanca_olcumu.py), 200 bos kanca: kanca basina ~52-68 ns; kare bellegi
-    # kapaliyken (TULPAR_KARE_BELLEK=0, #56 oncesi) kare basina +14.4 KB kalici.
-    # Hizli yol ~4.5-9 ns ve kancaya dusen buyume 0.
-    out.append("// HIZLI YOL. Motor kancayi YUKLEMEDE bir kez cozer (resolve), kare icinde")
-    out.append("// isaretciyle cagirir (invoke): ad kurma, hash, dizgi ayirma YOK. eng_script_call")
-    out.append("// her cagrida adi yeni bir ObjString'e kopyaliyordu (tm_make_str) ve o dizgi")
-    out.append("// hic sifirlanmayan arenada kaliyordu.")
-    out.append("void *eng_script_resolve(const char *fn, int *arity) {")
-    out.append("  if (arity) *arity = -1;")
-    out.append("  if (!fn || !*fn) return nullptr;")
-    out.append("  return aot_func_lookup(fn, arity);")
-    out.append("}")
-    out.append("// `fn`: `void t_<ad>(VMValue *sonuc, VMValue *a0, ...)`. Cagri TAM `arity` isaretciyle")
-    out.append("// yapilir (wasm'in tipli call_indirect'i baska sayiyi affetmez): eksik parametre VOID,")
-    out.append("// fazlasi duser; arity -1 (dlsym yedegi, arite bilinmiyor) ise argc'ye guvenilir.")
-    out.append("// Argumanlar VM_FLOAT: eng_script_call ile ayni (tipli `int` parametreyi cagrilan cevirir).")
-    out.append("int eng_script_invoke(void *fn, int arity, const double *args, int argc) {")
-    out.append("  if (!fn) return 0;")
-    out.append("  if (argc < 0) argc = 0;")
-    out.append("  if (argc > 8) argc = 8; // Tulpar dinamik cagri tavani")
-    out.append("  const int n = arity >= 0 ? arity : argc;")
-    out.append("  if (n > 8) return 0; // motor 8'den fazla parametreli kancayi cozmez; buraya gelmez")
-    out.append("  VMValue a[8];")
-    out.append("  for (int i = 0; i < n; i++) a[i] = i < argc ? VM_FLOAT(args ? args[i] : 0.0) : VM_VOID();")
-    out.append("  VMValue r = VM_VOID();")
-    out.append("  typedef VMValue *P;")
-    out.append("  switch (n) {")
-    for n in range(0, 9):
-        ps = ", ".join(["P"] * (n + 1))
-        av = ", ".join(["&r"] + [f"&a[{i}]" for i in range(n)])
-        out.append(f"  case {n}: ((void (*)({ps}))fn)({av}); break;")
-    out.append("  default: return 0;")
-    out.append("  }")
-    out.append("  return 1;")
-    out.append("}")
-    out.append("const TengScriptVm kEngScriptVm = {eng_script_has, eng_script_call, eng_script_resolve, eng_script_invoke};")
-    out.append("} // namespace")
-    out.append("")
-    out.append("extern \"C\" {")
-    for name, ret, params, _doc in SPEC:
-        assert len(params) <= MAX_ARGS, name
-        sig = ", ".join(f"VMValue *{p}" for p, _ in params) or "void"
-        call = ", ".join(UNPACK[t].format(v=p) for p, t in params)
-        out.append(f"VMValue aot_{name}_ptr({sig}) {{")
-        if name == "eng_init":
-            # VM kurulumu eng_init'in ICINDE: motor acilmadan once kurulmali
-            # (kancalar sahne yuklenirken cozuluyor) ve oyunun ayri bir cagri
-            # yapmayi unutmasi mumkun OLMAMALI — unutulan kurulum, sessizce
-            # calismayan betikler demek.
-            # _v2: dort alan (resolve/invoke dahil). Eski teng_set_script_vm
-            # yalniz has/call okur — surum kaymasinda motor yapinin sonunu
-            # isaretci diye okumasin (engine_api.h).
-            out.append("  teng_set_script_vm_v2(&kEngScriptVm);")
-        expr = f"t{name}({call})"
-        if ret == "void":
-            out.append(f"  {expr};")
-            out.append("  return VM_VOID();")
-        elif ret == "bool":
-            out.append(f"  return VM_BOOL({expr} != 0);")
-        elif ret == "int":
-            out.append(f"  return VM_INT((int64_t){expr});")
-        elif ret == "float":
-            out.append(f"  return VM_FLOAT({expr});")
-        elif ret == "str":
-            out.append(f"  return tm_make_str({expr});")
-        out.append("}")
-    out.append("} // extern \"C\"")
-    out.append("")
-    write(dest(root, "engine_bindings.cpp"), "\n".join(out))
-
-
-def gen_table(root):
-    out = ["// URETILMIS DOSYA — engine/tools/gen_engine_bindings.py. {ad, sembol, arite} (TameBuiltin yerlesimi)."]
-    for name, _ret, params, _doc in SPEC:
-        out.append(f'    {{"{name}", "aot_{name}_ptr", {len(params)}}},')
-    write(dest(root, "engine_builtins_table.inc"), "\n".join(out) + "\n")
-
-
-def gen_typeinfer(root):
-    out = ["      // URETILMIS — engine/tools/gen_engine_bindings.py: eng_* (Tulpar Engine koprusu) imzalari."]
-    for name, ret, params, _doc in SPEC:
-        ps = ", ".join(TI_PARAM[t] for _, t in params)
-        out.append(f'      {{"{name}", {TI_RET[ret]}, {{{ps}}}}},')
-    write(dest(root, "engine_builtins_sigs.inc"), "\n".join(out) + "\n")
-
-
-def gen_lsp(root):
-    out = ["    // URETILMIS — engine/tools/gen_engine_bindings.py: eng_* (Tulpar Engine koprusu)."]
+def manifest_text():
+    fns = []
     for name, ret, params, doc in SPEC:
-        ps = ", ".join(f"{p}: {LSP_T[t]}" for p, t in params)
-        sig = f"{name}({ps})" + (f": {LSP_T[ret]}" if ret != "void" else "")
-        doc_c = doc.replace("\\", "\\\\").replace('"', '\\"')
-        out.append(f'    {{"{name}", "{sig}", "{doc_c}"}},')
-    write(dest(root, "engine_builtins.inc"), "\n".join(out) + "\n")
+        assert len(params) <= 16, name
+        f = {"name": name}
+        sym = SYMBOL_OVERRIDE.get(name, "t" + name)
+        if sym != name:
+            f["symbol"] = sym
+        if params:
+            f["params"] = [f"{p}: {EXT_PARAM[t]}" for p, t in params]
+        if ret != "void":
+            f["returns"] = EXT_RET[ret]
+        f["doc"] = doc
+        fns.append(f)
+    # Elle okunur: ust duzey girintili, fonksiyon basina TEK satir (fark
+    # okunsun diye).
+    lines = ["{",
+             '  "tulpar_ext": 1,',
+             '  "name": "engine",',
+             '  "description": "Tulpar Engine — mobil oncelikli C++ oyun motoru (teng_* duz skaler C ABI). '
+             'URETILMIS: tools/gen_engine_bindings.py (SPEC); elle duzenleme.",',
+             '  "modules": {"engine": "engine.tpr"},',
+             '  "link": {',
+             '    "linux": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "group": True,
+                                            "flags": ["-lpthread"]}, ensure_ascii=False) + ",",
+             '    "macos": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "flags": ["-lpthread"]},
+                                           ensure_ascii=False) + ",",
+             '    "android": ' + json.dumps({"lib_dirs": ["android/{abi}"], "libs": ANDROID_LIBS, "group": True},
+                                             ensure_ascii=False),
+             "  },",
+             '  "functions": [']
+    for i, f in enumerate(fns):
+        lines.append("    " + json.dumps(f, ensure_ascii=False) + ("," if i + 1 < len(fns) else ""))
+    lines.append("  ]")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
 
 
-def write(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-    print("yazildi:", os.path.relpath(path), f"({len(SPEC)} builtin)")
+def abi_text():
+    out = ["// URETILMIS DOSYA — tools/gen_engine_bindings.py (SPEC). Elle duzenleme.",
+           "//",
+           "// ABI KILIDI: tulpar-ext.json'daki her fonksiyonun C imzasi. Satir bicimi:",
+           "//   TENG_ABI(donus, tulpar_adi, c_sembolu, (parametre tipleri))",
+           "// bridge/tulpar_abi.cpp her satiri teng_*'in GERCEK bildirimine (engine_api.h)",
+           "// tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.",
+           "// eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);",
+           "// kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.",
+           f"#define TENG_ABI_COUNT {len(SPEC)}"]
+    for name, ret, params, _doc in SPEC:
+        ps = ", ".join(C_TYPE[EXT_PARAM[t]] for _p, t in params) or "void"
+        out.append(f"TENG_ABI({C_TYPE[EXT_RET[ret]]}, {name}, t{name}, ({ps}))")
+    return "\n".join(out) + "\n"
 
 
-# Dosya adi -> TulparLang calisma kopyasindaki tarihsel yol. Bu depoda hepsi
-# tulpar/generated/ altina duz yazilir; --tulpar ile asagidaki yerlere kurulur.
-TULPAR_PATHS = {
-    "engine_bindings.cpp": ("runtime",),
-    "engine_builtins_table.inc": ("src", "aot"),
-    "engine_builtins_sigs.inc": ("src", "typeinfer"),
-    "engine_builtins.inc": ("src", "lsp"),
-}
-
-# --tulpar verilmediginde None; verildiginde TulparLang kokunun mutlak yolu.
-_TULPAR_ROOT = None
+def outputs(root):
+    gen = os.path.join(root, "tulpar", "generated")
+    return [(os.path.join(gen, "tulpar-ext.json"), manifest_text()),
+            (os.path.join(root, "bridge", "tulpar_ext_abi.inc"), abi_text())]
 
 
-def dest(root, name):
-    """Uretilen dosyanin gidecegi yer.
-
-    Varsayilan: <motor kok>/tulpar/generated/<name>.
-    --tulpar <kok>: o TulparLang kopyasindaki tarihsel yol.
-    """
-    if _TULPAR_ROOT:
-        return os.path.join(_TULPAR_ROOT, *TULPAR_PATHS[name], name)
-    return os.path.join(root, "tulpar", "generated", name)
+def check(outs):
+    """Bayat dosyalarin listesi (bos = taze)."""
+    stale = []
+    for path, text in outs:
+        try:
+            with open(path, encoding="utf-8", newline="") as f:
+                cur = f.read()
+        except OSError:
+            cur = None
+        if cur != text:
+            stale.append(path)
+    return stale
 
 
 def main():
-    global _TULPAR_ROOT
     argv = sys.argv[1:]
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    positional = []
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a in ("--tulpar", "--tulpar-root"):
-            if i + 1 >= len(argv):
-                print("hata: --tulpar bir TulparLang kok dizini ister", file=sys.stderr)
-                return 2
-            _TULPAR_ROOT = os.path.abspath(argv[i + 1])
-            i += 2
-            continue
+    mode = "yaz"
+    rest = []
+    for a in argv:
         if a in ("-h", "--help"):
             print(__doc__)
             return 0
-        positional.append(a)
-        i += 1
-    if positional:
-        root = os.path.abspath(positional[0])
-
-    if _TULPAR_ROOT:
-        # Sessizce yanlis yere yazmaktansa erken dur: kok gercekten TulparLang mi?
-        probe = os.path.join(_TULPAR_ROOT, "src", "vm", "vm.hpp")
-        if not os.path.isfile(probe):
-            print(f"hata: {_TULPAR_ROOT} bir TulparLang kopyasi gibi durmuyor ({probe} yok)", file=sys.stderr)
+        if a == "--denetle":
+            mode = "denetle"
+        elif a == "--oz-sinama":
+            mode = "oz"
+        elif a.startswith("-"):
+            print(f"hata: bilinmeyen secenek {a} (--help)", file=sys.stderr)
             return 2
+        else:
+            rest.append(a)
+    if rest:
+        root = os.path.abspath(rest[0])
 
     names = [s[0] for s in SPEC]
     assert len(names) == len(set(names)), "yinelenen ad"
-    gen_bindings(root)
-    gen_table(root)
-    gen_typeinfer(root)
-    gen_lsp(root)
+    outs = outputs(root)
+
+    if mode == "oz":
+        # Pozitif kontrol: dosyalarin dogru hali TAZE, tek bayti degismis hali
+        # BAYAT gorunmeli. Ikisinden biri tutmazsa --denetle bir sey olcmuyor.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = [(os.path.join(tmp, os.path.basename(p)), t) for p, t in outs]
+            for p, t in fake:
+                with open(p, "w", encoding="utf-8", newline="") as f:
+                    f.write(t)
+            if check(fake):
+                print("baglama oz-sinama DUSTU: dogru dosyalar bayat goruldu", file=sys.stderr)
+                return 1
+            with open(fake[0][0], "w", encoding="utf-8", newline="") as f:
+                f.write(fake[0][1].replace("eng_init", "eng_inix", 1))
+            if not check(fake):
+                print("baglama oz-sinama DUSTU: degistirilmis bildirim TAZE goruldu", file=sys.stderr)
+                return 1
+        print(f"baglama oz-sinama: denetim degisikligi yakaliyor ({len(SPEC)} fonksiyon)")
+        return 0
+
+    if mode == "denetle":
+        stale = check(outs)
+        if stale:
+            for p in stale:
+                print(f"BAYAT: {os.path.relpath(p, root)} — SPEC'in ciktisiyla ayni degil", file=sys.stderr)
+            print("Duzeltme: python3 tools/gen_engine_bindings.py (uretilmis dosyalar depoya girer)", file=sys.stderr)
+            return 1
+        print(f"baglama denetimi: {len(outs)} uretilmis dosya SPEC ile ayni ({len(SPEC)} fonksiyon)")
+        return 0
+
+    for path, text in outs:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        print("yazildi:", os.path.relpath(path, root), f"({len(SPEC)} fonksiyon)")
     return 0
 
 

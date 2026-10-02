@@ -2,7 +2,7 @@
 //
 // Çalıştır (pencere):   tulpar examples/engine_karakter.tpr
 // Pencersiz doğrulama:  TULPAR_ENGINE_HEADLESS=420 TULPAR_ENGINE_OUT=/tmp/k.ppm tulpar examples/engine_karakter.tpr
-// (Motor oyunu için motoru TANIYAN derleyici gerekir: tools/motor_derleyici.sh.)
+// (Kurulu `tulpar` + motorun eklenti paketi: tulpar/tulpar.toml onu yapi/tulpar-ext'ten verir.)
 //
 // Oyuncu bir dinamik küre DEĞİL, karakter denetleyicisi: rampada kaymaz,
 // 0.4 m'ye kadar basamağı YÜRÜYEREK çıkar, zemine yapışır. Merdivenin

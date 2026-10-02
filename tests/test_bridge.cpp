@@ -1781,3 +1781,29 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   CHECK(kod::baslat == kod::bitir);
   CHECK(teng_script_count() == 0);
 }
+
+// --- Tulpar yerel eklenti bildiriminin ABI kilidi (K303) ----------------------
+// TulparLang eng_* cagrisini tulpar-ext.json'daki C tipleriyle DOGRUDAN
+// teng_*'e indirir ve statik arsivde tip goremez. Tip uyumunu
+// bridge/tulpar_abi.cpp DERLEMEDE kilitler; bu test o tabloyu baglar, yani
+// bildirimdeki her sembolun arsivde TANIMLI olmasini da zorlar (yoksa
+// engine_tests linklenmez). Sayi bildirimle ayni kaynaktan (SPEC).
+namespace tulpar::engine::bridge {
+using TulparAbiFn = void (*)(void);
+extern const TulparAbiFn kTulparAbiTable[];
+extern const int kTulparAbiCount;
+} // namespace tulpar::engine::bridge
+
+#define TENG_ABI(R, NAME, SYM, PARAMS)
+#include "bridge/tulpar_ext_abi.inc"
+#undef TENG_ABI
+
+ENGINE_TEST(bridge_tulpar_abi_lock_links_every_manifest_symbol) {
+  std::printf("    [bilgi] Tulpar eklenti bildirimi: %d fonksiyon, ABI tablosu %d\n", TENG_ABI_COUNT,
+              tulpar::engine::bridge::kTulparAbiCount);
+  CHECK(tulpar::engine::bridge::kTulparAbiCount == TENG_ABI_COUNT);
+  int bos = 0;
+  for (int i = 0; i < tulpar::engine::bridge::kTulparAbiCount; i++)
+    if (!tulpar::engine::bridge::kTulparAbiTable[i]) bos++;
+  CHECK(bos == 0);
+}

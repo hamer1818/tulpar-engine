@@ -2,11 +2,16 @@
 // baslatir; ciktisini Konsol'a akitir.
 //
 // IKI SINIR, ikisi de BILEREK:
-//   1. Derleyici: kurulu `tulpar` motoru TANIMIYOR (TulparLang 86e2c4e, motor
-//      ayri depoya tasindi). `import "engine"` eden bir oyunu o derleyemez ve
-//      hatasi sebebi soylemez. Bu yuzden yalniz motoru taniyan derleyici
-//      aranir: TULPAR_MOTOR_DERLEYICI, sonra <editor dizini>/tulpar-motor/tulpar
-//      (tools/motor_derleyici.sh kurar). PATH'teki `tulpar`a DUSULMEZ.
+//   1. Derleyici: kurulu `tulpar` motoru ADIYLA tanimaz; motoru bir YEREL
+//      EKLENTI olarak kullanir (TulparLang K303, 2026-10-02). Motor derlemesi
+//      eklenti paketini <editor dizini>/tulpar-ext'e koyar (tulpar-ext.json +
+//      engine.tpr + arsivler); editor oyunu TULPAR_EXT_PATH=<paket> ile
+//      baslatir. Derleyici: TULPAR_MOTOR_DERLEYICI (acikca verilen, oldugu gibi
+//      kullanilir), yoksa PATH'teki `tulpar` — o da once SINANIR (`tulpar
+//      --ext <paket> version`): eklentiyi tanimayan eski bir tulpar oyunu
+//      "Import dosyasi acilamadi 'engine'" diye dusururdu, sebep editorde
+//      gorunmezdi. Eskiden (tools/motor_derleyici.sh) koprusu ters yamayla geri
+//      takilmis ayri bir derleyici kuruluyordu; o yol kalkti.
 //   2. Oyun ayri bir SUREC, iki bicimde:
 //      - Ctrl+F5 (game_run_start): oyun KENDI penceresinde.
 //      - F5 (game_run_start_embedded): AYNI ikili, ayni kopru; pencere yerine
@@ -25,8 +30,13 @@
 
 namespace tulpar::engine::app {
 
-// Motoru taniyan derleyiciyi bul. `why`: bulunamadiysa ne denendi ve ne yapilmali.
-bool game_find_compiler(const char *exe_dir, char *out, uint32_t cap, char *why, uint32_t why_cap);
+// Motorun Tulpar eklenti paketi: TULPAR_MOTOR_EKLENTI, yoksa <editor dizini>/tulpar-ext
+// (icinde tulpar-ext.json olmali). `why`: bulunamadiysa ne denendi, ne yapilmali.
+bool game_find_extension(const char *exe_dir, char *out, uint32_t cap, char *why, uint32_t why_cap);
+// Oyunu derleyecek `tulpar`i bul (yukaridaki sira). `ext_dir`: PATH'teki aday
+// bu paketle sinanir (`--ext <paket> version` 0 ile cikmali; sondanin ciktisi
+// exe_dir/tulpar_eklenti_sonda.log). `why`: bulunamadiysa ne denendi, ne yapilmali.
+bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uint32_t cap, char *why, uint32_t why_cap);
 
 // Sahneyi yukleyen oyunlar: tulpar_root altindaki .tpr'lerden "<sahne adi>.sahneb"
 // metnini icerenler (oyun sahneyi derlenmis blob olarak yukler). Cikti
@@ -67,11 +77,12 @@ struct GameRun {
 constexpr uint64_t kGameStopGraceNs = 3000000000ull;
 
 // Baslat: `compiler game_rel`, calisma dizini tulpar_root, ciktisi log_path'e.
-bool game_run_start(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path, char *err,
-                    uint32_t err_cap);
+// ext_dir (null olabilir): cocuga TULPAR_EXT_PATH=<ext_dir>[:<onceki>] verilir.
+bool game_run_start(GameRun &r, const char *compiler, const char *ext_dir, const char *tulpar_root, const char *game_rel,
+                    const char *log_path, char *err, uint32_t err_cap);
 // Gomulu baslat: w x h kanal acilir, adi cocuga TULPAR_ENGINE_GOMULU ile verilir.
-bool game_run_start_embedded(GameRun &r, const char *compiler, const char *tulpar_root, const char *game_rel, const char *log_path,
-                             uint32_t w, uint32_t h, char *err, uint32_t err_cap);
+bool game_run_start_embedded(GameRun &r, const char *compiler, const char *ext_dir, const char *tulpar_root, const char *game_rel,
+                             const char *log_path, uint32_t w, uint32_t h, char *err, uint32_t err_cap);
 // Her kare cagrilir, bloklamaz: gunluge eklenen TAM satirlari on_line'a verir.
 // Surec bitince kalan her seyi (sondaki yarim satir dahil) bosaltir ve
 // Finished doner (exit_code dolu). Satir basina en cok part boyu; daha uzunu

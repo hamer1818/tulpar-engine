@@ -1,12 +1,14 @@
 // ============================================
 // Tulpar Engine — motor köprüsü (engine/, C++ çekirdek; oyun mantığı Tulpar'da)
 //
-// Native katman: aot_eng_* builtin'leri (runtime/engine_bindings.cpp, ÜRETİLMİŞ:
-// engine/tools/gen_engine_bindings.py) -> engine/bridge/engine_api.h (teng_*).
-// Bu dosya o katmanın üstündeki ergonomik sarmalayıcıdır: kısa TR/EN adlar,
-// renkler, küçük yardımcılar. `import "engine"` eden program otomatik olarak
-// libtulpar_engine.a + motor arşivleriyle linklenir; motoru kullanmayan
-// binary'ler Vulkan/pencere bağımlılığı almaz (zaten dlopen).
+// Native katman: eng_* fonksiyonları — motorun Tulpar YEREL EKLENTİSİ
+// (TulparLang K303). Bildirim tulpar-ext.json (ÜRETİLMİŞ: tools/gen_engine_bindings.py,
+// SPEC); derleyici her eng_* çağrısını doğrudan bridge/engine_api.h'deki teng_*'e
+// indirir. Bu dosya o katmanın üstündeki ergonomik sarmalayıcıdır: kısa TR/EN adlar,
+// renkler, küçük yardımcılar. Eklenti paketinde (yapi/tulpar-ext) durur ve
+// `import "engine"` onu oradan çözer; `import "engine"` eden program motor
+// arşivleriyle linklenir, motoru kullanmayan binary'ler bağlanmaz.
+//   tulpar --ext yapi/tulpar-ext oyun.tpr   (ya da TULPAR_EXT_PATH / tulpar.toml [ext])
 //
 // Kullanım:
 //   import "engine";
@@ -314,7 +316,7 @@ func script_count(): int { return eng_script_count(); }
 // struct'ı: üç double, yığın ayırması yok, alan erişimi doğrudan. Bu, TulparLang
 // #345'ten (2026-09-25) beri doğru: öncesinde import edilen modülün struct'ı hiç
 // kaydedilmiyordu ve her `v3()` bırakılmayan bir nesneydi (ölçüldü, RTX 5080 masaüstü:
-// 10M çağrı 1013 ms / 4.65 GB; şimdi 38 ms / 2.5 MB). tools/motor_derleyici.sh bunu sonduyor.
+// 10M çağrı 1013 ms / 4.65 GB; şimdi 38 ms / 2.5 MB). tools/tulpar_dogrula.sh bunu sonduyor.
 // XZ yardımcıları yatay düzlemdir (yerçekimi Y): yürüme, bakış, mesafe.
 struct Vec3 { float x; float y; float z; }
 func v3(float x, float y, float z): Vec3 { return { x: x, y: y, z: z }; }

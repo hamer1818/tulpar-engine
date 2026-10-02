@@ -1,7 +1,7 @@
 // Tulpar Engine köprüsü — Tulpar TARAFINDAN uçtan uca: motor C++, oyun Tulpar.
 //
 // Bu suite, C++ kapısının (engine/tests/test_bridge.cpp) göremediğini ölçer:
-// builtin dispatch (eng_* -> aot_eng_*_ptr -> teng_*), tip çıkarımı imzaları,
+// eklenti çağrısı (eng_* -> teng_*, tulpar-ext.json), tip çıkarımı imzaları,
 // lib/engine.tpr sarmalayıcıları ve VMValue ABI'si gerçekten çalışıyor mu.
 // Pencere AÇILMAZ: eng_set_headless(...) init'ten önce çağrılır.
 //

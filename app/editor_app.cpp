@@ -2175,21 +2175,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   };
   static char oyun_secim[content::kScenePathLen] = {0}; // tulpar/ koke GORELI (disindaysa mutlak)
   auto run_game_with = [&](const char *game) {
-    char exe[1024], comp[1024], why[512], log[1200], err[512];
+    char exe[1024], comp[1024], ext[1024], why[768], log[1200], err[512];
     if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
-    if (!game_find_compiler(exe, comp, sizeof comp, why, sizeof why)) {
-      set_status(st, "oyun calistirilamadi: derleyici yok (Konsol)");
+    if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) || !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why)) {
+      set_status(st, "oyun calistirilamadi: derleyici/eklenti yok (Konsol)");
       console_log(ConsoleLevel::Hata, "oyun", "%s", why);
       return;
     }
     std::snprintf(log, sizeof log, "%s/oyun.log", exe);
-    if (!game_run_start(oyun, comp, st.tulpar_dir, game, log, err, sizeof err)) {
+    if (!game_run_start(oyun, comp, ext, st.tulpar_dir, game, log, err, sizeof err)) {
       set_status(st, "oyun baslatilamadi: %s", err);
       console_log(ConsoleLevel::Hata, "oyun", "baslatilamadi: %s", err);
       return;
     }
     set_status(st, "oyun calisiyor: %s", game);
-    console_log(ConsoleLevel::Bilgi, "oyun", "calistiriliyor: %s %s (dizin %s, gunluk %s)", comp, game, st.tulpar_dir, log);
+    console_log(ConsoleLevel::Bilgi, "oyun", "calistiriliyor: %s %s (eklenti %s, dizin %s, gunluk %s)", comp, game, ext, st.tulpar_dir, log);
   };
   auto do_run_game = [&]() {
     if (st.play_embedded) {
@@ -2234,9 +2234,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Yol tikanirsa (sahne kaydedilmemis, oyun yok, derleyici yok) editorun
   // FIZIK onizlemesine dusulur ve NEDEN Konsol'a yazilir — sessiz degil.
   auto start_embedded_with = [&](const char *game) -> bool {
-    char exe[1024], comp[1024], why[512], log[1200], err[512];
+    char exe[1024], comp[1024], ext[1024], why[768], log[1200], err[512];
     if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
-    if (!game_find_compiler(exe, comp, sizeof comp, why, sizeof why)) {
+    if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) || !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why)) {
       console_log(ConsoleLevel::Hata, "oyun", "F5: %s", why);
       return false;
     }
@@ -2246,7 +2246,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (w > platform::kGameChannelMaxSide) w = platform::kGameChannelMaxSide;
     if (h > platform::kGameChannelMaxSide) h = platform::kGameChannelMaxSide;
     std::snprintf(log, sizeof log, "%s/oyun.log", exe);
-    if (!game_run_start_embedded(oyun, comp, st.tulpar_dir, game, log, w, h, err, sizeof err)) {
+    if (!game_run_start_embedded(oyun, comp, ext, st.tulpar_dir, game, log, w, h, err, sizeof err)) {
       console_log(ConsoleLevel::Hata, "oyun", "F5: baslatilamadi: %s", err);
       return false;
     }
@@ -7755,7 +7755,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             st.sel.clear();
           });
         }
-        char exe[1024], comp[1024], why[512];
+        char exe[1024], comp[1024], ext[1024], why[768];
         if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
         static char bul[8][content::kScenePathLen];
         static FileEntry tar[kFileListMax];
@@ -7765,7 +7765,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (r.count != 1) {
           std::printf("[engine_editor] gomulu oynatma kapisi: ATLANDI (bu sahneyi yukleyen %u oyun var, tek olmali: %s)\n", r.count, st.scene_path);
           g_atla = true;
-        } else if (!game_find_compiler(exe, comp, sizeof comp, why, sizeof why)) {
+        } else if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) ||
+                   !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why)) {
           std::printf("[engine_editor] gomulu oynatma kapisi: ATLANDI (%s)\n", why);
           g_atla = true;
         } else {

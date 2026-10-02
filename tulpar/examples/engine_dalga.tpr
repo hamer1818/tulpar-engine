@@ -2,7 +2,7 @@
 //
 // Çalıştır (pencere):   tulpar examples/engine_dalga.tpr
 // Pencersiz doğrulama:  TULPAR_ENGINE_HEADLESS=2400 DISPLAY= tulpar examples/engine_dalga.tpr
-// (Motor oyunu için motoru TANIYAN derleyici gerekir: tools/motor_derleyici.sh.)
+// (Kurulu `tulpar` + motorun eklenti paketi: tulpar/tulpar.toml onu yapi/tulpar-ext'ten verir.)
 //
 // Dalga dalga düşman gelir; her biri `betik_ata(d, "dusman")` ile davranışını
 // alır ve oyun onları bir daha ELLE DOLAŞMAZ: düşman dizisi yok, düşman

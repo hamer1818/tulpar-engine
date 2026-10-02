@@ -1,0 +1,65 @@
+// Tulpar Engine — Tulpar -> motor CAGRI OLCUMU: bir eng_* cagrisinin kopru
+// maliyeti (TulparLang K303 yerel eklenti yolu). Oyun degil, olcu.
+//
+//   cd tulpar && tulpar build examples/engine_cagri_olcumu.tpr /tmp/cagri && /tmp/cagri
+//
+// Motor KURULMAZ: olculen teng_* fonksiyonlari kurulumsuz da guvenli ve
+// govdeleri bir-iki yukleme (teng_frame / teng_camera_x: `g ? g->x : 0`,
+// teng_camera: alti double'i saklar, teng_key_down: kucuk tablo araması).
+// Yani sure, cagrinin KENDISIDIR: arguman cevrimi + cagri + donus.
+//
+// Iki bicim: TIPLI (`float x`, sabit) — derleyici argumani ham tipiyle gecirir;
+// SARMALAYICI (engine.tpr'nin tipsiz `kamera(ex, ...)`'si) — argumanlar kutulu
+// gelir, cagri noktasinda satir ici cevrilir. Eski kopru (VMValue bindingleri,
+// motor_derleyici.sh) iki bicimde de her argumani yigina yazip isaretciyle ayri
+// bir TU'daki aot_eng_*_ptr'e gidiyordu. Olculen degerler: docs/KOPRU.md §1.
+import "engine";
+
+int N = 20000000;
+
+func olc(str ad, float t0, float t1) {
+    float ns = (t1 - t0) * 1000000.0 / N;
+    print("cagri " + ad + ": " + toString(ns) + " ns");
+}
+
+func main() {
+    int s = 0;
+    float f = 0.0;
+    float t0 = clock_ms();
+    for (int i = 0; i < N; i++) { s = s + eng_frame(); }
+    float t1 = clock_ms();
+    olc("eng_frame() -> int", t0, t1);
+
+    t0 = clock_ms();
+    for (int i = 0; i < N; i++) { if (eng_camera_x() > 1.0) { s = s + 1; } }
+    t1 = clock_ms();
+    olc("eng_camera_x() -> float", t0, t1);
+
+    // Ayni cagri, sonuc bir FLOAT birikimciye: `f` cagridan sag cikmali ama
+    // xmm yazmaclari cagri boyunca korunmaz (SysV) — her tur bellege yazilip
+    // geri okunur ve fadd'e zincirlenir. Olculen kopru degil bu zincir.
+    t0 = clock_ms();
+    for (int i = 0; i < N; i++) { f = f + eng_camera_x(); }
+    t1 = clock_ms();
+    olc("f = f + eng_camera_x() (float birikimci)", t0, t1);
+
+    float x = 1.5;
+    t0 = clock_ms();
+    for (int i = 0; i < N; i++) { eng_camera(x, 2.0, 3.0, 0.0, 0.0, x); }
+    t1 = clock_ms();
+    olc("eng_camera(6 x float, tipli)", t0, t1);
+
+    t0 = clock_ms();
+    for (int i = 0; i < N; i++) { kamera(x, 2.0, 3.0, 0.0, 0.0, x); }
+    t1 = clock_ms();
+    olc("kamera(6 arguman, engine.tpr sarmalayicisi)", t0, t1);
+
+    t0 = clock_ms();
+    for (int i = 0; i < N; i++) { if (eng_key_down("W")) { s = s + 1; } }
+    t1 = clock_ms();
+    olc("eng_key_down(\"W\") -> bool", t0, t1);
+
+    // Iz: derleyici donguleri silmesin diye sonuc kullanilir.
+    print("iz " + toString(s) + " " + toString(f));
+}
+main();

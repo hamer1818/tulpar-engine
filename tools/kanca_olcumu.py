@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Betik kancasi olcumu: kanca basina dagitim suresi + kare basina kalici bellek.
 
-  python3 tools/kanca_olcumu.py [--derleyici yapi/tulpar-motor/tulpar] [--kare 2000] [--tekrar 3] [--varlik 200]
-                                [--kare-bellegi-kapali]
+  python3 tools/kanca_olcumu.py [--derleyici tulpar] [--eklenti yapi/tulpar-ext] [--kare 2000] [--tekrar 3]
+                                [--varlik 200] [--kare-bellegi-kapali]
 
-tulpar/examples/engine_kanca_olcumu.tpr'yi motoru taniyan derleyiciyle
-(tools/motor_derleyici.sh) BIR KEZ derler, sonra ikiliyi pencersiz kosturur.
+tulpar/examples/engine_kanca_olcumu.tpr'yi kurulu `tulpar` + motorun eklenti
+paketiyle (TULPAR_EXT_PATH; TulparLang K303) BIR KEZ derler, sonra ikiliyi
+pencersiz kosturur. Eklenti paketi ortam degiskeniyle verilir, `--ext` ile
+degil: motoru icine gommus ESKI bir derleyiciyle (motor_derleyici.sh donemi)
+karsilastirma olcumu de ayni betikle yapilabilsin — o, degiskeni yok sayar.
 Oyun her 100 karede "olcu kare K" satiri basar (logla her satirda stdout'u
 bosaltir); betik o anda surecin VmRSS'ini okur. Egim, ISINMA karesinden
 sonraki orneklere en kucuk kareler dogrusu: kare basina bayt.
@@ -38,6 +41,7 @@ okuyamiyor (boyut 0 bildiriyorlar), olcu bu yuzden oyunun disinda.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -105,7 +109,8 @@ def kostur(ikili, kare, cwd, varlik, kb_kapali=False):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--derleyici", default=os.path.join(KOK, "yapi", "tulpar-motor", "tulpar"))
+    ap.add_argument("--derleyici", default=shutil.which("tulpar") or "tulpar")
+    ap.add_argument("--eklenti", default=os.path.join(KOK, "yapi", "tulpar-ext"), help="motorun Tulpar eklenti paketi")
     ap.add_argument("--kare", type=int, default=2000)
     ap.add_argument("--tekrar", type=int, default=3)
     ap.add_argument("--varlik", type=int, default=200)
@@ -115,12 +120,14 @@ def main():
         print("kanca olcumu: ATLANDI (VmRSS yalniz Linux'ta /proc'tan okunuyor)")
         return 0
     if not os.access(a.derleyici, os.X_OK):
-        print(f"kanca olcumu: derleyici yok: {a.derleyici} (once tools/motor_derleyici.sh)", file=sys.stderr)
+        print(f"kanca olcumu: derleyici yok: {a.derleyici} (TulparLang kurun ya da --derleyici verin)", file=sys.stderr)
         return 1
     cwd = os.path.join(KOK, "tulpar")
     with tempfile.TemporaryDirectory() as tmp:
         ikili = os.path.join(tmp, "kanca_olcumu")
-        d = subprocess.run([a.derleyici, "build", "examples/engine_kanca_olcumu.tpr", ikili], cwd=cwd, capture_output=True, text=True)
+        ortam = dict(os.environ, TULPAR_EXT_PATH=os.path.abspath(a.eklenti))
+        d = subprocess.run([a.derleyici, "build", "examples/engine_kanca_olcumu.tpr", ikili], cwd=cwd, capture_output=True, text=True,
+                           env=ortam)
         if d.returncode != 0 or not os.path.exists(ikili):
             print("kanca olcumu: derlenemedi", file=sys.stderr)
             print((d.stdout + d.stderr)[-2000:], file=sys.stderr)
