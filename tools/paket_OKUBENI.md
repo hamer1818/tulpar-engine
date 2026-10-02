@@ -24,6 +24,8 @@ libglfw.3.dylib    (macOS) aynısı
 lisanslar/         pakete konan kütüphanelerin lisansları (GLFW: zlib)
 assets/fonts/      arayüz ve HUD yazı tipleri (+ lisansları)
 tests/assets/      demo ve editörün açılışta yüklediği sahne ve modeller
+tulpar-ext/        motorun TulparLang eklentisi: oyun betikleri bununla derlenir
+                   (tulpar-ext.json + engine.tpr + lib/ arşivleri + HUD fontu)
 SURUM.txt          bu paketin sürümü ve platformu — elle DÜZENLEMEYİN
 DOSYALAR.txt       paketteki her dosyanın SHA-256 özeti — elle DÜZENLEMEYİN
 ```
@@ -91,6 +93,26 @@ tek bir `GxY` yazımı ister (`--size 1280x720`). İkisi de bilerek kendi
 | `TULPAR_ENGINE_GPU` | birden çok GPU varsa tercih edilen cihaz adının bir parçası |
 | `TULPAR_ENGINE_VK_VALIDATION` | Vulkan doğrulama katmanlarını açar (katmanlar kuruluysa) |
 | `TULPAR_ENGINE_AUDIO` | demoda ses cihazını açar |
+
+## Tulpar oyunları (`tulpar-ext/`)
+
+Oyun betikleri TulparLang'de yazılır; motor derleyiciye **yerel eklenti** olarak
+bağlanır. Eklenti paketi bu klasörün `tulpar-ext/` dizinidir. Gereken tek şey
+eklenti destekli (v3.38.0+) bir `tulpar`ın `PATH`'te olması.
+
+- **Editörden (F5):** editör `tulpar`ı önce `tulpar --ext <bu klasör>/tulpar-ext
+  version` ile sınar, oyunu `TULPAR_EXT_PATH=<bu klasör>/tulpar-ext` ile başlatır.
+  Ayrıca bir şey yapmanız gerekmez.
+- **Komut satırından:**
+
+  ```bash
+  TULPAR_EXT_PATH=<bu klasör>/tulpar-ext tulpar oyun.tpr
+  # ya da: tulpar --ext <bu klasör>/tulpar-ext oyun.tpr
+  ```
+
+  HUD yazı tipi `tulpar-ext/assets/fonts/`'tan `TULPAR_EXT_PATH` yoluyla bulunur.
+  Yalnız `--ext` verirseniz oyun yazı tipini bulamaz (logda `UYARI font
+  bulunamadi`, `eng_text` çizmez); o durumda `TULPAR_ENGINE_FONT=<yol>` verin.
 
 ## Ne pakette, ne sizde olmalı
 
@@ -261,5 +283,7 @@ listesini** kaynaktan **türetir** (ikinci bir elle yazılmış liste yok) ve pa
 sonunda denetler; eksik bir dosya işi kırmızıya çevirir. Son adımda
 `SURUM.txt` ve `DOSYALAR.txt`'yi yazar (`tools/paket_manifest.py`); denetim her
 satırın özetini, listede olmayan ya da pakette olmayan dosyayı ve sürümün
-ikiliyle aynı olduğunu da ölçer. Yalnız denetlemek için:
-`tools/package.sh --denetle <çıktı-dizini>`.
+ikiliyle aynı olduğunu da ölçer. `tulpar-ext/`'in içeriği de elle yazılmaz:
+eklenti bildiriminin modülleri ve platformun link kitaplıkları okunur; `tulpar`
+bulunduğunda denetim paketlenmiş eklentiyle bir örnek oyunu penceresiz 60 kare
+koşturur. Yalnız denetlemek için: `tools/package.sh --denetle <çıktı-dizini>`.

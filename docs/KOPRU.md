@@ -56,8 +56,17 @@ yapi/tulpar-ext/                    (CMake hedefi engine_tulpar_ext, her derleme
   tulpar-ext.json                   bildirim (SPEC'ten üretilir)
   engine.tpr                        `import "engine"`in modülü
   lib/libengine_tulpar.a ...        masaüstü arşivleri (link.linux / link.macos)
+  assets/fonts/DejaVuSans.ttf       HUD fontu (+ lisansı); köprü TULPAR_EXT_PATH girdilerinde arar
   android/<abi>/libtulpar_engine_android.a ...   tools/build_bridge_android.sh (link.android)
 ```
+
+Dağıtım paketi (`tools/package.sh`) aynı dizini `<paket>/tulpar-ext/` olarak taşır — editör F5'te
+onu `<editör dizini>/tulpar-ext`'te arar. Ne konacağı bildirimden türetilir (`modules` +
+`link.<platform>.libs`; `android/` masaüstü paketine girmez). Paket kapısı, `tulpar` bulunduğunda,
+paketlenmiş eklentiyle `engine_ilk_oyun`'u depo dışındaki geçici bir dizinde penceresiz 60 kare
+koşturur ve HUD fontunun **paketten** yüklendiğini ölçer (Tuzaklar 8cp); bir arşivi silinmiş
+kopyayla aynı oyunun link hatasında arşivi adıyla düşmesi pozitif kontroldür. CI'da (Linux, macOS)
+`TULPAR_PAKET_KOSU=zorunlu`: `tulpar` yoksa atlamaz, kırmızı olur.
 
 ```json
 {"tulpar_ext": 1, "name": "engine", "modules": {"engine": "engine.tpr"},
