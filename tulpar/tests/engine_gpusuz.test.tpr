@@ -1,0 +1,96 @@
+// Tulpar Engine köprüsü — GPU'SUZ yol: motor KURULAMADIĞINDA köprü ne yapar?
+//
+// engine_bridge.test.tpr kurulum düşerse tek bir "ATLANDI" basıp çıkar; yani
+// GPU'suz bir makinede (Windows CI: yazılım Vulkan ICD'si yok) o suite köprü
+// hakkında HİÇBİR ŞEY ölçmez. Bu suite tam o makine için: kurulumsuz da
+// güvenli olan teng_* çağrılarıyla eklenti ABI'sini (değer GİDİP GELİYOR mu)
+// ve başarısız kurulumun sözleşmesini (false + hata metni, sonraki çağrılar
+// çökmeden hata sayar, kapanış güvenli) ölçer.
+//
+// GPU olan makinede `TULPAR_ENGINE_NO_VULKAN=1` ile koşar (tools/tulpar_dogrula.sh
+// bunu kendisi verir): yükleyici yolu kapanır, kurulum düşer. Kurulum yine de
+// BAŞARILI olursa suite KIRMIZI döner — o durumda burada ölçülen yol hiç
+// koşmamıştır ve yeşil görünmesi yalan olurdu.
+//
+// Pencere AÇILMAZ: eng_set_headless(...) kurulumdan önce çağrılır.
+import "test";
+import "engine";
+
+str g_hata = "";
+int g_rss_once = 0;
+
+// 1) Kurulumsuz çağrılar: değerler C'ye gidip geri geliyor mu?
+func run_kurulumsuz() {
+    // i32 dönüş, platform yolu (Windows: GetProcessMemoryInfo).
+    g_rss_once = eng_rss_kb();
+    assert(g_rss_once > 1000, "eng_rss_kb kurulumsuz olculmeli (KB): " + toString(g_rss_once));
+
+    // ALTI double: Win64'te ilk dordu xmm0-3'te, 5. ve 6. YIGINDA; SysV'de
+    // hepsi xmm'de. Yorunge kamerasi gozu altisindan da hesaplar: yaw=0,
+    // pitch=0 -> goz = (tx, ty, tz + uzaklik). Uzaklik 6. arguman: yanlis
+    // yigin yerlesimi z'yi bozar.
+    eng_camera_orbit(1.5, 2.25, -3.5, 0.0, 0.0, 7.0);
+    assert_close(eng_camera_x(), 1.5, 0.0001);
+    assert_close(eng_camera_y(), 2.25, 0.0001);
+    assert_close(eng_camera_z(), 3.5, 0.0001);
+    // Dogrudan goz: eng_camera'nin ilk uc argumani gozdur.
+    eng_camera(-4.0, 0.5, 9.25, 0.0, 0.0, 0.0);
+    assert_close(eng_camera_x(), -4.0, 0.0001);
+    assert_close(eng_camera_z(), 9.25, 0.0001);
+
+    // i32 + str parametre, bool donus.
+    assert(!eng_headless(), "set_headless'tan once headless olmamali");
+    eng_set_headless(7, "");
+    assert(eng_headless(), "eng_set_headless(7, \"\") sonrasi headless olmali");
+
+    // KONTROL: hata sayaci gercekten sayiyor mu (asagidaki "kurulumdan sonra
+    // hata sayar" iddiasinin olcu aleti). Goz == hedef bir HATA'dir ve motor
+    // gozu z'de 1 kaydirir — hem sayac hem deger gorunur.
+    int h0 = eng_error_count();
+    eng_camera(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+    assert_eq_int(eng_error_count(), h0 + 1);
+    assert_close(eng_camera_z(), 2.0, 0.0001);
+    // str parametre, bilinmeyen tus adi = HATA, false.
+    assert(!eng_key_down("YOK_BOYLE_TUS"), "bilinmeyen tus false donmeli");
+    assert_eq_int(eng_error_count(), h0 + 2);
+    assert(!eng_key_down("W"), "kurulumsuz W basili olmamali");
+    assert_eq_int(eng_error_count(), h0 + 2);
+}
+
+// 2) Kurulum düşer: false + hata metni; sonrası çökmeden hata sayar.
+func run_kurulum_duser() {
+    log_seviyesi(1);
+    bool acildi = motor_ac("gpusuz", 64, 64);
+    if (acildi) {
+        // Burada olculen yol KOSMADI: GPU var ve yukleyici kapatilmamis.
+        motor_kapat();
+        assert(false, "motor KURULDU — bu suite GPU'suz yolu olcer (TULPAR_ENGINE_NO_VULKAN=1 ile kostur)");
+        return;
+    }
+    g_hata = eng_last_error();
+    print("    [bilgi] kurulum dustu: " + g_hata + " (TULPAR_ENGINE_NO_VULKAN='" + env("TULPAR_ENGINE_NO_VULKAN") + "')");
+    assert(len(g_hata) > 0, "dusen kurulum eng_last_error'a sebep yazmali");
+    assert(!calisiyor(), "dusen kurulumdan sonra calisiyor() false olmali");
+    assert_eq_int(eng_count(), 0);
+
+    // Kurulumsuz motora varlik: 8 arguman (6 double + flag + i64 renk; Win64'te
+    // 5..8 yiginda). Sozlesme: 0 (gecersiz id) + HATA sayilir, cokmez.
+    int h0 = eng_error_count();
+    int id = kutu(0, 1, 0, 0.5, 0.5, 0.5, true, KIRMIZI);
+    assert_eq_int(id, 0);
+    assert_eq_int(eng_error_count(), h0 + 1);
+    assert(!kare_basla(), "kurulumsuz kare_basla false donmeli");
+    kare_bitir();
+
+    // Kapanis kurulmamis motorda guvenli; iki kez de.
+    motor_kapat();
+    motor_kapat();
+    int rss = eng_rss_kb();
+    print("    [bilgi] RSS: kurulumdan once " + toString(g_rss_once) + " KB, dusen kurulumdan sonra " + toString(rss)
+        + " KB, hata " + toString(eng_error_count()) + ", uyari " + toString(eng_warning_count()));
+    assert(rss > 0, "eng_rss_kb dusen kurulumdan sonra da olculmeli");
+}
+
+test("kurulumsuz cagrilar: alti double, i32/str/bool, hata sayaci kontrolu", "run_kurulumsuz");
+test("kurulum duser: hata metni, kurulumsuz cagri sayilir, kapanis guvenli", "run_kurulum_duser");
+test_summary();

@@ -954,6 +954,8 @@ jobs:
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
             mingw-w64-x86_64-glfw
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-openssl
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -1060,6 +1062,63 @@ jobs:
             exit 1
           fi
 
+          exit "$kod"
+
+      # TULPAR KOPRUSU — WINDOWS (link.windows, 2026-10-02). Linux isindeki
+      # adimin Windows ayagi: YAYINLANMIS tulpar-windows-x64.zip (+ runtime
+      # arsivi; ikisi de SHA256SUMS.txt ile dogrulanir) bu isin
+      # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
+      # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
+      # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
+      # GPU YOK: runner'da vulkan-1.dll var ama ICD yok, vkCreateInstance
+      # VK_ERROR_INCOMPATIBLE_DRIVER (engine_tests'in atlama sebebi). Bu
+      # yuzden --gpusuz-izinli: GERCEKTEN olculen derleme + link.windows +
+      # pozitif kontroller (eklentisiz import, bozuk sembol, bozuk imza,
+      # link.windows'tan engine_core cikinca ADIYLA link hatasi) + 4 dil
+      # sondasi + GPU'suz kopru suite'i (kurulumsuz teng_* cagrilari, Win64'te
+      # yigindan gecen double'lar, dusen kurulumun sozlesmesi) + 9 programin
+      # kurulumun dustugu yere kadar kosmasi. Kapi satirlari, kopru testi ve
+      # oyunlarin kare dongusu ATLANDI sayilir ve is ozetine yazilir —
+      # "gecti" gosterilmez. Betigin son satiri ozet; sayilar ozete gider.
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, GPU'suz)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -uo pipefail
+          d="$(cygpath -u "$RUNNER_TEMP")/tulpar"
+          mkdir -p "$d"
+          url=https://github.com/hamer1818/TulparLang/releases/latest/download
+          for f in tulpar-windows-x64.zip libtulpar_runtime-windows-x64.a SHA256SUMS.txt; do
+            curl -fsSL --retry 3 -o "$d/$f" "$url/$f" || { echo "::error::$f indirilemedi"; exit 1; }
+          done
+          grep -E ' \*?(tulpar-windows-x64\.zip|libtulpar_runtime-windows-x64\.a)$' "$d/SHA256SUMS.txt" | tr -d '\r' >"$d/beklenen.txt"
+          if [ "$(wc -l <"$d/beklenen.txt")" != 2 ] || ! (cd "$d" && sha256sum -c beklenen.txt); then
+            echo "::error::SHA256SUMS.txt dogrulamasi tutmadi (ya da satirlar yok)"; exit 1
+          fi
+          python3 -m zipfile -e "$d/tulpar-windows-x64.zip" "$d/"
+          mv "$d/tulpar-windows-x64.exe" "$d/tulpar.exe"
+          cp "$d/libtulpar_runtime-windows-x64.a" "$d/libtulpar_runtime.a"
+          ls -la "$d"
+          "$d/tulpar.exe" --version
+          clang++ --version | head -1
+
+          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam --gpusuz-izinli 2>&1 | tee tulpar.log
+          kod=${PIPESTATUS[0]}
+          ozet="$(grep -E '^tulpar dogrulama: ' tulpar.log | tail -1 || true)"
+          {
+            echo "### Windows: Tulpar koprusu (link.windows)"
+            echo ""
+            echo "\`${ozet:-ozet satiri YOK}\`"
+            echo ""
+            echo "GPU yok: atlananlar olculMEDI (derlendi + linklendi + kurulumun dustugu yere kadar kostu)."
+            echo ""
+            echo '```'
+            grep -E 'ATLANDI:|kurulum dustu|\[bilgi\]|link adiyla|HATA Vulkan' tulpar.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$ozet" ]; then
+            echo "::error::tulpar_dogrula.sh ozet satiri basmadi — betik yarida kesilmis olabilir."
+            exit 1
+          fi
           exit "$kod"
 
       # CALISTIRILABILIR CIKTILAR — ikililer, varliklar VE Windows'ta SART olan

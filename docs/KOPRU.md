@@ -55,7 +55,7 @@ paket sunuyor:
 yapi/tulpar-ext/                    (CMake hedefi engine_tulpar_ext, her derlemede)
   tulpar-ext.json                   bildirim (SPEC'ten üretilir)
   engine.tpr                        `import "engine"`in modülü
-  lib/libengine_tulpar.a ...        masaüstü arşivleri (link.linux / link.macos)
+  lib/libengine_tulpar.a ...        masaüstü arşivleri (link.linux / link.macos / link.windows)
   assets/fonts/DejaVuSans.ttf       HUD fontu (+ lisansı); köprü TULPAR_EXT_PATH girdilerinde arar
   android/<abi>/libtulpar_engine_android.a ...   tools/build_bridge_android.sh (link.android)
 ```
@@ -130,8 +130,10 @@ kırık bir araç kalırdı. Dört dil sondası `tools/tulpar_dogrula.sh`'e taş
 
 **Doğrulama:** `tools/tulpar_dogrula.sh [--tam]` — kurulu (ya da `--tulpar`) derleyici + paket:
 3 karelik duman, pozitif kontroller (eklentisiz `import "engine"` düşer ve `--ext` ipucunu verir;
-bildirimde bozuk sembol link hatasında **adıyla**; bozuk imza tipi typecheck'te), 4 dil sondası;
-`--tam` ile dalga/aksiyon kapı satırları **bayt bayt**, köprü testi, 6 örnek. CI'ın Linux ayağı bunu
+bildirimde bozuk sembol link hatasında **adıyla**; bozuk imza tipi typecheck'te; bu platformun
+`link.<platform>` satırından `engine_core` çıkınca link motor sembolünün **adıyla** düşer), GPU'suz köprü
+suite'i (`tulpar/tests/engine_gpusuz.test.tpr`, aşağıda), 4 dil sondası; son satır özet
+(`tulpar dogrulama: N gecti, M dustu, K atlandi`); `--tam` ile dalga/aksiyon kapı satırları **bayt bayt**, köprü testi, 6 örnek. CI'ın Linux ayağı bunu
 **yayınlanmış** `tulpar` (`releases/latest`) ile koşturur. Lavapipe notu (ölçüldü 2026-10-02, CI
 ubuntu-24.04, mesa 25.2.8 llvmpipe, LLVM 20, 4 çekirdek): aksiyonun RSS bellek kapısı sürücü ısınmasını
 da ölçüyor — `/proc/<pid>/smaps` `[heap]` ilk ~37 s'de (≈k1100) +31 MB, sonra düz; k1000'den başlayan
@@ -139,6 +141,40 @@ pencere 8.2 MB/1000 kare gösterip düştü. Aynı ikili yerelde mesa 26.2.4 lav
 llvmpipe'ta betik eğimi ayrı bir 4600 karelik koşumda k2400'den sonra aynı 600 KB sınırıyla ölçer
 (`TULPAR_AKSIYON_BELLEK_ILK`; varsayılan pencere değişmedi). Android: `link.android` + `-Wl,--no-undefined` ile iki ABI'lik
 `libtulpargame.so` linklenmesi ölçüldü (2026-10-02, NDK 27; cihazda koşturulmadı).
+
+**Windows (`link.windows`, 2026-10-02).** Bölüm masaüstüyle aynı 13 arşiv + grup (TulparLang'in Windows
+linki de GNU ld: sürücü MSYS2 MINGW64 `clang++`, `-static`, motor arşivleri MINGW64 GCC ile derlenmiş —
+ikisi de libstdc++ + ld.bfd, uyumlu) + `-lpsapi -lpthread` (CMake'in `engine_platform`'a yazdıklarının
+aynısı). Başka sistem kitaplığı yok, çünkü motor Windows'ta ne link ediyorsa çalışma zamanında
+`LoadLibrary` ile açıyor (Vulkan, GLFW; miniaudio WASAPI/ole32'yi kendisi yüklüyor): CI artefaktındaki
+`engine_demo.exe`'nin ithalat tablosunda KERNEL32 + msvcrt + MinGW çalışma zamanı DLL'lerinden başka bir
+şey yok. `-lpsapi -lpthread` ölçülünce **gerekmediği** görüldü (CI 2026-10-02, pozitif kontrol koşumu
+37026937971: ikisi ve `engine_rhi` birlikte çıkarıldı, tanımsız sembollerin hepsi `tulpar::engine::rhi::*` —
+`GetProcessMemoryInfo` yeni MinGW başlıklarında kernel32'deki `K32GetProcessMemoryInfo`'ya, winpthread
+sürücünün `-static` libstdc++ zincirine çözülüyor); CMake ile aynı kalsın ve `PSAPI_VERSION=1` başlıklarında
+da linklensin diye bildirimde duruyorlar. Aynı koşum pozitif kontroldür: `link.windows`'tan bir arşiv
+eksikken Windows adımı tanımsız motor sembollerinin **adlarıyla** kırmızıya döndü.
+
+CI'ın Windows ayağı **yayınlanmış** `tulpar-windows-x64.zip` + `libtulpar_runtime-windows-x64.a`'yı
+(`SHA256SUMS.txt` ile doğrulanır) bu işin paketiyle koşturur: `tulpar_dogrula.sh --tam --gpusuz-izinli`.
+Runner'da GPU yok — `vulkan-1.dll` var ama ICD yok, kurulum `vkCreateInstance (VK_ERROR_INCOMPATIBLE_DRIVER)`
+ile düşer (yükleyici açılır, arena 512 MB rezerv + 3 iş parçacığı kurulmuş olur; program rc=0 ile çıkar).
+Bu yüzden ölçülen ile atlanan **ayrı sayılır** (ölçüldü 2026-10-02, CI windows-latest, clang 22.1.8,
+TulparLang v3.38.0; adım 44 s):
+
+| | Windows CI'da |
+|---|---|
+| derleme + `link.windows` linki + başlatma (9 program: duman, dalga, aksiyon, köprü testi, 5 örnek) | **koştu** (rc=0, kurulum düştü) |
+| pozitif kontroller: eklentisiz import, bozuk sembol (`teng_dt_YOK`), bozuk imza, `link.windows`'tan `engine_core` çıkınca `tulpar::engine::SystemArena::reserve` adıyla link hatası | **koştu** |
+| 4 dil sondası | **koştu** |
+| `engine_gpusuz.test.tpr` (2 test): kurulumsuz `teng_*` — `eng_camera_orbit`'in 6. double'ı (Win64'te **yığında**) geri okunur, i32/str/bool, hata sayacı kontrolü; düşen kurulum: hata metni, `calisiyor()` false, kurulumsuz `kutu(...)` (8 argüman, 5–8 yığında) 0 + HATA sayar, kapanış iki kez güvenli | **koştu**, 2/2; RSS 4696 → 11208 KB |
+| `engine_ilk_oyun` 3 kare, dalga/aksiyon `[kapi]` satırları, `engine_bridge.test.tpr` (27 test), 5 örneğin 60 karesi | **ATLANDI** (9) — kare döngüsü hiç koşmadı |
+
+Özet satırı: `tulpar dogrulama: 19 gecti, 0 dustu, 9 atlandi`. Linux/macOS'ta aynı betik bayraksız koşar:
+orada GPU'suz bir kurulum **DÜŞTÜ** sayılır (atlama yok). GPU'suz suite GPU'lu makinede
+`TULPAR_ENGINE_NO_VULKAN=1` ile koşar ve kurulum başarılı olursa kırmızıdır (pozitif kontrol: o
+değişken olmadan yerelde RTX 5080'de `Fail: 1`). Windows'ta oyunların **kare döngüsü** (render, fizik
+adımı, ses) hâlâ ölçülmedi: yazılım ICD'si (ör. MSYS2 mesa lavapipe) ya da GPU'lu bir runner gerekir.
 
 ## 3. Sözleşme
 
