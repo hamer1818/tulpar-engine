@@ -22,8 +22,8 @@
 # KIRILGAN NOKTA (BILEREK SOYLENIYOR): kopru 86e2c4e'nin TERSI uygulanarak
 # geri geliyor. Derleyici o dosyalara dokundukca ters yama tutmayabilir;
 # tutmazsa betik burada ve adiyla durur. aot_pipeline.cpp'nin farki ayrica
-# tools/motor_kopru/aot_pipeline.patch'te tutulur (ters yama orada 2026-10-01'de
-# tutmaz oldu). Kalici cozum derleyiciye motor icin bir eklenti noktasi (K303)
+# tools/motor_kopru/*.patch'te tutulur (ters yama aot_pipeline.cpp'de
+# 2026-10-01'de, CMakeLists.txt'te 2026-10-02'de tutmaz oldu). Kalici cozum derleyiciye motor icin bir eklenti noktasi (K303)
 # — bu betigin kapsami degil.
 set -uo pipefail
 
@@ -174,25 +174,40 @@ fi
 
 # --- Kopruyu geri bagla -------------------------------------------------------
 bilgi "kopru geri baglaniyor ($ayrilma tersi, ${#DOSYALAR[@]} dosya)"
-# aot_pipeline.cpp ters yamadan HARIC: derleyici link satirlarini 86e2c4e'den
-# sonra degistirdi (K225 TULPAR_CC #368: "clang++" -> aot_link_driver()), ters
-# yama 2026-10-01'de orada tutmaz oldu. O dosyanin kopru farki guncel main'e
-# karsi elle cozulup tools/motor_kopru/aot_pipeline.patch'te tutuluyor ve uc
-# yollu (-3) uygulaniyor: derleyici o satirlara yeniden dokunursa yama yine
-# tutmaz ve betik ASAGIDA adiyla durur — cakisma isaretli kaynak derlenmez.
+# tools/motor_kopru/*.patch dosyalarinin hedefledigi kaynaklar ters yamadan
+# HARIC: derleyici o dosyalarin kopru satirlarina 86e2c4e'den sonra dokundu ve
+# ters yama orada tutmaz oldu (aot_pipeline.cpp 2026-10-01: #368 TULPAR_CC
+# "clang++" -> aot_link_driver(); CMakeLists.txt 2026-10-02: #447 surum
+# git describe'dan). Her birinin kopru farki guncel main'e karsi elle cozulup
+# orada tutuluyor ve uc yollu (-3) uygulaniyor: derleyici o satirlara yeniden
+# dokunursa yama yine tutmaz ve betik ASAGIDA adiyla durur — cakisma isaretli
+# kaynak derlenmez. Yeni bir dosya tutmaz olursa ayni kaliba bir .patch eklenir.
+yamalar=("$kok"/tools/motor_kopru/*.patch)
+yamali=()
+for y in "${yamalar[@]}"; do
+  yol="$(sed -n 's#^+++ b/##p' "$y" | head -1)"
+  [ -n "$yol" ] || { hata "$y icinde hedef dosya yok (+++ b/ satiri)"; exit 1; }
+  yamali+=("$yol")
+done
 ters=()
-for d in "${DOSYALAR[@]}"; do [ "$d" = src/aot/aot_pipeline.cpp ] || ters+=("$d"); done
+for d in "${DOSYALAR[@]}"; do
+  atla=0; for y in "${yamali[@]}"; do [ "$d" = "$y" ] && atla=1; done
+  [ "$atla" = 1 ] || ters+=("$d")
+done
 if ! git -C "$tulpar_src" show "$ayrilma" -- "${ters[@]}" | git -C "$wt" apply -R; then
   hata "$ayrilma'nin tersi artik TEMIZ UYGULANMIYOR: derleyici o dosyalari degistirmis."
-  echo "  Tarifin guncellenmesi gerekiyor; ters yamayi zorlamak yanlis bir derleyici uretirdi."
+  echo "  Tutmayan dosya icin tools/motor_kopru/<ad>.patch uret: tersi '-3' ile uygula, catismayi coz," >&2
+  echo "  sonra: git -C <agac> diff HEAD -- <dosya> > tools/motor_kopru/<ad>.patch" >&2
   exit 1
 fi
-if ! git -C "$wt" apply -3 "$kok/tools/motor_kopru/aot_pipeline.patch"; then
-  hata "tools/motor_kopru/aot_pipeline.patch artik TEMIZ UYGULANMIYOR (derleyici link satirlarini degistirmis)."
-  echo "  Yamayi guncel derleyiciye karsi yeniden uret: catismayi $wt icinde coz," >&2
-  echo "  sonra: git -C $wt diff HEAD -- src/aot/aot_pipeline.cpp > tools/motor_kopru/aot_pipeline.patch" >&2
-  exit 1
-fi
+for i in "${!yamalar[@]}"; do
+  if ! git -C "$wt" apply -3 "${yamalar[$i]}"; then
+    hata "${yamalar[$i]#$kok/} artik TEMIZ UYGULANMIYOR (derleyici ${yamali[$i]} kopru satirlarini degistirmis)."
+    echo "  Yamayi guncel derleyiciye karsi yeniden uret: catismayi $wt icinde coz," >&2
+    echo "  sonra: git -C $wt diff HEAD -- ${yamali[$i]} > ${yamalar[$i]#$kok/}" >&2
+    exit 1
+  fi
+done
 # Motor alt agaci derlenmez: hazir yapi/ arsivleri kullanilir.
 sed -i.yedek 's/^\([[:space:]]*\)add_subdirectory(engine)/\1# add_subdirectory(engine)  # motor_derleyici.sh: hazir yapi\/ kullaniliyor/' "$wt/CMakeLists.txt"
 rm -f "$wt/CMakeLists.txt.yedek"
