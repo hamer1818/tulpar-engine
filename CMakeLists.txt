@@ -415,6 +415,10 @@ message(STATUS "engine: Tulpar ABI kilidi saglam; pozitif kontrol (kasitli kayma
 set(TULPAR_EXT_DIR ${CMAKE_BINARY_DIR}/tulpar-ext)
 set(TULPAR_EXT_LIBS engine_tulpar engine_bridge engine_content engine_renderer engine_sim engine_rhi
     engine_audio engine_core engine_platform engine_jolt engine_recast engine_meshopt engine_astcenc)
+# HUD fontu (+ lisansi) paketin ICINDE: kopru onu <TULPAR_EXT_PATH girdisi>/
+# assets/fonts'ta da arar. Editor oyunu TULPAR_EXT_PATH ile baslattigi icin
+# kurulu bir pakette (ENGINE_SOURCE_DIR yok) font buradan gelir.
+set(_ext_fontlar ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVuSans.ttf ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVu-LICENSE.txt)
 set(_ext_kopyala)
 foreach(_l ${TULPAR_EXT_LIBS})
     list(APPEND _ext_kopyala COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${_l}> ${TULPAR_EXT_DIR}/lib/)
@@ -423,8 +427,10 @@ add_custom_target(engine_tulpar_ext ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/lib
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${TULPAR_EXT_DIR}/tulpar-ext.json
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${TULPAR_EXT_DIR}/engine.tpr
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/assets/fonts
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ext_fontlar} ${TULPAR_EXT_DIR}/assets/fonts/
     ${_ext_kopyala}
-    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr
+    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${_ext_fontlar}
     COMMENT "engine: Tulpar eklenti paketi -> ${TULPAR_EXT_DIR}"
     VERBATIM
 )

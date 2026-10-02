@@ -18,6 +18,12 @@
 #           BASLAT-*.bat           (yalniz Windows; hata halinde konsolu acik tutar)
 #           assets/fonts/<ttf + lisanslar>
 #           tests/assets/<demo ve editorun yukledigi varliklar>
+#           tulpar-ext/            Tulpar eklenti paketi (editor F5 onu
+#                                  <editor dizini>/tulpar-ext'te arar):
+#                                  tulpar-ext.json + modulleri (engine.tpr) +
+#                                  link.<platform> arsivleri (lib/) +
+#                                  assets/fonts (HUD fontu + lisansi). Bildirimde
+#                                  link.<platform> yoksa GORUNUR atlanir.
 #           OKUBENI.md
 #           SURUM.txt              "<surum> <platform>\n" (kaynak derlemesi:
 #                                  "kaynak <platform>"); ikilideki isaretten
@@ -557,6 +563,176 @@ for a in aileler:
 PY
 }
 
+# --- Tulpar EKLENTI PAKETI: bildirimden turetilir --------------------------
+# NEDEN VAR (olculdu 2026-10-02): kurulu bir motor paketinin editoru F5'te
+# "motorun Tulpar eklenti paketi yok (<editor dizini>/tulpar-ext/tulpar-ext.json)"
+# diyordu — CMake paketi yapi/tulpar-ext'e koyuyor, bu betik onu dagitima
+# hic almiyordu. Ne konacagi ELLE yazilmaz: bildirimin (tulpar-ext.json)
+# `modules` alani ve hedef platformun `link.<platform>` bolumu (lib_dirs x
+# libs) okunur. Bildirim yeni bir arsiv isterse paket onu kendiliginden tasir;
+# bulamazsa KIRMIZI.
+#
+# Cikti satirlari (bildirim <yol>, platform <p>):
+#   modul\t<paket-ici goreli yol>
+#   kitaplik\t<ad>\t<aday1>|<aday2>|...      (paket-ici goreli; ilk bulunan yeter)
+#   yok                                      (bildirimde link.<p> YOK)
+eklenti_bilgisi() {
+  python3 - "$1" "$2" <<'PY' | tr -d '\r'
+import json, sys
+try:
+    sys.stdout.reconfigure(newline="\n")
+except AttributeError:
+    pass
+yol, plat = sys.argv[1], sys.argv[2]
+try:
+    d = json.load(open(yol, "r", encoding="utf-8"))
+except Exception as e:
+    sys.stderr.write("eklenti bildirimi okunamadi: %s (%s)\n" % (yol, e))
+    sys.exit(1)
+mods = d.get("modules") or {}
+if not mods:
+    sys.stderr.write("eklenti bildiriminde 'modules' bos — turetme bozulmus\n")
+    sys.exit(1)
+for m in sorted(mods.values()):
+    print("modul\t%s" % m)
+link = (d.get("link") or {}).get(plat)
+if not link:
+    print("yok")
+    sys.exit(0)
+dirs = link.get("lib_dirs") or ["."]
+libs = link.get("libs") or []
+if not libs:
+    sys.stderr.write("link.%s.libs bos — turetme bozulmus\n" % plat)
+    sys.exit(1)
+for l in libs:
+    adaylar = []
+    for dd in dirs:
+        for kalip in ("lib%s.a", "%s.lib", "lib%s.so", "lib%s.dylib"):
+            adaylar.append("%s/%s" % (dd.rstrip("/"), kalip % l))
+    print("kitaplik\t%s\t%s" % (l, "|".join(adaylar)))
+PY
+}
+
+# Eklentinin HUD fontu (kopru <TULPAR_EXT_PATH girdisi>/assets/fonts'ta arar,
+# bkz. bridge/engine_api.cpp "Eklenti paketinin KENDI fontu"). Kosu kapisi
+# fontun GERCEKTEN buradan yuklendigini ayrica olcer.
+EKLENTI_FONT="assets/fonts/DejaVuSans.ttf"
+
+# Bayt bayt esitlik, dis arac (cmp) OLMADAN: MSYS2'nin temel kurulumunda
+# diffutils'e guvenmiyoruz (release.yml'deki manifest kapisiyla ayni gerekce).
+ayni_dosya() {
+  python3 -c 'import sys; sys.exit(0 if open(sys.argv[1], "rb").read() == open(sys.argv[2], "rb").read() else 1)' "$1" "$2"
+}
+
+# <eklenti dizini> icinde EKSIK olan kitapliklarin adlari (satir basina bir).
+eklenti_eksik_kitapliklar() {
+  local dizin="$1" satirlar="$2" tur ad adaylar a bulundu
+  while IFS=$'\t' read -r tur ad adaylar; do
+    [ "$tur" = "kitaplik" ] || continue
+    bulundu=""
+    IFS='|' read -r -a _ady <<< "$adaylar"
+    for a in "${_ady[@]}"; do
+      if [ -s "$dizin/$a" ]; then bulundu="$a"; break; fi
+    done
+    [ -n "$bulundu" ] || printf '%s\n' "$ad"
+  done <<< "$satirlar"
+}
+
+# Eklenti paketinin iki sinamasi (paket tamken cagrilir; 0 = gecti):
+#  1. KITAPLIK KAPISININ POZITIF KONTROLU: paketin bir kopyasindan ilk
+#     kitapligin arsivi silinir; eklenti_eksik_kitapliklar onu ADIYLA bulmali.
+#     Bulamazsa kapi bir sey olcmuyordur.
+#  2. KOSU (tulpar varsa): paketlenmis dizinden, depo agacinin DISINDAKI gecici
+#     bir dizinde, editorun F5'te yaptigi gibi (TULPAR_EXT_PATH=<paket>/
+#     tulpar-ext; ayrica --ext) bir ornek oyun penceresiz 60 kare kosar.
+#     Olculen: `--ext <paket> version` sondasi (editorun sondasi), cikis 0,
+#     motorun kapanis raporu (hata 0), HUD fontu PAKETTEN yuklendi. Arsivlerin
+#     PAKETTEN linklendigini basarili kosu gostermez (derleyici basarida
+#     bildirimin yolunu basmiyor, olculdu v3.38.0) — onu pozitif kontrol
+#     gosterir: ayni oyun kitapligi silinmis kopyayla DUSMELI ve link hatasi
+#     kitapligi ADIYLA soylemeli.
+#     tulpar yoksa GORUNUR atlanir; TULPAR_PAKET_KOSU=zorunlu (CI) iken HATA.
+#     tulpar: TULPAR, yoksa PATH. Bugun yalniz Linux/macOS CI'i verir.
+eklenti_sinamalari() {
+  local cikti="$1" satirlar="$2" ekl gun ilk_ad ilk_dosya tur ad adaylar a sonuc tul rc log font ok=0
+  ekl="$(cd "$cikti/tulpar-ext" && pwd)"
+  gun="$(mktemp -d 2>/dev/null || mktemp -d -t tulpar_paket)"
+  # Silinecek kitaplik: bildirimdeki ILK kitaplik, paketteki gercek dosyasi.
+  ilk_ad=""; ilk_dosya=""
+  while IFS=$'\t' read -r tur ad adaylar; do
+    [ "$tur" = "kitaplik" ] && [ -z "$ilk_ad" ] || continue
+    IFS='|' read -r -a _ady <<< "$adaylar"
+    for a in "${_ady[@]}"; do
+      if [ -s "$ekl/$a" ]; then ilk_ad="$ad"; ilk_dosya="$a"; break; fi
+    done
+  done <<< "$satirlar"
+  cp -R "$ekl" "$gun/bozuk"
+  rm -f "$gun/bozuk/$ilk_dosya"
+  sonuc="$(eklenti_eksik_kitapliklar "$gun/bozuk" "$satirlar")"
+  if [ -n "$ilk_ad" ] && [ "$sonuc" = "$ilk_ad" ]; then
+    echo "  pozitif kontrol: kopyadan $ilk_dosya silinince kapi [$ilk_ad] adiyla EKSIK dedi"
+  else
+    echo "  KAPI BOZUK: kopyadan '$ilk_dosya' silindi, kapi '${sonuc:-hicbir sey}' dedi (beklenen '$ilk_ad')"
+    rm -rf "$gun"; return 1
+  fi
+
+  tul="${TULPAR:-}"
+  [ -n "$tul" ] || tul="$(command -v tulpar 2>/dev/null || true)"
+  if [ -z "$tul" ] || [ ! -x "$tul" ]; then
+    rm -rf "$gun"
+    if [ "${TULPAR_PAKET_KOSU:-}" = "zorunlu" ]; then
+      echo "  EKSIK   tulpar yok (TULPAR / PATH) ama TULPAR_PAKET_KOSU=zorunlu — paketlenmis eklentiyle oyun kosusu OLCULMEDI"
+      return 1
+    fi
+    echo "  ATLANDI: tulpar yok (TULPAR / PATH) — paketlenmis eklentiyle oyun kosusu OLCULMEDI"
+    return 0
+  fi
+  echo "  tulpar: $tul ($("$tul" --version 2>&1 | head -1))"
+  if ! "$tul" --ext "$ekl" version > "$gun/sonda.log" 2>&1; then
+    echo "  KOSU    '$tul --ext <paket>/tulpar-ext version' DUSTU (editorun F5 sondasi):"
+    head -5 "$gun/sonda.log" | sed 's/^/      /'
+    rm -rf "$gun"; return 1
+  fi
+  mkdir -p "$gun/oyun"
+  cp -f "$kok/tulpar/examples/engine_ilk_oyun.tpr" "$gun/oyun/"
+  # Kullanicinin font/varlik yonlendirmeleri BILEREK kapali: font paketten
+  # gelmeli. LC_ALL=C: link hatasi Ingilizce ve sabit.
+  kos() {  # kos <eklenti dizini> <log>
+    ( cd "$gun/oyun" && unset TULPAR_ENGINE_FONT TULPAR_ENGINE_ASSETS && \
+      LC_ALL=C DISPLAY= TULPAR_ENGINE_LOG=3 TULPAR_ENGINE_HEADLESS=60 TULPAR_EXT_PATH="$1" \
+      "$tul" --ext "$1" engine_ilk_oyun.tpr ) > "$2" 2>&1
+  }
+  log="$gun/kosu.log"
+  rc=0; kos "$ekl" "$log" || rc=$?
+  font="$(grep -m1 'font adayi .* -> YUKLENDI' "$log" | sed -n 's/.*font adayi [0-9]*\/[0-9]*: \(.*\) -> YUKLENDI.*/\1/p')"
+  if [ "$rc" -ne 0 ]; then
+    echo "  KOSU    ornek oyun (engine_ilk_oyun, 60 kare) cikis $rc"
+  elif ! grep -q 'kapanis: .* hata 0' "$log"; then
+    echo "  KOSU    ornek oyunun kapanis raporu yok ya da hata > 0"
+  elif [ "$font" != "$ekl/$EKLENTI_FONT" ]; then
+    echo "  KOSU    HUD fontu paketten gelmedi: '${font:-yuklenmedi}' (beklenen $ekl/$EKLENTI_FONT)"
+  else
+    ok=1
+    echo "  kosu    engine_ilk_oyun 60 kare, paketten: $(grep -m1 'kapanis:' "$log" | sed 's/.*kapanis: //')"
+    echo "  kosu    font paketten: tulpar-ext/$EKLENTI_FONT"
+  fi
+  if [ "$ok" != 1 ]; then
+    tail -12 "$log" | sed 's/^/      /'
+    rm -rf "$gun"; return 1
+  fi
+  # Kosunun pozitif kontrolu: ayni oyun, kitapligi silinmis kopyayla.
+  rc=0; kos "$gun/bozuk" "$gun/bozuk.log" || rc=$?
+  if [ "$rc" -ne 0 ] && grep -q "$ilk_ad" "$gun/bozuk.log"; then
+    echo "  pozitif kontrol: $ilk_dosya'siz kopyayla oyun linklenmedi, hata [$ilk_ad] adiyla"
+  else
+    echo "  KOSU    pozitif kontrol: $ilk_dosya'siz kopya cikis $rc, ad hatada: $(grep -c "$ilk_ad" "$gun/bozuk.log") — kosu kapisi kitapligi olcmuyor"
+    tail -6 "$gun/bozuk.log" | sed 's/^/      /'
+    rm -rf "$gun"; return 1
+  fi
+  rm -rf "$gun"
+  return 0
+}
+
 # Paketin HEDEF platformu. Konak degil PAKET ICERIGI karar verir — Linux'ta
 # denetlenen bir Windows paketi de dogru olculsun (varlik kapisi da boyle).
 paket_platformu() {
@@ -761,6 +937,46 @@ paketle() {
   dl_liste="$(dlopen_kutuphaneleri)" || ci_hata "dlopen kutuphane listesi turetilemedi (yukaridaki satirlara bak)."
   gomulu_kopyala "$cikti" "$plat" "$dl_liste"
 
+  # 3c) Tulpar eklenti paketi -> <cikti>/tulpar-ext (editor F5 onu
+  # <editor dizini>/tulpar-ext'te arar). Kaynak: CMake'in yapi/tulpar-ext'i;
+  # ne alinacagi bildirimden (bkz. eklenti_bilgisi).
+  local ekl_satir ekl_kaynak="$yapi/tulpar-ext" tur ad adaylar a m
+  ekl_satir="$(eklenti_bilgisi "$kok/tulpar/generated/tulpar-ext.json" "$plat")" || \
+    ci_hata "eklenti bildirimi (tulpar/generated/tulpar-ext.json) okunamadi."
+  if printf '%s\n' "$ekl_satir" | grep -qx 'yok'; then
+    echo "  ATLANDI: tulpar-ext.json'da link.$plat yok — Tulpar eklentisi bu platformda paketlenmez (oyunlar bu platformda motora baglanamaz)"
+  else
+    [ -s "$ekl_kaynak/tulpar-ext.json" ] || \
+      ci_hata "eklenti paketi yapida yok: $ekl_kaynak/tulpar-ext.json (CMake hedefi engine_tulpar_ext derlenmedi mi?)"
+    ayni_dosya "$ekl_kaynak/tulpar-ext.json" "$kok/tulpar/generated/tulpar-ext.json" || \
+      ci_hata "yapidaki eklenti bildirimi kaynaktakiyle AYNI DEGIL ($ekl_kaynak/tulpar-ext.json) — bayat yapi; once cmake --build."
+    mkdir -p "$cikti/tulpar-ext"
+    cp -f "$ekl_kaynak/tulpar-ext.json" "$cikti/tulpar-ext/"
+    while IFS=$'\t' read -r tur ad adaylar; do
+      case "$tur" in
+        modul)
+          [ -s "$ekl_kaynak/$ad" ] || ci_hata "eklenti modulu yapida yok: $ekl_kaynak/$ad"
+          mkdir -p "$cikti/tulpar-ext/$(dirname "$ad")"
+          cp -f "$ekl_kaynak/$ad" "$cikti/tulpar-ext/$ad"
+          ;;
+        kitaplik)
+          m=""
+          IFS='|' read -r -a _ady <<< "$adaylar"
+          for a in "${_ady[@]}"; do
+            if [ -s "$ekl_kaynak/$a" ]; then m="$a"; break; fi
+          done
+          [ -n "$m" ] || ci_hata "eklenti kitapligi [$ad] yapida yok (adaylar: ${adaylar//|/ }) — link.$plat.libs onu istiyor."
+          mkdir -p "$cikti/tulpar-ext/$(dirname "$m")"
+          cp -f "$ekl_kaynak/$m" "$cikti/tulpar-ext/$m"
+          ;;
+      esac
+    done <<< "$ekl_satir"
+    # Font + lisansi: CMake'in koydugu assets/ dizini oldugu gibi.
+    [ -s "$ekl_kaynak/$EKLENTI_FONT" ] || ci_hata "eklentinin fontu yapida yok: $ekl_kaynak/$EKLENTI_FONT"
+    cp -R "$ekl_kaynak/assets" "$cikti/tulpar-ext/"
+    echo "  eklenti tulpar-ext/ <- $ekl_kaynak ($(du -sh "$cikti/tulpar-ext" | cut -f1))"
+  fi
+
   # 4) OKUBENI
   [ -f "$OKUBENI_KAYNAK" ] || ci_hata "OKUBENI kaynagi yok: $OKUBENI_KAYNAK"
   cp -f "$OKUBENI_KAYNAK" "$cikti/OKUBENI.md"
@@ -894,6 +1110,54 @@ denetle() {
     done
   fi
 
+  # --- Tulpar eklenti paketi (tulpar-ext/) ---------------------------------
+  # Ne olmasi gerektigi KAYNAKTAKI bildirimden (modules + link.<hedef>.libs);
+  # pakettekinin bayt bayt ayni olmasi da olculur (bayat bildirim = derleyici
+  # olmayan bir sembolu arar ya da yeni bir imzayi bilmez).
+  echo "  --- Tulpar eklenti paketi (tulpar-ext/, hedef: $dl_plat) ---"
+  local ekl_satir ekl="$cikti/tulpar-ext" tur ad adaylar ekl_eksik
+  ekl_satir="$(eklenti_bilgisi "$kok/tulpar/generated/tulpar-ext.json" "$dl_plat")" || \
+    ci_hata "eklenti bildirimi (tulpar/generated/tulpar-ext.json) okunamadi — eklenti kapisi olcemez."
+  if printf '%s\n' "$ekl_satir" | grep -qx 'yok'; then
+    echo "  ATLANDI: tulpar-ext.json'da link.$dl_plat yok — bu platformda eklenti paketlenmiyor, kapi OLCMEDI"
+  else
+    say=$((say + 1))
+    if [ ! -s "$ekl/tulpar-ext.json" ]; then
+      echo "  EKSIK   tulpar-ext/tulpar-ext.json (editor F5 'paket yok' der)"
+      eksik=$((eksik + 1))
+    elif ! ayni_dosya "$ekl/tulpar-ext.json" "$kok/tulpar/generated/tulpar-ext.json"; then
+      echo "  BAYAT   tulpar-ext/tulpar-ext.json (kaynaktaki bildirimle ayni degil)"
+      eksik=$((eksik + 1))
+    else
+      echo "  var     tulpar-ext/tulpar-ext.json"
+    fi
+    while IFS=$'\t' read -r tur ad adaylar; do
+      [ "$tur" = "modul" ] || continue
+      say=$((say + 1))
+      if [ -s "$ekl/$ad" ]; then echo "  var     tulpar-ext/$ad (modul)"
+      else echo "  EKSIK   tulpar-ext/$ad (bildirimin modulu)"; eksik=$((eksik + 1)); fi
+    done <<< "$ekl_satir"
+    ekl_eksik="$(eklenti_eksik_kitapliklar "$ekl" "$ekl_satir")"
+    while IFS=$'\t' read -r tur ad adaylar; do
+      [ "$tur" = "kitaplik" ] || continue
+      say=$((say + 1))
+      if printf '%s\n' "$ekl_eksik" | grep -qx "$ad"; then
+        echo "  EKSIK   eklenti kitapligi [$ad] (link.$dl_plat.libs): adaylarin hicbiri pakette yok -> ${adaylar//|/ }"
+        eksik=$((eksik + 1))
+      else
+        echo "  var     eklenti kitapligi [$ad]"
+      fi
+    done <<< "$ekl_satir"
+    say=$((say + 1))
+    if [ -s "$ekl/$EKLENTI_FONT" ]; then echo "  var     tulpar-ext/$EKLENTI_FONT"
+    else echo "  EKSIK   tulpar-ext/$EKLENTI_FONT (oyunun HUD metni cizilmez)"; eksik=$((eksik + 1)); fi
+    # Kitaplik kapisi + kosu kapisi, ancak paket tamsa olculur (eksik bir
+    # paketle "kosu dustu" demek bir sey ogretmez; sebep zaten yukarida).
+    if [ -z "$ekl_eksik" ] && [ -s "$ekl/tulpar-ext.json" ]; then
+      if eklenti_sinamalari "$cikti" "$ekl_satir"; then say=$((say + 1)); else eksik=$((eksik + 1)); fi
+    fi
+  fi
+
   # --- Manifest (SURUM.txt + DOSYALAR.txt) ---------------------------------
   # Guncelleyici kullanicinin degistirdigi dosyayi DOSYALAR.txt'deki ozetle
   # taniyor; yanlis bir satir ya bir kullanici dosyasini sessizce ezer ya da
@@ -920,7 +1184,7 @@ denetle() {
   if [ "$eksik" -gt 0 ]; then
     ci_hata "Paket eksik: $eksik ogenin karsiligi yok. Bu paket calistirilabilir degil, yayinlanmaz."
   fi
-  echo "tamlik kapisi TAMAM: $say oge (varlik + dlopen kutuphanesi/lisansi + baslatici + manifest) + ${#IKILILER[@]} ikili + OKUBENI.md yerinde."
+  echo "tamlik kapisi TAMAM: $say oge (varlik + dlopen kutuphanesi/lisansi + baslatici + Tulpar eklentisi + manifest) + ${#IKILILER[@]} ikili + OKUBENI.md yerinde."
 }
 
 # --- Giris -----------------------------------------------------------------

@@ -1088,12 +1088,34 @@ int teng_init(const char *title, int width, int height) {
     const float ui_px = vis_h / 1080.0f * 28.0f;
     const char *adir = std::getenv("TULPAR_ENGINE_ASSETS");
     const char *font_env = std::getenv("TULPAR_ENGINE_FONT");
-    char cands[6][1024];
+    char cands[8][1024];
     uint32_t nc = 0;
     if (font_env && *font_env) std::snprintf(cands[nc++], sizeof cands[0], "%s", font_env);
     if (adir && *adir) {
       std::snprintf(cands[nc++], sizeof cands[0], "%s/DejaVuSans.ttf", adir);
       std::snprintf(cands[nc++], sizeof cands[0], "%s/fonts/DejaVuSans.ttf", adir);
+    }
+    // Eklenti paketinin KENDI fontu (<paket>/assets/fonts, CMake ve
+    // tools/package.sh koyar): ilk iki TULPAR_EXT_PATH girdisi. NEDEN (olculdu
+    // 2026-10-02): paketten calisan editorun F5 oyunu fontu yalniz
+    // ENGINE_SOURCE_DIR'den (DERLEYEN makinenin kaynak agaci) buluyordu —
+    // oyun ikilisi tulpar'in gecici dizininde, cwd proje koku, ikisinde de
+    // font yok. Kurulu pakette HUD metni sessizce cizilmezdi. Editor
+    // TULPAR_EXT_PATH'i her zaman verir; `--ext` ile elle derleyen ise vermez
+    // (o yol TULPAR_ENGINE_FONT / TULPAR_ENGINE_ASSETS ister, OKUBENI).
+    if (const char *ep = std::getenv("TULPAR_EXT_PATH"); ep && *ep) {
+#if defined(_WIN32)
+      const char ayrac = ';';
+#else
+      const char ayrac = ':';
+#endif
+      for (int k = 0; k < 2 && *ep; k++) {
+        const char *son = std::strchr(ep, ayrac);
+        const int uz = son ? (int)(son - ep) : (int)std::strlen(ep);
+        if (uz > 0) std::snprintf(cands[nc++], sizeof cands[0], "%.*s/assets/fonts/DejaVuSans.ttf", uz, ep);
+        if (!son) break;
+        ep = son + 1;
+      }
     }
     platform::asset_path(cands[nc], sizeof cands[0], "assets/fonts/DejaVuSans.ttf"); nc++;
     std::snprintf(cands[nc++], sizeof cands[0], "/system/fonts/Roboto-Regular.ttf"); // Android

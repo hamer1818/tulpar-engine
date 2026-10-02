@@ -421,11 +421,15 @@ jobs:
           "$d/tulpar" --version
           bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar" --tam
 
+      # TULPAR + TULPAR_PAKET_KOSU=zorunlu: paket kapisi tulpar-ext/'i
+      # PAKETLENMIS dizinden bir ornek oyunla kosturur (tools/package.sh
+      # eklenti_sinamalari); tulpar bulunamazsa atlamaz, KIRMIZI olur.
       - name: Ciktilari topla
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
           TULPAR_PAKET_PLATFORM: linux-x86_64
-        run: bash tools/package.sh yapi dagitim
+          TULPAR_PAKET_KOSU: zorunlu
+        run: TULPAR="$RUNNER_TEMP/tulpar/tulpar" bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'
@@ -814,12 +818,48 @@ jobs:
       #
       # Testler GECTIKTEN sonra kosuyor ki "yesil olmayan ikili" indirilebilir
       # olmasin.
+      # TULPAR KOPRUSU, macOS (K197). Linux ayagindaki adimin esi: yayinlanmis
+      # tulpar (universal) + bu isin yapi/tulpar-ext paketi. NEDEN AYRICA
+      # macOS: bildirimin link.macos bolumu (group yok — Apple ld
+      # --start-group tanimaz) CI'da hic sinanmamisti; AArch64'te Jolt FMA
+      # birlesirse [kapi] satirlari x86_64'ten ayrisir (CMake -ffp-contract=off
+      # PUBLIC bunu onlemek icin var — burada OLCULUYOR). Paravirtual GPU:
+      # piksel kapilari atlanir, kapi satirlari GPU'dan bagimsiz (oyun mantigi).
+      # Indirilenler SHA256SUMS.txt ile dogrulanir: yanlis/yarim bir ikiliyle
+      # "kopru kirildi" sanilmasin.
+      # llvm@18 (Homebrew): yayinlanmis tulpar-macos-universal (v3.38.0) KENDI
+      # BASINA ACILMIYOR — /opt/homebrew/opt/llvm@18/lib/libunwind.1.dylib'e
+      # dinamik bagli, yoksa dyld "Library not loaded" ile abort (olculdu
+      # 2026-10-02, bu isin ilk kosumu). TulparLang'in kendi macOS CI'i da
+      # llvm@18 kuruyor; kullanicinin makinesinde de ayni on kosul var.
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          brew list --versions llvm@18 >/dev/null 2>&1 || brew install llvm@18
+          d="$RUNNER_TEMP/tulpar"
+          mkdir -p "$d"
+          url=https://github.com/hamer1818/TulparLang/releases/latest/download
+          for f in tulpar-macos-universal libtulpar_runtime-macos-universal.a SHA256SUMS.txt; do
+            curl -fsSL --retry 3 -o "$d/$f" "$url/$f"
+          done
+          ( cd "$d" && grep -E ' \*?(tulpar-macos-universal|libtulpar_runtime-macos-universal\.a)$' SHA256SUMS.txt > beklenen.txt \
+              && [ "$(wc -l < beklenen.txt | tr -d ' ')" = 2 ] && shasum -a 256 -c beklenen.txt ) || {
+            echo "::error::tulpar indirmeleri SHA256SUMS.txt ile dogrulanamadi"; exit 1; }
+          mv "$d/tulpar-macos-universal" "$d/tulpar"
+          mv "$d/libtulpar_runtime-macos-universal.a" "$d/libtulpar_runtime.a"
+          chmod +x "$d/tulpar"
+          "$d/tulpar" --version
+          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar" --tam
+
       # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki ayni adim.
+      # TULPAR + TULPAR_PAKET_KOSU=zorunlu: bkz. Linux isindeki ayni adim.
       - name: Ciktilari topla
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
           TULPAR_PAKET_PLATFORM: macos-arm64
-        run: bash tools/package.sh yapi dagitim
+          TULPAR_PAKET_KOSU: zorunlu
+        run: TULPAR="$RUNNER_TEMP/tulpar/tulpar" bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'

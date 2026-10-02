@@ -1684,3 +1684,25 @@ yapılandırma durur.
 
 **Ders:** derleyicinin göremediği bir sözleşmeyi (statik arşivin C tipleri), onu gören tek
 yerde — sözleşmenin C tarafının derlendiği yerde — kilitle. "Link geçti" tip uyumu demek değil.
+
+### 8cp. Derleme zamanı yolu kurulu pakette yok — kapı derleyen makinede koştuğu için onu yine bulur
+
+**Sınıf** (2026-10-02, ölçüldü): `ENGINE_SOURCE_DIR` bir **derleme zamanı** mutlak yolu ve
+köprünün varlık aramasının son basamağı (`platform::asset_path`: exe dizini → cwd → kaynak
+ağacı). Kurulu bir motor paketinin editörü F5'te oyunu `tulpar`ın geçici dizininde derleyip
+proje kökünde koşturuyor: exe dizininde de cwd'de de `assets/fonts` yok, HUD fontu **yalnız**
+kaynak ağacından bulunuyordu. Kullanıcının makinesinde o ağaç yok → `UYARI font bulunamadi`,
+`eng_text` sessizce çizmez. Aynı kosu CI'da ve geliştirici makinesinde **yeşil** — çünkü ikisi
+de paketi derleyen makine, kaynak ağacı orada duruyor. Yani "paketten koştu" diyen bir kapı,
+paketin değil depo ağacının varlığını ölçebilir (`TULPAR_ENGINE_LOG=3` ile görülen satır:
+`font adayi 1/3: <depo>/assets/fonts/DejaVuSans.ttf -> YUKLENDI`).
+
+**Düzeltme:** eklenti paketi fontu kendi içinde taşır (`tulpar-ext/assets/fonts/`, CMake ve
+`tools/package.sh`), köprü `TULPAR_EXT_PATH` girdilerinde onu arar (editör o değişkeni her
+zaman verir). **Kapı:** `tools/package.sh` paketlenmiş eklentiyle bir örnek oyunu depo
+dışındaki geçici dizinde koşturur ve yüklenen fontun yolunun **paketin içinde** olduğunu
+denetler — kaynak ağacı duruyor olsa bile. Arşivlerin paketten linklendiğini pozitif kontrol
+gösterir: bir arşivi silinmiş kopyayla aynı oyun düşmeli, link hatası arşivi adıyla söylemeli.
+
+**Ders:** "kaynak ağacı olmadan çalışıyor" iddiası, kaynak ağacının durduğu makinede ancak
+**hangi yolun kullanıldığı** ölçülerek doğrulanır; çıkış kodu 0 bunu söylemez.
