@@ -299,8 +299,20 @@ elif [ "$tam" = 1 ]; then
   else
     dus "engine_bridge.test.tpr: rc=$rc '$ozet'"; tail -8 "$gun/kopru.log" >&2
   fi
+  # engine_taban_bellek /proc/self/smaps dokumlerini CALISMA DIZININE (tulpar/)
+  # yazar (elle olcum icin; taban_bellek.py okur). Dogrulama kosusu agacta iz
+  # birakmasin (2026-10-02'de iki kosudan sonra tulpar/ altinda 560 KB'lik doku
+  # izlenmeden duruyordu): kullanicinin onceden aldigi doku kosudan once
+  # kenara alinip sonra GERI KONUYOR (ornek ayni adla ustune yazar), yoksa
+  # kosunun urettigi siliniyor.
+  smaps_yedek="$gun/smaps_yedek"; mkdir -p "$smaps_yedek"
+  for f in smaps_once.txt smaps_k60.txt; do [ -e "$f" ] && mv "$f" "$smaps_yedek/"; done
   for o in engine_ilk_oyun engine_arena engine_karakter engine_kanca_olcumu engine_taban_bellek engine_betik_dagitimi; do
     kos "$gun/$o.log" env TULPAR_ENGINE_HEADLESS=60 "$tul" --ext "$ext" "examples/$o.tpr"; rc=$?
+    if [ "$o" = engine_taban_bellek ]; then
+      rm -f smaps_once.txt smaps_k60.txt
+      for f in "$smaps_yedek"/smaps_*.txt; do [ -e "$f" ] && mv "$f" .; done
+    fi
     if [ $rc -eq 0 ] && grep -q "kapanis:" "$gun/$o.log"; then gec "$o (60 kare): rc=0"
     else dus "$o (60 kare): rc=$rc"; tail -6 "$gun/$o.log" >&2; fi
   done
