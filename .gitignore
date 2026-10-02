@@ -122,3 +122,8 @@ android/host/local.properties
 
 # Derleyici onbellegi (CI is alani icinde tutuluyor; yerelde de olusabilir)
 .ccache/
+
+# ==== Elle olcum dokumleri ====
+# tulpar/examples/engine_taban_bellek.tpr /proc/self/smaps'i calisma dizinine
+# yazar (tools/taban_bellek.py okur). Olcum girdisi, kaynak degil.
+tulpar/smaps_*.txt
