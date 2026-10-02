@@ -1,11 +1,20 @@
-// "Oyunu calistir" (app/editor_game): sahneyi yukleyen oyunu bulma, motoru
-// taniyan derleyiciyi bulma ve oyunun ciktisini SATIR KAYBETMEDEN akitma.
-// Gercek derleyici CI'da yok (motoru taniyan derleyici ayri kurulur); surec
-// kapisinin kobayi engine_tests'in kendisi (TULPAR_TEST_SAHTE_DERLEYICI kipi).
+// "Oyunu calistir" (app/editor_game): sahneyi yukleyen oyunu bulma, motorun
+// eklenti paketini ve onu kullanabilen `tulpar`i bulma, oyunun ciktisini SATIR
+// KAYBETMEDEN akitma. Gercek derleyici burada kosmaz; surec kapisinin kobayi
+// engine_tests'in kendisi (TULPAR_TEST_SAHTE_DERLEYICI / _SAHTE_TULPAR kipleri).
+// Gercek derleyiciyle uctan uca zincir: tools/tulpar_dogrula.sh (CI'da da).
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+#if defined(_WIN32)
+#include <direct.h>
+#include <windows.h> // CopyFileA (sahte tulpar.exe)
+#else
+#include <sys/stat.h>
+#include <unistd.h> // symlink (sahte tulpar)
+#endif
 
 #include "app/editor_game.hpp"
 #include "content/gltf.hpp"
@@ -24,6 +33,13 @@ void set_env(const char *k, const char *v) {
 #else
   if (v) setenv(k, v, 1);
   else unsetenv(k);
+#endif
+}
+bool alt_dizin(const char *p) {
+#if defined(_WIN32)
+  return ::_mkdir(p) == 0;
+#else
+  return ::mkdir(p, 0755) == 0;
 #endif
 }
 bool self_exe(char *out, size_t cap) {
@@ -88,24 +104,77 @@ ENGINE_TEST(editor_game_finds_the_game_that_loads_the_scene) {
   CHECK(b.count == 0 && b.too_big >= 1);
 }
 
-ENGINE_TEST(editor_game_compiler_is_never_the_stock_tulpar) {
-  char out[1024], why[512];
-  // Ortam degiskeni: verilen program kullanilir; YOKSA sessizce baskasina gecilmez.
+// Derleyici + eklenti paketi (K303): oyun kurulu `tulpar` ile, motorun eklenti
+// paketiyle (TULPAR_EXT_PATH) derlenir. PATH'teki `tulpar` once SINANIR:
+// eklentiyi tanimayan eski bir tulpar oyunu "Import dosyasi acilamadi
+// 'engine'" diye dusururdu ve sebep editorde gorunmezdi.
+ENGINE_TEST(editor_game_compiler_must_take_the_engine_extension) {
+  char out[1024], why[768], exe[1100];
+  if (!self_exe(exe, sizeof exe)) { test::skip("engine_tests'in kendi yolu bulunamadi (exe_dir)"); return; }
+  char kok[512];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "derleyici_ara"));
+  // Paket: tulpar-ext.json yoksa YOK sayilir ve ne yapilacagi soylenir.
+  char paket[700], bildirim[800];
+  std::snprintf(paket, sizeof paket, "%s/tulpar-ext", kok);
+  CHECK(!app::game_find_extension(kok, out, sizeof out, why, sizeof why));
+  std::printf("    [bilgi] paket yok: \"%s\"\n", why);
+  CHECK(std::strstr(why, "tulpar-ext") != nullptr && std::strstr(why, "cmake --build") != nullptr);
+  CHECK(alt_dizin(paket));
+  std::snprintf(bildirim, sizeof bildirim, "%s/tulpar-ext.json", paket);
+  if (FILE *f = std::fopen(bildirim, "wb")) { std::fputs("{}\n", f); std::fclose(f); }
+  CHECK(app::game_find_extension(kok, out, sizeof out, why, sizeof why) && !std::strcmp(out, paket));
+
+  // Acik TULPAR_MOTOR_DERLEYICI: verilen program kullanilir (sinanmaz);
+  // YOKSA sessizce baskasina gecilmez.
   set_env("TULPAR_MOTOR_DERLEYICI", "boyle_bir_derleyici_yok_4711");
-  CHECK(!app::game_find_compiler("/boyle/bir/dizin", out, sizeof out, why, sizeof why));
+  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
   std::printf("    [bilgi] olmayan TULPAR_MOTOR_DERLEYICI: \"%s\"\n", why);
   CHECK(std::strstr(why, "TULPAR_MOTOR_DERLEYICI") != nullptr);
-  char exe[1100];
-  if (self_exe(exe, sizeof exe)) {
-    set_env("TULPAR_MOTOR_DERLEYICI", exe);
-    CHECK(app::game_find_compiler("/boyle/bir/dizin", out, sizeof out, why, sizeof why));
-  }
+  set_env("TULPAR_MOTOR_DERLEYICI", exe);
+  CHECK(app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
   set_env("TULPAR_MOTOR_DERLEYICI", nullptr);
-  // Degisken yok, <editor dizini>/tulpar-motor/tulpar yok: PATH'teki `tulpar`a
-  // DUSULMEZ (motoru tanimiyor) ve hata ne yapilacagini soyler.
-  CHECK(!app::game_find_compiler("/boyle/bir/dizin", out, sizeof out, why, sizeof why));
-  std::printf("    [bilgi] derleyici yok: \"%s\"\n", why);
-  CHECK(std::strstr(why, "motor_derleyici.sh") != nullptr);
+
+  // PATH: sahte bir `tulpar` (bu ikilinin kendisi, TULPAR_TEST_SAHTE_TULPAR).
+  char bin[700], sahte[800];
+  std::snprintf(bin, sizeof bin, "%s/bin", kok);
+  CHECK(alt_dizin(bin));
+#if defined(_WIN32)
+  std::snprintf(sahte, sizeof sahte, "%s\\tulpar.exe", bin);
+  const bool kuruldu = CopyFileA(exe, sahte, FALSE) != 0;
+#else
+  std::snprintf(sahte, sizeof sahte, "%s/tulpar", bin);
+  const bool kuruldu = ::symlink(exe, sahte) == 0;
+#endif
+  CHECK(kuruldu);
+  const char *eski_path = std::getenv("PATH");
+  static char path_yedek[8192];
+  std::snprintf(path_yedek, sizeof path_yedek, "%s", eski_path ? eski_path : "");
+  // PATH'te tulpar YOK: ne yapilacagini soyler.
+  set_env("PATH", kok);
+  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
+  std::printf("    [bilgi] PATH'te tulpar yok: \"%s\"\n", why);
+  CHECK(std::strstr(why, "PATH") != nullptr && std::strstr(why, "tulpar") != nullptr);
+  // Sahte tulpar ONDE, eski PATH arkada: Windows'ta kopyalanan engine_tests.exe
+  // MinGW DLL'lerini PATH'ten buluyor; PATH yalniz `bin` olunca sonda
+  // STATUS_DLL_NOT_FOUND (0xC0000135) ile cikiyordu (olculdu, CI 2026-10-02).
+  static char path_yeni[8192 + 800];
+#if defined(_WIN32)
+  std::snprintf(path_yeni, sizeof path_yeni, "%s;%s", bin, path_yedek);
+#else
+  std::snprintf(path_yeni, sizeof path_yeni, "%s:%s", bin, path_yedek);
+#endif
+  set_env("PATH", path_yeni);
+  // Eklentiyi tanimayan (eski) tulpar: REDDEDILIR, sebep ve cozum yazilir.
+  set_env("TULPAR_TEST_SAHTE_TULPAR", "0");
+  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
+  std::printf("    [bilgi] eski tulpar: \"%s\"\n", why);
+  CHECK(std::strstr(why, "tulpar update") != nullptr && std::strstr(why, "cikis 2") != nullptr);
+  // Taniyan tulpar: kabul edilir.
+  set_env("TULPAR_TEST_SAHTE_TULPAR", "1");
+  CHECK(app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
+  std::printf("    [bilgi] eklentili tulpar: %s\n", out);
+  set_env("TULPAR_TEST_SAHTE_TULPAR", nullptr);
+  set_env("PATH", path_yedek);
 }
 
 ENGINE_TEST(editor_game_run_streams_every_line_and_the_exit_code) {
@@ -117,7 +186,8 @@ ENGINE_TEST(editor_game_run_streams_every_line_and_the_exit_code) {
   set_env("TULPAR_TEST_SAHTE_DERLEYICI", "0");
   static app::GameRun r;
   r = app::GameRun{};
-  CHECK(app::game_run_start(r, exe, kok, "examples/benim oyunum.tpr", log, err, sizeof err));
+  set_env("TULPAR_EXT_PATH", nullptr);
+  CHECK(app::game_run_start(r, exe, "/motor/paketi", kok, "examples/benim oyunum.tpr", log, err, sizeof err));
   Satirlar s;
   app::GameRunState st = app::GameRunState::Running;
   for (int i = 0; i < 10000 && st == app::GameRunState::Running; i++) {
@@ -133,9 +203,11 @@ ENGINE_TEST(editor_game_run_streams_every_line_and_the_exit_code) {
   CHECK(!std::strcmp(s.ilk[0], "oyun:examples/benim oyunum.tpr"));
   const char *uniq = std::strrchr(kok, '/');
   CHECK(!std::strncmp(s.ilk[1], "cwd:", 4) && uniq && std::strstr(s.ilk[1], uniq + 1));
+  // Motorun eklenti paketi cocuga TULPAR_EXT_PATH ile ulasti (K303).
+  CHECK(!std::strcmp(s.ilk[2], "ext:/motor/paketi"));
   // 1300'luk satir 511'lik parcalara BOLUNDU ama bayt KAYBOLMADI; satir sonu
   // gelmeyen son satir da surec bitince verildi.
-  const size_t bekle = std::strlen(s.ilk[0]) + std::strlen(s.ilk[1]) + 1300 + std::strlen("son satir sonsuz");
+  const size_t bekle = std::strlen(s.ilk[0]) + std::strlen(s.ilk[1]) + std::strlen(s.ilk[2]) + 1300 + std::strlen("son satir sonsuz");
   CHECK(s.toplam == bekle);
   CHECK(!std::strcmp(s.son, "son satir sonsuz"));
   // Bitti durumunda poll artik bir sey yapmaz (tekrar bildirim yok).
@@ -152,10 +224,10 @@ ENGINE_TEST(editor_game_stop_ends_a_running_game) {
   set_env("TULPAR_TEST_SAHTE_DERLEYICI", "20000"); // 20 s "oyun"
   static app::GameRun r;
   r = app::GameRun{};
-  CHECK(app::game_run_start(r, exe, kok, "x.tpr", log, err, sizeof err));
+  CHECK(app::game_run_start(r, exe, nullptr, kok, "x.tpr", log, err, sizeof err));
   set_env("TULPAR_TEST_SAHTE_DERLEYICI", nullptr);
   // KONTROL: calisirken ikinci baslatma reddedilir (iki oyun penceresi olmaz).
-  CHECK(!app::game_run_start(r, exe, kok, "x.tpr", log, err, sizeof err) && std::strstr(err, "zaten"));
+  CHECK(!app::game_run_start(r, exe, nullptr, kok, "x.tpr", log, err, sizeof err) && std::strstr(err, "zaten"));
   CHECK(app::game_run_poll(r, nullptr, nullptr) == app::GameRunState::Running);
   CHECK(app::game_run_stop(r));
   app::GameRunState st = app::GameRunState::Running;

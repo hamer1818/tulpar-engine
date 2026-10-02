@@ -19,7 +19,8 @@ köprü **düz skalerlerle** konuşur: `int`, `double`, `const char*`. Struct yo
 Motor tarafı bütün durumu kendi tutar; Tulpar tarafı **tamsayı tutamaçlarla** (varlık id'si) konuşur.
 
 Ölçülen sonuç: Unity P/Invoke 20–100 ns, GDScript Variant 100–500 ns, burada **doğrudan çağrı** — Tulpar'ın
-AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İkisi de aynı ikilide.
+AOT kodu `teng_*` sembolünü bildirilen C tipleriyle **doğrudan** çağırır (yerel eklenti, §2.1; 2026-10-02'ye
+kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). Hepsi aynı ikilide.
 
 ## 2. Katmanlar (aşağıdan yukarı)
 
@@ -29,15 +30,106 @@ AOT kodu `aot_eng_*_ptr` sembolünü çağırır, o da `teng_*`i çağırır. İ
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| binding | `runtime/engine_bindings.cpp` (**üretilmiş**) | `aot_eng_*_ptr` (VMValue ABI) → `teng_*` |
-| sarmalayıcı | `lib/engine.tpr` (gömülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 208 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
+| ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
+| sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
 | oyun | `examples/engine_ilk_oyun.tpr` (94), `engine_arena.tpr` (209), `engine_aksiyon.tpr` (758 + bölüm işaretleri 97), `engine_dalga.tpr` (76 + davranışlar 57) | saf Tulpar |
 
-**Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut dört dosya üretir:
-binding (`runtime/engine_bindings.cpp`), backend tablosu (`src/aot/engine_builtins_table.inc`), typeinfer
-imzaları (`src/typeinfer/engine_builtins_sigs.inc`), LSP girdileri (`src/lsp/engine_builtins.inc`).
-CLAUDE.md'nin "5 noktada bağlama"sı burada **mekanik**: noktalar elle tutulmadığı için birbirinden kayamaz.
-Yeni builtin = `SPEC`'e bir satır + `engine_api.h/.cpp`'de uygulama + `python3 tools/gen_engine_bindings.py`.
+**Tek kaynak:** `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu. Bir komut iki dosya üretir:
+eklenti bildirimi (`tulpar/generated/tulpar-ext.json`) ve ABI kilidi (`bridge/tulpar_ext_abi.inc`).
+Typeinfer imzaları, LSP girdileri, link bayrakları bildirimden gelir — derleyici tarafında elle tutulan
+nokta yok. Yeni fonksiyon = `SPEC`'e bir satır + `engine_api.h/.cpp`'de uygulama +
+`python3 tools/gen_engine_bindings.py`. Unutulursa CMake'in `engine_bindings_check` kapısı derlemeyi durdurur.
+
+## 2.1 Yerel eklenti olarak bağlanma (TulparLang K303, 2026-10-02)
+
+TulparLang 2026-09-20'de motoru derleyiciden çıkardı (kullanıcı kararı: "dilde yalnız dilin kendi
+özellikleri"). O günden 2026-10-02'ye kadar motor oyunları, köprüyü derleyicinin 13 dosyasına **ters
+yama** ile geri takan ayrı bir derleyiciyle (`tools/motor_derleyici.sh`) çalıştı; ters yama iki günde iki
+kez kırıldı (`aot_pipeline.cpp` 2026-10-01, `CMakeLists.txt` 2026-10-02). Kalıcı çözüm derleyicide **genel**
+bir eklenti noktası oldu — derleyicide motora özgü tek ad yok; motor herhangi bir dış kitaplık gibi bir
+paket sunuyor:
+
+```
+yapi/tulpar-ext/                    (CMake hedefi engine_tulpar_ext, her derlemede)
+  tulpar-ext.json                   bildirim (SPEC'ten üretilir)
+  engine.tpr                        `import "engine"`in modülü
+  lib/libengine_tulpar.a ...        masaüstü arşivleri (link.linux / link.macos)
+  android/<abi>/libtulpar_engine_android.a ...   tools/build_bridge_android.sh (link.android)
+```
+
+```json
+{"tulpar_ext": 1, "name": "engine", "modules": {"engine": "engine.tpr"},
+ "link": {"linux": {"lib_dirs": ["lib"], "libs": ["engine_tulpar", "engine_bridge", "..."], "group": true, "flags": ["-lpthread"]}, "...": {}},
+ "functions": [
+   {"name": "eng_init", "symbol": "teng_tulpar_init", "params": ["title: str", "w: i32", "h: i32"], "returns": "bool", "doc": "..."},
+   {"name": "eng_camera", "symbol": "teng_camera", "params": ["ex: f64", "ey: f64", "..."], "doc": "..."}]}
+```
+
+Kullanım: `tulpar --ext yapi/tulpar-ext oyun.tpr`, ya da `TULPAR_EXT_PATH`, ya da `tulpar.toml`
+`[ext] paths` (`tulpar/tulpar.toml` bunu yapar: `cd tulpar && tulpar examples/x.tpr`). Editör paketi
+`<editör dizini>/tulpar-ext`'ten alır ve `PATH`'teki `tulpar`ı önce `--ext <paket> version` ile sınar.
+
+**Tip eşlemesi (SPEC → bildirim → C):** `num` → `f64` → `double`; `int` → `i32` → `int`; `color` → `i64`
+→ `int64_t`; `str` → `str` → `const char *`; `flag` → `bool` → `int`. Dönüşte `bool` = C `int`, `int` =
+`int`, `float` = `double`, `str` = `const char *` (derleyici **hemen** kopyalar — `teng_last_error` gibi
+statik tamponlar bir sonraki çağrıda değişir). Typeinfer artık `num` parametresine dizgi geçmeyi yakalıyor
+(eski tablo `TYPE_UNKNOWN`'du); bu depodaki oyunlar bundan yeni uyarı almadı.
+
+**Derleyici C tarafını göremez.** Statik arşivde tip yok: bildirim `i32` derken C `double` alıyorsa hata
+yok, çöp var. Bu yüzden `bridge/tulpar_abi.cpp` her imzayı `teng_*`'in gerçek bildirimine tipli bir
+işlev işaretçisi olarak atar (kayma = **derleme hatası**; CMake yapılandırması kasıtlı bir kaymayla
+`TULPAR_ABI_KILIDI_BOZ` derlemeyi dener ve düşmesini bekler — pozitif kontrol) ve tablo `engine_tests`'e
+bağlanır (`bridge_tulpar_abi_lock_links_every_manifest_symbol`: bildirimdeki her sembol arşivde tanımlı,
+yoksa link hatası).
+
+**Motor → Tulpar** (betik kancaları, §7.9) da Tulpar tipi görmeden: yapıştırıcı `TengScriptVm`'i
+TulparLang runtime'ının düz C yüzüyle kurar — `tulpar_ext_func_lookup(ad, &arite)` (= `resolve`) ve
+`tulpar_ext_call_f64(fn, arite, args, argc)` (= `invoke`) tabloya **arada katman olmadan** konur (imzalar
+birebir). Eski üretilmiş bağlama `VMValue`/`ObjString` yerleşimine derleme anında bağlıydı: TulparLang
+2026-10-02'de `ObjString` karakterlerini nesnenin içine aldığında eski arşiv onları işaretçi sanardı.
+Android köprü arşivi bu yüzden artık TulparLang kaynak ağacı (`TULPAR_ROOT`) istemiyor.
+
+**Ölçüldü (2026-10-02, Ryzen 7 9800X3D + RTX 5080, Linux, LLVM 22; aynı oturumda sırayla).**
+Tulpar → motor, `tulpar/examples/engine_cagri_olcumu.tpr`, 20M çağrı, motor kurulmadan (gövdeler bir-iki
+yükleme), eski = ters yamalı derleyicinin `aot_eng_*_ptr` sarmalayıcısı:
+
+| çağrı | eski | eklenti |
+|---|---|---|
+| `eng_frame()` → int | 2.32 ns | 0.77–0.97 ns |
+| `eng_camera_x()` → float (sonuç karşılaştırmada) | 1.53 ns | 0.77 ns |
+| `eng_camera(6 float)` tipli | 3.5–3.8 ns | 1.35 ns |
+| `kamera(...)` (engine.tpr'nin tipsiz sarmalayıcısı, kutulu argüman) | 3.5–3.7 ns | 1.34 ns |
+| `eng_key_down("W")` (dizgi argüman) | 2.9–3.1 ns | 1.92 ns |
+| `f = f + eng_camera_x()` (float birikimci) | 2.30 ns | **4.02 ns** |
+
+Son satır köprü değil, gerçek bir C çağrısının bedeli: `f` çağrıyı aşan bir xmm değeri, SysV'de xmm
+yazmaçları çağrıda korunmaz; LLVM her turda yığına yazıp geri okuyor ve `addsd`'ye zincirliyor (IR'da
+çağrı ve fadd dışında bir şey yok). Eski yolda dönüş `{i64,i64}` tamsayı yazmaçlarındaydı.
+Motor → Tulpar kanca dağıtımı (`tools/kanca_olcumu.py`, 200 boş kanca, 2000 kare): eklenti 5.5–6.0 ns,
+eski 5.6–6.2 ns; kalıcı büyüme ikisinde de kontrolle aynı. İlk yazımda (yapıştırıcıda sarmalayıcı +
+runtime'da dışarı alınmış 33 kollu dağıtım) 6.4–7.7 ns ölçüldü, bu yüzden düzeltildi (TulparLang
+`tulpar_ext_call_f64` 0..4 arite satır içi).
+
+**`tools/motor_derleyici.sh` kaldırıldı** (ve `tools/motor_kopru/*.patch`, dört VMValue/tablo dosyası,
+`--tulpar` kipi, `TULPAR_ROOT`). "Eski derleyicilerle uyum için bir süre kalsın" seçeneği tartıldı:
+betik her koşuda TulparLang'in **HEAD**'ini derliyordu, yani eski bir derleyiciye hizmet etmiyordu; K303
+ters yamanın hedeflediği dosyaların hepsine (`aot_pipeline.cpp`, `llvm_backend.cpp`, `typeinfer.cpp`,
+`lsp/builtins.cpp`, `CMakeLists.txt`) dokunduğu için ilk kullanımda zaten tutmayacaktı — kalsaydı bilinen
+kırık bir araç kalırdı. Dört dil sondası `tools/tulpar_dogrula.sh`'e taşındı.
+
+**Doğrulama:** `tools/tulpar_dogrula.sh [--tam]` — kurulu (ya da `--tulpar`) derleyici + paket:
+3 karelik duman, pozitif kontroller (eklentisiz `import "engine"` düşer ve `--ext` ipucunu verir;
+bildirimde bozuk sembol link hatasında **adıyla**; bozuk imza tipi typecheck'te), 4 dil sondası;
+`--tam` ile dalga/aksiyon kapı satırları **bayt bayt**, köprü testi, 6 örnek. CI'ın Linux ayağı bunu
+**yayınlanmış** `tulpar` (`releases/latest`) ile koşturur. Lavapipe notu (ölçüldü 2026-10-02, CI
+ubuntu-24.04, mesa 25.2.8 llvmpipe, LLVM 20, 4 çekirdek): aksiyonun RSS bellek kapısı sürücü ısınmasını
+da ölçüyor — `/proc/<pid>/smaps` `[heap]` ilk ~37 s'de (≈k1100) +31 MB, sonra düz; k1000'den başlayan
+pencere 8.2 MB/1000 kare gösterip düştü. Aynı ikili yerelde mesa 26.2.4 lavapipe'ta 0 KB/1000. Bu yüzden
+llvmpipe'ta betik eğimi ayrı bir 4600 karelik koşumda k2400'den sonra aynı 600 KB sınırıyla ölçer
+(`TULPAR_AKSIYON_BELLEK_ILK`; varsayılan pencere değişmedi). Android: `link.android` + `-Wl,--no-undefined` ile iki ABI'lik
+`libtulpargame.so` linklenmesi ölçüldü (2026-10-02, NDK 27; cihazda koşturulmadı).
 
 ## 3. Sözleşme
 
@@ -156,15 +248,17 @@ gerçek köprü (kutu çizer, editörden gelen W rengini değiştirir).
 
 ## 6. Android
 
-`tulpar build --target=android oyun.tpr out --apk`. `import "engine"` gören AOT, tame yerine motor
-arşivlerini bağlar (`engine_link_flags()` / android kolu). Giriş noktası: `android_host.cpp`'deki
+`tulpar build --target=android --ext yapi/tulpar-ext oyun.tpr out --apk`. Eklentiyi kullanan (ve tame
+kullanmayan) program tame/GLES yerine bildirimin `link.android` arşivlerini bağlar (paketin
+`android/<abi>/` dizini; TulparLang runtime arşivi derleyicinin kendi arama yolundan,
+`TULPAR_ANDROID_LIB_DIR`). Giriş noktası: `android_host.cpp`'deki
 `android_main` → Tulpar objesinin `main`i (raylib'in `rcore_android` deseni; sembol doğrudan bildirilir,
 yoksa `-Wl,--no-undefined` **link'te** patlar, cihazda sessiz kalmaz).
 
 Arşivler (gitignore'lu, bir kez üretilir):
 ```bash
 android/build_tame_android.sh            # libtulpar_runtime_android.a (+tame)
-tools/build_bridge_android.sh     # libtulpar_engine_android.a + libengine_*.a
+tools/build_bridge_android.sh     # libtulpar_engine_android.a + libengine_*.a -> yapi/tulpar-ext/android/<abi>/
 ```
 Font: APK varlığı yoksa `/system/fonts/Roboto-Regular.ttf` yedeği devreye girer; denenen her aday loglanır.
 
@@ -230,26 +324,28 @@ typedef struct TengScriptVm {
   int (*invoke)(void *fn, int arity, const double *args, int argc); // kare içinde ADSIZ çağır
 } TengScriptVm;
 void teng_set_script_vm(const TengScriptVm *vm);     // YALNIZ has/call okunur
-void teng_set_script_vm_v2(const TengScriptVm *vm);  // dört alan (üretilmiş bağlama bunu çağırır)
+void teng_set_script_vm_v2(const TengScriptVm *vm);  // dört alan (Tulpar yapıştırıcısı bunu çağırır)
 ```
 
 **Hızlı yol.** `call` yolu Tulpar'da adı her çağrıda yeni bir `ObjString`'e kopyalıyordu
 (`aot_call_dynamic_n` adı dizgi olarak istiyor) ve o dizgi hiç sıfırlanmayan AOT arenasında
 kalıyordu. Artık motor her kanca türünü (`baslat` … `bolge_cikti`, 8 tür) **yüklemede** `resolve`
 ile bir kez çözüp işaretçi + aritesini varlık başına saklıyor; kare içindeki çağrı `invoke(fn,
-arity, args, argc)` — ad kurma, hash, ayırma yok. Üretilmiş bağlama `resolve`'u TulparLang'ın
-`aot_func_lookup`'ına bağlar (çağrı önbelleği, sonra `dlsym("t_<ad>")`); `invoke` tam `arity`
-işaretçiyle çağırır (eksik parametre VOID, fazlası düşer; arite -1 ise argc). Kurallar:
+arity, args, argc)` — ad kurma, hash, ayırma yok. Yapıştırıcı (`bridge/tulpar_kopru.cpp`) `resolve`'u
+TulparLang runtime'ının `tulpar_ext_func_lookup`'ına (= `aot_func_lookup`: çağrı önbelleği, sonra
+`dlsym("t_<ad>")`), `invoke`'u `tulpar_ext_call_f64`'e bağlar; o tam `arity` işaretçiyle çağırır (eksik
+parametre VOID, fazlası düşer; arite -1 ise argc). Kurallar:
 - `resolve`/`invoke` null bırakılırsa (`{has, call}` sahte VM'leri) eski yol.
 - **Sürüm kayması:** eski `teng_set_script_vm` yapının yalnız ilk iki alanını okur. Motordan önce
   kurulmuş bir derleyicinin runtime'ı (2 alanlı `kEngScriptVm`) yeni motor arşiviyle linklenirse
   motor o yapının sonundaki belleği işaretçi diye okumaz; adla çalışır ve bunu bir kez söyler
-  ("betik VM'i ESKI kurulumla geldi … tools/motor_derleyici.sh"). Ters yön (yeni bağlama + eski
+  ("betik VM'i ESKI kurulumla geldi …"). Ters yön (yeni bağlama + eski
   motor arşivi) `teng_set_script_vm_v2` sembolü olmadığı için link'te adıyla düşer.
 - Kancayı çözen VM sonradan **değişirse** saklanan işaretçi yeni VM'e verilmez; çağrı adla gider.
 - 8'den fazla parametreli kanca hızlı yolda **reddedilir** (HATA; eski yol 8'de sessizce kesiyordu).
-- `tools/motor_derleyici.sh`, `aot_func_lookup` içermeyen bir TulparLang kopyasında derlemeden
-  **önce** durur ("TulparLang'ı güncelleyin").
+- `tulpar_ext_*` içermeyen (K303 öncesi) bir TulparLang runtime'ıyla yapıştırıcı linklenmez ve link
+  hatası sembolü adıyla verir; o derleyici zaten `--ext`'i tanımaz (`tools/tulpar_dogrula.sh` ve editör
+  bunu önce sınar).
 
 Ölçüldü (2026-09-25, RTX 5080 + Ryzen 7 9800X3D masaüstü, `tools/kanca_olcumu.py`: 200 köprü
 varlığı, boş `guncelle`, 2000 pencersiz kare, 700 kare ısınma, kancasız kontrol koşumuna göre; beş
@@ -269,7 +365,7 @@ türünün hepsi) eski ve hızlı sahte VM'le koşar, iki çağrı izi argüman 
 **pozitif kontrol** hızlı VM'den bir kancayı düşürür ve iz ayrışmalı. Hızlı koşumda `has`/`call`
 **0** kez çağrılmalı (yol gerçekten ayrı).
 
-Kurulum `aot_eng_init_ptr` içinde, `teng_init`ten **önce** yapılır — bu yüzden VM işaretçisi
+Kurulum `teng_tulpar_init` içinde (yapıştırıcı), `teng_init`ten **önce** yapılır — bu yüzden VM işaretçisi
 `Bridge`in **dışında** bir dosya-kapsamlı değişkende durur; içinde saklansaydı o anda `Bridge`
 henüz yok olduğu için kurulum sessizce kaybolurdu.
 
@@ -726,7 +822,7 @@ yardımcıları `lib/engine.tpr`'de, Tulpar'ın kendisinde:
 Hepsinin kapısı `tests/engine_bridge.test.tpr` (`run_vektor`, `run_yol_gorus`). Aksiyon oyunu bunlarla
 yeniden yazıldı: 1187 satırdan 729'a; 3200 karelik doğrulama özeti bayt bayt aynı kaldı. Oyun kodu
 struct alanına bileşik atama kullanıyor (`dusmanlar[i].can -= 50`); bu TulparLang #344'ten önce sessizce
-hiçbir şey yapmıyordu. `tools/motor_derleyici.sh` kurulumdan sonra bunu bir sonda programıyla doğrular.
+hiçbir şey yapmıyordu. `tools/tulpar_dogrula.sh` bunu bir sonda programıyla doğrular.
 
 **Arayüz yerleşimi (2026-09-24, yalnız `lib/engine.tpr`; köprü değişmedi).** Anlık-kip widget'ları
 (`dugme(ad, x, y, w, h)` …) her düğmenin yerini ister; menü kodu yerleri elle topluyordu

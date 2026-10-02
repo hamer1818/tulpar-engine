@@ -109,11 +109,21 @@ int engine_tests_main(int argc, char **argv) {
       if (uyu > 0) for (int i = 0; i < uyu; i++) tulpar::engine::platform::thread_sleep_us(1000);
       char cwd[1024] = {0};
       if (!getcwd(cwd, sizeof cwd)) cwd[0] = 0;
-      std::printf("oyun:%s\ncwd:%s\n", argv[1], cwd);
+      // ext: editorun cocuga verdigi TULPAR_EXT_PATH (motorun eklenti paketi).
+      const char *ext = std::getenv("TULPAR_EXT_PATH");
+      std::printf("oyun:%s\ncwd:%s\next:%s\n", argv[1], cwd, ext ? ext : "");
       for (int i = 0; i < 1300; i++) std::putchar('u'); // part tamponundan (512) uzun
       std::printf("\nson satir sonsuz");
       std::fflush(stdout);
       return 5;
+    }
+  }
+  // Sahte `tulpar` (editorun derleyici sondasi): `--ext <paket> version`.
+  // "1": eklentiyi taniyan yeni tulpar (0), baska: eski tulpar (2).
+  if (const char *t = std::getenv("TULPAR_TEST_SAHTE_TULPAR")) {
+    if (argc == 4 && std::strcmp(argv[1], "--ext") == 0 && std::strcmp(argv[3], "version") == 0) {
+      std::printf("TulparLang sahte (eklenti %s)\n", argv[2]);
+      return std::strcmp(t, "1") == 0 ? 0 : 2;
     }
   }
   if (const char *o = std::getenv("TULPAR_TEST_SAHTE_EDITOR")) {

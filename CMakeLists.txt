@@ -153,6 +153,20 @@ add_custom_target(engine_shader_check
     VERBATIM
 )
 
+# --- Tulpar baglama tazelik denetimi (K303) ----------------------------------
+# tools/gen_engine_bindings.py'deki SPEC tablosu TEK kaynak; ondan uretilen
+# eklenti bildirimi (tulpar/generated/tulpar-ext.json) ve ABI kilidi
+# (bridge/tulpar_ext_abi.inc) depoya girer. SPEC degisip yeniden uretmeyi
+# unutmak: Tulpar yeni fonksiyonu "bulunamadi" der ya da eski imzayla cagirir
+# — derleme yesil kalirdi. Once kapinin KENDI sinamasi (--oz-sinama: bir
+# farki yakaliyor mu), sonra asil karsilastirma.
+add_custom_target(engine_bindings_check
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_engine_bindings.py --oz-sinama
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_engine_bindings.py --denetle ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "engine: Tulpar eklenti bildirimi <-> SPEC tazelik denetimi (bayat = build hatasi)"
+    VERBATIM
+)
+
 # --- L1 ---------------------------------------------------------------------
 add_library(engine_core STATIC
     core/memory/arena.cpp
@@ -349,12 +363,72 @@ add_dependencies(engine_content engine_layer_check engine_scene_check)
 # (asagida) ayni cekirdegi NativeActivity host + native_app_glue + Tulpar bindingleriyle
 # tek arsivde toplar; `tulpar build --target=android` android/dist/<abi>/ altinda arar.
 if(NOT ANDROID)
-add_library(engine_bridge STATIC bridge/engine_api.cpp bridge/desktop_host.cpp app/virtual_stick.cpp)
+# bridge/tulpar_abi.cpp: Tulpar eklenti bildiriminin ABI kilidi (her imza
+# teng_*'in gercek bildirimine atanir; kayma = derleme hatasi).
+add_library(engine_bridge STATIC bridge/engine_api.cpp bridge/desktop_host.cpp app/virtual_stick.cpp bridge/tulpar_abi.cpp)
 target_link_libraries(engine_bridge PUBLIC engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core ${CMAKE_DL_LIBS})
 target_include_directories(engine_bridge PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
 target_compile_options(engine_bridge PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off)
 target_compile_definitions(engine_bridge PRIVATE ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-add_dependencies(engine_bridge engine_layer_check)
+add_dependencies(engine_bridge engine_layer_check engine_bindings_check)
+
+# --- engine_tulpar: TulparLang yerel eklenti yapistiricisi (K303) ------------
+# Tek isi eng_init'te betik VM'ini kurmak (bridge/tulpar_kopru.cpp); geri
+# kalan 207 eng_* fonksiyonunu derleyici DOGRUDAN teng_*'e indirir. Motorun
+# kendi ikilileri bunu BAGLAMAZ: TulparLang runtime'inin tulpar_ext_*
+# sembollerini cagirir, onlar yalniz bir Tulpar oyununun linkinde cozulur.
+add_library(engine_tulpar STATIC bridge/tulpar_kopru.cpp)
+target_link_libraries(engine_tulpar PUBLIC engine_bridge)
+target_compile_options(engine_tulpar PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
+add_dependencies(engine_tulpar engine_layer_check engine_bindings_check)
+
+# --- ABI kilidinin POZITIF KONTROLU (yapilandirmada, bir kez) ---------------
+# Kilit "tip kayarsa derlenmez" diyor; bunun gercekten oldugunu gosteren yol:
+# ayni dosya kasitli bir kaymayla (TULPAR_ABI_KILIDI_BOZ) derlenmeye
+# calisilir ve DUSMESI beklenir. Derlenirse kilit bir sey olcmuyor demektir.
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+try_compile(_abi_kilidi_saglam ${CMAKE_BINARY_DIR}/abi_kilidi_saglam
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/bridge/tulpar_abi.cpp
+    CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${CMAKE_CURRENT_SOURCE_DIR}"
+    CXX_STANDARD 17)
+try_compile(_abi_kilidi_bozuk ${CMAKE_BINARY_DIR}/abi_kilidi_bozuk
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/bridge/tulpar_abi.cpp
+    CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${CMAKE_CURRENT_SOURCE_DIR}"
+    COMPILE_DEFINITIONS -DTULPAR_ABI_KILIDI_BOZ
+    CXX_STANDARD 17)
+unset(CMAKE_TRY_COMPILE_TARGET_TYPE)
+if(NOT _abi_kilidi_saglam)
+    message(FATAL_ERROR "engine: bridge/tulpar_abi.cpp derlenmiyor — Tulpar eklenti bildirimi (SPEC) teng_* ile uyusmuyor")
+endif()
+if(_abi_kilidi_bozuk)
+    message(FATAL_ERROR "engine: ABI kilidi kasitli kaymayi (TULPAR_ABI_KILIDI_BOZ) YAKALAMADI — kilit bir sey olcmuyor")
+endif()
+message(STATUS "engine: Tulpar ABI kilidi saglam; pozitif kontrol (kasitli kayma) derlemede dustu")
+
+# --- Tulpar EKLENTI PAKETI: yapi/tulpar-ext/ ---------------------------------
+# Kurulu `tulpar` motoru bununla kullanir (derleyiciyi yeniden derlemeden):
+#   tulpar --ext yapi/tulpar-ext oyun.tpr
+# (ya da TULPAR_EXT_PATH, ya da tulpar/tulpar.toml [ext] paths — oradan
+# `cd tulpar && tulpar examples/x.tpr` dogrudan calisir). Icerik: bildirim +
+# engine.tpr (`import "engine"`) + lib/ altinda motor arsivleri. Paket
+# kendi kendine yeterli; editor de bunu kullanir (<editor dizini>/tulpar-ext).
+set(TULPAR_EXT_DIR ${CMAKE_BINARY_DIR}/tulpar-ext)
+set(TULPAR_EXT_LIBS engine_tulpar engine_bridge engine_content engine_renderer engine_sim engine_rhi
+    engine_audio engine_core engine_platform engine_jolt engine_recast engine_meshopt engine_astcenc)
+set(_ext_kopyala)
+foreach(_l ${TULPAR_EXT_LIBS})
+    list(APPEND _ext_kopyala COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${_l}> ${TULPAR_EXT_DIR}/lib/)
+endforeach()
+add_custom_target(engine_tulpar_ext ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${TULPAR_EXT_DIR}/tulpar-ext.json
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${TULPAR_EXT_DIR}/engine.tpr
+    ${_ext_kopyala}
+    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr
+    COMMENT "engine: Tulpar eklenti paketi -> ${TULPAR_EXT_DIR}"
+    VERBATIM
+)
+add_dependencies(engine_tulpar_ext engine_bindings_check)
 endif()
 
 # --- Demo uygulamasi (L5): pencere (GLFW dlopen) ya da --headless -------------
@@ -584,35 +658,26 @@ if(ANDROID)
   target_link_options(tulparengine PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384 -u ANativeActivity_onCreate)
 
   # --- tulpar_engine_android: Tulpar oyununun (libtulpargame.so) motor tarafi ---
-  # Kopru cekirdegi + NativeActivity host (android_main -> oyunun main'i) + glue +
-  # VMValue bindingleri (tulpar/generated/engine_bindings.cpp, bu depoda).
-  # tools/build_bridge_android.sh bunu ve libengine_*.a'lari android/dist/<abi>/'ye kopyalar.
+  # Kopru cekirdegi + NativeActivity host (android_main -> oyunun main'i) +
+  # native_app_glue + Tulpar yapistiricisi (bridge/tulpar_kopru.cpp) + ABI
+  # kilidi. tools/build_bridge_android.sh bunu ve libengine_*.a'lari eklenti
+  # paketinin android/<abi>/ dizinine koyar (tulpar-ext.json link.android).
   #
-  # TEK DIS BAGIMLILIK: bindingler TulparLang'in deger ABI'sini (VMValue/Obj*)
-  # gorur, yani <TulparLang>/src/vm/vm.hpp (+ bytecode.hpp) gerekir. O basliklar
-  # BU DEPOYA KOPYALANMADI: bir kopya, derleyici ABI'yi degistirdiginde SESSIZCE
-  # kayar ve uyusmazlik cihazda cokme olarak cikar. Bunun yerine yol acikca
-  # istenir; verilmediyse hedef kurulmaz ve nedeni yazilir.
-  set(TULPAR_ROOT "" CACHE PATH "TulparLang calisma kopyasinin koku (tulpar_engine_android icin; vm.hpp ABI basliklari)")
-  if(TULPAR_ROOT AND EXISTS "${TULPAR_ROOT}/src/vm/vm.hpp")
-      add_library(tulpar_engine_android STATIC
-          bridge/engine_api.cpp
-          bridge/android_host.cpp
-          app/virtual_stick.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/engine_bindings.cpp
-          ${ENGINE_GLUE_DIR}/android_native_app_glue.c
-      )
-      # Uretilen bindingler include DIZINI uzerinden cozulur ("vm/vm.hpp",
-      # "bridge/engine_api.h") — goreli yol yok, yani dosya iki yerlesimde de derlenir.
-      target_include_directories(tulpar_engine_android PRIVATE ${ENGINE_GLUE_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${TULPAR_ROOT}/src)
-      target_compile_definitions(tulpar_engine_android PRIVATE TULPAR_RUNTIME_ONLY PLATFORM_LINUX ENGINE_SOURCE_DIR="/data/local/tmp/tulpar_engine")
-      target_compile_options(tulpar_engine_android PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off -Wno-deprecated-declarations)
-      target_link_libraries(tulpar_engine_android PUBLIC engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core android log ${CMAKE_DL_LIBS})
-      message(STATUS "engine: tulpar_engine_android kuruldu (TULPAR_ROOT=${TULPAR_ROOT})")
-  elseif(TULPAR_ROOT)
-      message(FATAL_ERROR "engine: TULPAR_ROOT=${TULPAR_ROOT} ama ${TULPAR_ROOT}/src/vm/vm.hpp yok — TulparLang koku degil.")
-  else()
-      message(STATUS "engine: tulpar_engine_android ATLANDI (TULPAR_ROOT verilmedi). "
-                     "Motorun kendi Android hedefi 'tulparengine' bundan etkilenmez.")
-  endif()
+  # 2026-10-02'ye (K303) kadar bu hedef TulparLang'in KAYNAK AGACINI istiyordu
+  # (TULPAR_ROOT -> src/vm/vm.hpp): uretilmis VMValue bindingleri derleyicinin
+  # deger yerlesimine baglaniyordu. Artik motor Tulpar tipi gormuyor; dis
+  # bagimlilik yok, hedef her Android yapilandirmasinda kurulur.
+  add_library(tulpar_engine_android STATIC
+      bridge/engine_api.cpp
+      bridge/android_host.cpp
+      bridge/tulpar_kopru.cpp
+      bridge/tulpar_abi.cpp
+      app/virtual_stick.cpp
+      ${ENGINE_GLUE_DIR}/android_native_app_glue.c
+  )
+  target_include_directories(tulpar_engine_android PRIVATE ${ENGINE_GLUE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(tulpar_engine_android PRIVATE ENGINE_SOURCE_DIR="/data/local/tmp/tulpar_engine")
+  target_compile_options(tulpar_engine_android PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off -Wno-deprecated-declarations)
+  target_link_libraries(tulpar_engine_android PUBLIC engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core android log ${CMAKE_DL_LIBS})
+  add_dependencies(tulpar_engine_android engine_layer_check engine_bindings_check)
 endif()

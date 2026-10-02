@@ -1233,7 +1233,7 @@ int teng_frame_begin(void) {
 }
 
 // Betik VM'i Bridge'in DISINDA duruyor ve sebebi siralama: dil tarafi onu
-// `aot_eng_init_ptr` icinde, `teng_init`ten ONCE kuruyor — o anda Bridge
+// `teng_tulpar_init` icinde (bridge/tulpar_kopru.cpp), `teng_init`ten ONCE kuruyor — o anda Bridge
 // (`g`) henuz YOK. Icinde saklansaydi kurulum sessizce kaybolurdu ve butun
 // kancalar hic cozulmezdi (olculdu: ilk yazimda tam bu oldu).
 static const TengScriptVm *g_svm = nullptr;
@@ -1972,8 +1972,8 @@ static void svm_set(const TengScriptVm *vm, bool v2, const char *fn) {
   static bool eski_soylendi = false;
   if (vm && !v2 && !eski_soylendi) {
     eski_soylendi = true;
-    BINFO("betik VM'i ESKI kurulumla geldi (teng_set_script_vm: yalniz has/call) — kancalar adla cagrilacak; oyun motoru tanimayan "
-          "eski bir derleyiciyle mi kuruldu? tools/motor_derleyici.sh");
+    BINFO("betik VM'i ESKI kurulumla geldi (teng_set_script_vm: yalniz has/call) — kancalar adla cagrilacak; oyun eski bir "
+          "motor baglamasiyla mi kuruldu? Bugunku yol: kurulu tulpar + yapi/tulpar-ext (docs/KOPRU.md 2.1)");
   }
   // Kurulum sahne YUKLENMEDEN once olmali (kancalar yuklemede cozuluyor).
   // Yuklu bir sahne varsa bunu SOYLE: sessiz kalirsa atamalar calismaz ve

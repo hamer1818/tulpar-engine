@@ -1,8 +1,11 @@
 // L6 BRIDGE — Tulpar betikleri icin motorun C ABI yuzu (PLAN L5: oyun mantigi
 // Tulpar'da, ayni ikilide, script siniri yok). Duz skalerler (int / double /
 // const char*), struct yok, callback yok: Tulpar'in bugunku FFI'si bunu tasir.
-// Tulpar tarafi: runtime/engine_bindings.cpp (aot_eng_*_ptr, VMValue ABI) bu
-// fonksiyonlari cagirir; lib/engine.tpr ergonomik sarmalayicidir.
+// Tulpar tarafi: motor TulparLang'e bir YEREL EKLENTI olarak baglanir (K303,
+// 2026-10-02): derleyici tulpar/generated/tulpar-ext.json'daki imzalarla bu
+// fonksiyonlari DOGRUDAN cagirir (arada VMValue katmani yok; tip uyumunu
+// bridge/tulpar_abi.cpp derlemede kilitler). tulpar/engine.tpr ergonomik
+// sarmalayicidir. Bkz. docs/KOPRU.md §2.1.
 //
 // Tek ornek (global motor baglami): teng_init -> [teng_frame_begin ... teng_frame_end]* -> teng_shutdown.
 // Her cagri loglanir (TULPAR_ENGINE_LOG=0 sessiz, 1 bilgi (vars.), 2 ayrinti, 3 iz: her cagri);
@@ -142,9 +145,9 @@ typedef struct TengScriptVm {
 // Tulpar tarafi bunu eng_init sirasinda BIR KEZ kuruyor. nullptr: betik
 // yasam dongusu KAPALI (motor yalnizca atamayi tasir — eski davranis).
 // ISARETCI KOPYALANMAZ: gosterdigi yapi, kaldirilana (nullptr) ya da motor
-// kapanana kadar YASAMALI — statik depolama. Uretilmis baglama statik bir
-// kEngScriptVm veriyor; yiginda duran bir yapi vermek, kapsamdan cikinca her
-// kare cop isaretci cagirir.
+// kapanana kadar YASAMALI — statik depolama. Tulpar yapistiricisi
+// (bridge/tulpar_kopru.cpp) statik bir kTulparVm veriyor; yiginda duran bir
+// yapi vermek, kapsamdan cikinca her kare cop isaretci cagirir.
 void teng_set_script_vm(const TengScriptVm *vm);
 // SURUM KAYMASINA KARSI iki kurulum. teng_set_script_vm yapinin YALNIZ ilk iki
 // alanini (has, call) okur: resolve/invoke'u bilmeyen ESKI bir baglama (2

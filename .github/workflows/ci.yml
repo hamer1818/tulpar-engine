@@ -180,7 +180,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
-            vulkan-validationlayers libglfw3
+            vulkan-validationlayers libglfw3 clang libssl-dev
 
       - name: ccache onbellegi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
@@ -394,6 +394,33 @@ jobs:
       # betigin --denetle adiminda PR'da da olcer. TULPAR_PAKET_PLATFORM:
       # ikilinin basligindan turetilen platform bu isin etiketiyle celisirse
       # KIRMIZI (release.yml'deki PLATFORM ile ayni deger).
+      # TULPAR KOPRUSU UCTAN UCA (K197 + K303, 2026-10-02). Motor CI'i bugune
+      # kadar .tpr KOSTURMUYORDU: kopru yalniz C++ tarafindan (test_bridge)
+      # olculuyordu, oyunlarin kendisi ("[kapi]" satirlari) yerel bir kapiydi
+      # — cunku motoru taniyan derleyici ters yamayla kuruluyordu ve her
+      # derleyici degisikliginde kirilabilirdi. Artik motor TulparLang'e bir
+      # YEREL EKLENTI: YAYINLANMIS `tulpar` (derleyici yeniden derlenmeden)
+      # bu isin urettigi yapi/tulpar-ext paketiyle kosar. Olculen
+      # (tools/tulpar_dogrula.sh --tam): duman, pozitif kontroller (eklentisiz
+      # import duser; bildirimdeki bozuk sembol link hatasinda ADIYLA; bozuk
+      # imza typecheck'te), 4 dil sondasi, engine_dalga / engine_aksiyon kapi
+      # satirlari BAYT BAYT, engine_bridge.test.tpr, 6 ornek 60 kare.
+      # Derleyici `releases/latest`: TulparLang'in yayinlanmis son surumu —
+      # "kullanicinin kurdugu tulpar motoru calistiriyor mu" sorusunun ta
+      # kendisi. clang + libssl-dev: tulpar'in AOT linki (clang++, -lssl).
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/tulpar"
+          mkdir -p "$d"
+          url=https://github.com/hamer1818/TulparLang/releases/latest/download
+          curl -fsSL --retry 3 -o "$d/tulpar" "$url/tulpar-linux-x64"
+          curl -fsSL --retry 3 -o "$d/libtulpar_runtime.a" "$url/libtulpar_runtime-linux-x64.a"
+          chmod +x "$d/tulpar"
+          "$d/tulpar" --version
+          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar" --tam
+
       - name: Ciktilari topla
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:

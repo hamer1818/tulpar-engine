@@ -153,17 +153,18 @@ sahneyi derler, onu yükleyen Tulpar oyununu **ayrı bir süreçte, kendi pencer
 
 - **Oyun kendiliğinden bulunur:** `tulpar/` altında `"<sahne>.sahneb"` metnini içeren `.tpr`
   (`*.test.tpr` sayılmaz). Tek aday yoksa editör tahmin etmez, sorar; seçim oturum boyunca kalır.
-- **Derleyici: kurulu `tulpar` kullanılamaz** — TulparLang motoru 2026-09-20'den beri tanımıyor
-  (`import "engine"` derlenmez). Motoru tanıyan derleyiciyi bir kez kurun:
+- **Derleyici: kurulu `tulpar` + motorun eklenti paketi.** Motor TulparLang'e bir **yerel
+  eklenti** olarak bağlanır (TulparLang K303): motor derlemesi `yapi/tulpar-ext/` paketini
+  üretir (bildirim + `engine.tpr` + arşivler), editör oyunu `PATH`'teki `tulpar` ile ve
+  `TULPAR_EXT_PATH=<editör dizini>/tulpar-ext` ile başlatır. `tulpar` önce sınanır
+  (`tulpar --ext <paket> version`): eklentiyi tanımayan eski bir sürümse editör sebebi ve
+  çözümü (`tulpar update`) Konsol'a yazar. `TULPAR_MOTOR_DERLEYICI` / `TULPAR_MOTOR_EKLENTI`
+  ikisini ezer. Zinciri uçtan uca sınamak:
 
   ```bash
-  tools/motor_derleyici.sh               # ../Tulpar kopyasından; o kopyaya DOKUNMAZ (git worktree)
-  tools/motor_derleyici.sh --dogrula     # kurulu olanı bir motor oyunuyla dene
+  tools/tulpar_dogrula.sh          # duman + pozitif kontroller + 4 dil sondası
+  tools/tulpar_dogrula.sh --tam    # + dalga/aksiyon kapı satırları, köprü testi, 6 örnek
   ```
-
-  Çıktı `yapi/tulpar-motor/tulpar`; `TULPAR_MOTOR_DERLEYICI` ile başka biri verilebilir. Köprü
-  derleyici deposunun `86e2c4e` commit'inin **tersi** uygulanarak geri bağlanıyor: derleyici o
-  dosyaları değiştirdikçe tutmayabilir ve betik o zaman adıyla durur. Windows'ta henüz yok.
 - **Penceresiz doğrulama:** `TULPAR_ENGINE_HEADLESS=240 ./editor.sh x.sahne --headless 5 --komut
   oynat.oyunu_calistir` — editör oyunun bitmesini bekler, oyunun satırlarını `[oyun]` önekiyle basar.
 - "Derle" artık navmesh'i de bake ediyor (`engine_sahnec` ile bayt bayt aynı blob); önceden
@@ -262,21 +263,18 @@ Motor C++ kalır, **oyun betikleri Tulpar'da yazılır**. Bağlantı `bridge/`:
   kalıbıyla, çarpışma ise **kuyrukla** verilir — callback olmadığı için.
 * `bridge/desktop_host.cpp` / `android_host.cpp` — pencere/yüzey/girdi (`BridgeHost`).
 * `tools/gen_engine_bindings.py` içindeki `SPEC` tablosu **tek kaynaktır**: tek komutla
-  dört üretilmiş dosyayı birden yazar. Elle tutulan nokta olmadığı için bağlama
-  noktaları birbirinden kayamaz.
-* Köprünün TulparLang tarafı — `engine.tpr` sarmalayıcı, üretilmiş bindingler, örnek
-  oyunlar, köprü testi — **bu depodadır**: [`tulpar/`](tulpar/README.md).
+  eklenti bildirimini (`tulpar/generated/tulpar-ext.json`) ve ABI kilidini
+  (`bridge/tulpar_ext_abi.inc`) yazar. İkisi de CMake kapısıyla korunur (bayat bildirim
+  ya da C ile uyuşmayan imza = derleme hatası).
+* Köprünün TulparLang tarafı — `engine.tpr` sarmalayıcı, bildirim, örnek oyunlar, köprü
+  testi — **bu depodadır**: [`tulpar/`](tulpar/README.md).
 
-TulparLang derleyicisi (<https://github.com/hamer1818/TulparLang>) motoru **tanımıyor**:
-`eng_*` builtin'leri, `lib/engine.tpr` ve `engine_link_flags()` oradan kaldırıldı, o depo
-yalnız dili derliyor. Motoru bir TulparLang kopyasına yeniden bağlamak için
-`tools/gen_engine_bindings.py --tulpar <kök>` var; ayrıntısı
-[tulpar/README.md](tulpar/README.md).
-
-Tek dış bağımlılık, Android köprü arşivini kurarken istenen `TULPAR_ROOT`: bindingler
-derleyicinin değer ABI'sini (`VMValue`) gördüğü için `<TulparLang>/src/vm/vm.hpp`
-gerekir. Verilmezse `tulpar_engine_android` hedefi kurulmaz ve nedeni yazılır; motorun
-kendi hedefleri etkilenmez.
+TulparLang derleyicisi (<https://github.com/hamer1818/TulparLang>) motoru **adıyla
+tanımıyor**, tanıması da gerekmiyor: derleyicinin genel **yerel eklenti** noktası
+(`--ext`, `TULPAR_EXT_PATH`, `tulpar.toml [ext]`) bildirimi okur ve her `eng_*` çağrısını
+doğrudan `teng_*`'e indirir — arada VMValue katmanı yok, motor Tulpar'ın değer tipini
+görmez, Android köprü arşivi TulparLang kaynak ağacı istemez. Motor derlemesi paketi
+`yapi/tulpar-ext/`'e koyar; `tulpar --ext yapi/tulpar-ext oyun.tpr`.
 
 Sözleşmenin tamamı: [docs/KOPRU.md](docs/KOPRU.md).
 

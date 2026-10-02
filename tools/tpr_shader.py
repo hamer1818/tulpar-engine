@@ -951,16 +951,17 @@ def find_tulpar():
     zaman var olmayan bir dizin: denetim 2026-09-20'den beri her kosumda
     "ATLANDI" deyip HICBIR SEY olcmuyordu (olculdu 2026-09-27). Sira:
       1. $TULPAR_BIN (acik secim)
-      2. yapi/tulpar-motor/tulpar (tools/motor_derleyici.sh'in urettigi)
-      3. kardes derleyici deposu: ../Tulpar/tulpar, ../TulparLang/tulpar,
+      2. kardes derleyici deposu: ../Tulpar/tulpar, ../TulparLang/tulpar,
          ../tulpar/tulpar
-      4. PATH'teki `tulpar`
+      3. PATH'teki `tulpar`
+    Bu denetim yalniz AYRISTIRICIYI kullanir; motor eklentisi gerekmez.
+    (2026-10-02'ye kadar 2. sirada motor_derleyici.sh'in yapi/tulpar-motor
+    derleyicisi vardi; o yol K303 ile kalkti.)
     """
     cands = []
     env = os.environ.get("TULPAR_BIN")
     if env:
         cands.append(("TULPAR_BIN", env))
-    cands.append(("motor_derleyici.sh", os.path.join(ENGINE, "yapi", "tulpar-motor", "tulpar")))
     parent = os.path.dirname(ENGINE)
     for d in ("Tulpar", "TulparLang", "tulpar"):
         cands.append(("kardes depo", os.path.join(parent, d, "tulpar")))
@@ -985,7 +986,7 @@ def cmd_tulpar_parse(directory):
     if not binpath:
         # Gorunur atlama; sessiz yesil degil. `--zorunlu` ile KIRMIZI.
         print("ATLANDI: tulpar ikilisi bulunamadi (%s). TULPAR_BIN=<yol> ver "
-              "ya da tools/motor_derleyici.sh kostur." % why)
+              "ya da TulparLang'i kur (PATH'te tulpar)." % why)
         return 1 if os.environ.get("TPRS_ZORUNLU") == "1" else 0
     ver = subprocess.run([binpath, "version"], capture_output=True, text=True)
     print("tulpar: %s (%s) — %s" % (binpath, why,

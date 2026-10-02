@@ -636,6 +636,13 @@ float KAYMA_SINIR = 1.0;
 // İlk 1000 kare dışarıda: sahne, navmesh, font, sürücü önbellekleri ısınır ve
 // bölüm 2 k713'te yüklenir (ölçüldü 2026-09-25) — bunlar sızıntı değil.
 int BELLEK_ILK_KARE = 1000;
+// Yazılım rasterleştiricide (llvmpipe) sürücünün ısınması 1000. kareyi aşabilir:
+// ölçüldü 2026-10-02, CI ubuntu-24.04 / mesa 25.2.8 lavapipe (LLVM 20, 4 çekirdek),
+// /proc/<pid>/smaps: [heap] ilk ~37 s'de (≈k1100) +31 MB, sonra 109 s'ye kadar DÜZ
+// (190 MB). Aynı ikili yerelde mesa 26.2.4 lavapipe'ta k1000'den sonra 0 KB/1000.
+// Pencerenin başı bu yüzden dışarıdan kaydırılabilir; varsayılan değişmedi.
+// Kullanan: tools/tulpar_dogrula.sh (llvmpipe'ta). Eğim yine aynı sınırla ölçülür.
+if (len(env("TULPAR_AKSIYON_BELLEK_ILK")) > 0) { BELLEK_ILK_KARE = toInt(env("TULPAR_AKSIYON_BELLEK_ILK")); }
 int BELLEK_PENCERE_MIN = 2000;   // daha kısa pencerede eğim gürültüdür: ATLANDI
 // Sınır, KB / 1000 kare. Ölçüldü 2026-09-25, RTX 5080 masaüstü (Linux, NVIDIA),
 // TulparLang 3eee948:

@@ -1664,3 +1664,23 @@ belirteç → uyarı + commit mesajı.
 
 **Ders:** bir yapılandırma satırının "nereye gittiği" varsayılmaz, okunduğu yerde ölçülür.
 Depo ayarı (squash mesajı) değişebilen bir girdi; ayara değil, verinin asıl kaynağına (PR) bak.
+
+### 8co. Eklenti bildirimi C imzasından kayar — derleyici statik arşivde tip GÖREMEZ
+
+**Sınıf** (2026-10-02, TulparLang K303 ile doğdu): motor Tulpar'a bir yerel eklenti olarak
+bağlanıyor; derleyici `tulpar-ext.json`'daki tiplerle `teng_*`'i **doğrudan** çağırıyor. Bildirim
+`i32` derken C fonksiyonu `double` alıyorsa (ya da `int` dönüşü `int64_t` okunursa) hiçbir şey
+hata vermez: link geçer (sembol var), çağrı yanlış yazmaçtan okur, sonuç çöptür. Eski VMValue
+bindingleri C++ derleyicisinden geçtiği için örtük çevrimle "kendiliğinden" uyuyordu; o güvence
+eklenti yolunda yok.
+
+**Kapı:** `bridge/tulpar_abi.cpp` — bildirimle aynı kaynaktan (SPEC) üretilen her satırı
+`teng_*`'in gerçek bildirimine **tipli işlev işaretçisi** olarak atar; C++'ta farklı işlev
+işaretçisi tipleri arasında örtük çevrim yok, kayma = derleme hatası. Tablo `engine_tests`'e
+bağlı (sembol yoksa link hatası). Bildirimin kendisi `engine_bindings_check` ile SPEC'e karşı
+taze tutulur. **Pozitif kontrol:** CMake yapılandırması aynı dosyayı `TULPAR_ABI_KILIDI_BOZ` ile
+(teng_init'e `double` parametreli bir işaretçi) derlemeyi dener ve DÜŞMESİNİ bekler; derlenirse
+yapılandırma durur.
+
+**Ders:** derleyicinin göremediği bir sözleşmeyi (statik arşivin C tipleri), onu gören tek
+yerde — sözleşmenin C tarafının derlendiği yerde — kilitle. "Link geçti" tip uyumu demek değil.

@@ -2,7 +2,7 @@
 // kare basina kalici bellek buyumesi. Oyun degil, olcu.
 //
 //   python3 tools/kanca_olcumu.py                 # derle + 2000 kare + egim (Linux)
-//   cd tulpar && TULPAR_ENGINE_HEADLESS=2000 ../yapi/tulpar-motor/tulpar examples/engine_kanca_olcumu.tpr
+//   cd tulpar && TULPAR_ENGINE_HEADLESS=2000 tulpar examples/engine_kanca_olcumu.tpr
 //
 // N kopru varligi (govdesiz isik: fizik ve cizim maliyeti yok) `bos` betigine
 // baglanir; `bos_guncelle` BOS, yani olculen sure dagitimin kendisidir.

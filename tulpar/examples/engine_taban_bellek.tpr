@@ -1,7 +1,7 @@
 // Tulpar Engine — TABAN BELLEK OLCUMU (PLAN §5 "Engine + Tulpar runtime
 // baseline"). Oyun degil, olcu.
 //
-//   cd tulpar && TULPAR_ENGINE_HEADLESS=300 DISPLAY= ../yapi/tulpar-motor/tulpar examples/engine_taban_bellek.tpr
+//   cd tulpar && TULPAR_ENGINE_HEADLESS=300 DISPLAY= tulpar examples/engine_taban_bellek.tpr
 //   python3 ../tools/taban_bellek.py smaps_k60.txt     # smaps'i gruplara ayir
 //
 // Bos sahne; VmRSS (`bellek_kb()`) dort noktada basilir: motor ACILMADAN once
