@@ -653,8 +653,9 @@ eklenti_eksik_kitapliklar() {
 #     kitapligi ADIYLA soylemeli.
 #     tulpar yoksa GORUNUR atlanir; TULPAR_PAKET_KOSU=zorunlu (CI) iken HATA.
 #     tulpar: TULPAR, yoksa PATH (CI ve surum: tools/tulpar_indir.sh).
-#     TULPAR_PAKET_KOSU=gpusuz (GPU'suz makine, ornegin ICD'siz Windows
-#     surum isi): tulpar yine ZORUNLU; oyun motoru kuramazsa ("motor
+#     TULPAR_PAKET_KOSU=gpusuz (GPU'suz makine; CI'da artik kullanilmiyor —
+#     2026-10-05'ten beri ci.yml VE release.yml'in Windows isleri SwiftShader
+#     ICD'siyle `zorunlu`): tulpar yine ZORUNLU; oyun motoru kuramazsa ("motor
 #     acilamadi: <sebep>", cikis 0) bu DUSTU degil — olculen: paketten
 #     derleme + link + baslatma ve paketten GPU'SUZ kopru suite'i
 #     (tulpar/tests/engine_gpusuz.test.tpr: kurulumsuz teng_* cagrilari, dusen

@@ -24,8 +24,11 @@
 # KURULU (ve loader duzeyinde vulkaninfo ile dogrulaniyor), bu yuzden
 # "VK_LAYER_KHRONOS_validation yok" gerekceli tek bir atlama da isi KIRMIZI
 # yapar: bes dogrulama/Mali kapisi olcmeden gecmis demektir ve OLCULMEMIS bir
-# ikili YAYINLANMAZ. Windows runner'inda yazilim ICD'si yok,
-# orada GPU kapilari BEKLENEN sekilde atlanir ve sebepleri ozete yazilir.
+# ikili YAYINLANMAZ. Windows'ta da (2026-10-05'ten beri) yazilim ICD'si
+# var: runner'daki Chrome'un SwiftShader'i + MSYS2 dogrulama katmani, kayit
+# defterinden (tools/windows_vulkan_icd.sh, ci.yml ile AYNI betik). Ayni kural:
+# Vulkan / katman atlamasi KIRMIZI; kapilar tools/windows_kapilar.sh'te tek
+# yerde (ci.yml'in Windows isi de onu cagirir).
 #
 # YAYINLANMAMIS BIR IKILI NASIL ENGELLENIYOR (dort katman):
 #   1. Her is icinde SIRA: test kapisi -> paketle -> arsivle -> yukle. Kapi
@@ -1073,6 +1076,10 @@ jobs:
     name: Windows x86_64 (MSYS2 MINGW64)
     needs: hazirlik
     runs-on: windows-latest
+    # ci.yml'in Windows isi ~10 dk (olculdu CI windows-latest 2026-10-05);
+    # buna paketleme + arsiv kapilari eklenir. 45 dk bir kilitlenmenin isi
+    # saatlerce tutmasini onler.
+    timeout-minutes: 45
     permissions:
       contents: read
     defaults:
@@ -1081,10 +1088,13 @@ jobs:
     env:
       SURUM: ${{ needs.hazirlik.outputs.surum }}
       PLATFORM: windows-x86_64
-      # Windows runner'inda Vulkan ICD'si yok: GPU'suz kip (tools/package.sh) —
-      # paketten derleme + link + baslatma + GPU'suz kopru suite'i OLCULUR, kare
-      # dongusu ATLANDI basilir. tulpar yoksa yine KIRMIZI.
-      TULPAR_PAKET_KOSU: gpusuz
+      # SwiftShader kurulu (asagida): Linux/macOS ile ayni TAM paket kosusu —
+      # paketten 60 kare, hata 0, HUD fontu paketten. Motor kurulamazsa KIRMIZI.
+      # (#83'ten 2026-10-05'e kadar burada ICD yoktu ve kip `gpusuz`du: kare
+      # dongusu ATLANDI basiliyordu.)
+      TULPAR_PAKET_KOSU: zorunlu
+      KAPI_BASLIK: Windows (MSYS2 MINGW64, SwiftShader) — surum kapisi
+      KAPI_EK: ' Surum YAYINLANMAYACAK.'
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-windows-x86_64
     steps:
       # Satir sonlari .gitattributes ile LF'e sabitli (kanonik .sahne bayt-esitlik
@@ -1113,6 +1123,13 @@ jobs:
             mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-vulkan-validation-layers
+
+      # YAZILIM VULKAN ICD'si (SwiftShader) — ci.yml ile AYNI betik. ICD ya da
+      # katman bulunamazsa, loader gormezse ya da surucu motorsuz bellek
+      # sondasinda duserse (Tuzaklar 8cr) adim KIRMIZI; sessiz atlama yok.
+      - name: Yazilim Vulkan ICD'si (SwiftShader) + dogrulama katmani gercekten var mi
+        run: bash tools/windows_vulkan_icd.sh kur
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -1171,60 +1188,19 @@ jobs:
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # ===== YAYIN KAPISI =====================================================
-      # Windows runner'inda yazilim Vulkan ICD'si yok; RHI kapilari burada
-      # ATLANDI olacak ve bu BEKLENEN durum. Ama gorunmez kalmasin: sebepler
-      # is ozetine yazilir. Gercek Vulkan kapisi Linux/macOS islerinde.
+      # ci.yml'in Windows isiyle AYNI betik (tools/windows_kapilar.sh): iki
+      # pozitif kontrol (Vulkan atlama satiri basiliyor mu; katman kaydi
+      # gizliyken bes katman kapisi ATLANDI diyor mu) ve ozet satiri kapisi.
+      # SwiftShader kurulu: "Vulkan ... yok" / "VK_LAYER_KHRONOS_validation
+      # yok" gerekceli tek bir atlama KIRMIZI — olculmemis ikili yayinlanmaz.
+      - name: Atlama mekanizmasinin pozitif kontrolu
+        run: bash tools/windows_kapilar.sh atlama-kontrol
+
+      - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        run: bash tools/windows_kapilar.sh katman-kontrol
+
       - name: Testler + kapi
-        run: |
-          set -uo pipefail
-          ./yapi/engine_tests.exe 2>&1 | tee sonuc.log
-          kod=${PIPESTATUS[0]}
-
-          ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
-          if [ -z "$ozet" ]; then
-            echo "::error::Ozet satiri YOK — engine_tests cokmus ya da asilmis olabilir. Surum YAYINLANMAYACAK."
-            exit 1
-          fi
-          echo "$ozet"
-
-          gecen=$(sed -E 's/^engine tests: ([0-9]+) passed.*/\1/'   <<< "$ozet")
-          kalan=$(sed -E 's/.*, ([0-9]+) failed.*/\1/'              <<< "$ozet")
-          atlanan=$(sed -E 's/.*, ([0-9]+) atlandi.*/\1/'           <<< "$ozet")
-          kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
-          kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
-
-          {
-            echo "### Windows (MSYS2 MINGW64) — surum kapisi"
-            echo ""
-            echo "\`$ozet\`"
-            echo ""
-            echo "Vulkan ICD'si yok: GPU kapilari burada atlanir, olculdukleri yer Linux/macOS isleri."
-            echo ""
-            if [ "$atlanan" -gt 0 ]; then
-              echo "<details><summary>Atlanan $atlanan kapi</summary>"
-              echo ""
-              echo '```'
-              grep -E 'ATLANDI:' sonuc.log | sort | uniq -c | sort -rn
-              echo '```'
-              echo ""
-              echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if grep -q 'KAYIT TASMASI' sonuc.log; then
-            echo "::error::Kayit tasmasi: bazi testler HIC kosmadi (tests/test.hpp icindeki Registry::kMax). Surum YAYINLANMAYACAK."
-            exit 1
-          fi
-          if [ "$kosan" != "$kayitli" ]; then
-            echo "::error::Kayitli $kayitli testin yalnizca $kosan tanesi kosmus. Surum YAYINLANMAYACAK."
-            exit 1
-          fi
-          if [ "$kalan" != "0" ] || [ "$gecen" -le 0 ]; then
-            echo "::error::$kalan test kirmizi. Surum YAYINLANMAYACAK."
-            exit 1
-          fi
-
-          exit "$kod"
+        run: bash tools/windows_kapilar.sh testler
       # ===== /YAYIN KAPISI ====================================================
 
       # PAKET KOSU KAPISI (K197, #77): tools/package.sh paketin tulpar-ext/'ini
@@ -1235,6 +1211,14 @@ jobs:
       # (tools/tulpar_indir.sh); TULPAR'i sonraki adimlara GITHUB_ENV verir.
       - name: Tulpar (yayinlanmis, SHA256SUMS dogrulamali)
         run: bash tools/tulpar_indir.sh "$(cygpath -u "$RUNNER_TEMP")/tulpar"
+
+      # TULPAR KOPRUSU — ci.yml'in Windows isiyle AYNI adim: bu kosumun
+      # yapi/tulpar-ext paketiyle motor oyunlari derlenir, linklenir, SwiftShader
+      # uzerinde kosar (duman, pozitif kontroller, dil sondalari, kopru suite'i,
+      # 6 ornek x 60 kare). Uzun taban cizgileri (dalga 2400 / aksiyon 3200
+      # kare) --uzun-atla ile GORUNUR ATLANDI; Linux/macOS'ta her PR'da olculur.
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
+        run: bash tools/windows_kapilar.sh kopru "$(cygpath -u "$RUNNER_TEMP")/tulpar/tulpar.exe"
 
       - name: Paketle (tools/package.sh)
         run: |

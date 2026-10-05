@@ -20,7 +20,8 @@
 # SwiftShader'i + MSYS2 dogrulama katmani, kayit defterinden
 # (tools/windows_vulkan_icd.sh). Ayni kural: Vulkan / katman atlamasi KIRMIZI.
 # MSYS2 mesa lavapipe DENENDI ve ELENDI (bellek birakirken yigini bozuyor,
-# Tuzaklar 8cr). release.yml'in Windows isinde ICD hala kurulmuyor.
+# Tuzaklar 8cr). release.yml'in Windows isi de ayni betiklerle kurar ve ayni
+# kapilari kosar (tools/windows_kapilar.sh).
 # `continue-on-error` YOK; hicbir adim yumusatilmaz.
 #
 # UC PLATFORM, IKI MIMARI: linux/windows x86_64, macos arm64. macOS ayagi bir
@@ -1016,140 +1017,32 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Linux isindeki iki pozitif kontrolun Windows ayagi: SwiftShader artik
-      # KURULU oldugu icin asagidaki "Vulkan / katman atlamasi = KIRMIZI"
-      # kurali burada da gecerli; o kuralin bos bir grep olmadigi burada
-      # gosterilir (ayni ifadeler).
+      # Pozitif kontroller + test kapisi + Tulpar koprusu: release.yml'in
+      # Windows isiyle AYNI betik (tools/windows_kapilar.sh; gerekceler orada).
+      # SwiftShader KURULU: Linux isiyle ayni kural — "Vulkan ... yok" ya da
+      # "VK_LAYER_KHRONOS_validation yok" gerekceli tek bir atlama KIRMIZI.
+      # Katman pozitif kontrolu kayit girdisini gecici siler (yonetici surec
+      # VK_LAYER_PATH'i yok sayar) ve trap ile geri koyar.
       - name: Atlama mekanizmasinin pozitif kontrolu
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set -uo pipefail
-          TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests.exe rhi_ 2>&1 | tr -d '\r' > kontrol.log || true
-          n=$(grep -E 'ATLANDI:.*Vulkan' kontrol.log | grep -cv 'tukendi')
-          if [ "$n" -eq 0 ]; then
-            echo "::error::Pozitif kontrol basarisiz: TULPAR_ENGINE_NO_VULKAN=1 ile bile Vulkan atlama satiri basilmadi."
-            tail -40 kontrol.log
-            exit 1
-          fi
-          echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+        run: bash tools/windows_kapilar.sh atlama-kontrol
 
-      # Katman GIZLEME: yonetici surecte VK_LAYER_PATH yok sayildigi icin (bkz.
-      # surucu adimi) Linux'taki "bos dizine yonlendir" yolu burada bir sey
-      # gizlemez. Kayit girdisi kontrol suresince SILINIR ve trap ile geri
-      # konur; geri konmazsa asagidaki test adimi katman kapilarini atlar ve
-      # KIRMIZI olur (yani unutulan bir geri koyma da gorunur).
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set -uo pipefail
-          trap 'bash tools/windows_vulkan_icd.sh katman-geri' EXIT
-          bash tools/windows_vulkan_icd.sh katman-gizle || exit 1
-          ./yapi/engine_tests.exe mali_best_practices 2>&1 | tr -d '\r' > katman_kontrol.log || true
-          ./yapi/engine_tests.exe validation_layer 2>&1 | tr -d '\r' >> katman_kontrol.log || true
-          n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
-          if [ "$n" -lt 5 ]; then
-            echo "::error::Pozitif kontrol basarisiz: katman GIZLIYKEN beklenen 5 atlama satirindan yalnizca $n basildi."
-            tail -60 katman_kontrol.log
-            exit 1
-          fi
-          echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
-          bash tools/windows_vulkan_icd.sh katman-geri && trap - EXIT
-          python3 tools/vk_sonda.py --katman VK_LAYER_KHRONOS_validation | tr -d '\r' | tail -1
+        run: bash tools/windows_kapilar.sh katman-kontrol
 
-      # SwiftShader KURULU: GPU kapilari Windows'ta da KOSAR
-      # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
-      # isiyle ayni kural: "Vulkan ... yok" ya da "VK_LAYER_KHRONOS_validation
-      # yok" gerekceli tek bir atlama isi KIRMIZI yapar. Sure is ozetine yazilir.
-      # `set +e`: msys2 kabugu `bash -e` ile kosar; engine_tests sifirdan
-      # farkli donunce (cokme) betik ozet teshisinden ONCE oluyordu ve log
-      # bos kaliyordu (olculdu 2026-10-05: cikis 127, tek satir cikti yok).
       - name: Testler + kapi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set +e
-          set -uo pipefail
-          t0=$SECONDS
-          ./yapi/engine_tests.exe 2>&1 | tr -d '\r' | tee sonuc.log
-          kod=${PIPESTATUS[0]}
-          sure=$((SECONDS - t0))
+        run: bash tools/windows_kapilar.sh testler
 
-          ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
-          if [ -z "$ozet" ]; then
-            echo "::error::Ozet satiri YOK — engine_tests cokmus ya da asilmis olabilir."
-            exit 1
-          fi
-          echo "$ozet"
-
-          gecen=$(sed -E 's/^engine tests: ([0-9]+) passed.*/\1/'   <<< "$ozet")
-          kalan=$(sed -E 's/.*, ([0-9]+) failed.*/\1/'              <<< "$ozet")
-          atlanan=$(sed -E 's/.*, ([0-9]+) atlandi.*/\1/'           <<< "$ozet")
-          kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
-          kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
-
-          {
-            echo "### Windows (MSYS2 MINGW64, SwiftShader)"
-            echo ""
-            echo "\`$ozet\` — ${sure} s"
-            echo ""
-            if [ "$atlanan" -gt 0 ]; then
-              echo "<details><summary>Atlanan $atlanan kapi</summary>"
-              echo ""
-              echo '```'
-              grep -E 'ATLANDI:' sonuc.log | sort | uniq -c | sort -rn
-              echo '```'
-              echo ""
-              echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if grep -q 'KAYIT TASMASI' sonuc.log; then
-            echo "::error::Kayit tasmasi: bazi testler HIC kosmadi (tests/test.hpp icindeki Registry::kMax)."
-            exit 1
-          fi
-          if [ "$kosan" != "$kayitli" ]; then
-            echo "::error::Kayitli $kayitli testin yalnizca $kosan tanesi kosmus."
-            exit 1
-          fi
-          if [ "$kalan" != "0" ] || [ "$gecen" -le 0 ]; then
-            echo "::error::$kalan test kirmizi."
-            exit 1
-          fi
-
-          vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
-          if [ -n "$vulkan_atlama" ]; then
-            echo "$vulkan_atlama"
-            echo "::error::SwiftShader kurulu (HKLM Khronos Vulkan Drivers) oldugu halde Vulkan kapilari atlandi — ICD gelmemis."
-            exit 1
-          fi
-          katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
-          if [ -n "$katman_atlama" ]; then
-            echo "$katman_atlama"
-            echo "::error::Dogrulama katmani kurulu ve vulkaninfo listeliyor oldugu halde katman kapilari atlandi."
-            exit 1
-          fi
-          echo "engine_tests (Windows, SwiftShader): ${sure} s"
-
-          exit "$kod"
-
-      # TULPAR KOPRUSU — WINDOWS (link.windows, 2026-10-02). Linux isindeki
-      # adimin Windows ayagi: YAYINLANMIS tulpar-windows-x64.zip (+ runtime
-      # arsivi; ikisi de SHA256SUMS.txt ile dogrulanir) bu isin
-      # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
-      # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
+      # TULPAR KOPRUSU — WINDOWS (link.windows, 2026-10-02): YAYINLANMIS
+      # tulpar-windows-x64.zip (+ runtime arsivi; SHA256SUMS.txt dogrulamali)
+      # bu isin yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve
+      # kosar. tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
-      # --uzun-atla: dalga (2400) ve aksiyon (3200) kare kapilari Windows'ta
-      # KOSMAZ, ATLANDI diye sayilir. Olculdu (2026-10-05, SwiftShader ~210
-      # ms/kare): ikisi bu adimin 26 dakikasinin 24'u; ayni satirlar o gun
-      # burada Linux'la bayt bayt ayni cikti ve her kosumda Linux/macOS'ta
-      # olculuyor. Kalan: duman, pozitif kontroller, dil sondalari, GPU'suz
-      # suite, kopru testi (27), 6 ornek x 60 kare.
-      # SWIFTSHADER (2026-10-05): yukaridaki adim ICD'yi kayit defterine yazdi,
-      # motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
-      # ile ayni bayraksiz kosum — duman, pozitif kontroller, dil sondalari,
-      # GPU'suz kopru suite'i, engine_dalga / engine_aksiyon [kapi] satirlari
-      # Linux'takiyle BAYT BAYT ayni olmak zorunda, engine_bridge.test.tpr,
-      # 6 ornek 60 kare. Kurulum duserse adim KIRMIZI (atlama yok).
-      # (Oncesi: ICD yoktu, kare dongusu 9 kapida ATLANDI —
+      # --uzun-atla (dalga 2400 / aksiyon 3200 kare GORUNUR ATLANDI) ve
+      # --gpusuz-izinli'nin YOKLUGU: tools/windows_kapilar.sh `kopru`.
+      # (2026-10-05 oncesi: ICD yoktu, kare dongusu 9 kapida ATLANDI —
       # `19 gecti, 0 dustu, 9 atlandi`.)
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
@@ -1158,24 +1051,7 @@ jobs:
           d="$(cygpath -u "$RUNNER_TEMP")/tulpar"
           bash tools/tulpar_indir.sh "$d" || exit 1
           clang++ --version | head -1
-
-          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam --uzun-atla 2>&1 | tee tulpar.log
-          kod=${PIPESTATUS[0]}
-          ozet="$(grep -E '^tulpar dogrulama: ' tulpar.log | tail -1 || true)"
-          {
-            echo "### Windows: Tulpar koprusu (link.windows)"
-            echo ""
-            echo "\`${ozet:-ozet satiri YOK}\`"
-            echo ""
-            echo '```'
-            grep -E 'ATLANDI:|kurulum dustu|\[bilgi\]|\[kapi\]|link adiyla|HATA Vulkan|GPU:' tulpar.log || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ -z "$ozet" ]; then
-            echo "::error::tulpar_dogrula.sh ozet satiri basmadi — betik yarida kesilmis olabilir."
-            exit 1
-          fi
-          exit "$kod"
+          bash tools/windows_kapilar.sh kopru "$d/tulpar.exe"
 
       # CALISTIRILABILIR CIKTILAR — ikililer, varliklar VE Windows'ta SART olan
       # DLL'ler. Hepsi tools/package.sh icinde (Linux/macOS isleriyle AYNI
@@ -1210,7 +1086,7 @@ jobs:
       # dizinden kosturur (tools/package.sh eklenti_sinamalari). SwiftShader
       # kurulu (yukarida), yani Linux/macOS ile ayni tam kosu: 60 kare, hata
       # 0, HUD fontu paketten. tulpar yoksa KIRMIZI. (release.yml'in Windows
-      # isinde ICD kurulmuyor; orada gpusuz kip.)
+      # isi de ayni ICD ile zorunlu kipte.)
       - name: Ciktilari topla (+ MinGW DLL'leri)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
