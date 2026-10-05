@@ -5,7 +5,8 @@
 // hakkında HİÇBİR ŞEY ölçmez. Bu suite tam o makine için: kurulumsuz da
 // güvenli olan teng_* çağrılarıyla eklenti ABI'sini (değer GİDİP GELİYOR mu)
 // ve başarısız kurulumun sözleşmesini (false + hata metni, sonraki çağrılar
-// çökmeden hata sayar, kapanış güvenli) ölçer.
+// çökmeden hata sayar, kapanış güvenli, yeniden deneme aldıklarını geri
+// bırakır — Tuzaklar 8cq) ölçer.
 //
 // GPU olan makinede `TULPAR_ENGINE_NO_VULKAN=1` ile koşar (tools/tulpar_dogrula.sh
 // bunu kendisi verir): yükleyici yolu kapanır, kurulum düşer. Kurulum yine de
@@ -91,6 +92,38 @@ func run_kurulum_duser() {
     assert(rss > 0, "eng_rss_kb dusen kurulumdan sonra da olculmeli");
 }
 
+// 3) Yeniden deneme: düşen kurulum aldıklarını GERİ BIRAKIYOR mu (Tuzaklar 8cq)?
+// Düzeltmeden önce her düşen motor_ac 512 MB arena rezervi + worker
+// thread'leri (+ yükleyici) bırakıyordu ve motor_kapat `!inited` görüp hiç
+// dokunmuyordu; aynı süreçte her deneme hepsini yeniden alıyordu (ölçüldü
+// 2026-10-02 Windows CI: tek denemede RSS 4696 -> 11208 KB). Ölçü buradan
+// yalnız RSS (eng_rss_kb — Tulpar'a açık tek sayaç); sanal boyut ve thread
+// sayısı C++ tarafında (tests/test_bridge.cpp bridge_failed_init_*).
+// POZİTİF KONTROL (düzeltmesiz köprü, RTX 5080 / Linux, 2026-10-05): 8 deneme
+// RSS +33,8 MB (deneme başına ~4,2 MB: dokunulan arena sayfaları + worker
+// yığınları); Tests: 3 | Pass: 2 | Fail: 1. Eşik 2048 KB: düzeltilmiş kodda 8
+// deneme +8 KB (aynı makine, aynı gün) — kaçak sınıfı eşiğin ~18 katı.
+func run_yeniden_deneme() {
+    log_seviyesi(1);
+    int once = eng_rss_kb();
+    for (int i = 0; i < 8; i++) {
+        bool acildi = motor_ac("gpusuz yeniden " + toString(i), 64, 64);
+        if (acildi) {
+            motor_kapat();
+            assert(false, "yeniden deneme " + toString(i) + ": motor KURULDU — bu suite GPU'suz yolu olcer");
+            return;
+        }
+        assert(len(eng_last_error()) > 0, "yeniden deneme " + toString(i) + ": hata metni yok");
+        motor_kapat();
+    }
+    int sonra = eng_rss_kb();
+    int fark = sonra - once;
+    print("    [bilgi] 8 dusen kurulum + kapanis: RSS " + toString(once) + " -> " + toString(sonra) + " KB (fark "
+        + toString(fark) + " KB, esik 2048)");
+    assert(fark < 2048, "dusen kurulum aldiklarini geri birakmiyor: 8 denemede RSS +" + toString(fark) + " KB (esik 2048)");
+}
+
 test("kurulumsuz cagrilar: alti double, i32/str/bool, hata sayaci kontrolu", "run_kurulumsuz");
 test("kurulum duser: hata metni, kurulumsuz cagri sayilir, kapanis guvenli", "run_kurulum_duser");
+test("yeniden deneme: 8 dusen kurulum RSS buyutmez (arena + worker geri birakildi)", "run_yeniden_deneme");
 test_summary();

@@ -40,6 +40,7 @@
 #include "content/scene_compile.hpp"
 #include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
+#include "platform/memory.hpp"
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
 #include "rhi/vk_api.hpp"
@@ -1780,6 +1781,102 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   CHECK(bagli == 3 && kod::bitir - bitir0 == bagli && kap_sira);
   CHECK(kod::baslat == kod::bitir);
   CHECK(teng_script_count() == 0);
+}
+
+// --- Yarim kurulum GERI ALINIYOR mu (Tuzaklar 8cq) -----------------------------
+// teng_init dusunce (yukleyici yok / yukleyici var ama ICD yok) o ana kadar
+// aldigi her seyi birakmali: 512 MB arena rezervi, worker thread'leri, acilan
+// Vulkan yukleyicisi. Olcu: ayni surecte N kez "dusen init + shutdown"
+// dongusunden sonra sanal boyut, RSS ve thread sayisi dongu ONCESIYLE ayni.
+// Isinma turu olcumun disinda: ilk dusen init surec basina bir kez olan
+// seyleri (cokme raporlayicisi, log halkasi, Bridge nesnesinin sayfalari) da
+// dokundurur.
+//
+// POZITIF KONTROL (ayni iki test, DUZELTMESIZ bridge/engine_api.cpp; RTX 5080 /
+// Linux 7.2.8, 16 cekirdek, 2026-10-05): 8 dongu -> iki senaryoda da sanal
+// +5316 MB, thread +120 (dongu basina 15 worker), RSS +33,8 MB; uc kontrol
+// KIRMIZI. Duzeltmeyle: +0 MB, +0 thread, RSS +0..8 KB. Esikler (64 MB sanal,
+// 4 MB RSS) tek bir kacak arenanin (512 MB) / tek dongunun worker yiginlarinin
+// altinda.
+namespace {
+struct SurecOlcumu {
+  size_t rss, sanal;
+  uint32_t thread;
+};
+SurecOlcumu surec_olc() { return {platform::os_resident_bytes(), platform::os_virtual_bytes(), platform::os_thread_count()}; }
+// Bir "dusen kurulum + kapanis" dongusu. Donus: kurulum beklenmedik sekilde
+// BASARILI oldu mu (o zaman olculen yol kosmamistir).
+bool dusen_kurulum(const char *baslik) {
+  teng_set_headless(3, nullptr); // pencere ACILMAZ
+  const int ok = teng_init(baslik, 64, 64);
+  if (ok) { teng_shutdown(); return true; }
+  CHECK(teng_running() == 0);
+  CHECK(teng_last_error()[0] != 0);
+  teng_shutdown(); // kurulmamis motorda guvenli (sozlesme)
+  return false;
+}
+// N dongu kosturur, uc olcuyu karsilastirir. `beklenen_hata`: eng_last_error
+// bu dizgiyi icermeli — dogru ASAMADA dustugumuzun kaniti; baska bir sebeple
+// dusen kurulum baska bir yolu olcer. Donus: olcum yapilabildi mi (kurulum
+// basarili olursa yapilamaz; cagiran ne diyecegine karar verir).
+bool kacak_kapisi(const char *senaryo, const char *beklenen_hata, int n) {
+  teng_log_level(1);
+  if (dusen_kurulum("isinma")) return false;
+  if (!std::strstr(teng_last_error(), beklenen_hata)) {
+    std::printf("    [bilgi] %s: kurulum beklenen yerden dusmedi: '%s' (beklenen '*%s*')\n", senaryo, teng_last_error(), beklenen_hata);
+    CHECK(false);
+    return true;
+  }
+  const SurecOlcumu a = surec_olc();
+  for (int i = 0; i < n; i++)
+    if (dusen_kurulum("yeniden deneme")) { CHECK(false); return true; }
+  const SurecOlcumu b = surec_olc();
+  const long long d_rss = (long long)b.rss - (long long)a.rss, d_sanal = (long long)b.sanal - (long long)a.sanal;
+  const int d_thread = (int)b.thread - (int)a.thread;
+  std::printf("    [bilgi] %s, %d dusen kurulum ('%s'): RSS %zu -> %zu KB (%+lld KB), sanal %+lld MB, thread %u -> %u (%+d)\n", senaryo, n,
+              teng_last_error(), a.rss / 1024, b.rss / 1024, d_rss / 1024, d_sanal / (1024 * 1024), a.thread, b.thread, d_thread);
+  CHECK(a.rss > 0 && a.sanal > 0 && a.thread > 0); // olcu aletleri bu platformda calisiyor
+  CHECK(d_thread == 0);                            // worker'lar JOIN edildi
+  CHECK(d_sanal < 64ll * 1024 * 1024);             // tek bir kacak arena bile 512 MB olurdu
+  CHECK(d_rss < 4ll * 1024 * 1024);                // dokunulan arena sayfalari + thread yiginlari geri dondu
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(bridge_failed_init_without_loader_leaves_no_residue) {
+  // Yukleyici kapatilir (TULPAR_ENGINE_NO_VULKAN, vk_api_load'un pozitif
+  // kontrol anahtari): kurulum arena + is sistemi + profiler'dan SONRA,
+  // yukleyicide duser. Her makinede kosar.
+  setenv("TULPAR_ENGINE_NO_VULKAN", "1", 1);
+  const bool olculdu = kacak_kapisi("yukleyici yok", "Vulkan loader yok", 8);
+  unsetenv("TULPAR_ENGINE_NO_VULKAN");
+  if (!olculdu) {
+    std::printf("    [bilgi] TULPAR_ENGINE_NO_VULKAN=1 iken kurulum BASARILI — anahtar calismiyor\n");
+    CHECK(false);
+  }
+}
+
+ENGINE_TEST(bridge_failed_init_without_icd_leaves_no_residue) {
+  // Windows CI'nin gercek yolu: yukleyici VAR, ICD YOK -> vkCreateInstance
+  // VK_ERROR_INCOMPATIBLE_DRIVER. Burada ICD listesi olmayan bir dosyaya
+  // yonlendirilerek uretilir (VK_DRIVER_FILES; eski yukleyiciler icin
+  // VK_ICD_FILENAMES). Yukleyici yoksa olculemez (ATLANDI); yukleyici
+  // dogrudan MoltenVK ise degisken yok sayilir ve kurulum basarili olur — o
+  // da ATLANDI (olculen yol kosmadi). Bu yolda yukleyici dlopen EDILMISTIR:
+  // geri alma onu da kapatmali.
+  {
+    rhi::VkApi api;
+    if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok — 'yukleyici var, ICD yok' yolu olculemez"); return; }
+    rhi::vk_api_unload(api);
+  }
+  char yok[512];
+  std::snprintf(yok, sizeof yok, "%s/tulpar_icd_yok.json", tmp_dir());
+  setenv("VK_DRIVER_FILES", yok, 1);
+  setenv("VK_ICD_FILENAMES", yok, 1);
+  const bool olculdu = kacak_kapisi("yukleyici var, ICD yok", "INCOMPATIBLE_DRIVER", 8);
+  unsetenv("VK_DRIVER_FILES");
+  unsetenv("VK_ICD_FILENAMES");
+  if (!olculdu) skip("ICD gizlenemedi (yukleyici VK_DRIVER_FILES'i yok sayiyor; dogrudan MoltenVK?) — kurulum basarili oldu, yol olculmedi");
 }
 
 // --- Tulpar yerel eklenti bildiriminin ABI kilidi (K303) ----------------------

@@ -17,5 +17,10 @@ void thread_join(Thread &t);
 void thread_yield();
 void thread_sleep_us(uint32_t us);
 uint32_t cpu_count();
+// OLCUM: surecin canli is parcacigi sayisi (cagiran dahil). "Dusen kurulum
+// worker'larini birakti mi" sorusunun aleti (tests/test_bridge.cpp, Tuzaklar
+// 8cq). Linux/Android /proc/self/status "Threads:", macOS task_threads,
+// Windows Toolhelp32 (TH32CS_SNAPTHREAD). Olculemezse 0.
+uint32_t os_thread_count();
 
 } // namespace tulpar::engine::platform

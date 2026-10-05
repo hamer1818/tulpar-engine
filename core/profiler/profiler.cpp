@@ -80,6 +80,16 @@ bool Profiler::init(Arena &arena, const ProfilerConfig &cfg) {
   return true;
 }
 
+void Profiler::shutdown() {
+  if (instance_ == this) instance_ = nullptr;
+  frames_ = nullptr;
+  zones_ = nullptr;
+  arenas_ = nullptr;
+  arena_count_ = 0;
+  frames_total_ = zones_total_ = zones_dropped_ = frame_zone_start_ = 0;
+  in_frame_ = false;
+}
+
 void Profiler::begin_frame() {
   ENGINE_ASSERT(!in_frame_);
   in_frame_ = true;

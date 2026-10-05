@@ -158,7 +158,7 @@ eksikken Windows adımı tanımsız motor sembollerinin **adlarıyla** kırmız�
 CI'ın Windows ayağı **yayınlanmış** `tulpar-windows-x64.zip` + `libtulpar_runtime-windows-x64.a`'yı
 (`SHA256SUMS.txt` ile doğrulanır) bu işin paketiyle koşturur: `tulpar_dogrula.sh --tam --gpusuz-izinli`.
 Runner'da GPU yok — `vulkan-1.dll` var ama ICD yok, kurulum `vkCreateInstance (VK_ERROR_INCOMPATIBLE_DRIVER)`
-ile düşer (yükleyici açılır, arena 512 MB rezerv + 3 iş parçacığı kurulmuş olur; program rc=0 ile çıkar).
+ile düşer (yükleyici açılır, arena 512 MB rezerv + 3 iş parçacığı kurulur; düşen kurulum bunları `init_geri_al` ile geri bırakır — Tuzaklar 8cq; program rc=0 ile çıkar).
 Bu yüzden ölçülen ile atlanan **ayrı sayılır** (ölçüldü 2026-10-02, CI windows-latest, clang 22.1.8,
 TulparLang v3.38.0; adım 44 s):
 
@@ -167,7 +167,7 @@ TulparLang v3.38.0; adım 44 s):
 | derleme + `link.windows` linki + başlatma (9 program: duman, dalga, aksiyon, köprü testi, 5 örnek) | **koştu** (rc=0, kurulum düştü) |
 | pozitif kontroller: eklentisiz import, bozuk sembol (`teng_dt_YOK`), bozuk imza, `link.windows`'tan `engine_core` çıkınca `tulpar::engine::SystemArena::reserve` adıyla link hatası | **koştu** |
 | 4 dil sondası | **koştu** |
-| `engine_gpusuz.test.tpr` (2 test): kurulumsuz `teng_*` — `eng_camera_orbit`'in 6. double'ı (Win64'te **yığında**) geri okunur, i32/str/bool, hata sayacı kontrolü; düşen kurulum: hata metni, `calisiyor()` false, kurulumsuz `kutu(...)` (8 argüman, 5–8 yığında) 0 + HATA sayar, kapanış iki kez güvenli | **koştu**, 2/2; RSS 4696 → 11208 KB |
+| `engine_gpusuz.test.tpr` (3 test): kurulumsuz `teng_*` — `eng_camera_orbit`'in 6. double'ı (Win64'te **yığında**) geri okunur, i32/str/bool, hata sayacı kontrolü; düşen kurulum: hata metni, `calisiyor()` false, kurulumsuz `kutu(...)` (8 argüman, 5–8 yığında) 0 + HATA sayar, kapanış iki kez güvenli; **yeniden deneme**: 8 düşen kurulum RSS büyütmez (Tuzaklar 8cq) | **koştu**, 2/2 (2026-10-02); RSS 4696 → 11208 KB — bu artışın büyük kısmı geri alınmayan yarım kurulumdu (8cq, düzeltildi) |
 | `engine_ilk_oyun` 3 kare, dalga/aksiyon `[kapi]` satırları, `engine_bridge.test.tpr` (27 test), 5 örneğin 60 karesi | **ATLANDI** (9) — kare döngüsü hiç koşmadı |
 
 Özet satırı: `tulpar dogrulama: 19 gecti, 0 dustu, 9 atlandi`. Linux/macOS'ta aynı betik bayraksız koşar:
