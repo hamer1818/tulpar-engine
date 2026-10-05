@@ -455,7 +455,15 @@ struct PsoHookSlot {
   PsoCache *cache = nullptr;
   PFN_vkCreateGraphicsPipelines real = nullptr;
 };
-inline PsoHookSlot g_pso_slots[4];
+// 16: vk_counters'in yuva sayisiyla (rhi/vk_api.cpp kCountSlots) AYNI. Eskiden
+// 4'tu ve tam engine_tests kosumunda en cok 5 es zamanli cihaz olculmustu
+// (RTX 5080, 2026-09-25): besinci cihaza kanca SESSIZCE takilmiyor, PSO
+// sayaci 0 kaliyordu. Windows SwiftShader'da tam kosumda
+// rhi_pso_cache_warms_pipeline_creation "0 grafik boru hatti" dedi, tek
+// basina 17 (CI windows-latest, 2026-10-05). Takilamayan kanca artik
+// SAYILIR (g_pso_unhooked) — kapasite dolunca sessizce kor kalmak yok.
+inline PsoHookSlot g_pso_slots[16];
+inline uint32_t g_pso_unhooked = 0;
 // Yuvasi olmayan bir cihaz icin cagri geldi: ileri gonderilemez (hangi gercek
 // yordamin o cihaza ait oldugu bilinmiyor). Cokmek yerine HATA donulur ve
 // sayilir — sessiz yanlis degil, gorunur basarisizlik.
@@ -487,6 +495,9 @@ inline VKAPI_ATTR VkResult VKAPI_CALL pso_create_graphics_thunk(VkDevice d, VkPi
 
 // Yonlendirilemeyen cagri sayisi (0 olmali; >0 = kanca yuvasi yetmedi).
 inline uint32_t pso_unrouted_calls() { return detail::g_pso_unrouted; }
+// Kancasi takilamayan cihaz sayisi (0 olmali; >0 = g_pso_slots doldu, o
+// cihazlarin PSO onbellegi kullanilmadi ve kurulumlari sayilmadi).
+inline uint32_t pso_unhooked_devices() { return detail::g_pso_unhooked; }
 
 // vk_api_load_device() HER cihaz acilisinda tabloyu bastan doldurur (Tuzaklar
 // 8an), yani kanca da her seferinde yeniden takilmali — ve tablodaki gercek
@@ -497,7 +508,7 @@ inline void pso_install_hook(VkApi &api, VkDevice dev, PsoCache *cache) {
   detail::PsoHookSlot *slot = nullptr;
   for (detail::PsoHookSlot &s : detail::g_pso_slots)
     if (s.dev == dev || s.dev == VK_NULL_HANDLE) { slot = &s; break; }
-  if (!slot) return; // 4'ten fazla es zamanli cihaz: kanca takilmaz, sayac 0 kalir
+  if (!slot) { detail::g_pso_unhooked++; return; } // yuva yok: kanca takilmaz — SAYILIR (pso_unhooked_devices)
   slot->dev = dev;
   slot->cache = cache;
   slot->real = real;

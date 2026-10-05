@@ -1867,6 +1867,7 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
   } else {
     const uint64_t plain_ns = medyan(layers, mat_plain, &run_ok);
     const uint64_t hi_ns = medyan(layers * 4 <= 4096 ? layers * 4 : 4096, mat_tex, &run_ok);
+    if (!run_ok) std::printf("    [bilgi] KONTROL karesi dustu: %d katmanda, offscreen: %s\n", layers * 4 <= 4096 ? layers * 4 : 4096, ores.error);
     CHECK(run_ok);
     if (run_ok) {
       const double a = (double)plain_ns / 1e6, b = (double)tex_ns / 1e6, cc = (double)hi_ns / 1e6;
