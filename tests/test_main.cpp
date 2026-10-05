@@ -175,6 +175,12 @@ int engine_tests_main(int argc, char **argv) {
   }
   const char *only = (argc > 1 && argv[1] && argv[1][0]) ? argv[1] : nullptr;
   // Satir tamponu: CI/dosyaya yonlendirmede asili kalan testin adi GORUNSUN.
+  // Windows'ta (MSVCRT) _IOLBF satir tamponu DEGIL, TAM tampondur: boruya
+  // yazan bir surec sert olunce (0xC0000374 heap bozulmasi "fail-fast",
+  // sinyal isleyicisi kosmaz) son ~4 KB — yani dusen testin adi — kaybolur.
+  // Olculdu CI windows-latest 2026-10-05: tam kosum cikis 127, cikti 0 bayt.
+  // Bu yuzden RUN satiri ayrica ELLE bosaltilir (asagida); bu satir POSIX'te
+  // yine satir tamponudur.
   setvbuf(stdout, nullptr, _IOLBF, 0);
   int passed = 0, failed = 0, ran = 0;
   for (int i = 0; i < Registry::count; i++) {
@@ -184,6 +190,7 @@ int engine_tests_main(int argc, char **argv) {
     Registry::failures = 0;
     g_running_test = c.name;
     std::printf("  RUN  %s\n", c.name);
+    std::fflush(stdout); // Windows: _IOLBF tam tampon (yukari) — dusen testin adi kaybolmasin
     c.fn();
     if (Registry::failures == 0) {
       std::printf("  PASS %s\n", c.name);
