@@ -1016,6 +1016,22 @@ jobs:
       # KURULU oldugu icin asagidaki "Vulkan / katman atlamasi = KIRMIZI"
       # kurali burada da gecerli; o kuralin bos bir grep olmadigi burada
       # gosterilir (ayni ifadeler).
+      - name: GECICI bellek sondasi (lavapipe, motorsuz)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set +e
+          python3 tools/vk_bellek_sonda.py; echo "duz rc=$?"
+          python3 tools/vk_bellek_sonda.py --tampon; echo "tampon rc=$?"
+          py="$(cygpath -w "$(command -v python3)")"; echo "python: $py"
+          ifeo="HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\$(basename "$py")"
+          MSYS2_ARG_CONV_EXCL='*' reg add "$ifeo" /v GlobalFlag /t REG_DWORD /d 0x02000000 /f
+          MSYS2_ARG_CONV_EXCL='*' reg add "$ifeo" /v PageHeapFlags /t REG_DWORD /d 0x3 /f
+          python3 tools/vk_bellek_sonda.py --tampon; echo "pageheap tampon rc=$?"
+          cdb="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+          MSYS2_ARG_CONV_EXCL='*' "$cdb" -o -c "g; kn 25; q" "$py" "$(cygpath -w "$PWD/tools/vk_bellek_sonda.py")" --tampon 2>&1 | tr -d '\r' | grep -E 'VERIFIER|corrupt|vulkan_lvp|msvcrt|tamam|BITTI|^ *[0-9a-f]{2} ' | head -40
+          MSYS2_ARG_CONV_EXCL='*' reg delete "$ifeo" /f
+          exit 0
+
       - name: Atlama mekanizmasinin pozitif kontrolu
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
