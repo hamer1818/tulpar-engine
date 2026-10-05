@@ -152,7 +152,31 @@ Ayrıntı: [FAZ3.md](FAZ3.md) "Faz 6 kalanı + Faz 8 fizibilitesi", tuzaklar 8aq
    **üç fiziksel cihaz** (kullanıcı kararı: şimdilik pas), macOS CI çökmesi (yerelden ulaşılamıyor).
 6. Her iki denetim de `build.sh suites` içinde koşuyor ve kırmızıysa suite düşüyor (`build.sh:276` dist arşiv, `build.sh:292` paket boyutu/SPIR-V/açılış).
 
-## 7. Çalışma kuralları (kullanıcı)
+## 6.2 CI, sürüm ve ölçüm platformları (2026-10-05 güncel)
+
+Bu belgenin geri kalanı 2026-09-15 anlık görüntüsüdür; bu bölüm bugünkü hâli söyler.
+
+| platform | sürücü | `engine_tests` | Tulpar köprüsü (`tulpar_dogrula.sh --tam`) | paket koşusu |
+|---|---|---|---|---|
+| Linux x86_64 (CI + sürüm) | lavapipe (mesa) | tam; Vulkan/katman atlaması KIRMIZI | CI: tam (dalga 2400 / aksiyon 3200 kare taban çizgileri dahil); sürüm işinde koşmuyor | zorunlu, 60 kare |
+| macOS arm64 (CI + sürüm) | MoltenVK | tam; AArch64 fiber assembly'si yalnız burada | CI: tam; sürüm işinde koşmuyor | zorunlu, 60 kare |
+| Windows x86_64 (CI + sürüm) | **SwiftShader** (Chrome'un ICD'si, kayıt defterinden; 2026-10-05'ten beri) | tam; Vulkan/katman atlaması KIRMIZI (sürüm provası 2026-10-05: 615/615, 9 atlandı — hiçbiri Vulkan/katman gerekçeli değil, 159 s) | CI + sürüm, `--uzun-atla`: 2 uzun taban çizgisi görünür ATLANDI, kalanı koşar (18 geçti) | zorunlu, 60 kare, hata 0 |
+| RTX 5080 / Linux (yerel) | NVIDIA | tam (616/616, 0 atlandı) | tam (23 geçti) | — |
+
+- Windows'ta GPU kapıları **artık atlanmıyor** (2026-10-05'e kadar ICD yoktu ve hepsi atlanıyordu).
+  MSYS2 mesa lavapipe denendi, **elendi** (bellek bırakırken yığını bozuyor, Tuzaklar 8cr).
+- `release.yml`'in Windows işi `ci.yml` ile aynı betikleri koşar (`tools/windows_vulkan_icd.sh`,
+  `tools/windows_kapilar.sh`; #86); ICD kurulamazsa adım KIRMIZI (negatif provası: run 37314080867).
+- Aynı süreçte motoru kapatıp yeniden açmak destekleniyor (Tuzaklar 8ct, #87): kapanış her şeyi
+  bırakır ve köprü durumunu sıfırlar. Editörün F5'i bu yolu kullanmaz (oyun ayrı süreç).
+- Köprü: `SPEC` **211** fonksiyon (2026-10-05).
+- Açık: üç fiziksel cihaz (kullanıcı kararı: pas), Android'de süreç canlıyken etkinliğin yeniden
+  yaratılması (8ct yolu) cihazda **ölçülmedi**.
+
+## 7. Çalışma kuralları (kullanıcı) — 2026-09-15 anlık görüntüsü
+> Bugün geçerli değil: CI var (üç platform, dal koruması zorunlu), PR'lar auto-merge ile birleşir,
+> her `main` birleşmesi sürüm çıkarır (CLAUDE.md "CI ve sürüm"). Aşağıdaki metin tarihsel.
+
 CI yok, push yok ("gönder" denene kadar); doğrulama yerel + telefon (+ emülatör yalnız işlevsel);
 pencereyi ben açmam, ekran görüntüsü `adb screencap`; sayı yoksa iddia yok, her kapının kontrolü var.
 PR #321 main'e birleşti (2026-09-14, squash; CI Linux + macOS yeşil). Yeni dal: `engine/faz3-sahne`

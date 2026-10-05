@@ -1783,7 +1783,10 @@ Vulkan 1.3). `tools/windows_vulkan_icd.sh kur` bellek sondasını **her koşumda
 seçilen sürücü bu sınıfı taşıyorsa CI orada, nedeniyle kırmızı olur. Hatanın mesa'da olduğu
 **ölçüldü, iddia edilmedi**: kaynak bu ortamdan okunamadı (freedesktop GitLab erişilemedi);
 ölçülen, çökmenin sürücünün `free`'sinde ve motorsuz kalıpta olduğu. Upstream bildirimi dış depo
-işidir.
+işidir. Sürüm işi (`release.yml` Windows) aynı gün aynı betiklerle tam kipe geçti (#86):
+pozitif kontroller, test kapısı ve Tulpar köprüsü `tools/windows_kapilar.sh`'te tek yerde, iki iş
+akışı onu çağırır. ICD bulunamazsa adım kırmızı — ölçüldü: arama yolu bozuk geçici dalda
+`workflow_dispatch` provası ICD adımında düştü, sonraki adımlar koşmadı (run 37314080867).
 
 Yan bulgu, aynı yoldan: Windows loader'ı **yönetici** süreçte `VK_DRIVER_FILES` /
 `VK_ICD_FILENAMES` / `VK_ADD_LAYER_PATH` / `VK_LAYER_PATH`'i yok sayar (`VK_LOADER_DEBUG`: arama
