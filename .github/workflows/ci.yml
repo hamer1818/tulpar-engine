@@ -944,6 +944,56 @@ jobs:
             mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-mesa
+            mingw-w64-x86_64-vulkan-validation-layers
+            mingw-w64-x86_64-vulkan-tools
+
+      # YAZILIM VULKAN ICD'si (lavapipe) — Windows'ta da (2026-10-05).
+      # Runner'da vulkan-1.dll (System32) var ama ICD yok: vkCreateInstance
+      # VK_ERROR_INCOMPATIBLE_DRIVER ve bu yuzden butun GPU kapilari, Tulpar
+      # oyunlarinin kare dongusu, [kapi] satirlari Windows'ta HIC olculmuyordu.
+      # MSYS2'nin mesa paketi lavapipe'i tasiyor (bin/vulkan_lvp.dll +
+      # share/vulkan/icd.d/lvp_icd.x86_64.json); ama manifest loader'in
+      # Windows'ta aradigi yerde (kayit defteri) DEGIL. Loader'a dogrudan
+      # gosteriyoruz: VK_DRIVER_FILES (yeni loader), VK_ICD_FILENAMES (eski
+      # loader). Dogrulama katmani ayni sekilde: VK_ADD_LAYER_PATH (manifest
+      # /mingw64/bin'de). Yollar WINDOWS bicimi (cygpath -w): loader MSYS2
+      # yolunu tanimaz. GITHUB_ENV ile sonraki BUTUN adimlara gecer.
+      - name: Yazilim Vulkan ICD'si (lavapipe) + dogrulama katmani gercekten var mi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -uo pipefail
+          icd=/mingw64/share/vulkan/icd.d/lvp_icd.x86_64.json
+          if [ ! -f "$icd" ] || [ ! -f /mingw64/bin/vulkan_lvp.dll ]; then
+            echo "::error::mingw-w64-x86_64-mesa lavapipe'i tasimiyor (beklenen $icd + bin/vulkan_lvp.dll)."
+            pacman -Ql mingw-w64-x86_64-mesa | grep -iE 'vulkan|icd' || true
+            exit 1
+          fi
+          tr -d '\r' <"$icd"
+          {
+            echo "VK_DRIVER_FILES=$(cygpath -w "$icd")"
+            echo "VK_ICD_FILENAMES=$(cygpath -w "$icd")"
+            echo "VK_ADD_LAYER_PATH=$(cygpath -w /mingw64/bin)"
+          } >> "$GITHUB_ENV"
+          export VK_DRIVER_FILES="$(cygpath -w "$icd")" VK_ICD_FILENAMES="$(cygpath -w "$icd")" VK_ADD_LAYER_PATH="$(cygpath -w /mingw64/bin)"
+          vulkaninfo --summary 2>&1 | tr -d '\r' | tee vulkaninfo.log
+          # Linux isindeki adimla ayni iki ayri teshis.
+          if ! grep -q 'Instance Layers' vulkaninfo.log; then
+            echo "::error::vulkaninfo katman listesini HIC basamadi — loader lavapipe ile instance kuramiyor."
+            VK_LOADER_DEBUG=error,warn,driver vulkaninfo --summary 2>&1 | tr -d '\r' | tail -40 || true
+            exit 1
+          fi
+          if ! grep -qi 'llvmpipe' vulkaninfo.log; then
+            echo "::error::loader instance kurdu ama llvmpipe cihazi listelenmedi — ICD yuklenmedi."
+            VK_LOADER_DEBUG=error,warn,driver vulkaninfo --summary 2>&1 | tr -d '\r' | tail -40 || true
+            exit 1
+          fi
+          if ! grep -q 'VK_LAYER_KHRONOS_validation' vulkaninfo.log; then
+            echo "::error::VK_LAYER_KHRONOS_validation loader'in katman listesinde YOK (VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH)."
+            ls -la /mingw64/bin/VkLayer_khronos_validation.* 2>&1 || true
+            exit 1
+          fi
+          grep -iE 'deviceName|driverName|driverInfo|VK_LAYER_KHRONOS_validation' vulkaninfo.log
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -996,15 +1046,51 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Windows runner'inda yazilim Vulkan ICD'si yok; RHI kapilari burada
-      # ATLANDI olacak ve bu BEKLENEN durum. Ama gorunmez kalmasin: sebepler
-      # is ozetine yazilir. Gercek Vulkan kapisi Linux isinde.
+      # Linux isindeki iki pozitif kontrolun Windows ayagi: lavapipe artik
+      # KURULU oldugu icin asagidaki "Vulkan / katman atlamasi = KIRMIZI"
+      # kurali burada da gecerli; o kuralin bos bir grep olmadigi burada
+      # gosterilir (ayni ifadeler).
+      - name: Atlama mekanizmasinin pozitif kontrolu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -uo pipefail
+          TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests.exe rhi_ 2>&1 | tr -d '\r' > kontrol.log || true
+          n=$(grep -E 'ATLANDI:.*Vulkan' kontrol.log | grep -cv 'tukendi')
+          if [ "$n" -eq 0 ]; then
+            echo "::error::Pozitif kontrol basarisiz: TULPAR_ENGINE_NO_VULKAN=1 ile bile Vulkan atlama satiri basilmadi."
+            tail -40 kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
+
+      - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -uo pipefail
+          bos="$(cygpath -w "$(cygpath -u "$RUNNER_TEMP")/bos_katman_dizini")"
+          mkdir -p "$(cygpath -u "$bos")"
+          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests.exe mali_best_practices 2>&1 | tr -d '\r' > katman_kontrol.log || true
+          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests.exe validation_layer 2>&1 | tr -d '\r' >> katman_kontrol.log || true
+          n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
+          if [ "$n" -lt 5 ]; then
+            echo "::error::Pozitif kontrol basarisiz: katman GIZLIYKEN beklenen 5 atlama satirindan yalnizca $n basildi."
+            tail -60 katman_kontrol.log
+            exit 1
+          fi
+          echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
+
+      # Lavapipe (MSYS2 mesa) KURULU: GPU kapilari Windows'ta da KOSAR
+      # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
+      # isiyle ayni kural: "Vulkan ... yok" ya da "VK_LAYER_KHRONOS_validation
+      # yok" gerekceli tek bir atlama isi KIRMIZI yapar. Sure is ozetine yazilir.
       - name: Testler + kapi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
-          ./yapi/engine_tests.exe 2>&1 | tee sonuc.log
+          t0=$SECONDS
+          ./yapi/engine_tests.exe 2>&1 | tr -d '\r' | tee sonuc.log
           kod=${PIPESTATUS[0]}
+          sure=$((SECONDS - t0))
 
           ozet="$(grep -E '^engine tests: [0-9]+ passed' sonuc.log | tail -1 || true)"
           if [ -z "$ozet" ]; then
@@ -1020,11 +1106,9 @@ jobs:
           kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
 
           {
-            echo "### Windows (MSYS2 MINGW64)"
+            echo "### Windows (MSYS2 MINGW64, lavapipe)"
             echo ""
-            echo "\`$ozet\`"
-            echo ""
-            echo "Vulkan ICD'si yok: GPU kapilari burada atlanir, olculdukleri yer Linux isi."
+            echo "\`$ozet\` — ${sure} s"
             echo ""
             if [ "$atlanan" -gt 0 ]; then
               echo "<details><summary>Atlanan $atlanan kapi</summary>"
@@ -1050,6 +1134,20 @@ jobs:
             exit 1
           fi
 
+          vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
+          if [ -n "$vulkan_atlama" ]; then
+            echo "$vulkan_atlama"
+            echo "::error::Lavapipe kurulu oldugu halde Vulkan kapilari atlandi — ICD gelmemis (VK_DRIVER_FILES=$VK_DRIVER_FILES)."
+            exit 1
+          fi
+          katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
+          if [ -n "$katman_atlama" ]; then
+            echo "$katman_atlama"
+            echo "::error::Dogrulama katmani kurulu ve vulkaninfo listeliyor oldugu halde katman kapilari atlandi."
+            exit 1
+          fi
+          echo "engine_tests (Windows, lavapipe): ${sure} s"
+
           exit "$kod"
 
       # TULPAR KOPRUSU — WINDOWS (link.windows, 2026-10-02). Linux isindeki
@@ -1058,17 +1156,15 @@ jobs:
       # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
       # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
-      # GPU YOK: runner'da vulkan-1.dll var ama ICD yok, vkCreateInstance
-      # VK_ERROR_INCOMPATIBLE_DRIVER (engine_tests'in atlama sebebi). Bu
-      # yuzden --gpusuz-izinli: GERCEKTEN olculen derleme + link.windows +
-      # pozitif kontroller (eklentisiz import, bozuk sembol, bozuk imza,
-      # link.windows'tan engine_core cikinca ADIYLA link hatasi) + 4 dil
-      # sondasi + GPU'suz kopru suite'i (kurulumsuz teng_* cagrilari, Win64'te
-      # yigindan gecen double'lar, dusen kurulumun sozlesmesi) + 9 programin
-      # kurulumun dustugu yere kadar kosmasi. Kapi satirlari, kopru testi ve
-      # oyunlarin kare dongusu ATLANDI sayilir ve is ozetine yazilir —
-      # "gecti" gosterilmez. Betigin son satiri ozet; sayilar ozete gider.
-      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, GPU'suz)
+      # LAVAPIPE (2026-10-05): yukaridaki adim VK_DRIVER_FILES'i GITHUB_ENV'e
+      # yazdi, motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
+      # ile ayni bayraksiz kosum — duman, pozitif kontroller, dil sondalari,
+      # GPU'suz kopru suite'i, engine_dalga / engine_aksiyon [kapi] satirlari
+      # Linux'takiyle BAYT BAYT ayni olmak zorunda, engine_bridge.test.tpr,
+      # 6 ornek 60 kare. Kurulum duserse adim KIRMIZI (atlama yok).
+      # (Oncesi: ICD yoktu, kare dongusu 9 kapida ATLANDI —
+      # `19 gecti, 0 dustu, 9 atlandi`.)
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, lavapipe)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
@@ -1076,7 +1172,7 @@ jobs:
           bash tools/tulpar_indir.sh "$d" || exit 1
           clang++ --version | head -1
 
-          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam --gpusuz-izinli 2>&1 | tee tulpar.log
+          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam 2>&1 | tee tulpar.log
           kod=${PIPESTATUS[0]}
           ozet="$(grep -E '^tulpar dogrulama: ' tulpar.log | tail -1 || true)"
           {
@@ -1084,10 +1180,8 @@ jobs:
             echo ""
             echo "\`${ozet:-ozet satiri YOK}\`"
             echo ""
-            echo "GPU yok: atlananlar olculMEDI (derlendi + linklendi + kurulumun dustugu yere kadar kostu)."
-            echo ""
             echo '```'
-            grep -E 'ATLANDI:|kurulum dustu|\[bilgi\]|link adiyla|HATA Vulkan' tulpar.log || true
+            grep -E 'ATLANDI:|kurulum dustu|\[bilgi\]|\[kapi\]|link adiyla|HATA Vulkan|GPU:' tulpar.log || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$ozet" ]; then
