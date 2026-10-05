@@ -1114,6 +1114,23 @@ jobs:
             for off in $(grep -oE 'image[0-9a-f_]+\+0x[0-9a-f]+' cdb_k.log | sed 's/.*+0x//' | head -30); do
               printf '%s  ' "$off"; addr2line -f -C -e yapi/engine_tests.exe "$(printf '0x%x' $((0x$base + 0x$off - 1)))" | head -1
             done
+            nm -n -C yapi/engine_tests.exe > nm.txt; echo "nm sembol: $(wc -l < nm.txt)"
+            grep -oE 'image[0-9a-f_]+\+0x[0-9a-f]+' cdb_k.log | sed 's/.*+0x//' | head -30 > offs.txt
+            python3 -c "
+          import bisect
+          base=0x140000000
+          syms=[]
+          for l in open('nm.txt', errors='replace'):
+              p=l.split(' ',2)
+              if len(p)==3 and p[1] in 'tTwW':
+                  try: syms.append((int(p[0],16), p[2].strip()))
+                  except ValueError: pass
+          syms.sort(); adr=[a for a,_ in syms]
+          for o in open('offs.txt'):
+              v=base+int(o,16)
+              i=bisect.bisect_right(adr,v)-1
+              print(o.strip(), syms[i][1] if i>=0 else '?', '+0x%x'%(v-syms[i][0]) if i>=0 else '')
+          "
           fi
           MSYS2_ARG_CONV_EXCL='*' reg delete "$ifeo" /f
           exit 0
