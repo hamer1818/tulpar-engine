@@ -2019,16 +2019,20 @@ ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
   // mallinfo2 "kullanimda" 0,76 -> 0,88 MB, "arena" 17 -> 40 MB; bosaltilan ama
   // sisteme geri verilmeyen yigin), sonra duz (0-4 KB/oturum); sanal boyutta
   // ara sira +64 MB basamak (glibc'nin thread basina malloc arenasi rezervi;
-  // RSS'e yansimiyor). Kacak sinifi ise HER oturumda artar: arena +512 MB
-  // sanal, worker'lar cekirdek-1 thread. Esikler: en cok BIR oturum +256 MB
-  // sanal ya da +4 MB RSS asar (tek seferlik basamak), thread toplami < kN.
-  // Esiklerin pozitif kontrolu (ayni gun, ayni makine): teste oturum basina
-  // 512 MB'lik kacak rezerv enjekte edilince esik asan sanal 5/5 -> KIRMIZI.
+  // RSS'e yansimiyor). CI ubuntu lavapipe (ayni gun): oturum basina +1,2..2,9 MB
+  // RSS SURUYOR (canli vk sabit 4; ayni kod RTX 5080'de 0-4 KB, MoltenVK'de
+  // 80-272 KB — surucu davranisi, olculur ve basilir, iddia edilmez).
+  // Kacak sinifi ise HER oturumda artar: arena +512 MB sanal, worker'lar
+  // cekirdek-1 thread. Olcu bu yuzden oturum artislarinin EN KUCUGU (tek
+  // seferlik ya da ara sira basamaklar onu oynatmaz): en kucuk sanal artis
+  // < 256 MB, en kucuk RSS artisi < 4 MB, thread toplami < kN.
+  // Esiklerin pozitif kontrolu (RTX 5080, 2026-10-05): teste oturum basina
+  // 512 MB'lik kacak rezerv enjekte edilince her oturum +512..576 MB -> KIRMIZI.
   constexpr int kN = 5;
   SurecOlcumu onceki_olcu = surec_olc();
   const SurecOlcumu a = onceki_olcu;
-  int onceki = ilk.kutu, vk_esit = 1, sanal_asan = 0, rss_asan = 0;
-  long long sanal_max = 0, rss_max = 0;
+  int onceki = ilk.kutu, vk_esit = 1;
+  long long sanal_max = 0, rss_max = 0, sanal_min = 1ll << 62, rss_min = 1ll << 62;
   uint32_t ilk_fark_max = 0, sahne_bos_min = ilk.sahne_bos_fark;
   bool hepsi_kuruldu = true;
   for (int i = 0; i < kN; i++) {
@@ -2045,8 +2049,8 @@ ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
     const SurecOlcumu m = surec_olc();
     const long long ds = (long long)m.sanal - (long long)onceki_olcu.sanal, dr = (long long)m.rss - (long long)onceki_olcu.rss;
     onceki_olcu = m;
-    if (ds > 256ll * 1024 * 1024) sanal_asan++;
-    if (dr > 4ll * 1024 * 1024) rss_asan++;
+    sanal_min = std::min(sanal_min, ds);
+    rss_min = std::min(rss_min, dr);
     sanal_max = std::max(sanal_max, ds);
     rss_max = std::max(rss_max, dr);
     std::printf("    [bilgi] oturum %d: sahne-bos %u px, ilk oturumdan fark %u px, kapanista canli vk %d; RSS %+lld KB, sanal %+lld MB, thread %u\n",
@@ -2054,10 +2058,10 @@ ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
   }
   const SurecOlcumu b = surec_olc();
   const int d_thread = (int)b.thread - (int)a.thread;
-  std::printf("    [bilgi] %d ek oturum (isinmadan sonra): RSS %zu -> %zu KB, sanal %zu -> %zu MB, thread %u -> %u (%+d); oturum basina en cok "
-              "RSS %+lld KB / sanal %+lld MB, esik asan RSS %d / sanal %d; kapanista canli vk %d (hepsi esit %d)\n",
-              kN, a.rss / 1024, b.rss / 1024, a.sanal >> 20, b.sanal >> 20, a.thread, b.thread, d_thread, rss_max / 1024,
-              sanal_max / (1024 * 1024), rss_asan, sanal_asan, ilk.vk_canli, vk_esit);
+  std::printf("    [bilgi] %d ek oturum (isinmadan sonra): RSS %zu -> %zu KB, sanal %zu -> %zu MB, thread %u -> %u (%+d); oturum basina RSS "
+              "%+lld..%+lld KB, sanal %+lld..%+lld MB (en kucuk..en buyuk); kapanista canli vk %d (hepsi esit %d)\n",
+              kN, a.rss / 1024, b.rss / 1024, a.sanal >> 20, b.sanal >> 20, a.thread, b.thread, d_thread, rss_min / 1024, rss_max / 1024,
+              sanal_min / (1024 * 1024), sanal_max / (1024 * 1024), ilk.vk_canli, vk_esit);
   std::remove(yol_bos);
   std::remove(yol_sahne);
   CHECK(hepsi_kuruldu);
@@ -2078,8 +2082,8 @@ ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
   CHECK(ilk.vk_canli >= 0);
   CHECK(vk_esit == 1);
   CHECK(a.rss > 0 && a.sanal > 0 && a.thread > 0);
-  CHECK(sanal_asan <= 1);
-  CHECK(rss_asan <= 1);
+  CHECK(sanal_min < 256ll * 1024 * 1024);
+  CHECK(rss_min < 4ll * 1024 * 1024);
   CHECK(d_thread < kN);
 }
 

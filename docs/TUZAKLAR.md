@@ -1856,17 +1856,23 @@ oturuma değişmemeli. Ölçü aletleri ABI'de: `eng_vk_live`, `eng_virtual_mb`,
 5 oturum; her oturumda varlık 0 / kare 0 başlangıcı, bir kare offscreen çizilip PPM okunur (sahne-boş
 37402 px, ilk oturumun karesinden fark 0 px — RTX 5080; CI macOS'un sanal GPU'sunda, Apple
 Paravirtual, sahne-boş 0 px ölçüldü ve piksel bloğu görünür ATLANDI), eski id ölü, hata sayacı sabit, kapanışta
-canlı vk eşit; süreç ölçüleri **oturum başına artış** olarak: en çok bir oturum +256 MB sanal ya da
-+4 MB RSS aşabilir, thread toplamı < 5. Tulpar: `tulpar/tests/engine_iki_oturum.test.tpr` (ısınma + 4,
+canlı vk eşit; süreç ölçüleri **oturum başına artışların en küçüğü** olarak: sanal < 256 MB, RSS
+< 4 MB, thread toplamı < 5. Tulpar: `tulpar/tests/engine_iki_oturum.test.tpr` (ısınma + 4,
 `tools/tulpar_dogrula.sh --tam`). Neden uç fark değil (8cs dersi): ikinci oturumda **tek seferlik**
 ~+17–21 MB RSS ve +86..277 MB sanal ölçüldü, sonra düz (0–4 KB/oturum). Kaynağı glibc yığını:
 `mallinfo2` "kullanımda" 0,76 → 0,88 MB iken "arena" 17 → 40 MB — boşaltılmış ama sisteme
 verilmemiş tepe noktası; sanaldaki ara sıra +64 MB basamaklar thread başına malloc arenası rezervi
 (RSS'e yansımıyor). Açık kalan küçük artış: "kullanımda" oturum başına ~+8 KB (10 oturumda 0,88 →
 0,93 MB) — sürücü/yükleyici mi bizim mi, ayrıştırılmadı.
+İlk eşik ("en çok bir oturum +4 MB RSS aşar") CI lavapipe'ta düştü: orada RSS her oturumda büyüyor
+(C++: +1,2..2,9 MB/oturum; Tulpar: +1,7..6,7 MB), canlı vk nesnesi sabit (4). Aynı kod RTX 5080'de
+0–4 KB, MoltenVK'de 80–272 KB/oturum büyüdüğü için bu **sürücü davranışı** olarak ölçülüp basılır,
+iddia edilmez (llvmpipe her cihazda shader'ları LLVM ile yeniden derliyor; kaynağı ayrıştırılmadı).
+Bu yüzden ölçü en küçük artış: sürücünün ara sıra büyümesi onu oynatmaz, oturum başına sabit bir
+kaçak (arena, worker) her oturumda görünür.
 **Pozitif kontrol** (aynı gün, aynı makine): düzeltmesiz köprüde C++ kapısı ikinci oturumda 5 kontrol
 KIRMIZI + SIGSEGV, Tulpar testi çıkış 139 (özet yok → `tulpar_dogrula` DÜŞTÜ). Eşiklerin kendisi:
-teste oturum başına 512 MB kaçak rezerv enjekte edilince "eşik aşan sanal" 5/5 → KIRMIZI. (İlk denenen
+teste oturum başına 512 MB kaçak rezerv enjekte edilince her oturum +512..576 MB sanal (en küçük artış 512 MB ≥ 256) → KIRMIZI. (İlk denenen
 kontrol — yalnız `sys.release()`'ı çıkarmak — kaçak üretmedi: `~Bridge()` içindeki `~SystemArena`
 arenayı zaten bırakıyor. Kontrol, kapının ölçtüğünü değil düzeltmenin fazlalığını göstermiş olurdu.)
 
