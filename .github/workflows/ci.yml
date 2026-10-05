@@ -1093,17 +1093,17 @@ jobs:
       # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
       # isiyle ayni kural: "Vulkan ... yok" ya da "VK_LAYER_KHRONOS_validation
       # yok" gerekceli tek bir atlama isi KIRMIZI yapar. Sure is ozetine yazilir.
-      - name: GECICI teshis (lavapipe ile ilk Vulkan testi)
+      - name: GECICI teshis (lavapipe, tam kosum)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set +e
-          ./yapi/engine_tests.exe rhi_loader_and_device_caps > teshis.log 2>&1; echo "rc=$?"
-          tr -d '\r' < teshis.log | tail -40
-          VK_LOADER_DEBUG=error,warn,driver ./yapi/engine_tests.exe rhi_loader_and_device_caps > teshis2.log 2>&1; echo "rc2=$?"
-          tr -d '\r' < teshis2.log | tail -40
-          ldd /mingw64/bin/vulkan_lvp.dll | grep -vi windows | head -30
-          (cd /mingw64/bin && "$GITHUB_WORKSPACE/yapi/engine_tests.exe" rhi_loader_and_device_caps > "$GITHUB_WORKSPACE/teshis3.log" 2>&1; echo "rc3 (cwd mingw64/bin)=$?")
-          tr -d '\r' < teshis3.log | tail -20
+          ./yapi/engine_tests.exe > tam.log 2>&1; echo "tam rc=$?"
+          tr -d '\r' < tam.log | tail -25
+          for f in process_ crash_ alloc_gate fiber_ jobs_ profiler_ faz0_ build_info sha256_; do
+            ./yapi/engine_tests.exe "$f" > f.log 2>&1; echo "filtre $f rc=$? $(tr -d '\r' < f.log | grep '^engine tests:')"
+          done
+          cmd //c "yapi\\engine_tests.exe > tam2.log 2>&1 & echo ERRORLEVEL=%ERRORLEVEL%"
+          tr -d '\r' < tam2.log | tail -8
           exit 0
 
       # `set +e`: msys2 kabugu `bash -e` ile kosar; engine_tests sifirdan
