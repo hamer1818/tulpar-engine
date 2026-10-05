@@ -66,8 +66,10 @@ onu `<editör dizini>/tulpar-ext`'te arar. Ne konacağı bildirimden türetilir 
 paketlenmiş eklentiyle `engine_ilk_oyun`'u depo dışındaki geçici bir dizinde penceresiz 60 kare
 koşturur ve HUD fontunun **paketten** yüklendiğini ölçer (Tuzaklar 8cp); bir arşivi silinmiş
 kopyayla aynı oyunun link hatasında arşivi adıyla düşmesi pozitif kontroldür. CI'da **ve sürümde**
-(`ci.yml` + `release.yml`, Linux, macOS) `TULPAR_PAKET_KOSU=zorunlu`: `tulpar` yoksa atlamaz,
-kırmızı olur. Windows'ta (ICD yok) `TULPAR_PAKET_KOSU=gpusuz`: `tulpar` yine zorunlu; oyun motoru
+(`ci.yml` + `release.yml`, **üç platform**) `TULPAR_PAKET_KOSU=zorunlu`: `tulpar` yoksa atlamaz,
+kırmızı olur. Windows'ta da (2026-10-05; CI #82, sürüm #86) SwiftShader ICD'si kurulu: paketten
+60 kare, hata 0, font paketten — Linux/macOS ile aynı kurallar. `TULPAR_PAKET_KOSU=gpusuz` kipi
+ICD'siz makineler için duruyor (CI'da artık kullanılmıyor): `tulpar` yine zorunlu; oyun motoru
 kuramazsa ölçülen paketten derleme + link + başlatma ve paketten GPU'suz köprü suite'idir
 (`engine_gpusuz.test.tpr`), kare döngüsü ile paket fontu `ATLANDI` basılır; motor kurulursa tam
 kurallar geçerli. Yayınlanmış `tulpar` her iki iş akışında `tools/tulpar_indir.sh` ile iner
@@ -188,7 +190,8 @@ lavapipe denendi ve elendi (bellek bırakırken yığını bozuyor, Tuzaklar 8cr
 `tulpar dogrulama: 19 gecti, 0 dustu, 9 atlandi`, kare döngüsü hiç koşmuyordu. GPU'suz suite GPU'lu
 makinede `TULPAR_ENGINE_NO_VULKAN=1` ile koşar ve kurulum başarılı olursa kırmızıdır (pozitif
 kontrol: o değişken olmadan yerelde RTX 5080'de `Fail: 1`). ICD'siz makineler için `--gpusuz-izinli`
-bayrağı ve paket kapısının `gpusuz` kipi (bugün `release.yml`'in Windows işi) duruyor.
+bayrağı ve paket kapısının `gpusuz` kipi duruyor; CI'da ikisi de artık kullanılmıyor (`release.yml`'in
+Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar.sh` betiğiyle tam kipte).
 
 ## 3. Sözleşme
 
