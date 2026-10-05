@@ -65,8 +65,15 @@ onu `<editör dizini>/tulpar-ext`'te arar. Ne konacağı bildirimden türetilir 
 `link.<platform>.libs`; `android/` masaüstü paketine girmez). Paket kapısı, `tulpar` bulunduğunda,
 paketlenmiş eklentiyle `engine_ilk_oyun`'u depo dışındaki geçici bir dizinde penceresiz 60 kare
 koşturur ve HUD fontunun **paketten** yüklendiğini ölçer (Tuzaklar 8cp); bir arşivi silinmiş
-kopyayla aynı oyunun link hatasında arşivi adıyla düşmesi pozitif kontroldür. CI'da (Linux, macOS)
-`TULPAR_PAKET_KOSU=zorunlu`: `tulpar` yoksa atlamaz, kırmızı olur.
+kopyayla aynı oyunun link hatasında arşivi adıyla düşmesi pozitif kontroldür. CI'da **ve sürümde**
+(`ci.yml` + `release.yml`, Linux, macOS) `TULPAR_PAKET_KOSU=zorunlu`: `tulpar` yoksa atlamaz,
+kırmızı olur. Windows'ta (ICD yok) `TULPAR_PAKET_KOSU=gpusuz`: `tulpar` yine zorunlu; oyun motoru
+kuramazsa ölçülen paketten derleme + link + başlatma ve paketten GPU'suz köprü suite'idir
+(`engine_gpusuz.test.tpr`), kare döngüsü ile paket fontu `ATLANDI` basılır; motor kurulursa tam
+kurallar geçerli. Yayınlanmış `tulpar` her iki iş akışında `tools/tulpar_indir.sh` ile iner
+(`SHA256SUMS.txt` doğrulaması + denetimin kendi pozitif kontrolü: tek baytı bozulmuş kopya reddedilmeli).
+Bu adım gelene kadar (2026-10-05) `release.yml`'de `tulpar` yoktu ve koşu kapısı her sürümde
+`ATLANDI` kalıyordu.
 
 ```json
 {"tulpar_ext": 1, "name": "engine", "modules": {"engine": "engine.tpr"},

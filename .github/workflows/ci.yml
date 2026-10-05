@@ -412,14 +412,11 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
-          d="$RUNNER_TEMP/tulpar"
-          mkdir -p "$d"
-          url=https://github.com/hamer1818/TulparLang/releases/latest/download
-          curl -fsSL --retry 3 -o "$d/tulpar" "$url/tulpar-linux-x64"
-          curl -fsSL --retry 3 -o "$d/libtulpar_runtime.a" "$url/libtulpar_runtime-linux-x64.a"
-          chmod +x "$d/tulpar"
-          "$d/tulpar" --version
-          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar" --tam
+          # Indirme + SHA256SUMS dogrulamasi (+ ozet denetiminin pozitif
+          # kontrolu) tek yerde: tools/tulpar_indir.sh — release.yml de onu
+          # kosar. (Oncesi: bu ayak ozeti HIC dogrulamiyordu.)
+          bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
+          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --tam
 
       # TULPAR + TULPAR_PAKET_KOSU=zorunlu: paket kapisi tulpar-ext/'i
       # PAKETLENMIS dizinden bir ornek oyunla kosturur (tools/package.sh
@@ -839,20 +836,9 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
-          d="$RUNNER_TEMP/tulpar"
-          mkdir -p "$d"
-          url=https://github.com/hamer1818/TulparLang/releases/latest/download
-          for f in tulpar-macos-universal libtulpar_runtime-macos-universal.a SHA256SUMS.txt; do
-            curl -fsSL --retry 3 -o "$d/$f" "$url/$f"
-          done
-          ( cd "$d" && grep -E ' \*?(tulpar-macos-universal|libtulpar_runtime-macos-universal\.a)$' SHA256SUMS.txt > beklenen.txt \
-              && [ "$(wc -l < beklenen.txt | tr -d ' ')" = 2 ] && shasum -a 256 -c beklenen.txt ) || {
-            echo "::error::tulpar indirmeleri SHA256SUMS.txt ile dogrulanamadi"; exit 1; }
-          mv "$d/tulpar-macos-universal" "$d/tulpar"
-          mv "$d/libtulpar_runtime-macos-universal.a" "$d/libtulpar_runtime.a"
-          chmod +x "$d/tulpar"
-          "$d/tulpar" --version
-          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar" --tam
+          # tools/tulpar_indir.sh: -macos-arm64 adlari (TulparLang v3.39.0).
+          bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
+          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --tam
 
       # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki ayni adim.
       # TULPAR + TULPAR_PAKET_KOSU=zorunlu: bkz. Linux isindeki ayni adim.
@@ -1087,20 +1073,7 @@ jobs:
         run: |
           set -uo pipefail
           d="$(cygpath -u "$RUNNER_TEMP")/tulpar"
-          mkdir -p "$d"
-          url=https://github.com/hamer1818/TulparLang/releases/latest/download
-          for f in tulpar-windows-x64.zip libtulpar_runtime-windows-x64.a SHA256SUMS.txt; do
-            curl -fsSL --retry 3 -o "$d/$f" "$url/$f" || { echo "::error::$f indirilemedi"; exit 1; }
-          done
-          grep -E ' \*?(tulpar-windows-x64\.zip|libtulpar_runtime-windows-x64\.a)$' "$d/SHA256SUMS.txt" | tr -d '\r' >"$d/beklenen.txt"
-          if [ "$(wc -l <"$d/beklenen.txt")" != 2 ] || ! (cd "$d" && sha256sum -c beklenen.txt); then
-            echo "::error::SHA256SUMS.txt dogrulamasi tutmadi (ya da satirlar yok)"; exit 1
-          fi
-          python3 -m zipfile -e "$d/tulpar-windows-x64.zip" "$d/"
-          mv "$d/tulpar-windows-x64.exe" "$d/tulpar.exe"
-          cp "$d/libtulpar_runtime-windows-x64.a" "$d/libtulpar_runtime.a"
-          ls -la "$d"
-          "$d/tulpar.exe" --version
+          bash tools/tulpar_indir.sh "$d" || exit 1
           clang++ --version | head -1
 
           bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam --gpusuz-izinli 2>&1 | tee tulpar.log
@@ -1145,16 +1118,22 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
           TULPAR_PAKET_PLATFORM: windows-x86_64
+          TULPAR_PAKET_KOSU: gpusuz
         run: |
           set -euo pipefail
           mkdir -p paket/deneme
           bash tools/package.sh yapi paket/deneme
           bash tools/paket_denetle.sh yapi paket/deneme
 
+      # TULPAR_PAKET_KOSU=gpusuz: paket kapisi tulpar-ext/'i PAKETLENMIS
+      # dizinden kosturur (tools/package.sh eklenti_sinamalari) — GPU yok,
+      # yani olculen paketten derleme + link + baslatma + GPU'suz kopru
+      # suite'i; kare dongusu ATLANDI basilir. tulpar yoksa KIRMIZI.
       - name: Ciktilari topla (+ MinGW DLL'leri)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
           TULPAR_PAKET_PLATFORM: windows-x86_64
+          TULPAR_PAKET_KOSU: gpusuz
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
