@@ -912,11 +912,57 @@ void teng_bloom(int enable, double threshold, double intensity) {
 }
 int teng_bloom_on(void) { return g && g->inited && g->ren.post().enabled ? 1 : 0; }
 
+// YARIM KURULUMUN GERI ALINMASI (Tuzaklar 8cq). teng_init'in arena rezervinden
+// sonraki HER basarisiz cikisi buradan gecer: o ana kadar kurulan ne varsa
+// ters sirada (teng_shutdown'un sirasi) birakilir — worker thread'leri, GPU
+// nesneleri, pencere, Vulkan yukleyicisi, profiler ve 512 MB arena.
+//
+// NEDEN (olculdu 2026-10-02, CI windows-latest: vulkan-1.dll var, ICD yok):
+// vkCreateInstance VK_ERROR_INCOMPATIBLE_DRIVER ile dusuyordu ve o noktadaki
+// `return 0` acilmis yukleyiciyi, rezerv edilmis arenayi ve CALISAN 3 worker'i
+// oldugu gibi birakiyordu; teng_shutdown ise `!inited` gorup hemen donuyordu.
+// Ayni surecte her yeni deneme hepsini YENIDEN aliyordu. Pozitif kontrol
+// (tests/test_bridge.cpp, duzeltmesiz kod, RTX 5080 / Linux, 16 cekirdek,
+// 2026-10-05): 8 dusen kurulum -> sanal +5316 MB, thread +120, RSS +33,8 MB.
+//
+// Her alt sistemin shutdown'u kurulmamis halde guvenli (kendi bayragina
+// bakar: running_, impl_, dev_, api_), bu yuzden hangi asamada dusuldugu
+// burada AYRISTIRILMAZ — hepsi cagrilir. Donus 0: `return init_geri_al(...)`.
+int init_geri_al(Bridge &b, const char *asama) {
+  if (!b.err[0]) std::snprintf(b.err, sizeof b.err, "%s", asama);
+  // teng_shutdown ile AYNI sira: once is sistemi susar (Jolt'un uyarlayicisi
+  // kuyruga ciplak Job* itiyor), sonra fizik / renderer / hedefler / cihaz.
+  b.jobs.shutdown();
+  b.phys.shutdown();
+  b.bmap = nullptr;
+  b.bmap_n = 0;
+  b.font_ok = false;
+  b.ren.shutdown();
+  if (b.off) { rhi::offscreen_destroy(b.off); b.off = nullptr; }
+  b.swap.shutdown();
+  b.dev.shutdown();
+  if (b.host_open) { bridge::bridge_host_close(&b.host); b.host_open = false; }
+  // Yukleyici de kapanir. Basarili yolda acik kalir (teng_shutdown dokunmaz;
+  // bir sonraki vk_api_load ayni kutuphaneyi bulur), basarisiz yolda surec
+  // "motor hic acilmamis" haline donmeli — Windows CI'da sizan parcalardan
+  // biri tam da buydu.
+  rhi::vk_api_unload(b.api);
+  b.prof.shutdown();                       // dizileri arenada; arena gidiyor
+  b.frame_arena.init(nullptr, 0, "frame"); // sys'ten carve edilmisti
+  const size_t arena_mb = b.sys.capacity() >> 20;
+  b.sys.release();
+  if (b.embed) { b.chan.close(); b.embed = false; } // editor "cikti" gorsun
+  b.fb_w = b.fb_h = 0;
+  BINFO("kurulum geri alindi (%s): arena %zu MB, is parcaciklari, yukleyici birakildi — surec kurulum oncesi haline dondu", asama, arena_mb);
+  return 0;
+}
+
 int teng_init(const char *title, int width, int height) {
   if (!g) g = new (g_storage) Bridge();
   Bridge &b = *g;
   CALLF("teng_init", "\"%s\" %dx%d", title ? title : "", width, height);
   if (b.inited) { BERR("teng_init iki kez cagrildi"); return 0; }
+  b.err[0] = 0; // bu denemenin hatasi (onceki dusen denemenin metni kalmasin)
   if (const char *lv = std::getenv("TULPAR_ENGINE_LOG")) g_log.level = std::atoi(lv);
   if (const char *hf = std::getenv("TULPAR_ENGINE_HEADLESS"); hf && *hf && !b.headless) { b.headless = true; b.headless_frames = (uint32_t)std::atoi(hf); if (b.headless_frames == 0) b.headless_frames = 60; }
   if (const char *op = std::getenv("TULPAR_ENGINE_OUT"); op && *op && !b.out_ppm[0]) std::snprintf(b.out_ppm, sizeof b.out_ppm, "%s", op);
@@ -952,16 +998,16 @@ int teng_init(const char *title, int width, int height) {
   cc.build_id = "tulpar_engine_bridge";
   platform::crash_reporter_install(cc);
 
-  if (!b.sys.reserve(512u << 20, "tulpar_engine")) { BERR("arena ayrilamadi (512 MB rezerv)"); return 0; }
+  if (!b.sys.reserve(512u << 20, "tulpar_engine")) { BERR("arena ayrilamadi (512 MB rezerv)"); return init_geri_al(b, "arena ayrilamadi (512 MB rezerv)"); }
   b.sys.carve(b.frame_arena, 8u << 20, "frame");
-  if (!b.jobs.init(b.sys, JobSystemConfig{})) { BERR("job sistemi kurulamadi"); return 0; }
+  if (!b.jobs.init(b.sys, JobSystemConfig{})) { BERR("job sistemi kurulamadi"); return init_geri_al(b, "job sistemi kurulamadi"); }
   ProfilerConfig pc;
   pc.frame_capacity = 600;
   pc.zone_capacity = 8192;
   b.prof.init(b.sys, pc);
   BDBG("arena 512 MB, job worker %u, profiler 600 kare", b.jobs.worker_count());
 
-  if (!rhi::vk_api_load(b.api)) { BERR("Vulkan yukleyici yok (libvulkan bulunamadi)"); std::snprintf(b.err, sizeof b.err, "Vulkan loader yok"); return 0; }
+  if (!rhi::vk_api_load(b.api)) { BERR("Vulkan yukleyici yok (libvulkan bulunamadi)"); std::snprintf(b.err, sizeof b.err, "Vulkan loader yok"); return init_geri_al(b, "Vulkan loader yok"); }
   BDBG("Vulkan yukleyici acildi");
   // Pencere (host) — acilamazsa headless'a dus (loglayarak), betik yine calissin.
   if (!b.headless) {
@@ -983,10 +1029,10 @@ int teng_init(const char *title, int width, int height) {
     dc.instance_extension_count = n;
     BDBG("instance uzantilari: %u", n);
   }
-  if (!b.dev.init_instance(b.api, dc)) { BERR("Vulkan instance: %s", b.dev.last_error()); std::snprintf(b.err, sizeof b.err, "%s", b.dev.last_error()); return 0; }
+  if (!b.dev.init_instance(b.api, dc)) { BERR("Vulkan instance: %s", b.dev.last_error()); std::snprintf(b.err, sizeof b.err, "%s", b.dev.last_error()); return init_geri_al(b, "Vulkan instance"); }
   VkSurfaceKHR surface = VK_NULL_HANDLE;
-  if (!b.headless && !b.host.create_surface(b.host.user, b.api, b.dev.instance(), &surface)) { BERR("Vulkan yuzeyi olusturulamadi"); return 0; }
-  if (!b.dev.init_device(surface)) { BERR("Vulkan cihazi: %s", b.dev.last_error()); std::snprintf(b.err, sizeof b.err, "%s", b.dev.last_error()); return 0; }
+  if (!b.headless && !b.host.create_surface(b.host.user, b.api, b.dev.instance(), &surface)) { BERR("Vulkan yuzeyi olusturulamadi"); return init_geri_al(b, "Vulkan yuzeyi olusturulamadi"); }
+  if (!b.dev.init_device(surface)) { BERR("Vulkan cihazi: %s", b.dev.last_error()); std::snprintf(b.err, sizeof b.err, "%s", b.dev.last_error()); return init_geri_al(b, "Vulkan cihazi"); }
   BINFO("GPU: %s (Vulkan %u.%u)%s", b.dev.caps().device_name, VK_API_VERSION_MAJOR(b.dev.caps().api_version), VK_API_VERSION_MINOR(b.dev.caps().api_version),
         dc.validation ? " dogrulama katmani ACIK" : "");
   VkRenderPass rp = VK_NULL_HANDLE;
@@ -994,14 +1040,14 @@ int teng_init(const char *title, int width, int height) {
   if (b.headless) {
     b.oc.width = b.width; b.oc.height = b.height; b.oc.srgb = true;
     b.off = rhi::offscreen_create(b.dev, b.sys, b.oc, &b.ores);
-    if (!b.off) { BERR("offscreen hedef: %s", b.ores.error); return 0; }
+    if (!b.off) { BERR("offscreen hedef: %s", b.ores.error); return init_geri_al(b, "offscreen hedef kurulamadi"); }
     rp = rhi::offscreen_render_pass(b.off);
     b.fb_w = b.width; b.fb_h = b.height;
     BDBG("offscreen hedef %ux%u sRGB, %u kare", b.width, b.height, b.headless_frames);
   } else {
     uint32_t fw = 0, fh = 0;
     b.host.poll(b.host.user, &fw, &fh);
-    if (!b.swap.init(b.dev, b.sys, surface, fw ? fw : b.width, fh ? fh : b.height)) { BERR("swapchain kurulamadi (%ux%u)", fw, fh); return 0; }
+    if (!b.swap.init(b.dev, b.sys, surface, fw ? fw : b.width, fh ? fh : b.height)) { BERR("swapchain kurulamadi (%ux%u)", fw, fh); return init_geri_al(b, "swapchain kurulamadi"); }
     rp = b.swap.render_pass();
     image_count = b.swap.image_count();
     b.fb_w = b.swap.extent().width; b.fb_h = b.swap.extent().height;
@@ -1025,7 +1071,7 @@ int teng_init(const char *title, int width, int height) {
     rc.post_clear = b.headless ? Vec3{10.0f / 255.0f, 20.0f / 255.0f, 30.0f / 255.0f} // OffscreenConfig::clear
                                : Vec3{0.05f, 0.06f, 0.09f};                            // Swapchain temizligi
   }
-  if (!b.ren.init(b.dev, b.sys, rp, rc)) { BERR("renderer kurulamadi"); return 0; }
+  if (!b.ren.init(b.dev, b.sys, rp, rc)) { BERR("renderer kurulamadi"); return init_geri_al(b, "renderer kurulamadi"); }
   if (b.bloom) {
     const renderer::PostInfo pi = b.ren.post();
     if (pi.enabled) {
@@ -1068,12 +1114,12 @@ int teng_init(const char *title, int width, int height) {
     pcfg.max_sensor_events = Bridge::kMaxTrigger; // sirali tampon ayni boyda: kirpma yok
     pcfg.max_characters = b.phys_max_characters;
     pcfg.gravity = b.gravity;
-    if (!b.phys.init(b.sys, pcfg)) { BERR("fizik (Jolt) kurulamadi"); return 0; }
+    if (!b.phys.init(b.sys, pcfg)) { BERR("fizik (Jolt) kurulamadi"); return init_geri_al(b, "fizik (Jolt) kurulamadi"); }
     BDBG("fizik hazir: yercekimi (%.2f %.2f %.2f), sabit adim %.4f s", b.gravity.x, b.gravity.y, b.gravity.z, b.fs.step_s);
     // Govde -> varlik eslemesi: fizigin govde tavani kadar, BIR KEZ (A2).
     b.bmap_n = b.phys.max_bodies();
     b.bmap = b.sys.alloc_array<Bridge::BodyMapEntry>(b.bmap_n);
-    if (!b.bmap) { BERR("govde eslemesi ayrilamadi (%u girdi)", b.bmap_n); return 0; }
+    if (!b.bmap) { BERR("govde eslemesi ayrilamadi (%u girdi)", b.bmap_n); return init_geri_al(b, "govde eslemesi ayrilamadi"); }
     for (uint32_t i = 0; i < b.bmap_n; i++) b.bmap[i] = Bridge::BodyMapEntry{};
     b.bmap_checks = b.bmap_mismatch = b.bmap_miss_set = 0;
     if (const char *gd = std::getenv("TULPAR_ENGINE_GOVDE_DENETIM"); gd && *gd && gd[0] != '0') b.bmap_audit = true;
@@ -1728,6 +1774,9 @@ void teng_shutdown(void) {
   CALL("teng_shutdown");
   if (!g) return;
   Bridge &b = *g;
+  // Kurulmamis motor: yapilacak bir sey YOK — dusen bir teng_init kendi
+  // aldiklarini init_geri_al ile zaten birakti (Tuzaklar 8cq), yani burada
+  // toplanacak yarim kurulum kalmaz.
   if (!b.inited) { BDBG("shutdown: kurulmamis motor, atlandi"); return; }
   // Betiklere `bitir`, YIKIM SIRASINDAN once: is sistemi, fizik ve cihaz hala
   // ayakta, yani kanca icinden motoru cagirmak guvenli. Asagi alinsaydi

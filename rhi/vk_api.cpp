@@ -55,10 +55,16 @@ bool vk_api_load_moltenvk_direct(VkApi &api) {
 bool vk_api_is_direct_moltenvk(const VkApi &) { return g_direct_moltenvk; }
 
 bool vk_api_load(VkApi &api) {
-  if (api.lib) return true;
   // Pozitif kontrol: loader yokmus gibi davran — GORUNUR atlama yolu sinanir
   // (atlanan test sessizce yesil sayilmasin; ozet satiri "atlandi" gostermeli).
+  // Anahtar "zaten acik" erken donusunden ONCE bakilir: kopru basarili bir
+  // oturumdan sonra yukleyiciyi acik tutuyor ve anahtar oraya kadar hic
+  // okunmuyordu — ayni surecte sonradan verilen TULPAR_ENGINE_NO_VULKAN=1
+  // sessizce yok sayiliyor, "yukleyici yok" yolu yerine kurulum basariyordu
+  // (olculdu 2026-10-05, engine_tests tam kosum: bridge_failed_init_* kapisi
+  // bridge_runs_a_scripted_game_headless'tan sonra GPU'yu buldu).
   if (const char *e = getenv("TULPAR_ENGINE_NO_VULKAN"); e && *e && *e != '0') return false;
+  if (api.lib) return true;
   // PAKET: sistem
   //   Vulkan LOADER'i paketlenmez, SURUCUYLE gelir. Gerekce (lisans degil —
   //   Khronos loader'i Apache-2.0'dir ve dagitilabilir, mesele dogruluk):

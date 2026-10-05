@@ -49,6 +49,11 @@ struct ProfilerConfig {
 class Profiler {
 public:
   bool init(Arena &arena, const ProfilerConfig &cfg);
+  // Kurulumu geri alir: dizilerin yasadigi arena serbest kalacaksa onlara
+  // isaret eden hicbir sey kalmasin (yarim kurulumun geri alinmasi,
+  // bridge/engine_api.cpp init_geri_al, Tuzaklar 8cq). Yalniz bu ornek
+  // etkinse global isaretci de sifirlanir; init yeniden cagrilabilir.
+  void shutdown();
 
   void begin_frame();
   void end_frame();

@@ -1706,3 +1706,50 @@ gösterir: bir arşivi silinmiş kopyayla aynı oyun düşmeli, link hatası ar�
 
 **Ders:** "kaynak ağacı olmadan çalışıyor" iddiası, kaynak ağacının durduğu makinede ancak
 **hangi yolun kullanıldığı** ölçülerek doğrulanır; çıkış kodu 0 bunu söylemez.
+
+### 8cq. Yarım kurulum geri alınmaz — kapanış `!inited` görüp döner, her yeni deneme hepsini yeniden alır
+
+**Sınıf** (2026-10-05, Windows CI'da görüldü, yerelde ölçüldü): `teng_init` ilk adımlarda 512 MB
+arena rezervi alır, iş sistemini kurar (çekirdek−1 worker) ve Vulkan yükleyicisini açar; sonra
+`vkCreateInstance` `VK_ERROR_INCOMPATIBLE_DRIVER` ile düşer (Windows runner: `vulkan-1.dll` var,
+ICD yok). Eski kod o noktada düz `return 0` yapıyordu: arena, **çalışan** worker'lar ve açık
+yükleyici oldukları gibi kalıyordu. `teng_shutdown` ise `!inited` görüp hemen dönüyordu — yani
+toplayan kimse yoktu. Tek denemede yalnız RSS büyür (CI: 4,7 → 11,2 MB) ve göze batmaz; aynı
+süreçte yeniden deneyen bir oyun (ör. "GPU'yu tekrar dene" düğmesi) her denemede hepsini yeniden
+alır. Ölçüldü (RTX 5080 / Linux, 16 çekirdek, düzeltmesiz kod): 8 düşen kurulum → sanal
+**+5316 MB**, thread **+120**, RSS **+33,8 MB**.
+
+İkinci, bağlı sınıf: `vk_api_load` `TULPAR_ENGINE_NO_VULKAN` anahtarına "yükleyici zaten açık"
+erken dönüşünden **sonra** bakıyordu. Köprü başarılı bir oturumdan sonra yükleyiciyi açık tuttuğu
+için aynı süreçte sonradan verilen anahtar sessizce yok sayılıyor, ölçülmek istenen "yükleyici
+yok" yolu yerine kurulum başarıyordu.
+
+**Düzeltme:** `teng_init`'in arena rezervinden sonraki **her** başarısız çıkışı
+`init_geri_al(b, aşama)`'dan geçer: `teng_shutdown`'un sırasıyla iş sistemi → fizik → renderer →
+hedefler → cihaz → pencere → yükleyici → profiler → arena. Alt sistemlerin `shutdown`'u kurulmamış
+halde güvenli olduğu için hangi aşamada düşüldüğü ayrıştırılmaz. Kaynakta denetim: düzenleme
+betiği arena rezervinden sonra çıplak `return 0` kalmadığını doğruladı; yeni bir çıkış eklerken de
+`return init_geri_al(...)` yazılır. Anahtar artık erken dönüşten önce okunur.
+
+**Kapı:** `tests/test_bridge.cpp` `bridge_failed_init_without_loader_leaves_no_residue` (anahtarla
+yükleyici kapalı) ve `bridge_failed_init_without_icd_leaves_no_residue` (yükleyici var,
+`VK_DRIVER_FILES`/`VK_ICD_FILENAMES` olmayan bir dosyaya → Windows CI'nın gerçek yolu): ısınma
+turundan sonra 8 düşen kurulum + kapanış; sanal boyut (`platform::os_virtual_bytes`), RSS ve thread
+sayısı (`platform::os_thread_count`) değişmemeli (thread için eşik "deneme başına < 1": tam
+koşumda önceki testlerin sürücü thread'leri ±1 oynuyor, CI lavapipe'ta ölçüldü), hata metni beklenen
+aşamayı söylemeli. macOS'ta ICD senaryosu görünür atlanır: ICD gizlenince `rhi/device.cpp`'nin yedeği
+MoltenVK'yi doğrudan yükler ve kurulum başarır — o platformda "yükleyici var, ICD yok" yolu yok.
+
+**Açık kalan, bağlı sınıf:** *başarılı* bir oturumdan sonra aynı süreçte ikinci bir başarılı
+`teng_init` + `teng_shutdown` çöküyor (CI macOS 2026-10-05, SIGSEGV): `teng_shutdown` `Bridge`'i
+sıfırlamıyor (kapanış raporu önceki oturumun sayaçlarını basıyor) ve arenayı bırakmıyor; ikinci
+`sys.reserve` eskisinin üstüne yazar. Bugün tek oturum varsayılıyor (test_bridge.cpp başlığı);
+"motoru kapatıp yeniden aç" desteği ayrı bir karar. Tulpar
+tarafı: `tulpar/tests/engine_gpusuz.test.tpr` "yeniden deneme" (8 deneme, RSS eşiği 2048 KB).
+**Pozitif kontrol** (aynı testler, düzeltmesiz köprü, 2026-10-05): C++ iki senaryoda da sanal
++5316 MB, thread +120, RSS +33,8 MB → 3 kontrol kırmızı; Tulpar `Fail: 1`, 8 denemede RSS +36172 KB.
+Düzeltmeyle: C++ +0 MB / +0 thread / +0–8 KB, Tulpar +8 KB.
+
+**Ders:** "kurulum false döner" sözleşmesi, "ve aldığını geri bırakır" demiyorsa yarıdadır.
+Kapanış kurulmamış durumda hiçbir şey yapmıyorsa, kısmi kurulumu toplayan yer başarısız yolun
+kendisi olmak zorunda — ve bu, tek denemede değil **N denemede** ölçülür.
