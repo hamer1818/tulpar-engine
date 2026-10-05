@@ -1853,10 +1853,18 @@ void teng_shutdown(void) {
   }
   b.phys.shutdown();
   b.ren.shutdown();
-  if (b.off) rhi::offscreen_destroy(b.off);
+  // Yok edilen her tutamac SIFIRLANIR: ayni surecte sonradan dusen bir
+  // teng_init'in init_geri_al'i (Tuzaklar 8cq) bu alanlara bakar. Eskiden
+  // b.off ve host_open kapanistan sonra bayat kaliyordu; geri alma yok edilmis
+  // cihaz uzerinde offscreen hedefini IKINCI kez yok ediyordu (vkDeviceWaitIdle
+  // + vkDestroy* olu VkDevice'ta). Olculdu CI windows-latest SwiftShader
+  // 2026-10-05: tam engine_tests bridge_failed_init_without_loader_* icinde
+  // SIGSEGV (basarili bridge_runs_a_scripted_game_headless oturumundan sonra);
+  // Linux lavapipe / RTX 5080'de ayni tanimsiz davranis sessiz gecti.
+  if (b.off) { rhi::offscreen_destroy(b.off); b.off = nullptr; }
   if (!b.headless) b.swap.shutdown();
   b.dev.shutdown();
-  if (b.host_open) bridge::bridge_host_close(&b.host);
+  if (b.host_open) { bridge::bridge_host_close(&b.host); b.host_open = false; }
   if (b.embed) {
     BINFO("gomulu kip kapandi: %u kare yayimlandi, %u duraklatma, %u tek adim", b.embed_published, b.embed_pauses, b.embed_steps);
     b.chan.close(); // durum "cikti": editor sureci beklerken bunu gorur
