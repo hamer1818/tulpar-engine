@@ -1842,6 +1842,9 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
     if (!run_ok || tex_ns > empty_ns * 3) break;
     layers *= 2;
   }
+  // Dusen kare SEBEBIYLE basilir: "run_ok" tek basina hangi katmanda ve neden
+  // dustugunu soylemiyordu (CI windows-latest SwiftShader, 2026-10-05).
+  if (!run_ok) std::printf("    [bilgi] kare dustu: %d katmanda, offscreen: %s\n", layers, ores.error);
   CHECK(run_ok);
   if (!run_ok) { ren.shutdown(); offscreen_destroy(off); return; }
   std::printf("    [makine] %s\n", dev.caps().device_name);

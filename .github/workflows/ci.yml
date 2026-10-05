@@ -1014,6 +1014,15 @@ jobs:
       # KURULU oldugu icin asagidaki "Vulkan / katman atlamasi = KIRMIZI"
       # kurali burada da gecerli; o kuralin bos bir grep olmadigi burada
       # gosterilir (ayni ifadeler).
+      - name: GECICI tek basina (SwiftShader)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set +e
+          for f in rhi_pso_cache_warms_pipeline_creation renderer_pbr_texture_budget; do
+            ./yapi/engine_tests.exe "$f" 2>&1 | tr -d '\r' | grep -E 'FAIL|bilgi\] (varyant|kare dustu|kurulum suresi)|^engine tests:'
+          done
+          exit 0
+
       - name: Atlama mekanizmasinin pozitif kontrolu
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |

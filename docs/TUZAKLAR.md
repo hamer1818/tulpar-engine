@@ -1754,6 +1754,51 @@ Düzeltmeyle: C++ +0 MB / +0 thread / +0–8 KB, Tulpar +8 KB.
 Kapanış kurulmamış durumda hiçbir şey yapmıyorsa, kısmi kurulumu toplayan yer başarısız yolun
 kendisi olmak zorunda — ve bu, tek denemede değil **N denemede** ölçülür.
 
+### 8cr. Yazılım ICD'si "kuruldu ve cihaz görünüyor" — ama bellek bırakırken yığını bozuyor; kapılar şans eseri geçer
+
+**Sınıf** (2026-10-05, CI windows-latest'te ölçüldü): Windows CI'ya yazılım Vulkan ICD'si
+aranırken MSYS2'nin `mingw-w64-x86_64-mesa` (26.2.4) paketindeki lavapipe kuruldu. Loader cihazı
+gördü (`llvmpipe (LLVM 22.1.8, 256 bits)`, Vulkan 1.4.354), doğrulama katmanı yüklendi,
+`rhi_loader_and_device_caps` geçti, iki pozitif kontrol de geçti. Tam `engine_tests` ise
+**çıktısız**, çıkış 127 ile öldü (`cmd` üzerinden: `-1073740940` = 0xC0000374,
+STATUS_HEAP_CORRUPTION). Sonraki koşumlarda başka yerlerde öldü: gömülü oyun çocuk süreçleri
+920 kareyi doğru renklerle çizip **çıkışta**, `engine_editor` penceresiz kapısı ve
+`bridge_runs_a_scripted_game_headless`. Yani lavapipe üzerinde "geçen" kapılar da güvenilir
+değildi: bozulma sonradan, rastgele bir `free`'de patlıyor.
+
+**Teşhis yolu** (her adım bir sonrakinin ön koşulu):
+1. Harness'ın `setvbuf(stdout, _IOLBF)`'i MSVCRT'de **tam tampon**: fail-fast ölümde son ~4 KB
+   kayboluyordu, ölen testin adı bile görünmüyordu → `RUN` satırı elle boşaltılıyor
+   (`tests/test_main.cpp`). msys2 kabuğunun `bash -e`'si de "Özet satırı YOK" teşhisini yutuyordu
+   → test adımı `set +e`.
+2. Tam sayfa yığını (IFEO `GlobalFlag=0x02000000`, `PageHeapFlags=3`) + `cdb`: `VERIFIER STOP 10:
+   corrupted start stamp`, `msvcrt!free ← vulkan_lvp+0x223921 ← vulkan_lvp+0x2b6b50 ←
+   ImGui_ImplVulkan_UpdateTexture+0x89b`. Release yapısında DWARF yok; `nm -n` ile en yakın alt
+   sembol bulundu, `objdump -d` dönüş adresinin `call *vkFreeMemory`'nin arkası olduğunu gösterdi.
+   Sayfa yığınında bir YAZMA taşması anında erişim ihlali verirdi, öyle olmadı.
+3. **Motordan bağımsız asgari yeniden üretim** (`tools/vk_bellek_sonda.py`, ctypes: ayır → eşle
+   → yaz → kaldır → `vkFreeMemory`): aynı yığın, `_ctypes ← vulkan_lvp ← msvcrt!free`, PageHeap'siz
+   de çıkış 127. Aynı sonda SwiftShader'da (Chrome 154) ve RTX 5080'de temiz.
+
+**Karar:** Windows CI'nın ICD'si **SwiftShader** (runner'daki Chrome'un `vk_swiftshader.dll`'i,
+Vulkan 1.3). `tools/windows_vulkan_icd.sh kur` bellek sondasını **her koşumda** koşturur;
+seçilen sürücü bu sınıfı taşıyorsa CI orada, nedeniyle kırmızı olur. Hatanın mesa'da olduğu
+**ölçüldü, iddia edilmedi**: kaynak bu ortamdan okunamadı (freedesktop GitLab erişilemedi);
+ölçülen, çökmenin sürücünün `free`'sinde ve motorsuz kalıpta olduğu. Upstream bildirimi dış depo
+işidir.
+
+Yan bulgu, aynı yoldan: Windows loader'ı **yönetici** süreçte `VK_DRIVER_FILES` /
+`VK_ICD_FILENAMES` / `VK_ADD_LAYER_PATH` / `VK_LAYER_PATH`'i yok sayar (`VK_LOADER_DEBUG`: arama
+konumları boş, yalnız HKLM). CI runner'ı yönetici olduğu için ICD ve katman kayıt defterine
+yazılır, katman gizleme pozitif kontrolü de kayıt girdisini geçici siler. Env ile ICD gizleyen
+testler (8cq'nun ICD senaryosu) orada görünür atlanır: önce ham bir `vkCreateInstance` ile
+gizlemenin tutup tutmadığı sorulur.
+
+**Ders:** "Sürücü kuruldu, cihaz listelendi, bir test geçti" bir sürücünün doğru çalıştığını
+söylemez. Yazılım ICD'si seçilirken onu **motordan bağımsız** en basit yaşam döngüsüyle
+(ayır/bırak) yokla; heap bozulması gibi gecikmeli bir hata, üstteki her kapıyı rastgele yeşil ya
+da kırmızı yapar.
+
 ### 8cs. İki uç arasındaki fark, sınırlı bir basamağı "eğim" sanar — ve pozitif kontrol sessizce eskir
 
 **Sınıf** (2026-10-05, CI'da ölçüldü): `engine_aksiyon.tpr`'ın bellek kapısı RSS'i pencerenin iki
