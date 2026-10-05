@@ -951,50 +951,15 @@ jobs:
       # Runner'da vulkan-1.dll (System32) var ama ICD yok: vkCreateInstance
       # VK_ERROR_INCOMPATIBLE_DRIVER ve bu yuzden butun GPU kapilari, Tulpar
       # oyunlarinin kare dongusu, [kapi] satirlari Windows'ta HIC olculmuyordu.
-      # MSYS2'nin mesa paketi lavapipe'i tasiyor (bin/vulkan_lvp.dll +
-      # share/vulkan/icd.d/lvp_icd.x86_64.json).
-      #
-      # NEDEN KAYIT DEFTERI, ORTAM DEGISKENI DEGIL (olculdu 2026-10-05, ilk
-      # deneme): runner sureci YONETICI (elevated) ve Windows loader'i
-      # yonetici surecte VK_DRIVER_FILES / VK_ICD_FILENAMES / VK_ADD_LAYER_PATH
-      # / VK_LAYER_PATH'i YOK SAYAR (VK_LOADER_DEBUG: "Searching for driver
-      # manifest files / In following locations: / Found no files", yalniz
-      # HKLM taraniyor). Bu yuzden ICD ve dogrulama katmani loader'in kendi
-      # kayit noktalarina yazilir: HKLM\SOFTWARE\Khronos\Vulkan\Drivers ve
-      # \ExplicitLayers (deger adi = manifest'in Windows yolu, DWORD 0 = etkin).
-      # reg.exe'ye MSYS2 yol cevirisi dokunmasin: MSYS2_ARG_CONV_EXCL='*'
-      # (yoksa /v /t /d bayraklari yol sanilir). Katman manifest'inin yolu
-      # GITHUB_ENV'e yazilir: katman gizleme pozitif kontrolu onu siler/geri
-      # koyar.
+      # MSYS2'nin mesa paketi lavapipe'i tasiyor. Loader'a KAYIT DEFTERINDEN
+      # tanitilir, ortam degiskeniyle DEGIL: runner sureci yonetici ve Windows
+      # loader'i yonetici surecte VK_DRIVER_FILES / VK_ADD_LAYER_PATH'i yok
+      # sayiyor (olculdu, ilk deneme -9 ile dustu). Ayrinti + bagimsiz sonda
+      # (tools/vk_sonda.py; MSYS2'de vulkaninfo yok): tools/windows_lavapipe.sh
+      # — release.yml'in Windows isi de AYNI betigi kosar.
       - name: Yazilim Vulkan ICD'si (lavapipe) + dogrulama katmani gercekten var mi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set -uo pipefail
-          icd=/mingw64/share/vulkan/icd.d/lvp_icd.x86_64.json
-          katman=/mingw64/bin/VkLayer_khronos_validation.json
-          if [ ! -f "$icd" ] || [ ! -f /mingw64/bin/vulkan_lvp.dll ] || [ ! -f "$katman" ]; then
-            echo "::error::mingw-w64-x86_64-mesa / -vulkan-validation-layers beklenen dosyalari tasimiyor ($icd, bin/vulkan_lvp.dll, $katman)."
-            pacman -Ql mingw-w64-x86_64-mesa mingw-w64-x86_64-vulkan-validation-layers | grep -iE 'vulkan|icd|VkLayer' || true
-            exit 1
-          fi
-          tr -d '\r' <"$icd"
-          icd_w="$(cygpath -w "$icd")"; katman_w="$(cygpath -w "$katman")"
-          export MSYS2_ARG_CONV_EXCL='*'
-          reg add 'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' /v "$icd_w" /t REG_DWORD /d 0 /f || { echo "::error::ICD kayit defterine yazilamadi"; exit 1; }
-          reg add 'HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers' /v "$katman_w" /t REG_DWORD /d 0 /f || { echo "::error::katman kayit defterine yazilamadi"; exit 1; }
-          reg query 'HKLM\SOFTWARE\Khronos\Vulkan' /s
-          echo "TULPAR_VK_KATMAN_KAYDI=$katman_w" >> "$GITHUB_ENV"
-          unset MSYS2_ARG_CONV_EXCL
-          # MSYS2'de vulkaninfo YOK (mingw-w64-x86_64-vulkan-tools paketi
-          # bulunamadi, olculdu 2026-10-05). Ayni olcumu motordan BAGIMSIZ
-          # sonda yapar (tools/vk_sonda.py, ctypes): katman listesi, instance,
-          # cihaz adi.
-          python3 tools/vk_sonda.py --cihaz llvmpipe --katman VK_LAYER_KHRONOS_validation 2>&1 | tr -d '\r' | tee vk_sonda.log || true
-          if ! grep -qi 'cihaz 0: llvmpipe' vk_sonda.log || grep -q 'EKSIK' vk_sonda.log; then
-            echo "::error::Loader lavapipe'i ya da dogrulama katmanini gormuyor (kayit defteri yazildi ama yuklenmedi)."
-            VK_LOADER_DEBUG=error,warn,driver,layer python3 tools/vk_sonda.py 2>&1 | tr -d '\r' | tail -40 || true
-            exit 1
-          fi
+        run: bash tools/windows_lavapipe.sh kur
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -1073,10 +1038,8 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
-          anahtar='HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers'
-          geri() { MSYS2_ARG_CONV_EXCL='*' reg add "$anahtar" /v "$TULPAR_VK_KATMAN_KAYDI" /t REG_DWORD /d 0 /f >/dev/null; }
-          trap geri EXIT
-          MSYS2_ARG_CONV_EXCL='*' reg delete "$anahtar" /v "$TULPAR_VK_KATMAN_KAYDI" /f || { echo "::error::katman kaydi silinemedi"; exit 1; }
+          trap 'bash tools/windows_lavapipe.sh katman-geri' EXIT
+          bash tools/windows_lavapipe.sh katman-gizle || exit 1
           ./yapi/engine_tests.exe mali_best_practices 2>&1 | tr -d '\r' > katman_kontrol.log || true
           ./yapi/engine_tests.exe validation_layer 2>&1 | tr -d '\r' >> katman_kontrol.log || true
           n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
@@ -1086,46 +1049,13 @@ jobs:
             exit 1
           fi
           echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
-          geri && trap - EXIT
+          bash tools/windows_lavapipe.sh katman-geri && trap - EXIT
           python3 tools/vk_sonda.py --katman VK_LAYER_KHRONOS_validation | tr -d '\r' | tail -1
 
       # Lavapipe (MSYS2 mesa) KURULU: GPU kapilari Windows'ta da KOSAR
       # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
       # isiyle ayni kural: "Vulkan ... yok" ya da "VK_LAYER_KHRONOS_validation
       # yok" gerekceli tek bir atlama isi KIRMIZI yapar. Sure is ozetine yazilir.
-      - name: GECICI teshis (lavapipe, tam kosum)
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set +e
-          ./yapi/engine_tests.exe > tam.log 2>&1; echo "tam rc=$?"
-          tr -d '\r' < tam.log | tail -25
-          nm -n -C yapi/engine_tests.exe > nm.txt
-          adr=$(grep -F 'ImGui_ImplVulkan_UpdateTexture(ImTextureData*) [clone .part.0]' nm.txt | head -1 | cut -d' ' -f1)
-          echo "UpdateTexture.part.0 = 0x$adr"
-          bas=$(printf '0x%x' $((0x$adr + 0x840))); son=$(printf '0x%x' $((0x$adr + 0x8b0)))
-          objdump -d -C --start-address=$bas --stop-address=$son yapi/engine_tests.exe | tail -40
-          echo "--- cagri hedefi olan global isaretciler (vk*) ---"
-          objdump -d -C --start-address=$bas --stop-address=$son yapi/engine_tests.exe | grep -oE 'call.*' | head -20
-          echo "--- vulkan_lvp.dll ---"
-          lb=$(objdump -p /mingw64/bin/vulkan_lvp.dll | awk '/^ImageBase/{print $2}'); echo "lvp ImageBase=$lb"
-          nm -n /mingw64/bin/vulkan_lvp.dll > lnm.txt 2>/dev/null; echo "lvp nm: $(wc -l < lnm.txt)"
-          objdump -p /mingw64/bin/vulkan_lvp.dll | grep -E '^\s+\[ *[0-9]+\] ' | head -3
-          objdump -p /mingw64/bin/vulkan_lvp.dll | awk '/Export Address Table/,/Name Pointer/' | head -5
-          python3 - <<'PYEOF'
-          import subprocess, re, bisect
-          out = subprocess.run(['objdump','-p','/mingw64/bin/vulkan_lvp.dll'], capture_output=True, text=True).stdout
-          base = int(re.search(r'^ImageBase\s+([0-9a-fA-F]+)', out, re.M).group(1), 16)
-          ex = []
-          for m in re.finditer(r'^\s*\[\s*\d+\]\s+\+base\[\s*\d+\]\s+([0-9a-fA-F]+)\s+(\S+)', out, re.M):
-              ex.append((int(m.group(1),16), m.group(2)))
-          ex.sort()
-          print('lvp ihrac:', len(ex))
-          for o in (0x2b6b50, 0x223921):
-              i = bisect.bisect_right([a for a,_ in ex], o) - 1
-              print('lvp+0x%x en yakin ihrac: %s +0x%x' % (o, ex[i][1], o-ex[i][0]) if i >= 0 else '?')
-          PYEOF
-          exit 0
-
       # `set +e`: msys2 kabugu `bash -e` ile kosar; engine_tests sifirdan
       # farkli donunce (cokme) betik ozet teshisinden ONCE oluyordu ve log
       # bos kaliyordu (olculdu 2026-10-05: cikis 127, tek satir cikti yok).
@@ -1203,6 +1133,35 @@ jobs:
       # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
       # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
+      # BILINEN SURUCU HATASI HALA VAR MI (Tuzaklar 8cr). Windows lavapipe'ta
+      # editor_update_badge_and_window_render_headless GORUNUR atlanir (ImGui
+      # doku yuklemesinin vkFreeMemory'si surucu icinde yigini bozuyor,
+      # 0xC0000374). Atlama kalici bir gizlemeye donusmesin: burada anahtarla
+      # KAPATILIP test kosturulur ve COKMESI beklenir. Cokmezse (MSYS2 mesa
+      # duzeldi) adim KIRMIZI: atlama artik bir olcumu sakliyor, kaldirilmali.
+      # Cokme imzasi: bash cikisi 127 (0xC0000374'un MSYS2 karsiligi) ve son
+      # satir testin RUN satiri (harness RUN'i elle bosaltir).
+      - name: Bilinen surucu hatasi hala var mi (Tuzaklar 8cr)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set +e
+          set -uo pipefail
+          TULPAR_TEST_SURUCU_HATASI_ZORLA=1 ./yapi/engine_tests.exe editor_update_badge_and_window_render_headless > surucu.log 2>&1
+          rc=$?
+          son="$(tr -d '\r' < surucu.log | grep -E '^  (RUN|PASS|FAIL) ' | tail -1)"
+          echo "zorlanmis kosum: cikis $rc, son satir '$son'"
+          if [ "$rc" -eq 0 ] && [ "$son" = "  PASS editor_update_badge_and_window_render_headless" ]; then
+            echo "::error::Windows lavapipe surucu hatasi (Tuzaklar 8cr) artik CIKMIYOR — tests/test_editor_update.cpp'deki atlama bir olcumu sakliyor; kaldirin."
+            exit 1
+          fi
+          if [ "$rc" -ne 0 ] && [ "$son" = "  RUN  editor_update_badge_and_window_render_headless" ]; then
+            echo "Bilinen surucu hatasi hala var: cikis $rc, testin icinde oldu (atlama gerekce olarak gecerli)." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::Beklenmeyen sonuc (ne temiz gecti ne bilinen cokme): cikis $rc, son '$son'"
+          tr -d '\r' < surucu.log | tail -20
+          exit 1
+
       # LAVAPIPE (2026-10-05): yukaridaki adim ICD'yi kayit defterine yazdi,
       # motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
       # ile ayni bayraksiz kosum — duman, pozitif kontroller, dil sondalari,
