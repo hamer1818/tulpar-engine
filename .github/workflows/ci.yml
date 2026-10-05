@@ -1187,22 +1187,23 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
           TULPAR_PAKET_PLATFORM: windows-x86_64
-          TULPAR_PAKET_KOSU: gpusuz
+          TULPAR_PAKET_KOSU: zorunlu
         run: |
           set -euo pipefail
           mkdir -p paket/deneme
           bash tools/package.sh yapi paket/deneme
           bash tools/paket_denetle.sh yapi paket/deneme
 
-      # TULPAR_PAKET_KOSU=gpusuz: paket kapisi tulpar-ext/'i PAKETLENMIS
-      # dizinden kosturur (tools/package.sh eklenti_sinamalari) — GPU yok,
-      # yani olculen paketten derleme + link + baslatma + GPU'suz kopru
-      # suite'i; kare dongusu ATLANDI basilir. tulpar yoksa KIRMIZI.
+      # TULPAR_PAKET_KOSU=zorunlu: paket kapisi tulpar-ext/'i PAKETLENMIS
+      # dizinden kosturur (tools/package.sh eklenti_sinamalari). SwiftShader
+      # kurulu (yukarida), yani Linux/macOS ile ayni tam kosu: 60 kare, hata
+      # 0, HUD fontu paketten. tulpar yoksa KIRMIZI. (release.yml'in Windows
+      # isinde ICD kurulmuyor; orada gpusuz kip.)
       - name: Ciktilari topla (+ MinGW DLL'leri)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
           TULPAR_PAKET_PLATFORM: windows-x86_64
-          TULPAR_PAKET_KOSU: gpusuz
+          TULPAR_PAKET_KOSU: zorunlu
         run: bash tools/package.sh yapi dagitim
 
       - name: Ciktilari yukle
