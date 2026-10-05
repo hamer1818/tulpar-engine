@@ -655,10 +655,17 @@ int g_bellek_ilk = 0;
 int g_bellek_son = 0;
 int g_bellek_son_kare = 0;
 
+// TULPAR_AKSIYON_BELLEK_IZ=N: her N karede "[iz] bellek k=<kare> rss=<KB>" —
+// egrinin SEKLI (dogrusal sizinti mi, sinirli surucu isinmasi mi) iki uctaki
+// iki olcumden okunamaz. Olcum araci; kapiya girmez.
+int BELLEK_IZ = 0;
+if (len(env("TULPAR_AKSIYON_BELLEK_IZ")) > 0) { BELLEK_IZ = toInt(env("TULPAR_AKSIYON_BELLEK_IZ")); }
+
 func bellek_ornekle() {
     int k = kare_no();
     if (k == BELLEK_ILK_KARE) { g_bellek_ilk = bellek_kb(); }
     if (k >= BELLEK_ILK_KARE) { g_bellek_son = bellek_kb(); g_bellek_son_kare = k; }
+    if (BELLEK_IZ > 0 && k % BELLEK_IZ == 0) { print(t"[iz] bellek k={k} rss={bellek_kb()}"); }
 }
 
 // Menüyü BETİK geçer: köprüye tek karelik bas+bırak enjekte edilir, widget
