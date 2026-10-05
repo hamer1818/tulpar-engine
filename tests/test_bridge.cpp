@@ -23,8 +23,9 @@
 //                   ebeveynli nokta donussuzden farkli, eksik ozellik hata SAYMAZ,
 //                   tur uyusmazligi / ad kurali / sinir disi sayar, AllocGate 0.
 //
-// Tek surecte tek motor ornegi var (global baglam): bu dosya init/shutdown'u
-// BIR kez yapar ve tum kapilar o oturumun icinde kosar.
+// Tek surecte tek motor ornegi var (global baglam): kapilar BIR oturumun icinde
+// kosar. Kapanistan sonra ayni surecte yeni oturum kurulabilir (Tuzaklar 8ct);
+// onu sondaki bridge_second_session_in_same_process_starts_clean olcer.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -1888,8 +1889,8 @@ ENGINE_TEST(bridge_failed_init_without_icd_leaves_no_residue) {
   setenv("VK_ICD_FILENAMES", yok, 1);
   // Gizleme GERCEKTEN tuttu mu? Motor kurulmadan ham bir vkCreateInstance ile
   // sorulur: tutmadiysa kurulum basarir ve bu kapi olculmek istenen yolu degil,
-  // basarili bir ikinci oturumu kostururdu (8cq'nun acik kalan sinifi: basarili
-  // oturumdan sonra ikinci basarili kurulum cokuyor). Windows'ta YONETICI surec
+  // basarili bir ikinci oturumu kostururdu (o yolu ayrica
+  // bridge_second_session_in_same_process_starts_clean olcer, 8ct). Windows'ta YONETICI surec
   // bu degiskenleri YOK SAYAR (CI windows-latest, lavapipe kayit defterinden;
   // olculdu 2026-10-05) — orada bu yol yalniz yonetici olmayan surecte olculur.
   {
@@ -1921,6 +1922,169 @@ ENGINE_TEST(bridge_failed_init_without_icd_leaves_no_residue) {
   unsetenv("VK_DRIVER_FILES");
   unsetenv("VK_ICD_FILENAMES");
   if (!olculdu) skip("ICD gizlenemedi (yukleyici VK_DRIVER_FILES'i yok sayiyor; dogrudan MoltenVK?) — kurulum basarili oldu, yol olculmedi");
+}
+
+// --- Ayni surecte IKINCI (ve N.) basarili oturum (Tuzaklar 8ct) ---------------
+// teng_init -> kareler -> teng_shutdown, ayni surecte tekrar tekrar. Eskiden
+// kapanis yalniz `inited = false` diyordu: 512 MB arena rezervi, profiler ve
+// Bridge'in butun alanlari (varliklar, sahne, betik havuzlari, sayaclar) kaliyor,
+// ikinci teng_init eskisinin ustune yeni arena rezerv ediyor ve bayat
+// tablolarla kuruluyordu (CI macOS 2026-10-05: ikinci oturum SIGSEGV).
+// Olculen, her oturumda: taze baslangic (varlik 0, kare 0), sahne gercekten
+// ciziliyor (bos kareyle piksel farki) ve ILK oturumun karesiyle AYNI (ayni
+// sahne + ayni kare sayisi; bayat durum farki gosterirdi), onceki oturumun
+// id'si yeni oturumda olu (nesil korunuyor), hata sayaci artmiyor. Isinma
+// oturumundan sonra N oturum: sanal boyut, RSS, thread sayisi ve kapanista
+// canli Vulkan nesnesi (teng_vk_live) BUYUMUYOR.
+// POZITIF KONTROL (RTX 5080 / Linux, 2026-10-05): duzeltmesiz kopru ->
+// ikinci oturumda 5 kontrol KIRMIZI (varlik 3, kare 32, eski id CANLI, cizim
+// sayisi yanlis) ve ikinci kapanis SIGSEGV.
+// Bu, editorun F5'i DEGIL: F5 oyunu her seferinde AYRI SURECTE baslatir
+// (app/editor_game.hpp). Bu yol: oyunun "motoru kapat / yeniden ac" akisi
+// (ayar degisince yeniden kurulum, Android'de surec canliyken etkinlik yeniden
+// yaratilinca android_main'in yeniden cagrilmasi).
+namespace {
+constexpr int kOturumKare = 30;
+alignas(16) uint8_t g_ilk_sahne[kW * kH * 3];
+alignas(16) uint8_t g_oturum_bos[kW * kH * 3];
+alignas(16) uint8_t g_oturum_sahne[kW * kH * 3];
+struct OturumOlcu {
+  bool kuruldu = false;
+  int vk_canli = -1;           // kapanistan sonra teng_vk_live
+  uint32_t sahne_bos_fark = 0; // sahne karesi - bos kare (piksel)
+  uint32_t ilk_fark = 0;       // sahne karesi - ilk oturumun sahne karesi
+  int kutu = 0;                // bu oturumun kutu id'si
+  bool sanal_gpu = false;      // test::gpu_is_virtual (kurulu iken okunur)
+};
+// tur 0: ilk oturum (sahne karesi g_ilk_sahne'ye). `onceki_kutu`: bir onceki
+// oturumun id'si — bu oturumda OLU olmali.
+OturumOlcu oturum_kos(int tur, int onceki_kutu, const char *yol_bos, const char *yol_sahne) {
+  OturumOlcu o;
+  teng_set_headless(100000, nullptr); // ayarlar oturuma tasinmaz: her kurulumdan ONCE
+  if (!teng_init("ikinci oturum", kW, kH)) return o;
+  o.kuruldu = true;
+  o.sanal_gpu = test::gpu_is_virtual(teng_gpu_name());
+  CHECK(teng_running() == 1);
+  CHECK(teng_count() == 0); // onceki oturumun varliklari yok
+  CHECK(teng_frame() == 0); // sayaclar sifirdan
+  CHECK(teng_scene_count() == 0);
+  teng_camera(0, 4, 10, 0, 0.5, 0);
+  run_frames(2);
+  CHECK(teng_screenshot(yol_bos) == 1);
+  const int zemin = teng_spawn_ground(8.0, 0xCED4DAFF);
+  o.kutu = teng_spawn_box(0, 2.0, 0, 0.5, 0.5, 0.5, 1, 0xE63946FF);
+  const int isik = teng_spawn_light(0, 3, 2, 0xF77F00FF, 3.0, 8.0);
+  CHECK(zemin > 0 && o.kutu > 0 && isik > 0);
+  CHECK(teng_count() == 3);
+  if (onceki_kutu) {
+    CHECK(teng_alive(onceki_kutu) == 0); // ayni yuva, yeni nesil: eski id ona DENK GELMEZ
+    CHECK(o.kutu != onceki_kutu);
+  }
+  run_frames(kOturumKare);
+  CHECK(teng_draw_count() == 2); // zemin + kutu
+  CHECK(teng_screenshot(yol_sahne) == 1);
+  teng_shutdown();
+  CHECK(teng_running() == 0);
+  o.vk_canli = teng_vk_live();
+  uint32_t w = 0, h = 0;
+  const uint32_t nb = read_ppm(yol_bos, g_oturum_bos, kW * kH, &w, &h);
+  uint8_t *hedef = tur == 0 ? g_ilk_sahne : g_oturum_sahne;
+  const uint32_t ns = read_ppm(yol_sahne, hedef, kW * kH, &w, &h);
+  CHECK(nb == kW * kH && ns == kW * kH);
+  if (nb == kW * kH && ns == kW * kH) {
+    o.sahne_bos_fark = diff_px(hedef, g_oturum_bos, ns);
+    o.ilk_fark = tur == 0 ? 0 : diff_px(hedef, g_ilk_sahne, ns);
+  }
+  return o;
+}
+} // namespace
+
+ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  char yol_bos[512], yol_sahne[512];
+  tmp_template(yol_bos, sizeof yol_bos, "oturum_bos");
+  tmp_template(yol_sahne, sizeof yol_sahne, "oturum_sahne");
+  char *yollar[2] = {yol_bos, yol_sahne};
+  for (int i = 0; i < 2; i++) { const int fd = mkstemp(yollar[i]); if (fd >= 0) close(fd); }
+  teng_log_level(1);
+  const int err0 = teng_error_count();
+  // Isinma: surec basina bir kez olan seyler (surucunun ilk yuklenisi,
+  // shader/PSO onbellegi, cokme raporlayicisi) olcumun disinda kalsin.
+  const OturumOlcu ilk = oturum_kos(0, 0, yol_bos, yol_sahne);
+  if (!ilk.kuruldu) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  // Oturum basina ARTIS olculur, uc fark degil (Tuzaklar 8cs dersi): olculdu
+  // RTX 5080 / Linux, 2026-10-05, 10 ek oturum — ikinci oturumda TEK SEFERLIK
+  // ~+19-21 MB RSS ve +86..150 MB sanal (glibc ana yigininin tepe noktasi:
+  // mallinfo2 "kullanimda" 0,76 -> 0,88 MB, "arena" 17 -> 40 MB; bosaltilan ama
+  // sisteme geri verilmeyen yigin), sonra duz (0-4 KB/oturum); sanal boyutta
+  // ara sira +64 MB basamak (glibc'nin thread basina malloc arenasi rezervi;
+  // RSS'e yansimiyor). CI ubuntu lavapipe (ayni gun): oturum basina +1,2..2,9 MB
+  // RSS SURUYOR (canli vk sabit 4; ayni kod RTX 5080'de 0-4 KB, MoltenVK'de
+  // 80-272 KB — surucu davranisi, olculur ve basilir, iddia edilmez).
+  // Kacak sinifi ise HER oturumda artar: arena +512 MB sanal, worker'lar
+  // cekirdek-1 thread. Olcu bu yuzden oturum artislarinin EN KUCUGU (tek
+  // seferlik ya da ara sira basamaklar onu oynatmaz): en kucuk sanal artis
+  // < 256 MB, en kucuk RSS artisi < 4 MB, thread toplami < kN.
+  // Esiklerin pozitif kontrolu (RTX 5080, 2026-10-05): teste oturum basina
+  // 512 MB'lik kacak rezerv enjekte edilince her oturum +512..576 MB -> KIRMIZI.
+  constexpr int kN = 5;
+  SurecOlcumu onceki_olcu = surec_olc();
+  const SurecOlcumu a = onceki_olcu;
+  int onceki = ilk.kutu, vk_esit = 1;
+  long long sanal_max = 0, rss_max = 0, sanal_min = 1ll << 62, rss_min = 1ll << 62;
+  uint32_t ilk_fark_max = 0, sahne_bos_min = ilk.sahne_bos_fark;
+  bool hepsi_kuruldu = true;
+  for (int i = 0; i < kN; i++) {
+    const OturumOlcu o = oturum_kos(i + 1, onceki, yol_bos, yol_sahne);
+    if (!o.kuruldu) {
+      std::printf("    [bilgi] oturum %d KURULAMADI: %s\n", i + 2, teng_last_error());
+      hepsi_kuruldu = false;
+      break;
+    }
+    onceki = o.kutu;
+    if (o.vk_canli != ilk.vk_canli) vk_esit = 0;
+    ilk_fark_max = std::max(ilk_fark_max, o.ilk_fark);
+    sahne_bos_min = std::min(sahne_bos_min, o.sahne_bos_fark);
+    const SurecOlcumu m = surec_olc();
+    const long long ds = (long long)m.sanal - (long long)onceki_olcu.sanal, dr = (long long)m.rss - (long long)onceki_olcu.rss;
+    onceki_olcu = m;
+    sanal_min = std::min(sanal_min, ds);
+    rss_min = std::min(rss_min, dr);
+    sanal_max = std::max(sanal_max, ds);
+    rss_max = std::max(rss_max, dr);
+    std::printf("    [bilgi] oturum %d: sahne-bos %u px, ilk oturumdan fark %u px, kapanista canli vk %d; RSS %+lld KB, sanal %+lld MB, thread %u\n",
+                i + 2, o.sahne_bos_fark, o.ilk_fark, o.vk_canli, dr / 1024, ds / (1024 * 1024), m.thread);
+  }
+  const SurecOlcumu b = surec_olc();
+  const int d_thread = (int)b.thread - (int)a.thread;
+  std::printf("    [bilgi] %d ek oturum (isinmadan sonra): RSS %zu -> %zu KB, sanal %zu -> %zu MB, thread %u -> %u (%+d); oturum basina RSS "
+              "%+lld..%+lld KB, sanal %+lld..%+lld MB (en kucuk..en buyuk); kapanista canli vk %d (hepsi esit %d)\n",
+              kN, a.rss / 1024, b.rss / 1024, a.sanal >> 20, b.sanal >> 20, a.thread, b.thread, d_thread, rss_min / 1024, rss_max / 1024,
+              sanal_min / (1024 * 1024), sanal_max / (1024 * 1024), ilk.vk_canli, vk_esit);
+  std::remove(yol_bos);
+  std::remove(yol_sahne);
+  CHECK(hepsi_kuruldu);
+  CHECK(teng_error_count() == err0);
+  // Sahne gercekten cizildi (her oturumda) ve ilk oturumla ayni kare. Olculdu
+  // RTX 5080 2026-10-05: sahne-bos 37402 px, ilk oturumdan fark 0 px; bayat
+  // durumla (duzeltmesiz kod) ikinci oturum eski varliklari da cizer.
+  // Sanal GPU'da (Apple Paravirtual, CI macOS) PIKSEL blogu atlanir — olculdu
+  // CI macos-latest 2026-10-05: sahne-bos 0 px (dosyanin diger piksel
+  // kapilariyla ayni sinif); taze durum, olu id, vk ve surec kapilari orada da kosar.
+  if (ilk.sanal_gpu) {
+    skip("sanal GPU (Apple Paravirtual, CI macOS): ikinci oturumun PIKSEL blogu gercek cihazda olculur");
+  } else {
+    CHECK(sahne_bos_min > 500);
+    CHECK(ilk_fark_max <= 64);
+  }
+  // Vulkan: kapanista cihazin yalniz kendi nesneleri; oturumdan oturuma ayni.
+  CHECK(ilk.vk_canli >= 0);
+  CHECK(vk_esit == 1);
+  CHECK(a.rss > 0 && a.sanal > 0 && a.thread > 0);
+  CHECK(sanal_min < 256ll * 1024 * 1024);
+  CHECK(rss_min < 4ll * 1024 * 1024);
+  CHECK(d_thread < kN);
 }
 
 // --- Tulpar yerel eklenti bildiriminin ABI kilidi (K303) ----------------------

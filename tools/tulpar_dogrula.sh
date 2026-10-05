@@ -264,6 +264,13 @@ if [ "$tam" = 1 ] && [ "$gpu" = 0 ]; then
   else
     dus "engine_bridge.test.tpr (GPU'suz): rc=$rc '$ozet', kurulum atlama satiri yok"; tail -8 "$gun/kopru.log" >&2
   fi
+  kos "$gun/iki_oturum.log" "$tul" --ext "$ext" tests/engine_iki_oturum.test.tpr; rc=$?
+  if [ $rc -eq 0 ] && grep -q '^ *ATLANDI: motor kurulamadi' "$gun/iki_oturum.log"; then
+    gec "engine_iki_oturum.test.tpr derlendi + linklendi + kostu (rc=0)"
+    atla "engine_iki_oturum.test.tpr: ayni surecte 5 oturum — $(grep -m1 '^ *ATLANDI: motor kurulamadi' "$gun/iki_oturum.log" | sed 's/^ *ATLANDI: //')"
+  else
+    dus "engine_iki_oturum.test.tpr (GPU'suz): rc=$rc, kurulum atlama satiri yok"; tail -8 "$gun/iki_oturum.log" >&2
+  fi
   for o in engine_arena engine_karakter engine_kanca_olcumu engine_taban_bellek engine_betik_dagitimi; do
     gpusuz_kos "$o" "60 karelik kosum"
   done
@@ -311,6 +318,20 @@ elif [ "$tam" = 1 ]; then
     gec "engine_bridge.test.tpr: $ozet"
   else
     dus "engine_bridge.test.tpr: rc=$rc '$ozet'"; tail -8 "$gun/kopru.log" >&2
+  fi
+  # Ayni surecte motor_ac -> motor_kapat x5 (Tuzaklar 8ct): taze durum, olu
+  # eski id, oturum basina RSS/sanal/thread/vk nesne artisi. Duzeltmesiz
+  # koprude ikinci kapanis SIGSEGV (rc 139, ozet yok) -> burada DUSTU.
+  kos "$gun/iki_oturum.log" "$tul" --ext "$ext" tests/engine_iki_oturum.test.tpr; rc=$?
+  ozet="$(grep -m1 '^Tests:' "$gun/iki_oturum.log")"
+  toplam="$(echo "$ozet" | sed -n 's/^Tests: \([0-9]*\).*/\1/p')"
+  # Tests: 0 = kurulum dustu ve test HIC kosmadi (GPU varken) -> yesil DEGIL.
+  if [ $rc -eq 0 ] && echo "$ozet" | grep -q 'Fail: 0' && [ -n "$toplam" ] && [ "$toplam" -gt 0 ] \
+     && [ "$toplam" = "$(echo "$ozet" | sed -n 's/.*Pass: \([0-9]*\).*/\1/p')" ]; then
+    gec "engine_iki_oturum.test.tpr: $ozet"
+    grep '\[bilgi\] 4 ek oturum' "$gun/iki_oturum.log" | sed 's/^ */    /'
+  else
+    dus "engine_iki_oturum.test.tpr: rc=$rc '$ozet'"; grep -E '\[bilgi\]|FAIL|ATLANDI' "$gun/iki_oturum.log" | tail -10 >&2
   fi
   # engine_taban_bellek /proc/self/smaps dokumlerini CALISMA DIZININE (tulpar/)
   # yazar (elle olcum icin; taban_bellek.py okur). Dogrulama kosusu agacta iz
