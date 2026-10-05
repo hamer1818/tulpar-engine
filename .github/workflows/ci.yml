@@ -952,39 +952,47 @@ jobs:
       # VK_ERROR_INCOMPATIBLE_DRIVER ve bu yuzden butun GPU kapilari, Tulpar
       # oyunlarinin kare dongusu, [kapi] satirlari Windows'ta HIC olculmuyordu.
       # MSYS2'nin mesa paketi lavapipe'i tasiyor (bin/vulkan_lvp.dll +
-      # share/vulkan/icd.d/lvp_icd.x86_64.json); ama manifest loader'in
-      # Windows'ta aradigi yerde (kayit defteri) DEGIL. Loader'a dogrudan
-      # gosteriyoruz: VK_DRIVER_FILES (yeni loader), VK_ICD_FILENAMES (eski
-      # loader). Dogrulama katmani ayni sekilde: VK_ADD_LAYER_PATH (manifest
-      # /mingw64/bin'de). Yollar WINDOWS bicimi (cygpath -w): loader MSYS2
-      # yolunu tanimaz. GITHUB_ENV ile sonraki BUTUN adimlara gecer.
+      # share/vulkan/icd.d/lvp_icd.x86_64.json).
+      #
+      # NEDEN KAYIT DEFTERI, ORTAM DEGISKENI DEGIL (olculdu 2026-10-05, ilk
+      # deneme): runner sureci YONETICI (elevated) ve Windows loader'i
+      # yonetici surecte VK_DRIVER_FILES / VK_ICD_FILENAMES / VK_ADD_LAYER_PATH
+      # / VK_LAYER_PATH'i YOK SAYAR (VK_LOADER_DEBUG: "Searching for driver
+      # manifest files / In following locations: / Found no files", yalniz
+      # HKLM taraniyor). Bu yuzden ICD ve dogrulama katmani loader'in kendi
+      # kayit noktalarina yazilir: HKLM\SOFTWARE\Khronos\Vulkan\Drivers ve
+      # \ExplicitLayers (deger adi = manifest'in Windows yolu, DWORD 0 = etkin).
+      # reg.exe'ye MSYS2 yol cevirisi dokunmasin: MSYS2_ARG_CONV_EXCL='*'
+      # (yoksa /v /t /d bayraklari yol sanilir). Katman manifest'inin yolu
+      # GITHUB_ENV'e yazilir: katman gizleme pozitif kontrolu onu siler/geri
+      # koyar.
       - name: Yazilim Vulkan ICD'si (lavapipe) + dogrulama katmani gercekten var mi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           icd=/mingw64/share/vulkan/icd.d/lvp_icd.x86_64.json
-          if [ ! -f "$icd" ] || [ ! -f /mingw64/bin/vulkan_lvp.dll ]; then
-            echo "::error::mingw-w64-x86_64-mesa lavapipe'i tasimiyor (beklenen $icd + bin/vulkan_lvp.dll)."
-            pacman -Ql mingw-w64-x86_64-mesa | grep -iE 'vulkan|icd' || true
+          katman=/mingw64/bin/VkLayer_khronos_validation.json
+          if [ ! -f "$icd" ] || [ ! -f /mingw64/bin/vulkan_lvp.dll ] || [ ! -f "$katman" ]; then
+            echo "::error::mingw-w64-x86_64-mesa / -vulkan-validation-layers beklenen dosyalari tasimiyor ($icd, bin/vulkan_lvp.dll, $katman)."
+            pacman -Ql mingw-w64-x86_64-mesa mingw-w64-x86_64-vulkan-validation-layers | grep -iE 'vulkan|icd|VkLayer' || true
             exit 1
           fi
           tr -d '\r' <"$icd"
-          {
-            echo "VK_DRIVER_FILES=$(cygpath -w "$icd")"
-            echo "VK_ICD_FILENAMES=$(cygpath -w "$icd")"
-            echo "VK_ADD_LAYER_PATH=$(cygpath -w /mingw64/bin)"
-          } >> "$GITHUB_ENV"
-          export VK_DRIVER_FILES="$(cygpath -w "$icd")" VK_ICD_FILENAMES="$(cygpath -w "$icd")" VK_ADD_LAYER_PATH="$(cygpath -w /mingw64/bin)"
+          icd_w="$(cygpath -w "$icd")"; katman_w="$(cygpath -w "$katman")"
+          export MSYS2_ARG_CONV_EXCL='*'
+          reg add 'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' /v "$icd_w" /t REG_DWORD /d 0 /f || { echo "::error::ICD kayit defterine yazilamadi"; exit 1; }
+          reg add 'HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers' /v "$katman_w" /t REG_DWORD /d 0 /f || { echo "::error::katman kayit defterine yazilamadi"; exit 1; }
+          reg query 'HKLM\SOFTWARE\Khronos\Vulkan' /s
+          echo "TULPAR_VK_KATMAN_KAYDI=$katman_w" >> "$GITHUB_ENV"
+          unset MSYS2_ARG_CONV_EXCL
           # MSYS2'de vulkaninfo YOK (mingw-w64-x86_64-vulkan-tools paketi
           # bulunamadi, olculdu 2026-10-05). Ayni olcumu motordan BAGIMSIZ
           # sonda yapar (tools/vk_sonda.py, ctypes): katman listesi, instance,
-          # cihaz adi. Cikis 2 = instance kurulamadi (ICD yok), 1 = llvmpipe ya
-          # da dogrulama katmani loader'a gorunmuyor.
-          if ! python3 tools/vk_sonda.py --cihaz llvmpipe --katman VK_LAYER_KHRONOS_validation 2>&1 | tr -d '\r' | tee vk_sonda.log; then :; fi
+          # cihaz adi.
+          python3 tools/vk_sonda.py --cihaz llvmpipe --katman VK_LAYER_KHRONOS_validation 2>&1 | tr -d '\r' | tee vk_sonda.log || true
           if ! grep -qi 'cihaz 0: llvmpipe' vk_sonda.log || grep -q 'EKSIK' vk_sonda.log; then
-            echo "::error::Loader lavapipe'i ya da dogrulama katmanini gormuyor (VK_DRIVER_FILES=$VK_DRIVER_FILES, VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH)."
+            echo "::error::Loader lavapipe'i ya da dogrulama katmanini gormuyor (kayit defteri yazildi ama yuklenmedi)."
             VK_LOADER_DEBUG=error,warn,driver,layer python3 tools/vk_sonda.py 2>&1 | tr -d '\r' | tail -40 || true
-            ls -la /mingw64/bin/vulkan_lvp.dll /mingw64/bin/VkLayer_khronos_validation.* 2>&1 || true
             exit 1
           fi
 
@@ -1056,14 +1064,21 @@ jobs:
           fi
           echo "Pozitif kontrol tamam: $n atlama satiri uretildi."
 
+      # Katman GIZLEME: yonetici surecte VK_LAYER_PATH yok sayildigi icin (bkz.
+      # surucu adimi) Linux'taki "bos dizine yonlendir" yolu burada bir sey
+      # gizlemez. Kayit girdisi kontrol suresince SILINIR ve trap ile geri
+      # konur; geri konmazsa asagidaki test adimi katman kapilarini atlar ve
+      # KIRMIZI olur (yani unutulan bir geri koyma da gorunur).
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
-          bos="$(cygpath -w "$(cygpath -u "$RUNNER_TEMP")/bos_katman_dizini")"
-          mkdir -p "$(cygpath -u "$bos")"
-          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests.exe mali_best_practices 2>&1 | tr -d '\r' > katman_kontrol.log || true
-          VK_LAYER_PATH="$bos" VK_ADD_LAYER_PATH="$bos" ./yapi/engine_tests.exe validation_layer 2>&1 | tr -d '\r' >> katman_kontrol.log || true
+          anahtar='HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers'
+          geri() { MSYS2_ARG_CONV_EXCL='*' reg add "$anahtar" /v "$TULPAR_VK_KATMAN_KAYDI" /t REG_DWORD /d 0 /f >/dev/null; }
+          trap geri EXIT
+          MSYS2_ARG_CONV_EXCL='*' reg delete "$anahtar" /v "$TULPAR_VK_KATMAN_KAYDI" /f || { echo "::error::katman kaydi silinemedi"; exit 1; }
+          ./yapi/engine_tests.exe mali_best_practices 2>&1 | tr -d '\r' > katman_kontrol.log || true
+          ./yapi/engine_tests.exe validation_layer 2>&1 | tr -d '\r' >> katman_kontrol.log || true
           n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
           if [ "$n" -lt 5 ]; then
             echo "::error::Pozitif kontrol basarisiz: katman GIZLIYKEN beklenen 5 atlama satirindan yalnizca $n basildi."
@@ -1071,6 +1086,8 @@ jobs:
             exit 1
           fi
           echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
+          geri && trap - EXIT
+          python3 tools/vk_sonda.py --katman VK_LAYER_KHRONOS_validation | tr -d '\r' | tail -1
 
       # Lavapipe (MSYS2 mesa) KURULU: GPU kapilari Windows'ta da KOSAR
       # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
@@ -1130,7 +1147,7 @@ jobs:
           vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
           if [ -n "$vulkan_atlama" ]; then
             echo "$vulkan_atlama"
-            echo "::error::Lavapipe kurulu oldugu halde Vulkan kapilari atlandi — ICD gelmemis (VK_DRIVER_FILES=$VK_DRIVER_FILES)."
+            echo "::error::Lavapipe kurulu (HKLM Khronos\\Vulkan\\Drivers) oldugu halde Vulkan kapilari atlandi — ICD gelmemis."
             exit 1
           fi
           katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
@@ -1149,8 +1166,8 @@ jobs:
       # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
       # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
-      # LAVAPIPE (2026-10-05): yukaridaki adim VK_DRIVER_FILES'i GITHUB_ENV'e
-      # yazdi, motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
+      # LAVAPIPE (2026-10-05): yukaridaki adim ICD'yi kayit defterine yazdi,
+      # motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
       # ile ayni bayraksiz kosum — duman, pozitif kontroller, dil sondalari,
       # GPU'suz kopru suite'i, engine_dalga / engine_aksiyon [kapi] satirlari
       # Linux'takiyle BAYT BAYT ayni olmak zorunda, engine_bridge.test.tpr,
