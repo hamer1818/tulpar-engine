@@ -865,6 +865,9 @@ jobs:
     name: Windows x86_64 (MSYS2 MINGW64)
     needs: detect-docs-only
     runs-on: windows-latest
+    # Olculdu 2026-10-05: uzun kapilar Linux/macOS'a birakilinca ~10 dk; 30 dk
+    # bir kilitlenmenin isi saatlerce tutmasini onler.
+    timeout-minutes: 30
     defaults:
       run:
         shell: msys2 {0}
@@ -1134,6 +1137,12 @@ jobs:
       # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
       # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
+      # --uzun-atla: dalga (2400) ve aksiyon (3200) kare kapilari Windows'ta
+      # KOSMAZ, ATLANDI diye sayilir. Olculdu (2026-10-05, SwiftShader ~210
+      # ms/kare): ikisi bu adimin 26 dakikasinin 24'u; ayni satirlar o gun
+      # burada Linux'la bayt bayt ayni cikti ve her kosumda Linux/macOS'ta
+      # olculuyor. Kalan: duman, pozitif kontroller, dil sondalari, GPU'suz
+      # suite, kopru testi (27), 6 ornek x 60 kare.
       # SWIFTSHADER (2026-10-05): yukaridaki adim ICD'yi kayit defterine yazdi,
       # motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
       # ile ayni bayraksiz kosum — duman, pozitif kontroller, dil sondalari,
@@ -1150,7 +1159,7 @@ jobs:
           bash tools/tulpar_indir.sh "$d" || exit 1
           clang++ --version | head -1
 
-          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam 2>&1 | tee tulpar.log
+          bash tools/tulpar_dogrula.sh --tulpar "$d/tulpar.exe" --tam --uzun-atla 2>&1 | tee tulpar.log
           kod=${PIPESTATUS[0]}
           ozet="$(grep -E '^tulpar dogrulama: ' tulpar.log | tail -1 || true)"
           {

@@ -6,6 +6,12 @@
 #   tools/tulpar_dogrula.sh --tulpar /yol/tulpar --eklenti /yol/tulpar-ext
 #   tools/tulpar_dogrula.sh --tam              + taban cizgisi kapilari (dalga,
 #                                              aksiyon, kopru testi, 6 ornek)
+#   tools/tulpar_dogrula.sh --uzun-atla        --tam'in uzun taban cizgisi
+#                                              kapilari (dalga 2400, aksiyon 3200
+#                                              kare) KOSMAZ: "ATLANDI: <sebep>"
+#                                              basilir ve SAYILIR (Windows CI:
+#                                              yazilim ICD'sinde ~24 dk; ayni
+#                                              satirlar Linux/macOS'ta olculur)
 #   tools/tulpar_dogrula.sh --gpusuz-izinli    motor kurulamazsa (Vulkan/GPU
 #                                              yok) GPU isteyen kapilar DUSMEZ:
 #                                              "ATLANDI: <sebep>" basilir ve
@@ -44,13 +50,14 @@ iyi()   { printf "${Y}✓${N} %s\n" "$*"; }
 hata()  { printf "${K}✗${N} %s\n" "$*" >&2; }
 
 kok="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-tul="${TULPAR:-}"; ext="$kok/yapi/tulpar-ext"; tam=0; gpusuz_izinli=0
+tul="${TULPAR:-}"; ext="$kok/yapi/tulpar-ext"; tam=0; gpusuz_izinli=0; uzun_atla=0
 while [ $# -gt 0 ]; do case "$1" in
   --tulpar) [ $# -ge 2 ] || { hata "--tulpar bir yol ister"; exit 2; }; tul="$2"; shift ;;
   --eklenti) [ $# -ge 2 ] || { hata "--eklenti bir dizin ister"; exit 2; }; ext="$2"; shift ;;
   --tam) tam=1 ;;
   --gpusuz-izinli) gpusuz_izinli=1 ;;
-  -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  --uzun-atla) uzun_atla=1 ;;
+  -h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) hata "bilinmeyen secenek: $1 (--help)"; exit 2 ;;
 esac; shift; done
 
@@ -268,26 +275,35 @@ elif [ "$tam" = 1 ]; then
     if [ $rc -eq 0 ] && [ "$satir" = "$3" ]; then gec "$1 ($2 kare): $satir"
     else dus "$1: rc=$rc, kapi satiri '$satir' (beklenen '$3')"; tail -8 "$gun/$1.log" >&2; fi
   }
-  kapi engine_dalga 2400 "[kapi] kare=972 dalga=4 dogan=28 tuzakta=25 carpan=3 kalan=0 bagli=4 can=7 hata=0"
-  # Aksiyonun RSS bellek kapisi aralik artislarinin ALT CEYREGIYLE olcer (ornek
-  # tulpar/examples/engine_aksiyon.tpr, 2026-10-05): llvmpipe'ta (CI mesa 25.2.8)
-  # her kosumda bir kez ~27 MB'lik bir surucu BASAMAGI olusuyor ve zamani
-  # rastgele (k1200..k6000); uc farki basamak pencereye dusunce kirmiziydi,
-  # alt ceyrek basamaga dayanikli (14 normal kosumda 0). Bu yuzden eskiden llvmpipe'a ozgu olan ikinci
-  # (4600 karelik, k2400'den sonra) kosum KALKTI: tek kosum, her yerde ayni kapi.
-  kapi engine_aksiyon 3200 "[kapi] kare=3200 bolum=2 gecis=1 oldurulen=10 kalan_dusman=0 can=8 skor=1000 durum=3 navmesh=true dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
-  grep -q '^\[kapi\] TAMAM' "$gun/engine_aksiyon.log" && gec "engine_aksiyon: [kapi] TAMAM" || dus "engine_aksiyon: [kapi] TAMAM yok"
-  grep -m1 '^\[kapi\] bellek' "$gun/engine_aksiyon.log" | sed 's/^/    /'
-  # POZITIF KONTROL — bellek kapisi bir sey olcuyor mu? Bilinen hizda ENJEKTE
-  # sizinti (2 KB/kare = ~2000 KB/1000 kare, sinirin ~3 kati): kapi KIRMIZI
-  # olmali ve sebebi "bellek buyuyor: alt ceyrek" demeli. Olculdu 2026-10-05:
-  # llvmpipe (CI) Q1 1140, RTX 5080 Q1 1240 (artan 9/11); 1 KB/kare'yi
-  # yiginin bos alani yutuyor (medyan 20) — RSS'in cozunurlugu bu.
-  kos "$gun/aksiyon_sizinti.log" env TULPAR_AKSIYON_SIZINTI_B=2048 TULPAR_ENGINE_HEADLESS=3200 "$tul" --ext "$ext" examples/engine_aksiyon.tpr; rc=$?
-  if [ $rc -ne 0 ] && grep -q '^\[kapi\] BASARISIZ: bellek buyuyor: alt ceyrek' "$gun/aksiyon_sizinti.log"; then
-    gec "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda yakalandi: $(grep -m1 '^\[kapi\] bellek' "$gun/aksiyon_sizinti.log" | sed 's/^\[kapi\] bellek: //; s/, kare bellegi.*//')"
+  if [ "$uzun_atla" = 1 ]; then
+    # Bilincli secim (2026-10-05, olculdu CI windows-latest SwiftShader): dalga
+    # 2400 kare ~4,3 dk, aksiyon 3200 kare ~20 dk (p50 ~210 ms/kare). Ayni iki
+    # satir o tarihte orada Linux'la BAYT BAYT ayni cikti; her kosumda Linux
+    # (lavapipe) ve macOS (MoltenVK) olcer. Burada olculmedikleri GORUNUR.
+    atla "engine_dalga (2400 kare) [kapi] satiri — uzun taban cizgisi, Linux/macOS'ta olculur (--uzun-atla)"
+    atla "engine_aksiyon (3200 kare) [kapi] satiri + bellek kapisi + pozitif kontrolu — uzun taban cizgisi, Linux/macOS'ta olculur (--uzun-atla)"
   else
-    dus "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda YAKALANMADI (rc=$rc) — kapi bir sey olcmuyor"; grep '^\[kapi\]' "$gun/aksiyon_sizinti.log" | tail -6 >&2
+    kapi engine_dalga 2400 "[kapi] kare=972 dalga=4 dogan=28 tuzakta=25 carpan=3 kalan=0 bagli=4 can=7 hata=0"
+    # Aksiyonun RSS bellek kapisi aralik artislarinin ALT CEYREGIYLE olcer (ornek
+    # tulpar/examples/engine_aksiyon.tpr, 2026-10-05): llvmpipe'ta (CI mesa 25.2.8)
+    # her kosumda bir kez ~27 MB'lik bir surucu BASAMAGI olusuyor ve zamani
+    # rastgele (k1200..k6000); uc farki basamak pencereye dusunce kirmiziydi,
+    # alt ceyrek basamaga dayanikli (14 normal kosumda 0). Bu yuzden eskiden llvmpipe'a ozgu olan ikinci
+    # (4600 karelik, k2400'den sonra) kosum KALKTI: tek kosum, her yerde ayni kapi.
+    kapi engine_aksiyon 3200 "[kapi] kare=3200 bolum=2 gecis=1 oldurulen=10 kalan_dusman=0 can=8 skor=1000 durum=3 navmesh=true dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
+    grep -q '^\[kapi\] TAMAM' "$gun/engine_aksiyon.log" && gec "engine_aksiyon: [kapi] TAMAM" || dus "engine_aksiyon: [kapi] TAMAM yok"
+    grep -m1 '^\[kapi\] bellek' "$gun/engine_aksiyon.log" | sed 's/^/    /'
+    # POZITIF KONTROL — bellek kapisi bir sey olcuyor mu? Bilinen hizda ENJEKTE
+    # sizinti (2 KB/kare = ~2000 KB/1000 kare, sinirin ~3 kati): kapi KIRMIZI
+    # olmali ve sebebi "bellek buyuyor: alt ceyrek" demeli. Olculdu 2026-10-05:
+    # llvmpipe (CI) Q1 1140, RTX 5080 Q1 1240 (artan 9/11); 1 KB/kare'yi
+    # yiginin bos alani yutuyor (medyan 20) — RSS'in cozunurlugu bu.
+    kos "$gun/aksiyon_sizinti.log" env TULPAR_AKSIYON_SIZINTI_B=2048 TULPAR_ENGINE_HEADLESS=3200 "$tul" --ext "$ext" examples/engine_aksiyon.tpr; rc=$?
+    if [ $rc -ne 0 ] && grep -q '^\[kapi\] BASARISIZ: bellek buyuyor: alt ceyrek' "$gun/aksiyon_sizinti.log"; then
+      gec "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda yakalandi: $(grep -m1 '^\[kapi\] bellek' "$gun/aksiyon_sizinti.log" | sed 's/^\[kapi\] bellek: //; s/, kare bellegi.*//')"
+    else
+      dus "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda YAKALANMADI (rc=$rc) — kapi bir sey olcmuyor"; grep '^\[kapi\]' "$gun/aksiyon_sizinti.log" | tail -6 >&2
+    fi
   fi
   kos "$gun/kopru.log" "$tul" --ext "$ext" tests/engine_bridge.test.tpr; rc=$?
   ozet="$(grep -m1 '^Tests:' "$gun/kopru.log")"
