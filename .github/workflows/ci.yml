@@ -1093,9 +1093,26 @@ jobs:
       # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
       # isiyle ayni kural: "Vulkan ... yok" ya da "VK_LAYER_KHRONOS_validation
       # yok" gerekceli tek bir atlama isi KIRMIZI yapar. Sure is ozetine yazilir.
+      - name: GECICI teshis (lavapipe ile ilk Vulkan testi)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set +e
+          ./yapi/engine_tests.exe rhi_loader_and_device_caps > teshis.log 2>&1; echo "rc=$?"
+          tr -d '\r' < teshis.log | tail -40
+          VK_LOADER_DEBUG=error,warn,driver ./yapi/engine_tests.exe rhi_loader_and_device_caps > teshis2.log 2>&1; echo "rc2=$?"
+          tr -d '\r' < teshis2.log | tail -40
+          ldd /mingw64/bin/vulkan_lvp.dll | grep -vi windows | head -30
+          (cd /mingw64/bin && "$GITHUB_WORKSPACE/yapi/engine_tests.exe" rhi_loader_and_device_caps > "$GITHUB_WORKSPACE/teshis3.log" 2>&1; echo "rc3 (cwd mingw64/bin)=$?")
+          tr -d '\r' < teshis3.log | tail -20
+          exit 0
+
+      # `set +e`: msys2 kabugu `bash -e` ile kosar; engine_tests sifirdan
+      # farkli donunce (cokme) betik ozet teshisinden ONCE oluyordu ve log
+      # bos kaliyordu (olculdu 2026-10-05: cikis 127, tek satir cikti yok).
       - name: Testler + kapi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
+          set +e
           set -uo pipefail
           t0=$SECONDS
           ./yapi/engine_tests.exe 2>&1 | tr -d '\r' | tee sonuc.log
