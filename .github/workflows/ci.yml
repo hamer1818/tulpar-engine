@@ -1111,8 +1111,8 @@ jobs:
             tr -d '\r' < cdb.log | grep -vE '^ModLoad' | tail -70 > cdb_k.log; cat cdb_k.log
             base=$(objdump -p yapi/engine_tests.exe | awk '/^ImageBase/{print $2}')
             echo "ImageBase=$base"
-            for off in $(grep -oE 'engine_tests\+0x[0-9a-f]+' cdb_k.log | sed 's/.*+0x//' | head -30); do
-              printf '%s  ' "$off"; addr2line -f -C -e yapi/engine_tests.exe "$(printf '0x%x' $((0x$base + 0x$off)))" | head -1
+            for off in $(grep -oE 'image[0-9a-f_]+\+0x[0-9a-f]+' cdb_k.log | sed 's/.*+0x//' | head -30); do
+              printf '%s  ' "$off"; addr2line -f -C -e yapi/engine_tests.exe "$(printf '0x%x' $((0x$base + 0x$off - 1)))" | head -1
             done
           fi
           MSYS2_ARG_CONV_EXCL='*' reg delete "$ifeo" /f
