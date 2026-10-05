@@ -654,6 +654,21 @@ int BELLEK_SINIR_KB = 600;
 int g_bellek_ilk = 0;
 int g_bellek_son = 0;
 int g_bellek_son_kare = 0;
+// OLCU: iki uc arasindaki fark DEGIL, BELLEK_ARALIK karelik aralik artislarinin
+// MEDYANI (KB / 1000 kare). NEDEN (olculdu 2026-10-05, CI ubuntu-latest, mesa
+// 25.2.8 llvmpipe / LLVM 20.1.2, 8 paralel 6000 karelik kosum, her 200 karede
+// RSS): HER kosumda bir kez ayni buyuklukte (~26-28 MB, 173 -> 200 MB) bir
+// BASAMAK olusuyor, sonra egri DUZ — ama basamagin ZAMANI rastgele (k1200 ..
+// k6000). Uc farki basamak pencereye dustugunde kirmizi oluyordu (28 CI
+// kosumunda 3 kez: 2936 / 3583 / 4134 KB/1000; hepsi geceenlerle ayni platoda,
+// 194-195 MB, bitti). Ayni ikili yerelde mesa 26.2.4 llvmpipe'ta k400'den
+// sonra tamamen duz (149,4 MB). Basamak aralik sayisinin en cok 3-6'sini
+// kaplar; sizinti HER aralikta artar — medyan ikisini ayirir:
+//   pencere 2400->4600 (llvmpipe kosumu): 7 normal kosum medyan 0 (uc 0..12765),
+//   POZITIF KONTROL (TULPAR_KARE_BELLEK=0) medyan 940 (uc 11436) -> KIRMIZI.
+//   2400->6000: normal 0 (7/7), kontrol 950; artan aralik normal <= 8/18, kontrol 15/18.
+int BELLEK_ARALIK = 200;
+int[] g_bellek_orn = [];
 
 // TULPAR_AKSIYON_BELLEK_IZ=N: her N karede "[iz] bellek k=<kare> rss=<KB>" —
 // egrinin SEKLI (dogrusal sizinti mi, sinirli surucu isinmasi mi) iki uctaki
@@ -661,10 +676,54 @@ int g_bellek_son_kare = 0;
 int BELLEK_IZ = 0;
 if (len(env("TULPAR_AKSIYON_BELLEK_IZ")) > 0) { BELLEK_IZ = toInt(env("TULPAR_AKSIYON_BELLEK_IZ")); }
 
+// Aralik artislarinin medyani, KB / 1000 kare (ornek < 2 ise 0). Siralama
+// eklemeli (en cok ~30 ornek).
+func bellek_medyan_egim(): int {
+    int n = len(g_bellek_orn);
+    if (n < 2) { return 0; }
+    int[] d = [];
+    for (int i = 0; i + 1 < n; i++) { push(d, g_bellek_orn[i + 1] - g_bellek_orn[i]); }
+    int m = len(d);
+    for (int i = 1; i < m; i++) {
+        int x = d[i];
+        int j = i - 1;
+        while (j >= 0 && d[j] > x) { d[j + 1] = d[j]; j = j - 1; }
+        d[j + 1] = x;
+    }
+    int med2 = m % 2 == 1 ? d[m / 2] * 2 : d[m / 2 - 1] + d[m / 2];
+    return med2 * 1000 / (2 * BELLEK_ARALIK);
+}
+func bellek_artan_aralik(): int {
+    int c = 0;
+    for (int i = 0; i + 1 < len(g_bellek_orn); i++) { if (g_bellek_orn[i + 1] > g_bellek_orn[i]) { c = c + 1; } }
+    return c;
+}
+
+// POZITIF KONTROL — bilinen hizda ENJEKTE sizinti: TULPAR_AKSIYON_SIZINTI_B=N
+// her karede ~N baytlik yeni bir dizgiyi kareler arasi yasayan bir global'e
+// birakir (kapinin korudugu sinifin ta kendisi: "kareler arasi yasayan deger
+// global'de mi?"). Eski kontrol TULPAR_KARE_BELLEK=0 bugun yetmiyor: olculdu
+// 2026-10-05, RTX 5080, TulparLang v3.39.0 — 3200 karede uc egim yalniz 203
+// KB/1000 (2026-09-25'te 3eee948 ile 1805), yani sinirin (600) ALTINDA; o
+// kontrol kapinin bir sey olctugunu artik gostermiyordu.
+int SIZINTI_B = 0;
+if (len(env("TULPAR_AKSIYON_SIZINTI_B")) > 0) { SIZINTI_B = toInt(env("TULPAR_AKSIYON_SIZINTI_B")); }
+str g_sizinti_tohum = "";
+str[] g_sizinti = [];
+func sizinti_kare(int k) {
+    if (SIZINTI_B <= 0) { return; }
+    if (len(g_sizinti_tohum) < SIZINTI_B) {
+        while (len(g_sizinti_tohum) < SIZINTI_B) { g_sizinti_tohum = g_sizinti_tohum + "s"; }
+    }
+    push(g_sizinti, g_sizinti_tohum + toString(k)); // her kare YENI dizgi
+}
+
 func bellek_ornekle() {
     int k = kare_no();
+    sizinti_kare(k);
     if (k == BELLEK_ILK_KARE) { g_bellek_ilk = bellek_kb(); }
     if (k >= BELLEK_ILK_KARE) { g_bellek_son = bellek_kb(); g_bellek_son_kare = k; }
+    if (k >= BELLEK_ILK_KARE && (k - BELLEK_ILK_KARE) % BELLEK_ARALIK == 0) { push(g_bellek_orn, g_bellek_son); }
     if (BELLEK_IZ > 0 && k % BELLEK_IZ == 0) { print(t"[iz] bellek k={k} rss={bellek_kb()}"); }
 }
 
@@ -734,8 +793,10 @@ func kapi_raporu() {
     // kare sayısı kare sayısına eşit olmalı (kare_basla/kare_bitir eşleşiyor mu).
     int bellek_pencere = g_bellek_son_kare - BELLEK_ILK_KARE;
     bool bellek_olculdu = g_bellek_ilk > 0 && bellek_pencere >= BELLEK_PENCERE_MIN;
-    int bellek_egim = bellek_pencere > 0 ? (g_bellek_son - g_bellek_ilk) * 1000 / bellek_pencere : 0;
-    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
+    int bellek_uc_egim = bellek_pencere > 0 ? (g_bellek_son - g_bellek_ilk) * 1000 / bellek_pencere : 0;
+    int bellek_egim = bellek_medyan_egim();
+    int bellek_aralik_n = len(g_bellek_orn) > 0 ? len(g_bellek_orn) - 1 : 0;
+    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, medyan {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}; {bellek_aralik_n} aralik x {BELLEK_ARALIK}, artan {bellek_artan_aralik()}, uc {bellek_uc_egim}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
     if (!bellek_olculdu) {
         print(t"[kapi] ATLANDI: bellek kapisi >= {BELLEK_ILK_KARE + BELLEK_PENCERE_MIN} kare ister (pencere {bellek_pencere}, ilk olcum {g_bellek_ilk} KB)");
     }
@@ -762,7 +823,7 @@ func kapi_raporu() {
     // Rekor diske yalnız "skor > eski rekor" iken yazılır: skoru 0 kalan kısa
     // koşumda yazma beklenmez (dosya boş, okuma -1 döner).
     if (g_rekor > 0 && disk_rekor != g_rekor) { push(sorun, t"rekor diske yazilmamis: dosyada {disk_rekor}, bellekte {g_rekor}"); }
-    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
+    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: medyan {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
     if (kare_bellegi_acik() && kare_bellegi_kare() != kare) { push(sorun, t"kare bellegi {kare_bellegi_kare()} kare geri sardi, {kare} kare kostu (kare_basla/kare_bitir eslesmiyor)"); }
     for (s in sorun) { print("[kapi] BASARISIZ: " + s); }
     if (len(sorun) > 0) { exit(1); }
