@@ -231,10 +231,11 @@ etmez; `ATLANDI: <sebep>` basar ve özet satırındaki sayaca girer. Bu yüzden:
   çalışır.
   Ölçüldü (2026-09-21): PR #19 birleşince `main` koşumu üç platformda da
   derlemeden PR artefaktını yükledi, boyutlar bayt bayt aynı.
-  İlk ikisinde Vulkan sürücüsü kurulur ve yolun gerçekten koştuğu doğrulanır —
-  "Vulkan yok" gerekçeli bir atlama işi **kırmızıya** çevirir; Windows'ta yazılım
-  ICD'si olmadığı için GPU kapıları beklendiği gibi atlanır ve sebepleri iş
-  özetine yazılır. macOS ayağı bir tekrar değil: fiber geçişi mimariye özel elle
+  Üçünde de Vulkan sürücüsü kurulur ve yolun gerçekten koştuğu doğrulanır —
+  "Vulkan yok" gerekçeli bir atlama işi **kırmızıya** çevirir. Windows'ta sürücü
+  runner'daki Chrome'un SwiftShader ICD'sidir (2026-10-05'ten beri; kayıt
+  defterinden tanıtılır, `tools/windows_vulkan_icd.sh`). MSYS2 mesa lavapipe
+  denendi ve **elendi**: bellek bırakırken yığını bozuyor (Tuzaklar 8cr). macOS ayağı bir tekrar değil: fiber geçişi mimariye özel elle
   yazılmış assembly ve **AArch64 dalı yalnız orada** koşuyor.
 * Zamanlama satırları (`[profiler]`, `[bilgi]`) bilgi basar, karar vermez.
 

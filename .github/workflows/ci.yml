@@ -16,8 +16,11 @@
 # KIRMIZI yapar — o satir basildiginda dev.validation_errors()==0 isteyen bes
 # kapi (rhi_validation_layer_reports_zero_errors, renderer_/render_graph_post_/
 # render_graph_gpu_cull_/temporal_ Mali kapilari) HIC kosmamistir.
-# Windows runner'inda yazilim ICD'si yok; orada GPU kapilari BEKLENEN
-# sekilde atlanir ve sebepleri is ozetine yazilir (katman kapisi da yok).
+# Windows'ta da (2026-10-05'ten beri) ICD var: runner'daki Chrome'un
+# SwiftShader'i + MSYS2 dogrulama katmani, kayit defterinden
+# (tools/windows_vulkan_icd.sh). Ayni kural: Vulkan / katman atlamasi KIRMIZI.
+# MSYS2 mesa lavapipe DENENDI ve ELENDI (bellek birakirken yigini bozuyor,
+# Tuzaklar 8cr). release.yml'in Windows isinde ICD hala kurulmuyor.
 # `continue-on-error` YOK; hicbir adim yumusatilmaz.
 #
 # UC PLATFORM, IKI MIMARI: linux/windows x86_64, macos arm64. macOS ayagi bir
