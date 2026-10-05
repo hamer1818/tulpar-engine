@@ -142,11 +142,14 @@ bildirimde bozuk sembol link hatasında **adıyla**; bozuk imza tipi typecheck't
 suite'i (`tulpar/tests/engine_gpusuz.test.tpr`, aşağıda), 4 dil sondası; son satır özet
 (`tulpar dogrulama: N gecti, M dustu, K atlandi`); `--tam` ile dalga/aksiyon kapı satırları **bayt bayt**, köprü testi, 6 örnek. CI'ın Linux ayağı bunu
 **yayınlanmış** `tulpar` (`releases/latest`) ile koşturur. Lavapipe notu (ölçüldü 2026-10-02, CI
-ubuntu-24.04, mesa 25.2.8 llvmpipe, LLVM 20, 4 çekirdek): aksiyonun RSS bellek kapısı sürücü ısınmasını
-da ölçüyor — `/proc/<pid>/smaps` `[heap]` ilk ~37 s'de (≈k1100) +31 MB, sonra düz; k1000'den başlayan
-pencere 8.2 MB/1000 kare gösterip düştü. Aynı ikili yerelde mesa 26.2.4 lavapipe'ta 0 KB/1000. Bu yüzden
-llvmpipe'ta betik eğimi ayrı bir 4600 karelik koşumda k2400'den sonra aynı 600 KB sınırıyla ölçer
-(`TULPAR_AKSIYON_BELLEK_ILK`; varsayılan pencere değişmedi). Android: `link.android` + `-Wl,--no-undefined` ile iki ABI'lik
+ubuntu-24.04, mesa 25.2.8 llvmpipe, LLVM 20, 4 çekirdek): aksiyonun RSS'i sürücünün tek
+bir basamağını da görür — `/proc/<pid>/smaps` `[heap]` +27–31 MB, sonra düz. 2026-10-05'te 16 paralel
+koşumla (her 200 karede RSS) ölçüldü: basamak her koşumda bir kez, **zamanı rastgele** (k1200…k6000);
+uç farkına bakan kapı basamak pencereye düşünce kırmızıydı (28 CI koşumunda 3 kez). Kapı artık 200
+karelik aralık artışlarının **alt çeyreğiyle** ölçer: 14 normal koşumda 0, enjekte 2 KB/kare sızıntıda
+(`TULPAR_AKSIYON_SIZINTI_B=2048`, `tulpar_dogrula.sh`'in her koşumdaki pozitif kontrolü) llvmpipe 1140,
+RTX 5080 1240 → kırmızı (sınır 600). Eski ikinci (4600 karelik) llvmpipe koşumu kalktı. Ayrıntı:
+Tuzaklar 8cs. Aynı ikili yerelde mesa 26.2.4 lavapipe'ta k400'den sonra tamamen düz. Android: `link.android` + `-Wl,--no-undefined` ile iki ABI'lik
 `libtulpargame.so` linklenmesi ölçüldü (2026-10-02, NDK 27; cihazda koşturulmadı).
 
 **Windows (`link.windows`, 2026-10-02).** Bölüm masaüstüyle aynı 13 arşiv + grup (TulparLang'in Windows
