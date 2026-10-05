@@ -271,8 +271,16 @@ func bolum_bitti_mi(): bool {
 
 // ---- Ayarlar: kalıcı kayıt --------------------------------------------------
 // Pencersiz (otopilot) koşumda GEÇİCİ dosyaya: doğrulama gerçek kayda dokunmasın.
+// Gecici dizin tests/test.hpp tmp_dir() ile AYNI kural: Windows'ta TEMP/TMP
+// (yerel ikili "/tmp"ye YAZAMAZ — olculdu CI windows-latest SwiftShader
+// 2026-10-05: kayit yazilamadi, dongu_hatasi=2), degilse TMPDIR, yoksa /tmp.
 func ayar_dosyasi(): str {
-    str tmp = env("TMPDIR");
+    str tmp = "";
+    if (env("OS") == "Windows_NT") {
+        tmp = env("TEMP");
+        if (len(tmp) == 0) { tmp = env("TMP"); }
+    }
+    if (len(tmp) == 0) { tmp = env("TMPDIR"); }
     return (len(tmp) == 0 ? "/tmp" : tmp) + "/tulpar_aksiyon_kayit.txt";
 }
 

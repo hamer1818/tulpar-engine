@@ -1842,6 +1842,21 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
     if (!run_ok || tex_ns > empty_ns * 3) break;
     layers *= 2;
   }
+  // Dusen kare SEBEBIYLE basilir: "run_ok" tek basina hangi katmanda ve neden
+  // dustugunu soylemiyordu (CI windows-latest SwiftShader, 2026-10-05).
+  // YAZILIM RASTERLAYICIDA gonderim beklemesinin (5 s, end_one_shot_and_wait)
+  // asilmasi bir kilitlenme degil, olcumun bu cihazda yapilamamasidir: olculdu
+  // SwiftShader + dogrulama katmani, 32 katmanli kare > 5 s. Ayni sinif yukaridaki
+  // "kalibrasyon tutmazsa GORUNUR ATLAMA" kurali. GERCEK GPU'da VK_TIMEOUT bir
+  // kilitlenmedir ve KIRMIZI kalir; baska her hata da.
+  auto yazilim_zaman_asimi = [&]() {
+    return dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU && std::strstr(ores.error, "VK_TIMEOUT") != nullptr;
+  };
+  if (!run_ok) std::printf("    [bilgi] kare dustu: %d katmanda, offscreen: %s\n", layers, ores.error);
+  if (!run_ok && yazilim_zaman_asimi()) {
+    skip("yazilim rasterlayici: ortulu kare gonderim beklemesini (5 s) asti — ornekleme maliyeti bu cihazda olculemedi");
+    ren.shutdown(); offscreen_destroy(off); return;
+  }
   CHECK(run_ok);
   if (!run_ok) { ren.shutdown(); offscreen_destroy(off); return; }
   std::printf("    [makine] %s\n", dev.caps().device_name);
@@ -1864,7 +1879,11 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
   } else {
     const uint64_t plain_ns = medyan(layers, mat_plain, &run_ok);
     const uint64_t hi_ns = medyan(layers * 4 <= 4096 ? layers * 4 : 4096, mat_tex, &run_ok);
-    CHECK(run_ok);
+    if (!run_ok) std::printf("    [bilgi] KONTROL karesi dustu: %d katmanda, offscreen: %s\n", layers * 4 <= 4096 ? layers * 4 : 4096, ores.error);
+    if (!run_ok && yazilim_zaman_asimi())
+      skip("yazilim rasterlayici: KONTROL karesi gonderim beklemesini (5 s) asti — ornekleme maliyeti bu cihazda olculemedi");
+    else
+      CHECK(run_ok);
     if (run_ok) {
       const double a = (double)plain_ns / 1e6, b = (double)tex_ns / 1e6, cc = (double)hi_ns / 1e6;
       std::printf("    [bilgi] kare suresi (medyan %d kare, %ux%u, %d kat ortu): dokusuz %.3f ms -> ORM+normal+isima %.3f ms "

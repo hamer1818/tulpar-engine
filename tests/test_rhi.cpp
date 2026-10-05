@@ -537,7 +537,11 @@ ENGINE_TEST(rhi_pso_cache_warms_pipeline_creation) {
   CHECK(cold_s.reject == PsoReject::NoFile);
   // Kanca calisiyor mu? Calismiyorsa sayac 0 kalir ve butun olcum anlamsiz olur.
   bool counted = cold.created > 0;
+  if (!counted)
+    std::printf("    [bilgi] sayac 0: kancasi takilamayan cihaz %u (yuva doldu mu?), yonlendirilemeyen cagri %u\n",
+                pso_unhooked_devices(), pso_unrouted_calls());
   CHECK(counted);
+  CHECK(pso_unhooked_devices() == 0);
   CHECK(cold.after > 0); // soguk kosum onbellege girdi YAZMIS olmali
   std::printf("    [bilgi] varyant kumesi: renderer kurulumunda %u grafik boru hatti kuruldu "
               "(kaynaktan sayildi, tahmin degil)\n", cold.created);
@@ -569,10 +573,23 @@ ENGINE_TEST(rhi_pso_cache_warms_pipeline_creation) {
   // sirasinda yeni girdi EKLENMEZ — yani her varyant ISABET etmistir. Soguk
   // kosum ayni onbellege cold_growth bayt yazmisti; bu, olcumun bir sey
   // olctugunun kaniti (pozitif kontrol).
-  bool hits = cold_growth > 0 && warm_growth * 4 < cold_growth;
-  CHECK(hits);
-  if (!hits)
-    std::printf("    [bilgi] SICAK kosum onbellege %lld bayt EKLEDI — diskten gelen girdiler kullanilmadi\n", warm_growth);
+  // Surucu onbellege yalniz BASLIK yaziyorsa (VkPipelineCacheHeaderVersionOne,
+  // 32 B) boru hatti ikilisi hic saklanmiyor demektir: buyume olcumu "isabet"i
+  // ayirt EDEMEZ, pozitif kontrol (cold_growth > 0) da yalniz basligi gorur.
+  // Olculdu: SwiftShader (Chrome 154, CI windows-latest 2026-10-05) SOGUK
+  // 0 -> 32 B, SICAK 32 -> 64 B. Bu surucunun davranisidir (iddia edilmez,
+  // basilir); dosyanin YUKLENDIGI (warm_loaded) ve ret kontrolleri yine olculur.
+  const bool yalniz_baslik = cold.after <= (uint64_t)sizeof(VkPipelineCacheHeaderVersionOne);
+  if (yalniz_baslik) {
+    std::printf("    [bilgi] surucu onbellek verisine yalniz baslik yaziyor (%llu B): isabet buyume olcumuyle ayirt edilemez\n",
+                (unsigned long long)cold.after);
+    test::skip("surucu PSO onbellegine yalniz baslik yaziyor (boru hatti ikilisi saklanmiyor) — isabet olculemedi");
+  } else {
+    bool hits = cold_growth > 0 && warm_growth * 4 < cold_growth;
+    CHECK(hits);
+    if (!hits)
+      std::printf("    [bilgi] SICAK kosum onbellege %lld bayt EKLEDI — diskten gelen girdiler kullanilmadi\n", warm_growth);
+  }
   // Sure yorumu OLCUME dayanir: KONTROL soguga yakinsa hizlanma DOSYADAN gelir
   // (surucunun surec ici durumu bu cihazda pipeline kurulumunu hizlandirmiyor);
   // KONTROL sicaga yakinsa surec ici olcum ikisini ayirt EDEMEZ ve tek gecerli

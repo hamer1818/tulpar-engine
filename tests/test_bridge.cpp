@@ -1886,6 +1886,37 @@ ENGINE_TEST(bridge_failed_init_without_icd_leaves_no_residue) {
   std::snprintf(yok, sizeof yok, "%s/tulpar_icd_yok.json", tmp_dir());
   setenv("VK_DRIVER_FILES", yok, 1);
   setenv("VK_ICD_FILENAMES", yok, 1);
+  // Gizleme GERCEKTEN tuttu mu? Motor kurulmadan ham bir vkCreateInstance ile
+  // sorulur: tutmadiysa kurulum basarir ve bu kapi olculmek istenen yolu degil,
+  // basarili bir ikinci oturumu kostururdu (8cq'nun acik kalan sinifi: basarili
+  // oturumdan sonra ikinci basarili kurulum cokuyor). Windows'ta YONETICI surec
+  // bu degiskenleri YOK SAYAR (CI windows-latest, lavapipe kayit defterinden;
+  // olculdu 2026-10-05) — orada bu yol yalniz yonetici olmayan surecte olculur.
+  {
+    rhi::VkApi api;
+    VkResult r = VK_ERROR_INITIALIZATION_FAILED;
+    if (rhi::vk_api_load(api)) {
+      VkApplicationInfo ai{};
+      ai.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+      ai.apiVersion = VK_API_VERSION_1_1;
+      VkInstanceCreateInfo ci{};
+      ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+      ci.pApplicationInfo = &ai;
+      VkInstance inst = VK_NULL_HANDLE;
+      r = api.vkCreateInstance(&ci, nullptr, &inst);
+      if (r == VK_SUCCESS) {
+        rhi::vk_api_load_instance(api, inst);
+        api.vkDestroyInstance(inst, nullptr);
+      }
+      rhi::vk_api_unload(api);
+    }
+    if (r == VK_SUCCESS) {
+      unsetenv("VK_DRIVER_FILES");
+      unsetenv("VK_ICD_FILENAMES");
+      skip("yukleyici VK_DRIVER_FILES/VK_ICD_FILENAMES'i yok sayiyor (Windows yonetici sureci) — ICD gizlenemedi, 'yukleyici var, ICD yok' yolu olculmedi");
+      return;
+    }
+  }
   const bool olculdu = kacak_kapisi("yukleyici var, ICD yok", "INCOMPATIBLE_DRIVER", 8);
   unsetenv("VK_DRIVER_FILES");
   unsetenv("VK_ICD_FILENAMES");
