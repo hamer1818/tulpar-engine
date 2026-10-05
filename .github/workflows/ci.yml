@@ -1099,11 +1099,12 @@ jobs:
           set +e
           ./yapi/engine_tests.exe > tam.log 2>&1; echo "tam rc=$?"
           tr -d '\r' < tam.log | tail -25
-          for f in process_ crash_ alloc_gate fiber_ jobs_ profiler_ faz0_ build_info sha256_; do
-            ./yapi/engine_tests.exe "$f" > f.log 2>&1; echo "filtre $f rc=$? $(tr -d '\r' < f.log | grep '^engine tests:')"
+          for f in arena_ pool_ platform_ _ ; do
+            ./yapi/engine_tests.exe "$f" > f.log 2>&1; echo "filtre '$f' rc=$? $(tr -d '\r' < f.log | grep '^engine tests:') son: $(tr -d '\r' < f.log | grep -E '^  (RUN|PASS|FAIL)' | tail -1)"
           done
-          cmd //c "yapi\\engine_tests.exe > tam2.log 2>&1 & echo ERRORLEVEL=%ERRORLEVEL%"
-          tr -d '\r' < tam2.log | tail -8
+          cmd //v:on //c "yapi\\engine_tests.exe > tam2.log 2>&1 & echo ERRORLEVEL=!ERRORLEVEL!"
+          echo "tam2 bayt: $(wc -c < tam2.log)"; tr -d '\r' < tam2.log | tail -8
+          ldd ./yapi/engine_tests.exe | grep -vi 'windows\|system32' | head
           exit 0
 
       # `set +e`: msys2 kabugu `bash -e` ile kosar; engine_tests sifirdan
