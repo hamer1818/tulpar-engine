@@ -14,6 +14,15 @@ yaz, birak) asgari haliyle, motor kodu OLMADAN, ctypes ile kosar:
 Cikis 0 = butun turlar bitti (surec saglam). Surec 0xC0000374 ile olurse
 bozulma bu kalibin kendisindedir (motor yok). Windows'ta tam sayfa yigini
 (PageHeap) acikken kosturmak bozulmayi YAZMA/BIRAKMA aninda yakalatir.
+
+OLCULDU (CI windows-latest, 2026-10-05):
+  MSYS2 mesa 26.2.4 lavapipe   cikis 127 (0xC0000374) PageHeap'siz de; PageHeap
+                               + cdb: VERIFIER STOP 10 corrupted start stamp,
+                               msvcrt!free <- vulkan_lvp+0x223921 <-
+                               vulkan_lvp+0x2b6b50 <- _ctypes. Sonuc: surucu.
+  SwiftShader (Chrome 154)     10 boyut x 3 tur, BITTI (surec saglam).
+  RTX 5080 / Linux (yerel)     BITTI.
+tools/windows_vulkan_icd.sh `kur` bu sondayi her CI kosumunda kosar.
 """
 import argparse
 import ctypes

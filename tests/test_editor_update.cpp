@@ -30,7 +30,6 @@
 #include "platform/process.hpp"
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
-#include "rhi/vk_api.hpp"
 #include "tests/editor_probe.hpp"
 #include "tests/test.hpp"
 
@@ -509,70 +508,7 @@ ProbeStatus run(DrawCtx &c, uint32_t frames, const char *name, EditorProbe *out 
 }
 } // namespace
 
-// --- Bilinen SURUCU hatasi: Windows lavapipe + ImGui doku yuklemesi (Tuzaklar 8cr)
-// Olculdu (CI windows-latest, MSYS2 mingw-w64-x86_64-mesa 26.2.4, llvmpipe LLVM
-// 22.1.8, 2026-10-05): bu testin ilk sondasi (60 kare, uzun Turkce notlar +
-// rozet oku: font atlasi buyur) ImGui_ImplVulkan_UpdateTexture'in yukleme
-// tamponunu birakan vkFreeMemory'sinde surecin yiginini bozuyor —
-// 0xC0000374 (STATUS_HEAP_CORRUPTION, fail-fast: test harness'i cikti bile
-// basamadan olur). Tam sayfa yigini (PageHeap) + cdb: "VERIFIER STOP 10:
-// corrupted start stamp", msvcrt!free <- vulkan_lvp+0x223921 <-
-// vulkan_lvp+0x2b6b50 <- ImGui_ImplVulkan_UpdateTexture+0x89b (dogrudan
-// `call *vkFreeMemory`'nin donus adresi). Sayfa yigininda bir YAZMA tasmasi
-// aninda erisim ihlali verirdi; vermedi -> surucunun kendi ayirdigi bloku
-// yanlis ayiriciyla birakmasi. Ayni kod Linux lavapipe'ta (CI) ve RTX 5080'de
-// temiz; glibc malloc denetimiyle de (glibc.malloc.check=3) temiz.
-// Iddia ETMIYORUZ ki hata mesa'dadir diye kesin bildik — kaynagi okunamadi
-// (freedesktop GitLab erisilemedi); OLCULEN: cokme surucunun icinde.
-//
-// Kapsam DAR: yalniz Windows + butun fiziksel cihazlar llvmpipe. Atlama
-// GORUNUR (ozet sayaci + is ozeti). TULPAR_TEST_SURUCU_HATASI_ZORLA=1 atlamayi
-// kapatir: CI'in "bilinen surucu hatasi hala var mi" adimi testi boyle kosturur
-// ve COKMESINI bekler; cokmezse (mesa duzeldi) o adim KIRMIZI olur ve bu
-// atlamanin kaldirilmasini ister — atlama kalici bir gizlemeye donusemez.
-namespace {
-bool windows_lavapipe_surucu_hatasi() {
-#if defined(_WIN32)
-  if (const char *z = std::getenv("TULPAR_TEST_SURUCU_HATASI_ZORLA"); z && z[0] == '1') return false;
-  rhi::VkApi api;
-  if (!rhi::vk_api_load(api)) return false;
-  VkApplicationInfo ai{};
-  ai.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-  ai.apiVersion = VK_API_VERSION_1_1;
-  VkInstanceCreateInfo ci{};
-  ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-  ci.pApplicationInfo = &ai;
-  VkInstance inst = VK_NULL_HANDLE;
-  bool hepsi_lvp = false;
-  if (api.vkCreateInstance(&ci, nullptr, &inst) == VK_SUCCESS) {
-    rhi::vk_api_load_instance(api, inst);
-    VkPhysicalDevice pd[8];
-    uint32_t n = 8;
-    if (api.vkEnumeratePhysicalDevices(inst, &n, pd) >= 0 && n > 0) {
-      hepsi_lvp = true;
-      for (uint32_t i = 0; i < n; i++) {
-        VkPhysicalDeviceProperties2 pr{};
-        pr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        api.vkGetPhysicalDeviceProperties2(pd[i], &pr);
-        if (!std::strstr(pr.properties.deviceName, "llvmpipe")) hepsi_lvp = false;
-      }
-    }
-    api.vkDestroyInstance(inst, nullptr);
-  }
-  rhi::vk_api_unload(api);
-  return hepsi_lvp;
-#else
-  return false;
-#endif
-}
-} // namespace
-
 ENGINE_TEST(editor_update_badge_and_window_render_headless) {
-  if (windows_lavapipe_surucu_hatasi()) {
-    skip("Windows lavapipe surucu hatasi (Tuzaklar 8cr): ImGui doku yuklemesinin vkFreeMemory'si yigini bozuyor (0xC0000374) — "
-         "guncelleme penceresi kapisi bu surucude olculemedi; TULPAR_TEST_SURUCU_HATASI_ZORLA=1 ile kosar");
-    return;
-  }
   // Tablo baglamalari: menu cubugu tiklanmayan olu satir cizmesin.
   static DrawCtx c;
   c = DrawCtx{};

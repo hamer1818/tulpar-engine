@@ -944,22 +944,20 @@ jobs:
             mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-mesa
             mingw-w64-x86_64-vulkan-validation-layers
 
-      # YAZILIM VULKAN ICD'si (lavapipe) — Windows'ta da (2026-10-05).
+      # YAZILIM VULKAN ICD'si (SwiftShader) — Windows'ta da (2026-10-05).
       # Runner'da vulkan-1.dll (System32) var ama ICD yok: vkCreateInstance
       # VK_ERROR_INCOMPATIBLE_DRIVER ve bu yuzden butun GPU kapilari, Tulpar
       # oyunlarinin kare dongusu, [kapi] satirlari Windows'ta HIC olculmuyordu.
-      # MSYS2'nin mesa paketi lavapipe'i tasiyor. Loader'a KAYIT DEFTERINDEN
-      # tanitilir, ortam degiskeniyle DEGIL: runner sureci yonetici ve Windows
-      # loader'i yonetici surecte VK_DRIVER_FILES / VK_ADD_LAYER_PATH'i yok
-      # sayiyor (olculdu, ilk deneme -9 ile dustu). Ayrinti + bagimsiz sonda
-      # (tools/vk_sonda.py; MSYS2'de vulkaninfo yok): tools/windows_lavapipe.sh
-      # — release.yml'in Windows isi de AYNI betigi kosar.
-      - name: Yazilim Vulkan ICD'si (lavapipe) + dogrulama katmani gercekten var mi
+      # ICD: runner'daki Google Chrome'un vk_swiftshader.dll'i (Vulkan 1.3).
+      # MSYS2 mesa lavapipe'i DENENDI ve ELENDI: bellek birakirken yigini
+      # bozuyor (0xC0000374; motorsuz sonda ile kanitlandi, Tuzaklar 8cr).
+      # Loader'a KAYIT DEFTERINDEN tanitilir (yonetici surec VK_DRIVER_FILES'i
+      # yok sayar). Ayrinti + bagimsiz sondalar: tools/windows_vulkan_icd.sh.
+      - name: Yazilim Vulkan ICD'si (SwiftShader) + dogrulama katmani gercekten var mi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: bash tools/windows_lavapipe.sh kur
+        run: bash tools/windows_vulkan_icd.sh kur
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -1012,32 +1010,10 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Linux isindeki iki pozitif kontrolun Windows ayagi: lavapipe artik
+      # Linux isindeki iki pozitif kontrolun Windows ayagi: SwiftShader artik
       # KURULU oldugu icin asagidaki "Vulkan / katman atlamasi = KIRMIZI"
       # kurali burada da gecerli; o kuralin bos bir grep olmadigi burada
       # gosterilir (ayni ifadeler).
-      - name: GECICI SwiftShader denemesi (Chrome'un ICD'si)
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set +e
-          js="$(find "/c/Program Files/Google/Chrome/Application" -name vk_swiftshader_icd.json 2>/dev/null | head -1)"
-          echo "swiftshader json: ${js:-YOK}"
-          [ -n "$js" ] || exit 0
-          tr -d '\r' < "$js"; ls -la "$(dirname "$js")"/vk_swiftshader.dll
-          lvp_w="$(cygpath -w /mingw64/share/vulkan/icd.d/lvp_icd.x86_64.json)"
-          MSYS2_ARG_CONV_EXCL='*' reg delete 'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' /v "$lvp_w" /f
-          MSYS2_ARG_CONV_EXCL='*' reg add 'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' /v "$(cygpath -w "$js")" /t REG_DWORD /d 0 /f
-          python3 -u tools/vk_sonda.py; echo "sonda rc=$?"
-          python3 -u tools/vk_bellek_sonda.py --tampon; echo "bellek tampon rc=$?"
-          t0=$SECONDS
-          ./yapi/engine_tests.exe > ss.log 2>&1; echo "engine_tests rc=$? sure=$((SECONDS-t0)) s"
-          tr -d '\r' < ss.log | grep -E '^engine tests:' ; tr -d '\r' < ss.log | grep -E '^  FAIL|ATLANDI' | sort | uniq -c | sort -rn | head -30
-          tr -d '\r' < ss.log | grep -E '^  (RUN|PASS|FAIL) ' | tail -2
-          tr -d '\r' < ss.log | grep -E 'GPU: ' | head -2
-          MSYS2_ARG_CONV_EXCL='*' reg delete 'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' /v "$(cygpath -w "$js")" /f
-          MSYS2_ARG_CONV_EXCL='*' reg add 'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' /v "$lvp_w" /t REG_DWORD /d 0 /f
-          exit 0
-
       - name: Atlama mekanizmasinin pozitif kontrolu
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
@@ -1060,8 +1036,8 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
-          trap 'bash tools/windows_lavapipe.sh katman-geri' EXIT
-          bash tools/windows_lavapipe.sh katman-gizle || exit 1
+          trap 'bash tools/windows_vulkan_icd.sh katman-geri' EXIT
+          bash tools/windows_vulkan_icd.sh katman-gizle || exit 1
           ./yapi/engine_tests.exe mali_best_practices 2>&1 | tr -d '\r' > katman_kontrol.log || true
           ./yapi/engine_tests.exe validation_layer 2>&1 | tr -d '\r' >> katman_kontrol.log || true
           n=$(grep -cE 'ATLANDI:.*VK_LAYER_KHRONOS_validation' katman_kontrol.log || true)
@@ -1071,10 +1047,10 @@ jobs:
             exit 1
           fi
           echo "Pozitif kontrol tamam: katman gizliyken $n atlama satiri uretildi (bes kapi)."
-          bash tools/windows_lavapipe.sh katman-geri && trap - EXIT
+          bash tools/windows_vulkan_icd.sh katman-geri && trap - EXIT
           python3 tools/vk_sonda.py --katman VK_LAYER_KHRONOS_validation | tr -d '\r' | tail -1
 
-      # Lavapipe (MSYS2 mesa) KURULU: GPU kapilari Windows'ta da KOSAR
+      # SwiftShader KURULU: GPU kapilari Windows'ta da KOSAR
       # (2026-10-05'e kadar burada ICD yoktu ve hepsi atlaniyordu). Linux
       # isiyle ayni kural: "Vulkan ... yok" ya da "VK_LAYER_KHRONOS_validation
       # yok" gerekceli tek bir atlama isi KIRMIZI yapar. Sure is ozetine yazilir.
@@ -1105,7 +1081,7 @@ jobs:
           kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
 
           {
-            echo "### Windows (MSYS2 MINGW64, lavapipe)"
+            echo "### Windows (MSYS2 MINGW64, SwiftShader)"
             echo ""
             echo "\`$ozet\` — ${sure} s"
             echo ""
@@ -1136,7 +1112,7 @@ jobs:
           vulkan_atlama="$(grep -E 'ATLANDI:.*Vulkan' sonuc.log | grep -v 'tukendi' || true)"
           if [ -n "$vulkan_atlama" ]; then
             echo "$vulkan_atlama"
-            echo "::error::Lavapipe kurulu (HKLM Khronos\\Vulkan\\Drivers) oldugu halde Vulkan kapilari atlandi — ICD gelmemis."
+            echo "::error::SwiftShader kurulu (HKLM Khronos Vulkan Drivers) oldugu halde Vulkan kapilari atlandi — ICD gelmemis."
             exit 1
           fi
           katman_atlama="$(grep -E 'ATLANDI:.*VK_LAYER_KHRONOS_validation' sonuc.log || true)"
@@ -1145,7 +1121,7 @@ jobs:
             echo "::error::Dogrulama katmani kurulu ve vulkaninfo listeliyor oldugu halde katman kapilari atlandi."
             exit 1
           fi
-          echo "engine_tests (Windows, lavapipe): ${sure} s"
+          echo "engine_tests (Windows, SwiftShader): ${sure} s"
 
           exit "$kod"
 
@@ -1155,36 +1131,7 @@ jobs:
       # yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve kosar.
       # tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
-      # BILINEN SURUCU HATASI HALA VAR MI (Tuzaklar 8cr). Windows lavapipe'ta
-      # editor_update_badge_and_window_render_headless GORUNUR atlanir (ImGui
-      # doku yuklemesinin vkFreeMemory'si surucu icinde yigini bozuyor,
-      # 0xC0000374). Atlama kalici bir gizlemeye donusmesin: burada anahtarla
-      # KAPATILIP test kosturulur ve COKMESI beklenir. Cokmezse (MSYS2 mesa
-      # duzeldi) adim KIRMIZI: atlama artik bir olcumu sakliyor, kaldirilmali.
-      # Cokme imzasi: bash cikisi 127 (0xC0000374'un MSYS2 karsiligi) ve son
-      # satir testin RUN satiri (harness RUN'i elle bosaltir).
-      - name: Bilinen surucu hatasi hala var mi (Tuzaklar 8cr)
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: |
-          set +e
-          set -uo pipefail
-          TULPAR_TEST_SURUCU_HATASI_ZORLA=1 ./yapi/engine_tests.exe editor_update_badge_and_window_render_headless > surucu.log 2>&1
-          rc=$?
-          son="$(tr -d '\r' < surucu.log | grep -E '^  (RUN|PASS|FAIL) ' | tail -1)"
-          echo "zorlanmis kosum: cikis $rc, son satir '$son'"
-          if [ "$rc" -eq 0 ] && [ "$son" = "  PASS editor_update_badge_and_window_render_headless" ]; then
-            echo "::error::Windows lavapipe surucu hatasi (Tuzaklar 8cr) artik CIKMIYOR — tests/test_editor_update.cpp'deki atlama bir olcumu sakliyor; kaldirin."
-            exit 1
-          fi
-          if [ "$rc" -ne 0 ] && [ "$son" = "  RUN  editor_update_badge_and_window_render_headless" ]; then
-            echo "Bilinen surucu hatasi hala var: cikis $rc, testin icinde oldu (atlama gerekce olarak gecerli)." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          echo "::error::Beklenmeyen sonuc (ne temiz gecti ne bilinen cokme): cikis $rc, son '$son'"
-          tr -d '\r' < surucu.log | tail -20
-          exit 1
-
-      # LAVAPIPE (2026-10-05): yukaridaki adim ICD'yi kayit defterine yazdi,
+      # SWIFTSHADER (2026-10-05): yukaridaki adim ICD'yi kayit defterine yazdi,
       # motor burada da KURULUR. --gpusuz-izinli KALKTI: Linux/macOS
       # ile ayni bayraksiz kosum — duman, pozitif kontroller, dil sondalari,
       # GPU'suz kopru suite'i, engine_dalga / engine_aksiyon [kapi] satirlari
@@ -1192,7 +1139,7 @@ jobs:
       # 6 ornek 60 kare. Kurulum duserse adim KIRMIZI (atlama yok).
       # (Oncesi: ICD yoktu, kare dongusu 9 kapida ATLANDI —
       # `19 gecti, 0 dustu, 9 atlandi`.)
-      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, lavapipe)
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
