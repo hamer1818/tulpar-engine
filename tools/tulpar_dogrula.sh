@@ -269,28 +269,25 @@ elif [ "$tam" = 1 ]; then
     else dus "$1: rc=$rc, kapi satiri '$satir' (beklenen '$3')"; tail -8 "$gun/$1.log" >&2; fi
   }
   kapi engine_dalga 2400 "[kapi] kare=972 dalga=4 dogan=28 tuzakta=25 carpan=3 kalan=0 bagli=4 can=7 hata=0"
-  # Yazilim rasterlestiricisi (llvmpipe): aksiyonun RSS bellek kapisi suruc
-  # isinmasini da olcer — CI'da (mesa 25.2 lavapipe) [heap] ilk ~k1100'e kadar
-  # +31 MB buyuyup sonra DUZ (olculdu 2026-10-02, smaps). Orada iki kosum:
-  # tam kapi satiri 3200 karede (bellek penceresi ATLANDI diye basilir), bellek
-  # egimi ayri bir 4600 karelik kosumda k2400'den sonra AYNI sinirla.
-  llvmpipe=0
-  grep -q "GPU: llvmpipe" "$gun/duman.log" && llvmpipe=1
-  if [ "$llvmpipe" = 1 ]; then
-    bilgi "GPU llvmpipe: aksiyonun bellek egimi ayri kosumda, surucu isinmasindan sonra (k2400..4600)"
-    export TULPAR_AKSIYON_BELLEK_ILK=2000
-  fi
+  # Aksiyonun RSS bellek kapisi aralik artislarinin ALT CEYREGIYLE olcer (ornek
+  # tulpar/examples/engine_aksiyon.tpr, 2026-10-05): llvmpipe'ta (CI mesa 25.2.8)
+  # her kosumda bir kez ~27 MB'lik bir surucu BASAMAGI olusuyor ve zamani
+  # rastgele (k1200..k6000); uc farki basamak pencereye dusunce kirmiziydi,
+  # alt ceyrek basamaga dayanikli (14 normal kosumda 0). Bu yuzden eskiden llvmpipe'a ozgu olan ikinci
+  # (4600 karelik, k2400'den sonra) kosum KALKTI: tek kosum, her yerde ayni kapi.
   kapi engine_aksiyon 3200 "[kapi] kare=3200 bolum=2 gecis=1 oldurulen=10 kalan_dusman=0 can=8 skor=1000 durum=3 navmesh=true dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
   grep -q '^\[kapi\] TAMAM' "$gun/engine_aksiyon.log" && gec "engine_aksiyon: [kapi] TAMAM" || dus "engine_aksiyon: [kapi] TAMAM yok"
   grep -m1 '^\[kapi\] bellek' "$gun/engine_aksiyon.log" | sed 's/^/    /'
-  if [ "$llvmpipe" = 1 ]; then
-    kos "$gun/aksiyon_bellek.log" env TULPAR_AKSIYON_BELLEK_ILK=2400 TULPAR_ENGINE_HEADLESS=4600 "$tul" --ext "$ext" examples/engine_aksiyon.tpr; rc=$?
-    if [ $rc -eq 0 ] && grep -q '^\[kapi\] TAMAM' "$gun/aksiyon_bellek.log" && ! grep -q '^\[kapi\] ATLANDI: bellek' "$gun/aksiyon_bellek.log"; then
-      gec "engine_aksiyon bellek (llvmpipe, 4600 kare): $(grep -m1 '^\[kapi\] bellek' "$gun/aksiyon_bellek.log" | sed 's/^\[kapi\] bellek: //')"
-    else
-      dus "engine_aksiyon bellek (llvmpipe, 4600 kare): rc=$rc"; grep '^\[kapi\]' "$gun/aksiyon_bellek.log" | tail -6 >&2
-    fi
-    unset TULPAR_AKSIYON_BELLEK_ILK
+  # POZITIF KONTROL — bellek kapisi bir sey olcuyor mu? Bilinen hizda ENJEKTE
+  # sizinti (2 KB/kare = ~2000 KB/1000 kare, sinirin ~3 kati): kapi KIRMIZI
+  # olmali ve sebebi "bellek buyuyor: alt ceyrek" demeli. Olculdu 2026-10-05:
+  # llvmpipe (CI) Q1 1140, RTX 5080 Q1 1240 (artan 9/11); 1 KB/kare'yi
+  # yiginin bos alani yutuyor (medyan 20) — RSS'in cozunurlugu bu.
+  kos "$gun/aksiyon_sizinti.log" env TULPAR_AKSIYON_SIZINTI_B=2048 TULPAR_ENGINE_HEADLESS=3200 "$tul" --ext "$ext" examples/engine_aksiyon.tpr; rc=$?
+  if [ $rc -ne 0 ] && grep -q '^\[kapi\] BASARISIZ: bellek buyuyor: alt ceyrek' "$gun/aksiyon_sizinti.log"; then
+    gec "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda yakalandi: $(grep -m1 '^\[kapi\] bellek' "$gun/aksiyon_sizinti.log" | sed 's/^\[kapi\] bellek: //; s/, kare bellegi.*//')"
+  else
+    dus "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda YAKALANMADI (rc=$rc) — kapi bir sey olcmuyor"; grep '^\[kapi\]' "$gun/aksiyon_sizinti.log" | tail -6 >&2
   fi
   kos "$gun/kopru.log" "$tul" --ext "$ext" tests/engine_bridge.test.tpr; rc=$?
   ozet="$(grep -m1 '^Tests:' "$gun/kopru.log")"

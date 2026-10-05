@@ -640,8 +640,10 @@ int BELLEK_ILK_KARE = 1000;
 // ölçüldü 2026-10-02, CI ubuntu-24.04 / mesa 25.2.8 lavapipe (LLVM 20, 4 çekirdek),
 // /proc/<pid>/smaps: [heap] ilk ~37 s'de (≈k1100) +31 MB, sonra 109 s'ye kadar DÜZ
 // (190 MB). Aynı ikili yerelde mesa 26.2.4 lavapipe'ta k1000'den sonra 0 KB/1000.
-// Pencerenin başı bu yüzden dışarıdan kaydırılabilir; varsayılan değişmedi.
-// Kullanan: tools/tulpar_dogrula.sh (llvmpipe'ta). Eğim yine aynı sınırla ölçülür.
+// Pencerenin başı dışarıdan kaydırılabilir (elle ölçüm için); varsayılan
+// değişmedi. 2026-10-05'ten beri tools/tulpar_dogrula.sh kullanmıyor: o
+// "ısınma" aslında rastgele zamanlı tek bir basamak, alt çeyrek ölçüsü ona
+// dayanıklı (aşağıda g_bellek_orn).
 if (len(env("TULPAR_AKSIYON_BELLEK_ILK")) > 0) { BELLEK_ILK_KARE = toInt(env("TULPAR_AKSIYON_BELLEK_ILK")); }
 int BELLEK_PENCERE_MIN = 2000;   // daha kısa pencerede eğim gürültüdür: ATLANDI
 // Sınır, KB / 1000 kare. Ölçüldü 2026-09-25, RTX 5080 masaüstü (Linux, NVIDIA),
@@ -655,18 +657,20 @@ int g_bellek_ilk = 0;
 int g_bellek_son = 0;
 int g_bellek_son_kare = 0;
 // OLCU: iki uc arasindaki fark DEGIL, BELLEK_ARALIK karelik aralik artislarinin
-// MEDYANI (KB / 1000 kare). NEDEN (olculdu 2026-10-05, CI ubuntu-latest, mesa
-// 25.2.8 llvmpipe / LLVM 20.1.2, 8 paralel 6000 karelik kosum, her 200 karede
-// RSS): HER kosumda bir kez ayni buyuklukte (~26-28 MB, 173 -> 200 MB) bir
-// BASAMAK olusuyor, sonra egri DUZ — ama basamagin ZAMANI rastgele (k1200 ..
-// k6000). Uc farki basamak pencereye dustugunde kirmizi oluyordu (28 CI
-// kosumunda 3 kez: 2936 / 3583 / 4134 KB/1000; hepsi geceenlerle ayni platoda,
-// 194-195 MB, bitti). Ayni ikili yerelde mesa 26.2.4 llvmpipe'ta k400'den
-// sonra tamamen duz (149,4 MB). Basamak aralik sayisinin en cok 3-6'sini
-// kaplar; sizinti HER aralikta artar — medyan ikisini ayirir:
-//   pencere 2400->4600 (llvmpipe kosumu): 7 normal kosum medyan 0 (uc 0..12765),
-//   POZITIF KONTROL (TULPAR_KARE_BELLEK=0) medyan 940 (uc 11436) -> KIRMIZI.
-//   2400->6000: normal 0 (7/7), kontrol 950; artan aralik normal <= 8/18, kontrol 15/18.
+// ALT CEYREGI (25. yuzdelik, sira (n-1)/4; KB / 1000 kare). NEDEN (olculdu
+// 2026-10-05, CI ubuntu-latest, mesa 25.2.8 llvmpipe / LLVM 20.1.2, 8+8 paralel
+// kosum, her 200 karede RSS): HER kosumda bir kez ayni buyuklukte (~26-28 MB,
+// 173 -> 200 MB) bir surucu BASAMAGI olusuyor, sonra egri DUZ — ama zamani
+// rastgele (k1200 .. k6000) ve 200 karelik 4-7 araliga yayilabiliyor. Uc farki
+// basamak pencereye dustugunde kirmiziydi (28 CI kosumunda 3 kez: 2936 / 3583 /
+// 4134 KB/1000; uclari gecenlerle ayni platoda, 194-195 MB). Medyan da yetmedi
+// (1000->3200, 11 aralik: 14 normal kosumun ikisinde 2260 / 5140). Ayni ikili
+// yerelde mesa 26.2.4 llvmpipe'ta k400'den sonra tamamen duz (149,4 MB).
+// Sizinti HER aralikta artar, basamak aralik sayisinin en cok ~%65'inde —
+// alt ceyrek ikisini ayirir:
+//   14 normal kosum (pencereler 1000->3200, 1000->6000, 2400->6000): Q1 = 0, hepsi.
+//   POZITIF KONTROL TULPAR_AKSIYON_SIZINTI_B=2048 (1000->3200): llvmpipe Q1 1140,
+//   RTX 5080 Q1 1240 (artan 9/11) -> KIRMIZI; normal kosum Q1 0.
 int BELLEK_ARALIK = 200;
 int[] g_bellek_orn = [];
 
@@ -676,9 +680,9 @@ int[] g_bellek_orn = [];
 int BELLEK_IZ = 0;
 if (len(env("TULPAR_AKSIYON_BELLEK_IZ")) > 0) { BELLEK_IZ = toInt(env("TULPAR_AKSIYON_BELLEK_IZ")); }
 
-// Aralik artislarinin medyani, KB / 1000 kare (ornek < 2 ise 0). Siralama
-// eklemeli (en cok ~30 ornek).
-func bellek_medyan_egim(): int {
+// Aralik artislarinin alt ceyregi (sira (n-1)/4), KB / 1000 kare (ornek < 2
+// ise 0). Siralama eklemeli (en cok ~30 ornek).
+func bellek_ceyrek_egim(): int {
     int n = len(g_bellek_orn);
     if (n < 2) { return 0; }
     int[] d = [];
@@ -690,8 +694,7 @@ func bellek_medyan_egim(): int {
         while (j >= 0 && d[j] > x) { d[j + 1] = d[j]; j = j - 1; }
         d[j + 1] = x;
     }
-    int med2 = m % 2 == 1 ? d[m / 2] * 2 : d[m / 2 - 1] + d[m / 2];
-    return med2 * 1000 / (2 * BELLEK_ARALIK);
+    return d[(m - 1) / 4] * 1000 / BELLEK_ARALIK;
 }
 func bellek_artan_aralik(): int {
     int c = 0;
@@ -794,9 +797,9 @@ func kapi_raporu() {
     int bellek_pencere = g_bellek_son_kare - BELLEK_ILK_KARE;
     bool bellek_olculdu = g_bellek_ilk > 0 && bellek_pencere >= BELLEK_PENCERE_MIN;
     int bellek_uc_egim = bellek_pencere > 0 ? (g_bellek_son - g_bellek_ilk) * 1000 / bellek_pencere : 0;
-    int bellek_egim = bellek_medyan_egim();
+    int bellek_egim = bellek_ceyrek_egim();
     int bellek_aralik_n = len(g_bellek_orn) > 0 ? len(g_bellek_orn) - 1 : 0;
-    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, medyan {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}; {bellek_aralik_n} aralik x {BELLEK_ARALIK}, artan {bellek_artan_aralik()}, uc {bellek_uc_egim}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
+    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, alt ceyrek {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}; {bellek_aralik_n} aralik x {BELLEK_ARALIK}, artan {bellek_artan_aralik()}, uc {bellek_uc_egim}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
     if (!bellek_olculdu) {
         print(t"[kapi] ATLANDI: bellek kapisi >= {BELLEK_ILK_KARE + BELLEK_PENCERE_MIN} kare ister (pencere {bellek_pencere}, ilk olcum {g_bellek_ilk} KB)");
     }
@@ -823,7 +826,7 @@ func kapi_raporu() {
     // Rekor diske yalnız "skor > eski rekor" iken yazılır: skoru 0 kalan kısa
     // koşumda yazma beklenmez (dosya boş, okuma -1 döner).
     if (g_rekor > 0 && disk_rekor != g_rekor) { push(sorun, t"rekor diske yazilmamis: dosyada {disk_rekor}, bellekte {g_rekor}"); }
-    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: medyan {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
+    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: alt ceyrek {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
     if (kare_bellegi_acik() && kare_bellegi_kare() != kare) { push(sorun, t"kare bellegi {kare_bellegi_kare()} kare geri sardi, {kare} kare kostu (kare_basla/kare_bitir eslesmiyor)"); }
     for (s in sorun) { print("[kapi] BASARISIZ: " + s); }
     if (len(sorun) > 0) { exit(1); }

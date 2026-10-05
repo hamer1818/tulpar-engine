@@ -1753,3 +1753,32 @@ Düzeltmeyle: C++ +0 MB / +0 thread / +0–8 KB, Tulpar +8 KB.
 **Ders:** "kurulum false döner" sözleşmesi, "ve aldığını geri bırakır" demiyorsa yarıdadır.
 Kapanış kurulmamış durumda hiçbir şey yapmıyorsa, kısmi kurulumu toplayan yer başarısız yolun
 kendisi olmak zorunda — ve bu, tek denemede değil **N denemede** ölçülür.
+
+### 8cs. İki uç arasındaki fark, sınırlı bir basamağı "eğim" sanar — ve pozitif kontrol sessizce eskir
+
+**Sınıf** (2026-10-05, CI'da ölçüldü): `engine_aksiyon.tpr`'ın bellek kapısı RSS'i pencerenin iki
+ucunda okuyup farkı kare sayısına bölüyordu. CI'ın llvmpipe'ında (mesa 25.2.8, LLVM 20.1.2) her
+koşumda bir kez, aynı büyüklükte (~26–28 MB) bir sürücü basamağı oluşuyor, sonrası düz. Basamağın
+zamanı ise rastgele: 16 paralel koşumda k1200 ile k6000 arası, 200 karelik 4–7 aralığa yayılarak.
+Basamak pencereye düştüğünde kapı "bellek büyüyor" dedi (28 CI koşumunda 3 kez: 2936 / 3583 / 4134
+KB/1000). Kırmızı koşumların sonu geçenlerle aynı platoda (194–195 MB) bitiyordu, yani sızıntı yoktu.
+Önceki düzeltme ("ısınma k1100'de biter, pencereyi k2400'e kaydır") tek bir gözleme dayanıyordu ve
+basamak bazen daha geç geliyordu.
+
+İkinci, bağlı bulgu: kapının belgelenmiş pozitif kontrolü (`TULPAR_KARE_BELLEK=0`, 2026-09-25'te
+1805–2522 KB/1000) TulparLang v3.39.0'da RTX 5080'de yalnız **203** KB/1000 sızdırıyordu, yani sınırın
+(600) altında. Kontrol çoktan bir şey göstermez olmuştu ve bunu söyleyen yoktu, çünkü CI'da
+koşturulmuyordu.
+
+**Düzeltme:** ölçü 200 karelik aralık artışlarının **alt çeyreği** (25. yüzdelik). Sızıntı her
+aralıkta artar, basamak aralıkların en çok ~%65'inde: 14 normal koşumda (üç farklı pencere) Q1 = 0,
+istisnasız. Medyan yetmedi: 11 aralıklık pencerede 2 koşumda 2260 / 5140. Pozitif kontrol
+**enjekte** ve **her koşumda** (`tulpar_dogrula.sh`): `TULPAR_AKSIYON_SIZINTI_B=2048` her karede
+~2 KB'lık yeni bir dizgiyi kareler arası yaşayan bir global'e bırakır; kapı kırmızı olmalı
+(llvmpipe Q1 1140, RTX 5080 Q1 1240). Ölçü aletinin kendi sınırı da ölçüldü ve yazıldı: 1 KB/kare'yi
+yığının boş alanı yutuyor (RTX 5080'de Q1 20). Ölçüm aracı: `TULPAR_AKSIYON_BELLEK_IZ=N`, her N karede
+RSS. Eski llvmpipe'a özel 4600 karelik ikinci koşum kalktı.
+
+**Ders:** iki uçtan okunan eğim, eğrinin şeklini görmez. Önce eğriyi çiz, sonra şekle dayanıklı bir
+istatistik seç. Pozitif kontrolü ise belgede değil, **her koşumda** koştur: dilin ya da sürücünün
+değişmesi onu sessizce etkisiz bırakabilir.
