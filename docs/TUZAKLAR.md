@@ -1735,7 +1735,16 @@ betiği arena rezervinden sonra çıplak `return 0` kalmadığını doğruladı;
 yükleyici kapalı) ve `bridge_failed_init_without_icd_leaves_no_residue` (yükleyici var,
 `VK_DRIVER_FILES`/`VK_ICD_FILENAMES` olmayan bir dosyaya → Windows CI'nın gerçek yolu): ısınma
 turundan sonra 8 düşen kurulum + kapanış; sanal boyut (`platform::os_virtual_bytes`), RSS ve thread
-sayısı (`platform::os_thread_count`) değişmemeli, hata metni beklenen aşamayı söylemeli. Tulpar
+sayısı (`platform::os_thread_count`) değişmemeli (thread için eşik "deneme başına < 1": tam
+koşumda önceki testlerin sürücü thread'leri ±1 oynuyor, CI lavapipe'ta ölçüldü), hata metni beklenen
+aşamayı söylemeli. macOS'ta ICD senaryosu görünür atlanır: ICD gizlenince `rhi/device.cpp`'nin yedeği
+MoltenVK'yi doğrudan yükler ve kurulum başarır — o platformda "yükleyici var, ICD yok" yolu yok.
+
+**Açık kalan, bağlı sınıf:** *başarılı* bir oturumdan sonra aynı süreçte ikinci bir başarılı
+`teng_init` + `teng_shutdown` çöküyor (CI macOS 2026-10-05, SIGSEGV): `teng_shutdown` `Bridge`'i
+sıfırlamıyor (kapanış raporu önceki oturumun sayaçlarını basıyor) ve arenayı bırakmıyor; ikinci
+`sys.reserve` eskisinin üstüne yazar. Bugün tek oturum varsayılıyor (test_bridge.cpp başlığı);
+"motoru kapatıp yeniden aç" desteği ayrı bir karar. Tulpar
 tarafı: `tulpar/tests/engine_gpusuz.test.tpr` "yeniden deneme" (8 deneme, RSS eşiği 2048 KB).
 **Pozitif kontrol** (aynı testler, düzeltmesiz köprü, 2026-10-05): C++ iki senaryoda da sanal
 +5316 MB, thread +120, RSS +33,8 MB → 3 kontrol kırmızı; Tulpar `Fail: 1`, 8 denemede RSS +36172 KB.

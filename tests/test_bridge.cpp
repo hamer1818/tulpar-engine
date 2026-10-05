@@ -1836,7 +1836,12 @@ bool kacak_kapisi(const char *senaryo, const char *beklenen_hata, int n) {
   std::printf("    [bilgi] %s, %d dusen kurulum ('%s'): RSS %zu -> %zu KB (%+lld KB), sanal %+lld MB, thread %u -> %u (%+d)\n", senaryo, n,
               teng_last_error(), a.rss / 1024, b.rss / 1024, d_rss / 1024, d_sanal / (1024 * 1024), a.thread, b.thread, d_thread);
   CHECK(a.rss > 0 && a.sanal > 0 && a.thread > 0); // olcu aletleri bu platformda calisiyor
-  CHECK(d_thread == 0);                            // worker'lar JOIN edildi
+  // Worker'lar JOIN edildi. Esik "deneme basina en az bir sizan thread"in
+  // altinda (kacak sinifi her denemede cekirdek-1 >= 1 worker birakir), sifir
+  // DEGIL: tam kosumda onceki testlerin surucu/ses thread'leri es zamanli
+  // bitip baslayabiliyor — olculdu CI ubuntu-latest lavapipe 2026-10-05:
+  // 41 -> 42 (+1), ayni kosumda ICD senaryosu +0.
+  CHECK(d_thread < n);
   CHECK(d_sanal < 64ll * 1024 * 1024);             // tek bir kacak arena bile 512 MB olurdu
   CHECK(d_rss < 4ll * 1024 * 1024);                // dokunulan arena sayfalari + thread yiginlari geri dondu
   return true;
@@ -1864,6 +1869,14 @@ ENGINE_TEST(bridge_failed_init_without_icd_leaves_no_residue) {
   // dogrudan MoltenVK ise degisken yok sayilir ve kurulum basarili olur — o
   // da ATLANDI (olculen yol kosmadi). Bu yolda yukleyici dlopen EDILMISTIR:
   // geri alma onu da kapatmali.
+#if defined(__APPLE__)
+  // macOS'ta bu yol YOK: ICD gizlenince rhi/device.cpp'nin yedegi MoltenVK'yi
+  // DOGRUDAN yukler ve kurulum basarir (olculdu CI macos-latest 2026-10-05:
+  // "[rhi] loader ATLANDI: MoltenVK DOGRUDAN yuklendi", GPU Apple Paravirtual).
+  // Dusen kurulumun geri alinmasi orada yukleyici-yok senaryosuyla olculur.
+  skip("macOS: ICD gizlenince kurulum MoltenVK'yi dogrudan yukleyip basarir — 'yukleyici var, ICD yok' yolu bu platformda yok");
+  return;
+#endif
   {
     rhi::VkApi api;
     if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok — 'yukleyici var, ICD yok' yolu olculemez"); return; }
