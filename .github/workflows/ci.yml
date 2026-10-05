@@ -1099,40 +1099,31 @@ jobs:
           set +e
           ./yapi/engine_tests.exe > tam.log 2>&1; echo "tam rc=$?"
           tr -d '\r' < tam.log | tail -25
-          ifeo='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\engine_tests.exe'
-          MSYS2_ARG_CONV_EXCL='*' reg add "$ifeo" /v GlobalFlag /t REG_DWORD /d 0x02000000 /f
-          MSYS2_ARG_CONV_EXCL='*' reg add "$ifeo" /v PageHeapFlags /t REG_DWORD /d 0x3 /f
-          ./yapi/engine_tests.exe editor_update_badge > ph.log 2>&1; echo "pageheap rc=$?"
-          tr -d '\r' < ph.log | tail -15
-          cdb="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          ls -la "$cdb" || find "/c/Program Files (x86)/Windows Kits" -name cdb.exe 2>/dev/null | head -3
-          if [ -x "$cdb" ]; then
-            MSYS2_ARG_CONV_EXCL='*' "$cdb" -o -c "g; .lastevent; r; kn 40; q" "$(cygpath -w "$PWD/yapi/engine_tests.exe")" editor_update_badge > cdb.log 2>&1
-            tr -d '\r' < cdb.log | grep -vE '^ModLoad' | tail -70 > cdb_k.log; cat cdb_k.log
-            base=$(objdump -p yapi/engine_tests.exe | awk '/^ImageBase/{print $2}')
-            echo "ImageBase=$base"
-            for off in $(grep -oE 'image[0-9a-f_]+\+0x[0-9a-f]+' cdb_k.log | sed 's/.*+0x//' | head -30); do
-              printf '%s  ' "$off"; addr2line -f -C -e yapi/engine_tests.exe "$(printf '0x%x' $((0x$base + 0x$off - 1)))" | head -1
-            done
-            nm -n -C yapi/engine_tests.exe > nm.txt; echo "nm sembol: $(wc -l < nm.txt)"
-            grep -oE 'image[0-9a-f_]+\+0x[0-9a-f]+' cdb_k.log | sed 's/.*+0x//' | head -30 > offs.txt
-            python3 -c "
-          import bisect
-          base=0x140000000
-          syms=[]
-          for l in open('nm.txt', errors='replace'):
-              p=l.split(' ',2)
-              if len(p)==3 and p[1] in 'tTwW':
-                  try: syms.append((int(p[0],16), p[2].strip()))
-                  except ValueError: pass
-          syms.sort(); adr=[a for a,_ in syms]
-          for o in open('offs.txt'):
-              v=base+int(o,16)
-              i=bisect.bisect_right(adr,v)-1
-              print(o.strip(), syms[i][1] if i>=0 else '?', '+0x%x'%(v-syms[i][0]) if i>=0 else '')
-          "
-          fi
-          MSYS2_ARG_CONV_EXCL='*' reg delete "$ifeo" /f
+          nm -n -C yapi/engine_tests.exe > nm.txt
+          adr=$(grep -F 'ImGui_ImplVulkan_UpdateTexture(ImTextureData*) [clone .part.0]' nm.txt | head -1 | cut -d' ' -f1)
+          echo "UpdateTexture.part.0 = 0x$adr"
+          bas=$(printf '0x%x' $((0x$adr + 0x840))); son=$(printf '0x%x' $((0x$adr + 0x8b0)))
+          objdump -d -C --start-address=$bas --stop-address=$son yapi/engine_tests.exe | tail -40
+          echo "--- cagri hedefi olan global isaretciler (vk*) ---"
+          objdump -d -C --start-address=$bas --stop-address=$son yapi/engine_tests.exe | grep -oE 'call.*' | head -20
+          echo "--- vulkan_lvp.dll ---"
+          lb=$(objdump -p /mingw64/bin/vulkan_lvp.dll | awk '/^ImageBase/{print $2}'); echo "lvp ImageBase=$lb"
+          nm -n /mingw64/bin/vulkan_lvp.dll > lnm.txt 2>/dev/null; echo "lvp nm: $(wc -l < lnm.txt)"
+          objdump -p /mingw64/bin/vulkan_lvp.dll | grep -E '^\s+\[ *[0-9]+\] ' | head -3
+          objdump -p /mingw64/bin/vulkan_lvp.dll | awk '/Export Address Table/,/Name Pointer/' | head -5
+          python3 - <<'PYEOF'
+          import subprocess, re, bisect
+          out = subprocess.run(['objdump','-p','/mingw64/bin/vulkan_lvp.dll'], capture_output=True, text=True).stdout
+          base = int(re.search(r'^ImageBase\s+([0-9a-fA-F]+)', out, re.M).group(1), 16)
+          ex = []
+          for m in re.finditer(r'^\s*\[\s*\d+\]\s+\+base\[\s*\d+\]\s+([0-9a-fA-F]+)\s+(\S+)', out, re.M):
+              ex.append((int(m.group(1),16), m.group(2)))
+          ex.sort()
+          print('lvp ihrac:', len(ex))
+          for o in (0x2b6b50, 0x223921):
+              i = bisect.bisect_right([a for a,_ in ex], o) - 1
+              print('lvp+0x%x en yakin ihrac: %s +0x%x' % (o, ex[i][1], o-ex[i][0]) if i >= 0 else '?')
+          PYEOF
           exit 0
 
       # `set +e`: msys2 kabugu `bash -e` ile kosar; engine_tests sifirdan
