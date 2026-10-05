@@ -333,5 +333,5 @@ fi
 
 echo "tulpar dogrulama: $n_gecti gecti, $n_dustu dustu, $n_atlandi atlandi"
 if [ $fail -ne 0 ]; then hata "tulpar + motor eklentisi DOGRULANAMADI"; exit 1; fi
-if [ $n_atlandi -gt 0 ]; then iyi "tulpar + motor eklentisi linkleniyor ve GPU'suz kopru calisiyor — $n_atlandi GPU kapisi ATLANDI (olculmedi)"
+if [ $n_atlandi -gt 0 ]; then iyi "tulpar + motor eklentisi calisiyor — $n_atlandi kapi ATLANDI (olculmedi; sebepleri yukarida: GPU yok ya da --uzun-atla)"
 else iyi "tulpar + motor eklentisi calisiyor"; fi
