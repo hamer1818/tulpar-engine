@@ -198,6 +198,9 @@ jobs:
     env:
       SURUM: ${{ needs.hazirlik.outputs.surum }}
       PLATFORM: linux-x86_64
+      # Paket kapisinin KOSU ayagi: tulpar yoksa ATLAMAZ, KIRMIZI (asagidaki
+      # "Tulpar" adimi indirir). CI ile ayni kural.
+      TULPAR_PAKET_KOSU: zorunlu
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-linux-x86_64
     steps:
       - uses: actions/checkout@v4
@@ -210,7 +213,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
-            vulkan-validationlayers libglfw3
+            vulkan-validationlayers libglfw3 clang libssl-dev
 
       # Surucu VE dogrulama katmani: ikisi de LOADER duzeyinde goruluyor mu?
       # "Paket kurulu" YETMEZ — manifest loader'in aramadigi bir dizindeyse ya da
@@ -414,6 +417,15 @@ jobs:
           exit "$kod"
       # ===== /YAYIN KAPISI ====================================================
 
+      # PAKET KOSU KAPISI (K197, #77): tools/package.sh paketin tulpar-ext/'ini
+      # PAKETLENMIS dizinden, depo agacinin disinda, editorun F5'i gibi bir
+      # ornek oyunla kosturur. Bu adim olmadan release.yml'de tulpar YOKTU ve
+      # kapi her surumde ATLANDI kaliyordu (yalniz ci.yml olcuyordu).
+      # Indirme + SHA256SUMS dogrulamasi ci.yml ile AYNI betik
+      # (tools/tulpar_indir.sh); TULPAR'i sonraki adimlara GITHUB_ENV verir.
+      - name: Tulpar (yayinlanmis, SHA256SUMS dogrulamali)
+        run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
+
       - name: Paketle (tools/package.sh)
         run: |
           set -euo pipefail
@@ -591,6 +603,7 @@ jobs:
     env:
       SURUM: ${{ needs.hazirlik.outputs.surum }}
       PLATFORM: macos-arm64
+      TULPAR_PAKET_KOSU: zorunlu
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-macos-arm64
     steps:
       - uses: actions/checkout@v4
@@ -885,6 +898,15 @@ jobs:
           exit "$kod"
       # ===== /YAYIN KAPISI ====================================================
 
+      # PAKET KOSU KAPISI (K197, #77): tools/package.sh paketin tulpar-ext/'ini
+      # PAKETLENMIS dizinden, depo agacinin disinda, editorun F5'i gibi bir
+      # ornek oyunla kosturur. Bu adim olmadan release.yml'de tulpar YOKTU ve
+      # kapi her surumde ATLANDI kaliyordu (yalniz ci.yml olcuyordu).
+      # Indirme + SHA256SUMS dogrulamasi ci.yml ile AYNI betik
+      # (tools/tulpar_indir.sh); TULPAR'i sonraki adimlara GITHUB_ENV verir.
+      - name: Tulpar (yayinlanmis, SHA256SUMS dogrulamali)
+        run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
+
       - name: Paketle (tools/package.sh)
         run: |
           set -euo pipefail
@@ -1059,6 +1081,10 @@ jobs:
     env:
       SURUM: ${{ needs.hazirlik.outputs.surum }}
       PLATFORM: windows-x86_64
+      # Windows runner'inda Vulkan ICD'si yok: GPU'suz kip (tools/package.sh) —
+      # paketten derleme + link + baslatma + GPU'suz kopru suite'i OLCULUR, kare
+      # dongusu ATLANDI basilir. tulpar yoksa yine KIRMIZI.
+      TULPAR_PAKET_KOSU: gpusuz
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-windows-x86_64
     steps:
       # Satir sonlari .gitattributes ile LF'e sabitli (kanonik .sahne bayt-esitlik
@@ -1085,6 +1111,8 @@ jobs:
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
             mingw-w64-x86_64-glfw
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-openssl
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
@@ -1198,6 +1226,15 @@ jobs:
 
           exit "$kod"
       # ===== /YAYIN KAPISI ====================================================
+
+      # PAKET KOSU KAPISI (K197, #77): tools/package.sh paketin tulpar-ext/'ini
+      # PAKETLENMIS dizinden, depo agacinin disinda, editorun F5'i gibi bir
+      # ornek oyunla kosturur. Bu adim olmadan release.yml'de tulpar YOKTU ve
+      # kapi her surumde ATLANDI kaliyordu (yalniz ci.yml olcuyordu).
+      # Indirme + SHA256SUMS dogrulamasi ci.yml ile AYNI betik
+      # (tools/tulpar_indir.sh); TULPAR'i sonraki adimlara GITHUB_ENV verir.
+      - name: Tulpar (yayinlanmis, SHA256SUMS dogrulamali)
+        run: bash tools/tulpar_indir.sh "$(cygpath -u "$RUNNER_TEMP")/tulpar"
 
       - name: Paketle (tools/package.sh)
         run: |

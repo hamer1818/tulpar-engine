@@ -652,7 +652,15 @@ eklenti_eksik_kitapliklar() {
 #     gosterir: ayni oyun kitapligi silinmis kopyayla DUSMELI ve link hatasi
 #     kitapligi ADIYLA soylemeli.
 #     tulpar yoksa GORUNUR atlanir; TULPAR_PAKET_KOSU=zorunlu (CI) iken HATA.
-#     tulpar: TULPAR, yoksa PATH. Bugun yalniz Linux/macOS CI'i verir.
+#     tulpar: TULPAR, yoksa PATH (CI ve surum: tools/tulpar_indir.sh).
+#     TULPAR_PAKET_KOSU=gpusuz (GPU'suz makine, ornegin ICD'siz Windows
+#     surum isi): tulpar yine ZORUNLU; oyun motoru kuramazsa ("motor
+#     acilamadi: <sebep>", cikis 0) bu DUSTU degil — olculen: paketten
+#     derleme + link + baslatma ve paketten GPU'SUZ kopru suite'i
+#     (tulpar/tests/engine_gpusuz.test.tpr: kurulumsuz teng_* cagrilari, dusen
+#     kurulumun sozlesmesi + geri alinmasi). Kare dongusu ve paketten font
+#     "ATLANDI" diye basilir. Motor kurulursa (GPU var) tam kosu kurallari
+#     gecerli — gpusuz kipi bir gevsetme degil, olculebilenin olcusu.
 eklenti_sinamalari() {
   local cikti="$1" satirlar="$2" ekl gun ilk_ad ilk_dosya tur ad adaylar a sonuc tul rc log font ok=0
   ekl="$(cd "$cikti/tulpar-ext" && pwd)"
@@ -680,8 +688,8 @@ eklenti_sinamalari() {
   [ -n "$tul" ] || tul="$(command -v tulpar 2>/dev/null || true)"
   if [ -z "$tul" ] || [ ! -x "$tul" ]; then
     rm -rf "$gun"
-    if [ "${TULPAR_PAKET_KOSU:-}" = "zorunlu" ]; then
-      echo "  EKSIK   tulpar yok (TULPAR / PATH) ama TULPAR_PAKET_KOSU=zorunlu — paketlenmis eklentiyle oyun kosusu OLCULMEDI"
+    if [ "${TULPAR_PAKET_KOSU:-}" = "zorunlu" ] || [ "${TULPAR_PAKET_KOSU:-}" = "gpusuz" ]; then
+      echo "  EKSIK   tulpar yok (TULPAR / PATH) ama TULPAR_PAKET_KOSU=${TULPAR_PAKET_KOSU} — paketlenmis eklentiyle oyun kosusu OLCULMEDI"
       return 1
     fi
     echo "  ATLANDI: tulpar yok (TULPAR / PATH) — paketlenmis eklentiyle oyun kosusu OLCULMEDI"
@@ -707,6 +715,25 @@ eklenti_sinamalari() {
   font="$(grep -m1 'font adayi .* -> YUKLENDI' "$log" | sed -n 's/.*font adayi [0-9]*\/[0-9]*: \(.*\) -> YUKLENDI.*/\1/p')"
   if [ "$rc" -ne 0 ]; then
     echo "  KOSU    ornek oyun (engine_ilk_oyun, 60 kare) cikis $rc"
+  elif [ "${TULPAR_PAKET_KOSU:-}" = "gpusuz" ] && grep -q '^motor acilamadi: ' "$log"; then
+    echo "  kosu    GPU'SUZ: engine_ilk_oyun paketten derlendi + linklendi + kostu (cikis 0), kurulum dustu: $(grep -m1 '^motor acilamadi: ' "$log" | sed 's/^motor acilamadi: //' | tr -d '\r')"
+    echo "  ATLANDI: kare dongusu (60 kare) + paketten HUD fontu — motor kurulamadi (GPU yok), OLCULMEDI"
+    # GPU'suz kopru suite'i, PAKETIN eklentisiyle (depo agacinin degil).
+    cp -f "$kok/tulpar/tests/engine_gpusuz.test.tpr" "$gun/oyun/"
+    local gs
+    gs="$( (cd "$gun/oyun" && LC_ALL=C DISPLAY= TULPAR_EXT_PATH="$ekl" "$tul" --ext "$ekl" engine_gpusuz.test.tpr) 2>&1 | tr -d '\r')"
+    local gs_ozet; gs_ozet="$(printf '%s\n' "$gs" | grep -m1 '^Tests:')"
+    local gs_n gs_p
+    gs_n="$(printf '%s' "$gs_ozet" | sed -n 's/^Tests: \([0-9]*\).*/\1/p')"
+    gs_p="$(printf '%s' "$gs_ozet" | sed -n 's/.*Pass: \([0-9]*\).*/\1/p')"
+    if [ -n "$gs_n" ] && [ "$gs_n" -gt 0 ] && [ "$gs_n" = "$gs_p" ] && printf '%s' "$gs_ozet" | grep -q 'Fail: 0'; then
+      ok=1
+      echo "  kosu    GPU'suz kopru suite'i paketten: $gs_ozet"
+      printf '%s\n' "$gs" | grep '\[bilgi\]' | sed 's/^ */      /'
+    else
+      echo "  KOSU    GPU'suz kopru suite'i paketten DUSTU: '${gs_ozet:-ozet yok}'"
+      printf '%s\n' "$gs" | tail -12 | sed 's/^/      /'
+    fi
   elif ! grep -q 'kapanis: .* hata 0' "$log"; then
     echo "  KOSU    ornek oyunun kapanis raporu yok ya da hata > 0"
   elif [ "$font" != "$ekl/$EKLENTI_FONT" ]; then
