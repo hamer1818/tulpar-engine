@@ -946,7 +946,6 @@ jobs:
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-mesa
             mingw-w64-x86_64-vulkan-validation-layers
-            mingw-w64-x86_64-vulkan-tools
 
       # YAZILIM VULKAN ICD'si (lavapipe) — Windows'ta da (2026-10-05).
       # Runner'da vulkan-1.dll (System32) var ama ICD yok: vkCreateInstance
@@ -976,24 +975,18 @@ jobs:
             echo "VK_ADD_LAYER_PATH=$(cygpath -w /mingw64/bin)"
           } >> "$GITHUB_ENV"
           export VK_DRIVER_FILES="$(cygpath -w "$icd")" VK_ICD_FILENAMES="$(cygpath -w "$icd")" VK_ADD_LAYER_PATH="$(cygpath -w /mingw64/bin)"
-          vulkaninfo --summary 2>&1 | tr -d '\r' | tee vulkaninfo.log
-          # Linux isindeki adimla ayni iki ayri teshis.
-          if ! grep -q 'Instance Layers' vulkaninfo.log; then
-            echo "::error::vulkaninfo katman listesini HIC basamadi — loader lavapipe ile instance kuramiyor."
-            VK_LOADER_DEBUG=error,warn,driver vulkaninfo --summary 2>&1 | tr -d '\r' | tail -40 || true
+          # MSYS2'de vulkaninfo YOK (mingw-w64-x86_64-vulkan-tools paketi
+          # bulunamadi, olculdu 2026-10-05). Ayni olcumu motordan BAGIMSIZ
+          # sonda yapar (tools/vk_sonda.py, ctypes): katman listesi, instance,
+          # cihaz adi. Cikis 2 = instance kurulamadi (ICD yok), 1 = llvmpipe ya
+          # da dogrulama katmani loader'a gorunmuyor.
+          if ! python3 tools/vk_sonda.py --cihaz llvmpipe --katman VK_LAYER_KHRONOS_validation 2>&1 | tr -d '\r' | tee vk_sonda.log; then :; fi
+          if ! grep -qi 'cihaz 0: llvmpipe' vk_sonda.log || grep -q 'EKSIK' vk_sonda.log; then
+            echo "::error::Loader lavapipe'i ya da dogrulama katmanini gormuyor (VK_DRIVER_FILES=$VK_DRIVER_FILES, VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH)."
+            VK_LOADER_DEBUG=error,warn,driver,layer python3 tools/vk_sonda.py 2>&1 | tr -d '\r' | tail -40 || true
+            ls -la /mingw64/bin/vulkan_lvp.dll /mingw64/bin/VkLayer_khronos_validation.* 2>&1 || true
             exit 1
           fi
-          if ! grep -qi 'llvmpipe' vulkaninfo.log; then
-            echo "::error::loader instance kurdu ama llvmpipe cihazi listelenmedi — ICD yuklenmedi."
-            VK_LOADER_DEBUG=error,warn,driver vulkaninfo --summary 2>&1 | tr -d '\r' | tail -40 || true
-            exit 1
-          fi
-          if ! grep -q 'VK_LAYER_KHRONOS_validation' vulkaninfo.log; then
-            echo "::error::VK_LAYER_KHRONOS_validation loader'in katman listesinde YOK (VK_ADD_LAYER_PATH=$VK_ADD_LAYER_PATH)."
-            ls -la /mingw64/bin/VkLayer_khronos_validation.* 2>&1 || true
-            exit 1
-          fi
-          grep -iE 'deviceName|driverName|driverInfo|VK_LAYER_KHRONOS_validation' vulkaninfo.log
 
       # Olculdu (2026-09-19): core.autocrlf=true olan bir makinede taze klon bu
       # dosyayi CRLF'e ceviriyor, yazici LF uretiyor ve kanonik kapi kodda hicbir
