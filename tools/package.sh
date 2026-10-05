@@ -713,6 +713,11 @@ eklenti_sinamalari() {
   log="$gun/kosu.log"
   rc=0; kos "$ekl" "$log" || rc=$?
   font="$(grep -m1 'font adayi .* -> YUKLENDI' "$log" | sed -n 's/.*font adayi [0-9]*\/[0-9]*: \(.*\) -> YUKLENDI.*/\1/p')"
+  # Windows: motor yolu `D:/a/...` diye basar, betik `/d/a/...` (MSYS) bilir —
+  # ayni dosya, farkli yazim. Karsilastirmadan once MSYS bicimine cevrilir
+  # (olculdu CI windows-latest SwiftShader 2026-10-05: font paketten YUKLENDI,
+  # kapi yalniz yazim farkindan "gelmedi" dedi).
+  if [ -n "$font" ] && command -v cygpath >/dev/null 2>&1; then font="$(cygpath -u "$font")"; fi
   if [ "$rc" -ne 0 ]; then
     echo "  KOSU    ornek oyun (engine_ilk_oyun, 60 kare) cikis $rc"
   elif [ "${TULPAR_PAKET_KOSU:-}" = "gpusuz" ] && grep -q '^motor acilamadi: ' "$log"; then
