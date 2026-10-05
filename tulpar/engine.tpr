@@ -144,6 +144,16 @@ func frame_memory_frames(): int { return _kb_kare; }
 // Sürecin yerleşik belleği (RSS), KB. Motor kurulmadan da çalışır.
 func bellek_kb(): int { return eng_rss_kb(); }
 func memory_kb(): int { return eng_rss_kb(); }
+// Sürecin sanal boyutu (MB) ve thread sayısı; kapanıştan sonra cihaz
+// yıkılmadan önce canlı kalan havuzsuz Vulkan nesnesi (oturumdan oturuma
+// değişmemeli). Motoru kapatıp aynı süreçte yeniden açan kodun kaçak aletleri
+// (Tuzaklar 8ct, tests/engine_iki_oturum.test.tpr).
+func sanal_bellek_mb(): int { return eng_virtual_mb(); }
+func virtual_mb(): int { return eng_virtual_mb(); }
+func thread_sayisi(): int { return eng_thread_count(); }
+func thread_count(): int { return eng_thread_count(); }
+func vk_canli_nesne(): int { return eng_vk_live(); }
+func vk_live_objects(): int { return eng_vk_live(); }
 func dt(): float { return eng_dt(); }
 func zaman(): float { return eng_time(); }
 func kare_no(): int { return eng_frame(); }

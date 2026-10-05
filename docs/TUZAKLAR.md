@@ -1740,12 +1740,10 @@ koşumda önceki testlerin sürücü thread'leri ±1 oynuyor, CI lavapipe'ta öl
 aşamayı söylemeli. macOS'ta ICD senaryosu görünür atlanır: ICD gizlenince `rhi/device.cpp`'nin yedeği
 MoltenVK'yi doğrudan yükler ve kurulum başarır — o platformda "yükleyici var, ICD yok" yolu yok.
 
-**Açık kalan, bağlı sınıf:** *başarılı* bir oturumdan sonra aynı süreçte ikinci bir başarılı
-`teng_init` + `teng_shutdown` çöküyor (CI macOS 2026-10-05, SIGSEGV): `teng_shutdown` `Bridge`'i
-sıfırlamıyor (kapanış raporu önceki oturumun sayaçlarını basıyor) ve arenayı bırakmıyor; ikinci
-`sys.reserve` eskisinin üstüne yazar. Bugün tek oturum varsayılıyor (test_bridge.cpp başlığı);
-"motoru kapatıp yeniden aç" desteği ayrı bir karar. Tulpar
-tarafı: `tulpar/tests/engine_gpusuz.test.tpr` "yeniden deneme" (8 deneme, RSS eşiği 2048 KB).
+**Bağlı sınıf (aynı gün kapandı, [[#8ct. "Kapat" bir bayrak indirir, yeniden açmayı bilmez — ikinci oturum bayat durumla kurulur]]):**
+*başarılı* bir oturumdan sonra aynı süreçte ikinci bir başarılı `teng_init` + `teng_shutdown` çöküyordu
+(CI macOS 2026-10-05, SIGSEGV): `teng_shutdown` `Bridge`'i sıfırlamıyor ve arenayı bırakmıyordu. Tulpar
+tarafı (düşen kurulum): `tulpar/tests/engine_gpusuz.test.tpr` "yeniden deneme" (8 deneme, RSS eşiği 2048 KB).
 **Pozitif kontrol** (aynı testler, düzeltmesiz köprü, 2026-10-05): C++ iki senaryoda da sanal
 +5316 MB, thread +120, RSS +33,8 MB → 3 kontrol kırmızı; Tulpar `Fail: 1`, 8 denemede RSS +36172 KB.
 Düzeltmeyle: C++ +0 MB / +0 thread / +0–8 KB, Tulpar +8 KB.
@@ -1827,3 +1825,51 @@ RSS. Eski llvmpipe'a özel 4600 karelik ikinci koşum kalktı.
 **Ders:** iki uçtan okunan eğim, eğrinin şeklini görmez. Önce eğriyi çiz, sonra şekle dayanıklı bir
 istatistik seç. Pozitif kontrolü ise belgede değil, **her koşumda** koştur: dilin ya da sürücünün
 değişmesi onu sessizce etkisiz bırakabilir.
+
+### 8ct. "Kapat" bir bayrak indirir, yeniden açmayı bilmez — ikinci oturum bayat durumla kurulur
+
+**Sınıf** (2026-10-05, CI macOS'ta görüldü, yerelde ölçüldü): `teng_shutdown` alt sistemleri kapatıp
+yalnız `inited = false` diyordu. 512 MB arena rezervi, profiler dizileri ve `Bridge`'in **bütün** alanları
+(varlıklar, sahne, betik havuzları, modeller, kare/zaman sayaçları) olduğu gibi kalıyordu. Aynı süreçte
+ikinci `teng_init` "kurulu değil" görüp devam ediyor, eskisinin üstüne yeni arena rezerv ediyor ve
+bayat tablolarla kuruluyordu. Ölçüldü (RTX 5080 / Linux, düzeltmesiz köprü): ikinci oturum açılır açılmaz
+varlık sayısı 3 (önceki oturumun), kare 32, önceki oturumun id'si **canlı**; ikinci kapanış fizikten
+silinmiş gövdeleri yeniden silmeye çalışıp **SIGSEGV**. Tulpar tarafında aynı: ikinci `motor_kapat`
+süreci 139 ile düşürdü; ilk oturumdan sonra sanal boyut 711 yerine 1351 MB (arena kalmış).
+
+Kim kullanıyor? Editörün F5'i **kullanmıyor**: F5 → Durdur → F5 her seferinde yeni bir oyun süreci
+başlatır (`app/editor_game.hpp`), yani kullanıcı bu hatayı editörde görmezdi. Yol: oyunun kendi
+"motoru kapat / yeniden aç" akışı ve Android'de süreç canlıyken etkinliğin yeniden yaratılması
+(`android_main` yeniden çağrılır, `main()` yeniden koşar — **ölçülmedi**, cihazda sınanmalı).
+
+**Düzeltme:** kapanışın sonu oturumun geri kalanını bırakır (profiler, kare arenası, `sys.release()`)
+ve `Bridge`'i yıkıp statik deposunda yeniden kurar: kapanıştan sonraki durum "hiç kurulmamış" ile
+aynı. Korunan iki şey: Vulkan yükleyicisi (`b.api`, başarılı yolda açık kalır — bir sonraki
+`vk_api_load` aynı kütüphaneyi bulur) ve varlık **nesilleri** (kapanışta canlı yuvanın nesli bir
+artırılır: önceki oturumun id'si yeni oturumdaki varlığa denk gelmez, ölü id sözleşmesi korunur).
+Kurulum öncesi ayarlar (`eng_bloom`, `eng_set_headless`, kamera, tema) yeni oturuma taşınmaz.
+Kapanış raporuna yeni satır: `kapanis (vk oturum): N kurma, cihaz yikilmadan once canli K havuzsuz nesne`
+— renderer ve hedefler yıkıldıktan sonra yalnız cihazın kendi nesneleri kalır (RTX 5080: 5), oturumdan
+oturuma değişmemeli. Ölçü aletleri ABI'de: `eng_vk_live`, `eng_virtual_mb`, `eng_thread_count`.
+
+**Kapı:** `tests/test_bridge.cpp` `bridge_second_session_in_same_process_starts_clean` — ısınma +
+5 oturum; her oturumda varlık 0 / kare 0 başlangıcı, bir kare offscreen çizilip PPM okunur (sahne-boş
+37402 px, ilk oturumun karesinden fark 0 px — RTX 5080), eski id ölü, hata sayacı sabit, kapanışta
+canlı vk eşit; süreç ölçüleri **oturum başına artış** olarak: en çok bir oturum +256 MB sanal ya da
++4 MB RSS aşabilir, thread toplamı < 5. Tulpar: `tulpar/tests/engine_iki_oturum.test.tpr` (ısınma + 4,
+`tools/tulpar_dogrula.sh --tam`). Neden uç fark değil (8cs dersi): ikinci oturumda **tek seferlik**
+~+17–21 MB RSS ve +86..277 MB sanal ölçüldü, sonra düz (0–4 KB/oturum). Kaynağı glibc yığını:
+`mallinfo2` "kullanımda" 0,76 → 0,88 MB iken "arena" 17 → 40 MB — boşaltılmış ama sisteme
+verilmemiş tepe noktası; sanaldaki ara sıra +64 MB basamaklar thread başına malloc arenası rezervi
+(RSS'e yansımıyor). Açık kalan küçük artış: "kullanımda" oturum başına ~+8 KB (10 oturumda 0,88 →
+0,93 MB) — sürücü/yükleyici mi bizim mi, ayrıştırılmadı.
+**Pozitif kontrol** (aynı gün, aynı makine): düzeltmesiz köprüde C++ kapısı ikinci oturumda 5 kontrol
+KIRMIZI + SIGSEGV, Tulpar testi çıkış 139 (özet yok → `tulpar_dogrula` DÜŞTÜ). Eşiklerin kendisi:
+teste oturum başına 512 MB kaçak rezerv enjekte edilince "eşik aşan sanal" 5/5 → KIRMIZI. (İlk denenen
+kontrol — yalnız `sys.release()`'ı çıkarmak — kaçak üretmedi: `~Bridge()` içindeki `~SystemArena`
+arenayı zaten bırakıyor. Kontrol, kapının ölçtüğünü değil düzeltmenin fazlalığını göstermiş olurdu.)
+
+**Ders:** "kapat" sözleşmesi "ve yeniden açılabilir" demiyorsa, kapanış bir bayrak indirmekten ibaret
+kalır. Yeniden kurulabilirlik tek oturumda değil **N oturumda** ve oturum başına artışla ölçülür; ilk
+iki oturum arasındaki tek seferlik basamak (yığın tepe noktası) kaçak değildir, her oturumda tekrarlanan
+artış kaçaktır.

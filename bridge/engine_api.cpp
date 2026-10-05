@@ -517,6 +517,19 @@ struct Bridge {
 };
 Bridge *g = nullptr; // teng_init'te statik depodan kurulur (buyuk nesne; yigina sigmaz)
 alignas(16) unsigned char g_storage[sizeof(Bridge)];
+// Son kapanista cihaz yikilmadan HEMEN once canli havuzsuz Vulkan nesnesi
+// (teng_vk_live). Bridge'in DISINDA: kapanis Bridge'i sifirliyor (Tuzaklar 8ct).
+int g_vk_live_last = -1;
+// Havuzsuz Vulkan nesnesi: kurma - birakma cagrisi. Komut tamponu ve
+// descriptor set havuzuyla ORTUK birakilir (sayac `released`i gormez), sayilmaz.
+int vk_live_of(const rhi::VkObjCounts &c) {
+  long long n = 0;
+  for (uint32_t k = 0; k < rhi::kVkObjCount; k++) {
+    if (k == (uint32_t)rhi::VkObj::CommandBuffer || k == (uint32_t)rhi::VkObj::DescriptorSet) continue;
+    n += (long long)c.created[k] - (long long)c.released[k];
+  }
+  return (int)n;
+}
 
 struct RecordCtx { renderer::Renderer *r; };
 void record_cb(VkCommandBuffer cb, void *user) {
@@ -1863,6 +1876,16 @@ void teng_shutdown(void) {
   // Linux lavapipe / RTX 5080'de ayni tanimsiz davranis sessiz gecti.
   if (b.off) { rhi::offscreen_destroy(b.off); b.off = nullptr; }
   if (!b.headless) b.swap.shutdown();
+  {
+    // Renderer + hedefler + swapchain yikildi: canli kalan yalniz cihazin
+    // kendi nesneleri. Oturumdan oturuma DEGISMEMELI (teng_vk_live).
+    rhi::VkObjCounts c{};
+    if (rhi::vk_counters_read(b.dev.handle(), &c)) {
+      g_vk_live_last = vk_live_of(c);
+      BINFO("kapanis (vk oturum): %llu kurma, cihaz yikilmadan once canli %d havuzsuz nesne", (unsigned long long)c.total_created(),
+            g_vk_live_last);
+    }
+  }
   b.dev.shutdown();
   if (b.host_open) { bridge::bridge_host_close(&b.host); b.host_open = false; }
   if (b.embed) {
@@ -1870,10 +1893,41 @@ void teng_shutdown(void) {
     b.chan.close(); // durum "cikti": editor sureci beklerken bunu gorur
     b.embed = false;
   }
-  b.inited = false;
-  b.running = false;
-  b.closing = false;
   if (g_log.errors) dump_ring("kapanista hata vardi");
+
+  // OTURUMUN GERI KALANI BIRAKILIR VE BRIDGE SIFIRLANIR (Tuzaklar 8ct).
+  // Eskiden burada `inited = false` deyip donuyorduk: 512 MB arena rezervi,
+  // profiler dizileri ve Bridge'in BUTUN alanlari (varliklar, sahne, betik
+  // havuzlari, modeller, klipler, kare/zaman sayaclari) oldugu gibi kaliyordu.
+  // Ayni surecte ikinci teng_init eskisinin ustune ikinci bir arena rezerv
+  // ediyor (sanal +512 MB / oturum) ve bayat tablolarla kuruluyordu — CI
+  // macOS'ta (2026-10-05) ikinci oturum SIGSEGV; kapanis raporu onceki
+  // oturumun sayaclarini basiyordu.
+  // Kapanistan sonra Bridge "hic kurulmamis" haliyle AYNI: kurulum oncesi
+  // ayarlar (eng_bloom, eng_set_headless, eng_gravity, kamera, tema) yeni
+  // oturuma TASINMAZ, kurulumdan once yeniden verilir. Korunanlar:
+  //   * Vulkan yukleyicisi (b.api): basarili yolda acik kalir (init_geri_al
+  //     notu) — bir sonraki vk_api_load ayni kutuphaneyi bulur.
+  //   * Varlik nesilleri: bir onceki oturumun id'si yeni oturumdaki ayni
+  //     yuvanin varligina DENK GELMESIN (olu id hata loglar, sozlesme). Kapanista
+  //     canli olan yuvanin nesli bir artirilir (sil'in yaptigi gibi).
+  b.prof.shutdown();                       // dizileri arenada
+  b.frame_arena.init(nullptr, 0, "frame"); // sys'ten carve edilmisti
+  const size_t arena_mb = b.sys.capacity() >> 20;
+  b.sys.release();
+  static uint16_t gens[kMaxEntities];
+  const uint32_t high = b.ent_high;
+  for (uint32_t i = 0; i < high; i++) {
+    const uint16_t gn = b.ents[i].alive ? (uint16_t)(b.ents[i].gen + 1) : b.ents[i].gen;
+    gens[i] = gn == 0 ? 1 : gn;
+  }
+  const rhi::VkApi api = b.api;
+  const uint32_t frames = b.frame;
+  b.~Bridge();
+  g = new (g_storage) Bridge();
+  g->api = api;
+  for (uint32_t i = 0; i < high; i++) g->ents[i].gen = gens[i];
+  BINFO("kapanis tamam: %u kare, arena %zu MB birakildi, kopru durumu sifirlandi (ayni surecte yeniden teng_init kurulabilir)", frames, arena_mb);
 }
 
 double teng_dt(void) { return g ? g->dt : 0.0; }
@@ -3764,5 +3818,14 @@ double teng_frame_ms(void) {
   return st.p50_ns / 1e6;
 }
 int teng_rss_kb(void) { return (int)(platform::os_resident_bytes() / 1024); }
+int teng_virtual_mb(void) { return (int)(platform::os_virtual_bytes() >> 20); }
+int teng_thread_count(void) { return (int)platform::os_thread_count(); }
+int teng_vk_live(void) {
+  if (g && g->inited) {
+    rhi::VkObjCounts c{};
+    return rhi::vk_counters_read(g->dev.handle(), &c) ? vk_live_of(c) : -1;
+  }
+  return g_vk_live_last;
+}
 
 } // extern "C"

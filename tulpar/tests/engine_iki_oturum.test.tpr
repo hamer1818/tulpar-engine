@@ -1,0 +1,99 @@
+// Tulpar Engine köprüsü — aynı süreçte İKİNCİ (ve N.) başarılı oturum
+// (Tuzaklar 8ct): motor_ac -> kareler -> motor_kapat, tekrar tekrar.
+//
+// Düzeltmeden önce motor_kapat yalnız "kurulu değil" bayrağını indiriyordu:
+// 512 MB arena rezervi ve köprünün bütün tabloları (varlıklar, sayaçlar)
+// kalıyordu; ikinci motor_ac eskisinin üstüne yeni arena alıp bayat
+// tablolarla kuruluyordu. Ölçüldü (RTX 5080 / Linux, 2026-10-05, düzeltmesiz
+// köprü, C++ kapısı tests/test_bridge.cpp bridge_second_session_*): ikinci
+// oturum eski varlıkları görüyor (sayı 3, kare 32), önceki oturumun id'si
+// CANLI, ikinci kapanış SIGSEGV. CI macOS'ta aynı sınıf ikinci oturumda çöktü.
+//
+// Ölçülen, her oturumda: taze başlangıç (varlık 0, kare 0), çizim sayısı,
+// önceki oturumun id'si ÖLÜ, hata sayacı artmıyor. Isınma
+// oturumundan sonra 4 oturum: RSS / sanal boyut / thread / kapanışta canlı
+// Vulkan nesnesi BÜYÜMÜYOR. Piksel doğrulaması C++ kapısında (PPM okur).
+//
+// GPU yoksa GÖRÜNÜR "ATLANDI" basılır (engine_bridge.test.tpr ile aynı kural;
+// tools/tulpar_dogrula.sh GPU'suz kipte bunu ATLANDI sayar). Pencere AÇILMAZ.
+import "test";
+import "engine";
+
+int g_onceki = 0;      // bir önceki oturumun kutu id'si
+int g_vk_ilk = -1;     // ilk oturumun kapanışta canlı vk nesnesi
+str g_hata = "";
+
+// Bir oturum. Dönüş: kurulabildi mi.
+func oturum(int tur): bool {
+    pencersiz(100000, "");   // ayarlar oturuma taşınmaz: her kurulumdan ÖNCE
+    log_seviyesi(1);
+    if (!motor_ac("iki oturum " + toString(tur), 320, 200)) {
+        g_hata = eng_last_error();
+        return false;
+    }
+    assert_eq_int(eng_count(), 0);
+    assert_eq_int(kare_no(), 0);
+    kamera(0.0, 4.0, 10.0, 0.0, 0.5, 0.0);
+    int zemin = zemin_kur(8.0, 0xCED4DAFF);
+    int k = kutu(0.0, 2.0, 0.0, 0.5, 0.5, 0.5, true, 0xE63946FF);
+    assert(zemin > 0 && k > 0, "oturum " + toString(tur) + ": varlik kurulamadi");
+    if (g_onceki != 0) {
+        assert(!canli(g_onceki), "oturum " + toString(tur) + ": onceki oturumun id'si CANLI (bayat kopru durumu)");
+        assert(k != g_onceki, "oturum " + toString(tur) + ": yeni id onceki oturumunkine denk geldi");
+    }
+    for (int i = 0; i < 30; i++) { kare_basla(); kare_bitir(); }
+    assert_eq_int(eng_draw_count(), 2);
+    motor_kapat();
+    assert(!calisiyor(), "kapanistan sonra calisiyor olmamali");
+    int vk = vk_canli_nesne();
+    if (tur == 0) { g_vk_ilk = vk; }
+    print("    [bilgi] oturum " + toString(tur + 1) + ": kapanista canli vk " + toString(vk) + ", RSS " + toString(bellek_kb())
+        + " KB, sanal " + toString(sanal_bellek_mb()) + " MB, thread " + toString(thread_sayisi()));
+    assert_eq_int(vk, g_vk_ilk);
+    g_onceki = k;
+    return true;
+}
+
+// Oturum başına ARTIŞ ölçülür, uç fark değil (Tuzaklar 8cs dersi). Ölçüldü
+// (RTX 5080 / Linux, 2026-10-05): ikinci oturumda TEK SEFERLİK ~+17 MB RSS ve
+// +21..277 MB sanal (glibc yığınının tepe noktası, ayrıntı C++ kapısında),
+// sonra düz; sanal boyutta ara sıra +64 MB basamak (glibc malloc arenası).
+// Kaçak sınıfı HER oturumda artar (arena +512 MB). Eşik: en çok BİR oturum
+// +256 MB sanal ya da +4096 KB RSS aşar; thread toplamı < oturum sayısı.
+func run_oturumlar() {
+    int h0 = hata_sayisi();
+    int th0 = thread_sayisi();
+    int rss_onceki = bellek_kb();
+    int sanal_onceki = sanal_bellek_mb();
+    int rss_asan = 0;
+    int sanal_asan = 0;
+    int n = 4;
+    for (int i = 1; i <= n; i++) {
+        if (!oturum(i)) {
+            assert(false, "oturum " + toString(i + 1) + " KURULAMADI: " + g_hata);
+            return;
+        }
+        int dr = bellek_kb() - rss_onceki;
+        int ds = sanal_bellek_mb() - sanal_onceki;
+        rss_onceki = bellek_kb();
+        sanal_onceki = sanal_bellek_mb();
+        if (dr > 4096) { rss_asan = rss_asan + 1; }
+        if (ds > 256) { sanal_asan = sanal_asan + 1; }
+        print("    [bilgi] oturum " + toString(i + 1) + " artisi: RSS " + toString(dr) + " KB, sanal " + toString(ds) + " MB");
+    }
+    int th = thread_sayisi() - th0;
+    print("    [bilgi] " + toString(n) + " ek oturum (isinmadan sonra): esik asan RSS " + toString(rss_asan) + " / sanal "
+        + toString(sanal_asan) + ", thread " + toString(th) + ", hata +" + toString(hata_sayisi() - h0));
+    assert(g_vk_ilk >= 0, "vk sayaci olcmedi");
+    assert_eq_int(hata_sayisi(), h0);
+    assert(sanal_asan <= 1, "sanal boyut her oturumda buyuyor: " + toString(sanal_asan) + " oturum +256 MB asti (tek kacak arena 512 MB)");
+    assert(rss_asan <= 1, "RSS her oturumda buyuyor: " + toString(rss_asan) + " oturum +4096 KB asti");
+    assert(th < n, "thread sizintisi: " + toString(n) + " oturumda +" + toString(th));
+}
+
+if (!oturum(0)) {
+    print("  ATLANDI: motor kurulamadi (" + g_hata + ") — GPU/Vulkan yok");
+} else {
+    test("ayni surecte 4 ek oturum: taze durum, olu eski id, kacak yok", "run_oturumlar");
+}
+test_summary();

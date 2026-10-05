@@ -8,6 +8,10 @@
 // sarmalayicidir. Bkz. docs/KOPRU.md §2.1.
 //
 // Tek ornek (global motor baglami): teng_init -> [teng_frame_begin ... teng_frame_end]* -> teng_shutdown.
+// Kapanis her seyi birakir ve kopru durumunu sifirlar: ayni surecte yeni bir
+// teng_init sifirdan kurar (Tuzaklar 8ct). Kurulum oncesi ayarlar (eng_bloom,
+// eng_set_headless, eng_gravity, kamera, tema) oturuma tasinmaz, her
+// kurulumdan once yeniden verilir; onceki oturumun id'leri yeni oturumda olu.
 // Her cagri loglanir (TULPAR_ENGINE_LOG=0 sessiz, 1 bilgi (vars.), 2 ayrinti, 3 iz: her cagri);
 // hata her seviyede basilir ve son 64 satirlik halka `teng_shutdown`/cokmede dokulur.
 // Basliksiz kip: TULPAR_ENGINE_HEADLESS=N (N kare, offscreen) + TULPAR_ENGINE_OUT=x.ppm.
@@ -468,6 +472,17 @@ double teng_frame_ms(void); // son kare p50 (profiler)
 // kurulmadan da calisir; olculemezse 0. Tulpar'da bellek_kb(): kare arenasi
 // kapisi (engine_aksiyon.tpr) bununla olcer.
 int teng_rss_kb(void);
+// Surecin sanal boyutu (MB, platform::os_virtual_bytes) ve thread sayisi
+// (platform::os_thread_count). Kurulmadan da calisir; olculemezse 0. Ayni
+// surecte oturum ac/kapa dongusunun kacak kapisi bunlarla olcer (Tuzaklar 8ct).
+int teng_virtual_mb(void);
+int teng_thread_count(void);
+// Canli havuzsuz Vulkan nesnesi (vkCreate*/vkAllocate* - vkDestroy*/vkFree*;
+// komut tamponu ve descriptor set havuzla ortuk birakildigi icin sayilmaz).
+// Kurulu motorda anlik; kapanistan sonra son kapanista CIHAZ YIKILMADAN HEMEN
+// ONCEKI deger (renderer/hedefler yikilmis, yalniz cihazin kendi nesneleri) —
+// oturumdan oturuma degismemeli. Hic olculmediyse -1.
+int teng_vk_live(void);
 
 #ifdef __cplusplus
 }

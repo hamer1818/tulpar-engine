@@ -217,6 +217,9 @@
     {"name": "eng_body_count", "symbol": "teng_body_count", "returns": "i32", "doc": "Fizikteki govde sayisi."},
     {"name": "eng_light_count", "symbol": "teng_light_count", "returns": "i32", "doc": "Son karede nokta isik sayisi."},
     {"name": "eng_frame_ms", "symbol": "teng_frame_ms", "returns": "f64", "doc": "Son 120 karenin p50 suresi (ms)."},
-    {"name": "eng_rss_kb", "symbol": "teng_rss_kb", "returns": "i32", "doc": "Surecin yerlesik bellegi (RSS), KB: Linux/Android /proc/self/statm, macOS task_info, Windows GetProcessMemoryInfo. Olculemezse 0. Motor kurulmadan da calisir, kare icinde cagrilabilir (ayirma yok)."}
+    {"name": "eng_rss_kb", "symbol": "teng_rss_kb", "returns": "i32", "doc": "Surecin yerlesik bellegi (RSS), KB: Linux/Android /proc/self/statm, macOS task_info, Windows GetProcessMemoryInfo. Olculemezse 0. Motor kurulmadan da calisir, kare icinde cagrilabilir (ayirma yok)."},
+    {"name": "eng_virtual_mb", "symbol": "teng_virtual_mb", "returns": "i32", "doc": "Surecin sanal boyutu (MB). Motor kurulmadan da calisir; olculemezse 0. Oturum ac/kapa kacak kapisinin aleti (Tuzaklar 8ct)."},
+    {"name": "eng_thread_count", "symbol": "teng_thread_count", "returns": "i32", "doc": "Surecin thread sayisi. Motor kurulmadan da calisir; olculemezse 0."},
+    {"name": "eng_vk_live", "symbol": "teng_vk_live", "returns": "i32", "doc": "Canli havuzsuz Vulkan nesnesi (kurma - birakma; komut tamponu/descriptor set haric). Kurulu motorda anlik; kapanistan sonra son kapanista cihaz yikilmadan hemen onceki deger (oturumdan oturuma degismemeli). Olculmediyse -1."}
   ]
 }

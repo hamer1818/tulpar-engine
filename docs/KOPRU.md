@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 208 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 211 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -194,6 +194,11 @@ bayrağı ve paket kapısının `gpusuz` kipi (bugün `release.yml`'in Windows i
 
 - **Yaşam döngüsü:** `eng_init` → `[eng_frame_begin … eng_frame_end]*` → `eng_shutdown`.
   `eng_frame_begin` false dönerse pencere yok (arka plan); **yine de** `eng_frame_end` çağrılır (sim sürer).
+  **Aynı süreçte yeniden açma** (2026-10-05, Tuzaklar 8ct): `eng_shutdown` arenayı, iş sistemini, Vulkan
+  nesnelerini bırakır ve köprü durumunu sıfırlar; ardından gelen `eng_init` sıfırdan kurar (yükleyici açık
+  kalır). Kurulum öncesi ayarlar (`eng_bloom`, `eng_set_headless`, `eng_gravity`, kamera, tema) yeni oturuma
+  **taşınmaz** — her kurulumdan önce yeniden verilir; önceki oturumun id'leri yeni oturumda **ölüdür**.
+  Editörün F5'i bu yolu kullanmaz: oyun her seferinde ayrı süreçte başlar (§5.1).
 - **Varlık id'si** nesil etiketlidir: `(nesil<<16)|yuva`, 0 geçersiz. Silinmiş id ile çağrı **hata loglar**
   ve sessizce 0 döner — arcade'in öğrettiği kural (ham indeks asla dışarı sızmaz).
 - **Renk** paketlenmiş int: `(r<<24)|(g<<16)|(b<<8)|a`. Tulpar'da bit kaydırma **yok**, `renk(r,g,b)`
@@ -299,6 +304,10 @@ belleğe (`platform/game_channel.hpp`) bağlanır ve oyunu editörün **Oyun sek
 | duraklat / tek adım | oyunun kendi döngüsü `kare_basla` içinde bekler; betik, fizik, zaman aynı yerde durur |
 | durdur | `calisiyor()` bir sonraki karede 0 döner, oyun kendi `bitir` yolundan kapanır |
 | editör ölürse | kalp atışı 5 s durursa oyun kendini kapatır (`TULPAR_ENGINE_GOMULU_ZAMAN_ASIMI_MS` ile değişir) |
+
+F5 → Durdur → F5 her seferinde **yeni bir oyun süreci** başlatır (`app/editor_game.hpp`, `game_run_start_embedded`);
+oyun süreci içinde `teng_init` bir kez çağrılır. Yani F5 aynı süreçte ikinci oturum yolunu kullanmaz
+(o yol §3'te; Android'de süreç canlıyken etkinliğin yeniden yaratılması onu kullanabilir).
 
 Kanal açılamazsa oyun **pencereye düşmez**, `motor_ac` false döner ve sebep loglanır: editör görüntünün
 sekmesine gelmesini bekliyor, ayrı bir pencere "F5 ne yaptı" sorusunu cevapsız bırakırdı. Kapılar
@@ -799,7 +808,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **208 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **211 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -825,7 +834,7 @@ bölüm yorumlarına göre):
 | çarpışma olayları | 13 | sayı, düşen, iki taraf (köprü id + sahne dizini), temas noktası, normal, şiddet — kuyruk |
 | tetik olayları | 7 | sayı, düşen, bölge ve giren/çıkan (köprü id + sahne dizini), girdi mi — kuyruk, **belirlenimli sıra** |
 | karakter denetleyicisi | 5 | üret (sanal kapsül), yürü + zıpla isteği, zeminde mi, zemin durumu, zıplama hızı — konum/hız/ışınla/sil/yakınlık/ışın/tetik mevcut varlık fonksiyonlarıyla |
-| ölçüm | 5 | çizim / gövde / ışık sayısı, son kare p50, **süreç RSS** (`eng_rss_kb` = `bellek_kb()`, kare belleği kapısının aleti) |
+| ölçüm | 8 | çizim / gövde / ışık sayısı, son kare p50, **süreç RSS** (`eng_rss_kb` = `bellek_kb()`, kare belleği kapısının aleti), **sanal boyut / thread sayısı / canlı Vulkan nesnesi** (`eng_virtual_mb` / `eng_thread_count` / `eng_vk_live`: aynı süreçte oturum aç/kapa kaçak kapısının aletleri, Tuzaklar 8ct) |
 
 (Çarpışma ailesi 2026-09-23'e kadar bu tabloda YOKTU: satırların toplamı 164 veriyordu,
 başlık 177 diyordu. Toplam artık başlıkla eşit.)
