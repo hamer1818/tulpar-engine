@@ -1954,6 +1954,7 @@ struct OturumOlcu {
   uint32_t sahne_bos_fark = 0; // sahne karesi - bos kare (piksel)
   uint32_t ilk_fark = 0;       // sahne karesi - ilk oturumun sahne karesi
   int kutu = 0;                // bu oturumun kutu id'si
+  bool sanal_gpu = false;      // test::gpu_is_virtual (kurulu iken okunur)
 };
 // tur 0: ilk oturum (sahne karesi g_ilk_sahne'ye). `onceki_kutu`: bir onceki
 // oturumun id'si — bu oturumda OLU olmali.
@@ -1962,6 +1963,7 @@ OturumOlcu oturum_kos(int tur, int onceki_kutu, const char *yol_bos, const char 
   teng_set_headless(100000, nullptr); // ayarlar oturuma tasinmaz: her kurulumdan ONCE
   if (!teng_init("ikinci oturum", kW, kH)) return o;
   o.kuruldu = true;
+  o.sanal_gpu = test::gpu_is_virtual(teng_gpu_name());
   CHECK(teng_running() == 1);
   CHECK(teng_count() == 0); // onceki oturumun varliklari yok
   CHECK(teng_frame() == 0); // sayaclar sifirdan
@@ -2063,8 +2065,15 @@ ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
   // Sahne gercekten cizildi (her oturumda) ve ilk oturumla ayni kare. Olculdu
   // RTX 5080 2026-10-05: sahne-bos 37402 px, ilk oturumdan fark 0 px; bayat
   // durumla (duzeltmesiz kod) ikinci oturum eski varliklari da cizer.
-  CHECK(sahne_bos_min > 500);
-  CHECK(ilk_fark_max <= 64);
+  // Sanal GPU'da (Apple Paravirtual, CI macOS) PIKSEL blogu atlanir — olculdu
+  // CI macos-latest 2026-10-05: sahne-bos 0 px (dosyanin diger piksel
+  // kapilariyla ayni sinif); taze durum, olu id, vk ve surec kapilari orada da kosar.
+  if (ilk.sanal_gpu) {
+    skip("sanal GPU (Apple Paravirtual, CI macOS): ikinci oturumun PIKSEL blogu gercek cihazda olculur");
+  } else {
+    CHECK(sahne_bos_min > 500);
+    CHECK(ilk_fark_max <= 64);
+  }
   // Vulkan: kapanista cihazin yalniz kendi nesneleri; oturumdan oturuma ayni.
   CHECK(ilk.vk_canli >= 0);
   CHECK(vk_esit == 1);

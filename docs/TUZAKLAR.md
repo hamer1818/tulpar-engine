@@ -1854,7 +1854,8 @@ oturuma değişmemeli. Ölçü aletleri ABI'de: `eng_vk_live`, `eng_virtual_mb`,
 
 **Kapı:** `tests/test_bridge.cpp` `bridge_second_session_in_same_process_starts_clean` — ısınma +
 5 oturum; her oturumda varlık 0 / kare 0 başlangıcı, bir kare offscreen çizilip PPM okunur (sahne-boş
-37402 px, ilk oturumun karesinden fark 0 px — RTX 5080), eski id ölü, hata sayacı sabit, kapanışta
+37402 px, ilk oturumun karesinden fark 0 px — RTX 5080; CI macOS'un sanal GPU'sunda, Apple
+Paravirtual, sahne-boş 0 px ölçüldü ve piksel bloğu görünür ATLANDI), eski id ölü, hata sayacı sabit, kapanışta
 canlı vk eşit; süreç ölçüleri **oturum başına artış** olarak: en çok bir oturum +256 MB sanal ya da
 +4 MB RSS aşabilir, thread toplamı < 5. Tulpar: `tulpar/tests/engine_iki_oturum.test.tpr` (ısınma + 4,
 `tools/tulpar_dogrula.sh --tam`). Neden uç fark değil (8cs dersi): ikinci oturumda **tek seferlik**
