@@ -191,9 +191,11 @@ elif grep "\"$plat\": {" "$gun/eksik/tulpar-ext.json" | grep -q '"engine_core"';
   dus "pozitif kontrol kurulamadi: link.$plat satirindan engine_core cikarilamadi"
 elif kos "$gun/eksik.log" env TULPAR_ENGINE_HEADLESS=3 "$tul" --ext "$gun/eksik" examples/engine_ilk_oyun.tpr; then
   dus "pozitif kontrol: link.$plat'ta engine_core YOKKEN oyun linklendi — bolum kullanilmiyor"
-elif grep -E 'undefined reference to|referenced from' "$gun/eksik.log" | grep -q "tulpar::engine::"; then
-  # GNU ld: undefined reference to `tulpar::engine::X(...)'; ld64: "tulpar::engine::X(...)", referenced from
-  ad="$(grep -m1 -E "undefined reference to .tulpar::engine::|^ *\"tulpar::engine::" "$gun/eksik.log" | grep -oE 'tulpar::engine::[A-Za-z0-9_:]+' | head -1)"
+elif grep -E 'undefined reference to|referenced from|undefined symbol: ' "$gun/eksik.log" | grep -q "tulpar::engine::"; then
+  # GNU ld: undefined reference to `tulpar::engine::X(...)'; ld64: "tulpar::engine::X(...)", referenced from;
+  # ld.lld: undefined symbol: tulpar::engine::X(...) — TulparLang Linux'ta ld.lld'yi
+  # PATH'te bulursa onunla baglar (2026-10-06); uc bicim de sayilir.
+  ad="$(grep -m1 -E "undefined reference to .tulpar::engine::|^ *\"tulpar::engine::|undefined symbol: tulpar::engine::" "$gun/eksik.log" | grep -oE 'tulpar::engine::[A-Za-z0-9_:]+' | head -1)"
   gec "pozitif kontrol: link.$plat'tan engine_core cikinca link adiyla dustu (tanimsiz: $ad)"
 else
   dus "pozitif kontrol: eksik arsivle link dustu ama motor sembolu gorunmedi"; tail -5 "$gun/eksik.log" >&2

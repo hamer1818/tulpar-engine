@@ -1928,6 +1928,15 @@ void teng_shutdown(void) {
   g->api = api;
   for (uint32_t i = 0; i < high; i++) g->ents[i].gen = gens[i];
   BINFO("kapanis tamam: %u kare, arena %zu MB birakildi, kopru durumu sifirlandi (ayni surecte yeniden teng_init kurulabilir)", frames, arena_mb);
+  // Log satirlarinin kare oneki (`k<kare>`) Bridge'in DISINDA (g_log) ve
+  // yalniz kare sonunda esitleniyordu: ayni surecteki ikinci oturumun kurulum
+  // satirlari onceki oturumun son karesini basiyordu (`k60 bilgi kurulum`).
+  // Olculdu: Android emulatoru (API 31 x86_64, SwiftShader Vulkan),
+  // 2026-10-06 — ayni PID'de uc etkinlik, ikinci ve ucuncu kurulum `k60`.
+  // Hata/uyari sayaclari BILEREK sifirlanmiyor: kapanistan SONRA
+  // teng_error_count() okunuyor (test_game_channel), sifirlamak o olcumu
+  // bos birakirdi — surec boyunca birikirler (KOPRU.md §3).
+  g_log.frame = 0;
 }
 
 double teng_dt(void) { return g ? g->dt : 0.0; }

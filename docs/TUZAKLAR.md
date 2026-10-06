@@ -1843,7 +1843,16 @@ süreci 139 ile düşürdü; ilk oturumdan sonra sanal boyut 711 yerine 1351 MB 
 Kim kullanıyor? Editörün F5'i **kullanmıyor**: F5 → Durdur → F5 her seferinde yeni bir oyun süreci
 başlatır (`app/editor_game.hpp`), yani kullanıcı bu hatayı editörde görmezdi. Yol: oyunun kendi
 "motoru kapat / yeniden aç" akışı ve Android'de süreç canlıyken etkinliğin yeniden yaratılması
-(`android_main` yeniden çağrılır, `main()` yeniden koşar — **ölçülmedi**, cihazda sınanmalı).
+(`android_main` yeniden çağrılır, `main()` yeniden koşar). **Emülatörde ölçüldü (2026-10-06):** Android
+emülatörü API 31 x86_64, `-gpu swiftshader_indirect` (konuk Vulkan 1.1, gfxstream → SwiftShader);
+`motor_ac` → 60 kare → `motor_kapat` yapan bir Tulpar oyunu (`tulpar build --target=android --ext`), APK
+`am start` ile üç kez başlatıldı: üçü de **aynı PID**'de (farklı thread'ler), her oturum varlık 0 / kare 0,
+önceki oturumun id'si (dosyada taşındı) ölü, `hata=0`, kapanışta canlı vk 5 / 5 / 5, RSS 116 → 119 → 119
+MB, çökme yok. Bulunan tek bayatlık: log satırının kare öneki `g_log`'da (Bridge'in dışında) ve
+yalnız kare sonunda eşitleniyordu — ikinci ve üçüncü oturumun kurulum satırı `k60 bilgi kurulum`
+basıyordu. Kapanış artık onu sıfırlıyor; `bridge_second_session_*` kapısı kurulum satırını
+yakalayıp `k0` arıyor (düzeltmesiz: 5 kontrol KIRMIZI, `k32`). Hata/uyarı sayaçları bilerek
+sıfırlanmıyor (kapanıştan sonra okunuyor — `test_game_channel`). Fiziksel cihazda (Mali) ölçülmedi.
 
 **Düzeltme:** kapanışın sonu oturumun geri kalanını bırakır (profiler, kare arenası, `sys.release()`)
 ve `Bridge`'i yıkıp statik deposunda yeniden kurar: kapanıştan sonraki durum "hiç kurulmamış" ile

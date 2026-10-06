@@ -1956,13 +1956,42 @@ struct OturumOlcu {
   int kutu = 0;                // bu oturumun kutu id'si
   bool sanal_gpu = false;      // test::gpu_is_virtual (kurulu iken okunur)
 };
+// teng_init'in stdout'a bastigi satirlari yakala (kurulum satirinin kare
+// oneki olculsun). Yakalanan metin gercek stdout'a da aynen basilir.
+char g_init_log[4096];
+int init_yakala(const char *baslik) {
+  g_init_log[0] = 0;
+  char yol[512];
+  tmp_template(yol, sizeof yol, "oturum_log");
+  const int fd = mkstemp(yol);
+  if (fd < 0) return teng_init(baslik, kW, kH);
+  std::fflush(stdout);
+  const int eski = dup(1);
+  dup2(fd, 1);
+  const int ok = teng_init(baslik, kW, kH);
+  std::fflush(stdout);
+  dup2(eski, 1);
+  close(eski);
+  lseek(fd, 0, SEEK_SET);
+  const long n = (long)read(fd, g_init_log, sizeof g_init_log - 1);
+  g_init_log[n > 0 ? n : 0] = 0;
+  close(fd);
+  unlink(yol);
+  std::fputs(g_init_log, stdout);
+  return ok;
+}
 // tur 0: ilk oturum (sahne karesi g_ilk_sahne'ye). `onceki_kutu`: bir onceki
 // oturumun id'si — bu oturumda OLU olmali.
 OturumOlcu oturum_kos(int tur, int onceki_kutu, const char *yol_bos, const char *yol_sahne) {
   OturumOlcu o;
   teng_set_headless(100000, nullptr); // ayarlar oturuma tasinmaz: her kurulumdan ONCE
-  if (!teng_init("ikinci oturum", kW, kH)) return o;
+  if (!init_yakala("ikinci oturum")) return o;
   o.kuruldu = true;
+  // Kurulum satirinin kare oneki bu oturumun karesi (0): eskiden ayni
+  // surecteki ikinci oturum onceki oturumun son karesini basiyordu (Android
+  // emulatorunde etkinlik yeniden yaratilinca `k60 bilgi kurulum`, olculdu
+  // 2026-10-06). Log seviyesi 1: bilgi satirlari basilir.
+  CHECK(std::strstr(g_init_log, "[engine_bridge] k0 bilgi kurulum") != nullptr);
   o.sanal_gpu = test::gpu_is_virtual(teng_gpu_name());
   CHECK(teng_running() == 1);
   CHECK(teng_count() == 0); // onceki oturumun varliklari yok
