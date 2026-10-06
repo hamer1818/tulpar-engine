@@ -170,8 +170,10 @@ Bu belgenin geri kalanı 2026-09-15 anlık görüntüsüdür; bu bölüm bugünk
 - Aynı süreçte motoru kapatıp yeniden açmak destekleniyor (Tuzaklar 8ct, #87): kapanış her şeyi
   bırakır ve köprü durumunu sıfırlar. Editörün F5'i bu yolu kullanmaz (oyun ayrı süreç).
 - Köprü: `SPEC` **211** fonksiyon (2026-10-05).
-- Açık: üç fiziksel cihaz (kullanıcı kararı: pas), Android'de süreç canlıyken etkinliğin yeniden
-  yaratılması (8ct yolu) cihazda **ölçülmedi**.
+- Açık: üç fiziksel cihaz (kullanıcı kararı: pas). Android'de süreç canlıyken etkinliğin yeniden
+  yaratılması (8ct yolu) **emülatörde ölçüldü** (2026-10-06, API 31 x86_64, SwiftShader Vulkan: aynı
+  PID'de üç etkinlik, her oturum varlık 0 / kare 0, önceki id ölü, hata 0, kapanışta canlı vk 5);
+  fiziksel cihazda (Mali) ölçülmedi.
 
 ## 7. Çalışma kuralları (kullanıcı) — 2026-09-15 anlık görüntüsü
 > Bugün geçerli değil: CI var (üç platform, dal koruması zorunlu), PR'lar auto-merge ile birleşir,

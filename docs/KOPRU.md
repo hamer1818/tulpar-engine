@@ -201,7 +201,11 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   nesnelerini bırakır ve köprü durumunu sıfırlar; ardından gelen `eng_init` sıfırdan kurar (yükleyici açık
   kalır). Kurulum öncesi ayarlar (`eng_bloom`, `eng_set_headless`, `eng_gravity`, kamera, tema) yeni oturuma
   **taşınmaz** — her kurulumdan önce yeniden verilir; önceki oturumun id'leri yeni oturumda **ölüdür**.
-  Editörün F5'i bu yolu kullanmaz: oyun her seferinde ayrı süreçte başlar (§5.1).
+  Editörün F5'i bu yolu kullanmaz: oyun her seferinde ayrı süreçte başlar (§5.1). Log satırlarının kare
+  öneki (`k<kare>`) kapanışta sıfırlanır; **hata/uyarı sayaçları (`eng_error_count` / `eng_warning_count`)
+  süreç boyunca birikir** — kapanıştan sonra da okunur (2026-10-06).
+  Android'de süreç canlıyken etkinlik yeniden yaratılınca (`android_main` → `main()` yeniden) aynı yol
+  koşar; emülatörde ölçüldü (Tuzaklar 8ct).
 - **Varlık id'si** nesil etiketlidir: `(nesil<<16)|yuva`, 0 geçersiz. Silinmiş id ile çağrı **hata loglar**
   ve sessizce 0 döner — arcade'in öğrettiği kural (ham indeks asla dışarı sızmaz).
 - **Renk** paketlenmiş int: `(r<<24)|(g<<16)|(b<<8)|a`. Tulpar'da bit kaydırma **yok**, `renk(r,g,b)`

@@ -1,0 +1,29 @@
+// Android: AYNI SURECTE etkinlik yeniden yaratilinca main() yeniden kosar
+// (android_main -> main). Her kosum bir motor oturumu acar/kapatir; onceki
+// kosumun kutu id'si dosyada — yeni oturumda OLU olmali (Tuzaklar 8ct).
+import "engine";
+
+str yol = "iki_oturum_onceki.txt";
+int onceki = 0;
+if (file_exists(yol)) { onceki = toInt(read_file(yol)); }
+log_seviyesi(1);
+if (!motor_ac("android iki oturum", 320, 200)) {
+    print("[oturum] KURULAMADI: " + eng_last_error());
+} else {
+    int v0 = eng_count();
+    int k0 = kare_no();
+    kamera(0.0, 4.0, 10.0, 0.0, 0.5, 0.0);
+    int zemin = zemin_kur(8.0, 0xCED4DAFF);
+    int k = kutu(0.0, 2.0, 0.0, 0.5, 0.5, 0.5, true, 0xE63946FF);
+    bool eski_canli = false;
+    if (onceki != 0) { eski_canli = canli(onceki); }
+    for (int i = 0; i < 60; i++) { kare_basla(); kare_bitir(); }
+    int cizim = eng_draw_count();
+    int hata = hata_sayisi();
+    print("[oturum] basta varlik=" + toString(v0) + " kare=" + toString(k0) + " | yeni id=" + toString(k)
+          + " onceki id=" + toString(onceki) + " onceki canli=" + toString(eski_canli)
+          + " | cizim=" + toString(cizim) + " hata=" + toString(hata) + " RSS=" + toString(bellek_kb()) + " KB");
+    write_file(yol, toString(k));
+    motor_kapat();
+    print("[oturum] kapandi, calisiyor=" + toString(calisiyor()));
+}
