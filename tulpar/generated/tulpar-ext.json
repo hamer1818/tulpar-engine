@@ -38,6 +38,7 @@
     {"name": "eng_warning_count", "symbol": "teng_warning_count", "returns": "i32", "doc": "UYARI sayisi (pencere yok -> headless, font bulunamadi...)."},
     {"name": "eng_bloom", "symbol": "teng_bloom", "params": ["enable: bool", "threshold: f64", "intensity: f64"], "doc": "Parlama (bloom): eng_init'ten ONCE acilir (ic HDR hedefi kurulur). Esik DOGRUSAL parlaklik (1.0 = yalniz cok parlak yerler), yogunluk 0 = kapali. Kare icinde esik/yogunluk degistirilebilir."},
     {"name": "eng_bloom_on", "symbol": "teng_bloom_on", "returns": "bool", "doc": "Parlama acik mi (HDR bicimi yoksa motor kapatir; sebep logda)."},
+    {"name": "eng_render_scale", "symbol": "teng_render_scale", "params": ["scale: f64"], "returns": "f64", "doc": "Ic cozunurluk olcegi (dinamik cozunurluk, 0.5..1.0): sahne olcekli cizilir, birlestirme tam ekrana buyutur; arayuz tam cozunurlukte kalir. Ic hedef ister (eng_bloom ile parlama acik). Donus: uygulanan olcek (ic hedef yoksa 1.0 + UYARI). eng_init sonrasi, kare icinde ya da disinda."},
     {"name": "eng_gravity", "symbol": "teng_gravity", "params": ["gx: f64", "gy: f64", "gz: f64"], "doc": "Yercekimi (eng_init'ten once)."},
     {"name": "eng_sun", "symbol": "teng_sun", "params": ["dx: f64", "dy: f64", "dz: f64", "diffuse: f64"], "doc": "Gunes yonu (normalize edilir) ve siddeti."},
     {"name": "eng_ambient", "symbol": "teng_ambient", "params": ["color: i64"], "doc": "Ortam isigi rengi (0xRRGGBBAA)."},

@@ -2299,3 +2299,92 @@ ENGINE_TEST(bridge_physics_pause_freezes_and_resumes_deterministically) {
   CHECK(y.tick == d50.tick && y.tick >= 49 && y.tick <= 50);
   CHECK(y.x == d50.x && y.y == d50.y && y.vy == d50.vy);
 }
+
+// --- Ic cozunurluk olcegi (teng_render_scale, 2026-10-07) ---------------------
+// Renderer'in dinamik cozunurlugu (set_render_scale) koprude yoktu; ilk gercek
+// oyun (Kupler ile Kurelerin Savasi) P20 Pro / Mali-G72'de 2159x1080'de bos
+// sahnede bile 60 fps tutamadi: parlama acik 43.8 fps, kapali 55.6 fps;
+// parlama acik + olcek 0.7 ile 59.6 fps (docs/OYUN_GERI_BILDIRIM.md madde 2).
+// Kapi: (1) olcek ic hedefin KULLANILAN alt-dikdortgenini kucultur ve sahne
+// yine tam kareye cizilir (olcekli kare bos kareden belirgin farkli, tam
+// cozunurluklu kareden de farkli — yani gercekten ayri bir yol kostu);
+// (2) aralik disi deger HATA sayar ve olcegi degistirmez, 0.5'in alti
+// kenetlenir; (3) POZITIF KONTROL: parlama KAPALI kurulumda olcek 1.0 doner,
+// UYARI sayar ve kare bayt bayt degismez (sessiz "dusurdum" yok).
+namespace {
+alignas(16) uint8_t g_olcek_bos[kW * kH * 3];
+alignas(16) uint8_t g_olcek_tam[kW * kH * 3];
+alignas(16) uint8_t g_olcek_yarim[kW * kH * 3];
+bool olcek_sahnesi(const char *yol_bos, const char *yol_tam, const char *yol_yarim, double olcek, double *uygulanan) {
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("olcek", kW, kH)) return false;
+  teng_camera(0, 4, 10, 0, 0.5, 0);
+  run_frames(2);
+  CHECK(teng_screenshot(yol_bos) == 1);
+  CHECK(teng_spawn_ground(8.0, 0xCED4DAFF) > 0);
+  CHECK(teng_spawn_box(0, 1.0, 0, 0.6, 0.6, 0.6, 0, 0xE63946FF) > 0);
+  CHECK(teng_spawn_sphere(-2.0, 1.0, 1.0, 0.7, 0, 0x2A9D8FFF) > 0);
+  run_frames(3);
+  CHECK(teng_screenshot(yol_tam) == 1);
+  *uygulanan = teng_render_scale(olcek);
+  run_frames(3);
+  CHECK(teng_screenshot(yol_yarim) == 1);
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(bridge_render_scale_draws_scene_smaller_and_reports_when_unavailable) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  char yb[512], yt[512], yy[512];
+  tmp_template(yb, sizeof yb, "olcek_bos");
+  tmp_template(yt, sizeof yt, "olcek_tam");
+  tmp_template(yy, sizeof yy, "olcek_yarim");
+  char *yollar[3] = {yb, yt, yy};
+  for (int i = 0; i < 3; i++) { const int fd = mkstemp(yollar[i]); if (fd >= 0) close(fd); }
+  teng_log_level(1);
+  // (1) parlama acik: ic hedef var.
+  teng_bloom(1, 1.0, 0.6);
+  double uyg = -1.0;
+  if (!olcek_sahnesi(yb, yt, yy, 0.5, &uyg)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const bool sanal = test::gpu_is_virtual(teng_gpu_name());
+  CHECK(teng_bloom_on() == 1);
+  CHECK(uyg == 0.5);
+  const int hata0 = teng_error_count();
+  CHECK(teng_render_scale(1.5) == 0.5); // aralik disi: HATA, olcek degismez
+  CHECK(teng_render_scale(0.0) == 0.5);
+  CHECK(teng_error_count() == hata0 + 2);
+  CHECK(teng_render_scale(0.2) == 0.5); // 0.5'e kenetlenir, hata degil
+  CHECK(teng_error_count() == hata0 + 2);
+  teng_shutdown();
+  uint32_t w = 0, h = 0;
+  const uint32_t nb = read_ppm(yb, g_olcek_bos, kW * kH, &w, &h);
+  const uint32_t nt = read_ppm(yt, g_olcek_tam, kW * kH, &w, &h);
+  const uint32_t ny = read_ppm(yy, g_olcek_yarim, kW * kH, &w, &h);
+  CHECK(nb == kW * kH && nt == kW * kH && ny == kW * kH);
+  uint32_t yarim_bos = 0, yarim_tam = 0;
+  if (nb == kW * kH && nt == kW * kH && ny == kW * kH) {
+    yarim_bos = diff_px(g_olcek_yarim, g_olcek_bos, ny);
+    yarim_tam = diff_px(g_olcek_yarim, g_olcek_tam, ny);
+  }
+  // (3) pozitif kontrol: parlama KAPALI -> olcek uygulanamaz, gorunur.
+  teng_bloom(0, 1.0, 0.0);
+  double uyg2 = -1.0;
+  const int uyari0 = teng_warning_count();
+  CHECK(olcek_sahnesi(yb, yt, yy, 0.5, &uyg2));
+  CHECK(teng_bloom_on() == 0);
+  CHECK(uyg2 == 1.0);
+  CHECK(teng_warning_count() == uyari0 + 1);
+  teng_shutdown();
+  const uint32_t nt2 = read_ppm(yt, g_olcek_tam, kW * kH, &w, &h);
+  const uint32_t ny2 = read_ppm(yy, g_olcek_yarim, kW * kH, &w, &h);
+  CHECK(nt2 == kW * kH && ny2 == kW * kH);
+  const uint32_t kapali_fark = (nt2 == kW * kH && ny2 == kW * kH) ? diff_px(g_olcek_yarim, g_olcek_tam, ny2) : 9999u;
+  for (int i = 0; i < 3; i++) std::remove(yollar[i]);
+  std::printf("    [bilgi] olcek 0.5 (parlama acik): olcekli-bos %u px, olcekli-tam %u px; parlama kapali: olcek %.2f, kare farki %u px\n",
+              yarim_bos, yarim_tam, uyg2, kapali_fark);
+  if (sanal) { skip("sanal GPU (Apple Paravirtual, CI macOS): olcek PIKSEL blogu gercek cihazda olculur"); return; }
+  CHECK(yarim_bos > 500);  // sahne olcekli yolda da cizildi
+  CHECK(yarim_tam > 0);    // ve gercekten ayri (dusuk cozunurluklu) bir kare
+  CHECK(kapali_fark == 0); // ic hedef yoksa kare degismez
+}

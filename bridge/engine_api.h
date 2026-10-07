@@ -65,6 +65,11 @@ void teng_gravity(double gx, double gy, double gz); // init'ten once etkili
 // Parlama (bloom): init'ten ONCE acilir; esik/yogunluk kare icinde de degisir.
 void teng_bloom(int enable, double threshold, double intensity);
 int teng_bloom_on(void);
+// Ic cozunurluk olcegi (renderer::set_render_scale; dinamik cozunurluk). Sahne
+// 0.5..1.0 olcekte ic HDR hedefe cizilir, birlestirme tam ekrana buyutur;
+// 2B arayuz tam cozunurlukte kalir. Ic hedef = parlama acik (teng_bloom,
+// init oncesi); yoksa 1.0 doner ve UYARI sayar. Donus: uygulanan olcek.
+double teng_render_scale(double scale);
 void teng_sun(double dx, double dy, double dz, double diffuse);
 void teng_ambient(int64_t color);
 void teng_shadow_volume(double cx, double cy, double cz, double radius, double depth);

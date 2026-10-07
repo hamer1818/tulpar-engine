@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 216 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 217 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -822,7 +822,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **216 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **217 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -832,7 +832,7 @@ bölüm yorumlarına göre):
 |---|---:|---|
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | fizik zamanı | 5 | **duraklat** / duraklı mı, **zaman ölçeği** (yaz/oku), sim adımı sayacı — duraklatma birikimi dondurur, devam bit-tam aynı sonuca varır (Geri bildirim #10) |
-| dünya / kamera | 11 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, kamera (göz+hedef ya da yörünge), kamera konumu |
+| dünya / kamera | 12 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 25 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |
@@ -853,6 +853,19 @@ bölüm yorumlarına göre):
 
 (Çarpışma ailesi 2026-09-23'e kadar bu tabloda YOKTU: satırların toplamı 164 veriyordu,
 başlık 177 diyordu. Toplam artık başlıkla eşit.)
+
+**İç çözünürlük ölçeği** (`cozunurluk_olcegi(s)` / `render_scale(s)` → `eng_render_scale`, 2026-10-07):
+renderer'ın dinamik çözünürlüğü (`set_render_scale`, Faz 5) köprüye açıldı. Sahne iç HDR hedefin
+0.5..1.0 ölçekli alt-dikdörtgenine çizilir, birleştirme tam ekrana büyütür; 2B arayüz tam
+çözünürlükte kalır. **İç hedef = parlama açık** (`parlama(true, …)`, `motor_ac`'tan önce); kapalıysa
+çağrı 1.0 döner ve UYARI sayar (oyun "düşürdüm" sanıp aynı bedeli ödemesin). Aralık dışı (≤ 0, > 1)
+HATA sayar ve ölçeği değiştirmez; 0.5'in altı kenetlenir. Neden: ilk gerçek oyun ("Küpler ile
+Kürelerin Savaşı") Huawei P20 Pro / Mali-G72'de 2159x1080'de **boş sahnede** bile 60 fps tutamadı —
+ölçüldü 2026-10-07, 600 karelik aralıklar: parlama açık 43.8 fps (p50 22.7 ms), parlama kapalı
+55.6 fps (p50 17.6 ms), parlama açık + ölçek 0.7 **59.6 fps** (p50 16.5 ms; 60 birlikli savaşta da
+59.6). Kapı: `bridge_render_scale_draws_scene_smaller_and_reports_when_unavailable` (ölçekli kare boş
+kareden 37224 px, tam kareden 11397 px farklı — RTX 5080; pozitif kontrol: köprü ölçeği uygulamazsa
+5 kontrol KIRMIZI; parlama kapalıyken kare 0 px değişir).
 
 **Karakter denetleyicisi** (`karakter(x, y, z, r, boy, renk)`): Jolt `CharacterVirtual` — rampada
 kaymaz, 0.4 m'ye kadar basamağı yürüyerek çıkar, zemine yapışır, dinamik gövdeleri en çok 100 N ile

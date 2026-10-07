@@ -931,6 +931,26 @@ void teng_bloom(int enable, double threshold, double intensity) {
   } else BDBG("parlama %s: esik %.2f yogunluk %.2f", enable ? "acik" : "kapali", threshold, intensity);
 }
 int teng_bloom_on(void) { return g && g->inited && g->ren.post().enabled ? 1 : 0; }
+double teng_render_scale(double scale) {
+  CALLF("teng_render_scale", "%.3f", scale);
+  if (!ready("teng_render_scale")) return 1.0;
+  Bridge &b = *g;
+  if (!(scale > 0.0) || scale > 1.0) {
+    BERR("teng_render_scale: olcek (0, 1] araliginda olmali (%.3f); degismedi", scale);
+    return b.ren.temporal().render_scale;
+  }
+  b.ren.set_render_scale((float)scale); // [0.5, 1] araligina kenetler
+  const renderer::TemporalInfo t = b.ren.temporal();
+  if (!b.ren.post().enabled) {
+    // Sessiz 1.0 olmasin: oyun "cozunurluk dusurdum" sanip ayni bedeli oderdi.
+    blog(1, "UYARI teng_render_scale(%.2f): ic hedef yok (%s) — olcek 1.0; parlamayi eng_init'ten once ac", scale, t.scale_disabled_reason);
+    g_log.warnings++;
+    return 1.0;
+  }
+  BINFO("ic cozunurluk olcegi %.2f%s: sahne %ux%u, hedef %ux%u", t.render_scale, (double)t.render_scale != scale ? " (kenetlendi)" : "",
+        t.scaled_width, t.scaled_height, b.fb_w, b.fb_h);
+  return t.render_scale;
+}
 
 // YARIM KURULUMUN GERI ALINMASI (Tuzaklar 8cq). teng_init'in arena rezervinden
 // sonraki HER basarisiz cikisi buradan gecer: o ana kadar kurulan ne varsa
