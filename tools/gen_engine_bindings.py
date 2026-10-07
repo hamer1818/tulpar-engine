@@ -73,6 +73,7 @@ SPEC = [
     # dunya / kamera
     ("eng_bloom", "void", [("enable", "flag"), ("threshold", "num"), ("intensity", "num")], "Parlama (bloom): eng_init'ten ONCE acilir (ic HDR hedefi kurulur). Esik DOGRUSAL parlaklik (1.0 = yalniz cok parlak yerler), yogunluk 0 = kapali. Kare icinde esik/yogunluk degistirilebilir."),
     ("eng_bloom_on", "bool", [], "Parlama acik mi (HDR bicimi yoksa motor kapatir; sebep logda)."),
+    ("eng_render_scale", "float", [("scale", "num")], "Ic cozunurluk olcegi (dinamik cozunurluk, 0.5..1.0): sahne olcekli cizilir, birlestirme tam ekrana buyutur; arayuz tam cozunurlukte kalir. Ic hedef ister (eng_bloom ile parlama acik). Donus: uygulanan olcek (ic hedef yoksa 1.0 + UYARI). eng_init sonrasi, kare icinde ya da disinda."),
     ("eng_gravity", "void", [("gx", "num"), ("gy", "num"), ("gz", "num")], "Yercekimi (eng_init'ten once)."),
     ("eng_sun", "void", [("dx", "num"), ("dy", "num"), ("dz", "num"), ("diffuse", "num")], "Gunes yonu (normalize edilir) ve siddeti."),
     ("eng_ambient", "void", [("color", "color")], "Ortam isigi rengi (0xRRGGBBAA)."),

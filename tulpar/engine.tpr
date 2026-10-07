@@ -189,6 +189,12 @@ func golge_hacmi(cx, cy, cz, r, d) { eng_shadow_volume(cx, cy, cz, r, d); }
 func parlama(ac, esik, yogunluk) { eng_bloom(ac, esik, yogunluk); }
 func bloom(on, threshold, intensity) { eng_bloom(on, threshold, intensity); }
 func parlama_acik(): bool { return eng_bloom_on(); }
+// Ic cozunurluk olcegi (0.5..1.0): sahne olcekli cizilir, tam ekrana buyutulur;
+// arayuz tam cozunurlukte. PARLAMA ACIK olmali (ic hedef); degilse 1.0 + UYARI.
+// Telefonda piksel basina bedel buyuk: olculdu P20 Pro / Mali-G72 (2026-10-07),
+// docs/OYUN_GERI_BILDIRIM.md madde 2. Donus: uygulanan olcek.
+func cozunurluk_olcegi(float s): float { return eng_render_scale(s); }
+func render_scale(float s): float { return eng_render_scale(s); }
 func kamera(ex, ey, ez, tx, ty, tz) { eng_camera(ex, ey, ez, tx, ty, tz); }
 func kamera_yorunge(tx, ty, tz, yaw, pitch, uzaklik) { eng_camera_orbit(tx, ty, tz, yaw, pitch, uzaklik); }
 func camera(ex, ey, ez, tx, ty, tz) { eng_camera(ex, ey, ez, tx, ty, tz); }
