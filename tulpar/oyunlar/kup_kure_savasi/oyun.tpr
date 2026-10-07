@@ -47,6 +47,7 @@ Ekran g_ekran = Ekran.ANA;
 Ekran g_ayar_donus = Ekran.ANA;
 bool g_savas_var = false;      // bir savaş kurulu (duraklatta/sonuçta da)
 bool g_kule_kipi = false;
+int g_fizik_duraklatma = 0;   // duraklatta fizik kac kez donduruldu (kapi)
 bool g_sessiz_arka = false;   // arka planda ses kisildi
 int g_arka_plan = 0;          // pencere kayboldugu (arka plan) icin otomatik duraklatma
 float g_kam_x = -24.0;
@@ -661,13 +662,15 @@ func main() {
             savas_sonu_kontrol();
             if (g_sonuc_bekle > 0.0) { g_sonuc_bekle -= d; if (g_sonuc_bekle <= 0.0) { sonuca_gec(); } }
         } else if (g_savas_var) {
-            // Duraklat/ayar/sonuç: oyun mantığı durur. Fizik motorda durdurulamıyor
-            // (köprüde duraklat yok): birlikler yerinde tutulur.
+            // Duraklat/ayar/sonuç: oyun mantığı durur. Duraklatta FİZİK de durur
+            // (aşağıda fizik_duraklat; Geri bildirim #10, #96): havadaki mermi,
+            // kaya ve enkaz donar, devamda kaldığı yerden sürer.
             mermi_isabetleri();
             us_bolge_olaylari();
-            for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id != 0) { yuru(birlikler[i].id, 0.0, 0.0); } }
-            efektleri_guncelle(d);
+            if (!fizik_durakli()) { for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id != 0) { yuru(birlikler[i].id, 0.0, 0.0); } } }
         }
+        bool durmali = g_savas_var && (g_ekran == Ekran.DURAKLAT || (g_ekran == Ekran.AYAR && g_ayar_donus == Ekran.DURAKLAT));
+        if (durmali != fizik_durakli()) { fizik_duraklat(durmali); g_fizik_duraklatma += durmali ? 1 : 0; }
         if (g_ekran == Ekran.ANA || g_ekran == Ekran.ZORLUK || (g_ekran == Ekran.AYAR && g_ayar_donus == Ekran.ANA)) {
             menu_t += d;
             g_kam_hedef_x = sin(menu_t * 0.12) * 22.0;
@@ -867,7 +870,7 @@ func kapi_raporu() {
     print(t"[kapi] kare={kare} sonuc={sonuc} sure={toInt(g_savas_t)} zorluk={g_zorluk} cag={g_cag[0]}/{g_cag[1]} dogan={g_dogan[0]}/{g_dogan[1]} olen={g_olen[0]}/{g_olen[1]} kule={g_kule_kurulan[0]}/{g_kule_kurulan[1]} ozel={g_ozel_kullanim[0]}/{g_ozel_kullanim[1]} us={toInt(g_us_can[0])}/{toInt(g_us_can[1])} dongu_hatasi={hata} kurulum_hatasi={g_kurulum_hatasi} uyari={uyari_sayisi()}");
     print(t"[kapi] fizik: mermi={g_mermi_atilan} isabet={g_mermi_isabet} iska={g_mermi_iska} alan={g_alan_hasar} yakin={g_yakin_vurus} enkaz={enkaz_dogan}/{enkaz_suresi_dolan}/{g_enkaz_erken} kanca_isabet={mermi_isabet_toplam} kanca_dusen={mermi_isabet_dusen} carpisma_dusen={carpisma_dusen()} tetik={us_bolge_giris} tetik_dusen={us_bolge_dusen} tetik_yedek={g_tetik_yedek} havuz_red={g_dolu_red}");
     print(t"[kapi] yol: {YOL_N} nokta {toInt(YOL_L * 100.0)} cm navmesh={g_yol_navmesh} model_eksik={g_model_eksik} kule_dokunus={g_kule_dokunus} kule_isin={g_kule_isin} kule_yakin={g_kule_yakin} kule_iska={g_kule_iska} birlik_dokunus={g_birlik_dokunus}");
-    print(t"[kapi] arayuz: menu_adim={g_op_adim} duraklat={g_op_duraklat} sonuc_akisi={g_op_tekrar} ui_tik={ui_tiklama()} ui_uyari={ui_uyari_sayisi()} efekt={toInt(g_efekt_ayari * 100.0)} muzik={toInt(g_muzik_ayari * 100.0)} rekor={g_rekor} en_cag={g_en_cag}");
+    print(t"[kapi] arayuz: menu_adim={g_op_adim} duraklat={g_op_duraklat} fizik_dondu={g_fizik_duraklatma} sonuc_akisi={g_op_tekrar} ui_tik={ui_tiklama()} ui_uyari={ui_uyari_sayisi()} efekt={toInt(g_efekt_ayari * 100.0)} muzik={toInt(g_muzik_ayari * 100.0)} rekor={g_rekor} en_cag={g_en_cag}");
     // Zamanlamaya bağlı sayılar (ses cihazı thread'i) ayrı satırda: belirlenimli satıra girmez.
     print(t"[kapi] ses (belirlenimsiz): acik={g_ses_var} dosya={g_ses_dosya} ton={g_ses_ton} calinan={g_ses_calinan}");
     // Kalıcılık: depo DİSKTEN tazelenir.
@@ -903,6 +906,7 @@ func kapi_raporu() {
         if (enkaz_dogan < 10) { push(sorun, "olen birlikler enkaz sacmaliydi"); }
         if (us_bolge_giris < 1) { push(sorun, "hic bir birlik dusman kalesinin tetik bolgesine girmedi"); }
         if (g_op_duraklat != 2) { push(sorun, "duraklat -> devam akisi olculmedi"); }
+        if (g_fizik_duraklatma < 1 || fizik_durakli()) { push(sorun, t"duraklatta fizik dondurulmadi ya da devamda acilmadi ({g_fizik_duraklatma}, simdi {fizik_durakli()})"); }
         if (g_birlik_dokunus < 1) { push(sorun, "ekrandan birlige dokunus isini birlige carpmadi"); }
         if (g_kule_kurulan[0] < 1 || g_kule_isin < 1) { push(sorun, t"otopilot dokunusla kule kurmaliydi: kurulan {g_kule_kurulan[0]}, isin isabeti {g_kule_isin}"); }
     }
