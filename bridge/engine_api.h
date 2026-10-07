@@ -36,6 +36,18 @@ double teng_dt(void);
 double teng_time(void);
 int teng_frame(void);
 double teng_fps(void);
+// Fizik duraklatma + zaman olcegi (Geri bildirim #10). Duraklatma sabit adim
+// birikimini DONDURUR (sim::FixedStep): durakliyken sim adimi yok (govdeler,
+// karakterler, sahne parcaciklari durur; temas/tetik olayi gelmez), devam edince
+// kalinan yerden surer — duraklatilmis kosu duraklamasiz kosuyla BIT-TAM ayni
+// sonuca varir. Oyun mantigi, cizim, arayuz, ses calismaya devam eder (dt/time
+// gercek zaman). Olcek kare suresine uygulanir, adima DEGIL (0.5 = agir cekim,
+// 0 = donmus; belirlenim bozulmaz). Motor kurulmadan da cagrilabilir.
+void teng_physics_pause(int paused);
+int teng_physics_paused(void);
+void teng_time_scale(double scale); // 0..4 (disi kirpilir + HATA)
+double teng_time_scale_get(void);
+int teng_sim_tick(void); // atilan sim adimi sayisi (durakliyken artmaz)
 int teng_width(void);
 int teng_height(void);
 int teng_headless(void); // 1: pencere yok (TULPAR_ENGINE_HEADLESS)

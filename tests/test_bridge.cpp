@@ -2210,3 +2210,92 @@ ENGINE_TEST(bridge_android_asset_filter_keeps_every_decodable_audio_format) {
   std::printf("    [bilgi] varlik suzgeci: %d/%d istenen cikarilir, %d/%d istenmeyen elenir\n", ok,
               (int)(sizeof istenen / sizeof istenen[0]), red, (int)(sizeof istenmeyen / sizeof istenmeyen[0]));
 }
+
+// --- Geri bildirim #10: fizik duraklatma + zaman olcegi ------------------------
+// Oyunun duraklat menusunde mermiler ucmaya devam ediyordu: teng_frame_end fizigi
+// her kare adimliyordu ve kopruden durdurmanin yolu yoktu. Olcu (uc oturum, ayni
+// surecte, her biri sifirdan): A = 40 kare + 25 kare DURAKLI + 60 kare; B = 100
+// kare duraklamasiz. Duraklatma birikimi DONDURUR (sim::FixedStep), yani A'nin
+// son durumu B'ninkiyle BIT-TAM ayni olmali; duraklik boyunca govde KIPIRDAMAZ,
+// temas/tetik olayi gelmez, sim adimi sayaci artmaz. KONTROL: govde gercekten
+// hareket ediyor (B'de kare 40 ile 100 arasi fark var) -- yoksa "ayni" bir sey
+// soylemezdi. Zaman olcegi 0.5: 100 karede 50 sim adimi ve son durum 50 karelik
+// olceksiz kosuyla bit-tam ayni (olcek girdiye uygulanir, adima degil).
+namespace {
+struct FizikIz {
+  double x, y, z, vy;
+  int tick;
+};
+// Bir oturum: zemine dusup yuvarlanan kure + yuksekten dusen kutu. `once` kare
+// sonra `durakli` kare duraklatilir (negatifse KONTROL: duraklatmadan sayilir).
+FizikIz fizik_oturumu(const char *ad, int once, int durakli, int sonra, double olcek, int *durakli_hareket, int *durakli_olay,
+                      int *durakli_tick) {
+  FizikIz iz{};
+  teng_set_headless(100000, nullptr);
+  if (!teng_init(ad, kW, kH)) return iz;
+  teng_spawn_ground(20, 0xffffffff);
+  const int top = teng_spawn_sphere(0.3, 6.0, 0.1, 0.4, 1, 0xff0000ff);
+  const int kutu = teng_spawn_box(-0.5, 9.2, 0.0, 0.3, 0.3, 0.3, 1, 0x00ff00ff); // ~kare 81 de zemine: duraklik penceresinde
+  teng_set_velocity(top, 1.5, 0, 0.25);
+  if (olcek != 1.0) teng_time_scale(olcek);
+  run_frames(once);
+  if (durakli != 0) {
+    // durakli < 0: KONTROL kosusu — ayni pencere DURAKLATMADAN sayilir.
+    const bool gercek = durakli > 0;
+    if (durakli < 0) durakli = -durakli;
+    if (gercek) teng_physics_pause(1);
+    CHECK(teng_physics_paused() == (gercek ? 1 : 0));
+    const double x0 = teng_x(top), y0 = teng_y(top), k0 = teng_y(kutu);
+    const int t0 = teng_sim_tick();
+    int olay = 0;
+    for (int i = 0; i < durakli; i++) {
+      run_frames(1);
+      olay += teng_collision_count();
+    }
+    *durakli_hareket = (teng_x(top) != x0 || teng_y(top) != y0 || teng_y(kutu) != k0) ? 1 : 0;
+    *durakli_olay = olay;
+    *durakli_tick = teng_sim_tick() - t0;
+    teng_physics_pause(0);
+    CHECK(teng_physics_paused() == 0);
+  }
+  run_frames(sonra);
+  iz.x = teng_x(top);
+  iz.y = teng_y(top);
+  iz.z = teng_z(kutu);
+  iz.vy = teng_vy(top);
+  iz.tick = teng_sim_tick();
+  teng_shutdown();
+  return iz;
+}
+} // namespace
+
+ENGINE_TEST(bridge_physics_pause_freezes_and_resumes_deterministically) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("fizik duraklatma sondasi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  teng_shutdown();
+  int hareket = -1, olay = -1, dtick = -1, h2 = 0, o2 = 0, t2 = 0;
+  // Kare 70'te top zeminde yuvarlaniyor, kutu ~kare 81'de zemine carpar:
+  // duraklik penceresi (70..95) yeni temasin OLDUGU yerde (olay 0 bir sey soylesin).
+  int kh = 0, ko = 0, kt = 0;
+  const FizikIz a = fizik_oturumu("durakli", 70, 25, 30, 1.0, &hareket, &olay, &dtick);
+  const FizikIz k = fizik_oturumu("kontrol", 70, -25, 5, 1.0, &kh, &ko, &kt); // ayni pencere, duraklatmadan
+  const FizikIz b = fizik_oturumu("duz", 100, 0, 0, 1.0, &h2, &o2, &t2);
+  std::printf("    [bilgi] duraklatma: A (70+25 durakli+30) top (%.6f %.6f) tick %d | B (100) top (%.6f %.6f) tick %d | "
+              "pencerede hareket/olay/tick: durakli %d/%d/%d, KONTROL %d/%d/%d\n", a.x, a.y, a.tick, b.x, b.y, b.tick, hareket, olay, dtick, kh,
+              ko, kt);
+  CHECK(hareket == 0 && olay == 0 && dtick == 0);
+  CHECK(kh == 1 && ko > 0 && kt == 25); // KONTROL: ayni pencerede govde hareket eder, temas olayi gelir
+  CHECK(a.tick == b.tick && a.tick > 0);
+  CHECK(a.x == b.x && a.y == b.y && a.z == b.z && a.vy == b.vy); // BIT-TAM: duraklatma sonucu degistirmez
+  CHECK(k.x == b.x && k.y == b.y);                              // kontrol kosusu da ayni 100 adim
+  // Zaman olcegi: 0.5 ile 100 kare = 50 adim, 50 olceksiz kareyle bit-tam ayni.
+  const FizikIz y = fizik_oturumu("yarim", 100, 0, 0, 0.5, &h2, &o2, &t2);
+  const FizikIz d50 = fizik_oturumu("duz50", 50, 0, 0, 1.0, &h2, &o2, &t2);
+  std::printf("    [bilgi] zaman olcegi 0.5: 100 kare -> tick %d, top (%.6f %.6f) | olceksiz 50 kare tick %d (%.6f %.6f)\n", y.tick, y.x, y.y,
+              d50.tick, d50.x, d50.y);
+  CHECK(y.tick == d50.tick && y.tick >= 49 && y.tick <= 50);
+  CHECK(y.x == d50.x && y.y == d50.y && y.vy == d50.vy);
+}

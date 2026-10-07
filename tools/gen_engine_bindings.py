@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 211 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 216 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -54,6 +54,11 @@ SPEC = [
     ("eng_time", "float", [], "Kurulumdan beri gecen sure (s)."),
     ("eng_frame", "int", [], "Kare sayaci."),
     ("eng_fps", "float", [], "Kare hizi (p50, 120 karede bir guncellenir)."),
+    ("eng_physics_pause", "void", [("paused", "flag")], "Fizigi duraklat/surdur: durakliyken sim adimi yok (govde, karakter, sahne parcacigi durur; carpisma/tetik olayi gelmez). Devam edince kalinan yerden surer, sonuc duraklamasiz kosuyla bit-tam ayni. Oyun mantigi, cizim, arayuz calisir."),
+    ("eng_physics_paused", "bool", [], "Fizik durakli mi."),
+    ("eng_time_scale", "void", [("scale", "num")], "Sim zaman olcegi 0..4 (0.5 agir cekim, 0 donmus). Kare suresine uygulanir, adima degil: belirlenim bozulmaz."),
+    ("eng_time_scale_get", "float", [], "Simdiki zaman olcegi."),
+    ("eng_sim_tick", "int", [], "Atilan sabit sim adimi sayisi (durakliyken artmaz)."),
     ("eng_width", "int", [], "Gorunen genislik (piksel)."),
     ("eng_height", "int", [], "Gorunen yukseklik (piksel)."),
     ("eng_headless", "bool", [], "Pencersiz kipte mi."),
