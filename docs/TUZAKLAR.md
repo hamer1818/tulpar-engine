@@ -1907,3 +1907,28 @@ artış kaçaktır.
   Betik artık logu akış olarak dosyaya alıyor. Ekran kapalıyken etkinlik pencere almıyor, köprü 10 sn
   bekleyip headless kipe düşüyor; betik ekranı uyandırıyor ve pencere alamayan oturumu not olarak basıyor
   (pencereli yol ölçülmedi demek).
+
+### 8cu. Yalnız Android'de derlenen liste masaüstü kapısından geçmez — ses biçimi "destekleniyor" ama telefona hiç gitmiyor
+
+**Belirti** (2026-10-07, ilk gerçek oyun "Küpler ile Kürelerin Savaşı", Huawei P20 Pro / Mali-G72 /
+Android 10): oyunun dört `muzik_*.mp3` dosyası masaüstünde çalıyor, telefonda çalmıyordu; log sessizdi —
+oyun `file_exists` ile sorduğu için "dosya yok" deyip müziği atlıyordu. Cihaz satırları: `android: varlik
+17 dosya` (APK'da 21 dosya vardı) ve `ses: 0 dosya, 9 sentetik ton`.
+
+**Sebep:** Android host'u APK varlıklarını ilk açılışta dosya sistemine çıkarırken bir **uzantı
+süzgeci** kullanıyor (Huawei'de kök listesi sistem kaplamalarını da getirdiği için, 8ag). Listede
+`.wav` ve `.ogg` vardı, `.mp3` ve `.flac` **yoktu** — oysa kod çözücü (miniaudio,
+`audio/miniaudio_impl.c`) WAV/MP3/FLAC çözer, Ogg çözmez. Liste `bridge/android_host.cpp`'nin içindeydi
+ve o dosya yalnız Android derlemesinde derleniyor: masaüstündeki hiçbir kapı onu görmüyordu.
+
+**Düzeltme:** liste `bridge/asset_filter.hpp`'ye taşındı (başlık-yalnız, iki tarafta aynı kod), `.mp3` ve
+`.flac` eklendi, karşılaştırma büyük/küçük harf duyarsız (`MUZIK.MP3`). Kapı masaüstünde:
+`bridge_android_asset_filter_keeps_every_decodable_audio_format` — çözülebilen her ses biçimi ve oyunun
+kullandığı varlık türleri çıkarılır; KONTROL: uzantısız ad, `.tmp`, `.tpr`, `x.mp`, `a.mp3.bak` elenir.
+**Pozitif kontrol:** `.mp3`/`.flac` listeden çıkarılınca kapı 4 kontrolle KIRMIZI (6/10). **Cihazda**
+(aynı gün, aynı APK içeriği): eski süzgeçle `varlik 17 dosya`, `ses: 0 dosya`; yeni süzgeçle `varlik 21
+dosya`, `ses: 4 dosya`.
+
+**Ders:** platforma özgü dosyada duran bir **tablo** (uzantı, anahtar kodu, yetenek listesi) o
+platformun kod yolu kadar görünmezdir. Tabloyu ortak bir başlığa al ve masaüstü kapısıyla ölç; ölçtüğü
+şeyi de başka bir tabloya (burada kod çözücünün biçimleri) bağla ki biri büyüyünce öteki unutulmasın.

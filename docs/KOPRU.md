@@ -336,6 +336,8 @@ android/build_tame_android.sh            # libtulpar_runtime_android.a (+tame)
 tools/build_bridge_android.sh     # libtulpar_engine_android.a + libengine_*.a -> yapi/tulpar-ext/android/<abi>/
 ```
 Font: APK varlığı yoksa `/system/fonts/Roboto-Regular.ttf` yedeği devreye girer; denenen her aday loglanır.
+Varlıklar ilk açılışta **uzantıya göre** süzülerek çıkarılır (`bridge/asset_filter.hpp`): ses için WAV/MP3/FLAC
+(Ogg çözülmez); listede olmayan uzantılı dosya cihazda yoktur. 2026-10-07'ye kadar `.mp3`/`.flac` yoktu (Tuzaklar 8cu).
 
 ## 6.1 Editörde sahne, Tulpar'da oyun (döngünün kapanışı)
 
