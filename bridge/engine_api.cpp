@@ -227,6 +227,12 @@ struct Ent {
   bool alive = false;
   Kind kind = Kind::Empty;
   bool dynamic = false;
+  // Kinematik govde (Geri bildirim #11): iter, carpisir, kuvvetten etkilenmez.
+  // kin_pending: teng_kinematic_move'un hedefi bir sonraki sim adimlarina
+  // dagitilacak; kin_moving: son adimda MoveKinematic hizi verildi (hedef
+  // gelmeyen ilk adimda sifirlanir, yoksa govde kaymaya devam ederdi).
+  bool kinematic = false, kin_pending = false, kin_moving = false;
+  Vec3 kin_target{0, 0, 0};
   // Tetik hacmi (eng_trigger_*): gorunmez, carpisma tepkisi yok, yakinlik
   // sorgularinda hedef degil. Kind yine Box/Sphere — sekil bilgisi ayni.
   bool sensor = false;
@@ -319,6 +325,9 @@ struct Bridge {
   renderer::Renderer ren;
   sim::Physics phys;
   sim::FixedStep fs;
+  uint32_t kin_count = 0;         // canli kinematik varlik (0 ise adim dongusu onlari taramaz)
+  uint64_t teleports_inplace = 0; // teng_set_pos: sabit/kinematik govde YERINDE (yeniden kurulmadan)
+  uint64_t teleports_rebuilt = 0; // teng_set_pos: dinamik govde yeniden kuruldu
   uint32_t phys_pauses = 0, phys_paused_frames = 0; // teng_physics_pause (kapanis raporu)
   content::Font font;
   bool font_ok = false;
@@ -694,6 +703,7 @@ void free_slot(uint32_t slot) {
   bmap_drop(e.body); // karakterde ic govde: remove_character onu da kaldirir
   if (e.kind == Kind::Character) g->phys.remove_character(e.ch); // ic govdeyi de o kaldirir
   else if (e.body.valid()) g->phys.remove(e.body);
+  if (e.kinematic && g->kin_count) g->kin_count--;
   e.ch = sim::CharacterId{};
   e.alive = false;
   e.body = sim::BodyId{};
@@ -704,6 +714,8 @@ Quat yaw_quat(float yaw_deg) { return Quat::axis_angle({0, 1, 0}, yaw_deg * kBri
 bool make_body(Ent &e, const char *fn) {
   if (e.sensor && e.kind == Kind::Box) e.body = g->phys.add_sensor_box(e.half, e.pos, yaw_quat(e.yaw_deg));
   else if (e.sensor && e.kind == Kind::Sphere) e.body = g->phys.add_sensor_sphere(e.radius, e.pos);
+  else if (e.kinematic && e.kind == Kind::Box) e.body = g->phys.add_kinematic_box(e.half, e.pos, yaw_quat(e.yaw_deg));
+  else if (e.kinematic && e.kind == Kind::Sphere) e.body = g->phys.add_kinematic_sphere(e.radius, e.pos);
   else if (e.kind == Kind::Box || e.kind == Kind::Ground) e.body = g->phys.add_box(e.half, e.pos, yaw_quat(e.yaw_deg), e.dynamic);
   else if (e.kind == Kind::Sphere) e.body = g->phys.add_sphere(e.radius, e.pos, e.dynamic);
   else return true;
@@ -714,7 +726,7 @@ bool make_body(Ent &e, const char *fn) {
 // Karakterde konum AYAK TABANI (Jolt CharacterVirtual sozlesmesi), govde merkezi degil.
 Vec3 ent_pos(const Ent &e) {
   if (e.kind == Kind::Character) return g->phys.character_position(e.ch);
-  return e.body.valid() && e.dynamic ? g->phys.position(e.body) : e.pos;
+  return e.body.valid() && (e.dynamic || e.kinematic) ? g->phys.position(e.body) : e.pos;
 }
 // Ses cihazi kapaliyken gelen cagri: ILK 3 tanesi HATA, sonrasi ayrinti.
 // Neden: oyun her atista ses calar; cihaz yoksa her kare HATA basmak hem logu
@@ -733,7 +745,7 @@ Mat4 ent_matrix(const Ent &e) {
     const Vec3 p = g->phys.character_position(e.ch);
     return Mat4::translate({p.x, p.y + e.height * 0.5f * e.scale, p.z}) * to_mat4(yaw_quat(e.yaw_deg));
   }
-  if (e.body.valid() && e.dynamic) return Mat4::translate(g->phys.position(e.body)) * to_mat4(g->phys.rotation(e.body));
+  if (e.body.valid() && (e.dynamic || e.kinematic)) return Mat4::translate(g->phys.position(e.body)) * to_mat4(g->phys.rotation(e.body));
   return Mat4::translate(e.pos) * to_mat4(yaw_quat(e.yaw_deg));
 }
 
@@ -1662,6 +1674,25 @@ static void script_fire_carpisma(Bridge &b, int me, int other, uint32_t ev, cons
   script_call(b, b.script[me], kHookCarpisma, a, 7);
 }
 
+// Kinematik hedefleri bu karenin kalan `left` adimina esit dagit: her adimda
+// govdeyi kalan yolun 1/left'ine goturen hiz (MoveKinematic). Son adim tam
+// hedefe varir. Hedef gelmeyen ilk adimda hiz sifirlanir (durur).
+static void kinematic_tick(Bridge &b, uint32_t left) {
+  for (uint32_t i = 0; i < b.ent_high; i++) {
+    Ent &e = b.ents[i];
+    if (!e.alive || !e.kinematic || !e.body.valid()) continue;
+    if (e.kin_pending) {
+      const Vec3 p = b.phys.position(e.body);
+      const Vec3 to = p + (e.kin_target - p) * (1.0f / (float)left);
+      b.phys.move_kinematic(e.body, to, yaw_quat(e.yaw_deg), b.fs.step_s);
+      e.kin_moving = true;
+    } else if (e.kin_moving) {
+      b.phys.set_linear_velocity(e.body, {0, 0, 0});
+      e.kin_moving = false;
+    }
+  }
+}
+
 void teng_frame_end(void) {
   if (!ready("teng_frame_end")) return;
   Bridge &b = *g;
@@ -1682,6 +1713,7 @@ void teng_frame_end(void) {
     // oyun onlari SONRAKI kare boyunca istedigi anda okuyabilir.
     b.phys.clear_contacts();
     for (uint32_t t = 0; t < ticks; t++) {
+      if (b.kin_count) kinematic_tick(b, ticks - t);
       b.phys.step(b.fs.step_s, 1);
       // Sahne parcacik yayicilari SIM ADIMIYLA (sabit adim, kare dt'si degil):
       // ayni sahne + ayni tick sayisi her cihazda ayni parcacik dizisi.
@@ -1690,6 +1722,8 @@ void teng_frame_end(void) {
       if (b.scene_ok) b.srt.update(b.fs.step_s, &b.phys);
       b.tick++;
     }
+    if (b.kin_count && ticks)
+      for (uint32_t i = 0; i < b.ent_high; i++) b.ents[i].kin_pending = false; // hedefe varildi (son adim tam hedefe)
     if (ticks == b.fs.max_ticks_per_frame) BDBG("kare %u: sim %u tick ile kirpildi (dt %.3f)", b.frame, ticks, b.dt);
   }
   {
@@ -1913,6 +1947,9 @@ void teng_shutdown(void) {
   if (b.phys_pauses || b.fs.time_scale != 1.0f)
     BINFO("kapanis (fizik): %u duraklatma, %u kare durakli (sim adimi atilmadi), zaman olcegi %.2f, %u sim adimi", b.phys_pauses,
           b.phys_paused_frames, (double)b.fs.time_scale, b.tick);
+  if (b.teleports_inplace || b.teleports_rebuilt)
+    BINFO("kapanis (isinlama): %llu yerinde (sabit/kinematik, govde KURULMADI), %llu yeniden kurma (dinamik)",
+          (unsigned long long)b.teleports_inplace, (unsigned long long)b.teleports_rebuilt);
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
@@ -2666,6 +2703,31 @@ int teng_spawn_sphere(double x, double y, double z, double radius, int dynamic, 
   BDBG("kure #%d yuva %d %s (%.2f %.2f %.2f) r%.2f", id, s, e.dynamic ? "dinamik" : "sabit", x, y, z, radius);
   return id;
 }
+// Kinematik govdeler (Geri bildirim #11): hareket ettirilir (teng_kinematic_move
+// ya da teng_set_velocity), dinamikleri iter, kuvvetten/yercekiminden etkilenmez.
+static int spawn_kinematic(Kind k, double x, double y, double z, Vec3 half, float radius, int64_t color, const char *fn) {
+  const int s = alloc_slot(k);
+  if (s < 0) return 0;
+  Ent &e = g->ents[s];
+  e.pos = {(float)x, (float)y, (float)z}; e.half = half; e.radius = radius; e.kinematic = true; e.color = color_of(color);
+  if (!make_body(e, fn)) { free_slot((uint32_t)s); return 0; }
+  g->kin_count++;
+  const int id = make_id((uint32_t)s);
+  BDBG("kinematik %s #%d yuva %d (%.2f %.2f %.2f)", kind_name(k), id, s, x, y, z);
+  return id;
+}
+int teng_spawn_kinematic_box(double x, double y, double z, double hx, double hy, double hz, int64_t color) {
+  CALLF("teng_spawn_kinematic_box", "(%.2f %.2f %.2f) yarim (%.2f %.2f %.2f) %08llx", x, y, z, hx, hy, hz, (unsigned long long)color);
+  if (!ready("teng_spawn_kinematic_box")) return 0;
+  if (hx <= 0 || hy <= 0 || hz <= 0) { BERR("teng_spawn_kinematic_box: yarim kenar pozitif olmali (%.2f %.2f %.2f)", hx, hy, hz); return 0; }
+  return spawn_kinematic(Kind::Box, x, y, z, {(float)hx, (float)hy, (float)hz}, 0.5f, color, "teng_spawn_kinematic_box");
+}
+int teng_spawn_kinematic_sphere(double x, double y, double z, double radius, int64_t color) {
+  CALLF("teng_spawn_kinematic_sphere", "(%.2f %.2f %.2f) r%.2f %08llx", x, y, z, radius, (unsigned long long)color);
+  if (!ready("teng_spawn_kinematic_sphere")) return 0;
+  if (radius <= 0) { BERR("teng_spawn_kinematic_sphere: yaricap pozitif olmali (%.2f)", radius); return 0; }
+  return spawn_kinematic(Kind::Sphere, x, y, z, {0.5f, 0.5f, 0.5f}, (float)radius, color, "teng_spawn_kinematic_sphere");
+}
 // Tetik hacimleri: gorunmez, carpisma tepkisi yok; icine giren/cikan govdeler
 // eng_trigger_* kuyrugunda. Sahnede tanimlanan tetiklerin kod ikizi.
 int teng_spawn_trigger_box(double x, double y, double z, double hx, double hy, double hz) {
@@ -2841,7 +2903,16 @@ void teng_set_pos(int id, double x, double y, double z) {
   // icin sahte bir "girdi" uretirdi (olculdu: physics_sensor_move_keeps_contacts).
   if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
   if (e.kind == Kind::Character) { g->phys.set_character_position(e.ch, e.pos); return; } // ayak konumu, hiz sifir
-  if (e.body.valid()) { // Jolt'ta konum yazma yok: govde yeniden kurulur (hiz sifirlanir)
+  // Sabit / kinematik govde YERINDE isinlanir (Geri bildirim #11): eskiden her
+  // cagri govdeyi silip yeniden kuruyordu (sekil + govde ayirmasi, yeni kimlik).
+  if (e.body.valid() && !e.dynamic && g->phys.set_transform(e.body, e.pos, yaw_quat(e.yaw_deg))) {
+    e.kin_pending = false;
+    e.kin_moving = false;
+    g->teleports_inplace++;
+    return;
+  }
+  if (e.body.valid()) { // DINAMIK: yeniden kurulur (hiz sifirlanir; Jolt kimligi degisir)
+    g->teleports_rebuilt++;
     bmap_drop(e.body);
     g->phys.remove(e.body);
     e.body = sim::BodyId{};
@@ -2870,7 +2941,9 @@ void teng_set_yaw(int id, double yaw_deg) {
   e.yaw_deg = (float)yaw_deg;
   if (e.sensor && e.body.valid()) { g->phys.move_sensor(e.body, e.pos, yaw_quat(e.yaw_deg)); return; }
   if (e.kind == Kind::Character) return; // kapsul dik eksende simetrik: yaw yalniz cizimde
-  if (e.body.valid() && !e.dynamic) { bmap_drop(e.body); g->phys.remove(e.body); e.body = sim::BodyId{}; make_body(e, "teng_set_yaw"); }
+  if (e.body.valid() && !e.dynamic && !g->phys.set_transform(e.body, ent_pos(e), yaw_quat(e.yaw_deg))) {
+    bmap_drop(e.body); g->phys.remove(e.body); e.body = sim::BodyId{}; make_body(e, "teng_set_yaw");
+  }
 }
 // Karakterde hiz ic govdeden DEGIL karakterden: ic govde isinlanarak tasinir, kendi hizi hep sifir.
 static Vec3 ent_vel(const Ent &e) {
@@ -2886,7 +2959,9 @@ void teng_set_velocity(int id, double vx, double vy, double vz) {
   if (s < 0) return;
   Ent &e = g->ents[s];
   if (e.kind == Kind::Character) { BERR("teng_set_velocity: #%d karakter — hizi eng_character_move verir (yatay istek + zipla)", id); return; }
-  if (!e.body.valid() || !e.dynamic) { BERR("teng_set_velocity: #%d dinamik govde degil (%s)", id, kind_name(e.kind)); return; }
+  if (!e.body.valid() || !(e.dynamic || e.kinematic)) { BERR("teng_set_velocity: #%d dinamik ya da kinematik govde degil (%s)", id, kind_name(e.kind)); return; }
+  // Kinematikte SABIT hiz (hareketli platform): bekleyen hedef iptal.
+  if (e.kinematic) { e.kin_pending = false; e.kin_moving = false; }
   g->phys.set_linear_velocity(e.body, {(float)vx, (float)vy, (float)vz});
 }
 void teng_impulse(int id, double ix, double iy, double iz) {
@@ -2900,6 +2975,17 @@ void teng_impulse(int id, double ix, double iy, double iz) {
   g->phys.set_linear_velocity(e.body, {v.x + (float)ix, v.y + (float)iy, v.z + (float)iz});
 }
 int teng_is_dynamic(int id) { const int32_t s = slot_of(id, "teng_is_dynamic"); return s >= 0 && g->ents[s].dynamic ? 1 : 0; }
+int teng_is_kinematic(int id) { const int32_t s = slot_of(id, "teng_is_kinematic"); return s >= 0 && g->ents[s].kinematic ? 1 : 0; }
+void teng_kinematic_move(int id, double x, double y, double z) {
+  CALLF("teng_kinematic_move", "#%d (%.2f %.2f %.2f)", id, x, y, z);
+  const int32_t s = slot_of(id, "teng_kinematic_move");
+  if (s < 0) return;
+  Ent &e = g->ents[s];
+  if (!e.kinematic || !e.body.valid()) { BERR("teng_kinematic_move: #%d kinematik govde degil (%s) — eng_spawn_kinematic_* ile uret", id, kind_name(e.kind)); return; }
+  e.kin_target = {(float)x, (float)y, (float)z};
+  e.pos = e.kin_target; // sorgu/cizim fizikten okur; bu yalniz son istenen yer
+  e.kin_pending = true;
+}
 int teng_awake(int id) {
   const int32_t s = slot_of(id, "teng_awake");
   if (s < 0) return 0;

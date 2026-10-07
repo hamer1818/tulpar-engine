@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 217
+#define TENG_ABI_COUNT 221
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -77,6 +77,10 @@ TENG_ABI(void, eng_scene_character_set_jump, teng_scene_character_set_jump, (int
 TENG_ABI(int, eng_spawn_box, teng_spawn_box, (double, double, double, double, double, double, int, int64_t))
 TENG_ABI(int, eng_spawn_sphere, teng_spawn_sphere, (double, double, double, double, int, int64_t))
 TENG_ABI(int, eng_spawn_ground, teng_spawn_ground, (double, int64_t))
+TENG_ABI(int, eng_spawn_kinematic_box, teng_spawn_kinematic_box, (double, double, double, double, double, double, int64_t))
+TENG_ABI(int, eng_spawn_kinematic_sphere, teng_spawn_kinematic_sphere, (double, double, double, double, int64_t))
+TENG_ABI(void, eng_kinematic_move, teng_kinematic_move, (int, double, double, double))
+TENG_ABI(int, eng_is_kinematic, teng_is_kinematic, (int))
 TENG_ABI(int, eng_spawn_trigger_box, teng_spawn_trigger_box, (double, double, double, double, double, double))
 TENG_ABI(int, eng_spawn_trigger_sphere, teng_spawn_trigger_sphere, (double, double, double, double))
 TENG_ABI(int, eng_spawn_character, teng_spawn_character, (double, double, double, double, double, int64_t))

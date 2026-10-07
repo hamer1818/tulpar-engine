@@ -560,3 +560,87 @@ ENGINE_TEST(physics_character_triggers_sensors_through_inner_body) {
   CHECK(cik_y == 1);
   ph.shutdown();
 }
+
+// --- Geri bildirim #11: sabit govdeyi YERINDE isinla + kinematik govde ---------
+// Kopru eskiden sabit govdenin her isinlanmasinda govdeyi silip yeniden
+// kuruyordu (Jolt'ta sabit govdeye konum yazilabildigi halde): yeni sekil +
+// govde ayirmasi, yeni kimlik. 60 birlik sabit govdeyle surulseydi saniyede
+// ~3600 kurma. Olcu: N isinlama, iki yol, Jolt ayirmasi (kendi allocator
+// kancasi) + duvar saati. KONTROL: yeniden kurma yolu ayirma YAPIYOR (olcu
+// aleti ayirmayi goruyor); yerinde yol 0.
+ENGINE_TEST(physics_static_teleport_in_place_no_rebuild) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "isinla");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  CHECK(ph.init(sys, cfg));
+  constexpr int kN = 2000;
+  BodyId duvar = ph.add_box({1, 1, 1}, {0, 1, 0}, Quat::identity(), false);
+  ph.step(1.0f / 60.0f);
+  // 1) eski yol: sil + kur
+  uint64_t a0 = ph.stats().allocs_total;
+  uint64_t t0 = platform::now_ns();
+  for (int i = 0; i < kN; i++) {
+    ph.remove(duvar);
+    duvar = ph.add_box({1, 1, 1}, {(float)(i % 7), 1, 0}, Quat::identity(), false);
+  }
+  const uint64_t ns_rebuild = platform::now_ns() - t0, al_rebuild = ph.stats().allocs_total - a0;
+  // 2) yeni yol: yerinde
+  const BodyId kimlik = duvar;
+  a0 = ph.stats().allocs_total;
+  t0 = platform::now_ns();
+  bool ok = true;
+  for (int i = 0; i < kN; i++) ok = ph.set_transform(duvar, {(float)(i % 7), 1, 0}, Quat::identity()) && ok;
+  const uint64_t ns_inplace = platform::now_ns() - t0, al_inplace = ph.stats().allocs_total - a0;
+  CHECK(ok && duvar.v == kimlik.v);
+  std::printf("    [bilgi] isinlama x%d: yeniden kurma %.1f ns / %.2f Jolt ayirmasi; yerinde %.1f ns / %.2f ayirma\n", kN,
+              (double)ns_rebuild / kN, (double)al_rebuild / kN, (double)ns_inplace / kN, (double)al_inplace / kN);
+  CHECK(al_rebuild >= (uint64_t)kN); // KONTROL: olcu aleti kurmanin ayirmasini goruyor
+  CHECK(al_inplace == 0);
+  // Yerinde tasinan govde gercekten orada: isin yeni yere carpar, eskiye degil.
+  CHECK(ph.set_transform(duvar, {10, 1, 0}, Quat::identity()));
+  ph.step(1.0f / 60.0f);
+  RayHit h;
+  CHECK(ph.raycast({10, 5, 0}, {0, -1, 0}, 10.0f, &h) && h.body.v == duvar.v);
+  CHECK(!ph.raycast({0, 5, 0}, {0, -1, 0}, 10.0f, &h));
+  // Dinamik ve sensor yerinde tasinmaz (sozlesme: false).
+  const BodyId top = ph.add_sphere(0.5f, {0, 5, 0}, true);
+  const BodyId bolge = ph.add_sensor_box({1, 1, 1}, {0, 1, 0}, Quat::identity());
+  CHECK(!ph.set_transform(top, {0, 6, 0}, Quat::identity()));
+  CHECK(!ph.set_transform(bolge, {0, 6, 0}, Quat::identity()));
+  ph.shutdown();
+}
+
+// Kinematik: yercekimi/kuvvet onu etkilemez, dinamik govdeyi ITER (hiz
+// MoveKinematic'ten turetilir). Olcu: zeminde duran kureye 1 m/s ile yaklasan
+// kinematik kutu; kure itilir (x artar), kutu yolundan sapmaz (y sabit, 4 s x
+// 1 m/s = 4 m). KONTROL: hedefsiz 60 adimda kutu yerinde (yercekimi yok).
+ENGINE_TEST(physics_kinematic_body_pushes_and_ignores_gravity) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "kinematik");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  CHECK(ph.init(sys, cfg));
+  ph.add_box({20, 0.5f, 20}, {0, -0.5f, 0}, Quat::identity(), false);
+  const BodyId kin = ph.add_kinematic_box({0.5f, 0.5f, 0.5f}, {-3, 0.6f, 0}, Quat::identity());
+  const BodyId top = ph.add_sphere(0.4f, {0, 0.4f, 0}, true);
+  CHECK(ph.is_kinematic(kin) && !ph.is_kinematic(top));
+  for (int i = 0; i < 30; i++) ph.step(1.0f / 60.0f); // top otursun
+  const Vec3 top0 = ph.position(top);
+  for (int i = 0; i < 60; i++) ph.step(1.0f / 60.0f);
+  const Vec3 k1 = ph.position(kin);
+  CHECK(k1.x == -3.0f && k1.y == 0.6f);
+  for (int i = 0; i < 240; i++) {
+    const Vec3 p = ph.position(kin);
+    CHECK(ph.move_kinematic(kin, {p.x + 1.0f / 60.0f, 0.6f, 0}, Quat::identity(), 1.0f / 60.0f));
+    ph.step(1.0f / 60.0f);
+  }
+  const Vec3 k2 = ph.position(kin), top1 = ph.position(top);
+  std::printf("    [bilgi] kinematik: kutu x %.3f -> %.3f (y %.4f), kure x %.3f -> %.3f\n", k1.x, k2.x, k2.y, top0.x, top1.x);
+  CHECK(std::fabs(k2.x - 1.0f) < 0.01f && std::fabs(k2.y - 0.6f) < 1e-4f);
+  CHECK(top1.x > top0.x + 0.5f); // itildi
+  CHECK(!ph.move_kinematic(top, {0, 0, 0}, Quat::identity(), 1.0f / 60.0f)); // dinamik kinematik gibi surulmez
+  ph.shutdown();
+}

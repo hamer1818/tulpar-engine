@@ -253,6 +253,15 @@ void teng_scene_character_set_jump(int i, double speed);
 int teng_spawn_box(double x, double y, double z, double hx, double hy, double hz, int dynamic, int64_t color);
 int teng_spawn_sphere(double x, double y, double z, double radius, int dynamic, int64_t color);
 int teng_spawn_ground(double half_size, int64_t color); // dama dokulu duzlem + ince sabit kutu govde
+// KINEMATIK govde (Geri bildirim #11): hareket ettirilir, dinamik govdeleri iter
+// ve onlarla carpisir; kuvvet, yercekimi, carpma onu ETKILEMEZ. Hareket:
+// teng_kinematic_move (hedef; bu karenin sim adimlarina dagitilir, hiz turetilir
+// -> itme dogru; hedef gelmeyen karede durur) ya da teng_set_velocity (sabit hiz,
+// hareketli platform). teng_set_pos ISINLAR (yerinde, hiz sifir). teng_impulse HATA.
+int teng_spawn_kinematic_box(double x, double y, double z, double hx, double hy, double hz, int64_t color);
+int teng_spawn_kinematic_sphere(double x, double y, double z, double radius, int64_t color);
+void teng_kinematic_move(int id, double x, double y, double z);
+int teng_is_kinematic(int id);
 // Tetik (bolge) hacimleri: GORUNMEZ, carpisma tepkisi yok, yakinlik
 // sorgularinda (teng_overlap/nearest) hedef degil. Icine giren/cikan govdeler
 // teng_trigger_* kuyrugunda. teng_set_pos/teng_set_yaw tetigi TASIR (yeniden
@@ -279,7 +288,9 @@ int teng_count(void);
 double teng_x(int id);
 double teng_y(int id);
 double teng_z(int id);
-void teng_set_pos(int id, double x, double y, double z); // dinamik govde: govde yeniden kurulur (hiz sifir)
+// Isinla. Sabit / kinematik govde YERINDE tasinir (yeniden kurulmaz, ayirma yok);
+// dinamik govde yeniden kurulur (hiz sifir).
+void teng_set_pos(int id, double x, double y, double z);
 void teng_set_color(int id, int64_t color);
 void teng_set_scale(int id, double s);
 void teng_set_yaw(int id, double yaw_deg); // gorsel donus (dinamik govdede sim ezer)

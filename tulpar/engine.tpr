@@ -288,6 +288,18 @@ func konum_x(id): float { return eng_x(id); }
 func konum_y(id): float { return eng_y(id); }
 func konum_z(id): float { return eng_z(id); }
 func isinla(id, x, y, z) { eng_set_pos(id, x, y, z); }
+// KINEMATIK govde (birlik, hareketli platform, kapi): suruldugu yere gider,
+// dinamik govdeleri iter; yercekimi/kuvvet onu etkilemez. Her kare
+// kinematik_tasi ile hedef ver (hiz turetilir), vermezsen durur; ya da
+// hiz_ver ile sabit hizla kaydir. isinla aninda tasir (yerinde, kurma yok).
+func kinematik_kutu(x, y, z, hx, hy, hz, renk_): int { return eng_spawn_kinematic_box(x, y, z, hx, hy, hz, renk_); }
+func kinematic_box(x, y, z, hx, hy, hz, color): int { return eng_spawn_kinematic_box(x, y, z, hx, hy, hz, color); }
+func kinematik_kure(x, y, z, r, renk_): int { return eng_spawn_kinematic_sphere(x, y, z, r, renk_); }
+func kinematic_sphere(x, y, z, r, color): int { return eng_spawn_kinematic_sphere(x, y, z, r, color); }
+func kinematik_tasi(id, x, y, z) { eng_kinematic_move(id, x, y, z); }
+func kinematic_move(id, x, y, z) { eng_kinematic_move(id, x, y, z); }
+func kinematik_mi(id): bool { return eng_is_kinematic(id); }
+func is_kinematic(id): bool { return eng_is_kinematic(id); }
 func renk_ver(id, renk_) { eng_set_color(id, renk_); }
 func olcek_ver(id, s) { eng_set_scale(id, s); }
 func don_ver(id, derece) { eng_set_yaw(id, derece); }

@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 216 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 221 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -127,6 +127,10 @@ SPEC = [
     ("eng_spawn_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num"), ("dynamic", "flag"), ("color", "color")], "Kutu (yarim kenarlar) + fizik govdesi. Donus: varlik id (0 hata)."),
     ("eng_spawn_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("dynamic", "flag"), ("color", "color")], "Kure + fizik govdesi. Donus: varlik id."),
     ("eng_spawn_ground", "int", [("half_size", "num"), ("color", "color")], "Dama dokulu zemin (ust yuz y=0) + sabit govde. Donus: varlik id."),
+    ("eng_spawn_kinematic_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num"), ("color", "color")], "KINEMATIK kutu: hareket ettirilir (eng_kinematic_move / eng_set_velocity), dinamik govdeleri iter ve onlarla carpisir; kuvvet/yercekimi/carpma onu etkilemez. Donus: varlik id."),
+    ("eng_spawn_kinematic_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("color", "color")], "KINEMATIK kure (bkz. eng_spawn_kinematic_box). Donus: varlik id."),
+    ("eng_kinematic_move", "void", [("id", "int"), ("x", "num"), ("y", "num"), ("z", "num")], "Kinematik govdeyi hedefe surur: bu karenin sim adimlarinda varir, hiz turetilir (itme dogru). Hedef verilmeyen karede durur. Kinematik olmayan varlikta HATA."),
+    ("eng_is_kinematic", "bool", [("id", "int")], "Varlik kinematik govde mi."),
     ("eng_spawn_trigger_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num")], "Tetik (bolge) kutusu: GORUNMEZ, carpisma tepkisi yok; icine giren/cikan govdeler eng_trigger_* kuyrugunda. eng_set_pos tasir. Donus: varlik id."),
     ("eng_spawn_trigger_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num")], "Tetik (bolge) kuresi. Donus: varlik id."),
     ("eng_spawn_character", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("height", "num"), ("color", "color")], "Karakter denetleyicisi (sanal kapsul): rampada kaymaz, basamak cikar, zemine yapisir. Konum AYAK tabani; boy > 2*yaricap. Donus: varlik id."),
@@ -143,7 +147,7 @@ SPEC = [
     ("eng_x", "float", [("id", "int")], "Varlik x (dinamikse sim'den)."),
     ("eng_y", "float", [("id", "int")], "Varlik y."),
     ("eng_z", "float", [("id", "int")], "Varlik z."),
-    ("eng_set_pos", "void", [("id", "int"), ("x", "num"), ("y", "num"), ("z", "num")], "Isinlar; dinamik govde yeniden kurulur (hiz sifir)."),
+    ("eng_set_pos", "void", [("id", "int"), ("x", "num"), ("y", "num"), ("z", "num")], "Isinlar. Sabit/kinematik govde YERINDE tasinir (yeniden kurulmaz, ayirma yok); dinamik govde yeniden kurulur (hiz sifir)."),
     ("eng_set_color", "void", [("id", "int"), ("color", "color")], "Varlik rengi."),
     ("eng_set_scale", "void", [("id", "int"), ("scale", "num")], "Gorsel olcek (fizik govdesi degismez)."),
     ("eng_set_yaw", "void", [("id", "int"), ("yaw_deg", "num")], "Y ekseni donusu (derece); dinamik govdede sim ezer."),
