@@ -1,0 +1,906 @@
+// ============================================================================
+// KÜPLER İLE KÜRELERİN SAVAŞI — Çağlar Boyu Savaş tarzı strateji (Tulpar Engine)
+//
+// Solda KÜPLER (oyuncu), sağda KÜRELER (yapay zekâ). Altın biriktir, birlik
+// çıkar, kule kur, deneyim kazan, çağ atla; düşman kalesini yık. Beş çağ:
+// Taş, Tunç, Demir, Sanayi, Gelecek — her çağda üç birlik, bir kule, bir özel güç.
+//
+// ÇALIŞTIR (oyun dizininden: import yolları çalışma dizinine göredir):
+//   cd tulpar/oyunlar/kup_kure_savasi && tulpar oyun.tpr
+// Penceresiz doğrulama (OTOPİLOT: iki taraf da yapay zekâ, menüler ADIYLA
+// tıklanır, kule yuvasına ekran dokunuşuyla kurulur; sonda [kapi] satırları):
+//   TULPAR_ENGINE_HEADLESS=3600 DISPLAY= tulpar oyun.tpr
+// Android:  tulpar build --target=android oyun.tpr kup_kure --apk   (tulpar.toml [android])
+//
+// KONTROLLER
+//   Dokunmatik: alt çubuktaki düğmeler; savaş alanını parmakla SÜRÜKLE (kamera
+//   kayar); üstteki haritaya dokun (kamera oraya atlar); Kule kipinde kale
+//   damındaki yuvaya dokun (kur / sat); birliğe dokun (bilgi).
+//   Masaüstü: fare aynısı + 1/2/3 birlik, T kule kipi, Q özel güç, E çağ atla,
+//   A/D ya da oklar kamera, ESC duraklat.
+//
+// MOTORUN KULLANILAN ÖZELLİKLERİ (tam tablo PR açıklamasında ve
+// docs/OYUN_GERI_BILDIRIM.md'de): derlenmiş sahne (assets/savas.sahne ->
+// .sahneb: arazi, kaleler, ışıklar, ışıyan malzeme, parçacık) + nesne
+// özellikleri (kale ve kule yuvası işaretleri), navmesh (yol iki kale kapısı
+// arasında Detour'la aranır; kayalar yolu büker), dinamik gövdeler, betik
+// kancaları (davranis/: mermi çarpışması, enkaz ömrü, kale tetik bölgesi),
+// tetik, küre sorgusu (kule hedefi, alan hasarı), ışın (dokunma -> kule
+// yuvası/birlik), model (gövdesiz süs: kafa, silah, ışıyan mermi, lazer),
+// nokta ışık + parlama (bloom), ses (müzik + efekt, dosya yoksa sentetik ton),
+// anlık-kip arayüz (düğme, kaydırıcı, onay kutusu), kalıcı kayıt, dokunmatik.
+// ============================================================================
+
+import "engine";
+import "davranis/us_yeri.tpr";
+import "davranis/kule_yuvasi.tpr";
+import "davranis/mermi.tpr";
+import "davranis/enkaz.tpr";
+import "davranis/us_bolgesi.tpr";
+import "ses.tpr";
+import "kamera.tpr";
+import "savas.tpr";
+
+enum Ekran { ANA, ZORLUK, OYUN, DURAKLAT, AYAR, SONUC }
+
+Ekran g_ekran = Ekran.ANA;
+Ekran g_ayar_donus = Ekran.ANA;
+bool g_savas_var = false;      // bir savaş kurulu (duraklatta/sonuçta da)
+bool g_kule_kipi = false;
+bool g_sessiz_arka = false;   // arka planda ses kisildi
+int g_arka_plan = 0;          // pencere kayboldugu (arka plan) icin otomatik duraklatma
+float g_kam_x = -24.0;
+float g_kam_hedef_x = -24.0;
+float KAM_MIN = -30.0;
+float KAM_MAX = 30.0;
+
+// ---- Ayarlar ve kayıt -------------------------------------------------------
+bool g_parlama_ayari = true;
+// İç çözünürlük ölçeği (motorun dinamik çözünürlüğü; parlama açıkken çalışır).
+// Telefonda varsayılan düşük: P20 Pro / Mali-G72'de piksel başına bedel kareyi
+// belirliyor (docs/OYUN_GERI_BILDIRIM.md madde 2).
+bool g_mobil = len(env("ANDROID_ROOT")) > 0;
+float g_olcek_ayari = 1.0;
+int g_rekor = 0;
+int g_en_cag = 0;
+int g_oyun_sayisi = 0;
+int g_galibiyet = 0;
+int g_skor = 0;
+
+func kayit_dosyasi(): str {
+    if (len(env("TULPAR_ENGINE_HEADLESS")) == 0) { return ""; }
+    // Penceresiz (doğrulama) koşumu GEÇİCİ dosyaya: gerçek kayda dokunmasın.
+    // Geçici dizin tests/test.hpp tmp_dir() kuralı (Windows'ta TEMP/TMP).
+    str tmp = "";
+    if (env("OS") == "Windows_NT") { tmp = env("TEMP"); if (len(tmp) == 0) { tmp = env("TMP"); } }
+    if (len(tmp) == 0) { tmp = env("TMPDIR"); }
+    return (len(tmp) == 0 ? "/tmp" : tmp) + "/tulpar_kup_kure_kayit.txt";
+}
+
+func ayarlari_oku() {
+    str yol = kayit_dosyasi();
+    // Penceresiz koşum her seferinde BOŞ kayıtla başlar: [kapi] satırındaki rekor ve
+    // en uzak çağ önceki koşumlara bağlı olmasın (iki makinede aynı satır).
+    if (len(yol) > 0) { kayit_ac(yol); kayit_temizle(); kayit_kaydet(); }
+    g_efekt_ayari = kayit_oku_sayi("kks_efekt", 0.8);
+    g_muzik_ayari = kayit_oku_sayi("kks_muzik", 0.5);
+    g_parlama_ayari = kayit_oku_sayi("kks_parlama", 1.0) > 0.5;
+    g_olcek_ayari = kayit_oku_sayi("kks_olcek", g_mobil ? 0.7 : 1.0);
+    g_rekor = toInt(kayit_oku_sayi("kks_rekor", 0));
+    g_en_cag = toInt(kayit_oku_sayi("kks_en_cag", 0));
+    g_oyun_sayisi = toInt(kayit_oku_sayi("kks_oyun", 0));
+    g_galibiyet = toInt(kayit_oku_sayi("kks_galibiyet", 0));
+    g_zorluk = toInt(kayit_oku_sayi("kks_zorluk", 1));
+    if (g_zorluk < 0 || g_zorluk > 2) { g_zorluk = 1; }
+}
+
+// Mobilde "çıkışta yaz" kancası yok (Tuzaklar 8au): her değişiklik HEMEN diske.
+func ayarlari_yaz() {
+    kayit_yaz_sayi("kks_efekt", g_efekt_ayari);
+    kayit_yaz_sayi("kks_muzik", g_muzik_ayari);
+    kayit_yaz_sayi("kks_parlama", g_parlama_ayari ? 1.0 : 0.0);
+    kayit_yaz_sayi("kks_olcek", g_olcek_ayari);
+    kayit_yaz_sayi("kks_zorluk", g_zorluk);
+    kayit_kaydet();
+}
+
+func istatistik_yaz() {
+    kayit_yaz_sayi("kks_rekor", g_rekor);
+    kayit_yaz_sayi("kks_en_cag", g_en_cag);
+    kayit_yaz_sayi("kks_oyun", g_oyun_sayisi);
+    kayit_yaz_sayi("kks_galibiyet", g_galibiyet);
+    kayit_kaydet();
+}
+
+// ---- Girdi: kamera sürükleme, dokunma, kısayollar -----------------------------
+bool g_surukle = false;
+bool g_dokun_aday = false;
+float g_dokun_x = 0.0;
+float g_dokun_y = 0.0;
+float g_son_x = 0.0;
+float g_dokun_t = 0.0;
+float g_dokun_yol = 0.0;
+int g_bilgi_birlik = -1;
+float g_bilgi_t = 0.0;
+str g_ipucu = "";
+float g_ipucu_t = 0.0;
+int g_kule_dokunus = 0;        // dokunuşla kule kurma/satma
+int g_kule_iska = 0;           // kule kipinde yuvaya değmeyen dokunuş
+int g_kule_isin = 0;           // ışın doğrudan yuvaya çarptı
+int g_kule_yakin = 0;          // ışın ıskaladı, ekranda en yakın yuva seçildi
+int g_birlik_dokunus = 0;
+
+// Ekranın oyun alanı: üst şerit ile alt çubuk ARASI (piksel).
+func ust_serit(): float { return ui_px(86.0); }
+func alt_cubuk(): float { return yukseklik() - ui_px(96.0); }
+
+func ipucu_ver(str m) {
+    if (g_ipucu != m) { g_ipucu = m; }
+    g_ipucu_t = 2.2;
+}
+
+// (basılı 1/0, x, y): çoklu bildirim tek tipte (Tulpar `(T, T)`), bool yerine 1.0/0.0.
+func isaretci(): (float, float, float) {
+    if (dokunus_sayisi() > 0) { return 1.0, eng_touch_x(0), eng_touch_y(0); }
+    return eng_mouse_down(0) ? 1.0 : 0.0, eng_mouse_x(), eng_mouse_y();
+}
+
+func girdi_isle(float d) {
+    float basf, px, py = isaretci();
+    bool bas = basf > 0.5;
+    float olcek_m = 2.0 * 17.0 * FOV_TAN / yukseklik();   // piksel başına metre (yol mesafesinde)
+    if (bas) {
+        if (!g_surukle && !g_dokun_aday) {
+            // Yeni basış: oyun alanında mı?
+            if (py > ust_serit() && py < alt_cubuk()) {
+                g_dokun_aday = true;
+                g_dokun_x = px; g_dokun_y = py; g_son_x = px; g_dokun_t = 0.0; g_dokun_yol = 0.0;
+            } else if (py <= ust_serit()) {
+                harita_dokun(px, py);
+            }
+        } else {
+            float dx = px - g_son_x;
+            g_son_x = px;
+            g_dokun_t += d;
+            g_dokun_yol += abs(dx);
+            if (g_dokun_aday && g_dokun_yol > ui_px(14.0)) { g_surukle = true; }
+            if (g_surukle) {
+                g_kam_hedef_x -= dx * olcek_m;
+                g_kam_x = g_kam_hedef_x;
+            }
+        }
+    } else {
+        if (g_dokun_aday && !g_surukle && g_dokun_t < 0.45) { dokunus(g_dokun_x, g_dokun_y); }
+        g_surukle = false;
+        g_dokun_aday = false;
+    }
+    // Klavye (masaüstü).
+    float kay = 0.0;
+    if (tus("A") || tus("LEFT")) { kay -= 1.0; }
+    if (tus("D") || tus("RIGHT")) { kay += 1.0; }
+    if (kay != 0.0) { g_kam_hedef_x += kay * 18.0 * d; }
+    if (g_ekran == Ekran.OYUN && g_kazanan < 0) {
+        if (tus_basildi("1")) { birlik_iste(0); }
+        if (tus_basildi("2")) { birlik_iste(1); }
+        if (tus_basildi("3")) { birlik_iste(2); }
+        if (tus_basildi("T")) { kule_kipi_degistir(); }
+        if (tus_basildi("Q")) { ozel_iste(); }
+        if (tus_basildi("E")) { cag_iste(); }
+    }
+    float kmin = g_kule_kipi ? -32.0 : KAM_MIN;
+    if (g_kam_hedef_x < kmin) { g_kam_hedef_x = kmin; }
+    if (g_kam_hedef_x > KAM_MAX) { g_kam_hedef_x = KAM_MAX; }
+    // Yumuşak takip (sürüklerken birebir).
+    g_kam_x += (g_kam_hedef_x - g_kam_x) * min(1.0, d * 8.0);
+}
+
+// Üst şeritteki haritaya dokunuş: kamera oraya.
+func harita_dokun(float px, float py) {
+    float s = ui_olcek();
+    float hw = ui_px(420.0);
+    float hx = (genislik() - hw) / 2.0;
+    if (px < hx || px > hx + hw || py > ui_px(50.0)) { return; }
+    float oran = (px - hx) / hw;
+    g_kam_hedef_x = KAM_MIN - 6.0 + oran * (KAM_MAX - KAM_MIN + 12.0);
+}
+
+// Kısa dokunuş: kule kipinde yuva, değilse birlik bilgisi. Işın testi kameradan.
+func dokunus(float sx, float sy) {
+    if (g_ekran != Ekran.OYUN) { return; }
+    float m = ekrandan_isin(sx, sy);
+    if (g_kule_kipi) {
+        int yuva_k = m >= 0.0 ? kule_yuvasi_bul(isin_sahne()) : -1;
+        if (yuva_k >= 0 && yuva_k < 3) { g_kule_isin += 1; }
+        else {
+            // Parmak yuvayi tam tutturamadi: ekranda en yakin yuva (izdusumle),
+            // ust sinir 110 tasarim birimi. Ayri sayilir (kapi otopilotta 0 ister).
+            yuva_k = -1;
+            float en = ui_px(110.0);
+            for (int s = 0; s < 3; s++) {
+                int si = kule_yuvasi_dizini(0, s);
+                if (si < 0) { continue; }
+                Vec3 p = sahne_konum(si);
+                float qx, qy = ekrana(p.x, p.y + 0.16, p.z);
+                float u = sqrt((qx - sx) * (qx - sx) + (qy - sy) * (qy - sy));
+                if (qx >= 0.0 && u < en) { en = u; yuva_k = s; }
+            }
+            if (yuva_k < 0) {
+                g_kule_iska += 1;
+                ipucu_ver("Kule için kalenin damındaki parlayan yuvalara dokun");
+                return;
+            }
+            g_kule_yakin += 1;
+        }
+        g_kule_dokunus += 1;
+        if (kule_var(0, yuva_k)) {
+            kule_sat(0, yuva_k);
+            ipucu_ver("Kule satıldı (yarı fiyat geri)");
+        } else if (!kule_kur(0, yuva_k)) {
+            ipucu_ver(t"Altın yetmiyor: kule {toInt(kule_fiyat(g_cag[0]))} altın");
+        } else {
+            ipucu_ver("Kule kuruldu");
+        }
+        kule_kipi_kapat();
+        return;
+    }
+    if (m >= 0.0) {
+        int b = birlik_bul(isin_id());
+        if (b >= 0) { g_bilgi_birlik = b; g_bilgi_t = 2.5; g_birlik_dokunus += 1; }
+    }
+}
+
+// ---- Oyuncu eylemleri (düğme, kısayol ve otopilot aynı yoldan) ----------------
+func birlik_iste(int tur) {
+    if (g_kuyruk_n[0] >= KUYRUK_MAX) { ipucu_ver("Eğitim sırası dolu (5)"); return; }
+    if (!kuyruga_ekle(0, tur)) { ipucu_ver(t"Altın yetmiyor: {toInt(birlik_fiyat(tur, g_cag[0]))}"); return; }
+    ses_cal(SES_TIKLA, 0.5, 0.03);
+}
+func ozel_iste() {
+    if (!ozel_guc(0)) { ipucu_ver(t"Özel güç hazır değil ({toInt(g_ozel_bekle[0]) + 1} s)"); }
+}
+func cag_iste() {
+    if (!cag_atla(0)) { ipucu_ver(t"Çağ atlamak için {toInt(CAG_XP[g_cag[0]])} XP gerekli"); return; }
+    ipucu_ver(t"{CAG_ADLARI[g_cag[0]]}!");
+    if (g_cag[0] > g_en_cag) { g_en_cag = g_cag[0]; istatistik_yaz(); }
+}
+
+int[] g_yuva_isaret = [0, 0, 0];
+func kule_kipi_degistir() { if (g_kule_kipi) { kule_kipi_kapat(); } else { kule_kipi_ac(); } }
+func kule_kipi_ac() {
+    g_kule_kipi = true;
+    for (int s = 0; s < 3; s++) {
+        int si = kule_yuvasi_dizini(0, s);
+        if (si < 0) { continue; }
+        Vec3 p = sahne_konum(si);
+        g_yuva_isaret[s] = sus(M_ISIK_MAVI, p.x, p.y + 0.9, p.z, 0.55, BEYAZ);
+    }
+    ipucu_ver(t"Kule: yuvaya dokun ({toInt(kule_fiyat(g_cag[0]))} altın) — dolu yuva satılır");
+    g_kam_hedef_x = -31.0;
+}
+func kule_kipi_kapat() {
+    g_kule_kipi = false;
+    for (int s = 0; s < 3; s++) { sus_sil(g_yuva_isaret[s]); g_yuva_isaret[s] = 0; }
+}
+
+// ---- Savaş akışı --------------------------------------------------------------
+func savas_baslat(int zorluk) {
+    kule_kipi_kapat();
+    savas_sifirla(zorluk);
+    g_savas_var = true;
+    g_skor = 0;
+    g_kam_x = -24.0;
+    g_kam_hedef_x = -24.0;
+    g_ekran = Ekran.OYUN;
+    g_oyun_sayisi += 1;
+    if (g_zorluk != zorluk) { g_zorluk = zorluk; }
+    ayarlari_yaz();
+    istatistik_yaz();
+    muzik_cal(MUZIK_SAVAS);
+    logla(t"SAVAS BASLADI: zorluk {ZORLUK_ADLARI[zorluk]}");
+}
+
+func skor_hesapla(): int {
+    float s = g_kazanilan_altin[0] * 2.0 + g_us_hasar_verdi[0] * 0.5 + g_cag[0] * 500.0;
+    if (g_kazanan == 0) { s += 3000.0 * (1.0 + g_zorluk * 0.5); }
+    return toInt(s);
+}
+
+func savas_sonu_kontrol() {
+    if (g_kazanan < 0 || g_ekran != Ekran.OYUN) { return; }
+    if (g_sonuc_bekle < 0.0) { g_sonuc_bekle = 2.5; }   // patlamalar görünsün
+}
+float g_sonuc_bekle = -1.0;
+
+func sonuca_gec() {
+    g_sonuc_bekle = -1.0;
+    g_skor = skor_hesapla();
+    if (g_kazanan == 0) { g_galibiyet += 1; }
+    if (g_skor > g_rekor) { g_rekor = g_skor; }
+    if (g_cag[0] > g_en_cag) { g_en_cag = g_cag[0]; }
+    istatistik_yaz();
+    kule_kipi_kapat();
+    g_ekran = Ekran.SONUC;
+    muzik_cal(g_kazanan == 0 ? MUZIK_ZAFER : MUZIK_YENILGI);
+    if (g_kazanan == 0) { ses_cal(SES_CAG, 1.0, 0.0); }
+    logla(t"SONUC: {g_kazanan == 0 ? "ZAFER" : "YENILGI"} skor {g_skor} rekor {g_rekor} sure {toInt(g_savas_t)} s");
+}
+
+// ---- Arayüz -------------------------------------------------------------------
+int RENK_PANEL = 0;
+int RENK_KARART = 0;
+int RENK_ALTIN = 0;
+int RENK_XP = 0;
+int RENK_KUP = 0;
+int RENK_KURE = 0;
+
+func renk_tema_kur() {
+    RENK_PANEL = renk_a(14, 18, 30, 225);
+    RENK_KARART = renk_a(0, 0, 0, 130);
+    RENK_ALTIN = renk(255, 210, 70);
+    RENK_XP = renk(150, 110, 255);
+    RENK_KUP = renk(80, 150, 255);
+    RENK_KURE = renk(255, 95, 80);
+    ui_tema(renk_a(26, 32, 52, 235), BEYAZ, renk(255, 190, 60));
+}
+
+// Çubuk: zemin + doluluk + yazı.
+func cubuk_ciz(float x, float y, float w, float h, float oran, int renk_, str etiket_) {
+    if (oran < 0.0) { oran = 0.0; }
+    if (oran > 1.0) { oran = 1.0; }
+    dikdortgen(x, y, w, h, renk_a(0, 0, 0, 170));
+    dikdortgen(x + 2.0, y + 2.0, (w - 4.0) * oran, h - 4.0, renk_);
+    if (len(etiket_) > 0) {
+        float s = ui_olcek();
+        yazi(etiket_, x + 8.0 * s, y + (h - 18.0 * s) * 0.5, 0.8, BEYAZ);
+    }
+}
+
+func hud_ust() {
+    float s = ui_olcek();
+    float w = genislik();
+    // Sol: altın + XP + çağ.
+    panel(ui_px(8.0), ui_px(6.0), ui_px(250.0), ui_px(74.0), RENK_PANEL);
+    yazi(t"Altın {toInt(g_altin[0])}", ui_px(18.0), ui_px(12.0), 1.05, RENK_ALTIN);
+    float xp_hedef = CAG_XP[g_cag[0]];
+    if (g_cag[0] >= CAG_SAYISI - 1) { cubuk_ciz(ui_px(16.0), ui_px(44.0), ui_px(234.0), ui_px(26.0), 1.0, RENK_XP, t"XP {toInt(g_xp[0])}  (son çağ)"); }
+    else { cubuk_ciz(ui_px(16.0), ui_px(44.0), ui_px(234.0), ui_px(26.0), g_xp[0] / xp_hedef, RENK_XP, t"XP {toInt(g_xp[0])} / {toInt(xp_hedef)}"); }
+    // Orta: harita + iki kalenin canı.
+    float hw = ui_px(420.0);
+    float hx = (w - hw) / 2.0;
+    harita_ciz(hx, ui_px(8.0), hw, ui_px(30.0));
+    float cw = ui_px(200.0);
+    cubuk_ciz(hx, ui_px(44.0), cw, ui_px(26.0), g_us_can[0] / g_us_can_max[0], RENK_KUP, t"Küpler {toInt(g_us_can[0])}");
+    cubuk_ciz(hx + hw - cw, ui_px(44.0), cw, ui_px(26.0), g_us_can[1] / g_us_can_max[1], RENK_KURE, t"Küreler {toInt(g_us_can[1])}");
+    // Sağ: çağlar + duraklat.
+    panel(w - ui_px(338.0), ui_px(6.0), ui_px(250.0), ui_px(74.0), RENK_PANEL);
+    yazi(CAG_ADLARI[g_cag[0]], w - ui_px(328.0), ui_px(12.0), 0.95, RENK_KUP);
+    yazi(t"Düşman: {CAG_ADLARI[g_cag[1]]}", w - ui_px(328.0), ui_px(44.0), 0.8, RENK_KURE);
+    yazi(t"{toInt(fps_e())} fps", w - ui_px(150.0), ui_px(14.0), 0.65, GRI);
+    if (dugme("||", w - ui_px(78.0), ui_px(8.0), ui_px(70.0), ui_px(70.0))) { duraklat(); }
+}
+
+func duraklat() {
+    if (g_ekran == Ekran.OYUN) { g_ekran = Ekran.DURAKLAT; kule_kipi_kapat(); ses_cal(SES_TIKLA, 0.5, 0.0); }
+}
+
+// Mini harita: yol boyunca birlik noktaları + kameranın gördüğü aralık.
+func harita_ciz(float x, float y, float w, float h) {
+    dikdortgen(x, y, w, h, renk_a(10, 20, 10, 190));
+    float bas = KAM_MIN - 14.0;
+    float son = KAM_MAX + 14.0;
+    float k = w / (son - bas);
+    float gx = x + (g_kam_x - 17.0 - bas) * k;
+    dikdortgen(gx, y, 34.0 * k, h, renk_a(255, 255, 255, 50));
+    dikdortgen(x + (g_kapi0.x - 3.0 - bas) * k, y + 2.0, 6.0, h - 4.0, RENK_KUP);
+    dikdortgen(x + (g_kapi1.x + 3.0 - bas) * k - 6.0, y + 2.0, 6.0, h - 4.0, RENK_KURE);
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0) { continue; }
+        float bx = x + (birlikler[i].x - bas) * k;
+        dikdortgen(bx - 2.0, y + h * 0.5 - 3.0, 5.0, 6.0, birlikler[i].taraf == 0 ? RENK_KUP : RENK_KURE);
+    }
+}
+
+// Birliklerin can çubukları (yalnız yaralılar) + seçili birlik bilgisi.
+func can_cubuklari() {
+    float s = ui_olcek();
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0 || birlikler[i].can >= birlikler[i].can_max) { continue; }
+        float sx, sy = ekrana(birlikler[i].x, birlikler[i].y + birlikler[i].boy * 2.4 + 0.25, birlikler[i].z);
+        if (sx < 0.0 || sy < ust_serit() || sy > alt_cubuk()) { continue; }
+        float bw = 46.0 * s;
+        float oran = birlikler[i].can / birlikler[i].can_max;
+        dikdortgen(sx - bw * 0.5, sy, bw, 7.0 * s, renk_a(0, 0, 0, 160));
+        dikdortgen(sx - bw * 0.5 + 1.0, sy + 1.0, (bw - 2.0) * oran, 5.0 * s, birlikler[i].taraf == 0 ? RENK_KUP : RENK_KURE);
+    }
+    if (g_bilgi_t > 0.0 && g_bilgi_birlik >= 0 && birlikler[g_bilgi_birlik].id != 0) {
+        int b = g_bilgi_birlik;
+        float sx, sy = ekrana(birlikler[b].x, birlikler[b].y + birlikler[b].boy * 2.4 + 0.9, birlikler[b].z);
+        if (sx > 0.0) {
+            str ad = birlik_adi(birlikler[b].tur, birlikler[b].cag);
+            str m = t"{ad}  can {toInt(birlikler[b].can)}/{toInt(birlikler[b].can_max)}  hasar {toInt(birlikler[b].hasar)}";
+            float tw = eng_text_width(m, 0.8);
+            panel(sx - tw * 0.5 - 8.0 * s, sy - 30.0 * s, tw + 16.0 * s, 26.0 * s, RENK_PANEL);
+            yazi(m, sx - tw * 0.5, sy - 27.0 * s, 0.8, BEYAZ);
+        }
+    }
+}
+
+// Alt çubuk: üç birlik, kule, özel güç, çağ. Etiket = düğmenin kimliği
+// (çağa göre birlik adı değişir); fiyat ve bekleme düğmenin altına yazılır.
+func alt_cubuk_ciz() {
+    float s = ui_olcek();
+    float w = genislik();
+    float y = alt_cubuk() + 6.0 * s;
+    float h = 76.0 * s;
+    float ara = 10.0 * s;
+    float bw = (w - ara * 7.0) / 6.0;
+    dikdortgen(0.0, alt_cubuk(), w, yukseklik() - alt_cubuk(), renk_a(8, 10, 18, 200));
+    int cag = g_cag[0];
+    bool bitti = g_kazanan >= 0;
+    for (int tur = 0; tur < 3; tur++) {
+        float x = ara + (bw + ara) * tur;
+        float f = birlik_fiyat(tur, cag);
+        ui_etkin(!bitti && g_altin[0] >= f && g_kuyruk_n[0] < KUYRUK_MAX);
+        if (dugme(birlik_adi(tur, cag), x, y, bw, h)) { birlik_iste(tur); }
+        yazi(t"{toInt(f)} altın", x + 10.0 * s, y + h - 24.0 * s, 0.75, RENK_ALTIN);
+        yazi(TUR_KISA[tur], x + 10.0 * s, y + 4.0 * s, 0.7, ACIK_GRI);
+    }
+    float kx = ara + (bw + ara) * 3.0;
+    ui_etkin(!bitti);
+    if (dugme(g_kule_kipi ? "Kule: Vazgeç" : "Kule", kx, y, bw, h)) { kule_kipi_degistir(); }
+    yazi(t"{toInt(kule_fiyat(cag))} altın", kx + 10.0 * s, y + h - 24.0 * s, 0.75, RENK_ALTIN);
+    float ox = ara + (bw + ara) * 4.0;
+    ui_etkin(!bitti && ozel_hazir(0));
+    if (dugme(OZEL_ADLARI[cag], ox, y, bw, h)) { ozel_iste(); }
+    if (!ozel_hazir(0)) { yazi(t"{toInt(g_ozel_bekle[0]) + 1} s", ox + 10.0 * s, y + h - 24.0 * s, 0.75, ACIK_GRI); }
+    else { yazi("HAZIR", ox + 10.0 * s, y + h - 24.0 * s, 0.75, renk(120, 255, 140)); }
+    float cx = ara + (bw + ara) * 5.0;
+    bool cag_hazir = cag_atlayabilir(0);
+    ui_etkin(!bitti && cag_hazir);
+    if (dugme("Çağ Atla", cx, y, bw, h)) { cag_iste(); }
+    if (cag < CAG_SAYISI - 1) { yazi(cag_hazir ? CAG_ADLARI[cag + 1] : t"{toInt(CAG_XP[cag])} XP", cx + 10.0 * s, y + h - 24.0 * s, 0.75, cag_hazir ? renk(120, 255, 140) : RENK_XP); }
+    ui_etkin(true);
+    // Eğitim sırası: alt çubuğun üstünde küçük kareler (ilki dolum çubuğu).
+    float qy = alt_cubuk() - 26.0 * s;
+    for (int k = 0; k < KUYRUK_MAX; k++) {
+        float qx = ara + k * 30.0 * s;
+        dikdortgen(qx, qy, 24.0 * s, 20.0 * s, renk_a(0, 0, 0, 140));
+        if (k < g_kuyruk_n[0]) {
+            int t = g_kuyruk[k];
+            dikdortgen(qx + 2.0, qy + 2.0, 24.0 * s - 4.0, 20.0 * s - 4.0, RENK_GOVDE[t]);
+            if (k == 0) {
+                float oran = g_egitim_t[0] / egitim_suresi(t, cag);
+                dikdortgen(qx, qy + 20.0 * s, 24.0 * s * min(1.0, oran), 4.0 * s, RENK_ALTIN);
+            }
+        }
+    }
+}
+str[] TUR_KISA = ["yakın", "menzilli", "ağır"];
+
+func ipucu_ciz(float d) {
+    if (g_ipucu_t <= 0.0) { return; }
+    g_ipucu_t -= d;
+    float s = ui_olcek();
+    float tw = eng_text_width(g_ipucu, 1.0);
+    float x = (genislik() - tw) / 2.0;
+    float y = alt_cubuk() - 72.0 * s;
+    panel(x - 14.0 * s, y - 6.0 * s, tw + 28.0 * s, 36.0 * s, RENK_PANEL);
+    yazi(g_ipucu, x, y, 1.0, BEYAZ);
+}
+
+func hud_ciz(float d) {
+    can_cubuklari();
+    ucanlari_ciz(d);
+    hud_ust();
+    alt_cubuk_ciz();
+    ipucu_ciz(d);
+    if (g_kule_kipi) {
+        float s = ui_olcek();
+        yazi("KULE KİPİ: kale damındaki parlayan yuvaya dokun", ui_px(16.0), ust_serit() + 8.0 * s, 1.0, renk(140, 220, 255));
+    }
+    if (g_bilgi_t > 0.0) { g_bilgi_t -= d; }
+}
+
+// ---- Menüler ------------------------------------------------------------------
+func baslik_ciz() {
+    float s = ui_olcek();
+    str b1 = "KÜPLER ile KÜRELERİN";
+    str b2 = "SAVAŞI";
+    float w1 = eng_text_width(b1, 2.6);
+    float w2 = eng_text_width(b2, 3.4);
+    yazi(b1, (genislik() - w1) / 2.0 + 3.0 * s, ui_px(70.0) + 3.0 * s, 2.6, renk_a(0, 0, 0, 160));
+    yazi(b1, (genislik() - w1) / 2.0, ui_px(70.0), 2.6, RENK_KUP);
+    yazi(b2, (genislik() - w2) / 2.0 + 3.0 * s, ui_px(128.0) + 3.0 * s, 3.4, renk_a(0, 0, 0, 160));
+    yazi(b2, (genislik() - w2) / 2.0, ui_px(128.0), 3.4, RENK_KURE);
+}
+
+func ana_menu_ciz() {
+    baslik_ciz();
+    ui_pencere("", 420, 330, RENK_PANEL);
+    ui_etiket_orta(t"Rekor {g_rekor}   En uzak: {CAG_ADLARI[g_en_cag]}", 0.85, RENK_ALTIN);
+    ui_etiket_orta(t"Oyun {g_oyun_sayisi}   Zafer {g_galibiyet}", 0.75, ACIK_GRI);
+    if (ui_dugme("Oyna")) { g_ekran = Ekran.ZORLUK; ses_cal(SES_TIKLA, 0.5, 0.0); }
+    if (ui_dugme("Ayarlar")) { g_ayar_donus = Ekran.ANA; g_ekran = Ekran.AYAR; ses_cal(SES_TIKLA, 0.5, 0.0); }
+    if (ui_dugme("Çıkış")) { ayarlari_yaz(); cikis_iste(); }
+    ui_pencere_bitir();
+}
+
+func zorluk_ciz() {
+    baslik_ciz();
+    ui_pencere("ZORLUK", 420, 380, RENK_PANEL);
+    if (ui_dugme("Kolay")) { savas_baslat(0); }
+    if (ui_dugme("Normal")) { savas_baslat(1); }
+    if (ui_dugme("Zor")) { savas_baslat(2); }
+    if (ui_dugme("Geri")) { g_ekran = Ekran.ANA; }
+    ui_pencere_bitir();
+}
+
+func duraklat_ciz() {
+    dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
+    ui_pencere("DURAKLADI", 420, 330, RENK_PANEL);
+    if (ui_dugme("Devam")) { g_ekran = Ekran.OYUN; }
+    if (ui_dugme("Ayarlara git")) { g_ayar_donus = Ekran.DURAKLAT; g_ekran = Ekran.AYAR; }
+    if (ui_dugme("Teslim ol")) {
+        g_kazanan = 1;
+        g_ekran = Ekran.OYUN;
+        sonuca_gec();
+    }
+    ui_pencere_bitir();
+}
+
+func ayar_ciz() {
+    dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
+    ui_pencere("AYARLAR", 500, 500, RENK_PANEL);
+    float onceki_e = g_efekt_ayari;
+    g_efekt_ayari = ui_kaydirici("Efekt sesi", g_efekt_ayari, 0.0, 1.0);
+    if (g_efekt_ayari != onceki_e && !ui_basili()) { ayarlari_yaz(); }
+    float onceki_m = g_muzik_ayari;
+    g_muzik_ayari = ui_kaydirici("Müzik", g_muzik_ayari, 0.0, 1.0);
+    if (g_muzik_ayari != onceki_m) { g_muzik_degisti = true; }
+    if (g_muzik_degisti && !ui_basili()) { g_muzik_degisti = false; ayarlari_yaz(); muzik_yenile(); }
+    bool onceki_p = g_parlama_ayari;
+    g_parlama_ayari = ui_onay_kutusu("Parlama (yeniden açınca)", g_parlama_ayari);
+    if (g_parlama_ayari != onceki_p) { ayarlari_yaz(); }
+    if (parlama_acik()) {
+        float onceki_o = g_olcek_ayari;
+        g_olcek_ayari = ui_kaydirici("Çözünürlük", g_olcek_ayari, 0.5, 1.0);
+        if (g_olcek_ayari != onceki_o) { cozunurluk_olcegi(g_olcek_ayari); if (!ui_basili()) { ayarlari_yaz(); } }
+    } else {
+        ui_etiket("Çözünürlük ölçeği parlama açıkken ayarlanır", 0.7, ACIK_GRI);
+    }
+    str ses_metni = g_ses_var ? t"ses: {g_ses_dosya} dosya, {g_ses_ton} ton" : "ses cihazı yok";
+    ui_etiket(t"{ses_metni}   parlama şimdi: {parlama_acik() ? "açık" : "kapalı"}", 0.7, ACIK_GRI);
+    ui_etiket(t"{eng_gpu_name()}  {genislik()}x{yukseklik()}", 0.7, ACIK_GRI);
+    if (ui_dugme("Geri")) { ayarlari_yaz(); g_ekran = g_ayar_donus; }
+    ui_pencere_bitir();
+}
+bool g_muzik_degisti = false;
+
+func sonuc_ciz() {
+    dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
+    bool zafer = g_kazanan == 0;
+    ui_pencere(zafer ? "ZAFER!" : "YENİLGİ", 520, 400, RENK_PANEL);
+    ui_etiket_orta(zafer ? "Kürelerin kalesi yıkıldı!" : "Küplerin kalesi düştü...", 1.0, zafer ? renk(120, 255, 140) : RENK_KURE);
+    ui_etiket_orta(t"Skor {g_skor}   Rekor {g_rekor}", 1.0, RENK_ALTIN);
+    ui_etiket_orta(t"Süre {toInt(g_savas_t) / 60} dk {toInt(g_savas_t) % 60} s   Zorluk {ZORLUK_ADLARI[g_zorluk]}", 0.8, BEYAZ);
+    ui_etiket_orta(t"Ulaşılan çağ: {CAG_ADLARI[g_cag[0]]}", 0.8, BEYAZ);
+    ui_etiket_orta(t"Çıkan birlik {g_dogan[0]}   Yok edilen {g_olen[1]}   Kayıp {g_olen[0]}", 0.75, ACIK_GRI);
+    if (ui_dugme("Tekrar oyna")) { savas_baslat(g_zorluk); }
+    if (ui_dugme("Ana menü")) { g_ekran = Ekran.ANA; muzik_cal(MUZIK_MENU); }
+    ui_pencere_bitir();
+}
+
+// ---- Ana döngü ----------------------------------------------------------------
+func sahne_dene(str ad): bool {
+    for (yol in ["assets/" + ad, "oyunlar/kup_kure_savasi/assets/" + ad]) {
+        if (!file_exists(yol)) { logla("sahne adayi yok: " + yol); }
+        else if (sahne_yukle(yol)) { logla("sahne yuklendi: " + yol); return true; }
+        else { logla("sahne acilamadi (bozuk/eski blob): " + yol); }
+    }
+    return false;
+}
+
+func main() {
+    log_seviyesi(1);
+    ayarlari_oku();
+    parlama(g_parlama_ayari, 1.0, 0.55);
+    if (!motor_ac("Küpler ile Kürelerin Savaşı", 1280, 720)) { print("motor acilamadi: " + eng_last_error()); return; }
+    g_otopilot = eng_headless();
+    if (parlama_acik() && g_olcek_ayari < 0.999) { cozunurluk_olcegi(g_olcek_ayari); }
+    renk_tema_kur();
+    savas_hazirla();
+    while (len(ucanlar) < UCAN_MAX) { push(ucanlar, { x: 0.0, y: 0.0, z: 0.0, t: 0.0, deger: 0, renk_: 0 }); }
+    if (!sahne_dene("savas.sahneb")) {
+        print("HATA savas.sahneb yuklenemedi: motor derlenirken uretilir (cmake --build yapi). Elle: engine_sahnec assets/savas.sahne assets/savas.sahneb");
+        motor_kapat();
+        exit(1);
+    }
+    modelleri_yukle();
+    if (!savas_sahneden_kur()) { motor_kapat(); exit(1); }
+    g_kurulum_hatasi = hata_sayisi();
+    // Ses: masaüstü/telefonda gerçek cihaz; penceresiz koşumda yalnız NULL arka
+    // uç istenirse (TULPAR_ENGINE_AUDIO_NULL) — cihazsız makinede "açılamadı"
+    // bir HATA sayardı.
+    if (!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0) { g_ses_var = ses_ac(); }
+    if (g_ses_var) { ses_seviyesi(1.0); sesleri_yukle(); }
+    muzik_cal(MUZIK_MENU);
+    logla(t"GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, otopilot {g_otopilot}, ses {g_ses_var}, kayit {kayit_yolu()}");
+    float menu_t = 0.0;
+    while (calisiyor()) {
+        // false = pencere yok (Android: uygulama arka planda). Motor simi surdurur;
+        // oyun kendini DURAKLATIR ki donuste savas kaybedilmis olmasin.
+        // Ses de susar: köprü Android yaşam döngüsünde sesi durdurmuyor (müzik
+        // ana ekranda çalmaya devam ediyordu — ölçüldü P20 Pro 2026-10-07).
+        if (!kare_basla()) {
+            if (g_ekran == Ekran.OYUN) { duraklat(); g_arka_plan += 1; logla("arka plan: pencere yok, oyun duraklatildi"); }
+            if (!g_sessiz_arka) { g_sessiz_arka = true; if (g_ses_var) { ses_seviyesi(0.0); } }
+        } else if (g_sessiz_arka) {
+            g_sessiz_arka = false;
+            if (g_ses_var) { ses_seviyesi(1.0); }
+        }
+        float d = dt();
+        if (d > 0.1) { d = 0.1; }   // arka plandan dönüşte tek dev adım olmasın
+        girdi_isle(d);
+        if (g_ekran == Ekran.OYUN && g_savas_var) {
+            savas_adim(d);
+            if (g_otopilot && g_yz_tik) { otopilot_dusun(); }
+            savas_sonu_kontrol();
+            if (g_sonuc_bekle > 0.0) { g_sonuc_bekle -= d; if (g_sonuc_bekle <= 0.0) { sonuca_gec(); } }
+        } else if (g_savas_var) {
+            // Duraklat/ayar/sonuç: oyun mantığı durur. Fizik motorda durdurulamıyor
+            // (köprüde duraklat yok): birlikler yerinde tutulur.
+            mermi_isabetleri();
+            us_bolge_olaylari();
+            for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id != 0) { yuru(birlikler[i].id, 0.0, 0.0); } }
+            efektleri_guncelle(d);
+        }
+        if (g_ekran == Ekran.ANA || g_ekran == Ekran.ZORLUK || (g_ekran == Ekran.AYAR && g_ayar_donus == Ekran.ANA)) {
+            menu_t += d;
+            g_kam_hedef_x = sin(menu_t * 0.12) * 22.0;
+        }
+        kamera_kur(g_kam_x, g_kale_sarsinti);
+        ui_basla();
+        if (g_ekran == Ekran.OYUN || g_ekran == Ekran.DURAKLAT || (g_ekran == Ekran.AYAR && g_ayar_donus == Ekran.DURAKLAT)) { hud_ciz(d); }
+        if (g_ekran == Ekran.ANA) { ana_menu_ciz(); }
+        if (g_ekran == Ekran.ZORLUK) { zorluk_ciz(); }
+        if (g_ekran == Ekran.DURAKLAT) { duraklat_ciz(); }
+        if (g_ekran == Ekran.AYAR) { ayar_ciz(); }
+        if (g_ekran == Ekran.SONUC) { sonuc_ciz(); }
+        ui_bitir();
+        if (tus_basildi("ESC")) {
+            if (g_ekran == Ekran.OYUN) { duraklat(); }
+            else if (g_ekran == Ekran.DURAKLAT) { g_ekran = Ekran.OYUN; }
+            else if (g_ekran == Ekran.AYAR) { ayarlari_yaz(); g_ekran = g_ayar_donus; }
+            else if (g_ekran == Ekran.ZORLUK || g_ekran == Ekran.SONUC) { g_ekran = Ekran.ANA; }
+            else { ayarlari_yaz(); cikis_iste(); }
+        }
+        if (g_otopilot) { otopilot_kare(); }
+        kare_bitir();
+        if (g_otopilot) { bellek_ornekle(); }
+        // Cihaz telemetrisi (logcat): 600 karede bir son 120 karenin p50si ve yuk.
+        if (kare_no() % 600 == 0) { logla(t"olcum k{kare_no()} p50 {toInt(eng_frame_ms() * 100.0) / 100.0} ms cizim {eng_draw_count()} govde {eng_body_count()} varlik {eng_count()} isik {eng_light_count()} birlik {g_birlik_sayisi[0]}+{g_birlik_sayisi[1]} rss {bellek_kb() / 1024} MB ekran {g_ekran}"); }
+    }
+    logla(t"bitis: ekran {g_ekran}, kazanan {g_kazanan}, sure {toInt(g_savas_t)} s, kare {kare_no()}, hata {hata_sayisi()}");
+    if (g_otopilot) { kapi_raporu(); }
+    if (g_ses_var) { ses_kapat(); }
+    motor_kapat();
+}
+
+// ============================================================================
+// DOĞRULAMA DÜZENİ — oyunun parçası DEĞİL. Penceresiz koşumda
+// (TULPAR_ENGINE_HEADLESS=N) OTOPİLOT oyuncunun yerine oynar: menüleri ADIYLA
+// tıklar (ui_test_tikla_ad), ayar kaydırıcılarını oranla çeker, birlikleri alt
+// çubuğun düğmeleriyle çıkarır, kuleyi EKRAN DOKUNUŞUYLA kurar (kule yuvasının
+// dünya konumu ekrana izdüşürülür, oradan kameradan ışın atılır: izdüşüm ile
+// ışın birbirinin tersi değilse dokunuş ıskalar ve kapı kırmızıdır).
+// Sonda [kapi] satırları: iki koşum BAYT BAYT aynı (belirlenimli).
+// ============================================================================
+
+bool g_otopilot = false;
+int g_kurulum_hatasi = 0;
+int g_op_adim = 0;              // menü akışı adımı
+int g_op_menu_bitti = 0;        // 1 = menüden savaşa geçildi
+int g_op_kule_durum = 0;        // 0 boş, 1 kule kipi istendi, 2 dokunuş bekleniyor
+int g_op_kule_sira = 0;
+int g_op_kule_bekle = 0;
+int g_op_duraklat = 0;          // 0 henüz, 1 duraklatıldı, 2 devam edildi
+int g_op_birlik_dokun = 0;
+int g_op_sonuc_kare = -1;       // sonuç ekranının ilk karesi
+int g_op_tekrar = 0;            // sonuçtan "Ana menü"ye dönüldü mü
+int g_op_zorluk = 0;   // otopilot Kolay yapay zekaya karsi: savas bir sonuca varsin
+if (env("TULPAR_KKS_ZORLUK") == "1") { g_op_zorluk = 1; }
+if (env("TULPAR_KKS_ZORLUK") == "2") { g_op_zorluk = 2; }
+
+// Menü akışı: adım başına ADIYLA tıklanan widget; tıklama SONRAKİ karede tüketilir.
+//   0 ANA "Ayarlar" -> 1 AYAR "Efekt sesi" %25 -> 2 AYAR "Müzik" %40 -> 3 AYAR "Geri"
+//   -> 4 ANA "Oyna" -> 5 ZORLUK <zorluk> -> 6 bitti
+// Elle inceleme: TULPAR_KKS_GORUNTU=<dizin> her TULPAR_KKS_GORUNTU_ARALIK
+// (varsayılan 600) karede <dizin>/kks_k<kare>.ppm. Ölçüm aracı; kapıya girmez.
+str GORUNTU_DIZIN = env("TULPAR_KKS_GORUNTU");
+int GORUNTU_ARALIK = 600;
+if (len(env("TULPAR_KKS_GORUNTU_ARALIK")) > 0) { GORUNTU_ARALIK = toInt(env("TULPAR_KKS_GORUNTU_ARALIK")); }
+
+func otopilot_kare() {
+    if (len(GORUNTU_DIZIN) > 0 && kare_no() > 0 && kare_no() % GORUNTU_ARALIK == 0) { ekran_goruntusu(GORUNTU_DIZIN + t"/kks_k{kare_no()}.ppm"); }
+    if (g_op_adim < 6) { otopilot_menu(); return; }
+    if (g_ekran == Ekran.OYUN && g_op_kule_durum == 0) { g_kam_hedef_x = cephe_x() - 3.0; }
+    if (g_ekran == Ekran.SONUC) {
+        if (g_op_sonuc_kare < 0) { g_op_sonuc_kare = kare_no(); }
+        // Sonuç ekranı 30 kare görünsün, sonra "Ana menü" (sonuç akışı da ölçülür).
+        if (g_op_tekrar == 0 && kare_no() - g_op_sonuc_kare == 30) { ui_test_tikla_ad("Ana menü"); g_op_tekrar = 1; }
+        if (g_op_tekrar == 1 && g_ekran == Ekran.ANA) { g_op_tekrar = 2; }
+        return;
+    }
+    if (g_op_tekrar >= 1 && g_ekran == Ekran.ANA) { if (g_op_tekrar == 1) { g_op_tekrar = 2; } cikis_iste(); return; }
+    // Savaşın 40. saniyesinde bir kez duraklat -> devam (duraklat akışı).
+    if (g_ekran == Ekran.OYUN && g_op_duraklat == 0 && g_savas_t > 40.0) { ui_test_tikla_ad("||"); g_op_duraklat = 1; return; }
+    if (g_ekran == Ekran.DURAKLAT && g_op_duraklat == 1) { ui_test_tikla_ad("Devam"); g_op_duraklat = 2; return; }
+    // Kule: kip açıldıktan 2 kare sonra (kamera yuvaya döndü) yuvaya dokun.
+    if (g_op_kule_durum == 2 && g_ekran == Ekran.OYUN) {
+        g_op_kule_bekle -= 1;
+        if (g_op_kule_bekle <= 0) {
+            int si = kule_yuvasi_dizini(0, g_op_kule_sira);
+            Vec3 p = sahne_konum(si);
+            float sx, sy = ekrana(p.x, p.y + 0.16, p.z);
+            dokunus(sx, sy);
+            g_op_kule_durum = 0;
+        }
+    }
+    // Bir birliğe ekrandan dokun (bilgi balonu): ışın köprü varlığına çarpmalı.
+    if (g_op_birlik_dokun == 0 && g_ekran == Ekran.OYUN && g_savas_t > 12.0) {
+        for (int i = 0; i < BIRLIK_MAX; i++) {
+            if (birlikler[i].id == 0 || birlikler[i].taraf != 0) { continue; }
+            if (abs(birlikler[i].x - g_kam_x) > 8.0) { continue; }
+            float sx, sy = ekrana(birlikler[i].x, birlikler[i].y, birlikler[i].z);
+            dokunus(sx, sy);
+            g_op_birlik_dokun = 1;
+            break;
+        }
+    }
+}
+
+func otopilot_menu() {
+    if (g_op_adim == 0 && g_ekran == Ekran.ANA) { ui_test_tikla_ad("Ayarlar"); g_op_adim = 1; return; }
+    if (g_op_adim == 1 && g_ekran == Ekran.AYAR) { ui_test_tikla_oran("Efekt sesi", 0.25); g_op_adim = 2; return; }
+    if (g_op_adim == 2 && g_ekran == Ekran.AYAR) { ui_test_tikla_oran("Müzik", 0.4); g_op_adim = 3; return; }
+    if (g_op_adim == 3 && g_ekran == Ekran.AYAR) { ui_test_tikla_ad("Geri"); g_op_adim = 4; return; }
+    if (g_op_adim == 4 && g_ekran == Ekran.ANA) { ui_test_tikla_ad("Oyna"); g_op_adim = 5; return; }
+    if (g_op_adim == 5 && g_ekran == Ekran.ZORLUK) { ui_test_tikla_ad(ZORLUK_ADLARI[g_op_zorluk]); g_op_adim = 6; return; }
+}
+
+// Savaş içinde oyuncunun "düşünmesi" (savas_adim, yapay zekâyla aynı tempo).
+// Eylem = alt çubuğun düğmesine ADIYLA tıklama (oyuncunun yolu).
+int g_op_plan = 0;
+func otopilot_dusun() {
+    if (g_ekran != Ekran.OYUN || g_kazanan >= 0) { return; }
+    if (g_op_kule_durum != 0) { return; }
+    if (g_op_duraklat == 1) { return; }
+    int cag = g_cag[0];
+    if (cag_atlayabilir(0)) { ui_test_tikla_ad("Çağ Atla"); return; }
+    if (ozel_hazir(0) && (kaleye_yakin_dusman(0, 18.0) >= 3 || g_birlik_sayisi[1] >= 7)) { ui_test_tikla_ad(OZEL_ADLARI[cag]); return; }
+    // Kule: çağ + 1 kadar; eksikse altın biriktirilir. İki çağ eskiyen kule
+    // DOKUNUŞLA satılır (dolu yuvaya dokunmak satar), sonra yenisi kurulur.
+    float kf = kule_fiyat(cag);
+    bool biriktir = false;
+    if (g_savas_t > 20.0) {
+        for (int s = 0; s < 3; s++) {
+            bool eski = kule_var(0, s) && kuleler[s].cag < cag - 1 && g_altin[0] >= kf;
+            bool bos = !kule_var(0, s) && s < cag + 1;
+            if (!eski && !bos) { continue; }
+            if (bos && g_altin[0] < kf) { biriktir = g_kuyruk_n[0] + g_birlik_sayisi[0] >= 2; break; }
+            ui_test_tikla_ad("Kule");
+            g_op_kule_durum = 2;
+            g_op_kule_sira = s;
+            g_op_kule_bekle = 3;
+            return;
+        }
+    }
+    if (!biriktir && g_kuyruk_n[0] < 3) {
+        float f = birlik_fiyat(g_op_plan, cag);
+        if (g_altin[0] >= f) {
+            ui_test_tikla_ad(birlik_adi(g_op_plan, cag));
+            float r = rastgele();
+            g_op_plan = r < 0.5 ? 0 : (r < 0.82 ? 1 : 2);
+        }
+    }
+}
+
+// ---- Bellek eğimi kapısı (engine_aksiyon ile aynı ölçü: aralık artışlarının
+// ALT ÇEYREĞİ, KB / 1000 kare; Tuzaklar 8cs) --------------------------------------
+int BELLEK_ILK_KARE = 1000;
+int BELLEK_PENCERE_MIN = 2000;
+int BELLEK_SINIR_KB = 600;
+int BELLEK_ARALIK = 200;
+int g_bellek_ilk = 0;
+int g_bellek_son = 0;
+int g_bellek_son_kare = 0;
+int[] g_bellek_orn = [];
+int SIZINTI_B = 0;
+if (len(env("TULPAR_KKS_SIZINTI_B")) > 0) { SIZINTI_B = toInt(env("TULPAR_KKS_SIZINTI_B")); }
+str g_sizinti_tohum = "";
+str[] g_sizinti = [];
+
+func bellek_ceyrek_egim(): int {
+    int n = len(g_bellek_orn);
+    if (n < 2) { return 0; }
+    int[] d = [];
+    for (int i = 0; i + 1 < n; i++) { push(d, g_bellek_orn[i + 1] - g_bellek_orn[i]); }
+    int m = len(d);
+    for (int i = 1; i < m; i++) {
+        int x = d[i];
+        int j = i - 1;
+        while (j >= 0 && d[j] > x) { d[j + 1] = d[j]; j = j - 1; }
+        d[j + 1] = x;
+    }
+    return d[(m - 1) / 4] * 1000 / BELLEK_ARALIK;
+}
+
+func bellek_ornekle() {
+    int k = kare_no();
+    if (SIZINTI_B > 0) {
+        while (len(g_sizinti_tohum) < SIZINTI_B) { g_sizinti_tohum = g_sizinti_tohum + "s"; }
+        push(g_sizinti, g_sizinti_tohum + toString(k));
+    }
+    if (k == BELLEK_ILK_KARE) { g_bellek_ilk = bellek_kb(); }
+    if (k >= BELLEK_ILK_KARE) { g_bellek_son = bellek_kb(); g_bellek_son_kare = k; }
+    if (k >= BELLEK_ILK_KARE && (k - BELLEK_ILK_KARE) % BELLEK_ARALIK == 0) { push(g_bellek_orn, g_bellek_son); }
+}
+
+func kapi_raporu() {
+    int hata = hata_sayisi() - g_kurulum_hatasi;
+    int kare = kare_no();
+    str sonuc = g_kazanan == 0 ? "zafer" : (g_kazanan == 1 ? "yenilgi" : "suruyor");
+    print(t"[kapi] kare={kare} sonuc={sonuc} sure={toInt(g_savas_t)} zorluk={g_zorluk} cag={g_cag[0]}/{g_cag[1]} dogan={g_dogan[0]}/{g_dogan[1]} olen={g_olen[0]}/{g_olen[1]} kule={g_kule_kurulan[0]}/{g_kule_kurulan[1]} ozel={g_ozel_kullanim[0]}/{g_ozel_kullanim[1]} us={toInt(g_us_can[0])}/{toInt(g_us_can[1])} dongu_hatasi={hata} kurulum_hatasi={g_kurulum_hatasi} uyari={uyari_sayisi()}");
+    print(t"[kapi] fizik: mermi={g_mermi_atilan} isabet={g_mermi_isabet} iska={g_mermi_iska} alan={g_alan_hasar} yakin={g_yakin_vurus} enkaz={enkaz_dogan}/{enkaz_suresi_dolan}/{g_enkaz_erken} kanca_isabet={mermi_isabet_toplam} kanca_dusen={mermi_isabet_dusen} carpisma_dusen={carpisma_dusen()} tetik={us_bolge_giris} tetik_dusen={us_bolge_dusen} tetik_yedek={g_tetik_yedek} havuz_red={g_dolu_red}");
+    print(t"[kapi] yol: {YOL_N} nokta {toInt(YOL_L * 100.0)} cm navmesh={g_yol_navmesh} model_eksik={g_model_eksik} kule_dokunus={g_kule_dokunus} kule_isin={g_kule_isin} kule_yakin={g_kule_yakin} kule_iska={g_kule_iska} birlik_dokunus={g_birlik_dokunus}");
+    print(t"[kapi] arayuz: menu_adim={g_op_adim} duraklat={g_op_duraklat} sonuc_akisi={g_op_tekrar} ui_tik={ui_tiklama()} ui_uyari={ui_uyari_sayisi()} efekt={toInt(g_efekt_ayari * 100.0)} muzik={toInt(g_muzik_ayari * 100.0)} rekor={g_rekor} en_cag={g_en_cag}");
+    // Zamanlamaya bağlı sayılar (ses cihazı thread'i) ayrı satırda: belirlenimli satıra girmez.
+    print(t"[kapi] ses (belirlenimsiz): acik={g_ses_var} dosya={g_ses_dosya} ton={g_ses_ton} calinan={g_ses_calinan}");
+    // Kalıcılık: depo DİSKTEN tazelenir.
+    kayit_ac(kayit_yolu());
+    float disk_efekt = kayit_oku_sayi("kks_efekt", -1.0);
+    int disk_rekor = toInt(kayit_oku_sayi("kks_rekor", -1.0));
+    int disk_oyun = toInt(kayit_oku_sayi("kks_oyun", -1.0));
+    int bellek_pencere = g_bellek_son_kare - BELLEK_ILK_KARE;
+    bool bellek_olculdu = g_bellek_ilk > 0 && bellek_pencere >= BELLEK_PENCERE_MIN;
+    int bellek_egim = bellek_ceyrek_egim();
+    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, alt ceyrek {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare)");
+    if (!bellek_olculdu) { print(t"[kapi] ATLANDI: bellek kapisi >= {BELLEK_ILK_KARE + BELLEK_PENCERE_MIN} kare ister (pencere {bellek_pencere})"); }
+    bool savas_olculdu = kare >= 3000;
+    if (!savas_olculdu) { print(t"[kapi] ATLANDI: savas kapisi >= 3000 kare ister, bu kosumda {kare} (yalniz kabuk + kurulum olculdu)"); }
+    str[] sorun = [];
+    if (hata != 0) { push(sorun, t"oyun dongusu hata sayaci {hata} (0 olmali)"); }
+    if (g_kurulum_hatasi != 0) { push(sorun, t"kurulum hatasi {g_kurulum_hatasi} (0 olmali)"); }
+    if (uyari_sayisi() != 0) { push(sorun, t"motor uyari sayaci {uyari_sayisi()} (0 olmali)"); }
+    if (ui_uyari_sayisi() != 0) { push(sorun, t"arayuz uyarisi {ui_uyari_sayisi()} (adla tiklama iskasi / pencere tasmasi)"); }
+    if (g_op_adim < 6) { push(sorun, t"menu akisi bitmedi (adim {g_op_adim})"); }
+    if (!g_yol_navmesh || YOL_N < 3) { push(sorun, t"yol navmesh'ten gelmedi ya da duz (nokta {YOL_N}): kayalar yolu bukmeliydi"); }
+    if (g_model_eksik != 0) { push(sorun, t"{g_model_eksik} model yuklenemedi"); }
+    if (mermi_isabet_dusen != 0 || us_bolge_dusen != 0 || carpisma_dusen() != 0) { push(sorun, "olay kuyrugu tasti (kanca/tetik/carpisma dusen > 0)"); }
+    if (g_tetik_yedek != 0) { push(sorun, t"{g_tetik_yedek} birlik kale bolgesine TETIKSIZ girdi (us_bolgesi olayi gelmedi)"); }
+    if (g_kule_iska != 0 || g_kule_yakin != 0) { push(sorun, t"kule kipinde otopilotun dokunusu isinla yuvaya carpmadi: iska {g_kule_iska}, yakin-yedek {g_kule_yakin} (izdusum ile isin tutarsiz ya da yuva ortulu)"); }
+    if (abs(g_efekt_ayari - 0.25) > 0.001 || abs(g_muzik_ayari - 0.4) > 0.001) { push(sorun, t"kaydiricilar beklenen degerde degil: efekt {g_efekt_ayari} muzik {g_muzik_ayari}"); }
+    if (abs(disk_efekt - g_efekt_ayari) > 0.001) { push(sorun, t"ayar diske yazilip geri okunamadi: {disk_efekt} != {g_efekt_ayari}"); }
+    if (disk_oyun != g_oyun_sayisi) { push(sorun, t"oyun sayaci diske yazilmamis: {disk_oyun} != {g_oyun_sayisi}"); }
+    if (savas_olculdu) {
+        if (g_dogan[0] < 10 || g_dogan[1] < 10) { push(sorun, t"her iki taraf en az 10 birlik cikarmaliydi: {g_dogan[0]}/{g_dogan[1]}"); }
+        if (g_olen[0] + g_olen[1] < 10) { push(sorun, "en az 10 birlik olmeliydi"); }
+        if (g_mermi_atilan < 10 || g_mermi_isabet < 1) { push(sorun, t"menzilli/kule mermisi atilmali ve isabet etmeliydi: {g_mermi_atilan}/{g_mermi_isabet}"); }
+        if (enkaz_dogan < 10) { push(sorun, "olen birlikler enkaz sacmaliydi"); }
+        if (us_bolge_giris < 1) { push(sorun, "hic bir birlik dusman kalesinin tetik bolgesine girmedi"); }
+        if (g_op_duraklat != 2) { push(sorun, "duraklat -> devam akisi olculmedi"); }
+        if (g_birlik_dokunus < 1) { push(sorun, "ekrandan birlige dokunus isini birlige carpmadi"); }
+        if (g_kule_kurulan[0] < 1 || g_kule_isin < 1) { push(sorun, t"otopilot dokunusla kule kurmaliydi: kurulan {g_kule_kurulan[0]}, isin isabeti {g_kule_isin}"); }
+    }
+    if (g_kazanan >= 0) {
+        if (g_op_tekrar < 2) { push(sorun, "sonuc ekranindan ana menuye donulmedi"); }
+        if (g_skor > 0 && disk_rekor < g_skor && disk_rekor != g_rekor) { push(sorun, t"rekor diske yazilmamis: {disk_rekor}"); }
+    }
+    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: alt ceyrek {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB}"); }
+    if (kare_bellegi_acik() && kare_bellegi_kare() != kare) { push(sorun, t"kare bellegi {kare_bellegi_kare()} kare geri sardi, {kare} kare kostu"); }
+    for (s in sorun) { print("[kapi] BASARISIZ: " + s); }
+    if (len(sorun) > 0) { exit(1); }
+    print(savas_olculdu ? "[kapi] TAMAM — savas penceresiz kostu, olculen sayilar araliginda" : "[kapi] TAMAM (kisa kosum: menu + kurulum) — savas kapisi ATLANDI");
+}
+
+main();

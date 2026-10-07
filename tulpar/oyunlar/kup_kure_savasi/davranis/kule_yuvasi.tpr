@@ -1,0 +1,32 @@
+// Yerlesim tipi — "kule_yuvasi": kalenin damindaki kule platformu. Govdeli
+// (sabit kutu): oyuncu dokununca kameradan atilan isin buna carpar ve
+// `isin_sahne()` bu varligin sahne dizinini verir (oyun.tpr kule kipi).
+//
+// Ozellikler:
+//   taraf  tam  0 Kupler, 1 Kureler
+//   sira   tam  0..2 (yuva sirasi; yapay zeka ve HUD bu sirayla doldurur)
+
+int KULE_YUVA_MAX = 3;
+int[] _kule_yuvasi_dizin = [-1, -1, -1, -1, -1, -1];
+int _kule_yuvasi_n = 0;
+
+func kule_yuvasi_baslat(i) {
+    int t = ozellik_tam(i, "taraf", 0);
+    int s = ozellik_tam(i, "sira", 0);
+    if (t < 0 || t > 1 || s < 0 || s >= KULE_YUVA_MAX) { logla(t"UYARI kule_yuvasi: taraf {t} sira {s} gecersiz"); return; }
+    _kule_yuvasi_dizin[t * KULE_YUVA_MAX + s] = toInt(i);
+    _kule_yuvasi_n += 1;
+}
+func kule_yuvasi_bitir(i) {
+    for (int k = 0; k < len(_kule_yuvasi_dizin); k++) { _kule_yuvasi_dizin[k] = -1; }
+    _kule_yuvasi_n = 0;
+}
+
+func kule_yuvasi_sayisi(): int { return _kule_yuvasi_n; }
+func kule_yuvasi_dizini(int taraf, int sira): int { return _kule_yuvasi_dizin[taraf * KULE_YUVA_MAX + sira]; }
+// Sahne dizininden (taraf*3 + sira); yuva degilse -1.
+func kule_yuvasi_bul(int sahne_i): int {
+    if (sahne_i < 0) { return -1; }
+    for (int k = 0; k < len(_kule_yuvasi_dizin); k++) { if (_kule_yuvasi_dizin[k] == sahne_i) { return k; } }
+    return -1;
+}

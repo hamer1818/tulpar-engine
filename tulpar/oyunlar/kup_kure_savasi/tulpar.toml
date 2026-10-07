@@ -1,0 +1,24 @@
+# Kupler ile Kurelerin Savasi — oyun projesi.
+#
+# Bu dizinden calisir (import yollari CALISMA DIZININE goredir):
+#   cd tulpar/oyunlar/kup_kure_savasi && tulpar oyun.tpr
+#   TULPAR_ENGINE_HEADLESS=3600 DISPLAY= tulpar oyun.tpr      # penceresiz otopilot + [kapi]
+# Android (motor deposunun tools/build_bridge_android.sh + TULPAR_ANDROID_LIB_DIR):
+#   tulpar build --target=android oyun.tpr kup_kure --apk
+name = "kup-kure-savasi"
+
+[ext]
+# Motorun yerel eklenti paketi (cmake --build yapi koyar).
+paths = ["../../../yapi/tulpar-ext"]
+
+[android]
+package = "dev.tulparlang.kupkure"
+name = "Küpler ile Küreler"
+# 512x512 PNG; dosya yoksa derleyici uyarir ve sistem ikonuna duser.
+icon = "ikon.png"
+orientation = "landscape"
+version_code = "1"
+version_name = "1.0"
+# APK'ya "assets/" olarak girer: oyun masaustundeki goreli yollari (assets/...) cihazda da kullanir.
+assets = "assets"
+splash_color = "#10121A"

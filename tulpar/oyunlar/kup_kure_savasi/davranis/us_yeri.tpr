@@ -1,0 +1,32 @@
+// Yerlesim tipi — "us_yeri": editorde yerlestirilen US isareti (iki tane: taraf 0
+// = Kupler, taraf 1 = Kureler). Sahne yuklenince motor `us_yeri_baslat(i)`yi
+// cagirir (i = sahne dizini); oyun isaretin konumunu ve ozelliklerini okur.
+//
+// Ozellikler (editorde varlik basina; erisimcinin govdesi BILDIRIMDIR, docs/KOPRU.md 7.11):
+//   taraf        tam    0 Kupler (sol), 1 Kureler (sag)
+//   dogus        nokta  birliklerin dogdugu kapi (isarete gore yerel ofset)
+//   on_yuz       sayi   kalenin yol uzerindeki on yuzu: birlik buraya kadar yurur
+//   can_carpani  sayi   us caninin carpani (zorluk/harita ayari)
+//
+// Liste YUKLU sahneyi yansitir: sahne bosalinca `bitir` temizler.
+
+int[] _us_yeri_dizin = [-1, -1];
+int _us_yeri_n = 0;
+
+func us_yeri_baslat(i) {
+    int t = ozellik_tam(i, "taraf", 0);
+    if (t < 0 || t > 1) { logla(t"UYARI us_yeri: taraf {t} gecersiz (0 ya da 1)"); return; }
+    _us_yeri_dizin[t] = toInt(i);
+    _us_yeri_n += 1;
+}
+func us_yeri_bitir(i) {
+    _us_yeri_dizin[0] = -1;
+    _us_yeri_dizin[1] = -1;
+    _us_yeri_n = 0;
+}
+
+func us_yeri_sayisi(): int { return _us_yeri_n; }
+func us_yeri_dizini(int taraf): int { return _us_yeri_dizin[taraf]; }
+func us_yeri_dogus(int i): Vec3 { return ozellik_nokta(i, "dogus", v3(4.0, 0.0, 0.5)); }
+func us_yeri_on_yuz(int i): float { return ozellik_sayi(i, "on_yuz", 3.2); }
+func us_yeri_can_carpani(int i): float { return ozellik_sayi(i, "can_carpani", 1.0); }

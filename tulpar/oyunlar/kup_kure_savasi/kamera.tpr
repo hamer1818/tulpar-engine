@@ -1,0 +1,90 @@
+// Kupler ile Kurelerin Savasi — kamera ve ekran izdusumu (dunya <-> ekran).
+// Ayri modul: dogrulama.tpr de cagiriyor ve coklu bildirim (`float a, b = f()`)
+// fonksiyonu ONCEDEN ayristirilmis bir modulde ister.
+
+// ---- Kamera ve ekran izdüşümü ------------------------------------------------
+// Köprünün izdüşümü: dikey görüş açısı pi/3.5 (bridge/engine_api.cpp render_frame).
+float FOV_TAN = 0.48157;      // tan(pi / 7)
+float g_gx = 0.0; float g_gy = 0.0; float g_gz = 0.0;     // göz
+float g_fx = 0.0; float g_fy = 0.0; float g_fz = 0.0;     // ileri
+float g_rx = 0.0; float g_rz = 0.0;                        // sağ (y = 0)
+float g_ux = 0.0; float g_uy = 0.0; float g_uz = 0.0;     // yukarı
+
+func kamera_kur(float cx, float sars) {
+    float ox = 0.0;
+    float oy = 0.0;
+    if (sars > 0.0) { ox = sin(zaman() * 61.0) * sars * 0.6; oy = cos(zaman() * 47.0) * sars * 0.4; }
+    g_gx = cx + ox; g_gy = 7.8 + oy; g_gz = 16.5;
+    float tx = cx + ox; float ty = 1.0 + oy; float tz = -0.5;
+    kamera(g_gx, g_gy, g_gz, tx, ty, tz);
+    float fx = tx - g_gx; float fy = ty - g_gy; float fz = tz - g_gz;
+    float l = sqrt(fx * fx + fy * fy + fz * fz);
+    g_fx = fx / l; g_fy = fy / l; g_fz = fz / l;
+    // sağ = ileri x yukarı(0,1,0) = (-fz, 0, fx)
+    float rx = 0.0 - g_fz; float rz = g_fx;
+    float rl = sqrt(rx * rx + rz * rz);
+    g_rx = rx / rl; g_rz = rz / rl;
+    // yukarı = sağ x ileri
+    g_ux = 0.0 * g_fz - g_rz * g_fy;
+    g_uy = g_rz * g_fx - g_rx * g_fz;
+    g_uz = g_rx * g_fy - 0.0 * g_fx;
+}
+
+// Dünya -> ekran (piksel). Arkadaysa (-1, -1).
+func ekrana(float x, float y, float z): (float, float) {
+    float dx = x - g_gx; float dy = y - g_gy; float dz = z - g_gz;
+    float cz = dx * g_fx + dy * g_fy + dz * g_fz;
+    if (cz < 0.1) { return -1.0, -1.0; }
+    float cx = dx * g_rx + dz * g_rz;
+    float cy = dx * g_ux + dy * g_uy + dz * g_uz;
+    float w = genislik();
+    float h = yukseklik();
+    float nx = cx / (cz * FOV_TAN * (w / h));
+    float ny = cy / (cz * FOV_TAN);
+    return (nx * 0.5 + 0.5) * w, (0.5 - ny * 0.5) * h;
+}
+
+// Ekran -> ışın; ışını motorun ışın testiyle at. Döndürür: mesafe (-1 ıska).
+func ekrandan_isin(float sx, float sy): float {
+    float w = genislik();
+    float h = yukseklik();
+    float nx = (sx / w) * 2.0 - 1.0;
+    float ny = 1.0 - (sy / h) * 2.0;
+    float ax = nx * FOV_TAN * (w / h);
+    float ay = ny * FOV_TAN;
+    float dx = g_fx + g_rx * ax + g_ux * ay;
+    float dy = g_fy + g_uy * ay;
+    float dz = g_fz + g_rz * ax + g_uz * ay;
+    float l = sqrt(dx * dx + dy * dy + dz * dz);
+    return isin(g_gx, g_gy, g_gz, dx / l, dy / l, dz / l, 120.0, 0);
+}
+
+
+// ---- Uçan yazılar (altın, hasar) ----------------------------------------------
+struct Ucan { float x; float y; float z; float t; int deger; int renk_; }
+Ucan[] ucanlar = [];
+int UCAN_MAX = 24;
+int g_ucan_bas = 0;
+// metin "+N" biçiminde: sayı struct'ta (metni global'e atamak her seferinde
+// kalıcı kopya demek — engine.tpr "Kare belleği").
+func yazi_ucur(float x, float y, float z, str yazi_, int renk_) {
+    ucanlar[g_ucan_bas].x = x;
+    ucanlar[g_ucan_bas].y = y;
+    ucanlar[g_ucan_bas].z = z;
+    ucanlar[g_ucan_bas].t = 1.2;
+    ucanlar[g_ucan_bas].deger = toInt(yazi_);
+    ucanlar[g_ucan_bas].renk_ = renk_;
+    g_ucan_bas = (g_ucan_bas + 1) % UCAN_MAX;
+}
+func ucanlari_ciz(float d) {
+    float s = ui_olcek();
+    for (int i = 0; i < UCAN_MAX; i++) {
+        if (ucanlar[i].t <= 0.0) { continue; }
+        ucanlar[i].t -= d;
+        ucanlar[i].y += d * 1.2;
+        float sx, sy = ekrana(ucanlar[i].x, ucanlar[i].y, ucanlar[i].z);
+        if (sx < 0.0) { continue; }
+        yazi(t"+{ucanlar[i].deger}", sx - 14.0 * s, sy, 0.9, ucanlar[i].renk_);
+    }
+}
+

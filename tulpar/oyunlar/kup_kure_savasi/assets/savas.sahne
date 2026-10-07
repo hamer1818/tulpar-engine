@@ -1,0 +1,760 @@
+tulpar-sahne 1
+isik-yon 0.35 1 0.55
+isik-ortam 0.30 0.33 0.40
+isik-gunes 1.05
+golge 0 1 0 46 90
+kamera 0 7 14 0 1 0
+nesne "gok"
+  konum 0 20 -70
+  donus 0 0 0
+  olcek 320 110 1
+  model kaynak -1 0.42 0.62 0.86
+  ilkel 10
+  malzeme 0 1 0.5 0.42 0.62 0.86 1
+son
+nesne "gok_ufuk"
+  konum 0 2 -69
+  donus 0 0 0
+  olcek 320 10 1
+  model kaynak -1 0.82 0.86 0.8
+  ilkel 10
+  malzeme 0 1 0.5 0.8 0.84 0.78 0.9
+son
+nesne "dag_1"
+  konum -70 13 -55
+  donus 0 0 0
+  olcek 60 26 60
+  model kaynak -1 0.288 0.36 0.306
+  ilkel 22
+son
+nesne "dag_karli_1"
+  konum -70 22.36 -51.4
+  donus 0 0 0
+  olcek 18.6 7.8 18.6
+  model kaynak -1 0.95 0.96 1
+  ilkel 22
+son
+nesne "dag_2"
+  konum -38 10 -50
+  donus 0 0 0
+  olcek 48 20 48
+  model kaynak -1 0.328 0.41 0.3485
+  ilkel 22
+son
+nesne "dag_karli_2"
+  konum -38 17.2 -47.12
+  donus 0 0 0
+  olcek 14.88 6 14.88
+  model kaynak -1 0.95 0.96 1
+  ilkel 22
+son
+nesne "dag_3"
+  konum -10 14 -58
+  donus 0 0 0
+  olcek 64 28 64
+  model kaynak -1 0.368 0.46 0.391
+  ilkel 22
+son
+nesne "dag_karli_3"
+  konum -10 24.08 -54.16
+  donus 0 0 0
+  olcek 19.84 8.4 19.84
+  model kaynak -1 0.95 0.96 1
+  ilkel 22
+son
+nesne "dag_4"
+  konum 18 11 -52
+  donus 0 0 0
+  olcek 52 22 52
+  model kaynak -1 0.288 0.36 0.306
+  ilkel 22
+son
+nesne "dag_karli_4"
+  konum 18 18.92 -48.88
+  donus 0 0 0
+  olcek 16.12 6.6 16.12
+  model kaynak -1 0.95 0.96 1
+  ilkel 22
+son
+nesne "dag_5"
+  konum 44 15 -57
+  donus 0 0 0
+  olcek 68 30 68
+  model kaynak -1 0.328 0.41 0.3485
+  ilkel 22
+son
+nesne "dag_karli_5"
+  konum 44 25.8 -52.92
+  donus 0 0 0
+  olcek 21.08 9 21.08
+  model kaynak -1 0.95 0.96 1
+  ilkel 22
+son
+nesne "dag_6"
+  konum 72 12 -54
+  donus 0 0 0
+  olcek 56 24 56
+  model kaynak -1 0.368 0.46 0.391
+  ilkel 22
+son
+nesne "dag_karli_6"
+  konum 72 20.64 -50.64
+  donus 0 0 0
+  olcek 17.36 7.2 17.36
+  model kaynak -1 0.95 0.96 1
+  ilkel 22
+son
+nesne "dag_7"
+  konum -55 7 -38
+  donus 0 0 0
+  olcek 32 14 32
+  model kaynak -1 0.288 0.36 0.306
+  ilkel 22
+son
+nesne "dag_8"
+  konum 30 7.5 -40
+  donus 0 0 0
+  olcek 34 15 34
+  model kaynak -1 0.328 0.41 0.3485
+  ilkel 22
+son
+nesne "dag_9"
+  konum 0 6 -34
+  donus 0 0 0
+  olcek 26 12 26
+  model kaynak -1 0.368 0.46 0.391
+  ilkel 22
+son
+nesne "zemin"
+  konum 0 -0.5 0
+  donus 0 0 0
+  olcek 110 1 34
+  model kaynak -1 0.36 0.58 0.28
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "toprak_yol"
+  konum 0 0.012 0.6
+  donus 0 0 0
+  olcek 70 0.02 3.4
+  model kaynak -1 0.62 0.5 0.33
+  ilkel 10
+son
+nesne "kaya_bati"
+  konum -10 1.3 -3.2
+  donus 0 8 0
+  olcek 5 2.6 8
+  model kaynak -1 0.48 0.46 0.44
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kaya_bati_tepe"
+  konum -10.6 2.9 -4.4
+  donus 0 20 0
+  olcek 3 1.4 4
+  model kaynak -1 0.55 0.53 0.5
+  ilkel 10
+son
+nesne "kaya_dogu"
+  konum 11 1.1 -3.4
+  donus 0 -10 0
+  olcek 4.4 2.2 7.6
+  model kaynak -1 0.5 0.47 0.45
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kaya_dogu_tepe"
+  konum 11.4 2.5 -4.6
+  donus 0 -24 0
+  olcek 2.4 1.2 3
+  model kaynak -1 0.57 0.54 0.5
+  ilkel 10
+son
+nesne "kaya_orta"
+  konum 0.5 0.7 -5.5
+  donus 0 35 0
+  olcek 3 1.4 3
+  model kaynak -1 0.52 0.5 0.47
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "agac_govde_1"
+  konum -28 1.1 -7
+  donus 0 0 0
+  olcek 0.35 2.2 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_1"
+  konum -28 3.1 -7
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_2"
+  konum -22 1.3 -9
+  donus 0 0 0
+  olcek 0.35 2.6 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_2"
+  konum -22 3.1 -9
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_3"
+  konum -17 1.5 -6.5
+  donus 0 0 0
+  olcek 0.35 3 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_3"
+  konum -17 3.9 -6.5
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_4"
+  konum -4 1.1 -8
+  donus 0 0 0
+  olcek 0.35 2.2 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_4"
+  konum -4 2.7 -8
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_5"
+  konum 4 1.3 -9.5
+  donus 0 0 0
+  olcek 0.35 2.6 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_5"
+  konum 4 3.5 -9.5
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_6"
+  konum 7 1.5 -7
+  donus 0 0 0
+  olcek 0.35 3 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_6"
+  konum 7 3.5 -7
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_7"
+  konum 17 1.1 -8
+  donus 0 0 0
+  olcek 0.35 2.2 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_7"
+  konum 17 3.1 -8
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_8"
+  konum 23 1.3 -6.8
+  donus 0 0 0
+  olcek 0.35 2.6 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_8"
+  konum 23 3.1 -6.8
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_9"
+  konum 28 1.5 -9
+  donus 0 0 0
+  olcek 0.35 3 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_9"
+  konum 28 3.9 -9
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_10"
+  konum -25 1.1 -12
+  donus 0 0 0
+  olcek 0.35 2.2 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_10"
+  konum -25 2.7 -12
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_11"
+  konum -12 1.3 -11
+  donus 0 0 0
+  olcek 0.35 2.6 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_11"
+  konum -12 3.5 -11
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_12"
+  konum 14 1.5 -12
+  donus 0 0 0
+  olcek 0.35 3 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_12"
+  konum 14 3.5 -12
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_13"
+  konum 26 1.1 -13
+  donus 0 0 0
+  olcek 0.35 2.2 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_13"
+  konum 26 3.1 -13
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "agac_govde_14"
+  konum -31 1.3 -9.5
+  donus 0 0 0
+  olcek 0.35 2.6 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_14"
+  konum -31 3.1 -9.5
+  donus 0 0 0
+  olcek 2 2 2
+  model kaynak -1 0.22 0.5 0.22
+  ilkel 11
+son
+nesne "agac_govde_15"
+  konum 31 1.5 -7.5
+  donus 0 0 0
+  olcek 0.35 3 0.35
+  model kaynak -1 0.42 0.28 0.16
+  ilkel 21
+son
+nesne "agac_tac_15"
+  konum 31 3.9 -7.5
+  donus 0 0 0
+  olcek 2.2 2.6 2.2
+  model kaynak -1 0.16 0.42 0.2
+  ilkel 22
+son
+nesne "kup_kale_govde"
+  konum -38 2.5 -0.5
+  donus 0 0 0
+  olcek 6 5 7
+  model kaynak -1 0.28 0.42 0.72
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kup_kale_kule_1"
+  konum -40.5 3.6 -3.5
+  donus 0 0 0
+  olcek 1.6 7.2 1.6
+  model kaynak -1 0.24 0.36 0.64
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kup_kale_tac_1"
+  konum -40.5 7.6 -3.5
+  donus 0 0 0
+  olcek 1.9 0.8 1.9
+  model kaynak -1 0.92 0.8 0.3
+  ilkel 10
+son
+nesne "kup_kale_kule_2"
+  konum -35.5 3.6 -3.5
+  donus 0 0 0
+  olcek 1.6 7.2 1.6
+  model kaynak -1 0.24 0.36 0.64
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kup_kale_tac_2"
+  konum -35.5 7.6 -3.5
+  donus 0 0 0
+  olcek 1.9 0.8 1.9
+  model kaynak -1 0.92 0.8 0.3
+  ilkel 10
+son
+nesne "kup_kale_kule_3"
+  konum -42.2 3.6 2.5
+  donus 0 0 0
+  olcek 1.6 7.2 1.6
+  model kaynak -1 0.24 0.36 0.64
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kup_kale_tac_3"
+  konum -42.2 7.6 2.5
+  donus 0 0 0
+  olcek 1.9 0.8 1.9
+  model kaynak -1 0.92 0.8 0.3
+  ilkel 10
+son
+nesne "kup_kale_kapi"
+  konum -34.9 1.2 1
+  donus 0 0 0
+  olcek 0.4 2.4 2.2
+  model kaynak -1 0.3 0.2 0.12
+  ilkel 10
+son
+nesne "kup_kale_kristal"
+  konum -38 6.4 -0.5
+  donus 45 45 0
+  olcek 1.1 1.1 1.1
+  model kaynak -1 0.4 0.75 1
+  ilkel 10
+  malzeme 0 0.3 0.5 0.35 0.7 1 2.5
+son
+nesne "kup_kale_isik"
+  konum -33.5 3.2 2.2
+  donus 0 0 0
+  olcek 1 1 1
+  isik 0.55 0.75 1 6 12 nokta
+son
+nesne "kup_mesale_1"
+  konum -34.6 2.7 -0.4
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 1 0.6 0.2
+  ilkel 10
+  malzeme 0 1 0.5 1 0.55 0.15 3
+  partikul 14 0.5 0.9 0.22 0.04 0 1.6 0 0.25 0.3 0.25
+  partikul_renk 1 0.75 0.2 0.9 0.2 0.05
+son
+nesne "kup_mesale_2"
+  konum -34.6 2.7 2.4
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 1 0.6 0.2
+  ilkel 10
+  malzeme 0 1 0.5 1 0.55 0.15 3
+  partikul 14 0.5 0.9 0.22 0.04 0 1.6 0 0.25 0.3 0.25
+  partikul_renk 1 0.75 0.2 0.9 0.2 0.05
+son
+nesne "kup_bayrak_direk"
+  konum -38 9 -0.5
+  donus 0 0 0
+  olcek 0.12 5 0.12
+  model kaynak -1 0.8 0.8 0.8
+  ilkel 21
+son
+nesne "kup_bayrak"
+  konum -37.1 10.7 -0.5
+  donus 0 0 0
+  olcek 1.6 1 0.08
+  model kaynak -1 0.3 0.55 1
+  ilkel 10
+son
+nesne "us_oyuncu"
+  konum -38 0 -0.5
+  donus 0 0 0
+  olcek 1 1 1
+  betik "oyunlar/kup_kure_savasi/davranis/us_yeri.tpr" etkin
+  ozellik_nokta "dogus" 4 0 0.5
+  ozellik_sayi "on_yuz" 3.2
+  ozellik_tam "taraf" 0
+son
+nesne "yuva_kup_1"
+  konum -36.2 5.15 1.8
+  donus 0 0 0
+  olcek 1.6 0.3 1.6
+  model kaynak -1 0.55 0.55 0.6
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  ozellik_tam "sira" 0
+  ozellik_tam "taraf" 0
+son
+nesne "yuva_kup_2"
+  konum -38 5.15 1.8
+  donus 0 0 0
+  olcek 1.6 0.3 1.6
+  model kaynak -1 0.55 0.55 0.6
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  ozellik_tam "sira" 1
+  ozellik_tam "taraf" 0
+son
+nesne "yuva_kup_3"
+  konum -39.8 5.15 1.8
+  donus 0 0 0
+  olcek 1.6 0.3 1.6
+  model kaynak -1 0.55 0.55 0.6
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  ozellik_tam "sira" 2
+  ozellik_tam "taraf" 0
+son
+nesne "kure_kale_kubbe"
+  konum 38 0.6 -0.5
+  donus 0 0 0
+  olcek 8 8 8
+  model kaynak -1 0.75 0.25 0.25
+  ilkel 11
+  govde kure 0.5 sabit
+son
+nesne "kure_kale_simit"
+  konum 38 0.9 -0.5
+  donus 0 0 0
+  olcek 9.5 2.2 9.5
+  model kaynak -1 0.55 0.16 0.18
+  ilkel 24
+son
+nesne "kure_kale_kule_1"
+  konum 35.2 3 -3.6
+  donus 0 0 0
+  olcek 1.5 6 1.5
+  model kaynak -1 0.68 0.22 0.24
+  ilkel 21
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kure_kale_top_1"
+  konum 35.2 6.6 -3.6
+  donus 0 0 0
+  olcek 1.9 1.9 1.9
+  model kaynak -1 0.95 0.75 0.25
+  ilkel 11
+son
+nesne "kure_kale_kule_2"
+  konum 40.8 3 -3.6
+  donus 0 0 0
+  olcek 1.5 6 1.5
+  model kaynak -1 0.68 0.22 0.24
+  ilkel 21
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kure_kale_top_2"
+  konum 40.8 6.6 -3.6
+  donus 0 0 0
+  olcek 1.9 1.9 1.9
+  model kaynak -1 0.95 0.75 0.25
+  ilkel 11
+son
+nesne "kure_kale_kule_3"
+  konum 42.4 3 2.6
+  donus 0 0 0
+  olcek 1.5 6 1.5
+  model kaynak -1 0.68 0.22 0.24
+  ilkel 21
+  govde kutu 0.5 0.5 0.5 sabit
+son
+nesne "kure_kale_top_3"
+  konum 42.4 6.6 2.6
+  donus 0 0 0
+  olcek 1.9 1.9 1.9
+  model kaynak -1 0.95 0.75 0.25
+  ilkel 11
+son
+nesne "kure_kale_kristal"
+  konum 38 5.4 -0.5
+  donus 0 0 0
+  olcek 1.4 1.4 1.4
+  model kaynak -1 1 0.45 0.35
+  ilkel 11
+  malzeme 0 0.3 0.5 1 0.35 0.25 2.5
+son
+nesne "kure_kale_isik"
+  konum 33.5 3.2 2.2
+  donus 0 0 0
+  olcek 1 1 1
+  isik 1 0.55 0.4 6 12 nokta
+son
+nesne "kure_mesale_1"
+  konum 34.4 2.7 -0.4
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 1 0.6 0.2
+  ilkel 11
+  malzeme 0 1 0.5 1 0.55 0.15 3
+  partikul 14 0.5 0.9 0.22 0.04 0 1.6 0 0.25 0.3 0.25
+  partikul_renk 1 0.75 0.2 0.9 0.2 0.05
+son
+nesne "kure_mesale_2"
+  konum 34.4 2.7 2.4
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 1 0.6 0.2
+  ilkel 11
+  malzeme 0 1 0.5 1 0.55 0.15 3
+  partikul 14 0.5 0.9 0.22 0.04 0 1.6 0 0.25 0.3 0.25
+  partikul_renk 1 0.75 0.2 0.9 0.2 0.05
+son
+nesne "kure_bayrak_direk"
+  konum 38 9 -0.5
+  donus 0 0 0
+  olcek 0.12 5 0.12
+  model kaynak -1 0.8 0.8 0.8
+  ilkel 21
+son
+nesne "kure_bayrak"
+  konum 38.9 10.7 -0.5
+  donus 0 0 0
+  olcek 1.6 1 0.08
+  model kaynak -1 1 0.35 0.3
+  ilkel 10
+son
+nesne "us_dusman"
+  konum 38 0 -0.5
+  donus 0 0 0
+  olcek 1 1 1
+  betik "oyunlar/kup_kure_savasi/davranis/us_yeri.tpr" etkin
+  ozellik_nokta "dogus" -4 0 0.5
+  ozellik_sayi "on_yuz" 3.2
+  ozellik_tam "taraf" 1
+son
+nesne "yuva_kure_1"
+  konum 35.2 7.2 -3.6
+  donus 0 0 0
+  olcek 1.6 0.3 1.6
+  model kaynak -1 0.6 0.55 0.55
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  ozellik_tam "sira" 0
+  ozellik_tam "taraf" 1
+son
+nesne "yuva_kure_2"
+  konum 40.8 7.2 -3.6
+  donus 0 0 0
+  olcek 1.6 0.3 1.6
+  model kaynak -1 0.6 0.55 0.55
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  ozellik_tam "sira" 1
+  ozellik_tam "taraf" 1
+son
+nesne "yuva_kure_3"
+  konum 42.4 7.2 2.6
+  donus 0 0 0
+  olcek 1.6 0.3 1.6
+  model kaynak -1 0.6 0.55 0.55
+  ilkel 10
+  govde kutu 0.5 0.5 0.5 sabit
+  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  ozellik_tam "sira" 2
+  ozellik_tam "taraf" 1
+son
+nesne "cicek_1"
+  konum -28 0.15 4
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.85 0.25
+  ilkel 10
+son
+nesne "cicek_2"
+  konum -21.5 0.15 5.8
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.45 0.55
+  ilkel 11
+son
+nesne "cicek_3"
+  konum -15 0.15 7.6
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.75 0.55 0.95
+  ilkel 10
+son
+nesne "cicek_4"
+  konum -9.7 0.15 4.9
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.85 0.25
+  ilkel 11
+son
+nesne "cicek_5"
+  konum -3.2 0.15 6.7
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.45 0.55
+  ilkel 10
+son
+nesne "cicek_6"
+  konum 3.3 0.15 4
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.75 0.55 0.95
+  ilkel 11
+son
+nesne "cicek_7"
+  konum 8.6 0.15 5.8
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.85 0.25
+  ilkel 10
+son
+nesne "cicek_8"
+  konum 15.1 0.15 7.6
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.45 0.55
+  ilkel 11
+son
+nesne "cicek_9"
+  konum 21.6 0.15 4.9
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.75 0.55 0.95
+  ilkel 10
+son
+nesne "cicek_10"
+  konum 26.9 0.15 6.7
+  donus 0 0 0
+  olcek 0.3 0.3 0.3
+  model kaynak -1 0.95 0.85 0.25
+  ilkel 11
+son

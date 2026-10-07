@@ -1,0 +1,89 @@
+// Kupler ile Kurelerin Savasi — SES: efekt + muzik. Dosya assets/sesler/'de
+// yoksa efekt motorun SENTETIK tonuna duser, muzik calmaz; ses cihazi
+// acilamazsa oyun sessiz ama hatasiz surer (docs/KOPRU.md ses KAPALI yolu).
+// Ayri modul: savas.tpr de cagiriyor ve Tulpar'da ice aktarilan modul,
+// KENDISINI ice aktaran dosyanin fonksiyonlarini GOREMEZ (yalniz kendinden
+// once ayristirilanlari).
+
+float g_efekt_ayari = 0.8;
+float g_muzik_ayari = 0.5;
+
+// ---- Ses ----------------------------------------------------------------------
+// Dosya assets/sesler/'de yoksa efekt SENTETİK tona düşer (motorun ton üreteci),
+// müzik çalmaz. Ses cihazı açılamazsa oyun sessiz ama hatasız sürer.
+bool g_ses_var = false;
+int SES_BIRLIK = -1;
+int SES_VURUS = -1;
+int SES_OK = -1;
+int SES_PATLAMA = -1;
+int SES_US_HASAR = -1;
+int SES_CAG = -1;
+int SES_OZEL_GUC = -1;
+int SES_TIKLA = -1;
+int SES_ALTIN = -1;
+int MUZIK_MENU = -1;
+int MUZIK_SAVAS = -1;
+int MUZIK_ZAFER = -1;
+int MUZIK_YENILGI = -1;
+int g_muzik_klip = -1;
+int g_muzik_ses = 0;
+int g_ses_dosya = 0;          // dosyadan yüklenen klip
+int g_ses_ton = 0;            // dosya yok -> sentetik ton
+float[] g_ses_son = [];       // klip başına son çalma zamanı (seyreltme)
+int g_ses_calinan = 0;
+
+func ses_dene(str ad, float hz, float sure): int {
+    if (!g_ses_var) { return -1; }
+    str yol = "assets/sesler/" + ad;
+    if (file_exists(yol)) {
+        int k = ses_yukle(yol);
+        if (k >= 0) { g_ses_dosya += 1; return k; }
+    }
+    if (hz <= 0.0) { return -1; }
+    g_ses_ton += 1;
+    return ton(hz, sure);
+}
+
+func sesleri_yukle() {
+    while (len(g_ses_son) < 64) { push(g_ses_son, -10.0); }
+    SES_BIRLIK = ses_dene("ses_birlik.wav", 520.0, 0.07);
+    SES_VURUS = ses_dene("ses_vurus.wav", 180.0, 0.05);
+    SES_OK = ses_dene("ses_ok.wav", 880.0, 0.04);
+    SES_PATLAMA = ses_dene("ses_patlama.wav", 90.0, 0.18);
+    SES_US_HASAR = ses_dene("ses_us_hasar.wav", 140.0, 0.12);
+    SES_CAG = ses_dene("ses_cag.wav", 660.0, 0.5);
+    SES_OZEL_GUC = ses_dene("ses_ozel_guc.wav", 330.0, 0.4);
+    SES_TIKLA = ses_dene("ses_tikla.wav", 1200.0, 0.03);
+    SES_ALTIN = ses_dene("ses_altin.wav", 990.0, 0.08);
+    MUZIK_MENU = ses_dene("muzik_menu.mp3", 0.0, 0.0);
+    MUZIK_SAVAS = ses_dene("muzik_savas.mp3", 0.0, 0.0);
+    MUZIK_ZAFER = ses_dene("muzik_zafer.mp3", 0.0, 0.0);
+    MUZIK_YENILGI = ses_dene("muzik_yenilgi.mp3", 0.0, 0.0);
+    logla(t"ses: {g_ses_dosya} dosya, {g_ses_ton} sentetik ton (eksik dosya), cihaz {ses_cihazi()}");
+}
+
+// Aynı klip `aralik` saniyeden sık çalmaz: yüz ok aynı karede yüz ses olmasın.
+func ses_cal(int klip, float seviye, float aralik) {
+    if (!g_ses_var || klip < 0 || klip >= 64) { return; }
+    float z = zaman();
+    if (z - g_ses_son[klip] < aralik) { return; }
+    g_ses_son[klip] = z;
+    g_ses_calinan += 1;
+    cal(klip, seviye * g_efekt_ayari, false);
+}
+
+func muzik_cal(int klip) {
+    if (!g_ses_var) { return; }
+    if (g_muzik_klip == klip && g_muzik_ses != 0) { return; }
+    if (g_muzik_ses != 0) { ses_durdur(g_muzik_ses); g_muzik_ses = 0; }
+    g_muzik_klip = klip;
+    if (klip >= 0 && g_muzik_ayari > 0.01) { g_muzik_ses = cal(klip, g_muzik_ayari, true); }
+}
+// Kaydırıcı müziği değiştirince: çalan sesin seviyesi değişmez (köprüde ses
+// başına seviye yok), klip baştan çalınır.
+func muzik_yenile() {
+    int k = g_muzik_klip;
+    g_muzik_klip = -2;
+    muzik_cal(k);
+}
+
