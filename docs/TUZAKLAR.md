@@ -1892,3 +1892,18 @@ arenayı zaten bırakıyor. Kontrol, kapının ölçtüğünü değil düzeltmen
 kalır. Yeniden kurulabilirlik tek oturumda değil **N oturumda** ve oturum başına artışla ölçülür; ilk
 iki oturum arasındaki tek seferlik basamak (yığın tepe noktası) kaçak değildir, her oturumda tekrarlanan
 artış kaçaktır.
+
+
+**Fiziksel cihazda ölçüldü (Huawei P20 Pro CLT-L09, Mali-G72, Android 10, 2026-10-07):**
+`tools/android_iki_oturum.sh` 5/5 ve 3/3 tur aynı PID'de, her oturum temiz (varlık 0, kare 0, önceki id
+ölü, hata 0), kurulum satırları `k0`, p50 16,7 ms (60 Hz). Cihaz iki şey daha gösterdi:
+- **Kapanış raporunun sayaçları süreç toplamıydı.** `g_log` süreç boyu yaşıyor, `Bridge` her oturumda
+  sıfırlanıyor; rapor `g_log.errors/warnings`'i doğrudan basıyordu. Pencere gelmeyen 5 oturumun raporu
+  "uyari 1, 2, 3, 4, 5" dedi. Artık rapor oturumun sayısını basıyor (`oturum_hata0/uyari0` tabanı);
+  `teng_error_count()` süreç toplamı olarak kaldı (testler fark ölçüyor). Kapı:
+  `bridge_shutdown_report_counts_this_session_only` (düzeltmesiz kodda "hata 1" — kırmızı).
+- **Ölçüm düzeneği yalan söyleyebiliyordu:** EMUI'de logcat ana tamponu 256 KiB ve sistem çok konuşuyor;
+  sonda `logcat -d` ile okunan 5 turluk koşumda tulpar satırlarının hepsi düşmüştü ("temiz oturum 0/5").
+  Betik artık logu akış olarak dosyaya alıyor. Ekran kapalıyken etkinlik pencere almıyor, köprü 10 sn
+  bekleyip headless kipe düşüyor; betik ekranı uyandırıyor ve pencere alamayan oturumu not olarak basıyor
+  (pencereli yol ölçülmedi demek).
