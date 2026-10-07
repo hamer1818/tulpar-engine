@@ -30,7 +30,7 @@
 | 11 | motor / köprü | sabit gövdeyi `isinla` her çağrıda gövdeyi YENİDEN kuruyor; kinematik gövde yok | O | açık |
 | 12 | motor / köprü | kameranın görüş açısı ve ekran→ışın API'si yok; oyun `pi/3.5`'i kopyalıyor | D | açık |
 | 13 | motor | Tulpar oyununda kare içi C++ ayırma (AllocGate) ölçülemiyor | O | açık |
-| 14 | motor / perf | betik kancası dağıtımı telefonda masaüstünün ~16 katı (6.6 µs / 0.4 µs çağrı, gövdeler dahil) | D | ölçüm (cihaz verisi) |
+| 14 | motor / perf | betik kancası dağıtımı telefonda masaüstünün ~16 katı (6.6 µs / 0.4 µs çağrı, gövdeler dahil) | D | **iyileştirildi** (#100, Tuzaklar 8cv) |
 | 15 | motor / arayüz | düğme yazısı yalnız yükseklikten ölçekleniyor, uzun etiket taşıyor | D | oyunda geçici çözüm |
 | 16 | motor / arayüz | yarı saydam tam ekran karartma Mali'de ~3.5 ms (TBDR) — uyarı köprüde görünmüyor | D | açık |
 | 17 | TulparLang / Android | ekran çentiği alanı kullanılmıyor (2240 yerine 2159 piksel, solda siyah şerit) | D | açık (TulparLang) |
@@ -185,13 +185,18 @@ Oyunun kapısı RSS eğimini ölçüyor (alt çeyrek 0 KB/1000 kare, 9600 kare; 
 enjekte sızıntıda 2040 → KIRMIZI). **Öneri:** köprü kapanış raporuna kare içi `new` sayısı (override
 eklenti paketinde, isteğe bağlı).
 
-## 14. Kanca dağıtımı telefonda pahalı — ÖLÇÜM (cihaz verisi)
+## 14. Kanca dağıtımı telefonda pahalı — İYİLEŞTİRİLDİ (#100)
 
 Kapanış satırı (P20 Pro, 7 dk savaş): `kare icinde 101149 kanca cagrisi, 671.25 ms, cagri basina 6636.2 ns`
 (kanca gövdeleri dahil; mermi çarpışma + enkaz güncelle + kale tetiği). Masaüstünde aynı oyun 397 ns.
 Kare başına ortalama ~0.026 ms, yani bütçeyi tehdit etmiyor. Kısa (80 sn) oturumda ilk 8 çağrı 74 ms
 ölçüldü (çağrı başına 9.3 ms) — ilk çağrılardaki tek seferlik bedel (sembol çözümü/sayfa hatası?)
 ayrıştırılmadı; ilk karelerde takılma olarak hissedilebilir.
+
+**#100 (Tuzaklar 8cv):** iki sebep ayrıştırıldı — soğuk önbellek (dağıtım sıcakken 31–60 ns/çağrı, kare
+içinde vsync/çizim önbelleği boşaltıyor) ve `guncelle`nin her kare BÜTÜN varlık yuvalarını taraması (bağlı
+olmayan yuva başına ~200 ns). Artık sıralı liste: telefonda kanca aşaması 85–105 → 32–45 µs/kare. Oyunun
+kalemdeki bedeli zaten kare başına ~26 µs idi; oyun değişiklik gerektirmedi.
 
 ## 15. Düğme yazısı genişliğe göre ölçeklenmiyor — GEÇİCİ ÇÖZÜM (D)
 
