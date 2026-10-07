@@ -53,6 +53,7 @@ static inline int setenv(const char *k, const char *v, int) { return _putenv_s(k
 static inline int unsetenv(const char *k) { return _putenv_s(k, ""); }
 #endif
 
+#include "bridge/asset_filter.hpp"
 #include "tests/test.hpp"
 
 using namespace tulpar::engine;
@@ -2188,4 +2189,24 @@ ENGINE_TEST(bridge_tulpar_abi_lock_links_every_manifest_symbol) {
   for (int i = 0; i < tulpar::engine::bridge::kTulparAbiCount; i++)
     if (!tulpar::engine::bridge::kTulparAbiTable[i]) bos++;
   CHECK(bos == 0);
+}
+
+// --- Android APK varlik suzgeci (bridge/asset_filter.hpp, 2026-10-07) ----------
+// Suzgec yalniz Android'de derleniyordu ve `.mp3`/`.flac` eksikti: oyunun
+// muzigi telefonda CIKARILMIYOR, masaustunde caliyordu (docs/OYUN_GERI_BILDIRIM.md
+// madde 1). Kapi: ses kod cozucunun cozdugu her bicim (WAV, MP3, FLAC — audio/
+// miniaudio_impl.c) ve oyunlarin kullandigi varlik turleri cikarilir; buyuk harfli
+// uzanti da. KONTROL: uzantisiz ad, `.tmp`, `.tpr` (kaynak) ve uzantinin bir
+// parcasi (`.mp`) cikarilMAZ — suzgec "hepsini al" diye yesil gecmesin.
+ENGINE_TEST(bridge_android_asset_filter_keeps_every_decodable_audio_format) {
+  using tulpar::engine::bridge::android_asset_wanted;
+  const char *istenen[] = {"assets/sesler/muzik_savas.mp3", "a/b.flac", "ses_ok.wav", "MUZIK.MP3", "x.Flac",
+                           "savas.sahneb", "savas.sahne", "modeller/kup.gltf", "fonts/DejaVuSans.ttf", "ikon.png"};
+  const char *istenmeyen[] = {"OKUBENI", "kayit.tmp", "oyun.tpr", "x.mp", "mp3", "", "a.mp3.bak"};
+  int ok = 0, red = 0;
+  for (const char *n : istenen) { const bool w = android_asset_wanted(n); CHECK(w); ok += w ? 1 : 0; }
+  for (const char *n : istenmeyen) { const bool w = android_asset_wanted(n); CHECK(!w); red += w ? 0 : 1; }
+  CHECK(!android_asset_wanted(nullptr));
+  std::printf("    [bilgi] varlik suzgeci: %d/%d istenen cikarilir, %d/%d istenmeyen elenir\n", ok,
+              (int)(sizeof istenen / sizeof istenen[0]), red, (int)(sizeof istenmeyen / sizeof istenmeyen[0]));
 }

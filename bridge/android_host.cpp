@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "bridge/asset_filter.hpp"
 #include "bridge/bridge_host.hpp"
 #include "platform/crash.hpp"
 #include "platform/time.hpp"
@@ -148,15 +149,9 @@ struct AssetWalk {
   uint32_t files = 0, dirs = 0;
 };
 // Uzanti suzgeci: Huawei'de kok listesi sistem kaplamalarini da getiriyor.
-bool asset_wanted(const char *name) {
-  const char *dot = std::strrchr(name, '.');
-  if (!dot) return false;
-  static const char *kExt[] = {".gltf", ".glb", ".bin", ".png", ".jpg", ".jpeg", ".ktx2", ".ttf",
-                               ".sahne", ".sahneb", ".wav", ".ogg", ".txt", ".json", ".csv"};
-  for (const char *e : kExt)
-    if (std::strcmp(dot, e) == 0) return true;
-  return false;
-}
+// Liste bridge/asset_filter.hpp'de: masaustu kapisi onu olcer (eskiden burada,
+// yalniz Android'de derleniyordu ve `.mp3`/`.flac` eksikti).
+bool asset_wanted(const char *name) { return tulpar::engine::bridge::android_asset_wanted(name); }
 bool write_asset(AssetWalk *w, const char *rel) {
   AAsset *as = AAssetManager_open(w->mgr, rel, AASSET_MODE_BUFFER);
   if (!as) return false;
