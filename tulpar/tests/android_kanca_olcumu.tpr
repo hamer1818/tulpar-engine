@@ -1,0 +1,56 @@
+// Android (ve masaustu): betik kancasi dagitiminin GERCEK cihazdaki maliyeti
+// (Geri bildirim #14). Ayni surecte dort motor oturumu, her biri 600 kare;
+// her oturumun kapanis satiri "kapanis (betik dagitimi): ... cagri basina X ns
+// ...; asama N kare, kare basina Y us" basar. tools/android_kanca_olcumu.sh
+// bunu APK olarak kurup kosturur ve satirlari toplar.
+//
+//   F_oyun_benzeri   400 bagsiz isik + 30 `dolu` (dizi yaz) + 60 dinamik kutu
+//                    + 6 carpisma kancali kure: bagli varliklar az, yuvalar cok
+//                    (Kupler ile Kurelerin Savasi'nin dagilimi)
+//   A_bos200         200 bos `guncelle`: dagitimin kendisi
+//   C_seyrek4        4 bos `guncelle`: asamanin kare basina SABIT bedeli
+//   D_seyrek4_temas  4 bos `guncelle` + 60 kutu + 6 carpisma kancali kure
+//
+// Masaustunde: cd tulpar && TULPAR_ENGINE_HEADLESS=100000 tulpar tests/android_kanca_olcumu.tpr
+import "engine";
+
+float[] _om = [];
+int dolu_sayac = 0;
+
+func bos_guncelle(id, d) { }
+func dolu_guncelle(id, d) {
+    int y = yuva(id);
+    _om[y] = _om[y] - d;
+    if (_om[y] <= -1000000.0) { dolu_sayac += 1; }
+}
+func carp_carpisma(id, diger, olay, x, y, z, hiz, diger_sahne) { dolu_sayac += 1; }
+
+func oturum(str ad, int n_bos, int n_dolu, int n_kutu, int n_carp, int n_bagsiz, int kare) {
+    if (!motor_ac("kanca " + ad, 320, 200)) { print("[olcu] " + ad + " KURULAMADI " + eng_last_error()); return; }
+    log_seviyesi(1);
+    kamera(0.0, 6.0, 14.0, 0.0, 0.5, 0.0);
+    int z = zemin_kur(20.0, 0xCED4DAFF);
+    for (int i = 0; i < n_bagsiz; i++) { int ib = isik(0, -50, 0, renk(255, 255, 255), 0.0, 1.0); }
+    for (int i = 0; i < n_bos; i++) { int id = isik(0, -50, 0, renk(255, 255, 255), 0.0, 1.0); betik_ata(id, "bos"); }
+    for (int i = 0; i < n_dolu; i++) { int id2 = isik(0, -50, 0, renk(255, 255, 255), 0.0, 1.0); betik_ata(id2, "dolu"); }
+    for (int i = 0; i < n_kutu; i++) {
+        int k = kutu(-9.0 + 0.6 * (i % 30), 0.5 + 1.1 * (i / 30), 0.0, 0.25, 0.25, 0.25, true, 0xE63946FF);
+    }
+    for (int i = 0; i < n_carp; i++) {
+        int c = kure(-9.0 + 2.0 * i, 3.0, 2.0, 0.3, true, 0x2A9D8FFF);
+        betik_ata(c, "carp");
+    }
+    for (int i = 0; i < kare; i++) {
+        kare_basla();
+        kare_bitir();
+    }
+    print("[olcu] " + ad + " bitti hata=" + toString(hata_sayisi()));
+    motor_kapat();
+}
+
+while (len(_om) < 4096) { push(_om, 0.0); }
+oturum("F_oyun_benzeri", 0, 30, 60, 6, 400, 600);
+oturum("A_bos200", 200, 0, 0, 0, 0, 600);
+oturum("C_seyrek4", 4, 0, 0, 0, 0, 600);
+oturum("D_seyrek4_temas", 4, 0, 60, 6, 0, 600);
+print("[olcu] HEPSI BITTI");

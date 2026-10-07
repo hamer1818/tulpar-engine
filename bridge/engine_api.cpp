@@ -230,6 +230,11 @@ struct Ent {
   // Tetik hacmi (eng_trigger_*): gorunmez, carpisma tepkisi yok, yakinlik
   // sorgularinda hedef degil. Kind yine Box/Sphere — sekil bilgisi ayni.
   bool sensor = false;
+  // Kodla baglanan betigin havuz indisi (-1 = yok; kilitleri asagida, dying /
+  // bitir_running). BURADA, ilk onbellek satirinda: kare ici `guncelle`
+  // dagitimi her bagli varlik icin alive + gen + bound okur, uc alan ayni
+  // satirda olsun (Huawei P20 Pro'da soguk satir ~100-200 ns, Geri bildirim #14).
+  int16_t bound = -1;
   // Karakter denetleyicisi (Kind::Character): sanal kapsul, sim'in
   // CharacterVirtual'i. `body` ic govdedir (tetik + isin icin) ve SAHIBI
   // karakterdir — dogrudan phys.remove EDILMEZ, remove_character ile gider.
@@ -244,15 +249,14 @@ struct Ent {
   int32_t anim_clip = -1;
   float anim_speed = 1.0f, anim_time = 0.0f;
   bool anim_loop = true;
-  // Kodla baglanan betik (teng_script_attach): Bridge::bound havuzunda indis,
-  // -1 = betik yok. Iki kilit, ikisi de `_bitir`in YENIDEN GIRISI icin:
+  // Kodla baglanan betik (teng_script_attach): Bridge::bound havuzunda indis
+  // (`bound`, yukarida), -1 = betik yok. Iki kilit, ikisi de `_bitir`in YENIDEN GIRISI icin:
   //   dying        teng_despawn bitir'i cagirirken: kanca icinden ayni varliga
   //                `sil` erken doner (distaki sil tamamlar, cift serbest yok),
   //                `betik_ata` reddedilir (olmekte olan varliga baslat yok).
   //   bitir_running  bu varligin bitir'i kosuyor (coz / yeniden bagla /
   //                kapanis): `betik_ata` reddedilir — yoksa bitir icinden
   //                baglanan betik, distaki islem bitince sahipsiz kalirdi.
-  int16_t bound = -1;
   bool dying = false, bitir_running = false;
 };
 struct HudCmd {
@@ -335,8 +339,10 @@ struct Bridge {
   // Kancalar YUKLEME aninda cozuluyor, kare icinde DEGIL: `has` bir sembol
   // aramasi ve onu 60 Hz ile yapmak hem pahali hem gereksiz (ikili degismiyor).
   // Cozum sonucu varlik basina saklaniyor.
+  // YERLESIM: kare icinde okunan alanlar (bayraklar, arite, isaretciler)
+  // ONDE, yalniz cozumde ve logda okunan ad (`base`, 96 bayt) SONDA. Eskiden
+  // ad ondeydi ve bir cagri uc onbellek satirina dokunuyordu (Geri bildirim #14).
   struct ScriptHook {
-    char base[kScriptBaseLen] = {0}; // "davranis/kovala.tpr" -> "kovala"
     bool guncelle = false;
     bool bitir = false;
     bool carpisma = false;
@@ -349,9 +355,10 @@ struct Bridge {
     // giris noktasi ve aritesi. Kare icindeki cagri bunlarla yapilir — ad
     // kurma (snprintf), hash ve ayirma YOK. `vm`: cozen VM; kurulu VM
     // degismisse isaretci ona verilmez, cagri adla gider (eski yolun davranisi).
-    void *fn[8] = {};
     int8_t arity[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    void *fn[8] = {};
     const TengScriptVm *vm = nullptr;
+    char base[kScriptBaseLen] = {0}; // "davranis/kovala.tpr" -> "kovala"
   };
   ScriptHook script[content::kSceneMaxEntities];
   bool script_any = false;
@@ -384,25 +391,43 @@ struct Bridge {
   // gecisinden etkilenmez). Havuz sirasi ONEMSIZ: kancalar varlik YUVA
   // sirasiyla dagitilir (Ent::bound bu havuza isaret eder).
   struct BoundScript {
-    ScriptHook h;
     int32_t slot = -1; // Ent yuvasi; -1 = havuz girdisi bos
     // Dagitim SIRASINDA (bir kancanin icinden) kurulan baglanti o karenin
     // kalan kancalarini GORMEZ: olaylar baglanmadan ONCE olustu. Kare sonu
     // temizlenir. Oyun kodundan (kare icinde) kurulan baglanti ise ayni
     // karenin teng_frame_end'inde her seyi gorur — olaylar ondan SONRA olusur.
     bool defer = false;
+    ScriptHook h; // slot/defer ile ayni ilk satirda: bayraklar + arite + isaretciler
   };
   BoundScript bound[kMaxBoundScripts];
   uint32_t bound_n = 0, bound_peak = 0;
   bool bound_guncelle_any = false, bound_carpisma_any = false, bound_tetik_any = false;
   bool bound_deferred = false;
+  // KARE ICI `guncelle` DAGITIM LISTELERI (Geri bildirim #14). Eskiden dagitim
+  // butun varlik yuvalarini (ent_high x 100 baytlik Ent) ve butun sahne
+  // varliklarini taradi; bagli olmayan her yuva bir soguk onbellek satiriydi.
+  // Olculdu (Huawei P20 Pro, Mali-G72, 2026-10-07; 497 varlik, 30'u bagli):
+  // kanca asamasi kare basina ~86 us, bunun ~80'i bu tarama — ayni kosum
+  // masaustunde 1 us. Listeler YUVA / SAHNE sirasiyla (cagri sirasi eskisiyle
+  // ayni, belirlenimli). `bound_dirty` bagla/coz aninda kurulur; liste kanca
+  // asamasinin BASINDA yeniden kurulur, asama surerken degil: kanca icinden
+  // baglanan zaten `defer`, cozulen/silinen ise cagri aninda dogrulanir.
+  uint16_t bound_gunc[kMaxBoundScripts] = {};
+  uint32_t bound_gunc_n = 0;
+  bool bound_dirty = false;
+  uint16_t scene_gunc[content::kSceneMaxEntities] = {};
+  uint32_t scene_gunc_n = 0;
   bool script_dispatching = false; // teng_frame_end kanca asamalari suruyor
   bool closing = false;            // teng_shutdown bitir'leri: yeni baglanti yok
   uint32_t bound_attaches = 0, bound_calls = 0, bound_rejected = 0;
   // Kanca dagitiminin DUVAR SAATI (teng_frame_end'in kanca asamalari, kanca
   // govdeleri dahil) ve o surede yapilan cagri. Tracy'siz olcu: bos govdeli
   // kancalarla ns/cagri dogrudan dagitim maliyetidir. Kapanista basilir.
-  uint64_t hook_ns = 0, hook_timed_calls = 0;
+  // `hook_frames`: asamanin kostugu kare. Cagri basina sayi, kare basina SABIT
+  // bedeli de (listeler, carpisma halkasi, onbellek) cagrilara boler; seyrek
+  // cagrili oyunda "cagri basina" sisik gorunur (Geri bildirim #14: telefonda
+  // kare basina 4 cagri, 6.6 us/cagri). Kare basina sure ikisini ayirir.
+  uint64_t hook_ns = 0, hook_timed_calls = 0, hook_frames = 0;
   uint32_t hook_fast = 0, hook_slow = 0; // cozulen kanca: hizli yol / ad yolu (kapanis raporu)
   // --- govde -> varlik eslemesi (O(1)) ------------------------------------
   // Jolt govde INDEKSI -> kopru yuvasi / sahne dizini. Tablo init'te
@@ -568,17 +593,29 @@ int32_t slot_of(int id, const char *fn) {
   return (int32_t)slot;
 }
 int make_id(uint32_t slot) { return (int)(((uint32_t)g->ents[slot].gen << 16) | slot); }
-// Bagli betik bayraklari: dagitim dongulerinin kosup kosmayacagi. Havuz
-// taramasi (<= kMaxBoundScripts) yalniz bagla/coz aninda, kare icinde degil.
-void bound_refresh(Bridge &b) {
+// Bagli betik bayraklari + `guncelle` listesi: dagitim dongulerinin kosup
+// kosmayacagi ve kimi cagiracagi. Bagla/coz yalniz `bound_dirty` kurar; havuz
+// taramasi (<= kMaxBoundScripts) kanca asamasinin basinda, degisiklik olan
+// karede BIR KEZ. Eskiden her bagla/coz'da tarardi: 30 parcalik bir enkaz
+// sacilmasi 30 tam havuz taramasiydi.
+void bound_refresh(Bridge &b) { b.bound_dirty = true; }
+void bound_prepare(Bridge &b) {
+  if (!b.bound_dirty) return;
+  b.bound_dirty = false;
   b.bound_guncelle_any = b.bound_carpisma_any = b.bound_tetik_any = false;
+  b.bound_gunc_n = 0;
   for (uint32_t k = 0; k < kMaxBoundScripts; k++) {
     const Bridge::BoundScript &s = b.bound[k];
     if (s.slot < 0) continue;
-    if (s.h.guncelle) b.bound_guncelle_any = true;
+    if (s.h.guncelle) {
+      b.bound_guncelle_any = true;
+      b.bound_gunc[b.bound_gunc_n++] = (uint16_t)s.slot;
+    }
     if (s.h.carpisma) b.bound_carpisma_any = true;
     if (s.h.tetik_girdi || s.h.tetik_cikti || s.h.bolge_girdi || s.h.bolge_cikti) b.bound_tetik_any = true;
   }
+  // YUVA sirasi: eski tam tarama dongusunun sirasi (sozlesme, belirlenimli).
+  std::sort(b.bound_gunc, b.bound_gunc + b.bound_gunc_n);
 }
 // Baglantiyi havuzdan dusur — `_bitir` CAGIRMADAN. Bitir'i cagiran yollar
 // (coz / sil / yeniden bagla / kapanis) bunu ONCE yapar ki kanca icinden
@@ -1555,15 +1592,27 @@ static void bound_fire_carpisma(Bridge &b) {
   }
 }
 // `guncelle`: YUVA sirasi. Dongu sirasinda silinen varlik atlanir, kurulan
-// (ya da betigi degisen) varlik `defer` ile bir sonraki kareye kalir.
+// (ya da betigi degisen) varlik `defer` ile bir sonraki kareye kalir. Liste
+// asamanin basinda kuruldu (bound_prepare); kanca icinden degisen her sey
+// burada, cagri aninda dogrulanir — eski tam taramanin kosullarinin AYNISI.
 static void bound_fire_guncelle(Bridge &b) {
-  for (uint32_t i = 0; i < b.ent_high; i++) {
+  // Hizli yolun kosullari dongu DISINDA bir kez; cagri basina yalniz `g_svm`
+  // yeniden okunur (kanca icinden VM degisirse hook_invoke'un ad yolu).
+  const TengScriptVm *vm = g_svm;
+  int (*const inv)(void *, int, const double *, int) = svm_fast(vm) ? vm->invoke : nullptr;
+  for (uint32_t j = 0; j < b.bound_gunc_n; j++) {
+    const uint32_t i = b.bound_gunc[j];
     const Ent &e = b.ents[i];
     if (!e.alive || e.bound < 0) continue;
     const Bridge::BoundScript &bs = b.bound[e.bound];
     if (bs.defer || !bs.h.guncelle) continue;
-    const double a[2] = {(double)make_id(i), b.dt};
-    bound_call(b, bs.h, kHookGuncelle, a, 2);
+    const double a[2] = {(double)(int)(((uint32_t)e.gen << 16) | i), b.dt}; // make_id(i)
+    void *fn = bs.h.fn[kHookGuncelle];
+    if (inv && fn && bs.h.vm == vm && g_svm == vm) {
+      if (inv(fn, bs.h.arity[kHookGuncelle], a, 2)) b.bound_calls++;
+    } else {
+      bound_call(b, bs.h, kHookGuncelle, a, 2);
+    }
   }
 }
 // Kapanis: butun baglantilara `_bitir`, YUVA sirasiyla. Yeni baglanti
@@ -1594,6 +1643,7 @@ static void script_fire_bitir(Bridge &b, const char *why) {
     n++;
   }
   for (uint32_t i = 0; i < content::kSceneMaxEntities; i++) b.script[i] = Bridge::ScriptHook{};
+  b.scene_gunc_n = 0;
   b.script_any = false;
   b.script_carpisma_any = false;
   b.script_tetik_any = false;
@@ -1659,6 +1709,7 @@ void teng_frame_end(void) {
   // Kanca asamalari: tetik -> carpisma -> guncelle. Her asamada ONCE sahne
   // kancalari (degismedi), SONRA kodla baglanan betikler. Bu surede kurulan
   // baglanti `defer` ile isaretlenir ve o karenin kalanini gormez.
+  bound_prepare(b);
   b.script_dispatching = true;
   const bool kanca_var = b.script_any || b.bound_n;
   const uint64_t kanca_t0 = kanca_var ? platform::now_ns() : 0;
@@ -1721,10 +1772,13 @@ void teng_frame_end(void) {
     // `guncelle` SIM ADIMLARINDAN SONRA: betigin okudugu konum ve hiz, o
     // karenin fizik sonucu olsun. Once cagirmak betige BIR KARE ESKI durumu
     // gosterirdi ve "kovalama neden geriden geliyor" diye aranirdi.
+    // Liste yuklemede kuruldu (sahne sirasi); kanca icinden bosaltma ya da
+    // yeniden yukleme olursa her girdi yine dogrulanir.
     ENGINE_ZONE("betik");
     const content::SceneBlobView &v = b.srt.view();
-    for (uint32_t i = 0; i < v.h->entity_count && i < content::kSceneMaxEntities; i++) {
-      if (!b.script[i].guncelle) continue;
+    for (uint32_t j = 0; j < b.scene_gunc_n && b.scene_ok; j++) {
+      const uint32_t i = b.scene_gunc[j];
+      if (i >= v.h->entity_count || !b.script[i].guncelle) continue;
       const double a[2] = {(double)i, b.dt};
       script_call(b, b.script[i], kHookGuncelle, a, 2);
     }
@@ -1736,6 +1790,7 @@ void teng_frame_end(void) {
   b.script_dispatching = false;
   if (kanca_var) {
     b.hook_ns += platform::now_ns() - kanca_t0;
+    b.hook_frames++;
     // script_calls sahne yuklemesinde sifirlanir: kanca icinden yeniden yukleme
     // sayaci geri sarabilir, o kare olcuye girmez (negatif fark).
     const uint64_t c1 = (uint64_t)b.script_calls + b.bound_calls;
@@ -1835,8 +1890,10 @@ void teng_shutdown(void) {
   if (b.bmap_audit || b.bmap_miss_set)
     BINFO("kapanis (govde eslemesi): %u sorgu denetlendi, %u uyusmazlik, %u tablo disi indeks", b.bmap_checks, b.bmap_mismatch, b.bmap_miss_set);
   if (b.hook_timed_calls)
-    BINFO("kapanis (betik dagitimi): kare icinde %llu kanca cagrisi, %.2f ms, cagri basina %.1f ns (kanca govdeleri dahil)",
-          (unsigned long long)b.hook_timed_calls, b.hook_ns / 1e6, (double)b.hook_ns / (double)b.hook_timed_calls);
+    BINFO("kapanis (betik dagitimi): kare icinde %llu kanca cagrisi, %.2f ms, cagri basina %.1f ns (kanca govdeleri dahil); "
+          "asama %llu kare, kare basina %.2f us",
+          (unsigned long long)b.hook_timed_calls, b.hook_ns / 1e6, (double)b.hook_ns / (double)b.hook_timed_calls,
+          (unsigned long long)b.hook_frames, b.hook_frames ? (double)b.hook_ns / 1e3 / (double)b.hook_frames : 0.0);
   if (b.bound_attaches || b.bound_rejected)
     BINFO("kapanis (betik baglama): %u baglama, %u reddedilen, %u kanca cagrisi, en cok %u bagli varlik (tavan %u)", b.bound_attaches,
           b.bound_rejected, b.bound_calls, b.bound_peak, kMaxBoundScripts);
@@ -2160,6 +2217,9 @@ int teng_scene_load(const char *path) {
       script_call(b, h, kHookBaslat, a, 1);
     }
   }
+  b.scene_gunc_n = 0;
+  for (uint32_t i = 0; i < v.h->entity_count && i < content::kSceneMaxEntities; i++)
+    if (b.script[i].guncelle) b.scene_gunc[b.scene_gunc_n++] = (uint16_t)i;
   if (b.script_any) BINFO("betik kancalari: %u cagri, %u eksik", b.script_calls, b.script_missing);
 
   return 1;
