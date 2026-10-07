@@ -587,7 +587,10 @@ if(NOT ANDROID)
     # oyunlar onu orada ariyor. engine_sahnec'e bagli: blob surumu degisince
     # (content/) ornekler kendiliginden yeniden derlenir, "eski blob" kalmaz.
     # Glob bilincli: yeni ornek sahne listeye eklenmeyi unutulamaz.
-    file(GLOB ENGINE_EXAMPLE_SCENES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.sahne)
+    # Oyunlar (tulpar/oyunlar/<oyun>/assets/) da ayni kuralla: oyun kendi
+    # dizininden kosar ve blob'u assets/ altinda arar.
+    file(GLOB ENGINE_EXAMPLE_SCENES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.sahne
+                                                      ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/oyunlar/*/assets/*.sahne)
     file(GLOB ENGINE_EXAMPLE_MODELS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.gltf
                                                       ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/examples/assets/*.glb)
     set(ENGINE_EXAMPLE_BLOBS)

@@ -1,0 +1,1212 @@
+// Kupler ile Kurelerin Savasi — SAVAS CEKIRDEGI (birlikler, yol, mermi, kule,
+// ozel guc, enkaz, yapay zeka). Ekranlar/arayuz oyun.tpr'de.
+//
+// TASARIM KARARLARI (olcumle):
+// - Oyun mantigi 1B: her birlik kendi kalesinden yol boyunca `p` metre ilerler
+//   (yol = navmesh'te iki kale kapisi arasi Detour yolu, yuklemede BIR KEZ
+//   aranir; sahnedeki kayalar yolu buker — `yol_kur`). Siralama, menzil ve
+//   carpisma kararlari `p` uzerinden: belirlenimli ve ucuz.
+// - Govde DINAMIK: birligin fizik govdesi yol noktasini hizla kovalar
+//   (`yuru_v`); patlama ve carpismada itilir, sonra yola geri doner. Sabit
+//   govde secilmedi: kopru sabit govdeyi `isinla` her cagrida YENIDEN KURUYOR
+//   (bridge/engine_api.cpp teng_set_pos) — 60 birlik x 60 kare = saniyede 3600
+//   govde kurma.
+// - Kafa/silah/kalkan GOVDESIZ model (`model_koy`): `isinla` yalniz konum yazar.
+// - Belirlenimlilik: oyun mantigi sin/cos KULLANMAZ (yalniz sqrt; IEEE'de tam).
+//   sin/cos yalniz gorsel (kamera salinimi). Sebep Tuzaklar 8d: libm ulp farki
+//   iki platformda ayri dallar dogurur. Rastgelelik kendi LCG'miz (tohumlu).
+
+// ---- Cag ve birlik tablolari ----------------------------------------------
+int CAG_SAYISI = 5;
+str[] CAG_ADLARI = ["Taş Çağı", "Tunç Çağı", "Demir Çağı", "Sanayi Çağı", "Gelecek Çağı"];
+float[] CAG_CARPAN = [1.0, 2.2, 4.8, 10.0, 21.0];
+float[] CAG_XP = [500.0, 1700.0, 5000.0, 14000.0, 0.0];      // sonraki caga gecis esigi
+float[] US_CAN = [600.0, 1200.0, 2400.0, 4600.0, 8500.0];
+// Birlik adlari: cag * 3 + tur (0 yakin, 1 menzilli, 2 agir)
+str[] BIRLIK_ADLARI = ["Sopalı", "Sapancı", "Kaya Devi",
+                       "Mızrakçı", "Okçu", "Araba",
+                       "Şövalye", "Arbaletçi", "Koçbaşı",
+                       "Piyade", "Tüfekçi", "Tank",
+                       "Robot", "Lazerci", "Dev Robot"];
+str[] OZEL_ADLARI = ["Kayalar", "Ok Yağmuru", "Mancınık", "Topçu", "Lazer"];
+float[] B_FIYAT = [15.0, 25.0, 100.0];
+float[] B_CAN = [55.0, 40.0, 300.0];
+float[] B_HASAR = [12.0, 9.0, 30.0];
+float[] B_ARALIK = [1.0, 1.5, 1.7];
+float[] B_MENZIL = [0.0, 7.5, 0.0];
+float[] B_HIZ = [2.2, 1.9, 1.5];
+float[] B_EGITIM = [1.0, 1.4, 2.6];
+float[] B_BOY = [0.38, 0.33, 0.62];
+float[] KULE_FIYAT = [120.0, 300.0, 700.0, 1600.0, 3500.0];
+float[] KULE_HASAR = [10.0, 24.0, 50.0, 105.0, 220.0];
+float[] KULE_ARALIK = [1.4, 1.3, 1.2, 1.1, 0.9];
+float KULE_MENZIL = 13.0;
+float[] OZEL_HASAR = [45.0, 30.0, 190.0, 260.0, 900.0];
+float OZEL_BEKLE = 50.0;
+float ALTIN_BASLANGIC = 175.0;
+float OLDURME_ALTIN = 1.5;   // oldurulen birligin fiyati x
+float OLDURME_XP = 3.0;
+int KUYRUK_MAX = 5;
+int BIRLIK_MAX = 96;
+int MERMI_MAX = 96;
+int ENKAZ_MAX = 40;
+int EFEKT_MAX = 24;
+float YERCEKIMI = 9.81;
+
+// Zorluk: 0 Kolay, 1 Normal, 2 Zor — YALNIZ yapay zekayi etkiler.
+str[] ZORLUK_ADLARI = ["Kolay", "Normal", "Zor"];
+float[] YZ_ALTIN_CARPAN = [0.6, 1.0, 1.3];
+float[] YZ_PASIF = [2.2, 3.6, 4.8];
+float[] YZ_DUSUN = [1.2, 0.7, 0.45];
+float[] YZ_XP_CARPAN = [0.6, 0.9, 1.2];
+float OYUNCU_PASIF = 4.0;
+
+// ---- Renkler ----------------------------------------------------------------
+int[] RENK_GOVDE = [0, 0, 0, 0, 0, 0];   // taraf * 3 + tur (kurulumda doldurulur)
+int[] RENK_CAG = [0, 0, 0, 0, 0];
+int RENK_FLAS = 0;
+func renkleri_kur() {
+    RENK_GOVDE[0] = renk(60, 120, 230);
+    RENK_GOVDE[1] = renk(70, 190, 225);
+    RENK_GOVDE[2] = renk(40, 70, 175);
+    RENK_GOVDE[3] = renk(225, 70, 60);
+    RENK_GOVDE[4] = renk(245, 145, 70);
+    RENK_GOVDE[5] = renk(160, 40, 45);
+    RENK_CAG[0] = renk(150, 110, 70);
+    RENK_CAG[1] = renk(210, 145, 60);
+    RENK_CAG[2] = renk(175, 180, 190);
+    RENK_CAG[3] = renk(115, 125, 75);
+    RENK_CAG[4] = renk(130, 245, 255);
+    RENK_FLAS = renk(255, 250, 230);
+}
+
+// ---- Belirlenimli rastgele (LCG, 31 bit) ------------------------------------
+int g_tohum = 20261007;
+func rastgele(): float {
+    g_tohum = (g_tohum * 1103515245 + 12345) % 2147483648;
+    return toFloat(g_tohum) / 2147483648.0;
+}
+func rastgele_ara(float a, float b): float { return a + (b - a) * rastgele(); }
+
+// ---- Yol (navmesh) ----------------------------------------------------------
+float[] YOL_X = [];
+float[] YOL_Z = [];
+float[] YOL_S = [];
+int YOL_N = 0;
+float YOL_L = 1.0;
+bool g_yol_navmesh = false;
+
+// Iki kale kapisi arasinda Detour yolu. Navmesh yoksa duz cizgi (ve bunu
+// soyler): oyun yine oynanir, yalniz kayalar yolu bukmez.
+func yol_kur(Vec3 a, Vec3 b) {
+    while (len(YOL_X) < 34) { push(YOL_X, 0.0); push(YOL_Z, 0.0); push(YOL_S, 0.0); }
+    int n = 0;
+    if (nav_var()) {
+        float ax = a.x; float ay = a.y; float az = a.z;
+        float bx = b.x; float by = b.y; float bz = b.z;
+        if (nav_yakin(ax, ay, az)) { ax = nav_yakin_x(); ay = nav_yakin_y(); az = nav_yakin_z(); }
+        if (nav_yakin(bx, by, bz)) { bx = nav_yakin_x(); by = nav_yakin_y(); bz = nav_yakin_z(); }
+        n = nav_yol(ax, ay, az, bx, by, bz);
+        if (n > 32) { n = 32; }
+        if (nav_kismi()) { logla("UYARI yol: navmesh yolu KISMI (kale kapilari arasi kapali?) — duz yola dusuluyor"); n = 0; }
+    }
+    if (n >= 2) {
+        for (int k = 0; k < n; k++) { YOL_X[k] = nav_x(k); YOL_Z[k] = nav_z(k); }
+        g_yol_navmesh = true;
+    } else {
+        YOL_X[0] = a.x; YOL_Z[0] = a.z; YOL_X[1] = b.x; YOL_Z[1] = b.z;
+        n = 2;
+        g_yol_navmesh = false;
+        logla("UYARI yol: navmesh yok, kapilar arasi duz cizgi");
+    }
+    YOL_N = n;
+    YOL_S[0] = 0.0;
+    for (int k = 1; k < n; k++) {
+        float dx = YOL_X[k] - YOL_X[k - 1];
+        float dz = YOL_Z[k] - YOL_Z[k - 1];
+        YOL_S[k] = YOL_S[k - 1] + sqrt(dx * dx + dz * dz);
+    }
+    YOL_L = YOL_S[n - 1];
+    logla(t"yol: {n} nokta, {toInt(YOL_L * 10.0) / 10.0} m, navmesh {g_yol_navmesh}");
+}
+
+// Yol uzerinde s metredeki nokta (x, z) ve birim teget (tx, tz).
+func yol_nokta(float s): (float, float, float, float) {
+    if (s <= 0.0) { s = 0.0; }
+    if (s >= YOL_L) { s = YOL_L; }
+    int k = 1;
+    while (k < YOL_N - 1 && YOL_S[k] < s) { k += 1; }
+    float s0 = YOL_S[k - 1];
+    float uz = YOL_S[k] - s0;
+    float dx = YOL_X[k] - YOL_X[k - 1];
+    float dz = YOL_Z[k] - YOL_Z[k - 1];
+    if (uz < 0.0001) { return YOL_X[k], YOL_Z[k], 1.0, 0.0; }
+    float t = (s - s0) / uz;
+    return YOL_X[k - 1] + dx * t, YOL_Z[k - 1] + dz * t, dx / uz, dz / uz;
+}
+
+// ---- Taraf durumu (0 Kupler/oyuncu, 1 Kureler/yapay zeka) ------------------
+float[] g_altin = [0.0, 0.0];
+float[] g_xp = [0.0, 0.0];
+int[] g_cag = [0, 0];
+float[] g_us_can = [0.0, 0.0];
+float[] g_us_can_max = [0.0, 0.0];
+float[] g_ozel_bekle = [0.0, 0.0];
+int[] g_kuyruk = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // taraf * KUYRUK_MAX + k
+int[] g_kuyruk_n = [0, 0];
+float[] g_egitim_t = [0.0, 0.0];
+// Sayaclar (kapi ve sonuc ekrani)
+int[] g_dogan = [0, 0];
+int[] g_olen = [0, 0];
+int[] g_kule_kurulan = [0, 0];
+int[] g_kule_satilan = [0, 0];
+int[] g_ozel_kullanim = [0, 0];
+int[] g_cag_atlama = [0, 0];
+float[] g_us_hasar_verdi = [0.0, 0.0];
+float[] g_kazanilan_altin = [0.0, 0.0];
+int g_mermi_atilan = 0;
+int g_mermi_isabet = 0;
+int g_mermi_iska = 0;
+int g_alan_hasar = 0;
+int g_tetik_yedek = 0;       // tetik olayi gelmedigi icin yedekle kaleye gecen birlik (0 olmali)
+int g_yakin_vurus = 0;
+int g_enkaz_erken = 0;       // ENKAZ_MAX dolunca erken silinen parca
+int g_dolu_red = 0;          // havuz dolu: uretilemeyen birlik/mermi
+int g_kazanan = -1;          // -1 surer, 0 oyuncu, 1 yapay zeka
+float g_savas_t = 0.0;
+int g_zorluk = 1;
+float g_yz_dusun_t = 0.0;
+float g_yz_birikim = 0.0;    // yapay zekanin "dalga" icin biriktirdigi hedef
+int g_yz_plan = 0;           // siradaki planlanan birlik turu
+
+// Kale kapilari (dunya) ve on yuz (kapinin kale tarafindaki siniri).
+Vec3 g_kapi0 = { x: -33.0, y: 0.0, z: 0.0 };
+Vec3 g_kapi1 = { x: 33.0, y: 0.0, z: 0.0 };
+int[] g_us_bolge = [0, 0];   // kale onundeki tetik (kopru id)
+
+// ---- Modeller ---------------------------------------------------------------
+int M_KUP = -1;
+int M_KURE = -1;
+int M_CUBUK = -1;
+int M_KALKAN = -1;
+int M_ISIK_TURUNCU = -1;
+int M_ISIK_MAVI = -1;
+int M_LAZER_MAVI = -1;
+int M_LAZER_KIRMIZI = -1;
+int g_model_eksik = 0;
+
+func model_dene(str ad): int {
+    str yol = "assets/modeller/" + ad + ".gltf";
+    if (!file_exists(yol)) { logla("UYARI model yok: " + yol); g_model_eksik += 1; return -1; }
+    int m = model_yukle(yol);
+    if (m < 0) { g_model_eksik += 1; }
+    return m;
+}
+func modelleri_yukle() {
+    M_KUP = model_dene("kup");
+    M_KURE = model_dene("kure");
+    M_CUBUK = model_dene("cubuk");
+    M_KALKAN = model_dene("kalkan");
+    M_ISIK_TURUNCU = model_dene("isik_turuncu");
+    M_ISIK_MAVI = model_dene("isik_mavi");
+    M_LAZER_MAVI = model_dene("lazer_mavi");
+    M_LAZER_KIRMIZI = model_dene("lazer_kirmizi");
+}
+// Model yoksa (eksik varlik) sus parcasi kurulmaz: oyun yine oynanir.
+func sus(int m, float x, float y, float z, float olcek, int renk_): int {
+    if (m < 0) { return 0; }
+    return model_koy(m, x, y, z, olcek, renk_);
+}
+func sus_sil(int id) { if (id != 0 && canli(id)) { sil(id); } }
+
+// ---- Birlikler --------------------------------------------------------------
+struct Birlik {
+    int id;          // fizik govdesi (0 = bos yuva)
+    int bas;         // kafa (model)
+    int silah;       // silah / kalkan (model)
+    int taraf;
+    int tur;
+    int cag;
+    float p;         // kendi kalesinden yol boyunca ilerleme (m)
+    float yan;       // yanal ofset (m)
+    float can;
+    float can_max;
+    float sure_kalan;
+    float boy;       // yarim boy
+    float hiz;
+    float menzil;
+    float hasar;
+    float aralik;
+    bool usse;       // dusman kalesinin bolgesinde (tetik)
+    float kapida_t;  // kapida bekleme suresi (tetik yedegi)
+    float flas;
+    int hedef;       // -1 yok, -2 kale, >=0 birlik indeksi
+    float x;         // bu karenin govde konumu (okuma onbellegi)
+    float y;
+    float z;
+}
+Birlik[] birlikler = [];
+int[] yuva_birlik = [];      // kopru yuvasi -> birlik indeksi + 1 (0 = yok)
+int[] g_birlik_sayisi = [0, 0];
+
+func s_dunya(int taraf, float p): float { return taraf == 0 ? p : YOL_L - p; }
+
+func birlik_bos(): Birlik {
+    return { id: 0, bas: 0, silah: 0, taraf: 0, tur: 0, cag: 0, p: 0.0, yan: 0.0, can: 0.0, can_max: 0.0,
+             sure_kalan: 0.0, boy: 0.0, hiz: 0.0, menzil: 0.0, hasar: 0.0, aralik: 1.0, usse: false, kapida_t: 0.0,
+             flas: 0.0, hedef: -1, x: 0.0, y: 0.0, z: 0.0 };
+}
+
+func birlik_fiyat(int tur, int cag): float { return floor(B_FIYAT[tur] * CAG_CARPAN[cag] + 0.5); }
+func birlik_adi(int tur, int cag): str { return BIRLIK_ADLARI[cag * 3 + tur]; }
+func birlik_bul(int id): int {
+    if (id <= 0) { return -1; }
+    int k = yuva_birlik[yuva(id)] - 1;
+    if (k < 0) { return -1; }
+    if (birlikler[k].id != id) { return -1; }
+    return k;
+}
+
+// Dogus kapisi bos mu: ayni taraftan bir birlik ilk 1.4 m'de duruyorsa bekle.
+func kapi_bos(int taraf, float boy): bool {
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0 || birlikler[i].taraf != taraf) { continue; }
+        if (birlikler[i].p < boy + birlikler[i].boy + 0.3) { return false; }
+    }
+    return true;
+}
+
+func birlik_uret(int taraf, int tur): bool {
+    int yer = -1;
+    for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id == 0) { yer = i; break; } }
+    if (yer < 0) { g_dolu_red += 1; return false; }
+    int cag = g_cag[taraf];
+    float boy = B_BOY[tur] * (1.0 + 0.07 * cag);
+    float yan = rastgele_ara(-0.35, 0.35);
+    float x, z, tx, tz = yol_nokta(s_dunya(taraf, 0.0));
+    z += yan;
+    float y = boy + 0.02;
+    int renk_ = RENK_GOVDE[taraf * 3 + tur];
+    int id = 0;
+    if (taraf == 0) { id = kutu(x, y, z, boy, boy, boy, true, renk_); }
+    else { id = kure(x, y, z, boy, true, renk_); }
+    if (id == 0) { g_dolu_red += 1; return false; }
+    int kafa_m = taraf == 0 ? M_KUP : M_KURE;
+    float kafa_o = boy * (tur == 2 ? 0.8 : 0.95);
+    int bas = sus(kafa_m, x, y + boy + kafa_o * 0.5, z, kafa_o, RENK_CAG[cag]);
+    int silah = 0;
+    if (tur == 2) { silah = sus(M_KALKAN, x, y, z, boy * 1.7, RENK_CAG[cag]); }
+    else { silah = sus(M_CUBUK, x, y, z, boy * (tur == 1 ? 1.5 : 2.0), tur == 1 ? renk(120, 85, 50) : RENK_CAG[cag]); }
+    float m = CAG_CARPAN[cag];
+    Birlik b = birlik_bos();
+    b.id = id; b.bas = bas; b.silah = silah; b.taraf = taraf; b.tur = tur; b.cag = cag;
+    b.p = 0.0; b.yan = yan; b.can = B_CAN[tur] * m; b.can_max = b.can; b.sure_kalan = 0.3;
+    b.boy = boy; b.hiz = B_HIZ[tur] * (1.0 + 0.04 * cag); b.menzil = B_MENZIL[tur] + (tur == 1 ? 0.4 * cag : 0.0);
+    b.hasar = B_HASAR[tur] * m * (1.0 + ofke(taraf)); b.aralik = B_ARALIK[tur];
+    b.x = x; b.y = y; b.z = z;
+    birlikler[yer] = b;
+    yuva_birlik[yuva(id)] = yer + 1;
+    g_dogan[taraf] += 1;
+    g_birlik_sayisi[taraf] += 1;
+    ses_cal(SES_BIRLIK, 0.55, 0.12);
+    return true;
+}
+
+func birlik_kaldir(int i) {
+    int id = birlikler[i].id;
+    if (id == 0) { return; }
+    yuva_birlik[yuva(id)] = 0;
+    if (canli(id)) { sil(id); }
+    sus_sil(birlikler[i].bas);
+    sus_sil(birlikler[i].silah);
+    g_birlik_sayisi[birlikler[i].taraf] -= 1;
+    birlikler[i].id = 0;
+    birlikler[i].bas = 0;
+    birlikler[i].silah = 0;
+}
+
+func birlik_ol(int i, int katil_taraf) {
+    int taraf = birlikler[i].taraf;
+    float deger = birlik_fiyat(birlikler[i].tur, birlikler[i].cag);
+    if (katil_taraf >= 0 && katil_taraf != taraf) {
+        float a = floor(deger * OLDURME_ALTIN + 0.5);
+        g_altin[katil_taraf] += a;
+        g_kazanilan_altin[katil_taraf] += a;
+        float xp = deger * OLDURME_XP;
+        if (katil_taraf == 1) { xp = xp * YZ_XP_CARPAN[g_zorluk]; }
+        g_xp[katil_taraf] += xp;
+        if (katil_taraf == 0) { yazi_ucur(birlikler[i].x, birlikler[i].y + 1.2, birlikler[i].z, t"+{toInt(a)}", renk(255, 215, 80)); }
+    }
+    g_olen[taraf] += 1;
+    enkaz_sac(birlikler[i].x, birlikler[i].y, birlikler[i].z, taraf, birlikler[i].tur, birlikler[i].boy, RENK_GOVDE[taraf * 3 + birlikler[i].tur]);
+    ses_cal(SES_PATLAMA, 0.5, 0.06);
+    birlik_kaldir(i);
+}
+
+func hasar_ver(int i, float h, int kaynak_taraf) {
+    if (birlikler[i].id == 0) { return; }
+    birlikler[i].can -= h;
+    birlikler[i].flas = 0.12;
+    if (birlikler[i].id != 0) { renk_ver(birlikler[i].id, RENK_FLAS); }
+    if (birlikler[i].can <= 0.0) { birlik_ol(i, kaynak_taraf); }
+}
+
+// Her kare: konum onbellegi + ileri komsu taramasi + karar + hareket.
+func birlikleri_guncelle(float d) {
+    // 1) Konumlar (govde fizikten): bu karede bir kez okunur.
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        int id = birlikler[i].id;
+        if (id == 0) { continue; }
+        birlikler[i].x = konum_x(id);
+        birlikler[i].y = konum_y(id);
+        birlikler[i].z = konum_z(id);
+        if (birlikler[i].y < -6.0) { birlik_ol(i, -1); }   // haritadan dustu (patlama savurdu)
+    }
+    // 2) Kararlar.
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0) { continue; }
+        int taraf = birlikler[i].taraf;
+        float p = birlikler[i].p;
+        float boy = birlikler[i].boy;
+        float s_ben = s_dunya(taraf, p);
+        // En yakin onundeki DUSMAN (s uzayinda bosluk) ve MUTTEFIK.
+        float dusman_bosluk = 9999.0;
+        int dusman = -1;
+        float muttefik_bosluk = 9999.0;
+        for (int j = 0; j < BIRLIK_MAX; j++) {
+            if (j == i || birlikler[j].id == 0) { continue; }
+            if (birlikler[j].taraf == taraf) {
+                float on = birlikler[j].p - p;
+                if (on > 0.0) {
+                    float b = on - boy - birlikler[j].boy;
+                    if (b < muttefik_bosluk) { muttefik_bosluk = b; }
+                } else if (on == 0.0 && j < i) {
+                    // ayni noktada dogan iki birlik: dusuk indeks onde sayilir
+                    float b2 = 0.0 - boy - birlikler[j].boy;
+                    if (b2 < muttefik_bosluk) { muttefik_bosluk = b2; }
+                }
+            } else {
+                float s_o = s_dunya(birlikler[j].taraf, birlikler[j].p);
+                float ara = taraf == 0 ? s_o - s_ben : s_ben - s_o;
+                float b = ara - boy - birlikler[j].boy;
+                if (ara > -0.5 && b < dusman_bosluk) { dusman_bosluk = b; dusman = j; }
+            }
+        }
+        if (birlikler[i].sure_kalan > 0.0) { birlikler[i].sure_kalan -= d; }
+        if (birlikler[i].flas > 0.0) {
+            birlikler[i].flas -= d;
+            if (birlikler[i].flas <= 0.0) { renk_ver(birlikler[i].id, RENK_GOVDE[taraf * 3 + birlikler[i].tur]); }
+        }
+        bool yurur = true;
+        float temas = 0.35;
+        // Saldiri: yakin dovuscu TEMASTA vurur; menzilli menzilindeki dusmana
+        // YURURKEN ates eder ve ancak temasta (ya da muttefik onunu kesince)
+        // durur. Ilk surumde menzilli menzile girince DURUYORDU: sirada onde
+        // ise arkasindaki yakin dovusculeri tikiyordu ve 7200 karede tek bir
+        // yakin vurus olmadi (olculdu, otopilot 2026-10-07).
+        bool temasta = dusman >= 0 && dusman_bosluk <= temas + 0.02;
+        bool menzilde = dusman >= 0 && (temasta || (birlikler[i].menzil > 0.0 && dusman_bosluk <= birlikler[i].menzil));
+        if (temasta) { yurur = false; }
+        if (menzilde) {
+            birlikler[i].hedef = dusman;
+            if (birlikler[i].sure_kalan <= 0.0) {
+                birlikler[i].sure_kalan = birlikler[i].aralik;
+                if (birlikler[i].menzil > 0.0) { menzilli_ates(i, dusman); }
+                else { yakin_vur(i, dusman); }
+            }
+        } else {
+            birlikler[i].hedef = -1;
+        }
+        // Muttefigin arkasinda sira bekle.
+        if (muttefik_bosluk < 0.3) { yurur = false; }
+        // Dusman kalesi: kapiya varinca dur; tetik bolgesindeyse kaleye vur.
+        float sinir = YOL_L - boy - 0.2;
+        if (p >= sinir - 0.01) {
+            yurur = false;
+            birlikler[i].kapida_t += d;
+            if (!birlikler[i].usse && birlikler[i].kapida_t > 1.5) {
+                // Tetik olayi gelmedi: yedek yol GORUNUR sayilir (kapi 0 bekler).
+                birlikler[i].usse = true;
+                g_tetik_yedek += 1;
+                logla(t"UYARI tetik yedegi: birlik {i} kapida 1.5 s, us bolgesi olayi gelmedi");
+            }
+            if (!menzilde && birlikler[i].usse && birlikler[i].sure_kalan <= 0.0) {
+                birlikler[i].sure_kalan = birlikler[i].aralik;
+                birlikler[i].hedef = -2;
+                kaleye_vur(i);
+            }
+        }
+        if (yurur && g_kazanan < 0) {
+            float adim = birlikler[i].hiz * d;
+            float ileri = min(adim, muttefik_bosluk - 0.3);
+            if (dusman >= 0) { ileri = min(ileri, dusman_bosluk - temas); }
+            ileri = min(ileri, sinir - p);
+            if (ileri > 0.0) { birlikler[i].p = p + ileri; }
+        }
+        govde_sur(i);
+    }
+}
+
+// Govdeyi yol noktasina sur: ileri besleme (teget x hiz) + konum hatasi
+// duzeltmesi. Dikey hiz fizigin (yuru_v korur).
+func govde_sur(int i) {
+    int taraf = birlikler[i].taraf;
+    float s = s_dunya(taraf, birlikler[i].p);
+    float x, z, tx, tz = yol_nokta(s);
+    z += birlikler[i].yan;
+    float yon = taraf == 0 ? 1.0 : -1.0;
+    float vx = (x - birlikler[i].x) * 5.0;
+    float vz = (z - birlikler[i].z) * 5.0;
+    float v2 = vx * vx + vz * vz;
+    float tavan = 7.0;
+    if (v2 > tavan * tavan) { float k = tavan / sqrt(v2); vx = vx * k; vz = vz * k; }
+    int id = birlikler[i].id;
+    yuru(id, vx, vz);
+    // Sus parcalari govdeyi izler (govdesiz model: yalniz konum yazilir).
+    float bx = birlikler[i].x;
+    float by = birlikler[i].y;
+    float bz = birlikler[i].z;
+    float boy = birlikler[i].boy;
+    if (birlikler[i].bas != 0) {
+        float ko = boy * (birlikler[i].tur == 2 ? 0.8 : 0.95);
+        isinla(birlikler[i].bas, bx, by + boy + ko * 0.5, bz);
+    }
+    if (birlikler[i].silah != 0) {
+        float salla = 0.0;
+        if (birlikler[i].hedef >= 0 && birlikler[i].sure_kalan > birlikler[i].aralik - 0.2) { salla = 0.25; }
+        if (birlikler[i].tur == 2) { isinla(birlikler[i].silah, bx + yon * (boy + 0.12), by, bz); }
+        else { isinla(birlikler[i].silah, bx + yon * (boy * 0.9 + salla), by + boy * 0.2 + salla * 0.5, bz + boy * 0.6); }
+    }
+}
+
+func yakin_vur(int i, int j) {
+    g_yakin_vurus += 1;
+    hasar_ver(j, birlikler[i].hasar, birlikler[i].taraf);
+    // Darbe hissi: hedefin govdesine kucuk geri itme (fizik; yol kovalamasi geri toplar).
+    if (birlikler[j].id != 0) {
+        float yon = birlikler[i].taraf == 0 ? 1.0 : -1.0;
+        float kuvvet = birlikler[i].tur == 2 ? 2.6 : 1.2;
+        itme(birlikler[j].id, yon * kuvvet, 1.0, 0.0);
+    }
+    ses_cal(SES_VURUS, 0.45, 0.07);
+}
+
+func kaleye_vur(int i) {
+    int dusman = 1 - birlikler[i].taraf;
+    float h = birlikler[i].hasar;
+    g_us_can[dusman] -= h;
+    g_us_hasar_verdi[birlikler[i].taraf] += h;
+    float xp = h * 0.25;
+    if (birlikler[i].taraf == 1) { xp = xp * YZ_XP_CARPAN[g_zorluk]; }
+    g_xp[birlikler[i].taraf] += xp;
+    if (dusman == 0) { g_kale_sarsinti = 0.25; }
+    ses_cal(SES_US_HASAR, 0.6, 0.15);
+    if (g_us_can[dusman] <= 0.0 && g_kazanan < 0) {
+        g_us_can[dusman] = 0.0;
+        g_kazanan = birlikler[i].taraf;
+        logla(t"SAVAS BITTI: kazanan taraf {g_kazanan} ({toInt(g_savas_t)} s)");
+        kale_yikildi(dusman);
+    }
+}
+
+// ---- Mermiler ---------------------------------------------------------------
+// tur: 0 tas/ok/kursun (birlik), 1 kule, 2 kaya (ozel guc, dusunce enkaz olur),
+//      3 gulle/bomba (alan hasari), 4 ok yagmuru
+struct Mermi {
+    int id;
+    int isik;      // pesindeki isiyan model (0 yok)
+    int taraf;
+    int tur;
+    float hasar;
+    float alan;    // alan hasari yaricapi (0 = tek hedef)
+    float omur;
+}
+Mermi[] mermiler = [];
+int[] yuva_mermi = [];
+
+func mermi_bos(): Mermi { return { id: 0, isik: 0, taraf: 0, tur: 0, hasar: 0.0, alan: 0.0, omur: 0.0 }; }
+
+// (x,y,z)'den (hx,hy,hz)'ye balistik atis: ucus suresi mesafeden.
+func mermi_at(int taraf, int tur, float x, float y, float z, float hx, float hy, float hz, float hasar, float alan, float hiz, float boy, int renk_, int isik_m): bool {
+    int yer = -1;
+    for (int i = 0; i < MERMI_MAX; i++) { if (mermiler[i].id == 0) { yer = i; break; } }
+    if (yer < 0) { g_dolu_red += 1; return false; }
+    float dx = hx - x;
+    float dy = hy - y;
+    float dz = hz - z;
+    float uz = sqrt(dx * dx + dz * dz);
+    float t = uz / hiz;
+    if (t < 0.3) { t = 0.3; }
+    if (t > 1.6) { t = 1.6; }
+    int id = 0;
+    if (tur == 2) { id = kutu(x, y, z, boy, boy, boy, true, renk_); }
+    else { id = kure(x, y, z, boy, true, renk_); }
+    if (id == 0) { g_dolu_red += 1; return false; }
+    hiz_ver(id, dx / t, dy / t + 0.5 * YERCEKIMI * t, dz / t);
+    if (!betik_ata(id, "mermi")) { sil(id); return false; }
+    int isik_id = 0;
+    if (isik_m >= 0) { isik_id = sus(isik_m, x, y, z, boy * 2.6, BEYAZ); }
+    Mermi m = mermi_bos();
+    m.id = id; m.isik = isik_id; m.taraf = taraf; m.tur = tur; m.hasar = hasar; m.alan = alan; m.omur = 4.0;
+    mermiler[yer] = m;
+    yuva_mermi[yuva(id)] = yer + 1;
+    g_mermi_atilan += 1;
+    return true;
+}
+
+func mermi_bul(int id): int {
+    if (id <= 0) { return -1; }
+    int k = yuva_mermi[yuva(id)] - 1;
+    if (k < 0 || mermiler[k].id != id) { return -1; }
+    return k;
+}
+
+func mermi_kaldir(int k) {
+    int id = mermiler[k].id;
+    if (id == 0) { return; }
+    yuva_mermi[yuva(id)] = 0;
+    sus_sil(mermiler[k].isik);
+    if (canli(id)) { sil(id); }
+    mermiler[k].id = 0;
+    mermiler[k].isik = 0;
+}
+
+func menzilli_ates(int i, int j) {
+    int cag = birlikler[i].cag;
+    float hiz = 9.0 + cag * 2.5;
+    float boy = 0.09 + 0.01 * cag;
+    int renk_ = cag >= 4 ? renk(140, 240, 255) : (cag >= 3 ? renk(60, 60, 60) : renk(120, 100, 80));
+    int isik_m = cag >= 4 ? (birlikler[i].taraf == 0 ? M_ISIK_MAVI : M_ISIK_TURUNCU) : -1;
+    float yon = birlikler[i].taraf == 0 ? 1.0 : -1.0;
+    mermi_at(birlikler[i].taraf, 0, birlikler[i].x + yon * (birlikler[i].boy + 0.25), birlikler[i].y + birlikler[i].boy + 0.35, birlikler[i].z,
+             birlikler[j].x, birlikler[j].y, birlikler[j].z, birlikler[i].hasar, 0.0, hiz, boy, renk_, isik_m);
+    ses_cal(SES_OK, 0.4, 0.08);
+}
+
+// Kancanin (davranis/mermi.tpr) kuyrugunu isle: bir sonraki karenin basinda.
+func mermi_isabetleri() {
+    int n = mermi_isabet_n;
+    for (int k = 0; k < n; k++) {
+        int mi = mermi_bul(mermi_isabet_m[k]);
+        if (mi < 0) { continue; }
+        int h = mermi_isabet_h[k];
+        int hb = birlik_bul(h);
+        int tur = mermiler[mi].tur;
+        float mx = konum_x(mermiler[mi].id);
+        float my = konum_y(mermiler[mi].id);
+        float mz = konum_z(mermiler[mi].id);
+        if (hb >= 0) {
+            if (birlikler[hb].taraf == mermiler[mi].taraf) { continue; }  // dost birlige degdi: yoluna devam
+            g_mermi_isabet += 1;
+            if (mermiler[mi].alan > 0.0) { alan_hasari(mx, my, mz, mermiler[mi].alan, mermiler[mi].hasar, mermiler[mi].taraf); }
+            else { hasar_ver(hb, mermiler[mi].hasar, mermiler[mi].taraf); }
+            mermi_bitti(mi, tur, true);
+        } else if (h == 0) {
+            // Zemin ya da sahne govdesi (kaya, kale).
+            if (mermiler[mi].alan > 0.0) { alan_hasari(mx, my, mz, mermiler[mi].alan, mermiler[mi].hasar, mermiler[mi].taraf); g_mermi_isabet += 1; }
+            else { g_mermi_iska += 1; }
+            mermi_bitti(mi, tur, false);
+        } else if (mermi_bul(h) >= 0 || tur == 2) {
+            // mermi-mermi ya da kaya-enkaz: yok say
+        }
+    }
+    mermi_isabet_n = 0;
+}
+
+// Kaya yere dusunce enkaz olur (betik degisir: mermi_bitir -> enkaz_baslat).
+func mermi_bitti(int mi, int tur, bool vurdu) {
+    if (tur == 2) {
+        int id = mermiler[mi].id;
+        yuva_mermi[yuva(id)] = 0;
+        sus_sil(mermiler[mi].isik);
+        mermiler[mi].id = 0;
+        mermiler[mi].isik = 0;
+        if (canli(id) && betik_ata(id, "enkaz")) { enkaz_halkaya(id, 2.0); }
+        else if (canli(id)) { sil(id); }
+        return;
+    }
+    if (tur == 3) { patlama_efekti(konum_x(mermiler[mi].id), konum_y(mermiler[mi].id), konum_z(mermiler[mi].id), 1.0); }
+    mermi_kaldir(mi);
+}
+
+func mermileri_guncelle(float d) {
+    for (int k = 0; k < MERMI_MAX; k++) {
+        int id = mermiler[k].id;
+        if (id == 0) { continue; }
+        mermiler[k].omur -= d;
+        float y = konum_y(id);
+        if (mermiler[k].omur <= 0.0 || y < -5.0) { g_mermi_iska += 1; mermi_kaldir(k); continue; }
+        if (mermiler[k].isik != 0) { isinla(mermiler[k].isik, konum_x(id), y, konum_z(id)); }
+    }
+}
+
+// Alan hasari: kure sorgusu (kopru varliklari, yakindan uzaga). Dusman
+// birliklere hasar (uzakliga gore azalan) + savurma; enkaz ve mermiler de itilir.
+func alan_hasari(float x, float y, float z, float r, float hasar, int taraf) {
+    g_alan_hasar += 1;
+    int n = yakinlar(x, y, z, r, 0);
+    for (int k = 0; k < n; k++) {
+        int id = yakin_id(k);
+        // Sorgu sonucu ANLIK: dongude bir olum enkaz halkasindan eski parcayi
+        // silebilir (enkaz_halkaya), sonraki sonuc olu id olur — once sor.
+        if (!canli(id)) { continue; }
+        float u = yakin_uzaklik(k);
+        float oran = 1.0 - u / (r + 0.001) * 0.6;
+        if (oran < 0.2) { oran = 0.2; }
+        int b = birlik_bul(id);
+        float dx = konum_x(id) - x;
+        float dz = konum_z(id) - z;
+        float l = sqrt(dx * dx + dz * dz) + 0.3;
+        if (b >= 0) {
+            if (birlikler[b].taraf == taraf) { continue; }
+            itme(id, dx / l * 3.0 * oran, 3.5 * oran, dz / l * 3.0 * oran);
+            hasar_ver(b, hasar * oran, taraf);
+        } else if (mermi_bul(id) < 0 && eng_is_dynamic(id)) {
+            itme(id, dx / l * 4.0 * oran, 4.0 * oran, dz / l * 4.0 * oran);
+        }
+    }
+}
+
+// ---- Enkaz (olen birligin parcalari) ------------------------------------------
+int[] g_enkaz_halka = [];
+int g_enkaz_bas = 0;
+
+func enkaz_halkaya(int id, float omur) {
+    enkaz_omur_ver(id, omur);
+    int eski = g_enkaz_halka[g_enkaz_bas];
+    if (eski != 0 && canli(eski) && betik_adi(eski) == "enkaz") { sil(eski); g_enkaz_erken += 1; }
+    g_enkaz_halka[g_enkaz_bas] = id;
+    g_enkaz_bas = (g_enkaz_bas + 1) % ENKAZ_MAX;
+}
+
+func enkaz_sac(float x, float y, float z, int taraf, int tur, float boy, int renk_) {
+    int n = tur == 2 ? 6 : 4;
+    float pb = boy * 0.42;
+    for (int k = 0; k < n; k++) {
+        float ox = rastgele_ara(-boy, boy) * 0.6;
+        float oz = rastgele_ara(-boy, boy) * 0.6;
+        float oy = rastgele_ara(0.0, boy);
+        int id = 0;
+        if (taraf == 0) { id = kutu(x + ox, y + oy, z + oz, pb, pb, pb, true, renk_); }
+        else { id = kure(x + ox, y + oy, z + oz, pb, true, renk_); }
+        if (id == 0) { g_dolu_red += 1; continue; }
+        itme(id, rastgele_ara(-3.0, 3.0), rastgele_ara(2.5, 5.5), rastgele_ara(-2.0, 2.0));
+        if (betik_ata(id, "enkaz")) { enkaz_halkaya(id, rastgele_ara(2.0, 3.2)); }
+        else { sil(id); }
+    }
+}
+
+// ---- Efektler (patlama isigi + buyuyen isiyan kure) -------------------------
+struct Efekt {
+    int isik;     // nokta isik (0 yok)
+    int kure;     // isiyan model (0 yok)
+    float t;
+    float omur;
+    float olcek;
+    float siddet;
+}
+Efekt[] efektler = [];
+
+func patlama_efekti(float x, float y, float z, float buyukluk) {
+    int yer = -1;
+    for (int i = 0; i < EFEKT_MAX; i++) { if (efektler[i].isik == 0 && efektler[i].kure == 0) { yer = i; break; } }
+    if (yer < 0) { return; }
+    efektler[yer].isik = isik(x, y + 0.8, z, renk(255, 170, 80), 8.0 * buyukluk, 7.0 * buyukluk);
+    efektler[yer].kure = sus(M_ISIK_TURUNCU, x, y + 0.3, z, 0.4, BEYAZ);
+    efektler[yer].t = 0.0;
+    efektler[yer].omur = 0.35;
+    efektler[yer].olcek = 1.6 * buyukluk;
+    efektler[yer].siddet = 8.0 * buyukluk;
+    ses_cal(SES_PATLAMA, 0.7, 0.05);
+}
+
+func efektleri_guncelle(float d) {
+    for (int i = 0; i < EFEKT_MAX; i++) {
+        if (efektler[i].isik == 0 && efektler[i].kure == 0) { continue; }
+        efektler[i].t += d;
+        float k = efektler[i].t / efektler[i].omur;
+        if (k >= 1.0) {
+            sus_sil(efektler[i].isik);
+            sus_sil(efektler[i].kure);
+            efektler[i].isik = 0;
+            efektler[i].kure = 0;
+            continue;
+        }
+        if (efektler[i].kure != 0) { olcek_ver(efektler[i].kure, 0.3 + efektler[i].olcek * k); }
+    }
+}
+
+// ---- Kuleler ----------------------------------------------------------------
+struct Kule {
+    int govde;
+    int tepe;
+    int cag;
+    float sure_kalan;
+    float x;
+    float y;
+    float z;
+}
+Kule[] kuleler = [];   // taraf * 3 + sira
+
+func kule_bos(): Kule { return { govde: 0, tepe: 0, cag: 0, sure_kalan: 0.0, x: 0.0, y: 0.0, z: 0.0 }; }
+func kule_var(int taraf, int sira): bool { return kuleler[taraf * 3 + sira].govde != 0; }
+func kule_fiyat(int cag): float { return KULE_FIYAT[cag]; }
+
+func kule_kur(int taraf, int sira): bool {
+    int k = taraf * 3 + sira;
+    if (kuleler[k].govde != 0) { return false; }
+    int si = kule_yuvasi_dizini(taraf, sira);
+    if (si < 0) { return false; }
+    int cag = g_cag[taraf];
+    float fiyat = kule_fiyat(cag);
+    if (g_altin[taraf] < fiyat) { return false; }
+    g_altin[taraf] -= fiyat;
+    Vec3 p = sahne_konum(si);
+    float h = 0.55 + 0.1 * cag;
+    int g = 0;
+    int t = 0;
+    if (taraf == 0) {
+        g = kutu(p.x, p.y + 0.15 + h, p.z, 0.5, h, 0.5, false, RENK_GOVDE[2]);
+        t = sus(M_KUP, p.x, p.y + 0.15 + h * 2.0 + 0.3, p.z, 0.7, RENK_CAG[cag]);
+    } else {
+        g = kure(p.x, p.y + 0.15 + h, p.z, h, false, RENK_GOVDE[5]);
+        t = sus(M_KURE, p.x, p.y + 0.15 + h * 2.0 + 0.3, p.z, 0.75, RENK_CAG[cag]);
+    }
+    kuleler[k].govde = g;
+    kuleler[k].tepe = t;
+    kuleler[k].cag = cag;
+    kuleler[k].sure_kalan = 0.5;
+    kuleler[k].x = p.x;
+    kuleler[k].y = p.y + 0.15 + h * 2.0 + 0.3;
+    kuleler[k].z = p.z;
+    g_kule_kurulan[taraf] += 1;
+    ses_cal(SES_TIKLA, 0.6, 0.05);
+    logla(t"kule kuruldu: taraf {taraf} sira {sira} cag {cag} ({toInt(fiyat)} altin)");
+    return true;
+}
+
+func kule_sat(int taraf, int sira): bool {
+    int k = taraf * 3 + sira;
+    if (kuleler[k].govde == 0) { return false; }
+    float geri = floor(kule_fiyat(kuleler[k].cag) * 0.5);
+    g_altin[taraf] += geri;
+    sus_sil(kuleler[k].govde);
+    sus_sil(kuleler[k].tepe);
+    kuleler[k].govde = 0;
+    kuleler[k].tepe = 0;
+    g_kule_satilan[taraf] += 1;
+    ses_cal(SES_ALTIN, 0.6, 0.05);
+    return true;
+}
+
+// Kule hedefi: kure sorgusu (motorun yakinlik sorgusu, yakindan uzaga) — ilk
+// DUSMAN birlik.
+func kuleleri_guncelle(float d) {
+    for (int k = 0; k < 6; k++) {
+        if (kuleler[k].govde == 0) { continue; }
+        int taraf = k / 3;
+        if (kuleler[k].sure_kalan > 0.0) { kuleler[k].sure_kalan -= d; continue; }
+        int n = yakinlar(kuleler[k].x, 0.6, kuleler[k].z, KULE_MENZIL, kuleler[k].govde);
+        int hedef = -1;
+        for (int j = 0; j < n; j++) {
+            int b = birlik_bul(yakin_id(j));
+            if (b >= 0 && birlikler[b].taraf != taraf) { hedef = b; break; }
+        }
+        if (hedef < 0) { kuleler[k].sure_kalan = 0.25; continue; }
+        int cag = kuleler[k].cag;
+        kuleler[k].sure_kalan = KULE_ARALIK[cag];
+        int isik_m = cag >= 3 ? (taraf == 0 ? M_ISIK_MAVI : M_ISIK_TURUNCU) : -1;
+        mermi_at(taraf, 1, kuleler[k].x, kuleler[k].y + 0.4, kuleler[k].z, birlikler[hedef].x, birlikler[hedef].y, birlikler[hedef].z,
+                 KULE_HASAR[cag], 0.0, 14.0, 0.13, renk(90, 90, 95), isik_m);
+        ses_cal(SES_OK, 0.35, 0.1);
+    }
+}
+
+// ---- Ozel gucler ----------------------------------------------------------------
+// Hedef bolgesi: dusmanin ONDEKI birligi (bizim kaleye en yakin) — yoksa orta hat.
+func on_dusman_s(int taraf): float {
+    float en = taraf == 0 ? YOL_L : 0.0;
+    bool var_ = false;
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0 || birlikler[i].taraf == taraf) { continue; }
+        float s = s_dunya(birlikler[i].taraf, birlikler[i].p);
+        if (taraf == 0 && s < en) { en = s; var_ = true; }
+        if (taraf == 1 && s > en) { en = s; var_ = true; }
+    }
+    if (!var_) { return YOL_L * 0.5; }
+    return en;
+}
+
+// Lazer (Gelecek cagi): yukaridan inen isin hedef bolgeyi tarar.
+int[] g_lazer_model = [0, 0];
+int[] g_lazer_isik = [0, 0, 0, 0];
+float[] g_lazer_s = [0.0, 0.0];
+float[] g_lazer_t = [0.0, 0.0];
+float[] g_lazer_hasar = [0.0, 0.0];
+float LAZER_SURE = 2.6;
+
+func ozel_hazir(int taraf): bool { return g_ozel_bekle[taraf] <= 0.0 && g_lazer_t[taraf] <= 0.0; }
+
+func ozel_guc(int taraf): bool {
+    if (!ozel_hazir(taraf)) { return false; }
+    int cag = g_cag[taraf];
+    float h = OZEL_HASAR[cag];
+    float s0 = on_dusman_s(taraf);
+    float yon = taraf == 0 ? 1.0 : -1.0;
+    g_ozel_bekle[taraf] = OZEL_BEKLE;
+    g_ozel_kullanim[taraf] += 1;
+    ses_cal(SES_OZEL_GUC, 0.8, 0.2);
+    logla(t"OZEL GUC: taraf {taraf} {OZEL_ADLARI[cag]} (s {toInt(s0)})");
+    if (cag == 4) {
+        g_lazer_s[taraf] = s0 - yon * 2.0;
+        g_lazer_t[taraf] = LAZER_SURE;
+        g_lazer_hasar[taraf] = h;
+        float x, z, tx, tz = yol_nokta(g_lazer_s[taraf]);
+        g_lazer_model[taraf] = sus(taraf == 0 ? M_LAZER_MAVI : M_LAZER_KIRMIZI, x, 7.0, z, 14.0, BEYAZ);
+        int renk_ = taraf == 0 ? renk(90, 180, 255) : renk(255, 90, 80);
+        g_lazer_isik[taraf * 2] = isik(x, 1.0, z + 1.0, renk_, 14.0, 8.0);
+        g_lazer_isik[taraf * 2 + 1] = isik(x, 5.0, z + 1.0, renk_, 8.0, 8.0);
+        return true;
+    }
+    int n = 10;
+    if (cag == 1) { n = 22; }
+    if (cag == 2) { n = 5; }
+    if (cag == 3) { n = 8; }
+    for (int k = 0; k < n; k++) {
+        float s = s0 + yon * rastgele_ara(-1.5, 9.0);
+        float x, z, tx, tz = yol_nokta(s);
+        z += rastgele_ara(-1.2, 1.2);
+        float kx = x - yon * rastgele_ara(1.0, 4.0);
+        float ky = 12.0 + rastgele_ara(0.0, 5.0);
+        if (cag == 0) {
+            mermi_at(taraf, 2, kx, ky, z, x, 0.3, z, h, 0.0, 6.0 + rastgele_ara(0.0, 2.0), rastgele_ara(0.28, 0.42), renk(110, 105, 100), -1);
+        } else if (cag == 1) {
+            mermi_at(taraf, 4, kx, ky, z, x, 0.3, z, h, 0.0, 9.0, 0.08, renk(255, 150, 60), k % 3 == 0 ? M_ISIK_TURUNCU : -1);
+        } else if (cag == 2) {
+            mermi_at(taraf, 3, kx - yon * 6.0, ky - 4.0, z, x, 0.3, z, h, 2.2, 7.0, 0.42, renk(70, 70, 75), -1);
+        } else {
+            mermi_at(taraf, 3, kx, ky + 4.0, z, x, 0.3, z, h, 2.8, 8.0, 0.22, renk(40, 40, 40), M_ISIK_TURUNCU);
+        }
+    }
+    return true;
+}
+
+func lazerleri_guncelle(float d) {
+    for (int taraf = 0; taraf < 2; taraf++) {
+        if (g_lazer_t[taraf] <= 0.0) { continue; }
+        float yon = taraf == 0 ? 1.0 : -1.0;
+        g_lazer_t[taraf] -= d;
+        g_lazer_s[taraf] += yon * 6.0 * d;
+        float x, z, tx, tz = yol_nokta(g_lazer_s[taraf]);
+        if (g_lazer_model[taraf] != 0) { isinla(g_lazer_model[taraf], x, 7.0, z); }
+        if (g_lazer_isik[taraf * 2] != 0) { isinla(g_lazer_isik[taraf * 2], x, 1.0, z + 1.0); }
+        if (g_lazer_isik[taraf * 2 + 1] != 0) { isinla(g_lazer_isik[taraf * 2 + 1], x, 5.0, z + 1.0); }
+        // Isinin altindaki dusmanlar: saniyede `hasar` (kure sorgusu).
+        int n = yakinlar(x, 0.8, z, 1.6, 0);
+        for (int k = 0; k < n; k++) {
+            int b = birlik_bul(yakin_id(k));
+            if (b >= 0 && birlikler[b].taraf != taraf) { hasar_ver(b, g_lazer_hasar[taraf] * d, taraf); }
+        }
+        if (g_lazer_t[taraf] <= 0.0) { lazer_kapat(taraf); }
+    }
+}
+func lazer_kapat(int taraf) {
+    g_lazer_t[taraf] = 0.0;
+    sus_sil(g_lazer_model[taraf]);
+    sus_sil(g_lazer_isik[taraf * 2]);
+    sus_sil(g_lazer_isik[taraf * 2 + 1]);
+    g_lazer_model[taraf] = 0;
+    g_lazer_isik[taraf * 2] = 0;
+    g_lazer_isik[taraf * 2 + 1] = 0;
+}
+
+// ---- Egitim kuyrugu ve cag ---------------------------------------------------
+func kuyruga_ekle(int taraf, int tur): bool {
+    if (g_kuyruk_n[taraf] >= KUYRUK_MAX) { return false; }
+    float f = birlik_fiyat(tur, g_cag[taraf]);
+    if (g_altin[taraf] < f) { return false; }
+    g_altin[taraf] -= f;
+    g_kuyruk[taraf * KUYRUK_MAX + g_kuyruk_n[taraf]] = tur;
+    g_kuyruk_n[taraf] += 1;
+    return true;
+}
+
+func egitim_suresi(int tur, int cag): float { return B_EGITIM[tur] * (1.0 + 0.08 * cag); }
+
+func egitimi_guncelle(float d) {
+    for (int taraf = 0; taraf < 2; taraf++) {
+        if (g_kuyruk_n[taraf] == 0) { g_egitim_t[taraf] = 0.0; continue; }
+        int tur = g_kuyruk[taraf * KUYRUK_MAX];
+        float sure = egitim_suresi(tur, g_cag[taraf]);
+        if (g_egitim_t[taraf] < sure) { g_egitim_t[taraf] += d; continue; }
+        float boy = B_BOY[tur] * (1.0 + 0.07 * g_cag[taraf]);
+        if (!kapi_bos(taraf, boy)) { continue; }
+        if (birlik_uret(taraf, tur)) {
+            for (int k = 0; k + 1 < g_kuyruk_n[taraf]; k++) { g_kuyruk[taraf * KUYRUK_MAX + k] = g_kuyruk[taraf * KUYRUK_MAX + k + 1]; }
+            g_kuyruk_n[taraf] -= 1;
+            g_egitim_t[taraf] = 0.0;
+        }
+    }
+}
+
+// Son çağda XP boşa gitmesin: eşiğin üstündeki her 6000 XP o tarafın YENİ
+// birliklerine +%10 hasar (en çok +%50). Neden: simetrik eşleşmede iki taraf
+// Gelecek Çağı'nda kilitleniyordu (ölçüldü P20 Pro 2026-10-07: 6 dk'da iki
+// kale de 8500/8500). Daha çok öldüren daha hızlı güçlenir -> savaş biter.
+func ofke(int taraf): float {
+    if (g_cag[taraf] < CAG_SAYISI - 1) { return 0.0; }
+    float fazla = g_xp[taraf] - CAG_XP[CAG_SAYISI - 2];
+    if (fazla <= 0.0) { return 0.0; }
+    float b = floor(fazla / 6000.0) * 0.1;
+    return b > 0.5 ? 0.5 : b;
+}
+
+func cag_atlayabilir(int taraf): bool { return g_cag[taraf] < CAG_SAYISI - 1 && g_xp[taraf] >= CAG_XP[g_cag[taraf]]; }
+
+func cag_atla(int taraf): bool {
+    if (!cag_atlayabilir(taraf)) { return false; }
+    int eski = g_cag[taraf];
+    g_cag[taraf] = eski + 1;
+    float oran = g_us_can[taraf] / g_us_can_max[taraf];
+    g_us_can_max[taraf] = US_CAN[eski + 1] * g_us_carpan[taraf];
+    g_us_can[taraf] = g_us_can_max[taraf] * min(1.0, oran + 0.25);
+    g_cag_atlama[taraf] += 1;
+    ses_cal(SES_CAG, 0.9, 0.3);
+    logla(t"CAG ATLADI: taraf {taraf} -> {CAG_ADLARI[g_cag[taraf]]} ({toInt(g_savas_t)} s)");
+    return true;
+}
+
+// ---- Yapay zeka (taraf 1) ---------------------------------------------------
+// Plan: agirlikli rastgele birlik secimi (oyuncunun ordusuna gore), kule ve
+// ozel guc kurallari. Zorluk yalniz yapay zekanin ekonomisini ve hizini degistirir.
+func oyuncu_ordu_sayisi(int taraf, int tur): int {
+    int n = 0;
+    for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id != 0 && birlikler[i].taraf == taraf && birlikler[i].tur == tur) { n += 1; } }
+    return n;
+}
+func kaleye_yakin_dusman(int taraf, float mesafe): int {
+    int n = 0;
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0 || birlikler[i].taraf == taraf) { continue; }
+        if (YOL_L - birlikler[i].p < mesafe) { n += 1; }
+    }
+    return n;
+}
+
+func yz_plan_sec(int taraf) {
+    int rakip = 1 - taraf;
+    float w0 = 50.0;
+    float w1 = 33.0;
+    float w2 = 17.0;
+    if (oyuncu_ordu_sayisi(rakip, 2) >= 2) { w1 += 20.0; }
+    if (oyuncu_ordu_sayisi(rakip, 1) >= 3) { w0 += 15.0; w2 += 10.0; }
+    float r = rastgele() * (w0 + w1 + w2);
+    g_yz_plan = r < w0 ? 0 : (r < w0 + w1 ? 1 : 2);
+}
+
+func yz_dusun(int taraf, float zorluk_dusun) {
+    // Cag
+    if (cag_atlayabilir(taraf)) { cag_atla(taraf); }
+    // Ozel guc: kaleye yaklasan kalabalik
+    if (ozel_hazir(taraf) && (kaleye_yakin_dusman(taraf, 18.0) >= 2 || kaleye_yakin_dusman(taraf, 34.0) >= 5)) { ozel_guc(taraf); }
+    // Kule: cag basina hedef sayi (Kolay bir eksik); eksikse altin BIRIKTIRILIR
+    // (kuyrukta birlik varken yeni birlik alinmaz). Iki cag eskiyen kule satilir.
+    float kf = kule_fiyat(g_cag[taraf]);
+    int hedef_kule = min(3, g_cag[taraf] + (g_zorluk >= 1 ? 1 : 0));
+    bool biriktir = false;
+    if (kule_sayisi(taraf) < hedef_kule && g_savas_t > 25.0) {
+        if (g_altin[taraf] >= kf) {
+            for (int s = 0; s < 3; s++) { if (!kule_var(taraf, s)) { kule_kur(taraf, s); break; } }
+        } else {
+            biriktir = g_kuyruk_n[taraf] + g_birlik_sayisi[taraf] >= 2;
+        }
+    } else {
+        for (int s = 0; s < 3; s++) {
+            if (kule_var(taraf, s) && kuleler[taraf * 3 + s].cag < g_cag[taraf] - 1 && g_altin[taraf] >= kf) { kule_sat(taraf, s); break; }
+        }
+    }
+    // Birlik
+    if (!biriktir && g_kuyruk_n[taraf] < 3) {
+        if (kuyruga_ekle(taraf, g_yz_plan)) { yz_plan_sec(taraf); }
+    }
+}
+
+func kule_sayisi(int taraf): int {
+    int n = 0;
+    for (int s = 0; s < 3; s++) { if (kule_var(taraf, s)) { n += 1; } }
+    return n;
+}
+
+// ---- Kurulum ve tick ---------------------------------------------------------
+float[] g_us_carpan = [1.0, 1.0];
+float g_kale_sarsinti = 0.0;
+int g_yikilan_kale = -1;
+
+func savas_hazirla() {
+    renkleri_kur();
+    while (len(birlikler) < BIRLIK_MAX) { push(birlikler, birlik_bos()); }
+    while (len(yuva_birlik) < 4096) { push(yuva_birlik, 0); }
+    while (len(mermiler) < MERMI_MAX) { push(mermiler, mermi_bos()); }
+    while (len(yuva_mermi) < 4096) { push(yuva_mermi, 0); }
+    while (len(g_enkaz_halka) < ENKAZ_MAX) { push(g_enkaz_halka, 0); }
+    while (len(efektler) < EFEKT_MAX) { push(efektler, { isik: 0, kure: 0, t: 0.0, omur: 1.0, olcek: 1.0, siddet: 1.0 }); }
+    while (len(kuleler) < 6) { push(kuleler, kule_bos()); }
+    mermi_hazirla();
+    enkaz_hazirla();
+    us_bolgesi_hazirla();
+}
+
+// Sahne yuklendikten sonra: kapilar, yol, kale bolgeleri.
+func savas_sahneden_kur(): bool {
+    if (us_yeri_sayisi() != 2) { print(t"HATA sahnede {us_yeri_sayisi()} us_yeri isareti var, 2 olmali"); return false; }
+    int u0 = us_yeri_dizini(0);
+    int u1 = us_yeri_dizini(1);
+    if (u0 < 0 || u1 < 0) { print("HATA us_yeri: taraf 0 ve 1 isaretleri gerekli"); return false; }
+    g_kapi0 = us_yeri_dogus(u0);
+    g_kapi1 = us_yeri_dogus(u1);
+    g_us_carpan[0] = us_yeri_can_carpani(u0);
+    g_us_carpan[1] = us_yeri_can_carpani(u1);
+    yol_kur(g_kapi0, g_kapi1);
+    // Kale bolgeleri: kapinin ONUNDE (yol uzerinde) 3 m'lik gorunmez tetik.
+    for (int t = 0; t < 2; t++) {
+        float x, z, tx, tz = yol_nokta(t == 0 ? 1.2 : YOL_L - 1.2);
+        int b = tetik_kutu(x, 1.2, z, 1.6, 1.4, 3.5);
+        if (b == 0 || !betik_ata(b, "us_bolgesi")) { print("HATA us bolgesi tetigi kurulamadi"); return false; }
+        g_us_bolge[t] = b;
+    }
+    logla(t"kale bolgeleri: kupler #{g_us_bolge[0]}, kureler #{g_us_bolge[1]}; kule yuvasi {kule_yuvasi_sayisi()}");
+    return true;
+}
+
+// Yeni savas: bütün birlik/mermi/kule/efekt temizlenir, sayaclar sifirlanir.
+func savas_sifirla(int zorluk) {
+    for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id != 0) { birlik_kaldir(i); } }
+    for (int k = 0; k < MERMI_MAX; k++) { if (mermiler[k].id != 0) { mermi_kaldir(k); } }
+    for (int k = 0; k < 6; k++) { if (kuleler[k].govde != 0) { sus_sil(kuleler[k].govde); sus_sil(kuleler[k].tepe); kuleler[k].govde = 0; kuleler[k].tepe = 0; } }
+    for (int k = 0; k < ENKAZ_MAX; k++) {
+        int e = g_enkaz_halka[k];
+        if (e != 0 && canli(e) && betik_adi(e) == "enkaz") { sil(e); }
+        g_enkaz_halka[k] = 0;
+    }
+    for (int i = 0; i < EFEKT_MAX; i++) { sus_sil(efektler[i].isik); sus_sil(efektler[i].kure); efektler[i].isik = 0; efektler[i].kure = 0; }
+    lazer_kapat(0);
+    lazer_kapat(1);
+    g_zorluk = zorluk;
+    for (int t = 0; t < 2; t++) {
+        g_altin[t] = ALTIN_BASLANGIC;
+        g_xp[t] = 0.0;
+        g_cag[t] = 0;
+        g_us_can_max[t] = US_CAN[0] * g_us_carpan[t];
+        g_us_can[t] = g_us_can_max[t];
+        g_ozel_bekle[t] = 20.0;
+        g_kuyruk_n[t] = 0;
+        g_egitim_t[t] = 0.0;
+        g_dogan[t] = 0; g_olen[t] = 0; g_kule_kurulan[t] = 0; g_kule_satilan[t] = 0;
+        g_ozel_kullanim[t] = 0; g_cag_atlama[t] = 0; g_us_hasar_verdi[t] = 0.0; g_kazanilan_altin[t] = 0.0;
+        g_birlik_sayisi[t] = 0;
+    }
+    g_altin[1] = ALTIN_BASLANGIC * YZ_ALTIN_CARPAN[zorluk];
+    mermi_isabet_n = 0;
+    us_bolge_olay_n = 0;
+    g_kazanan = -1;
+    g_yikilan_kale = -1;
+    g_savas_t = 0.0;
+    g_yz_dusun_t = 1.5;
+    g_mermi_atilan = 0; g_mermi_isabet = 0; g_mermi_iska = 0; g_alan_hasar = 0; g_yakin_vurus = 0;
+    g_tetik_yedek = 0; g_enkaz_erken = 0; g_dolu_red = 0;
+    yz_plan_sec(1);
+}
+
+// Kale bolgesi olaylari (davranis/us_bolgesi.tpr kuyrugu).
+func us_bolge_olaylari() {
+    for (int k = 0; k < us_bolge_olay_n; k++) {
+        int b = birlik_bul(us_bolge_olay_d[k]);
+        if (b < 0) { continue; }
+        int bolge_taraf = us_bolge_olay_b[k] == g_us_bolge[0] ? 0 : (us_bolge_olay_b[k] == g_us_bolge[1] ? 1 : -1);
+        if (bolge_taraf >= 0 && bolge_taraf != birlikler[b].taraf) { birlikler[b].usse = true; }
+    }
+    us_bolge_olay_n = 0;
+}
+
+// Bir savas karesi (oyun durmadikca).
+bool g_yz_tik = false;   // bu kare yapay zeka dusundu (otopilot da ayni tempoda)
+func savas_adim(float d) {
+    g_yz_tik = false;
+    mermi_isabetleri();
+    us_bolge_olaylari();
+    if (g_kazanan >= 0) {
+        // Savas bitti: birlikler dursun, efektler sonlansin.
+        for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].id != 0) { yuru(birlikler[i].id, 0.0, 0.0); } }
+        mermileri_guncelle(d);
+        efektleri_guncelle(d);
+        return;
+    }
+    g_savas_t += d;
+    g_altin[0] += OYUNCU_PASIF * (1.0 + 0.5 * g_cag[0]) * d;
+    g_altin[1] += YZ_PASIF[g_zorluk] * (1.0 + 0.5 * g_cag[1]) * d;
+    for (int t = 0; t < 2; t++) { if (g_ozel_bekle[t] > 0.0) { g_ozel_bekle[t] -= d; } }
+    egitimi_guncelle(d);
+    birlikleri_guncelle(d);
+    mermileri_guncelle(d);
+    kuleleri_guncelle(d);
+    lazerleri_guncelle(d);
+    efektleri_guncelle(d);
+    g_yz_dusun_t -= d;
+    if (g_yz_dusun_t <= 0.0) {
+        g_yz_dusun_t = YZ_DUSUN[g_zorluk];
+        yz_dusun(1, YZ_DUSUN[g_zorluk]);
+        g_yz_tik = true;
+    }
+    if (g_kale_sarsinti > 0.0) { g_kale_sarsinti -= d; }
+    ani_olum(d);
+}
+
+// Kale yıkılınca: kalenin önünde patlamalar ve enkaz yağmuru.
+func kale_yikildi(int taraf) {
+    g_yikilan_kale = taraf;
+    float x = taraf == 0 ? g_kapi0.x - 3.0 : g_kapi1.x + 3.0;
+    for (int k = 0; k < 4; k++) {
+        float ox = rastgele_ara(-2.5, 2.5);
+        float oz = rastgele_ara(-2.0, 2.0);
+        patlama_efekti(x + ox, 1.5 + k * 0.8, oz, 1.6);
+        enkaz_sac(x + ox, 2.5 + k * 0.6, oz, taraf, 2, 0.9, taraf == 0 ? RENK_GOVDE[2] : RENK_GOVDE[5]);
+    }
+}
+
+// ANI OLUM: 12. dakikadan sonra iki kale de saniyede canlarinin %0.4'unu
+// kaybeder (en cok ~4 dk daha). Neden: iki taraf da kule kurup savununca
+// savas kilitleniyordu — olculdu 2026-10-08, otopilot Normal'e karsi 12 dk:
+// iki kale 8500/8500, 137/137 olu. Ilk dusen kaybeder; kaleye vurus hala
+// fark yaratir (yarisi ayni anda biterse orani yuksek olan kazanir).
+float ANI_OLUM_T = 720.0;
+float ANI_OLUM_HIZ = 0.004;
+func ani_olum_var(): bool { return g_savas_t > ANI_OLUM_T; }
+func ani_olum(float d) {
+    if (!ani_olum_var() || g_kazanan >= 0) { return; }
+    for (int t = 0; t < 2; t++) { g_us_can[t] -= g_us_can_max[t] * ANI_OLUM_HIZ * d; }
+    bool d0 = g_us_can[0] <= 0.0;
+    bool d1 = g_us_can[1] <= 0.0;
+    if (!d0 && !d1) { return; }
+    int kaybeden = d0 && d1 ? (g_us_can[0] / g_us_can_max[0] < g_us_can[1] / g_us_can_max[1] ? 0 : 1) : (d0 ? 0 : 1);
+    g_us_can[kaybeden] = 0.0;
+    g_kazanan = 1 - kaybeden;
+    logla(t"SAVAS BITTI (ani olum): kazanan taraf {g_kazanan} ({toInt(g_savas_t)} s)");
+    kale_yikildi(kaybeden);
+}
+
+// Cephe: iki tarafin en ondeki birliklerinin ortasi (dunya x). Otopilotun
+// kamerasi icin.
+func cephe_x(): float {
+    float sag0 = -999.0;
+    float sol1 = 999.0;
+    for (int i = 0; i < BIRLIK_MAX; i++) {
+        if (birlikler[i].id == 0) { continue; }
+        if (birlikler[i].taraf == 0 && birlikler[i].x > sag0) { sag0 = birlikler[i].x; }
+        if (birlikler[i].taraf == 1 && birlikler[i].x < sol1) { sol1 = birlikler[i].x; }
+    }
+    if (sag0 < -998.0 && sol1 > 998.0) { return 0.0; }
+    if (sag0 < -998.0) { return sol1; }
+    if (sol1 > 998.0) { return sag0; }
+    return (sag0 + sol1) * 0.5;
+}
+

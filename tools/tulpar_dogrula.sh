@@ -5,7 +5,8 @@
 #   tools/tulpar_dogrula.sh                    PATH'teki tulpar + yapi/tulpar-ext
 #   tools/tulpar_dogrula.sh --tulpar /yol/tulpar --eklenti /yol/tulpar-ext
 #   tools/tulpar_dogrula.sh --tam              + taban cizgisi kapilari (dalga,
-#                                              aksiyon, kopru testi, 6 ornek)
+#                                              aksiyon, kopru testi, 6 ornek,
+#                                              oyun kup_kure_savasi)
 #   tools/tulpar_dogrula.sh --uzun-atla        --tam'in uzun taban cizgisi
 #                                              kapilari (dalga 2400, aksiyon 3200
 #                                              kare) KOSMAZ: "ATLANDI: <sebep>"
@@ -243,6 +244,12 @@ sonda s3.tpr "arena k0k1k2" "kare belleginde global '+=' kalici"
 printf 'struct P { int x; }\nP[] g = [];\nfunc mk(int x): P { P p; p.x = x; return p; }\nfunc main() {\n    for (int k = 0; k < 3; k++) {\n        var wm = arena_save();\n        g = [];\n        push(g, mk(10 + k));\n        push(g, mk(20 + k));\n        arena_drop(wm);\n        var wz = arena_save();\n        array cop = [];\n        for (int j = 0; j < 3000; j++) { push(cop, "COPCOPCOP" + toString(j)); }\n        arena_drop(wz);\n    }\n    print("dizi " + toString(len(g)) + " " + toString(g[0].x) + " " + toString(g[1].x));\n}\nmain();\n' >"$gun/s4.tpr"
 sonda s4.tpr "dizi 2 12 22" "kare icinde yeniden kurulan struct dizisi kalici"
 
+# Oyun projeleri (tulpar/oyunlar/<oyun>/) KENDI dizinlerinden kosar: Tulpar'da
+# import yolu calisma dizinine gore cozulur (docs/OYUN_GERI_BILDIRIM.md madde 6).
+oyun_kos() {  # oyun_kos <gunluk> <kare>
+  ( cd "$kok/tulpar/oyunlar/kup_kure_savasi" && kos "$1" env TULPAR_ENGINE_HEADLESS="$2" "$tul" --ext "$ext" oyun.tpr )
+}
+
 # GPU'suz kipte GPU isteyen bir program: derlenip linklenip kurulumun dustugu
 # yere kadar kosmasi OLCULUR (gecti), kare dongusu ATLANDI sayilir.
 gpusuz_kos() {  # gpusuz_kos <ornek> <ne olculmedi>
@@ -276,6 +283,13 @@ if [ "$tam" = 1 ] && [ "$gpu" = 0 ]; then
   for o in engine_arena engine_karakter engine_kanca_olcumu engine_taban_bellek engine_betik_dagitimi; do
     gpusuz_kos "$o" "60 karelik kosum"
   done
+  oyun_kos "$gun/kks.log" 3; rc=$?
+  if [ $rc -eq 0 ] && grep -q '^motor acilamadi: ' "$gun/kks.log"; then
+    gec "kup_kure_savasi derlendi + linklendi + kostu (rc=0), kurulum dustu"
+    atla "kup_kure_savasi: tam savas [kapi] satiri — motor kurulamadi: $gpu_sebep"
+  else
+    dus "kup_kure_savasi (GPU'suz): rc=$rc, 'motor acilamadi' satiri yok"; tail -8 "$gun/kks.log" >&2
+  fi
 elif [ "$tam" = 1 ]; then
   # --- Taban cizgileri (docs/KOPRU.md, 2026-10-02 olculdu) ----------------------
   kapi() {  # kapi <ornek> <kare> <beklenen [kapi] satiri>
@@ -313,6 +327,32 @@ elif [ "$tam" = 1 ]; then
     else
       dus "pozitif kontrol: enjekte sizinti (2 KB/kare) bellek kapisinda YAKALANMADI (rc=$rc) — kapi bir sey olcmuyor"; grep '^\[kapi\]' "$gun/aksiyon_sizinti.log" | tail -6 >&2
     fi
+  fi
+  # --- Oyun: "Kupler ile Kurelerin Savasi" (tulpar/oyunlar/kup_kure_savasi) -----
+  # Penceresiz koşumda OTOPILOT oynar: menuler ADIYLA tiklanir, kule yuvasi
+  # ekran DOKUNUSUYLA (izdusum -> isin) kurulur, iki taraf da yapay zeka; savas
+  # 8642. karede ZAFER'le biter (olculdu 2026-10-07, RTX 5080: iki paralel
+  # kosum bayt bayt ayni). Satir: sure, cag, dogan/olen, kule, ozel guc, kale
+  # canlari, hata/uyari; ikinci satir fizik (mermi, kanca, enkaz, tetik) yazilir.
+  # Bellek kapisi aksiyonla ayni olcu (alt ceyrek; pozitif kontrolu aksiyonun).
+  if [ "$uzun_atla" = 1 ]; then
+    oyun_kos "$gun/kks_kisa.log" 300; rc=$?
+    if [ $rc -eq 0 ] && grep -q '^\[kapi\] TAMAM (kisa kosum' "$gun/kks_kisa.log"; then
+      gec "kup_kure_savasi (300 kare): menu akisi + sahne + yol + kurulum kapisi TAMAM"
+    else
+      dus "kup_kure_savasi (300 kare): rc=$rc, kisa kapi TAMAM yok"; grep '^\[kapi\]' "$gun/kks_kisa.log" | tail -6 >&2
+    fi
+    atla "kup_kure_savasi (9600 kare) tam savas [kapi] satiri + bellek kapisi — uzun, Linux/macOS'ta olculur (--uzun-atla)"
+  else
+    oyun_kos "$gun/kks.log" 9600; rc=$?
+    satir="$(grep -m1 '^\[kapi\] kare=' "$gun/kks.log")"
+    beklenen="[kapi] kare=8642 sonuc=zafer sure=140 zorluk=0 cag=2/1 dogan=19/22 olen=9/22 kule=2/1 ozel=1/1 us=2400/0 dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
+    if [ $rc -eq 0 ] && [ "$satir" = "$beklenen" ] && grep -q '^\[kapi\] TAMAM — savas' "$gun/kks.log"; then
+      gec "kup_kure_savasi (9600 kare): $satir"
+    else
+      dus "kup_kure_savasi: rc=$rc, kapi satiri '$satir' (beklenen '$beklenen')"; grep '^\[kapi\]' "$gun/kks.log" | tail -8 >&2
+    fi
+    grep -E '^\[kapi\] (fizik|bellek)' "$gun/kks.log" | sed 's/^/    /'
   fi
   kos "$gun/kopru.log" "$tul" --ext "$ext" tests/engine_bridge.test.tpr; rc=$?
   ozet="$(grep -m1 '^Tests:' "$gun/kopru.log")"

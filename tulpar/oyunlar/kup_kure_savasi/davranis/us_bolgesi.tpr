@@ -1,0 +1,27 @@
+// Davranis — "us_bolgesi": iki kalenin onundeki gorunmez TETIK kutusuna baglanir
+// (savas.tpr `us_bolgelerini_kur`: `betik_ata(tetik_kutu(...), "us_bolgesi")`).
+// Bir govde bolgeye girince motor `us_bolgesi_tetik_girdi(id, diger, diger_sahne)`
+// cagirir; olay kuyruga yazilir, oyun bir sonraki kare okur: dusman kalesinin
+// bolgesine giren birlik KALEYE saldirmaya baslar.
+//
+// Kuyruk sabit boylu; dolarsa olay DUSER ve sayilir (kapi 0 bekler).
+
+int US_BOLGE_MAX = 128;
+int[] us_bolge_olay_b = [];   // bolge (kopru id)
+int[] us_bolge_olay_d = [];   // giren (kopru id; 0 = kopru varligi degil)
+int us_bolge_olay_n = 0;
+int us_bolge_dusen = 0;
+int us_bolge_giris = 0;
+
+func us_bolgesi_hazirla() {
+    while (len(us_bolge_olay_b) < US_BOLGE_MAX) { push(us_bolge_olay_b, 0); push(us_bolge_olay_d, 0); }
+}
+
+func us_bolgesi_tetik_girdi(id, diger, diger_sahne) {
+    if (toInt(diger) == 0) { return; }
+    if (us_bolge_olay_n >= US_BOLGE_MAX) { us_bolge_dusen += 1; return; }
+    us_bolge_olay_b[us_bolge_olay_n] = toInt(id);
+    us_bolge_olay_d[us_bolge_olay_n] = toInt(diger);
+    us_bolge_olay_n += 1;
+    us_bolge_giris += 1;
+}

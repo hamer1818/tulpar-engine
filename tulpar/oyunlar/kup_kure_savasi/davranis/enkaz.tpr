@@ -1,0 +1,31 @@
+// Davranis — "enkaz": olen birligin sacilan parcalari (kucuk dinamik kutu ya da
+// kure). Motor her kare `enkaz_guncelle(id, dt)` cagirir; omur dolunca parca
+// kendini siler (`sil` kanca icinden: `enkaz_bitir`i motor cagirir).
+//
+// Omur VARLIK BASINA: dizi kopru id'sinin YUVASIYLA indekslenir (engine.tpr
+// `yuva`; < 4096). Tek bir global omur butun parcalarin ortak saati olurdu.
+// Ust sinir oyunda (savas.tpr ENKAZ_MAX, halka): sinir dolunca EN ESKI parca
+// erken silinir — fizik govdesi sayisi sinirsiz buyumez.
+
+float[] _enkaz_omur = [];
+int enkaz_canli = 0;
+int enkaz_dogan = 0;
+int enkaz_suresi_dolan = 0;
+
+func enkaz_hazirla() { while (len(_enkaz_omur) < 4096) { push(_enkaz_omur, 0.0); } }
+func enkaz_omur_ver(int id, float t) { _enkaz_omur[yuva(id)] = t; }
+
+func enkaz_baslat(id) {
+    enkaz_canli += 1;
+    enkaz_dogan += 1;
+    _enkaz_omur[yuva(id)] = 3.0;
+}
+func enkaz_guncelle(id, d) {
+    int y = yuva(id);
+    _enkaz_omur[y] = _enkaz_omur[y] - d;
+    if (_enkaz_omur[y] <= 0.0) {
+        enkaz_suresi_dolan += 1;
+        sil(id);
+    }
+}
+func enkaz_bitir(id) { enkaz_canli -= 1; }

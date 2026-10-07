@@ -28,6 +28,9 @@ tulpar/
                           bolum isaretleri (E7): aksiyonun oyuncu baslangici, kapisi ve
                           dusmanlari assets/salon1/2.sahne'de; tipler davranis/oyuncu_baslangic.tpr,
                           kapi.tpr, dusman_yeri.tpr (docs/KOPRU.md 7.11)
+  oyunlar/kup_kure_savasi/  ilk gerçek oyun "Küpler ile Kürelerin Savaşı" (Çağlar Boyu Savaş tarzı;
+                          KENDİ dizininden çalışır, kendi tulpar.toml'u + [android]; OKUBENI.md;
+                          bulunan motor/dil sorunları docs/OYUN_GERI_BILDIRIM.md)
   tests/engine_bridge.test.tpr   uçtan uca köprü testi (Tulpar tarafı)
   tests/engine_gpusuz.test.tpr   GPU'suz köprü: kurulumsuz teng_* çağrıları + düşen kurulumun sözleşmesi
 ```

@@ -1,0 +1,45 @@
+// Davranis — "mermi": KODLA uretilen her mermiye, kaya ve gulleye baglanir
+// (`betik_ata(id, "mermi")`). Motor carpismalari bu kancaya verir (fizikten
+// sonra, kare sonunda; kodla baglananlarda SIRALI — belirlenimli).
+//
+// Kanca hasari KENDISI vermez: olayi bir kuyruga yazar, oyun (savas.tpr
+// `mermi_isabetleri`) bir sonraki karenin basinda okur. Neden: hasar, olum,
+// enkaz ve altin oyunun durumunu degistirir; hepsinin tek yerden ve
+// belirli bir sirayla olmasi hem okunurluk hem belirlenimlilik icin.
+//
+// Kuyruk sabit boylu (A2: kapasite init'te): dolarsa olay DUSER ve sayilir
+// (`mermi_isabet_dusen`) — sessizce kirpilmaz; kapi 0 bekler.
+
+int MERMI_ISABET_MAX = 256;
+int[] mermi_isabet_m = [];      // mermi (kopru id)
+int[] mermi_isabet_h = [];      // carpilan kopru varligi (0 = kopru varligi degil)
+int[] mermi_isabet_s = [];      // carpilanin sahne dizini (-1 = sahne varligi degil)
+float[] mermi_isabet_hiz = [];  // carpisma siddeti (m/s)
+int mermi_isabet_n = 0;
+int mermi_isabet_dusen = 0;
+int mermi_isabet_toplam = 0;
+int mermi_bagli = 0;            // su an bagli mermi betigi sayisi
+
+// Kuyruk yuvalari ILK kareden ONCE kurulur (kare icinde push yok).
+func mermi_hazirla() {
+    while (len(mermi_isabet_m) < MERMI_ISABET_MAX) {
+        push(mermi_isabet_m, 0);
+        push(mermi_isabet_h, 0);
+        push(mermi_isabet_s, -1);
+        push(mermi_isabet_hiz, 0.0);
+    }
+}
+
+func mermi_baslat(id) { mermi_bagli += 1; }
+func mermi_bitir(id) { mermi_bagli -= 1; }
+
+func mermi_carpisma(id, diger, olay, x, y, z, hiz, diger_sahne) {
+    if (mermi_isabet_n >= MERMI_ISABET_MAX) { mermi_isabet_dusen += 1; return; }
+    int k = mermi_isabet_n;
+    mermi_isabet_m[k] = toInt(id);
+    mermi_isabet_h[k] = toInt(diger);
+    mermi_isabet_s[k] = toInt(diger_sahne);
+    mermi_isabet_hiz[k] = hiz;
+    mermi_isabet_n = k + 1;
+    mermi_isabet_toplam += 1;
+}

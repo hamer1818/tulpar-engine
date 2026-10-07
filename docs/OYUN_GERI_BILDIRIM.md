@@ -18,7 +18,7 @@
 | # | alan | başlık | öncelik | durum |
 |---|---|---|---|---|
 | 1 | motor / Android | APK varlık süzgeci `.mp3`/`.flac` çıkarmıyordu — müzik telefonda sessizce yoktu | Y | **düzeltildi** (#91, Tuzaklar 8cu) |
-| 2 | motor / perf | P20 Pro'da boş sahne bile 60 fps değildi (piksel başına bedel); iç çözünürlük ölçeği yoktu | Y | PR açık (#92 `eng_render_scale`; oyun telefonda 0.7) |
+| 2 | motor / perf | P20 Pro'da boş sahne bile 60 fps değildi (piksel başına bedel); iç çözünürlük ölçeği yoktu | Y | **düzeltildi** (#92 `eng_render_scale`; oyun telefonda 0.7) |
 | 3 | motor / sahne | `partikul_renk` (+ `_fizik`, `_teps`) blob'a girmiyor: oyunda parçacık hep beyaz | O | açık |
 | 4 | dil | içe aktarılan modüldeki hata, İÇE AKTARAN dosyanın adı ve satır metniyle raporlanıyor | Y | açık (TulparLang) |
 | 5 | dil | modül, kendisini içe aktaran dosyanın fonksiyonunu göremiyor (global'ini görüyor) | O | açık (TulparLang) |
@@ -26,11 +26,11 @@
 | 7 | dil | çoklu bildirim tek tip ister ve fonksiyonu YALNIZ bu dosyanın import'unda arar | D | açık (TulparLang) |
 | 8 | motor / Android | geri tuşu oyunu duraklatmıyor, etkinliği kapatıyor (savaş kaybolur) | O | açık |
 | 9 | motor / Android | arka planda ses durmuyor (AAudio akışı `started` kalıyor) | O | oyunda geçici çözüm |
-| 10 | motor / köprü | fizik duraklatılamıyor (duraklat menüsünde mermiler uçmaya devam eder) | O | açık |
+| 10 | motor / köprü | fizik duraklatılamıyor (duraklat menüsünde mermiler uçmaya devam eder) | O | **düzeltildi** (#96; oyun geçti) |
 | 11 | motor / köprü | sabit gövdeyi `isinla` her çağrıda gövdeyi YENİDEN kuruyor; kinematik gövde yok | O | açık |
 | 12 | motor / köprü | kameranın görüş açısı ve ekran→ışın API'si yok; oyun `pi/3.5`'i kopyalıyor | D | açık |
 | 13 | motor | Tulpar oyununda kare içi C++ ayırma (AllocGate) ölçülemiyor | O | açık |
-| 14 | motor / perf | betik kancası dağıtımı telefonda masaüstünün ~16 katı (6.6 µs / 0.4 µs çağrı, gövdeler dahil) | D | ölçüm (cihaz verisi) |
+| 14 | motor / perf | betik kancası dağıtımı telefonda masaüstünün ~16 katı (6.6 µs / 0.4 µs çağrı, gövdeler dahil) | D | **iyileştirildi** (#100, Tuzaklar 8cv) |
 | 15 | motor / arayüz | düğme yazısı yalnız yükseklikten ölçekleniyor, uzun etiket taşıyor | D | oyunda geçici çözüm |
 | 16 | motor / arayüz | yarı saydam tam ekran karartma Mali'de ~3.5 ms (TBDR) — uyarı köprüde görünmüyor | D | açık |
 | 17 | TulparLang / Android | ekran çentiği alanı kullanılmıyor (2240 yerine 2159 piksel, solda siyah şerit) | D | açık (TulparLang) |
@@ -57,7 +57,7 @@ dosyadaydı, masaüstü kapısı görmüyordu.
 **Düzeltme:** `bridge/asset_filter.hpp` (ortak, masaüstünde test edilir), `.mp3`/`.flac` + büyük/küçük
 harf duyarsız. Cihazda: `varlik 21 dosya`, `ses: 4 dosya`. Ayrıntı Tuzaklar **8cu**.
 
-## 2. Telefonda piksel başına bedel — PR AÇIK (#92 `eng_render_scale`)
+## 2. Telefonda piksel başına bedel — DÜZELTİLDİ (#92 `eng_render_scale`)
 
 **Ne:** P20 Pro, 2159x1080, **boş** savaş alanı (96 çizim), 600 karelik aralıkların duvar saati:
 
@@ -151,11 +151,15 @@ yapıyor ve savaşı duraklatıyor; dönünce seviye geri. **Öneri:** host PAUS
 da `eng_app_paused()` gibi bir olay versin (pil: akış sessiz de olsa açık).
 Ek gözlem: arka planda döngü ~10 fps sürüyor (p50 100.8 ms; sim sürer, sözleşme bu).
 
-## 10. Fizik duraklatılamıyor — AÇIK
+## 10. Fizik duraklatılamıyor — DÜZELTİLDİ (#96)
 
 Duraklat menüsünde oyun mantığı durur ama `eng_frame_end` fiziği her kare adımlıyor: havadaki mermi,
 kaya, enkaz düşmeye devam eder. Oyun birliklerin hızını sıfırlıyor (geçici çözüm). **Öneri:**
 `eng_physics_pause(bool)` ya da zaman ölçeği.
+**Düzeltme (#96):** `fizik_duraklat` / `fizik_durakli` / `zaman_olcegi`. Oyun duraklat (ve duraklattan açılan
+ayarlar) ekranında fiziği donduruyor, devamda açıyor; hız sıfırlama geçici çözümü kalktı. Kapı: `[kapi] arayuz`
+satırında `fizik_dondu=1` ve sonda fizik açık olmalı; köprü kapanışı "1 duraklatma, 1 kare durakli" diyor
+(RTX 5080, 2026-10-08).
 
 ## 11. Sabit gövdeyi taşımak gövdeyi yeniden kuruyor — AÇIK
 
@@ -181,13 +185,18 @@ Oyunun kapısı RSS eğimini ölçüyor (alt çeyrek 0 KB/1000 kare, 9600 kare; 
 enjekte sızıntıda 2040 → KIRMIZI). **Öneri:** köprü kapanış raporuna kare içi `new` sayısı (override
 eklenti paketinde, isteğe bağlı).
 
-## 14. Kanca dağıtımı telefonda pahalı — ÖLÇÜM (cihaz verisi)
+## 14. Kanca dağıtımı telefonda pahalı — İYİLEŞTİRİLDİ (#100)
 
 Kapanış satırı (P20 Pro, 7 dk savaş): `kare icinde 101149 kanca cagrisi, 671.25 ms, cagri basina 6636.2 ns`
 (kanca gövdeleri dahil; mermi çarpışma + enkaz güncelle + kale tetiği). Masaüstünde aynı oyun 397 ns.
 Kare başına ortalama ~0.026 ms, yani bütçeyi tehdit etmiyor. Kısa (80 sn) oturumda ilk 8 çağrı 74 ms
 ölçüldü (çağrı başına 9.3 ms) — ilk çağrılardaki tek seferlik bedel (sembol çözümü/sayfa hatası?)
 ayrıştırılmadı; ilk karelerde takılma olarak hissedilebilir.
+
+**#100 (Tuzaklar 8cv):** iki sebep ayrıştırıldı — soğuk önbellek (dağıtım sıcakken 31–60 ns/çağrı, kare
+içinde vsync/çizim önbelleği boşaltıyor) ve `guncelle`nin her kare BÜTÜN varlık yuvalarını taraması (bağlı
+olmayan yuva başına ~200 ns). Artık sıralı liste: telefonda kanca aşaması 85–105 → 32–45 µs/kare. Oyunun
+kalemdeki bedeli zaten kare başına ~26 µs idi; oyun değişiklik gerektirmedi.
 
 ## 15. Düğme yazısı genişliğe göre ölçeklenmiyor — GEÇİCİ ÇÖZÜM (D)
 
