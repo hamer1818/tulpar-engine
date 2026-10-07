@@ -2524,3 +2524,89 @@ ENGINE_TEST(bridge_kinematic_body_and_in_place_teleport) {
   CHECK(std::strstr(g_kapanis_log, "kapanis (isinlama): 2002 yerinde") != nullptr);
   CHECK(std::strstr(g_kapanis_log, "2000 yeniden kurma (dinamik)") != nullptr);
 }
+
+// --- Geri bildirim #12: gorus acisi + ekran isini + secme + dunya->ekran -------
+// Oyun dokunusla kule yuvasi secmek ve can cubugu cizmek icin izdusumu kendisi
+// kuruyordu ve render_frame'in SABIT pi/3.5'ini kopyaliyordu: sabit degisirse
+// oyun sessizce yanlis yere dokunur. Olcu: kirmizi kurenin merkezi dunya->ekran
+// ile izdusulur; (1) o PIKSEL kirmizi (renderer'in projeksiyonuyla ayni
+// gelenek: y asagi, gorunen en-boy), (2) o noktadan secme kureyi bulur, (3)
+// ekran isini merkezden < 1 mm gecer. Gorus acisi 30 dereceye cekilince ayni
+// uc olcu yeni projeksiyonla tutar. KONTROL: eski sabiti kopyalayan oyunun
+// hesapladigi nokta (pi/3.5 ile) kureyi ISKALAR ve pikseli kirmizi degil; bos
+// gokyuzunde secme -1.
+namespace {
+bool kirmizi_mi(const uint8_t *px, uint32_t w, uint32_t h, double sx, double sy) {
+  const int x = (int)sx, y = (int)sy;
+  if (x < 0 || y < 0 || x >= (int)w || y >= (int)h) return false;
+  const uint8_t *p = px + ((size_t)y * w + (size_t)x) * 3;
+  return p[0] > 120 && p[0] > p[1] + 60 && p[0] > p[2] + 60;
+}
+bool kare_kirmizi(const char *ad, double sx, double sy, bool *okundu) {
+  static uint8_t px[kW * kH * 3];
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  uint32_t w = 0, h = 0;
+  *okundu = teng_screenshot(shot) == 1 && read_ppm(shot, px, kW * kH, &w, &h) == kW * kH;
+  std::remove(shot);
+  return *okundu && kirmizi_mi(px, w, h, sx, sy);
+}
+} // namespace
+
+ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("kamera isini kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(std::fabs(teng_camera_fov_get() - 180.0 / 3.5) < 1e-4);
+  teng_spawn_ground(20, 0x404040ff);
+  const double cx = 1.6, cy = 1.2, cz = -2.0;
+  const int top = teng_spawn_sphere(cx, cy, cz, 0.35, 0, 0xff0000ff);
+  teng_camera(0, 3, 8, 0, 1, 0);
+  run_frames(2);
+  const bool sanal = test::gpu_is_virtual(teng_gpu_name());
+  double sx[2], sy[2], d_ray[2];
+  int pick_id[2];
+  bool kirmizi[2], okundu[2];
+  for (int k = 0; k < 2; k++) {
+    if (k == 1) { teng_camera_fov(30); run_frames(1); }
+    CHECK(teng_world_to_screen(cx, cy, cz) == 1);
+    sx[k] = teng_screen_x(); sy[k] = teng_screen_y();
+    const double d = teng_pick(sx[k], sy[k], 50);
+    pick_id[k] = teng_ray_id();
+    CHECK(d > 0);
+    CHECK(teng_screen_ray(sx[k], sy[k]) == 1);
+    // isin merkezden ne kadar uzak: |(c - o) x d|
+    const double ox = teng_screen_ray_ox(), oy = teng_screen_ray_oy(), oz = teng_screen_ray_oz();
+    const double dx = teng_screen_ray_dx(), dy = teng_screen_ray_dy(), dz = teng_screen_ray_dz();
+    const double vx = cx - ox, vy = cy - oy, vz = cz - oz;
+    const double qx = vy * dz - vz * dy, qy = vz * dx - vx * dz, qz = vx * dy - vy * dx;
+    d_ray[k] = std::sqrt(qx * qx + qy * qy + qz * qz);
+    kirmizi[k] = kare_kirmizi("kamera_isin", sx[k], sy[k], &okundu[k]);
+    CHECK(okundu[k]);
+  }
+  // KONTROL: oyunun eski kopyasi (pi/3.5 sabit) fov 30'da nereye dokunurdu.
+  const double t_eski = std::tan(3.14159265358979 / 3.5 * 0.5), t_yeni = std::tan(30.0 * 3.14159265358979 / 180.0 * 0.5);
+  const double ex = kW * 0.5 + (sx[1] - kW * 0.5) * t_yeni / t_eski, ey = kH * 0.5 + (sy[1] - kH * 0.5) * t_yeni / t_eski;
+  teng_pick(ex, ey, 50);
+  const int eski_id = teng_ray_id();
+  bool ok_e = false;
+  const bool eski_kirmizi = kare_kirmizi("kamera_isin_eski", ex, ey, &ok_e);
+  const double bos = teng_pick(2, 2, 50); // sol ust: gokyuzu
+  const int h0 = teng_error_count();
+  teng_camera_fov(500);
+  CHECK(teng_error_count() == h0 + 1 && std::fabs(teng_camera_fov_get() - 120.0) < 1e-4);
+  std::printf("    [bilgi] kure merkezi ekranda: fov 51.4 -> (%.1f %.1f) secme #%d (kure #%d) isin %.2e m kirmizi %d | fov 30 -> (%.1f %.1f) secme #%d isin %.2e m kirmizi %d | "
+              "KONTROL eski sabit (%.1f %.1f) secme #%d kirmizi %d, gokyuzu %.1f\n",
+              sx[0], sy[0], pick_id[0], top, d_ray[0], kirmizi[0], sx[1], sy[1], pick_id[1], d_ray[1], kirmizi[1], ex, ey, eski_id, eski_kirmizi, bos);
+  CHECK(pick_id[0] == top && pick_id[1] == top);
+  CHECK(d_ray[0] < 1e-3 && d_ray[1] < 1e-3);
+  CHECK(eski_id != top && bos < 0);
+  CHECK(std::fabs(sx[1] - sx[0]) > 10.0); // fov gercekten degisti
+  if (sanal) skip("sanal GPU (Apple Paravirtual, CI macOS): izdusumun PIKSEL dogrulamasi gercek cihazda olculur");
+  else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
+  teng_shutdown();
+}

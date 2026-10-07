@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 221
+#define TENG_ABI_COUNT 234
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -45,6 +45,19 @@ TENG_ABI(void, eng_camera_orbit, teng_camera_orbit, (double, double, double, dou
 TENG_ABI(double, eng_camera_x, teng_camera_x, (void))
 TENG_ABI(double, eng_camera_y, teng_camera_y, (void))
 TENG_ABI(double, eng_camera_z, teng_camera_z, (void))
+TENG_ABI(void, eng_camera_fov, teng_camera_fov, (double))
+TENG_ABI(double, eng_camera_fov_get, teng_camera_fov_get, (void))
+TENG_ABI(int, eng_screen_ray, teng_screen_ray, (double, double))
+TENG_ABI(double, eng_screen_ray_ox, teng_screen_ray_ox, (void))
+TENG_ABI(double, eng_screen_ray_oy, teng_screen_ray_oy, (void))
+TENG_ABI(double, eng_screen_ray_oz, teng_screen_ray_oz, (void))
+TENG_ABI(double, eng_screen_ray_dx, teng_screen_ray_dx, (void))
+TENG_ABI(double, eng_screen_ray_dy, teng_screen_ray_dy, (void))
+TENG_ABI(double, eng_screen_ray_dz, teng_screen_ray_dz, (void))
+TENG_ABI(double, eng_pick, teng_pick, (double, double, double))
+TENG_ABI(int, eng_world_to_screen, teng_world_to_screen, (double, double, double))
+TENG_ABI(double, eng_screen_x, teng_screen_x, (void))
+TENG_ABI(double, eng_screen_y, teng_screen_y, (void))
 TENG_ABI(int, eng_scene_load, teng_scene_load, (const char *))
 TENG_ABI(int, eng_scene_count, teng_scene_count, (void))
 TENG_ABI(int, eng_scene_find, teng_scene_find, (const char *))
