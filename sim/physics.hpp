@@ -119,6 +119,20 @@ public:
 
   BodyId add_box(Vec3 half_extent, Vec3 pos, Quat rot, bool dynamic);
   BodyId add_sphere(float radius, Vec3 pos, bool dynamic);
+  // KINEMATIK govde (Geri bildirim #11): hareket ettirilir, dinamik govdeleri
+  // ITER ve onlarla carpisir, ama kuvvet/yercekimi/carpma onu etkilemez (sonsuz
+  // kutle). Hareketli katmanda (MOVING). Hareket move_kinematic ile (hiz
+  // turetilir: itme dogru), ya da set_linear_velocity ile sabit hiz.
+  BodyId add_kinematic_box(Vec3 half_extent, Vec3 pos, Quat rot);
+  BodyId add_kinematic_sphere(float radius, Vec3 pos);
+  bool is_kinematic(BodyId id) const; // sensor DEGIL (sensor de Jolt'ta kinematik)
+  // Isinla, YERINDE: govde silinip yeniden KURULMAZ (kimlik, sekil ayni; ayirma
+  // yok). Sabit ve kinematik govde icin; kinematikte hiz sifirlanir. Dinamik ve
+  // sensor govdede false (dinamik: cagiran yeniden kurar; sensor: move_sensor).
+  bool set_transform(BodyId id, Vec3 pos, Quat rot);
+  // Kinematik: bir SONRAKI step(dt)'nin sonunda (pos, rot)'ta olacak hizi verir
+  // (Jolt MoveKinematic). Hiz adimdan sonra KALIR: duracaksa cagiran sifirlar.
+  bool move_kinematic(BodyId id, Vec3 pos, Quat rot, float dt);
   // TETIK (sensor) hacmi: carpisma tepkisi YOK, icine giren/cikan hareketli
   // govdeler sensor_event olarak gelir. KINEMATIK ve hep UYANIK kurulur,
   // statik degil: Jolt'ta statik sensor yalniz AKTIF govdeleri gorur ve icinde

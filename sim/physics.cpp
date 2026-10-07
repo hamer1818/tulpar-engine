@@ -556,6 +556,43 @@ uint32_t Physics::body_index(BodyId id) const {
 }
 uint32_t Physics::max_bodies() const { return impl_ ? impl_->cfg.max_bodies : 0; }
 
+static BodyId add_kinematic(Physics::Impl *impl, const JPH::ShapeRefC &shape, Vec3 pos, Quat rot) {
+  JPH::BodyCreationSettings s(shape, to_jph(pos), to_jph(rot), JPH::EMotionType::Kinematic, Layers::MOVING);
+  JPH::BodyID id = impl->system.GetBodyInterface().CreateAndAddBody(s, JPH::EActivation::Activate);
+  if (id.IsInvalid()) return BodyId{};
+  return BodyId{id.GetIndexAndSequenceNumber()};
+}
+BodyId Physics::add_kinematic_box(Vec3 half, Vec3 pos, Quat rot) {
+  JPH::ShapeRefC shape = new JPH::BoxShape(to_jph(half));
+  return add_kinematic(impl_, shape, pos, rot);
+}
+BodyId Physics::add_kinematic_sphere(float radius, Vec3 pos) {
+  JPH::ShapeRefC shape = new JPH::SphereShape(radius);
+  return add_kinematic(impl_, shape, pos, Quat::identity());
+}
+bool Physics::is_kinematic(BodyId id) const {
+  if (!impl_ || !id.valid() || is_sensor(id)) return false;
+  return impl_->system.GetBodyInterface().GetMotionType(JPH::BodyID(id.v)) == JPH::EMotionType::Kinematic;
+}
+bool Physics::set_transform(BodyId id, Vec3 pos, Quat rot) {
+  if (!impl_ || !id.valid() || is_sensor(id)) return false;
+  JPH::BodyInterface &bi = impl_->system.GetBodyInterface();
+  const JPH::BodyID b(id.v);
+  const JPH::EMotionType mt = bi.GetMotionType(b);
+  if (mt == JPH::EMotionType::Dynamic) return false;
+  // Sabit govdede etkinlestirme bayragi yok sayilir (Jolt); kinematik uyanir ki
+  // yeni yerinde temas kursun.
+  const bool kin = mt == JPH::EMotionType::Kinematic;
+  bi.SetPositionAndRotation(b, to_jph(pos), to_jph(rot), kin ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+  if (kin) bi.SetLinearAndAngularVelocity(b, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+  return true;
+}
+bool Physics::move_kinematic(BodyId id, Vec3 pos, Quat rot, float dt) {
+  if (!is_kinematic(id) || !(dt > 0)) return false;
+  impl_->system.GetBodyInterface().MoveKinematic(JPH::BodyID(id.v), to_jph(pos), to_jph(rot), dt);
+  return true;
+}
+
 BodyId Physics::add_box(Vec3 half, Vec3 pos, Quat rot, bool dynamic) {
   JPH::ShapeRefC shape = new JPH::BoxShape(to_jph(half));
   return add_body(impl_, shape, pos, rot, dynamic);

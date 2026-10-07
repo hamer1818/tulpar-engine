@@ -2454,3 +2454,73 @@ ENGINE_TEST(bridge_scene_particles_spawn_with_authored_color) {
   else CHECK(green[0] > 100 && green[1] == 0);
   teng_shutdown();
 }
+
+// --- Geri bildirim #11: sabit govde YERINDE isinlanir + kinematik govde --------
+// Oyun birliklerini sabit govdeyle surseydi her `isinla` govdeyi silip yeniden
+// kuracakti (60 birlik x 60 kare = saniyede ~3600 kurma); kinematik tur yoktu.
+// Olcu: (1) sabit kutu 2000 kez isinlanir — kimlik ayni, isin YENI yere carpar,
+// cagri basina ns; KONTROL ayni sayida dinamik isinlama (yeniden kurma yolu).
+// (2) kinematik kutu eng_kinematic_move ile 1 m/s surulur: zemindeki kureyi
+// iter, yercekimi onu dusurmez, hedef gelmeyince DURUR; dürtü HATA.
+ENGINE_TEST(bridge_kinematic_body_and_in_place_teleport) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("kinematik kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  teng_spawn_ground(20, 0xffffffff);
+  // (1) yerinde isinlama
+  const int duvar = teng_spawn_box(0, 1, -5, 0.5, 1, 0.5, 0, 0x808080ff);
+  const int dtop = teng_spawn_box(0, 1, 5, 0.5, 0.5, 0.5, 1, 0x808080ff);
+  run_frames(1);
+  constexpr int kN = 2000;
+  uint64_t t0 = platform::now_ns();
+  for (int i = 0; i < kN; i++) teng_set_pos(duvar, (double)(i % 9) - 4.0, 1, -5);
+  const double ns_sabit = (double)(platform::now_ns() - t0) / kN;
+  t0 = platform::now_ns();
+  for (int i = 0; i < kN; i++) teng_set_pos(dtop, (double)(i % 9) - 4.0, 3, 5);
+  const double ns_dinamik = (double)(platform::now_ns() - t0) / kN;
+  teng_set_pos(duvar, 7, 1, -5);
+  run_frames(1);
+  const double d_yeni = teng_raycast(7, 6, -5, 0, -1, 0, 10, 0);
+  const int vurulan = teng_ray_id();
+  const double d_eski = teng_raycast(0, 6, -5, 0, -1, 0, 10, 0); // eski yerde yalniz zemin (y=0): 6 m
+  std::printf("    [bilgi] isinlama x%d: sabit (yerinde) %.0f ns/cagri, dinamik (yeniden kurma) %.0f ns/cagri; isin yeni yer %.2f m (#%d), eski yer %.2f m\n",
+              kN, ns_sabit, ns_dinamik, d_yeni, vurulan, d_eski);
+  CHECK(teng_alive(duvar) && vurulan == duvar && std::fabs(d_yeni - 4.0) < 0.01 && std::fabs(d_eski - 6.0) < 0.01);
+  teng_despawn(dtop);
+  // (2) kinematik
+  const int kin = teng_spawn_kinematic_box(-3, 0.6, 0, 0.5, 0.5, 0.5, 0x2080ffff);
+  const int top = teng_spawn_sphere(0, 0.4, 0, 0.4, 1, 0xff4040ff);
+  CHECK(kin && top && teng_is_kinematic(kin) == 1 && teng_is_dynamic(kin) == 0 && teng_is_kinematic(top) == 0);
+  run_frames(60); // yercekimi: kinematik yerinde, top otursun
+  const double ky0 = teng_y(kin), tx0 = teng_x(top);
+  for (int f = 1; f <= 240; f++) {
+    teng_frame_begin();
+    teng_kinematic_move(kin, -3.0 + f / 60.0, 0.6, 0);
+    teng_frame_end();
+  }
+  const double kx1 = teng_x(kin), tx1 = teng_x(top), kvx = teng_vx(kin);
+  run_frames(30); // hedef yok: DURMALI
+  const double kx2 = teng_x(kin);
+  const int h0 = teng_error_count();
+  teng_impulse(kin, 1, 0, 0);
+  const int h1 = teng_error_count();
+  std::printf("    [bilgi] kinematik: y %.4f (yercekimsiz), x -3 -> %.3f (hiz %.2f), 30 kare hedefsiz -> %.3f; kure x %.3f -> %.3f; durtu hatasi %d\n", ky0,
+              kx1, kvx, kx2, tx0, tx1, h1 - h0);
+  CHECK(std::fabs(ky0 - 0.6) < 1e-4);
+  CHECK(std::fabs(kx1 - 1.0) < 0.01 && std::fabs(kvx - 1.0) < 0.05);
+  CHECK(std::fabs(kx2 - kx1) < 1e-4); // durdu (hiz sifirlandi)
+  CHECK(tx1 > tx0 + 0.5);             // itildi
+  CHECK(h1 == h0 + 1);
+  // Kinematik isinlama: yerinde, hiz sifir.
+  teng_set_pos(kin, 5, 0.6, 3);
+  run_frames(2);
+  CHECK(std::fabs(teng_x(kin) - 5.0) < 1e-4 && std::fabs(teng_z(kin) - 3.0) < 1e-4);
+  // Kapanis raporu yolu SAYAR: 2000 + 1 sabit + 1 kinematik yerinde, 2000
+  // dinamik yeniden kurma. Duzeltmesiz kopru bu satiri hic basmaz (her
+  // isinlama yeniden kurmaydi).
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "kapanis (isinlama): 2002 yerinde") != nullptr);
+  CHECK(std::strstr(g_kapanis_log, "2000 yeniden kurma (dinamik)") != nullptr);
+}

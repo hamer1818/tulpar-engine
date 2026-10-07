@@ -89,6 +89,36 @@ func run_itme() {
     assert(konum_x(g_kutu) > x0 + 0.5, "kutu +x'e gitmeli");
 }
 
+// 4b) Kinematik gövde (Geri bildirim #11): yerçekimi onu düşürmez, kinematik_tasi
+//     ile sürülür ve hedef gelmeyince DURUR; itme HATA. KONTROL: aynı yerde
+//     doğan dinamik kutu düşer (yerçekimi gerçekten var).
+func run_kinematik() {
+    int k = kinematik_kutu(10.0, 5.0, 0.0, 0.5, 0.5, 0.5, KIRMIZI);
+    int d = kutu(12.0, 5.0, 0.0, 0.5, 0.5, 0.5, true, KIRMIZI);
+    assert(k > 0 && kinematik_mi(k) && !kinematik_mi(d), "kinematik kutu kurulmali");
+    kare(30);
+    assert_close(konum_y(k), 5.0, 0.0001);
+    assert(konum_y(d) < 4.0, "KONTROL: dinamik kutu dusmeli, y=" + toString(konum_y(d)));
+    int i = 1;
+    while (i <= 60) {
+        kare_basla();
+        kinematik_tasi(k, 10.0 + i / 60.0, 5.0, 0.0);
+        kare_bitir();
+        i = i + 1;
+    }
+    assert_close(konum_x(k), 11.0, 0.01);
+    kare(20);
+    assert_close(konum_x(k), 11.0, 0.01);
+    int h0 = eng_error_count();
+    itme(k, 1.0, 0.0, 0.0);
+    assert_eq_int(eng_error_count(), h0 + 1);
+    isinla(k, 20.0, 1.0, 0.0);
+    kare(2);
+    assert_close(konum_x(k), 20.0, 0.0001);
+    sil(k);
+    sil(d);
+}
+
 // 5) Zaman ve kare sayacı ilerledi; ölçüm alanları dolu.
 func run_olcum() {
     assert(kare_no() > 250, "kare sayaci ilerlemeli");
@@ -1319,6 +1349,7 @@ if (!kur()) {
     test("varlik kurma ve id", "run_varlik");
     test("fizik: zeminli oturur, zeminsiz duser", "run_fizik");
     test("itme ve hiz", "run_itme");
+    test("kinematik govde: yercekimsiz, surulur, durur, itme HATA", "run_kinematik");
     test("zaman/kare olcumu", "run_olcum");
     test("hata sayaci: olu id", "run_hata_sayaci");
     test("tus adi dogrulamasi", "run_tus");
