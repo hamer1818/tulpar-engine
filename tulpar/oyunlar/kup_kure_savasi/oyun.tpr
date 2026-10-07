@@ -362,7 +362,7 @@ func hud_ust() {
     panel(ui_px(8.0), ui_px(6.0), ui_px(250.0), ui_px(74.0), RENK_PANEL);
     yazi(t"Altın {toInt(g_altin[0])}", ui_px(18.0), ui_px(12.0), 1.05, RENK_ALTIN);
     float xp_hedef = CAG_XP[g_cag[0]];
-    if (g_cag[0] >= CAG_SAYISI - 1) { cubuk_ciz(ui_px(16.0), ui_px(44.0), ui_px(234.0), ui_px(26.0), 1.0, RENK_XP, t"XP {toInt(g_xp[0])}  (son çağ)"); }
+    if (g_cag[0] >= CAG_SAYISI - 1) { cubuk_ciz(ui_px(16.0), ui_px(44.0), ui_px(234.0), ui_px(26.0), 1.0, RENK_XP, t"XP {toInt(g_xp[0])}  öfke +{toInt(ofke(0) * 100.0)}%"); }
     else { cubuk_ciz(ui_px(16.0), ui_px(44.0), ui_px(234.0), ui_px(26.0), g_xp[0] / xp_hedef, RENK_XP, t"XP {toInt(g_xp[0])} / {toInt(xp_hedef)}"); }
     // Orta: harita + iki kalenin canı.
     float hw = ui_px(420.0);

@@ -302,7 +302,7 @@ func birlik_uret(int taraf, int tur): bool {
     b.id = id; b.bas = bas; b.silah = silah; b.taraf = taraf; b.tur = tur; b.cag = cag;
     b.p = 0.0; b.yan = yan; b.can = B_CAN[tur] * m; b.can_max = b.can; b.sure_kalan = 0.3;
     b.boy = boy; b.hiz = B_HIZ[tur] * (1.0 + 0.04 * cag); b.menzil = B_MENZIL[tur] + (tur == 1 ? 0.4 * cag : 0.0);
-    b.hasar = B_HASAR[tur] * m; b.aralik = B_ARALIK[tur];
+    b.hasar = B_HASAR[tur] * m * (1.0 + ofke(taraf)); b.aralik = B_ARALIK[tur];
     b.x = x; b.y = y; b.z = z;
     birlikler[yer] = b;
     yuva_birlik[yuva(id)] = yer + 1;
@@ -947,6 +947,18 @@ func egitimi_guncelle(float d) {
             g_egitim_t[taraf] = 0.0;
         }
     }
+}
+
+// Son çağda XP boşa gitmesin: eşiğin üstündeki her 6000 XP o tarafın YENİ
+// birliklerine +%10 hasar (en çok +%50). Neden: simetrik eşleşmede iki taraf
+// Gelecek Çağı'nda kilitleniyordu (ölçüldü P20 Pro 2026-10-07: 6 dk'da iki
+// kale de 8500/8500). Daha çok öldüren daha hızlı güçlenir -> savaş biter.
+func ofke(int taraf): float {
+    if (g_cag[taraf] < CAG_SAYISI - 1) { return 0.0; }
+    float fazla = g_xp[taraf] - CAG_XP[CAG_SAYISI - 2];
+    if (fazla <= 0.0) { return 0.0; }
+    float b = floor(fazla / 6000.0) * 0.1;
+    return b > 0.5 ? 0.5 : b;
 }
 
 func cag_atlayabilir(int taraf): bool { return g_cag[taraf] < CAG_SAYISI - 1 && g_xp[taraf] >= CAG_XP[g_cag[taraf]]; }
