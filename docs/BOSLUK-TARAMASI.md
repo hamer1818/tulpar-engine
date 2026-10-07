@@ -54,7 +54,7 @@ GGPO/ağ (ilk oyunda yok), RenderDoc/AGI (araç, kod değil). Telefon USB düşt
 | **GameTextInput** | Yok (metin girişi yok; editör masaüstünde) | 🟡 İP-P ile birlikte |
 | **GameController** | Yok | 🟢 sonra |
 | **Swappy** kare temposu | 🟡 **bugün derlendi**: `SwapchainConfig::Hooks` + Android host + AAR fetch; emülatörde Java simi lib bulamıyor (asılı, Tuzaklar 8v); telefon (API 29, sim yok) ölçümü bekliyor | `TULPAR_SWAPPY=ON`, varsayılan kapalı |
-| **Memory Advice API** | 🟡 Yapılmadı: `games-memory-advice` AAR (prefab C API + TFLite modeli, JNI context) — GameActivity/Gradle host ile birlikte (İP-T); bugün `APP_CMD_LOW_MEMORY` yalnız log | Sıra: 7 |
+| **Memory Advice API** | 🟡 Yapılmadı: `games-memory-advice` AAR (prefab C API + TFLite modeli, JNI context) — GameActivity/Gradle host ile birlikte (İP-T); bugün `APP_CMD_LOW_MEMORY` sayılıyor, RSS ile loglanıyor, kapanışta toplam (Geri bildirim #18) — bellek bırakılmıyor | Sıra: 7 |
 | **Oboe** | ✅ **bugün, miniaudio ile**: AAudio doğrudan (Oboe'nin sardığı API) + OpenSL yedek; FAZ4.md | Oboe yalnız cihaz tuzağı görülürse |
 | **Performance Tuner** | 🟡 Yapılmadı: Play + protobuf + yayınlanmış oyun ister (L8); ilk oyunla | — |
 | **AGI** | Kullanılmadı; G72'de timestamp yok | 🟡 Araç, kod değil: bir sonraki telefon ölçüm turunda denenecek (`adb` üstünden, pencere açılmadan) |

@@ -22,9 +22,11 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "bridge/android_lifecycle.hpp"
 #include "bridge/asset_filter.hpp"
 #include "bridge/bridge_host.hpp"
 #include "platform/crash.hpp"
+#include "platform/memory.hpp"
 #include "platform/time.hpp"
 
 // Tulpar tarafindan uretilen oyun giris noktasi (libtulpargame.so icinde).
@@ -79,29 +81,28 @@ struct AndroidHost {
   android_app *app = nullptr;
   platform::TouchState touch;
   bool window_ready = false, had_window = false, window_changed = false, quit = false;
+  uint32_t low_memory = 0; // APP_CMD_LOW_MEMORY sayisi (kapanista basilir)
 };
 AndroidHost g_host;
 
-const char *cmd_name(int32_t c) {
-  switch (c) {
-  case APP_CMD_INIT_WINDOW: return "INIT_WINDOW";
-  case APP_CMD_TERM_WINDOW: return "TERM_WINDOW";
-  case APP_CMD_WINDOW_RESIZED: return "WINDOW_RESIZED";
-  case APP_CMD_GAINED_FOCUS: return "GAINED_FOCUS";
-  case APP_CMD_LOST_FOCUS: return "LOST_FOCUS";
-  case APP_CMD_CONFIG_CHANGED: return "CONFIG_CHANGED";
-  case APP_CMD_START: return "START";
-  case APP_CMD_RESUME: return "RESUME";
-  case APP_CMD_PAUSE: return "PAUSE";
-  case APP_CMD_STOP: return "STOP";
-  case APP_CMD_DESTROY: return "DESTROY";
-  case APP_CMD_LOW_MEMORY: return "LOW_MEMORY";
-  default: return "?";
-  }
-}
+// Ad tablosu bridge/android_lifecycle.hpp'de (masaustu kapisi onu olcer). Sayilar
+// glue'nun enum'una KILITLI: glue sirayi degistirir ya da araya komut eklerse
+// motor derlenmez — sessizce yanlis adla loglamaz.
+using namespace tulpar::engine::bridge;
+static_assert(APP_CMD_INPUT_CHANGED == kAndroidCmdInputChanged && APP_CMD_INIT_WINDOW == kAndroidCmdInitWindow &&
+                  APP_CMD_TERM_WINDOW == kAndroidCmdTermWindow && APP_CMD_WINDOW_RESIZED == kAndroidCmdWindowResized &&
+                  APP_CMD_WINDOW_REDRAW_NEEDED == kAndroidCmdWindowRedrawNeeded &&
+                  APP_CMD_CONTENT_RECT_CHANGED == kAndroidCmdContentRectChanged && APP_CMD_GAINED_FOCUS == kAndroidCmdGainedFocus &&
+                  APP_CMD_LOST_FOCUS == kAndroidCmdLostFocus && APP_CMD_CONFIG_CHANGED == kAndroidCmdConfigChanged &&
+                  APP_CMD_LOW_MEMORY == kAndroidCmdLowMemory && APP_CMD_START == kAndroidCmdStart && APP_CMD_RESUME == kAndroidCmdResume &&
+                  APP_CMD_SAVE_STATE == kAndroidCmdSaveState && APP_CMD_PAUSE == kAndroidCmdPause && APP_CMD_STOP == kAndroidCmdStop &&
+                  APP_CMD_DESTROY == kAndroidCmdDestroy,
+              "native_app_glue APP_CMD_* sayilari bridge/android_lifecycle.hpp ile ayni olmali");
+
 void on_cmd(android_app *app, int32_t cmd) {
   AndroidHost *h = static_cast<AndroidHost *>(app->userData);
-  std::printf("[engine_bridge] android cmd %s\n", cmd_name(cmd));
+  if (const char *ad = android_cmd_name(cmd)) std::printf("[engine_bridge] android cmd %s\n", ad);
+  else std::printf("[engine_bridge] android cmd ?%d (glue'nun bilinmeyen komutu: bridge/android_lifecycle.hpp)\n", (int)cmd);
   switch (cmd) {
   case APP_CMD_INIT_WINDOW:
     h->window_ready = app->window != nullptr;
@@ -109,6 +110,15 @@ void on_cmd(android_app *app, int32_t cmd) {
     break;
   case APP_CMD_TERM_WINDOW: h->window_ready = false; break;
   case APP_CMD_DESTROY: h->quit = true; break;
+  // Sistem bellegi daraliyor (onTrimMemory/onLowMemory). Motor bugun bir sey
+  // BIRAKMIYOR (butun kapasiteler init'te, A2) — ama olgu sessiz kalmasin:
+  // sayilir, o anki RSS ile loglanir ve kapanista toplam basilir. Bir oyunun
+  // arka planda oldurulmesinin (LMK) sebebi ararken ilk bakilacak satir bu.
+  case APP_CMD_LOW_MEMORY:
+    h->low_memory++;
+    std::printf("[engine_bridge] android: DUSUK BELLEK uyarisi #%u (RSS %zu MB)\n", h->low_memory,
+                platform::os_resident_bytes() / (1024 * 1024));
+    break;
   default: break;
   }
 }
@@ -298,7 +308,9 @@ bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h
   std::printf("[engine_bridge] android host: pencere %dx%d\n", ANativeWindow_getWidth(g_host.app->window), ANativeWindow_getHeight(g_host.app->window));
   return true;
 }
-void bridge_host_close(BridgeHost *) { std::printf("[engine_bridge] android host: kapatildi\n"); }
+void bridge_host_close(BridgeHost *) {
+  std::printf("[engine_bridge] android host: kapatildi (dusuk bellek uyarisi %u)\n", g_host.low_memory);
+}
 } // namespace tulpar::engine::bridge
 
 extern "C" void android_main(android_app *app) {
