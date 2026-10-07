@@ -1932,3 +1932,32 @@ dosya`, `ses: 4 dosya`.
 **Ders:** platforma özgü dosyada duran bir **tablo** (uzantı, anahtar kodu, yetenek listesi) o
 platformun kod yolu kadar görünmezdir. Tabloyu ortak bir başlığa al ve masaüstü kapısıyla ölç; ölçtüğü
 şeyi de başka bir tabloya (burada kod çözücünün biçimleri) bağla ki biri büyüyünce öteki unutulmasın.
+
+### 8cv. "Çağrı başına" ortalaması kare başına sabit bedeli böler — ve telefonda kare içi döngü soğuk önbellekle koşar
+
+**Belirti** (2026-10-07, ilk gerçek oyun, Huawei P20 Pro / Kirin 970 / Mali-G72 / Android 10): kapanış
+satırı `kare icinde 101149 kanca cagrisi, 671.25 ms, cagri basina 6636.2 ns`; masaüstünde aynı oyun
+397 ns. "Kanca dağıtımı telefonda 16 kat yavaş" diye okundu (Geri bildirim #14).
+
+**Sebep, iki katlı:** (1) Sayı, kanca aşamasının **duvar saati / çağrı**. Oyun kare başına ~4 çağrı
+yapıyordu; aşamanın kare başına sabit bedeli (döngüler, çarpışma halkası, ilk çağrının soğuk kodu) dört
+çağrıya bölününce "çağrı başına" şişti. (2) Telefonda aşama **soğuk önbellekle** koşuyor: vsync beklemesi
+ve çizim, kareler arasında L1/L2'yi boşaltıyor (cihazda: aynı 200 çağrı sıcak döngüde 7.7 µs, kare içinde
+75–80 µs; vsync'siz/penceresiz koşum 3–4 kat iyi). Soğuk önbellekte, masaüstünde **ölçülemeyen** bir
+tasarım bedeli belirdi: `guncelle` dağıtımı her kare bütün varlık yuvalarını (100 baytlık `Ent`) ve bütün
+sahne varlıklarını geziyordu — bağlı olmayan her yuva bir soğuk satır, yuva başına ~200 ns. 497 yuvalı,
+30 bağlı varlıklı sahnede aşama kare başına 85–105 µs (masaüstünde 1 µs).
+
+**Düzeltme:** yuva/sahne sıralı dağıtım listeleri (bağla/çöz yalnız kirli bayrağı kurar, liste aşamanın
+başında kurulur; çağrı anında eski taramanın koşullarıyla doğrulanır), sıcak alanlar ilk satırda; kapanış
+satırına **kare başına** süre. Telefonda F oturumu 85–105 → 32–45 µs/kare; masaüstünde değişmedi ya da
+iyileşti (KOPRU §7.9 tablosu). **Pozitif kontrol** (`bridge_runs_a_scripted_game_headless`): listenin
+sıralaması kaldırılınca bağlama sırası tersten yapılan üç varlığın `guncelle` sırası YANLIŞ (kapı kırmızı);
+sahne listesi kurulmayınca sahne `guncelle`leri hiç gelmez (3 kontrol kırmızı).
+
+**Ders:** (a) Ortalamayı paydasıyla yaz: "çağrı başına" yanına "kare başına" — seyrek olayda biri
+ötekini yalan söyletir. (b) "Bütün yuvaları gez, işaretliyi seç" masaüstünde bedava görünür (96 MB L3,
+sıcak), telefonda her kare soğuk satır başına yüz nanosaniyeler. Kare içinde seyrek bir alt kümeyi
+dolaşan döngü, alt kümeyi **liste** olarak tutsun; bedeli ancak cihazda ölç (`tools/android_kanca_olcumu.sh`).
+Dikkat: kazanç taşınabilir — taramayı bırakan aşamanın soğuk satırlarını sonraki tam tarama (animasyon,
+çizim) öder; toplamı da ölç (burada `teng_frame_end` CPU zamanı gürültü düzeyinde değişti).

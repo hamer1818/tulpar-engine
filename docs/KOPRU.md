@@ -447,6 +447,35 @@ türünün hepsi) eski ve hızlı sahte VM'le koşar, iki çağrı izi argüman 
 **pozitif kontrol** hızlı VM'den bir kancayı düşürür ve iz ayrışmalı. Hızlı koşumda `has`/`call`
 **0** kez çağrılmalı (yol gerçekten ayrı).
 
+**Telefonda (Geri bildirim #14, Tuzaklar 8cv).** İlk gerçek oyunun kapanış satırı Huawei P20 Pro'da
+(Kirin 970, Mali-G72, Android 10) `cagri basina 6636 ns` dedi, masaüstünde aynı oyun 397 ns. Sayı
+**kanca aşamasının duvar saati / çağrı**: seyrek çağrılı oyunda (kare başına ~4 çağrı) aşamanın kare
+başına sabit bedelini de çağrılara bölüyor. Ayrıştırma (`tools/android_kanca_olcumu.sh`, 2026-10-07/08):
+- Dağıtımın kendisi telefonda **sıcak** önbellekle 31–60 ns/çağrı (masaüstü 5.5–6 ns; donanım farkı).
+- Aynı döngü **kare içinde** 8–10 kat yavaş (sıcak 200 çağrı 7.7 µs, kare içinde 75–80 µs): vsync
+  beklemesi ve çizim, aşamalar arasında L1/L2'yi boşaltıyor. Telefonda penceresiz (vsync'siz) koşum
+  aynı ölçümde 3–4 kat daha iyi — bedel **soğuk önbellek**, kod değil.
+- Soğuk önbellekte asıl bedel **taramaydı**: `guncelle` dağıtımı her kare bütün varlık yuvalarını
+  (`ent_high` × 100 baytlık `Ent`) ve bütün sahne varlıklarını geziyordu; bağlı olmayan her yuva bir
+  soğuk satır, telefonda yuva başına ~200 ns (masaüstünde ölçülemez).
+
+Düzeltme: `guncelle` için yuva/sahne sıralı **dağıtım listeleri** (bağla/çöz yalnız `bound_dirty` kurar,
+liste aşamanın başında bir kez kurulur; kanca içinden değişen her şey çağrı anında eskisiyle aynı
+koşullarla doğrulanır) ve sıcak alanlar öne (`Ent::bound` ilk satırda, `ScriptHook`'ta ad sonda). Kapanış
+satırı artık **kare başına** süreyi de basar (`asama N kare, kare basina X us`). Aynı APK içeriği, eski
+ve yeni motor arşivi sırayla ikişer tur (P20 Pro, 2026-10-08):
+
+| oturum (600 kare, vsync) | eski: ns/çağrı (µs/kare) | yeni: ns/çağrı (µs/kare) | masaüstü eski → yeni (ns/çağrı) |
+|---|---|---|---|
+| F: 497 yuva, 30 bağlı `guncelle` + 6 çarpışma kancası | 2824–3492 (85–105) | 1060–1506 (32–45) | 36 → 22 |
+| A: 200 boş `guncelle`, hepsi bağlı | 482–566 | 372–572 | 5.8–6.2 → 5.9–6.1 |
+| C: 4 boş `guncelle` | 2663–3443 | 2793–4912 | 52–62 → 58–79 |
+
+Dürüst not: kazanç kanca aşamasında; tarama yapmayan aşamanın bıraktığı soğuk satırları ardından gelen
+animasyon ve çizim döngüsü (onlar da bütün yuvaları geziyor) ödüyor. F'de "kanca + animasyon" 96–126 →
+70–77 µs/kare, `teng_frame_end`'in ana thread CPU zamanı 2.83–2.87 → 2.66–2.78 ms (fark gürültü
+düzeyinde). Oyunun kendi telefon bedeli kare başına ~26 µs (16.7 ms'lik karenin %0.16'sı) idi.
+
 Kurulum `teng_tulpar_init` içinde (yapıştırıcı), `teng_init`ten **önce** yapılır — bu yüzden VM işaretçisi
 `Bridge`in **dışında** bir dosya-kapsamlı değişkende durur; içinde saklansaydı o anda `Bridge`
 henüz yok olduğu için kurulum sessizce kaybolurdu.
