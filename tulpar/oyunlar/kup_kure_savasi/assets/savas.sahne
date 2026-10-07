@@ -500,7 +500,7 @@ nesne "us_oyuncu"
   konum -38 0 -0.5
   donus 0 0 0
   olcek 1 1 1
-  betik "oyunlar/kup_kure_savasi/davranis/us_yeri.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/us_yeri.tpr" etkin
   ozellik_nokta "dogus" 4 0 0.5
   ozellik_sayi "on_yuz" 3.2
   ozellik_tam "taraf" 0
@@ -512,7 +512,7 @@ nesne "yuva_kup_1"
   model kaynak -1 0.55 0.55 0.6
   ilkel 10
   govde kutu 0.5 0.5 0.5 sabit
-  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
   ozellik_tam "sira" 0
   ozellik_tam "taraf" 0
 son
@@ -523,7 +523,7 @@ nesne "yuva_kup_2"
   model kaynak -1 0.55 0.55 0.6
   ilkel 10
   govde kutu 0.5 0.5 0.5 sabit
-  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
   ozellik_tam "sira" 1
   ozellik_tam "taraf" 0
 son
@@ -534,7 +534,7 @@ nesne "yuva_kup_3"
   model kaynak -1 0.55 0.55 0.6
   ilkel 10
   govde kutu 0.5 0.5 0.5 sabit
-  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
   ozellik_tam "sira" 2
   ozellik_tam "taraf" 0
 son
@@ -650,7 +650,7 @@ nesne "us_dusman"
   konum 38 0 -0.5
   donus 0 0 0
   olcek 1 1 1
-  betik "oyunlar/kup_kure_savasi/davranis/us_yeri.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/us_yeri.tpr" etkin
   ozellik_nokta "dogus" -4 0 0.5
   ozellik_sayi "on_yuz" 3.2
   ozellik_tam "taraf" 1
@@ -662,7 +662,7 @@ nesne "yuva_kure_1"
   model kaynak -1 0.6 0.55 0.55
   ilkel 10
   govde kutu 0.5 0.5 0.5 sabit
-  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
   ozellik_tam "sira" 0
   ozellik_tam "taraf" 1
 son
@@ -673,7 +673,7 @@ nesne "yuva_kure_2"
   model kaynak -1 0.6 0.55 0.55
   ilkel 10
   govde kutu 0.5 0.5 0.5 sabit
-  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
   ozellik_tam "sira" 1
   ozellik_tam "taraf" 1
 son
@@ -684,7 +684,7 @@ nesne "yuva_kure_3"
   model kaynak -1 0.6 0.55 0.55
   ilkel 10
   govde kutu 0.5 0.5 0.5 sabit
-  betik "oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
+  betik "tulpar/oyunlar/kup_kure_savasi/davranis/kule_yuvasi.tpr" etkin
   ozellik_tam "sira" 2
   ozellik_tam "taraf" 1
 son
