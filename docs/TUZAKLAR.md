@@ -1961,6 +1961,7 @@ sıcak), telefonda her kare soğuk satır başına yüz nanosaniyeler. Kare içi
 dolaşan döngü, alt kümeyi **liste** olarak tutsun; bedeli ancak cihazda ölç (`tools/android_kanca_olcumu.sh`).
 Dikkat: kazanç taşınabilir — taramayı bırakan aşamanın soğuk satırlarını sonraki tam tarama (animasyon,
 çizim) öder; toplamı da ölç (burada `teng_frame_end` CPU zamanı gürültü düzeyinde değişti).
+
 ### 8cw. Metin biçimi kapısı yeşil, blob alanı taşımıyor — ve köprü sistemi hiç adımlamıyor
 
 **Belirti** (2026-10-07, ilk gerçek oyun "Küpler ile Kürelerin Savaşı", Geri bildirim #3): `.sahne`deki
