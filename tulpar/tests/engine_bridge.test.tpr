@@ -119,6 +119,34 @@ func run_kinematik() {
     sil(d);
 }
 
+// 4c) Kamera izdüşümü (Geri bildirim #12): dünya->ekran ile bulunan noktadan
+//     seçme aynı küreyi bulur; ekran ışını merkezden geçer. KONTROL: sol üst
+//     köşe (gökyüzü) ıska.
+func run_kamera_isini() {
+    int k = kure(30.0, 1.0, -3.0, 0.4, false, KIRMIZI);
+    kamera(30.0, 3.0, 6.0, 30.0, 1.0, 0.0);
+    kare(2);
+    assert_close(gorus_acisi_al(), 51.428571, 0.001);
+    assert(dunyadan_ekrana(30.0, 1.0, -3.0), "kure ekranda olmali");
+    float sx = ekran_x();
+    float sy = ekran_y();
+    assert(ekrandan_sec(sx, sy, 50.0) > 0.0, "secme isabet etmeli");
+    assert_eq_int(isin_id(), k);
+    assert(ekran_isini(sx, sy), "ekran isini hesaplanmali");
+    Vec3 o = ekran_isini_baslangic();
+    Vec3 d = ekran_isini_yon();
+    float t = (30.0 - o.x) * d.x + (1.0 - o.y) * d.y + (-3.0 - o.z) * d.z;
+    assert_close(o.x + d.x * t, 30.0, 0.001);
+    assert_close(o.y + d.y * t, 1.0, 0.001);
+    assert(ekrandan_sec(1.0, 1.0, 50.0) < 0.0, "KONTROL: gokyuzu iska olmali");
+    gorus_acisi(30.0);
+    assert(dunyadan_ekrana(30.0, 1.0, -3.0), "fov 30: kure ekranda olmali");
+    assert(ekrandan_sec(ekran_x(), ekran_y(), 50.0) > 0.0, "fov 30: secme isabet etmeli");
+    assert_eq_int(isin_id(), k);
+    gorus_acisi(180.0 / 3.5);
+    sil(k);
+}
+
 // 5) Zaman ve kare sayacı ilerledi; ölçüm alanları dolu.
 func run_olcum() {
     assert(kare_no() > 250, "kare sayaci ilerlemeli");
@@ -1350,6 +1378,7 @@ if (!kur()) {
     test("fizik: zeminli oturur, zeminsiz duser", "run_fizik");
     test("itme ve hiz", "run_itme");
     test("kinematik govde: yercekimsiz, surulur, durur, itme HATA", "run_kinematik");
+    test("kamera izdusumu: dunya->ekran, secme, ekran isini, gorus acisi", "run_kamera_isini");
     test("zaman/kare olcumu", "run_olcum");
     test("hata sayaci: olu id", "run_hata_sayaci");
     test("tus adi dogrulamasi", "run_tus");

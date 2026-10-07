@@ -452,6 +452,29 @@ func isin_nx(): float { return eng_ray_nx(); }
 func isin_ny(): float { return eng_ray_ny(); }
 func isin_nz(): float { return eng_ray_nz(); }
 func isin_id(): int { return eng_ray_id(); }
+// Kamera izdusumu (Geri bildirim #12): oyun sabiti KOPYALAMAZ, motora sorar.
+// Ekran koordinati = dokunma/fare koordinati (genislik() x yukseklik(), sol ust 0,0).
+func gorus_acisi(float derece) { eng_camera_fov(derece); }
+func camera_fov(float deg) { eng_camera_fov(deg); }
+func gorus_acisi_al(): float { return eng_camera_fov_get(); }
+func camera_fov_get(): float { return eng_camera_fov_get(); }
+// Dokunulan noktadaki varlik: mesafe (-1 iska); sonra isin_id() / isin_sahne() / isin_x()..
+func ekrandan_sec(float sx, float sy, float uzaklik): float { return eng_pick(sx, sy, uzaklik); }
+func pick(float sx, float sy, float max_dist): float { return eng_pick(sx, sy, max_dist); }
+func ekran_isini(float sx, float sy): bool { return eng_screen_ray(sx, sy); }
+func screen_ray(float sx, float sy): bool { return eng_screen_ray(sx, sy); }
+func ekran_isini_baslangic(): Vec3 { return { x: eng_screen_ray_ox(), y: eng_screen_ray_oy(), z: eng_screen_ray_oz() }; }
+func screen_ray_origin(): Vec3 { return ekran_isini_baslangic(); }
+func ekran_isini_yon(): Vec3 { return { x: eng_screen_ray_dx(), y: eng_screen_ray_dy(), z: eng_screen_ray_dz() }; }
+func screen_ray_dir(): Vec3 { return ekran_isini_yon(); }
+// Dunya -> ekran (can cubugu, isaret): true = onde ve ekranda; sonra ekran_x() / ekran_y().
+// (Ad `ekrana` DEGIL: oyunlar o adla kendi izdusumunu tanimliyor — cakisma.)
+func dunyadan_ekrana(float x, float y, float z): bool { return eng_world_to_screen(x, y, z); }
+func world_to_screen(float x, float y, float z): bool { return eng_world_to_screen(x, y, z); }
+func ekran_x(): float { return eng_screen_x(); }
+func ekran_y(): float { return eng_screen_y(); }
+func screen_x(): float { return eng_screen_x(); }
+func screen_y(): float { return eng_screen_y(); }
 func isin_sahne(): int { return eng_ray_scene(); }
 func ray_x(): float { return eng_ray_x(); }
 func ray_y(): float { return eng_ray_y(); }

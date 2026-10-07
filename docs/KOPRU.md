@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 221 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 234 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -215,6 +215,13 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   edince birikim kaldığı yerden sürer: duraklatılmış koşu duraklamasız koşuyla **bit-tam** aynı yere varır
   (kapı `bridge_physics_pause_freezes_and_resumes_deterministically`). `zaman_olcegi(0.5)` ağır çekim —
   ölçek kare süresine uygulanır, adıma değil, yani belirlenim bozulmaz. `sim_adimi()` atılan adım sayısı.
+- **Kamera izdüşümü** (Geri bildirim #12): oyun projeksiyonu kopyalamaz, motora sorar. `gorus_acisi(derece)`
+  (varsayılan 51.43 = π/3.5), `ekrandan_sec(sx, sy, uzaklik)` dokunulan varlığı bulur (sonra `isin_id()` /
+  `isin_sahne()` / `isin_x()`…), `ekran_isini(sx, sy)` + `ekran_isini_baslangic()` / `ekran_isini_yon()`,
+  `dunyadan_ekrana(x, y, z)` + `ekran_x()` / `ekran_y()` (can çubuğu). Ekran koordinatı = dokunma/fare
+  koordinatı = `genislik()` × `yukseklik()` pikseli, sol üst (0,0); render ölçeği (iç çözünürlük) ve Android
+  ön-döndürmesi bunu değiştirmez. Kapı `bridge_camera_fov_screen_ray_pick_world_to_screen` izdüşümü PİKSELDE
+  doğrular (kürenin merkezi kırmızı; eski π/3.5 kopyası fov 30'da ıskalar).
 - **Fizik:** kutu/küre gövdeleri Jolt'ta; `eng_set_pos` sabit ve kinematik gövdeyi **yerinde** taşır (yeniden
   kurmaz, ayırma yok: 68 ns/çağrı, eskiden 259 ns + 3 Jolt ayırması — RTX 5080 masaüstü, 2026-10-07), dinamik
   gövdeyi **yeniden kurar** ve hız sıfırlanır. Kapanış raporu iki yolu sayar (`kapanis (isinlama)`).
@@ -858,7 +865,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **221 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **234 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -868,7 +875,7 @@ bölüm yorumlarına göre):
 |---|---:|---|
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | fizik zamanı | 5 | **duraklat** / duraklı mı, **zaman ölçeği** (yaz/oku), sim adımı sayacı — duraklatma birikimi dondurur, devam bit-tam aynı sonuca varır (Geri bildirim #10) |
-| dünya / kamera | 12 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu |
+| dünya / kamera | 25 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 29 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** / **kinematik kutu / küre** (+ sür, kinematik mi) üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |

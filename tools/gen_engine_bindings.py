@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 221 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 234 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -83,6 +83,19 @@ SPEC = [
     ("eng_camera_x", "float", [], "Kamera gozu x."),
     ("eng_camera_y", "float", [], "Kamera gozu y."),
     ("eng_camera_z", "float", [], "Kamera gozu z."),
+    ("eng_camera_fov", "void", [("deg", "num")], "Dikey gorus acisi, derece (10..120; varsayilan 51.43 = pi/3.5). Ekran isini ve dunya->ekran ayni degeri kullanir."),
+    ("eng_camera_fov_get", "float", [], "Dikey gorus acisi (derece)."),
+    ("eng_screen_ray", "bool", [("sx", "num"), ("sy", "num")], "Ekran noktasindan (eng_width/eng_height pikseli = dokunma/fare koordinati, sol ust 0,0) dunyaya isin hesaplar; sonra eng_screen_ray_ox.._dz oku (yon birim)."),
+    ("eng_screen_ray_ox", "float", [], "Son ekran isininin baslangici x (kamera gozu)."),
+    ("eng_screen_ray_oy", "float", [], "Son ekran isininin baslangici y."),
+    ("eng_screen_ray_oz", "float", [], "Son ekran isininin baslangici z."),
+    ("eng_screen_ray_dx", "float", [], "Son ekran isininin birim yonu x."),
+    ("eng_screen_ray_dy", "float", [], "Son ekran isininin birim yonu y."),
+    ("eng_screen_ray_dz", "float", [], "Son ekran isininin birim yonu z."),
+    ("eng_pick", "float", [("sx", "num"), ("sy", "num"), ("max_dist", "num")], "Secme: ekran noktasindan isin testi. Donus mesafe (-1 iska); carpilan varlik eng_ray_id / eng_ray_scene, nokta eng_ray_x.. (eng_raycast ile ayni ayrinti)."),
+    ("eng_world_to_screen", "bool", [("x", "num"), ("y", "num"), ("z", "num")], "Dunya -> ekran: true = kameranin onunde ve ekran icinde. Koordinat eng_screen_x / eng_screen_y (arkadaysa -1)."),
+    ("eng_screen_x", "float", [], "Son eng_world_to_screen x (piksel, eng_width uzayi)."),
+    ("eng_screen_y", "float", [], "Son eng_world_to_screen y (piksel, sol ust 0)."),
     # sahne blob
     ("eng_scene_load", "bool", [("path", "str")], "Derlenmis sahneyi (.sahneb, engine_sahnec) yukler: modeller, isiklar, govdeler, dunya ayarlari."),
     ("eng_scene_count", "int", [], "Sahne varligi sayisi."),

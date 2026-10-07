@@ -75,6 +75,27 @@ void teng_ambient(int64_t color);
 void teng_shadow_volume(double cx, double cy, double cz, double radius, double depth);
 void teng_camera(double ex, double ey, double ez, double tx, double ty, double tz);
 void teng_camera_orbit(double tx, double ty, double tz, double yaw, double pitch, double radius);
+// Dikey gorus acisi (derece, 10..120; varsayilan 51.43 = pi/3.5). Ekran isini ve
+// dunya->ekran AYNI degeri kullanir: oyun izdusumu kopyalamasin (Geri bildirim #12).
+void teng_camera_fov(double deg);
+double teng_camera_fov_get(void);
+// Ekran noktasindan (teng_width/teng_height pikseli = dokunma/fare koordinati,
+// sol ust 0,0) dunyaya isin: hesapla (1 basari), sonra _ox.._dz oku (birim yon).
+int teng_screen_ray(double sx, double sy);
+double teng_screen_ray_ox(void);
+double teng_screen_ray_oy(void);
+double teng_screen_ray_oz(void);
+double teng_screen_ray_dx(void);
+double teng_screen_ray_dy(void);
+double teng_screen_ray_dz(void);
+// Secme: ekran isini + teng_raycast. Donus mesafe (-1 iska); carpilan varlik
+// teng_ray_id / teng_ray_scene, nokta teng_ray_x.. (son isin testiyle ayni).
+double teng_pick(double sx, double sy, double max_dist);
+// Dunya -> ekran: 1 = kameranin onunde VE ekran icinde; koordinat teng_screen_x/y
+// (arkadaysa -1). Can cubugu, isaret, dokunma hedefi icin.
+int teng_world_to_screen(double x, double y, double z);
+double teng_screen_x(void);
+double teng_screen_y(void);
 double teng_camera_x(void);
 double teng_camera_y(void);
 double teng_camera_z(void);

@@ -61,6 +61,7 @@ constexpr uint32_t kMaxOverlap = 64;   // kure sorgusu sonuc tavani (sabit dizi,
 constexpr uint32_t kMaxNavPoints = 32; // navmesh duz yolunun kose sayisi tavani
 constexpr uint32_t kHudTextBytes = 64 << 10;
 constexpr uint32_t kLogRing = 64;
+constexpr float kCamNear = 0.1f, kCamFar = 300.0f; // projeksiyon (render_frame) + ekran isini (cam_frame) ORTAK
 constexpr uint32_t kMaxUiIds = 64;     // kare basina widget (sabit dizi, kare ici ayirma yok)
 constexpr uint32_t kMaxSaveKeys = 64;  // kalici kayit anahtari
 constexpr uint32_t kSaveKeyLen = 48;
@@ -481,6 +482,11 @@ struct Bridge {
   uint32_t ent_high = 0, ent_alive = 0;
   // kamera / dunya
   Vec3 cam_eye{0, 8, 14}, cam_target{0, 0, 0};
+  // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
+  // render_frame'de SABITTI ve oyun izdusumu kurmak icin onu KOPYALIYORDU (Geri bildirim #12).
+  float cam_fov = kBridgePi / 3.5f;
+  Vec3 sray_o{0, 0, 0}, sray_d{0, 0, -1}; // son teng_screen_ray (hesapla-sonra-oku)
+  float scr_x = 0, scr_y = 0;             // son teng_world_to_screen
   Vec3 sun_dir{0.5f, 1.0f, 0.35f}, ambient{0.16f, 0.17f, 0.2f};
   float sun_diffuse = 0.85f;
   Vec3 shadow_center{0, 1, -1};
@@ -839,6 +845,30 @@ bool embed_frame_wait(Bridge &b) {
   return step;
 }
 
+// Kameranin ekran cercevesi: render_frame'in projeksiyonuyla AYNI kaynak (fov,
+// gorunen en-boy, look_at tabani). Ekran koordinati = teng_width/teng_height
+// pikseli = dokunma/fare koordinati (sol ust 0,0; y asagi). Android'in
+// on-dondurmesi clip uzayinda uygulanir, mantiksal koordinati degistirmez; ic
+// cozunurluk olcegi de (render scale) yalniz 3B hedefi olcekler.
+struct CamFrame {
+  Vec3 eye, f, r, u;
+  float tan_half, aspect, w, h;
+};
+bool cam_frame(const Bridge &b, CamFrame *c) {
+  const uint32_t vis_w = b.headless ? b.fb_w : b.swap.logical_extent().width;
+  const uint32_t vis_h = b.headless ? b.fb_h : b.swap.logical_extent().height;
+  if (!vis_w || !vis_h) return false;
+  c->eye = b.cam_eye;
+  c->f = normalize(b.cam_target - b.cam_eye);
+  c->r = normalize(cross(c->f, Vec3{0, 1, 0}));
+  c->u = cross(c->r, c->f);
+  c->tan_half = std::tan(b.cam_fov * 0.5f);
+  c->w = (float)vis_w;
+  c->h = (float)vis_h;
+  c->aspect = c->w / c->h;
+  return true;
+}
+
 void render_frame() {
   Bridge &b = *g;
   // En-boy orani GORUNEN yonden; Android on-dondurmede goruntu fiziksel olarak
@@ -847,7 +877,7 @@ void render_frame() {
   const uint32_t vis_w = b.headless ? b.fb_w : b.swap.logical_extent().width;
   const uint32_t vis_h_px = b.headless ? b.fb_h : b.swap.logical_extent().height;
   const float aspect = (float)vis_w / (float)(vis_h_px ? vis_h_px : 1);
-  Mat4 proj = Mat4::perspective(kBridgePi / 3.5f, aspect, 0.1f, 300.0f);
+  Mat4 proj = Mat4::perspective(b.cam_fov, aspect, kCamNear, kCamFar); // ekran isini ayni degerleri kullanir (cam_frame)
   if (!b.headless && b.swap.rotation_radians() != 0.0f)
     proj = Mat4::rotate({0, 0, 1}, b.swap.rotation_radians()) * proj;
   b.ren.set_camera(Mat4::look_at(b.cam_eye, b.cam_target, {0, 1, 0}), proj);
@@ -3762,6 +3792,53 @@ static float ent_bound_radius(const Ent &e) {
   default: return 0.0f;
   }
 }
+// --- kamera: gorus acisi, ekran isini, secme, dunya->ekran (Geri bildirim #12) ---
+void teng_camera_fov(double deg) {
+  CALLF("teng_camera_fov", "%.2f", deg);
+  if (!g) g = new (g_storage) Bridge();
+  if (!(deg >= 10.0 && deg <= 120.0)) {
+    BERR("teng_camera_fov: dikey aci 10..120 derece olmali (%.2f), kirpildi", deg);
+    deg = deg > 120.0 ? 120.0 : 10.0;
+  }
+  g->cam_fov = (float)(deg * (double)kBridgePi / 180.0);
+}
+double teng_camera_fov_get(void) { return (g ? (double)g->cam_fov : (double)kBridgePi / 3.5) * 180.0 / (double)kBridgePi; }
+int teng_screen_ray(double sx, double sy) {
+  if (!ready("teng_screen_ray")) return 0;
+  CamFrame c;
+  if (!cam_frame(*g, &c)) { BERR("teng_screen_ray: gorunen alan yok (pencere 0x0)"); return 0; }
+  const float nx = (float)(sx / c.w) * 2.0f - 1.0f, ny = 1.0f - (float)(sy / c.h) * 2.0f;
+  g->sray_o = c.eye;
+  g->sray_d = normalize(c.f + c.r * (nx * c.tan_half * c.aspect) + c.u * (ny * c.tan_half));
+  return 1;
+}
+double teng_screen_ray_ox(void) { return g ? g->sray_o.x : 0; }
+double teng_screen_ray_oy(void) { return g ? g->sray_o.y : 0; }
+double teng_screen_ray_oz(void) { return g ? g->sray_o.z : 0; }
+double teng_screen_ray_dx(void) { return g ? g->sray_d.x : 0; }
+double teng_screen_ray_dy(void) { return g ? g->sray_d.y : 0; }
+double teng_screen_ray_dz(void) { return g ? g->sray_d.z : -1; }
+double teng_pick(double sx, double sy, double max_dist) {
+  CALLF("teng_pick", "(%.1f %.1f) mesafe %.1f", sx, sy, max_dist);
+  if (!teng_screen_ray(sx, sy)) return -1.0;
+  const Vec3 o = g->sray_o, d = g->sray_d;
+  return teng_raycast(o.x, o.y, o.z, d.x, d.y, d.z, max_dist, 0);
+}
+int teng_world_to_screen(double x, double y, double z) {
+  if (!ready("teng_world_to_screen")) return 0;
+  CamFrame c;
+  if (!cam_frame(*g, &c)) return 0;
+  const Vec3 v = Vec3{(float)x, (float)y, (float)z} - c.eye;
+  const float zf = dot(v, c.f);
+  if (zf <= kCamNear) { g->scr_x = g->scr_y = -1.0f; return 0; } // kameranin arkasinda / yakin duzlemin onunde
+  const float nx = dot(v, c.r) / (zf * c.tan_half * c.aspect), ny = dot(v, c.u) / (zf * c.tan_half);
+  g->scr_x = (nx + 1.0f) * 0.5f * c.w;
+  g->scr_y = (1.0f - ny) * 0.5f * c.h;
+  return (nx >= -1.0f && nx <= 1.0f && ny >= -1.0f && ny <= 1.0f) ? 1 : 0;
+}
+double teng_screen_x(void) { return g ? g->scr_x : -1; }
+double teng_screen_y(void) { return g ? g->scr_y : -1; }
+
 double teng_raycast(double ox, double oy, double oz, double dx, double dy, double dz, double max_dist, int skip_id) {
   CALLF("teng_raycast", "(%.2f %.2f %.2f) yon (%.2f %.2f %.2f) mesafe %.2f atla #%d", ox, oy, oz, dx, dy, dz, max_dist, skip_id);
   if (!ready("teng_raycast")) return -1.0;
