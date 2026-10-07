@@ -3542,58 +3542,20 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.particle_spawn_accum[i] -= (float)to_spawn;
           if (to_spawn > 200) to_spawn = 200; // bir karede asiri birikmeyi onle
           const Mat4 wm = content::scene_entity_world_matrix(st.scene, i);
-          const Vec3 emitter_pos{wm.m[3][0], wm.m[3][1], wm.m[3][2]};
-          content::ParticleEmitterConfig cfg;
-          cfg.spawn_pos = emitter_pos;
-          cfg.base_velocity = e.particle_velocity;
-          cfg.velocity_jitter = e.particle_jitter;
-          cfg.lifetime_min = e.particle_lifetime_min;
-          cfg.lifetime_max = e.particle_lifetime_max;
-          cfg.size_start = e.particle_size_start;
-          cfg.size_end = e.particle_size_end;
-          cfg.color_start = e.particle_color_start;
-          cfg.color_end = e.particle_color_end;
-          cfg.gravity = Vec3{0.0f, e.particle_gravity, 0.0f};
-          cfg.custom_gravity = true;
-          // TEPS 2026 Gelismis Fizik ve Dinamikler
-          cfg.curl_noise_strength = e.particle_curl_strength;
-          cfg.curl_noise_frequency = e.particle_curl_freq;
-          cfg.drag = e.particle_drag;
-          cfg.enable_collision = e.particle_collision;
-          cfg.collision_plane_y = 0.0f;
-          cfg.restitution = e.particle_bounce;
-          cfg.shape = e.particle_billboard_type;
-          // Godot GPUParticles / Niagara Standart Yayilim Geometrisi
-          if (e.particle_jitter.y <= 0.08f && (e.particle_jitter.x > 0.1f || e.particle_jitter.z > 0.1f)) {
-            cfg.emission_shape = content::ParticleEmissionShape::PlanarRing;
-            cfg.emission_radius = std::max(e.particle_jitter.x, e.particle_jitter.z);
-            cfg.emission_inner_radius = cfg.emission_radius * 0.3f;
-          } else if (e.particle_jitter.z <= 0.08f && e.particle_jitter.x > 0.1f && e.particle_jitter.y > 0.1f) {
-            cfg.emission_shape = content::ParticleEmissionShape::VerticalCurtain;
-            cfg.emission_radius = e.particle_jitter.x;
-            cfg.emission_spread = e.particle_jitter.y;
-          } else if (length(e.particle_velocity) > 2.0f && (e.particle_jitter.x > 0.5f || e.particle_jitter.z > 0.5f)) {
-            cfg.emission_shape = content::ParticleEmissionShape::ConicalFountain;
-            cfg.emission_spread = 0.6f;
-          } else if (e.particle_jitter.x > 0.5f && e.particle_jitter.y > 0.5f && e.particle_jitter.z > 0.5f) {
-            cfg.emission_shape = content::ParticleEmissionShape::SphericalVolume;
-            cfg.emission_radius = std::max(e.particle_jitter.x, std::max(e.particle_jitter.y, e.particle_jitter.z));
-          } else if (e.particle_jitter.x <= 0.08f && e.particle_jitter.z <= 0.08f && length(e.particle_velocity) > 1.0f) {
-            cfg.emission_shape = content::ParticleEmissionShape::LinearBeam;
-            cfg.emission_radius = 2.0f;
-          }
-          static content::ParticleEmitterConfig s_sub_cfg;
-          if (e.particle_sub_on_death > 0) {
+          // Oyunla TEK yol (Geri bildirim #3): yazar verisi -> blob kaydi ->
+          // yayici ayari. Editor eskiden alanlari burada kendisi kopyaliyordu,
+          // SceneRuntime ise yarisini bilmiyordu: editorde turuncu ates oyunda
+          // beyazdi. Alt yayici da artik gercekten dogar (eskiden sub_emitter
+          // baglaniyor ama spawn_on_death_count 0 kaliyordu).
+          content::SceneBlobParticle bp;
+          content::scene_blob_particle_of(e, i, &bp);
+          content::ParticleEmitterConfig cfg =
+              content::scene_particle_emitter(bp, Vec3{wm.m[3][0], wm.m[3][1], wm.m[3][2]});
+          static content::ParticleEmitterConfig s_sub_cfg[content::kSceneMaxEntities];
+          if (bp.sub_on_death > 0) {
+            s_sub_cfg[i] = content::scene_particle_sub_emitter(cfg);
             cfg.sub_emitter = &st.particles;
-            s_sub_cfg = cfg;
-            s_sub_cfg.spawn_on_death_count = 0;
-            s_sub_cfg.size_start = e.particle_size_start * 0.4f;
-            s_sub_cfg.size_end = 0.0f;
-            s_sub_cfg.lifetime_min = 0.2f;
-            s_sub_cfg.lifetime_max = 0.5f;
-            s_sub_cfg.base_velocity = Vec3{0.0f, 1.5f, 0.0f};
-            s_sub_cfg.velocity_jitter = Vec3{3.0f, 3.0f, 3.0f};
-            cfg.sub_emitter_cfg = &s_sub_cfg;
+            cfg.sub_emitter_cfg = &s_sub_cfg[i];
           }
           st.particles.emit(cfg, to_spawn, st.particle_rng);
         }
@@ -5914,26 +5876,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               ImGui::SameLine();
               if (ImGui::Button(" " ICON_MD_BOLT " P\xC3\xBCsk\xC3\xBCrt (20) ")) {
                 const Mat4 wm = content::scene_entity_world_matrix(st.scene, (uint32_t)si);
-                content::ParticleEmitterConfig cfg;
-                cfg.spawn_pos = Vec3{wm.m[3][0], wm.m[3][1], wm.m[3][2]};
-                cfg.base_velocity = e.particle_velocity;
-                cfg.velocity_jitter = e.particle_jitter;
-                cfg.lifetime_min = e.particle_lifetime_min;
-                cfg.lifetime_max = e.particle_lifetime_max;
-                cfg.size_start = e.particle_size_start;
-                cfg.size_end = e.particle_size_end;
-                cfg.color_start = e.particle_color_start;
-                cfg.color_end = e.particle_color_end;
-                cfg.gravity = Vec3{0.0f, e.particle_gravity, 0.0f};
-                cfg.custom_gravity = true;
-                cfg.curl_noise_strength = e.particle_curl_strength;
-                cfg.curl_noise_frequency = e.particle_curl_freq;
-                cfg.drag = e.particle_drag;
-                cfg.enable_collision = e.particle_collision;
-                cfg.collision_plane_y = 0.0f;
-                cfg.restitution = e.particle_bounce;
-                cfg.spawn_on_death_count = e.particle_sub_on_death;
-                cfg.shape = e.particle_billboard_type;
+                content::SceneBlobParticle bp;
+                content::scene_blob_particle_of(e, (uint32_t)si, &bp);
+                content::ParticleEmitterConfig cfg =
+                    content::scene_particle_emitter(bp, Vec3{wm.m[3][0], wm.m[3][1], wm.m[3][2]});
+                cfg.spawn_on_death_count = 0; // puskurtme: alt yayici baglanmadi (canli dongu baglar)
                 st.particles.emit(cfg, 20, st.particle_rng);
               }
               ImGui::PopStyleVar();

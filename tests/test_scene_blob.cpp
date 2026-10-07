@@ -994,13 +994,15 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 8);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 9);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
   // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
   // tablolari YOK; bu numarayla bir dosya hic uretilmedi ama reddi yine de
   // olculuyor), 6 (betik tablosu YOK) ve 7 (ozellik tablosu YOK: v7 blobu
-  // okunsaydi prop_offset alani eski `script_reserved1` = 0 olurdu).
+  // okunsaydi prop_offset alani eski `script_reserved1` = 0 olurdu) ve 8
+  // (SceneBlobParticle 48 bayt: renk/yercekimi/turbulans YOK; v8 blobu
+  // okunsaydi parcacik tablosunun adimi 112 sanilip komsu kayitlar kayardi).
   // Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
   // kendiliginden kapsanir; yalniz yukaridaki sabit guncellenir.
   SceneBlobView v;
@@ -2014,4 +2016,201 @@ ENGINE_TEST(scene_blob_open_rejects_corrupt_prop_records) {
     eh->hash_lo = (uint32_t)(hv & 0xFFFFFFFFu); eh->hash_hi = (uint32_t)(hv >> 32);
     CHECK(!scene_blob_open(eb, en, &v, &err) && std::strstr(err.msg, "ozellik tablosu sinir disi"));
   }
+}
+
+// --- v9: parcacik kaydi tam (Geri bildirim #3) ---------------------------------
+// Ilk gercek oyun (Kupler ile Kurelerin Savasi, 2026-10-07): `.sahne`deki
+// `partikul_renk 1 0.75 0.2 0.9 0.2 0.05` mesale atesi derlenmis oyunda beyazdi.
+// Zincirin HER halkasi olculur: metin -> ayristirici -> blob -> runtime'in
+// dogurdugu parcacik. Cihaz gerekmez (Renderer init'siz: SceneRuntime CPU
+// tarafini kurar, parcacik havuzu dahil).
+namespace {
+void fill_particle(SceneDesc &d, uint32_t sub) {
+  scene_desc_reset(d);
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "mesale");
+  e.pos = {2.0f, 1.5f, -1.0f};
+  e.components = kSceneParticle;
+  e.particle_spawn_rate = 240.0f; e.particle_lifetime_min = 0.05f; e.particle_lifetime_max = 0.1f;
+  e.particle_size_start = 0.22f; e.particle_size_end = 0.04f;
+  e.particle_velocity = {0, 1.6f, 0}; e.particle_jitter = {0.25f, 0.3f, 0.25f};
+  // Hepsi varsayilandan FARKLI: varsayilana dusen bir alan kapida gorunsun.
+  e.particle_color_start = {1.0f, 0.75f, 0.2f}; e.particle_color_end = {0.9f, 0.2f, 0.05f};
+  e.particle_gravity = 0.5f; e.particle_billboard_type = 3;
+  e.particle_curl_strength = 1.25f; e.particle_curl_freq = 2.5f; e.particle_drag = 0.375f;
+  e.particle_collision = true; e.particle_bounce = 0.3125f; e.particle_sub_on_death = sub; e.particle_ribbon = true;
+  d.insert_entity(d.entity_count, e);
+}
+}  // namespace
+
+ENGINE_TEST(scene_blob_v9_particle_fields_reach_runtime) {
+  const size_t mark = arena().mark();
+  static SceneDesc d, back;
+  fill_particle(d, 4);
+  // 1) metin gidis-donus: yazici -> ayristirici (partikul_renk/_fizik/_teps).
+  static char text[16384];
+  const size_t tn = scene_write(d, text, sizeof text);
+  SceneError err{};
+  CHECK(tn > 0 && tn < sizeof text && std::strstr(text, "partikul_renk") && std::strstr(text, "partikul_teps"));
+  CHECK(scene_parse(text, tn, &back, &err));
+  // 2) blob: her v9 alani bit-tam.
+  size_t n = 0;
+  void *blob = compile_to(back, &n);
+  SceneBlobView v;
+  CHECK(blob && scene_blob_open(blob, n, &v, &err) && v.h->particle_count == 1);
+  if (!v.particles || v.h->particle_count != 1) { arena().reset_to(mark); return; }
+  const SceneEntity &e = d.entities[0];
+  const SceneBlobParticle &p = v.particles[0];
+  CHECK(v3eq(p.color_start, e.particle_color_start) && v3eq(p.color_end, e.particle_color_end));
+  CHECK(feq(p.gravity, e.particle_gravity) && p.billboard == 3u);
+  CHECK(feq(p.curl_strength, e.particle_curl_strength) && feq(p.curl_freq, e.particle_curl_freq) && feq(p.drag, e.particle_drag));
+  CHECK(feq(p.bounce, e.particle_bounce) && p.sub_on_death == 4u);
+  CHECK(p.flags == (kSceneBlobParticleCollision | kSceneBlobParticleRibbon) && p.reserved0 == 0 && p.reserved1 == 0);
+  // 3) runtime: dogan parcacik yazarin rengini/yercekimini TASIYOR.
+  renderer::Renderer ren;
+  static SceneRuntime rt;
+  CHECK(rt.init(arena(), ren, v, "."));
+  CHECK(rt.stats().particle_ribbons == 1); // editor cizer, runtime cizmez: SAYILIR (kopru uyarir)
+  uint32_t peak = 0;
+  for (int k = 0; k < 6; k++) { rt.update(1.0f / 60.0f); if (rt.particles().alive_count() > peak) peak = rt.particles().alive_count(); }
+  const ParticleSystem &ps = rt.particles();
+  CHECK(ps.alive_count() > 0);
+  if (!ps.alive_count()) { arena().reset_to(mark); return; }
+  const Particle &q = ps.particle(0);
+  const Vec3 white{1, 1, 1};
+  // KONTROL: v8 runtime'i ParticleEmitterConfig'in varsayilanini (beyaz,
+  // sistem yercekimi) verirdi. Yazarin rengi beyaz olsaydi bu kapi bir sey
+  // olcmezdi -- once ayrimin MUMKUN oldugu gosterilir.
+  CHECK(!(e.particle_color_start.x == white.x && e.particle_color_start.y == white.y && e.particle_color_start.z == white.z));
+  CHECK(feq(q.color_start.x, e.particle_color_start.x) && feq(q.color_start.y, e.particle_color_start.y) &&
+        feq(q.color_start.z, e.particle_color_start.z));
+  CHECK(feq(q.color_end.x, e.particle_color_end.x) && feq(q.color_end.z, e.particle_color_end.z));
+  CHECK(q.has_custom_gravity && feq(q.gravity.y, e.particle_gravity));
+  CHECK(feq(q.curl_noise_strength, e.particle_curl_strength) && feq(q.drag, e.particle_drag) && q.enable_collision &&
+        feq(q.restitution, e.particle_bounce) && q.shape == 3u);
+  // 4) alt yayici: omur 0.05-0.1 s, 6 karede ilk kusak oluyor ve her olum 4
+  // alt parcacik doguruyor. KONTROL: ayni sahne sub=0 ile -- tepe sayisi
+  // yalniz ana yayicidan gelir. Fark olculur, tahmin edilmez.
+  static SceneDesc d0;
+  fill_particle(d0, 0);
+  size_t n0 = 0;
+  void *blob0 = compile_to(d0, &n0);
+  SceneBlobView v0;
+  CHECK(blob0 && scene_blob_open(blob0, n0, &v0, &err));
+  static SceneRuntime rt0;
+  CHECK(rt0.init(arena(), ren, v0, "."));
+  uint32_t peak0 = 0;
+  for (int k = 0; k < 6; k++) { rt0.update(1.0f / 60.0f); if (rt0.particles().alive_count() > peak0) peak0 = rt0.particles().alive_count(); }
+  std::printf("    [bilgi] parcacik: renk (%.2f %.2f %.2f) yercekimi %.2f; tepe %u (alt yayicili) / %u (alt yayicisiz)\n", q.color_start.x,
+              q.color_start.y, q.color_start.z, q.gravity.y, peak, peak0);
+  CHECK(peak0 > 0 && peak > peak0);
+  // 5) belirlenim: ayni blob + ayni adim dizisi -> bit-tam ayni parcaciklar.
+  static SceneRuntime rt2;
+  CHECK(rt2.init(arena(), ren, v, "."));
+  for (int k = 0; k < 6; k++) rt2.update(1.0f / 60.0f);
+  bool same = rt2.particles().alive_count() == ps.alive_count();
+  for (uint32_t i = 0; same && i < ps.alive_count(); i++) {
+    const Particle &a = ps.particle(i), &b = rt2.particles().particle(i);
+    same = feq(a.pos.x, b.pos.x) && feq(a.pos.y, b.pos.y) && feq(a.pos.z, b.pos.z) && feq(a.age, b.age);
+  }
+  CHECK(same);
+  arena().reset_to(mark);
+}
+
+// v9 kaydinin bozulmasi REDDEDILIR: bilinmeyen bayrak, alt yayici tavani,
+// ayrilmis alan. Ozet her vakada yeniden hesaplanir (yoksa ozet hatasi
+// yakalardi ve dal olculmezdi). KONTROL: bozulmamis kopya acilir.
+ENGINE_TEST(scene_blob_v9_particle_rejects_corrupt_record) {
+  const size_t mark = arena().mark();
+  static SceneDesc d;
+  fill_particle(d, 4);
+  size_t n = 0;
+  void *good = compile_to(d, &n);
+  CHECK(good && n);
+  if (!good) return;
+  uint8_t *bad = static_cast<uint8_t *>(arena().alloc(n, kSceneBlobAlign));
+  CHECK(bad);
+  if (!bad) return;
+  auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
+  SceneBlobView v;
+  SceneError err{};
+  uint32_t hit = 0;
+  auto expect = [&](int which, const char *msg) {
+    std::memcpy(bad, good, n);
+    auto *p = reinterpret_cast<SceneBlobParticle *>(bad + h->particle_offset);
+    if (which == 0) p->flags |= 4u;
+    if (which == 1) p->sub_on_death = kSceneBlobParticleMaxSub + 1;
+    if (which == 2) p->reserved1 = 1;
+    const size_t from = offsetof(SceneBlobHeader, header_size);
+    const uint64_t hv = scene_blob_fnv1a(bad + from, n - from);
+    h->hash_lo = (uint32_t)(hv & 0xFFFFFFFFu); h->hash_hi = (uint32_t)(hv >> 32);
+    const bool rej = !scene_blob_open(bad, n, &v, &err) && std::strstr(err.msg, msg);
+    CHECK(rej);
+    if (rej) hit++;
+  };
+  expect(0, "bilinmeyen bayrak");
+  expect(1, "alt yayici");
+  expect(2, "ayrilmis alan");
+  std::memcpy(bad, good, n);
+  CHECK(scene_blob_open(bad, n, &v, &err));
+  // Yazar tarafi tavani asarsa derleyici KIRPAR (yoksa sahne derlenir ama acilmaz).
+  static SceneDesc big;
+  fill_particle(big, 1000);
+  size_t nb = 0;
+  void *bb = compile_to(big, &nb);
+  CHECK(bb && scene_blob_open(bb, nb, &v, &err) && v.particles[0].sub_on_death == kSceneBlobParticleMaxSub);
+  CHECK(hit == 3);
+  arena().reset_to(mark);
+}
+
+// Dogum hizi YAZARIN hizi mi. Oyunun mesalesi (14/s, omur 0.5-0.9 s) masaustunde
+// ~10 yerine 43 canli parcacikla olculdu (2026-10-07, RTX 5080): runtime her
+// cagrida `Rng(++kare)` kuruyordu ve xorshift32'nin kucuk tohumdan ilk cikisi
+// ~0 oldugu icin "kesir olasiligi" hep tutuyordu (karede 1 -> 60/s). Beklenen
+// canli sayi = hiz x ortalama omur = 14 x 0.7 = 9.8. KONTROL: eski yontem
+// (kare basina taze Rng) ayni dongude ~42 verir -- olcu ikisini ayirabiliyor.
+ENGINE_TEST(scene_runtime_particle_rate_matches_authored) {
+  const size_t mark = arena().mark();
+  static SceneDesc d;
+  scene_desc_reset(d);
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "mesale");
+  e.components = kSceneParticle;
+  e.particle_spawn_rate = 14.0f; e.particle_lifetime_min = 0.5f; e.particle_lifetime_max = 0.9f;
+  e.particle_velocity = {0, 1.6f, 0}; e.particle_jitter = {0.25f, 0.3f, 0.25f};
+  CHECK(d.insert_entity(0, e));
+  size_t n = 0;
+  void *blob = compile_to(d, &n);
+  SceneBlobView v;
+  SceneError err{};
+  CHECK(blob && scene_blob_open(blob, n, &v, &err));
+  renderer::Renderer ren;
+  static SceneRuntime rt;
+  CHECK(rt.init(arena(), ren, v, "."));
+  constexpr int kWarm = 120, kN = 1200;
+  double sum = 0;
+  for (int k = 0; k < kWarm + kN; k++) {
+    rt.update(1.0f / 60.0f);
+    if (k >= kWarm) sum += rt.particles().alive_count();
+  }
+  const double avg = sum / kN;
+  // Kontrol: eski yontem, ayni sayilarla, runtime'in DISINDA birebir.
+  static ParticleSystem old;
+  CHECK(old.init(arena(), 4096, Vec3{0, -9.8f, 0}));
+  double sum_old = 0;
+  for (uint32_t k = 0; k < (uint32_t)(kWarm + kN); k++) {
+    Rng rng(k + 1);
+    const float want = 14.0f / 60.0f;
+    uint32_t c = (uint32_t)want;
+    if (rng.next_float() < want - (float)c) c++;
+    ParticleEmitterConfig cfg = scene_particle_emitter(v.particles[0], Vec3{0, 0, 0});
+    if (c) old.emit(cfg, c, rng);
+    old.update(1.0f / 60.0f);
+    if ((int)k >= kWarm) sum_old += old.alive_count();
+  }
+  const double avg_old = sum_old / kN;
+  std::printf("    [bilgi] canli parcacik ort. %.2f (beklenen 14 x 0.7 = 9.80); eski yontem %.2f\n", avg, avg_old);
+  CHECK(avg > 7.5 && avg < 12.5);
+  CHECK(avg_old > 30.0); // kontrol: olcu eski hatayi GORUYOR
+  arena().reset_to(mark);
 }

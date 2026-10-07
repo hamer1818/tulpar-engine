@@ -1961,3 +1961,38 @@ sıcak), telefonda her kare soğuk satır başına yüz nanosaniyeler. Kare içi
 dolaşan döngü, alt kümeyi **liste** olarak tutsun; bedeli ancak cihazda ölç (`tools/android_kanca_olcumu.sh`).
 Dikkat: kazanç taşınabilir — taramayı bırakan aşamanın soğuk satırlarını sonraki tam tarama (animasyon,
 çizim) öder; toplamı da ölç (burada `teng_frame_end` CPU zamanı gürültü düzeyinde değişti).
+
+### 8cw. Metin biçimi kapısı yeşil, blob alanı taşımıyor — ve köprü sistemi hiç adımlamıyor
+
+**Belirti** (2026-10-07, ilk gerçek oyun "Küpler ile Kürelerin Savaşı", Geri bildirim #3): `.sahne`deki
+meşale yayıcıları (`partikul_renk 1 0.75 0.2 0.9 0.2 0.05`) editörde turuncu alev, derlenmiş oyunda
+**hiçbir şey** değildi. Üç ayrı sessiz kayıp üst üste binmişti:
+
+1. **Blob alanı taşımıyordu.** `SceneBlobParticle` (v6, 48 bayt) yalnız doğum hızı/ömür/boyut/hız/dağılım
+   taşıyordu; renk, yerçekimi, türbülans, sürtünme, çarpışma, alt yayıcı, şekil, şerit (11 alan) yazılıp
+   **ayrıştırılıyordu** ama blob'a girmiyordu. `tools/scene_check.py` yazıcı↔ayrıştırıcı uyumunu ölçüyordu,
+   blob'u hiç görmüyordu: kapı yeşildi.
+2. **Köprü `SceneRuntime::update`'i hiç çağırmıyordu.** Yayıcılar `engine_demo`da doğuyordu, `eng_scene_load`
+   ile yüklenen sahnede doğmuyordu — örnek sahnelerin hiçbirinde parçacık olmadığı için kimse görmedi.
+3. **Doğum hızı yanlıştı.** Runtime her çağrıda `Rng(++kare)` kuruyordu; xorshift32'nin küçük tohumdan ilk
+   çıkışı ~tohum/16384 (tohum 1 → 6.3e-5), yani "kesir olasılığı" testi binlerce kare hep tuttu: 14/s
+   isteyen yayıcı 60/s doğurdu (RTX 5080, aynı gün: ~10 yerine 43 canlı parçacık).
+
+**Düzeltme:** blob **v9** — `SceneBlobParticle` 112 bayt, bütün alanlar; çevirim tek yolda
+(`scene_blob_particle_of` → `scene_particle_emitter`) ve **editör de aynı fonksiyonları çağırıyor** (editörde
+görülen = oyunda çıkan; editörün alt yayıcısı da artık gerçekten doğuyor, eskiden `spawn_on_death_count` 0
+kalıyordu). Köprü yayıcıları **sim adımıyla** (sabit adım) güncelliyor. Üreteç tek ve kalıcı (init'te sabit
+tohum). Şerit isteyen yayıcı runtime'da çizilmiyor: sayılır, köprü `UYARI` basar.
+
+**Kapı:** `scene_check.py` "kısmi taşıma" — bir bileşen grubunun (alan öneki) tek bir alanı bile blob
+derleyicisinde geçiyorsa, yazıcının yazdığı bütün alanları da geçmeli ya da gerekçesiyle muaf yazılmalı
+(muaf sayısı her koşuda basılır; bugün 7 ışık alanı: spot konisi, alan ışığı, gölge, godray — runtime
+nokta ışığı çiziyor). **Pozitif kontrol:** kapı `origin/main` ağacında 11 alanla KIRMIZI; `--oz-sinama`
+4 fikstür. Testler: `scene_blob_v9_particle_fields_reach_runtime` (metin → blob → doğan parçacığın rengi/
+yerçekimi/türbülansı; alt yayıcılı tepe 54 / alt yayıcısız 16; belirlenim), `scene_runtime_particle_rate_matches_authored`
+(ort. 10.04 canlı, beklenen 9.80; KONTROL eski yöntem 41.54), `bridge_scene_particles_spawn_with_authored_color`
+(yeşil yayıcı: 60 çizim, 472 yeşil piksel; KONTROL hız 0: 0/0; düzeltmesiz köprüde 0/0 → KIRMIZI).
+
+**Ders:** "yazılır ↔ okunur" kapısı formatın **bir** sınırını ölçer. Veri her sınırı geçerken (metin →
+model → blob → runtime → köprü) ayrı ölçülmeli; ve bir sistemin var olması, kare döngüsünün onu
+çağırdığı anlamına gelmez — uçtan uca kapı (köprü + piksel) ister.

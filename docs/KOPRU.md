@@ -219,7 +219,9 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   konum yazma yok) ve hız sıfırlanır — log satırı bunu söyler.
 - **HUD** kare içinde kuyruklanır (`eng_text`/`eng_rect`), `eng_frame_end` çizer. Kare dışında çağrı hata loglar.
 - **Sahne:** `eng_scene_load("x.sahneb")` derlenmiş sahneyi (engine_sahnec / editörde **Derle**) yükler;
-  modeller, ışıklar, gövdeler ve dünya ayarları oradan gelir. `eng_scene_unload` + yeniden yükleme =
+  modeller, ışıklar, gövdeler, **parçacık yayıcıları** (blob v9: renk, yerçekimi, türbülans, çarpışma,
+  alt yayıcı — editörle aynı çevirim; sim adımıyla güncellenir, Geri bildirim #3) ve dünya ayarları
+  oradan gelir. Şerit (ribbon) isteyen yayıcı derlenmiş oyunda çizilmez: yüklemede `UYARI`. `eng_scene_unload` + yeniden yükleme =
   **bölüm geçişi**; `eng_scene_watch(1)` **sıcak yükleme** (dosya damgası izlenir, değişim görüldükten
   sonra bir kontrol daha beklenir ki yarım yazılmış blob yüklenmesin).
 - **Çıktı parametresi yok:** Tulpar'da işaretçi/çıktı parametresi olmadığı için onay kutusu ve kaydırıcı

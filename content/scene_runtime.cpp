@@ -241,7 +241,16 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   // --- v6: prosedurel bilesenler -------------------------------------------
   // Parcacik havuzu arenadan; init sonrasi ayirma yok (particles.hpp sozlesmesi).
   if (!particles_.init(arena, 4096, Vec3{0, -9.8f, 0})) return false;
-  particle_seed_ = 0;
+  particle_rng_ = Rng(kParticleSeed);
+  // v9: alt yayici ayari yayici BASINA kalici bellekte -- Particle onun
+  // isaretcisini tutuyor (olum aninda okur), yani yigin/kare omurlu olamaz.
+  particle_sub_cfg_ = view.h->particle_count ? arena.alloc_array<ParticleEmitterConfig>(view.h->particle_count) : nullptr;
+  if (view.h->particle_count && !particle_sub_cfg_) return false;
+  stats_.particle_ribbons = 0;
+  for (uint32_t i = 0; i < view.h->particle_count; i++) {
+    if (view.particles[i].flags & kSceneBlobParticleRibbon) stats_.particle_ribbons++;
+    particle_sub_cfg_[i] = ParticleEmitterConfig{};
+  }
   // Ilkel mesh tablosu SAHNE BASINA DEGIL, renderer basina bir kez: kopru
   // (eng_scene_load) ayni SceneRuntime'i bolum gecislerinde yeniden init
   // ediyor; kosulsuz kurmak her gecis icin 8 GPU mesh sizdirirdi.
@@ -310,10 +319,14 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
 
 void SceneRuntime::update(float dt, const sim::Physics *ph) {
   if (!view_.particles || dt <= 0) return;
-  // Tohum KARE SAYACI, saat degil: ayni sahne + ayni kare sayisi her
-  // platformda AYNI parcacik dizisini verir (particles.hpp'nin determinizm
-  // sozu bunun uzerine kurulu; dt'den tohum uretmek onu bozardi).
-  Rng rng(++particle_seed_);
+  // TEK, KALICI uretec (init'te sabit tohum), saat degil: ayni sahne + ayni
+  // update dizisi her platformda AYNI parcacik dizisini verir (particles.hpp'nin
+  // determinizm sozu). Eskiden her cagri `Rng(++kare)` kuruyordu: xorshift32'nin
+  // kucuk tohumdan ILK cikisi ~tohum/16384 (tohum 1 -> 6.3e-5), yani asagidaki
+  // "kesir olasiligi" testi binlerce kare boyunca hep tutuyordu ve saniyede 14
+  // isteyen yayici 60 doguruyordu (olculdu 2026-10-07, RTX 5080: mesale 0.5-0.9 s
+  // omurla ~10 yerine 43 canli parcacik; Geri bildirim #3 yeniden uretimi).
+  Rng &rng = particle_rng_;
   for (uint32_t i = 0; i < view_.h->particle_count; i++) {
     const SceneBlobParticle &ep = view_.particles[i];
     if (!(ep.spawn_rate > 0)) continue;
@@ -325,17 +338,19 @@ void SceneRuntime::update(float dt, const sim::Physics *ph) {
     if (rng.next_float() < want - (float)k) k++;
     if (!k) continue;
     const Mat4 m = entity_matrix(ep.entity, ph);
-    ParticleEmitterConfig cfg;
-    cfg.spawn_pos = {m.m[3][0], m.m[3][1], m.m[3][2]};
-    cfg.base_velocity = v3(ep.velocity);
-    cfg.velocity_jitter = v3(ep.jitter);
-    cfg.lifetime_min = ep.lifetime_min;
-    cfg.lifetime_max = ep.lifetime_max;
-    cfg.size_start = ep.size_start;
-    cfg.size_end = ep.size_end;
+    // v9: renk / yercekimi / turbulans / carpisma / alt yayici -- editorle
+    // AYNI cevirim (scene_particle_emitter). v8'e kadar burada yalniz bes alan
+    // kopyalaniyordu ve oyunda her parcacik BEYAZDI (Geri bildirim #3).
+    ParticleEmitterConfig cfg = scene_particle_emitter(ep, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]});
+    if (ep.sub_on_death) {
+      particle_sub_cfg_[i] = scene_particle_sub_emitter(cfg);
+      cfg.sub_emitter = &particles_;
+      cfg.sub_emitter_cfg = &particle_sub_cfg_[i];
+    }
     particles_.emit(cfg, k, rng);
   }
-  particles_.update(dt);
+  // rng YALNIZ alt yayici dogarken cekilir: alt yayicisiz sahnede dizi v8'le ayni.
+  particles_.update(dt, &rng);
 }
 
 void SceneRuntime::apply_world(renderer::Renderer &r) const {
