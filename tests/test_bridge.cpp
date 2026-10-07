@@ -2388,3 +2388,66 @@ ENGINE_TEST(bridge_render_scale_draws_scene_smaller_and_reports_when_unavailable
   CHECK(yarim_tam > 0);    // ve gercekten ayri (dusuk cozunurluklu) bir kare
   CHECK(kapali_fark == 0); // ic hedef yoksa kare degismez
 }
+
+// --- Geri bildirim #3: sahne parcaciklari derlenmis oyunda --------------------
+// Kopru SceneRuntime::update'i HIC cagirmiyordu: `.sahne`deki yayicilar editorde
+// doguyor, oyunda (eng_scene_load) hic dogmuyordu; dogsalardi da v8 blobu
+// rengi tasimadigi icin beyaz olurlardi. Olcu: yesil (0,1,0) yayicili sahne,
+// 30 kare; cizim sayisi + yesil piksel. KONTROL: ayni sahne dogum hizi 0 --
+// cizim 0, yesil piksel 0 (kapi "sahnede bir sey var" degil parcacigi olcer).
+ENGINE_TEST(bridge_scene_particles_spawn_with_authored_color) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("parcacik kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  static SystemArena sarena;
+  if (sarena.capacity() == 0) sarena.reserve(16u << 20, "bridge_parcacik");
+  static content::SceneDesc sd;
+  static uint8_t px[kW * kH * 3];
+  int draws[2] = {0, 0};
+  uint32_t green[2] = {0, 0};
+  for (int pass = 0; pass < 2; pass++) {
+    content::scene_desc_reset(sd);
+    content::SceneEntity e{};
+    std::snprintf(e.name, sizeof e.name, "yesil_ates");
+    e.components = content::kSceneParticle;
+    e.pos = Vec3{0, 1, 0};
+    e.particle_spawn_rate = pass == 0 ? 120.0f : 0.0f;
+    e.particle_lifetime_min = e.particle_lifetime_max = 2.0f;
+    e.particle_size_start = e.particle_size_end = 0.35f;
+    e.particle_velocity = Vec3{0, 0.5f, 0};
+    e.particle_jitter = Vec3{0.6f, 0.3f, 0.6f};
+    e.particle_color_start = e.particle_color_end = Vec3{0, 1, 0};
+    e.particle_gravity = 0.0f;
+    CHECK(sd.insert_entity(0, e));
+    char sblob[800], shot[512];
+    std::snprintf(sblob, sizeof sblob, "%s/_kopru_parcacik.sahneb", assets_dir());
+    content::SceneError se{};
+    CHECK(content::scene_blob_save(sarena, sd, sblob, &se));
+    if (teng_scene_loaded()) teng_scene_unload();
+    CHECK(teng_scene_load(sblob) == 1);
+    teng_camera(0, 2, 6, 0, 1, 0);
+    run_frames(30);
+    draws[pass] = teng_draw_count();
+    tmp_template(shot, sizeof shot, "kopru_parcacik");
+    const int fd = mkstemp(shot);
+    if (fd >= 0) close(fd);
+    CHECK(teng_screenshot(shot) == 1);
+    uint32_t w = 0, h = 0;
+    const uint32_t n = read_ppm(shot, px, kW * kH, &w, &h);
+    CHECK(n == kW * kH);
+    for (uint32_t i = 0; i < n; i++) {
+      const int r = px[i * 3], gg = px[i * 3 + 1], b = px[i * 3 + 2];
+      if (gg > 80 && gg > r + 40 && gg > b + 40) green[pass]++;
+    }
+    std::remove(shot);
+    teng_scene_unload();
+    std::remove(sblob);
+  }
+  std::printf("    [bilgi] sahne parcaciklari: cizim %d (kontrol %d), yesil piksel %u (kontrol %u) / %u\n", draws[0], draws[1], green[0], green[1],
+              kW * kH);
+  CHECK(draws[0] > 0 && draws[1] == 0); // duzeltmesiz kopru: 0 / 0
+  CHECK(green[0] > 100 && green[1] == 0);
+  teng_shutdown();
+}

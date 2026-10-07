@@ -444,6 +444,70 @@ def component_liveness(root, src):
 
 
 # --------------------------------------------------------------------------
+# Kismi tasima: yazicinin .sahne'ye yazdigi alan derlenmis blob'a giriyor mu.
+#
+# NEDEN (Geri bildirim #3, 2026-10-07): `partikul_renk`, `partikul_fizik`,
+# `partikul_teps` yaziliyor, ayristiriliyor, editor onlarla ciziyordu; ama
+# SceneBlobParticle yalniz 7 alani tasiyordu ve ilk gercek oyunda mesale atesi
+# BEYAZDI. Yukaridaki kapilar metin dilini olcuyor (yaz <-> oku), blob'u hic
+# gormuyordu. Olcu: bir bilesen grubunun (alan adi oneki: particle_, light_,
+# wave_ ...) EN AZ BIR alani blob derleyicisinde (content/scene_blob.cpp,
+# `e.<alan>`) geciyorsa, o grubun yazicinin yazdigi BUTUN alanlari da gecmeli.
+# Hic alani gecmeyen grup (ses, kamera, yapay zeka ...) "tablosu yok" demek --
+# scene_blob.hpp v7 notu: okuyani olmayan tablo yazilmaz; bu kapi onlari
+# saymaz, cunku orada kayip kismi degil butun ve belgeli.
+#
+# Muafiyet GEREKCELI ve GORUNUR: her calismada sayisi basilir. Bir alan buraya
+# "sonra bakariz" diye yazilmaz; okuyani yoksa gerekcesi o oldugu yazilir.
+# --------------------------------------------------------------------------
+BLOB_SRC = "content/scene_blob.cpp"
+BLOB_MUAF = {
+    # Isik: runtime (SceneRuntime/renderer) bugun NOKTA isigi ciziyor; tur
+    # reserved[0]'da tasiniyor ama spot konisi, alan isigi boyu, golge ve isik
+    # huzmesinin okuyani yok. Okuyan gelince alanlar SceneBlobLight'a girer.
+    # (Olculdu 2026-10-07: bu yedi alan v8'de de blob'da yoktu; #3 kapisinin
+    # ilk kosusu onlari da buldu.)
+    "light_cast_shadow": "runtime isik yolu golge bayragini okumuyor",
+    "light_godray": "runtime'da isik huzmesi (godray) cizicisi yok",
+    "light_godray_intensity": "runtime'da isik huzmesi (godray) cizicisi yok",
+    "light_height": "runtime alan isigi cizmiyor (nokta isigi)",
+    "light_width": "runtime alan isigi cizmiyor (nokta isigi)",
+    "light_spot_inner": "runtime spot konisi cizmiyor (nokta isigi)",
+    "light_spot_outer": "runtime spot konisi cizmiyor (nokta isigi)",
+}
+
+
+def blob_carry_text(scene_src, blob_src, muaf):
+    """Kismi tasinan bilesen alanlari. Donus: (sorunlar, kullanilan muafiyetler)."""
+    w = scene_src[scene_src.index("void write_entity("):scene_src.index("bool scene_entity_equal")]
+    written = sorted(set(re.findall(r"\be\.([a-z][a-z0-9_]*)", strip_comments(w))))
+    carried = set(re.findall(r"\be\.([a-z][a-z0-9_]*)", strip_comments(blob_src)))
+    groups = {}
+    for f in written:
+        if "_" in f:
+            groups.setdefault(f.split("_")[0], []).append(f)
+    out, used = [], []
+    for g, fs in sorted(groups.items()):
+        if not any(f in carried for f in fs):
+            continue  # tablosu yok: kayip butun, kismi degil (v7 kurali)
+        for f in fs:
+            if f in carried:
+                continue
+            if f in muaf:
+                used.append(f)
+                continue
+            out.append("SceneEntity::%s .sahne'ye yaziliyor ama blob'a GIRMIYOR (%s_ grubunun diger alanlari "
+                       "giriyor) -> derlenmis oyunda sessizce varsayilan (%s)" % (f, g, BLOB_SRC))
+    return out, used
+
+
+def blob_carry(root, src):
+    with open(os.path.join(root, BLOB_SRC), encoding="utf-8") as f:
+        blob = f.read()
+    return blob_carry_text(src, blob, BLOB_MUAF)
+
+
+# --------------------------------------------------------------------------
 # --oz-sinama: kapinin KENDI pozitif/negatif kontrolleri (CMake her derlemede
 # kosturur). Her fikstur kucuk bir scene.cpp/scene.hpp parcasidir; kapi bozuk
 # fiksturu YAKALAMALI, dogrusunu GECIRMELI. "Kapi yesil" demek ancak kapinin
@@ -532,7 +596,31 @@ def oz_sinama():
             fails += 1
             for x in probs:
                 print("    " + x)
-    total = len(cases) + 1 + len(me_cases)
+    # Kismi tasima (Geri bildirim #3): v8'in parcacik kaydi -- renk yaziliyor,
+    # blob'a girmiyor -> KIRMIZI; tamami tasininca YESIL; hic tasinmayan grup
+    # (tablosu yok) sayilmaz; gerekceli muafiyet YESIL ama sayilir.
+    w8 = ('void write_entity(Out &o, const SceneEntity &e) {\n  o.num(e.particle_rate); o.vec(e.particle_color);\n'
+          '  o.num(e.audio_volume);\n}\nbool scene_entity_equal() {}\n')
+    bc_cases = [
+        ("v8 parcacigi: renk blob'a girmiyor -> KIRMIZI (pozitif kontrol)", "pa.rate = e.particle_rate;", {}, 1, 0,
+         "particle_color"),
+        ("v9 parcacigi: iki alan da giriyor -> YESIL", "pa.rate = e.particle_rate; put3(pa.c, e.particle_color);", {}, 0, 0,
+         None),
+        ("yalniz YORUMDA geciyor -> yine KIRMIZI", "pa.rate = e.particle_rate; // e.particle_color yapilacak", {}, 1, 0,
+         "particle_color"),
+        ("gerekceli muafiyet -> YESIL, 1 muaf sayilir", "pa.rate = e.particle_rate;", {"particle_color": "okuyan yok"}, 0, 1,
+         None),
+    ]
+    for name, blob, muaf, want_n, want_used, want_sub in bc_cases:
+        probs, used = blob_carry_text(w8, blob, muaf)
+        ok = (len(probs) == want_n and len(used) == want_used and
+              (want_sub is None or any(want_sub in p for p in probs)) and not any("audio" in p for p in probs))
+        print("scene_check --oz-sinama: blob tasima, %s: %d sorun, %d muaf %s" % (name, len(probs), len(used), "OK" if ok else "HATA"))
+        if not ok:
+            fails += 1
+            for x in probs:
+                print("    " + x)
+    total = len(cases) + 1 + len(me_cases) + len(bc_cases)
     print("scene_check --oz-sinama: %d/%d sinama tuttu" % (total - fails, total))
     return 1 if fails else 0
 
@@ -552,8 +640,14 @@ def main():
     # 5) Coklu duzenleme tablosu kapsami
     problems.extend(multiedit_coverage(root))
 
+    # 6) Kismi blob tasima (yazilan alan derlenmis sahneye giriyor mu)
+    carry, muaf_used = blob_carry(root, src)
+    problems.extend(carry)
+
     print("sahne bicim kapisi: %d yazici satiri, %d ayristirici dali, %d bilesen biti, kMaxTok=%s"
           % (len(w), len(p), len(bits), cap))
+    print("sahne bicim kapisi: blob tasima: %d kismi tasima, %d gerekceli muaf (%s)"
+          % (len(carry), len(muaf_used), ", ".join(muaf_used) if muaf_used else "-"))
     if not problems:
         print("sahne bicim kapisi: 0 uyusmazlik")
         return 0

@@ -1681,7 +1681,15 @@ void teng_frame_end(void) {
     // Buradaki temizlik, olaylarin "son adimda olusanlar" olmasini saglar ve
     // oyun onlari SONRAKI kare boyunca istedigi anda okuyabilir.
     b.phys.clear_contacts();
-    for (uint32_t t = 0; t < ticks; t++) { b.phys.step(b.fs.step_s, 1); b.tick++; }
+    for (uint32_t t = 0; t < ticks; t++) {
+      b.phys.step(b.fs.step_s, 1);
+      // Sahne parcacik yayicilari SIM ADIMIYLA (sabit adim, kare dt'si degil):
+      // ayni sahne + ayni tick sayisi her cihazda ayni parcacik dizisi.
+      // Geri bildirim #3: kopru bunu HIC cagirmiyordu -- `.sahne`deki yayicilar
+      // derlenmis oyunda hic dogmuyordu (editorde doguyordu).
+      if (b.scene_ok) b.srt.update(b.fs.step_s, &b.phys);
+      b.tick++;
+    }
     if (ticks == b.fs.max_ticks_per_frame) BDBG("kare %u: sim %u tick ile kirpildi (dt %.3f)", b.frame, ticks, b.dt);
   }
   {
@@ -2144,6 +2152,12 @@ int teng_scene_load(const char *path) {
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
+  if (v.h->particle_count) BINFO("sahne parcaciklari: %u yayici (havuz %u parcacik, sim adimiyla)", v.h->particle_count, b.srt.particles().capacity());
+  if (b.srt.stats().particle_ribbons) {
+    blog(1, "UYARI sahne: %u parcacik yayicisi serit (ribbon) istiyor; editor ciziyor ama derlenmis oyunda serit cizicisi YOK (parcaciklar kup)",
+         b.srt.stats().particle_ribbons);
+    g_log.warnings++;
+  }
   if (b.srt.stats().characters || b.srt.stats().characters_failed)
     BINFO("sahne karakterleri: %u dogdu (%u varligin govde bileseni DOGURULMADI: karakter onun yerini aldi)", b.srt.stats().characters,
           b.srt.stats().char_bodies_replaced);

@@ -76,6 +76,10 @@ struct SceneRuntimeStats {
   // aliyor; ikisi birden olsaydi karakter kendi kutusuna takilirdi).
   uint32_t characters = 0, characters_failed = 0, char_bodies_replaced = 0;
   uint32_t lod[kModelMaxLods + 1] = {};       // son kare: LOD0/1/2 secim sayilari
+  // v9: serit (ribbon) isteyen parcacik yayicisi. Editor seridi cizer, runtime
+  // CIZMEZ (serit cizicisi yok) -- sessiz kayip olmasin diye sayilir, kopru
+  // sahne yuklerken uyarir.
+  uint32_t particle_ribbons = 0;
 };
 
 class SceneRuntime {
@@ -102,6 +106,9 @@ public:
   void update(float dt, const sim::Physics *ph = nullptr);
   const SceneBlobView &view() const { return view_; }
   SceneRuntimeStats stats() const { return stats_; }
+  // Canli parcaciklar (salt okunur): kapilar rengin/yercekiminin blob'dan
+  // GERCEKTEN geldigini cizmeden olcer.
+  const ParticleSystem &particles() const { return particles_; }
   const Model *model(uint32_t asset) const { return asset < view_.h->asset_count && have_[asset] ? &models_[asset] : nullptr; }
   const UploadedModel *uploaded(uint32_t asset) const { return asset < view_.h->asset_count && have_[asset] ? &ups_[asset] : nullptr; }
   // Varligin bu karedeki dunya matrisi (sim'de ise oradan).
@@ -142,7 +149,9 @@ private:
   // KURUCUSU calismak zorunda; alloc_array_zeroed ile ayrilirsa id 0 olur ve
   // valid() yanlislikla true doner (Tuzaklar 8u).
   ParticleSystem particles_;
-  uint32_t particle_seed_ = 0; // deterministik yayma: kare sayaci, saat degil
+  static constexpr uint32_t kParticleSeed = 0x2545F491u;
+  Rng particle_rng_{kParticleSeed}; // deterministik yayma: tek kalici uretec (init sifirlar)
+  ParticleEmitterConfig *particle_sub_cfg_ = nullptr; // [particle_count] alt yayici ayari (v9)
   renderer::MeshHandle prims_[kPrimitiveSlotCount] = {};
   renderer::MeshHandle terrain_meshes_[kSceneMaxEntities] = {};
   renderer::MeshHandle voxel_meshes_[kSceneMaxEntities] = {};

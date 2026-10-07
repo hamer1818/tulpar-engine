@@ -299,15 +299,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
     // buyutmemek icin) — tuketici tabloyu tarar ve `entity` alanindan eslesir.
     // Tablolar kucuk (varlik basina en fazla bir kayit) ve tarama YUKLEME
     // aninda; kare icinde kimse bu tablolara bakmiyor.
-    if (e.components & kSceneParticle) {
-      SceneBlobParticle pa{};
-      pa.entity = i;
-      pa.spawn_rate = e.particle_spawn_rate;
-      pa.lifetime_min = e.particle_lifetime_min; pa.lifetime_max = e.particle_lifetime_max;
-      pa.size_start = e.particle_size_start; pa.size_end = e.particle_size_end;
-      put3(pa.velocity, e.particle_velocity); put3(pa.jitter, e.particle_jitter);
-      particles[npart++] = pa;
-    }
+    if (e.components & kSceneParticle) scene_blob_particle_of(e, i, &particles[npart++]);
     if (e.components & kSceneTerrain) {
       SceneBlobTerrain te{};
       te.entity = i;
@@ -461,6 +453,14 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   if (!table_ok(h->character_offset, h->character_count, sizeof(SceneBlobCharacter), size)) return E.fail("karakter tablosu sinir disi");
   if (!table_ok(h->script_offset, h->script_count, sizeof(SceneBlobScript), size)) return E.fail("betik tablosu sinir disi");
   if (!table_ok(h->prop_offset, h->prop_count, sizeof(SceneBlobProp), size)) return E.fail("ozellik tablosu sinir disi"); // v8
+  if (h->particle_count) { // v9: bayrak + alt yayici siniri kayit basina
+    const SceneBlobParticle *pt = reinterpret_cast<const SceneBlobParticle *>(static_cast<const uint8_t *>(data) + h->particle_offset);
+    for (uint32_t i = 0; i < h->particle_count; i++) {
+      if (pt[i].flags & ~kSceneBlobParticleKnownFlags) return E.fail("partikul kaydinda bilinmeyen bayrak");
+      if (pt[i].sub_on_death > kSceneBlobParticleMaxSub) return E.fail("partikul alt yayici sayisi tavani asiyor");
+      if (pt[i].reserved0 || pt[i].reserved1) return E.fail("partikul kaydinin ayrilmis alani sifir degil");
+    }
+  }
   if (h->particle_count > h->entity_count || h->terrain_count > h->entity_count || h->voxel_count > h->entity_count ||
       h->water_count > h->entity_count || h->wind_count > h->entity_count || h->character_count > h->entity_count ||
       h->script_count > h->entity_count)
@@ -1637,6 +1637,86 @@ bool scene_compile(Arena &arena, const SceneDesc &d, const char *dir, const Scen
   }
 
   return true;
+}
+
+// --- Parcacik cevirimi (v9) -------------------------------------------------
+void scene_blob_particle_of(const SceneEntity &e, uint32_t entity, SceneBlobParticle *out) {
+  SceneBlobParticle pa{};
+  pa.entity = entity;
+  pa.spawn_rate = e.particle_spawn_rate;
+  pa.lifetime_min = e.particle_lifetime_min; pa.lifetime_max = e.particle_lifetime_max;
+  pa.size_start = e.particle_size_start; pa.size_end = e.particle_size_end;
+  put3(pa.velocity, e.particle_velocity); put3(pa.jitter, e.particle_jitter);
+  put3(pa.color_start, e.particle_color_start); put3(pa.color_end, e.particle_color_end);
+  pa.gravity = e.particle_gravity;
+  pa.curl_strength = e.particle_curl_strength; pa.curl_freq = e.particle_curl_freq;
+  pa.drag = e.particle_drag; pa.bounce = e.particle_bounce;
+  pa.flags = (e.particle_collision ? kSceneBlobParticleCollision : 0u) | (e.particle_ribbon ? kSceneBlobParticleRibbon : 0u);
+  pa.billboard = e.particle_billboard_type;
+  // Ayristirici sayiyi sinirlamiyor (float -> u32); blob acilisi tavani
+  // reddederdi, yani burada kirpilmazsa sahne DERLENIR ama ACILMAZ.
+  pa.sub_on_death = e.particle_sub_on_death > kSceneBlobParticleMaxSub ? kSceneBlobParticleMaxSub : e.particle_sub_on_death;
+  *out = pa;
+}
+
+ParticleEmitterConfig scene_particle_emitter(const SceneBlobParticle &p, Vec3 spawn_pos) {
+  ParticleEmitterConfig cfg;
+  cfg.spawn_pos = spawn_pos;
+  const Vec3 vel = get3(p.velocity), jit = get3(p.jitter);
+  cfg.base_velocity = vel;
+  cfg.velocity_jitter = jit;
+  cfg.lifetime_min = p.lifetime_min;
+  cfg.lifetime_max = p.lifetime_max;
+  cfg.size_start = p.size_start;
+  cfg.size_end = p.size_end;
+  cfg.color_start = get3(p.color_start);
+  cfg.color_end = get3(p.color_end);
+  cfg.gravity = Vec3{0.0f, p.gravity, 0.0f};
+  cfg.custom_gravity = true;
+  cfg.curl_noise_strength = p.curl_strength;
+  cfg.curl_noise_frequency = p.curl_freq;
+  cfg.drag = p.drag;
+  cfg.enable_collision = (p.flags & kSceneBlobParticleCollision) != 0;
+  cfg.collision_plane_y = 0.0f;
+  cfg.restitution = p.bounce;
+  cfg.shape = p.billboard;
+  cfg.spawn_on_death_count = p.sub_on_death;
+  // Godot GPUParticles / Niagara standart yayilim geometrisi -- editorun
+  // sezgisi (app/editor_app.cpp'den buraya tasindi, davranis bit-tam ayni).
+  if (jit.y <= 0.08f && (jit.x > 0.1f || jit.z > 0.1f)) {
+    cfg.emission_shape = ParticleEmissionShape::PlanarRing;
+    cfg.emission_radius = jit.x > jit.z ? jit.x : jit.z;
+    cfg.emission_inner_radius = cfg.emission_radius * 0.3f;
+  } else if (jit.z <= 0.08f && jit.x > 0.1f && jit.y > 0.1f) {
+    cfg.emission_shape = ParticleEmissionShape::VerticalCurtain;
+    cfg.emission_radius = jit.x;
+    cfg.emission_spread = jit.y;
+  } else if (length(vel) > 2.0f && (jit.x > 0.5f || jit.z > 0.5f)) {
+    cfg.emission_shape = ParticleEmissionShape::ConicalFountain;
+    cfg.emission_spread = 0.6f;
+  } else if (jit.x > 0.5f && jit.y > 0.5f && jit.z > 0.5f) {
+    cfg.emission_shape = ParticleEmissionShape::SphericalVolume;
+    const float m = jit.x > jit.y ? jit.x : jit.y;
+    cfg.emission_radius = m > jit.z ? m : jit.z;
+  } else if (jit.x <= 0.08f && jit.z <= 0.08f && length(vel) > 1.0f) {
+    cfg.emission_shape = ParticleEmissionShape::LinearBeam;
+    cfg.emission_radius = 2.0f;
+  }
+  return cfg;
+}
+
+ParticleEmitterConfig scene_particle_sub_emitter(const ParticleEmitterConfig &parent) {
+  ParticleEmitterConfig s = parent;
+  s.spawn_on_death_count = 0; // alt parcacik kendi alt parcacigini dogurmaz (zincir yok)
+  s.sub_emitter = nullptr;
+  s.sub_emitter_cfg = nullptr;
+  s.size_start = parent.size_start * 0.4f;
+  s.size_end = 0.0f;
+  s.lifetime_min = 0.2f;
+  s.lifetime_max = 0.5f;
+  s.base_velocity = Vec3{0.0f, 1.5f, 0.0f};
+  s.velocity_jitter = Vec3{3.0f, 3.0f, 3.0f};
+  return s;
 }
 
 } // namespace tulpar::engine::content

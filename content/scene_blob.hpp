@@ -29,11 +29,25 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "content/particles.hpp"
 #include "content/scene.hpp"
 
 namespace tulpar::engine::content {
 
 constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
+// v9: PARCACIK kaydi tam (Geri bildirim #3). v6'nin SceneBlobParticle'i 48
+// bayttaydi ve yalniz dogum hizi/omur/boyut/hiz/dagilim tasiyordu: `.sahne`nin
+// `partikul_renk`, `partikul_fizik`, `partikul_teps` satirlari yazilip OKUNUYOR,
+// editor onlarla cizdiriyordu ama derlenmis oyunda HICBIRI yoktu -- ilk gercek
+// oyunun (Kupler ile Kurelerin Savasi, 2026-10-07) mesale ates turuncusu
+// telefonda BEYAZDI, yercekimi -2 yerine sistemin -9.8'iydi. Kayit 112 bayta
+// cikti (renk x2, yercekimi, turbulans, surtunme, carpisma/sekme, alt yayici,
+// sekil, serit). Okuyani ayni degisiklikte: SceneRuntime kaydi
+// scene_particle_emitter ile cevirir ve editor de AYNI fonksiyonu cagirir, yani
+// editorde gorulen parcacik oyundakiyle tek kod yolundan gelir. Bu sinifin
+// kapisi tools/scene_check.py "kismi tasima": bir bilesenin blob'a giren tek bir
+// alani bile varsa yazicinin yazdigi BUTUN alanlari blob'a girmeli (ya da
+// gerekcesiyle muaf yazilmali).
 // v8: nesne OZELLIKLERI (E4) — editorde varliga verilen, betigin varsayilaninin
 // USTUNE yazilmis degerler (can = 250, hiz = 5, devriye noktalari) artik
 // derlenmis sahneye giriyor. v7'nin kurali burada da uygulandi: tablo, onu
@@ -58,7 +72,7 @@ constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
 // v5 ARA SURUM olarak atlanmadi — v5'i yazan bir .sahneb hic uretilmedi
 // (bicim bu agacta v4'ten dogrudan v6'ya gecti), numara yalniz #331'in
 // tarihcesiyle hizali kalsin diye tutuluyor.
-constexpr uint32_t kSceneBlobVersion = 8;
+constexpr uint32_t kSceneBlobVersion = 9;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -222,12 +236,27 @@ struct SceneBlobBody {
 // Hepsi 16'nin kati (dosya formati kurali: her tablo 16 hizali baslar ve kayit
 // boyu hizayi bozmamali). Bos `reserved` alanlari bilincli: sonraki alanlar
 // surum yukseltmeden buraya oturur.
+// v9: ilk 48 bayt v6'yla AYNI yerlesim (hex dokumu karsilastirilabilir kalsin);
+// v9 alanlari SONA eklendi. `flags` bitleri kSceneBlobParticle*; bilinmeyen bit
+// acilista REDDEDILIR (bozuk dosya sessizce "carpisma acik" okunmasin).
+constexpr uint32_t kSceneBlobParticleCollision = 1u; // zemin (y=0) carpismasi + sekme
+constexpr uint32_t kSceneBlobParticleRibbon = 2u;    // serit / kuyruk izi (editor cizer; runtime CIZMEZ, sayar)
+constexpr uint32_t kSceneBlobParticleKnownFlags = kSceneBlobParticleCollision | kSceneBlobParticleRibbon;
+constexpr uint32_t kSceneBlobParticleMaxSub = 64;    // olum aninda alt parcacik tavani (editor 0..50 verir)
 struct SceneBlobParticle {
   uint32_t entity;
   float spawn_rate, lifetime_min, lifetime_max;
   float size_start, size_end;
   float velocity[3], jitter[3];
-}; // 48 bayt
+  // --- v9 ---
+  float color_start[3], gravity;      // dogus rengi; yercekimi ivmesi (y, m/s^2)
+  float color_end[3], curl_strength;  // olum rengi; curl turbulans siddeti
+  float curl_freq, drag, bounce;      // turbulans frekansi; Stokes surtunmesi; sekme katsayisi
+  uint32_t flags;                     // kSceneBlobParticle*
+  uint32_t billboard;                 // SceneEntity::particle_billboard_type (ParticleEmitterConfig::shape)
+  uint32_t sub_on_death;              // olumde alt parcacik sayisi (<= kSceneBlobParticleMaxSub)
+  uint32_t reserved0, reserved1;      // 0: kayit 16'nin kati + sonraki alanlarin yeri
+}; // 112 bayt
 
 struct SceneBlobTerrain {
   uint32_t entity;
@@ -319,7 +348,7 @@ static_assert(sizeof(SceneBlobGiProbe) == 80, "GI sonda kaydi 80 bayt (dosya for
 static_assert(sizeof(SceneBlobEntity) == 128 && sizeof(SceneBlobLight) == 48 && sizeof(SceneBlobBody) == 80 &&
                   sizeof(SceneBlobAsset) == 16 && sizeof(SceneBlobDraw) == 52 && sizeof(SceneBlobAnim) == 16,
               "blob kayit boyutlari sabit (dosya formati)");
-static_assert(sizeof(SceneBlobParticle) == 48 && sizeof(SceneBlobTerrain) == 48 && sizeof(SceneBlobWater) == 32 &&
+static_assert(sizeof(SceneBlobParticle) == 112 && sizeof(SceneBlobParticle) % kSceneBlobAlign == 0 && sizeof(SceneBlobTerrain) == 48 && sizeof(SceneBlobWater) == 32 &&
                   sizeof(SceneBlobWind) == 32 && sizeof(SceneBlobVoxel) == 32 && sizeof(SceneBlobCharacter) == 32,
               "v6 kayit boyutlari sabit (dosya formati)");
 static_assert(sizeof(SceneBlobScript) == 16, "v7 betik kaydi 16 bayt (dosya formati)");
@@ -411,5 +440,19 @@ bool scene_blob_load(Arena &arena, const char *path, SceneBlobView *out, SceneEr
 // ".sahne" -> ".sahneb" (uzanti yoksa ekler). Donus false: sigmadi.
 bool scene_blob_path_for(const char *scene_path, char *out, size_t cap);
 uint64_t scene_blob_fnv1a(const void *data, size_t n, uint64_t seed = 0xcbf29ce484222325ull);
+
+// --- Parcacik: TEK cevirim yolu (v9, Geri bildirim #3) ------------------------
+// Yazar verisi (SceneEntity) -> blob kaydi -> yayici ayari. Derleyici ilkini,
+// SceneRuntime ikincisini cagirir; EDITOR ikisini art arda cagirir. Boylece
+// editorun canli onizlemesi ile derlenmis oyunun parcacigi ayni koddan gelir --
+// v8'e kadar editor alanlari kendisi kopyaliyordu, runtime ise yarisini
+// bilmiyordu (renk/yercekimi/turbulans oyunda yoktu).
+void scene_blob_particle_of(const SceneEntity &e, uint32_t entity, SceneBlobParticle *out);
+// Yayilim bicimi (halka / perde / huni / kure / isin) hiz ve dagilimdan
+// cikarilir (editorun 2026 sezgisi, aynen). Alt yayici BAGLANMAZ: cagiran
+// sub_on_death > 0 ise sub_emitter + scene_particle_sub_emitter'in sonucunu
+// verir (isaretci cagiranin omrunde yasamali; Particle onu tutar).
+ParticleEmitterConfig scene_particle_emitter(const SceneBlobParticle &p, Vec3 spawn_pos);
+ParticleEmitterConfig scene_particle_sub_emitter(const ParticleEmitterConfig &parent);
 
 } // namespace tulpar::engine::content
