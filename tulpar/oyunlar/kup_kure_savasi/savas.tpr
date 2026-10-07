@@ -1158,6 +1158,7 @@ func savas_adim(float d) {
         g_yz_tik = true;
     }
     if (g_kale_sarsinti > 0.0) { g_kale_sarsinti -= d; }
+    ani_olum(d);
 }
 
 // Kale yıkılınca: kalenin önünde patlamalar ve enkaz yağmuru.
@@ -1170,6 +1171,27 @@ func kale_yikildi(int taraf) {
         patlama_efekti(x + ox, 1.5 + k * 0.8, oz, 1.6);
         enkaz_sac(x + ox, 2.5 + k * 0.6, oz, taraf, 2, 0.9, taraf == 0 ? RENK_GOVDE[2] : RENK_GOVDE[5]);
     }
+}
+
+// ANI OLUM: 12. dakikadan sonra iki kale de saniyede canlarinin %0.4'unu
+// kaybeder (en cok ~4 dk daha). Neden: iki taraf da kule kurup savununca
+// savas kilitleniyordu — olculdu 2026-10-08, otopilot Normal'e karsi 12 dk:
+// iki kale 8500/8500, 137/137 olu. Ilk dusen kaybeder; kaleye vurus hala
+// fark yaratir (yarisi ayni anda biterse orani yuksek olan kazanir).
+float ANI_OLUM_T = 720.0;
+float ANI_OLUM_HIZ = 0.004;
+func ani_olum_var(): bool { return g_savas_t > ANI_OLUM_T; }
+func ani_olum(float d) {
+    if (!ani_olum_var() || g_kazanan >= 0) { return; }
+    for (int t = 0; t < 2; t++) { g_us_can[t] -= g_us_can_max[t] * ANI_OLUM_HIZ * d; }
+    bool d0 = g_us_can[0] <= 0.0;
+    bool d1 = g_us_can[1] <= 0.0;
+    if (!d0 && !d1) { return; }
+    int kaybeden = d0 && d1 ? (g_us_can[0] / g_us_can_max[0] < g_us_can[1] / g_us_can_max[1] ? 0 : 1) : (d0 ? 0 : 1);
+    g_us_can[kaybeden] = 0.0;
+    g_kazanan = 1 - kaybeden;
+    logla(t"SAVAS BITTI (ani olum): kazanan taraf {g_kazanan} ({toInt(g_savas_t)} s)");
+    kale_yikildi(kaybeden);
 }
 
 // Cephe: iki tarafin en ondeki birliklerinin ortasi (dunya x). Otopilotun

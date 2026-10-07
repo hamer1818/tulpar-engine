@@ -210,6 +210,13 @@ func dokunus(float sx, float sy) {
     float m = ekrandan_isin(sx, sy);
     if (g_kule_kipi) {
         int yuva_k = m >= 0.0 ? kule_yuvasi_bul(isin_sahne()) : -1;
+        // Dolu yuvada ışın KULENİN gövdesine çarpar (yuvanın üstünde durur):
+        // o kule de yuvasını söyler (satış dokunuşu). Eskiden ıska sayılıyordu —
+        // ölçüldü 2026-10-08, Normal otopilot 7 dk: 68 ıska, hepsi satış denemesi.
+        if (yuva_k < 0 && m >= 0.0) {
+            int hid = isin_id();
+            for (int s = 0; s < 3; s++) { if (hid != 0 && kuleler[s].govde == hid) { yuva_k = s; } }
+        }
         if (yuva_k >= 0 && yuva_k < 3) { g_kule_isin += 1; }
         else {
             // Parmak yuvayi tam tutturamadi: ekranda en yakin yuva (izdusumle),
@@ -371,6 +378,13 @@ func hud_ust() {
     float cw = ui_px(200.0);
     cubuk_ciz(hx, ui_px(44.0), cw, ui_px(26.0), g_us_can[0] / g_us_can_max[0], RENK_KUP, t"Küpler {toInt(g_us_can[0])}");
     cubuk_ciz(hx + hw - cw, ui_px(44.0), cw, ui_px(26.0), g_us_can[1] / g_us_can_max[1], RENK_KURE, t"Küreler {toInt(g_us_can[1])}");
+    if (ani_olum_var() && g_kazanan < 0) {
+        str ao = "ANİ ÖLÜM: iki kale de eriyor!";
+        yazi(ao, (w - eng_text_width(ao, 0.9)) / 2.0, ui_px(76.0), 0.9, renk(255, 90, 70));
+    } else if (g_savas_t > ANI_OLUM_T - 60.0 && g_kazanan < 0) {
+        str ao2 = t"Ani ölüme {toInt(ANI_OLUM_T - g_savas_t) + 1} s";
+        yazi(ao2, (w - eng_text_width(ao2, 0.8)) / 2.0, ui_px(76.0), 0.8, renk(255, 200, 90));
+    }
     // Sağ: çağlar + duraklat.
     panel(w - ui_px(338.0), ui_px(6.0), ui_px(250.0), ui_px(74.0), RENK_PANEL);
     yazi(CAG_ADLARI[g_cag[0]], w - ui_px(328.0), ui_px(12.0), 0.95, RENK_KUP);
@@ -537,7 +551,7 @@ func zorluk_ciz() {
 
 func duraklat_ciz() {
     dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
-    ui_pencere("DURAKLADI", 420, 330, RENK_PANEL);
+    ui_pencere("DURAKLADI", 420, 304, RENK_PANEL);
     if (ui_dugme("Devam")) { g_ekran = Ekran.OYUN; }
     if (ui_dugme("Ayarlara git")) { g_ayar_donus = Ekran.DURAKLAT; g_ekran = Ekran.AYAR; }
     if (ui_dugme("Teslim ol")) {
