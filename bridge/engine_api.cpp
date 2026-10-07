@@ -315,6 +315,7 @@ struct Bridge {
   renderer::Renderer ren;
   sim::Physics phys;
   sim::FixedStep fs;
+  uint32_t phys_pauses = 0, phys_paused_frames = 0; // teng_physics_pause (kapanis raporu)
   content::Font font;
   bool font_ok = false;
   bridge::BridgeHost host;
@@ -1599,7 +1600,8 @@ void teng_frame_end(void) {
   b.in_frame = false;
   {
     ENGINE_ZONE("sim");
-    const uint32_t ticks = b.fs.advance(b.dt);
+    const uint32_t ticks = b.fs.advance(b.dt); // duraklatma / zaman olcegi burada (sim::FixedStep)
+    if (b.fs.paused && !ticks) b.phys_paused_frames++;
     // Carpisma halkasi ADIMLARDAN HEMEN ONCE temizlenir, kare basinda DEGIL.
     // Sira onemli ve bir kez yanlis kuruldu: fizik `teng_frame_end` icinde
     // adimlaniyor, yani olaylar ONCEKI karenin sonunda olusuyor; kare basinda
@@ -1823,6 +1825,9 @@ void teng_shutdown(void) {
   BINFO("kapanis: %u kare, %.1f s, p50 %.2f ms p99 %.2f ms, varlik %u (en yuksek yuva %u), govde %u, model %u, hata %u, uyari %u",
         b.frame, b.time_s, st.p50_ns / 1e6, st.p99_ns / 1e6, b.ent_alive, b.ent_high, b.phys.stats().bodies, b.model_count,
         g_log.errors - b.oturum_hata0, g_log.warnings - b.oturum_uyari0);
+  if (b.phys_pauses || b.fs.time_scale != 1.0f)
+    BINFO("kapanis (fizik): %u duraklatma, %u kare durakli (sim adimi atilmadi), zaman olcegi %.2f, %u sim adimi", b.phys_pauses,
+          b.phys_paused_frames, (double)b.fs.time_scale, b.tick);
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
@@ -1952,6 +1957,30 @@ double teng_dt(void) { return g ? g->dt : 0.0; }
 double teng_time(void) { return g ? g->time_s : 0.0; }
 int teng_frame(void) { return g ? (int)g->frame : 0; }
 double teng_fps(void) { return g ? g->fps : 0.0; }
+
+// --- fizik duraklatma / zaman olcegi (Geri bildirim #10) ---------------------
+void teng_physics_pause(int paused) {
+  CALLF("teng_physics_pause", "%d", paused);
+  if (!g) g = new (g_storage) Bridge();
+  const bool p = paused != 0;
+  if (p == g->fs.paused) return;
+  g->fs.paused = p;
+  if (p) g->phys_pauses++;
+  BDBG("fizik %s (kare %u, sim adimi %u)", p ? "DURAKLATILDI" : "devam ediyor", g->frame, g->tick);
+}
+int teng_physics_paused(void) { return g && g->fs.paused ? 1 : 0; }
+void teng_time_scale(double scale) {
+  CALLF("teng_time_scale", "%.3f", scale);
+  if (!g) g = new (g_storage) Bridge();
+  if (!(scale >= 0.0) || scale > 4.0) {
+    BERR("teng_time_scale: olcek 0..4 olmali (%.3f), kirpildi", scale);
+    scale = scale > 4.0 ? 4.0 : 0.0;
+  }
+  // max_ticks_per_frame 4: 4x'in ustu kare basina kirpilir ve sayilir (spiral of death).
+  g->fs.time_scale = (float)scale;
+}
+double teng_time_scale_get(void) { return g ? (double)g->fs.time_scale : 1.0; }
+int teng_sim_tick(void) { return g ? (int)g->tick : 0; }
 int teng_width(void) { return g ? (int)(g->headless ? g->fb_w : g->swap.logical_extent().width) : 0; }
 int teng_height(void) { return g ? (int)(g->headless ? g->fb_h : g->swap.logical_extent().height) : 0; }
 const char *teng_gpu_name(void) { return g && g->inited ? g->dev.caps().device_name : ""; }

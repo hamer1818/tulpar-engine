@@ -158,6 +158,17 @@ func dt(): float { return eng_dt(); }
 func zaman(): float { return eng_time(); }
 func kare_no(): int { return eng_frame(); }
 func fps_e(): float { return eng_fps(); }
+// Fizik duraklatma (duraklat menusu): mermiler/enkaz havada donar, devam edince
+// ayni yerden surer (bit-tam belirlenimli). Oyun mantigi/arayuz calismaya devam eder.
+func fizik_duraklat(bool d) { eng_physics_pause(d); }
+func physics_pause(bool p) { eng_physics_pause(p); }
+func fizik_durakli(): bool { return eng_physics_paused(); }
+func physics_paused(): bool { return eng_physics_paused(); }
+// Zaman olcegi: 0.5 agir cekim, 0 donmus, 1 normal (en cok 4).
+func zaman_olcegi(float s) { eng_time_scale(s); }
+func time_scale(float s) { eng_time_scale(s); }
+func sim_adimi(): int { return eng_sim_tick(); }
+func sim_tick(): int { return eng_sim_tick(); }
 func genislik(): int { return eng_width(); }
 func yukseklik(): int { return eng_height(); }
 func logla(msg) { eng_log(msg); }

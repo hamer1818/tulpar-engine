@@ -56,6 +56,22 @@ func run_kurulumsuz() {
     assert_eq_int(eng_error_count(), h0 + 2);
     assert(!eng_key_down("W"), "kurulumsuz W basili olmamali");
     assert_eq_int(eng_error_count(), h0 + 2);
+
+    // Fizik duraklatma / zaman olcegi (Geri bildirim #10): bool parametre +
+    // bool donus ve f64 gidip geliyor mu; sarmalayicilar ayni yere iniyor mu.
+    assert(!fizik_durakli(), "baslangicta fizik durakli olmamali");
+    fizik_duraklat(true);
+    assert(eng_physics_paused(), "fizik_duraklat(true) sonrasi durakli olmali");
+    physics_pause(false);
+    assert(!physics_paused(), "physics_pause(false) sonrasi surmeli");
+    zaman_olcegi(0.5);
+    assert_close(eng_time_scale_get(), 0.5, 0.000001);
+    // KONTROL: aralik disi olcek HATA sayar ve kirpilir (sayacin olcu aleti yukarida).
+    time_scale(9.0);
+    assert_eq_int(eng_error_count(), h0 + 3);
+    assert_close(eng_time_scale_get(), 4.0, 0.000001);
+    time_scale(1.0);
+    assert_eq_int(sim_adimi(), 0);
 }
 
 // 2) Kurulum düşer: false + hata metni; sonrası çökmeden hata sayar.
