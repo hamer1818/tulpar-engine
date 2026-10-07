@@ -2116,6 +2116,54 @@ ENGINE_TEST(bridge_second_session_in_same_process_starts_clean) {
   CHECK(d_thread < kN);
 }
 
+// Kapanis raporunun "hata N, uyari N"si oturuma ait (8ct'nin devami): ayni
+// surecte ikinci oturumun raporu onceki oturumun hatalarini da sayiyordu
+// (Huawei P20 Pro, Android 10, 2026-10-07: pencere gelmeyen 5 oturumun
+// raporlari "uyari 1..5"). teng_error_count() SUREC toplami olarak kalir.
+namespace {
+char g_kapanis_log[8192];
+void kapanis_yakala() {
+  g_kapanis_log[0] = 0;
+  char yol[512];
+  tmp_template(yol, sizeof yol, "kapanis_log");
+  const int fd = mkstemp(yol);
+  if (fd < 0) { teng_shutdown(); return; }
+  std::fflush(stdout);
+  const int eski = dup(1);
+  dup2(fd, 1);
+  teng_shutdown();
+  std::fflush(stdout);
+  dup2(eski, 1);
+  close(eski);
+  lseek(fd, 0, SEEK_SET);
+  const long n = (long)read(fd, g_kapanis_log, sizeof g_kapanis_log - 1);
+  g_kapanis_log[n > 0 ? n : 0] = 0;
+  close(fd);
+  unlink(yol);
+  std::fputs(g_kapanis_log, stdout);
+}
+} // namespace
+
+ENGINE_TEST(bridge_shutdown_report_counts_this_session_only) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  const int err0 = teng_error_count();
+  // Oturum 1: bilerek BIR hata (olu id).
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("rapor sayaci 1", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  (void)teng_x(987654); // KONTROL: olu id hata loglar
+  kapanis_yakala();
+  CHECK(teng_error_count() == err0 + 1);
+  CHECK(std::strstr(g_kapanis_log, ", hata 1, uyari 0") != nullptr);
+  // Oturum 2: hatasiz. Rapor 0 demeli; surec toplami degismemeli.
+  teng_set_headless(100000, nullptr);
+  CHECK(teng_init("rapor sayaci 2", kW, kH) == 1);
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, ", hata 0, uyari 0") != nullptr); // duzeltmesiz kod "hata 1" basar
+  CHECK(teng_error_count() == err0 + 1);
+}
+
 // --- Tulpar yerel eklenti bildiriminin ABI kilidi (K303) ----------------------
 // TulparLang eng_* cagrisini tulpar-ext.json'daki C tipleriyle DOGRUDAN
 // teng_*'e indirir ve statik arsivde tip goremez. Tip uyumunu

@@ -287,6 +287,12 @@ struct Ui {
 
 struct Bridge {
   bool inited = false, running = false, headless = false, have_window = false, in_frame = false;
+  // Kapanis raporunun "hata N, uyari N"si BU oturumun sayisi olmali: g_log
+  // surec boyu yasar (teng_error_count surec toplamini verir, testler fark
+  // olcer), Bridge her oturumda sifirlanir. Ayni surecte ikinci oturumda rapor
+  // onceki oturumlarin toplamini basiyordu — Huawei P20 Pro'da (2026-10-07)
+  // pencere gelmeyen 5 oturumun raporu "uyari 1, 2, 3, 4, 5" dedi.
+  uint32_t oturum_hata0 = 0, oturum_uyari0 = 0;
   uint32_t headless_frames = 0;
   char out_ppm[512] = {0};
   char err[256] = {0};
@@ -976,6 +982,8 @@ int teng_init(const char *title, int width, int height) {
   CALLF("teng_init", "\"%s\" %dx%d", title ? title : "", width, height);
   if (b.inited) { BERR("teng_init iki kez cagrildi"); return 0; }
   b.err[0] = 0; // bu denemenin hatasi (onceki dusen denemenin metni kalmasin)
+  b.oturum_hata0 = g_log.errors;
+  b.oturum_uyari0 = g_log.warnings;
   if (const char *lv = std::getenv("TULPAR_ENGINE_LOG")) g_log.level = std::atoi(lv);
   if (const char *hf = std::getenv("TULPAR_ENGINE_HEADLESS"); hf && *hf && !b.headless) { b.headless = true; b.headless_frames = (uint32_t)std::atoi(hf); if (b.headless_frames == 0) b.headless_frames = 60; }
   if (const char *op = std::getenv("TULPAR_ENGINE_OUT"); op && *op && !b.out_ppm[0]) std::snprintf(b.out_ppm, sizeof b.out_ppm, "%s", op);
@@ -1813,7 +1821,8 @@ void teng_shutdown(void) {
   static uint64_t scratch[1200]; // profiler sozlesmesi: kare kapasitesinin 2 KATI (ilk yari ornek, ikinci yari siralama)
   const FrameStats st = b.prof.frame_stats(Span<uint64_t>(scratch, 1200), 0);
   BINFO("kapanis: %u kare, %.1f s, p50 %.2f ms p99 %.2f ms, varlik %u (en yuksek yuva %u), govde %u, model %u, hata %u, uyari %u",
-        b.frame, b.time_s, st.p50_ns / 1e6, st.p99_ns / 1e6, b.ent_alive, b.ent_high, b.phys.stats().bodies, b.model_count, g_log.errors, g_log.warnings);
+        b.frame, b.time_s, st.p50_ns / 1e6, st.p99_ns / 1e6, b.ent_alive, b.ent_high, b.phys.stats().bodies, b.model_count,
+        g_log.errors - b.oturum_hata0, g_log.warnings - b.oturum_uyari0);
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
