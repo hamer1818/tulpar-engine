@@ -379,7 +379,12 @@ void teng_ui_label(const char *s, double x, double y, double scale, int64_t colo
 int teng_ui_button(const char *label, double x, double y, double w, double h);     // 1: bu karede tiklandi
 int teng_ui_checkbox(const char *label, double x, double y, double w, double h, int value); // YENI deger
 double teng_ui_slider(const char *label, double x, double y, double w, double h, double value, double min_v, double max_v); // YENI deger
-int teng_ui_active(void);  // bir widget basili/surukleniyor (oyun girdisini bastir)
+int teng_ui_active(void);
+// Etiket sigdirma sayaclari (Geri bildirim #15), CIZIM basina birikir: yazi kutuya
+// yukseklikten gelen olcekle sigmadi -> kucultuldu; en az olcekte (yuksekligin
+// %55'i) de sigmadi -> "..." ile kirpildi (ilk kirpma UYARI).
+int teng_ui_text_shrunk(void);
+int teng_ui_text_clipped(void);  // bir widget basili/surukleniyor (oyun girdisini bastir)
 int teng_ui_clicks(void);  // toplam etkinlestirme (dugme tiklamasi + onay kutusu degisimi)
 // Pencersiz kipte fare/dokunmatik yoktur: betik tek karelik bas+birak enjekte
 // eder (sonraki teng_ui_begin tuketir). Dugme disina tiklama tetiklemez.

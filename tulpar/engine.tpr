@@ -1033,6 +1033,12 @@ func ui_scale(): float { return ui_olcek(); }
 func ui_olcek_sabitle(float s) { _ui_sabit_olcek = s; }
 func ui_px(float v): float { return v * ui_olcek(); }
 func ui_uyari_sayisi(): int { return _ui_uyari; }
+// Yazi sigdirma (Geri bildirim #15): dugme etiketi kutuya sigmazsa motor kucultur,
+// yetmezse "..." ile kirpar. Kirpilan cizim sayisi > 0 ise etiketi kisalt.
+func ui_yazi_kucultulen(): int { return eng_ui_text_shrunk(); }
+func ui_text_shrunk(): int { return eng_ui_text_shrunk(); }
+func ui_yazi_kirpilan(): int { return eng_ui_text_clipped(); }
+func ui_text_clipped(): int { return eng_ui_text_clipped(); }
 func ui_warning_count(): int { return _ui_uyari; }
 
 func _ui_yuvarla(float v): float { return floor(v + 0.5); }
