@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 234 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 236 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -72,6 +72,8 @@ SPEC = [
     ("eng_warning_count", "int", [], "UYARI sayisi (pencere yok -> headless, font bulunamadi...)."),
     # dunya / kamera
     ("eng_bloom", "void", [("enable", "flag"), ("threshold", "num"), ("intensity", "num")], "Parlama (bloom): eng_init'ten ONCE acilir (ic HDR hedefi kurulur). Esik DOGRUSAL parlaklik (1.0 = yalniz cok parlak yerler), yogunluk 0 = kapali. Kare icinde esik/yogunluk degistirilebilir."),
+    ("eng_scene_dim", "void", [("f", "num")], "Sahne karartma 0..1 (1 normal): 3B sahne koyulur, arayuz karartilmaz. Parlama aciksa birlestirme gecisinin poz carpani (bedelsiz); kapaliysa tek tam ekran harmanli dortgen. Duraklat/ayar ekraninda tam ekran yari saydam dortgen yerine (Mali'de ~3.5 ms)."),
+    ("eng_ui_fullscreen_blends", "int", [], "Oyunun tam ekran YARI SAYDAM arayuz katmani cizdigi kare sayisi (TBDR'de pahali; eng_scene_dim'e gec)."),
     ("eng_bloom_on", "bool", [], "Parlama acik mi (HDR bicimi yoksa motor kapatir; sebep logda)."),
     ("eng_render_scale", "float", [("scale", "num")], "Ic cozunurluk olcegi (dinamik cozunurluk, 0.5..1.0): sahne olcekli cizilir, birlestirme tam ekrana buyutur; arayuz tam cozunurlukte kalir. Ic hedef ister (eng_bloom ile parlama acik). Donus: uygulanan olcek (ic hedef yoksa 1.0 + UYARI). eng_init sonrasi, kare icinde ya da disinda."),
     ("eng_gravity", "void", [("gx", "num"), ("gy", "num"), ("gz", "num")], "Yercekimi (eng_init'ten once)."),

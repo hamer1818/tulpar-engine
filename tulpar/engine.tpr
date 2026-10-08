@@ -155,6 +155,13 @@ func thread_count(): int { return eng_thread_count(); }
 func vk_canli_nesne(): int { return eng_vk_live(); }
 func vk_live_objects(): int { return eng_vk_live(); }
 func dt(): float { return eng_dt(); }
+// Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi koyult,
+// arayuz parlak kalir. Tam ekran yari saydam dikdortgen yerine (Mali'de ~3.5 ms);
+// parlama aciksa bedava. 1.0 = normal.
+func sahne_karart(float f) { eng_scene_dim(f); }
+func scene_dim(float f) { eng_scene_dim(f); }
+func tam_ekran_saydam_kare(): int { return eng_ui_fullscreen_blends(); }
+func ui_fullscreen_blends(): int { return eng_ui_fullscreen_blends(); }
 func zaman(): float { return eng_time(); }
 func kare_no(): int { return eng_frame(); }
 func fps_e(): float { return eng_fps(); }

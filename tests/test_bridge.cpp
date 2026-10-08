@@ -2610,3 +2610,89 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
   teng_shutdown();
 }
+
+// --- Geri bildirim #16: sahne karartma compose'da, tam ekran harmanli katman sayilir ---
+// Oyun duraklat/ayar ekraninda sahneyi tam ekran YARI SAYDAM dortgenle
+// karartiyordu: Mali'de (TBDR) ~3.5 ms (P20 Pro), kopru bunu gostermiyordu.
+// Olcu (iki oturum): parlama ACIK -> eng_scene_dim(0.4) sahne pikselini koyultur,
+// ustteki opak arayuz dortgeni AYNI kalir (karartma compose'da, arayuz ondan
+// sonra), oyunun tam ekran katmani sayaci 0. KONTROL: oyunun yolu (tam ekran
+// yari saydam teng_rect) ayni koyulugu verir ve sayaca girer. Parlama KAPALI ->
+// yedek dortgen: sahne yine koyulur, oyun sayaci yine 0 (yedek kendi kovasinda).
+namespace karartma {
+struct Px { int r, g, b; };
+Px oku(const char *ad, int x, int y) {
+  static uint8_t px[kW * kH * 3];
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  uint32_t w = 0, h = 0;
+  Px p{-1, -1, -1};
+  if (teng_screenshot(shot) == 1 && read_ppm(shot, px, kW * kH, &w, &h) == kW * kH) {
+    const uint8_t *q = px + ((size_t)y * w + (size_t)x) * 3;
+    p = Px{q[0], q[1], q[2]};
+  }
+  std::remove(shot);
+  return p;
+}
+// Bir kare: sahne + sol ustte opak beyaz arayuz dortgeni (+ istege bagli oyun karartmasi).
+void kare(bool oyun_karartmasi) {
+  teng_frame_begin();
+  if (oyun_karartmasi) teng_rect(0, 0, kW, kH, 0x0000008c);
+  teng_rect(4, 4, 40, 30, 0xffffffff);
+  teng_frame_end();
+}
+} // namespace karartma
+
+ENGINE_TEST(bridge_scene_dim_uses_compose_and_counts_fullscreen_blend) {
+  using namespace karartma;
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  int fsb_compose = -1, fsb_oyun = -1, fsb_yedek = -1;
+  Px sahne[2][3] = {}, ui[2][3] = {};
+  bool post[2] = {false, false};
+  for (int oturum = 0; oturum < 2; oturum++) {
+    teng_bloom(oturum == 0 ? 1 : 0, 4.0, 0.0); // yogunluk 0: parlama gorunmez, compose gecisi VAR
+    teng_set_headless(100000, nullptr);
+    if (!teng_init(oturum == 0 ? "karartma compose" : "karartma yedek", kW, kH)) {
+      std::printf("    [bilgi] kurulum: %s\n", teng_last_error());
+      skip("Vulkan cihazi/kurulum yok");
+      return;
+    }
+    post[oturum] = teng_bloom_on() == 1;
+    teng_spawn_ground(20, 0xd0d0d0ff);
+    teng_camera(0, 6, 8, 0, 0, 0);
+    for (int i = 0; i < 3; i++) kare(false);
+    sahne[oturum][0] = oku("karartma_a", kW / 2, kH * 3 / 4);
+    ui[oturum][0] = oku("karartma_a", 20, 15);
+    teng_scene_dim(0.4);
+    for (int i = 0; i < 3; i++) kare(false);
+    sahne[oturum][1] = oku("karartma_b", kW / 2, kH * 3 / 4);
+    ui[oturum][1] = oku("karartma_b", 20, 15);
+    if (oturum == 0) fsb_compose = teng_ui_fullscreen_blends();
+    else fsb_yedek = teng_ui_fullscreen_blends();
+    teng_scene_dim(1.0);
+    if (oturum == 0) {
+      for (int i = 0; i < 3; i++) kare(true); // KONTROL: oyunun eski yolu
+      sahne[0][2] = oku("karartma_c", kW / 2, kH * 3 / 4);
+      ui[0][2] = oku("karartma_c", 20, 15);
+      fsb_oyun = teng_ui_fullscreen_blends();
+    }
+    kapanis_yakala();
+  }
+  std::printf("    [bilgi] karartma: compose oturumu (post %d) sahne g %d -> %d, arayuz %d -> %d, oyun katmani %d | oyunun yolu sahne %d arayuz %d, katman %d | "
+              "yedek oturum (post %d) sahne %d -> %d, arayuz %d -> %d, oyun katmani %d\n",
+              post[0], sahne[0][0].g, sahne[0][1].g, ui[0][0].g, ui[0][1].g, fsb_compose, sahne[0][2].g, ui[0][2].g, fsb_oyun, post[1], sahne[1][0].g,
+              sahne[1][1].g, ui[1][0].g, ui[1][1].g, fsb_yedek);
+  CHECK(post[0] && !post[1]);
+  CHECK(fsb_compose == 0 && fsb_yedek == 0); // karartma oyunun tam ekran katmani DEGIL
+  CHECK(fsb_oyun == 3);                      // KONTROL: oyunun yolu her karede sayildi
+  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): karartmanin PIKSEL dogrulamasi gercek cihazda olculur"); return; }
+  for (int o = 0; o < 2; o++) {
+    CHECK(sahne[o][0].g > 60 && sahne[o][1].g < sahne[o][0].g * 0.8); // sahne koyuldu
+    CHECK(ui[o][1].g == ui[o][0].g && ui[o][0].g > 240);               // arayuz KARARTILMADI
+  }
+  CHECK(sahne[0][2].g < sahne[0][0].g * 0.8); // KONTROL: oyunun yolu ayni gorsel sonucu veriyor (bedeli farkli)
+}

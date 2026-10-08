@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 234 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 236 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -229,6 +229,16 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   kuvvet/yerçekimi etkilemez. Her kare `kinematik_tasi(id, x, y, z)` ile hedef ver: bu karenin sim adımlarına
   dağıtılır, hız türetilir (itme doğru); hedef gelmeyen karede durur. Sabit hızlı platform için `hiz_ver`.
   `durtu` kinematikte HATA.
+- **Sahne karartma** (Geri bildirim #16): duraklat/ayar ekranında 3B sahneyi koyultmak için tam ekran yarı
+  saydam dikdörtgen yerine `sahne_karart(0.4)` (1.0 = normal). Parlama açıkken birleştirme (compose) geçişinin
+  poz çarpanına biner — o geçiş her pikseli zaten okuyor, ek bedel yok; arayüz compose'dan SONRA çizildiği için
+  karartılmaz. Parlama kapalıyken yedek: tek tam ekran harmanlı dörtgen (oyunun yaptığıyla aynı bedel).
+  Oyunun kendi tam ekran yarı saydam katmanı sayılır (`tam_ekran_saydam_kare()`), ilk görülüşte bilgi satırı,
+  kapanışta `kapanis (arayuz katmani)`. Ölçüldü (Huawei P20 Pro / Mali-G72, 2159x1080, parlama açık, ölçek 1.0,
+  2026-10-08, sıra karışık 3 tur x 360 kare): p50 karartmasız 18.63 ms, `sahne_karart(0.45)` 18.63 ms, tam ekran
+  yarı saydam dörtgen 21.20 ms (**+2.57 ms**). Masaüstünde (RTX 5080) fark gürültü içinde.
+- **Fizik:** kutu/küre gövdeleri Jolt'ta; `eng_set_pos` dinamik gövdede **gövdeyi yeniden kurar** (Jolt'ta
+  konum yazma yok) ve hız sıfırlanır — log satırı bunu söyler.
 - **HUD** kare içinde kuyruklanır (`eng_text`/`eng_rect`), `eng_frame_end` çizer. Kare dışında çağrı hata loglar.
 - **Sahne:** `eng_scene_load("x.sahneb")` derlenmiş sahneyi (engine_sahnec / editörde **Derle**) yükler;
   modeller, ışıklar, gövdeler, **parçacık yayıcıları** (blob v9: renk, yerçekimi, türbülans, çarpışma,
@@ -865,7 +875,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **234 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **236 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -875,7 +885,7 @@ bölüm yorumlarına göre):
 |---|---:|---|
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | fizik zamanı | 5 | **duraklat** / duraklı mı, **zaman ölçeği** (yaz/oku), sim adımı sayacı — duraklatma birikimi dondurur, devam bit-tam aynı sonuca varır (Geri bildirim #10) |
-| dünya / kamera | 25 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
+| dünya / kamera | 27 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **sahne karartma** + tam ekran saydam katman sayacı, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 29 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** / **kinematik kutu / küre** (+ sür, kinematik mi) üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |
