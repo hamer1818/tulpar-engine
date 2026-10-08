@@ -1484,3 +1484,51 @@ ENGINE_TEST(content_missing_lod_falls_back_to_lod0) {
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }
+
+// Tuzaklar 8cy: LOD ekranin x'inden BAGIMSIZ. Kopru kamerasi (goz (0,8,14) ->
+// hedef (0,0,0), FOV pi/3.5) ve P20 Pro'nun 2240x1080 ekrani: ayni GORUS
+// DERINLIGINDE biri ekranin ortasinda, biri kenarina yakin iki ozdes model
+// ayni boyda gorunur (perspektifte yansitilan boy = r * proj[1][1] / w ve w
+// = gorus derinligi; asagida gercek matrisle olculur), yani ayni LOD'u almali.
+// POZITIF KONTROL: eski oklid yolu (camera_forward = 0) ayni ikiliyi AYIRIR —
+// kapinin duzeltmesiz kodda kirmizi oldugunu bu satir gosterir.
+ENGINE_TEST(content_lod_uses_view_depth_not_screen_x) {
+  const Vec3 eye{0, 8, 14}, target{0, 0, 0};
+  const float fov = content::kModelLodRefFovY, aspect = 2240.0f / 1080.0f;
+  content::ModelLod lod; // varsayilan esikler 20 / 45 m (kopru varliklari)
+  lod.set_view(eye, target, fov);
+  CHECK(std::fabs(lod.depth_scale - 1.0f) < 1e-5f); // referans FOV: esikler metre olarak aynen
+  const Vec3 f = lod.camera_forward;
+  const Vec3 right = normalize(cross(f, Vec3{0, 1, 0}));
+  const float depth = 18.0f; // merkezde 20 m esiginin altinda (8cx'teki birlik)
+  const float half_w = depth * std::tan(fov * 0.5f) * aspect; // o derinlikte ekranin yari genisligi
+  const Vec3 center = eye + f * depth;
+  const Vec3 side = center + right * (0.95f * half_w);
+  // Gercek projeksiyonla: ikisi de ekranda, w (= derinlik) esit -> ayni yansitilan boy.
+  const Mat4 vp = Mat4::perspective(fov, aspect, 0.1f, 300.0f) * Mat4::look_at(eye, target, {0, 1, 0});
+  const Vec4 cc = vp * Vec4{center.x, center.y, center.z, 1.0f};
+  const Vec4 cs = vp * Vec4{side.x, side.y, side.z, 1.0f};
+  std::printf("    [bilgi] kopru kamerasi 2240x1080: merkez ndc x %.3f w %.3f, kenar ndc x %.3f w %.3f; oklid %.2f / %.2f m\n",
+              cc.x / cc.w, cc.w, cs.x / cs.w, cs.w, length(center - eye), length(side - eye));
+  CHECK(std::fabs(cs.x / cs.w) < 1.0f && std::fabs(cs.x / cs.w) > 0.9f); // kenar gercekten ekranin kenarinda
+  CHECK(std::fabs(cc.w - cs.w) < 1e-3f);                                // ayni yansitilan boy
+  const uint32_t l_center = content::model_lod_level(lod, center), l_side = content::model_lod_level(lod, side);
+  CHECK(l_center == 0 && l_side == 0); // KAPI: ayni derinlik, ayni seviye
+  // Uzak hala kaba: 30 m derinlik LOD1, 50 m LOD2 (merkezde de kenarda da).
+  CHECK(content::model_lod_level(lod, eye + f * 30.0f) == 1);
+  CHECK(content::model_lod_level(lod, eye + f * 50.0f + right * 20.0f) == 2);
+  // Kamera arkasi (yalniz golge vericisi): mutlak derinlik.
+  CHECK(content::model_lod_level(lod, eye - f * 50.0f) == 2);
+  // FOV daraltma (yakinlastirma) model ekranda buyutur -> daha ince seviye.
+  content::ModelLod zoom;
+  zoom.set_view(eye, target, fov * 0.5f);
+  std::printf("    [bilgi] FOV %.1f -> %.1f derece: derinlik olcegi %.3f\n", fov * 57.2958f, fov * 28.6479f, zoom.depth_scale);
+  CHECK(zoom.depth_scale < 0.55f && content::model_lod_level(zoom, eye + f * 30.0f) == 0);
+  // POZITIF KONTROL: eski oklid olcutu ayni ikiliyi ayirir (merkez LOD0, kenar LOD1).
+  content::ModelLod old;
+  old.camera_pos = eye;
+  const uint32_t o_center = content::model_lod_level(old, center), o_side = content::model_lod_level(old, side);
+  std::printf("    [bilgi] secim: gorus derinligi merkez %u kenar %u; POZITIF KONTROL oklid merkez %u kenar %u\n", l_center,
+              l_side, o_center, o_side);
+  CHECK(o_center == 0 && o_side == 1);
+}

@@ -98,7 +98,10 @@ public:
   void despawn(sim::Physics &ph);
   // Kare: modeller (LOD / animasyon), isiklar. ph null = yazar donusumu;
   // degilse dinamik govdeli varliklar sim'den.
-  void draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph);
+  // cam_forward (birim bakis yonu) verilirse LOD gorus derinligiyle secilir
+  // (ModelLod, Tuzaklar 8cy); {0,0,0} = eski oklid uzakligi.
+  void draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph, Vec3 cam_forward = {0, 0, 0},
+            float lod_depth_scale = 1.0f);
   // Zaman bagimli sistemler (bugun yalniz parcacik yayicilari). draw()'dan AYRI
   // cagrilir: cizim saf olsun, simulasyon adimi cagirana ait olsun — headless
   // bir kapi update()'i N kez cagirip hic cizmeden sonucu olcebilsin diye.

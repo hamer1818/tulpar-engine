@@ -2035,6 +2035,35 @@ aynı uzaklıktan LOD2 seçer.
 sessizce işaret eden geçerli tutamaçlar üretir. Ve uzaklığa bağlı bir seçim hatası ekranın **konumuna**
 bağlı görünür: "kenarda bozuluyor" belirtisi geometrik değil, seçimdir.
 
+### 8cy. Öklid uzaklığına göre LOD ekranın x'ine bağlıdır — geniş ekranda kenar, aynı derinlikteki merkezden "uzak"
+
+**Belirti (2026-10-08, Huawei P20 Pro 2240x1080):** 8cx düzeltildikten sonra da aynı derinlikteki birlikler
+ekranın ortasında LOD0, sol/sağ kenarda LOD1 çiziliyordu; kamera yana kayınca seviye nesneyle değil ekranla
+birlikte "yürüyordu".
+
+**Sebep:** `content::draw_model` seviyeyi kamera → model kökü **öklid** uzaklığıyla seçiyordu (20 / 45 m).
+Ekrandaki boy ise `r * proj[1][1] / w`'dir ve `w` **görüş derinliğidir**: aynı derinlikteki iki özdeş model
+ekranın her yerinde aynı boyda görünür, ama kenardakinin öklid uzaklığı yanal kayma kadar büyüktür. 2:1
+ekranda, köprü kamerası (π/3.5) ile 18 m derinlikte merkez 18.00 m, kenarın %95'i 24.81 m — eşik (20 m)
+tam ekranın içine düşüyor (`content_lod_uses_view_depth_not_screen_x`'in bastığı sayılar, RTX 5080 değil
+saf CPU hesabı, 2026-10-08).
+
+**Düzeltme:** ölçüt `|dot(p - göz, ileri)| * depth_scale` (`ModelLod::set_view`, `content::model_lod_level`).
+Eşiklerin anlamı **ekranın ortasında** aynen korunur (orada derinlik = uzaklık); `depth_scale = tan(fov/2) /
+tan(π/3.5 / 2)` köprü/demo varsayılan FOV'unda tam 1, FOV daraltılınca (yakınlaştırma) < 1 → daha ince LOD —
+yani ölçüt yansıtılan boyla orantılı. Model yarıçapı ölçüte girmez (eşikler model başına anlam
+değiştirmesin). Kamera arkası mutlak değer: yalnız gölgeye giren uzak verici LOD0'a düşüp gölge geçişini
+pahalılaştırmasın. `camera_forward = {0,0,0}` eski öklid yolu. Köprü (varlık modelleri + sahne blob'u),
+demo ve editör görüş derinliğine geçti.
+
+**Kapı:** `content_lod_uses_view_depth_not_screen_x` — aynı derinlikte merkez ve kenar (NDC x 0.95, gerçek
+projeksiyon matrisiyle; `w` eşitliği ölçülür) aynı seviyeyi alır; 30 m LOD1, 50 m LOD2, FOV yarıya inince
+30 m LOD0. **Pozitif kontrol:** aynı ikili öklid ölçütüyle ayrışır (merkez 0, kenar 1) — düzeltmesiz kodda
+kapı kırmızı.
+
+**Ders:** "uzaklık" ekran uzayında ölçülen bir şeyin vekiliyse, vekilin dünya uzayındaki tanımı ekranın
+şeklini taşır. Geniş ekran bu farkı büyütür; 4:3'te göze batmayan hata 2:1'de kenarı keser.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana

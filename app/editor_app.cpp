@@ -8657,7 +8657,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         const content::Model &mdl = st.models[e.asset];
         const content::UploadedModel &up = st.ups[e.asset];
         content::ModelLod lod;
-        lod.camera_pos = camera_eye(cam);
+        lod.set_view(camera_eye(cam), cam.target, cam.fov_y); // gorus derinligi (Tuzaklar 8cy)
         lod.distance1 = 24.0f; lod.distance2 = 34.0f;
         if ((e.components & content::kSceneAnim) && e.clip < mdl.clip_count) {
           const float dur = mdl.clips[e.clip].duration;

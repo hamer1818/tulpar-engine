@@ -227,6 +227,10 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   koordinatı = `genislik()` × `yukseklik()` pikseli, sol üst (0,0); render ölçeği (iç çözünürlük) ve Android
   ön-döndürmesi bunu değiştirmez. Kapı `bridge_camera_fov_screen_ray_pick_world_to_screen` izdüşümü PİKSELDE
   doğrular (kürenin merkezi kırmızı; eski π/3.5 kopyası fov 30'da ıskalar).
+  **LOD** (`model` varlıkları ve sahne blob'u) **görüş derinliğiyle** seçilir, öklid uzaklığıyla değil
+  (2026-10-08, Tuzaklar 8cy): aynı derinlikteki birlik ekranın ortasında da kenarında da aynı seviyeyi
+  alır. Eşikler (varlık 20 / 45 m, sahne 24 / 34 m) ekranın ortasında eskisiyle aynı; `gorus_acisi`
+  daraltılınca (yakınlaştırma) model ekranda büyüdüğü için daha ince LOD seçilir.
 - **Kare içi C++ ayırma** (Geri bildirim #13): AllocGate'in `operator new` sayacı Tulpar oyununa eklenti
   yapıştırıcısıyla gelir (`libengine_tulpar.a` / `libtulpar_engine_android.a` içinde
   `core/memory/alloc_gate_override.cpp`; yapıştırıcı onun işaretine başvurur, yani arşivden her zaman çekilir).

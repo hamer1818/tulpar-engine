@@ -162,13 +162,41 @@ struct PoseScratch {
 // scratch.skin[skin]'e yazar ve pose'u gunceller. false: gecersiz klip.
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose);
 
-// LOD secimi: instance'in dunya konumunun kameraya uzakligi; distance1'den
-// uzakta LOD1, distance2'den uzakta LOD2 (varsa). nullptr = hep LOD0.
+// LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
+// nullptr = hep LOD0.
+//
+// OLCUT GORUS DERINLIGIDIR, oklid uzakligi degil (Tuzaklar 8cy):
+//   d = |dot(p - camera_pos, camera_forward)| * depth_scale
+// Ekrandaki (yansitilan) boy r * proj[1][1] / derinlik'tir — yani ayni derinlikteki
+// iki ozdes model ekranin ortasinda da kenarinda da AYNI boyda gorunur ve artik
+// ayni LOD'u alir. Oklid uzakligi kenardakini daha uzak sayiyordu: 2:1 ekranda
+// (P20 Pro 2240x1080) merkezde 18 m'deki birlik kenarda ~24 m oluyor ve 20 m esigi
+// tam ekranin kenarina dusuyordu — LOD ekranin x'ine bagliydi.
+//
+// ESIKLERIN ANLAMI (eslem): ekranin ORTASINDA derinlik = uzaklik, yani referans
+// FOV'da distance1/distance2 bugunku metreleriyle aynen gecerli. Kenarda ayni
+// derinlik ayni seviyeyi verir (eskiden daha kaba seviye veriyordu).
+// depth_scale = tan(fov/2) / tan(kModelLodRefFovY/2) = proj_ref[1][1] / proj[1][1]:
+// kopru/demo varsayilan FOV'unda (pi/3.5) tam 1; FOV daraltilinca (yakinlastirma)
+// model ekranda buyudugu icin olcut kuculur -> daha ince LOD. Model boyu olcute
+// GIRMEZ: esikler bugun oldugu gibi mutlak metre (yaricapla olceklemek esiklerin
+// anlamini model basina degistirirdi).
+// Kamera ARKASI (yalniz golgeye giren ornek): mutlak deger — arkada 50 m'deki golge
+// vericisi LOD0'a dusup golge gecisini pahalilastirmasin.
+// camera_forward sifirsa ESKI oklid yolu (geriye uyum + kapinin pozitif kontrolu).
+constexpr float kModelLodRefFovY = 3.14159265358979f / 3.5f;
 struct ModelLod {
   Vec3 camera_pos{0, 0, 0};
   float distance1 = 20.0f;
   float distance2 = 45.0f;
+  Vec3 camera_forward{0, 0, 0}; // birim bakis yonu; {0,0,0} = oklid uzakligi (eski yol)
+  float depth_scale = 1.0f;     // tan(fov/2) / tan(kModelLodRefFovY/2)
+  // Kameradan kurar: goz, hedef, dikey FOV (radyan). Goz = hedef ise oklid yolu.
+  void set_view(Vec3 eye, Vec3 target, float fov_y);
 };
+// Saf secim (ayirma yok, renderer gerekmez): istenen seviye 0/1/2. O seviye
+// uretilmemisse bir alta inmek draw_model'in isi (Tuzaklar 8cx).
+uint32_t model_lod_level(const ModelLod &lod, Vec3 world_pos);
 // Tum instance'lari cizer (model matrisi * instance.world). Secilen LOD sayilari
 // (0/1/2) istege bagli raporlanir.
 void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, const Mat4 &model, Vec3 tint = {1, 1, 1},

@@ -723,6 +723,30 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
   return true;
 }
 
+void ModelLod::set_view(Vec3 eye, Vec3 target, float fov_y) {
+  camera_pos = eye;
+  const Vec3 f = target - eye;
+  const float len = length(f);
+  camera_forward = len > 1e-6f ? f * (1.0f / len) : Vec3{0, 0, 0};
+  const float ref = std::tan(kModelLodRefFovY * 0.5f);
+  depth_scale = (fov_y > 0.0f && ref > 0.0f) ? std::tan(fov_y * 0.5f) / ref : 1.0f;
+}
+
+uint32_t model_lod_level(const ModelLod &lod, Vec3 p) {
+  const Vec3 d{p.x - lod.camera_pos.x, p.y - lod.camera_pos.y, p.z - lod.camera_pos.z};
+  const Vec3 f = lod.camera_forward;
+  float m2; // olcutun karesi (karekok yok)
+  if (f.x != 0.0f || f.y != 0.0f || f.z != 0.0f) {
+    const float z = (d.x * f.x + d.y * f.y + d.z * f.z) * lod.depth_scale; // gorus derinligi
+    m2 = z * z;
+  } else {
+    m2 = d.x * d.x + d.y * d.y + d.z * d.z; // eski oklid yolu
+  }
+  if (m2 >= lod.distance2 * lod.distance2) return 2;
+  if (m2 >= lod.distance1 * lod.distance1) return 1;
+  return 0;
+}
+
 void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, const Mat4 &model, Vec3 tint,
                 const ModelLod *lod, uint32_t lod_counts[kModelMaxLods + 1], const ModelPose *pose) {
   for (uint32_t i = 0; i < m.instance_count; i++) {
@@ -741,11 +765,7 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
     }
     uint32_t level = 0;
     if (lod && u.lod_meshes) {
-      const Vec3 p{world.m[3][0], world.m[3][1], world.m[3][2]};
-      const Vec3 d{p.x - lod->camera_pos.x, p.y - lod->camera_pos.y, p.z - lod->camera_pos.z};
-      const float dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
-      if (dist2 >= lod->distance2 * lod->distance2) level = 2;
-      else if (dist2 >= lod->distance1 * lod->distance1) level = 1;
+      level = model_lod_level(*lod, Vec3{world.m[3][0], world.m[3][1], world.m[3][2]});
       // Istenen seviye yoksa bir alta dus (LOD2 yoksa LOD1, o da yoksa LOD0).
       while (level > 0 && !u.lod_meshes[inst.mesh * kModelMaxLods + (level - 1)].valid()) level--;
       if (level > 0) mesh = u.lod_meshes[inst.mesh * kModelMaxLods + (level - 1)];

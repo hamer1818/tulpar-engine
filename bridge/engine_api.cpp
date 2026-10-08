@@ -1005,7 +1005,10 @@ void render_frame() {
     const GpuScope gs; // kare yuvasinin fence beklemesi
     b.ren.begin_frame(b.headless ? 0 : fc.frame_index);
   }
-  if (b.scene_ok) b.srt.draw(b.ren, b.cam_eye, (float)b.time_s, &b.phys);
+  // LOD gorus derinligiyle (ekranin x'inden bagimsiz, Tuzaklar 8cy): kare basina bir kez.
+  content::ModelLod view_lod;
+  view_lod.set_view(b.cam_eye, b.cam_target, b.cam_fov);
+  if (b.scene_ok) b.srt.draw(b.ren, b.cam_eye, (float)b.time_s, &b.phys, view_lod.camera_forward, view_lod.depth_scale);
   uint32_t drawn = 0, lights = 0;
   b.last_posed = 0;
   for (uint32_t i = 0; i < b.ent_high; i++) {
@@ -1037,8 +1040,7 @@ void render_frame() {
           }
         }
         if (!posed) {
-          content::ModelLod lod; lod.camera_pos = b.cam_eye;
-          content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &lod);
+          content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod);
         }
         drawn++;
       }

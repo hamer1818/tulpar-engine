@@ -467,7 +467,8 @@ bool SceneRuntime::entity_dynamic(uint32_t i) const {
   return b >= 0 && (uint32_t)b < view_.h->body_count && view_.bodies[b].dynamic != 0;
 }
 
-void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph) {
+void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph, Vec3 cam_forward,
+                        float lod_depth_scale) {
   stats_.draws = 0;
   stats_.lights = 0;
   for (uint32_t k = 0; k <= kModelMaxLods; k++) stats_.lod[k] = 0;
@@ -475,6 +476,8 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
   lod.camera_pos = cam_pos;
   lod.distance1 = 24.0f;
   lod.distance2 = 34.0f;
+  lod.camera_forward = cam_forward;
+  lod.depth_scale = lod_depth_scale;
   for (uint32_t i = 0; i < view_.h->draw_count; i++) {
     const SceneBlobDraw &d = view_.draws[i];
     const SceneBlobEntity &e = view_.entities[d.entity];
