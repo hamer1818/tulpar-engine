@@ -159,6 +159,16 @@ struct RendererConfig {
   uint32_t shadow_cascades = 3;
   float shadow_bias = 0.0008f;         // derinlik uzayinda kucuk sabit egilim
   float shadow_normal_offset = 0.06f;  // DUNYA birimi: normal boyunca kaydirma (akne)
+  // Egilim KADEME BASINA texel'in dunya olcusuyle olceklenir (Tuzaklar 8cz):
+  // akne/kacma texel olcusune orantilidir, sabit deger dis kademede (kaba texel)
+  // akne, yakinda (ince texel) golge kacmasi (peter-panning) verir. Yukaridaki
+  // iki deger, HACMIN TAMAMINI bu kadar texel'lik TEK haritayla kaplayan
+  // kademede gecerlidir: kademe i'de carpan = texel_i / texel_ref =
+  // (r_i / size) / (R / shadow_bias_ref_tile). Varsayilan 2048: degerlerin
+  // ayarlandigi kademesiz 2048 haritasi (CSM'den once) — 1 x 2048'de carpan tam 1,
+  // yani eski davranis bit bit. 3 x 1024'te carpanlar 0.22 / 0.67 / 2.
+  // 0 = olcekleme yok (her kademede sabit deger; eski davranis, kapinin kontrolu).
+  uint32_t shadow_bias_ref_tile = 2048;
   uint32_t ui_max_vertices = 32768;
   // FAZ 4 UI: retained blok onbellegi (dortgen = 40 bayt). 0 = retained kapali.
   uint32_t ui_max_blocks = 8;
@@ -428,6 +438,16 @@ public:
   void set_shadow_focus(Vec3 p) { shadow_focus_ = p; has_focus_ = true; }
   // i. kademenin dunya yaricapi (0 = en yakin); olcum/kapi icin.
   float cascade_radius(uint32_t i) const { return i < kMaxCascades ? cascade_radius_[i] : 0.0f; }
+  // Kademe yaricapi: en distaki (casc-1) hacmin tamami, iceridekiler 1/3 oraniyla
+  // kuculur. begin_frame ile ayni hesap (tek kaynak).
+  static float cascade_radius_for(uint32_t i, uint32_t casc, float volume_radius);
+  // Egilim carpani (shadow_bias ve shadow_normal_offset'e uygulanir):
+  // texel_i / texel_ref = (r_i / tile) / (R / ref_tile). ref_tile 0 = 1 (olceksiz).
+  // mesh.frag ayni carpani kademe matrisinden turetir (satir 0 boyu = 1/r_i);
+  // CPU kopyasi kapi ve olcum icindir.
+  static float shadow_bias_scale(float cascade_radius, float volume_radius, uint32_t tile, uint32_t ref_tile);
+  // Bu renderer'in i. kademesindeki carpan (begin_frame gerekmez: hacimden hesaplanir).
+  float cascade_bias_scale(uint32_t i) const;
   ShadowInfo shadow() const { return shadow_info_; }
   // A/B ve dusuk segment icin: hedef durur, gecis ve ornekleme kapanir.
   void set_shadows_enabled(bool on) { shadow_info_.enabled = on && cfg_.shadow_size > 0; }
@@ -723,7 +743,7 @@ private:
     Mat4 light_viewproj[kMaxCascades]; // kademe basina isik matrisi (atlas tile'i)
     float light_dir[4];
     float ambient[4];
-    float shadow_params[4];  // x: 1/tile, y: egilim, z: acik mi, w: normal kaydirma
+    float shadow_params[4];  // x: 1/referans texel (dunya; 0 = olceksiz egilim), y: egilim, z: acik mi, w: normal kaydirma
     float cluster_params[4]; // x: dilim olcegi, y: dilim sapmasi, z: tile genisligi(px), w: tile yuksekligi(px)
     uint32_t cluster_grid[4]; // x, y, z, isik sayisi
     float cascade_params[4]; // x: kademe sayisi, y: 1/kademe, z: atlas texel x, w: atlas texel y

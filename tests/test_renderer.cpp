@@ -111,7 +111,13 @@ ENGINE_TEST(renderer_shadow_map_actually_darkens) {
   // NEGATIF KONTROL: egilim asiri buyurse golge KACAR. Mali-G72'de surucuye
   // bagli depthBias tam olarak bunu yapmisti. Bu gecis kapinin o arizaya
   // DUYARLI oldugunu gosterir; olmazsa test her zaman yesil kalirdi.
-  ren.set_shadow_bias(0.0f, 6.0f); // 6 metre kaydirma: golge tamamen kacmali
+  // Kaydirma kademe basina texel'le olceklenir (Tuzaklar 8cz): en ic kademenin
+  // carpani (3 x 1024, R 9) 2/9. Nominal deger ona bolunur ki EN IC kademede de
+  // 6 m kalsin (eskiden her kademede duz 6 m'ydi; 6 m ic kademede 1.3 m'ye
+  // inince golge kacmiyordu — 2026-10-08 RTX 5080'de olculdu: 963/2397 koyu).
+  const float k_inner = ren.cascade_bias_scale(0);
+  std::printf("    [bilgi] en ic kademe egilim carpani %.4f -> nominal kaydirma %.1f m\n", k_inner, 6.0f / k_inner);
+  ren.set_shadow_bias(0.0f, 6.0f / k_inner); // EN IC kademede 6 metre kaydirma: golge tamamen kacmali
   ren.set_shadows_enabled(true);
   ren.begin_frame(0);
   ren.draw(plane, Mat4::scale({16, 1, 16}), {0.8f, 0.8f, 0.8f});
@@ -124,7 +130,7 @@ ENGINE_TEST(renderer_shadow_map_actually_darkens) {
       if (a < b - 8) escaped_dark++;
     }
   }
-  std::printf("    [bilgi] negatif kontrol (6 m kaydirma): koyulasan %u (normalde %u)\n", escaped_dark, darker);
+  std::printf("    [bilgi] negatif kontrol (en ic kademede 6 m kaydirma): koyulasan %u (normalde %u)\n", escaped_dark, darker);
   bool control_fires = escaped_dark * 4 < darker; // golge en az 4 kat azalmali
   CHECK(control_fires);
 
@@ -2167,4 +2173,124 @@ ENGINE_TEST(renderer_procedural_primitives_face_outward) {
   CHECK(kontrol.flipped == 1);
   std::printf("    [bilgi] POZITIF KONTROL (bir ucgen ters cevrildi): kapi %u ters gordu (1 bekleniyor)\n",
               kontrol.flipped);
+}
+
+// Tuzaklar 8cz: golge egilimi KADEME BASINA texel'in dunya olcusuyle olceklenir.
+// CPU kapisi (GPU gerekmez): (1) carpan texel olcusuyle KESIN artar ve texel
+// oranina esittir; (2) 1 x 2048 (degerlerin ayarlandigi kurulum) carpani tam 1 —
+// eski davranis; (3) mesh.frag carpani kademe matrisinden turetir (satir 0 boyu
+// = 1/r): bu varsayim gercek isik matrisinde olculur, shader formulunun CPU
+// kopyasi Renderer::shadow_bias_scale ile ayni sayiyi vermeli.
+// POZITIF KONTROL: shadow_bias_ref_tile = 0 (eski sabit egilim) — "kesin artar"
+// kapisi orada KIRMIZI olmali, yoksa kapi hicbir sey olcmuyor.
+ENGINE_TEST(renderer_shadow_bias_scales_with_cascade_texel) {
+  const float R = 17.0f; // kopru varsayilan golge hacmi
+  auto scales = [&](uint32_t casc, uint32_t tile, uint32_t ref, float out[3]) {
+    for (uint32_t i = 0; i < 3; i++)
+      out[i] = renderer::Renderer::shadow_bias_scale(renderer::Renderer::cascade_radius_for(i < casc ? i : casc - 1, casc, R), R,
+                                                     tile, ref);
+  };
+  float s[3], one[3], ctl[3];
+  scales(3, 1024, 2048, s);
+  scales(1, 2048, 2048, one);
+  scales(3, 1024, 0, ctl);
+  std::printf("    [bilgi] 3x1024 carpanlar %.4f / %.4f / %.4f (texel %.4f / %.4f / %.4f m), 1x2048 %.4f; KONTROL olceksiz %.2f / %.2f / %.2f\n",
+              s[0], s[1], s[2], 2.0f * renderer::Renderer::cascade_radius_for(0, 3, R) / 1024.0f,
+              2.0f * renderer::Renderer::cascade_radius_for(1, 3, R) / 1024.0f, 2.0f * R / 1024.0f, one[0], ctl[0], ctl[1], ctl[2]);
+  const bool increasing = s[0] < s[1] && s[1] < s[2];
+  CHECK(increasing);
+  CHECK(std::fabs(s[0] - 2.0f / 9.0f) < 1e-5f && std::fabs(s[1] - 2.0f / 3.0f) < 1e-5f && std::fabs(s[2] - 2.0f) < 1e-5f);
+  CHECK(std::fabs(one[0] - 1.0f) < 1e-6f); // ayarlandigi kurulumda eski deger
+  const bool ctl_increasing = ctl[0] < ctl[1] && ctl[1] < ctl[2];
+  CHECK(!ctl_increasing && ctl[0] == 1.0f && ctl[2] == 1.0f); // POZITIF KONTROL: eski sabit egilim kapiyi gecemez
+
+  // Renderer'in kendi sorgusu (init'siz: yapilandirma + hacimden).
+  renderer::Renderer ren;
+  ren.set_shadow_volume({0, 1, -1}, R, 70.0f);
+  CHECK(std::fabs(ren.cascade_bias_scale(0) - s[0]) < 1e-6f && std::fabs(ren.cascade_bias_scale(2) - s[2]) < 1e-6f);
+
+  // Shader turetmesi: m = ortho * look_at -> |satir 0| = 1/r, her isik yonunde
+  // (dikeye yakin yon look_at'in yedek up'ina duser — o dal da olculur).
+  const Vec3 dirs[3] = {normalize(Vec3{1.0f, 1.4f, 0.0f}), normalize(Vec3{0.3f, 0.99f, 0.1f}), normalize(Vec3{-0.4f, 0.5f, 0.8f})};
+  float worst = 0.0f;
+  for (const Vec3 &d : dirs)
+    for (uint32_t i = 0; i < 3; i++) {
+      const float r = renderer::Renderer::cascade_radius_for(i, 3, R);
+      const Mat4 m = renderer::Renderer::directional_light_matrix(d, {2.0f, 1.0f, -3.0f}, r, 70.0f);
+      const float inv_r = std::sqrt(m.m[0][0] * m.m[0][0] + m.m[1][0] * m.m[1][0] + m.m[2][0] * m.m[2][0]);
+      const float shader_k = 2.0f * (1.0f / 1024.0f) / inv_r * (2048.0f / (2.0f * R)); // mesh.frag cascade_bias_scale
+      worst = std::fmax(worst, std::fabs(shader_k - s[i]) / s[i]);
+    }
+  std::printf("    [bilgi] shader turetmesi (satir 0 boyu) ile CPU carpani arasindaki en buyuk bagil fark %.2e\n", worst);
+  CHECK(worst < 1e-4f);
+}
+
+// Tuzaklar 8cz piksel kapisi: DIS kademe (kaba texel) sabit egilimle akne
+// uretir. Yalniz zemin (golge vericisi yok): golge acik/kapali farkinda
+// koyulasan her piksel AKNEdir. Genis hacim (R 45) + 3 x 256: dis kademe texel'i
+// 0.35 m, sabit 0.06 m kaydirma texel'in 1/6'si.
+// POZITIF KONTROL: shadow_bias_ref_tile = 0 (eski sabit egilim) ayni sahnede
+// akne URETMELI — yoksa kapi akneyi goremiyordur.
+ENGINE_TEST(renderer_shadow_bias_outer_cascade_has_no_acne) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(192u << 20, "acne_test")) { CHECK(false); return; }
+  Device dev;
+  DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU (CI macOS): piksel kapisi gercek cihazda"); return; }
+  const uint32_t W = 256, H = 160;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W; oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  static uint8_t px_on[W * H * 4], px_off[W * H * 4];
+  uint32_t acne[2] = {0, 0};
+  bool all_ok = true;
+  for (int pass = 0; pass < 2 && all_ok; pass++) { // 0: olcekli (yeni), 1: KONTROL (eski sabit)
+    renderer::Renderer ren;
+    renderer::RendererConfig rc;
+    rc.shadow_size = 256;
+    rc.shadow_cascades = 3;
+    rc.shadow_bias_ref_tile = pass == 0 ? 2048u : 0u;
+    rc.frames_in_flight = 1;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc)) { CHECK(false); all_ok = false; break; }
+    renderer::Vertex v[24];
+    uint32_t idx[36];
+    const uint32_t n = renderer::Renderer::plane(v, idx);
+    renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
+    ren.set_light(normalize(Vec3{1.0f, 0.8f, 0.3f}), {0.10f, 0.10f, 0.12f}, 0.9f);
+    ren.set_shadow_volume({0, 0, 0}, 45.0f, 120.0f);
+    ren.set_shadow_focus({0, 0, 0});
+    // Kamera uzaga bakar: zeminin cogu dis kademede.
+    ren.set_camera(Mat4::look_at({0, 12.0f, 40.0f}, {0, 0, 0}, {0, 1, 0}),
+                   Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 200.0f));
+    Rec rr{&ren};
+    for (int s = 0; s < 2 && all_ok; s++) {
+      ren.set_shadows_enabled(s == 0);
+      ren.begin_frame(0);
+      ren.draw(plane, Mat4::scale({90, 1, 90}), {0.8f, 0.8f, 0.8f});
+      const bool ok = offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow);
+      CHECK(ok);
+      if (!ok) { all_ok = false; break; }
+      std::memcpy(s == 0 ? px_on : px_off, ores.pixels, sizeof px_on);
+    }
+    if (all_ok)
+      for (uint32_t i = 0; i < W * H; i++) {
+        const int a = px_on[i * 4] + px_on[i * 4 + 1] + px_on[i * 4 + 2];
+        const int b = px_off[i * 4] + px_off[i * 4 + 1] + px_off[i * 4 + 2];
+        if (a < b - 8) acne[pass]++;
+      }
+    ren.shutdown();
+  }
+  if (all_ok) {
+    std::printf("    [bilgi] golgesiz zeminde koyulasan (akne) piksel: olcekli %u (%.2f%%), KONTROL sabit egilim %u (%.2f%%)\n",
+                acne[0], 100.0f * (float)acne[0] / (float)(W * H), acne[1], 100.0f * (float)acne[1] / (float)(W * H));
+    CHECK(acne[1] > (W * H) / 50);   // POZITIF KONTROL: eski egilim akne uretiyor (en az %2)
+    CHECK(acne[0] * 20 < acne[1]);   // KAPI: olcekli egilim akneyi en az 20 kat azaltir
+  }
+  offscreen_destroy(off);
+  dev.shutdown();
 }

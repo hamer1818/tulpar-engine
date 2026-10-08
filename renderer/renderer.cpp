@@ -1855,9 +1855,7 @@ void Renderer::begin_frame(uint32_t frame_index) {
   for (uint32_t i = 0; i < kMaxCascades; i++) {
     if (i >= casc) { light_vp_[i] = light_vp_[casc - 1]; cascade_radius_[i] = cascade_radius_[casc - 1]; continue; }
     const bool last = (i + 1 == casc);
-    // Yaricaplar: en distaki tam hacim, iceridekiler 1/3 oraniyla kuculur.
-    float r = shadow_radius_;
-    for (uint32_t k = i + 1; k < casc; k++) r /= 3.0f;
+    const float r = cascade_radius_for(i, casc, shadow_radius_);
     const Vec3 c = last ? shadow_center_ : focus;
     cascade_radius_[i] = r;
     light_vp_[i] = cascade_matrix(light_dir_, c, r, shadow_depth_, shadow_info_.size);
@@ -1873,7 +1871,11 @@ void Renderer::begin_frame(uint32_t frame_index) {
   // kayan noktali HDR hedefine yazar: kodlama birlestirmede yapilir.
   u.light_dir[3] = (post_.enabled || cfg_.srgb_target) ? 0.0f : 1.0f;
   u.ambient[0] = ambient_.x; u.ambient[1] = ambient_.y; u.ambient[2] = ambient_.z; u.ambient[3] = diffuse_scale_;
-  u.shadow_params[0] = shadow_info_.size ? 1.0f / (float)shadow_info_.size : 0.0f;
+  // Kademe basina egilim carpani mesh.frag'de: texel_i * x (Tuzaklar 8cz). x =
+  // 1/texel_ref = ref_tile / (2R); 0 = olceksiz (her kademede sabit egilim).
+  u.shadow_params[0] = (cfg_.shadow_bias_ref_tile && shadow_radius_ > 0.0f)
+                           ? (float)cfg_.shadow_bias_ref_tile / (2.0f * shadow_radius_)
+                           : 0.0f;
   u.shadow_params[1] = cfg_.shadow_bias;
   u.shadow_params[2] = shadow_info_.enabled ? 1.0f : 0.0f;
   u.shadow_params[3] = cfg_.shadow_normal_offset;
@@ -1962,6 +1964,28 @@ void Renderer::set_shadow_volume(Vec3 center, float radius, float depth) {
   shadow_center_ = center;
   shadow_radius_ = radius;
   shadow_depth_ = depth;
+}
+
+float Renderer::cascade_radius_for(uint32_t i, uint32_t casc, float volume_radius) {
+  float r = volume_radius;
+  for (uint32_t k = i + 1; k < casc; k++) r /= 3.0f;
+  return r;
+}
+
+float Renderer::shadow_bias_scale(float cascade_radius, float volume_radius, uint32_t tile, uint32_t ref_tile) {
+  if (!ref_tile || !tile || !(volume_radius > 0.0f)) return 1.0f;
+  // texel_i = 2 r_i / tile, texel_ref = 2 R / ref_tile.
+  return (cascade_radius * (float)ref_tile) / (volume_radius * (float)tile);
+}
+
+float Renderer::cascade_bias_scale(uint32_t i) const {
+  // Kurulmus hedef (size > 0) varsa onun olculeri; init'siz renderer'da yapilandirma.
+  const bool made = shadow_info_.size > 0;
+  uint32_t casc = made ? shadow_info_.cascades : cfg_.shadow_cascades;
+  if (!casc) casc = 1;
+  const uint32_t tile = made ? shadow_info_.size : cfg_.shadow_size;
+  if (i >= casc) i = casc - 1;
+  return shadow_bias_scale(cascade_radius_for(i, casc, shadow_radius_), shadow_radius_, tile, cfg_.shadow_bias_ref_tile);
 }
 
 // Kademe matrisi: ortografik kutu, merkezi ISIK UZAYINDA texel katina KENETLENIR.

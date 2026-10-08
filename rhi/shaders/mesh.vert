@@ -10,7 +10,7 @@ layout(set = 0, binding = 0) uniform Frame {
   mat4 light_viewproj[3]; // golge kademeleri (Renderer::kMaxCascades)
   vec4 light_dir;
   vec4 ambient;
-  vec4 shadow_params;  // x: 1/boyut, y: sabit egilim, z: golge acik mi, w: normal kaydirma (dunya)
+  vec4 shadow_params;  // x: 1/referans texel (dunya; 0 = olceksiz), y: sabit egilim, z: golge acik mi, w: normal kaydirma (dunya)
   vec4 cluster_params; // x: dilim olcegi, y: dilim sapmasi, z: tile genisligi px, w: tile yuksekligi px
   uvec4 cluster_grid;  // x, y, z, isik sayisi
   vec4 cascade_params; // x: kademe sayisi, y: 1/kademe, z: atlas texel x, w: atlas texel y

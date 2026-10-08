@@ -2064,6 +2064,36 @@ kapı kırmızı.
 **Ders:** "uzaklık" ekran uzayında ölçülen bir şeyin vekiliyse, vekilin dünya uzayındaki tanımı ekranın
 şeklini taşır. Geniş ekran bu farkı büyütür; 4:3'te göze batmayan hata 2:1'de kenarı keser.
 
+### 8cz. Sabit gölge eğilimi kademeli haritada her kademeye yanlış — dış kademe akne, iç kademe kaçma
+
+**Belirti:** CSM'den (3 kademe) sonra eğilim (`shadow_bias` 0.0008, `shadow_normal_offset` 0.06 m) bütün
+kademelerde **aynı** dünya değeriydi. Akne ve kaçma (peter-panning) texel'in **dünya ölçüsüne** orantılıdır;
+kademeler arası texel oranı 3 × 3 = 9. Köprü varsayılanında (R 17, 3 × 1024) texel 0.0037 / 0.0111 /
+0.0332 m: normal kaydırması iç kademede **16 texel** (gölge temas noktasından kopar), dış kademede 1.8
+texel (3x3 PCF'in ±1 texel'i ile akne sınırında).
+
+**Düzeltme:** eğilim ve normal kaydırması kademe başına `texel_i / texel_ref` ile çarpılır; `texel_ref` =
+hacmin tamamını `shadow_bias_ref_tile` (varsayılan 2048) texel'lik **tek** haritayla kaplayan kurulumunki —
+değerlerin ayarlandığı CSM öncesi 1 × 2048 harita. 1 × 2048'de çarpan tam 1 (eski davranış), 3 × 1024'te
+2/9 / 2/3 / 2. `mesh.frag` çarpanı kademe matrisinden türetir (ortografik kutunun satır 0 boyu tam 1/r,
+look_at dönmesi birim); `shadow_params.x` artık `1/texel_ref` (eskiden kullanılmayan `1/boyut`).
+`shadow_bias_ref_tile = 0` ölçeksiz eski yol. UBO yerleşimi değişmedi.
+
+**Kapılar:** `renderer_shadow_bias_scales_with_cascade_texel` (CPU: çarpan kesin artar ve texel oranına
+eşit; 1 × 2048 → 1; shader türetmesi gerçek ışık matrisinde CPU çarpanıyla 9e-8 bağıl farkla aynı;
+**pozitif kontrol** `ref_tile = 0` "kesin artar"ı geçemez). `renderer_shadow_bias_outer_cascade_has_no_acne`
+(piksel: yalnız zemin, R 45, 3 × 256; gölge açık/kapalı farkında koyulaşan her piksel aknedir — ölçekli 7
+piksel %0.02, **pozitif kontrol** sabit eğilim 24586 piksel %60; RTX 5080, 2026-10-08).
+`renderer_shadow_map_actually_darkens`'in negatif kontrolü artık **en iç** kademede 6 m kaydırır (nominal
+27 m): düz 6 m iç kademede 1.3 m'ye inince gölge kaçmıyordu (963 / 2397 koyu, kontrol kırmızıydı).
+
+**Kalan:** kademeler arası harmanlama yok — sınırda texel boyu birden 3 kat değişir; maliyeti (bantta ikinci
+9 dokunuşlu PCF) Mali'de ölçülmeden eklenmedi.
+
+**Ders:** dünya biriminde tek bir eğilim, çözünürlüğü değişen bir haritada bir **texel sayısı** değil; ayarı
+hangi texel'de yapıldıysa orada doğrudur. Ölçeklemeyi parametrenin tanımına yaz, yoksa kademe/tile değişikliği
+eğilimi sessizce bozar.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana
