@@ -33,6 +33,7 @@
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
 #include "core/jobs/job_system.hpp"
+#include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/crash.hpp"
@@ -85,6 +86,20 @@ struct Log {
   uint32_t frame = 0;
 };
 Log g_log;
+uint64_t g_hook_allocs = 0; // betik kancalari icindeki operator new (motorun kare ici sayimindan DUSULUR)
+// GPU bolumu (acquire, begin_frame fence beklemesi, kayit + gonderim + sunum /
+// offscreen okuma, swapchain esitleme) icindeki operator new. Motorun CPU
+// sayimindan DUSULUR, ayri kovada raporlanir: SURUCU de C++ ve ayni operator
+// new'u cagirir. Olculdu (CI, 2026-10-07): MoltenVK (macOS) kare basina ~20,
+// lavapipe (Linux) yeni bir cizim durumunun ilk kaydinda yuzlerce (LLVM ile boru
+// hatti derlemesi); NVIDIA (RTX 5080) 0. Ayirmadan sayilsaydi "motor kare
+// icinde ayiriyor" denirdi ve sebep motorda aranirdi.
+uint64_t g_gpu_allocs = 0;
+struct GpuScope {
+  uint64_t a0;
+  GpuScope() : a0(AllocGate::thread_allocations()) {}
+  ~GpuScope() { g_gpu_allocs += AllocGate::thread_allocations() - a0; }
+};
 
 void blog(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void blog(int level, const char *fmt, ...) {
@@ -330,6 +345,24 @@ struct Bridge {
   uint64_t teleports_inplace = 0; // teng_set_pos: sabit/kinematik govde YERINDE (yeniden kurulmadan)
   uint64_t teleports_rebuilt = 0; // teng_set_pos: dinamik govde yeniden kuruldu
   uint32_t phys_pauses = 0, phys_paused_frames = 0; // teng_physics_pause (kapanis raporu)
+  // --- Kare ici C++ ayirma (Geri bildirim #13) -----------------------------
+  // AllocGate'in operator new sayaci (core/memory/alloc_gate_override.cpp).
+  // Tulpar oyununda override eklenti paketinin yapistiricisiyla gelir
+  // (libengine_tulpar.a); engine_tests/editor/demo kendileri baglar. Bagli
+  // degilse sayac hic artmaz: kurulumda bir yoklama (::operator new) olcer ve
+  // rapor "OLCULMEDI" der — sessiz "0" yok.
+  bool alloc_on = false;
+  uint64_t alloc_motor_acc = 0;     // bu karede motorun KENDI ayirmasi (frame_begin + frame_end, kancalar haric)
+  uint64_t alloc_frame_mark = 0;    // onceki frame_begin anindaki toplam (tum kare = betik kodu dahil)
+  uint32_t alloc_last_motor = 0;    // son KAPANMIS karenin motor ayirmasi (teng_frame_allocs)
+  uint64_t alloc_motor_sum = 0, alloc_motor_max = 0, alloc_hook_sum = 0, alloc_all_sum = 0, alloc_all_max = 0;
+  uint32_t alloc_motor_frames = 0;  // kararli karelerde (6..) motor ayirmasi > 0 olan kare sayisi
+  uint32_t alloc_all_max_frame = 0, alloc_all_frames = 0; // tum kare tepesinin karesi; tum kare > 0 olan kare sayisi
+  uint64_t alloc_hook_acc = 0;      // bu karede betik kancalarinin ayirmasi
+  uint64_t alloc_gpu_acc = 0, alloc_gpu_sum = 0, alloc_gpu_max = 0; // GPU bolumu (surucu dahil), g_gpu_allocs
+  // POZITIF KONTROL (TULPAR_ENGINE_ALLOC_KONTROL=N): frame_end her kare N kez
+  // ::operator new + delete yapar — kapinin motor ayirmasini GORDUGUNU gosterir.
+  uint32_t alloc_kontrol = 0;
   content::Font font;
   bool font_ok = false;
   bridge::BridgeHost host;
@@ -889,7 +922,12 @@ void render_frame() {
   b.ren.clear_point_lights();
   // Kare yuvasi swapchain'den (fence beklenmis yuva) — Tuzaklar 8l: once acquire, sonra begin_frame.
   rhi::FrameContext fc;
-  if (!b.headless && !b.swap.acquire(&fc)) {
+  bool acquired = true;
+  {
+    const GpuScope gs;
+    if (!b.headless) acquired = b.swap.acquire(&fc);
+  }
+  if (!acquired) {
     // Yeniden kurma TEK YERDEN: teng_frame_begin'deki sync_size. OUT_OF_DATE
     // bayragi kalir ve sonraki karenin basinda oradan islenir — cizim ile
     // hedef olcusu ayni karede ayrismasin.
@@ -897,7 +935,10 @@ void render_frame() {
     b.hud_n = 0; b.hud_text_n = 0;
     return;
   }
-  b.ren.begin_frame(b.headless ? 0 : fc.frame_index);
+  {
+    const GpuScope gs; // kare yuvasinin fence beklemesi
+    b.ren.begin_frame(b.headless ? 0 : fc.frame_index);
+  }
   if (b.scene_ok) b.srt.draw(b.ren, b.cam_eye, (float)b.time_s, &b.phys);
   uint32_t drawn = 0, lights = 0;
   b.last_posed = 0;
@@ -955,6 +996,7 @@ void render_frame() {
   b.hud_n = 0; b.hud_text_n = 0;
   b.last_draws = drawn; b.last_lights = lights + b.srt.stats().lights;
   RecordCtx rc{&b.ren};
+  const GpuScope gs; // kayit + gonderim + sunum / offscreen okuma (surucu)
   if (b.headless) {
     if (!rhi::offscreen_render_custom(b.off, b.oc, record_cb, &rc, &b.ores, shadow_cb)) BERR("offscreen kare: %s", b.ores.error);
   } else {
@@ -1084,6 +1126,19 @@ int teng_init(const char *title, int width, int height) {
   b.err[0] = 0; // bu denemenin hatasi (onceki dusen denemenin metni kalmasin)
   b.oturum_hata0 = g_log.errors;
   b.oturum_uyari0 = g_log.warnings;
+  {
+    // Yoklama: operator new bu ikilide SAYILIYOR mu. Dogrudan ::operator new
+    // cagrisi (new ifadesi degil) — derleyici bir new/delete ciftini eleyebilir,
+    // fonksiyon cagrisini eleyemez.
+    const uint64_t a0 = AllocGate::total_allocations();
+    void *p = ::operator new(16);
+    ::operator delete(p);
+    b.alloc_on = AllocGate::total_allocations() > a0;
+  }
+  if (const char *ak = std::getenv("TULPAR_ENGINE_ALLOC_KONTROL"); ak && *ak) {
+    b.alloc_kontrol = (uint32_t)std::atoi(ak);
+    if (b.alloc_kontrol) { blog(1, "UYARI kare ici ayirma POZITIF KONTROLU acik: frame_end her kare %u ayirma yapar (TULPAR_ENGINE_ALLOC_KONTROL)", b.alloc_kontrol); g_log.warnings++; }
+  }
   if (const char *lv = std::getenv("TULPAR_ENGINE_LOG")) g_log.level = std::atoi(lv);
   if (const char *hf = std::getenv("TULPAR_ENGINE_HEADLESS"); hf && *hf && !b.headless) { b.headless = true; b.headless_frames = (uint32_t)std::atoi(hf); if (b.headless_frames == 0) b.headless_frames = 60; }
   if (const char *op = std::getenv("TULPAR_ENGINE_OUT"); op && *op && !b.out_ppm[0]) std::snprintf(b.out_ppm, sizeof b.out_ppm, "%s", op);
@@ -1330,9 +1385,49 @@ int teng_running(void) {
 }
 void teng_close(void) { CALL("teng_close"); if (g) { g->running = false; BINFO("kapatma istendi (kare %u)", g->frame); } }
 
+// Motorun KENDI kare ici ayirmasi: kopru giris noktasinin govdesi boyunca CAGIRAN
+// is parcacigindaki operator new (AllocGate::thread_allocations), ayni surede
+// kanca (Tulpar betigi) ve GPU/surucu bolumu icinde olanlar haric. Global sayac
+// "tum kare" kovasinda (surucunun arka plan is parcaciklari dahil).
+struct AllocScope {
+  uint64_t a0, h0, gp0;
+  AllocScope() : a0(AllocGate::thread_allocations()), h0(g_hook_allocs), gp0(g_gpu_allocs) {}
+  ~AllocScope() {
+    if (!g) return;
+    const uint64_t hooks = g_hook_allocs - h0, gpu = g_gpu_allocs - gp0;
+    g->alloc_hook_acc += hooks;
+    g->alloc_gpu_acc += gpu;
+    g->alloc_motor_acc += (AllocGate::thread_allocations() - a0) - hooks - gpu;
+  }
+};
+// Onceki kareyi kapat (frame_begin basinda ve kapanista). Kararli kareler 6..
+// (vk nesne raporuyla ayni pencere: ilk karelerde PSO/tampon kurulumu olur).
+static void alloc_frame_close(Bridge &b) {
+  const uint64_t now = AllocGate::total_allocations();
+  const uint64_t all = b.alloc_frame_mark ? now - b.alloc_frame_mark : 0;
+  b.alloc_frame_mark = now;
+  b.alloc_last_motor = (uint32_t)(b.alloc_motor_acc > 0xFFFFFFFFull ? 0xFFFFFFFFull : b.alloc_motor_acc);
+  if (b.frame > 6) { // kapanan karenin numarasi b.frame - 1 >= 6 ("kare 6..")
+    b.alloc_motor_sum += b.alloc_motor_acc;
+    b.alloc_hook_sum += b.alloc_hook_acc;
+    b.alloc_gpu_sum += b.alloc_gpu_acc;
+    if (b.alloc_gpu_acc > b.alloc_gpu_max) b.alloc_gpu_max = b.alloc_gpu_acc;
+    b.alloc_all_sum += all;
+    if (b.alloc_motor_acc > b.alloc_motor_max) b.alloc_motor_max = b.alloc_motor_acc;
+    if (all > b.alloc_all_max) { b.alloc_all_max = all; b.alloc_all_max_frame = b.frame - 1; } // log oneki (kNNN) ile ayni numara
+    if (all) b.alloc_all_frames++;
+    if (b.alloc_motor_acc) b.alloc_motor_frames++;
+  }
+  b.alloc_motor_acc = 0;
+  b.alloc_hook_acc = 0;
+  b.alloc_gpu_acc = 0;
+}
+
 int teng_frame_begin(void) {
   if (!ready("teng_frame_begin")) return 0;
   Bridge &b = *g;
+  alloc_frame_close(b);
+  const AllocScope alloc_scope;
   g_log.last_call = "teng_frame_begin";
   if (b.in_frame) { BERR("teng_frame_begin: onceki kare teng_frame_end ile kapanmadi (kare %u)", b.frame); }
   b.in_frame = true;
@@ -1374,7 +1469,12 @@ int teng_frame_begin(void) {
     // OUT_OF_DATE HIC gelmez — swapchain eski olcude kalir, kompozitor gerer
     // ("tam ekran olmuyor, icerik ayni oranda buyuyor"). Karar ve X11/Wayland
     // ayrimi: rhi/swapchain.hpp ResizeAction.
-    if (b.running && b.have_window && b.swap.sync_size(b.fb_w, b.fb_h)) {
+    bool resized = false;
+    {
+      const GpuScope gs; // swapchain olcu esitlemesi (surucu)
+      resized = b.running && b.have_window && b.swap.sync_size(b.fb_w, b.fb_h);
+    }
+    if (resized) {
       b.ren.set_render_size(b.swap.extent().width, b.swap.extent().height);
       BINFO("swapchain %ux%u (%s)", b.swap.extent().width, b.swap.extent().height, b.swap.last_resize_reason());
       // Parlama (post) ic HDR hedefi KURULUMDA olculendi ve kare icinde
@@ -1497,7 +1597,14 @@ static bool script_lookup(Bridge &b, Bridge::ScriptHook &h, int k) {
 // tablo degisebilir (bound_unbind_fire ile ayni kural) ve `h` o anda baska bir
 // seyi gosterebilir. Kurulu VM kancayi cozen VM degilse isaretci ona verilmez:
 // ad yolu (eski davranis).
+static bool hook_invoke_raw(const Bridge::ScriptHook &h, int k, const double *args, int argc);
 static bool hook_invoke(const Bridge::ScriptHook &h, int k, const double *args, int argc) {
+  const uint64_t a0 = AllocGate::thread_allocations();
+  const bool r = hook_invoke_raw(h, k, args, argc);
+  g_hook_allocs += AllocGate::thread_allocations() - a0;
+  return r;
+}
+static bool hook_invoke_raw(const Bridge::ScriptHook &h, int k, const double *args, int argc) {
   const TengScriptVm *vm = g_svm;
   if (!vm) return false;
   void *fn = h.fn[k];
@@ -1726,6 +1833,7 @@ static void kinematic_tick(Bridge &b, uint32_t left) {
 void teng_frame_end(void) {
   if (!ready("teng_frame_end")) return;
   Bridge &b = *g;
+  const AllocScope alloc_scope;
   g_log.last_call = "teng_frame_end";
   if (!b.in_frame) BERR("teng_frame_end: teng_frame_begin cagrilmadan (kare %u)", b.frame);
   b.in_frame = false;
@@ -1904,12 +2012,16 @@ void teng_frame_end(void) {
       b.embed_published++;
     }
   } else { b.hud_n = 0; b.hud_text_n = 0; }
+  for (uint32_t k = 0; k < b.alloc_kontrol; k++) { void *p = ::operator new(64); ::operator delete(p); } // pozitif kontrol (motor sayilir)
   b.prof.end_frame();
   b.frame++;
   g_log.frame = b.frame;
   {
     rhi::VkObjCounts now{};
-    rhi::vk_counters_read(b.dev.handle(), &now);
+    {
+      const GpuScope gs;
+      rhi::vk_counters_read(b.dev.handle(), &now);
+    }
     const rhi::VkObjCounts d = rhi::vk_obj_counts_diff(now, b.vk_prev);
     b.vk_prev = now;
     if (b.frame > 5) {
@@ -1980,6 +2092,15 @@ void teng_shutdown(void) {
   if (b.teleports_inplace || b.teleports_rebuilt)
     BINFO("kapanis (isinlama): %llu yerinde (sabit/kinematik, govde KURULMADI), %llu yeniden kurma (dinamik)",
           (unsigned long long)b.teleports_inplace, (unsigned long long)b.teleports_rebuilt);
+  alloc_frame_close(b);
+  if (!b.alloc_on)
+    BINFO("kapanis (kare ici ayirma): OLCULMEDI — operator new sayaci bu ikiliye bagli degil (core/memory/alloc_gate_override.cpp)");
+  else if (b.frame > 6)
+    // tum kare = oyun kodu + kare ici eng_* cagrilari (sahne/model/ses yukleme burada gorunur).
+    BINFO("kapanis (kare ici ayirma, kare 6..%u): motor %llu (en cok %llu/kare, %u karede >0), betik kancasi %llu, GPU/surucu %llu (en cok %llu/kare), tum kare %llu (%u karede >0, en cok %llu k%u)",
+          b.frame, (unsigned long long)b.alloc_motor_sum, (unsigned long long)b.alloc_motor_max, b.alloc_motor_frames,
+          (unsigned long long)b.alloc_hook_sum, (unsigned long long)b.alloc_gpu_sum, (unsigned long long)b.alloc_gpu_max,
+          (unsigned long long)b.alloc_all_sum, b.alloc_all_frames, (unsigned long long)b.alloc_all_max, b.alloc_all_max_frame);
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
@@ -2106,6 +2227,11 @@ void teng_shutdown(void) {
 }
 
 double teng_dt(void) { return g ? g->dt : 0.0; }
+// --- kare ici ayirma (Geri bildirim #13) -------------------------------------
+int teng_alloc_gate_on(void) { return g && g->alloc_on ? 1 : 0; }
+double teng_alloc_count(void) { return (double)AllocGate::total_allocations(); }
+int teng_frame_allocs(void) { return g ? (int)(g->alloc_last_motor > 0x7FFFFFFFu ? 0x7FFFFFFFu : g->alloc_last_motor) : 0; }
+double teng_frame_allocs_total(void) { return g ? (double)g->alloc_motor_sum : 0.0; }
 double teng_time(void) { return g ? g->time_s : 0.0; }
 int teng_frame(void) { return g ? (int)g->frame : 0; }
 double teng_fps(void) { return g ? g->fps : 0.0; }

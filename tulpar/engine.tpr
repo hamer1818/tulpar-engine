@@ -155,6 +155,16 @@ func thread_count(): int { return eng_thread_count(); }
 func vk_canli_nesne(): int { return eng_vk_live(); }
 func vk_live_objects(): int { return eng_vk_live(); }
 func dt(): float { return eng_dt(); }
+// Kare ici C++ ayirma (Geri bildirim #13): motorun kendi ayirmasi kararli karede 0
+// olmali. ayirma_sayaci_acik() false ise olculmuyor (sessiz 0 degil).
+func ayirma_sayaci_acik(): bool { return eng_alloc_gate_on(); }
+func alloc_gate_on(): bool { return eng_alloc_gate_on(); }
+func kare_ici_ayirma(): int { return eng_frame_allocs(); }
+func frame_allocs(): int { return eng_frame_allocs(); }
+func kare_ici_ayirma_toplami(): float { return eng_frame_allocs_total(); }
+func frame_allocs_total(): float { return eng_frame_allocs_total(); }
+func ayirma_sayisi(): float { return eng_alloc_count(); }
+func alloc_count(): float { return eng_alloc_count(); }
 func zaman(): float { return eng_time(); }
 func kare_no(): int { return eng_frame(); }
 func fps_e(): float { return eng_fps(); }

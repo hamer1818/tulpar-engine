@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 234 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 238 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -51,6 +51,10 @@ SPEC = [
     ("eng_frame_begin", "bool", [], "Kareyi baslatir: girdi, zaman. false = pencere yok (arka plan), yine de eng_frame_end cagir."),
     ("eng_frame_end", "void", [], "Kareyi bitirir: fizik (sabit adim), cizim, sunum."),
     ("eng_dt", "float", [], "Son kare suresi (s)."),
+    ("eng_alloc_gate_on", "bool", [], "Kare ici C++ ayirma sayaci (AllocGate, operator new) bu oyuna bagli mi; kurulumda yoklanir. false ise asagidakiler 0 ve kapanis raporu OLCULMEDI der."),
+    ("eng_alloc_count", "float", [], "Surec boyunca toplam operator new sayisi (kare farki = tum kare: oyun kodu + kare ici eng_* cagrilari)."),
+    ("eng_frame_allocs", "int", [], "Son kapanmis karede motorun KENDI C++ ayirmasi (frame_begin + frame_end; betik kancalari ve oyun kodu haric). Kararli karede 0 beklenir."),
+    ("eng_frame_allocs_total", "float", [], "Kare 6'dan beri motorun kare ici ayirma toplami (kapi: 0)."),
     ("eng_time", "float", [], "Kurulumdan beri gecen sure (s)."),
     ("eng_frame", "int", [], "Kare sayaci."),
     ("eng_fps", "float", [], "Kare hizi (p50, 120 karede bir guncellenir)."),

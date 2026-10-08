@@ -2649,3 +2649,87 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
   teng_shutdown();
 }
+
+// --- Geri bildirim #13: kare ici C++ ayirma (AllocGate) koprude olculur ---------
+// Override yalniz engine_tests/demo/editor'e bagliydi; Tulpar oyununda "kare
+// ici C++ ayirma 0" iddiasi olculemiyordu. Kopru artik ucunu ayri sayar: motor
+// (frame_begin + frame_end govdesi, kancalar haric), betik kancalari, tum kare
+// (oyun kodu + kare ici eng_* cagrilari). Olcu (bu surec override'i bagli):
+// sakin kareler motor 0; oyun kodunda ayirma -> yalniz "tum kare"; kancada
+// ayirma -> "betik kancasi", motor yine 0. POZITIF KONTROL:
+// TULPAR_ENGINE_ALLOC_KONTROL=3 -> motor kare basina tam 3.
+namespace ayirma {
+int n_kanca = 0;
+int has(const char *fn) { return fn && std::strstr(fn, "ayiran_guncelle") ? 1 : 0; }
+int call(const char *fn, const double *, int) {
+  if (!fn || !std::strstr(fn, "_guncelle")) return 0;
+  void *p = ::operator new(48);
+  ::operator delete(p);
+  n_kanca++;
+  return 1;
+}
+const TengScriptVm vm{has, call, nullptr, nullptr};
+} // namespace ayirma
+
+ENGINE_TEST(bridge_frame_allocs_are_counted_motor_hook_game) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  unsetenv("TULPAR_ENGINE_ALLOC_KONTROL");
+  if (!teng_init("ayirma kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_alloc_gate_on() == 1);
+  teng_spawn_ground(10, 0xffffffff);
+  run_frames(20); // isinma (kare 6.. sayilir)
+  const double motor0 = teng_frame_allocs_total();
+  run_frames(30);
+  const double motor_sakin = teng_frame_allocs_total() - motor0;
+  // Oyun kodu ayirir (kare ici, eng_* disinda): motor DEGIL.
+  const double c0 = teng_alloc_count();
+  for (int i = 0; i < 10; i++) {
+    teng_frame_begin();
+    void *p = ::operator new(40);
+    ::operator delete(p);
+    teng_frame_end();
+  }
+  const double oyun = teng_alloc_count() - c0;
+  const double motor_oyun = teng_frame_allocs_total() - motor0 - motor_sakin;
+  // Kanca ayirir: betik kancasi, motor DEGIL.
+  teng_set_script_vm(&ayirma::vm);
+  const int id = teng_spawn_box(0, 3, 0, 0.3, 0.3, 0.3, 1, 0xffffffff);
+  CHECK(teng_script_attach(id, "ayiran") == 1);
+  const double m1 = teng_frame_allocs_total();
+  run_frames(10);
+  const double motor_kanca = teng_frame_allocs_total() - m1;
+  teng_script_detach(id);
+  teng_set_script_vm(nullptr);
+  std::printf("    [bilgi] kare ici ayirma: sakin 30 kare motor %.0f; oyun kodu 10 ayirma -> surec %.0f, motor %.0f; kanca %d cagri -> motor %.0f; son kare %d\n",
+              motor_sakin, oyun, motor_oyun, ayirma::n_kanca, motor_kanca, teng_frame_allocs());
+  CHECK(motor_sakin == 0 && motor_oyun == 0 && motor_kanca == 0);
+  CHECK(oyun >= 10 && ayirma::n_kanca >= 9);
+  kapanis_yakala();
+  // Yalniz BU oturumun ayirma satiri (yakalanan metinde baska satirlar da var).
+  const char *satir = std::strstr(g_kapanis_log, "kapanis (kare ici ayirma, kare 6..");
+  char tek[320] = {0};
+  if (satir) {
+    size_t n = 0;
+    while (satir[n] && satir[n] != '\n' && n + 1 < sizeof tek) n++;
+    std::memcpy(tek, satir, n);
+  }
+  CHECK(satir && std::strstr(tek, ": motor 0 ") != nullptr);
+  CHECK(std::strstr(tek, "betik kancasi 10,") != nullptr); // kanca ayirmasi SAYILDI (ayri kova)
+  // "tum kare" global sayactir: surucunun is parcaciklari da (MoltenVK, lavapipe)
+  // girer, yani tam sayi platforma bagli — burada yalniz alt sinir olculur.
+  // POZITIF KONTROL: motor gercekten ayirinca kapi goruyor.
+  setenv("TULPAR_ENGINE_ALLOC_KONTROL", "3", 1);
+  teng_set_headless(100000, nullptr);
+  CHECK(teng_init("ayirma pozitif kontrol", kW, kH) == 1);
+  unsetenv("TULPAR_ENGINE_ALLOC_KONTROL");
+  run_frames(20);
+  const double k0 = teng_frame_allocs_total();
+  run_frames(10);
+  const double k10 = teng_frame_allocs_total() - k0;
+  std::printf("    [bilgi] KONTROL (TULPAR_ENGINE_ALLOC_KONTROL=3): 10 karede motor %.0f, son kare %d\n", k10, teng_frame_allocs());
+  CHECK(k10 == 30 && teng_frame_allocs() == 3);
+  teng_shutdown();
+}
