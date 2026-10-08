@@ -215,6 +215,11 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   edince birikim kaldığı yerden sürer: duraklatılmış koşu duraklamasız koşuyla **bit-tam** aynı yere varır
   (kapı `bridge_physics_pause_freezes_and_resumes_deterministically`). `zaman_olcegi(0.5)` ağır çekim —
   ölçek kare süresine uygulanır, adıma değil, yani belirlenim bozulmaz. `sim_adimi()` atılan adım sayısı.
+- **Metin glifleri** (Geri bildirim #20): HUD fontu ASCII + Latin-1 + Türkçe + **U+2010..U+2026** (– — ‘ ’ “ ” • …).
+  Aralık dışı kod noktası en yakın ASCII'ye eşlenir (→ `>`, − `-`, ≈ `~` …; `content/font.hpp`
+  `kFontAsciiFallback`), o da yoksa `?` çizilir ve **sayılır**: ilk seferde `UYARI font: U+XXXX fontta yok`,
+  kapanışta `kapanis (font)`. Derleme kapısı `tools/glyph_check.py`: `tulpar/**/*.tpr` dizelerindeki her kod
+  noktası atlasta/eşlemede olmalı ve paketlenen DejaVuSans her atlas kod noktasını içermeli.
 - **Kamera izdüşümü** (Geri bildirim #12): oyun projeksiyonu kopyalamaz, motora sorar. `gorus_acisi(derece)`
   (varsayılan 51.43 = π/3.5), `ekrandan_sec(sx, sy, uzaklik)` dokunulan varlığı bulur (sonra `isin_id()` /
   `isin_sahne()` / `isin_x()`…), `ekran_isini(sx, sy)` + `ekran_isini_baslangic()` / `ekran_isini_yon()`,

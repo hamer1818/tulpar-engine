@@ -333,14 +333,21 @@ const Glyph *Font::glyph(uint32_t cp) const {
     if (cp >= range_first_[i] && cp < range_first_[i] + range_count_[i]) return &glyphs_[range_offset_[i] + (cp - range_first_[i])];
   return nullptr;
 }
+const Glyph *Font::glyph_or_fallback(uint32_t cp) const {
+  if (const Glyph *g = glyph(cp)) return g;
+  for (uint32_t i = 0; i < kFontFallbackCount; i++)
+    if (kFontAsciiFallback[i][0] == cp) return glyph(kFontAsciiFallback[i][1]);
+  if (!missing_) first_missing_ = cp;
+  missing_++;
+  return glyph('?');
+}
 
 float Font::text_width(const char *s, float scale) const {
   float w = 0;
   const char *p = s;
   while (*p) {
     uint32_t cp = decode_utf8(&p);
-    const Glyph *g = glyph(cp);
-    if (!g) g = glyph('?');
+    const Glyph *g = glyph_or_fallback(cp);
     if (g) w += g->advance * scale;
   }
   return w;
@@ -355,8 +362,7 @@ void Font::draw(renderer::Renderer &r, float x, float y, const char *s, uint32_t
   while (*p) {
     uint32_t cp = decode_utf8(&p);
     if (cp == '\n') { pen = x; y += line_ * scale; continue; }
-    const Glyph *g = glyph(cp);
-    if (!g) g = glyph('?');
+    const Glyph *g = glyph_or_fallback(cp);
     if (!g) continue;
     // stb: xoff/yoff oversample'a gore piksel; 2x oversample ile w/h yarim
     r.ui_quad(pen + g->xoff * scale, base + g->yoff * scale, g->w * scale, g->h * scale, g->u0, g->v0, g->u1, g->v1, rgba);

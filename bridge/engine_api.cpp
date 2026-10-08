@@ -580,6 +580,7 @@ struct Bridge {
   // Oyunun kendi tam ekran harmanli katmanlari (renderer ui_stats, yedek dortgen haric).
   uint32_t fsb_frames = 0, fsb_max = 0;
   bool fsb_hinted = false;
+  bool font_missing_warned = false; // fontta olmayan kod noktasi bir kez UYARI (Geri bildirim #20)
   char hud_text[kHudTextBytes];
   uint32_t hud_text_n = 0;
   // sorgular: son isin testi + son kure sorgusu (sabit diziler, kare ici ayirma yok)
@@ -1037,6 +1038,12 @@ void render_frame() {
               b.frame);
       }
     }
+  }
+  // Fontta olmayan kod noktasi '?' cizildi (Geri bildirim #20): ILK seferde UYARI.
+  if (b.font_ok && b.font.missing_count() && !b.font_missing_warned) {
+    b.font_missing_warned = true;
+    blog(1, "UYARI font: U+%04X fontta yok, '?' cizildi (kapsam: ASCII, Latin-1, Turkce, U+2010..U+2026; content/font.hpp)", b.font.first_missing());
+    g_log.warnings++;
   }
   b.last_draws = drawn; b.last_lights = lights + b.srt.stats().lights;
   RecordCtx rc{&b.ren};
@@ -2155,6 +2162,8 @@ void teng_shutdown(void) {
   if (b.fsb_frames || b.dim_frames_compose || b.dim_frames_quad)
     BINFO("kapanis (arayuz katmani): %u karede tam ekran YARI SAYDAM katman (en cok %u/kare); sahne karartma %u kare compose'da (bedava), %u kare yedek dortgenle",
           b.fsb_frames, b.fsb_max, b.dim_frames_compose, b.dim_frames_quad);
+  if (b.font_ok && b.font.missing_count())
+    BINFO("kapanis (font): %u kod noktasi fontta yoktu ve '?' cizildi (ilki U+%04X)", b.font.missing_count(), b.font.first_missing());
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   if (b.ui.text_shrunk || b.ui.text_clipped)

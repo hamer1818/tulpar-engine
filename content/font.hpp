@@ -1,6 +1,8 @@
 // L6 CONTENT — TTF'ten glif atlasi (stb_truetype, yukleme aninda) ve UTF-8
 // metin cizimi (renderer UI dortgenleri). Kapsam: ASCII + Latin-1 + Turkce
-// harfler (ğ ı ş Ğ İ Ş). Atlas RGBA8 (beyaz + alfa); (0,0) texeli beyaz opak
+// harfler (ğ ı ş Ğ İ Ş) + tipografik noktalama (– — ‘ ’ “ ” • …; Geri bildirim
+// #20). Aralik disindaki kod noktasi en yakin ASCII'ye esler (kFontAsciiFallback),
+// o da yoksa '?' cizilir ve SAYILIR (missing_count) — sessiz '?' yok. Atlas RGBA8 (beyaz + alfa); (0,0) texeli beyaz opak
 // (ui_rect bunu kullanir).
 #pragma once
 #include <cstdint>
@@ -10,12 +12,22 @@
 
 namespace tulpar::engine::content {
 
-// Kapsanan kod noktalari (ASCII + Latin-1 + Turkce). Bitmap ve SDF atlaslari
-// AYNI listeyi kullanir: iki yol karsilastirilabilir kalsin.
-constexpr uint32_t kFontRanges = 4;
-constexpr uint32_t kFontRangeFirst[kFontRanges] = {32, 0xA0, 0x11E, 0x15E};
-constexpr uint32_t kFontRangeCount[kFontRanges] = {95, 96, 20, 2};
-constexpr uint32_t kFontGlyphTotal = 95 + 96 + 20 + 2;
+// Kapsanan kod noktalari (ASCII + Latin-1 + Turkce + U+2010..U+2026 genel
+// noktalama). Bitmap ve SDF atlaslari AYNI listeyi kullanir: iki yol
+// karsilastirilabilir kalsin. tools/glyph_check.py bu tabloyu OKUR: Tulpar
+// kaynaklarindaki her metin kod noktasi burada (ya da asagidaki esleme
+// tablosunda) olmali ve paketlenen font (DejaVuSans) her birini icermeli.
+// Atlas: 236 glif, 28 px x 2 oversample -> 1024 (kendiliginden katlanir).
+constexpr uint32_t kFontRanges = 5;
+constexpr uint32_t kFontRangeFirst[kFontRanges] = {32, 0xA0, 0x11E, 0x15E, 0x2010};
+constexpr uint32_t kFontRangeCount[kFontRanges] = {95, 96, 20, 2, 23};
+constexpr uint32_t kFontGlyphTotal = 95 + 96 + 20 + 2 + 23;
+// Aralik disi -> en yakin ASCII (tek glif). Yalniz anlamin korundugu eslemeler;
+// gerisi '?' (sayilir). glyph_check.py bu tabloyu da okur.
+constexpr uint32_t kFontFallbackCount = 11;
+constexpr uint32_t kFontAsciiFallback[kFontFallbackCount][2] = {
+    {0x2032, '\''}, {0x2033, '"'}, {0x2039, '<'}, {0x203A, '>'}, {0x2212, '-'}, {0x2190, '<'},
+    {0x2192, '>'}, {0x2248, '~'}, {0x2264, '<'}, {0x2265, '>'}, {0x2215, '/'}};
 
 struct Glyph {
   float u0 = 0, v0 = 0, u1 = 0, v1 = 0; // atlas uv
@@ -83,6 +95,11 @@ public:
   float line_height() const { return line_; }
   float ascent() const { return ascent_; }
   const Glyph *glyph(uint32_t codepoint) const;
+  // Cizilecek glif: aralikta yoksa ASCII eslemesi, o da yoksa '?' (SAYILIR).
+  const Glyph *glyph_or_fallback(uint32_t codepoint) const;
+  // '?' ile cizilen kod noktasi sayisi (text_width + draw cagrilari) ve ilki.
+  uint32_t missing_count() const { return missing_; }
+  uint32_t first_missing() const { return first_missing_; }
   float text_width(const char *utf8, float scale = 1.0f) const;
   // (x, y) metnin SOL UST kosesi. Renderer UI kuyruguna dortgen ekler.
   void draw(renderer::Renderer &r, float x, float y, const char *utf8, uint32_t rgba, float scale = 1.0f) const;
@@ -91,8 +108,9 @@ public:
 private:
   static constexpr uint32_t kRanges = kFontRanges;
   Glyph *glyphs_ = nullptr; // her aralik icin ardisik
-  uint32_t range_first_[kRanges] = {kFontRangeFirst[0], kFontRangeFirst[1], kFontRangeFirst[2], kFontRangeFirst[3]};
-  uint32_t range_count_[kRanges] = {kFontRangeCount[0], kFontRangeCount[1], kFontRangeCount[2], kFontRangeCount[3]};
+  uint32_t range_first_[kRanges] = {kFontRangeFirst[0], kFontRangeFirst[1], kFontRangeFirst[2], kFontRangeFirst[3], kFontRangeFirst[4]};
+  uint32_t range_count_[kRanges] = {kFontRangeCount[0], kFontRangeCount[1], kFontRangeCount[2], kFontRangeCount[3], kFontRangeCount[4]};
+  mutable uint32_t missing_ = 0, first_missing_ = 0;
   uint32_t range_offset_[kRanges] = {};
   renderer::MaterialHandle atlas_{};
   float px_ = 0, line_ = 0, ascent_ = 0;
