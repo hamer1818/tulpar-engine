@@ -53,6 +53,7 @@ static inline int setenv(const char *k, const char *v, int) { return _putenv_s(k
 static inline int unsetenv(const char *k) { return _putenv_s(k, ""); }
 #endif
 
+#include "bridge/android_lifecycle.hpp"
 #include "bridge/asset_filter.hpp"
 #include "tests/test.hpp"
 
@@ -2209,6 +2210,44 @@ ENGINE_TEST(bridge_android_asset_filter_keeps_every_decodable_audio_format) {
   CHECK(!android_asset_wanted(nullptr));
   std::printf("    [bilgi] varlik suzgeci: %d/%d istenen cikarilir, %d/%d istenmeyen elenir\n", ok,
               (int)(sizeof istenen / sizeof istenen[0]), red, (int)(sizeof istenmeyen / sizeof istenmeyen[0]));
+}
+
+// --- Android yasam dongusu komut adlari (bridge/android_lifecycle.hpp) ---------
+// Geri bildirim #18: tablo yalniz Android'de derleniyordu ve 16 glue komutunun
+// 12'sini biliyordu; her acilista 4-5 `android cmd ?` satiri. Kapi: 0..15 her
+// komutun adi var, adlar BIRBIRINDEN farkli (kopyala-yapistir ayni adi iki
+// komuta vermesin), tablo disi sayi nullptr (cagiran sayiyla basar). Sayilarin
+// glue'ya esitligi Android derlemesinde static_assert (android_host.cpp).
+// KONTROL: ayni olcu, eski 12 adli tabloyu (switch'in bildikleri) 4 eksikle
+// kirmizi gorur — kapi "hepsi adli" demeyi gercekten ayirt ediyor.
+ENGINE_TEST(bridge_android_lifecycle_names_every_glue_command) {
+  using namespace tulpar::engine::bridge;
+  int adli = 0, cift = 0;
+  for (int32_t c = 0; c < kAndroidCmdCount; c++) {
+    const char *a = android_cmd_name(c);
+    CHECK(a && a[0]);
+    if (a && a[0]) adli++;
+    for (int32_t d = 0; d < c; d++)
+      if (a && android_cmd_name(d) && std::strcmp(a, android_cmd_name(d)) == 0) cift++;
+  }
+  CHECK(cift == 0);
+  CHECK(android_cmd_name(-1) == nullptr && android_cmd_name(kAndroidCmdCount) == nullptr);
+  CHECK(kAndroidCmdCount == 16 && kAndroidCmdDestroy == 15 && kAndroidCmdLowMemory == 9);
+  CHECK(std::strcmp(android_cmd_name(kAndroidCmdContentRectChanged), "CONTENT_RECT_CHANGED") == 0);
+  // KONTROL: eski host'un switch'inin bildigi 12 komut — ayni olcu eksigi sayar.
+  const int32_t eski[] = {kAndroidCmdInitWindow, kAndroidCmdTermWindow, kAndroidCmdWindowResized, kAndroidCmdGainedFocus,
+                          kAndroidCmdLostFocus,  kAndroidCmdConfigChanged, kAndroidCmdStart, kAndroidCmdResume,
+                          kAndroidCmdPause,      kAndroidCmdStop,          kAndroidCmdDestroy, kAndroidCmdLowMemory};
+  int eski_eksik = 0;
+  for (int32_t c = 0; c < kAndroidCmdCount; c++) {
+    bool var = false;
+    for (int32_t e : eski) var = var || e == c;
+    if (!var) eski_eksik++;
+  }
+  CHECK(eski_eksik == 4);
+  std::printf("    [bilgi] android komut adlari: %d/%d adli, %d cift; KONTROL: eski tabloda %d adsiz komut (INPUT_CHANGED, "
+              "WINDOW_REDRAW_NEEDED, CONTENT_RECT_CHANGED, SAVE_STATE)\n",
+              adli, (int)kAndroidCmdCount, cift, eski_eksik);
 }
 
 // --- Geri bildirim #10: fizik duraklatma + zaman olcegi ------------------------

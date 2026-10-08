@@ -1,0 +1,24 @@
+// Android yasam dongusu sondasi (tools/android_yasam_dongusu.sh kosturur).
+// Pencereli dongu: her 60 karede bir "[yd]" durum satiri; KARE_SINIRI kare sonra
+// motor_kapat (betik yeterince ornek aldiktan sonra surec kendiliginden biter).
+import "engine";
+
+int KARE_SINIRI = 900;
+
+log_seviyesi(1);
+if (!motor_ac("android yasam dongusu", 320, 200)) {
+    print("[yd] KURULAMADI: " + eng_last_error());
+} else {
+    kamera(0.0, 4.0, 10.0, 0.0, 0.5, 0.0);
+    int zemin = zemin_kur(8.0, 0xCED4DAFF);
+    int k = kutu(0.0, 2.0, 0.0, 0.5, 0.5, 0.5, true, 0xE63946FF);
+    int n = 0;
+    while (calisiyor() && n < KARE_SINIRI) {
+        bool pencere = kare_basla();
+        if (n % 60 == 0) { print("[yd] kare " + toString(n) + " pencere=" + toString(pencere)); }
+        kare_bitir();
+        n += 1;
+    }
+    print("[yd] bitis kare=" + toString(n) + " hata=" + toString(hata_sayisi()));
+    motor_kapat();
+}
