@@ -2610,3 +2610,75 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
   teng_shutdown();
 }
+
+// --- Geri bildirim #20: tipografik karakterler '?' degil ------------------------
+// HUD fontu yalniz ASCII + Latin-1 + Turkce'yi atlasa koyuyordu: `—` sessizce
+// '?' ciziliyordu. Olcu: (1) `— – … “ ” ‘ ’ •` genislikleri '?'nunkinden FARKLI
+// ve sifirdan buyuk (atlasta gercek glif), (2) buyuk olcekte cizilen `—` PIKSELDE
+// ince yatay bir cubuk (yukseklik < genislik/4) — '?' ise uzun (yukseklik >
+// genislik), (3) '?' sayaci 0. KONTROL: aralik disi U+2260 (≠) '?' cizer, sayac
+// 1 olur ve bir kez UYARI basar; U+2192 (→) ASCII '>' eslemesiyle cizilir (sayilmaz).
+namespace glif {
+// Sari piksellerin sinir kutusu (x0, y0, x1, y1); bos ise x1 < x0.
+void kutu(const char *ad, int out[4]) {
+  static uint8_t px[kW * kH * 3];
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  uint32_t w = 0, h = 0;
+  out[0] = out[1] = 1 << 20; out[2] = out[3] = -1;
+  if (teng_screenshot(shot) == 1 && read_ppm(shot, px, kW * kH, &w, &h) == kW * kH)
+    for (uint32_t y = 0; y < h; y++)
+      for (uint32_t x = 0; x < w; x++) {
+        const uint8_t *p = px + ((size_t)y * w + x) * 3;
+        if (!(p[0] > 150 && p[1] > 150 && p[2] < 90)) continue;
+        if ((int)x < out[0]) out[0] = (int)x;
+        if ((int)y < out[1]) out[1] = (int)y;
+        if ((int)x > out[2]) out[2] = (int)x;
+        if ((int)y > out[3]) out[3] = (int)y;
+      }
+  std::remove(shot);
+}
+void ciz(const char *s) {
+  teng_frame_begin();
+  teng_text(s, 40, 40, 4.0, 0xffff00ff);
+  teng_frame_end();
+}
+} // namespace glif
+
+ENGINE_TEST(bridge_font_draws_typographic_punctuation) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("tipografik karakter kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const double soru = teng_text_width("?", 1.0);
+  const char *tip[8] = {"\xE2\x80\x94", "\xE2\x80\x93", "\xE2\x80\xA6", "\xE2\x80\x9C", "\xE2\x80\x9D", "\xE2\x80\x98", "\xE2\x80\x99", "\xE2\x80\xA2"};
+  int farkli = 0;
+  for (int i = 0; i < 8; i++) {
+    const double w = teng_text_width(tip[i], 1.0);
+    if (w > 0 && w != soru) farkli++;
+  }
+  const double w_tire = teng_text_width("\xE2\x80\x94", 1.0), w_ok = teng_text_width("\xE2\x86\x92", 1.0), w_buyuk = teng_text_width(">", 1.0);
+  int k_tire[4], k_soru[4];
+  glif::ciz("\xE2\x80\x94");
+  glif::kutu("glif_tire", k_tire);
+  glif::ciz("?");
+  glif::kutu("glif_soru", k_soru);
+  const int warn0 = teng_warning_count();
+  glif::ciz("a \xE2\x89\xA0 b"); // ≠: aralik disi, esleme yok
+  glif::ciz("a \xE2\x89\xA0 b");
+  std::printf("    [bilgi] glif: 8 tipografik karakterin %d'i gercek glif (genislik != '?' %.1f); `—` %.1f px, → %.1f (= '>' %.1f); piksel kutusu `—` %dx%d, '?' %dx%d; uyari +%d\n",
+              farkli, soru, w_tire, w_ok, w_buyuk, k_tire[2] - k_tire[0] + 1, k_tire[3] - k_tire[1] + 1, k_soru[2] - k_soru[0] + 1,
+              k_soru[3] - k_soru[1] + 1, teng_warning_count() - warn0);
+  CHECK(farkli == 8);
+  CHECK(w_ok == w_buyuk);                           // ASCII eslemesi
+  CHECK(teng_warning_count() == warn0 + 1);         // KONTROL: ≠ bir kez UYARI
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "kapanis (font): ") != nullptr && std::strstr(g_kapanis_log, "U+2260") != nullptr);
+  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): glif PIKSEL sekli gercek cihazda olculur"); return; }
+  const int tw = k_tire[2] - k_tire[0] + 1, th = k_tire[3] - k_tire[1] + 1, sw = k_soru[2] - k_soru[0] + 1, sh = k_soru[3] - k_soru[1] + 1;
+  CHECK(tw > 20 && th * 4 < tw); // ince yatay cubuk
+  CHECK(sw > 5 && sh > sw);      // KONTROL: '?' uzun (olcu sekli ayirt ediyor)
+}

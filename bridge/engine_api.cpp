@@ -530,6 +530,7 @@ struct Bridge {
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
+  bool font_missing_warned = false; // fontta olmayan kod noktasi bir kez UYARI (Geri bildirim #20)
   char hud_text[kHudTextBytes];
   uint32_t hud_text_n = 0;
   // sorgular: son isin testi + son kure sorgusu (sabit diziler, kare ici ayirma yok)
@@ -953,6 +954,12 @@ void render_frame() {
     else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
   }
   b.hud_n = 0; b.hud_text_n = 0;
+  // Fontta olmayan kod noktasi '?' cizildi (Geri bildirim #20): ILK seferde UYARI.
+  if (b.font_ok && b.font.missing_count() && !b.font_missing_warned) {
+    b.font_missing_warned = true;
+    blog(1, "UYARI font: U+%04X fontta yok, '?' cizildi (kapsam: ASCII, Latin-1, Turkce, U+2010..U+2026; content/font.hpp)", b.font.first_missing());
+    g_log.warnings++;
+  }
   b.last_draws = drawn; b.last_lights = lights + b.srt.stats().lights;
   RecordCtx rc{&b.ren};
   if (b.headless) {
@@ -1980,6 +1987,8 @@ void teng_shutdown(void) {
   if (b.teleports_inplace || b.teleports_rebuilt)
     BINFO("kapanis (isinlama): %llu yerinde (sabit/kinematik, govde KURULMADI), %llu yeniden kurma (dinamik)",
           (unsigned long long)b.teleports_inplace, (unsigned long long)b.teleports_rebuilt);
+  if (b.font_ok && b.font.missing_count())
+    BINFO("kapanis (font): %u kod noktasi fontta yoktu ve '?' cizildi (ilki U+%04X)", b.font.missing_count(), b.font.first_missing());
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,

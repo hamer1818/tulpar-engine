@@ -122,6 +122,17 @@ add_custom_target(engine_icon_check
     VERBATIM
 )
 
+# --- Oyun metni glif denetimi (Geri bildirim #20) ---------------------------
+# Tulpar kaynaklarindaki her metin kod noktasi motorun HUD font atlasinda (ya da
+# ASCII esleme tablosunda) mi + paketlenen DejaVuSans atlas araliklarini iceriyor
+# mu. Yoksa metin HATA VERMEDEN '?' cizilir. Once kapinin kendi sinamasi.
+add_custom_target(engine_glyph_check
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/glyph_check.py --oz-sinama ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/glyph_check.py ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "engine: oyun metni glif denetimi (cizilemeyen karakter = build hatasi)"
+    VERBATIM
+)
+
 # --- Sahne bicim denetimi ---------------------------------------------------
 # .sahne yazicisi ile ayristiricisi elle tutulan IKI ayri tablodur. Biri
 # degisip oteki degismediginde derleyici susar: sahne yazilir, geri okunamaz
@@ -356,7 +367,7 @@ target_include_directories(engine_content PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 target_link_libraries(engine_content PUBLIC engine_renderer engine_sim engine_meshopt engine_astcenc)
 target_compile_options(engine_content PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> $<$<COMPILE_LANGUAGE:C>:-w>)
-add_dependencies(engine_content engine_layer_check engine_scene_check)
+add_dependencies(engine_content engine_layer_check engine_scene_check engine_glyph_check)
 
 # --- L6 BRIDGE: Tulpar betikleri icin C ABI (teng_*), bkz. bridge/engine_api.h --------
 # Masaustu: engine_bridge (+ desktop_host, GLFW dlopen). Android: tulpar_engine_android
