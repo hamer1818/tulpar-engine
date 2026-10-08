@@ -169,7 +169,7 @@ Bu belgenin geri kalanı 2026-09-15 anlık görüntüsüdür; bu bölüm bugünk
   `tools/windows_kapilar.sh`; #86); ICD kurulamazsa adım KIRMIZI (negatif provası: run 37314080867).
 - Aynı süreçte motoru kapatıp yeniden açmak destekleniyor (Tuzaklar 8ct, #87): kapanış her şeyi
   bırakır ve köprü durumunu sıfırlar. Editörün F5'i bu yolu kullanmaz (oyun ayrı süreç).
-- Köprü: `SPEC` **234** fonksiyon (2026-10-08: `eng_render_scale`).
+- Köprü: `SPEC` **238** fonksiyon (2026-10-08: `eng_render_scale`).
 - Açık: üç fiziksel cihaz (kullanıcı kararı: pas). Android'de süreç canlıyken etkinliğin yeniden
   yaratılması (8ct yolu) **emülatörde ölçüldü** (2026-10-06, API 31 x86_64, SwiftShader Vulkan: aynı
   PID'de üç etkinlik, her oturum varlık 0 / kare 0, önceki id ölü, hata 0, kapanışta canlı vk 5);

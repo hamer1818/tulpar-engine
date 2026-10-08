@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 234 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 238 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -222,6 +222,17 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   koordinatı = `genislik()` × `yukseklik()` pikseli, sol üst (0,0); render ölçeği (iç çözünürlük) ve Android
   ön-döndürmesi bunu değiştirmez. Kapı `bridge_camera_fov_screen_ray_pick_world_to_screen` izdüşümü PİKSELDE
   doğrular (kürenin merkezi kırmızı; eski π/3.5 kopyası fov 30'da ıskalar).
+- **Kare içi C++ ayırma** (Geri bildirim #13): AllocGate'in `operator new` sayacı Tulpar oyununa eklenti
+  yapıştırıcısıyla gelir (`libengine_tulpar.a` / `libtulpar_engine_android.a` içinde
+  `core/memory/alloc_gate_override.cpp`; yapıştırıcı onun işaretine başvurur, yani arşivden her zaman çekilir).
+  Kurulumda bir yoklama (`::operator new`) sayacın bağlı olduğunu ölçer. Kapanış raporu dört kova basar:
+  `motor` (frame_begin + frame_end gövdesi, YALNIZ çağıran iş parçacığı, kancalar ve GPU bölümü hariç — kararlı
+  karede 0 olmalı), `betik kancasi`, `GPU/surucu` (acquire, fence beklemesi, kayıt + gönderim + sunum: sürücü de
+  C++ — MoltenVK kare başına ~20, lavapipe ilk çizim durumunda yüzlerce, NVIDIA 0; CI 2026-10-07) ve `tum kare`
+  (global sayaç: oyun kodu + kare içi `eng_*` + sürücü iş parçacıkları; sahne/model/ses yüklemesi burada). Oyundan:
+  `kare_ici_ayirma()`, `kare_ici_ayirma_toplami()`, `ayirma_sayisi()`, `ayirma_sayaci_acik()`. `engine_aksiyon`
+  bunu kapı yapar (`[kapi] ayirma: ...`). Pozitif kontrol: `TULPAR_ENGINE_ALLOC_KONTROL=N` frame_end'e kare başına
+  N ayırma koyar.
 - **Fizik:** kutu/küre gövdeleri Jolt'ta; `eng_set_pos` sabit ve kinematik gövdeyi **yerinde** taşır (yeniden
   kurmaz, ayırma yok: 68 ns/çağrı, eskiden 259 ns + 3 Jolt ayırması — RTX 5080 masaüstü, 2026-10-07), dinamik
   gövdeyi **yeniden kurar** ve hız sıfırlanır. Kapanış raporu iki yolu sayar (`kapanis (isinlama)`).
@@ -865,7 +876,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **234 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **238 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -892,7 +903,7 @@ bölüm yorumlarına göre):
 | çarpışma olayları | 13 | sayı, düşen, iki taraf (köprü id + sahne dizini), temas noktası, normal, şiddet — kuyruk |
 | tetik olayları | 7 | sayı, düşen, bölge ve giren/çıkan (köprü id + sahne dizini), girdi mi — kuyruk, **belirlenimli sıra** |
 | karakter denetleyicisi | 5 | üret (sanal kapsül), yürü + zıpla isteği, zeminde mi, zemin durumu, zıplama hızı — konum/hız/ışınla/sil/yakınlık/ışın/tetik mevcut varlık fonksiyonlarıyla |
-| ölçüm | 8 | çizim / gövde / ışık sayısı, son kare p50, **süreç RSS** (`eng_rss_kb` = `bellek_kb()`, kare belleği kapısının aleti), **sanal boyut / thread sayısı / canlı Vulkan nesnesi** (`eng_virtual_mb` / `eng_thread_count` / `eng_vk_live`: aynı süreçte oturum aç/kapa kaçak kapısının aletleri, Tuzaklar 8ct) |
+| ölçüm | 12 | **kare içi C++ ayırma** (sayaç bağlı mı, süreç toplamı, son karede motor, motor toplamı — Geri bildirim #13), çizim / gövde / ışık sayısı, son kare p50, **süreç RSS** (`eng_rss_kb` = `bellek_kb()`, kare belleği kapısının aleti), **sanal boyut / thread sayısı / canlı Vulkan nesnesi** (`eng_virtual_mb` / `eng_thread_count` / `eng_vk_live`: aynı süreçte oturum aç/kapa kaçak kapısının aletleri, Tuzaklar 8ct) |
 
 (Çarpışma ailesi 2026-09-23'e kadar bu tabloda YOKTU: satırların toplamı 164 veriyordu,
 başlık 177 diyordu. Toplam artık başlıkla eşit.)

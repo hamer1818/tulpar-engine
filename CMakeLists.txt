@@ -377,7 +377,10 @@ add_dependencies(engine_bridge engine_layer_check engine_bindings_check)
 # kalan 207 eng_* fonksiyonunu derleyici DOGRUDAN teng_*'e indirir. Motorun
 # kendi ikilileri bunu BAGLAMAZ: TulparLang runtime'inin tulpar_ext_*
 # sembollerini cagirir, onlar yalniz bir Tulpar oyununun linkinde cozulur.
-add_library(engine_tulpar STATIC bridge/tulpar_kopru.cpp)
+# alloc_gate_override.cpp BURADA (Geri bildirim #13): Tulpar oyununun kare ici
+# C++ ayirmasi sayilsin. Yapistirici onun isaretine basvurur, yani arsivden
+# her zaman cekilir; motorun kendi ikilileri engine_tulpar'i baglamaz.
+add_library(engine_tulpar STATIC bridge/tulpar_kopru.cpp core/memory/alloc_gate_override.cpp)
 target_link_libraries(engine_tulpar PUBLIC engine_bridge)
 target_compile_options(engine_tulpar PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
 add_dependencies(engine_tulpar engine_layer_check engine_bindings_check)
@@ -682,6 +685,7 @@ if(ANDROID)
       bridge/tulpar_kopru.cpp
       bridge/tulpar_abi.cpp
       app/virtual_stick.cpp
+      core/memory/alloc_gate_override.cpp
       ${ENGINE_GLUE_DIR}/android_native_app_glue.c
   )
   target_include_directories(tulpar_engine_android PRIVATE ${ENGINE_GLUE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})

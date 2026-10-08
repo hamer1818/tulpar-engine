@@ -33,6 +33,17 @@ void teng_shutdown(void);
 int teng_frame_begin(void); // girdi + zaman; 0 = pencere yok (arka plan), yine de frame_end cagrilir
 void teng_frame_end(void);  // sim (sabit adim) + cizim + sunum
 double teng_dt(void);
+// Kare ici C++ ayirma (AllocGate, operator new sayaci; Geri bildirim #13).
+// teng_alloc_gate_on: sayac bu ikiliye bagli mi (kurulumda yoklanir; degilse
+// asagidakiler 0 ve kapanis raporu "OLCULMEDI"). teng_alloc_count: surec
+// boyunca toplam operator new. teng_frame_allocs: son KAPANMIS karede motorun
+// KENDI CPU ayirmasi (frame_begin + frame_end; betik kancalari, GPU/surucu
+// bolumu ve oyun kodu haric; GPU/surucu kapanis raporunda ayri kova).
+// teng_frame_allocs_total: kare 6'dan beri motor toplami ("kare ici 0" kapisi).
+int teng_alloc_gate_on(void);
+double teng_alloc_count(void);
+int teng_frame_allocs(void);
+double teng_frame_allocs_total(void);
 double teng_time(void);
 int teng_frame(void);
 double teng_fps(void);

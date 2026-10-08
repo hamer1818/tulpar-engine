@@ -818,6 +818,12 @@ func kapi_raporu() {
         print(t"[kapi] ATLANDI: dikey dilim kapisi >= {KAPI_MIN_KARE} kare ister, bu kosumda {kare} kare var (pencere acilamazsa kopru 60 karelik yedege duser). Tam kapi icin: TULPAR_ENGINE_HEADLESS={KAPI_MIN_KARE} ./tulpar examples/engine_aksiyon.tpr");
     }
     array sorun = [];
+    // Kare ici C++ ayirma (Geri bildirim #13): motorun kendi ayirmasi kare 6'dan
+    // beri 0 olmali; sayac bagli degilse kapi OLCMEDI demektir, gecmez.
+    float ayirma_motor = kare_ici_ayirma_toplami();
+    print(t"[kapi] ayirma: sayac {ayirma_sayaci_acik()}, motor kare ici {toInt(ayirma_motor)} (kare 6..), surec toplami {toInt(ayirma_sayisi())}");
+    if (!ayirma_sayaci_acik()) { push(sorun, "kare ici ayirma OLCULMEDI: operator new sayaci oyuna bagli degil (core/memory/alloc_gate_override.cpp, engine_tulpar)"); }
+    if (ayirma_motor > 0.0) { push(sorun, t"motor kare icinde {toInt(ayirma_motor)} C++ ayirmasi yapti (0 olmali; kapanis raporu en kotu kareyi soyler)"); }
     if (hata != 0) { push(sorun, t"oyun dongusu hata sayaci {hata} (0 olmali)"); }
     if (dilim && g_oldurulen < 4) { push(sorun, t"otopilot en az 4 dusman oldurmeliydi, {g_oldurulen}"); }
     if (dilim && g_kayma_olcum < 1) { push(sorun, "fren olcumu hic yapilmadi (darbesiz bir birakma bekleniyordu)"); }
