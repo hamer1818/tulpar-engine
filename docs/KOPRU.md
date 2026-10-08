@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 234 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 242 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -865,7 +865,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **234 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **242 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -873,7 +873,7 @@ bölüm yorumlarına göre):
 
 | aile | adet | ne verir |
 |---|---:|---|
-| yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
+| yaşam döngüsü | 27 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı**, **arka planda mı** (`eng_app_paused`; motor sesi arka planda kendisi durdurur) ve **düşük bellek uyarısı sayısı**, **güvenli alan** (ekran çentiği boşlukları, `eng_safe_inset_*`) |
 | fizik zamanı | 5 | **duraklat** / duraklı mı, **zaman ölçeği** (yaz/oku), sim adımı sayacı — duraklatma birikimi dondurur, devam bit-tam aynı sonuca varır (Geri bildirim #10) |
 | dünya / kamera | 25 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
@@ -881,7 +881,7 @@ bölüm yorumlarına göre):
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |
 | kodla betik bağlama | 4 | bağla (`baslat` hemen), çöz (`bitir`), bağlı betiğin adı, bağlı varlık sayısı — kancalar sahneninkilerle aynı yerde (§7.10) |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
-| girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |
+| girdi | 14 | tuş basılı / bu karede basıldı, **geri** (Android geri tuşu / masaüstünde Esc; ilk soru geri tuşunu oyuna bağlar) + pencersiz enjekte, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |
 | 2B arayüz (HUD) | 3 | `eng_text`, `eng_rect`, `eng_text_width` — kare içinde kuyruklanır, `frame_end` çizer |
 | anlık-kip arayüz | 12 | `ui_begin`/`ui_end`, tema, etkin/pasif, panel, etiket, **düğme**, **onay kutusu**, **kaydırıcı**, basılı mı, tıklama sayacı, pencersiz doğrulama için **enjekte tıklama** |
 | kalıcı kayıt | 10 | dosya bağla, yol, sayı/metin yaz-oku, var mı, diske yaz, temizle, sayı |
@@ -909,6 +909,62 @@ Kürelerin Savaşı") Huawei P20 Pro / Mali-G72'de 2159x1080'de **boş sahnede**
 59.6). Kapı: `bridge_render_scale_draws_scene_smaller_and_reports_when_unavailable` (ölçekli kare boş
 kareden 37224 px, tam kareden 11397 px farklı — RTX 5080; pozitif kontrol: köprü ölçeği uygulamazsa
 5 kontrol KIRMIZI; parlama kapalıyken kare 0 px değişir).
+
+**Geri tuşu** (`geri_basildi()` / `back_pressed()` → `eng_back_pressed`, Geri bildirim #8, 2026-10-08):
+Android'de sistem geri tuşu, masaüstünde Esc; o kare bir kez `true`. Android host'u olayı eskiden
+**tüketmiyordu**, NativeActivity `onBackPressed` → `finish()` yapıyordu: oyuncu savaşın ortasında
+geriye basınca etkinlik kapanıyor, savaş kayboluyordu (P20 Pro: `android cmd DESTROY`). Artık oyunun
+**ilk** geri sorusu tuşu oyuna bağlar: host olayı tüketir, etkinlik kapanmaz, karar oyunun (duraklat /
+menü; çıkmak için `cikis_iste()`). Geri tuşunu **hiç sormayan** oyunda sistem eski davranışla kapatır
+(o eski oyun telefonda kapanabilir kalsın) ve bunu bir kez söyler ("oyun dinlemiyor"). Android'de
+klavye yok: `tus_basildi("ESC")` / `tus("ESC")` aynı basışı görür ve aynı bağlamayı yapar — Esc'i
+duraklat diye işleyen oyun değişiklik istemez (`"GERI"`/`"BACK"` da geçerli tuş adı). Host basışı
+**sayar** (`bridge/android_lifecycle.hpp` `BackKeyLatch`): `input keyevent` ve hızlı parmak DOWN ile
+UP'ı aynı pompada verir, "şu an basılı mı" örneği basışı kaybederdi. `geri_test()` pencersiz
+doğrulamada sonraki kareye bir basış enjekte eder. Kapılar: `bridge_back_key_latch_keeps_press_released_in_same_pump`,
+`bridge_back_pressed_is_one_frame_edge_headless`; cihazda `tools/android_yasam_dongusu.sh` (P20 Pro:
+`geri_basildi` ve `ESC` kipinde GEÇTİ, sormayan oyunda sistem kapattı; pozitif kontrol main'in
+arşiviyle DÜŞTÜ — ilk GERİ'de etkinlik kapandı, oyun basışı görmedi).
+
+**Arka planda ses** (`arka_planda()` / `app_paused()` → `eng_app_paused`, Geri bildirim #9, 2026-10-08):
+Android'de ana ekrana dönünce oyunun AAudio akışı `state:started` kalıyordu (`dumpsys audio`, P20 Pro;
+oyun ana seviyeyi 0 yaparak geçici çözüm uyguluyordu — sessiz akış da pil yer ve ses odağını tutar).
+Host `APP_CMD_PAUSE`..`RESUME` aralığını işaretler, çekirdek geçişi **kare başında** görür (arka planda
+döngü ~10 Hz sürüyor, yani en geç ~100 ms) ve ses cihazını **kendisi** durdurur (`ma_device_stop`),
+dönüşte sürdürür; çalan sesler kaldıkları yerden devam eder, oyunun ses çağrıları arka planda da
+geçerli (hata değil). Arka plandayken açılan ses hemen durdurulur. Oyun `arka_planda()`yı duraklatma
+kararı için okur. `dusuk_bellek_sayisi()` (`eng_low_memory_count`): sistemin `onLowMemory` uyarı
+sayısı (#18), artarsa oyun önbellek/efekt bırakabilir. Kapanış satırı: `kapanis (yasam dongusu): N kez
+arka plan, ses N kez durduruldu, dusuk bellek uyarisi N`. Kapılar: `audio_device_pause_stops_callbacks_resume_restarts`
+(NULL arka uç: duraklamada callback sayacı sabit), `bridge_app_pause_stops_and_resumes_audio_headless`
+(`teng_debug_app_pause` ile; pozitif kontrol: geçiş sesi durdurmayınca 2 kontrol KIRMIZI); cihazda
+`tools/android_yasam_dongusu.sh` — P20 Pro: oyuncu `started` → ana ekranda `stopped` → dönünce
+`started`; main'in arşiviyle ana ekranda `started` (DÜŞTÜ).
+
+**Güvenli alan / ekran çentiği** (`guvenli_sol/ust/sag/alt()` / `safe_left…` → `eng_safe_inset_left/top/right/bottom`,
+Geri bildirim #17, 2026-10-08): P20 Pro'da pencere 2240 yerine 2159 piksel açılıyordu, solda çentik şeridi
+siyah. Pencere çentiğe ancak **tema** izin verirse uzanır: TulparLang `tulpar.toml [android] cutout =
+"short_edges"` (ya da `TULPAR_ANDROID_CUTOUT=short_edges`) `windowLayoutInDisplayCutoutMode`'u
+`res/values-v28`'e yazar — TulparLang'de varsayılan **değişmedi**, oyun açıkça ister. Çentik pencerenin
+içine girince arayüz onun altında kalmasın diye köprü boşlukları verir: Android host'u
+`DisplayCutout.getSafeInset*`'i (API 28+, JNI) pencere/içerik/yön değişince **bir kez** okur (kare başına
+JNI yok), çekirdek `genislik()/yukseklik()` birimine ölçekler; değişince `guvenli alan: sol N ust N sag N
+alt N` loglanır. Çentik yoksa, varsayılan temada (sistem pencereyi çentikten uzak tutar), masaüstünde ve
+penceresizde 0. Yön değişince (sensorLandscape) çentik öbür kenara geçer, değer de geçer. Kapı:
+`bridge_safe_insets_follow_host_each_frame_headless` (`teng_debug_safe_insets`; KONTROL taklitsiz 0);
+cihazda `tools/android_yasam_dongusu.sh` ekran satırı (`TULPAR_YD_CENTIK=1`: pencere ekranın uzun kenarı
+kadar olmalı).
+
+**Kayıt dosyası adb ile** (Geri bildirim #19, 2026-10-08): kayıt varsayılan olarak çıkarma kökünde
+(`/data/user/0/<paket>/files/assets/tulpar_kayit.txt`) — adb okuyamaz, Huawei'de `run-as` da çalışmıyor
+(Tuzaklar 8n). Tanı seçeneği **yalnız hata ayıklama derlemesinde**: APK hata ayıklanabilir ise
+(TulparLang `TULPAR_ANDROID_DEBUGGABLE=1 tulpar build …`) ve `adb shell setprop debug.tulpar.kayit dis`
+kuruluysa varsayılan kayıt yolu dış uygulama dizinine gider:
+`/sdcard/Android/data/<paket>/files/tulpar_kayit.txt` — `adb pull` / `adb push` ile okunur ve yazılır; ilk
+açılışta iç kayıt oraya kopyalanır (mevcut ayarlar görünsün). Yayın (hata ayıklanamaz) APK'da özellik
+**yok sayılır** ve bu loglanır: oyuncunun kaydı başka uygulamaların okuyabildiği dizine taşınmaz. Oyunun
+kendi `kayit_ac(yol)`u ve `TULPAR_ENGINE_SAVE` her şeyi ezer. Cihaz kapısı `tools/android_kayit_dis.sh`
+(sayaç oyun → adb → oyun gidiş-dönüşü; KONTROL: özellik kapalıyken dış dosya oluşmaz).
 
 **Karakter denetleyicisi** (`karakter(x, y, z, r, boy, renk)`): Jolt `CharacterVirtual` — rampada
 kaymaz, 0.4 m'ye kadar basamağı yürüyerek çıkar, zemine yapışır, dinamik gövdeleri en çok 100 N ile

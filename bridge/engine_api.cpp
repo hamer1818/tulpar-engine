@@ -27,6 +27,7 @@
 #include "audio/clip.hpp"
 #include "audio/device.hpp"
 #include "audio/mixer.hpp"
+#include "bridge/android_lifecycle.hpp" // BackKeySample (geri tusu ornegi)
 #include "bridge/bridge_host.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
@@ -505,6 +506,22 @@ struct Bridge {
   // girdi
   const platform::InputState *in = nullptr;
   bool prev_keys[512] = {};
+  // Geri tusu (Geri bildirim #8). Android: host'un birikimli basis sayaci kare
+  // basina orneklenir (DOWN+UP ayni pompada gelse de basis kaybolmaz);
+  // masaustu: Esc kenari. `back_listen`: oyun geri tusunu sordu, host'a
+  // "olayi tuket, etkinligi kapatma" denildi.
+  bridge::BackKeySample back_sample;
+  bool back_edge = false, back_down = false, back_listen = false, back_unheard_said = false;
+  uint32_t back_inject = 0, back_total = 0;
+  // Arka plan (Geri bildirim #9). `app_paused` host'tan (ya da teng_debug_app_pause)
+  // kare basinda; gecis aninda ses cihazi durdurulur/surdurulur. `audio_auto_paused`:
+  // sesi MOTOR durdurdu (donuste yalniz onu surdurur).
+  bool app_paused = false, app_pause_debug = false, app_pause_debug_on = false, audio_auto_paused = false;
+  uint32_t app_pauses = 0, audio_auto_pauses = 0, low_memory = 0;
+  // Guvenli alan (Geri bildirim #17), teng_width/height biriminde; host'tan kare
+  // basinda (ya da teng_debug_safe_insets). `safe_debug`: taklit acik.
+  int32_t safe[4] = {0, 0, 0, 0};
+  int32_t safe_debug[4] = {-1, -1, -1, -1};
   bool cur_keys[512] = {};
   const platform::TouchState *touch = nullptr;
   app::VirtualStick stick;
@@ -789,11 +806,35 @@ int key_code(const char *name) {
     if (u[0] >= 'A' && u[0] <= 'Z') return u[0];
     if (u[0] >= '0' && u[0] <= '9') return u[0];
   }
-  struct { const char *n; int c; } k[] = {{"SPACE", 32}, {"ESC", 256}, {"ESCAPE", 256}, {"ENTER", 257}, {"TAB", 258}, {"BACKSPACE", 259},
+  struct { const char *n; int c; } k[] = {{"SPACE", 32}, {"ESC", 256}, {"ESCAPE", 256}, {"BACK", 256}, {"GERI", 256}, {"ENTER", 257}, {"TAB", 258}, {"BACKSPACE", 259},
                                           {"RIGHT", 262}, {"LEFT", 263}, {"DOWN", 264}, {"UP", 265}, {"SHIFT", 340}, {"LSHIFT", 340},
                                           {"RSHIFT", 344}, {"CTRL", 341}, {"LCTRL", 341}, {"RCTRL", 345}, {"ALT", 342}, {"LALT", 342}};
   for (const auto &e : k) if (std::strcmp(u, e.n) == 0) return e.c;
   return -1;
+}
+
+// Arka plan gecisi. Ses akisi arka planda `started` kaliyordu (P20 Pro, 2026-10-07:
+// `dumpsys audio` oyunun AAudio oyuncusunu ana ekranda `state:started` gosterdi;
+// oyun ana seviyeyi 0 yaparak gecici cozum uyguluyordu). Sessiz akis da pil
+// harcar ve ses odagini tutar: cihaz DURDURULUR, donuste SURDURULUR.
+void app_pause_transition(Bridge &b, bool p) {
+  b.app_paused = p;
+  if (p) {
+    b.app_pauses++;
+    if (b.audio_ok && !b.audio_dev.paused()) {
+      if (b.audio_dev.pause()) {
+        b.audio_auto_paused = true;
+        b.audio_auto_pauses++;
+        BINFO("uygulama arka planda: ses cihazi durduruldu (kare %u)", b.frame);
+      } else BERR("uygulama arka planda: ses cihazi durdurulamadi (%s)", b.audio_dev.last_error());
+    } else BINFO("uygulama arka planda (kare %u)%s", b.frame, b.audio_ok ? "" : " — ses kapali");
+  } else {
+    if (b.audio_auto_paused) {
+      b.audio_auto_paused = false;
+      if (b.audio_ok && b.audio_dev.resume()) BINFO("uygulama on planda: ses cihazi surduruldu (kare %u)", b.frame);
+      else if (b.audio_ok) BERR("uygulama on planda: ses cihazi surdurulemedi (%s)", b.audio_dev.last_error());
+    } else BINFO("uygulama on planda (kare %u)", b.frame);
+  }
 }
 
 // Gomulu kip, kare basi: tempo, duraklatma, durdurma, editorun sagligi.
@@ -1133,7 +1174,13 @@ int teng_init(const char *title, int width, int height) {
   // Pencere (host) — acilamazsa headless'a dus (loglayarak), betik yine calissin.
   if (!b.headless) {
     char herr[256] = {0};
-    if (bridge::bridge_host_open(&b.host, b.title, b.width, b.height, herr, sizeof herr)) { b.host_open = true; BINFO("pencere acildi: %ux%u", b.width, b.height); }
+    if (bridge::bridge_host_open(&b.host, b.title, b.width, b.height, herr, sizeof herr)) {
+      b.host_open = true;
+      BINFO("pencere acildi: %ux%u", b.width, b.height);
+      // Host ayni etkinlikte onceki oturumlardan basis sayaci tasiyor: o basislar
+      // bu oturumun ilk karesinde "geri basildi" diye gorunmesin.
+      if (b.host.system) b.back_sample.seen = b.host.system(b.host.user)->back_presses;
+    }
     else {
       blog(1, "UYARI pencere acilamadi (%s) -> headless kipe dusuldu (60 kare). Gorsel istiyorsan DISPLAY/Wayland ortamini kontrol et", herr);
       g_log.warnings++;
@@ -1408,6 +1455,55 @@ int teng_frame_begin(void) {
     }
     std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys);
     std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
+  }
+  // --- yasam dongusu: arka plan -> ses durur, on plan -> surer -------------
+  {
+    bool p = false;
+    if (b.app_pause_debug) p = b.app_pause_debug_on;
+    else if (!b.headless && b.host.system) {
+      const bridge::HostSystem *sy = b.host.system(b.host.user);
+      p = sy->paused;
+      b.low_memory = sy->low_memory;
+    }
+    if (p != b.app_paused) app_pause_transition(b, p);
+    // Guvenli alan: host pencere pikselinde verir, oyun mantiksal boyu
+    // (teng_width/height) kullanir — swapchain olcusu pencereden farkliysa olcekle.
+    int32_t s[4] = {0, 0, 0, 0};
+    if (b.safe_debug[0] >= 0) {
+      for (int k = 0; k < 4; k++) s[k] = b.safe_debug[k];
+    } else if (!b.headless && b.host.system) {
+      const bridge::HostSystem *sy = b.host.system(b.host.user);
+      const uint32_t lw = b.swap.logical_extent().width, lh = b.swap.logical_extent().height;
+      const float fx = sy->inset_w && lw ? (float)lw / (float)sy->inset_w : 1.0f;
+      const float fy = sy->inset_h && lh ? (float)lh / (float)sy->inset_h : 1.0f;
+      s[0] = (int32_t)(sy->inset_l * fx + 0.5f); s[2] = (int32_t)(sy->inset_r * fx + 0.5f);
+      s[1] = (int32_t)(sy->inset_t * fy + 0.5f); s[3] = (int32_t)(sy->inset_b * fy + 0.5f);
+    }
+    if (s[0] != b.safe[0] || s[1] != b.safe[1] || s[2] != b.safe[2] || s[3] != b.safe[3]) {
+      for (int k = 0; k < 4; k++) b.safe[k] = s[k];
+      BINFO("guvenli alan: sol %d ust %d sag %d alt %d piksel (ekran %dx%d)", s[0], s[1], s[2], s[3], teng_width(), teng_height());
+    }
+  }
+  // --- geri tusu: Android host'u sayar, masaustunde Esc -------------------
+  b.back_edge = false;
+  b.back_down = false;
+  if (!b.headless && b.host.system) {
+    const bridge::HostSystem *sy = b.host.system(b.host.user);
+    b.back_edge = b.back_sample.sample(sy->back_presses);
+    b.back_down = sy->back_down;
+  } else if (b.in) {
+    b.back_edge = b.cur_keys[256] && !b.prev_keys[256];
+    b.back_down = b.cur_keys[256];
+  }
+  if (b.back_inject) { b.back_inject--; b.back_edge = true; }
+  if (b.back_edge) {
+    b.back_total++;
+    // Oyun sormadi: Android'de sistem etkinligi kapatiyor (eski davranis). Bir
+    // kez soylenir — "geri neden oyunu kapatti" sorusunun cevabi bu satir.
+    if (!b.back_listen && b.host.back_to_game && !b.back_unheard_said) {
+      b.back_unheard_said = true;
+      BINFO("geri tusu basildi, oyun dinlemiyor (eng_back_pressed / tus \"ESC\" sorulmadi): sistem etkinligi kapatir");
+    }
   }
   // Fareyle bakis: sag tus basiliyken yatay surukleme. Tus birakikken de konum
   // izlenir, yoksa basildigi karede "son konumdan buraya" sicrama bakis olurdu.
@@ -1966,6 +2062,11 @@ void teng_shutdown(void) {
           "asama %llu kare, kare basina %.2f us",
           (unsigned long long)b.hook_timed_calls, b.hook_ns / 1e6, (double)b.hook_ns / (double)b.hook_timed_calls,
           (unsigned long long)b.hook_frames, b.hook_frames ? (double)b.hook_ns / 1e3 / (double)b.hook_frames : 0.0);
+  if (b.app_pauses || b.low_memory)
+    BINFO("kapanis (yasam dongusu): %u kez arka plan, ses %u kez durduruldu, dusuk bellek uyarisi %u", b.app_pauses, b.audio_auto_pauses,
+          b.low_memory);
+  if (b.back_total || b.back_listen)
+    BINFO("kapanis (geri tusu): %u basis, oyuna bagli %s", b.back_total, b.back_listen ? "evet" : "hayir (sistem kapatir)");
   if (b.bound_attaches || b.bound_rejected)
     BINFO("kapanis (betik baglama): %u baglama, %u reddedilen, %u kanca cagrisi, en cok %u bagli varlik (tavan %u)", b.bound_attaches,
           b.bound_rejected, b.bound_calls, b.bound_peak, kMaxBoundScripts);
@@ -3093,15 +3194,58 @@ int teng_anim_done(int id) {
 // Tus adi ONCE dogrulanir: girdi cihazi olmadigi icin erken donersek (headless,
 // Android) yanlis yazilmis bir ad sessizce hep false doner ve "tus calismiyor"
 // diye saatler gider. Ad hatasi her kipte loglanir.
+// Oyun geri tusunu sordu: host'a "olayi tuket" (Android'de etkinlik kapanmaz).
+static void back_listen_on(Bridge &b) {
+  if (b.back_listen) return;
+  b.back_listen = true;
+  if (b.host.back_to_game) {
+    b.host.back_to_game(b.host.user, true);
+    BINFO("geri tusu OYUNA baglandi: Android'de geri etkinligi kapatmaz, oyuna bildirilir (cikis: eng_close)");
+  }
+}
+// Klavyesi olmayan host'ta (Android) Esc = sistem geri tusu: Esc'i duraklat /
+// geri diye isleyen oyun telefonda degisiklik istemez.
+static bool back_is_esc(int c) { return c == 256 && g && !g->in && !g->headless && g->host.system; }
 int teng_key_down(const char *name) {
   const int c = key_code(name);
   if (c < 0) { BERR("teng_key_down: bilinmeyen tus adi \"%s\" (W/A/S/D, SPACE, UP.., ESC, ENTER, SHIFT, 0-9)", name ? name : ""); return 0; }
+  if (back_is_esc(c)) { back_listen_on(*g); return g->back_down || g->back_edge ? 1 : 0; }
   return g && g->in && g->cur_keys[c] ? 1 : 0;
 }
 int teng_key_pressed(const char *name) {
   const int c = key_code(name);
   if (c < 0) { BERR("teng_key_pressed: bilinmeyen tus adi \"%s\" (W/A/S/D, SPACE, UP.., ESC, ENTER, SHIFT, 0-9)", name ? name : ""); return 0; }
+  if (back_is_esc(c)) { back_listen_on(*g); return g->back_edge ? 1 : 0; }
   return g && g->in && g->cur_keys[c] && !g->prev_keys[c] ? 1 : 0;
+}
+int teng_app_paused(void) { return g && g->app_paused ? 1 : 0; }
+int teng_safe_inset_left(void) { return g ? g->safe[0] : 0; }
+int teng_safe_inset_top(void) { return g ? g->safe[1] : 0; }
+int teng_safe_inset_right(void) { return g ? g->safe[2] : 0; }
+int teng_safe_inset_bottom(void) { return g ? g->safe[3] : 0; }
+void teng_debug_safe_insets(int left, int top, int right, int bottom) {
+  if (!g) return;
+  const int v[4] = {left, top, right, bottom};
+  const bool kapali = left < 0 && top < 0 && right < 0 && bottom < 0;
+  for (int k = 0; k < 4; k++) g->safe_debug[k] = kapali ? -1 : (v[k] < 0 ? 0 : v[k]);
+}
+int teng_low_memory_count(void) { return g ? (int)g->low_memory : 0; }
+long long teng_debug_audio_callbacks(void) { return g && g->audio_ok ? (long long)g->mixer.stats().callbacks : -1; }
+void teng_debug_app_pause(int paused) {
+  if (!g) return;
+  g->app_pause_debug = true;
+  g->app_pause_debug_on = paused != 0;
+}
+int teng_back_pressed(void) {
+  if (!g) return 0;
+  back_listen_on(*g);
+  return g->back_edge ? 1 : 0;
+}
+void teng_back_test_press(void) {
+  CALL("teng_back_test_press");
+  if (!ready("teng_back_test_press")) return;
+  g->back_inject++;
+  BDBG("geri: basis kuyruklandi, sonraki kare eng_back_pressed true");
 }
 int teng_touch_count(void) { return g && g->touch ? (int)g->touch->count : 0; }
 double teng_touch_x(int i) {
@@ -3564,6 +3708,12 @@ int teng_audio_open(int sample_rate, int channels) {
   b.audio_master = 1.0f;
   for (uint32_t i = 0; i < kMaxVoices; i++) b.voices[i] = Bridge::VoiceSlot{};
   BINFO("ses acildi: %s%s", b.audio_desc, cfg.null_backend ? " (NULL arka uc: TULPAR_ENGINE_AUDIO_NULL, hoparlore gitmez)" : "");
+  // Arka plandayken acilan ses (oyun PAUSE ile acilis arasinda) baslamasin.
+  if (b.app_paused && b.audio_dev.pause()) {
+    b.audio_auto_paused = true;
+    b.audio_auto_pauses++;
+    BINFO("uygulama arka planda: yeni acilan ses cihazi hemen durduruldu");
+  }
   return 1;
 }
 void teng_audio_close(void) {
@@ -3573,6 +3723,7 @@ void teng_audio_close(void) {
   b.mixer.stop_all();
   b.audio_dev.shutdown();
   b.audio_ok = false;
+  b.audio_auto_paused = false;
   for (uint32_t i = 0; i < kMaxVoices; i++) b.voices[i] = Bridge::VoiceSlot{};
   BINFO("ses kapatildi (%u cal cagrisi, %u klip)", b.audio_plays, b.clip_count);
   b.audio_desc[0] = 0;
