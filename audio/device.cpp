@@ -113,6 +113,23 @@ bool AudioDevice::init(Mixer &mixer, const DeviceConfig &cfg) {
   return true;
 }
 
+bool AudioDevice::pause() {
+  if (!impl_) return false;
+  if (paused_) return true;
+  const ma_result r = ma_device_stop(&static_cast<Impl *>(impl_)->device);
+  if (r != MA_SUCCESS) { std::snprintf(err_, sizeof err_, "ma_device_stop: %s", ma_result_description(r)); return false; }
+  paused_ = true;
+  return true;
+}
+bool AudioDevice::resume() {
+  if (!impl_) return false;
+  if (!paused_) return true;
+  const ma_result r = ma_device_start(&static_cast<Impl *>(impl_)->device);
+  if (r != MA_SUCCESS) { std::snprintf(err_, sizeof err_, "ma_device_start: %s", ma_result_description(r)); return false; }
+  paused_ = false;
+  return true;
+}
+
 void AudioDevice::shutdown() {
   if (!impl_) return;
   Impl *im = static_cast<Impl *>(impl_);
@@ -121,6 +138,7 @@ void AudioDevice::shutdown() {
   std::free(im);
   impl_ = nullptr;
   started_ = false;
+  paused_ = false;
 }
 
 } // namespace tulpar::engine::audio

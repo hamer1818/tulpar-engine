@@ -82,8 +82,92 @@ struct AndroidHost {
   platform::TouchState touch;
   bool window_ready = false, had_window = false, window_changed = false, quit = false;
   uint32_t low_memory = 0; // APP_CMD_LOW_MEMORY sayisi (kapanista basilir)
+  // Geri tusu (Geri bildirim #8). `back_to_game`i cekirdek kurar (oyun geri
+  // tusunu ilk sordugunda): o andan sonra BACK olayi tuketilir ve sistem
+  // etkinligi KAPATMAZ. Kurulmadiysa eski davranis: sistem kapatir (geri tusunu
+  // hic sormayan eski bir oyun telefonda kapanabilir kalsin).
+  tulpar::engine::bridge::BackKeyLatch back;
+  bool back_to_game = false;
+  bool paused = false; // APP_CMD_PAUSE .. APP_CMD_RESUME
+  // Guvenli alan (Geri bildirim #17): pencere/icerik degisince kirli, cekirdek
+  // sorunca (a_system) JNI ile BIR kez yeniden okunur — kare basina JNI yok.
+  bool insets_dirty = true;
+  int32_t inset[4] = {0, 0, 0, 0}; // sol, ust, sag, alt (pencere pikseli)
+  uint32_t inset_w = 0, inset_h = 0;
+  tulpar::engine::bridge::HostSystem sys;
 };
 AndroidHost g_host;
+
+// --- JNI yardimcisi: bu thread'i JVM'e bagla (zaten bagliysa dokunma) --------
+struct JniScope {
+  JavaVM *vm = nullptr;
+  JNIEnv *env = nullptr;
+  bool attached_here = false;
+  explicit JniScope(android_app *app) {
+    vm = app && app->activity ? app->activity->vm : nullptr;
+    if (!vm) return;
+    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_OK) return;
+    env = nullptr;
+    if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK) attached_here = true;
+    else env = nullptr;
+  }
+  ~JniScope() {
+    if (env && env->ExceptionCheck()) env->ExceptionClear();
+    if (attached_here) vm->DetachCurrentThread();
+  }
+  // Istisna atildiysa temizle ve false don (zincirdeki sonraki cagri yapilmasin).
+  bool ok() { if (!env) return false; if (env->ExceptionCheck()) { env->ExceptionClear(); return false; } return true; }
+};
+int android_sdk() {
+  char v[PROP_VALUE_MAX] = {0};
+  return __system_property_get("ro.build.version.sdk", v) > 0 ? std::atoi(v) : 0;
+}
+// DisplayCutout'un guvenli bosluklari (API 28+): Activity.getWindow()
+// .getDecorView().getRootWindowInsets().getDisplayCutout().getSafeInset*().
+// Pencere centige uzanmiyorsa (varsayilan tema: sistem centik seridini siyah
+// birakir) cutout null ya da bosluklar 0 doner. Herhangi bir halka eksikse 0.
+void query_insets(AndroidHost *h) {
+  h->insets_dirty = false;
+  int32_t in[4] = {0, 0, 0, 0};
+  if (h->app->window) { h->inset_w = (uint32_t)ANativeWindow_getWidth(h->app->window); h->inset_h = (uint32_t)ANativeWindow_getHeight(h->app->window); }
+  if (android_sdk() >= 28) {
+    JniScope j(h->app);
+    JNIEnv *e = j.env;
+    if (e) {
+      jobject act = h->app->activity->clazz;
+      jclass ca = e->GetObjectClass(act);
+      jmethodID m_win = j.ok() ? e->GetMethodID(ca, "getWindow", "()Landroid/view/Window;") : nullptr;
+      jobject win = m_win && j.ok() ? e->CallObjectMethod(act, m_win) : nullptr;
+      jobject decor = nullptr, ins = nullptr, cut = nullptr;
+      if (win && j.ok()) {
+        jmethodID m = e->GetMethodID(e->GetObjectClass(win), "getDecorView", "()Landroid/view/View;");
+        decor = m && j.ok() ? e->CallObjectMethod(win, m) : nullptr;
+      }
+      if (decor && j.ok()) {
+        jmethodID m = e->GetMethodID(e->GetObjectClass(decor), "getRootWindowInsets", "()Landroid/view/WindowInsets;");
+        ins = m && j.ok() ? e->CallObjectMethod(decor, m) : nullptr;
+      }
+      if (ins && j.ok()) {
+        jmethodID m = e->GetMethodID(e->GetObjectClass(ins), "getDisplayCutout", "()Landroid/view/DisplayCutout;");
+        cut = m && j.ok() ? e->CallObjectMethod(ins, m) : nullptr;
+      }
+      if (cut && j.ok()) {
+        jclass cc = e->GetObjectClass(cut);
+        const char *ad[4] = {"getSafeInsetLeft", "getSafeInsetTop", "getSafeInsetRight", "getSafeInsetBottom"};
+        for (int k = 0; k < 4; k++) {
+          jmethodID m = e->GetMethodID(cc, ad[k], "()I");
+          if (m && j.ok()) in[k] = e->CallIntMethod(cut, m);
+          if (!j.ok()) in[k] = 0;
+        }
+      }
+      j.ok();
+    }
+  }
+  if (in[0] != h->inset[0] || in[1] != h->inset[1] || in[2] != h->inset[2] || in[3] != h->inset[3])
+    std::printf("[engine_bridge] android: guvenli alan sol %d ust %d sag %d alt %d (pencere %ux%u, API %d)\n", in[0], in[1], in[2], in[3], h->inset_w,
+                h->inset_h, android_sdk());
+  for (int k = 0; k < 4; k++) h->inset[k] = in[k];
+}
 
 // Ad tablosu bridge/android_lifecycle.hpp'de (masaustu kapisi onu olcer). Sayilar
 // glue'nun enum'una KILITLI: glue sirayi degistirir ya da araya komut eklerse
@@ -107,9 +191,19 @@ void on_cmd(android_app *app, int32_t cmd) {
   case APP_CMD_INIT_WINDOW:
     h->window_ready = app->window != nullptr;
     if (h->window_ready && h->had_window) h->window_changed = true;
+    h->insets_dirty = true;
     break;
+  // Pencere / icerik dikdortgeni / yon degisti: centik baska kenara gecmis olabilir.
+  case APP_CMD_WINDOW_RESIZED:
+  case APP_CMD_CONTENT_RECT_CHANGED:
+  case APP_CMD_CONFIG_CHANGED: h->insets_dirty = true; break;
   case APP_CMD_TERM_WINDOW: h->window_ready = false; break;
   case APP_CMD_DESTROY: h->quit = true; break;
+  // Arka plan: PAUSE..RESUME (STOP/START bunlarin icinde). Cekirdek bir sonraki
+  // kare basinda gorur — arka planda dongu ~10 Hz suruyor (pencere yokken
+  // pompa 100 ms bekler), yani ses en gec ~100 ms icinde durur.
+  case APP_CMD_PAUSE: h->paused = true; break;
+  case APP_CMD_RESUME: h->paused = false; break;
   // Sistem bellegi daraliyor (onTrimMemory/onLowMemory). Motor bugun bir sey
   // BIRAKMIYOR (butun kapasiteler init'te, A2) — ama olgu sessiz kalmasin:
   // sayilir, o anki RSS ile loglanir ve kapanista toplam basilir. Bir oyunun
@@ -124,6 +218,13 @@ void on_cmd(android_app *app, int32_t cmd) {
 }
 int32_t on_input(android_app *app, AInputEvent *ev) {
   AndroidHost *h = static_cast<AndroidHost *>(app->userData);
+  if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_KEY) {
+    if (AKeyEvent_getKeyCode(ev) != AKEYCODE_BACK) return 0; // ses tuslari vb. sistemin
+    const int32_t a = AKeyEvent_getAction(ev);
+    if (a == AKEY_EVENT_ACTION_DOWN || a == AKEY_EVENT_ACTION_UP) h->back.on_key(a == AKEY_EVENT_ACTION_DOWN, AKeyEvent_getRepeatCount(ev));
+    // 1 = tuketildi: NativeActivity onBackPressed'e (finish) gitmez.
+    return h->back_to_game ? 1 : 0;
+  }
   if (AInputEvent_getType(ev) != AINPUT_EVENT_TYPE_MOTION) return 0;
   const int32_t action = AMotionEvent_getAction(ev);
   const int32_t kind = action & AMOTION_EVENT_ACTION_MASK;
@@ -148,6 +249,65 @@ int32_t on_input(android_app *app, AInputEvent *ev) {
   }
   return 1;
 }
+// --- Kayit dosyasi dis dizinde (Geri bildirim #19) ---------------------------
+// Kayit varsayilan olarak cikarma kokunde (/data/user/0/<paket>/files/assets/
+// tulpar_kayit.txt): adb okuyamaz, Huawei'de `run-as` de calismiyor (Tuzaklar
+// 8n) — ayar ekrani yalniz dokunarak sinanabiliyordu. TANI SECENEGI:
+//   adb shell setprop debug.tulpar.kayit dis
+// ve APK HATA AYIKLANABILIR ise (TulparLang: TULPAR_ANDROID_DEBUGGABLE=1 tulpar
+// build ...) kayit dis uygulama dizinine gider: /sdcard/Android/data/<paket>/
+// files/tulpar_kayit.txt — `adb pull`/`adb push` ile okunur/yazilir. Ilk
+// acilista ic kayit oraya KOPYALANIR (mevcut ayarlar gorunsun). Yayin (hata
+// ayiklanamaz) APK'da ozellik YOK SAYILIR: oyuncunun kaydi baska uygulamalarin
+// okuyabildigi dizine tasinmaz. Oyunun kendi kayit_ac(yol)'u ve
+// TULPAR_ENGINE_SAVE her seyi ezer (yalniz varsayilan yol degisir).
+bool app_debuggable(android_app *app) {
+  JniScope j(app);
+  JNIEnv *e = j.env;
+  if (!e) return false;
+  jobject act = app->activity->clazz;
+  jmethodID m = e->GetMethodID(e->GetObjectClass(act), "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;");
+  jobject ai = m && j.ok() ? e->CallObjectMethod(act, m) : nullptr;
+  if (!ai || !j.ok()) return false;
+  jfieldID f = e->GetFieldID(e->GetObjectClass(ai), "flags", "I");
+  if (!f || !j.ok()) return false;
+  const jint flags = e->GetIntField(ai, f);
+  return j.ok() && (flags & 0x2) != 0; // ApplicationInfo.FLAG_DEBUGGABLE
+}
+void save_mirror_external(android_app *app, const char *internal_assets) {
+  char v[PROP_VALUE_MAX] = {0};
+  if (__system_property_get("debug.tulpar.kayit", v) <= 0 || std::strcmp(v, "dis") != 0) return;
+  if (std::getenv("TULPAR_ENGINE_SAVE")) { std::printf("[engine_bridge] android: debug.tulpar.kayit=dis — TULPAR_ENGINE_SAVE zaten kurulu, dokunulmadi\n"); return; }
+  if (!app_debuggable(app)) {
+    std::printf("[engine_bridge] android: debug.tulpar.kayit=dis YOK SAYILDI — APK hata ayiklanabilir degil (yalniz debug derlemede; "
+                "TULPAR_ANDROID_DEBUGGABLE=1 ile derle)\n");
+    return;
+  }
+  const char *ext = app->activity->externalDataPath;
+  if (!ext || !*ext) { std::printf("[engine_bridge] android: debug.tulpar.kayit=dis — dis dizin yok, ic kayit kullaniliyor\n"); return; }
+  static char dis[600];
+  std::snprintf(dis, sizeof dis, "%s/tulpar_kayit.txt", ext);
+  char ic[600];
+  std::snprintf(ic, sizeof ic, "%s/tulpar_kayit.txt", internal_assets);
+  struct stat st;
+  bool kopya = false;
+  if (stat(dis, &st) != 0) {
+    if (FILE *src = std::fopen(ic, "rb")) {
+      if (FILE *dst = std::fopen(dis, "wb")) {
+        char buf[4096];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof buf, src)) > 0) std::fwrite(buf, 1, n, dst);
+        std::fclose(dst);
+        kopya = true;
+      }
+      std::fclose(src);
+    }
+  }
+  setenv("TULPAR_ENGINE_SAVE", dis, 1);
+  std::printf("[engine_bridge] android: kayit DIS dizinde (hata ayiklama tanisi, debug.tulpar.kayit=dis): %s%s\n", dis,
+              kopya ? " — ic kayit kopyalandi" : "");
+}
+
 // --- APK varlik cikarimi (alt dizinler dahil) ------------------------------
 struct AssetWalk {
   AAssetManager *mgr = nullptr;
@@ -280,6 +440,18 @@ bridge::HostPoll a_poll(void *user, uint32_t *w, uint32_t *h_) {
   if (h->window_changed) { h->window_changed = false; return bridge::HostPoll::WindowChanged; }
   return bridge::HostPoll::Run;
 }
+const bridge::HostSystem *a_system(void *user) {
+  AndroidHost *h = static_cast<AndroidHost *>(user);
+  h->sys.back_presses = h->back.presses;
+  h->sys.back_down = h->back.down;
+  h->sys.paused = h->paused;
+  h->sys.low_memory = h->low_memory;
+  if (h->insets_dirty && h->window_ready) query_insets(h);
+  h->sys.inset_l = h->inset[0]; h->sys.inset_t = h->inset[1]; h->sys.inset_r = h->inset[2]; h->sys.inset_b = h->inset[3];
+  h->sys.inset_w = h->inset_w; h->sys.inset_h = h->inset_h;
+  return &h->sys;
+}
+void a_back_to_game(void *user, bool on) { static_cast<AndroidHost *>(user)->back_to_game = on; }
 const platform::TouchState *a_touch(void *user) {
   AndroidHost *h = static_cast<AndroidHost *>(user);
   if (h->app->window) {
@@ -305,10 +477,14 @@ bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h
   out->touch = a_touch;
   out->input = nullptr;
   out->close = nullptr;
+  out->system = a_system;
+  out->back_to_game = a_back_to_game;
   std::printf("[engine_bridge] android host: pencere %dx%d\n", ANativeWindow_getWidth(g_host.app->window), ANativeWindow_getHeight(g_host.app->window));
   return true;
 }
 void bridge_host_close(BridgeHost *) {
+  // Ayni surecte sonraki oturum geri tusunu yeniden sormadikca sistem kapatir.
+  g_host.back_to_game = false;
   std::printf("[engine_bridge] android host: kapatildi (dusuk bellek uyarisi %u)\n", g_host.low_memory);
 }
 } // namespace tulpar::engine::bridge
@@ -352,6 +528,7 @@ extern "C" void android_main(android_app *app) {
   platform::crash_reporter_install(cc);
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
+  save_mirror_external(app, assets);
 
   // Oyunun giris noktasi: Tulpar objesinin `main`i (raylib'in rcore_android'i
   // ile ayni desen). Dogrudan bildirim -> sembol yoksa LINK'te patlar

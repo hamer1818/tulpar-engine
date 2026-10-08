@@ -93,6 +93,38 @@ ENGINE_TEST(audio_null_device_runs_callbacks) {
   dev.shutdown();
 }
 
+// Geri bildirim #9: Android'de uygulama arka plana gecince AAudio akisi `started`
+// kaliyordu. AudioDevice::pause/resume cihazi gercekten DURDURUYOR mu: duraklamada
+// callback sayaci sabit, donuste yine artiyor; ikinci pause/resume zararsiz.
+// KONTROL: duraklatmadan ayni bekleme callback sayacini artirir (olcu calisiyor).
+ENGINE_TEST(audio_device_pause_stops_callbacks_resume_restarts) {
+  audio::Mixer mx;
+  audio::AudioDevice dev;
+  audio::DeviceConfig cfg;
+  cfg.null_backend = true;
+  if (!dev.init(mx, cfg)) { std::printf("    [bilgi] null cihaz: %s\n", dev.last_error()); CHECK(false); return; }
+  platform::thread_sleep_us(100000);
+  const uint64_t c0 = mx.stats().callbacks;
+  platform::thread_sleep_us(100000);
+  const uint64_t c1 = mx.stats().callbacks; // KONTROL: duraklamasiz artar
+  CHECK(dev.pause() && dev.paused() && dev.ok());
+  CHECK(dev.pause()); // ikinci kez: zararsiz
+  const uint64_t c2 = mx.stats().callbacks;
+  platform::thread_sleep_us(150000);
+  const uint64_t c3 = mx.stats().callbacks; // duraklamada sabit
+  CHECK(dev.resume() && !dev.paused());
+  CHECK(dev.resume());
+  platform::thread_sleep_us(150000);
+  const uint64_t c4 = mx.stats().callbacks;
+  std::printf("    [bilgi] ses duraklatma: calisirken +%llu callback / 100 ms, durakliyken +%llu / 150 ms, donuste +%llu / 150 ms\n",
+              (unsigned long long)(c1 - c0), (unsigned long long)(c3 - c2), (unsigned long long)(c4 - c3));
+  CHECK(c1 > c0);
+  CHECK(c3 == c2);
+  CHECK(c4 > c3);
+  dev.shutdown();
+  CHECK(!dev.paused() && !dev.pause() && !dev.resume()); // kapali cihaz: false, cokme yok
+}
+
 ENGINE_TEST(audio_default_device_opens) {
   static SystemArena sys;
   if (!sys.reserve(8u << 20, "audio_real")) { CHECK(false); return; }

@@ -2250,6 +2250,146 @@ ENGINE_TEST(bridge_android_lifecycle_names_every_glue_command) {
               adli, (int)kAndroidCmdCount, cift, eski_eksik);
 }
 
+// --- Geri tusu (Geri bildirim #8) ------------------------------------------------
+// Android'de geri tusu etkinligi KAPATIYORDU (savas kayboluyordu). Iki parca:
+// (1) host mandali: `input keyevent KEYCODE_BACK` DOWN ile UP'i AYNI pompada
+// verir — "su an basili mi" tutan bir host basisi kaybeder; mandal SAYAR.
+// (2) cekirdek: eng_back_pressed tam BIR kare true, oyun sorunca host'a
+// "tuket" der (cihazda: tools/android_yasam_dongusu.sh). KONTROL: ayni olay
+// dizisini "kare basinda basili mi" diye ornekleyen saf okuma basisi kaybeder.
+ENGINE_TEST(bridge_back_key_latch_keeps_press_released_in_same_pump) {
+  using namespace tulpar::engine::bridge;
+  BackKeyLatch l;
+  BackKeySample smp;
+  CHECK(!smp.sample(l.presses));
+  // Pompa 1: DOWN + UP (adb keyevent / hizli parmak) — kare ornegi ARADA degil.
+  l.on_key(true, 0);
+  l.on_key(false, 0);
+  const bool saf_okuma = l.down; // KONTROL: eski "basili mi" ornegi
+  const bool k1 = smp.sample(l.presses);
+  CHECK(k1 && smp.count == 1);
+  CHECK(!saf_okuma);
+  CHECK(!smp.sample(l.presses)); // sonraki kare: kenar yok
+  // Basili tutma: tekrar olaylari yeni basis degil.
+  l.on_key(true, 0);
+  CHECK(smp.sample(l.presses) && l.down);
+  l.on_key(true, 1);
+  l.on_key(true, 2);
+  CHECK(!smp.sample(l.presses) && l.down);
+  l.on_key(false, 0);
+  CHECK(!smp.sample(l.presses) && !l.down);
+  // Iki basis tek pompada: BIR kenar, sayisi 2.
+  l.on_key(true, 0); l.on_key(false, 0); l.on_key(true, 0); l.on_key(false, 0);
+  CHECK(smp.sample(l.presses) && smp.count == 2);
+  std::printf("    [bilgi] geri mandali: DOWN+UP ayni pompada -> kenar %d (saf 'basili mi' okumasi %d), tekrarlar sayilmaz, cift basis count %u\n",
+              (int)k1, (int)saf_okuma, smp.count);
+}
+
+ENGINE_TEST(bridge_back_pressed_is_one_frame_edge_headless) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("geri tusu", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  teng_frame_begin();
+  CHECK(teng_back_pressed() == 0); // KONTROL: enjeksiyonsuz kare
+  teng_frame_end();
+  teng_back_test_press();
+  teng_frame_begin();
+  const int k1 = teng_back_pressed();
+  const int k1b = teng_back_pressed(); // ayni kare, ikinci soru: yine true (tuketmez)
+  const int esc = teng_key_pressed("ESC"); // masaustu/penceresiz: Esc tusu ayri, eslenmez
+  teng_frame_end();
+  teng_frame_begin();
+  const int k2 = teng_back_pressed();
+  teng_frame_end();
+  CHECK(k1 == 1 && k1b == 1 && k2 == 0 && esc == 0);
+  CHECK(teng_key_pressed("GERI") == 0 && teng_error_count() == e0); // "GERI"/"BACK" gecerli tus adi
+  std::printf("    [bilgi] geri: enjekte kare %d (ikinci soru %d), sonraki kare %d, penceresizde ESC %d\n", k1, k1b, k2, esc);
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "kapanis (geri tusu): 1 basis, oyuna bagli evet") != nullptr);
+}
+
+// --- Arka planda ses (Geri bildirim #9) -------------------------------------------
+// Android'de ana ekrana donunce oyunun AAudio akisi `state:started` kaliyordu.
+// Cekirdek host'un arka plan durumunu kare basinda gorur ve ses cihazini
+// DURDURUR, donuste SURDURUR. Penceresizde host yok: teng_debug_app_pause taklit
+// eder (cihazda: tools/android_yasam_dongusu.sh `dumpsys audio`). Olcu: mixer
+// callback sayaci (NULL arka uc). KONTROL: on plandayken ayni bekleme sayaci artirir.
+ENGINE_TEST(bridge_app_pause_stops_and_resumes_audio_headless) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("arka plan", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  const int ton = teng_audio_tone(440, 0.5);
+  CHECK(ton >= 0 && teng_audio_play(ton, 0.2, 1) > 0);
+  auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  kare();
+  platform::thread_sleep_us(100000);
+  const long long c0 = teng_debug_audio_callbacks();
+  platform::thread_sleep_us(100000);
+  const long long c1 = teng_debug_audio_callbacks(); // KONTROL: on planda artar
+  CHECK(teng_app_paused() == 0);
+  teng_debug_app_pause(1);
+  kare(); // gecis kare basinda
+  const int p1 = teng_app_paused();
+  const long long c2 = teng_debug_audio_callbacks();
+  platform::thread_sleep_us(150000);
+  kare();
+  const long long c3 = teng_debug_audio_callbacks(); // arka planda sabit
+  CHECK(teng_audio_play(ton, 0.2, 0) > 0);           // ses cagrilari arka planda da gecerli (hata degil)
+  teng_debug_app_pause(0);
+  kare();
+  const int p2 = teng_app_paused();
+  platform::thread_sleep_us(150000);
+  const long long c4 = teng_debug_audio_callbacks();
+  std::printf("    [bilgi] arka plan: on planda +%lld callback / 100 ms, arka planda +%lld / 150 ms, donuste +%lld / 150 ms; paused %d -> %d\n",
+              c1 - c0, c3 - c2, c4 - c3, p1, p2);
+  CHECK(c1 > c0 && c3 == c2 && c4 > c3);
+  CHECK(p1 == 1 && p2 == 0 && teng_error_count() == e0 && teng_low_memory_count() == 0);
+  kapanis_yakala();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  CHECK(std::strstr(g_kapanis_log, "kapanis (yasam dongusu): 1 kez arka plan, ses 1 kez durduruldu") != nullptr);
+}
+
+// --- Guvenli alan (Geri bildirim #17) ---------------------------------------------
+// Telefonda pencere centige uzaninca (TulparLang [android] cutout = "short_edges")
+// HUD centigin altina girmesin diye oyun kenar bosluklarini okur. Host degeri
+// kare basinda alinir; penceresizde host yok, teng_debug_safe_insets taklit eder
+// (cihazda: tools/android_yasam_dongusu.sh "guvenli alan" satiri). KONTROL:
+// taklitsiz ve masaustu/penceresiz 0 — "hep 81" donen bir yol da yesil olmasin.
+ENGINE_TEST(bridge_safe_insets_follow_host_each_frame_headless) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("guvenli alan", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  kare();
+  const int s0 = teng_safe_inset_left() + teng_safe_inset_top() + teng_safe_inset_right() + teng_safe_inset_bottom();
+  teng_debug_safe_insets(81, 0, 0, 12);
+  const int once = teng_safe_inset_left(); // kare basindan once degismez
+  kare();
+  const int l = teng_safe_inset_left(), t = teng_safe_inset_top(), r = teng_safe_inset_right(), b = teng_safe_inset_bottom();
+  teng_debug_safe_insets(0, 0, 81, 0); // yon degisti: centik saga gecti
+  kare();
+  const int r2 = teng_safe_inset_right(), l2 = teng_safe_inset_left();
+  teng_debug_safe_insets(-1, -1, -1, -1); // taklit kapali: penceresizde 0
+  kare();
+  const int s3 = teng_safe_inset_left() + teng_safe_inset_right() + teng_safe_inset_bottom();
+  std::printf("    [bilgi] guvenli alan: baslangic %d, taklit (81,0,0,12) -> (%d,%d,%d,%d), yon (0,0,81,0) -> sol %d sag %d, kapali %d\n", s0, l, t, r,
+              b, l2, r2, s3);
+  CHECK(s0 == 0 && once == 0);
+  CHECK(l == 81 && t == 0 && r == 0 && b == 12);
+  CHECK(l2 == 0 && r2 == 81 && s3 == 0);
+  teng_shutdown();
+}
+
 // --- Geri bildirim #10: fizik duraklatma + zaman olcegi ------------------------
 // Oyunun duraklat menusunde mermiler ucmaya devam ediyordu: teng_frame_end fizigi
 // her kare adimliyordu ve kopruden durdurmanin yolu yoktu. Olcu (uc oturum, ayni
