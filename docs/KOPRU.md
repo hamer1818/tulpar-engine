@@ -271,6 +271,14 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   tutulur: ışınlanıp yeniden kurulan dinamik gövdeye yeniden yazılır (`bridge_collision_groups_*` bunu ve
   pozitif kontrolü ölçer). Işın testi ve seçme grupları görmez. İlk kullanıcı: oyunda takım mermisi kendi
   birliklerinden geçer (telefonda 1029 mermide 0 dost değmesi; süzgeç kapalıyken 9600 karede 111 — 2026-10-08).
+- **Hata ayıklama hızlı sarması** (2026-10-08): masaüstünde `TULPAR_ENGINE_HIZ=<1..8>`, Android'de **yalnız
+  hata ayıklanabilir APK'da** `adb shell setprop debug.tulpar.hiz 4` (host ~yarım saniyede bir okur; oturum
+  ortasında `1` ile normale dönülür). Zaman ölçeğini kurar: fizik kare başına DAHA ÇOK sabit adım atar (büyük
+  adım yok; 4'ün üstünde kare başına `ceil(ölçek)+1` adım tavanı), oyun kendi mantık adımını
+  `zaman_olcegi_al()` ile çarpar. `debug.tulpar.env = "AD=değer;AD2=değer2"` aynı kapıyla oyunun ortam
+  değişkenlerini verir (örnek: oyunun otopilotu telefonda). Yayın APK'sı ikisini de okumaz (`YOK SAYILDI`
+  basar). Kapı: `bridge_debug_speed_env_runs_more_fixed_steps` (x4: 60 karede 240 adım, x8: 10 karede 80;
+  pozitif kontrol değişkensiz 60). Ölçüldü P20 Pro: oyunun 345 s'lik savaşı ~86 s'de.
 - **Sahne varlığını gizle/göster** (2026-10-08, yıkılan kale): `sahne_gorunur(i, false)` varlığı çizmez,
   ışığını eklemez ve gövdesini fizik dünyasından çıkarır (Jolt `RemoveBody`; çarpışmaz, ışın görmez);
   `true` hepsini geri getirir, sahne yeniden yüklenince hepsi görünür. `sahne_olcek_x/y/z`, `sahne_renk`,

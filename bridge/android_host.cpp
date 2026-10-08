@@ -95,6 +95,9 @@ struct AndroidHost {
   int32_t inset[4] = {0, 0, 0, 0}; // sol, ust, sag, alt (pencere pikseli)
   uint32_t inset_w = 0, inset_h = 0;
   tulpar::engine::bridge::HostSystem sys;
+  // debug.tulpar.hiz: yalniz debuggable APK (android_main'de bir kez sorulur).
+  bool debuggable = false;
+  uint32_t speed_poll = 0;
 };
 AndroidHost g_host;
 
@@ -464,6 +467,12 @@ const bridge::HostSystem *a_system(void *user) {
   if (h->insets_dirty && h->window_ready) query_insets(h);
   h->sys.inset_l = h->inset[0]; h->sys.inset_t = h->inset[1]; h->sys.inset_r = h->inset[2]; h->sys.inset_b = h->inset[3];
   h->sys.inset_w = h->inset_w; h->sys.inset_h = h->inset_h;
+  // Hata ayiklama hizi: ~30 karede bir ozellik okunur (ucuz, JNI yok). Yayin
+  // derlemesinde hic okunmaz: debug_speed 0 kalir, cekirdek dokunmaz.
+  if (h->debuggable && (h->speed_poll++ % 30) == 0) {
+    char v[PROP_VALUE_MAX] = {0};
+    h->sys.debug_speed = __system_property_get("debug.tulpar.hiz", v) > 0 ? (float)std::atof(v) : 0.0f;
+  }
   return &h->sys;
 }
 void a_back_to_game(void *user, bool on) { static_cast<AndroidHost *>(user)->back_to_game = on; }
@@ -543,6 +552,25 @@ extern "C" void android_main(android_app *app) {
   platform::crash_reporter_install(cc);
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
+  g_host.debuggable = app_debuggable(app);
+  // debug.tulpar.env = "AD=deger;AD2=deger2": YALNIZ hata ayiklanabilir APK'da
+  // oyunun ortam degiskenleri (masaustundeki `AD=deger tulpar oyun.tpr`un
+  // telefondaki karsiligi; ornek: oyunun otopilotu). Yayin APK'si okumaz.
+  char env_v[PROP_VALUE_MAX] = {0};
+  if (__system_property_get("debug.tulpar.env", env_v) > 0) {
+    if (!g_host.debuggable) {
+      std::printf("[engine_bridge] android: debug.tulpar.env YOK SAYILDI — APK hata ayiklanabilir degil\n");
+    } else {
+      char *save = nullptr;
+      for (char *tok = strtok_r(env_v, ";", &save); tok; tok = strtok_r(nullptr, ";", &save)) {
+        char *eq = std::strchr(tok, '=');
+        if (!eq || eq == tok) continue;
+        *eq = 0;
+        setenv(tok, eq + 1, 1);
+        std::printf("[engine_bridge] android: debug.tulpar.env %s=%s\n", tok, eq + 1);
+      }
+    }
+  }
   save_mirror_external(app, assets);
 
   // Oyunun giris noktasi: Tulpar objesinin `main`i (raylib'in rcore_android'i

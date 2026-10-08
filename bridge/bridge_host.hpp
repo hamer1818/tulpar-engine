@@ -29,6 +29,11 @@ struct HostSystem {
   // sistem pencereyi centikten uzak tutuyorsa (varsayilan tema) hepsi 0.
   int32_t inset_l = 0, inset_t = 0, inset_r = 0, inset_b = 0;
   uint32_t inset_w = 0, inset_h = 0;
+  // HATA AYIKLAMA HIZLI SARMA: yalniz hata ayiklanabilir (debug) APK'da host
+  // `debug.tulpar.hiz` ozelligini okur (kare basina degil, ~yarim saniyede bir:
+  // oturum ortasinda `setprop debug.tulpar.hiz 1` ile normal hiza donulur).
+  // 0 = yok (yayin derlemesi ya da ozellik bos): cekirdek dokunmaz.
+  float debug_speed = 0.0f;
 };
 
 struct BridgeHost {

@@ -627,6 +627,7 @@ struct Bridge {
   // kare basinda; gecis aninda ses cihazi durdurulur/surdurulur. `audio_auto_paused`:
   // sesi MOTOR durdurdu (donuste yalniz onu surdurur).
   bool app_paused = false, app_pause_debug = false, app_pause_debug_on = false, audio_auto_paused = false;
+  float debug_speed = 0.0f; // hata ayiklama hizli sarmasi (TULPAR_ENGINE_HIZ / debug.tulpar.hiz); 0 = yok
   uint32_t app_pauses = 0, audio_auto_pauses = 0, low_memory = 0;
   // Guvenli alan (Geri bildirim #17), teng_width/height biriminde; host'tan kare
   // basinda (ya da teng_debug_safe_insets). `safe_debug`: taklit acik.
@@ -1340,6 +1341,7 @@ int init_geri_al(Bridge &b, const char *asama) {
   return 0;
 }
 
+static void apply_time_scale(Bridge &b, double scale);
 int teng_init(const char *title, int width, int height) {
   if (!g) g = new (g_storage) Bridge();
   Bridge &b = *g;
@@ -1362,6 +1364,9 @@ int teng_init(const char *title, int width, int height) {
     if (b.alloc_kontrol) { blog(1, "UYARI kare ici ayirma POZITIF KONTROLU acik: frame_end her kare %u ayirma yapar (TULPAR_ENGINE_ALLOC_KONTROL)", b.alloc_kontrol); g_log.warnings++; }
   }
   if (const char *lv = std::getenv("TULPAR_ENGINE_LOG")) g_log.level = std::atoi(lv);
+  // Masaustu karsiligi: TULPAR_ENGINE_HIZ=<1..8> (gelistirme makinesi; Android'de
+  // yalniz debug APK'da debug.tulpar.hiz). Kurulumdan SONRA uygulanir (asagida).
+  const char *hiz_env = std::getenv("TULPAR_ENGINE_HIZ");
   if (const char *hf = std::getenv("TULPAR_ENGINE_HEADLESS"); hf && *hf && !b.headless) { b.headless = true; b.headless_frames = (uint32_t)std::atoi(hf); if (b.headless_frames == 0) b.headless_frames = 60; }
   if (const char *op = std::getenv("TULPAR_ENGINE_OUT"); op && *op && !b.out_ppm[0]) std::snprintf(b.out_ppm, sizeof b.out_ppm, "%s", op);
   std::snprintf(b.title, sizeof b.title, "%s", title ? title : "Tulpar");
@@ -1588,6 +1593,13 @@ int teng_init(const char *title, int width, int height) {
   if (b.embed) b.chan.set_state(platform::GameChildState::Running);
   b.shadow_avail = b.ren.shadow().enabled;
   BINFO("motor hazir (%s, %s)", b.embed ? "gomulu" : b.headless ? "headless" : "pencere", b.dev.caps().device_name);
+  if (hiz_env && *hiz_env) {
+    double k = std::atof(hiz_env);
+    k = k < 1.0 ? 1.0 : (k > 8.0 ? 8.0 : k);
+    apply_time_scale(b, k);
+    b.debug_speed = (float)k;
+    BINFO("HATA AYIKLAMA HIZI x%.1f (TULPAR_ENGINE_HIZ) — kare basina en cok %u sim adimi", k, b.fs.max_ticks_per_frame);
+  }
   {
     // PSO onbellegi GORUNUR olmali: sessizce kapali kaldigi bir platformda
     // (Android'de XDG_CACHE_HOME/HOME/TMPDIR uculu tanimsizdir) hicbir sey
@@ -1752,6 +1764,18 @@ int teng_frame_begin(void) {
       b.low_memory = sy->low_memory;
     }
     if (p != b.app_paused) app_pause_transition(b, p);
+    // Hata ayiklama hizli sarma (yalniz debug APK'da host doldurur): degisince
+    // zaman olcegi olur ve BIR kez loglanir. 1..8 disi kirpilir.
+    if (!b.headless && b.host.system) {
+      const float hz = b.host.system(b.host.user)->debug_speed;
+      if (hz > 0.0f && hz != b.debug_speed) {
+        b.debug_speed = hz;
+        const double k = hz < 1.0f ? 1.0 : (hz > 8.0f ? 8.0 : (double)hz);
+        apply_time_scale(b, k);
+        BINFO("HATA AYIKLAMA HIZI x%.1f (debug.tulpar.hiz; yalniz hata ayiklanabilir APK) — kare basina en cok %u sim adimi",
+              k, b.fs.max_ticks_per_frame);
+      }
+    }
     // Guvenli alan: host pencere pikselinde verir, oyun mantiksal boyu
     // (teng_width/height) kullanir — swapchain olcusu pencereden farkliysa olcekle.
     int32_t s[4] = {0, 0, 0, 0};
@@ -2572,15 +2596,21 @@ void teng_physics_pause(int paused) {
   BDBG("fizik %s (kare %u, sim adimi %u)", p ? "DURAKLATILDI" : "devam ediyor", g->frame, g->tick);
 }
 int teng_physics_paused(void) { return g && g->fs.paused ? 1 : 0; }
+// Kare basina en cok sim adimi: olcekle birlikte (4x'e kadar 4; ustunde
+// ceil(olcek)+1). Buyuk adim YOK: hizlanma kare basina DAHA COK sabit adim
+// demek (sim::FixedStep: olcek kare suresine uygulanir, adima degil).
+static void apply_time_scale(Bridge &b, double scale) {
+  b.fs.time_scale = (float)scale;
+  b.fs.max_ticks_per_frame = scale > 4.0 ? (uint32_t)std::ceil(scale) + 1u : 4u;
+}
 void teng_time_scale(double scale) {
   CALLF("teng_time_scale", "%.3f", scale);
   if (!g) g = new (g_storage) Bridge();
-  if (!(scale >= 0.0) || scale > 4.0) {
-    BERR("teng_time_scale: olcek 0..4 olmali (%.3f), kirpildi", scale);
-    scale = scale > 4.0 ? 4.0 : 0.0;
+  if (!(scale >= 0.0) || scale > 8.0) {
+    BERR("teng_time_scale: olcek 0..8 olmali (%.3f), kirpildi", scale);
+    scale = scale > 8.0 ? 8.0 : 0.0;
   }
-  // max_ticks_per_frame 4: 4x'in ustu kare basina kirpilir ve sayilir (spiral of death).
-  g->fs.time_scale = (float)scale;
+  apply_time_scale(*g, scale);
 }
 double teng_time_scale_get(void) { return g ? (double)g->fs.time_scale : 1.0; }
 int teng_sim_tick(void) { return g ? (int)g->tick : 0; }
