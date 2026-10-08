@@ -55,7 +55,16 @@ using namespace tulpar::engine;
 namespace {
 constexpr float kBridgePi = 3.14159265358979f;
 constexpr uint32_t kMaxEntities = 4096;
-constexpr uint32_t kMaxModels = 16;
+// Model tavani: oyun 10 sus modeli + 30 iskeletli birlik karakteri (2 taraf x 5 cag x
+// 3 tur, tools/kup_kure_karakter.py) = 40 yukluyor (2026-10-08). 16'da 17. model
+// "kapasite dolu" HATA'si verip -1 donuyordu. Model basina dizi yuku ~0.5 KB.
+constexpr uint32_t kMaxModels = 64;
+// Renderer havuzlari (RendererConfig varsayilani 64/64): her ISKELETSIZ glTF mesh'i
+// LOD0 + 2 ayrik LOD = 3 mesh tutamaci, her iskeletli mesh 1, her goruntu 1 doku.
+// Oyun + 30 karakter: ~70 mesh, ~35 doku — 64 mesh'te upload_model dusuyordu.
+// Havuz yalniz tutamac dizisi (Mesh/Texture kaydi), GPU bellegi kullanildikca.
+constexpr uint32_t kRenderMaxMeshes = 256;
+constexpr uint32_t kRenderMaxTextures = 128;
 constexpr uint32_t kMaxClips = 32;  // ses klibi (dosya + sentetik ton)
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
 constexpr uint32_t kMaxHud = 1024;
@@ -1372,6 +1381,8 @@ int teng_init(const char *title, int width, int height) {
   }
   renderer::RendererConfig rc;
   rc.srgb_target = b.headless ? true : b.swap.srgb_output();
+  rc.max_meshes = kRenderMaxMeshes;
+  rc.max_textures = kRenderMaxTextures;
   // Parlama: ic HDR hedefi kare olcusunde kurulur (yeniden boyutlandirma init
   // ister; pencere buyurse birlestirme gerilir — bugunku sinir, logda soylenir).
   if (const char *bl = std::getenv("TULPAR_ENGINE_BLOOM"); bl && *bl && bl[0] != '0') b.bloom = true;
@@ -2282,6 +2293,11 @@ void teng_shutdown(void) {
   BINFO("kapanis: %u kare, %.1f s, p50 %.2f ms p99 %.2f ms, varlik %u (en yuksek yuva %u), govde %u, model %u, hata %u, uyari %u",
         b.frame, b.time_s, st.p50_ns / 1e6, st.p99_ns / 1e6, b.ent_alive, b.ent_high, b.phys.stats().bodies, b.model_count,
         g_log.errors - b.oturum_hata0, g_log.warnings - b.oturum_uyari0);
+  {
+    const renderer::RendererStats rs = b.ren.stats();
+    BINFO("kapanis (kaynak havuzu): model %u/%u, mesh %u/%u, doku %u/%u, malzeme %u", b.model_count, kMaxModels, rs.meshes,
+          kRenderMaxMeshes, rs.textures, kRenderMaxTextures, rs.materials);
+  }
   if (b.phys_pauses || b.fs.time_scale != 1.0f)
     BINFO("kapanis (fizik): %u duraklatma, %u kare durakli (sim adimi atilmadi), zaman olcegi %.2f, %u sim adimi", b.phys_pauses,
           b.phys_paused_frames, (double)b.fs.time_scale, b.tick);

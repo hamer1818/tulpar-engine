@@ -947,7 +947,7 @@ bölüm yorumlarına göre):
 | varlıklar (köprü sahibi) | 35 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** / **kinematik kutu / küre** (+ sür, kinematik mi) üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı, **çarpışma grubu** (yaz/oku, grup çifti yaz/oku), **dönme kilidi** (yaz/oku) |
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |
 | kodla betik bağlama | 4 | bağla (`baslat` hemen), çöz (`bitir`), bağlı betiğin adı, bağlı varlık sayısı — kancalar sahneninkilerle aynı yerde (§7.10) |
-| model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
+| model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi — klip atanmamış iskeletli model **bind pozunda** çizilir (eskiden görünmezdi, Tuzaklar 8da); köprü 64 model, renderer 256 mesh / 128 doku tutar (kapanış raporu: `kapanis (kaynak havuzu)`) |
 | girdi | 14 | tuş basılı / bu karede basıldı, **geri** (Android geri tuşu / masaüstünde Esc; ilk soru geri tuşunu oyuna bağlar) + pencersiz enjekte, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |
 | 2B arayüz (HUD) | 3 | `eng_text`, `eng_rect`, `eng_text_width` — kare içinde kuyruklanır, `frame_end` çizer |
 | anlık-kip arayüz | 14 | `ui_begin`/`ui_end`, tema, etkin/pasif, panel, etiket, **düğme**, **onay kutusu**, **kaydırıcı**, basılı mı, tıklama sayacı, pencersiz doğrulama için **enjekte tıklama**, **yazı sığdırma sayaçları** (küçültülen / kırpılan) |

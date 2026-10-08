@@ -2094,6 +2094,28 @@ piksel %0.02, **pozitif kontrol** sabit eğilim 24586 piksel %60; RTX 5080, 2026
 hangi texel'de yapıldıysa orada doğrudur. Ölçeklemeyi parametrenin tanımına yaz, yoksa kademe/tile değişikliği
 eğilimi sessizce bozar.
 
+### 8da. İskeletli model klip atanmadan çizilmez — ama "çizildi" sayılır, ve kapı boş ekranı "statik" sanar
+
+**Belirti:** `content::draw_model` iskeletli mesh'i yalnız bir **poz** verilince çiziyordu (`pose == nullptr`
+→ atla). Köprüde `eng_spawn_model` + klip atamamak = model **görünmez**; hata yok, uyarı yok, LOD sayacı
+"LOD0'da çizildi" diye artıyor. Köprü kapısının animasyon bölümü (`bridge_runs_a_scripted_game_headless`
+§10) "statik kare" ile "pozlu kare"yi karşılaştırıp farkın > 100 piksel olmasını istiyordu — statik kare
+aslında **boş ekrandı**, fark modelin kendisiydi; kapı "animasyon pozu değiştiriyor" değil "model bir kez
+çizildi" ölçüyordu. Küp-küre oyununun yüzlü karakterleri (30 iskeletli glTF) eklenirken çıktı.
+
+**Düzeltme:** pozu olmayan iskeletli mesh **bind pozunda** çizilir: skin matrisi = model[j] · ters_bind[j]
+ve bind pozunda model[j] tam ters_bind'in tersidir, yani her eklem için birim matris (statik
+`kBindPose[kModelMaxJoints]`, kopyası yok). Animasyonlu yol değişmedi.
+
+**Kapı:** §10'a BOŞ kare eklendi (model kurulmadan önce): `statik(bind)-boş > 100` ve `pozlu-boş > 100`;
+eski kodda `statik(bind)-boş = 0` → kapı **kırmızı** (pozitif kontrol, 2026-10-08 RTX 5080: düzeltmeyle
+2678 / 2514 piksel, düzeltmesiz 0 / 2514). Karakter tarafı:
+`content_skinned_character_face_clips` — 17 eklemli iç içe iskelet, 8 klip, ölçek izleri; X gözleri `bekle`de
+ölçek 0 ile tek noktaya çöker, `ol`da yayılır (kontrol: göz beyazında ters sonuç).
+
+**Ders:** "çizilemedi"yi "çizildi" sayacına yazan dal, sessiz görünmezliğin ta kendisi. Piksel kapısının
+karşılaştırdığı iki karenin İKİSİNDE de nesnenin göründüğünü ayrıca ölç — farkın kaynağı "nesne yok" olabilir.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana

@@ -1076,16 +1076,22 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       CHECK(teng_model_clip_duration(model, 9) == 0.0);
       CHECK(teng_error_count() == errs_clip + 1);
 
-      char shot_stat[512], shot_stat2[512], shot_anim[512];
+      char shot_stat[512], shot_stat2[512], shot_anim[512], shot_bos[512];
       tmp_template(shot_stat, sizeof shot_stat, "kopru_stat");
       tmp_template(shot_stat2, sizeof shot_stat2, "kopru_stat2");
       tmp_template(shot_anim, sizeof shot_anim, "kopru_anim");
-      char *ashots[3] = {shot_stat, shot_stat2, shot_anim};
-      for (int i = 0; i < 3; i++) { const int fd = mkstemp(ashots[i]); if (fd >= 0) close(fd); }
+      tmp_template(shot_bos, sizeof shot_bos, "kopru_bos");
+      char *ashots[4] = {shot_stat, shot_stat2, shot_anim, shot_bos};
+      for (int i = 0; i < 4; i++) { const int fd = mkstemp(ashots[i]); if (fd >= 0) close(fd); }
 
+      // BOS kare (model yok): klipsiz iskeletli model BIND pozunda GORUNMELI
+      // (Tuzaklar 8da). Eskiden pozsuz iskeletli mesh hic cizilmiyordu ve
+      // "statik" kare bu bos kareydi — pozlu-statik farki modelin KENDISIYDI.
+      teng_camera(0, 1.2, 3.2, 0, 1.0, 0);
+      run_frames(2);
+      CHECK(teng_screenshot(shot_bos) == 1);
       const int ent = teng_spawn_model(model, 0, 0, 0, 1.0, 0xFFFFFFFF);
       CHECK(ent > 0);
-      teng_camera(0, 1.2, 3.2, 0, 1.0, 0);
       run_frames(2);
       CHECK(teng_screenshot(shot_stat) == 1);
       run_frames(1);
@@ -1099,20 +1105,25 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       CHECK(teng_anim_done(ent) == 0); // dongulu klip bitmez
       CHECK(teng_screenshot(shot_anim) == 1);
 
-      static uint8_t px_s[kW * kH * 3], px_s2[kW * kH * 3], px_a[kW * kH * 3];
+      static uint8_t px_s[kW * kH * 3], px_s2[kW * kH * 3], px_a[kW * kH * 3], px_b[kW * kH * 3];
       const uint32_t m1 = read_ppm(shot_stat, px_s, kW * kH, nullptr, nullptr);
       const uint32_t m2 = read_ppm(shot_stat2, px_s2, kW * kH, nullptr, nullptr);
       const uint32_t m3 = read_ppm(shot_anim, px_a, kW * kH, nullptr, nullptr);
-      CHECK(m1 > 0 && m1 == m2 && m2 == m3);
-      if (m1 > 0 && m1 == m2 && m2 == m3) {
+      const uint32_t m4 = read_ppm(shot_bos, px_b, kW * kH, nullptr, nullptr);
+      CHECK(m1 > 0 && m1 == m2 && m2 == m3 && m3 == m4);
+      if (m1 > 0 && m1 == m2 && m2 == m3 && m3 == m4) {
         const uint32_t d_anim = diff_px(px_a, px_s, m1), d_ctrl = diff_px(px_s, px_s2, m1);
-        std::printf("    [bilgi] animasyon: klip \"%s\" %.2f s, t=%.2f; piksel farki pozlu-statik %u, statik-statik %u\n",
-                    teng_model_clip_name(model, 0), sure, t_anim, d_anim, d_ctrl);
+        const uint32_t d_bind = diff_px(px_s, px_b, m1), d_anim_bos = diff_px(px_a, px_b, m1);
+        std::printf("    [bilgi] animasyon: klip \"%s\" %.2f s, t=%.2f; piksel farki pozlu-statik %u, statik-statik %u, "
+                    "statik(bind)-bos %u, pozlu-bos %u\n",
+                    teng_model_clip_name(model, 0), sure, t_anim, d_anim, d_ctrl, d_bind, d_anim_bos);
         if (test::gpu_is_virtual(teng_gpu_name())) {
           skip("sanal GPU (Apple Paravirtual, CI macOS): animasyon PIKSEL karsilastirmasi gercek cihazda");
         } else {
           CHECK(d_anim > 100);
           CHECK(d_ctrl == 0);
+          CHECK(d_bind > 100);     // klipsiz model GORUNUR (bind pozu)
+          CHECK(d_anim_bos > 100); // pozlu da gorunur: fark olcusu iki yonde de modeli goruyor
         }
       }
       // Tek sefer calan klip: sure dolunca biter (dongulude bitmiyordu).
@@ -1122,7 +1133,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       teng_set_anim(ent, -1, 1.0, 0); // statige don (hata degil)
       CHECK(teng_anim_time(ent) == 0.0);
       teng_despawn(ent);
-      unlink(shot_stat); unlink(shot_stat2); unlink(shot_anim);
+      unlink(shot_stat); unlink(shot_stat2); unlink(shot_anim); unlink(shot_bos);
     }
   }
 
@@ -2336,6 +2347,51 @@ ENGINE_TEST(bridge_back_pressed_is_one_frame_edge_headless) {
   std::printf("    [bilgi] geri: enjekte kare %d (ikinci soru %d), sonraki kare %d, penceresizde ESC %d\n", k1, k1b, k2, esc);
   kapanis_yakala();
   CHECK(std::strstr(g_kapanis_log, "kapanis (geri tusu): 1 basis, oyuna bagli evet") != nullptr);
+}
+
+// --- Model / mesh / doku havuzu (oyun 10 sus + 30 karakter) --------------------
+// Kup-kure oyunu 40 model yukler; eskiden kopru 16 modelde, renderer 64 mesh'te
+// (her iskeletsiz glTF = 3 mesh tutamaci: LOD0 + 2 LOD) duruyordu. Olcu: 64 model
+// (20 LOD'lu + 44 iskeletli = 107 mesh) yuklenir, cizilir. KONTROL: 65. model
+// tavani gercekten asamaz — -1 doner ve HATA sayilir (tavan sessiz degil).
+ENGINE_TEST(bridge_model_pool_holds_game_characters_and_reports) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("model havuzu", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  char lod[768], skin[768];
+  std::snprintf(lod, sizeof lod, "%s/lod_sphere.gltf", assets_dir());
+  std::snprintf(skin, sizeof skin, "%s/skin_tube.gltf", assets_dir());
+  const int e0 = teng_error_count();
+  int ok = 0, son_lod = -1, son_skin = -1;
+  for (int i = 0; i < 64; i++) {
+    const int m = teng_load_model(i < 20 ? lod : skin);
+    if (m >= 0) { ok++; if (i < 20) son_lod = m; else son_skin = m; }
+  }
+  CHECK(ok == 64 && teng_error_count() == e0);
+  // KONTROL: tavan hala tavan.
+  CHECK(teng_load_model(skin) == -1);
+  CHECK(teng_error_count() == e0 + 1);
+  // Son yuklenenler cizilebilir: iskeletli olan klipli de klipsiz de (bind pozu).
+  const int a = teng_spawn_model(son_lod, -1, 0, 0, 1.0, 0xFFFFFFFF);
+  const int b = teng_spawn_model(son_skin, 1, 0, 0, 1.0, 0xFFFFFFFF);
+  const int c = teng_spawn_model(son_skin, 2, 0, 0, 1.0, 0xFFFFFFFF);
+  CHECK(a > 0 && b > 0 && c > 0);
+  teng_set_anim(c, 0, 1.0, 1);
+  teng_camera(0, 1.2, 5.0, 0.5, 1.0, 0);
+  for (int k = 0; k < 3; k++) { teng_frame_begin(); teng_frame_end(); }
+  CHECK(teng_error_count() == e0 + 1);
+  std::printf("    [bilgi] model havuzu: %d model yuklendi (20 LOD'lu, 44 iskeletli), 65. -> -1 (+1 hata)\n", ok);
+  kapanis_yakala();
+  const char *r = std::strstr(g_kapanis_log, "kapanis (kaynak havuzu): model 64/64, mesh ");
+  CHECK(r != nullptr);
+  if (r) {
+    unsigned mesh = 0, mesh_max = 0;
+    std::sscanf(r, "kapanis (kaynak havuzu): model 64/64, mesh %u/%u", &mesh, &mesh_max);
+    std::printf("    [bilgi] kapanis raporu: mesh %u/%u (eski tavan 64)\n", mesh, mesh_max);
+    CHECK(mesh > 64 && mesh <= mesh_max);
+  }
 }
 
 // --- Arka planda ses (Geri bildirim #9) -------------------------------------------

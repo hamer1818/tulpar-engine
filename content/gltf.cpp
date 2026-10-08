@@ -757,9 +757,17 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
     const Mat4 world = model * inst.world;
     renderer::MeshHandle mesh = u.meshes[inst.mesh];
     const int32_t skin = m.meshes[inst.mesh].skin;
-    if (skin >= 0) { // iskeletli: poz sart (yoksa cizilmez; sayilir)
+    if (skin >= 0) { // iskeletli: pozu yoksa BIND pozunda (Tuzaklar 8da)
+      // Skin matrisi = model[j] * ters_bind[j]; bind pozunda model[j] ters_bind'in
+      // tersidir, yani her eklem icin BIRIM matris. Eskiden pozsuz iskeletli mesh
+      // hic cizilmiyordu ama lod_counts'a "cizildi" diye giriyordu: klip atanmamis
+      // model sessizce gorunmezdi (kopru kapisi "statik" kareyi bos ekranla
+      // karsilastirip farki animasyona yaziyordu).
+      static const Mat4 kBindPose[kModelMaxJoints] = {};
       if (pose && (uint32_t)skin < kModelMaxSkins && pose->skin_mats[skin])
         r.draw_skinned(mesh, mh, world, tint, pose->skin_mats[skin], pose->joint_count[skin]);
+      else if ((uint32_t)skin < m.skin_count)
+        r.draw_skinned(mesh, mh, world, tint, kBindPose, m.skins[skin].joint_count);
       if (lod_counts) lod_counts[0]++;
       continue;
     }
