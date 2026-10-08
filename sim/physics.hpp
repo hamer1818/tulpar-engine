@@ -163,6 +163,31 @@ public:
   bool move_sensor(BodyId id, Vec3 pos, Quat rot);
   void remove(BodyId id);
 
+  // --- Carpisma gruplari (Geri bildirim #25) -----------------------------
+  // Oyunun "kim kime carpar" tablosu: govde bir GRUBA (0..kCollisionGroups-1)
+  // girer, iki grubun govdeleri tabloda kapali ciftse HIC temas kurmaz (genis
+  // fazda elenir: tepki yok, temas/tetik olayi yok). Ornek: bir takimin
+  // mermisi kendi birliklerinin icinden gecer, dusmana ve zemine carpar.
+  // Grup 0 VARSAYILAN (hicbir sey atanmamis govde; sahne govdeleri, zemin);
+  // tablo baslangicta HEPSI ACIK, yani grup atamayan oyun eskisiyle ayni.
+  // (0, 0) cifti KAPATILAMAZ: iki grupsuz govdede Jolt suzgeci hic sormaz.
+  // Jolt GroupFilter uzerinden: suzgec saf bir tablo okumasi (belirlenimli,
+  // ayirmasiz). Isin testi gruplari GORMEZ (secme her govdeyi bulur).
+  // Gecersiz kimlik / sinir disi grup: false. Gruplar adim ARASINDA degisir;
+  // yeni kurallar bir sonraki step()'te gecerli.
+  static constexpr uint32_t kCollisionGroups = 16;
+  // DONME KILIDI (Geri bildirim #26): dinamik govde oteleme serbest, donme
+  // YOK (Jolt EAllowedDOFs, kutle ozellikleri yeniden kurulur). Kilitlenince
+  // govde dik konuma doner ve acisal hizi sifirlanir. Ornek: ustune govdesiz
+  // kafa/kalkan modeli tasiyan birlik — govde devrilirse parcalar onunla
+  // donmez ve ICINE gecer. Dinamik olmayan / gecersiz govde: false.
+  bool lock_rotation(BodyId id, bool lock);
+  bool rotation_locked(BodyId id) const;
+  bool set_collision_group(BodyId id, uint32_t group);
+  uint32_t collision_group(BodyId id) const; // gecersizde 0
+  bool set_groups_collide(uint32_t a, uint32_t b, bool collide);
+  bool groups_collide(uint32_t a, uint32_t b) const;
+
   void step(float dt, int collision_steps = 1);
 
   // Isin testi (Jolt NarrowPhaseQuery). Govdeler eklendikten SONRA en az bir

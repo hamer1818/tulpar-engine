@@ -2731,6 +2731,52 @@ ENGINE_TEST(bridge_kinematic_body_and_in_place_teleport) {
   CHECK(std::strstr(g_kapanis_log, "2000 yeniden kurma (dinamik)") != nullptr);
 }
 
+// Carpisma gruplari koprude (Geri bildirim #25). Oyunda menzilli birligin
+// mermisi ondeki DOST agir birlige carpip duruyordu. (1) kapali cift: kure
+// duvarin icinden gecer; (2) DINAMIK govde isinlaninca yeniden kurulur (Jolt
+// kimligi degisir) — grup varlikta tutuldugu icin yeni govdede de gecer:
+// grubu yeniden yazmayan kopruda kure grup 0'a duser ve (0, 2) acik oldugu
+// icin duvarda durur; (3) POZITIF KONTROL: cift acilinca ayni atis duvarda
+// durur — (1) ve (2)'deki "gecti" olcumu kurulumdan gelmiyor.
+ENGINE_TEST(bridge_collision_groups_pass_through_and_survive_rebuild) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("carpisma gruplari", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  teng_spawn_ground(20, 0xffffffff);
+  const int duvar = teng_spawn_box(0, 1, 0, 0.5, 1, 1, 0, 0x808080ff);
+  const int top = teng_spawn_sphere(-3, 0.8, 0, 0.2, 1, 0xff4040ff);
+  CHECK(teng_collision_group(duvar, 2) == 1 && teng_collision_group(top, 3) == 1);
+  CHECK(teng_collision_group_of(duvar) == 2 && teng_collision_pair_on(2, 3) == 1);
+  CHECK(teng_collision_pair(2, 3, 0) == 1 && teng_collision_pair_on(3, 2) == 0 && teng_collision_pair_on(0, 2) == 1);
+  auto at = [&]() {
+    teng_set_pos(top, -3, 0.8, 0); // dinamik: govde yeniden kurulur
+    teng_set_velocity(top, 8, 0, 0);
+    run_frames(90);
+    return teng_x(top);
+  };
+  run_frames(1);
+  teng_set_velocity(top, 8, 0, 0);
+  run_frames(90);
+  const double x1 = teng_x(top), y1 = teng_y(top);
+  const double x2 = at();
+  CHECK(teng_collision_group_of(top) == 3);
+  CHECK(teng_collision_pair(2, 3, 1) == 1);
+  const double x3 = at();
+  const int h0 = teng_error_count();
+  CHECK(teng_collision_pair(0, 0, 0) == 0); // grupsuz cift kapatilamaz
+  CHECK(teng_collision_group(top, 16) == 0);
+  const int h1 = teng_error_count();
+  std::printf("    [bilgi] gruplar: kapali cift kure x=%.2f (y %.2f), yeniden kurulmus govde x=%.2f, acik cift (pozitif kontrol) x=%.2f; kotu girdi hatasi %d\n",
+              x1, y1, x2, x3, h1 - h0);
+  CHECK(x1 > 1.0 && y1 > 0.1 && y1 < 0.4); // duvardan gecti, zeminde (grup 3 - grup 0 acik)
+  CHECK(x2 > 1.0);                         // yeniden kurulan govde grubunu korudu
+  CHECK(x3 < 0.0);                         // pozitif kontrol: duvarda durdu
+  CHECK(h1 == h0 + 2);
+  teng_shutdown();
+}
+
 // --- Geri bildirim #12: gorus acisi + ekran isini + secme + dunya->ekran -------
 // Oyun dokunusla kule yuvasi secmek ve can cubugu cizmek icin izdusumu kendisi
 // kuruyordu ve render_frame'in SABIT pi/3.5'ini kopyaliyordu: sabit degisirse

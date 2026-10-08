@@ -245,6 +245,16 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   kuvvet/yerçekimi etkilemez. Her kare `kinematik_tasi(id, x, y, z)` ile hedef ver: bu karenin sim adımlarına
   dağıtılır, hız türetilir (itme doğru); hedef gelmeyen karede durur. Sabit hızlı platform için `hiz_ver`.
   `durtu` kinematikte HATA.
+- **Çarpışma grupları** (Geri bildirim #25): `carpisma_grubu(id, grup)` gövdeyi 0..15 gruplarından birine
+  alır, `carpisma_cifti(a, b, false)` iki grubun gövdelerini birbirinin **içinden geçirir** (tepki, temas ve
+  tetik olayı yok; Jolt `GroupFilter`, saf tablo okuması — belirlenimli, ayırmasız). Grup 0 atanmamış her şey
+  (sahne, zemin) ve `(0, 0)` kapatılamaz; tablo başlangıçta hepsi açık, `eng_init` sıfırlar. Grup varlıkta
+  tutulur: ışınlanıp yeniden kurulan dinamik gövdeye yeniden yazılır (`bridge_collision_groups_*` bunu ve
+  pozitif kontrolü ölçer). Işın testi ve seçme grupları görmez. İlk kullanıcı: oyunda takım mermisi kendi
+  birliklerinden geçer (telefonda 1029 mermide 0 dost değmesi; süzgeç kapalıyken 9600 karede 111 — 2026-10-08).
+- **Dönme kilidi** (Geri bildirim #26): `donme_kilidi(id, true)` dinamik gövdeyi devrilmez yapar (Jolt
+  `EAllowedDOFs` öteleme, kilitlenince dik konum + açısal hız sıfır); yeniden kurulan gövdede korunur.
+  Üstüne gövdesiz kafa/kalkan modeli taşıyan birlik için: devrilen gövde parçaların içine geçiyordu.
 - **Düğme yazısı sığar** (Geri bildirim #15): etiket ölçeği yükseklikten gelir, kutuya sığmazsa motor
   **küçültür** (yükseklik ölçeğinin en az %55'ine kadar), yine sığmazsa kod noktası sınırında kesip `...` ekler
   (ilk kırpma `UYARI`). Düğme, onay kutusu ve kaydırıcı etiketi (kaydırıcıda değer yazısının solunda kalır).
@@ -897,7 +907,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **242 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **256 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -909,7 +919,7 @@ bölüm yorumlarına göre):
 | fizik zamanı | 5 | **duraklat** / duraklı mı, **zaman ölçeği** (yaz/oku), sim adımı sayacı — duraklatma birikimi dondurur, devam bit-tam aynı sonuca varır (Geri bildirim #10) |
 | dünya / kamera | 27 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **sahne karartma** + tam ekran saydam katman sayacı, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
-| varlıklar (köprü sahibi) | 29 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** / **kinematik kutu / küre** (+ sür, kinematik mi) üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
+| varlıklar (köprü sahibi) | 35 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** / **kinematik kutu / küre** (+ sür, kinematik mi) üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı, **çarpışma grubu** (yaz/oku, grup çifti yaz/oku), **dönme kilidi** (yaz/oku) |
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |
 | kodla betik bağlama | 4 | bağla (`baslat` hemen), çöz (`bitir`), bağlı betiğin adı, bağlı varlık sayısı — kancalar sahneninkilerle aynı yerde (§7.10) |
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
