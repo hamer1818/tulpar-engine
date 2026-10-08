@@ -2731,6 +2731,9 @@ ENGINE_TEST(bridge_frame_allocs_are_counted_motor_hook_game) {
   const double k10 = teng_frame_allocs_total() - k0;
   std::printf("    [bilgi] KONTROL (TULPAR_ENGINE_ALLOC_KONTROL=3): 10 karede motor %.0f, son kare %d\n", k10, teng_frame_allocs());
   CHECK(k10 == 30 && teng_frame_allocs() == 3);
+  teng_shutdown();
+}
+
 // --- Geri bildirim #15: dugme yazisi kutuya sigar -----------------------------
 // ui_scale(h) yalniz yukseklikten; telefonun 2240x1080 ekraninda 6 dugmelik
 // alt cubukta "Savas Arabasi" dugmeden TASIYORDU (oyun etiketleri kisaltti;
@@ -2796,6 +2799,8 @@ ENGINE_TEST(bridge_ui_button_label_fits_width) {
   if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): yazinin PIKSEL siniri gercek cihazda olculur");
   else CHECK(ici > 500 && disi == 0);
   teng_shutdown();
+}
+
 // --- Geri bildirim #16: sahne karartma compose'da, tam ekran harmanli katman sayilir ---
 // Oyun duraklat/ayar ekraninda sahneyi tam ekran YARI SAYDAM dortgenle
 // karartiyordu: Mali'de (TBDR) ~3.5 ms (P20 Pro), kopru bunu gostermiyordu.
