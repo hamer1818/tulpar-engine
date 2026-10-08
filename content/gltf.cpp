@@ -630,6 +630,14 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
   out->meshes = arena.alloc_array_zeroed<renderer::MeshHandle>(m.mesh_count ? m.mesh_count : 1);
   out->lod_meshes = arena.alloc_array_zeroed<renderer::MeshHandle>((m.mesh_count ? m.mesh_count : 1) * kModelMaxLods);
   if (!out->textures || !out->materials || !out->meshes || !out->lod_meshes) return false;
+  // Tutamaclar GECERSIZ baslar: sifirla doldurulmus dizide id 0 GECERLI bir
+  // tutamactir (renderer'in ILK mesh'i). Geri bildirim #27 (2026-10-08, ilk
+  // gercek oyun): LOD'u uretilmemis her mesh (dusuk poligonlu kutu, sopa, lazer,
+  // kalkan) kameraya 20 m'den uzakta "LOD1" diye mesh #0 ile — oyunda kafa
+  // kupu — cizildi; 2:1 ekranda kenardaki birlik o uzakliga dusuyordu: sopa
+  // ekran kenarinda koca kup, lazer duvar, kalkan kup, renk/golge farkli.
+  for (uint32_t i = 0; i < (m.mesh_count ? m.mesh_count : 1); i++) out->meshes[i] = renderer::MeshHandle{};
+  for (uint32_t i = 0; i < (m.mesh_count ? m.mesh_count : 1) * kModelMaxLods; i++) out->lod_meshes[i] = renderer::MeshHandle{};
   for (uint32_t i = 0; i < m.image_count; i++) {
     // RENK UZAYI: sRGB doku donanimda dogrusala cozer; ORM/normal UNORM kalir
     // ve texel oldugu gibi gelir. Bu, "goruntu biraz yanlis ama hicbir sey

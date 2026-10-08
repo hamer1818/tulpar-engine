@@ -2011,6 +2011,30 @@ yerçekimi/türbülansı; alt yayıcılı tepe 54 / alt yayıcısız 16; belirle
 model → blob → runtime → köprü) ayrı ölçülmeli; ve bir sistemin var olması, kare döngüsünün onu
 çağırdığı anlamına gelmez — uçtan uca kapı (köprü + piksel) ister.
 
+### 8cx. Sıfırla doldurulmuş tutamaç dizisi "geçerli" — eksik LOD ilk mesh'le çizilir, yalnız ekranın kenarında
+
+**Belirti (2026-10-08, ilk gerçek oyun, Huawei P20 Pro):** kullanıcı "küreler bazı alanlarda küp gibi,
+küplerin içinde başka küp var; ekranın ortasına doğru kayboluyor", "lazer kenarda duvara dönüşüyor",
+"kenardaki birliklerin rengi değişiyor" dedi. Hepsi ekranın sol/sağ kenarına yakın.
+
+**Sebep:** `content::upload_model` LOD tutamaç dizisini `alloc_array_zeroed` ile ayırıyordu ve yalnız
+üretilen seviyeleri yazıyordu. `MeshHandle` geçersizi `0xFFFFFFFF`; **sıfır geçerli bir id** — renderer'ın
+ilk oluşturduğu mesh. `draw_model` uzaklığa göre (20/45 m) LOD seçip "seviye yoksa bir alta in" diyordu ama
+`valid()` sıfır tutamaç için `true` döndüğü için inmedi: LOD'u üretilmemiş her düşük poligonlu model (12
+üçgenli sopa, kalkan, lazer) kameraya 20 m'den uzakta mesh #0 ile — oyunda ilk yüklenen model, kafa küpü —
+çizildi. 2:1 ekranda kameranın merkezde baktığı birlik ~18 m, kenardaki ~24 m uzakta: eşik tam ekranın
+kenarlarına düşüyordu. İzole sondada ölçüldü (RTX 5080, aynı gün): x = ±18 m'deki 1 × 0.12 × 0.12 sopa 0.76 m
+küp olarak çizildi; kamera 18 m kayınca aynı nesne merkezde ince sopa, yeni kenardaki nesne küp.
+
+**Düzeltme:** tutamaçlar ayrılınca `MeshHandle{}` (geçersiz) ile doldurulur. **Kapı:**
+`content_missing_lod_falls_back_to_lod0` — 12 üçgenli küp (LOD üretilmez) 100 m'den LOD0 seçer ve tutamaçları
+geçersiz; düzeltmesiz kodda kırmızı (ölçüldü: geçersiz 0/2, seçim 0/0/1). **Pozitif kontrol:** LOD'lu küre
+aynı uzaklıktan LOD2 seçer.
+
+**Ders:** "geçersiz" değeri sıfır olmayan bir tutamacı **sıfırlayan** ayırıcıyla doldurmak, ilk kaynağa
+sessizce işaret eden geçerli tutamaçlar üretir. Ve uzaklığa bağlı bir seçim hatası ekranın **konumuna**
+bağlı görünür: "kenarda bozuluyor" belirtisi geometrik değil, seçimdir.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana

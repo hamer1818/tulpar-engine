@@ -1425,3 +1425,62 @@ ENGINE_TEST(content_normal_map_mips_stay_unit_length) {
               "KONTROL normallestirmeyen ortalama %.4f (= uzakta yuzey duzlesir)\n",
               (double)worst, (double)ctrl_worst);
 }
+
+// Geri bildirim #27: LOD'u URETILMEMIS mesh uzakta LOD0 ile cizilir. Eskiden
+// upload_model LOD tutamac dizisini SIFIRLA doldurdugu icin id 0 (renderer'in
+// ilk mesh'i) "gecerli LOD1" sayiliyordu: oyunda dusuk poligonlu her model
+// (sopa, kalkan, lazer) kameraya 20 m'den uzakta — 2:1 telefon ekraninin
+// kenarlari — ilk yuklenen modelin (kafa kupu) mesh'iyle ciziliyordu.
+// Kontrol: 12 ucgenli kup (LOD uretilmez) 100 m'den LOD0 secer ve tutamaclari
+// GECERSIZ; POZITIF KONTROL: LOD'lu kure ayni uzakliktan LOD2 secer — yani
+// "LOD0'a dustu" sonucu uzaklik seciminin hic calismamasindan gelmiyor.
+ENGINE_TEST(content_missing_lod_falls_back_to_lod0) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_lod_yok")) { CHECK(false); return; }
+  char kup_yol[512], kure_yol[512];
+  if (!asset_path(kup_yol, sizeof kup_yol, "checker_cube.gltf") || !asset_path(kure_yol, sizeof kure_yol, "lod_sphere.gltf")) {
+    CHECK(false);
+    return;
+  }
+  static content::Model kup, kure;
+  CHECK(content::gltf_load(sys, kup_yol, &kup) && kup.mesh_count > 0);
+  CHECK(content::gltf_load(sys, kure_yol, &kure) && kure.mesh_count > 0);
+  if (!kup.mesh_count || !kure.mesh_count) return;
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (LOD tutamac kapisi atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.width = oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  // Sira onemli: kure ONCE yuklenir, kup mesh'i #0 degil — eski hatada kup
+  // uzakta kurenin (#0) mesh'iyle cizilirdi.
+  static content::UploadedModel up_kure, up_kup;
+  CHECK(content::upload_model(ren, sys, kure, &up_kure));
+  CHECK(content::upload_model(ren, sys, kup, &up_kup));
+  uint32_t gecersiz = 0;
+  for (uint32_t i = 0; i < kup.mesh_count * content::kModelMaxLods; i++) gecersiz += up_kup.lod_meshes[i].valid() ? 0 : 1;
+  ren.begin_frame(0);
+  content::ModelLod lod;
+  lod.camera_pos = {0, 0, 100.0f};
+  uint32_t n_kup[content::kModelMaxLods + 1] = {}, n_kure[content::kModelMaxLods + 1] = {};
+  content::draw_model(ren, kup, up_kup, Mat4::identity(), {1, 1, 1}, &lod, n_kup);
+  content::draw_model(ren, kure, up_kure, Mat4::identity(), {1, 1, 1}, &lod, n_kure);
+  std::printf("    [bilgi] LOD tutamaci: kup %u ucgen, LOD indeksi %u/%u, gecersiz tutamac %u/%u; 100 m secim kup %u/%u/%u, kure %u/%u/%u\n",
+              kup.meshes[0].index_count / 3, kup.meshes[0].lod_index_count[0], kup.meshes[0].lod_index_count[1], gecersiz,
+              kup.mesh_count * content::kModelMaxLods, n_kup[0], n_kup[1], n_kup[2], n_kure[0], n_kure[1], n_kure[2]);
+  CHECK(kup.meshes[0].lod_index_count[0] == 0 && kup.meshes[0].lod_index_count[1] == 0);
+  CHECK(gecersiz == kup.mesh_count * content::kModelMaxLods);
+  CHECK(n_kup[0] == kup.instance_count && n_kup[1] == 0 && n_kup[2] == 0); // LOD0'a dustu
+  CHECK(n_kure[2] == kure.instance_count);                                 // pozitif kontrol: secim calisiyor
+  ren.shutdown();
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
