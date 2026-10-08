@@ -1,12 +1,17 @@
 // Global operator new/delete override — YURUTULEBILIRE acikca eklenir
-// (engine_tests, ileride oyun ikilisi). Kutuphaneye konmadi: hangi ikilinin
-// sayildigi CMake'te gorunur olsun.
+// (engine_tests, editor, demo) ya da Tulpar oyununa eklenti yapistiricisinin
+// arsiviyle gelir (engine_tulpar / tulpar_engine_android; Geri bildirim #13).
+// Hangi ikilinin sayildigi CMake'te gorunur: bu dosyanin gectigi hedefler.
 #include <cstdlib>
 #include <new>
 
 #include "core/memory/alloc_gate.hpp"
 
 using tulpar::engine::AllocGate;
+
+// Statik linkte bu nesneyi ceken isaret (bridge/tulpar_kopru.cpp basvurur).
+extern "C" int tulpar_engine_alloc_gate_linked;
+int tulpar_engine_alloc_gate_linked = 1;
 
 namespace {
 void *counted_alloc(std::size_t n) {

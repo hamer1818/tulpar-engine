@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 234 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 242 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -51,6 +51,10 @@ SPEC = [
     ("eng_frame_begin", "bool", [], "Kareyi baslatir: girdi, zaman. false = pencere yok (arka plan), yine de eng_frame_end cagir."),
     ("eng_frame_end", "void", [], "Kareyi bitirir: fizik (sabit adim), cizim, sunum."),
     ("eng_dt", "float", [], "Son kare suresi (s)."),
+    ("eng_alloc_gate_on", "bool", [], "Kare ici C++ ayirma sayaci (AllocGate, operator new) bu oyuna bagli mi; kurulumda yoklanir. false ise asagidakiler 0 ve kapanis raporu OLCULMEDI der."),
+    ("eng_alloc_count", "float", [], "Surec boyunca toplam operator new sayisi (kare farki = tum kare: oyun kodu + kare ici eng_* cagrilari)."),
+    ("eng_frame_allocs", "int", [], "Son kapanmis karede motorun KENDI C++ ayirmasi (frame_begin + frame_end; betik kancalari ve oyun kodu haric). Kararli karede 0 beklenir."),
+    ("eng_frame_allocs_total", "float", [], "Kare 6'dan beri motorun kare ici ayirma toplami (kapi: 0)."),
     ("eng_time", "float", [], "Kurulumdan beri gecen sure (s)."),
     ("eng_frame", "int", [], "Kare sayaci."),
     ("eng_fps", "float", [], "Kare hizi (p50, 120 karede bir guncellenir)."),
@@ -72,6 +76,8 @@ SPEC = [
     ("eng_warning_count", "int", [], "UYARI sayisi (pencere yok -> headless, font bulunamadi...)."),
     # dunya / kamera
     ("eng_bloom", "void", [("enable", "flag"), ("threshold", "num"), ("intensity", "num")], "Parlama (bloom): eng_init'ten ONCE acilir (ic HDR hedefi kurulur). Esik DOGRUSAL parlaklik (1.0 = yalniz cok parlak yerler), yogunluk 0 = kapali. Kare icinde esik/yogunluk degistirilebilir."),
+    ("eng_scene_dim", "void", [("f", "num")], "Sahne karartma 0..1 (1 normal): 3B sahne koyulur, arayuz karartilmaz. Parlama aciksa birlestirme gecisinin poz carpani (bedelsiz); kapaliysa tek tam ekran harmanli dortgen. Duraklat/ayar ekraninda tam ekran yari saydam dortgen yerine (Mali'de ~3.5 ms)."),
+    ("eng_ui_fullscreen_blends", "int", [], "Oyunun tam ekran YARI SAYDAM arayuz katmani cizdigi kare sayisi (TBDR'de pahali; eng_scene_dim'e gec)."),
     ("eng_bloom_on", "bool", [], "Parlama acik mi (HDR bicimi yoksa motor kapatir; sebep logda)."),
     ("eng_render_scale", "float", [("scale", "num")], "Ic cozunurluk olcegi (dinamik cozunurluk, 0.5..1.0): sahne olcekli cizilir, birlestirme tam ekrana buyutur; arayuz tam cozunurlukte kalir. Ic hedef ister (eng_bloom ile parlama acik). Donus: uygulanan olcek (ic hedef yoksa 1.0 + UYARI). eng_init sonrasi, kare icinde ya da disinda."),
     ("eng_gravity", "void", [("gx", "num"), ("gy", "num"), ("gz", "num")], "Yercekimi (eng_init'ten once)."),
@@ -277,6 +283,8 @@ SPEC = [
     ("eng_ui_button", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Dugme: bu karede tiklandiysa true (basma VE birakma dugmenin icinde). Kimlik etiketten turer."),
     ("eng_ui_checkbox", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "flag")], "Onay kutusu. Donus YENI degerdir (degisen yoksa gelen deger) — betik geri yazar."),
     ("eng_ui_slider", "float", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "num"), ("min_v", "num"), ("max_v", "num")], "Kaydirici. Donus YENI degerdir (surukleme sirasinda her kare gunceller); aralik gecersizse hata + gelen deger."),
+    ("eng_ui_text_shrunk", "int", [], "Kac dugme/etiket cizimi kutuya sigsin diye KUCULTULDU (cizim basina birikir)."),
+    ("eng_ui_text_clipped", "int", [], "Kac cizim en az olcekte de sigmayip \"...\" ile KIRPILDI (ilk kirpma UYARI loglar)."),
     ("eng_ui_active", "bool", [], "Bir widget basili/surukleniyor mu (menu acikken oyun girdisini bastirmak icin)."),
     ("eng_ui_clicks", "int", [], "Toplam etkinlestirme sayisi: dugme tiklamasi + onay kutusu degisimi (kapi olcumu)."),
     ("eng_ui_test_click", "void", [("x", "num"), ("y", "num")], "Pencersiz dogrulama: (x,y) noktasina tek karelik bas+birak enjekte eder; sonraki eng_ui_begin tuketir. Widget disina tiklama tetiklemez."),

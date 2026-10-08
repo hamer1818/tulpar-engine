@@ -155,6 +155,23 @@ func thread_count(): int { return eng_thread_count(); }
 func vk_canli_nesne(): int { return eng_vk_live(); }
 func vk_live_objects(): int { return eng_vk_live(); }
 func dt(): float { return eng_dt(); }
+// Kare ici C++ ayirma (Geri bildirim #13): motorun kendi ayirmasi kararli karede 0
+// olmali. ayirma_sayaci_acik() false ise olculmuyor (sessiz 0 degil).
+func ayirma_sayaci_acik(): bool { return eng_alloc_gate_on(); }
+func alloc_gate_on(): bool { return eng_alloc_gate_on(); }
+func kare_ici_ayirma(): int { return eng_frame_allocs(); }
+func frame_allocs(): int { return eng_frame_allocs(); }
+func kare_ici_ayirma_toplami(): float { return eng_frame_allocs_total(); }
+func frame_allocs_total(): float { return eng_frame_allocs_total(); }
+func ayirma_sayisi(): float { return eng_alloc_count(); }
+func alloc_count(): float { return eng_alloc_count(); }
+// Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi koyult,
+// arayuz parlak kalir. Tam ekran yari saydam dikdortgen yerine (Mali'de ~3.5 ms);
+// parlama aciksa bedava. 1.0 = normal.
+func sahne_karart(float f) { eng_scene_dim(f); }
+func scene_dim(float f) { eng_scene_dim(f); }
+func tam_ekran_saydam_kare(): int { return eng_ui_fullscreen_blends(); }
+func ui_fullscreen_blends(): int { return eng_ui_fullscreen_blends(); }
 func zaman(): float { return eng_time(); }
 func kare_no(): int { return eng_frame(); }
 func fps_e(): float { return eng_fps(); }
@@ -1023,6 +1040,12 @@ func ui_scale(): float { return ui_olcek(); }
 func ui_olcek_sabitle(float s) { _ui_sabit_olcek = s; }
 func ui_px(float v): float { return v * ui_olcek(); }
 func ui_uyari_sayisi(): int { return _ui_uyari; }
+// Yazi sigdirma (Geri bildirim #15): dugme etiketi kutuya sigmazsa motor kucultur,
+// yetmezse "..." ile kirpar. Kirpilan cizim sayisi > 0 ise etiketi kisalt.
+func ui_yazi_kucultulen(): int { return eng_ui_text_shrunk(); }
+func ui_text_shrunk(): int { return eng_ui_text_shrunk(); }
+func ui_yazi_kirpilan(): int { return eng_ui_text_clipped(); }
+func ui_text_clipped(): int { return eng_ui_text_clipped(); }
 func ui_warning_count(): int { return _ui_uyari; }
 
 func _ui_yuvarla(float v): float { return floor(v + 0.5); }

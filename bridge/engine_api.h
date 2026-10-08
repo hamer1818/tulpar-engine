@@ -33,6 +33,17 @@ void teng_shutdown(void);
 int teng_frame_begin(void); // girdi + zaman; 0 = pencere yok (arka plan), yine de frame_end cagrilir
 void teng_frame_end(void);  // sim (sabit adim) + cizim + sunum
 double teng_dt(void);
+// Kare ici C++ ayirma (AllocGate, operator new sayaci; Geri bildirim #13).
+// teng_alloc_gate_on: sayac bu ikiliye bagli mi (kurulumda yoklanir; degilse
+// asagidakiler 0 ve kapanis raporu "OLCULMEDI"). teng_alloc_count: surec
+// boyunca toplam operator new. teng_frame_allocs: son KAPANMIS karede motorun
+// KENDI CPU ayirmasi (frame_begin + frame_end; betik kancalari, GPU/surucu
+// bolumu ve oyun kodu haric; GPU/surucu kapanis raporunda ayri kova).
+// teng_frame_allocs_total: kare 6'dan beri motor toplami ("kare ici 0" kapisi).
+int teng_alloc_gate_on(void);
+double teng_alloc_count(void);
+int teng_frame_allocs(void);
+double teng_frame_allocs_total(void);
 double teng_time(void);
 int teng_frame(void);
 double teng_fps(void);
@@ -65,6 +76,14 @@ void teng_gravity(double gx, double gy, double gz); // init'ten once etkili
 // Parlama (bloom): init'ten ONCE acilir; esik/yogunluk kare icinde de degisir.
 void teng_bloom(int enable, double threshold, double intensity);
 int teng_bloom_on(void);
+// Sahne karartma (Geri bildirim #16): 0..1, 1 = normal. 3B sahne koyulur, arayuz
+// KARARTILMAZ. Parlama aciksa compose gecisinin poz carpani (ek bedel yok);
+// kapaliysa tek tam ekran harmanli dortgen (yedek, sayilir). Duraklat/ayar
+// ekraninda oyunun tam ekran yari saydam dortgeni yerine.
+void teng_scene_dim(double f);
+// Oyunun kendi tam ekran YARI SAYDAM arayuz katmani olan kare sayisi (TBDR'de
+// pahali; kapanis raporu ve ilk gorulusteki bilgi satiri da soyler).
+int teng_ui_fullscreen_blends(void);
 // Ic cozunurluk olcegi (renderer::set_render_scale; dinamik cozunurluk). Sahne
 // 0.5..1.0 olcekte ic HDR hedefe cizilir, birlestirme tam ekrana buyutur;
 // 2B arayuz tam cozunurlukte kalir. Ic hedef = parlama acik (teng_bloom,
@@ -368,7 +387,12 @@ void teng_ui_label(const char *s, double x, double y, double scale, int64_t colo
 int teng_ui_button(const char *label, double x, double y, double w, double h);     // 1: bu karede tiklandi
 int teng_ui_checkbox(const char *label, double x, double y, double w, double h, int value); // YENI deger
 double teng_ui_slider(const char *label, double x, double y, double w, double h, double value, double min_v, double max_v); // YENI deger
-int teng_ui_active(void);  // bir widget basili/surukleniyor (oyun girdisini bastir)
+int teng_ui_active(void);
+// Etiket sigdirma sayaclari (Geri bildirim #15), CIZIM basina birikir: yazi kutuya
+// yukseklikten gelen olcekle sigmadi -> kucultuldu; en az olcekte (yuksekligin
+// %55'i) de sigmadi -> "..." ile kirpildi (ilk kirpma UYARI).
+int teng_ui_text_shrunk(void);
+int teng_ui_text_clipped(void);  // bir widget basili/surukleniyor (oyun girdisini bastir)
 int teng_ui_clicks(void);  // toplam etkinlestirme (dugme tiklamasi + onay kutusu degisimi)
 // Pencersiz kipte fare/dokunmatik yoktur: betik tek karelik bas+birak enjekte
 // eder (sonraki teng_ui_begin tuketir). Dugme disina tiklama tetiklemez.

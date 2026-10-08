@@ -33,6 +33,7 @@
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
 #include "core/jobs/job_system.hpp"
+#include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/crash.hpp"
@@ -85,6 +86,20 @@ struct Log {
   uint32_t frame = 0;
 };
 Log g_log;
+uint64_t g_hook_allocs = 0; // betik kancalari icindeki operator new (motorun kare ici sayimindan DUSULUR)
+// GPU bolumu (acquire, begin_frame fence beklemesi, kayit + gonderim + sunum /
+// offscreen okuma, swapchain esitleme) icindeki operator new. Motorun CPU
+// sayimindan DUSULUR, ayri kovada raporlanir: SURUCU de C++ ve ayni operator
+// new'u cagirir. Olculdu (CI, 2026-10-07): MoltenVK (macOS) kare basina ~20,
+// lavapipe (Linux) yeni bir cizim durumunun ilk kaydinda yuzlerce (LLVM ile boru
+// hatti derlemesi); NVIDIA (RTX 5080) 0. Ayirmadan sayilsaydi "motor kare
+// icinde ayiriyor" denirdi ve sebep motorda aranirdi.
+uint64_t g_gpu_allocs = 0;
+struct GpuScope {
+  uint64_t a0;
+  GpuScope() : a0(AllocGate::thread_allocations()) {}
+  ~GpuScope() { g_gpu_allocs += AllocGate::thread_allocations() - a0; }
+};
 
 void blog(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void blog(int level, const char *fmt, ...) {
@@ -286,6 +301,11 @@ struct Ui {
   bool enabled = true, touch_pointer = false;
   uint32_t hot = 0, active = 0;
   uint32_t clicks = 0, widgets = 0, injects = 0;
+  // Yazi sigdirma (Geri bildirim #15): etiket kutuya yukseklikten gelen olcekle
+  // sigmadiginda once KUCULTULUR, en az olcekte de sigmazsa "..." ile KIRPILIR.
+  // Sayaclar CIZIM basina (her kare); ilk kirpma UYARI olarak bir kez loglanir.
+  uint32_t text_shrunk = 0, text_clipped = 0;
+  bool clip_warned = false;
   uint32_t ids[kMaxUiIds] = {};
   uint32_t id_n = 0;
   bool inject = false;
@@ -330,6 +350,24 @@ struct Bridge {
   uint64_t teleports_inplace = 0; // teng_set_pos: sabit/kinematik govde YERINDE (yeniden kurulmadan)
   uint64_t teleports_rebuilt = 0; // teng_set_pos: dinamik govde yeniden kuruldu
   uint32_t phys_pauses = 0, phys_paused_frames = 0; // teng_physics_pause (kapanis raporu)
+  // --- Kare ici C++ ayirma (Geri bildirim #13) -----------------------------
+  // AllocGate'in operator new sayaci (core/memory/alloc_gate_override.cpp).
+  // Tulpar oyununda override eklenti paketinin yapistiricisiyla gelir
+  // (libengine_tulpar.a); engine_tests/editor/demo kendileri baglar. Bagli
+  // degilse sayac hic artmaz: kurulumda bir yoklama (::operator new) olcer ve
+  // rapor "OLCULMEDI" der — sessiz "0" yok.
+  bool alloc_on = false;
+  uint64_t alloc_motor_acc = 0;     // bu karede motorun KENDI ayirmasi (frame_begin + frame_end, kancalar haric)
+  uint64_t alloc_frame_mark = 0;    // onceki frame_begin anindaki toplam (tum kare = betik kodu dahil)
+  uint32_t alloc_last_motor = 0;    // son KAPANMIS karenin motor ayirmasi (teng_frame_allocs)
+  uint64_t alloc_motor_sum = 0, alloc_motor_max = 0, alloc_hook_sum = 0, alloc_all_sum = 0, alloc_all_max = 0;
+  uint32_t alloc_motor_frames = 0;  // kararli karelerde (6..) motor ayirmasi > 0 olan kare sayisi
+  uint32_t alloc_all_max_frame = 0, alloc_all_frames = 0; // tum kare tepesinin karesi; tum kare > 0 olan kare sayisi
+  uint64_t alloc_hook_acc = 0;      // bu karede betik kancalarinin ayirmasi
+  uint64_t alloc_gpu_acc = 0, alloc_gpu_sum = 0, alloc_gpu_max = 0; // GPU bolumu (surucu dahil), g_gpu_allocs
+  // POZITIF KONTROL (TULPAR_ENGINE_ALLOC_KONTROL=N): frame_end her kare N kez
+  // ::operator new + delete yapar — kapinin motor ayirmasini GORDUGUNU gosterir.
+  uint32_t alloc_kontrol = 0;
   content::Font font;
   bool font_ok = false;
   bridge::BridgeHost host;
@@ -530,6 +568,19 @@ struct Bridge {
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
+  // Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi
+  // koyultmak icin oyun tam ekran YARI SAYDAM dortgen ciziyordu; Mali'de (TBDR)
+  // bu +2.57 ms/kare (P20 Pro, 2159x1080, parlama acik, 2026-10-08; compose
+  // yolu +0.00 ms — B sondasi, sira karisik 3 tur). Parlama aciksa birlestirme (compose) gecisi
+  // her pikseli ZATEN okuyor: karartma oradaki poz carpanina biner, bedelsiz;
+  // arayuz o gecisten SONRA cizildigi icin karartilmaz. Parlama kapaliysa yedek
+  // yol: tek tam ekran harmanli dortgen (oyunun yaptigiyla ayni bedel), sayilir.
+  float scene_dim = 1.0f;
+  uint32_t dim_frames_compose = 0, dim_frames_quad = 0;
+  // Oyunun kendi tam ekran harmanli katmanlari (renderer ui_stats, yedek dortgen haric).
+  uint32_t fsb_frames = 0, fsb_max = 0;
+  bool fsb_hinted = false;
+  bool font_missing_warned = false; // fontta olmayan kod noktasi bir kez UYARI (Geri bildirim #20)
   char hud_text[kHudTextBytes];
   uint32_t hud_text_n = 0;
   // sorgular: son isin testi + son kure sorgusu (sabit diziler, kare ici ayirma yok)
@@ -889,7 +940,12 @@ void render_frame() {
   b.ren.clear_point_lights();
   // Kare yuvasi swapchain'den (fence beklenmis yuva) — Tuzaklar 8l: once acquire, sonra begin_frame.
   rhi::FrameContext fc;
-  if (!b.headless && !b.swap.acquire(&fc)) {
+  bool acquired = true;
+  {
+    const GpuScope gs;
+    if (!b.headless) acquired = b.swap.acquire(&fc);
+  }
+  if (!acquired) {
     // Yeniden kurma TEK YERDEN: teng_frame_begin'deki sync_size. OUT_OF_DATE
     // bayragi kalir ve sonraki karenin basinda oradan islenir — cizim ile
     // hedef olcusu ayni karede ayrismasin.
@@ -897,7 +953,10 @@ void render_frame() {
     b.hud_n = 0; b.hud_text_n = 0;
     return;
   }
-  b.ren.begin_frame(b.headless ? 0 : fc.frame_index);
+  {
+    const GpuScope gs; // kare yuvasinin fence beklemesi
+    b.ren.begin_frame(b.headless ? 0 : fc.frame_index);
+  }
   if (b.scene_ok) b.srt.draw(b.ren, b.cam_eye, (float)b.time_s, &b.phys);
   uint32_t drawn = 0, lights = 0;
   b.last_posed = 0;
@@ -947,14 +1006,48 @@ void render_frame() {
   // HUD: betigin bu karede kuyrukladigi komutlar.
   b.ren.ui_begin((float)vis_w, (float)vis_h_px, b.headless ? 0.0f : b.swap.rotation_radians());
   if (b.font_ok) b.ren.ui_set_atlas(b.font.atlas());
+  // Sahne karartma: compose varsa poz carpani (bedelsiz), yoksa yedek dortgen
+  // oyunun arayuzunun ALTINA (ilk dortgen).
+  const bool post_on = b.ren.post().enabled;
+  if (post_on) b.ren.set_exposure(b.scene_dim);
+  uint32_t own_fsb = 0;
+  if (b.scene_dim < 1.0f) {
+    if (post_on) b.dim_frames_compose++;
+    else {
+      const uint32_t a = (uint32_t)((1.0f - b.scene_dim) * 255.0f + 0.5f);
+      b.ren.ui_rect(0, 0, (float)vis_w, (float)vis_h_px, renderer::Renderer::rgba(0, 0, 0, (uint8_t)a)); // siyah, alfa a
+      b.dim_frames_quad++;
+      own_fsb = 1;
+    }
+  }
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
     if (c.kind == 0) b.ren.ui_rect(c.x, c.y, c.w, c.h, c.rgba);
     else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
   }
   b.hud_n = 0; b.hud_text_n = 0;
+  {
+    const uint32_t f = b.ren.ui_stats().fullscreen_blended, oyun = f > own_fsb ? f - own_fsb : 0;
+    if (oyun) {
+      b.fsb_frames++;
+      if (oyun > b.fsb_max) b.fsb_max = oyun;
+      if (!b.fsb_hinted) {
+        b.fsb_hinted = true;
+        BINFO("arayuz: tam ekrani kaplayan YARI SAYDAM katman (kare %u) — TBDR'de (Mali/Adreno) butun tile'lari doldurur, P20 Pro'da +2.6 ms "
+              "olculdu; sahneyi karartmak icin eng_scene_dim (parlama acikken bedava) kullan",
+              b.frame);
+      }
+    }
+  }
+  // Fontta olmayan kod noktasi '?' cizildi (Geri bildirim #20): ILK seferde UYARI.
+  if (b.font_ok && b.font.missing_count() && !b.font_missing_warned) {
+    b.font_missing_warned = true;
+    blog(1, "UYARI font: U+%04X fontta yok, '?' cizildi (kapsam: ASCII, Latin-1, Turkce, U+2010..U+2026; content/font.hpp)", b.font.first_missing());
+    g_log.warnings++;
+  }
   b.last_draws = drawn; b.last_lights = lights + b.srt.stats().lights;
   RecordCtx rc{&b.ren};
+  const GpuScope gs; // kayit + gonderim + sunum / offscreen okuma (surucu)
   if (b.headless) {
     if (!rhi::offscreen_render_custom(b.off, b.oc, record_cb, &rc, &b.ores, shadow_cb)) BERR("offscreen kare: %s", b.ores.error);
   } else {
@@ -1010,6 +1103,13 @@ void teng_bloom(int enable, double threshold, double intensity) {
   } else BDBG("parlama %s: esik %.2f yogunluk %.2f", enable ? "acik" : "kapali", threshold, intensity);
 }
 int teng_bloom_on(void) { return g && g->inited && g->ren.post().enabled ? 1 : 0; }
+void teng_scene_dim(double f) {
+  CALLF("teng_scene_dim", "%.3f", f);
+  if (!g) g = new (g_storage) Bridge();
+  if (!(f >= 0.0) || f > 1.0) { BERR("teng_scene_dim: carpan 0..1 olmali (%.3f), kirpildi", f); f = f > 1.0 ? 1.0 : 0.0; }
+  g->scene_dim = (float)f;
+}
+int teng_ui_fullscreen_blends(void) { return g ? (int)g->fsb_frames : 0; }
 double teng_render_scale(double scale) {
   CALLF("teng_render_scale", "%.3f", scale);
   if (!ready("teng_render_scale")) return 1.0;
@@ -1084,6 +1184,19 @@ int teng_init(const char *title, int width, int height) {
   b.err[0] = 0; // bu denemenin hatasi (onceki dusen denemenin metni kalmasin)
   b.oturum_hata0 = g_log.errors;
   b.oturum_uyari0 = g_log.warnings;
+  {
+    // Yoklama: operator new bu ikilide SAYILIYOR mu. Dogrudan ::operator new
+    // cagrisi (new ifadesi degil) — derleyici bir new/delete ciftini eleyebilir,
+    // fonksiyon cagrisini eleyemez.
+    const uint64_t a0 = AllocGate::total_allocations();
+    void *p = ::operator new(16);
+    ::operator delete(p);
+    b.alloc_on = AllocGate::total_allocations() > a0;
+  }
+  if (const char *ak = std::getenv("TULPAR_ENGINE_ALLOC_KONTROL"); ak && *ak) {
+    b.alloc_kontrol = (uint32_t)std::atoi(ak);
+    if (b.alloc_kontrol) { blog(1, "UYARI kare ici ayirma POZITIF KONTROLU acik: frame_end her kare %u ayirma yapar (TULPAR_ENGINE_ALLOC_KONTROL)", b.alloc_kontrol); g_log.warnings++; }
+  }
   if (const char *lv = std::getenv("TULPAR_ENGINE_LOG")) g_log.level = std::atoi(lv);
   if (const char *hf = std::getenv("TULPAR_ENGINE_HEADLESS"); hf && *hf && !b.headless) { b.headless = true; b.headless_frames = (uint32_t)std::atoi(hf); if (b.headless_frames == 0) b.headless_frames = 60; }
   if (const char *op = std::getenv("TULPAR_ENGINE_OUT"); op && *op && !b.out_ppm[0]) std::snprintf(b.out_ppm, sizeof b.out_ppm, "%s", op);
@@ -1330,9 +1443,49 @@ int teng_running(void) {
 }
 void teng_close(void) { CALL("teng_close"); if (g) { g->running = false; BINFO("kapatma istendi (kare %u)", g->frame); } }
 
+// Motorun KENDI kare ici ayirmasi: kopru giris noktasinin govdesi boyunca CAGIRAN
+// is parcacigindaki operator new (AllocGate::thread_allocations), ayni surede
+// kanca (Tulpar betigi) ve GPU/surucu bolumu icinde olanlar haric. Global sayac
+// "tum kare" kovasinda (surucunun arka plan is parcaciklari dahil).
+struct AllocScope {
+  uint64_t a0, h0, gp0;
+  AllocScope() : a0(AllocGate::thread_allocations()), h0(g_hook_allocs), gp0(g_gpu_allocs) {}
+  ~AllocScope() {
+    if (!g) return;
+    const uint64_t hooks = g_hook_allocs - h0, gpu = g_gpu_allocs - gp0;
+    g->alloc_hook_acc += hooks;
+    g->alloc_gpu_acc += gpu;
+    g->alloc_motor_acc += (AllocGate::thread_allocations() - a0) - hooks - gpu;
+  }
+};
+// Onceki kareyi kapat (frame_begin basinda ve kapanista). Kararli kareler 6..
+// (vk nesne raporuyla ayni pencere: ilk karelerde PSO/tampon kurulumu olur).
+static void alloc_frame_close(Bridge &b) {
+  const uint64_t now = AllocGate::total_allocations();
+  const uint64_t all = b.alloc_frame_mark ? now - b.alloc_frame_mark : 0;
+  b.alloc_frame_mark = now;
+  b.alloc_last_motor = (uint32_t)(b.alloc_motor_acc > 0xFFFFFFFFull ? 0xFFFFFFFFull : b.alloc_motor_acc);
+  if (b.frame > 6) { // kapanan karenin numarasi b.frame - 1 >= 6 ("kare 6..")
+    b.alloc_motor_sum += b.alloc_motor_acc;
+    b.alloc_hook_sum += b.alloc_hook_acc;
+    b.alloc_gpu_sum += b.alloc_gpu_acc;
+    if (b.alloc_gpu_acc > b.alloc_gpu_max) b.alloc_gpu_max = b.alloc_gpu_acc;
+    b.alloc_all_sum += all;
+    if (b.alloc_motor_acc > b.alloc_motor_max) b.alloc_motor_max = b.alloc_motor_acc;
+    if (all > b.alloc_all_max) { b.alloc_all_max = all; b.alloc_all_max_frame = b.frame - 1; } // log oneki (kNNN) ile ayni numara
+    if (all) b.alloc_all_frames++;
+    if (b.alloc_motor_acc) b.alloc_motor_frames++;
+  }
+  b.alloc_motor_acc = 0;
+  b.alloc_hook_acc = 0;
+  b.alloc_gpu_acc = 0;
+}
+
 int teng_frame_begin(void) {
   if (!ready("teng_frame_begin")) return 0;
   Bridge &b = *g;
+  alloc_frame_close(b);
+  const AllocScope alloc_scope;
   g_log.last_call = "teng_frame_begin";
   if (b.in_frame) { BERR("teng_frame_begin: onceki kare teng_frame_end ile kapanmadi (kare %u)", b.frame); }
   b.in_frame = true;
@@ -1374,7 +1527,12 @@ int teng_frame_begin(void) {
     // OUT_OF_DATE HIC gelmez — swapchain eski olcude kalir, kompozitor gerer
     // ("tam ekran olmuyor, icerik ayni oranda buyuyor"). Karar ve X11/Wayland
     // ayrimi: rhi/swapchain.hpp ResizeAction.
-    if (b.running && b.have_window && b.swap.sync_size(b.fb_w, b.fb_h)) {
+    bool resized = false;
+    {
+      const GpuScope gs; // swapchain olcu esitlemesi (surucu)
+      resized = b.running && b.have_window && b.swap.sync_size(b.fb_w, b.fb_h);
+    }
+    if (resized) {
       b.ren.set_render_size(b.swap.extent().width, b.swap.extent().height);
       BINFO("swapchain %ux%u (%s)", b.swap.extent().width, b.swap.extent().height, b.swap.last_resize_reason());
       // Parlama (post) ic HDR hedefi KURULUMDA olculendi ve kare icinde
@@ -1497,7 +1655,14 @@ static bool script_lookup(Bridge &b, Bridge::ScriptHook &h, int k) {
 // tablo degisebilir (bound_unbind_fire ile ayni kural) ve `h` o anda baska bir
 // seyi gosterebilir. Kurulu VM kancayi cozen VM degilse isaretci ona verilmez:
 // ad yolu (eski davranis).
+static bool hook_invoke_raw(const Bridge::ScriptHook &h, int k, const double *args, int argc);
 static bool hook_invoke(const Bridge::ScriptHook &h, int k, const double *args, int argc) {
+  const uint64_t a0 = AllocGate::thread_allocations();
+  const bool r = hook_invoke_raw(h, k, args, argc);
+  g_hook_allocs += AllocGate::thread_allocations() - a0;
+  return r;
+}
+static bool hook_invoke_raw(const Bridge::ScriptHook &h, int k, const double *args, int argc) {
   const TengScriptVm *vm = g_svm;
   if (!vm) return false;
   void *fn = h.fn[k];
@@ -1726,6 +1891,7 @@ static void kinematic_tick(Bridge &b, uint32_t left) {
 void teng_frame_end(void) {
   if (!ready("teng_frame_end")) return;
   Bridge &b = *g;
+  const AllocScope alloc_scope;
   g_log.last_call = "teng_frame_end";
   if (!b.in_frame) BERR("teng_frame_end: teng_frame_begin cagrilmadan (kare %u)", b.frame);
   b.in_frame = false;
@@ -1904,12 +2070,16 @@ void teng_frame_end(void) {
       b.embed_published++;
     }
   } else { b.hud_n = 0; b.hud_text_n = 0; }
+  for (uint32_t k = 0; k < b.alloc_kontrol; k++) { void *p = ::operator new(64); ::operator delete(p); } // pozitif kontrol (motor sayilir)
   b.prof.end_frame();
   b.frame++;
   g_log.frame = b.frame;
   {
     rhi::VkObjCounts now{};
-    rhi::vk_counters_read(b.dev.handle(), &now);
+    {
+      const GpuScope gs;
+      rhi::vk_counters_read(b.dev.handle(), &now);
+    }
     const rhi::VkObjCounts d = rhi::vk_obj_counts_diff(now, b.vk_prev);
     b.vk_prev = now;
     if (b.frame > 5) {
@@ -1980,8 +2150,25 @@ void teng_shutdown(void) {
   if (b.teleports_inplace || b.teleports_rebuilt)
     BINFO("kapanis (isinlama): %llu yerinde (sabit/kinematik, govde KURULMADI), %llu yeniden kurma (dinamik)",
           (unsigned long long)b.teleports_inplace, (unsigned long long)b.teleports_rebuilt);
+  alloc_frame_close(b);
+  if (!b.alloc_on)
+    BINFO("kapanis (kare ici ayirma): OLCULMEDI — operator new sayaci bu ikiliye bagli degil (core/memory/alloc_gate_override.cpp)");
+  else if (b.frame > 6)
+    // tum kare = oyun kodu + kare ici eng_* cagrilari (sahne/model/ses yukleme burada gorunur).
+    BINFO("kapanis (kare ici ayirma, kare 6..%u): motor %llu (en cok %llu/kare, %u karede >0), betik kancasi %llu, GPU/surucu %llu (en cok %llu/kare), tum kare %llu (%u karede >0, en cok %llu k%u)",
+          b.frame, (unsigned long long)b.alloc_motor_sum, (unsigned long long)b.alloc_motor_max, b.alloc_motor_frames,
+          (unsigned long long)b.alloc_hook_sum, (unsigned long long)b.alloc_gpu_sum, (unsigned long long)b.alloc_gpu_max,
+          (unsigned long long)b.alloc_all_sum, b.alloc_all_frames, (unsigned long long)b.alloc_all_max, b.alloc_all_max_frame);
+  if (b.fsb_frames || b.dim_frames_compose || b.dim_frames_quad)
+    BINFO("kapanis (arayuz katmani): %u karede tam ekran YARI SAYDAM katman (en cok %u/kare); sahne karartma %u kare compose'da (bedava), %u kare yedek dortgenle",
+          b.fsb_frames, b.fsb_max, b.dim_frames_compose, b.dim_frames_quad);
+  if (b.font_ok && b.font.missing_count())
+    BINFO("kapanis (font): %u kod noktasi fontta yoktu ve '?' cizildi (ilki U+%04X)", b.font.missing_count(), b.font.first_missing());
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
+  if (b.ui.text_shrunk || b.ui.text_clipped)
+    BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
+          b.ui.text_clipped);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
         b.ui.injects, b.scene_reloads, g_save.loaded ? g_save.path : "acilmadi", g_save.n, g_save.writes, g_save.bad_lines);
   {
@@ -2106,6 +2293,11 @@ void teng_shutdown(void) {
 }
 
 double teng_dt(void) { return g ? g->dt : 0.0; }
+// --- kare ici ayirma (Geri bildirim #13) -------------------------------------
+int teng_alloc_gate_on(void) { return g && g->alloc_on ? 1 : 0; }
+double teng_alloc_count(void) { return (double)AllocGate::total_allocations(); }
+int teng_frame_allocs(void) { return g ? (int)(g->alloc_last_motor > 0x7FFFFFFFu ? 0x7FFFFFFFu : g->alloc_last_motor) : 0; }
+double teng_frame_allocs_total(void) { return g ? (double)g->alloc_motor_sum : 0.0; }
 double teng_time(void) { return g ? g->time_s : 0.0; }
 int teng_frame(void) { return g ? (int)g->frame : 0; }
 double teng_fps(void) { return g ? g->fps : 0.0; }
@@ -3197,9 +3389,53 @@ static float ui_scale(double h) {
   if (s > 2.0f) s = 2.0f;
   return s;
 }
-// align: 0 ortali, 1 sola yasli, 2 saga yasli.
-static void ui_text_box(const char *s, double x, double y, double w, double h, int64_t color, int align, float scale) {
+// Kutunun ic genisligine sigdir (Geri bildirim #15): olcek yalniz yukseklikten
+// geliyordu ve uzun etiket ("Savas Arabasi", 2240 piksellik 6 dugmelik cubukta)
+// dugmeden TASIYORDU. Once kucult (yukseklik olceginin en az %55'ine kadar),
+// yetmezse kod noktasi sinirinda kes + "..." (font'ta U+2026 yok, uc nokta ASCII).
+// Ayirma yok: kirpilmis metin yigindaki sabit tamponda.
+constexpr float kUiTextPad = 8.0f, kUiMinShrink = 0.55f;
+static const char *ui_fit(const char *s, float avail, float *scale, char *buf, size_t cap) {
+  const float w1 = g->font.text_width(s, 1.0f);
+  if (w1 <= 0 || avail <= 0 || w1 * *scale <= avail) return s;
+  const float floor_sc = *scale * kUiMinShrink;
+  g->ui.text_shrunk++;
+  if (w1 * floor_sc <= avail) { *scale = avail / w1; return s; }
+  *scale = floor_sc;
+  const float dots = g->font.text_width("...", floor_sc);
+  size_t keep = 0;
+  float used = 0;
+  const char *p = s;
+  while (*p) {
+    const char *q = p;
+    const uint32_t cp = content::Font::decode_utf8(&q);
+    char one[8] = {0};
+    const size_t n = (size_t)(q - p);
+    if (n >= sizeof one) break;
+    std::memcpy(one, p, n);
+    (void)cp;
+    const float cw = g->font.text_width(one, floor_sc);
+    if (used + cw + dots > avail || keep + n + 4 > cap) break;
+    used += cw;
+    keep += n;
+    p = q;
+  }
+  std::memcpy(buf, s, keep);
+  std::memcpy(buf + keep, "...", 4);
+  g->ui.text_clipped++;
+  if (!g->ui.clip_warned) {
+    g->ui.clip_warned = true;
+    blog(1, "UYARI arayuz: \"%s\" kutuya sigmadi (%.0f px), en az olcekte de: \"%s\" diye kirpildi — kutuyu genislet ya da etiketi kisalt", s, avail, buf);
+    g_log.warnings++;
+  }
+  return buf;
+}
+// align: 0 ortali, 1 sola yasli, 2 saga yasli. avail_w < 0: kutunun ic genisligi.
+static void ui_text_box(const char *s, double x, double y, double w, double h, int64_t color, int align, float scale, float avail_w = -1.0f) {
   if (!s || !g->font_ok) return;
+  char buf[256];
+  const float avail = avail_w >= 0 ? avail_w : (float)w - 2.0f * kUiTextPad;
+  s = ui_fit(s, avail, &scale, buf, sizeof buf);
   const float tw = g->font.text_width(s, scale), th = g->font.height() * scale;
   float tx = (float)x + 10.0f;
   if (align == 0) tx = (float)x + ((float)w - tw) * 0.5f;
@@ -3327,7 +3563,7 @@ int teng_ui_checkbox(const char *label, double x, double y, double w, double h, 
   teng_rect(x, y, w, h, ui_shade(u.c_panel, inside && en ? 2.0f : 1.5f));
   teng_rect(x + 8, y + (h - bs) * 0.5, bs, bs, frame_c);
   if (v) teng_rect(x + 12, y + (h - bs) * 0.5 + 4, bs - 8, bs - 8, en ? u.c_accent : ui_shade(u.c_accent, 0.5));
-  ui_text_box(label, x + bs + 14, y, w - bs - 22, h, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, ui_scale(h));
+  ui_text_box(label, x + bs + 14, y, w - bs - 22, h, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, ui_scale(h), (float)(w - bs - 22) - 10.0f - kUiTextPad);
   return v ? 1 : 0;
 }
 double teng_ui_slider(const char *label, double x, double y, double w, double h, double value, double min_v, double max_v) {
@@ -3360,11 +3596,15 @@ double teng_ui_slider(const char *label, double x, double y, double w, double h,
   char val[32];
   std::snprintf(val, sizeof val, (max_v - min_v) >= 10.0 ? "%.0f" : "%.2f", v);
   const float sc = ui_scale(h * 0.62);
-  ui_text_box(label, x, y, w, h * 0.55, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, sc);
+  // Etiket deger yazisinin solunda kalsin: ikisi ayni satirda.
+  const float val_w = g->font_ok ? g->font.text_width(val, sc) : 0.0f;
+  ui_text_box(label, x, y, w, h * 0.55, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, sc, (float)w - 20.0f - val_w - 12.0f);
   ui_text_box(val, x, y, w, h * 0.55, en ? u.c_accent : ui_shade(u.c_accent, 0.6), 2, sc);
   return v;
 }
 int teng_ui_active(void) { return g && g->ui.active ? 1 : 0; }
+int teng_ui_text_shrunk(void) { return g ? (int)g->ui.text_shrunk : 0; }
+int teng_ui_text_clipped(void) { return g ? (int)g->ui.text_clipped : 0; }
 int teng_ui_clicks(void) { return g ? (int)g->ui.clicks : 0; }
 void teng_ui_test_click(double x, double y) {
   CALLF("teng_ui_test_click", "(%.0f %.0f)", x, y);

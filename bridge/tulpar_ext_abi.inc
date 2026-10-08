@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 234
+#define TENG_ABI_COUNT 242
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -14,6 +14,10 @@ TENG_ABI(void, eng_shutdown, teng_shutdown, (void))
 TENG_ABI(int, eng_frame_begin, teng_frame_begin, (void))
 TENG_ABI(void, eng_frame_end, teng_frame_end, (void))
 TENG_ABI(double, eng_dt, teng_dt, (void))
+TENG_ABI(int, eng_alloc_gate_on, teng_alloc_gate_on, (void))
+TENG_ABI(double, eng_alloc_count, teng_alloc_count, (void))
+TENG_ABI(int, eng_frame_allocs, teng_frame_allocs, (void))
+TENG_ABI(double, eng_frame_allocs_total, teng_frame_allocs_total, (void))
 TENG_ABI(double, eng_time, teng_time, (void))
 TENG_ABI(int, eng_frame, teng_frame, (void))
 TENG_ABI(double, eng_fps, teng_fps, (void))
@@ -34,6 +38,8 @@ TENG_ABI(const char *, eng_last_error, teng_last_error, (void))
 TENG_ABI(int, eng_error_count, teng_error_count, (void))
 TENG_ABI(int, eng_warning_count, teng_warning_count, (void))
 TENG_ABI(void, eng_bloom, teng_bloom, (int, double, double))
+TENG_ABI(void, eng_scene_dim, teng_scene_dim, (double))
+TENG_ABI(int, eng_ui_fullscreen_blends, teng_ui_fullscreen_blends, (void))
 TENG_ABI(int, eng_bloom_on, teng_bloom_on, (void))
 TENG_ABI(double, eng_render_scale, teng_render_scale, (double))
 TENG_ABI(void, eng_gravity, teng_gravity, (double, double, double))
@@ -214,6 +220,8 @@ TENG_ABI(void, eng_ui_label, teng_ui_label, (const char *, double, double, doubl
 TENG_ABI(int, eng_ui_button, teng_ui_button, (const char *, double, double, double, double))
 TENG_ABI(int, eng_ui_checkbox, teng_ui_checkbox, (const char *, double, double, double, double, int))
 TENG_ABI(double, eng_ui_slider, teng_ui_slider, (const char *, double, double, double, double, double, double, double))
+TENG_ABI(int, eng_ui_text_shrunk, teng_ui_text_shrunk, (void))
+TENG_ABI(int, eng_ui_text_clipped, teng_ui_text_clipped, (void))
 TENG_ABI(int, eng_ui_active, teng_ui_active, (void))
 TENG_ABI(int, eng_ui_clicks, teng_ui_clicks, (void))
 TENG_ABI(void, eng_ui_test_click, teng_ui_test_click, (double, double))

@@ -52,7 +52,14 @@ const TengScriptVm kTulparVm = {vm_has, vm_call, tulpar_ext_func_lookup, tulpar_
 
 }  // namespace
 
+// AllocGate override'i (core/memory/alloc_gate_override.cpp) bu arsivde; statik
+// linkte bir uyesi ancak bir sembolu istenirse cekilir. Bu basvuru onu ceker:
+// Tulpar oyununda operator new SAYILIR (Geri bildirim #13). Motorun kendi
+// ikilileri bu dosyayi baglamaz, override'i kendileri baglar (cift tanim yok).
+extern "C" int tulpar_engine_alloc_gate_linked;
+
 extern "C" int teng_tulpar_init(const char *title, int width, int height) {
+  (void)tulpar_engine_alloc_gate_linked;
   // VM kurulumu eng_init'in ICINDE: kancalar sahne yuklenirken cozuluyor ve
   // oyunun ayri bir cagriyi unutmasi mumkun OLMAMALI — unutulan kurulum,
   // sessizce calismayan betikler demek. _v2: dort alan (resolve/invoke).

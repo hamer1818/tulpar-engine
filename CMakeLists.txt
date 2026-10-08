@@ -122,6 +122,17 @@ add_custom_target(engine_icon_check
     VERBATIM
 )
 
+# --- Oyun metni glif denetimi (Geri bildirim #20) ---------------------------
+# Tulpar kaynaklarindaki her metin kod noktasi motorun HUD font atlasinda (ya da
+# ASCII esleme tablosunda) mi + paketlenen DejaVuSans atlas araliklarini iceriyor
+# mu. Yoksa metin HATA VERMEDEN '?' cizilir. Once kapinin kendi sinamasi.
+add_custom_target(engine_glyph_check
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/glyph_check.py --oz-sinama ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND "${Python3_EXECUTABLE}" ${CMAKE_CURRENT_SOURCE_DIR}/tools/glyph_check.py ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "engine: oyun metni glif denetimi (cizilemeyen karakter = build hatasi)"
+    VERBATIM
+)
+
 # --- Sahne bicim denetimi ---------------------------------------------------
 # .sahne yazicisi ile ayristiricisi elle tutulan IKI ayri tablodur. Biri
 # degisip oteki degismediginde derleyici susar: sahne yazilir, geri okunamaz
@@ -356,7 +367,7 @@ target_include_directories(engine_content PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 target_link_libraries(engine_content PUBLIC engine_renderer engine_sim engine_meshopt engine_astcenc)
 target_compile_options(engine_content PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> $<$<COMPILE_LANGUAGE:C>:-w>)
-add_dependencies(engine_content engine_layer_check engine_scene_check)
+add_dependencies(engine_content engine_layer_check engine_scene_check engine_glyph_check)
 
 # --- L6 BRIDGE: Tulpar betikleri icin C ABI (teng_*), bkz. bridge/engine_api.h --------
 # Masaustu: engine_bridge (+ desktop_host, GLFW dlopen). Android: tulpar_engine_android
@@ -377,7 +388,10 @@ add_dependencies(engine_bridge engine_layer_check engine_bindings_check)
 # kalan 207 eng_* fonksiyonunu derleyici DOGRUDAN teng_*'e indirir. Motorun
 # kendi ikilileri bunu BAGLAMAZ: TulparLang runtime'inin tulpar_ext_*
 # sembollerini cagirir, onlar yalniz bir Tulpar oyununun linkinde cozulur.
-add_library(engine_tulpar STATIC bridge/tulpar_kopru.cpp)
+# alloc_gate_override.cpp BURADA (Geri bildirim #13): Tulpar oyununun kare ici
+# C++ ayirmasi sayilsin. Yapistirici onun isaretine basvurur, yani arsivden
+# her zaman cekilir; motorun kendi ikilileri engine_tulpar'i baglamaz.
+add_library(engine_tulpar STATIC bridge/tulpar_kopru.cpp core/memory/alloc_gate_override.cpp)
 target_link_libraries(engine_tulpar PUBLIC engine_bridge)
 target_compile_options(engine_tulpar PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
 add_dependencies(engine_tulpar engine_layer_check engine_bindings_check)
@@ -682,6 +696,7 @@ if(ANDROID)
       bridge/tulpar_kopru.cpp
       bridge/tulpar_abi.cpp
       app/virtual_stick.cpp
+      core/memory/alloc_gate_override.cpp
       ${ENGINE_GLUE_DIR}/android_native_app_glue.c
   )
   target_include_directories(tulpar_engine_android PRIVATE ${ENGINE_GLUE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})

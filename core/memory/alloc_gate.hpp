@@ -16,6 +16,10 @@ public:
   static uint64_t total_allocations();
   static uint64_t total_frees();
   static uint64_t total_bytes();
+  // CAGIRAN is parcacigindaki ayirma (yasam boyu). Kopru motorun kare ici
+  // sayimini bununla yapar: surucunun kendi is parcaciklari (MoltenVK, lavapipe
+  // LLVM derleyicisi) ayni anda ayirabilir ve global sayac onlari da sayar.
+  static uint64_t thread_allocations();
 
   // Kare penceresi.
   static void begin_frame();

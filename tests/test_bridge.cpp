@@ -2649,3 +2649,312 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
   teng_shutdown();
 }
+
+// --- Geri bildirim #13: kare ici C++ ayirma (AllocGate) koprude olculur ---------
+// Override yalniz engine_tests/demo/editor'e bagliydi; Tulpar oyununda "kare
+// ici C++ ayirma 0" iddiasi olculemiyordu. Kopru artik ucunu ayri sayar: motor
+// (frame_begin + frame_end govdesi, kancalar haric), betik kancalari, tum kare
+// (oyun kodu + kare ici eng_* cagrilari). Olcu (bu surec override'i bagli):
+// sakin kareler motor 0; oyun kodunda ayirma -> yalniz "tum kare"; kancada
+// ayirma -> "betik kancasi", motor yine 0. POZITIF KONTROL:
+// TULPAR_ENGINE_ALLOC_KONTROL=3 -> motor kare basina tam 3.
+namespace ayirma {
+int n_kanca = 0;
+int has(const char *fn) { return fn && std::strstr(fn, "ayiran_guncelle") ? 1 : 0; }
+int call(const char *fn, const double *, int) {
+  if (!fn || !std::strstr(fn, "_guncelle")) return 0;
+  void *p = ::operator new(48);
+  ::operator delete(p);
+  n_kanca++;
+  return 1;
+}
+const TengScriptVm vm{has, call, nullptr, nullptr};
+} // namespace ayirma
+
+ENGINE_TEST(bridge_frame_allocs_are_counted_motor_hook_game) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  unsetenv("TULPAR_ENGINE_ALLOC_KONTROL");
+  if (!teng_init("ayirma kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_alloc_gate_on() == 1);
+  teng_spawn_ground(10, 0xffffffff);
+  run_frames(20); // isinma (kare 6.. sayilir)
+  const double motor0 = teng_frame_allocs_total();
+  run_frames(30);
+  const double motor_sakin = teng_frame_allocs_total() - motor0;
+  // Oyun kodu ayirir (kare ici, eng_* disinda): motor DEGIL.
+  const double c0 = teng_alloc_count();
+  for (int i = 0; i < 10; i++) {
+    teng_frame_begin();
+    void *p = ::operator new(40);
+    ::operator delete(p);
+    teng_frame_end();
+  }
+  const double oyun = teng_alloc_count() - c0;
+  const double motor_oyun = teng_frame_allocs_total() - motor0 - motor_sakin;
+  // Kanca ayirir: betik kancasi, motor DEGIL.
+  teng_set_script_vm(&ayirma::vm);
+  const int id = teng_spawn_box(0, 3, 0, 0.3, 0.3, 0.3, 1, 0xffffffff);
+  CHECK(teng_script_attach(id, "ayiran") == 1);
+  const double m1 = teng_frame_allocs_total();
+  run_frames(10);
+  const double motor_kanca = teng_frame_allocs_total() - m1;
+  teng_script_detach(id);
+  teng_set_script_vm(nullptr);
+  std::printf("    [bilgi] kare ici ayirma: sakin 30 kare motor %.0f; oyun kodu 10 ayirma -> surec %.0f, motor %.0f; kanca %d cagri -> motor %.0f; son kare %d\n",
+              motor_sakin, oyun, motor_oyun, ayirma::n_kanca, motor_kanca, teng_frame_allocs());
+  CHECK(motor_sakin == 0 && motor_oyun == 0 && motor_kanca == 0);
+  CHECK(oyun >= 10 && ayirma::n_kanca >= 9);
+  kapanis_yakala();
+  // Yalniz BU oturumun ayirma satiri (yakalanan metinde baska satirlar da var).
+  const char *satir = std::strstr(g_kapanis_log, "kapanis (kare ici ayirma, kare 6..");
+  char tek[320] = {0};
+  if (satir) {
+    size_t n = 0;
+    while (satir[n] && satir[n] != '\n' && n + 1 < sizeof tek) n++;
+    std::memcpy(tek, satir, n);
+  }
+  CHECK(satir && std::strstr(tek, ": motor 0 ") != nullptr);
+  CHECK(std::strstr(tek, "betik kancasi 10,") != nullptr); // kanca ayirmasi SAYILDI (ayri kova)
+  // "tum kare" global sayactir: surucunun is parcaciklari da (MoltenVK, lavapipe)
+  // girer, yani tam sayi platforma bagli — burada yalniz alt sinir olculur.
+  // POZITIF KONTROL: motor gercekten ayirinca kapi goruyor.
+  setenv("TULPAR_ENGINE_ALLOC_KONTROL", "3", 1);
+  teng_set_headless(100000, nullptr);
+  CHECK(teng_init("ayirma pozitif kontrol", kW, kH) == 1);
+  unsetenv("TULPAR_ENGINE_ALLOC_KONTROL");
+  run_frames(20);
+  const double k0 = teng_frame_allocs_total();
+  run_frames(10);
+  const double k10 = teng_frame_allocs_total() - k0;
+  std::printf("    [bilgi] KONTROL (TULPAR_ENGINE_ALLOC_KONTROL=3): 10 karede motor %.0f, son kare %d\n", k10, teng_frame_allocs());
+  CHECK(k10 == 30 && teng_frame_allocs() == 3);
+  teng_shutdown();
+}
+
+// --- Geri bildirim #15: dugme yazisi kutuya sigar -----------------------------
+// ui_scale(h) yalniz yukseklikten; telefonun 2240x1080 ekraninda 6 dugmelik
+// alt cubukta "Savas Arabasi" dugmeden TASIYORDU (oyun etiketleri kisaltti;
+// telefonun fontu Roboto, masaustu DejaVu — genislikler farkli, bu yuzden kapi
+// etiketlerden en az birinin eski olcekle tastigini ONCE olcer).
+// Olcu (telefonun cozunurlugu, oyunun yerlesimi: bw = (W - 7*ara)/6, h = 76*s):
+// sari yazi pikselleri YALNIZ dugme kutularinin icinde. KONTROL: eski olcekle
+// (yalniz yukseklik) etiket genisligi dugmeyi asiyor — kapi bir sey olcuyor; en
+// dar kutuda etiket "..." ile kirpilir ve bir kez UYARI basar.
+ENGINE_TEST(bridge_ui_button_label_fits_width) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  constexpr uint32_t W = 2159, H = 1080; // P20 Pro penceresi (centik serit disi, Geri bildirim #17)
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("dugme yazisi kapisi", W, H)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const double s = H / 720.0, ara = 10 * s, h = 76 * s, bw = (W - ara * 7) / 6, y = H - h - 20;
+  const char *ad[6] = {"Sava\xC5\x9F" " Arabas\xC4\xB1", "Kaya Ya\xC4\x9Fmuru", "Manc\xC4\xB1n\xC4\xB1k Tak\xC4\xB1m\xC4\xB1", "Kule: Vazge\xC3\xA7", "Gelecek \xC3\x87" "a\xC4\x9F\xC4\xB1 Askeri", "\xC3\x87" "a\xC4\x9F Atla"};
+  // Eski olcek (yalniz yukseklik, ui_scale ile ayni formul) ile en genis etiket:
+  double eski_max = 0;
+  for (int i = 0; i < 6; i++) {
+    const double sc = h * 0.42 / 28.0 > 2.0 ? 2.0 : h * 0.42 / 28.0; // 1080p font 28 px
+    const double tw = teng_text_width(ad[i], sc);
+    if (tw > eski_max) eski_max = tw;
+  }
+  const int warn0 = teng_warning_count();
+  teng_ui_theme(0x202430ff, 0xffff00ff, 0x3080ffff); // sari yazi: piksel sayimi icin
+  for (int f = 0; f < 3; f++) {
+    teng_frame_begin();
+    teng_ui_begin();
+    for (int i = 0; i < 6; i++) teng_ui_button(ad[i], ara + (bw + ara) * i, y, bw, h);
+    teng_ui_button("Cok uzun bir dugme etiketi burada", 40, 40, 160, 70); // en dar kutu: kirpilir
+    teng_ui_end();
+    teng_frame_end();
+  }
+  char shot[512];
+  tmp_template(shot, sizeof shot, "dugme_yazi");
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  CHECK(teng_screenshot(shot) == 1);
+  static uint8_t px[W * H * 3];
+  uint32_t w = 0, hh = 0;
+  const uint32_t n = read_ppm(shot, px, W * H, &w, &hh);
+  std::remove(shot);
+  CHECK(n == W * H);
+  uint32_t ici = 0, disi = 0;
+  for (uint32_t yy = (uint32_t)y; yy < (uint32_t)(y + h) && n; yy++)
+    for (uint32_t xx = 0; xx < W; xx++) {
+      const uint8_t *p = px + ((size_t)yy * W + xx) * 3;
+      if (!(p[0] > 180 && p[1] > 180 && p[2] < 90)) continue; // sari
+      bool kutuda = false;
+      for (int i = 0; i < 6; i++) {
+        const double bx = ara + (bw + ara) * i;
+        if (xx >= bx && xx < bx + bw) kutuda = true;
+      }
+      (kutuda ? ici : disi)++;
+    }
+  const int kucuk = teng_ui_text_shrunk(), kirp = teng_ui_text_clipped();
+  std::printf("    [bilgi] 2159x1080, dugme %.0fx%.0f: eski olcekle en genis etiket %.0f px (> %.0f); sari piksel kutuda %u, disarida %u; kucultulen %d cizim, kirpilan %d; uyari +%d\n",
+              bw, h, eski_max, bw, ici, disi, kucuk, kirp, teng_warning_count() - warn0);
+  CHECK(eski_max > bw); // KONTROL: duzeltmesiz kod tasardi
+  CHECK(kucuk > 0 && kirp == 3 && teng_warning_count() == warn0 + 1); // dar kutu 3 karede kirpildi, UYARI bir kez
+  if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): yazinin PIKSEL siniri gercek cihazda olculur");
+  else CHECK(ici > 500 && disi == 0);
+  teng_shutdown();
+}
+
+// --- Geri bildirim #16: sahne karartma compose'da, tam ekran harmanli katman sayilir ---
+// Oyun duraklat/ayar ekraninda sahneyi tam ekran YARI SAYDAM dortgenle
+// karartiyordu: Mali'de (TBDR) ~3.5 ms (P20 Pro), kopru bunu gostermiyordu.
+// Olcu (iki oturum): parlama ACIK -> eng_scene_dim(0.4) sahne pikselini koyultur,
+// ustteki opak arayuz dortgeni AYNI kalir (karartma compose'da, arayuz ondan
+// sonra), oyunun tam ekran katmani sayaci 0. KONTROL: oyunun yolu (tam ekran
+// yari saydam teng_rect) ayni koyulugu verir ve sayaca girer. Parlama KAPALI ->
+// yedek dortgen: sahne yine koyulur, oyun sayaci yine 0 (yedek kendi kovasinda).
+namespace karartma {
+struct Px { int r, g, b; };
+Px oku(const char *ad, int x, int y) {
+  static uint8_t px[kW * kH * 3];
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  uint32_t w = 0, h = 0;
+  Px p{-1, -1, -1};
+  if (teng_screenshot(shot) == 1 && read_ppm(shot, px, kW * kH, &w, &h) == kW * kH) {
+    const uint8_t *q = px + ((size_t)y * w + (size_t)x) * 3;
+    p = Px{q[0], q[1], q[2]};
+  }
+  std::remove(shot);
+  return p;
+}
+// Bir kare: sahne + sol ustte opak beyaz arayuz dortgeni (+ istege bagli oyun karartmasi).
+void kare(bool oyun_karartmasi) {
+  teng_frame_begin();
+  if (oyun_karartmasi) teng_rect(0, 0, kW, kH, 0x0000008c);
+  teng_rect(4, 4, 40, 30, 0xffffffff);
+  teng_frame_end();
+}
+} // namespace karartma
+
+ENGINE_TEST(bridge_scene_dim_uses_compose_and_counts_fullscreen_blend) {
+  using namespace karartma;
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  int fsb_compose = -1, fsb_oyun = -1, fsb_yedek = -1;
+  Px sahne[2][3] = {}, ui[2][3] = {};
+  bool post[2] = {false, false};
+  for (int oturum = 0; oturum < 2; oturum++) {
+    teng_bloom(oturum == 0 ? 1 : 0, 4.0, 0.0); // yogunluk 0: parlama gorunmez, compose gecisi VAR
+    teng_set_headless(100000, nullptr);
+    if (!teng_init(oturum == 0 ? "karartma compose" : "karartma yedek", kW, kH)) {
+      std::printf("    [bilgi] kurulum: %s\n", teng_last_error());
+      skip("Vulkan cihazi/kurulum yok");
+      return;
+    }
+    post[oturum] = teng_bloom_on() == 1;
+    teng_spawn_ground(20, 0xd0d0d0ff);
+    teng_camera(0, 6, 8, 0, 0, 0);
+    for (int i = 0; i < 3; i++) kare(false);
+    sahne[oturum][0] = oku("karartma_a", kW / 2, kH * 3 / 4);
+    ui[oturum][0] = oku("karartma_a", 20, 15);
+    teng_scene_dim(0.4);
+    for (int i = 0; i < 3; i++) kare(false);
+    sahne[oturum][1] = oku("karartma_b", kW / 2, kH * 3 / 4);
+    ui[oturum][1] = oku("karartma_b", 20, 15);
+    if (oturum == 0) fsb_compose = teng_ui_fullscreen_blends();
+    else fsb_yedek = teng_ui_fullscreen_blends();
+    teng_scene_dim(1.0);
+    if (oturum == 0) {
+      for (int i = 0; i < 3; i++) kare(true); // KONTROL: oyunun eski yolu
+      sahne[0][2] = oku("karartma_c", kW / 2, kH * 3 / 4);
+      ui[0][2] = oku("karartma_c", 20, 15);
+      fsb_oyun = teng_ui_fullscreen_blends();
+    }
+    kapanis_yakala();
+  }
+  std::printf("    [bilgi] karartma: compose oturumu (post %d) sahne g %d -> %d, arayuz %d -> %d, oyun katmani %d | oyunun yolu sahne %d arayuz %d, katman %d | "
+              "yedek oturum (post %d) sahne %d -> %d, arayuz %d -> %d, oyun katmani %d\n",
+              post[0], sahne[0][0].g, sahne[0][1].g, ui[0][0].g, ui[0][1].g, fsb_compose, sahne[0][2].g, ui[0][2].g, fsb_oyun, post[1], sahne[1][0].g,
+              sahne[1][1].g, ui[1][0].g, ui[1][1].g, fsb_yedek);
+  CHECK(post[0] && !post[1]);
+  CHECK(fsb_compose == 0 && fsb_yedek == 0); // karartma oyunun tam ekran katmani DEGIL
+  CHECK(fsb_oyun == 3);                      // KONTROL: oyunun yolu her karede sayildi
+  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): karartmanin PIKSEL dogrulamasi gercek cihazda olculur"); return; }
+  for (int o = 0; o < 2; o++) {
+    CHECK(sahne[o][0].g > 60 && sahne[o][1].g < sahne[o][0].g * 0.8); // sahne koyuldu
+    CHECK(ui[o][1].g == ui[o][0].g && ui[o][0].g > 240);               // arayuz KARARTILMADI
+  }
+  CHECK(sahne[0][2].g < sahne[0][0].g * 0.8); // KONTROL: oyunun yolu ayni gorsel sonucu veriyor (bedeli farkli)
+}
+
+// --- Geri bildirim #20: tipografik karakterler '?' degil ------------------------
+// HUD fontu yalniz ASCII + Latin-1 + Turkce'yi atlasa koyuyordu: `—` sessizce
+// '?' ciziliyordu. Olcu: (1) `— – … “ ” ‘ ’ •` genislikleri '?'nunkinden FARKLI
+// ve sifirdan buyuk (atlasta gercek glif), (2) buyuk olcekte cizilen `—` PIKSELDE
+// ince yatay bir cubuk (yukseklik < genislik/4) — '?' ise uzun (yukseklik >
+// genislik), (3) '?' sayaci 0. KONTROL: aralik disi U+2260 (≠) '?' cizer, sayac
+// 1 olur ve bir kez UYARI basar; U+2192 (→) ASCII '>' eslemesiyle cizilir (sayilmaz).
+namespace glif {
+// Sari piksellerin sinir kutusu (x0, y0, x1, y1); bos ise x1 < x0.
+void kutu(const char *ad, int out[4]) {
+  static uint8_t px[kW * kH * 3];
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  uint32_t w = 0, h = 0;
+  out[0] = out[1] = 1 << 20; out[2] = out[3] = -1;
+  if (teng_screenshot(shot) == 1 && read_ppm(shot, px, kW * kH, &w, &h) == kW * kH)
+    for (uint32_t y = 0; y < h; y++)
+      for (uint32_t x = 0; x < w; x++) {
+        const uint8_t *p = px + ((size_t)y * w + x) * 3;
+        if (!(p[0] > 150 && p[1] > 150 && p[2] < 90)) continue;
+        if ((int)x < out[0]) out[0] = (int)x;
+        if ((int)y < out[1]) out[1] = (int)y;
+        if ((int)x > out[2]) out[2] = (int)x;
+        if ((int)y > out[3]) out[3] = (int)y;
+      }
+  std::remove(shot);
+}
+void ciz(const char *s) {
+  teng_frame_begin();
+  teng_text(s, 40, 40, 4.0, 0xffff00ff);
+  teng_frame_end();
+}
+} // namespace glif
+
+ENGINE_TEST(bridge_font_draws_typographic_punctuation) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("tipografik karakter kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const double soru = teng_text_width("?", 1.0);
+  const char *tip[8] = {"\xE2\x80\x94", "\xE2\x80\x93", "\xE2\x80\xA6", "\xE2\x80\x9C", "\xE2\x80\x9D", "\xE2\x80\x98", "\xE2\x80\x99", "\xE2\x80\xA2"};
+  int farkli = 0;
+  for (int i = 0; i < 8; i++) {
+    const double w = teng_text_width(tip[i], 1.0);
+    if (w > 0 && w != soru) farkli++;
+  }
+  const double w_tire = teng_text_width("\xE2\x80\x94", 1.0), w_ok = teng_text_width("\xE2\x86\x92", 1.0), w_buyuk = teng_text_width(">", 1.0);
+  int k_tire[4], k_soru[4];
+  glif::ciz("\xE2\x80\x94");
+  glif::kutu("glif_tire", k_tire);
+  glif::ciz("?");
+  glif::kutu("glif_soru", k_soru);
+  const int warn0 = teng_warning_count();
+  glif::ciz("a \xE2\x89\xA0 b"); // ≠: aralik disi, esleme yok
+  glif::ciz("a \xE2\x89\xA0 b");
+  std::printf("    [bilgi] glif: 8 tipografik karakterin %d'i gercek glif (genislik != '?' %.1f); `—` %.1f px, → %.1f (= '>' %.1f); piksel kutusu `—` %dx%d, '?' %dx%d; uyari +%d\n",
+              farkli, soru, w_tire, w_ok, w_buyuk, k_tire[2] - k_tire[0] + 1, k_tire[3] - k_tire[1] + 1, k_soru[2] - k_soru[0] + 1,
+              k_soru[3] - k_soru[1] + 1, teng_warning_count() - warn0);
+  CHECK(farkli == 8);
+  CHECK(w_ok == w_buyuk);                           // ASCII eslemesi
+  CHECK(teng_warning_count() == warn0 + 1);         // KONTROL: ≠ bir kez UYARI
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "kapanis (font): ") != nullptr && std::strstr(g_kapanis_log, "U+2260") != nullptr);
+  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): glif PIKSEL sekli gercek cihazda olculur"); return; }
+  const int tw = k_tire[2] - k_tire[0] + 1, th = k_tire[3] - k_tire[1] + 1, sw = k_soru[2] - k_soru[0] + 1, sh = k_soru[3] - k_soru[1] + 1;
+  CHECK(tw > 20 && th * 4 < tw); // ince yatay cubuk
+  CHECK(sw > 5 && sh > sw);      // KONTROL: '?' uzun (olcu sekli ayirt ediyor)
+}
