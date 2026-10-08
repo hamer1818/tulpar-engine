@@ -568,6 +568,18 @@ struct Bridge {
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
+  // Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi
+  // koyultmak icin oyun tam ekran YARI SAYDAM dortgen ciziyordu; Mali'de (TBDR)
+  // bu +2.57 ms/kare (P20 Pro, 2159x1080, parlama acik, 2026-10-08; compose
+  // yolu +0.00 ms — B sondasi, sira karisik 3 tur). Parlama aciksa birlestirme (compose) gecisi
+  // her pikseli ZATEN okuyor: karartma oradaki poz carpanina biner, bedelsiz;
+  // arayuz o gecisten SONRA cizildigi icin karartilmaz. Parlama kapaliysa yedek
+  // yol: tek tam ekran harmanli dortgen (oyunun yaptigiyla ayni bedel), sayilir.
+  float scene_dim = 1.0f;
+  uint32_t dim_frames_compose = 0, dim_frames_quad = 0;
+  // Oyunun kendi tam ekran harmanli katmanlari (renderer ui_stats, yedek dortgen haric).
+  uint32_t fsb_frames = 0, fsb_max = 0;
+  bool fsb_hinted = false;
   char hud_text[kHudTextBytes];
   uint32_t hud_text_n = 0;
   // sorgular: son isin testi + son kure sorgusu (sabit diziler, kare ici ayirma yok)
@@ -993,12 +1005,39 @@ void render_frame() {
   // HUD: betigin bu karede kuyrukladigi komutlar.
   b.ren.ui_begin((float)vis_w, (float)vis_h_px, b.headless ? 0.0f : b.swap.rotation_radians());
   if (b.font_ok) b.ren.ui_set_atlas(b.font.atlas());
+  // Sahne karartma: compose varsa poz carpani (bedelsiz), yoksa yedek dortgen
+  // oyunun arayuzunun ALTINA (ilk dortgen).
+  const bool post_on = b.ren.post().enabled;
+  if (post_on) b.ren.set_exposure(b.scene_dim);
+  uint32_t own_fsb = 0;
+  if (b.scene_dim < 1.0f) {
+    if (post_on) b.dim_frames_compose++;
+    else {
+      const uint32_t a = (uint32_t)((1.0f - b.scene_dim) * 255.0f + 0.5f);
+      b.ren.ui_rect(0, 0, (float)vis_w, (float)vis_h_px, renderer::Renderer::rgba(0, 0, 0, (uint8_t)a)); // siyah, alfa a
+      b.dim_frames_quad++;
+      own_fsb = 1;
+    }
+  }
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
     if (c.kind == 0) b.ren.ui_rect(c.x, c.y, c.w, c.h, c.rgba);
     else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
   }
   b.hud_n = 0; b.hud_text_n = 0;
+  {
+    const uint32_t f = b.ren.ui_stats().fullscreen_blended, oyun = f > own_fsb ? f - own_fsb : 0;
+    if (oyun) {
+      b.fsb_frames++;
+      if (oyun > b.fsb_max) b.fsb_max = oyun;
+      if (!b.fsb_hinted) {
+        b.fsb_hinted = true;
+        BINFO("arayuz: tam ekrani kaplayan YARI SAYDAM katman (kare %u) — TBDR'de (Mali/Adreno) butun tile'lari doldurur, P20 Pro'da +2.6 ms "
+              "olculdu; sahneyi karartmak icin eng_scene_dim (parlama acikken bedava) kullan",
+              b.frame);
+      }
+    }
+  }
   b.last_draws = drawn; b.last_lights = lights + b.srt.stats().lights;
   RecordCtx rc{&b.ren};
   const GpuScope gs; // kayit + gonderim + sunum / offscreen okuma (surucu)
@@ -1057,6 +1096,13 @@ void teng_bloom(int enable, double threshold, double intensity) {
   } else BDBG("parlama %s: esik %.2f yogunluk %.2f", enable ? "acik" : "kapali", threshold, intensity);
 }
 int teng_bloom_on(void) { return g && g->inited && g->ren.post().enabled ? 1 : 0; }
+void teng_scene_dim(double f) {
+  CALLF("teng_scene_dim", "%.3f", f);
+  if (!g) g = new (g_storage) Bridge();
+  if (!(f >= 0.0) || f > 1.0) { BERR("teng_scene_dim: carpan 0..1 olmali (%.3f), kirpildi", f); f = f > 1.0 ? 1.0 : 0.0; }
+  g->scene_dim = (float)f;
+}
+int teng_ui_fullscreen_blends(void) { return g ? (int)g->fsb_frames : 0; }
 double teng_render_scale(double scale) {
   CALLF("teng_render_scale", "%.3f", scale);
   if (!ready("teng_render_scale")) return 1.0;
@@ -2106,6 +2152,9 @@ void teng_shutdown(void) {
           b.frame, (unsigned long long)b.alloc_motor_sum, (unsigned long long)b.alloc_motor_max, b.alloc_motor_frames,
           (unsigned long long)b.alloc_hook_sum, (unsigned long long)b.alloc_gpu_sum, (unsigned long long)b.alloc_gpu_max,
           (unsigned long long)b.alloc_all_sum, b.alloc_all_frames, (unsigned long long)b.alloc_all_max, b.alloc_all_max_frame);
+  if (b.fsb_frames || b.dim_frames_compose || b.dim_frames_quad)
+    BINFO("kapanis (arayuz katmani): %u karede tam ekran YARI SAYDAM katman (en cok %u/kare); sahne karartma %u kare compose'da (bedava), %u kare yedek dortgenle",
+          b.fsb_frames, b.fsb_max, b.dim_frames_compose, b.dim_frames_quad);
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
   if (b.ui.text_shrunk || b.ui.text_clipped)

@@ -246,6 +246,14 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   Sayaçlar `ui_yazi_kucultulen()` / `ui_yazi_kirpilan()`; kapanış raporu `kapanis (arayuz yazisi)`.
   Kapı `bridge_ui_button_label_fits_width` telefonun penceresinde (2159x1080, oyunun 6 düğmelik çubuğu)
   sarı yazı piksellerinin kutu dışına taşmadığını ölçer (düzeltmesiz: 258 piksel taşar).
+- **Sahne karartma** (Geri bildirim #16): duraklat/ayar ekranında 3B sahneyi koyultmak için tam ekran yarı
+  saydam dikdörtgen yerine `sahne_karart(0.4)` (1.0 = normal). Parlama açıkken birleştirme (compose) geçişinin
+  poz çarpanına biner — o geçiş her pikseli zaten okuyor, ek bedel yok; arayüz compose'dan SONRA çizildiği için
+  karartılmaz. Parlama kapalıyken yedek: tek tam ekran harmanlı dörtgen (oyunun yaptığıyla aynı bedel).
+  Oyunun kendi tam ekran yarı saydam katmanı sayılır (`tam_ekran_saydam_kare()`), ilk görülüşte bilgi satırı,
+  kapanışta `kapanis (arayuz katmani)`. Ölçüldü (Huawei P20 Pro / Mali-G72, 2159x1080, parlama açık, ölçek 1.0,
+  2026-10-08, sıra karışık 3 tur x 360 kare): p50 karartmasız 18.63 ms, `sahne_karart(0.45)` 18.63 ms, tam ekran
+  yarı saydam dörtgen 21.20 ms (**+2.57 ms**). Masaüstünde (RTX 5080) fark gürültü içinde.
 - **Fizik:** kutu/küre gövdeleri Jolt'ta; `eng_set_pos` dinamik gövdede **gövdeyi yeniden kurar** (Jolt'ta
   konum yazma yok) ve hız sıfırlanır — log satırı bunu söyler.
 - **HUD** kare içinde kuyruklanır (`eng_text`/`eng_rect`), `eng_frame_end` çizer. Kare dışında çağrı hata loglar.
@@ -894,7 +902,7 @@ bölüm yorumlarına göre):
 |---|---:|---|
 | yaşam döngüsü | 21 | `eng_init` / `running` / `frame_begin` / `frame_end` / `shutdown`, dt, zaman, kare, fps, ölçü, pencersiz kip, **log ve log seviyesi**, ekran görüntüsü, GPU adı, son hata, **hata ve uyarı sayacı** |
 | fizik zamanı | 5 | **duraklat** / duraklı mı, **zaman ölçeği** (yaz/oku), sim adımı sayacı — duraklatma birikimi dondurur, devam bit-tam aynı sonuca varır (Geri bildirim #10) |
-| dünya / kamera | 25 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
+| dünya / kamera | 27 | güneş, ortam, gölge hacmi, yerçekimi, **parlama (bloom)**, **sahne karartma** + tam ekran saydam katman sayacı, **iç çözünürlük ölçeği** (`eng_render_scale`, parlama açıkken), kamera (göz+hedef ya da yörünge), kamera konumu, **görüş açısı**, **ekran ışını** (+ başlangıç/yön), **seçme** (`eng_pick`), **dünya→ekran** (+ x/y) |
 | derlenmiş sahne (`.sahneb`) | 21 | yükle / boşalt / yüklü mü (**bölüm geçişi**), sayı, ada göre bul, konum, ad, hız, dinamik mi, hız ver, dürtü, **atanmış betik yolu + etkin mi**, **sahne karakteri** (karakter mi, yürü + zıpla, zeminde mi, zıplama hızı) |
 | varlıklar (köprü sahibi) | 29 | kutu / küre / zemin / model / ışık / **tetik kutusu / tetik küresi** / **kinematik kutu / küre** (+ sür, kinematik mi) üret, sil, canlı mı, konum, renk, ölçek, yaw, hız, dürtü, dinamik mi, uyanık mı |
 | nesne özellikleri | 8 | `sayi` / `tam` / `bayrak` / `nokta` (dünya; + `_px/_py/_pz`) / var mı — editörde üstüne yazılan değer, yoksa betiğin varsayılanı (§7.11) |

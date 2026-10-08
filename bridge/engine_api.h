@@ -76,6 +76,14 @@ void teng_gravity(double gx, double gy, double gz); // init'ten once etkili
 // Parlama (bloom): init'ten ONCE acilir; esik/yogunluk kare icinde de degisir.
 void teng_bloom(int enable, double threshold, double intensity);
 int teng_bloom_on(void);
+// Sahne karartma (Geri bildirim #16): 0..1, 1 = normal. 3B sahne koyulur, arayuz
+// KARARTILMAZ. Parlama aciksa compose gecisinin poz carpani (ek bedel yok);
+// kapaliysa tek tam ekran harmanli dortgen (yedek, sayilir). Duraklat/ayar
+// ekraninda oyunun tam ekran yari saydam dortgeni yerine.
+void teng_scene_dim(double f);
+// Oyunun kendi tam ekran YARI SAYDAM arayuz katmani olan kare sayisi (TBDR'de
+// pahali; kapanis raporu ve ilk gorulusteki bilgi satiri da soyler).
+int teng_ui_fullscreen_blends(void);
 // Ic cozunurluk olcegi (renderer::set_render_scale; dinamik cozunurluk). Sahne
 // 0.5..1.0 olcekte ic HDR hedefe cizilir, birlestirme tam ekrana buyutur;
 // 2B arayuz tam cozunurlukte kalir. Ic hedef = parlama acik (teng_bloom,
