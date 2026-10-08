@@ -865,6 +865,27 @@ func yerde(id): bool { float vy = eng_vy(id); return vy > -0.05 && vy < 0.05; }
 // ---- Girdi -------------------------------------------------------------------
 func tus(ad): bool { return eng_key_down(ad); }
 func tus_basildi(ad): bool { return eng_key_pressed(ad); }
+// Geri: Android geri tusu / masaustunde Esc, bu karede basildi mi. Ilk cagri geri
+// tusunu oyuna baglar (Android'de etkinlik artik kapanmaz; cikis: cikis_iste).
+func geri_basildi(): bool { return eng_back_pressed(); }
+func back_pressed(): bool { return eng_back_pressed(); }
+func geri_test() { eng_back_test_press(); }
+// Uygulama arka planda mi (Android ana ekran / baska uygulama). Motor sesi
+// arka planda kendisi durdurur, donuste surdurur; oyun duraklatma icin okur.
+func arka_planda(): bool { return eng_app_paused(); }
+func app_paused(): bool { return eng_app_paused(); }
+func dusuk_bellek_sayisi(): int { return eng_low_memory_count(); }
+// Guvenli alan: ekran centigi pencereye dusuyorsa kenar basina bosluk (piksel,
+// genislik()/yukseklik() biriminde; yoksa 0). HUD bu bosluklarin icine yerlessin.
+// Android'de pencere centige ancak tulpar.toml [android] cutout = "short_edges" ile uzanir.
+func guvenli_sol(): int { return eng_safe_inset_left(); }
+func guvenli_ust(): int { return eng_safe_inset_top(); }
+func guvenli_sag(): int { return eng_safe_inset_right(); }
+func guvenli_alt(): int { return eng_safe_inset_bottom(); }
+func safe_left(): int { return eng_safe_inset_left(); }
+func safe_top(): int { return eng_safe_inset_top(); }
+func safe_right(): int { return eng_safe_inset_right(); }
+func safe_bottom(): int { return eng_safe_inset_bottom(); }
 func key(name): bool { return eng_key_down(name); }
 func dokunus_sayisi(): int { return eng_touch_count(); }
 func cubuk_x(): float { return eng_stick_x(); }

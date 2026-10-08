@@ -336,6 +336,35 @@ int teng_anim_done(int id);                                    // dongusuz klip 
 // --- girdi -----------------------------------------------------------------
 int teng_key_down(const char *name);    // "W","A","S","D","SPACE","UP","LEFT","ESC","ENTER","SHIFT", "0".."9"
 int teng_key_pressed(const char *name); // bu karede basildi
+// Geri (Geri bildirim #8): Android'de sistem geri tusu, masaustunde Esc; bu
+// karede basildi mi. ILK cagri geri tusunu OYUNA baglar — Android'de etkinlik
+// artik kapanmaz, oyun karar verir (cikis: teng_close). Hic sormayan oyunda
+// sistem eski davranisla kapatir. Android'de "ESC" tus sorgusu da ayni basisi
+// gorur ve ayni baglamayi yapar.
+int teng_back_pressed(void);
+// Pencersiz dogrulama: sonraki kareye bir geri basisi enjekte eder.
+void teng_back_test_press(void);
+// Uygulama arka planda mi (Android: APP_CMD_PAUSE .. RESUME; masaustunde 0).
+// Arka plana geciste motor sesi KENDISI durdurur, donuste surdurur (Geri
+// bildirim #9); oyun bunu duraklatma karari icin okur.
+int teng_app_paused(void);
+// Sistemin dusuk bellek uyarisi sayisi (Android APP_CMD_LOW_MEMORY; masaustunde 0).
+int teng_low_memory_count(void);
+// Guvenli alan (Geri bildirim #17): ekran centigi pencerenin icine dusuyorsa
+// kenar basina bosluk, teng_width/height ile AYNI piksel biriminde. Arayuz
+// (HUD, dugmeler) bu bosluklarin icine yerlesmeli. Centik yoksa, masaustunde
+// ve penceresizde 0. Android'de pencere centige ancak tema izin verirse uzanir
+// (TulparLang tulpar.toml [android] cutout = "short_edges").
+int teng_safe_inset_left(void);
+int teng_safe_inset_top(void);
+int teng_safe_inset_right(void);
+int teng_safe_inset_bottom(void);
+// TEST: guvenli alani taklit eder (penceresiz kapilar; SPEC'te yok). Hepsi < 0: taklit kapali.
+void teng_debug_safe_insets(int left, int top, int right, int bottom);
+// TEST: host'un arka plan durumunu taklit eder (penceresiz kapilar; SPEC'te yok).
+void teng_debug_app_pause(int paused);
+// TEST: ses cihazinin callback sayaci (mixer; ses kapaliysa -1). Duraklamada artmamali.
+long long teng_debug_audio_callbacks(void);
 int teng_touch_count(void);
 double teng_touch_x(int i);
 double teng_touch_y(int i);

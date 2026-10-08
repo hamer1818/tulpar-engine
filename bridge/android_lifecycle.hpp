@@ -45,4 +45,35 @@ inline const char *android_cmd_name(int32_t c) {
   return (c >= 0 && c < kAndroidCmdCount) ? kAd[c] : nullptr;
 }
 
+// --- Geri tusu mandali (Geri bildirim #8) ------------------------------------
+// Olaylar kare basindaki pompada gelir; `input keyevent KEYCODE_BACK` (ve hizli
+// bir parmak) DOWN ile UP'i AYNI pompada verir. Yalniz "su an basili mi"
+// tutulsaydi kare ornegi ikisinin arasina hic dusmez, basis kaybolurdu. Bu
+// yuzden BASIS SAYILIR: cekirdek her kare sayaci okur, onceki ornekten farkli
+// ise o kare "geri basildi". Tekrar olaylari (tusu basili tutmak, repeat > 0)
+// yeni basis degildir.
+struct BackKeyLatch {
+  uint32_t presses = 0; // birikimli basis (tekrarsiz DOWN)
+  bool down = false;
+  void on_key(bool is_down, int32_t repeat) {
+    if (is_down) {
+      if (repeat == 0) presses++;
+      down = true;
+    } else {
+      down = false;
+    }
+  }
+};
+// Cekirdegin kare ornegi: bu kare yeni basis var mi (birden cok basis tek kareye
+// dustuyse yine BIR kenar; sayisi `count`ta).
+struct BackKeySample {
+  uint32_t seen = 0;
+  uint32_t count = 0; // bu karenin yeni basis sayisi
+  bool sample(uint32_t presses) {
+    count = presses - seen;
+    seen = presses;
+    return count != 0;
+  }
+};
+
 } // namespace tulpar::engine::bridge
