@@ -222,13 +222,19 @@ void Mixer::render(float *out, uint32_t frames) {
   }
   // Ana yol DSP zinciri (bos ise dokunmaz) — sert sinirdan ONCE.
   dsp_.process(out, frames, ch, rate_);
+  uint32_t kirpilan = 0;
+  float on_tepe = 0;
   for (uint32_t i = 0; i < frames * ch; i++) {
     float x = out[i];
-    if (x > 1.0f) x = 1.0f; else if (x < -1.0f) x = -1.0f; // son emniyet siniri (limiter DSP dugumu)
+    const float ham = x < 0 ? -x : x;
+    if (ham > on_tepe) on_tepe = ham;
+    if (x > 1.0f) { x = 1.0f; kirpilan++; } else if (x < -1.0f) { x = -1.0f; kirpilan++; } // son emniyet siniri (limiter DSP dugumu)
     out[i] = x;
     const float a = x < 0 ? -x : x;
     if (a > peak) peak = a;
   }
+  if (kirpilan) clipped_.fetch_add(kirpilan, std::memory_order_relaxed);
+  if (on_tepe > peak_pre_max_.load(std::memory_order_relaxed)) peak_pre_max_.store(on_tepe, std::memory_order_relaxed);
   frames_rendered_.fetch_add(frames, std::memory_order_relaxed);
   callbacks_.fetch_add(1, std::memory_order_relaxed);
   voices_active_.store(active, std::memory_order_relaxed);
@@ -243,6 +249,8 @@ MixerStats Mixer::stats() const {
   s.voices_active = voices_active_.load(std::memory_order_relaxed);
   s.commands_dropped = dropped_.load(std::memory_order_relaxed);
   s.peak = peak_.load(std::memory_order_relaxed);
+  s.clipped_samples = clipped_.load(std::memory_order_relaxed);
+  s.peak_pre_max = peak_pre_max_.load(std::memory_order_relaxed);
   s.voices_spatial = voices_spatial_.load(std::memory_order_relaxed);
   return s;
 }

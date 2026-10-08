@@ -919,6 +919,12 @@ func master_volume(g) { eng_audio_master(g); }
 func calan_ses(): int { return eng_audio_playing(); }
 func playing_count(): int { return eng_audio_playing(); }
 func ses_tepe(): float { return eng_audio_peak(); }
+// Ana yol sinirlayici + sert kirpma olcusu (bkz. eng_audio_limiter).
+func ses_sinirlayici(tavan): bool { return eng_audio_limiter(tavan); }
+func audio_limiter(ceiling): bool { return eng_audio_limiter(ceiling); }
+func ses_kirpilan(): int { return eng_audio_clipped(); }
+func audio_clipped(): int { return eng_audio_clipped(); }
+func ses_tepe_max(): float { return eng_audio_peak_max(); }
 
 // Yatay yürüme: dikey hızı korur, x/z hızını verir (karakter kontrolü).
 func yuru(id, vx, vz) { eng_set_velocity(id, vx, eng_vy(id), vz); }

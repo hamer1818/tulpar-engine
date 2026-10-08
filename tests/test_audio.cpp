@@ -576,3 +576,39 @@ ENGINE_TEST(audio_device_thread_priority_is_measured) {
   CHECK(di.thread_policy[0] != 0); // olcum YAPILDI (bos degil)
   dev.shutdown();
 }
+
+// Sert kirpma sayaci + ana yol sinirlayici: uc yuksek ses toplami (0.6 x 3)
+// +-1'i asar ve karistiricinin emniyet sinirinda KESILIR — sayac bunu sayar
+// (POZITIF KONTROL: sinirlayicisiz kosumda kirpilan > 0). Sinirlayici (tanh,
+// tavan 0.95) acikken ayni toplam kirpilmaz ve tepe tavanin altinda kalir.
+// Oyunda: yeni muzik + kalabalik efekt telefonda sert kirpabiliyordu.
+static uint64_t kirpma_kosu(bool sinirla, float *tepe, float *on_tepe) {
+  static SystemArena sys;
+  if (sys.capacity() == 0 && !sys.reserve(8u << 20, "audio_kirp")) return 0;
+  sys.reset();
+  audio::Clip a, b, c;
+  audio::clip_sine(sys, 220.0f, 0.2f, 48000, 0.6f, &a);
+  audio::clip_sine(sys, 330.0f, 0.2f, 48000, 0.6f, &b);
+  audio::clip_sine(sys, 440.0f, 0.2f, 48000, 0.6f, &c);
+  audio::Mixer mx;
+  mx.init(48000, 2);
+  if (sinirla) mx.dsp().add_limiter(0.95f);
+  mx.play(&a, 1.0f, false);
+  mx.play(&b, 1.0f, false);
+  mx.play(&c, 1.0f, false);
+  static float out[4800 * 2];
+  mx.render(out, 4800);
+  const audio::MixerStats st = mx.stats();
+  *tepe = st.peak;
+  *on_tepe = st.peak_pre_max;
+  return st.clipped_samples;
+}
+ENGINE_TEST(audio_master_limiter_prevents_hard_clipping) {
+  float t0 = 0, o0 = 0, t1 = 0, o1 = 0;
+  const uint64_t k0 = kirpma_kosu(false, &t0, &o0);
+  const uint64_t k1 = kirpma_kosu(true, &t1, &o1);
+  std::printf("    [bilgi] kirpma: sinirlayicisiz %llu ornek kesildi (ham tepe %.2f), sinirlayici 0.95 ile %llu (tepe %.3f)\n",
+              (unsigned long long)k0, o0, (unsigned long long)k1, t1);
+  CHECK(k0 > 0 && o0 > 1.0f);   // pozitif kontrol: gercekten kirpiyordu
+  CHECK(k1 == 0 && t1 < 0.95f);
+}

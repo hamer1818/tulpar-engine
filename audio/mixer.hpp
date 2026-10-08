@@ -33,6 +33,10 @@ struct MixerStats {
   uint32_t voices_active = 0;
   uint32_t commands_dropped = 0;  // halka doluydu (sayilir, sessiz degil)
   float peak = 0;                 // son render'daki en buyuk |ornek|
+  // SERT KIRPMA: son emniyet sinirinda |x| > 1 olup kesilen ornek sayisi
+  // (birikimli). 0 degilse ses bozuluyor demektir: ana yola sinirlayici koy.
+  uint64_t clipped_samples = 0;
+  float peak_pre_max = 0;         // kirpmadan ONCEKI en buyuk |ornek| (birikimli tepe)
   uint32_t voices_spatial = 0;    // bunlarin kaci 3B
 };
 
@@ -106,6 +110,8 @@ private:
   std::atomic<uint64_t> frames_rendered_{0}, callbacks_{0};
   std::atomic<uint32_t> voices_active_{0}, dropped_{0}, voices_spatial_{0};
   std::atomic<float> peak_{0};
+  std::atomic<uint64_t> clipped_{0};
+  std::atomic<float> peak_pre_max_{0};
 };
 
 } // namespace tulpar::engine::audio

@@ -541,6 +541,7 @@ struct Bridge {
   uint32_t audio_off_reports = 0; // kapali cihazda cagri: ilk N tanesi HATA, sonrasi ayrinti (log selini onler)
   uint32_t audio_plays = 0;
   float audio_master = 1.0f;
+  int limiter_node = -1; // teng_audio_limiter: ana yol DSP dugumu (-1 yok)
   char audio_desc[192] = {0};
   struct ClipSlot {
     audio::Clip clip;
@@ -4290,6 +4291,31 @@ void teng_audio_master(double gain) {
 }
 int teng_audio_playing(void) { return g && g->audio_ok ? (int)g->mixer.stats().voices_active : 0; }
 double teng_audio_peak(void) { return g && g->audio_ok ? (double)g->mixer.stats().peak : 0.0; }
+// Ana yol SINIRLAYICI (yumusak tanh; tavan 0 = kapali) + sert kirpma sayaci.
+// Karistirici +-1'de sert kirpar; yuksek seviyeli muzik + kalabalik efekt
+// toplami bunu asinca hoparlorde cizirti olur. Sinirlayici zincirin sonunda.
+int teng_audio_limiter(double ceiling) {
+  CALLF("teng_audio_limiter", "%.2f", ceiling);
+  if (!audio_live("teng_audio_limiter")) return 0;
+  Bridge &b = *g;
+  if (ceiling > 1.0) ceiling = 1.0;
+  if (b.limiter_node < 0) {
+    if (!(ceiling > 0.0)) return 1;
+    b.limiter_node = b.mixer.dsp().add_limiter((float)ceiling);
+    if (b.limiter_node < 0) { BERR("teng_audio_limiter: DSP zinciri dolu"); return 0; }
+  } else {
+    b.mixer.dsp().set_param(b.limiter_node, (float)(ceiling > 0.0 ? ceiling : 1.0));
+  }
+  b.mixer.dsp().set_enabled(b.limiter_node, ceiling > 0.0);
+  BDBG("ana yol sinirlayici %s (tavan %.2f)", ceiling > 0.0 ? "acik" : "kapali", ceiling);
+  return 1;
+}
+int teng_audio_clipped(void) {
+  if (!g || !g->audio_ok) return 0;
+  const uint64_t n = g->mixer.stats().clipped_samples;
+  return n > 2000000000ull ? 2000000000 : (int)n;
+}
+double teng_audio_peak_max(void) { return g && g->audio_ok ? (double)g->mixer.stats().peak_pre_max : 0.0; }
 
 // --- sorgular: isin testi ve yakinlik -------------------------------------------
 // Neden kopruye girdi: oyun mantigi Tulpar'da yaziliyor ve savas/yapay zeka icin

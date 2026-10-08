@@ -521,6 +521,11 @@ void teng_audio_stop_all(void);
 void teng_audio_master(double gain); // ana ses seviyesi 0..1 (calan sesler de guncellenir)
 int teng_audio_playing(void);        // cihaz thread'inin olctugu aktif ses sayisi
 double teng_audio_peak(void);        // son render'daki en buyuk |ornek| (0 = sessiz)
+// Ana yol sinirlayici (yumusak tanh, tavan 0..1; 0 kapatir) ve sert kirpma
+// sayaci: karistirici +-1'de keser; sayac acilistan beri kesilen ornek sayisi.
+int teng_audio_limiter(double ceiling);
+int teng_audio_clipped(void);
+double teng_audio_peak_max(void);    // acilistan beri kirpma ONCESI en buyuk |ornek|
 
 // --- sorgular: isin testi ve yakinlik ---------------------------------------
 // Isin testi Jolt'un dar faz sorgusudur: govdeler eklendikten SONRA en az bir

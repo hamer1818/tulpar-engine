@@ -250,6 +250,9 @@ SPEC = [
     ("eng_audio_master", "void", [("gain", "num")], "Ana ses seviyesi (0..4); calan sesler de guncellenir."),
     ("eng_audio_playing", "int", [], "Su an calan ses sayisi (cihaz thread'inin olctugu deger)."),
     ("eng_audio_peak", "float", [], "Son ses blogundaki en buyuk ornek (0 = sessiz); ses gercekten uretiliyor mu olcusu."),
+    ("eng_audio_limiter", "bool", [("ceiling", "num")], "Ana yol sinirlayici (yumusak tanh; tavan 0..1, 0 kapatir): toplam ses +-1'i asinca sert kirpma yerine yumusak bastirma. Ses cihazi acikken."),
+    ("eng_audio_clipped", "int", [], "Ses cihazi acildigindan beri karistiricinin +-1'de SERT kestigi ornek sayisi (0 olmali; degilse sinirlayici ya da seviye)."),
+    ("eng_audio_peak_max", "float", [], "Acilistan beri kirpmadan ONCEKI en buyuk ornek (birikimli tepe)."),
     # sorgular: isin testi + yakinlik (savas/yapay zeka; callback FFI olmadigi icin OLAY degil SORGU)
     ("eng_raycast", "float", [("ox", "num"), ("oy", "num"), ("oz", "num"), ("dx", "num"), ("dy", "num"), ("dz", "num"), ("max_dist", "num"), ("skip_id", "int")], "Isin testi: (ox,oy,oz)'dan (dx,dy,dz) yonune en cok max_dist. Donus: carpma mesafesi, -1 iska. skip_id kendi govdesini atlar (0 = atlama yok). Govde eklendikten sonra en az bir kare gerekir (genis faz)."),
     ("eng_ray_x", "float", [], "Son isin testinin carpma noktasi x."),
