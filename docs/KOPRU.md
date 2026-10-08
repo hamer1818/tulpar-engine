@@ -30,7 +30,7 @@ kadar arada üretilmiş bir `aot_eng_*_ptr` VMValue sarmalayıcısı vardı). He
 | C ABI | `bridge/engine_api.h` | `teng_*`: düz skaler fonksiyonlar, tek global bağlam |
 | çekirdek | `bridge/engine_api.cpp` | durum, varlık tablosu, kare döngüsü, **log** |
 | host | `bridge/desktop_host.cpp`, `android_host.cpp` | pencere/yüzey/girdi; `BridgeHost` sözleşmesi |
-| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 234 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
+| bildirim | `tulpar/generated/tulpar-ext.json` (**üretilmiş**) | 236 fonksiyonun adı, C sembolü, tipleri, belgesi; modül; link kitaplıkları — TulparLang'in yerel eklenti noktası bunu okur (§2.1) |
 | yapıştırıcı | `bridge/tulpar_kopru.cpp` | yalnız `eng_init` → `teng_tulpar_init`: betik VM'ini TulparLang runtime'ının düz C yüzüyle kurar, sonra `teng_init` |
 | ABI kilidi | `bridge/tulpar_abi.cpp` + `bridge/tulpar_ext_abi.inc` (**üretilmiş**) | bildirimdeki her imza `teng_*`'e tipli işaretçiyle atanır: kayma = derleme hatası |
 | sarmalayıcı | `tulpar/engine.tpr` (eklenti paketinin modülü, 1040 satır) | `motor_ac`, `kutu`, `tus`, `yazi`, `dugme`, `kayit_*`, `betik_ata` … TR adlar, çoğunun EN ikizi (`engine_open`, `box`, `key`, `button`, `script_attach`); `Vec3`, oyun yardımcıları (`yol_yonu`, `goruyor_mu`) ve arayüz yerleşimi (`ui_pencere`, `ui_dugme`, `ui_test_tikla_ad`) |
@@ -229,6 +229,14 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   kuvvet/yerçekimi etkilemez. Her kare `kinematik_tasi(id, x, y, z)` ile hedef ver: bu karenin sim adımlarına
   dağıtılır, hız türetilir (itme doğru); hedef gelmeyen karede durur. Sabit hızlı platform için `hiz_ver`.
   `durtu` kinematikte HATA.
+- **Düğme yazısı sığar** (Geri bildirim #15): etiket ölçeği yükseklikten gelir, kutuya sığmazsa motor
+  **küçültür** (yükseklik ölçeğinin en az %55'ine kadar), yine sığmazsa kod noktası sınırında kesip `...` ekler
+  (ilk kırpma `UYARI`). Düğme, onay kutusu ve kaydırıcı etiketi (kaydırıcıda değer yazısının solunda kalır).
+  Sayaçlar `ui_yazi_kucultulen()` / `ui_yazi_kirpilan()`; kapanış raporu `kapanis (arayuz yazisi)`.
+  Kapı `bridge_ui_button_label_fits_width` telefonun penceresinde (2159x1080, oyunun 6 düğmelik çubuğu)
+  sarı yazı piksellerinin kutu dışına taşmadığını ölçer (düzeltmesiz: 258 piksel taşar).
+- **Fizik:** kutu/küre gövdeleri Jolt'ta; `eng_set_pos` dinamik gövdede **gövdeyi yeniden kurar** (Jolt'ta
+  konum yazma yok) ve hız sıfırlanır — log satırı bunu söyler.
 - **HUD** kare içinde kuyruklanır (`eng_text`/`eng_rect`), `eng_frame_end` çizer. Kare dışında çağrı hata loglar.
 - **Sahne:** `eng_scene_load("x.sahneb")` derlenmiş sahneyi (engine_sahnec / editörde **Derle**) yükler;
   modeller, ışıklar, gövdeler, **parçacık yayıcıları** (blob v9: renk, yerçekimi, türbülans, çarpışma,
@@ -865,7 +873,7 @@ günlükte fark doğurmadı (geçiş karesi aynı: k1735). Tip dosyası import e
 başına "betik kancasi YOK" HATA'sı basar; bu yüzden salon1'i yükleyen köprü testi de üçünü import
 ediyor.
 
-## 8. Kapsam: `SPEC` = `engine_api.h` = **234 builtin**
+## 8. Kapsam: `SPEC` = `engine_api.h` = **236 builtin**
 
 Sayı iki yerde birden durur ve birbirine karşı denetlenebilir: `bridge/engine_api.h`'deki `teng_*`
 bildirimleri ve `tools/gen_engine_bindings.py`'deki `SPEC` satırları. Aile dağılımı (başlıktaki
@@ -883,7 +891,7 @@ bölüm yorumlarına göre):
 | model animasyonu | 6 | klip sayısı / süresi / adı, varlığa klip ata (hız, döngü), klip zamanı, bitti mi |
 | girdi | 12 | tuş basılı / bu karede basıldı, dokunmatik (sayı + konum), sanal joystick (x/y/eylem), bakış deltası, fare (§8.3) |
 | 2B arayüz (HUD) | 3 | `eng_text`, `eng_rect`, `eng_text_width` — kare içinde kuyruklanır, `frame_end` çizer |
-| anlık-kip arayüz | 12 | `ui_begin`/`ui_end`, tema, etkin/pasif, panel, etiket, **düğme**, **onay kutusu**, **kaydırıcı**, basılı mı, tıklama sayacı, pencersiz doğrulama için **enjekte tıklama** |
+| anlık-kip arayüz | 14 | `ui_begin`/`ui_end`, tema, etkin/pasif, panel, etiket, **düğme**, **onay kutusu**, **kaydırıcı**, basılı mı, tıklama sayacı, pencersiz doğrulama için **enjekte tıklama**, **yazı sığdırma sayaçları** (küçültülen / kırpılan) |
 | kalıcı kayıt | 10 | dosya bağla, yol, sayı/metin yaz-oku, var mı, diske yaz, temizle, sayı |
 | sahne sıcak yeniden yükleme | 6 | izlemeyi aç, yenilendi mi (bir kez), yenileme sayısı, yol, dosya kopyala, dosya değişim zamanı |
 | ses | 13 | cihaz aç/kapat/durum/arka uç, klip yükle (WAV/FLAC/MP3), sentetik ton, çal, bip, durdur, hepsini durdur, ana seviye, çalan ses, tepe genlik |

@@ -217,6 +217,8 @@
     {"name": "eng_ui_button", "symbol": "teng_ui_button", "params": ["label: str", "x: f64", "y: f64", "w: f64", "h: f64"], "returns": "bool", "doc": "Dugme: bu karede tiklandiysa true (basma VE birakma dugmenin icinde). Kimlik etiketten turer."},
     {"name": "eng_ui_checkbox", "symbol": "teng_ui_checkbox", "params": ["label: str", "x: f64", "y: f64", "w: f64", "h: f64", "value: bool"], "returns": "bool", "doc": "Onay kutusu. Donus YENI degerdir (degisen yoksa gelen deger) — betik geri yazar."},
     {"name": "eng_ui_slider", "symbol": "teng_ui_slider", "params": ["label: str", "x: f64", "y: f64", "w: f64", "h: f64", "value: f64", "min_v: f64", "max_v: f64"], "returns": "f64", "doc": "Kaydirici. Donus YENI degerdir (surukleme sirasinda her kare gunceller); aralik gecersizse hata + gelen deger."},
+    {"name": "eng_ui_text_shrunk", "symbol": "teng_ui_text_shrunk", "returns": "i32", "doc": "Kac dugme/etiket cizimi kutuya sigsin diye KUCULTULDU (cizim basina birikir)."},
+    {"name": "eng_ui_text_clipped", "symbol": "teng_ui_text_clipped", "returns": "i32", "doc": "Kac cizim en az olcekte de sigmayip \"...\" ile KIRPILDI (ilk kirpma UYARI loglar)."},
     {"name": "eng_ui_active", "symbol": "teng_ui_active", "returns": "bool", "doc": "Bir widget basili/surukleniyor mu (menu acikken oyun girdisini bastirmak icin)."},
     {"name": "eng_ui_clicks", "symbol": "teng_ui_clicks", "returns": "i32", "doc": "Toplam etkinlestirme sayisi: dugme tiklamasi + onay kutusu degisimi (kapi olcumu)."},
     {"name": "eng_ui_test_click", "symbol": "teng_ui_test_click", "params": ["x: f64", "y: f64"], "doc": "Pencersiz dogrulama: (x,y) noktasina tek karelik bas+birak enjekte eder; sonraki eng_ui_begin tuketir. Widget disina tiklama tetiklemez."},

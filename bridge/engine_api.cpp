@@ -286,6 +286,11 @@ struct Ui {
   bool enabled = true, touch_pointer = false;
   uint32_t hot = 0, active = 0;
   uint32_t clicks = 0, widgets = 0, injects = 0;
+  // Yazi sigdirma (Geri bildirim #15): etiket kutuya yukseklikten gelen olcekle
+  // sigmadiginda once KUCULTULUR, en az olcekte de sigmazsa "..." ile KIRPILIR.
+  // Sayaclar CIZIM basina (her kare); ilk kirpma UYARI olarak bir kez loglanir.
+  uint32_t text_shrunk = 0, text_clipped = 0;
+  bool clip_warned = false;
   uint32_t ids[kMaxUiIds] = {};
   uint32_t id_n = 0;
   bool inject = false;
@@ -1982,6 +1987,9 @@ void teng_shutdown(void) {
           (unsigned long long)b.teleports_inplace, (unsigned long long)b.teleports_rebuilt);
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
+  if (b.ui.text_shrunk || b.ui.text_clipped)
+    BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
+          b.ui.text_clipped);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
         b.ui.injects, b.scene_reloads, g_save.loaded ? g_save.path : "acilmadi", g_save.n, g_save.writes, g_save.bad_lines);
   {
@@ -3197,9 +3205,53 @@ static float ui_scale(double h) {
   if (s > 2.0f) s = 2.0f;
   return s;
 }
-// align: 0 ortali, 1 sola yasli, 2 saga yasli.
-static void ui_text_box(const char *s, double x, double y, double w, double h, int64_t color, int align, float scale) {
+// Kutunun ic genisligine sigdir (Geri bildirim #15): olcek yalniz yukseklikten
+// geliyordu ve uzun etiket ("Savas Arabasi", 2240 piksellik 6 dugmelik cubukta)
+// dugmeden TASIYORDU. Once kucult (yukseklik olceginin en az %55'ine kadar),
+// yetmezse kod noktasi sinirinda kes + "..." (font'ta U+2026 yok, uc nokta ASCII).
+// Ayirma yok: kirpilmis metin yigindaki sabit tamponda.
+constexpr float kUiTextPad = 8.0f, kUiMinShrink = 0.55f;
+static const char *ui_fit(const char *s, float avail, float *scale, char *buf, size_t cap) {
+  const float w1 = g->font.text_width(s, 1.0f);
+  if (w1 <= 0 || avail <= 0 || w1 * *scale <= avail) return s;
+  const float floor_sc = *scale * kUiMinShrink;
+  g->ui.text_shrunk++;
+  if (w1 * floor_sc <= avail) { *scale = avail / w1; return s; }
+  *scale = floor_sc;
+  const float dots = g->font.text_width("...", floor_sc);
+  size_t keep = 0;
+  float used = 0;
+  const char *p = s;
+  while (*p) {
+    const char *q = p;
+    const uint32_t cp = content::Font::decode_utf8(&q);
+    char one[8] = {0};
+    const size_t n = (size_t)(q - p);
+    if (n >= sizeof one) break;
+    std::memcpy(one, p, n);
+    (void)cp;
+    const float cw = g->font.text_width(one, floor_sc);
+    if (used + cw + dots > avail || keep + n + 4 > cap) break;
+    used += cw;
+    keep += n;
+    p = q;
+  }
+  std::memcpy(buf, s, keep);
+  std::memcpy(buf + keep, "...", 4);
+  g->ui.text_clipped++;
+  if (!g->ui.clip_warned) {
+    g->ui.clip_warned = true;
+    blog(1, "UYARI arayuz: \"%s\" kutuya sigmadi (%.0f px), en az olcekte de: \"%s\" diye kirpildi — kutuyu genislet ya da etiketi kisalt", s, avail, buf);
+    g_log.warnings++;
+  }
+  return buf;
+}
+// align: 0 ortali, 1 sola yasli, 2 saga yasli. avail_w < 0: kutunun ic genisligi.
+static void ui_text_box(const char *s, double x, double y, double w, double h, int64_t color, int align, float scale, float avail_w = -1.0f) {
   if (!s || !g->font_ok) return;
+  char buf[256];
+  const float avail = avail_w >= 0 ? avail_w : (float)w - 2.0f * kUiTextPad;
+  s = ui_fit(s, avail, &scale, buf, sizeof buf);
   const float tw = g->font.text_width(s, scale), th = g->font.height() * scale;
   float tx = (float)x + 10.0f;
   if (align == 0) tx = (float)x + ((float)w - tw) * 0.5f;
@@ -3327,7 +3379,7 @@ int teng_ui_checkbox(const char *label, double x, double y, double w, double h, 
   teng_rect(x, y, w, h, ui_shade(u.c_panel, inside && en ? 2.0f : 1.5f));
   teng_rect(x + 8, y + (h - bs) * 0.5, bs, bs, frame_c);
   if (v) teng_rect(x + 12, y + (h - bs) * 0.5 + 4, bs - 8, bs - 8, en ? u.c_accent : ui_shade(u.c_accent, 0.5));
-  ui_text_box(label, x + bs + 14, y, w - bs - 22, h, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, ui_scale(h));
+  ui_text_box(label, x + bs + 14, y, w - bs - 22, h, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, ui_scale(h), (float)(w - bs - 22) - 10.0f - kUiTextPad);
   return v ? 1 : 0;
 }
 double teng_ui_slider(const char *label, double x, double y, double w, double h, double value, double min_v, double max_v) {
@@ -3360,11 +3412,15 @@ double teng_ui_slider(const char *label, double x, double y, double w, double h,
   char val[32];
   std::snprintf(val, sizeof val, (max_v - min_v) >= 10.0 ? "%.0f" : "%.2f", v);
   const float sc = ui_scale(h * 0.62);
-  ui_text_box(label, x, y, w, h * 0.55, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, sc);
+  // Etiket deger yazisinin solunda kalsin: ikisi ayni satirda.
+  const float val_w = g->font_ok ? g->font.text_width(val, sc) : 0.0f;
+  ui_text_box(label, x, y, w, h * 0.55, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, sc, (float)w - 20.0f - val_w - 12.0f);
   ui_text_box(val, x, y, w, h * 0.55, en ? u.c_accent : ui_shade(u.c_accent, 0.6), 2, sc);
   return v;
 }
 int teng_ui_active(void) { return g && g->ui.active ? 1 : 0; }
+int teng_ui_text_shrunk(void) { return g ? (int)g->ui.text_shrunk : 0; }
+int teng_ui_text_clipped(void) { return g ? (int)g->ui.text_clipped : 0; }
 int teng_ui_clicks(void) { return g ? (int)g->ui.clicks : 0; }
 void teng_ui_test_click(double x, double y) {
   CALLF("teng_ui_test_click", "(%.0f %.0f)", x, y);

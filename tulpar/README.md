@@ -10,7 +10,7 @@ tulpar/
   engine.tpr              -> eklenti paketinin modülü: `import "engine"` (TR/EN sarmalayıcı)
   tulpar.toml             -> [ext] paths = ["../yapi/tulpar-ext"]: bu dizinden `tulpar x.tpr` doğrudan çalışır
   generated/              -> tools/gen_engine_bindings.py üretir, ELLE DÜZENLENMEZ
-    tulpar-ext.json            eklenti bildirimi: 234 fonksiyon (ad, C sembolü, tipler, belge),
+    tulpar-ext.json            eklenti bildirimi: 236 fonksiyon (ad, C sembolü, tipler, belge),
                                modül, platforma göre link kitaplıkları
   examples/               engine_ilk_oyun.tpr, engine_arena.tpr, engine_aksiyon.tpr,
                           engine_betik_dagitimi.tpr (betik kancalari + tetik bolgeleri),

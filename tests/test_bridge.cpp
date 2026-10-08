@@ -2610,3 +2610,70 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
   teng_shutdown();
 }
+
+// --- Geri bildirim #15: dugme yazisi kutuya sigar -----------------------------
+// ui_scale(h) yalniz yukseklikten; telefonun 2240x1080 ekraninda 6 dugmelik
+// alt cubukta "Savas Arabasi" dugmeden TASIYORDU (oyun etiketleri kisaltti;
+// telefonun fontu Roboto, masaustu DejaVu — genislikler farkli, bu yuzden kapi
+// etiketlerden en az birinin eski olcekle tastigini ONCE olcer).
+// Olcu (telefonun cozunurlugu, oyunun yerlesimi: bw = (W - 7*ara)/6, h = 76*s):
+// sari yazi pikselleri YALNIZ dugme kutularinin icinde. KONTROL: eski olcekle
+// (yalniz yukseklik) etiket genisligi dugmeyi asiyor — kapi bir sey olcuyor; en
+// dar kutuda etiket "..." ile kirpilir ve bir kez UYARI basar.
+ENGINE_TEST(bridge_ui_button_label_fits_width) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  constexpr uint32_t W = 2159, H = 1080; // P20 Pro penceresi (centik serit disi, Geri bildirim #17)
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("dugme yazisi kapisi", W, H)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const double s = H / 720.0, ara = 10 * s, h = 76 * s, bw = (W - ara * 7) / 6, y = H - h - 20;
+  const char *ad[6] = {"Sava\xC5\x9F" " Arabas\xC4\xB1", "Kaya Ya\xC4\x9Fmuru", "Manc\xC4\xB1n\xC4\xB1k Tak\xC4\xB1m\xC4\xB1", "Kule: Vazge\xC3\xA7", "Gelecek \xC3\x87" "a\xC4\x9F\xC4\xB1 Askeri", "\xC3\x87" "a\xC4\x9F Atla"};
+  // Eski olcek (yalniz yukseklik, ui_scale ile ayni formul) ile en genis etiket:
+  double eski_max = 0;
+  for (int i = 0; i < 6; i++) {
+    const double sc = h * 0.42 / 28.0 > 2.0 ? 2.0 : h * 0.42 / 28.0; // 1080p font 28 px
+    const double tw = teng_text_width(ad[i], sc);
+    if (tw > eski_max) eski_max = tw;
+  }
+  const int warn0 = teng_warning_count();
+  teng_ui_theme(0x202430ff, 0xffff00ff, 0x3080ffff); // sari yazi: piksel sayimi icin
+  for (int f = 0; f < 3; f++) {
+    teng_frame_begin();
+    teng_ui_begin();
+    for (int i = 0; i < 6; i++) teng_ui_button(ad[i], ara + (bw + ara) * i, y, bw, h);
+    teng_ui_button("Cok uzun bir dugme etiketi burada", 40, 40, 160, 70); // en dar kutu: kirpilir
+    teng_ui_end();
+    teng_frame_end();
+  }
+  char shot[512];
+  tmp_template(shot, sizeof shot, "dugme_yazi");
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  CHECK(teng_screenshot(shot) == 1);
+  static uint8_t px[W * H * 3];
+  uint32_t w = 0, hh = 0;
+  const uint32_t n = read_ppm(shot, px, W * H, &w, &hh);
+  std::remove(shot);
+  CHECK(n == W * H);
+  uint32_t ici = 0, disi = 0;
+  for (uint32_t yy = (uint32_t)y; yy < (uint32_t)(y + h) && n; yy++)
+    for (uint32_t xx = 0; xx < W; xx++) {
+      const uint8_t *p = px + ((size_t)yy * W + xx) * 3;
+      if (!(p[0] > 180 && p[1] > 180 && p[2] < 90)) continue; // sari
+      bool kutuda = false;
+      for (int i = 0; i < 6; i++) {
+        const double bx = ara + (bw + ara) * i;
+        if (xx >= bx && xx < bx + bw) kutuda = true;
+      }
+      (kutuda ? ici : disi)++;
+    }
+  const int kucuk = teng_ui_text_shrunk(), kirp = teng_ui_text_clipped();
+  std::printf("    [bilgi] 2159x1080, dugme %.0fx%.0f: eski olcekle en genis etiket %.0f px (> %.0f); sari piksel kutuda %u, disarida %u; kucultulen %d cizim, kirpilan %d; uyari +%d\n",
+              bw, h, eski_max, bw, ici, disi, kucuk, kirp, teng_warning_count() - warn0);
+  CHECK(eski_max > bw); // KONTROL: duzeltmesiz kod tasardi
+  CHECK(kucuk > 0 && kirp == 3 && teng_warning_count() == warn0 + 1); // dar kutu 3 karede kirpildi, UYARI bir kez
+  if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): yazinin PIKSEL siniri gercek cihazda olculur");
+  else CHECK(ici > 500 && disi == 0);
+  teng_shutdown();
+}

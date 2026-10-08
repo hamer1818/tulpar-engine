@@ -7,7 +7,7 @@ genel "yerel eklenti" noktasi bir bildirim (tulpar-ext.json) okuyup her
 fonksiyonu bildirilen C tipleriyle DOGRUDAN cagiriyor. Motor o bildirimi
 buradan uretiyor:
 
-  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 234 fonksiyon (ad, C
+  tulpar/generated/tulpar-ext.json      eklenti bildirimi: 236 fonksiyon (ad, C
                                         sembolu, parametre/donus tipi, belge),
                                         modul (engine -> engine.tpr), platforma
                                         gore link kitapliklari (linux, macos,
@@ -277,6 +277,8 @@ SPEC = [
     ("eng_ui_button", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Dugme: bu karede tiklandiysa true (basma VE birakma dugmenin icinde). Kimlik etiketten turer."),
     ("eng_ui_checkbox", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "flag")], "Onay kutusu. Donus YENI degerdir (degisen yoksa gelen deger) — betik geri yazar."),
     ("eng_ui_slider", "float", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "num"), ("min_v", "num"), ("max_v", "num")], "Kaydirici. Donus YENI degerdir (surukleme sirasinda her kare gunceller); aralik gecersizse hata + gelen deger."),
+    ("eng_ui_text_shrunk", "int", [], "Kac dugme/etiket cizimi kutuya sigsin diye KUCULTULDU (cizim basina birikir)."),
+    ("eng_ui_text_clipped", "int", [], "Kac cizim en az olcekte de sigmayip \"...\" ile KIRPILDI (ilk kirpma UYARI loglar)."),
     ("eng_ui_active", "bool", [], "Bir widget basili/surukleniyor mu (menu acikken oyun girdisini bastirmak icin)."),
     ("eng_ui_clicks", "int", [], "Toplam etkinlestirme sayisi: dugme tiklamasi + onay kutusu degisimi (kapi olcumu)."),
     ("eng_ui_test_click", "void", [("x", "num"), ("y", "num")], "Pencersiz dogrulama: (x,y) noktasina tek karelik bas+birak enjekte eder; sonraki eng_ui_begin tuketir. Widget disina tiklama tetiklemez."),
