@@ -3280,3 +3280,35 @@ ENGINE_TEST(bridge_scene_entity_hide_removes_draw_and_body) {
   CHECK(teng_scene_set_visible(9999, 0) == 0 && teng_error_count() == h0 + 1);
   teng_shutdown();
 }
+
+// Kopru varligini gizle: CIZILMEZ ama govdesi fizikte kalir (oyunda fizik kutusu
+// gizlenir, ustune yuzlu karakter konur). Cizim sayisi bir azalir, isin hala
+// govdeye carpar; geri gosterince cizim doner. POZITIF KONTROL: gizlemeden once
+// cizim sayisi ve isin isabeti olculur (azalma kurulumdan gelmiyor).
+ENGINE_TEST(bridge_entity_hide_skips_draw_keeps_body) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("varlik gizle", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int kutu = teng_spawn_box(0, 1, 0, 0.5, 0.5, 0.5, 0, 0x2080ffff);
+  run_frames(2);
+  const int c0 = teng_draw_count();
+  const double d0 = teng_raycast(0, 6, 0, 0, -1, 0, 20, 0);
+  const int r0 = teng_ray_id();
+  teng_set_visible(kutu, 0);
+  run_frames(2);
+  const int c1 = teng_draw_count();
+  const double d1 = teng_raycast(0, 6, 0, 0, -1, 0, 20, 0);
+  const int r1 = teng_ray_id();
+  const int v1 = teng_visible(kutu);
+  teng_set_visible(kutu, 1);
+  run_frames(2);
+  const int c2 = teng_draw_count();
+  std::printf("    [bilgi] varlik gizle: cizim %d -> %d -> %d, isin %.2f m (#%d) gizliyken %.2f m (#%d)\n", c0, c1, c2, d0, r0, d1, r1);
+  CHECK(r0 == kutu && d0 > 0);       // pozitif kontrol
+  CHECK(c1 == c0 - 1 && v1 == 0);    // cizilmedi
+  CHECK(r1 == kutu && std::fabs(d1 - d0) < 1e-4); // govde yerinde
+  CHECK(c2 == c0 && teng_visible(kutu) == 1);
+  teng_shutdown();
+}

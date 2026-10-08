@@ -351,6 +351,11 @@ func donme_kilidi(id, kilit): bool { return eng_lock_rotation(id, kilit); }
 func lock_rotation(id, lock): bool { return eng_lock_rotation(id, lock); }
 func donme_kilitli_mi(id): bool { return eng_rotation_locked(id); }
 func rotation_locked(id): bool { return eng_rotation_locked(id); }
+// Gorunurluk: gizli varlik cizilmez, govdesi fizikte kalir (yuzlu karakter
+// fizik kutusunun ustune konunca kutu gizlenir).
+func gorunur(id, gorunur_mu) { eng_set_visible(id, gorunur_mu); }
+func set_visible(id, visible) { eng_set_visible(id, visible); }
+func gorunur_mu(id): bool { return eng_visible(id); }
 func renk_ver(id, renk_) { eng_set_color(id, renk_); }
 func olcek_ver(id, s) { eng_set_scale(id, s); }
 func don_ver(id, derece) { eng_set_yaw(id, derece); }

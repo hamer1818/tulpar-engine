@@ -164,6 +164,8 @@ SPEC = [
     ("eng_collision_pair", "bool", [("a", "int"), ("b", "int"), ("collide", "flag")], "Iki grubun govdeleri carpisir mi (simetrik; baslangicta hepsi carpisir). (0, 0) kapatilamaz. Bir sonraki fizik adiminda gecerli; eng_init sifirlar, sahne bosaltmak sifirlamaz. Isin testi ve secme gruplari gormez."),
     ("eng_lock_rotation", "bool", [("id", "int"), ("lock", "flag")], "Donme kilidi (Geri bildirim #26): dinamik govde oteleme serbest, DONMEZ (devrilmez); kilitlenince dik konuma doner, acisal hiz sifir. Ustune govdesiz parca (kafa, kalkan) tasiyan birlik icin. Isinlanip yeniden kurulan govdede korunur. Dinamik olmayan varlik: HATA, false."),
     ("eng_rotation_locked", "bool", [("id", "int")], "Govdenin donmesi kilitli mi."),
+    ("eng_set_visible", "void", [("id", "int"), ("visible", "flag")], "Kopru varligini gizle/goster: gizli varlik cizilmez (isik varliginin isigi da eklenmez); fizik govdesi aynen kalir (carpisir, isin gorur). Ornek: fizik govdesi kutu, gorunen ustune konan iskeletli karakter."),
+    ("eng_visible", "bool", [("id", "int")], "Kopru varligi gorunur mu."),
     ("eng_collision_pair_on", "bool", [("a", "int"), ("b", "int")], "Iki grubun govdeleri su an carpisiyor mu (tablo okumasi)."),
     ("eng_spawn_trigger_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num")], "Tetik (bolge) kutusu: GORUNMEZ, carpisma tepkisi yok; icine giren/cikan govdeler eng_trigger_* kuyrugunda. eng_set_pos tasir. Donus: varlik id."),
     ("eng_spawn_trigger_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num")], "Tetik (bolge) kuresi. Donus: varlik id."),

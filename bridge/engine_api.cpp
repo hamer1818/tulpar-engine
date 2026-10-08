@@ -258,6 +258,9 @@ struct Ent {
   // degisir) ve make_body grubu yeni govdeye yeniden yazar.
   uint8_t cgroup = 0;
   bool rot_lock = false; // teng_lock_rotation (yeniden kurulan govdeye de yazilir)
+  // teng_set_visible(id, 0): CIZILMEZ (govdesi fizikte kalir: carpisir, isin gorur).
+  // Ornek: fizik govdesi kutu/kure, gorunen ise ustune konan iskeletli karakter.
+  bool hidden = false;
   // Kodla baglanan betigin havuz indisi (-1 = yok; kilitleri asagida, dying /
   // bitir_running). BURADA, ilk onbellek satirinda: kare ici `guncelle`
   // dagitimi her bagli varlik icin alive + gen + bound okur, uc alan ayni
@@ -1016,6 +1019,7 @@ void render_frame() {
   for (uint32_t i = 0; i < b.ent_high; i++) {
     Ent &e = b.ents[i];
     if (!e.alive || e.sensor) continue; // tetik hacmi GORUNMEZ (oyun isterse ustune kendisi kutu cizer)
+    if (e.hidden) continue;             // teng_set_visible(id, 0)
     switch (e.kind) {
     case Kind::Box: b.ren.draw(b.cube, ent_matrix(e) * Mat4::scale(e.half * 2.0f * e.scale), e.color); drawn++; break;
     case Kind::Sphere: { const float d = e.radius * 2.0f * e.scale; b.ren.draw(b.sphere, ent_matrix(e) * Mat4::scale({d, d, d}), e.color); drawn++; break; }
@@ -3408,6 +3412,14 @@ int teng_collision_pair_on(int a, int b) {
   if (!g || !g->inited || a < 0 || b < 0) return 1;
   return g->phys.groups_collide((uint32_t)a, (uint32_t)b) ? 1 : 0;
 }
+// Kopru varligini gizle/goster: gizli varlik cizilmez (isik varligiysa isigi
+// da eklenmez), fizik govdesi ve diger her sey ayni kalir.
+void teng_set_visible(int id, int visible) {
+  CALLF("teng_set_visible", "#%d %d", id, visible);
+  const int32_t s = slot_of(id, "teng_set_visible");
+  if (s >= 0) g->ents[s].hidden = visible == 0;
+}
+int teng_visible(int id) { const int32_t s = slot_of(id, "teng_visible"); return s >= 0 && !g->ents[s].hidden ? 1 : 0; }
 int teng_is_kinematic(int id) { const int32_t s = slot_of(id, "teng_is_kinematic"); return s >= 0 && g->ents[s].kinematic ? 1 : 0; }
 void teng_kinematic_move(int id, double x, double y, double z) {
   CALLF("teng_kinematic_move", "#%d (%.2f %.2f %.2f)", id, x, y, z);

@@ -333,6 +333,11 @@ int teng_collision_pair_on(int a, int b);
 // kalkan) tasiyan birlik icin: devrilen govdenin parcalari icine gecerdi.
 // Isinlanip yeniden kurulan govdede korunur. Dinamik olmayan varlik: HATA, 0.
 int teng_lock_rotation(int id, int lock);
+// Kopru varligini GIZLE/GOSTER: gizli varlik cizilmez (isik varliginin isigi da
+// eklenmez); fizik govdesi aynen kalir (carpisir, isin gorur, olaylar gelir).
+// Ornek: fizik govdesi kutu/kure, gorunen yuz ise ustune konan iskeletli karakter.
+void teng_set_visible(int id, int visible);
+int teng_visible(int id);
 int teng_rotation_locked(int id);
 // Tetik (bolge) hacimleri: GORUNMEZ, carpisma tepkisi yok, yakinlik
 // sorgularinda (teng_overlap/nearest) hedef degil. Icine giren/cikan govdeler
