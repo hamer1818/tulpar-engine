@@ -281,6 +281,18 @@ double teng_scene_vx(int i);
 double teng_scene_vy(int i);
 double teng_scene_vz(int i);
 int teng_scene_is_dynamic(int i);
+// Sahne varligini GIZLE/GOSTER: gizli varlik cizilmez, isigi eklenmez, govdesi
+// fizik dunyasindan cikar (carpismaz, isin gormez). Sahne yeniden yuklenince
+// hepsi gorunur. Olcek (dunya), ilkel rengi (0xRRGGBB, 0 = cizim yok) ve
+// ilkel yuvasi (content/primitives.hpp; -1 = ilkel degil) okunur: oyun yikilan
+// parcanin yerine ayni boy ve renkte fizik parcalari kurabilsin.
+int teng_scene_set_visible(int i, int visible);
+int teng_scene_visible(int i);
+double teng_scene_sx(int i);
+double teng_scene_sy(int i);
+double teng_scene_sz(int i);
+int teng_scene_tint(int i);
+int teng_scene_primitive(int i);
 void teng_scene_set_velocity(int i, double vx, double vy, double vz);
 void teng_scene_impulse(int i, double ix, double iy, double iz); // hiz += i
 // Sahne karakterleri: editordeki "Karakter Kontrolcusu" bileseni sahne

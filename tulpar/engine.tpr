@@ -246,6 +246,17 @@ func sahne_dinamik(i): bool { return eng_scene_is_dynamic(i); }
 func sahne_hiz_ver(i, vx, vy, vz) { eng_scene_set_velocity(i, vx, vy, vz); }
 func sahne_itme(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
 func scene_impulse(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
+// Sahne varligini gizle/goster (gizli: cizilmez, isik yok, govde fizikten
+// cikar). Olcek/renk/ilkel: yikilan parcanin yerine ayni boyda parca kurmak icin.
+func sahne_gorunur(i, gorunur): bool { return eng_scene_set_visible(i, gorunur); }
+func scene_set_visible(i, visible): bool { return eng_scene_set_visible(i, visible); }
+func sahne_gorunur_mu(i): bool { return eng_scene_visible(i); }
+func scene_visible(i): bool { return eng_scene_visible(i); }
+func sahne_olcek_x(i): float { return eng_scene_sx(i); }
+func sahne_olcek_y(i): float { return eng_scene_sy(i); }
+func sahne_olcek_z(i): float { return eng_scene_sz(i); }
+func sahne_renk(i): int { int c = eng_scene_tint(i); return renk((c >> 16) & 255, (c >> 8) & 255, c & 255); }
+func sahne_ilkel(i): int { return eng_scene_primitive(i); }
 // Sahne karakteri: editörde "Karakter Kontrolcüsü" bileşeni olan varlık sahne
 // yüklenince karakter olarak doğar (aynı varlıktaki gövde bileşeni doğurulmaz,
 // karakter onun yerini alır). Kapsül yazar konumuna ORTALI: sahne_y(i) MERKEZ

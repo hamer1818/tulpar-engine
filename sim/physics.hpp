@@ -182,6 +182,11 @@ public:
   // kafa/kalkan modeli tasiyan birlik — govde devrilirse parcalar onunla
   // donmez ve ICINE gecer. Dinamik olmayan / gecersiz govde: false.
   bool lock_rotation(BodyId id, bool lock);
+  // Govdeyi fizik dunyasindan CIKAR / geri koy (Jolt RemoveBody/AddBody):
+  // kimlik ve sekil korunur, cikmis govde carpismaz, isin testine girmez,
+  // tetik/temas uretmez. Sahne varligini gizlemek (yikilan kale) icin.
+  bool set_body_enabled(BodyId id, bool enabled);
+  bool body_enabled(BodyId id) const;
   bool rotation_locked(BodyId id) const;
   bool set_collision_group(BodyId id, uint32_t group);
   uint32_t collision_group(BodyId id) const; // gecersizde 0

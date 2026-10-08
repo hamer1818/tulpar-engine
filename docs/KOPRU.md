@@ -256,6 +256,12 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   tutulur: ışınlanıp yeniden kurulan dinamik gövdeye yeniden yazılır (`bridge_collision_groups_*` bunu ve
   pozitif kontrolü ölçer). Işın testi ve seçme grupları görmez. İlk kullanıcı: oyunda takım mermisi kendi
   birliklerinden geçer (telefonda 1029 mermide 0 dost değmesi; süzgeç kapalıyken 9600 karede 111 — 2026-10-08).
+- **Sahne varlığını gizle/göster** (2026-10-08, yıkılan kale): `sahne_gorunur(i, false)` varlığı çizmez,
+  ışığını eklemez ve gövdesini fizik dünyasından çıkarır (Jolt `RemoveBody`; çarpışmaz, ışın görmez);
+  `true` hepsini geri getirir, sahne yeniden yüklenince hepsi görünür. `sahne_olcek_x/y/z`, `sahne_renk`,
+  `sahne_ilkel` parçanın boyunu, rengini ve ilkel yuvasını verir: oyun yıkılan parçanın yerine aynı boy ve
+  renkte dinamik parçalar kurar. Kapı: `bridge_scene_entity_hide_removes_draw_and_body` (ışın duvara 4.50 m →
+  gizliyken ıska → geri 4.50 m; çizim 6 → 5 → 6; pozitif kontrol gizlemeden önceki isabet).
 - **Dönme kilidi** (Geri bildirim #26): `donme_kilidi(id, true)` dinamik gövdeyi devrilmez yapar (Jolt
   `EAllowedDOFs` öteleme, kilitlenince dik konum + açısal hız sıfır); yeniden kurulan gövdede korunur.
   Üstüne gövdesiz kafa/kalkan modeli taşıyan birlik için: devrilen gövde parçaların içine geçiyordu.

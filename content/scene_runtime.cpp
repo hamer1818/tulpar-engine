@@ -200,6 +200,7 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   gi_.init(view); // probe yoksa ok()==false doner, apply_world duz ambient'a duser
   stats_ = SceneRuntimeStats{};
   bodies_live_ = false;
+  for (uint32_t k = 0; k < kSceneMaxEntities; k++) hidden_[k] = false; // yeni sahne: hepsi gorunur
   // CIHAZ VAR MI? `init()` cagrilmamis bir Renderer gecerli bir nesnedir ama
   // GPU kaynagi yaratamaz. Motorun CPU tarafini olcen kapilar bilerek boyle
   // bir Renderer veriyor (test_scene_blob.cpp `scene_runtime_applies_baked_gi_ambient`
@@ -467,6 +468,14 @@ bool SceneRuntime::entity_dynamic(uint32_t i) const {
   return b >= 0 && (uint32_t)b < view_.h->body_count && view_.bodies[b].dynamic != 0;
 }
 
+bool SceneRuntime::set_hidden(uint32_t i, bool hidden, sim::Physics *ph) {
+  if (!view_.h || i >= view_.h->entity_count || i >= kSceneMaxEntities) return false;
+  hidden_[i] = hidden;
+  const sim::BodyId b = entity_body(i);
+  if (ph && b.valid() && bodies_live_) ph->set_body_enabled(b, !hidden);
+  return true;
+}
+
 void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph, Vec3 cam_forward,
                         float lod_depth_scale) {
   stats_.draws = 0;
@@ -480,6 +489,7 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
   lod.depth_scale = lod_depth_scale;
   for (uint32_t i = 0; i < view_.h->draw_count; i++) {
     const SceneBlobDraw &d = view_.draws[i];
+    if (d.entity < kSceneMaxEntities && hidden_[d.entity]) continue;
     const SceneBlobEntity &e = view_.entities[d.entity];
     const Mat4 m = entity_matrix(d.entity, ph);
     // Prosedurel ilkel kaynaga TERCIH edilir: ikisi de doluysa varligi editorde
@@ -512,6 +522,7 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
   }
   for (uint32_t i = 0; i < view_.h->light_count; i++) {
     const SceneBlobLight &l = view_.lights[i];
+    if (l.entity < kSceneMaxEntities && hidden_[l.entity]) continue;
     renderer::PointLight pl;
     const Mat4 m = entity_matrix(l.entity, ph);
     pl.pos = {m.m[3][0], m.m[3][1], m.m[3][2]};

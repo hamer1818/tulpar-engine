@@ -3223,3 +3223,60 @@ ENGINE_TEST(bridge_font_draws_typographic_punctuation) {
   CHECK(tw > 20 && th * 4 < tw); // ince yatay cubuk
   CHECK(sw > 5 && sh > sw);      // KONTROL: '?' uzun (olcu sekli ayirt ediyor)
 }
+
+// Sahne varligini gizle/goster (oyunda yikilan kale): gizli varlik cizilmez ve
+// govdesi fizikten cikar — yukaridan atilan isin artik ona CARPMAZ; geri
+// gosterince hem cizim hem carpisma doner. POZITIF KONTROL: gizlemeden once
+// ayni isin duvara carpiyor (yani "carpmadi" olcumu isinin yanlis yere
+// atilmasindan gelmiyor). Olcek/renk/ilkel okuyuculari blob'daki degerleri verir.
+ENGINE_TEST(bridge_scene_entity_hide_removes_draw_and_body) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static SystemArena arena;
+  if (arena.capacity() == 0) arena.reserve(64u << 20, "sahne_gizle");
+  char src[768], blob[768];
+  std::snprintf(src, sizeof src, "%s/editor.sahne", assets_dir());
+  std::snprintf(blob, sizeof blob, "%s/_gizle_test.sahneb", assets_dir());
+  static content::SceneDesc desc;
+  content::SceneError serr{};
+  if (!content::scene_load(arena, src, &desc, &serr) || !content::scene_blob_save(arena, desc, blob, &serr)) {
+    std::printf("    [bilgi] sahne: %s\n", serr.msg);
+    CHECK(false);
+    return;
+  }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("sahne gizle", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_scene_load(blob) == 1);
+  const int duvar = teng_scene_find("duvar_sabit");
+  const int kup = teng_scene_find("kup_dusen");
+  CHECK(duvar >= 0 && kup >= 0);
+  if (duvar < 0 || kup < 0) { teng_shutdown(); return; }
+  run_frames(2);
+  const double x = teng_scene_x(duvar), z = teng_scene_z(duvar);
+  const double d0 = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  const int s0 = teng_ray_scene();
+  const int draws0 = teng_draw_count();
+  CHECK(teng_scene_visible(kup) == 1);
+  CHECK(teng_scene_set_visible(duvar, 0) == 1 && teng_scene_set_visible(kup, 0) == 1);
+  run_frames(2);
+  const double d1 = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  const int s1 = teng_ray_scene();
+  const int draws1 = teng_draw_count();
+  CHECK(teng_scene_set_visible(duvar, 1) == 1 && teng_scene_set_visible(kup, 1) == 1);
+  run_frames(2);
+  const double d2 = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  const int s2 = teng_ray_scene();
+  const int draws2 = teng_draw_count();
+  std::printf("    [bilgi] gizle: isin duvar %.2f m (sahne #%d) -> gizli %.2f m (#%d) -> geri %.2f m (#%d); cizim %d -> %d -> %d; "
+              "kup olcek %.2f renk %06x ilkel %d\n",
+              d0, s0, d1, s1, d2, s2, draws0, draws1, draws2, teng_scene_sx(kup), teng_scene_tint(kup), teng_scene_primitive(kup));
+  CHECK(s0 == duvar && d0 > 0);             // pozitif kontrol: once carpiyor
+  CHECK(s1 != duvar);                       // gizliyken govde yok
+  CHECK(draws1 == draws0 - 1);              // kup cizilmedi (duvarin cizimi yok)
+  CHECK(s2 == duvar && std::fabs(d2 - d0) < 1e-4 && draws2 == draws0);
+  CHECK(teng_scene_tint(kup) == 0xFFFFFF && teng_scene_primitive(kup) == -1 && teng_scene_sx(kup) > 0);
+  const int h0 = teng_error_count();
+  CHECK(teng_scene_set_visible(9999, 0) == 0 && teng_error_count() == h0 + 1);
+  teng_shutdown();
+}

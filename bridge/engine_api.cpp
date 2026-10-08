@@ -2955,6 +2955,33 @@ static Vec3 scene_vel(int i, const char *fn) {
 double teng_scene_vx(int i) { return scene_vel(i, "teng_scene_vx").x; }
 double teng_scene_vy(int i) { return scene_vel(i, "teng_scene_vy").y; }
 double teng_scene_vz(int i) { return scene_vel(i, "teng_scene_vz").z; }
+// Sahne varligini gizle/goster + ilkel bilgisi (yikilan kale: oyun kale
+// parcalarinin yerine ayni boy/renkte dinamik parcalar dogurur, sonra gizler).
+int teng_scene_set_visible(int i, int visible) {
+  CALLF("teng_scene_set_visible", "%d %d", i, visible);
+  if (!scene_idx_ok(i, "teng_scene_set_visible")) return 0;
+  return g->srt.set_hidden((uint32_t)i, visible == 0, &g->phys) ? 1 : 0;
+}
+int teng_scene_visible(int i) { return scene_idx_ok(i, "teng_scene_visible") && !g->srt.hidden((uint32_t)i) ? 1 : 0; }
+double teng_scene_sx(int i) { return scene_idx_ok(i, "teng_scene_sx") ? g->srt.view().entities[i].scale[0] : 0; }
+double teng_scene_sy(int i) { return scene_idx_ok(i, "teng_scene_sy") ? g->srt.view().entities[i].scale[1] : 0; }
+double teng_scene_sz(int i) { return scene_idx_ok(i, "teng_scene_sz") ? g->srt.view().entities[i].scale[2] : 0; }
+static const content::SceneBlobDraw *scene_draw_of(int i) {
+  const int32_t d = g->srt.view().entities[i].draw;
+  return d >= 0 && (uint32_t)d < g->srt.view().h->draw_count ? &g->srt.view().draws[d] : nullptr;
+}
+int teng_scene_tint(int i) {
+  if (!scene_idx_ok(i, "teng_scene_tint")) return 0;
+  const content::SceneBlobDraw *d = scene_draw_of(i);
+  if (!d) return 0;
+  auto c = [](float v) { return (int)(v <= 0 ? 0 : v >= 1 ? 255 : v * 255.0f + 0.5f); };
+  return (c(d->tint[0]) << 16) | (c(d->tint[1]) << 8) | c(d->tint[2]);
+}
+int teng_scene_primitive(int i) {
+  if (!scene_idx_ok(i, "teng_scene_primitive")) return -1;
+  const content::SceneBlobDraw *d = scene_draw_of(i);
+  return d ? d->primitive : -1;
+}
 int teng_scene_is_dynamic(int i) { return scene_idx_ok(i, "teng_scene_is_dynamic") && g->srt.entity_dynamic((uint32_t)i) ? 1 : 0; }
 // --- sahne karakterleri (kSceneCharacter) -----------------------------------------
 // Editorde "Karakter Kontrolcusu" bileseni olan varlik sahne yuklenince

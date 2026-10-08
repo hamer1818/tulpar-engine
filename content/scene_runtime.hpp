@@ -130,6 +130,12 @@ public:
   sim::CharacterId entity_character(uint32_t i) const;
   // Govdeler su an fizikte mi (spawn edildi, despawn edilmedi).
   bool bodies_live() const { return bodies_live_; }
+  // VARLIK GIZLEME: gizli varlik cizilmez (model/ilkel), isigi eklenmez,
+  // govdesi fizik dunyasindan cikar (ph verilirse). Geri gosterince hepsi
+  // doner. Yikilan kale gibi "sahnede tasarlanmis ama oyunda yok olan"
+  // parcalar icin; sahne yeniden yuklenince hepsi gorunur baslar.
+  bool set_hidden(uint32_t i, bool hidden, sim::Physics *ph);
+  bool hidden(uint32_t i) const { return i < kSceneMaxEntities && hidden_[i]; }
 
 private:
   SceneBlobView view_;
@@ -165,6 +171,7 @@ private:
   // Arazi / voksel / su tek renk kullaniyor, o yuzden varlik basina degil
   // TURU basina tek malzeme yetiyor.
   renderer::MaterialHandle terrain_mat_{}, voxel_mat_{}, water_mat_{};
+  bool hidden_[kSceneMaxEntities] = {};
 };
 
 } // namespace tulpar::engine::content
