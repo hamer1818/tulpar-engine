@@ -71,7 +71,10 @@ constexpr size_t kModelTmpBytes = size_t(32) << 20;
 // Havuz yalniz tutamac dizisi (Mesh/Texture kaydi), GPU bellegi kullanildikca.
 constexpr uint32_t kRenderMaxMeshes = 256;
 constexpr uint32_t kRenderMaxTextures = 128;
-constexpr uint32_t kMaxClips = 32;  // ses klibi (dosya + sentetik ton)
+// Ses klibi tavani (dosya + sentetik ton + muzik yuvasi). 32 -> 128 (2026-10-09, M3):
+// hikaye modu ~88 klip (bugunku 23 + 40 SFX + 18 hece + 5 tek seferlik muzik + 2
+// muzik yuvasi, TASARIM §14). Yuva basina statik ~150 B; asil bedel PCM (arena).
+constexpr uint32_t kMaxClips = 128;
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
 constexpr uint32_t kMaxHud = 1024;
 constexpr uint32_t kMaxOverlap = 64;   // kure sorgusu sonuc tavani (sabit dizi, 0 ayirma)
@@ -551,7 +554,7 @@ struct Bridge {
   };
   ClipSlot clips[kMaxClips];
   uint32_t clip_count = 0;
-  struct VoiceSlot { uint32_t id = 0; float gain = 1.0f; };
+  struct VoiceSlot { uint32_t id = 0; float gain = 1.0f; int clip = -1; }; // clip: muzik yuvasi yazilmadan once calanlari bulmak icin (M3b)
   VoiceSlot voices[kMaxVoices];
   // varliklar
   Ent ents[kMaxEntities];
@@ -4249,7 +4252,7 @@ int teng_audio_play(int clip, double gain, int loop) {
   if (gain < 0.0) { BERR("teng_audio_play: ses seviyesi negatif (%.2f), 0 yapildi", gain); gain = 0.0; }
   const audio::VoiceHandle v = b.mixer.play(&b.clips[clip].clip, (float)gain * b.audio_master, loop != 0);
   if (!v.valid()) { BERR("teng_audio_play: komut kuyrugu dolu (klip %d) — ses calmadi", clip); return 0; }
-  b.voices[v.id & 0xFFu] = Bridge::VoiceSlot{v.id, (float)gain};
+  b.voices[v.id & 0xFFu] = Bridge::VoiceSlot{v.id, (float)gain, clip};
   b.audio_plays++;
   BDBG("ses #%u: klip %d (%s) gain %.2f%s", v.id, clip, b.clips[clip].name, gain, loop ? " dongulu" : "");
   return (int)v.id;
@@ -4293,6 +4296,20 @@ void teng_audio_master(double gain) {
     n++;
   }
   BDBG("ana ses seviyesi %.2f (%u calan ses guncellendi)", gain, n);
+}
+// Calan TEK sesin seviyesi (M3): muzik capraz gecisi, diyalogda muzigi kisma, boss
+// girisinde sonumleme. Karistirici blok boyunca dogrusal rampalar (tik yok). Olmus/eski
+// nesil ses id'si karistiricida yok sayilir (hata degil: ses kendiliginden bitmis olabilir).
+void teng_audio_gain(int voice, double gain) {
+  CALLF("teng_audio_gain", "#%d %.2f", voice, gain);
+  if (!audio_live("teng_audio_gain")) return;
+  if (voice <= 0) { BERR("teng_audio_gain: gecersiz ses id %d", voice); return; }
+  if (gain < 0.0) { BERR("teng_audio_gain: seviye negatif (%.2f), 0 yapildi", gain); gain = 0.0; }
+  if (gain > 4.0) { BERR("teng_audio_gain: seviye %.2f cok yuksek (kirpma), 4 yapildi", gain); gain = 4.0; }
+  Bridge &b = *g;
+  const uint32_t slot = (uint32_t)voice & 0xFFu;
+  if (slot < kMaxVoices && b.voices[slot].id == (uint32_t)voice) b.voices[slot].gain = (float)gain;
+  b.mixer.set_gain(audio::VoiceHandle{(uint32_t)voice}, (float)gain * b.audio_master);
 }
 int teng_audio_playing(void) { return g && g->audio_ok ? (int)g->mixer.stats().voices_active : 0; }
 double teng_audio_peak(void) { return g && g->audio_ok ? (double)g->mixer.stats().peak : 0.0; }

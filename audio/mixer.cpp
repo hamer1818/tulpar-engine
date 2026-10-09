@@ -197,6 +197,12 @@ void Mixer::render(float *out, uint32_t frames) {
       v.cur_l = gm; v.cur_r = gm;
       continue;
     }
+    // Kazanc degisimi (set_gain, M3) blok boyunca dogrusal rampalanir: muzik
+    // sonumlemesinde basamak "tik"i olmasin. Degisim yoksa adim 0 ve kazanc tam
+    // v.gain (eski cikisla bit-ayni).
+    const float g_hedef = v.gain;
+    const float g_adim = frames && v.cur_l != g_hedef ? (g_hedef - v.cur_l) / (float)frames : 0.0f;
+    float gk = g_adim != 0.0f ? v.cur_l : g_hedef;
     for (uint32_t f = 0; f < frames; f++) {
       if (v.pos >= cl.frames) {
         if (!v.loop) { v.active = false; break; }
@@ -204,13 +210,15 @@ void Mixer::render(float *out, uint32_t frames) {
       }
       const float *s = cl.samples + v.pos * cl.channels;
       if (cl.channels == 1) {
-        const float m = s[0] * v.gain;
+        const float m = s[0] * gk;
         for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += m;
       } else {
-        for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += s[c < cl.channels ? c : 0] * v.gain;
+        for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += s[c < cl.channels ? c : 0] * gk;
       }
+      gk += g_adim;
       v.pos++;
     }
+    v.cur_l = g_hedef; v.cur_r = g_hedef;
   }
   // Bloktan sonra hala aktif olanlar (tam blok sinirinda biten ses sayilmaz).
   active = 0;

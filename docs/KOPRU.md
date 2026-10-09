@@ -953,7 +953,7 @@ bölüm yorumlarına göre):
 | anlık-kip arayüz | 14 | `ui_begin`/`ui_end`, tema, etkin/pasif, panel, etiket, **düğme**, **onay kutusu**, **kaydırıcı**, basılı mı, tıklama sayacı, pencersiz doğrulama için **enjekte tıklama**, **yazı sığdırma sayaçları** (küçültülen / kırpılan) |
 | kalıcı kayıt | 10 | dosya bağla, yol, sayı/metin yaz-oku, var mı, diske yaz, temizle, sayı |
 | sahne sıcak yeniden yükleme | 6 | izlemeyi aç, yenilendi mi (bir kez), yenileme sayısı, yol, dosya kopyala, dosya değişim zamanı |
-| ses | 13 | cihaz aç/kapat/durum/arka uç, klip yükle (WAV/FLAC/MP3; mono kaynak **mono** saklanır — 2026-10-09, M2: SFX arena payı yarıya iner, `bridge_mono_wav_stays_mono_clip_same_peak`), sentetik ton, çal, bip, durdur, hepsini durdur, ana seviye, çalan ses, tepe genlik |
+| ses | 13 | cihaz aç/kapat/durum/arka uç, klip yükle (WAV/FLAC/MP3; mono kaynak **mono** saklanır — 2026-10-09, M2: SFX arena payı yarıya iner, `bridge_mono_wav_stays_mono_clip_same_peak`), sentetik ton, çal, bip, durdur, hepsini durdur, ana seviye, **tek sesin seviyesi** (`eng_audio_gain` / `ses_kazanc`, rampalı; M3), çalan ses, tepe genlik — klip tavanı 128 (M3, 2026-10-09; `bridge_clip_pool_128_and_voice_gain_halves_peak`) |
 | sorgular: ışın + yakınlık | 13 | `eng_raycast` (+ nokta / normal / çarpılan köprü varlığı / çarpılan sahne varlığı), **küre örtüşmesi** (yakından uzağa sıralı), en yakın |
 | navmesh (blob'daki bake) | 13 | bake var mı, poligon sayısı, yol iste, yol kısmi mi, yol noktaları, **en yakın nokta** (mesh dışındaki konumu yapıştır), **doğru görüş** (`raycast` + çarpma parametresi) |
 | çarpışma olayları | 13 | sayı, düşen, iki taraf (köprü id + sahne dizini), temas noktası, normal, şiddet — kuyruk |

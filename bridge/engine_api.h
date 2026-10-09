@@ -523,6 +523,7 @@ int teng_audio_beep(double hz, double seconds, double gain); // ton + cal, tek c
 void teng_audio_stop(int voice);
 void teng_audio_stop_all(void);
 void teng_audio_master(double gain); // ana ses seviyesi 0..1 (calan sesler de guncellenir)
+void teng_audio_gain(int voice, double gain); // calan TEK sesin seviyesi 0..4 (rampali; ana seviyeyle carpilir)
 int teng_audio_playing(void);        // cihaz thread'inin olctugu aktif ses sayisi
 double teng_audio_peak(void);        // son render'daki en buyuk |ornek| (0 = sessiz)
 // Ana yol sinirlayici (yumusak tanh, tavan 0..1; 0 kapatir) ve sert kirpma

@@ -194,6 +194,7 @@
     {"name": "eng_audio_stop", "symbol": "teng_audio_stop", "params": ["voice: i32"], "doc": "Calan sesi durdurur."},
     {"name": "eng_audio_stop_all", "symbol": "teng_audio_stop_all", "doc": "Butun sesleri durdurur."},
     {"name": "eng_audio_master", "symbol": "teng_audio_master", "params": ["gain: f64"], "doc": "Ana ses seviyesi (0..4); calan sesler de guncellenir."},
+    {"name": "eng_audio_gain", "symbol": "teng_audio_gain", "params": ["voice: i32", "gain: f64"], "doc": "Calan TEK sesin seviyesi (0..4, ana seviyeyle carpilir); karistirici blok boyunca rampalar (tik yok). Muzik capraz gecisi, diyalogda muzigi kisma. Bitmis sesin id'si yok sayilir."},
     {"name": "eng_audio_playing", "symbol": "teng_audio_playing", "returns": "i32", "doc": "Su an calan ses sayisi (cihaz thread'inin olctugu deger)."},
     {"name": "eng_audio_peak", "symbol": "teng_audio_peak", "returns": "f64", "doc": "Son ses blogundaki en buyuk ornek (0 = sessiz); ses gercekten uretiliyor mu olcusu."},
     {"name": "eng_audio_limiter", "symbol": "teng_audio_limiter", "params": ["ceiling: f64"], "returns": "bool", "doc": "Ana yol sinirlayici (yumusak tanh; tavan 0..1, 0 kapatir): toplam ses +-1'i asinca sert kirpma yerine yumusak bastirma. Ses cihazi acikken."},

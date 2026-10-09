@@ -248,6 +248,7 @@ SPEC = [
     ("eng_audio_stop", "void", [("voice", "int")], "Calan sesi durdurur."),
     ("eng_audio_stop_all", "void", [], "Butun sesleri durdurur."),
     ("eng_audio_master", "void", [("gain", "num")], "Ana ses seviyesi (0..4); calan sesler de guncellenir."),
+    ("eng_audio_gain", "void", [("voice", "int"), ("gain", "num")], "Calan TEK sesin seviyesi (0..4, ana seviyeyle carpilir); karistirici blok boyunca rampalar (tik yok). Muzik capraz gecisi, diyalogda muzigi kisma. Bitmis sesin id'si yok sayilir."),
     ("eng_audio_playing", "int", [], "Su an calan ses sayisi (cihaz thread'inin olctugu deger)."),
     ("eng_audio_peak", "float", [], "Son ses blogundaki en buyuk ornek (0 = sessiz); ses gercekten uretiliyor mu olcusu."),
     ("eng_audio_limiter", "bool", [("ceiling", "num")], "Ana yol sinirlayici (yumusak tanh; tavan 0..1, 0 kapatir): toplam ses +-1'i asinca sert kirpma yerine yumusak bastirma. Ses cihazi acikken."),

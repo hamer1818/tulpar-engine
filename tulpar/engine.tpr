@@ -912,6 +912,9 @@ func play_sound(clip, gain, loop): int { return eng_audio_play(clip, gain, loop)
 func bip(hz, saniye, seviye): int { return eng_audio_beep(hz, saniye, seviye); }
 func beep(hz, seconds, gain): int { return eng_audio_beep(hz, seconds, gain); }
 func ses_durdur(id) { eng_audio_stop(id); }
+// Calan TEK sesin seviyesi (rampali; ana seviyeyle carpilir) — muzik sonumleme, diyalogda kisma.
+func ses_kazanc(id, seviye) { eng_audio_gain(id, seviye); }
+func voice_gain_e(id, gain) { eng_audio_gain(id, gain); }
 func sesleri_durdur() { eng_audio_stop_all(); }
 func stop_sounds() { eng_audio_stop_all(); }
 func ses_seviyesi(s) { eng_audio_master(s); }

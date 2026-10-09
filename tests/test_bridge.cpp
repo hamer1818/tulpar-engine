@@ -2591,6 +2591,54 @@ ENGINE_TEST(bridge_scene_reload_reuses_materials) {
   std::remove(src); std::remove(blob); rmdir(dir);
 }
 
+// --- Klip tavani 128 + tek sesin seviyesi (M3, 2026-10-09) ------------------------
+// Hikaye modu ~88 klip yukler; 32'lik tavan 33. klipte -1 veriyordu. Calan sesin
+// seviyesi kopruye acildi (Mixer::set_gain, blok boyunca rampali): NULL arka uçta
+// gain 0.5 tepeyi yarilar. KONTROL: gain 1.0'a geri donunce tepe eski degerine
+// doner (olcu seviye degisimini goruyor); 129. klip hala -1 + HATA.
+ENGINE_TEST(bridge_clip_pool_128_and_voice_gain_halves_peak) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("klip havuzu", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  int ok = 0, k33 = -2, ilk = -1;
+  for (int i = 0; i < 128; i++) {
+    const int k = teng_audio_tone(200.0 + i, 0.25);
+    if (k >= 0) ok++;
+    if (i == 0) ilk = k;
+    if (i == 32) k33 = k;
+  }
+  CHECK(ok == 128 && k33 == 32 && teng_error_count() == e0);
+  CHECK(teng_audio_tone(999.0, 0.25) == -1); // KONTROL: tavan hala tavan
+  CHECK(teng_error_count() == e0 + 1);
+  auto tepe = [] {
+    double m = 0;
+    for (int k = 0; k < 6; k++) { const double p = teng_audio_peak(); if (p > m) m = p; platform::thread_sleep_us(20000); }
+    return m;
+  };
+  const int v = teng_audio_play(ilk, 1.0, 1);
+  CHECK(v > 0);
+  platform::thread_sleep_us(120000);
+  const double t1 = tepe();
+  teng_audio_gain(v, 0.5);
+  platform::thread_sleep_us(80000);
+  const double t05 = tepe();
+  teng_audio_gain(v, 1.0);
+  platform::thread_sleep_us(80000);
+  const double t1b = tepe();
+  teng_audio_stop(v);
+  std::printf("    [bilgi] klip havuzu %d/128 (33. -> %d), tepe gain 1.0 %.4f, 0.5 %.4f, geri 1.0 %.4f\n", ok, k33, t1, t05, t1b);
+  CHECK(t1 > 0.3 && std::fabs(t05 - 0.5 * t1) < 0.01 && std::fabs(t1b - t1) < 0.01);
+  CHECK(teng_error_count() == e0 + 1);
+  teng_audio_close();
+  teng_shutdown();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+}
+
 // --- Guvenli alan (Geri bildirim #17) ---------------------------------------------
 // Telefonda pencere centige uzaninca (TulparLang [android] cutout = "short_edges")
 // HUD centigin altina girmesin diye oyun kenar bosluklarini okur. Host degeri
