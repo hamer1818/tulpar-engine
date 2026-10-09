@@ -57,8 +57,11 @@ constexpr float kBridgePi = 3.14159265358979f;
 constexpr uint32_t kMaxEntities = 4096;
 // Model tavani: oyun 10 sus modeli + 30 iskeletli birlik karakteri (2 taraf x 5 cag x
 // 3 tur, tools/kup_kure_karakter.py) = 40 yukluyor (2026-10-08). 16'da 17. model
-// "kapasite dolu" HATA'si verip -1 donuyordu. Model basina dizi yuku ~0.5 KB.
-constexpr uint32_t kMaxModels = 64;
+// "kapasite dolu" HATA'si verip -1 donuyordu. 64 -> 128 (2026-10-09, hikaye modu
+// M4): kampanya 30 caglı + 10 cagsiz sinif + 2 kahraman + 5 NPC + 5 boss + 3 Kirik +
+// 10 prop + 10 sus = 77 model yukler (TASARIM §14). Model basina bedel kapanis
+// satirinda: dizi yuku (sizeof Model + UploadedModel) + yuklemenin arena payi.
+constexpr uint32_t kMaxModels = 128;
 // Renderer havuzlari (RendererConfig varsayilani 64/64): her ISKELETSIZ glTF mesh'i
 // LOD0 + 2 ayrik LOD = 3 mesh tutamaci, her iskeletli mesh 1, her goruntu 1 doku.
 // Oyun + 30 karakter: ~70 mesh, ~35 doku — 64 mesh'te upload_model dusuyordu.
@@ -396,6 +399,8 @@ struct Bridge {
   content::Model models[kMaxModels];
   content::UploadedModel ups[kMaxModels];
   uint32_t model_count = 0;
+  uint32_t model_rejected = 0;     // tavan dolu: reddedilen yukleme (sessiz degil, kapanista basilir)
+  uint64_t model_arena_bytes = 0;  // modellerin sistem arenasindan aldigi toplam (glTF + yukleme)
   // sahne blob
   content::SceneRuntime srt;
   bool scene_ok = false;
@@ -2297,6 +2302,12 @@ void teng_shutdown(void) {
     const renderer::RendererStats rs = b.ren.stats();
     BINFO("kapanis (kaynak havuzu): model %u/%u, mesh %u/%u, doku %u/%u, malzeme %u", b.model_count, kMaxModels, rs.meshes,
           kRenderMaxMeshes, rs.textures, kRenderMaxTextures, rs.materials);
+    // Model basina bedel (M4): yuva dizisi her yuva icin sabit (Bridge icinde, kullanilsin
+    // kullanilmasin), arena payi yuklenen dosyaya gore (ortalama). GPU bellegi ayri (mesh/doku).
+    const uint32_t yuva_b = (uint32_t)(sizeof(content::Model) + sizeof(content::UploadedModel));
+    BINFO("kapanis (model bedeli): yuva %u B x %u = %u KB sabit, arena %llu KB toplam (model basina ~%llu KB), tavan reddi %u",
+          yuva_b, kMaxModels, (unsigned)((uint64_t)yuva_b * kMaxModels / 1024), (unsigned long long)(b.model_arena_bytes / 1024),
+          (unsigned long long)(b.model_count ? b.model_arena_bytes / 1024 / b.model_count : 0), b.model_rejected);
   }
   if (b.phys_pauses || b.fs.time_scale != 1.0f)
     BINFO("kapanis (fizik): %u duraklatma, %u kare durakli (sim adimi atilmadi), zaman olcegi %.2f, %u sim adimi", b.phys_pauses,
@@ -3239,11 +3250,13 @@ int teng_load_model(const char *path) {
   CALLF("teng_load_model", "%s", path ? path : "");
   if (!ready("teng_load_model") || !path) return -1;
   Bridge &b = *g;
-  if (b.model_count >= kMaxModels) { BERR("teng_load_model: model kapasitesi dolu (%u)", kMaxModels); return -1; }
+  if (b.model_count >= kMaxModels) { b.model_rejected++; BERR("teng_load_model: model kapasitesi dolu (%u): %s", kMaxModels, path); return -1; }
   const uint32_t i = b.model_count;
+  const size_t arena0 = b.sys.used();
   b.models[i] = content::Model{};
   if (!content::gltf_load(b.sys, path, &b.models[i])) { BERR("model yuklenemedi %s: %s", path, b.models[i].error); return -1; }
   if (!content::upload_model(b.ren, b.sys, b.models[i], &b.ups[i])) { BERR("model GPU'ya yuklenemedi: %s", path); return -1; }
+  b.model_arena_bytes += b.sys.used() - arena0;
   b.model_count++;
   BINFO("model %u: %s (%u mesh, %u malzeme, %u doku, %u klip)", i, path, b.ups[i].mesh_count, b.ups[i].material_count, b.ups[i].texture_count, b.models[i].clip_count);
   return (int)i;

@@ -2349,11 +2349,13 @@ ENGINE_TEST(bridge_back_pressed_is_one_frame_edge_headless) {
   CHECK(std::strstr(g_kapanis_log, "kapanis (geri tusu): 1 basis, oyuna bagli evet") != nullptr);
 }
 
-// --- Model / mesh / doku havuzu (oyun 10 sus + 30 karakter) --------------------
-// Kup-kure oyunu 40 model yukler; eskiden kopru 16 modelde, renderer 64 mesh'te
-// (her iskeletsiz glTF = 3 mesh tutamaci: LOD0 + 2 LOD) duruyordu. Olcu: 64 model
-// (20 LOD'lu + 44 iskeletli = 107 mesh) yuklenir, cizilir. KONTROL: 65. model
-// tavani gercekten asamaz — -1 doner ve HATA sayilir (tavan sessiz degil).
+// --- Model / mesh / doku havuzu (oyun 10 sus + 30 karakter; hikaye modu 77) ------
+// Kup-kure oyunu 40 model yukluyordu, hikaye modu 77 yukler (TASARIM §14); eskiden
+// kopru 16, sonra 64 modelde, renderer 64 mesh'te (her iskeletsiz glTF = 3 mesh
+// tutamaci: LOD0 + 2 LOD) duruyordu. Olcu (M4, 2026-10-09): 128 model (20 LOD'lu +
+// 108 iskeletli = 168 mesh) yuklenir, cizilir; 65. model (eski tavanin bir fazlasi)
+// gecerli tutamac alir. KONTROL: 129. model tavani gercekten asamaz — -1 doner, HATA
+// sayilir ve kapanis satirindaki "tavan reddi" sayaci 1 olur (tavan sessiz degil).
 ENGINE_TEST(bridge_model_pool_holds_game_characters_and_reports) {
   rhi::VkApi api;
   if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
@@ -2364,12 +2366,14 @@ ENGINE_TEST(bridge_model_pool_holds_game_characters_and_reports) {
   std::snprintf(lod, sizeof lod, "%s/lod_sphere.gltf", assets_dir());
   std::snprintf(skin, sizeof skin, "%s/skin_tube.gltf", assets_dir());
   const int e0 = teng_error_count();
-  int ok = 0, son_lod = -1, son_skin = -1;
-  for (int i = 0; i < 64; i++) {
+  int ok = 0, son_lod = -1, son_skin = -1, m65 = -2;
+  for (int i = 0; i < 128; i++) {
     const int m = teng_load_model(i < 20 ? lod : skin);
     if (m >= 0) { ok++; if (i < 20) son_lod = m; else son_skin = m; }
+    if (i == 64) m65 = m;
   }
-  CHECK(ok == 64 && teng_error_count() == e0);
+  CHECK(ok == 128 && teng_error_count() == e0);
+  CHECK(m65 == 64); // eski tavanin (64) bir fazlasi artik gecerli
   // KONTROL: tavan hala tavan.
   CHECK(teng_load_model(skin) == -1);
   CHECK(teng_error_count() == e0 + 1);
@@ -2382,15 +2386,24 @@ ENGINE_TEST(bridge_model_pool_holds_game_characters_and_reports) {
   teng_camera(0, 1.2, 5.0, 0.5, 1.0, 0);
   for (int k = 0; k < 3; k++) { teng_frame_begin(); teng_frame_end(); }
   CHECK(teng_error_count() == e0 + 1);
-  std::printf("    [bilgi] model havuzu: %d model yuklendi (20 LOD'lu, 44 iskeletli), 65. -> -1 (+1 hata)\n", ok);
+  std::printf("    [bilgi] model havuzu: %d model yuklendi (20 LOD'lu, 108 iskeletli), 65. -> %d, 129. -> -1 (+1 hata)\n", ok, m65);
   kapanis_yakala();
-  const char *r = std::strstr(g_kapanis_log, "kapanis (kaynak havuzu): model 64/64, mesh ");
+  const char *r = std::strstr(g_kapanis_log, "kapanis (kaynak havuzu): model 128/128, mesh ");
   CHECK(r != nullptr);
   if (r) {
     unsigned mesh = 0, mesh_max = 0;
-    std::sscanf(r, "kapanis (kaynak havuzu): model 64/64, mesh %u/%u", &mesh, &mesh_max);
+    std::sscanf(r, "kapanis (kaynak havuzu): model 128/128, mesh %u/%u", &mesh, &mesh_max);
     std::printf("    [bilgi] kapanis raporu: mesh %u/%u (eski tavan 64)\n", mesh, mesh_max);
-    CHECK(mesh > 64 && mesh <= mesh_max);
+    CHECK(mesh > 128 && mesh <= mesh_max);
+  }
+  const char *bed = std::strstr(g_kapanis_log, "kapanis (model bedeli): yuva ");
+  CHECK(bed != nullptr);
+  if (bed) {
+    unsigned yuva_b = 0, tavan = 0, yuva_kb = 0, arena_kb = 0, basina = 0, red = 99;
+    std::sscanf(bed, "kapanis (model bedeli): yuva %u B x %u = %u KB sabit, arena %u KB toplam (model basina ~%u KB), tavan reddi %u",
+                &yuva_b, &tavan, &yuva_kb, &arena_kb, &basina, &red);
+    std::printf("    [bilgi] model bedeli: yuva %u B (x%u = %u KB), arena %u KB (model basina ~%u KB), red %u\n", yuva_b, tavan, yuva_kb, arena_kb, basina, red);
+    CHECK(tavan == 128 && red == 1 && arena_kb > 0);
   }
 }
 
