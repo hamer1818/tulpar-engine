@@ -406,6 +406,7 @@ struct Bridge {
   bool scene_ok = false;
   char scene_dir[1024] = {0};
   uint32_t scene_loads = 0; // bolum gecisi: her yukleme kaynak ayirir (arena + GPU)
+  uint32_t scene_mats_created = 0, scene_mats_reused = 0; // sahne malzeme havuzu (Tuzaklar 8dc)
   // --- betik yasam dongusu ---------------------------------------------
   // Kancalar YUKLEME aninda cozuluyor, kare icinde DEGIL: `has` bir sembol
   // aramasi ve onu 60 Hz ile yapmak hem pahali hem gereksiz (ikili degismiyor).
@@ -2331,6 +2332,9 @@ void teng_shutdown(void) {
     BINFO("kapanis (font): %u kod noktasi fontta yoktu ve '?' cizildi (ilki U+%04X)", b.font.missing_count(), b.font.first_missing());
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
+  if (b.scene_loads)
+    BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
+          b.scene_mats_reused);
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
@@ -2576,6 +2580,11 @@ int teng_scene_load(const char *path) {
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
+  if (b.srt.stats().materials_failed)
+    BERR("sahne: %u cizim kaydinin malzemesi KURULAMADI (renderer malzeme havuzu dolu?) — o varliklar CIZILMEZ (Tuzaklar 8dc)",
+         b.srt.stats().materials_failed);
+  b.scene_mats_created += b.srt.stats().materials_created;
+  b.scene_mats_reused += b.srt.stats().materials_reused;
   if (v.h->particle_count) BINFO("sahne parcaciklari: %u yayici (havuz %u parcacik, sim adimiyla)", v.h->particle_count, b.srt.particles().capacity());
   if (b.srt.stats().particle_ribbons) {
     blog(1, "UYARI sahne: %u parcacik yayicisi serit (ribbon) istiyor; editor ciziyor ama derlenmis oyunda serit cizicisi YOK (parcaciklar kup)",

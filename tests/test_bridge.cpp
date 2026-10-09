@@ -2453,6 +2453,75 @@ ENGINE_TEST(bridge_app_pause_stops_and_resumes_audio_headless) {
   CHECK(std::strstr(g_kapanis_log, "kapanis (yasam dongusu): 1 kez arka plan, ses 1 kez durduruldu") != nullptr);
 }
 
+// --- Sahne malzeme havuzu bolum gecisinde buyumez (Tuzaklar 8dc, 2026-10-09) -----------
+// Renderer'da malzeme silme yok; her yukleme cizim kaydi basina yeni malzeme kurunca
+// kup-kure savas sahnesi (~96 malzeme) 4 gecisle 512'lik havuzu doldurdu ve sonraki
+// sahnenin varliklari SESSIZCE cizilmedi (M5 olcumu). Olcu: ayni sahne 8 kez yukle/
+// bosalt -> kapanista malzeme sayisi = 1 yuklemeninki; "sahne malzemesi" satiri ilk
+// yuklemede N kurar, sonra 7N yeniden kullanir. KONTROL: N > 0 (sahne gercekten malzeme
+// istiyor) ve tek yuklemeli oturumun malzemesi de ayni sayida (olcu birikimi goruyor).
+static unsigned malzeme_say(const char *log) {
+  const char *r = std::strstr(log, "kapanis (kaynak havuzu): model ");
+  if (!r) return 0;
+  const char *m = std::strstr(r, "malzeme ");
+  unsigned n = 0;
+  if (m) std::sscanf(m, "malzeme %u", &n);
+  return n;
+}
+ENGINE_TEST(bridge_scene_reload_reuses_materials) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static SystemArena arena;
+  if (arena.capacity() == 0) arena.reserve(64u << 20, "malzeme_havuzu_test");
+  char dir[512], src[600], blob[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "malzeme_havuzu"));
+  std::snprintf(src, sizeof src, "%s/ilkel.sahne", dir);
+  std::snprintf(blob, sizeof blob, "%s/ilkel.sahneb", dir);
+  // 40 ilkel varlik (kup-kure savas sahnesinin bicimi: model kaynak -1 + ilkel).
+  FILE *f = std::fopen(src, "w");
+  CHECK(f != nullptr);
+  if (!f) return;
+  std::fprintf(f, "tulpar-sahne 1\nisik-yon 0.45 1 0.35\nisik-ortam 0.14 0.15 0.19\nisik-gunes 0.9\n");
+  for (int i = 0; i < 40; i++)
+    std::fprintf(f, "nesne \"k%d\"\n  konum %d 0.5 0\n  donus 0 0 0\n  olcek 0.8 0.8 0.8\n  model kaynak -1 0.%d 0.5 0.4\n  ilkel %d\nson\n", i,
+                 i - 20, 1 + i % 9, i % 2 ? 10 : 11);
+  std::fclose(f);
+  static content::SceneDesc desc;
+  content::SceneError serr{};
+  arena.reset();
+  if (!content::scene_load(arena, src, &desc, &serr) || !content::scene_blob_save(arena, desc, blob, &serr)) {
+    std::printf("    [bilgi] sahne: %s\n", serr.msg);
+    CHECK(false);
+    return;
+  }
+  unsigned tek = 0, sekiz = 0, kur = 0, yeniden = 0;
+  for (int tur = 0; tur < 2; tur++) {
+    teng_log_level(1);
+    teng_set_headless(100000, nullptr);
+    if (!teng_init("malzeme havuzu", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); std::remove(blob); return; }
+    const int e0 = teng_error_count();
+    const int n = tur == 0 ? 1 : 8;
+    for (int k = 0; k < n; k++) {
+      CHECK(teng_scene_load(blob) == 1);
+      teng_frame_begin(); teng_frame_end();
+      CHECK(teng_scene_unload() == 1);
+    }
+    CHECK(teng_error_count() == e0);
+    kapanis_yakala();
+    if (tur == 0) tek = malzeme_say(g_kapanis_log);
+    else {
+      sekiz = malzeme_say(g_kapanis_log);
+      const char *r = std::strstr(g_kapanis_log, "kapanis (sahne malzemesi): ");
+      if (r) std::sscanf(r, "kapanis (sahne malzemesi): %u kuruldu, %u yeniden", &kur, &yeniden);
+    }
+  }
+  std::printf("    [bilgi] sahne malzemesi: 1 yukleme %u malzeme, 8 yukleme %u (kurulan %u, yeniden %u; havuzsuz 8 yukleme %u olurdu)\n", tek, sekiz,
+              kur, yeniden, tek + 7 * kur);
+  CHECK(kur == 40 && tek > kur);             // KONTROL: sahne her cizime malzeme istiyor
+  CHECK(sekiz == tek && yeniden == 7 * kur); // 8 gecis havuzu buyutmez
+  std::remove(src); std::remove(blob); rmdir(dir);
+}
+
 // --- Guvenli alan (Geri bildirim #17) ---------------------------------------------
 // Telefonda pencere centige uzaninca (TulparLang [android] cutout = "short_edges")
 // HUD centigin altina girmesin diye oyun kenar bosluklarini okur. Host degeri

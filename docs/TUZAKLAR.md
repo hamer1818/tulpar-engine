@@ -2116,6 +2116,31 @@ eski kodda `statik(bind)-boş = 0` → kapı **kırmızı** (pozitif kontrol, 20
 **Ders:** "çizilemedi"yi "çizildi" sayacına yazan dal, sessiz görünmezliğin ta kendisi. Piksel kapısının
 karşılaştırdığı iki karenin İKİSİNDE de nesnenin göründüğünü ayrıca ölç — farkın kaynağı "nesne yok" olabilir.
 
+### 8dc. Silinemeyen havuzdan her yüklemede yeniden ayırmak — 5. bölüm geçişinde sahne sessizce görünmez
+
+**Belirti (M5 ölçümü, 2026-10-09):** hikâye modu kısım geçişinde diyar sahnesi değiştirecek; önce "yükle/boşalt
+sızdırıyor mu" ölçüldü (`olcum_sahne.tpr`, kup-kure `savas.sahneb`, 20 tur). RSS yükleme başına ~720 KB —
+eşiğin çok altında. Ama kapanış satırının `malzeme` sayısı 1 yüklemede 195, 3'te 387, 5'te **512** (renderer
+`max_materials` tavanı). `SceneRuntime::init` her çizim kaydına `create_material` çağırıyordu; renderer'da
+malzeme silme yok. Tavan dolunca `create_material` geçersiz tutamaç döner, `draw()` geçersiz malzemeli varlığı
+**atlar**: zemin, kaleler, kayalar çizilmez — hata yok, uyarı yok, `hata=0`. Mesh ve doku tarafı bu yüzden
+yıllardır korunuyordu (ilkel mesh tablosu renderer başına bir kez), malzeme unutulmuştu.
+
+**Düzeltme:** `SceneRuntime` malzeme havuzunu **sahneler arası kalıcı** tutar (`mat_pool_`): yeniden yüklemede
+aynı tutamaçlar yeni PBR değeriyle (`set_material_pbr`, yalnız UBO; doku/descriptor aynı — hepsi varsayılan doku
++ beyaz) kullanılır, havuz en büyük sahnenin çizim sayısı kadar büyür. `set_material_pbr` reddederse (bayat
+tutamaç) yenisi kurulur. Kurulamayan malzeme artık **sayılır** ve köprü sahne yüklerken HATA basar
+("o varliklar CIZILMEZ"); kapanışta `kapanis (sahne malzemesi): N kuruldu, M yeniden kullanildi`.
+Kalan: yeniden kullanımın UBO yazımı uçuştaki karenin okumasıyla örtüşebilir (tek karelik ton farkı,
+geçiş anında; ölçülmedi, bilinçli).
+
+**Kapı:** `bridge_scene_reload_reuses_materials` — 40 ilkelli üretilmiş sahne 8 kez yükle/boşalt: malzeme
+43 = tek yüklemeninki (havuzsuz 323 olurdu), 40 kuruldu, 280 yeniden kullanıldı. Oyunda (21 yükleme) 99 sabit.
+
+**Ders:** "yükle/boşalt"ın bedeli RSS değil **en küçük havuzun tavanıdır**. Yeniden yüklenebilir her kaynağın
+sayacını kapanış satırına koy ve N kez yükleyip sayacın düz kaldığını ölç; dolan havuzun "atla" dalı ayrıca
+HATA saymalı.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana
