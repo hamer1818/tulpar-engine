@@ -554,6 +554,21 @@ struct Bridge {
   };
   ClipSlot clips[kMaxClips];
   uint32_t clip_count = 0;
+  // MUZIK YUVALARI (M3b, 2026-10-09): her dongu muzigi kendi klibi olursa arena
+  // parca basina ~23 MB buyur ve geri verilmez (11 dongu ~250 MB, TASARIM §14). Iki
+  // sabit tampon ses acilirken (A2: kapasite init'te) ayrilir; parca yuvaya cozulur,
+  // yuvanin klip tutamaci sabittir. Yazmadan once o klibi calan sesler durdurulur ve
+  // karistiricinin en az bir callback'i beklenir (callback tamponu okuyor olabilir).
+  static constexpr uint32_t kMusicSlots = 2;
+  static constexpr uint32_t kMusicSlotSec = 64;
+  struct MusicSlot {
+    float *buf = nullptr;
+    uint32_t cap_frames = 0, channels = 0;
+    int clip = -1;             // clips[] dizini (ilk kullanimda alinir)
+    uint32_t loads = 0, rejects = 0, waits = 0, wait_timeouts = 0;
+    char path[128] = {0};
+  };
+  MusicSlot music[kMusicSlots];
   struct VoiceSlot { uint32_t id = 0; float gain = 1.0f; int clip = -1; }; // clip: muzik yuvasi yazilmadan once calanlari bulmak icin (M3b)
   VoiceSlot voices[kMaxVoices];
   // varliklar
@@ -2352,6 +2367,12 @@ void teng_shutdown(void) {
   if (b.scene_loads)
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
+  if (b.music[0].buf || b.music[1].buf)
+    BINFO("kapanis (muzik yuvasi): %u yuva x %u s (%u MB), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)",
+          Bridge::kMusicSlots, Bridge::kMusicSlotSec,
+          (unsigned)((uint64_t)b.music[0].cap_frames * b.music[0].channels * 4 * Bridge::kMusicSlots >> 20), b.music[0].loads,
+          b.music[1].loads, b.music[0].rejects, b.music[1].rejects, b.music[0].waits, b.music[1].waits,
+          b.music[0].wait_timeouts + b.music[1].wait_timeouts);
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
@@ -4178,6 +4199,18 @@ int teng_audio_open(int sample_rate, int channels) {
   b.audio_ok = true;
   b.audio_null = cfg.null_backend;
   b.audio_master = 1.0f;
+  // Muzik yuvasi tamponlari (M3b): yalniz ilk acilista (ya da bicim degistiyse) ayrilir.
+  // Arena sayfalari yazilinca bellege girer: yuva hic kullanilmazsa RSS'e yansimaz.
+  for (uint32_t s = 0; s < Bridge::kMusicSlots; s++) {
+    Bridge::MusicSlot &m = b.music[s];
+    const uint32_t cap = Bridge::kMusicSlotSec * b.mixer.rate();
+    if (m.buf && m.cap_frames == cap && m.channels == b.mixer.channels()) continue;
+    m.buf = b.sys.alloc_array<float>((size_t)cap * b.mixer.channels());
+    m.cap_frames = m.buf ? cap : 0;
+    m.channels = b.mixer.channels();
+    if (!m.buf) BERR("muzik yuvasi %u: arena dolu (%u kare x %u kanal)", s, cap, m.channels);
+    if (m.clip >= 0) b.clips[m.clip].clip = audio::Clip{};
+  }
   for (uint32_t i = 0; i < kMaxVoices; i++) b.voices[i] = Bridge::VoiceSlot{};
   BINFO("ses acildi: %s%s", b.audio_desc, cfg.null_backend ? " (NULL arka uc: TULPAR_ENGINE_AUDIO_NULL, hoparlore gitmez)" : "");
   // Arka plandayken acilan ses (oyun PAUSE ile acilis arasinda) baslamasin.
@@ -4249,6 +4282,7 @@ int teng_audio_play(int clip, double gain, int loop) {
   if (!audio_live("teng_audio_play")) return 0;
   Bridge &b = *g;
   if (clip < 0 || (uint32_t)clip >= b.clip_count) { BERR("teng_audio_play: klip %d yok (%u yuklu)", clip, b.clip_count); return 0; }
+  if (b.clips[clip].clip.frames == 0) { BERR("teng_audio_play: klip %d (%s) BOS — muzik yuvasi yuklenmedi ya da yukleme dustu", clip, b.clips[clip].name); return 0; }
   if (gain < 0.0) { BERR("teng_audio_play: ses seviyesi negatif (%.2f), 0 yapildi", gain); gain = 0.0; }
   const audio::VoiceHandle v = b.mixer.play(&b.clips[clip].clip, (float)gain * b.audio_master, loop != 0);
   if (!v.valid()) { BERR("teng_audio_play: komut kuyrugu dolu (klip %d) — ses calmadi", clip); return 0; }
@@ -4312,6 +4346,68 @@ void teng_audio_gain(int voice, double gain) {
   b.mixer.set_gain(audio::VoiceHandle{(uint32_t)voice}, (float)gain * b.audio_master);
 }
 int teng_audio_playing(void) { return g && g->audio_ok ? (int)g->mixer.stats().voices_active : 0; }
+
+// --- Muzik yuvalari (M3b) -----------------------------------------------------
+static int music_slot_clip_index(Bridge &b, int slot, const char *fn) {
+  if (slot < 0 || (uint32_t)slot >= Bridge::kMusicSlots) { BERR("%s: yuva %d yok (0..%u)", fn, slot, Bridge::kMusicSlots - 1); return -1; }
+  Bridge::MusicSlot &m = b.music[slot];
+  if (m.clip >= 0) return m.clip;
+  if (b.clip_count >= kMaxClips) { BERR("%s: klip kapasitesi dolu (%u), yuva %d kurulamadi", fn, kMaxClips, slot); return -1; }
+  m.clip = (int)b.clip_count++;
+  b.clips[m.clip] = Bridge::ClipSlot{};
+  b.clips[m.clip].tone = false;
+  std::snprintf(b.clips[m.clip].name, sizeof b.clips[m.clip].name, "muzik yuvasi %d", slot);
+  return m.clip;
+}
+int teng_music_slot_clip(int slot) {
+  CALLF("teng_music_slot_clip", "%d", slot);
+  if (!audio_live("teng_music_slot_clip")) return -1;
+  return music_slot_clip_index(*g, slot, "teng_music_slot_clip");
+}
+int teng_music_slot_load(int slot, const char *path) {
+  CALLF("teng_music_slot_load", "%d %s", slot, path ? path : "");
+  if (!audio_live("teng_music_slot_load") || !path) return -1;
+  Bridge &b = *g;
+  const int ci = music_slot_clip_index(b, slot, "teng_music_slot_load");
+  if (ci < 0) return -1;
+  Bridge::MusicSlot &m = b.music[slot];
+  if (!m.buf) { BERR("teng_music_slot_load: yuva %d tamponu yok (arena dolu)", slot); return -1; }
+  // 1) Bu klibi calan sesleri durdur (karistirici komutu bir sonraki callback basinda tuketir).
+  uint32_t durdu = 0;
+  for (uint32_t i = 0; i < kMaxVoices; i++) {
+    if (b.voices[i].id && b.voices[i].clip == ci) { b.mixer.stop(audio::VoiceHandle{b.voices[i].id}); b.voices[i] = Bridge::VoiceSlot{}; durdu++; }
+  }
+  // 2) Callback tamponu okuyor olabilir: durdurma komutunu goren bir callback'in
+  //    BITMESINI bekle (sayac c0'dan ilerleyince komuttan once baslamis callback de
+  //    bitmistir). Cihaz durakliyken (arka plan) callback yok: okuyan da yok.
+  if (durdu && !b.audio_auto_paused) {
+    m.waits++;
+    const long long c0 = (long long)b.mixer.stats().callbacks;
+    const uint64_t t0 = platform::now_ns();
+    while ((long long)b.mixer.stats().callbacks <= c0) {
+      if (platform::now_ns() - t0 > 500000000ull) { m.wait_timeouts++; BERR("teng_music_slot_load: yuva %d icin karistirici 500 ms callback vermedi — tampon yine de yaziliyor", slot); break; }
+      platform::thread_sleep_us(1000);
+    }
+  }
+  // 3) Coz. Yazma boyunca klip BOS (frames 0): bu aralikta calma istegi reddedilir.
+  b.clips[ci].clip = audio::Clip{};
+  bool uzun = false;
+  char cerr[160] = {0};
+  audio::Clip c;
+  if (!audio::clip_load_into(m.buf, m.cap_frames, path, b.mixer.rate(), m.channels, &c, &uzun, cerr, sizeof cerr)) {
+    if (uzun) m.rejects++;
+    m.path[0] = 0;
+    BERR("muzik yuvasi %d: %s %s: %s", slot, path, uzun ? "REDDEDILDI (cok uzun)" : "yuklenemedi", cerr);
+    return uzun ? -2 : -1;
+  }
+  b.clips[ci].clip = c;
+  m.loads++;
+  std::snprintf(m.path, sizeof m.path, "%s", path);
+  std::snprintf(b.clips[ci].name, sizeof b.clips[ci].name, "muzik yuvasi %d: %s", slot, path);
+  const int ms = (int)((uint64_t)c.frames * 1000ull / (c.rate ? c.rate : 1));
+  BINFO("muzik yuvasi %d <- %s (%u kare, %u kanal, %d ms; %u calan ses durduruldu)", slot, path, c.frames, c.channels, ms, durdu);
+  return ms;
+}
 double teng_audio_peak(void) { return g && g->audio_ok ? (double)g->mixer.stats().peak : 0.0; }
 // Ana yol SINIRLAYICI (yumusak tanh; tavan 0 = kapali) + sert kirpma sayaci.
 // Karistirici +-1'de sert kirpar; yuksek seviyeli muzik + kalabalik efekt

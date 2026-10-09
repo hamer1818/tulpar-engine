@@ -2639,6 +2639,86 @@ ENGINE_TEST(bridge_clip_pool_128_and_voice_gain_halves_peak) {
   unsetenv("TULPAR_ENGINE_AUDIO_NULL");
 }
 
+// --- Muzik yuvalari (M3b, 2026-10-09) ---------------------------------------------
+// Her dongu muzigi kendi klibi olunca arena parca basina buyuyordu (geri verilmez).
+// Iki sabit yuva x 64 s: ayni yuvaya art arda farkli parcalar -> arena BUYUMEZ, yuvanin
+// klip tutamaci sabit, sure ms doner. YARIS: yuva CALARKEN 20 kez yeniden yuklenir
+// (yukleme calani durdurur, karistiricinin bir callback'ini bekler, sonra yazar);
+// hata 0, zaman asimi 0, her yuklemeden sonra calinan parca yeni parcadir (tepe
+// genligi parcaya gore). KONTROL: 65 s'lik parca -2 ile reddedilir, HATA ve kapanis
+// satirinda "uzun red" sayilir; yuklenmemis yuva calinamaz (HATA).
+ENGINE_TEST(bridge_music_slot_reuses_buffer_and_rejects_long_track) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("muzik yuvasi", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  char dir[512], a[600], bb[600], uzun[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "muzik_yuvasi"));
+  std::snprintf(a, sizeof a, "%s/a.wav", dir);
+  std::snprintf(bb, sizeof bb, "%s/b.wav", dir);
+  std::snprintf(uzun, sizeof uzun, "%s/uzun.wav", dir);
+  CHECK(wav_yaz(a, 2, 96000, 48000, 0.6f, 440.0f));    // 2 s, tepe 0.6
+  CHECK(wav_yaz(bb, 2, 144000, 48000, 0.3f, 660.0f));  // 3 s, tepe 0.3
+  CHECK(wav_yaz(uzun, 2, 65 * 48000, 48000, 0.2f, 330.0f));
+  const int k0 = teng_music_slot_clip(0);
+  CHECK(k0 >= 0);
+  // KONTROL: bos yuva calinamaz.
+  CHECK(teng_audio_play(k0, 1.0, 1) == 0);
+  CHECK(teng_error_count() == e0 + 1);
+  const long long ar0 = teng_debug_sys_arena_used();
+  CHECK(teng_music_slot_load(0, a) == 2000);
+  const long long ar1 = teng_debug_sys_arena_used();
+  CHECK(teng_music_slot_load(0, bb) == 3000);
+  const long long ar2 = teng_debug_sys_arena_used();
+  CHECK(ar1 == ar0 && ar2 == ar0 && teng_music_slot_clip(0) == k0);
+  auto tepe = [] {
+    double m = 0;
+    for (int k = 0; k < 5; k++) { const double p = teng_audio_peak(); if (p > m) m = p; platform::thread_sleep_us(15000); }
+    return m;
+  };
+  const int rss0 = teng_rss_kb();
+  int yanlis = 0;
+  double ta = 0, tb = 0;
+  for (int t = 0; t < 20; t++) {
+    const bool cift = (t % 2) == 0;
+    const int v = teng_audio_play(k0, 1.0, 1);
+    CHECK(v > 0);
+    platform::thread_sleep_us(40000);
+    const double p = tepe();
+    // calan parca: cift turda en son yuklenen b (0.3), tek turda a (0.6)
+    const double bek = cift ? 0.3 : 0.6;
+    if (std::fabs(p - bek) > 0.02) yanlis++;
+    if (cift) tb = p; else ta = p;
+    CHECK(teng_music_slot_load(0, cift ? a : bb) > 0); // CALARKEN yeniden yukle
+  }
+  const int rss1 = teng_rss_kb();
+  std::printf("    [bilgi] muzik yuvasi: arena %lld -> %lld -> %lld B, 20 calarken yukleme: yanlis parca %d, tepe a %.3f b %.3f, RSS %+d KB\n", ar0, ar1, ar2,
+              yanlis, ta, tb, rss1 - rss0);
+  CHECK(yanlis == 0);
+  CHECK(rss1 - rss0 < 4096);
+  CHECK(teng_error_count() == e0 + 1);
+  // KONTROL: 64 s'den uzun parca reddedilir ve sayilir; yuva BOS kalir (eski parca degil).
+  CHECK(teng_music_slot_load(1, uzun) == -2);
+  CHECK(teng_error_count() == e0 + 2);
+  teng_audio_stop_all();
+  teng_audio_close();
+  kapanis_yakala();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  const char *r = std::strstr(g_kapanis_log, "kapanis (muzik yuvasi): 2 yuva x 64 s");
+  CHECK(r != nullptr);
+  if (r) {
+    unsigned mb = 0, y0 = 0, y1 = 0, r0 = 9, r1 = 9, b0 = 0, b1 = 0, za = 9;
+    std::sscanf(r, "kapanis (muzik yuvasi): 2 yuva x 64 s (%u MB), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)", &mb, &y0, &y1, &r0, &r1, &b0, &b1, &za);
+    std::printf("    [bilgi] kapanis: %u MB, yukleme %u/%u, red %u/%u, bekleme %u/%u, zaman asimi %u\n", mb, y0, y1, r0, r1, b0, b1, za);
+    CHECK(y0 == 22 && y1 == 0 && r0 == 0 && r1 == 1 && b0 == 20 && za == 0);
+  }
+  std::remove(a); std::remove(bb); std::remove(uzun); rmdir(dir);
+}
+
 // --- Guvenli alan (Geri bildirim #17) ---------------------------------------------
 // Telefonda pencere centige uzaninca (TulparLang [android] cutout = "short_edges")
 // HUD centigin altina girmesin diye oyun kenar bosluklarini okur. Host degeri

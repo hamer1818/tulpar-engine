@@ -42,6 +42,34 @@ bool clip_load(Arena &arena, const char *path, uint32_t out_rate, uint32_t out_c
   return true;
 }
 
+bool clip_load_into(float *buf, uint32_t cap_frames, const char *path, uint32_t out_rate, uint32_t out_channels, Clip *out,
+                    bool *too_long, char *err, uint32_t err_n) {
+  *out = Clip{};
+  if (too_long) *too_long = false;
+  ma_decoder_config dc = ma_decoder_config_init(ma_format_f32, out_channels, out_rate);
+  ma_decoder dec;
+  ma_result r = ma_decoder_init_file(path, &dc, &dec);
+  if (r != MA_SUCCESS) { if (err) std::snprintf(err, err_n, "decoder: %s (%s)", ma_result_description(r), path); return false; }
+  ma_uint64 len = 0;
+  if (ma_decoder_get_length_in_pcm_frames(&dec, &len) != MA_SUCCESS || len == 0) {
+    ma_decoder_uninit(&dec);
+    if (err) std::snprintf(err, err_n, "uzunluk bilinmiyor: %s", path);
+    return false;
+  }
+  if (len > cap_frames) {
+    ma_decoder_uninit(&dec);
+    if (too_long) *too_long = true;
+    if (err) std::snprintf(err, err_n, "%.1f s, yuva en cok %.1f s", (double)len / out_rate, (double)cap_frames / out_rate);
+    return false;
+  }
+  ma_uint64 got = 0;
+  r = ma_decoder_read_pcm_frames(&dec, buf, len, &got);
+  ma_decoder_uninit(&dec);
+  if (r != MA_SUCCESS && r != MA_AT_END) { if (err) std::snprintf(err, err_n, "okuma: %s", ma_result_description(r)); return false; }
+  out->samples = buf; out->frames = (uint32_t)got; out->channels = out_channels; out->rate = out_rate;
+  return true;
+}
+
 bool clip_sine(Arena &arena, float hz, float seconds, uint32_t rate, float amplitude, Clip *out) {
   *out = Clip{};
   const uint32_t n = (uint32_t)(seconds * (float)rate);

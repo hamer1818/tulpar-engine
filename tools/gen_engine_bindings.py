@@ -248,6 +248,8 @@ SPEC = [
     ("eng_audio_stop", "void", [("voice", "int")], "Calan sesi durdurur."),
     ("eng_audio_stop_all", "void", [], "Butun sesleri durdurur."),
     ("eng_audio_master", "void", [("gain", "num")], "Ana ses seviyesi (0..4); calan sesler de guncellenir."),
+    ("eng_music_slot_load", "int", [("slot", "int"), ("path", "str")], "Muzik YUVASINA (0..1; ses acilirken 2 x 64 s sabit tampon) parca cozer: yuvanin eski parcasini calan sesler durdurulur, karistiricinin bir callback'i beklenir, sonra yazilir — arena buyumez. Donus: sure ms; -1 hata, -2 parca 64 s'den uzun (reddedilir, kapanista sayilir)."),
+    ("eng_music_slot_clip", "int", [("slot", "int")], "Muzik yuvasinin SABIT klip tutamaci (eng_audio_play / eng_audio_gain ile kullanilir); yuva bossa calma istegi HATA verir. -1 hata."),
     ("eng_audio_gain", "void", [("voice", "int"), ("gain", "num")], "Calan TEK sesin seviyesi (0..4, ana seviyeyle carpilir); karistirici blok boyunca rampalar (tik yok). Muzik capraz gecisi, diyalogda muzigi kisma. Bitmis sesin id'si yok sayilir."),
     ("eng_audio_playing", "int", [], "Su an calan ses sayisi (cihaz thread'inin olctugu deger)."),
     ("eng_audio_peak", "float", [], "Son ses blogundaki en buyuk ornek (0 = sessiz); ses gercekten uretiliyor mu olcusu."),
