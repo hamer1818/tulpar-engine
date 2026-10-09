@@ -1596,3 +1596,23 @@ ENGINE_TEST(content_lod_uses_view_depth_not_screen_x) {
               l_side, o_center, o_side);
   CHECK(o_center == 0 && o_side == 1);
 }
+
+// Klip tavani sessiz degil (2026-10-09): tavani asan animasyonlar Model::clips_dropped'a
+// sayilir, kopru bunu HATA olarak loglar. Pozitif kontrol: 8 klipli karakter max_clips=4
+// ile yuklenince 4 yuklenir + 4 sayilir; varsayilan tavanla (32) hic dusmez.
+ENGINE_TEST(content_gltf_clip_cap_counted) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_klip_tavan")) { CHECK(false); return; }
+  char path[512];
+  if (!asset_path(path, sizeof path, "karakter_kup.gltf")) { CHECK(false); return; }
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  CHECK(m.clip_count == 8 && m.clips_dropped == 0);
+  CHECK(content::GltfLimits{}.max_clips >= 20);
+  content::GltfLimits lim;
+  lim.max_clips = 4;
+  static content::Model k;
+  CHECK(content::gltf_load(sys, path, &k, lim));
+  std::printf("    [bilgi] max_clips=4: %u klip, %u dustu\n", k.clip_count, k.clips_dropped);
+  CHECK(k.clip_count == 4 && k.clips_dropped == 4);
+}

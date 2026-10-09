@@ -3258,6 +3258,7 @@ int teng_load_model(const char *path) {
   if (!content::upload_model(b.ren, b.sys, b.models[i], &b.ups[i])) { BERR("model GPU'ya yuklenemedi: %s", path); return -1; }
   b.model_arena_bytes += b.sys.used() - arena0;
   b.model_count++;
+  if (b.models[i].clips_dropped) BERR("model %u: %s klip tavani asildi, %u klip yuklenmedi", i, path, b.models[i].clips_dropped);
   BINFO("model %u: %s (%u mesh, %u malzeme, %u doku, %u klip)", i, path, b.ups[i].mesh_count, b.ups[i].material_count, b.ups[i].texture_count, b.models[i].clip_count);
   return (int)i;
 }

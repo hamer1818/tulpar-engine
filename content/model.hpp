@@ -113,6 +113,8 @@ struct Model {
   ModelInstance *instances = nullptr; uint32_t instance_count = 0;
   ModelSkin *skins = nullptr;        uint32_t skin_count = 0;
   ModelClip *clips = nullptr;        uint32_t clip_count = 0;
+  // GltfLimits::max_clips'i asan animasyon sayisi (yuklenmedi; sessiz degil, sayilir).
+  uint32_t clips_dropped = 0;
   Vec3 bounds_min{0, 0, 0}, bounds_max{0, 0, 0}; // ornek uzayinda, tum instance'lar
   ModelOptStats opt;
   // Ayni goruntu hem renk (sRGB) hem veri (dogrusal) olarak kullanilmis:

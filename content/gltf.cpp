@@ -374,7 +374,7 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   // Klipler: glTF animasyonu sabit hizda orneklenir (kanal LINEAR/STEP/CUBIC
   // degerleri), ClipBuilder sikistirir (sabit iz eleme + niceleme; bilgi stats).
   uint32_t nclip = (uint32_t)data->animations_count;
-  if (nclip > lim.max_clips) nclip = lim.max_clips;
+  if (nclip > lim.max_clips) { out->clips_dropped = nclip - lim.max_clips; nclip = lim.max_clips; }
   out->clips = arena.alloc_array_zeroed<ModelClip>(nclip ? nclip : 1);
   if (!out->clips) { set_error(out, "arena dolu (klip)", nullptr); ok = false; }
   uint32_t cn = 0;
