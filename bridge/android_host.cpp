@@ -556,6 +556,21 @@ extern "C" void android_main(android_app *app) {
   // debug.tulpar.env = "AD=deger;AD2=deger2": YALNIZ hata ayiklanabilir APK'da
   // oyunun ortam degiskenleri (masaustundeki `AD=deger tulpar oyun.tpr`un
   // telefondaki karsiligi; ornek: oyunun otopilotu). Yayin APK'si okumaz.
+  // Ortam degiskeni SURECE aittir: Android etkinligi ayni surecte yeniden yaratinca
+  // (Tuzaklar 8ct) bir onceki oturumun debug.tulpar.env'inden kalan ad (ornek
+  // TULPAR_KKS_TEST) yeni ozellikte yoksa bile yasardi — emulatorde 2026-10-09'da
+  // yalniz OTOPILOT=1 verilen oturum eski TEST ile hikaye taramasi kostu. Onceki
+  // oturumun koydugu adlar burada tutulup her girisin basinda silinir.
+  static char s_env_onceki[PROP_VALUE_MAX] = {0};
+  for (char *ad = s_env_onceki; *ad;) {
+    char *son = std::strchr(ad, ';');
+    if (son) *son = 0;
+    unsetenv(ad);
+    std::printf("[engine_bridge] android: debug.tulpar.env onceki oturumdan %s silindi\n", ad);
+    if (!son) break;
+    ad = son + 1;
+  }
+  s_env_onceki[0] = 0;
   char env_v[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.env", env_v) > 0) {
     if (!g_host.debuggable) {
@@ -567,6 +582,11 @@ extern "C" void android_main(android_app *app) {
         if (!eq || eq == tok) continue;
         *eq = 0;
         setenv(tok, eq + 1, 1);
+        const size_t dolu = std::strlen(s_env_onceki), n = std::strlen(tok);
+        if (dolu + n + 2 <= sizeof(s_env_onceki)) {
+          if (dolu) s_env_onceki[dolu] = ';';
+          std::memcpy(s_env_onceki + dolu + (dolu ? 1 : 0), tok, n + 1);
+        }
         std::printf("[engine_bridge] android: debug.tulpar.env %s=%s\n", tok, eq + 1);
       }
     }
