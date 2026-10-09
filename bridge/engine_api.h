@@ -449,6 +449,13 @@ int teng_mouse_down(int button);
 // --- 2B arayuz (kare icinde cagrilir, frame_end'de cizilir) ------------------
 void teng_text(const char *s, double x, double y, double scale, int64_t color);
 void teng_rect(double x, double y, double w, double h, int64_t color);
+// Arayuz RESMI (M1): PNG/JPG -> sRGB doku, mip yok, sabit 32 yuva (ayni yol ayni
+// tutamac). Cizim HUD sirasinda (kare icinde); renk tint carpani (beyaz = resmin kendisi).
+int teng_image_load(const char *path); // -1 hata / tavan dolu (sayilir)
+void teng_image(int h, double x, double y, double w, double hh, int64_t color);
+void teng_image_uv(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1, int64_t color);
+int teng_image_w(int h);
+int teng_image_h(int h);
 double teng_text_width(const char *s, double scale);
 
 // --- anlik-kip (immediate mode) arayuz: menu / ayar / duraklat ---------------

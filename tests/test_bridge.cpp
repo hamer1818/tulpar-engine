@@ -96,6 +96,50 @@ bool wav_yaz(const char *path, uint32_t kanal, uint32_t kare, uint32_t hiz, floa
   std::fclose(f);
   return true;
 }
+// Sikistirmasiz (deflate "stored") RGBA PNG yaz — resim kapisi icin bilinen pikseller.
+bool png_yaz(const char *path, uint32_t w, uint32_t h, const uint8_t *rgba) {
+  static uint32_t tablo[256];
+  static bool kuruldu = false;
+  if (!kuruldu) {
+    for (uint32_t n = 0; n < 256; n++) { uint32_t c = n; for (int k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1; tablo[n] = c; }
+    kuruldu = true;
+  }
+  FILE *f = std::fopen(path, "wb");
+  if (!f) return false;
+  auto be32 = [](uint8_t *o, uint32_t v) { o[0] = (uint8_t)(v >> 24); o[1] = (uint8_t)(v >> 16); o[2] = (uint8_t)(v >> 8); o[3] = (uint8_t)v; };
+  auto parca = [&](const char *tur, const uint8_t *veri, uint32_t n) {
+    uint8_t b4[4];
+    be32(b4, n); std::fwrite(b4, 1, 4, f);
+    uint32_t crc = 0xFFFFFFFFu;
+    for (int i = 0; i < 4; i++) crc = tablo[(crc ^ (uint8_t)tur[i]) & 0xFF] ^ (crc >> 8);
+    for (uint32_t i = 0; i < n; i++) crc = tablo[(crc ^ veri[i]) & 0xFF] ^ (crc >> 8);
+    std::fwrite(tur, 1, 4, f);
+    if (n) std::fwrite(veri, 1, n, f);
+    be32(b4, crc ^ 0xFFFFFFFFu); std::fwrite(b4, 1, 4, f);
+  };
+  static const uint8_t imza[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+  std::fwrite(imza, 1, 8, f);
+  uint8_t ihdr[13];
+  be32(ihdr, w); be32(ihdr + 4, h); ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  parca("IHDR", ihdr, 13);
+  // ham = her satir: filtre 0 + satir; zlib: 78 01, tek stored blok (kucuk resim), adler32
+  static uint8_t z[1 << 16];
+  const uint32_t ham_n = h * (1 + w * 4);
+  if (ham_n + 11 > sizeof z || ham_n > 65535) { std::fclose(f); return false; }
+  uint32_t k = 0, a = 1, bsum = 0;
+  z[k++] = 0x78; z[k++] = 0x01; z[k++] = 1;
+  z[k++] = (uint8_t)ham_n; z[k++] = (uint8_t)(ham_n >> 8); z[k++] = (uint8_t)~ham_n; z[k++] = (uint8_t)(~ham_n >> 8);
+  for (uint32_t y = 0; y < h; y++)
+    for (uint32_t x = 0; x <= w * 4; x++) {
+      const uint8_t v = x == 0 ? 0 : rgba[(y * w) * 4 + (x - 1)];
+      z[k++] = v; a = (a + v) % 65521; bsum = (bsum + a) % 65521;
+    }
+  be32(z + k, (bsum << 16) | a); k += 4;
+  parca("IDAT", z, k);
+  parca("IEND", nullptr, 0);
+  std::fclose(f);
+  return true;
+}
 uint32_t diff_px(const uint8_t *a, const uint8_t *b, uint32_t n) {
   uint32_t d = 0;
   for (uint32_t i = 0; i < n; i++) {
@@ -2789,6 +2833,95 @@ ENGINE_TEST(bridge_music_slot_reuses_buffer_and_rejects_long_track) {
   std::remove(a); std::remove(bb); std::remove(uzun); rmdir(dir);
 }
 
+// --- Arayuz resmi (M1, 2026-10-09) -----------------------------------------------
+// PNG -> sRGB doku -> HUD dortgeni. Bilinen 4x4 PNG (sol yari A, sag yari B) 160x160
+// px cizilir; ayni A rengiyle cizilen DUZ DIKDORTGEN ayni tonda cikmali (ui.frag tepe
+// rengini sRGB'den dogrusala cevirir; doku sRGB bicimde degilse resim kayar: UNORM
+// doku A=(200,100,50)'yi ~(229,168,123) cizerdi (hesap: 200/255 dogrusal sayilip
+// sRGB'ye kodlanir) — tuzak adayi, burada pikselle olculur). KONTROLLER: resimsiz karede ayni piksel A
+// degil; yanlis uv (yalniz sag yari) sol bolgeye B getirir; 33. resim -1 + HATA, ayni
+// yol ayni tutamac; kare disi cizim HATA.
+static void ekran_al(const char *ad, uint8_t *px, uint32_t *w, uint32_t *h) {
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  *w = 0; *h = 0;
+  if (teng_screenshot(shot) != 1 || read_ppm(shot, px, kW * kH, w, h) != kW * kH) { *w = 0; *h = 0; }
+  std::remove(shot);
+}
+ENGINE_TEST(bridge_ui_image_draws_srgb_png_like_rect) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("arayuz resmi", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  char dir[512], yol[600], yol2[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "arayuz_resmi"));
+  std::snprintf(yol, sizeof yol, "%s/a.png", dir);
+  uint8_t rgba[4 * 4 * 4];
+  for (int y = 0; y < 4; y++)
+    for (int x = 0; x < 4; x++) {
+      uint8_t *p = rgba + (y * 4 + x) * 4;
+      if (x < 2) { p[0] = 200; p[1] = 100; p[2] = 50; } else { p[0] = 40; p[1] = 180; p[2] = 90; }
+      p[3] = 255;
+    }
+  CHECK(png_yaz(yol, 4, 4, rgba));
+  const int r = teng_image_load(yol);
+  CHECK(r >= 0 && teng_image_w(r) == 4 && teng_image_h(r) == 4);
+  CHECK(teng_image_load(yol) == r); // ayni yol ayni tutamac
+  static uint8_t px[kW * kH * 3];
+  uint32_t w = 0, h = 0;
+  auto at = [&](int x, int y) { return px + ((size_t)y * kW + x) * 3; };
+  auto yakin = [](const uint8_t *a, const uint8_t *b, int tol) { return std::abs(a[0] - b[0]) <= tol && std::abs(a[1] - b[1]) <= tol && std::abs(a[2] - b[2]) <= tol; };
+  // 1) KONTROL: resimsiz kare (yalniz A renkli dikdortgen).
+  teng_frame_begin();
+  teng_rect(200, 10, 100, 80, 0xC86432FF);
+  teng_frame_end();
+  ekran_al("resim_yok", px, &w, &h);
+  CHECK(w == kW);
+  uint8_t bos[3] = {at(60, 50)[0], at(60, 50)[1], at(60, 50)[2]};
+  // 2) Resim + ayni dikdortgen.
+  teng_frame_begin();
+  teng_image(r, 10, 10, 160, 160, 0xFFFFFFFF);
+  teng_rect(200, 10, 100, 80, 0xC86432FF);
+  teng_frame_end();
+  ekran_al("resim_var", px, &w, &h);
+  uint8_t sol[3] = {at(60, 50)[0], at(60, 50)[1], at(60, 50)[2]};
+  uint8_t sag[3] = {at(140, 50)[0], at(140, 50)[1], at(140, 50)[2]};
+  uint8_t dik[3] = {at(250, 50)[0], at(250, 50)[1], at(250, 50)[2]};
+  // 3) KONTROL: yanlis uv (yalniz sag yari) -> sol bolge B olur.
+  teng_frame_begin();
+  teng_image_uv(r, 10, 10, 160, 160, 0.5, 0.0, 1.0, 1.0, 0xFFFFFFFF);
+  teng_frame_end();
+  ekran_al("resim_uv", px, &w, &h);
+  uint8_t uv_sol[3] = {at(60, 50)[0], at(60, 50)[1], at(60, 50)[2]};
+  std::printf("    [bilgi] resim: sol %u,%u,%u (dikdortgen %u,%u,%u), sag %u,%u,%u, resimsiz %u,%u,%u, yanlis uv sol %u,%u,%u\n", sol[0], sol[1], sol[2], dik[0], dik[1],
+              dik[2], sag[0], sag[1], sag[2], bos[0], bos[1], bos[2], uv_sol[0], uv_sol[1], uv_sol[2]);
+  CHECK(yakin(sol, dik, 2));            // sRGB: resim ile ayni renkli dikdortgen ayni ton
+  CHECK(std::abs((int)dik[0] - 200) <= 2 && std::abs((int)dik[1] - 100) <= 2 && std::abs((int)dik[2] - 50) <= 2);
+  CHECK(yakin(sag, uv_sol, 2) && !yakin(sol, uv_sol, 20)); // KONTROL: uv olcuyor
+  CHECK(!yakin(sol, bos, 20));          // KONTROL: resimsiz kare farkli
+  CHECK(std::abs((int)sag[1] - 180) <= 2);
+  CHECK(teng_error_count() == e0);
+  // 4) KONTROL: tavan 32 + kare disi cizim.
+  int ok = 1;
+  for (int i = 1; i < 32; i++) {
+    std::snprintf(yol2, sizeof yol2, "%s/k%d.png", dir, i);
+    if (png_yaz(yol2, 4, 4, rgba) && teng_image_load(yol2) >= 0) ok++;
+  }
+  std::snprintf(yol2, sizeof yol2, "%s/k32.png", dir);
+  CHECK(png_yaz(yol2, 4, 4, rgba));
+  CHECK(ok == 32 && teng_image_load(yol2) == -1);
+  teng_image(r, 0, 0, 10, 10, 0xFFFFFFFF); // kare disi
+  CHECK(teng_error_count() == e0 + 2);
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "kapanis (resim): 32/32 resim, 2 cizim (2 opak yoldan), tavan reddi 1") != nullptr);
+  for (int i = 1; i <= 32; i++) { std::snprintf(yol2, sizeof yol2, "%s/k%d.png", dir, i); std::remove(yol2); }
+  std::remove(yol); rmdir(dir);
+}
+
 // --- Guvenli alan (Geri bildirim #17) ---------------------------------------------
 // Telefonda pencere centige uzaninca (TulparLang [android] cutout = "short_edges")
 // HUD centigin altina girmesin diye oyun kenar bosluklarini okur. Host degeri
@@ -3266,17 +3399,6 @@ bool kare_kirmizi(const char *ad, double sx, double sy, bool *okundu) {
   return *okundu && kirmizi_mi(px, w, h, sx, sy);
 }
 } // namespace
-
-// Ekran goruntusunu (penceresiz) bellege al; okunamazsa w = h = 0.
-static void ekran_al(const char *ad, uint8_t *px, uint32_t *w, uint32_t *h) {
-  char shot[512];
-  tmp_template(shot, sizeof shot, ad);
-  const int fd = mkstemp(shot);
-  if (fd >= 0) close(fd);
-  *w = 0; *h = 0;
-  if (teng_screenshot(shot) != 1 || read_ppm(shot, px, kW * kH, w, h) != kW * kH) { *w = 0; *h = 0; }
-  std::remove(shot);
-}
 
 ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   rhi::VkApi api;

@@ -235,6 +235,11 @@ SPEC = [
     # HUD
     ("eng_text", "void", [("s", "str"), ("x", "num"), ("y", "num"), ("scale", "num"), ("color", "color")], "Ekrana metin (kare icinde cagir; font yoksa sessizce atlanir, logda uyari)."),
     ("eng_rect", "void", [("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "Ekrana duz dikdortgen (kare icinde cagir)."),
+    ("eng_image_load", "int", [("path", "str")], "Arayuz RESMI yukler (PNG/JPG -> sRGB doku, mip yok; sabit 32 yuva, ayni yol ayni tutamac). Donus: resim tutamaci, -1 hata ya da tavan dolu (kapanista sayilir)."),
+    ("eng_image", "void", [("img", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "Resmi ekrana cizer (HUD sirasinda, kare icinde). Renk tint carpani: BEYAZ = resmin kendisi; alfa 255 + opak resim harmanlamasiz yoldan (TBDR'de tam ekran panel ucuz)."),
+    ("eng_image_uv", "void", [("img", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("u0", "num"), ("v0", "num"), ("u1", "num"), ("v1", "num"), ("color", "color")], "Resmin [u0,v0]-[u1,v1] bolgesini cizer (atlas hucresi: ikon, portre; 0..1, sol ust 0,0)."),
+    ("eng_image_w", "int", [("img", "int")], "Resmin genisligi (piksel)."),
+    ("eng_image_h", "int", [("img", "int")], "Resmin yuksekligi (piksel)."),
     ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi."),
     # ses
     ("eng_audio_open", "bool", [("rate", "int"), ("channels", "int")], "Ses cihazini acar (0,0 = varsayilan 48 kHz stereo). Acilamazsa false: oyun sessiz devam eder, hata loglanir."),

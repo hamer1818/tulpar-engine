@@ -999,6 +999,18 @@ func eylem_basildi(): bool { return eng_key_pressed("SPACE") || eng_stick_action
 func yazi(s, x, y, olcek, renk_) { eng_text(s, x, y, olcek, renk_); }
 func text_e(s, x, y, scale, color) { eng_text(s, x, y, scale, color); }
 func dikdortgen(x, y, w, h, renk_) { eng_rect(x, y, w, h, renk_); }
+// Arayuz RESMI (PNG/JPG, sRGB, 32 yuva): resim_yukle -> tutamac (-1 hata); renk tint carpani (BEYAZ = kendisi).
+func resim_yukle(yol): int { return eng_image_load(yol); }
+func image_load_e(path): int { return eng_image_load(path); }
+func resim_ciz(r, x, y, w, h, renk_) { eng_image(r, x, y, w, h, renk_); }
+func image_draw_e(img, x, y, w, h, color) { eng_image(img, x, y, w, h, color); }
+// Atlas hucresi: [u0,v0]-[u1,v1] (0..1, sol ust 0,0).
+func resim_ciz_uv(r, x, y, w, h, u0, v0, u1, v1, renk_) { eng_image_uv(r, x, y, w, h, u0, v0, u1, v1, renk_); }
+func image_draw_uv_e(img, x, y, w, h, u0, v0, u1, v1, color) { eng_image_uv(img, x, y, w, h, u0, v0, u1, v1, color); }
+func resim_gen(r): int { return eng_image_w(r); }
+func resim_yuk(r): int { return eng_image_h(r); }
+func image_w_e(img): int { return eng_image_w(img); }
+func image_h_e(img): int { return eng_image_h(img); }
 func rect_e(x, y, w, h, color) { eng_rect(x, y, w, h, color); }
 // Sol üstte durum şeridi: FPS, çizim, gövde.
 func durum_seridi() {

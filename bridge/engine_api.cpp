@@ -31,6 +31,7 @@
 #include "bridge/bridge_host.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
+#include "content/image.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
 #include "core/jobs/job_system.hpp"
@@ -309,11 +310,16 @@ struct Ent {
   bool dying = false, bitir_running = false;
 };
 struct HudCmd {
-  uint8_t kind; // 0 rect, 1 text
+  uint8_t kind; // 0 rect, 1 text, 2 resim (M1: text_off = resim yuvasi, u0..v1 doku koordinati)
   float x, y, w, h, scale;
   uint32_t rgba;
   uint32_t text_off;
+  float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
 };
+// Arayuz RESMI (M1, 2026-10-09): PNG/JPG -> sRGB doku (mip yok) + malzeme; HUD'da
+// HudCmd tur 2 olarak kuyruklanir, flush'ta ui_set_atlas(malzeme) + ui_quad. Renderer
+// degismedi (ui_quad zaten dortgen basina malzeme tasiyor). Sabit 32 yuva (A2).
+constexpr uint32_t kMaxImages = 32;
 
 // ---------------------------------------------------------------------------
 // Anlik-kip arayuz durumu: isaretci + "hangi widget basili". Widget DEGERLERI
@@ -651,6 +657,16 @@ struct Bridge {
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
+  struct ImageSlot {
+    renderer::TextureHandle tex;
+    renderer::MaterialHandle mat;
+    uint32_t w = 0, h = 0;
+    bool opaque = false;
+    char path[128] = {0};
+  };
+  ImageSlot images[kMaxImages];
+  uint32_t image_count = 0, image_rejected = 0;
+  uint64_t image_draws = 0, image_opaque_draws = 0;
   // Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi
   // koyultmak icin oyun tam ekran YARI SAYDAM dortgen ciziyordu; Mali'de (TBDR)
   // bu +2.57 ms/kare (P20 Pro, 2159x1080, parlama acik, 2026-10-08; compose
@@ -1138,7 +1154,17 @@ void render_frame() {
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
     if (c.kind == 0) b.ren.ui_rect(c.x, c.y, c.w, c.h, c.rgba);
-    else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
+    else if (c.kind == 2) {
+      // Resim: kendi malzemesiyle tek dortgen, sonra atlas FONTA geri doner (ui_rect
+      // atlasin beyaz texelini, metin glifleri ornekler). Opak resim + opak renk
+      // harmanlamasiz yola (TBDR'de tam ekran panel bedava; Geri bildirim #16).
+      const Bridge::ImageSlot &im = b.images[c.text_off];
+      b.ren.ui_set_atlas(im.mat);
+      if (im.opaque) { b.ren.ui_quad_opaque(c.x, c.y, c.w, c.h, c.u0, c.v0, c.u1, c.v1, c.rgba); if ((c.rgba >> 24) == 255u) b.image_opaque_draws++; }
+      else b.ren.ui_quad(c.x, c.y, c.w, c.h, c.u0, c.v0, c.u1, c.v1, c.rgba);
+      b.image_draws++;
+      b.ren.ui_set_atlas(b.font_ok ? b.font.atlas() : renderer::MaterialHandle{});
+    } else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
   }
   b.hud_n = 0; b.hud_text_n = 0;
   {
@@ -2377,6 +2403,9 @@ void teng_shutdown(void) {
   if (b.scene_loads)
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
+  if (b.image_count || b.image_rejected)
+    BINFO("kapanis (resim): %u/%u resim, %llu cizim (%llu opak yoldan), tavan reddi %u", b.image_count, kMaxImages,
+          (unsigned long long)b.image_draws, (unsigned long long)b.image_opaque_draws, b.image_rejected);
   if (b.music[0].buf || b.music[1].buf)
     BINFO("kapanis (muzik yuvasi): %u yuva x %u s (%u MB %s), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)",
           b.music_slots, b.music_slot_sec,
@@ -3747,6 +3776,51 @@ void teng_text(const char *s, double x, double y, double scale, int64_t color) {
   b.hud[b.hud_n++] = HudCmd{1, (float)x, (float)y, 0, 0, (float)(scale > 0 ? scale : 1.0), rgba_of(color), b.hud_text_n};
   b.hud_text_n += (uint32_t)n;
 }
+// --- Arayuz resmi (M1) ------------------------------------------------------------
+int teng_image_load(const char *path) {
+  CALLF("teng_image_load", "%s", path ? path : "");
+  if (!ready("teng_image_load") || !path) return -1;
+  Bridge &b = *g;
+  for (uint32_t i = 0; i < b.image_count; i++)
+    if (std::strcmp(b.images[i].path, path) == 0) { BDBG("resim %u yeniden kullanildi: %s", i, path); return (int)i; }
+  if (b.image_count >= kMaxImages) { b.image_rejected++; BERR("teng_image_load: resim kapasitesi dolu (%u): %s", kMaxImages, path); return -1; }
+  content::ImageRgba img;
+  char err[128] = {0};
+  if (!content::image_load_file(path, &img, err, sizeof err)) { BERR("resim yuklenemedi %s: %s", path, err); return -1; }
+  // Renk verisi: sRGB doku (ornekleme dogrusal dondurur; ui.frag tepe rengini de
+  // dogrusala cevirip carpar, yani resim ile ayni renkli dikdortgen ayni tonda cikar).
+  const renderer::TextureHandle t = b.ren.create_texture(img.px, img.w, img.h, /*mipmaps=*/false, /*srgb=*/true);
+  const bool opak = img.opaque;
+  const uint32_t w = img.w, h = img.h;
+  content::image_free(img);
+  if (!t.valid()) { BERR("resim GPU'ya yuklenemedi (doku havuzu %u?): %s", kRenderMaxTextures, path); return -1; }
+  const renderer::MaterialHandle m = b.ren.create_material(t, {1, 1, 1});
+  if (!m.valid()) { BERR("resim malzemesi kurulamadi: %s", path); return -1; }
+  const uint32_t i = b.image_count++;
+  Bridge::ImageSlot &s = b.images[i];
+  s.tex = t; s.mat = m; s.w = w; s.h = h; s.opaque = opak;
+  std::snprintf(s.path, sizeof s.path, "%s", path);
+  BINFO("resim %u: %s (%ux%u, %s)", i, path, w, h, opak ? "opak" : "alfali");
+  return (int)i;
+}
+static bool image_ok(int h, const char *fn) {
+  if (!ready(fn)) return false;
+  if (h < 0 || (uint32_t)h >= g->image_count) { BERR("%s: resim %d yok (%u yuklu)", fn, h, g->image_count); return false; }
+  return true;
+}
+int teng_image_w(int h) { return image_ok(h, "teng_image_w") ? (int)g->images[h].w : 0; }
+int teng_image_h(int h) { return image_ok(h, "teng_image_h") ? (int)g->images[h].h : 0; }
+void teng_image_uv(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1, int64_t color) {
+  if (!image_ok(h, "teng_image_uv")) return;
+  Bridge &b = *g;
+  if (!b.in_frame) { BERR("teng_image: kare disinda (teng_frame_begin ile teng_frame_end arasinda cagir)"); return; }
+  if (b.hud_n >= kMaxHud) { if (b.hud_n == kMaxHud) { BERR("HUD komut siniri (%u) asildi, fazlasi atlandi", kMaxHud); b.hud_n++; } return; }
+  HudCmd c{2, (float)x, (float)y, (float)w, (float)hh, 1.0f, rgba_of(color), (uint32_t)h};
+  c.u0 = (float)u0; c.v0 = (float)v0; c.u1 = (float)u1; c.v1 = (float)v1;
+  b.hud[b.hud_n++] = c;
+}
+void teng_image(int h, double x, double y, double w, double hh, int64_t color) { teng_image_uv(h, x, y, w, hh, 0, 0, 1, 1, color); }
+
 double teng_text_width(const char *s, double scale) { return g && g->font_ok && s ? g->font.text_width(s, (float)(scale > 0 ? scale : 1.0)) : 0; }
 
 // --- anlik-kip (immediate mode) arayuz -------------------------------------------
