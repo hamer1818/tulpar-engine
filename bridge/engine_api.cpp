@@ -3647,6 +3647,11 @@ void teng_debug_safe_insets(int left, int top, int right, int bottom) {
 }
 int teng_low_memory_count(void) { return g ? (int)g->low_memory : 0; }
 long long teng_debug_audio_callbacks(void) { return g && g->audio_ok ? (long long)g->mixer.stats().callbacks : -1; }
+int teng_debug_clip_channels(int clip) {
+  if (!g || clip < 0 || (uint32_t)clip >= g->clip_count) return -1;
+  return (int)g->clips[clip].clip.channels;
+}
+long long teng_debug_sys_arena_used(void) { return g ? (long long)g->sys.used() : -1; }
 void teng_debug_app_pause(int paused) {
   if (!g) return;
   g->app_pause_debug = true;

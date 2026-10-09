@@ -77,6 +77,25 @@ uint32_t read_ppm(const char *path, uint8_t *out, uint32_t max_px, uint32_t *w_o
   if (h_out) *h_out = h;
   return got == n ? n : 0;
 }
+// 16 bit PCM WAV yaz (ses kapilari): `kanal` 1/2, sinus `hz`, genlik `amp`
+// (0..1). Iki kanalda iki kanal AYNI ornegi tasir (mono ile karsilastirma).
+bool wav_yaz(const char *path, uint32_t kanal, uint32_t kare, uint32_t hiz, float amp, float hz) {
+  FILE *f = std::fopen(path, "wb");
+  if (!f) return false;
+  const uint32_t veri = kare * kanal * 2;
+  auto u32 = [f](uint32_t v) { uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)}; std::fwrite(b, 1, 4, f); };
+  auto u16 = [f](uint32_t v) { uint8_t b[2] = {(uint8_t)v, (uint8_t)(v >> 8)}; std::fwrite(b, 1, 2, f); };
+  std::fwrite("RIFF", 1, 4, f); u32(36 + veri); std::fwrite("WAVEfmt ", 1, 8, f);
+  u32(16); u16(1); u16(kanal); u32(hiz); u32(hiz * kanal * 2); u16(kanal * 2); u16(16);
+  std::fwrite("data", 1, 4, f); u32(veri);
+  for (uint32_t i = 0; i < kare; i++) {
+    const float x = amp * std::sin(6.2831853f * hz * (float)i / (float)hiz);
+    const int16_t v = (int16_t)std::lround(x * 32767.0f);
+    for (uint32_t c = 0; c < kanal; c++) u16((uint16_t)v);
+  }
+  std::fclose(f);
+  return true;
+}
 uint32_t diff_px(const uint8_t *a, const uint8_t *b, uint32_t n) {
   uint32_t d = 0;
   for (uint32_t i = 0; i < n; i++) {
@@ -2451,6 +2470,56 @@ ENGINE_TEST(bridge_app_pause_stops_and_resumes_audio_headless) {
   kapanis_yakala();
   unsetenv("TULPAR_ENGINE_AUDIO_NULL");
   CHECK(std::strstr(g_kapanis_log, "kapanis (yasam dongusu): 1 kez arka plan, ses 1 kez durduruldu") != nullptr);
+}
+
+// --- Mono kaynak mono klip (M2, 2026-10-09) ---------------------------------------
+// Eskiden her klip karistiricinin kanal sayisina (stereo) acilirdi: mono SFX
+// arenada iki kat yer tutuyordu. Olcu: mono WAV -> klip 1 kanal, arena payi stereo
+// WAV'in yarisi; NULL arka uçta ayni genlikli mono ve stereo klip AYNI tepeyi verir
+// (karistirici mono ornegi iki kanala yazar). KONTROL: stereo WAV hala 2 kanal.
+ENGINE_TEST(bridge_mono_wav_stays_mono_clip_same_peak) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("mono klip", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  char dir[512], mono[600], stereo[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "mono_klip"));
+  std::snprintf(mono, sizeof mono, "%s/mono.wav", dir);
+  std::snprintf(stereo, sizeof stereo, "%s/stereo.wav", dir);
+  CHECK(wav_yaz(mono, 1, 48000, 48000, 0.5f, 440.0f));
+  CHECK(wav_yaz(stereo, 2, 48000, 48000, 0.5f, 440.0f));
+  const long long a0 = teng_debug_sys_arena_used();
+  const int km = teng_audio_load(mono);
+  const long long a1 = teng_debug_sys_arena_used();
+  const int ks = teng_audio_load(stereo);
+  const long long a2 = teng_debug_sys_arena_used();
+  CHECK(km >= 0 && ks >= 0);
+  CHECK(teng_debug_clip_channels(km) == 1);
+  CHECK(teng_debug_clip_channels(ks) == 2); // KONTROL
+  const long long pm = a1 - a0, ps = a2 - a1;
+  CHECK(pm > 0 && ps > 0 && pm * 2 <= ps + 64);
+  auto tepe_olc = [](int klip) {
+    const int v = teng_audio_play(klip, 0.8, 1);
+    platform::thread_sleep_us(120000);
+    double m = 0;
+    for (int k = 0; k < 6; k++) { const double p = teng_audio_peak(); if (p > m) m = p; platform::thread_sleep_us(20000); }
+    teng_audio_stop(v);
+    platform::thread_sleep_us(80000);
+    return m;
+  };
+  const double tm = tepe_olc(km), ts = tepe_olc(ks);
+  std::printf("    [bilgi] mono klip: kanal %d / stereo %d, arena %lld / %lld B, tepe %.4f / %.4f\n", teng_debug_clip_channels(km),
+              teng_debug_clip_channels(ks), pm, ps, tm, ts);
+  CHECK(tm > 0.3 && std::fabs(tm - ts) < 0.002);
+  CHECK(teng_error_count() == e0);
+  teng_audio_close();
+  teng_shutdown();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  std::remove(mono); std::remove(stereo); rmdir(dir);
 }
 
 // --- Sahne malzeme havuzu bolum gecisinde buyumez (Tuzaklar 8dc, 2026-10-09) -----------

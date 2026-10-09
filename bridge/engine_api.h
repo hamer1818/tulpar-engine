@@ -431,6 +431,10 @@ void teng_debug_safe_insets(int left, int top, int right, int bottom);
 void teng_debug_app_pause(int paused);
 // TEST: ses cihazinin callback sayaci (mixer; ses kapaliysa -1). Duraklamada artmamali.
 long long teng_debug_audio_callbacks(void);
+// TEST: yuklu klibin kanal sayisi (mono kaynak mono kalir, M2); klip yoksa -1. SPEC'te yok.
+int teng_debug_clip_channels(int clip);
+// TEST: sistem arenasinin dolulugu (bayt). Klip/model/muzik yuvasi bedelini olcmek icin; SPEC'te yok.
+long long teng_debug_sys_arena_used(void);
 int teng_touch_count(void);
 double teng_touch_x(int i);
 double teng_touch_y(int i);

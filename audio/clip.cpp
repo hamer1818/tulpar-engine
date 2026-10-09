@@ -7,12 +7,25 @@
 
 namespace tulpar::engine::audio {
 
+// MONO KAYNAK MONO KALIR (M2, 2026-10-09): eskiden her klip karistiricinin cikis
+// kanal sayisina (stereo) acilirdi; mono WAV efekti arenada iki kat yer tutuyordu
+// (oyunun 15 SFX'i ~8.7 MB'in yarisi bosa). Karistirici mono klibi zaten calar
+// (mixer.cpp: cl.channels == 1 -> her kanala ayni ornek), tepe ve sinyal ayni.
+// Kural: kaynak 1 kanalsa 1 kanal; degilse eskisi gibi cikis kanal sayisi.
 bool clip_load(Arena &arena, const char *path, uint32_t out_rate, uint32_t out_channels, Clip *out, char *err, uint32_t err_n) {
   *out = Clip{};
-  ma_decoder_config dc = ma_decoder_config_init(ma_format_f32, out_channels, out_rate);
   ma_decoder dec;
-  ma_result r = ma_decoder_init_file(path, &dc, &dec);
+  // Once kaynagin KENDI kanal sayisiyla ac (0 = dogal); mono degilse cikisa gore yeniden ac.
+  ma_decoder_config dc0 = ma_decoder_config_init(ma_format_f32, 0, out_rate);
+  ma_result r = ma_decoder_init_file(path, &dc0, &dec);
   if (r != MA_SUCCESS) { if (err) std::snprintf(err, err_n, "decoder: %s (%s)", ma_result_description(r), path); return false; }
+  if (dec.outputChannels != 1 && dec.outputChannels != out_channels) {
+    ma_decoder_uninit(&dec);
+    ma_decoder_config dc = ma_decoder_config_init(ma_format_f32, out_channels, out_rate);
+    r = ma_decoder_init_file(path, &dc, &dec);
+    if (r != MA_SUCCESS) { if (err) std::snprintf(err, err_n, "decoder: %s (%s)", ma_result_description(r), path); return false; }
+  }
+  out_channels = dec.outputChannels;
   ma_uint64 len = 0;
   if (ma_decoder_get_length_in_pcm_frames(&dec, &len) != MA_SUCCESS || len == 0) {
     ma_decoder_uninit(&dec);
