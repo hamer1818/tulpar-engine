@@ -634,6 +634,10 @@ struct Bridge {
   int32_t safe_debug[4] = {-1, -1, -1, -1};
   bool cur_keys[512] = {};
   const platform::TouchState *touch = nullptr;
+  // TEST: enjekte dokunuslar (teng_debug_touch; penceresiz kapilar, M6). Aciksa kare
+  // basinda host'un yerine bu okunur.
+  platform::TouchState dbg_touch;
+  bool dbg_touch_on = false;
   app::VirtualStick stick;
   // --- gomulu kip (editorun F5'i; platform/game_channel.hpp) ---------------
   // Oyun editorun ICINDE oynatilir: cizim offscreen (headless yolu), kare
@@ -1737,6 +1741,7 @@ int teng_frame_begin(void) {
     std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys);
     std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
   }
+  if (b.dbg_touch_on) { b.touch = &b.dbg_touch; b.stick.update(b.dbg_touch, now); }
   // --- yasam dongusu: arka plan -> ses durur, on plan -> surer -------------
   {
     bool p = false;
@@ -3740,6 +3745,23 @@ void teng_back_test_press(void) {
   BDBG("geri: basis kuyruklandi, sonraki kare eng_back_pressed true");
 }
 int teng_touch_count(void) { return g && g->touch ? (int)g->touch->count : 0; }
+// Parmak KIMLIGI (M6): i, basili parmaklarin sikistirilmis dizini (teng_touch_x/y ile
+// ayni sira); bir parmak kalkinca obur parmaklarin DIZINI kayar ama KIMLIGI kalir —
+// joystick + dugme ayni anda, ayni cihazda iki oyuncu (Masa Duellosu) bunu ister.
+int teng_touch_id(int i) {
+  if (!g || !g->touch) return -1;
+  uint32_t k = 0;
+  for (uint32_t j = 0; j < platform::TouchState::kMax; j++) if (g->touch->pts[j].down) { if ((int)k == i) return g->touch->pts[j].id; k++; }
+  return -1;
+}
+void teng_debug_touch(int id, double x, double y, int down) {
+  if (!g) return;
+  platform::TouchState &t = g->dbg_touch;
+  g->dbg_touch_on = true;
+  t.width = (float)(g->fb_w ? g->fb_w : 1); t.height = (float)(g->fb_h ? g->fb_h : 1);
+  if (!down) { t.end(id); return; }
+  if (t.find(id)) t.move(id, (float)x, (float)y); else t.begin(id, (float)x, (float)y);
+}
 double teng_touch_x(int i) {
   if (!g || !g->touch) return 0;
   uint32_t k = 0;

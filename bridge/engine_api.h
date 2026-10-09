@@ -436,6 +436,9 @@ int teng_debug_clip_channels(int clip);
 // TEST: sistem arenasinin dolulugu (bayt). Klip/model/muzik yuvasi bedelini olcmek icin; SPEC'te yok.
 long long teng_debug_sys_arena_used(void);
 int teng_touch_count(void);
+int teng_touch_id(int i); // i. basili parmagin KIMLIGI (dizin kayar, kimlik kalir; M6); yoksa -1
+// TEST: dokunus enjekte eder (penceresiz kapilar; SPEC'te yok). down 0 = parmak kalkar.
+void teng_debug_touch(int id, double x, double y, int down);
 double teng_touch_x(int i);
 double teng_touch_y(int i);
 double teng_stick_x(void); // sanal joystick -1..1 (sol yarim ekran surukleme)

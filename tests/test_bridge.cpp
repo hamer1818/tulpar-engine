@@ -2922,6 +2922,39 @@ ENGINE_TEST(bridge_ui_image_draws_srgb_png_like_rect) {
   std::remove(yol); rmdir(dir);
 }
 
+// --- Parmak kimligi (M6, 2026-10-09) ------------------------------------------------
+// teng_touch_x/y(i) sikistirilmis dizinle okur: bir parmak kalkinca obur parmaklarin
+// dizini KAYAR. Kimlik kopruye acildi. Olcu: enjekte iki parmak (kimlik 7 sol, 9 sag),
+// 7 kalkinca kalan parmak dizin 0'a kayar ama kimligi 9 kalir, konumu sagdaki.
+// KONTROL: kalkmadan once dizin 1 = 9 (kayma gercekten oldu); parmak yoksa -1.
+ENGINE_TEST(bridge_touch_id_survives_index_shift) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("parmak kimligi", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  teng_frame_begin(); teng_frame_end();
+  const int yok = teng_touch_id(0);
+  teng_debug_touch(7, 40, 100, 1);
+  teng_debug_touch(9, 280, 100, 1);
+  teng_frame_begin();
+  const int n2 = teng_touch_count(), i0 = teng_touch_id(0), i1 = teng_touch_id(1);
+  const double x1 = teng_touch_x(1);
+  teng_frame_end();
+  teng_debug_touch(7, 0, 0, 0);
+  teng_frame_begin();
+  const int n1 = teng_touch_count(), j0 = teng_touch_id(0), j1 = teng_touch_id(1);
+  const double xj = teng_touch_x(0);
+  teng_frame_end();
+  std::printf("    [bilgi] parmak: once n %d kimlik [%d,%d] x1 %.0f; 7 kalkinca n %d kimlik [%d,%d] x0 %.0f; parmaksiz %d\n", n2, i0, i1, x1, n1, j0, j1, xj, yok);
+  CHECK(yok == -1);
+  CHECK(n2 == 2 && i0 == 7 && i1 == 9 && x1 == 280.0);   // KONTROL: kayma oncesi dizin 1 = 9
+  CHECK(n1 == 1 && j0 == 9 && j1 == -1 && xj == 280.0);  // dizin kaydi, kimlik kaldi
+  CHECK(teng_error_count() == e0);
+  teng_shutdown();
+}
+
 // --- Guvenli alan (Geri bildirim #17) ---------------------------------------------
 // Telefonda pencere centige uzaninca (TulparLang [android] cutout = "short_edges")
 // HUD centigin altina girmesin diye oyun kenar bosluklarini okur. Host degeri

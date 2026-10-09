@@ -972,6 +972,9 @@ func guvenli_taklit(int sol, int ust, int sag, int alt) { eng_debug_safe_insets(
 func debug_safe_insets(int left, int top, int right, int bottom) { eng_debug_safe_insets(left, top, right, bottom); }
 func key(name): bool { return eng_key_down(name); }
 func dokunus_sayisi(): int { return eng_touch_count(); }
+// i. basili parmagin KIMLIGI (dizin bir parmak kalkinca kayar, kimlik kalir); yoksa -1.
+func dokunus_kimligi(i): int { return eng_touch_id(i); }
+func touch_id_e(i): int { return eng_touch_id(i); }
 func cubuk_x(): float { return eng_stick_x(); }
 func cubuk_y(): float { return eng_stick_y(); }
 func eylem(): bool { return eng_stick_action(); }

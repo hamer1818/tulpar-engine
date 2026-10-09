@@ -173,6 +173,7 @@
     {"name": "eng_touch_count", "symbol": "teng_touch_count", "returns": "i32", "doc": "Ekrandaki parmak sayisi (masaustunde 0; TULPAR_ENGINE_DOKUNMATIK=1 ile fare = parmak 0)."},
     {"name": "eng_touch_x", "symbol": "teng_touch_x", "params": ["i: i32"], "returns": "f64", "doc": "i. parmagin x'i (piksel)."},
     {"name": "eng_touch_y", "symbol": "teng_touch_y", "params": ["i: i32"], "returns": "f64", "doc": "i. parmagin y'si (piksel)."},
+    {"name": "eng_touch_id", "symbol": "teng_touch_id", "params": ["i: i32"], "returns": "i32", "doc": "i. basili parmagin KIMLIGI (eng_touch_x/y ile ayni sira). Bir parmak kalkinca obur parmaklarin DIZINI kayar, KIMLIGI kalir: joystick + dugme ayni anda, ayni cihazda iki oyuncu. Yoksa -1."},
     {"name": "eng_stick_x", "symbol": "teng_stick_x", "returns": "f64", "doc": "Sanal joystick x (-1..1; sol yarim ekran surukleme)."},
     {"name": "eng_stick_y", "symbol": "teng_stick_y", "returns": "f64", "doc": "Sanal joystick y (-1..1; ileri = +)."},
     {"name": "eng_stick_action", "symbol": "teng_stick_action", "returns": "bool", "doc": "Sag yarim ekrana kisa dokunus (bu karede)."},

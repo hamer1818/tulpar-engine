@@ -225,6 +225,7 @@ SPEC = [
     ("eng_touch_count", "int", [], "Ekrandaki parmak sayisi (masaustunde 0; TULPAR_ENGINE_DOKUNMATIK=1 ile fare = parmak 0)."),
     ("eng_touch_x", "float", [("i", "int")], "i. parmagin x'i (piksel)."),
     ("eng_touch_y", "float", [("i", "int")], "i. parmagin y'si (piksel)."),
+    ("eng_touch_id", "int", [("i", "int")], "i. basili parmagin KIMLIGI (eng_touch_x/y ile ayni sira). Bir parmak kalkinca obur parmaklarin DIZINI kayar, KIMLIGI kalir: joystick + dugme ayni anda, ayni cihazda iki oyuncu. Yoksa -1."),
     ("eng_stick_x", "float", [], "Sanal joystick x (-1..1; sol yarim ekran surukleme)."),
     ("eng_stick_y", "float", [], "Sanal joystick y (-1..1; ileri = +)."),
     ("eng_stick_action", "bool", [], "Sag yarim ekrana kisa dokunus (bu karede)."),
