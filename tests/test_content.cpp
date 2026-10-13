@@ -423,6 +423,72 @@ ENGINE_TEST(content_skinned_character_face_clips) {
               (double)(t1 - t0) / 20000.0 / 1000.0, (double)(t1 - t0) / 20000.0 * 96.0 / 1e6);
 }
 
+// YUKLEME SONRASI KALICI KOPYA (content::model_compact, yayin adimi 3, 2026-10-13).
+// Kopru modeli gecici arenaya yukleyip GPU'ya gonderdikten sonra yalniz cizim/poz icin
+// gerekeni kalici arenaya kopyalar. Kapi: (1) kopyanin HICBIR isaretcisi gecici arenayi
+// gostermiyor ve CPU geometri/piksel isaretcileri bos; (2) gecici arena geri sarilip
+// 0xCD ile EZILDIKTEN sonra 8 klibin 5 zamanindaki skin matrisleri ezilmeden onceki
+// degerlendirmeyle BIT BIT ayni; (3) kalici bedel gecici bedelden kucuk (basilir).
+// POZITIF KONTROL: duz struct kopyasi (`Model sig = m`) ayni isaretci denetiminde
+// gecici arenayi gosteriyor — denetim sig kopyayi yakaliyor.
+ENGINE_TEST(content_model_compact_pose_bit_identical) {
+  static SystemArena tmp, keep;
+  if (!tmp.reserve(64u << 20, "compact_tmp") || !keep.reserve(16u << 20, "compact_keep")) { CHECK(false); return; }
+  char path[512];
+  if (!asset_path(path, sizeof path, "karakter_kup.gltf")) { CHECK(false); std::printf("    [bilgi] varlik yok: %s\n", path); return; }
+  static content::Model m, k;
+  CHECK(content::gltf_load(tmp, path, &m));
+  if (m.clip_count != 8 || m.skin_count != 1) { CHECK(false); return; }
+  const size_t tmp_used = tmp.used();
+  CHECK(content::model_compact(keep, m, &k));
+  const size_t keep_used = keep.used();
+  auto in_tmp = [&](const content::Model &x) {
+    uint32_t n = 0;
+    n += tmp.contains(x.images) + tmp.contains(x.materials) + tmp.contains(x.meshes) + tmp.contains(x.instances) +
+         tmp.contains(x.skins) + tmp.contains(x.clips);
+    for (uint32_t i = 0; i < x.skin_count; i++) n += tmp.contains(x.skins[i].joints) + tmp.contains(x.skins[i].inverse_bind);
+    for (uint32_t i = 0; i < x.clip_count; i++) n += tmp.contains(x.clips[i].clip);
+    return n;
+  };
+  const content::Model sig = m; // POZITIF KONTROL
+  const uint32_t n_k = in_tmp(k), n_sig = in_tmp(sig);
+  uint32_t cpu_left = 0;
+  for (uint32_t i = 0; i < k.mesh_count; i++)
+    cpu_left += (k.meshes[i].verts != nullptr) + (k.meshes[i].indices != nullptr) + (k.meshes[i].skin_verts != nullptr);
+  for (uint32_t i = 0; i < k.image_count; i++) cpu_left += k.images[i].rgba != nullptr;
+  // Referans pozlar (gecici arena saglamken, ozgun modelden).
+  static content::PoseScratch sc;
+  static Mat4 ref[8][5][content::kModelMaxJoints];
+  const uint32_t jc = m.skins[0].joint_count;
+  for (uint32_t c = 0; c < 8; c++)
+    for (uint32_t t = 0; t < 5; t++) {
+      content::ModelPose p;
+      CHECK(content::model_pose_evaluate(m, c, 0.13f * (float)t, sc, &p));
+      std::memcpy(ref[c][t], p.skin_mats[0], sizeof(Mat4) * jc);
+    }
+  // Gecici arenayi geri sar ve ez: kopya hala bir seyi oradan okuyorsa sonuc degisir.
+  tmp.reset();
+  void *ez = tmp.alloc(tmp_used, 16);
+  CHECK(ez != nullptr);
+  if (ez) std::memset(ez, 0xCD, tmp_used);
+  uint32_t fark = 0;
+  for (uint32_t c = 0; c < 8; c++)
+    for (uint32_t t = 0; t < 5; t++) {
+      content::ModelPose p;
+      CHECK(content::model_pose_evaluate(k, c, 0.13f * (float)t, sc, &p));
+      if (std::memcmp(ref[c][t], p.skin_mats[0], sizeof(Mat4) * jc) != 0) fark++;
+    }
+  std::printf("    [bilgi] gecici %zu KB -> kalici %zu KB; gecici arenayi gosteren isaretci: kopya %u, KONTROL duz kopya %u; "
+              "CPU geometri/piksel kalan %u; poz farki %u/40\n",
+              tmp_used >> 10, keep_used >> 10, n_k, n_sig, cpu_left, fark);
+  CHECK(n_k == 0);
+  CHECK(n_sig > 0);
+  CHECK(cpu_left == 0);
+  CHECK(fark == 0);
+  CHECK(keep_used < tmp_used);
+  CHECK(k.instance_count == m.instance_count && k.mesh_count == m.mesh_count && k.meshes[0].skin == 0);
+}
+
 // KTX2 + ASTC (Faz 6 doku yolu): engine_texpack'in urettigi checker_64.ktx2 (4x4
 // sRGB, 7 mip) okunur; (1) CPU cozumu kaynak PNG'ye PSNR > 35 dB (belirlenimli,
 // her platformda ayni); (2) GPU'ya yuklenir — ASTC LDR varsa donanim (Mali),

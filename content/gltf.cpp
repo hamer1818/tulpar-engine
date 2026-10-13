@@ -709,6 +709,57 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
   return true;
 }
 
+namespace {
+template <class T> T *copy_array(Arena &a, const T *src, uint32_t n) {
+  T *d = a.alloc_array<T>(n ? n : 1);
+  if (d && src && n) std::memcpy((void *)d, (const void *)src, sizeof(T) * n);
+  return d;
+}
+} // namespace
+
+bool model_compact(Arena &keep, const Model &src, Model *dst) {
+  *dst = src; // sayilar, sinirlar, istatistik, hata metni; isaretciler asagida yeniden kurulur
+  dst->images = copy_array(keep, src.images, src.image_count);
+  dst->materials = copy_array(keep, src.materials, src.material_count);
+  dst->meshes = copy_array(keep, src.meshes, src.mesh_count);
+  dst->instances = copy_array(keep, src.instances, src.instance_count);
+  dst->skins = copy_array(keep, src.skins, src.skin_count);
+  dst->clips = copy_array(keep, src.clips, src.clip_count);
+  if (!dst->images || !dst->materials || !dst->meshes || !dst->instances || !dst->skins || !dst->clips) return false;
+  for (uint32_t i = 0; i < src.image_count; i++) dst->images[i].rgba = nullptr;
+  for (uint32_t i = 0; i < src.mesh_count; i++) {
+    ModelMesh &mm = dst->meshes[i];
+    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr;
+    for (uint32_t k = 0; k < kModelMaxLods; k++) mm.lod_indices[k] = nullptr;
+  }
+  for (uint32_t i = 0; i < src.skin_count; i++) {
+    ModelSkin &s = dst->skins[i];
+    s.joints = copy_array(keep, src.skins[i].joints, s.joint_count);
+    s.inverse_bind = copy_array(keep, src.skins[i].inverse_bind, s.joint_count);
+    if (!s.joints || !s.inverse_bind) return false;
+  }
+  for (uint32_t i = 0; i < src.clip_count; i++) {
+    const sim::ClipHeader *h = src.clips[i].clip;
+    if (!h) continue;
+    // Sikistirilmis klip TEK blok (ClipBuilder::build: ofsetler basliga gore), memcpy yeter.
+    void *blob = keep.alloc(h->total_bytes, 16);
+    if (!blob) return false;
+    std::memcpy(blob, h, h->total_bytes);
+    dst->clips[i].clip = static_cast<const sim::ClipHeader *>(blob);
+  }
+  return true;
+}
+
+bool uploaded_model_copy(Arena &keep, const UploadedModel &src, UploadedModel *dst) {
+  *dst = src;
+  const uint32_t nm = src.mesh_count ? src.mesh_count : 1;
+  dst->textures = copy_array(keep, src.textures, src.texture_count);
+  dst->materials = copy_array(keep, src.materials, src.material_count);
+  dst->meshes = copy_array(keep, src.meshes, src.mesh_count);
+  dst->lod_meshes = copy_array(keep, src.lod_meshes, nm * kModelMaxLods);
+  return dst->textures && dst->materials && dst->meshes && dst->lod_meshes;
+}
+
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose) {
   if (clip >= m.clip_count || !m.clips[clip].clip || m.clips[clip].skin < 0) return false;
   const ModelClip &mc = m.clips[clip];

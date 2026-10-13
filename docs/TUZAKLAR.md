@@ -2141,6 +2141,30 @@ geçiş anında; ölçülmedi, bilinçli).
 sayacını kapanış satırına koy ve N kez yükleyip sayacın düz kaldığını ölç; dolan havuzun "atla" dalı ayrıca
 HATA saymalı.
 
+### 8dd. GPU'ya giden veri kalıcı arenada kalır — 75 modelin 34 MB'ı kimsenin okumadığı CPU kopyası
+
+**Belirti (yayın adımı 3, 2026-10-13, RTX 5080 penceresiz):** Küp-Küre'nin 75 modeli (13 MB glTF) kapanış
+satırında `arena 34449 KB toplam (model basina ~459 KB)`. `gltf_load` her şeyi köprünün kalıcı arenasına
+(`b.sys`) koyuyordu: çözülmüş RGBA pikseller, vertex/indeks/LOD dizileri, ve klip **sıkıştırılmadan önceki
+ham izleri** (eklem x örnek x 40 B; 20 klipli karakterde asıl bedel). `upload_model` bunları GPU'ya kopyaladıktan
+sonra köprüde hiçbir yol okumuyor (çizim tutamaçla, poz sıkıştırılmış klip + iskeletle) ama bump arenada tek tek
+bırakılamazlar. Mali gibi birleşik bellekte bu, aynı verinin ikinci kopyası demek.
+
+**Düzeltme:** köprü modeli önce `b.sys`'ten bir kez oyulan 32 MB'lık **yükleme arenasına** (`model_tmp`,
+`ReturnNull`) yükleyip GPU'ya gönderir; `content::model_compact` çizim/poz için gerekeni (örnekler, mesh'in
+malzeme/iskelet alanı, malzemeler, eklemler + ters bind, tek blok sıkıştırılmış klip) kalıcı arenaya **derin**
+kopyalar, yükleme arenası geri sarılır. Kopyada CPU geometri/piksel işaretçileri `nullptr` (sayılar kalır) —
+`upload_model`'e yeniden verilemez. Yükleme arenasına sığmayan model eski yoldan yüklenir ve **sayılır**
+(`sigmayan N`). Oyunda: kalıcı 34449 KB -> 4159 KB, yükleme arenasının tepesi 676 KB; süreç RSS'i ~31 MB düştü.
+
+**Kapı:** `content_model_compact_pose_bit_identical` — karakter_kup (8 klip): yükleme arenası geri sarılıp 0xCD
+ile ezildikten sonra 40 pozun skin matrisleri ezilmeden öncekiyle bit bit aynı; kopyanın yükleme arenasını
+gösteren işaretçisi 0. POZİTİF KONTROL: düz struct kopyası aynı denetimde 16 işaretçiyle yakalanıyor.
+
+**Ders:** "yükleme anında, kabul" denen her ayırmanın **ömrünü** sor: GPU'ya kopyalanan, sıkıştırılmadan önceki
+ya da yalnız kurulumda okunan veri kalıcı arenaya değil geri sarılan bir arenaya gider. Kapanış satırı kalıcı
+bedeli ve bırakılanı ayrı yazsın.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana

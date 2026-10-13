@@ -140,6 +140,21 @@ struct UploadedModel {
 // Modeli renderer'a yukler (dokular + malzemeler + mesh'ler). Yukleme aninda.
 bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedModel *out);
 
+// YUKLEME SONRASI KALICI KOPYA (yayin adimi 3, 2026-10-13). gltf_load arenada
+// GPU'ya gittikten sonra kimsenin okumadigi seyleri de birakir: cozulmus RGBA
+// pikseller, vertex/indeks/LOD/DAG dizileri ve klip SIKISTIRILMADAN ONCEKI ham
+// izler (eklem x ornek x 40 B; 20 klipli karakterde asil bedel bu). Bunlar
+// gecici bir arenaya yuklenip upload edilince `model_compact` cizim ve poz
+// icin GEREKENI (ornekler, mesh'in malzeme/iskelet alani, malzemeler, iskelet
+// eklemleri + ters bind, sikistirilmis klip blogu) `keep`e DERIN kopyalar;
+// gecici arena geri sarilabilir. dst'de verts/indices/skin_verts/lod_indices/
+// dag/rgba nullptr'dir (sayilar bilgi icin kalir) — upload_model'e VERILEMEZ.
+// draw_model / model_pose_evaluate src ile ayni sonucu verir (kapi:
+// content_model_compact_pose_bit_identical). false: keep arenasi doldu.
+bool model_compact(Arena &keep, const Model &src, Model *dst);
+// UploadedModel tutamac dizilerinin `keep`e kopyasi (upload gecici arenayla yapildiysa).
+bool uploaded_model_copy(Arena &keep, const UploadedModel &src, UploadedModel *dst);
+
 // Normal haritasi icin CPU mip zinciri: her kucultmeden SONRA yeniden
 // normallestirir (donanim blit'i bunu yapamaz — bkz. ModelImage::normal_map).
 // data[0] goruntunun kendisi, geri kalan seviyeler arenada. levels seviye
