@@ -342,6 +342,13 @@ SPEC = [
     ("eng_save_write", "bool", [], "Kaydi diske yazar (gecici dosya + rename). Kapanista kirli kayit kendiliginden yazilir."),
     ("eng_save_clear", "void", [], "Butun anahtarlari dusurur (diske yazmak icin eng_save_write)."),
     ("eng_save_count", "int", [], "Kayittaki anahtar sayisi."),
+    # teshis raporu (yayin adimi 6, 2026-10-13): ag yok; cokme/HATA'da uygulama dizinine metin,
+    # sonraki acilista oyuncu isterse paylasir (Android ACTION_SEND). docs/KOPRU.md §10.
+    ("eng_report_setup", "bool", [("version", "str")], "Teshis raporunu kurar: surum metni (oyunun surumu) cokme ve HATA raporlarina girer; onceki oturumlardan kalan raporlar taranir. Android'de dizin uygulamanin kendi dizini (cokme raporlariyla ayni), masaustunde TULPAR_ENGINE_RAPOR ya da calisma dizini. Penceresiz kosumda YALNIZ TULPAR_ENGINE_RAPOR ile acik (false, hata degil). Kurulunca oturumun ilk HATA'sinda ve HATA'li kapanista tulpar_rapor.txt yazilir; cokme raporuna surum/cihaz/son log satirlari eklenir."),
+    ("eng_report_pending", "str", [], "Onceki oturumlardan kalan en yeni rapor dosyasinin yolu (cokme ya da HATA); yoksa bos. Oyun acilista 'Bir sorun oldu, raporu paylas' der."),
+    ("eng_report_write", "bool", [("why", "str")], "Raporu simdi yazar (tulpar_rapor.txt; gecici dosya + rename). Kurulmadiysa HATA."),
+    ("eng_report_share", "bool", [("path", "str")], "Raporu PAYLASIR: Android'de sistem paylasim secicisi (ACTION_SEND, duz metin, en cok 16 KB; hedefi oyuncu secer, motor hicbir yere gondermez). Paylasim yolu olmayan platformda false + bilgi satiri (dosya yerinde kalir). Yol yalniz rapor dizinindeki rapor dosyasi olabilir, degilse HATA."),
+    ("eng_report_dismiss", "bool", [("path", "str")], "Raporu siler (paylasildiktan ya da oyuncu 'Kapat' dedikten sonra); bekleyen bir oncekine gecer. Yol yalniz rapor dizinindeki rapor dosyasi olabilir."),
     # sahne sicak yeniden yukleme: editorde "Derle" -> oyun kendini yeniler
     ("eng_scene_watch", "void", [("on", "flag")], "Yuklu .sahneb dosyasini izle: degisirse sahne bosaltilip yeniden yuklenir. Degisim gorulunce bir kontrol daha beklenir (yarim yazilmis blob yuklenmesin)."),
     ("eng_scene_reloaded", "bool", [], "Son okumadan beri sahne sicak yuklendi mi. BIR KEZ true doner (tuketilir): olay olarak kullanilir."),

@@ -1236,3 +1236,36 @@ sağ yarıma tıklamak "eylem" sayılıyordu ve fareyle bakış yoktu. Kullanıc
 `bridge_embedded_game_draws_into_the_editor_channel` (sağ tuş sürükleme bakış verir, sol tık
 dokunuş değildir) ve `bridge_embedded_touch_emulation_is_opt_in` (taklit açıkken sol tık
 dokunuştur: aynı kontrolün pozitif kontrolü).
+
+## 10. Teşhis raporu: çökme / HATA, ağsız (2026-10-13, yayın adımı 6)
+
+Motor hiçbir şeyi kendiliğinden göndermez. Ağ kodu yok, Data safety formu buna göre "veri toplanmıyor" der.
+Akış:
+
+1. **Yazma:**
+   - Oyun açılışta `eng_report_setup(sürüm)` çağırır.
+   - Oturumun **ilk HATA'sında** ve HATA'lı `teng_shutdown`'da rapor dizinine `tulpar_rapor.txt` yazılır. İçeriği: sürüm, cihaz, hata/uyarı sayısı, son çağrı, son 64 log satırı. Yazım geçici dosya + rename ile yapılır.
+   - **Çökmede** `platform/crash` işleyicisi `crash_<pid>_<sinyal>.txt` dosyasını yazar. Çerçevelerden sonra aynı gövde eklenir (`crash_reporter_set_extra`, async-signal-safe: yalnız `write()` ve hazır tamponlar).
+2. **Bulma:** sonraki açılışta `eng_report_pending()` önceki oturumlardan kalan en yeni raporun yolunu verir. Bu oturumun raporu sayılmaz.
+3. **Paylaşma:** `eng_report_share(yol)` çağrılır.
+   - Android'de `ACTION_SEND` + `text/plain` seçicisi açılır (en çok 16 KB metin). Hedefi oyuncu seçer.
+   - Dosya URI'si FileProvider ister, NativeActivity manifestinde provider olmadığı için metin olarak gönderilir.
+   - Masaüstünde paylaşım yolu yok: `false` döner ve bilgi satırı basılır, dosya yerinde kalır.
+4. **Silme:** `eng_report_dismiss(yol)`.
+   - Yol yalnızca rapor dizinindeki rapor adı olabilir (`crash_*.txt`, `tulpar_rapor.txt`). Başka bir yol HATA verir ve hiçbir dosyaya dokunulmaz.
+
+**Dizin ve cihaz:**
+- Android'de host verir (`bridge_report_host`). Dizin çökme raporlarıyla aynıdır: `externalDataPath`, yoksa `internalDataPath`. Örnek: `/sdcard/Android/data/<paket>/files/`, buradan `adb pull` ile alınır.
+- Cihaz bilgisi: üretici, model, Android sürümü, API ve ABI. Seri numarası ve reklam kimliği **okunmaz**.
+- Masaüstünde dizin `TULPAR_ENGINE_RAPOR` ya da çalışma dizini, cihaz bilgisi `uname`.
+- **Penceresiz koşumda rapor yalnızca `TULPAR_ENGINE_RAPOR` verilirse açılır.** Kapı ve otopilot koşumları oyun dizinine rapor dökmesin diye.
+
+**Ölçülenler:**
+- `tests/test_bridge_rapor.cpp`:
+  - HATA olmadan dosya oluşmuyor (kontrol).
+  - İlk HATA'da surum/cihaz/log satırı dosyada; sonraki setup onu bekleyen buluyor.
+  - Paylaşım yolu yokken dosya yerinde kalıyor; sahte paylaşım metni alıyor.
+  - Rapor dışı yol HATA veriyor; silme bekleyeni boşaltıyor.
+  - Çökme eki gövdesi.
+- `tests/test_crash.cpp`: ek gövde yalnızca kurulunca, çerçevelerden sonra ve `=== end ===`'den önce yazılıyor. Fiber kipinde kurulmuyor, satır yok.
+- Android'in seçicisi burada **ölçülmez** (cihaz ister).

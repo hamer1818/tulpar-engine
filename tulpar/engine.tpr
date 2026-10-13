@@ -1348,6 +1348,19 @@ func kayit_temizle() { eng_save_clear(); }
 func save_clear() { eng_save_clear(); }
 func kayit_sayisi(): int { return eng_save_count(); }
 func save_count(): int { return eng_save_count(); }
+
+// ---- Teşhis raporu (eng_report_*; ağ yok — docs/KOPRU.md §10) ----------------------
+// Çökme ya da HATA olunca uygulama dizinine küçük metin; sonraki açılışta oyun
+// "Bir sorun oldu, raporu paylaş" der. Paylaşım Android'in seçicisiyle, hedefi oyuncu seçer.
+func rapor_kur(surum): bool { return eng_report_setup(surum); }
+func report_setup(version): bool { return eng_report_setup(version); }
+func rapor_bekleyen(): str { return eng_report_pending(); }
+func report_pending(): str { return eng_report_pending(); }
+func rapor_yaz(neden): bool { return eng_report_write(neden); }
+func rapor_paylas(yol): bool { return eng_report_share(yol); }
+func report_share(path): bool { return eng_report_share(path); }
+func rapor_sil(yol): bool { return eng_report_dismiss(yol); }
+func report_dismiss(path): bool { return eng_report_dismiss(path); }
 // En yüksek skor: yeni rekorsa yazar + diske kaydeder, rekoru döndürür.
 func rekor_guncelle(anahtar, skor): int {
     int eski = toInt(eng_save_get(anahtar, 0));

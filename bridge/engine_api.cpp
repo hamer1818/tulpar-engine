@@ -121,6 +121,10 @@ struct GpuScope {
   ~GpuScope() { g_gpu_allocs += AllocGate::thread_allocations() - a0; }
 };
 
+// Teshis raporu (asagida "teshis raporu"): oturumun ilk HATA'sinda rapor dosyasi
+// yazilir (oyun sonra oldurulse bile iz kalsin). Kurulmadiysa nullptr.
+void (*g_rapor_hata_kancasi)() = nullptr;
+void rapor_kapanis(uint32_t oturum_hata); // teng_shutdown: oturumda HATA varsa raporu son haliyle yazar
 void blog(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void blog(int level, const char *fmt, ...) {
   char line[kLogLine];
@@ -136,6 +140,7 @@ void blog(int level, const char *fmt, ...) {
   if (g_log.ring_n < kLogRing) g_log.ring_n++;
   if (level == 0) g_log.errors++;
   if (level <= g_log.level || level == 0) { std::fputs(line, stdout); std::fputc('\n', stdout); std::fflush(stdout); }
+  if (level == 0 && g_rapor_hata_kancasi) g_rapor_hata_kancasi();
 }
 #define BERR(...) blog(0, __VA_ARGS__)
 #define BINFO(...) blog(1, __VA_ARGS__)
@@ -2397,6 +2402,7 @@ void teng_shutdown(void) {
   BINFO("kapanis: %u kare, %.1f s, p50 %.2f ms p99 %.2f ms, varlik %u (en yuksek yuva %u), govde %u, model %u, hata %u, uyari %u",
         b.frame, b.time_s, st.p50_ns / 1e6, st.p99_ns / 1e6, b.ent_alive, b.ent_high, b.phys.stats().bodies, b.model_count,
         g_log.errors - b.oturum_hata0, g_log.warnings - b.oturum_uyari0);
+  rapor_kapanis(g_log.errors - b.oturum_hata0);
   {
     const renderer::RendererStats rs = b.ren.stats();
     BINFO("kapanis (kaynak havuzu): model %u/%u, mesh %u/%u, doku %u/%u, malzeme %u", b.model_count, kMaxModels, rs.meshes,
@@ -5097,4 +5103,254 @@ int teng_vk_live(void) {
   return g_vk_live_last;
 }
 
+} // extern "C"
+
+// ---------------------------------------------------------------------------
+// Teshis raporu (yayin adimi 6, 2026-10-13): AG YOK. Cokmede (platform/crash
+// isleyicisi) ve oturumun HATA'sinda uygulamanin kendi dizinine kucuk bir metin
+// yazilir: surum, cihaz, hata sayisi, son log satirlari. Oyun bir SONRAKI
+// acilista teng_report_pending ile bulur, oyuncu isterse teng_report_share ile
+// paylasir (Android: ACTION_SEND metni — hangi uygulamaya gidecegini OYUNCU
+// secer), sonra teng_report_dismiss ile siler. Hicbir sey kendiliginden
+// gonderilmez (Data safety: "veri toplanmiyor / paylasilmiyor" bu yuzden dogru).
+//
+// Dizin: Android'de host verir (cokme raporlariyla AYNI dizin, externalDataPath
+// ya da internalDataPath); masaustunde TULPAR_ENGINE_RAPOR ya da "." — penceresiz
+// kosumda (kapilar, otopilot) YALNIZ TULPAR_ENGINE_RAPOR verilirse: kapi kosumlari
+// oyun dizinine rapor dokmesin.
+// ---------------------------------------------------------------------------
+#if !defined(_WIN32)
+#include <sys/utsname.h>
+#endif
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <ctime>
+
+namespace {
+constexpr uint32_t kRaporPaylasMax = 16384; // paylasilan metin tavani (bayt)
+struct Rapor {
+  bool on = false;
+  bool yazildi = false;  // bu oturumda rapor dosyasi yazildi mi (ilk HATA)
+  bool yaziyor = false;  // yeniden giris korumasi
+  char dir[512] = {0};
+  char version[64] = {0};
+  char device[192] = {0};
+  char pending[640] = {0};
+  char path[640] = {0};  // bu oturumun rapor dosyasi
+  bool (*share)(const char *subject, const char *text) = nullptr;
+  uint32_t writes = 0, shares = 0;
+};
+Rapor g_rapor;
+char g_rapor_host_dir[512] = {0};
+char g_rapor_host_device[192] = {0};
+char g_rapor_metin[kRaporPaylasMax + 1];
+
+// --- async-signal-safe yazim (cokme isleyicisi ek govdesi) --------------------
+void rw_str(int fd, const char *p) {
+  size_t n = std::strlen(p);
+  while (n) {
+    const ssize_t k = ::write(fd, p, n);
+    if (k <= 0) return;
+    p += k;
+    n -= (size_t)k;
+  }
+}
+void rw_dec(int fd, uint32_t v) {
+  char buf[12];
+  int i = 11;
+  buf[i] = 0;
+  if (v == 0) buf[--i] = '0';
+  while (v) { buf[--i] = (char)('0' + v % 10); v /= 10; }
+  rw_str(fd, buf + i);
+}
+// Ortak govde: hem cokme raporu (fd, isleyici icinden) hem HATA raporu bunu yazar.
+// Yalniz hazir tamponlar okunur; malloc/printf/kilit yok.
+void rapor_govde_fd(int fd) {
+  rw_str(fd, "surum: ");
+  rw_str(fd, g_rapor.version[0] ? g_rapor.version : "?");
+  rw_str(fd, "\ncihaz: ");
+  rw_str(fd, g_rapor.device[0] ? g_rapor.device : "?");
+  rw_str(fd, "\nhata: ");
+  rw_dec(fd, g_log.errors);
+  rw_str(fd, " uyari: ");
+  rw_dec(fd, g_log.warnings);
+  rw_str(fd, " kare: ");
+  rw_dec(fd, g_log.frame);
+  rw_str(fd, "\nson_cagri: ");
+  rw_str(fd, g_log.last_call ? g_log.last_call : "-");
+  rw_str(fd, "\nlog (son ");
+  rw_dec(fd, g_log.ring_n);
+  rw_str(fd, " satir):\n");
+  for (uint32_t i = 0; i < g_log.ring_n; i++) {
+    const uint32_t idx = (g_log.ring_head + kLogRing - g_log.ring_n + i) % kLogRing;
+    char *sat = g_log.ring[idx];
+    const void *son = std::memchr(sat, 0, kLogLine);
+    const size_t n = son ? (size_t)((const char *)son - sat) : kLogLine;
+    rw_str(fd, "  ");
+    for (size_t yaz = 0; yaz < n;) {
+      const ssize_t k = ::write(fd, sat + yaz, n - yaz);
+      if (k <= 0) break;
+      yaz += (size_t)k;
+    }
+    rw_str(fd, "\n");
+  }
+}
+void rapor_cokme_eki(int fd) { if (g_rapor.on) rapor_govde_fd(fd); }
+
+bool rapor_adi_mi(const char *ad) {
+  const size_t n = std::strlen(ad);
+  if (std::strcmp(ad, "tulpar_rapor.txt") == 0) return true;
+  return n > 10 && std::strncmp(ad, "crash_", 6) == 0 && std::strcmp(ad + n - 4, ".txt") == 0;
+}
+// Dizindeki en yeni rapor (cokme ya da HATA) -> g_rapor.pending. Bu oturumun
+// raporu henuz yazilmadigi icin bulunan her sey ONCEKI oturumlardan.
+void rapor_tara() {
+  g_rapor.pending[0] = 0;
+  DIR *d = opendir(g_rapor.dir);
+  if (!d) return;
+  double en_yeni = -1.0;
+  while (struct dirent *e = readdir(d)) {
+    if (!rapor_adi_mi(e->d_name)) continue;
+    char yol[640];
+    std::snprintf(yol, sizeof yol, "%.500s/%.120s", g_rapor.dir, e->d_name);
+    struct stat st;
+    if (stat(yol, &st) != 0 || st.st_size <= 0) continue;
+    if ((double)st.st_mtime > en_yeni) { en_yeni = (double)st.st_mtime; std::snprintf(g_rapor.pending, sizeof g_rapor.pending, "%s", yol); }
+  }
+  closedir(d);
+}
+bool rapor_yaz(const char *sebep) {
+  if (!g_rapor.on || g_rapor.yaziyor) return false;
+  g_rapor.yaziyor = true;
+  std::snprintf(g_rapor.path, sizeof g_rapor.path, "%s/tulpar_rapor.txt", g_rapor.dir);
+  char gecici[660];
+  std::snprintf(gecici, sizeof gecici, "%s.yeni", g_rapor.path);
+  std::FILE *f = std::fopen(gecici, "wb");
+  bool ok = false;
+  if (f) {
+    char zaman[40] = "?";
+    const std::time_t t = std::time(nullptr);
+    if (const std::tm *tm = std::gmtime(&t)) std::strftime(zaman, sizeof zaman, "%Y-%m-%d %H:%M:%S UTC", tm);
+    std::fprintf(f, "=== tulpar teshis raporu ===\nsebep: %s\nzaman: %s\ngpu: %s\n", sebep && *sebep ? sebep : "-", zaman,
+                 g && g->inited ? g->dev.caps().device_name : "-");
+    std::fflush(f);
+    rapor_govde_fd(fileno(f));
+    std::fputs("=== end ===\n", f);
+    ok = std::fclose(f) == 0;
+    // Gecici dosya + rename: yarim yazilmis rapor "bekleyen" sayilmasin.
+    ok = ok && std::rename(gecici, g_rapor.path) == 0;
+  }
+  if (ok) { g_rapor.writes++; g_rapor.yazildi = true; }
+  g_rapor.yaziyor = false;
+  return ok;
+}
+void rapor_ilk_hata() {
+  if (g_rapor.on && !g_rapor.yazildi) rapor_yaz("ilk HATA");
+}
+} // namespace
+
+namespace {
+void rapor_kapanis(uint32_t oturum_hata) {
+  if (g_rapor.on && oturum_hata > 0) rapor_yaz("kapanis (oturumda HATA)");
+}
+} // namespace
+
+namespace tulpar::engine::bridge {
+void bridge_report_host(const char *dir, const char *device, bool (*share_text)(const char *, const char *)) {
+  if (!dir) { // kapat (testler): rapor ve ilk-HATA kancasi devre disi
+    g_rapor.on = false;
+    g_rapor_hata_kancasi = nullptr;
+    platform::crash_reporter_set_extra(nullptr);
+  }
+  std::snprintf(g_rapor_host_dir, sizeof g_rapor_host_dir, "%s", dir ? dir : "");
+  std::snprintf(g_rapor_host_device, sizeof g_rapor_host_device, "%s", device ? device : "");
+  g_rapor.share = share_text;
+}
+void bridge_report_crash_extra(int fd) { rapor_govde_fd(fd); }
+} // namespace tulpar::engine::bridge
+
+extern "C" {
+int teng_report_setup(const char *version) {
+  CALLF("teng_report_setup", "%s", version ? version : "");
+  Rapor &r = g_rapor;
+  const char *env_dir = std::getenv("TULPAR_ENGINE_RAPOR");
+  const bool headless = g && g->headless;
+  const char *dir = env_dir && *env_dir ? env_dir : g_rapor_host_dir[0] ? g_rapor_host_dir : headless ? nullptr : ".";
+  if (!dir) {
+    r.on = false;
+    g_rapor_hata_kancasi = nullptr;
+    BINFO("teshis raporu: penceresiz kosum, kapali (TULPAR_ENGINE_RAPOR=<dizin> ile acilir)");
+    return 0;
+  }
+  std::snprintf(r.dir, sizeof r.dir, "%s", dir);
+  std::snprintf(r.version, sizeof r.version, "%s", version && *version ? version : "?");
+  if (g_rapor_host_device[0]) {
+    std::snprintf(r.device, sizeof r.device, "%s", g_rapor_host_device);
+  } else {
+#if !defined(_WIN32)
+    struct utsname u;
+    if (uname(&u) == 0) std::snprintf(r.device, sizeof r.device, "%.60s %.60s %.60s", u.sysname, u.release, u.machine);
+    else std::snprintf(r.device, sizeof r.device, "posix");
+#else
+    std::snprintf(r.device, sizeof r.device, "windows");
+#endif
+  }
+  r.on = true;
+  r.yazildi = false;
+  rapor_tara();
+  g_rapor_hata_kancasi = rapor_ilk_hata;
+  platform::crash_reporter_set_extra(rapor_cokme_eki);
+  BINFO("teshis raporu: dizin %s, surum %s, cihaz %s, bekleyen %s, paylasim %s", r.dir, r.version, r.device,
+        r.pending[0] ? r.pending : "yok", r.share ? "var" : "yok (dosya kalir)");
+  return 1;
+}
+const char *teng_report_pending(void) { return g_rapor.on ? g_rapor.pending : ""; }
+int teng_report_write(const char *why) {
+  CALLF("teng_report_write", "%s", why ? why : "");
+  if (!g_rapor.on) { BERR("teng_report_write: teshis raporu kurulmadi (once teng_report_setup)"); return 0; }
+  if (!rapor_yaz(why)) { BERR("teng_report_write: %s yazilamadi", g_rapor.path); return 0; }
+  BINFO("teshis raporu yazildi: %s (%s)", g_rapor.path, why ? why : "-");
+  return 1;
+}
+// Rapor yolu YALNIZ rapor dizinindeki rapor adlari olabilir: oyun koduna rastgele
+// dosya okutup paylastirmak / sildirmek kapisi acilmasin.
+static bool rapor_yolu_gecerli(const char *path, const char *fn) {
+  if (!g_rapor.on) { BERR("%s: teshis raporu kurulmadi", fn); return false; }
+  if (!path || !*path) { BERR("%s: yol bos", fn); return false; }
+  const size_t dl = std::strlen(g_rapor.dir);
+  if (std::strncmp(path, g_rapor.dir, dl) != 0 || path[dl] != '/' || std::strchr(path + dl + 1, '/') || !rapor_adi_mi(path + dl + 1)) {
+    BERR("%s: \"%s\" rapor dizinindeki bir rapor degil", fn, path);
+    return false;
+  }
+  return true;
+}
+int teng_report_share(const char *path) {
+  CALLF("teng_report_share", "%s", path ? path : "");
+  if (!rapor_yolu_gecerli(path, "teng_report_share")) return 0;
+  std::FILE *f = std::fopen(path, "rb");
+  if (!f) { BERR("teng_report_share: %s acilamadi", path); return 0; }
+  const size_t n = std::fread(g_rapor_metin, 1, kRaporPaylasMax, f);
+  std::fclose(f);
+  g_rapor_metin[n] = 0;
+  if (!g_rapor.share) {
+    BINFO("teshis raporu: bu platformda paylasim yok, dosya yerinde: %s", path);
+    return 0;
+  }
+  const bool ok = g_rapor.share("Kupler ile Kureler - sorun raporu", g_rapor_metin);
+  if (ok) g_rapor.shares++;
+  BINFO("teshis raporu paylasim penceresi %s (%u bayt)", ok ? "acildi" : "ACILAMADI", (unsigned)n);
+  return ok ? 1 : 0;
+}
+int teng_report_dismiss(const char *path) {
+  CALLF("teng_report_dismiss", "%s", path ? path : "");
+  if (!rapor_yolu_gecerli(path, "teng_report_dismiss")) return 0;
+  const bool ok = std::remove(path) == 0;
+  if (std::strcmp(path, g_rapor.pending) == 0) {
+    rapor_tara(); // bir oncekine gec (yoksa bos) — bu oturumun raporu bekleyen sayilmaz
+    if (g_rapor.yazildi && std::strcmp(g_rapor.pending, g_rapor.path) == 0) g_rapor.pending[0] = 0;
+  }
+  BINFO("teshis raporu silindi: %s%s", path, ok ? "" : " (dosya zaten yoktu)");
+  return ok ? 1 : 0;
+}
 } // extern "C"

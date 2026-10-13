@@ -50,6 +50,16 @@ struct BridgeHost {
   void (*back_to_game)(void *user, bool on) = nullptr;
 };
 
+// Teshis raporu (yayin adimi 6, teng_report_*): host rapor DIZININI (cokme
+// raporlariyla ayni), cihaz tanimini ve varsa metin paylasim yolunu verir
+// (Android: ACTION_SEND secicisi; oyuncu hedefi secer, ag yok). Masaustu
+// cagirmaz: dizin TULPAR_ENGINE_RAPOR ya da ".", cihaz uname, paylasim yok.
+// dir == nullptr: raporu kapatir (testler).
+void bridge_report_host(const char *dir, const char *device, bool (*share_text)(const char *subject, const char *text));
+// Cokme raporu ek govdesinin aynisini fd'ye yazar (surum, cihaz, son log
+// satirlari; async-signal-safe). Testler icin disari acik.
+void bridge_report_crash_extra(int fd);
+
 // Platform dosyasi saglar. false: pencere acilamadi (sebep err'e, cap bayt).
 bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h, char *err, size_t err_cap);
 void bridge_host_close(BridgeHost *h);

@@ -510,6 +510,17 @@ int teng_save_write(void); // diske yazar (gecici dosya + rename); teng_shutdown
 void teng_save_clear(void);
 int teng_save_count(void);
 
+// --- teshis raporu (yayin adimi 6, 2026-10-13) -----------------------------------
+// AG YOK: cokmede ve oturumun HATA'sinda uygulama dizinine kucuk metin (surum,
+// cihaz, son log satirlari). Sonraki acilista oyun bekleyeni sorar, oyuncu
+// isterse paylasir (Android ACTION_SEND), sonra siler. Penceresiz kosumda
+// yalniz TULPAR_ENGINE_RAPOR=<dizin> ile acik (kapilar dosya dokmesin).
+int teng_report_setup(const char *version);  // 1 acik, 0 kapali (penceresiz)
+const char *teng_report_pending(void);       // onceki oturumlardan en yeni rapor yolu, yoksa ""
+int teng_report_write(const char *why);      // simdi yaz (tulpar_rapor.txt)
+int teng_report_share(const char *path);     // 1 paylasim penceresi acildi; 0 platformda yok / hata
+int teng_report_dismiss(const char *path);   // raporu sil
+
 // --- sahne sicak yeniden yukleme ----------------------------------------------
 // Editorde "Derle" -> .sahneb degisir -> oyun kendini yeniler ("The Truth"
 // dongusunun oyun ayagi). Dosyanin degisim zamani/boyutu izlenir; degisim

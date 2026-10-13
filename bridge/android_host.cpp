@@ -327,6 +327,55 @@ void save_mirror_external(android_app *app, const char *internal_assets) {
               kopya ? " — ic kayit kopyalandi" : "");
 }
 
+// --- Teshis raporu paylasimi (yayin adimi 6) ---------------------------------
+// Rapor metni sistemin paylasim secicisine DUZ METIN olarak verilir (ACTION_SEND,
+// text/plain, EXTRA_TEXT): dosya URI'si FileProvider ister, NativeActivity
+// derlemesinde manifestte provider yok. Hedefi (e-posta, mesaj, not) OYUNCU
+// secer; motor hicbir yere kendiliginden gondermez, ag izni yok. startActivity
+// oyun thread'inden cagrilir (Activity bunu ana thread'e kendisi iletir).
+android_app *g_share_app = nullptr;
+bool android_share_text(const char *subject, const char *text) {
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e || !g_share_app) return false;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return false; }
+  bool ok = false;
+  jclass ic = e->FindClass("android/content/Intent");
+  jmethodID ctor = ic && j.ok() ? e->GetMethodID(ic, "<init>", "(Ljava/lang/String;)V") : nullptr;
+  jmethodID set_type = ctor && j.ok() ? e->GetMethodID(ic, "setType", "(Ljava/lang/String;)Landroid/content/Intent;") : nullptr;
+  jmethodID put = set_type && j.ok() ? e->GetMethodID(ic, "putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;") : nullptr;
+  jmethodID chooser = put && j.ok() ? e->GetStaticMethodID(ic, "createChooser", "(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;") : nullptr;
+  if (chooser && j.ok()) {
+    jobject it = e->NewObject(ic, ctor, e->NewStringUTF("android.intent.action.SEND"));
+    if (it && j.ok()) {
+      e->CallObjectMethod(it, set_type, e->NewStringUTF("text/plain"));
+      e->CallObjectMethod(it, put, e->NewStringUTF("android.intent.extra.SUBJECT"), e->NewStringUTF(subject ? subject : ""));
+      e->CallObjectMethod(it, put, e->NewStringUTF("android.intent.extra.TEXT"), e->NewStringUTF(text ? text : ""));
+      jobject ch = j.ok() ? e->CallStaticObjectMethod(ic, chooser, it, e->NewStringUTF(subject ? subject : "")) : nullptr;
+      jobject act = g_share_app->activity->clazz;
+      jmethodID start = ch && j.ok() ? e->GetMethodID(e->GetObjectClass(act), "startActivity", "(Landroid/content/Intent;)V") : nullptr;
+      if (start && j.ok()) {
+        e->CallVoidMethod(act, start, ch);
+        ok = j.ok();
+      }
+    }
+  }
+  if (!ok) j.ok();
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: rapor paylasimi %s\n", ok ? "secici acildi" : "ACILAMADI (JNI)");
+  return ok;
+}
+// Cihaz tanimi (rapora girer): uretici, model, Android surumu, API, ABI.
+// Kisisel veri yok (seri numarasi / reklam kimligi OKUNMAZ).
+void report_device(char *out, size_t cap) {
+  char ur[PROP_VALUE_MAX] = {0}, md[PROP_VALUE_MAX] = {0}, rel[PROP_VALUE_MAX] = {0}, abi[PROP_VALUE_MAX] = {0};
+  __system_property_get("ro.product.manufacturer", ur);
+  __system_property_get("ro.product.model", md);
+  __system_property_get("ro.build.version.release", rel);
+  __system_property_get("ro.product.cpu.abi", abi);
+  std::snprintf(out, cap, "%s %s, Android %s (API %d), %s", ur, md, rel, android_sdk(), abi);
+}
+
 // --- APK varlik cikarimi (alt dizinler dahil) ------------------------------
 struct AssetWalk {
   AAssetManager *mgr = nullptr;
@@ -551,6 +600,13 @@ extern "C" void android_main(android_app *app) {
   cc.report_dir = dir;
   cc.build_id = "tulpar_engine_android";
   platform::crash_reporter_install(cc);
+  // Teshis raporu (teng_report_*): cokme raporlariyla AYNI dizin + cihaz + paylasim.
+  g_share_app = app;
+  {
+    char cihaz[192];
+    report_device(cihaz, sizeof cihaz);
+    bridge::bridge_report_host(dir, cihaz, android_share_text);
+  }
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
   // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun

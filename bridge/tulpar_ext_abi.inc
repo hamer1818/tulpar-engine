@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 285
+#define TENG_ABI_COUNT 290
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -277,6 +277,11 @@ TENG_ABI(int, eng_save_has, teng_save_has, (const char *))
 TENG_ABI(int, eng_save_write, teng_save_write, (void))
 TENG_ABI(void, eng_save_clear, teng_save_clear, (void))
 TENG_ABI(int, eng_save_count, teng_save_count, (void))
+TENG_ABI(int, eng_report_setup, teng_report_setup, (const char *))
+TENG_ABI(const char *, eng_report_pending, teng_report_pending, (void))
+TENG_ABI(int, eng_report_write, teng_report_write, (const char *))
+TENG_ABI(int, eng_report_share, teng_report_share, (const char *))
+TENG_ABI(int, eng_report_dismiss, teng_report_dismiss, (const char *))
 TENG_ABI(void, eng_scene_watch, teng_scene_watch, (int))
 TENG_ABI(int, eng_scene_reloaded, teng_scene_reloaded, (void))
 TENG_ABI(int, eng_scene_reload_count, teng_scene_reload_count, (void))

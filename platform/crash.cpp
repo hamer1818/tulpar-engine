@@ -39,6 +39,7 @@ void *g_alt_stack = nullptr;
 volatile int g_in_handler = 0;
 char g_dir[512];
 char g_build[64];
+void (*volatile g_extra)(int fd) = nullptr;
 
 // --- async-signal-safe yazma yardimcilari ------------------------------------
 void w_str(int fd, const char *s) {
@@ -210,6 +211,7 @@ void write_report(int sig, const void *fault_addr) {
     UnwindState st{pcs, 64, 0, 0};
     _Unwind_Backtrace(unwind_cb, &st);
     write_frames(f, pcs, st.n);
+    if (void (*ek)(int) = g_extra) ek(f);
     w_str(f, "=== end ===\n");
   }
   if (fd >= 0) close(fd);
@@ -338,6 +340,10 @@ bool crash_reporter_install(const CrashConfig &cfg) {
 }
 
 bool crash_reporter_installed() { return g_installed; }
+
+void crash_reporter_set_extra(void (*fn)(int fd)) { g_extra = fn; }
+
+const char *crash_reporter_dir() { return g_installed ? g_dir : ""; }
 
 int crash_capture_frames(void **pcs, int max) {
   UnwindState st{pcs, max, 0, 1};
