@@ -1248,6 +1248,61 @@ sağ yarıma tıklamak "eylem" sayılıyordu ve fareyle bakış yoktu. Kullanıc
 dokunuş değildir) ve `bridge_embedded_touch_emulation_is_opt_in` (taklit açıkken sol tık
 dokunuştur: aynı kontrolün pozitif kontrolü).
 
+## 9. Para: ödüllü reklam + uygulama içi satın alma (2026-10-13, yayın adımı 5)
+
+Play'e hazırlık için **soyut sağlayıcı**, düz skaler ABI'nin içinde: `eng_ads_*` (9), `eng_iap_*` (10),
+`eng_store_test*` (2) — 21 satır `SPEC`'te, Tulpar yüzü `engine.tpr`'de (`reklam_kur`, `reklam_goster`,
+`satin_al`, `satin_olay`, `satin_bitir`, `satin_geri_yukle`...). Callback yok: **durum sorgusu**
+(`eng_ads_state`), **tek seferlik sonuç** (`eng_ads_result`, okununca 0) ve **olay kuyruğu**
+(`eng_iap_poll` + `eng_iap_event_product`; 16 yuvalık sabit halka, dolarsa olay düşer, HATA sayılır).
+Motor kurulmadan da çalışır; saat her `eng_frame_begin`'de **gerçek** kare süresiyle ilerler (zaman
+ölçeği uygulanmaz: reklam oyuncunun saatinde sürer). Ayırma yok, ürün tavanı 8.
+
+**Sağlayıcılar.** Bugün yalnız `"test"` ve `"yok"`. `"admob"` / `"play"` istenirse `false` + bilgi
+satırı (hata değil: gerçek sağlayıcı bu derlemede yok). Test sağlayıcısı gerçek SDK'ların oyunu
+etkileyen davranışını benzetir:
+
+| benzetilen | Play/AdMob'daki karşılığı |
+|---|---|
+| yükleme gecikmesi, `yukle=hata` → durum 4 | `RewardedAd.load` / `onAdFailedToLoad` |
+| reklam tek kullanımlık (gösterimden sonra durum 0) | `RewardedAd` bir kez gösterilir |
+| `reklam=odul` / `iptal` / `hata`, `kapat` | `onUserEarnedReward` / ödülsüz `onAdDismissed` / `onAdFailedToShow` |
+| alım → olay 1, oyun ödülü verip `eng_iap_finish` | `acknowledgePurchase` (kalıcı) / `consumeAsync` (tüketilir); **3 gün içinde onaylanmayan alım iade edilir** |
+| bitirilmemiş alım geri yüklemede **yeniden** olay 1 | `queryPurchasesAsync` onaylanmamışı da döndürür |
+| `satin=bekle` → olay 4, sonra 1 | `PurchaseState.PENDING` (nakit / sonra öde): ödül **verilmez** |
+| kalıcı ürün tekrar alınınca olay 7 | `ITEM_ALREADY_OWNED` |
+| `sahip=<id>` (yeniden kurulum) | yeni cihazda `queryPurchasesAsync` |
+
+Test sağlayıcıda kalıcı sahiplik kayıt deposunun `_para_test_sahip` anahtarındadır (Play'de Google'da).
+Kurallar `TULPAR_ENGINE_PARA_TEST` ya da `eng_store_test` ile verilir. Biçim `yukle=..;reklam=a,b;satin=..;gecikme=s;izle=s;sahip=id,id`.
+Liste sırayla döner. Bilinmeyen anahtar ya da değer **HATA** sayar, sessiz varsayılan yoktur.
+
+**Yayın APK'sında test kapalı.** Android'de izin varsayılan olarak kapalıdır. `android_host.cpp` izni
+yalnız hata ayıklanabilir APK'da açar (`bridge_store_test_allowed`). Yayın APK'sında
+`eng_ads_init("test")` / `eng_iap_init("test")` `false` döner, oyun da düğmeleri göstermez. Sahte reklam
+ya da bedava alım oyuncuya hiç görünmez. Debug APK'da kurallar `debug.tulpar.env` ile
+`TULPAR_ENGINE_PARA_TEST=...` olarak verilir.
+
+**Politika kancaları.** `eng_ads_init(sağlayıcı, çocuğa_yönelik, en_yüksek_derece)`. Aileler
+programındaki bir oyun `çocuğa_yönelik=1` ve `"G"` verir. Gerçek sağlayıcı bunları AdMob
+`RequestConfiguration`'a taşır: `setTagForChildDirectedTreatment(TRUE)`, `setMaxAdContentRating(G)`.
+Kişiselleştirilmiş reklam istenmez. Ödüllü reklamı **yalnız oyuncu isteyince** göstermek ABI'de
+zorlanamaz, oyunun işidir: `eng_ads_show` yalnız `state == 2` iken çağrılır, aksi halde HATA sayar.
+
+**Kapılar:** `tests/test_bridge_para.cpp`, 3 test, Vulkan gerekmez:
+- `bridge_para_rewarded_ad_test_provider`
+- `bridge_para_iap_purchase_finish_restore`
+- `bridge_para_release_gate_and_errors`
+
+Testlerin kendisi bozulma yakalıyor mu diye üç bozma denendi (2026-10-13, masaüstü):
+- sonucu tüketmeme
+- sahipliği kayda yazmama
+- yayın iznini yok sayma
+
+Üçü de ilgili testi kırmızıya çevirdi. Gerçek AdMob / Play Billing burada **ölçülmez**: cihaz, hesap ve
+Play Console ürünleri ister. Takma planı `.claude/hikaye/yayin/5_para_entegrasyon.md`'dedir
+(JNI köprüsü, Gradle'sız NativeActivity).
+
 ## 10. Teşhis raporu: çökme / HATA, ağsız (2026-10-13, yayın adımı 6)
 
 Motor hiçbir şeyi kendiliğinden göndermez. Ağ kodu yok, Data safety formu buna göre "veri toplanmıyor" der.

@@ -526,6 +526,35 @@ int teng_report_write(const char *why);      // simdi yaz (tulpar_rapor.txt)
 int teng_report_share(const char *path);     // 1 paylasim penceresi acildi; 0 platformda yok / hata
 int teng_report_dismiss(const char *path);   // raporu sil
 
+// --- para: odullu reklam + uygulama ici satin alma (yayin adimi 5, 2026-10-13) -----
+// Saglayici soyut ve DUZ SKALER: "test" (masaustu + yalniz hata ayiklanabilir APK;
+// basari/iptal/hata/gecikme benzetir, TULPAR_ENGINE_PARA_TEST / teng_store_test),
+// "yok". Gercek AdMob + Play Billing sonra AYNI imzalarin arkasina JNI ile girer
+// (docs/KOPRU.md §9). Callback yok: durum sorgusu + tek seferlik sonuc + olay
+// kuyrugu (sabit dizi, ayirma yok). Motor kurulmadan da calisir; saat her
+// teng_frame_begin'de GERCEK kare suresiyle ilerler (zaman olcegi uygulanmaz).
+int teng_ads_init(const char *provider, int child_directed, const char *max_rating);
+int teng_ads_available(void);
+const char *teng_ads_provider(void);
+int teng_ads_child_directed(void);
+int teng_ads_load(const char *unit);
+int teng_ads_state(void);  // 0 bos, 1 yukleniyor, 2 hazir, 3 gosteriliyor, 4 yuklenemedi
+int teng_ads_show(void);
+int teng_ads_result(void); // BIR KEZ: 0 yok, 1 odul, 2 odulsuz kapandi, 3 gosterilemedi
+int teng_ads_count(int what);
+int teng_iap_init(const char *provider);
+int teng_iap_available(void);
+int teng_iap_product(const char *id, int consumable);
+const char *teng_iap_price(const char *id);
+int teng_iap_buy(const char *id);
+int teng_iap_restore(void);
+int teng_iap_poll(void); // 0 yok, 1 alindi, 2 iptal, 3 hata, 4 bekliyor, 5 geri yuklendi, 6 geri yukleme bitti, 7 zaten sahip
+const char *teng_iap_event_product(void);
+int teng_iap_finish(const char *id);
+int teng_iap_owned(const char *id);
+int teng_store_test(const char *rule);
+void teng_store_test_advance(double seconds);
+
 // --- sahne sicak yeniden yukleme ----------------------------------------------
 // Editorde "Derle" -> .sahneb degisir -> oyun kendini yeniler ("The Truth"
 // dongusunun oyun ayagi). Dosyanin degisim zamani/boyutu izlenir; degisim

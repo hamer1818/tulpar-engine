@@ -352,6 +352,31 @@ SPEC = [
     ("eng_report_write", "bool", [("why", "str")], "Raporu simdi yazar (tulpar_rapor.txt; gecici dosya + rename). Kurulmadiysa HATA."),
     ("eng_report_share", "bool", [("path", "str")], "Raporu PAYLASIR: Android'de sistem paylasim secicisi (ACTION_SEND, duz metin, en cok 16 KB; hedefi oyuncu secer, motor hicbir yere gondermez). Paylasim yolu olmayan platformda false + bilgi satiri (dosya yerinde kalir). Yol yalniz rapor dizinindeki rapor dosyasi olabilir, degilse HATA."),
     ("eng_report_dismiss", "bool", [("path", "str")], "Raporu siler (paylasildiktan ya da oyuncu 'Kapat' dedikten sonra); bekleyen bir oncekine gecer. Yol yalniz rapor dizinindeki rapor dosyasi olabilir."),
+    # para (yayin adimi 5, 2026-10-13): odullu reklam + uygulama ici satin alma. Saglayici
+    # soyut: "test" (masaustu + YALNIZ hata ayiklanabilir APK; basari/iptal/hata/gecikme
+    # benzetir), "yok"; gercek AdMob / Play Billing sonra ayni ABI'nin arkasina (docs/KOPRU.md
+    # §9). Sonuc "hesapla sonra oku": durum sorgusu + tek seferlik sonuc + olay kuyrugu.
+    ("eng_ads_init", "bool", [("provider", "str"), ("child_directed", "flag"), ("max_rating", "str")], "Odullu reklam saglayicisini kurar: \"test\" | \"yok\" (gercek saglayici bu derlemede yok -> false, hata degil). child_directed=1: cocuga yonelik isaret (Aileler politikasi: kisisellestirilmis reklam yok). max_rating: G | PG | T | MA (en yuksek icerik derecesi). Test saglayici yayin APK'sinda KAPALI (false + bilgi satiri). Donus: reklam kullanilabilir mi."),
+    ("eng_ads_available", "bool", [], "Bir reklam saglayicisi kurulu mu (oyun 'Izle' dugmesini yalniz true iken gosterir)."),
+    ("eng_ads_provider", "str", [], "Kurulu reklam saglayicisinin adi (\"test\"), yoksa bos."),
+    ("eng_ads_child_directed", "bool", [], "Cocuga yonelik isaret kurulu mu (kisisellestirilmemis reklam istenir)."),
+    ("eng_ads_load", "bool", [("unit", "str")], "Odullu reklam yuklemeyi baslatir (birim kimligi: AdMob ad unit id). true = istek basladi; zaten yukleniyor/hazir/gosteriliyorsa false (hata degil). Saglayici yoksa HATA."),
+    ("eng_ads_state", "int", [], "Odullu reklam durumu: 0 bos, 1 yukleniyor, 2 hazir, 3 gosteriliyor, 4 yuklenemedi (yeniden eng_ads_load)."),
+    ("eng_ads_show", "bool", [], "Hazir reklami gosterir (YALNIZ oyuncu istediginde: Play politikasi odullu reklami gonullu ister). Hazir degilse HATA + false. Gosterim suresince oyun kendini duraklatir; sonuc eng_ads_result ile gelir."),
+    ("eng_ads_result", "int", [], "Son gosterimin sonucu, BIR KEZ (tuketilir): 0 yok/surmekte, 1 odul kazanildi (oyun odulu SIMDI verir), 2 odulsuz kapatildi, 3 gosterilemedi. Reklam tek kullanimlik: sonra durum 0, yeniden eng_ads_load."),
+    ("eng_ads_count", "int", [("what", "int")], "Reklam sayaclari: 0 yukleme istegi, 1 yuklenemedi, 2 gosterim, 3 odul, 4 odulsuz kapanis, 5 gosterilemedi."),
+    ("eng_iap_init", "bool", [("provider", "str")], "Uygulama ici satin alma saglayicisini kurar: \"test\" | \"yok\" (gercek Play Billing bu derlemede yok -> false). Test saglayici yayin APK'sinda KAPALI. Donus: satin alma kullanilabilir mi."),
+    ("eng_iap_available", "bool", [], "Satin alma saglayicisi kurulu mu."),
+    ("eng_iap_product", "bool", [("id", "str"), ("consumable", "flag")], "Urunu kaydeder (Play Console urun kimligi; en cok 8). consumable=0 kalici (Reklamlari kaldir), 1 tuketilir (kristal paketi). Fiyat sorgusu baslar (eng_iap_price)."),
+    ("eng_iap_price", "str", [("id", "str")], "Urunun yerel para birimiyle fiyat metni; sorgu bitmediyse bos. Kayitsiz urun HATA."),
+    ("eng_iap_buy", "bool", [("id", "str")], "Satin alma akisini baslatir. Sonuc olay kuyrugundan (eng_iap_poll). Baska bir satin alma suruyorsa false (hata degil); kalici urun zaten alinmissa olay 7."),
+    ("eng_iap_restore", "bool", [], "Satin alimlari geri yukler (yeniden kurulum / yeni cihaz): sahip olunan her kalici urun icin olay 5, bitirilmemis her alim icin olay 1, sonda olay 6."),
+    ("eng_iap_poll", "int", [], "Olay kuyrugundan sirayi alir: 0 yok, 1 satin alindi (odulu ver, sonra eng_iap_finish), 2 iptal, 3 hata, 4 bekliyor (odeme sonra; odul VERME), 5 geri yuklendi (kalici urun sahibi), 6 geri yukleme bitti, 7 zaten sahip. Urun eng_iap_event_product."),
+    ("eng_iap_event_product", "str", [], "Son eng_iap_poll olayinin urun kimligi (olay 6'da bos)."),
+    ("eng_iap_finish", "bool", [("id", "str")], "Odul verildikten sonra alimi kapatir: kalici urunde onay (Play: 3 gun icinde onaylanmayan alim iade edilir), tuketilirde tuketim (yeniden alinabilir). Bitirilecek alim yoksa HATA."),
+    ("eng_iap_owned", "bool", [("id", "str")], "Saglayiciya gore urun sahipli mi (kalici urun; tuketilirde bitirilene kadar)."),
+    ("eng_store_test", "bool", [("rule", "str")], "Test saglayicisinin kurallari (TULPAR_ENGINE_PARA_TEST ile ayni bicim): \"yukle=tamam|hata;reklam=odul|iptal|hata;satin=basari|iptal|hata|bekle;gecikme=<s>;izle=<s>;sahip=<id,id>\" (liste virgulle, sirayla doner). \"kapat\": gosterilen test reklamini oduldan once kapatir (oyuncunun 'Kapat'i). Bilinmeyen anahtar HATA."),
+    ("eng_store_test_advance", "void", [("seconds", "num")], "Test saglayicinin saatini ilerletir (kare dongusu olmayan testler; normalde her eng_frame_begin gercek kare suresiyle ilerletir)."),
     # sahne sicak yeniden yukleme: editorde "Derle" -> oyun kendini yeniler
     ("eng_scene_watch", "void", [("on", "flag")], "Yuklu .sahneb dosyasini izle: degisirse sahne bosaltilip yeniden yuklenir. Degisim gorulunce bir kontrol daha beklenir (yarim yazilmis blob yuklenmesin)."),
     ("eng_scene_reloaded", "bool", [], "Son okumadan beri sahne sicak yuklendi mi. BIR KEZ true doner (tuketilir): olay olarak kullanilir."),
