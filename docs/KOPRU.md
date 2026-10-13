@@ -279,6 +279,12 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   değişkenlerini verir (örnek: oyunun otopilotu telefonda). Yayın APK'sı ikisini de okumaz (`YOK SAYILDI`
   basar). Kapı: `bridge_debug_speed_env_runs_more_fixed_steps` (x4: 60 karede 240 adım, x8: 10 karede 80;
   pozitif kontrol değişkensiz 60). Ölçüldü P20 Pro: oyunun 345 s'lik savaşı ~86 s'de.
+- **Cihaz dili** (2026-10-13, oyunun İngilizce yerelleştirmesi): Android host her `android_main`'de
+  glue'nun `AConfiguration_getLanguage`'ından iki harfli ISO 639 kodunu (`tr`, `en`, …) `TULPAR_ENGINE_LANG`
+  ortam değişkenine yazar (masaüstündeki `LANG`'in karşılığı; okunamazsa siler, logda `cihaz dili …`).
+  Oyun `env("TULPAR_ENGINE_LANG")`, yoksa `env("LANG")` okur; yeni builtin gerekmedi (C ABI değişmedi).
+  `debug.tulpar.env` sonra uygulandığı için debug APK'da ezilebilir. Bizim kod: kodu kurar. Sürücü/platform:
+  hangi kodun döndüğü cihaz verisi — emülatörde/telefonda log satırından okunur, burada iddia edilmez.
 - **Sahne varlığını gizle/göster** (2026-10-08, yıkılan kale): `sahne_gorunur(i, false)` varlığı çizmez,
   ışığını eklemez ve gövdesini fizik dünyasından çıkarır (Jolt `RemoveBody`; çarpışmaz, ışın görmez);
   `true` hepsini geri getirir, sahne yeniden yüklenince hepsi görünür. `sahne_olcek_x/y/z`, `sahne_renk`,

@@ -7,6 +7,7 @@
 #if defined(__ANDROID__)
 #define VK_USE_PLATFORM_ANDROID_KHR 1
 #include <android/asset_manager.h>
+#include <android/configuration.h>
 #include <android/input.h>
 #include <jni.h>
 #include <android/log.h>
@@ -552,6 +553,22 @@ extern "C" void android_main(android_app *app) {
   platform::crash_reporter_install(cc);
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
+  // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun
+  // AConfiguration'indan iki harfli ISO 639 kodu ("tr", "en"...) TULPAR_ENGINE_LANG
+  // olur (masaustundeki LANG'in karsiligi). Her android_main'de yeniden yazilir:
+  // etkinlik ayni surecte yeniden yaratilinca (Tuzaklar 8ct) dil degismis olabilir.
+  // Asagidaki debug.tulpar.env bunu ezebilir (debug APK'da dil denemesi).
+  {
+    char dil[3] = {0};
+    if (app->config) AConfiguration_getLanguage(app->config, dil);
+    if (dil[0]) {
+      setenv("TULPAR_ENGINE_LANG", dil, 1);
+      std::printf("[engine_bridge] android: cihaz dili %s (TULPAR_ENGINE_LANG)\n", dil);
+    } else {
+      unsetenv("TULPAR_ENGINE_LANG");
+      std::printf("[engine_bridge] android: cihaz dili okunamadi (AConfiguration bos)\n");
+    }
+  }
   g_host.debuggable = app_debuggable(app);
   // debug.tulpar.env = "AD=deger;AD2=deger2": YALNIZ hata ayiklanabilir APK'da
   // oyunun ortam degiskenleri (masaustundeki `AD=deger tulpar oyun.tpr`un
