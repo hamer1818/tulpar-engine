@@ -2010,3 +2010,25 @@ yerçekimi/türbülansı; alt yayıcılı tepe 54 / alt yayıcısız 16; belirle
 **Ders:** "yazılır ↔ okunur" kapısı formatın **bir** sınırını ölçer. Veri her sınırı geçerken (metin →
 model → blob → runtime → köprü) ayrı ölçülmeli; ve bir sistemin var olması, kare döngüsünün onu
 çağırdığı anlamına gelmez — uçtan uca kapı (köprü + piksel) ister.
+
+### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
+
+**Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana
+menüye döndürmek yerine **uygulamayı kapattı**. Kapanış satırı `geri tusu: 0 basis, oyuna bagli evet`, hemen
+önünde `host kapatma istedi`. Yani köprü geri tuşunu oyuna bağladığını sanıyordu, ama hiçbir basış ulaşmadı.
+
+**Sebep:** TulparLang'in manifesti targetSdk 34'ten 36'ya çıktı (Play şartı, yayın adımı 2). API 36 hedefinde
+öngörülü geri (predictive back) varsayılan açık: sistem `KEYCODE_BACK`'i uygulamaya **göndermez**, geri
+hareketini `OnBackInvokedDispatcher`'a verir; kayıtlı geri çağrı yoksa etkinliği bitirir. `android_host.cpp`
+geri tuşunu `AKEYCODE_BACK` girdi olayından yakalıyor — o olay artık hiç gelmiyor. NativeActivity'de Java kodu
+yok (`hasCode=false`), geri çağrı kaydedilemez.
+
+**Düzeltme:** derleyicinin manifestinde `<application android:enableOnBackInvokedCallback="false">`
+(TulparLang `yerel/aab` 722f2807). Düzeltilmiş APK'da geri tuşu haritadan ana menüye döndü, etkinlik açık kaldı
+(debug ve yayın APK'sı, aynı emülatör). Google bu muafiyeti ileriki bir hedef API'de kaldırabilir: o gün
+geri tuşu JNI ile `OnBackInvokedCallback` kaydı ister.
+
+**Ders:** hedef API yükseltmesi davranış değiştirir, derleme hatası vermez. "Bağlandı" logu bağlantıyı
+değil niyeti söyler: geri tuşu gibi platform olaylarının kapanış sayacı (`0 basis`) cihaz testinde okunmalı.
+Hedef API her yükseldiğinde geri tuşu, yön ve kenardan kenara ekran cihazda elle denenir.
+
