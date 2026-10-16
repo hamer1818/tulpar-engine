@@ -166,6 +166,7 @@ SPEC = [
     ("eng_rotation_locked", "bool", [("id", "int")], "Govdenin donmesi kilitli mi."),
     ("eng_set_visible", "void", [("id", "int"), ("visible", "flag")], "Kopru varligini gizle/goster: gizli varlik cizilmez (isik varliginin isigi da eklenmez); fizik govdesi aynen kalir (carpisir, isin gorur). Ornek: fizik govdesi kutu, gorunen ustune konan iskeletli karakter."),
     ("eng_visible", "bool", [("id", "int")], "Kopru varligi gorunur mu."),
+    ("eng_drawn_height", "float", [("id", "int")], "Cizilen dikey boy (m): model = olcek x model sinir kutusu yuksekligi, kutu 2*hy*olcek, kure/karakter cap*olcek; gizli varlik ve isik 0. Gorunurluk kapisi icin (olcek gerceklesti mi). Olu id: HATA, 0."),
     ("eng_collision_pair_on", "bool", [("a", "int"), ("b", "int")], "Iki grubun govdeleri su an carpisiyor mu (tablo okumasi)."),
     ("eng_spawn_trigger_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num")], "Tetik (bolge) kutusu: GORUNMEZ, carpisma tepkisi yok; icine giren/cikan govdeler eng_trigger_* kuyrugunda. eng_set_pos tasir. Donus: varlik id."),
     ("eng_spawn_trigger_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num")], "Tetik (bolge) kuresi. Donus: varlik id."),

@@ -338,6 +338,10 @@ int teng_lock_rotation(int id, int lock);
 // Ornek: fizik govdesi kutu/kure, gorunen yuz ise ustune konan iskeletli karakter.
 void teng_set_visible(int id, int visible);
 int teng_visible(int id);
+// Cizilen dikey boy (m): model = olcek x model sinir kutusu yuksekligi, kutu 2*hy*olcek,
+// kure/karakter cap x olcek; gizli varlik ve isik 0. Oyunun gorunurluk kapisi icin: gorsel
+// olcek GERCEKTEN cizim boyuna donustu mu (boss 0.1 x boy'da kaliyordu, Tuzaklar 8df).
+double teng_drawn_height(int id);
 int teng_rotation_locked(int id);
 // Tetik (bolge) hacimleri: GORUNMEZ, carpisma tepkisi yok, yakinlik
 // sorgularinda (teng_overlap/nearest) hedef degil. Icine giren/cikan govdeler

@@ -3420,6 +3420,22 @@ void teng_set_visible(int id, int visible) {
   if (s >= 0) g->ents[s].hidden = visible == 0;
 }
 int teng_visible(int id) { const int32_t s = slot_of(id, "teng_visible"); return s >= 0 && !g->ents[s].hidden ? 1 : 0; }
+// Cizim yolundaki (draw_world) olcekle ayni hesap: model ent_matrix * scale(e.scale).
+double teng_drawn_height(int id) {
+  const int32_t s = slot_of(id, "teng_drawn_height");
+  if (s < 0) return 0;
+  const Ent &e = g->ents[s];
+  if (e.hidden) return 0;
+  switch (e.kind) {
+  case Kind::Box: return e.half.y * 2.0 * e.scale;
+  case Kind::Sphere: return e.radius * 2.0 * e.scale;
+  case Kind::Character: return e.height * e.scale;
+  case Kind::Model:
+    if (e.asset < 0 || (uint32_t)e.asset >= g->model_count) return 0;
+    return (double)(g->models[e.asset].bounds_max.y - g->models[e.asset].bounds_min.y) * e.scale;
+  default: return 0;
+  }
+}
 int teng_is_kinematic(int id) { const int32_t s = slot_of(id, "teng_is_kinematic"); return s >= 0 && g->ents[s].kinematic ? 1 : 0; }
 void teng_kinematic_move(int id, double x, double y, double z) {
   CALLF("teng_kinematic_move", "#%d (%.2f %.2f %.2f)", id, x, y, z);

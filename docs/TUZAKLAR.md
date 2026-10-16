@@ -2115,3 +2115,32 @@ geri tuşu JNI ile `OnBackInvokedCallback` kaydı ister.
 değil niyeti söyler: geri tuşu gibi platform olaylarının kapanış sayacı (`0 basis`) cihaz testinde okunmalı.
 Hedef API her yükseldiğinde geri tuşu, yön ve kenardan kenara ekran cihazda elle denenir.
 
+### 8df. Ölçeği "doğuşta küçük kur, karede büyüt" kalıbıyla kurulan varlık, büyütme yolunu atlarsa sessizce görünmez kalır
+
+**Belirti (2026-10-16, kullanıcının telefonu; masaüstünde yeniden üretildi, RTX 5080, h:4-4:4):** hikâye
+modunun ilk boss'u Koca Yumru sahada yoktu: üstte boss can çubuğu azalıyor, cephede havada yalnız bir can
+çubuğu asılı, birlikler "boşluğa" vuruyordu. Log temiz: model 57 `k_boss_yumru.gltf` yüklenmiş (1 mesh, 1
+doku, 20 klip), `BOSS: Koca Yumru sahada`, hata 0 uyarı 0. Topuz, Paşa ve Kazan da aynıydı; Diken/Golem
+evrelerini kendi `model_koy`'uyla yeniden kurduğu için görünüyordu.
+
+**Sebep (oyun):** `hk_birlik_uret` her görseli `olcek_ver(gorsel, 0.1 * boy)` ile kurar; doğuş büyümesi
+(`dogus_t`, 0.32 sn'de 2 × boy'a) `hk_birlik_gorsel`'de koşar. Boss'u `boss.tpr` sürer ve `hk_govde_sur`
+boss için `hk_birlik_gorsel`'i bilerek atlar (yön/klip `boss_gorsel`'de) — büyüme de onunla birlikte atlandı.
+Boss bütün savaş boyunca 0.1 × boy'da (20 kat küçük) çizildi. Motor açısından her şey doğruydu: varlık canlı,
+görünür, çizim sayısına giriyor. İlk şüpheli olan yükleme sonrası kalıcı kopya (8dd) temize çıktı: aynı
+yoldan gelen iskeletli birlikler doğru boyda çiziliyordu ve `model_compact` sınırları (`bounds_*`) aynen taşır.
+
+**Düzeltme:** büyüme `hk_dogus_buyu`'ya ayrıldı, `boss_gorsel` de çağırır. Motor tarafı **ölçüm**:
+`eng_drawn_height(id)` (Tulpar `cizilen_boy`) çizim yolundaki hesabın aynısını döner — model için ölçek ×
+model sınır kutusu yüksekliği, gizli varlıkta 0. Oyun her boss için doğuştan sonraki en küçük
+`cizilen_boy / boy`'u basar (`[kapi] boss gorunum`).
+
+**Kapı:** köprü `bridge_drawn_height_follows_scale_and_visibility` (iskeletli + klipli model: ölçek 2.0'da
+4.000 m, 0.1'de 0.200 m — oran 0.050 = POZİTİF KONTROL, ölçek gerçekten ölçülüyor; gizli 0; ölü id HATA).
+Oyun: `tulpar_dogrula.sh --hikaye` beş boss'un `min_oran >= 1.0`'ını ister (ölçüldü 2.28..2.99); POZİTİF
+KONTROL `TULPAR_KKS_BOSS_BUYUME_YOK=1` → Koca Yumru 0.11.
+
+**Ders:** "kur, sonra her karede düzelt" kalıbında düzeltme bir **yol**dur; varlığı o yoldan çıkaran her özel
+durum (boss, araba, pilon) düzeltmeyi de çıkarır. "Yüklendi, doğdu, görünür, hata yok" görünürlüğü kanıtlamaz:
+çizilen boyu ölç.
+

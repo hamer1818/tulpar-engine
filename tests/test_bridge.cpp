@@ -3312,3 +3312,44 @@ ENGINE_TEST(bridge_entity_hide_skips_draw_keeps_body) {
   CHECK(c2 == c0 && teng_visible(kutu) == 1);
   teng_shutdown();
 }
+
+// Cizilen boy (eng_drawn_height): oyunun gorunurluk kapisi bununla olcer. Hikaye modunda
+// boss gorseli 0.1 x boy olcekle kurulup HIC buyutulmuyordu (20 kat kucuk, sahada yalniz can
+// cubugu; Tuzaklar 8df). Iskeletli + klipli model (yukleme sonrasi kalici kopya yolundan,
+// Tuzaklar 8dd) olcek 2.0'da sinir kutusu x 2 boyunda; olcek 0.1'de 20 kat kisa (POZITIF
+// KONTROL: olcek gercekten olculuyor, sabit donmuyor); gizlenince 0; olu id HATA + 0.
+ENGINE_TEST(bridge_drawn_height_follows_scale_and_visibility) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("cizilen boy", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  char skin[768];
+  std::snprintf(skin, sizeof skin, "%s/skin_tube.gltf", assets_dir());
+  const int m = teng_load_model(skin);
+  CHECK(m >= 0);
+  const int e0 = teng_error_count();
+  const int a = teng_spawn_model(m, 0, 0, 0, 2.0, 0xFFFFFFFF);
+  teng_set_anim(a, 0, 1.0, 1);
+  const int kutu = teng_spawn_box(2, 1, 0, 0.5, 0.75, 0.5, 0, 0x2080ffff);
+  teng_camera(0, 1.2, 5.0, 0.5, 1.0, 0);
+  run_frames(2);
+  const double h_tam = teng_drawn_height(a);
+  const double h_kutu = teng_drawn_height(kutu);
+  teng_set_scale(a, 0.1);
+  run_frames(1);
+  const double h_kucuk = teng_drawn_height(a);
+  teng_set_visible(a, 0);
+  const double h_gizli = teng_drawn_height(a);
+  teng_set_visible(a, 1);
+  teng_despawn(a);
+  const double h_olu = teng_drawn_height(a);
+  std::printf("    [bilgi] cizilen boy: model x2.0 %.3f m, x0.1 %.3f m (oran %.3f), gizli %.3f, kutu %.2f m, olu id %.1f\n",
+              h_tam, h_kucuk, h_tam > 0 ? h_kucuk / h_tam : -1.0, h_gizli, h_kutu, h_olu);
+  CHECK(h_tam > 0.1);
+  CHECK(std::fabs(h_kucuk / h_tam - 0.05) < 1e-3);   // pozitif kontrol: olcek olculuyor
+  CHECK(h_gizli == 0.0);
+  CHECK(std::fabs(h_kutu - 1.5) < 1e-4);
+  CHECK(h_olu == 0.0 && teng_error_count() == e0 + 1);
+  teng_shutdown();
+}
