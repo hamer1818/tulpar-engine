@@ -215,6 +215,11 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   edince birikim kaldığı yerden sürer: duraklatılmış koşu duraklamasız koşuyla **bit-tam** aynı yere varır
   (kapı `bridge_physics_pause_freezes_and_resumes_deterministically`). `zaman_olcegi(0.5)` ağır çekim —
   ölçek kare süresine uygulanır, adıma değil, yani belirlenim bozulmaz. `sim_adimi()` atılan adım sayısı.
+- **Yerel takvim günü** (2026-10-18): `yerel_gun()` / `local_day` cihazın saat dilimi ve yaz saatiyle
+  1970-01-01'den beri gün sayısını döner (`localtime`). Günlük içerik bunu "bugün" diye okur. UTC günü
+  Türkiye'de gece 03:00'te değişirdi. Duvar saati oyuncunun elinde: belirlenimli sim bunu **okumaz**, oyun
+  yalnız gözlem/ödül katmanında kullanır. Motor kurulmadan da çalışır (kapılar
+  `platform_local_day_follows_timezone`: aynı an UTC+3'te 18 Ekim, UTC'de 17 Ekim; `bridge_local_day_matches_platform`).
 - **Metin glifleri** (Geri bildirim #20): HUD fontu ASCII + Latin-1 + Türkçe + **U+2010..U+2026** (– — ‘ ’ “ ” • …).
   Aralık dışı kod noktası en yakın ASCII'ye eşlenir (→ `>`, − `-`, ≈ `~` …; `content/font.hpp`
   `kFontAsciiFallback`), o da yoksa `?` çizilir ve **sayılır**: ilk seferde `UYARI font: U+XXXX fontta yok`,

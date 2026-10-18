@@ -144,6 +144,8 @@ func frame_memory_frames(): int { return _kb_kare; }
 // Sürecin yerleşik belleği (RSS), KB. Motor kurulmadan da çalışır.
 func bellek_kb(): int { return eng_rss_kb(); }
 func memory_kb(): int { return eng_rss_kb(); }
+func yerel_gun(): int { return eng_local_day(); }
+func local_day(): int { return eng_local_day(); }
 // Sürecin sanal boyutu (MB) ve thread sayısı; kapanıştan sonra cihaz
 // yıkılmadan önce canlı kalan havuzsuz Vulkan nesnesi (oturumdan oturuma
 // değişmemeli). Motoru kapatıp aynı süreçte yeniden açan kodun kaçak aletleri

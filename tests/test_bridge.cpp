@@ -4071,6 +4071,15 @@ ENGINE_TEST(bridge_drawn_height_follows_scale_and_visibility) {
   teng_shutdown();
 }
 
+// teng_local_day (yerel_gun, Kup-Kure gunluk gorevleri A9): motor kurulmadan calisir ve platformun
+// yerel takvim gunuyle ayni (dilim davranisi platform_local_day_follows_timezone'da olculur).
+ENGINE_TEST(bridge_local_day_matches_platform) {
+  const int a = teng_local_day();
+  const int b = (int)platform::local_day_index(-1);
+  CHECK(a == b || a + 1 == b);   // gece yarisi tam arada gecerse bir gun ileri
+  CHECK(a > 20000);              // 2024 sonrasi (duvar saati gercekten okunuyor)
+}
+
 // teng_image_load yol anahtari (A13 incelemesi, 2026-10-19): yuva yolu 128 bayttı ve kesiliyordu —
 // ayni 127+ karakterlik yol her cagrida yeni yuva aliyordu (olculdu: TMPDIR scratchpad'de
 // bridge_ui_image_draws_srgb_png_like_rect "ayni yol ayni tutamac" DUSTU, kisa TMPDIR'de gecti).

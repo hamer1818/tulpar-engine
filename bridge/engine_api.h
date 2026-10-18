@@ -655,6 +655,9 @@ double teng_frame_ms(void); // son kare p50 (profiler)
 // kurulmadan da calisir; olculemezse 0. Tulpar'da bellek_kb(): kare arenasi
 // kapisi (engine_aksiyon.tpr) bununla olcer.
 int teng_rss_kb(void);
+// Cihazin yerel takvim gunu (1970-01-01 = 0; saat dilimi + yaz saati). Motor kurulmadan da calisir.
+// Duvar saatine bagli: oyun yalniz GOZLEM icin kullanir (gunluk gorev), belirlenimli sim okumaz.
+int teng_local_day(void);
 // Surecin sanal boyutu (MB, platform::os_virtual_bytes) ve thread sayisi
 // (platform::os_thread_count). Kurulmadan da calisir; olculemezse 0. Ayni
 // surecte oturum ac/kapa dongusunun kacak kapisi bunlarla olcer (Tuzaklar 8ct).

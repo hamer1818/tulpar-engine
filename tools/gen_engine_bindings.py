@@ -355,6 +355,7 @@ SPEC = [
     ("eng_light_count", "int", [], "Son karede nokta isik sayisi."),
     ("eng_frame_ms", "float", [], "Son 120 karenin p50 suresi (ms)."),
     ("eng_rss_kb", "int", [], "Surecin yerlesik bellegi (RSS), KB: Linux/Android /proc/self/statm, macOS task_info, Windows GetProcessMemoryInfo. Olculemezse 0. Motor kurulmadan da calisir, kare icinde cagrilabilir (ayirma yok)."),
+    ("eng_local_day", "int", [], "Cihazin YEREL takvim gunu: 1970-01-01'den beri gun (saat dilimi + yaz saati; localtime). Gunluk icerik icin (gunluk gorev rotasyonu). Duvar saati oyuncunun elinde: belirlenimli sim bunu okumamali. Motor kurulmadan da calisir."),
     ("eng_virtual_mb", "int", [], "Surecin sanal boyutu (MB). Motor kurulmadan da calisir; olculemezse 0. Oturum ac/kapa kacak kapisinin aleti (Tuzaklar 8ct)."),
     ("eng_thread_count", "int", [], "Surecin thread sayisi. Motor kurulmadan da calisir; olculemezse 0."),
     ("eng_vk_live", "int", [], "Canli havuzsuz Vulkan nesnesi (kurma - birakma; komut tamponu/descriptor set haric). Kurulu motorda anlik; kapanistan sonra son kapanista cihaz yikilmadan hemen onceki deger (oturumdan oturuma degismemeli). Olculmediyse -1."),

@@ -5086,6 +5086,7 @@ double teng_frame_ms(void) {
   return st.p50_ns / 1e6;
 }
 int teng_rss_kb(void) { return (int)(platform::os_resident_bytes() / 1024); }
+int teng_local_day(void) { return (int)platform::local_day_index(-1); }
 int teng_virtual_mb(void) { return (int)(platform::os_virtual_bytes() >> 20); }
 int teng_thread_count(void) { return (int)platform::os_thread_count(); }
 int teng_vk_live(void) {
