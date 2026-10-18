@@ -215,6 +215,11 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   edince birikim kaldığı yerden sürer: duraklatılmış koşu duraklamasız koşuyla **bit-tam** aynı yere varır
   (kapı `bridge_physics_pause_freezes_and_resumes_deterministically`). `zaman_olcegi(0.5)` ağır çekim —
   ölçek kare süresine uygulanır, adıma değil, yani belirlenim bozulmaz. `sim_adimi()` atılan adım sayısı.
+- **Fizik sıfırlama** (2026-10-18, Tuzaklar 8dg): `fizik_sifirla()` / `physics_reset` sahne boşaltıldıktan sonra,
+  gövdeli varlık kalmamışken Jolt dünyasını ve sabit adım birikimini sıfırdan kurar. Bundan sonra bir bölüm,
+  önceki bölümler oynanmış olsun ya da olmasın aynı gövde kimliklerini, aynı olay sırasını ve aynı sonucu alır.
+  Koşul tutmazsa HATA + `false` döner ve hiçbir şey değişmez. Kare dışında çağrılır (kapı
+  `physics_reset_world_makes_history_irrelevant`).
 - **Yerel takvim günü** (2026-10-18): `yerel_gun()` / `local_day` cihazın saat dilimi ve yaz saatiyle
   1970-01-01'den beri gün sayısını döner (`localtime`). Günlük içerik bunu "bugün" diye okur. UTC günü
   Türkiye'de gece 03:00'te değişirdi. Duvar saati oyuncunun elinde: belirlenimli sim bunu **okumaz**, oyun

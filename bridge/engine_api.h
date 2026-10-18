@@ -56,6 +56,7 @@ double teng_fps(void);
 // 0 = donmus; belirlenim bozulmaz). Motor kurulmadan da cagrilabilir.
 void teng_physics_pause(int paused);
 int teng_physics_paused(void);
+int teng_physics_reset(void); // sahne bosken: Jolt dunyasi + sabit adim birikimi sifirdan (bolum gecisi belirlenimi)
 void teng_time_scale(double scale); // 0..4 (disi kirpilir + HATA)
 double teng_time_scale_get(void);
 int teng_sim_tick(void); // atilan sim adimi sayisi (durakliyken artmaz)

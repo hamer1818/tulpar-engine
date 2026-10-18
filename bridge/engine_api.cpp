@@ -388,6 +388,7 @@ struct Bridge {
   uint64_t teleports_inplace = 0; // teng_set_pos: sabit/kinematik govde YERINDE (yeniden kurulmadan)
   uint64_t teleports_rebuilt = 0; // teng_set_pos: dinamik govde yeniden kuruldu
   uint32_t phys_pauses = 0, phys_paused_frames = 0; // teng_physics_pause (kapanis raporu)
+  uint32_t phys_resets = 0;                            // teng_physics_reset (kapanis raporu)
   // --- Kare ici C++ ayirma (Geri bildirim #13) -----------------------------
   // AllocGate'in operator new sayaci (core/memory/alloc_gate_override.cpp).
   // Tulpar oyununda override eklenti paketinin yapistiricisiyla gelir
@@ -2416,6 +2417,7 @@ void teng_shutdown(void) {
           (unsigned long long)(b.model_count ? b.model_arena_bytes / 1024 / b.model_count : 0), b.model_rejected,
           (unsigned long long)(b.model_tmp_bytes / 1024), (unsigned long long)(b.model_tmp.stats().peak / 1024), b.model_tmp_fallback);
   }
+  if (b.phys_resets) BINFO("kapanis (fizik): %u sifirlama (teng_physics_reset)", b.phys_resets);
   if (b.phys_pauses || b.fs.time_scale != 1.0f)
     BINFO("kapanis (fizik): %u duraklatma, %u kare durakli (sim adimi atilmadi), zaman olcegi %.2f, %u sim adimi", b.phys_pauses,
           b.phys_paused_frames, (double)b.fs.time_scale, b.tick);
@@ -2602,6 +2604,39 @@ void teng_physics_pause(int paused) {
   BDBG("fizik %s (kare %u, sim adimi %u)", p ? "DURAKLATILDI" : "devam ediyor", g->frame, g->tick);
 }
 int teng_physics_paused(void) { return g && g->fs.paused ? 1 : 0; }
+// Fizik dunyasini ve sabit adim birikimini sifirdan kur (A6, 2026-10-18).
+// Bolum gecisinde "her bolum ayni durumdan baslar" sozlesmesinin motor yarisi:
+// Jolt govde kimlikleri (indeks + sira no) ve FixedStep birikimi gecmise
+// bagliydi; kopru carpisma/tetik olaylarini govde kimligine gore siraladigi ve
+// agir cekimin artigi birikimde kaldigi icin ayni bolum, onceki bolumler
+// oynanmis mi diye farkli sonuc veriyordu (Tuzaklar 8dg). Kosul: sahne bosaltilmis
+// ve govdeli/karakterli canli varlik YOK — varsa hicbir sey degismez, HATA + 0.
+// Korunan: zaman olcegi, duraklatma bayragi, carpisma grubu tablosu, yercekimi,
+// varlik nesilleri (eski id'ler olu kalir). Kare DISINDA cagrilir (Jolt ayirir).
+int teng_physics_reset(void) {
+  CALL("teng_physics_reset");
+  if (!ready("teng_physics_reset")) return 0;
+  Bridge &b = *g;
+  if (b.in_frame) { BERR("teng_physics_reset: kare icinde cagrildi (kare %u) — kare_bitir'den sonra cagir", b.frame); return 0; }
+  if (b.scene_ok) { BERR("teng_physics_reset: sahne yuklu — once eng_scene_unload"); return 0; }
+  uint32_t govdeli = 0, ilk = 0xFFFFFFFFu;
+  for (uint32_t i = 0; i < b.ent_high; i++) {
+    const Ent &e = b.ents[i];
+    if (!e.alive || !(e.body.valid() || e.kind == Kind::Character)) continue;
+    if (ilk == 0xFFFFFFFFu) ilk = i;
+    govdeli++;
+  }
+  if (govdeli) { BERR("teng_physics_reset: %u govdeli varlik canli (ilki #%d) — once sil", govdeli, make_id(ilk)); return 0; }
+  if (!b.phys.reset_world()) { BERR("teng_physics_reset: fizikte %u govde kaldi (kopru disi?) — sifirlanmadi", b.phys.stats().bodies); return 0; }
+  b.fs.accumulator = 0.0f;
+  b.fs.pending_steps = 0;
+  b.tetik_n = 0;
+  if (b.bmap)
+    for (uint32_t i = 0; i < b.bmap_n; i++) b.bmap[i] = Bridge::BodyMapEntry{};
+  b.phys_resets++;
+  BINFO("fizik sifirlandi (%u. kez): Jolt dunyasi yeniden kuruldu, sabit adim birikimi 0 (sim adimi %u)", b.phys_resets, b.tick);
+  return 1;
+}
 // Kare basina en cok sim adimi: olcekle birlikte (4x'e kadar 4; ustunde
 // ceil(olcek)+1). Buyuk adim YOK: hizlanma kare basina DAHA COK sabit adim
 // demek (sim::FixedStep: olcek kare suresine uygulanir, adima degil).
