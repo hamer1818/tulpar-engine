@@ -84,7 +84,12 @@ android/dist/
 *_apk/
 *.apk
 *.apk.idsig
+# Imza anahtarlari (Play yukleme anahtari dahil) hicbir depoya girmez; anahtar
+# deponun DISINDA durur, bu kaliplar yalniz son savunma hatti.
 *.keystore
+*.jks
+*.p12
+*.pfx
 
 # ==== Kayitlar ve gecici dosyalar ====
 *.log
