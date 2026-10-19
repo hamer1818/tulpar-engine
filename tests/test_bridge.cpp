@@ -4080,6 +4080,111 @@ ENGINE_TEST(bridge_local_day_matches_platform) {
   CHECK(a > 20000);              // 2024 sonrasi (duvar saati gercekten okunuyor)
 }
 
+// --- teng_physics_reset (fizik_sifirla; A6 2026-10-18, Tuzaklar 8dg) — KOPRU yarisi -------------
+// physics_reset_world_makes_history_irrelevant sim::Physics'i olcer; bu kapi koprunun sozlesmesini
+// olcer (A13 incelemesi, 2026-10-19: koprude testi yoktu). Iddia: (1) govdeli canli varlik varken ve
+// kare icindeyken REDDEDER (0 + HATA, hicbir sey degismez); (2) kabul edince bir sonraki "bolum"
+// ayni surecte gecmis oynanmis olsa da taze oturumla BIT-TAM ayni sonucu verir. Pozitif kontrol:
+// ret yollari hata sayacini gercekten artiriyor (kabul yolu artirmiyor) ve ayni gecmis
+// SIFIRLAMASIZ kosulunca bolum farkli cikiyor (kapi gecmise bagliligi gercekten goruyor). Olculdu
+// (RTX 5080 makinesi / Linux x86_64, 2026-10-19): taze ve gecmis+sifirla top (2.777236 0.390445
+// 1.562242), 20 temas; sifirlamasiz (2.829632 0.396390 1.438198), 23 temas.
+namespace {
+struct SifirIz {
+  double x = 0, y = 0, z = 0;
+  uint64_t h = 0;
+  int carp = 0;
+};
+SifirIz sifir_bolumu() {
+  SifirIz iz{};
+  int ids[9];
+  int n = 0;
+  ids[n++] = teng_spawn_ground(20, 0xffffffff);
+  const int top = teng_spawn_sphere(0.3, 3.0, 0.1, 0.4, 1, 0xff0000ff);
+  ids[n++] = top;
+  for (int i = 0; i < 7; i++)
+    ids[n++] = teng_spawn_box((double)(i % 3) * 0.3, 1.0 + (double)i * 1.05, (double)(i % 2) * 0.2, 0.3, 0.3, 0.3, 1, 0x00ff00ff);
+  teng_set_velocity(top, 1.5, 0, 0.25);
+  uint64_t h = 1469598103934665603ull;
+  for (int k = 0; k < 120; k++) {
+    run_frames(1);
+    const int c = teng_collision_count();
+    iz.carp += c;
+    // Varlik id'si nesil etiketli ve gecmise bagli (yuva/nesil): ozete BOLUM ICI sira girer.
+    for (int i = 0; i < c; i++) {
+      const int a = teng_collision_a(i), b = teng_collision_b(i);
+      int ia = -1, ib = -1;
+      for (int j = 0; j < n; j++) { if (ids[j] == a) ia = j; if (ids[j] == b) ib = j; }
+      h = (h ^ (uint64_t)(uint32_t)(ia * 16 + ib + 17)) * 1099511628211ull;
+    }
+  }
+  for (int i = 1; i < n; i++) {
+    double p[3] = {teng_x(ids[i]), teng_y(ids[i]), teng_z(ids[i])};
+    uint64_t b[3];
+    std::memcpy(b, p, sizeof b);
+    for (uint64_t v : b) h = (h ^ v) * 1099511628211ull;
+  }
+  iz.x = teng_x(top);
+  iz.y = teng_y(top);
+  iz.z = teng_z(top);
+  iz.h = h;
+  for (int i = 0; i < n; i++) teng_despawn(ids[i]);
+  return iz;
+}
+// Gecmis: 30 kutu kurulur, 20 kare, karisik sirayla silinir.
+void sifir_gecmisi() {
+  int ids[30];
+  for (int i = 0; i < 30; i++) ids[i] = teng_spawn_box((double)(i % 6), 2.0 + (double)(i / 6), 0, 0.3, 0.3, 0.3, 1, 0x0000ffff);
+  run_frames(20);
+  for (int i = 1; i < 30; i += 2) teng_despawn(ids[i]);
+  for (int i = 28; i >= 0; i -= 2) teng_despawn(ids[i]);
+}
+} // namespace
+
+ENGINE_TEST(bridge_physics_reset_refuses_live_bodies_and_restores_fresh_world) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("fizik sifirlama (taze)", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const SifirIz taze = sifir_bolumu();
+  teng_shutdown();
+
+  teng_set_headless(100000, nullptr);
+  CHECK(teng_init("fizik sifirlama (gecmis + sifirla)", kW, kH));
+  sifir_gecmisi();
+  const int e0 = teng_error_count();
+  const int canli = teng_spawn_box(0, 3, 0, 0.3, 0.3, 0.3, 1, 0xffffffff);
+  const int ret_canli = teng_physics_reset();
+  const int e1 = teng_error_count();
+  teng_despawn(canli);
+  teng_frame_begin();
+  const int ret_kare = teng_physics_reset();
+  teng_frame_end();
+  const int e2 = teng_error_count();
+  const int kabul = teng_physics_reset();
+  const int e3 = teng_error_count();
+  const SifirIz sif = sifir_bolumu();
+  teng_shutdown();
+
+  teng_set_headless(100000, nullptr);
+  CHECK(teng_init("fizik sifirlama (gecmis, sifirlamasiz kontrol)", kW, kH));
+  sifir_gecmisi();
+  const SifirIz ham = sifir_bolumu();
+  teng_shutdown();
+
+  std::printf("    [bilgi] fizik_sifirla: taze top (%.6f %.6f %.6f) ozet %016llx carp %d | gecmis+sifirla (%.6f %.6f %.6f) %016llx %d | "
+              "gecmis, sifirlamasiz (%.6f %.6f %.6f) %016llx %d | ret canli/kare %d/%d, kabul %d, hata +%d/+%d/+%d\n",
+              taze.x, taze.y, taze.z, (unsigned long long)taze.h, taze.carp, sif.x, sif.y, sif.z, (unsigned long long)sif.h, sif.carp, ham.x,
+              ham.y, ham.z, (unsigned long long)ham.h, ham.carp, ret_canli, ret_kare, kabul, e1 - e0, e2 - e1, e3 - e2);
+  CHECK(ret_canli == 0 && e1 == e0 + 1); // govdeli varlik canli: ret + HATA
+  CHECK(ret_kare == 0 && e2 == e1 + 1);  // kare icinde: ret + HATA
+  CHECK(kabul == 1 && e3 == e2);         // bos dunya, kare disi: kabul, hata yok
+  CHECK(taze.carp > 0);                  // bolum gercekten temas uretiyor (ozet bos degil)
+  CHECK(sif.x == taze.x && sif.y == taze.y && sif.z == taze.z && sif.h == taze.h && sif.carp == taze.carp);
+  CHECK(ham.h != taze.h); // pozitif kontrol: sifirlamasiz gecmis bolumu gercekten degistiriyor
+}
+
 // teng_image_load yol anahtari (A13 incelemesi, 2026-10-19): yuva yolu 128 bayttı ve kesiliyordu —
 // ayni 127+ karakterlik yol her cagrida yeni yuva aliyordu (olculdu: TMPDIR scratchpad'de
 // bridge_ui_image_draws_srgb_png_like_rect "ayni yol ayni tutamac" DUSTU, kisa TMPDIR'de gecti).
