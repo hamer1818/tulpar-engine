@@ -662,7 +662,10 @@ struct Bridge {
     renderer::MaterialHandle mat;
     uint32_t w = 0, h = 0;
     bool opaque = false;
-    char path[128] = {0};
+    // Ayni yol ayni tutamac: anahtar TAM yol. 128 baytti ve snprintf sessizce kesiyordu;
+    // 127+ karakterlik yol (uzun TMPDIR, derin depo dizini) her cagrida YENI yuva aliyordu
+    // ve 32'lik tavan doluyordu (A13 incelemesi, 2026-10-19, olculdu). Sigmayan yol REDDEDILIR.
+    char path[512] = {0};
   };
   ImageSlot images[kMaxImages];
   uint32_t image_count = 0, image_rejected = 0;
@@ -3783,6 +3786,11 @@ int teng_image_load(const char *path) {
   Bridge &b = *g;
   for (uint32_t i = 0; i < b.image_count; i++)
     if (std::strcmp(b.images[i].path, path) == 0) { BDBG("resim %u yeniden kullanildi: %s", i, path); return (int)i; }
+  if (std::strlen(path) >= sizeof b.images[0].path) {
+    b.image_rejected++;
+    BERR("teng_image_load: yol cok uzun (%u bayt, en cok %u): %.80s...", (unsigned)std::strlen(path), (unsigned)sizeof b.images[0].path - 1, path);
+    return -1;
+  }
   if (b.image_count >= kMaxImages) { b.image_rejected++; BERR("teng_image_load: resim kapasitesi dolu (%u): %s", kMaxImages, path); return -1; }
   content::ImageRgba img;
   char err[128] = {0};

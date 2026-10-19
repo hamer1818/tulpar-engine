@@ -3995,3 +3995,44 @@ ENGINE_TEST(bridge_drawn_height_follows_scale_and_visibility) {
   CHECK(h_olu == 0.0 && teng_error_count() == e0 + 1);
   teng_shutdown();
 }
+
+// teng_image_load yol anahtari (A13 incelemesi, 2026-10-19): yuva yolu 128 bayttı ve kesiliyordu —
+// ayni 127+ karakterlik yol her cagrida yeni yuva aliyordu (olculdu: TMPDIR scratchpad'de
+// bridge_ui_image_draws_srgb_png_like_rect "ayni yol ayni tutamac" DUSTU, kisa TMPDIR'de gecti).
+// Kapi: ~300 karakterlik yol ("/." tekrari, her platformda gecerli) ayni tutamaci verir; yuvaya
+// sigmayan yol HATA + -1 (sessiz kesme yok). Pozitif kontrol: ayni dosyanin KISA yolu farkli
+// anahtar -> farkli tutamac (karsilastirma gercekten yolu olcuyor).
+ENGINE_TEST(bridge_image_long_path_dedups_and_rejects_overflow) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("uzun resim yolu", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  char dir[512], kisa[600];
+  static char uzun[1400], asiri[1400];
+  CHECK(tmp_mkdir(dir, sizeof dir, "uzun_yol"));
+  std::snprintf(kisa, sizeof kisa, "%s/a.png", dir);
+  uint8_t rgba[2 * 2 * 4];
+  for (int i = 0; i < 16; i++) rgba[i] = (uint8_t)(i * 16);
+  CHECK(png_yaz(kisa, 2, 2, rgba));
+  int n = std::snprintf(uzun, sizeof uzun, "%s", dir);
+  while (n < 300) n += std::snprintf(uzun + n, sizeof uzun - (size_t)n, "/.");
+  std::snprintf(uzun + n, sizeof uzun - (size_t)n, "/a.png");
+  n = std::snprintf(asiri, sizeof asiri, "%s", dir);
+  while (n < 700) n += std::snprintf(asiri + n, sizeof asiri - (size_t)n, "/.");
+  std::snprintf(asiri + n, sizeof asiri - (size_t)n, "/a.png");
+  const int e0 = teng_error_count();
+  const int a = teng_image_load(uzun);
+  const int b = teng_image_load(uzun);
+  const int k = teng_image_load(kisa);
+  const int e1 = teng_error_count();
+  const int x = teng_image_load(asiri);
+  const int e2 = teng_error_count();
+  std::printf("    [bilgi] uzun yol %u bayt -> %d/%d, kisa yol -> %d, %u bayt -> %d (hata +%d)\n", (unsigned)std::strlen(uzun), a, b, k,
+              (unsigned)std::strlen(asiri), x, e2 - e1);
+  CHECK(a >= 0 && b == a);         // ayni uzun yol ayni tutamac
+  CHECK(k >= 0 && k != a);         // pozitif kontrol: farkli yol dizgisi farkli anahtar
+  CHECK(e1 == e0);
+  CHECK(x == -1 && e2 == e1 + 1);  // sigmayan yol: HATA + -1, kesilip yuklenmez
+  teng_shutdown();
+}
