@@ -323,6 +323,7 @@ SPEC = [
     ("eng_ui_panel", "void", [("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "Menu/HUD zemini (renk 0 = tema paneli). eng_ui_begin gerektirmez."),
     ("eng_ui_label", "void", [("s", "str"), ("x", "num"), ("y", "num"), ("scale", "num"), ("color", "color")], "Arayuz metni (renk 0 = tema yazi rengi). eng_ui_begin gerektirmez."),
     ("eng_ui_button", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Dugme: bu karede tiklandiysa true (basma VE birakma dugmenin icinde). Kimlik etiketten turer."),
+    ("eng_ui_hit", "int", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Cizimsiz dokunma alani (arayuz kiti): dugme mantigi, cizim YOK. Bit maskesi: 1 tiklandi, 2 basili tutuluyor, 4 isaretci ustunde; devre disiyken 0. Tiklama sayacina girer."),
     ("eng_ui_checkbox", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "flag")], "Onay kutusu. Donus YENI degerdir (degisen yoksa gelen deger) — betik geri yazar."),
     ("eng_ui_slider", "float", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "num"), ("min_v", "num"), ("max_v", "num")], "Kaydirici. Donus YENI degerdir (surukleme sirasinda her kare gunceller); aralik gecersizse hata + gelen deger."),
     ("eng_ui_text_shrunk", "int", [], "Kac dugme/etiket cizimi kutuya sigsin diye KUCULTULDU (cizim basina birikir)."),

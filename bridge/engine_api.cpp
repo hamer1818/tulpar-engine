@@ -4058,6 +4058,24 @@ int teng_ui_button(const char *label, double x, double y, double w, double h) {
   ui_text_box(label, x, y, w, h, en ? u.c_text : ui_shade(u.c_text, 0.55), 0, ui_scale(h));
   return clicked ? 1 : 0;
 }
+int teng_ui_hit(const char *label, double x, double y, double w, double h) {
+  CALLF("teng_ui_hit", "\"%s\" (%.0f %.0f %.0f %.0f)", label ? label : "", x, y, w, h);
+  if (!ui_frame("teng_ui_hit")) return 0;
+  Ui &u = g->ui;
+  if (w <= 0 || h <= 0) { BERR("teng_ui_hit: \"%s\" olculeri pozitif olmali (%.1fx%.1f)", label ? label : "", w, h); return 0; }
+  const uint32_t id = ui_use(label, 4, "teng_ui_hit");
+  if (!u.enabled) return 0;
+  const bool inside = ui_hit(x, y, w, h);
+  int r = 0;
+  if (inside) { u.hot = id; r |= 4; }
+  if (inside && u.pressed) u.active = id;
+  if (u.active == id && u.released) {
+    u.active = 0;
+    if (inside) { r |= 1; u.clicks++; BDBG("ui: \"%s\" alani tiklandi (%u. etkinlestirme)", label ? label : "", u.clicks); }
+  }
+  if (u.active == id && u.down) r |= 2;
+  return r;
+}
 int teng_ui_checkbox(const char *label, double x, double y, double w, double h, int value) {
   CALLF("teng_ui_checkbox", "\"%s\" (%.0f %.0f %.0f %.0f) %d", label ? label : "", x, y, w, h, value);
   if (!ui_frame("teng_ui_checkbox")) return value ? 1 : 0;

@@ -478,6 +478,11 @@ int teng_ui_button(const char *label, double x, double y, double w, double h);  
 int teng_ui_checkbox(const char *label, double x, double y, double w, double h, int value); // YENI deger
 double teng_ui_slider(const char *label, double x, double y, double w, double h, double value, double min_v, double max_v); // YENI deger
 int teng_ui_active(void);
+// Cizimsiz dokunma alani (arayuz kiti): dugmenin mantigi (kimlik, basma/birakma, enjeksiyon,
+// devre disi, tiklama sayaci) ama HICBIR SEY cizmez — gorunusu betik resim/dikdortgenle kurar.
+// Donus bit maskesi: 1 bu karede tiklandi, 2 basili tutuluyor (basma bu alanda basladi ve
+// isaretci hala asagida), 4 isaretci alanin ustunde. Devre disiyken 0.
+int teng_ui_hit(const char *label, double x, double y, double w, double h);
 // Etiket sigdirma sayaclari (Geri bildirim #15), CIZIM basina birikir: yazi kutuya
 // yukseklikten gelen olcekle sigmadi -> kucultuldu; en az olcekte (yuksekligin
 // %55'i) de sigmadi -> "..." ile kirpildi (ilk kirpma UYARI).
