@@ -903,6 +903,9 @@ func safe_left(): int { return eng_safe_inset_left(); }
 func safe_top(): int { return eng_safe_inset_top(); }
 func safe_right(): int { return eng_safe_inset_right(); }
 func safe_bottom(): int { return eng_safe_inset_bottom(); }
+// TEST/olcum: guvenli alan taklidi (penceresizde centik; sonraki kare basindan). Dordu -1 = kapali.
+func guvenli_taklit(int sol, int ust, int sag, int alt) { eng_debug_safe_insets(sol, ust, sag, alt); }
+func debug_safe_insets(int left, int top, int right, int bottom) { eng_debug_safe_insets(left, top, right, bottom); }
 func key(name): bool { return eng_key_down(name); }
 func dokunus_sayisi(): int { return eng_touch_count(); }
 func cubuk_x(): float { return eng_stick_x(); }

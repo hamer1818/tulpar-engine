@@ -150,6 +150,7 @@
     {"name": "eng_safe_inset_top", "symbol": "teng_safe_inset_top", "returns": "i32", "doc": "Guvenli alan: UST kenardan bosluk (piksel; yoksa 0)."},
     {"name": "eng_safe_inset_right", "symbol": "teng_safe_inset_right", "returns": "i32", "doc": "Guvenli alan: SAG kenardan bosluk (piksel; yoksa 0)."},
     {"name": "eng_safe_inset_bottom", "symbol": "teng_safe_inset_bottom", "returns": "i32", "doc": "Guvenli alan: ALT kenardan bosluk (piksel; yoksa 0). Android'de pencere centige ancak tulpar.toml [android] cutout = \"short_edges\" ile uzanir."},
+    {"name": "eng_debug_safe_insets", "symbol": "teng_debug_safe_insets", "params": ["left: i32", "top: i32", "right: i32", "bottom: i32"], "doc": "TEST/olcum: guvenli alani taklit eder (penceresiz kipte centikli telefon yerlesimi; host degerinin yerine gecer). Bir sonraki kare basindan gecerli; dordu de -1 = taklit kapali."},
     {"name": "eng_touch_count", "symbol": "teng_touch_count", "returns": "i32", "doc": "Ekrandaki parmak sayisi (masaustunde 0; TULPAR_ENGINE_DOKUNMATIK=1 ile fare = parmak 0)."},
     {"name": "eng_touch_x", "symbol": "teng_touch_x", "params": ["i: i32"], "returns": "f64", "doc": "i. parmagin x'i (piksel)."},
     {"name": "eng_touch_y", "symbol": "teng_touch_y", "params": ["i: i32"], "returns": "f64", "doc": "i. parmagin y'si (piksel)."},

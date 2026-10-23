@@ -201,6 +201,7 @@ SPEC = [
     ("eng_safe_inset_top", "int", [], "Guvenli alan: UST kenardan bosluk (piksel; yoksa 0)."),
     ("eng_safe_inset_right", "int", [], "Guvenli alan: SAG kenardan bosluk (piksel; yoksa 0)."),
     ("eng_safe_inset_bottom", "int", [], "Guvenli alan: ALT kenardan bosluk (piksel; yoksa 0). Android'de pencere centige ancak tulpar.toml [android] cutout = \"short_edges\" ile uzanir."),
+    ("eng_debug_safe_insets", "void", [("left", "int"), ("top", "int"), ("right", "int"), ("bottom", "int")], "TEST/olcum: guvenli alani taklit eder (penceresiz kipte centikli telefon yerlesimi; host degerinin yerine gecer). Bir sonraki kare basindan gecerli; dordu de -1 = taklit kapali."),
     ("eng_touch_count", "int", [], "Ekrandaki parmak sayisi (masaustunde 0; TULPAR_ENGINE_DOKUNMATIK=1 ile fare = parmak 0)."),
     ("eng_touch_x", "float", [("i", "int")], "i. parmagin x'i (piksel)."),
     ("eng_touch_y", "float", [("i", "int")], "i. parmagin y'si (piksel)."),
