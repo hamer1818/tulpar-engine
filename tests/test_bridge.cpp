@@ -2859,6 +2859,17 @@ bool kare_kirmizi(const char *ad, double sx, double sy, bool *okundu) {
 }
 } // namespace
 
+// Ekran goruntusunu (penceresiz) bellege al; okunamazsa w = h = 0.
+static void ekran_al(const char *ad, uint8_t *px, uint32_t *w, uint32_t *h) {
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  *w = 0; *h = 0;
+  if (teng_screenshot(shot) != 1 || read_ppm(shot, px, kW * kH, w, h) != kW * kH) { *w = 0; *h = 0; }
+  std::remove(shot);
+}
+
 ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   rhi::VkApi api;
   if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
@@ -2912,6 +2923,107 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   CHECK(std::fabs(sx[1] - sx[0]) > 10.0); // fov gercekten degisti
   if (sanal) skip("sanal GPU (Apple Paravirtual, CI macOS): izdusumun PIKSEL dogrulamasi gercek cihazda olculur");
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
+  teng_shutdown();
+}
+
+// --- N2c: yatay kamera aynasi (ag 1v1 katilani kendi kalesini solda gorur) -----
+// Iddia (bizim kod): ayna acikken 3B sahne, aynasiz karenin YATAY CEVRIGI olur
+// (isik/golge dunya uzayinda, yalniz ekran cevrilir); HUD cevrilmez; dunya->ekran
+// x'i w - x olur ve ayni noktadan secme ayni varligi bulur. Olcu: asimetrik sahne
+// (kirmizi kure solda, mavi kutu sagda-yukarida). Kenar pikselleri rasterlestirme
+// kuralindan (sol-ust) farkli olabilir: esik %1. POZITIF KONTROLLER: (1) sarimi
+// DUZ boru hatlariyla ayna (TULPAR_ENGINE_AYNA_SARIM_ESKI=1) -> tek yuzlu zemin
+// ayiklanir, fark buyuk; (2) aynasiz konumdan aynali secme kureyi ISKALAR;
+// (3) ayna kapaninca kare aynasiz kareyle bayt bayt ayni (gecis olcuyor).
+namespace {
+uint8_t g_ayna_a[kW * kH * 3], g_ayna_b[kW * kH * 3], g_ayna_c[kW * kH * 3], g_ayna_d[kW * kH * 3];
+void ayna_kare(uint8_t *px, uint32_t *w, uint32_t *h) {
+  for (int i = 0; i < 2; i++) {
+    teng_frame_begin();
+    teng_rect(10, 10, 30, 20, 0x20E040FF);
+    teng_frame_end();
+  }
+  ekran_al("ayna", px, w, h);
+}
+bool hud_bolgesi(uint32_t x, uint32_t y) { return y >= 8 && y < 32 && ((x >= 8 && x < 42) || (x >= kW - 42 && x < kW - 8)); }
+// b ile a'nin yatay cevriginin farkli piksel orani (HUD bolgeleri haric)
+double cevrik_fark(const uint8_t *a, const uint8_t *b) {
+  uint32_t n = 0, fark = 0;
+  for (uint32_t y = 0; y < kH; y++)
+    for (uint32_t x = 0; x < kW; x++) {
+      if (hud_bolgesi(x, y)) continue;
+      const uint8_t *pa = a + ((size_t)y * kW + (kW - 1 - x)) * 3, *pb = b + ((size_t)y * kW + x) * 3;
+      n++;
+      if (std::abs(pa[0] - pb[0]) > 40 || std::abs(pa[1] - pb[1]) > 40 || std::abs(pa[2] - pb[2]) > 40) fark++;
+    }
+  return n ? (double)fark / n : 1.0;
+}
+bool yesil_mi(const uint8_t *px, uint32_t x, uint32_t y) {
+  const uint8_t *p = px + ((size_t)y * kW + x) * 3;
+  return p[1] > 150 && p[0] < 90 && p[2] < 110;
+}
+} // namespace
+
+ENGINE_TEST(bridge_camera_mirror_flips_scene_not_hud_pick_consistent) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  unsetenv("TULPAR_ENGINE_AYNA_SARIM_ESKI");
+  if (!teng_init("kamera aynasi kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_camera_mirror_get() == 0);
+  teng_spawn_ground(20, 0x606060ff);
+  const double cx = -3.0, cy = 1.2, cz = -2.0;
+  const int top = teng_spawn_sphere(cx, cy, cz, 0.8, 0, 0xff0000ff);
+  teng_spawn_box(2.5, 2.0, -1.0, 0.8, 0.8, 0.8, 0, 0x2040ffff);
+  teng_camera(0, 3, 8, 0, 1, 0);
+  run_frames(2);
+  uint32_t w = 0, h = 0;
+  // A: aynasiz
+  ayna_kare(g_ayna_a, &w, &h);
+  CHECK(w == kW && h == kH);
+  CHECK(teng_world_to_screen(cx, cy, cz) == 1);
+  const double ax = teng_screen_x(), ay = teng_screen_y();
+  teng_pick(ax, ay, 50);
+  const int pick_a = teng_ray_id();
+  // B: aynali
+  CHECK(teng_camera_mirror(1) == 1 && teng_camera_mirror_get() == 1);
+  ayna_kare(g_ayna_b, &w, &h);
+  CHECK(teng_world_to_screen(cx, cy, cz) == 1);
+  const double bx = teng_screen_x(), by = teng_screen_y();
+  teng_pick(bx, by, 50);
+  const int pick_b = teng_ray_id();
+  teng_pick(ax, ay, 50); // KONTROL: aynasiz konum aynada bos zemin
+  const int pick_eski = teng_ray_id();
+  // C: KONTROL — ayna acik, sarim duz
+  setenv("TULPAR_ENGINE_AYNA_SARIM_ESKI", "1", 1);
+  CHECK(teng_camera_mirror(1) == 1);
+  ayna_kare(g_ayna_c, &w, &h);
+  unsetenv("TULPAR_ENGINE_AYNA_SARIM_ESKI");
+  // D: KONTROL — ayna kapali
+  CHECK(teng_camera_mirror(0) == 0 && teng_camera_mirror_get() == 0);
+  ayna_kare(g_ayna_d, &w, &h);
+  const double f_b = cevrik_fark(g_ayna_a, g_ayna_b), f_c = cevrik_fark(g_ayna_a, g_ayna_c), f_a = cevrik_fark(g_ayna_a, g_ayna_a);
+  uint32_t ad_fark = 0;
+  for (uint32_t i = 0; i < kW * kH * 3; i++) ad_fark += g_ayna_a[i] != g_ayna_d[i];
+  const bool sanal = test::gpu_is_virtual(teng_gpu_name());
+  std::printf("    [bilgi] ayna: kure aynasiz (%.2f %.2f) secme #%d | aynali (%.2f %.2f) secme #%d (kure #%d), eski konum #%d | cevrik fark aynali %.4f, "
+              "KONTROL sarim duz %.4f, KONTROL aynasiz-kendi %.4f, kapaninca bayt farki %u | HUD sol %d/%d sag %d\n",
+              ax, ay, pick_a, bx, by, pick_b, top, pick_eski, f_b, f_c, f_a, ad_fark, yesil_mi(g_ayna_a, 25, 20), yesil_mi(g_ayna_b, 25, 20),
+              yesil_mi(g_ayna_b, kW - 25, 20));
+  CHECK(pick_a == top && pick_b == top && pick_eski != top);
+  CHECK(std::fabs(bx - (kW - ax)) < 0.05 && std::fabs(by - ay) < 0.05);
+  CHECK(std::fabs(ax - kW * 0.5) > 40.0); // kure merkezde degil: ayna gercekten tasidi
+  CHECK(teng_error_count() == e0);
+  if (sanal) skip("sanal GPU (Apple Paravirtual, CI macOS): aynanin PIKSEL dogrulamasi gercek cihazda olculur");
+  else {
+    CHECK(f_b < 0.01);   // aynali kare = aynasiz karenin yatay cevrigi
+    CHECK(f_a > 0.05);   // KONTROL: sahne asimetrik (cevirmeden esit degil)
+    CHECK(f_c > 0.05);   // KONTROL: sarim duz -> on yuzler ayiklanir
+    CHECK(ad_fark == 0); // KONTROL: kapaninca ayni kare
+    CHECK(yesil_mi(g_ayna_a, 25, 20) && yesil_mi(g_ayna_b, 25, 20) && !yesil_mi(g_ayna_b, kW - 25, 20)); // HUD cevrilmez
+  }
   teng_shutdown();
 }
 

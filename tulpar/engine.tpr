@@ -516,6 +516,10 @@ func isin_id(): int { return eng_ray_id(); }
 func gorus_acisi(float derece) { eng_camera_fov(derece); }
 func camera_fov(float deg) { eng_camera_fov(deg); }
 func gorus_acisi_al(): float { return eng_camera_fov_get(); }
+// Yatay ayna (N2c): sahne soldan saga cevrik, HUD duz; dokunus/izdusum ayni aynada.
+func kamera_ayna(bool acik): bool { return eng_camera_mirror(acik); }
+func camera_mirror(bool on): bool { return eng_camera_mirror(on); }
+func kamera_ayna_mi(): bool { return eng_camera_mirror_get(); }
 func camera_fov_get(): float { return eng_camera_fov_get(); }
 // Dokunulan noktadaki varlik: mesafe (-1 iska); sonra isin_id() / isin_sahne() / isin_x()..
 func ekrandan_sec(float sx, float sy, float uzaklik): float { return eng_pick(sx, sy, uzaklik); }

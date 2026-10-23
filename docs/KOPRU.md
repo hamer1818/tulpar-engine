@@ -231,6 +231,21 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   (2026-10-08, Tuzaklar 8cy): aynı derinlikteki birlik ekranın ortasında da kenarında da aynı seviyeyi
   alır. Eşikler (varlık 20 / 45 m, sahne 24 / 34 m) ekranın ortasında eskisiyle aynı; `gorus_acisi`
   daraltılınca (yakınlaştırma) model ekranda büyüdüğü için daha ince LOD seçilir.
+- **Yatay kamera aynası** (N2c, 2026-10-23): `kamera_ayna(acik)` / `eng_camera_mirror` 3B sahneyi ekranda
+  soldan sağa çevirir; HUD ve metin çevrilmez. Ağ 1v1'de katılan oyuncu kendi kalesini solda görsün diye var:
+  kamera aynı yerde kalır, sim aynalanmaz. Ayna GÖRÜNÜM matrisine girer (`view' = S(-1,1,1)·view`), Android
+  ön-döndürmesi ve jitter clip uzayında kalır. Işık, gölge ve kamera konumu dünya uzayında olduğu için aynalı
+  kare, aynasız karenin piksel piksel yatay çevriğidir. Aynalama üçgen sarımını ters çevirir: arka yüz ayıklamalı
+  sahne boru hatlarının (statik / iskeletli / dolaylı; derinlik + renk) CW ikizleri ilk açılışta bir kez kurulur
+  (6 PSO). Gölge geçişi ışık uzayındadır, aynadan etkilenmez. `ekrandan_sec` / `ekran_isini` / `dunyadan_ekrana`
+  aynı aynayı `cam_frame`'den (sağ vektör ters) kullanır: dokunuş ile izdüşüm tutarlıdır. Kapı:
+  `bridge_camera_mirror_flips_scene_not_hud_pick_consistent`. Aynalı karenin aynasız karenin çevriğinden farkı
+  0.0000. Seçme aynı varlığı buluyor ve x = w − x. Pozitif kontroller:
+  - sarımı DÜZ boru hatlarıyla ayna (`TULPAR_ENGINE_AYNA_SARIM_ESKI=1`): fark 0.296, tek yüzlü zemin ayıklanıyor
+  - aynasız konumdan seçme ıskalıyor
+  - ayna kapanınca 0 bayt fark
+
+  Ölçüm: RTX 5080, 2026-10-23. Hareket vektörü geçişi (temporal; köprü açmıyor) aynalanmaz.
 - **Kare içi C++ ayırma** (Geri bildirim #13): AllocGate'in `operator new` sayacı Tulpar oyununa eklenti
   yapıştırıcısıyla gelir (`libengine_tulpar.a` / `libtulpar_engine_android.a` içinde
   `core/memory/alloc_gate_override.cpp`; yapıştırıcı onun işaretine başvurur, yani arşivden her zaman çekilir).

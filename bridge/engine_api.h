@@ -102,6 +102,12 @@ void teng_camera_orbit(double tx, double ty, double tz, double yaw, double pitch
 // dunya->ekran AYNI degeri kullanir: oyun izdusumu kopyalamasin (Geri bildirim #12).
 void teng_camera_fov(double deg);
 double teng_camera_fov_get(void);
+// Yatay kamera aynasi (ag 1v1 katilani kendi kalesini solda gorsun): 3B sahne
+// ekranda soldan saga cevrilir, HUD/metin cevrilmez; teng_screen_ray / teng_pick /
+// teng_world_to_screen ayni aynayi kullanir (dokunus ve izdusum tutarli).
+// 1 = ayna acik; 0 = kapali ya da acilamadi (sarimi ters boru hatlari, hata loglanir).
+int teng_camera_mirror(int on);
+int teng_camera_mirror_get(void);
 // Ekran noktasindan (teng_width/teng_height pikseli = dokunma/fare koordinati,
 // sol ust 0,0) dunyaya isin: hesapla (1 basari), sonra _ox.._dz oku (birim yon).
 int teng_screen_ray(double sx, double sy);

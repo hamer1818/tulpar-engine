@@ -418,6 +418,23 @@ public:
   MaterialHandle default_material() const { return default_material_; }
 
   void set_camera(const Mat4 &view, const Mat4 &proj);
+  // YATAY AYNA (N2c, ag 1v1 katilani "kendi kalesini solda gorur"): sahne
+  // ekranda soldan saga cevrilir. Ayna GORUNUM matrisine (view' = S(-1,1,1) *
+  // view) girer, projeksiyona degil: Android on-dondurmesi (proj = R * P) ve
+  // jitter clip uzayinda kalir, kume/isik/godray matrisleri ayni view_'i
+  // okudugu icin tutarli, shader'in kamera konumu (camera_world) degismez.
+  // Ayna ucgen sarimini ters cevirir: arka yuz ayiklamali sahne boru hatlarinin
+  // (statik / iskeletli / dolayli, derinlik + renk) SARIMI TERS (CW) ikizleri
+  // ILK acilista bir kez kurulur ve kapanista birakilir. Golge gecisi isik
+  // uzayinda, aynadan etkilenmez. false: ikiz boru hatti kurulamadi, ayna
+  // KAPALI kalir (sebep mirror_error()). Kare DISINDA cagrilir.
+  // Hareket vektoru gecisi (temporal, kopru acmiyor) aynalanmaz.
+  bool set_mirror_x(bool on);
+  bool mirror_x() const { return mirror_x_; }
+  const char *mirror_error() const { return mirror_err_; }
+  // POZITIF KONTROL (testler): ayna acik ama sarimi DUZ boru hatlariyla
+  // ciz — on yuzler ayiklanir, kapinin sarimi gercekten olctugunu gosterir.
+  void debug_mirror_keep_winding(bool on) { mirror_keep_winding_ = on; }
   void set_light(Vec3 dir, Vec3 ambient, float diffuse_scale);
   Vec3 ambient() const { return ambient_; } // son set_light degeri (GI kapisi okur)
   // Kume gridi framebuffer uzayinda: hedefin olcusu (swapchain goruntusu / offscreen).
@@ -772,8 +789,9 @@ private:
   bool make_pipelines(VkRenderPass rp);
   // main_vs/shadow_vs: bu kumede kullanilacak vertex shader'lari (statik,
   // iskeletli ya da DOLAYLI yolun kendi shader'i).
+  // front_ccw = false: aynali ikiz (sarim CW). shadow == nullptr: golge kurulmaz.
   bool make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule main_vs, VkShaderModule shadow_vs_mod,
-                         VkPipeline *depth, VkPipeline *color, VkPipeline *shadow);
+                         VkPipeline *depth, VkPipeline *color, VkPipeline *shadow, bool front_ccw = true);
   bool make_shadow(); // render pass + goruntu + sampler + boru hatti
   static Mat4 cascade_matrix(Vec3 dir, Vec3 center, float radius, float depth, uint32_t tile);
   MaterialHandle create_material_impl(TextureHandle albedo, Vec3 color, const PbrParams &pbr, bool is_pbr,
@@ -863,6 +881,18 @@ private:
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipe_depth_ = VK_NULL_HANDLE, pipe_color_ = VK_NULL_HANDLE;
+  // Yatay ayna (set_mirror_x): sarimi ters ikizler, ilk acilista kurulur.
+  VkRenderPass scene_rp_ = VK_NULL_HANDLE; // make_pipelines'in render pass'i (ikizler ayni pass'e)
+  VkPipeline pipe_m_depth_ = VK_NULL_HANDLE, pipe_m_color_ = VK_NULL_HANDLE;
+  VkPipeline pipe_m_skin_depth_ = VK_NULL_HANDLE, pipe_m_skin_color_ = VK_NULL_HANDLE;
+  VkPipeline pipe_m_cull_depth_ = VK_NULL_HANDLE, pipe_m_cull_color_ = VK_NULL_HANDLE;
+  bool mirror_x_ = false, mirror_built_ = false, mirror_keep_winding_ = false;
+  VkPipeline scene_pipe(bool skinned, int pass) const {
+    const bool m = mirror_x_ && !mirror_keep_winding_;
+    if (skinned) return pass == 0 ? (m ? pipe_m_skin_depth_ : pipe_skin_depth_) : (m ? pipe_m_skin_color_ : pipe_skin_color_);
+    return pass == 0 ? (m ? pipe_m_depth_ : pipe_depth_) : (m ? pipe_m_color_ : pipe_color_);
+  }
+  const char *mirror_err_ = "";
   VkDescriptorPool pool_ = VK_NULL_HANDLE;
   static constexpr uint32_t kMaxFrames = 3;
   VkBuffer ubo_[kMaxFrames] = {};

@@ -2144,3 +2144,23 @@ KONTROL `TULPAR_KKS_BOSS_BUYUME_YOK=1` → Koca Yumru 0.11.
 durum (boss, araba, pilon) düzeltmeyi de çıkarır. "Yüklendi, doğdu, görünür, hata yok" görünürlüğü kanıtlamaz:
 çizilen boyu ölç.
 
+### 8dk. Ekranı aynalamak üçgen sarımını ters çevirir; ayna kameradan "taklit" edilirse sahnenin arkası görünür
+
+**Belirti (N2b, 2026-10-23):** ağ 1v1'de katılan oyuncu kendi kalesini solda görsün diye kamera şeridin öbür
+yanına alındı. Bu ayna değil, 180 derece dönüştür. Sahne tek yönden bakılmak üzere kurulmuştu ve arka plan dağları
+kadrajın ortasına geldi. Işık arkadan vurdu, karakterler sırtını gösterdi.
+
+**Kök:** gerçek ayna bir yansımadır (determinant −1). Görünüm ya da projeksiyon matrisine `S(-1,1,1)` girince
+ekrandaki üçgenlerin sarımı CCW'den CW'ye döner. Arka yüz ayıklamalı boru hattı (`frontFace = CCW`) artık ÖN
+yüzleri atar. Tek yüzlü zemin kaybolur, kürelerin iç yüzü görünür. Hata vermez, yalnızca "garip" bir kare çıkar.
+Vulkan negatif viewport genişliğine izin vermez, dinamik `frontFace` ise 1.3 / EXT ister. Mali-G72'de buna
+güvenilemez.
+
+**Çözüm:** `Renderer::set_mirror_x` aynayı view'a koyar. Android ön-döndürmesi ve jitter clip uzayında kalır,
+`camera_world` aynı göz konumunu verir. Sahne boru hatlarının CW ikizleri ilk açılışta kurulur. Ekran ışını ve
+izdüşüm aynı aynayı köprünün `cam_frame`'inden alır: sağ vektör ters, tek kaynak. Kapı
+`bridge_camera_mirror_flips_scene_not_hud_pick_consistent`: aynalı kare, aynasız karenin çevriğidir. Pozitif
+kontrolü `TULPAR_ENGINE_AYNA_SARIM_ESKI=1` (sarım düz) ile fark 0.296 çıkar.
+
+**Genel kural:** yansıma içeren her dönüşüm (ayna, negatif ölçek) sarımı ve sağ el kuralını ters çevirir. Böyle
+bir dönüşüm ekleyen kod, ayıklama yönünü ve ekran↔dünya eşlemesini AYNI yerde çevirmelidir.

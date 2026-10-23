@@ -92,6 +92,8 @@ SPEC = [
     ("eng_camera_z", "float", [], "Kamera gozu z."),
     ("eng_camera_fov", "void", [("deg", "num")], "Dikey gorus acisi, derece (10..120; varsayilan 51.43 = pi/3.5). Ekran isini ve dunya->ekran ayni degeri kullanir."),
     ("eng_camera_fov_get", "float", [], "Dikey gorus acisi (derece)."),
+    ("eng_camera_mirror", "bool", [("on", "flag")], "Yatay kamera aynasi: 3B sahne ekranda soldan saga cevrilir (HUD/metin cevrilmez); ekran isini, secme ve dunya->ekran ayni aynada. true = acik."),
+    ("eng_camera_mirror_get", "bool", [], "Kamera aynasi acik mi."),
     ("eng_screen_ray", "bool", [("sx", "num"), ("sy", "num")], "Ekran noktasindan (eng_width/eng_height pikseli = dokunma/fare koordinati, sol ust 0,0) dunyaya isin hesaplar; sonra eng_screen_ray_ox.._dz oku (yon birim)."),
     ("eng_screen_ray_ox", "float", [], "Son ekran isininin baslangici x (kamera gozu)."),
     ("eng_screen_ray_oy", "float", [], "Son ekran isininin baslangici y."),

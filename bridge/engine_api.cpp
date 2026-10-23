@@ -534,6 +534,7 @@ struct Bridge {
   // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
   // render_frame'de SABITTI ve oyun izdusumu kurmak icin onu KOPYALIYORDU (Geri bildirim #12).
   float cam_fov = kBridgePi / 3.5f;
+  bool cam_mirror = false; // teng_camera_mirror: sahne yatay aynali (renderer view'a S(-1,1,1)); ekran isini / dunya->ekran ayni aynada
   Vec3 sray_o{0, 0, 0}, sray_d{0, 0, -1}; // son teng_screen_ray (hesapla-sonra-oku)
   float scr_x = 0, scr_y = 0;             // son teng_world_to_screen
   Vec3 sun_dir{0.5f, 1.0f, 0.35f}, ambient{0.16f, 0.17f, 0.2f};
@@ -966,6 +967,9 @@ bool cam_frame(const Bridge &b, CamFrame *c) {
   c->f = normalize(b.cam_target - b.cam_eye);
   c->r = normalize(cross(c->f, Vec3{0, 1, 0}));
   c->u = cross(c->r, c->f);
+  // Yatay ayna (teng_camera_mirror): ekranin SAGI dunyanin solu. Renderer
+  // ayni aynayi view'a uygular; isin ve izdusum buradan, TEK yerden aynalanir.
+  if (b.cam_mirror) c->r = c->r * -1.0f;
   c->tan_half = std::tan(b.cam_fov * 0.5f);
   c->w = (float)vis_w;
   c->h = (float)vis_h;
@@ -1486,6 +1490,7 @@ int teng_init(const char *title, int width, int height) {
     else { blog(1, "UYARI font bulunamadi (%u aday denendi): eng_text cizmez, eng_rect calisir (TULPAR_ENGINE_FONT ile yol ver)", nc); g_log.warnings++; }
   }
   b.cam_eye = {0, 8, 14}; b.cam_target = {0, 0, 0};
+  b.cam_mirror = false;
   b.t0_ns = b.last_ns = platform::now_ns();
   rhi::vk_counters_read(b.dev.handle(), &b.vk_prev);
   b.inited = true;
@@ -4331,6 +4336,24 @@ void teng_camera_fov(double deg) {
   }
   g->cam_fov = (float)(deg * (double)kBridgePi / 180.0);
 }
+int teng_camera_mirror(int on) {
+  CALLF("teng_camera_mirror", "%d", on);
+  if (!ready("teng_camera_mirror")) return 0;
+  Bridge &b = *g;
+  // POZITIF KONTROL (kapi bridge_camera_mirror_*): ayna acik, sarim DUZ
+  // boru hatlari -> on yuzler ayiklanir; kapinin sarimi olctugunu gosterir.
+  const char *ke = std::getenv("TULPAR_ENGINE_AYNA_SARIM_ESKI");
+  b.ren.debug_mirror_keep_winding(ke && ke[0] == '1');
+  if (!b.ren.set_mirror_x(on != 0)) {
+    BERR("teng_camera_mirror: ayna acilamadi (%s) — sahne aynasiz", b.ren.mirror_error());
+    b.cam_mirror = false;
+    return 0;
+  }
+  if (b.cam_mirror != (on != 0)) BINFO("kamera aynasi %s", on ? "ACIK (sahne yatay cevrik, HUD duz)" : "kapali");
+  b.cam_mirror = on != 0;
+  return b.cam_mirror ? 1 : 0;
+}
+int teng_camera_mirror_get(void) { return g && g->cam_mirror ? 1 : 0; }
 double teng_camera_fov_get(void) { return (g ? (double)g->cam_fov : (double)kBridgePi / 3.5) * 180.0 / (double)kBridgePi; }
 int teng_screen_ray(double sx, double sy) {
   if (!ready("teng_screen_ray")) return 0;
