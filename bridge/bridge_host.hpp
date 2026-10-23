@@ -60,6 +60,11 @@ void bridge_report_host(const char *dir, const char *device, bool (*share_text)(
 // satirlari; async-signal-safe). Testler icin disari acik.
 void bridge_report_crash_extra(int fd);
 
+// Ag (teng_net_wifi_lock): Android host WifiManager.MulticastLock al/birak yolunu
+// verir (yayin paketlerini suzen Wi-Fi surucusu icin). Masaustu cagirmaz: kilit
+// gerekmez, teng_net_wifi_lock 1 doner. nullptr: kapat (testler).
+void bridge_net_host(bool (*wifi_lock)(bool on));
+
 // Platform dosyasi saglar. false: pencere acilamadi (sebep err'e, cap bayt).
 bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h, char *err, size_t err_cap);
 void bridge_host_close(BridgeHost *h);

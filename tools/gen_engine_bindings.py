@@ -369,6 +369,20 @@ SPEC = [
     ("eng_virtual_mb", "int", [], "Surecin sanal boyutu (MB). Motor kurulmadan da calisir; olculemezse 0. Oturum ac/kapa kacak kapisinin aleti (Tuzaklar 8ct)."),
     ("eng_thread_count", "int", [], "Surecin thread sayisi. Motor kurulmadan da calisir; olculemezse 0."),
     ("eng_vk_live", "int", [], "Canli havuzsuz Vulkan nesnesi (kurma - birakma; komut tamponu/descriptor set haric). Kurulu motorda anlik; kapanistan sonra son kapanista cihaz yikilmadan hemen onceki deger (oturumdan oturuma degismemeli). Olculmediyse -1."),
+    # yerel ag: engellemesiz UDP/IPv4 (N2a 2026-10-23, KOPRU.md §11) — motor kurulmadan da calisir
+    ("eng_net_open", "int", [("port", "int"), ("broadcast", "flag")], "Engellemesiz UDP soketi acar, 0.0.0.0:port'a bagli (port 0 = sistem secer, eng_net_port okur); broadcast=1 yayin gonderebilir. En cok 4 soket. Donus: tutamac, 0 hata (port kullanimda, tavan dolu — sayilir)."),
+    ("eng_net_close", "bool", [("h", "int")], "Soketi kapatir; tutamac olur (sonraki cagri HATA). eng_shutdown hepsini kapatir."),
+    ("eng_net_port", "int", [("h", "int")], "Soketin bagli yerel portu."),
+    ("eng_net_send", "bool", [("h", "int"), ("ip", "str"), ("port", "int"), ("payload", "str")], "ip:port'a tek datagram gonderir (engellemez). Yuk METIN, en cok 1200 bayt (uzunsa gonderilmez, sayilir). false = gonderilemedi (cekirdek tamponu dolu ya da hata; paket DUSTU, sayilir)."),
+    ("eng_net_broadcast", "bool", [("h", "int"), ("port", "int"), ("payload", "str")], "Yerel alt agin yayin adresine (eng_net_broadcast_ip) gonderir; soket broadcast=1 ile acilmis olmali. Android'de yayin almak icin eng_net_wifi_lock(1)."),
+    ("eng_net_recv", "bool", [("h", "int")], "Bekleyen bir datagrami okur (engellemez): true ise alanlar eng_net_last_payload/ip/port'ta. Kesik (>1200 bayt) ya da NUL iceren paket atlanir ve sayilir. Kare basina 'while eng_net_recv(h)' ile bosalt."),
+    ("eng_net_last_payload", "str", [("h", "int")], "Son eng_net_recv'in yuku (metin)."),
+    ("eng_net_last_ip", "str", [("h", "int")], "Son paketin gondereninin IPv4 adresi (\"192.168.1.5\")."),
+    ("eng_net_last_port", "int", [("h", "int")], "Son paketin gondereninin portu."),
+    ("eng_net_local_ip", "str", [], "Bu cihazin yerel ag IPv4 adresi (Wi-Fi tercih); arayuz yoksa bos. Ayirir (getifaddrs): kare icinde degil, lobide cagir."),
+    ("eng_net_broadcast_ip", "str", [], "Yerel alt agin yayin adresi (ip | ~maske); arayuz yoksa 255.255.255.255."),
+    ("eng_net_stat", "int", [("which", "int")], "Ag sayaci: 0 acik soket, 1 gonderilen, 2 alinan, 3 gonderim dustu, 4 uzun yuk reddi, 5 kesik alim dustu, 6 NUL'lu alim dustu, 7 soket tavani reddi, 8 olu tutamac cagrisi, 9 acilamayan soket, 10 alim hatasi."),
+    ("eng_net_wifi_lock", "bool", [("on", "flag")], "Android: WifiManager.MulticastLock al (1) / birak (0) — cogu telefon Wi-Fi yayin paketlerini kilit yokken suzer; manifestte CHANGE_WIFI_MULTICAST_STATE gerekir. Masaustunde true (gerekmez)."),
 ]
 
 # SPEC tipi -> bildirim (tulpar-ext.json) tipi. Bildirim tipleri C'yi soyler:
@@ -403,7 +417,9 @@ DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_rend
 # -lpthread ve engine_rhi birlikte cikarildi, tanimsizlarin hepsi rhi::*):
 # K32GetProcessMemoryInfo kernel32'de, winpthread -static zincirinde. CMake ile
 # ayni kalsin ve PSAPI_VERSION=1 basliklarinda da linklensin diye duruyorlar.
-WINDOWS_FLAGS = ["-lpsapi", "-lpthread"]
+# -lws2_32: platform/net.cpp (Winsock UDP, eng_net_*; N2a 2026-10-23) — psapi'nin
+# aksine kernel32'de karsiligi yok, sendto/recvfrom yalniz ws2_32.dll'de.
+WINDOWS_FLAGS = ["-lpsapi", "-lpthread", "-lws2_32"]
 # Android: yapistirici + NativeActivity kabugu + kopru tek arsivde
 # (tulpar_engine_android, CMakeLists.txt); tools/build_bridge_android.sh
 # paketin android/<abi>/ dizinine koyar.

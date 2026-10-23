@@ -1280,3 +1280,62 @@ Akış:
   - Çökme eki gövdesi.
 - `tests/test_crash.cpp`: ek gövde yalnızca kurulunca, çerçevelerden sonra ve `=== end ===`'den önce yazılıyor. Fiber kipinde kurulmuyor, satır yok.
 - Android'in seçicisi burada **ölçülmez** (cihaz ister).
+
+## 11. Yerel ağ: engellemesiz UDP (2026-10-23, N2a)
+
+**Neden:** ağ 1v1 (oyun TASARIM §21). Aynı Wi-Fi'da sunucusuz, kilit adımlı komut alışverişi. TulparLang'de yalnız engelleyen TCP var (`socket_*`); UDP, yayın, engellemesiz kip ve yerel IP yok. Kilit adım kaybolan pakete kendi protokolüyle (yedek + onay) dayanır, TCP'nin sıralı teslimi bir kayıpta bütün kareleri dondururdu.
+
+**Katmanlar:** `platform/net.{hpp,cpp}` (L0, POSIX + Winsock; Windows'ta `ws2_32`, eklenti bildiriminde `-lws2_32`) ince sarmalayıcı. Tutamaç, kapasite ve sayaçlar köprüde (`bridge/engine_api.cpp`, "Yerel ag"). Motor **kurulmadan da** çalışır (lobi motordan önce açılabilir). `eng_shutdown` bütün soketleri kapatır ve Wi-Fi kilidini bırakır. Böylece aynı süreçteki ikinci oturum (Tuzaklar 8ct) aynı portu yeniden bağlayabilir.
+
+| Tulpar (TR / EN) | eng_* | ne |
+|---|---|---|
+| `udp_ac(port, yayin)` / `net_open` | `eng_net_open` | 0.0.0.0:port'ta engellemesiz UDP soketi (port 0 = sistem seçer). Tutamaç, 0 = hata. En çok **4** soket |
+| `udp_kapat(h)` / `net_close` | `eng_net_close` | kapatır; tutamaç ölür (nesil etiketi: `(nesil<<8)|yuva+1`) |
+| `udp_port(h)` / `net_port` | `eng_net_port` | bağlı yerel port |
+| `udp_gonder(h, ip, port, yuk)` / `net_send` | `eng_net_send` | tek datagram; `false` = düştü (sayılır) |
+| `udp_yayinla(h, port, yuk)` / `net_broadcast` | `eng_net_broadcast` | yerel alt ağın yayın adresine; soket `yayin=1` ile açılmış olmalı |
+| `udp_al(h)` / `net_recv` | `eng_net_recv` | bekleyen bir paketi okur (engellemez). `true` ise alanlar aşağıda |
+| `udp_son_yuk/udp_son_ip/udp_son_port(h)` | `eng_net_last_*` | "hesapla sonra oku" alanları |
+| `udp_yerel_ip()` / `udp_yayin_ip()` | `eng_net_local_ip` / `_broadcast_ip` | Wi-Fi tercihli IPv4 ve `ip | ~maske` (yoksa `""` / `255.255.255.255`). **Ayırır** (getifaddrs): kare içinde değil, lobide çağrılır |
+| `udp_sayac(i)` / `net_stat` | `eng_net_stat` | 0 açık, 1 gönderilen, 2 alınan, 3 gönderim düştü, 4 uzun yük reddi, 5 kesik alım düştü, 6 NUL'lu alım düştü, 7 soket tavanı reddi, 8 ölü tutamaç, 9 açılamayan soket, 10 alım hatası |
+| `udp_wifi_kilidi(ac)` / `net_wifi_lock` | `eng_net_wifi_lock` | Android `WifiManager.MulticastLock` al/bırak. Masaüstünde `true` (gerekmez) |
+
+**TR adlar `udp_*`, `ag_*` değil.** İlk taslakta `ag_ac` idi. Oyunun N1 ekran açıcısı da `ag_ac()` adını taşıyor ve APK derlemesi `[typecheck] 'ag_ac' ... programin TAMAMINDA golgeliyor` uyarısını verdi. Tulpar'da oyunun fonksiyonu modülünkini bütün programda gölgeliyor. Bu ad çakışması N2a'da ölçüldü; çözmek için ad değiştirildi.
+
+Kare başına alım kalıbı: `while udp_al(h) { yuk = udp_son_yuk(h); ... }`. Bozuk paketler (kesik, NUL'lu) **aynı çağrıda** atlanır, döngü onlarda durmaz.
+
+**Yük metindir (ölçüldü, 2026-10-23, Linux AOT, `engine_gpusuz.test.tpr` run_ag):**
+- UTF-8 Türkçe ve ham `chr(255)+chr(128)` baytları gidip geliyor (4 bayt gitti, 4 bayt geldi).
+- `"A"+chr(0)+"B"` (3 bayt) karşıya `"A"` (1 bayt) olarak varıyor. Tulpar str'i NUL taşıyabiliyor ama eklenti çağrısı `const char *` veriyor ve C tarafı dizgiyi orada bitiriyor.
+- Bu yüzden alımda NUL içeren datagram **düşürülür ve sayılır** (6). Kesilmiş haliyle Tulpar'a gitmez. Protokol metin olmalı (ondalık/onaltılık alanlar).
+- Yük tavanı **1200 bayt** (1500 MTU − 28 başlık, parçalanmasız pay). Daha uzunu gönderilmez (4); daha uzun gelen kesilir ve düşer (5).
+
+**Kare içinde ayırma yok:** gönder/al yalnız sistem çağrısı + memcpy (BSS'te sabit yuvalar, 4 × 1201 bayt).
+
+**Android:**
+- Soket için `INTERNET` izni gerekir. `apk_derle.sh` `INTERNET=1` (TulparLang `TULPAR_ANDROID_INTERNET=1`).
+- Yayın almak için `udp_wifi_kilidi(true)`. Bu `CHANGE_WIFI_MULTICAST_STATE` ister: TulparLang `TULPAR_ANDROID_LAN=1`, `yerel/aab` e0e4200f. `TULPAR_ANDROID_LAN=1` INTERNET'siz verilirse derleme durur.
+- İzin yoksa `acquire` SecurityException atar → `false` + logcat'te `Wi-Fi yayin kilidi dustu: asama acquire`.
+- Kilit uygulama bağlamından yaratılır, GlobalRef'te durur (etkinlik yeniden yaratılınca da geçerli).
+- Yerel IP için `ACCESS_WIFI_STATE` **gerekmez**: getifaddrs kullanılıyor, WifiManager değil.
+- **Cihazda ölçülmedi** (N2c).
+
+**Ölçülenler:**
+- `tests/test_net.cpp`:
+  - ipv4 ayrıştırma; bozuk biçimler reddediliyor (kontrol).
+  - Loopback değiş tokuşu; boş kuyrukta -1 (kontrol).
+  - Kesilme bayrağı; sığan paket kesik sayılmıyor (kontrol).
+  - Yayın: 127.255.255.255 yerel dinleyiciye ulaşıyor. SO_BROADCAST'sız soketin yayını EACCES ile reddediliyor (kontrol).
+  - Alt ağ yayını (192.168.1.255) bu makinede **ulaşmadı**, test bunu görünür ATLANDI olarak basıyor. Sebep büyük olasılıkla ufw'nin varsayılan DROP'u (gelen yayın INPUT zincirinden geçiyor), lo serbest.
+- `tests/test_bridge_net.cpp`:
+  - Değiş tokuş ve sayaçlar.
+  - Tavan: 5. soket 0 döner ve sayılır.
+  - Nesil: eski tutamaç HATA verir ve sayılır.
+  - 1201 bayt reddediliyor, 1200 gidiyor (kontrol).
+  - NUL'lu ve uzun ham datagramlar tek recv'de atlanıyor, `A\x01B` teslim ediliyor (kontrol).
+  - Kapanış portu bırakıyor; kapanıştan önce aynı port bağlanamıyor (kontrol).
+- **İki süreç** (`tulpar/examples/engine_ag_ping.tpr`, kapı `tools/tulpar_dogrula.sh`):
+  - 2026-10-23, RTX 5080 makinesi, Linux, 127.0.0.1, 500 ping: kayıp 0. Sıkı yoklamada RTT p50 0.004 ms, p95 0.005 ms, max 0.048 ms.
+  - 16 ms kare temposunda p50 16.07 ms; ölçülen artık kare temposu.
+  - Pozitif kontrol: yanıtlayıcı yokken 0/5, rc 1.
+- **Cihazda ölçülmedi** (N2c): gerçek Wi-Fi gecikmesi, yayın süzme, MulticastLock.

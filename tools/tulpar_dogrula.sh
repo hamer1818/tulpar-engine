@@ -224,6 +224,37 @@ else
   dus "engine_gpusuz.test.tpr: rc=$rc '$ozet'"; tail -10 "$gun/gpusuz.log" >&2
 fi
 
+# --- Yerel ag: IKI SUREC (N2a, eng_net_*) --------------------------------------
+# engine_gpusuz.test.tpr ayni surecte iki soketi olcer; bu kapi iki AYRI tulpar
+# surecini 127.0.0.1'de konusturur (ag 1v1'in gercek sekli: iki surec, iki soket):
+# 200 ping/pong, kayip 0, rtt yazilir. Motor kurulmaz, GPU gerekmez. POZITIF
+# KONTROL: yanitlayici yokken ayni ping 0/5 + rc 1 — kapi yanita bagli olcuyor.
+kos "$gun/ag_derle.log" "$tul" build --ext "$ext" examples/engine_ag_ping.tpr "$gun/ag_ping"; rc=$?
+ag_ikili=no; { [ -x "$gun/ag_ping" ] || [ -x "$gun/ag_ping.exe" ]; } && ag_ikili=var
+if [ $rc -ne 0 ] || [ $ag_ikili = no ]; then
+  dus "engine_ag_ping.tpr derlenemedi (rc=$rc)"; tail -8 "$gun/ag_derle.log" >&2
+else
+  ag_port=$((47400 + $$ % 400))
+  TULPAR_AG_ROL=yanit TULPAR_AG_PORT=$ag_port "$gun/ag_ping" >"$gun/ag_yanit.log" 2>&1 &
+  ag_pid=$!
+  sleep 1
+  kos "$gun/ag.log" env TULPAR_AG_ROL=ping TULPAR_AG_PORT=$((ag_port + 1)) TULPAR_AG_KARSI=$ag_port TULPAR_AG_N=200 "$gun/ag_ping"; rc=$?
+  wait $ag_pid 2>/dev/null; rc_y=$?
+  satir="$(grep -m1 '^\[ag\] ping [0-9]' "$gun/ag.log")"
+  if [ $rc -eq 0 ] && [ $rc_y -eq 0 ] && echo "$satir" | grep -q '^\[ag\] ping 200/200, kayip 0'; then
+    gec "ag iki surec (loopback): ${satir#\[ag\] }"
+  else
+    dus "ag iki surec: rc=$rc yanit rc=$rc_y '$satir'"; tail -5 "$gun/ag.log" "$gun/ag_yanit.log" >&2
+  fi
+  kos "$gun/ag_kontrol.log" env TULPAR_AG_ROL=ping TULPAR_AG_PORT=$((ag_port + 1)) TULPAR_AG_KARSI=$ag_port TULPAR_AG_N=5 \
+    TULPAR_AG_ZAMAN_ASIMI_MS=50 "$gun/ag_ping"; rc=$?
+  if [ $rc -ne 0 ] && grep -q '^\[ag\] ping 0/5, kayip 5' "$gun/ag_kontrol.log"; then
+    gec "pozitif kontrol: yanitlayici yokken ping 0/5, rc=$rc"
+  else
+    dus "pozitif kontrol: yanitlayici yokken ping kaybi gorulmedi (rc=$rc)"; tail -3 "$gun/ag_kontrol.log" >&2
+  fi
+fi
+
 # --- Dil sondalari (motor_derleyici.sh'ten tasindi) -----------------------------
 sonda() {  # sonda <ad> <beklenen> <aciklama>
   local cevap

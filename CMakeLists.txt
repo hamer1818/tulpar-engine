@@ -88,6 +88,7 @@ add_library(engine_platform STATIC
     platform/process.cpp
     platform/fs_ops.cpp
     platform/game_channel.cpp
+    platform/net.cpp
 )
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -103,6 +104,8 @@ endif()
 # PSAPI_VERSION=1 basliklarinda psapi.dll ister. Baglamak iki durumda da dogru.
 if(WIN32)
     target_link_libraries(engine_platform PUBLIC psapi)
+    # ws2_32: platform/net.cpp (Winsock UDP, teng_net_*; N2a 2026-10-23).
+    target_link_libraries(engine_platform PUBLIC ws2_32)
 endif()
 
 # --- Katman denetimi --------------------------------------------------------
@@ -534,6 +537,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_spatial_hash.cpp
     tests/test_debug_draw.cpp
     tests/test_timers.cpp
+    tests/test_net.cpp
     tests/test_state_machine.cpp
     tests/test_event_bus.cpp
     tests/test_boids.cpp
@@ -571,7 +575,7 @@ if(NOT ANDROID)
     # Prototip yok: Vulkan fonksiyonlari bizim dlopen'li yukleyiciden (ImGui_ImplVulkan_LoadFunctions).
     target_compile_definitions(engine_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
     target_compile_options(engine_imgui PRIVATE -fno-exceptions -fno-rtti -w)
-    list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_bridge_rapor.cpp tests/test_game_channel.cpp)
+    list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_bridge_rapor.cpp tests/test_bridge_net.cpp tests/test_game_channel.cpp)
     # Guncelleyici cekirdegi (app/updater): curl/tar alt surecleri + kurulum
     # agaci. Yalniz masaustu editorunde yasar; Android'de guncelleme magazadan.
     list(APPEND ENGINE_TEST_SOURCES tests/test_updater.cpp app/updater.cpp)

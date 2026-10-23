@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 293
+#define TENG_ABI_COUNT 306
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -300,3 +300,16 @@ TENG_ABI(int, eng_local_day, teng_local_day, (void))
 TENG_ABI(int, eng_virtual_mb, teng_virtual_mb, (void))
 TENG_ABI(int, eng_thread_count, teng_thread_count, (void))
 TENG_ABI(int, eng_vk_live, teng_vk_live, (void))
+TENG_ABI(int, eng_net_open, teng_net_open, (int, int))
+TENG_ABI(int, eng_net_close, teng_net_close, (int))
+TENG_ABI(int, eng_net_port, teng_net_port, (int))
+TENG_ABI(int, eng_net_send, teng_net_send, (int, const char *, int, const char *))
+TENG_ABI(int, eng_net_broadcast, teng_net_broadcast, (int, int, const char *))
+TENG_ABI(int, eng_net_recv, teng_net_recv, (int))
+TENG_ABI(const char *, eng_net_last_payload, teng_net_last_payload, (int))
+TENG_ABI(const char *, eng_net_last_ip, teng_net_last_ip, (int))
+TENG_ABI(int, eng_net_last_port, teng_net_last_port, (int))
+TENG_ABI(const char *, eng_net_local_ip, teng_net_local_ip, (void))
+TENG_ABI(const char *, eng_net_broadcast_ip, teng_net_broadcast_ip, (void))
+TENG_ABI(int, eng_net_stat, teng_net_stat, (int))
+TENG_ABI(int, eng_net_wifi_lock, teng_net_wifi_lock, (int))

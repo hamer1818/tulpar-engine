@@ -41,6 +41,7 @@
 #include "platform/crash.hpp"
 #include "platform/game_channel.hpp"
 #include "platform/memory.hpp" // os_resident_bytes (teng_rss_kb)
+#include "platform/net.hpp"    // teng_net_* (UDP, N2a)
 #include "platform/paths.hpp"
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
@@ -54,6 +55,7 @@
 using namespace tulpar::engine;
 
 namespace {
+void net_kapanis(); // dosya sonunda (ag, teng_net_*); teng_shutdown cagirir
 constexpr float kBridgePi = 3.14159265358979f;
 constexpr uint32_t kMaxEntities = 4096;
 // Model tavani: oyun 10 sus modeli + 30 iskeletli birlik karakteri (2 taraf x 5 cag x
@@ -2379,6 +2381,7 @@ void teng_frame_end(void) {
 
 void teng_shutdown(void) {
   CALL("teng_shutdown");
+  net_kapanis(); // ag motor kurulmadan da acik olabilir: once, kosulsuz (KOPRU §11)
   if (!g) return;
   Bridge &b = *g;
   // Kurulmamis motor: yapilacak bir sey YOK — dusen bir teng_init kendi
@@ -5428,6 +5431,256 @@ int teng_report_dismiss(const char *path) {
     if (g_rapor.yazildi && std::strcmp(g_rapor.pending, g_rapor.path) == 0) g_rapor.pending[0] = 0;
   }
   BINFO("teshis raporu silindi: %s%s", path, ok ? "" : " (dosya zaten yoktu)");
+  return ok ? 1 : 0;
+}
+} // extern "C"
+
+// ---------------------------------------------------------------------------
+// Yerel ag: engellemesiz UDP (N2a, 2026-10-23). Ag 1v1'in tasimasi (oyun
+// TASARIM §21): ayni Wi-Fi'da sunucusuz, kilit adimli komut alisverisi.
+// Sozlesme KOPRU.md §11. Kurallar:
+//   * Duz skaler: tutamac int (0 gecersiz, (nesil<<8)|yuva+1), adres "a.b.c.d"
+//     metni, yuk Tulpar str'i. Cok degerli alim "hesapla sonra oku":
+//     teng_net_recv(h) bir datagrami soketin SON yuvasina okur, alanlari
+//     teng_net_last_* verir.
+//   * Yuk METIN: Tulpar str'i C tarafinda NUL ile biter (eng_file_copy
+//     notu), yani NUL iceren bir datagram Tulpar'a sessizce KESILEREK giderdi.
+//     Alimda NUL iceren paket DUSURULUR ve sayilir (kNetStatNul); oyunun
+//     protokolu metin (onaltilik/ondalik alanlar) olmali.
+//   * Kapasite sabit (BSS, buyumez): kNetSock soket, yuk en cok kNetMax bayt.
+//     Tavan asimi gecersiz tutamac/false doner ve SAYILIR (teng_net_stat).
+//   * Kare icinde ayirma yok: gonder/al yalniz sistem cagrisi + memcpy. Yerel
+//     adres (getifaddrs) ayirir: lobi aninda cagrilir.
+//   * Motor kurulmadan da calisir (testler, lobi); teng_shutdown butun
+//     soketleri kapatir — ayni surecte ikinci oturum (Tuzaklar 8ct) portu
+//     yeniden baglayabilsin.
+namespace {
+constexpr uint32_t kNetSock = 4;
+constexpr uint32_t kNetMax = 1200; // IPv4 UDP: 1500 MTU - 28 baslik; 1200 = parcalanmasiz guvenli pay
+enum NetStat : int {
+  kNetStatOpen = 0,     // su an acik soket
+  kNetStatTx = 1,       // gonderilen paket
+  kNetStatRx = 2,       // alinan (teslim edilen) paket
+  kNetStatTxDrop = 3,   // gonderim dustu: cekirdek tamponu dolu (EAGAIN/ENOBUFS) ya da sendto hatasi
+  kNetStatTxLong = 4,   // yuk kNetMax'tan uzun: gonderilmedi
+  kNetStatRxTrunc = 5,  // gelen datagram kNetMax'tan uzun: kesildi, dusuruldu
+  kNetStatNul = 6,      // gelen datagram NUL iceriyor: Tulpar str'ine sigmaz, dusuruldu
+  kNetStatSockFull = 7, // soket tavani dolu: acilamadi
+  kNetStatDead = 8,     // olu/gecersiz tutamacla cagri
+  kNetStatOpenFail = 9, // isletim sistemi soketi acmadi (port kullanimda, izin yok...)
+  kNetStatRxErr = 10,   // recv hatasi (gecici olmayan)
+  kNetStatCount = 11
+};
+struct NetSock {
+  int64_t fd = -1;
+  uint16_t gen = 0;
+  uint16_t port = 0;
+  bool open = false;
+  bool bcast = false;
+  char last[kNetMax + 1] = {0}; // +1: NUL sonlandirici (kesilme tespiti platformdan, MSG_TRUNC)
+  char last_ip[16] = {0};
+  int32_t last_port = 0;
+};
+struct Net {
+  NetSock s[kNetSock];
+  uint32_t stat[kNetStatCount] = {0};
+  char local_ip[16] = {0};
+  char bcast_ip[16] = {0};
+  char ifname[32] = {0};
+  bool (*wifi_lock)(bool on) = nullptr; // Android: WifiManager.MulticastLock (host verir)
+  bool lock_held = false;
+};
+Net g_net;
+
+NetSock *net_sock(int h, const char *fn) {
+  const uint32_t slot = (uint32_t)(h & 0xFF);
+  const uint16_t gen = (uint16_t)((uint32_t)h >> 8);
+  if (h <= 0 || slot == 0 || slot > kNetSock || !g_net.s[slot - 1].open || g_net.s[slot - 1].gen != gen) {
+    g_net.stat[kNetStatDead]++;
+    BERR("%s: gecersiz ya da kapali ag tutamaci %d", fn, h);
+    return nullptr;
+  }
+  return &g_net.s[slot - 1];
+}
+int net_handle(uint32_t i) { return (int)(((uint32_t)g_net.s[i].gen << 8) | (i + 1)); }
+bool net_send_to(NetSock &s, uint32_t ip, int port, const char *payload, const char *fn) {
+  const size_t n = payload ? std::strlen(payload) : 0;
+  if (n > kNetMax) {
+    g_net.stat[kNetStatTxLong]++;
+    BERR("%s: yuk %u bayt, tavan %u — gonderilmedi", fn, (unsigned)n, kNetMax);
+    return false;
+  }
+  if (port <= 0 || port > 65535) { BERR("%s: port %d gecersiz", fn, port); return false; }
+  char err[96] = {0};
+  const int32_t r = platform::udp_send(s.fd, ip, (uint16_t)port, payload ? payload : "", (uint32_t)n, err, sizeof err);
+  if (r == (int32_t)n) { g_net.stat[kNetStatTx]++; return true; }
+  g_net.stat[kNetStatTxDrop]++;
+  if (r == -1) BDBG("%s: cekirdek tamponu dolu, paket dustu", fn);
+  else BINFO("%s: gonderilemedi (%s) — paket dustu", fn, r == -2 ? err : "kisa yazim");
+  return false;
+}
+void net_kapanis() {
+  for (uint32_t i = 0; i < kNetSock; i++) {
+    NetSock &s = g_net.s[i];
+    if (!s.open) continue;
+    platform::udp_close(s.fd);
+    s.open = false;
+    s.fd = -1;
+    s.gen++;
+    g_net.stat[kNetStatOpen]--;
+    BINFO("ag: soket %u (port %u) kapanista kapatildi", i + 1, (unsigned)s.port);
+  }
+  if (g_net.lock_held && g_net.wifi_lock) g_net.wifi_lock(false);
+  g_net.lock_held = false;
+}
+} // namespace
+
+namespace tulpar::engine::bridge {
+void bridge_net_host(bool (*wifi_lock)(bool on)) { g_net.wifi_lock = wifi_lock; }
+} // namespace tulpar::engine::bridge
+
+extern "C" {
+int teng_net_open(int port, int broadcast) {
+  CALLF("teng_net_open", "%d %d", port, broadcast);
+  if (port < 0 || port > 65535) { BERR("teng_net_open: port %d gecersiz (0 = isletim sistemi secer)", port); return 0; }
+  uint32_t i = 0;
+  while (i < kNetSock && g_net.s[i].open) i++;
+  if (i == kNetSock) {
+    g_net.stat[kNetStatSockFull]++;
+    BERR("teng_net_open: soket tavani dolu (%u) — once eng_net_close", kNetSock);
+    return 0;
+  }
+  char err[128] = {0};
+  const int64_t fd = platform::udp_open((uint16_t)port, broadcast != 0, err, sizeof err);
+  if (fd < 0) {
+    g_net.stat[kNetStatOpenFail]++;
+    BERR("teng_net_open: UDP soketi acilamadi: %s", err);
+    return 0;
+  }
+  NetSock &s = g_net.s[i];
+  s.fd = fd;
+  s.open = true;
+  s.bcast = broadcast != 0;
+  s.port = platform::udp_local_port(fd);
+  s.last[0] = 0;
+  s.last_ip[0] = 0;
+  s.last_port = 0;
+  g_net.stat[kNetStatOpen]++;
+  BINFO("ag: UDP soketi %u acildi, port %u%s", i + 1, (unsigned)s.port, s.bcast ? ", yayin acik" : "");
+  return net_handle(i);
+}
+int teng_net_close(int h) {
+  CALLF("teng_net_close", "%d", h);
+  NetSock *s = net_sock(h, "teng_net_close");
+  if (!s) return 0;
+  platform::udp_close(s->fd);
+  s->fd = -1;
+  s->open = false;
+  s->gen++;
+  g_net.stat[kNetStatOpen]--;
+  return 1;
+}
+int teng_net_port(int h) {
+  NetSock *s = net_sock(h, "teng_net_port");
+  return s ? (int)s->port : 0;
+}
+int teng_net_send(int h, const char *ip, int port, const char *payload) {
+  CALLF("teng_net_send", "%d %s:%d", h, ip ? ip : "", port);
+  NetSock *s = net_sock(h, "teng_net_send");
+  if (!s) return 0;
+  uint32_t a = 0;
+  if (!platform::ipv4_parse(ip, &a)) { BERR("teng_net_send: \"%s\" IPv4 adresi degil", ip ? ip : ""); return 0; }
+  if ((a == 0xFFFFFFFFu || (a & 0xFF) == 0xFF) && !s->bcast)
+    BINFO("teng_net_send: %s yayin adresi gibi ama soket yayinsiz acildi (sistem reddedebilir)", ip);
+  return net_send_to(*s, a, port, payload, "teng_net_send") ? 1 : 0;
+}
+int teng_net_broadcast(int h, int port, const char *payload) {
+  CALLF("teng_net_broadcast", "%d %d", h, port);
+  NetSock *s = net_sock(h, "teng_net_broadcast");
+  if (!s) return 0;
+  if (!s->bcast) { BERR("teng_net_broadcast: soket yayinsiz acildi (eng_net_open(port, 1) gerekir)"); return 0; }
+  uint32_t ip = 0, bc = 0xFFFFFFFFu;
+  char ad[32];
+  if (!platform::local_ipv4(&ip, &bc, ad, sizeof ad)) bc = 0xFFFFFFFFu; // arayuz yok: sinirli yayin
+  return net_send_to(*s, bc, port, payload, "teng_net_broadcast") ? 1 : 0;
+}
+int teng_net_recv(int h) {
+  NetSock *s = net_sock(h, "teng_net_recv");
+  if (!s) return 0;
+  // Gecersiz paketler (kesik, NUL'lu) bu cagrida atlanir ve sayilir; siradaki gecerli
+  // paket donulur — oyunun "while net_al(h)" dongusu bozuk bir pakette durmasin.
+  for (int deneme = 0; deneme < 64; deneme++) {
+    uint32_t ip = 0;
+    uint16_t port = 0;
+    bool kesik = false;
+    char err[96] = {0};
+    const int32_t r = platform::udp_recv(s->fd, s->last, kNetMax, &ip, &port, &kesik, err, sizeof err);
+    if (r == -1) { s->last[0] = 0; return 0; }
+    if (r < 0) {
+      g_net.stat[kNetStatRxErr]++;
+      BERR("teng_net_recv: %s", err);
+      s->last[0] = 0;
+      return 0;
+    }
+    if (kesik) {
+      g_net.stat[kNetStatRxTrunc]++;
+      BINFO("ag: %u bayttan uzun datagram dusuruldu", kNetMax);
+      continue;
+    }
+    if (std::memchr(s->last, 0, (size_t)r)) {
+      g_net.stat[kNetStatNul]++;
+      BINFO("ag: NUL iceren datagram dusuruldu (%d bayt; yuk metin olmali)", (int)r);
+      continue;
+    }
+    s->last[r] = 0;
+    platform::ipv4_format(ip, s->last_ip, sizeof s->last_ip);
+    s->last_port = port;
+    g_net.stat[kNetStatRx]++;
+    return 1;
+  }
+  s->last[0] = 0;
+  return 0;
+}
+const char *teng_net_last_payload(int h) {
+  NetSock *s = net_sock(h, "teng_net_last_payload");
+  return s ? s->last : "";
+}
+const char *teng_net_last_ip(int h) {
+  NetSock *s = net_sock(h, "teng_net_last_ip");
+  return s ? s->last_ip : "";
+}
+int teng_net_last_port(int h) {
+  NetSock *s = net_sock(h, "teng_net_last_port");
+  return s ? s->last_port : 0;
+}
+const char *teng_net_local_ip(void) {
+  uint32_t ip = 0, bc = 0;
+  if (!platform::local_ipv4(&ip, &bc, g_net.ifname, sizeof g_net.ifname)) {
+    g_net.local_ip[0] = g_net.bcast_ip[0] = 0;
+    return "";
+  }
+  platform::ipv4_format(ip, g_net.local_ip, sizeof g_net.local_ip);
+  platform::ipv4_format(bc, g_net.bcast_ip, sizeof g_net.bcast_ip);
+  return g_net.local_ip;
+}
+const char *teng_net_broadcast_ip(void) {
+  teng_net_local_ip();
+  return g_net.bcast_ip[0] ? g_net.bcast_ip : "255.255.255.255";
+}
+int teng_net_stat(int which) {
+  if (which < 0 || which >= kNetStatCount) { BERR("teng_net_stat: %d gecersiz (0..%d)", which, kNetStatCount - 1); return 0; }
+  return (int)g_net.stat[which];
+}
+int teng_net_wifi_lock(int on) {
+  CALLF("teng_net_wifi_lock", "%d", on);
+  if (!g_net.wifi_lock) {
+    // Masaustu: Wi-Fi surucusu yayin paketlerini suzmez, kilit gerekmez.
+    BDBG("ag: Wi-Fi yayin kilidi bu platformda gerekmiyor");
+    return 1;
+  }
+  const bool ok = g_net.wifi_lock(on != 0);
+  g_net.lock_held = ok && on != 0;
+  BINFO("ag: Wi-Fi yayin kilidi (MulticastLock) %s: %s", on ? "al" : "birak", ok ? "tamam" : "BASARISIZ (izin? CHANGE_WIFI_MULTICAST_STATE)");
   return ok ? 1 : 0;
 }
 } // extern "C"
