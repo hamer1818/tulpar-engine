@@ -3077,6 +3077,80 @@ ENGINE_TEST(bridge_physics_pause_freezes_and_resumes_deterministically) {
   CHECK(y.x == d50.x && y.y == d50.y && y.vy == d50.vy);
 }
 
+// --- Elle sim adimi (teng_physics_steps, N2b 2026-10-23) ------------------------
+// Ag 1v1 kilit adimi: oyun hibrit sim'i fizikten okuyor (TASARIM §10.6), fizik kare suresiyle adimlaniyordu;
+// iki cihazin kare sureleri farkli oldugundan "k tik, k fizik adimi" gruplamasi farkli olur ve sim ayrisir.
+// Kapi: elle kipte kare basina DUZENSIZ kuyruk (0,3,1,0,2 ...; toplam 100) + anlamsiz zaman olcegi (0.25)
+// tam 100 adim atar ve son durum 100 olceksiz kareyle BIT-TAM ayni; duraklatma kuyrugu dondurur; normal
+// kipe donus kare suresine geri gecer. POZITIF KONTROL: ayni kuyruk ve olcek elle kip KAPALIYKEN 100 adim
+// VERMEZ (olcek 0.25 -> ~25), yani esitlik elle kipin isi.
+namespace {
+FizikIz elle_oturum(const char *ad, bool elle, int *durakli_tick) {
+  FizikIz iz{};
+  teng_set_headless(100000, nullptr);
+  if (!teng_init(ad, kW, kH)) return iz;
+  teng_spawn_ground(20, 0xffffffff);
+  const int top = teng_spawn_sphere(0.3, 6.0, 0.1, 0.4, 1, 0xff0000ff);
+  const int kutu = teng_spawn_box(-0.5, 9.2, 0.0, 0.3, 0.3, 0.3, 1, 0x00ff00ff);
+  teng_set_velocity(top, 1.5, 0, 0.25);
+  teng_time_scale(0.25);
+  static const int kDesen[5] = {0, 3, 1, 0, 2};
+  int verilen = 0, kare = 0;
+  while (verilen < 100) {
+    int n = kDesen[kare % 5];
+    if (verilen + n > 100) n = 100 - verilen;
+    if (elle) teng_physics_steps(n);
+    verilen += n;
+    kare++;
+    run_frames(1);
+    if (elle && kare == 7) { // duraklatma: kuyruk durur, devamda atilir
+      teng_physics_pause(1);
+      teng_physics_steps(2);
+      verilen += 2;
+      const int t0 = teng_sim_tick();
+      run_frames(3);
+      *durakli_tick = teng_sim_tick() - t0;
+      teng_physics_pause(0);
+    }
+  }
+  run_frames(1); // son kuyruk (duraklatmada birikenler dahil) burada atilmis olur
+  iz.x = teng_x(top);
+  iz.y = teng_y(top);
+  iz.z = teng_z(kutu);
+  iz.vy = teng_vy(top);
+  iz.tick = teng_sim_tick();
+  if (elle) {
+    CHECK(teng_physics_manual() == 1);
+    teng_physics_steps(-1); // normal kipe donus: olcek 0.25 ile 8 kare = 2 adim
+    CHECK(teng_physics_manual() == 0);
+    const int t0 = teng_sim_tick();
+    run_frames(8);
+    iz.vy = teng_sim_tick() - t0 == 2 ? iz.vy : -999.0;
+  }
+  teng_shutdown();
+  return iz;
+}
+} // namespace
+
+ENGINE_TEST(bridge_physics_manual_steps_exact_count_independent_of_dt) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("elle adim sondasi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  teng_shutdown();
+  int dt_elle = -1, dt_k = -1, a = 0, b = 0;
+  const FizikIz e = elle_oturum("elle", true, &dt_elle);
+  const FizikIz k = elle_oturum("kontrol", false, &dt_k);
+  const FizikIz d = fizik_oturumu("duz100", 100, 0, 0, 1.0, &a, &b, &a);
+  std::printf("    [bilgi] elle adim: elle tick %d top (%.6f %.6f) durakli tick %d | olceksiz 100 kare tick %d (%.6f %.6f) | "
+              "KONTROL (elle kapali, olcek 0.25) tick %d\n", e.tick, e.x, e.y, dt_elle, d.tick, d.x, d.y, k.tick);
+  CHECK(e.tick == 100 && d.tick == 100);                       // 98 desen + 2 duraklatmada kuyruga giren
+  CHECK(dt_elle == 0);                                         // duraklatma kuyrugu dondurur
+  CHECK(e.x == d.x && e.y == d.y && e.z == d.z && e.vy == d.vy); // BIT-TAM + normal kipe donus 2 adim (vy -999 degil)
+  CHECK(k.tick != 100 && k.tick < 60);                         // POZITIF KONTROL: elle kip olmadan kare suresi * 0.25
+}
+
 // --- Ic cozunurluk olcegi (teng_render_scale, 2026-10-07) ---------------------
 // Renderer'in dinamik cozunurlugu (set_render_scale) koprude yoktu; ilk gercek
 // oyun (Kupler ile Kurelerin Savasi) P20 Pro / Mali-G72'de 2159x1080'de bos

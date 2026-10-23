@@ -56,6 +56,10 @@ double teng_fps(void);
 // 0 = donmus; belirlenim bozulmaz). Motor kurulmadan da cagrilabilir.
 void teng_physics_pause(int paused);
 int teng_physics_paused(void);
+// Elle sim adimi (N2b): steps >= 0 -> elle kip, sonraki karede TAM steps adim (kare suresi/olcek okunmaz,
+// kare basina en cok 64); steps < 0 -> normal kip. Kilit adimli ag oyununda iki esin adim dizisi ayni olsun diye.
+int teng_physics_steps(int steps);
+int teng_physics_manual(void);
 int teng_physics_reset(void); // sahne bosken: Jolt dunyasi + sabit adim birikimi sifirdan (bolum gecisi belirlenimi)
 void teng_time_scale(double scale); // 0..4 (disi kirpilir + HATA)
 double teng_time_scale_get(void);
