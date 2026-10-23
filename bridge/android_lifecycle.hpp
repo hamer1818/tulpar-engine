@@ -76,4 +76,22 @@ struct BackKeySample {
   }
 };
 
+// --- Guvenli alan: centik + sistem cubuklari (N1, 2026-10-23) -----------------
+// Eskiden yalniz DisplayCutout.getSafeInset*() okunuyordu. targetSdk 35+ ile Android
+// 15+ pencereyi kenardan kenara zorlar: hareket (gesture) cubugu oyunun USTUNE
+// biner ve centik boslugunda gorunmez (A14/U3 emulatorunde, Pixel 10 Pro XL
+// 2992x1344: cubuk alt kart seridinin ortasindaydi, alt bosluk 0 bildiriliyordu).
+// WindowInsets.getSystemWindowInset*() cubugun pencereyle ORTUSEN kismini verir
+// (gizli cubuk / pencere disindaki cubuk 0), centik ile kenar kenar en buyugu
+// alinir. `cubuklar` false = eski davranis (yalniz centik; TULPAR_ENGINE_INSET_ESKI=1
+// pozitif kontrolu, masaustu kapisi `bridge_android_safe_insets_merge_bars`).
+// Negatif deger (bozuk JNI donusu) 0 sayilir.
+inline void merge_safe_insets(const int32_t cutout[4], const int32_t bars[4], bool cubuklar, int32_t out[4]) {
+  for (int k = 0; k < 4; k++) {
+    int32_t c = cutout[k] > 0 ? cutout[k] : 0;
+    int32_t b = (cubuklar && bars[k] > 0) ? bars[k] : 0;
+    out[k] = c > b ? c : b;
+  }
+}
+
 } // namespace tulpar::engine::bridge

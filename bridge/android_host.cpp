@@ -128,6 +128,8 @@ int android_sdk() {
 // birakir) cutout null ya da bosluklar 0 doner. Herhangi bir halka eksikse 0.
 void query_insets(AndroidHost *h) {
   h->insets_dirty = false;
+  int32_t cutout[4] = {0, 0, 0, 0};
+  int32_t bars[4] = {0, 0, 0, 0};   // N1: sistem cubuklarinin (hareket cubugu, durum cubugu) pencereyle ortusmesi
   int32_t in[4] = {0, 0, 0, 0};
   if (h->app->window) { h->inset_w = (uint32_t)ANativeWindow_getWidth(h->app->window); h->inset_h = (uint32_t)ANativeWindow_getHeight(h->app->window); }
   if (android_sdk() >= 28) {
@@ -148,6 +150,16 @@ void query_insets(AndroidHost *h) {
         ins = m && j.ok() ? e->CallObjectMethod(decor, m) : nullptr;
       }
       if (ins && j.ok()) {
+        // getSystemWindowInset* (API 20+; 30'da kullanimdan kalkti ama calisir): gizli cubuk 0 doner
+        jclass ci = e->GetObjectClass(ins);
+        const char *cad[4] = {"getSystemWindowInsetLeft", "getSystemWindowInsetTop", "getSystemWindowInsetRight", "getSystemWindowInsetBottom"};
+        for (int k = 0; k < 4 && j.ok(); k++) {
+          jmethodID m = e->GetMethodID(ci, cad[k], "()I");
+          if (m && j.ok()) bars[k] = e->CallIntMethod(ins, m);
+          if (!j.ok()) bars[k] = 0;
+        }
+      }
+      if (ins && j.ok()) {
         jmethodID m = e->GetMethodID(e->GetObjectClass(ins), "getDisplayCutout", "()Landroid/view/DisplayCutout;");
         cut = m && j.ok() ? e->CallObjectMethod(ins, m) : nullptr;
       }
@@ -156,16 +168,19 @@ void query_insets(AndroidHost *h) {
         const char *ad[4] = {"getSafeInsetLeft", "getSafeInsetTop", "getSafeInsetRight", "getSafeInsetBottom"};
         for (int k = 0; k < 4; k++) {
           jmethodID m = e->GetMethodID(cc, ad[k], "()I");
-          if (m && j.ok()) in[k] = e->CallIntMethod(cut, m);
-          if (!j.ok()) in[k] = 0;
+          if (m && j.ok()) cutout[k] = e->CallIntMethod(cut, m);
+          if (!j.ok()) cutout[k] = 0;
         }
       }
       j.ok();
     }
   }
+  const char *eski = std::getenv("TULPAR_ENGINE_INSET_ESKI");
+  tulpar::engine::bridge::merge_safe_insets(cutout, bars, !(eski && eski[0] == '1'), in);
   if (in[0] != h->inset[0] || in[1] != h->inset[1] || in[2] != h->inset[2] || in[3] != h->inset[3])
-    std::printf("[engine_bridge] android: guvenli alan sol %d ust %d sag %d alt %d (pencere %ux%u, API %d)\n", in[0], in[1], in[2], in[3], h->inset_w,
-                h->inset_h, android_sdk());
+    std::printf("[engine_bridge] android: guvenli alan sol %d ust %d sag %d alt %d (centik %d/%d/%d/%d, cubuk %d/%d/%d/%d%s; pencere %ux%u, API %d)\n",
+                in[0], in[1], in[2], in[3], cutout[0], cutout[1], cutout[2], cutout[3], bars[0], bars[1], bars[2], bars[3],
+                (eski && eski[0] == '1') ? ", ESKI: yalniz centik" : "", h->inset_w, h->inset_h, android_sdk());
   for (int k = 0; k < 4; k++) h->inset[k] = in[k];
 }
 

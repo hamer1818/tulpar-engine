@@ -2220,6 +2220,33 @@ ENGINE_TEST(bridge_android_asset_filter_keeps_every_decodable_audio_format) {
 // glue'ya esitligi Android derlemesinde static_assert (android_host.cpp).
 // KONTROL: ayni olcu, eski 12 adli tabloyu (switch'in bildikleri) 4 eksikle
 // kirmizi gorur — kapi "hepsi adli" demeyi gercekten ayirt ediyor.
+// N1 (2026-10-23): guvenli alan = centik ile sistem cubuklarinin kenar kenar en buyugu. Sayilar
+// emulatorden (Pixel 10 Pro XL 2992x1344, U3 2026-10-23: hareket cubugu alt seridin ortasinda,
+// centik boslugu 0) ve P20 Pro'dan (yatay ~84 px sol centik, cubuksuz tam ekran). Cubuk yuksekligi
+// 63 px (24 dp x 2.625) varsayim: cihazdaki gercek deger host'un log satirinda basilir, burada
+// IDDIA edilmez — yalniz birlestirme kurali olculur.
+ENGINE_TEST(bridge_android_safe_insets_merge_bars) {
+  using namespace tulpar::engine::bridge;
+  int32_t out[4];
+  const int32_t emu_cut[4] = {0, 0, 0, 0}, emu_bar[4] = {0, 0, 0, 63};
+  merge_safe_insets(emu_cut, emu_bar, true, out);
+  CHECK(out[0] == 0 && out[1] == 0 && out[2] == 0 && out[3] == 63);
+  const int32_t p20_cut[4] = {84, 0, 0, 0}, p20_bar[4] = {0, 0, 0, 0};
+  merge_safe_insets(p20_cut, p20_bar, true, out);
+  CHECK(out[0] == 84 && out[1] == 0 && out[2] == 0 && out[3] == 0);
+  const int32_t iki_bar[4] = {0, 0, 0, 63};
+  merge_safe_insets(p20_cut, iki_bar, true, out);
+  CHECK(out[0] == 84 && out[3] == 63);
+  const int32_t buyuk_cut[4] = {0, 0, 0, 90}, bozuk[4] = {-5, -1, 0, 40};
+  merge_safe_insets(buyuk_cut, bozuk, true, out);
+  CHECK(out[0] == 0 && out[1] == 0 && out[3] == 90);   // negatif 0; centik buyukse centik
+  // KONTROL: eski kural (yalniz centik; TULPAR_ENGINE_INSET_ESKI=1) emulatorde alt boslugu 0 verir —
+  // ayni olcu, hareket cubugunun karta binmesini yakalar.
+  merge_safe_insets(emu_cut, emu_bar, false, out);
+  CHECK(out[3] == 0);
+  std::printf("    [bilgi] guvenli alan: emulator alt %d (cubuk) / eski kural %d; P20 sol 84 korunur\n", 63, out[3]);
+}
+
 ENGINE_TEST(bridge_android_lifecycle_names_every_glue_command) {
   using namespace tulpar::engine::bridge;
   int adli = 0, cift = 0;
