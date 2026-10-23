@@ -4185,12 +4185,20 @@ SifirIz sifir_bolumu() {
     const int c = teng_collision_count();
     iz.carp += c;
     // Varlik id'si nesil etiketli ve gecmise bagli (yuva/nesil): ozete BOLUM ICI sira girer.
-    for (int i = 0; i < c; i++) {
+    // Kare ici sira SIRALANARAK (N2b, 2026-10-23): ham teng_collision_* sorgusu Jolt geri cagrimlarinin
+    // is parcacigi sirasini verir (yalniz betik kancalari siralanir, bound_dispatch). Ham sirayi ozetlemek
+    // kapiyi DALGALI yapiyordu: tam koşumda ve "bridge_physics" suzgecinde bir kez dustu (konum ve temas
+    // sayisi esit, yalniz sira farkli), tek basina gecti.
+    int cift[64];
+    int cn = 0;
+    for (int i = 0; i < c && cn < 64; i++) {
       const int a = teng_collision_a(i), b = teng_collision_b(i);
       int ia = -1, ib = -1;
       for (int j = 0; j < n; j++) { if (ids[j] == a) ia = j; if (ids[j] == b) ib = j; }
-      h = (h ^ (uint64_t)(uint32_t)(ia * 16 + ib + 17)) * 1099511628211ull;
+      cift[cn++] = ia < ib ? ia * 16 + ib : ib * 16 + ia;
     }
+    std::sort(cift, cift + cn);
+    for (int i = 0; i < cn; i++) h = (h ^ (uint64_t)(uint32_t)(cift[i] + 17)) * 1099511628211ull;
   }
   for (int i = 1; i < n; i++) {
     double p[3] = {teng_x(ids[i]), teng_y(ids[i]), teng_z(ids[i])};
