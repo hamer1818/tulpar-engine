@@ -2290,6 +2290,23 @@ pozitif kontrol: aynı dosyanın kısa yolu farklı anahtar).
 yazmadan önce uzunluğu denetle ve sığmayanı reddet. Test geçici dizinleri kısa olduğu sürece kapı bunu
 göremez — uzun yolu testin kendisi kurmalı.
 
+### 8dj. Fizik kare süresiyle adımlanır, oyun tik'i ayrı biriktiricide — iki cihazda "tik/fizik gruplaması" ayrışır
+
+**Belirti (N2b, 2026-10-23, iki süreç loopback):** kilit adımlı ağ düellosu (iki eş aynı komutları aynı tik'te
+uyguluyor) yüzlerce özet eşitken bir anda ayrıştı. Hibrit sim birlik konumunu ve isabetleri fizikten okuyor;
+fizik `frame_end`'de kare süresiyle, oyun tik'leri kendi biriktiricisiyle ilerliyor. Bir eşte kare "2 tik, sonra
+2 fizik adımı", öbüründe "1+1, 1+1" olunca ikinci tik farklı konum okur. Bekleme karesi (rakip komutu gelmedi,
+0 tik) fiziği yine adımlıyordu.
+
+**Çözüm:** `eng_physics_steps(n)` (elle kip): oyun her kare attığı tik kadar fizik adımı ister; bekleme karesinde 0.
+Aynı sınıfın ikinci yüzü oyunda: kare başına çağrılan betik kancaları (`enkaz_guncelle(id, dt)`) bekleme
+karesinde de `dt` alıyordu — enkaz ömrü kare süresiyle dolup parça iki eşte farklı tik'te silindi (tik 11220 /
+21060'ta ayrışma). Ağ maçında kancanın süresi tik saatinden (`n × D_TIK`).
+
+**Genel kural:** kilit adımlı simde sonucu etkileyen HER şey tik sayacından ilerlemeli; kare süresi (`dt`, kanca
+`dt`'si, zaman ölçeği) yalnız sunuma. Ham `teng_collision_*` sırası da iş parçacığına bağlı (yalnız betik
+kancaları sıralı); özet/karar ham sıraya dayanmamalı (bridge_physics_reset kapısı bu yüzden dalgalıydı).
+
 ### 8dk. Ekranı aynalamak üçgen sarımını ters çevirir; ayna kameradan "taklit" edilirse sahnenin arkası görünür
 
 **Belirti (N2b, 2026-10-23):** ağ 1v1'de katılan oyuncu kendi kalesini solda görsün diye kamera şeridin öbür

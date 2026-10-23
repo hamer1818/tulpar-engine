@@ -215,6 +215,12 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   edince birikim kaldığı yerden sürer: duraklatılmış koşu duraklamasız koşuyla **bit-tam** aynı yere varır
   (kapı `bridge_physics_pause_freezes_and_resumes_deterministically`). `zaman_olcegi(0.5)` ağır çekim —
   ölçek kare süresine uygulanır, adıma değil, yani belirlenim bozulmaz. `sim_adimi()` atılan adım sayısı.
+- **Elle sim adımı** (2026-10-23, N2b, Tuzaklar 8dj): `fizik_adim(n)` / `physics_steps` (`eng_physics_steps`) elle
+  kipi açar: sonraki `frame_end` kare süresine ve ölçeğe bakmadan **tam n** sabit adım atar (çağrılar toplanır,
+  kare başına tavan 64, aşan kırpılır + HATA). `fizik_adim(-1)` normal kipe döner (birikim 0'dan). Duraklatma
+  elle kipte de kuyruğu dondurur. Kilit adımlı ağ oyunu için: iki eşin "k oyun tik'i, sonra k fizik adımı"
+  dizisi kare süresinden bağımsız aynı olur (kapı `bridge_physics_manual_steps_exact_count_independent_of_dt`;
+  pozitif kontrol: elle kip kapalıyken aynı desen 21 adım).
 - **Fizik sıfırlama** (2026-10-18, Tuzaklar 8dg): `fizik_sifirla()` / `physics_reset` sahne boşaltıldıktan sonra,
   gövdeli varlık kalmamışken Jolt dünyasını ve sabit adım birikimini sıfırdan kurar. Bundan sonra bir bölüm,
   önceki bölümler oynanmış olsun ya da olmasın aynı gövde kimliklerini, aynı olay sırasını ve aynı sonucu alır.
