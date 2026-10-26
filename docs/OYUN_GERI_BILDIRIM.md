@@ -42,11 +42,20 @@
 | 18 | motor / Android | `android cmd ?`: yaşam döngüsü günlüğünde adsız komutlar | D | **düzeltildi** (#102) |
 | 19 | araç / Android | Huawei'de kayıt dosyası (iç depolama) adb ile okunamıyor; ayar test edilemiyor | D | **düzeltildi** (debug derlemede kayıt adb'ye açık) |
 | 20 | motor / font | `—` gibi aralık dışı karakter `?` basıyor (ASCII + Latin-1 + Türkçe) | D | **düzeltildi** (#105 tipografik noktalama) |
+| 21 | TulparLang / araç | `tulpar.toml`'da TANINMAYAN tek bir anahtar BÜTÜN dosyayı yok saydırıyor: `[ext] paths` de düşer, `import "engine"` yanıltıcı hatayla ("eklenti yuklu degil") patlar | O | **düzeltildi** (TulparLang: uyarı + o anahtarı atla) |
 | 22 | motor / köprü | `eng_render_scale` günlüğü float/double karşılaştırması yüzünden 0.70'i "(kenetlendi)" diye basıyor | D | **düzeltildi** |
+| 23 | araç | telefon bağlantısı koparken `adb` "waiting for device"ta sonsuza bekliyor; kilit altındaki betik kilidi bırakmıyordu | D | **düzeltildi** (`tools/android_*.sh`: `adb get-state` zaman aşımı) |
+| 24 | test / motor | `engine_tests bridge_` (süzgeçli alt küme) `bridge_frame_allocs_*`'ı kırmızı gösterdi: önündeki "yükleyici yok" testlerinden sonra `teng_init` düştü; tam koşu yeşil | D | ölçüm (sıra bağımlılığı) |
 | 25 | motor / köprü | çarpışma süzme (grup/katman) API'si yok: menzilli birliğin mermisi öndeki DOST gövdeye çarpıp kalıyordu (kullanıcı, telefonda) | Y | **düzeltildi** (`carpisma_grubu` / `carpisma_cifti`) |
 | 26 | motor / köprü | dinamik gövdenin dönmesi kilitlenemiyor: devrilen birlik gövdesi, üstündeki gövdesiz kafa/kalkan modellerinin içine geçiyor | O | **düzeltildi** (`donme_kilidi`) |
 | 27 | motor / içerik | LOD'u üretilmemiş model kameradan 20 m ötede renderer'ın İLK mesh'iyle çiziliyor (sıfırlanmış tutamaç geçerli): ekranın kenarında model bozuk, renk farklı (kullanıcı, telefonda) | Y | **düzeltildi** (Tuzaklar 8cx) |
+| 28 | dil | `A[min(i, j)]` / `A[max(i, j)]` dizini sessizce 0 okuyor; `min()` sonucu `int[]` öğesine yazılınca o öğe de dizin olarak 0 | Y | **düzeltildi** (TulparLang: ondalık dizin sıfıra doğru kesilir) |
+| 29 | motor / arayüz | ekran değişimi aynı karede yeni ekranı da çizdiriyor: aynı tıklama (gerçek ya da `ui_test_tikla_ad`) iki ekranın aynı yerdeki düğmesine iner | O | açık (desen: karede TEK ekran çiz) |
+| 30 | oyun | şeridi tarayan engel / iri fizik gövdesi kapıya takılıyor | — | oyun tasarımı (ayrıntı oyunun deposunda) |
+| 31 | motor / girdi | `eng_stick_action` sağ yarıya < 250 ms dokunuşu BIRAKINCA sayıyor, yetenek düğmesine basmak da saldırı sayılıyor; sanal çubuk görünmüyor | O | açık (oyun kendi çubuğunu çiziyor) |
 | 32 | motor / köprü | "doğuşta küçük kur, karede büyüt" kalıbında büyütme yolunu atlayan varlık sessizce görünmez; çizilen boy okunamıyordu | Y | **düzeltildi** (`eng_drawn_height`, Tuzaklar 8df) |
+| 33 | oyun | büyük gövde birlikleri fizikte itip düşman safına sürüyordu | — | oyun tasarımı (çarpışma grubuyla çözüldü; ayrıntı oyunun deposunda) |
+| 34 | oyun | hava efekti ekranda görünmüyordu (güneş inerken ortam parlıyor, ikisi birbirini götürüyordu) | — | oyun tasarımı (ayrıntı oyunun deposunda) |
 
 İyi haber (ölçüldü, telefonda): Tuzaklar 8ct'nin yolu **gerçek oyunla** da temiz — geri tuşu
 etkinliği kapattı (`DESTROY` → tam kapanış, `hata 0, uyari 0`), simgeye basınca **aynı PID**'de
@@ -249,10 +258,37 @@ hepsi çiziliyor (masaüstü DejaVu, telefon Roboto — ekran görüntüleriyle 
 
 > 30, 33, 34 oyunun kendi tasarım hataları; ayrıntıları oyunun deposunda. Diğerleri motor/dil dersi.
 
+### 21. Tanınmayan `tulpar.toml` anahtarı bütün dosyayı yok saydırıyor — DÜZELTİLDİ (TulparLang)
+
+Oyunun `tulpar.toml`'una `[android] cutout = "short_edges"` (TulparLang #486'nın getirdiği anahtar) eklenince
+kurulu tulpar v3.40.10: `[manifest] tulpar.toml: line 25: [android] key 'cutout' is not recognised (...) (ignoring)`
+— ve **dosyanın tamamını** yok sayıyor: `[ext] paths` de gidiyor, `import "engine"` "su an hicbir eklenti yuklu degil"
+diye düşüyor (asıl sebep görünmüyor). Android derlemesinde aynı yol `assets`/`icon`/`package`'ı da düşürür: oyun
+varlıksız ve yanlış paket adıyla paketlenirdi. **Düzeltme (TulparLang):** bilinmeyen anahtar/bölüm UYARI + atla,
+dosyanın gerisi geçerli (`tests/toml_taninmayan_anahtar.sh`, eski ikili kırmızı). Yeni toml anahtarları
+(`internet`, `lan`) ancak bundan sonra güvenle eklenebildi.
+
 ### 22. `eng_render_scale` günlüğü "(kenetlendi)" — DÜZELTİLDİ (D)
 
 `teng_render_scale(0.7)` kenetlenmediği hâlde `ic cozunurluk olcegi 0.70 (kenetlendi)` basıyordu: uygulanan ölçek
 `float` (0.7f), istenen `double` (0.7) — `!=` her zaman doğru. Düzeltme: `fabs(a - b) > 1e-4`.
+
+### 23. Telefon kopunca `adb` bekleyip kilidi tutuyor — DÜZELTİLDİ (D)
+
+2026-10-08: telefon bağlantısı koptuğunda `adb install` "waiting for device" durumunda kaldı; betik telefon kilidini
+(`flock`) tutarken bekliyordu, diğer işler kilitlendi. Oyunun betiği her oturumdan önce `timeout 5 adb get-state`
+soruyordu; motorun ortak araçları (`tools/android_run.sh`, `android_yasam_dongusu.sh`, `android_kayit_dis.sh`) da
+artık aynı denetimi yapıyor: bağlı cihaz yoksa beklemeden adıyla çıkıyor.
+
+### 24. Süzgeçli test alt kümesinde sıra bağımlılığı — ÖLÇÜM (D)
+
+Entegrasyon dalında (main + #105 + bir özellik dalı) `engine_tests bridge_` 23/24: `bridge_frame_allocs_are_counted_motor_hook_game`
+ikinci `teng_init`'te düştü; önünde "yükleyici yok" testleri koşuyor. Test tek başına ve tam koşu (638/638) yeşil.
+Muhtemelen 8bs sınıfı (aynı süreçte çok `VkInstance`); ayrıştırılmadı. **İkinci ölçüm (2026-10-26, RTX 5080,
+upstream yeniden oynatma dalı):** `engine_tests bridge_` 31 koştu, **9 ATLANDI** (`vkCreateInstance
+(VK_ERROR_INCOMPATIBLE_DRIVER)` — kurulum geri alındı, test "Vulkan cihazı/kurulum yok" diye atladı); aynı ikilinin
+tam koşusu 652/652, 0 atlandı. Süzgeçli koşu "yeşil" görünür ama GPU'yu ölçmez — atlama sayacını oku. Açık iş:
+süzgeçli alt kümeyi tam koşuyla aynı sonuca getirmek (test yalıtımı).
 
 ### 25. Mermi dost gövdeye çarpıyor — DÜZELTİLDİ (Y)
 
@@ -284,6 +320,47 @@ değişiyor". İzole sonda: 1 × 0.12 × 0.12 sopa x = ±18 m'de 0.76 m KÜP ola
 nesneyle değil EKRAN KONUMUYLA gidiyordu. Sebep: LOD tutamaç dizisi sıfırla doldurulmuş, sıfır id GEÇERLİ
 (renderer'ın ilk mesh'i); LOD'u üretilmemiş model 20 m'den ötede "LOD1" diye ilk mesh'le çizildi. Düzeltme +
 kapı + pozitif kontrol: Tuzaklar 8cx; LOD seçiminin görüş derinliğiyle yapılması 8cy. Telefonda doğrulandı.
+
+### 28. `A[min(i, j)]` / `A[max(i, j)]` dizini sessizce 0 okuyor — DÜZELTİLDİ (TulparLang)
+
+Otopilotun ordu nüfusu her zaman 0 çıkıyordu: `n += NUFUS[min(SINIF_SAYISI - 1, sinif)]`.
+Sonda (TulparLang v3.41.0-1-g760e9439, masaüstü AOT, 2026-10-09):
+
+```
+int[] A = [5, 6, 7, 8];  int x = 3;
+A[min(2, x)] -> 0   A[max(2, 1)] -> 0   F[min(2, x)] (float[]) -> 0
+int i = min(2, x); A[i] -> 7   A[abs(-2)] -> 7   A[toInt(2.0)] -> 7   A[iki()] -> 7
+```
+Hata yok, uyarı yok. **İkinci yüz (2026-10-16):** `min()` sonucu bir `int[]` ÖĞESİNE yazılınca o öğe de dizin
+olarak 0 okutuyor (`G[0] = min(3, 0); A[G[0]] -> 0`; `toInt(min(3, 0))` doğru). Oyunda iki sessiz bozulma
+veriyordu (bir bedel tablosu hep 0 okunuyordu; düzelince eski kayıt "uyuşmuyor" diye sıfırlanacaktı).
+
+**Kök neden (2026-10-18):** `min`/`max` int argümanda da float döndürüyor (bilerek, typeinfer'de ölçülmüş imza).
+Dizi okumasının satır içi hızlı yolu yalnız INT etiketli dizini alıyor; float dizin çalışma zamanının
+`vm_get_element`'ine düşüyor, o da dizide int olmayan anahtarı "yok" sayıp **hatasız 0** döndürüyordu (json için
+konmuş bir sessizlik). `int[]` öğesine yazma float'ı int'e çevirmiyor, öğe float tutuyor. **Düzeltme (TulparLang):**
+dizi/dizgi hedefinde ondalık dizin sıfıra doğru kesiliyor (`int k = 2.7` ile aynı kural), okuma ve yazma tutarlı,
+NaN/sonsuz dizin yakalanabilir hata; kapı `tests/dizin_ondalik.test.tpr`. Aynı sınıfın AOT yüzü (int hedefe giden
+ondalık değer ham bit deseni: `return v % max(1, n)` = 4611686018427387904) ayrı düzeltildi
+(`tests/int_hedef_ondalik.test.tpr`). `min`/`max` dönüş tipi değişmedi (`min(3, 5) / 2` hâlâ 1.5; ayrı karar:
+`imin`/`imax` + typecheck uyarısı). `int[]` öğesine float yazmanın çevrilmemesi ayrı, açık bir tip deliği.
+
+### 29. Ekran değişimi aynı karede yeni ekranı da çizdiriyor — AÇIK (desen)
+
+Ekranlar ardışık `if`lerle çizilince: A'daki düğme `g_ekran = B` yapar, B aynı karede çizilir ve aynı tıklama
+B'nin aynı yerdeki düğmesini de tetikler (oyunda ölçüldü 2026-10-09: menüye bir satır eklenince bir tıklama iki
+ekranda iki düğmeye indi). Aynı karede iki ekranın aynı etiketli düğmesi ("Geri") köprüde çift kimlik HATA'sı da
+veriyor. Desen: karenin başında çizilecek ekranı sabitle, karede **tek** ekran çiz; otopilot yalnız o karede
+**çizilmiş** widget'a tıklasın. `engine_savas.tpr` ilk denemesinde de aynısı oldu ("Ayarlar" -> aynı karede
+"Geri") ve bu desenle yazıldı. Motor tarafı öneri: `eng_ui_click_once` (karede ilk isabet tıklamayı tüketir).
+
+### 31. Sanal çubuğun eylemi bırakışta ve her yerde — AÇIK (O)
+
+Kullanıcı telefonda (P20 Pro, 2026-10-13) doğrudan kontrol edilen birlikle vurmanın çok zor olduğunu söyledi. Motor
+yanı: `eng_stick_action` sağ yarıya < 250 ms dokunuşu **bırakınca** sayıyor (basılı tutma yok), yetenek düğmesine
+basmak da saldırı sayılıyor, çubuk ekranda görünmüyor (yalnız ipucu). Oyun kendi görünen çubuğunu + "Vur"
+düğmesini çizip parmakları kimliğiyle (`eng_touch_id`) izleyerek çözdü. **Öneri:** `eng_stick_visible(on)`,
+`eng_stick_exclude(i, x, y, w, h)` (düğme alanı saldırı sayılmaz), basılı-tut kipi.
 
 ### 32. Varlık ekranda yok ama sayılarda var — DÜZELTİLDİ (Tuzaklar 8df)
 
