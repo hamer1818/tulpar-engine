@@ -528,6 +528,10 @@ void teng_audio_gain(int voice, double gain); // calan TEK sesin seviyesi 0..4 (
 // eski parcasini calan sesleri durdurur, bir karistirici callback'i bekler, parcayi
 // cozer. Donus: sure (ms); -1 hata, -2 parca 64 s'den uzun (reddedildi, sayilir).
 int teng_music_slot_load(int slot, const char *path);
+// Muzik yuvasi SAYISI (0..2) ve SURESI (1..600 s) — teng_audio_open'dan ONCE (kapasite
+// init'te alinir, A2). Varsayilan 2 x 64 s. 0: yuva yok, ses acilisinda tampon ayrilmaz.
+// Ses acikken ya da aralik disinda HATA + 0. Donus 1.
+int teng_music_slots(int count, int seconds);
 int teng_music_slot_clip(int slot); // yuvanin SABIT klip tutamaci (teng_audio_play ile calinir); -1 hata
 int teng_audio_playing(void);        // cihaz thread'inin olctugu aktif ses sayisi
 double teng_audio_peak(void);        // son render'daki en buyuk |ornek| (0 = sessiz)

@@ -915,7 +915,10 @@ func ses_durdur(id) { eng_audio_stop(id); }
 // Calan TEK sesin seviyesi (rampali; ana seviyeyle carpilir) — muzik sonumleme, diyalogda kisma.
 func ses_kazanc(id, seviye) { eng_audio_gain(id, seviye); }
 func voice_gain_e(id, gain) { eng_audio_gain(id, gain); }
-// Muzik yuvasi (2 x 64 s sabit tampon): parca yuvaya cozulur, arena buyumez. Donus ms; < 0 hata (-2 cok uzun).
+// Muzik yuvasi sayisi/suresi: ses_ac'tan ONCE (varsayilan 2 x 64 s; 0 = yuva yok, tampon ayrilmaz).
+func muzik_yuvalari(sayi, saniye): bool { return eng_music_slots(sayi, saniye); }
+func music_slots(count, seconds): bool { return eng_music_slots(count, seconds); }
+// Muzik yuvasi (varsayilan 2 x 64 s sabit tampon): parca yuvaya cozulur, arena buyumez. Donus ms; < 0 hata (-2 cok uzun).
 func muzik_yuvasi_yukle(yuva, yol): int { return eng_music_slot_load(yuva, yol); }
 func music_slot_load_e(slot, path): int { return eng_music_slot_load(slot, path); }
 // Yuvanin sabit klip tutamaci: cal(muzik_yuvasi_klip(0), seviye, true).

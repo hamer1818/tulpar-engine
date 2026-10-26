@@ -280,6 +280,12 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
 - **Dönme kilidi** (Geri bildirim #26): `donme_kilidi(id, true)` dinamik gövdeyi devrilmez yapar (Jolt
   `EAllowedDOFs` öteleme, kilitlenince dik konum + açısal hız sıfır); yeniden kurulan gövdede korunur.
   Üstüne gövdesiz kafa/kalkan modeli taşıyan birlik için: devrilen gövde parçaların içine geçiyordu.
+- **Müzik yuvası sayısı/süresi** (2026-10-26, karar 12): `muzik_yuvalari(sayi, saniye)` / `eng_music_slots`
+  `ses_ac`'tan ÖNCE (A2: kapasite init'te). Varsayılan 2 × 64 s (s16 stereo 48 kHz arenadan 24.6 MB); 0 = yuva
+  yok, ses açılışında tampon hiç alınmaz. Ses açıkken ya da aralık dışında (0..2 yuva, 1..600 s) HATA + false.
+  Kapı `bridge_music_slots_option_sizes_buffers_before_audio_open`: arena 0 / 24576064 / 1920032 B (0 yuva /
+  varsayılan / 1 × 10 s; varsayılanın > 20 MB alması pozitif kontrol). Ölçüldü (RTX 5080, NULL arka uç): ses
+  açılışında RSS +552 / +4128 / +2080 KB — dokunulmayan tampon sayfası büyük ölçüde RSS'e girmiyor.
 - **Düğme yazısı sığar** (Geri bildirim #15): etiket ölçeği yükseklikten gelir, kutuya sığmazsa motor
   **küçültür** (yükseklik ölçeğinin en az %55'ine kadar), yine sığmazsa kod noktası sınırında kesip `...` ekler
   (ilk kırpma `UYARI`). Düğme, onay kutusu ve kaydırıcı etiketi (kaydırıcıda değer yazısının solunda kalır).

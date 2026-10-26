@@ -2639,6 +2639,75 @@ ENGINE_TEST(bridge_clip_pool_128_and_voice_gain_halves_peak) {
   unsetenv("TULPAR_ENGINE_AUDIO_NULL");
 }
 
+// --- Muzik yuvasi sayisi/suresi init secenegi (karar 12, 2026-10-26) -----------------
+// 2 x 64 s sabit yuva her ses acilisinda arenadan ~23 MB (s16 stereo 48 kHz) aliyordu,
+// muzik yuvasi kullanmayan oyunda da. teng_music_slots(sayi, saniye) ses acilmadan once:
+// 0 -> tampon hic alinmaz; 1 x 10 s -> ~1.8 MB. Uc ayri oturum (her teng_init taze arena):
+// arena farki secenekle OLCULUR (POZITIF KONTROL: varsayilan oturum > 20 MB alir — farki
+// olcen yol gercekten tamponu goruyor). RSS farki basilir: dokunulmayan arena sayfasi
+// RSS'e girmez (iddia edilmez, olculur). Ret yollari: ses acikken ve aralik disinda HATA.
+static long long muzik_oturumu(int sayi, int saniye, int *rss_fark) {
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("muzik secenegi", kW, kH)) return -1;
+  if (sayi >= 0) CHECK(teng_music_slots(sayi, saniye) == 1);
+  const long long a0 = teng_debug_sys_arena_used();
+  const int r0 = teng_rss_kb();
+  CHECK(teng_audio_open(0, 0) == 1);
+  const long long a1 = teng_debug_sys_arena_used();
+  *rss_fark = teng_rss_kb() - r0;
+  return a1 - a0;
+}
+ENGINE_TEST(bridge_music_slots_option_sizes_buffers_before_audio_open) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  int rss_a = 0, rss_b = 0, rss_c = 0;
+  // A: yuva yok
+  const long long da = muzik_oturumu(0, 64, &rss_a);
+  if (da < 0) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  int e0 = teng_error_count();
+  CHECK(teng_music_slot_clip(0) == -1 && teng_error_count() == e0 + 1);
+  teng_audio_close();
+  teng_shutdown();
+  // B: varsayilan (2 x 64 s)
+  const long long db = muzik_oturumu(-1, 0, &rss_b);
+  CHECK(db >= 0);
+  teng_audio_close();
+  teng_shutdown();
+  // C: 1 x 10 s; 2. yuva yok, 11 s parca reddedilir, ses acikken secenek HATA
+  const long long dc = muzik_oturumu(1, 10, &rss_c);
+  CHECK(dc >= 0);
+  e0 = teng_error_count();
+  CHECK(teng_music_slots(2, 64) == 0 && teng_error_count() == e0 + 1);
+  CHECK(teng_music_slot_clip(1) == -1 && teng_error_count() == e0 + 2);
+  char dir[512], kisa[600], uzun[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "muzik_secenek"));
+  std::snprintf(kisa, sizeof kisa, "%s/kisa.wav", dir);
+  std::snprintf(uzun, sizeof uzun, "%s/uzun.wav", dir);
+  CHECK(wav_yaz(kisa, 2, 96000, 48000, 0.5f, 440.0f));      // 2 s
+  CHECK(wav_yaz(uzun, 2, 11 * 48000, 48000, 0.5f, 440.0f)); // 11 s > 10 s
+  CHECK(teng_music_slot_load(0, kisa) == 2000);
+  CHECK(teng_music_slot_load(0, uzun) == -2);
+  teng_audio_close();
+  teng_shutdown();
+  // Aralik disi (taze oturum, ses kapali)
+  teng_set_headless(100000, nullptr);
+  if (teng_init("muzik secenegi ret", kW, kH)) {
+    const int e1 = teng_error_count();
+    CHECK(teng_music_slots(3, 64) == 0 && teng_music_slots(1, 0) == 0 && teng_music_slots(1, 601) == 0);
+    CHECK(teng_error_count() == e1 + 3);
+    teng_shutdown();
+  }
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  std::remove(kisa); std::remove(uzun); rmdir(dir);
+  std::printf("    [bilgi] muzik yuvasi secenegi: arena 0 yuva %lld B, 2 x 64 s %lld B, 1 x 10 s %lld B; RSS %+d / %+d / %+d KB\n", da, db, dc, rss_a,
+              rss_b, rss_c);
+  CHECK(db - da > 20ll * 1024 * 1024);                        // POZITIF KONTROL: varsayilan tamponu aliyor
+  CHECK(da < 64 * 1024);                                      // 0 yuva: tampon yok
+  CHECK(dc - da > 1500000 && dc - da < 2500000);              // 10 s x 48 kHz x 2 kanal x 2 B = 1.92 MB
+}
+
 // --- Muzik yuvalari (M3b, 2026-10-09) ---------------------------------------------
 // Her dongu muzigi kendi klibi olunca arena parca basina buyuyordu (geri verilmez).
 // Iki sabit yuva x 64 s: ayni yuvaya art arda farkli parcalar -> arena BUYUMEZ, yuvanin
