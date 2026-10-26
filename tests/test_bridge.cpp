@@ -2712,9 +2712,10 @@ ENGINE_TEST(bridge_music_slot_reuses_buffer_and_rejects_long_track) {
   CHECK(r != nullptr);
   if (r) {
     unsigned mb = 0, y0 = 0, y1 = 0, r0 = 9, r1 = 9, b0 = 0, b1 = 0, za = 9;
-    std::sscanf(r, "kapanis (muzik yuvasi): 2 yuva x 64 s (%u MB), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)", &mb, &y0, &y1, &r0, &r1, &b0, &b1, &za);
+    // S16 yuva (yayin adimi 3): 2 x 64 s x 48 kHz x 2 kanal x 2 B = 23 MB (f32'de 46 MB).
+    std::sscanf(r, "kapanis (muzik yuvasi): 2 yuva x 64 s (%u MB s16), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)", &mb, &y0, &y1, &r0, &r1, &b0, &b1, &za);
     std::printf("    [bilgi] kapanis: %u MB, yukleme %u/%u, red %u/%u, bekleme %u/%u, zaman asimi %u\n", mb, y0, y1, r0, r1, b0, b1, za);
-    CHECK(y0 == 22 && y1 == 0 && r0 == 0 && r1 == 1 && b0 == 20 && za == 0);
+    CHECK(mb == 23 && y0 == 22 && y1 == 0 && r0 == 0 && r1 == 1 && b0 == 20 && za == 0);
   }
   std::remove(a); std::remove(bb); std::remove(uzun); rmdir(dir);
 }

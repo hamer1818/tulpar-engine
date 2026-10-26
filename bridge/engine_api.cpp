@@ -546,6 +546,11 @@ struct Bridge {
   float audio_master = 1.0f;
   int limiter_node = -1; // teng_audio_limiter: ana yol DSP dugumu (-1 yok)
   char audio_desc[192] = {0};
+  // Klip PCM bicimi (yayin adimi 3, 2026-10-13): varsayilan S16 = F32'nin yarisi;
+  // 16 bit WAV'da kayipsiz (bkz. audio/mixer.hpp). TULPAR_ENGINE_AUDIO_F32=1 eski
+  // bicim (A/B ve kapinin pozitif kontrolu). Ses acilirken okunur.
+  audio::SampleFormat clip_fmt = audio::SampleFormat::S16;
+  uint64_t clip_pcm_bytes = 0; // dosyadan yuklenen kliplerin PCM bedeli (muzik yuvasi haric)
   struct ClipSlot {
     audio::Clip clip;
     bool tone = false;
@@ -562,7 +567,8 @@ struct Bridge {
   static constexpr uint32_t kMusicSlots = 2;
   static constexpr uint32_t kMusicSlotSec = 64;
   struct MusicSlot {
-    float *buf = nullptr;
+    void *buf = nullptr;       // clip_fmt'e gore float ya da int16_t
+    audio::SampleFormat fmt = audio::SampleFormat::F32;
     uint32_t cap_frames = 0, channels = 0;
     int clip = -1;             // clips[] dizini (ilk kullanimda alinir)
     uint32_t loads = 0, rejects = 0, waits = 0, wait_timeouts = 0;
@@ -2368,11 +2374,16 @@ void teng_shutdown(void) {
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
   if (b.music[0].buf || b.music[1].buf)
-    BINFO("kapanis (muzik yuvasi): %u yuva x %u s (%u MB), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)",
+    BINFO("kapanis (muzik yuvasi): %u yuva x %u s (%u MB %s), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)",
           Bridge::kMusicSlots, Bridge::kMusicSlotSec,
-          (unsigned)((uint64_t)b.music[0].cap_frames * b.music[0].channels * 4 * Bridge::kMusicSlots >> 20), b.music[0].loads,
+          (unsigned)((uint64_t)b.music[0].cap_frames * b.music[0].channels * (b.music[0].fmt == audio::SampleFormat::S16 ? 2 : 4) *
+                         Bridge::kMusicSlots >> 20),
+          b.music[0].fmt == audio::SampleFormat::S16 ? "s16" : "f32", b.music[0].loads,
           b.music[1].loads, b.music[0].rejects, b.music[1].rejects, b.music[0].waits, b.music[1].waits,
           b.music[0].wait_timeouts + b.music[1].wait_timeouts);
+  if (b.clip_pcm_bytes)
+    BINFO("kapanis (ses klibi): %u klip, PCM %llu KB (%s)", b.clip_count, (unsigned long long)(b.clip_pcm_bytes >> 10),
+          b.clip_fmt == audio::SampleFormat::S16 ? "s16" : "f32");
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
@@ -4199,13 +4210,16 @@ int teng_audio_open(int sample_rate, int channels) {
   b.audio_ok = true;
   b.audio_null = cfg.null_backend;
   b.audio_master = 1.0f;
+  b.clip_fmt = std::getenv("TULPAR_ENGINE_AUDIO_F32") ? audio::SampleFormat::F32 : audio::SampleFormat::S16;
   // Muzik yuvasi tamponlari (M3b): yalniz ilk acilista (ya da bicim degistiyse) ayrilir.
   // Arena sayfalari yazilinca bellege girer: yuva hic kullanilmazsa RSS'e yansimaz.
   for (uint32_t s = 0; s < Bridge::kMusicSlots; s++) {
     Bridge::MusicSlot &m = b.music[s];
     const uint32_t cap = Bridge::kMusicSlotSec * b.mixer.rate();
-    if (m.buf && m.cap_frames == cap && m.channels == b.mixer.channels()) continue;
-    m.buf = b.sys.alloc_array<float>((size_t)cap * b.mixer.channels());
+    if (m.buf && m.cap_frames == cap && m.channels == b.mixer.channels() && m.fmt == b.clip_fmt) continue;
+    const size_t n = (size_t)cap * b.mixer.channels();
+    m.buf = b.clip_fmt == audio::SampleFormat::S16 ? (void *)b.sys.alloc_array<int16_t>(n) : (void *)b.sys.alloc_array<float>(n);
+    m.fmt = b.clip_fmt;
     m.cap_frames = m.buf ? cap : 0;
     m.channels = b.mixer.channels();
     if (!m.buf) BERR("muzik yuvasi %u: arena dolu (%u kare x %u kanal)", s, cap, m.channels);
@@ -4246,7 +4260,7 @@ int teng_audio_load(const char *path) {
   if (b.clip_count >= kMaxClips) { BERR("teng_audio_load: klip kapasitesi dolu (%u): %s", kMaxClips, path); return -1; }
   const uint32_t i = b.clip_count;
   char cerr[160] = {0};
-  if (!audio::clip_load(b.sys, path, b.mixer.rate(), b.mixer.channels(), &b.clips[i].clip, cerr, sizeof cerr)) {
+  if (!audio::clip_load(b.sys, path, b.mixer.rate(), b.mixer.channels(), &b.clips[i].clip, cerr, sizeof cerr, b.clip_fmt)) {
     BERR("ses klibi yuklenemedi %s: %s", path, cerr);
     return -1;
   }
@@ -4254,7 +4268,9 @@ int teng_audio_load(const char *path) {
   std::snprintf(b.clips[i].name, sizeof b.clips[i].name, "%s", path);
   b.clip_count++;
   const audio::Clip &c = b.clips[i].clip;
-  BINFO("ses klibi %u: %s (%u kare, %u kanal, %u Hz, %.2f s)", i, path, c.frames, c.channels, c.rate, (double)c.frames / (double)(c.rate ? c.rate : 1));
+  b.clip_pcm_bytes += c.bytes();
+  BINFO("ses klibi %u: %s (%u kare, %u kanal, %u Hz, %.2f s, %s)", i, path, c.frames, c.channels, c.rate, (double)c.frames / (double)(c.rate ? c.rate : 1),
+        c.samples16 ? "s16" : "f32");
   return (int)i;
 }
 int teng_audio_tone(double hz, double seconds) {
@@ -4394,7 +4410,7 @@ int teng_music_slot_load(int slot, const char *path) {
   bool uzun = false;
   char cerr[160] = {0};
   audio::Clip c;
-  if (!audio::clip_load_into(m.buf, m.cap_frames, path, b.mixer.rate(), m.channels, &c, &uzun, cerr, sizeof cerr)) {
+  if (!audio::clip_load_into(m.buf, m.cap_frames, path, b.mixer.rate(), m.channels, &c, &uzun, cerr, sizeof cerr, m.fmt)) {
     if (uzun) m.rejects++;
     m.path[0] = 0;
     BERR("muzik yuvasi %d: %s %s: %s", slot, path, uzun ? "REDDEDILDI (cok uzun)" : "yuklenemedi", cerr);

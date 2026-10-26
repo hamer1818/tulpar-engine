@@ -15,7 +15,7 @@ bool Mixer::push(const Command &c) {
 }
 
 VoiceHandle Mixer::play(const Clip *clip, float gain, bool loop) {
-  if (!clip || !clip->samples || clip->frames == 0) return VoiceHandle{};
+  if (!clip || !clip->has_data()) return VoiceHandle{};
   // Yuva secimi uretici tarafinda (yuva "gen" ile dogrulanir; tuketici eski
   // nesil komutu yok sayar). Dolu havuzda en eski yuva geri kazanilir.
   const uint32_t slot = alloc_cursor_++ % kVoices;
@@ -26,7 +26,7 @@ VoiceHandle Mixer::play(const Clip *clip, float gain, bool loop) {
 }
 
 VoiceHandle Mixer::play_3d(const Clip *clip, const SpatialParams &sp, float gain, bool loop) {
-  if (!clip || !clip->samples || clip->frames == 0) return VoiceHandle{};
+  if (!clip || !clip->has_data()) return VoiceHandle{};
   const uint32_t slot = alloc_cursor_++ % kVoices;
   const uint32_t gen = ++next_gen_[slot];
   Command c{Cmd::Play3D, (uint8_t)slot, (uint8_t)(loop ? 1 : 0), 0, gen, gain, clip, sp};
@@ -161,8 +161,8 @@ void Mixer::render(float *out, uint32_t frames) {
           if (!v.loop) { v.active = false; break; }
           v.pos = 0;
         }
-        const float *s = cl.samples + v.pos * cl.channels;
-        const float mono = cl.channels == 1 ? s[0] : 0.5f * (s[0] + s[1]);
+        const uint64_t si = v.pos * cl.channels;
+        const float mono = cl.channels == 1 ? cl.at(si) : 0.5f * (cl.at(si) + cl.at(si + 1));
         float L = mono * gl, R = mono * gr;
         if (cl_coef < 1.0f) { v.lp_l += cl_coef * (L - v.lp_l); L = v.lp_l; } else { v.lp_l = L; }
         if (cr_coef < 1.0f) { v.lp_r += cr_coef * (R - v.lp_r); R = v.lp_r; } else { v.lp_r = R; }
@@ -187,8 +187,8 @@ void Mixer::render(float *out, uint32_t frames) {
           if (!v.loop) { v.active = false; break; }
           v.pos = 0;
         }
-        const float *s = cl.samples + v.pos * cl.channels;
-        const float mono = cl.channels == 1 ? s[0] : 0.5f * (s[0] + s[1]);
+        const uint64_t si = v.pos * cl.channels;
+        const float mono = cl.channels == 1 ? cl.at(si) : 0.5f * (cl.at(si) + cl.at(si + 1));
         float m = mono * gm;
         if (coef < 1.0f) { v.lp_l += coef * (m - v.lp_l); m = v.lp_l; } else { v.lp_l = m; }
         for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += m;
@@ -208,12 +208,12 @@ void Mixer::render(float *out, uint32_t frames) {
         if (!v.loop) { v.active = false; break; }
         v.pos = 0;
       }
-      const float *s = cl.samples + v.pos * cl.channels;
+      const uint64_t si = v.pos * cl.channels;
       if (cl.channels == 1) {
-        const float m = s[0] * gk;
+        const float m = cl.at(si) * gk;
         for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += m;
       } else {
-        for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += s[c < cl.channels ? c : 0] * gk;
+        for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += cl.at(si + (c < cl.channels ? c : 0)) * gk;
       }
       gk += g_adim;
       v.pos++;
