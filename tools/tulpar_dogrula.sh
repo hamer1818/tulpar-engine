@@ -327,16 +327,17 @@ elif [ "$tam" = 1 ]; then
   # (izdusum -> isin) secilir, iki yapay zeka sabit tohumla (9600) savasir:
   # birlik dog/ol, kinematik mermi + kule, dinamik birlik/enkaz/gokdasi,
   # duraklat -> devam (fizik durur: izlenen birlik 0 m kayar), sonuc ekrani.
-  # Olculdu 2026-10-26, RTX 5080 (Linux, NVIDIA): savas 7397. karede ZAFER'le
-  # biter; iki paralel kosum yayinlanmis v3.41.0 VE yerel TulparLang
-  # (T1-T6, 2d83bf40) ile bayt bayt ayni (dort kosum, kapi + fizik satirlari).
+  # Olculdu 2026-10-26, RTX 5080 (Linux, NVIDIA): savas 5282. karede ZAFER'le
+  # biter (carpisma gruplari + donme kilidi ile; gruplardan once 7397); yayinlanmis
+  # v3.41.0 VE yerel TulparLang (T1-T6, 2d83bf40) ile bayt bayt ayni (kapi + fizik).
+  # fizik satirinda dost_degme=0: mermi kendi tarafinin govdesine degmedi.
   # Fizik satiri da birebir karsilastirilir: karar Tulpar'da dizi sirasiyla,
   # ham carpisma kuyrugu yalniz SAYILIR (sirasi is parcacigina bagli olabilir).
   savas_kos() {  # savas_kos <gunluk> <kare> [AD=deger ...]
     local g="$1" k="$2"; shift 2
     kos "$g" env TULPAR_ENGINE_HEADLESS="$k" "$@" "$tul" --ext "$ext" examples/engine_savas.tpr
   }
-  savas_3200="[kapi] kare=3200 sonuc=suruyor savas_kare=3131 zorluk=0 dogan=15/14 olen=10/8 kule=3/1 ozel=0/0 kale=900/900 altin=18/64 dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
+  savas_3200="[kapi] kare=3200 sonuc=suruyor savas_kare=3131 zorluk=0 dogan=26/12 olen=11/7 kule=1/1 ozel=0/1 kale=900/785 altin=24/14 dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
   if [ "$uzun_atla" = 1 ]; then
     savas_kos "$gun/savas_kisa.log" 300; rc=$?
     if [ $rc -eq 0 ] && grep -q '^\[kapi\] TAMAM (kisa kosum' "$gun/savas_kisa.log"; then
@@ -349,8 +350,8 @@ elif [ "$tam" = 1 ]; then
     savas_kos "$gun/savas.log" 9600; rc=$?
     satir="$(grep -m1 '^\[kapi\] kare=' "$gun/savas.log")"
     fizik="$(grep -m1 '^\[kapi\] fizik: ' "$gun/savas.log")"
-    beklenen="[kapi] kare=7397 sonuc=zafer savas_kare=7297 zorluk=0 dogan=43/28 olen=22/28 kule=3/3 ozel=0/2 kale=900/0 altin=23/4 dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
-    beklenen_fizik="[kapi] fizik: govde_kur=564 govde_sil=524 kinematik=379 mermi=373 isabet=344 enkaz=100 carpisma=1289 carpisma_dusen=0 canli_varlik=41 govde=41"
+    beklenen="[kapi] kare=5282 sonuc=zafer savas_kare=5182 zorluk=0 dogan=38/19 olen=16/18 kule=3/1 ozel=0/2 kale=900/0 altin=124/42 dongu_hatasi=0 kurulum_hatasi=0 uyari=0"
+    beklenen_fizik="[kapi] fizik: govde_kur=356 govde_sil=319 kinematik=217 mermi=213 isabet=196 enkaz=68 carpisma=596 carpisma_dusen=0 dost_degme=0 canli_varlik=38 govde=38"
     if [ $rc -eq 0 ] && [ "$satir" = "$beklenen" ] && [ "$fizik" = "$beklenen_fizik" ] && grep -q '^\[kapi\] TAMAM — savas' "$gun/savas.log"; then
       gec "engine_savas (9600 kare): $satir"
     else
@@ -373,22 +374,32 @@ elif [ "$tam" = 1 ]; then
     else
       dus "pozitif kontrol: savasta enjekte sizinti YAKALANMADI ya da savas satiri degisti (rc=$rc)"; grep '^\[kapi\]' "$gun/savas_sizinti.log" | tail -6 >&2
     fi
+    # POZITIF KONTROL — dost mermi sayaci (Geri bildirim #25): gruplar yine atanir,
+    # tablo ACIK (TULPAR_ENGINE_SAVAS_DOST_SUZGEC=0) -> ayni savasta mermi dost
+    # govdeye DEGMELI. Olculdu 2026-10-26 RTX 5080: 3200 karede 14 (suzgecle 0).
+    # (Bu kipte savasin kendisi farkli gider; yalniz sayac okunur.)
+    savas_kos "$gun/savas_dost.log" 3200 TULPAR_ENGINE_SAVAS_DOST_SUZGEC=0
+    dost="$(sed -n 's/^\[kapi\] fizik: .* dost_degme=\([0-9]*\).*/\1/p' "$gun/savas_dost.log" | head -1)"
+    if [ -n "$dost" ] && [ "$dost" -gt 0 ]; then
+      gec "pozitif kontrol: carpisma tablosu acik -> 3200 karede $dost dost degmesi (suzgecle 0)"
+    else
+      dus "pozitif kontrol: suzgec kapaliyken dost degmesi '$dost' — sayac bir sey olcmuyor"; grep '^\[kapi\]' "$gun/savas_dost.log" | tail -6 >&2
+    fi
     # POZITIF KONTROL 2 — satir savasi olcuyor mu? 1500. karede taraf 1'e +200
     # altin (TULPAR_ENGINE_SAVAS_BOZ): 3200. karedeki satir normal kosumdan
     # (yukaridaki sizinti kosumu ile ayni satir) FARKLI olmali.
     # Bellek karari bu kontrolun konusu DEGIL: BOZ bilincli olarak baska bir
-    # savas — 1500'den sonra canli varlik 23 -> 35'e cikar ve lavapipe'ta RSS
-    # onunla ~2.4 MB buyur (2026-10-27, CI lavapipe'i 4 cekirdek: 3200 karede
-    # kayan pencere alt ceyregi 706 / 806 / 753; ayni BOZ 9600 karede -653, RSS
-    # k4200'de ~142 MB tepe yapip varlik sayisiyla geri iner -> sinirli. RTX 5080'de
-    # 13 / 13 / 20). Kosum sonuna varmali ve bellek disinda BASARISIZ olmamali;
-    # bellek satiri bilgi olarak basilir.
+    # savas — canli varlik sayisi degisir ve lavapipe'ta RSS onunla sinirli
+    # buyuyebilir (gruplardan once, 2026-10-27 CI lavapipe'i 4 cekirdek: 3200
+    # karede kayan pencere alt ceyregi 706 / 806 / 753, ayni BOZ 9600 karede -653;
+    # gruplarla -273 / -340 / -493, RTX 5080 6 / 13 / 66). Kosum sonuna varmali ve
+    # bellek disinda BASARISIZ olmamali; bellek satiri bilgi olarak basilir.
     savas_kos "$gun/savas_boz.log" 3200 TULPAR_ENGINE_SAVAS_BOZ=1500; rc=$?
     bsatir="$(grep -m1 '^\[kapi\] kare=' "$gun/savas_boz.log")"
     bdiger="$(grep '^\[kapi\] BASARISIZ: ' "$gun/savas_boz.log" | grep -v '^\[kapi\] BASARISIZ: bellek buyuyor: ')"
     if { [ $rc -eq 0 ] || [ $rc -eq 1 ]; } && [ -z "$bdiger" ] && [ -n "$bsatir" ] && [ "$bsatir" != "$savas_3200" ] && grep -q 'BOZ: kare 1500' "$gun/savas_boz.log"; then
       echo "    [bilgi] BOZ kosumu bellek: $(grep -m1 '^\[kapi\] bellek' "$gun/savas_boz.log" | sed 's/^\[kapi\] bellek: //; s/, kare bellegi.*//')"
-      gec "pozitif kontrol: TULPAR_ENGINE_SAVAS_BOZ=1500 -> 3200. kare satiri degisti ($(echo "$bsatir" | sed 's/.* \(dogan=[^ ]*\) \(olen=[^ ]*\).*/\1 \2/'), normal: dogan=15/14 olen=10/8)"
+      gec "pozitif kontrol: TULPAR_ENGINE_SAVAS_BOZ=1500 -> 3200. kare satiri degisti ($(echo "$bsatir" | sed 's/.* \(dogan=[^ ]*\) \(olen=[^ ]*\).*/\1 \2/'), normal: dogan=26/12 olen=11/7)"
     else
       dus "pozitif kontrol: BOZ savas satirini degistirmedi ya da kosmadi (rc=$rc): '$bsatir'"; grep '^\[kapi\]' "$gun/savas_boz.log" | tail -4 >&2
     fi
