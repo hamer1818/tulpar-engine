@@ -89,6 +89,10 @@ int teng_ui_fullscreen_blends(void);
 // 2B arayuz tam cozunurlukte kalir. Ic hedef = parlama acik (teng_bloom,
 // init oncesi); yoksa 1.0 doner ve UYARI sayar. Donus: uygulanan olcek.
 double teng_render_scale(double scale);
+// Yonlu isik golgesi ac/kapa (grafik ayari, 2026-10-13): kapaliyken golge gecisi
+// KAYDEDILMEZ ve ornekleme kapanir. Golge kaynagi kurulumda yoksa acma istegi UYARI
+// sayar ve 0 doner. Donus: golge su an acik mi. eng_init sonrasi, kare disinda.
+int teng_shadows(int on);
 void teng_sun(double dx, double dy, double dz, double diffuse);
 void teng_ambient(int64_t color);
 void teng_shadow_volume(double cx, double cy, double cz, double radius, double depth);

@@ -2595,6 +2595,58 @@ ENGINE_TEST(bridge_render_scale_draws_scene_smaller_and_reports_when_unavailable
   CHECK(kapali_fark == 0); // ic hedef yoksa kare degismez
 }
 
+// --- Grafik ayari: golge ac/kapa (yayin adimi 3, 2026-10-13) ----------------------
+// Oyunun "Grafik: Dusuk" kademesi golgeyi kapatir (Mali'de golge haritasi gecisi).
+// Olcu: zemin + kutu + yuksekten gunes (yon isiga dogru); golge ACIK ve KAPALI karenin farki > 200 px
+// (kutunun golgesi kayboldu); yeniden ACINCA kare ilk kareyle BIT BIT ayni (durum
+// tam geri gelir — bu ayni zamanda farkin gurultu olmadiginin kontrolu: ayni sahne
+// iki kez 0 px fark veriyor). Hata ve uyari sayaci degismez. Olculdu 2026-10-13 RTX 5080:
+// acik-kapali 641 px, geri 0 px. Esigin golgeyi olctugunun kaniti: ilk yazimda gunes
+// yonu ters verilmisti (isik zeminin altindan, golge yok) ve kapi 0 px ile KIRMIZI dustu.
+static uint8_t g_golge_a[kW * kH * 3], g_golge_k[kW * kH * 3], g_golge_a2[kW * kH * 3];
+ENGINE_TEST(bridge_shadows_toggle_removes_and_restores_shadow) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  char ya[512], yk[512], ya2[512];
+  tmp_template(ya, sizeof ya, "golge_acik");
+  tmp_template(yk, sizeof yk, "golge_kapali");
+  tmp_template(ya2, sizeof ya2, "golge_acik2");
+  char *yollar[3] = {ya, yk, ya2};
+  for (int i = 0; i < 3; i++) { const int fd = mkstemp(yollar[i]); if (fd >= 0) close(fd); }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("golge", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int h0 = teng_error_count(), u0 = teng_warning_count();
+  teng_camera(0, 5, 8, 0, 0.5, 0);
+  teng_sun(0.5, 1.0, 0.35, 1.0); // yon: ISIGA dogru (oyunun gunes() cagrilari gibi)
+  CHECK(teng_spawn_ground(8.0, 0xCED4DAFF) > 0);
+  CHECK(teng_spawn_box(0, 1.2, 0, 0.9, 0.9, 0.9, 0, 0xE63946FF) > 0);
+  run_frames(3);
+  CHECK(teng_screenshot(ya) == 1);
+  CHECK(teng_shadows(0) == 0);
+  run_frames(3);
+  CHECK(teng_screenshot(yk) == 1);
+  CHECK(teng_shadows(1) == 1);
+  CHECK(teng_shadows(1) == 1); // KONTROL: ayni durum, degisim sayilmaz
+  run_frames(3);
+  CHECK(teng_screenshot(ya2) == 1);
+  CHECK(teng_error_count() == h0 && teng_warning_count() == u0);
+  teng_shutdown();
+  uint32_t w = 0, h = 0;
+  const uint32_t na = read_ppm(ya, g_golge_a, kW * kH, &w, &h);
+  const uint32_t nk = read_ppm(yk, g_golge_k, kW * kH, &w, &h);
+  const uint32_t na2 = read_ppm(ya2, g_golge_a2, kW * kH, &w, &h);
+  for (int i = 0; i < 3; i++) std::remove(yollar[i]);
+  CHECK(na == kW * kH && nk == kW * kH && na2 == kW * kH);
+  if (na != kW * kH || nk != kW * kH || na2 != kW * kH) return;
+  const uint32_t kapali_fark = diff_px(g_golge_k, g_golge_a, na);
+  const uint32_t geri_fark = diff_px(g_golge_a2, g_golge_a, na);
+  std::printf("    [bilgi] golge: acik-kapali %u px, yeniden acik-ilk %u px\n", kapali_fark, geri_fark);
+  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): golge PIKSEL blogu gercek cihazda olculur"); return; }
+  CHECK(kapali_fark > 200);
+  CHECK(geri_fark == 0);
+}
+
 // --- Geri bildirim #3: sahne parcaciklari derlenmis oyunda --------------------
 // Kopru SceneRuntime::update'i HIC cagirmiyordu: `.sahne`deki yayicilar editorde
 // doguyor, oyunda (eng_scene_load) hic dogmuyordu; dogsalardi da v8 blobu

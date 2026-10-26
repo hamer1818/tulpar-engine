@@ -80,6 +80,7 @@ SPEC = [
     ("eng_ui_fullscreen_blends", "int", [], "Oyunun tam ekran YARI SAYDAM arayuz katmani cizdigi kare sayisi (TBDR'de pahali; eng_scene_dim'e gec)."),
     ("eng_bloom_on", "bool", [], "Parlama acik mi (HDR bicimi yoksa motor kapatir; sebep logda)."),
     ("eng_render_scale", "float", [("scale", "num")], "Ic cozunurluk olcegi (dinamik cozunurluk, 0.5..1.0): sahne olcekli cizilir, birlestirme tam ekrana buyutur; arayuz tam cozunurlukte kalir. Ic hedef ister (eng_bloom ile parlama acik). Donus: uygulanan olcek (ic hedef yoksa 1.0 + UYARI). eng_init sonrasi, kare icinde ya da disinda."),
+    ("eng_shadows", "bool", [("on", "flag")], "Yonlu isik golgesi ac/kapa (grafik ayari: Dusuk kapatir). Kapaliyken golge gecisi kaydedilmez (Mali'de golge haritasi bant genisligi kalkar). Kurulumda golge kaynagi yoksa acma istegi UYARI + false. Donus: golge su an acik mi. eng_init sonrasi."),
     ("eng_gravity", "void", [("gx", "num"), ("gy", "num"), ("gz", "num")], "Yercekimi (eng_init'ten once)."),
     ("eng_sun", "void", [("dx", "num"), ("dy", "num"), ("dz", "num"), ("diffuse", "num")], "Gunes yonu (normalize edilir) ve siddeti."),
     ("eng_ambient", "void", [("color", "color")], "Ortam isigi rengi (0xRRGGBBAA)."),

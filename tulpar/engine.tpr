@@ -212,6 +212,9 @@ func parlama_acik(): bool { return eng_bloom_on(); }
 // docs/OYUN_GERI_BILDIRIM.md madde 2. Donus: uygulanan olcek.
 func cozunurluk_olcegi(float s): float { return eng_render_scale(s); }
 func render_scale(float s): float { return eng_render_scale(s); }
+// Yonlu isik golgesi ac/kapa (grafik ayari). Donus: golge su an acik mi.
+func golge(bool ac): bool { return eng_shadows(ac); }
+func shadows(bool on): bool { return eng_shadows(on); }
 func kamera(ex, ey, ez, tx, ty, tz) { eng_camera(ex, ey, ez, tx, ty, tz); }
 func kamera_yorunge(tx, ty, tz, yaw, pitch, uzaklik) { eng_camera_orbit(tx, ty, tz, yaw, pitch, uzaklik); }
 func camera(ex, ey, ez, tx, ty, tz) { eng_camera(ex, ey, ez, tx, ty, tz); }

@@ -507,6 +507,8 @@ struct Bridge {
   audio::AudioDevice audio_dev;
   bool audio_ok = false;
   bool audio_null = false;
+  bool shadow_avail = false;   // kurulumda golge kaynagi kuruldu mu (teng_shadows acabilir mi)
+  uint32_t shadow_toggles = 0; // teng_shadows durum degisimi (kapanista sayilir)
   uint32_t audio_off_reports = 0; // kapali cihazda cagri: ilk N tanesi HATA, sonrasi ayrinti (log selini onler)
   uint32_t audio_plays = 0;
   float audio_master = 1.0f;
@@ -1181,6 +1183,22 @@ double teng_render_scale(double scale) {
   return t.render_scale;
 }
 
+int teng_shadows(int on) {
+  CALLF("teng_shadows", "%d", on);
+  if (!ready("teng_shadows")) return 0;
+  Bridge &b = *g;
+  if (on && !b.shadow_avail) {
+    blog(1, "UYARI teng_shadows(1): golge kaynagi kurulumda yok (%s) — kapali kaliyor", b.ren.shadow().disabled_reason);
+    g_log.warnings++;
+    return 0;
+  }
+  const bool once = b.ren.shadow().enabled;
+  b.ren.set_shadows_enabled(on != 0);
+  const bool simdi = b.ren.shadow().enabled;
+  if (once != simdi) { b.shadow_toggles++; BINFO("golge %s", simdi ? "acildi" : "kapatildi"); }
+  return simdi ? 1 : 0;
+}
+
 // YARIM KURULUMUN GERI ALINMASI (Tuzaklar 8cq). teng_init'in arena rezervinden
 // sonraki HER basarisiz cikisi buradan gecer: o ana kadar kurulan ne varsa
 // ters sirada (teng_shutdown'un sirasi) birakilir — worker thread'leri, GPU
@@ -1469,6 +1487,7 @@ int teng_init(const char *title, int width, int height) {
   b.inited = true;
   b.running = true;
   if (b.embed) b.chan.set_state(platform::GameChildState::Running);
+  b.shadow_avail = b.ren.shadow().enabled;
   BINFO("motor hazir (%s, %s)", b.embed ? "gomulu" : b.headless ? "headless" : "pencere", b.dev.caps().device_name);
   {
     // PSO onbellegi GORUNUR olmali: sessizce kapali kaldigi bir platformda
