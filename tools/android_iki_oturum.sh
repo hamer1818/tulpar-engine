@@ -33,6 +33,8 @@ command -v tulpar >/dev/null || { echo "HATA: PATH'te tulpar yok"; exit 1; }
 # kendi degiskeni: asagidaki her `adb` cagrisi onu hedefler). 2026-10-07'de
 # kullanicinin emulatoru acikken telefon baglandi ve "tam bir cihaz" denetimi
 # olcumu baslatmadan durduruyordu.
+. "$(dirname "$0")/android_adb_hazir.sh"
+adb_hazir || exit 1
 if [ -n "${ANDROID_SERIAL:-}" ]; then
   adb devices | grep -q "^$ANDROID_SERIAL[[:space:]]*device$" \
     || { echo "HATA: ANDROID_SERIAL=$ANDROID_SERIAL bagli degil"; adb devices; exit 1; }

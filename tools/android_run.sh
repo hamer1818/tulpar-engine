@@ -13,6 +13,8 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # depo koku
 MODE="${1:-tests}"; shift || true
+. "$ROOT/tools/android_adb_hazir.sh"
+adb_hazir || exit 1   # Geri bildirim #23: kopuk cihazda sonsuz bekleme yok
 NDK="${TULPAR_ANDROID_NDK:-}"
 if [ -z "$NDK" ]; then
     NDK=$(ls -d "$HOME"/Android/Sdk/ndk/* "$HOME"/Android/android-ndk-* 2>/dev/null | sort -V | head -1)
