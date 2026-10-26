@@ -29,8 +29,8 @@
 | 5 | dil | modül, kendisini içe aktaran dosyanın fonksiyonunu göremiyor (global'ini görüyor) | O | **düzeltildi** (TulparLang #484; oyun yeni sürümle sadeleşecek) |
 | 6 | dil | `import` yolu çalışma dizinine göre, içe aktaran dosyaya göre değil | O | **düzeltildi** (TulparLang #485) |
 | 7 | dil | çoklu bildirim tek tip ister ve fonksiyonu YALNIZ bu dosyanın import'unda arar | D | **düzeltildi** (TulparLang #485) |
-| 8 | motor / Android | geri tuşu oyunu duraklatmıyor, etkinliği kapatıyor (savaş kaybolur) | O | açık — düzeltmesi (`geri_basildi`) yerelde hazır, Android PR'ı bekliyor |
-| 9 | motor / Android | arka planda ses durmuyor (AAudio akışı `started` kalıyor) | O | açık — düzeltmesi (motor arka planda sesi kendisi durdurur) Android PR'ı bekliyor |
+| 8 | motor / Android | geri tuşu oyunu duraklatmıyor, etkinliği kapatıyor (savaş kaybolur) | O | **düzeltildi** (`geri_basildi`; targetSdk 36 için Tuzaklar 8de) |
+| 9 | motor / Android | arka planda ses durmuyor (AAudio akışı `started` kalıyor) | O | **düzeltildi** (motor arka planda sesi kendisi durdurur, `arka_planda`; oyunun geçici çözümü kalktı) |
 | 10 | motor / köprü | fizik duraklatılamıyor (duraklat menüsünde mermiler uçmaya devam eder) | O | **düzeltildi** (#96; oyun geçti) |
 | 11 | motor / köprü | sabit gövdeyi `isinla` her çağrıda gövdeyi YENİDEN kuruyor; kinematik gövde yok | O | **düzeltildi** (#97 kinematik gövde; sabit `isinla` ayırmasız) |
 | 12 | motor / köprü | kameranın görüş açısı ve ekran→ışın API'si yok; oyun `pi/3.5`'i kopyalıyor | D | **düzeltildi** (#98; oyun `FOV_TAN` kopyasını bıraktı) |
@@ -38,9 +38,9 @@
 | 14 | motor / perf | betik kancası dağıtımı telefonda masaüstünün ~16 katı (6.6 µs / 0.4 µs çağrı, gövdeler dahil) | D | **iyileştirildi** (#100, Tuzaklar 8cv) |
 | 15 | motor / arayüz | düğme yazısı yalnız yükseklikten ölçekleniyor, uzun etiket taşıyor | D | **düzeltildi** (#105; oyun tam adlara döndü) |
 | 16 | motor / arayüz | yarı saydam tam ekran karartma Mali'de ~3.5 ms (TBDR) — uyarı köprüde görünmüyor | D | **düzeltildi** (#105 `sahne_karart`; oyun tam ekran karartmayı bıraktı) |
-| 17 | TulparLang / Android | ekran çentiği alanı kullanılmıyor (2240 yerine 2159 piksel, solda siyah şerit) | D | yarım — TulparLang #486 `cutout` birleşti; motorun güvenli alanı (`guvenli_*`) Android PR'ı bekliyor |
+| 17 | TulparLang / Android | ekran çentiği alanı kullanılmıyor (2240 yerine 2159 piksel, solda siyah şerit) | D | **düzeltildi** (TulparLang #486 `cutout` + motor güvenli alanı `guvenli_*`, sistem çubukları dahil) |
 | 18 | motor / Android | `android cmd ?`: yaşam döngüsü günlüğünde adsız komutlar | D | **düzeltildi** (#102) |
-| 19 | araç / Android | Huawei'de kayıt dosyası (iç depolama) adb ile okunamıyor; ayar test edilemiyor | D | açık — düzeltmesi (debug derlemede kayıt adb'ye açık) Android PR'ı bekliyor |
+| 19 | araç / Android | Huawei'de kayıt dosyası (iç depolama) adb ile okunamıyor; ayar test edilemiyor | D | **düzeltildi** (debug derlemede kayıt adb'ye açık) |
 | 20 | motor / font | `—` gibi aralık dışı karakter `?` basıyor (ASCII + Latin-1 + Türkçe) | D | **düzeltildi** (#105 tipografik noktalama) |
 
 İyi haber (ölçüldü, telefonda): Tuzaklar 8ct'nin yolu **gerçek oyunla** da temiz — geri tuşu
@@ -139,7 +139,7 @@ yalnız `tulpar/` dizininden çalışıyor. Oyun kendi dizininden çalışacak �
   bu dosya onu KENDİSİ import etmedikçe "coklu bildirimin sag tarafi `: (T, T)` bildiren bir fonksiyonun
   dogrudan cagrisi olmali" — normal çağrı aynı fonksiyonu buluyor.
 
-## 8. Geri tuşu etkinliği kapatıyor — AÇIK
+## 8. Geri tuşu etkinliği kapatıyor — DÜZELTİLDİ (`geri_basildi`)
 
 `android_host.cpp` `on_input` yalnız dokunmayı işliyor, tuş olaylarına 0 dönüyor; sistem geri tuşunda
 `NativeActivity`'yi bitiriyor (`DESTROY` → oyun `motor_kapat`). Oyuncu savaşın ortasında geri tuşuna
@@ -147,7 +147,7 @@ basınca savaş kaybolur (ölçüldü P20 Pro: `android cmd DESTROY` → `bitis:
 **Öneri:** `AKEYCODE_BACK` → köprünün tuş durumuna `"ESC"` (ya da `"GERI"`) + 1 dön; oyun ESC'yi zaten
 duraklat/geri olarak işliyor. İki kez geri = çıkış kararı oyunun.
 
-## 9. Arka planda ses sürüyor — OYUNDA GEÇİCİ ÇÖZÜM
+## 9. Arka planda ses sürüyor — DÜZELTİLDİ (motor durdurur)
 
 Ana ekrana dönünce `dumpsys audio`: oyunun AAudio akışı `state:started` (P20 Pro, 2026-10-07). Köprü
 `APP_CMD_PAUSE`'u yalnız logluyor. Oyun artık `kare_basla()` false dönünce (pencere yok) ana seviyeyi 0
@@ -214,7 +214,7 @@ Ayarlar ekranı (tam ekran `RENK_KARART` + panel) p50 21.15 ms, menü (karartmas
 kapalı, ölçek 1.0, P20 Pro. Renderer'da `ui_fullscreen_blend_ratio` uyarısı var ama köprü/oyun onu
 görmüyor. **Öneri:** köprü kapanış raporuna "tam ekran harmanlı dörtgen" sayacı.
 
-## 17. Ekran çentiği alanı kullanılmıyor — YARIM (TulparLang #486 birleşti; motor güvenli alanı bekliyor)
+## 17. Ekran çentiği alanı kullanılmıyor — DÜZELTİLDİ (TulparLang #486 + motor güvenli alanı)
 
 Pencere 2159x1080, ekran 2240x1080: solda ~81 px siyah şerit. Manifest/tema
 `android:windowLayoutInDisplayCutoutMode="shortEdges"` vermiyor (TulparLang'in ürettiği manifest).
@@ -224,7 +224,7 @@ Pencere 2159x1080, ekran 2240x1080: solda ~81 px siyah şerit. Manifest/tema
 `cmd_name` bazı komutları tanımıyor (`APP_CMD_CONTENT_RECT_CHANGED`, `WINDOW_REDRAW_NEEDED`,
 `SAVE_STATE`…): her açılışta 4-5 `android cmd ?` satırı.
 
-## 19. Telefonda kayıt dosyası okunamıyor — BİLGİ
+## 19. Telefonda kayıt dosyası okunamıyor — DÜZELTİLDİ (debug derlemede adb'ye açık)
 
 Kayıt çıkarma kökünde (`/data/user/0/<paket>/files/assets/tulpar_kayit.txt`); Huawei'de `run-as` çalışmadığı
 için (Tuzaklar 8n) adb ile okunamıyor/yazılamıyor. Ayar testi ekrandan dokunarak yapıldı. **Öneri:** hata
