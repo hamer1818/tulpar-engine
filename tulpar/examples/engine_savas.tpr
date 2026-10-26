@@ -1,0 +1,728 @@
+// Tulpar Engine — "Savaş": iki yapay zekâlı şerit savaşı, motorun KENDİ uzun kapısı.
+//
+// NEDEN BU DOSYA (2026-10-26): motorun --tam kapısı 9600 karelik savaşı eskiden
+// tulpar/oyunlar/kup_kure_savasi'nin (#94) eski bir kopyasıyla koşuyordu. Oyun
+// ayrı, özel bir depoya taşındı; motor CI'ı özel depoyu çekmemeli (sır + auto-merge'e
+// dış bağımlılık). Oyun kapısının ölçtüğü şeyler burada, motorun sahibi olduğu ve
+// yalnız main'deki API'lerle yazılmış bir programda ölçülür:
+//
+//   oyun kapısı                                  burada
+//   menü düğmelerine ADIYLA tıklama zinciri      3 ekranlık menü (ana / ayar / zorluk), 5 adım
+//   ekran dokunuşu -> ışın ile yer seçme         kule yuvası: dunyadan_ekrana -> ekrandan_sec
+//   iki yapay zekâlı uzun savaş                  sabit tohum (9600), iki taraf, birlik doğ/öl,
+//     (birlik doğ/öl, mermi, gövde kur/sil,        kinematik mermi + kule, dinamik birlik/enkaz/
+//      kinematik + dinamik)                        göktaşı, fizik duraklat/devam
+//   [kapi] bellek / fizik satırları              aynı satırlar + enjekte sızıntı pozitif kontrolü
+//   GPU'suz derle + linkle + kurulum düşer       tools/tulpar_dogrula.sh gpusuz_kos listesinde
+//
+// Pencersiz:  TULPAR_ENGINE_HEADLESS=9600 DISPLAY= tulpar examples/engine_savas.tpr
+// İki koşum AYNI [kapi] satırını basar (belirlenim: sabit tohum, sabit dt, oyun
+// kararları Tulpar'da dizi sırasıyla; ham çarpışma kuyruğu yalnız SAYILIR — sırası iş
+// parçacığına bağlı olabilir, karar ona dayanmaz).
+//
+// POZİTİF KONTROLLER (tools/tulpar_dogrula.sh --tam):
+//   TULPAR_ENGINE_SAVAS_SIZINTI_B=2048  her kare ~2 KB kalıcı dizgi -> bellek kapısı KIRMIZI
+//   TULPAR_ENGINE_SAVAS_BOZ=<kare>      o karede taraf 1'e +200 altın -> [kapi] satırı DEĞİŞMELİ
+//                                       (değişmiyorsa satır savaşı ölçmüyordur)
+//
+// Dil notu: bu dosya yayınlanmış ve yerel derleyicide AYNI sonucu vermeli. Bu yüzden
+// int hedefe giden her ondalık açıkça toInt'ten geçer, dizin her zaman int'tir ve
+// min/max int argümanla kullanılmaz (TulparLang T2/T3 öncesi ikilide bu kalıplar
+// sessizce farklı değer veriyordu — tulpar-engine OYUN_GERI_BILDIRIM #28, N2b).
+
+import "engine";
+
+// ---- Ayarlar ----------------------------------------------------------------
+int TOHUM = 9600;
+float KALE_X = 26.0;           // taraf 0 kalesi -KALE_X, taraf 1 +KALE_X
+int KALE_CAN = 900;
+int BIRLIK_MAX = 48;           // havuz: kareden ÖNCE kurulur (kare belleği kuralı)
+int TARAF_BIRLIK_MAX = 22;
+int MERMI_MAX = 64;
+int ENKAZ_MAX = 64;
+int TASI_MAX = 12;             // göktaşı (özel güç)
+int KULE_FIYAT = 70;
+float KULE_MENZIL = 7.5;
+float KULE_SOGUMA = 1.8;
+int KULE_HASAR = 6;
+int OZEL_FIYAT = 90;
+float YUVA_Z = 3.4;
+// Birlik türleri: 0 piyade, 1 okçu, 2 ağır.
+int[] TUR_CAN = [60, 34, 150];
+int[] TUR_FIYAT = [20, 26, 46];
+int[] TUR_HASAR = [9, 7, 17];
+float[] TUR_MENZIL = [1.35, 5.5, 1.55];
+float[] TUR_HIZ = [2.2, 2.0, 1.35];
+float[] TUR_BEKLE = [0.8, 1.25, 1.45];
+float[] TUR_BOY = [0.40, 0.32, 0.55];
+str[] TUR_AD = ["piyade", "okcu", "agir"];
+// Gelir: her 30 karede taraf başına; Kolay'da taraf 1 (rakip) bir eksik.
+int[] GELIR_KOLAY = [5, 4];
+int[] GELIR_ZOR = [5, 6];
+int OLDURME_ODUL = 6;
+
+int RENK_ZEMIN = renk(70, 84, 64);
+int RENK_KUP = renk(70, 140, 235);
+int RENK_KURE = renk(235, 120, 60);
+int RENK_KALE0 = renk(40, 90, 170);
+int RENK_KALE1 = renk(170, 70, 40);
+int RENK_YUVA = renk(220, 220, 120);
+int RENK_KULE = renk(200, 200, 210);
+int RENK_MERMI = renk(255, 240, 160);
+int RENK_ENKAZ = renk(110, 100, 90);
+int RENK_TASI = renk(255, 90, 40);
+int RENK_PENCERE = renk_a(10, 12, 18, 228);
+int RENK_KARART = renk_a(0, 0, 0, 120);
+
+// ---- Durum ------------------------------------------------------------------
+enum Ekran { MENU, AYAR, ZORLUK, OYUN, DURAKLAT, SONUC }
+Ekran g_ekran = Ekran.MENU;
+Ekran g_cizilen = Ekran.MENU;  // bu karede CIZILEN ekran (otopilot yalniz cizilmis widget'a tiklar)
+int g_tohum = TOHUM;
+int g_zorluk = 0;
+int[] g_altin = [60, 60];
+int[] g_kale_can = [900, 900];
+int[] g_dogan = [0, 0];
+int[] g_olen = [0, 0];
+int[] g_kule_n = [0, 0];
+int[] g_ozel = [0, 0];
+float[] g_ozel_bekle = [0.0, 0.0];
+int[] g_kale_id = [0, 0];
+int[] g_yuva_id = [0, 0, 0, 0, 0, 0];   // taraf*3 + s
+int g_sonuc = -1;              // kazanan taraf; -1 suruyor
+int g_savas_kare = 0;          // OYUN ekraninda gecen kare (duraklatma haric)
+float g_ses_ayari = 0.7;
+
+struct Birlik {
+    int id;
+    int taraf;
+    int tur;
+    int can;
+    float soguma;
+    float x;
+    float z;
+    float serit_z;             // kendi seridi (dogusta): kuyruk tek sira olmasin
+    bool canli;
+}
+Birlik[] birlikler = [];
+
+struct Mermi {
+    int id;
+    int taraf;
+    int hedef;                 // birlik yuvasi; -1 = kale
+    int hedef_id;              // o yuvadaki birligin govdesi (yuva yeniden kullanildiysa iska)
+    float x;
+    float y;
+    float z;
+    int hasar;
+    float omur;
+    bool aktif;
+}
+Mermi[] mermiler = [];
+
+struct Enkaz { int id; int omur; bool aktif; }
+Enkaz[] enkazlar = [];
+
+struct Tasi { int id; int taraf; bool aktif; }
+Tasi[] taslar = [];
+
+struct Kule { int id; int taraf; float x; float soguma; bool kurulu; }
+Kule[] kuleler = [];           // taraf*3 + s
+
+// ---- Sayaçlar (kapı) --------------------------------------------------------
+int g_govde_kur = 0;
+int g_govde_sil = 0;
+int g_mermi_n = 0;
+int g_isabet = 0;
+int g_enkaz_n = 0;
+int g_carpisma = 0;
+int g_carpisma_dusen = 0;
+int g_sec_ok = 0;
+int g_sec_iska = 0;
+int g_kurulum_hatasi = 0;
+int g_kinematik_n = 0;
+
+// ---- Belirlenimli rastgele (LCG; motorun rastgelesi DEGIL) -------------------
+func rnd(int n): int {
+    g_tohum = (g_tohum * 1103515245 + 12345) % 2147483648;
+    return (g_tohum / 65536) % n;
+}
+
+func yon(int taraf): float { return taraf == 0 ? 1.0 : -1.0; }
+func kale_x(int taraf): float { return taraf == 0 ? -KALE_X : KALE_X; }
+
+// ---- Havuzlar (kareden ONCE) -------------------------------------------------
+func havuzlari_kur() {
+    for (int i = 0; i < BIRLIK_MAX; i++) { push(birlikler, { id: 0, taraf: 0, tur: 0, can: 0, soguma: 0.0, x: 0.0, z: 0.0, serit_z: 0.0, canli: false }); }
+    for (int i = 0; i < MERMI_MAX; i++) { push(mermiler, { id: 0, taraf: 0, hedef: -1, hedef_id: 0, x: 0.0, y: 0.0, z: 0.0, hasar: 0, omur: 0.0, aktif: false }); }
+    for (int i = 0; i < ENKAZ_MAX; i++) { push(enkazlar, { id: 0, omur: 0, aktif: false }); }
+    for (int i = 0; i < TASI_MAX; i++) { push(taslar, { id: 0, taraf: 0, aktif: false }); }
+    for (int i = 0; i < 6; i++) { push(kuleler, { id: 0, taraf: i / 3, x: 0.0, soguma: 0.0, kurulu: false }); }
+}
+
+func savas_kur() {
+    int h0 = hata_sayisi();
+    gunes(0.4, 1.0, 0.3, 0.9);
+    ortam(renk(46, 50, 58));
+    golge_hacmi(0, 1, 0, 30, 80);
+    zemin_kur(34, RENK_ZEMIN);
+    g_kale_id[0] = kutu(-KALE_X, 2.0, 0.0, 1.5, 2.0, 2.5, false, RENK_KALE0);
+    g_kale_id[1] = kutu(KALE_X, 2.0, 0.0, 1.5, 2.0, 2.5, false, RENK_KALE1);
+    for (int t = 0; t < 2; t++) {
+        for (int s = 0; s < 3; s++) {
+            float x = kale_x(t) + yon(t) * (6.0 + 4.0 * s);
+            g_yuva_id[t * 3 + s] = kutu(x, 0.15, YUVA_Z, 0.7, 0.15, 0.7, false, RENK_YUVA);
+            kuleler[t * 3 + s].x = x;
+        }
+    }
+    g_govde_kur += 8;
+    kamera(0.0, 24.0, 27.0, 0.0, 0.0, 2.0);
+    g_kurulum_hatasi += hata_sayisi() - h0;
+}
+
+// ---- Birlikler ----------------------------------------------------------------
+func taraf_birlik(int taraf): int {
+    int n = 0;
+    for (b in birlikler) { if (b.canli && b.taraf == taraf) { n += 1; } }
+    return n;
+}
+
+func birlik_uret(int taraf, int tur): bool {
+    if (g_altin[taraf] < TUR_FIYAT[tur] || taraf_birlik(taraf) >= TARAF_BIRLIK_MAX) { return false; }
+    int yer = -1;
+    for (int i = 0; i < BIRLIK_MAX; i++) { if (!birlikler[i].canli && yer < 0) { yer = i; } }
+    if (yer < 0) { return false; }
+    float boy = TUR_BOY[tur];
+    float x = kale_x(taraf) + yon(taraf) * 2.6;
+    float z = toFloat(rnd(181) - 90) / 50.0;
+    int id = taraf == 0 ? kutu(x, boy + 0.05, z, boy, boy, boy, true, RENK_KUP)
+                        : kure(x, boy + 0.05, z, boy, true, RENK_KURE);
+    if (id == 0) { logla(t"UYARI birlik kurulamadi (taraf {taraf})"); return false; }
+    g_govde_kur += 1;
+    g_altin[taraf] -= TUR_FIYAT[tur];
+    birlikler[yer] = { id: id, taraf: taraf, tur: tur, can: TUR_CAN[tur], soguma: 0.5, x: x, z: z, serit_z: z, canli: true };
+    g_dogan[taraf] += 1;
+    return true;
+}
+
+func enkaz_sac(float x, float z) {
+    for (int k = 0; k < 2; k++) {
+        int yer = -1;
+        for (int i = 0; i < ENKAZ_MAX; i++) { if (!enkazlar[i].aktif && yer < 0) { yer = i; } }
+        if (yer < 0) { return; }
+        int id = kutu(x, 0.6 + 0.2 * k, z, 0.12, 0.12, 0.12, true, RENK_ENKAZ);
+        if (id == 0) { return; }
+        g_govde_kur += 1;
+        itme(id, toFloat(rnd(41) - 20) / 40.0, 1.6, toFloat(rnd(41) - 20) / 40.0);
+        enkazlar[yer] = { id: id, omur: 90, aktif: true };
+        g_enkaz_n += 1;
+    }
+}
+
+func birlik_ol(int i, int oldur_taraf) {
+    if (!birlikler[i].canli) { return; }
+    birlikler[i].canli = false;
+    birlikler[i].can = 0;
+    g_olen[birlikler[i].taraf] += 1;
+    if (oldur_taraf >= 0) { g_altin[oldur_taraf] += OLDURME_ODUL; }
+    float x = birlikler[i].x;
+    float z = birlikler[i].z;
+    sil(birlikler[i].id);
+    g_govde_sil += 1;
+    enkaz_sac(x, z);
+}
+
+func birlige_hasar(int i, int hasar, int kaynak_taraf) {
+    if (!birlikler[i].canli) { return; }
+    birlikler[i].can -= hasar;
+    if (birlikler[i].can <= 0) { birlik_ol(i, kaynak_taraf); }
+}
+
+func kaleye_hasar(int taraf, int hasar) {
+    if (g_sonuc >= 0) { return; }
+    g_kale_can[taraf] -= hasar;
+    if (g_kale_can[taraf] <= 0) {
+        g_kale_can[taraf] = 0;
+        g_sonuc = 1 - taraf;
+        g_ekran = Ekran.SONUC;
+        logla(t"savas bitti: kazanan taraf {g_sonuc} (kare {kare_no()}, savas karesi {g_savas_kare})");
+    }
+}
+
+func mermi_at(int taraf, float x, float y, float z, int hedef, int hasar) {
+    int yer = -1;
+    for (int i = 0; i < MERMI_MAX; i++) { if (!mermiler[i].aktif && yer < 0) { yer = i; } }
+    if (yer < 0) { return; }
+    int id = kinematik_kure(x, y, z, 0.15, RENK_MERMI);
+    if (id == 0) { return; }
+    g_govde_kur += 1;
+    g_kinematik_n += 1;
+    int hid = hedef >= 0 ? birlikler[hedef].id : 0;
+    mermiler[yer] = { id: id, taraf: taraf, hedef: hedef, hedef_id: hid, x: x, y: y, z: z, hasar: hasar, omur: 3.0, aktif: true };
+    g_mermi_n += 1;
+}
+
+// Taraf `taraf`in birligine en yakin dusman birligi (xz); -1 yok.
+func en_yakin_dusman(int taraf, float x, float z, float menzil): int {
+    int en = -1;
+    float en_u = menzil;
+    for (int j = 0; j < BIRLIK_MAX; j++) {
+        if (!birlikler[j].canli || birlikler[j].taraf == taraf) { continue; }
+        float dx = birlikler[j].x - x;
+        float dz = birlikler[j].z - z;
+        float u = sqrt(dx * dx + dz * dz);
+        if (u <= en_u) { en_u = u; en = j; }
+    }
+    return en;
+}
+
+func birlik_guncelle(int i, float d) {
+    int taraf = birlikler[i].taraf;
+    int tur = birlikler[i].tur;
+    int id = birlikler[i].id;
+    float x = konum_x(id);
+    float z = konum_z(id);
+    birlikler[i].x = x;
+    birlikler[i].z = z;
+    if (konum_y(id) < -4.0) { birlik_ol(i, -1); return; }
+    if (birlikler[i].soguma > 0.0) { birlikler[i].soguma -= d; }
+    float menzil = TUR_MENZIL[tur];
+    float vx = 0.0;
+    int hedef = en_yakin_dusman(taraf, x, z, menzil);
+    float kale_u = abs(x - kale_x(1 - taraf)) - 1.6;
+    if (hedef >= 0 || kale_u <= menzil) {
+        if (birlikler[i].soguma <= 0.0) {
+            birlikler[i].soguma = TUR_BEKLE[tur];
+            if (tur == 1) {
+                if (hedef >= 0) { mermi_at(taraf, x, 0.9, z, hedef, TUR_HASAR[tur]); }
+                else { mermi_at(taraf, x, 0.9, z, -1, TUR_HASAR[tur]); }
+            } else if (hedef >= 0) {
+                birlige_hasar(hedef, TUR_HASAR[tur], taraf);
+            } else {
+                kaleye_hasar(1 - taraf, TUR_HASAR[tur]);
+            }
+        }
+    } else {
+        // Ondeki dost birlik 0.9 m icindeyse bekle (kuyruk).
+        bool dolu = false;
+        for (int j = 0; j < BIRLIK_MAX; j++) {
+            if (j == i || !birlikler[j].canli || birlikler[j].taraf != taraf) { continue; }
+            float ileri = (birlikler[j].x - x) * yon(taraf);
+            if (ileri > 0.0 && ileri < 0.9 && abs(birlikler[j].z - z) < 0.5) { dolu = true; }
+        }
+        if (!dolu) { vx = yon(taraf) * TUR_HIZ[tur]; }
+    }
+    hiz_ver(id, vx, hiz_y(id), (birlikler[i].serit_z - z) * 0.8);
+}
+
+func mermi_guncelle(int i, float d) {
+    float tx = kale_x(1 - mermiler[i].taraf);
+    float ty = 1.5;
+    float tz = 0.0;
+    int h = mermiler[i].hedef;
+    if (h >= 0) {
+        if (!birlikler[h].canli || birlikler[h].id != mermiler[i].hedef_id) { mermi_kaldir(i); return; }
+        tx = birlikler[h].x;
+        ty = 0.5;
+        tz = birlikler[h].z;
+    }
+    float dx = tx - mermiler[i].x;
+    float dy = ty - mermiler[i].y;
+    float dz = tz - mermiler[i].z;
+    float u = sqrt(dx * dx + dy * dy + dz * dz);
+    float adim = 14.0 * d;
+    if (u <= adim + 0.35) {
+        g_isabet += 1;
+        if (h >= 0) { birlige_hasar(h, mermiler[i].hasar, mermiler[i].taraf); }
+        else { kaleye_hasar(1 - mermiler[i].taraf, mermiler[i].hasar); }
+        mermi_kaldir(i);
+        return;
+    }
+    mermiler[i].x += dx / u * adim;
+    mermiler[i].y += dy / u * adim;
+    mermiler[i].z += dz / u * adim;
+    kinematik_tasi(mermiler[i].id, mermiler[i].x, mermiler[i].y, mermiler[i].z);
+    mermiler[i].omur -= d;
+    if (mermiler[i].omur <= 0.0) { mermi_kaldir(i); }
+}
+
+func mermi_kaldir(int i) {
+    if (!mermiler[i].aktif) { return; }
+    mermiler[i].aktif = false;
+    sil(mermiler[i].id);
+    g_govde_sil += 1;
+}
+
+func kule_kur(int taraf, int s): bool {
+    int k = taraf * 3 + s;
+    if (kuleler[k].kurulu || g_altin[taraf] < KULE_FIYAT) { return false; }
+    int id = kinematik_kutu(kuleler[k].x, 1.15, YUVA_Z, 0.45, 0.85, 0.45, RENK_KULE);
+    if (id == 0) { return false; }
+    g_govde_kur += 1;
+    g_kinematik_n += 1;
+    g_altin[taraf] -= KULE_FIYAT;
+    kuleler[k].id = id;
+    kuleler[k].kurulu = true;
+    kuleler[k].soguma = 1.0;
+    g_kule_n[taraf] += 1;
+    return true;
+}
+
+// Taraf 0 kuleyi EKRANDAN kurar: yuvanin izdusumu -> o pikselden isin ->
+// isabet yuvanin govdesi mi. Oyuncunun parmagiyla ayni yol.
+func kule_ekrandan(int s): bool {
+    int k = s;
+    if (kuleler[k].kurulu || g_altin[0] < KULE_FIYAT) { return false; }
+    bool on = dunyadan_ekrana(kuleler[k].x, 0.3, YUVA_Z);
+    float sx = ekran_x();
+    float sy = ekran_y();
+    float m = on ? ekrandan_sec(sx, sy, 200.0) : -1.0;
+    if (m >= 0.0 && isin_id() == g_yuva_id[k]) {
+        g_sec_ok += 1;
+        return kule_kur(0, s);
+    }
+    g_sec_iska += 1;
+    logla(t"UYARI kule yuvasi {s} ekrandan secilemedi: izdusum {on} ({sx},{sy}) mesafe {m} isin_id {isin_id()} (yuva {g_yuva_id[k]})");
+    return false;
+}
+
+func kule_guncelle(int k, float d) {
+    if (!kuleler[k].kurulu) { return; }
+    kuleler[k].soguma -= d;
+    if (kuleler[k].soguma > 0.0) { return; }
+    int taraf = kuleler[k].taraf;
+    int h = en_yakin_dusman(taraf, kuleler[k].x, YUVA_Z, KULE_MENZIL);
+    if (h < 0) { return; }
+    kuleler[k].soguma = KULE_SOGUMA;
+    mermi_at(taraf, kuleler[k].x, 2.2, YUVA_Z, h, KULE_HASAR);
+}
+
+// Ozel guc: dusman cephesinin uzerine uc gokdasi (dinamik kure, yercekimiyle
+// duser); yere inince 2.2 m icindeki dusmanlara 30 hasar.
+func cephe_x(int taraf): float {
+    // Taraf `taraf`in en ondeki birligi; yoksa kalesinin onu.
+    float c = kale_x(taraf) + yon(taraf) * 3.0;
+    for (b in birlikler) {
+        if (!b.canli || b.taraf != taraf) { continue; }
+        if ((b.x - c) * yon(taraf) > 0.0) { c = b.x; }
+    }
+    return c;
+}
+
+func ozel_kullan(int taraf) {
+    float cx = cephe_x(1 - taraf);
+    for (int k = 0; k < 3; k++) {
+        int yer = -1;
+        for (int i = 0; i < TASI_MAX; i++) { if (!taslar[i].aktif && yer < 0) { yer = i; } }
+        if (yer < 0) { return; }
+        int id = kure(cx + toFloat(k - 1) * 1.2, 9.0 + toFloat(k), toFloat(rnd(81) - 40) / 50.0, 0.35, true, RENK_TASI);
+        if (id == 0) { return; }
+        g_govde_kur += 1;
+        taslar[yer] = { id: id, taraf: taraf, aktif: true };
+    }
+    g_altin[taraf] -= OZEL_FIYAT;
+    g_ozel[taraf] += 1;
+    g_ozel_bekle[taraf] = 12.0;
+}
+
+func tas_guncelle(int i) {
+    int id = taslar[i].id;
+    if (konum_y(id) > 0.75) { return; }
+    float x = konum_x(id);
+    float z = konum_z(id);
+    int taraf = taslar[i].taraf;
+    for (int j = 0; j < BIRLIK_MAX; j++) {
+        if (!birlikler[j].canli || birlikler[j].taraf == taraf) { continue; }
+        float dx = birlikler[j].x - x;
+        float dz = birlikler[j].z - z;
+        if (dx * dx + dz * dz < 2.2 * 2.2) { birlige_hasar(j, 30, taraf); }
+    }
+    taslar[i].aktif = false;
+    sil(id);
+    g_govde_sil += 1;
+}
+
+// ---- Yapay zeka (iki taraf ayni kural; taraf 0 kulesini EKRANDAN kurar) -----
+// Her dusunmede bir PLAN secilir (kule / ozel guc / birlik turu) ve altin
+// yetene kadar beklenir: biriktirmeyen yapay zeka pahali seyi hic almaz.
+int[] g_plan = [-1, -1];        // -1 yok, 0..2 birlik turu, 10 kule, 20 ozel
+func yz_dusun(int taraf) {
+    if (g_plan[taraf] < 0) {
+        int r = rnd(100);
+        float tehdit = abs(cephe_x(1 - taraf) - kale_x(taraf));
+        if (g_ozel_bekle[taraf] <= 0.0 && tehdit < 12.0) { g_plan[taraf] = 20; }
+        else if (g_kule_n[taraf] < 3 && g_savas_kare > 600 && r < 18) { g_plan[taraf] = 10; }
+        else { g_plan[taraf] = r < 55 ? 0 : (r < 82 ? 1 : 2); }
+    }
+    int p = g_plan[taraf];
+    if (p == 10) {
+        if (g_altin[taraf] < KULE_FIYAT) { return; }
+        int s = g_kule_n[taraf];
+        if (taraf == 0) { kule_ekrandan(s); } else { kule_kur(1, s); }
+    } else if (p == 20) {
+        if (g_altin[taraf] < OZEL_FIYAT) { return; }
+        ozel_kullan(taraf);
+    } else {
+        if (g_altin[taraf] < TUR_FIYAT[p]) { return; }
+        birlik_uret(taraf, p);
+    }
+    g_plan[taraf] = -1;
+}
+
+func savas_adim(float d) {
+    g_savas_kare += 1;
+    int[] gelir = g_zorluk == 0 ? GELIR_KOLAY : GELIR_ZOR;
+    if (g_savas_kare % 30 == 0) { g_altin[0] += gelir[0]; g_altin[1] += gelir[1]; }
+    for (int t = 0; t < 2; t++) { if (g_ozel_bekle[t] > 0.0) { g_ozel_bekle[t] -= d; } }
+    if (g_savas_kare % 45 == 0) { yz_dusun(0); }
+    if (g_savas_kare % 45 == 20) { yz_dusun(1); }
+    if (BOZ_KARE > 0 && kare_no() == BOZ_KARE) { g_altin[1] += 200; logla(t"BOZ: kare {kare_no()} taraf 1'e +200 altin (pozitif kontrol)"); }
+    for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].canli) { birlik_guncelle(i, d); } }
+    for (int k = 0; k < 6; k++) { kule_guncelle(k, d); }
+    for (int i = 0; i < MERMI_MAX; i++) { if (mermiler[i].aktif) { mermi_guncelle(i, d); } }
+    for (int i = 0; i < TASI_MAX; i++) { if (taslar[i].aktif) { tas_guncelle(i); } }
+    for (int i = 0; i < ENKAZ_MAX; i++) {
+        if (!enkazlar[i].aktif) { continue; }
+        enkazlar[i].omur -= 1;
+        if (enkazlar[i].omur <= 0) { enkazlar[i].aktif = false; sil(enkazlar[i].id); g_govde_sil += 1; }
+    }
+    // Ham carpisma kuyrugu yalniz SAYILIR (sirasi is parcacigina bagli olabilir).
+    g_carpisma += carpisma_sayisi();
+    g_carpisma_dusen += carpisma_dusen();
+}
+
+// ---- Kabuk: menu, ayar, zorluk, HUD, duraklat, sonuc --------------------------
+func menu_ciz() {
+    ui_pencere("SAVAS", 440, 380, RENK_PENCERE);
+    ui_etiket("kupler ile kureler — motorun savas kapisi", 0.8, ACIK_GRI);
+    if (ui_dugme("Savas")) { g_ekran = Ekran.ZORLUK; }
+    if (ui_dugme("Ayarlar")) { g_ekran = Ekran.AYAR; }
+    if (ui_dugme("Cikis")) { cikis_iste(); }
+    ui_pencere_bitir();
+}
+
+func ayar_ciz() {
+    ui_pencere("AYARLAR", 460, 300, RENK_PENCERE);
+    g_ses_ayari = ui_kaydirici("Ses seviyesi", g_ses_ayari, 0.0, 1.0);
+    if (ui_dugme("Geri")) { g_ekran = Ekran.MENU; }
+    ui_pencere_bitir();
+}
+
+func zorluk_ciz() {
+    ui_pencere("ZORLUK", 420, 300, RENK_PENCERE);
+    if (ui_dugme("Kolay")) { g_zorluk = 0; g_ekran = Ekran.OYUN; logla("savas basladi: Kolay"); }
+    if (ui_dugme("Zor")) { g_zorluk = 1; g_ekran = Ekran.OYUN; logla("savas basladi: Zor"); }
+    ui_pencere_bitir();
+}
+
+func hud_ciz() {
+    yazi(t"altin {g_altin[0]}   kale {g_kale_can[0]}   birlik {taraf_birlik(0)}   kule {g_kule_n[0]}", 20, 20, 0.9, BEYAZ);
+    yazi(t"rakip: altin {g_altin[1]}   kale {g_kale_can[1]}   birlik {taraf_birlik(1)}   kule {g_kule_n[1]}", 20, 50, 0.9, ACIK_GRI);
+    if (dugme("Duraklat", genislik() - 170, 16, 150, 46)) { duraklat(true); }
+}
+
+func duraklat(bool ac) {
+    fizik_duraklat(ac);
+    g_ekran = ac ? Ekran.DURAKLAT : Ekran.OYUN;
+}
+
+func duraklat_ciz() {
+    dikdortgen(0, 0, genislik(), yukseklik(), RENK_KARART);
+    ui_pencere("DURAKLADI", 380, 240, RENK_PENCERE);
+    if (ui_dugme("Devam")) { duraklat(false); }
+    ui_pencere_bitir();
+}
+
+func sonuc_ciz() {
+    ui_pencere(g_sonuc == 0 ? "ZAFER" : "YENILGI", 420, 280, RENK_PENCERE);
+    ui_etiket(t"savas {g_savas_kare / 60} sn", 0.9, ACIK_GRI);
+    if (ui_dugme("Ana menu")) { g_ekran = Ekran.MENU; }
+    ui_pencere_bitir();
+}
+
+func main() {
+    log_seviyesi(1);
+    havuzlari_kur();
+    if (!motor_ac("Tulpar Engine — Savas", 1280, 720)) { print("motor acilamadi: " + eng_last_error()); return; }
+    g_otopilot = eng_headless();
+    logla(t"GPU: {eng_gpu_name()} {genislik()}x{yukseklik()}, otopilot {g_otopilot}, tohum {TOHUM}");
+    savas_kur();
+    while (calisiyor()) {
+        kare_basla();
+        float d = dt();
+        if (g_ekran == Ekran.OYUN) { savas_adim(d); }
+        // Karede TEK ekran cizilir: dugme ekrani degistirince yeni ekran ayni
+        // karede cizilirse ayni tiklama oradaki dugmeye de iner (OYUN_GERI_BILDIRIM
+        // #29; burada ilk denemede "Ayarlar" -> ayni karede "Geri" oldu).
+        Ekran ciz = g_ekran;
+        g_cizilen = ciz;
+        ui_basla();
+        if (ciz == Ekran.OYUN) { hud_ciz(); }
+        else if (ciz == Ekran.MENU) { menu_ciz(); }
+        else if (ciz == Ekran.AYAR) { ayar_ciz(); }
+        else if (ciz == Ekran.ZORLUK) { zorluk_ciz(); }
+        else if (ciz == Ekran.DURAKLAT) { duraklat_ciz(); }
+        else if (ciz == Ekran.SONUC) { sonuc_ciz(); }
+        ui_bitir();
+        if (g_otopilot) { otopilot(); }
+        if (tus_basildi("ESC")) { cikis_iste(); }
+        kare_bitir();
+        if (g_otopilot) { bellek_ornekle(); }
+    }
+    logla(t"bitis: kare {kare_no()}, sonuc {g_sonuc}, savas karesi {g_savas_kare}, hata {hata_sayisi()}");
+    if (g_otopilot) { kapi_raporu(); }
+    motor_kapat();
+}
+
+// ============================================================================
+// DOĞRULAMA DÜZENİ — pencersiz koşumda otopilot menüyü ADIYLA geçer, savaşı iki
+// yapay zekâ oynar, sonunda [kapi] satırlarını basar (tools/tulpar_dogrula.sh --tam).
+// ============================================================================
+bool g_otopilot = false;
+// Menü: adım başına ADIYLA tıklanan widget (2: kaydırıcı, izinin %25'i).
+str[] OP_MENU_ADIM = ["Ayarlar", "Ses seviyesi", "Geri", "Savas", "Kolay"];
+int g_op_adim = 0;             // 5 = bitti
+int g_op_duraklat = 0;         // 0 bekliyor, 1 duraklatildi, 2 devam edildi
+int g_op_duraklat_kare = 0;
+int g_op_duraklat_id = 0;
+float g_op_duraklat_x = 0.0;
+int g_op_duraklat_olcum = 0;
+float g_op_kayma = -1.0;       // duraklatmada izlenen birligin kaymasi (0 olmali)
+int g_op_sonuc_kare = -1;
+int g_op_cikis = 0;
+int KAPI_MIN_KARE = 3000;      // altinda "kisa kosum" (menu + kurulum + savasin basi)
+int DURAKLAT_SAVAS_KARE = 2400;
+int DURAKLAT_SURE = 60;
+int BOZ_KARE = 0;
+if (len(env("TULPAR_ENGINE_SAVAS_BOZ")) > 0) { BOZ_KARE = toInt(env("TULPAR_ENGINE_SAVAS_BOZ")); }
+
+func otopilot() {
+    if (g_op_adim < 5) {
+        Ekran gerek = g_op_adim == 0 || g_op_adim == 3 ? Ekran.MENU : (g_op_adim == 4 ? Ekran.ZORLUK : Ekran.AYAR);
+        if (g_ekran != gerek || g_cizilen != gerek) { return; }
+        if (g_op_adim == 1) { ui_test_tikla_oran(OP_MENU_ADIM[1], 0.25); } else { ui_test_tikla_ad(OP_MENU_ADIM[g_op_adim]); }
+        g_op_adim += 1;
+        return;
+    }
+    // Savasin 40. saniyesinde duraklat -> 60 kare -> devam. Duraklatmada fizik
+    // durur: izlenen birligin konumu degismemeli.
+    if (g_ekran == Ekran.OYUN && g_cizilen == Ekran.OYUN && g_op_duraklat == 0 && g_savas_kare >= DURAKLAT_SAVAS_KARE) {
+        for (b in birlikler) { if (b.canli && g_op_duraklat_id == 0) { g_op_duraklat_id = b.id; } }
+        ui_test_tikla_ad("Duraklat");
+        g_op_duraklat = 1;
+        g_op_duraklat_kare = kare_no();
+        return;
+    }
+    // Tiklama sonraki karede tuketilir: konum ilk DURAKLAT karesinde alinir
+    // (duraklatma o karenin mantiginda kuruldu; fizik bir sonraki adimdan durur).
+    if (g_ekran == Ekran.DURAKLAT && g_op_duraklat == 1 && g_op_duraklat_olcum == 0) {
+        if (g_op_duraklat_id != 0 && canli(g_op_duraklat_id)) { g_op_duraklat_x = konum_x(g_op_duraklat_id); g_op_duraklat_olcum = 1; }
+    }
+    if (g_ekran == Ekran.DURAKLAT && g_cizilen == Ekran.DURAKLAT && g_op_duraklat == 1 && kare_no() - g_op_duraklat_kare >= DURAKLAT_SURE) {
+        if (g_op_duraklat_olcum == 1 && canli(g_op_duraklat_id)) { g_op_kayma = abs(konum_x(g_op_duraklat_id) - g_op_duraklat_x); }
+        ui_test_tikla_ad("Devam");
+        g_op_duraklat = 2;
+        return;
+    }
+    // Sonuc ekrani 30 kare gorunsun, sonra "Ana menu" ve cikis.
+    if (g_ekran == Ekran.SONUC) {
+        if (g_op_sonuc_kare < 0) { g_op_sonuc_kare = kare_no(); }
+        if (g_op_cikis == 0 && g_cizilen == Ekran.SONUC && kare_no() - g_op_sonuc_kare >= 30) { ui_test_tikla_ad("Ana menu"); g_op_cikis = 1; }
+        return;
+    }
+    if (g_op_cikis == 1 && g_ekran == Ekran.MENU) { g_op_cikis = 2; cikis_iste(); }
+}
+
+// Kare belleği kapısı: engine_aksiyon ile AYNI ölçü (aralık artışlarının alt
+// çeyreği, KB / 1000 kare; gerekçe ve ölçümler orada). Sınır aynı: 600.
+int BELLEK_ILK_KARE = 1000;
+int BELLEK_PENCERE_MIN = 2000;
+int BELLEK_SINIR_KB = 600;
+int BELLEK_ARALIK = 200;
+int g_bellek_ilk = 0;
+int g_bellek_son = 0;
+int g_bellek_son_kare = 0;
+int[] g_bellek_orn = [];
+int SIZINTI_B = 0;
+if (len(env("TULPAR_ENGINE_SAVAS_SIZINTI_B")) > 0) { SIZINTI_B = toInt(env("TULPAR_ENGINE_SAVAS_SIZINTI_B")); }
+str g_sizinti_tohum = "";
+str[] g_sizinti = [];
+
+func bellek_ceyrek_egim(): int {
+    int n = len(g_bellek_orn);
+    if (n < 2) { return 0; }
+    int[] fark = [];
+    for (int i = 0; i + 1 < n; i++) { push(fark, g_bellek_orn[i + 1] - g_bellek_orn[i]); }
+    int m = len(fark);
+    for (int i = 1; i < m; i++) {
+        int x = fark[i];
+        int j = i - 1;
+        while (j >= 0 && fark[j] > x) { fark[j + 1] = fark[j]; j = j - 1; }
+        fark[j + 1] = x;
+    }
+    return fark[(m - 1) / 4] * 1000 / BELLEK_ARALIK;
+}
+func bellek_artan_aralik(): int {
+    int c = 0;
+    for (int i = 0; i + 1 < len(g_bellek_orn); i++) { if (g_bellek_orn[i + 1] > g_bellek_orn[i]) { c = c + 1; } }
+    return c;
+}
+func bellek_ornekle() {
+    int k = kare_no();
+    if (SIZINTI_B > 0) {
+        while (len(g_sizinti_tohum) < SIZINTI_B) { g_sizinti_tohum = g_sizinti_tohum + "s"; }
+        push(g_sizinti, g_sizinti_tohum + toString(k)); // her kare YENI kalici dizgi
+    }
+    if (k == BELLEK_ILK_KARE) { g_bellek_ilk = bellek_kb(); }
+    if (k >= BELLEK_ILK_KARE) { g_bellek_son = bellek_kb(); g_bellek_son_kare = k; }
+    if (k >= BELLEK_ILK_KARE && (k - BELLEK_ILK_KARE) % BELLEK_ARALIK == 0) { push(g_bellek_orn, g_bellek_son); }
+}
+
+func kapi_raporu() {
+    int kare = kare_no();
+    bool tam = kare >= KAPI_MIN_KARE;
+    int hata = hata_sayisi() - g_kurulum_hatasi;
+    str sonuc = g_sonuc < 0 ? "suruyor" : (g_sonuc == 0 ? "zafer" : "yenilgi");
+    print(t"[kapi] kare={kare} sonuc={sonuc} savas_kare={g_savas_kare} zorluk={g_zorluk} dogan={g_dogan[0]}/{g_dogan[1]} olen={g_olen[0]}/{g_olen[1]} kule={g_kule_n[0]}/{g_kule_n[1]} ozel={g_ozel[0]}/{g_ozel[1]} kale={g_kale_can[0]}/{g_kale_can[1]} altin={g_altin[0]}/{g_altin[1]} dongu_hatasi={hata} kurulum_hatasi={g_kurulum_hatasi} uyari={uyari_sayisi()}");
+    print(t"[kapi] fizik: govde_kur={g_govde_kur} govde_sil={g_govde_sil} kinematik={g_kinematik_n} mermi={g_mermi_n} isabet={g_isabet} enkaz={g_enkaz_n} carpisma={g_carpisma} carpisma_dusen={g_carpisma_dusen} canli_varlik={eng_count()} govde={eng_body_count()}");
+    print(t"[kapi] secim: ekrandan kule yuvasi {g_sec_ok} isabet, {g_sec_iska} iska");
+    print(t"[kapi] menu: adim={g_op_adim} ui_tik={ui_tiklama()} duraklat={g_op_duraklat} kayma={g_op_kayma} cikis={g_op_cikis}");
+    int bellek_pencere = g_bellek_son_kare - BELLEK_ILK_KARE;
+    bool bellek_olculdu = g_bellek_ilk > 0 && bellek_pencere >= BELLEK_PENCERE_MIN;
+    int bellek_uc_egim = bellek_pencere > 0 ? (g_bellek_son - g_bellek_ilk) * 1000 / bellek_pencere : 0;
+    int bellek_egim = bellek_ceyrek_egim();
+    int bellek_aralik_n = len(g_bellek_orn) > 0 ? len(g_bellek_orn) - 1 : 0;
+    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, alt ceyrek {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}; {bellek_aralik_n} aralik x {BELLEK_ARALIK}, artan {bellek_artan_aralik()}, uc {bellek_uc_egim}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
+    if (!bellek_olculdu) { print(t"[kapi] ATLANDI: bellek kapisi >= {BELLEK_ILK_KARE + BELLEK_PENCERE_MIN} kare ister (pencere {bellek_pencere})"); }
+    float ayirma_motor = kare_ici_ayirma_toplami();
+    print(t"[kapi] ayirma: sayac {ayirma_sayaci_acik()}, motor kare ici {toInt(ayirma_motor)} (kare 6..), surec toplami {toInt(ayirma_sayisi())}");
+    str[] sorun = [];
+    if (hata != 0) { push(sorun, t"oyun dongusu hata sayaci {hata} (0 olmali)"); }
+    if (g_kurulum_hatasi != 0) { push(sorun, t"kurulum hatasi {g_kurulum_hatasi}"); }
+    if (g_op_adim < 5) { push(sorun, t"otopilot menu akisini bitirmedi, adim={g_op_adim}"); }
+    if (ui_uyari_sayisi() != 0) { push(sorun, t"arayuz yerlesim uyarisi {ui_uyari_sayisi()} (adla tiklama iskasi; 0 olmali)"); }
+    // Kaydirici "tiklama" sayilmaz: menu 4 dugme (Ayarlar/Geri/Savas/Kolay), tam
+    // savasta + Duraklat/Devam.
+    int tik_alt = tam ? 6 : 4;
+    if (ui_tiklama() < tik_alt) { push(sorun, t"en az {tik_alt} arayuz tiklamasi bekleniyordu, {ui_tiklama()}"); }
+    if (g_ses_ayari < 0.05 || g_ses_ayari > 0.95) { push(sorun, t"kaydirici ses ayarini beklenen aralikta degistirmedi: {g_ses_ayari}"); }
+    if (g_sec_iska != 0) { push(sorun, t"ekrandan kule yuvasi {g_sec_iska} kez secilemedi (izdusum -> isin yolu)"); }
+    if (g_carpisma_dusen != 0) { push(sorun, t"carpisma kuyrugu {g_carpisma_dusen} olay dusurdu"); }
+    if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: alt ceyrek {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
+    if (kare_bellegi_acik() && kare_bellegi_kare() != kare) { push(sorun, t"kare bellegi {kare_bellegi_kare()} kare geri sardi, {kare} kare kostu"); }
+    if (!ayirma_sayaci_acik()) { push(sorun, "kare ici ayirma OLCULMEDI: operator new sayaci oyuna bagli degil"); }
+    if (tam) {
+        if (g_dogan[0] < 10 || g_dogan[1] < 10) { push(sorun, t"iki taraf da en az 10 birlik dogurmaliydi: {g_dogan[0]}/{g_dogan[1]}"); }
+        if (g_olen[0] + g_olen[1] < 10) { push(sorun, t"en az 10 birlik olmeliydi: {g_olen[0]}/{g_olen[1]}"); }
+        if (g_mermi_n < 10 || g_isabet < 5) { push(sorun, t"mermi/isabet az: {g_mermi_n}/{g_isabet}"); }
+        if (g_sec_ok < 1) { push(sorun, "ekrandan hic kule kurulmadi"); }
+        if (g_op_duraklat != 2) { push(sorun, t"duraklat -> devam akisi bitmedi ({g_op_duraklat})"); }
+        if (g_op_kayma != 0.0) { push(sorun, t"duraklatmada izlenen birlik {g_op_kayma} m kaydi (fizik durmadi ya da olculmedi)"); }
+    }
+    for (s in sorun) { print("[kapi] BASARISIZ: " + s); }
+    if (len(sorun) > 0) { exit(1); }
+    if (tam) { print(t"[kapi] TAMAM — savas {g_savas_kare} kare, sonuc {sonuc}"); }
+    else { print(t"[kapi] TAMAM (kisa kosum: {kare} < {KAPI_MIN_KARE} kare; menu akisi + kurulum + savasin basi) — tam savas ATLANDI"); }
+}
+
+main();
