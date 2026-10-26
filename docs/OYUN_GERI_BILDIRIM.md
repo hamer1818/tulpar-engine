@@ -45,6 +45,8 @@
 | 22 | motor / köprü | `eng_render_scale` günlüğü float/double karşılaştırması yüzünden 0.70'i "(kenetlendi)" diye basıyor | D | **düzeltildi** |
 | 25 | motor / köprü | çarpışma süzme (grup/katman) API'si yok: menzilli birliğin mermisi öndeki DOST gövdeye çarpıp kalıyordu (kullanıcı, telefonda) | Y | **düzeltildi** (`carpisma_grubu` / `carpisma_cifti`) |
 | 26 | motor / köprü | dinamik gövdenin dönmesi kilitlenemiyor: devrilen birlik gövdesi, üstündeki gövdesiz kafa/kalkan modellerinin içine geçiyor | O | **düzeltildi** (`donme_kilidi`) |
+| 27 | motor / içerik | LOD'u üretilmemiş model kameradan 20 m ötede renderer'ın İLK mesh'iyle çiziliyor (sıfırlanmış tutamaç geçerli): ekranın kenarında model bozuk, renk farklı (kullanıcı, telefonda) | Y | **düzeltildi** (Tuzaklar 8cx) |
+| 32 | motor / köprü | "doğuşta küçük kur, karede büyüt" kalıbında büyütme yolunu atlayan varlık sessizce görünmez; çizilen boy okunamıyordu | Y | **düzeltildi** (`eng_drawn_height`, Tuzaklar 8df) |
 
 İyi haber (ölçüldü, telefonda): Tuzaklar 8ct'nin yolu **gerçek oyunla** da temiz — geri tuşu
 etkinliği kapattı (`DESTROY` → tam kapanış, `hata 0, uyari 0`), simgeye basınca **aynı PID**'de
@@ -274,3 +276,19 @@ konum). Kapı: `physics_lock_rotation_keeps_body_upright` (üst kenarına ağır
 |w| 1.000000, 5.4 m itildi; POZİTİF KONTROL kilitsiz ~110° devrildi). **Yan etki (ölçüldü, oyunda):** dönemeyen
 gövde navmesh yolunun keskin köşesine takılıp arkasındaki sırayı kilitleyebilir — yol köşelerini engelden açmak
 ve mantık konumunu gövdeden kopunca bekletmek gerekti.
+
+### 27. Ekranın kenarında model bozuluyor — DÜZELTİLDİ (Y, Tuzaklar 8cx)
+
+Kullanıcı: "küreler bazı alanlarda küp gibi", "ışın kenarda duvara dönüşüyor", "kenardaki birliklerin rengi
+değişiyor". İzole sonda: 1 × 0.12 × 0.12 sopa x = ±18 m'de 0.76 m KÜP olarak çiziliyordu; kamera kayınca kusur
+nesneyle değil EKRAN KONUMUYLA gidiyordu. Sebep: LOD tutamaç dizisi sıfırla doldurulmuş, sıfır id GEÇERLİ
+(renderer'ın ilk mesh'i); LOD'u üretilmemiş model 20 m'den ötede "LOD1" diye ilk mesh'le çizildi. Düzeltme +
+kapı + pozitif kontrol: Tuzaklar 8cx; LOD seçiminin görüş derinliğiyle yapılması 8cy. Telefonda doğrulandı.
+
+### 32. Varlık ekranda yok ama sayılarda var — DÜZELTİLDİ (Tuzaklar 8df)
+
+Kullanıcı telefonda büyük düşmanları göremedi: can çubuğu azalıyor, cephede havada yalnız bir can çubuğu. Sebep oyunda:
+görsel 0.1 × boy ölçekle kurulup doğuş büyümesi bir fonksiyonda koşuyordu; bir tür o fonksiyonu atladığı için savaş
+boyunca 20 kat küçük çizildi. Motor dersi: "çizildi" sayacı ve mantık durumu doğruyken görüntü yanlış olabilir;
+köprü artık çizilen dikey boyu veriyor (`eng_drawn_height` = ölçek × model sınır kutusu), oyunun kapısı en küçük
+çizilen boy / mantık boyu ≥ 1.0 ister (pozitif kontrol: büyütme kapalı -> < 0.5). Ayrıntı Tuzaklar 8df.
