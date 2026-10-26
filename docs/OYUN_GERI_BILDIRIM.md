@@ -1,17 +1,22 @@
 # Oyun geri bildirimi — "Küpler ile Kürelerin Savaşı"
 
-> İlk gerçek oyun: `tulpar/oyunlar/kup_kure_savasi/` (Çağlar Boyu Savaş tarzı, 2026-10-07).
-> Amaç ikili: telefonda oynanır bir oyun **ve** motoru/dili gerçek bir oyunla zorlayıp hata bulmak.
-> Her madde: ne oldu, nasıl yeniden üretilir, nerede ölçüldü, öncelik, önerilen düzeltme, durum.
+> İlk gerçek oyun (Çağlar Boyu Savaş tarzı, 2026-10-07). Amaç ikili: telefonda oynanır bir oyun **ve**
+> motoru/dili gerçek bir oyunla zorlayıp hata bulmak. Her madde: ne oldu, nasıl yeniden üretilir, nerede
+> ölçüldü, öncelik, önerilen düzeltme, durum.
+>
+> **Oyun bu depoda değil (2026-10-26):** ayrı, özel bir depoya taşındı; motoru dışarıdan kullanıyor ve kendi
+> kapıları orada. Bu belge yalnız **motor/dil derslerini** tutar — oyunun iç ayrıntıları (tasarım, denge, oyun
+> tarafındaki düzeltmeler) oyunun deposunda. Eski `tulpar/oyunlar/kup_kure_savasi/` kopyası (#94) main'den
+> çıktı (geçmişte ve eski sürüm etiketlerinde duruyor); 9600 karelik oyun kapısının yerini motorun kendi
+> `tulpar/examples/engine_savas.tpr`'si aldı (`tools/tulpar_dogrula.sh --tam`). Aşağıda "oyunun X'i" diye
+> geçen yollar oyunun deposundadır.
 >
 > Ölçüm yerleri: **masaüstü** = RTX 5080 + Ryzen 7 9800X3D, Linux, TulparLang v3.40.10;
 > **telefon** = Huawei P20 Pro (CLT-L09), Mali-G72, Vulkan 1.1, Android 10, pencere 2159x1080.
 > Öncelik: **Y** yüksek (oyuncu görür / sessiz bozulma), **O** orta, **D** düşük (geliştirici deneyimi).
 >
-> **Düzen (2026-10-08):** maddeleri düzelten PR'lar başlıkta `(Geri bildirim #N)` yazar; bu belgeyi
-> yalnız oyunun sahibi günceller (PR birleşince madde "düzeltildi (#PR)" olur ve oyun yeni API'ye geçer,
-> geçici çözüm kalkar). Oyunun kendisi ayrı PR'da (`tulpar/oyunlar/kup_kure_savasi/`); bu belgedeki oyun
-> yolları o PR birleşince geçerlidir.
+> **Düzen (2026-10-08):** maddeleri düzelten PR'lar başlıkta `(Geri bildirim #N)` yazar; madde PR birleşince
+> "düzeltildi" olur ve oyun yeni API'ye geçer, geçici çözüm kalkar.
 
 ## Özet
 
@@ -19,24 +24,24 @@
 |---|---|---|---|---|
 | 1 | motor / Android | APK varlık süzgeci `.mp3`/`.flac` çıkarmıyordu — müzik telefonda sessizce yoktu | Y | **düzeltildi** (#91, Tuzaklar 8cu) |
 | 2 | motor / perf | P20 Pro'da boş sahne bile 60 fps değildi (piksel başına bedel); iç çözünürlük ölçeği yoktu | Y | **düzeltildi** (#92 `eng_render_scale`; oyun telefonda 0.7) |
-| 3 | motor / sahne | `partikul_renk` (+ `_fizik`, `_teps`) blob'a girmiyor: oyunda parçacık hep beyaz | O | açık |
-| 4 | dil | içe aktarılan modüldeki hata, İÇE AKTARAN dosyanın adı ve satır metniyle raporlanıyor | Y | açık (TulparLang) |
-| 5 | dil | modül, kendisini içe aktaran dosyanın fonksiyonunu göremiyor (global'ini görüyor) | O | açık (TulparLang) |
-| 6 | dil | `import` yolu çalışma dizinine göre, içe aktaran dosyaya göre değil | O | açık (TulparLang) |
-| 7 | dil | çoklu bildirim tek tip ister ve fonksiyonu YALNIZ bu dosyanın import'unda arar | D | açık (TulparLang) |
-| 8 | motor / Android | geri tuşu oyunu duraklatmıyor, etkinliği kapatıyor (savaş kaybolur) | O | açık |
-| 9 | motor / Android | arka planda ses durmuyor (AAudio akışı `started` kalıyor) | O | oyunda geçici çözüm |
+| 3 | motor / sahne | `partikul_renk` (+ `_fizik`, `_teps`) blob'a girmiyor: oyunda parçacık hep beyaz | O | **düzeltildi** (#95 blob v9; oyunun meşaleleri turuncu) |
+| 4 | dil | içe aktarılan modüldeki hata, İÇE AKTARAN dosyanın adı ve satır metniyle raporlanıyor | Y | **düzeltildi** (TulparLang #483) |
+| 5 | dil | modül, kendisini içe aktaran dosyanın fonksiyonunu göremiyor (global'ini görüyor) | O | **düzeltildi** (TulparLang #484; oyun yeni sürümle sadeleşecek) |
+| 6 | dil | `import` yolu çalışma dizinine göre, içe aktaran dosyaya göre değil | O | **düzeltildi** (TulparLang #485) |
+| 7 | dil | çoklu bildirim tek tip ister ve fonksiyonu YALNIZ bu dosyanın import'unda arar | D | **düzeltildi** (TulparLang #485) |
+| 8 | motor / Android | geri tuşu oyunu duraklatmıyor, etkinliği kapatıyor (savaş kaybolur) | O | açık — düzeltmesi (`geri_basildi`) yerelde hazır, Android PR'ı bekliyor |
+| 9 | motor / Android | arka planda ses durmuyor (AAudio akışı `started` kalıyor) | O | açık — düzeltmesi (motor arka planda sesi kendisi durdurur) Android PR'ı bekliyor |
 | 10 | motor / köprü | fizik duraklatılamıyor (duraklat menüsünde mermiler uçmaya devam eder) | O | **düzeltildi** (#96; oyun geçti) |
-| 11 | motor / köprü | sabit gövdeyi `isinla` her çağrıda gövdeyi YENİDEN kuruyor; kinematik gövde yok | O | açık |
-| 12 | motor / köprü | kameranın görüş açısı ve ekran→ışın API'si yok; oyun `pi/3.5`'i kopyalıyor | D | açık |
-| 13 | motor | Tulpar oyununda kare içi C++ ayırma (AllocGate) ölçülemiyor | O | açık |
+| 11 | motor / köprü | sabit gövdeyi `isinla` her çağrıda gövdeyi YENİDEN kuruyor; kinematik gövde yok | O | **düzeltildi** (#97 kinematik gövde; sabit `isinla` ayırmasız) |
+| 12 | motor / köprü | kameranın görüş açısı ve ekran→ışın API'si yok; oyun `pi/3.5`'i kopyalıyor | D | **düzeltildi** (#98; oyun `FOV_TAN` kopyasını bıraktı) |
+| 13 | motor | Tulpar oyununda kare içi C++ ayırma (AllocGate) ölçülemiyor | O | **düzeltildi** (#105 ayırma sayacı) |
 | 14 | motor / perf | betik kancası dağıtımı telefonda masaüstünün ~16 katı (6.6 µs / 0.4 µs çağrı, gövdeler dahil) | D | **iyileştirildi** (#100, Tuzaklar 8cv) |
-| 15 | motor / arayüz | düğme yazısı yalnız yükseklikten ölçekleniyor, uzun etiket taşıyor | D | oyunda geçici çözüm |
-| 16 | motor / arayüz | yarı saydam tam ekran karartma Mali'de ~3.5 ms (TBDR) — uyarı köprüde görünmüyor | D | açık |
-| 17 | TulparLang / Android | ekran çentiği alanı kullanılmıyor (2240 yerine 2159 piksel, solda siyah şerit) | D | açık (TulparLang) |
-| 18 | motor / Android | `android cmd ?`: yaşam döngüsü günlüğünde adsız komutlar | D | açık |
-| 19 | araç / Android | Huawei'de kayıt dosyası (iç depolama) adb ile okunamıyor; ayar test edilemiyor | D | bilgi |
-| 20 | motor / font | `—` gibi aralık dışı karakter `?` basıyor (ASCII + Latin-1 + Türkçe) | D | bilgi |
+| 15 | motor / arayüz | düğme yazısı yalnız yükseklikten ölçekleniyor, uzun etiket taşıyor | D | **düzeltildi** (#105; oyun tam adlara döndü) |
+| 16 | motor / arayüz | yarı saydam tam ekran karartma Mali'de ~3.5 ms (TBDR) — uyarı köprüde görünmüyor | D | **düzeltildi** (#105 `sahne_karart`; oyun tam ekran karartmayı bıraktı) |
+| 17 | TulparLang / Android | ekran çentiği alanı kullanılmıyor (2240 yerine 2159 piksel, solda siyah şerit) | D | yarım — TulparLang #486 `cutout` birleşti; motorun güvenli alanı (`guvenli_*`) Android PR'ı bekliyor |
+| 18 | motor / Android | `android cmd ?`: yaşam döngüsü günlüğünde adsız komutlar | D | **düzeltildi** (#102) |
+| 19 | araç / Android | Huawei'de kayıt dosyası (iç depolama) adb ile okunamıyor; ayar test edilemiyor | D | açık — düzeltmesi (debug derlemede kayıt adb'ye açık) Android PR'ı bekliyor |
+| 20 | motor / font | `—` gibi aralık dışı karakter `?` basıyor (ASCII + Latin-1 + Türkçe) | D | **düzeltildi** (#105 tipografik noktalama) |
 
 İyi haber (ölçüldü, telefonda): Tuzaklar 8ct'nin yolu **gerçek oyunla** da temiz — geri tuşu
 etkinliği kapattı (`DESTROY` → tam kapanış, `hata 0, uyari 0`), simgeye basınca **aynı PID**'de
@@ -73,18 +78,18 @@ dinamik çözünürlük vardı, köprüde yoktu. **Düzeltme:** `eng_render_scal
 **Kalan:** parlama kapalıyken ölçek yok (iç hedef yok) — ölçek için iç hedefi parlamadan bağımsız kurmak
 (bloom yoğunluğu 0) daha temiz olur.
 
-## 3. `partikul_renk` blob'a girmiyor — AÇIK
+## 3. `partikul_renk` blob'a girmiyor — DÜZELTİLDİ (#95, blob v9)
 
 **Ne:** `.sahne`'deki `partikul_renk br bg bb sr sg sb` ayrıştırılıyor ve yazılıyor ama
 `SceneBlobParticle` (content/scene_blob.hpp, 48 bayt) renk alanı taşımıyor; `SceneRuntime::update`
 `ParticleEmitterConfig`'in renklerini hiç doldurmuyor. Editörün hazır yayıcıları (ateş turuncusu, duman
 grisi — app/editor_app.cpp) derlenmiş oyunda **beyaz**. `partikul_fizik` ve `partikul_teps` de aynı sınıf.
-**Yeniden üret:** `tulpar/oyunlar/kup_kure_savasi/assets/savas.sahne` → `kup_mesale_*` (`partikul_renk 1 0.75 0.2 0.9 0.2 0.05`),
+**Yeniden üret:** oyunun sahnesindeki meşale yayıcıları (`partikul_renk 1 0.75 0.2 0.9 0.2 0.05`),
 oyunda parçacıklar beyaz. `grep particle_color_start content/scene_runtime.cpp` boş.
 **Öneri:** blob v9: `SceneBlobParticle`'a `color_start[3], color_end[3]` (+ yerçekimi), runtime `cfg`'ye
 aktarsın; `scene_check.py` "yazıcının yazıp blob'un taşımadığı alan" sınıfını da ölçsün (sessiz kayıp).
 
-## 4. İçe aktarılan modüldeki hata yanlış dosyayla raporlanıyor — AÇIK (TulparLang)
+## 4. İçe aktarılan modüldeki hata yanlış dosyayla raporlanıyor — DÜZELTİLDİ (TulparLang #483)
 
 **Ne:** `savas.tpr` içindeki tanımsız çağrı, `oyun.tpr:311` diye ve **oyun.tpr'nin 311. satırının metniyle**
 raporlandı (satır numarası doğru, dosya ve gösterilen kaynak yanlış). Hatayı arayan, masum bir satıra bakar.
@@ -105,7 +110,7 @@ print(modul_f());
 (beklenen: `modul.tpr:2 | return ana_yardimci() + 1;`). TulparLang v3.40.10, 2026-10-07.
 **Öncelik Y:** çok modüllü her oyun bunu yaşar.
 
-## 5. Modül, içe aktaranın fonksiyonunu göremiyor; global'ini görüyor — AÇIK (TulparLang)
+## 5. Modül, içe aktaranın fonksiyonunu göremiyor; global'ini görüyor — DÜZELTİLDİ (TulparLang #484)
 
 Aynı yeniden üretim (madde 4): `modul.tpr` `ana_yardimci`yı bulamıyor. Ama global DEĞİŞKEN görülüyor:
 ```
@@ -118,15 +123,14 @@ Kural "modül, kendinden önce ayrıştırılanı görür" ise globaller için d
 fonksiyonlar da görülmeli. Oyunda geçici çözüm: ses/kamera/efekt fonksiyonları `savas.tpr`'den önce
 içe aktarılan modüllere taşındı, doğrulama kodu ana dosyaya kondu.
 
-## 6. `import` yolu çalışma dizinine göre — AÇIK (TulparLang)
+## 6. `import` yolu çalışma dizinine göre — DÜZELTİLDİ (TulparLang #485)
 
 `a/b/m1.tpr` içindeki `import "d/c.tpr"` (dosya `a/b/d/c.tpr`), `a/` dizininden `tulpar b/m1.tpr` ile
 koşunca `Import dosyasi acilamadi 'd/c.tpr'`. Örnekler bu yüzden `import "examples/davranis/x.tpr"` yazıyor ve
-yalnız `tulpar/` dizininden çalışıyor. Oyun kendi dizininden çalışacak şekilde yazıldı
-(`cd tulpar/oyunlar/kup_kure_savasi && tulpar oyun.tpr`; `tools/tulpar_dogrula.sh` de öyle koşturuyor).
+yalnız `tulpar/` dizininden çalışıyor. Oyun kendi dizininden çalışacak şekilde yazıldı.
 **Öneri:** önce içe aktaran dosyanın dizini, sonra çalışma dizini.
 
-## 7. Çoklu bildirim tek tip ister ve fonksiyonu yalnız bu dosyanın import'unda arar — AÇIK (D)
+## 7. Çoklu bildirim tek tip ister ve fonksiyonu yalnız bu dosyanın import'unda arar — DÜZELTİLDİ (TulparLang #485)
 
 - `bool bas, px, py = isaretci();` (`isaretci(): (bool, float, float)`) üçünü de `bool` yapıyor; tip
   hatası "expected float, got bool" diye ATAMA satırlarında çıkıyor, bildirimde değil. Geçici çözüm:
@@ -161,15 +165,15 @@ ayarlar) ekranında fiziği donduruyor, devamda açıyor; hız sıfırlama geçi
 satırında `fizik_dondu=1` ve sonda fizik açık olmalı; köprü kapanışı "1 duraklatma, 1 kare durakli" diyor
 (RTX 5080, 2026-10-08).
 
-## 11. Sabit gövdeyi taşımak gövdeyi yeniden kuruyor — AÇIK
+## 11. Sabit gövdeyi taşımak gövdeyi yeniden kuruyor — DÜZELTİLDİ (#97)
 
 `teng_set_pos` dinamik olmayan gövdede `remove` + `make_body` yapıyor (Jolt'ta sabit gövdeye konum
 yazılabildiği hâlde). 60 birlik sabit gövdeyle sürülseydi saniyede ~3600 gövde kurma olurdu. Oyun
 birlikleri **dinamik** gövdeyle (`yuru_v`) sürüyor, kafa/silahı **gövdesiz model** yapıyor
-(`tools/kup_kure_modelleri.py`). **Öneri:** kinematik gövde türü (`eng_spawn_box(..., kinematik)`) ve
+(oyunun model üretici betiği). **Öneri:** kinematik gövde türü (`eng_spawn_box(..., kinematik)`) ve
 `MoveKinematic`.
 
-## 12. Görüş açısı ve ekran→ışın API'si yok — AÇIK (D)
+## 12. Görüş açısı ve ekran→ışın API'si yok — DÜZELTİLDİ (#98)
 
 Dokunuşla kule yuvası seçmek ve birlik üstü can çubuğu için oyun izdüşümü kendisi kuruyor; köprünün
 `perspective(pi/3.5, …)` sabitini **kopyalamak** zorunda (`kamera.tpr` `FOV_TAN`). Sabit değişirse oyun
@@ -177,7 +181,7 @@ sessizce yanlış yere dokunur. Doğrulandı: otopilot yuvanın dünya konumunu 
 atıyor; ışın yuvaya çarpmazsa kapı kırmızı (`kule_isin=2 kule_yakin=0 kule_iska=0`). **Öneri:**
 `eng_camera_fov()` ya da `eng_screen_ray(sx, sy)` + `eng_world_to_screen`.
 
-## 13. Tulpar oyununda AllocGate ölçülemiyor — AÇIK
+## 13. Tulpar oyununda AllocGate ölçülemiyor — DÜZELTİLDİ (#105)
 
 `core/memory/alloc_gate_override.cpp` yalnız `engine_tests`/demo/editör yürütülebilirlerine bağlanıyor;
 eklenti paketinin bildirimi onu linklemiyor. "Kare içi C++ ayırma 0" iddiası Tulpar oyununda ölçülemiyor.
@@ -198,24 +202,24 @@ içinde vsync/çizim önbelleği boşaltıyor) ve `guncelle`nin her kare BÜTÜN
 olmayan yuva başına ~200 ns). Artık sıralı liste: telefonda kanca aşaması 85–105 → 32–45 µs/kare. Oyunun
 kalemdeki bedeli zaten kare başına ~26 µs idi; oyun değişiklik gerektirmedi.
 
-## 15. Düğme yazısı genişliğe göre ölçeklenmiyor — GEÇİCİ ÇÖZÜM (D)
+## 15. Düğme yazısı genişliğe göre ölçeklenmiyor — DÜZELTİLDİ (#105)
 
 `ui_scale(h)` yalnız yükseklikten; "Savaş Arabası", "Kaya Yağmuru" 2240 genişlikte 6 düğmelik çubukta
 düğmeden taştı (ekran görüntüsü). Oyun adları kısalttı ("Araba", "Kayalar"). **Öneri:** `min(yükseklik
 ölçeği, genişlik / metin genişliği)`.
 
-## 16. Tam ekran yarı saydam karartma Mali'de pahalı — AÇIK (D)
+## 16. Tam ekran yarı saydam karartma Mali'de pahalı — DÜZELTİLDİ (#105 `sahne_karart`)
 
 Ayarlar ekranı (tam ekran `RENK_KARART` + panel) p50 21.15 ms, menü (karartmasız) 17.6 ms — parlama
 kapalı, ölçek 1.0, P20 Pro. Renderer'da `ui_fullscreen_blend_ratio` uyarısı var ama köprü/oyun onu
 görmüyor. **Öneri:** köprü kapanış raporuna "tam ekran harmanlı dörtgen" sayacı.
 
-## 17. Ekran çentiği alanı kullanılmıyor — AÇIK (TulparLang, D)
+## 17. Ekran çentiği alanı kullanılmıyor — YARIM (TulparLang #486 birleşti; motor güvenli alanı bekliyor)
 
 Pencere 2159x1080, ekran 2240x1080: solda ~81 px siyah şerit. Manifest/tema
 `android:windowLayoutInDisplayCutoutMode="shortEdges"` vermiyor (TulparLang'in ürettiği manifest).
 
-## 18. `android cmd ?` — AÇIK (D)
+## 18. `android cmd ?` — DÜZELTİLDİ (#102)
 
 `cmd_name` bazı komutları tanımıyor (`APP_CMD_CONTENT_RECT_CHANGED`, `WINDOW_REDRAW_NEEDED`,
 `SAVE_STATE`…): her açılışta 4-5 `android cmd ?` satırı.
@@ -226,7 +230,7 @@ Kayıt çıkarma kökünde (`/data/user/0/<paket>/files/assets/tulpar_kayit.txt`
 için (Tuzaklar 8n) adb ile okunamıyor/yazılamıyor. Ayar testi ekrandan dokunarak yapıldı. **Öneri:** hata
 ayıklama derlemesinde `TULPAR_ENGINE_SAVE` benzeri bir harici yol.
 
-## 20. Font aralığı — BİLGİ
+## 20. Font aralığı — DÜZELTİLDİ (#105 tipografik noktalama)
 
 `content/font.hpp`: ASCII + Latin-1 + Türkçe (Ğğ İı Şş …). `—` (U+2014) `?` basıyor; Türkçe harflerin
 hepsi çiziliyor (masaüstü DejaVu, telefon Roboto — ekran görüntüleriyle doğrulandı). Oyun metinleri
@@ -234,17 +238,3 @@ hepsi çiziliyor (masaüstü DejaVu, telefon Roboto — ekran görüntüleriyle 
 
 ---
 
-## Oyunun kendi hataları (motor değil; bulundu ve düzeltildi)
-
-- **Menzilli birlik yolu tıkıyordu:** menzile girince duruyordu; sırada öndeyse arkadaki yakın dövüşçüler
-  hiç temasa giremedi (7200 karede 0 yakın vuruş). Artık yürürken ateş ediyor.
-- **Ölü id ile çağrı (21 HATA):** alan hasarı döngüsünde bir ölüm, enkaz halkasından eski parçayı
-  silebiliyor; sonraki sorgu sonucu ölü id oluyordu. Motorun "ölü id → HATA" kuralı bunu hemen gösterdi.
-- **Kule yuvaları kale kulelerinin arkasındaydı:** kameradan atılan ışın kuleye çarpıyordu (55 ıska).
-  Yuvalar damın ön kenarına alındı; otopilotun dokunuşları artık ışınla isabet.
-- **Kolay çok zordu:** kullanıcı telefonda Kolay'da 4 dk 2 sn'de yenildi (yapay zekâ Sanayi'ye,
-  oyuncu Demir'e). Yapay zekânın geliri/XP çarpanı düşürüldü, kale hasarının XP'si yarıya indi;
-  otopilot Kolay'ı 140 sn'de yeniyor.
-- **Simetrik eşleşmede çıkmaz:** otopilot Normal'e karşı 6 dk'da iki taraf da Gelecek Çağı'nda, kaleler
-  dolu. İnsan oyunu simetriyi bozuyor; yine de uzun savaşta bir tırmanma kuralı (ör. son çağda XP'nin
-  hasar bonusuna dönmesi) değerlendirilmeli.

@@ -28,9 +28,13 @@ tulpar/
                           bolum isaretleri (E7): aksiyonun oyuncu baslangici, kapisi ve
                           dusmanlari assets/salon1/2.sahne'de; tipler davranis/oyuncu_baslangic.tpr,
                           kapi.tpr, dusman_yeri.tpr (docs/KOPRU.md 7.11)
-  oyunlar/kup_kure_savasi/  ilk gerçek oyun "Küpler ile Kürelerin Savaşı" (Çağlar Boyu Savaş tarzı;
-                          KENDİ dizininden çalışır, kendi tulpar.toml'u + [android]; OKUBENI.md;
-                          bulunan motor/dil sorunları docs/OYUN_GERI_BILDIRIM.md)
+                          engine_savas.tpr (motorun uzun kapisi: iki yapay zekali serit
+                          savasi, sabit tohum 9600; menu ADIYLA, kule yuvasi ekrandan secilir;
+                          tools/tulpar_dogrula.sh --tam bayt bayt karsilastirir)
+  oyunlar/                 (boş) ilk gerçek oyun "Küpler ile Kürelerin Savaşı" 2026-10-26'da AYRI,
+                          ÖZEL bir depoya taşındı; motoru dışarıdan kullanır, kapıları orada.
+                          Eski 9600 karelik oyun kapısının yerini examples/engine_savas.tpr aldı.
+                          Bulunan motor/dil sorunları yine burada: docs/OYUN_GERI_BILDIRIM.md
   tests/engine_bridge.test.tpr   uçtan uca köprü testi (Tulpar tarafı)
   tests/engine_gpusuz.test.tpr   GPU'suz köprü: kurulumsuz teng_* çağrıları + düşen kurulumun sözleşmesi
 ```
