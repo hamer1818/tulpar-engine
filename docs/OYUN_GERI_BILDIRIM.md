@@ -42,6 +42,9 @@
 | 18 | motor / Android | `android cmd ?`: yaşam döngüsü günlüğünde adsız komutlar | D | **düzeltildi** (#102) |
 | 19 | araç / Android | Huawei'de kayıt dosyası (iç depolama) adb ile okunamıyor; ayar test edilemiyor | D | **düzeltildi** (debug derlemede kayıt adb'ye açık) |
 | 20 | motor / font | `—` gibi aralık dışı karakter `?` basıyor (ASCII + Latin-1 + Türkçe) | D | **düzeltildi** (#105 tipografik noktalama) |
+| 22 | motor / köprü | `eng_render_scale` günlüğü float/double karşılaştırması yüzünden 0.70'i "(kenetlendi)" diye basıyor | D | **düzeltildi** |
+| 25 | motor / köprü | çarpışma süzme (grup/katman) API'si yok: menzilli birliğin mermisi öndeki DOST gövdeye çarpıp kalıyordu (kullanıcı, telefonda) | Y | **düzeltildi** (`carpisma_grubu` / `carpisma_cifti`) |
+| 26 | motor / köprü | dinamik gövdenin dönmesi kilitlenemiyor: devrilen birlik gövdesi, üstündeki gövdesiz kafa/kalkan modellerinin içine geçiyor | O | **düzeltildi** (`donme_kilidi`) |
 
 İyi haber (ölçüldü, telefonda): Tuzaklar 8ct'nin yolu **gerçek oyunla** da temiz — geri tuşu
 etkinliği kapattı (`DESTROY` → tam kapanış, `hata 0, uyari 0`), simgeye basınca **aynı PID**'de
@@ -238,3 +241,36 @@ hepsi çiziliyor (masaüstü DejaVu, telefon Roboto — ekran görüntüleriyle 
 
 ---
 
+---
+
+## Sonraki bulgular (2026-10-08 → 2026-10-23, oyunu "adam ederken" ve telefonda)
+
+> 30, 33, 34 oyunun kendi tasarım hataları; ayrıntıları oyunun deposunda. Diğerleri motor/dil dersi.
+
+### 22. `eng_render_scale` günlüğü "(kenetlendi)" — DÜZELTİLDİ (D)
+
+`teng_render_scale(0.7)` kenetlenmediği hâlde `ic cozunurluk olcegi 0.70 (kenetlendi)` basıyordu: uygulanan ölçek
+`float` (0.7f), istenen `double` (0.7) — `!=` her zaman doğru. Düzeltme: `fabs(a - b) > 1e-4`.
+
+### 25. Mermi dost gövdeye çarpıyor — DÜZELTİLDİ (Y)
+
+Kullanıcı: "bizim taraftaki karakterler tankların arkasından ateş ederken TANKLARA ateş ediyorlar; mermi
+içlerinden geçip düşmana gitmiyor." Mermiler dinamik gövde; motorda çarpışma süzme yoktu, oyunun kancası
+"dost" deyip hasarı yok sayıyordu ama fizik çarpmıştı (mermi orada sekip kalıyordu). **Motor:** 16 grup +
+simetrik çift tablosu (`sim::Physics::set_collision_group` / `set_groups_collide`, Jolt `GroupFilter`; köprü
+`eng_collision_group*` / `eng_collision_pair*`, Tulpar `carpisma_grubu` / `carpisma_cifti` / `carpisir_mi`).
+Kapılar: `physics_collision_groups_skip_pairs_deterministic` (kapalı çift: küre kutunun içinden geçer, zemine
+çarpar, iki koşum aynı özet; POZİTİF KONTROL açık çiftte kutuya çarpar), `bridge_collision_groups_pass_through_and_survive_rebuild`
+(ışınlanıp yeniden kurulan dinamik gövde grubunu korur — grubu yeniden yazmayan köprüde kırmızı, ölçüldü).
+Oyunda ölçüldü: dost değmesi 9600 karede 0 (tablo açıkken 111, RTX 5080); telefonda (P20 Pro, 8 dk) 866 mermide 0.
+Motorun kendi kapısı aynı sayacı taşıyor: `engine_savas` `[kapi] fizik ... dost_degme=0`, pozitif kontrol
+`TULPAR_ENGINE_SAVAS_DOST_SUZGEC=0` (gruplar atanır, tablo açık) -> > 0.
+
+### 26. Devrilen gövde parçaların içine geçiyor — DÜZELTİLDİ (O)
+
+Birliğin kafası/kalkanı gövdesiz model (`model_koy`), gövdeyle dönmez; Jolt kutuyu devirince parçalar gövdeye
+girdi ("küpün içinde küp"). **Motor:** `donme_kilidi(id, true)` (Jolt `EAllowedDOFs` öteleme; kilitlenince dik
+konum). Kapı: `physics_lock_rotation_keeps_body_upright` (üst kenarına ağır küre çarpan uzun kutu: kilitli
+|w| 1.000000, 5.4 m itildi; POZİTİF KONTROL kilitsiz ~110° devrildi). **Yan etki (ölçüldü, oyunda):** dönemeyen
+gövde navmesh yolunun keskin köşesine takılıp arkasındaki sırayı kilitleyebilir — yol köşelerini engelden açmak
+ve mantık konumunu gövdeden kopunca bekletmek gerekti.

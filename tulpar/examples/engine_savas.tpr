@@ -59,10 +59,18 @@ float[] TUR_HIZ = [2.2, 2.0, 1.35];
 float[] TUR_BEKLE = [0.8, 1.25, 1.45];
 float[] TUR_BOY = [0.40, 0.32, 0.55];
 str[] TUR_AD = ["piyade", "okcu", "agir"];
-// Gelir: her 30 karede taraf başına; Kolay'da taraf 1 (rakip) bir eksik.
-int[] GELIR_KOLAY = [5, 4];
+// Gelir: her 30 karede taraf başına; Kolay'da taraf 1 (rakip) eksik. 7/4: çarpışma
+// gruplarıyla (okçu mermisi dost gövdenin içinden geçer) savunma güçlendi, 5/4'te savaş
+// 9600 karede bitmiyordu (ölçüldü 2026-10-26: 5/4 sürüyor 900/738, 6/4 sürüyor 900/174,
+// 7/4 5282. karede zafer) — sonuç ekranı akışı da ölçülsün diye 7/4.
+int[] GELIR_KOLAY = [7, 4];
 int[] GELIR_ZOR = [5, 6];
 int OLDURME_ODUL = 6;
+// Carpisma gruplari (Geri bildirim #25): birlik + kule 1 + taraf, mermi 3 + taraf.
+// Mermi kendi tarafinin govdesinin ve baska merminin ICINDEN gecer. Pozitif kontrol
+// TULPAR_ENGINE_SAVAS_DOST_SUZGEC=0: gruplar yine atanir, tablo acik kalir ->
+// dost_degme > 0 olmali (sayac bir sey olcuyor).
+bool DOST_SUZGEC = env("TULPAR_ENGINE_SAVAS_DOST_SUZGEC") != "0";
 
 int RENK_ZEMIN = renk(70, 84, 64);
 int RENK_KUP = renk(70, 140, 235);
@@ -140,6 +148,7 @@ int g_isabet = 0;
 int g_enkaz_n = 0;
 int g_carpisma = 0;
 int g_carpisma_dusen = 0;
+int g_dost_degme = 0;
 int g_sec_ok = 0;
 int g_sec_iska = 0;
 int g_kurulum_hatasi = 0;
@@ -169,6 +178,13 @@ func savas_kur() {
     ortam(renk(46, 50, 58));
     golge_hacmi(0, 1, 0, 30, 80);
     zemin_kur(34, RENK_ZEMIN);
+    if (DOST_SUZGEC) {
+        carpisma_cifti(1, 3, false);
+        carpisma_cifti(2, 4, false);
+        carpisma_cifti(3, 3, false);
+        carpisma_cifti(4, 4, false);
+        carpisma_cifti(3, 4, false);
+    }
     g_kale_id[0] = kutu(-KALE_X, 2.0, 0.0, 1.5, 2.0, 2.5, false, RENK_KALE0);
     g_kale_id[1] = kutu(KALE_X, 2.0, 0.0, 1.5, 2.0, 2.5, false, RENK_KALE1);
     for (int t = 0; t < 2; t++) {
@@ -202,6 +218,8 @@ func birlik_uret(int taraf, int tur): bool {
                         : kure(x, boy + 0.05, z, boy, true, RENK_KURE);
     if (id == 0) { logla(t"UYARI birlik kurulamadi (taraf {taraf})"); return false; }
     g_govde_kur += 1;
+    carpisma_grubu(id, 1 + taraf);
+    donme_kilidi(id, true);   // Geri bildirim #26: birlik devrilmez
     g_altin[taraf] -= TUR_FIYAT[tur];
     birlikler[yer] = { id: id, taraf: taraf, tur: tur, can: TUR_CAN[tur], soguma: 0.5, x: x, z: z, serit_z: z, canli: true };
     g_dogan[taraf] += 1;
@@ -259,6 +277,7 @@ func mermi_at(int taraf, float x, float y, float z, int hedef, int hasar) {
     int id = kinematik_kure(x, y, z, 0.15, RENK_MERMI);
     if (id == 0) { return; }
     g_govde_kur += 1;
+    carpisma_grubu(id, 3 + taraf);
     g_kinematik_n += 1;
     int hid = hedef >= 0 ? birlikler[hedef].id : 0;
     mermiler[yer] = { id: id, taraf: taraf, hedef: hedef, hedef_id: hid, x: x, y: y, z: z, hasar: hasar, omur: 3.0, aktif: true };
@@ -363,6 +382,7 @@ func kule_kur(int taraf, int s): bool {
     if (id == 0) { return false; }
     g_govde_kur += 1;
     g_kinematik_n += 1;
+    carpisma_grubu(id, 1 + taraf);
     g_altin[taraf] -= KULE_FIYAT;
     kuleler[k].id = id;
     kuleler[k].kurulu = true;
@@ -489,9 +509,33 @@ func savas_adim(float d) {
         enkazlar[i].omur -= 1;
         if (enkazlar[i].omur <= 0) { enkazlar[i].aktif = false; sil(enkazlar[i].id); g_govde_sil += 1; }
     }
-    // Ham carpisma kuyrugu yalniz SAYILIR (sirasi is parcacigina bagli olabilir).
-    g_carpisma += carpisma_sayisi();
+    // Ham carpisma kuyrugu yalniz SAYILIR (sirasi is parcacigina bagli olabilir):
+    // toplam ve "dost degme" (mermi kendi tarafinin birligine/kulesine) toplamlari
+    // siradan bagimsiz.
+    int nc = carpisma_sayisi();
+    g_carpisma += nc;
     g_carpisma_dusen += carpisma_dusen();
+    for (int e = 0; e < nc; e++) {
+        int a = carpisma_a(e);
+        int b = carpisma_b(e);
+        int ma = mermi_tarafi(a);
+        int mb = mermi_tarafi(b);
+        if ((ma >= 0 && ma == birim_tarafi(b)) || (mb >= 0 && mb == birim_tarafi(a))) { g_dost_degme += 1; }
+    }
+}
+
+// Govde id'si aktif bir mermininse tarafi; degilse -1.
+func mermi_tarafi(int id): int {
+    if (id == 0) { return -1; }
+    for (int i = 0; i < MERMI_MAX; i++) { if (mermiler[i].aktif && mermiler[i].id == id) { return mermiler[i].taraf; } }
+    return -1;
+}
+// Govde id'si canli bir birligin ya da kulenin ise tarafi; degilse -1.
+func birim_tarafi(int id): int {
+    if (id == 0) { return -1; }
+    for (int i = 0; i < BIRLIK_MAX; i++) { if (birlikler[i].canli && birlikler[i].id == id) { return birlikler[i].taraf; } }
+    for (int k = 0; k < 6; k++) { if (kuleler[k].kurulu && kuleler[k].id == id) { return kuleler[k].taraf; } }
+    return -1;
 }
 
 // ---- Kabuk: menu, ayar, zorluk, HUD, duraklat, sonuc --------------------------
@@ -711,7 +755,7 @@ func kapi_raporu() {
     int hata = hata_sayisi() - g_kurulum_hatasi;
     str sonuc = g_sonuc < 0 ? "suruyor" : (g_sonuc == 0 ? "zafer" : "yenilgi");
     print(t"[kapi] kare={kare} sonuc={sonuc} savas_kare={g_savas_kare} zorluk={g_zorluk} dogan={g_dogan[0]}/{g_dogan[1]} olen={g_olen[0]}/{g_olen[1]} kule={g_kule_n[0]}/{g_kule_n[1]} ozel={g_ozel[0]}/{g_ozel[1]} kale={g_kale_can[0]}/{g_kale_can[1]} altin={g_altin[0]}/{g_altin[1]} dongu_hatasi={hata} kurulum_hatasi={g_kurulum_hatasi} uyari={uyari_sayisi()}");
-    print(t"[kapi] fizik: govde_kur={g_govde_kur} govde_sil={g_govde_sil} kinematik={g_kinematik_n} mermi={g_mermi_n} isabet={g_isabet} enkaz={g_enkaz_n} carpisma={g_carpisma} carpisma_dusen={g_carpisma_dusen} canli_varlik={eng_count()} govde={eng_body_count()}");
+    print(t"[kapi] fizik: govde_kur={g_govde_kur} govde_sil={g_govde_sil} kinematik={g_kinematik_n} mermi={g_mermi_n} isabet={g_isabet} enkaz={g_enkaz_n} carpisma={g_carpisma} carpisma_dusen={g_carpisma_dusen} dost_degme={g_dost_degme} canli_varlik={eng_count()} govde={eng_body_count()}");
     print(t"[kapi] secim: ekrandan kule yuvasi {g_sec_ok} isabet, {g_sec_iska} iska");
     print(t"[kapi] menu: adim={g_op_adim} ui_tik={ui_tiklama()} duraklat={g_op_duraklat} kayma={g_op_kayma} cikis={g_op_cikis}");
     int bellek_pencere = g_bellek_son_kare - BELLEK_ILK_KARE;
@@ -734,6 +778,8 @@ func kapi_raporu() {
     if (g_ses_ayari < 0.05 || g_ses_ayari > 0.95) { push(sorun, t"kaydirici ses ayarini beklenen aralikta degistirmedi: {g_ses_ayari}"); }
     if (g_sec_iska != 0) { push(sorun, t"ekrandan kule yuvasi {g_sec_iska} kez secilemedi (izdusum -> isin yolu)"); }
     if (g_carpisma_dusen != 0) { push(sorun, t"carpisma kuyrugu {g_carpisma_dusen} olay dusurdu"); }
+    if (DOST_SUZGEC && g_dost_degme != 0) { push(sorun, t"mermi {g_dost_degme} kez kendi tarafinin govdesine degdi (carpisma gruplari)"); }
+    if (!DOST_SUZGEC && tam && g_dost_degme == 0) { push(sorun, "DOST_SUZGEC=0 iken dost degme 0: sayac bir sey olcmuyor"); }
     if (bellek_olculdu && bellek_egim > BELLEK_SINIR_KB) { push(sorun, t"bellek buyuyor: alt ceyrek {bellek_egim} KB/1000 kare > {BELLEK_SINIR_KB} (kare bellegi {kare_bellegi_acik()}; kareler arasi yasayan deger global'de mi? engine.tpr 'Kare bellegi')"); }
     if (kare_bellegi_acik() && kare_bellegi_kare() != kare) { push(sorun, t"kare bellegi {kare_bellegi_kare()} kare geri sardi, {kare} kare kostu"); }
     if (!ayirma_sayaci_acik()) { push(sorun, "kare ici ayirma OLCULMEDI: operator new sayaci oyuna bagli degil"); }

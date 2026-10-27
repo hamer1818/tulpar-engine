@@ -253,6 +253,11 @@ struct Ent {
   // Tetik hacmi (eng_trigger_*): gorunmez, carpisma tepkisi yok, yakinlik
   // sorgularinda hedef degil. Kind yine Box/Sphere — sekil bilgisi ayni.
   bool sensor = false;
+  // Carpisma grubu (teng_collision_group, 0 = varsayilan). Govdeyle DEGIL
+  // varlikla tutulur: dinamik govde isinlanirken yeniden kurulur (Jolt kimligi
+  // degisir) ve make_body grubu yeni govdeye yeniden yazar.
+  uint8_t cgroup = 0;
+  bool rot_lock = false; // teng_lock_rotation (yeniden kurulan govdeye de yazilir)
   // Kodla baglanan betigin havuz indisi (-1 = yok; kilitleri asagida, dying /
   // bitir_running). BURADA, ilk onbellek satirinda: kare ici `guncelle`
   // dagitimi her bagli varlik icin alive + gen + bound okur, uc alan ayni
@@ -794,6 +799,8 @@ bool make_body(Ent &e, const char *fn) {
   else if (e.kind == Kind::Sphere) e.body = g->phys.add_sphere(e.radius, e.pos, e.dynamic);
   else return true;
   if (!e.body.valid()) { BERR("%s: fizik govdesi kurulamadi (%s @ %.2f %.2f %.2f)", fn, kind_name(e.kind), e.pos.x, e.pos.y, e.pos.z); return false; }
+  if (e.cgroup) g->phys.set_collision_group(e.body, e.cgroup);
+  if (e.rot_lock && e.dynamic) g->phys.lock_rotation(e.body, true);
   bmap_put(e.body, (int32_t)(&e - g->ents), -1);
   return true;
 }
@@ -1167,7 +1174,7 @@ double teng_render_scale(double scale) {
     g_log.warnings++;
     return 1.0;
   }
-  BINFO("ic cozunurluk olcegi %.2f%s: sahne %ux%u, hedef %ux%u", t.render_scale, (double)t.render_scale != scale ? " (kenetlendi)" : "",
+  BINFO("ic cozunurluk olcegi %.2f%s: sahne %ux%u, hedef %ux%u", t.render_scale, std::fabs((double)t.render_scale - scale) > 1e-4 ? " (kenetlendi)" : "",
         t.scaled_width, t.scaled_height, b.fb_w, b.fb_h);
   return t.render_scale;
 }
@@ -3298,6 +3305,61 @@ void teng_impulse(int id, double ix, double iy, double iz) {
   g->phys.set_linear_velocity(e.body, {v.x + (float)ix, v.y + (float)iy, v.z + (float)iz});
 }
 int teng_is_dynamic(int id) { const int32_t s = slot_of(id, "teng_is_dynamic"); return s >= 0 && g->ents[s].dynamic ? 1 : 0; }
+// Carpisma gruplari (Geri bildirim #25): sim::Physics::set_collision_group /
+// set_groups_collide. Grup varliga yazilir (yeniden kurulan govdeye tasinir).
+int teng_collision_group(int id, int group) {
+  CALLF("teng_collision_group", "#%d %d", id, group);
+  const int32_t s = slot_of(id, "teng_collision_group");
+  if (s < 0) return 0;
+  Ent &e = g->ents[s];
+  if (group < 0 || (uint32_t)group >= sim::Physics::kCollisionGroups) {
+    BERR("teng_collision_group: grup %d sinir disi (0..%u)", group, sim::Physics::kCollisionGroups - 1);
+    return 0;
+  }
+  if (e.kind == Kind::Character || !e.body.valid()) {
+    BERR("teng_collision_group: #%d govdesi yok ya da karakter (%s)", id, kind_name(e.kind));
+    return 0;
+  }
+  if (!g->phys.set_collision_group(e.body, (uint32_t)group)) { BERR("teng_collision_group: #%d grup yazilamadi", id); return 0; }
+  e.cgroup = (uint8_t)group;
+  return 1;
+}
+// Donme kilidi (Geri bildirim #26): sim::Physics::lock_rotation.
+int teng_lock_rotation(int id, int lock) {
+  CALLF("teng_lock_rotation", "#%d %d", id, lock);
+  const int32_t s = slot_of(id, "teng_lock_rotation");
+  if (s < 0) return 0;
+  Ent &e = g->ents[s];
+  if (!e.dynamic || !e.body.valid() || e.kind == Kind::Character) {
+    BERR("teng_lock_rotation: #%d dinamik govde degil (%s)", id, kind_name(e.kind));
+    return 0;
+  }
+  if (!g->phys.lock_rotation(e.body, lock != 0)) { BERR("teng_lock_rotation: #%d yazilamadi", id); return 0; }
+  e.rot_lock = lock != 0;
+  return 1;
+}
+int teng_rotation_locked(int id) {
+  const int32_t s = slot_of(id, "teng_rotation_locked");
+  return s >= 0 && g->ents[s].body.valid() && g->phys.rotation_locked(g->ents[s].body) ? 1 : 0;
+}
+int teng_collision_group_of(int id) {
+  const int32_t s = slot_of(id, "teng_collision_group_of");
+  return s < 0 ? 0 : (int)g->ents[s].cgroup;
+}
+int teng_collision_pair(int a, int b, int collide) {
+  CALLF("teng_collision_pair", "%d %d %d", a, b, collide);
+  if (!ready("teng_collision_pair")) return 0;
+  const uint32_t n = sim::Physics::kCollisionGroups;
+  if (a < 0 || b < 0 || (uint32_t)a >= n || (uint32_t)b >= n) { BERR("teng_collision_pair: grup %d/%d sinir disi (0..%u)", a, b, n - 1); return 0; }
+  if (a == 0 && b == 0 && !collide) { BERR("teng_collision_pair: (0, 0) kapatilamaz — grupsuz govdeler hep carpisir; once bir gruba al"); return 0; }
+  g->phys.set_groups_collide((uint32_t)a, (uint32_t)b, collide != 0);
+  BDBG("carpisma cifti %d-%d: %s", a, b, collide ? "carpisir" : "gecer");
+  return 1;
+}
+int teng_collision_pair_on(int a, int b) {
+  if (!g || !g->inited || a < 0 || b < 0) return 1;
+  return g->phys.groups_collide((uint32_t)a, (uint32_t)b) ? 1 : 0;
+}
 int teng_is_kinematic(int id) { const int32_t s = slot_of(id, "teng_is_kinematic"); return s >= 0 && g->ents[s].kinematic ? 1 : 0; }
 void teng_kinematic_move(int id, double x, double y, double z) {
   CALLF("teng_kinematic_move", "#%d (%.2f %.2f %.2f)", id, x, y, z);

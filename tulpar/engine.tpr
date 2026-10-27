@@ -317,6 +317,26 @@ func kinematik_tasi(id, x, y, z) { eng_kinematic_move(id, x, y, z); }
 func kinematic_move(id, x, y, z) { eng_kinematic_move(id, x, y, z); }
 func kinematik_mi(id): bool { return eng_is_kinematic(id); }
 func is_kinematic(id): bool { return eng_is_kinematic(id); }
+// CARPISMA GRUPLARI (Geri bildirim #25): govde bir gruba (1..15) girer, iki
+// grubun cifti kapatilirsa birbirlerinin ICINDEN gecerler (tepki, temas ve
+// tetik olayi yok). Grup 0 = atanmamis (sahne, zemin); baslangicta herkes
+// herkesle carpisir. Ornek: takim mermisi kendi birliklerinden gecer:
+//   carpisma_cifti(MERMI_A, BIRLIK_A, false)   // sonra her govdeye carpisma_grubu
+func carpisma_grubu(id, grup): bool { return eng_collision_group(id, grup); }
+func collision_group(id, group): bool { return eng_collision_group(id, group); }
+func carpisma_grubu_al(id): int { return eng_collision_group_of(id); }
+func collision_group_of(id): int { return eng_collision_group_of(id); }
+func carpisma_cifti(a, b, carpisir): bool { return eng_collision_pair(a, b, carpisir); }
+func collision_pair(a, b, collide): bool { return eng_collision_pair(a, b, collide); }
+func carpisir_mi(a, b): bool { return eng_collision_pair_on(a, b); }
+func groups_collide(a, b): bool { return eng_collision_pair_on(a, b); }
+// DONME KILIDI (Geri bildirim #26): dinamik govde kayar, itilir, ziplar ama
+// DEVRILMEZ. Ustune govdesiz kafa/kalkan modeli tasiyan birlik icin (parcalar
+// govdeyle donmez; devrilen govde onlarin icine gecerdi).
+func donme_kilidi(id, kilit): bool { return eng_lock_rotation(id, kilit); }
+func lock_rotation(id, lock): bool { return eng_lock_rotation(id, lock); }
+func donme_kilitli_mi(id): bool { return eng_rotation_locked(id); }
+func rotation_locked(id): bool { return eng_rotation_locked(id); }
 func renk_ver(id, renk_) { eng_set_color(id, renk_); }
 func olcek_ver(id, s) { eng_set_scale(id, s); }
 func don_ver(id, derece) { eng_set_yaw(id, derece); }

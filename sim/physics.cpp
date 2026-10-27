@@ -15,6 +15,7 @@
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/GroupFilter.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -373,6 +374,25 @@ public:
   bool ShouldCollide(JPH::ObjectLayer l) const override { return l != Layers::SENSOR; }
 };
 
+// Carpisma gruplari tablosu (Physics::set_groups_collide). Satir a'nin b.
+// biti: a ile b carpisir mi. Simetrik tutulur. Grupsuz govdenin GroupID'si
+// Jolt'ta cInvalidGroup: grup 0 sayilir.
+class GroupMatrix final : public JPH::GroupFilter {
+public:
+  uint16_t rows[Physics::kCollisionGroups];
+  GroupMatrix() {
+    for (uint32_t i = 0; i < Physics::kCollisionGroups; i++) rows[i] = 0xFFFFu;
+  }
+  static uint32_t of(const JPH::CollisionGroup &g) {
+    const uint32_t id = g.GetGroupID();
+    return id < Physics::kCollisionGroups ? id : 0u;
+  }
+  bool CanCollide(const JPH::CollisionGroup &a, const JPH::CollisionGroup &b) const override {
+    return ((rows[of(a)] >> of(b)) & 1u) != 0;
+  }
+};
+static_assert(Physics::kCollisionGroups <= 16, "GroupMatrix satiri uint16_t");
+
 uint64_t fnv1a(const void *p, size_t n, uint64_t h) {
   const uint8_t *b = static_cast<const uint8_t *>(p);
   for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 0x100000001b3ull; }
@@ -398,6 +418,9 @@ struct Physics::Impl {
   ObjectPairFilter pair_filter;
   JPH::TempAllocatorImpl *temp = nullptr;
   JPH::JobSystem *jobs = nullptr; // thread havuzu YA DA fiber uyarlayicisi
+  // system'DEN ONCE: govdeler suzgece Ref tutar, system once yok edilir.
+  // Gomulu (SetEmbedded): Ref sayaci sifira dusunce `delete` denemez.
+  GroupMatrix groups;
   JPH::PhysicsSystem system;
   uint64_t allocs_before_step = 0;
   uint64_t allocs_last_step = 0;
@@ -459,6 +482,7 @@ bool Physics::init(Arena &arena, const PhysicsConfig &cfg) {
   if (!mem) return false;
   impl_ = new (mem) Impl();
   impl_->cfg = cfg;
+  impl_->groups.SetEmbedded();
   impl_->temp = new JPH::TempAllocatorImpl(cfg.temp_bytes);
   if (cfg.jobs) {
     impl_->jobs = new FiberJoltJobs(cfg.jobs, cfg.max_jolt_jobs, JPH::cMaxPhysicsBarriers);
@@ -591,6 +615,58 @@ bool Physics::move_kinematic(BodyId id, Vec3 pos, Quat rot, float dt) {
   if (!is_kinematic(id) || !(dt > 0)) return false;
   impl_->system.GetBodyInterface().MoveKinematic(JPH::BodyID(id.v), to_jph(pos), to_jph(rot), dt);
   return true;
+}
+
+bool Physics::set_collision_group(BodyId id, uint32_t group) {
+  if (!impl_ || !id.valid() || group >= kCollisionGroups) return false;
+  JPH::BodyInterface &bi = impl_->system.GetBodyInterface();
+  const JPH::BodyID b(id.v);
+  if (!bi.IsAdded(b)) return false;
+  // Grup 0 = suzgecsiz (Jolt hic sormaz); digerleri tabloya bakar.
+  bi.SetCollisionGroup(b, group == 0 ? JPH::CollisionGroup() : JPH::CollisionGroup(&impl_->groups, group, 0));
+  return true;
+}
+uint32_t Physics::collision_group(BodyId id) const {
+  if (!impl_ || !id.valid()) return 0;
+  const JPH::BodyID b(id.v);
+  if (!impl_->system.GetBodyInterface().IsAdded(b)) return 0;
+  return GroupMatrix::of(impl_->system.GetBodyInterface().GetCollisionGroup(b));
+}
+bool Physics::set_groups_collide(uint32_t a, uint32_t b, bool collide) {
+  if (!impl_ || a >= kCollisionGroups || b >= kCollisionGroups) return false;
+  if (a == 0 && b == 0) return collide; // grupsuz cift hep carpisir (yukari bkz.)
+  const uint16_t ba = (uint16_t)(1u << b), bb = (uint16_t)(1u << a);
+  if (collide) { impl_->groups.rows[a] |= ba; impl_->groups.rows[b] |= bb; }
+  else { impl_->groups.rows[a] &= (uint16_t)~ba; impl_->groups.rows[b] &= (uint16_t)~bb; }
+  return true;
+}
+bool Physics::lock_rotation(BodyId id, bool lock) {
+  if (!impl_ || !id.valid() || is_sensor(id)) return false;
+  const JPH::BodyID bid(id.v);
+  {
+    JPH::BodyLockWrite l(impl_->system.GetBodyLockInterface(), bid);
+    if (!l.Succeeded()) return false;
+    JPH::Body &b = l.GetBody();
+    if (!b.IsDynamic()) return false;
+    const JPH::EAllowedDOFs dofs = lock ? (JPH::EAllowedDOFs::TranslationX | JPH::EAllowedDOFs::TranslationY | JPH::EAllowedDOFs::TranslationZ)
+                                        : JPH::EAllowedDOFs::All;
+    b.GetMotionProperties()->SetMassProperties(dofs, b.GetShape()->GetMassProperties());
+  }
+  JPH::BodyInterface &bi = impl_->system.GetBodyInterface();
+  bi.SetAngularVelocity(bid, JPH::Vec3::sZero());
+  // Dik konum: kilit anindaki egim kalici olmasin.
+  if (lock) bi.SetRotation(bid, JPH::Quat::sIdentity(), JPH::EActivation::Activate);
+  return true;
+}
+bool Physics::rotation_locked(BodyId id) const {
+  if (!impl_ || !id.valid()) return false;
+  JPH::BodyLockRead l(impl_->system.GetBodyLockInterface(), JPH::BodyID(id.v));
+  if (!l.Succeeded() || !l.GetBody().IsDynamic()) return false;
+  return l.GetBody().GetMotionProperties()->GetAllowedDOFs() != JPH::EAllowedDOFs::All;
+}
+bool Physics::groups_collide(uint32_t a, uint32_t b) const {
+  if (!impl_ || a >= kCollisionGroups || b >= kCollisionGroups) return true;
+  return ((impl_->groups.rows[a] >> b) & 1u) != 0;
 }
 
 BodyId Physics::add_box(Vec3 half, Vec3 pos, Quat rot, bool dynamic) {

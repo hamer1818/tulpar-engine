@@ -150,6 +150,13 @@ SPEC = [
     ("eng_spawn_kinematic_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("color", "color")], "KINEMATIK kure (bkz. eng_spawn_kinematic_box). Donus: varlik id."),
     ("eng_kinematic_move", "void", [("id", "int"), ("x", "num"), ("y", "num"), ("z", "num")], "Kinematik govdeyi hedefe surur: bu karenin sim adimlarinda varir, hiz turetilir (itme dogru). Hedef verilmeyen karede durur. Kinematik olmayan varlikta HATA."),
     ("eng_is_kinematic", "bool", [("id", "int")], "Varlik kinematik govde mi."),
+    # Carpisma gruplari (Geri bildirim #25): takim mermisi kendi birliklerinin icinden gecer.
+    ("eng_collision_group", "bool", [("id", "int"), ("group", "int")], "Govdeyi carpisma grubuna (0..15) alir; grup 0 varsayilan (grup atanmamis her sey: sahne, zemin). Iki grubun cifti eng_collision_pair ile kapaliysa govdeleri HIC temas kurmaz (tepki, temas/tetik olayi yok). Isinlanip yeniden kurulan govdede grup korunur. Karakter / govdesiz varlik / sinir disi grup: HATA, false."),
+    ("eng_collision_group_of", "int", [("id", "int")], "Varligin carpisma grubu (0 varsayilan)."),
+    ("eng_collision_pair", "bool", [("a", "int"), ("b", "int"), ("collide", "flag")], "Iki grubun govdeleri carpisir mi (simetrik; baslangicta hepsi carpisir). (0, 0) kapatilamaz. Bir sonraki fizik adiminda gecerli; eng_init sifirlar, sahne bosaltmak sifirlamaz. Isin testi ve secme gruplari gormez."),
+    ("eng_lock_rotation", "bool", [("id", "int"), ("lock", "flag")], "Donme kilidi (Geri bildirim #26): dinamik govde oteleme serbest, DONMEZ (devrilmez); kilitlenince dik konuma doner, acisal hiz sifir. Ustune govdesiz parca (kafa, kalkan) tasiyan birlik icin. Isinlanip yeniden kurulan govdede korunur. Dinamik olmayan varlik: HATA, false."),
+    ("eng_rotation_locked", "bool", [("id", "int")], "Govdenin donmesi kilitli mi."),
+    ("eng_collision_pair_on", "bool", [("a", "int"), ("b", "int")], "Iki grubun govdeleri su an carpisiyor mu (tablo okumasi)."),
     ("eng_spawn_trigger_box", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("hx", "num"), ("hy", "num"), ("hz", "num")], "Tetik (bolge) kutusu: GORUNMEZ, carpisma tepkisi yok; icine giren/cikan govdeler eng_trigger_* kuyrugunda. eng_set_pos tasir. Donus: varlik id."),
     ("eng_spawn_trigger_sphere", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num")], "Tetik (bolge) kuresi. Donus: varlik id."),
     ("eng_spawn_character", "int", [("x", "num"), ("y", "num"), ("z", "num"), ("radius", "num"), ("height", "num"), ("color", "color")], "Karakter denetleyicisi (sanal kapsul): rampada kaymaz, basamak cikar, zemine yapisir. Konum AYAK tabani; boy > 2*yaricap. Donus: varlik id."),

@@ -302,6 +302,22 @@ int teng_spawn_kinematic_box(double x, double y, double z, double hx, double hy,
 int teng_spawn_kinematic_sphere(double x, double y, double z, double radius, int64_t color);
 void teng_kinematic_move(int id, double x, double y, double z);
 int teng_is_kinematic(int id);
+// CARPISMA GRUPLARI (Geri bildirim #25): govde bir gruba (0..15) girer; iki
+// grubun cifti kapaliysa govdeleri HIC temas kurmaz (tepki yok, temas/tetik
+// olayi yok; icinden gecer). Grup 0 varsayilan (grup atanmamis her sey: sahne,
+// zemin), tablo baslangicta hepsi ACIK. (0, 0) kapatilamaz. Ornek: takim
+// mermisi kendi birliklerinden gecer, dusmana ve zemine carpar. Isin testi ve
+// secme gruplari gormez. teng_init tabloyu sifirlar; sahne bosaltmak sifirlamaz.
+int teng_collision_group(int id, int group);        // 1 = yazildi
+int teng_collision_group_of(int id);
+int teng_collision_pair(int a, int b, int collide); // 1 = yazildi
+int teng_collision_pair_on(int a, int b);
+// DONME KILIDI (Geri bildirim #26): dinamik govde oteleme serbest, donmez
+// (devrilmez; kilitlenince dik konuma doner). Ustune govdesiz parca (kafa,
+// kalkan) tasiyan birlik icin: devrilen govdenin parcalari icine gecerdi.
+// Isinlanip yeniden kurulan govdede korunur. Dinamik olmayan varlik: HATA, 0.
+int teng_lock_rotation(int id, int lock);
+int teng_rotation_locked(int id);
 // Tetik (bolge) hacimleri: GORUNMEZ, carpisma tepkisi yok, yakinlik
 // sorgularinda (teng_overlap/nearest) hedef degil. Icine giren/cikan govdeler
 // teng_trigger_* kuyrugunda. teng_set_pos/teng_set_yaw tetigi TASIR (yeniden

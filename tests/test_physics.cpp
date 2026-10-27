@@ -644,3 +644,126 @@ ENGINE_TEST(physics_kinematic_body_pushes_and_ignores_gravity) {
   CHECK(!ph.move_kinematic(top, {0, 0, 0}, Quat::identity(), 1.0f / 60.0f)); // dinamik kinematik gibi surulmez
   ph.shutdown();
 }
+
+// Carpisma gruplari (Geri bildirim #25): kure, yolundaki kutunun ICINDEN
+// gecer (gruplar kapali cift), zemine yine carpar. POZITIF KONTROL: ayni
+// kurulum tablo ACIKKEN kutuya carpip geri kalir — yani "gecti" olcumu
+// kurulumun kendisinden gelmiyor. Iki kosum ayni durum ozeti (belirlenimlilik;
+// suzgec saf tablo okumasi).
+static uint64_t grup_kosu(bool kapali, float *kure_x, float *kure_y, uint32_t *kutu_temas) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(64u << 20, "gruplar");
+  sys.reset();
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  if (!ph.init(sys, cfg)) return 0;
+  const BodyId zemin = ph.add_box({20, 0.5f, 20}, {0, -0.5f, 0}, Quat::identity(), false);
+  const BodyId duvar = ph.add_box({0.5f, 1.0f, 1.0f}, {0, 1.0f, 0}, Quat::identity(), true);
+  const BodyId kure = ph.add_sphere(0.2f, {-3, 0.8f, 0}, true);
+  CHECK(ph.set_collision_group(duvar, 1));
+  CHECK(ph.set_collision_group(kure, 1));
+  CHECK(ph.collision_group(duvar) == 1 && ph.collision_group(zemin) == 0);
+  if (kapali) CHECK(ph.set_groups_collide(1, 1, false));
+  CHECK(ph.groups_collide(1, 1) == !kapali && ph.groups_collide(1, 0) && ph.groups_collide(0, 1));
+  ph.set_linear_velocity(kure, {8, 0, 0});
+  *kutu_temas = 0;
+  for (int i = 0; i < 120; i++) {
+    ph.step(1.0f / 60.0f);
+    for (uint32_t k = 0; k < ph.contact_count(); k++) {
+      const ContactEvent c = ph.contact(k);
+      if ((c.a.v == kure.v && c.b.v == duvar.v) || (c.a.v == duvar.v && c.b.v == kure.v)) (*kutu_temas)++;
+    }
+    ph.clear_contacts();
+  }
+  *kure_x = ph.position(kure).x;
+  *kure_y = ph.position(kure).y;
+  const uint64_t h = ph.state_hash();
+  ph.shutdown();
+  return h;
+}
+ENGINE_TEST(physics_collision_groups_skip_pairs_deterministic) {
+  float x_kapali = 0, y_kapali = 0, x2 = 0, y2 = 0, x_acik = 0, y_acik = 0;
+  uint32_t t_kapali = 0, t2 = 0, t_acik = 0;
+  const uint64_t h1 = grup_kosu(true, &x_kapali, &y_kapali, &t_kapali);
+  const uint64_t h2 = grup_kosu(true, &x2, &y2, &t2);
+  grup_kosu(false, &x_acik, &y_acik, &t_acik);
+  std::printf("    [bilgi] gruplar: kapali cift kure x=%.2f y=%.2f kutu temasi %u; acik (pozitif kontrol) x=%.2f temas %u\n",
+              x_kapali, y_kapali, t_kapali, x_acik, t_acik);
+  CHECK(h1 != 0 && h1 == h2 && x_kapali == x2);  // belirlenimli
+  CHECK(t_kapali == 0 && x_kapali > 1.0f);        // kutunun icinden gecti
+  CHECK(y_kapali > 0.1f && y_kapali < 0.4f);      // zemine yine carpti (grup 1 - grup 0 acik)
+  CHECK(t_acik > 0 && x_acik < 0.0f);             // pozitif kontrol: tablo acikken kutuya carpti
+}
+ENGINE_TEST(physics_collision_groups_reject_bad_input) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "gruplar2");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  CHECK(ph.init(sys, cfg));
+  const BodyId b = ph.add_sphere(0.2f, {0, 1, 0}, true);
+  CHECK(!ph.set_collision_group(b, Physics::kCollisionGroups));
+  CHECK(!ph.set_collision_group(BodyId{}, 1));
+  CHECK(!ph.set_groups_collide(0, Physics::kCollisionGroups, false));
+  CHECK(!ph.set_groups_collide(0, 0, false)); // grupsuz cift kapatilamaz
+  CHECK(ph.groups_collide(0, 0));
+  CHECK(ph.set_collision_group(b, 3) && ph.collision_group(b) == 3);
+  CHECK(ph.set_collision_group(b, 0) && ph.collision_group(b) == 0);
+  ph.remove(b);
+  CHECK(!ph.set_collision_group(b, 1)); // silinmis govde
+  ph.shutdown();
+}
+
+// Donme kilidi (Geri bildirim #26): uzun dik kutunun UST kenarina hizli,
+// agir bir kure carpar (oyunda: savrulan enkaz, carpisan birlik). Kilitli
+// kutu itilir ama DONMEZ (w == 1); POZITIF KONTROL: ayni atis kilitsiz kutuyu
+// eger/devirir — kilitlinin "dik kaldi" olcumu carpmanin
+// zayifligindan gelmiyor. Egik kurulan kutu kilitlenince dik konuma doner.
+static float donme_kosu(bool kilit, float *kutu_dx) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(64u << 20, "donme");
+  sys.reset();
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  if (!ph.init(sys, cfg)) return -1;
+  ph.add_box({20, 0.5f, 20}, {0, -0.5f, 0}, Quat::identity(), false);
+  const BodyId kutu = ph.add_box({0.3f, 0.6f, 0.3f}, {0, 0.6f, 0}, Quat::identity(), true);
+  if (kilit) CHECK(ph.lock_rotation(kutu, true) && ph.rotation_locked(kutu));
+  for (int i = 0; i < 20; i++) ph.step(1.0f / 60.0f);
+  const float x0 = ph.position(kutu).x;
+  const BodyId top = ph.add_sphere(0.35f, {-2, 1.05f, 0}, true); // kutunun ust kenari hizasi
+  ph.set_linear_velocity(top, {16, 0, 0});
+  float en_dusuk_w = 1.0f;
+  for (int i = 0; i < 120; i++) {
+    ph.step(1.0f / 60.0f);
+    const float w = std::fabs(ph.rotation(kutu).w);
+    if (w < en_dusuk_w) en_dusuk_w = w;
+  }
+  *kutu_dx = ph.position(kutu).x - x0;
+  ph.shutdown();
+  return en_dusuk_w;
+}
+ENGINE_TEST(physics_lock_rotation_keeps_body_upright) {
+  float dx_kilitli = 0, dx_serbest = 0;
+  const float w_kilitli = donme_kosu(true, &dx_kilitli);
+  const float w_serbest = donme_kosu(false, &dx_serbest);
+  // en kucuk |w| = en buyuk egim: aci = 2 acos(w)
+  std::printf("    [bilgi] donme kilidi: kilitli en kucuk |w| %.6f (itildi %.2f m); kilitsiz (pozitif kontrol) %.4f (~%.0f derece, %.2f m)\n",
+              w_kilitli, dx_kilitli, w_serbest, 2.0 * std::acos((double)w_serbest) * 57.2958, dx_serbest);
+  CHECK(w_kilitli > 0.99999f && dx_kilitli > 0.05f); // itildi ama donmedi
+  CHECK(w_serbest < 0.99f);                          // pozitif kontrol: kilitsiz devrildi/egildi
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(32u << 20, "donme2");
+  Physics ph;
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  CHECK(ph.init(sys, cfg));
+  const BodyId egik = ph.add_box({0.3f, 0.3f, 0.3f}, {0, 2, 0}, Quat::axis_angle({0, 0, 1}, 0.5f), true);
+  const BodyId sabit = ph.add_box({0.3f, 0.3f, 0.3f}, {3, 2, 0}, Quat::identity(), false);
+  CHECK(ph.lock_rotation(egik, true) && std::fabs(ph.rotation(egik).w) > 0.99999f);
+  CHECK(!ph.lock_rotation(sabit, true) && !ph.rotation_locked(sabit)); // dinamik degil
+  CHECK(ph.lock_rotation(egik, false) && !ph.rotation_locked(egik));
+  ph.shutdown();
+}
