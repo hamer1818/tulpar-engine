@@ -15,6 +15,7 @@
 #include "content/font.hpp"
 #include "content/meshopt.hpp"
 #include "core/memory/arena.hpp"
+#include "platform/time.hpp"
 #include "renderer/renderer.hpp"
 #include "rhi/device.hpp"
 #include "rhi/offscreen.hpp"
@@ -357,6 +358,135 @@ ENGINE_TEST(content_skinned_gltf_bends) {
   ren.shutdown();
   rhi::offscreen_destroy(off);
   dev.shutdown();
+}
+
+// Oyun karakteri (tools/kup_kure_karakter.py, k_kup_0_0 kopyasi): 17 eklemli ic ice
+// iskelet, 8 klip, OLCEK izleri. Ifadeler eklem olcegiyle kliplere gomulu: X gozleri
+// (eklem 10) `bekle`de olcek 0 -> butun vertex'leri TEK noktaya coker; `ol`de olcek 1 ve
+// yuzeye surulmus -> yayilir ve govdenin on yuzunun (z 0.5) ONUNDE. POZITIF KONTROL:
+// ayni olcu goz beyazinda (eklem 3) ters sonuc verir (bekle'de yayik, ol'de cokuk) —
+// olcu iki durumu ayirt ediyor. Poz degerlendirme suresi basilir (bu makine).
+ENGINE_TEST(content_skinned_character_face_clips) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_karakter")) { CHECK(false); return; }
+  char path[512];
+  if (!asset_path(path, sizeof path, "karakter_kup.gltf")) { CHECK(false); std::printf("    [bilgi] varlik yok: %s\n", path); return; }
+  static content::Model m;
+  const bool loaded = content::gltf_load(sys, path, &m);
+  if (!loaded) std::printf("    [bilgi] glTF: %s\n", m.error);
+  CHECK(loaded);
+  if (!loaded) return;
+  static const char *const kAd[] = {"bekle", "yuru", "saldiri", "vurul", "ol", "zafer", "nobet", "kos"};
+  static const float kSure[] = {2.0f, 0.6f, 0.6f, 0.4f, 1.0f, 0.8f, 0.8f, 0.6f};
+  static const int16_t kEbeveyn[] = {-1, 0, 1, 2, 2, 3, 4, 2, 2, 2, 2, 2, 1, 12, 1, 0, 0};
+  CHECK(m.skin_count == 1 && m.mesh_count == 1 && m.clip_count == 8);
+  if (m.skin_count != 1 || m.mesh_count != 1 || m.clip_count != 8 || m.meshes[0].skin != 0) return;
+  CHECK(m.skins[0].joint_count == 17);
+  if (m.skins[0].joint_count != 17) return;
+  for (uint32_t j = 0; j < 17; j++) CHECK(m.skins[0].joints[j].parent == kEbeveyn[j]);
+  for (uint32_t k = 0; k < 8; k++) {
+    CHECK(std::strcmp(m.clips[k].name, kAd[k]) == 0);
+    CHECK(std::fabs(m.clips[k].duration - kSure[k]) < 1e-3f);
+  }
+  static content::PoseScratch scratch;
+  const content::ModelMesh &mm = m.meshes[0];
+  // Eklemi j olan vertex'lerin skin sonrasi kapsami (en buyuk eksen boyu) ve en buyuk z'si.
+  auto kapsam = [&](uint32_t clip, float t, uint32_t joint, float *zmax) {
+    content::ModelPose pose;
+    CHECK(content::model_pose_evaluate(m, clip, t, scratch, &pose));
+    Vec3 mn{1e9f, 1e9f, 1e9f}, mx{-1e9f, -1e9f, -1e9f};
+    for (uint32_t i = 0; i < mm.vertex_count; i++) {
+      const renderer::SkinnedVertex &sv = mm.skin_verts[i];
+      if (sv.joints[0] != joint || sv.weights[0] < 65000) continue;
+      const Vec4 r = pose.skin_mats[0][joint] * Vec4{sv.pos.x, sv.pos.y, sv.pos.z, 1.0f};
+      mn = {std::min(mn.x, r.x), std::min(mn.y, r.y), std::min(mn.z, r.z)};
+      mx = {std::max(mx.x, r.x), std::max(mx.y, r.y), std::max(mx.z, r.z)};
+    }
+    if (zmax) *zmax = mx.z;
+    return std::max(mx.x - mn.x, std::max(mx.y - mn.y, mx.z - mn.z));
+  };
+  float zx_ol = 0;
+  const float x_bekle = kapsam(0, 1.0f, 10, nullptr), x_ol = kapsam(4, 0.95f, 10, &zx_ol);
+  const float g_bekle = kapsam(0, 1.0f, 3, nullptr), g_ol = kapsam(4, 0.95f, 3, nullptr);
+  std::printf("    [bilgi] X gozleri: bekle %.4f, ol %.3f (on z %.3f); KONTROL goz beyazi: bekle %.3f, ol %.4f\n", x_bekle, x_ol,
+              zx_ol, g_bekle, g_ol);
+  CHECK(x_bekle < 1e-4f && x_ol > 0.2f && zx_ol > 0.5f);
+  CHECK(g_bekle > 0.15f && g_ol < 1e-4f);
+  // Poz degerlendirme maliyeti (17 eklem; kopru her model varligi icin her kare yapar).
+  const uint64_t t0 = platform::now_ns();
+  content::ModelPose pose;
+  uint32_t ok = 0;
+  for (int i = 0; i < 20000; i++) ok += content::model_pose_evaluate(m, (uint32_t)(i % 8), (float)(i % 50) * 0.02f, scratch, &pose) ? 1 : 0;
+  const uint64_t t1 = platform::now_ns();
+  CHECK(ok == 20000);
+  std::printf("    [bilgi] poz degerlendirme: %.2f us / varlik (17 eklem, bu makine; 96 birlik = %.3f ms/kare)\n",
+              (double)(t1 - t0) / 20000.0 / 1000.0, (double)(t1 - t0) / 20000.0 * 96.0 / 1e6);
+}
+
+// YUKLEME SONRASI KALICI KOPYA (content::model_compact, yayin adimi 3, 2026-10-13).
+// Kopru modeli gecici arenaya yukleyip GPU'ya gonderdikten sonra yalniz cizim/poz icin
+// gerekeni kalici arenaya kopyalar. Kapi: (1) kopyanin HICBIR isaretcisi gecici arenayi
+// gostermiyor ve CPU geometri/piksel isaretcileri bos; (2) gecici arena geri sarilip
+// 0xCD ile EZILDIKTEN sonra 8 klibin 5 zamanindaki skin matrisleri ezilmeden onceki
+// degerlendirmeyle BIT BIT ayni; (3) kalici bedel gecici bedelden kucuk (basilir).
+// POZITIF KONTROL: duz struct kopyasi (`Model sig = m`) ayni isaretci denetiminde
+// gecici arenayi gosteriyor — denetim sig kopyayi yakaliyor.
+ENGINE_TEST(content_model_compact_pose_bit_identical) {
+  static SystemArena tmp, keep;
+  if (!tmp.reserve(64u << 20, "compact_tmp") || !keep.reserve(16u << 20, "compact_keep")) { CHECK(false); return; }
+  char path[512];
+  if (!asset_path(path, sizeof path, "karakter_kup.gltf")) { CHECK(false); std::printf("    [bilgi] varlik yok: %s\n", path); return; }
+  static content::Model m, k;
+  CHECK(content::gltf_load(tmp, path, &m));
+  if (m.clip_count != 8 || m.skin_count != 1) { CHECK(false); return; }
+  const size_t tmp_used = tmp.used();
+  CHECK(content::model_compact(keep, m, &k));
+  const size_t keep_used = keep.used();
+  auto in_tmp = [&](const content::Model &x) {
+    uint32_t n = 0;
+    n += tmp.contains(x.images) + tmp.contains(x.materials) + tmp.contains(x.meshes) + tmp.contains(x.instances) +
+         tmp.contains(x.skins) + tmp.contains(x.clips);
+    for (uint32_t i = 0; i < x.skin_count; i++) n += tmp.contains(x.skins[i].joints) + tmp.contains(x.skins[i].inverse_bind);
+    for (uint32_t i = 0; i < x.clip_count; i++) n += tmp.contains(x.clips[i].clip);
+    return n;
+  };
+  const content::Model sig = m; // POZITIF KONTROL
+  const uint32_t n_k = in_tmp(k), n_sig = in_tmp(sig);
+  uint32_t cpu_left = 0;
+  for (uint32_t i = 0; i < k.mesh_count; i++)
+    cpu_left += (k.meshes[i].verts != nullptr) + (k.meshes[i].indices != nullptr) + (k.meshes[i].skin_verts != nullptr);
+  for (uint32_t i = 0; i < k.image_count; i++) cpu_left += k.images[i].rgba != nullptr;
+  // Referans pozlar (gecici arena saglamken, ozgun modelden).
+  static content::PoseScratch sc;
+  static Mat4 ref[8][5][content::kModelMaxJoints];
+  const uint32_t jc = m.skins[0].joint_count;
+  for (uint32_t c = 0; c < 8; c++)
+    for (uint32_t t = 0; t < 5; t++) {
+      content::ModelPose p;
+      CHECK(content::model_pose_evaluate(m, c, 0.13f * (float)t, sc, &p));
+      std::memcpy(ref[c][t], p.skin_mats[0], sizeof(Mat4) * jc);
+    }
+  // Gecici arenayi geri sar ve ez: kopya hala bir seyi oradan okuyorsa sonuc degisir.
+  tmp.reset();
+  void *ez = tmp.alloc(tmp_used, 16);
+  CHECK(ez != nullptr);
+  if (ez) std::memset(ez, 0xCD, tmp_used);
+  uint32_t fark = 0;
+  for (uint32_t c = 0; c < 8; c++)
+    for (uint32_t t = 0; t < 5; t++) {
+      content::ModelPose p;
+      CHECK(content::model_pose_evaluate(k, c, 0.13f * (float)t, sc, &p));
+      if (std::memcmp(ref[c][t], p.skin_mats[0], sizeof(Mat4) * jc) != 0) fark++;
+    }
+  std::printf("    [bilgi] gecici %zu KB -> kalici %zu KB; gecici arenayi gosteren isaretci: kopya %u, KONTROL duz kopya %u; "
+              "CPU geometri/piksel kalan %u; poz farki %u/40\n",
+              tmp_used >> 10, keep_used >> 10, n_k, n_sig, cpu_left, fark);
+  CHECK(n_k == 0);
+  CHECK(n_sig > 0);
+  CHECK(cpu_left == 0);
+  CHECK(fark == 0);
+  CHECK(keep_used < tmp_used);
+  CHECK(k.instance_count == m.instance_count && k.mesh_count == m.mesh_count && k.meshes[0].skin == 0);
 }
 
 // KTX2 + ASTC (Faz 6 doku yolu): engine_texpack'in urettigi checker_64.ktx2 (4x4
@@ -1531,4 +1661,24 @@ ENGINE_TEST(content_lod_uses_view_depth_not_screen_x) {
   std::printf("    [bilgi] secim: gorus derinligi merkez %u kenar %u; POZITIF KONTROL oklid merkez %u kenar %u\n", l_center,
               l_side, o_center, o_side);
   CHECK(o_center == 0 && o_side == 1);
+}
+
+// Klip tavani sessiz degil (2026-10-09): tavani asan animasyonlar Model::clips_dropped'a
+// sayilir, kopru bunu HATA olarak loglar. Pozitif kontrol: 8 klipli karakter max_clips=4
+// ile yuklenince 4 yuklenir + 4 sayilir; varsayilan tavanla (32) hic dusmez.
+ENGINE_TEST(content_gltf_clip_cap_counted) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_klip_tavan")) { CHECK(false); return; }
+  char path[512];
+  if (!asset_path(path, sizeof path, "karakter_kup.gltf")) { CHECK(false); return; }
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  CHECK(m.clip_count == 8 && m.clips_dropped == 0);
+  CHECK(content::GltfLimits{}.max_clips >= 20);
+  content::GltfLimits lim;
+  lim.max_clips = 4;
+  static content::Model k;
+  CHECK(content::gltf_load(sys, path, &k, lim));
+  std::printf("    [bilgi] max_clips=4: %u klip, %u dustu\n", k.clip_count, k.clips_dropped);
+  CHECK(k.clip_count == 4 && k.clips_dropped == 4);
 }

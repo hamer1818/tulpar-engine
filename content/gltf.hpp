@@ -26,7 +26,9 @@ struct GltfLimits {
   uint32_t cluster_class = 1;
   // Iskelet/animasyon: glTF kanallari sabit hizda orneklenir, ClipBuilder sikistirir.
   uint32_t max_skins = kModelMaxSkins;
-  uint32_t max_clips = 16;
+  // 32: Kup-Kure hikaye karakterleri 20 klip tasiyor (2026-10-09); 16 tavaninda
+  // 16..19 sessizce dusuyordu. Tavani asan klipler Model::clips_dropped'a sayilir.
+  uint32_t max_clips = 32;
   float clip_sample_rate = 30.0f;
 };
 

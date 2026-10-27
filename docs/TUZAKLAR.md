@@ -2094,6 +2094,77 @@ piksel %0.02, **pozitif kontrol** sabit eğilim 24586 piksel %60; RTX 5080, 2026
 hangi texel'de yapıldıysa orada doğrudur. Ölçeklemeyi parametrenin tanımına yaz, yoksa kademe/tile değişikliği
 eğilimi sessizce bozar.
 
+### 8da. İskeletli model klip atanmadan çizilmez — ama "çizildi" sayılır, ve kapı boş ekranı "statik" sanar
+
+**Belirti:** `content::draw_model` iskeletli mesh'i yalnız bir **poz** verilince çiziyordu (`pose == nullptr`
+→ atla). Köprüde `eng_spawn_model` + klip atamamak = model **görünmez**; hata yok, uyarı yok, LOD sayacı
+"LOD0'da çizildi" diye artıyor. Köprü kapısının animasyon bölümü (`bridge_runs_a_scripted_game_headless`
+§10) "statik kare" ile "pozlu kare"yi karşılaştırıp farkın > 100 piksel olmasını istiyordu — statik kare
+aslında **boş ekrandı**, fark modelin kendisiydi; kapı "animasyon pozu değiştiriyor" değil "model bir kez
+çizildi" ölçüyordu. Küp-küre oyununun yüzlü karakterleri (30 iskeletli glTF) eklenirken çıktı.
+
+**Düzeltme:** pozu olmayan iskeletli mesh **bind pozunda** çizilir: skin matrisi = model[j] · ters_bind[j]
+ve bind pozunda model[j] tam ters_bind'in tersidir, yani her eklem için birim matris (statik
+`kBindPose[kModelMaxJoints]`, kopyası yok). Animasyonlu yol değişmedi.
+
+**Kapı:** §10'a BOŞ kare eklendi (model kurulmadan önce): `statik(bind)-boş > 100` ve `pozlu-boş > 100`;
+eski kodda `statik(bind)-boş = 0` → kapı **kırmızı** (pozitif kontrol, 2026-10-08 RTX 5080: düzeltmeyle
+2678 / 2514 piksel, düzeltmesiz 0 / 2514). Karakter tarafı:
+`content_skinned_character_face_clips` — 17 eklemli iç içe iskelet, 8 klip, ölçek izleri; X gözleri `bekle`de
+ölçek 0 ile tek noktaya çöker, `ol`da yayılır (kontrol: göz beyazında ters sonuç).
+
+**Ders:** "çizilemedi"yi "çizildi" sayacına yazan dal, sessiz görünmezliğin ta kendisi. Piksel kapısının
+karşılaştırdığı iki karenin İKİSİNDE de nesnenin göründüğünü ayrıca ölç — farkın kaynağı "nesne yok" olabilir.
+
+### 8dc. Silinemeyen havuzdan her yüklemede yeniden ayırmak — 5. bölüm geçişinde sahne sessizce görünmez
+
+**Belirti (M5 ölçümü, 2026-10-09):** hikâye modu kısım geçişinde diyar sahnesi değiştirecek; önce "yükle/boşalt
+sızdırıyor mu" ölçüldü (`olcum_sahne.tpr`, kup-kure `savas.sahneb`, 20 tur). RSS yükleme başına ~720 KB —
+eşiğin çok altında. Ama kapanış satırının `malzeme` sayısı 1 yüklemede 195, 3'te 387, 5'te **512** (renderer
+`max_materials` tavanı). `SceneRuntime::init` her çizim kaydına `create_material` çağırıyordu; renderer'da
+malzeme silme yok. Tavan dolunca `create_material` geçersiz tutamaç döner, `draw()` geçersiz malzemeli varlığı
+**atlar**: zemin, kaleler, kayalar çizilmez — hata yok, uyarı yok, `hata=0`. Mesh ve doku tarafı bu yüzden
+yıllardır korunuyordu (ilkel mesh tablosu renderer başına bir kez), malzeme unutulmuştu.
+
+**Düzeltme:** `SceneRuntime` malzeme havuzunu **sahneler arası kalıcı** tutar (`mat_pool_`): yeniden yüklemede
+aynı tutamaçlar yeni PBR değeriyle (`set_material_pbr`, yalnız UBO; doku/descriptor aynı — hepsi varsayılan doku
++ beyaz) kullanılır, havuz en büyük sahnenin çizim sayısı kadar büyür. `set_material_pbr` reddederse (bayat
+tutamaç) yenisi kurulur. Kurulamayan malzeme artık **sayılır** ve köprü sahne yüklerken HATA basar
+("o varliklar CIZILMEZ"); kapanışta `kapanis (sahne malzemesi): N kuruldu, M yeniden kullanildi`.
+Kalan: yeniden kullanımın UBO yazımı uçuştaki karenin okumasıyla örtüşebilir (tek karelik ton farkı,
+geçiş anında; ölçülmedi, bilinçli).
+
+**Kapı:** `bridge_scene_reload_reuses_materials` — 40 ilkelli üretilmiş sahne 8 kez yükle/boşalt: malzeme
+43 = tek yüklemeninki (havuzsuz 323 olurdu), 40 kuruldu, 280 yeniden kullanıldı. Oyunda (21 yükleme) 99 sabit.
+
+**Ders:** "yükle/boşalt"ın bedeli RSS değil **en küçük havuzun tavanıdır**. Yeniden yüklenebilir her kaynağın
+sayacını kapanış satırına koy ve N kez yükleyip sayacın düz kaldığını ölç; dolan havuzun "atla" dalı ayrıca
+HATA saymalı.
+
+### 8dd. GPU'ya giden veri kalıcı arenada kalır — 75 modelin 34 MB'ı kimsenin okumadığı CPU kopyası
+
+**Belirti (yayın adımı 3, 2026-10-13, RTX 5080 penceresiz):** Küp-Küre'nin 75 modeli (13 MB glTF) kapanış
+satırında `arena 34449 KB toplam (model basina ~459 KB)`. `gltf_load` her şeyi köprünün kalıcı arenasına
+(`b.sys`) koyuyordu: çözülmüş RGBA pikseller, vertex/indeks/LOD dizileri, ve klip **sıkıştırılmadan önceki
+ham izleri** (eklem x örnek x 40 B; 20 klipli karakterde asıl bedel). `upload_model` bunları GPU'ya kopyaladıktan
+sonra köprüde hiçbir yol okumuyor (çizim tutamaçla, poz sıkıştırılmış klip + iskeletle) ama bump arenada tek tek
+bırakılamazlar. Mali gibi birleşik bellekte bu, aynı verinin ikinci kopyası demek.
+
+**Düzeltme:** köprü modeli önce `b.sys`'ten bir kez oyulan 32 MB'lık **yükleme arenasına** (`model_tmp`,
+`ReturnNull`) yükleyip GPU'ya gönderir; `content::model_compact` çizim/poz için gerekeni (örnekler, mesh'in
+malzeme/iskelet alanı, malzemeler, eklemler + ters bind, tek blok sıkıştırılmış klip) kalıcı arenaya **derin**
+kopyalar, yükleme arenası geri sarılır. Kopyada CPU geometri/piksel işaretçileri `nullptr` (sayılar kalır) —
+`upload_model`'e yeniden verilemez. Yükleme arenasına sığmayan model eski yoldan yüklenir ve **sayılır**
+(`sigmayan N`). Oyunda: kalıcı 34449 KB -> 4159 KB, yükleme arenasının tepesi 676 KB; süreç RSS'i ~31 MB düştü.
+
+**Kapı:** `content_model_compact_pose_bit_identical` — karakter_kup (8 klip): yükleme arenası geri sarılıp 0xCD
+ile ezildikten sonra 40 pozun skin matrisleri ezilmeden öncekiyle bit bit aynı; kopyanın yükleme arenasını
+gösteren işaretçisi 0. POZİTİF KONTROL: düz struct kopyası aynı denetimde 16 işaretçiyle yakalanıyor.
+
+**Ders:** "yükleme anında, kabul" denen her ayırmanın **ömrünü** sor: GPU'ya kopyalanan, sıkıştırılmadan önceki
+ya da yalnız kurulumda okunan veri kalıcı arenaya değil geri sarılan bir arenaya gider. Kapanış satırı kalıcı
+bedeli ve bırakılanı ayrı yazsın.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana

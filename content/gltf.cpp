@@ -374,7 +374,7 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   // Klipler: glTF animasyonu sabit hizda orneklenir (kanal LINEAR/STEP/CUBIC
   // degerleri), ClipBuilder sikistirir (sabit iz eleme + niceleme; bilgi stats).
   uint32_t nclip = (uint32_t)data->animations_count;
-  if (nclip > lim.max_clips) nclip = lim.max_clips;
+  if (nclip > lim.max_clips) { out->clips_dropped = nclip - lim.max_clips; nclip = lim.max_clips; }
   out->clips = arena.alloc_array_zeroed<ModelClip>(nclip ? nclip : 1);
   if (!out->clips) { set_error(out, "arena dolu (klip)", nullptr); ok = false; }
   uint32_t cn = 0;
@@ -709,6 +709,57 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
   return true;
 }
 
+namespace {
+template <class T> T *copy_array(Arena &a, const T *src, uint32_t n) {
+  T *d = a.alloc_array<T>(n ? n : 1);
+  if (d && src && n) std::memcpy((void *)d, (const void *)src, sizeof(T) * n);
+  return d;
+}
+} // namespace
+
+bool model_compact(Arena &keep, const Model &src, Model *dst) {
+  *dst = src; // sayilar, sinirlar, istatistik, hata metni; isaretciler asagida yeniden kurulur
+  dst->images = copy_array(keep, src.images, src.image_count);
+  dst->materials = copy_array(keep, src.materials, src.material_count);
+  dst->meshes = copy_array(keep, src.meshes, src.mesh_count);
+  dst->instances = copy_array(keep, src.instances, src.instance_count);
+  dst->skins = copy_array(keep, src.skins, src.skin_count);
+  dst->clips = copy_array(keep, src.clips, src.clip_count);
+  if (!dst->images || !dst->materials || !dst->meshes || !dst->instances || !dst->skins || !dst->clips) return false;
+  for (uint32_t i = 0; i < src.image_count; i++) dst->images[i].rgba = nullptr;
+  for (uint32_t i = 0; i < src.mesh_count; i++) {
+    ModelMesh &mm = dst->meshes[i];
+    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr;
+    for (uint32_t k = 0; k < kModelMaxLods; k++) mm.lod_indices[k] = nullptr;
+  }
+  for (uint32_t i = 0; i < src.skin_count; i++) {
+    ModelSkin &s = dst->skins[i];
+    s.joints = copy_array(keep, src.skins[i].joints, s.joint_count);
+    s.inverse_bind = copy_array(keep, src.skins[i].inverse_bind, s.joint_count);
+    if (!s.joints || !s.inverse_bind) return false;
+  }
+  for (uint32_t i = 0; i < src.clip_count; i++) {
+    const sim::ClipHeader *h = src.clips[i].clip;
+    if (!h) continue;
+    // Sikistirilmis klip TEK blok (ClipBuilder::build: ofsetler basliga gore), memcpy yeter.
+    void *blob = keep.alloc(h->total_bytes, 16);
+    if (!blob) return false;
+    std::memcpy(blob, h, h->total_bytes);
+    dst->clips[i].clip = static_cast<const sim::ClipHeader *>(blob);
+  }
+  return true;
+}
+
+bool uploaded_model_copy(Arena &keep, const UploadedModel &src, UploadedModel *dst) {
+  *dst = src;
+  const uint32_t nm = src.mesh_count ? src.mesh_count : 1;
+  dst->textures = copy_array(keep, src.textures, src.texture_count);
+  dst->materials = copy_array(keep, src.materials, src.material_count);
+  dst->meshes = copy_array(keep, src.meshes, src.mesh_count);
+  dst->lod_meshes = copy_array(keep, src.lod_meshes, nm * kModelMaxLods);
+  return dst->textures && dst->materials && dst->meshes && dst->lod_meshes;
+}
+
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose) {
   if (clip >= m.clip_count || !m.clips[clip].clip || m.clips[clip].skin < 0) return false;
   const ModelClip &mc = m.clips[clip];
@@ -757,9 +808,17 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
     const Mat4 world = model * inst.world;
     renderer::MeshHandle mesh = u.meshes[inst.mesh];
     const int32_t skin = m.meshes[inst.mesh].skin;
-    if (skin >= 0) { // iskeletli: poz sart (yoksa cizilmez; sayilir)
+    if (skin >= 0) { // iskeletli: pozu yoksa BIND pozunda (Tuzaklar 8da)
+      // Skin matrisi = model[j] * ters_bind[j]; bind pozunda model[j] ters_bind'in
+      // tersidir, yani her eklem icin BIRIM matris. Eskiden pozsuz iskeletli mesh
+      // hic cizilmiyordu ama lod_counts'a "cizildi" diye giriyordu: klip atanmamis
+      // model sessizce gorunmezdi (kopru kapisi "statik" kareyi bos ekranla
+      // karsilastirip farki animasyona yaziyordu).
+      static const Mat4 kBindPose[kModelMaxJoints] = {};
       if (pose && (uint32_t)skin < kModelMaxSkins && pose->skin_mats[skin])
         r.draw_skinned(mesh, mh, world, tint, pose->skin_mats[skin], pose->joint_count[skin]);
+      else if ((uint32_t)skin < m.skin_count)
+        r.draw_skinned(mesh, mh, world, tint, kBindPose, m.skins[skin].joint_count);
       if (lod_counts) lod_counts[0]++;
       continue;
     }

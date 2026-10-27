@@ -297,23 +297,36 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   }
 
   // Malzemeler de YUKLEME aninda: create_material kare icinde cagrilirsa
-  // "kare basina 0 ayirma" kapisi duser.
+  // "kare basina 0 ayirma" kapisi duser. Havuz sahneler arasi kalici (8dc):
+  // gecerli tutamac yeni PBR degeriyle yeniden kullanilir (hepsi varsayilan doku +
+  // beyaz renk; yalniz UBO yazilir, descriptor degismez). set_material_pbr
+  // reddederse (baska renderer / kapanis sonrasi bayat tutamac) yenisi kurulur.
+  auto malzeme = [&](renderer::MaterialHandle &yuva, const renderer::PbrParams &p) -> renderer::MaterialHandle {
+    if (yuva.valid() && r.set_material_pbr(yuva, p)) { stats_.materials_reused++; return yuva; }
+    yuva = r.create_material(r.default_texture(), Vec3{1, 1, 1}, p);
+    if (yuva.valid()) stats_.materials_created++; else stats_.materials_failed++;
+    return yuva;
+  };
+  uint32_t k = 0;
   for (uint32_t i = 0; i < view.h->draw_count; i++) {
     const SceneBlobDraw &d = view.draws[i];
     if (d.primitive < 0 || d.entity >= kSceneMaxEntities) continue;
-    entity_mats_[d.entity] = r.create_material(r.default_texture(), Vec3{1, 1, 1}, pbr_of(d));
+    if (k >= kSceneMaxEntities) { stats_.materials_failed++; continue; }
+    entity_mats_[d.entity] = malzeme(mat_pool_[k], pbr_of(d));
+    k++;
   }
+  if (k > mat_pool_n_) mat_pool_n_ = k;
   if (view.h->terrain_count) {
     renderer::PbrParams p; p.metallic = 0.1f; p.roughness = 0.9f;
-    terrain_mat_ = r.create_material(r.default_texture(), Vec3{1, 1, 1}, p);
+    terrain_mat_ = malzeme(terrain_pool_, p);
   }
   if (view.h->voxel_count) {
     renderer::PbrParams p; p.metallic = 0.0f; p.roughness = 0.5f;
-    voxel_mat_ = r.create_material(r.default_texture(), Vec3{1, 1, 1}, p);
+    voxel_mat_ = malzeme(voxel_pool_, p);
   }
   if (view.h->water_count) {
     renderer::PbrParams p; p.metallic = 0.1f; p.roughness = 0.1f;
-    water_mat_ = r.create_material(r.default_texture(), Vec3{1, 1, 1}, p);
+    water_mat_ = malzeme(water_pool_, p);
   }
   return true;
 }

@@ -80,6 +80,10 @@ struct SceneRuntimeStats {
   // CIZMEZ (serit cizicisi yok) -- sessiz kayip olmasin diye sayilir, kopru
   // sahne yuklerken uyarir.
   uint32_t particle_ribbons = 0;
+  // Malzeme havuzu (Tuzaklar 8dc): bu yuklemede yeni kurulan / onceki sahneden
+  // yeniden kullanilan / kurulamayan (renderer malzeme havuzu dolu -> varlik
+  // CIZILMEZ; kopru HATA basar) malzeme sayisi.
+  uint32_t materials_created = 0, materials_reused = 0, materials_failed = 0;
 };
 
 class SceneRuntime {
@@ -171,6 +175,15 @@ private:
   // Arazi / voksel / su tek renk kullaniyor, o yuzden varlik basina degil
   // TURU basina tek malzeme yetiyor.
   renderer::MaterialHandle terrain_mat_{}, voxel_mat_{}, water_mat_{};
+  // SAHNELER ARASI KALICI malzeme havuzu (Tuzaklar 8dc, 2026-10-09): renderer'da
+  // malzeme silme yok; her yukleme cizim kaydi basina yeni malzeme kurunca savas
+  // sahnesi (~96 malzeme) 4 bolum gecisinde 512'lik havuzu doldurdu ve sonraki
+  // sahnenin varliklari SESSIZCE cizilmedi. Yeniden yuklemede ayni tutamaclar
+  // yeni PBR degeriyle (set_material_pbr) tekrar kullanilir; havuz en buyuk
+  // sahnenin cizim sayisi kadar buyur.
+  renderer::MaterialHandle mat_pool_[kSceneMaxEntities] = {};
+  uint32_t mat_pool_n_ = 0;
+  renderer::MaterialHandle terrain_pool_{}, voxel_pool_{}, water_pool_{};
   bool hidden_[kSceneMaxEntities] = {};
 };
 

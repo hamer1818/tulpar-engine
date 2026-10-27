@@ -37,6 +37,12 @@ animasyonu, oyuncu (dokunmatik joystick, kamera izler), gölge, 8 dönen nokta �
 - Plan L2 "zorunlu" listesi (descriptorIndexing/timeline/BDA) bu cihazda **yok** → kapı rapora çevrildi (REV-3).
 - **Swappy** (2026-09-15): `SwappyVk_setQueueFamilyIndex` şart (yoksa binder beklemesi, siyah ekran); açıkken p99 18–20 ms / max 19–22 (FIFO 21–22 / 23–26), bedel kare başına 7 `new`; `VK_GOOGLE_display_timing` var; FIFO 10 s: 0 geç kare (sonda). Ses: AAudio 253 callback, düşen komut 0. Varsayılan Swappy KAPALI.
 
+- **Sahne yükle/boşalt bedeli** (M5, 2026-10-09, masaüstü RTX 5080, ilk oyunun savaş sahnesi `.sahneb` 33 KB, 100 varlık ilkel, navmesh'li;
+  oyunun yükle/boşalt ölçüm betiği — oyun ayrı özel depoda —, 20 tur, ısınma turundan sonra): RSS **~720 KB / yükleme** (321640 → 336048 KB),
+  mesh 12/256 ve doku 3/128 **sabit**. Malzeme ise yükleme başına ~96 artıyordu: 5. yüklemede renderer'ın 512'lik havuzu doldu ve
+  sahne varlıkları **sessizce çizilmedi** (Tuzaklar 8dc) — düzeltmeden sonra 21 yüklemede malzeme 99 sabit (96 kuruldu, 1920 yeniden
+  kullanıldı). Telefonda ölçülmedi.
+
 ## 4. Kapılar
 
 **Kaynaktan sayım (bugün):** `tests/*.cpp` içinde **141 `ENGINE_TEST`** bloğu (Android'de editör (5) +

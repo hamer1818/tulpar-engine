@@ -55,7 +55,22 @@ using namespace tulpar::engine;
 namespace {
 constexpr float kBridgePi = 3.14159265358979f;
 constexpr uint32_t kMaxEntities = 4096;
-constexpr uint32_t kMaxModels = 16;
+// Model tavani: oyun 10 sus modeli + 30 iskeletli birlik karakteri (2 taraf x 5 cag x
+// 3 tur, tools/kup_kure_karakter.py) = 40 yukluyor (2026-10-08). 16'da 17. model
+// "kapasite dolu" HATA'si verip -1 donuyordu. 64 -> 128 (2026-10-09, hikaye modu
+// M4): kampanya 30 caglı + 10 cagsiz sinif + 2 kahraman + 5 NPC + 5 boss + 3 Kirik +
+// 10 prop + 10 sus = 77 model yukler (TASARIM §14). Model basina bedel kapanis
+// satirinda: dizi yuku (sizeof Model + UploadedModel) + yuklemenin arena payi.
+constexpr uint32_t kMaxModels = 128;
+// Model yukleme arenasi (bkz. Bridge::model_tmp). Oyunun en buyugu ~1.5 MB kullaniyor
+// (k_boss_pasa, 294 KB glTF; 2026-10-13); sigmayan model eski yoldan yuklenir.
+constexpr size_t kModelTmpBytes = size_t(32) << 20;
+// Renderer havuzlari (RendererConfig varsayilani 64/64): her ISKELETSIZ glTF mesh'i
+// LOD0 + 2 ayrik LOD = 3 mesh tutamaci, her iskeletli mesh 1, her goruntu 1 doku.
+// Oyun + 30 karakter: ~70 mesh, ~35 doku — 64 mesh'te upload_model dusuyordu.
+// Havuz yalniz tutamac dizisi (Mesh/Texture kaydi), GPU bellegi kullanildikca.
+constexpr uint32_t kRenderMaxMeshes = 256;
+constexpr uint32_t kRenderMaxTextures = 128;
 constexpr uint32_t kMaxClips = 32;  // ses klibi (dosya + sentetik ton)
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
 constexpr uint32_t kMaxHud = 1024;
@@ -387,11 +402,22 @@ struct Bridge {
   content::Model models[kMaxModels];
   content::UploadedModel ups[kMaxModels];
   uint32_t model_count = 0;
+  uint32_t model_rejected = 0;     // tavan dolu: reddedilen yukleme (sessiz degil, kapanista basilir)
+  uint64_t model_arena_bytes = 0;  // modellerin sistem arenasindan aldigi toplam (kalici kopya)
+  // Yukleme arenasi (yayin adimi 3, 2026-10-13): glTF + upload once BURAYA, sonra
+  // content::model_compact cizim/poz icin gerekeni b.sys'e kopyalar ve bu arena geri
+  // sarilir. Piksel/vertex/ham klip izleri kalici arenaya hic girmez. Ilk yuklemede
+  // b.sys'ten oyulur (sayfalari yalniz en buyuk modelin kadari dokunulur).
+  Arena model_tmp;
+  bool model_tmp_ok = false;
+  uint64_t model_tmp_bytes = 0;    // gecici arenada kalan (birakilan) toplam: piksel + vertex + ham iz
+  uint32_t model_tmp_fallback = 0; // gecici arenaya sigmadi: eski yoldan (dogrudan b.sys) yuklendi
   // sahne blob
   content::SceneRuntime srt;
   bool scene_ok = false;
   char scene_dir[1024] = {0};
   uint32_t scene_loads = 0; // bolum gecisi: her yukleme kaynak ayirir (arena + GPU)
+  uint32_t scene_mats_created = 0, scene_mats_reused = 0; // sahne malzeme havuzu (Tuzaklar 8dc)
   // --- betik yasam dongusu ---------------------------------------------
   // Kancalar YUKLEME aninda cozuluyor, kare icinde DEGIL: `has` bir sembol
   // aramasi ve onu 60 Hz ile yapmak hem pahali hem gereksiz (ikili degismiyor).
@@ -1372,6 +1398,8 @@ int teng_init(const char *title, int width, int height) {
   }
   renderer::RendererConfig rc;
   rc.srgb_target = b.headless ? true : b.swap.srgb_output();
+  rc.max_meshes = kRenderMaxMeshes;
+  rc.max_textures = kRenderMaxTextures;
   // Parlama: ic HDR hedefi kare olcusunde kurulur (yeniden boyutlandirma init
   // ister; pencere buyurse birlestirme gerilir — bugunku sinir, logda soylenir).
   if (const char *bl = std::getenv("TULPAR_ENGINE_BLOOM"); bl && *bl && bl[0] != '0') b.bloom = true;
@@ -2282,6 +2310,19 @@ void teng_shutdown(void) {
   BINFO("kapanis: %u kare, %.1f s, p50 %.2f ms p99 %.2f ms, varlik %u (en yuksek yuva %u), govde %u, model %u, hata %u, uyari %u",
         b.frame, b.time_s, st.p50_ns / 1e6, st.p99_ns / 1e6, b.ent_alive, b.ent_high, b.phys.stats().bodies, b.model_count,
         g_log.errors - b.oturum_hata0, g_log.warnings - b.oturum_uyari0);
+  {
+    const renderer::RendererStats rs = b.ren.stats();
+    BINFO("kapanis (kaynak havuzu): model %u/%u, mesh %u/%u, doku %u/%u, malzeme %u", b.model_count, kMaxModels, rs.meshes,
+          kRenderMaxMeshes, rs.textures, kRenderMaxTextures, rs.materials);
+    // Model basina bedel (M4): yuva dizisi her yuva icin sabit (Bridge icinde, kullanilsin
+    // kullanilmasin), arena payi yuklenen dosyaya gore (ortalama). GPU bellegi ayri (mesh/doku).
+    const uint32_t yuva_b = (uint32_t)(sizeof(content::Model) + sizeof(content::UploadedModel));
+    BINFO("kapanis (model bedeli): yuva %u B x %u = %u KB sabit, arena %llu KB toplam (model basina ~%llu KB), tavan reddi %u; "
+          "yukleme arenasinda birakilan %llu KB (piksel/vertex/ham iz; arena tepesi %llu KB), sigmayan %u",
+          yuva_b, kMaxModels, (unsigned)((uint64_t)yuva_b * kMaxModels / 1024), (unsigned long long)(b.model_arena_bytes / 1024),
+          (unsigned long long)(b.model_count ? b.model_arena_bytes / 1024 / b.model_count : 0), b.model_rejected,
+          (unsigned long long)(b.model_tmp_bytes / 1024), (unsigned long long)(b.model_tmp.stats().peak / 1024), b.model_tmp_fallback);
+  }
   if (b.phys_pauses || b.fs.time_scale != 1.0f)
     BINFO("kapanis (fizik): %u duraklatma, %u kare durakli (sim adimi atilmadi), zaman olcegi %.2f, %u sim adimi", b.phys_pauses,
           b.phys_paused_frames, (double)b.fs.time_scale, b.tick);
@@ -2304,6 +2345,9 @@ void teng_shutdown(void) {
     BINFO("kapanis (font): %u kod noktasi fontta yoktu ve '?' cizildi (ilki U+%04X)", b.font.missing_count(), b.font.first_missing());
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
+  if (b.scene_loads)
+    BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
+          b.scene_mats_reused);
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
@@ -2549,6 +2593,11 @@ int teng_scene_load(const char *path) {
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
+  if (b.srt.stats().materials_failed)
+    BERR("sahne: %u cizim kaydinin malzemesi KURULAMADI (renderer malzeme havuzu dolu?) — o varliklar CIZILMEZ (Tuzaklar 8dc)",
+         b.srt.stats().materials_failed);
+  b.scene_mats_created += b.srt.stats().materials_created;
+  b.scene_mats_reused += b.srt.stats().materials_reused;
   if (v.h->particle_count) BINFO("sahne parcaciklari: %u yayici (havuz %u parcacik, sim adimiyla)", v.h->particle_count, b.srt.particles().capacity());
   if (b.srt.stats().particle_ribbons) {
     blog(1, "UYARI sahne: %u parcacik yayicisi serit (ribbon) istiyor; editor ciziyor ama derlenmis oyunda serit cizicisi YOK (parcaciklar kup)",
@@ -3223,12 +3272,43 @@ int teng_load_model(const char *path) {
   CALLF("teng_load_model", "%s", path ? path : "");
   if (!ready("teng_load_model") || !path) return -1;
   Bridge &b = *g;
-  if (b.model_count >= kMaxModels) { BERR("teng_load_model: model kapasitesi dolu (%u)", kMaxModels); return -1; }
+  if (b.model_count >= kMaxModels) { b.model_rejected++; BERR("teng_load_model: model kapasitesi dolu (%u): %s", kMaxModels, path); return -1; }
   const uint32_t i = b.model_count;
   b.models[i] = content::Model{};
-  if (!content::gltf_load(b.sys, path, &b.models[i])) { BERR("model yuklenemedi %s: %s", path, b.models[i].error); return -1; }
-  if (!content::upload_model(b.ren, b.sys, b.models[i], &b.ups[i])) { BERR("model GPU'ya yuklenemedi: %s", path); return -1; }
+  if (!b.model_tmp_ok && b.sys.remaining() > (kModelTmpBytes + (64u << 20)))
+    b.model_tmp_ok = b.sys.carve(b.model_tmp, kModelTmpBytes, "model_yukleme", OverflowPolicy::ReturnNull);
+  const size_t arena0 = b.sys.used(); // oyulan yukleme arenasi model bedeline sayilmaz
+  bool kompakt = false;
+  if (b.model_tmp_ok) {
+    // Gecici arenaya yukle + GPU'ya gonder, sonra kalici kopyayi al. Gecici arenaya
+    // sigmayan (cok buyuk) model eski yoldan yuklenir ve sayilir — sessiz dusme yok.
+    b.model_tmp.reset();
+    static content::Model tmp_m;
+    static content::UploadedModel tmp_u;
+    tmp_m = content::Model{};
+    const uint32_t tasma0 = b.model_tmp.stats().overflow_count;
+    if (content::gltf_load(b.model_tmp, path, &tmp_m)) {
+      if (!content::upload_model(b.ren, b.model_tmp, tmp_m, &tmp_u)) { b.model_tmp.reset(); BERR("model GPU'ya yuklenemedi: %s", path); return -1; }
+      if (!content::model_compact(b.sys, tmp_m, &b.models[i]) || !content::uploaded_model_copy(b.sys, tmp_u, &b.ups[i])) {
+        b.model_tmp.reset(); BERR("model kalici kopyasi icin arena dolu: %s", path); return -1;
+      }
+      b.model_tmp_bytes += b.model_tmp.used();
+      kompakt = true;
+    } else if (b.model_tmp.stats().overflow_count == tasma0) {
+      b.model_tmp.reset(); BERR("model yuklenemedi %s: %s", path, tmp_m.error); return -1; // dosya hatasi: eski yol da yapamaz
+    } else {
+      b.model_tmp_fallback++;
+      BINFO("model %s yukleme arenasina (%u MB) sigmadi: dogrudan kalici arenaya", path, (unsigned)(kModelTmpBytes >> 20));
+    }
+    b.model_tmp.reset();
+  }
+  if (!kompakt) {
+    if (!content::gltf_load(b.sys, path, &b.models[i])) { BERR("model yuklenemedi %s: %s", path, b.models[i].error); return -1; }
+    if (!content::upload_model(b.ren, b.sys, b.models[i], &b.ups[i])) { BERR("model GPU'ya yuklenemedi: %s", path); return -1; }
+  }
+  b.model_arena_bytes += b.sys.used() - arena0;
   b.model_count++;
+  if (b.models[i].clips_dropped) BERR("model %u: %s klip tavani asildi, %u klip yuklenmedi", i, path, b.models[i].clips_dropped);
   BINFO("model %u: %s (%u mesh, %u malzeme, %u doku, %u klip)", i, path, b.ups[i].mesh_count, b.ups[i].material_count, b.ups[i].texture_count, b.models[i].clip_count);
   return (int)i;
 }
