@@ -2631,6 +2631,9 @@ ENGINE_TEST(bridge_shadows_toggle_removes_and_restores_shadow) {
   run_frames(3);
   CHECK(teng_screenshot(ya2) == 1);
   CHECK(teng_error_count() == h0 && teng_warning_count() == u0);
+  // Cihaz adi KAPANISTAN ONCE okunur: teng_gpu_name() kapanistan sonra "" doner ve
+  // sanal GPU atlamasi hic tetiklenmezdi (CI macOS Paravirtual'da 0 px ile KIRMIZI).
+  const bool sanal = test::gpu_is_virtual(teng_gpu_name());
   teng_shutdown();
   uint32_t w = 0, h = 0;
   const uint32_t na = read_ppm(ya, g_golge_a, kW * kH, &w, &h);
@@ -2642,7 +2645,7 @@ ENGINE_TEST(bridge_shadows_toggle_removes_and_restores_shadow) {
   const uint32_t kapali_fark = diff_px(g_golge_k, g_golge_a, na);
   const uint32_t geri_fark = diff_px(g_golge_a2, g_golge_a, na);
   std::printf("    [bilgi] golge: acik-kapali %u px, yeniden acik-ilk %u px\n", kapali_fark, geri_fark);
-  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): golge PIKSEL blogu gercek cihazda olculur"); return; }
+  if (sanal) { skip("sanal GPU (Apple Paravirtual, CI macOS): golge PIKSEL blogu gercek cihazda olculur"); return; }
   CHECK(kapali_fark > 200);
   CHECK(geri_fark == 0);
 }
