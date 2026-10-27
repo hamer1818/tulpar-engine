@@ -360,7 +360,12 @@ elif [ "$tam" = 1 ]; then
     # POZITIF KONTROL 1 — bellek kapisi: bilinen hizda ENJEKTE sizinti (2 KB/kare,
     # engine_aksiyon kalibi). Kapi KIRMIZI olmali; savas satiri DEGISMEMELI
     # (sizinti oyun durumuna dokunmuyor: kontrolu baska bir sey bozmuyor).
-    # Olculdu 2026-10-26 RTX 5080: alt ceyrek 2040 KB/1000 kare (normal 0).
+    # Olcu: 600 karelik kayan pencere artislarinin alt ceyregi (engine_savas.tpr
+    # 'Kare bellegi kapisi'). Olculdu 2026-10-27, her biri 5 kosum, temiz (9600) /
+    # sizintili (3200), KB/1000 kare: RTX 5080 (NVIDIA, Linux) 6..26 / 2086..2146;
+    # Ubuntu 24.04 lavapipe (mesa 25.2.8, LLVM 20.1.2 — CI'inki) 4 cekirdek
+    # (taskset) -706..-580 / 1460..1740. Eski olcu (200 karelik ardisik aralik)
+    # ayni lavapipe'ta sizintida 5/5 -120..-60, CI'da -600 / -2800 -> YAKALAMIYORDU.
     savas_kos "$gun/savas_sizinti.log" 3200 TULPAR_ENGINE_SAVAS_SIZINTI_B=2048; rc=$?
     if [ $rc -ne 0 ] && grep -q '^\[kapi\] BASARISIZ: bellek buyuyor: alt ceyrek' "$gun/savas_sizinti.log" \
        && [ "$(grep -m1 '^\[kapi\] kare=' "$gun/savas_sizinti.log")" = "$savas_3200" ]; then
@@ -371,9 +376,18 @@ elif [ "$tam" = 1 ]; then
     # POZITIF KONTROL 2 — satir savasi olcuyor mu? 1500. karede taraf 1'e +200
     # altin (TULPAR_ENGINE_SAVAS_BOZ): 3200. karedeki satir normal kosumdan
     # (yukaridaki sizinti kosumu ile ayni satir) FARKLI olmali.
+    # Bellek karari bu kontrolun konusu DEGIL: BOZ bilincli olarak baska bir
+    # savas — 1500'den sonra canli varlik 23 -> 35'e cikar ve lavapipe'ta RSS
+    # onunla ~2.4 MB buyur (2026-10-27, CI lavapipe'i 4 cekirdek: 3200 karede
+    # kayan pencere alt ceyregi 706 / 806 / 753; ayni BOZ 9600 karede -653, RSS
+    # k4200'de ~142 MB tepe yapip varlik sayisiyla geri iner -> sinirli. RTX 5080'de
+    # 13 / 13 / 20). Kosum sonuna varmali ve bellek disinda BASARISIZ olmamali;
+    # bellek satiri bilgi olarak basilir.
     savas_kos "$gun/savas_boz.log" 3200 TULPAR_ENGINE_SAVAS_BOZ=1500; rc=$?
     bsatir="$(grep -m1 '^\[kapi\] kare=' "$gun/savas_boz.log")"
-    if [ $rc -eq 0 ] && [ -n "$bsatir" ] && [ "$bsatir" != "$savas_3200" ] && grep -q 'BOZ: kare 1500' "$gun/savas_boz.log"; then
+    bdiger="$(grep '^\[kapi\] BASARISIZ: ' "$gun/savas_boz.log" | grep -v '^\[kapi\] BASARISIZ: bellek buyuyor: ')"
+    if { [ $rc -eq 0 ] || [ $rc -eq 1 ]; } && [ -z "$bdiger" ] && [ -n "$bsatir" ] && [ "$bsatir" != "$savas_3200" ] && grep -q 'BOZ: kare 1500' "$gun/savas_boz.log"; then
+      echo "    [bilgi] BOZ kosumu bellek: $(grep -m1 '^\[kapi\] bellek' "$gun/savas_boz.log" | sed 's/^\[kapi\] bellek: //; s/, kare bellegi.*//')"
       gec "pozitif kontrol: TULPAR_ENGINE_SAVAS_BOZ=1500 -> 3200. kare satiri degisti ($(echo "$bsatir" | sed 's/.* \(dogan=[^ ]*\) \(olen=[^ ]*\).*/\1 \2/'), normal: dogan=15/14 olen=10/8)"
     else
       dus "pozitif kontrol: BOZ savas satirini degistirmedi ya da kosmadi (rc=$rc): '$bsatir'"; grep '^\[kapi\]' "$gun/savas_boz.log" | tail -4 >&2
