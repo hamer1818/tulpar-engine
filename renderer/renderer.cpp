@@ -1274,6 +1274,7 @@ MaterialHandle Renderer::create_material_impl(TextureHandle albedo, Vec3 color, 
 }
 
 bool Renderer::make_pipelines(VkRenderPass rp) {
+  scene_rp_ = rp;
   if (!make_pipeline_set(rp, false, vs_, shadow_vs_, &pipe_depth_, &pipe_color_, &pipe_shadow_)) return false;
   if (!make_pipeline_set(rp, true, skin_vs_, skin_shadow_vs_, &pipe_skin_depth_, &pipe_skin_color_, &pipe_skin_shadow_))
     return false;
@@ -1296,7 +1297,7 @@ bool Renderer::make_pipelines(VkRenderPass rp) {
 // Statik ve iskeletli mesh icin ayni uc boru hatti (depth prepass, renk, golge):
 // tek fark vertex duzeni ve vertex shader'i.
 bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule main_vs, VkShaderModule shadow_vs_mod,
-                                VkPipeline *depth, VkPipeline *color, VkPipeline *shadow) {
+                                VkPipeline *depth, VkPipeline *color, VkPipeline *shadow, bool front_ccw) {
   rhi::VkApi &a = dev_->api();
   VkPipelineShaderStageCreateInfo stages[2]{};
   stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1340,7 +1341,8 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   // Mat4::perspective y'yi ters cevirir (Vulkan NDC y asagi): GL tarzi
   // projeksiyonla sarim CW gorunurdu, ters cevirince yeniden CCW olur.
   // Dogrulama: headless karede zemin (tek yuzlu) gorunuyorsa sarim dogru.
-  rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  // Yatay ayna (set_mirror_x) sarimi ters cevirir: ikiz boru hatti CW.
+  rs.frontFace = front_ccw ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
   rs.lineWidth = 1.0f;
   VkPipelineMultisampleStateCreateInfo ms{};
   ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -1374,6 +1376,7 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   ds.depthWriteEnable = VK_FALSE; ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
   cb.attachmentCount = 1;
   if (a.vkCreateGraphicsPipelines(dev_->handle(), VK_NULL_HANDLE, 1, &gp, nullptr, color) != VK_SUCCESS) return false;
+  if (!shadow) return true; // aynali ikiz: golge isik uzayinda, ikizi yok
 
   // Golge boru hatti: kendi render pass'i, yalniz derinlik.
   stages[0].module = shadow_vs_mod;
@@ -1523,6 +1526,14 @@ void Renderer::shutdown() {
   if (mat_layout_) a.vkDestroyDescriptorSetLayout(dev_->handle(), mat_layout_, nullptr);
   if (tex_sampler_) a.vkDestroySampler(dev_->handle(), tex_sampler_, nullptr);
   if (pipe_depth_) a.vkDestroyPipeline(dev_->handle(), pipe_depth_, nullptr);
+  {
+    VkPipeline *pm[6] = {&pipe_m_depth_, &pipe_m_color_, &pipe_m_skin_depth_, &pipe_m_skin_color_, &pipe_m_cull_depth_, &pipe_m_cull_color_};
+    for (VkPipeline *p : pm) {
+      if (*p) a.vkDestroyPipeline(dev_->handle(), *p, nullptr);
+      *p = VK_NULL_HANDLE;
+    }
+    mirror_x_ = mirror_built_ = mirror_keep_winding_ = false;
+  }
   if (pipe_color_) a.vkDestroyPipeline(dev_->handle(), pipe_color_, nullptr);
   if (pipe_shadow_) a.vkDestroyPipeline(dev_->handle(), pipe_shadow_, nullptr);
   if (pipe_skin_depth_) a.vkDestroyPipeline(dev_->handle(), pipe_skin_depth_, nullptr);
@@ -1775,7 +1786,27 @@ TextureHandle Renderer::create_texture_levels(VkFormat fmt, uint32_t w, uint32_t
   return TextureHandle{texture_count_ - 1};
 }
 
-void Renderer::set_camera(const Mat4 &view, const Mat4 &proj) { view_ = view; proj_ = proj; }
+void Renderer::set_camera(const Mat4 &view, const Mat4 &proj) {
+  view_ = mirror_x_ ? Mat4::scale({-1.0f, 1.0f, 1.0f}) * view : view;
+  proj_ = proj;
+}
+
+bool Renderer::set_mirror_x(bool on) {
+  if (!on) { mirror_x_ = false; return true; }
+  if (!mirror_built_) {
+    if (!scene_rp_) { mirror_err_ = "renderer kurulmadi"; return false; }
+    if (*mirror_err_) return false; // bir kez basarisiz: yeniden denenmez (yarim kurulanlar kapanista birakilir)
+    bool ok = make_pipeline_set(scene_rp_, false, vs_, shadow_vs_, &pipe_m_depth_, &pipe_m_color_, nullptr, false) &&
+              make_pipeline_set(scene_rp_, true, skin_vs_, skin_shadow_vs_, &pipe_m_skin_depth_, &pipe_m_skin_color_, nullptr, false);
+    if (ok && cull_.enabled)
+      ok = make_pipeline_set(scene_rp_, false, cull_vs_, cull_shadow_vs_, &pipe_m_cull_depth_, &pipe_m_cull_color_, nullptr, false);
+    if (!ok) { mirror_err_ = "sarimi ters boru hatlari kurulamadi"; return false; } // yarim kurulanlar kapanista birakilir
+    mirror_built_ = true;
+  }
+  mirror_x_ = true;
+  mirror_err_ = "";
+  return true;
+}
 void Renderer::set_light(Vec3 dir, Vec3 ambient, float diffuse_scale) { light_dir_ = dir; ambient_ = ambient; diffuse_scale_ = diffuse_scale; }
 
 void Renderer::begin_frame(uint32_t frame_index) {
@@ -1855,9 +1886,7 @@ void Renderer::begin_frame(uint32_t frame_index) {
   for (uint32_t i = 0; i < kMaxCascades; i++) {
     if (i >= casc) { light_vp_[i] = light_vp_[casc - 1]; cascade_radius_[i] = cascade_radius_[casc - 1]; continue; }
     const bool last = (i + 1 == casc);
-    // Yaricaplar: en distaki tam hacim, iceridekiler 1/3 oraniyla kuculur.
-    float r = shadow_radius_;
-    for (uint32_t k = i + 1; k < casc; k++) r /= 3.0f;
+    const float r = cascade_radius_for(i, casc, shadow_radius_);
     const Vec3 c = last ? shadow_center_ : focus;
     cascade_radius_[i] = r;
     light_vp_[i] = cascade_matrix(light_dir_, c, r, shadow_depth_, shadow_info_.size);
@@ -1873,7 +1902,11 @@ void Renderer::begin_frame(uint32_t frame_index) {
   // kayan noktali HDR hedefine yazar: kodlama birlestirmede yapilir.
   u.light_dir[3] = (post_.enabled || cfg_.srgb_target) ? 0.0f : 1.0f;
   u.ambient[0] = ambient_.x; u.ambient[1] = ambient_.y; u.ambient[2] = ambient_.z; u.ambient[3] = diffuse_scale_;
-  u.shadow_params[0] = shadow_info_.size ? 1.0f / (float)shadow_info_.size : 0.0f;
+  // Kademe basina egilim carpani mesh.frag'de: texel_i * x (Tuzaklar 8cz). x =
+  // 1/texel_ref = ref_tile / (2R); 0 = olceksiz (her kademede sabit egilim).
+  u.shadow_params[0] = (cfg_.shadow_bias_ref_tile && shadow_radius_ > 0.0f)
+                           ? (float)cfg_.shadow_bias_ref_tile / (2.0f * shadow_radius_)
+                           : 0.0f;
   u.shadow_params[1] = cfg_.shadow_bias;
   u.shadow_params[2] = shadow_info_.enabled ? 1.0f : 0.0f;
   u.shadow_params[3] = cfg_.shadow_normal_offset;
@@ -1962,6 +1995,28 @@ void Renderer::set_shadow_volume(Vec3 center, float radius, float depth) {
   shadow_center_ = center;
   shadow_radius_ = radius;
   shadow_depth_ = depth;
+}
+
+float Renderer::cascade_radius_for(uint32_t i, uint32_t casc, float volume_radius) {
+  float r = volume_radius;
+  for (uint32_t k = i + 1; k < casc; k++) r /= 3.0f;
+  return r;
+}
+
+float Renderer::shadow_bias_scale(float cascade_radius, float volume_radius, uint32_t tile, uint32_t ref_tile) {
+  if (!ref_tile || !tile || !(volume_radius > 0.0f)) return 1.0f;
+  // texel_i = 2 r_i / tile, texel_ref = 2 R / ref_tile.
+  return (cascade_radius * (float)ref_tile) / (volume_radius * (float)tile);
+}
+
+float Renderer::cascade_bias_scale(uint32_t i) const {
+  // Kurulmus hedef (size > 0) varsa onun olculeri; init'siz renderer'da yapilandirma.
+  const bool made = shadow_info_.size > 0;
+  uint32_t casc = made ? shadow_info_.cascades : cfg_.shadow_cascades;
+  if (!casc) casc = 1;
+  const uint32_t tile = made ? shadow_info_.size : cfg_.shadow_size;
+  if (i >= casc) i = casc - 1;
+  return shadow_bias_scale(cascade_radius_for(i, casc, shadow_radius_), shadow_radius_, tile, cfg_.shadow_bias_ref_tile);
 }
 
 // Kademe matrisi: ortografik kutu, merkezi ISIK UZAYINDA texel katina KENETLENIR.
@@ -2270,7 +2325,8 @@ void Renderer::record_scene_indirect(VkCommandBuffer cb) {
     VkPipeline bound_pipe = VK_NULL_HANDLE;
     for (uint32_t b = 0; b < cull_batches_n_; b++) {
       const CullBatchCpu &B = batches_[b];
-      const VkPipeline want = pass == 0 ? pipe_cull_depth_ : pipe_cull_color_;
+      const bool m = mirror_x_ && !mirror_keep_winding_;
+      const VkPipeline want = m ? (pass == 0 ? pipe_m_cull_depth_ : pipe_m_cull_color_) : (pass == 0 ? pipe_cull_depth_ : pipe_cull_color_);
       if (want != bound_pipe) { a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want); bound_pipe = want; }
       if (pass == 1 && B.material != bound_mat) {
         a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 1, 1, &materials_[B.material].set, 0,
@@ -2294,8 +2350,7 @@ void Renderer::record_scene_indirect(VkCommandBuffer cb) {
     for (uint32_t i = 0; i < draw_count_; i++) {
       const Draw &d = draws_[i];
       if (d.batch != kNoBatch) continue;
-      const VkPipeline want = d.skin_offset == kNoSkin ? (pass == 0 ? pipe_depth_ : pipe_color_)
-                                                       : (pass == 0 ? pipe_skin_depth_ : pipe_skin_color_);
+      const VkPipeline want = scene_pipe(d.skin_offset != kNoSkin, pass);
       if (want != bound_pipe) { a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want); bound_pipe = want; }
       if (pass == 1 && d.material != bound_mat) {
         a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 1, 1, &materials_[d.material].set, 0,
@@ -2463,8 +2518,7 @@ void Renderer::record_scene(VkCommandBuffer cb) {
     VkPipeline bound_pipe = VK_NULL_HANDLE;
     for (uint32_t i = 0; i < draw_count_; i++) {
       const Draw &d = draws_[i];
-      const VkPipeline want = d.skin_offset == kNoSkin ? (pass == 0 ? pipe_depth_ : pipe_color_)
-                                                       : (pass == 0 ? pipe_skin_depth_ : pipe_skin_color_);
+      const VkPipeline want = scene_pipe(d.skin_offset != kNoSkin, pass);
       if (want != bound_pipe) { a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want); bound_pipe = want; }
       if (pass == 1 && d.material != bound_mat) { // depth gecisi doku okumaz
         a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 1, 1, &materials_[d.material].set, 0, nullptr);

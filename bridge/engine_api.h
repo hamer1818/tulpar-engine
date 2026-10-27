@@ -89,6 +89,10 @@ int teng_ui_fullscreen_blends(void);
 // 2B arayuz tam cozunurlukte kalir. Ic hedef = parlama acik (teng_bloom,
 // init oncesi); yoksa 1.0 doner ve UYARI sayar. Donus: uygulanan olcek.
 double teng_render_scale(double scale);
+// Yonlu isik golgesi ac/kapa (grafik ayari, 2026-10-13): kapaliyken golge gecisi
+// KAYDEDILMEZ ve ornekleme kapanir. Golge kaynagi kurulumda yoksa acma istegi UYARI
+// sayar ve 0 doner. Donus: golge su an acik mi. eng_init sonrasi, kare disinda.
+int teng_shadows(int on);
 void teng_sun(double dx, double dy, double dz, double diffuse);
 void teng_ambient(int64_t color);
 void teng_shadow_volume(double cx, double cy, double cz, double radius, double depth);
@@ -98,6 +102,12 @@ void teng_camera_orbit(double tx, double ty, double tz, double yaw, double pitch
 // dunya->ekran AYNI degeri kullanir: oyun izdusumu kopyalamasin (Geri bildirim #12).
 void teng_camera_fov(double deg);
 double teng_camera_fov_get(void);
+// Yatay kamera aynasi (ag 1v1 katilani kendi kalesini solda gorsun): 3B sahne
+// ekranda soldan saga cevrilir, HUD/metin cevrilmez; teng_screen_ray / teng_pick /
+// teng_world_to_screen ayni aynayi kullanir (dokunus ve izdusum tutarli).
+// 1 = ayna acik; 0 = kapali ya da acilamadi (sarimi ters boru hatlari, hata loglanir).
+int teng_camera_mirror(int on);
+int teng_camera_mirror_get(void);
 // Ekran noktasindan (teng_width/teng_height pikseli = dokunma/fare koordinati,
 // sol ust 0,0) dunyaya isin: hesapla (1 basari), sonra _ox.._dz oku (birim yon).
 int teng_screen_ray(double sx, double sy);
@@ -277,6 +287,18 @@ double teng_scene_vx(int i);
 double teng_scene_vy(int i);
 double teng_scene_vz(int i);
 int teng_scene_is_dynamic(int i);
+// Sahne varligini GIZLE/GOSTER: gizli varlik cizilmez, isigi eklenmez, govdesi
+// fizik dunyasindan cikar (carpismaz, isin gormez). Sahne yeniden yuklenince
+// hepsi gorunur. Olcek (dunya), ilkel rengi (0xRRGGBB, 0 = cizim yok) ve
+// ilkel yuvasi (content/primitives.hpp; -1 = ilkel degil) okunur: oyun yikilan
+// parcanin yerine ayni boy ve renkte fizik parcalari kurabilsin.
+int teng_scene_set_visible(int i, int visible);
+int teng_scene_visible(int i);
+double teng_scene_sx(int i);
+double teng_scene_sy(int i);
+double teng_scene_sz(int i);
+int teng_scene_tint(int i);
+int teng_scene_primitive(int i);
 void teng_scene_set_velocity(int i, double vx, double vy, double vz);
 void teng_scene_impulse(int i, double ix, double iy, double iz); // hiz += i
 // Sahne karakterleri: editordeki "Karakter Kontrolcusu" bileseni sahne
@@ -317,6 +339,15 @@ int teng_collision_pair_on(int a, int b);
 // kalkan) tasiyan birlik icin: devrilen govdenin parcalari icine gecerdi.
 // Isinlanip yeniden kurulan govdede korunur. Dinamik olmayan varlik: HATA, 0.
 int teng_lock_rotation(int id, int lock);
+// Kopru varligini GIZLE/GOSTER: gizli varlik cizilmez (isik varliginin isigi da
+// eklenmez); fizik govdesi aynen kalir (carpisir, isin gorur, olaylar gelir).
+// Ornek: fizik govdesi kutu/kure, gorunen yuz ise ustune konan iskeletli karakter.
+void teng_set_visible(int id, int visible);
+int teng_visible(int id);
+// Cizilen dikey boy (m): model = olcek x model sinir kutusu yuksekligi, kutu 2*hy*olcek,
+// kure/karakter cap x olcek; gizli varlik ve isik 0. Oyunun gorunurluk kapisi icin: gorsel
+// olcek GERCEKTEN cizim boyuna donustu mu (boss 0.1 x boy'da kaliyordu, Tuzaklar 8df).
+double teng_drawn_height(int id);
 int teng_rotation_locked(int id);
 // Tetik (bolge) hacimleri: GORUNMEZ, carpisma tepkisi yok, yakinlik
 // sorgularinda (teng_overlap/nearest) hedef degil. Icine giren/cikan govdeler

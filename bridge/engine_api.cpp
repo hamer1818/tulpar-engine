@@ -258,6 +258,9 @@ struct Ent {
   // degisir) ve make_body grubu yeni govdeye yeniden yazar.
   uint8_t cgroup = 0;
   bool rot_lock = false; // teng_lock_rotation (yeniden kurulan govdeye de yazilir)
+  // teng_set_visible(id, 0): CIZILMEZ (govdesi fizikte kalir: carpisir, isin gorur).
+  // Ornek: fizik govdesi kutu/kure, gorunen ise ustune konan iskeletli karakter.
+  bool hidden = false;
   // Kodla baglanan betigin havuz indisi (-1 = yok; kilitleri asagida, dying /
   // bitir_running). BURADA, ilk onbellek satirinda: kare ici `guncelle`
   // dagitimi her bagli varlik icin alive + gen + bound okur, uc alan ayni
@@ -507,6 +510,8 @@ struct Bridge {
   audio::AudioDevice audio_dev;
   bool audio_ok = false;
   bool audio_null = false;
+  bool shadow_avail = false;   // kurulumda golge kaynagi kuruldu mu (teng_shadows acabilir mi)
+  uint32_t shadow_toggles = 0; // teng_shadows durum degisimi (kapanista sayilir)
   uint32_t audio_off_reports = 0; // kapali cihazda cagri: ilk N tanesi HATA, sonrasi ayrinti (log selini onler)
   uint32_t audio_plays = 0;
   float audio_master = 1.0f;
@@ -529,6 +534,7 @@ struct Bridge {
   // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
   // render_frame'de SABITTI ve oyun izdusumu kurmak icin onu KOPYALIYORDU (Geri bildirim #12).
   float cam_fov = kBridgePi / 3.5f;
+  bool cam_mirror = false; // teng_camera_mirror: sahne yatay aynali (renderer view'a S(-1,1,1)); ekran isini / dunya->ekran ayni aynada
   Vec3 sray_o{0, 0, 0}, sray_d{0, 0, -1}; // son teng_screen_ray (hesapla-sonra-oku)
   float scr_x = 0, scr_y = 0;             // son teng_world_to_screen
   Vec3 sun_dir{0.5f, 1.0f, 0.35f}, ambient{0.16f, 0.17f, 0.2f};
@@ -961,6 +967,9 @@ bool cam_frame(const Bridge &b, CamFrame *c) {
   c->f = normalize(b.cam_target - b.cam_eye);
   c->r = normalize(cross(c->f, Vec3{0, 1, 0}));
   c->u = cross(c->r, c->f);
+  // Yatay ayna (teng_camera_mirror): ekranin SAGI dunyanin solu. Renderer
+  // ayni aynayi view'a uygular; isin ve izdusum buradan, TEK yerden aynalanir.
+  if (b.cam_mirror) c->r = c->r * -1.0f;
   c->tan_half = std::tan(b.cam_fov * 0.5f);
   c->w = (float)vis_w;
   c->h = (float)vis_h;
@@ -1005,12 +1014,16 @@ void render_frame() {
     const GpuScope gs; // kare yuvasinin fence beklemesi
     b.ren.begin_frame(b.headless ? 0 : fc.frame_index);
   }
-  if (b.scene_ok) b.srt.draw(b.ren, b.cam_eye, (float)b.time_s, &b.phys);
+  // LOD gorus derinligiyle (ekranin x'inden bagimsiz, Tuzaklar 8cy): kare basina bir kez.
+  content::ModelLod view_lod;
+  view_lod.set_view(b.cam_eye, b.cam_target, b.cam_fov);
+  if (b.scene_ok) b.srt.draw(b.ren, b.cam_eye, (float)b.time_s, &b.phys, view_lod.camera_forward, view_lod.depth_scale);
   uint32_t drawn = 0, lights = 0;
   b.last_posed = 0;
   for (uint32_t i = 0; i < b.ent_high; i++) {
     Ent &e = b.ents[i];
     if (!e.alive || e.sensor) continue; // tetik hacmi GORUNMEZ (oyun isterse ustune kendisi kutu cizer)
+    if (e.hidden) continue;             // teng_set_visible(id, 0)
     switch (e.kind) {
     case Kind::Box: b.ren.draw(b.cube, ent_matrix(e) * Mat4::scale(e.half * 2.0f * e.scale), e.color); drawn++; break;
     case Kind::Sphere: { const float d = e.radius * 2.0f * e.scale; b.ren.draw(b.sphere, ent_matrix(e) * Mat4::scale({d, d, d}), e.color); drawn++; break; }
@@ -1037,8 +1050,7 @@ void render_frame() {
           }
         }
         if (!posed) {
-          content::ModelLod lod; lod.camera_pos = b.cam_eye;
-          content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &lod);
+          content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod);
         }
         drawn++;
       }
@@ -1177,6 +1189,22 @@ double teng_render_scale(double scale) {
   BINFO("ic cozunurluk olcegi %.2f%s: sahne %ux%u, hedef %ux%u", t.render_scale, std::fabs((double)t.render_scale - scale) > 1e-4 ? " (kenetlendi)" : "",
         t.scaled_width, t.scaled_height, b.fb_w, b.fb_h);
   return t.render_scale;
+}
+
+int teng_shadows(int on) {
+  CALLF("teng_shadows", "%d", on);
+  if (!ready("teng_shadows")) return 0;
+  Bridge &b = *g;
+  if (on && !b.shadow_avail) {
+    blog(1, "UYARI teng_shadows(1): golge kaynagi kurulumda yok (%s) — kapali kaliyor", b.ren.shadow().disabled_reason);
+    g_log.warnings++;
+    return 0;
+  }
+  const bool once = b.ren.shadow().enabled;
+  b.ren.set_shadows_enabled(on != 0);
+  const bool simdi = b.ren.shadow().enabled;
+  if (once != simdi) { b.shadow_toggles++; BINFO("golge %s", simdi ? "acildi" : "kapatildi"); }
+  return simdi ? 1 : 0;
 }
 
 // YARIM KURULUMUN GERI ALINMASI (Tuzaklar 8cq). teng_init'in arena rezervinden
@@ -1462,11 +1490,13 @@ int teng_init(const char *title, int width, int height) {
     else { blog(1, "UYARI font bulunamadi (%u aday denendi): eng_text cizmez, eng_rect calisir (TULPAR_ENGINE_FONT ile yol ver)", nc); g_log.warnings++; }
   }
   b.cam_eye = {0, 8, 14}; b.cam_target = {0, 0, 0};
+  b.cam_mirror = false;
   b.t0_ns = b.last_ns = platform::now_ns();
   rhi::vk_counters_read(b.dev.handle(), &b.vk_prev);
   b.inited = true;
   b.running = true;
   if (b.embed) b.chan.set_state(platform::GameChildState::Running);
+  b.shadow_avail = b.ren.shadow().enabled;
   BINFO("motor hazir (%s, %s)", b.embed ? "gomulu" : b.headless ? "headless" : "pencere", b.dev.caps().device_name);
   {
     // PSO onbellegi GORUNUR olmali: sessizce kapali kaldigi bir platformda
@@ -2934,6 +2964,33 @@ static Vec3 scene_vel(int i, const char *fn) {
 double teng_scene_vx(int i) { return scene_vel(i, "teng_scene_vx").x; }
 double teng_scene_vy(int i) { return scene_vel(i, "teng_scene_vy").y; }
 double teng_scene_vz(int i) { return scene_vel(i, "teng_scene_vz").z; }
+// Sahne varligini gizle/goster + ilkel bilgisi (yikilan kale: oyun kale
+// parcalarinin yerine ayni boy/renkte dinamik parcalar dogurur, sonra gizler).
+int teng_scene_set_visible(int i, int visible) {
+  CALLF("teng_scene_set_visible", "%d %d", i, visible);
+  if (!scene_idx_ok(i, "teng_scene_set_visible")) return 0;
+  return g->srt.set_hidden((uint32_t)i, visible == 0, &g->phys) ? 1 : 0;
+}
+int teng_scene_visible(int i) { return scene_idx_ok(i, "teng_scene_visible") && !g->srt.hidden((uint32_t)i) ? 1 : 0; }
+double teng_scene_sx(int i) { return scene_idx_ok(i, "teng_scene_sx") ? g->srt.view().entities[i].scale[0] : 0; }
+double teng_scene_sy(int i) { return scene_idx_ok(i, "teng_scene_sy") ? g->srt.view().entities[i].scale[1] : 0; }
+double teng_scene_sz(int i) { return scene_idx_ok(i, "teng_scene_sz") ? g->srt.view().entities[i].scale[2] : 0; }
+static const content::SceneBlobDraw *scene_draw_of(int i) {
+  const int32_t d = g->srt.view().entities[i].draw;
+  return d >= 0 && (uint32_t)d < g->srt.view().h->draw_count ? &g->srt.view().draws[d] : nullptr;
+}
+int teng_scene_tint(int i) {
+  if (!scene_idx_ok(i, "teng_scene_tint")) return 0;
+  const content::SceneBlobDraw *d = scene_draw_of(i);
+  if (!d) return 0;
+  auto c = [](float v) { return (int)(v <= 0 ? 0 : v >= 1 ? 255 : v * 255.0f + 0.5f); };
+  return (c(d->tint[0]) << 16) | (c(d->tint[1]) << 8) | c(d->tint[2]);
+}
+int teng_scene_primitive(int i) {
+  if (!scene_idx_ok(i, "teng_scene_primitive")) return -1;
+  const content::SceneBlobDraw *d = scene_draw_of(i);
+  return d ? d->primitive : -1;
+}
 int teng_scene_is_dynamic(int i) { return scene_idx_ok(i, "teng_scene_is_dynamic") && g->srt.entity_dynamic((uint32_t)i) ? 1 : 0; }
 // --- sahne karakterleri (kSceneCharacter) -----------------------------------------
 // Editorde "Karakter Kontrolcusu" bileseni olan varlik sahne yuklenince
@@ -3359,6 +3416,30 @@ int teng_collision_pair(int a, int b, int collide) {
 int teng_collision_pair_on(int a, int b) {
   if (!g || !g->inited || a < 0 || b < 0) return 1;
   return g->phys.groups_collide((uint32_t)a, (uint32_t)b) ? 1 : 0;
+}
+// Kopru varligini gizle/goster: gizli varlik cizilmez (isik varligiysa isigi
+// da eklenmez), fizik govdesi ve diger her sey ayni kalir.
+void teng_set_visible(int id, int visible) {
+  CALLF("teng_set_visible", "#%d %d", id, visible);
+  const int32_t s = slot_of(id, "teng_set_visible");
+  if (s >= 0) g->ents[s].hidden = visible == 0;
+}
+int teng_visible(int id) { const int32_t s = slot_of(id, "teng_visible"); return s >= 0 && !g->ents[s].hidden ? 1 : 0; }
+// Cizim yolundaki (draw_world) olcekle ayni hesap: model ent_matrix * scale(e.scale).
+double teng_drawn_height(int id) {
+  const int32_t s = slot_of(id, "teng_drawn_height");
+  if (s < 0) return 0;
+  const Ent &e = g->ents[s];
+  if (e.hidden) return 0;
+  switch (e.kind) {
+  case Kind::Box: return e.half.y * 2.0 * e.scale;
+  case Kind::Sphere: return e.radius * 2.0 * e.scale;
+  case Kind::Character: return e.height * e.scale;
+  case Kind::Model:
+    if (e.asset < 0 || (uint32_t)e.asset >= g->model_count) return 0;
+    return (double)(g->models[e.asset].bounds_max.y - g->models[e.asset].bounds_min.y) * e.scale;
+  default: return 0;
+  }
 }
 int teng_is_kinematic(int id) { const int32_t s = slot_of(id, "teng_is_kinematic"); return s >= 0 && g->ents[s].kinematic ? 1 : 0; }
 void teng_kinematic_move(int id, double x, double y, double z) {
@@ -4255,6 +4336,24 @@ void teng_camera_fov(double deg) {
   }
   g->cam_fov = (float)(deg * (double)kBridgePi / 180.0);
 }
+int teng_camera_mirror(int on) {
+  CALLF("teng_camera_mirror", "%d", on);
+  if (!ready("teng_camera_mirror")) return 0;
+  Bridge &b = *g;
+  // POZITIF KONTROL (kapi bridge_camera_mirror_*): ayna acik, sarim DUZ
+  // boru hatlari -> on yuzler ayiklanir; kapinin sarimi olctugunu gosterir.
+  const char *ke = std::getenv("TULPAR_ENGINE_AYNA_SARIM_ESKI");
+  b.ren.debug_mirror_keep_winding(ke && ke[0] == '1');
+  if (!b.ren.set_mirror_x(on != 0)) {
+    BERR("teng_camera_mirror: ayna acilamadi (%s) — sahne aynasiz", b.ren.mirror_error());
+    b.cam_mirror = false;
+    return 0;
+  }
+  if (b.cam_mirror != (on != 0)) BINFO("kamera aynasi %s", on ? "ACIK (sahne yatay cevrik, HUD duz)" : "kapali");
+  b.cam_mirror = on != 0;
+  return b.cam_mirror ? 1 : 0;
+}
+int teng_camera_mirror_get(void) { return g && g->cam_mirror ? 1 : 0; }
 double teng_camera_fov_get(void) { return (g ? (double)g->cam_fov : (double)kBridgePi / 3.5) * 180.0 / (double)kBridgePi; }
 int teng_screen_ray(double sx, double sy) {
   if (!ready("teng_screen_ray")) return 0;

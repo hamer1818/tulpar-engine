@@ -2011,6 +2011,89 @@ yerçekimi/türbülansı; alt yayıcılı tepe 54 / alt yayıcısız 16; belirle
 model → blob → runtime → köprü) ayrı ölçülmeli; ve bir sistemin var olması, kare döngüsünün onu
 çağırdığı anlamına gelmez — uçtan uca kapı (köprü + piksel) ister.
 
+### 8cx. Sıfırla doldurulmuş tutamaç dizisi "geçerli" — eksik LOD ilk mesh'le çizilir, yalnız ekranın kenarında
+
+**Belirti (2026-10-08, ilk gerçek oyun, Huawei P20 Pro):** kullanıcı "küreler bazı alanlarda küp gibi,
+küplerin içinde başka küp var; ekranın ortasına doğru kayboluyor", "lazer kenarda duvara dönüşüyor",
+"kenardaki birliklerin rengi değişiyor" dedi. Hepsi ekranın sol/sağ kenarına yakın.
+
+**Sebep:** `content::upload_model` LOD tutamaç dizisini `alloc_array_zeroed` ile ayırıyordu ve yalnız
+üretilen seviyeleri yazıyordu. `MeshHandle` geçersizi `0xFFFFFFFF`; **sıfır geçerli bir id** — renderer'ın
+ilk oluşturduğu mesh. `draw_model` uzaklığa göre (20/45 m) LOD seçip "seviye yoksa bir alta in" diyordu ama
+`valid()` sıfır tutamaç için `true` döndüğü için inmedi: LOD'u üretilmemiş her düşük poligonlu model (12
+üçgenli sopa, kalkan, lazer) kameraya 20 m'den uzakta mesh #0 ile — oyunda ilk yüklenen model, kafa küpü —
+çizildi. 2:1 ekranda kameranın merkezde baktığı birlik ~18 m, kenardaki ~24 m uzakta: eşik tam ekranın
+kenarlarına düşüyordu. İzole sondada ölçüldü (RTX 5080, aynı gün): x = ±18 m'deki 1 × 0.12 × 0.12 sopa 0.76 m
+küp olarak çizildi; kamera 18 m kayınca aynı nesne merkezde ince sopa, yeni kenardaki nesne küp.
+
+**Düzeltme:** tutamaçlar ayrılınca `MeshHandle{}` (geçersiz) ile doldurulur. **Kapı:**
+`content_missing_lod_falls_back_to_lod0` — 12 üçgenli küp (LOD üretilmez) 100 m'den LOD0 seçer ve tutamaçları
+geçersiz; düzeltmesiz kodda kırmızı (ölçüldü: geçersiz 0/2, seçim 0/0/1). **Pozitif kontrol:** LOD'lu küre
+aynı uzaklıktan LOD2 seçer.
+
+**Ders:** "geçersiz" değeri sıfır olmayan bir tutamacı **sıfırlayan** ayırıcıyla doldurmak, ilk kaynağa
+sessizce işaret eden geçerli tutamaçlar üretir. Ve uzaklığa bağlı bir seçim hatası ekranın **konumuna**
+bağlı görünür: "kenarda bozuluyor" belirtisi geometrik değil, seçimdir.
+
+### 8cy. Öklid uzaklığına göre LOD ekranın x'ine bağlıdır — geniş ekranda kenar, aynı derinlikteki merkezden "uzak"
+
+**Belirti (2026-10-08, Huawei P20 Pro 2240x1080):** 8cx düzeltildikten sonra da aynı derinlikteki birlikler
+ekranın ortasında LOD0, sol/sağ kenarda LOD1 çiziliyordu; kamera yana kayınca seviye nesneyle değil ekranla
+birlikte "yürüyordu".
+
+**Sebep:** `content::draw_model` seviyeyi kamera → model kökü **öklid** uzaklığıyla seçiyordu (20 / 45 m).
+Ekrandaki boy ise `r * proj[1][1] / w`'dir ve `w` **görüş derinliğidir**: aynı derinlikteki iki özdeş model
+ekranın her yerinde aynı boyda görünür, ama kenardakinin öklid uzaklığı yanal kayma kadar büyüktür. 2:1
+ekranda, köprü kamerası (π/3.5) ile 18 m derinlikte merkez 18.00 m, kenarın %95'i 24.81 m — eşik (20 m)
+tam ekranın içine düşüyor (`content_lod_uses_view_depth_not_screen_x`'in bastığı sayılar, RTX 5080 değil
+saf CPU hesabı, 2026-10-08).
+
+**Düzeltme:** ölçüt `|dot(p - göz, ileri)| * depth_scale` (`ModelLod::set_view`, `content::model_lod_level`).
+Eşiklerin anlamı **ekranın ortasında** aynen korunur (orada derinlik = uzaklık); `depth_scale = tan(fov/2) /
+tan(π/3.5 / 2)` köprü/demo varsayılan FOV'unda tam 1, FOV daraltılınca (yakınlaştırma) < 1 → daha ince LOD —
+yani ölçüt yansıtılan boyla orantılı. Model yarıçapı ölçüte girmez (eşikler model başına anlam
+değiştirmesin). Kamera arkası mutlak değer: yalnız gölgeye giren uzak verici LOD0'a düşüp gölge geçişini
+pahalılaştırmasın. `camera_forward = {0,0,0}` eski öklid yolu. Köprü (varlık modelleri + sahne blob'u),
+demo ve editör görüş derinliğine geçti.
+
+**Kapı:** `content_lod_uses_view_depth_not_screen_x` — aynı derinlikte merkez ve kenar (NDC x 0.95, gerçek
+projeksiyon matrisiyle; `w` eşitliği ölçülür) aynı seviyeyi alır; 30 m LOD1, 50 m LOD2, FOV yarıya inince
+30 m LOD0. **Pozitif kontrol:** aynı ikili öklid ölçütüyle ayrışır (merkez 0, kenar 1) — düzeltmesiz kodda
+kapı kırmızı.
+
+**Ders:** "uzaklık" ekran uzayında ölçülen bir şeyin vekiliyse, vekilin dünya uzayındaki tanımı ekranın
+şeklini taşır. Geniş ekran bu farkı büyütür; 4:3'te göze batmayan hata 2:1'de kenarı keser.
+
+### 8cz. Sabit gölge eğilimi kademeli haritada her kademeye yanlış — dış kademe akne, iç kademe kaçma
+
+**Belirti:** CSM'den (3 kademe) sonra eğilim (`shadow_bias` 0.0008, `shadow_normal_offset` 0.06 m) bütün
+kademelerde **aynı** dünya değeriydi. Akne ve kaçma (peter-panning) texel'in **dünya ölçüsüne** orantılıdır;
+kademeler arası texel oranı 3 × 3 = 9. Köprü varsayılanında (R 17, 3 × 1024) texel 0.0037 / 0.0111 /
+0.0332 m: normal kaydırması iç kademede **16 texel** (gölge temas noktasından kopar), dış kademede 1.8
+texel (3x3 PCF'in ±1 texel'i ile akne sınırında).
+
+**Düzeltme:** eğilim ve normal kaydırması kademe başına `texel_i / texel_ref` ile çarpılır; `texel_ref` =
+hacmin tamamını `shadow_bias_ref_tile` (varsayılan 2048) texel'lik **tek** haritayla kaplayan kurulumunki —
+değerlerin ayarlandığı CSM öncesi 1 × 2048 harita. 1 × 2048'de çarpan tam 1 (eski davranış), 3 × 1024'te
+2/9 / 2/3 / 2. `mesh.frag` çarpanı kademe matrisinden türetir (ortografik kutunun satır 0 boyu tam 1/r,
+look_at dönmesi birim); `shadow_params.x` artık `1/texel_ref` (eskiden kullanılmayan `1/boyut`).
+`shadow_bias_ref_tile = 0` ölçeksiz eski yol. UBO yerleşimi değişmedi.
+
+**Kapılar:** `renderer_shadow_bias_scales_with_cascade_texel` (CPU: çarpan kesin artar ve texel oranına
+eşit; 1 × 2048 → 1; shader türetmesi gerçek ışık matrisinde CPU çarpanıyla 9e-8 bağıl farkla aynı;
+**pozitif kontrol** `ref_tile = 0` "kesin artar"ı geçemez). `renderer_shadow_bias_outer_cascade_has_no_acne`
+(piksel: yalnız zemin, R 45, 3 × 256; gölge açık/kapalı farkında koyulaşan her piksel aknedir — ölçekli 7
+piksel %0.02, **pozitif kontrol** sabit eğilim 24586 piksel %60; RTX 5080, 2026-10-08).
+`renderer_shadow_map_actually_darkens`'in negatif kontrolü artık **en iç** kademede 6 m kaydırır (nominal
+27 m): düz 6 m iç kademede 1.3 m'ye inince gölge kaçmıyordu (963 / 2397 koyu, kontrol kırmızıydı).
+
+**Kalan:** kademeler arası harmanlama yok — sınırda texel boyu birden 3 kat değişir; maliyeti (bantta ikinci
+9 dokunuşlu PCF) Mali'de ölçülmeden eklenmedi.
+
+**Ders:** dünya biriminde tek bir eğilim, çözünürlüğü değişen bir haritada bir **texel sayısı** değil; ayarı
+hangi texel'de yapıldıysa orada doğrudur. Ölçeklemeyi parametrenin tanımına yaz, yoksa kademe/tile değişikliği
+eğilimi sessizce bozar.
+
 ### 8de. targetSdk 36'da geri tuşu NativeActivity'ye hiç gelmez — "oyuna bağlandı" logu basılır, uygulama kapanır
 
 **Belirti (2026-10-16, Pixel 10 Pro XL emülatörü, API 37):** oyun ekranında sistem geri tuşu oyunu ana
@@ -2032,3 +2115,52 @@ geri tuşu JNI ile `OnBackInvokedCallback` kaydı ister.
 değil niyeti söyler: geri tuşu gibi platform olaylarının kapanış sayacı (`0 basis`) cihaz testinde okunmalı.
 Hedef API her yükseldiğinde geri tuşu, yön ve kenardan kenara ekran cihazda elle denenir.
 
+### 8df. Ölçeği "doğuşta küçük kur, karede büyüt" kalıbıyla kurulan varlık, büyütme yolunu atlarsa sessizce görünmez kalır
+
+**Belirti (2026-10-16, kullanıcının telefonu; masaüstünde yeniden üretildi, RTX 5080, h:4-4:4):** hikâye
+modunun ilk boss'u Koca Yumru sahada yoktu: üstte boss can çubuğu azalıyor, cephede havada yalnız bir can
+çubuğu asılı, birlikler "boşluğa" vuruyordu. Log temiz: model 57 `k_boss_yumru.gltf` yüklenmiş (1 mesh, 1
+doku, 20 klip), `BOSS: Koca Yumru sahada`, hata 0 uyarı 0. Topuz, Paşa ve Kazan da aynıydı; Diken/Golem
+evrelerini kendi `model_koy`'uyla yeniden kurduğu için görünüyordu.
+
+**Sebep (oyun):** `hk_birlik_uret` her görseli `olcek_ver(gorsel, 0.1 * boy)` ile kurar; doğuş büyümesi
+(`dogus_t`, 0.32 sn'de 2 × boy'a) `hk_birlik_gorsel`'de koşar. Boss'u `boss.tpr` sürer ve `hk_govde_sur`
+boss için `hk_birlik_gorsel`'i bilerek atlar (yön/klip `boss_gorsel`'de) — büyüme de onunla birlikte atlandı.
+Boss bütün savaş boyunca 0.1 × boy'da (20 kat küçük) çizildi. Motor açısından her şey doğruydu: varlık canlı,
+görünür, çizim sayısına giriyor. İlk şüpheli olan yükleme sonrası kalıcı kopya (8dd) temize çıktı: aynı
+yoldan gelen iskeletli birlikler doğru boyda çiziliyordu ve `model_compact` sınırları (`bounds_*`) aynen taşır.
+
+**Düzeltme:** büyüme `hk_dogus_buyu`'ya ayrıldı, `boss_gorsel` de çağırır. Motor tarafı **ölçüm**:
+`eng_drawn_height(id)` (Tulpar `cizilen_boy`) çizim yolundaki hesabın aynısını döner — model için ölçek ×
+model sınır kutusu yüksekliği, gizli varlıkta 0. Oyun her boss için doğuştan sonraki en küçük
+`cizilen_boy / boy`'u basar (`[kapi] boss gorunum`).
+
+**Kapı:** köprü `bridge_drawn_height_follows_scale_and_visibility` (iskeletli + klipli model: ölçek 2.0'da
+4.000 m, 0.1'de 0.200 m — oran 0.050 = POZİTİF KONTROL, ölçek gerçekten ölçülüyor; gizli 0; ölü id HATA).
+Oyun: `tulpar_dogrula.sh --hikaye` beş boss'un `min_oran >= 1.0`'ını ister (ölçüldü 2.28..2.99); POZİTİF
+KONTROL `TULPAR_KKS_BOSS_BUYUME_YOK=1` → Koca Yumru 0.11.
+
+**Ders:** "kur, sonra her karede düzelt" kalıbında düzeltme bir **yol**dur; varlığı o yoldan çıkaran her özel
+durum (boss, araba, pilon) düzeltmeyi de çıkarır. "Yüklendi, doğdu, görünür, hata yok" görünürlüğü kanıtlamaz:
+çizilen boyu ölç.
+
+### 8dk. Ekranı aynalamak üçgen sarımını ters çevirir; ayna kameradan "taklit" edilirse sahnenin arkası görünür
+
+**Belirti (N2b, 2026-10-23):** ağ 1v1'de katılan oyuncu kendi kalesini solda görsün diye kamera şeridin öbür
+yanına alındı. Bu ayna değil, 180 derece dönüştür. Sahne tek yönden bakılmak üzere kurulmuştu ve arka plan dağları
+kadrajın ortasına geldi. Işık arkadan vurdu, karakterler sırtını gösterdi.
+
+**Kök:** gerçek ayna bir yansımadır (determinant −1). Görünüm ya da projeksiyon matrisine `S(-1,1,1)` girince
+ekrandaki üçgenlerin sarımı CCW'den CW'ye döner. Arka yüz ayıklamalı boru hattı (`frontFace = CCW`) artık ÖN
+yüzleri atar. Tek yüzlü zemin kaybolur, kürelerin iç yüzü görünür. Hata vermez, yalnızca "garip" bir kare çıkar.
+Vulkan negatif viewport genişliğine izin vermez, dinamik `frontFace` ise 1.3 / EXT ister. Mali-G72'de buna
+güvenilemez.
+
+**Çözüm:** `Renderer::set_mirror_x` aynayı view'a koyar. Android ön-döndürmesi ve jitter clip uzayında kalır,
+`camera_world` aynı göz konumunu verir. Sahne boru hatlarının CW ikizleri ilk açılışta kurulur. Ekran ışını ve
+izdüşüm aynı aynayı köprünün `cam_frame`'inden alır: sağ vektör ters, tek kaynak. Kapı
+`bridge_camera_mirror_flips_scene_not_hud_pick_consistent`: aynalı kare, aynasız karenin çevriğidir. Pozitif
+kontrolü `TULPAR_ENGINE_AYNA_SARIM_ESKI=1` (sarım düz) ile fark 0.296 çıkar.
+
+**Genel kural:** yansıma içeren her dönüşüm (ayna, negatif ölçek) sarımı ve sağ el kuralını ters çevirir. Böyle
+bir dönüşüm ekleyen kod, ayıklama yönünü ve ekran↔dünya eşlemesini AYNI yerde çevirmelidir.

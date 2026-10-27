@@ -1425,3 +1425,110 @@ ENGINE_TEST(content_normal_map_mips_stay_unit_length) {
               "KONTROL normallestirmeyen ortalama %.4f (= uzakta yuzey duzlesir)\n",
               (double)worst, (double)ctrl_worst);
 }
+
+// Geri bildirim #27: LOD'u URETILMEMIS mesh uzakta LOD0 ile cizilir. Eskiden
+// upload_model LOD tutamac dizisini SIFIRLA doldurdugu icin id 0 (renderer'in
+// ilk mesh'i) "gecerli LOD1" sayiliyordu: oyunda dusuk poligonlu her model
+// (sopa, kalkan, lazer) kameraya 20 m'den uzakta — 2:1 telefon ekraninin
+// kenarlari — ilk yuklenen modelin (kafa kupu) mesh'iyle ciziliyordu.
+// Kontrol: 12 ucgenli kup (LOD uretilmez) 100 m'den LOD0 secer ve tutamaclari
+// GECERSIZ; POZITIF KONTROL: LOD'lu kure ayni uzakliktan LOD2 secer — yani
+// "LOD0'a dustu" sonucu uzaklik seciminin hic calismamasindan gelmiyor.
+ENGINE_TEST(content_missing_lod_falls_back_to_lod0) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_lod_yok")) { CHECK(false); return; }
+  char kup_yol[512], kure_yol[512];
+  if (!asset_path(kup_yol, sizeof kup_yol, "checker_cube.gltf") || !asset_path(kure_yol, sizeof kure_yol, "lod_sphere.gltf")) {
+    CHECK(false);
+    return;
+  }
+  static content::Model kup, kure;
+  CHECK(content::gltf_load(sys, kup_yol, &kup) && kup.mesh_count > 0);
+  CHECK(content::gltf_load(sys, kure_yol, &kure) && kure.mesh_count > 0);
+  if (!kup.mesh_count || !kure.mesh_count) return;
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (LOD tutamac kapisi atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.width = oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  // Sira onemli: kure ONCE yuklenir, kup mesh'i #0 degil — eski hatada kup
+  // uzakta kurenin (#0) mesh'iyle cizilirdi.
+  static content::UploadedModel up_kure, up_kup;
+  CHECK(content::upload_model(ren, sys, kure, &up_kure));
+  CHECK(content::upload_model(ren, sys, kup, &up_kup));
+  uint32_t gecersiz = 0;
+  for (uint32_t i = 0; i < kup.mesh_count * content::kModelMaxLods; i++) gecersiz += up_kup.lod_meshes[i].valid() ? 0 : 1;
+  ren.begin_frame(0);
+  content::ModelLod lod;
+  lod.camera_pos = {0, 0, 100.0f};
+  uint32_t n_kup[content::kModelMaxLods + 1] = {}, n_kure[content::kModelMaxLods + 1] = {};
+  content::draw_model(ren, kup, up_kup, Mat4::identity(), {1, 1, 1}, &lod, n_kup);
+  content::draw_model(ren, kure, up_kure, Mat4::identity(), {1, 1, 1}, &lod, n_kure);
+  std::printf("    [bilgi] LOD tutamaci: kup %u ucgen, LOD indeksi %u/%u, gecersiz tutamac %u/%u; 100 m secim kup %u/%u/%u, kure %u/%u/%u\n",
+              kup.meshes[0].index_count / 3, kup.meshes[0].lod_index_count[0], kup.meshes[0].lod_index_count[1], gecersiz,
+              kup.mesh_count * content::kModelMaxLods, n_kup[0], n_kup[1], n_kup[2], n_kure[0], n_kure[1], n_kure[2]);
+  CHECK(kup.meshes[0].lod_index_count[0] == 0 && kup.meshes[0].lod_index_count[1] == 0);
+  CHECK(gecersiz == kup.mesh_count * content::kModelMaxLods);
+  CHECK(n_kup[0] == kup.instance_count && n_kup[1] == 0 && n_kup[2] == 0); // LOD0'a dustu
+  CHECK(n_kure[2] == kure.instance_count);                                 // pozitif kontrol: secim calisiyor
+  ren.shutdown();
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// Tuzaklar 8cy: LOD ekranin x'inden BAGIMSIZ. Kopru kamerasi (goz (0,8,14) ->
+// hedef (0,0,0), FOV pi/3.5) ve P20 Pro'nun 2240x1080 ekrani: ayni GORUS
+// DERINLIGINDE biri ekranin ortasinda, biri kenarina yakin iki ozdes model
+// ayni boyda gorunur (perspektifte yansitilan boy = r * proj[1][1] / w ve w
+// = gorus derinligi; asagida gercek matrisle olculur), yani ayni LOD'u almali.
+// POZITIF KONTROL: eski oklid yolu (camera_forward = 0) ayni ikiliyi AYIRIR —
+// kapinin duzeltmesiz kodda kirmizi oldugunu bu satir gosterir.
+ENGINE_TEST(content_lod_uses_view_depth_not_screen_x) {
+  const Vec3 eye{0, 8, 14}, target{0, 0, 0};
+  const float fov = content::kModelLodRefFovY, aspect = 2240.0f / 1080.0f;
+  content::ModelLod lod; // varsayilan esikler 20 / 45 m (kopru varliklari)
+  lod.set_view(eye, target, fov);
+  CHECK(std::fabs(lod.depth_scale - 1.0f) < 1e-5f); // referans FOV: esikler metre olarak aynen
+  const Vec3 f = lod.camera_forward;
+  const Vec3 right = normalize(cross(f, Vec3{0, 1, 0}));
+  const float depth = 18.0f; // merkezde 20 m esiginin altinda (8cx'teki birlik)
+  const float half_w = depth * std::tan(fov * 0.5f) * aspect; // o derinlikte ekranin yari genisligi
+  const Vec3 center = eye + f * depth;
+  const Vec3 side = center + right * (0.95f * half_w);
+  // Gercek projeksiyonla: ikisi de ekranda, w (= derinlik) esit -> ayni yansitilan boy.
+  const Mat4 vp = Mat4::perspective(fov, aspect, 0.1f, 300.0f) * Mat4::look_at(eye, target, {0, 1, 0});
+  const Vec4 cc = vp * Vec4{center.x, center.y, center.z, 1.0f};
+  const Vec4 cs = vp * Vec4{side.x, side.y, side.z, 1.0f};
+  std::printf("    [bilgi] kopru kamerasi 2240x1080: merkez ndc x %.3f w %.3f, kenar ndc x %.3f w %.3f; oklid %.2f / %.2f m\n",
+              cc.x / cc.w, cc.w, cs.x / cs.w, cs.w, length(center - eye), length(side - eye));
+  CHECK(std::fabs(cs.x / cs.w) < 1.0f && std::fabs(cs.x / cs.w) > 0.9f); // kenar gercekten ekranin kenarinda
+  CHECK(std::fabs(cc.w - cs.w) < 1e-3f);                                // ayni yansitilan boy
+  const uint32_t l_center = content::model_lod_level(lod, center), l_side = content::model_lod_level(lod, side);
+  CHECK(l_center == 0 && l_side == 0); // KAPI: ayni derinlik, ayni seviye
+  // Uzak hala kaba: 30 m derinlik LOD1, 50 m LOD2 (merkezde de kenarda da).
+  CHECK(content::model_lod_level(lod, eye + f * 30.0f) == 1);
+  CHECK(content::model_lod_level(lod, eye + f * 50.0f + right * 20.0f) == 2);
+  // Kamera arkasi (yalniz golge vericisi): mutlak derinlik.
+  CHECK(content::model_lod_level(lod, eye - f * 50.0f) == 2);
+  // FOV daraltma (yakinlastirma) model ekranda buyutur -> daha ince seviye.
+  content::ModelLod zoom;
+  zoom.set_view(eye, target, fov * 0.5f);
+  std::printf("    [bilgi] FOV %.1f -> %.1f derece: derinlik olcegi %.3f\n", fov * 57.2958f, fov * 28.6479f, zoom.depth_scale);
+  CHECK(zoom.depth_scale < 0.55f && content::model_lod_level(zoom, eye + f * 30.0f) == 0);
+  // POZITIF KONTROL: eski oklid olcutu ayni ikiliyi ayirir (merkez LOD0, kenar LOD1).
+  content::ModelLod old;
+  old.camera_pos = eye;
+  const uint32_t o_center = content::model_lod_level(old, center), o_side = content::model_lod_level(old, side);
+  std::printf("    [bilgi] secim: gorus derinligi merkez %u kenar %u; POZITIF KONTROL oklid merkez %u kenar %u\n", l_center,
+              l_side, o_center, o_side);
+  CHECK(o_center == 0 && o_side == 1);
+}

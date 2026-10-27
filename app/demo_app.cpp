@@ -234,7 +234,7 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
   auto draw_lod_spheres = [&](const Cam &c) {
     if (!have_sphere) return;
     content::ModelLod lod;
-    lod.camera_pos = cam_eye(c);
+    lod.set_view(cam_eye(c), c.target, kPi / 3.5f); // gorus derinligi (Tuzaklar 8cy); FOV render yoluyla ayni
     lod.distance1 = 24.0f;
     lod.distance2 = 34.0f;
     for (uint32_t k = 0; k <= content::kModelMaxLods; k++) lod_counts[k] = 0;
@@ -428,7 +428,7 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
       if (headless) {
         ren.begin_frame(frame_i);
         scene.draw(ren, ds);
-        if (have_blob) { srt.draw(ren, cam_eye(cam), (float)frame_i / 60.0f, &scene.physics()); for (uint32_t k = 0; k <= content::kModelMaxLods; k++) lod_counts[k] = srt.stats().lod[k]; }
+        if (have_blob) { srt.draw(ren, cam_eye(cam), (float)frame_i / 60.0f, &scene.physics(), normalize(cam.target - cam_eye(cam))); for (uint32_t k = 0; k <= content::kModelMaxLods; k++) lod_counts[k] = srt.stats().lod[k]; }
         else { draw_lod_spheres(cam); draw_skinned_tubes(frame_i); }
         draw_hud(ren, font, (float)render_w, (float)render_h, 0.0f, hud_fps, hud_ms, ren.point_light_count(), nullptr,
                  scene.player_position(), false);
@@ -449,7 +449,7 @@ int demo_run(const DemoOptions &opts, const DemoHost *host) {
           ren.begin_frame(fc.frame_index);
           uint64_t tc = platform::now_ns();
           scene.draw(ren, ds);
-          if (have_blob) { srt.draw(ren, cam_eye(cam), (float)frame_i / 60.0f, &scene.physics()); for (uint32_t k = 0; k <= content::kModelMaxLods; k++) lod_counts[k] = srt.stats().lod[k]; }
+          if (have_blob) { srt.draw(ren, cam_eye(cam), (float)frame_i / 60.0f, &scene.physics(), normalize(cam.target - cam_eye(cam))); for (uint32_t k = 0; k <= content::kModelMaxLods; k++) lod_counts[k] = srt.stats().lod[k]; }
           else { draw_lod_spheres(cam); draw_skinned_tubes(frame_i); }
           draw_hud(ren, font, (float)swap.logical_extent().width, (float)swap.logical_extent().height, swap.rotation_radians(),
                    hud_fps, hud_ms, ren.point_light_count(), interactive ? &stick : nullptr, scene.player_position(), interactive);

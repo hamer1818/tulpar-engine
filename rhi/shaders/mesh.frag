@@ -10,7 +10,7 @@ layout(set = 0, binding = 0) uniform Frame {
   mat4 light_viewproj[3]; // golge kademeleri (Renderer::kMaxCascades)
   vec4 light_dir;
   vec4 ambient;
-  vec4 shadow_params;  // x: 1/boyut, y: sabit egilim, z: golge acik mi, w: normal kaydirma (dunya)
+  vec4 shadow_params;  // x: 1/referans texel (dunya; 0 = olceksiz), y: sabit egilim, z: golge acik mi, w: normal kaydirma (dunya)
   vec4 cluster_params; // x: dilim olcegi, y: dilim sapmasi, z: tile genisligi px, w: tile yuksekligi px
   uvec4 cluster_grid;  // x, y, z, isik sayisi
   vec4 cascade_params; // x: kademe sayisi, y: 1/kademe, z: atlas texel x, w: atlas texel y
@@ -336,17 +336,30 @@ float cascade_sample(int idx, vec3 wpos, float bias) {
       s += texture(u_shadow, vec3(base_x + float(x) * tx, uv.y + float(y) * ty, p.z - bias));
   return s / 9.0;
 }
+// Kademe basina egilim carpani (Tuzaklar 8cz): akne ve kacma TEXEL'in dunya
+// olcusune orantilidir; sabit egilim dis kademede (kaba texel) akne, yakinda
+// (ince texel) golge kacmasi verir. Kademe matrisi ortho(-r..r) * look_at oldugu
+// icin satir 0'in boyu tam 1/r (donme birim) -> texel = 2r/tile = 2*(1/tile)/boy.
+// Carpan = texel * (1/texel_ref); shadow_params.x = 0 ise olceksiz (1).
+// CPU kopyasi: Renderer::shadow_bias_scale (kapi: renderer_shadow_bias_scales_*).
+float cascade_bias_scale(int idx) {
+  if (u.shadow_params.x <= 0.0) return 1.0;
+  mat4 m = u.light_viewproj[idx];
+  float inv_r = length(vec3(m[0][0], m[1][0], m[2][0]));
+  return 2.0 * u.cascade_params.w / inv_r * u.shadow_params.x;
+}
 float shadow_visibility(float nl, vec3 n) {
   if (u.shadow_params.z < 0.5) return 1.0;
   // Egik yuzeyde akne buyur: egilim normal-isik acisiyla olceklenir.
   float bias = u.shadow_params.y * clamp(1.0 - nl, 0.15, 1.0);
   // Normal boyunca DUNYA BIRIMI kaydirma (boru hattinin depthBias'i surucuye
-  // bagli; Mali'de golgeyi tamamen silmisti — Tuzaklar 8q).
-  vec3 wpos = v_world + n * u.shadow_params.w;
+  // bagli; Mali'de golgeyi tamamen silmisti — Tuzaklar 8q). Ikisi de kademenin
+  // texel'iyle olceklenir; kaydirilmis nokta kademe secimine de girer.
   int n_casc = int(u.cascade_params.x);
   for (int i = 0; i < 3; i++) {
     if (i >= n_casc) break;
-    float v = cascade_sample(i, wpos, bias);
+    float k = cascade_bias_scale(i);
+    float v = cascade_sample(i, v_world + n * (u.shadow_params.w * k), bias * k);
     if (v >= 0.0) return v;
   }
   return 1.0; // hicbir kademe kapsamiyor: isikli (golge hacmi sahneyi kapsamali)

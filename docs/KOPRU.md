@@ -227,6 +227,25 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   koordinatı = `genislik()` × `yukseklik()` pikseli, sol üst (0,0); render ölçeği (iç çözünürlük) ve Android
   ön-döndürmesi bunu değiştirmez. Kapı `bridge_camera_fov_screen_ray_pick_world_to_screen` izdüşümü PİKSELDE
   doğrular (kürenin merkezi kırmızı; eski π/3.5 kopyası fov 30'da ıskalar).
+  **LOD** (`model` varlıkları ve sahne blob'u) **görüş derinliğiyle** seçilir, öklid uzaklığıyla değil
+  (2026-10-08, Tuzaklar 8cy): aynı derinlikteki birlik ekranın ortasında da kenarında da aynı seviyeyi
+  alır. Eşikler (varlık 20 / 45 m, sahne 24 / 34 m) ekranın ortasında eskisiyle aynı; `gorus_acisi`
+  daraltılınca (yakınlaştırma) model ekranda büyüdüğü için daha ince LOD seçilir.
+- **Yatay kamera aynası** (N2c, 2026-10-23): `kamera_ayna(acik)` / `eng_camera_mirror` 3B sahneyi ekranda
+  soldan sağa çevirir; HUD ve metin çevrilmez. Ağ 1v1'de katılan oyuncu kendi kalesini solda görsün diye var:
+  kamera aynı yerde kalır, sim aynalanmaz. Ayna GÖRÜNÜM matrisine girer (`view' = S(-1,1,1)·view`), Android
+  ön-döndürmesi ve jitter clip uzayında kalır. Işık, gölge ve kamera konumu dünya uzayında olduğu için aynalı
+  kare, aynasız karenin piksel piksel yatay çevriğidir. Aynalama üçgen sarımını ters çevirir: arka yüz ayıklamalı
+  sahne boru hatlarının (statik / iskeletli / dolaylı; derinlik + renk) CW ikizleri ilk açılışta bir kez kurulur
+  (6 PSO). Gölge geçişi ışık uzayındadır, aynadan etkilenmez. `ekrandan_sec` / `ekran_isini` / `dunyadan_ekrana`
+  aynı aynayı `cam_frame`'den (sağ vektör ters) kullanır: dokunuş ile izdüşüm tutarlıdır. Kapı:
+  `bridge_camera_mirror_flips_scene_not_hud_pick_consistent`. Aynalı karenin aynasız karenin çevriğinden farkı
+  0.0000. Seçme aynı varlığı buluyor ve x = w − x. Pozitif kontroller:
+  - sarımı DÜZ boru hatlarıyla ayna (`TULPAR_ENGINE_AYNA_SARIM_ESKI=1`): fark 0.296, tek yüzlü zemin ayıklanıyor
+  - aynasız konumdan seçme ıskalıyor
+  - ayna kapanınca 0 bayt fark
+
+  Ölçüm: RTX 5080, 2026-10-23. Hareket vektörü geçişi (temporal; köprü açmıyor) aynalanmaz.
 - **Kare içi C++ ayırma** (Geri bildirim #13): AllocGate'in `operator new` sayacı Tulpar oyununa eklenti
   yapıştırıcısıyla gelir (`libengine_tulpar.a` / `libtulpar_engine_android.a` içinde
   `core/memory/alloc_gate_override.cpp`; yapıştırıcı onun işaretine başvurur, yani arşivden her zaman çekilir).
@@ -252,6 +271,12 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   tutulur: ışınlanıp yeniden kurulan dinamik gövdeye yeniden yazılır (`bridge_collision_groups_*` bunu ve
   pozitif kontrolü ölçer). Işın testi ve seçme grupları görmez. İlk kullanıcı: oyunda takım mermisi kendi
   birliklerinden geçer (telefonda 1029 mermide 0 dost değmesi; süzgeç kapalıyken 9600 karede 111 — 2026-10-08).
+- **Sahne varlığını gizle/göster** (2026-10-08, yıkılan kale): `sahne_gorunur(i, false)` varlığı çizmez,
+  ışığını eklemez ve gövdesini fizik dünyasından çıkarır (Jolt `RemoveBody`; çarpışmaz, ışın görmez);
+  `true` hepsini geri getirir, sahne yeniden yüklenince hepsi görünür. `sahne_olcek_x/y/z`, `sahne_renk`,
+  `sahne_ilkel` parçanın boyunu, rengini ve ilkel yuvasını verir: oyun yıkılan parçanın yerine aynı boy ve
+  renkte dinamik parçalar kurar. Kapı: `bridge_scene_entity_hide_removes_draw_and_body` (ışın duvara 4.50 m →
+  gizliyken ıska → geri 4.50 m; çizim 6 → 5 → 6; pozitif kontrol gizlemeden önceki isabet).
 - **Dönme kilidi** (Geri bildirim #26): `donme_kilidi(id, true)` dinamik gövdeyi devrilmez yapar (Jolt
   `EAllowedDOFs` öteleme, kilitlenince dik konum + açısal hız sıfır); yeniden kurulan gövdede korunur.
   Üstüne gövdesiz kafa/kalkan modeli taşıyan birlik için: devrilen gövde parçaların içine geçiyordu.

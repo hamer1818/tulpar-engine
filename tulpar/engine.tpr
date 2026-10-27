@@ -212,6 +212,9 @@ func parlama_acik(): bool { return eng_bloom_on(); }
 // docs/OYUN_GERI_BILDIRIM.md madde 2. Donus: uygulanan olcek.
 func cozunurluk_olcegi(float s): float { return eng_render_scale(s); }
 func render_scale(float s): float { return eng_render_scale(s); }
+// Yonlu isik golgesi ac/kapa (grafik ayari). Donus: golge su an acik mi.
+func golge(bool ac): bool { return eng_shadows(ac); }
+func shadows(bool on): bool { return eng_shadows(on); }
 func kamera(ex, ey, ez, tx, ty, tz) { eng_camera(ex, ey, ez, tx, ty, tz); }
 func kamera_yorunge(tx, ty, tz, yaw, pitch, uzaklik) { eng_camera_orbit(tx, ty, tz, yaw, pitch, uzaklik); }
 func camera(ex, ey, ez, tx, ty, tz) { eng_camera(ex, ey, ez, tx, ty, tz); }
@@ -243,6 +246,17 @@ func sahne_dinamik(i): bool { return eng_scene_is_dynamic(i); }
 func sahne_hiz_ver(i, vx, vy, vz) { eng_scene_set_velocity(i, vx, vy, vz); }
 func sahne_itme(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
 func scene_impulse(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
+// Sahne varligini gizle/goster (gizli: cizilmez, isik yok, govde fizikten
+// cikar). Olcek/renk/ilkel: yikilan parcanin yerine ayni boyda parca kurmak icin.
+func sahne_gorunur(i, gorunur): bool { return eng_scene_set_visible(i, gorunur); }
+func scene_set_visible(i, visible): bool { return eng_scene_set_visible(i, visible); }
+func sahne_gorunur_mu(i): bool { return eng_scene_visible(i); }
+func scene_visible(i): bool { return eng_scene_visible(i); }
+func sahne_olcek_x(i): float { return eng_scene_sx(i); }
+func sahne_olcek_y(i): float { return eng_scene_sy(i); }
+func sahne_olcek_z(i): float { return eng_scene_sz(i); }
+func sahne_renk(i): int { int c = eng_scene_tint(i); return renk((c >> 16) & 255, (c >> 8) & 255, c & 255); }
+func sahne_ilkel(i): int { return eng_scene_primitive(i); }
 // Sahne karakteri: editörde "Karakter Kontrolcüsü" bileşeni olan varlık sahne
 // yüklenince karakter olarak doğar (aynı varlıktaki gövde bileşeni doğurulmaz,
 // karakter onun yerini alır). Kapsül yazar konumuna ORTALI: sahne_y(i) MERKEZ
@@ -337,6 +351,14 @@ func donme_kilidi(id, kilit): bool { return eng_lock_rotation(id, kilit); }
 func lock_rotation(id, lock): bool { return eng_lock_rotation(id, lock); }
 func donme_kilitli_mi(id): bool { return eng_rotation_locked(id); }
 func rotation_locked(id): bool { return eng_rotation_locked(id); }
+// Gorunurluk: gizli varlik cizilmez, govdesi fizikte kalir (yuzlu karakter
+// fizik kutusunun ustune konunca kutu gizlenir).
+func gorunur(id, gorunur_mu) { eng_set_visible(id, gorunur_mu); }
+func set_visible(id, visible) { eng_set_visible(id, visible); }
+func gorunur_mu(id): bool { return eng_visible(id); }
+// Cizilen dikey boy (m; gizliyse 0): olcek gercekten cizim boyuna donustu mu (gorunurluk kapisi).
+func cizilen_boy(id): float { return eng_drawn_height(id); }
+func drawn_height(id): float { return eng_drawn_height(id); }
 func renk_ver(id, renk_) { eng_set_color(id, renk_); }
 func olcek_ver(id, s) { eng_set_scale(id, s); }
 func don_ver(id, derece) { eng_set_yaw(id, derece); }
@@ -494,6 +516,10 @@ func isin_id(): int { return eng_ray_id(); }
 func gorus_acisi(float derece) { eng_camera_fov(derece); }
 func camera_fov(float deg) { eng_camera_fov(deg); }
 func gorus_acisi_al(): float { return eng_camera_fov_get(); }
+// Yatay ayna (N2c): sahne soldan saga cevrik, HUD duz; dokunus/izdusum ayni aynada.
+func kamera_ayna(bool acik): bool { return eng_camera_mirror(acik); }
+func camera_mirror(bool on): bool { return eng_camera_mirror(on); }
+func kamera_ayna_mi(): bool { return eng_camera_mirror_get(); }
 func camera_fov_get(): float { return eng_camera_fov_get(); }
 // Dokunulan noktadaki varlik: mesafe (-1 iska); sonra isin_id() / isin_sahne() / isin_x()..
 func ekrandan_sec(float sx, float sy, float uzaklik): float { return eng_pick(sx, sy, uzaklik); }

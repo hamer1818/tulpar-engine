@@ -2595,6 +2595,61 @@ ENGINE_TEST(bridge_render_scale_draws_scene_smaller_and_reports_when_unavailable
   CHECK(kapali_fark == 0); // ic hedef yoksa kare degismez
 }
 
+// --- Grafik ayari: golge ac/kapa (yayin adimi 3, 2026-10-13) ----------------------
+// Oyunun "Grafik: Dusuk" kademesi golgeyi kapatir (Mali'de golge haritasi gecisi).
+// Olcu: zemin + kutu + yuksekten gunes (yon isiga dogru); golge ACIK ve KAPALI karenin farki > 200 px
+// (kutunun golgesi kayboldu); yeniden ACINCA kare ilk kareyle BIT BIT ayni (durum
+// tam geri gelir — bu ayni zamanda farkin gurultu olmadiginin kontrolu: ayni sahne
+// iki kez 0 px fark veriyor). Hata ve uyari sayaci degismez. Olculdu 2026-10-13 RTX 5080:
+// acik-kapali 641 px, geri 0 px. Esigin golgeyi olctugunun kaniti: ilk yazimda gunes
+// yonu ters verilmisti (isik zeminin altindan, golge yok) ve kapi 0 px ile KIRMIZI dustu.
+static uint8_t g_golge_a[kW * kH * 3], g_golge_k[kW * kH * 3], g_golge_a2[kW * kH * 3];
+ENGINE_TEST(bridge_shadows_toggle_removes_and_restores_shadow) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  char ya[512], yk[512], ya2[512];
+  tmp_template(ya, sizeof ya, "golge_acik");
+  tmp_template(yk, sizeof yk, "golge_kapali");
+  tmp_template(ya2, sizeof ya2, "golge_acik2");
+  char *yollar[3] = {ya, yk, ya2};
+  for (int i = 0; i < 3; i++) { const int fd = mkstemp(yollar[i]); if (fd >= 0) close(fd); }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("golge", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int h0 = teng_error_count(), u0 = teng_warning_count();
+  teng_camera(0, 5, 8, 0, 0.5, 0);
+  teng_sun(0.5, 1.0, 0.35, 1.0); // yon: ISIGA dogru (oyunun gunes() cagrilari gibi)
+  CHECK(teng_spawn_ground(8.0, 0xCED4DAFF) > 0);
+  CHECK(teng_spawn_box(0, 1.2, 0, 0.9, 0.9, 0.9, 0, 0xE63946FF) > 0);
+  run_frames(3);
+  CHECK(teng_screenshot(ya) == 1);
+  CHECK(teng_shadows(0) == 0);
+  run_frames(3);
+  CHECK(teng_screenshot(yk) == 1);
+  CHECK(teng_shadows(1) == 1);
+  CHECK(teng_shadows(1) == 1); // KONTROL: ayni durum, degisim sayilmaz
+  run_frames(3);
+  CHECK(teng_screenshot(ya2) == 1);
+  CHECK(teng_error_count() == h0 && teng_warning_count() == u0);
+  // Cihaz adi KAPANISTAN ONCE okunur: teng_gpu_name() kapanistan sonra "" doner ve
+  // sanal GPU atlamasi hic tetiklenmezdi (CI macOS Paravirtual'da 0 px ile KIRMIZI).
+  const bool sanal = test::gpu_is_virtual(teng_gpu_name());
+  teng_shutdown();
+  uint32_t w = 0, h = 0;
+  const uint32_t na = read_ppm(ya, g_golge_a, kW * kH, &w, &h);
+  const uint32_t nk = read_ppm(yk, g_golge_k, kW * kH, &w, &h);
+  const uint32_t na2 = read_ppm(ya2, g_golge_a2, kW * kH, &w, &h);
+  for (int i = 0; i < 3; i++) std::remove(yollar[i]);
+  CHECK(na == kW * kH && nk == kW * kH && na2 == kW * kH);
+  if (na != kW * kH || nk != kW * kH || na2 != kW * kH) return;
+  const uint32_t kapali_fark = diff_px(g_golge_k, g_golge_a, na);
+  const uint32_t geri_fark = diff_px(g_golge_a2, g_golge_a, na);
+  std::printf("    [bilgi] golge: acik-kapali %u px, yeniden acik-ilk %u px\n", kapali_fark, geri_fark);
+  if (sanal) { skip("sanal GPU (Apple Paravirtual, CI macOS): golge PIKSEL blogu gercek cihazda olculur"); return; }
+  CHECK(kapali_fark > 200);
+  CHECK(geri_fark == 0);
+}
+
 // --- Geri bildirim #3: sahne parcaciklari derlenmis oyunda --------------------
 // Kopru SceneRuntime::update'i HIC cagirmiyordu: `.sahne`deki yayicilar editorde
 // doguyor, oyunda (eng_scene_load) hic dogmuyordu; dogsalardi da v8 blobu
@@ -2807,6 +2862,17 @@ bool kare_kirmizi(const char *ad, double sx, double sy, bool *okundu) {
 }
 } // namespace
 
+// Ekran goruntusunu (penceresiz) bellege al; okunamazsa w = h = 0.
+static void ekran_al(const char *ad, uint8_t *px, uint32_t *w, uint32_t *h) {
+  char shot[512];
+  tmp_template(shot, sizeof shot, ad);
+  const int fd = mkstemp(shot);
+  if (fd >= 0) close(fd);
+  *w = 0; *h = 0;
+  if (teng_screenshot(shot) != 1 || read_ppm(shot, px, kW * kH, w, h) != kW * kH) { *w = 0; *h = 0; }
+  std::remove(shot);
+}
+
 ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   rhi::VkApi api;
   if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
@@ -2860,6 +2926,107 @@ ENGINE_TEST(bridge_camera_fov_screen_ray_pick_world_to_screen) {
   CHECK(std::fabs(sx[1] - sx[0]) > 10.0); // fov gercekten degisti
   if (sanal) skip("sanal GPU (Apple Paravirtual, CI macOS): izdusumun PIKSEL dogrulamasi gercek cihazda olculur");
   else CHECK(kirmizi[0] && kirmizi[1] && !eski_kirmizi);
+  teng_shutdown();
+}
+
+// --- N2c: yatay kamera aynasi (ag 1v1 katilani kendi kalesini solda gorur) -----
+// Iddia (bizim kod): ayna acikken 3B sahne, aynasiz karenin YATAY CEVRIGI olur
+// (isik/golge dunya uzayinda, yalniz ekran cevrilir); HUD cevrilmez; dunya->ekran
+// x'i w - x olur ve ayni noktadan secme ayni varligi bulur. Olcu: asimetrik sahne
+// (kirmizi kure solda, mavi kutu sagda-yukarida). Kenar pikselleri rasterlestirme
+// kuralindan (sol-ust) farkli olabilir: esik %1. POZITIF KONTROLLER: (1) sarimi
+// DUZ boru hatlariyla ayna (TULPAR_ENGINE_AYNA_SARIM_ESKI=1) -> tek yuzlu zemin
+// ayiklanir, fark buyuk; (2) aynasiz konumdan aynali secme kureyi ISKALAR;
+// (3) ayna kapaninca kare aynasiz kareyle bayt bayt ayni (gecis olcuyor).
+namespace {
+uint8_t g_ayna_a[kW * kH * 3], g_ayna_b[kW * kH * 3], g_ayna_c[kW * kH * 3], g_ayna_d[kW * kH * 3];
+void ayna_kare(uint8_t *px, uint32_t *w, uint32_t *h) {
+  for (int i = 0; i < 2; i++) {
+    teng_frame_begin();
+    teng_rect(10, 10, 30, 20, 0x20E040FF);
+    teng_frame_end();
+  }
+  ekran_al("ayna", px, w, h);
+}
+bool hud_bolgesi(uint32_t x, uint32_t y) { return y >= 8 && y < 32 && ((x >= 8 && x < 42) || (x >= kW - 42 && x < kW - 8)); }
+// b ile a'nin yatay cevriginin farkli piksel orani (HUD bolgeleri haric)
+double cevrik_fark(const uint8_t *a, const uint8_t *b) {
+  uint32_t n = 0, fark = 0;
+  for (uint32_t y = 0; y < kH; y++)
+    for (uint32_t x = 0; x < kW; x++) {
+      if (hud_bolgesi(x, y)) continue;
+      const uint8_t *pa = a + ((size_t)y * kW + (kW - 1 - x)) * 3, *pb = b + ((size_t)y * kW + x) * 3;
+      n++;
+      if (std::abs(pa[0] - pb[0]) > 40 || std::abs(pa[1] - pb[1]) > 40 || std::abs(pa[2] - pb[2]) > 40) fark++;
+    }
+  return n ? (double)fark / n : 1.0;
+}
+bool yesil_mi(const uint8_t *px, uint32_t x, uint32_t y) {
+  const uint8_t *p = px + ((size_t)y * kW + x) * 3;
+  return p[1] > 150 && p[0] < 90 && p[2] < 110;
+}
+} // namespace
+
+ENGINE_TEST(bridge_camera_mirror_flips_scene_not_hud_pick_consistent) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  unsetenv("TULPAR_ENGINE_AYNA_SARIM_ESKI");
+  if (!teng_init("kamera aynasi kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_camera_mirror_get() == 0);
+  teng_spawn_ground(20, 0x606060ff);
+  const double cx = -3.0, cy = 1.2, cz = -2.0;
+  const int top = teng_spawn_sphere(cx, cy, cz, 0.8, 0, 0xff0000ff);
+  teng_spawn_box(2.5, 2.0, -1.0, 0.8, 0.8, 0.8, 0, 0x2040ffff);
+  teng_camera(0, 3, 8, 0, 1, 0);
+  run_frames(2);
+  uint32_t w = 0, h = 0;
+  // A: aynasiz
+  ayna_kare(g_ayna_a, &w, &h);
+  CHECK(w == kW && h == kH);
+  CHECK(teng_world_to_screen(cx, cy, cz) == 1);
+  const double ax = teng_screen_x(), ay = teng_screen_y();
+  teng_pick(ax, ay, 50);
+  const int pick_a = teng_ray_id();
+  // B: aynali
+  CHECK(teng_camera_mirror(1) == 1 && teng_camera_mirror_get() == 1);
+  ayna_kare(g_ayna_b, &w, &h);
+  CHECK(teng_world_to_screen(cx, cy, cz) == 1);
+  const double bx = teng_screen_x(), by = teng_screen_y();
+  teng_pick(bx, by, 50);
+  const int pick_b = teng_ray_id();
+  teng_pick(ax, ay, 50); // KONTROL: aynasiz konum aynada bos zemin
+  const int pick_eski = teng_ray_id();
+  // C: KONTROL — ayna acik, sarim duz
+  setenv("TULPAR_ENGINE_AYNA_SARIM_ESKI", "1", 1);
+  CHECK(teng_camera_mirror(1) == 1);
+  ayna_kare(g_ayna_c, &w, &h);
+  unsetenv("TULPAR_ENGINE_AYNA_SARIM_ESKI");
+  // D: KONTROL — ayna kapali
+  CHECK(teng_camera_mirror(0) == 0 && teng_camera_mirror_get() == 0);
+  ayna_kare(g_ayna_d, &w, &h);
+  const double f_b = cevrik_fark(g_ayna_a, g_ayna_b), f_c = cevrik_fark(g_ayna_a, g_ayna_c), f_a = cevrik_fark(g_ayna_a, g_ayna_a);
+  uint32_t ad_fark = 0;
+  for (uint32_t i = 0; i < kW * kH * 3; i++) ad_fark += g_ayna_a[i] != g_ayna_d[i];
+  const bool sanal = test::gpu_is_virtual(teng_gpu_name());
+  std::printf("    [bilgi] ayna: kure aynasiz (%.2f %.2f) secme #%d | aynali (%.2f %.2f) secme #%d (kure #%d), eski konum #%d | cevrik fark aynali %.4f, "
+              "KONTROL sarim duz %.4f, KONTROL aynasiz-kendi %.4f, kapaninca bayt farki %u | HUD sol %d/%d sag %d\n",
+              ax, ay, pick_a, bx, by, pick_b, top, pick_eski, f_b, f_c, f_a, ad_fark, yesil_mi(g_ayna_a, 25, 20), yesil_mi(g_ayna_b, 25, 20),
+              yesil_mi(g_ayna_b, kW - 25, 20));
+  CHECK(pick_a == top && pick_b == top && pick_eski != top);
+  CHECK(std::fabs(bx - (kW - ax)) < 0.05 && std::fabs(by - ay) < 0.05);
+  CHECK(std::fabs(ax - kW * 0.5) > 40.0); // kure merkezde degil: ayna gercekten tasidi
+  CHECK(teng_error_count() == e0);
+  if (sanal) skip("sanal GPU (Apple Paravirtual, CI macOS): aynanin PIKSEL dogrulamasi gercek cihazda olculur");
+  else {
+    CHECK(f_b < 0.01);   // aynali kare = aynasiz karenin yatay cevrigi
+    CHECK(f_a > 0.05);   // KONTROL: sahne asimetrik (cevirmeden esit degil)
+    CHECK(f_c > 0.05);   // KONTROL: sarim duz -> on yuzler ayiklanir
+    CHECK(ad_fark == 0); // KONTROL: kapaninca ayni kare
+    CHECK(yesil_mi(g_ayna_a, 25, 20) && yesil_mi(g_ayna_b, 25, 20) && !yesil_mi(g_ayna_b, kW - 25, 20)); // HUD cevrilmez
+  }
   teng_shutdown();
 }
 
@@ -3170,4 +3337,134 @@ ENGINE_TEST(bridge_font_draws_typographic_punctuation) {
   const int tw = k_tire[2] - k_tire[0] + 1, th = k_tire[3] - k_tire[1] + 1, sw = k_soru[2] - k_soru[0] + 1, sh = k_soru[3] - k_soru[1] + 1;
   CHECK(tw > 20 && th * 4 < tw); // ince yatay cubuk
   CHECK(sw > 5 && sh > sw);      // KONTROL: '?' uzun (olcu sekli ayirt ediyor)
+}
+
+// Sahne varligini gizle/goster (oyunda yikilan kale): gizli varlik cizilmez ve
+// govdesi fizikten cikar — yukaridan atilan isin artik ona CARPMAZ; geri
+// gosterince hem cizim hem carpisma doner. POZITIF KONTROL: gizlemeden once
+// ayni isin duvara carpiyor (yani "carpmadi" olcumu isinin yanlis yere
+// atilmasindan gelmiyor). Olcek/renk/ilkel okuyuculari blob'daki degerleri verir.
+ENGINE_TEST(bridge_scene_entity_hide_removes_draw_and_body) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static SystemArena arena;
+  if (arena.capacity() == 0) arena.reserve(64u << 20, "sahne_gizle");
+  char src[768], blob[768];
+  std::snprintf(src, sizeof src, "%s/editor.sahne", assets_dir());
+  std::snprintf(blob, sizeof blob, "%s/_gizle_test.sahneb", assets_dir());
+  static content::SceneDesc desc;
+  content::SceneError serr{};
+  if (!content::scene_load(arena, src, &desc, &serr) || !content::scene_blob_save(arena, desc, blob, &serr)) {
+    std::printf("    [bilgi] sahne: %s\n", serr.msg);
+    CHECK(false);
+    return;
+  }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("sahne gizle", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_scene_load(blob) == 1);
+  const int duvar = teng_scene_find("duvar_sabit");
+  const int kup = teng_scene_find("kup_dusen");
+  CHECK(duvar >= 0 && kup >= 0);
+  if (duvar < 0 || kup < 0) { teng_shutdown(); return; }
+  run_frames(2);
+  const double x = teng_scene_x(duvar), z = teng_scene_z(duvar);
+  const double d0 = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  const int s0 = teng_ray_scene();
+  const int draws0 = teng_draw_count();
+  CHECK(teng_scene_visible(kup) == 1);
+  CHECK(teng_scene_set_visible(duvar, 0) == 1 && teng_scene_set_visible(kup, 0) == 1);
+  run_frames(2);
+  const double d1 = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  const int s1 = teng_ray_scene();
+  const int draws1 = teng_draw_count();
+  CHECK(teng_scene_set_visible(duvar, 1) == 1 && teng_scene_set_visible(kup, 1) == 1);
+  run_frames(2);
+  const double d2 = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  const int s2 = teng_ray_scene();
+  const int draws2 = teng_draw_count();
+  std::printf("    [bilgi] gizle: isin duvar %.2f m (sahne #%d) -> gizli %.2f m (#%d) -> geri %.2f m (#%d); cizim %d -> %d -> %d; "
+              "kup olcek %.2f renk %06x ilkel %d\n",
+              d0, s0, d1, s1, d2, s2, draws0, draws1, draws2, teng_scene_sx(kup), teng_scene_tint(kup), teng_scene_primitive(kup));
+  CHECK(s0 == duvar && d0 > 0);             // pozitif kontrol: once carpiyor
+  CHECK(s1 != duvar);                       // gizliyken govde yok
+  CHECK(draws1 == draws0 - 1);              // kup cizilmedi (duvarin cizimi yok)
+  CHECK(s2 == duvar && std::fabs(d2 - d0) < 1e-4 && draws2 == draws0);
+  CHECK(teng_scene_tint(kup) == 0xFFFFFF && teng_scene_primitive(kup) == -1 && teng_scene_sx(kup) > 0);
+  const int h0 = teng_error_count();
+  CHECK(teng_scene_set_visible(9999, 0) == 0 && teng_error_count() == h0 + 1);
+  teng_shutdown();
+}
+
+// Kopru varligini gizle: CIZILMEZ ama govdesi fizikte kalir (oyunda fizik kutusu
+// gizlenir, ustune yuzlu karakter konur). Cizim sayisi bir azalir, isin hala
+// govdeye carpar; geri gosterince cizim doner. POZITIF KONTROL: gizlemeden once
+// cizim sayisi ve isin isabeti olculur (azalma kurulumdan gelmiyor).
+ENGINE_TEST(bridge_entity_hide_skips_draw_keeps_body) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("varlik gizle", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int kutu = teng_spawn_box(0, 1, 0, 0.5, 0.5, 0.5, 0, 0x2080ffff);
+  run_frames(2);
+  const int c0 = teng_draw_count();
+  const double d0 = teng_raycast(0, 6, 0, 0, -1, 0, 20, 0);
+  const int r0 = teng_ray_id();
+  teng_set_visible(kutu, 0);
+  run_frames(2);
+  const int c1 = teng_draw_count();
+  const double d1 = teng_raycast(0, 6, 0, 0, -1, 0, 20, 0);
+  const int r1 = teng_ray_id();
+  const int v1 = teng_visible(kutu);
+  teng_set_visible(kutu, 1);
+  run_frames(2);
+  const int c2 = teng_draw_count();
+  std::printf("    [bilgi] varlik gizle: cizim %d -> %d -> %d, isin %.2f m (#%d) gizliyken %.2f m (#%d)\n", c0, c1, c2, d0, r0, d1, r1);
+  CHECK(r0 == kutu && d0 > 0);       // pozitif kontrol
+  CHECK(c1 == c0 - 1 && v1 == 0);    // cizilmedi
+  CHECK(r1 == kutu && std::fabs(d1 - d0) < 1e-4); // govde yerinde
+  CHECK(c2 == c0 && teng_visible(kutu) == 1);
+  teng_shutdown();
+}
+
+// Cizilen boy (eng_drawn_height): oyunun gorunurluk kapisi bununla olcer. Hikaye modunda
+// boss gorseli 0.1 x boy olcekle kurulup HIC buyutulmuyordu (20 kat kucuk, sahada yalniz can
+// cubugu; Tuzaklar 8df). Iskeletli + klipli model (yukleme sonrasi kalici kopya yolundan,
+// Tuzaklar 8dd) olcek 2.0'da sinir kutusu x 2 boyunda; olcek 0.1'de 20 kat kisa (POZITIF
+// KONTROL: olcek gercekten olculuyor, sabit donmuyor); gizlenince 0; olu id HATA + 0.
+ENGINE_TEST(bridge_drawn_height_follows_scale_and_visibility) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("cizilen boy", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  char skin[768];
+  std::snprintf(skin, sizeof skin, "%s/skin_tube.gltf", assets_dir());
+  const int m = teng_load_model(skin);
+  CHECK(m >= 0);
+  const int e0 = teng_error_count();
+  const int a = teng_spawn_model(m, 0, 0, 0, 2.0, 0xFFFFFFFF);
+  teng_set_anim(a, 0, 1.0, 1);
+  const int kutu = teng_spawn_box(2, 1, 0, 0.5, 0.75, 0.5, 0, 0x2080ffff);
+  teng_camera(0, 1.2, 5.0, 0.5, 1.0, 0);
+  run_frames(2);
+  const double h_tam = teng_drawn_height(a);
+  const double h_kutu = teng_drawn_height(kutu);
+  teng_set_scale(a, 0.1);
+  run_frames(1);
+  const double h_kucuk = teng_drawn_height(a);
+  teng_set_visible(a, 0);
+  const double h_gizli = teng_drawn_height(a);
+  teng_set_visible(a, 1);
+  teng_despawn(a);
+  const double h_olu = teng_drawn_height(a);
+  std::printf("    [bilgi] cizilen boy: model x2.0 %.3f m, x0.1 %.3f m (oran %.3f), gizli %.3f, kutu %.2f m, olu id %.1f\n",
+              h_tam, h_kucuk, h_tam > 0 ? h_kucuk / h_tam : -1.0, h_gizli, h_kutu, h_olu);
+  CHECK(h_tam > 0.1);
+  CHECK(std::fabs(h_kucuk / h_tam - 0.05) < 1e-3);   // pozitif kontrol: olcek olculuyor
+  CHECK(h_gizli == 0.0);
+  CHECK(std::fabs(h_kutu - 1.5) < 1e-4);
+  CHECK(h_olu == 0.0 && teng_error_count() == e0 + 1);
+  teng_shutdown();
 }

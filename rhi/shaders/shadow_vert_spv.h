@@ -1,5 +1,5 @@
 // URETILMIS DOSYA — shadow.vert'den compile_shaders.py ile. Elle duzenleme.
-// KAYNAK-SHA256: 7955a836cc95eb9de8b0506008d71801c964d821c5b73d40bc195652f7361916
+// KAYNAK-SHA256: 2f35d7672a0c9cc69c692631c392045a489f24ab6622038e87d4bf659a8cfe68
 // URETEC: glslang Glslang Version: 11:16.6.0
 #pragma once
 #include <cstdint>

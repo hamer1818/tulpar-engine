@@ -658,6 +658,18 @@ bool Physics::lock_rotation(BodyId id, bool lock) {
   if (lock) bi.SetRotation(bid, JPH::Quat::sIdentity(), JPH::EActivation::Activate);
   return true;
 }
+bool Physics::set_body_enabled(BodyId id, bool enabled) {
+  if (!impl_ || !id.valid()) return false;
+  JPH::BodyInterface &bi = impl_->system.GetBodyInterface();
+  const JPH::BodyID b(id.v);
+  if (bi.IsAdded(b) == enabled) return true;
+  if (enabled) bi.AddBody(b, bi.GetMotionType(b) == JPH::EMotionType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+  else bi.RemoveBody(b);
+  return true;
+}
+bool Physics::body_enabled(BodyId id) const {
+  return impl_ && id.valid() && impl_->system.GetBodyInterface().IsAdded(JPH::BodyID(id.v));
+}
 bool Physics::rotation_locked(BodyId id) const {
   if (!impl_ || !id.valid()) return false;
   JPH::BodyLockRead l(impl_->system.GetBodyLockInterface(), JPH::BodyID(id.v));
@@ -684,7 +696,7 @@ void Physics::remove(BodyId id) {
   JPH::BodyID b(id.v);
   JPH::BodyInterface &bi = impl_->system.GetBodyInterface();
   if (b.GetIndex() < impl_->cfg.max_bodies) impl_->is_sensor[b.GetIndex()] = 0; // yuva baska govdeye gecebilir
-  bi.RemoveBody(b);
+  if (bi.IsAdded(b)) bi.RemoveBody(b); // set_body_enabled(false) ile cikmis olabilir
   bi.DestroyBody(b);
 }
 

@@ -98,7 +98,10 @@ public:
   void despawn(sim::Physics &ph);
   // Kare: modeller (LOD / animasyon), isiklar. ph null = yazar donusumu;
   // degilse dinamik govdeli varliklar sim'den.
-  void draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph);
+  // cam_forward (birim bakis yonu) verilirse LOD gorus derinligiyle secilir
+  // (ModelLod, Tuzaklar 8cy); {0,0,0} = eski oklid uzakligi.
+  void draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const sim::Physics *ph, Vec3 cam_forward = {0, 0, 0},
+            float lod_depth_scale = 1.0f);
   // Zaman bagimli sistemler (bugun yalniz parcacik yayicilari). draw()'dan AYRI
   // cagrilir: cizim saf olsun, simulasyon adimi cagirana ait olsun — headless
   // bir kapi update()'i N kez cagirip hic cizmeden sonucu olcebilsin diye.
@@ -127,6 +130,12 @@ public:
   sim::CharacterId entity_character(uint32_t i) const;
   // Govdeler su an fizikte mi (spawn edildi, despawn edilmedi).
   bool bodies_live() const { return bodies_live_; }
+  // VARLIK GIZLEME: gizli varlik cizilmez (model/ilkel), isigi eklenmez,
+  // govdesi fizik dunyasindan cikar (ph verilirse). Geri gosterince hepsi
+  // doner. Yikilan kale gibi "sahnede tasarlanmis ama oyunda yok olan"
+  // parcalar icin; sahne yeniden yuklenince hepsi gorunur baslar.
+  bool set_hidden(uint32_t i, bool hidden, sim::Physics *ph);
+  bool hidden(uint32_t i) const { return i < kSceneMaxEntities && hidden_[i]; }
 
 private:
   SceneBlobView view_;
@@ -162,6 +171,7 @@ private:
   // Arazi / voksel / su tek renk kullaniyor, o yuzden varlik basina degil
   // TURU basina tek malzeme yetiyor.
   renderer::MaterialHandle terrain_mat_{}, voxel_mat_{}, water_mat_{};
+  bool hidden_[kSceneMaxEntities] = {};
 };
 
 } // namespace tulpar::engine::content

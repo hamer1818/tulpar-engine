@@ -1,5 +1,5 @@
 // URETILMIS DOSYA — mesh.vert'den compile_shaders.py ile. Elle duzenleme.
-// KAYNAK-SHA256: 96e41237d553dd0e643267c18e35d77f155523ce524b77afadbcbbc587c0f3f3
+// KAYNAK-SHA256: 82d27cdf3cd8eeeb6fb910d04e3c14a26dcd14d9463ed96f94ef6688c8aebd37
 // URETEC: glslang Glslang Version: 11:16.6.0
 #pragma once
 #include <cstdint>
