@@ -24,6 +24,9 @@
 //   TULPAR_ENGINE_SAVAS_SIZINTI_B=2048  her kare ~2 KB kalıcı dizgi -> bellek kapısı KIRMIZI
 //   TULPAR_ENGINE_SAVAS_BOZ=<kare>      o karede taraf 1'e +200 altın -> [kapi] satırı DEĞİŞMELİ
 //                                       (değişmiyorsa satır savaşı ölçmüyordur)
+// Ölçüm aracı (kapıya girmez): TULPAR_ENGINE_SAVAS_BELLEK_IZ=N her N karede
+//   "[iz] bellek k=<kare> rss=<KB> canli=<varlik> govde=<govde>" — eğrinin ŞEKLİ
+//   (doğrusal sızıntı mı, olay inişi mi, sürücü basamağı mı) iki uçtan okunamaz.
 //
 // Dil notu: bu dosya yayınlanmış ve yerel derleyicide AYNI sonucu vermeli. Bu yüzden
 // int hedefe giden her ondalık açıkça toInt'ten geçer, dizin her zaman int'tir ve
@@ -633,12 +636,25 @@ func otopilot() {
     if (g_op_cikis == 1 && g_ekran == Ekran.MENU) { g_op_cikis = 2; cikis_iste(); }
 }
 
-// Kare belleği kapısı: engine_aksiyon ile AYNI ölçü (aralık artışlarının alt
-// çeyreği, KB / 1000 kare; gerekçe ve ölçümler orada). Sınır aynı: 600.
+// Kare belleği kapısı: engine_aksiyon'daki ölçünün (artışların alt çeyreği,
+// KB / 1000 kare; sürücü basamağına karşı gerekçe orada) KAYAN PENCERELİ hâli.
+// Sınır ve iddia aynı: 600 KB/1000 kare, 2 KB/kare sızıntı yakalanır.
+// Neden 200 karelik ardışık aralık değil: savaşta RSS olaylarla (birlik/mermi
+// ölümü, sürücünün bıraktığı tamponlar) 200 karede 0.5–1 MB iniyor; 2 KB/kare
+// sızıntı aralık başına yalnız +400 KB ekliyor ve alt çeyrek bu inişlere
+// düşüyordu. Ölçüldü 2026-10-27, Ubuntu 24.04 lavapipe (mesa 25.2.8, LLVM 20.1.2
+// — CI'ınki), 4 çekirdek (taskset): 2 KB/kare sızıntıda eski ölçü 5 koşumun
+// 5'inde -120..-60 (YAKALANMADI; CI'da da iki kez -600 / -2800). Pencere
+// 600 kareye uzayınca iniş genliği aynı kalır, sızıntı katkısı 1.2 MB olur.
+// 600 neden 1000 değil: CI lavapipe'ındaki tek seferlik ~26 MB sürücü basamağı
+// (4–7 x 200 kare; engine_aksiyon) kısa bir savaşın penceresinde (ör. 1000->5282)
+// 1000'lik pencerelerin ~%73'üne değerdi — alt çeyrek bunu ancak %75'e kadar
+// eler; 600'de ~%54. Ölçümler PR'da ve tools/tulpar_dogrula.sh başlığında.
 int BELLEK_ILK_KARE = 1000;
 int BELLEK_PENCERE_MIN = 2000;
 int BELLEK_SINIR_KB = 600;
-int BELLEK_ARALIK = 200;
+int BELLEK_ARALIK = 100;   // ornek araligi (kare)
+int BELLEK_KAYAN = 600;    // artisin olculdugu kayan pencere (kare)
 int g_bellek_ilk = 0;
 int g_bellek_son = 0;
 int g_bellek_son_kare = 0;
@@ -647,12 +663,22 @@ int SIZINTI_B = 0;
 if (len(env("TULPAR_ENGINE_SAVAS_SIZINTI_B")) > 0) { SIZINTI_B = toInt(env("TULPAR_ENGINE_SAVAS_SIZINTI_B")); }
 str g_sizinti_tohum = "";
 str[] g_sizinti = [];
+int BELLEK_IZ = 0;
+if (len(env("TULPAR_ENGINE_SAVAS_BELLEK_IZ")) > 0) { BELLEK_IZ = toInt(env("TULPAR_ENGINE_SAVAS_BELLEK_IZ")); }
 
-func bellek_ceyrek_egim(): int {
+func bellek_kayan_n(): int {
+    int g = BELLEK_KAYAN / BELLEK_ARALIK;
     int n = len(g_bellek_orn);
-    if (n < 2) { return 0; }
+    return n > g ? n - g : 0;
+}
+// 600 karelik kayan pencerelerdeki artislarin alt ceyregi (sira (m-1)/4),
+// KB / 1000 kare (pencere yoksa 0). Siralama eklemeli (en cok ~65 ornek).
+func bellek_ceyrek_egim(): int {
+    int g = BELLEK_KAYAN / BELLEK_ARALIK;
+    int n = len(g_bellek_orn);
+    if (n <= g) { return 0; }
     int[] fark = [];
-    for (int i = 0; i + 1 < n; i++) { push(fark, g_bellek_orn[i + 1] - g_bellek_orn[i]); }
+    for (int i = 0; i + g < n; i++) { push(fark, g_bellek_orn[i + g] - g_bellek_orn[i]); }
     int m = len(fark);
     for (int i = 1; i < m; i++) {
         int x = fark[i];
@@ -660,7 +686,7 @@ func bellek_ceyrek_egim(): int {
         while (j >= 0 && fark[j] > x) { fark[j + 1] = fark[j]; j = j - 1; }
         fark[j + 1] = x;
     }
-    return fark[(m - 1) / 4] * 1000 / BELLEK_ARALIK;
+    return fark[(m - 1) / 4] * 1000 / BELLEK_KAYAN;
 }
 func bellek_artan_aralik(): int {
     int c = 0;
@@ -676,6 +702,7 @@ func bellek_ornekle() {
     if (k == BELLEK_ILK_KARE) { g_bellek_ilk = bellek_kb(); }
     if (k >= BELLEK_ILK_KARE) { g_bellek_son = bellek_kb(); g_bellek_son_kare = k; }
     if (k >= BELLEK_ILK_KARE && (k - BELLEK_ILK_KARE) % BELLEK_ARALIK == 0) { push(g_bellek_orn, g_bellek_son); }
+    if (BELLEK_IZ > 0 && k % BELLEK_IZ == 0) { print(t"[iz] bellek k={k} rss={bellek_kb()} canli={eng_count()} govde={eng_body_count()}"); }
 }
 
 func kapi_raporu() {
@@ -691,8 +718,7 @@ func kapi_raporu() {
     bool bellek_olculdu = g_bellek_ilk > 0 && bellek_pencere >= BELLEK_PENCERE_MIN;
     int bellek_uc_egim = bellek_pencere > 0 ? (g_bellek_son - g_bellek_ilk) * 1000 / bellek_pencere : 0;
     int bellek_egim = bellek_ceyrek_egim();
-    int bellek_aralik_n = len(g_bellek_orn) > 0 ? len(g_bellek_orn) - 1 : 0;
-    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, alt ceyrek {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}; {bellek_aralik_n} aralik x {BELLEK_ARALIK}, artan {bellek_artan_aralik()}, uc {bellek_uc_egim}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
+    print(t"[kapi] bellek: kare {BELLEK_ILK_KARE}->{g_bellek_son_kare} RSS {g_bellek_ilk}->{g_bellek_son} KB, alt ceyrek {bellek_egim} KB/1000 kare (sinir {BELLEK_SINIR_KB}; {bellek_kayan_n()} kayan pencere x {BELLEK_KAYAN} kare, ornek {BELLEK_ARALIK}, artan aralik {bellek_artan_aralik()}, uc {bellek_uc_egim}), kare bellegi {kare_bellegi_acik()} ({kare_bellegi_kare()} kare geri sarildi)");
     if (!bellek_olculdu) { print(t"[kapi] ATLANDI: bellek kapisi >= {BELLEK_ILK_KARE + BELLEK_PENCERE_MIN} kare ister (pencere {bellek_pencere})"); }
     float ayirma_motor = kare_ici_ayirma_toplami();
     print(t"[kapi] ayirma: sayac {ayirma_sayaci_acik()}, motor kare ici {toInt(ayirma_motor)} (kare 6..), surec toplami {toInt(ayirma_sayisi())}");

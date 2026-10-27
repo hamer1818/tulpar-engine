@@ -1829,6 +1829,20 @@ RSS. Eski llvmpipe'a özel 4600 karelik ikinci koşum kalktı.
 istatistik seç. Pozitif kontrolü ise belgede değil, **her koşumda** koştur: dilin ya da sürücünün
 değişmesi onu sessizce etkisiz bırakabilir.
 
+**Ek (2026-10-27, CI'da ölçüldü — aynı sınıf, ikinci kapı):** aynı ölçüyü (200 karelik ardışık aralık,
+alt çeyrek) devralan `engine_savas.tpr`'ın enjekte sızıntı kontrolü CI'ın lavapipe'ında (4 vCPU)
+**yakalamadı** (iki koşumda alt çeyrek -600 / -2800, sınır 600); kendi PR'ının koşumunda yalnız +1080
+ile, şans eseri geçmişti. Eğri (`TULPAR_ENGINE_SAVAS_BELLEK_IZ=100`): sızıntı düzgün +2.4 KB/kare, ama
+savaşta RSS olaylarla (birlik/mermi ölümü, sürücünün bıraktığı tamponlar) 200 karede 0.5–1 MB iniyor,
+temiz koşumda da aynı yerlerde. 2 KB/kare aralık başına yalnız +400 KB ekliyor, alt çeyrek inişlere
+düşüyor. RTX 5080'de iniş yok, kontrol orada hep geçiyordu — yani yerel yeşil hiçbir şey söylemedi.
+**Düzeltme:** 100 karede örnek, **600 karelik kayan pencere** artışlarının alt çeyreği; iniş genliği
+aynı kalır, sızıntının katkısı 1.2 MB olur. Sınır (600) ve iddia (2 KB/kare yakalanır) aynı. Ölçüldü
+2026-10-27, 5'er koşum, temiz / sızıntılı: Ubuntu 24.04 lavapipe (mesa 25.2.8, CI'ınki) 4 çekirdek
+-706..-580 / 1460..1740; RTX 5080 6..26 / 2086..2146. Eski ölçü aynı lavapipe'ta sızıntıda 5/5 -120..-60.
+**Ders:** bir pozitif kontrolün kenar payını kapının koştuğu **en gürültülü** platformda ölç; geçtiği tek
+koşum onun ölçtüğünü göstermez.
+
 ### 8ct. "Kapat" bir bayrak indirir, yeniden açmayı bilmez — ikinci oturum bayat durumla kurulur
 
 **Sınıf** (2026-10-05, CI macOS'ta görüldü, yerelde ölçüldü): `teng_shutdown` alt sistemleri kapatıp
