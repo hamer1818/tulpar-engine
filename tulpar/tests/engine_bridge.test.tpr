@@ -708,6 +708,21 @@ func run_ui() {
     ui_bitir();
     kare_bitir();
     assert_eq_float(kilitli, 0.1);
+    // (i) guvenli alan taklidi (arayuz turu centikli 2240x1080): sonraki kare basindan gecerli,
+    //     KONTROL: taklit kapaninca penceresizde 0 (host yok).
+    guvenli_taklit(84, 0, 0, 24);
+    kare_basla();
+    kare_bitir();
+    int gl = guvenli_sol();
+    int ga = guvenli_alt();
+    assert_eq_int(gl, 84);
+    assert_eq_int(ga, 24);
+    assert_eq_int(guvenli_sag(), 0);
+    guvenli_taklit(-1, -1, -1, -1);
+    kare_basla();
+    kare_bitir();
+    assert_eq_int(guvenli_sol() + guvenli_ust() + guvenli_sag() + guvenli_alt(), 0);
+    print("    [bilgi] guvenli alan taklidi: sol " + toString(gl) + " alt " + toString(ga) + ", kapali " + toString(guvenli_sol()));
     // (g) KONTROL: eng_ui_begin'siz widget sessizce çalışmaz, HATA sayar
     int h0 = hata_sayisi();
     kare_basla();

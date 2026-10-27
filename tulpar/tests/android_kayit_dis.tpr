@@ -1,0 +1,17 @@
+// Android: kayit dosyasi dis dizinde mi (Geri bildirim #19; tools/android_kayit_dis.sh).
+// Kayittaki sayaci okur, bir artirip yazar ve kapanir. Betik dosyayi adb ile
+// okur, degistirip geri koyar ve ikinci acilista oyunun YENI degeri okudugunu olcer.
+import "engine";
+
+log_seviyesi(1);
+if (!motor_ac("android kayit dis", 320, 200)) {
+    print("[kd] KURULAMADI: " + eng_last_error());
+} else {
+    float n = kayit_oku_sayi("kd_sayac", 0.0);
+    print("[kd] yol " + kayit_yolu() + " okunan " + toString(toInt(n)));
+    kayit_yaz_sayi("kd_sayac", n + 1.0);
+    bool ok = kayit_kaydet();
+    for (int i = 0; i < 30; i++) { kare_basla(); kare_bitir(); }
+    print("[kd] yazildi " + toString(toInt(n + 1.0)) + " ok=" + toString(ok) + " hata=" + toString(hata_sayisi()));
+    motor_kapat();
+}

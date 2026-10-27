@@ -46,6 +46,14 @@ class AudioDevice {
 public:
   bool init(Mixer &mixer, const DeviceConfig &cfg);
   void shutdown();
+  // Cihazi DURDUR / SURDUR (Geri bildirim #9: Android'de uygulama arka plana
+  // gecince ses akisi `started` kaliyordu). Durakliyken callback kosmaz — mixer
+  // ilerlemez, calan sesler kaldiklari yerden surer. `ok()` acik kalir: oyunun
+  // ses cagrilari (cal, durdur, seviye) duraklamada da gecerli, sessizce
+  // reddedilmez. Ayni duruma ikinci cagri bir sey yapmaz, true doner.
+  bool pause();
+  bool resume();
+  bool paused() const { return paused_; }
   bool ok() const { return started_; }
   const DeviceInfo &info() const { return info_; }
   const char *last_error() const { return err_; }
@@ -55,6 +63,7 @@ private:
   Mixer *mixer_ = nullptr;
   DeviceInfo info_{};
   bool started_ = false;
+  bool paused_ = false;
   char err_[128] = {0};
 };
 

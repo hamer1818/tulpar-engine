@@ -1,9 +1,15 @@
 // Android yasam dongusu sondasi (tools/android_yasam_dongusu.sh kosturur).
-// Pencereli dongu: her 60 karede bir "[yd]" durum satiri; KARE_SINIRI kare sonra
-// motor_kapat (betik yeterince ornek aldiktan sonra surec kendiliginden biter).
+// Pencereli dongu: her 60 karede bir "[yd]" durum satiri.
+//   - geri tusu (Geri bildirim #8): her basis "[yd] geri N"; IKINCI basista oyun
+//     kendisi cikar (cikis_iste) — geri tusu etkinligi kapatmamali, karar oyunun.
+//   - arka plan (Geri bildirim #9): cok kisik dongulu bir ton calar; arka plana
+//     gecis/donus "[yd] arka_planda true/false" basar. Sesi motor KENDISI durdurur
+//     (betik `dumpsys audio`daki AAudio oyuncusunun durumuna bakar).
+//   - guvenli alan (Geri bildirim #17): 120. karede "[yd] ekran WxH guvenli L T R B".
+// Guvenlik agi: SURE_SINIRI saniye sonra kendiliginden kapanir.
 import "engine";
 
-int KARE_SINIRI = 900;
+float SURE_SINIRI = 60.0;
 
 log_seviyesi(1);
 if (!motor_ac("android yasam dongusu", 320, 200)) {
@@ -12,13 +18,29 @@ if (!motor_ac("android yasam dongusu", 320, 200)) {
     kamera(0.0, 4.0, 10.0, 0.0, 0.5, 0.0);
     int zemin = zemin_kur(8.0, 0xCED4DAFF);
     int k = kutu(0.0, 2.0, 0.0, 0.5, 0.5, 0.5, true, 0xE63946FF);
+    // Ses: arka planda AKIS durmali. Seviye cok dusuk (duyulmasa da akis "started").
+    if (ses_ac()) { int s = cal(ton(220.0, 1.0), 0.02, true); print("[yd] ses acik: " + ses_cihazi()); }
     int n = 0;
-    while (calisiyor() && n < KARE_SINIRI) {
+    int geri = 0;
+    bool arkada = false;
+    while (calisiyor() && zaman() < SURE_SINIRI) {
         bool pencere = kare_basla();
+        if (geri_basildi()) {
+            geri += 1;
+            print("[yd] geri " + toString(geri) + " kare " + toString(n));
+            if (geri >= 2) { cikis_iste(); }
+        }
+        bool a = arka_planda();
+        if (a != arkada) { arkada = a; print("[yd] arka_planda " + toString(a) + " kare " + toString(n)); }
         if (n % 60 == 0) { print("[yd] kare " + toString(n) + " pencere=" + toString(pencere)); }
+        // Guvenli alan (Geri bildirim #17): pencere ve centik bosluklari, oturdugu bir karede.
+        if (n == 120) {
+            print("[yd] ekran " + toString(genislik()) + "x" + toString(yukseklik()) + " guvenli " + toString(guvenli_sol()) + " "
+                  + toString(guvenli_ust()) + " " + toString(guvenli_sag()) + " " + toString(guvenli_alt()));
+        }
         kare_bitir();
         n += 1;
     }
-    print("[yd] bitis kare=" + toString(n) + " hata=" + toString(hata_sayisi()));
+    print("[yd] bitis kare=" + toString(n) + " geri=" + toString(geri) + " hata=" + toString(hata_sayisi()));
     motor_kapat();
 }
