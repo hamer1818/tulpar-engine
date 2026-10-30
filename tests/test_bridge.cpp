@@ -3899,6 +3899,48 @@ ENGINE_TEST(bridge_font_draws_typographic_punctuation) {
   CHECK(sw > 5 && sh > sw);      // KONTROL: '?' uzun (olcu sekli ayirt ediyor)
 }
 
+// Hata ayiklama hizli sarmasi: TULPAR_ENGINE_HIZ=4 (masaustu; Android'de yalniz
+// debug APK'da debug.tulpar.hiz) kurulumda zaman olcegini kurar; 60 karede 240
+// sabit sim adimi (buyuk adim DEGIL). 8x'te kare basina 8 adim (tavan
+// ceil+1 = 9; eskiden 4'te kirpilirdi). POZITIF KONTROL: degisken yokken 60 kare
+// = 60 adim — yani 240 olcumu ortam degiskeninden geliyor.
+static void hiz_env(const char *v) {
+#if defined(_WIN32)
+  _putenv_s("TULPAR_ENGINE_HIZ", v ? v : "");
+#else
+  if (v) setenv("TULPAR_ENGINE_HIZ", v, 1); else unsetenv("TULPAR_ENGINE_HIZ");
+#endif
+}
+static int hiz_kosu(const char *env, double olcek_sonra, int *adim_8x) {
+  hiz_env(env);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("hiz", kW, kH)) { hiz_env(nullptr); return -1; }
+  hiz_env(nullptr);
+  run_frames(60);
+  const int n = teng_sim_tick();
+  if (olcek_sonra > 0) {
+    teng_time_scale(olcek_sonra);
+    run_frames(10);
+    *adim_8x = teng_sim_tick() - n;
+  }
+  teng_shutdown();
+  return n;
+}
+ENGINE_TEST(bridge_debug_speed_env_runs_more_fixed_steps) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  int a8 = 0, yok = 0;
+  const int n4 = hiz_kosu("4", 8.0, &a8);
+  if (n4 < 0) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int n1 = hiz_kosu(nullptr, 0.0, &yok);
+  std::printf("    [bilgi] hizli sarma: TULPAR_ENGINE_HIZ=4 -> 60 karede %d sim adimi, olcek 8 -> 10 karede %d; degiskensiz (pozitif kontrol) %d\n",
+              n4, a8, n1);
+  CHECK(n4 == 240);
+  CHECK(a8 == 80);
+  CHECK(n1 == 60);
+}
+
 // Sahne varligini gizle/goster (oyunda yikilan kale): gizli varlik cizilmez ve
 // govdesi fizikten cikar — yukaridan atilan isin artik ona CARPMAZ; geri
 // gosterince hem cizim hem carpisma doner. POZITIF KONTROL: gizlemeden once
@@ -4027,6 +4069,15 @@ ENGINE_TEST(bridge_drawn_height_follows_scale_and_visibility) {
   CHECK(std::fabs(h_kutu - 1.5) < 1e-4);
   CHECK(h_olu == 0.0 && teng_error_count() == e0 + 1);
   teng_shutdown();
+}
+
+// teng_local_day (yerel_gun, Kup-Kure gunluk gorevleri A9): motor kurulmadan calisir ve platformun
+// yerel takvim gunuyle ayni (dilim davranisi platform_local_day_follows_timezone'da olculur).
+ENGINE_TEST(bridge_local_day_matches_platform) {
+  const int a = teng_local_day();
+  const int b = (int)platform::local_day_index(-1);
+  CHECK(a == b || a + 1 == b);   // gece yarisi tam arada gecerse bir gun ileri
+  CHECK(a > 20000);              // 2024 sonrasi (duvar saati gercekten okunuyor)
 }
 
 // teng_image_load yol anahtari (A13 incelemesi, 2026-10-19): yuva yolu 128 bayttı ve kesiliyordu —

@@ -7,6 +7,7 @@
 #if defined(__ANDROID__)
 #define VK_USE_PLATFORM_ANDROID_KHR 1
 #include <android/asset_manager.h>
+#include <android/configuration.h>
 #include <android/input.h>
 #include <jni.h>
 #include <android/log.h>
@@ -95,6 +96,9 @@ struct AndroidHost {
   int32_t inset[4] = {0, 0, 0, 0}; // sol, ust, sag, alt (pencere pikseli)
   uint32_t inset_w = 0, inset_h = 0;
   tulpar::engine::bridge::HostSystem sys;
+  // debug.tulpar.hiz: yalniz debuggable APK (android_main'de bir kez sorulur).
+  bool debuggable = false;
+  uint32_t speed_poll = 0;
 };
 AndroidHost g_host;
 
@@ -323,6 +327,55 @@ void save_mirror_external(android_app *app, const char *internal_assets) {
               kopya ? " — ic kayit kopyalandi" : "");
 }
 
+// --- Teshis raporu paylasimi (yayin adimi 6) ---------------------------------
+// Rapor metni sistemin paylasim secicisine DUZ METIN olarak verilir (ACTION_SEND,
+// text/plain, EXTRA_TEXT): dosya URI'si FileProvider ister, NativeActivity
+// derlemesinde manifestte provider yok. Hedefi (e-posta, mesaj, not) OYUNCU
+// secer; motor hicbir yere kendiliginden gondermez, ag izni yok. startActivity
+// oyun thread'inden cagrilir (Activity bunu ana thread'e kendisi iletir).
+android_app *g_share_app = nullptr;
+bool android_share_text(const char *subject, const char *text) {
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e || !g_share_app) return false;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return false; }
+  bool ok = false;
+  jclass ic = e->FindClass("android/content/Intent");
+  jmethodID ctor = ic && j.ok() ? e->GetMethodID(ic, "<init>", "(Ljava/lang/String;)V") : nullptr;
+  jmethodID set_type = ctor && j.ok() ? e->GetMethodID(ic, "setType", "(Ljava/lang/String;)Landroid/content/Intent;") : nullptr;
+  jmethodID put = set_type && j.ok() ? e->GetMethodID(ic, "putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;") : nullptr;
+  jmethodID chooser = put && j.ok() ? e->GetStaticMethodID(ic, "createChooser", "(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;") : nullptr;
+  if (chooser && j.ok()) {
+    jobject it = e->NewObject(ic, ctor, e->NewStringUTF("android.intent.action.SEND"));
+    if (it && j.ok()) {
+      e->CallObjectMethod(it, set_type, e->NewStringUTF("text/plain"));
+      e->CallObjectMethod(it, put, e->NewStringUTF("android.intent.extra.SUBJECT"), e->NewStringUTF(subject ? subject : ""));
+      e->CallObjectMethod(it, put, e->NewStringUTF("android.intent.extra.TEXT"), e->NewStringUTF(text ? text : ""));
+      jobject ch = j.ok() ? e->CallStaticObjectMethod(ic, chooser, it, e->NewStringUTF(subject ? subject : "")) : nullptr;
+      jobject act = g_share_app->activity->clazz;
+      jmethodID start = ch && j.ok() ? e->GetMethodID(e->GetObjectClass(act), "startActivity", "(Landroid/content/Intent;)V") : nullptr;
+      if (start && j.ok()) {
+        e->CallVoidMethod(act, start, ch);
+        ok = j.ok();
+      }
+    }
+  }
+  if (!ok) j.ok();
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: rapor paylasimi %s\n", ok ? "secici acildi" : "ACILAMADI (JNI)");
+  return ok;
+}
+// Cihaz tanimi (rapora girer): uretici, model, Android surumu, API, ABI.
+// Kisisel veri yok (seri numarasi / reklam kimligi OKUNMAZ).
+void report_device(char *out, size_t cap) {
+  char ur[PROP_VALUE_MAX] = {0}, md[PROP_VALUE_MAX] = {0}, rel[PROP_VALUE_MAX] = {0}, abi[PROP_VALUE_MAX] = {0};
+  __system_property_get("ro.product.manufacturer", ur);
+  __system_property_get("ro.product.model", md);
+  __system_property_get("ro.build.version.release", rel);
+  __system_property_get("ro.product.cpu.abi", abi);
+  std::snprintf(out, cap, "%s %s, Android %s (API %d), %s", ur, md, rel, android_sdk(), abi);
+}
+
 // --- APK varlik cikarimi (alt dizinler dahil) ------------------------------
 struct AssetWalk {
   AAssetManager *mgr = nullptr;
@@ -464,6 +517,12 @@ const bridge::HostSystem *a_system(void *user) {
   if (h->insets_dirty && h->window_ready) query_insets(h);
   h->sys.inset_l = h->inset[0]; h->sys.inset_t = h->inset[1]; h->sys.inset_r = h->inset[2]; h->sys.inset_b = h->inset[3];
   h->sys.inset_w = h->inset_w; h->sys.inset_h = h->inset_h;
+  // Hata ayiklama hizi: ~30 karede bir ozellik okunur (ucuz, JNI yok). Yayin
+  // derlemesinde hic okunmaz: debug_speed 0 kalir, cekirdek dokunmaz.
+  if (h->debuggable && (h->speed_poll++ % 30) == 0) {
+    char v[PROP_VALUE_MAX] = {0};
+    h->sys.debug_speed = __system_property_get("debug.tulpar.hiz", v) > 0 ? (float)std::atof(v) : 0.0f;
+  }
   return &h->sys;
 }
 void a_back_to_game(void *user, bool on) { static_cast<AndroidHost *>(user)->back_to_game = on; }
@@ -541,8 +600,70 @@ extern "C" void android_main(android_app *app) {
   cc.report_dir = dir;
   cc.build_id = "tulpar_engine_android";
   platform::crash_reporter_install(cc);
+  // Teshis raporu (teng_report_*): cokme raporlariyla AYNI dizin + cihaz + paylasim.
+  g_share_app = app;
+  {
+    char cihaz[192];
+    report_device(cihaz, sizeof cihaz);
+    bridge::bridge_report_host(dir, cihaz, android_share_text);
+  }
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
+  // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun
+  // AConfiguration'indan iki harfli ISO 639 kodu ("tr", "en"...) TULPAR_ENGINE_LANG
+  // olur (masaustundeki LANG'in karsiligi). Her android_main'de yeniden yazilir:
+  // etkinlik ayni surecte yeniden yaratilinca (Tuzaklar 8ct) dil degismis olabilir.
+  // Asagidaki debug.tulpar.env bunu ezebilir (debug APK'da dil denemesi).
+  {
+    char dil[3] = {0};
+    if (app->config) AConfiguration_getLanguage(app->config, dil);
+    if (dil[0]) {
+      setenv("TULPAR_ENGINE_LANG", dil, 1);
+      std::printf("[engine_bridge] android: cihaz dili %s (TULPAR_ENGINE_LANG)\n", dil);
+    } else {
+      unsetenv("TULPAR_ENGINE_LANG");
+      std::printf("[engine_bridge] android: cihaz dili okunamadi (AConfiguration bos)\n");
+    }
+  }
+  g_host.debuggable = app_debuggable(app);
+  // debug.tulpar.env = "AD=deger;AD2=deger2": YALNIZ hata ayiklanabilir APK'da
+  // oyunun ortam degiskenleri (masaustundeki `AD=deger tulpar oyun.tpr`un
+  // telefondaki karsiligi; ornek: oyunun otopilotu). Yayin APK'si okumaz.
+  // Ortam degiskeni SURECE aittir: Android etkinligi ayni surecte yeniden yaratinca
+  // (Tuzaklar 8ct) bir onceki oturumun debug.tulpar.env'inden kalan ad (ornek
+  // TULPAR_KKS_TEST) yeni ozellikte yoksa bile yasardi — emulatorde 2026-10-09'da
+  // yalniz OTOPILOT=1 verilen oturum eski TEST ile hikaye taramasi kostu. Onceki
+  // oturumun koydugu adlar burada tutulup her girisin basinda silinir.
+  static char s_env_onceki[PROP_VALUE_MAX] = {0};
+  for (char *ad = s_env_onceki; *ad;) {
+    char *son = std::strchr(ad, ';');
+    if (son) *son = 0;
+    unsetenv(ad);
+    std::printf("[engine_bridge] android: debug.tulpar.env onceki oturumdan %s silindi\n", ad);
+    if (!son) break;
+    ad = son + 1;
+  }
+  s_env_onceki[0] = 0;
+  char env_v[PROP_VALUE_MAX] = {0};
+  if (__system_property_get("debug.tulpar.env", env_v) > 0) {
+    if (!g_host.debuggable) {
+      std::printf("[engine_bridge] android: debug.tulpar.env YOK SAYILDI — APK hata ayiklanabilir degil\n");
+    } else {
+      char *save = nullptr;
+      for (char *tok = strtok_r(env_v, ";", &save); tok; tok = strtok_r(nullptr, ";", &save)) {
+        char *eq = std::strchr(tok, '=');
+        if (!eq || eq == tok) continue;
+        *eq = 0;
+        setenv(tok, eq + 1, 1);
+        const size_t dolu = std::strlen(s_env_onceki), n = std::strlen(tok);
+        if (dolu + n + 2 <= sizeof(s_env_onceki)) {
+          if (dolu) s_env_onceki[dolu] = ';';
+          std::memcpy(s_env_onceki + dolu + (dolu ? 1 : 0), tok, n + 1);
+        }
+        std::printf("[engine_bridge] android: debug.tulpar.env %s=%s\n", tok, eq + 1);
+      }
+    }
+  }
   save_mirror_external(app, assets);
 
   // Oyunun giris noktasi: Tulpar objesinin `main`i (raylib'in rcore_android'i

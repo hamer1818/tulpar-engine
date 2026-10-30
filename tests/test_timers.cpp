@@ -4,7 +4,13 @@
 // cagirma icinden iptal, ve zaman olceginin belirlenimi bozmamasi.
 #include "sim/timers.hpp"
 
+#include <time.h>
+
+#include <cstdlib>
+#include <cstring>
+
 #include "core/memory/arena.hpp"
+#include "platform/time.hpp"
 #include "sim/schedule.hpp"
 #include "tests/test.hpp"
 
@@ -260,4 +266,44 @@ ENGINE_TEST(fixed_step_zero_or_negative_scale_freezes) {
   CHECK(fs.advance(1.0f) == 0);
   CHECK(fs.tick == 0);
   CHECK(fs.accumulator == 0.0f); // negatif birikim OLUSMADI
+}
+
+// platform::local_day_index — gunluk gorev rotasyonunun "bugun"u (Kup-Kure A9, 2026-10-18). Iddia:
+// gun YEREL saat dilimiyle degisir. Ayni an (2026-10-17 22:30 UTC) Turkiye'de (UTC+3) 18 Ekim'dir;
+// UTC gunuyle rotasyon Turkiye'de gece 03:00'te donerdi. POZITIF KONTROL ayni testte: ayni an UTC'de
+// 17 Ekim (gun farki 1) — test saat dilimini gercekten olcuyor, sabit bir sayi karsilastirmiyor.
+// Ortam TZ testten sonra geri konur (diger testler dilimden bagimsiz).
+namespace {
+void tz_kur(const char *tz) {
+#if defined(_WIN32)
+  _putenv_s("TZ", tz ? tz : "");
+  _tzset();
+#else
+  if (tz) setenv("TZ", tz, 1); else unsetenv("TZ");
+  tzset();
+#endif
+}
+} // namespace
+ENGINE_TEST(platform_local_day_follows_timezone) {
+  const char *eski = getenv("TZ");
+  char eski_kopya[128] = {0};
+  if (eski) std::strncpy(eski_kopya, eski, sizeof eski_kopya - 1);
+  const int64_t an = 1792276200;   // 2026-10-17 22:30:00 UTC
+  tz_kur("UTC0");
+  CHECK(platform::local_day_index(0) == 0);              // 1970-01-01
+  CHECK(platform::local_day_index(951825600) == 11016);  // 2000-02-29 12:00 UTC (artik gun)
+  const int32_t utc = platform::local_day_index(an);
+  tz_kur("TRT-3");                                       // POSIX: UTC+3 (Turkiye)
+  const int32_t trt = platform::local_day_index(an);
+  tz_kur("HST10");                                       // UTC-10 (Hawaii): ayni an hala 17 Ekim
+  const int32_t hst = platform::local_day_index(an);
+  tz_kur(eski ? eski_kopya : nullptr);
+  CHECK(utc == 20743);   // 2026-10-17
+  CHECK(trt == 20744);   // 2026-10-18 — yerel gun
+  CHECK(trt - utc == 1); // pozitif kontrol: dilim degisince gun degisiyor
+  CHECK(hst == 20743);
+  // simdiki an: UTC gunune en cok bir gun uzak (her dilim -12..+14 saat)
+  const int32_t simdi = platform::local_day_index(-1);
+  const int32_t simdi_utc = (int32_t)(time(nullptr) / 86400);
+  CHECK(simdi - simdi_utc >= -1 && simdi - simdi_utc <= 1);
 }

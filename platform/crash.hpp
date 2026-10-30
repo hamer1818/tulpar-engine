@@ -24,6 +24,13 @@ struct CrashConfig {
 bool crash_reporter_install(const CrashConfig &cfg);
 // Kurulu mu?
 bool crash_reporter_installed();
+// Rapora ek govde (yayin adimi 6): isleyici cerceveden SONRA, "=== end ==="dan
+// once `fn(fd)` cagirir — surum, cihaz, son log satirlari gibi cokmeden ONCE
+// hazirlanmis metin. fn YALNIZ async-signal-safe is yapmali (write(), hazir
+// tamponlar; malloc/printf/kilit yok). nullptr kaldirir. Kurulumdan once de cagrilabilir.
+void crash_reporter_set_extra(void (*fn)(int fd));
+// Raporlarin yazildigi dizin (kurulmadiysa bos metin).
+const char *crash_reporter_dir();
 // Su anki cagri yiginini rapor bicimiyle `out`a yazar (test/teshis).
 // Donus: cerceve sayisi.
 int crash_capture_frames(void **pcs, int max);

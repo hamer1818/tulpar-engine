@@ -103,6 +103,10 @@ void run_case(bool fiber) {
     int frames = count_frames(buf);
     CHECK(frames >= 3);
     CHECK(strstr(buf, "=== end ===") != nullptr);
+    // Ek govde (yayin adimi 6: surum/cihaz/son log satirlari buradan girer): duz kipte
+    // cocuk kurar, fiber kipinde kurmaz — satir YALNIZ kurulunca, cercevelerden sonra.
+    const char *ek = strstr(buf, "ek: cocuk-govde");
+    CHECK(fiber ? ek == nullptr : (ek != nullptr && ek > strstr(buf, "frames:") && ek < strstr(buf, "=== end ===")));
     // Sembol cozumu: arac varsa crash_child_fn adini bulmali (Linux'ta
     // ELF ofsetleri addr2line/llvm-symbolizer ile dogrudan cozulur).
     char cmd[1024];

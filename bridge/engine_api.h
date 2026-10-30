@@ -510,6 +510,17 @@ int teng_save_write(void); // diske yazar (gecici dosya + rename); teng_shutdown
 void teng_save_clear(void);
 int teng_save_count(void);
 
+// --- teshis raporu (yayin adimi 6, 2026-10-13) -----------------------------------
+// AG YOK: cokmede ve oturumun HATA'sinda uygulama dizinine kucuk metin (surum,
+// cihaz, son log satirlari). Sonraki acilista oyun bekleyeni sorar, oyuncu
+// isterse paylasir (Android ACTION_SEND), sonra siler. Penceresiz kosumda
+// yalniz TULPAR_ENGINE_RAPOR=<dizin> ile acik (kapilar dosya dokmesin).
+int teng_report_setup(const char *version);  // 1 acik, 0 kapali (penceresiz)
+const char *teng_report_pending(void);       // onceki oturumlardan en yeni rapor yolu, yoksa ""
+int teng_report_write(const char *why);      // simdi yaz (tulpar_rapor.txt)
+int teng_report_share(const char *path);     // 1 paylasim penceresi acildi; 0 platformda yok / hata
+int teng_report_dismiss(const char *path);   // raporu sil
+
 // --- sahne sicak yeniden yukleme ----------------------------------------------
 // Editorde "Derle" -> .sahneb degisir -> oyun kendini yeniler ("The Truth"
 // dongusunun oyun ayagi). Dosyanin degisim zamani/boyutu izlenir; degisim
@@ -655,6 +666,9 @@ double teng_frame_ms(void); // son kare p50 (profiler)
 // kurulmadan da calisir; olculemezse 0. Tulpar'da bellek_kb(): kare arenasi
 // kapisi (engine_aksiyon.tpr) bununla olcer.
 int teng_rss_kb(void);
+// Cihazin yerel takvim gunu (1970-01-01 = 0; saat dilimi + yaz saati). Motor kurulmadan da calisir.
+// Duvar saatine bagli: oyun yalniz GOZLEM icin kullanir (gunluk gorev), belirlenimli sim okumaz.
+int teng_local_day(void);
 // Surecin sanal boyutu (MB, platform::os_virtual_bytes) ve thread sayisi
 // (platform::os_thread_count). Kurulmadan da calisir; olculemezse 0. Ayni
 // surecte oturum ac/kapa dongusunun kacak kapisi bunlarla olcer (Tuzaklar 8ct).

@@ -144,6 +144,8 @@ func frame_memory_frames(): int { return _kb_kare; }
 // Sürecin yerleşik belleği (RSS), KB. Motor kurulmadan da çalışır.
 func bellek_kb(): int { return eng_rss_kb(); }
 func memory_kb(): int { return eng_rss_kb(); }
+func yerel_gun(): int { return eng_local_day(); }
+func local_day(): int { return eng_local_day(); }
 // Sürecin sanal boyutu (MB) ve thread sayısı; kapanıştan sonra cihaz
 // yıkılmadan önce canlı kalan havuzsuz Vulkan nesnesi (oturumdan oturuma
 // değişmemeli). Motoru kapatıp aynı süreçte yeniden açan kodun kaçak aletleri
@@ -181,9 +183,14 @@ func fizik_duraklat(bool d) { eng_physics_pause(d); }
 func physics_pause(bool p) { eng_physics_pause(p); }
 func fizik_durakli(): bool { return eng_physics_paused(); }
 func physics_paused(): bool { return eng_physics_paused(); }
-// Zaman olcegi: 0.5 agir cekim, 0 donmus, 1 normal (en cok 4).
+// Zaman olcegi: 0.5 agir cekim, 0 donmus, 1 normal (en cok 8; 4'un ustunde kare
+// basina daha cok sabit adim). Hata ayiklama hizli sarmasi (TULPAR_ENGINE_HIZ /
+// debug APK'da `adb shell setprop debug.tulpar.hiz 4`) da bunu kurar: oyun kendi
+// mantik adimini zaman_olcegi_al() ile carpar.
 func zaman_olcegi(float s) { eng_time_scale(s); }
 func time_scale(float s) { eng_time_scale(s); }
+func zaman_olcegi_al(): float { return eng_time_scale_get(); }
+func time_scale_get(): float { return eng_time_scale_get(); }
 func sim_adimi(): int { return eng_sim_tick(); }
 func sim_tick(): int { return eng_sim_tick(); }
 func genislik(): int { return eng_width(); }
@@ -1341,6 +1348,19 @@ func kayit_temizle() { eng_save_clear(); }
 func save_clear() { eng_save_clear(); }
 func kayit_sayisi(): int { return eng_save_count(); }
 func save_count(): int { return eng_save_count(); }
+
+// ---- Teşhis raporu (eng_report_*; ağ yok — docs/KOPRU.md §10) ----------------------
+// Çökme ya da HATA olunca uygulama dizinine küçük metin; sonraki açılışta oyun
+// "Bir sorun oldu, raporu paylaş" der. Paylaşım Android'in seçicisiyle, hedefi oyuncu seçer.
+func rapor_kur(surum): bool { return eng_report_setup(surum); }
+func report_setup(version): bool { return eng_report_setup(version); }
+func rapor_bekleyen(): str { return eng_report_pending(); }
+func report_pending(): str { return eng_report_pending(); }
+func rapor_yaz(neden): bool { return eng_report_write(neden); }
+func rapor_paylas(yol): bool { return eng_report_share(yol); }
+func report_share(path): bool { return eng_report_share(path); }
+func rapor_sil(yol): bool { return eng_report_dismiss(yol); }
+func report_dismiss(path): bool { return eng_report_dismiss(path); }
 // En yüksek skor: yeni rekorsa yazar + diske kaydeder, rekoru döndürür.
 func rekor_guncelle(anahtar, skor): int {
     int eski = toInt(eng_save_get(anahtar, 0));

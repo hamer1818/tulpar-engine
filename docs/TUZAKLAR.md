@@ -1922,6 +1922,14 @@ artış kaçaktır.
   bekleyip headless kipe düşüyor; betik ekranı uyandırıyor ve pencere alamayan oturumu not olarak basıyor
   (pencereli yol ölçülmedi demek).
 
+**Bağlı bayatlık: ortam değişkeni sürece aittir** (2026-10-09, emülatör Pixel_10_Pro_XL x86_64): `android_main`
+`debug.tulpar.env`'deki her `AD=değer`'i `setenv` ile koyuyordu ama önceki oturumun koyduğunu hiç silmiyordu.
+Etkinlik aynı süreçte yeniden yaratılınca (PID 25416, 18:07 ve 18:17) özellik yalnız `TULPAR_KKS_OTOPILOT=1`
+iken 18:07'nin `TULPAR_KKS_TEST=h:1-16:8`'i yaşadı: "sonsuz otopilot" diye açılan oturum hikâye taramasını
+x8'de koştu (logda `[kapi] hikaye test: kisim 1-16 kat 8`). Düzeltme (`bridge/android_host.cpp`): koyulan adlar
+statik bir tamponda tutulur, her girişin başında `unsetenv` edilip logda `onceki oturumdan X silindi` basılır.
+Cihazda pozitif kontrolü (iki ardışık `am start`, ikincisinde eski ad yok) bu düzeltmeyle henüz koşulmadı.
+
 ### 8cu. Yalnız Android'de derlenen liste masaüstü kapısından geçmez — ses biçimi "destekleniyor" ama telefona hiç gitmiyor
 
 **Belirti** (2026-10-07, ilk gerçek oyun "Küpler ile Kürelerin Savaşı", Huawei P20 Pro / Mali-G72 /

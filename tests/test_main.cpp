@@ -30,6 +30,12 @@ __attribute__((noinline)) void crash_child_fn() {
   *p = 42; // SIGSEGV @ 0x0
 }
 void crash_job(void *) { crash_child_fn(); }
+// Rapor ek govdesi (crash_reporter_set_extra): yalniz duz kipte kurulur, fiber kipi
+// onsuz kosar — test ikisini karsilastirir (ek cagriliyor mu / kendiliginden mi yaziliyor).
+void crash_child_extra(int fd) {
+  static const char k[] = "ek: cocuk-govde\n";
+  if (write(fd, k, sizeof k - 1) < 0) return;
+}
 
 // Kosan testin adi: cokme olursa sinyal isleyicisi bunu basar. Cokme,
 // ozet satirini engelliyor ve harness FAIL diyor ama NEREDE oldugunu
@@ -144,6 +150,7 @@ int engine_tests_main(int argc, char **argv) {
     cfg.report_dir = argv[2];
     cfg.build_id = "test-build";
     if (!tulpar::engine::platform::crash_reporter_install(cfg)) return 3;
+    if (argc < 4) tulpar::engine::platform::crash_reporter_set_extra(crash_child_extra);
     if (argc >= 4 && std::strcmp(argv[3], "fiber") == 0) {
       // Fiber ICINDEN cokme: rapor fiber yiginini cozmeli (plan risk kaydi).
       tulpar::engine::SystemArena sys;
