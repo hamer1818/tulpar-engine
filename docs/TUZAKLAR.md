@@ -2290,6 +2290,31 @@ pozitif kontrol: aynı dosyanın kısa yolu farklı anahtar).
 yazmadan önce uzunluğu denetle ve sığmayanı reddet. Test geçici dizinleri kısa olduğu sürece kapı bunu
 göremez — uzun yolu testin kendisi kurmalı.
 
+### 8di. Metin yük FFI'da NUL'da biter, yayın paketi yolda sessizce süzülür — "gönderildi" alındı demek değil
+
+**Sınıf** (2026-10-23, N2a ağ API'si, geliştirme makinesi Linux): iki ayrı sessiz kayıp, ikisi de
+gönderen tarafta `true` döner.
+
+1. **NUL kesilmesi.** Tulpar str'i NUL baytı taşıyabiliyor (`read_file`/`write_file` korur), ama yerel
+   eklenti çağrısı `const char *` veriyor: C tarafı dizgiyi ilk NUL'da bitiriyor. Ölçüldü
+   (`engine_gpusuz.test.tpr` run_ag): `"A"+chr(0)+"B"` (3 bayt) karşıya `"A"` (1 bayt) olarak varıyor.
+   Ham `chr(255)+chr(128)` ise bayt bayt korunuyor. Yani ikili bir protokol Tulpar'da yazılıp sınanırken
+   çoğu paket doğru gider, NUL'lu olanlar **kısalmış ama geçerli görünen** paket olarak teslim edilir.
+   Karşı yönde de aynı: NUL'lu bir datagram Tulpar'a kesik dönerdi. **Önlem:** yük metindir; köprü
+   gelen NUL'lu datagramı düşürür ve sayar (`eng_net_stat(6)`), kesik halini teslim etmez
+   (`bridge_net_drops_nul_and_oversize_datagrams`, kontrol: `A\x01B` teslim ediliyor).
+2. **Yayın süzme.** Alt ağ yayını (192.168.1.255) `sendto` ile 8/8 bayt "gönderildi", ama aynı makinedeki
+   dinleyiciye **ulaşmadı**. 127.255.255.255 ulaştı. Gelen yayın wlan0'ın INPUT zincirinden geçiyor ve
+   makinede ufw açık (varsayılan DROP), lo ise serbest. Telefonda karşılığı Wi-Fi sürücüsünün güç
+   tasarrufu süzgeci: `WifiManager.MulticastLock` yokken yayın gelmez, hata da görünmez. **Önlem:** kapı
+   alt ağ yolunu geçti saymaz, görünür ATLANDI basar (`platform_net_udp_broadcast_reaches_local_listener`).
+   Android'de `eng_net_wifi_lock(1)` + manifestte CHANGE_WIFI_MULTICAST_STATE (TulparLang
+   `TULPAR_ANDROID_LAN=1`; INTERNET'siz istenirse derleme durur). Oyun protokolü bulmayı **onaylı**
+   yapmalı (yayın → tek yönlü değil, karşı taraf unicast yanıt verir).
+
+**Genel kural:** ağda gönderenin `true`'su yalnız "çekirdek kabul etti" demektir. Kapı alıcıda
+ölçer, bulunamayan yolu ATLANDI basar.
+
 ### 8dj. Fizik kare süresiyle adımlanır, oyun tik'i ayrı biriktiricide — iki cihazda "tik/fizik gruplaması" ayrışır
 
 **Belirti (N2b, 2026-10-23, iki süreç loopback):** kilit adımlı ağ düellosu (iki eş aynı komutları aynı tik'te

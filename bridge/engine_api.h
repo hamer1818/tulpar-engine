@@ -686,6 +686,24 @@ int teng_thread_count(void);
 // oturumdan oturuma degismemeli. Hic olculmediyse -1.
 int teng_vk_live(void);
 
+// --- yerel ag: engellemesiz UDP/IPv4 (N2a, 2026-10-23; KOPRU.md §11) ----------
+// Motor kurulmadan da calisir; teng_shutdown butun soketleri kapatir. Tutamac 0 =
+// gecersiz. Yuk METIN (en cok 1200 bayt, NUL'suz): NUL iceren gelen datagram
+// dusurulur ve sayilir. Cok degerli alim: teng_net_recv(h) == 1 ise teng_net_last_*.
+int teng_net_open(int port, int broadcast); // port 0 = sistem secer; broadcast=1 SO_BROADCAST
+int teng_net_close(int h);
+int teng_net_port(int h); // bagli yerel port
+int teng_net_send(int h, const char *ip, int port, const char *payload);
+int teng_net_broadcast(int h, int port, const char *payload); // yerel alt agin yayin adresine
+int teng_net_recv(int h);                                     // 1 = paket okundu, 0 = bekleyen yok
+const char *teng_net_last_payload(int h);
+const char *teng_net_last_ip(int h);
+int teng_net_last_port(int h);
+const char *teng_net_local_ip(void);     // "" = yerel ag arayuzu yok (ayirir: lobi aninda)
+const char *teng_net_broadcast_ip(void); // yonlendirilmis yayin, yoksa 255.255.255.255
+int teng_net_stat(int which);            // 0 acik .. 10 recv hatasi (KOPRU §11 tablosu)
+int teng_net_wifi_lock(int on);          // Android MulticastLock; masaustunde 1 (gerekmez)
+
 #ifdef __cplusplus
 }
 #endif

@@ -74,6 +74,69 @@ func run_kurulumsuz() {
     assert_eq_int(sim_adimi(), 0);
 }
 
+// 1b) Yerel ağ (N2a): iki UDP soketi AYNI süreçte 127.0.0.1 üzerinden paket değiştirir.
+// Motor kurulmadan çalışır (lobi motor kurulmadan da açılabilsin). Ölçülen: Tulpar str'i
+// FFI'dan C'ye, datagramdan geri Tulpar'a nasıl geçiyor — UTF-8 ve 0x80-0xFF baytları korunur,
+// NUL baytı C tarafında dizgiyi BİTİRİR (yük metin olmalı; KOPRU §11).
+func udp_bekle(int h): bool {
+    int i = 0;
+    while (i < 200) {
+        if (udp_al(h)) { return true; }
+        sleep(1);
+        i = i + 1;
+    }
+    return false;
+}
+func run_ag() {
+    int a = udp_ac(0, false);
+    int b = net_open(0, false);
+    assert(a > 0 && b > 0, "UDP soketi acilamadi (a=" + toString(a) + " b=" + toString(b) + ")");
+    int pb = udp_port(b);
+    assert(pb > 0 && pb != net_port(a), "port 0 ile sistem bir port secmeli");
+    // KONTROL: bos kuyruk false, yuk bos.
+    assert(!udp_al(b), "gondermeden paket alindi");
+    assert_eq_int(len(udp_son_yuk(b)), 0);
+    str yuk = "KKS1 t=42 k=Kaya Yağmuru ğüşıİçö";
+    assert(udp_gonder(a, "127.0.0.1", pb, yuk), "gonderilemedi");
+    assert(udp_bekle(b), "paket 200 ms'de gelmedi");
+    assert_eq_str(udp_son_yuk(b), yuk);
+    assert_eq_str(net_last_ip(b), "127.0.0.1");
+    assert_eq_int(udp_son_port(b), udp_port(a));
+    assert(!udp_al(b), "tek paket iki kez alindi");
+    // Ters yon (EN ikizleriyle).
+    assert(net_send(b, udp_son_ip(b), udp_son_port(b), "ack 42"), "yanit gonderilemedi");
+    assert(udp_bekle(a), "yanit gelmedi");
+    assert_eq_str(net_last_payload(a), "ack 42");
+    // Yuksek bayt (chr(255): gecersiz UTF-8) gidip geliyor mu — OLCUM.
+    str ham = "x" + chr(255) + chr(128) + "y";
+    assert(udp_gonder(a, "127.0.0.1", pb, ham), "ham bayt gonderilemedi");
+    assert(udp_bekle(b), "ham bayt paketi gelmedi");
+    str geri = udp_son_yuk(b);
+    print("    [bilgi] ag: chr(255)+chr(128) yuku " + toString(len(ham)) + " bayt gitti, " + toString(len(geri)) + " bayt geldi");
+    assert_eq_int(len(geri), len(ham));
+    assert(geri == ham, "0x80-0xFF baytlari bozuldu");
+    // NUL: C tarafinda dizgi BITER (Tulpar str'i NUL tasisa da FFI const char * verir).
+    str nul = "A" + chr(0) + "B";
+    assert(udp_gonder(a, "127.0.0.1", pb, nul), "NUL'lu yuk gonderilemedi");
+    assert(udp_bekle(b), "NUL'lu yuk paketi gelmedi");
+    print("    [bilgi] ag: \"A\"+chr(0)+\"B\" (" + toString(len(nul)) + " bayt) -> karsida \"" + udp_son_yuk(b) + "\" ("
+        + toString(len(udp_son_yuk(b))) + " bayt)");
+    assert_eq_str(udp_son_yuk(b), "A");
+    // Olu tutamac HATA sayar.
+    int hata = eng_error_count();
+    int olu = udp_sayac(8);
+    assert(udp_kapat(a), "kapatilamadi");
+    assert(!udp_gonder(a, "127.0.0.1", pb, "x"), "kapali soketten gonderildi");
+    assert_eq_int(udp_sayac(8), olu + 1);
+    assert_eq_int(eng_error_count(), hata + 1);
+    assert(net_close(b), "b kapatilamadi");
+    assert_eq_int(udp_sayac(0), 0);
+    str ip = udp_yerel_ip();
+    print("    [bilgi] ag: yerel ip '" + ip + "', yayin " + udp_yayin_ip());
+    assert(len(udp_yayin_ip()) >= 7, "yayin adresi bos");
+}
+
+
 // 2) Kurulum düşer: false + hata metni; sonrası çökmeden hata sayar.
 func run_kurulum_duser() {
     log_seviyesi(1);
@@ -140,6 +203,7 @@ func run_yeniden_deneme() {
 }
 
 test("kurulumsuz cagrilar: alti double, i32/str/bool, hata sayaci kontrolu", "run_kurulumsuz");
+test("yerel ag: iki UDP soketi paket degistirir, UTF-8/ham bayt, NUL keser, olu tutamac", "run_ag");
 test("kurulum duser: hata metni, kurulumsuz cagri sayilir, kapanis guvenli", "run_kurulum_duser");
 test("yeniden deneme: 8 dusen kurulum RSS buyutmez (arena + worker geri birakildi)", "run_yeniden_deneme");
 test_summary();

@@ -365,6 +365,60 @@ bool android_share_text(const char *subject, const char *text) {
   std::printf("[engine_bridge] android: rapor paylasimi %s\n", ok ? "secici acildi" : "ACILAMADI (JNI)");
   return ok;
 }
+// --- Ag: Wi-Fi yayin kilidi (teng_net_wifi_lock, N2a 2026-10-23) ----------------
+// Cogu telefonun Wi-Fi surucusu guc tasarrufu icin coklu yayin VE yayin paketlerini
+// kilit yokken suzer: ayni agdaki rakibi bulan UDP yayini (oyun TASARIM §21) hic
+// gelmez, hata da vermez. WifiManager.MulticastLock bunu acar; manifestte
+// CHANGE_WIFI_MULTICAST_STATE ister (yoksa acquire SecurityException -> false).
+// Kilit uygulama baglamindan (Activity degil) yaratilir ve GlobalRef'te tutulur:
+// etkinlik ayni surecte yeniden yaratilinca (Tuzaklar 8ct) de gecerli kalir.
+// Referans sayimsiz: iki kez al tek kez birak yeter, alinmamisi birakmak istisna atmaz.
+jobject g_ag_kilit = nullptr;
+bool android_wifi_lock(bool on) {
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e || !g_share_app) return false;
+  if (!on && !g_ag_kilit) return true; // alinmamis kilidi birakmak: yapacak is yok
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return false; }
+  const char *asama = "baglam";
+  if (!g_ag_kilit) {
+    jobject act = g_share_app->activity->clazz;
+    jmethodID gac = e->GetMethodID(e->GetObjectClass(act), "getApplicationContext", "()Landroid/content/Context;");
+    jobject ctx = gac && j.ok() ? e->CallObjectMethod(act, gac) : nullptr;
+    jmethodID gss = ctx && j.ok() ? e->GetMethodID(e->GetObjectClass(ctx), "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;") : nullptr;
+    if (gss && j.ok()) asama = "WifiManager";
+    jobject wm = gss && j.ok() ? e->CallObjectMethod(ctx, gss, e->NewStringUTF("wifi")) : nullptr;
+    jmethodID cml = wm && j.ok() ? e->GetMethodID(e->GetObjectClass(wm), "createMulticastLock",
+                                                  "(Ljava/lang/String;)Landroid/net/wifi/WifiManager$MulticastLock;")
+                                 : nullptr;
+    if (cml && j.ok()) asama = "createMulticastLock";
+    jobject kilit = cml && j.ok() ? e->CallObjectMethod(wm, cml, e->NewStringUTF("tulpar_ag")) : nullptr;
+    if (kilit && j.ok()) {
+      jmethodID rc = e->GetMethodID(e->GetObjectClass(kilit), "setReferenceCounted", "(Z)V");
+      if (rc && j.ok()) e->CallVoidMethod(kilit, rc, JNI_FALSE);
+      if (j.ok()) g_ag_kilit = e->NewGlobalRef(kilit);
+    }
+  }
+  bool ok = false;
+  if (g_ag_kilit) {
+    asama = on ? "acquire (izin: CHANGE_WIFI_MULTICAST_STATE?)" : "release";
+    jclass kc = e->GetObjectClass(g_ag_kilit);
+    jmethodID m = e->GetMethodID(kc, on ? "acquire" : "release", "()V");
+    if (m && j.ok()) {
+      e->CallVoidMethod(g_ag_kilit, m);
+      ok = j.ok(); // SecurityException burada temizlenir -> false
+    }
+    jmethodID held = e->GetMethodID(kc, "isHeld", "()Z");
+    const bool tutuluyor = held && j.ok() && e->CallBooleanMethod(g_ag_kilit, held) == JNI_TRUE && j.ok();
+    std::printf("[engine_bridge] android: Wi-Fi yayin kilidi %s %s (isHeld=%d)\n", on ? "al" : "birak", ok ? "tamam" : "BASARISIZ",
+                tutuluyor ? 1 : 0);
+    if (ok && on && !tutuluyor) ok = false;
+  }
+  if (!ok) std::printf("[engine_bridge] android: Wi-Fi yayin kilidi dustu: asama %s\n", asama);
+  e->PopLocalFrame(nullptr);
+  return ok;
+}
+
 // Cihaz tanimi (rapora girer): uretici, model, Android surumu, API, ABI.
 // Kisisel veri yok (seri numarasi / reklam kimligi OKUNMAZ).
 void report_device(char *out, size_t cap) {
@@ -607,6 +661,7 @@ extern "C" void android_main(android_app *app) {
     report_device(cihaz, sizeof cihaz);
     bridge::bridge_report_host(dir, cihaz, android_share_text);
   }
+  bridge::bridge_net_host(android_wifi_lock); // teng_net_wifi_lock: MulticastLock (g_share_app ile ayni Activity)
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
   // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun

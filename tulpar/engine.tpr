@@ -1400,3 +1400,39 @@ func dosya_kopyala(kaynak, hedef): bool { return eng_file_copy(kaynak, hedef); }
 func file_copy(src, dst): bool { return eng_file_copy(src, dst); }
 func dosya_zamani(yol): float { return eng_file_mtime(yol); }
 func file_mtime(path): float { return eng_file_mtime(path); }
+// --- Yerel ağ: engellemesiz UDP (N2a, 2026-10-23; docs/KOPRU.md §11) ---------------------
+// Aynı Wi-Fi'da sunucusuz 1v1 için. Motor kurulmadan da çalışır; motor_kapat bütün soketleri
+// kapatır. Tutamaç 0 = geçersiz. Yük METİN (en çok 1200 bayt): Tulpar str'i C tarafına NUL'da
+// biter, NUL içeren gelen paket düşürülür ve sayılır. Alım "hesapla sonra oku":
+//   while udp_al(h) { yuk = udp_son_yuk(h); ip = udp_son_ip(h); ... }
+// Android: yayın almak için udp_wifi_kilidi(true) (manifestte CHANGE_WIFI_MULTICAST_STATE) ve
+// INTERNET izni gerekir.
+func udp_ac(int port, yayin): int { return eng_net_open(port, yayin); }
+func net_open(int port, broadcast): int { return eng_net_open(port, broadcast); }
+func udp_kapat(int h): bool { return eng_net_close(h); }
+func net_close(int h): bool { return eng_net_close(h); }
+func udp_port(int h): int { return eng_net_port(h); }
+func net_port(int h): int { return eng_net_port(h); }
+func udp_gonder(int h, ip, int port, yuk): bool { return eng_net_send(h, ip, port, yuk); }
+func net_send(int h, ip, int port, payload): bool { return eng_net_send(h, ip, port, payload); }
+func udp_yayinla(int h, int port, yuk): bool { return eng_net_broadcast(h, port, yuk); }
+func net_broadcast(int h, int port, payload): bool { return eng_net_broadcast(h, port, payload); }
+func udp_al(int h): bool { return eng_net_recv(h); }
+func net_recv(int h): bool { return eng_net_recv(h); }
+func udp_son_yuk(int h): str { return eng_net_last_payload(h); }
+func net_last_payload(int h): str { return eng_net_last_payload(h); }
+func udp_son_ip(int h): str { return eng_net_last_ip(h); }
+func net_last_ip(int h): str { return eng_net_last_ip(h); }
+func udp_son_port(int h): int { return eng_net_last_port(h); }
+func net_last_port(int h): int { return eng_net_last_port(h); }
+func udp_yerel_ip(): str { return eng_net_local_ip(); }
+func net_local_ip(): str { return eng_net_local_ip(); }
+func udp_yayin_ip(): str { return eng_net_broadcast_ip(); }
+func net_broadcast_ip(): str { return eng_net_broadcast_ip(); }
+// Sayaçlar: 0 açık soket, 1 gönderilen, 2 alınan, 3 gönderim düştü, 4 uzun yük reddi,
+// 5 kesik alım düştü, 6 NUL'lu alım düştü, 7 soket tavanı reddi, 8 ölü tutamaç, 9 açılamayan
+// soket, 10 alım hatası.
+func udp_sayac(int hangi): int { return eng_net_stat(hangi); }
+func net_stat(int which): int { return eng_net_stat(which); }
+func udp_wifi_kilidi(ac): bool { return eng_net_wifi_lock(ac); }
+func net_wifi_lock(on): bool { return eng_net_wifi_lock(on); }
