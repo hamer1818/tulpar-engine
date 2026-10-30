@@ -436,6 +436,9 @@ int teng_debug_clip_channels(int clip);
 // TEST: sistem arenasinin dolulugu (bayt). Klip/model/muzik yuvasi bedelini olcmek icin; SPEC'te yok.
 long long teng_debug_sys_arena_used(void);
 int teng_touch_count(void);
+int teng_touch_id(int i); // i. basili parmagin KIMLIGI (dizin kayar, kimlik kalir; M6); yoksa -1
+// TEST: dokunus enjekte eder (penceresiz kapilar; SPEC'te yok). down 0 = parmak kalkar.
+void teng_debug_touch(int id, double x, double y, int down);
 double teng_touch_x(int i);
 double teng_touch_y(int i);
 double teng_stick_x(void); // sanal joystick -1..1 (sol yarim ekran surukleme)
@@ -449,6 +452,13 @@ int teng_mouse_down(int button);
 // --- 2B arayuz (kare icinde cagrilir, frame_end'de cizilir) ------------------
 void teng_text(const char *s, double x, double y, double scale, int64_t color);
 void teng_rect(double x, double y, double w, double h, int64_t color);
+// Arayuz RESMI (M1): PNG/JPG -> sRGB doku, mip yok, sabit 32 yuva (ayni yol ayni
+// tutamac). Cizim HUD sirasinda (kare icinde); renk tint carpani (beyaz = resmin kendisi).
+int teng_image_load(const char *path); // -1 hata / tavan dolu (sayilir)
+void teng_image(int h, double x, double y, double w, double hh, int64_t color);
+void teng_image_uv(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1, int64_t color);
+int teng_image_w(int h);
+int teng_image_h(int h);
 double teng_text_width(const char *s, double scale);
 
 // --- anlik-kip (immediate mode) arayuz: menu / ayar / duraklat ---------------
@@ -468,6 +478,11 @@ int teng_ui_button(const char *label, double x, double y, double w, double h);  
 int teng_ui_checkbox(const char *label, double x, double y, double w, double h, int value); // YENI deger
 double teng_ui_slider(const char *label, double x, double y, double w, double h, double value, double min_v, double max_v); // YENI deger
 int teng_ui_active(void);
+// Cizimsiz dokunma alani (arayuz kiti): dugmenin mantigi (kimlik, basma/birakma, enjeksiyon,
+// devre disi, tiklama sayaci) ama HICBIR SEY cizmez — gorunusu betik resim/dikdortgenle kurar.
+// Donus bit maskesi: 1 bu karede tiklandi, 2 basili tutuluyor (basma bu alanda basladi ve
+// isaretci hala asagida), 4 isaretci alanin ustunde. Devre disiyken 0.
+int teng_ui_hit(const char *label, double x, double y, double w, double h);
 // Etiket sigdirma sayaclari (Geri bildirim #15), CIZIM basina birikir: yazi kutuya
 // yukseklikten gelen olcekle sigmadi -> kucultuldu; en az olcekte (yuksekligin
 // %55'i) de sigmadi -> "..." ile kirpildi (ilk kirpma UYARI).

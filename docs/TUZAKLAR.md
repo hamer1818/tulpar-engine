@@ -2239,6 +2239,24 @@ KONTROL `TULPAR_KKS_BOSS_BUYUME_YOK=1` → Koca Yumru 0.11.
 durum (boss, araba, pilon) düzeltmeyi de çıkarır. "Yüklendi, doğdu, görünür, hata yok" görünürlüğü kanıtlamaz:
 çizilen boyu ölç.
 
+### 8dh. Önbellek anahtarı sabit tampona `snprintf` ile kesilir — "aynı yol aynı tutamaç" uzun yolda sessizce bozulur
+
+**Sınıf** (2026-10-19, A13 incelemesi, RTX 5080 / Linux): `teng_image_load` aynı yolu ikinci kez
+yüklememek için yuvadaki `char path[128]` ile `strcmp` yapıyordu; yuvaya yol `snprintf` ile yazılıyordu.
+127 bayttan uzun yol kesilerek saklanıyor, sonraki çağrının tam yolu kesik anahtarla hiç eşleşmiyor,
+her çağrı YENİ yuva alıyor ve 32'lik resim tavanı doluyordu. Hata yok, uyarı yok; tavan dolana kadar
+her şey çalışıyor görünüyor. Ölçüldü: scratchpad `TMPDIR`'de (~125 baytlık yol)
+`bridge_ui_image_draws_srgb_png_like_rect` DÜŞTÜ, kısa `TMPDIR`'de geçti — testin geçmesi yolun
+kısalığına bağlıydı.
+
+**Düzeltme:** yuva yolu 512 bayt; sığmayan yol HATA + -1 (sayılır, kesilip yüklenmez). Kapı:
+`bridge_image_long_path_dedups_and_rejects_overflow` (306 baytlık yol aynı tutamaç, 706 bayt ret;
+pozitif kontrol: aynı dosyanın kısa yolu farklı anahtar).
+
+**Ders:** sabit tampona yazılan bir dizgi **anahtar** olarak kullanılıyorsa kesme sessiz bozulmadır;
+yazmadan önce uzunluğu denetle ve sığmayanı reddet. Test geçici dizinleri kısa olduğu sürece kapı bunu
+göremez — uzun yolu testin kendisi kurmalı.
+
 ### 8dk. Ekranı aynalamak üçgen sarımını ters çevirir; ayna kameradan "taklit" edilirse sahnenin arkası görünür
 
 **Belirti (N2b, 2026-10-23):** ağ 1v1'de katılan oyuncu kendi kalesini solda görsün diye kamera şeridin öbür

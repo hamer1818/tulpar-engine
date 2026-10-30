@@ -31,6 +31,7 @@
 #include "bridge/bridge_host.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
+#include "content/image.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
 #include "core/jobs/job_system.hpp"
@@ -309,11 +310,16 @@ struct Ent {
   bool dying = false, bitir_running = false;
 };
 struct HudCmd {
-  uint8_t kind; // 0 rect, 1 text
+  uint8_t kind; // 0 rect, 1 text, 2 resim (M1: text_off = resim yuvasi, u0..v1 doku koordinati)
   float x, y, w, h, scale;
   uint32_t rgba;
   uint32_t text_off;
+  float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
 };
+// Arayuz RESMI (M1, 2026-10-09): PNG/JPG -> sRGB doku (mip yok) + malzeme; HUD'da
+// HudCmd tur 2 olarak kuyruklanir, flush'ta ui_set_atlas(malzeme) + ui_quad. Renderer
+// degismedi (ui_quad zaten dortgen basina malzeme tasiyor). Sabit 32 yuva (A2).
+constexpr uint32_t kMaxImages = 32;
 
 // ---------------------------------------------------------------------------
 // Anlik-kip arayuz durumu: isaretci + "hangi widget basili". Widget DEGERLERI
@@ -628,6 +634,10 @@ struct Bridge {
   int32_t safe_debug[4] = {-1, -1, -1, -1};
   bool cur_keys[512] = {};
   const platform::TouchState *touch = nullptr;
+  // TEST: enjekte dokunuslar (teng_debug_touch; penceresiz kapilar, M6). Aciksa kare
+  // basinda host'un yerine bu okunur.
+  platform::TouchState dbg_touch;
+  bool dbg_touch_on = false;
   app::VirtualStick stick;
   // --- gomulu kip (editorun F5'i; platform/game_channel.hpp) ---------------
   // Oyun editorun ICINDE oynatilir: cizim offscreen (headless yolu), kare
@@ -651,6 +661,19 @@ struct Bridge {
   // hud
   HudCmd hud[kMaxHud];
   uint32_t hud_n = 0;
+  struct ImageSlot {
+    renderer::TextureHandle tex;
+    renderer::MaterialHandle mat;
+    uint32_t w = 0, h = 0;
+    bool opaque = false;
+    // Ayni yol ayni tutamac: anahtar TAM yol. 128 baytti ve snprintf sessizce kesiyordu;
+    // 127+ karakterlik yol (uzun TMPDIR, derin depo dizini) her cagrida YENI yuva aliyordu
+    // ve 32'lik tavan doluyordu (A13 incelemesi, 2026-10-19, olculdu). Sigmayan yol REDDEDILIR.
+    char path[512] = {0};
+  };
+  ImageSlot images[kMaxImages];
+  uint32_t image_count = 0, image_rejected = 0;
+  uint64_t image_draws = 0, image_opaque_draws = 0;
   // Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi
   // koyultmak icin oyun tam ekran YARI SAYDAM dortgen ciziyordu; Mali'de (TBDR)
   // bu +2.57 ms/kare (P20 Pro, 2159x1080, parlama acik, 2026-10-08; compose
@@ -1138,7 +1161,17 @@ void render_frame() {
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
     if (c.kind == 0) b.ren.ui_rect(c.x, c.y, c.w, c.h, c.rgba);
-    else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
+    else if (c.kind == 2) {
+      // Resim: kendi malzemesiyle tek dortgen, sonra atlas FONTA geri doner (ui_rect
+      // atlasin beyaz texelini, metin glifleri ornekler). Opak resim + opak renk
+      // harmanlamasiz yola (TBDR'de tam ekran panel bedava; Geri bildirim #16).
+      const Bridge::ImageSlot &im = b.images[c.text_off];
+      b.ren.ui_set_atlas(im.mat);
+      if (im.opaque) { b.ren.ui_quad_opaque(c.x, c.y, c.w, c.h, c.u0, c.v0, c.u1, c.v1, c.rgba); if ((c.rgba >> 24) == 255u) b.image_opaque_draws++; }
+      else b.ren.ui_quad(c.x, c.y, c.w, c.h, c.u0, c.v0, c.u1, c.v1, c.rgba);
+      b.image_draws++;
+      b.ren.ui_set_atlas(b.font_ok ? b.font.atlas() : renderer::MaterialHandle{});
+    } else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
   }
   b.hud_n = 0; b.hud_text_n = 0;
   {
@@ -1708,6 +1741,7 @@ int teng_frame_begin(void) {
     std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys);
     std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
   }
+  if (b.dbg_touch_on) { b.touch = &b.dbg_touch; b.stick.update(b.dbg_touch, now); }
   // --- yasam dongusu: arka plan -> ses durur, on plan -> surer -------------
   {
     bool p = false;
@@ -2377,6 +2411,9 @@ void teng_shutdown(void) {
   if (b.scene_loads)
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
+  if (b.image_count || b.image_rejected)
+    BINFO("kapanis (resim): %u/%u resim, %llu cizim (%llu opak yoldan), tavan reddi %u", b.image_count, kMaxImages,
+          (unsigned long long)b.image_draws, (unsigned long long)b.image_opaque_draws, b.image_rejected);
   if (b.music[0].buf || b.music[1].buf)
     BINFO("kapanis (muzik yuvasi): %u yuva x %u s (%u MB %s), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)",
           b.music_slots, b.music_slot_sec,
@@ -3708,6 +3745,23 @@ void teng_back_test_press(void) {
   BDBG("geri: basis kuyruklandi, sonraki kare eng_back_pressed true");
 }
 int teng_touch_count(void) { return g && g->touch ? (int)g->touch->count : 0; }
+// Parmak KIMLIGI (M6): i, basili parmaklarin sikistirilmis dizini (teng_touch_x/y ile
+// ayni sira); bir parmak kalkinca obur parmaklarin DIZINI kayar ama KIMLIGI kalir —
+// joystick + dugme ayni anda, ayni cihazda iki oyuncu (Masa Duellosu) bunu ister.
+int teng_touch_id(int i) {
+  if (!g || !g->touch) return -1;
+  uint32_t k = 0;
+  for (uint32_t j = 0; j < platform::TouchState::kMax; j++) if (g->touch->pts[j].down) { if ((int)k == i) return g->touch->pts[j].id; k++; }
+  return -1;
+}
+void teng_debug_touch(int id, double x, double y, int down) {
+  if (!g) return;
+  platform::TouchState &t = g->dbg_touch;
+  g->dbg_touch_on = true;
+  t.width = (float)(g->fb_w ? g->fb_w : 1); t.height = (float)(g->fb_h ? g->fb_h : 1);
+  if (!down) { t.end(id); return; }
+  if (t.find(id)) t.move(id, (float)x, (float)y); else t.begin(id, (float)x, (float)y);
+}
 double teng_touch_x(int i) {
   if (!g || !g->touch) return 0;
   uint32_t k = 0;
@@ -3747,6 +3801,56 @@ void teng_text(const char *s, double x, double y, double scale, int64_t color) {
   b.hud[b.hud_n++] = HudCmd{1, (float)x, (float)y, 0, 0, (float)(scale > 0 ? scale : 1.0), rgba_of(color), b.hud_text_n};
   b.hud_text_n += (uint32_t)n;
 }
+// --- Arayuz resmi (M1) ------------------------------------------------------------
+int teng_image_load(const char *path) {
+  CALLF("teng_image_load", "%s", path ? path : "");
+  if (!ready("teng_image_load") || !path) return -1;
+  Bridge &b = *g;
+  for (uint32_t i = 0; i < b.image_count; i++)
+    if (std::strcmp(b.images[i].path, path) == 0) { BDBG("resim %u yeniden kullanildi: %s", i, path); return (int)i; }
+  if (std::strlen(path) >= sizeof b.images[0].path) {
+    b.image_rejected++;
+    BERR("teng_image_load: yol cok uzun (%u bayt, en cok %u): %.80s...", (unsigned)std::strlen(path), (unsigned)sizeof b.images[0].path - 1, path);
+    return -1;
+  }
+  if (b.image_count >= kMaxImages) { b.image_rejected++; BERR("teng_image_load: resim kapasitesi dolu (%u): %s", kMaxImages, path); return -1; }
+  content::ImageRgba img;
+  char err[128] = {0};
+  if (!content::image_load_file(path, &img, err, sizeof err)) { BERR("resim yuklenemedi %s: %s", path, err); return -1; }
+  // Renk verisi: sRGB doku (ornekleme dogrusal dondurur; ui.frag tepe rengini de
+  // dogrusala cevirip carpar, yani resim ile ayni renkli dikdortgen ayni tonda cikar).
+  const renderer::TextureHandle t = b.ren.create_texture(img.px, img.w, img.h, /*mipmaps=*/false, /*srgb=*/true);
+  const bool opak = img.opaque;
+  const uint32_t w = img.w, h = img.h;
+  content::image_free(img);
+  if (!t.valid()) { BERR("resim GPU'ya yuklenemedi (doku havuzu %u?): %s", kRenderMaxTextures, path); return -1; }
+  const renderer::MaterialHandle m = b.ren.create_material(t, {1, 1, 1});
+  if (!m.valid()) { BERR("resim malzemesi kurulamadi: %s", path); return -1; }
+  const uint32_t i = b.image_count++;
+  Bridge::ImageSlot &s = b.images[i];
+  s.tex = t; s.mat = m; s.w = w; s.h = h; s.opaque = opak;
+  std::snprintf(s.path, sizeof s.path, "%s", path);
+  BINFO("resim %u: %s (%ux%u, %s)", i, path, w, h, opak ? "opak" : "alfali");
+  return (int)i;
+}
+static bool image_ok(int h, const char *fn) {
+  if (!ready(fn)) return false;
+  if (h < 0 || (uint32_t)h >= g->image_count) { BERR("%s: resim %d yok (%u yuklu)", fn, h, g->image_count); return false; }
+  return true;
+}
+int teng_image_w(int h) { return image_ok(h, "teng_image_w") ? (int)g->images[h].w : 0; }
+int teng_image_h(int h) { return image_ok(h, "teng_image_h") ? (int)g->images[h].h : 0; }
+void teng_image_uv(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1, int64_t color) {
+  if (!image_ok(h, "teng_image_uv")) return;
+  Bridge &b = *g;
+  if (!b.in_frame) { BERR("teng_image: kare disinda (teng_frame_begin ile teng_frame_end arasinda cagir)"); return; }
+  if (b.hud_n >= kMaxHud) { if (b.hud_n == kMaxHud) { BERR("HUD komut siniri (%u) asildi, fazlasi atlandi", kMaxHud); b.hud_n++; } return; }
+  HudCmd c{2, (float)x, (float)y, (float)w, (float)hh, 1.0f, rgba_of(color), (uint32_t)h};
+  c.u0 = (float)u0; c.v0 = (float)v0; c.u1 = (float)u1; c.v1 = (float)v1;
+  b.hud[b.hud_n++] = c;
+}
+void teng_image(int h, double x, double y, double w, double hh, int64_t color) { teng_image_uv(h, x, y, w, hh, 0, 0, 1, 1, color); }
+
 double teng_text_width(const char *s, double scale) { return g && g->font_ok && s ? g->font.text_width(s, (float)(scale > 0 ? scale : 1.0)) : 0; }
 
 // --- anlik-kip (immediate mode) arayuz -------------------------------------------
@@ -3953,6 +4057,24 @@ int teng_ui_button(const char *label, double x, double y, double w, double h) {
   teng_rect(x, y + h - 3, w, 3, ui_shade(fill, 0.55));
   ui_text_box(label, x, y, w, h, en ? u.c_text : ui_shade(u.c_text, 0.55), 0, ui_scale(h));
   return clicked ? 1 : 0;
+}
+int teng_ui_hit(const char *label, double x, double y, double w, double h) {
+  CALLF("teng_ui_hit", "\"%s\" (%.0f %.0f %.0f %.0f)", label ? label : "", x, y, w, h);
+  if (!ui_frame("teng_ui_hit")) return 0;
+  Ui &u = g->ui;
+  if (w <= 0 || h <= 0) { BERR("teng_ui_hit: \"%s\" olculeri pozitif olmali (%.1fx%.1f)", label ? label : "", w, h); return 0; }
+  const uint32_t id = ui_use(label, 4, "teng_ui_hit");
+  if (!u.enabled) return 0;
+  const bool inside = ui_hit(x, y, w, h);
+  int r = 0;
+  if (inside) { u.hot = id; r |= 4; }
+  if (inside && u.pressed) u.active = id;
+  if (u.active == id && u.released) {
+    u.active = 0;
+    if (inside) { r |= 1; u.clicks++; BDBG("ui: \"%s\" alani tiklandi (%u. etkinlestirme)", label ? label : "", u.clicks); }
+  }
+  if (u.active == id && u.down) r |= 2;
+  return r;
 }
 int teng_ui_checkbox(const char *label, double x, double y, double w, double h, int value) {
   CALLF("teng_ui_checkbox", "\"%s\" (%.0f %.0f %.0f %.0f) %d", label ? label : "", x, y, w, h, value);

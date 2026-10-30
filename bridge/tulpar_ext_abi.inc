@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 277
+#define TENG_ABI_COUNT 284
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -170,6 +170,7 @@ TENG_ABI(void, eng_debug_safe_insets, teng_debug_safe_insets, (int, int, int, in
 TENG_ABI(int, eng_touch_count, teng_touch_count, (void))
 TENG_ABI(double, eng_touch_x, teng_touch_x, (int))
 TENG_ABI(double, eng_touch_y, teng_touch_y, (int))
+TENG_ABI(int, eng_touch_id, teng_touch_id, (int))
 TENG_ABI(double, eng_stick_x, teng_stick_x, (void))
 TENG_ABI(double, eng_stick_y, teng_stick_y, (void))
 TENG_ABI(int, eng_stick_action, teng_stick_action, (void))
@@ -179,6 +180,11 @@ TENG_ABI(double, eng_mouse_y, teng_mouse_y, (void))
 TENG_ABI(int, eng_mouse_down, teng_mouse_down, (int))
 TENG_ABI(void, eng_text, teng_text, (const char *, double, double, double, int64_t))
 TENG_ABI(void, eng_rect, teng_rect, (double, double, double, double, int64_t))
+TENG_ABI(int, eng_image_load, teng_image_load, (const char *))
+TENG_ABI(void, eng_image, teng_image, (int, double, double, double, double, int64_t))
+TENG_ABI(void, eng_image_uv, teng_image_uv, (int, double, double, double, double, double, double, double, double, int64_t))
+TENG_ABI(int, eng_image_w, teng_image_w, (int))
+TENG_ABI(int, eng_image_h, teng_image_h, (int))
 TENG_ABI(double, eng_text_width, teng_text_width, (const char *, double))
 TENG_ABI(int, eng_audio_open, teng_audio_open, (int, int))
 TENG_ABI(void, eng_audio_close, teng_audio_close, (void))
@@ -253,6 +259,7 @@ TENG_ABI(void, eng_ui_enable, teng_ui_enable, (int))
 TENG_ABI(void, eng_ui_panel, teng_ui_panel, (double, double, double, double, int64_t))
 TENG_ABI(void, eng_ui_label, teng_ui_label, (const char *, double, double, double, int64_t))
 TENG_ABI(int, eng_ui_button, teng_ui_button, (const char *, double, double, double, double))
+TENG_ABI(int, eng_ui_hit, teng_ui_hit, (const char *, double, double, double, double))
 TENG_ABI(int, eng_ui_checkbox, teng_ui_checkbox, (const char *, double, double, double, double, int))
 TENG_ABI(double, eng_ui_slider, teng_ui_slider, (const char *, double, double, double, double, double, double, double))
 TENG_ABI(int, eng_ui_text_shrunk, teng_ui_text_shrunk, (void))

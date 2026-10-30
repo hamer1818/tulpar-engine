@@ -225,6 +225,7 @@ SPEC = [
     ("eng_touch_count", "int", [], "Ekrandaki parmak sayisi (masaustunde 0; TULPAR_ENGINE_DOKUNMATIK=1 ile fare = parmak 0)."),
     ("eng_touch_x", "float", [("i", "int")], "i. parmagin x'i (piksel)."),
     ("eng_touch_y", "float", [("i", "int")], "i. parmagin y'si (piksel)."),
+    ("eng_touch_id", "int", [("i", "int")], "i. basili parmagin KIMLIGI (eng_touch_x/y ile ayni sira). Bir parmak kalkinca obur parmaklarin DIZINI kayar, KIMLIGI kalir: joystick + dugme ayni anda, ayni cihazda iki oyuncu. Yoksa -1."),
     ("eng_stick_x", "float", [], "Sanal joystick x (-1..1; sol yarim ekran surukleme)."),
     ("eng_stick_y", "float", [], "Sanal joystick y (-1..1; ileri = +)."),
     ("eng_stick_action", "bool", [], "Sag yarim ekrana kisa dokunus (bu karede)."),
@@ -235,6 +236,11 @@ SPEC = [
     # HUD
     ("eng_text", "void", [("s", "str"), ("x", "num"), ("y", "num"), ("scale", "num"), ("color", "color")], "Ekrana metin (kare icinde cagir; font yoksa sessizce atlanir, logda uyari)."),
     ("eng_rect", "void", [("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "Ekrana duz dikdortgen (kare icinde cagir)."),
+    ("eng_image_load", "int", [("path", "str")], "Arayuz RESMI yukler (PNG/JPG -> sRGB doku, mip yok; sabit 32 yuva, ayni yol ayni tutamac). Donus: resim tutamaci, -1 hata ya da tavan dolu (kapanista sayilir)."),
+    ("eng_image", "void", [("img", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "Resmi ekrana cizer (HUD sirasinda, kare icinde). Renk tint carpani: BEYAZ = resmin kendisi; alfa 255 + opak resim harmanlamasiz yoldan (TBDR'de tam ekran panel ucuz)."),
+    ("eng_image_uv", "void", [("img", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("u0", "num"), ("v0", "num"), ("u1", "num"), ("v1", "num"), ("color", "color")], "Resmin [u0,v0]-[u1,v1] bolgesini cizer (atlas hucresi: ikon, portre; 0..1, sol ust 0,0)."),
+    ("eng_image_w", "int", [("img", "int")], "Resmin genisligi (piksel)."),
+    ("eng_image_h", "int", [("img", "int")], "Resmin yuksekligi (piksel)."),
     ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi."),
     # ses
     ("eng_audio_open", "bool", [("rate", "int"), ("channels", "int")], "Ses cihazini acar (0,0 = varsayilan 48 kHz stereo). Acilamazsa false: oyun sessiz devam eder, hata loglanir."),
@@ -317,6 +323,7 @@ SPEC = [
     ("eng_ui_panel", "void", [("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "Menu/HUD zemini (renk 0 = tema paneli). eng_ui_begin gerektirmez."),
     ("eng_ui_label", "void", [("s", "str"), ("x", "num"), ("y", "num"), ("scale", "num"), ("color", "color")], "Arayuz metni (renk 0 = tema yazi rengi). eng_ui_begin gerektirmez."),
     ("eng_ui_button", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Dugme: bu karede tiklandiysa true (basma VE birakma dugmenin icinde). Kimlik etiketten turer."),
+    ("eng_ui_hit", "int", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Cizimsiz dokunma alani (arayuz kiti): dugme mantigi, cizim YOK. Bit maskesi: 1 tiklandi, 2 basili tutuluyor, 4 isaretci ustunde; devre disiyken 0. Tiklama sayacina girer."),
     ("eng_ui_checkbox", "bool", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "flag")], "Onay kutusu. Donus YENI degerdir (degisen yoksa gelen deger) — betik geri yazar."),
     ("eng_ui_slider", "float", [("label", "str"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("value", "num"), ("min_v", "num"), ("max_v", "num")], "Kaydirici. Donus YENI degerdir (surukleme sirasinda her kare gunceller); aralik gecersizse hata + gelen deger."),
     ("eng_ui_text_shrunk", "int", [], "Kac dugme/etiket cizimi kutuya sigsin diye KUCULTULDU (cizim basina birikir)."),

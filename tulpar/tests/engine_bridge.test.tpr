@@ -708,6 +708,43 @@ func run_ui() {
     ui_bitir();
     kare_bitir();
     assert_eq_float(kilitli, 0.1);
+    // (h) çizimsiz dokunma alanı (arayüz kiti): içine tıklama bit 1 + sayaç, DIŞINA tıklama 0
+    //     (KONTROL), devre dışıyken aynı tıklama 0 ve sayaç artmaz (KONTROL).
+    int t_alan0 = ui_tiklama();
+    ui_test_tikla(160, 70);
+    kare_basla();
+    ui_basla();
+    int a1 = dokunma_alani("Alan", 60, 40, 200, 60);
+    ui_bitir();
+    kare_bitir();
+    assert((a1 & 1) != 0, "dokunma alanina tiklama bit 1 vermeli");
+    assert((a1 & 4) != 0, "tiklanan alan isaretci ustunde (bit 4) olmali");
+    assert_eq_int(ui_tiklama(), t_alan0 + 1);
+    ui_test_tikla(300, 180);
+    kare_basla();
+    ui_basla();
+    int a2 = dokunma_alani("Alan", 60, 40, 200, 60);
+    ui_bitir();
+    kare_bitir();
+    assert_eq_int(a2, 0);
+    ui_test_tikla(160, 70);
+    kare_basla();
+    ui_basla();
+    ui_etkin(false);
+    int a3 = dokunma_alani("Alan", 60, 40, 200, 60);
+    ui_etkin(true);
+    ui_bitir();
+    kare_bitir();
+    assert_eq_int(a3, 0);
+    assert_eq_int(ui_tiklama(), t_alan0 + 1);
+    assert(ui_test_tikla_ad("Alan"), "dokunma alani adla tiklanabilmeli");
+    kare_basla();
+    ui_basla();
+    int a4 = dokunma_alani("Alan", 60, 40, 200, 60);
+    ui_bitir();
+    kare_bitir();
+    assert((a4 & 1) != 0, "adla tiklama dokunma alanini tetiklemeli");
+    print("    [bilgi] ui alan: ic " + toString(a1) + ", dis " + toString(a2) + ", devre disi " + toString(a3) + ", adla " + toString(a4));
     // (i) guvenli alan taklidi (arayuz turu centikli 2240x1080): sonraki kare basindan gecerli,
     //     KONTROL: taklit kapaninca penceresizde 0 (host yok).
     guvenli_taklit(84, 0, 0, 24);

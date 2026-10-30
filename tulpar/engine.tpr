@@ -972,6 +972,9 @@ func guvenli_taklit(int sol, int ust, int sag, int alt) { eng_debug_safe_insets(
 func debug_safe_insets(int left, int top, int right, int bottom) { eng_debug_safe_insets(left, top, right, bottom); }
 func key(name): bool { return eng_key_down(name); }
 func dokunus_sayisi(): int { return eng_touch_count(); }
+// i. basili parmagin KIMLIGI (dizin bir parmak kalkinca kayar, kimlik kalir); yoksa -1.
+func dokunus_kimligi(i): int { return eng_touch_id(i); }
+func touch_id_e(i): int { return eng_touch_id(i); }
 func cubuk_x(): float { return eng_stick_x(); }
 func cubuk_y(): float { return eng_stick_y(); }
 func eylem(): bool { return eng_stick_action(); }
@@ -999,6 +1002,18 @@ func eylem_basildi(): bool { return eng_key_pressed("SPACE") || eng_stick_action
 func yazi(s, x, y, olcek, renk_) { eng_text(s, x, y, olcek, renk_); }
 func text_e(s, x, y, scale, color) { eng_text(s, x, y, scale, color); }
 func dikdortgen(x, y, w, h, renk_) { eng_rect(x, y, w, h, renk_); }
+// Arayuz RESMI (PNG/JPG, sRGB, 32 yuva): resim_yukle -> tutamac (-1 hata); renk tint carpani (BEYAZ = kendisi).
+func resim_yukle(yol): int { return eng_image_load(yol); }
+func image_load_e(path): int { return eng_image_load(path); }
+func resim_ciz(r, x, y, w, h, renk_) { eng_image(r, x, y, w, h, renk_); }
+func image_draw_e(img, x, y, w, h, color) { eng_image(img, x, y, w, h, color); }
+// Atlas hucresi: [u0,v0]-[u1,v1] (0..1, sol ust 0,0).
+func resim_ciz_uv(r, x, y, w, h, u0, v0, u1, v1, renk_) { eng_image_uv(r, x, y, w, h, u0, v0, u1, v1, renk_); }
+func image_draw_uv_e(img, x, y, w, h, u0, v0, u1, v1, color) { eng_image_uv(img, x, y, w, h, u0, v0, u1, v1, color); }
+func resim_gen(r): int { return eng_image_w(r); }
+func resim_yuk(r): int { return eng_image_h(r); }
+func image_w_e(img): int { return eng_image_w(img); }
+func image_h_e(img): int { return eng_image_h(img); }
 func rect_e(x, y, w, h, color) { eng_rect(x, y, w, h, color); }
 // Sol üstte durum şeridi: FPS, çizim, gövde.
 func durum_seridi() {
@@ -1031,6 +1046,10 @@ func label(text, x, y, scale, color) { eng_ui_label(text, x, y, scale, color); }
 // Her widget dikdörtgenini ADIYLA kaydeder (ui_test_tikla_ad, aşağıda).
 func dugme(ad, x, y, w, h): bool { _ui_kaydet(ad, 1, x, y, w, h); return eng_ui_button(ad, x, y, w, h); }
 func button(label_, x, y, w, h): bool { return dugme(label_, x, y, w, h); }
+// Cizimsiz dokunma alani: gorunusu betik kurar (oyunun arayuz kiti). Bit 1 tiklandi, 2 basili, 4 ustunde.
+// Adla tiklanir (ui_test_tikla_ad) — tur 1, dugmeyle ayni.
+func dokunma_alani(ad, x, y, w, h): int { _ui_kaydet(ad, 1, x, y, w, h); return eng_ui_hit(ad, x, y, w, h); }
+func hit_area(label_, x, y, w, h): int { return dokunma_alani(label_, x, y, w, h); }
 func onay_kutusu(ad, x, y, w, h, deger): bool { _ui_kaydet(ad, 2, x, y, w, h); return eng_ui_checkbox(ad, x, y, w, h, deger); }
 func checkbox(label_, x, y, w, h, value): bool { return onay_kutusu(label_, x, y, w, h, value); }
 func kaydirici(ad, x, y, w, h, deger, en_az, en_cok): float { _ui_kaydet(ad, 3, x, y, w, h); return eng_ui_slider(ad, x, y, w, h, deger, en_az, en_cok); }
