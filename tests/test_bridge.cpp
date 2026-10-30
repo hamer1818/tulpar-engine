@@ -4032,7 +4032,9 @@ ENGINE_TEST(bridge_drawn_height_follows_scale_and_visibility) {
 // teng_image_load yol anahtari (A13 incelemesi, 2026-10-19): yuva yolu 128 bayttı ve kesiliyordu —
 // ayni 127+ karakterlik yol her cagrida yeni yuva aliyordu (olculdu: TMPDIR scratchpad'de
 // bridge_ui_image_draws_srgb_png_like_rect "ayni yol ayni tutamac" DUSTU, kisa TMPDIR'de gecti).
-// Kapi: ~300 karakterlik yol ("/." tekrari, her platformda gecerli) ayni tutamaci verir; yuvaya
+// Kapi: ~200 karakterlik yol ("/." tekrari) ayni tutamaci verir — eski 128 baytlik yuvayi asar ama
+// Windows'un MAX_PATH'inin (260) altinda kalir: CI Windows'ta 306 baytlik yol dosya acmada
+// dusuyordu (2026-10-30, "resim yuklenemedi"), yani kapi yolu degil isletim sistemini olcuyordu. Yuvaya
 // sigmayan yol HATA + -1 (sessiz kesme yok). Pozitif kontrol: ayni dosyanin KISA yolu farkli
 // anahtar -> farkli tutamac (karsilastirma gercekten yolu olcuyor).
 ENGINE_TEST(bridge_image_long_path_dedups_and_rejects_overflow) {
@@ -4049,7 +4051,7 @@ ENGINE_TEST(bridge_image_long_path_dedups_and_rejects_overflow) {
   for (int i = 0; i < 16; i++) rgba[i] = (uint8_t)(i * 16);
   CHECK(png_yaz(kisa, 2, 2, rgba));
   int n = std::snprintf(uzun, sizeof uzun, "%s", dir);
-  while (n < 300) n += std::snprintf(uzun + n, sizeof uzun - (size_t)n, "/.");
+  while (n < 200) n += std::snprintf(uzun + n, sizeof uzun - (size_t)n, "/.");
   std::snprintf(uzun + n, sizeof uzun - (size_t)n, "/a.png");
   n = std::snprintf(asiri, sizeof asiri, "%s", dir);
   while (n < 700) n += std::snprintf(asiri + n, sizeof asiri - (size_t)n, "/.");
