@@ -767,3 +767,82 @@ ENGINE_TEST(physics_lock_rotation_keeps_body_upright) {
   CHECK(ph.lock_rotation(egik, false) && !ph.rotation_locked(egik));
   ph.shutdown();
 }
+
+// --- Dunyayi sifirdan kurma (A6, 2026-10-18; Tuzaklar 8dg) --------------------
+// Bolum gecisi sozlesmesi: ayni govdeler ayni sirayla eklenince sonuc GECMISTEN
+// bagimsiz olmali. Jolt kimligi (indeks + sira no) bos yuva listesine ve yuva
+// basina sira numarasina bagli; kopru carpisma/tetik olaylarini bu kimlige gore
+// siraladigi icin oyunda bolum N'in sonucu onceki bolumlere bagli cikiyordu.
+// Kapi: "gecmis + reset_world" dunyasi, taze dunyayla kimlik ve durum ozeti
+// BIT-TAM ayni. POZITIF KONTROL: ayni gecmis, sifirlamasiz -> kimlikler farkli
+// (kapinin olctugu sey gercekten gecmise bagli). Olculdu (RTX 5080 makinesi /
+// Linux x86_64, 2026-10-18): sifirlamasiz kontrolde DURUM ozeti de farkli
+// (de56e466... vs ec8fb10d...) — gecmis yalniz kimligi degil, Jolt'un cozum
+// sirasini da degistiriyor; kapi yalniz kimlik farkini iddia eder.
+namespace {
+SystemArena &reset_arena() {
+  static SystemArena a;
+  if (a.capacity() == 0) a.reserve(64u << 20, "phys-reset");
+  return a;
+}
+// Gecmis: 40 kutu kurulur, 10 adim, karisik sirayla silinir (dunyada govde kalmaz).
+void reset_history(Physics &ph) {
+  BodyId ids[40];
+  for (int i = 0; i < 40; i++) ids[i] = ph.add_box({0.4f, 0.4f, 0.4f}, {(float)(i % 8), 3.0f + (float)(i / 8), 0}, Quat::identity(), true);
+  for (int i = 0; i < 10; i++) ph.step(1.0f / 60.0f, 1);
+  for (int i = 1; i < 40; i += 2) ph.remove(ids[i]);
+  for (int i = 38; i >= 0; i -= 2) ph.remove(ids[i]);
+}
+// Bolum: zemin + 12 kutu; kimlik ozeti (FNV) + 120 adim sonra durum ozeti.
+void reset_scene(Physics &ph, uint64_t *id_hash, uint64_t *state) {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&h](uint32_t v) { h = (h ^ v) * 1099511628211ull; };
+  mix(ph.add_box({20, 1, 20}, {0, -1, 0}, Quat::identity(), false).v);
+  for (int i = 0; i < 12; i++) mix(ph.add_box({0.5f, 0.5f, 0.5f}, {(float)(i % 3) * 0.3f, 1.0f + (float)i * 1.05f, (float)(i % 2) * 0.2f}, Quat::identity(), true).v);
+  for (int i = 0; i < 120; i++) ph.step(1.0f / 60.0f, 1);
+  *id_hash = h;
+  *state = ph.state_hash();
+}
+} // namespace
+
+ENGINE_TEST(physics_reset_world_makes_history_irrelevant) {
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  uint64_t id_taze = 0, st_taze = 0, id_sif = 0, st_sif = 0, id_ham = 0, st_ham = 0;
+  {
+    Physics ph;
+    CHECK(ph.init(reset_arena(), cfg));
+    reset_scene(ph, &id_taze, &st_taze);
+    ph.shutdown();
+  }
+  bool red_govdeli = true, kabul = false;
+  uint32_t sonra_govde = 99;
+  {
+    Physics ph;
+    CHECK(ph.init(reset_arena(), cfg));
+    const BodyId tek = ph.add_box({1, 1, 1}, {0, 5, 0}, Quat::identity(), true);
+    red_govdeli = !ph.reset_world(); // govde varken REDDETMELI (hicbir sey degismez)
+    CHECK(ph.stats().bodies == 1);
+    ph.remove(tek);
+    reset_history(ph);
+    kabul = ph.reset_world();
+    sonra_govde = ph.stats().bodies;
+    reset_scene(ph, &id_sif, &st_sif);
+    ph.shutdown();
+  }
+  {
+    Physics ph; // POZITIF KONTROL: ayni gecmis, sifirlama YOK
+    CHECK(ph.init(reset_arena(), cfg));
+    reset_history(ph);
+    reset_scene(ph, &id_ham, &st_ham);
+    ph.shutdown();
+  }
+  std::printf("    [bilgi] kimlik/durum ozeti: taze %016llx/%016llx | gecmis+sifirla %016llx/%016llx | "
+              "gecmis, sifirlamasiz (kontrol) %016llx/%016llx\n",
+              (unsigned long long)id_taze, (unsigned long long)st_taze, (unsigned long long)id_sif, (unsigned long long)st_sif,
+              (unsigned long long)id_ham, (unsigned long long)st_ham);
+  CHECK(red_govdeli);
+  CHECK(kabul && sonra_govde == 0);
+  CHECK(id_sif == id_taze && st_sif == st_taze && st_taze != 0);
+  CHECK(id_ham != id_taze); // kontrol: gecmis kimligi gercekten degistiriyor
+}

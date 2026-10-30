@@ -182,6 +182,13 @@ func fps_e(): float { return eng_fps(); }
 func fizik_duraklat(bool d) { eng_physics_pause(d); }
 func physics_pause(bool p) { eng_physics_pause(p); }
 func fizik_durakli(): bool { return eng_physics_paused(); }
+func fizik_sifirla(): bool { return eng_physics_reset(); }
+// Elle sim adimi (N2b): n >= 0 -> sonraki kare sonunda TAM n fizik adimi (kare suresi/olcek okunmaz);
+// n < 0 -> normal kip. Kilit adimli ag oyununda "k oyun tik'i, k fizik adimi" iki cihazda ayni olsun diye.
+func fizik_adim(int n): bool { return eng_physics_steps(n); }
+func physics_steps(int n): bool { return eng_physics_steps(n); }
+func fizik_elle(): bool { return eng_physics_manual(); }
+func physics_reset(): bool { return eng_physics_reset(); }
 func physics_paused(): bool { return eng_physics_paused(); }
 // Zaman olcegi: 0.5 agir cekim, 0 donmus, 1 normal (en cok 8; 4'un ustunde kare
 // basina daha cok sabit adim). Hata ayiklama hizli sarmasi (TULPAR_ENGINE_HIZ /

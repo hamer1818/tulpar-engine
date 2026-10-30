@@ -2247,6 +2247,31 @@ KONTROL `TULPAR_KKS_BOSS_BUYUME_YOK=1` → Koca Yumru 0.11.
 durum (boss, araba, pilon) düzeltmeyi de çıkarır. "Yüklendi, doğdu, görünür, hata yok" görünürlüğü kanıtlamaz:
 çizilen boyu ölç.
 
+### 8dg. Fizik dünyası bölüm geçişinde boşaltılır ama sıfırlanmaz — bölüm N'in sonucu önceki bölümlere bağlı
+
+**Sınıf** (2026-10-18, Küp-Küre hikâye taraması, RTX 5080 / Linux): `eng_scene_unload` gövdeleri
+fizikten çıkarıyor, Jolt `PhysicsSystem`'i ise yerinde kalıyordu. Aynı gövdeler aynı sırayla yeniden
+eklenince bile Jolt kimliği (indeks + yuva başına sıra no) **geçmişe** bağlı: boş yuva listesinin sırası
+ve her yuvanın kaç kez kullanıldığı. Köprü çarpışma ve tetik olaylarını bu kimliğe göre sıralıyor
+(belirlenim için); motorun `FixedStep` birikimi de bölümden bölüme taşınıyordu (ağır çekim artığı).
+Sonuç: `h:1-16:4` taramasında 1.3 tick 4420'de, tek başına koşulan 1.3'ten ayrıştı (oyun tarafındaki
+otopilot sızıntısı kapatıldıktan sonra). Kapılar yeşildi, çünkü her kapı **tek bir** sırayı ölçüyordu.
+
+**Düzeltme:** `teng_physics_reset` / `fizik_sifirla()` (sahne boşken, gövdeli varlık yokken): Jolt
+dünyası aynı yapılandırmayla yeniden kurulur, temas/tetik halkaları ve sabit adım birikimi sıfırlanır.
+Çarpışma grubu tablosu, yerçekimi, zaman ölçeği ve varlık nesilleri korunur. Koşul tutmazsa HATA + 0
+döner ve hiçbir şey değişmez. Kapı: `physics_reset_world_makes_history_irrelevant`. Geçmiş + sıfırlama
+ile taze dünyanın kimlik ve durum özeti bit-tam aynı çıkıyor. **Pozitif kontrol** (aynı geçmiş,
+sıfırlamasız): kimlik özeti farklı, durum özeti de farklı (ölçüldü). Yani geçmiş Jolt'un çözüm sırasını
+da değiştiriyor. Oyun tarafı: `tools/tulpar_dogrula.sh --hikaye` 5j, her kısım tek başına ve taramada
+bayt bayt aynı satırı vermeli (`TULPAR_KKS_SIZINTI=fizik|oto` pozitif kontrolleri). Köprü yarısı
+(A13, 2026-10-19): `bridge_physics_reset_refuses_live_bodies_and_restores_fresh_world` (ret yolları +
+taze oturumla bit-tam aynı bölüm; sıfırlamasız kontrol 20 yerine 23 temas).
+
+**Ders:** "boşalt + yeniden yükle" ile "hiç oynanmamış" aynı durum değildir. Belirlenim iddiası tek
+koşumun iki tekrarıyla ölçülürse geçmişe bağımlılık görünmez. Aynı içeriği **farklı geçmişle**
+koşturup karşılaştırmak gerekir.
+
 ### 8dh. Önbellek anahtarı sabit tampona `snprintf` ile kesilir — "aynı yol aynı tutamaç" uzun yolda sessizce bozulur
 
 **Sınıf** (2026-10-19, A13 incelemesi, RTX 5080 / Linux): `teng_image_load` aynı yolu ikinci kez
@@ -2264,6 +2289,23 @@ pozitif kontrol: aynı dosyanın kısa yolu farklı anahtar).
 **Ders:** sabit tampona yazılan bir dizgi **anahtar** olarak kullanılıyorsa kesme sessiz bozulmadır;
 yazmadan önce uzunluğu denetle ve sığmayanı reddet. Test geçici dizinleri kısa olduğu sürece kapı bunu
 göremez — uzun yolu testin kendisi kurmalı.
+
+### 8dj. Fizik kare süresiyle adımlanır, oyun tik'i ayrı biriktiricide — iki cihazda "tik/fizik gruplaması" ayrışır
+
+**Belirti (N2b, 2026-10-23, iki süreç loopback):** kilit adımlı ağ düellosu (iki eş aynı komutları aynı tik'te
+uyguluyor) yüzlerce özet eşitken bir anda ayrıştı. Hibrit sim birlik konumunu ve isabetleri fizikten okuyor;
+fizik `frame_end`'de kare süresiyle, oyun tik'leri kendi biriktiricisiyle ilerliyor. Bir eşte kare "2 tik, sonra
+2 fizik adımı", öbüründe "1+1, 1+1" olunca ikinci tik farklı konum okur. Bekleme karesi (rakip komutu gelmedi,
+0 tik) fiziği yine adımlıyordu.
+
+**Çözüm:** `eng_physics_steps(n)` (elle kip): oyun her kare attığı tik kadar fizik adımı ister; bekleme karesinde 0.
+Aynı sınıfın ikinci yüzü oyunda: kare başına çağrılan betik kancaları (`enkaz_guncelle(id, dt)`) bekleme
+karesinde de `dt` alıyordu — enkaz ömrü kare süresiyle dolup parça iki eşte farklı tik'te silindi (tik 11220 /
+21060'ta ayrışma). Ağ maçında kancanın süresi tik saatinden (`n × D_TIK`).
+
+**Genel kural:** kilit adımlı simde sonucu etkileyen HER şey tik sayacından ilerlemeli; kare süresi (`dt`, kanca
+`dt`'si, zaman ölçeği) yalnız sunuma. Ham `teng_collision_*` sırası da iş parçacığına bağlı (yalnız betik
+kancaları sıralı); özet/karar ham sıraya dayanmamalı (bridge_physics_reset kapısı bu yüzden dalgalıydı).
 
 ### 8dk. Ekranı aynalamak üçgen sarımını ters çevirir; ayna kameradan "taklit" edilirse sahnenin arkası görünür
 

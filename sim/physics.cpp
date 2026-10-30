@@ -700,6 +700,28 @@ void Physics::remove(BodyId id) {
   bi.DestroyBody(b);
 }
 
+bool Physics::reset_world() {
+  if (!impl_) return false;
+  if (impl_->system.GetNumBodies() != 0) return false;
+  for (uint32_t i = 0; i < impl_->char_cap; i++)
+    if (impl_->chars[i].alive) return false;
+  const JPH::Vec3 gravity = impl_->system.GetGravity();
+  const bool listener = impl_->cfg.max_contact_events || impl_->cfg.max_sensor_events;
+  impl_->system.~PhysicsSystem();
+  new (&impl_->system) JPH::PhysicsSystem();
+  const PhysicsConfig &cfg = impl_->cfg;
+  impl_->system.Init(cfg.max_bodies, 0, cfg.max_body_pairs, cfg.max_contacts, impl_->bp_iface, impl_->obj_bp_filter,
+                     impl_->pair_filter);
+  impl_->system.SetGravity(gravity);
+  if (listener) impl_->system.SetContactListener(&impl_->contacts);
+  impl_->contacts.clear();
+  impl_->contacts.clear_sensors();
+  impl_->contacts.step_no = 0;
+  if (impl_->is_sensor)
+    for (uint32_t i = 0; i < cfg.max_bodies; i++) impl_->is_sensor[i] = 0;
+  return true;
+}
+
 void Physics::step(float dt, int collision_steps) {
   impl_->allocs_before_step = g_allocs.load(std::memory_order_relaxed);
   static bool trace_env = std::getenv("TULPAR_ENGINE_JOLT_ALLOC_TRACE") != nullptr;

@@ -194,6 +194,17 @@ public:
   bool groups_collide(uint32_t a, uint32_t b) const;
 
   void step(float dt, int collision_steps = 1);
+  // DUNYAYI SIFIRDAN KUR (A6, 2026-10-18): Jolt PhysicsSystem yikilip ayni
+  // yapilandirmayla yeniden kurulur; govde indeksleri ve SIRA NUMARALARI, temas
+  // onbellegi, temas/tetik halkalari "hic govde eklenmemis" haline doner. Neden:
+  // ayni govdeler ayni sirayla eklenince bile Jolt kimligi (indeks + sira no)
+  // GECMISE bagli (bos yuva listesinin sirasi, yuva basina sira no) ve kopru
+  // carpisma/tetik olaylarini bu kimlige gore SIRALIYOR — bolum N'in sonucu
+  // onceki bolumlerde kac govde kuruldugu/silindigine bagli cikiyordu.
+  // Kosul: dunyada HIC govde ve karakter yok (yoksa false, hicbir sey degismez).
+  // Carpisma grubu tablosu ve yercekimi KORUNUR (oyunun ayari, govde degil).
+  // Ayirma: Jolt'un kendi ayiricisi (kare DISINDA cagrilmali); arena'ya dokunmaz.
+  bool reset_world();
 
   // Isin testi (Jolt NarrowPhaseQuery). Govdeler eklendikten SONRA en az bir
   // step() gerekir (genis faz agaci orada guncellenir), yoksa yeni govde
