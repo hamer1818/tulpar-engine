@@ -127,6 +127,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.detect-docs-only.outputs.docs_only != 'true'
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # SURUM (2026-10-30): main'e acilan PR birlesince alacagi etiketi gomerek
+      # derlenir (tools/ci_surum.sh; hesap tools/sonraki_surum.sh'te, otomatik-
+      # surum.yml ile ORTAK). Boylece release.yml etikette PR'in test edilmis
+      # paketini yayinlayabilir (tools/surum_yeniden_kullan.sh). main push'ta bos
+      # -> "kaynak derlemesi" (eskisi gibi). Tahmin gecmis + etiket ister:
+      # checkout fetch-depth 0 (blobsuz).
+      - name: Surum (PR tahmini)
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
+        env:
+          PR_GOVDE: ${{ github.event.pull_request.body }}
+        run: bash tools/ci_surum.sh
 
       # main'e squash-merge ile gelen commit'in PR'i zaten yesil kostu; ayni
       # agaci uc platformda yeniden derlemek bosa 15-25 dk. PR kosumunun
@@ -240,16 +255,78 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 tools/layer_check.py .
 
+      # CI hiz mekanizmalarinin pozitif kontrolleri (2026-10-30): surum tahmini
+      # (otomatik-surum ile ayni hesap; yarista tahminsiz), surumde yeniden
+      # kullanim karari (agac / surum / SURUM.txt / ikili isareti / artefakt
+      # farkli -> sifirdan), ayri isin sonucunu tasima (dustu / atlandi /
+      # gorunmuyor -> kirmizi). Sahte `gh` + gecici git depolari; ag yok.
+      - name: CI hiz mekanizmalari kapisi
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          bash tools/sonraki_surum.sh --oz-test
+          bash tools/yeniden_kullanim_karar.sh --oz-test
+          bash tools/ci_surum_kapisi.sh
+          bash tools/surum_yeniden_kullan_kapisi.sh
+          bash tools/ci_bekle_kapisi.sh
+
       - name: Yapilandir
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
+
+      # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
+      # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
+      - name: Surum ikilide mi (PR tahmini)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SURUM:-}" ]; then echo "surum tahmini yok (main push / taban etiketi gelmedi) — kaynak derlemesi"; exit 0; fi
+          exe=yapi/engine_editor
+          if [ -f "$exe.exe" ]; then exe="$exe.exe"; fi
+          gomulu="$(LC_ALL=C grep -a -o -m1 -E 'tulpar-engine-surum:[0-9A-Za-z.-]*' "$exe" || true)"
+          gomulu="${gomulu%%$'\n'*}"
+          if [ "$gomulu" != "tulpar-engine-surum:${SURUM}" ]; then
+            echo "::error::engine_editor'a gomulu surum '${gomulu:-YOK}', beklenen 'tulpar-engine-surum:${SURUM}'."
+            exit 1
+          fi
+          echo "gomulu: $gomulu"
+
+      # Etikette yeniden kullanim icin KAYIT: bu koşumun derledigi agac ve gomulu
+      # surum (tools/yeniden_kullanim_karar.sh etiketle karsilastirir).
+      - name: Derleme bilgisi (surumde yeniden kullanim icin)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          mkdir -p _bilgi
+          { echo "agac=$(git rev-parse 'HEAD^{tree}')"; echo "surum=${SURUM:-}"; echo "olay=$GITHUB_EVENT_NAME"; } > _bilgi/derleme-bilgisi.txt
+          cat _bilgi/derleme-bilgisi.txt
+
+      - name: Derleme bilgisini yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: derleme-bilgisi-linux-x86_64
+          path: _bilgi/derleme-bilgisi.txt
+
+      # Savas bolumu AYRI iste kosar (asagida "Linux kopru - savas (lavapipe)"); o is bu eklenti
+      # paketini bekleyip indirir. Derlemeden hemen sonra yuklenir ki savas isi
+      # bu isin testleriyle PARALEL kosabilsin.
+      - name: Eklenti paketini yukle (savas isi icin)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eklenti-linux-x86_64
+          path: yapi/tulpar-ext/
+          if-no-files-found: error
+          retention-days: 3
 
       # Isabet orani GORUNUR olsun: dusen bir oran "onbellek calisiyor sandim"
       # diye sessizce gecmesin (yavaslamanin sebebi burada okunur).
@@ -420,7 +497,11 @@ jobs:
           # kontrolu) tek yerde: tools/tulpar_indir.sh — release.yml de onu
           # kosar. (Oncesi: bu ayak ozeti HIC dogrulamiyordu.)
           bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
-          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --tam
+          # PR'da savas bolumu (9600 + uc pozitif kontrol, seri ~375 s) ayri
+          # koşucuda; main push'un sifirdan yolunda (yeniden kullanim dustuyse)
+          # burada, eskisi gibi.
+          ayri=""; [ "${{ github.event_name }}" = pull_request ] && ayri=--savas-ayri
+          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --tam $ayri
 
       # TULPAR + TULPAR_PAKET_KOSU=zorunlu: paket kapisi tulpar-ext/'i
       # PAKETLENMIS dizinden bir ornek oyunla kosturur (tools/package.sh
@@ -432,6 +513,14 @@ jobs:
           TULPAR_PAKET_KOSU: zorunlu
         run: TULPAR="$RUNNER_TEMP/tulpar/tulpar" bash tools/package.sh yapi dagitim
 
+      # TOPLAYICI: zorunlu check "Linux x86_64 (GCC + lavapipe)" savas isinin
+      # sonucunu da TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
+      - name: Savas isinin sonucu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/ci_bekle.sh is "Linux kopru - savas (lavapipe)"
+
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
@@ -441,6 +530,51 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+
+  # SAVAS BOLUMU AYRI KOŞUCUDA (2026-10-30). Linux isinin "Tulpar koprusu" adimi
+  # 657 s idi (koşum 41028381029) ve kritik yolun kendisiydi; lavapipe tek
+  # koşuda 4 cekirdegi zaten dolduruyor (olculdu: savas 3200 kare 36.5 s duvar /
+  # 125 s kullanici), ayni koşucuda eszamanlilik YAVASLATTI (seri 288 s ->
+  # eszamanli 300-330 s, yerel CI-benzeri lavapipe, 4 cekirdek). Savas bolumu
+  # (9600 kare + sizinti / dost / BOZ pozitif kontrolleri) burada, Linux isinin
+  # derledigi eklenti paketiyle kosar; Linux isi bunun sonucunu bekler ve tasir
+  # (zorunlu check adi degismedi). Yalniz PR'da: main push PR artefaktini
+  # yeniden kullanir.
+  linux-savas:
+    name: Linux kopru - savas (lavapipe)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bagimliliklar (lavapipe + tulpar'in AOT linki)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools clang libssl-dev python3
+
+      - name: Tulpar (yayinlanmis, SHA256SUMS dogrulamali)
+        run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
+
+      - name: Eklenti paketini bekle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/ci_bekle.sh artefakt eklenti-linux-x86_64 "Linux x86_64 (GCC + lavapipe)"
+
+      - name: Eklenti paketini indir
+        uses: actions/download-artifact@v4
+        with:
+          name: eklenti-linux-x86_64
+          path: yapi/tulpar-ext
+
+      - name: Savas bolumu (yayinlanmis tulpar + eklenti paketi)
+        run: |
+          set -euo pipefail
+          vulkaninfo --summary 2>&1 | grep -E 'deviceName|driverInfo' || { echo "::error::lavapipe gorunmuyor"; exit 1; }
+          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --eklenti yapi/tulpar-ext --yalniz-savas
+
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
     needs: detect-docs-only
@@ -448,6 +582,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.detect-docs-only.outputs.docs_only != 'true'
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # SURUM (2026-10-30): main'e acilan PR birlesince alacagi etiketi gomerek
+      # derlenir (tools/ci_surum.sh; hesap tools/sonraki_surum.sh'te, otomatik-
+      # surum.yml ile ORTAK). Boylece release.yml etikette PR'in test edilmis
+      # paketini yayinlayabilir (tools/surum_yeniden_kullan.sh). main push'ta bos
+      # -> "kaynak derlemesi" (eskisi gibi). Tahmin gecmis + etiket ister:
+      # checkout fetch-depth 0 (blobsuz).
+      - name: Surum (PR tahmini)
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
+        env:
+          PR_GOVDE: ${{ github.event.pull_request.body }}
+        run: bash tools/ci_surum.sh
 
       # main'e squash-merge ile gelen commit'in PR'i zaten yesil kostu; ayni
       # agaci uc platformda yeniden derlemek bosa 15-25 dk. PR kosumunun
@@ -658,11 +807,47 @@ jobs:
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
+      # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
+      - name: Surum ikilide mi (PR tahmini)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SURUM:-}" ]; then echo "surum tahmini yok (main push / taban etiketi gelmedi) — kaynak derlemesi"; exit 0; fi
+          exe=yapi/engine_editor
+          if [ -f "$exe.exe" ]; then exe="$exe.exe"; fi
+          gomulu="$(LC_ALL=C grep -a -o -m1 -E 'tulpar-engine-surum:[0-9A-Za-z.-]*' "$exe" || true)"
+          gomulu="${gomulu%%$'\n'*}"
+          if [ "$gomulu" != "tulpar-engine-surum:${SURUM}" ]; then
+            echo "::error::engine_editor'a gomulu surum '${gomulu:-YOK}', beklenen 'tulpar-engine-surum:${SURUM}'."
+            exit 1
+          fi
+          echo "gomulu: $gomulu"
+
+      # Etikette yeniden kullanim icin KAYIT: bu koşumun derledigi agac ve gomulu
+      # surum (tools/yeniden_kullanim_karar.sh etiketle karsilastirir).
+      - name: Derleme bilgisi (surumde yeniden kullanim icin)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          mkdir -p _bilgi
+          { echo "agac=$(git rev-parse 'HEAD^{tree}')"; echo "surum=${SURUM:-}"; echo "olay=$GITHUB_EVENT_NAME"; } > _bilgi/derleme-bilgisi.txt
+          cat _bilgi/derleme-bilgisi.txt
+
+      - name: Derleme bilgisini yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: derleme-bilgisi-macos-arm64
+          path: _bilgi/derleme-bilgisi.txt
 
       - name: ccache isabet orani
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
@@ -883,6 +1068,22 @@ jobs:
 
       - uses: actions/checkout@v4
         if: needs.detect-docs-only.outputs.docs_only != 'true'
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # SURUM (2026-10-30): main'e acilan PR birlesince alacagi etiketi gomerek
+      # derlenir (tools/ci_surum.sh; hesap tools/sonraki_surum.sh'te, otomatik-
+      # surum.yml ile ORTAK). Boylece release.yml etikette PR'in test edilmis
+      # paketini yayinlayabilir (tools/surum_yeniden_kullan.sh). main push'ta bos
+      # -> "kaynak derlemesi" (eskisi gibi). Tahmin gecmis + etiket ister:
+      # checkout fetch-depth 0 (blobsuz).
+      - name: Surum (PR tahmini)
+        if: needs.detect-docs-only.outputs.docs_only != 'true'
+        shell: bash
+        env:
+          PR_GOVDE: ${{ github.event.pull_request.body }}
+        run: bash tools/ci_surum.sh
 
       # main'e squash-merge ile gelen commit'in PR'i zaten yesil kostu; ayni
       # agaci uc platformda yeniden derlemek bosa 15-25 dk. PR kosumunun
@@ -1007,11 +1208,47 @@ jobs:
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
+
+      # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
+      # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
+      - name: Surum ikilide mi (PR tahmini)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SURUM:-}" ]; then echo "surum tahmini yok (main push / taban etiketi gelmedi) — kaynak derlemesi"; exit 0; fi
+          exe=yapi/engine_editor
+          if [ -f "$exe.exe" ]; then exe="$exe.exe"; fi
+          gomulu="$(LC_ALL=C grep -a -o -m1 -E 'tulpar-engine-surum:[0-9A-Za-z.-]*' "$exe" || true)"
+          gomulu="${gomulu%%$'\n'*}"
+          if [ "$gomulu" != "tulpar-engine-surum:${SURUM}" ]; then
+            echo "::error::engine_editor'a gomulu surum '${gomulu:-YOK}', beklenen 'tulpar-engine-surum:${SURUM}'."
+            exit 1
+          fi
+          echo "gomulu: $gomulu"
+
+      # Etikette yeniden kullanim icin KAYIT: bu koşumun derledigi agac ve gomulu
+      # surum (tools/yeniden_kullanim_karar.sh etiketle karsilastirir).
+      - name: Derleme bilgisi (surumde yeniden kullanim icin)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          mkdir -p _bilgi
+          { echo "agac=$(git rev-parse 'HEAD^{tree}')"; echo "surum=${SURUM:-}"; echo "olay=$GITHUB_EVENT_NAME"; } > _bilgi/derleme-bilgisi.txt
+          cat _bilgi/derleme-bilgisi.txt
+
+      - name: Derleme bilgisini yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: derleme-bilgisi-windows-x86_64
+          path: _bilgi/derleme-bilgisi.txt
 
       - name: ccache isabet orani
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
