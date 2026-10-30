@@ -145,6 +145,16 @@ ENGINE_TEST(platform_net_udp_broadcast_reaches_local_listener) {
     }
     const int32_t r = bekle_al(dinle, buf, sizeof buf, &ip, &port, &kesik);
     std::printf("    yayin %s:%u -> %s\n", a, (unsigned)p, r == 8 ? "ulasti" : "ULASMADI");
+#if defined(__APPLE__)
+    if (r != 8 && h == 0x7FFFFFFFu) {
+      // macOS'ta lo0 noktadan noktaya bir arayuz: 127.255.255.255 yayin adresi DEGIL
+      // (CI macos arm64, 2026-10-30: gonderim 8 bayt "basarili", alici bos; SO_BROADCAST'siz
+      // gonderim de reddedilmiyor). Platform davranisi — olculur, basilir, iddia edilmez;
+      // bu platformda bizim kod olcumu alt ag yayiniyla yapilir (asagida, olculen >= 1).
+      std::printf("    macOS: lo0 yayin desteklemiyor — 127.255.255.255 olculmedi\n");
+      continue;
+    }
+#endif
     if (r != 8 && h != 0x7FFFFFFFu) {
       // Alt ag yayini cikis arayuzunden (wlan0/eth0) kendine geri doner ve INPUT
       // zincirinden gecer: makinenin guvenlik duvari (ufw varsayilan DROP, 2026-10-23
