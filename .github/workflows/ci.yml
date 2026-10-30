@@ -575,6 +575,45 @@ jobs:
           vulkaninfo --summary 2>&1 | grep -E 'deviceName|driverInfo' || { echo "::error::lavapipe gorunmuyor"; exit 1; }
           bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --eklenti yapi/tulpar-ext --yalniz-savas
 
+
+  # CCACHE'I MAIN'DE ISIT (2026-10-30, Tuzaklar 8dl). Actions onbellegi kapsamli:
+  # PR'in kaydettigi yalniz o PR'a gorunur, tum PR'larin okudugu kapsam main. Linux
+  # isi main push'ta PR artefaktini yeniden kullandigi icin hic derlemiyor ve main
+  # ccache kaydetmiyordu (`ccache-linux-*` 12 kaydin 11'i refs/pull/N/merge'de);
+  # her PR'in Linux derlemesi soguk: 211 s (koşum 41051767701; savas isi de bu
+  # yuzden eklenti paketini 234 s bekledi). Bu is yalniz main push'ta derler —
+  # test yok, artefakt yok — ve main kapsaminda kaydeder. Hicbir check'i beklemez.
+  ccache-isit:
+    name: Linux ccache isitma (main)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bagimliliklar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
+            vulkan-validationlayers libglfw3 clang libssl-dev   # Linux isiyle AYNI liste (ayni derleyici -> isabet)
+
+      - name: ccache onbellegi
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}
+          restore-keys: ccache-linux-
+
+      - name: Derle (yalniz onbellek icin)
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build yapi -j"$(nproc)"
+          ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
     needs: detect-docs-only
