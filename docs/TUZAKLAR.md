@@ -2116,6 +2116,30 @@ eski kodda `statik(bind)-boş = 0` → kapı **kırmızı** (pozitif kontrol, 20
 **Ders:** "çizilemedi"yi "çizildi" sayacına yazan dal, sessiz görünmezliğin ta kendisi. Piksel kapısının
 karşılaştırdığı iki karenin İKİSİNDE de nesnenin göründüğünü ayrıca ölç — farkın kaynağı "nesne yok" olabilir.
 
+### 8db. Yeniden kullanılan PCM tamponu, karıştırıcı onu okurken yazılır — "durdur" komutu henüz tüketilmedi
+
+**Belirti (tasarım aşamasında, hikâye modu M3b, 2026-10-09):** döngü müzikleri iki **sabit** tampona
+(müzik yuvası) çözülüyor ki arena her parçada ~23 MB büyümesin. Saf yol "yuvayı çalan sesi durdur, sonra
+yeni parçayı yaz" — ama `Mixer::stop` yalnız komut halkasına yazar; ses iş parçacığı onu **bir sonraki**
+callback'in başında tüketir. O an süren callback tamponu hâlâ okuyordur: oyun iş parçacığı aynı belleğe yeni
+parçayı yazarken yarım eski / yarım yeni örnek çalınır (çıtırtı) ya da tampon sınırında eski uzunluk okunur.
+Hiçbir kapı bunu görmez: yarış nadirdir ve NULL arka uçta duyulmaz.
+
+**Düzeltme:** `teng_music_slot_load` (1) yuvanın klibini çalan her sesi durdurur (köprünün ses kaydı artık
+klip dizinini de tutar), (2) karıştırıcının callback sayacı durdurmadan **sonra** okunan değerden bir
+ilerleyene kadar bekler — o an komuttan önce başlamış callback bitmiştir, sonrakiler sesi görmez —, (3)
+yazma boyunca klibi boş (`frames 0`) tutar: o aralıkta çalma isteği HATA ile reddedilir. Cihaz duraklıyken
+(arka plan) callback yoktur, okuyan da yoktur: beklenmez. 500 ms içinde callback gelmezse yazılır ve
+**sayılır** (`kapanis (muzik yuvasi) ... zaman asimi N`).
+
+**Kapı:** `bridge_music_slot_reuses_buffer_and_rejects_long_track` (NULL arka uç): yuva **çalarken** 20 kez
+yeniden yüklenir; her turdan sonra çalan parçanın tepesi yeni parçanınki (0.6 / 0.3, yanlış 0), arena
+değişmez (60182104 B üç ölçümde), bekleme 20, zaman aşımı 0. KONTROL: 65 s'lik parça `-2` + HATA +
+"uzun red 1"; boş yuva çalınamaz.
+
+**Ders:** kilitsiz komut halkasında "gönderdim" ile "karşı taraf gördü" ayrı olaylardır. Paylaşılan belleği
+yeniden yazmadan önce karşı tarafın komutu **tükettiğini** gösteren bir sayaç (burada callback sayacı) bekle.
+
 ### 8dc. Silinemeyen havuzdan her yüklemede yeniden ayırmak — 5. bölüm geçişinde sahne sessizce görünmez
 
 **Belirti (M5 ölçümü, 2026-10-09):** hikâye modu kısım geçişinde diyar sahnesi değiştirecek; önce "yükle/boşalt

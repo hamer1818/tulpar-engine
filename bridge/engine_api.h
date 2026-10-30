@@ -431,6 +431,10 @@ void teng_debug_safe_insets(int left, int top, int right, int bottom);
 void teng_debug_app_pause(int paused);
 // TEST: ses cihazinin callback sayaci (mixer; ses kapaliysa -1). Duraklamada artmamali.
 long long teng_debug_audio_callbacks(void);
+// TEST: yuklu klibin kanal sayisi (mono kaynak mono kalir, M2); klip yoksa -1. SPEC'te yok.
+int teng_debug_clip_channels(int clip);
+// TEST: sistem arenasinin dolulugu (bayt). Klip/model/muzik yuvasi bedelini olcmek icin; SPEC'te yok.
+long long teng_debug_sys_arena_used(void);
 int teng_touch_count(void);
 double teng_touch_x(int i);
 double teng_touch_y(int i);
@@ -519,8 +523,23 @@ int teng_audio_beep(double hz, double seconds, double gain); // ton + cal, tek c
 void teng_audio_stop(int voice);
 void teng_audio_stop_all(void);
 void teng_audio_master(double gain); // ana ses seviyesi 0..1 (calan sesler de guncellenir)
+void teng_audio_gain(int voice, double gain); // calan TEK sesin seviyesi 0..4 (rampali; ana seviyeyle carpilir)
+// Muzik yuvalari (M3b): 2 sabit tampon x 64 s (ses acilirken ayrilir). Yukleme yuvanin
+// eski parcasini calan sesleri durdurur, bir karistirici callback'i bekler, parcayi
+// cozer. Donus: sure (ms); -1 hata, -2 parca 64 s'den uzun (reddedildi, sayilir).
+int teng_music_slot_load(int slot, const char *path);
+// Muzik yuvasi SAYISI (0..2) ve SURESI (1..600 s) — teng_audio_open'dan ONCE (kapasite
+// init'te alinir, A2). Varsayilan 2 x 64 s. 0: yuva yok, ses acilisinda tampon ayrilmaz.
+// Ses acikken ya da aralik disinda HATA + 0. Donus 1.
+int teng_music_slots(int count, int seconds);
+int teng_music_slot_clip(int slot); // yuvanin SABIT klip tutamaci (teng_audio_play ile calinir); -1 hata
 int teng_audio_playing(void);        // cihaz thread'inin olctugu aktif ses sayisi
 double teng_audio_peak(void);        // son render'daki en buyuk |ornek| (0 = sessiz)
+// Ana yol sinirlayici (yumusak tanh, tavan 0..1; 0 kapatir) ve sert kirpma
+// sayaci: karistirici +-1'de keser; sayac acilistan beri kesilen ornek sayisi.
+int teng_audio_limiter(double ceiling);
+int teng_audio_clipped(void);
+double teng_audio_peak_max(void);    // acilistan beri kirpma ONCESI en buyuk |ornek|
 
 // --- sorgular: isin testi ve yakinlik ---------------------------------------
 // Isin testi Jolt'un dar faz sorgusudur: govdeler eklendikten SONRA en az bir

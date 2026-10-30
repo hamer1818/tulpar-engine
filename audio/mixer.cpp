@@ -15,7 +15,7 @@ bool Mixer::push(const Command &c) {
 }
 
 VoiceHandle Mixer::play(const Clip *clip, float gain, bool loop) {
-  if (!clip || !clip->samples || clip->frames == 0) return VoiceHandle{};
+  if (!clip || !clip->has_data()) return VoiceHandle{};
   // Yuva secimi uretici tarafinda (yuva "gen" ile dogrulanir; tuketici eski
   // nesil komutu yok sayar). Dolu havuzda en eski yuva geri kazanilir.
   const uint32_t slot = alloc_cursor_++ % kVoices;
@@ -26,7 +26,7 @@ VoiceHandle Mixer::play(const Clip *clip, float gain, bool loop) {
 }
 
 VoiceHandle Mixer::play_3d(const Clip *clip, const SpatialParams &sp, float gain, bool loop) {
-  if (!clip || !clip->samples || clip->frames == 0) return VoiceHandle{};
+  if (!clip || !clip->has_data()) return VoiceHandle{};
   const uint32_t slot = alloc_cursor_++ % kVoices;
   const uint32_t gen = ++next_gen_[slot];
   Command c{Cmd::Play3D, (uint8_t)slot, (uint8_t)(loop ? 1 : 0), 0, gen, gain, clip, sp};
@@ -161,8 +161,8 @@ void Mixer::render(float *out, uint32_t frames) {
           if (!v.loop) { v.active = false; break; }
           v.pos = 0;
         }
-        const float *s = cl.samples + v.pos * cl.channels;
-        const float mono = cl.channels == 1 ? s[0] : 0.5f * (s[0] + s[1]);
+        const uint64_t si = v.pos * cl.channels;
+        const float mono = cl.channels == 1 ? cl.at(si) : 0.5f * (cl.at(si) + cl.at(si + 1));
         float L = mono * gl, R = mono * gr;
         if (cl_coef < 1.0f) { v.lp_l += cl_coef * (L - v.lp_l); L = v.lp_l; } else { v.lp_l = L; }
         if (cr_coef < 1.0f) { v.lp_r += cr_coef * (R - v.lp_r); R = v.lp_r; } else { v.lp_r = R; }
@@ -187,8 +187,8 @@ void Mixer::render(float *out, uint32_t frames) {
           if (!v.loop) { v.active = false; break; }
           v.pos = 0;
         }
-        const float *s = cl.samples + v.pos * cl.channels;
-        const float mono = cl.channels == 1 ? s[0] : 0.5f * (s[0] + s[1]);
+        const uint64_t si = v.pos * cl.channels;
+        const float mono = cl.channels == 1 ? cl.at(si) : 0.5f * (cl.at(si) + cl.at(si + 1));
         float m = mono * gm;
         if (coef < 1.0f) { v.lp_l += coef * (m - v.lp_l); m = v.lp_l; } else { v.lp_l = m; }
         for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += m;
@@ -197,20 +197,28 @@ void Mixer::render(float *out, uint32_t frames) {
       v.cur_l = gm; v.cur_r = gm;
       continue;
     }
+    // Kazanc degisimi (set_gain, M3) blok boyunca dogrusal rampalanir: muzik
+    // sonumlemesinde basamak "tik"i olmasin. Degisim yoksa adim 0 ve kazanc tam
+    // v.gain (eski cikisla bit-ayni).
+    const float g_hedef = v.gain;
+    const float g_adim = frames && v.cur_l != g_hedef ? (g_hedef - v.cur_l) / (float)frames : 0.0f;
+    float gk = g_adim != 0.0f ? v.cur_l : g_hedef;
     for (uint32_t f = 0; f < frames; f++) {
       if (v.pos >= cl.frames) {
         if (!v.loop) { v.active = false; break; }
         v.pos = 0;
       }
-      const float *s = cl.samples + v.pos * cl.channels;
+      const uint64_t si = v.pos * cl.channels;
       if (cl.channels == 1) {
-        const float m = s[0] * v.gain;
+        const float m = cl.at(si) * gk;
         for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += m;
       } else {
-        for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += s[c < cl.channels ? c : 0] * v.gain;
+        for (uint32_t c = 0; c < ch; c++) out[f * ch + c] += cl.at(si + (c < cl.channels ? c : 0)) * gk;
       }
+      gk += g_adim;
       v.pos++;
     }
+    v.cur_l = g_hedef; v.cur_r = g_hedef;
   }
   // Bloktan sonra hala aktif olanlar (tam blok sinirinda biten ses sayilmaz).
   active = 0;
@@ -222,13 +230,19 @@ void Mixer::render(float *out, uint32_t frames) {
   }
   // Ana yol DSP zinciri (bos ise dokunmaz) — sert sinirdan ONCE.
   dsp_.process(out, frames, ch, rate_);
+  uint32_t kirpilan = 0;
+  float on_tepe = 0;
   for (uint32_t i = 0; i < frames * ch; i++) {
     float x = out[i];
-    if (x > 1.0f) x = 1.0f; else if (x < -1.0f) x = -1.0f; // son emniyet siniri (limiter DSP dugumu)
+    const float ham = x < 0 ? -x : x;
+    if (ham > on_tepe) on_tepe = ham;
+    if (x > 1.0f) { x = 1.0f; kirpilan++; } else if (x < -1.0f) { x = -1.0f; kirpilan++; } // son emniyet siniri (limiter DSP dugumu)
     out[i] = x;
     const float a = x < 0 ? -x : x;
     if (a > peak) peak = a;
   }
+  if (kirpilan) clipped_.fetch_add(kirpilan, std::memory_order_relaxed);
+  if (on_tepe > peak_pre_max_.load(std::memory_order_relaxed)) peak_pre_max_.store(on_tepe, std::memory_order_relaxed);
   frames_rendered_.fetch_add(frames, std::memory_order_relaxed);
   callbacks_.fetch_add(1, std::memory_order_relaxed);
   voices_active_.store(active, std::memory_order_relaxed);
@@ -243,6 +257,8 @@ MixerStats Mixer::stats() const {
   s.voices_active = voices_active_.load(std::memory_order_relaxed);
   s.commands_dropped = dropped_.load(std::memory_order_relaxed);
   s.peak = peak_.load(std::memory_order_relaxed);
+  s.clipped_samples = clipped_.load(std::memory_order_relaxed);
+  s.peak_pre_max = peak_pre_max_.load(std::memory_order_relaxed);
   s.voices_spatial = voices_spatial_.load(std::memory_order_relaxed);
   return s;
 }

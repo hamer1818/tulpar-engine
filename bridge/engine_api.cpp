@@ -71,7 +71,10 @@ constexpr size_t kModelTmpBytes = size_t(32) << 20;
 // Havuz yalniz tutamac dizisi (Mesh/Texture kaydi), GPU bellegi kullanildikca.
 constexpr uint32_t kRenderMaxMeshes = 256;
 constexpr uint32_t kRenderMaxTextures = 128;
-constexpr uint32_t kMaxClips = 32;  // ses klibi (dosya + sentetik ton)
+// Ses klibi tavani (dosya + sentetik ton + muzik yuvasi). 32 -> 128 (2026-10-09, M3):
+// hikaye modu ~88 klip (bugunku 23 + 40 SFX + 18 hece + 5 tek seferlik muzik + 2
+// muzik yuvasi, TASARIM §14). Yuva basina statik ~150 B; asil bedel PCM (arena).
+constexpr uint32_t kMaxClips = 128;
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
 constexpr uint32_t kMaxHud = 1024;
 constexpr uint32_t kMaxOverlap = 64;   // kure sorgusu sonuc tavani (sabit dizi, 0 ayirma)
@@ -541,7 +544,13 @@ struct Bridge {
   uint32_t audio_off_reports = 0; // kapali cihazda cagri: ilk N tanesi HATA, sonrasi ayrinti (log selini onler)
   uint32_t audio_plays = 0;
   float audio_master = 1.0f;
+  int limiter_node = -1; // teng_audio_limiter: ana yol DSP dugumu (-1 yok)
   char audio_desc[192] = {0};
+  // Klip PCM bicimi (yayin adimi 3, 2026-10-13): varsayilan S16 = F32'nin yarisi;
+  // 16 bit WAV'da kayipsiz (bkz. audio/mixer.hpp). TULPAR_ENGINE_AUDIO_F32=1 eski
+  // bicim (A/B ve kapinin pozitif kontrolu). Ses acilirken okunur.
+  audio::SampleFormat clip_fmt = audio::SampleFormat::S16;
+  uint64_t clip_pcm_bytes = 0; // dosyadan yuklenen kliplerin PCM bedeli (muzik yuvasi haric)
   struct ClipSlot {
     audio::Clip clip;
     bool tone = false;
@@ -550,7 +559,27 @@ struct Bridge {
   };
   ClipSlot clips[kMaxClips];
   uint32_t clip_count = 0;
-  struct VoiceSlot { uint32_t id = 0; float gain = 1.0f; };
+  // MUZIK YUVALARI (M3b, 2026-10-09): her dongu muzigi kendi klibi olursa arena
+  // parca basina ~23 MB buyur ve geri verilmez (11 dongu ~250 MB, TASARIM §14). Iki
+  // sabit tampon ses acilirken (A2: kapasite init'te) ayrilir; parca yuvaya cozulur,
+  // yuvanin klip tutamaci sabittir. Yazmadan once o klibi calan sesler durdurulur ve
+  // karistiricinin en az bir callback'i beklenir (callback tamponu okuyor olabilir).
+  // Yuva SAYISI ve SURESI init secenegi (teng_music_slots, ses acilmadan once;
+  // 2026-10-26, karar 12): varsayilan 2 x 64 s (eski davranis). Muzik yuvasi
+  // kullanmayan oyun 0 verir: ses acilisinda arenadan tampon hic alinmaz.
+  static constexpr uint32_t kMusicSlotsMax = 2;
+  static constexpr uint32_t kMusicSlotSecMax = 600;
+  uint32_t music_slots = 2, music_slot_sec = 64;
+  struct MusicSlot {
+    void *buf = nullptr;       // clip_fmt'e gore float ya da int16_t
+    audio::SampleFormat fmt = audio::SampleFormat::F32;
+    uint32_t cap_frames = 0, channels = 0;
+    int clip = -1;             // clips[] dizini (ilk kullanimda alinir)
+    uint32_t loads = 0, rejects = 0, waits = 0, wait_timeouts = 0;
+    char path[128] = {0};
+  };
+  MusicSlot music[kMusicSlotsMax];
+  struct VoiceSlot { uint32_t id = 0; float gain = 1.0f; int clip = -1; }; // clip: muzik yuvasi yazilmadan once calanlari bulmak icin (M3b)
   VoiceSlot voices[kMaxVoices];
   // varliklar
   Ent ents[kMaxEntities];
@@ -2348,6 +2377,17 @@ void teng_shutdown(void) {
   if (b.scene_loads)
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
+  if (b.music[0].buf || b.music[1].buf)
+    BINFO("kapanis (muzik yuvasi): %u yuva x %u s (%u MB %s), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)",
+          b.music_slots, b.music_slot_sec,
+          (unsigned)((uint64_t)b.music[0].cap_frames * b.music[0].channels * (b.music[0].fmt == audio::SampleFormat::S16 ? 2 : 4) *
+                         b.music_slots >> 20),
+          b.music[0].fmt == audio::SampleFormat::S16 ? "s16" : "f32", b.music[0].loads,
+          b.music[1].loads, b.music[0].rejects, b.music[1].rejects, b.music[0].waits, b.music[1].waits,
+          b.music[0].wait_timeouts + b.music[1].wait_timeouts);
+  if (b.clip_pcm_bytes)
+    BINFO("kapanis (ses klibi): %u klip, PCM %llu KB (%s)", b.clip_count, (unsigned long long)(b.clip_pcm_bytes >> 10),
+          b.clip_fmt == audio::SampleFormat::S16 ? "s16" : "f32");
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
@@ -3646,6 +3686,11 @@ void teng_debug_safe_insets(int left, int top, int right, int bottom) {
 }
 int teng_low_memory_count(void) { return g ? (int)g->low_memory : 0; }
 long long teng_debug_audio_callbacks(void) { return g && g->audio_ok ? (long long)g->mixer.stats().callbacks : -1; }
+int teng_debug_clip_channels(int clip) {
+  if (!g || clip < 0 || (uint32_t)clip >= g->clip_count) return -1;
+  return (int)g->clips[clip].clip.channels;
+}
+long long teng_debug_sys_arena_used(void) { return g ? (long long)g->sys.used() : -1; }
 void teng_debug_app_pause(int paused) {
   if (!g) return;
   g->app_pause_debug = true;
@@ -4169,6 +4214,21 @@ int teng_audio_open(int sample_rate, int channels) {
   b.audio_ok = true;
   b.audio_null = cfg.null_backend;
   b.audio_master = 1.0f;
+  b.clip_fmt = std::getenv("TULPAR_ENGINE_AUDIO_F32") ? audio::SampleFormat::F32 : audio::SampleFormat::S16;
+  // Muzik yuvasi tamponlari (M3b): yalniz ilk acilista (ya da bicim degistiyse) ayrilir.
+  // Arena sayfalari yazilinca bellege girer: yuva hic kullanilmazsa RSS'e yansimaz.
+  for (uint32_t s = 0; s < b.music_slots; s++) {
+    Bridge::MusicSlot &m = b.music[s];
+    const uint32_t cap = b.music_slot_sec * b.mixer.rate();
+    if (m.buf && m.cap_frames == cap && m.channels == b.mixer.channels() && m.fmt == b.clip_fmt) continue;
+    const size_t n = (size_t)cap * b.mixer.channels();
+    m.buf = b.clip_fmt == audio::SampleFormat::S16 ? (void *)b.sys.alloc_array<int16_t>(n) : (void *)b.sys.alloc_array<float>(n);
+    m.fmt = b.clip_fmt;
+    m.cap_frames = m.buf ? cap : 0;
+    m.channels = b.mixer.channels();
+    if (!m.buf) BERR("muzik yuvasi %u: arena dolu (%u kare x %u kanal)", s, cap, m.channels);
+    if (m.clip >= 0) b.clips[m.clip].clip = audio::Clip{};
+  }
   for (uint32_t i = 0; i < kMaxVoices; i++) b.voices[i] = Bridge::VoiceSlot{};
   BINFO("ses acildi: %s%s", b.audio_desc, cfg.null_backend ? " (NULL arka uc: TULPAR_ENGINE_AUDIO_NULL, hoparlore gitmez)" : "");
   // Arka plandayken acilan ses (oyun PAUSE ile acilis arasinda) baslamasin.
@@ -4204,7 +4264,7 @@ int teng_audio_load(const char *path) {
   if (b.clip_count >= kMaxClips) { BERR("teng_audio_load: klip kapasitesi dolu (%u): %s", kMaxClips, path); return -1; }
   const uint32_t i = b.clip_count;
   char cerr[160] = {0};
-  if (!audio::clip_load(b.sys, path, b.mixer.rate(), b.mixer.channels(), &b.clips[i].clip, cerr, sizeof cerr)) {
+  if (!audio::clip_load(b.sys, path, b.mixer.rate(), b.mixer.channels(), &b.clips[i].clip, cerr, sizeof cerr, b.clip_fmt)) {
     BERR("ses klibi yuklenemedi %s: %s", path, cerr);
     return -1;
   }
@@ -4212,7 +4272,9 @@ int teng_audio_load(const char *path) {
   std::snprintf(b.clips[i].name, sizeof b.clips[i].name, "%s", path);
   b.clip_count++;
   const audio::Clip &c = b.clips[i].clip;
-  BINFO("ses klibi %u: %s (%u kare, %u kanal, %u Hz, %.2f s)", i, path, c.frames, c.channels, c.rate, (double)c.frames / (double)(c.rate ? c.rate : 1));
+  b.clip_pcm_bytes += c.bytes();
+  BINFO("ses klibi %u: %s (%u kare, %u kanal, %u Hz, %.2f s, %s)", i, path, c.frames, c.channels, c.rate, (double)c.frames / (double)(c.rate ? c.rate : 1),
+        c.samples16 ? "s16" : "f32");
   return (int)i;
 }
 int teng_audio_tone(double hz, double seconds) {
@@ -4240,10 +4302,11 @@ int teng_audio_play(int clip, double gain, int loop) {
   if (!audio_live("teng_audio_play")) return 0;
   Bridge &b = *g;
   if (clip < 0 || (uint32_t)clip >= b.clip_count) { BERR("teng_audio_play: klip %d yok (%u yuklu)", clip, b.clip_count); return 0; }
+  if (b.clips[clip].clip.frames == 0) { BERR("teng_audio_play: klip %d (%s) BOS — muzik yuvasi yuklenmedi ya da yukleme dustu", clip, b.clips[clip].name); return 0; }
   if (gain < 0.0) { BERR("teng_audio_play: ses seviyesi negatif (%.2f), 0 yapildi", gain); gain = 0.0; }
   const audio::VoiceHandle v = b.mixer.play(&b.clips[clip].clip, (float)gain * b.audio_master, loop != 0);
   if (!v.valid()) { BERR("teng_audio_play: komut kuyrugu dolu (klip %d) — ses calmadi", clip); return 0; }
-  b.voices[v.id & 0xFFu] = Bridge::VoiceSlot{v.id, (float)gain};
+  b.voices[v.id & 0xFFu] = Bridge::VoiceSlot{v.id, (float)gain, clip};
   b.audio_plays++;
   BDBG("ses #%u: klip %d (%s) gain %.2f%s", v.id, clip, b.clips[clip].name, gain, loop ? " dongulu" : "");
   return (int)v.id;
@@ -4288,8 +4351,125 @@ void teng_audio_master(double gain) {
   }
   BDBG("ana ses seviyesi %.2f (%u calan ses guncellendi)", gain, n);
 }
+// Calan TEK sesin seviyesi (M3): muzik capraz gecisi, diyalogda muzigi kisma, boss
+// girisinde sonumleme. Karistirici blok boyunca dogrusal rampalar (tik yok). Olmus/eski
+// nesil ses id'si karistiricida yok sayilir (hata degil: ses kendiliginden bitmis olabilir).
+void teng_audio_gain(int voice, double gain) {
+  CALLF("teng_audio_gain", "#%d %.2f", voice, gain);
+  if (!audio_live("teng_audio_gain")) return;
+  if (voice <= 0) { BERR("teng_audio_gain: gecersiz ses id %d", voice); return; }
+  if (gain < 0.0) { BERR("teng_audio_gain: seviye negatif (%.2f), 0 yapildi", gain); gain = 0.0; }
+  if (gain > 4.0) { BERR("teng_audio_gain: seviye %.2f cok yuksek (kirpma), 4 yapildi", gain); gain = 4.0; }
+  Bridge &b = *g;
+  const uint32_t slot = (uint32_t)voice & 0xFFu;
+  if (slot < kMaxVoices && b.voices[slot].id == (uint32_t)voice) b.voices[slot].gain = (float)gain;
+  b.mixer.set_gain(audio::VoiceHandle{(uint32_t)voice}, (float)gain * b.audio_master);
+}
 int teng_audio_playing(void) { return g && g->audio_ok ? (int)g->mixer.stats().voices_active : 0; }
+
+// --- Muzik yuvalari (M3b) -----------------------------------------------------
+int teng_music_slots(int count, int seconds) {
+  CALLF("teng_music_slots", "%d x %d s", count, seconds);
+  if (!ready("teng_music_slots")) return 0;
+  Bridge &b = *g;
+  if (b.audio_ok) { BERR("teng_music_slots: ses ACIKKEN cagrildi — teng_audio_open'dan once ver (simdiki %u x %u s)", b.music_slots, b.music_slot_sec); return 0; }
+  if (count < 0 || (uint32_t)count > Bridge::kMusicSlotsMax) { BERR("teng_music_slots: sayi 0..%u olmali (%d)", Bridge::kMusicSlotsMax, count); return 0; }
+  if (count > 0 && (seconds < 1 || (uint32_t)seconds > Bridge::kMusicSlotSecMax)) { BERR("teng_music_slots: sure 1..%u s olmali (%d)", Bridge::kMusicSlotSecMax, seconds); return 0; }
+  b.music_slots = (uint32_t)count;
+  if (count > 0) b.music_slot_sec = (uint32_t)seconds;
+  BINFO("muzik yuvasi: %u x %u s (sonraki teng_audio_open'da)", b.music_slots, b.music_slot_sec);
+  return 1;
+}
+static int music_slot_clip_index(Bridge &b, int slot, const char *fn) {
+  if (slot < 0 || (uint32_t)slot >= b.music_slots) {
+    if (b.music_slots == 0) BERR("%s: yuva %d yok (muzik yuvasi kapali: teng_music_slots(0, ...))", fn, slot);
+    else BERR("%s: yuva %d yok (0..%u; sayi teng_music_slots ile)", fn, slot, b.music_slots - 1);
+    return -1;
+  }
+  Bridge::MusicSlot &m = b.music[slot];
+  if (m.clip >= 0) return m.clip;
+  if (b.clip_count >= kMaxClips) { BERR("%s: klip kapasitesi dolu (%u), yuva %d kurulamadi", fn, kMaxClips, slot); return -1; }
+  m.clip = (int)b.clip_count++;
+  b.clips[m.clip] = Bridge::ClipSlot{};
+  b.clips[m.clip].tone = false;
+  std::snprintf(b.clips[m.clip].name, sizeof b.clips[m.clip].name, "muzik yuvasi %d", slot);
+  return m.clip;
+}
+int teng_music_slot_clip(int slot) {
+  CALLF("teng_music_slot_clip", "%d", slot);
+  if (!audio_live("teng_music_slot_clip")) return -1;
+  return music_slot_clip_index(*g, slot, "teng_music_slot_clip");
+}
+int teng_music_slot_load(int slot, const char *path) {
+  CALLF("teng_music_slot_load", "%d %s", slot, path ? path : "");
+  if (!audio_live("teng_music_slot_load") || !path) return -1;
+  Bridge &b = *g;
+  const int ci = music_slot_clip_index(b, slot, "teng_music_slot_load");
+  if (ci < 0) return -1;
+  Bridge::MusicSlot &m = b.music[slot];
+  if (!m.buf) { BERR("teng_music_slot_load: yuva %d tamponu yok (arena dolu)", slot); return -1; }
+  // 1) Bu klibi calan sesleri durdur (karistirici komutu bir sonraki callback basinda tuketir).
+  uint32_t durdu = 0;
+  for (uint32_t i = 0; i < kMaxVoices; i++) {
+    if (b.voices[i].id && b.voices[i].clip == ci) { b.mixer.stop(audio::VoiceHandle{b.voices[i].id}); b.voices[i] = Bridge::VoiceSlot{}; durdu++; }
+  }
+  // 2) Callback tamponu okuyor olabilir: durdurma komutunu goren bir callback'in
+  //    BITMESINI bekle (sayac c0'dan ilerleyince komuttan once baslamis callback de
+  //    bitmistir). Cihaz durakliyken (arka plan) callback yok: okuyan da yok.
+  if (durdu && !b.audio_auto_paused) {
+    m.waits++;
+    const long long c0 = (long long)b.mixer.stats().callbacks;
+    const uint64_t t0 = platform::now_ns();
+    while ((long long)b.mixer.stats().callbacks <= c0) {
+      if (platform::now_ns() - t0 > 500000000ull) { m.wait_timeouts++; BERR("teng_music_slot_load: yuva %d icin karistirici 500 ms callback vermedi — tampon yine de yaziliyor", slot); break; }
+      platform::thread_sleep_us(1000);
+    }
+  }
+  // 3) Coz. Yazma boyunca klip BOS (frames 0): bu aralikta calma istegi reddedilir.
+  b.clips[ci].clip = audio::Clip{};
+  bool uzun = false;
+  char cerr[160] = {0};
+  audio::Clip c;
+  if (!audio::clip_load_into(m.buf, m.cap_frames, path, b.mixer.rate(), m.channels, &c, &uzun, cerr, sizeof cerr, m.fmt)) {
+    if (uzun) m.rejects++;
+    m.path[0] = 0;
+    BERR("muzik yuvasi %d: %s %s: %s", slot, path, uzun ? "REDDEDILDI (cok uzun)" : "yuklenemedi", cerr);
+    return uzun ? -2 : -1;
+  }
+  b.clips[ci].clip = c;
+  m.loads++;
+  std::snprintf(m.path, sizeof m.path, "%s", path);
+  std::snprintf(b.clips[ci].name, sizeof b.clips[ci].name, "muzik yuvasi %d: %s", slot, path);
+  const int ms = (int)((uint64_t)c.frames * 1000ull / (c.rate ? c.rate : 1));
+  BINFO("muzik yuvasi %d <- %s (%u kare, %u kanal, %d ms; %u calan ses durduruldu)", slot, path, c.frames, c.channels, ms, durdu);
+  return ms;
+}
 double teng_audio_peak(void) { return g && g->audio_ok ? (double)g->mixer.stats().peak : 0.0; }
+// Ana yol SINIRLAYICI (yumusak tanh; tavan 0 = kapali) + sert kirpma sayaci.
+// Karistirici +-1'de sert kirpar; yuksek seviyeli muzik + kalabalik efekt
+// toplami bunu asinca hoparlorde cizirti olur. Sinirlayici zincirin sonunda.
+int teng_audio_limiter(double ceiling) {
+  CALLF("teng_audio_limiter", "%.2f", ceiling);
+  if (!audio_live("teng_audio_limiter")) return 0;
+  Bridge &b = *g;
+  if (ceiling > 1.0) ceiling = 1.0;
+  if (b.limiter_node < 0) {
+    if (!(ceiling > 0.0)) return 1;
+    b.limiter_node = b.mixer.dsp().add_limiter((float)ceiling);
+    if (b.limiter_node < 0) { BERR("teng_audio_limiter: DSP zinciri dolu"); return 0; }
+  } else {
+    b.mixer.dsp().set_param(b.limiter_node, (float)(ceiling > 0.0 ? ceiling : 1.0));
+  }
+  b.mixer.dsp().set_enabled(b.limiter_node, ceiling > 0.0);
+  BDBG("ana yol sinirlayici %s (tavan %.2f)", ceiling > 0.0 ? "acik" : "kapali", ceiling);
+  return 1;
+}
+int teng_audio_clipped(void) {
+  if (!g || !g->audio_ok) return 0;
+  const uint64_t n = g->mixer.stats().clipped_samples;
+  return n > 2000000000ull ? 2000000000 : (int)n;
+}
+double teng_audio_peak_max(void) { return g && g->audio_ok ? (double)g->mixer.stats().peak_pre_max : 0.0; }
 
 // --- sorgular: isin testi ve yakinlik -------------------------------------------
 // Neden kopruye girdi: oyun mantigi Tulpar'da yaziliyor ve savas/yapay zeka icin

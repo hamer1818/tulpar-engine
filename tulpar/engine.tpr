@@ -912,6 +912,18 @@ func play_sound(clip, gain, loop): int { return eng_audio_play(clip, gain, loop)
 func bip(hz, saniye, seviye): int { return eng_audio_beep(hz, saniye, seviye); }
 func beep(hz, seconds, gain): int { return eng_audio_beep(hz, seconds, gain); }
 func ses_durdur(id) { eng_audio_stop(id); }
+// Calan TEK sesin seviyesi (rampali; ana seviyeyle carpilir) — muzik sonumleme, diyalogda kisma.
+func ses_kazanc(id, seviye) { eng_audio_gain(id, seviye); }
+func voice_gain_e(id, gain) { eng_audio_gain(id, gain); }
+// Muzik yuvasi sayisi/suresi: ses_ac'tan ONCE (varsayilan 2 x 64 s; 0 = yuva yok, tampon ayrilmaz).
+func muzik_yuvalari(sayi, saniye): bool { return eng_music_slots(sayi, saniye); }
+func music_slots(count, seconds): bool { return eng_music_slots(count, seconds); }
+// Muzik yuvasi (varsayilan 2 x 64 s sabit tampon): parca yuvaya cozulur, arena buyumez. Donus ms; < 0 hata (-2 cok uzun).
+func muzik_yuvasi_yukle(yuva, yol): int { return eng_music_slot_load(yuva, yol); }
+func music_slot_load_e(slot, path): int { return eng_music_slot_load(slot, path); }
+// Yuvanin sabit klip tutamaci: cal(muzik_yuvasi_klip(0), seviye, true).
+func muzik_yuvasi_klip(yuva): int { return eng_music_slot_clip(yuva); }
+func music_slot_clip_e(slot): int { return eng_music_slot_clip(slot); }
 func sesleri_durdur() { eng_audio_stop_all(); }
 func stop_sounds() { eng_audio_stop_all(); }
 func ses_seviyesi(s) { eng_audio_master(s); }
@@ -919,6 +931,12 @@ func master_volume(g) { eng_audio_master(g); }
 func calan_ses(): int { return eng_audio_playing(); }
 func playing_count(): int { return eng_audio_playing(); }
 func ses_tepe(): float { return eng_audio_peak(); }
+// Ana yol sinirlayici + sert kirpma olcusu (bkz. eng_audio_limiter).
+func ses_sinirlayici(tavan): bool { return eng_audio_limiter(tavan); }
+func audio_limiter(ceiling): bool { return eng_audio_limiter(ceiling); }
+func ses_kirpilan(): int { return eng_audio_clipped(); }
+func audio_clipped(): int { return eng_audio_clipped(); }
+func ses_tepe_max(): float { return eng_audio_peak_max(); }
 
 // Yatay yürüme: dikey hızı korur, x/z hızını verir (karakter kontrolü).
 func yuru(id, vx, vz) { eng_set_velocity(id, vx, eng_vy(id), vz); }

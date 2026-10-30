@@ -15,11 +15,23 @@
 
 namespace tulpar::engine::audio {
 
+// Bellekte ornek bicimi (2026-10-13, yayin adimi 3): S16 klip F32'nin YARISI yer
+// tutar. Oyunun 86 klibi + 2 muzik yuvasi f32'de ~79 MB'ti (hesap: 79 mono WAV
+// 12.7 MB, tek seferlik muzik 17.7 MB, 2 x 64 s stereo yuva 49 MB). Kaynak 16 bit
+// WAV ise S16 KAYIPSIZDIR: miniaudio s16->f32 donusumu x/32768 (karistiricinin
+// carpaniyla ayni), cikis bit bit ayni (kapi: tests/test_audio.cpp).
+enum class SampleFormat : uint8_t { F32, S16 };
+
 struct Clip {
-  const float *samples = nullptr; // interleaved, channels x frames
+  const float *samples = nullptr;     // F32: interleaved, channels x frames
+  const int16_t *samples16 = nullptr; // S16: ayni duzen (ikisinden biri dolu)
   uint32_t frames = 0;
-  uint32_t channels = 1;          // 1 ya da 2
+  uint32_t channels = 1;              // 1 ya da 2
   uint32_t rate = 48000;
+  bool has_data() const { return (samples || samples16) && frames != 0; }
+  // i = kare * kanal + kanal_no. F32 yolu eskisiyle bit bit ayni.
+  float at(uint64_t i) const { return samples ? samples[i] : (float)samples16[i] * (1.0f / 32768.0f); }
+  uint64_t bytes() const { return (uint64_t)frames * channels * (samples ? 4u : 2u); }
 };
 
 struct VoiceHandle {
@@ -33,6 +45,10 @@ struct MixerStats {
   uint32_t voices_active = 0;
   uint32_t commands_dropped = 0;  // halka doluydu (sayilir, sessiz degil)
   float peak = 0;                 // son render'daki en buyuk |ornek|
+  // SERT KIRPMA: son emniyet sinirinda |x| > 1 olup kesilen ornek sayisi
+  // (birikimli). 0 degilse ses bozuluyor demektir: ana yola sinirlayici koy.
+  uint64_t clipped_samples = 0;
+  float peak_pre_max = 0;         // kirpmadan ONCEKI en buyuk |ornek| (birikimli tepe)
   uint32_t voices_spatial = 0;    // bunlarin kaci 3B
 };
 
@@ -106,6 +122,8 @@ private:
   std::atomic<uint64_t> frames_rendered_{0}, callbacks_{0};
   std::atomic<uint32_t> voices_active_{0}, dropped_{0}, voices_spatial_{0};
   std::atomic<float> peak_{0};
+  std::atomic<uint64_t> clipped_{0};
+  std::atomic<float> peak_pre_max_{0};
 };
 
 } // namespace tulpar::engine::audio

@@ -77,6 +77,25 @@ uint32_t read_ppm(const char *path, uint8_t *out, uint32_t max_px, uint32_t *w_o
   if (h_out) *h_out = h;
   return got == n ? n : 0;
 }
+// 16 bit PCM WAV yaz (ses kapilari): `kanal` 1/2, sinus `hz`, genlik `amp`
+// (0..1). Iki kanalda iki kanal AYNI ornegi tasir (mono ile karsilastirma).
+bool wav_yaz(const char *path, uint32_t kanal, uint32_t kare, uint32_t hiz, float amp, float hz) {
+  FILE *f = std::fopen(path, "wb");
+  if (!f) return false;
+  const uint32_t veri = kare * kanal * 2;
+  auto u32 = [f](uint32_t v) { uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)}; std::fwrite(b, 1, 4, f); };
+  auto u16 = [f](uint32_t v) { uint8_t b[2] = {(uint8_t)v, (uint8_t)(v >> 8)}; std::fwrite(b, 1, 2, f); };
+  std::fwrite("RIFF", 1, 4, f); u32(36 + veri); std::fwrite("WAVEfmt ", 1, 8, f);
+  u32(16); u16(1); u16(kanal); u32(hiz); u32(hiz * kanal * 2); u16(kanal * 2); u16(16);
+  std::fwrite("data", 1, 4, f); u32(veri);
+  for (uint32_t i = 0; i < kare; i++) {
+    const float x = amp * std::sin(6.2831853f * hz * (float)i / (float)hiz);
+    const int16_t v = (int16_t)std::lround(x * 32767.0f);
+    for (uint32_t c = 0; c < kanal; c++) u16((uint16_t)v);
+  }
+  std::fclose(f);
+  return true;
+}
 uint32_t diff_px(const uint8_t *a, const uint8_t *b, uint32_t n) {
   uint32_t d = 0;
   for (uint32_t i = 0; i < n; i++) {
@@ -2453,6 +2472,56 @@ ENGINE_TEST(bridge_app_pause_stops_and_resumes_audio_headless) {
   CHECK(std::strstr(g_kapanis_log, "kapanis (yasam dongusu): 1 kez arka plan, ses 1 kez durduruldu") != nullptr);
 }
 
+// --- Mono kaynak mono klip (M2, 2026-10-09) ---------------------------------------
+// Eskiden her klip karistiricinin kanal sayisina (stereo) acilirdi: mono SFX
+// arenada iki kat yer tutuyordu. Olcu: mono WAV -> klip 1 kanal, arena payi stereo
+// WAV'in yarisi; NULL arka uçta ayni genlikli mono ve stereo klip AYNI tepeyi verir
+// (karistirici mono ornegi iki kanala yazar). KONTROL: stereo WAV hala 2 kanal.
+ENGINE_TEST(bridge_mono_wav_stays_mono_clip_same_peak) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("mono klip", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  char dir[512], mono[600], stereo[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "mono_klip"));
+  std::snprintf(mono, sizeof mono, "%s/mono.wav", dir);
+  std::snprintf(stereo, sizeof stereo, "%s/stereo.wav", dir);
+  CHECK(wav_yaz(mono, 1, 48000, 48000, 0.5f, 440.0f));
+  CHECK(wav_yaz(stereo, 2, 48000, 48000, 0.5f, 440.0f));
+  const long long a0 = teng_debug_sys_arena_used();
+  const int km = teng_audio_load(mono);
+  const long long a1 = teng_debug_sys_arena_used();
+  const int ks = teng_audio_load(stereo);
+  const long long a2 = teng_debug_sys_arena_used();
+  CHECK(km >= 0 && ks >= 0);
+  CHECK(teng_debug_clip_channels(km) == 1);
+  CHECK(teng_debug_clip_channels(ks) == 2); // KONTROL
+  const long long pm = a1 - a0, ps = a2 - a1;
+  CHECK(pm > 0 && ps > 0 && pm * 2 <= ps + 64);
+  auto tepe_olc = [](int klip) {
+    const int v = teng_audio_play(klip, 0.8, 1);
+    platform::thread_sleep_us(120000);
+    double m = 0;
+    for (int k = 0; k < 6; k++) { const double p = teng_audio_peak(); if (p > m) m = p; platform::thread_sleep_us(20000); }
+    teng_audio_stop(v);
+    platform::thread_sleep_us(80000);
+    return m;
+  };
+  const double tm = tepe_olc(km), ts = tepe_olc(ks);
+  std::printf("    [bilgi] mono klip: kanal %d / stereo %d, arena %lld / %lld B, tepe %.4f / %.4f\n", teng_debug_clip_channels(km),
+              teng_debug_clip_channels(ks), pm, ps, tm, ts);
+  CHECK(tm > 0.3 && std::fabs(tm - ts) < 0.002);
+  CHECK(teng_error_count() == e0);
+  teng_audio_close();
+  teng_shutdown();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  std::remove(mono); std::remove(stereo); rmdir(dir);
+}
+
 // --- Sahne malzeme havuzu bolum gecisinde buyumez (Tuzaklar 8dc, 2026-10-09) -----------
 // Renderer'da malzeme silme yok; her yukleme cizim kaydi basina yeni malzeme kurunca
 // kup-kure savas sahnesi (~96 malzeme) 4 gecisle 512'lik havuzu doldurdu ve sonraki
@@ -2520,6 +2589,204 @@ ENGINE_TEST(bridge_scene_reload_reuses_materials) {
   CHECK(kur == 40 && tek > kur);             // KONTROL: sahne her cizime malzeme istiyor
   CHECK(sekiz == tek && yeniden == 7 * kur); // 8 gecis havuzu buyutmez
   std::remove(src); std::remove(blob); rmdir(dir);
+}
+
+// --- Klip tavani 128 + tek sesin seviyesi (M3, 2026-10-09) ------------------------
+// Hikaye modu ~88 klip yukler; 32'lik tavan 33. klipte -1 veriyordu. Calan sesin
+// seviyesi kopruye acildi (Mixer::set_gain, blok boyunca rampali): NULL arka uçta
+// gain 0.5 tepeyi yarilar. KONTROL: gain 1.0'a geri donunce tepe eski degerine
+// doner (olcu seviye degisimini goruyor); 129. klip hala -1 + HATA.
+ENGINE_TEST(bridge_clip_pool_128_and_voice_gain_halves_peak) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("klip havuzu", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  int ok = 0, k33 = -2, ilk = -1;
+  for (int i = 0; i < 128; i++) {
+    const int k = teng_audio_tone(200.0 + i, 0.25);
+    if (k >= 0) ok++;
+    if (i == 0) ilk = k;
+    if (i == 32) k33 = k;
+  }
+  CHECK(ok == 128 && k33 == 32 && teng_error_count() == e0);
+  CHECK(teng_audio_tone(999.0, 0.25) == -1); // KONTROL: tavan hala tavan
+  CHECK(teng_error_count() == e0 + 1);
+  auto tepe = [] {
+    double m = 0;
+    for (int k = 0; k < 6; k++) { const double p = teng_audio_peak(); if (p > m) m = p; platform::thread_sleep_us(20000); }
+    return m;
+  };
+  const int v = teng_audio_play(ilk, 1.0, 1);
+  CHECK(v > 0);
+  platform::thread_sleep_us(120000);
+  const double t1 = tepe();
+  teng_audio_gain(v, 0.5);
+  platform::thread_sleep_us(80000);
+  const double t05 = tepe();
+  teng_audio_gain(v, 1.0);
+  platform::thread_sleep_us(80000);
+  const double t1b = tepe();
+  teng_audio_stop(v);
+  std::printf("    [bilgi] klip havuzu %d/128 (33. -> %d), tepe gain 1.0 %.4f, 0.5 %.4f, geri 1.0 %.4f\n", ok, k33, t1, t05, t1b);
+  CHECK(t1 > 0.3 && std::fabs(t05 - 0.5 * t1) < 0.01 && std::fabs(t1b - t1) < 0.01);
+  CHECK(teng_error_count() == e0 + 1);
+  teng_audio_close();
+  teng_shutdown();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+}
+
+// --- Muzik yuvasi sayisi/suresi init secenegi (karar 12, 2026-10-26) -----------------
+// 2 x 64 s sabit yuva her ses acilisinda arenadan ~23 MB (s16 stereo 48 kHz) aliyordu,
+// muzik yuvasi kullanmayan oyunda da. teng_music_slots(sayi, saniye) ses acilmadan once:
+// 0 -> tampon hic alinmaz; 1 x 10 s -> ~1.8 MB. Uc ayri oturum (her teng_init taze arena):
+// arena farki secenekle OLCULUR (POZITIF KONTROL: varsayilan oturum > 20 MB alir — farki
+// olcen yol gercekten tamponu goruyor). RSS farki basilir: dokunulmayan arena sayfasi
+// RSS'e girmez (iddia edilmez, olculur). Ret yollari: ses acikken ve aralik disinda HATA.
+static long long muzik_oturumu(int sayi, int saniye, int *rss_fark) {
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("muzik secenegi", kW, kH)) return -1;
+  if (sayi >= 0) CHECK(teng_music_slots(sayi, saniye) == 1);
+  const long long a0 = teng_debug_sys_arena_used();
+  const int r0 = teng_rss_kb();
+  CHECK(teng_audio_open(0, 0) == 1);
+  const long long a1 = teng_debug_sys_arena_used();
+  *rss_fark = teng_rss_kb() - r0;
+  return a1 - a0;
+}
+ENGINE_TEST(bridge_music_slots_option_sizes_buffers_before_audio_open) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  int rss_a = 0, rss_b = 0, rss_c = 0;
+  // A: yuva yok
+  const long long da = muzik_oturumu(0, 64, &rss_a);
+  if (da < 0) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  int e0 = teng_error_count();
+  CHECK(teng_music_slot_clip(0) == -1 && teng_error_count() == e0 + 1);
+  teng_audio_close();
+  teng_shutdown();
+  // B: varsayilan (2 x 64 s)
+  const long long db = muzik_oturumu(-1, 0, &rss_b);
+  CHECK(db >= 0);
+  teng_audio_close();
+  teng_shutdown();
+  // C: 1 x 10 s; 2. yuva yok, 11 s parca reddedilir, ses acikken secenek HATA
+  const long long dc = muzik_oturumu(1, 10, &rss_c);
+  CHECK(dc >= 0);
+  e0 = teng_error_count();
+  CHECK(teng_music_slots(2, 64) == 0 && teng_error_count() == e0 + 1);
+  CHECK(teng_music_slot_clip(1) == -1 && teng_error_count() == e0 + 2);
+  char dir[512], kisa[600], uzun[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "muzik_secenek"));
+  std::snprintf(kisa, sizeof kisa, "%s/kisa.wav", dir);
+  std::snprintf(uzun, sizeof uzun, "%s/uzun.wav", dir);
+  CHECK(wav_yaz(kisa, 2, 96000, 48000, 0.5f, 440.0f));      // 2 s
+  CHECK(wav_yaz(uzun, 2, 11 * 48000, 48000, 0.5f, 440.0f)); // 11 s > 10 s
+  CHECK(teng_music_slot_load(0, kisa) == 2000);
+  CHECK(teng_music_slot_load(0, uzun) == -2);
+  teng_audio_close();
+  teng_shutdown();
+  // Aralik disi (taze oturum, ses kapali)
+  teng_set_headless(100000, nullptr);
+  if (teng_init("muzik secenegi ret", kW, kH)) {
+    const int e1 = teng_error_count();
+    CHECK(teng_music_slots(3, 64) == 0 && teng_music_slots(1, 0) == 0 && teng_music_slots(1, 601) == 0);
+    CHECK(teng_error_count() == e1 + 3);
+    teng_shutdown();
+  }
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  std::remove(kisa); std::remove(uzun); rmdir(dir);
+  std::printf("    [bilgi] muzik yuvasi secenegi: arena 0 yuva %lld B, 2 x 64 s %lld B, 1 x 10 s %lld B; RSS %+d / %+d / %+d KB\n", da, db, dc, rss_a,
+              rss_b, rss_c);
+  CHECK(db - da > 20ll * 1024 * 1024);                        // POZITIF KONTROL: varsayilan tamponu aliyor
+  CHECK(da < 64 * 1024);                                      // 0 yuva: tampon yok
+  CHECK(dc - da > 1500000 && dc - da < 2500000);              // 10 s x 48 kHz x 2 kanal x 2 B = 1.92 MB
+}
+
+// --- Muzik yuvalari (M3b, 2026-10-09) ---------------------------------------------
+// Her dongu muzigi kendi klibi olunca arena parca basina buyuyordu (geri verilmez).
+// Iki sabit yuva x 64 s: ayni yuvaya art arda farkli parcalar -> arena BUYUMEZ, yuvanin
+// klip tutamaci sabit, sure ms doner. YARIS: yuva CALARKEN 20 kez yeniden yuklenir
+// (yukleme calani durdurur, karistiricinin bir callback'ini bekler, sonra yazar);
+// hata 0, zaman asimi 0, her yuklemeden sonra calinan parca yeni parcadir (tepe
+// genligi parcaya gore). KONTROL: 65 s'lik parca -2 ile reddedilir, HATA ve kapanis
+// satirinda "uzun red" sayilir; yuklenmemis yuva calinamaz (HATA).
+ENGINE_TEST(bridge_music_slot_reuses_buffer_and_rejects_long_track) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("muzik yuvasi", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_open(0, 0) == 1);
+  char dir[512], a[600], bb[600], uzun[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "muzik_yuvasi"));
+  std::snprintf(a, sizeof a, "%s/a.wav", dir);
+  std::snprintf(bb, sizeof bb, "%s/b.wav", dir);
+  std::snprintf(uzun, sizeof uzun, "%s/uzun.wav", dir);
+  CHECK(wav_yaz(a, 2, 96000, 48000, 0.6f, 440.0f));    // 2 s, tepe 0.6
+  CHECK(wav_yaz(bb, 2, 144000, 48000, 0.3f, 660.0f));  // 3 s, tepe 0.3
+  CHECK(wav_yaz(uzun, 2, 65 * 48000, 48000, 0.2f, 330.0f));
+  const int k0 = teng_music_slot_clip(0);
+  CHECK(k0 >= 0);
+  // KONTROL: bos yuva calinamaz.
+  CHECK(teng_audio_play(k0, 1.0, 1) == 0);
+  CHECK(teng_error_count() == e0 + 1);
+  const long long ar0 = teng_debug_sys_arena_used();
+  CHECK(teng_music_slot_load(0, a) == 2000);
+  const long long ar1 = teng_debug_sys_arena_used();
+  CHECK(teng_music_slot_load(0, bb) == 3000);
+  const long long ar2 = teng_debug_sys_arena_used();
+  CHECK(ar1 == ar0 && ar2 == ar0 && teng_music_slot_clip(0) == k0);
+  auto tepe = [] {
+    double m = 0;
+    for (int k = 0; k < 5; k++) { const double p = teng_audio_peak(); if (p > m) m = p; platform::thread_sleep_us(15000); }
+    return m;
+  };
+  const int rss0 = teng_rss_kb();
+  int yanlis = 0;
+  double ta = 0, tb = 0;
+  for (int t = 0; t < 20; t++) {
+    const bool cift = (t % 2) == 0;
+    const int v = teng_audio_play(k0, 1.0, 1);
+    CHECK(v > 0);
+    platform::thread_sleep_us(40000);
+    const double p = tepe();
+    // calan parca: cift turda en son yuklenen b (0.3), tek turda a (0.6)
+    const double bek = cift ? 0.3 : 0.6;
+    if (std::fabs(p - bek) > 0.02) yanlis++;
+    if (cift) tb = p; else ta = p;
+    CHECK(teng_music_slot_load(0, cift ? a : bb) > 0); // CALARKEN yeniden yukle
+  }
+  const int rss1 = teng_rss_kb();
+  std::printf("    [bilgi] muzik yuvasi: arena %lld -> %lld -> %lld B, 20 calarken yukleme: yanlis parca %d, tepe a %.3f b %.3f, RSS %+d KB\n", ar0, ar1, ar2,
+              yanlis, ta, tb, rss1 - rss0);
+  CHECK(yanlis == 0);
+  CHECK(rss1 - rss0 < 4096);
+  CHECK(teng_error_count() == e0 + 1);
+  // KONTROL: 64 s'den uzun parca reddedilir ve sayilir; yuva BOS kalir (eski parca degil).
+  CHECK(teng_music_slot_load(1, uzun) == -2);
+  CHECK(teng_error_count() == e0 + 2);
+  teng_audio_stop_all();
+  teng_audio_close();
+  kapanis_yakala();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  const char *r = std::strstr(g_kapanis_log, "kapanis (muzik yuvasi): 2 yuva x 64 s");
+  CHECK(r != nullptr);
+  if (r) {
+    unsigned mb = 0, y0 = 0, y1 = 0, r0 = 9, r1 = 9, b0 = 0, b1 = 0, za = 9;
+    // S16 yuva (yayin adimi 3): 2 x 64 s x 48 kHz x 2 kanal x 2 B = 23 MB (f32'de 46 MB).
+    std::sscanf(r, "kapanis (muzik yuvasi): 2 yuva x 64 s (%u MB s16), yukleme %u/%u, uzun red %u/%u, bekleme %u/%u (zaman asimi %u)", &mb, &y0, &y1, &r0, &r1, &b0, &b1, &za);
+    std::printf("    [bilgi] kapanis: %u MB, yukleme %u/%u, red %u/%u, bekleme %u/%u, zaman asimi %u\n", mb, y0, y1, r0, r1, b0, b1, za);
+    CHECK(mb == 23 && y0 == 22 && y1 == 0 && r0 == 0 && r1 == 1 && b0 == 20 && za == 0);
+  }
+  std::remove(a); std::remove(bb); std::remove(uzun); rmdir(dir);
 }
 
 // --- Guvenli alan (Geri bildirim #17) ---------------------------------------------

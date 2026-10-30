@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <unistd.h>
+
 #include "audio/clip.hpp"
 #include "audio/device.hpp"
 #include "audio/dsp.hpp"
@@ -575,4 +577,122 @@ ENGINE_TEST(audio_device_thread_priority_is_measured) {
   }
   CHECK(di.thread_policy[0] != 0); // olcum YAPILDI (bos degil)
   dev.shutdown();
+}
+
+// Sert kirpma sayaci + ana yol sinirlayici: uc yuksek ses toplami (0.6 x 3)
+// +-1'i asar ve karistiricinin emniyet sinirinda KESILIR — sayac bunu sayar
+// (POZITIF KONTROL: sinirlayicisiz kosumda kirpilan > 0). Sinirlayici (tanh,
+// tavan 0.95) acikken ayni toplam kirpilmaz ve tepe tavanin altinda kalir.
+// Oyunda: yeni muzik + kalabalik efekt telefonda sert kirpabiliyordu.
+static uint64_t kirpma_kosu(bool sinirla, float *tepe, float *on_tepe) {
+  static SystemArena sys;
+  if (sys.capacity() == 0 && !sys.reserve(8u << 20, "audio_kirp")) return 0;
+  sys.reset();
+  audio::Clip a, b, c;
+  audio::clip_sine(sys, 220.0f, 0.2f, 48000, 0.6f, &a);
+  audio::clip_sine(sys, 330.0f, 0.2f, 48000, 0.6f, &b);
+  audio::clip_sine(sys, 440.0f, 0.2f, 48000, 0.6f, &c);
+  audio::Mixer mx;
+  mx.init(48000, 2);
+  if (sinirla) mx.dsp().add_limiter(0.95f);
+  mx.play(&a, 1.0f, false);
+  mx.play(&b, 1.0f, false);
+  mx.play(&c, 1.0f, false);
+  static float out[4800 * 2];
+  mx.render(out, 4800);
+  const audio::MixerStats st = mx.stats();
+  *tepe = st.peak;
+  *on_tepe = st.peak_pre_max;
+  return st.clipped_samples;
+}
+ENGINE_TEST(audio_master_limiter_prevents_hard_clipping) {
+  float t0 = 0, o0 = 0, t1 = 0, o1 = 0;
+  const uint64_t k0 = kirpma_kosu(false, &t0, &o0);
+  const uint64_t k1 = kirpma_kosu(true, &t1, &o1);
+  std::printf("    [bilgi] kirpma: sinirlayicisiz %llu ornek kesildi (ham tepe %.2f), sinirlayici 0.95 ile %llu (tepe %.3f)\n",
+              (unsigned long long)k0, o0, (unsigned long long)k1, t1);
+  CHECK(k0 > 0 && o0 > 1.0f);   // pozitif kontrol: gercekten kirpiyordu
+  CHECK(k1 == 0 && t1 < 0.95f);
+}
+
+// --- S16 klip (yayin adimi 3, 2026-10-13) -------------------------------------
+// Oyunun sesleri bellekte f32 yerine int16 durur: PCM bedeli YARI. Iddia (bizim kod):
+// 16 bit kaynakli klip S16 yuklenince (1) arena payi F32'nin yarisi, (2) karistirici
+// cikisi F32 klibinkiyle BIT BIT ayni (miniaudio s16->f32 = x/32768, Clip::at ayni
+// carpan), mono ve stereo klipte, duz ve 3B yolda. POZITIF KONTROL: S16 tamponunda tek
+// ornek 1 LSB oynatilinca cikis TAM o karede ayrisir — karsilastirma 1 LSB'yi goruyor.
+namespace {
+bool wav16_yaz(const char *path, uint32_t kanal, uint32_t kare, uint32_t hiz, float amp, float hz) {
+  FILE *f = std::fopen(path, "wb");
+  if (!f) return false;
+  const uint32_t veri = kare * kanal * 2;
+  auto u32 = [f](uint32_t v) { uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)}; std::fwrite(b, 1, 4, f); };
+  auto u16 = [f](uint32_t v) { uint8_t b[2] = {(uint8_t)v, (uint8_t)(v >> 8)}; std::fwrite(b, 1, 2, f); };
+  std::fwrite("RIFF", 1, 4, f); u32(36 + veri); std::fwrite("WAVEfmt ", 1, 8, f);
+  u32(16); u16(1); u16(kanal); u32(hiz); u32(hiz * kanal * 2); u16(kanal * 2); u16(16);
+  std::fwrite("data", 1, 4, f); u32(veri);
+  for (uint32_t i = 0; i < kare; i++)
+    for (uint32_t c = 0; c < kanal; c++) {
+      // kanallar farkli faz: stereo yolun kanal karisikligi da gorunsun
+      const float x = amp * std::sin(6.2831853f * hz * (float)i / (float)hiz + 1.3f * (float)c);
+      u16((uint16_t)(int16_t)std::lround(x * 32767.0f));
+    }
+  std::fclose(f);
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(audio_s16_clip_half_memory_bit_identical_mix) {
+  static SystemArena sys;
+  if (!sys.reserve(16u << 20, "audio s16")) { CHECK(false); return; }
+  char dir[512], mono[600], stereo[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "s16_klip"));
+  std::snprintf(mono, sizeof mono, "%s/mono.wav", dir);
+  std::snprintf(stereo, sizeof stereo, "%s/stereo.wav", dir);
+  CHECK(wav16_yaz(mono, 1, 9600, 48000, 0.7f, 523.0f));
+  CHECK(wav16_yaz(stereo, 2, 9600, 48000, 0.6f, 311.0f));
+  char err[160];
+  audio::Clip mf, ms, sf, ss;
+  size_t a0 = sys.used();
+  CHECK(audio::clip_load(sys, mono, 48000, 2, &mf, err, sizeof err, audio::SampleFormat::F32));
+  size_t a1 = sys.used();
+  CHECK(audio::clip_load(sys, mono, 48000, 2, &ms, err, sizeof err, audio::SampleFormat::S16));
+  size_t a2 = sys.used();
+  CHECK(audio::clip_load(sys, stereo, 48000, 2, &sf, err, sizeof err, audio::SampleFormat::F32));
+  CHECK(audio::clip_load(sys, stereo, 48000, 2, &ss, err, sizeof err, audio::SampleFormat::S16));
+  CHECK(mf.samples && !mf.samples16 && ms.samples16 && !ms.samples && ss.samples16);
+  CHECK(ms.channels == 1 && ss.channels == 2 && ms.frames == 9600 && ss.frames == 9600);
+  const size_t pf = a1 - a0, ps = a2 - a1;
+  CHECK(ms.bytes() * 2 == mf.bytes() && ss.bytes() * 2 == sf.bytes());
+  CHECK(ps * 2 <= pf + 64 && ps * 2 + 64 >= pf);
+  // Karistir: ayni ses dizisi F32 klipleri ve S16 klipleriyle, sonra karsilastir.
+  static float o_f[4096 * 2], o_s[4096 * 2];
+  audio::SpatialParams sp{};
+  sp.pos = {2.0f, 0.0f, 1.0f};
+  auto karistir = [&](const audio::Clip &m, const audio::Clip &s, float *out) {
+    audio::Mixer mx;
+    mx.init(48000, 2);
+    mx.play(&m, 0.4f, false); // toplam tepe < 1: sert kirpma farki gizlemesin
+    mx.play(&s, 0.25f, true);
+    mx.play_3d(&m, sp, 0.3f, false);
+    mx.play_3d(&s, sp, 0.2f, false);
+    mx.render(out, 4096);
+  };
+  karistir(mf, sf, o_f);
+  karistir(ms, ss, o_s);
+  uint32_t fark = 0;
+  float tepe = 0;
+  for (uint32_t i = 0; i < 4096 * 2; i++) { if (o_f[i] != o_s[i]) fark++; if (std::fabs(o_f[i]) > tepe) tepe = std::fabs(o_f[i]); }
+  // POZITIF KONTROL: S16 mono klibin 1000. ornegi +1 LSB -> cikis 1000. karede ayrisir.
+  int16_t *boz = const_cast<int16_t *>(ms.samples16);
+  boz[1000] = (int16_t)(boz[1000] + 1);
+  karistir(mf, ss, o_f);
+  karistir(ms, ss, o_s);
+  uint32_t fark_kontrol = 0, ilk = 0xFFFFFFFFu;
+  for (uint32_t i = 0; i < 4096 * 2; i++) if (o_f[i] != o_s[i]) { fark_kontrol++; if (ilk == 0xFFFFFFFFu) ilk = i / 2; }
+  std::printf("    [bilgi] s16 klip: arena f32 %zu B / s16 %zu B, karisim farki %u/%u ornek (tepe %.3f); +1 LSB kontrol: %u ornek, ilk kare %u\n", pf, ps,
+              fark, 4096 * 2, tepe, fark_kontrol, ilk);
+  CHECK(fark == 0 && tepe > 0.3f && tepe < 1.0f);
+  CHECK(fark_kontrol >= 1 && ilk == 1000);
+  std::remove(mono); std::remove(stereo); rmdir(dir);
 }
