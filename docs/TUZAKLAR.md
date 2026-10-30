@@ -2352,3 +2352,21 @@ kontrolü `TULPAR_ENGINE_AYNA_SARIM_ESKI=1` (sarım düz) ile fark 0.296 çıkar
 
 **Genel kural:** yansıma içeren her dönüşüm (ayna, negatif ölçek) sarımı ve sağ el kuralını ters çevirir. Böyle
 bir dönüşüm ekleyen kod, ayıklama yönünü ve ekran↔dünya eşlemesini AYNI yerde çevirmelidir.
+
+### 8dl. "Önbellek var" ama hiçbir PR onu göremiyor — ve "paralel koş" aynı makinede yavaşlatıyor
+
+**Sınıf** (2026-10-30, CI'da ölçüldü): Actions önbelleği **kapsamlı**: bir PR'ın kaydettiği önbelleği
+yalnız o PR okur; tüm PR'ların okuyabildiği tek kapsam main (varsayılan dal). main push yeniden kullanım
+yolunda (PR artefaktı indirilir) derleme adımları atlandığı için main hiç kaydetmiyordu: `gh api
+repos/<depo>/actions/caches` listesinde motor `ccache-linux-*` 12 kaydın 11'i `refs/pull/N/merge`
+kapsamındaydı, TulparLang `openssl-kucuk-*` hiç main'de değildi — her PR'ın ilk koşumu soğuk derledi
+(TulparLang macOS'ta OpenSSL her koşumda 101 s). Yeşil, ama "önbellekli" sanılan iş hiç önbellek
+görmüyordu. **Ders:** önbelleğin VARLIĞINA değil kapsamına bak; main'in kaydettiğinden emin ol.
+
+**Bağlı ölçüm:** Linux `tools/tulpar_dogrula.sh --tam`'ın yedi uzun lavapipe koşusunu aynı 4 çekirdekte
+eşzamanlı başlatmak (CI'ın lavapipe'ı, mesa 25.2.8, `taskset -c 0-3`) seri 288 s'yi **300–330 s'ye
+yavaşlattı**: lavapipe tek koşuda çekirdekleri zaten dolduruyor (savaş 3200 kare: `LP_NUM_THREADS=4`
+36.5 s duvar / 125 s kullanıcı; `=1` 119.8 s / 127 s). `[kapi]` satırları üç kipte de bayt bayt aynıydı —
+yani doğrulukta sorun yoktu, kazanç da yoktu. Kazanç ayrı koşucudan gelir: savaş bölümü ayrı CI işinde
+(`--yalniz-savas`), zorunlu Linux işi onun sonucunu taşıyor (`tools/ci_bekle.sh`). **Ders:** "paralel
+koş" önerisini çekirdek doluluğu ölçülmeden uygulama.

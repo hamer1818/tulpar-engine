@@ -198,6 +198,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read          # PR koşumunun artefaktlari (yeniden kullanim)
+      pull-requests: read    # birlesen PR (yeniden kullanim karari)
     env:
       SURUM: ${{ needs.hazirlik.outputs.surum }}
       PLATFORM: linux-x86_64
@@ -207,6 +209,25 @@ jobs:
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-linux-x86_64
     steps:
       - uses: actions/checkout@v4
+
+      # SURUMDE YENIDEN KULLANIM (2026-10-30, tools/surum_yeniden_kullan.sh): PR
+      # CI ayni agaci birlesince cikacak surumle derleyip test edip paketlediyse
+      # (tools/ci_surum.sh), o paket indirilir; derleme, engine_tests ve paketleme
+      # ikinci kez KOSMAZ — yayinlanan bayt = PR'da test edilen bayt. Karar
+      # tools/yeniden_kullanim_karar.sh'te (PR birlesmis ve etiketin commit'i,
+      # agac = PR koşumunun derledigi agac, koşum yesil, kayitli surum = etiket);
+      # ustune paketin SURUM.txt'si ve engine_editor isareti etiketle olculur. Biri
+      # tutmazsa sifirdan (eski yol). Manifest, arsivle ve ARSIVDEN ACILAN PAKET
+      # kapilari (eklenti kosusu dahil) iki yolda da AYNEN kosar. Windows'ta
+      # "Paket yerlesimi (+ MinGW DLL'leri)" yapi agacindan turetir; yeniden
+      # kullanimda ayni baytlar uzerinde ci.yml'de kostu (ayni betik).
+      - name: PR paketini yeniden kullanmayi dene
+        id: reuse
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/surum_yeniden_kullan.sh
 
       # mesa-vulkan-drivers = lavapipe ICD (yazilim Vulkan). libvulkan1 = loader;
       # motor onu link zamaninda degil dlopen ile ariyor, yani paket yoksa butun
@@ -252,6 +273,7 @@ jobs:
         run: python3 tools/layer_check.py .
 
       - name: ccache onbellegi
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -261,6 +283,7 @@ jobs:
             ccache-linux-
 
       - name: Yapilandir
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -268,6 +291,7 @@ jobs:
                 -DTULPAR_SURUM="$SURUM"
 
       - name: Derle
+        if: steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
 
       # Surum ve platform ikiliye GERCEKTEN gomuldu mu (core/build_info.cpp'deki
@@ -277,6 +301,7 @@ jobs:
       # eslesmesi v0.1.4'u v0.1.43'te de bulurdu. -m1: grep ilk satirda durur,
       # boru yok (pipefail + erken kapanan okuyucu tuzagi, Tuzaklar 8cj).
       - name: Surum ikilide mi
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           exe=yapi/engine_editor
@@ -296,12 +321,14 @@ jobs:
       # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
       # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
       - name: ccache isabet orani
+        if: steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Kapinin POZITIF KONTROLU: Vulkan'i kapatip atlama satirlarinin GERCEKTEN
       # basildigini goruyoruz. Boylece asagidaki Vulkan kontrolunun hicbir seye
       # uymayan bos bir grep olmadigi kanitlanmis oluyor.
       - name: Atlama mekanizmasinin pozitif kontrolu
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
@@ -322,6 +349,7 @@ jobs:
       #   validation_layer  -> rhi_validation_layer_reports_zero_errors
       #   mali_best_practices -> renderer_/render_graph_post_/render_graph_gpu_cull_/temporal_
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           # NOT: BSD mktemp (macOS) sablonsuz `mktemp -d` KABUL ETMEZ — bos bir
@@ -345,6 +373,7 @@ jobs:
       # adimlarinin hicbiri kosmaz, yani test edilmemis bir ikili hicbir yere
       # gitmez.
       - name: Testler + kapi
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           ./yapi/engine_tests 2>&1 | tee sonuc.log
@@ -430,6 +459,7 @@ jobs:
         run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
 
       - name: Paketle (tools/package.sh)
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           if [ ! -f tools/package.sh ]; then
@@ -603,6 +633,8 @@ jobs:
     runs-on: macos-latest
     permissions:
       contents: read
+      actions: read          # PR koşumunun artefaktlari (yeniden kullanim)
+      pull-requests: read    # birlesen PR (yeniden kullanim karari)
     env:
       SURUM: ${{ needs.hazirlik.outputs.surum }}
       PLATFORM: macos-arm64
@@ -610,6 +642,25 @@ jobs:
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-macos-arm64
     steps:
       - uses: actions/checkout@v4
+
+      # SURUMDE YENIDEN KULLANIM (2026-10-30, tools/surum_yeniden_kullan.sh): PR
+      # CI ayni agaci birlesince cikacak surumle derleyip test edip paketlediyse
+      # (tools/ci_surum.sh), o paket indirilir; derleme, engine_tests ve paketleme
+      # ikinci kez KOSMAZ — yayinlanan bayt = PR'da test edilen bayt. Karar
+      # tools/yeniden_kullanim_karar.sh'te (PR birlesmis ve etiketin commit'i,
+      # agac = PR koşumunun derledigi agac, koşum yesil, kayitli surum = etiket);
+      # ustune paketin SURUM.txt'si ve engine_editor isareti etiketle olculur. Biri
+      # tutmazsa sifirdan (eski yol). Manifest, arsivle ve ARSIVDEN ACILAN PAKET
+      # kapilari (eklenti kosusu dahil) iki yolda da AYNEN kosar. Windows'ta
+      # "Paket yerlesimi (+ MinGW DLL'leri)" yapi agacindan turetir; yeniden
+      # kullanimda ayni baytlar uzerinde ci.yml'de kostu (ayni betik).
+      - name: PR paketini yeniden kullanmayi dene
+        id: reuse
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/surum_yeniden_kullan.sh
 
       # vulkan-loader = libvulkan.1.dylib (ICD mekanizmasi), molten-vk = ICD'nin
       # kendisi. Ikisi ayri: yalniz molten-vk kurulursa loader bulunamaz.
@@ -729,6 +780,7 @@ jobs:
         run: python3 tools/layer_check.py .
 
       - name: ccache onbellegi
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -738,6 +790,7 @@ jobs:
             ccache-macos-
 
       - name: Yapilandir
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -745,6 +798,7 @@ jobs:
                 -DTULPAR_SURUM="$SURUM"
 
       - name: Derle
+        if: steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
 
       # Surum ve platform ikiliye GERCEKTEN gomuldu mu (core/build_info.cpp'deki
@@ -754,6 +808,7 @@ jobs:
       # eslesmesi v0.1.4'u v0.1.43'te de bulurdu. -m1: grep ilk satirda durur,
       # boru yok (pipefail + erken kapanan okuyucu tuzagi, Tuzaklar 8cj).
       - name: Surum ikilide mi
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           exe=yapi/engine_editor
@@ -773,9 +828,11 @@ jobs:
       # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
       # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
       - name: ccache isabet orani
+        if: steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Atlama mekanizmasinin pozitif kontrolu
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           TULPAR_ENGINE_NO_VULKAN=1 ./yapi/engine_tests rhi_ > kontrol.log 2>&1 || true
@@ -796,6 +853,7 @@ jobs:
       #   validation_layer  -> rhi_validation_layer_reports_zero_errors
       #   mali_best_practices -> renderer_/render_graph_post_/render_graph_gpu_cull_/temporal_
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           # NOT: BSD mktemp (macOS) sablonsuz `mktemp -d` KABUL ETMEZ — bos bir
@@ -816,6 +874,7 @@ jobs:
 
       # ===== YAYIN KAPISI =====================================================
       - name: Testler + kapi
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
           ./yapi/engine_tests 2>&1 | tee sonuc.log
@@ -911,6 +970,7 @@ jobs:
         run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
 
       - name: Paketle (tools/package.sh)
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           if [ ! -f tools/package.sh ]; then
@@ -1082,6 +1142,8 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read          # PR koşumunun artefaktlari (yeniden kullanim)
+      pull-requests: read    # birlesen PR (yeniden kullanim karari)
     defaults:
       run:
         shell: msys2 {0}
@@ -1105,6 +1167,25 @@ jobs:
         run: git config --global core.autocrlf input
 
       - uses: actions/checkout@v4
+
+      # SURUMDE YENIDEN KULLANIM (2026-10-30, tools/surum_yeniden_kullan.sh): PR
+      # CI ayni agaci birlesince cikacak surumle derleyip test edip paketlediyse
+      # (tools/ci_surum.sh), o paket indirilir; derleme, engine_tests ve paketleme
+      # ikinci kez KOSMAZ — yayinlanan bayt = PR'da test edilen bayt. Karar
+      # tools/yeniden_kullanim_karar.sh'te (PR birlesmis ve etiketin commit'i,
+      # agac = PR koşumunun derledigi agac, koşum yesil, kayitli surum = etiket);
+      # ustune paketin SURUM.txt'si ve engine_editor isareti etiketle olculur. Biri
+      # tutmazsa sifirdan (eski yol). Manifest, arsivle ve ARSIVDEN ACILAN PAKET
+      # kapilari (eklenti kosusu dahil) iki yolda da AYNEN kosar. Windows'ta
+      # "Paket yerlesimi (+ MinGW DLL'leri)" yapi agacindan turetir; yeniden
+      # kullanimda ayni baytlar uzerinde ci.yml'de kostu (ayni betik).
+      - name: PR paketini yeniden kullanmayi dene
+        id: reuse
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/surum_yeniden_kullan.sh
 
       # update: false — "Final system upgrade" adimi olculdu 27-31 sn ve TEMEL
       # IMAJI tazelemekten baska is yapmiyor. Paket listesi CI ile BIREBIR AYNI
@@ -1141,6 +1222,7 @@ jobs:
         run: python3 tools/layer_check.py .
 
       - name: ccache onbellegi
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -1150,6 +1232,7 @@ jobs:
             ccache-windows-
 
       - name: Yapilandir
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           ccache --zero-stats
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -1157,6 +1240,7 @@ jobs:
                 -DTULPAR_SURUM="$SURUM"
 
       - name: Derle
+        if: steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
 
       # Surum ve platform ikiliye GERCEKTEN gomuldu mu (core/build_info.cpp'deki
@@ -1166,6 +1250,7 @@ jobs:
       # eslesmesi v0.1.4'u v0.1.43'te de bulurdu. -m1: grep ilk satirda durur,
       # boru yok (pipefail + erken kapanan okuyucu tuzagi, Tuzaklar 8cj).
       - name: Surum ikilide mi
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           exe=yapi/engine_editor
@@ -1185,6 +1270,7 @@ jobs:
       # Onbellekle derlenen bir surumde isabet/iskalama GORUNUR olmali: "bu
       # ikili nereden geldi" sorusu olculebilir kalsin diye is ozetine yaziliyor.
       - name: ccache isabet orani
+        if: steps.reuse.outputs.reused != 'true'
         run: ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       # ===== YAYIN KAPISI =====================================================
@@ -1194,12 +1280,15 @@ jobs:
       # SwiftShader kurulu: "Vulkan ... yok" / "VK_LAYER_KHRONOS_validation
       # yok" gerekceli tek bir atlama KIRMIZI — olculmemis ikili yayinlanmaz.
       - name: Atlama mekanizmasinin pozitif kontrolu
+        if: steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh atlama-kontrol
 
       - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        if: steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh katman-kontrol
 
       - name: Testler + kapi
+        if: steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh testler
       # ===== /YAYIN KAPISI ====================================================
 
@@ -1218,9 +1307,11 @@ jobs:
       # 6 ornek x 60 kare). Uzun taban cizgileri (dalga 2400 / aksiyon 3200
       # kare) --uzun-atla ile GORUNUR ATLANDI; Linux/macOS'ta her PR'da olculur.
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
+        if: steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh kopru "$(cygpath -u "$RUNNER_TEMP")/tulpar/tulpar.exe"
 
       - name: Paketle (tools/package.sh)
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           set -euo pipefail
           if [ ! -f tools/package.sh ]; then
@@ -1242,6 +1333,7 @@ jobs:
       # Ikincisinin kapisi tools/package.sh icinde (kaynaktan turetilen liste);
       # asagidaki kapi birincisini ITHALAT TABLOSUNDAN olcer.
       - name: Paket yerlesimi kapisi (+ MinGW DLL'leri)
+        if: steps.reuse.outputs.reused != 'true'
         run: bash tools/paket_denetle.sh yapi "paket/$AD"
 
       # EDITOR ICI GUNCELLEYICININ MANIFESTI — Linux/macOS islerindeki adimla
