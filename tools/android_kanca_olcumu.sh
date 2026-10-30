@@ -30,6 +30,8 @@ PKG=dev.tulparlang.android_kanca_olcumu
 ACT=$PKG/android.app.NativeActivity
 EXT="${TULPAR_EXT_DIR:-$ROOT/yapi/tulpar-ext}"
 command -v tulpar >/dev/null || { echo "HATA: PATH'te tulpar yok"; exit 1; }
+. "$(dirname "$0")/android_adb_hazir.sh"
+adb_hazir || exit 1
 if [ -n "${ANDROID_SERIAL:-}" ]; then
   adb devices | grep -q "^$ANDROID_SERIAL[[:space:]]*device$" \
     || { echo "HATA: ANDROID_SERIAL=$ANDROID_SERIAL bagli degil"; adb devices; exit 1; }
