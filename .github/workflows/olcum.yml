@@ -31,7 +31,7 @@ jobs:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build yapi -j"$(nproc)" --target tulpar_ext_paket 2>/dev/null || cmake --build yapi -j"$(nproc)"
+          cmake --build yapi -j"$(nproc)"
           ls yapi/tulpar-ext
       - name: Tulpar
         run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
