@@ -1368,6 +1368,37 @@ func rapor_paylas(yol): bool { return eng_report_share(yol); }
 func report_share(path): bool { return eng_report_share(path); }
 func rapor_sil(yol): bool { return eng_report_dismiss(yol); }
 func report_dismiss(path): bool { return eng_report_dismiss(path); }
+
+// ---- Para: ödüllü reklam + uygulama içi satın alma (eng_ads_* / eng_iap_*) -------
+// Sağlayıcı "test" (masaüstü + yalnız debug APK) | "yok"; yayın APK'sında test kapalı,
+// kur false döner — oyun düğmeyi göstermez. Ödüllü reklam YALNIZ oyuncu isteyince
+// (Play politikası). Ayrıntı: docs/KOPRU.md §9.
+int REKLAM_BOS = 0;  int REKLAM_YUKLENIYOR = 1;  int REKLAM_HAZIR = 2;  int REKLAM_GOSTERILIYOR = 3;  int REKLAM_YUKLENEMEDI = 4;
+int REKLAM_ODUL = 1;  int REKLAM_ODULSUZ = 2;  int REKLAM_HATA = 3;
+int SATIN_ALINDI = 1;  int SATIN_IPTAL = 2;  int SATIN_HATA = 3;  int SATIN_BEKLIYOR = 4;
+int SATIN_GERI_YUKLENDI = 5;  int SATIN_GERI_BITTI = 6;  int SATIN_ZATEN_SAHIP = 7;
+func reklam_kur(saglayici, cocuk, derece): bool { return eng_ads_init(saglayici, cocuk, derece); }
+func ads_init(provider, child, rating): bool { return eng_ads_init(provider, child, rating); }
+func reklam_var(): bool { return eng_ads_available(); }
+func reklam_yukle(birim): bool { return eng_ads_load(birim); }
+func ads_load(unit): bool { return eng_ads_load(unit); }
+func reklam_durum(): int { return eng_ads_state(); }
+func reklam_goster(): bool { return eng_ads_show(); }
+func ads_show(): bool { return eng_ads_show(); }
+func reklam_sonuc(): int { return eng_ads_result(); }
+func satin_kur(saglayici): bool { return eng_iap_init(saglayici); }
+func iap_init(provider): bool { return eng_iap_init(provider); }
+func satin_var(): bool { return eng_iap_available(); }
+func urun_kaydet(kimlik, tuketilir): bool { return eng_iap_product(kimlik, tuketilir); }
+func urun_fiyat(kimlik): str { return eng_iap_price(kimlik); }
+func satin_al(kimlik): bool { return eng_iap_buy(kimlik); }
+func iap_buy(id): bool { return eng_iap_buy(id); }
+func satin_geri_yukle(): bool { return eng_iap_restore(); }
+func satin_olay(): int { return eng_iap_poll(); }
+func satin_olay_urun(): str { return eng_iap_event_product(); }
+func satin_bitir(kimlik): bool { return eng_iap_finish(kimlik); }
+func urun_sahip(kimlik): bool { return eng_iap_owned(kimlik); }
+func para_test_kurali(kural): bool { return eng_store_test(kural); }
 // En yüksek skor: yeni rekorsa yazar + diske kaydeder, rekoru döndürür.
 func rekor_guncelle(anahtar, skor): int {
     int eski = toInt(eng_save_get(anahtar, 0));

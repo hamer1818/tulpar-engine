@@ -681,6 +681,9 @@ extern "C" void android_main(android_app *app) {
     }
   }
   g_host.debuggable = app_debuggable(app);
+  // Para test saglayicisi (sahte reklam, bedava satin alma) YALNIZ debug APK'da:
+  // yayin APK'sinda teng_ads_init("test") false doner, oyun dugmeleri gostermez.
+  bridge::bridge_store_test_allowed(g_host.debuggable);
   // debug.tulpar.env = "AD=deger;AD2=deger2": YALNIZ hata ayiklanabilir APK'da
   // oyunun ortam degiskenleri (masaustundeki `AD=deger tulpar oyun.tpr`un
   // telefondaki karsiligi; ornek: oyunun otopilotu). Yayin APK'si okumaz.

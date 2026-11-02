@@ -65,6 +65,11 @@ void bridge_report_crash_extra(int fd);
 // gerekmez, teng_net_wifi_lock 1 doner. nullptr: kapat (testler).
 void bridge_net_host(bool (*wifi_lock)(bool on));
 
+// Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
+// varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:
+// yayin APK'sinda sahte reklam/bedava satin alma oyuncuya gorunmesin.
+void bridge_store_test_allowed(bool on);
+
 // Platform dosyasi saglar. false: pencere acilamadi (sebep err'e, cap bayt).
 bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h, char *err, size_t err_cap);
 void bridge_host_close(BridgeHost *h);

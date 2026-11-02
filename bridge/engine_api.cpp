@@ -1222,6 +1222,9 @@ void render_frame() {
     // sync_size tek karar noktasidir (yukariya bak).
   }
 }
+// para (asagida, kayit bolumunden sonra): kare basi saat + oturum sifirlama
+void para_tick(float dt);
+void para_reset(void);
 } // namespace
 
 // ===========================================================================
@@ -1697,6 +1700,7 @@ int teng_frame_begin(void) {
   if (b.headless && !b.embed) b.dt = 1.0f / 60.0f;
   if (embed_step) b.dt = 1.0f / 60.0f; // duraklatmada tek adim: gecen gercek sure degil, BIR kare
   b.time_s += b.dt;
+  para_tick(b.dt); // reklam / satin alma saati: gercek kare suresi (zaman olcegi uygulanmaz)
   b.prof.begin_frame();
   b.frame_arena.begin_frame();
   b.have_window = b.headless;
@@ -2599,6 +2603,7 @@ void teng_shutdown(void) {
   // teng_error_count() okunuyor (test_game_channel), sifirlamak o olcumu
   // bos birakirdi — surec boyunca birikirler (KOPRU.md §3).
   g_log.frame = 0;
+  para_reset(); // reklam/satin alma durumu da oturuma ait (izin hostun, korunur)
 }
 
 double teng_dt(void) { return g ? g->dt : 0.0; }
@@ -4337,6 +4342,436 @@ int teng_save_write(void) {
   BINFO("kayit yazildi: %s (%u anahtar, %u. yazma)", g_save.path, g_save.n, g_save.writes);
   return 1;
 }
+
+// --- para: odullu reklam + uygulama ici satin alma (yayin adimi 5, 2026-10-13) -----
+// Soyut saglayici, duz skaler ABI (engine_api.h). Bugun yalniz TEST saglayicisi var:
+// gercek AdMob / Play Billing'in davranisini (gecikme, tek kullanimlik reklam, 3 gun
+// icinde onaylanmasi gereken alim, bekleyen odeme, geri yukleme) benzetir ki oyun
+// akisi simdi uctan uca kosturulsun. Gercek saglayici ayni imzalarin arkasina girer
+// (docs/KOPRU.md §9). Kalici urun sahipligi test saglayicisinda kayit deposunda
+// "_para_test_sahip" anahtarinda durur (Play'de sahiplik Google'da durur; oyunun
+// kendi bayragi yalniz onbellek).
+} // extern "C"
+namespace {
+constexpr uint32_t kParaUrun = 8;
+constexpr uint32_t kParaIdLen = 48;
+constexpr uint32_t kParaFiyatLen = 32;
+constexpr uint32_t kParaOlay = 16;
+constexpr uint32_t kParaKural = 8;
+constexpr const char *kParaSahipAnahtar = "_para_test_sahip";
+enum : int8_t { PS_TAMAM = 1, PS_ODUL = 1, PS_BASARI = 1, PS_IPTAL = 2, PS_HATA = 3, PS_BEKLE = 4 };
+struct ParaKural {
+  int8_t v[kParaKural] = {};
+  uint8_t n = 0, i = 0;
+  int8_t al(int8_t def) {
+    if (!n) return def;
+    const int8_t r = v[i % n];
+    i = (uint8_t)((i + 1) % n);
+    return r;
+  }
+};
+struct ParaUrun {
+  char id[kParaIdLen] = {};
+  bool tuketilir = false, sahip = false, bitmemis = false, fiyat_sorgu = false;
+  char fiyat[kParaFiyatLen] = {};
+  float fiyat_t = 0.0f;
+};
+struct ParaOlay { int8_t tur; int8_t urun; };
+struct Para {
+  float gecikme = 0.5f, izle = 2.0f;
+  ParaKural yukle, reklam, satin;
+  bool env_okundu = false;
+  // reklam
+  int reklam_sag = 0; // 0 yok, 1 test
+  bool cocuk = false;
+  char derece[4] = "G";
+  char birim[96] = {};
+  int durum = 0;   // teng_ads_state
+  float t = 0.0f;
+  int8_t gosterim_sonuc = 0;
+  int sonuc = 0;   // tuketilmemis teng_ads_result
+  uint32_t sayac[6] = {};
+  // satin alma
+  int satin_sag = 0;
+  ParaUrun urun[kParaUrun];
+  uint32_t urun_n = 0;
+  int8_t satin_urun = -1;
+  float satin_t = 0.0f;
+  bool satin_ikinci = false; // "bekle": bekliyor olayindan sonra tamamlanma asamasi
+  bool geri_suruyor = false;
+  float geri_t = 0.0f;
+  ParaOlay olay[kParaOlay] = {};
+  uint32_t olay_bas = 0, olay_n = 0, olay_dusen = 0;
+  int8_t olay_urun = -1;
+};
+#if defined(__ANDROID__)
+bool g_para_test_izin = false; // host (android_host.cpp) yalniz debug APK'da acar
+#else
+bool g_para_test_izin = true;
+#endif
+Para g_para;
+
+const char *ps_ad(int8_t v) {
+  switch (v) { case PS_TAMAM: return "tamam"; case PS_IPTAL: return "iptal"; case PS_HATA: return "hata"; case PS_BEKLE: return "bekle"; }
+  return "?";
+}
+// "a,b,c" -> kural dizisi. Bilinmeyen deger HATA (sessiz varsayilan yok).
+bool para_liste(ParaKural &k, const char *anahtar, const char *v, size_t len) {
+  k.n = 0; k.i = 0;
+  size_t s = 0;
+  while (s <= len) {
+    size_t e = s;
+    while (e < len && v[e] != ',') e++;
+    const size_t w = e - s;
+    int8_t r = 0;
+    auto eq = [&](const char *t) { return std::strlen(t) == w && std::strncmp(v + s, t, w) == 0; };
+    if (eq("tamam") || eq("odul") || eq("basari")) r = PS_TAMAM;
+    else if (eq("iptal")) r = PS_IPTAL;
+    else if (eq("hata")) r = PS_HATA;
+    else if (eq("bekle") && std::strcmp(anahtar, "satin") == 0) r = PS_BEKLE;
+    if (!r) { BERR("para test kurali: %s icin bilinmeyen deger \"%.*s\"", anahtar, (int)w, v + s); return false; }
+    if (k.n >= kParaKural) { BERR("para test kurali: %s listesi %u degerden uzun", anahtar, kParaKural); return false; }
+    k.v[k.n++] = r;
+    s = e + 1;
+  }
+  return true;
+}
+bool para_kapat_test(void);
+bool para_kural(const char *rule, const char *kaynak) {
+  if (!rule) return false;
+  bool ok = true;
+  const char *p = rule;
+  while (*p) {
+    const char *e = p;
+    while (*e && *e != ';') e++;
+    const char *eq = p;
+    while (eq < e && *eq != '=') eq++;
+    char ad[16] = {};
+    const size_t al = (size_t)(eq - p) < sizeof ad - 1 ? (size_t)(eq - p) : sizeof ad - 1;
+    std::memcpy(ad, p, al);
+    const char *v = eq < e ? eq + 1 : e;
+    const size_t vl = (size_t)(e - v);
+    if (eq == e) {
+      if (std::strcmp(ad, "kapat") == 0) ok = para_kapat_test() && ok;
+      else if (al) { BERR("para test kurali (%s): \"%s\" anahtar=deger degil", kaynak, ad); ok = false; }
+    } else if (!std::strcmp(ad, "yukle")) ok = para_liste(g_para.yukle, ad, v, vl) && ok;
+    else if (!std::strcmp(ad, "reklam")) ok = para_liste(g_para.reklam, ad, v, vl) && ok;
+    else if (!std::strcmp(ad, "satin")) ok = para_liste(g_para.satin, ad, v, vl) && ok;
+    else if (!std::strcmp(ad, "gecikme") || !std::strcmp(ad, "izle")) {
+      char buf[24] = {};
+      std::memcpy(buf, v, vl < sizeof buf - 1 ? vl : sizeof buf - 1);
+      char *end = nullptr;
+      const double d = std::strtod(buf, &end);
+      if (!end || end == buf || *end || d < 0.0 || d > 600.0) { BERR("para test kurali (%s): %s=\"%s\" 0..600 saniye degil", kaynak, ad, buf); ok = false; }
+      else if (ad[0] == 'g') g_para.gecikme = (float)d; else g_para.izle = (float)d;
+    } else if (!std::strcmp(ad, "sahip")) {
+      // Onceden sahip olunan kalici urunler (yeniden kurulumu benzetir): kayit deposuna.
+      char buf[kSaveValLen] = {};
+      std::memcpy(buf, v, vl < sizeof buf - 1 ? vl : sizeof buf - 1);
+      save_ensure();
+      save_put(kParaSahipAnahtar, buf, "para test kurali");
+      for (uint32_t i = 0; i < g_para.urun_n; i++) {
+        ParaUrun &u = g_para.urun[i];
+        if (u.tuketilir) continue;
+        const size_t n = std::strlen(u.id);
+        for (const char *q = buf; *q;) {
+          const char *c = q; while (*c && *c != ',') c++;
+          if ((size_t)(c - q) == n && std::strncmp(q, u.id, n) == 0) u.sahip = true;
+          q = *c ? c + 1 : c;
+        }
+      }
+    } else { BERR("para test kurali (%s): bilinmeyen anahtar \"%s\" (yukle reklam satin gecikme izle sahip kapat)", kaynak, ad); ok = false; }
+    p = *e ? e + 1 : e;
+  }
+  BINFO("para test kurali (%s): \"%s\" -> gecikme %.2f s, izle %.2f s, yukle %u / reklam %u / satin %u deger%s", kaynak, rule, g_para.gecikme,
+        g_para.izle, g_para.yukle.n, g_para.reklam.n, g_para.satin.n, ok ? "" : " (HATALI)");
+  return ok;
+}
+void para_env(void) {
+  if (g_para.env_okundu) return;
+  g_para.env_okundu = true;
+  const char *e = std::getenv("TULPAR_ENGINE_PARA_TEST");
+  if (e && *e) para_kural(e, "TULPAR_ENGINE_PARA_TEST");
+}
+// Test saglayicisinda kalici sahiplik: kayit deposundaki virgullu liste.
+bool para_kayitta_sahip(const char *id) {
+  save_ensure();
+  const int32_t i = save_find(kParaSahipAnahtar);
+  if (i < 0) return false;
+  const size_t n = std::strlen(id);
+  for (const char *q = g_save.vals[i]; *q;) {
+    const char *c = q; while (*c && *c != ',') c++;
+    if ((size_t)(c - q) == n && std::strncmp(q, id, n) == 0) return true;
+    q = *c ? c + 1 : c;
+  }
+  return false;
+}
+void para_kayda_sahip(const char *id) {
+  if (para_kayitta_sahip(id)) return;
+  const int32_t i = save_find(kParaSahipAnahtar);
+  char buf[kSaveValLen];
+  if (i < 0 || !g_save.vals[i][0]) std::snprintf(buf, sizeof buf, "%s", id);
+  else std::snprintf(buf, sizeof buf, "%s,%s", g_save.vals[i], id);
+  if (save_put(kParaSahipAnahtar, buf, "para test saglayici")) teng_save_write();
+}
+int32_t para_urun_bul(const char *id) {
+  if (!id) return -1;
+  for (uint32_t i = 0; i < g_para.urun_n; i++) if (std::strcmp(g_para.urun[i].id, id) == 0) return (int32_t)i;
+  return -1;
+}
+void para_olay(int8_t tur, int8_t urun) {
+  Para &p = g_para;
+  if (p.olay_n >= kParaOlay) { p.olay_dusen++; BERR("para: olay kuyrugu dolu (%u) — olay %d (%s) DUSTU; eng_iap_poll her kare bosaltilmali", kParaOlay, tur, urun >= 0 ? p.urun[urun].id : "-"); return; }
+  p.olay[(p.olay_bas + p.olay_n) % kParaOlay] = {tur, urun};
+  p.olay_n++;
+  BINFO("para: olay %d %s", tur, urun >= 0 ? p.urun[urun].id : "-");
+}
+void para_reklam_bitir(int8_t r) {
+  Para &p = g_para;
+  p.durum = 0;
+  if (r == PS_ODUL) { p.sonuc = 1; p.sayac[3]++; BINFO("reklam: odul kazanildi (%s)", p.birim); }
+  else if (r == PS_IPTAL) { p.sonuc = 2; p.sayac[4]++; BINFO("reklam: odulsuz kapatildi (%s)", p.birim); }
+  else { p.sonuc = 3; p.sayac[5]++; BINFO("reklam: gosterilemedi (%s)", p.birim); }
+}
+bool para_kapat_test(void) {
+  if (g_para.reklam_sag != 1 || g_para.durum != 3) { BERR("para test kurali: kapat — gosterilen test reklami yok"); return false; }
+  para_reklam_bitir(PS_IPTAL);
+  return true;
+}
+void para_satin_tamam(void) {
+  Para &p = g_para;
+  const int8_t ui = p.satin_urun;
+  ParaUrun &u = p.urun[ui];
+  int8_t r = p.satin_ikinci ? (int8_t)PS_BASARI : p.satin.al(PS_BASARI);
+  if (r == PS_BEKLE) {
+    // Bekleyen odeme (Play PENDING: nakit / sonra ode): odul VERILMEZ, sonra tamamlanir.
+    para_olay(4, ui);
+    p.satin_ikinci = true;
+    p.satin_t = p.gecikme * 2.0f;
+    return;
+  }
+  p.satin_urun = -1;
+  p.satin_ikinci = false;
+  if (r == PS_BASARI) {
+    u.sahip = true;
+    u.bitmemis = true;
+    if (!u.tuketilir) para_kayda_sahip(u.id);
+    para_olay(1, ui);
+  } else para_olay(r == PS_IPTAL ? 2 : 3, ui);
+}
+void para_geri_bitir(void) {
+  Para &p = g_para;
+  p.geri_suruyor = false;
+  for (uint32_t i = 0; i < p.urun_n; i++) {
+    ParaUrun &u = p.urun[i];
+    if (!u.sahip) continue;
+    // Bitirilmemis alim yeniden TESLIM edilir (Play: onaylanmamis alim queryPurchases'ta
+    // gelir; oyun odulu verip bitirmezse 3 gunde iade).
+    para_olay(u.bitmemis ? 1 : 5, (int8_t)i);
+  }
+  para_olay(6, -1);
+}
+void para_tick(float dt) {
+  Para &p = g_para;
+  if (p.reklam_sag == 1) {
+    if (p.durum == 1) {
+      p.t -= dt;
+      if (p.t <= 0.0f) {
+        if (p.yukle.al(PS_TAMAM) == PS_TAMAM) { p.durum = 2; BINFO("reklam: hazir (%s)", p.birim); }
+        else { p.durum = 4; p.sayac[1]++; BINFO("reklam: yuklenemedi (%s, test kurali)", p.birim); }
+      }
+    } else if (p.durum == 3) {
+      p.t -= dt;
+      if (p.t <= 0.0f) para_reklam_bitir(p.gosterim_sonuc);
+    }
+  }
+  if (p.satin_sag == 1) {
+    for (uint32_t i = 0; i < p.urun_n; i++) {
+      ParaUrun &u = p.urun[i];
+      if (!u.fiyat_sorgu) continue;
+      u.fiyat_t -= dt;
+      if (u.fiyat_t <= 0.0f) { u.fiyat_sorgu = false; std::snprintf(u.fiyat, sizeof u.fiyat, "%s", u.tuketilir ? "9,99 TL (test)" : "29,99 TL (test)"); }
+    }
+    if (p.satin_urun >= 0) { p.satin_t -= dt; if (p.satin_t <= 0.0f) para_satin_tamam(); }
+    if (p.geri_suruyor) { p.geri_t -= dt; if (p.geri_t <= 0.0f) para_geri_bitir(); }
+  }
+}
+// Ayni surecte ikinci oturum sifirdan (Tuzaklar 8ct); izin hostun, korunur.
+void para_reset(void) { g_para.~Para(); new (&g_para) Para(); }
+bool para_saglayici(const char *provider, const char *ne, int *out) {
+  para_env();
+  *out = 0;
+  if (!provider || !*provider || !std::strcmp(provider, "yok")) { BINFO("%s: saglayici yok", ne); return false; }
+  if (!std::strcmp(provider, "test")) {
+    if (!g_para_test_izin) { BINFO("%s: test saglayicisi bu derlemede KAPALI (yayin APK'si: sahte reklam / bedava alim oyuncuya gorunmez)", ne); return false; }
+    *out = 1;
+    return true;
+  }
+  if (!std::strcmp(provider, "admob") || !std::strcmp(provider, "play")) {
+    BINFO("%s: \"%s\" saglayicisi bu derlemede yok (JNI koprusu henuz yazilmadi; docs/KOPRU.md §9)", ne, provider);
+    return false;
+  }
+  BERR("%s: bilinmeyen saglayici \"%s\" (test | yok)", ne, provider);
+  return false;
+}
+} // namespace
+
+namespace tulpar::engine::bridge {
+void bridge_store_test_allowed(bool on) {
+  g_para_test_izin = on;
+  BDBG("para: test saglayici izni %s", on ? "acik" : "kapali");
+}
+} // namespace tulpar::engine::bridge
+
+extern "C" {
+int teng_ads_init(const char *provider, int child_directed, const char *max_rating) {
+  CALLF("teng_ads_init", "%s %d %s", provider ? provider : "", child_directed, max_rating ? max_rating : "");
+  Para &p = g_para;
+  const char *r = max_rating && *max_rating ? max_rating : "G";
+  if (std::strcmp(r, "G") && std::strcmp(r, "PG") && std::strcmp(r, "T") && std::strcmp(r, "MA")) {
+    BERR("teng_ads_init: icerik derecesi \"%s\" gecersiz (G | PG | T | MA) — G kullanildi", r);
+    r = "G";
+  }
+  std::snprintf(p.derece, sizeof p.derece, "%s", r);
+  p.cocuk = child_directed != 0;
+  p.durum = 0; p.sonuc = 0;
+  const bool ok = para_saglayici(provider, "reklam", &p.reklam_sag);
+  if (ok) BINFO("reklam: saglayici test, cocuga yonelik %d (%s), en yuksek derece %s", p.cocuk ? 1 : 0,
+                p.cocuk ? "kisisellestirilmemis reklam" : "kisisellestirme onaya bagli", p.derece);
+  return ok ? 1 : 0;
+}
+int teng_ads_available(void) { return g_para.reklam_sag ? 1 : 0; }
+const char *teng_ads_provider(void) { return g_para.reklam_sag == 1 ? "test" : ""; }
+int teng_ads_child_directed(void) { return g_para.cocuk ? 1 : 0; }
+int teng_ads_load(const char *unit) {
+  CALLF("teng_ads_load", "%s", unit ? unit : "");
+  Para &p = g_para;
+  if (!p.reklam_sag) { BERR("teng_ads_load: reklam saglayicisi kurulu degil (once eng_ads_init; eng_ads_available false iken dugme gosterilmemeli)"); return 0; }
+  if (p.durum == 1 || p.durum == 2 || p.durum == 3) { BDBG("reklam: zaten durum %d, yukleme istegi yok sayildi", p.durum); return 0; }
+  std::snprintf(p.birim, sizeof p.birim, "%s", unit ? unit : "");
+  p.durum = 1;
+  p.t = p.gecikme;
+  p.sayac[0]++;
+  BINFO("reklam: yukleniyor (%s, test gecikmesi %.2f s)", p.birim, p.gecikme);
+  return 1;
+}
+int teng_ads_state(void) { return g_para.durum; }
+int teng_ads_show(void) {
+  CALL("teng_ads_show");
+  Para &p = g_para;
+  if (!p.reklam_sag || p.durum != 2) { BERR("teng_ads_show: hazir reklam yok (durum %d) — dugme yalniz eng_ads_state()==2 iken basilabilir olmali", p.durum); return 0; }
+  p.sayac[2]++;
+  p.sonuc = 0;
+  p.gosterim_sonuc = p.reklam.al(PS_ODUL);
+  if (p.gosterim_sonuc == PS_HATA) { para_reklam_bitir(PS_HATA); return 1; }
+  p.durum = 3;
+  p.t = p.izle;
+  BINFO("reklam: gosteriliyor (%s, test %.1f s, kural %s)", p.birim, p.izle, ps_ad(p.gosterim_sonuc));
+  return 1;
+}
+int teng_ads_result(void) {
+  const int r = g_para.sonuc;
+  g_para.sonuc = 0;
+  return r;
+}
+int teng_ads_count(int what) {
+  if (what < 0 || what >= 6) { BERR("teng_ads_count: %d gecersiz (0..5)", what); return 0; }
+  return (int)g_para.sayac[what];
+}
+int teng_iap_init(const char *provider) {
+  CALLF("teng_iap_init", "%s", provider ? provider : "");
+  const bool ok = para_saglayici(provider, "satin alma", &g_para.satin_sag);
+  if (ok) BINFO("satin alma: saglayici test (gecikme %.2f s)", g_para.gecikme);
+  return ok ? 1 : 0;
+}
+int teng_iap_available(void) { return g_para.satin_sag ? 1 : 0; }
+int teng_iap_product(const char *id, int consumable) {
+  CALLF("teng_iap_product", "%s %d", id ? id : "", consumable);
+  Para &p = g_para;
+  if (!p.satin_sag) { BERR("teng_iap_product: satin alma saglayicisi kurulu degil"); return 0; }
+  if (!id || !*id || std::strlen(id) >= kParaIdLen) { BERR("teng_iap_product: urun kimligi bos ya da %u bayttan uzun", kParaIdLen - 1); return 0; }
+  for (const char *q = id; *q; q++)
+    if (*q == ',' || *q == '=' || *q == ';' || *q == '\n') { BERR("teng_iap_product: \"%s\" kimliginde , = ; satir sonu olamaz", id); return 0; }
+  int32_t i = para_urun_bul(id);
+  if (i < 0) {
+    if (p.urun_n >= kParaUrun) { BERR("teng_iap_product: urun tavani dolu (%u), \"%s\" kaydedilmedi", kParaUrun, id); return 0; }
+    i = (int32_t)p.urun_n++;
+    std::snprintf(p.urun[i].id, kParaIdLen, "%s", id);
+  }
+  ParaUrun &u = p.urun[i];
+  u.tuketilir = consumable != 0;
+  u.fiyat[0] = 0;
+  u.fiyat_sorgu = true;
+  u.fiyat_t = p.gecikme;
+  if (!u.tuketilir && para_kayitta_sahip(id)) u.sahip = true;
+  BINFO("satin alma: urun %s (%s)%s", id, u.tuketilir ? "tuketilir" : "kalici", u.sahip ? ", sahip" : "");
+  return 1;
+}
+const char *teng_iap_price(const char *id) {
+  const int32_t i = para_urun_bul(id);
+  if (i < 0) { BERR("teng_iap_price: kayitsiz urun \"%s\"", id ? id : ""); return ""; }
+  return g_para.urun[i].fiyat;
+}
+int teng_iap_buy(const char *id) {
+  CALLF("teng_iap_buy", "%s", id ? id : "");
+  Para &p = g_para;
+  if (!p.satin_sag) { BERR("teng_iap_buy: satin alma saglayicisi kurulu degil"); return 0; }
+  const int32_t i = para_urun_bul(id);
+  if (i < 0) { BERR("teng_iap_buy: kayitsiz urun \"%s\" (once eng_iap_product)", id ? id : ""); return 0; }
+  if (p.satin_urun >= 0) { BDBG("satin alma: %s suruyor, %s istegi yok sayildi", p.urun[p.satin_urun].id, id); return 0; }
+  if (p.urun[i].sahip) { para_olay(7, (int8_t)i); return 1; }
+  p.satin_urun = (int8_t)i;
+  p.satin_t = p.gecikme;
+  p.satin_ikinci = false;
+  BINFO("satin alma: %s akisi basladi (test gecikmesi %.2f s)", id, p.gecikme);
+  return 1;
+}
+int teng_iap_restore(void) {
+  CALL("teng_iap_restore");
+  Para &p = g_para;
+  if (!p.satin_sag) { BERR("teng_iap_restore: satin alma saglayicisi kurulu degil"); return 0; }
+  if (p.geri_suruyor) return 0;
+  p.geri_suruyor = true;
+  p.geri_t = p.gecikme;
+  BINFO("satin alma: geri yukleme basladi");
+  return 1;
+}
+int teng_iap_poll(void) {
+  Para &p = g_para;
+  if (!p.olay_n) { p.olay_urun = -1; return 0; }
+  const ParaOlay o = p.olay[p.olay_bas];
+  p.olay_bas = (p.olay_bas + 1) % kParaOlay;
+  p.olay_n--;
+  p.olay_urun = o.urun;
+  return o.tur;
+}
+const char *teng_iap_event_product(void) { return g_para.olay_urun >= 0 ? g_para.urun[g_para.olay_urun].id : ""; }
+int teng_iap_finish(const char *id) {
+  CALLF("teng_iap_finish", "%s", id ? id : "");
+  const int32_t i = para_urun_bul(id);
+  if (i < 0) { BERR("teng_iap_finish: kayitsiz urun \"%s\"", id ? id : ""); return 0; }
+  ParaUrun &u = g_para.urun[i];
+  if (!u.sahip || !u.bitmemis) { BERR("teng_iap_finish: \"%s\" icin bitirilecek alim yok (iki kez bitirme ya da alinmamis urun)", id); return 0; }
+  u.bitmemis = false;
+  if (u.tuketilir) u.sahip = false;
+  BINFO("satin alma: %s %s", id, u.tuketilir ? "tuketildi (yeniden alinabilir)" : "onaylandi");
+  return 1;
+}
+int teng_iap_owned(const char *id) {
+  const int32_t i = para_urun_bul(id);
+  return i >= 0 && g_para.urun[i].sahip ? 1 : 0;
+}
+int teng_store_test(const char *rule) {
+  CALLF("teng_store_test", "%s", rule ? rule : "");
+  para_env();
+  if (!rule) { BERR("teng_store_test: kural bos"); return 0; }
+  return para_kural(rule, "eng_store_test") ? 1 : 0;
+}
+void teng_store_test_advance(double seconds) {
+  if (seconds < 0.0) { BERR("teng_store_test_advance: negatif sure %.3f", seconds); return; }
+  para_tick((float)seconds);
+}
+
 
 // --- sahne sicak yeniden yukleme ---------------------------------------------------
 // Dosyanin (mtime, boyut) damgasi izlenir. Degisim GORULUNCE hemen yuklenmez:
