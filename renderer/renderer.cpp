@@ -3273,7 +3273,13 @@ void Renderer::record_compose(VkCommandBuffer cb) {
   // Yukseltme (upscale) burada: sahnenin dolu alt-dikdortgeni tam hedefe acilir.
   push.q[0] = scale_;
   push.q[1] = cfg_.temporal.sharpness;
-  push.q[2] = (float)(uint32_t)cfg_.temporal.upscaler;
+  // %100 olcekte Bilinear matematikte nokta ornekleme (texel merkezleri ustuste) — ama donanim
+  // suzmesi bunu her surucude BAYT BAYT vermiyor: Mali-G72 (P20 Pro, 2026-11-02) alt-texel
+  // hassasiyetiyle 462 bayt sapti. Yukseltme yoksa suzme de yok: None (Sharpen/FSR 1:1'de de
+  // anlamli, onlara dokunulmaz).
+  UpscalerKind up = cfg_.temporal.upscaler;
+  if (up == UpscalerKind::Bilinear && scale_ >= 0.9999f) up = UpscalerKind::None;
+  push.q[2] = (float)(uint32_t)up;
   a.vkCmdPushConstants(cb, post_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
   a.vkCmdDraw(cb, 3, 1, 0, 0);
 }
