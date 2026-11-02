@@ -234,6 +234,34 @@ struct ExecFail {
   char stage; // 'c' chdir, 'e' exec, 'f' ic fork
   int err;
 };
+// execvp PATH aramasinda okunamayan bir dizine (EACCES) rastlayip hicbir yerde dosyayi bulamazsa
+// ENOENT degil EACCES dondurur (POSIX; Android'de PATH'te erisilemeyen sistem dizinleri var —
+// P20 Pro 2026-11-02: olmayan program "calistirma izni yok" diye raporlandi). Dosya PATH'in
+// hicbir dizininde (ya da yol verildiyse orada) YOKSA dogru sebep "bulunamadi"dir.
+static bool path_has(const char *name) {
+  if (!name || !*name) return false;
+  if (std::strchr(name, '/')) return ::access(name, F_OK) == 0;
+  const char *path = std::getenv("PATH");
+  if (!path || !*path) path = "/bin:/usr/bin";
+  char buf[1024];
+  const size_t nl = std::strlen(name);
+  while (*path) {
+    const char *e = std::strchr(path, ':');
+    const size_t dl = e ? (size_t)(e - path) : std::strlen(path);
+    if (dl + 1 + nl + 1 <= sizeof buf) {
+      std::memcpy(buf, dl ? path : ".", dl ? dl : 1);
+      size_t o = dl ? dl : 1;
+      buf[o++] = '/';
+      std::memcpy(buf + o, name, nl + 1);
+      if (::access(buf, F_OK) == 0) return true;
+    } else {
+      return true; // sigmayan yol: emin degiliz -> eski mesaj (izin)
+    }
+    if (!e) break;
+    path = e + 1;
+  }
+  return false;
+}
 void child_fail(int fd, char stage) {
   const ExecFail f{stage, errno};
   ssize_t w = ::write(fd, &f, sizeof f);
@@ -336,6 +364,7 @@ bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, siz
     if (!detached) { int st; ::waitpid(pid, &st, 0); }
     if (f.stage == 'c') say(err, cap, "calisma dizini yok: %s", s.cwd ? s.cwd : "");
     else if (f.stage == 'e' && f.err == ENOENT) say(err, cap, "program bulunamadi: %s", s.argv[0]);
+    else if (f.stage == 'e' && f.err == EACCES && !path_has(s.argv[0])) say(err, cap, "program bulunamadi: %s", s.argv[0]);
     else if (f.stage == 'e' && f.err == EACCES) say(err, cap, "calistirma izni yok: %s", s.argv[0]);
     else say(err, cap, "baslatilamadi: %s (errno %d)", s.argv[0], f.err);
     return false;

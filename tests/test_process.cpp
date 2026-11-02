@@ -9,6 +9,10 @@
 #include "platform/process.hpp"
 #include "platform/thread.hpp"
 #include "tests/test.hpp"
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #if !defined(_WIN32)
 #include <cerrno>
 #include <csignal>
@@ -166,6 +170,27 @@ ENGINE_TEST(process_start_reports_failures_in_the_caller) {
   CHECK(!b1 && std::strstr(err, "bulunamadi"));
   err[0] = 0;
   CHECK(!platform::process_start_detached(s, err, sizeof err) && std::strstr(err, "bulunamadi"));
+#ifndef _WIN32
+  // KONTROL (2026-11-02): GERCEK izin hatasi hala "izni yok" demeli — Android'de PATH'teki erisilemeyen
+  // dizin yuzunden EACCES gelen olmayan program "bulunamadi"ya cevriliyor; var olan ama calistirilamayan
+  // dosya cevrilmemeli.
+  {
+    char dir[512], izinsiz[600];
+    CHECK(test::tmp_mkdir(dir, sizeof dir, "process_izin"));
+    std::snprintf(izinsiz, sizeof izinsiz, "%s/izinsiz.sh", dir);
+    if (FILE *f = std::fopen(izinsiz, "wb")) { std::fputs("#!/bin/sh\n", f); std::fclose(f); }
+    ::chmod(izinsiz, 0644);
+    const char *iz[] = {izinsiz, nullptr};
+    platform::ProcessSpec s2;
+    s2.argv = iz;
+    err[0] = 0;
+    const bool b2 = platform::process_start(p, s2, err, sizeof err);
+    std::printf("    [bilgi] calistirilamayan dosya: basladi=%d, hata=\"%s\"\n", (int)b2, err);
+    CHECK(!b2 && std::strstr(err, "izni yok"));
+    std::remove(izinsiz);
+    ::rmdir(dir);
+  }
+#endif
 
   char exe[1100];
   if (!self_exe(exe, sizeof exe)) { test::skip("engine_tests'in kendi yolu bulunamadi"); return; }

@@ -1676,6 +1676,16 @@ ENGINE_TEST(renderer_ui_frame_budget_under_1_5_ms) {
   CHECK(agir.drops == 0);
   CHECK(agir.quads == 7000);
   CHECK(agir.batches == 2); // opak kosu + harmanli kosu: TEK batch/kalem
+  // Zaman damgasi cihazin YETENEGI: Mali-G72 (P20 Pro, Android 10, 2026-11-02) timestampPeriod 0
+  // bildiriyor -> caps().timestamps false. Orada GPU suresi OLCULEMEZ: gorunur ATLANDI (sayi yukarida,
+  // CPU kismi olculdu). Yetenegi olan cihazda okunmamasi bizim hatamizdir ve KIRMIZI kalir.
+  if (!dev.caps().timestamps) {
+    CHECK(!agir.timed);
+    skip("cihaz zaman damgasi vermiyor (timestampValidBits 0 ya da timestampPeriod 0): UI kare butcesinin GPU kismi bu cihazda olculemez");
+    ren.shutdown();
+    offscreen_destroy(off);
+    return;
+  }
   CHECK(agir.timed);        // zaman damgasi okunmadan "sure" iddiasi bos olur
   // KONTROL: olcum yuku gercekten goruyor mu? 10x yuk daha uzun surmeli.
   CHECK(agir.gpu + agir.cpu > hafif.gpu + hafif.cpu);
