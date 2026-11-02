@@ -1388,6 +1388,11 @@ jobs:
           TULPAR_PAKET_KOSU: zorunlu
         run: |
           set -euo pipefail
+          # Paket kosu kapisi (TULPAR_PAKET_KOSU=zorunlu) yayinlanmis tulpar ister. Eskiden onu kopru adimi
+          # indiriyordu; kopru PR'da ayri iste (2026-11-02) — burada kendisi indirir (onbellekte varsa atlar).
+          d="$(cygpath -u "$RUNNER_TEMP")/tulpar"
+          [ -x "$d/tulpar.exe" ] || bash tools/tulpar_indir.sh "$d"
+          export TULPAR="$d/tulpar.exe"
           mkdir -p paket/deneme
           bash tools/package.sh yapi paket/deneme
           bash tools/paket_denetle.sh yapi paket/deneme
