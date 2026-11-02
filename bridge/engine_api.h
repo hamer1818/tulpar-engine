@@ -492,6 +492,8 @@ int teng_ui_active(void);
 // Donus bit maskesi: 1 bu karede tiklandi, 2 basili tutuluyor (basma bu alanda basladi ve
 // isaretci hala asagida), 4 isaretci alanin ustunde. Devre disiyken 0.
 int teng_ui_hit(const char *label, double x, double y, double w, double h);
+void teng_ui_click_once(int on);   // acikken karede ilk tiklama tuketir (ayni karede ikinci dugme tiklanmaz)
+int teng_ui_ignored(int what);     // 0 gorulmeyen basis (kilitliyken basildi), 1 click_once engeli
 // Etiket sigdirma sayaclari (Geri bildirim #15), CIZIM basina birikir: yazi kutuya
 // yukseklikten gelen olcekle sigmadi -> kucultuldu; en az olcekte (yuksekligin
 // %55'i) de sigmadi -> "..." ile kirpildi (ilk kirpma UYARI).

@@ -3015,6 +3015,65 @@ ENGINE_TEST(bridge_ui_image_nine_and_cell_match_manual_uv) {
   std::remove(yol); rmdir(dir);
 }
 
+// --- Girdi kilidi (F6, 2026-11-02) ---------------------------------------------------------
+// (1) Oyun eng_ui_begin'i cagirmadigi karelerde (acilis, kilitli ekran) basilan parmak, kilit
+// acilinca "yeni basis" sayilmaz, birakisi altindaki dugmeyi TIKLAMAZ. KONTROL: her kare
+// orneklenen ayni basis tiklar. (2) click_once: ayni karede ekran degisip yeni ekranin dugmesi
+// ayni yere cizilince ayni tiklama ikinciye gitmez. KONTROL: kapaliyken iki dugme de tiklar (#29).
+ENGINE_TEST(bridge_ui_input_lock_stale_press_and_click_once) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("girdi kilidi", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  auto kare = [&](bool ui, const char *ad) -> int {
+    teng_frame_begin();
+    int t = 0;
+    if (ui) { teng_ui_begin(); t = teng_ui_button(ad, 40, 40, 100, 60); teng_ui_end(); }
+    teng_frame_end();
+    return t;
+  };
+  // (1) gorulmeyen basis
+  kare(true, "A");
+  teng_debug_touch(1, 80, 60, 1);
+  kare(false, "A"); kare(false, "A");          // kilitli: ui ornenmiyor
+  const int k1 = kare(true, "A");             // kilit acildi, parmak hala basili
+  teng_debug_touch(1, 80, 60, 0);
+  const int k2 = kare(true, "A");             // birakis
+  const int bayat = teng_ui_ignored(0);
+  // KONTROL: her kare orneklenen basis tiklar
+  kare(true, "A");
+  teng_debug_touch(1, 80, 60, 1);
+  const int c1 = kare(true, "A");
+  teng_debug_touch(1, 80, 60, 0);
+  const int c2 = kare(true, "A");
+  // (2) click_once
+  auto iki = [&](int once, int *a, int *b) {
+    teng_ui_test_click(80, 60);
+    teng_frame_begin();
+    teng_ui_begin();
+    teng_ui_click_once(once);
+    *a = teng_ui_button("Eski ekran", 40, 40, 100, 60);
+    *b = teng_ui_button("Yeni ekran", 40, 40, 100, 60); // ayni karede yeni ekranin dugmesi
+    teng_ui_end();
+    teng_frame_end();
+  };
+  int oa = 0, ob = 0, ka = 0, kb = 0;
+  iki(1, &oa, &ob);
+  const int engel = teng_ui_ignored(1);
+  iki(0, &ka, &kb);
+  std::printf("    [bilgi] gorulmeyen basis: acilinca %d birakista %d (bayat %d); KONTROL orneklenen basis %d+%d; click_once %d/%d (engel %d), KONTROL kapali %d/%d\n", k1, k2,
+              bayat, c1, c2, oa, ob, engel, ka, kb);
+  CHECK(k1 == 0 && k2 == 0 && bayat == 1);
+  CHECK(c1 == 0 && c2 == 1);       // KONTROL: ayni dugme normal basista tikliyor
+  CHECK(oa == 1 && ob == 0 && engel == 1);
+  CHECK(ka == 1 && kb == 1);       // KONTROL: eski davranis (#29) — iki dugme de tikliyor
+  CHECK(teng_error_count() == e0);
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "gorulmeyen basis 1 (tiklamadi), click_once engeli 1") != nullptr);
+}
+
 // --- Parmak kimligi (M6, 2026-10-09) ------------------------------------------------
 // teng_touch_x/y(i) sikistirilmis dizinle okur: bir parmak kalkinca obur parmaklarin
 // dizini KAYAR. Kimlik kopruye acildi. Olcu: enjekte iki parmak (kimlik 7 sol, 9 sag),

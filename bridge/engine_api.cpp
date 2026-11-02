@@ -365,6 +365,14 @@ struct Ui {
   uint32_t id_n = 0;
   bool inject = false;
   float inj_x = 0, inj_y = 0;
+  // GIRDI KILIDI (F6, 2026-11-02). (1) Gorulmeyen basis: isaretci son ORNEKLENEN kareden beri
+  // basiliysa (oyun o karelerde eng_ui_begin'i cagirmadi: acilis, yukleme, kilitli ekran) ilk
+  // ornekte "yeni basis" DEGILDIR — eskiden prev_down bayat kaldigi icin kilit acilinca parmagin
+  // altindaki dugme etkinlesip birakista tikliyordu. (2) click_once: karede ilk tiklama tuketir;
+  // ayni karede ekran degisip yeni ekran cizilince ayni tiklama ikinci dugmeye gitmez (#29).
+  uint32_t sample_frame = 0xFFFFFFFFu;
+  bool click_once = false, consumed = false;
+  uint32_t stale_presses = 0, once_blocked = 0;
   // Tema: paketlenmis 0xRRGGBBAA. Dugme/iz renkleri panelden turetilir (ui_shade).
   int64_t c_panel = ((int64_t)18 << 24) | ((int64_t)20 << 16) | ((int64_t)26 << 8) | 225;
   int64_t c_text = ((int64_t)236 << 24) | ((int64_t)239 << 16) | ((int64_t)243 << 8) | 255;
@@ -2503,6 +2511,7 @@ void teng_shutdown(void) {
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
+  BINFO("kapanis (arayuz girdisi): gorulmeyen basis %u (tiklamadi), click_once engeli %u", b.ui.stale_presses, b.ui.once_blocked);
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
         b.ui.injects, b.scene_reloads, g_save.loaded ? g_save.path : "acilmadi", g_save.n, g_save.writes, g_save.bad_lines);
   {
@@ -4192,13 +4201,20 @@ void teng_ui_begin(void) {
     u.touch_pointer = false;
     if (b.touch && b.touch->count > 0) { x = (float)teng_touch_x(0); y = (float)teng_touch_y(0); d = true; u.touch_pointer = true; }
     else if (b.in) { x = (float)b.in->mouse_x; y = (float)b.in->mouse_y; d = b.in->mouse_down[0]; }
+    // Onceki kare ornenmediyse (ya da hic ornenmediyse) prev_down bayattir: simdi basili bir
+    // isaretci gorulmeyen bir anda basildi -> yeni basis degil (birakisi da tiklamaz).
+    const bool gap = u.sample_frame == 0xFFFFFFFFu || b.frame != u.sample_frame + 1;
+    const bool prev = gap ? d : u.prev_down;
+    if (gap && d && !u.prev_down) { u.stale_presses++; BDBG("ui: gorulmeyen basis (kare %u) — tiklama sayilmaz", b.frame); }
     u.px = x;
     u.py = y;
-    u.pressed = d && !u.prev_down;
-    u.released = !d && u.prev_down;
+    u.pressed = d && !prev;
+    u.released = !d && prev && !gap;
     u.down = d;
     u.prev_down = d;
   }
+  u.sample_frame = b.frame;
+  u.consumed = false;
 }
 void teng_ui_end(void) {
   CALL("teng_ui_end");
@@ -4237,6 +4253,24 @@ void teng_ui_label(const char *s, double x, double y, double scale, int64_t colo
   if (!g->in_frame) { BERR("teng_ui_label: kare disinda (eng_frame_begin ile eng_frame_end arasinda cagir)"); return; }
   teng_text(s, x, y, scale, color ? color : g->ui.c_text);
 }
+// click_once acikken bu karede tiklama zaten tuketildiyse widget basis/birakis gormez (sayilir).
+static bool ui_once_ok(Ui &u, bool inside) {
+  if (!(u.click_once && u.consumed)) return true;
+  if (inside && (u.pressed || u.released)) u.once_blocked++;
+  return false;
+}
+void teng_ui_click_once(int on) {
+  CALLF("teng_ui_click_once", "%d", on);
+  if (!ready("teng_ui_click_once")) return;
+  g->ui.click_once = on != 0;
+}
+int teng_ui_ignored(int what) {
+  if (!ready("teng_ui_ignored")) return 0;
+  if (what == 0) return (int)g->ui.stale_presses;
+  if (what == 1) return (int)g->ui.once_blocked;
+  BERR("teng_ui_ignored: %d gecersiz (0 gorulmeyen basis, 1 click_once engeli)", what);
+  return 0;
+}
 int teng_ui_button(const char *label, double x, double y, double w, double h) {
   CALLF("teng_ui_button", "\"%s\" (%.0f %.0f %.0f %.0f)", label ? label : "", x, y, w, h);
   if (!ui_frame("teng_ui_button")) return 0;
@@ -4245,12 +4279,12 @@ int teng_ui_button(const char *label, double x, double y, double w, double h) {
   const uint32_t id = ui_use(label, 1, "teng_ui_button");
   const bool en = u.enabled, inside = ui_hit(x, y, w, h);
   bool clicked = false;
-  if (en) {
+  if (en && ui_once_ok(u, inside)) {
     if (inside) u.hot = id;
     if (inside && u.pressed) u.active = id;
     if (u.active == id && u.released) {
       u.active = 0;
-      if (inside) { clicked = true; u.clicks++; BDBG("ui: \"%s\" tiklandi (%u. etkinlestirme)", label ? label : "", u.clicks); }
+      if (inside) { clicked = true; u.clicks++; u.consumed = true; BDBG("ui: \"%s\" tiklandi (%u. etkinlestirme)", label ? label : "", u.clicks); }
     }
   }
   int64_t fill = ui_shade(u.c_panel, 2.4);
@@ -4269,13 +4303,14 @@ int teng_ui_hit(const char *label, double x, double y, double w, double h) {
   if (w <= 0 || h <= 0) { BERR("teng_ui_hit: \"%s\" olculeri pozitif olmali (%.1fx%.1f)", label ? label : "", w, h); return 0; }
   const uint32_t id = ui_use(label, 4, "teng_ui_hit");
   if (!u.enabled) return 0;
+  if (!ui_once_ok(u, ui_hit(x, y, w, h))) return 0;
   const bool inside = ui_hit(x, y, w, h);
   int r = 0;
   if (inside) { u.hot = id; r |= 4; }
   if (inside && u.pressed) u.active = id;
   if (u.active == id && u.released) {
     u.active = 0;
-    if (inside) { r |= 1; u.clicks++; BDBG("ui: \"%s\" alani tiklandi (%u. etkinlestirme)", label ? label : "", u.clicks); }
+    if (inside) { r |= 1; u.clicks++; u.consumed = true; BDBG("ui: \"%s\" alani tiklandi (%u. etkinlestirme)", label ? label : "", u.clicks); }
   }
   if (u.active == id && u.down) r |= 2;
   return r;
@@ -4288,12 +4323,12 @@ int teng_ui_checkbox(const char *label, double x, double y, double w, double h, 
   const uint32_t id = ui_use(label, 2, "teng_ui_checkbox");
   const bool en = u.enabled, inside = ui_hit(x, y, w, h);
   bool v = value != 0;
-  if (en) {
+  if (en && ui_once_ok(u, inside)) {
     if (inside) u.hot = id;
     if (inside && u.pressed) u.active = id;
     if (u.active == id && u.released) {
       u.active = 0;
-      if (inside) { v = !v; u.clicks++; BDBG("ui: \"%s\" onay kutusu -> %s (%u. etkinlestirme)", label ? label : "", v ? "acik" : "kapali", u.clicks); }
+      if (inside) { v = !v; u.clicks++; u.consumed = true; BDBG("ui: \"%s\" onay kutusu -> %s (%u. etkinlestirme)", label ? label : "", v ? "acik" : "kapali", u.clicks); }
     }
   }
   const float bs = (float)(h > 16 ? h - 12 : h * 0.6);
