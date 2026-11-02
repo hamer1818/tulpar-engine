@@ -2370,3 +2370,19 @@ yavaşlattı**: lavapipe tek koşuda çekirdekleri zaten dolduruyor (savaş 3200
 yani doğrulukta sorun yoktu, kazanç da yoktu. Kazanç ayrı koşucudan gelir: savaş bölümü ayrı CI işinde
 (`--yalniz-savas`), zorunlu Linux işi onun sonucunu taşıyor (`tools/ci_bekle.sh`). **Ders:** "paralel
 koş" önerisini çekirdek doluluğu ölçülmeden uygulama.
+
+### 8dm. Log satırı sabit tamponda sessizce kesilir — okuyan eksik alanı "yok" sanar
+
+**Ne oldu (2026-11-02):** köprünün basılan log satırı 240 baytlık yığın tamponunda `vsnprintf`'le
+kuruluyordu; taşan kısım iz bırakmadan düşüyordu. Oyunun maç sonu ağ özeti 277 bayttı: telefonda
+logcat'e `kopma=` alanı hiç gelmedi, cihaz denemesi betiği eksik alanı okuyamadı ve "kopma var"
+diye kırmızı verdi. Maç temizdi; yanlış olan ölçüydü.
+
+**Kural:** basılan satır 1024 bayt (`kLogOut`); onu da aşan satır ` ...[kesildi +N bayt]` ile biter ve
+`teng_log_truncated` / `eng_log_truncated` sayar. Halka (çökme/rapor dökümü) 240 baytta kalır ama
+uzun satırı `...` ile bitirir. 8dh ile aynı sınıf: sabit tampona `snprintf` = sessiz kesme; dönüş
+değerini oku.
+
+**Kapı:** `tests/test_bridge_log.cpp` basılan satırı stdout'u dosyaya yönlendirip OKUR: 300 bayt tam
+basılır ve sayılmaz; 3000 bayt işaretli biter, sayaç +1. Pozitif kontrol: işaretleme kapatılınca iki
+denetim kırmızı (2026-11-02).

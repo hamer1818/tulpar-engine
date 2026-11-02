@@ -77,6 +77,7 @@ SPEC = [
     ("eng_last_error", "str", [], "Son kurulum hatasi metni."),
     ("eng_error_count", "int", [], "Motorun logladigi HATA sayisi (gecersiz id, kare disi cizim, kaynak yuklenemedi...). Oyun sonunda 0 bekle."),
     ("eng_warning_count", "int", [], "UYARI sayisi (pencere yok -> headless, font bulunamadi...)."),
+    ("eng_log_truncated", "int", [], "1024 bayti asip kesilen log satiri sayisi (satir \" ...[kesildi +N bayt]\" ile biter). 0 degilse bir log satirinin sonu okunamadi."),
     # dunya / kamera
     ("eng_bloom", "void", [("enable", "flag"), ("threshold", "num"), ("intensity", "num")], "Parlama (bloom): eng_init'ten ONCE acilir (ic HDR hedefi kurulur). Esik DOGRUSAL parlaklik (1.0 = yalniz cok parlak yerler), yogunluk 0 = kapali. Kare icinde esik/yogunluk degistirilebilir."),
     ("eng_scene_dim", "void", [("f", "num")], "Sahne karartma 0..1 (1 normal): 3B sahne koyulur, arayuz karartilmaz. Parlama aciksa birlestirme gecisinin poz carpani (bedelsiz); kapaliysa tek tam ekran harmanli dortgen. Duraklat/ayar ekraninda tam ekran yari saydam dortgen yerine (Mali'de ~3.5 ms)."),
