@@ -2922,6 +2922,158 @@ ENGINE_TEST(bridge_ui_image_draws_srgb_png_like_rect) {
   std::remove(yol); rmdir(dir);
 }
 
+// --- 9 dilim + atlas hucresi (F6, 2026-11-02) ----------------------------------------------
+// Iddia: teng_image_nine, oyunun eski 9 ayri teng_image_uv cagrisiyla PIKSEL PIKSEL ayni kareyi
+// cizer; teng_image_cell elle hesaplanan UV ile ayni. Pozitif kontroller: farkli kaynak kenari ve
+// komsu hucre FARKLI kare verir (karsilastirma bir sey olcuyor). Hata yollari sayilir.
+ENGINE_TEST(bridge_ui_image_nine_and_cell_match_manual_uv) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("dokuz dilim", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  char dir[512], yol[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "dokuz_dilim"));
+  std::snprintf(yol, sizeof yol, "%s/atlas.png", dir);
+  static uint8_t rgba[32 * 32 * 4];
+  for (int y = 0; y < 32; y++)
+    for (int x = 0; x < 32; x++) {
+      uint8_t *p = rgba + (y * 32 + x) * 4;
+      p[0] = (uint8_t)(x * 8); p[1] = (uint8_t)(y * 8); p[2] = (uint8_t)(((x / 4) ^ (y / 4)) & 1 ? 220 : 30); p[3] = 255;
+    }
+  CHECK(png_yaz(yol, 32, 32, rgba));
+  const int r = teng_image_load(yol);
+  CHECK(r >= 0);
+  static uint8_t a[kW * kH * 3], bb[kW * kH * 3];
+  uint32_t w = 0, h = 0;
+  auto ayni = [&](const uint8_t *p, const uint8_t *q) { return std::memcmp(p, q, (size_t)kW * kH * 3) == 0; };
+  // Oyunun eski yolu (Kupler ile Kureler arayuz.tpr k_cerceve) — ayni formul, 9 cagri.
+  auto elle = [&](double x, double y, double ww, double hh, double u0, double v0, double u1, double v1, double ks, double c) {
+    if (c * 2 > ww) c = ww * 0.5;
+    if (c * 2 > hh) c = hh * 0.5;
+    const double du = ks / 32.0, dv = ks / 32.0;
+    const double ub = u0 + du, uc = u1 - du, vb = v0 + dv, vc = v1 - dv;
+    const double x1 = x + c, x2 = x + ww - c, y1 = y + c, y2 = y + hh - c, mw = x2 - x1, mh = y2 - y1;
+    teng_image_uv(r, x, y, c, c, u0, v0, ub, vb, 0xFFFFFFFF);
+    teng_image_uv(r, x2, y, c, c, uc, v0, u1, vb, 0xFFFFFFFF);
+    teng_image_uv(r, x, y2, c, c, u0, vc, ub, v1, 0xFFFFFFFF);
+    teng_image_uv(r, x2, y2, c, c, uc, vc, u1, v1, 0xFFFFFFFF);
+    if (mw > 0.5) { teng_image_uv(r, x1, y, mw, c, ub, v0, uc, vb, 0xFFFFFFFF); teng_image_uv(r, x1, y2, mw, c, ub, vc, uc, v1, 0xFFFFFFFF); }
+    if (mh > 0.5) { teng_image_uv(r, x, y1, c, mh, u0, vb, ub, vc, 0xFFFFFFFF); teng_image_uv(r, x2, y1, c, mh, uc, vb, u1, vc, 0xFFFFFFFF); }
+    if (mw > 0.5 && mh > 0.5) teng_image_uv(r, x1, y1, mw, mh, ub, vb, uc, vc, 0xFFFFFFFF);
+  };
+  // 1) 9 dilim: genis panel + kose kutuya sigmayan dar panel.
+  teng_frame_begin();
+  teng_image_nine(r, 10, 10, 200, 90, 0.0, 0.0, 0.5, 0.5, 4, 24, 0xFFFFFFFF);
+  teng_image_nine(r, 230, 10, 30, 140, 0.5, 0.0, 1.0, 0.5, 4, 24, 0xFFFFFFFF);
+  teng_frame_end();
+  ekran_al("dokuz", a, &w, &h);
+  CHECK(w == kW);
+  teng_frame_begin();
+  elle(10, 10, 200, 90, 0.0, 0.0, 0.5, 0.5, 4, 24);
+  elle(230, 10, 30, 140, 0.5, 0.0, 1.0, 0.5, 4, 24);
+  teng_frame_end();
+  ekran_al("dokuz_elle", bb, &w, &h);
+  const bool dokuz_ayni = ayni(a, bb);
+  // KONTROL: kaynak kenari 4 -> 6 farkli kare vermeli.
+  teng_frame_begin();
+  teng_image_nine(r, 10, 10, 200, 90, 0.0, 0.0, 0.5, 0.5, 6, 24, 0xFFFFFFFF);
+  teng_image_nine(r, 230, 10, 30, 140, 0.5, 0.0, 1.0, 0.5, 4, 24, 0xFFFFFFFF);
+  teng_frame_end();
+  ekran_al("dokuz_kontrol", bb, &w, &h);
+  const bool dokuz_kontrol_farkli = !ayni(a, bb);
+  // 2) Atlas: 16x16 hucre, 2 piksel ic bosluk -> 4 hucre.
+  CHECK(teng_image_grid(r, 16, 16, 2) == 4);
+  teng_frame_begin();
+  teng_image_cell(r, 3, 20, 120, 64, 64, 0xFFFFFFFF);
+  teng_frame_end();
+  ekran_al("hucre", a, &w, &h);
+  teng_frame_begin();
+  teng_image_uv(r, 20, 120, 64, 64, 18.0 / 32, 18.0 / 32, 30.0 / 32, 30.0 / 32, 0xFFFFFFFF);
+  teng_frame_end();
+  ekran_al("hucre_elle", bb, &w, &h);
+  const bool hucre_ayni = ayni(a, bb);
+  teng_frame_begin();
+  teng_image_cell(r, 2, 20, 120, 64, 64, 0xFFFFFFFF); // KONTROL: komsu hucre
+  teng_frame_end();
+  ekran_al("hucre_kontrol", bb, &w, &h);
+  const bool hucre_kontrol_farkli = !ayni(a, bb);
+  std::printf("    [bilgi] 9 dilim elle ile ayni %d (kontrol farkli %d), hucre elle ile ayni %d (kontrol farkli %d)\n", dokuz_ayni, dokuz_kontrol_farkli, hucre_ayni,
+              hucre_kontrol_farkli);
+  CHECK(dokuz_ayni && dokuz_kontrol_farkli && hucre_ayni && hucre_kontrol_farkli);
+  CHECK(teng_error_count() == e0);
+  // 3) Hata yollari: gecersiz izgara, disarida numara, izgarasiz resim — her biri HATA, cizim yok.
+  CHECK(teng_image_grid(r, 0, 16, 0) == 0);
+  CHECK(teng_image_grid(r, 16, 16, 8) == 0);
+  teng_frame_begin();
+  teng_image_cell(r, 4, 0, 0, 10, 10, 0xFFFFFFFF);
+  teng_frame_end();
+  CHECK(teng_error_count() == e0 + 3);
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "9 dilim 4 cagri, atlas hucresi 2 cagri") != nullptr);
+  std::remove(yol); rmdir(dir);
+}
+
+// --- Girdi kilidi (F6, 2026-11-02) ---------------------------------------------------------
+// (1) Oyun eng_ui_begin'i cagirmadigi karelerde (acilis, kilitli ekran) basilan parmak, kilit
+// acilinca "yeni basis" sayilmaz, birakisi altindaki dugmeyi TIKLAMAZ. KONTROL: her kare
+// orneklenen ayni basis tiklar. (2) click_once: ayni karede ekran degisip yeni ekranin dugmesi
+// ayni yere cizilince ayni tiklama ikinciye gitmez. KONTROL: kapaliyken iki dugme de tiklar (#29).
+ENGINE_TEST(bridge_ui_input_lock_stale_press_and_click_once) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("girdi kilidi", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  auto kare = [&](bool ui, const char *ad) -> int {
+    teng_frame_begin();
+    int t = 0;
+    if (ui) { teng_ui_begin(); t = teng_ui_button(ad, 40, 40, 100, 60); teng_ui_end(); }
+    teng_frame_end();
+    return t;
+  };
+  // (1) gorulmeyen basis
+  kare(true, "A");
+  teng_debug_touch(1, 80, 60, 1);
+  kare(false, "A"); kare(false, "A");          // kilitli: ui ornenmiyor
+  const int k1 = kare(true, "A");             // kilit acildi, parmak hala basili
+  teng_debug_touch(1, 80, 60, 0);
+  const int k2 = kare(true, "A");             // birakis
+  const int bayat = teng_ui_ignored(0);
+  // KONTROL: her kare orneklenen basis tiklar
+  kare(true, "A");
+  teng_debug_touch(1, 80, 60, 1);
+  const int c1 = kare(true, "A");
+  teng_debug_touch(1, 80, 60, 0);
+  const int c2 = kare(true, "A");
+  // (2) click_once
+  auto iki = [&](int once, int *a, int *b) {
+    teng_ui_test_click(80, 60);
+    teng_frame_begin();
+    teng_ui_begin();
+    teng_ui_click_once(once);
+    *a = teng_ui_button("Eski ekran", 40, 40, 100, 60);
+    *b = teng_ui_button("Yeni ekran", 40, 40, 100, 60); // ayni karede yeni ekranin dugmesi
+    teng_ui_end();
+    teng_frame_end();
+  };
+  int oa = 0, ob = 0, ka = 0, kb = 0;
+  iki(1, &oa, &ob);
+  const int engel = teng_ui_ignored(1);
+  iki(0, &ka, &kb);
+  std::printf("    [bilgi] gorulmeyen basis: acilinca %d birakista %d (bayat %d); KONTROL orneklenen basis %d+%d; click_once %d/%d (engel %d), KONTROL kapali %d/%d\n", k1, k2,
+              bayat, c1, c2, oa, ob, engel, ka, kb);
+  CHECK(k1 == 0 && k2 == 0 && bayat == 1);
+  CHECK(c1 == 0 && c2 == 1);       // KONTROL: ayni dugme normal basista tikliyor
+  CHECK(oa == 1 && ob == 0 && engel == 1);
+  CHECK(ka == 1 && kb == 1);       // KONTROL: eski davranis (#29) — iki dugme de tikliyor
+  CHECK(teng_error_count() == e0);
+  kapanis_yakala();
+  CHECK(std::strstr(g_kapanis_log, "gorulmeyen basis 1 (tiklamadi), click_once engeli 1") != nullptr);
+}
+
 // --- Parmak kimligi (M6, 2026-10-09) ------------------------------------------------
 // teng_touch_x/y(i) sikistirilmis dizinle okur: bir parmak kalkinca obur parmaklarin
 // dizini KAYAR. Kimlik kopruye acildi. Olcu: enjekte iki parmak (kimlik 7 sol, 9 sag),

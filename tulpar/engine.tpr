@@ -1024,6 +1024,14 @@ func image_draw_e(img, x, y, w, h, color) { eng_image(img, x, y, w, h, color); }
 // Atlas hucresi: [u0,v0]-[u1,v1] (0..1, sol ust 0,0).
 func resim_ciz_uv(r, x, y, w, h, u0, v0, u1, v1, renk_) { eng_image_uv(r, x, y, w, h, u0, v0, u1, v1, renk_); }
 func image_draw_uv_e(img, x, y, w, h, u0, v0, u1, v1, color) { eng_image_uv(img, x, y, w, h, u0, v0, u1, v1, color); }
+// 9 dilim: panel/dugme cercevesi tek cagrida (kenar kaynakta kaynak_px piksel, ekranda kenar birim).
+func resim_dokuz(r, x, y, w, h, u0, v0, u1, v1, kaynak_px, kenar, renk_) { eng_image_nine(r, x, y, w, h, u0, v0, u1, v1, kaynak_px, kenar, renk_); }
+func image_nine_e(img, x, y, w, h, u0, v0, u1, v1, src_px, edge, color) { eng_image_nine(img, x, y, w, h, u0, v0, u1, v1, src_px, edge, color); }
+// Atlas izgarasi + hucre: resim_izgara(r, 128, 128, 4) -> hucre sayisi; resim_hucre(r, i, ...) i. hucreyi cizer.
+func resim_izgara(r, hucre_w, hucre_h, bosluk): int { return eng_image_grid(r, hucre_w, hucre_h, bosluk); }
+func image_grid_e(img, cell_w, cell_h, pad): int { return eng_image_grid(img, cell_w, cell_h, pad); }
+func resim_hucre(r, i, x, y, w, h, renk_) { eng_image_cell(r, i, x, y, w, h, renk_); }
+func image_cell_e(img, index, x, y, w, h, color) { eng_image_cell(img, index, x, y, w, h, color); }
 func resim_gen(r): int { return eng_image_w(r); }
 func resim_yuk(r): int { return eng_image_h(r); }
 func image_w_e(img): int { return eng_image_w(img); }
@@ -1053,6 +1061,12 @@ func ui_tema(panel_renk, yazi_renk, vurgu) { eng_ui_theme(panel_renk, yazi_renk,
 func ui_theme(panel_color, text_color, accent) { eng_ui_theme(panel_color, text_color, accent); }
 // Devre dışı widget SOLUK çizilir ve değeri DEĞİŞMEZ (tıklama yutulur).
 func ui_etkin(ac) { eng_ui_enable(ac); }
+// Girdi kilidi: acikken karede ILK tiklama tuketir (ekran degisince ayni dokunus ikinci dugmeye gitmez).
+func ui_tek_tiklama(ac) { eng_ui_click_once(ac); }
+func ui_click_once_e(on) { eng_ui_click_once(on); }
+// 0 gorulmeyen basis (ui_basla cagrilmayan karede basildi, tiklamadi), 1 tek tiklama engeli.
+func ui_yok_sayilan(ne): int { return eng_ui_ignored(ne); }
+func ui_ignored_e(what): int { return eng_ui_ignored(what); }
 func ui_enable(on) { eng_ui_enable(on); }
 func panel(x, y, w, h, renk_) { eng_ui_panel(x, y, w, h, renk_); }
 func etiket(yazi_, x, y, olcek, renk_) { eng_ui_label(yazi_, x, y, olcek, renk_); }

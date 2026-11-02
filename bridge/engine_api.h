@@ -465,6 +465,9 @@ void teng_image(int h, double x, double y, double w, double hh, int64_t color);
 void teng_image_uv(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1, int64_t color);
 int teng_image_w(int h);
 int teng_image_h(int h);
+void teng_image_nine(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1, double src_px, double edge, int64_t color);
+int teng_image_grid(int h, int cell_w, int cell_h, int pad); // hucre sayisi, 0 hata
+void teng_image_cell(int h, int index, double x, double y, double w, double hh, int64_t color);
 double teng_text_width(const char *s, double scale);
 
 // --- anlik-kip (immediate mode) arayuz: menu / ayar / duraklat ---------------
@@ -489,6 +492,8 @@ int teng_ui_active(void);
 // Donus bit maskesi: 1 bu karede tiklandi, 2 basili tutuluyor (basma bu alanda basladi ve
 // isaretci hala asagida), 4 isaretci alanin ustunde. Devre disiyken 0.
 int teng_ui_hit(const char *label, double x, double y, double w, double h);
+void teng_ui_click_once(int on);   // acikken karede ilk tiklama tuketir (ayni karede ikinci dugme tiklanmaz)
+int teng_ui_ignored(int what);     // 0 gorulmeyen basis (kilitliyken basildi), 1 click_once engeli
 // Etiket sigdirma sayaclari (Geri bildirim #15), CIZIM basina birikir: yazi kutuya
 // yukseklikten gelen olcekle sigmadi -> kucultuldu; en az olcekte (yuksekligin
 // %55'i) de sigmadi -> "..." ile kirpildi (ilk kirpma UYARI).
