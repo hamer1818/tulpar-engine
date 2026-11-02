@@ -1256,6 +1256,17 @@ jobs:
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
+      # Kopru bolumu AYRI iste kosar ("Windows kopru (SwiftShader)"); o is bu eklenti paketini
+      # bekleyip indirir. Derlemeden hemen sonra yuklenir ki kopru bu isin testleriyle PARALEL kossun.
+      - name: Eklenti paketini yukle (kopru isi icin)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eklenti-windows-x86_64
+          path: yapi/tulpar-ext/
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Surum ikilide mi (PR tahmini)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         shell: bash
@@ -1320,8 +1331,10 @@ jobs:
       # --gpusuz-izinli'nin YOKLUGU: tools/windows_kapilar.sh `kopru`.
       # (2026-10-05 oncesi: ICD yoktu, kare dongusu 9 kapida ATLANDI —
       # `19 gecti, 0 dustu, 9 atlandi`.)
+      # PR'da bu adim AYRI iste kosar ("Windows kopru (SwiftShader)", asagida); burada yalniz
+      # PR disi kosumlarda (main push'ta PR artefakti yeniden kullanilamadiysa, elle tetikleme).
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name != 'pull_request'
         run: |
           set -uo pipefail
           d="$(cygpath -u "$RUNNER_TEMP")/tulpar"
@@ -1347,6 +1360,15 @@ jobs:
       # (tools/paket_denetle.sh) hem burada hem surumde kosuyor: PR'da yesilse
       # surumde de yesildir.
       # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki "Ciktilari topla".
+      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 MINGW64)" kopru isinin sonucunu da
+      # TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
+      - name: Kopru isinin sonucu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/ci_bekle.sh is "Windows kopru (SwiftShader)"
+
       - name: Paketle + yerlesim/DLL kapisi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         env:
@@ -1378,3 +1400,61 @@ jobs:
           path: dagitim/
           if-no-files-found: error
           retention-days: 14
+
+
+  # KOPRU BOLUMU AYRI KOSUCUDA (2026-11-02). Windows isi kritik yoldu (~8.7-10.5 dk;
+  # koşum 41429969885: Testler + kapi 209 s, Tulpar koprusu 127 s, derleme 73 s,
+  # MSYS2 47 s). Kopru (yayinlanmis tulpar.exe + bu PR'in eklenti paketi, SwiftShader)
+  # Windows isinin derledigi paketle burada, testlerle PARALEL kosar; Windows isi
+  # bunun sonucunu bekler ve tasir (zorunlu check adi degismedi). Linux savas isiyle
+  # ayni desen (tools/ci_bekle.sh). Yalniz PR'da: main push PR artefaktini kullanir.
+  windows-kopru:
+    name: Windows kopru (SwiftShader)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Satir sonu ayari
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-glfw
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-vulkan-validation-layers
+
+      - name: Yazilim Vulkan ICD'si (SwiftShader) + dogrulama katmani gercekten var mi
+        run: bash tools/windows_vulkan_icd.sh kur
+
+      - name: Eklenti paketini bekle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 MINGW64)"
+
+      - name: Eklenti paketini indir
+        uses: actions/download-artifact@v4
+        with:
+          name: eklenti-windows-x86_64
+          path: yapi/tulpar-ext
+
+      - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
+        run: |
+          set -uo pipefail
+          d="$(cygpath -u "$RUNNER_TEMP")/tulpar"
+          bash tools/tulpar_indir.sh "$d" || exit 1
+          clang++ --version | head -1
+          bash tools/windows_kapilar.sh kopru "$d/tulpar.exe"
