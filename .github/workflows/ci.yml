@@ -195,6 +195,9 @@ jobs:
       # GPU kapilari atlanir ve "passed" sayisi GPU hakkinda hicbir sey soylemez.
       - name: Bagimliliklar (lavapipe dahil)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        # apt aynasi asilirsa is 25+ dk bekliyordu (2026-11-02, PR #123: adim 26 dk asili,
+        # savas isi eklenti paketini beklerken zaman asimina dustu). Asilma = gorunur dusus.
+        timeout-minutes: 8
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -550,6 +553,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Bagimliliklar (lavapipe + tulpar'in AOT linki)
+        # apt aynasi asilirsa is 25+ dk bekliyordu (2026-11-02, PR #123: adim 26 dk asili,
+        # savas isi eklenti paketini beklerken zaman asimina dustu). Asilma = gorunur dusus.
+        timeout-minutes: 8
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -593,6 +599,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Bagimliliklar
+        # apt aynasi asilirsa is 25+ dk bekliyordu (2026-11-02, PR #123: adim 26 dk asili,
+        # savas isi eklenti paketini beklerken zaman asimina dustu). Asilma = gorunur dusus.
+        timeout-minutes: 8
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -694,6 +703,9 @@ jobs:
       # ve loader bulunamadi (3 kapi GORUNUR atlandi, 2026-09-14).
       - name: Bagimliliklar (MoltenVK dahil)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        # apt aynasi asilirsa is 25+ dk bekliyordu (2026-11-02, PR #123: adim 26 dk asili,
+        # savas isi eklenti paketini beklerken zaman asimina dustu). Asilma = gorunur dusus.
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
