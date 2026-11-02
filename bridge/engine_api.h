@@ -75,6 +75,7 @@ const char *teng_gpu_name(void);
 const char *teng_last_error(void);
 int teng_error_count(void);   // loglanan HATA sayisi (dogrulama kapilari icin)
 int teng_warning_count(void); // loglanan UYARI sayisi
+int teng_log_truncated(void); // 1024 bayti asip kesilen (" ...[kesildi +N bayt]" ile biten) log satiri
 
 // --- dunya / kamera --------------------------------------------------------
 void teng_gravity(double gx, double gy, double gz); // init'ten once etkili

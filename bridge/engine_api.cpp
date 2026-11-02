@@ -90,7 +90,12 @@ constexpr uint32_t kMaxSaveKeys = 64;  // kalici kayit anahtari
 constexpr uint32_t kSaveKeyLen = 48;
 constexpr uint32_t kSaveValLen = 112;
 constexpr uint32_t kWatchInterval = 6; // sahne dosyasi kac karede bir sorulur (headless: 0.1 s)
-constexpr uint32_t kLogLine = 240;
+constexpr uint32_t kLogLine = 240;  // halka satiri (cokme/rapor dokumu); daha uzunu "..." ile biter
+// Basilan (stdout / Android logcat) satir. 2026-11-02'ye kadar basilan satir da kLogLine'di ve SESSIZCE
+// kesiliyordu: oyunun mac sonu ag ozeti 277 bayttı, "kopma=" logcat'e hic gelmedi, cihaz denemesi eksik
+// alani okuyamadi. Artik 1024; onu da asan satir " ...[kesildi +N bayt]" ile biter ve SAYILIR
+// (teng_log_truncated).
+constexpr uint32_t kLogOut = 1024;
 // Kodla uretilen varliga baglanabilen betik sayisi (sabit havuz, init'te; A2).
 // Dolunca teng_script_attach HATA verir ve reddi sayar — sessiz buyume yok.
 constexpr uint32_t kMaxBoundScripts = 512;
@@ -104,6 +109,7 @@ struct Log {
   char ring[kLogRing][kLogLine];
   uint32_t ring_n = 0, ring_head = 0;
   uint32_t errors = 0, warnings = 0;
+  uint32_t truncated = 0;  // kLogOut'u asip kesilen basilan satir
   const char *last_call = "-";
   uint32_t frame = 0;
 };
@@ -129,15 +135,24 @@ void (*g_rapor_hata_kancasi)() = nullptr;
 void rapor_kapanis(uint32_t oturum_hata); // teng_shutdown: oturumda HATA varsa raporu son haliyle yazar
 void blog(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void blog(int level, const char *fmt, ...) {
-  char line[kLogLine];
+  char line[kLogOut];
   const char *tag = level == 0 ? "HATA" : level == 1 ? "bilgi" : level == 2 ? "ayrinti" : "iz";
   int n = std::snprintf(line, sizeof line, "[engine_bridge] k%u %s ", g_log.frame, tag);
   va_list ap;
   va_start(ap, fmt);
-  std::vsnprintf(line + n, sizeof line - (size_t)n, fmt, ap);
+  const int m = std::vsnprintf(line + n, sizeof line - (size_t)n, fmt, ap);
   va_end(ap);
-  // Halka: her seviyede kaydet (sessiz kipte bile cokme dokumu icin).
+  if (m >= 0 && (size_t)n + (size_t)m >= sizeof line) {
+    // Kesildi: sonu isaretle ki okuyan eksik alani "yok" sanmasin; say.
+    char son[48];
+    const int k = std::snprintf(son, sizeof son, " ...[kesildi +%u bayt]", (unsigned)((size_t)n + (size_t)m + 1 - sizeof line));
+    std::memcpy(line + sizeof line - 1 - (size_t)k, son, (size_t)k + 1);
+    g_log.truncated++;
+  }
+  // Halka: her seviyede kaydet (sessiz kipte bile cokme dokumu icin). Satir kisa; uzunu "..." ile biter.
   std::memcpy(g_log.ring[g_log.ring_head], line, kLogLine);
+  g_log.ring[g_log.ring_head][kLogLine - 1] = 0;
+  if (std::strlen(line) >= kLogLine) std::memcpy(&g_log.ring[g_log.ring_head][kLogLine - 4], "...", 4);
   g_log.ring_head = (g_log.ring_head + 1) % kLogRing;
   if (g_log.ring_n < kLogRing) g_log.ring_n++;
   if (level == 0) g_log.errors++;
@@ -1240,6 +1255,7 @@ void teng_log(const char *msg) { blog(1, "[tpr] %s", msg ? msg : ""); }
 const char *teng_last_error(void) { return g ? g->err : ""; }
 int teng_error_count(void) { return (int)g_log.errors; }
 int teng_warning_count(void) { return (int)g_log.warnings; }
+int teng_log_truncated(void) { return (int)g_log.truncated; }
 // Gomulu kipte cizim headless yolundan gider ama OYUNCU VAR: oyunlar bunu
 // "otopilot" diye okuyor (engine_karakter.tpr), editorde otopilot oynamasin.
 int teng_headless(void) { return g && g->headless && !g->embed ? 1 : 0; }
