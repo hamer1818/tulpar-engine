@@ -643,7 +643,16 @@ float KAYMA_SINIR = 1.0;
 // Kare belleği kapısı: RSS BELLEK_ILK_KARE'de ve son karede okunur (bellek_kb).
 // İlk 1000 kare dışarıda: sahne, navmesh, font, sürücü önbellekleri ısınır ve
 // bölüm 2 k713'te yüklenir (ölçüldü 2026-09-25) — bunlar sızıntı değil.
-int BELLEK_ILK_KARE = 1000;
+int BELLEK_ILK_KARE = 1400;
+// 1000 -> 1400 (2026-11-02): k1000-1400 bolum gecisinin biraktigi bellegi enjekte sizinti
+// doldururken RSS duz kaliyordu (2 aralik ~0) ve alt ceyrek (11 araligin 3.'su) tam kenardaydi:
+// sizinti kontrolu CI'da 3 kez (M3, M6, M14), yerelde 32 kosumun 7'sinde KACTI. Olculdu CI
+// ubuntu-latest lavapipe, kosum 41458983641, 8 temiz + 8 sizintili (2 KB/kare), ayni izlerden:
+//   k1000: temiz Q1 0 (8/8), sizinti Q1 1100..1140 -> 8/8 kirmizi (sinir 600, pay 1.8 kat)
+//   k1400: temiz Q1 0 (8/8), sizinti Q1 2020..2040 -> 8/8 kirmizi (pay 3.4 kat)
+// Bu 16 kosumda surucu basamagi (asagida) HIC olusmadi: basamaga karsi pay k1400'te 9 aralikla
+// olculmedi, 11 araliktaki gerekce (basamak araliklarin en cok ~%65'i) 9'da da alt ceyregi 0 tutar
+// ancak basamak 7+ araliga yayilirsa temiz kosum kirmiziya doner — o zaman gorulur, sessiz gecmez.
 // Yazılım rasterleştiricide (llvmpipe) sürücünün ısınması 1000. kareyi aşabilir:
 // ölçüldü 2026-10-02, CI ubuntu-24.04 / mesa 25.2.8 lavapipe (LLVM 20, 4 çekirdek),
 // /proc/<pid>/smaps: [heap] ilk ~37 s'de (≈k1100) +31 MB, sonra 109 s'ye kadar DÜZ
@@ -653,7 +662,7 @@ int BELLEK_ILK_KARE = 1000;
 // "ısınma" aslında rastgele zamanlı tek bir basamak, alt çeyrek ölçüsü ona
 // dayanıklı (aşağıda g_bellek_orn).
 if (len(env("TULPAR_AKSIYON_BELLEK_ILK")) > 0) { BELLEK_ILK_KARE = toInt(env("TULPAR_AKSIYON_BELLEK_ILK")); }
-int BELLEK_PENCERE_MIN = 2000;   // daha kısa pencerede eğim gürültüdür: ATLANDI
+int BELLEK_PENCERE_MIN = 1800;   // daha kısa pencerede eğim gürültüdür: ATLANDI (k1400->3200 = 1800, 9 aralık)
 // Sınır, KB / 1000 kare. Ölçüldü 2026-09-25, RTX 5080 masaüstü (Linux, NVIDIA),
 // TulparLang 3eee948:
 //   kare belleği AÇIK:  3200 kare 0, 12000 kare 5, 20000 kare 2 KB/1000 kare (19000 karede +40 KB)
