@@ -1,0 +1,49 @@
+# GECICI OLCUM (2026-11-02, birlesmez — taslak PR): engine_aksiyon bellek kapisinin pencere
+# baslangici k1000 -> k1400 onerisi icin CI lavapipe'ta temiz kosum payi + enjekte sizinti
+# yakalama orani. Her kosum 200 karede bir RSS izi basar (TULPAR_AKSIYON_BELLEK_IZ=200);
+# alt ceyrek her iki baslangic icin izden hesaplanir.
+name: Olcum
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  aksiyon:
+    if: startsWith(github.head_ref, 'olcum/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        dilim: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bagimliliklar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools libglfw3 clang libssl-dev
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}
+          restore-keys: ccache-linux-
+      - name: Derle
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: |
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build yapi -j"$(nproc)" --target tulpar_ext_paket 2>/dev/null || cmake --build yapi -j"$(nproc)"
+          ls yapi/tulpar-ext
+      - name: Tulpar
+        run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
+      - name: Kosumlar
+        run: |
+          set -u
+          vulkaninfo --summary 2>&1 | grep -E 'deviceName|driverInfo' || true
+          cd tulpar
+          for tur in temiz temiz sizinti sizinti; do
+            ek=""; [ "$tur" = sizinti ] && ek="TULPAR_AKSIYON_SIZINTI_B=2048"
+            env $ek DISPLAY= TULPAR_ENGINE_HEADLESS=3200 TULPAR_AKSIYON_BELLEK_IZ=200 \
+              "$RUNNER_TEMP/tulpar/tulpar" --ext ../yapi/tulpar-ext examples/engine_aksiyon.tpr > "../$tur.log" 2>&1 || true
+            echo "== dilim ${{ matrix.dilim }} $tur"
+            grep -E '^\[iz\] bellek|^\[kapi\] bellek' "../$tur.log" | tr '\n' ' '; echo
+          done
