@@ -695,6 +695,8 @@ struct Bridge {
     renderer::MaterialHandle mat;
     uint32_t w = 0, h = 0;
     bool opaque = false;
+    // Atlas izgarasi (teng_image_grid): hucre boyu + ic bosluk, piksel. 0 = izgara yok.
+    uint32_t cell_w = 0, cell_h = 0, cell_pad = 0;
     // Ayni yol ayni tutamac: anahtar TAM yol. 128 baytti ve snprintf sessizce kesiyordu;
     // 127+ karakterlik yol (uzun TMPDIR, derin depo dizini) her cagrida YENI yuva aliyordu
     // ve 32'lik tavan doluyordu (A13 incelemesi, 2026-10-19, olculdu). Sigmayan yol REDDEDILIR.
@@ -703,6 +705,7 @@ struct Bridge {
   ImageSlot images[kMaxImages];
   uint32_t image_count = 0, image_rejected = 0;
   uint64_t image_draws = 0, image_opaque_draws = 0;
+  uint64_t image_nine_calls = 0, image_cell_calls = 0; // tek FFI cagrisi -> 9 / 1 HUD komutu
   // Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi
   // koyultmak icin oyun tam ekran YARI SAYDAM dortgen ciziyordu; Mali'de (TBDR)
   // bu +2.57 ms/kare (P20 Pro, 2159x1080, parlama acik, 2026-10-08; compose
@@ -2482,6 +2485,8 @@ void teng_shutdown(void) {
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
   if (b.image_count || b.image_rejected)
+    BINFO("kapanis (resim): 9 dilim %llu cagri, atlas hucresi %llu cagri",
+          (unsigned long long)b.image_nine_calls, (unsigned long long)b.image_cell_calls);
     BINFO("kapanis (resim): %u/%u resim, %llu cizim (%llu opak yoldan), tavan reddi %u", b.image_count, kMaxImages,
           (unsigned long long)b.image_draws, (unsigned long long)b.image_opaque_draws, b.image_rejected);
   if (b.music[0].buf || b.music[1].buf)
@@ -3987,6 +3992,68 @@ void teng_image_uv(int h, double x, double y, double w, double hh, double u0, do
   b.hud[b.hud_n++] = c;
 }
 void teng_image(int h, double x, double y, double w, double hh, int64_t color) { teng_image_uv(h, x, y, w, hh, 0, 0, 1, 1, color); }
+
+// 9 DILIM (F6, 2026-11-02). Oyun her paneli 9 ayri teng_image_uv FFI cagrisiyla ciziyordu
+// (Kupler ile Kureler arayuz.tpr k_cerceve, telefonda FFI bedeli olculdu: Tuzaklar 8cv). Ayni
+// geometri tek cagrida: kaynak bolge [u0,v0]-[u1,v1], kenar kaynakta `src_px` piksel, ekranda
+// `edge` birim. Kose kutuya sigmazsa kutunun yarisina iner; 0.5 birimden ince orta seritler
+// cizilmez. Komut SIRASI ve degerleri oyunun eski 9 cagrisiyla AYNI (piksel kapisi bunu sinar).
+void teng_image_nine(int h, double x, double y, double w, double hh, double u0, double v0, double u1, double v1,
+                     double src_px, double edge, int64_t color) {
+  if (!image_ok(h, "teng_image_nine")) return;
+  if (w <= 0 || hh <= 0) return;
+  Bridge &b = *g;
+  const Bridge::ImageSlot &im = b.images[h];
+  double c = edge;
+  if (c * 2.0 > w) c = w * 0.5;
+  if (c * 2.0 > hh) c = hh * 0.5;
+  const double du = src_px / (double)im.w, dv = src_px / (double)im.h;
+  const double ua = u0, ub = u0 + du, uc = u1 - du, ud = u1;
+  const double va = v0, vb = v0 + dv, vc = v1 - dv, vd = v1;
+  const double x1 = x + c, x2 = x + w - c, y1 = y + c, y2 = y + hh - c;
+  const double mw = x2 - x1, mh = y2 - y1;
+  b.image_nine_calls++;
+  teng_image_uv(h, x, y, c, c, ua, va, ub, vb, color);
+  teng_image_uv(h, x2, y, c, c, uc, va, ud, vb, color);
+  teng_image_uv(h, x, y2, c, c, ua, vc, ub, vd, color);
+  teng_image_uv(h, x2, y2, c, c, uc, vc, ud, vd, color);
+  if (mw > 0.5) {
+    teng_image_uv(h, x1, y, mw, c, ub, va, uc, vb, color);
+    teng_image_uv(h, x1, y2, mw, c, ub, vc, uc, vd, color);
+  }
+  if (mh > 0.5) {
+    teng_image_uv(h, x, y1, c, mh, ua, vb, ub, vc, color);
+    teng_image_uv(h, x2, y1, c, mh, uc, vb, ud, vc, color);
+  }
+  if (mw > 0.5 && mh > 0.5) teng_image_uv(h, x1, y1, mw, mh, ub, vb, uc, vc, color);
+}
+
+// ATLAS HUCRESI (F6). Resim izgaraya bolunur (hucre cell_w x cell_h piksel, soldan saga,
+// yukaridan asagi numara; her kenardan `pad` piksel ice) ve hucre numarayla cizilir — oyun
+// her ikon/portre icin UV hesabini kendisi yapiyordu. Izgara resmin boyuna sigmali.
+int teng_image_grid(int h, int cell_w, int cell_h, int pad) {
+  if (!image_ok(h, "teng_image_grid")) return 0;
+  Bridge::ImageSlot &im = g->images[h];
+  if (cell_w <= 0 || cell_h <= 0 || (uint32_t)cell_w > im.w || (uint32_t)cell_h > im.h || pad < 0 || pad * 2 >= cell_w || pad * 2 >= cell_h) {
+    BERR("teng_image_grid: resim %d (%ux%u) icin gecersiz izgara %dx%d ic bosluk %d", h, im.w, im.h, cell_w, cell_h, pad);
+    return 0;
+  }
+  im.cell_w = (uint32_t)cell_w; im.cell_h = (uint32_t)cell_h; im.cell_pad = (uint32_t)pad;
+  return (int)((im.w / (uint32_t)cell_w) * (im.h / (uint32_t)cell_h));
+}
+void teng_image_cell(int h, int index, double x, double y, double w, double hh, int64_t color) {
+  if (!image_ok(h, "teng_image_cell")) return;
+  const Bridge::ImageSlot &im = g->images[h];
+  if (im.cell_w == 0) { BERR("teng_image_cell: resim %d icin izgara yok (once teng_image_grid)", h); return; }
+  const uint32_t cols = im.w / im.cell_w, rows = im.h / im.cell_h;
+  if (index < 0 || (uint32_t)index >= cols * rows) { BERR("teng_image_cell: hucre %d yok (resim %d: %ux%u = %u hucre)", index, h, cols, rows, cols * rows); return; }
+  const uint32_t cx = (uint32_t)index % cols, cy = (uint32_t)index / cols;
+  const double iw = (double)im.w, ih = (double)im.h;
+  const double u0 = (double)(cx * im.cell_w + im.cell_pad) / iw, v0 = (double)(cy * im.cell_h + im.cell_pad) / ih;
+  const double u1 = (double)((cx + 1) * im.cell_w - im.cell_pad) / iw, v1 = (double)((cy + 1) * im.cell_h - im.cell_pad) / ih;
+  g->image_cell_calls++;
+  teng_image_uv(h, x, y, w, hh, u0, v0, u1, v1, color);
+}
 
 double teng_text_width(const char *s, double scale) { return g && g->font_ok && s ? g->font.text_width(s, (float)(scale > 0 ? scale : 1.0)) : 0; }
 

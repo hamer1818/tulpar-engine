@@ -1024,6 +1024,14 @@ func image_draw_e(img, x, y, w, h, color) { eng_image(img, x, y, w, h, color); }
 // Atlas hucresi: [u0,v0]-[u1,v1] (0..1, sol ust 0,0).
 func resim_ciz_uv(r, x, y, w, h, u0, v0, u1, v1, renk_) { eng_image_uv(r, x, y, w, h, u0, v0, u1, v1, renk_); }
 func image_draw_uv_e(img, x, y, w, h, u0, v0, u1, v1, color) { eng_image_uv(img, x, y, w, h, u0, v0, u1, v1, color); }
+// 9 dilim: panel/dugme cercevesi tek cagrida (kenar kaynakta kaynak_px piksel, ekranda kenar birim).
+func resim_dokuz(r, x, y, w, h, u0, v0, u1, v1, kaynak_px, kenar, renk_) { eng_image_nine(r, x, y, w, h, u0, v0, u1, v1, kaynak_px, kenar, renk_); }
+func image_nine_e(img, x, y, w, h, u0, v0, u1, v1, src_px, edge, color) { eng_image_nine(img, x, y, w, h, u0, v0, u1, v1, src_px, edge, color); }
+// Atlas izgarasi + hucre: resim_izgara(r, 128, 128, 4) -> hucre sayisi; resim_hucre(r, i, ...) i. hucreyi cizer.
+func resim_izgara(r, hucre_w, hucre_h, bosluk): int { return eng_image_grid(r, hucre_w, hucre_h, bosluk); }
+func image_grid_e(img, cell_w, cell_h, pad): int { return eng_image_grid(img, cell_w, cell_h, pad); }
+func resim_hucre(r, i, x, y, w, h, renk_) { eng_image_cell(r, i, x, y, w, h, renk_); }
+func image_cell_e(img, index, x, y, w, h, color) { eng_image_cell(img, index, x, y, w, h, color); }
 func resim_gen(r): int { return eng_image_w(r); }
 func resim_yuk(r): int { return eng_image_h(r); }
 func image_w_e(img): int { return eng_image_w(img); }

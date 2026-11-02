@@ -245,6 +245,9 @@ SPEC = [
     ("eng_image_uv", "void", [("img", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("u0", "num"), ("v0", "num"), ("u1", "num"), ("v1", "num"), ("color", "color")], "Resmin [u0,v0]-[u1,v1] bolgesini cizer (atlas hucresi: ikon, portre; 0..1, sol ust 0,0)."),
     ("eng_image_w", "int", [("img", "int")], "Resmin genisligi (piksel)."),
     ("eng_image_h", "int", [("img", "int")], "Resmin yuksekligi (piksel)."),
+    ("eng_image_nine", "void", [("img", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("u0", "num"), ("v0", "num"), ("u1", "num"), ("v1", "num"), ("src_px", "num"), ("edge", "num"), ("color", "color")], "9 DILIM: resmin [u0,v0]-[u1,v1] bolgesini kenarlari gerilmeden kutuya cizer (panel/dugme cercevesi). Kenar kaynakta src_px piksel, ekranda edge birim; kose kutuya sigmazsa kutunun yarisina iner, 0.5'ten ince orta serit cizilmez. 9 ayri eng_image_uv cagrisiyla piksel piksel ayni, tek FFI cagrisi."),
+    ("eng_image_grid", "int", [("img", "int"), ("cell_w", "int"), ("cell_h", "int"), ("pad", "int")], "ATLAS: resmi cell_w x cell_h piksellik hucrelere boler (numara soldan saga, yukaridan asagi; her kenardan pad piksel ice). Donus hucre sayisi, gecersiz izgarada 0 + HATA."),
+    ("eng_image_cell", "void", [("img", "int"), ("index", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "ATLAS hucresini (eng_image_grid) kutuya cizer. Izgara yoksa ya da numara disariysa HATA, cizim yok."),
     ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi."),
     # ses
     ("eng_audio_open", "bool", [("rate", "int"), ("channels", "int")], "Ses cihazini acar (0,0 = varsayilan 48 kHz stereo). Acilamazsa false: oyun sessiz devam eder, hata loglanir."),
