@@ -1,7 +1,12 @@
 #!/bin/bash
 # ============================================================
 # Tulpar Engine — telefonda kosum (adb). NDK ile derler, NativeActivity APK'sini
-# paketler (android/package_apk.sh), kurar, secilen kipte baslatir ve logu toplar.
+# paketler (TulparLang'in package_apk.sh'i), kurar, secilen kipte baslatir ve logu toplar.
+#
+# Paketleyici: TULPAR_ANDROID_TOOLS (dizin), yoksa kurulu tulpar'in yanindaki android/
+# (TulparLang v3.44.0+: `tulpar update --android`). Motor TulparLang'den ayrildiginda
+# (2026-09-20) android/ bu depoda kalmadi; betik yine "$ROOT/android/package_apk.sh"
+# ariyordu ve `|| true` yuzunden APK'siz devam edip ESKI kurulu APK'yi kosturuyordu.
 #
 #   tools/android_run.sh tests [filtre]   # engine_tests APK surecinde
 #   tools/android_run.sh demo [kare] [--screenshot cikti.png]
@@ -29,7 +34,7 @@ ACT="$PKG/android.app.NativeActivity"
 echo "[1/5] derleme (NDK: $(basename "$NDK"), $ABI)"
 cmake -S "$ROOT" -B "$BUILD" -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
       -DANDROID_ABI="$ABI" -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release -DENGINE_TRACY="${TULPAR_TRACY:-OFF}" -DENGINE_SWAPPY="${TULPAR_SWAPPY:-OFF}" >/dev/null 2>&1
-cmake --build "$BUILD" -j --target tulparengine engine_tests 2>&1 | grep -E "error|warning: unused" | grep -v third_party || true
+cmake --build "$BUILD" -j"${TULPAR_JOBS:-6}" --target tulparengine engine_tests 2>&1 | grep -E "error|warning: unused" | grep -v third_party || true
 [ -f "$BUILD/libtulparengine.so" ] || { echo "HATA: libtulparengine.so uretilmedi"; exit 1; }
 
 echo "[2/5] paketleme"
@@ -55,11 +60,22 @@ if [ "${TULPAR_SWAPPY:-OFF}" = ON ] && [ "${TULPAR_SWAPPY_DEX:-1}" = 1 ] && [ -f
     sed -i 's/android:hasCode="false"/android:hasCode="true"/' "$STAGE/AndroidManifest.xml"
     echo "  swappy: classes.dex ($(stat -c %s "$SWAPPY_DEX") bayt) + hasCode=true"
 fi
-mkdir -p "$STAGE/assets" && cp "$ROOT"/tests/assets/* "$ROOT"/assets/fonts/*.ttf "$STAGE/assets/" # APK icine (host cikarir)
-"$ROOT/android/package_apk.sh" "$STAGE" "$BUILD/tulparengine.apk" | grep -E "^\s+\+|HATA|apk" || true
+# Yalniz duz dosyalar: tests/assets/shader/ (Faz 8 shader kapilarinin .tprs kaynaklari, #68) bir
+# DIZIN; duz `cp` onu atlayip 1 donuyordu ve set -e betigi paketlemeden once sessizce bitiriyordu.
+mkdir -p "$STAGE/assets" && find "$ROOT/tests/assets" -maxdepth 1 -type f -exec cp {} "$STAGE/assets/" \; \
+    && cp "$ROOT"/assets/fonts/*.ttf "$STAGE/assets/" # APK icine (host cikarir)
+PAKETLE="${TULPAR_ANDROID_TOOLS:+$TULPAR_ANDROID_TOOLS/package_apk.sh}"
+if [ -z "$PAKETLE" ] && command -v tulpar >/dev/null; then PAKETLE="$(dirname "$(command -v tulpar)")/android/package_apk.sh"; fi
+[ -f "${PAKETLE:-}" ] || { echo "HATA: package_apk.sh yok (TULPAR_ANDROID_TOOLS=<dizin> ya da 'tulpar update --android')"; exit 1; }
+rm -f "$BUILD/tulparengine.apk"
+"$PAKETLE" "$STAGE" "$BUILD/tulparengine.apk" | grep -E "^\s+\+|HATA|apk" || true
+[ -s "$BUILD/tulparengine.apk" ] || { echo "HATA: APK uretilmedi ($PAKETLE)"; exit 1; }
 
 echo "[3/5] kurulum"
-adb install -r "$BUILD/tulparengine.apk" | tail -1
+# Kurulum dusunce DUR: eskiden `| tail -1` dususu yutuyordu ve betik telefondaki ESKI APK'yi kosturup
+# onun eski logunu "sonuc" diye basiyordu (2026-11-02: targetSdk 0 -> -26, 157 testlik Eylul kurulumu kostu).
+KUR="$(adb install -r "$BUILD/tulparengine.apk" 2>&1)"; echo "$KUR" | tail -1
+grep -q '^Success' <<<"$KUR" || { echo "HATA: kurulum basarisiz — eski APK kosturulmayacak"; exit 1; }
 adb shell am force-stop "$PKG" || true
 
 FILTER=""; FRAMES="600"; SHOT=""

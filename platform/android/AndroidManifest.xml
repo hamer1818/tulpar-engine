@@ -6,6 +6,9 @@
     package="dev.tulparlang.engine"
     android:versionCode="1"
     android:versionName="0.1">
+  <!-- uses-sdk BURADA: TulparLang v3.42+ package_apk.sh aapt2'ye SDK bayragi vermiyor (tek kaynak manifest).
+       Yoksa targetSdk 0 olur ve targetSdk 36'li kurulu APK'nin uzerine kurulum -26 ile reddedilir. -->
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/>
   <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400000" android:required="true"/>
   <!-- Tracy istemcisi (TULPAR_TRACY=1): 8086 dinler; adb forward ile masaustunden yakalanir. -->
   <uses-permission android:name="android.permission.INTERNET" />
