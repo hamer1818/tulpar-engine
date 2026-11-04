@@ -223,6 +223,9 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   uint32_t nmat = (uint32_t)data->materials_count;
   if (ok && nmat > lim.max_materials) { set_error(out, "malzeme siniri asildi", nullptr); ok = false; }
   out->materials = arena.alloc_array_zeroed<ModelMaterial>(nmat ? nmat : 1);
+  int32_t *sep_occ = arena.alloc_array<int32_t>(nmat ? nmat : 1); // malzeme -> ayri occlusion goruntusu (-1 yok)
+  if (!sep_occ) { set_error(out, "arena dolu (malzeme)", nullptr); ok = false; }
+  for (uint32_t i = 0; sep_occ && i < (nmat ? nmat : 1); i++) sep_occ[i] = -1;
   for (uint32_t i = 0; ok && i < nmat; i++) {
     const cgltf_material &cm = data->materials[i];
     ModelMaterial &mm = out->materials[i];
@@ -276,11 +279,75 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
     // isaretleniyor.
     if (cm.occlusion_texture.texture && cm.occlusion_texture.texture->image) {
       const int32_t occ = (int32_t)(cm.occlusion_texture.texture->image - data->images);
-      if (occ == mm.orm_image) mm.occlusion_strength = cm.occlusion_texture.scale; // scale == strength (cgltf)
-      else mm.occlusion_separate = true;
+      mm.occlusion_strength = cm.occlusion_texture.scale; // scale == strength (cgltf)
+      if (occ != mm.orm_image) {
+        mm.occlusion_separate = true;
+        sep_occ[i] = occ; // asagida ORM ile birlestirilir
+      }
     }
   }
   out->material_count = ok ? nmat : 0;
+  // --- Ayri occlusionTexture -> ORM'e BIRLESTIR -----------------------------
+  // Yeni goruntu = ORM'in G/B'si (yoksa 255: carpan oldugu gibi kalir) + occlusion
+  // goruntusunun R'si (ORM boyutuna EN YAKIN komsu ile; ORM yoksa occlusion
+  // boyutu). Ayni (ORM, occlusion) cifti tek goruntu. Orijinal ORM degismez
+  // (baska malzeme onu tek basina kullaniyor olabilir). Yeni goruntu dogrusal
+  // veri; asagidaki renk uzayi gecisi onu as_data sayar.
+  if (ok && nmat) {
+    uint32_t extra = 0;
+    for (uint32_t i = 0; i < nmat; i++) if (sep_occ[i] >= 0) extra++;
+    ModelImage *imgs = extra ? arena.alloc_array_zeroed<ModelImage>(out->image_count + extra) : nullptr;
+    if (extra && imgs) {
+      for (uint32_t k = 0; k < out->image_count; k++) imgs[k] = out->images[k];
+      int32_t *pair_orm = arena.alloc_array<int32_t>(extra), *pair_occ = arena.alloc_array<int32_t>(extra);
+      uint32_t n = out->image_count, np = 0;
+      for (uint32_t i = 0; pair_orm && pair_occ && i < nmat; i++) {
+        ModelMaterial &mm = out->materials[i];
+        const int32_t occ = sep_occ[i];
+        if (occ < 0) continue;
+        if (!mm.has_pbr || occ >= (int32_t)out->image_count || !imgs[occ].rgba) { out->occlusion_unmerged++; mm.occlusion_strength = 0.0f; continue; }
+        int32_t hit = -1;
+        for (uint32_t q = 0; q < np; q++) if (pair_orm[q] == mm.orm_image && pair_occ[q] == occ) hit = (int32_t)(out->image_count + q);
+        if (hit < 0) {
+          const ModelImage &oi = imgs[occ];
+          const bool has_orm = mm.orm_image >= 0 && mm.orm_image < (int32_t)out->image_count && imgs[mm.orm_image].rgba;
+          const uint32_t w = has_orm ? imgs[mm.orm_image].width : oi.width, h = has_orm ? imgs[mm.orm_image].height : oi.height;
+          ModelImage &ni = imgs[n];
+          ni.width = w;
+          ni.height = h;
+          ni.rgba = arena.alloc_array<uint8_t>((size_t)w * h * 4);
+          if (!ni.rgba) { out->occlusion_unmerged++; mm.occlusion_strength = 0.0f; continue; }
+          for (uint32_t y = 0; y < h; y++)
+            for (uint32_t x = 0; x < w; x++) {
+              const uint32_t ox = (uint32_t)(((uint64_t)x * oi.width) / w), oy = (uint32_t)(((uint64_t)y * oi.height) / h);
+              uint8_t *d = ni.rgba + ((size_t)y * w + x) * 4;
+              d[0] = oi.rgba[((size_t)oy * oi.width + ox) * 4];
+              if (has_orm) {
+                const uint8_t *src = imgs[mm.orm_image].rgba + ((size_t)y * w + x) * 4;
+                d[1] = src[1];
+                d[2] = src[2];
+              } else {
+                d[1] = d[2] = 255;
+              }
+              d[3] = 255;
+            }
+          pair_orm[np] = mm.orm_image;
+          pair_occ[np] = occ;
+          np++;
+          hit = (int32_t)n++;
+          out->occlusion_merged++;
+        }
+        mm.orm_image = hit;
+        mm.occlusion_separate = false;
+      }
+      out->images = imgs;
+      out->image_count = n;
+    } else if (extra) {
+      // Ayrilamadi: occlusion YOK sayilir (ORM.R baska bir sey tasiyor olabilir).
+      out->occlusion_unmerged += extra;
+      for (uint32_t i = 0; i < nmat; i++) if (sep_occ[i] >= 0) out->materials[i].occlusion_strength = 0.0f;
+    }
+  }
   // --- Goruntu renk uzayi: KULLANIMDAN turetilir --------------------------
   // glTF goruntusu renk uzayi tasimaz; onu MALZEMEDEKI YERI belirler (spec):
   // baseColor + emissive = sRGB, metallicRoughness + normal + occlusion =

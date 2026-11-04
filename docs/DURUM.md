@@ -162,7 +162,10 @@ Ayrıntı: [FAZ3.md](FAZ3.md) "Faz 6 kalanı + Faz 8 fizibilitesi", tuzaklar 8aq
    değildi (ölçüldü: ters eğimli dama deseninde **0.60**) — uzaktaki yüzey sessizce düzleşiyordu. Normal
    haritaları artık CPU'da mip'lenip hazır seviye olarak yükleniyor (`build_normal_mips`), yeniden
    normalleştirilmiş en kötü boy **1.0000**. ORM bu yolu ALMAZ (pürüzlülük/metaliklik skalerdir).
-   Kalan: ayrı `occlusionTexture` hâlâ okunmuyor — dördüncü sampler'a değmediği için bilinçli, sayılıyor.
+   ~~Ayrı `occlusionTexture` okunmuyor~~ ✅ 2026-11-04: yüklemede ORM'e **birleştirilir** (G/B ORM'den, R occlusion'dan,
+   en yakın komşu; ORM yoksa G/B 255 = çarpan aynen) — dördüncü sampler yine yok. Birleştirilemeyen (PBR'siz malzeme,
+   arena) `Model::occlusion_unmerged`'da sayılır ve o malzemede occlusion KAPALI kalır (ORM.R başka veri taşıyabilir).
+   Kapı `content_gltf_separate_occlusion_merges_into_orm` (eski ORM paketlemesi kontrol olarak birleşmez).
 5. PBR, vis buffer A/B, VRS/FDM, VSM, virtual texture, PSO üretimi, gerçek HRTF/Steam Audio,
    GameActivity göçü, Memory Advice, mağaza/servis kalemleri (hesap gerekiyor),
    **üç fiziksel cihaz** (kullanıcı kararı: şimdilik pas), macOS CI çökmesi (yerelden ulaşılamıyor).
