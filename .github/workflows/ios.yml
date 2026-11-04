@@ -62,7 +62,7 @@ jobs:
       - name: TulparLang iOS runtime arsivleri
         run: bash tulparlang/ios/build_runtime_ios.sh
 
-      - name: MoltenVK (statik; -all arsivi: -ios.tar simulator dilimi icermiyor)
+      - name: MoltenVK statik (-all arsivi; -ios.tar simulator dilimi icermiyor)
         run: |
           curl -fsSL -o mvk.tar "https://github.com/KhronosGroup/MoltenVK/releases/download/${MOLTENVK_SURUM}/MoltenVK-all.tar"
           mkdir -p mvk && tar -xf mvk.tar -C mvk
