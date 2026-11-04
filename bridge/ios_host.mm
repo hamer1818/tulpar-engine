@@ -140,7 +140,7 @@ bool i_surface(void *, rhi::VkApi &api, VkInstance inst, VkSurfaceKHR *out) {
   if (!fn) { std::printf("[engine_bridge] ios: vkCreateMetalSurfaceEXT yok\n"); return false; }
   VkMetalSurfaceCreateInfoEXT ci{};
   ci.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
-  ci.pLayer = (__bridge const CAMetalLayer *)g_host.layer;
+  ci.pLayer = g_host.layer; // MoltenVK orneklerindeki gibi dogrudan (const eklenmesi ortuk)
   const VkResult r = fn(inst, &ci, nullptr, out);
   if (r != VK_SUCCESS) std::printf("[engine_bridge] ios: vkCreateMetalSurfaceEXT = %d\n", (int)r);
   return r == VK_SUCCESS;
