@@ -50,12 +50,14 @@
 #include "rhi/offscreen.hpp"
 #include "rhi/swapchain.hpp"
 #include "sim/physics.hpp"
+#include "sim/lockstep.hpp"
 #include "sim/schedule.hpp"
 
 using namespace tulpar::engine;
 
 namespace {
 void net_kapanis(); // dosya sonunda (ag, teng_net_*); teng_shutdown cagirir
+void ls_kapanis();  // dosya sonunda (kilit adim, teng_ls_*)
 constexpr float kBridgePi = 3.14159265358979f;
 constexpr uint32_t kMaxEntities = 4096;
 // Model tavani: oyun 10 sus modeli + 30 iskeletli birlik karakteri (2 taraf x 5 cag x
@@ -419,6 +421,14 @@ struct Bridge {
   bool phys_manual = false;
   uint32_t phys_manual_queue = 0, phys_manual_steps = 0, phys_manual_clipped = 0;
   uint32_t phys_resets = 0;                            // teng_physics_reset (kapanis raporu)
+  // Tek biriktirici (teng_sim_fixed, F6 2026-11-04): aciksa karenin tik sayisi sim::TickClock'tan,
+  // ILK teng_sim_ticks cagrisinda (yoksa frame_end'de) hesaplanir — oyun ayni karede zaman olcegini
+  // degistirip sonra sorarsa yeni olcek gecerli. frame_end TAM o kadar fizik adimi atar.
+  bool sim_fixed = false, sim_n_ready = false;
+  uint32_t sim_n = 0;
+  sim::TickClock clock;
+  double scale_d = 1.0;     // teng_time_scale'in double hali (oyunun olcegiyle bit-tam; fs.time_scale float)
+  float step_default = 1.0f / 60.0f;
   // --- Kare ici C++ ayirma (Geri bildirim #13) -----------------------------
   // AllocGate'in operator new sayaci (core/memory/alloc_gate_override.cpp).
   // Tulpar oyununda override eklenti paketinin yapistiricisiyla gelir
@@ -1727,6 +1737,7 @@ int teng_frame_begin(void) {
   if (b.headless && !b.embed) b.dt = 1.0f / 60.0f;
   if (embed_step) b.dt = 1.0f / 60.0f; // duraklatmada tek adim: gecen gercek sure degil, BIR kare
   b.time_s += b.dt;
+  b.sim_n_ready = false;
   para_tick(b.dt); // reklam / satin alma saati: gercek kare suresi (zaman olcegi uygulanmaz)
   b.prof.begin_frame();
   b.frame_arena.begin_frame();
@@ -2164,6 +2175,24 @@ static void script_fire_carpisma(Bridge &b, int me, int other, uint32_t ev, cons
 // Kinematik hedefleri bu karenin kalan `left` adimina esit dagit: her adimda
 // govdeyi kalan yolun 1/left'ine goturen hiz (MoveKinematic). Son adim tam
 // hedefe varir. Hedef gelmeyen ilk adimda hiz sifirlanir (durur).
+// Tek biriktirici: bu karenin tik sayisi (karede bir kez hesaplanir, sonra ayni deger).
+static uint32_t sim_fixed_ticks(Bridge &b) {
+  if (b.sim_n_ready) return b.sim_n;
+  b.sim_n_ready = true;
+  if (b.fs.pending_steps > 0) { // editor "bir kare ilerle": duraklatmayi deler, tek tik
+    b.fs.pending_steps--;
+    b.clock.ticks++;
+    b.sim_n = 1;
+  } else {
+    const uint32_t d0 = b.clock.drop_frames;
+    b.sim_n = b.clock.advance((double)b.dt, b.scale_d, b.fs.paused);
+    if (b.clock.drop_frames != d0)
+      BDBG("kare %u: tek biriktirici tavani %u, tik atildi (toplam %llu, dt %.3f)", b.frame, b.clock.frame_cap(b.scale_d),
+           (unsigned long long)b.clock.dropped, b.dt);
+  }
+  return b.sim_n;
+}
+
 static void kinematic_tick(Bridge &b, uint32_t left) {
   for (uint32_t i = 0; i < b.ent_high; i++) {
     Ent &e = b.ents[i];
@@ -2190,7 +2219,10 @@ void teng_frame_end(void) {
   {
     ENGINE_ZONE("sim");
     uint32_t ticks = 0;
-    if (!b.phys_manual) {
+    if (b.sim_fixed && !b.phys_manual) {
+      ticks = sim_fixed_ticks(b); // tek biriktirici: oyunun kostugu tik sayisi kadar
+      b.fs.tick += ticks;
+    } else if (!b.phys_manual) {
       ticks = b.fs.advance(b.dt); // duraklatma / zaman olcegi burada (sim::FixedStep)
     } else if (!b.fs.paused) {    // elle kip: kuyruk (duraklatma kuyrugu DONDURUR, atmaz)
       ticks = b.phys_manual_queue;
@@ -2413,6 +2445,7 @@ void teng_frame_end(void) {
 void teng_shutdown(void) {
   CALL("teng_shutdown");
   net_kapanis(); // ag motor kurulmadan da acik olabilir: once, kosulsuz (KOPRU §11)
+  ls_kapanis();
   if (!g) return;
   Bridge &b = *g;
   // Kurulmamis motor: yapilacak bir sey YOK — dusen bir teng_init kendi
@@ -2465,6 +2498,9 @@ void teng_shutdown(void) {
           (unsigned long long)(b.model_tmp_bytes / 1024), (unsigned long long)(b.model_tmp.stats().peak / 1024), b.model_tmp_fallback);
   }
   if (b.phys_resets) BINFO("kapanis (fizik): %u sifirlama (teng_physics_reset)", b.phys_resets);
+  if (b.clock.ticks || b.clock.dropped)
+    BINFO("kapanis (tek biriktirici): %llu tik, %llu atilan (%u karede tavan; teng_sim_fixed)", (unsigned long long)b.clock.ticks,
+          (unsigned long long)b.clock.dropped, b.clock.drop_frames);
   if (b.phys_manual_steps || b.phys_manual_clipped)
     BINFO("kapanis (fizik): elle kipte %u adim, %u kirpildi (teng_physics_steps)", b.phys_manual_steps, b.phys_manual_clipped);
   if (b.phys_pauses || b.fs.time_scale != 1.0f)
@@ -2684,6 +2720,44 @@ int teng_physics_steps(int steps) {
   return 1;
 }
 int teng_physics_manual(void) { return g && g->phys_manual ? 1 : 0; }
+// Tek biriktirici (F6, 2026-11-04). hz > 0: oyun tik'i ve fizik ayni sayactan (sim::TickClock);
+// fizik adimi 1/hz olur, birikim 0'dan baslar (her cagri sifirlar: bolum basi). max_steps olcek 1'de
+// kare basina tavan (olcekle ceil(olcek)'e cikar, en cok 64). hz <= 0: kapanir, FixedStep'e donulur.
+// Elle kip (teng_physics_steps) acikken o kazanir: bu karede 0 tik, birikim ilerlemez.
+int teng_sim_fixed(int hz, int max_steps) {
+  CALLF("teng_sim_fixed", "%d, %d", hz, max_steps);
+  if (!g) g = new (g_storage) Bridge();
+  Bridge &b = *g;
+  if (hz <= 0) {
+    if (b.sim_fixed) BDBG("tek biriktirici KAPANDI (kare %u, %llu tik, %llu atilan)", b.frame, (unsigned long long)b.clock.ticks,
+                          (unsigned long long)b.clock.dropped);
+    b.sim_fixed = false;
+    b.fs.step_s = b.step_default;
+    b.fs.accumulator = 0.0f;
+    return 1;
+  }
+  if (hz > 1000 || max_steps < 1 || max_steps > 64) {
+    BERR("teng_sim_fixed: hz 1..1000, max_steps 1..64 olmali (%d, %d)", hz, max_steps);
+    return 0;
+  }
+  // Karenin tik sayisi zaten okunduysa o deger bu kare icin gecerli kalir (fizik o kadar adim atar);
+  // sifirlama sonraki kareden itibaren.
+  if (!b.sim_fixed) BDBG("tek biriktirici ACILDI: %d Hz, tavan %d (kare %u)", hz, max_steps, b.frame);
+  b.sim_fixed = true;
+  b.clock.hz = (double)hz;
+  b.clock.cap = (uint32_t)max_steps;
+  b.clock.reset();
+  b.fs.step_s = 1.0f / (float)hz;
+  return 1;
+}
+int teng_sim_ticks(void) {
+  if (!g || !g->sim_fixed) { BERR("teng_sim_ticks: tek biriktirici kapali — once teng_sim_fixed"); return 0; }
+  Bridge &b = *g;
+  if (!b.in_frame) { BERR("teng_sim_ticks: kare disinda (kare %u)", b.frame); return 0; }
+  if (b.phys_manual) return 0;
+  return (int)sim_fixed_ticks(b);
+}
+int teng_sim_dropped(void) { return g ? (int)g->clock.dropped : 0; }
 // Fizik dunyasini ve sabit adim birikimini sifirdan kur (A6, 2026-10-18).
 // Bolum gecisinde "her bolum ayni durumdan baslar" sozlesmesinin motor yarisi:
 // Jolt govde kimlikleri (indeks + sira no) ve FixedStep birikimi gecmise
@@ -2710,6 +2784,7 @@ int teng_physics_reset(void) {
   if (!b.phys.reset_world()) { BERR("teng_physics_reset: fizikte %u govde kaldi (kopru disi?) — sifirlanmadi", b.phys.stats().bodies); return 0; }
   b.fs.accumulator = 0.0f;
   b.fs.pending_steps = 0;
+  b.clock.reset(); // tek biriktirici de (F6)
   b.tetik_n = 0;
   if (b.bmap)
     for (uint32_t i = 0; i < b.bmap_n; i++) b.bmap[i] = Bridge::BodyMapEntry{};
@@ -2722,6 +2797,7 @@ int teng_physics_reset(void) {
 // demek (sim::FixedStep: olcek kare suresine uygulanir, adima degil).
 static void apply_time_scale(Bridge &b, double scale) {
   b.fs.time_scale = (float)scale;
+  b.scale_d = scale;
   b.fs.max_ticks_per_frame = scale > 4.0 ? (uint32_t)std::ceil(scale) + 1u : 4u;
 }
 void teng_time_scale(double scale) {
@@ -6235,5 +6311,158 @@ int teng_net_wifi_lock(int on) {
   g_net.lock_held = ok && on != 0;
   BINFO("ag: Wi-Fi yayin kilidi (MulticastLock) %s: %s", on ? "al" : "birak", ok ? "tamam" : "BASARISIZ (izin? CHANGE_WIFI_MULTICAST_STATE)");
   return ok ? 1 : 0;
+}
+} // extern "C"
+
+// --- Kilit adim (lockstep) cekirdegi: teng_ls_* (F6, 2026-11-04; KOPRU §11.1) ------------------------
+// sim::Lockstep'in duz skaler yuzu. Motor kurulmadan da calisir (ag gibi); teng_shutdown kapatir. Tasima
+// oyunda: teng_ls_packet() on eksiz metni verir, oyun kendi on ekiyle eng_net_send'e koyar; gelen G
+// paketini teng_ls_receive'e verir. Zaman (RTT) motorun saatinden.
+namespace {
+sim::Lockstep g_ls;
+char g_ls_pkt[1152];
+int g_ls_due_n = 0;
+uint32_t g_ls_session_n = 0;
+int64_t ls_now_ms() { return (int64_t)(platform::now_ns() / 1000000ull); }
+bool ls_ready(const char *fn) {
+  if (g_ls.active()) return true;
+  BERR("%s: kilit adim kapali — once eng_ls_begin", fn);
+  return false;
+}
+} // namespace
+namespace {
+void ls_kapanis() {
+  if (g_ls.active() || g_ls_session_n) {
+    const sim::Lockstep::Stats &s = g_ls.stats();
+    BINFO("kapanis (kilit adim): %u oturum; son: tik %d, %u paket, %u alinan (%u yedek, %u bosluk, %u bozuk), ozet %u "
+          "karsilastirma, ayrisma %d, dusen %u",
+          g_ls_session_n, g_ls.tick(), s.packets_built, s.received, s.backup_dup, s.gaps, s.bad, s.compared, g_ls.desync_tick(),
+          s.dropped);
+  }
+  g_ls.end();
+  g_ls_due_n = 0;
+  g_ls_session_n = 0;
+}
+} // namespace
+
+extern "C" {
+int teng_ls_begin(int seat, int delay, int group, int session, int hash_every, int flags) {
+  CALLF("teng_ls_begin", "%d %d %d %d %d %d", seat, delay, group, session, hash_every, flags);
+  if (!g_ls.begin(seat, delay, group, session, hash_every, (uint32_t)flags)) {
+    BERR("teng_ls_begin: gecersiz (koltuk 0/1, gecikme 0..120, grup 1..16, ozet araligi >= 1): %d %d %d %d", seat, delay, group,
+         hash_every);
+    return 0;
+  }
+  g_ls_due_n = 0;
+  g_ls_session_n++;
+  BINFO("kilit adim basladi: koltuk %d gecikme %d grup %d oturum %d ozet/%d %s%s", seat, delay, group, session, hash_every,
+        (flags & 1) ? "cevrimici" : "cevrimdisi", (flags & 2) ? " SIRA TERS (pozitif kontrol)" : "");
+  return 1;
+}
+void teng_ls_end(void) {
+  if (g_ls.active()) BDBG("kilit adim bitti: tik %d", g_ls.tick());
+  g_ls.end();
+  g_ls_due_n = 0;
+}
+int teng_ls_cmd(int kind, int a, int b) {
+  if (!ls_ready("teng_ls_cmd")) return -1;
+  const int tk = g_ls.local_cmd(kind, a, b);
+  if (tk < 0) BERR("teng_ls_cmd: kuyruk/gonderim gunlugu dolu (tik %d) — komut DUSTU", g_ls.tick());
+  return tk;
+}
+int teng_ls_push(int seat, int tick, int kind, int a, int b) {
+  if (!ls_ready("teng_ls_push")) return 0;
+  if (!g_ls.push(seat, tick, kind, a, b)) {
+    BERR("teng_ls_push: koltuk %d kuyrugu dolu ya da gecersiz (tik %d) — komut DUSTU", seat, tick);
+    return 0;
+  }
+  return 1;
+}
+int teng_ls_frame(void) { return g_ls.active() ? g_ls.frame_ticks() : 0; }
+int teng_ls_due(void) {
+  if (!ls_ready("teng_ls_due")) return 0;
+  g_ls_due_n = g_ls.take_due();
+  return g_ls_due_n;
+}
+static const sim::Lockstep::Cmd *ls_due_at(int i, int *seat, const char *fn) {
+  if (i < 0 || i >= g_ls_due_n) {
+    BERR("%s: %d gecersiz (bu tik %d komut)", fn, i, g_ls_due_n);
+    return nullptr;
+  }
+  return &g_ls.due(i, seat);
+}
+int teng_ls_due_seat(int i) {
+  int s = -1;
+  return ls_due_at(i, &s, "teng_ls_due_seat") ? s : -1;
+}
+int teng_ls_due_kind(int i) {
+  int s;
+  const sim::Lockstep::Cmd *c = ls_due_at(i, &s, "teng_ls_due_kind");
+  return c ? c->kind : -1;
+}
+int teng_ls_due_a(int i) {
+  int s;
+  const sim::Lockstep::Cmd *c = ls_due_at(i, &s, "teng_ls_due_a");
+  return c ? c->a : 0;
+}
+int teng_ls_due_b(int i) {
+  int s;
+  const sim::Lockstep::Cmd *c = ls_due_at(i, &s, "teng_ls_due_b");
+  return c ? c->b : 0;
+}
+void teng_ls_tick_end(int hash) {
+  if (!ls_ready("teng_ls_tick_end")) return;
+  const int d0 = g_ls.desync_tick();
+  g_ls.tick_end(hash);
+  if (d0 < 0 && g_ls.desync_tick() >= 0) BERR("kilit adim: SENKRON BOZULDU tik %d (simdiki tik %d)", g_ls.desync_tick(), g_ls.tick());
+}
+int teng_ls_tick(void) { return g_ls.active() ? g_ls.tick() : -1; }
+const char *teng_ls_packet(void) {
+  g_ls_pkt[0] = 0;
+  if (!ls_ready("teng_ls_packet")) return g_ls_pkt;
+  // 1200 baytlik yuk tavanindan oyunun on ekine pay (KOPRU §11)
+  if (!g_ls.build_packet(g_ls_pkt, (int)sizeof g_ls_pkt - 32, ls_now_ms())) g_ls_pkt[0] = 0;
+  return g_ls_pkt;
+}
+int teng_ls_receive(const char *pkt) {
+  if (!ls_ready("teng_ls_receive")) return (int)sim::Lockstep::kRxIdle;
+  const int d0 = g_ls.desync_tick();
+  const int r = g_ls.receive(pkt ? pkt : "", ls_now_ms());
+  if (r == sim::Lockstep::kRxBad) BINFO("kilit adim: bozuk paket atlandi (%u. kez)", g_ls.stats().bad);
+  if (d0 < 0 && g_ls.desync_tick() >= 0) BERR("kilit adim: SENKRON BOZULDU tik %d (simdiki tik %d)", g_ls.desync_tick(), g_ls.tick());
+  return r;
+}
+int teng_ls_desync_tick(void) { return g_ls.desync_tick(); }
+int teng_ls_hash(int side, int i) { return g_ls.hash_at(side, i); }
+int teng_ls_log(int i, int field) {
+  if (i < 0 || i >= g_ls.send_log_count() || field < 0 || field > 3) return -1;
+  const sim::Lockstep::Cmd &c = g_ls.send_log(i);
+  return field == 0 ? c.tick : field == 1 ? c.kind : field == 2 ? c.a : c.b;
+}
+int teng_ls_stat(int which) {
+  const sim::Lockstep::Stats &s = g_ls.stats();
+  switch (which) {
+  case 0: return (int)s.packets_built;
+  case 1: return (int)s.received;
+  case 2: return (int)s.backup_dup;
+  case 3: return (int)s.gaps;
+  case 4: return (int)s.bad;
+  case 5: return (int)s.wrong_session;
+  case 6: return (int)s.remote_cmds;
+  case 7: return (int)s.local_cmds;
+  case 8: return (int)s.dropped;
+  case 9: return (int)s.compared;
+  case 10: return (int)s.wait_frames;
+  case 11: return (int)s.rtt_n;
+  case 12: return (int)s.rtt_max;
+  case 13: return g_ls.rtt_percentile(50);
+  case 14: return g_ls.rtt_percentile(95);
+  case 15: return g_ls.local_last();
+  case 16: return g_ls.remote_last();
+  case 17: return g_ls.remote_ack();
+  case 18: return g_ls.hash_count();
+  case 19: return g_ls.send_log_count();
+  default: BERR("teng_ls_stat: %d gecersiz (0..19, KOPRU §11.1)", which); return 0;
+  }
 }
 } // extern "C"

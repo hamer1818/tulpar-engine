@@ -60,6 +60,12 @@ int teng_physics_paused(void);
 // kare basina en cok 64); steps < 0 -> normal kip. Kilit adimli ag oyununda iki esin adim dizisi ayni olsun diye.
 int teng_physics_steps(int steps);
 int teng_physics_manual(void);
+// Tek biriktirici (F6): oyun tik'i ve fizik ayni sayactan. hz>0 acar (fizik adimi 1/hz, birikim 0'dan,
+// max_steps olcek 1'de kare basina tavan), hz<=0 kapatir. teng_sim_ticks: bu karenin tik sayisi (ilk
+// cagrida hesaplanir; kare sonunda TAM o kadar fizik adimi). teng_sim_dropped: tavanda atilan tik toplami.
+int teng_sim_fixed(int hz, int max_steps);
+int teng_sim_ticks(void);
+int teng_sim_dropped(void);
 int teng_physics_reset(void); // sahne bosken: Jolt dunyasi + sabit adim birikimi sifirdan (bolum gecisi belirlenimi)
 void teng_time_scale(double scale); // 0..4 (disi kirpilir + HATA)
 double teng_time_scale_get(void);
@@ -738,6 +744,29 @@ const char *teng_net_local_ip(void);     // "" = yerel ag arayuzu yok (ayirir: l
 const char *teng_net_broadcast_ip(void); // yonlendirilmis yayin, yoksa 255.255.255.255
 int teng_net_stat(int which);            // 0 acik .. 10 recv hatasi (KOPRU §11 tablosu)
 int teng_net_wifi_lock(int on);          // Android MulticastLock; masaustunde 1 (gerekmez)
+
+// --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1, sim/lockstep.hpp) ----------
+// Motor kurulmadan da calisir; teng_shutdown kapatir. flags: 1 cevrimici (paket + onay + ozet
+// karsilastirma), 2 kanonik sira TERS (pozitif kontrol). Kare: n = teng_ls_frame(); her tik:
+// teng_ls_due() + teng_ls_due_*(i) uygula, sonra teng_ls_tick_end(ozet).
+int teng_ls_begin(int seat, int delay, int group, int session, int hash_every, int flags);
+void teng_ls_end(void);
+int teng_ls_cmd(int kind, int a, int b);                     // yerel komut -> tik (tick+delay), dolu -1
+int teng_ls_push(int seat, int tick, int kind, int a, int b); // cevrimdisi besleme (betik/tekrar)
+int teng_ls_frame(void);                                     // bu kare kac tik (grup ya da 0)
+int teng_ls_due(void);                                       // simdiki tik'in komut sayisi (kanonik sira)
+int teng_ls_due_seat(int i);
+int teng_ls_due_kind(int i);
+int teng_ls_due_a(int i);
+int teng_ls_due_b(int i);
+void teng_ls_tick_end(int hash);
+int teng_ls_tick(void);
+const char *teng_ls_packet(void);       // on eksiz "G ..." (bos = kapali/cevrimdisi)
+int teng_ls_receive(const char *pkt);   // 1 yeni, 0 yedek, -1 bosluk, -2 oturum, -3 bozuk, -4 kapali
+int teng_ls_desync_tick(void);          // -1 = ayrisma yok
+int teng_ls_hash(int side, int i);      // side 0 yerel, 1 uzak; i = tik / hash_every
+int teng_ls_log(int i, int field);      // gonderim gunlugu: 0 tik 1 tur 2 a 3 b
+int teng_ls_stat(int which);            // 0..19 (KOPRU §11.1)
 
 #ifdef __cplusplus
 }

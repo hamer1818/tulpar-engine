@@ -45,6 +45,7 @@
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
 #include "rhi/vk_api.hpp"
+#include "sim/schedule.hpp"
 #if defined(_WIN32)
 #include <cstdlib>
 // Windows CRT'sinde setenv/unsetenv yok; _putenv_s ayni isi gorur
@@ -3301,6 +3302,89 @@ ENGINE_TEST(bridge_physics_manual_steps_exact_count_independent_of_dt) {
   CHECK(dt_elle == 0);                                         // duraklatma kuyrugu dondurur
   CHECK(e.x == d.x && e.y == d.y && e.z == d.z && e.vy == d.vy); // BIT-TAM + normal kipe donus 2 adim (vy -999 degil)
   CHECK(k.tick != 100 && k.tick < 60);                         // POZITIF KONTROL: elle kip olmadan kare suresi * 0.25
+}
+
+// --- Tek biriktirici (teng_sim_fixed, F6 2026-11-04) ----------------------------
+// Tuzaklar 8dj'nin tek oyunculu yuzu: oyun tik'leri kendi biriktiricisiyle, fizik FixedStep'le (float
+// saniye) ilerliyordu; kare basina "k tik, k' fizik adimi" k != k' olabiliyordu. Kapi: her karede oyun
+// zaman olcegini degistirir (1, 0.35 agir cekim, 3 hizli, duraklatma), SONRA teng_sim_ticks sorar;
+// (a) kare basina fizik adimi == o karenin tik sayisi, (b) karede ikinci cagri ayni deger, (c) dizi
+// sim::TickClock'a karenin GUNCEL olcegiyle verilen diziyle ayni (tembel hesap), (d) elle kip kazanir,
+// (e) kapaliyken teng_sim_ticks HATA + 0. POZITIF KONTROL: ayni dizi kare BASINDAKI (onceki) olcekle
+// hesaplansaydi toplam farkli olurdu — esitlik tembel hesabin isi; ve tek biriktirici kapaliyken
+// (FixedStep) kare basina fizik adimi tik dizisinden en az bir karede sapar.
+namespace {
+double sabit_olcek(int f) { return f < 40 ? 1.0 : f < 80 ? 0.35 : f < 120 ? 3.0 : 2.0; }
+} // namespace
+
+ENGINE_TEST(bridge_sim_fixed_game_ticks_equal_physics_steps) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("tek biriktirici", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  teng_spawn_ground(20, 0xffffffff);
+  teng_spawn_sphere(0.3, 3.0, 0.1, 0.4, 1, 0xff0000ff);
+  const int h0 = teng_error_count();
+  CHECK(teng_sim_ticks() == 0); // (e) kapali
+  CHECK(teng_error_count() == h0 + 1);
+  CHECK(teng_sim_fixed(60, 4) == 1);
+  sim::TickClock ref, eski;
+  uint64_t top = 0, top_eski = 0;
+  int kare_fark = 0, ikinci_fark = 0, ref_fark = 0;
+  double onceki = 1.0;
+  for (int f = 0; f < 160; f++) {
+    teng_frame_begin();
+    const double s = sabit_olcek(f);
+    const bool durak = f >= 140 && f < 150;
+    teng_time_scale(s);
+    teng_physics_pause(durak ? 1 : 0);
+    const int n = teng_sim_ticks();
+    if (teng_sim_ticks() != n) ikinci_fark++;
+    if ((uint32_t)n != ref.advance((double)(1.0f / 60.0f), s, durak)) ref_fark++;
+    top_eski += eski.advance((double)(1.0f / 60.0f), onceki, durak);
+    onceki = s;
+    const int t0 = teng_sim_tick();
+    teng_frame_end();
+    if (teng_sim_tick() - t0 != n) kare_fark++;
+    top += (uint64_t)n;
+  }
+  // (d) elle kip kazanir: 3 elle adim, tik sorgusu 0
+  teng_physics_steps(3);
+  teng_frame_begin();
+  const int elle_n = teng_sim_ticks();
+  const int t1 = teng_sim_tick();
+  teng_frame_end();
+  const int elle_adim = teng_sim_tick() - t1;
+  teng_physics_steps(-1);
+  std::printf("    [bilgi] tek biriktirici: 160 kare %llu tik (kare basina fark %d, ikinci cagri fark %d, TickClock fark %d) | "
+              "elle kip: tik %d adim %d | KONTROL kare basi olcegiyle %llu tik\n",
+              (unsigned long long)top, kare_fark, ikinci_fark, ref_fark, elle_n, elle_adim, (unsigned long long)top_eski);
+  CHECK(kare_fark == 0 && ikinci_fark == 0 && ref_fark == 0);
+  CHECK(top == 40 + 14 + 120 + 60); // 40x1, 40x0.35=14, 40x3, 40x2 (10 karesi durakli)
+  CHECK(elle_n == 0 && elle_adim == 3);
+  CHECK(top_eski != top); // POZITIF KONTROL: olcek kare basinda okunsaydi tutmazdi
+  teng_shutdown();
+
+  // POZITIF KONTROL: tek biriktirici kapali (FixedStep) — ayni olcek dizisinde kare basina fizik adimi
+  // TickClock dizisinden sapar (iki biriktirici)
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("tek biriktirici kontrol", kW, kH)) { CHECK(false); return; }
+  teng_spawn_ground(20, 0xffffffff);
+  sim::TickClock ref2;
+  int fs_fark = 0;
+  for (int f = 0; f < 160; f++) {
+    teng_frame_begin();
+    const double s = sabit_olcek(f);
+    teng_time_scale(s);
+    const uint32_t n = ref2.advance((double)(1.0f / 60.0f), s, false);
+    const int t0 = teng_sim_tick();
+    teng_frame_end();
+    if ((uint32_t)(teng_sim_tick() - t0) != n) fs_fark++;
+  }
+  teng_shutdown();
+  std::printf("    [bilgi] KONTROL (FixedStep): kare basina fizik adimi tik dizisinden farkli %d kare\n", fs_fark);
+  CHECK(fs_fark > 0);
 }
 
 // --- Ic cozunurluk olcegi (teng_render_scale, 2026-10-07) ---------------------

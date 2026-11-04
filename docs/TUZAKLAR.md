@@ -2328,6 +2328,12 @@ Aynı sınıfın ikinci yüzü oyunda: kare başına çağrılan betik kancalar�
 karesinde de `dt` alıyordu — enkaz ömrü kare süresiyle dolup parça iki eşte farklı tik'te silindi (tik 11220 /
 21060'ta ayrışma). Ağ maçında kancanın süresi tik saatinden (`n × D_TIK`).
 
+**Tek oyunculu yüzü (F6, 2026-11-04):** elle kip yalnız ağ maçında açıktı; hikâye modunda oyun tik'leri kendi
+biriktiricisiyle (double, tik biriminde), fizik `FixedStep`'le (float saniye) ilerlemeye devam ediyordu.
+Penceresiz 60 Hz koşuda (dt sabit 1/60) ölçek 1 / 0.35 / 3 / 2 dizisinde iki sayaç 160 karenin 4'ünde saptı
+(RTX 5080, 2026-11-04; FixedStep kare 81'de "4 tick ile kırpıldı" bastı). Çözüm `eng_sim_fixed`: tek sayaç (`sim::TickClock`), oyun ve fizik aynı
+sayıyı alır. **Kural:** sim'i fizikten okuyan oyun, tik sayısını kendisi hesaplamaz; motora sorar.
+
 **Genel kural:** kilit adımlı simde sonucu etkileyen HER şey tik sayacından ilerlemeli; kare süresi (`dt`, kanca
 `dt`'si, zaman ölçeği) yalnız sunuma. Ham `teng_collision_*` sırası da iş parçacığına bağlı (yalnız betik
 kancaları sıralı); özet/karar ham sıraya dayanmamalı (bridge_physics_reset kapısı bu yüzden dalgalıydı).
@@ -2386,3 +2392,17 @@ değerini oku.
 **Kapı:** `tests/test_bridge_log.cpp` basılan satırı stdout'u dosyaya yönlendirip OKUR: 300 bayt tam
 basılır ve sayılmaz; 3000 bayt işaretli biter, sayaç +1. Pozitif kontrol: işaretleme kapatılınca iki
 denetim kırmızı (2026-11-02).
+
+### 8dn. Paket "son tik"i taşıdığından fazlasını iddia eder — tavan tik'in ortasına düşünce alan eksik komutla ilerler
+
+**Belirti (F6, 2026-11-04, `tests/test_lockstep.cpp`):** kilit adım paketi onaylanmamış yerel tikleri ve o
+tiklerin komutlarını taşıyor; başlıktaki `son` alana "buraya kadar kesin" diyor. Paket başına 60 komut tavanı
+vardı ama `son` tavandan bağımsız yazılıyordu. Tek tik'te 60'tan çok komut birikince (ya da birkaç tik'in toplamı
+tavanı tik ortasında kesince) alan eksik komutla o tik'i kesin saydı; iki eş tik 60'ta ayrıştı. Oyunun Tulpar
+sürümünde aynı kural vardı; maçta tik başına 1–2 komut olduğu için hiç görülmedi.
+
+**Çözüm:** `son` = paketin **tam** taşıdığı son tik (tavan bir tik'in ortasına düşerse o tik'in öncesi); alan
+`son`'dan büyük tik'li komutu almaz; koltuk başına tik'te en çok 20 komut (aşan düşer, sayılır), böylece en eski
+onaylanmamış tik her pakete tam sığar ve ilerleme garanti. **Kural:** "buraya kadar kesin" diyen alan, kesilen
+içerikten sonra hesaplanır, önce değil.
+

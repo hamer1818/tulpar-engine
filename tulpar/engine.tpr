@@ -188,6 +188,13 @@ func fizik_sifirla(): bool { return eng_physics_reset(); }
 func fizik_adim(int n): bool { return eng_physics_steps(n); }
 func physics_steps(int n): bool { return eng_physics_steps(n); }
 func fizik_elle(): bool { return eng_physics_manual(); }
+// Tek biriktirici (F6): sabit_adim(60, 4) bolum basinda; her kare `for k < sim_tikleri(): tik()`.
+func sabit_adim(int hz, int en_cok): bool { return eng_sim_fixed(hz, en_cok); }
+func sim_fixed(int hz, int max_steps): bool { return eng_sim_fixed(hz, max_steps); }
+func sim_tikleri(): int { return eng_sim_ticks(); }
+func sim_ticks(): int { return eng_sim_ticks(); }
+func sim_atilan(): int { return eng_sim_dropped(); }
+func sim_dropped(): int { return eng_sim_dropped(); }
 func physics_reset(): bool { return eng_physics_reset(); }
 func physics_paused(): bool { return eng_physics_paused(); }
 // Zaman olcegi: 0.5 agir cekim, 0 donmus, 1 normal (en cok 8; 4'un ustunde kare
@@ -1481,3 +1488,42 @@ func udp_sayac(int hangi): int { return eng_net_stat(hangi); }
 func net_stat(int which): int { return eng_net_stat(which); }
 func udp_wifi_kilidi(ac): bool { return eng_net_wifi_lock(ac); }
 func net_wifi_lock(on): bool { return eng_net_wifi_lock(on); }
+
+// ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
+// Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }
+func kilit_basla(int koltuk, int gecikme, int grup, int oturum, int ozet_araligi, int bayrak): bool { return eng_ls_begin(koltuk, gecikme, grup, oturum, ozet_araligi, bayrak); }
+func ls_begin(int seat, int delay, int group, int session, int hash_every, int flags): bool { return eng_ls_begin(seat, delay, group, session, hash_every, flags); }
+func kilit_bitir() { eng_ls_end(); }
+func ls_end() { eng_ls_end(); }
+func kilit_komut(int tur, int a, int b): int { return eng_ls_cmd(tur, a, b); }
+func ls_cmd(int kind, int a, int b): int { return eng_ls_cmd(kind, a, b); }
+func kilit_it(int koltuk, int tik, int tur, int a, int b): bool { return eng_ls_push(koltuk, tik, tur, a, b); }
+func ls_push(int seat, int tick, int kind, int a, int b): bool { return eng_ls_push(seat, tick, kind, a, b); }
+func kilit_kare(): int { return eng_ls_frame(); }
+func ls_frame(): int { return eng_ls_frame(); }
+func kilit_vade(): int { return eng_ls_due(); }
+func ls_due(): int { return eng_ls_due(); }
+func kilit_vade_koltuk(int i): int { return eng_ls_due_seat(i); }
+func ls_due_seat(int i): int { return eng_ls_due_seat(i); }
+func kilit_vade_tur(int i): int { return eng_ls_due_kind(i); }
+func ls_due_kind(int i): int { return eng_ls_due_kind(i); }
+func kilit_vade_a(int i): int { return eng_ls_due_a(i); }
+func ls_due_a(int i): int { return eng_ls_due_a(i); }
+func kilit_vade_b(int i): int { return eng_ls_due_b(i); }
+func ls_due_b(int i): int { return eng_ls_due_b(i); }
+func kilit_tik_sonu(int ozet) { eng_ls_tick_end(ozet); }
+func ls_tick_end(int hash) { eng_ls_tick_end(hash); }
+func kilit_tik(): int { return eng_ls_tick(); }
+func ls_tick(): int { return eng_ls_tick(); }
+func kilit_paket(): str { return eng_ls_packet(); }
+func ls_packet(): str { return eng_ls_packet(); }
+func kilit_al(str paket): int { return eng_ls_receive(paket); }
+func ls_receive(str packet): int { return eng_ls_receive(packet); }
+func kilit_ayrisma(): int { return eng_ls_desync_tick(); }
+func ls_desync_tick(): int { return eng_ls_desync_tick(); }
+func kilit_ozet(int yan, int i): int { return eng_ls_hash(yan, i); }
+func ls_hash(int side, int i): int { return eng_ls_hash(side, i); }
+func kilit_gunluk(int i, int alan): int { return eng_ls_log(i, alan); }
+func ls_log(int i, int field): int { return eng_ls_log(i, field); }
+func kilit_sayac(int ne): int { return eng_ls_stat(ne); }
+func ls_stat(int which): int { return eng_ls_stat(which); }
