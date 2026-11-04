@@ -595,16 +595,30 @@ bool Device::allocate_dedicated(const VkMemoryRequirements &req, VkMemoryPropert
   out->size = req.size;
   out->mapped = nullptr;
   dedicated_count_++;
+  dedicated_bytes_ += req.size;
   return true;
 }
 
 void Device::free_dedicated(MemoryAlloc *a) {
   if (!a || !a->memory) return;
   api_->vkFreeMemory(device_, a->memory, nullptr);
+  dedicated_bytes_ = dedicated_bytes_ >= a->size ? dedicated_bytes_ - a->size : 0;
   a->memory = VK_NULL_HANDLE;
   a->offset = a->size = 0;
   a->mapped = nullptr;
   if (dedicated_count_) dedicated_count_--;
+}
+
+uint64_t Device::memory_reserved_bytes() const {
+  uint64_t t = dedicated_bytes_;
+  for (uint32_t i = 0; i < block_count_; i++) t += blocks_[i].size;
+  return t;
+}
+
+uint64_t Device::memory_used_bytes() const {
+  uint64_t t = dedicated_bytes_;
+  for (uint32_t i = 0; i < block_count_; i++) t += blocks_[i].used;
+  return t;
 }
 
 bool Device::allocate(const VkMemoryRequirements &req, VkMemoryPropertyFlags flags, bool lazily_ok,

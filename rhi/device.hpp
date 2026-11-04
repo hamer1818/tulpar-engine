@@ -156,6 +156,11 @@ public:
   void free_dedicated(MemoryAlloc *a);
   uint32_t memory_allocation_count() const { return block_count_; }
   uint32_t dedicated_allocation_count() const { return dedicated_count_; }
+  // Cihaz bellegi: vkAllocateMemory ile ALINAN (bloklar + dedicated) ve bloklarin
+  // icinde bump ile KULLANILAN bayt. Tahmin degil, ayiricinin kendi defteri
+  // (editor Stats paneli bunu basar; eskiden ekran boyutundan "VRAM" uyduruyordu).
+  uint64_t memory_reserved_bytes() const;
+  uint64_t memory_used_bytes() const;
 
   // Tek seferlik komut tamponu: kaydet, gonder, bekle (offscreen kare, yukleme).
   // Tamponlar init'te ONCEDEN ayrilir (kOneShotSlots, A2) ve her kullanimda
@@ -205,6 +210,7 @@ private:
   MemoryBlock blocks_[kMaxBlocks];
   uint32_t block_count_ = 0;
   uint32_t dedicated_count_ = 0;
+  uint64_t dedicated_bytes_ = 0;
   char err_[256] = {0};
 };
 
