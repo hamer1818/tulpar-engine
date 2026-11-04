@@ -302,6 +302,33 @@ bool Device::init_device(VkSurfaceKHR surface) {
     }
   }
 
+  // VRS: boru hatti basina parca boyu. Uzanti create_renderpass2'ye bagli —
+  // 1.2 cekirdekte var; 1.1 cihazda acmiyoruz (Mali-G72 zaten uzantiyi vermiyor).
+  VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsrf{};
+  fsrf.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+  if (cfg_.fragment_shading_rate && caps_.khr_fragment_shading_rate && instance_version_ >= VK_API_VERSION_1_2 &&
+      caps_.api_version >= VK_API_VERSION_1_2) {
+    VkPhysicalDeviceFeatures2 q{};
+    q.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    q.pNext = &fsrf;
+    api.vkGetPhysicalDeviceFeatures2(phys_, &q);
+    if (fsrf.pipelineFragmentShadingRate) {
+      VkPhysicalDeviceFragmentShadingRatePropertiesKHR fp{};
+      fp.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+      VkPhysicalDeviceProperties2 pp{};
+      pp.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+      pp.pNext = &fp;
+      if (api.vkGetPhysicalDeviceProperties2) api.vkGetPhysicalDeviceProperties2(phys_, &pp);
+      caps_.vrs_max_w = fp.maxFragmentSize.width ? fp.maxFragmentSize.width : 1;
+      caps_.vrs_max_h = fp.maxFragmentSize.height ? fp.maxFragmentSize.height : 1;
+      dev_exts[dev_ext_n++] = "VK_KHR_fragment_shading_rate";
+      caps_.vrs_pipeline = true;
+    }
+    // Yalniz boru hatti orani: ilkel ve ek (attachment) oranlari ACILMAZ.
+    fsrf.primitiveFragmentShadingRate = VK_FALSE;
+    fsrf.attachmentFragmentShadingRate = VK_FALSE;
+  }
+
   // Feature zinciri: 1.2 cekirdek (descriptorIndexing, timelineSemaphore, BDA) ya da
   // 1.1 cihazda uzanti bicimleri (ayni yapilar, EXT/KHR takma adlari) [+ GPL].
   const bool core12 = instance_version_ >= VK_API_VERSION_1_2 && caps_.api_version >= VK_API_VERSION_1_2;
@@ -349,6 +376,10 @@ bool Device::init_device(VkSurfaceKHR surface) {
       fbda.pNext = chain;
       chain = &fbda;
     }
+  }
+  if (caps_.vrs_pipeline) {
+    fsrf.pNext = chain;
+    chain = &fsrf;
   }
   VkPhysicalDeviceFeatures2 f2{};
   f2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;

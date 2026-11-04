@@ -47,6 +47,11 @@ struct DeviceCaps {
   bool debug_messenger = false;           // mesajlar sayiliyor (yoksa "0 hata" hicbir sey demek degil)
   bool ext_host_image_copy = false;
   bool khr_fragment_shading_rate = false;
+  // VRS (Faz 3 "VRS/FDM", 2026-11-04): uzanti + pipelineFragmentShadingRate
+  // ozelligi ACIK (DeviceConfig::fragment_shading_rate istendiyse). Mali-G72
+  // (P20 Pro) uzantiyi vermiyor; RTX 5080 veriyor.
+  bool vrs_pipeline = false;
+  uint32_t vrs_max_w = 1, vrs_max_h = 1; // desteklenen en buyuk parca boyu (maxFragmentSize)
   bool khr_portability_subset = false; // MoltenVK
   // DeviceConfig::optional_device_extensions ile istenenlerden acilanlar (ayni sira).
   static constexpr uint32_t kMaxOptionalExtensions = 8;
@@ -54,6 +59,9 @@ struct DeviceCaps {
 };
 
 struct DeviceConfig {
+  // VRS: VK_KHR_fragment_shading_rate + pipelineFragmentShadingRate varsa ac
+  // (caps.vrs_pipeline). Istenmezse uzanti hic acilmaz (varsayilan: kapali).
+  bool fragment_shading_rate = false;
   // "cpu" = lavapipe/CPU cihazini tercih et (CI belirlenimli olsun);
   // "" = ayrik > tumlesik > sanal > cpu.
   const char *prefer = "";

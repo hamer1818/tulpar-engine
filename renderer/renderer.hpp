@@ -158,6 +158,12 @@ struct RendererConfig {
   // bellek, yakin alanda ~3 kat daha ince texel (yakin kademe hacmin 1/9'u).
   uint32_t shadow_size = 1024;
   uint32_t shadow_cascades = 3;
+  // VRS (degisken golgelendirme hizi, Faz 3 "VRS/FDM"; 2026-11-04): sahne RENK
+  // boru hatlarinin parca boyu (1 = tam, 2 = 2x2, 4 = 4x4). Cihaz uzantiyi
+  // (DeviceConfig::fragment_shading_rate + caps.vrs_pipeline) ya da o boyu
+  // vermezse 1'e DUSER ve sebebi vrs() ile soylenir. Derinlik on gecisi,
+  // golge ve arayuz her zaman tam oranda: kenarlar ve metin keskin kalir.
+  uint32_t shading_rate = 1;
   float shadow_bias = 0.0008f;         // derinlik uzayinda kucuk sabit egilim
   float shadow_normal_offset = 0.06f;  // DUNYA birimi: normal boyunca kaydirma (akne)
   // Egilim KADEME BASINA texel'in dunya olcusuyle olceklenir (Tuzaklar 8cz):
@@ -474,6 +480,11 @@ public:
   // Bu renderer'in i. kademesindeki carpan (begin_frame gerekmez: hacimden hesaplanir).
   float cascade_bias_scale(uint32_t i) const;
   ShadowInfo shadow() const { return shadow_info_; }
+  struct VrsInfo {
+    uint32_t requested = 1, active = 1; // parca boyu (NxN)
+    const char *reason = "";            // active < requested ise sebep
+  };
+  VrsInfo vrs() const { return vrs_info_; }
   // A/B ve dusuk segment icin: hedef durur, gecis ve ornekleme kapanir.
   void set_shadows_enabled(bool on) { shadow_info_.enabled = on && cfg_.shadow_size > 0; }
   // Egilim ayari (cihaza gore): derinlik uzayinda sabit + DUNYA biriminde normal
@@ -876,6 +887,7 @@ private:
   Vec3 shadow_focus_{0, 0, 0};
   bool has_focus_ = false;
   ShadowInfo shadow_info_{};
+  VrsInfo vrs_info_{};
   VkShaderModule vs_ = VK_NULL_HANDLE, fs_ = VK_NULL_HANDLE, shadow_vs_ = VK_NULL_HANDLE;
   VkShaderModule skin_vs_ = VK_NULL_HANDLE, skin_shadow_vs_ = VK_NULL_HANDLE;
   VkPipeline pipe_skin_depth_ = VK_NULL_HANDLE, pipe_skin_color_ = VK_NULL_HANDLE, pipe_skin_shadow_ = VK_NULL_HANDLE;

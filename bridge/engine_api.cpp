@@ -1490,6 +1490,12 @@ int teng_init(const char *title, int width, int height) {
     }
   }
   rhi::DeviceConfig dc;
+  // VRS (Faz 3, 2026-11-04): TULPAR_ENGINE_VRS=2|4 sahne golgelendirmesini NxN
+  // parcada yapar (cihaz verirse; vermezse kapanis degil BILGI satiri). Deneme
+  // anahtari: oyunun ayari degil, cihaz olcumu icin (varsayilan kapali).
+  const char *vrs_env = std::getenv("TULPAR_ENGINE_VRS");
+  const uint32_t vrs_istek = (vrs_env && *vrs_env) ? (uint32_t)std::atoi(vrs_env) : 1;
+  dc.fragment_shading_rate = vrs_istek > 1;
   dc.validation = std::getenv("TULPAR_ENGINE_VK_VALIDATION") != nullptr;
   dc.best_practices = dc.validation;
   if (!b.headless) {
@@ -1542,7 +1548,13 @@ int teng_init(const char *title, int width, int height) {
     rc.post_clear = b.headless ? Vec3{10.0f / 255.0f, 20.0f / 255.0f, 30.0f / 255.0f} // OffscreenConfig::clear
                                : Vec3{0.05f, 0.06f, 0.09f};                            // Swapchain temizligi
   }
+  rc.shading_rate = vrs_istek;
   if (!b.ren.init(b.dev, b.sys, rp, rc)) { BERR("renderer kurulamadi"); return init_geri_al(b, "renderer kurulamadi"); }
+  if (vrs_istek > 1) {
+    const renderer::Renderer::VrsInfo vi = b.ren.vrs();
+    if (vi.active > 1) BINFO("VRS acik: sahne golgelendirmesi %ux%u parcada (TULPAR_ENGINE_VRS)", vi.active, vi.active);
+    else BINFO("VRS istendi (%u) ama KAPALI: %s", vi.requested, vi.reason);
+  }
   if (b.bloom) {
     const renderer::PostInfo pi = b.ren.post();
     if (pi.enabled) {

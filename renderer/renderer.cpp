@@ -1291,6 +1291,16 @@ MaterialHandle Renderer::create_material_impl(TextureHandle albedo, Vec3 color, 
 
 bool Renderer::make_pipelines(VkRenderPass rp) {
   scene_rp_ = rp;
+  // VRS orani: istenen boy cihazda yoksa tam orana dus, SEBEBIYLE.
+  vrs_info_ = VrsInfo{};
+  vrs_info_.requested = cfg_.shading_rate ? cfg_.shading_rate : 1;
+  if (vrs_info_.requested > 1) {
+    const rhi::DeviceCaps &c = dev_->caps();
+    if (vrs_info_.requested != 2 && vrs_info_.requested != 4) vrs_info_.reason = "gecersiz oran (1, 2 ya da 4)";
+    else if (!c.vrs_pipeline) vrs_info_.reason = c.khr_fragment_shading_rate ? "VRS istenmedi ya da ozellik yok (DeviceConfig::fragment_shading_rate)" : "cihaz VK_KHR_fragment_shading_rate vermiyor";
+    else if (c.vrs_max_w < vrs_info_.requested || c.vrs_max_h < vrs_info_.requested) vrs_info_.reason = "cihazin en buyuk parca boyu kucuk";
+    else vrs_info_.active = vrs_info_.requested;
+  }
   if (!make_pipeline_set(rp, false, vs_, shadow_vs_, &pipe_depth_, &pipe_color_, &pipe_shadow_)) return false;
   if (!make_pipeline_set(rp, true, skin_vs_, skin_shadow_vs_, &pipe_skin_depth_, &pipe_skin_color_, &pipe_skin_shadow_))
     return false;
@@ -1387,11 +1397,21 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   ds.depthWriteEnable = VK_TRUE; ds.depthCompareOp = VK_COMPARE_OP_LESS;
   cb.attachmentCount = 0;
   if (a.vkCreateGraphicsPipelines(dev_->handle(), VK_NULL_HANDLE, 1, &gp, nullptr, depth) != VK_SUCCESS) return false;
-  // subpass 1: renk (depth EQUAL, yazma yok)
+  // subpass 1: renk (depth EQUAL, yazma yok). VRS YALNIZ burada: derinlik on
+  // gecisi tam oranda kalir, yani gorunurluk/kenar tam cozunurlukte; yalniz
+  // golgelendirme (fragment shader) NxN parcada bir kez kosar.
   gp.stageCount = 2; gp.subpass = 1;
   ds.depthWriteEnable = VK_FALSE; ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
   cb.attachmentCount = 1;
-  if (a.vkCreateGraphicsPipelines(dev_->handle(), VK_NULL_HANDLE, 1, &gp, nullptr, color) != VK_SUCCESS) return false;
+  VkPipelineFragmentShadingRateStateCreateInfoKHR fsr{};
+  fsr.sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR;
+  fsr.fragmentSize = {vrs_info_.active, vrs_info_.active};
+  fsr.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+  fsr.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+  if (vrs_info_.active > 1) gp.pNext = &fsr;
+  const VkResult cr = a.vkCreateGraphicsPipelines(dev_->handle(), VK_NULL_HANDLE, 1, &gp, nullptr, color);
+  gp.pNext = nullptr;
+  if (cr != VK_SUCCESS) return false;
   if (!shadow) return true; // aynali ikiz: golge isik uzayinda, ikizi yok
 
   // Golge boru hatti: kendi render pass'i, yalniz derinlik.

@@ -240,6 +240,91 @@ ENGINE_TEST(renderer_point_light_lights_only_near_pixels) {
   dev.shutdown();
 }
 
+// VRS (degisken golgelendirme hizi, 2026-11-04): sahne renk boru hatti 2x2
+// parcada bir kez golgelendirince nokta isigin yumusak gecisi 2x2 BLOKLAR halinde
+// cikar. Olculen (isikli bolgede, 2x2 hizali bloklar): 1x1'de bloklarin cogu
+// dort FARKLI piksel (gecis), 2x2'de neredeyse hepsi dort AYNI piksel. Ayrica
+// geometri kenari tam cozunurlukte kalir: derinlik on gecisi VRS'siz (iddia:
+// kirmizi piksel SAYISI iki oranda yakin — gorunurluk degismedi). Cihaz VRS
+// vermiyorsa GORUNUR atlar ve renderer'in dusme sebebini basar (o da olculur:
+// active == 1 ve reason dolu).
+ENGINE_TEST(renderer_vrs_coarse_shading_makes_2x2_blocks) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(128u << 20, "vrs_test")) { CHECK(false); return; }
+  Device dev;
+  DeviceConfig dc;
+  dc.fragment_shading_rate = true;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU (Apple Paravirtual, CI macOS): piksel kapisi gercek cihazda olculur"); return; }
+  const uint32_t W = 256, H = 256;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W; oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  struct Sonuc { uint32_t lit = 0, blok = 0, ayni = 0; uint32_t active = 0; const char *reason = ""; };
+  auto ciz = [&](uint32_t rate) {
+    Sonuc out;
+    renderer::Renderer ren;
+    renderer::RendererConfig rc;
+    rc.shadow_size = 0;
+    rc.frames_in_flight = 1;
+    rc.shading_rate = rate;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc)) { out.lit = 0xFFFFFFFFu; return out; }
+    out.active = ren.vrs().active;
+    out.reason = ren.vrs().reason;
+    ren.set_render_size(W, H);
+    renderer::Vertex v[24];
+    uint32_t idx[36];
+    const uint32_t n = renderer::Renderer::plane(v, idx);
+    renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
+    ren.set_light({0, 1, 0}, {0.02f, 0.02f, 0.02f}, 0.0f);
+    ren.set_camera(Mat4::look_at({0, 6.0f, 0.01f}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, 1.0f, 0.1f, 50.0f));
+    ren.clear_point_lights();
+    ren.add_point_light(renderer::PointLight{{0, 0.8f, 0}, 2.5f, {1.0f, 0.05f, 0.05f}, 6.0f});
+    Rec rr{&ren};
+    ren.begin_frame(0);
+    ren.draw(plane, Mat4::scale({12, 1, 12}), {1, 1, 1});
+    if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { out.lit = 0xFFFFFFFFu; ren.shutdown(); return out; }
+    auto red = [&](uint32_t x, uint32_t y) { return ores.pixels[(y * W + x) * 4]; };
+    for (uint32_t i = 0; i < W * H; i++) if (ores.pixels[i * 4] > 60) out.lit++;
+    for (uint32_t y = 0; y + 1 < H; y += 2)
+      for (uint32_t x = 0; x + 1 < W; x += 2) {
+        const uint8_t a = red(x, y);
+        if (a <= 60) continue; // isikli bolge
+        out.blok++;
+        if (red(x + 1, y) == a && red(x, y + 1) == a && red(x + 1, y + 1) == a) out.ayni++;
+      }
+    ren.shutdown();
+    return out;
+  };
+  const Sonuc tam = ciz(1);
+  const Sonuc kaba = ciz(2);
+  std::printf("    [bilgi] VRS: istenen 2x2 -> etkin %ux%u%s%s | cihaz %s (max parca %ux%u)\n", kaba.active, kaba.active,
+              kaba.reason[0] ? ", sebep: " : "", kaba.reason, dev.caps().device_name, dev.caps().vrs_max_w, dev.caps().vrs_max_h);
+  if (!dev.caps().vrs_pipeline) {
+    CHECK(kaba.active == 1 && kaba.reason[0] != 0); // dusme SEBEPLI
+    offscreen_destroy(off);
+    dev.shutdown();
+    skip("cihaz boru hatti VRS'si vermiyor (VK_KHR_fragment_shading_rate / pipelineFragmentShadingRate)");
+    return;
+  }
+  CHECK(tam.lit != 0xFFFFFFFFu && kaba.lit != 0xFFFFFFFFu);
+  const double o_tam = tam.blok ? (double)tam.ayni / tam.blok : 0, o_kaba = kaba.blok ? (double)kaba.ayni / kaba.blok : 0;
+  const double fark = tam.lit ? std::fabs((double)kaba.lit - (double)tam.lit) / tam.lit : 1;
+  std::printf("    [bilgi] isikli piksel 1x1 %u / 2x2 %u (fark %%%.1f); 2x2 bloklarin dordu ayni: 1x1 %%%.1f (%u/%u), 2x2 %%%.1f (%u/%u)\n",
+              tam.lit, kaba.lit, fark * 100, o_tam * 100, tam.ayni, tam.blok, o_kaba * 100, kaba.ayni, kaba.blok);
+  CHECK(kaba.active == 2);
+  CHECK(tam.blok > 500 && kaba.blok > 500);
+  CHECK(o_kaba > 0.95);          // 2x2: bloklar tekduze
+  CHECK(o_tam < 0.80);           // KONTROL: tam oranda gecis bloklari bozar
+  CHECK(fark < 0.05);            // gorunurluk (kirmizi alan) degismedi
+  offscreen_destroy(off);
+  dev.shutdown();
+}
+
 // 2B arayuz + font: metin gercekten piksel uretiyor mu? Bos metin (POZITIF
 // KONTROL) hicbir sey cizmemeli; genislik olcumu tekduze.
 #include "content/font.hpp"
