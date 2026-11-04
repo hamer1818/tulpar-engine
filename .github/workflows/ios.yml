@@ -1,0 +1,131 @@
+name: iOS
+
+# Mac'siz iOS hatti (2026-11-04): Apple SDK'si yalniz macOS'ta oldugu icin
+# derleme + paketleme GitHub'in macOS kosucusunda. Cikti:
+#   * imzasiz (gecici imzali) .ipa — cihaza Sideloadly/AltStore ile kurulur
+#   * iOS Simulator'da GERCEKTEN acilis: ekran goruntusu + motor gunlugu
+# Hat: TulparLang (iOS hedefli dal) -> runtime iOS arsivleri -> MoltenVK
+# (statik) -> motor iOS arsivleri (tools/build_bridge_ios.sh) -> ornek oyun.
+# Simdilik dal tetiklemeli + elle; PR/sürüm hattinin parcasi DEGIL.
+
+on:
+  push:
+    branches: ['ios/**']
+  workflow_dispatch:
+    inputs:
+      tulpar_ref:
+        description: 'TulparLang dali/etiketi (iOS hedefi olan)'
+        default: 'ios/hedef'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 75
+    env:
+      MOLTENVK_SURUM: v1.4.2
+      TULPAR_REF: ${{ inputs.tulpar_ref || 'ios/hedef' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: hamer1818/TulparLang
+          ref: ${{ env.TULPAR_REF }}
+          path: tulparlang
+          sparse-checkout: |
+            /*
+            !wasm/emsdk
+          sparse-checkout-cone-mode: false
+
+      - name: Araclar
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          brew list --versions ninja >/dev/null 2>&1 || brew install ninja
+          brew list --versions llvm@18 >/dev/null 2>&1 || brew install llvm@18
+
+      - name: TulparLang derleyicisi (iOS hedefli dal)
+        run: |
+          LLVM_PREFIX="$(brew --prefix llvm@18)"
+          cmake -S tulparlang -B tulparlang/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DLLVM_DIR="$LLVM_PREFIX/lib/cmake/llvm" -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+          cmake --build tulparlang/build --target tulpar -j"$(sysctl -n hw.ncpu)"
+          tulparlang/build/tulpar --version
+
+      - name: TulparLang iOS runtime arsivleri
+        run: bash tulparlang/ios/build_runtime_ios.sh
+
+      - name: MoltenVK (statik, iOS)
+        run: |
+          curl -fsSL -o mvk.tar "https://github.com/KhronosGroup/MoltenVK/releases/download/${MOLTENVK_SURUM}/MoltenVK-ios.tar"
+          mkdir -p mvk && tar -xf mvk.tar -C mvk
+          XCF="$(find mvk -type d -name MoltenVK.xcframework -path '*static*' | head -1)"
+          [ -n "$XCF" ] || { find mvk -maxdepth 4 -type d; echo "::error::statik MoltenVK.xcframework yok"; exit 1; }
+          echo "MOLTENVK_DIR=$(cd "$(dirname "$XCF")" && pwd)" >> "$GITHUB_ENV"
+          ls "$XCF"
+
+      - name: Motor iOS arsivleri + eklenti paketi
+        run: bash tools/build_bridge_ios.sh
+
+      - name: Ornek oyunlar (cihaz .ipa + simulator .app)
+        run: |
+          set -x
+          T="$PWD/tulparlang/build/tulpar"
+          EXT="$PWD/yapi/tulpar-ext-ios"
+          export TULPAR_IOS_LIB_DIR="$PWD/tulparlang/ios/dist"
+          mkdir -p cikti
+          cd tulpar
+          for oyun in engine_dalga engine_aksiyon; do
+            TULPAR_ANDROID_ASSETS=examples/assets TULPAR_IOS_SDK=iphoneos \
+              "$T" build --target=ios --ext "$EXT" examples/$oyun.tpr ../cikti/$oyun
+            mkdir -p ../cikti/sim
+            TULPAR_ANDROID_ASSETS=examples/assets TULPAR_IOS_SDK=iphonesimulator \
+              "$T" build --target=ios --ext "$EXT" examples/$oyun.tpr ../cikti/sim/$oyun
+          done
+          ls -la ../cikti ../cikti/sim
+
+      - name: Simulator'da ac (ekran goruntusu + gunluk)
+        run: |
+          set -x
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          c=[x for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")]
+          print(c[-1]["udid"] if c else "")')"
+          [ -n "$UDID" ] || { xcrun simctl list devices; echo "::error::iPhone simulatoru yok"; exit 1; }
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          mkdir -p cikti/simulator
+          for oyun in engine_dalga engine_aksiyon; do
+            APP="$(ls -d cikti/sim/${oyun}_ios/*.app)"
+            BID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")"
+            xcrun simctl install "$UDID" "$APP"
+            xcrun simctl launch "$UDID" "$BID" || true
+            sleep 25
+            xcrun simctl io "$UDID" screenshot "cikti/simulator/$oyun.png" || true
+            DATA="$(xcrun simctl get_app_container "$UDID" "$BID" data || true)"
+            cp "$DATA/Documents/engine_log.txt" "cikti/simulator/$oyun.log" 2>/dev/null || echo "(gunluk yok)" > "cikti/simulator/$oyun.log"
+            echo "===== $oyun gunluk (son 80 satir)"
+            tail -80 "cikti/simulator/$oyun.log"
+            ls "$DATA/Documents" 2>/dev/null || true
+            xcrun simctl terminate "$UDID" "$BID" || true
+          done
+          # Cokme olduysa sistem raporu
+          ls ~/Library/Logs/DiagnosticReports 2>/dev/null | tail -5 || true
+          for f in $(ls -t ~/Library/Logs/DiagnosticReports/tulpargame* 2>/dev/null | head -2); do head -120 "$f"; cp "$f" cikti/simulator/ || true; done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-cikti
+          path: |
+            cikti/*.ipa
+            cikti/simulator
+          if-no-files-found: warn

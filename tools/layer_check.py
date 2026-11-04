@@ -96,7 +96,7 @@ def main():
         if top not in LAYERS or top == "tools":
             continue
         for n in names:
-            if not n.endswith((".hpp", ".cpp", ".h", ".c")):
+            if not n.endswith((".hpp", ".cpp", ".h", ".c", ".mm")):
                 continue
             path = os.path.join(dirpath, n)
             rel = os.path.relpath(path, root)

@@ -5,6 +5,9 @@
 #include <cstring>
 
 #include <miniaudio.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #if !defined(_WIN32)
 #include <pthread.h>
@@ -76,6 +79,12 @@ bool AudioDevice::init(Mixer &mixer, const DeviceConfig &cfg) {
   // gercek zamanli (SCHED_FIFO). Ayricalik yoksa miniaudio sessizce duser —
   // bu yuzden sonuc asagida OLCULUR (measure_thread_priority).
   cc.threadPriority = cfg.realtime_thread ? ma_thread_priority_realtime : ma_thread_priority_highest;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+  // iOS: miniaudio'nun varsayilani PlayAndRecord — ses KULAKLIK hoparlorune
+  // (ahize) gider ve mikrofon oturumu acilir. Oyun yalniz calar: Ambient
+  // (sessiz anahtarina uyar, baska uygulamanin muzigini kesmez).
+  cc.coreaudio.sessionCategory = ma_ios_session_category_ambient;
+#endif
   ma_result r = ma_context_init(backends, nb, &cc, &im->context);
   if (r != MA_SUCCESS) { std::snprintf(err_, sizeof err_, "ma_context_init: %s", ma_result_description(r)); std::free(im); return false; }
   ma_device_config dc = ma_device_config_init(ma_device_type_playback);

@@ -9,6 +9,21 @@ namespace tulpar::engine::rhi {
 
 namespace {
 bool g_direct_moltenvk = false;
+// Statik baglanmis Vulkan (iOS: MoltenVK uygulamanin ICINDE, dlopen edilecek
+// kutuphane yok — App Store dinamik yukleyici dagitimini da istemez). Host
+// vkGetInstanceProcAddr'i dogrudan verir; api.lib bu isarete esitlenir ki
+// "zaten yuklu" denetimi ve unload'in dl_close'u ayni yoldan gecsin.
+PFN_vkGetInstanceProcAddr g_static_gipa = nullptr;
+char g_static_lib_marker = 0;
+bool load_globals(VkApi &api) {
+#define G(name) api.name = (PFN_##name)api.vkGetInstanceProcAddr(nullptr, #name)
+  G(vkEnumerateInstanceVersion);
+  G(vkEnumerateInstanceExtensionProperties);
+  G(vkEnumerateInstanceLayerProperties);
+  G(vkCreateInstance);
+#undef G
+  return api.vkCreateInstance != nullptr;
+}
 bool load_from(VkApi &api, const char *const *names, int n) {
   for (int i = 0; i < n; i++) {
     api.lib = platform::dl_open(names[i]);
@@ -30,6 +45,8 @@ bool load_from(VkApi &api, const char *const *names, int n) {
   return api.vkCreateInstance != nullptr;
 }
 } // namespace
+
+void vk_api_set_static_loader(PFN_vkGetInstanceProcAddr gipa) { g_static_gipa = gipa; }
 
 bool vk_api_load_moltenvk_direct(VkApi &api) {
 #if defined(__APPLE__)
@@ -65,6 +82,13 @@ bool vk_api_load(VkApi &api) {
   // bridge_runs_a_scripted_game_headless'tan sonra GPU'yu buldu).
   if (const char *e = getenv("TULPAR_ENGINE_NO_VULKAN"); e && *e && *e != '0') return false;
   if (api.lib) return true;
+  if (g_static_gipa) {
+    api.lib = &g_static_lib_marker;
+    api.vkGetInstanceProcAddr = g_static_gipa;
+    if (load_globals(api)) return true;
+    api = VkApi{};
+    return false;
+  }
   // PAKET: sistem
   //   Vulkan LOADER'i paketlenmez, SURUCUYLE gelir. Gerekce (lisans degil —
   //   Khronos loader'i Apache-2.0'dir ve dagitilabilir, mesele dogruluk):
@@ -151,7 +175,7 @@ void vk_api_load_device(VkApi &api, VkDevice dev) {
 }
 
 void vk_api_unload(VkApi &api) {
-  if (api.lib) platform::dl_close(api.lib);
+  if (api.lib && api.lib != &g_static_lib_marker) platform::dl_close(api.lib);
   api = VkApi{};
   g_direct_moltenvk = false;
 }

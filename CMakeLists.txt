@@ -296,7 +296,13 @@ endif()
 add_library(engine_audio STATIC audio/mixer.cpp audio/device.cpp audio/clip.cpp audio/miniaudio_impl.c) # PR #322 spatial.cpp/dsp.cpp ALINMADI: main basliklari zaten saglıyor
 target_include_directories(engine_audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
 target_link_libraries(engine_audio PUBLIC engine_core ${CMAKE_DL_LIBS})
-if(APPLE) # CoreAudio arka ucu: cerceveler (CI macOS; yerelde denenmedi)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # miniaudio iOS'ta AVAudioSession'a Objective-C ile konusur: govde .c ama
+    # Objective-C olarak derlenmeli (miniaudio.h "iOS" notu). Cerceveler oyunun
+    # linkinde (tulpar-ext.json link.ios).
+    enable_language(OBJC)
+    set_source_files_properties(audio/miniaudio_impl.c PROPERTIES LANGUAGE OBJC)
+elseif(APPLE) # CoreAudio arka ucu: cerceveler (CI macOS; yerelde denenmedi)
     target_link_libraries(engine_audio PUBLIC "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox" "-framework AudioUnit")
 endif()
 target_compile_options(engine_audio PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> $<$<COMPILE_LANGUAGE:C>:-w>)
@@ -653,6 +659,31 @@ endif()
 target_compile_options(engine_tests PRIVATE -ffp-contract=off) # sim belirlenimliligi (strict FP, plan C.1.5)
 target_compile_definitions(engine_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}" PHYSICS_GOLDEN_HASH=${ENGINE_PHYSICS_GOLDEN_HASH}ull)
 target_compile_options(engine_tests PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
+
+# --- iOS: Tulpar oyununun motor tarafi (tulpar_engine_ios) -------------------
+# Android'deki tulpar_engine_android'in karsiligi: kopru cekirdegi + UIKit host
+# (bridge/ios_host.mm: main -> UIApplicationMain, oyunun tulpar_main'i ayri
+# iplikte) + Tulpar yapistiricisi + ABI kilidi. Yalniz macOS'ta (Apple SDK):
+# tools/build_bridge_ios.sh iphoneos + iphonesimulator icin derler ve eklenti
+# paketinin ios/<sdk>/ dizinine koyar (tulpar-ext.json link.ios). Vulkan
+# MoltenVK'nin STATIK arsivinden (uygulama icinde; dlopen yok).
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  enable_language(OBJCXX)
+  add_library(tulpar_engine_ios STATIC
+      bridge/engine_api.cpp
+      bridge/ios_host.mm
+      bridge/tulpar_kopru.cpp
+      bridge/tulpar_abi.cpp
+      app/virtual_stick.cpp
+      core/memory/alloc_gate_override.cpp
+  )
+  target_include_directories(tulpar_engine_ios PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(tulpar_engine_ios PRIVATE ENGINE_SOURCE_DIR="/var/empty/tulpar_engine")
+  target_compile_options(tulpar_engine_ios PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off -Wno-deprecated-declarations)
+  target_compile_options(tulpar_engine_ios PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc -fno-exceptions -fno-rtti -std=c++17>)
+  target_link_libraries(tulpar_engine_ios PUBLIC engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core)
+  add_dependencies(tulpar_engine_ios engine_layer_check engine_bindings_check)
+endif()
 
 # --- Android NativeActivity host: libtulparengine.so (testler + demo ayni surecte) ---
 # adb shell'den GPU yok (vkEnumeratePhysicalDevices = 0, SELinux/HAL); APK sureci gerekir.

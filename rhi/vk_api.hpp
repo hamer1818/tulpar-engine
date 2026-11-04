@@ -135,6 +135,9 @@ struct VkApi {
 // libvulkan'i dlopen edip global + vkGetInstanceProcAddr'i yukler.
 // Basarisizlikta false (loader yok) — cagiran GORUNUR atlar.
 bool vk_api_load(VkApi &api);
+// Statik baglanmis Vulkan uygulamasi (iOS: MoltenVK uygulamanin icinde):
+// verilirse vk_api_load dlopen ETMEZ, bunu kullanir. nullptr = dlopen yolu.
+void vk_api_set_static_loader(PFN_vkGetInstanceProcAddr gipa);
 // macOS: loader bulundu ama ICD'yi (MoltenVK json'u brew dizininde, loader'in
 // aramadigi yerde) gormuyorsa MoltenVK'yi DOGRUDAN yukle (vkGetInstanceProcAddr
 // disari verir, ICD gibi degil kutuphane gibi calisir). Basari: true.
