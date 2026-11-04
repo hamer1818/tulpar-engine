@@ -24,6 +24,6 @@ void main() {
   const float w = max(fwidth(d) * kSharpness, 1e-5);
   const float a = smoothstep(0.5 - w, 0.5 + w, d);
   vec4 c = vec4(srgb_to_linear(v_color.rgb), v_color.a * a);
-  if (v_encode > 0.5) c.rgb = linear_to_srgb(c.rgb);
+  if (mod(v_encode, 2.0) > 0.5) c.rgb = linear_to_srgb(c.rgb); // 2 biti titretme (ui.frag); burada yok
   o_color = c;
 }

@@ -889,6 +889,8 @@ void Renderer::ui_emit(VkCommandBuffer cb, bool overdraw) {
   a.vkCmdBindVertexBuffers(cb, 0, 1, &ui_buf_[frame_], &off);
   VkPipeline bound = VK_NULL_HANDLE;
   uint32_t bound_atlas = 0xFFFFFFFFu, batches = 0, i = 0;
+  bool bound_dither = false;
+  ui_stats_.dither_batches = 0;
   while (i < n) {
     const UiQuad &q0 = ui_quads_[ui_order_[i]];
     uint32_t j = i + 1;
@@ -904,6 +906,14 @@ void Renderer::ui_emit(VkCommandBuffer cb, bool overdraw) {
     if (want != bound) { a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want); bound = want; }
     if (q0.atlas != bound_atlas) {
       a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 1, 1, &materials_[q0.atlas].set, 0, nullptr);
+      // titretme biti (ui.frag: encode + 2*titret) yalniz degisince yazilir
+      const bool d = !overdraw && materials_[q0.atlas].ui_dither;
+      if (d != bound_dither) {
+        const float e = push.encode + (d ? 2.0f : 0.0f);
+        a.vkCmdPushConstants(cb, layout_, VK_SHADER_STAGE_VERTEX_BIT, (uint32_t)offsetof(UiPush, encode), sizeof e, &e);
+        bound_dither = d;
+        ui_stats_.dither_batches += d ? 1u : 0u;
+      }
       bound_atlas = q0.atlas;
     }
     a.vkCmdDraw(cb, (j - i) * 6, 1, i * 6, 0);
@@ -1141,6 +1151,12 @@ TextureHandle Renderer::create_texture(const uint8_t *rgba, uint32_t w, uint32_t
   t.w = w; t.h = h; t.mips = mips;
   stats_.textures = ++texture_count_;
   return TextureHandle{texture_count_ - 1};
+}
+
+bool Renderer::set_ui_dither(MaterialHandle m, bool on) {
+  if (!m.valid() || m.id >= material_count_) return false;
+  materials_[m.id].ui_dither = on;
+  return true;
 }
 
 MaterialHandle Renderer::create_material(TextureHandle albedo, Vec3 color) {

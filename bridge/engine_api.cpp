@@ -4126,6 +4126,15 @@ int teng_image_grid(int h, int cell_w, int cell_h, int pad) {
   im.cell_w = (uint32_t)cell_w; im.cell_h = (uint32_t)cell_h; im.cell_pad = (uint32_t)pad;
   return (int)((im.w / (uint32_t)cell_w) * (im.h / (uint32_t)cell_h));
 }
+// Alfa titretmesi (E1c, 2026-11-04): acilis isiltisi gibi dusuk alfali genis gecislerde 8 bitlik hedef halka
+// cizer (penceresiz olculdu: 670 px'lik isiltida R kanali 4'er kod atliyordu). Renderer::set_ui_dither.
+int teng_image_dither(int h, int on) {
+  CALLF("teng_image_dither", "%d %d", h, on);
+  if (!image_ok(h, "teng_image_dither")) return 0;
+  if (!g->ren.set_ui_dither(g->images[h].mat, on != 0)) { BERR("teng_image_dither: resim %d malzemesi gecersiz", h); return 0; }
+  BDBG("resim %d titretme %s", h, on ? "ACIK" : "kapali");
+  return 1;
+}
 void teng_image_cell(int h, int index, double x, double y, double w, double hh, int64_t color) {
   if (!image_ok(h, "teng_image_cell")) return;
   const Bridge::ImageSlot &im = g->images[h];

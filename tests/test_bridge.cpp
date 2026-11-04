@@ -2927,6 +2927,84 @@ ENGINE_TEST(bridge_ui_image_draws_srgb_png_like_rect) {
 // Iddia: teng_image_nine, oyunun eski 9 ayri teng_image_uv cagrisiyla PIKSEL PIKSEL ayni kareyi
 // cizer; teng_image_cell elle hesaplanan UV ile ayni. Pozitif kontroller: farkli kaynak kenari ve
 // komsu hucre FARKLI kare verir (karsilastirma bir sey olcuyor). Hata yollari sayilir.
+// --- Arayuz alfa titretmesi (teng_image_dither, E1c 2026-11-04) -----------------------------------------
+// Belirti: acilis isiltisi (384 px radyal alfa, 670 px'e buyutulmus, alfa 0.13) koyu zeminde halka cizdi;
+// penceresiz olcumde R kanali 4'er kod atliyordu (8 bitlik nicemleme dogrusal 1/255 adimlarinda gorundu).
+// Kapi: 256 px'lik yatay alfa rampasinin ilk ceyregi (0..63) koyu zemine alfa 33 ile 300 px genislikte cizilir. Satirdaki
+// ayni-deger kosularinin EN UZUNU olculur: titretmesiz uzun duz bantlar (kontrol), titretmeli kisa.
+// Ayrica: titretme ACILMAMIS resim bayt bayt ayni (varsayilan degismedi), titretmenin ortalama tonu
+// kaydirmadigi (satir ortalamasi farki < 0.5 kod) ve resmin disina dokunmadigi.
+namespace {
+int en_uzun_kosu(const uint8_t *px, uint32_t y, uint32_t x0, uint32_t x1) {
+  int best = 0, n = 0, prev = -1;
+  for (uint32_t x = x0; x < x1; x++) {
+    const int v = px[(y * kW + x) * 3];
+    if (v == prev) n++;
+    else { if (n > best) best = n; n = 1; prev = v; }
+  }
+  return n > best ? n : best;
+}
+double satir_ort(const uint8_t *px, uint32_t y0, uint32_t y1, uint32_t x0, uint32_t x1) {
+  double s = 0;
+  for (uint32_t y = y0; y < y1; y++)
+    for (uint32_t x = x0; x < x1; x++) s += px[(y * kW + x) * 3];
+  return s / (double)((y1 - y0) * (x1 - x0));
+}
+} // namespace
+
+ENGINE_TEST(bridge_ui_image_dither_breaks_bands_default_unchanged) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("titretme", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  char dir[512], yol[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "titretme"));
+  std::snprintf(yol, sizeof yol, "%s/rampa.png", dir);
+  static uint8_t rgba[256 * 4 * 4];
+  for (int y = 0; y < 4; y++)
+    for (int x = 0; x < 256; x++) {
+      uint8_t *q = rgba + (y * 256 + x) * 4;
+      q[0] = q[1] = q[2] = 255;
+      q[3] = (uint8_t)x;
+    }
+  CHECK(png_yaz(yol, 256, 4, rgba));
+  const int r = teng_image_load(yol);
+  CHECK(r >= 0);
+  static uint8_t a0[kW * kH * 3], a1[kW * kH * 3], a2[kW * kH * 3];
+  uint32_t w = 0, h = 0;
+  auto ciz = [&](const char *ad, uint8_t *out) {
+    teng_frame_begin();
+    teng_rect(0, 0, kW, kH, 0x1E2A4CFF);
+    teng_image_uv(r, 10, 40, 300, 100, 0.0, 0.0, 0.25, 1.0, 0xFFBA5C21); // rampanin ilk ceyregi x alfa 33 (isilti kenari gibi)
+    teng_frame_end();
+    ekran_al(ad, out, &w, &h);
+  };
+  ciz("titretme_yok", a0);
+  ciz("titretme_yok2", a2);
+  CHECK(teng_image_dither(r, 1) == 1);
+  ciz("titretme_var", a1);
+  CHECK(teng_image_dither(r, 0) == 1);
+  ciz("titretme_kapali", a2);
+  const bool varsayilan_ayni = std::memcmp(a0, a2, sizeof a0) == 0;
+  const int k0 = en_uzun_kosu(a0, 90, 12, 308), k1 = en_uzun_kosu(a1, 90, 12, 308);
+  const double m0 = satir_ort(a0, 50, 130, 12, 308), m1 = satir_ort(a1, 50, 130, 12, 308);
+  // resmin disi (zemin) dokunulmamis
+  bool bos_ayni = true;
+  for (uint32_t y = 0; y < kH; y++)
+    for (uint32_t x : {2u, 5u, 314u, 318u})
+      if (a1[(y * kW + x) * 3] != a0[(y * kW + x) * 3]) bos_ayni = false;
+  std::printf("    [bilgi] titretme: en uzun duz kosu titretmesiz %d px, titretmeli %d px | ortalama R %.3f -> %.3f | "
+              "varsayilan bayt bayt ayni %d | resim disi ayni %d\n", k0, k1, m0, m1, varsayilan_ayni ? 1 : 0, bos_ayni ? 1 : 0);
+  CHECK(k0 >= 12);              // KONTROL: titretmesiz rampa bant ciziyor (olcum bunu goruyor)
+  CHECK(k1 * 2 <= k0);          // titretme bantlari en az yariya boler
+  CHECK(m1 - m0 < 0.5 && m0 - m1 < 0.5);
+  CHECK(varsayilan_ayni && bos_ayni);
+  CHECK(teng_error_count() == e0);
+  teng_shutdown();
+}
+
 ENGINE_TEST(bridge_ui_image_nine_and_cell_match_manual_uv) {
   rhi::VkApi api;
   if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }

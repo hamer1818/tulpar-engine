@@ -345,6 +345,7 @@ struct UiStats {
   bool atlas_sorted = false;          // atlasa gore kararli siralama uygulandi mi
   uint32_t blocks_rebuilt = 0, blocks_reused = 0, blocks_overflow = 0;
   uint32_t sdf_quads = 0;             // SDF ornekleme yoluyla cizilen dortgen
+  uint32_t dither_batches = 0;        // titretmeli (set_ui_dither) cizim grubu
   const char *sdf_reason = "";        // SDF istendi ama kosmadiysa NEDEN
   uint32_t fullscreen_blended = 0;    // TBDR yasagi: tam ekrani kaplayan HARMANLI katman
   float cpu_gen_ms = 0;               // ui_begin..ui_end (dortgen uretimi)
@@ -395,6 +396,11 @@ public:
   TextureHandle create_texture_levels(VkFormat fmt, uint32_t w, uint32_t h, uint32_t levels, const uint8_t *const *data,
                                       const uint32_t *sizes);
   MaterialHandle create_material(TextureHandle albedo, Vec3 color = {1, 1, 1});
+  // Arayuz titretmesi (E1c, 2026-11-04): bu malzemeyle cizilen HARMANLI arayuz dortgenlerinde alfa
+  // fragment basina +-0.5/255 (IGN gurultusu) oynatilir — dusuk alfali genis yumusak gecislerde (isilti,
+  // golge) hedefin 8 bitlik nicemlemesi halka/bant cizmesin. Varsayilan KAPALI: metin/kutu/resim
+  // pikselleri bayt bayt ayni kalir (piksel kapilari). Opak cizimde etkisiz.
+  bool set_ui_dither(MaterialHandle m, bool on);
   // PBR malzeme (Cook-Torrance). Yukleme aninda cagrilir.
   MaterialHandle create_material(TextureHandle albedo, Vec3 color, const PbrParams &pbr);
   // PBR malzeme + doku basina kanallar (ORM / normal / isima). Yukleme aninda.
@@ -714,6 +720,7 @@ private:
     PbrParams pbr{};
     PbrTextures tex{};
     bool is_pbr = false;
+    bool ui_dither = false; // arayuzde harmanli ciziminde alfa titretme (set_ui_dither)
   };
   // Malzeme basina GPU blogu (std140): set 1, binding 1 — mesh.frag MatBlock.
   struct MaterialUbo {

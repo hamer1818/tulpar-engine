@@ -2406,3 +2406,15 @@ sürümünde aynı kural vardı; maçta tik başına 1–2 komut olduğu için h
 onaylanmamış tik her pakete tam sığar ve ilerleme garanti. **Kural:** "buraya kadar kesin" diyen alan, kesilen
 içerikten sonra hesaplanır, önce değil.
 
+### 8do. Düşük alfalı geniş yumuşak geçiş 8 bitlik hedefte halka çizer — doku pürüzsüz olsa da
+
+**Belirti (E1c, 2026-11-04):** açılış ekranının ışıltısı (384 px radyal alfa, ~1.75x büyütülmüş, alfa 0.13–0.23)
+koyu zeminde eş merkezli halkalar gösteriyordu. Doku pürüzsüzdü (bir satırda 192 texel'de 166 ayrı değer).
+Penceresiz ölçümde ise karede R kanalı 4'er kod atlıyordu. Halkalar 1:1 çizimde de çıktı, yani sebep büyütme
+değil, hedefin 8 bitlik nicemlemesi: düşük alfa × geniş alan = birkaç nicem adımı yüzlerce piksele yayılıyor.
+
+**Çözüm:** `eng_image_dither(resim, 1)` — o resmin harmanlı çizimlerinde alfa, ekran pikseline bağlı IGN
+gürültüsüyle ±0.5/255 oynatılır (`ui.frag`). Varsayılan kapalı; metin, kutu ve resim pikselleri bayt bayt aynı
+kalır. Ölçüm: oyunun açılış karesinde 80 satır ortalamasında en büyük adım 2.85 → 0.70 kod.
+**Kural:** düşük alfalı geniş gradyan çizen her resme titretmeyi aç; dokuyu yeniden üretmek bunu çözmez.
+

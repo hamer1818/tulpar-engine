@@ -1038,6 +1038,8 @@ func image_nine_e(img, x, y, w, h, u0, v0, u1, v1, src_px, edge, color) { eng_im
 func resim_izgara(r, hucre_w, hucre_h, bosluk): int { return eng_image_grid(r, hucre_w, hucre_h, bosluk); }
 func image_grid_e(img, cell_w, cell_h, pad): int { return eng_image_grid(img, cell_w, cell_h, pad); }
 func resim_hucre(r, i, x, y, w, h, renk_) { eng_image_cell(r, i, x, y, w, h, renk_); }
+func resim_titret(int r, bool acik): bool { return eng_image_dither(r, acik); }
+func image_dither(int r, bool on): bool { return eng_image_dither(r, on); }
 func image_cell_e(img, index, x, y, w, h, color) { eng_image_cell(img, index, x, y, w, h, color); }
 func resim_gen(r): int { return eng_image_w(r); }
 func resim_yuk(r): int { return eng_image_h(r); }
