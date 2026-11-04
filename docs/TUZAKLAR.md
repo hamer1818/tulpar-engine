@@ -2418,3 +2418,25 @@ gürültüsüyle ±0.5/255 oynatılır (`ui.frag`). Varsayılan kapalı; metin, 
 kalır. Ölçüm: oyunun açılış karesinde 80 satır ortalamasında en büyük adım 2.85 → 0.70 kod.
 **Kural:** düşük alfalı geniş gradyan çizen her resme titretmeyi aç; dokuyu yeniden üretmek bunu çözmez.
 
+
+### 8dp. Sürücü kütüphanesi her kurulumda yeniden yüklenir — statik TLS tükenir, ~20. kurulumda "Vulkan yok"
+
+**Belirti (Geri bildirim #24, ölçüldü 2026-11-05, RTX 5080 / NVIDIA 615.78 / glibc):** süzgeçli
+`engine_tests bridge_` koşusunda 61 testin 25'i `ATLANDI: Vulkan cihazi/kurulum yok` dedi; aynı ikilinin tam
+koşusu 704/704, 1 atlandı. Kurulum `vkCreateInstance (VK_ERROR_INCOMPATIBLE_DRIVER)` ile düşüyordu.
+`VK_LOADER_DEBUG=error` sebebi gösterdi: `libnvidia-tls.so.615.78.08: cannot allocate memory in static TLS
+block` → `loader_icd_scan: Failed loading library ... Ignoring this JSON` → `Found no drivers!`.
+
+**Sebep:** yükleyici son `VkInstance` yok edilince ICD'yi `dlclose` eder, sonraki instance'ta yeniden
+`dlopen` eder. NVIDIA'nın TLS kütüphanesi initial-exec TLS kullanıyor; glibc statik TLS payını geri
+vermediği için her yeniden yükleme payı biraz daha yiyor ve ~20 kurulum/kapanıştan sonra yükleme düşüyor.
+Tam koşuda başka testlerin açık bıraktığı bir instance sürücüyü yerinde tuttuğu için görülmüyordu —
+süzgeçli alt küme "yeşil" görünüp GPU'yu ölçmüyordu (atlama sayacını OKU).
+
+**Çözüm:** test harness'i (`tests/test_main.cpp`) Linux'ta süreç boyu tek boş instance açık tutar; sürücü
+bir kez yüklenir. Köprünün kendi instance/cihaz/nesneleri ve RSS ölçümleri etkilenmez (sabitleme hiç
+nesne yaratmaz, ondan önce kurulur). Pozitif kontrol: `TULPAR_TEST_SURUCU_SABITLEME=0` ile süzgeçli koşu
+yine 25 atlıyor. **Motor için:** aynı süreçte motoru 20+ kez kapatıp açan bir oyun (8ct yolu) Linux
+masaüstünde aynı duvara çarpar; Android'de (bionic, sistem ICD'si) ve editörün F5'inde (her oyun AYRI
+süreç) bu yol yok. **Kural:** "tek başına geçiyor, toplu geçiyor, alt kümede atlıyor" diyen test, sürecin
+geçmişine bağlı bir kaynağı ölçüyordur — önce sürücü günlüğünü aç.

@@ -280,7 +280,7 @@ dosyanın gerisi geçerli (`tests/toml_taninmayan_anahtar.sh`, eski ikili kırm�
 soruyordu; motorun ortak araçları (`tools/android_run.sh`, `android_yasam_dongusu.sh`, `android_kayit_dis.sh`) da
 artık aynı denetimi yapıyor: bağlı cihaz yoksa beklemeden adıyla çıkıyor.
 
-### 24. Süzgeçli test alt kümesinde sıra bağımlılığı — ÖLÇÜM (D)
+### 24. Süzgeçli test alt kümesinde sıra bağımlılığı — DÜZELTİLDİ (2026-11-05, Tuzaklar 8dp)
 
 Entegrasyon dalında (main + #105 + bir özellik dalı) `engine_tests bridge_` 23/24: `bridge_frame_allocs_are_counted_motor_hook_game`
 ikinci `teng_init`'te düştü; önünde "yükleyici yok" testleri koşuyor. Test tek başına ve tam koşu (638/638) yeşil.
@@ -289,6 +289,11 @@ upstream yeniden oynatma dalı):** `engine_tests bridge_` 31 koştu, **9 ATLANDI
 (VK_ERROR_INCOMPATIBLE_DRIVER)` — kurulum geri alındı, test "Vulkan cihazı/kurulum yok" diye atladı); aynı ikilinin
 tam koşusu 652/652, 0 atlandı. Süzgeçli koşu "yeşil" görünür ama GPU'yu ölçmez — atlama sayacını oku. Açık iş:
 süzgeçli alt kümeyi tam koşuyla aynı sonuca getirmek (test yalıtımı).
+
+**Sebep ve çözüm (2026-11-05):** sıra değil, sürücünün statik TLS'i: yükleyici her son instance'ta NVIDIA
+ICD'sini boşaltıp yeniden yüklüyor, glibc payı geri vermiyor, ~20 kurulumdan sonra `cannot allocate memory in
+static TLS block` → "Vulkan yok". Harness süreç boyu tek boş instance tutuyor: `engine_tests bridge_` 61/61,
+0 atlandı (önce 25 atlandı); `TULPAR_TEST_SURUCU_SABITLEME=0` pozitif kontrolü yine 25 atlıyor. Tuzaklar 8dp.
 
 ### 25. Mermi dost gövdeye çarpıyor — DÜZELTİLDİ (Y)
 
