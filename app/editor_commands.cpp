@@ -128,6 +128,10 @@ constexpr CommandDesc k_defaults[] = {
      "Oynatmayi dondurur: betik, fizik ve zaman durur (F10 ile kare ilerlet)"},
     {CommandId::PlayStep, CommandCategory::Play, kCmdNone, kKeyF10, kChordNone, "oynat.kare_ilerlet", "Kare ilerlet",
      "Duraklatilmisken TEK kare ilerletir"},
+    // Geri sarma (app/editor_rewind.hpp): her 6 tikte fizik durumu kaydedilir
+    // (12 s pencere); her basis bir kayit geri gider ve duraklatir.
+    {CommandId::PlayStepBack, CommandCategory::Play, kCmdNone, chord_of(kModShift, kKeyF10), kChordNone, "oynat.geri_sar", "Geri sar",
+     "Fizik onizlemesini en yakin eski kayda (~0,1 s) geri sarar ve duraklatir; oradan devam ilk kosumla ayni"},
     // F5 ile AYNI ikili; fark goruntunun yeri: bu, oyunu KENDI penceresinde
     // calistirir (tam ekran denemek, editorsuz olcmek icin).
     {CommandId::PlayRunGame, CommandCategory::Play, kCmdCheckable, chord_of(kModCtrl, kKeyF5), kChordNone, "oynat.oyunu_calistir",

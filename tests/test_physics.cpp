@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "core/jobs/job_system.hpp"
 #include "core/memory/arena.hpp"
@@ -845,4 +846,79 @@ ENGINE_TEST(physics_reset_world_makes_history_irrelevant) {
   CHECK(kabul && sonra_govde == 0);
   CHECK(id_sif == id_taze && st_sif == st_taze && st_taze != 0);
   CHECK(id_ham != id_taze); // kontrol: gecmis kimligi gercekten degistiriyor
+}
+
+// DURUM KAYDI (editor geri sarimi): 300 adimlik kutu yigini + karakter.
+// Iddia: (1) 120. adimda alinan kayit 300'e gidip geri yuklenince ozet
+// 120'dekiyle AYNI, (2) oradan 180 adim daha atilinca ozet ilk kosumun 300.
+// adimdakiyle BIT ESIT (kayit temas onbellegini de tasir), (3) kucuk tampona yazma 0 doner, (4) govde eklenince
+// kayit reddedilir, (5) POZITIF KONTROL: kaydin govde bolumundeki bir bayt
+// bozulunca ya yukleme reddedilir ya da ozet farkli cikar — kayit gercekten
+// durumu tasiyor (bos bir "basari" degil).
+ENGINE_TEST(physics_save_restore_replays_bit_exact) {
+  static SystemArena sys;
+  if (sys.capacity() == 0) sys.reserve(16u << 20, "phys-kayit");
+  static uint8_t kayit[256 * 1024];
+  static uint8_t bozuk[256 * 1024];
+  PhysicsConfig cfg;
+  cfg.threads = 1;
+  cfg.max_characters = 2;
+  Physics ph;
+  CHECK(ph.init(sys, cfg));
+  ph.add_box({50, 1, 50}, {0, -1, 0}, Quat::identity(), false);
+  BodyId ilk{};
+  for (int x = 0; x < 4; x++)
+    for (int y = 0; y < 4; y++)
+      for (int z = 0; z < 4; z++)
+        if (BodyId b = ph.add_box({0.5f, 0.5f, 0.5f}, {x * 1.1f - 1.65f, 2.0f + y * 1.2f, z * 1.1f - 1.65f + x * 0.05f}, Quat::identity(), true);
+            !ilk.valid())
+          ilk = b;
+  CharacterConfig cc;
+  cc.position = {6, 3, 0};
+  const CharacterId ch = ph.add_character(cc);
+  CHECK(ch.valid());
+  ph.set_character_input(ch, {-1.5f, 0, 0}, false);
+  uint64_t h120 = 0, h300 = 0;
+  uint32_t n = 0;
+  float ilk_y = 0;
+  for (int i = 1; i <= 300; i++) {
+    ph.step(1.0f / 60.0f, 1);
+    if (i == 120) {
+      h120 = ph.state_hash();
+      n = ph.save_state(kayit, sizeof kayit);
+      ilk_y = ph.position(ilk).y;
+    }
+  }
+  h300 = ph.state_hash();
+  CHECK(n > 0);
+  CHECK(h120 != h300);
+  uint8_t kucuk[64];
+  CHECK(ph.save_state(kucuk, sizeof kucuk) == 0);
+  std::memcpy(bozuk, kayit, n);
+  CHECK(ph.restore_state(kayit, n));
+  CHECK(ph.state_hash() == h120);
+  for (int i = 121; i <= 300; i++) ph.step(1.0f / 60.0f, 1);
+  const uint64_t h300b = ph.state_hash();
+  CHECK(h300b == h300);
+  std::printf("    [bilgi] kayit %u B (65 govde + 1 karakter, 120. adim); geri yukleyip 180 adim: ozet %016llx = %016llx\n", n,
+              (unsigned long long)h300b, (unsigned long long)h300);
+  // Pozitif kontrol: kayitta ilk kutunun 120. adimdaki y konumunun baytlarini
+  // bul ve boz — geri yuklenen dunya o kutuyu BASKA yerde gostermeli. (Rastgele
+  // bir bayt yetmez: hiz/uyku/temas baytlari konum ozetini degistirmeyebilir.)
+  uint32_t yer = 0, bulunan = 0;
+  for (uint32_t k = 0; k + 4 <= n; k++)
+    if (std::memcmp(bozuk + k, &ilk_y, 4) == 0) { yer = k; bulunan++; }
+  CHECK(bulunan >= 1);
+  float boz_y = ilk_y + 3.0f;
+  std::memcpy(bozuk + yer, &boz_y, 4);
+  const bool yuklendi = ph.restore_state(bozuk, n);
+  const bool farkli = yuklendi && ph.state_hash() != h120;
+  std::printf("    [bilgi] bozuk kayit (ilk kutunun y'si, %u eslesme, ofset %u): %s, ozet %s\n", bulunan, yer,
+              yuklendi ? "yuklendi" : "REDDEDILDI", farkli ? "farkli (kayit durumu tasiyor)" : "AYNI");
+  CHECK(farkli);
+  // Govde kumesi degisince reddedilir.
+  CHECK(ph.restore_state(kayit, n));
+  ph.add_box({0.5f, 0.5f, 0.5f}, {0, 10, 0}, Quat::identity(), true);
+  CHECK(!ph.restore_state(kayit, n));
+  ph.shutdown();
 }
