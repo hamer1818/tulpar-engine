@@ -142,7 +142,11 @@ Ayrıntı: [FAZ3.md](FAZ3.md) "Faz 6 kalanı + Faz 8 fizibilitesi", tuzaklar 8aq
    "GPU VRAM" ekran boyutundan uyduruluyordu (şimdi `Device::memory_used/reserved_bytes`), gölge satırı sabit
    "CSM 3x1024 D16" yazıyordu (şimdi `Renderer::shadow()`), "Sıcak Tahsis: 0 Bayt" ölçülmüyordu — editör `AllocGate`
    override'ını hiç linklemiyordu (şimdi linkli; headless özet "AllocGate: toplam N global new (override sayiyor)").
-   "Tulpar ARC: 0 sızıntı" satırı kalktı (oyun ayrı süreç). Kalan: oynat/durdur sim geri sarımı.
+   "Tulpar ARC: 0 sızıntı" satırı kalktı (oyun ayrı süreç). ~~Oynatmayı geri sarma~~ ✅ 2026-11-04: F5 fizik
+   önizlemesinde her 6 tikte tam fizik durumu (`Physics::save_state`/`restore_state`: Jolt SaveState + karakterler, ayırmasız
+   sabit tampon) 120 kayıtlık halkaya (12 s @ 60 Hz, 15 MB arena) yazılır; **Shift+F10** duraklatır ve bir kayıt geri gider,
+   oradan devam ilk koşumla bit eşit (`physics_save_restore_replays_bit_exact`: 65 kutu + karakter, kayıt 8981 B; editör
+   headless "geri sarma kapisi" — geri yükleme devre dışı bırakılınca HATA, pozitif kontrol yapıldı). Partiküller geri sarılmaz.
 3. ~~**Tulpar bağlaması**~~ ✅ 2026-09-15: `bridge/` + `lib/engine.tpr` + üç örnek oyun; köprü **175 builtin** (2026-09-27 sayımı: `tools/gen_engine_bindings.py` `SPEC` **208** satır) (ses, animasyon, navmesh, ışın/örtüşme sorguları, anlık-kip arayüz, kalıcı kayıt, sıcak yükleme, **çarpışma olayları** dahil — bkz. [KOPRU.md](KOPRU.md)).
    **Çarpışma olayı geldi (2026-09-16):** callback FFI olmadığı için geri çağrım değil **kuyruk** — fizik
    adımında oluşan temaslar sabit boy halkaya yazılır, oyun karede okur. Halka dolarsa olaylar sessizce

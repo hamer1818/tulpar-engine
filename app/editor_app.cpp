@@ -27,6 +27,7 @@
 
 #include "app/demo_scene.hpp"
 #include "app/editor_game.hpp"
+#include "app/editor_rewind.hpp"
 #include "app/editor_ui.hpp"
 #include "content/gi.hpp"
 #include "content/gltf.hpp"
@@ -535,6 +536,10 @@ struct EditorState {
   // yalniz zaman akmaz. step_request duraklatilmisken tek adim ilerletir.
   bool paused = false;
   uint32_t step_request = 0;
+  // Geri sarma (Shift+F10): fizik durumu halkasi + istek sayaci (komut
+  // fizige erismez; ana dongu sim bolumunde uygular).
+  EditorRewind rewind;
+  uint32_t rewind_request = 0;
   // F5 GOMULU oynatma: oyun ayri surecte (Ctrl+F5 ile ayni ikili), karesi Oyun
   // sekmesinde. playing de true (arayuz ayni: Durdur, Oyun sekmesi, geri alma
   // isareti), ama editorun kendi fizigi DOGMAZ — sahneyi oyun oynatiyor.
@@ -712,6 +717,8 @@ Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i) {
 // Varlik listesini degistiren islemler (ekle/sil/geri al/yinele) oynarken
 // govde indekslerini kaydirir: once govdeler cikar, sonra yeniden girer.
 template <class F> void with_bodies(EditorState &st, sim::Physics &ph, F &&f) {
+  // Govde kumesi degisir: eski kayitlar bu dunyaya yuklenemez (restore reddeder).
+  st.rewind.clear();
   const bool live = st.bodies_live;
   if (live) bodies_remove(st, ph);
   f();
@@ -1824,6 +1831,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   st.smoke_grid.init(sys, 24, 24, 24, Vec3{-3.0f, 0.0f, -3.0f}, 0.25f);
   st.smoke_initialized = true;
   sim::Physics &phys = scene.physics();
+  if (!st.rewind.init(sys)) std::fprintf(stderr, "[engine_editor] geri sarma halkasi ayrilamadi (%u x %u KB) — Shift+F10 kapali\n",
+                                           EditorRewind::kKayitSayisi, EditorRewind::kKayitBoyu / 1024);
 
   EditorUi ui;
   {
@@ -1981,13 +1990,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.playing = p;
     st.paused = false; // durdur/baslat duraklatmayi da sifirlar
     st.step_request = 0;
+    st.rewind_request = 0;
     st.play_time = 0;
+    if (!p) st.rewind.clear();
     if (p) {
       play_group_mark = st.groups.depth();
       play_dirty_mark = st.dirty;
       // Gomulu oynatmada sahneyi OYUN oynatiyor: editorun govdeleri dogmaz.
       if (!st.play_embedded) {
         bodies_spawn(st, phys);
+        st.rewind.clear();
+        st.rewind.record(phys, tick_i, 0.0f, true); // baslangic: geri sarmanin en eski noktasi
         // F5 FIZIK onizlemesi (oyun ya da derleyici bulunamadi): Tulpar
         // betikleri oyunun ikilisinde yasar, editorun icinde KOSMAZ. Sessiz
         // kalsaydi "kovalayan neden kovalamiyor" diye aranirdi.
@@ -3322,6 +3335,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               const EditorState *s = static_cast<const CmdCtx *>(c)->st;
               return s->playing && s->paused;
             });
+  cmds.bind(CommandId::PlayStepBack, [](void *c) { static_cast<CmdCtx *>(c)->st->rewind_request++; }, &cc,
+            [](const void *c) {
+              const EditorState *s = static_cast<const CmdCtx *>(c)->st;
+              return s->playing && !s->play_embedded && s->rewind.adet > 0;
+            });
   // Yardim: editor ici guncelleme. Geri cagrilar dogrudan UpdateUi'ye gider;
   // penceresiz kipte ag reddi update_ui_* icinde (Updater'a giden TEK kapi).
   cmds.bind(CommandId::HelpCheckUpdates, [](void *c) { update_ui_check(*static_cast<UpdateUi *>(c), true); }, &upd_ui);
@@ -3565,13 +3583,37 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (st.playing && !st.paused && !st.play_embedded) {
       ENGINE_ZONE("sim");
       uint32_t ticks = fs.advance(dt);
-      for (uint32_t t = 0; t < ticks; t++) { scene.tick(fs.step_s, tick_i++); st.play_time += fs.step_s; }
+      for (uint32_t t = 0; t < ticks; t++) {
+        scene.tick(fs.step_s, tick_i++);
+        st.play_time += fs.step_s;
+        st.rewind.record(phys, tick_i, st.play_time);
+      }
     } else if (st.playing && st.paused && st.step_request && !st.play_embedded) {
       ENGINE_ZONE("sim");
       scene.tick(fs.step_s, tick_i++);
       st.play_time += fs.step_s;
+      st.rewind.record(phys, tick_i, st.play_time);
       st.step_request--;
       fs.advance(dt); // biriken zamani YUT: adim adim ilerlerken geri kalmasin
+    }
+    // Geri sar (Shift+F10): duraklat + en yakin eski kayit. Kayit yoksa durum
+    // cubugu soyler (sessiz degil). Tik sayaci da kayittakine doner.
+    if (st.rewind_request) {
+      st.rewind_request = 0;
+      if (st.playing && !st.play_embedded) {
+        st.paused = true;
+        st.step_request = 0;
+        uint32_t t = 0;
+        float pt = 0;
+        if (st.rewind.step_back(phys, tick_i, &t, &pt)) {
+          set_status(st, "geri sarildi: %.2f s (tik %u -> %u), %u kayit kaldi", (double)pt, tick_i, t, st.rewind.adet);
+          tick_i = t;
+          st.play_time = pt;
+          fs.advance(dt); // biriken zamani yut
+        } else {
+          set_status(st, "geri sarilamadi: %s", st.rewind.reddedilen ? "kayit bu dunyaya yuklenemedi (govde kumesi degisti)" : "daha eski kayit yok");
+        }
+      }
     }
 
     // Partikül Simülasyonu (VFX): Editörde ve Oyunda canlı çalışır
@@ -3686,7 +3728,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // cizmiyor; menude F6 var). Bos mesaj yerine acik bir ek.
     char status_buf[200];
     if (st.playing && st.paused) {
-      std::snprintf(status_buf, sizeof status_buf, "DURAKLATILDI (F10 kare ilerlet) \xC2\xB7 %s", st.status);
+      std::snprintf(status_buf, sizeof status_buf, "DURAKLATILDI (F10 kare ilerlet, Shift+F10 geri sar: %.1f s) \xC2\xB7 %s",
+                    (double)st.rewind.window_s(st.play_time), st.status);
       cs.status = status_buf;
     } else cs.status = st.status;
     cs.scene_path = st.scene_path;
@@ -7629,6 +7672,50 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                     t_pause, t_hold, held ? "evet" : "HAYIR", tick_i, stepped ? "evet" : "HAYIR",
                     di >= 0 ? st.scene.entities[di].name : "(dinamik govde yok: konum kolu ATLANDI)", (double)y_pause, (double)y_hold,
                     y_held ? "evet" : "HAYIR", (double)y_now, y_stepped ? "evet" : "HAYIR", ok ? "OK" : "HATA");
+        if (!ok) return 1;
+        st.paused = false;
+      }
+    }
+    // GERI SARMA kapisi (kare 21-24: durdur kapisinin 20'de baslattigi
+    // oynatmanin icinde; 7-9 arasi oynatmayi gizmo kapisi kapatiyor). Olculen: (a) 21. karede
+    // zorla alinan kayda geri donunce fizik ozeti o anki ozetle AYNI ve tik
+    // sayaci geri geldi; (b) oradan ayni sayida tik ilerleyince ozet ilk
+    // kosumun 23. karedeki ozetiyle BIT ESIT (geri sarma "yaklasik" degil);
+    // (c) komut yolu: Shift+F10 istegi duraklatir ve tiki geri alir.
+    // Pozitif kontrol: (a)'da ozetin 11 -> 13 arasinda DEGISTIGI basilir
+    // (degismeseydi esitlik bir sey olcmezdi; dinamik govde yoksa ATLANDI).
+    if (headless && st.playing && !st.play_embedded && frame_i >= 21 && frame_i <= 24) {
+      static uint32_t t_a = 0, t_b = 0;
+      static uint64_t h_a = 0, h_b = 0;
+      if (frame_i == 21) {
+        st.paused = false;
+        t_a = tick_i;
+        h_a = phys.state_hash();
+        st.rewind.record(phys, tick_i, st.play_time, true);
+      } else if (frame_i == 23) {
+        t_b = tick_i;
+        h_b = phys.state_hash();
+        uint32_t t = tick_i;
+        float pt = 0;
+        uint32_t adim = 0;
+        while (t > t_a && st.rewind.step_back(phys, t, &t, &pt)) adim++;
+        const bool geldi = t == t_a && phys.state_hash() == h_a;
+        tick_i = t;
+        for (uint32_t k = t_a; k < t_b; k++) scene.tick(fs.step_s, tick_i++);
+        const bool ayni = tick_i == t_b && phys.state_hash() == h_b;
+        const bool olcuyor = h_a != h_b;
+        const bool ok = (geldi && ayni) || !olcuyor;
+        std::printf("[engine_editor] geri sarma kapisi: tik %u -> %u (ozet %016llx -> %016llx, %s); %u adimda geri: tik %u, ozet esit %s; "
+                    "%u tik ileri: ozet esit %s; halka %u kayit (sigmayan %u) %s\n",
+                    t_a, t_b, (unsigned long long)h_a, (unsigned long long)h_b,
+                    olcuyor ? "degisti" : "DEGISMEDI: dinamik govde yok, kapi ATLANDI", adim, t, geldi ? "evet" : "HAYIR",
+                    t_b - t_a, ayni ? "evet" : "HAYIR", st.rewind.adet, st.rewind.sigmayan, ok ? "OK" : "HATA");
+        if (!ok) return 1;
+        st.rewind_request = 1; // komut yolu (c): bir sonraki karede uygulanir
+      } else if (frame_i == 24) {
+        const bool ok = st.paused && tick_i < t_b;
+        std::printf("[engine_editor] geri sarma komutu: duraklatti %s, tik %u (< %u %s) %s\n", st.paused ? "evet" : "HAYIR", tick_i, t_b,
+                    tick_i < t_b ? "evet" : "HAYIR", ok ? "OK" : "HATA");
         if (!ok) return 1;
         st.paused = false;
       }

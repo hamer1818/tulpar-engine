@@ -270,6 +270,19 @@ public:
 
   // Belirlenimlilik olcusu: tum govdelerin konum/donus bitleri (FNV-1a).
   uint64_t state_hash() const;
+
+  // --- Durum kaydi (editor geri sarimi; ileride rollback) ----------------
+  // Dunyanin TAM fizik durumu (Jolt SaveState: govde konum/donus/hiz, uyku,
+  // temas onbellegi, kisitlar + karakterler ve girdileri) `buf`a yazilir.
+  // Donus: yazilan bayt; sigmazsa 0 (bir sey yazilmis sayilmaz). Ayirma yok:
+  // yazici cagiranin tamponuna yazar. Geri yukleme ancak AYNI govde/karakter
+  // kumesine yapilir (arada govde eklenip silindiyse false, hicbir sey
+  // degismez sayilmaz — Jolt yarim yuklemis olabilir: cagiran durumu gecersiz
+  // sayar). Sonraki step()'ler kaydin alindigi andan sonrakilerle BIT ESIT
+  // (temas onbellegi kayitta; kapi physics_save_restore_replays_bit_exact).
+  // Temas/tetik halkalari kayda GIRMEZ: geri yuklemede bosaltilir.
+  uint32_t save_state(uint8_t *buf, uint32_t cap) const;
+  bool restore_state(const uint8_t *buf, uint32_t size);
   PhysicsStats stats() const;
 
   struct Impl; // .cpp'de; Jolt tipleri orada kalir

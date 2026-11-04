@@ -82,6 +82,7 @@ enum class CommandId : uint16_t {
   PlayToggle,     // F5
   PlayPause,      // F6  (oynatilirken duraklat; govdeler yerinde kalir)
   PlayStep,       // F10 (duraklatilmisken TEK sabit adim ilerlet)
+  PlayStepBack,   // Shift+F10 (fizik onizlemesini en yakin ESKI kayda geri sar; duraklatir)
   PlayRunGame,    // Ctrl+F5 (Tulpar oyununu AYRI surecte derle + calistir / durdur)
   HelpCheckUpdates, // (kisayolsuz) GitHub'da yeni surum var mi; pencereyi acar
   HelpAutoCheck,    // (kisayolsuz) acilista + gunde bir otomatik denetim ac/kapa

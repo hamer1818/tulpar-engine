@@ -27,6 +27,7 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/StateRecorder.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -927,6 +928,83 @@ uint64_t Physics::state_hash() const {
     h = fnv1a(v, sizeof v, h);
   }
   return h;
+}
+
+namespace {
+// Sabit tamponlu Jolt durum yazicisi/okuyucusu (StateRecorderImpl std::
+// stringstream kullanir: ayirir). Tasarsa basarisiz olur ve oyle kalir.
+class FixedRecorder final : public JPH::StateRecorder {
+public:
+  FixedRecorder(uint8_t *w, const uint8_t *r, uint32_t cap) : w_(w), r_(r), cap_(cap) {}
+  void WriteBytes(const void *data, size_t n) override {
+    if (failed_ || !w_ || pos_ + n > cap_) { failed_ = true; return; }
+    std::memcpy(w_ + pos_, data, n);
+    pos_ += (uint32_t)n;
+  }
+  void ReadBytes(void *data, size_t n) override {
+    if (failed_ || !r_ || pos_ + n > cap_) { failed_ = true; std::memset(data, 0, n); return; }
+    std::memcpy(data, r_ + pos_, n);
+    pos_ += (uint32_t)n;
+  }
+  bool IsEOF() const override { return pos_ >= cap_; }
+  bool IsFailed() const override { return failed_; }
+  uint32_t size() const { return pos_; }
+private:
+  uint8_t *w_;
+  const uint8_t *r_;
+  uint32_t cap_, pos_ = 0;
+  bool failed_ = false;
+};
+constexpr uint32_t kStateMagic = 0x53504854; // "THPS"
+} // namespace
+
+uint32_t Physics::save_state(uint8_t *buf, uint32_t cap) const {
+  if (!impl_ || !buf) return 0;
+  FixedRecorder rec(buf, nullptr, cap);
+  const uint32_t magic = kStateMagic, nb = impl_->system.GetNumBodies(), cc = impl_->char_cap;
+  rec.Write(magic);
+  rec.Write(nb);
+  rec.Write(cc);
+  for (uint32_t i = 0; i < cc; i++) {
+    const CharacterSlot &cs = impl_->chars[i];
+    const uint8_t alive = cs.alive && cs.ch != nullptr;
+    rec.Write(alive);
+    if (!alive) continue;
+    rec.Write(cs.desired);
+    rec.Write(cs.jump_speed);
+    rec.Write(cs.step_up);
+    rec.Write(cs.jump);
+    cs.ch->SaveState(rec);
+  }
+  impl_->system.SaveState(rec, JPH::EStateRecorderState::All);
+  return rec.IsFailed() ? 0 : rec.size();
+}
+
+bool Physics::restore_state(const uint8_t *buf, uint32_t size) {
+  if (!impl_ || !buf || size < 12) return false;
+  FixedRecorder rec(nullptr, buf, size);
+  uint32_t magic = 0, nb = 0, cc = 0;
+  rec.Read(magic);
+  rec.Read(nb);
+  rec.Read(cc);
+  // Ayni kume degilse DOKUNMA: Jolt'un RestoreState'i govde sayisi farkini
+  // yakalar ama karakter slotlari bizim; once ucuz denetim.
+  if (rec.IsFailed() || magic != kStateMagic || nb != impl_->system.GetNumBodies() || cc != impl_->char_cap) return false;
+  for (uint32_t i = 0; i < cc; i++) {
+    CharacterSlot &cs = impl_->chars[i];
+    uint8_t alive = 0;
+    rec.Read(alive);
+    if (rec.IsFailed() || (alive != 0) != (cs.alive && cs.ch != nullptr)) return false;
+    if (!alive) continue;
+    rec.Read(cs.desired);
+    rec.Read(cs.jump_speed);
+    rec.Read(cs.step_up);
+    rec.Read(cs.jump);
+    cs.ch->RestoreState(rec);
+  }
+  if (!impl_->system.RestoreState(rec) || rec.IsFailed()) return false;
+  clear_contacts();
+  return true;
 }
 
 PhysicsStats Physics::stats() const {
