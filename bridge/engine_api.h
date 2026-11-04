@@ -458,6 +458,10 @@ double teng_touch_y(int i);
 double teng_stick_x(void); // sanal joystick -1..1 (sol yarim ekran surukleme)
 double teng_stick_y(void);
 int teng_stick_action(void); // sag yarim kisa dokunus (bu karede)
+int teng_stick_pressed(void);        // sag yarida yeni basis (bu kare)
+void teng_stick_hold(int on);         // eylem: basili tut kipi
+int teng_stick_exclude(int i, double x, double y, double w, double h); // haric alan (0..7; w<=0 siler)
+void teng_stick_visible(int on);      // cubugu ciz
 double teng_look_dx(void);   // bakis, piksel/kare: sag fare tusuyla surukleme + (dokunmatik) sag yarim surukleme
 double teng_mouse_x(void);
 double teng_mouse_y(void);

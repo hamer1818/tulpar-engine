@@ -236,6 +236,11 @@ SPEC = [
     ("eng_stick_x", "float", [], "Sanal joystick x (-1..1; sol yarim ekran surukleme)."),
     ("eng_stick_y", "float", [], "Sanal joystick y (-1..1; ileri = +)."),
     ("eng_stick_action", "bool", [], "Sag yarim ekrana kisa dokunus (bu karede)."),
+    # Geri bildirim #31 (2026-11-04): gorunen cubuk, haric alanlar, basili-tut kipi.
+    ("eng_stick_pressed", "bool", [], "Sag yarida parmagin BASILDIGI kare (iki kipte de; kisa dokunusun birakisini beklemez)."),
+    ("eng_stick_hold", "void", [("on", "flag")], "Eylem kipi: acik = sag yarida parmak BASILI oldugu her kare eng_stick_action true (surekli vurus); kapali (varsayilan) = kisa dokunusun BIRAKILDIGI kare."),
+    ("eng_stick_exclude", "bool", [("i", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "Haric alan i (0..7), dokunus pikselinde: burada BASLAYAN parmak ne cubugu ne eylemi surer (oyunun dugmesi saldiri sayilmaz). w <= 0 alani siler. Sinir disi i: HATA + false."),
+    ("eng_stick_visible", "void", [("on", "flag")], "Sol yarida suruklenirken cubugun tabani ve topuzu ekranda cizilir (oyunun arayuzunun ALTINDA)."),
     ("eng_look_dx", "float", [], "Bakis, piksel/kare: sag fare tusuyla surukleme + (dokunmatik) sag yarim surukleme."),
     ("eng_mouse_x", "float", [], "Fare x (masaustu)."),
     ("eng_mouse_y", "float", [], "Fare y (masaustu)."),

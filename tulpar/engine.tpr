@@ -1008,6 +1008,15 @@ func touch_id_e(i): int { return eng_touch_id(i); }
 func cubuk_x(): float { return eng_stick_x(); }
 func cubuk_y(): float { return eng_stick_y(); }
 func eylem(): bool { return eng_stick_action(); }
+// Geri bildirim #31: basildigi kare, basili-tut kipi, haric alan (dugmeler), gorunen cubuk.
+func eylem_basla(): bool { return eng_stick_pressed(); }
+func stick_pressed(): bool { return eng_stick_pressed(); }
+func eylem_basili_tut(acik) { eng_stick_hold(acik); }
+func stick_hold(on) { eng_stick_hold(on); }
+func cubuk_haric(i, x, y, w, h): bool { return eng_stick_exclude(i, x, y, w, h); }
+func stick_exclude(i, x, y, w, h): bool { return eng_stick_exclude(i, x, y, w, h); }
+func cubuk_goster(acik) { eng_stick_visible(acik); }
+func stick_visible(on) { eng_stick_visible(on); }
 // Klavye VEYA dokunmatik: WASD / ok tuşları / sanal joystick tek yön vektörü.
 func yon_x(): float {
     float v = eng_stick_x();

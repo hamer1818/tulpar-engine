@@ -4692,3 +4692,50 @@ ENGINE_TEST(bridge_audio_3d_direction_follows_listener) {
   unsetenv("TULPAR_ENGINE_AUDIO_NULL");
   CHECK(std::strstr(g_kapanis_log, "kapanis (3B ses): 2 cal (HRTF), dinleyici elle") != nullptr);
 }
+
+// --- Gorunen sanal cubuk + haric alan + basili tut koprude (Geri bildirim #31) ---
+// Olcu: kapanis satiri (cubugun cizildigi kare, haric alanda baslayan parmak) +
+// eng_stick_* donusleri. KONTROL: cubuk gorunur DEGILKEN ayni surukleme 0 karede cizilir.
+ENGINE_TEST(bridge_stick_visible_exclude_hold) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("cubuk", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  // KONTROL: gorunmezken 3 kare surukleme
+  teng_debug_touch(1, 40, (double)kH * 0.5, 1); kare();
+  teng_debug_touch(1, 70, (double)kH * 0.5, 1); kare(); kare();
+  teng_debug_touch(1, 70, (double)kH * 0.5, 0); kare();
+  teng_stick_visible(1);
+  teng_debug_touch(2, 40, (double)kH * 0.5, 1); kare();
+  teng_debug_touch(2, 80, (double)kH * 0.5 - 20, 1); kare();
+  const double sx = teng_stick_x();
+  kare();
+  teng_debug_touch(2, 80, (double)kH * 0.5 - 20, 0); kare();
+  // Haric alan: sag altta dugme
+  CHECK(teng_stick_exclude(0, kW - 80, kH - 60, 80, 60) == 1);
+  teng_debug_touch(3, kW - 40, kH - 30, 1); kare();
+  const int bas_haric = teng_stick_pressed();
+  teng_debug_touch(3, kW - 40, kH - 30, 0); kare();
+  const int eylem_haric = teng_stick_action();
+  // Basili tut
+  teng_stick_hold(1);
+  teng_debug_touch(4, kW - 120, 40, 1); kare();
+  const int b1 = teng_stick_pressed(), a1 = teng_stick_action();
+  kare();
+  const int b2 = teng_stick_pressed(), a2 = teng_stick_action();
+  teng_debug_touch(4, kW - 120, 40, 0); kare();
+  const int a3 = teng_stick_action();
+  std::printf("    [bilgi] cubuk x %.2f; haric alan: basis %d eylem %d; basili tut: kare1 basis %d eylem %d, kare2 basis %d eylem %d, birakinca %d\n",
+              sx, bas_haric, eylem_haric, b1, a1, b2, a2, a3);
+  CHECK(sx > 0.2);
+  CHECK(bas_haric == 0 && eylem_haric == 0);
+  CHECK(b1 == 1 && a1 == 1 && b2 == 0 && a2 == 1 && a3 == 0);
+  CHECK(teng_stick_exclude(8, 0, 0, 1, 1) == 0); // sinir disi
+  CHECK(teng_error_count() == e0 + 1);
+  kapanis_yakala();
+  // Gorunmezken (4 kare) 0, gorunurken 3 kare surukleme (birakis karesi cizmez).
+  CHECK(std::strstr(g_kapanis_log, "cubuk: haric alanda baslayan 1 parmak, 3 karede cizildi, eylem basili-tut") != nullptr);
+}

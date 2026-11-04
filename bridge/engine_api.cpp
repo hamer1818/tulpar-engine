@@ -603,6 +603,8 @@ struct Bridge {
   uint32_t audio_off_reports = 0; // kapali cihazda cagri: ilk N tanesi HATA, sonrasi ayrinti (log selini onler)
   uint32_t audio_plays = 0;
   float audio_master = 1.0f;
+  bool stick_visible = false; // eng_stick_visible: cubuk tabani + topuzu ciz
+  uint32_t stick_drawn_frames = 0;
   // 3B ses: sonraki play_3d'lerin ayari + dinleyici (varsayilan: kamera).
   float a3_min = 1.0f, a3_max = 60.0f;
   bool a3_hrtf = false, listener_manual = false;
@@ -1229,6 +1231,25 @@ void render_frame() {
       b.dim_frames_quad++;
       own_fsb = 1;
     }
+  }
+  // Gorunen sanal cubuk (Geri bildirim #31): oyunun arayuzunun ALTINDA. Daire
+  // yatay seritlerle (ui_rect; ayri boru hatti/doku yok): taban yari saydam,
+  // topuz cubugun sapmasi kadar kaymis.
+  if (b.stick_visible && b.stick.move_active) {
+    auto daire = [&](float cx, float cy, float r, uint32_t rgba) {
+      const int n = 24;
+      for (int k = 0; k < n; k++) {
+        const float y0 = -r + 2.0f * r * (float)k / (float)n, y1 = -r + 2.0f * r * (float)(k + 1) / (float)n;
+        const float ym = 0.5f * (y0 + y1);
+        const float hw = std::sqrt(r * r - ym * ym > 0 ? r * r - ym * ym : 0.0f);
+        b.ren.ui_rect(cx - hw, cy + y0, 2.0f * hw, y1 - y0, rgba);
+      }
+    };
+    const float R = b.stick.stick_radius_px;
+    const Vec2 o = b.stick.stick_origin;
+    daire(o.x, o.y, R, renderer::Renderer::rgba(255, 255, 255, 40));
+    daire(o.x + b.stick.move.x * R, o.y - b.stick.move.y * R, R * 0.38f, renderer::Renderer::rgba(255, 255, 255, 120));
+    b.stick_drawn_frames++;
   }
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
@@ -2602,7 +2623,8 @@ void teng_shutdown(void) {
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
-  BINFO("kapanis (arayuz girdisi): gorulmeyen basis %u (tiklamadi), click_once engeli %u", b.ui.stale_presses, b.ui.once_blocked);
+  BINFO("kapanis (arayuz girdisi): gorulmeyen basis %u (tiklamadi), click_once engeli %u; cubuk: haric alanda baslayan %u parmak, %u karede cizildi%s",
+        b.ui.stale_presses, b.ui.once_blocked, b.stick.excluded_touches, b.stick_drawn_frames, b.stick.hold_action ? ", eylem basili-tut" : "");
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
         b.ui.injects, b.scene_reloads, g_save.loaded ? g_save.path : "acilmadi", g_save.n, g_save.writes, g_save.bad_lines);
   {
@@ -4064,6 +4086,29 @@ double teng_touch_y(int i) {
 double teng_stick_x(void) { return g ? g->stick.move.x : 0; }
 double teng_stick_y(void) { return g ? g->stick.move.y : 0; }
 int teng_stick_action(void) { return g && g->stick.action ? 1 : 0; }
+int teng_stick_pressed(void) { return g && g->stick.action_down ? 1 : 0; }
+void teng_stick_hold(int on) {
+  CALLF("teng_stick_hold", "%d", on);
+  if (!ready("teng_stick_hold")) return;
+  g->stick.hold_action = on != 0;
+}
+int teng_stick_exclude(int i, double x, double y, double w, double h) {
+  CALLF("teng_stick_exclude", "%d (%.0f %.0f %.0f %.0f)", i, x, y, w, h);
+  if (!ready("teng_stick_exclude")) return 0;
+  if (i < 0 || i >= (int)app::VirtualStick::kMaxExclude) {
+    BERR("teng_stick_exclude: alan %d sinir disi (0..%u)", i, app::VirtualStick::kMaxExclude - 1);
+    return 0;
+  }
+  app::VirtualStick::Rect &r = g->stick.exclude[i];
+  if (w <= 0 || h <= 0) r = app::VirtualStick::Rect{};
+  else r = app::VirtualStick::Rect{(float)x, (float)y, (float)w, (float)h};
+  return 1;
+}
+void teng_stick_visible(int on) {
+  CALLF("teng_stick_visible", "%d", on);
+  if (!ready("teng_stick_visible")) return;
+  g->stick_visible = on != 0;
+}
 double teng_look_dx(void) { return g ? g->stick.look_delta.x + g->mouse_look_dx : 0; }
 double teng_mouse_x(void) { return g && g->in ? g->in->mouse_x : 0; }
 double teng_mouse_y(void) { return g && g->in ? g->in->mouse_y : 0; }

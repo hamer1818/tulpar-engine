@@ -50,9 +50,9 @@
 | 26 | motor / köprü | dinamik gövdenin dönmesi kilitlenemiyor: devrilen birlik gövdesi, üstündeki gövdesiz kafa/kalkan modellerinin içine geçiyor | O | **düzeltildi** (`donme_kilidi`) |
 | 27 | motor / içerik | LOD'u üretilmemiş model kameradan 20 m ötede renderer'ın İLK mesh'iyle çiziliyor (sıfırlanmış tutamaç geçerli): ekranın kenarında model bozuk, renk farklı (kullanıcı, telefonda) | Y | **düzeltildi** (Tuzaklar 8cx) |
 | 28 | dil | `A[min(i, j)]` / `A[max(i, j)]` dizini sessizce 0 okuyor; `min()` sonucu `int[]` öğesine yazılınca o öğe de dizin olarak 0 | Y | **düzeltildi** (TulparLang: ondalık dizin sıfıra doğru kesilir) |
-| 29 | motor / arayüz | ekran değişimi aynı karede yeni ekranı da çizdiriyor: aynı tıklama (gerçek ya da `ui_test_tikla_ad`) iki ekranın aynı yerdeki düğmesine iner | O | açık (desen: karede TEK ekran çiz) |
+| 29 | motor / arayüz | ekran değişimi aynı karede yeni ekranı da çizdiriyor: aynı tıklama (gerçek ya da `ui_test_tikla_ad`) iki ekranın aynı yerdeki düğmesine iner | O | **düzeltildi** (`eng_ui_click_once`) |
 | 30 | oyun | şeridi tarayan engel / iri fizik gövdesi kapıya takılıyor | — | oyun tasarımı (ayrıntı oyunun deposunda) |
-| 31 | motor / girdi | `eng_stick_action` sağ yarıya < 250 ms dokunuşu BIRAKINCA sayıyor, yetenek düğmesine basmak da saldırı sayılıyor; sanal çubuk görünmüyor | O | açık (oyun kendi çubuğunu çiziyor) |
+| 31 | motor / girdi | `eng_stick_action` sağ yarıya < 250 ms dokunuşu BIRAKINCA sayıyor, yetenek düğmesine basmak da saldırı sayılıyor; sanal çubuk görünmüyor | O | **düzeltildi** (`eng_stick_visible/exclude/hold/pressed`, 2026-11-04) |
 | 32 | motor / köprü | "doğuşta küçük kur, karede büyüt" kalıbında büyütme yolunu atlayan varlık sessizce görünmez; çizilen boy okunamıyordu | Y | **düzeltildi** (`eng_drawn_height`, Tuzaklar 8df) |
 | 33 | oyun | büyük gövde birlikleri fizikte itip düşman safına sürüyordu | — | oyun tasarımı (çarpışma grubuyla çözüldü; ayrıntı oyunun deposunda) |
 | 34 | oyun | hava efekti ekranda görünmüyordu (güneş inerken ortam parlıyor, ikisi birbirini götürüyordu) | — | oyun tasarımı (ayrıntı oyunun deposunda) |
@@ -345,7 +345,7 @@ ondalık değer ham bit deseni: `return v % max(1, n)` = 4611686018427387904) ay
 (`tests/int_hedef_ondalik.test.tpr`). `min`/`max` dönüş tipi değişmedi (`min(3, 5) / 2` hâlâ 1.5; ayrı karar:
 `imin`/`imax` + typecheck uyarısı). `int[]` öğesine float yazmanın çevrilmemesi ayrı, açık bir tip deliği.
 
-### 29. Ekran değişimi aynı karede yeni ekranı da çizdiriyor — AÇIK (desen)
+### 29. Ekran değişimi aynı karede yeni ekranı da çizdiriyor — DÜZELTİLDİ (`eng_ui_click_once`, F6 #125)
 
 Ekranlar ardışık `if`lerle çizilince: A'daki düğme `g_ekran = B` yapar, B aynı karede çizilir ve aynı tıklama
 B'nin aynı yerdeki düğmesini de tetikler (oyunda ölçüldü 2026-10-09: menüye bir satır eklenince bir tıklama iki
@@ -354,13 +354,20 @@ veriyor. Desen: karenin başında çizilecek ekranı sabitle, karede **tek** ekr
 **çizilmiş** widget'a tıklasın. `engine_savas.tpr` ilk denemesinde de aynısı oldu ("Ayarlar" -> aynı karede
 "Geri") ve bu desenle yazıldı. Motor tarafı öneri: `eng_ui_click_once` (karede ilk isabet tıklamayı tüketir).
 
-### 31. Sanal çubuğun eylemi bırakışta ve her yerde — AÇIK (O)
+### 31. Sanal çubuğun eylemi bırakışta ve her yerde — DÜZELTİLDİ (2026-11-04: `eng_stick_visible/exclude/hold/pressed`)
 
 Kullanıcı telefonda (P20 Pro, 2026-10-13) doğrudan kontrol edilen birlikle vurmanın çok zor olduğunu söyledi. Motor
 yanı: `eng_stick_action` sağ yarıya < 250 ms dokunuşu **bırakınca** sayıyor (basılı tutma yok), yetenek düğmesine
 basmak da saldırı sayılıyor, çubuk ekranda görünmüyor (yalnız ipucu). Oyun kendi görünen çubuğunu + "Vur"
 düğmesini çizip parmakları kimliğiyle (`eng_touch_id`) izleyerek çözdü. **Öneri:** `eng_stick_visible(on)`,
 `eng_stick_exclude(i, x, y, w, h)` (düğme alanı saldırı sayılmaz), basılı-tut kipi.
+
+**Motorda (2026-11-04):** dördü de geldi — `eng_stick_visible` (`cubuk_goster`: taban + topuz, arayüzün altında),
+`eng_stick_exclude` (`cubuk_haric`, 8 alan: orada BAŞLAYAN parmak çubuğu da eylemi de sürmez, dışarı sürüklense
+bile), `eng_stick_hold` (`eylem_basili_tut`: parmak sağ yarıda durdukça her kare eylem), `eng_stick_pressed`
+(`eylem_basla`: basıldığı kare, bırakışı beklemez). Kapılar `input_virtual_stick_exclude_hold_pressed`,
+`bridge_stick_visible_exclude_hold` (görünmezken 0, görünürken 3 karede çizildi — kontrol). Kapanış satırı
+haric parmak + çizilen kare sayar. Oyun kendi çubuğunu tutabilir; yeni API isteğe bağlı.
 
 ### 32. Varlık ekranda yok ama sayılarda var — DÜZELTİLDİ (Tuzaklar 8df)
 
