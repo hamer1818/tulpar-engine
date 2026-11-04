@@ -81,6 +81,9 @@ jobs:
           EXT="$PWD/yapi/tulpar-ext-ios"
           export TULPAR_IOS_LIB_DIR="$PWD/tulparlang/ios/dist"
           mkdir -p cikti
+          # tulpar/tulpar.toml [ext] paths = ../yapi/tulpar-ext (masaustu paketi):
+          # yoksa derleyici durur. iOS paketine bagla (ayni ad: --ext once gelir).
+          [ -e yapi/tulpar-ext ] || ln -s tulpar-ext-ios yapi/tulpar-ext
           cd tulpar
           for oyun in engine_dalga engine_aksiyon; do
             TULPAR_ANDROID_ASSETS=examples/assets TULPAR_IOS_SDK=iphoneos \
