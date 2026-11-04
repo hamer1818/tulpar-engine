@@ -65,6 +65,10 @@ public:
 
   // Son `count` karenin (0 = hepsi) istatistigi. `scratch` en az count uint64.
   FrameStats frame_stats(Span<uint64_t> scratch, uint32_t count = 0) const;
+  // Son `count` karenin suresini (ns) ESKIDEN YENIYE `out`a yazar; yazilan
+  // sayiyi dondurur (kayitli kare ve out boyu ile sinirli). Editorun kare
+  // grafigi bunu cizer: ayni halka, frame_stats ile ayni ornekler.
+  uint32_t frame_times(Span<uint64_t> out, uint32_t count) const;
   // Saf: verilen orneklerden hesaplar (test edilebilir; scratch sort icin).
   static FrameStats stats_from(Span<const uint64_t> samples, Span<uint64_t> scratch);
 

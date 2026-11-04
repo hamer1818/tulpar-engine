@@ -203,6 +203,17 @@ FrameStats Profiler::frame_stats(Span<uint64_t> scratch, uint32_t count) const {
   return stats_from(Span<const uint64_t>(samples, count), scratch.sub(count, count));
 }
 
+uint32_t Profiler::frame_times(Span<uint64_t> out, uint32_t count) const {
+  const uint64_t avail = frames_total_ < cfg_.frame_capacity ? frames_total_ : cfg_.frame_capacity;
+  if (count > avail) count = (uint32_t)avail;
+  if (count > out.size()) count = (uint32_t)out.size();
+  for (uint32_t i = 0; i < count; i++) {
+    const ProfileFrame &f = frames_[(frames_total_ - count + i) % cfg_.frame_capacity];
+    out[i] = f.t_end - f.t_begin;
+  }
+  return count;
+}
+
 void Profiler::dump_text(FILE *out, Span<uint64_t> scratch) const {
   FrameStats s = frame_stats(scratch);
   std::fprintf(out, "[profiler] kare=%llu  ort=%.3f ms  p50=%.3f ms  p99=%.3f ms  max=%.3f ms  bolge=%llu dusen=%llu\n",

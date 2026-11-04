@@ -71,3 +71,36 @@ ENGINE_TEST(profiler_frames_zones_and_trace) {
     unlink(path);
   }
 }
+
+// Editorun kare grafigi frame_times'i cizer (app/editor_app.cpp Stats paneli).
+// Iddia: (1) sira ESKIDEN YENIYE — son karede uyunan 20 ms en sonda cikmali
+// (sira ters olsaydi out[0]'da olurdu: pozitif kontrol), (2) ayni ornekler
+// frame_stats ile — iki yoldan hesaplanan p50/p99/max esit, (3) sinirlar:
+// halka kapasitesi ve out boyu asilmaz.
+ENGINE_TEST(profiler_frame_times_oldest_to_newest) {
+  SystemArena sys;
+  CHECK(sys.reserve(1u << 20, "prof"));
+  Profiler p;
+  ProfilerConfig cfg;
+  cfg.frame_capacity = 8;
+  cfg.zone_capacity = 16;
+  CHECK(p.init(sys, cfg));
+  uint64_t out[16] = {0};
+  CHECK(p.frame_times(Span<uint64_t>(out, 16), 16) == 0); // kare yok
+  for (int f = 0; f < 12; f++) {
+    p.begin_frame();
+    if (f == 11) usleep(20000);
+    p.end_frame();
+  }
+  const uint32_t n = p.frame_times(Span<uint64_t>(out, 16), 16);
+  CHECK(n == 8); // halka 8
+  CHECK(out[n - 1] >= 20000000ull);
+  for (uint32_t i = 0; i + 1 < n; i++) CHECK(out[i] < out[n - 1]);
+  uint64_t scratch[16], scratch2[8];
+  const FrameStats a = p.frame_stats(Span<uint64_t>(scratch, 16));
+  const FrameStats b = Profiler::stats_from(Span<const uint64_t>(out, n), Span<uint64_t>(scratch2, 8));
+  CHECK(a.count == b.count && a.p50_ns == b.p50_ns && a.p99_ns == b.p99_ns && a.max_ns == b.max_ns);
+  CHECK(p.frame_times(Span<uint64_t>(out, 3), 16) == 3); // out boyu
+  CHECK(out[2] >= 20000000ull);                          // yine en yeni sonda
+  p.shutdown();
+}

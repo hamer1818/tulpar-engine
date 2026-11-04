@@ -136,7 +136,13 @@ Ayrıntı: [FAZ3.md](FAZ3.md) "Faz 6 kalanı + Faz 8 fizibilitesi", tuzaklar 8aq
 
 ## 6.1 Ne yok (sonraki aşama adayları; tarama belgesine karşı tam liste: `BOSLUK-TARAMASI.md`)
 1. ~~Sahne veri modeli + dosya formatı~~ ✅, ~~runtime blob derleyici~~ ✅, ~~bake çıktıları blob'a (navmesh, ışık haritası)~~ ✅ 2026-09-15 (navmesh v2, küme DAG v3, GI sondası v4). Kalan: **telefon demosunda blob**.
-2. ~~**Editör**~~ ✅ çoklu seçim, kaynak tarayıcı, ışık/gölge/güneş gizmoları geldi. Kalan: oynat/durdur sim geri sarımı, implot ile kare zamanı grafiği.
+2. ~~**Editör**~~ ✅ çoklu seçim, kaynak tarayıcı, ışık/gölge/güneş gizmoları geldi. ~~Kare zamanı grafiği~~ ✅ 2026-11-04:
+   Stats panelinde profiler halkasının son 240 karesi + p50/p99/max (implot yerine `ImGui::PlotLines`, yeni bağımlılık yok;
+   `Profiler::frame_times`, test `profiler_frame_times_oldest_to_newest`). Aynı panelde ölçülmeyen üç satır düzeltildi:
+   "GPU VRAM" ekran boyutundan uyduruluyordu (şimdi `Device::memory_used/reserved_bytes`), gölge satırı sabit
+   "CSM 3x1024 D16" yazıyordu (şimdi `Renderer::shadow()`), "Sıcak Tahsis: 0 Bayt" ölçülmüyordu — editör `AllocGate`
+   override'ını hiç linklemiyordu (şimdi linkli; headless özet "AllocGate: toplam N global new (override sayiyor)").
+   "Tulpar ARC: 0 sızıntı" satırı kalktı (oyun ayrı süreç). Kalan: oynat/durdur sim geri sarımı.
 3. ~~**Tulpar bağlaması**~~ ✅ 2026-09-15: `bridge/` + `lib/engine.tpr` + üç örnek oyun; köprü **175 builtin** (2026-09-27 sayımı: `tools/gen_engine_bindings.py` `SPEC` **208** satır) (ses, animasyon, navmesh, ışın/örtüşme sorguları, anlık-kip arayüz, kalıcı kayıt, sıcak yükleme, **çarpışma olayları** dahil — bkz. [KOPRU.md](KOPRU.md)).
    **Çarpışma olayı geldi (2026-09-16):** callback FFI olmadığı için geri çağrım değil **kuyruk** — fizik
    adımında oluşan temaslar sabit boy halkaya yazılır, oyun karede okur. Halka dolarsa olaylar sessizce

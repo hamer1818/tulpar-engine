@@ -63,6 +63,7 @@
 #include "core/jobs/job_system.hpp"
 #include "core/math/noise.hpp"
 #include "core/memory/arena.hpp"
+#include "core/memory/alloc_gate.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/memory.hpp"   // os_resident_bytes (durum cubugu RSS)
 #include "platform/thread.hpp"
@@ -182,8 +183,14 @@ static int find_first_camera_entity(const content::SceneDesc &s) {
   return -1;
 }
 
+// Kare grafigi: profiler halkasinin son kGraphFrames karesi (ayni ornekler
+// frame_stats'ta; test profiler_frame_times_oldest_to_newest). Kapasite 600,
+// 240 kare = 60 fps'te 4 s.
+static constexpr uint32_t kGraphFrames = 240;
+
 static void draw_stats_overlay(bool *open, float dt, const renderer::RendererStats &rs, const content::SceneDesc &scene,
-                               uint32_t vp_w, uint32_t vp_h, ViewportTab tab, const Arena &arena, const ViewportRect &vr) {
+                               uint32_t vp_w, uint32_t vp_h, ViewportTab tab, const Arena &arena, const ViewportRect &vr,
+                               const Profiler &prof, const rhi::Device &dev, const renderer::ShadowInfo &sh, uint64_t allocs_frame) {
   if (!open || !*open) return;
   if (vr.w < 120.0f || vr.h < 120.0f) return;
 
@@ -224,6 +231,31 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
       *open = false;
     }
 
+    // Kare zamani grafigi (DURUM §6.1 "implot ile kare zamani grafigi"):
+    // implot vendor EDILMEDI — tek cizgi icin ImGui::PlotLines yetiyor, yeni
+    // bagimlilik katman tablosuna ve lisans listesine girmeden. Ust sinir
+    // pencerenin max'i ile 33.3 ms'nin buyugu; 16.7 ms cizgisi elle.
+    {
+      static uint64_t ns[kGraphFrames];
+      static float msv[kGraphFrames];
+      static uint64_t scratch[kGraphFrames];
+      const uint32_t n = prof.frame_times(Span<uint64_t>(ns, kGraphFrames), kGraphFrames);
+      if (n > 0) {
+        float top = 33.3f;
+        for (uint32_t i = 0; i < n; i++) {
+          msv[i] = (float)((double)ns[i] / 1e6);
+          if (msv[i] > top) top = msv[i];
+        }
+        const FrameStats fs = Profiler::stats_from(Span<const uint64_t>(ns, n), Span<uint64_t>(scratch, n));
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const float gw = ImGui::GetContentRegionAvail().x, gh = 46.0f;
+        ImGui::PlotLines("##kare_grafigi", msv, (int)n, 0, nullptr, 0.0f, top, ImVec2(gw, gh));
+        const float y60 = p0.y + gh * (1.0f - 16.7f / top);
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(p0.x, y60), ImVec2(p0.x + gw, y60), ImGui::GetColorU32(tone_col(Tone::Accent, 0.55f)));
+        ImGui::TextDisabled("%u kare  p50 %.1f  p99 %.1f  max %.1f ms", n, fs.p50_ns / 1e6, fs.p99_ns / 1e6, fs.max_ns / 1e6);
+      }
+    }
+
     ImGui::Separator();
 
     // PR #7'nin duz `metric_row` yerlesimi korundu (dar, goruntu alanina
@@ -233,7 +265,6 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
     // duserlerdi. Bicim PR #7'den, icerik iki taraftan.
     const ScenePolyStats poly = calculate_scene_poly_stats(scene);
     const float rss_mb = get_system_rss_mb();
-    const float vram_est = (float)(vp_w * vp_h * 8 * 2 + rs.textures * 1024 * 1024 * 4) / (1024.0f * 1024.0f);
 
     auto metric_row = [](const char *label, const char *val, ImVec4 val_col) {
       ImGui::TextDisabled("%s", label);
@@ -257,7 +288,14 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
     std::snprintf(buf, sizeof buf, "%u / %u", rs.meshes, rs.textures);
     metric_row("Mesh / Doku:", buf, tone(Tone::Text));
 
-    metric_row("G\xC3\xB6lge Haritas\xC4\xB1:", "CSM 3x1024 D16", tone(Tone::TextDim));
+    // Eskiden sabit "CSM 3x1024 D16" yaziyordu: golge kapali ya da baska
+    // boyutta olsa da. Renderer'in kendi ShadowInfo'su basilir.
+    if (sh.enabled)
+      std::snprintf(buf, sizeof buf, "%ux%u %s%s", sh.cascades, sh.size, sh.format == VK_FORMAT_D16_UNORM ? "D16" : "D32",
+                    sh.linear_filter ? " PCF" : "");
+    else
+      std::snprintf(buf, sizeof buf, "kapal\xC4\xB1");
+    metric_row("G\xC3\xB6lge Haritas\xC4\xB1:", buf, tone(Tone::TextDim));
 
     std::snprintf(buf, sizeof buf, "%u de\xC4\x9F" "erlendirildi", rs.clusters.lights_evaluated);
     metric_row("Aktif I\xC5\x9F\xC4\xB1k:", buf, tone(Tone::Text));
@@ -267,15 +305,21 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
     std::snprintf(buf, sizeof buf, "%.1f MB", (double)rss_mb);
     metric_row("Sistem RAM:", buf, ImVec4(0.3f, 0.9f, 0.5f, 1.0f));
 
-    std::snprintf(buf, sizeof buf, "%.1f MB", (double)vram_est);
-    metric_row("GPU VRAM:", buf, tone(Tone::Text));
+    // Eskiden ekran boyutu ve doku SAYISINDAN uyduruluyordu (her doku 4 MB).
+    // Simdi ayiricinin defteri: kullanilan / vkAllocateMemory ile alinan.
+    std::snprintf(buf, sizeof buf, "%.1f / %.1f MB", (double)dev.memory_used_bytes() / (1024.0 * 1024.0),
+                  (double)dev.memory_reserved_bytes() / (1024.0 * 1024.0));
+    metric_row("GPU Bellek:", buf, tone(Tone::Text));
 
-    std::snprintf(buf, sizeof buf, "%.1f / %.1f KB", (double)arena.used() / 1024.0, (double)arena.capacity() / 1024.0);
+    std::snprintf(buf, sizeof buf, "%.1f / %.1f MB", (double)arena.used() / (1024.0 * 1024.0), (double)arena.capacity() / (1024.0 * 1024.0));
     metric_row("Motor Arena:", buf, tone(Tone::Text));
 
-    metric_row("S\xC4\xB1" "cak Tahsis:", "0 Bayt", ImVec4(0.2f, 0.8f, 0.4f, 1.0f));
-
-    metric_row("Tulpar ARC:", "0 s\xC4\xB1z\xC4\xB1nt\xC4\xB1", tone(Tone::TextDim));
+    // Eskiden sabit "0 Bayt" ve "Tulpar ARC: 0 sizinti" yaziyordu; ikisi de
+    // olculmuyordu. Simdi AllocGate'in sayaci: son karedeki global operator
+    // new sayisi (ImGui'nin kendi malloc'u bunun disinda). ARC satiri kalkti:
+    // oyun ayri surecte, editor onun yigininin gormuyor.
+    std::snprintf(buf, sizeof buf, "%llu new / kare", (unsigned long long)allocs_frame);
+    metric_row("S\xC4\xB1" "cak Tahsis:", buf, allocs_frame == 0 ? ImVec4(0.2f, 0.8f, 0.4f, 1.0f) : ImVec4(0.95f, 0.65f, 0.2f, 1.0f));
 
     ImGui::Separator();
 
@@ -8495,7 +8539,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       } else if (cr == ConfirmResult::Third) { run_pending(pending); pending = PendingNone; }
       else if (cr == ConfirmResult::Cancel) pending = PendingNone;
     }
-    draw_stats_overlay(&show_stats, dt, ren.stats(), st.scene, vp.width(), vp.height(), view_tab, sys, view_rect);
+    {
+      static uint64_t allocs_prev = AllocGate::total_allocations();
+      const uint64_t allocs_now = AllocGate::total_allocations();
+      draw_stats_overlay(&show_stats, dt, ren.stats(), st.scene, vp.width(), vp.height(), view_tab, sys, view_rect, prof, dev, ren.shadow(),
+                         allocs_now - allocs_prev);
+      allocs_prev = allocs_now;
+    }
     draw_command_palette(palette_st, cmds, st.scene, &st);
     ui.end_frame();
 
@@ -9080,6 +9130,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!ok) return 1;
   }
   static uint64_t scratch[1200]; // 2x kare kapasitesi (profiler sozlesmesi); 600 iken 300+ karede assert
+  // Stats panelinin "Sicak Tahsis" satirinin pozitif kontrolu: sayac bu ikilide
+  // GERCEKTEN sayiyor mu (override linklenmezse toplam 0 kalir ve satir yine
+  // "0 new" der). Acilis ImGui/GLFW disinda da new yapar; toplam > 0 beklenir.
+  std::printf("[engine_editor] AllocGate: toplam %llu global new (override %s)\n", (unsigned long long)AllocGate::total_allocations(),
+              AllocGate::total_allocations() > 0 ? "sayiyor" : "SAYMIYOR");
   FrameStats stt = prof.frame_stats(Span<uint64_t>(scratch, 1200), 0);
   const EditorUiStats us = ui.stats();
   const int32_t prim_end = st.sel.primary();
