@@ -307,3 +307,87 @@ ENGINE_TEST(platform_local_day_follows_timezone) {
   const int32_t simdi_utc = (int32_t)(time(nullptr) / 86400);
   CHECK(simdi - simdi_utc >= -1 && simdi - simdi_utc <= 1);
 }
+
+// --- TickClock: tek biriktirici (F6, 2026-11-04) ------------------------
+// Iddia: kare basina tik sayisi oyunun eski formuluyle (double, tik biriminde, 1e-6 esik; kup-kure
+// oyun.tpr hk_kare) BIT-TAM ayni; tavanda fazla tik atilir + sayilir, kesirli artik korunur; duraklatma
+// birikimi dondurur. KARSILASTIRMA (bilgi + kapi): ayni kare sureleri float saniye biriktiren FixedStep'e
+// verilince kare basina desen tutmayabilir — iki ayri biriktirici = Tuzaklar 8dj.
+namespace {
+uint32_t eski_formul(double *acc, double d, double olcek, uint32_t tavan, uint64_t *dusen) {
+  *acc += d * 60.0 * olcek;
+  uint32_t n = (uint32_t)(*acc + 0.000001);
+  if (n > tavan) { *dusen += n - tavan; *acc = *acc - n; n = tavan; }
+  else { *acc -= n; }
+  return n;
+}
+} // namespace
+
+ENGINE_TEST(tick_clock_matches_game_formula_and_drops_excess) {
+  // (1) karisik kare sureleri + olcekler: oyunun formuluyle her karede ayni
+  static const double kD[7] = {1.0 / 60.0, 1.0 / 45.0, 0.0331, 1.0 / 60.0, 0.0072, 1.0 / 30.0, 0.25};
+  static const double kS[5] = {1.0, 0.35, 2.0, 1.0, 3.0};
+  TickClock c;
+  double acc = 0.0;
+  uint64_t dusen = 0, toplam = 0;
+  int fark = 0;
+  for (int f = 0; f < 2000; f++) {
+    const double d = (double)(float)kD[f % 7]; // kopru dt'si float
+    const double s = kS[(f / 37) % 5];
+    const uint32_t tavan = s > 4.0 ? (uint32_t)(s + 0.999) : 4u;
+    const uint32_t a = c.advance(d, s, false);
+    const uint32_t b = eski_formul(&acc, d, s, tavan, &dusen);
+    if (a != b) fark++;
+    toplam += a;
+  }
+  std::printf("    [bilgi] TickClock: 2000 kare %llu tik, %llu atilan (%u karede) | oyun formulu farkli kare %d\n",
+              (unsigned long long)toplam, (unsigned long long)c.dropped, c.drop_frames, fark);
+  CHECK(fark == 0);
+  CHECK(c.dropped == dusen && c.dropped > 0); // 0.25 s'lik kareler tavana carpti
+  CHECK(c.ticks == toplam);
+
+  // (2) yavas kare: 0.25 s, olcek 1, tavan 4 -> 15 tik istenir, 4 verilir, 11 atilir, artik 0
+  TickClock y;
+  CHECK(y.advance(0.25, 1.0, false) == 4);
+  CHECK(y.dropped == 11 && y.drop_frames == 1);
+  CHECK(y.acc > -0.001 && y.acc < 0.001);
+  // olcek 8: tavan 8'e cikar (hizli sarma tik atmaz)
+  TickClock h;
+  uint64_t t8 = 0;
+  for (int f = 0; f < 60; f++) t8 += h.advance(1.0 / 60.0, 8.0, false);
+  CHECK(t8 == 480 && h.dropped == 0);
+
+  // (3) duraklatma dondurur, atmaz: yarim tik birikimi devamda tamamlanir
+  TickClock p;
+  CHECK(p.advance(1.0 / 120.0, 1.0, false) == 0);
+  const double a0 = p.acc;
+  for (int f = 0; f < 50; f++) CHECK(p.advance(1.0 / 60.0, 1.0, true) == 0);
+  CHECK(p.acc == a0);
+  CHECK(p.advance(1.0 / 120.0, 1.0, false) == 1);
+
+  // (4) 45 fps: 90 kare = 120 tik, kayma yok
+  TickClock k;
+  uint64_t t45 = 0;
+  for (int f = 0; f < 90; f++) t45 += k.advance(1.0 / 45.0, 1.0, false);
+  CHECK(t45 == 120 && k.dropped == 0);
+
+  // KARSILASTIRMA: ayni karisik dizi FixedStep'e (float saniye) — kare basina desen
+  FixedStep fs;
+  TickClock c2;
+  int fs_fark = 0;
+  uint64_t fs_top = 0, c2_top = 0;
+  for (int f = 0; f < 2000; f++) {
+    const float d = (float)kD[f % 7];
+    const double s = kS[(f / 37) % 5];
+    fs.time_scale = (float)s;
+    fs.max_ticks_per_frame = 4;
+    const uint32_t a = fs.advance(d);
+    const uint32_t b = c2.advance((double)d, s, false);
+    fs_top += a;
+    c2_top += b;
+    if (a != b) fs_fark++;
+  }
+  std::printf("    [bilgi] KARSILASTIRMA FixedStep (float sn): %llu tik, kare basina farkli %d kare (TickClock %llu)\n",
+              (unsigned long long)fs_top, fs_fark, (unsigned long long)c2_top);
+  CHECK(fs_fark > 0); // POZITIF KONTROL: kare basina esitlik denetimi bir farki gorebiliyor
+}

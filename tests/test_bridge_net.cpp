@@ -161,3 +161,47 @@ ENGINE_TEST(bridge_net_shutdown_closes_sockets_port_rebinds) {
   CHECK(teng_net_wifi_lock(1) == 1);
   CHECK(teng_net_wifi_lock(0) == 1);
 }
+
+// --- Kilit adim duz ABI (teng_ls_*, F6 2026-11-04) ----------------------------------------------
+// Motor kurulmadan (GPU'suz) iki rolu tek surecte oynar: yerel koltuk 0 cevrimici; karsi tarafin paketleri
+// elle yazilir. Iddialar: paket metni sozlesmedeki bicim (on eksiz "G ..."), grup kesin degilken kare 0 tik,
+// kanonik sira (koltuk 0 sonra 1), ozet esitken ayrisma yok; POZITIF KONTROL: karsinin ozeti farkliysa
+// teng_ls_desync_tick o tik'i verir ve HATA loglanir; teng_shutdown oturumu kapatir.
+ENGINE_TEST(bridge_lockstep_flat_api_round_trip_and_desync) {
+  const int h0 = teng_error_count();
+  CHECK(teng_ls_frame() == 0 && teng_ls_tick() == -1); // kapali
+  CHECK(teng_ls_begin(0, 3, 1, 4242, 2, 1) == 1);
+  CHECK(teng_ls_cmd(5, 6, 7) == 3); // tik 0 + gecikme 3
+  // uzak son 2 (0..gecikme-1 bos): tik 0,1,2 kosulur, 3'te bekler
+  int kosulan = 0;
+  while (teng_ls_frame() == 1 && kosulan < 10) {
+    CHECK(teng_ls_due() == 0);
+    teng_ls_tick_end(100 + kosulan);
+    kosulan++;
+  }
+  CHECK(kosulan == 3 && teng_ls_tick() == 3);
+  const char *p = teng_ls_packet();
+  std::printf("    [bilgi] paket: '%s'\n", p);
+  CHECK(std::strcmp(p, "G 4242 2 0 5 0 100 2 102 3:5:6:7") == 0); // son = 2 + gecikme 3; ozet tik 0 ve 2
+  // karsi taraf: tik 3'te iki komut, ozet tik 0'da ayni (100)
+  CHECK(teng_ls_receive("G 4242 5 0 3 -1 -1 0 100 3:9:1:2 3:8:3:4") == 1);
+  CHECK(teng_ls_receive("G 4242 5 0 3 -1 -1 0 100 3:9:1:2 3:8:3:4") == 0); // yedek
+  CHECK(teng_ls_receive("G 1 5 0 3 -1 -1 0 100") == -2);
+  CHECK(teng_ls_frame() == 1);
+  CHECK(teng_ls_due() == 3);
+  CHECK(teng_ls_due_seat(0) == 0 && teng_ls_due_kind(0) == 5 && teng_ls_due_a(0) == 6 && teng_ls_due_b(0) == 7);
+  CHECK(teng_ls_due_seat(1) == 1 && teng_ls_due_kind(1) == 9 && teng_ls_due_seat(2) == 1 && teng_ls_due_kind(2) == 8);
+  teng_ls_tick_end(103);
+  CHECK(teng_ls_desync_tick() == -1 && teng_ls_stat(9) == 1); // tik 0 karsilastirildi, ayni
+  CHECK(teng_error_count() == h0);
+  CHECK(teng_ls_stat(1) == 2 && teng_ls_stat(2) == 1 && teng_ls_stat(5) == 1 && teng_ls_stat(6) == 2 && teng_ls_stat(7) == 1);
+  CHECK(teng_ls_log(0, 0) == 3 && teng_ls_log(0, 1) == 5 && teng_ls_log(1, 0) == -1);
+  CHECK(teng_ls_hash(0, 1) == 102 && teng_ls_hash(1, 0) == 100 && teng_ls_hash(1, 1) == -1);
+  // POZITIF KONTROL: karsinin tik 2 ozeti farkli
+  CHECK(teng_ls_receive("G 4242 5 4 4 0 100 2 999") == 1);
+  std::printf("    [bilgi] POZITIF KONTROL: ayrisma tik %d, hata %d -> %d\n", teng_ls_desync_tick(), h0, teng_error_count());
+  CHECK(teng_ls_desync_tick() == 2 && teng_error_count() == h0 + 1);
+  CHECK(teng_ls_frame() == 0); // ayrismadan sonra sim durur
+  teng_shutdown();
+  CHECK(teng_ls_tick() == -1); // kapanis kapatti
+}

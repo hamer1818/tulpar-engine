@@ -336,6 +336,7 @@ add_library(engine_sim STATIC
     sim/ml_system.cpp
     sim/anticheat.cpp
     sim/desync.cpp
+    sim/lockstep.cpp
     sim/interp.cpp
 )
 target_link_libraries(engine_sim PUBLIC engine_core engine_jolt engine_recast)
@@ -537,6 +538,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_spatial_hash.cpp
     tests/test_debug_draw.cpp
     tests/test_timers.cpp
+    tests/test_lockstep.cpp
     tests/test_net.cpp
     tests/test_state_machine.cpp
     tests/test_event_bus.cpp

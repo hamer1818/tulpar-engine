@@ -221,6 +221,15 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   elle kipte de kuyruğu dondurur. Kilit adımlı ağ oyunu için: iki eşin "k oyun tik'i, sonra k fizik adımı"
   dizisi kare süresinden bağımsız aynı olur (kapı `bridge_physics_manual_steps_exact_count_independent_of_dt`;
   pozitif kontrol: elle kip kapalıyken aynı desen 21 adım).
+- **Tek biriktirici** (2026-11-04, F6, Tuzaklar 8dj): `sabit_adim(hz, en_cok)` / `sim_fixed` (`eng_sim_fixed`)
+  oyun tik'ini ve fiziği **aynı sayaçtan** sürer (`sim::TickClock`: double, tik biriminde, 1e-6 eşik). Oyun her
+  kare `for k < sim_tikleri(): tik()` koşar; `frame_end` **tam o kadar** fizik adımı atar. Sayı karenin ilk
+  `sim_tikleri()` çağrısında, **o anki** zaman ölçeğiyle hesaplanır (oyun ölçeği yazıp sonra sorar), karede
+  sonraki çağrılar aynı değeri verir. Tavan ölçek 1'de `en_cok` (ölçekle `ceil(ölçek)`'e çıkar, en çok 64);
+  aşan tik atılır ve `sim_atilan()`'da sayılır. Her `sabit_adim` çağrısı birikimi sıfırlar (bölüm başı),
+  `hz <= 0` kapatır. Elle kip açıkken o kazanır (`sim_tikleri()` 0). Kapı
+  `bridge_sim_fixed_game_ticks_equal_physics_steps` (pozitif kontrol: ölçek kare başında okunsaydı toplam
+  tutmazdı; tek biriktirici kapalıyken FixedStep kare başına 4 karede saptı) ve `tick_clock_matches_game_formula_and_drops_excess`.
 - **Fizik sıfırlama** (2026-10-18, Tuzaklar 8dg): `fizik_sifirla()` / `physics_reset` sahne boşaltıldıktan sonra,
   gövdeli varlık kalmamışken Jolt dünyasını ve sabit adım birikimini sıfırdan kurar. Bundan sonra bir bölüm,
   önceki bölümler oynanmış olsun ya da olmasın aynı gövde kimliklerini, aynı olay sırasını ve aynı sonucu alır.
@@ -1394,3 +1403,50 @@ Kare başına alım kalıbı: `while udp_al(h) { yuk = udp_son_yuk(h); ... }`. B
   - 16 ms kare temposunda p50 16.07 ms; ölçülen artık kare temposu.
   - Pozitif kontrol: yanıtlayıcı yokken 0/5, rc 1.
 - **Cihazda ölçülmedi** (N2c): gerçek Wi-Fi gecikmesi, yayın süzme, MulticastLock.
+
+## 11.1 Kilit adım (lockstep) çekirdeği (2026-11-04, F6)
+
+Küp-küre'nin ağ 1v1'inde (N2b/N2c, telefon ↔ masaüstü ölçüldü) Tulpar'da yazılmış çekirdeğin motora taşınmış
+hali: `sim/lockstep` (L4, ağsız, saatsiz, ayırmasız; zaman ms olarak dışarıdan) + `teng_ls_*` düz ABI.
+**Taşıma oyunda kalır:** motor paketi metin olarak verir, oyun kendi ön ekiyle `eng_net_send`'e koyar; gelen
+G paketini `kilit_al`'a verir. Lobi, el sıkışma, kayıp/gecikme taklidi, bekleme perdesi, kopma kuralı ve rapor
+biçimi oyunun işidir. Motor kurulmadan da çalışır; `teng_shutdown` oturumu kapatır.
+
+```tpr
+kilit_basla(koltuk, gecikme, grup, oturum, 30, bayrak)   // bayrak 1 çevrimiçi, 2 sıra ters (pozitif kontrol)
+int n = kilit_kare();                                    // grup hazırsa grup, değilse 0
+for (int k = 0; k < n; k++) {
+    int c = kilit_vade();                                // bu tik'in komutları, kanonik sıra
+    for (int i = 0; i < c; i++) { uygula(kilit_vade_koltuk(i), kilit_vade_tur(i), kilit_vade_a(i), kilit_vade_b(i)); }
+    kilit_tik_sonu(ozet);                                // her 30 tik'te özet saklanır + karşılaştırılır
+}
+fizik_adim(n);
+udp_gonder(h, ip, port, "ONEK " + kilit_paket());        // her kare bir paket
+```
+
+| kural | ne |
+|---|---|
+| yerel komut | `kilit_komut(tur, a, b)` → tik `tick + gecikme`; kendi kuyruğu + (çevrimiçi) gönderim günlüğü. Koltuk başına bir tik'te en çok 20; aşan **düşer**, -1 + HATA |
+| kare | çevrimiçi: grubun karşı taraf komutları kesinse `grup`, değilse 0 (ayrışmadan sonra hep 0). >0 ise yerel komutlar `tick + n - 1 + gecikme`'ye kadar kapanır |
+| sıra | her tik koltuk 0 sonra 1 (iki eşte aynı, kimin yerel olduğundan bağımsız) |
+| paket | `G <oturum> <onay> <ilk> <son> <öztik0> <öz0> <öztik1> <öz1> [<tik>:<tur>:<a>:<b> ...]`; onaylanmamış bütün tikler (yedek). **`son` = paketin TAM taşıdığı son tik**: 60 komut ya da bayt tavanı bir tik'in ortasına düşerse `son` o tik'in öncesine iner, alan `son`'dan büyük tik'li komutu almaz |
+| alım | 1 yeni, 0 yedek, -1 boşluk (aradaki kayıp; sonraki yedek kapatır), -2 başka oturum, -3 bozuk, -4 kapalı |
+| özet | `hash_every`'nin katı tik'lerde; ilk fark `kilit_ayrisma()` + HATA |
+| RTT | yerel tik'in **ilk** gönderildiği an → karşının onayının o tik'e ulaştığı an (1 ms'lik histogram) |
+
+`kilit_sayac(ne)`: 0 paket, 1 alınan, 2 yedek, 3 boşluk, 4 bozuk, 5 başka oturum, 6 uzak komut, 7 yerel komut,
+8 düşen, 9 özet karşılaştırma, 10 bekleme karesi, 11 RTT örnek, 12 RTT azami, 13 RTT p50, 14 RTT p95, 15 yerel
+son kesin tik, 16 uzak son kesin tik, 17 karşının onayı, 18 özet sayısı, 19 gönderim günlüğü.
+
+**Ölçülenler** (2026-11-04, RTX 5080 makinesi):
+- `tests/test_lockstep.cpp`, iki eş tek süreçte, belirlenimli kanal, sıra-duyarlı oyuncak sim:
+  - Kayıpsız 1500 kare: 50/50 özet karşılaştırması aynı, her uzak komut tam bir kez.
+  - %15 kayıp + 3 kare gecikme + sıra bozma, grup 2: 475 paket düştü, 65 özet aynı, yedek kayıpları kapattı.
+  - 30 kare boyunca kare başına 25 komut (4 kare gecikme): 55 kesik paket, ayrışma yok.
+  - **Bulgu:** ilk sürüm (oyundaki protokolle aynı) tavan tik ortasına düşünce `son`u yine tam yazıyordu, alan
+    eksik komutla tik'i kesin sayıp tik 60'ta ayrıştı. Oyunda tek tik'te 60'tan çok komut birikmediği için
+    görülmemişti (TUZAKLAR 8dn).
+  - Pozitif kontroller: yolda bir komut bozulunca iki eş de tik 120'de ayrışmayı görüyor; bir eş sırayı ters
+    uygulayınca tik 30'da.
+- `tests/test_bridge_net.cpp`: düz ABI gidiş-dönüş, paket metni biçimi, kanonik sıra; karşının özeti farklıyken
+  `teng_ls_desync_tick` ve HATA (kontrol).

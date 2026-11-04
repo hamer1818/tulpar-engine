@@ -123,4 +123,42 @@ struct FixedStep {
     return n;
   }
 };
+// Tek biriktirici (F6, 2026-11-04): oyun tik'i ve fizik adimi AYNI sayactan. Kopru `teng_sim_fixed`
+// aciksa karenin tik sayisini buradan alir ve TAM o kadar fizik adimi atar; oyun da ayni sayida tik
+// kosar (Tuzaklar 8dj: iki ayri biriktiricide "k tik, k' fizik adimi" gruplamasi kare suresine gore
+// ayrisiyordu). FixedStep'ten farki: birikim **double** ve **tik biriminde** (kare_s * hz * olcek),
+// esik 1e-6 paylı — float saniye biriktirmede 1/60'in katlari esikte bir alta dusup "3, 5->4 kirp"
+// deseni veriyordu. Tavan asilinca fazla tik ATILIR (yakalama yok) ve SAYILIR; birikimin kesirli artigi
+// korunur. Duraklatma birikimi dondurur.
+struct TickClock {
+  double hz = 60.0;
+  double acc = 0.0;          // tik biriminde
+  uint32_t cap = 4;          // olcek 1'de kare basina tavan; olcekle max(cap, ceil(olcek))
+  uint64_t dropped = 0;      // atilan tik toplami
+  uint32_t drop_frames = 0;  // tavana carpan kare sayisi
+  uint64_t ticks = 0;        // verilen tik toplami
+
+  void reset() { acc = 0.0; }
+  uint32_t frame_cap(double scale) const {
+    uint32_t c = cap;
+    const uint32_t s = scale > 0.0 ? (uint32_t)(scale + 0.999) : 0u;
+    if (s > c) c = s;
+    return c > 64u ? 64u : c;
+  }
+  uint32_t advance(double frame_s, double scale, bool paused) {
+    if (paused || !(scale > 0.0) || !(frame_s > 0.0)) return 0;
+    acc += frame_s * hz * scale;
+    const double f = acc + 0.000001;
+    uint32_t n = f >= 4294967295.0 ? 0xFFFFFFFFu : (uint32_t)f;
+    acc -= (double)n;
+    const uint32_t c = frame_cap(scale);
+    if (n > c) {
+      dropped += n - c;
+      drop_frames++;
+      n = c;
+    }
+    ticks += n;
+    return n;
+  }
+};
 } // namespace tulpar::engine::sim
