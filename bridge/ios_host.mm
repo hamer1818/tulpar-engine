@@ -296,6 +296,13 @@ static int32_t touch_id(UITouch *t) { return (int32_t)(((uintptr_t)(__bridge voi
   [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient error:nil];
   [[AVAudioSession sharedInstance] setActive:YES error:nil];
   rhi::vk_api_set_static_loader(vkGetInstanceProcAddr);
+#if TARGET_OS_SIMULATOR
+  // Simulatorun Metal surucusu (MTLSimDriver) argument buffer'da
+  // setBuffer:offset:atIndex: icinde abort ediyor — olculdu 2026-11-04, CI
+  // macos-15 iOS 26.2 simulatoru, vkAllocateDescriptorSets ilk cagrisi
+  // (Renderer::init). MoltenVK'ya klasik baglamayi soyle; cihazda varsayilan kalir.
+  setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "0", 0);
+#endif
 
   self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
   self.window.rootViewController = [[TulparViewController alloc] init];
