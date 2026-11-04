@@ -1450,3 +1450,17 @@ son kesin tik, 16 uzak son kesin tik, 17 karşının onayı, 18 özet sayısı, 
     uygulayınca tik 30'da.
 - `tests/test_bridge_net.cpp`: düz ABI gidiş-dönüş, paket metni biçimi, kanonik sıra; karşının özeti farklıyken
   `teng_ls_desync_tick` ve HATA (kontrol).
+
+## 12. Arayüz alfa titretmesi (2026-11-04, E1c)
+
+`resim_titret(r, true)` / `image_dither` (`eng_image_dither`): resmin **harmanlı** arayüz çizimlerinde alfa,
+fragment başına ±0.5/255 oynatılır. Gürültü IGN'dir ve ekran pikseline bağlıdır, yani kareden kareye
+kıpırdamaz. Düşük alfalı geniş yumuşak geçişlerde (ışıltı, gölge) 8 bitlik hedefin halka çizmesini kırar
+(TUZAKLAR 8do).
+
+- Varsayılan kapalı. Opak çizimde etkisizdir. Alfa 0 olan piksele dokunmaz.
+- Bayrak resmin malzemesinde durur, grup başına bir push sabiti yazılır (`ui.frag`'de `v_encode` = kodla + 2 × titret).
+- Kapı `bridge_ui_image_dither_breaks_bands_default_unchanged`: alfa rampası koyu zeminde, en uzun düz koşu
+  37 → 13 px. Ortalama ton değişmiyor (46.284 → 46.298). Varsayılan bayt bayt aynı, resmin dışı aynı.
+  Kontrol: titretmesiz koşu ≥ 12 px.
+
