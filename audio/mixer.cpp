@@ -282,7 +282,7 @@ void Mixer::render(float *out, uint32_t frames) {
   // Ana yol DSP zinciri (bos ise dokunmaz) — sert sinirdan ONCE.
   dsp_.process(out, frames, ch, rate_);
   uint32_t kirpilan = 0;
-  float on_tepe = 0;
+  float on_tepe = 0, pk_l = 0, pk_r = 0;
   for (uint32_t i = 0; i < frames * ch; i++) {
     float x = out[i];
     const float ham = x < 0 ? -x : x;
@@ -291,6 +291,11 @@ void Mixer::render(float *out, uint32_t frames) {
     out[i] = x;
     const float a = x < 0 ? -x : x;
     if (a > peak) peak = a;
+    if (ch >= 2) {
+      const uint32_t k = i % ch;
+      if (k == 0 && a > pk_l) pk_l = a;
+      else if (k == 1 && a > pk_r) pk_r = a;
+    }
   }
   if (kirpilan) clipped_.fetch_add(kirpilan, std::memory_order_relaxed);
   if (on_tepe > peak_pre_max_.load(std::memory_order_relaxed)) peak_pre_max_.store(on_tepe, std::memory_order_relaxed);
@@ -301,6 +306,8 @@ void Mixer::render(float *out, uint32_t frames) {
   voices_hrtf_.store(hrtf_n, std::memory_order_relaxed);
   if (hrtf_sw) hrtf_switches_.fetch_add(hrtf_sw, std::memory_order_relaxed);
   peak_.store(peak, std::memory_order_relaxed);
+  peak_l_.store(pk_l, std::memory_order_relaxed);
+  peak_r_.store(pk_r, std::memory_order_relaxed);
 }
 
 MixerStats Mixer::stats() const {
@@ -314,6 +321,8 @@ MixerStats Mixer::stats() const {
   s.peak_pre_max = peak_pre_max_.load(std::memory_order_relaxed);
   s.voices_spatial = voices_spatial_.load(std::memory_order_relaxed);
   s.voices_hrtf = voices_hrtf_.load(std::memory_order_relaxed);
+  s.peak_l = peak_l_.load(std::memory_order_relaxed);
+  s.peak_r = peak_r_.load(std::memory_order_relaxed);
   s.hrtf_switches = hrtf_switches_.load(std::memory_order_relaxed);
   return s;
 }

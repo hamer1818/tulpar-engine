@@ -269,6 +269,12 @@ SPEC = [
     ("eng_music_slot_load", "int", [("slot", "int"), ("path", "str")], "Muzik YUVASINA (varsayilan 0..1; ses acilirken 2 x 64 s sabit tampon, sayi/sure eng_music_slots ile) parca cozer: yuvanin eski parcasini calan sesler durdurulur, karistiricinin bir callback'i beklenir, sonra yazilir — arena buyumez. Donus: sure ms; -1 hata, -2 parca 64 s'den uzun (reddedilir, kapanista sayilir)."),
     ("eng_music_slot_clip", "int", [("slot", "int")], "Muzik yuvasinin SABIT klip tutamaci (eng_audio_play / eng_audio_gain ile kullanilir); yuva bossa calma istegi HATA verir. -1 hata."),
     ("eng_audio_gain", "void", [("voice", "int"), ("gain", "num")], "Calan TEK sesin seviyesi (0..4, ana seviyeyle carpilir); karistirici blok boyunca rampalar (tik yok). Muzik capraz gecisi, diyalogda muzigi kisma. Bitmis sesin id'si yok sayilir."),
+    # 3B ses (2026-11-04): karistiricinin uzamsal yolu koprude. Dinleyici varsayilan olarak KAMERA
+    # (her kare eng_camera'nin goz/hedefi); eng_audio_listener cagrilinca elle kalir.
+    ("eng_audio_play_3d", "int", [("clip", "int"), ("x", "num"), ("y", "num"), ("z", "num"), ("gain", "num"), ("loop", "flag")], "Klibi DUNYA konumunda calar (mesafe sonumu + panlama + kafa golgesi; eng_audio_3d hrtf=1 ise HRTF). Donus: ses id'si (0 hata). Ses seviyesi ana seviyeyle carpilir."),
+    ("eng_audio_position", "void", [("voice", "int"), ("x", "num"), ("y", "num"), ("z", "num")], "3B sesin konumunu tasir (hareket eden kaynak). Bitmis sesin id'si yok sayilir."),
+    ("eng_audio_listener", "void", [("x", "num"), ("y", "num"), ("z", "num"), ("fx", "num"), ("fy", "num"), ("fz", "num")], "Dinleyici: konum + bakis yonu (yukari +Y). Cagrilinca kamera takibi KAPANIR; bakis (0,0,0) verilirse yeniden kamerayi izler."),
+    ("eng_audio_3d", "bool", [("min_distance", "num"), ("max_distance", "num"), ("hrtf", "flag")], "SONRAKI 3B seslerin ayari: sonumun basladigi ve sessizlesilen mesafe (0 < min < max), hrtf = olculmus HRTF (on/arka + yukseklik; ses basina ~40 ns/kare). Gecersizse HATA + false."),
     ("eng_audio_playing", "int", [], "Su an calan ses sayisi (cihaz thread'inin olctugu deger)."),
     ("eng_audio_peak", "float", [], "Son ses blogundaki en buyuk ornek (0 = sessiz); ses gercekten uretiliyor mu olcusu."),
     ("eng_audio_limiter", "bool", [("ceiling", "num")], "Ana yol sinirlayici (yumusak tanh; tavan 0..1, 0 kapatir): toplam ses +-1'i asinca sert kirpma yerine yumusak bastirma. Ses cihazi acikken."),

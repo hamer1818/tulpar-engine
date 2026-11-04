@@ -52,6 +52,7 @@ struct MixerStats {
   float peak_pre_max = 0;         // kirpmadan ONCEKI en buyuk |ornek| (birikimli tepe)
   uint32_t voices_spatial = 0;    // bunlarin kaci 3B
   uint32_t voices_hrtf = 0;       // bunlarin kaci HRTF ile (son blok)
+  float peak_l = 0, peak_r = 0;   // son bloktaki kanal 0 / 1 tepesi (stereo yon olcusu)
   uint64_t hrtf_switches = 0;     // HRIR degisimi (capraz gecisli blok; birikimli)
 };
 
@@ -130,7 +131,7 @@ private:
   std::atomic<uint64_t> frames_rendered_{0}, callbacks_{0};
   std::atomic<uint32_t> voices_active_{0}, dropped_{0}, voices_spatial_{0}, voices_hrtf_{0};
   std::atomic<uint64_t> hrtf_switches_{0};
-  std::atomic<float> peak_{0};
+  std::atomic<float> peak_{0}, peak_l_{0}, peak_r_{0};
   std::atomic<uint64_t> clipped_{0};
   std::atomic<float> peak_pre_max_{0};
 };

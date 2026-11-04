@@ -4623,3 +4623,72 @@ ENGINE_TEST(bridge_image_long_path_dedups_and_rejects_overflow) {
   CHECK(x == -1 && e2 == e1 + 1);  // sigmayan yol: HATA + -1, kesilip yuklenmez
   teng_shutdown();
 }
+
+// --- 3B ses koprude (2026-11-04) -------------------------------------------------
+// eng_audio_play_3d / position / listener / 3d. Olcu: NULL arka uc, son blogun kanal
+// tepeleri. (1) elle dinleyici orijinde -Z'ye bakarken +X'teki ses SAGDA (sag tepe >=
+// 3x sol), (2) eng_audio_position ile -X'e tasinan ses SOLDA, (3) dinleyici KAMERAYI
+// izlerken (bakis 0 verilince) kamera +X'e bakar, ayni ses (-X) artik ARKADA: iki
+// kanal yakin (panlama on/arka ayirmaz), (4) HRTF acikken (eng_audio_3d hrtf) 3 kHz
+// tonda yine sag/sol dogru, (5) gecersiz mesafe HATA + false. KONTROL: duz (3B olmayan) ses iki
+// kanalda ESIT. Kapanis satiri sayar.
+ENGINE_TEST(bridge_audio_3d_direction_follows_listener) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("3b ses", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_audio_open(0, 0) == 1);
+  const int ton = teng_audio_tone(300, 2.0);
+  auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  auto olc = [&](double *l, double *r) {
+    platform::thread_sleep_us(60000);
+    kare();
+    platform::thread_sleep_us(60000);
+    *l = teng_debug_audio_peak_channel(0);
+    *r = teng_debug_audio_peak_channel(1);
+  };
+  double l = 0, r = 0;
+  // KONTROL: duz ses ortada
+  int v = teng_audio_play(ton, 0.3, 1);
+  olc(&l, &r);
+  std::printf("    [bilgi] duz ses: sol %.4f sag %.4f\n", l, r);
+  CHECK(l > 0.05 && std::fabs(l - r) < 1e-4);
+  teng_audio_stop(v);
+  teng_audio_listener(0, 0, 0, 0, 0, -1);
+  CHECK(teng_audio_3d(1.0, 100.0, 0) == 1);
+  v = teng_audio_play_3d(ton, 5, 0, 0, 0.6, 1);
+  CHECK(v > 0);
+  olc(&l, &r);
+  std::printf("    [bilgi] 3B +X: sol %.4f sag %.4f\n", l, r);
+  CHECK(r > 0.02 && r > 3.0 * l);
+  teng_audio_position(v, -5, 0, 0);
+  olc(&l, &r);
+  std::printf("    [bilgi] 3B -X (tasindi): sol %.4f sag %.4f\n", l, r);
+  CHECK(l > 0.02 && l > 3.0 * r);
+  // Kamerayi izle: kamera orijinden +X'e baksin -> -X'teki ses ARKADA.
+  teng_audio_listener(0, 0, 0, 0, 0, 0);
+  teng_camera(0, 0, 0, 10, 0, 0);
+  olc(&l, &r);
+  std::printf("    [bilgi] kamera +X'e bakiyor, ses -X (arkada): sol %.4f sag %.4f\n", l, r);
+  CHECK(l > 0.01 && std::fabs(l - r) / (l > r ? l : r) < 0.15);
+  teng_audio_stop(v);
+  // HRTF
+  teng_audio_listener(0, 0, 0, 0, 0, -1);
+  CHECK(teng_audio_3d(1.0, 100.0, 1) == 1);
+  // HRTF'de duzey farki (ILD) frekansa bagli: 300 Hz'de kafa golgesi kucuk (olculdu:
+  // sag/sol 1.7x — fiziksel olarak dogru), 3 kHz'de belirgin.
+  const int ton_tiz = teng_audio_tone(3000, 2.0);
+  v = teng_audio_play_3d(ton_tiz, 5, 0, 0, 0.6, 1);
+  olc(&l, &r);
+  std::printf("    [bilgi] HRTF +X (3 kHz): sol %.4f sag %.4f\n", l, r);
+  CHECK(r > 0.02 && r > 2.0 * l);
+  teng_audio_stop(v);
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_3d(5.0, 2.0, 0) == 0);
+  CHECK(teng_error_count() == e0 + 1);
+  kapanis_yakala();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  CHECK(std::strstr(g_kapanis_log, "kapanis (3B ses): 2 cal (HRTF), dinleyici elle") != nullptr);
+}
