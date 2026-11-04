@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "audio/dsp.hpp"
+#include "audio/hrtf.hpp"
 #include "audio/spatial.hpp"
 
 namespace tulpar::engine::audio {
@@ -50,13 +51,19 @@ struct MixerStats {
   uint64_t clipped_samples = 0;
   float peak_pre_max = 0;         // kirpmadan ONCEKI en buyuk |ornek| (birikimli tepe)
   uint32_t voices_spatial = 0;    // bunlarin kaci 3B
+  uint32_t voices_hrtf = 0;       // bunlarin kaci HRTF ile (son blok)
+  uint64_t hrtf_switches = 0;     // HRIR degisimi (capraz gecisli blok; birikimli)
 };
 
 class Mixer {
 public:
   static constexpr uint32_t kVoices = 32;
   static constexpr uint32_t kQueue = 256;
-  void init(uint32_t out_rate, uint32_t out_channels) { rate_ = out_rate; channels_ = out_channels; }
+  void init(uint32_t out_rate, uint32_t out_channels) {
+    rate_ = out_rate;
+    channels_ = out_channels;
+    hrtf::init(); // float tablo (188 KB statik) — cihaz callback'inden ONCE
+  }
   // Oyun thread'i (tek uretici):
   VoiceHandle play(const Clip *clip, float gain = 1.0f, bool loop = false);
   void stop(VoiceHandle v);
@@ -107,6 +114,7 @@ private:
     // Cihaz thread'ine ait durum: blok icinde rampalanan kazanc + golge filtresi.
     float cur_l = 0, cur_r = 0;
     float lp_l = 0, lp_r = 0;
+    hrtf::Voice h; // SpatialParams::hrtf: gecmis halkasi + secili HRIR
   };
   bool push(const Command &c);
   void apply_spatial(Voice &v); // Play3D/Spatial sonrasi kazanclari tazele
@@ -120,7 +128,8 @@ private:
   std::atomic<uint32_t> listener_ctr_{0};
   DspChain dsp_;
   std::atomic<uint64_t> frames_rendered_{0}, callbacks_{0};
-  std::atomic<uint32_t> voices_active_{0}, dropped_{0}, voices_spatial_{0};
+  std::atomic<uint32_t> voices_active_{0}, dropped_{0}, voices_spatial_{0}, voices_hrtf_{0};
+  std::atomic<uint64_t> hrtf_switches_{0};
   std::atomic<float> peak_{0};
   std::atomic<uint64_t> clipped_{0};
   std::atomic<float> peak_pre_max_{0};
