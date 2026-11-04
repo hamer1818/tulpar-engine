@@ -2523,6 +2523,14 @@ void Renderer::record(VkCommandBuffer cb) {
 }
 
 void Renderer::record_scene(VkCommandBuffer cb) {
+  // Ucgen/piksel tahmini (Faz 9): GONDERILEN aday listesi uzerinden, iki yolda
+  // da ayni (dolayli yolda GPU elemesi sonrasi sayi stats_.draws'ta).
+  stats_.geom = GeomDensity{};
+  for (uint32_t i = 0; i < draw_count_; i++) {
+    const Draw &d = draws_[i];
+    const Mesh &m = meshes_[d.mesh];
+    geom_density_add(stats_.geom, view_, proj_, render_w_, render_h_, d.model, m.center, m.radius, m.index_count / 3);
+  }
   if (cull_.enabled && cull_ready_) { record_scene_indirect(cb); return; }
   rhi::VkApi &a = dev_->api();
   stats_.draws = draw_count_;

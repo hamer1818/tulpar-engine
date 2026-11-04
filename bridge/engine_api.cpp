@@ -383,6 +383,13 @@ struct Ui {
 
 struct Bridge {
   bool inited = false, running = false, headless = false, have_window = false, in_frame = false;
+  // Ucgen/piksel (Faz 9, renderer/geom_density.hpp): kapanista basilir —
+  // telefonda TBDR binning butcesinin CPU tahmini (Mali'de zaman damgasi yok).
+  uint64_t geom_frames = 0;
+  double geom_tpp_sum = 0;
+  float geom_tpp_max = 0;
+  uint32_t geom_micro_max = 0, geom_micro_frames = 0;
+  uint64_t geom_tris_max = 0;
   // Kapanis raporunun "hata N, uyari N"si BU oturumun sayisi olmali: g_log
   // surec boyu yasar (teng_error_count surec toplamini verir, testler fark
   // olcer), Bridge her oturumda sifirlanir. Ayni surecte ikinci oturumda rapor
@@ -2422,6 +2429,18 @@ void teng_frame_end(void) {
       }
     }
   }
+  {
+    const renderer::GeomDensity &g = b.ren.stats().geom;
+    if (g.draws) {
+      const float t = g.tri_per_px();
+      b.geom_frames++;
+      b.geom_tpp_sum += t;
+      if (t > b.geom_tpp_max) b.geom_tpp_max = t;
+      if (g.micro > b.geom_micro_max) b.geom_micro_max = g.micro;
+      if (g.micro) b.geom_micro_frames++;
+      if (g.tris > b.geom_tris_max) b.geom_tris_max = g.tris;
+    }
+  }
   // Sahne dosyasi izleyicisi: kare CIZILDIKTEN sonra (sahne kaynaklari kare
   // ortasinda degismesin).
   scene_watch_tick();
@@ -2488,6 +2507,10 @@ void teng_shutdown(void) {
     const renderer::RendererStats rs = b.ren.stats();
     BINFO("kapanis (kaynak havuzu): model %u/%u, mesh %u/%u, doku %u/%u, malzeme %u", b.model_count, kMaxModels, rs.meshes,
           kRenderMaxMeshes, rs.textures, kRenderMaxTextures, rs.materials);
+    BINFO("kapanis (geometri, CPU tahmini): %llu karede ortalama %.4f ucgen/px (en cok %.4f), kare basina en cok %llu ucgen; "
+          "mikro ucgenli cizim (>1 ucgen/px) en cok %u/kare, %u karede >0",
+          (unsigned long long)b.geom_frames, b.geom_frames ? b.geom_tpp_sum / (double)b.geom_frames : 0.0, (double)b.geom_tpp_max,
+          (unsigned long long)b.geom_tris_max, b.geom_micro_max, b.geom_micro_frames);
     // Model basina bedel (M4): yuva dizisi her yuva icin sabit (Bridge icinde, kullanilsin
     // kullanilmasin), arena payi yuklenen dosyaya gore (ortalama). GPU bellegi ayri (mesh/doku).
     const uint32_t yuva_b = (uint32_t)(sizeof(content::Model) + sizeof(content::UploadedModel));

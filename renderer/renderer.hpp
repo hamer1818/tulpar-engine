@@ -10,6 +10,7 @@
 
 #include "core/math/vec.hpp"
 #include "core/memory/arena.hpp"
+#include "renderer/geom_density.hpp"
 #include "renderer/cluster.hpp"
 #include "renderer/cull.hpp"
 #include "renderer/graph.hpp"
@@ -374,6 +375,7 @@ struct RendererStats {
   uint32_t materials = 0;
   uint32_t material_binds = 0; // son kare (siralama yoksa cizim sayisina yaklasir)
   ClusterStats clusters;       // son kare isik atamasi
+  GeomDensity geom;            // son kare ucgen/piksel tahmini (renderer/geom_density.hpp)
 };
 
 class Renderer {
