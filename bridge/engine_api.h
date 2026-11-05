@@ -443,6 +443,8 @@ void teng_debug_safe_insets(int left, int top, int right, int bottom);
 void teng_debug_app_pause(int paused);
 // TEST: ses cihazinin callback sayaci (mixer; ses kapaliysa -1). Duraklamada artmamali.
 long long teng_debug_audio_callbacks(void);
+// Son ses blogunun kanal tepesi (0 = sol, 1 = sag; ses kapaliysa -1): 3B ses yon kapisi.
+double teng_debug_audio_peak_channel(int ch);
 // TEST: yuklu klibin kanal sayisi (mono kaynak mono kalir, M2); klip yoksa -1. SPEC'te yok.
 int teng_debug_clip_channels(int clip);
 // TEST: sistem arenasinin dolulugu (bayt). Klip/model/muzik yuvasi bedelini olcmek icin; SPEC'te yok.
@@ -456,6 +458,10 @@ double teng_touch_y(int i);
 double teng_stick_x(void); // sanal joystick -1..1 (sol yarim ekran surukleme)
 double teng_stick_y(void);
 int teng_stick_action(void); // sag yarim kisa dokunus (bu karede)
+int teng_stick_pressed(void);        // sag yarida yeni basis (bu kare)
+void teng_stick_hold(int on);         // eylem: basili tut kipi
+int teng_stick_exclude(int i, double x, double y, double w, double h); // haric alan (0..7; w<=0 siler)
+void teng_stick_visible(int on);      // cubugu ciz
 double teng_look_dx(void);   // bakis, piksel/kare: sag fare tusuyla surukleme + (dokunmatik) sag yarim surukleme
 double teng_mouse_x(void);
 double teng_mouse_y(void);
@@ -597,6 +603,10 @@ void teng_audio_stop(int voice);
 void teng_audio_stop_all(void);
 void teng_audio_master(double gain); // ana ses seviyesi 0..1 (calan sesler de guncellenir)
 void teng_audio_gain(int voice, double gain); // calan TEK sesin seviyesi 0..4 (rampali; ana seviyeyle carpilir)
+int teng_audio_play_3d(int clip, double x, double y, double z, double gain, int loop); // dunya konumunda (ses id'si; 0 hata)
+void teng_audio_position(int voice, double x, double y, double z); // 3B sesi tasi
+void teng_audio_listener(double x, double y, double z, double fx, double fy, double fz); // elle dinleyici (bakis 0: kamerayi izle)
+int teng_audio_3d(double min_distance, double max_distance, int hrtf); // sonraki 3B seslerin sonum araligi + HRTF
 // Muzik yuvalari (M3b): 2 sabit tampon x 64 s (ses acilirken ayrilir). Yukleme yuvanin
 // eski parcasini calan sesleri durdurur, bir karistirici callback'i bekler, parcayi
 // cozer. Donus: sure (ms); -1 hata, -2 parca 64 s'den uzun (reddedildi, sayilir).

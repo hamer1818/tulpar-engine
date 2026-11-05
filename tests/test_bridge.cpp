@@ -4623,3 +4623,119 @@ ENGINE_TEST(bridge_image_long_path_dedups_and_rejects_overflow) {
   CHECK(x == -1 && e2 == e1 + 1);  // sigmayan yol: HATA + -1, kesilip yuklenmez
   teng_shutdown();
 }
+
+// --- 3B ses koprude (2026-11-04) -------------------------------------------------
+// eng_audio_play_3d / position / listener / 3d. Olcu: NULL arka uc, son blogun kanal
+// tepeleri. (1) elle dinleyici orijinde -Z'ye bakarken +X'teki ses SAGDA (sag tepe >=
+// 3x sol), (2) eng_audio_position ile -X'e tasinan ses SOLDA, (3) dinleyici KAMERAYI
+// izlerken (bakis 0 verilince) kamera +X'e bakar, ayni ses (-X) artik ARKADA: iki
+// kanal yakin (panlama on/arka ayirmaz), (4) HRTF acikken (eng_audio_3d hrtf) 3 kHz
+// tonda yine sag/sol dogru, (5) gecersiz mesafe HATA + false. KONTROL: duz (3B olmayan) ses iki
+// kanalda ESIT. Kapanis satiri sayar.
+ENGINE_TEST(bridge_audio_3d_direction_follows_listener) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("3b ses", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_audio_open(0, 0) == 1);
+  const int ton = teng_audio_tone(300, 2.0);
+  auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  auto olc = [&](double *l, double *r) {
+    platform::thread_sleep_us(60000);
+    kare();
+    platform::thread_sleep_us(60000);
+    *l = teng_debug_audio_peak_channel(0);
+    *r = teng_debug_audio_peak_channel(1);
+  };
+  double l = 0, r = 0;
+  // KONTROL: duz ses ortada
+  int v = teng_audio_play(ton, 0.3, 1);
+  olc(&l, &r);
+  std::printf("    [bilgi] duz ses: sol %.4f sag %.4f\n", l, r);
+  CHECK(l > 0.05 && std::fabs(l - r) < 1e-4);
+  teng_audio_stop(v);
+  teng_audio_listener(0, 0, 0, 0, 0, -1);
+  CHECK(teng_audio_3d(1.0, 100.0, 0) == 1);
+  v = teng_audio_play_3d(ton, 5, 0, 0, 0.6, 1);
+  CHECK(v > 0);
+  olc(&l, &r);
+  std::printf("    [bilgi] 3B +X: sol %.4f sag %.4f\n", l, r);
+  CHECK(r > 0.02 && r > 3.0 * l);
+  teng_audio_position(v, -5, 0, 0);
+  olc(&l, &r);
+  std::printf("    [bilgi] 3B -X (tasindi): sol %.4f sag %.4f\n", l, r);
+  CHECK(l > 0.02 && l > 3.0 * r);
+  // Kamerayi izle: kamera orijinden +X'e baksin -> -X'teki ses ARKADA.
+  teng_audio_listener(0, 0, 0, 0, 0, 0);
+  teng_camera(0, 0, 0, 10, 0, 0);
+  olc(&l, &r);
+  std::printf("    [bilgi] kamera +X'e bakiyor, ses -X (arkada): sol %.4f sag %.4f\n", l, r);
+  CHECK(l > 0.01 && std::fabs(l - r) / (l > r ? l : r) < 0.15);
+  teng_audio_stop(v);
+  // HRTF
+  teng_audio_listener(0, 0, 0, 0, 0, -1);
+  CHECK(teng_audio_3d(1.0, 100.0, 1) == 1);
+  // HRTF'de duzey farki (ILD) frekansa bagli: 300 Hz'de kafa golgesi kucuk (olculdu:
+  // sag/sol 1.7x — fiziksel olarak dogru), 3 kHz'de belirgin.
+  const int ton_tiz = teng_audio_tone(3000, 2.0);
+  v = teng_audio_play_3d(ton_tiz, 5, 0, 0, 0.6, 1);
+  olc(&l, &r);
+  std::printf("    [bilgi] HRTF +X (3 kHz): sol %.4f sag %.4f\n", l, r);
+  CHECK(r > 0.02 && r > 2.0 * l);
+  teng_audio_stop(v);
+  const int e0 = teng_error_count();
+  CHECK(teng_audio_3d(5.0, 2.0, 0) == 0);
+  CHECK(teng_error_count() == e0 + 1);
+  kapanis_yakala();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  CHECK(std::strstr(g_kapanis_log, "kapanis (3B ses): 2 cal (HRTF), dinleyici elle") != nullptr);
+}
+
+// --- Gorunen sanal cubuk + haric alan + basili tut koprude (Geri bildirim #31) ---
+// Olcu: kapanis satiri (cubugun cizildigi kare, haric alanda baslayan parmak) +
+// eng_stick_* donusleri. KONTROL: cubuk gorunur DEGILKEN ayni surukleme 0 karede cizilir.
+ENGINE_TEST(bridge_stick_visible_exclude_hold) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("cubuk", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  const int e0 = teng_error_count();
+  auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  // KONTROL: gorunmezken 3 kare surukleme
+  teng_debug_touch(1, 40, (double)kH * 0.5, 1); kare();
+  teng_debug_touch(1, 70, (double)kH * 0.5, 1); kare(); kare();
+  teng_debug_touch(1, 70, (double)kH * 0.5, 0); kare();
+  teng_stick_visible(1);
+  teng_debug_touch(2, 40, (double)kH * 0.5, 1); kare();
+  teng_debug_touch(2, 80, (double)kH * 0.5 - 20, 1); kare();
+  const double sx = teng_stick_x();
+  kare();
+  teng_debug_touch(2, 80, (double)kH * 0.5 - 20, 0); kare();
+  // Haric alan: sag altta dugme
+  CHECK(teng_stick_exclude(0, kW - 80, kH - 60, 80, 60) == 1);
+  teng_debug_touch(3, kW - 40, kH - 30, 1); kare();
+  const int bas_haric = teng_stick_pressed();
+  teng_debug_touch(3, kW - 40, kH - 30, 0); kare();
+  const int eylem_haric = teng_stick_action();
+  // Basili tut
+  teng_stick_hold(1);
+  teng_debug_touch(4, kW - 120, 40, 1); kare();
+  const int b1 = teng_stick_pressed(), a1 = teng_stick_action();
+  kare();
+  const int b2 = teng_stick_pressed(), a2 = teng_stick_action();
+  teng_debug_touch(4, kW - 120, 40, 0); kare();
+  const int a3 = teng_stick_action();
+  std::printf("    [bilgi] cubuk x %.2f; haric alan: basis %d eylem %d; basili tut: kare1 basis %d eylem %d, kare2 basis %d eylem %d, birakinca %d\n",
+              sx, bas_haric, eylem_haric, b1, a1, b2, a2, a3);
+  CHECK(sx > 0.2);
+  CHECK(bas_haric == 0 && eylem_haric == 0);
+  CHECK(b1 == 1 && a1 == 1 && b2 == 0 && a2 == 1 && a3 == 0);
+  CHECK(teng_stick_exclude(8, 0, 0, 1, 1) == 0); // sinir disi
+  CHECK(teng_error_count() == e0 + 1);
+  kapanis_yakala();
+  // Gorunmezken (4 kare) 0, gorunurken 3 kare surukleme (birakis karesi cizmez).
+  CHECK(std::strstr(g_kapanis_log, "cubuk: haric alanda baslayan 1 parmak, 3 karede cizildi, eylem basili-tut") != nullptr);
+}

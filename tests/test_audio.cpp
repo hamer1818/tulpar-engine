@@ -2,6 +2,7 @@
 // bitis), null arka ucta cihaz callback'i gercekten kosuyor (kare sayisi
 // artar; pozitif kontrol: sessiz karistiricinin tepesi 0), gercek cihaz varsa
 // acilir (yoksa ATLANDI, gorunur).
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,7 @@
 #include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
 #include "platform/thread.hpp"
+#include "platform/time.hpp"
 #include "sim/physics.hpp" // okluzyon isini: testler her katmani gorebilir
 #include "tests/test.hpp"
 
@@ -695,4 +697,166 @@ ENGINE_TEST(audio_s16_clip_half_memory_bit_identical_mix) {
   CHECK(fark == 0 && tepe > 0.3f && tepe < 1.0f);
   CHECK(fark_kontrol >= 1 && ilk == 1000);
   std::remove(mono); std::remove(stereo); rmdir(dir);
+}
+
+// --- HRTF (audio/hrtf.hpp, MIT KEMAR compact; 2026-11-04) --------------------
+namespace {
+// Tek ornekli durtu: ilk karede 1, sonrasi 0 (loop yok). Kulak yanitlari
+// dogrudan HRIR + gecikmeyi gosterir.
+float g_durtu[4096];
+audio::Clip durtu_klibi() {
+  for (float &x : g_durtu) x = 0.0f;
+  g_durtu[0] = 1.0f;
+  audio::Clip c;
+  c.samples = g_durtu;
+  c.frames = 4096;
+  c.channels = 1;
+  c.rate = 48000;
+  return c;
+}
+constexpr uint32_t kHB = 512;
+float g_hout[kHB * 2];
+void hrtf_yanit(audio::Mixer &mx, const audio::Clip &c, Vec3 pos, bool hrtf, float *l, float *r) {
+  mx.stop_all();
+  mx.render(g_hout, kHB);
+  audio::SpatialParams sp;
+  sp.pos = pos;
+  sp.distance_attenuation = false;
+  sp.hrtf = hrtf;
+  mx.play_3d(&c, sp, 1.0f, false);
+  mx.render(g_hout, kHB);
+  for (uint32_t i = 0; i < kHB; i++) { l[i] = g_hout[i * 2]; r[i] = g_hout[i * 2 + 1]; }
+}
+// Baslangic: ilk |x| >= tepe*%10 ornegi (ITD'nin olagan olcusu; tepe yeri uzak
+// kulagin yayvan yanitinda ITD'yi ~%33 buyuk gosterir — olculdu: 40 vs 30 ornek).
+uint32_t baslangic(const float *x, uint32_t n) {
+  float t = 0;
+  for (uint32_t i = 0; i < n; i++) if (std::fabs(x[i]) > t) t = std::fabs(x[i]);
+  for (uint32_t i = 0; i < n; i++) if (std::fabs(x[i]) >= 0.1f * t) return i;
+  return 0;
+}
+uint32_t tepe_yeri(const float *x, uint32_t n) {
+  uint32_t b = 0;
+  for (uint32_t i = 1; i < n; i++) if (std::fabs(x[i]) > std::fabs(x[b])) b = i;
+  return b;
+}
+double enerji(const float *x, uint32_t n) {
+  double e = 0;
+  for (uint32_t i = 0; i < n; i++) e += (double)x[i] * x[i];
+  return e;
+}
+double fark(const float *a, const float *b, uint32_t n) {
+  double d = 0, t = 0;
+  for (uint32_t i = 0; i < n; i++) { d += (double)(a[i] - b[i]) * (a[i] - b[i]); t += (double)a[i] * a[i] + (double)b[i] * b[i]; }
+  return t > 0 ? d / t : 0;
+}
+} // namespace
+
+// KAPI: HRTF uc ipucunu tasiyor —
+//  (1) ITD: tam sagdaki kaynakta SOL kulak gec (0.4-0.75 ms, insan kafasi ~0.65 ms)
+//      ve (2) ILD: sag kulak enerjisi >= 6 dB fazla;
+//  (3) AYNA: tam soldaki kaynagin sol kulagi, tam sagdakinin sag kulagiyla BIT AYNI;
+//  (4) ON/ARKA: onde ve arkada yanit FARKLI (kepce renklendirmesi). POZITIF KONTROL:
+//      ayni iki konum panlama yolunda (hrtf kapali) AYNI — eski yol bunu ayiramiyordu;
+//  (5) YUKSEKLIK: ustteki kaynak ondekinden farkli;
+//  (6) konum degisince capraz gecis sayilir, kesik yok (blok basi atlama yok).
+ENGINE_TEST(audio_hrtf_itd_ild_mirror_front_back) {
+  audio::Mixer mx;
+  mx.init(48000, 2);
+  mx.set_listener(audio::Listener{}); // bakis -Z, sag +X, yukari +Y
+  const audio::Clip c = durtu_klibi();
+  static float rl[kHB], rr[kHB], ll[kHB], lr[kHB], fl[kHB], fr[kHB], bl[kHB], br[kHB], ul[kHB], ur[kHB];
+  hrtf_yanit(mx, c, {10, 0, 0}, true, rl, rr);
+  hrtf_yanit(mx, c, {-10, 0, 0}, true, ll, lr);
+  const int itd = (int)baslangic(rl, kHB) - (int)baslangic(rr, kHB);
+  const int itd_tepe = (int)tepe_yeri(rl, kHB) - (int)tepe_yeri(rr, kHB);
+  const double ild_db = 10.0 * std::log10(enerji(rr, kHB) / std::max(enerji(rl, kHB), 1e-30));
+  std::printf("    [bilgi] tam sag: ITD (baslangic) %d ornek = %.3f ms (tepeden %d), ILD %.1f dB\n", itd, itd / 48.0, itd_tepe, ild_db);
+  CHECK(itd >= 19 && itd <= 36);
+  CHECK(ild_db >= 6.0);
+  bool ayna = true;
+  for (uint32_t i = 0; i < kHB; i++) if (ll[i] != rr[i] || lr[i] != rl[i]) ayna = false;
+  CHECK(ayna);
+  hrtf_yanit(mx, c, {0, 0, -10}, true, fl, fr);
+  hrtf_yanit(mx, c, {0, 0, 10}, true, bl, br);
+  const double onarka = fark(fl, bl, kHB) + fark(fr, br, kHB);
+  hrtf_yanit(mx, c, {0, 10, -0.01f}, true, ul, ur);
+  const double ust = fark(fl, ul, kHB) + fark(fr, ur, kHB);
+  static float pfl[kHB], pfr[kHB], pbl[kHB], pbr[kHB];
+  hrtf_yanit(mx, c, {0, 0, -10}, false, pfl, pfr);
+  hrtf_yanit(mx, c, {0, 0, 10}, false, pbl, pbr);
+  const double pan_onarka = fark(pfl, pbl, kHB) + fark(pfr, pbr, kHB);
+  std::printf("    [bilgi] on/arka farki: HRTF %.3f, panlama %.6f (KONTROL); ust/on farki %.3f; on yanit L/R enerji %.2f dB\n",
+              onarka, pan_onarka, ust, 10.0 * std::log10(enerji(fl, kHB) / std::max(enerji(fr, kHB), 1e-30)));
+  CHECK(onarka > 0.05);
+  CHECK(pan_onarka < 1e-9);
+  CHECK(ust > 0.05);
+  // Onde iki kulak simetrik (+-1.5 dB): KEMAR compact simetrik kumedir.
+  CHECK(std::fabs(10.0 * std::log10(enerji(fl, kHB) / std::max(enerji(fr, kHB), 1e-30))) < 1.5);
+}
+
+// KAPI: hareket eden kaynakta HRIR degisimi capraz gecisle — kesik yok.
+// 440 Hz sinus, kaynak her blokta 10 derece donuyor (4 tur). Olculen: ardisik
+// ornek farkinin en buyugu, SABIT kaynaktaki en buyuk farkin 1.6 katini gecmez
+// (kesik olsaydi blok basinda sinusun genligi kadar sicrama olurdu); degisim
+// sayaci > 0 (gecis gercekten oldu). Bedel: 8 HRTF sesi x 1 s olculur (bilgi).
+ENGINE_TEST(audio_hrtf_moving_source_crossfades_without_clicks) {
+  static SystemArena sys;
+  if (!sys.reserve(8u << 20, "audio_hrtf_hareket")) { CHECK(false); return; }
+  audio::Clip sine;
+  CHECK(audio::clip_sine(sys, 440.0f, 1.0f, 48000, 0.5f, &sine));
+  audio::Mixer mx;
+  mx.init(48000, 2);
+  mx.set_listener(audio::Listener{});
+  audio::SpatialParams sp;
+  sp.distance_attenuation = false;
+  sp.hrtf = true;
+  sp.pos = {10, 0, 0};
+  auto en_buyuk_sicrama = [&](bool don) {
+    mx.stop_all();
+    mx.render(g_hout, kHB);
+    audio::VoiceHandle v = mx.play_3d(&sine, sp, 1.0f, true);
+    mx.render(g_hout, kHB);
+    float onceki_l = g_hout[(kHB - 1) * 2], onceki_r = g_hout[(kHB - 1) * 2 + 1];
+    double en = 0;
+    for (int b = 0; b < 144; b++) {
+      if (don) {
+        const float a = (float)b * 10.0f * 3.14159265f / 180.0f;
+        mx.set_voice_position(v, {10.0f * std::sin(a), 0, -10.0f * std::cos(a)});
+      }
+      mx.render(g_hout, kHB);
+      for (uint32_t i = 0; i < kHB; i++) {
+        const double dl = std::fabs(g_hout[i * 2] - onceki_l), dr = std::fabs(g_hout[i * 2 + 1] - onceki_r);
+        if (dl > en) en = dl;
+        if (dr > en) en = dr;
+        onceki_l = g_hout[i * 2];
+        onceki_r = g_hout[i * 2 + 1];
+      }
+    }
+    return en;
+  };
+  const double sabit = en_buyuk_sicrama(false);
+  const uint64_t sw0 = mx.stats().hrtf_switches;
+  const double donen = en_buyuk_sicrama(true);
+  const uint64_t sw = mx.stats().hrtf_switches - sw0;
+  std::printf("    [bilgi] en buyuk ardisik fark: sabit %.4f, donen %.4f (%.2fx); HRIR degisimi %llu blok\n", sabit, donen,
+              donen / sabit, (unsigned long long)sw);
+  CHECK(sw > 50);
+  CHECK(donen < sabit * 1.6);
+  // Bedel: 8 ses x 1 s (48000 kare).
+  mx.stop_all();
+  mx.render(g_hout, kHB);
+  for (int k = 0; k < 8; k++) {
+    sp.pos = {10.0f * std::sin(k * 0.7f), 0, -10.0f * std::cos(k * 0.7f)};
+    mx.play_3d(&sine, sp, 0.1f, true);
+  }
+  const uint64_t a0 = AllocGate::total_allocations();
+  const uint64_t t0 = platform::now_ns();
+  for (int b = 0; b < 48000 / (int)kHB; b++) mx.render(g_hout, kHB);
+  const double ns = (double)(platform::now_ns() - t0);
+  const uint64_t ayirma = AllocGate::total_allocations() - a0;
+  std::printf("    [bilgi] HRTF render ayirmasi: %llu\n", (unsigned long long)ayirma);
+  CHECK(ayirma == 0);
+  std::printf("    [bilgi] bedel: 8 HRTF sesi x %u kare: %.2f ms -> %.1f ns / ses-kare (%.2f%% tek cekirdek, gercek zamana gore)\n",
+              (48000 / kHB) * kHB, ns / 1e6, ns / (8.0 * (48000 / kHB) * kHB), ns / 1e9 * 100.0);
 }

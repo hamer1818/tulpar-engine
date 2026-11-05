@@ -2,9 +2,9 @@
 // KAFA GOLGESI. Saf fonksiyon: durum yok, ayirma yok, kilit yok — cihaz
 // callback'inden guvenle cagrilir.
 //
-// "HRTF DEGIL, basit kafa golgesi": gercek HRTF olculmus bir HRIR veri kumesi
-// (kisi basina yuzlerce yon x ~256 tap FIR) ister; depoda boyle bir kume yok ve
-// lisansi uygun bir kume vendor edilmedi. Onun yerine karsi kulakta (kafanin
+// VARSAYILAN YOL "HRTF DEGIL, basit kafa golgesi". Gercek HRTF 2026-11-04'ten beri
+// kaynak basina istege bagli (SpatialParams::hrtf, audio/hrtf.hpp: MIT KEMAR
+// compact, 368 yon). Asagidaki yaklasim: karsi kulakta (kafanin
 // golgesinde kalan kulak) yuksek frekanslarin zayiflamasi tek kutuplu alcak
 // gecirgenle taklit edilir. Bu yon duygusu verir ama yukseklik (elevation) ve
 // on/arka ayrimi TASIMAZ — genlik panlamasi on/arka icin ayni degeri uretir.
@@ -38,6 +38,10 @@ struct SpatialParams {
   bool distance_attenuation = true;
   bool panning = true;
   bool head_shadow = true;
+  // HRTF (audio/hrtf.hpp): stereo cikista panlama + kafa golgesi YERINE olculmus
+  // HRIR ile kulak basina FIR + ITD (on/arka ve yukseklik ipucu). Varsayilan
+  // KAPALI: kapaliyken cikis eskisiyle bit bit ayni.
+  bool hrtf = false;
 };
 
 // OKLUZYON KATMAN NOTU: audio L3, sim L4 — audio sim'i INCLUDE EDEMEZ (katman

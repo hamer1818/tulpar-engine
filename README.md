@@ -287,4 +287,6 @@ Motor kaynağı TulparLang projesinin lisansına tabidir. `third_party/` altınd
 vendored kütüphaneler kendi lisanslarıyla gelir (Jolt MIT, Recast zlib, meshoptimizer MIT,
 cgltf MIT, stb public domain/MIT, miniaudio MIT/public domain, astc-encoder Apache-2.0,
 ImGui MIT, Tracy BSD-3, Vulkan başlıkları Apache-2.0, `assets/fonts/DejaVuSans.ttf`
-Bitstream Vera).
+Bitstream Vera). `audio/hrtf_kemar.h` (HRTF) MIT KEMAR ölçümlerinden üretilmiştir —
+Bill Gardner & Keith Martin, MIT Media Lab, 1994 (veri lisansı: kullanım serbest,
+araştırma ve ticari kullanımda yazarlara atıf şartıyla; `tools/hrtf_kemar.py`).

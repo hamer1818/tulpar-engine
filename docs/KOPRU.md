@@ -1464,3 +1464,28 @@ kıpırdamaz. Düşük alfalı geniş yumuşak geçişlerde (ışıltı, gölge)
   37 → 13 px. Ortalama ton değişmiyor (46.284 → 46.298). Varsayılan bayt bayt aynı, resmin dışı aynı.
   Kontrol: titretmesiz koşu ≥ 12 px.
 
+
+## 13. 3B ses ve HRTF (2026-11-04)
+
+Karıştırıcının uzamsal yolu (mesafe sönümü, sabit-güç panlama, kafa gölgesi,
+oklüzyon) köprüde yoktu: oyunlar yalnız düz ses çalabiliyordu. Dört fonksiyon:
+
+| Tulpar | C | ne yapar |
+|---|---|---|
+| `cal_3b(klip, x, y, z, seviye, dongu)` | `eng_audio_play_3d` | dünya konumunda çal → ses id'si |
+| `ses_konum(id, x, y, z)` | `eng_audio_position` | hareket eden kaynağı taşı |
+| `dinleyici(x, y, z, bx, by, bz)` | `eng_audio_listener` | elle dinleyici; bakış (0,0,0) → yeniden KAMERAYI izle |
+| `ses_3b(en_yakin, en_uzak, hrtf)` | `eng_audio_3d` | SONRAKİ 3B seslerin sönüm aralığı + HRTF |
+
+- **Dinleyici varsayılan olarak kamera**: her kare `eng_camera`'nın göz/hedefi
+  (yukarı +Y). Elle verilince kamera takibi kapanır.
+- **HRTF** (`audio/hrtf.hpp`, MIT KEMAR compact): kaynak başına, `ses_3b(..., true)`
+  sonrası çalınanlarda. Panlamanın taşıyamadığı ön/arka ve yükseklik ipucu gelir;
+  düzey farkı (ILD) frekansa bağlıdır — 300 Hz'de sağ/sol 1.7x, 3 kHz'de 2.6x
+  (ölçüldü, `bridge_audio_3d_direction_follows_listener`). Bedel ses başına ~40 ns/kare
+  (RTX 5080 makinesi; telefonda ölçülmedi).
+- Kapanış satırı: `kapanis (3B ses): N cal (HRTF|panlama), dinleyici elle|kamera, HRIR degisimi K blok`.
+- Kapı `bridge_audio_3d_direction_follows_listener`: +X sağda, taşınınca solda,
+  kamera +X'e bakarken -X'teki ses arkada (iki kanal yakın — panlama ön/arkayı
+  AYIRAMAZ), HRTF'de 3 kHz sağ > 2x sol, geçersiz aralık HATA. KONTROL: düz ses iki
+  kanalda eşit.

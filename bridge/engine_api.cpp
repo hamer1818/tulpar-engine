@@ -383,6 +383,13 @@ struct Ui {
 
 struct Bridge {
   bool inited = false, running = false, headless = false, have_window = false, in_frame = false;
+  // Ucgen/piksel (Faz 9, renderer/geom_density.hpp): kapanista basilir —
+  // telefonda TBDR binning butcesinin CPU tahmini (Mali'de zaman damgasi yok).
+  uint64_t geom_frames = 0;
+  double geom_tpp_sum = 0;
+  float geom_tpp_max = 0;
+  uint32_t geom_micro_max = 0, geom_micro_frames = 0;
+  uint64_t geom_tris_max = 0;
   // Kapanis raporunun "hata N, uyari N"si BU oturumun sayisi olmali: g_log
   // surec boyu yasar (teng_error_count surec toplamini verir, testler fark
   // olcer), Bridge her oturumda sifirlanir. Ayni surecte ikinci oturumda rapor
@@ -596,6 +603,13 @@ struct Bridge {
   uint32_t audio_off_reports = 0; // kapali cihazda cagri: ilk N tanesi HATA, sonrasi ayrinti (log selini onler)
   uint32_t audio_plays = 0;
   float audio_master = 1.0f;
+  bool stick_visible = false; // eng_stick_visible: cubuk tabani + topuzu ciz
+  uint32_t stick_drawn_frames = 0;
+  // 3B ses: sonraki play_3d'lerin ayari + dinleyici (varsayilan: kamera).
+  float a3_min = 1.0f, a3_max = 60.0f;
+  bool a3_hrtf = false, listener_manual = false;
+  audio::Listener listener{};
+  uint32_t audio_plays_3d = 0;
   int limiter_node = -1; // teng_audio_limiter: ana yol DSP dugumu (-1 yok)
   char audio_desc[192] = {0};
   // Klip PCM bicimi (yayin adimi 3, 2026-10-13): varsayilan S16 = F32'nin yarisi;
@@ -1117,6 +1131,16 @@ void render_frame() {
   if (!b.headless && b.swap.rotation_radians() != 0.0f)
     proj = Mat4::rotate({0, 0, 1}, b.swap.rotation_radians()) * proj;
   b.ren.set_camera(Mat4::look_at(b.cam_eye, b.cam_target, {0, 1, 0}), proj);
+  // Dinleyici kamerayi izler (elle verilmediyse): 3B ses ekranda gorulen yonden gelsin.
+  if (b.audio_ok && !b.listener_manual) {
+    const Vec3 f = b.cam_target - b.cam_eye;
+    if (length(f) > 1e-6f) {
+      b.listener.pos = b.cam_eye;
+      b.listener.forward = normalize(f);
+      b.listener.up = {0, 1, 0};
+      b.mixer.set_listener(b.listener);
+    }
+  }
   b.ren.set_light(normalize(b.sun_dir), b.ambient, b.sun_diffuse);
   b.ren.set_shadow_volume(b.shadow_center, b.shadow_radius, b.shadow_depth);
   // Yakin golge kademeleri kameranin BAKTIGI yerde toplanir (oyuncu orada).
@@ -1207,6 +1231,25 @@ void render_frame() {
       b.dim_frames_quad++;
       own_fsb = 1;
     }
+  }
+  // Gorunen sanal cubuk (Geri bildirim #31): oyunun arayuzunun ALTINDA. Daire
+  // yatay seritlerle (ui_rect; ayri boru hatti/doku yok): taban yari saydam,
+  // topuz cubugun sapmasi kadar kaymis.
+  if (b.stick_visible && b.stick.move_active) {
+    auto daire = [&](float cx, float cy, float r, uint32_t rgba) {
+      const int n = 24;
+      for (int k = 0; k < n; k++) {
+        const float y0 = -r + 2.0f * r * (float)k / (float)n, y1 = -r + 2.0f * r * (float)(k + 1) / (float)n;
+        const float ym = 0.5f * (y0 + y1);
+        const float hw = std::sqrt(r * r - ym * ym > 0 ? r * r - ym * ym : 0.0f);
+        b.ren.ui_rect(cx - hw, cy + y0, 2.0f * hw, y1 - y0, rgba);
+      }
+    };
+    const float R = b.stick.stick_radius_px;
+    const Vec2 o = b.stick.stick_origin;
+    daire(o.x, o.y, R, renderer::Renderer::rgba(255, 255, 255, 40));
+    daire(o.x + b.stick.move.x * R, o.y - b.stick.move.y * R, R * 0.38f, renderer::Renderer::rgba(255, 255, 255, 120));
+    b.stick_drawn_frames++;
   }
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
@@ -1483,6 +1526,12 @@ int teng_init(const char *title, int width, int height) {
     }
   }
   rhi::DeviceConfig dc;
+  // VRS (Faz 3, 2026-11-04): TULPAR_ENGINE_VRS=2|4 sahne golgelendirmesini NxN
+  // parcada yapar (cihaz verirse; vermezse kapanis degil BILGI satiri). Deneme
+  // anahtari: oyunun ayari degil, cihaz olcumu icin (varsayilan kapali).
+  const char *vrs_env = std::getenv("TULPAR_ENGINE_VRS");
+  const uint32_t vrs_istek = (vrs_env && *vrs_env) ? (uint32_t)std::atoi(vrs_env) : 1;
+  dc.fragment_shading_rate = vrs_istek > 1;
   dc.validation = std::getenv("TULPAR_ENGINE_VK_VALIDATION") != nullptr;
   dc.best_practices = dc.validation;
   if (!b.headless) {
@@ -1535,7 +1584,13 @@ int teng_init(const char *title, int width, int height) {
     rc.post_clear = b.headless ? Vec3{10.0f / 255.0f, 20.0f / 255.0f, 30.0f / 255.0f} // OffscreenConfig::clear
                                : Vec3{0.05f, 0.06f, 0.09f};                            // Swapchain temizligi
   }
+  rc.shading_rate = vrs_istek;
   if (!b.ren.init(b.dev, b.sys, rp, rc)) { BERR("renderer kurulamadi"); return init_geri_al(b, "renderer kurulamadi"); }
+  if (vrs_istek > 1) {
+    const renderer::Renderer::VrsInfo vi = b.ren.vrs();
+    if (vi.active > 1) BINFO("VRS acik: sahne golgelendirmesi %ux%u parcada (TULPAR_ENGINE_VRS)", vi.active, vi.active);
+    else BINFO("VRS istendi (%u) ama KAPALI: %s", vi.requested, vi.reason);
+  }
   if (b.bloom) {
     const renderer::PostInfo pi = b.ren.post();
     if (pi.enabled) {
@@ -2422,6 +2477,18 @@ void teng_frame_end(void) {
       }
     }
   }
+  {
+    const renderer::GeomDensity &g = b.ren.stats().geom;
+    if (g.draws) {
+      const float t = g.tri_per_px();
+      b.geom_frames++;
+      b.geom_tpp_sum += t;
+      if (t > b.geom_tpp_max) b.geom_tpp_max = t;
+      if (g.micro > b.geom_micro_max) b.geom_micro_max = g.micro;
+      if (g.micro) b.geom_micro_frames++;
+      if (g.tris > b.geom_tris_max) b.geom_tris_max = g.tris;
+    }
+  }
   // Sahne dosyasi izleyicisi: kare CIZILDIKTEN sonra (sahne kaynaklari kare
   // ortasinda degismesin).
   scene_watch_tick();
@@ -2488,6 +2555,10 @@ void teng_shutdown(void) {
     const renderer::RendererStats rs = b.ren.stats();
     BINFO("kapanis (kaynak havuzu): model %u/%u, mesh %u/%u, doku %u/%u, malzeme %u", b.model_count, kMaxModels, rs.meshes,
           kRenderMaxMeshes, rs.textures, kRenderMaxTextures, rs.materials);
+    BINFO("kapanis (geometri, CPU tahmini): %llu karede ortalama %.4f ucgen/px (en cok %.4f), kare basina en cok %llu ucgen; "
+          "mikro ucgenli cizim (>1 ucgen/px) en cok %u/kare, %u karede >0",
+          (unsigned long long)b.geom_frames, b.geom_frames ? b.geom_tpp_sum / (double)b.geom_frames : 0.0, (double)b.geom_tpp_max,
+          (unsigned long long)b.geom_tris_max, b.geom_micro_max, b.geom_micro_frames);
     // Model basina bedel (M4): yuva dizisi her yuva icin sabit (Bridge icinde, kullanilsin
     // kullanilmasin), arena payi yuklenen dosyaya gore (ortalama). GPU bellegi ayri (mesh/doku).
     const uint32_t yuva_b = (uint32_t)(sizeof(content::Model) + sizeof(content::UploadedModel));
@@ -2525,6 +2596,11 @@ void teng_shutdown(void) {
     BINFO("kapanis (font): %u kod noktasi fontta yoktu ve '?' cizildi (ilki U+%04X)", b.font.missing_count(), b.font.first_missing());
   BINFO("kapanis (ek): sahne yukleme %u, ses %s (%u cal, %u klip, %u yok sayilan cagri)", b.scene_loads,
         b.audio_ok ? b.audio_desc : "KAPALI", b.audio_plays, b.clip_count, b.audio_off_reports);
+  if (b.audio_plays_3d) {
+    const audio::MixerStats ms = b.mixer.stats();
+    BINFO("kapanis (3B ses): %u cal (%s), dinleyici %s, HRIR degisimi %llu blok", b.audio_plays_3d,
+          b.a3_hrtf ? "HRTF" : "panlama", b.listener_manual ? "elle" : "kamera", (unsigned long long)ms.hrtf_switches);
+  }
   if (b.scene_loads)
     BINFO("kapanis (sahne malzemesi): %u kuruldu, %u yeniden kullanildi (havuz sahneler arasi kalici, Tuzaklar 8dc)", b.scene_mats_created,
           b.scene_mats_reused);
@@ -2547,7 +2623,8 @@ void teng_shutdown(void) {
   if (b.ui.text_shrunk || b.ui.text_clipped)
     BINFO("kapanis (arayuz yazisi): %u cizimde etiket kutuya sigsin diye kucultuldu, %u cizimde \"...\" ile kirpildi", b.ui.text_shrunk,
           b.ui.text_clipped);
-  BINFO("kapanis (arayuz girdisi): gorulmeyen basis %u (tiklamadi), click_once engeli %u", b.ui.stale_presses, b.ui.once_blocked);
+  BINFO("kapanis (arayuz girdisi): gorulmeyen basis %u (tiklamadi), click_once engeli %u; cubuk: haric alanda baslayan %u parmak, %u karede cizildi%s",
+        b.ui.stale_presses, b.ui.once_blocked, b.stick.excluded_touches, b.stick_drawn_frames, b.stick.hold_action ? ", eylem basili-tut" : "");
   BINFO("kapanis (arayuz/kayit): %u ui etkinlestirme (%u enjekte), sicak yukleme %u, kayit %s (%u anahtar, %u yazma, %u bozuk satir)", b.ui.clicks,
         b.ui.injects, b.scene_reloads, g_save.loaded ? g_save.path : "acilmadi", g_save.n, g_save.writes, g_save.bad_lines);
   {
@@ -3950,6 +4027,11 @@ void teng_debug_safe_insets(int left, int top, int right, int bottom) {
 }
 int teng_low_memory_count(void) { return g ? (int)g->low_memory : 0; }
 long long teng_debug_audio_callbacks(void) { return g && g->audio_ok ? (long long)g->mixer.stats().callbacks : -1; }
+double teng_debug_audio_peak_channel(int ch) {
+  if (!g || !g->audio_ok) return -1.0;
+  const audio::MixerStats ms = g->mixer.stats();
+  return ch == 0 ? ms.peak_l : (ch == 1 ? ms.peak_r : -1.0);
+}
 int teng_debug_clip_channels(int clip) {
   if (!g || clip < 0 || (uint32_t)clip >= g->clip_count) return -1;
   return (int)g->clips[clip].clip.channels;
@@ -4004,6 +4086,29 @@ double teng_touch_y(int i) {
 double teng_stick_x(void) { return g ? g->stick.move.x : 0; }
 double teng_stick_y(void) { return g ? g->stick.move.y : 0; }
 int teng_stick_action(void) { return g && g->stick.action ? 1 : 0; }
+int teng_stick_pressed(void) { return g && g->stick.action_down ? 1 : 0; }
+void teng_stick_hold(int on) {
+  CALLF("teng_stick_hold", "%d", on);
+  if (!ready("teng_stick_hold")) return;
+  g->stick.hold_action = on != 0;
+}
+int teng_stick_exclude(int i, double x, double y, double w, double h) {
+  CALLF("teng_stick_exclude", "%d (%.0f %.0f %.0f %.0f)", i, x, y, w, h);
+  if (!ready("teng_stick_exclude")) return 0;
+  if (i < 0 || i >= (int)app::VirtualStick::kMaxExclude) {
+    BERR("teng_stick_exclude: alan %d sinir disi (0..%u)", i, app::VirtualStick::kMaxExclude - 1);
+    return 0;
+  }
+  app::VirtualStick::Rect &r = g->stick.exclude[i];
+  if (w <= 0 || h <= 0) r = app::VirtualStick::Rect{};
+  else r = app::VirtualStick::Rect{(float)x, (float)y, (float)w, (float)h};
+  return 1;
+}
+void teng_stick_visible(int on) {
+  CALLF("teng_stick_visible", "%d", on);
+  if (!ready("teng_stick_visible")) return;
+  g->stick_visible = on != 0;
+}
 double teng_look_dx(void) { return g ? g->stick.look_delta.x + g->mouse_look_dx : 0; }
 double teng_mouse_x(void) { return g && g->in ? g->in->mouse_x : 0; }
 double teng_mouse_y(void) { return g && g->in ? g->in->mouse_y : 0; }
@@ -5186,6 +5291,57 @@ int teng_audio_play(int clip, double gain, int loop) {
   b.audio_plays++;
   BDBG("ses #%u: klip %d (%s) gain %.2f%s", v.id, clip, b.clips[clip].name, gain, loop ? " dongulu" : "");
   return (int)v.id;
+}
+int teng_audio_play_3d(int clip, double x, double y, double z, double gain, int loop) {
+  CALLF("teng_audio_play_3d", "klip %d (%.2f %.2f %.2f) gain %.2f %s", clip, x, y, z, gain, loop ? "dongu" : "tek");
+  if (!audio_live("teng_audio_play_3d")) return 0;
+  Bridge &b = *g;
+  if (clip < 0 || (uint32_t)clip >= b.clip_count) { BERR("teng_audio_play_3d: klip %d yok (%u yuklu)", clip, b.clip_count); return 0; }
+  if (b.clips[clip].clip.frames == 0) { BERR("teng_audio_play_3d: klip %d (%s) BOS", clip, b.clips[clip].name); return 0; }
+  if (gain < 0.0) { BERR("teng_audio_play_3d: ses seviyesi negatif (%.2f), 0 yapildi", gain); gain = 0.0; }
+  audio::SpatialParams sp;
+  sp.pos = Vec3{(float)x, (float)y, (float)z};
+  sp.min_distance = b.a3_min;
+  sp.max_distance = b.a3_max;
+  sp.hrtf = b.a3_hrtf;
+  const audio::VoiceHandle v = b.mixer.play_3d(&b.clips[clip].clip, sp, (float)gain * b.audio_master, loop != 0);
+  if (!v.valid()) { BERR("teng_audio_play_3d: komut kuyrugu dolu (klip %d) — ses calmadi", clip); return 0; }
+  b.voices[v.id & 0xFFu] = Bridge::VoiceSlot{v.id, (float)gain, clip};
+  b.audio_plays++;
+  b.audio_plays_3d++;
+  BDBG("3B ses #%u: klip %d (%s) (%.2f %.2f %.2f)%s", v.id, clip, b.clips[clip].name, x, y, z, b.a3_hrtf ? " HRTF" : "");
+  return (int)v.id;
+}
+void teng_audio_position(int voice, double x, double y, double z) {
+  CALLF("teng_audio_position", "#%d (%.2f %.2f %.2f)", voice, x, y, z);
+  if (!audio_live("teng_audio_position")) return;
+  if (voice <= 0) { BERR("teng_audio_position: gecersiz ses id %d", voice); return; }
+  g->mixer.set_voice_position(audio::VoiceHandle{(uint32_t)voice}, Vec3{(float)x, (float)y, (float)z});
+}
+void teng_audio_listener(double x, double y, double z, double fx, double fy, double fz) {
+  CALLF("teng_audio_listener", "(%.2f %.2f %.2f) bakis (%.2f %.2f %.2f)", x, y, z, fx, fy, fz);
+  if (!audio_live("teng_audio_listener")) return;
+  Bridge &b = *g;
+  const Vec3 f{(float)fx, (float)fy, (float)fz};
+  if (length(f) < 1e-6f) { b.listener_manual = false; BDBG("dinleyici: kamerayi izliyor"); return; }
+  b.listener_manual = true;
+  b.listener.pos = Vec3{(float)x, (float)y, (float)z};
+  b.listener.forward = normalize(f);
+  b.listener.up = {0, 1, 0};
+  b.mixer.set_listener(b.listener);
+}
+int teng_audio_3d(double min_distance, double max_distance, int hrtf) {
+  CALLF("teng_audio_3d", "min %.2f max %.2f hrtf %d", min_distance, max_distance, hrtf);
+  if (!g || !g->inited) { BERR("teng_audio_3d: motor kurulmadan cagrildi (once eng_init)"); return 0; }
+  if (!(min_distance > 0.0) || !(max_distance > min_distance)) {
+    BERR("teng_audio_3d: gecersiz mesafe (min %.2f, max %.2f): 0 < min < max olmali", min_distance, max_distance);
+    return 0;
+  }
+  g->a3_min = (float)min_distance;
+  g->a3_max = (float)max_distance;
+  g->a3_hrtf = hrtf != 0;
+  BINFO("3B ses: sonum %.2f..%.2f, %s", min_distance, max_distance, hrtf ? "HRTF (MIT KEMAR)" : "panlama + kafa golgesi");
+  return 1;
 }
 int teng_audio_beep(double hz, double seconds, double gain) {
   CALLF("teng_audio_beep", "%.1f Hz %.2f s gain %.2f", hz, seconds, gain);

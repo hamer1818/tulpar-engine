@@ -283,6 +283,11 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
     std::snprintf(buf, sizeof buf, "%u batch", rs.draws);
     metric_row("\xC3\x87izim \xC3\x87" "a\xC4\x9Fr\xC4\xB1s\xC4\xB1:", buf, tone(Tone::Text));
 
+    // Ucgen/piksel (Faz 9): gorus icindeki cizimlerin ucgeni / tahmini ekran
+    // alani (sinir kuresi izdusumu; iyimser). Mikro: piksel basina > 1 ucgen.
+    std::snprintf(buf, sizeof buf, "%.4f (mikro %u/%u)", (double)rs.geom.tri_per_px(), rs.geom.micro, rs.geom.draws);
+    metric_row("\xC3\x9C\xC3\xA7gen/piksel:", buf, rs.geom.micro ? ImVec4(0.95f, 0.65f, 0.2f, 1.0f) : tone(Tone::Text));
+
     std::snprintf(buf, sizeof buf, "%u SetPass", rs.material_binds);
     metric_row("Malzeme Ge\xC3\xA7i\xC5\x9Fi:", buf, tone(Tone::Text));
 

@@ -1243,6 +1243,71 @@ ENGINE_TEST(content_gltf_pbr_textures_reach_material) {
   std::remove(kpath);
 }
 
+// --- AYRI occlusionTexture: ORM'e birlestirilir (2026-11-04) ----------------
+// Eskiden occlusionTexture metallicRoughness'ten FARKLI bir goruntuyse OKUNMUYORDU
+// (yalniz occlusion_separate isaretlenirdi): o varliklarda ortam golgesi sessizce
+// yoktu. Simdi yuklemede yeni bir ORM goruntusu uretilir (G/B ORM'den, R
+// occlusion'dan, ORM boyutuna en yakin komsu); dorduncu sampler yok.
+// Olculen: malzeme 0 (ORM 2x2 + ayri occlusion 1x1) -> yeni goruntu texeli
+// (77, 128, 200); malzeme 1 (ORM YOK + occlusion) -> (77, 255, 255) — carpanlar
+// oldugu gibi; malzeme 2 (occlusion = ORM, eski ORM paketlemesi) -> birlestirme
+// YOK, ayni goruntu (KONTROL: her occlusion'i birlestiren kod burada yakalanir);
+// orijinal ORM goruntusu degismedi; yeni goruntuler DOGRUSAL veri.
+ENGINE_TEST(content_gltf_separate_occlusion_merges_into_orm) {
+  static SystemArena sys;
+  if (!sys.reserve(8u << 20, "occ_birlesim")) { CHECK(false); return; }
+  const char *kGltf =
+      "{\"asset\":{\"version\":\"2.0\"},"
+      "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],"
+      "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],"
+      "\"images\":[{\"uri\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGPgajjxH4QZYAwATSgJRSYJ4LUAAAAASUVORK5CYII=\"},"
+      "{\"uri\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPwZWD4DwACOAFN43CA2gAAAABJRU5ErkJggg==\"}],"
+      "\"textures\":[{\"source\":0},{\"source\":1}],"
+      "\"materials\":["
+      "{\"pbrMetallicRoughness\":{\"metallicRoughnessTexture\":{\"index\":0}},\"occlusionTexture\":{\"index\":1,\"strength\":0.5}},"
+      "{\"pbrMetallicRoughness\":{\"roughnessFactor\":0.4},\"occlusionTexture\":{\"index\":1}},"
+      "{\"pbrMetallicRoughness\":{\"metallicRoughnessTexture\":{\"index\":0}},\"occlusionTexture\":{\"index\":0,\"strength\":0.7}}],"
+      "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\","
+      "\"min\":[0,0,0],\"max\":[1,1,0]}],"
+      "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],"
+      "\"buffers\":[{\"byteLength\":36,\"uri\":\"data:application/octet-stream;base64,"
+      "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA\"}]}";
+  char path[256];
+  test::tmp_template(path, sizeof path, "tulpar_occ_birlesim");
+  std::snprintf(path + std::strlen(path), sizeof path - std::strlen(path), ".gltf");
+  FILE *f = std::fopen(path, "wb");
+  if (!f) { skip("gecici dizin yazilamadi"); return; }
+  std::fwrite(kGltf, 1, std::strlen(kGltf), f);
+  std::fclose(f);
+  content::Model m;
+  const bool ok = content::gltf_load(sys, path, &m);
+  std::remove(path);
+  if (!ok) std::printf("    [bilgi] yukleme hatasi: %s\n", m.error);
+  CHECK(ok);
+  if (!ok || m.material_count != 3) { CHECK(false); return; }
+  const content::ModelMaterial &a = m.materials[0], &b = m.materials[1], &c = m.materials[2];
+  std::printf("    [bilgi] goruntu %u (2 + %u birlesik, %u yapilamadi); m0 ORM %d (ayri %d, guc %.2f), m1 ORM %d, m2 ORM %d (guc %.2f)\n",
+              m.image_count, m.occlusion_merged, m.occlusion_unmerged, a.orm_image, (int)a.occlusion_separate,
+              (double)a.occlusion_strength, b.orm_image, c.orm_image, (double)c.occlusion_strength);
+  CHECK(m.image_count == 4 && m.occlusion_merged == 2 && m.occlusion_unmerged == 0);
+  CHECK(a.orm_image >= 2 && b.orm_image >= 2 && a.orm_image != b.orm_image);
+  CHECK(!a.occlusion_separate && !b.occlusion_separate);
+  CHECK(a.occlusion_strength > 0.49f && a.occlusion_strength < 0.51f);
+  CHECK(b.occlusion_strength > 0.99f); // strength yazilmamis: cgltf nesne varken 1
+  CHECK(c.orm_image == 0 && c.occlusion_strength > 0.69f && c.occlusion_strength < 0.71f); // KONTROL
+  if (a.orm_image >= 2 && b.orm_image >= 2 && (uint32_t)a.orm_image < m.image_count && (uint32_t)b.orm_image < m.image_count) {
+    const content::ModelImage &ia = m.images[a.orm_image], &ib = m.images[b.orm_image];
+    const uint8_t *pa = ia.rgba, *pb = ib.rgba;
+    std::printf("    [bilgi] birlesik m0 %ux%u texel (%u %u %u), m1 %ux%u texel (%u %u %u), orijinal ORM R %u\n", ia.width, ia.height,
+                pa[0], pa[1], pa[2], ib.width, ib.height, pb[0], pb[1], pb[2], m.images[0].rgba[0]);
+    CHECK(ia.width == 2 && ia.height == 2 && pa[0] == 77 && pa[1] == 128 && pa[2] == 200);
+    CHECK(ia.rgba[12] == 77 && ia.rgba[13] == 128); // son texel de (en yakin komsu 1x1 -> 2x2)
+    CHECK(ib.width == 1 && ib.height == 1 && pb[0] == 77 && pb[1] == 255 && pb[2] == 255);
+    CHECK(m.images[0].rgba[0] == 10);                // orijinal ORM degismedi
+    CHECK(!ia.srgb && !ib.srgb);                     // dogrusal veri
+  }
+}
+
 // --- RENK UZAYI: kullanimdan turetiliyor mu? --------------------------------
 // glTF goruntusu renk uzayi TASIMAZ; onu malzemedeki yeri belirler (spec):
 // baseColor/emissive = sRGB, metallicRoughness/normal = DOGRUSAL veri. Yanlis

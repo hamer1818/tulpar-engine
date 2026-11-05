@@ -935,6 +935,15 @@ func beep(hz, seconds, gain): int { return eng_audio_beep(hz, seconds, gain); }
 func ses_durdur(id) { eng_audio_stop(id); }
 // Calan TEK sesin seviyesi (rampali; ana seviyeyle carpilir) — muzik sonumleme, diyalogda kisma.
 func ses_kazanc(id, seviye) { eng_audio_gain(id, seviye); }
+// 3B ses (2026-11-04): dunya konumunda cal; dinleyici varsayilan KAMERA.
+func cal_3b(klip, x, y, z, seviye, dongu): int { return eng_audio_play_3d(klip, x, y, z, seviye, dongu); }
+func play_sound_3d(clip, x, y, z, gain, loop): int { return eng_audio_play_3d(clip, x, y, z, gain, loop); }
+func ses_konum(id, x, y, z) { eng_audio_position(id, x, y, z); }
+func sound_position(id, x, y, z) { eng_audio_position(id, x, y, z); }
+func dinleyici(x, y, z, bx, by, bz) { eng_audio_listener(x, y, z, bx, by, bz); }
+func audio_listener(x, y, z, fx, fy, fz) { eng_audio_listener(x, y, z, fx, fy, fz); }
+func ses_3b(en_yakin, en_uzak, hrtf): bool { return eng_audio_3d(en_yakin, en_uzak, hrtf); }
+func audio_3d(min_distance, max_distance, hrtf): bool { return eng_audio_3d(min_distance, max_distance, hrtf); }
 func voice_gain_e(id, gain) { eng_audio_gain(id, gain); }
 // Muzik yuvasi sayisi/suresi: ses_ac'tan ONCE (varsayilan 2 x 64 s; 0 = yuva yok, tampon ayrilmaz).
 func muzik_yuvalari(sayi, saniye): bool { return eng_music_slots(sayi, saniye); }
@@ -999,6 +1008,15 @@ func touch_id_e(i): int { return eng_touch_id(i); }
 func cubuk_x(): float { return eng_stick_x(); }
 func cubuk_y(): float { return eng_stick_y(); }
 func eylem(): bool { return eng_stick_action(); }
+// Geri bildirim #31: basildigi kare, basili-tut kipi, haric alan (dugmeler), gorunen cubuk.
+func eylem_basla(): bool { return eng_stick_pressed(); }
+func stick_pressed(): bool { return eng_stick_pressed(); }
+func eylem_basili_tut(acik) { eng_stick_hold(acik); }
+func stick_hold(on) { eng_stick_hold(on); }
+func cubuk_haric(i, x, y, w, h): bool { return eng_stick_exclude(i, x, y, w, h); }
+func stick_exclude(i, x, y, w, h): bool { return eng_stick_exclude(i, x, y, w, h); }
+func cubuk_goster(acik) { eng_stick_visible(acik); }
+func stick_visible(on) { eng_stick_visible(on); }
 // Klavye VEYA dokunmatik: WASD / ok tuşları / sanal joystick tek yön vektörü.
 func yon_x(): float {
     float v = eng_stick_x();

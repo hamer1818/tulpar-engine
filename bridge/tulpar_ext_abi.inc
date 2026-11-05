@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 355
+#define TENG_ABI_COUNT 363
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -181,6 +181,10 @@ TENG_ABI(int, eng_touch_id, teng_touch_id, (int))
 TENG_ABI(double, eng_stick_x, teng_stick_x, (void))
 TENG_ABI(double, eng_stick_y, teng_stick_y, (void))
 TENG_ABI(int, eng_stick_action, teng_stick_action, (void))
+TENG_ABI(int, eng_stick_pressed, teng_stick_pressed, (void))
+TENG_ABI(void, eng_stick_hold, teng_stick_hold, (int))
+TENG_ABI(int, eng_stick_exclude, teng_stick_exclude, (int, double, double, double, double))
+TENG_ABI(void, eng_stick_visible, teng_stick_visible, (int))
 TENG_ABI(double, eng_look_dx, teng_look_dx, (void))
 TENG_ABI(double, eng_mouse_x, teng_mouse_x, (void))
 TENG_ABI(double, eng_mouse_y, teng_mouse_y, (void))
@@ -212,6 +216,10 @@ TENG_ABI(int, eng_music_slots, teng_music_slots, (int, int))
 TENG_ABI(int, eng_music_slot_load, teng_music_slot_load, (int, const char *))
 TENG_ABI(int, eng_music_slot_clip, teng_music_slot_clip, (int))
 TENG_ABI(void, eng_audio_gain, teng_audio_gain, (int, double))
+TENG_ABI(int, eng_audio_play_3d, teng_audio_play_3d, (int, double, double, double, double, int))
+TENG_ABI(void, eng_audio_position, teng_audio_position, (int, double, double, double))
+TENG_ABI(void, eng_audio_listener, teng_audio_listener, (double, double, double, double, double, double))
+TENG_ABI(int, eng_audio_3d, teng_audio_3d, (double, double, int))
 TENG_ABI(int, eng_audio_playing, teng_audio_playing, (void))
 TENG_ABI(double, eng_audio_peak, teng_audio_peak, (void))
 TENG_ABI(int, eng_audio_limiter, teng_audio_limiter, (double))

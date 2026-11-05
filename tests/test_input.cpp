@@ -57,3 +57,52 @@ ENGINE_TEST(input_virtual_stick_move_look_and_tap) {
   CHECK(!vs.action);
   std::printf("    [bilgi] joystick: kok 0, yarim %.2f, doygun 1, tap tek kare\n", 0.5f);
 }
+
+// Geri bildirim #31 (2026-11-04): haric alan, basili-tut, basildigi kare.
+// (1) Haric alanda baslayan sag parmak eylem uretmez (kisa dokunus bile) ve alan
+//     DISINA suruklense de bakis/cubuk olmaz; sayilir. KONTROL: ayni dokunus alan
+//     disinda eylem uretir.
+// (2) Sol yarida haric alanda baslayan parmak cubugu surmez.
+// (3) Basili-tut: sag parmak basili oldugu her kare action, birakinca biter;
+//     action_down yalniz ilk kare. Tap kipinde action_down da basis karesinde.
+ENGINE_TEST(input_virtual_stick_exclude_hold_pressed) {
+  platform::TouchState t;
+  t.width = 1000; t.height = 500;
+  app::VirtualStick vs;
+  vs.exclude[0] = app::VirtualStick::Rect{850, 380, 120, 100}; // sag altta "yetenek" dugmesi
+  vs.exclude[1] = app::VirtualStick::Rect{20, 20, 100, 60};    // sol ustte "menu"
+  uint64_t now = 1000000000ull;
+  auto adim = [&](uint64_t ns) { vs.update(t, now += ns); };
+  // (1) dugmeye kisa dokunus
+  t.begin(1, 900, 420); adim(16000000);
+  CHECK(!vs.look_active && !vs.action_down);
+  t.move(1, 700, 300); adim(16000000);   // alan disina surukle
+  CHECK(!vs.look_active && vs.look_delta.x == 0);
+  t.end(1); adim(50000000);
+  CHECK(!vs.action);
+  CHECK(vs.excluded_touches == 1);
+  // KONTROL: ayni kisa dokunus alan DISINDA -> eylem
+  t.begin(2, 700, 200); adim(16000000);
+  CHECK(vs.action_down && vs.look_active);
+  t.end(2); adim(50000000);
+  CHECK(vs.action);
+  // (2) sol ust menu: cubuk yok
+  t.begin(3, 50, 40); adim(16000000);
+  t.move(3, 90, 60); adim(16000000);
+  CHECK(!vs.move_active && vs.move.x == 0);
+  t.end(3); adim(16000000);
+  CHECK(vs.excluded_touches == 2);
+  // (3) basili tut
+  vs.hold_action = true;
+  t.begin(4, 600, 250); adim(16000000);
+  const bool ilk = vs.action && vs.action_down;
+  adim(16000000);
+  const bool ikinci = vs.action && !vs.action_down;
+  adim(400000000); // uzun basili: hala eylem (tap kipinde olmazdi)
+  const bool uzun = vs.action;
+  t.end(4); adim(16000000);
+  const bool birakinca = !vs.action;
+  std::printf("    [bilgi] basili tut: ilk kare %d, ikinci %d, 400 ms sonra %d, birakinca bitti %d; haric parmak %u\n", ilk, ikinci, uzun,
+              birakinca, vs.excluded_touches);
+  CHECK(ilk && ikinci && uzun && birakinca);
+}

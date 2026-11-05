@@ -12,6 +12,7 @@
 #include "core/memory/arena.hpp"
 #include "platform/crash.hpp"
 #include "platform/thread.hpp"
+#include "rhi/vk_api.hpp"
 
 const char *g_engine_tests_exe = nullptr;
 #if !defined(__ANDROID__)
@@ -93,6 +94,49 @@ static int argv_yankila(int argc, char **argv) {
   std::fflush(stdout);
   return 7;
 }
+
+// SURUCU SABITLEME (Tuzaklar 8dp, 2026-11-05). Linux'ta surucu kutuphanesi
+// (NVIDIA: libnvidia-tls.so, initial-exec TLS) her son VkInstance yok edilince
+// yukleyici tarafindan dlclose edilir ve sonraki instance'ta yeniden dlopen
+// edilir; glibc statik TLS'i geri vermedigi icin ~20 kurulum/kapanistan sonra
+// "cannot allocate memory in static TLS block" ile ICD YUKLENEMEZ ->
+// vkCreateInstance VK_ERROR_INCOMPATIBLE_DRIVER -> testler "Vulkan cihazi/kurulum
+// yok" diye ATLANIR. Tam kosumda gorulmuyordu (baska testlerin acik tuttugu
+// instance surucuyu yerinde tutuyordu); suzgecli `engine_tests bridge_` 25
+// testi atliyordu (Geri bildirim #24). Cozum: harness surec boyu TEK bos
+// instance acik tutar — surucu bir kez yuklenir. Testlerin olctugu sey
+// (koprunun kendi instance/cihaz/nesneleri, RSS buyumesi) etkilenmez: bu
+// instance onlardan ONCE kurulur ve hic nesne yaratmaz.
+// TULPAR_TEST_SURUCU_SABITLEME=0: kapali (pozitif kontrol — suzgecli kosu yeniden atlar).
+namespace {
+struct SurucuSabitle {
+  tulpar::engine::rhi::VkApi api;
+  VkInstance inst = VK_NULL_HANDLE;
+  void kur() {
+#if defined(__linux__) && !defined(__ANDROID__)
+    if (const char *e = std::getenv("TULPAR_TEST_SURUCU_SABITLEME"); e && e[0] == '0') {
+      std::printf("[harness] surucu sabitleme KAPALI (TULPAR_TEST_SURUCU_SABITLEME=0)\n");
+      return;
+    }
+    if (!tulpar::engine::rhi::vk_api_load(api)) return; // yukleyici yok / NO_VULKAN: testler kendi yolunu olcer
+    VkApplicationInfo ai{};
+    ai.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    ai.apiVersion = VK_API_VERSION_1_1;
+    VkInstanceCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    ci.pApplicationInfo = &ai;
+    if (api.vkCreateInstance(&ci, nullptr, &inst) != VK_SUCCESS) inst = VK_NULL_HANDLE;
+#endif
+  }
+  void birak() {
+    if (inst) {
+      tulpar::engine::rhi::vk_api_load_instance(api, inst);
+      if (api.vkDestroyInstance) api.vkDestroyInstance(inst, nullptr);
+      inst = VK_NULL_HANDLE;
+    }
+  }
+};
+} // namespace
 
 int engine_tests_main(int argc, char **argv) {
   g_engine_tests_exe = (argc > 0 && argv && argv[0] && argv[0][0]) ? argv[0] : nullptr;
@@ -189,6 +233,8 @@ int engine_tests_main(int argc, char **argv) {
   // Bu yuzden RUN satiri ayrica ELLE bosaltilir (asagida); bu satir POSIX'te
   // yine satir tamponudur.
   setvbuf(stdout, nullptr, _IOLBF, 0);
+  SurucuSabitle sabit;
+  sabit.kur();
   int passed = 0, failed = 0, ran = 0;
   for (int i = 0; i < Registry::count; i++) {
     const Case &c = Registry::cases[i];
@@ -208,6 +254,7 @@ int engine_tests_main(int argc, char **argv) {
       Registry::failures_total += Registry::failures;
     }
   }
+  sabit.birak();
   std::printf("engine tests: %d passed, %d failed, %d atlandi (%d/%d kosuldu)\n", passed, failed,
               Registry::skipped, ran, Registry::count);
   // KAYIT TASMASI KIRMIZIDIR. Tasan test hic kosmaz, yani ozet satirindaki

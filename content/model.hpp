@@ -50,8 +50,11 @@ struct ModelMaterial {
   int32_t emissive_image = -1;
   float normal_scale = 1.0f;       // glTF normalTexture.scale
   float occlusion_strength = 0.0f; // glTF occlusionTexture.strength; 0 = occlusion yok
-  // occlusionTexture ORM'den FARKLI bir goruntuyu gosteriyor: bugun okunmuyor
-  // (dorduncu sampler'a degmez). Sayilir, sessizce yutulmaz.
+  // occlusionTexture ORM'den FARKLI bir goruntuyu gosteriyor. Yuklemede
+  // BIRLESTIRILIR (2026-11-04): ORM'in G/B'si + occlusion'in R'si yeni bir
+  // goruntuye yazilir, orm_image ona doner — dorduncu sampler YOK (TBDR'da
+  // degmez), occlusion yine ORM.R'den okunur. Birlestirilemediyse (PBR'siz
+  // malzeme, goruntu siniri) true KALIR ve sayilir (Model::occlusion_unmerged).
   bool occlusion_separate = false;
 };
 constexpr uint32_t kModelMaxLods = 2; // LOD1, LOD2 (LOD0 = indices)
@@ -120,6 +123,9 @@ struct Model {
   // Ayni goruntu hem renk (sRGB) hem veri (dogrusal) olarak kullanilmis:
   // glTF'te gecersiz. Renk kazanir, sayac artar — sessiz yanlis yok.
   uint32_t colorspace_conflicts = 0;
+  // Ayri occlusionTexture birlestirmesi (ModelMaterial::occlusion_separate):
+  // kac yeni ORM goruntusu uretildi / kac malzemede yapilamadi.
+  uint32_t occlusion_merged = 0, occlusion_unmerged = 0;
   char error[160] = {0};
 };
 

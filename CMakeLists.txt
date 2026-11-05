@@ -479,6 +479,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_fiber.cpp
     tests/test_jobs.cpp
     tests/test_profiler.cpp
+    tests/test_geom_density.cpp
     tests/test_frame_gate.cpp
     tests/test_crash.cpp
     tests/test_process.cpp

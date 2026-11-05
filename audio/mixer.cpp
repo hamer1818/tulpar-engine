@@ -109,6 +109,7 @@ void Mixer::render(float *out, uint32_t frames) {
       v.spatial = (c.cmd == Cmd::Play3D);
       v.sp = c.sp;
       v.lp_l = 0; v.lp_r = 0;
+      v.h.reset();
       // Baslangicta rampa yok: hedef kazanc dogrudan (aksi halde ilk blok
       // sifirdan rampalanir ve analitik kapi yaniltir).
       if (v.spatial) apply_spatial(v); else { v.cur_l = v.gain; v.cur_r = v.gain; }
@@ -138,13 +139,63 @@ void Mixer::render(float *out, uint32_t frames) {
   // Dinleyiciyi blok basinda BIR kez oku (blok icinde sabit).
   const uint32_t lc = listener_ctr_.load(std::memory_order_acquire);
   const Listener lst = listeners_[lc & 3];
-  uint32_t active = 0, spatial_n = 0;
+  uint32_t active = 0, spatial_n = 0, hrtf_n = 0;
+  uint64_t hrtf_sw = 0;
   float peak = 0;
   for (uint32_t vi = 0; vi < kVoices; vi++) {
     Voice &v = voices_[vi];
     if (!v.active || !v.clip) continue;
     active++;
     const Clip &cl = *v.clip;
+    if (v.spatial && ch >= 2 && v.sp.hrtf) {
+      // HRTF: sonum + okluzyon spatial_compute'tan (panlama/kafa golgesi KAPALI:
+      // ikisi HRIR'in icinde), yon olculmus HRIR'den. Kazanc blok boyunca
+      // rampalanir; HRIR degisirse eski -> yeni capraz gecer (audio/hrtf.hpp).
+      spatial_n++;
+      hrtf_n++;
+      SpatialParams sp2 = v.sp;
+      sp2.panning = false;
+      sp2.head_shadow = false;
+      const SpatialGains g = spatial_compute(lst, sp2);
+      const float tg = g.gain_l * v.gain;
+      const float dg = frames ? (tg - v.cur_l) / (float)frames : 0.0f;
+      const float oc = shadow_coeff(g.shadow_l, rate_); // yalniz okluzyon golgesi
+      const hrtf::Choice nc = hrtf::choose_dir(v.sp.pos - lst.pos, lst.forward, lst.up);
+      const bool gecis = v.h.primed && nc != v.h.cur;
+      if (gecis) hrtf_sw++;
+      const hrtf::Choice eski = v.h.cur;
+      const float inv = frames ? 1.0f / (float)frames : 0.0f;
+      float gk = v.h.primed ? v.cur_l : tg;
+      for (uint32_t f = 0; f < frames; f++) {
+        if (v.pos >= cl.frames) {
+          if (!v.loop) { v.active = false; break; }
+          v.pos = 0;
+        }
+        const uint64_t si = v.pos * cl.channels;
+        float m = (cl.channels == 1 ? cl.at(si) : 0.5f * (cl.at(si) + cl.at(si + 1))) * gk;
+        if (oc < 1.0f) { v.lp_l += oc * (m - v.lp_l); m = v.lp_l; } else { v.lp_l = m; }
+        v.h.hist[v.h.w & (hrtf::kHist - 1)] = m;
+        v.h.w++;
+        float L, R;
+        hrtf::ear_pair(v.h, nc, &L, &R);
+        if (gecis) {
+          float L0, R0;
+          hrtf::ear_pair(v.h, eski, &L0, &R0);
+          const float a = (float)(f + 1) * inv;
+          L = L0 + (L - L0) * a;
+          R = R0 + (R - R0) * a;
+        }
+        out[f * ch + 0] += L;
+        out[f * ch + 1] += R;
+        for (uint32_t c = 2; c < ch; c++) out[f * ch + c] += 0.5f * (L + R);
+        if (v.h.primed) gk += dg;
+        v.pos++;
+      }
+      v.h.cur = nc;
+      v.h.primed = true;
+      v.cur_l = tg; v.cur_r = tg;
+      continue;
+    }
     if (v.spatial && ch >= 2) {
       spatial_n++;
       const SpatialGains g = spatial_compute(lst, v.sp);
@@ -231,7 +282,7 @@ void Mixer::render(float *out, uint32_t frames) {
   // Ana yol DSP zinciri (bos ise dokunmaz) — sert sinirdan ONCE.
   dsp_.process(out, frames, ch, rate_);
   uint32_t kirpilan = 0;
-  float on_tepe = 0;
+  float on_tepe = 0, pk_l = 0, pk_r = 0;
   for (uint32_t i = 0; i < frames * ch; i++) {
     float x = out[i];
     const float ham = x < 0 ? -x : x;
@@ -240,6 +291,11 @@ void Mixer::render(float *out, uint32_t frames) {
     out[i] = x;
     const float a = x < 0 ? -x : x;
     if (a > peak) peak = a;
+    if (ch >= 2) {
+      const uint32_t k = i % ch;
+      if (k == 0 && a > pk_l) pk_l = a;
+      else if (k == 1 && a > pk_r) pk_r = a;
+    }
   }
   if (kirpilan) clipped_.fetch_add(kirpilan, std::memory_order_relaxed);
   if (on_tepe > peak_pre_max_.load(std::memory_order_relaxed)) peak_pre_max_.store(on_tepe, std::memory_order_relaxed);
@@ -247,7 +303,11 @@ void Mixer::render(float *out, uint32_t frames) {
   callbacks_.fetch_add(1, std::memory_order_relaxed);
   voices_active_.store(active, std::memory_order_relaxed);
   voices_spatial_.store(spatial_n, std::memory_order_relaxed);
+  voices_hrtf_.store(hrtf_n, std::memory_order_relaxed);
+  if (hrtf_sw) hrtf_switches_.fetch_add(hrtf_sw, std::memory_order_relaxed);
   peak_.store(peak, std::memory_order_relaxed);
+  peak_l_.store(pk_l, std::memory_order_relaxed);
+  peak_r_.store(pk_r, std::memory_order_relaxed);
 }
 
 MixerStats Mixer::stats() const {
@@ -260,6 +320,10 @@ MixerStats Mixer::stats() const {
   s.clipped_samples = clipped_.load(std::memory_order_relaxed);
   s.peak_pre_max = peak_pre_max_.load(std::memory_order_relaxed);
   s.voices_spatial = voices_spatial_.load(std::memory_order_relaxed);
+  s.voices_hrtf = voices_hrtf_.load(std::memory_order_relaxed);
+  s.peak_l = peak_l_.load(std::memory_order_relaxed);
+  s.peak_r = peak_r_.load(std::memory_order_relaxed);
+  s.hrtf_switches = hrtf_switches_.load(std::memory_order_relaxed);
   return s;
 }
 
