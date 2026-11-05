@@ -4008,6 +4008,13 @@ void ImGui::RenderTextWrapped(ImVec2 pos, const char* text, const char* text_end
 
     if (text != text_end)
     {
+        // TULPAR YAMASI (imconfig.h): metin kancasi — ImGui::Text/TextColored/TextDisabled bu yoldan
+        // cizer (U5'te bulundu: U0/U1 olcumu bu yolu gormuyordu). Sarilan metin kesilmez: alan sonsuz.
+        if (GImGuiTulparMetinKanca)
+        {
+            const float w = CalcTextSize(text, text_end, false, wrap_width).x;
+            GImGuiTulparMetinKanca(window->Name, text, text_end, w, wrap_width > 0.0f ? 1.0e9f : window->DrawList->GetClipRectMax().x - pos.x);
+        }
         window->DrawList->AddText(g.Font, g.FontSize, pos, GetColorU32(ImGuiCol_Text), text, text_end, wrap_width);
         if (g.LogEnabled)
             LogRenderedText(&pos, text, text_end);

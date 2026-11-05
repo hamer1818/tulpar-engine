@@ -53,6 +53,7 @@ struct ChromeState {
                                      // tablodaki checked() sorgusunu kullanir (menu ile ayni kaynak)
   const char *status = nullptr;      // durum mesaji (solda, soluk, sigmazsa "…")
   float cam_eye[3] = {0, 0, 0};      // kamera gozu (durum cubugu sag ucu)
+  bool gelismis = true;              // Basit kipte (U5) kare/tick ve kamera konumu gosterilmez
   // Menu cubugunun sagindaki guncelleme rozeti (app/editor_update.hpp,
   // update_ui_badge). nullptr = rozet YOK ve ImGui'ye hicbir ek is gitmez.
   // Tiklaninca ChromeMenuExtra::on_badge cagrilir.

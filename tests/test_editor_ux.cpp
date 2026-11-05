@@ -87,11 +87,24 @@ ENGINE_TEST(editor_ux_tablo_dolunca_tasan_sayilir) {
   g_o.kare = 2;
   char b[32];
   for (uint32_t i = 0; i < UxOlcum::kKesik + 5; i++) {
-    std::snprintf(b, sizeof b, "kesik-%u", i);
+    // Harflerle ayrisan metinler: rakamlar ozette TEK sinifa katlanir (canli sayaclar tekil sayilsin).
+    std::snprintf(b, sizeof b, "kesik-%c%c", (char)('a' + i % 26), (char)('a' + i / 26));
     ux_olcum_metin(g_o, "p", b, b + std::strlen(b), 100.0f, 10.0f);
   }
   CHECK((g_o.kesik_n) == (UxOlcum::kKesik));
   CHECK((g_o.kesik_tasan) == (5u));
+}
+
+ENGINE_TEST(editor_ux_rakamlar_tek_sinif) {
+  ux_olcum_sifirla(g_o);
+  g_o.kare = 2;
+  const char *a = "12 kare  p50 17.8 ms", *b = "9 kare  p50 3.1 ms", *c = "kare p50 ms";
+  ux_olcum_metin(g_o, "p", a, a + std::strlen(a), 100.0f, 10.0f);
+  ux_olcum_metin(g_o, "p", b, b + std::strlen(b), 100.0f, 10.0f);   // ayni sinif: yeni kesik degil
+  CHECK((g_o.kesik_n) == (1u));
+  CHECK((g_o.kesik_tekrar[0]) == (1u));                            // ayni karede bir kez
+  ux_olcum_metin(g_o, "p", c, c + std::strlen(c), 100.0f, 10.0f);   // rakamsiz: farkli metin
+  CHECK((g_o.kesik_n) == (2u));
 }
 
 ENGINE_TEST(editor_ux_isinma_kareleri_kesik_sayilmaz) {

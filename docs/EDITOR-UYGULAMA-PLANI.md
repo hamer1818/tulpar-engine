@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -179,6 +179,17 @@ kapısı bir sayıya dayansın.
 - **Kapı:** U0'ın metin yakalamasıyla Basit kipte çizilen metinde yasak terim listesi **0**;
   Gelişmiş'te bugünkü metinler aynen (gerileme yok). Pozitif kontrol: Basit kipte Stats'i ayrıntılı
   zorla → yasak terim > 0.
+- **✅ Yapıldı (2026-11-05):** `editor_gelismis()` tek bayrak (kullanıcı ayar dizininde `kip`; pencereli
+  varsayılan Basit, penceresiz Gelişmiş — yerleşik kapılar bugünkü ekranı ölçer; `--kip` ile seçilir).
+  Basit: Stats üç satır (Bellek, Sahnede N nesne, Model ayrıntısı) + "Ayrıntılar: Görünüm > Gelişmiş
+  kip"; görünüm kipi açılırı ve Görünüm/Oynat menülerindeki teknik alt menüler gizli; durum çubuğunda
+  kare/tick ve kamera konumu yok. Görünüm menüsünde "Gelişmiş kip". İlk açılış turu
+  (`app/editor_tur.cpp`): Sahne → Görünüm → Özellikler → Oynat, hedef vurgulu, İleri/Atla/Esc, bir kez
+  (`tur` dosyası); Yardım > "İlk turu yeniden göster"; `--tur-adim N` görüntü için. Kapı
+  (`editor_ux.sh --kapi`): Basit kipte teknik terim 0, Gelişmiş'te 8 (pozitif kontrol: ölçüm Stats'i
+  görüyor). Durum çubuğu ImGui metni değil (doğrudan çizim) — kanca onu görmez, gizleme kodla.
+  Konsolun Basit kipte yalnız uyarı/hata göstermesi YAPILMADI (yeni oyun gibi bilgi satırları
+  kaybolurdu; ayrı karar).
 
 ### U6 — Oynat / derle akışı kullanıcıya göre · ~1–2 oturum
 
@@ -321,3 +332,13 @@ Eşik: görünüm ≥ 0.45 (plandaki 0.55 tahmini tutmadı: Görünüm panelinin
 Kapının duyarlılığı: 1024×600'de "Kaynaklar" sekmesi kesik=1 yakalandı. **Ölçülmeyen sınıf:**
 pencerenin tamamen dışında kalan öğe (ImGui hiç çizmez, kanca görmez) ve üst üste binen öğeler —
 Konsol'daki "Temizle"nin arama kutusunun altında kalması ekran görüntüsünde görüldü, sayıda değil.
+
+**DÜZELTME (U5, 2026-11-05):** U0/U1 ölçümü ImGui'nin `Text/TextColored/TextDisabled` yolunu
+(`RenderTextWrapped`) GÖRMÜYORDU — kanca yalnız `RenderText` ve `RenderTextClippedEx`'teydi; Stats'in
+bütün satırları ve düz etiketler ölçüm dışıydı (Basit kip terim kapısı "Gelişmiş'te de 0" deyince
+yakalandı). Üçüncü kanca eklendi; ölçüm hemen 2–3 gerçek kesik buldu (Stats p50 satırı 309 px / 289;
+Özellikler'de "Kaynak: Sahne Güneşi (Gökyüzü)" ve 1366×768'de "ATMOSFERİK SİS LABORATUVARI (16 SİS
+TÜRÜ)") — düzeltildi (satır kısaltıldı, sarma, bölüm başlıkları "…" + ipucu), dört çözünürlükte yine
+**0**. Ayrıca canlı sayaçlı metinler (kare sayısı) her karede yeni "kesik" üretiyordu: özetlemede
+ardışık rakamlar tek sınıf (test `editor_ux_rakamlar_tek_sinif`). U1 tablosundaki "0"lar bu yüzden o
+gün için EKSİK ölçümdü.

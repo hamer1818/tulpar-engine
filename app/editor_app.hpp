@@ -32,6 +32,12 @@ struct EditorOptions {
   // penceresizde de gosterir (goruntu/olcum); --karsilama-yeni <dizin> penceresizde formu
   // doldurup "Olustur"un ISLEYICISINI calistirir (kapi: fabrika + sahne yukleme + derleme).
   bool karsilama = false;
+  // --kip basit|gelismis (U5). null: pencereli kipte kullanicinin kayitli tercihi (yoksa basit),
+  // penceresizde gelismis (yerlesik kapilar bugunku ekrani olcer).
+  const char *kip = nullptr;
+  // --tur: ilk acilis turunu penceresizde de goster (goruntu); --tur-adim N baslangic adimi.
+  bool tur = false;
+  int tur_adim = 0;
   const char *karsilama_yeni = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni
   // ikili AYNI argumanlarla yeniden baslatilir (app/editor_update.hpp). Bos

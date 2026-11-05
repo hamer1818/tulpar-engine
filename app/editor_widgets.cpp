@@ -533,7 +533,12 @@ void section_label(const char *text) {
   // Boyut TEK KAYNAKTAN: docs/engine/EDITOR-TASARIM.md §4 tipografi olcegi.
   push_text_size(TextSize::Sm);
   ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextDim));
-  ImGui::TextUnformatted(text);
+  // Dar panelde "…" ile kirpilir, tam metin ipucunda (U5 olcumu: 1366x768'de 286 px baslik 276 px'e
+  // sigmiyordu).
+  char kb[160];
+  editor_ellipsize(text, ImGui::GetContentRegionAvail().x, kb, sizeof kb);
+  ImGui::TextUnformatted(kb);
+  if (std::strcmp(kb, text) != 0 && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", text);
   ImGui::PopStyleColor();
   pop_text_size();
   const ImVec2 t0 = ImGui::GetItemRectMin(), t1 = ImGui::GetItemRectMax();

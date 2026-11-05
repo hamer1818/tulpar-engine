@@ -90,6 +90,7 @@
 #include "content/prefab.hpp"
 #include "app/editor_ux.hpp"
 #include "app/editor_karsilama.hpp"
+#include "app/editor_tur.hpp"
 #include "core/build_info.hpp"
 #include "app/editor_fabrika.hpp"
 #include "platform/fs.hpp"
@@ -273,7 +274,9 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
         ImGui::PlotLines("##kare_grafigi", msv, (int)n, 0, nullptr, 0.0f, top, ImVec2(gw, gh));
         const float y60 = p0.y + gh * (1.0f - 16.7f / top);
         ImGui::GetWindowDrawList()->AddLine(ImVec2(p0.x, y60), ImVec2(p0.x + gw, y60), ImGui::GetColorU32(tone_col(Tone::Accent, 0.55f)));
-        ImGui::TextDisabled("%u kare  p50 %.1f  p99 %.1f  max %.1f ms", n, fs.p50_ns / 1e6, fs.p99_ns / 1e6, fs.max_ns / 1e6);
+        // Kare sayisi satirdan cikti (U5 olcumu: 300 px HUD'da 309 px'lik satir kesiliyordu); ipucunda.
+        ImGui::TextDisabled("p50 %.1f  p99 %.1f  max %.1f ms", fs.p50_ns / 1e6, fs.p99_ns / 1e6, fs.max_ns / 1e6);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("son %u kare", n);
       }
     }
 
@@ -294,6 +297,21 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
     };
 
     char buf[64];
+    if (!editor_gelismis()) {
+      // BASIT KIP (U5): oyun yapanin okuyacagi uc satir. Teknik olcumler (SetPass, cizim cagrisi,
+      // ucgen/piksel, arena, sicak tahsis) Gelismis kipte.
+      std::snprintf(buf, sizeof buf, "%.0f MB", (double)rss_mb);
+      metric_row("Bellek:", buf, ImVec4(0.3f, 0.9f, 0.5f, 1.0f));
+      std::snprintf(buf, sizeof buf, "%u nesne", scene.entity_count);
+      metric_row("Sahnede:", buf, tone(Tone::Text));
+      std::snprintf(buf, sizeof buf, "%u", poly.triangles);
+      metric_row("Model ayr\xC4\xB1nt\xC4\xB1s\xC4\xB1:", buf, tone(Tone::TextDim));
+      ImGui::TextDisabled("Ayr\xC4\xB1nt\xC4\xB1lar: G\xC3\xB6r\xC3\xBCn\xC3\xBCm > Geli\xC5\x9Fmi\xC5\x9F kip");
+      ImGui::End();
+      ImGui::PopStyleColor(2);
+      ImGui::PopStyleVar(2);
+      return;
+    }
     std::snprintf(buf, sizeof buf, "%u tris", poly.triangles);
     metric_row("\xC3\x9C\xC3\xA7genler (Tris):", buf, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
 
@@ -1907,6 +1925,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 #endif
     std::snprintf(gecici_ayar, sizeof gecici_ayar, "%s", ayar_env);
   }
+  // Basit / Gelismis kip (U5): --kip > (pencereli) kayitli tercih > basit; penceresizde gelismis.
+  {
+    bool gel = headless;
+    if (opts.kip) gel = !std::strcmp(opts.kip, "gelismis");
+    else if (!headless) {
+      char kip_yol[1024];
+      if (editor_ayar_yolu(kip_yol, sizeof kip_yol, "kip", nullptr, nullptr)) {
+        if (std::FILE *kf = std::fopen(kip_yol, "rb")) {
+          char b[16] = {0};
+          if (std::fgets(b, sizeof b, kf)) gel = !std::strncmp(b, "gelismis", 8);
+          std::fclose(kf);
+        }
+      }
+    }
+    editor_gelismis_ayarla(gel);
+  }
   // Panel duzeni KULLANICININ ayari: proje dizinine degil kullanici ayar dizinine (U2, 2026-11-05;
   // eskiden <sahne dizini>/editor_layout.txt — oyun depolarinda izlenmeyen dosya birakiyordu).
   // Eski dosya varsa bir kez kopyalanir. Penceresiz kipte duzen YAZILMAZ (asagida), okunmaz da.
@@ -2228,6 +2262,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     return true;
   };
   bool karsilama_yeni_ok = false;   // penceresiz kapi (--karsilama-yeni) icin
+  // Ilk acilis turu (U5): pencereli kipte bir kez (kullanici ayar dizininde "tur" yoksa), karsilama
+  // kapandiktan sonra. --tur penceresizde de gosterir (gorulmus sayilmaz).
+  static TurDurum tur;
+  tur.acik = opts.tur || (!headless && !tur_goruldu());
+  tur.adim = opts.tur_adim >= 0 && opts.tur_adim <= 3 ? opts.tur_adim : 0;
+  tur.bitti_yaz = !headless;
   // Penceresiz kipin yerlesik kapilari (gizmo, secim, duzen ...) karsilama ekrani acikken KOSMAZ:
   // ekran girdiyi kendine alir ve kapilar sahte kirmizi olurdu. Karsilama kosumunun olctugu sey
   // karsilamanin kendisidir (--karsilama-yeni kapisi).
@@ -3453,7 +3493,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     EditorState *st = nullptr;
     UpdateUi *upd = nullptr; // menu cubugundaki guncelleme rozeti
     KarsilamaDurum *kars = nullptr; // Dosya > Baslangic ekrani (U3)
-  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama};
+    TurDurum *tur = nullptr;        // Yardim > Ilk turu yeniden goster (U5)
+  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama, &tur};
   ChromeMenuExtra menu_extra;
   menu_extra.ctx = &mx;
   menu_extra.on_badge = [](void *ctx) {
@@ -3482,8 +3523,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (!var && ImGui::IsItemHovered()) ImGui::SetTooltip("Dosya bulunamadi: %s", rec[i]);
       }
       ImGui::EndMenu();
+    } else if (cat == CommandCategory::Help) {
+      if (m->tur && ImGui::MenuItem("\xC4\xB0lk turu yeniden g\xC3\xB6ster")) { m->tur->acik = true; m->tur->adim = 0; }
     } else if (cat == CommandCategory::View) {
-      if (m->view_mode) {
+      // Basit / Gelismis kip (U5): tercih kullanici ayar dizinine yazilir.
+      bool gel = editor_gelismis();
+      if (ImGui::MenuItem("Geli\xC5\x9Fmi\xC5\x9F kip (teknik \xC3\xB6l\xC3\xA7\xC3\xBCmler, g\xC3\xB6r\xC3\xBCn\xC3\xBCm kipleri)", nullptr, &gel)) {
+        editor_gelismis_ayarla(gel);
+        char kip_yol[1024];
+        if (editor_ayar_yolu(kip_yol, sizeof kip_yol, "kip", nullptr, nullptr)) {
+          if (std::FILE *kf = std::fopen(kip_yol, "wb")) { std::fputs(gel ? "gelismis\n" : "basit\n", kf); std::fclose(kf); }
+        }
+      }
+      if (m->view_mode && editor_gelismis()) {
         if (ImGui::BeginMenu("G\xC3\xB6r\xC3\xBCn\xC3\xBCm Kipi (Shading)")) {
           if (ImGui::MenuItem("Ayd\xC4\xB1nlatmal\xC4\xB1 (Lit PBR)", nullptr, *m->view_mode == 0)) *m->view_mode = 0;
           if (ImGui::MenuItem("I\xC5\x9F\xC4\xB1ks\xC4\xB1z (Albedo)", nullptr, *m->view_mode == 1)) *m->view_mode = 1;
@@ -3495,7 +3547,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
     } else if (cat == CommandCategory::Play) {
-      if (m->st) {
+      if (m->st && editor_gelismis()) {
         if (ImGui::BeginMenu("Sim\xC3\xBClasyon ve Fizik")) {
           if (ImGui::MenuItem(ICON_MD_BLUR_ON " MLS-MPM \xC3\x87ok Fazl\xC4\xB1 Sim\xC3\xBClat\xC3\xB6r")) {
             set_status(*m->st, "MLS-MPM sim\xC3\xBClat\xC3\xB6r\xC3\xBC D\xC3\xBCnya panelinde g\xC3\xB6r\xC3\xBCnt\xC3\xBCleniyor");
@@ -3826,6 +3878,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // orada: uc cubuk da ana viewport'un WorkRect'ini daraltir, dockspace tam
     // aralarina oturur — ImGui daraltmayi bir kare gecikmeli uygular).
     ChromeState cs;
+    cs.gelismis = editor_gelismis();
     cs.playing = st.playing;
     cs.dirty = st.dirty;
     // Duraklatma durum cubugunda gorunsun (arac cubugu henuz duraklatmayi
@@ -3942,11 +3995,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         //  Isiksiz  : ortam 1, gunes 0, nokta isik yok -> saf albedo/doku.
         //  Carpisma : her govdenin carpisma hacmi, govdeyle birlikte DONEN tel kutu.
         //  Sinirlar : her varligin dunya AABB'si (secim/odak bunu kullanir).
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11.0f);
-        ImGui::Combo("##gorunum_kipi", &view_mode,
+        if (!editor_gelismis()) view_mode = 0;   // Basit kip: yalniz Aydinlatmali (U5)
+        if (editor_gelismis()) ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11.0f);
+        if (editor_gelismis()) ImGui::Combo("##gorunum_kipi", &view_mode,
                      "Ayd\xC4\xB1nlatmal\xC4\xB1\0I\xC5\x9F\xC4\xB1ks\xC4\xB1z\0\xC3\x87" "arp\xC4\xB1\xC5\x9Fma\0S\xC4\xB1n\xC4\xB1rlar\0Overdraw Is\xC4\xB1 Haritas\xC4\xB1\0I\xC5\x9F\xC4\xB1k K\xC3\xBCmeleri\0");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("G\xC3\xB6r\xC3\xBCn\xC3\xBCm kipi");
-        ImGui::SameLine();
+        if (editor_gelismis() && ImGui::IsItemHovered()) ImGui::SetTooltip("G\xC3\xB6r\xC3\xBCn\xC3\xBCm kipi");
+        if (editor_gelismis()) ImGui::SameLine();
         // NOT: burada bir "Tel Kafes / Duz Golgeli" dugmesi vardi ve HICBIR
         // SEY yapmiyordu: wireframe_mode degiskeni depoda baska hicbir yerde
         // okunmuyor, dugme yalniz kendi etiketini degistiriyordu.
@@ -4694,7 +4748,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (godray_source_entity >= 0) {
           const SceneEntity &src_e = st.scene.entities[godray_source_entity];
           ImGui::PushStyleColor(ImGuiCol_Text, tone_col(Tone::Accent));
-          ImGui::Text(ICON_MD_LIGHTBULB "  Kaynak: %s (%s)",
+          // Sarilan metin (U5 olcumu: dar Ozellikler panelinde kesiliyordu).
+          ImGui::TextWrapped(ICON_MD_LIGHTBULB "  Kaynak: %s (%s)",
                       src_e.name[0] ? src_e.name : "I\xC5\x9F\xC4\xB1k",
                       src_e.light_type == content::SceneLightType::Directional ? "Y\xC3\xB6nl\xC3\xBC / G\xC3\xBCne\xC5\x9F" : "Nokta");
           ImGui::PopStyleColor();
@@ -4707,7 +4762,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           }
         } else {
           ImGui::PushStyleColor(ImGuiCol_Text, tone_col(Tone::Warn));
-          ImGui::Text(ICON_MD_WB_SUNNY "  Kaynak: Sahne G\xC3\xBCne\xC5\x9Fi (G\xC3\xB6ky\xC3\xBCz\xC3\xBC)");
+          ImGui::TextWrapped(ICON_MD_WB_SUNNY "  Kaynak: Sahne G\xC3\xBCne\xC5\x9Fi (G\xC3\xB6ky\xC3\xBCz\xC3\xBC)");
           ImGui::PopStyleColor();
         }
 
@@ -8806,6 +8861,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         karsilama.acik = false;
       }
     }
+    if (tur.acik && !karsilama.acik) tur_ciz(tur);
     if (opts.ux_rapor) {
       const ImVec2 ds = ImGui::GetIO().DisplaySize;
       ux_olcum_kare(g_ux_olcum, UxRect{view_rect.x, view_rect.y, view_rect.w, view_rect.h}, UxRect{0, 0, ds.x, ds.y},

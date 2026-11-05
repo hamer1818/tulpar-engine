@@ -529,13 +529,21 @@ void chrome_status_bar(const ChromeState &s) {
     std::snprintf(seg[3], sizeof seg[3], "%.1f ms", (double)s.frame_ms);
     std::snprintf(seg[4], sizeof seg[4], "%u varlık", s.entity_count);
     std::snprintf(seg[5], sizeof seg[5], "kamera %.1f, %.1f, %.1f", (double)s.cam_eye[0], (double)s.cam_eye[1], (double)s.cam_eye[2]);
+    int n_seg = kSegs;
+    if (!s.gelismis) {
+      // Basit kip (EDITOR-UYGULAMA-PLANI U5): "kare N · tick N" ve kamera konumu oyun yapana bir sey
+      // soylemez — dusulur; kalanlar sola kayar.
+      std::snprintf(seg[2], sizeof seg[2], "%s", seg[3]);
+      std::snprintf(seg[3], sizeof seg[3], "%s", seg[4]);
+      n_seg = 4;
+    }
     float w[kSegs];
     float total = 0.0f;
-    for (int i = 0; i < kSegs; i++) { w[i] = ImGui::CalcTextSize(seg[i]).x; total += w[i]; }
+    for (int i = 0; i < n_seg; i++) { w[i] = ImGui::CalcTextSize(seg[i]).x; total += w[i]; }
     const float sep_gap = st.ItemSpacing.x;
     const float min_msg = ImGui::CalcTextSize("mesaj…").x * 3.0f; // mesaja birakilan asgari yer
     const float room = ws.x - pad.x * 2.0f - min_msg;
-    int n = kSegs;
+    int n = n_seg;
     while (n > 1 && total + sep_gap * 2.0f * (float)(n - 1) > room) { n--; total -= w[n]; }
 
     const float right = wp.x + ws.x - pad.x;

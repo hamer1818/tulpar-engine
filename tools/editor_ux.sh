@@ -26,6 +26,11 @@ done
 for r in 1280x720 1366x768; do
   ( cd "$KOK" && DISPLAY= "$ED" --headless 20 --size "$r" --karsilama --ux-rapor "$DIZIN/k_$r.txt" > "$DIZIN/k_$r.log" 2>&1 ) &
 done
+# U5 Basit kip: gorunen metinde teknik terim YOK; Gelismis'te VAR (pozitif kontrol: olcum gercekten
+# Stats'i goruyor). Not: durum cubugu ImGui metni degil (dogrudan cizim), kanca onu gormez.
+for k in basit gelismis; do
+  ( cd "$KOK" && DISPLAY= "$ED" --headless 60 --kip "$k" --ux-rapor "$DIZIN/kip_$k.txt" > "$DIZIN/kip_$k.log" 2>&1 ) &
+done
 mkdir -p "$DIZIN/dolu" && echo x > "$DIZIN/dolu/var.txt"
 ( cd "$KOK" && DISPLAY= "$ED" --headless 20 --karsilama-yeni "$DIZIN/yeni_oyun" > "$DIZIN/kyeni.log" 2>&1 ) &
 ( cd "$KOK" && DISPLAY= "$ED" --headless 20 --karsilama-yeni "$DIZIN/dolu" > "$DIZIN/kdolu.log" 2>&1 ) &
@@ -44,6 +49,11 @@ for r in "${COZ[@]}"; do
     if [ "$r" = 1920x1080 ] && awk "BEGIN{exit !($g < 0.45)}"; then echo "  KIRMIZI $r: 3B gorunum orani $g < 0.45"; kirmizi=1; fi
   fi
 done
+YASAK='setpass|arena|tahsis|tick|\(tris\)|verts|piksel|overdraw|batch|k\xC3\xBCme'
+yb=$(grep '^\[ux\] metin' "$DIZIN/kip_basit.txt" 2>/dev/null | grep -ciE "$(printf "$YASAK")")
+yg=$(grep '^\[ux\] metin' "$DIZIN/kip_gelismis.txt" 2>/dev/null | grep -ciE "$(printf "$YASAK")")
+if [ "${yb:-x}" = 0 ] && [ "${yg:-0}" -gt 0 ]; then echo "  Basit kip: teknik terim 0 (Gelismis'te $yg — olcum Stats'i goruyor)"
+else echo "  KIRMIZI Basit kip: teknik terim ${yb:-rapor yok} (Gelismis ${yg:-?})"; grep '^\[ux\] metin' "$DIZIN/kip_basit.txt" | grep -iE "$(printf "$YASAK")" | head -3; [ "$KAPI" = 1 ] && kirmizi=1; fi
 for r in 1280x720 1366x768; do
   k=$(al "$(head -1 "$DIZIN/k_$r.txt" 2>/dev/null)" kesik)
   if [ "${k:-x}" != 0 ]; then echo "  KIRMIZI karsilama $r: kesik ${k:-rapor yok}"; [ "$KAPI" = 1 ] && kirmizi=1

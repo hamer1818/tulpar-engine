@@ -11,9 +11,17 @@ namespace {
 
 UxOlcum *g_ux = nullptr;
 
+// Ozet rakamlari TEK sinifa katlar: "12 kare  p50 17.8" ile "13 kare  p50 17.3" ayni metin sayilir
+// (canli sayaclar her karede yeni bir "kesik" uretip tabloyu dolduruyordu — U5'te olculdu).
 uint64_t fnv(const char *a, const char *son, const char *b) {
   uint64_t h = 1469598103934665603ull;
-  for (const char *p = a; p < son; p++) { h ^= (uint8_t)*p; h *= 1099511628211ull; }
+  for (const char *p = a; p < son; p++) {
+    const bool rakam = *p >= '0' && *p <= '9';
+    if (rakam && p > a && p[-1] >= '0' && p[-1] <= '9') continue;   // ardisik rakamlar tek sinif
+    const uint8_t c = rakam ? (uint8_t)'0' : (uint8_t)*p;
+    h ^= c;
+    h *= 1099511628211ull;
+  }
   h ^= 0xffu; h *= 1099511628211ull;
   for (const char *p = b; p && *p; p++) { h ^= (uint8_t)*p; h *= 1099511628211ull; }
   return h;

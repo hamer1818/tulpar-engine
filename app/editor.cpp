@@ -86,6 +86,9 @@ int main(int argc, char **argv) {
     else if (!std::strcmp(argv[i], "--komut") && i + 1 < argc) o.command = argv[++i];
     else if (!std::strcmp(argv[i], "--ux-rapor") && i + 1 < argc) o.ux_rapor = argv[++i];
     else if (!std::strcmp(argv[i], "--karsilama")) o.karsilama = true;
+    else if (!std::strcmp(argv[i], "--kip") && i + 1 < argc) o.kip = argv[++i];
+    else if (!std::strcmp(argv[i], "--tur")) o.tur = true;
+    else if (!std::strcmp(argv[i], "--tur-adim") && i + 1 < argc) { o.tur = true; o.tur_adim = std::atoi(argv[++i]); }
     else if (!std::strcmp(argv[i], "--karsilama-yeni") && i + 1 < argc) { o.karsilama_yeni = argv[++i]; o.karsilama = true; }
   }
   if (std::getenv("TULPAR_ENGINE_VK_VALIDATION")) o.validation = true;
