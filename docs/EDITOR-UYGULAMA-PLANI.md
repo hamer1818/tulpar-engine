@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3a ✅** fabrika çekirdeği C++'ta
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.

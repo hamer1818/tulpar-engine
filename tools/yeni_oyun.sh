@@ -39,47 +39,18 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$DIZIN" ] || hata "dizin verilmedi (tools/yeni_oyun.sh --help)"
-# Duzenli ifade denetimleri C yerel ayariyla: tr_TR.UTF-8'de bash'in [a-z] araligi "i"yi
-# ESLESTIRMIYOR ("ci_oyun" reddedildi, "deneme" gecti — olculdu 2026-11-05; Tuzaklar 8dq).
-gecerli() { local LC_ALL=C; [[ "$1" =~ $2 ]]; }
-gecerli "$KIMLIK" '^[a-z][a-z0-9_]{1,30}$' || hata "--kimlik kucuk harf/rakam/_ olmali (2-31): '$KIMLIK'"
-gecerli "$ONEK" '^[A-Z][A-Z0-9]{1,9}$' || hata "--onek BUYUK harf/rakam olmali (2-10): '$ONEK'"
-[ -n "$TR" ] && [ -n "$EN" ] || hata "--tr ve --en adlari gerekli"
-case "$TR$EN" in *'"'*|*'\'*|*'{{'*) hata "ad cift tirnak, ters bolu ya da {{ icermemeli" ;; esac
-PAKET="${PAKET:-dev.tulparlang.${KIMLIK//_/}}"
-gecerli "$PAKET" '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$' || hata "--paket gecerli Android paket adi degil: '$PAKET'"
-case "$YON" in landscape|portrait) ;; *) hata "--yon landscape|portrait" ;; esac
-SABLON="$MOTOR/tulpar/sablonlar/$TUR"
-[ -f "$SABLON/oyun.tpr" ] || hata "sablon yok: $SABLON (mevcut: $(ls "$MOTOR/tulpar/sablonlar" | tr '\n' ' '))"
-if [ -e "$DIZIN" ] && [ -n "$(ls -A "$DIZIN" 2>/dev/null)" ]; then hata "$DIZIN bos degil (uzerine yazilmaz)"; fi
-mkdir -p "$DIZIN"/tools "$DIZIN"/assets/resimler "$DIZIN"/assets/sesler
+# Uretim TEK KAYNAKTA: editorun fabrika cekirdegi (app/editor_fabrika.cpp, EDITOR-UYGULAMA-PLANI U3).
+# Alan denetimi (yerel ayardan bagimsiz, Tuzaklar 8dq), yer tutucular, kit varliklari ve ikon orada;
+# editorun "Yeni oyun" formu da ayni fonksiyonu cagirir. Bu betik yalniz .motor baglantisi,
+# dogrulama ve git ekler.
+ED="${ED:-$MOTOR/yapi/engine_editor}"
+[ -x "$ED" ] || hata "$ED yok (motorda cmake --build yapi)"
+args=(--yeni-oyun "$DIZIN" --kimlik "$KIMLIK" --onek "$ONEK" --tr "$TR" --en "$EN" --tur "$TUR" --yon "$YON")
+[ -n "$PAKET" ] && args+=(--paket "$PAKET")
+"$ED" "${args[@]}" || exit 2
 KOK="$(cd "$DIZIN" && pwd)"
-
-yerlestir() { # $1 kaynak, $2 hedef
-  python3 - "$1" "$2" "$KIMLIK" "$ONEK" "$TR" "$EN" "$PAKET" "$YON" <<'PY'
-import sys
-src, dst, kimlik, onek, tr, en, paket, yon = sys.argv[1:]
-s = open(src, encoding="utf-8").read()
-for a, b in (("{{KIMLIK}}", kimlik), ("{{ONEK}}", onek), ("{{OYUN_TR}}", tr), ("{{OYUN_EN}}", en),
-             ("{{PAKET}}", paket), ("{{YON}}", yon)):
-    s = s.replace(a, b)
-assert "{{" not in s, "doldurulmamis yer tutucu: " + src
-open(dst, "w", encoding="utf-8").write(s)
-PY
-}
-
-yerlestir "$SABLON/oyun.tpr" "$KOK/oyun.tpr"
+PAKET="$(sed -n 's/^package = "\(.*\)"/\1/p' "$KOK/tulpar.toml")"
 if [ "${YENI_OYUN_BOZ:-0}" = 1 ]; then echo 'func bozuk( {' >> "$KOK/oyun.tpr"; echo "POZITIF KONTROL: YENI_OYUN_BOZ=1 sablonu bozdu" >&2; fi
-for f in "$MOTOR"/tulpar/sablonlar/ortak/*; do
-  ad="$(basename "$f")"
-  case "$ad" in
-    tulpar.toml|OKUBENI.md|gitignore) yerlestir "$f" "$KOK/${ad/gitignore/.gitignore}" ;;
-    ortam.sh|dogrula.sh|android_dene.sh) yerlestir "$f" "$KOK/tools/$ad"; chmod +x "$KOK/tools/$ad" ;;
-    apk_derle.sh) yerlestir "$f" "$KOK/$ad"; chmod +x "$KOK/$ad" ;;
-  esac
-done
-cp "$MOTOR/tulpar/kit/varlik/acilis.png" "$MOTOR/tulpar/kit/varlik/arayuz.png" "$KOK/assets/resimler/"
-python3 "$MOTOR/tools/kit/ikon_uret.py" --ad "$TR" --cikti "$KOK/ikon.png" >/dev/null || hata "ikon uretilemedi"
 
 echo "iskelet: $KOK (tur $TUR, paket $PAKET, onek $ONEK)"
 ln -sfn "$MOTOR" "$KOK/.motor"

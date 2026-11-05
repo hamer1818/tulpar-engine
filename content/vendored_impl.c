@@ -10,3 +10,7 @@
 #include <stb_image.h>
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_truetype.h>
+/* Yalniz PNG yazimi (oyun fabrikasi ikonu, app/editor_fabrika.cpp; arac yolu, kare disi). */
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBI_WRITE_NO_STDIO
+#include <stb_image_write.h>

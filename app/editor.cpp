@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "app/editor_app.hpp"
+#include "app/editor_fabrika.hpp"
 #include "app/editor_update.hpp"
 #include "core/build_info.hpp"
 #include "platform/startup_report.hpp"
@@ -37,6 +38,38 @@ bool w_is_fullscreen(void *user) { return static_cast<platform::Window *>(user)-
 int main(int argc, char **argv) {
   // Pencere, Vulkan ve sahne ACILMADAN once: surum sorgusu ve komut satirindan
   // guncelleme. Ag'a YALNIZ kullanici --guncelleme verince cikilir.
+  // Oyun fabrikasi (docs/FABRIKA.md, EDITOR-UYGULAMA-PLANI U3): pencere/Vulkan ACILMADAN.
+  //   engine_editor --yeni-oyun <dizin> --kimlik k --onek K --tr "Ad" --en "Name" [--paket p] [--tur arena] [--yon landscape]
+  //   engine_editor --kimlik-oner "Oyun Adı"     -> "kimlik ONEK" (formun otomatik doldurmasiyla ayni kural)
+  for (int i = 1; i < argc; i++) {
+    if (!std::strcmp(argv[i], "--kimlik-oner") && i + 1 < argc) {
+      char k[40], o[16];
+      if (!app::fabrika_kimlik_oner(argv[i + 1], k, sizeof k) || !app::fabrika_onek_oner(k, o, sizeof o)) {
+        std::fprintf(stderr, "kimlik onerilemedi: '%s'\n", argv[i + 1]);
+        return 2;
+      }
+      std::printf("%s %s\n", k, o);
+      return 0;
+    }
+    if (!std::strcmp(argv[i], "--yeni-oyun") && i + 1 < argc) {
+      app::FabrikaIstek r;
+      r.dizin = argv[i + 1];
+      for (int j = 1; j + 1 < argc; j++) {
+        const char *a = argv[j], *v = argv[j + 1];
+        if (!std::strcmp(a, "--kimlik")) r.kimlik = v;
+        else if (!std::strcmp(a, "--onek")) r.onek = v;
+        else if (!std::strcmp(a, "--tr")) r.tr = v;
+        else if (!std::strcmp(a, "--en")) r.en = v;
+        else if (!std::strcmp(a, "--paket")) r.paket = v;
+        else if (!std::strcmp(a, "--tur")) r.tur = v;
+        else if (!std::strcmp(a, "--yon")) r.yon = v;
+      }
+      const app::FabrikaSonuc s = app::fabrika_uret(r);
+      if (!s.ok) { std::fprintf(stderr, "HATA: %s\n", s.hata); return 2; }
+      std::printf("iskelet: %s (tur %s, paket %s, onek %s, %u dosya)\n", r.dizin, r.tur, s.paket, r.onek, s.dosya);
+      return 0;
+    }
+  }
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--surum")) return app::update_cli_version();
     if (!std::strcmp(argv[i], "--guncelleme")) return app::update_cli(i + 1 < argc ? argv[i + 1] : nullptr);
