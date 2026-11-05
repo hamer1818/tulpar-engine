@@ -1,0 +1,145 @@
+// Ortak oyun kutuphanesi (kit_*) — docs/FABRIKA.md asama 1.
+//
+// Motor KURULMADAN kosar (kayit deposu kurulumsuz da calisir); GPU gerekmez.
+// tools/tulpar_dogrula.sh iki kez kosturur: ortamsiz (oyuncu kipi) ve
+// TULPAR_ENGINE_HEADLESS=1 ile (penceresiz kip) — `KIT_BEKLENEN_KIP` hangi kipin
+// beklendigini soyler; kip tutmazsa suite KIRMIZI (kip algisinin pozitif kontrolu:
+// ayni dosya iki ortamda iki farkli sonuc vermeli).
+import "test";
+import "engine";
+import "kit_kayit";
+import "kit_dil";
+import "kit_ses";
+
+// 1) Cihaz dili kurali: Turkce ise TR, geri kalan HER SEY EN.
+func run_dil_kodu() {
+    assert_eq_int(kit_dil_kodu_coz("tr_TR.UTF-8"), KIT_TR);
+    assert_eq_int(kit_dil_kodu_coz("tr"), KIT_TR);
+    assert_eq_int(kit_dil_kodu_coz("TR"), KIT_TR);
+    assert_eq_int(kit_dil_kodu_coz("en_US.UTF-8"), KIT_EN);
+    assert_eq_int(kit_dil_kodu_coz("de"), KIT_EN);
+    assert_eq_int(kit_dil_kodu_coz(""), KIT_EN);
+    assert_eq_int(kit_dil_kodu_coz("C"), KIT_EN);
+    assert_eq_int(kit_dil_kodu_coz("POSIX"), KIT_EN);
+    assert_eq_int(kit_dil_kodu_coz("ar"), KIT_EN);
+}
+
+func run_L() {
+    kit_dil_ayarla(KIT_TR);
+    assert_eq_str(L("Oyna", "Play"), "Oyna");
+    kit_dil_ayarla(KIT_EN);
+    assert_eq_str(L("Oyna", "Play"), "Play");
+    assert(g_kit_en, "EN secilince g_kit_en true olmali");
+    kit_dil_ayarla(7);   // gecersiz -> TR
+    assert_eq_int(g_kit_dil, KIT_TR);
+}
+
+// 2) Kip algisi (ortamdan) — dogrula betigi bu suite'i iki ortamda kosturur.
+func run_kip_ortamdan() {
+    kit_oyun("kit_test", "KITT");
+    str bek = env("KIT_BEKLENEN_KIP");
+    assert(len(bek) > 0, "KIT_BEKLENEN_KIP verilmemis (tools/tulpar_dogrula.sh verir)");
+    assert_eq_str(kit_kip_adi(), bek);
+    if (bek == "oyuncu") {
+        assert(g_kit_kayit_izin, "oyuncu kayda yazabilmeli");
+        assert_eq_str(kit_kayit_dosyasi(), "");
+    } else {
+        assert(!g_kit_kayit_izin, "penceresiz/otopilot kayda YAZMAMALI");
+        assert(len(kit_kayit_dosyasi()) > 0, "penceresiz kipte gecici dosya olmali");
+    }
+}
+
+// 3) Otopilot kayda yazmaz; yazim istekleri SAYILIR (sessiz degil).
+func run_otopilot_yazmaz() {
+    g_kit_oyun = "kit_test";
+    g_kit_penceresiz = true;
+    g_kit_otopilot = true;
+    g_kit_kayit_izin = false;
+    int y0 = g_kit_yazim;
+    int r0 = g_kit_yazim_red;
+    str yol = kit_kayit_ac();
+    assert_contains(yol, "tulpar_kit_test_kayit.txt");
+    assert(!kit_ayar_yaz("a", 1.0), "izinsiz yazim false donmeli");
+    kit_ayar_koy("b", 2.0);
+    assert(!kit_ayar_kaydet(), "izinsiz kaydet false donmeli");
+    assert_eq_int(g_kit_yazim, y0);
+    assert_eq_int(g_kit_yazim_red, r0 + 2);
+    assert_close(kit_ayar_oku("a", -1.0), -1.0, 0.0);
+    assert(!kit_ayar_gocu("surum", 2.0), "izinsiz goc false donmeli");
+}
+
+// 4) Oyuncu yazar, dosya diske iner ve yeniden acilinca geri gelir; goc bir kez.
+func run_oyuncu_yazar() {
+    str yol = kit_gecici_dizin() + "/tulpar_kit_test_oyuncu.txt";
+    kayit_ac(yol);
+    kayit_temizle();
+    kayit_kaydet();
+    g_kit_penceresiz = false;
+    g_kit_otopilot = false;
+    g_kit_kayit_izin = true;
+    int y0 = g_kit_yazim;
+    assert(kit_ayar_gocu("kit_ayar_surumu", 2.0), "bos kayitta goc gerekmeli");
+    kit_ayar_koy("kit_efekt", 0.8);
+    kit_ayar_gocu_bitti("kit_ayar_surumu", 2.0);
+    assert(!kit_ayar_gocu("kit_ayar_surumu", 2.0), "goc bir kez");
+    assert(kit_ayar_yaz("kit_muzik", 0.25), "oyuncu yazabilmeli");
+    assert_eq_int(g_kit_yazim, y0 + 2);
+    // Diskten geri oku: bellekteki depoyu at, dosyayi yeniden ac.
+    kayit_temizle();
+    assert_close(kit_ayar_oku("kit_muzik", -1.0), -1.0, 0.0);
+    kayit_ac(yol);
+    assert_close(kit_ayar_oku("kit_muzik", -1.0), 0.25, 0.000001);
+    assert_close(kit_ayar_oku("kit_efekt", -1.0), 0.8, 0.000001);
+}
+
+// 5) Dil secim sirasi: kayitli secim > cihaz; otopilot hep TR; degisim kaydedilir.
+func run_dil_secimi() {
+    g_kit_onek = "KITT";
+    g_kit_otopilot = false;
+    g_kit_kayit_izin = true;
+    kayit_yaz_sayi("kit_dil", 1.0);
+    assert_eq_int(kit_dil_sec("kit_dil"), KIT_EN);
+    kayit_yaz_sayi("kit_dil", 0.0);
+    assert_eq_int(kit_dil_sec("kit_dil"), KIT_TR);
+    assert_eq_int(kit_dil_sec(""), kit_cihaz_dili());
+    g_kit_otopilot = true;
+    kayit_yaz_sayi("kit_dil", 1.0);
+    assert_eq_int(kit_dil_sec("kit_dil"), KIT_TR);
+    g_kit_otopilot = false;
+    kit_dil_ayarla(KIT_TR);
+    int d0 = g_kit_dil_degisim;
+    assert(kit_dil_degistir(KIT_EN, "kit_dil"), "TR->EN degisim true");
+    assert(!kit_dil_degistir(KIT_EN, "kit_dil"), "EN->EN degisim false");
+    assert_eq_int(g_kit_dil_degisim, d0 + 1);
+    assert_close(kayit_oku_sayi("kit_dil", -1.0), 1.0, 0.0);
+}
+
+// 6) kit_ses cihazsiz: hicbir sey yuklenmez/calmaz, sayaclar kirli kalmaz, parca kimlikleri
+// tanim sirasi. (Cihazli yol Kupler ile Kureler'in [kapi] butce/ses satirlariyla olculur.)
+func run_ses_cihazsiz() {
+    assert(!kit_ses_ac(false), "ac=false ses acmamali");
+    assert_eq_int(len(g_kit_ses_son), KIT_SES_TAVAN);
+    assert_eq_int(len(g_kit_es_klip), KIT_SES_TAVAN * 4);
+    assert_eq_int(kit_ses_dene("yok.wav", 440.0, 0.1), -1);
+    assert_eq_int(g_kit_ses_ton + g_kit_ses_dosya + g_kit_ses_sessiz, 0);
+    int a = kit_muzik_tanimla("menu", true);
+    int b = kit_muzik_tanimla("zafer", false);
+    assert_eq_int(a, 0);
+    assert_eq_int(b, 1);
+    kit_muzik_cal(a);
+    kit_ses_cal(0, 1.0, 0.0);
+    assert_eq_int(g_kit_muzik_ses, 0);
+    assert_eq_int(g_kit_ses_calinan, 0);
+    kit_es_ekle(-1, "x.wav");
+    kit_es_ekle(KIT_SES_TAVAN, "x.wav");
+    assert_eq_int(kit_ses_dongu_cal(0, 1.0), 0);
+}
+
+test("kit_dil: cihaz dili kurali (TR ise TR, gerisi EN)", "run_dil_kodu");
+test("kit_dil: L() secilen dili dondurur, gecersiz dil TR", "run_L");
+test("kit_kayit: kip ortamdan (oyuncu / penceresiz) — iki ortamda kosar", "run_kip_ortamdan");
+test("kit_kayit: otopilot kayda yazmaz, istekler sayilir", "run_otopilot_yazmaz");
+test("kit_kayit: oyuncu yazar, diskten geri gelir, goc bir kez", "run_oyuncu_yazar");
+test("kit_dil: secim sirasi (kayit > cihaz, otopilot TR) ve degisim kaydi", "run_dil_secimi");
+test("kit_ses: cihazsiz yol hicbir sey yuklemez/calmaz, parca kimligi tanim sirasi", "run_ses_cihazsiz");
+test_summary();

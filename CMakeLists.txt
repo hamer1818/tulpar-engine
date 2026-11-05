@@ -437,6 +437,8 @@ set(TULPAR_EXT_LIBS engine_tulpar engine_bridge engine_content engine_renderer e
 # assets/fonts'ta da arar. Editor oyunu TULPAR_EXT_PATH ile baslattigi icin
 # kurulu bir pakette (ENGINE_SOURCE_DIR yok) font buradan gelir.
 set(_ext_fontlar ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVuSans.ttf ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVu-LICENSE.txt)
+# Ortak oyun kutuphanesi (docs/FABRIKA.md): tulpar/kit/*.tpr -> paket kit/.
+file(GLOB _ext_kit CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/kit/*.tpr)
 set(_ext_kopyala)
 foreach(_l ${TULPAR_EXT_LIBS})
     list(APPEND _ext_kopyala COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${_l}> ${TULPAR_EXT_DIR}/lib/)
@@ -445,10 +447,11 @@ add_custom_target(engine_tulpar_ext ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/lib
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${TULPAR_EXT_DIR}/tulpar-ext.json
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${TULPAR_EXT_DIR}/engine.tpr
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/kit ${TULPAR_EXT_DIR}/kit
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/assets/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ext_fontlar} ${TULPAR_EXT_DIR}/assets/fonts/
     ${_ext_kopyala}
-    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${_ext_fontlar}
+    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${_ext_fontlar} ${_ext_kit}
     COMMENT "engine: Tulpar eklenti paketi -> ${TULPAR_EXT_DIR}"
     VERBATIM
 )

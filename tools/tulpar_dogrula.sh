@@ -340,6 +340,31 @@ else
   dus "engine_gpusuz.test.tpr: rc=$rc '$ozet'"; tail -10 "$gun/gpusuz.log" >&2
 fi
 
+# --- Ortak oyun kutuphanesi (kit_*, docs/FABRIKA.md asama 1) --------------------
+# Motor kurulmadan kosar. IKI ortamda: oyuncu kipi ve penceresiz kip; suite
+# beklenen kipi KIT_BEKLENEN_KIP'ten okur. Pozitif kontrol: penceresiz ortamda
+# "oyuncu" beklemek KIRMIZI olmali (kip algisi gercekten ortami okuyor).
+kit_suite() { # $1 log, $2 beklenen kip, $3 TULPAR_ENGINE_HEADLESS
+  kos "$1" env KIT_BEKLENEN_KIP="$2" TULPAR_ENGINE_HEADLESS="$3" "$tul" --ext "$ext" tests/kit.test.tpr
+}
+kit_ok=1
+for kk in "oyuncu:" "penceresiz:1"; do
+  kit_suite "$gun/kit_${kk%%:*}.log" "${kk%%:*}" "${kk#*:}"; rc=$?
+  ozet="$(grep -m1 '^Tests:' "$gun/kit_${kk%%:*}.log")"
+  toplam="$(echo "$ozet" | sed -n 's/^Tests: \([0-9]*\).*/\1/p')"
+  if [ $rc -eq 0 ] && echo "$ozet" | grep -q 'Fail: 0' && [ -n "$toplam" ] && [ "$toplam" -gt 0 ] \
+     && [ "$toplam" = "$(echo "$ozet" | sed -n 's/.*Pass: \([0-9]*\).*/\1/p')" ]; then :; else
+    kit_ok=0; dus "kit.test.tpr (${kk%%:*}): rc=$rc '$ozet'"; tail -10 "$gun/kit_${kk%%:*}.log" >&2
+  fi
+done
+[ $kit_ok = 1 ] && gec "kit.test.tpr: oyuncu + penceresiz kipte $ozet"
+kit_suite "$gun/kit_pk.log" oyuncu 1
+if grep -q "FAIL kit_kayit: kip ortamdan" "$gun/kit_pk.log"; then
+  gec "pozitif kontrol: penceresiz ortamda 'oyuncu' beklentisi kip testini dusurdu"
+else
+  dus "pozitif kontrol: kip algisi ortami okumuyor (penceresizde 'oyuncu' gecti)"; tail -5 "$gun/kit_pk.log" >&2
+fi
+
 # --- Yerel ag: IKI SUREC (N2a, eng_net_*) --------------------------------------
 # engine_gpusuz.test.tpr ayni surecte iki soketi olcer; bu kapi iki AYRI tulpar
 # surecini 127.0.0.1'de konusturur (ag 1v1'in gercek sekli: iki surec, iki soket):

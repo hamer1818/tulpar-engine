@@ -1,0 +1,191 @@
+// kit_ses — efekt + muzik yonetimi: yedekli yukleme, varyasyon, seyreltme, iki yuvali muzik gecisi.
+// Ortak oyun kutuphanesi (docs/FABRIKA.md asama 1). Kaynak: Kupler ile Kureler ses.tpr
+// (M3/M3b 2026-10-09, A5 2026-10-18; telefonda olculen kurallar).
+//
+//   import "engine";
+//   import "kit_ses";
+//   kit_ses_ac(true);                                  // cihaz acilamazsa oyun sessiz ama hatasiz surer
+//   int VURUS = kit_ses_dene("ses_vurus.wav", 180.0, 0.05);   // dosya yoksa sentetik ton
+//   kit_es_ekle(VURUS, "ses_vurus_2.wav");                    // varyasyon (sirayla calar)
+//   int MENU = kit_muzik_tanimla("menu", true);               // assets/sesler/muzik_menu.mp3, dongu
+//   kit_muzik_cal(MENU);  ... her kare kit_muzik_guncelle(dt);
+//   kit_ses_cal(VURUS, 0.8, 0.05);                            // ayni klip 50 ms'den sik calmaz
+//
+// KURALLAR:
+//  * EKSIK DOSYA SESSIZ DEGIL: dosyadan / sentetik ton / sessiz sayilari tutulur (kit_ses_ozet).
+//    hz <= 0 verilen efekt dosya yoksa SESSIZ kalir (klip yuvasi yemez; motor tavani 128).
+//  * APK'da efektler FLAC olabilir (Kupler ile Kureler apk_derle.sh A5): .wav yoksa ayni adli
+//    .flac denenir — oyun kodu .wav yazar.
+//  * MUZIK: dongusel parcalar motorun IKI MUZIK YUVASINDAN akar (parca basina klip arenayi
+//    ~23 MB buyutuyordu). Yeni parca BOS yuvaya cozulur, eskisi KIT_MUZIK_GECIS sn'de sonumlenir;
+//    tek seferlik parcalar (fanfar) tanimda klip olarak yuklenir. Muzik dosyasi yoksa sessiz.
+//  * Seviyeler oyuncu ayarina (g_kit_efekt / g_kit_muzik) ve gecici kismaya (diyalog) carpilir.
+import "engine";
+
+str KIT_SES_DIZIN = "assets/sesler/";
+int KIT_SES_TAVAN = 128;        // motor klip tavani (bridge kMaxClips)
+float KIT_MUZIK_GECIS = 0.6;
+
+bool g_kit_ses_var = false;
+float g_kit_efekt = 0.8;        // oyuncu ayari 0..1
+float g_kit_muzik = 0.5;        // oyuncu ayari 0..1
+int g_kit_ses_dosya = 0;
+int g_kit_ses_ton = 0;
+int g_kit_ses_sessiz = 0;
+int g_kit_ses_calinan = 0;
+float[] g_kit_ses_son = [];     // klip basina son calma zamani (seyreltme)
+int[] g_kit_es_klip = [];       // taban klip x 4 varyasyon
+int[] g_kit_es_sayi = [];
+int[] g_kit_es_sira = [];
+
+// Muzik parcalari (kimlik = tanim sirasi).
+str[] g_kit_muzik_ad = [];
+bool[] g_kit_muzik_dongu = [];
+int[] g_kit_muzik_klip = [];    // tek seferlik parcanin klibi (-1 yok); dongu parcasi yuvadan
+int g_kit_muzik_parca = -1;     // calan parca (-1 yok, -2 yenile)
+int g_kit_muzik_ses = 0;        // calan ses (0 yok)
+int g_kit_muzik_yuva = -1;
+int[] g_kit_yuva_parca = [-1, -1];
+int g_kit_sonum_ses = 0;
+float g_kit_sonum_t = 0.0;
+float g_kit_giris_t = 0.0;
+float g_kit_muzik_kisma = 1.0;
+int g_kit_muzik_yukleme = 0;
+int g_kit_muzik_yukleme_hata = 0;
+
+func _kit_ses_tablolar() {
+    while (len(g_kit_ses_son) < KIT_SES_TAVAN) { push(g_kit_ses_son, -10.0); }
+    while (len(g_kit_es_sayi) < KIT_SES_TAVAN) { push(g_kit_es_sayi, 0); push(g_kit_es_sira, 0); }
+    while (len(g_kit_es_klip) < KIT_SES_TAVAN * 4) { push(g_kit_es_klip, -1); }
+}
+
+// ac = false: cihaz hic acilmaz (otopilot / test). Donus: ses var mi.
+func kit_ses_ac(bool ac): bool {
+    _kit_ses_tablolar();
+    g_kit_ses_var = ac ? ses_ac() : false;
+    return g_kit_ses_var;
+}
+
+// Efekt yukle: dosya > (.wav yoksa .flac) > sentetik ton (hz > 0) > sessiz (-1).
+func kit_ses_dene(str ad, float hz, float sure): int {
+    if (!g_kit_ses_var) { return -1; }
+    str yol = KIT_SES_DIZIN + ad;
+    if (!file_exists(yol) && len(yol) > 4 && substring(yol, len(yol) - 4, len(yol)) == ".wav") {
+        yol = substring(yol, 0, len(yol) - 4) + ".flac";
+    }
+    if (file_exists(yol)) {
+        int k = ses_yukle(yol);
+        if (k >= 0) { g_kit_ses_dosya += 1; return k; }
+    }
+    if (hz <= 0.0) { g_kit_ses_sessiz += 1; return -1; }
+    g_kit_ses_ton += 1;
+    return ton(hz, sure);
+}
+
+// Varyasyon dosyasi (en cok 4): yoksa atlanir, taban klip yalniz calar.
+func kit_es_ekle(int taban, str ad) {
+    if (taban < 0 || taban >= KIT_SES_TAVAN) { return; }
+    int n = g_kit_es_sayi[taban];
+    if (n >= 4) { return; }
+    int k = kit_ses_dene(ad, 0.0, 0.0);
+    if (k < 0) { return; }
+    g_kit_es_klip[taban * 4 + n] = k;
+    g_kit_es_sayi[taban] = n + 1;
+}
+
+// Ayni klip `aralik` saniyeden sik calmaz (yuz ok ayni karede yuz ses olmasin);
+// varyasyonlar sirayla (taban, es1, es2, ...).
+func kit_ses_cal(int klip, float seviye, float aralik) {
+    if (!g_kit_ses_var || klip < 0 || klip >= KIT_SES_TAVAN) { return; }
+    float z = zaman();
+    if (z - g_kit_ses_son[klip] < aralik) { return; }
+    g_kit_ses_son[klip] = z;
+    g_kit_ses_calinan += 1;
+    int calinan = klip;
+    int n = g_kit_es_sayi[klip];
+    if (n > 0) {
+        int s = g_kit_es_sira[klip] % (n + 1);
+        g_kit_es_sira[klip] = s + 1;
+        if (s > 0) { calinan = g_kit_es_klip[klip * 4 + s - 1]; }
+    }
+    cal(calinan, seviye * g_kit_efekt, false);
+}
+// Donen efekt: ses kimligi (0 yok); durdurmak ses_durdur.
+func kit_ses_dongu_cal(int klip, float seviye): int {
+    if (!g_kit_ses_var || klip < 0) { return 0; }
+    return cal(klip, seviye * g_kit_efekt, true);
+}
+
+// Parca tanimi: kimlik doner. Tek seferlik parca burada klip olarak yuklenir
+// (kit_ses_ac'tan SONRA cagir); dongusel parca calinca yuvaya cozulur.
+func kit_muzik_tanimla(str ad, bool dongu): int {
+    push(g_kit_muzik_ad, ad);
+    push(g_kit_muzik_dongu, dongu);
+    push(g_kit_muzik_klip, dongu ? -1 : kit_ses_dene("muzik_" + ad + ".mp3", 0.0, 0.0));
+    return len(g_kit_muzik_ad) - 1;
+}
+
+func kit_muzik_seviye(): float { return g_kit_muzik * g_kit_muzik_kisma; }
+
+func kit_muzik_cal(int parca) {
+    if (!g_kit_ses_var) { return; }
+    if (g_kit_muzik_parca == parca && g_kit_muzik_ses != 0) { return; }
+    if (g_kit_sonum_ses != 0) { ses_durdur(g_kit_sonum_ses); g_kit_sonum_ses = 0; }
+    if (g_kit_muzik_ses != 0) { g_kit_sonum_ses = g_kit_muzik_ses; g_kit_sonum_t = KIT_MUZIK_GECIS; g_kit_muzik_ses = 0; }
+    g_kit_muzik_parca = parca;
+    if (parca < 0 || parca >= len(g_kit_muzik_ad) || g_kit_muzik <= 0.01) { return; }
+    if (!g_kit_muzik_dongu[parca]) {
+        int k = g_kit_muzik_klip[parca];
+        if (k >= 0) { g_kit_muzik_ses = cal(k, kit_muzik_seviye(), false); g_kit_giris_t = 0.0; }
+        g_kit_muzik_yuva = -1;
+        return;
+    }
+    int y = -1;
+    for (int s = 0; s < 2; s++) { if (g_kit_yuva_parca[s] == parca) { y = s; } }
+    if (y < 0) {
+        str yol = KIT_SES_DIZIN + "muzik_" + g_kit_muzik_ad[parca] + ".mp3";
+        if (!file_exists(yol)) { return; }
+        y = g_kit_muzik_yuva == 0 ? 1 : 0;
+        if (g_kit_sonum_ses != 0 && g_kit_yuva_parca[y] >= 0) { ses_durdur(g_kit_sonum_ses); g_kit_sonum_ses = 0; }
+        int ms = muzik_yuvasi_yukle(y, yol);
+        if (ms <= 0) { g_kit_muzik_yukleme_hata += 1; g_kit_yuva_parca[y] = -1; logla(t"UYARI muzik: {yol} yuvaya cozulemedi ({ms})"); return; }
+        g_kit_yuva_parca[y] = parca;
+        g_kit_muzik_yukleme += 1;
+    }
+    g_kit_muzik_yuva = y;
+    g_kit_muzik_ses = cal(muzik_yuvasi_klip(y), 0.0, true);
+    g_kit_giris_t = KIT_MUZIK_GECIS;
+}
+
+// Her kare: sonumleme ve acilma rampasi.
+func kit_muzik_guncelle(float d) {
+    if (!g_kit_ses_var) { return; }
+    if (g_kit_sonum_ses != 0) {
+        g_kit_sonum_t -= d;
+        if (g_kit_sonum_t <= 0.0) { ses_durdur(g_kit_sonum_ses); g_kit_sonum_ses = 0; }
+        else { ses_kazanc(g_kit_sonum_ses, kit_muzik_seviye() * g_kit_sonum_t / KIT_MUZIK_GECIS); }
+    }
+    if (g_kit_muzik_ses != 0 && g_kit_giris_t > 0.0) {
+        g_kit_giris_t -= d;
+        ses_kazanc(g_kit_muzik_ses, kit_muzik_seviye() * (1.0 - max(0.0, g_kit_giris_t) / KIT_MUZIK_GECIS));
+    }
+}
+// Ayar kaydirici / kisma degisti: calan sesin seviyesi (calmiyorsa parca yeniden denenir).
+func kit_muzik_yenile() {
+    if (!g_kit_ses_var || g_kit_muzik_ses == 0) {
+        int k = g_kit_muzik_parca;
+        g_kit_muzik_parca = -2;
+        kit_muzik_cal(k);
+        return;
+    }
+    if (g_kit_giris_t <= 0.0) { ses_kazanc(g_kit_muzik_ses, kit_muzik_seviye()); }
+}
+func kit_muzik_kis(float k) {
+    if (abs(k - g_kit_muzik_kisma) < 0.001) { return; }
+    g_kit_muzik_kisma = k;
+    kit_muzik_yenile();
+}
+
+func kit_ses_ozet(): str {
+    return t"ses: {g_kit_ses_dosya} dosya, {g_kit_ses_ton} sentetik ton (eksik dosya), {g_kit_ses_sessiz} sessiz, muzik yukleme {g_kit_muzik_yukleme} (hata {g_kit_muzik_yukleme_hata}), cihaz {ses_cihazi()}";
+}

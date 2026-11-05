@@ -493,6 +493,17 @@ ANDROID_LIBS = ["tulpar_engine_android", "engine_content", "engine_renderer", "e
                 "engine_meshopt", "engine_astcenc"]
 
 
+# Ortak oyun kutuphanesi (docs/FABRIKA.md asama 1): `import "<ad>";` ile gelen
+# saf Tulpar modulleri. Paket ici yol tulpar/kit/ altindaki dosyanin adi; CMake
+# tulpar/kit/'i pakete AYNEN kopyalar (yeni modul = dosya + buraya bir satir).
+KIT_MODULES = [
+    ("kit_dil", "kit/dil.tpr"),
+    ("kit_kayit", "kit/kayit.tpr"),
+    ("kit_ses", "kit/ses.tpr"),
+    ("kit_acilis", "kit/acilis.tpr"),
+]
+
+
 def manifest_text():
     fns = []
     for name, ret, params, doc in SPEC:
@@ -514,7 +525,8 @@ def manifest_text():
              '  "name": "engine",',
              '  "description": "Tulpar Engine — mobil oncelikli C++ oyun motoru (teng_* duz skaler C ABI). '
              'URETILMIS: tools/gen_engine_bindings.py (SPEC); elle duzenleme.",',
-             '  "modules": {"engine": "engine.tpr"},',
+             '  "modules": ' + json.dumps(dict([("engine", "engine.tpr")] + KIT_MODULES),
+                                          ensure_ascii=False) + ",",
              '  "link": {',
              '    "linux": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "group": True,
                                             "flags": ["-lpthread"]}, ensure_ascii=False) + ",",
