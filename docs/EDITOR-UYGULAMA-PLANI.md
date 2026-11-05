@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -147,6 +147,16 @@ kapısı bir sayıya dayansın.
   yok) bugünkü ImGui penceresi **görünür yedek** ("sistem dosya seçicisi bulunamadı" satırı).
 - **Kapı:** headless'ta yerli seçici çağrılamaz → yedek yolun birim testi + seçici soyutlamasının
   sahte (mock) arka uçla testi; yerli seçici **elle kontrol listesi** (§9) — iddia değil, ölçüm.
+- **✅ Yapıldı (2026-11-05) — K4 DEĞİŞTİ:** nativefiledialog-extended yerine `platform/dosya_secici`
+  (L0) ALT SÜREÇ arka uçları: Linux kdialog (KDE'de önce) / zenity, Windows PowerShell +
+  System.Windows.Forms, macOS osascript. Sebep: NFD Linux'ta GTK/dbus BAĞLANTI bağımlılığı getiriyordu;
+  motor sürücüsüz/kütüphanesiz makinede derlenir (Vulkan, GLFW dlopen). Bedel: Windows'ta açılış ~1 s.
+  `file_dialog_open` önce sistem seçicisini dener; yoksa ImGui penceresi ve sebebi pencerede soluk
+  satır. Başlangıç ekranında Konum'un "Seç..." düğmesi klasör seçici. Penceresiz kip ve testler
+  `TULPAR_DOSYA_SECICI=yok` (kipli pencere bloklardı). Testler: argv (Türkçe/boşluk/tırnak yolu tek
+  argüman, PowerShell `'`→`''`), "yok" → görünür yedek, sahte `zenity` betiğiyle süreç + çıktı okuma
+  uçtan uca (seçildi → Kaydet uzantı ekler; vazgeç → Vazgecildi). **Ölçülmedi:** gerçek kdialog/zenity
+  penceresi ve Windows/macOS yolları (Windows derleyicisi yerelde yok; GitHub CI derler) — elle kontrol.
 
 ### U5 — Basit / Gelişmiş kip + sade dil + ilk deneyim · ~2 oturum
 

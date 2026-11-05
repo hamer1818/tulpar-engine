@@ -1883,6 +1883,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   char layout_path[1024];
   // Penceresiz (otomasyon) kosum kullanicinin GERCEK ayarlarina dokunmaz: ayar dizini acikca
   // verilmediyse gecici dizine yonlendirilir (surece ozgu ad; paralel kosumlar karismasin).
+  // Penceresiz kip isletim sisteminin dosya secicisini ACMAZ (kipli pencere bloklardi; U4).
+  if (headless) {
+#if defined(_WIN32)
+    if (!std::getenv("TULPAR_DOSYA_SECICI")) _putenv_s("TULPAR_DOSYA_SECICI", "yok");
+#else
+    setenv("TULPAR_DOSYA_SECICI", "yok", 0);
+#endif
+  }
   static char gecici_ayar[1100] = {0};   // biz kurduysak kapanista silinir
   if (headless && !std::getenv("TULPAR_EDITOR_AYAR_DIZINI")) {
     const char *tmp = std::getenv("TMPDIR");

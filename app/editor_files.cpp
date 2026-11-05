@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 #include "app/editor_ui.hpp" // Tone, editor_tone, editor_ellipsize (TEK palet)
+#include "platform/dosya_secici.hpp"
 #include "platform/fs_ops.hpp"
 #include "platform/paths.hpp"
 
@@ -556,6 +557,28 @@ bool file_dialog_open(FileDialog &d, FileDialogMode mode, const char *start_dir,
   char abs[kFilePathLen];
   if (absolutize(start, abs, sizeof abs)) std::snprintf(d.dir, sizeof d.dir, "%s", abs);
   else std::snprintf(d.dir, sizeof d.dir, "%s", start);
+  // ONCE isletim sisteminin secicisi (U4). Kullanilamazsa (arka uc yok, penceresiz kipte editor
+  // TULPAR_DOSYA_SECICI=yok kurar) bugunku ImGui penceresi — sebebiyle birlikte.
+  d.yerli = 0;
+  d.yerli_not[0] = 0;
+  {
+    platform::SeciciIstek r;
+    r.kip = mode == FileDialogMode::Kaydet ? platform::SeciciKip::DosyaKaydet : platform::SeciciKip::DosyaAc;
+    r.baslik = d.title;
+    r.dizin = d.dir;
+    r.uzanti = d.ext[0] ? d.ext : nullptr;
+    r.uzanti_adi = d.ext[0] ? d.ext + 1 : nullptr;
+    r.onerilen = d.name[0] ? d.name : nullptr;
+    char err[192];
+    const platform::SeciciSonuc s = platform::dosya_secici(r, d.path, sizeof d.path, err, sizeof err);
+    if (s == platform::SeciciSonuc::Secildi || s == platform::SeciciSonuc::Vazgecildi) {
+      d.yerli = s == platform::SeciciSonuc::Secildi ? 1 : 2;
+      d.open = true;      // file_dialog_draw sonucu bir sonraki cagrida verir
+      d.need_open = false;
+      return true;
+    }
+    std::snprintf(d.yerli_not, sizeof d.yerli_not, "%s", err);
+  }
   file_dialog_refresh(d);
   d.open = true;
   d.need_open = true;
@@ -565,6 +588,12 @@ bool file_dialog_open(FileDialog &d, FileDialogMode mode, const char *start_dir,
 FileDialogAction file_dialog_draw(FileDialog &d) {
   d.shown = 0;
   if (!ImGui::GetCurrentContext() || !d.open) return FileDialogAction::None;
+  if (d.yerli) {   // isletim sisteminin secicisi zaten sonuclandi (file_dialog_open)
+    const FileDialogAction a = d.yerli == 1 ? FileDialogAction::Accepted : FileDialogAction::Cancelled;
+    d.yerli = 0;
+    d.open = false;
+    return a;
+  }
   const ImGuiStyle &st = ImGui::GetStyle();
   const float fs = ImGui::GetFontSize();
   const float frame_h = ImGui::GetFrameHeight();
@@ -629,6 +658,12 @@ FileDialogAction file_dialog_draw(FileDialog &d) {
     editor_ellipsize(d.err, ImGui::GetContentRegionAvail().x, eb, sizeof eb);
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::Err)), "\xE2\x9A\xA0 %s", eb); // ⚠
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.err);
+  }
+  if (d.yerli_not[0]) {   // isletim sisteminin secicisi yoktu: neden bu pencere (U4)
+    char nb[224];
+    editor_ellipsize(d.yerli_not, ImGui::GetContentRegionAvail().x, nb, sizeof nb);
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::TextMute)), "%s", nb);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.yerli_not);
   }
 
   // --- Govde: dizinler, sonra dosyalar --------------------------------------

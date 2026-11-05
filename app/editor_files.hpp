@@ -121,6 +121,10 @@ struct FileDialog {
   FileListResult list;
   int32_t sel = -1;          // items indeksi (-1 = secim yok)
   bool open = false;         // kipli pencere acik mi
+  // Isletim sisteminin secicisi (U4, platform/dosya_secici.hpp) sonucu: 0 kullanilmadi (ImGui penceresi
+  // cizilir), 1 secildi (path dolu), 2 vazgecildi. file_dialog_draw bir sonraki cagrida bunu dondurur.
+  uint8_t yerli = 0;
+  char yerli_not[192] = {0}; // yerli secici kullanilamadiysa sebebi (ImGui penceresinde gosterilir)
   bool need_open = false;    // bu karede ImGui::OpenPopup cagrilsin
   bool ask_overwrite = false; // Kaydet: dosya var, onay bekleniyor
   bool focus_name = false;   // ad kutusuna odak (acilista / dosya seciminde)

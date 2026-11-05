@@ -11,6 +11,7 @@
 
 #include "app/editor_fabrika.hpp"
 #include "app/editor_ui.hpp"
+#include "platform/dosya_secici.hpp"
 
 namespace tulpar::engine::app {
 namespace {
@@ -146,7 +147,29 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
     ImGui::SameLine();
     ImGui::RadioButton("Dikey", &d.yon, 1);
   }
-  if (girdi("Konum", "klas\xC3\xB6r", d.konum, sizeof d.konum, w)) d.konum_elle = true;
+  {
+    // Konum: metin + "Sec..." (isletim sisteminin klasor secicisi, U4). Secilen klasor KOK olur,
+    // oyun onun altinda <kimlik> dizinine kurulur.
+    const float sec_w = ImGui::CalcTextSize("Se\xC3\xA7...").x + st.FramePadding.x * 2.0f;
+    if (girdi("Konum", "klas\xC3\xB6r", d.konum, sizeof d.konum, w - sec_w - st.ItemSpacing.x)) d.konum_elle = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Se\xC3\xA7...##konum", ImVec2(sec_w, 0))) {
+      platform::SeciciIstek r;
+      r.kip = platform::SeciciKip::KlasorSec;
+      r.baslik = "Oyunun kurulaca\xC4\x9F\xC4\xB1 klas\xC3\xB6r";
+      r.dizin = d.kok;
+      char sec[1024], err[192];
+      const platform::SeciciSonuc s = platform::dosya_secici(r, sec, sizeof sec, err, sizeof err);
+      if (s == platform::SeciciSonuc::Secildi) {
+        std::snprintf(d.kok, sizeof d.kok, "%s", sec);
+        d.konum_elle = false;
+        karsilama_oneri(d);
+        if (!d.konum[0]) std::snprintf(d.konum, sizeof d.konum, "%s", sec);
+      } else if (s != platform::SeciciSonuc::Vazgecildi) {
+        std::snprintf(d.hata, sizeof d.hata, "Klas\xC3\xB6r se\xC3\xA7icisi a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (%s); yolu elle yaz.", err);
+      }
+    }
+  }
   if (ImGui::TreeNodeEx("Geli\xC5\x9Fmi\xC5\x9F", d.gelismis ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
     d.gelismis = true;
     if (girdi("Kimlik (dosya ve kay\xC4\xB1t ad\xC4\xB1)", "parilti_avi", d.kimlik, sizeof d.kimlik, w)) {

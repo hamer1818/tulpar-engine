@@ -86,6 +86,7 @@ add_library(engine_platform STATIC
     platform/thermal.cpp
     platform/perf_hint.cpp
     platform/process.cpp
+    platform/dosya_secici.cpp
     platform/fs_ops.cpp
     platform/game_channel.cpp
     platform/net.cpp
@@ -486,6 +487,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_frame_gate.cpp
     tests/test_crash.cpp
     tests/test_process.cpp
+    tests/test_dosya_secici.cpp
     tests/test_build_info.cpp
     tests/test_sha256.cpp
     tests/test_math.cpp
