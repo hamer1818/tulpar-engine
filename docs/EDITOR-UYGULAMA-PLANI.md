@@ -1,6 +1,9 @@
 # Editör → "normal uygulama" planı
 
-> **Durum: PLANLANDI, BAŞLANMADI (2026-11-05).** Kullanıcı: "planla, ben deyince başlayacağız."
+> **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
+> varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
+> başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
+> Aşamalar: **U0 ✅** (aşağıda §8)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -233,12 +236,27 @@ editör içi kod düzenleyici (dış editör açılmaya devam eder), YZ ile tasa
 
 ## 8. Ölçüm tablosu (U0'da doldurulacak)
 
-| çözünürlük | kesik metin | taşan pencere | 3B görünüm oranı | yasak terim (Basit) |
+Araç: `tools/editor_ux.sh` (dört çözünürlük paralel, `engine_editor --ux-rapor`; `--kapi` eşikli).
+Ölçüm `app/editor_ux.cpp` + ImGui metin kancası (`third_party/imgui` TULPAR YAMASI, imconfig.h);
+yamanın canlı olduğunun pozitif kontrolü `editor_ux_imgui_kancasi_kesik_metni_gorur` (dar pencerede
+uzun etiket → kesik 1; geniş pencerede 0; kanca kapalıyken sayım değişmez).
+
+**Taban (U0, 2026-11-05, RTX 5080, 60 headless kare, `tests/assets/editor.sahne`):**
+
+| çözünürlük | kesik metin | Stats taşan kare | 3B görünüm oranı | görülen metin |
 |---|---|---|---|---|
-| 1280×720 | ? | ? (Stats: 1 görüldü) | ? (~%33 göz kararı) | — |
-| 1366×768 | ? | ? | ? | — |
-| 1920×1080 | ? | ? | ? | — |
-| 2560×1440 | ? | ? | ? | — |
+| 1280×720 | **21** | **41 / 60** (96 px) | 0.300 | 86 |
+| 1366×768 | 18 | 41 / 60 (60 px) | 0.310 | 88 |
+| 1920×1080 | 5 | 0 | 0.349 | 96 |
+| 2560×1440 | 4 | 0 | 0.374 | 125 |
+
+Kesiklerin dağılımı (1280×720): Özellikler 16 (Dönüşüm X/Y/Z değerleri `-11.212` → 26 px alanda,
+`+ Zemin Sisi`), Dünya 2 (`0.50`, `1.00`), Görünüm 1 (`Serbest En-Boy`), dock sekmesi 1 (`Ko…`
+= Konsol). 1920×1080'de bile 5 (Dünya 2, sekme, en-boy, `-10.068`).
+
+Yan bulgu: headless editörün yerleşik "düzen kapısı" sabit `.duzen_kapisi.duzen` adını kullanıyordu;
+dört çözünürlük paralel koşunca birbirinin dosyasını silip kapıyı düşürdü (Tuzaklar 8dr sınıfı). Ad
+artık süreç kimliğiyle.
 
 ## 9. Kabul testi (her platformda kullanıcı yapar; ajan headless kapılarla ön doğrular)
 

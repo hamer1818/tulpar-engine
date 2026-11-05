@@ -3963,6 +3963,9 @@ const char* ImGui::FindRenderedTextEnd(const char* text, const char* text_end)
 
 // Internal ImGui functions to render text
 // RenderText***() functions calls ImDrawList::AddText() calls ImBitmapFont::RenderText()
+// TULPAR YAMASI (imconfig.h): UX olcum kancasi; nullptr = kapali.
+void (*GImGuiTulparMetinKanca)(const char *, const char *, const char *, float, float) = nullptr;
+
 void ImGui::RenderText(ImVec2 pos, const char* text, const char* text_end, bool hide_text_after_hash)
 {
     ImGuiContext& g = *GImGui;
@@ -3983,6 +3986,12 @@ void ImGui::RenderText(ImVec2 pos, const char* text, const char* text_end, bool 
 
     if (text != text_display_end)
     {
+        // TULPAR YAMASI (imconfig.h): metin kancasi — pencerenin kirpma kenarina gore.
+        if (GImGuiTulparMetinKanca)
+        {
+            const float w = CalcTextSize(text, text_display_end, false, 0.0f).x;
+            GImGuiTulparMetinKanca(window->Name, text, text_display_end, w, window->DrawList->GetClipRectMax().x - pos.x);
+        }
         window->DrawList->AddText(g.Font, g.FontSize, pos, GetColorU32(ImGuiCol_Text), text, text_display_end);
         if (g.LogEnabled)
             LogRenderedText(&pos, text, text_display_end);
@@ -4019,6 +4028,9 @@ void ImGui::RenderTextClippedEx(ImDrawList* draw_list, const ImVec2& pos_min, co
     const ImVec2* clip_min = clip_rect ? &clip_rect->Min : &pos_min;
     const ImVec2* clip_max = clip_rect ? &clip_rect->Max : &pos_max;
     bool need_clipping = (pos.x + text_size.x >= clip_max->x) || (pos.y + text_size.y >= clip_max->y);
+    // TULPAR YAMASI (imconfig.h): metin kancasi — cerceve/hucre genisligine gore.
+    if (GImGuiTulparMetinKanca && text != text_display_end && GImGui && GImGui->CurrentWindow)
+        GImGuiTulparMetinKanca(GImGui->CurrentWindow->Name, text, text_display_end, text_size.x, clip_max->x - pos.x);
     if (clip_rect) // If we had no explicit clipping rectangle then pos==clip_min
         need_clipping |= (pos.x < clip_min->x) || (pos.y < clip_min->y);
 

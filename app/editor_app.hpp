@@ -25,6 +25,9 @@ struct EditorOptions {
   // ("oynat.oyunu_calistir", "dosya.derle" ...). Otomasyon ve penceresiz
   // dogrulama icin; bilinmeyen anahtar editoru 2 ile bitirir (sessiz degil).
   const char *command = nullptr;
+  // --ux-rapor <dosya>: UX olcumu (app/editor_ux.hpp; kesik metin, tasan kaplama, gorunum orani,
+  // gorunen metinler) kapanista bu dosyaya. docs/EDITOR-UYGULAMA-PLANI.md U0.
+  const char *ux_rapor = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni
   // ikili AYNI argumanlarla yeniden baslatilir (app/editor_update.hpp). Bos
   // olabilir (testler/gomulu kullanim): o zaman yalniz --scene tasinir.

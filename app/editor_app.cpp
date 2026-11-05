@@ -88,6 +88,8 @@
 #include "app/editor_props.hpp"
 #include "app/editor_update.hpp"
 #include "content/prefab.hpp"
+#include "app/editor_ux.hpp"
+#include "platform/fs.hpp"
 #include "rhi/offscreen.hpp"
 #include "rhi/swapchain.hpp"
 #include "sim/schedule.hpp"
@@ -189,6 +191,11 @@ static int find_first_camera_entity(const content::SceneDesc &s) {
 // 240 kare = 60 fps'te 4 s.
 static constexpr uint32_t kGraphFrames = 240;
 
+// Son karede cizilen Stats kaplamasinin dikdortgeni (UX olcumu, editor_ux.hpp; w=0: cizilmedi).
+static UxRect g_stats_hud_rect{0, 0, 0, 0};
+// UX olcumu (--ux-rapor): sabit tablolar ~200 KB, yigina degil statige (ayirma yok).
+static UxOlcum g_ux_olcum;
+
 static void draw_stats_overlay(bool *open, float dt, const renderer::RendererStats &rs, const content::SceneDesc &scene,
                                uint32_t vp_w, uint32_t vp_h, ViewportTab tab, const Arena &arena, const ViewportRect &vr,
                                const Profiler &prof, const rhi::Device &dev, const renderer::ShadowInfo &sh, uint64_t allocs_frame) {
@@ -215,6 +222,10 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
                               ImGuiWindowFlags_NoMove;
 
   if (ImGui::Begin("##EngineStatsHUD", nullptr, wf)) {
+    {
+      const ImVec2 p = ImGui::GetWindowPos(), s = ImGui::GetWindowSize();
+      g_stats_hud_rect = UxRect{p.x, p.y, s.x, s.y};
+    }
     const float fps = dt > 0.0001f ? (1.0f / dt) : 0.0f;
     const float ms = dt * 1000.0f;
 
@@ -1847,6 +1858,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // birlestirilir; bkz. EditorUi::init. Bulunamazsa arayuz yine acilir.
     platform::asset_path(ipath, sizeof ipath, "assets/fonts/" FONT_ICON_FILE_NAME_MD);
     if (!ui.init(dev, rp, 1, image_count, fpath, 17.0f, 1.0f, true, ipath)) { std::fprintf(stderr, "editor ui: %s\n", ui.last_error()); return 1; }
+    if (opts.ux_rapor) ux_olcum_baslat(&g_ux_olcum);
     if (!ui.icons_ok())
       console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "ikon fontu yuklenemedi (%s): ikonlar bos kutu cizilecek", ipath);
   }
@@ -8461,8 +8473,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         return true;
       };
       if (frame_i == 2) {
-        std::snprintf(lay, sizeof lay, "%s/.duzen_kapisi.duzen", st.scene_dir);
-        std::snprintf(lay_mut, sizeof lay_mut, "%s/.duzen_kapisi_mut.duzen", st.scene_dir);
+        // Surece ozgu ad (Tuzaklar 8dr): paralel headless editor kosumlari (UX olcumu, dort
+        // cozunurluk ayni anda) ayni dosyayi yazip birbirinin kapisini dusuruyordu.
+        const unsigned pid = (unsigned)platform::fs_process_id();
+        std::snprintf(lay, sizeof lay, "%s/.duzen_kapisi.%u.duzen", st.scene_dir, pid);
+        std::snprintf(lay_mut, sizeof lay_mut, "%s/.duzen_kapisi_mut.%u.duzen", st.scene_dir, pid);
         na = layout_snapshot(A, kLayoutMaxWindows);
         if (!layout_save(lay, &lerr)) { std::printf("[engine_editor] duzen kapisi: KAYDEDILEMEDI %s\n", lerr.msg); return 1; }
         // Mutant: ilk bolmenin genisligini degistir (satir bazli, metin dosyasi).
@@ -8634,9 +8649,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     {
       static uint64_t allocs_prev = AllocGate::total_allocations();
       const uint64_t allocs_now = AllocGate::total_allocations();
+      g_stats_hud_rect = UxRect{0, 0, 0, 0};
       draw_stats_overlay(&show_stats, dt, ren.stats(), st.scene, vp.width(), vp.height(), view_tab, sys, view_rect, prof, dev, ren.shadow(),
                          allocs_now - allocs_prev);
       allocs_prev = allocs_now;
+    }
+    if (opts.ux_rapor) {
+      const ImVec2 ds = ImGui::GetIO().DisplaySize;
+      ux_olcum_kare(g_ux_olcum, UxRect{view_rect.x, view_rect.y, view_rect.w, view_rect.h}, UxRect{0, 0, ds.x, ds.y},
+                    g_stats_hud_rect);
     }
     draw_command_palette(palette_st, cmds, st.scene, &st);
     ui.end_frame();
@@ -9244,6 +9265,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               (double)sys.stats().peak / (1024.0 * 1024.0), 256u, sizeof(content::SceneOp),
               256.0 * (double)sizeof(content::SceneOp) / 1024.0);
   bool imgui_hata_var = false;
+  if (opts.ux_rapor) {
+    ux_olcum_bitir();
+    if (ux_olcum_yaz(g_ux_olcum, opts.ux_rapor))
+      std::printf("[engine_editor] ux raporu: %s (kesik %u, kaplama tasan kare %u, gorunum orani %.3f)\n", opts.ux_rapor,
+                  g_ux_olcum.kesik_n, g_ux_olcum.kaplama_tasan_kare, (double)g_ux_olcum.gorunum_orani_son);
+  }
   if (headless && opts.out_path) {
     if (rhi::write_ppm(opts.out_path, ores.pixels, oc.width, oc.height)) std::printf("[engine_editor] goruntu: %s\n", opts.out_path);
   }

@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
     else if (!std::strcmp(argv[i], "--validation")) o.validation = true;
     else if (!std::strcmp(argv[i], "--scene") && i + 1 < argc) o.scene_path = argv[++i];
     else if (!std::strcmp(argv[i], "--komut") && i + 1 < argc) o.command = argv[++i];
+    else if (!std::strcmp(argv[i], "--ux-rapor") && i + 1 < argc) o.ux_rapor = argv[++i];
   }
   if (std::getenv("TULPAR_ENGINE_VK_VALIDATION")) o.validation = true;
   if (o.headless_frames > 0) return app::editor_run(o, nullptr);

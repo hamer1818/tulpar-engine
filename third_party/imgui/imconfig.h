@@ -14,6 +14,16 @@
 
 #pragma once
 
+// ---- TULPAR YAMASI (docs/EDITOR-UYGULAMA-PLANI.md U0) -------------------------------------
+// Editorun UX olcumu (kesik metin + gorunen terimler) icin metin kancasi. Tanimi imgui.cpp'de
+// (RenderText / RenderTextClippedEx icinde, "TULPAR YAMASI" ile isaretli). ImGui YUKSELTILINCE
+// IKI YAMA DA KORUNMALI: kaybolursa editorun ux pozitif kontrolu (uzun etiket -> kesik=1)
+// KIRMIZI olur. nullptr iken bedelsiz (tek isaretci karsilastirmasi).
+//   pencere: metni ciZen pencerenin adi; gerek: metnin genisligi; alan: sigacagi genislik
+//   (sigiyorsa gerek <= alan).
+extern void (*GImGuiTulparMetinKanca)(const char *pencere, const char *metin, const char *metin_son,
+                                      float gerek, float alan);
+
 //---- Define assertion handler. Defaults to calling assert().
 // - If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
 // - Compiling with NDEBUG will usually strip out assert() to nothing, which is NOT recommended because we use asserts to notify of programmer mistakes.
