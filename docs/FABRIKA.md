@@ -81,5 +81,6 @@ listesi olarak basılır.
 | aşama | durum |
 |---|---|
 | 0 | ✅ 2026-11-05 (bu belge) |
-| 1 | 🟡 `kit_kayit`, `kit_dil`, `kit_ses`, `kit_acilis` ✅ (Küp-Küre geçti, kapıları aynı); sırada `kit_arayuz`, `kit_kapi` |
-| 2–5 | ⏳ |
+| 1 | ✅ `kit_kayit`, `kit_dil`, `kit_ses`, `kit_acilis`, `kit_arayuz` (Küp-Küre beşine geçti; açılış 24 kare, arayüz turu 58 kare bayt aynı, bütün kapılar aynı). `kit_kapi` ertelendi: oyunların kapı satırları oyuna özgü, ortak kısmı (`kit_kip_adi`, sayaçlar) zaten modüllerde |
+| 2 | ✅ `tools/yeni_oyun.sh` + `tulpar/sablonlar/arena` + `ortak/` (toml, ortam, dogrula, OKUBENI, gitignore) + `tools/kit/ikon_uret.py`. Üretilen depo kendi `tools/dogrula.sh`'ini koşar (otopilot turu, KAPI_BOZ pozitif kontrolü, NULL ses); `yerel_ci.sh` her koşumda bir oyun üretir + bozuk şablonun kırmızı döndüğünü ölçer |
+| 3–5 | ⏳ sırada tek komut yayın (`apk_derle` + Play hattının genelleştirilmesi) |

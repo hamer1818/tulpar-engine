@@ -76,6 +76,7 @@ ile sınayarak) ve `<editör dizini>/tulpar-ext` paketini kullanır; `TULPAR_MOT
 | `kit_kayit` | `kit_oyun(ad, ONEK)`: oyuncu / otopilot / penceresiz kipi; otopilot kayda yazmaz (istek sayılır), penceresiz koşum geçici dosyada boş başlar; `kit_ayar_oku/yaz` (yazım HEMEN diske), ayar sürüm göçü |
 | `kit_dil` | `L(tr, en)`, cihaz dili (Türkçe ise TR, gerisi EN), seçim sırası `TULPAR_<ONEK>_DIL` > otopilot TR > kayıt > cihaz, `kit_dil_degistir` |
 | `kit_ses` | efekt: dosya > `.flac` > sentetik ton > sessiz (sayılır), varyasyon, seyreltme; müzik: `kit_muzik_tanimla(ad, dongu)`, iki yuvalı çapraz geçiş, kısma |
+| `kit_arayuz` | arayüz kiti: 9 dilim atlas (`kit/varlik/arayuz.png`, üretici `tools/kit/arayuz_atlasi.py`), `k_dugme`/`k_panel`/`k_modal`/`k_kaydirici`/`k_anahtar`/`k_bolut`…, renk (`KR_*`), yazı ölçeği (`T_*`), ikonlar (`IK_*`) |
 | `kit_acilis` | stüdyo açılışı (ORTATEPE + "Made with Tulpar Engine"), girdi sızmaz; atlas `kit/varlik/acilis.png` (üretici `tools/kit/acilis_atlasi.py`); kancalar `g_kit_ac_cin`, `g_kit_ac_muzik` |
 
 ```tpr
@@ -91,6 +92,16 @@ Kapı: `tests/kit.test.tpr` (`tools/tulpar_dogrula.sh`, oyuncu + penceresiz kipt
 kip algısının pozitif kontrolü). İlk kullanıcısı Küpler ile Küreler (2026-11-05): dört modüle geçti, oyunun bütün kapıları
 (`--tam`, `--hikaye` 51/51, `--duello`, açılış) aynı sonucu veriyor; açılışın 24 karesi bayt aynı,
 ses NULL aygıtla 3600 karede aynı sayılar.
+
+### Yeni oyun (fabrika)
+
+```bash
+tools/yeni_oyun.sh ../benim-oyunum --kimlik benim --onek BO --tr "Benim Oyunum" --en "My Game" --git
+```
+
+`tulpar/sablonlar/arena/oyun.tpr` (oynanabilir en küçük döngü: menü, ayarlar, tur, duraklat, sonuç,
+otopilot + `[kapi]` satırı) ve `ortak/` dosyaları yer tutucular doldurularak kopyalanır; betik
+üretilen deponun `tools/dogrula.sh`'ini koşar, kırmızıysa kendisi de kırmızı döner.
 
 ## Tek kaynak kuralı
 

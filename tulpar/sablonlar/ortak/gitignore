@@ -1,0 +1,16 @@
+# Turetilmis her sey disarida.
+*.jks
+*.keystore
+cikti/
+*.apk
+*.aab
+/.motor
+*.sahneb
+.tulpar_onbellek/
+tulpar_kayit.txt
+tulpar_{{KIMLIK}}_otopilot_kayit.txt
+crash_*.txt
+*.log
+*.ppm
+__pycache__/
+.claude/

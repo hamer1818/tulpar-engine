@@ -501,6 +501,7 @@ KIT_MODULES = [
     ("kit_kayit", "kit/kayit.tpr"),
     ("kit_ses", "kit/ses.tpr"),
     ("kit_acilis", "kit/acilis.tpr"),
+    ("kit_arayuz", "kit/arayuz.tpr"),
 ]
 
 

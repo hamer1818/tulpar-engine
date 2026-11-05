@@ -136,6 +136,19 @@ else
 fi
 asama "Faz 8 shader + yerlesim" $(( $(zaman) - t )) "$r"
 
+# 5c) Oyun fabrikasi (docs/FABRIKA.md asama 2): sablondan uretilen oyun ilk gun dogrulamadan
+# gecmeli; POZITIF KONTROL YENI_OYUN_BOZ=1 (sablona bozuk satir) KIRMIZI donmeli. Ikisi paralel.
+t=$(zaman); r="OK"
+fab="$IS/fabrika"; mkdir -p "$fab"
+bash tools/yeni_oyun.sh "$fab/iyi" --kimlik ci_oyun --onek CIO --tr "CI Oyunu" --en "CI Game" > "$IS/fab_iyi.log" 2>&1 & p1=$!
+YENI_OYUN_BOZ=1 bash tools/yeni_oyun.sh "$fab/boz" --kimlik ci_boz --onek CIB --tr "CI Bozuk" --en "CI Broken" > "$IS/fab_boz.log" 2>&1 & p2=$!
+wait $p1; rf1=$?; wait $p2; rf2=$?
+cat "$IS/fab_iyi.log" "$IS/fab_boz.log" > yapi/yerel_ci_fabrika.log
+if [ $rf1 != 0 ]; then r="HATA yeni_oyun: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_iyi.log")"
+elif [ $rf2 = 0 ]; then r="HATA pozitif kontrol: bozuk sablon YESIL gecti"
+else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); bozuk sablon kirmizi"; fi
+asama "Fabrika: yeni_oyun (arena)" $(( $(zaman) - t )) "$r"
+
 if [ "$HIZLI" = 0 ]; then
   # 6) clang sozdizimi (macOS ayaginin derleyici vekili)
   t=$(zaman); r="OK"

@@ -2446,3 +2446,13 @@ yine 25 atlıyor. **Motor için:** aynı süreçte motoru 20+ kez kapatıp açan
 masaüstünde aynı duvara çarpar; Android'de (bionic, sistem ICD'si) ve editörün F5'inde (her oyun AYRI
 süreç) bu yol yok. **Kural:** "tek başına geçiyor, toplu geçiyor, alt kümede atlıyor" diyen test, sürecin
 geçmişine bağlı bir kaynağı ölçüyordur — önce sürücü günlüğünü aç.
+
+### 8dq. Türkçe yerel ayarda bash'in `[a-z]` aralığı "i"yi eşleştirmiyor — doğrulama yalnız bazı adlarda düşer
+`tools/yeni_oyun.sh` kimliği `[[ "$k" =~ ^[a-z][a-z0-9_]{1,30}$ ]]` ile denetliyordu. Bu makinede
+(`LANG=tr_TR.UTF-8`) `deneme` geçti, `ci_oyun` ve `kiri` REDDEDİLDİ: aralık ifadesi yerel ayarın sıralama
+tablosuna göre yorumlanıyor ve Türkçe tabloda `i` (noktalı/noktasız i çifti yüzünden) `a`–`z` aralığında
+değil. Hata yalnız adında `i` geçen girdide çıktığı için ilk denemeler yeşildi; yerel CI'ın fabrika
+adımındaki ilk gerçek ad (`ci_oyun`) yakaladı (ölçüldü 2026-11-05). **Kural:** betikte düzenli ifade
+ya da aralık denetimi `LC_ALL=C` altında yapılır (`gecerli() { local LC_ALL=C; [[ "$1" =~ $2 ]]; }`);
+`sort`, `tr a-z`, `[[ x < y ]]` aynı sınıftandır. İlgili: 8dp ("tek başına geçiyor, toplu düşüyor"
+gibi, burada da girdi kümesine bağlı yeşil).
