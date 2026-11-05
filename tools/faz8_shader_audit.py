@@ -91,6 +91,37 @@ func main() { qvec9 x = qvec9(1.0); o_color = vec4(1.0); }
 vec4 o_color = cikti(0);
 func main() { o_color = vec4(kokusuz_fonksiyon(1.0)); }
 '''),
+    # Demet donusu -> `out` parametresi (2026-11-05, mesh.frag): ad sayisi
+    # tutmayan acma ve demet dondurmeyen fonksiyonu acma ceviricide durmali —
+    # yoksa eksik/fazla `out` argumani glslc'ye "no matching function" diye,
+    # ya da (ayni sayida farkli tip) HIC hata vermeden gecebilirdi.
+    ("demet ad sayisi", "cevirici-anlam", '''str asama = "frag";
+vec4 o_color = cikti(0);
+func f(): (float, float) { return 1.0, 2.0; }
+func main() { float a, b, c = f(); o_color = vec4(a); }
+'''),
+    ("demet olmayan acma", "cevirici-anlam", '''str asama = "frag";
+vec4 o_color = cikti(0);
+func g(): float { return 1.0; }
+func main() { float a, b = g(); o_color = vec4(a); }
+'''),
+    ("demet return sayisi", "cevirici-anlam", '''str asama = "frag";
+vec4 o_color = cikti(0);
+func f(): (float, float) { return 1.0; }
+func main() { float a, b = f(); o_color = vec4(a, b, 0.0, 1.0); }
+'''),
+    ("dizi literali boyu", "cevirici-anlam", '''str asama = "vert";
+func main() { const vec2[3] p = [vec2(0.0), vec2(1.0)]; gl_Position = vec4(p[0], 0.0, 1.0); }
+'''),
+    ("comp disinda is_grubu", "cevirici-anlam", '''str asama = "frag";
+uvec3 g = is_grubu(64);
+vec4 o_color = cikti(0);
+func main() { o_color = vec4(1.0); }
+'''),
+    ("is_grubu'suz comp", "cevirici-anlam", '''str asama = "comp";
+uint[64] s = paylasimli();
+func main() { s[0] = 0u; barrier(); }
+'''),
     ("tip uyusmazligi", "glslc", '''str asama = "frag";
 vec2 v_uv = girdi(0);
 sampler2D u_src = ornek(0, 0);
@@ -185,6 +216,20 @@ def main():
         print("  [bilgi] %d/%d dosya referans GLSL'in yerel derlemesiyle bayt "
               "ayni (%d atlandi: kaynak degismis)"
               % (ayni, len(files), a.skip))
+    # Kapsam: motorun HER shader'inin bir .tprs karsiligi var mi? 2026-11-05'te
+    # 23/23 oldu. Yeni shader tasinmadan gelirse bu GORUNUR ATLANDI'dir
+    # (yerel_ci.sh ATLANDI'yi kirmizi sayar) — oran sessizce dusmesin.
+    # rhi/shaders/wip/ derlenmeyen taslaklardir, sayilmaz.
+    src_dir = os.path.join(os.path.dirname(ASSETS), "..", "..", "rhi", "shaders")
+    src_dir = os.path.normpath(src_dir)
+    ported = {f[:-5] for f in files}
+    shaders = sorted(f for f in os.listdir(src_dir)
+                     if os.path.splitext(f)[1] in (".vert", ".frag", ".comp"))
+    eksik = [f for f in shaders if f not in ported]
+    for f in eksik:
+        a.atlandi("%-24s .tprs karsiligi yok — Tulpar alt kumesine tasinmamis" % f)
+    print("  [bilgi] kapsam: motorun %d shader'inin %d'i tasinmis"
+          % (len(shaders), len(shaders) - len(eksik)))
 
     # ---------------------------------------------------------------- 2
     print("\n[2] Pozitif kontrol: bozuk girdi KIRMIZI yapmali")
@@ -214,6 +259,41 @@ def main():
         else:
             a.kirmizi("%-22s BOZUK GIRDI GECTI — kapi bu katmani (%s) "
                       "olcmuyor" % (ad, katman))
+
+    # Demetin GENEL yolu (adli sonuc kosulu tutmuyor: ifade donuyor, iki
+    # farkli cikis) gercek varliklarda kullanilmiyor; yine de GECERLI GLSL
+    # uretmeli. Olculmeyen yol cururdu.
+    if have_glslc:
+        p = os.path.join(tmp, "demet.tprs")
+        with open(p, "w") as fh:
+            fh.write('''str asama = "frag";
+float v_t = girdi(0);
+vec4 o_color = cikti(0);
+func f(float t): (vec3, float) {
+  if (t > 0.5) { return vec3(t), 1.0; }
+  return vec3(0.0), t * 2.0;
+}
+func main() {
+  vec3 c, float w = f(v_t);
+  vec3 x = vec3(0.0);
+  float y = 0.0;
+  x, y = f(v_t * 0.5);
+  o_color = vec4(c * w + x, y);
+}
+''')
+        try:
+            glsl = tool.translate(p)
+            data, err = derle(glsl, "frag")
+        except tool.ShaderError as e:
+            data, err = None, "cevirici: %s" % e
+        if data is None:
+            a.kirmizi("demet genel yolu      gecersiz GLSL: %s"
+                      % ((err or "?").strip().splitlines() or ["?"])[0][:58])
+        elif "out vec3 _r0" not in glsl or "_r1 = t * 2.0;" not in glsl:
+            a.kirmizi("demet genel yolu      beklenen `out` cevirisi yok")
+        else:
+            a.yesil("demet genel yolu       %d bayt SPIR-V (_rN out parametreleri)"
+                    % len(data))
 
     # bayt karsilastirmasinin kendisi canli mi?
     if have_glslc and files:
@@ -245,7 +325,8 @@ def main():
           % (a.ok, a.fail, a.skip))
     if a.skip and not a.fail:
         neden = "glslc kurulu degil" if not have_glslc \
-            else "referans GLSL degismis (--pin ile yeniden ported edilmeli)"
+            else ("referans GLSL degismis ya da shader tasinmamis — .tprs'i "
+                  "kaynakla esitle, sonra --pin")
         print("UYARI: %d adim ATLANDI (%s) — bu denetim TAM kosmadi."
               % (a.skip, neden))
     return 1 if a.fail else 0

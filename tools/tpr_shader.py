@@ -31,8 +31,8 @@ Kullanim
     tpr_shader.py <dosya.tprs>                 # GLSL'i stdout'a yaz
     tpr_shader.py <dosya.tprs> -o out.frag     # GLSL'i dosyaya yaz
     tpr_shader.py <dosya.tprs> --spv out.spv   # glslc ile SPIR-V uret
-    tpr_shader.py --check [dizin]              # uret + glslc + depodaki
-                                               # *_spv.h ile BAYT karsilastir
+    tpr_shader.py --check [dizin]              # uret + glslc + referans GLSL'in
+                                               # ayni glslc derlemesiyle BAYT karsilastir
     tpr_shader.py --tulpar-parse [dizin]       # .tprs'leri ./tulpar ile parse et
 """
 
@@ -158,16 +158,25 @@ BUILTIN_FUNCS = {
     "fwidth", "dFdx", "dFdy", "transpose", "inverse", "determinant",
     "greaterThan", "lessThan", "any", "all", "equal",
     "findLSB", "findMSB", "bitCount",
+    # compute (T20, 2026-11-05)
+    "barrier", "memoryBarrier", "memoryBarrierShared", "groupMemoryBarrier",
+    "atomicAdd", "atomicMin", "atomicMax", "atomicAnd", "atomicOr",
+    "atomicXor", "atomicExchange", "atomicCompSwap",
+    "floatBitsToUint", "floatBitsToInt", "uintBitsToFloat", "intBitsToFloat",
 } | VECMAT
 
 # Alt kumenin skaler donusum adlari (gramer bosluğu G1'in karsiligi).
 CAST_ALIAS = {"f32": "float", "i32": "int", "u32": "uint", "b32": "bool"}
 
 GL_BUILTIN_VARS = {"gl_Position", "gl_FragCoord", "gl_VertexIndex",
-                   "gl_InstanceIndex", "gl_PointSize", "gl_FrontFacing"}
+                   "gl_InstanceIndex", "gl_PointSize", "gl_FrontFacing",
+                   "gl_WorkGroupID", "gl_LocalInvocationID",
+                   "gl_GlobalInvocationID", "gl_LocalInvocationIndex",
+                   "gl_NumWorkGroups", "gl_WorkGroupSize"}
 
 MARKERS = {"girdi", "girdi_duz", "cikti", "cikti_duz", "ornek", "tekduze",
-           "itme", "depo", "depo_yaz", "ozel"}
+           "itme", "depo", "depo_yaz", "depo_oy", "ozel", "is_grubu",
+           "paylasimli"}
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +265,8 @@ class Parser:
         if self.at("func"):
             return self.parse_func()
         # <Tip> <ad> = <isaret>(...);   ya da  <Tip> <ad> = <ifade>;
-        if self.is_type_start() and self.next().kind == "id":
+        if self.is_type_start() and (self.next().kind == "id"
+                                     or self.next().text == "["):
             ty = self.parse_type()
             name = self.want_id()
             self.want("=")
@@ -303,7 +313,20 @@ class Parser:
         self.want(")")
         ret = {"name": "void", "array": False, "size": None}
         if self.eat(":"):
-            ret = self.parse_type()
+            if self.eat("("):
+                # Tulpar demet donusu (`func f(): (vec3, vec3)`, TulparLang
+                # P0.1). GLSL'de demet yok: uretici bunu `out` parametrelerine
+                # cevirir (FAZ8.md 8.2, K046 — dile yeni sozdizimi gerekmedi).
+                items = [self.parse_type()]
+                while self.eat(","):
+                    items.append(self.parse_type())
+                self.want(")")
+                if len(items) < 2:
+                    raise ShaderError("demet en az iki tip ister", line)
+                ret = {"name": "void", "array": False, "size": None,
+                       "tuple": items}
+            else:
+                ret = self.parse_type()
         body = self.parse_block()
         return {"k": "func", "name": name, "params": params, "ret": ret,
                 "body": body, "line": line}
@@ -320,9 +343,21 @@ class Parser:
         return {"k": "block", "stmts": stmts}
 
     def looks_like_decl(self):
-        # <id> <id> ( = | ; )
-        return (self.cur().kind == "id" and self.next().kind == "id"
-                and self.next(2).text in ("=", ";"))
+        # <id> <id> ( = | ; | , )   ya da  <id> [ N ] <id> ( = | ; )  (G3 yerel dizi)
+        if self.cur().kind != "id":
+            return False
+        if self.next().kind == "id":
+            return self.next(2).text in ("=", ";", ",")
+        return (self.next().text == "[" and self.next(2).kind == "int"
+                and self.next(3).text == "]" and self.next(4).kind == "id"
+                and self.next(5).text in ("=", ";"))
+
+    def looks_like_multi_assign(self):
+        # <id> , <id> [, <id>...] =   (var olan degiskenlere demet atamasi)
+        j = 0
+        while self.next(j).kind == "id" and self.next(j + 1).text == ",":
+            j += 2
+        return j > 0 and self.next(j).kind == "id" and self.next(j + 1).text == "="
 
     def parse_stmt(self):
         line = self.cur().line
@@ -360,8 +395,13 @@ class Parser:
         if self.at("return"):
             self.i += 1
             val = None if self.at(";") else self.parse_expr()
+            vals = None
+            if val is not None and self.at(","):
+                vals = [val]
+                while self.eat(","):
+                    vals.append(self.parse_expr())
             self.want(";")
-            return {"k": "return", "value": val, "line": line}
+            return {"k": "return", "value": val, "values": vals, "line": line}
         if self.at("discard"):
             self.i += 1
             self.want(";")
@@ -377,6 +417,36 @@ class Parser:
 
     def parse_simple_stmt(self):
         line = self.cur().line
+        # `const <Tip> <ad> = <ifade>` — Tulpar'in G5 `const`'u (#323).
+        # `const` anahtar kelime listesinde degil (ad olarak da gecebilir);
+        # yalniz bildirim seklinin onunde gelince niteleyicidir.
+        if self.cur().kind == "id" and self.cur().text == "const" \
+                and self.next().kind == "id" \
+                and (self.next(2).kind == "id" or self.next(2).text == "["):
+            self.i += 1
+            ty = self.parse_type()
+            name = self.want_id()
+            self.want("=")
+            return {"k": "decl", "type": ty, "name": name, "const": True,
+                    "init": self.parse_expr(), "line": line}
+        if self.looks_like_multi_assign():
+            names = [self.want_id()]
+            while self.eat(","):
+                names.append(self.want_id())
+            self.want("=")
+            return {"k": "tassign", "names": names, "init": self.parse_expr(),
+                    "line": line}
+        if self.looks_like_decl() and self.next(2).text == ",":
+            # `vec3 a, b = f();` / `vec3 a, float b = f();` — demet acma.
+            ty = self.parse_type()
+            vars_ = [(ty, self.want_id())]
+            while self.eat(","):
+                if self.cur().kind == "id" and self.next().kind == "id":
+                    ty = self.parse_type()
+                vars_.append((ty, self.want_id()))
+            self.want("=")
+            return {"k": "tdecl", "vars": vars_, "init": self.parse_expr(),
+                    "line": line}
         if self.looks_like_decl():
             ty = self.parse_type()
             name = self.want_id()
@@ -424,7 +494,7 @@ class Parser:
         return left
 
     def parse_unary(self):
-        if self.cur().kind == "op" and self.cur().text in ("-", "!", "+"):
+        if self.cur().kind == "op" and self.cur().text in ("-", "!", "+", "~"):
             op = self.cur().text
             self.i += 1
             return {"k": "un", "op": op, "e": self.parse_unary()}
@@ -476,6 +546,17 @@ class Parser:
             e = self.parse_expr()
             self.want(")")
             return {"k": "paren", "e": e}
+        if self.at("["):
+            # Tulpar dizi literali `[a, b, c]` (T9). Oge tipi bildirimden
+            # gelir: yalniz `T[N] ad = [...]` baslaticisi olarak gecerli.
+            self.i += 1
+            items = []
+            while not self.at("]"):
+                items.append(self.parse_expr())
+                if not self.eat(","):
+                    break
+            self.want("]")
+            return {"k": "array", "items": items, "line": c.line}
         raise ShaderError("ifadede beklenmeyen %r" % c.text, c.line)
 
 
@@ -533,8 +614,17 @@ class Emitter:
                 self.stage = d["init"]["text"]
         if self.stage is None:
             self.err('asama bildirilmemis: str asama = "vert"|"frag";')
-        if self.stage not in ("vert", "frag"):
-            self.err("desteklenmeyen asama %r (vert|frag)" % self.stage)
+        if self.stage not in ("vert", "frag", "comp"):
+            self.err("desteklenmeyen asama %r (vert|frag|comp)" % self.stage)
+        groups = [d for d in self.decls
+                  if d["k"] == "marker" and d["marker"] == "is_grubu"]
+        if self.stage == "comp" and len(groups) != 1:
+            self.err("comp asamasi tam bir is_grubu(x[, y, z]) ister")
+        if self.stage != "comp":
+            for d in self.decls:
+                if d["k"] == "marker" and d["marker"] in ("is_grubu", "paylasimli"):
+                    self.err("%s() yalniz comp asamasinda" % d["marker"],
+                             d["line"])
         if "main" not in self.funcs:
             self.err("main() yok")
 
@@ -619,15 +709,31 @@ class Emitter:
             self.out.append("layout(push_constant) uniform %s %s %s;"
                             % (ty["name"], self.block_body(ty["name"], line),
                                name))
-        elif m in ("depo", "depo_yaz"):
+        elif m in ("depo", "depo_yaz", "depo_oy"):
             need(2)
-            access = "readonly" if m == "depo" else "writeonly"
-            self.out.append("layout(std430, set = %d, binding = %d) %s buffer "
+            # depo = readonly, depo_yaz = writeonly, depo_oy = oku-yaz (niteleyicisiz)
+            access = {"depo": "readonly ", "depo_yaz": "writeonly ",
+                      "depo_oy": ""}[m]
+            self.out.append("layout(std430, set = %d, binding = %d) %sbuffer "
                             "%s %s %s;"
                             % (self.const_int(a[0], line),
                                self.const_int(a[1], line), access,
                                ty["name"], self.block_body(ty["name"], line),
                                name))
+        elif m == "is_grubu":
+            # `uvec3 grup = is_grubu(64);` -> `layout(local_size_x = 64) in;`
+            # Degisken adi GLSL'e gecmez (asama gibi bir bildirim tutucusu);
+            # boyuta shader icinden gl_WorkGroupSize ile erisilir.
+            if not 1 <= len(a) <= 3:
+                self.err("is_grubu 1-3 arguman ister (x, y, z)", line)
+            axes = ["local_size_%s = %d" % (ax, self.const_int(v, line))
+                    for ax, v in zip("xyz", a)]
+            self.out.append("layout(%s) in;" % ", ".join(axes))
+        elif m == "paylasimli":
+            # `uint[64] s = paylasimli();` -> `shared uint s[64];`
+            need(0)
+            self.out.append("shared %s %s%s;" % (self.typename(ty, line), name,
+                                                 self.suffix(ty)))
         elif m == "ozel":
             need(2)
             self.out.append("layout(constant_id = %d) const %s %s = %s;"
@@ -636,17 +742,109 @@ class Emitter:
         else:
             self.err("bilinmeyen isaret %r" % m, line)
 
+    @staticmethod
+    def tuple_out_name(i):
+        return "_r%d" % i
+
     def emit_func(self, d):
-        params = ", ".join("%s %s" % (self.typename(p["type"], d["line"]),
-                                      p["name"]) for p in d["params"])
+        plist = ["%s %s" % (self.typename(p["type"], d["line"]), p["name"])
+                 for p in d["params"]]
+        tup = d["ret"].get("tuple")
+        self.named_results = self.find_named_results(d) if tup else None
+        if tup:
+            for i, t in enumerate(tup):
+                if t["array"]:
+                    self.err("demet ogesi dizi olamaz", d["line"])
+                name = (self.named_results[i] if self.named_results
+                        else self.tuple_out_name(i))
+                plist.append("out %s %s" % (self.typename(t, d["line"]), name))
         if d["name"] == "main":
-            if d["params"] or d["ret"]["name"] != "void":
+            if d["params"] or d["ret"]["name"] != "void" or tup:
                 self.err("main() parametresiz ve donussuz olmali", d["line"])
+        self.cur_tuple = tup
         self.out.append("%s %s(%s) {"
-                        % (self.typename(d["ret"], d["line"]), d["name"], params))
-        for s in d["body"]["stmts"]:
+                        % (self.typename(d["ret"], d["line"]), d["name"],
+                           ", ".join(plist)))
+        stmts = d["body"]["stmts"]
+        if self.named_results and stmts and stmts[-1]["k"] == "return":
+            # void govdenin sonundaki `return;` GLSL'de fazladan bir blok
+            # kimligi uretir (olculdu: 1 kimlik kayar); dusurulur.
+            stmts = stmts[:-1]
+        for s in stmts:
             self.stmt(s, 1)
         self.out.append("}")
+        self.cur_tuple = None
+        self.named_results = None
+
+    def find_named_results(self, d):
+        """Her `return` AYNI yerel adlari ayni sirayla donduruyorsa o adlar.
+
+        Go'nun adli sonuclari gibi: govdenin EN UST duzeyinde bildirilen ve
+        her cikista oldugu gibi donen yereller dogrudan `out` parametresi
+        olur (bildirim atamaya, `return a, b;` duz `return;`a doner). Kaynak
+        GLSL'in `out` parametresine yazdigi kalip boylece AYNI GLSL'e iner;
+        aksi halde yerel + kopya kalir ve glslc -O kimlik numaralari kayar
+        (anlam ayni, bayt degil — 2026-11-05 mesh.frag'de olculdu).
+        Kosul tutmazsa None: genel yol (_rN parametreleri + kopya).
+        """
+        rets = []
+        inner = set()  # ic bloklardaki bildirimler (golgeleme -> genel yol)
+
+        def walk(st, top=False):
+            if st is None:
+                return
+            if st["k"] == "return":
+                rets.append(st)
+            if st["k"] in ("decl", "tdecl") and not top:
+                inner.update([st["name"]] if st["k"] == "decl"
+                             else [n for _, n in st["vars"]])
+            if st["k"] == "for" and st.get("init") and st["init"]["k"] == "decl":
+                inner.add(st["init"]["name"])
+            for key in ("stmts",):
+                for x in st.get(key, []):
+                    walk(x)
+            for key in ("then", "else", "body"):
+                if isinstance(st.get(key), dict):
+                    walk(st[key])
+        for st in d["body"]["stmts"]:
+            walk(st, top=True)
+        if not rets:
+            return None
+        names = None
+        for r in rets:
+            vals = r["values"] or []
+            if not vals or any(v["k"] != "id" for v in vals):
+                return None
+            ns = [v["name"] for v in vals]
+            if names is None:
+                names = ns
+            elif ns != names:
+                return None
+        if len(set(names)) != len(names) or inner & set(names):
+            return None
+        top = {st["name"]: st for st in d["body"]["stmts"]
+               if st["k"] == "decl" and not st.get("const")}
+        tup = d["ret"]["tuple"]
+        for i, n in enumerate(names):
+            if n not in top or top[n]["type"] != tup[i] \
+                    or n in (p["name"] for p in d["params"]):
+                return None
+        return names
+
+    def tuple_call(self, init, n, line):
+        """Demet donduren cagri: (fonksiyon adi, arguman metni)."""
+        if init["k"] != "call" or init["fn"]["k"] != "id" \
+                or init["fn"]["name"] not in self.funcs:
+            self.err("demet acma yalniz bu dosyadaki fonksiyon cagrisindan",
+                     line)
+        f = self.funcs[init["fn"]["name"]]
+        tup = f["ret"].get("tuple")
+        if not tup:
+            self.err("%r demet dondurmuyor" % f["name"], line)
+        if len(tup) != n:
+            self.err("%r %d deger donduruyor, %d ad verildi"
+                     % (f["name"], len(tup), n), line)
+        return f["name"], [self.expr(a) for a in init["args"]]
 
     # -- deyim uretimi ----------------------------------------------------
     def stmt(self, s, depth):
@@ -658,14 +856,33 @@ class Emitter:
             for x in s["stmts"]:
                 self.stmt(x, depth + 1)
             w(pad + "}")
+        elif k == "decl" and depth == 1 and getattr(self, "named_results", None) \
+                and s["name"] in self.named_results:
+            # adli sonuc: yerel degil, `out` parametresi
+            if s["init"] is not None:
+                w("%s%s = %s;" % (pad, s["name"], self.expr(s["init"])))
         elif k == "decl":
             t = self.typename(s["type"], s["line"])
             sfx = self.suffix(s["type"])
             if s["init"] is None:
                 w("%s%s %s%s;" % (pad, t, s["name"], sfx))
             else:
-                w("%s%s %s%s = %s;" % (pad, t, s["name"], sfx,
-                                       self.expr(s["init"])))
+                init = s["init"]
+                if init["k"] == "array":
+                    # `vec2[3] p = [..]` -> `vec2 p[3] = vec2[](..)`
+                    if not s["type"]["array"] or s["type"]["size"] is None:
+                        self.err("dizi literali sabit boy dizi bildirimi ister "
+                                 "(T[N] ad = [...])", s["line"])
+                    if len(init["items"]) != s["type"]["size"]:
+                        self.err("dizi %d oge ister, %d verildi"
+                                 % (s["type"]["size"], len(init["items"])),
+                                 s["line"])
+                    val = "%s[](%s)" % (t, ", ".join(self.expr(x)
+                                                    for x in init["items"]))
+                else:
+                    val = self.expr(init)
+                w("%s%s%s %s%s = %s;" % (pad, "const " if s.get("const") else "",
+                                         t, s["name"], sfx, val))
         elif k == "assign":
             w("%s%s %s %s;" % (pad, self.expr(s["target"]), s["op"],
                                self.expr(s["value"])))
@@ -690,8 +907,32 @@ class Emitter:
             self.body(s["body"], depth + 1)
             w(pad + "}")
         elif k == "return":
-            w("%sreturn%s;" % (pad, "" if s["value"] is None
-                               else " " + self.expr(s["value"])))
+            tup = getattr(self, "cur_tuple", None)
+            if tup:
+                vals = s["values"] or ([s["value"]] if s["value"] else [])
+                if len(vals) != len(tup):
+                    self.err("demet %d deger ister, %d verildi"
+                             % (len(tup), len(vals)), s["line"])
+                if self.named_results:
+                    w(pad + "return;")
+                    return
+                for i, v in enumerate(vals):
+                    w("%s%s = %s;" % (pad, self.tuple_out_name(i), self.expr(v)))
+                w(pad + "return;")
+            else:
+                if s["values"]:
+                    self.err("coklu return yalniz demet donduren fonksiyonda",
+                             s["line"])
+                w("%sreturn%s;" % (pad, "" if s["value"] is None
+                                   else " " + self.expr(s["value"])))
+        elif k == "tdecl":
+            fn, args = self.tuple_call(s["init"], len(s["vars"]), s["line"])
+            for ty, name in s["vars"]:
+                w("%s%s %s;" % (pad, self.typename(ty, s["line"]), name))
+            w("%s%s(%s);" % (pad, fn, ", ".join(args + [n for _, n in s["vars"]])))
+        elif k == "tassign":
+            fn, args = self.tuple_call(s["init"], len(s["names"]), s["line"])
+            w("%s%s(%s);" % (pad, fn, ", ".join(args + s["names"])))
         elif k == "discard":
             if self.stage != "frag":
                 self.err("discard yalniz frag asamasinda", s["line"])
@@ -731,6 +972,9 @@ class Emitter:
             return e["text"]
         if k == "str":
             self.err("dize ifadesi shader'da kullanilamaz")
+        if k == "array":
+            self.err("dizi literali yalniz T[N] bildiriminin baslaticisi olabilir",
+                     e.get("line", 0))
         if k == "id":
             return e["name"]
         if k == "paren":
@@ -775,7 +1019,7 @@ def translate(path):
 # glslc / denetim
 # ---------------------------------------------------------------------------
 
-STAGE_EXT = {"vert": ".vert", "frag": ".frag"}
+STAGE_EXT = {"vert": ".vert", "frag": ".frag", "comp": ".comp"}
 
 
 def stage_of(glsl):
@@ -897,7 +1141,20 @@ def cmd_check(directory):
                                                  if err.strip() else "?"))
             failed += 1
             continue
-        ref = header_bytes(base)
+        # Karsi taraf: referans GLSL'in AYNI yerel derleyiciyle derlemesi
+        # (faz8_shader_audit.py ile ayni tanim, #68). Depodaki *_spv.h'ye
+        # karsi olcmek, basliklari baska bir derleyici urettiyse her dosyada
+        # uretec kimliginden 12 bayt "FARKLI" der — 2026-11-05'e kadar bu mod
+        # tam olarak bunu yapiyordu (14/14 "SARI", hepsi +12 bayt).
+        ref = None
+        if os.path.exists(source_path(base)):
+            with open(source_path(base)) as fh:
+                ref, rerr = compile_spv(fh.read(), stage, None, tmp)
+            if ref is None:
+                print("  KIRMIZI %-24s referans GLSL derlenmedi: %s"
+                      % (base, (rerr or "?").strip().splitlines()[0]))
+                failed += 1
+                continue
         if ref is None:
             print("  YESIL   %-24s %5d bayt SPIR-V (depoda karsiligi yok)"
                   % (base, len(data)))
@@ -909,17 +1166,17 @@ def cmd_check(directory):
                   % (base, pin, now))
             continue
         if ref == data:
-            print("  YESIL   %-24s %5d bayt, depodaki *_spv.h ile BAYT AYNI"
+            print("  YESIL   %-24s %5d bayt, referans GLSL ile BAYT AYNI"
                   % (base, len(data)))
             same += 1
         else:
-            print("  SARI    %-24s %5d bayt, referans %d bayt — FARKLI"
+            print("  KIRMIZI %-24s %5d bayt, referans %d bayt — FARKLI"
                   % (base, len(data), len(ref)))
             diff += 1
     shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d cevrildi, %d bayt-ayni, %d farkli, %d basarisiz"
           % (ok, same, diff, failed))
-    return 1 if failed else 0
+    return 1 if failed or diff else 0
 
 
 def known_gaps(src):

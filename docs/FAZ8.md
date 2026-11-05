@@ -14,7 +14,40 @@
 > Kapı: [`tools/faz8_shader_audit.py`](../tools/faz8_shader_audit.py) (motor deposunda; hiçbir
 > otomasyona bağlı değil, elle koşulur) · Gramer denetimi: `tools/tpr_shader.py --tulpar-parse`
 
-> **Güncel durum (2026-09-27, ölçüldü — aşağıdaki "Bugün" sütunları `b6f593e` tabanıdır):**
+> **Güncel durum (2026-11-05, ölçüldü — glslc 2026.4, bu makine):**
+> - **Motorun 23 shader'ının 23'ü taşındı, 23/23 bayt aynı** (çevrilmiş `.tprs` ↔ referans GLSL'in
+>   aynı yerel derlemesi). Yeni: `godray.frag`, `triangle.vert` (**T9** dizi literali: Tulpar `[a, b, c]`
+>   + G3 önek boy `vec2[3]` → `vec2[](...)`), `cull.comp` + `cluster_cull.comp` (**T20** compute:
+>   `str asama = "comp"`, `uvec3 grup = is_grubu(64)` → `layout(local_size_x = 64) in;`,
+>   `uint[64] s = paylasimli()` → `shared`, `depo_oy` oku-yaz SSBO, `barrier`/`atomic*`,
+>   `gl_WorkGroupID` ailesi). `cluster_cull.comp`'un adsız blokları `.tprs`'te adlı — -O OpName'i
+>   attığı için SPIR-V aynı. Kapsam artık ölçülüyor: `.tprs` karşılığı olmayan shader **ATLANDI**.
+>   Kapı **çürümüştü**: 2026-09-27'de 18/19 iken 2026-11-05'te 14/19'du — `mesh.vert`, `shadow.vert`
+>   (yalnız yorum), `ui.frag`, `ui_sdf.frag` (E1c titretmesi, #130) değişmiş, `.tprs`'ler taşınmamıştı;
+>   denetim bunu doğru biçimde "ATLANDI" diyordu ama **rc=0** ile ve hiçbir otomasyon koşmuyordu.
+>   Dördü yeniden taşındı; `mesh.frag` (382 satır, PBR + stokastik ışık + kademe eğilimi) **ilk kez
+>   tamamen** taşındı ve bayt aynı (18568 bayt).
+> - **T21 `out` parametresi kapandı — dile yeni sözdizimi gerekmeden:** Tulpar'ın demet dönüşü
+>   (`func f(...): (vec3, vec3)`, `vec3 a, b = f(...)`, `a, b = f(...)` — TulparLang P0.1) çevirici
+>   tarafından GLSL `out` parametrelerine indiriliyor. Her `return` aynı üst düzey yerelleri aynı
+>   sırayla döndürüyorsa (Go'nun adlı sonuçları gibi) o yereller **doğrudan** `out` parametresi olur;
+>   yoksa genel yol `_rN` parametreleri + kopya. Neden iki yol: yerel + kopya anlamca aynı ama glslc -O
+>   kimlik numaraları kayıyor (ölçüldü: struct dönüşüyle 41, yerel + kopyayla 13, gövde sonundaki
+>   fazladan `return;` ile 1 kimlik) — bayt eşitliği ancak kaynakla aynı GLSL'e inince tutuyor.
+>   Yani K046/K100'deki "alt dile `out` ekle" kararı **gerekmedi**.
+> - Çeviriciye ayrıca: `const` yerel (G5 artık dilde; önceden düşürülüyordu), tekli `~`,
+>   `floatBitsToUint`/`uintBitsToFloat` ailesi. Kurulu `tulpar` v3.44.0 ve kardeş depo v3.40.1 ile
+>   `--tulpar-parse` 18/19 temiz; `mesh.frag` yalnız `0u/1u` (T3) yüzünden düşüyor — sonekler
+>   kaldırılınca **0 parse hatası** (demet, `const`, `~`, üçlü işleç Tulpar gramerinden geçiyor).
+> - **Otomasyona bağlandı:** `tools/yerel_ci.sh` (`--hizli` dahil) bayt kapısı + gramer denetimi +
+>   yerleşim denetimini koşar; **ATLANDI da kırmızıdır**. Pozitif kontrol: sahte kaynak özeti →
+>   "HATA faz8 ATLANDI", bozuk `.tprs` → "HATA faz8 … 1 kirmizi". GitHub CI'da yok (glslc gerekir).
+>   `tpr_shader.py --check` de artık başlığa değil referansın yerel derlemesine karşı ölçüyor
+>   (önceden 14/14 "SARI, +12 bayt" — üreteç kimliği, Tuzaklar 8ao'nun eşi).
+> - Yeni pozitif kontroller (`faz8_shader_audit.py`): demet ad sayısı, demet olmayanı açma, eksik
+>   `return` değeri → çevirici kırmızı; genel demet yolu geçerli SPIR-V'ye derleniyor.
+>
+> **Önceki durum (2026-09-27, ölçüldü — aşağıdaki "Bugün" sütunları `b6f593e` tabanıdır):**
 > - **8.1 gramer dilimi bitti.** G1 `int(x)/float(x)`, G3 `T[N]`, G4 bit işleçleri `& | ^ ~ << >>` (+
 >   atamalı biçimleri) ve `0x`/`0b` literalleri, G5 `const` TulparLang'de var (#323; testleri
 >   `tests/gramer_bosluklari.test.tpr`, `tests/bit_islemleri.test.tpr`). Yani §2'deki **T8, T10,
@@ -98,7 +131,7 @@ Her satır: **bugün ne var** / **ne gerekiyor** / prototipin o boşlukla ne yap
 | **T6** | Swizzle (`.xyz`, `.rgb`, `.xy`) | Üye erişimi olarak **ayrışıyor** (`parse_postfix` → ArrayAccess), anlamı alan araması | Bileşen seçimi + yeniden sıralama, lvalue olarak da (`c.rgb = ...`) | Çevirici swizzle'ı olduğu gibi geçiriyor; doğrulama `glslc`'de |
 | **T7** | Kutusuz struct, açık yerleşim | Struct var ama **heap'te kutulu** (PLAN §11) | `std140`/`std430` ile bit uyumlu yerleşim; CPU-GPU layout doğrulaması bunun üstüne kurulur | Blok gövdeleri `struct` olarak yazılıyor, yerleşimi `glslc` hesaplıyor — **doğrulama yok** |
 | **T8** | Sabit boy dizi (`T[N]`) — **G3** | `parse_type` yalnız `T[]`; `mat4 x[3];` ve `mat4[3] x;` ikisi de parse hatası | Uniform blokta kademe matrisi, ışık dizisi | Çevirici `T[N]` önek yazımını destekliyor; **Tulpar'dan geçmiyor** → 7 shader |
-| **T9** | Dizi kurucu literali (`vec2[](…)`) | Yok | `triangle.vert`'in sabit köşe tablosu | Kapsam dışı → kapsanmayan 1 shader |
+| **T9** | Dizi kurucu literali (`vec2[](…)`) | Yok | `triangle.vert`'in sabit köşe tablosu | ✅ 2026-11-05: Tulpar dizi literali `const vec2[3] p = [..]` → `vec2[](..)`; bayt aynı |
 | **T10** | Bit işlemleri `& \| ^ ~ << >>` — **G4** | **Lexer'da yok** | Küme maskesi, `gl_VertexIndex` hilesi, prefix sum | Çeviricide tam (öncelik merdiveni GLSL/C sırasında); **Tulpar'dan geçmiyor** → 3 shader |
 | **T11** | `findLSB` / `bitCount` | Yok | `mesh.frag` ışık döngüsü | Çeviricide yerleşik listesinde |
 | **T12** | Opak tipler (`sampler2D`, `sampler2DShadow`) + dokusal örnekleme | Yok | 7/21 shader | `ornek()` işareti; `texture()` yerleşik |
@@ -109,8 +142,8 @@ Her satır: **bugün ne var** / **ne gerekiyor** / prototipin o boşlukla ne yap
 | **T17** | `discard` | Tanımlayıcı olarak **ayrışıyor**, anlamı yok | Parça atma | Çeviricide deyim; `frag` dışında hata |
 | **T18** | Türev fonksiyonları (`fwidth`, `dFdx`) | Yok | `ui_sdf.frag` | Yerleşik listesinde |
 | **T19** | Skaler dönüşüm `float(x)` / `int(x)` — **G1** | **Ayrışmıyor**: `float`/`int` anahtar kelime, çağrılabilir ad değil | Her yerde | Alt küme `f32(x)/i32(x)/u32(x)` yazıyor — ad çakışması olmadığı için Tulpar'dan geçiyor |
-| **T20** | Compute: `local_size`, `shared`, `barrier()`, `gl_WorkGroupID` | Yok | `cull.comp` | Kapsam dışı → kapsanmayan 1 shader |
-| **T21** | `out` / `inout` parametre | Yok (yalnız değer geçişi) | Yeni `mesh.frag` PBR yolu kullanıyor | Kapsam dışı |
+| **T20** | Compute: `local_size`, `shared`, `barrier()`, `gl_WorkGroupID` | Yok | `cull.comp` | ✅ 2026-11-05: `is_grubu()` / `paylasimli()` işaretleri, `cull.comp` + `cluster_cull.comp` bayt aynı |
+| **T21** | `out` / `inout` parametre | Yok (yalnız değer geçişi) | Yeni `mesh.frag` PBR yolu kullanıyor | ✅ 2026-11-05: **demet dönüşü** (`): (vec3, vec3)`) → `out` parametreleri; adlı sonuç yolu bayt aynı. `inout` yok |
 | **T22** | Derleme zamanı reflection | Yok (PLAN §11) | Permutation üretimi, uniform packing, CPU-GPU layout doğrulaması — Faz 8'in **asıl değer önerisi** | Kapsam dışı |
 
 **Özet:** GPU tarafı için eksik olan şeyler iki kümeye ayrılıyor ve ikisi çok farklı büyüklükte.
@@ -300,7 +333,7 @@ Prototip **çevirici**dir, derleyici değil. Yapmadıkları:
   struct'la karşılaştırma **yapılmıyor** — oysa Faz 8'in asıl vaadi bu (T22).
 - **Reflection, permutation, precision (fp16) yok.** Planın kapısı olan fp16 kazancı **ölçülmedi**;
   yalnız `glslc`'nin fp16'yı derlediği gösterildi.
-- **Compute aşaması yok** (T20), **dizi kurucu literali yok** (T9), **`out` parametre yok** (T21).
+- ~~Compute aşaması (T20), dizi kurucu literali (T9), `out` parametre (T21) yok~~ ✅ 2026-11-05.
 - **Tulpar'ın kendi lexer/parser'ı kullanılmıyor.** Prototip Python'da kendi ayrıştırıcısını taşıyor —
   `src/` içine yarım bir dil implementasyonu sızdırmamak için bilinçli. `--tulpar-parse` ise gerçek
   `./tulpar` ikilisini çağırıyor, yani "alt küme Tulpar'dır" iddiası prototipin kendi ayrıştırıcısına
@@ -372,8 +405,8 @@ taşınması için nasıl olsa yapılacak. Faz 8, o alt kümenin **üstüne** ge
 - **CPU-GPU yerleşim doğrulaması yok** (8.4). Faz 8'in en somut kazancı ama prototipte hiç yok.
 - **`src/` içine hiçbir şey yazılmadı** — bilinçli. Bu belgedeki gramer boşlukları (G1/G3/G4/G5)
   *ölçüldü*, kapatılmadı.
-- **`mesh.frag`'ın yeni PBR sürümü taşınmadı** (`out` parametre, `const vec4` yerel, `continue`,
-  `exp2` — T16/T21). Kapı bunu görünür `ATLANDI` ile bildiriyor, sessizce geçmiyor.
-- **`triangle.vert` ve `cull.comp`** taşınmadı (T9, T20) — 8.7 ve küçük bir 8.1 kuyruğu.
+- ~~**`mesh.frag`'ın yeni PBR sürümü taşınmadı**~~ ✅ 2026-11-05: taşındı, bayt aynı (`out` → demet
+  dönüşü, `const` yerel çeviricide).
+- ~~**`triangle.vert` ve `cull.comp`** taşınmadı (T9, T20)~~ ✅ 2026-11-05 (bkz. baştaki güncel durum).
 - **Hata mesajları tek dilde.** Prototip Türkçe basıyor; `src/`'ye taşındığında `tr_en(...)`'den
   geçmesi gerekir.

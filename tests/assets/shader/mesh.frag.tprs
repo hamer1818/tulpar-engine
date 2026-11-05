@@ -1,6 +1,11 @@
-// kaynak-ozet: f31a2146e22f  (engine/rhi/shaders/mesh.frag @ b6f593e)
-// Forward parca asamasi: yonlu isik + kademeli golge (CSM atlasi) + kumelenmis
-// nokta isiklar. G1/G3/G4'un hepsini kullanir — motorun en agir shader'i.
+// kaynak-ozet: a7e8ec03d5b7  (engine/rhi/shaders/mesh.frag)
+// Forward parca asamasi: Lambert + PBR (Cook-Torrance, glTF 2.0 metallic-
+// roughness), ORM/normal/isima dokulari, kademeli golge (CSM atlasi, kademe
+// basina egilim), kumelenmis + stokastik nokta isiklar. Motorun en agir shader'i.
+// Kaynaktaki `out vec3 dif, out vec3 spc` parametreleri Tulpar DEMET
+// donusuyle yazilir (`func f(...): (vec3, vec3)`, `vec3 a, b = f(...)`);
+// uretici demeti `out` parametrelerine cevirir (FAZ8.md 8.2, K046).
+// 0u/1u sonekleri BILEREK duruyor (T3).
 str asama = "frag";
 
 vec3 v_nrm = girdi(0);
@@ -25,24 +30,66 @@ Frame u = tekduze(0, 0);
 sampler2DShadow u_shadow = ornek(0, 1);
 sampler2D u_albedo = ornek(1, 0); // malzeme (klasik set, bindless yok)
 
+struct MatBlock {
+  vec4 pbr;      // x metallic, y ALGISAL puruzluluk, z dielektrik yansitirlik, w model (0 Lambert, 1 PBR)
+  vec4 emissive; // rgb DOGRUSAL isima, w isima gucu carpani
+  vec4 tex;      // x ORM var, y normal var, z isima dokusu var, w normal olcegi
+  vec4 tex2;     // x occlusion gucu (ORM.R)
+}
+MatBlock u_mat = tekduze(1, 1);
+
+sampler2D u_orm = ornek(1, 2);      // DOGRUSAL (UNORM)
+sampler2D u_normal = ornek(1, 3);   // DOGRUSAL (UNORM)
+sampler2D u_emissive = ornek(1, 4); // sRGB
+
+// KONTROL kipi: 1 = GGX'i BILEREK yanlis normalize et (enerji kapisinin duyarliligi).
+int PBR_NDF = ozel(0, 0);
+
 struct PointLight { vec4 pos_radius; vec4 color_intensity; }
 struct Lights { PointLight[32] l; }
 Lights u_lights = tekduze(0, 2);
 struct Clusters { uint[] mask; }
 Clusters u_clusters = depo(0, 3);
+// x = ornege alinan KUYRUK bitleri, y = telafi agirliginin FLOAT BIT DESENI.
+struct Stoch { uvec2[] t; }
+Stoch u_stoch = depo(0, 7);
+// 0 = kapali; kapaliyken kuyruk dali boru hatti kurulumunda elenir.
+int STOCHASTIC = ozel(1, 0);
 
-vec4 o_color = cikti(0);
-
-// Kumelenmis nokta isiklar: bu pikselin kumesinin 32-bit maskesi.
+// Kumelenmis nokta isiklar (Lambert yolu).
 func point_lights(vec3 n): vec3 {
   if (u.cluster_grid.w == 0u) { return vec3(0.0); }
   uint tx = min(u32(gl_FragCoord.x / u.cluster_params.z), u.cluster_grid.x - 1u);
   uint ty = min(u32(gl_FragCoord.y / u.cluster_params.w), u.cluster_grid.y - 1u);
   float fz = floor(log(max(v_viewz, 1e-6)) * u.cluster_params.x + u.cluster_params.y);
   uint tz = u32(clamp(fz, 0.0, f32(u.cluster_grid.z - 1u)));
-  uint mask = u_clusters.mask[(tz * u.cluster_grid.y + ty) * u.cluster_grid.x + tx];
+  uint ci = (tz * u.cluster_grid.y + ty) * u.cluster_grid.x + tx;
+  uint mask = u_clusters.mask[ci];
+  if (STOCHASTIC == 0) {
+    // KAPALI YOL — eski dongu kelimesi kelimesine (bit bit ayni iddiasi).
+    vec3 sum = vec3(0.0);
+    while (mask != 0u) {
+      int i = findLSB(mask);
+      mask &= mask - 1u;
+      PointLight L = u_lights.l[i];
+      vec3 d = L.pos_radius.xyz - v_world;
+      float dist2 = dot(d, d);
+      float r = L.pos_radius.w;
+      float x = dist2 / (r * r);
+      float win = clamp(1.0 - x * x, 0.0, 1.0);
+      float att = win * win / (dist2 + 1.0);
+      float nl = max(dot(n, d * inversesqrt(max(dist2, 1e-8))), 0.0);
+      sum += L.color_intensity.rgb * (L.color_intensity.w * att * nl);
+    }
+    return sum;
+  }
+  // STOKASTIK: kafa bitleri agirlik 1, ornege alinan kuyruk bitleri telafi agirligi.
+  uvec2 st = u_stoch.t[ci];
+  uint tail = st.x & mask;
+  float wt = uintBitsToFloat(st.y);
   vec3 sum = vec3(0.0);
   while (mask != 0u) {
+    uint bit = mask & (~mask + 1u);
     int i = findLSB(mask);
     mask &= mask - 1u;
     PointLight L = u_lights.l[i];
@@ -53,12 +100,149 @@ func point_lights(vec3 n): vec3 {
     float win = clamp(1.0 - x * x, 0.0, 1.0);
     float att = win * win / (dist2 + 1.0);
     float nl = max(dot(n, d * inversesqrt(max(dist2, 1e-8))), 0.0);
-    sum += L.color_intensity.rgb * (L.color_intensity.w * att * nl);
+    float w = (tail & bit) != 0u ? wt : 1.0;
+    sum += L.color_intensity.rgb * (L.color_intensity.w * att * nl * w);
   }
   return sum;
 }
 
-// Dogrusal aydinlatma (Filament).
+// --- PBR: Cook-Torrance (enerji birimi ve gerekceler kaynak GLSL'de) ---------
+func d_ggx_pi(float NoH, float a): float {
+  float a2 = a * a;
+  float f = (NoH * a2 - NoH) * NoH + 1.0;
+  if (PBR_NDF == 1) { return 1.0 / (f * f); } // KONTROL: a^2 normalizasyonu YOK
+  return a2 / (f * f);
+}
+func v_smith(float NoV, float NoL, float a): float {
+  float a2 = a * a;
+  float gv = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+  float gl = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+  return 0.5 / max(gv + gl, 1e-5);
+}
+func f_schlick(vec3 f0, float u): vec3 {
+  float f = pow(1.0 - u, 5.0);
+  return f0 + (vec3(1.0) - f0) * f; // f90 = 1
+}
+// Ortam spekuleri: split-sum DFG terimi ANALITIK (Karis'in mobil uyumu).
+func env_dfg(float rough, float NoV): vec2 {
+  const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+  const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+  vec4 r = rough * c0 + c1;
+  float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+  return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+// Dagilimli ve spekuler AYNI dongude; iki sonuc demet olarak doner.
+func point_lights_pbr(vec3 n, vec3 vdir, float NoV, float a, vec3 f0): (vec3, vec3) {
+  vec3 dif = vec3(0.0);
+  vec3 spc = vec3(0.0);
+  if (u.cluster_grid.w == 0u) { return dif, spc; }
+  uint tx = min(u32(gl_FragCoord.x / u.cluster_params.z), u.cluster_grid.x - 1u);
+  uint ty = min(u32(gl_FragCoord.y / u.cluster_params.w), u.cluster_grid.y - 1u);
+  float fz = floor(log(max(v_viewz, 1e-6)) * u.cluster_params.x + u.cluster_params.y);
+  uint tz = u32(clamp(fz, 0.0, f32(u.cluster_grid.z - 1u)));
+  uint ci = (tz * u.cluster_grid.y + ty) * u.cluster_grid.x + tx;
+  uint mask = u_clusters.mask[ci];
+  uint tail = 0u;
+  float wt = 1.0;
+  if (STOCHASTIC == 1) {
+    uvec2 st = u_stoch.t[ci];
+    tail = st.x & mask;
+    wt = uintBitsToFloat(st.y);
+  }
+  while (mask != 0u) {
+    uint bit = mask & (~mask + 1u);
+    int i = findLSB(mask);
+    mask &= mask - 1u;
+    PointLight L = u_lights.l[i];
+    vec3 d = L.pos_radius.xyz - v_world;
+    float dist2 = dot(d, d);
+    float r = L.pos_radius.w;
+    float x = dist2 / (r * r);
+    float win = clamp(1.0 - x * x, 0.0, 1.0);
+    float att = win * win / (dist2 + 1.0);
+    vec3 ldir = d * inversesqrt(max(dist2, 1e-8));
+    float nl2 = max(dot(n, ldir), 0.0);
+    if (nl2 <= 0.0) { continue; }
+    float w = (STOCHASTIC == 1 && (tail & bit) != 0u) ? wt : 1.0;
+    vec3 e = L.color_intensity.rgb * (L.color_intensity.w * att * nl2 * w);
+    vec3 h = normalize(vdir + ldir);
+    float NoH = clamp(dot(n, h), 0.0, 1.0);
+    float VoH = clamp(dot(vdir, h), 0.0, 1.0);
+    dif += e;
+    spc += e * (d_ggx_pi(NoH, a) * v_smith(NoV, nl2, a)) * f_schlick(f0, VoH);
+  }
+  return dif, spc;
+}
+// Kamera dunya konumu: gorunum matrisi kati (R|t), kamera = -R^T * t.
+func camera_world(): vec3 { return -(transpose(mat3(u.view)) * u.view[3].xyz); }
+
+// Teget uzayi TUREVDEN (Mikkelsen/Schuler cotangent frame); ek vertex verisi yok.
+func apply_normal_map(vec3 n, vec2 uv, float scale): vec3 {
+  vec3 dp1 = dFdx(v_world);
+  vec3 dp2 = dFdy(v_world);
+  vec2 duv1 = dFdx(uv);
+  vec2 duv2 = dFdy(uv);
+  vec3 dp2perp = cross(dp2, n);
+  vec3 dp1perp = cross(n, dp1);
+  vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
+  vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
+  float inv = inversesqrt(max(dot(t, t), dot(b, b)));
+  if (inv > 1e12) { return n; } // dejenere UV: geometrik normalde kal
+  vec3 m = texture(u_normal, uv).xyz * 2.0 - 1.0;
+  m.xy *= scale;
+  return normalize(t * (inv * m.x) + b * (inv * m.y) + n * m.z);
+}
+
+func shade_pbr(vec3 n_geo, vec3 albedo, float nl_geo, float vis): vec3 {
+  float metallic = u_mat.pbr.x;
+  float rough = u_mat.pbr.y;
+  float occ = 1.0;
+  if (u_mat.tex.x > 0.5) {
+    vec3 orm = texture(u_orm, v_uv).rgb; // R occlusion, G roughness, B metallic
+    rough *= orm.g;
+    metallic *= orm.b;
+    occ = mix(1.0, orm.r, u_mat.tex2.x); // strength 0 = occlusion yok
+  }
+  vec3 n = n_geo;
+  float nl = nl_geo;
+  if (u_mat.tex.y > 0.5) {
+    n = apply_normal_map(n_geo, v_uv, u_mat.tex.w);
+    nl = max(dot(n, normalize(u.light_dir.xyz)), 0.0);
+  }
+  metallic = clamp(metallic, 0.0, 1.0);
+  rough = clamp(rough, 0.045, 1.0);
+  float a = rough * rough;
+  float reflectance = clamp(u_mat.pbr.z, 0.0, 1.0);
+  vec3 diffuse_color = albedo * (1.0 - metallic);
+  vec3 f0 = mix(vec3(0.16 * reflectance * reflectance), albedo, metallic);
+  vec3 vdir = normalize(camera_world() - v_world);
+  float NoV = clamp(dot(n, vdir), 1e-4, 1.0);
+  float sun = nl * vis * u.ambient.a;
+  vec3 l = normalize(u.light_dir.xyz);
+  vec3 h = normalize(vdir + l);
+  float NoH = clamp(dot(n, h), 0.0, 1.0);
+  float VoH = clamp(dot(vdir, h), 0.0, 1.0);
+  vec3 spec_sun = (d_ggx_pi(NoH, a) * v_smith(NoV, nl, a)) * f_schlick(f0, VoH) * sun;
+  vec2 dfg = env_dfg(rough, NoV);
+  vec3 pl_d, pl_s = point_lights_pbr(n, vdir, NoV, a, f0);
+  // occlusion YALNIZ dolayli (ortam) terimi kisar (glTF: "indirect light").
+  vec3 amb = u.ambient.rgb * occ;
+  vec3 c = diffuse_color * (amb + sun + pl_d);
+  c += amb * (f0 * dfg.x + vec3(dfg.y));
+  c += spec_sun + pl_s;
+  return c; // isima main()'de eklenir
+}
+
+// Isima: iki golgeleme dali icin ORTAK; isimasiz malzemede tam 0.
+func emissive_term(): vec3 {
+  vec3 emis = u_mat.emissive.rgb * u_mat.emissive.a;
+  if (u_mat.tex.z > 0.5) { emis *= texture(u_emissive, v_uv).rgb; }
+  return emis;
+}
+
+vec4 o_color = cikti(0);
+
+// Dogrusal aydinlatma (Filament); UNORM yedeginde (light_dir.w = 1) burada kodlanir.
 func linear_to_srgb(vec3 c): vec3 {
   c = clamp(c, 0.0, 1.0);
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
@@ -82,14 +266,21 @@ func cascade_sample(int idx, vec3 wpos, float bias): float {
       s += texture(u_shadow, vec3(base_x + f32(x) * tx, uv.y + f32(y) * ty, p.z - bias));
   return s / 9.0;
 }
+// Kademe basina egilim carpani (Tuzaklar 8cz); CPU kopyasi Renderer::shadow_bias_scale.
+func cascade_bias_scale(int idx): float {
+  if (u.shadow_params.x <= 0.0) { return 1.0; }
+  mat4 m = u.light_viewproj[idx];
+  float inv_r = length(vec3(m[0][0], m[1][0], m[2][0]));
+  return 2.0 * u.cascade_params.w / inv_r * u.shadow_params.x;
+}
 func shadow_visibility(float nl, vec3 n): float {
   if (u.shadow_params.z < 0.5) { return 1.0; }
   float bias = u.shadow_params.y * clamp(1.0 - nl, 0.15, 1.0);
-  vec3 wpos = v_world + n * u.shadow_params.w;
   int n_casc = i32(u.cascade_params.x);
   for (int i = 0; i < 3; i++) {
     if (i >= n_casc) { break; }
-    float v = cascade_sample(i, wpos, bias);
+    float k = cascade_bias_scale(i);
+    float v = cascade_sample(i, v_world + n * (u.shadow_params.w * k), bias * k);
     if (v >= 0.0) { return v; }
   }
   return 1.0; // hicbir kademe kapsamiyor: isikli
@@ -99,7 +290,10 @@ func main() {
   float nl = max(dot(n, normalize(u.light_dir.xyz)), 0.0);
   float vis = shadow_visibility(nl, n);
   vec3 albedo = texture(u_albedo, v_uv).rgb * v_color;
-  vec3 c = albedo * (u.ambient.rgb + nl * vis * u.ambient.a + point_lights(n));
+  vec3 c;
+  if (u_mat.pbr.w < 0.5) { c = albedo * (u.ambient.rgb + nl * vis * u.ambient.a + point_lights(n)); }
+  else { c = shade_pbr(n, albedo, nl, vis); }
+  c += emissive_term(); // ISIMA: iki dal icin de, tonemap/sRGB'den ONCE
   if (u.light_dir.w > 0.5) { c = linear_to_srgb(c); }
   o_color = vec4(c, 1.0);
 }

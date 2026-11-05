@@ -1,0 +1,96 @@
+// kaynak-ozet: fd2db77a598d  (engine/rhi/shaders/cluster_cull.comp)
+// Kume DAG LOD secimi + frustum ayiklama (Faz 9): kume basina bir dolayli
+// cizim; secilmeyen kume yazilmaz degil instanceCount = 0 yazilir.
+// Kaynaktaki ADSIZ bloklar (buffer Clusters { GpuCluster clusters[]; };)
+// burada adli: -O OpName'i attigi icin SPIR-V ayni (faz8_shader_audit olcer).
+str asama = "comp";
+
+uvec3 grup = is_grubu(64);
+
+struct GpuCluster {
+  float center_x;
+  float center_y;
+  float center_z;
+  float radius;
+
+  float cur_x;
+  float cur_y;
+  float cur_z;
+  float cur_radius;
+  float cur_error;
+
+  float coa_x;
+  float coa_y;
+  float coa_z;
+  float coa_radius;
+  float coa_error;
+
+  uint index_offset;
+  uint index_count;
+  uint geometry;
+  uint level;
+}
+
+struct Clusters { GpuCluster[] clusters; }
+Clusters u_c = depo(0, 0);
+
+struct DrawCmd {
+  uint index_count;
+  uint instance_count;
+  uint first_index;
+  int vertex_offset;
+  uint first_instance;
+}
+
+struct Draws { DrawCmd[] draws; }
+Draws u_d = depo_yaz(0, 1);
+
+struct Push {
+  vec4[6] planes;      //  0..95  frustum, MESH uzayinda (xyz = normal, w = d)
+  vec3 camera;         // 96..107 kamera, MESH uzayinda
+  float proj;          //     108 projection[1][1] = cot(fovy/2)
+  float znear;         //     112 POZITIF
+  float screen_height; //     116 piksel
+  float threshold_px;  //     120 kac piksel sapmaya izin var
+  uint cluster_count;  //     124
+}
+Push pc = itme(); // toplam 128 bayt = maxPushConstantsSize'in garantili alt siniri
+
+func screen_error(vec3 center, float radius, float error): float {
+  float dist = length(center - pc.camera);
+  float near_dist = dist - radius;
+  if (!(near_dist > pc.znear)) { near_dist = pc.znear; }
+  return error / near_dist * (pc.proj * 0.5) * pc.screen_height;
+}
+
+func outside_frustum(vec3 center, float radius): bool {
+  for (int i = 0; i < 6; i++) {
+    if (dot(pc.planes[i].xyz, center) + pc.planes[i].w + radius < 0.0) { return true; }
+  }
+  return false;
+}
+
+func main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i >= pc.cluster_count) { return; } // 64'e yuvarlanmis dispatch'in artigi
+
+  GpuCluster c = u_c.clusters[i];
+
+  DrawCmd cmd;
+  cmd.index_count = c.index_count;
+  cmd.instance_count = 0;
+  cmd.first_index = c.index_offset;
+  cmd.vertex_offset = 0;
+  cmd.first_instance = 0;
+
+  vec3 center = vec3(c.center_x, c.center_y, c.center_z);
+  bool visible = !outside_frustum(center, c.radius);
+
+  if (visible) {
+    float cur = screen_error(vec3(c.cur_x, c.cur_y, c.cur_z), c.cur_radius, c.cur_error);
+    float coa = screen_error(vec3(c.coa_x, c.coa_y, c.coa_z), c.coa_radius, c.coa_error);
+    if (cur <= pc.threshold_px && coa > pc.threshold_px) { cmd.instance_count = 1; }
+  }
+
+  u_d.draws[i] = cmd;
+}

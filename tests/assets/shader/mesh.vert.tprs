@@ -1,4 +1,4 @@
-// kaynak-ozet: 96e41237d553  (engine/rhi/shaders/mesh.vert)
+// kaynak-ozet: 82d27cdf3cd8  (engine/rhi/shaders/mesh.vert)
 // Forward temel: pozisyon + normal; kare UBO, push sabiti (model, renk).
 // G3 (sabit boy dizi) kullanir.
 str asama = "vert";

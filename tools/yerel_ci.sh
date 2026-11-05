@@ -6,7 +6,8 @@
 #   tools/yerel_ci.sh                 tam tur (katman, derleme, testler + CI'in
 #                                     ozet kurallari + iki pozitif kontrol, clang
 #                                     sozdizimi, Tulpar koprusu --tam)
-#   tools/yerel_ci.sh --hizli         derleme + engine_tests + kurallar (kopru yok)
+#   tools/yerel_ci.sh --hizli         derleme + engine_tests + kurallar + Faz 8
+#                                     shader/yerlesim kapilari (kopru yok)
 #   tools/yerel_ci.sh --lavapipe      engine_tests'i CI'in surucusuyle de kostur
 #                                     (mesa lavapipe; paket: vulkan-swrast)
 #   tools/yerel_ci.sh --filtre rhi    yalniz o testler (alt dize)
@@ -29,7 +30,7 @@ while [ $# -gt 0 ]; do
     --hizli) HIZLI=1 ;;
     --lavapipe) LVP=1 ;;
     --filtre) FILTRE="${2:-}"; shift ;;
-    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,23p "$0"; exit 0 ;;
     *) echo "bilinmeyen secenek: $1" >&2; exit 2 ;;
   esac
   shift
@@ -108,6 +109,32 @@ if [ "$LVP" = 1 ]; then
     asama "engine_tests (lavapipe)" $(( $(zaman) - t )) "$(test_kurallari "$IS/lvp.log")"
   fi
 fi
+
+# 5b) Faz 8 shader kapilari + CPU-GPU yerlesim (2026-11-05). Uc denetim de
+# "elle kosulur, otomasyonda degil" idi ve CURUDU: 2026-09-27'de 18/19 bayt
+# ayni olan kapi 2026-11-05'te 14/19'du (4 kaynak GLSL degismis, .tprs
+# tasinmamis) ve rc=0 + "ATLANDI" ile yesil gorunuyordu. Burada ATLANDI da
+# KIRMIZI: GLSL degistiren, .tprs'i de tasir (ya da bunu bilerek soyler).
+# glslc gerekir (CI'da yok — bu yuzden yalniz yerel CI'da).
+t=$(zaman); r="OK"
+if ! command -v glslc >/dev/null; then
+  r="HATA glslc yok (shaderc) — Faz 8 bayt kapisi olcemez"
+else
+  python3 tools/faz8_shader_audit.py > "$IS/faz8.log" 2>&1; rc8=$?
+  s8="$(grep -E '^Faz 8 shader denetimi:' "$IS/faz8.log" | tail -1)"
+  b8="$(grep -oE '[0-9]+/[0-9]+ dosya referans' "$IS/faz8.log" | head -1 | cut -d' ' -f1)"
+  TULPAR_BIN="$(command -v tulpar || true)" TPRS_ZORUNLU=1 \
+    python3 tools/tpr_shader.py --tulpar-parse > "$IS/tprs.log" 2>&1; rcp=$?
+  sp="$(grep -E 'dosya bugunku Tulpar' "$IS/tprs.log" | tail -1 | cut -d' ' -f1)"
+  python3 tools/layout_audit.py > "$IS/yerlesim.log" 2>&1; rcl=$?
+  cat "$IS/faz8.log" "$IS/tprs.log" "$IS/yerlesim.log" > yapi/yerel_ci_faz8.log
+  if [ "$rc8" != 0 ] || [ -z "$s8" ]; then r="HATA faz8: ${s8:-ozet yok}"
+  elif ! grep -qE ', 0 atlandi$' <<< "$s8"; then r="HATA faz8 ATLANDI: $(grep -m1 ATLANDI "$IS/faz8.log" | sed 's/^ *//')"
+  elif [ "$rcp" != 0 ]; then r="HATA tulpar gramer denetimi (rc $rcp)"
+  elif [ "$rcl" != 0 ]; then r="HATA yerlesim denetimi (rc $rcl)"
+  else r="OK bayt ayni $b8, gramer temiz $sp, yerlesim temiz"; fi
+fi
+asama "Faz 8 shader + yerlesim" $(( $(zaman) - t )) "$r"
 
 if [ "$HIZLI" = 0 ]; then
   # 6) clang sozdizimi (macOS ayaginin derleyici vekili)

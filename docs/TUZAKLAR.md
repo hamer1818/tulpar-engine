@@ -387,6 +387,12 @@ sahne kapısı "dosya açılamadı → görünür atlama" yoluna düşüyor ve s
 çağırmalı) ya da bulamadığında ATLAMAK yerine KIRMIZI olmalı. Aynı sınıf: `wasm/dist` ve `android/dist`
 arşivleri (Tuzaklar 8aj). Genel kural: "atlandı" sayısı sessizce artıyorsa, kapılar erimiş demektir.
 
+**Ek (2026-11-05) — ELLE koşulan kapı da aynı yoldan erir.** Faz 8 bayt kapısı (`faz8_shader_audit.py`)
+kaynak GLSL değişince doğru biçimde "ATLANDI — yeniden taşı" diyordu, ama çıkışı 0'dı ve hiçbir otomasyon
+onu koşmuyordu: 2026-09-27'de 18/19 olan sonuç beş hafta içinde 14/19'a indi (4 shader dört ayrı PR'da
+değişti), kimse görmedi. Kural: ATLANDI ile biten bir kapı **bir yerde kırmızı sayılmalı** — burada
+`tools/yerel_ci.sh` "Faz 8 shader + yerlesim" aşaması ATLANDI'yı HATA sayar.
+
 ### 8an. Aynı `VkApi` tablosuyla ikinci cihaz açmak, paylaşılan cihazın giriş noktalarını EZER
 `VkApi` cihaz düzeyindeki fonksiyon işaretçilerini tek tabloda tutuyor. İki testin aynı tabloyla iki ayrı
 `VkDevice` açması, ikinci `init` sırasında tablodaki adresleri ikinci cihazınkilerle **değiştiriyor**; ikinci
