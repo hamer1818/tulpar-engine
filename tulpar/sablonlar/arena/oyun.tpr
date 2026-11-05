@@ -197,13 +197,19 @@ func main() {
     ui_tek_tiklama(true);
     renk_tema_geri();
     arayuz_yukle();
-    gunes(0.5, 1.0, 0.35, 0.9);
-    ortam(renk(40, 46, 60));
-    golge_hacmi(0, 1, 0, 14, 60);
-    zemin_kur(ARENA, renk(70, 84, 110));
-    for (int i = -1; i <= 1; i += 2) {
-        kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(110, 120, 150));
-        kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(110, 120, 150));
+    // Arena (zemin + dort duvar + isik) SAHNEDEN: assets/arena.sahne editorde duzenlenir
+    // (Tulpar Editor: Kaydet + Derle -> arena.sahneb), oyun derlenmis blob'u yukler. Blob yoksa
+    // (motorun engine_sahnec'i calismadi) ayni arena koddan kurulur ve UYARI basilir.
+    if (!sahne_yukle("assets/arena.sahneb")) {
+        logla("UYARI arena.sahneb yuklenemedi: arena koddan kuruldu (tools/ortam.sh sahneyi derler)");
+        gunes(0.5, 1.0, 0.35, 0.9);
+        ortam(renk(40, 46, 60));
+        golge_hacmi(0, 1, 0, 14, 60);
+        zemin_kur(ARENA, renk(70, 84, 110));
+        for (int i = -1; i <= 1; i += 2) {
+            kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(110, 120, 150));
+            kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(110, 120, 150));
+        }
     }
     g_top = kure(0.0, 0.6, 0.0, 0.5, true, renk(255, 110, 90));
     for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }

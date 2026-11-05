@@ -412,6 +412,32 @@ FabrikaSonuc fabrika_uret(const FabrikaIstek &r) {
     if (!dosya_yaz(yol, g_kaynak, n)) { yaz_hata(s, "Yazılamadı: %s", yol); return s; }
     s.dosya++;
   }
+  // Sablonun kendi varliklari (tulpar/sablonlar/<tur>/assets/*: sahne vb.) — yer tutucusuz kopya.
+  {
+    char sa[200];
+    std::snprintf(sa, sizeof sa, "tulpar/sablonlar/%s/assets", r.tur);
+    char sk[1100];
+    if (platform::asset_path(sk, sizeof sk, sa)) {
+      struct Top { const char *kaynak; const char *hedef; FabrikaSonuc *s; bool ok; };
+      Top t{sk, r.dizin, &s, true};
+      platform::fs_list_dir(sk, [](const char *ad, platform::FsKind k, void *u) {
+        Top *t = static_cast<Top *>(u);
+        if (k != platform::FsKind::File || ad[0] == '.') return true;
+        char a[1300], b[1300];
+        std::snprintf(a, sizeof a, "%s/%s", t->kaynak, ad);
+        std::snprintf(b, sizeof b, "%s/assets/%s", t->hedef, ad);
+        size_t n = 0;
+        if (!dosya_oku(a, g_kaynak, sizeof g_kaynak, &n) || !dosya_yaz(b, g_kaynak, n)) {
+          std::snprintf(t->s->hata, sizeof t->s->hata, "Şablon varlığı kopyalanamadı: %s", a);
+          t->ok = false;
+          return false;
+        }
+        t->s->dosya++;
+        return true;
+      }, &t);
+      if (!t.ok) return s;
+    }
+  }
   std::snprintf(yol, sizeof yol, "%s/ikon.png", r.dizin);
   char ih[200];
   if (!ikon_uret(r.tr, yol, ih, sizeof ih)) { yaz_hata(s, "%s", ih); return s; }

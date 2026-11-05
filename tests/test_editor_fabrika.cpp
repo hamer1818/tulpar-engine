@@ -63,7 +63,7 @@ ENGINE_TEST(fabrika_uretir_dolu_dizine_yazmaz) {
   const FabrikaSonuc s = fabrika_uret(r);
   if (!s.ok) std::printf("    hata: %s\n", s.hata);
   CHECK(s.ok);
-  CHECK(s.dosya == 11u);
+  CHECK(s.dosya == 12u);   // 8 metin + 2 kit atlasi + sablon sahnesi + ikon
   CHECK(std::strcmp(s.paket, "dev.tulparlang.ilkoyun") == 0);
   std::snprintf(p, sizeof p, "%s/oyun.tpr", hedef);
   CHECK(oku(p, buf, sizeof buf));
@@ -72,7 +72,8 @@ ENGINE_TEST(fabrika_uretir_dolu_dizine_yazmaz) {
   std::snprintf(p, sizeof p, "%s/tulpar.toml", hedef);
   CHECK(oku(p, buf, sizeof buf) && std::strstr(buf, "package = \"dev.tulparlang.ilkoyun\"") && std::strstr(buf, "İlk Oyun"));
   static const char *const beklenen[] = {"tools/dogrula.sh", "tools/ortam.sh", "tools/android_dene.sh", "apk_derle.sh",
-                                         ".gitignore", "OKUBENI.md", "assets/resimler/acilis.png", "assets/resimler/arayuz.png"};
+                                         ".gitignore", "OKUBENI.md", "assets/resimler/acilis.png", "assets/resimler/arayuz.png",
+                                         "assets/arena.sahne"};
   for (const char *f : beklenen) {
     std::snprintf(p, sizeof p, "%s/%s", hedef, f);
     CHECK(platform::fs_kind(p) == platform::FsKind::File);
