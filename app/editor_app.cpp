@@ -89,6 +89,9 @@
 #include "app/editor_update.hpp"
 #include "content/prefab.hpp"
 #include "app/editor_ux.hpp"
+#include "app/editor_karsilama.hpp"
+#include "core/build_info.hpp"
+#include "app/editor_fabrika.hpp"
 #include "platform/fs.hpp"
 #include "platform/fs_ops.hpp"
 #include "rhi/offscreen.hpp"
@@ -1913,7 +1916,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   EditorCamera cam;
   cam.target = st.scene.cam_target; cam.yaw = st.scene.cam_yaw; cam.pitch = st.scene.cam_pitch; cam.radius = st.scene.cam_radius;
   if (headless) st.sel.set_single(0);
-  st.playing = headless;
+  st.playing = headless && !opts.karsilama;   // karsilama kosumu sahneyi oynatmaz (goruntu urun gibi)
   if (st.playing) bodies_spawn(st, phys);
   if (headless && st.scene.entity_count) {
     // Betikli durum: bir islem + geri al (gunluk kapali dongude calisiyor mu).
@@ -2193,6 +2196,34 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     set_status(st, "acildi: %s (%u varlik)", st.scene_path, st.scene.entity_count);
     return true;
   };
+  // --- Acilis (karsilama) ekrani (EDITOR-UYGULAMA-PLANI U3) ---------------------------------
+  // Argumansiz pencereli acilista gelir; eylemler buradaki lambdalarla (yukleme, derleme, son dosyalar).
+  static KarsilamaDurum karsilama;
+  karsilama.acik = opts.karsilama || (!headless && opts.scene_path == nullptr && opts.command == nullptr);
+  // Proje dizinindeki ilk sahne: <dizin>/assets/<tur>.sahne, yoksa assets/ altindaki ilk .sahne.
+  auto proje_sahnesi = [&](const char *dizin, const char *tur, char *out, size_t cap) -> bool {
+    std::snprintf(out, cap, "%s/assets/%s.sahne", dizin, tur);
+    if (platform::fs_kind(out) == platform::FsKind::File) return true;
+    char ad[256] = {0};
+    char adir[1100];
+    std::snprintf(adir, sizeof adir, "%s/assets", dizin);
+    platform::fs_list_dir(adir, [](const char *n, platform::FsKind k, void *u) {
+      const size_t l = std::strlen(n);
+      if (k == platform::FsKind::File && l > 6 && !std::strcmp(n + l - 6, ".sahne")) {
+        std::snprintf(static_cast<char *>(u), 256, "%s", n);
+        return false;
+      }
+      return true;
+    }, ad);
+    if (!ad[0]) return false;
+    std::snprintf(out, cap, "%s/assets/%s", dizin, ad);
+    return true;
+  };
+  bool karsilama_yeni_ok = false;   // penceresiz kapi (--karsilama-yeni) icin
+  // Penceresiz kipin yerlesik kapilari (gizmo, secim, duzen ...) karsilama ekrani acikken KOSMAZ:
+  // ekran girdiyi kendine alir ve kapilar sahte kirmizi olurdu. Karsilama kosumunun olctugu sey
+  // karsilamanin kendisidir (--karsilama-yeni kapisi).
+  const bool kapilar = headless && !opts.karsilama;
   auto do_new = [&]() {
     // Varsayilan dunya + 0 varlik. STATIK ve const: yukaridaki `nd` ile ayni
     // sebep (yigin cercevesi kapisi); hic yazilmadigi icin her cagrida taze.
@@ -3413,7 +3444,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     int *view_mode = nullptr;
     EditorState *st = nullptr;
     UpdateUi *upd = nullptr; // menu cubugundaki guncelleme rozeti
-  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui};
+    KarsilamaDurum *kars = nullptr; // Dosya > Baslangic ekrani (U3)
+  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama};
   ChromeMenuExtra menu_extra;
   menu_extra.ctx = &mx;
   menu_extra.on_badge = [](void *ctx) {
@@ -3424,6 +3456,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
     if (!m) return;
     if (cat == CommandCategory::File) {
+      if (m->kars && ImGui::MenuItem(ICON_MD_HOME " Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ekran\xC4\xB1 (yeni oyun, son projeler)")) {
+        m->kars->acik = true;
+        m->kars->hata[0] = 0;
+        m->kars->bilgi[0] = 0;
+      }
       const char *rec[kRecentMax];
       const uint32_t nrec = recent_list(rec, kRecentMax);
       if (!ImGui::BeginMenu("Son dosyalar", nrec > 0)) return;
@@ -7475,7 +7512,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       prev_f = f_now;
     }
-    if (headless && frame_i == 0 && st.scene.entity_count) {
+    if (kapilar && frame_i == 0 && st.scene.entity_count) {
       // Betikli secim kapisi: ilk varligin merkezi ekrana izdusurulur, o pikselden
       // atilan isin ayni varligi secmeli (kamera isini + sinirlar + secim uctan uca).
       static content::SceneBounds wb[content::kSceneMaxEntities];
@@ -7554,7 +7591,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       st.dirty = false; // kapilar sahneyi geri aldi: dosya kirlenmedi
       set_status(st, "yuklendi: %s", st.scene_path);
     }
-    if (headless && frame_i == 2 && st.scene.entity_count && view_rect.w > 0) {
+    if (kapilar && frame_i == 2 && st.scene.entity_count && view_rect.w > 0) {
       // E1 secim kapisi — PANEL uzerinden: varlik 0 viewport dokusuna izdusurulur,
       // o panel pikseli pencere pikseline cevrilip vp.map_mouse ile GERI eslenir
       // (editorun tiklamada yaptigi yol), isin ayni varligi bulmali. Kontrol:
@@ -7587,7 +7624,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // yuzden konum ve basma AYRI karelerde.
     static Vec3 gz_before{};
     static float gz_px = 0, gz_py = 0;
-    if (headless && st.scene.entity_count && view_rect.w > 0 && opts.headless_frames >= 20) {
+    if (kapilar && st.scene.entity_count && view_rect.w > 0 && opts.headless_frames >= 20) {
       if (frame_i == 10) {
         // ON KOSUL. Bir onceki penceresiz kapi oynatmayi baslatiyor, oynatma
         // baslayinca sekme otomatik Oyun'a geciyor (bkz. ~1988) ve gizmo blogu
@@ -7628,7 +7665,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
     }
-    if (headless && frame_i == 6 && st.scene.entity_count >= 2) {
+    if (kapilar && frame_i == 6 && st.scene.entity_count >= 2) {
       // Pano kapisi: iki varlik kopyala -> yapistir -> sayi +2 ve yapistirilanin
       // BAYTLARI kaynakla ayni (yalniz konum otelendi); geri al baslangica doner.
       // Kontrol: pano BOSKEN yapistir hicbir sey eklemez.
@@ -7663,7 +7700,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       st.sel.set_single(0);
       st.dirty = false;
     }
-    if (headless && frame_i == 10 && st.scene.entity_count >= 3) {
+    if (kapilar && frame_i == 10 && st.scene.entity_count >= 3) {
       // Sahne agaci kapisi (EDITORUN kendi yolu): varlik 1'i varlik 0'a baglayinca
       // DUNYA siniri yerinde kalmali (reparent yerel donusumu yeniden hesaplar);
       // sonra EBEVEYNI oteleyince cocugun siniri da otelenmeli — kalitim
@@ -7711,7 +7748,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       return -1;
     };
-    if (headless && frame_i >= 7 && frame_i <= 9 && st.playing) {
+    if (kapilar && frame_i >= 7 && frame_i <= 9 && st.playing) {
       static uint32_t t_pause = 0, t_hold = 0;
       static float y_pause = 0, y_hold = 0;
       const int32_t di = ilk_dinamik();
@@ -7748,7 +7785,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // (c) komut yolu: Shift+F10 istegi duraklatir ve tiki geri alir.
     // Pozitif kontrol: (a)'da ozetin 11 -> 13 arasinda DEGISTIGI basilir
     // (degismeseydi esitlik bir sey olcmezdi; dinamik govde yoksa ATLANDI).
-    if (headless && st.playing && !st.play_embedded && frame_i >= 21 && frame_i <= 24) {
+    if (kapilar && st.playing && !st.play_embedded && frame_i >= 21 && frame_i <= 24) {
       static uint32_t t_a = 0, t_b = 0;
       static uint64_t h_a = 0, h_b = 0;
       if (frame_i == 21) {
@@ -7791,7 +7828,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // DURDUR'da govde yazar konumuna doner, duzenleme GERI alinir ve
     // yinelenebilir; (c) yeniden OYNAT govdeyi kaldigi yerden degil yazar
     // konumundan baslatir. Govde ya da varlik yoksa kapi OK DEMEZ, ATLANDI der.
-    if (headless && opts.headless_frames >= 36 && frame_i >= 20 && frame_i <= 33) {
+    if (kapilar && opts.headless_frames >= 36 && frame_i >= 20 && frame_i <= 33) {
       static int32_t di = -1, ed = -1;
       static float y_yazar = 0, y_oynarken = 0, x_once = 0;
       static uint32_t redo_once = 0;
@@ -7847,7 +7884,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     //   (f) Durdur oyunu kendi `bitir` yolundan kapatiyor (cikis 0, oldurulmeden).
     // Sahneyi yukleyen oyun ya da motoru taniyan derleyici yoksa ATLANDI der,
     // OK DEMEZ (CI'da derleyici yok; kapi yerelde kosar).
-    if (headless && opts.headless_frames >= 50 && frame_i >= 40 && frame_i <= 45) {
+    if (kapilar && opts.headless_frames >= 50 && frame_i >= 40 && frame_i <= 45) {
       static bool g_atla = false, g_bitir_goruldu = false;
       static uint32_t g_ornek_w = 0, g_ornek_h = 0;
       static uint8_t g_a[1024 * 1024 * 3], g_b[1024 * 1024 * 3];
@@ -8055,7 +8092,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // donuk ve olcekli kaidenin cocugu, yani donusum de olculuyor); yoksa
     // gecici bir fikstur yazilir ("kapi_nokta"). Kamera noktaya cevrilir.
     // Hepsi geri alinir; sahne baytlari baslangicla ayni olmali.
-    if (headless && opts.headless_frames >= 52 && frame_i >= 46 && frame_i <= 50 && st.scene.entity_count && view_rect.w > 0) {
+    if (kapilar && opts.headless_frames >= 52 && frame_i >= 46 && frame_i <= 50 && st.scene.entity_count && view_rect.w > 0) {
       static int32_t pk_ent = -1, pk_sel0 = -1;
       static char pk_name[content::kScenePropNameLen];
       static float pk_ov_w[3], pk_def_w[3];
@@ -8234,7 +8271,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // POZITIF KONTROL: ayni piksele ayni tik varlik KILITLIYKEN kipi ACMAZ —
     // kapi "her tik kipi acar"i degil isaret kuralini olcuyor. Durdur kapisi
     // (20-33) oynatmayi acik birakiyor; burada kapatilir. Hepsi geri alinir.
-    if (headless && opts.headless_frames >= 40 && frame_i >= 34 && frame_i <= 39 && st.scene.entity_count && view_rect.w > 0) {
+    if (kapilar && opts.headless_frames >= 40 && frame_i >= 34 && frame_i <= 39 && st.scene.entity_count && view_rect.w > 0) {
       static int32_t tk_ent = -1, tk_sel0 = -1, tk_sel_a = -1;
       static char tk_name[content::kScenePropNameLen];
       static uint32_t tk_ops = 0, tk_selc_a = 0, tk_flags0 = 0;
@@ -8325,7 +8362,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     //     TAM 1 islem (grup derinligi +1); geri al sahne baytlarini geri getirir.
     //     Coklu secim: yalniz ANA secilinin noktasi — yan varlik bit-tam ayni.
     // Fikstur adayda (ustune yazma yok) surukleme ustune yazmayi YARATIR.
-    if (headless && opts.headless_frames >= 60 && frame_i >= 51 && frame_i <= 59 && st.scene.entity_count && view_rect.w > 0) {
+    if (kapilar && opts.headless_frames >= 60 && frame_i >= 51 && frame_i <= 59 && st.scene.entity_count && view_rect.w > 0) {
       static int32_t sg_ent = -1, sg_sel0 = -1, sg_yan = -1;
       static char sg_name[content::kScenePropNameLen];
       static uint32_t sg_ops = 0, sg_undo0 = 0, sg_undo1 = 0, sg_depth0 = 0, sg_depth1 = 0, sg_ctrl_ops = 0, sg_ctrl_groups = 0;
@@ -8502,7 +8539,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (!ok) return 1;
       }
     }
-    if (headless && frame_i >= 2 && frame_i <= 5) {
+    if (kapilar && frame_i >= 2 && frame_i <= 5) {
       // E1 duzen kaliciligi kapisi: kaydet -> A; dosyadan yukle -> (bir kare sonra,
       // dugum dikdortgenleri DockSpace'te turetilir) B; A == B BIT-TAM. Pozitif
       // kontrol: dosyadaki bir bolme oranini degistirip yuklemek C'yi A'dan
@@ -8703,6 +8740,63 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       draw_stats_overlay(&show_stats, dt, ren.stats(), st.scene, vp.width(), vp.height(), view_tab, sys, view_rect, prof, dev, ren.shadow(),
                          allocs_now - allocs_prev);
       allocs_prev = allocs_now;
+    }
+    // --- Acilis (karsilama) ekrani -----------------------------------------------------------
+    if (karsilama.acik) {
+      if (opts.karsilama_yeni && frame_i == 3) {
+        // Penceresiz kapi: formu doldur, Olustur'un isleyicisini calistir (tiklama degil — isleyici).
+        std::snprintf(karsilama.tr, sizeof karsilama.tr, "Deneme Oyunu");
+        std::snprintf(karsilama.en, sizeof karsilama.en, "Test Game");
+        karsilama_kok(karsilama.kok, sizeof karsilama.kok);
+        karsilama_oneri(karsilama);
+        std::snprintf(karsilama.konum, sizeof karsilama.konum, "%s", opts.karsilama_yeni);
+        karsilama.konum_elle = true;
+      }
+      const char *son[kRecentMax];
+      bool son_var[kRecentMax];
+      const uint32_t son_n = recent_list(son, kRecentMax);
+      for (uint32_t i = 0; i < son_n; i++) son_var[i] = recent_exists(i);
+      KarsilamaEylem ke = karsilama_ciz(karsilama, build_version(), son, son_var, son_n);
+      if (opts.karsilama_yeni && frame_i == 3) ke = KarsilamaEylem::YeniOyun;
+      if (ke == KarsilamaEylem::YeniOyun) {
+        karsilama.hata[0] = 0;
+        FabrikaIstek fr;
+        fr.dizin = karsilama.konum; fr.kimlik = karsilama.kimlik; fr.onek = karsilama.onek;
+        fr.tr = karsilama.tr; fr.en = karsilama.en; fr.paket = karsilama.paket;
+        fr.tur = karsilama_sablon(karsilama); fr.yon = karsilama_yon(karsilama);
+        const FabrikaSonuc fs = fabrika_uret(fr);
+        char sahne[1100];
+        if (!fs.ok) {
+          std::snprintf(karsilama.hata, sizeof karsilama.hata, "%s", fs.hata);
+        } else if (!proje_sahnesi(karsilama.konum, fr.tur, sahne, sizeof sahne)) {
+          std::snprintf(karsilama.hata, sizeof karsilama.hata, "Proje oluÅtu ama sahnesi bulunamadÄ±: %s", karsilama.konum);
+        } else if (load_scene_from(sahne)) {
+          const bool derlendi = do_compile();   // .sahneb: oyun ve F5 onu yukler
+          console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "yeni oyun: %s (%u dosya, paket %s)%s", karsilama.konum, fs.dosya,
+                      fs.paket, derlendi ? "" : " — sahne DERLENEMEDI");
+          std::printf("[engine_editor] karsilama: yeni oyun %s, sahne %s, derleme %s\n", karsilama.konum, sahne,
+                      derlendi ? "evet" : "HAYIR");
+          karsilama_yeni_ok = derlendi;
+          karsilama.acik = false;
+        } else {
+          std::snprintf(karsilama.hata, sizeof karsilama.hata, "Sahne aÃ§Ä±lamadÄ±: %s", sahne);
+        }
+        if (karsilama.hata[0]) std::printf("[engine_editor] karsilama: HATA %s\n", karsilama.hata);
+      } else if (ke == KarsilamaEylem::SonProje && karsilama.son_secili >= 0 && (uint32_t)karsilama.son_secili < son_n) {
+        char yol[1024];
+        std::snprintf(yol, sizeof yol, "%s", son[karsilama.son_secili]);
+        if (load_scene_from(yol)) karsilama.acik = false;
+        else std::snprintf(karsilama.hata, sizeof karsilama.hata, "AÃ§Ä±lamadÄ±: %s", yol);
+      } else if (ke == KarsilamaEylem::Ac) {
+        karsilama.acik = false;
+        do_open_guarded();
+      } else if (ke == KarsilamaEylem::Ornek) {
+        char yol[1024];
+        platform::asset_path(yol, sizeof yol, "tests/assets/editor.sahne");
+        if (load_scene_from(yol)) karsilama.acik = false;
+      } else if (ke == KarsilamaEylem::Kapat) {
+        karsilama.acik = false;
+      }
     }
     if (opts.ux_rapor) {
       const ImVec2 ds = ImGui::GetIO().DisplaySize;

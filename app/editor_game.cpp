@@ -113,6 +113,10 @@ GameFindResult game_find_for_scene(const char *tulpar_root, const char *scene_pa
     // ve sayilsaydi her sahne "iki aday" deyip gereksiz yere soru sorardi.
     const size_t nl = std::strlen(scratch[i].name);
     if (nl >= 9 && !std::strcmp(scratch[i].name + nl - 9, ".test.tpr")) continue;
+    // Oyun fabrikasi sablonlari (tulpar/sablonlar/<tur>/oyun.tpr) oyun degil: {{...}} yer tutuculari
+    // tasir, calistirilamaz. Sablon "arena.sahneb" yukledigi icin examples/assets/arena.sahne'nin
+    // ikinci adayi oluyordu (editor_game_finds_the_game_that_loads_the_scene yakaladi, 2026-11-05).
+    if (!std::strncmp(scratch[i].name, "sablonlar/", 10) || std::strstr(scratch[i].name, "/sablonlar/")) continue;
     char yol[kFilePathLen];
     if (!file_path_join(tulpar_root, scratch[i].name, yol, sizeof yol)) continue;
     FILE *f = std::fopen(yol, "rb");

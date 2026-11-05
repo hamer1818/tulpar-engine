@@ -28,6 +28,11 @@ struct EditorOptions {
   // --ux-rapor <dosya>: UX olcumu (app/editor_ux.hpp; kesik metin, tasan kaplama, gorunum orani,
   // gorunen metinler) kapanista bu dosyaya. docs/EDITOR-UYGULAMA-PLANI.md U0.
   const char *ux_rapor = nullptr;
+  // Acilis (karsilama) ekrani (U3): argumansiz pencereli acilista kendiliginden. --karsilama
+  // penceresizde de gosterir (goruntu/olcum); --karsilama-yeni <dizin> penceresizde formu
+  // doldurup "Olustur"un ISLEYICISINI calistirir (kapi: fabrika + sahne yukleme + derleme).
+  bool karsilama = false;
+  const char *karsilama_yeni = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni
   // ikili AYNI argumanlarla yeniden baslatilir (app/editor_update.hpp). Bos
   // olabilir (testler/gomulu kullanim): o zaman yalniz --scene tasinir.

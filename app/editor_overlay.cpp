@@ -926,7 +926,13 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     if (left_w < fs * 14.0f) left_w = ImTrunc(fs * 14.0f);
     if (left_w > fs * 20.0f) left_w = ImTrunc(fs * 20.0f);
     if (ImGui::BeginChild("##sahne_bolme", ImVec2(left_w, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_None)) {
-      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "%s", hdr);
+      {
+        // Dar bolmede baslik "…" ile kirpilir (U1 olcumu: 1280x720'de 179 px metin 162 px alanda).
+        char kh[64];
+        editor_ellipsize(hdr, ImGui::GetContentRegionAvail().x, kh, sizeof kh);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "%s", kh);
+        if (std::strcmp(kh, hdr) != 0 && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", hdr);
+      }
       ImGui::Separator();
       draw_scene_rows();
     }
@@ -947,7 +953,11 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, tone_u32(Tone::Bg4));
     ImGui::SetNextItemOpen(v.scene_open);
     char hid[96];
-    std::snprintf(hid, sizeof hid, "%s##sahne_kaynak", hdr);
+    // Dar panelde (U1: varsayilan yerlesimde Kaynaklar sol sutunda) uzun baslik basligi asiyordu
+    // (179 px metin, 162 px alan). Sigmazsa kisa ad; ##kimlik ayni kalir (acik/kapali durumu korunur).
+    const float baslik_gerek = ImGui::CalcTextSize(hdr).x + ImGui::GetFontSize() + st.FramePadding.x * 3.0f;
+    if (baslik_gerek <= ImGui::GetContentRegionAvail().x) std::snprintf(hid, sizeof hid, "%s##sahne_kaynak", hdr);
+    else std::snprintf(hid, sizeof hid, "Sahnede (%u)##sahne_kaynak", scene_asset_count);
     v.scene_open = ImGui::CollapsingHeader(hid);
     ImGui::PopStyleColor(3);
     if (v.scene_open) {

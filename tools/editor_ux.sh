@@ -21,6 +21,14 @@ COZ=(1280x720 1366x768 1920x1080 2560x1440)
 for r in "${COZ[@]}"; do
   ( cd "$KOK" && DISPLAY= "$ED" --headless "$KARE" --size "$r" --ux-rapor "$DIZIN/$r.txt" > "$DIZIN/$r.log" 2>&1; echo "rc=$?" >> "$DIZIN/$r.log" ) &
 done
+# U3 karsilama ekrani: iki kucuk cozunurlukte kesik metin + "Olustur" isleyicisi (fabrika + sahne
+# yukleme + derleme) uctan uca; POZITIF KONTROL: dolu dizine olusturma reddedilmeli.
+for r in 1280x720 1366x768; do
+  ( cd "$KOK" && DISPLAY= "$ED" --headless 20 --size "$r" --karsilama --ux-rapor "$DIZIN/k_$r.txt" > "$DIZIN/k_$r.log" 2>&1 ) &
+done
+mkdir -p "$DIZIN/dolu" && echo x > "$DIZIN/dolu/var.txt"
+( cd "$KOK" && DISPLAY= "$ED" --headless 20 --karsilama-yeni "$DIZIN/yeni_oyun" > "$DIZIN/kyeni.log" 2>&1 ) &
+( cd "$KOK" && DISPLAY= "$ED" --headless 20 --karsilama-yeni "$DIZIN/dolu" > "$DIZIN/kdolu.log" 2>&1 ) &
 wait
 al() { sed -n "s/.* $2=\([0-9.]*\).*/\1/p" <<< "$1"; }
 kirmizi=0
@@ -36,6 +44,17 @@ for r in "${COZ[@]}"; do
     if [ "$r" = 1920x1080 ] && awk "BEGIN{exit !($g < 0.45)}"; then echo "  KIRMIZI $r: 3B gorunum orani $g < 0.45"; kirmizi=1; fi
   fi
 done
+for r in 1280x720 1366x768; do
+  k=$(al "$(head -1 "$DIZIN/k_$r.txt" 2>/dev/null)" kesik)
+  if [ "${k:-x}" != 0 ]; then echo "  KIRMIZI karsilama $r: kesik ${k:-rapor yok}"; [ "$KAPI" = 1 ] && kirmizi=1
+  else echo "  karsilama $r: kesik 0"; fi
+done
+if grep -q '^\[engine_editor\] karsilama: yeni oyun .* derleme evet' "$DIZIN/kyeni.log" && [ -f "$DIZIN/yeni_oyun/assets/arena.sahneb" ]; then
+  echo "  karsilama Olustur: proje + sahne + .sahneb (deneme_oyunu)"
+else echo "  KIRMIZI karsilama Olustur: $(grep -m1 'karsilama' "$DIZIN/kyeni.log")"; [ "$KAPI" = 1 ] && kirmizi=1; fi
+if grep -q '^\[engine_editor\] karsilama: HATA .*bo' "$DIZIN/kdolu.log" && ! grep -q 'derleme evet' "$DIZIN/kdolu.log"; then
+  echo "  pozitif kontrol: dolu dizine Olustur reddedildi"
+else echo "  KIRMIZI pozitif kontrol: dolu dizin reddedilmedi"; [ "$KAPI" = 1 ] && kirmizi=1; fi
 # U2: panel duzeni proje (sahne) dizinine degil kullanici ayar dizinine (penceresizde gecici dizin).
 ay="$(grep -m1 '^\[engine_editor\] ayar: panel duzeni' "$DIZIN/1280x720.log" | sed 's/.*panel duzeni //')"
 if [ -z "$ay" ]; then echo "  ayar yolu: satir yok"; [ "$KAPI" = 1 ] && kirmizi=1

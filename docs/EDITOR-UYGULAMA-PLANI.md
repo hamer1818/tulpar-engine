@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3a ✅** fabrika çekirdeği C++'ta
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -127,6 +127,17 @@ kapısı bir sayıya dayansın.
   Pozitif kontrol: geçersiz kimlik (`Çılgın Oyun` → otomatik `cilgin_oyun`, elle `Ç` → form hatası),
   dolu hedef dizin → reddedilir.
 - **Not (Tuzaklar 8dq):** kimlik/önek doğrulaması yerel ayardan bağımsız (Türkçe `İ/ı` → ASCII slug).
+- **✅ Yapıldı (2026-11-05):** U3a `app/editor_fabrika.cpp` (+ `engine_editor --yeni-oyun`,
+  `--kimlik-oner`; `yeni_oyun.sh` artık onu çağırır, ikon stb ile — Python kalktı); U3b şablonun arenası
+  `assets/arena.sahne`'den (oyun `arena.sahneb`'yi yükler → F5 oyunu bulur; `ortam.sh` sahneyi derler);
+  U3c `app/editor_karsilama.cpp`: argümansız pencereli açılışta başlangıç ekranı (Yeni oyun: ad TR/EN,
+  kimlik/önek/konum otomatik, şablon, yön, gelişmiş alanlar; Son projeler; Aç; Örnek sahne; Boş editör;
+  Esc), arkası karartılmış; Oluştur → fabrika + sahneyi açar + derler. Dosya menüsünde "Başlangıç
+  ekranı". Kapı (`tools/editor_ux.sh --kapi`, yerel CI): karşılama 1280×720 / 1366×768 kesik 0;
+  `--karsilama-yeni <dizin>` Oluştur işleyicisi uçtan uca (proje + sahne + `.sahneb`); POZİTİF KONTROL
+  dolu dizine Oluştur reddedilir. Penceresiz karşılama koşumunda yerleşik kapılar koşmaz (ekran girdiyi
+  alır); bunu yaparken sonlandırma koşulunu da `kapilar`a çevirmiştim → koşum hiç bitmedi (yakalandı,
+  düzeltildi). Açık: "Konum" için klasör seçici U4'te (bugün metin alanı).
 
 ### U4 — İşletim sisteminin dosya seçicisi · ~1 oturum
 
