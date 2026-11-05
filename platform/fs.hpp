@@ -57,6 +57,18 @@ inline int fs_replace_file(const char *tmp_path, const char *dest_path) {
 #endif
 }
 
+// Bu surecin kimligi (gecici dosya adlarini surece ozgu yapmak icin). Ayni hedefe yazan
+// IKI surec ayni "<hedef>.tmp"yi kullaninca biri digerinin gecici dosyasini tasiyip
+// ikincinin rename'i ENOENT ile dusuyordu (olculdu 2026-11-05: ayni penceresiz kayit
+// dosyasini acan uc paralel oyun kosumundan biri "kayit yerine konamadi", hata=1).
+inline uint32_t fs_process_id() {
+#if defined(_WIN32)
+  return (uint32_t)GetCurrentProcessId();
+#else
+  return (uint32_t)::getpid();
+#endif
+}
+
 // Dosyayi SALT OKUNUR bellege esler (pack okuma yolu: KOPYA YOK). Basarisizsa
 // nullptr doner ve *out_size'a dokunmaz. Esleme dosya tanitici/handle'dan
 // BAGIMSIZ yasar: iki platformda da acilan tanitici hemen kapatilir.

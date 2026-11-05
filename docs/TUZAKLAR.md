@@ -2456,3 +2456,14 @@ adımındaki ilk gerçek ad (`ci_oyun`) yakaladı (ölçüldü 2026-11-05). **Ku
 ya da aralık denetimi `LC_ALL=C` altında yapılır (`gecerli() { local LC_ALL=C; [[ "$1" =~ $2 ]]; }`);
 `sort`, `tr a-z`, `[[ x < y ]]` aynı sınıftandır. İlgili: 8dp ("tek başına geçiyor, toplu düşüyor"
 gibi, burada da girdi kümesine bağlı yeşil).
+
+### 8dr. Aynı kayıt yolunu paylaşan paralel süreçler birbirinin `.tmp`'sini taşıyor — biri "kayit yerine konamadi"
+`teng_save_write` "gecici dosyaya yaz, sonra rename" deseninde geçici adı `<yol>.tmp` idi. Penceresiz kip
+(kit_kayit) her koşumu aynı geçici kayıt dosyasına bağlar; fabrika şablonunun `tools/dogrula.sh`'i üç
+koşumu PARALEL başlatınca hepsi açılışta aynı anda yazıyor, biri ötekinin `.tmp`'sini yerine koyuyor ve
+geç kalanın `rename`'i ENOENT ile düşüyordu → `hata=1`, kapı kırmızı. Üç doğrulamanın ikisinde oldu, tek
+koşumda hiç olmadı (ölçüldü 2026-11-05, RTX 5080 makinesi). Küp-Küre'nin 16 paralel `--hikaye`
+koşumu da aynı dosyayı açıyordu; şans eseri yakalanmamıştı. **Düzeltme:** geçici ad sürece özgü
+(`<yol>.<pid>.tmp`, `platform::fs_process_id`); son yazan kazanır, ikisi de hatasız. Sonra 6/6 yeşil.
+**Kural:** paralel koşturulacak her kapı (kullanıcı tercihi: testler tam güçte, paralel), süreçler arası
+paylaşılan dosya adı taşımamalı — geçici dosya adı sürece özgü olur.

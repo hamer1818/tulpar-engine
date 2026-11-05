@@ -146,7 +146,15 @@ wait $p1; rf1=$?; wait $p2; rf2=$?
 cat "$IS/fab_iyi.log" "$IS/fab_boz.log" > yapi/yerel_ci_fabrika.log
 if [ $rf1 != 0 ]; then r="HATA yeni_oyun: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_iyi.log")"
 elif [ $rf2 = 0 ]; then r="HATA pozitif kontrol: bozuk sablon YESIL gecti"
-else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); bozuk sablon kirmizi"; fi
+else
+  # Uretilen oyunun Android APK'si (x86_64 debug) derlenip APK'nin KENDISINDEN dogrulanir
+  # (paket, targetSdk, ABI, izin kumesi, ikon, varlik listesi). Cihaz kosumu (tools/android_dene.sh)
+  # cihaz ister; burada yok.
+  ( cd "$fab/iyi" && CIKTI="$fab/apk" DEBUG=1 ./apk_derle.sh x86_64 ) > "$IS/fab_apk.log" 2>&1; ra=$?
+  cat "$IS/fab_apk.log" >> yapi/yerel_ci_fabrika.log
+  if [ $ra != 0 ]; then r="HATA APK: $(grep -m1 -E 'HATA' "$IS/fab_apk.log")"
+  else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
+fi
 asama "Fabrika: yeni_oyun (arena)" $(( $(zaman) - t )) "$r"
 
 if [ "$HIZLI" = 0 ]; then

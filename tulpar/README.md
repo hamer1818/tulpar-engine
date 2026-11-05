@@ -101,7 +101,9 @@ tools/yeni_oyun.sh ../benim-oyunum --kimlik benim --onek BO --tr "Benim Oyunum" 
 
 `tulpar/sablonlar/arena/oyun.tpr` (oynanabilir en küçük döngü: menü, ayarlar, tur, duraklat, sonuç,
 otopilot + `[kapi]` satırı) ve `ortak/` dosyaları yer tutucular doldurularak kopyalanır; betik
-üretilen deponun `tools/dogrula.sh`'ini koşar, kırmızıysa kendisi de kırmızı döner.
+üretilen deponun `tools/dogrula.sh`'ini koşar, kırmızıysa kendisi de kırmızı döner. Android:
+iskeletteki `./apk_derle.sh [arm64-v8a|x86_64|ikisi]` (APK + statik doğrulama) ve
+`tools/android_dene.sh` (bağlı cihazda/emülatörde otopilot turu). Play'e yükleme iskelette yok.
 
 ## Tek kaynak kuralı
 

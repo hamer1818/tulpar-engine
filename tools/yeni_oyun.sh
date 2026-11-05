@@ -9,7 +9,7 @@
 #           ayar anahtarlari "<kimlik>_efekt" ...
 #   ONEK    ortam degiskeni onegi (BUYUK harf): TULPAR_<ONEK>_OTOPILOT / _DIL / _ACILIS ...
 #
-# Uretilen depo: oyun.tpr (sablon), tulpar.toml ([ext] .motor/yapi/tulpar-ext + [android]),
+# Uretilen depo: oyun.tpr (sablon), apk_derle.sh (Android APK + statik dogrulama), tulpar.toml ([ext] .motor/yapi/tulpar-ext + [android]),
 # tools/ortam.sh (.motor -> motor calisma agaci), tools/dogrula.sh (penceresiz kapi + pozitif
 # kontrol), assets/resimler/{acilis,arayuz}.png (kit atlaslari), ikon.png, .gitignore, OKUBENI.md.
 # Sonunda ISKELETIN KENDISI dogrulanir: tools/dogrula.sh kosar; kirmiziysa betik kirmizi doner
@@ -74,7 +74,8 @@ for f in "$MOTOR"/tulpar/sablonlar/ortak/*; do
   ad="$(basename "$f")"
   case "$ad" in
     tulpar.toml|OKUBENI.md|gitignore) yerlestir "$f" "$KOK/${ad/gitignore/.gitignore}" ;;
-    ortam.sh|dogrula.sh) yerlestir "$f" "$KOK/tools/$ad"; chmod +x "$KOK/tools/$ad" ;;
+    ortam.sh|dogrula.sh|android_dene.sh) yerlestir "$f" "$KOK/tools/$ad"; chmod +x "$KOK/tools/$ad" ;;
+    apk_derle.sh) yerlestir "$f" "$KOK/$ad"; chmod +x "$KOK/$ad" ;;
   esac
 done
 cp "$MOTOR/tulpar/kit/varlik/acilis.png" "$MOTOR/tulpar/kit/varlik/arayuz.png" "$KOK/assets/resimler/"

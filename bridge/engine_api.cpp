@@ -4636,8 +4636,11 @@ void teng_save_clear(void) {
 int teng_save_write(void) {
   CALL("teng_save_write");
   save_ensure();
-  char tmp[sizeof g_save.path + 8];
-  std::snprintf(tmp, sizeof tmp, "%s.tmp", g_save.path);
+  // Gecici ad SURECE ozgu (platform/fs.hpp fs_process_id): ayni kayit yolunu paylasan paralel
+  // surecler (penceresiz kapilar ayni gecici dosyayi acar) birbirinin .tmp'sini tasimasin.
+  // Son yazan kazanir; ikisi de hatasiz yazar.
+  char tmp[sizeof g_save.path + 24];
+  std::snprintf(tmp, sizeof tmp, "%s.%u.tmp", g_save.path, (unsigned)platform::fs_process_id());
   std::FILE *f = std::fopen(tmp, "wb");
   if (!f) { BERR("kayit yazilamadi (acilamadi): %s", tmp); return 0; }
   std::fprintf(f, "# tulpar engine kayit v1\n");

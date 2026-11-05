@@ -135,7 +135,7 @@ func ana_menu_ciz() {
     if (k_dugme("ayarlar", L("Ayarlar", "Settings"), IK_AYAR, STIL_IKINCIL, x, ui_px(410.0), bw, bh)) { kit_ses_cal(SES_TIKLA, 0.6, 0.0); g_ayar_donus = EKRAN_ANA; g_ekran = EKRAN_AYAR; }
 }
 func ayar_ciz() {
-    k_modal(L("Ayarlar", "Settings"), IK_AYAR, 620.0, 460.0);
+    k_modal(L("Ayarlar", "Settings"), IK_AYAR, 620.0, 400.0);
     float x = g_mx + k_g(3.0);
     float w = g_mw - k_g(6.0);
     float y = g_mic_y;
