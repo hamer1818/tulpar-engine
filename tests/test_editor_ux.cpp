@@ -50,6 +50,7 @@ ENGINE_TEST(editor_ux_imgui_kancasi_kesik_metni_gorur) {
 
   const char *uzun = "Bu etiket dar bir dugmeye asla sigmayacak kadar uzun bir metin";
   ux_olcum_sifirla(g_o);
+  g_o.kare = 2;   // isinma karelerini gec (editor_ux.cpp: ilk iki kare kesik sayilmaz)
   ux_olcum_baslat(&g_o);
   const uint32_t genis = bir_kare(780.0f, uzun);
   CHECK(g_o.metin_n >= 2);               // "kisa" ve etiket goruldu: kanca canli
@@ -83,6 +84,7 @@ ENGINE_TEST(editor_ux_kaplama_tasmasi_ve_gorunum_orani) {
 
 ENGINE_TEST(editor_ux_tablo_dolunca_tasan_sayilir) {
   ux_olcum_sifirla(g_o);
+  g_o.kare = 2;
   char b[32];
   for (uint32_t i = 0; i < UxOlcum::kKesik + 5; i++) {
     std::snprintf(b, sizeof b, "kesik-%u", i);
@@ -90,4 +92,15 @@ ENGINE_TEST(editor_ux_tablo_dolunca_tasan_sayilir) {
   }
   CHECK((g_o.kesik_n) == (UxOlcum::kKesik));
   CHECK((g_o.kesik_tasan) == (5u));
+}
+
+ENGINE_TEST(editor_ux_isinma_kareleri_kesik_sayilmaz) {
+  ux_olcum_sifirla(g_o);
+  const char *m = "dock henuz boyutlanmadi";
+  ux_olcum_metin(g_o, "p", m, m + std::strlen(m), 100.0f, 10.0f);   // kare 0
+  CHECK((g_o.kesik_n) == (0u));
+  CHECK((g_o.metin_n) == (1u));                                    // metin yine goruldu
+  g_o.kare = 2;
+  ux_olcum_metin(g_o, "p", m, m + std::strlen(m), 100.0f, 10.0f);
+  CHECK((g_o.kesik_n) == (1u));
 }

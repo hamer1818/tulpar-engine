@@ -318,11 +318,25 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     }
     (void)regained;
   }
+  // DIKEY YEDEK (EDITOR-UYGULAMA-PLANI U1, 2026-11-05): harfi dusurmek de yetmiyorsa (1280x720'de
+  // Ozellikler paneli: alan 26 px, "-11.212" 57 px — U0 olcumu 16 kesik deger) uc eksen ALT ALTA
+  // dizilir, her biri satirin tam genisliginde. Satir uc kat uzar ama SAYI KESILMEZ (kesik deger
+  // bilgi kaybidir; yer ise kaydirmayla geri gelir).
+  bool stacked = false;
+  if (field_w < need) {
+    stacked = true;
+    letter = true;
+    badge_w = std::floor(ImGui::CalcTextSize("X").x + s.FramePadding.x);
+    field_w = std::floor(w - (badge_w - overlap));
+  }
   if (field_w < badge_w) field_w = badge_w;
   ImDrawList *dl = ImGui::GetWindowDrawList();
   ImVec2 p = ImGui::GetCursorScreenPos();
+  const ImVec2 p0 = p;
+  const float row_step = h + s.ItemSpacing.y;
   const ImGuiSliderFlags sf = (min < max) ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
   for (int a = 0; a < 3; a++) {
+    if (stacked) p = ImVec2(p0.x, p0.y + (float)a * row_step);
     const float fx = p.x + badge_w - overlap;
     ImGui::SetCursorScreenPos(ImVec2(fx, p.y));
     ImGui::SetNextItemWidth(field_w);
@@ -350,6 +364,11 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     }
     g_vec3_layout.badge[a] = WidgetRect{b0.x, b0.y, b1.x, b1.y};
     p.x = fx + field_w + gap;
+  }
+  if (stacked) {
+    // Imleci uc satirin altina tasi (tablo satiri yuksekligi buna gore buyur).
+    ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + 2.0f * row_step));
+    ImGui::Dummy(ImVec2(1.0f, h));
   }
   g_last_prop = WidgetRect{g_vec3_layout.badge[0].x0, g_vec3_layout.badge[0].y0, g_vec3_layout.field[2].x1, g_vec3_layout.field[2].y1};
   ImGui::PopID();

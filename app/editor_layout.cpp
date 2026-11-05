@@ -319,14 +319,19 @@ bool layout_file_equal(const LayoutFile &a, const LayoutFile &b) {
 }
 
 // --- varsayilan yerlesim ----------------------------------------------------
+// (U1, 2026-11-05; EDITOR-UYGULAMA-PLANI) Alt seridin tamami KALKTI: Kaynaklar + Konsol sol
+// sutunun altina (Sahne'nin altinda, sekmeli), Dunya Ozellikler'in yanina sekme. 3B gorunum ekranin
+// tam yuksekligini alir. Olculdu (RTX 5080, headless, tools/editor_ux.sh): 1920x1080'de gorunum
+// orani 0.349 -> asagidaki satir; eski yerlesim yine kullanicinin kayitli dosyasindan yuklenir
+// (dosya bicimi ayni), varsayilan yalniz ilk acilista ve "Yerlesimi sifirla"da.
 // On-sirali dugumler:
-//   0 kok      (Y: ust / alt)
-//   1  ust     (X: sol / kalan)
-//   2   sol    -> Sahne
-//   3   kalan  (X: orta / sag)
-//   4    orta  -> Gorunum
-//   5    sag   -> Ozellikler
-//   6  alt     -> Kaynaklar + Dunya (sekmeli)
+//   0 kok      (X: sol / kalan)
+//   1  sol     (Y: ust / alt)
+//   2   ust    -> Sahne
+//   3   alt    -> Kaynaklar + Konsol (sekmeli)
+//   4  kalan   (X: orta / sag)
+//   5   orta   -> Gorunum
+//   6   sag    -> Ozellikler + Dunya (sekmeli)
 // Olculer trunc'lanir: dosya tam sayilarla okunur ve ImGui zaten ImTrunc'luyor.
 bool layout_default(ImGuiID dockspace_id, float w, float h, LayoutFile *out, LayoutError *err) {
   clear_err();
@@ -339,26 +344,24 @@ bool layout_default(ImGuiID dockspace_id, float w, float h, LayoutFile *out, Lay
   out->root_w = trunc_min1(w);
   out->root_h = trunc_min1(h);
   const float W = out->root_w, H = out->root_h;
-  const float bot = trunc_min1(H * kLayoutDefaultBottom);
-  const float top = trunc_min1(H - bot);
   const float left = trunc_min1(W * kLayoutDefaultLeft);
   const float right = trunc_min1(W * kLayoutDefaultRight);
   const float rest = trunc_min1(W - left);
   const float mid = trunc_min1(W - left - right);
+  const float left_bot = trunc_min1(H * kLayoutDefaultLeftBottom);
+  const float left_top = trunc_min1(H - left_bot);
   out->node_count = 7;
   LayoutNode *n = out->nodes;
-  n[0] = LayoutNode{-1, {1, 6}, 1, W, H};
-  n[1] = LayoutNode{0, {2, 3}, 0, W, top};
-  n[2] = LayoutNode{1, {-1, -1}, 2, left, top};
-  n[3] = LayoutNode{1, {4, 5}, 0, rest, top};
-  n[4] = LayoutNode{3, {-1, -1}, 2, mid, top};
-  n[5] = LayoutNode{3, {-1, -1}, 2, right, top};
-  n[6] = LayoutNode{0, {-1, -1}, 2, W, bot};
+  n[0] = LayoutNode{-1, {1, 4}, 0, W, H};
+  n[1] = LayoutNode{0, {2, 3}, 1, left, H};
+  n[2] = LayoutNode{1, {-1, -1}, 2, left, left_top};
+  n[3] = LayoutNode{1, {-1, -1}, 2, left, left_bot};
+  n[4] = LayoutNode{0, {5, 6}, 0, rest, H};
+  n[5] = LayoutNode{4, {-1, -1}, 2, mid, H};
+  n[6] = LayoutNode{4, {-1, -1}, 2, right, H};
   struct Slot { const char *name; uint32_t node, order; };
-  // Alt sektor sekmeli: Kaynaklar / Dunya / Konsol (Unity'nin Project+Console
-  // sekmeleri gibi) — konsol ayri bir yer kaplamasin, gerektiginde one gelsin.
-  const Slot slots[] = {{kPanelSahne, 2, 0},      {kPanelGorunum, 4, 0}, {kPanelOzellikler, 5, 0},
-                        {kPanelKaynaklar, 6, 0}, {kPanelDunya, 6, 1},   {kPanelKonsol, 6, 2}};
+  const Slot slots[] = {{kPanelSahne, 2, 0},      {kPanelGorunum, 5, 0}, {kPanelOzellikler, 6, 0},
+                        {kPanelKaynaklar, 3, 0}, {kPanelDunya, 6, 1},   {kPanelKonsol, 3, 1}};
   out->window_count = (uint32_t)(sizeof slots / sizeof slots[0]);
   for (uint32_t i = 0; i < out->window_count; i++) {
     // Kaynak BIZIM sabit tablomuz (k_panels), kirpma olamaz; yine de sinirli kopya.

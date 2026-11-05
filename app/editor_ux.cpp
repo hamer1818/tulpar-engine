@@ -62,16 +62,22 @@ void ux_olcum_metin(UxOlcum &o, const char *pencere, const char *metin, const ch
       o.metin_tasan++;
     }
   }
-  // 1 px pay: alt piksel yuvarlamasi "kesik" sayilmasin.
-  if (!(gerek > alan + 1.0f) || alan <= 0.0f) return;
+  // 1 px pay: alt piksel yuvarlamasi "kesik" sayilmasin. Ilk iki kare sayilmaz: dock agaci ilk
+  // karede henuz boyutlanmamis (U0'da "Konsol" sekmesi yalniz 1. karede "Ko" goruldu).
+  if (!(gerek > alan + 1.0f) || alan <= 0.0f || o.kare < 2) return;
   const uint64_t k = fnv(metin, son, pencere);
-  for (uint32_t i = 0; i < o.kesik_n; i++) if (o.kesik_ozet[i] == k) return;
+  for (uint32_t i = 0; i < o.kesik_n; i++) if (o.kesik_ozet[i] == k) {
+    if (o.kesik_kare[i] + o.kesik_tekrar[i] <= o.kare) o.kesik_tekrar[i]++;   // kare basina en cok bir
+    return;
+  }
   if (o.kesik_n >= UxOlcum::kKesik) { o.kesik_tasan++; return; }
   o.kesik_ozet[o.kesik_n] = k;
   kopyala(o.kesik[o.kesik_n], UxOlcum::kOrnek, metin, son);
   std::snprintf(o.kesik_pencere[o.kesik_n], sizeof o.kesik_pencere[0], "%s", pencere ? pencere : "?");
   o.kesik_gerek[o.kesik_n] = gerek;
   o.kesik_alan[o.kesik_n] = alan;
+  o.kesik_kare[o.kesik_n] = o.kare;
+  o.kesik_tekrar[o.kesik_n] = 1;
   o.kesik_n++;
 }
 
@@ -104,8 +110,9 @@ bool ux_olcum_yaz(const UxOlcum &o, const char *dosya) {
                o.kare, o.kesik_n, o.kesik_tasan, o.kaplama_tasan_kare, (double)o.kaplama_tasma_px,
                (double)o.gorunum_orani_son, (double)o.gorunum_orani_min, o.metin_n, o.metin_tasan);
   for (uint32_t i = 0; i < o.kesik_n; i++)
-    std::fprintf(f, "[ux] kesik pencere='%s' gerek=%.0f alan=%.0f metin='%s'\n", o.kesik_pencere[i],
-                 (double)o.kesik_gerek[i], (double)o.kesik_alan[i], o.kesik[i]);
+    std::fprintf(f, "[ux] kesik pencere='%s' gerek=%.0f alan=%.0f ilk_kare=%u kare_sayisi=%u metin='%s'\n",
+                 o.kesik_pencere[i], (double)o.kesik_gerek[i], (double)o.kesik_alan[i], o.kesik_kare[i],
+                 o.kesik_tekrar[i], o.kesik[i]);
   for (uint32_t i = 0; i < o.metin_n; i++) std::fprintf(f, "[ux] metin '%s'\n", o.metin[i]);
   if (dosya) std::fclose(f);
   return true;

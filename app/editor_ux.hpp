@@ -29,6 +29,8 @@ struct UxOlcum {
   char kesik[kKesik][kOrnek];
   char kesik_pencere[kKesik][48];
   float kesik_gerek[kKesik], kesik_alan[kKesik];
+  uint32_t kesik_kare[kKesik];       // ilk goruldugu kare (gecici yerlesim karelerini ayirt etmek icin)
+  uint32_t kesik_tekrar[kKesik];     // kac karede goruldu
   uint32_t kare = 0;
   uint32_t kaplama_tasan_kare = 0;   // kaplamanin gorunumden tastigi kare sayisi
   float kaplama_tasma_px = 0.0f;     // en buyuk tasma (piksel)

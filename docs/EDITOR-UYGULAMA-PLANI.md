@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅** (aşağıda §8)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -268,3 +268,25 @@ artık süreç kimliğiyle.
 6. Dosya > Aç: işletim sisteminin dosya seçicisi mi geldi?
 7. Ekranda anlamadığın bir terim gördün mü? (liste)
 8. Toplam süre ≤ 10 dk mı? Puan (1–10): ___
+
+**U1 sonrası (2026-11-05, aynı ölçüm, `tools/editor_ux.sh --kapi` YEŞİL, yerel CI'da):**
+
+| çözünürlük | kesik metin | Stats taşan kare | 3B görünüm oranı |
+|---|---|---|---|
+| 1280×720 | 21 → **0** | 41 → **0** | 0.300 → **0.431** |
+| 1366×768 | 18 → **0** | 41 → **0** | 0.310 → **0.442** |
+| 1920×1080 | 5 → **0** | 0 | 0.349 → **0.486** |
+| 2560×1440 | 4 → **0** | 0 | 0.374 → **0.514** |
+
+Yapılanlar: Dönüşüm X/Y/Z harfi düşürmek de yetmiyorsa **alt alta** (her eksen tam genişlik; sayı
+kesilmez); hızlı ekleme ızgarası sütun sayısını en geniş etikete göre seçer; En-Boy açılırı en uzun
+seçeneğe göre genişler; Stats varsayılan kapalı ve görünümün içine kenetli (sığmayan kısmı
+kaydırılır); varsayılan yerleşimde alt şerit kalktı — Kaynaklar + Konsol sol sütunun altında, Dünya
+Özellikler'in yanında sekme; Konsol dar panelde araç düğmelerini alt satıra alır, kare/etiket
+sütunlarını gizler (ipucunda). Düzen kapısının mutantı iki ölçüyü de değiştirir (yeni ağaçta ilk yaprak
+Y bölmesinin çocuğu; yalnız genişlik değişince kontrol "farklı HAYIR" diyordu).
+
+Eşik: görünüm ≥ 0.45 (plandaki 0.55 tahmini tutmadı: Görünüm panelinin kendi araç satırları ~95 px).
+Kapının duyarlılığı: 1024×600'de "Kaynaklar" sekmesi kesik=1 yakalandı. **Ölçülmeyen sınıf:**
+pencerenin tamamen dışında kalan öğe (ImGui hiç çizmez, kanca görmez) ve üst üste binen öğeler —
+Konsol'daki "Temizle"nin arama kutusunun altında kalması ekran görüntüsünde görüldü, sayıda değil.

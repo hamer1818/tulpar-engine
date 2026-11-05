@@ -209,6 +209,10 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
 
   ImGui::SetNextWindowPos(ImVec2(hud_x, hud_y), ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(hud_w, 0.0f), ImGuiCond_Always);
+  // Gorunumun ICINDE kalir (U1): yukseklik gorunumun alt kenarina kenetlenir, sigmayan kisim
+  // kaydirilir. Eskiden AlwaysAutoResize gorunumun altina, konsolun ustune tasiyordu.
+  const float hud_max_h = vr.h - 24.0f;
+  ImGui::SetNextWindowSizeConstraints(ImVec2(hud_w, 0.0f), ImVec2(hud_w, hud_max_h > 60.0f ? hud_max_h : 60.0f));
   ImGui::SetNextWindowBgAlpha(0.85f);
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
@@ -216,7 +220,8 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
   ImGui::PushStyleColor(ImGuiCol_WindowBg, tone_col(Tone::Bg0, 0.90f));
   ImGui::PushStyleColor(ImGuiCol_Border, tone_col(Tone::Line, 0.70f));
 
-  const ImGuiWindowFlags wf = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+  const ImGuiWindowFlags wf = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                              ImGuiWindowFlags_NoDocking |
                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                               ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
                               ImGuiWindowFlags_NoMove;
@@ -1915,7 +1920,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // PR #7 o bayraga geri donuyordu; donulmedi -- dort kip de cizim yolunda
   // canli.
   int view_mode = 0;
-  bool show_stats = true;
+  // Stats varsayilan KAPALI (U1, 2026-11-05): acikken 3B gorunumun sag yarisini kapliyordu ve
+  // 1280x720'de gorunumun DISINA, konsolun ustune tasiyordu (U0: 60 karenin 41'inde, 96 px).
+  // UX olcumu (--ux-rapor) kaplamanin kenetlenmesini olcmek icin onu ACIK baslatir.
+  bool show_stats = opts.ux_rapor != nullptr;
   bool was_playing = false;
   RecordCtx rctx{&ren, &ui, &vp, &dev};
   bool running = true;
@@ -3884,7 +3892,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       } else {
         // Oyun görünümü araçları
         static const char *const kAspectNames[] = {"Serbest En-Boy", "16:9 (FHD)", "16:10", "4:3", "21:9", "1:1"};
-        ImGui::SetNextItemWidth(130.0f);
+        // Genislik en uzun secenege gore (U1): sabit 130 px "Serbest En-Boy"u kesiyordu (U0).
+        {
+          float ew = 0.0f;
+          for (const char *n : kAspectNames) { const float tw = ImGui::CalcTextSize(n).x; if (tw > ew) ew = tw; }
+          ImGui::SetNextItemWidth(std::floor(ew + ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x * 2.0f + 2.0f));
+        }
         int cur_aspect = (int)game_aspect;
         if (ImGui::Combo("##aspect", &cur_aspect, kAspectNames, IM_ARRAYSIZE(kAspectNames))) {
           game_aspect = (GameAspect)cur_aspect;
@@ -6937,39 +6950,39 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::PushStyleColor(ImGuiCol_Button, tone_col(Tone::Bg2));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone_col(Tone::Bg3));
 
+        // Hizli ekleme izgarasi: sutun sayisi EN GENIS etikete gore (U1, 2026-11-05). Sabit uc
+        // sutun 1280x720'de "+ Zemin Sisi"yi 69 px'e sikistirip kesiyordu (U0 olcumu); dar
+        // panelde iki ya da tek sutuna iner, etiket asla kesilmez.
+        struct HizliEkle { const char *ad; const char *ipucu; int tur; };
+        static const HizliEkle kHizli[] = {
+            {"+ Bo\xC5\x9F", "Boş Varlık Oluştur (Empty Entity)", 1},
+            {"+ Model", "glTF / 3B Model Varlığı Ekle", 2},
+            {"+ I\xC5\x9F\xC4\xB1k", "Noktasal Işık (Point Light) Ekle", 3},
+            {"+ K\xC3\xBCp", "Temel Küp Primitifi Ekle", 10},
+            {"+ Huzme", "Hacimsel Işık Hüzmesi (Fake Godray Beam) Ekle", 64},
+            {"+ G\xC3\xB6k", "Atmosfer ve Skybox Ekle", 36},
+            {"+ Sis", "3B Hacimsel Sis Puf Bulutu (Küre)", 46},
+            {"+ Zemin Sisi", "Yatay Zemin Sisi (Ground Mist Sheet)", 70},
+            {"+ Duman", "Konik Baca Sisi / Duman Jeti", 71},
+        };
+        const int n_hizli = (int)(sizeof kHizli / sizeof kHizli[0]);
         const float avail_w = ImGui::GetContentRegionAvail().x;
         const float sp_x = ImGui::GetStyle().ItemSpacing.x;
-        const float btn_w = std::floor((avail_w - sp_x * 2.0f) / 3.0f);
-
-        // Satır 1: [ + Boş ] [ + Model ] [ + Işık ]
-        if (ImGui::Button("+ Bo\xC5\x9F", ImVec2(btn_w, 0))) do_add(1);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Boş Varlık Oluştur (Empty Entity)");
-        ImGui::SameLine();
-        if (ImGui::Button("+ Model", ImVec2(btn_w, 0))) do_add(2);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("glTF / 3B Model Varlığı Ekle");
-        ImGui::SameLine();
-        if (ImGui::Button("+ I\xC5\x9F\xC4\xB1k", ImVec2(btn_w, 0))) do_add(3);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Noktasal Işık (Point Light) Ekle");
-
-        // Satır 2: [ + Küp ] [ + Huzme ] [ + Gök ]
-        if (ImGui::Button("+ K\xC3\xBCp", ImVec2(btn_w, 0))) do_add(10);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Temel Küp Primitifi Ekle");
-        ImGui::SameLine();
-        if (ImGui::Button("+ Huzme", ImVec2(btn_w, 0))) do_add(64);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hacimsel Işık Hüzmesi (Fake Godray Beam) Ekle");
-        ImGui::SameLine();
-        if (ImGui::Button("+ G\xC3\xB6k", ImVec2(btn_w, 0))) do_add(36);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Atmosfer ve Skybox Ekle");
-
-        // Satır 3: [ + Sis ] [ + Zemin Sisi ] [ + Duman ]
-        if (ImGui::Button("+ Sis", ImVec2(btn_w, 0))) do_add(46);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("3B Hacimsel Sis Puf Bulutu (Küre)");
-        ImGui::SameLine();
-        if (ImGui::Button("+ Zemin Sisi", ImVec2(btn_w, 0))) do_add(70);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Yatay Zemin Sisi (Ground Mist Sheet)");
-        ImGui::SameLine();
-        if (ImGui::Button("+ Duman", ImVec2(btn_w, 0))) do_add(71);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Konik Baca Sisi / Duman Jeti");
+        float en_genis = 0.0f;
+        for (int i = 0; i < n_hizli; i++) {
+          const float tw = ImGui::CalcTextSize(kHizli[i].ad).x;
+          if (tw > en_genis) en_genis = tw;
+        }
+        en_genis += ImGui::GetStyle().FramePadding.x * 2.0f + 2.0f;
+        int sutun = (int)((avail_w + sp_x) / (en_genis + sp_x));
+        if (sutun > 3) sutun = 3;
+        if (sutun < 1) sutun = 1;
+        const float btn_w = std::floor((avail_w - sp_x * (float)(sutun - 1)) / (float)sutun);
+        for (int i = 0; i < n_hizli; i++) {
+          if (i % sutun != 0) ImGui::SameLine();
+          if (ImGui::Button(kHizli[i].ad, ImVec2(btn_w, 0))) do_add(kHizli[i].tur);
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kHizli[i].ipucu);
+        }
 
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
@@ -8501,7 +8514,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             if (std::sscanf(line, "dugum %d %d %c %f %f", &idx, &par, &ax, &w, &h) == 5 && ax == '-' && par >= 0 && w > 0) {
               char *eol = std::strchr(line, '\n');
               std::fwrite(txt, 1, (size_t)(line - txt), m);
-              std::fprintf(m, "dugum %d %d - %.9g %.9g", idx, par, w * 1.3f, h);
+              // Iki olcu de %30: yapragin ebeveyni x de bolse y de bolse oran degisir (U1 varsayilan
+              // yerlesiminde ilk yaprak Y bolmesinin cocugu; yalniz genislik degisince mutant AYNI
+              // kaliyordu ve kontrol "farkli HAYIR" dedi).
+              std::fprintf(m, "dugum %d %d - %.9g %.9g", idx, par, w * 1.3f, h * 1.3f);
               if (eol) std::fputs(eol, m);
               mutated = true;
             } else {

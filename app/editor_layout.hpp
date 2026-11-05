@@ -75,7 +75,7 @@ bool layout_is_panel(const char *name);
 // Varsayilan yerlesimin sektor oranlari (kok olcusunun kesri).
 constexpr float kLayoutDefaultLeft = 0.18f;   // Sahne
 constexpr float kLayoutDefaultRight = 0.22f;  // Ozellikler
-constexpr float kLayoutDefaultBottom = 0.25f; // Kaynaklar + Dunya (sekmeli)
+constexpr float kLayoutDefaultLeftBottom = 0.42f; // sol sutunun alti: Kaynaklar + Konsol (sekmeli; U1)
 
 struct LayoutError {
   char msg[192];

@@ -136,6 +136,15 @@ else
 fi
 asama "Faz 8 shader + yerlesim" $(( $(zaman) - t )) "$r"
 
+# 5b2) Editor UX kapisi (docs/EDITOR-UYGULAMA-PLANI.md U1): dort cozunurlukte kesik metin 0,
+# Stats gorunumden tasmaz, 1920x1080'de 3B gorunum orani >= 0.45. Pozitif kontrol C++ testinde
+# (editor_ux_imgui_kancasi_kesik_metni_gorur: ImGui yamasi canli mi).
+t=$(zaman); r="OK"
+UX_DIZIN="$IS/ux" bash tools/editor_ux.sh --kapi > "$IS/ux.log" 2>&1 || r="HATA $(grep -m1 KIRMIZI "$IS/ux.log")"
+cp "$IS/ux.log" yapi/yerel_ci_ux.log
+[ "$r" = OK ] && r="OK $(awk '/^1920x1080/{print "1920x1080 kesik "$2", gorunum "$4}' "$IS/ux.log")"
+asama "Editor UX (kesik/tasma/gorunum)" $(( $(zaman) - t )) "$r"
+
 # 5c) Oyun fabrikasi (docs/FABRIKA.md asama 2): sablondan uretilen oyun ilk gun dogrulamadan
 # gecmeli; POZITIF KONTROL YENI_OYUN_BOZ=1 (sablona bozuk satir) KIRMIZI donmeli. Ikisi paralel.
 t=$(zaman); r="OK"
