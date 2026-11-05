@@ -183,4 +183,12 @@ const char *recent_last_error();
 size_t recent_write(char *buf, size_t cap);
 bool recent_parse(const char *text, size_t len);
 
+// --- Kullanici ayar dosyasi yolu (EDITOR-UYGULAMA-PLANI U2) --------------------
+// `ad`in kullanici ayar dizinindeki yolu (platform::user_config_dir). Yeni yerde dosya YOKSA ve
+// `eski_yol` (eski konum: proje dizini ya da $HOME nokta dosyasi) VARSA icerik bir kez KOPYALANIR
+// (goc; eski dosyaya dokunulmaz — proje deposundaki dosyayi silmek kullanicinin karari).
+// Ayar dizini kurulamazsa eski yola duser ve *goc = 2 (cagiran loglar). *goc: 0 yok, 1 kopyalandi,
+// 2 eski yola dusuldu. Donus: false yalniz yol tampona sigmazsa.
+bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yol, int *goc);
+
 } // namespace tulpar::engine::app

@@ -36,6 +36,11 @@ for r in "${COZ[@]}"; do
     if [ "$r" = 1920x1080 ] && awk "BEGIN{exit !($g < 0.45)}"; then echo "  KIRMIZI $r: 3B gorunum orani $g < 0.45"; kirmizi=1; fi
   fi
 done
+# U2: panel duzeni proje (sahne) dizinine degil kullanici ayar dizinine (penceresizde gecici dizin).
+ay="$(grep -m1 '^\[engine_editor\] ayar: panel duzeni' "$DIZIN/1280x720.log" | sed 's/.*panel duzeni //')"
+if [ -z "$ay" ]; then echo "  ayar yolu: satir yok"; [ "$KAPI" = 1 ] && kirmizi=1
+elif [[ "$ay" == "$KOK/tests/"* ]]; then echo "  KIRMIZI ayar yolu proje dizininde: $ay"; [ "$KAPI" = 1 ] && kirmizi=1
+else echo "  ayar yolu: $ay (proje disinda)"; fi
 echo "raporlar: $DIZIN"
 [ "$KAPI" = 1 ] && { [ $kirmizi = 0 ] && echo "EDITOR UX: YESIL" || echo "EDITOR UX: KIRMIZI"; }
 exit $kirmizi

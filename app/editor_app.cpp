@@ -90,6 +90,7 @@
 #include "content/prefab.hpp"
 #include "app/editor_ux.hpp"
 #include "platform/fs.hpp"
+#include "platform/fs_ops.hpp"
 #include "rhi/offscreen.hpp"
 #include "rhi/swapchain.hpp"
 #include "sim/schedule.hpp"
@@ -1877,7 +1878,36 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Dosya yoksa ya da bozuksa sessizce varsayilan duzene dusulur -- bozuk bir
   // duzen dosyasi yuzunden editorun acilmamasi kabul edilemez.
   char layout_path[1024];
-  std::snprintf(layout_path, sizeof layout_path, "%s/editor_layout.txt", st.scene_dir);
+  // Penceresiz (otomasyon) kosum kullanicinin GERCEK ayarlarina dokunmaz: ayar dizini acikca
+  // verilmediyse gecici dizine yonlendirilir (surece ozgu ad; paralel kosumlar karismasin).
+  static char gecici_ayar[1100] = {0};   // biz kurduysak kapanista silinir
+  if (headless && !std::getenv("TULPAR_EDITOR_AYAR_DIZINI")) {
+    const char *tmp = std::getenv("TMPDIR");
+#if defined(_WIN32)
+    if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+#endif
+    static char ayar_env[1100];
+    std::snprintf(ayar_env, sizeof ayar_env, "%s/tulpar_editor_ayar_%u", (tmp && *tmp) ? tmp : "/tmp",
+                  (unsigned)platform::fs_process_id());
+#if defined(_WIN32)
+    _putenv_s("TULPAR_EDITOR_AYAR_DIZINI", ayar_env);
+#else
+    setenv("TULPAR_EDITOR_AYAR_DIZINI", ayar_env, 1);
+#endif
+    std::snprintf(gecici_ayar, sizeof gecici_ayar, "%s", ayar_env);
+  }
+  // Panel duzeni KULLANICININ ayari: proje dizinine degil kullanici ayar dizinine (U2, 2026-11-05;
+  // eskiden <sahne dizini>/editor_layout.txt — oyun depolarinda izlenmeyen dosya birakiyordu).
+  // Eski dosya varsa bir kez kopyalanir. Penceresiz kipte duzen YAZILMAZ (asagida), okunmaz da.
+  {
+    char eski[1024];
+    std::snprintf(eski, sizeof eski, "%s/editor_layout.txt", st.scene_dir);
+    int goc = 0;
+    if (!editor_ayar_yolu(layout_path, sizeof layout_path, "editor_layout.txt", eski, &goc)) std::snprintf(layout_path, sizeof layout_path, "%s", eski);
+    if (goc == 1) std::printf("[engine_editor] panel duzeni tasindi: %s -> %s (eski dosyaya dokunulmadi)\n", eski, layout_path);
+    if (goc == 2) std::printf("[engine_editor] kullanici ayar dizini kurulamadi; panel duzeni eski yerde: %s\n", layout_path);
+    std::printf("[engine_editor] ayar: panel duzeni %s\n", layout_path);
+  }
   bool layout_restored = false;
 
   EditorCamera cam;
@@ -1951,7 +1981,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   char recent_file[1024];
   {
     const char *home = std::getenv("HOME");
-    std::snprintf(recent_file, sizeof recent_file, "%s/.tulpar_son_sahneler", (home && *home) ? home : ENGINE_SOURCE_DIR);
+    char eski[1024];
+    std::snprintf(eski, sizeof eski, "%s/.tulpar_son_sahneler", (home && *home) ? home : ENGINE_SOURCE_DIR);
+    int goc = 0;
+    if (!editor_ayar_yolu(recent_file, sizeof recent_file, "son_sahneler", eski, &goc)) std::snprintf(recent_file, sizeof recent_file, "%s", eski);
+    if (goc == 1) std::printf("[engine_editor] son dosyalar tasindi: %s -> %s\n", eski, recent_file);
     recent_load(recent_file); // dosya yoksa false doner, liste bos kalir — HATA DEGIL
     recent_push(st.scene_path);
   }
@@ -9281,6 +9315,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               (double)sys.stats().peak / (1024.0 * 1024.0), 256u, sizeof(content::SceneOp),
               256.0 * (double)sizeof(content::SceneOp) / 1024.0);
   bool imgui_hata_var = false;
+  if (gecici_ayar[0]) platform::fs_remove_tree(gecici_ayar);   // penceresiz kosumun gecici ayar dizini
   if (opts.ux_rapor) {
     ux_olcum_bitir();
     if (ux_olcum_yaz(g_ux_olcum, opts.ux_rapor))

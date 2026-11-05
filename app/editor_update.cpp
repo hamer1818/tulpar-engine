@@ -8,6 +8,7 @@
 //      istek (check/download) tek bir yerden gecer ve sayilir (`requests`);
 //      penceresiz kipte o yer istegi REDDEDER ve reddi de sayar.
 #include "app/editor_update.hpp"
+#include "app/editor_files.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -681,9 +682,11 @@ bool upd_settings_default_path(char *out, size_t cap) {
   if (!home || !*home) home = std::getenv("USERPROFILE");
   if (home && *home) std::snprintf(dir, sizeof dir, "%s", home);
   else if (!platform::exe_dir(dir, sizeof dir)) return false;
-  const int n = std::snprintf(out, cap, "%s/.tulpar_guncelleme", dir);
-  if (n <= 0 || (size_t)n >= cap) { out[0] = 0; return false; }
-  return true;
+  char eski[kUpdPathCap];
+  const int n = std::snprintf(eski, sizeof eski, "%s/.tulpar_guncelleme", dir);
+  if (n <= 0 || (size_t)n >= sizeof eski) { out[0] = 0; return false; }
+  // Kullanici ayar dizini (U2): eski $HOME nokta dosyasi bir kez kopyalanir.
+  return editor_ayar_yolu(out, cap, "guncelleme", eski, nullptr);
 }
 
 bool upd_settings_load(const char *path, UpdSettings *out, UpdSettingsStats *st) {

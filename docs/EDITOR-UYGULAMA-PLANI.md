@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -97,6 +97,16 @@ kapısı bir sayıya dayansın.
 - Eski konumdaki dosya bir kez taşınır (göç), proje dizinine bir daha yazılmaz.
 - **Kapı:** editör testinde bir proje açılıp kapatılır → proje dizinine yazılan dosya **0** (dizin
   listesi önce/sonra). Pozitif kontrol: eski yolu zorla → 1 dosya yazıldığı görülür.
+- **✅ Yapıldı (2026-11-05):** `platform::user_config_dir` (`TULPAR_EDITOR_AYAR_DIZINI` > Windows
+  `%APPDATA%\Tulpar\Editor` > macOS `~/Library/Application Support/Tulpar Editor` > `$XDG_CONFIG_HOME`
+  / `~/.config/tulpar-editor`, mkdir -p); panel düzeni, son dosyalar (`son_sahneler`) ve güncelleme
+  tercihi (`guncelleme`) orada. Eski dosya bir kez KOPYALANIR, eskiye dokunulmaz
+  (`app::editor_ayar_yolu`). Penceresiz (otomasyon) koşum kullanıcının gerçek ayarlarına dokunmaz:
+  ayar dizini verilmediyse süreçe özgü geçici dizin, kapanışta silinir. Kapı: birim testi
+  `editor_ayar_yolu_kullanici_dizinine_bir_kez_tasir` (taşıma bir kez, üzerine yazmaz; POZİTİF
+  KONTROL kurulamayan dizin → eski yola düşer, `goc=2`) + `tools/editor_ux.sh --kapi`'de panel
+  düzeni yolu proje dizini dışında. Not: penceresiz kip düzeni zaten yazmıyordu; "proje dizinine 0
+  yazım" asıl pencereli kapanışta — o yol elle kontrol listesinde (§9).
 
 ### U3 — Açılış ekranı + proje kavramı + fabrika editörde · ~3 oturum
 

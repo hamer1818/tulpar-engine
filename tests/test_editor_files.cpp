@@ -503,3 +503,58 @@ ENGINE_TEST(files_confirm_modal_has_three_buttons) {
   std::printf("    [bilgi] KONTROL kapali onay kutusu: %u vertex (acik: %u)\n", p2.vertices, p.vertices);
   CHECK(p2.vertices < p.vertices);
 }
+
+// --- Kullanici ayar dizini (EDITOR-UYGULAMA-PLANI U2) ---------------------------------------
+namespace {
+void ayar_env(const char *v) {
+#if defined(_WIN32)
+  _putenv_s("TULPAR_EDITOR_AYAR_DIZINI", v ? v : "");
+#else
+  if (v) setenv("TULPAR_EDITOR_AYAR_DIZINI", v, 1);
+  else unsetenv("TULPAR_EDITOR_AYAR_DIZINI");
+#endif
+}
+bool dosya_yaz(const char *p, const char *icerik) {
+  std::FILE *f = std::fopen(p, "wb");
+  if (!f) return false;
+  std::fputs(icerik, f);
+  std::fclose(f);
+  return true;
+}
+bool dosya_oku(const char *p, char *buf, size_t cap) {
+  std::FILE *f = std::fopen(p, "rb");
+  if (!f) return false;
+  const size_t n = std::fread(buf, 1, cap - 1, f);
+  buf[n] = 0;
+  std::fclose(f);
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(editor_ayar_yolu_kullanici_dizinine_bir_kez_tasir) {
+  char kok[512], ayar[600], eski[600], yol[700], buf[256];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "ayar_kok"));
+  std::snprintf(ayar, sizeof ayar, "%s/alt/ayarlar", kok);   // yok: mkdir -p ile yaratilmali
+  std::snprintf(eski, sizeof eski, "%s/editor_layout.txt", kok);
+  CHECK(dosya_yaz(eski, "eski duzen\n"));
+  ayar_env(ayar);
+  int goc = -1;
+  CHECK(app::editor_ayar_yolu(yol, sizeof yol, "editor_layout.txt", eski, &goc));
+  CHECK(goc == 1);                                           // kopyalandi
+  CHECK(std::strncmp(yol, ayar, std::strlen(ayar)) == 0);    // yeni yer ayar dizininde
+  CHECK(dosya_oku(yol, buf, sizeof buf) && std::strcmp(buf, "eski duzen\n") == 0);
+  CHECK(dosya_oku(eski, buf, sizeof buf));                   // eski dosyaya dokunulmadi
+  // Ikinci kez: yeni yerde var -> goc yok, uzerine yazilmaz.
+  CHECK(dosya_yaz(yol, "yeni duzen\n"));
+  CHECK(app::editor_ayar_yolu(yol, sizeof yol, "editor_layout.txt", eski, &goc));
+  CHECK(goc == 0);
+  CHECK(dosya_oku(yol, buf, sizeof buf) && std::strcmp(buf, "yeni duzen\n") == 0);
+  // POZITIF KONTROL: ayar dizini KURULAMAZ (yolda dosya var) -> eski yola duser, goc 2.
+  char bozuk[700];
+  std::snprintf(bozuk, sizeof bozuk, "%s/dizin_degil", eski);   // eski bir DOSYA: altinda dizin olamaz
+  ayar_env(bozuk);
+  CHECK(app::editor_ayar_yolu(yol, sizeof yol, "editor_layout.txt", eski, &goc));
+  CHECK(goc == 2);
+  CHECK(std::strcmp(yol, eski) == 0);
+  ayar_env(nullptr);
+}

@@ -11,6 +11,8 @@
 #include <imgui.h>
 
 #include "app/editor_ui.hpp" // Tone, editor_tone, editor_ellipsize (TEK palet)
+#include "platform/fs_ops.hpp"
+#include "platform/paths.hpp"
 
 namespace tulpar::engine::app {
 
@@ -824,6 +826,32 @@ ConfirmResult confirm_modal(ConfirmState &s, const char *title, const char *mess
   if (r == ConfirmResult::None && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) close(ConfirmResult::Ok);
   ImGui::EndPopup();
   return r;
+}
+
+bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yol, int *goc) {
+  if (goc) *goc = 0;
+  if (!out || cap == 0 || !ad) return false;
+  char dir[1024];
+  if (!platform::user_config_dir(dir, sizeof dir)) {
+    if (goc) *goc = 2;
+    const int n = std::snprintf(out, cap, "%s", eski_yol ? eski_yol : ad);
+    return n > 0 && (size_t)n < cap;
+  }
+  const int n = std::snprintf(out, cap, "%s/%s", dir, ad);
+  if (n <= 0 || (size_t)n >= cap) { out[0] = 0; return false; }
+  if (eski_yol && *eski_yol && platform::fs_kind(out) == platform::FsKind::None && platform::fs_kind(eski_yol) == platform::FsKind::File) {
+    std::FILE *a = std::fopen(eski_yol, "rb");
+    std::FILE *b = a ? std::fopen(out, "wb") : nullptr;
+    if (a && b) {
+      char buf[4096];
+      size_t r;
+      while ((r = std::fread(buf, 1, sizeof buf, a)) > 0) std::fwrite(buf, 1, r, b);
+      if (goc) *goc = 1;
+    }
+    if (a) std::fclose(a);
+    if (b) std::fclose(b);
+  }
+  return true;
 }
 
 } // namespace tulpar::engine::app
