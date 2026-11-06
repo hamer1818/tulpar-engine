@@ -15,6 +15,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <winioctl.h>   // FSCTL_SET_REPARSE_POINT (fs_link_dir junction yolu)
 
 #include <cwchar>
 #else
@@ -124,6 +125,53 @@ bool fs_rmdir(const char *path) {
   }
   g_last_error = (int)e;
   return false;
+}
+
+bool fs_link_dir(const char *target, const char *link) {
+  wchar_t wl[kWPath], wt[kWPath];
+  if (!wpath(link, wl, kWPath) || !wpath(target, wt, kWPath)) return false;
+  const DWORD a = GetFileAttributesW(wl);
+  if (a != INVALID_FILE_ATTRIBUTES) {
+    if (!(a & FILE_ATTRIBUTE_REPARSE_POINT)) { g_last_error = ERROR_ALREADY_EXISTS; return false; }
+    // Dizin bagi/junction RemoveDirectoryW ile, dosya bagi DeleteFileW ile gider (hedef silinmez).
+    if (!((a & FILE_ATTRIBUTE_DIRECTORY) ? RemoveDirectoryW(wl) : DeleteFileW(wl))) { g_last_error = (int)GetLastError(); return false; }
+  }
+  // 0x2 = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE (Gelistirici Kipi; eski SDK basliginda yok).
+  if (CreateSymbolicLinkW(wl, wt, SYMBOLIC_LINK_FLAG_DIRECTORY | 0x2)) return true;
+  // Junction: hedef MUTLAK ve `\\?\` oneksiz olmali (yeniden ayristirma verisi `\??\C:\...`).
+  const wchar_t *t = wt;
+  if (t[0] == L'\\' && t[1] == L'\\' && t[2] == L'?' && t[3] == L'\\') t += 4;
+  wchar_t full[kWPath];
+  const DWORD fl = GetFullPathNameW(t, kWPath, full, nullptr);
+  if (fl == 0 || fl >= (DWORD)kWPath - 8) { g_last_error = (int)GetLastError(); return false; }
+  if (!CreateDirectoryW(wl, nullptr)) { g_last_error = (int)GetLastError(); return false; }
+  HANDLE h = CreateFileW(wl, GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+  if (h == INVALID_HANDLE_VALUE) { g_last_error = (int)GetLastError(); RemoveDirectoryW(wl); return false; }
+  // REPARSE_DATA_BUFFER (MountPointReparseBuffer) — ntifs.h'deki tanim, MinGW basliginda her zaman yok.
+  struct {
+    DWORD tag;
+    WORD veri_boy, ayrilmis;
+    WORD yerine_ofs, yerine_boy, basim_ofs, basim_boy;
+    wchar_t yol[2 * kWPath + 8];
+  } rb;
+  std::memset(&rb, 0, sizeof rb);
+  const size_t n = wcslen(full);
+  const wchar_t on[] = {L'\\', L'?', L'?', L'\\', 0};   // dizgi degil: "??\" trigraf gibi okunmasin
+  std::memcpy(rb.yol, on, 4 * sizeof(wchar_t));
+  std::memcpy(rb.yol + 4, full, n * sizeof(wchar_t));            // yerine-gecen ad: \??\C:\...
+  std::memcpy(rb.yol + 4 + n + 1, full, n * sizeof(wchar_t));    // basim adi: C:\...
+  rb.tag = IO_REPARSE_TAG_MOUNT_POINT;
+  rb.yerine_ofs = 0;
+  rb.yerine_boy = (WORD)((4 + n) * sizeof(wchar_t));
+  rb.basim_ofs = (WORD)((4 + n + 1) * sizeof(wchar_t));
+  rb.basim_boy = (WORD)(n * sizeof(wchar_t));
+  rb.veri_boy = (WORD)(8 + (4 + n + 1 + n + 1) * sizeof(wchar_t));
+  DWORD donen = 0;
+  const BOOL ok = DeviceIoControl(h, FSCTL_SET_REPARSE_POINT, &rb, (DWORD)(8 + rb.veri_boy), nullptr, 0, &donen, nullptr);
+  if (!ok) g_last_error = (int)GetLastError();
+  CloseHandle(h);
+  if (!ok) { RemoveDirectoryW(wl); return false; }
+  return true;
 }
 
 bool fs_set_readonly(const char *path, bool readonly) {
@@ -307,6 +355,18 @@ bool fs_rmdir(const char *path) {
 
 bool fs_remove_file(const char *path) {
   if (path && ::unlink(path) == 0) return true;
+  g_last_error = errno;
+  return false;
+}
+
+bool fs_link_dir(const char *target, const char *link) {
+  if (!target || !link) { g_last_error = EINVAL; return false; }
+  struct stat st;
+  if (::lstat(link, &st) == 0) {
+    if (!S_ISLNK(st.st_mode)) { g_last_error = EEXIST; return false; }
+    if (::unlink(link) != 0) { g_last_error = errno; return false; }
+  }
+  if (::symlink(target, link) == 0) return true;
   g_last_error = errno;
   return false;
 }

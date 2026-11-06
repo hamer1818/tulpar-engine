@@ -23,7 +23,7 @@ const Sayfa kSayfalar[] = {
     {"\xC4\xB0lk oyununuz",
      "1. Dosya > Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ekran\xC4\xB1 > Yeni oyun: oyunun ad\xC4\xB1n\xC4\xB1 yaz\xC4\xB1n, Olu\xC5\x9Ftur'a bas\xC4\xB1n.\n"
      "2. Edit\xC3\xB6r yeni projenin sahnesini a\xC3\xA7" "ar. Oyun dosyalar\xC4\xB1 se\xC3\xA7ti\xC4\x9Finiz klas\xC3\xB6rdedir "
-     "(varsay\xC4\xB1lan: Belgeler/TulparOyunlari).\n"
+     "(varsay\xC4\xB1lan: ev dizininizde TulparOyunlari; Windows'ta Belgeler/TulparOyunlari).\n"
      "3. F5 ile oynat\xC4\xB1n. Bilgisayarda Tulpar yoksa edit\xC3\xB6r tek t\xC4\xB1kla kurmay\xC4\xB1 \xC3\xB6nerir.\n"
      "4. De\xC4\x9Fi\xC5\x9Fiklikleri Ctrl+S ile kaydedin; bir dahaki a\xC3\xA7\xC4\xB1l\xC4\xB1\xC5\x9Fta Son projeler listesinde bulursunuz."},
     {"Sahne",

@@ -145,6 +145,14 @@ cp "$IS/ux.log" yapi/yerel_ci_ux.log
 [ "$r" = OK ] && r="OK $(awk '/^1920x1080/{print "1920x1080 kesik "$2", gorunum "$4}' "$IS/ux.log")"
 asama "Editor UX (kesik/tasma/gorunum)" $(( $(zaman) - t )) "$r"
 
+# 5b3) Arayuz surucusu (docs/ARAYUZ-SURUCUSU.md): penceresiz editoru betikle sur — menu, hiyerarsi
+# tiklamasi, Delete/Ctrl+Z, metin girisi; POZITIF KONTROL olmayan oge cikis 1.
+t=$(zaman); r="OK"
+bash tools/arayuz_kapi.sh "$IS/arayuz" > "$IS/arayuz.log" 2>&1 || r="HATA $(grep -m1 -E 'KIRMIZI|BOZUK' "$IS/arayuz.log")"
+cp "$IS/arayuz.log" yapi/yerel_ci_arayuz.log
+[ "$r" = OK ] && r="OK $(grep -o '[0-9]* komut tamam' "$IS/arayuz.log"); pozitif kontrol dustu"
+asama "Arayuz surucusu (betikli)" $(( $(zaman) - t )) "$r"
+
 # 5c) Oyun fabrikasi (docs/FABRIKA.md asama 2): sablondan uretilen oyun ilk gun dogrulamadan
 # gecmeli; POZITIF KONTROL YENI_OYUN_BOZ=1 (sablona bozuk satir) KIRMIZI donmeli. Ikisi paralel.
 t=$(zaman); r="OK"

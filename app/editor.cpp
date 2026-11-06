@@ -99,12 +99,18 @@ int main(int argc, char **argv) {
     else if (!std::strcmp(argv[i], "--kip") && i + 1 < argc) o.kip = argv[++i];
     else if (!std::strcmp(argv[i], "--tur")) o.tur = true;
     else if (!std::strcmp(argv[i], "--kapisiz")) o.kapisiz = true;
+    else if (!std::strcmp(argv[i], "--surucu") && i + 1 < argc) o.surucu = argv[++i];
+    else if (!std::strcmp(argv[i], "--surucu-canli") && i + 1 < argc) { o.surucu = argv[++i]; o.surucu_canli = true; }
+    else if (!std::strcmp(argv[i], "--surucu-dizin") && i + 1 < argc) o.surucu_dizin = argv[++i];
     else if (!std::strcmp(argv[i], "--arac") && i + 1 < argc) o.arac = argv[++i];
     else if (!std::strcmp(argv[i], "--yardim") && i + 1 < argc) o.yardim = argv[++i];
     else if (!std::strcmp(argv[i], "--tur-adim") && i + 1 < argc) { o.tur = true; o.tur_adim = std::atoi(argv[++i]); }
     else if (!std::strcmp(argv[i], "--karsilama-yeni") && i + 1 < argc) { o.karsilama_yeni = argv[++i]; o.karsilama = true; }
   }
   if (std::getenv("TULPAR_ENGINE_VK_VALIDATION")) o.validation = true;
+  // Surucu her zaman penceresiz (pencere acmadan dogrulama) ve yerlesik kapilar KOSMAZ (sahte tiklama
+  // karelerine karisirlar); kare sayisi sinir degil — surucu `cik` der.
+  if (o.surucu) { if (!o.headless_frames) o.headless_frames = 1; o.kapisiz = true; }
   if (o.headless_frames > 0) return app::editor_run(o, nullptr);
   platform::Window win;
   platform::WindowConfig wc;

@@ -184,10 +184,12 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   }
   ImGui::Dummy(ImVec2(0, st.ItemSpacing.y));
   const bool hazir = d.tr[0] && d.en[0] && d.kimlik[0] && d.konum[0];
+  // Vurgu rengi YALNIZ hazirken: soluk ama mavi dugme "basilabilir" okunuyordu (arayuz surucusu ekran
+  // goruntusu, 2026-11-06: hazir degilken (34,80,188), hazirken (38,99,235) — fark goze gorunmuyordu).
   if (!hazir) ImGui::BeginDisabled();
-  ImGui::PushStyleColor(ImGuiCol_Button, renk(Tone::Accent));
+  if (hazir) ImGui::PushStyleColor(ImGuiCol_Button, renk(Tone::Accent));
   if (ImGui::Button(ICON_MD_ROCKET_LAUNCH "  Olu\xC5\x9Ftur", ImVec2(w, ImGui::GetFrameHeight() * 1.4f))) e = KarsilamaEylem::YeniOyun;
-  ImGui::PopStyleColor();
+  if (hazir) ImGui::PopStyleColor();
   if (!hazir) ImGui::EndDisabled();
   if (d.hata[0]) ImGui::TextColored(renk(Tone::Err), "%s", d.hata);
   else if (d.bilgi[0]) ImGui::TextColored(renk(Tone::Ok), "%s", d.bilgi);

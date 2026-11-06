@@ -89,6 +89,7 @@
 #include "app/editor_update.hpp"
 #include "content/prefab.hpp"
 #include "app/editor_ux.hpp"
+#include "app/editor_surucu.hpp"
 #include "app/editor_karsilama.hpp"
 #include "app/editor_tur.hpp"
 #include "core/build_info.hpp"
@@ -1911,6 +1912,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     platform::asset_path(ipath, sizeof ipath, "assets/fonts/" FONT_ICON_FILE_NAME_MD);
     if (!ui.init(dev, rp, 1, image_count, fpath, 17.0f, 1.0f, true, ipath)) { std::fprintf(stderr, "editor ui: %s\n", ui.last_error()); return 1; }
     if (opts.ux_rapor) ux_olcum_baslat(&g_ux_olcum);
+    // Arayuz surucusu (editor_surucu.hpp): ux kancasindan SONRA (metin kancasini zincirler).
+    if (opts.surucu) {
+      SurucuAyar sa;
+      sa.komutlar = opts.surucu;
+      sa.dizin = opts.surucu_dizin;
+      sa.canli = opts.surucu_canli;
+      if (!surucu_baslat(sa)) return 2;
+    }
     if (!ui.icons_ok())
       console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "ikon fontu yuklenemedi (%s): ikonlar bos kutu cizilecek", ipath);
   }
@@ -2005,10 +2014,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
   EditorCamera cam;
   cam.target = st.scene.cam_target; cam.yaw = st.scene.cam_yaw; cam.pitch = st.scene.cam_pitch; cam.radius = st.scene.cam_radius;
-  if (headless) st.sel.set_single(0);
-  st.playing = headless && !opts.karsilama;   // karsilama kosumu sahneyi oynatmaz (goruntu urun gibi)
+  // Surucu kosumu URUN gibi acilir: betikli secim/oynatma/islem yok (kullanici ne gorurse o).
+  const bool betikli = headless && !opts.surucu;
+  if (betikli) st.sel.set_single(0);
+  st.playing = betikli && !opts.karsilama;   // karsilama kosumu sahneyi oynatmaz (goruntu urun gibi)
   if (st.playing) bodies_spawn(st, phys);
-  if (headless && st.scene.entity_count) {
+  if (betikli && st.scene.entity_count) {
     // Betikli durum: bir islem + geri al (gunluk kapali dongude calisiyor mu).
     SceneEntity e = st.scene.entities[0];
     e.pos.x += 1.0f;
@@ -2409,6 +2420,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     std::printf("[oyun] %s\n", line);
   };
   static char oyun_secim[content::kScenePathLen] = {0}; // tulpar/ koke GORELI (disindaysa mutlak)
+  // Fabrika projesinin .motor bagi (game_motor_bagla): oyun baslamadan once — derleyici tulpar.toml'daki
+  // .motor/tulpar-ext'i okur; bag yoksa "eklenti bulunamadi" ile duserdi.
+  auto motor_bagla = [&]() {
+    char motor[1100], e[700];
+    if (!masaustu_motor_dizini(motor, sizeof motor) && !platform::exe_dir(motor, sizeof motor)) return;
+    if (!game_motor_bagla(st.tulpar_dir, motor, e, sizeof e)) console_log(ConsoleLevel::Uyari, "oyun", "%s", e);
+  };
   auto run_game_with = [&](const char *game) {
     char exe[1024], comp[1024], ext[1024], why[768], log[1200], err[512];
     if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
@@ -2430,6 +2448,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     // Gunluk kullanici ayar dizinine: kurulu editorun dizini salt okunur olabilir (AppImage, U7b).
     if (!editor_ayar_yolu(log, sizeof log, "oyun.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/oyun.log", exe);
+    motor_bagla();
     if (!game_run_start(oyun, comp, ext, st.tulpar_dir, game, log, err, sizeof err)) {
       set_status(st, "oyun baslatilamadi: %s", err);
       console_log(ConsoleLevel::Hata, "oyun", "baslatilamadi: %s", err);
@@ -2497,6 +2516,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (h > platform::kGameChannelMaxSide) h = platform::kGameChannelMaxSide;
     // Gunluk kullanici ayar dizinine: kurulu editorun dizini salt okunur olabilir (AppImage, U7b).
     if (!editor_ayar_yolu(log, sizeof log, "oyun.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/oyun.log", exe);
+    motor_bagla();
     if (!game_run_start_embedded(oyun, comp, ext, st.tulpar_dir, game, log, w, h, err, sizeof err)) {
       console_log(ConsoleLevel::Hata, "oyun", "F5: baslatilamadi: %s", err);
       return false;
@@ -3507,9 +3527,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               CmdCtx *x = static_cast<CmdCtx *>(c);
               // Baslat: gomulu oyun (olmazsa fizik onizlemesi). Penceresiz kipte
               // (host yok) yalniz fizik: kapilar belirlenimli kalsin, gomulu
-              // yol kendi kapisinda ACIKCA istenir.
+              // yol kendi kapisinda ACIKCA istenir. Arayuz surucusu urun gibi davranir: gomulu oyun
+              // acilir (oyun da penceresiz: surucu istemcisi TULPAR_ENGINE_HEADLESS verir).
               if (x->st->playing) (*x->play)(false);
-              else (*x->play_auto)(x->host != nullptr);
+              else (*x->play_auto)(x->host != nullptr || surucu_acik());
             },
             &cc, nullptr, [](const void *c) { return static_cast<const CmdCtx *>(c)->st->playing; });
   cmds.bind(CommandId::PlayPause, [](void *c) { EditorState *s = static_cast<CmdCtx *>(c)->st; s->paused = !s->paused; }, &cc,
@@ -3758,6 +3779,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // (editor_ui.cpp io.AddMouse*Event), yani kapi kisayol kullanmiyor.
     static platform::InputState g_synth;
     if (headless) in = &g_synth;
+    // Arayuz surucusu: komutu ONCEKI karenin ogeleri/pikselleriyle isler, g_synth'i doldurur.
+    if (headless && surucu_acik() && !surucu_kare(g_synth, ores.pixels, oc.width, oc.height)) running = false;
     if (!headless) {
       if (!host->poll(host->user, &fw, &fh)) running = false;
       in = host->input ? host->input(host->user) : nullptr;
@@ -9711,8 +9734,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     prof.end_frame();
     frame_i++;
-    if (headless && frame_i >= opts.headless_frames) running = false;
+    if (headless && !surucu_acik() && frame_i >= opts.headless_frames) running = false;
   }
+  const int surucu_kod = surucu_bitir();
   // GUNCELLEME KAPISI (penceresiz): Updater'a HICBIR istek gitmemis olmali —
   // otomatik denetim (karar: penceresiz) ve kosum boyunca hicbir yol. Pozitif
   // kontrol ayni yolu DENER: menu komutunun govdesi (elle denetim) burada
@@ -9873,7 +9897,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   }
   if (imgui_hata_var) return 1;
   if (komut_hata) return 2;
-  return 0;
+  return surucu_kod;
 }
 
 } // namespace tulpar::engine::app

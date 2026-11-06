@@ -33,6 +33,13 @@ namespace tulpar::engine::app {
 // Motorun Tulpar eklenti paketi: TULPAR_MOTOR_EKLENTI, yoksa <editor dizini>/tulpar-ext
 // (icinde tulpar-ext.json olmali). `why`: bulunamadiysa ne denendi, ne yapilmali.
 bool game_find_extension(const char *exe_dir, char *out, uint32_t cap, char *why, uint32_t why_cap);
+// Fabrika projesinin `.motor` bagi (tulpar.toml `[ext] paths = [".motor/tulpar-ext"]`): yoksa ya da
+// kirik/eskiyse `motor_dizini`ne (tulpar-ext'in durdugu IKILI dizin) baglar. NEDEN: bagi yalniz
+// tools/ortam.sh kuruyordu (Oyun menusu araclari); editorde Yeni oyun -> F5 dogrudan `tulpar oyun.tpr`
+// calistirdi ve derleyici "eklenti bulunamadi: .motor/tulpar-ext (tulpar.toml)" ile DUSTU (arayuz
+// surucusuyle bulundu, 2026-11-06). Projede tulpar.toml yoksa / .motor gecmiyorsa / bag zaten dogruysa
+// dokunmaz. Donus: false = bag gerekliydi ama kurulamadi (err).
+bool game_motor_bagla(const char *proje, const char *motor_dizini, char *err, uint32_t err_cap);
 // Oyunu derleyecek `tulpar`i bul (yukaridaki sira). `ext_dir`: PATH'teki aday
 // bu paketle sinanir (`--ext <paket> version` 0 ile cikmali; sondanin ciktisi
 // exe_dir/tulpar_eklenti_sonda.log). `why`: bulunamadiysa ne denendi, ne yapilmali.

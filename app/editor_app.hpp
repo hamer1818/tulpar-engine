@@ -45,6 +45,12 @@ struct EditorOptions {
   const char *arac = nullptr;
   // --yardim rehber|kisayollar|cokme: yardim penceresini penceresizde de ac (U8 UX kapisi).
   const char *yardim = nullptr;
+  // --surucu <betik> / --surucu-canli <fifo> (app/editor_surucu.hpp, docs/ARAYUZ-SURUCUSU.md):
+  // penceresiz editoru komutla sur (tikla "Dosya", ekran, dogrula_oge ...). Kapilar kosmaz,
+  // betikli secim/oynatma yok; editor `cik` ya da betik sonunda kapanir, cikis kodu = dogrulamalar.
+  const char *surucu = nullptr;
+  const char *surucu_dizin = nullptr;
+  bool surucu_canli = false;
   int tur_adim = 0;
   const char *karsilama_yeni = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni

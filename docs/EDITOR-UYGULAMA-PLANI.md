@@ -468,6 +468,25 @@ artık süreç kimliğiyle.
 7. Ekranda anlamadığın bir terim gördün mü? (liste)
 8. Toplam süre ≤ 10 dk mı? Puan (1–10): ___
 
+**Ajanın ön doğrulaması — arayüz sürücüsü (2026-11-06, `docs/ARAYUZ-SURUCUSU.md`):** penceresiz
+editör komutla sürülüyor (tıkla / yaz / tuş / ekran görüntüsü; hedef etiketle). Adım 3–4, karşılama
+ekranından gerçek tıklamalarla koşturuldu: Yeni oyun → ad + İngilizce ad + konum → Oluştur → sahne
+açıldı → F5 → oyun Oyun sekmesinde çalıştı ("Toplanan 1"). Bulunan ve düzeltilenler:
+
+- **F5 yeni projede düşüyordu:** derleyici "eklenti bulunamadı: .motor/tulpar-ext (tulpar.toml)"
+  dedi. `.motor` bağını yalnız `tools/ortam.sh` kuruyordu, yani yalnız Oyun menüsü araçları.
+  Artık oyun başlamadan editör kuruyor: `game_motor_bagla`. Windows'ta bu bir sembolik bağ, yetki
+  yoksa junction. Test: `game_motor_bagi_kurulur_yenilenir_ezmez`.
+- **Menüler yarı saydamdı:** `PopupBg` alfası 0.98'di; açık menünün altından araç çubuğu yazıları
+  hayalet gibi okunuyordu (~%7 sızma ölçüldü). Artık opak.
+- **Pasif "Oluştur" düğmesi etkin gibi görünüyordu:** pasifken (34,80,188), hazırken (38,99,235)
+  ölçüldü; fark gözle seçilmiyordu. Vurgu rengi artık yalnız hazırken var.
+- **Rehberde yanlış varsayılan klasör:** "Belgeler/TulparOyunlari" yazıyordu; Linux'ta varsayılan
+  `~/TulparOyunlari`.
+
+Kalan adımlar pencereli/kurulu yolda kullanıcıda: 1, 2, 5'in kapat/yeniden aç kısmı ve 6 (işletim
+sisteminin seçicisi).
+
 **U1 sonrası (2026-11-05, aynı ölçüm, `tools/editor_ux.sh --kapi` YEŞİL, yerel CI'da):**
 
 | çözünürlük | kesik metin | Stats taşan kare | 3B görünüm oranı |

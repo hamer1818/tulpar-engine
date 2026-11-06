@@ -1,0 +1,4 @@
+# POZITIF KONTROL (tools/arayuz_kapi.sh): olmayan oge DUSMELI — surucu "her seyi buldu" demiyor.
+tikla "Dosya"
+dogrula_oge "Boyle Bir Menu Ogesi Yok" kare=10
+cik

@@ -202,7 +202,10 @@ void theme_colors(ImGuiStyle &s) {
   c[ImGuiCol_TextDisabled] = kTextMute;
   c[ImGuiCol_WindowBg] = kBg1;
   c[ImGuiCol_ChildBg] = fade(kBg0, 0.0f); // saydam: cocuk alan pencereyi bozmasin
-  c[ImGuiCol_PopupBg] = fade(kBg2, 0.98f);
+  // Opak: 0.98 alfada menu/acilir pencere altindaki arac cubugu yazilari HAYALET gibi okunuyordu
+  // (arayuz surucusunun ilk ekran goruntusunde, 2026-11-06: Dosya menusu altinda "Oynat", "Tasi"
+  // seciliyordu; parlak metin ~%7 sizdi — karisim dogrusal uzayda, goruntu sRGB).
+  c[ImGuiCol_PopupBg] = kBg2;
   c[ImGuiCol_Border] = kLine;
   c[ImGuiCol_BorderShadow] = fade(kBg0, 0.0f);
   // Girdi alani COKUK (panelden koyu), dugme KABARIK (panelden acik).

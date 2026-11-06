@@ -5814,6 +5814,16 @@ void ImFont::RenderChar(ImDrawList* draw_list, float size, const ImVec2& pos, Im
 // DO NOT CALL DIRECTLY THIS WILL CHANGE WILDLY IN 2026. Use ImDrawList::AddText().
 void ImFont::RenderText(ImDrawList* draw_list, float size, const ImVec2& pos, ImU32 col, const ImVec4& clip_rect, const char* text_begin, const char* text_end, float wrap_width, ImDrawTextFlags flags)
 {
+    // TULPAR YAMASI (imconfig.h): metnin ekrandaki yeri + kirpma dikdortgeni. BUTUN metin buradan
+    // gecer (ImGui widget'lari, InputText'in kendi cizimi, editorun dogrudan dl->AddText cizimleri) —
+    // arayuz surucusu "metne tikla"yi bununla yapar.
+    if (GImGuiTulparMetinKonumKanca && text_begin && (text_end ? text_end > text_begin : text_begin[0] != 0))
+    {
+        const char* son = text_end ? text_end : text_begin + ImStrlen(text_begin);
+        const ImVec2 sz = CalcTextSizeA(size, FLT_MAX, wrap_width, text_begin, son);
+        const float kirp[4] = {clip_rect.x, clip_rect.y, clip_rect.z, clip_rect.w};
+        GImGuiTulparMetinKonumKanca(text_begin, son, pos.x, pos.y, sz.x, sz.y, kirp);
+    }
 begin:
     // Align to be pixel perfect
     float x = pos.x;
