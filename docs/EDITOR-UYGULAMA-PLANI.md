@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -275,6 +275,36 @@ kapısı bir sayıya dayansın.
   - AppImage salt okunur: güncelleyici dosya dosya değiştiremez. Karar: AppImage dosyası bütün
     olarak yenisiyle değiştirilir (`$APPIMAGE`).
   - Windows kurucusu yerelde derlenemez (MinGW/ISCC yok), CI'da ölçülür.
+
+**U7b notu (2026-11-06, Linux tarafı yapıldı):**
+- **İkon (K7):** TulparLang logosu `assets/ikon/tulpar_{16..512}.png` ve `tulpar.ico` olarak eklendi.
+  - Pencere ikonu `glfwSetWindowIcon` ile verilir (X11/Windows).
+  - Wayland'de ikon `app_id = dev.tulparlang.TulparEditor` üzerinden `.desktop`'tan gelir.
+- **Masaüstü kaydı** (`app/editor_masaustu`):
+  - `~/.local/share` altına `.desktop` dosyası yazılır; Exec, AppImage'ın kendi yoludur.
+  - Ayrıca hicolor ikonlar ve `application/x-tulpar-sahne` (`*.sahne`) dosya türü yazılır.
+  - AppImage ilk açılışta, ya da taşındıysa, kendini kaydeder. Elle kayıt: Yardım menüsü ya da
+    `--masaustu-kaydet`.
+- **AppImage** (`tools/kurulum/appimage.sh`):
+  - Paket dizini + AppRun ile 12 MB'lık tek dosya üretir.
+  - appimagetool 1.9.1 ve type2-runtime 20251108 sürüm ve SHA-256 ile sabitlendi; GitHub
+    yayın özetiyle karşılaştırıldı.
+  - Kapı: AppImage'ın içi SALT OKUNUR açılır ve kaynaksız koşar; masaüstü kaydı denenir.
+    Pozitif kontrol: sahnesiz AppImage düşer. Kapı yerel_ci'de 5e aşaması.
+- **Salt okunur kurulumun bulduğu hatalar:**
+  - Penceresiz düzen kapısı `tests/assets`'e yazıyordu; artık ayar dizinine yazıyor.
+  - `oyun.log`, `tulpar_eklenti_sonda.log` ve `engine_hata.log` ikili dizinine yazılıyordu;
+    artık ayar dizinine (ya da yedek olarak oraya) yazılıyor.
+- **AppImage'ta motor dizini:** AppImage her açılışta farklı bir geçici yerde açılır
+  (`/tmp/.mount_*`). Proje `.motor` bağlantısı oraya bağlanırsa editör kapanınca kopardı. Bu yüzden
+  `tulpar-ext` ve `engine_sahnec` `~/.local/share/tulpar-editor/motor-<sürüm>`'e kopyalanır;
+  Oyun menüsü bu kalıcı yolu verir.
+- **Güncelleyici:** AppImage'ta devre dışı ve nedenini söyler ("yeni .AppImage'ı indirin").
+  AppImage dosyasını bütün olarak değiştirmek U7c'ye kaldı.
+- **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur.
+  Doğrusu örneği kullanıcı dizinine kopyalamak; U8'de ele alınacak.
+- **Sırada (Windows):** Inno Setup + windres ikonu. Yerelde derlenemiyor (MinGW/ISCC yok); CI'da
+  "gönder"le ölçülür.
 
 ### U8 — Yardım ve destek · ~1 oturum
 

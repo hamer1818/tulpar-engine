@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "platform/paths.hpp"
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
 
@@ -37,10 +38,17 @@ namespace {
 // `tulpar --ext <paket> version` 0 ile cikiyor mu: derleyici yerel eklentiyi
 // (K303) taniyor ve paketin bildirimi gecerli. Eski bir tulpar `--ext`i
 // tanimaz ve paket yolunu kaynak dosya sanip duser. Ust sinir 5 s.
+// Sonda gunlugu: kullanici ayar dizini (kurulu editorun dizini salt okunur olabilir: AppImage),
+// bulunamazsa ikilinin dizini.
+void sonda_gunlugu(const char *exe_dir, char *out, size_t cap) {
+  char d[1024];
+  if (platform::user_config_dir(d, sizeof d)) std::snprintf(out, cap, "%s/tulpar_eklenti_sonda.log", d);
+  else std::snprintf(out, cap, "%s/tulpar_eklenti_sonda.log", exe_dir ? exe_dir : ".");
+}
 bool compiler_takes_extension(const char *comp, const char *ext_dir, const char *exe_dir, int *exit_code) {
   *exit_code = -1;
   char log[1100];
-  std::snprintf(log, sizeof log, "%s/tulpar_eklenti_sonda.log", exe_dir ? exe_dir : ".");
+  sonda_gunlugu(exe_dir, log, sizeof log);
   const char *argv[] = {comp, "--ext", ext_dir, "version", nullptr};
   platform::ProcessSpec s;
   s.argv = argv;
@@ -130,11 +138,13 @@ bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uin
   if (!ext_dir || !*ext_dir) return true;
   int kod = -1;
   if (compiler_takes_extension(out, ext_dir, exe_dir, &kod)) return true;
+  char sonda[1100];
+  sonda_gunlugu(exe_dir, sonda, sizeof sonda);
   if (why && why_cap)
     std::snprintf(why, why_cap,
                   "PATH'teki tulpar (%s) motorun eklenti paketini kullanamiyor (`tulpar --ext %s version` cikis %d; "
-                  "ayrinti %s/tulpar_eklenti_sonda.log). Yerel eklenti (--ext) destekli bir TulparLang gerekir: `tulpar update`",
-                  out, ext_dir, kod, exe_dir ? exe_dir : ".");
+                  "ayrinti %s). Yerel eklenti (--ext) destekli bir TulparLang gerekir: `tulpar update`",
+                  out, ext_dir, kod, sonda);
   if (eksik) *eksik = DerleyiciEksik::Eski;   // out SILINMEZ: "Guncelle" bu yolu kosturur
   return false;
 }

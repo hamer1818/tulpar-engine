@@ -8,8 +8,11 @@
 
 #include "app/editor_app.hpp"
 #include "app/editor_fabrika.hpp"
+#include "app/editor_masaustu.hpp"
 #include "app/editor_update.hpp"
+#include "content/image.hpp"
 #include "core/build_info.hpp"
+#include "platform/paths.hpp"
 #include "platform/startup_report.hpp"
 #include "platform/window.hpp"
 
@@ -71,6 +74,13 @@ int main(int argc, char **argv) {
     }
   }
   for (int i = 1; i < argc; i++) {
+    // Masaustu kaydi (U7b): menu girdisi + ikon + .sahne turu, PENCERESIZ. XDG_DATA_HOME ile yonlenir.
+    if (!std::strcmp(argv[i], "--masaustu-kaydet")) {
+      const app::MasaustuSonuc s = app::masaustu_kaydet(i + 1 < argc ? argv[i + 1] : nullptr, true);
+      if (!s.ok) { std::fprintf(stderr, "HATA: %s\n", s.hata); return s.desteklenmiyor ? 3 : 2; }
+      std::printf("masaustu: %u dosya %s altina yazildi (%s)\n", s.dosya, s.veri_dizini, app::kMasaustuKimlik);
+      return 0;
+    }
     if (!std::strcmp(argv[i], "--surum")) return app::update_cli_version();
     if (!std::strcmp(argv[i], "--guncelleme")) return app::update_cli(i + 1 < argc ? argv[i + 1] : nullptr);
   }
@@ -103,6 +113,27 @@ int main(int argc, char **argv) {
   const char *surum = build_version();
   std::snprintf(title, sizeof title, surum[0] ? "Tulpar Editor %s" : "Tulpar Editor", surum);
   wc.width = o.width; wc.height = o.height; wc.title = title;
+  // Masaustu kimligi + pencere ikonu (U7b). Ikon bulunamazsa pencere ikonsuz acilir, sebep stderr'de.
+  wc.app_id = app::kMasaustuKimlik;
+  content::ImageRgba ikon;
+  {
+    char yol[1024], e[256];
+    if (platform::asset_path(yol, sizeof yol, app::kEditorIkonu) && content::image_load_file(yol, &ikon, e, sizeof e)) {
+      wc.icon_rgba = ikon.px; wc.icon_w = ikon.w; wc.icon_h = ikon.h;
+    } else {
+      std::fprintf(stderr, "[editor] pencere ikonu yuklenemedi: %s\n", yol);
+    }
+  }
+  // AppImage ilk acilista (ya da tasindiysa) kendini menuye/dosya turune kaydeder: AppImage tek
+  // dosya, kurulum adimi yok — kullanici onu calistirinca "uygulama" olmali (K3).
+  if (std::getenv("APPIMAGE")) {
+    char exe[1024];
+    if (app::masaustu_exe(exe, sizeof exe) && !app::masaustu_kayitli(exe)) {
+      const app::MasaustuSonuc s = app::masaustu_kaydet(exe, true);
+      if (s.ok) std::printf("[editor] masaustu kaydi: %u dosya (%s)\n", s.dosya, s.veri_dizini);
+      else std::fprintf(stderr, "[editor] masaustu kaydi yapilamadi: %s\n", s.hata);
+    }
+  }
   // Hata IKI yere: stderr (degismedi) + <ikili dizini>/engine_hata.log.
   // .exe'ye cift tiklayan kullanici konsolu goremez; gunluk onun icin.
   if (!win.open(wc)) { platform::startup_failure("pencere: %s", win.last_error()); return 1; }
@@ -117,5 +148,6 @@ int main(int argc, char **argv) {
   host.is_fullscreen = w_is_fullscreen;
   int rc = app::editor_run(o, &host);
   win.close();
+  content::image_free(ikon);
   return rc;
 }

@@ -175,6 +175,19 @@ cp "$IS/paket.log" yapi/yerel_ci_paket.log
 [ "$r" = OK ] && r="OK $(du -sh "$IS/paket" | cut -f1); $(grep -c '^  var ' "$IS/paket.log") dosya var; fabrika + eklenti kosusu + pozitif kontroller"
 asama "Paket (package.sh)" $(( $(zaman) - t )) "$r"
 
+# 5e) Linux AppImage (EDITOR-UYGULAMA-PLANI U7b): paketten tek dosya; ici SALT OKUNUR acilip
+# kaynaksiz kosar, masaustu kaydi, POZITIF KONTROL sahnesiz AppImage duser. Paket yoksa kosmaz.
+t=$(zaman); r="OK"
+if [ -x "$IS/paket/engine_editor" ]; then
+  bash tools/kurulum/appimage.sh "$IS/paket" "$IS/Tulpar_Editor-x86_64.AppImage" > "$IS/appimage.log" 2>&1 || \
+    r="HATA $(grep -m1 -E 'KIRMIZI|HATA|BOZUK' "$IS/appimage.log")"
+  [ "$r" = OK ] && r="OK $(du -h "$IS/Tulpar_Editor-x86_64.AppImage" | cut -f1); salt okunur kosum + masaustu kaydi + pozitif kontrol"
+else
+  r="HATA paket yok (5d kirmizi)"
+fi
+cp "$IS/appimage.log" yapi/yerel_ci_appimage.log 2>/dev/null || true
+asama "AppImage (Linux kurulum)" $(( $(zaman) - t )) "$r"
+
 if [ "$HIZLI" = 0 ]; then
   # 6) clang sozdizimi (macOS ayaginin derleyici vekili)
   t=$(zaman); r="OK"

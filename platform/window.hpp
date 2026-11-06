@@ -12,6 +12,13 @@ struct WindowConfig {
   uint32_t height = 720;
   const char *title = "Tulpar Engine";
   bool resizable = true;
+  // Masaustu kimligi (EDITOR-UYGULAMA-PLANI U7): Wayland app_id / X11 WM_CLASS. Gorev cubugu ve
+  // kompozitor ikonu .desktop dosyasini BU adla eslestirir (Wayland pencere ikonu kabul etmez).
+  // null: GLFW varsayilani. Ornek: "dev.tulparlang.TulparEditor".
+  const char *app_id = nullptr;
+  // Pencere ikonu (X11 / Windows): RGBA8, sol ustten satir satir. null: yok. Wayland'de etkisiz.
+  const uint8_t *icon_rgba = nullptr;
+  uint32_t icon_w = 0, icon_h = 0;
 };
 
 struct InputState {

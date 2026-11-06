@@ -93,6 +93,7 @@
 #include "app/editor_tur.hpp"
 #include "core/build_info.hpp"
 #include "app/editor_fabrika.hpp"
+#include "app/editor_masaustu.hpp"
 #include "platform/fs.hpp"
 #include "platform/fs_ops.hpp"
 #include "rhi/offscreen.hpp"
@@ -2402,7 +2403,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       std::printf("[engine_editor] oyun: REDDEDILDI (penceresiz kip, TULPAR_ENGINE_HEADLESS yok)\n");
       return;
     }
-    std::snprintf(log, sizeof log, "%s/oyun.log", exe);
+    // Gunluk kullanici ayar dizinine: kurulu editorun dizini salt okunur olabilir (AppImage, U7b).
+    if (!editor_ayar_yolu(log, sizeof log, "oyun.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/oyun.log", exe);
     if (!game_run_start(oyun, comp, ext, st.tulpar_dir, game, log, err, sizeof err)) {
       set_status(st, "oyun baslatilamadi: %s", err);
       console_log(ConsoleLevel::Hata, "oyun", "baslatilamadi: %s", err);
@@ -2468,7 +2470,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (h < 16) h = 16;
     if (w > platform::kGameChannelMaxSide) w = platform::kGameChannelMaxSide;
     if (h > platform::kGameChannelMaxSide) h = platform::kGameChannelMaxSide;
-    std::snprintf(log, sizeof log, "%s/oyun.log", exe);
+    // Gunluk kullanici ayar dizinine: kurulu editorun dizini salt okunur olabilir (AppImage, U7b).
+    if (!editor_ayar_yolu(log, sizeof log, "oyun.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/oyun.log", exe);
     if (!game_run_start_embedded(oyun, comp, ext, st.tulpar_dir, game, log, w, h, err, sizeof err)) {
       console_log(ConsoleLevel::Hata, "oyun", "F5: baslatilamadi: %s", err);
       return false;
@@ -3555,6 +3558,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       ImGui::EndMenu();
     } else if (cat == CommandCategory::Help) {
       if (m->tur && ImGui::MenuItem("\xC4\xB0lk turu yeniden g\xC3\xB6ster")) { m->tur->acik = true; m->tur->adim = 0; }
+#if !defined(_WIN32) && !defined(__APPLE__)
+      // U7b: uygulama menusu + ikon + .sahne cift tik (AppImage bunu ilk acilista kendisi yapar).
+      if (ImGui::MenuItem("Uygulama men\xC3\xBCs\xC3\xBC" "ne ekle (.sahne dosyalar\xC4\xB1 edit\xC3\xB6rle a\xC3\xA7\xC4\xB1ls\xC4\xB1n)")) {
+        const MasaustuSonuc ms = masaustu_kaydet(nullptr, true);
+        if (m->st) {
+          if (ms.ok) set_status(*m->st, "uygulama men\xC3\xBCs\xC3\xBC" "ne eklendi (%u dosya, %s)", ms.dosya, ms.veri_dizini);
+          else set_status(*m->st, "men\xC3\xBC" "ye eklenemedi: %s", ms.hata);
+        }
+      }
+#endif
     } else if (cat == CommandCategory::View) {
       // Basit / Gelismis kip (U5): tercih kullanici ayar dizinine yazilir.
       bool gel = editor_gelismis();
@@ -8664,8 +8677,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Surece ozgu ad (Tuzaklar 8dr): paralel headless editor kosumlari (UX olcumu, dort
         // cozunurluk ayni anda) ayni dosyayi yazip birbirinin kapisini dusuruyordu.
         const unsigned pid = (unsigned)platform::fs_process_id();
-        std::snprintf(lay, sizeof lay, "%s/.duzen_kapisi.%u.duzen", st.scene_dir, pid);
-        std::snprintf(lay_mut, sizeof lay_mut, "%s/.duzen_kapisi_mut.%u.duzen", st.scene_dir, pid);
+        // Ayar dizinine (penceresizde gecici): sahne dizini salt okunur olabilir (AppImage icindeki
+        // tests/assets — U7b'de bu kapi AppImage'ta "KAYDEDILEMEDI" ile dustu).
+        char ad1[64], ad2[64];
+        std::snprintf(ad1, sizeof ad1, "duzen_kapisi.%u.duzen", pid);
+        std::snprintf(ad2, sizeof ad2, "duzen_kapisi_mut.%u.duzen", pid);
+        if (!editor_ayar_yolu(lay, sizeof lay, ad1, nullptr, nullptr)) std::snprintf(lay, sizeof lay, "%s/.%s", st.scene_dir, ad1);
+        if (!editor_ayar_yolu(lay_mut, sizeof lay_mut, ad2, nullptr, nullptr)) std::snprintf(lay_mut, sizeof lay_mut, "%s/.%s", st.scene_dir, ad2);
         na = layout_snapshot(A, kLayoutMaxWindows);
         if (!layout_save(lay, &lerr)) { std::printf("[engine_editor] duzen kapisi: KAYDEDILEMEDI %s\n", lerr.msg); return 1; }
         // Mutant: ilk bolmenin genisligini degistir (satir bazli, metin dosyasi).
@@ -8972,7 +8990,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           int ne = 0;
           // Motorun ikili dizini = editorun dizini (kurulu editor ve yapi/ ikisinde de tulpar-ext +
           // engine_sahnec burada); ortam.sh .motor'u buraya baglar.
-          std::snprintf(env_motor, sizeof env_motor, "TULPAR_ENGINE_DIR=%s", exe);
+          // AppImage'ta kalici kopya (editor_masaustu.hpp masaustu_motor_dizini): .motor gecici
+          // baglama noktasina baglanmasin.
+          char motor[1100];
+          if (!masaustu_motor_dizini(motor, sizeof motor)) std::snprintf(motor, sizeof motor, "%s", exe);
+          std::snprintf(env_motor, sizeof env_motor, "TULPAR_ENGINE_DIR=%s", motor);
           env[ne++] = env_motor;
           if (game_find_extension(exe, ext, sizeof ext, why, sizeof why)) {
             std::snprintf(env_ext, sizeof env_ext, "EXT=%s", ext);

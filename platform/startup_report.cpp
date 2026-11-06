@@ -40,7 +40,12 @@ void startup_failure(const char *fmt, ...) {
   char yol[1152];
   std::snprintf(yol, sizeof yol, "%s/engine_hata.log", dir);
   std::FILE *f = std::fopen(yol, "a");
-  if (!f) return;  // salt-okunur dizin: hata zaten stderr'de, sessizce gec
+  // Salt okunur ikili dizini (AppImage'in squashfs'i, Program Files): kullanici ayar dizini.
+  if (!f && user_config_dir(dir, sizeof dir)) {
+    std::snprintf(yol, sizeof yol, "%s/engine_hata.log", dir);
+    f = std::fopen(yol, "a");
+  }
+  if (!f) return;  // ikisi de yazilamiyor: hata zaten stderr'de
   char zaman[64];
   zaman_damgasi(zaman, sizeof zaman);
   std::fprintf(f, "[%s] %s\n", zaman, msg);

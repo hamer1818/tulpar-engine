@@ -1441,6 +1441,12 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     return true;
   }
   say(m.platform, sizeof m.platform, "%s", c.platform);
+  // AppImage (U7b): ikili salt okunur squashfs icinde; dosya dosya guncelleme YAPILAMAZ. Yazilabilirlik
+  // denetimi bunu da yakalardi ama "yazilamiyor" kullaniciya ne yapacagini soylemez.
+  if (!(c.install_dir && *c.install_dir) && std::getenv("APPIMAGE")) {
+    m.set_reason("AppImage olarak calisiyor: yeni surum icin yeni .AppImage dosyasini indirip eskisinin yerine koyun");
+    return true;
+  }
   if (c.install_dir && *c.install_dir) {
     say(m.inst, sizeof m.inst, "%s", c.install_dir);
   } else if (!platform::fs_exe_dir_utf8(m.inst, sizeof m.inst)) {
