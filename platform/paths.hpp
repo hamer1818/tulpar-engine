@@ -31,6 +31,17 @@ namespace tulpar::engine::platform {
 // yarim bir dizin adi yanlis dosyayi acabilirdi.
 size_t exe_dir(char *buf, size_t n);
 
+// KULLANICI AYAR DIZINI (docs/EDITOR-UYGULAMA-PLANI.md U2): uygulamanin kullaniciya ait,
+// projeden BAGIMSIZ ayarlari (panel duzeni, son dosyalar, guncelleme tercihi) burada durur.
+// Eskiden proje dizinine (editor_layout.txt) ve $HOME'a nokta dosyalari olarak yaziliyordu.
+//   1. $TULPAR_EDITOR_AYAR_DIZINI (acik secim; testler ve tasinabilir kurulum)
+//   2. Windows: %APPDATA%\Tulpar\Editor
+//      macOS:   $HOME/Library/Application Support/Tulpar Editor
+//      diger:   $XDG_CONFIG_HOME/tulpar-editor, yoksa $HOME/.config/tulpar-editor
+// Dizin yoksa YARATILIR (mkdir -p). Donus: true = buf'ta var olan bir dizin. false: ortam
+// degiskenleri bos ya da dizin yaratilamadi (buf bos) — cagiran eski yere duser, sessiz degil.
+bool user_config_dir(char *buf, size_t n);
+
 // Yukaridaki sirayi uygular; ilk VAR OLAN dosya/dizinde durur.
 // Donus: true = var olan bir yol bulundu. Hicbiri yoksa false doner ve buf'ta
 // 3. secenegin YAZILISI kalir — hata mesajlari bilgilendirici kalsin diye

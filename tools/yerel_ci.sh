@@ -6,7 +6,8 @@
 #   tools/yerel_ci.sh                 tam tur (katman, derleme, testler + CI'in
 #                                     ozet kurallari + iki pozitif kontrol, clang
 #                                     sozdizimi, Tulpar koprusu --tam)
-#   tools/yerel_ci.sh --hizli         derleme + engine_tests + kurallar (kopru yok)
+#   tools/yerel_ci.sh --hizli         derleme + engine_tests + kurallar + Faz 8
+#                                     shader/yerlesim kapilari (kopru yok)
 #   tools/yerel_ci.sh --lavapipe      engine_tests'i CI'in surucusuyle de kostur
 #                                     (mesa lavapipe; paket: vulkan-swrast)
 #   tools/yerel_ci.sh --filtre rhi    yalniz o testler (alt dize)
@@ -29,7 +30,7 @@ while [ $# -gt 0 ]; do
     --hizli) HIZLI=1 ;;
     --lavapipe) LVP=1 ;;
     --filtre) FILTRE="${2:-}"; shift ;;
-    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,23p "$0"; exit 0 ;;
     *) echo "bilinmeyen secenek: $1" >&2; exit 2 ;;
   esac
   shift
@@ -108,6 +109,87 @@ if [ "$LVP" = 1 ]; then
     asama "engine_tests (lavapipe)" $(( $(zaman) - t )) "$(test_kurallari "$IS/lvp.log")"
   fi
 fi
+
+# 5b) Faz 8 shader kapilari + CPU-GPU yerlesim (2026-11-05). Uc denetim de
+# "elle kosulur, otomasyonda degil" idi ve CURUDU: 2026-09-27'de 18/19 bayt
+# ayni olan kapi 2026-11-05'te 14/19'du (4 kaynak GLSL degismis, .tprs
+# tasinmamis) ve rc=0 + "ATLANDI" ile yesil gorunuyordu. Burada ATLANDI da
+# KIRMIZI: GLSL degistiren, .tprs'i de tasir (ya da bunu bilerek soyler).
+# glslc gerekir (CI'da yok — bu yuzden yalniz yerel CI'da).
+t=$(zaman); r="OK"
+if ! command -v glslc >/dev/null; then
+  r="HATA glslc yok (shaderc) — Faz 8 bayt kapisi olcemez"
+else
+  python3 tools/faz8_shader_audit.py > "$IS/faz8.log" 2>&1; rc8=$?
+  s8="$(grep -E '^Faz 8 shader denetimi:' "$IS/faz8.log" | tail -1)"
+  b8="$(grep -oE '[0-9]+/[0-9]+ dosya referans' "$IS/faz8.log" | head -1 | cut -d' ' -f1)"
+  TULPAR_BIN="$(command -v tulpar || true)" TPRS_ZORUNLU=1 \
+    python3 tools/tpr_shader.py --tulpar-parse > "$IS/tprs.log" 2>&1; rcp=$?
+  sp="$(grep -E 'dosya bugunku Tulpar' "$IS/tprs.log" | tail -1 | cut -d' ' -f1)"
+  python3 tools/layout_audit.py > "$IS/yerlesim.log" 2>&1; rcl=$?
+  cat "$IS/faz8.log" "$IS/tprs.log" "$IS/yerlesim.log" > yapi/yerel_ci_faz8.log
+  if [ "$rc8" != 0 ] || [ -z "$s8" ]; then r="HATA faz8: ${s8:-ozet yok}"
+  elif ! grep -qE ', 0 atlandi$' <<< "$s8"; then r="HATA faz8 ATLANDI: $(grep -m1 ATLANDI "$IS/faz8.log" | sed 's/^ *//')"
+  elif [ "$rcp" != 0 ]; then r="HATA tulpar gramer denetimi (rc $rcp)"
+  elif [ "$rcl" != 0 ]; then r="HATA yerlesim denetimi (rc $rcl)"
+  else r="OK bayt ayni $b8, gramer temiz $sp, yerlesim temiz"; fi
+fi
+asama "Faz 8 shader + yerlesim" $(( $(zaman) - t )) "$r"
+
+# 5b2) Editor UX kapisi (docs/EDITOR-UYGULAMA-PLANI.md U1): dort cozunurlukte kesik metin 0,
+# Stats gorunumden tasmaz, 1920x1080'de 3B gorunum orani >= 0.45. Pozitif kontrol C++ testinde
+# (editor_ux_imgui_kancasi_kesik_metni_gorur: ImGui yamasi canli mi).
+t=$(zaman); r="OK"
+UX_DIZIN="$IS/ux" bash tools/editor_ux.sh --kapi > "$IS/ux.log" 2>&1 || r="HATA $(grep -m1 KIRMIZI "$IS/ux.log")"
+cp "$IS/ux.log" yapi/yerel_ci_ux.log
+[ "$r" = OK ] && r="OK $(awk '/^1920x1080/{print "1920x1080 kesik "$2", gorunum "$4}' "$IS/ux.log")"
+asama "Editor UX (kesik/tasma/gorunum)" $(( $(zaman) - t )) "$r"
+
+# 5c) Oyun fabrikasi (docs/FABRIKA.md asama 2): sablondan uretilen oyun ilk gun dogrulamadan
+# gecmeli; POZITIF KONTROL YENI_OYUN_BOZ=1 (sablona bozuk satir) KIRMIZI donmeli. Ikisi paralel.
+t=$(zaman); r="OK"
+fab="$IS/fabrika"; mkdir -p "$fab"
+bash tools/yeni_oyun.sh "$fab/iyi" --kimlik ci_oyun --onek CIO --tr "CI Oyunu" --en "CI Game" > "$IS/fab_iyi.log" 2>&1 & p1=$!
+YENI_OYUN_BOZ=1 bash tools/yeni_oyun.sh "$fab/boz" --kimlik ci_boz --onek CIB --tr "CI Bozuk" --en "CI Broken" > "$IS/fab_boz.log" 2>&1 & p2=$!
+wait $p1; rf1=$?; wait $p2; rf2=$?
+cat "$IS/fab_iyi.log" "$IS/fab_boz.log" > yapi/yerel_ci_fabrika.log
+if [ $rf1 != 0 ]; then r="HATA yeni_oyun: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_iyi.log")"
+elif [ $rf2 = 0 ]; then r="HATA pozitif kontrol: bozuk sablon YESIL gecti"
+else
+  # Uretilen oyunun Android APK'si (x86_64 debug) derlenip APK'nin KENDISINDEN dogrulanir
+  # (paket, targetSdk, ABI, izin kumesi, ikon, varlik listesi). Cihaz kosumu (tools/android_dene.sh)
+  # cihaz ister; burada yok.
+  # Kopru Android arsivleri cmake --build ile YENILENMEZ (ayri NDK yapisi): yeni builtin eklenince
+  # APK linki "undefined symbol teng_..." ile duser (2026-11-06, U9). Once tazelenir (ccache ile ~10 s).
+  bash tools/build_bridge_android.sh > "$IS/fab_kopru_android.log" 2>&1 || echo "UYARI: kopru Android arsivleri derlenemedi" >> "$IS/fab_apk.log"
+  ( cd "$fab/iyi" && CIKTI="$fab/apk" DEBUG=1 ./apk_derle.sh x86_64 ) >> "$IS/fab_apk.log" 2>&1; ra=$?
+  cat "$IS/fab_apk.log" >> yapi/yerel_ci_fabrika.log
+  if [ $ra != 0 ]; then r="HATA APK: $(grep -m1 -E 'HATA' "$IS/fab_apk.log")"
+  else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
+fi
+asama "Fabrika: yeni_oyun (arena)" $(( $(zaman) - t )) "$r"
+
+# 5d) Dagitim paketi (tools/package.sh: paketle + tamlik + eklenti kosusu + kurulu duzende Yeni oyun).
+# CI'da her PR'da kosuyordu ama yerelde YOKTU: U3a'dan (2026-11-05) beri varlik turetmesi duruyordu
+# ve ancak 2026-11-06'da elle kosunca goruldu.
+t=$(zaman); r="OK"
+bash tools/package.sh yapi "$IS/paket" > "$IS/paket.log" 2>&1 || r="HATA $(grep -m1 -E 'HATA|EKSIK|FABRIKA|KOSU' "$IS/paket.log")"
+cp "$IS/paket.log" yapi/yerel_ci_paket.log
+[ "$r" = OK ] && r="OK $(du -sh "$IS/paket" | cut -f1); $(grep -c '^  var ' "$IS/paket.log") dosya var; fabrika + eklenti kosusu + pozitif kontroller"
+asama "Paket (package.sh)" $(( $(zaman) - t )) "$r"
+
+# 5e) Linux AppImage (EDITOR-UYGULAMA-PLANI U7b): paketten tek dosya; ici SALT OKUNUR acilip
+# kaynaksiz kosar, masaustu kaydi, POZITIF KONTROL sahnesiz AppImage duser. Paket yoksa kosmaz.
+t=$(zaman); r="OK"
+if [ -x "$IS/paket/engine_editor" ]; then
+  bash tools/kurulum/appimage.sh "$IS/paket" "$IS/Tulpar_Editor-x86_64.AppImage" > "$IS/appimage.log" 2>&1 || \
+    r="HATA $(grep -m1 -E 'KIRMIZI|HATA|BOZUK' "$IS/appimage.log")"
+  [ "$r" = OK ] && r="OK $(du -h "$IS/Tulpar_Editor-x86_64.AppImage" | cut -f1); salt okunur kosum + masaustu kaydi + pozitif kontrol"
+else
+  r="HATA paket yok (5d kirmizi)"
+fi
+cp "$IS/appimage.log" yapi/yerel_ci_appimage.log 2>/dev/null || true
+asama "AppImage (Linux kurulum)" $(( $(zaman) - t )) "$r"
 
 if [ "$HIZLI" = 0 ]; then
   # 6) clang sozdizimi (macOS ayaginin derleyici vekili)

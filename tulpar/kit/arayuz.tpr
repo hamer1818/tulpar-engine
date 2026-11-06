@@ -1,0 +1,530 @@
+// kit_arayuz — ARAYUZ KITI (ortak oyun kutuphanesi, docs/FABRIKA.md asama 1). Kaynak: Kupler ile Kureler arayuz.tpr (U1, 2026-10-22).
+//
+// Tek gorsel dil: koyu arduvaz paneller (dikey egim, ince bronz/altin kenar, kucuk kose yaricapi,
+// yumusak golge), amber birincil dugme, altin kenarli koyu ikincil dugme, koyu kirmizi yikici dugme,
+// soluk devre disi; basili = koyu + 2 px asagi, secili = altin halka. Cizim assets/resimler/arayuz.png
+// atlasindan (tools/kup_kure_arayuz.py uretir) 9 dilimle; atlas yoksa YEDEK duz dikdortgen (mantik ayni).
+// Dugme MANTIGI motorun cizimsiz dokunma alani (eng_ui_hit / dokunma_alani): kimlik, enjekte tiklama,
+// adla tiklama (ui_test_tikla_ad) dugmeyle ayni — eski etiketler AD olarak korunur, testler kirilmaz.
+//
+// Olcu birimi: TASARIM birimi (720 px yukseklik) — her olcu ui_px() ile pikseldir. Izgara 8 birim (k_g).
+// Yazi olcegi motorun eng_text olcegi (1.0 = 18.67 tasarim birimi satir boyu).
+
+// Atlas: assets/resimler/arayuz.png (1024x1024; motor deposunda tools/kit/arayuz_atlasi.py uretir, hazir
+// kopyasi kit/varlik/arayuz.png). Savas HUD parcalari (oyunun ikon atlasina bagli k_cip, k_kart,
+// k_yetenek, k_sira_*) oyunda kalir.
+import "engine";
+import "kit_kayit";
+
+int R_ARAYUZ = -1;
+bool g_arayuz_denendi = false;
+
+// ---- Atlas: cerceveler (128 px hucre, ust iki satir) ------------------------------------------
+int K_PANEL = 0;
+int K_BIRINCIL = 1;
+int K_BIRINCIL_B = 2;
+int K_IKINCIL = 3;
+int K_IKINCIL_B = 4;
+int K_YIKICI = 5;
+int K_PASIF = 6;
+int K_SECILI = 7;
+int K_HAP = 8;
+int K_DAIRE = 9;
+int K_DAIRE_B = 10;
+int K_IZ_ACIK = 11;
+int K_IZ_KAPALI = 12;
+int K_TOPUZ = 13;
+int K_GOLGE = 14;
+int K_SATIR = 15;
+// ---- Atlas: ikonlar (beyaz, renk carpilir; 3. satirdan itibaren) -------------------------------
+int IK_GERI = 0;
+int IK_AYAR = 1;
+int IK_DURAKLAT = 2;
+int IK_OYNAT = 3;
+int IK_KAPAT = 4;
+int IK_ONAY = 5;
+int IK_KILIT = 6;
+int IK_YILDIZ = 7;
+int IK_KUPA = 8;
+int IK_GOREV = 9;
+int IK_DOLAP = 10;
+int IK_ATOLYE = 11;
+int IK_KITAP = 12;
+int IK_IKI = 13;
+int IK_SONSUZ = 14;
+int IK_DIL = 15;
+int IK_GERI_YUKLE = 16;
+int IK_REKLAM_YOK = 17;
+int IK_SES = 18;
+int IK_MUZIK = 19;
+int IK_GRAFIK = 20;
+int IK_TEKRAR = 21;
+int IK_HARITA = 22;
+int IK_BAYRAK = 23;
+int IK_CIKIS = 24;
+int IK_UYARI = 25;
+int IK_PAYLAS = 26;
+int IK_SIL = 27;
+int IK_BILGI = 28;
+int IK_SAG = 29;
+int IK_FILM = 30;
+int IK_ATLA = 31;
+int IK_KALKAN = 32;
+int IK_KILIC = 33;
+int IK_EV = 34;
+int IK_HIZLI = 35;
+int IK_MADALYA = 36;
+int IK_ATES = 37;
+int IK_SURE = 38;
+int IK_GOZ = 39;
+int IK_KILICLAR = 40;   // U2 (savas HUD'u) — elle cizilen capraz kilic
+int IK_KULE = 41;
+int IK_CAG = 42;
+int IK_ALTIN = 43;
+int IK_KUM = 44;
+int IK_YONET = 45;
+int IK_KRISTAL = 46;
+int IK_HALKA = 47;      // hazir isiltisi (ince halka + yumusak isik)
+
+// ---- Renk ogeleri (token) ---------------------------------------------------------------------
+int KR_ALTIN = renk(236, 190, 96);          // vurgu, sayilar, secili
+int KR_ALTIN_ACIK = renk(255, 226, 158);    // basliklar
+int KR_YAZI = renk(240, 236, 228);          // govde metni (sicak beyaz)
+int KR_YAZI_2 = renk(168, 172, 184);        // ikincil metin / aciklama
+int KR_YAZI_3 = renk(118, 122, 134);        // pasif metin
+int KR_YAZI_KOYU = renk(46, 30, 8);         // birincil dugmenin ustu
+int KR_KIRMIZI = renk(236, 104, 88);
+int KR_YESIL = renk(124, 214, 146);
+int KR_MAVI = renk(116, 170, 255);
+int KR_GOLGE = renk_a(0, 0, 0, 150);
+int KR_CIZGI = renk_a(214, 170, 92, 90);    // ayirici
+int KR_SERIT = renk_a(10, 12, 16, 205);     // ust cubuk zemini
+
+// ---- Yazi olcegi (type scale) -----------------------------------------------------------------
+float T_LOGO = 3.0;
+float T_EKRAN = 1.9;
+float T_BASLIK = 1.35;
+float T_ALT = 1.05;
+float T_DUGME = 1.0;
+float T_GOVDE = 0.88;
+float T_KUCUK = 0.72;
+
+int STIL_BIRINCIL = 0;
+int STIL_IKINCIL = 1;
+int STIL_YIKICI = 2;
+int STIL_HAYALET = 3;   // zeminsiz (ikon cubugu, liste ici)
+
+bool g_k_etkin = true;
+int g_k_tasan = 0;       // en az olcekte de sigmayan kit yazisi (kapi: 0 olmali)
+int g_k_kuculen = 0;     // sigsin diye kucultulen kit yazisi (bilgi)
+
+func k_g(float n): float { return ui_px(8.0 * n); }
+
+// U3: dokunma alani olcumu (TULPAR_<ONEK>_ISABET_OLC=<esik, 720p tasarim birimi>; arayuz turu). Kisa kenari
+// esikten kucuk her alan ad + boyutla BIR kez loglanir ("[isabet] ..."). Kapi degil, olcum araci; yayinda
+// env yok, yol kapali. P20 Pro (2240x1080, 6.1", 408 ppi): 1 birim = 1.5 px = 0.093 mm, 44 dp ~ 7 mm ~ 75 birim.
+// Ortam ilk k_alan cagrisinda okunur (modul yuklenirken kit_oyun henuz onegi kurmamistir).
+int ISABET_OLC = -1;
+str[] g_k_isabet_gorulen = [];
+// Ikon dugmelerinin (duraklat, kapat X, geri, ikon cubugu) en kucuk dokunma alani (birim): gorunus
+// kucuk kalir, alan merkezden buyur. 48 birimlik X = 4.5 mm idi (U3 gozden gecirme).
+float K_MIN_ISABET = 72.0;
+func k_alan(str ad, float x, float y, float w, float h): int {
+    if (ISABET_OLC < 0) { str io = kit_ortam("ISABET_OLC"); ISABET_OLC = len(io) > 0 ? toInt(io) : 0; }
+    if (ISABET_OLC > 0 && min(w, h) < ui_px(ISABET_OLC * 1.0)) {
+        bool var_ = false;
+        for (int i = 0; i < len(g_k_isabet_gorulen); i++) { if (g_k_isabet_gorulen[i] == ad) { var_ = true; } }
+        if (!var_) { push(g_k_isabet_gorulen, ad); print(t"[isabet] '{ad}' {toInt(w / ui_olcek())}x{toInt(h / ui_olcek())} birim kare={kare_no()}"); }
+    }
+    return dokunma_alani(ad, x, y, w, h);
+}
+
+// Kare DISINDA (resim_bekleyenleri_yukle yaninda) cagrilir.
+func arayuz_yukle() {
+    if (g_arayuz_denendi) { return; }
+    g_arayuz_denendi = true;
+    str yol = "assets/resimler/arayuz.png";
+    if (!file_exists(yol)) { logla("arayuz atlasi yok (YEDEK cizim)"); return; }
+    R_ARAYUZ = resim_yukle(yol);
+    if (R_ARAYUZ >= 0) { resim_izgara(R_ARAYUZ, 128, 128, 4); }
+}
+
+// g_k_kilit: acilis (splash) solarken alttaki menu dokunulmaz — ekranlarin k_etkin(true)'su kilidi acmasin.
+bool g_k_kilit = false;
+func k_etkin(bool b) { g_k_etkin = b; ui_etkin(b && !g_k_kilit); }
+
+// ---- Temel cizim -------------------------------------------------------------------------------
+// 9 dilim: hucre f, ekranda kose boyu c piksel. Kaynak kose 32 atlas pikseli (hap/daire 60).
+func k_cerceve(int f, float x, float y, float w, float h, float c, int renk_) {
+    if (w <= 0.0 || h <= 0.0) { return; }
+    if (R_ARAYUZ < 0) {
+        int yr = f == K_BIRINCIL ? renk(226, 160, 52) : (f == K_YIKICI ? renk(130, 38, 36) : (f == K_PASIF ? renk(54, 56, 62) : renk_a(30, 34, 44, 240)));
+        dikdortgen(x, y, w, h, yr);
+        if (f != K_PASIF) { dikdortgen(x, y, w, 2.0, KR_ALTIN); }
+        return;
+    }
+    float ks = (f >= K_HAP && f <= K_TOPUZ) ? 60.0 : 32.0;
+    // Motorun 9 dilimi (v0.19+, F6): eski 9 resim_ciz_uv cagrisiyla piksel piksel ayni, tek FFI cagrisi.
+    float a = 1.0 / 1024.0;
+    float u0 = ((f % 8) * 128 + 4) * a;
+    float v0 = ((f / 8) * 128 + 4) * a;
+    resim_dokuz(R_ARAYUZ, x, y, w, h, u0, v0, u0 + 120.0 * a, v0 + 120.0 * a, ks, c, renk_);
+}
+func k_ikon(int i, float x, float y, float boy, int renk_) {
+    if (i < 0) { return; }
+    if (R_ARAYUZ < 0) { dikdortgen(x + boy * 0.3, y + boy * 0.3, boy * 0.4, boy * 0.4, renk_); return; }
+    resim_hucre(R_ARAYUZ, 16 + i, x, y, boy, boy, renk_);   // atlas: 128'lik hucre, 4 px ic bosluk; ikonlar 3. satirdan
+}
+func k_golge(float x, float y, float w, float h) {
+    float p = ui_px(14.0);
+    k_cerceve(K_GOLGE, x - p, y - p + ui_px(6.0), w + 2.0 * p, h + 2.0 * p, ui_px(26.0), BEYAZ);
+}
+
+// ---- Yazi --------------------------------------------------------------------------------------
+func k_yazi_boy(float o): float { return ui_px(18.6667) * o; }
+// Sigdir: once kucult (en az %60'a), yetmezse sayac (g_k_tasan) — kapi 0 bekler.
+func k_sigdir(str m, float o, float avail): float {
+    float w = eng_text_width(m, o);
+    if (w <= avail || avail <= 0.0) { return o; }
+    g_k_kuculen += 1;
+    float o2 = o * avail / w;
+    if (o2 < o * 0.6) { g_k_tasan += 1; logla(t"UYARI-DEGIL arayuz kiti: '{m}' sigmadi ({toInt(w)} > {toInt(avail)} px)"); return o * 0.6; }
+    return o2;
+}
+// Golgeli yazi (3B sahne ustunde okunurluk).
+func k_yazi(str m, float x, float y, float o, int renk_) {
+    float d = max(1.0, ui_px(1.4));
+    yazi(m, x + d, y + d, o, KR_GOLGE);
+    yazi(m, x, y, o, renk_);
+}
+func k_yazi_orta(str m, float cx, float y, float o, int renk_) { k_yazi(m, cx - eng_text_width(m, o) * 0.5, y, o, renk_); }
+func k_yazi_sag(str m, float sx, float y, float o, int renk_) { k_yazi(m, sx - eng_text_width(m, o), y, o, renk_); }
+// Kutu icinde dikey ortali, genislige sigdirilmis (hizalama 0 orta, 1 sol, 2 sag).
+func k_yazi_kutu(str m, float x, float y, float w, float h, float o, int renk_, int hiza) {
+    float o2 = k_sigdir(m, o, w);
+    float tw = eng_text_width(m, o2);
+    float ty = y + (h - k_yazi_boy(o2)) * 0.5;
+    float tx = hiza == 1 ? x : (hiza == 2 ? x + w - tw : x + (w - tw) * 0.5);
+    k_yazi(m, tx, ty, o2, renk_);
+}
+
+// ---- Panel / modal -----------------------------------------------------------------------------
+func k_panel(float x, float y, float w, float h) {
+    k_golge(x, y, w, h);
+    k_cerceve(K_PANEL, x, y, w, h, ui_px(12.0), BEYAZ);
+}
+float g_mx = 0.0;
+float g_my = 0.0;
+float g_mw = 0.0;
+float g_mh = 0.0;
+float g_mic_y = 0.0;   // icerigin ust kenari (baslik bandinin alti)
+// Ortalanmis modal: w, h TASARIM birimi; baslik bandi 64 birim (ikon + baslik + ayirici).
+func k_modal(str baslik, int ikon, float w_t, float h_t) {
+    float pw = min(ui_px(w_t), genislik() - ui_px(16.0));
+    float ph = min(ui_px(h_t), yukseklik() - ui_px(16.0));
+    k_modal_yer(baslik, ikon, (genislik() - pw) * 0.5, (yukseklik() - ph) * 0.5, pw, ph);
+}
+func k_modal_yer(str baslik, int ikon, float x, float y, float w, float h) {
+    g_mx = floor(x + 0.5); g_my = floor(y + 0.5); g_mw = floor(w + 0.5); g_mh = floor(h + 0.5);
+    k_panel(g_mx, g_my, g_mw, g_mh);
+    g_mic_y = g_my + k_g(1.0);
+    if (len(baslik) == 0) { return; }
+    float bh = k_g(8.0);
+    float tx = g_mx + k_g(3.0);
+    if (ikon >= 0) { k_ikon(ikon, tx, g_my + (bh - k_g(4.0)) * 0.5, k_g(4.0), KR_ALTIN); tx += k_g(5.5); }
+    k_yazi_kutu(baslik, tx, g_my, g_mx + g_mw - tx - k_g(9.0), bh, T_BASLIK, KR_ALTIN_ACIK, 1);
+    dikdortgen(g_mx + k_g(2.0), g_my + bh, g_mw - k_g(4.0), max(1.0, ui_px(1.5)), KR_CIZGI);
+    g_mic_y = g_my + bh + k_g(2.0);
+}
+// Modalin sag ust kosesinde kapat (X) / sol ustte geri ok. ad = testlerin tikladigi ad.
+func k_modal_kapat(str ad): bool {
+    float b = k_g(6.0);
+    return k_ikon_dugme(ad, IK_KAPAT, g_mx + g_mw - b - k_g(1.5), g_my + k_g(1.0), b, STIL_HAYALET, "");
+}
+
+// ---- Dugmeler ----------------------------------------------------------------------------------
+func _k_stil_cerceve(int stil, bool basili): int {
+    if (!g_k_etkin) { return K_PASIF; }
+    if (stil == STIL_BIRINCIL) { return basili ? K_BIRINCIL_B : K_BIRINCIL; }
+    if (stil == STIL_YIKICI) { return K_YIKICI; }
+    return basili ? K_IKINCIL_B : K_IKINCIL;
+}
+func _k_stil_yazi(int stil): int {
+    if (!g_k_etkin) { return KR_YAZI_3; }
+    if (stil == STIL_BIRINCIL) { return KR_YAZI_KOYU; }
+    return KR_YAZI;
+}
+// Dugme: zemin + (ikon) + etiket. ad testlerin/otopilotun tikladigi ad (cogunlukla etiketin kendisi).
+// g_k_dikey_pay: dokunma alaninin gorunusun ustune/altina tasan payi (birim degil PIKSEL; cagiran kurar,
+// 0'a doner). U3: ince cubuktaki/listedeki 44-48 birimlik dugmeler (P20 Pro'da ~4.3 mm) komsusuna
+// degmeden 60-64 birime cikar.
+float g_k_dikey_pay = 0.0;
+func k_dugme(str ad, str etiket, int ikon, int stil, float x, float y, float w, float h): bool {
+    int d = k_alan(ad, x, y - g_k_dikey_pay, w, h + 2.0 * g_k_dikey_pay);
+    bool basili = (d & 2) != 0;
+    float oy = basili ? ui_px(2.0) : 0.0;
+    if (stil != STIL_HAYALET) {
+        int f = _k_stil_cerceve(stil, basili);
+        int ton = (stil == STIL_YIKICI && basili) ? renk(200, 200, 200) : BEYAZ;
+        k_cerceve(f, x, y + oy, w, h, ui_px(10.0), ton);
+    } else if (basili) { k_cerceve(K_SATIR, x, y, w, h, ui_px(10.0), BEYAZ); }
+    int yr = _k_stil_yazi(stil);
+    float o = h >= ui_px(70.0) ? T_ALT * 1.25 : T_DUGME;
+    if (h < ui_px(46.0)) { o = T_GOVDE; }
+    float ib = ikon >= 0 ? h * 0.46 : 0.0;
+    float ara = ikon >= 0 && len(etiket) > 0 ? k_g(1.25) : 0.0;
+    float pay = k_g(2.0);
+    float o2 = len(etiket) > 0 ? k_sigdir(etiket, o, w - 2.0 * pay - ib - ara) : o;
+    float tw = len(etiket) > 0 ? eng_text_width(etiket, o2) : 0.0;
+    float top = ib + ara + tw;
+    float sx = x + (w - top) * 0.5;
+    int ir = stil == STIL_BIRINCIL && g_k_etkin ? KR_YAZI_KOYU : (g_k_etkin ? KR_ALTIN : KR_YAZI_3);
+    if (ikon >= 0) { k_ikon(ikon, sx, y + oy + (h - ib) * 0.5, ib, ir); }
+    if (len(etiket) > 0) {
+        float ty = y + oy + (h - k_yazi_boy(o2)) * 0.5;
+        if (stil == STIL_BIRINCIL) { yazi(etiket, sx + ib + ara, ty, o2, yr); }
+        else { k_yazi(etiket, sx + ib + ara, ty, o2, yr); }
+    }
+    return (d & 1) != 0;
+}
+// Kisa yol: ad = etiket.
+func k_dug(str etiket, int ikon, int stil, float x, float y, float w, float h): bool { return k_dugme(etiket, etiket, ikon, stil, x, y, w, h); }
+// Eski dugme(ad, x, y, w, h) cagrilarinin kit karsiligi (ikincil, ikonsuz).
+func kdugme(str ad, float x, float y, float w, float h): bool { return k_dugme(ad, ad, -1, STIL_IKINCIL, x, y, w, h); }
+// Yuvarlak ikon dugmesi (sol ust x, y; cap boy). alt: altinda kucuk etiket ("" yok). Rozet: sag ustte.
+func k_ikon_dugme(str ad, int ikon, float x, float y, float boy, int stil, str alt): bool {
+    float hh = boy + (len(alt) > 0 ? k_g(3.0) : 0.0);
+    // dokunma alani en az K_MIN_ISABET kare, gorunusun merkezinde (yazi altta ise ust hizali kalir)
+    float aw = max(boy, ui_px(K_MIN_ISABET));
+    float ah = max(hh, ui_px(K_MIN_ISABET));
+    int d = k_alan(ad, x - (aw - boy) * 0.5, y - (ah - hh) * 0.5, aw, ah);
+    bool basili = (d & 2) != 0;
+    float oy = basili ? ui_px(2.0) : 0.0;
+    if (stil == STIL_BIRINCIL) { k_daire_amber(x, y + oy, boy, basili); }
+    else if (stil != STIL_HAYALET) { k_cerceve(basili ? K_DAIRE_B : K_DAIRE, x, y + oy, boy, boy, boy * 0.5, BEYAZ); }
+    else if (basili) { k_cerceve(K_HAP, x, y, boy, boy, boy * 0.5, BEYAZ); }
+    float ib = boy * 0.52;
+    k_ikon(ikon, x + (boy - ib) * 0.5, y + oy + (boy - ib) * 0.5, ib, stil == STIL_BIRINCIL ? KR_YAZI_KOYU : KR_ALTIN_ACIK);
+    if (len(alt) > 0) {
+        float o = k_sigdir(alt, T_KUCUK, boy + k_g(3.0));
+        k_yazi_orta(alt, x + boy * 0.5, y + boy + ui_px(4.0), o, KR_YAZI);
+    }
+    return (d & 1) != 0;
+}
+// Rozet (sayi/kisa metin) — dugmenin sag ust kosesine.
+func k_rozet(str m, float sx, float y, int zemin) {
+    float o = T_KUCUK * 0.9;
+    float h = k_g(2.75);
+    float w = max(h, eng_text_width(m, o) + k_g(1.5));
+    k_cerceve(K_IZ_ACIK, sx - w * 0.6, y - h * 0.35, w, h, h * 0.5, zemin);
+    yazi(m, sx - w * 0.6 + (w - eng_text_width(m, o)) * 0.5, y - h * 0.35 + (h - k_yazi_boy(o)) * 0.5, o, KR_YAZI_KOYU);
+}
+
+func k_cip_gen(str m, int ikon, float h): float {
+    float o = h >= ui_px(40.0) ? T_GOVDE * 1.1 : T_KUCUK;
+    return k_g(3.0) + (ikon >= 0 ? h * 0.66 + k_g(0.75) : 0.0) + eng_text_width(m, o);
+}
+func k_ilerleme(float x, float y, float w, float h, float oran, int renk_) {
+    if (oran < 0.0) { oran = 0.0; }
+    if (oran > 1.0) { oran = 1.0; }
+    k_cerceve(K_IZ_KAPALI, x, y, w, h, h * 0.5, BEYAZ);
+    if (oran > 0.0) { k_cerceve(K_IZ_ACIK, x, y, max(h, w * oran), h, h * 0.5, renk_); }
+}
+// Liste satiri zemini (gruplu ayarlar, gorev listesi).
+func k_satir(float x, float y, float w, float h) { k_cerceve(K_SATIR, x, y, w, h, ui_px(8.0), BEYAZ); }
+// Bolum basligi (ayar gruplari): kucuk altin harfler + ince cizgi.
+func k_bolum(str m, float x, float y, float w) {
+    k_yazi(m, x, y, T_KUCUK, KR_ALTIN);
+    float tw = eng_text_width(m, T_KUCUK) + k_g(1.0);
+    dikdortgen(x + tw, y + k_yazi_boy(T_KUCUK) * 0.55, w - tw, max(1.0, ui_px(1.0)), KR_CIZGI);
+}
+
+// ---- Anahtar (toggle) / kaydirici / bolutlu secici ----------------------------------------------
+// Tum satir dokunulur; sagda anahtar. Doner: YENI deger.
+func k_anahtar(str ad, str etiket, int ikon, bool v, float x, float y, float w, float h): bool {
+    int d = k_alan(ad, x, y, w, h);
+    if ((d & 1) != 0) { v = !v; }
+    k_satir(x, y, w, h);
+    float tx = x + k_g(1.5);
+    if (ikon >= 0) { k_ikon(ikon, tx, y + (h - k_g(3.0)) * 0.5, k_g(3.0), KR_ALTIN); tx += k_g(4.0); }
+    float aw = k_g(7.0);
+    float ah = k_g(3.75);
+    float ax = x + w - aw - k_g(1.5);
+    float ay = y + (h - ah) * 0.5;
+    k_yazi_kutu(etiket, tx, y, ax - tx - k_g(1.0), h, T_GOVDE, g_k_etkin ? KR_YAZI : KR_YAZI_3, 1);
+    k_cerceve(v ? K_IZ_ACIK : K_IZ_KAPALI, ax, ay, aw, ah, ah * 0.5, v ? KR_ALTIN : BEYAZ);
+    float t = ah - ui_px(6.0);
+    k_cerceve(K_TOPUZ, v ? ax + aw - t - ui_px(3.0) : ax + ui_px(3.0), ay + ui_px(3.0), t, t, t * 0.5, BEYAZ);
+    return v;
+}
+// Kaydirici: MANTIK motorun kaydiricisi (surukleme, oranli adla tiklama, ad kaydi tur 3), gorunus kit.
+// Motorun cizdigi zemin/yazi bu cagri icin SAYDAM temayla (ui_tema) gorunmez; sonra tema geri gelir.
+func k_kaydirici(str ad, str etiket, int ikon, float v, float mn, float mx, float x, float y, float w, float h, str deger_metni): float {
+    ui_tema(renk_a(0, 0, 0, 0), renk_a(0, 0, 0, 0), renk_a(0, 0, 0, 0));
+    float yeni = kaydirici(ad, x, y, w, h, v, mn, mx);
+    renk_tema_geri();
+    k_satir(x, y, w, h);
+    float tx = x + k_g(1.5);
+    float ust = y + ui_px(6.0);
+    float sh = h * 0.5;
+    if (ikon >= 0) { k_ikon(ikon, tx, ust + (sh - k_g(2.75)) * 0.5, k_g(2.75), KR_ALTIN); tx += k_g(3.75); }
+    k_yazi_kutu(etiket, tx, ust, w * 0.6, sh, T_GOVDE, KR_YAZI, 1);
+    k_yazi_kutu(deger_metni, x + w * 0.6, ust, w * 0.4 - k_g(1.5), sh, T_GOVDE, KR_ALTIN, 2);
+    // iz: motorun ic payi 12 PIKSEL (engine.tpr _UI_KAYDIRICI_PAY) — dolgu degerle ayni yerde
+    float ix = x + 12.0;
+    float iw = w - 24.0;
+    float ih = k_g(1.0);
+    float iy = y + h - k_g(2.5) - ih * 0.5;
+    float t = (yeni - mn) / (mx - mn);
+    k_ilerleme(ix, iy, iw, ih, t, KR_ALTIN);
+    float tb = k_g(3.0);
+    k_cerceve(K_TOPUZ, ix + iw * t - tb * 0.5, iy + ih * 0.5 - tb * 0.5, tb, tb, tb * 0.5, BEYAZ);
+    return yeni;
+}
+func renk_tema_geri() { ui_tema(renk_a(26, 32, 52, 235), BEYAZ, renk(255, 190, 60)); }
+// Bolutlu secici: n parca yan yana, secili birincil. Her parcanin adi kendi etiketi. Doner: secili.
+func k_bolut(str[] et, int n, int secili, float x, float y, float w, float h): int {
+    k_cerceve(K_IZ_KAPALI, x, y, w, h, ui_px(10.0), BEYAZ);
+    float pw = (w - ui_px(8.0)) / (n * 1.0);
+    int s2 = secili;
+    for (int i = 0; i < n; i++) {
+        float px = x + ui_px(4.0) + i * pw;
+        int d = k_alan(et[i], px, y, pw, h);   // U3: dokunma alani bolutun TAM boyu (gorunus ici 4 px icerde)
+        if ((d & 1) != 0) { s2 = i; }
+        bool sec = i == secili;
+        if (sec) { k_cerceve(K_BIRINCIL, px, y + ui_px(4.0), pw, h - ui_px(8.0), ui_px(8.0), BEYAZ); }
+        if (sec) { k_yazi_kutu(et[i], px + k_g(1.0), y, pw - k_g(2.0), h, T_GOVDE, KR_YAZI_KOYU, 0); }
+        else { k_yazi_kutu(et[i], px + k_g(1.0), y, pw - k_g(2.0), h, T_GOVDE, KR_YAZI_2, 0); }
+    }
+    return s2;
+}
+
+// ---- Ust cubuk ---------------------------------------------------------------------------------
+// Ekranin ust seridi (tam genislik ama tam ekran DEGIL): koyu zemin + alt altin cizgi.
+func k_ust_cubuk(float h) {
+    dikdortgen(0.0, 0.0, genislik(), h, KR_SERIT);
+    dikdortgen(0.0, h, genislik(), max(1.0, ui_px(1.5)), KR_CIZGI);
+}
+
+// ---- Eski yerlesim (ui_pencere / ui_dugme) ekranlari icin kit karsiliklari ----------------------
+// Geometri motor yerlesimiyle AYNI (imlec, satir, aralik): yalniz gorunus kit. Motorun paneli alfa 1
+// (gorunmez) cizilir; baslik kit yazisi + ayirici, imlec motorun baslik satiri kadar iner.
+func k_pencere(str baslik, float w, float h, int renk_) {
+    float s = ui_olcek();
+    float pw = floor(min(w * s, genislik() - 16.0 * s) + 0.5);
+    float ph = floor(h * s + 0.5);
+    float px = floor((genislik() - pw) / 2.0 + 0.5);
+    float py = floor((yukseklik() - ph) / 2.0 + 0.5);
+    k_panel(px, py, pw, ph);
+    g_mx = px; g_my = py; g_mw = pw; g_mh = ph;
+    ui_pencere("", w, h, renk_a(0, 0, 0, 1));
+    if (len(baslik) > 0) {
+        k_yazi_kutu(baslik, px + 24.0 * s, py + 18.0 * s, pw - 48.0 * s, 18.6667 * 1.5 * s + 6.0 * s, T_BASLIK, KR_ALTIN_ACIK, 1);
+        dikdortgen(px + k_g(2.0), py + (24.0 + 18.6667 * 1.5 + 6.0) * s, pw - k_g(4.0), max(1.0, ui_px(1.5)), KR_CIZGI);
+        ui_bosluk(18.6667 * 1.5 + 14.0);
+    }
+}
+func k_ui_dugme_s(str ad, int ikon, int stil): bool {
+    float y, h = _yr_yer(_yr_satir);
+    return k_dugme(ad, ad, ikon, stil, _yr_x, y, _yr_w, h);
+}
+func k_ui_dugme(str ad): bool { return k_ui_dugme_s(ad, -1, STIL_IKINCIL); }
+
+
+// ==== SAVAS HUD'u (U2, 2026-10-22; TASARIM §20.6) =================================================
+// Ayni kit: koyu hap cipler, amber = secili/hazir, soluk = yetmiyor/pasif. Mali: tam ekran katman YOK,
+// her oge birkac 9 dilim (ayni atlas dokusu). Dugme MANTIGI dokunma_alani (ad = eski etiket).
+int KR_KRISTAL = renk(150, 225, 255);
+
+
+// Daire hucresinin ALT kismi (oran 0..1): tek dortgen, bekleme/dolum "sivi"si. ust=true ise ust kismi.
+func k_daire_kirp(int f, float x, float y, float boy, float oran, bool ust, int renk_) {
+    if (oran <= 0.0 || R_ARAYUZ < 0) { if (R_ARAYUZ < 0 && oran > 0.0) { dikdortgen(x, ust ? y : y + boy * (1.0 - oran), boy, boy * oran, renk_); } return; }
+    if (oran > 1.0) { oran = 1.0; }
+    float a = 1.0 / 1024.0;
+    float u0 = ((f % 8) * 128 + 4) * a;
+    float v0 = ((f / 8) * 128 + 4) * a;
+    float vh = 120.0 * a;
+    if (ust) { resim_ciz_uv(R_ARAYUZ, x, y, boy, boy * oran, u0, v0, u0 + vh, v0 + vh * oran, renk_); }
+    else { resim_ciz_uv(R_ARAYUZ, x, y + boy * (1.0 - oran), boy, boy * oran, u0, v0 + vh * (1.0 - oran), u0 + vh, v0 + vh, renk_); }
+}
+
+// Kaynak cipi: koyu hap; ikon + BUYUK sayi (en az 4 hane genisligi: sayi degisince cip titremez),
+// varsa ince ayirici + nufus ikonu + "n/m". Doner: genislik.
+func k_kaynak_gen(str deger, str ikinci, float h): float {
+    float w = k_g(1.5) * 2.0 + h * 0.6 + k_g(1.0) + max(eng_text_width(deger, T_ALT), eng_text_width("0000", T_ALT));
+    if (len(ikinci) > 0) { w += k_g(1.0) + h * 0.5 + k_g(0.75) + max(eng_text_width(ikinci, T_GOVDE), eng_text_width("00/00", T_GOVDE)) + k_g(1.5); }
+    return w;
+}
+func k_kaynak(int ikon, int ikon_renk, str deger, int deger_renk, str ikinci, int ikinci_renk, float x, float y, float h): float {
+    float o1 = T_ALT;
+    float o2 = T_GOVDE;
+    float ib = h * 0.6;
+    float p = k_g(1.5);
+    float w1 = max(eng_text_width(deger, o1), eng_text_width("0000", o1));
+    float w2 = len(ikinci) > 0 ? max(eng_text_width(ikinci, o2), eng_text_width("00/00", o2)) : 0.0;
+    float ib2 = h * 0.5;
+    float w = p + ib + k_g(1.0) + w1 + p;
+    if (len(ikinci) > 0) { w += k_g(1.0) + ib2 + k_g(0.75) + w2 + p; }
+    k_cerceve(K_HAP, x, y, w, h, h * 0.5, BEYAZ);
+    float tx = x + p;
+    k_ikon(ikon, tx, y + (h - ib) * 0.5, ib, ikon_renk);
+    tx += ib + k_g(1.0);
+    k_yazi(deger, tx, y + (h - k_yazi_boy(o1)) * 0.5, o1, deger_renk);
+    tx += w1 + p;
+    if (len(ikinci) > 0) {
+        dikdortgen(tx, y + h * 0.24, max(1.0, ui_px(1.5)), h * 0.52, KR_CIZGI);
+        tx += k_g(1.0);
+        k_ikon(IK_IKI, tx, y + (h - ib2) * 0.5, ib2, KR_YAZI_2);
+        tx += ib2 + k_g(0.75);
+        k_yazi(ikinci, tx, y + (h - k_yazi_boy(o2)) * 0.5, o2, ikinci_renk);
+    }
+    return w;
+}
+
+// Dikey bolutlu secici parcasi (emirler). Kap (k_dikey_kap) once cizilir; parca kabin icinde.
+// Secili: amber dolgu + koyu ikon/yazi; degilse zeminsiz, altin ikon + soluk yazi. Doner: tiklandi.
+func k_dikey_kap(float x, float y, float w, float h) {
+    k_golge(x, y, w, h);
+    k_cerceve(K_PANEL, x, y, w, h, ui_px(12.0), BEYAZ);
+}
+func k_bolut_parca(str ad, str etiket, int ikon, bool secili, float x, float y, float w, float h): bool {
+    int d = k_alan(ad, x, y, w, h);
+    bool basili = (d & 2) != 0;
+    if (secili) { k_cerceve(basili ? K_BIRINCIL_B : K_BIRINCIL, x, y, w, h, ui_px(9.0), BEYAZ); }
+    else if (basili) { k_cerceve(K_SATIR, x, y, w, h, ui_px(9.0), BEYAZ); }
+    float ib = min(h * 0.46, w * 0.42);
+    float ly = y + h - k_yazi_boy(T_KUCUK) - ui_px(5.0);
+    float iy = y + (ly - y - ib) * 0.5 + ui_px(2.0);
+    k_ikon(ikon, x + (w - ib) * 0.5, iy, ib, secili ? KR_YAZI_KOYU : KR_ALTIN_ACIK);
+    float o = k_sigdir(etiket, T_KUCUK, w - k_g(1.0));
+    float tx = x + (w - eng_text_width(etiket, o)) * 0.5;
+    if (secili) { yazi(etiket, tx, ly, o, KR_YAZI_KOYU); } else { k_yazi(etiket, tx, ly, o, KR_YAZI_2); }
+    return (d & 1) != 0;
+}
+
+
+// Amber DAIRE: birincil cerceve yuvarlatilmis dikdortgen (9 dilimle daire olmaz) — altin kenarli koyu
+// daire + icine beyaz izin amber tonu (ayni atlas, iki dortgen).
+func k_daire_amber(float x, float y, float b, bool basili) {
+    k_cerceve(K_DAIRE_B, x, y, b, b, b * 0.5, BEYAZ);
+    float p = max(2.0, ui_px(3.0));
+    k_cerceve(K_IZ_ACIK, x + p, y + p, b - 2.0 * p, b - 2.0 * p, (b - 2.0 * p) * 0.5, basili ? renk(200, 140, 40) : renk(246, 186, 74));
+}
+
+
+// Birlik bilgi balonu (secili birlik): koyu panel, ad altin, degerler beyaz.
+func k_bilgi_balonu(str ad, str deger, float cx, float alt_y) {
+    float o = T_KUCUK * 1.05;
+    float wa = eng_text_width(ad, o);
+    float wd = eng_text_width(deger, o);
+    float w = wa + k_g(1.0) + wd + k_g(3.0);
+    float h = k_g(4.0);
+    float x = cx - w * 0.5;
+    float y = alt_y - h;
+    k_cerceve(K_PANEL, x, y, w, h, ui_px(8.0), BEYAZ);
+    float ty = y + (h - k_yazi_boy(o)) * 0.5;
+    yazi(ad, x + k_g(1.5), ty, o, KR_ALTIN_ACIK);
+    yazi(deger, x + k_g(1.5) + wa + k_g(1.0), ty, o, KR_YAZI);
+}
+

@@ -474,6 +474,10 @@ BLOB_MUAF = {
     "light_width": "runtime alan isigi cizmiyor (nokta isigi)",
     "light_spot_inner": "runtime spot konisi cizmiyor (nokta isigi)",
     "light_spot_outer": "runtime spot konisi cizmiyor (nokta isigi)",
+    # Ses (v10, U9): mikser kliplari kaynak hizinda calar (audio/mixer.hpp: konum tamsayi kare,
+    # "pitch 1"); perde/hiz degisimi yok. Okuyan (mikserde ornekleme hizi orani) gelince
+    # SceneBlobAudio'nun reserved0'ina girer. Kapinin ilk kosusu bunu yakaladi (2026-11-06).
+    "audio_pitch": "mikserde perde (calma hizi) yok — ses 1.0 perdede calar",
 }
 
 

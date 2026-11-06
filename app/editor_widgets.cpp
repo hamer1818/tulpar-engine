@@ -318,11 +318,25 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     }
     (void)regained;
   }
+  // DIKEY YEDEK (EDITOR-UYGULAMA-PLANI U1, 2026-11-05): harfi dusurmek de yetmiyorsa (1280x720'de
+  // Ozellikler paneli: alan 26 px, "-11.212" 57 px — U0 olcumu 16 kesik deger) uc eksen ALT ALTA
+  // dizilir, her biri satirin tam genisliginde. Satir uc kat uzar ama SAYI KESILMEZ (kesik deger
+  // bilgi kaybidir; yer ise kaydirmayla geri gelir).
+  bool stacked = false;
+  if (field_w < need) {
+    stacked = true;
+    letter = true;
+    badge_w = std::floor(ImGui::CalcTextSize("X").x + s.FramePadding.x);
+    field_w = std::floor(w - (badge_w - overlap));
+  }
   if (field_w < badge_w) field_w = badge_w;
   ImDrawList *dl = ImGui::GetWindowDrawList();
   ImVec2 p = ImGui::GetCursorScreenPos();
+  const ImVec2 p0 = p;
+  const float row_step = h + s.ItemSpacing.y;
   const ImGuiSliderFlags sf = (min < max) ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
   for (int a = 0; a < 3; a++) {
+    if (stacked) p = ImVec2(p0.x, p0.y + (float)a * row_step);
     const float fx = p.x + badge_w - overlap;
     ImGui::SetCursorScreenPos(ImVec2(fx, p.y));
     ImGui::SetNextItemWidth(field_w);
@@ -350,6 +364,11 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     }
     g_vec3_layout.badge[a] = WidgetRect{b0.x, b0.y, b1.x, b1.y};
     p.x = fx + field_w + gap;
+  }
+  if (stacked) {
+    // Imleci uc satirin altina tasi (tablo satiri yuksekligi buna gore buyur).
+    ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + 2.0f * row_step));
+    ImGui::Dummy(ImVec2(1.0f, h));
   }
   g_last_prop = WidgetRect{g_vec3_layout.badge[0].x0, g_vec3_layout.badge[0].y0, g_vec3_layout.field[2].x1, g_vec3_layout.field[2].y1};
   ImGui::PopID();
@@ -514,7 +533,12 @@ void section_label(const char *text) {
   // Boyut TEK KAYNAKTAN: docs/engine/EDITOR-TASARIM.md §4 tipografi olcegi.
   push_text_size(TextSize::Sm);
   ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextDim));
-  ImGui::TextUnformatted(text);
+  // Dar panelde "…" ile kirpilir, tam metin ipucunda (U5 olcumu: 1366x768'de 286 px baslik 276 px'e
+  // sigmiyordu).
+  char kb[160];
+  editor_ellipsize(text, ImGui::GetContentRegionAvail().x, kb, sizeof kb);
+  ImGui::TextUnformatted(kb);
+  if (std::strcmp(kb, text) != 0 && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", text);
   ImGui::PopStyleColor();
   pop_text_size();
   const ImVec2 t0 = ImGui::GetItemRectMin(), t1 = ImGui::GetItemRectMax();

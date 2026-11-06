@@ -86,6 +86,7 @@ add_library(engine_platform STATIC
     platform/thermal.cpp
     platform/perf_hint.cpp
     platform/process.cpp
+    platform/dosya_secici.cpp
     platform/fs_ops.cpp
     platform/game_channel.cpp
     platform/net.cpp
@@ -437,6 +438,8 @@ set(TULPAR_EXT_LIBS engine_tulpar engine_bridge engine_content engine_renderer e
 # assets/fonts'ta da arar. Editor oyunu TULPAR_EXT_PATH ile baslattigi icin
 # kurulu bir pakette (ENGINE_SOURCE_DIR yok) font buradan gelir.
 set(_ext_fontlar ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVuSans.ttf ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVu-LICENSE.txt)
+# Ortak oyun kutuphanesi (docs/FABRIKA.md): tulpar/kit/*.tpr -> paket kit/.
+file(GLOB _ext_kit CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/kit/*.tpr)
 set(_ext_kopyala)
 foreach(_l ${TULPAR_EXT_LIBS})
     list(APPEND _ext_kopyala COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${_l}> ${TULPAR_EXT_DIR}/lib/)
@@ -445,10 +448,11 @@ add_custom_target(engine_tulpar_ext ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/lib
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${TULPAR_EXT_DIR}/tulpar-ext.json
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${TULPAR_EXT_DIR}/engine.tpr
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/kit ${TULPAR_EXT_DIR}/kit
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TULPAR_EXT_DIR}/assets/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_ext_fontlar} ${TULPAR_EXT_DIR}/assets/fonts/
     ${_ext_kopyala}
-    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${_ext_fontlar}
+    DEPENDS ${TULPAR_EXT_LIBS} ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/generated/tulpar-ext.json ${CMAKE_CURRENT_SOURCE_DIR}/tulpar/engine.tpr ${_ext_fontlar} ${_ext_kit}
     COMMENT "engine: Tulpar eklenti paketi -> ${TULPAR_EXT_DIR}"
     VERBATIM
 )
@@ -483,6 +487,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_frame_gate.cpp
     tests/test_crash.cpp
     tests/test_process.cpp
+    tests/test_dosya_secici.cpp
     tests/test_build_info.cpp
     tests/test_sha256.cpp
     tests/test_math.cpp
@@ -578,7 +583,7 @@ if(NOT ANDROID)
     # Prototip yok: Vulkan fonksiyonlari bizim dlopen'li yukleyiciden (ImGui_ImplVulkan_LoadFunctions).
     target_compile_definitions(engine_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
     target_compile_options(engine_imgui PRIVATE -fno-exceptions -fno-rtti -w)
-    list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_bridge_rapor.cpp tests/test_bridge_net.cpp tests/test_bridge_para.cpp tests/test_bridge_log.cpp tests/test_game_channel.cpp)
+    list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/editor_ux.cpp app/editor_fabrika.cpp app/editor_karsilama.cpp app/editor_tur.cpp app/editor_masaustu.cpp app/editor_yardim.cpp tests/test_editor_ux.cpp tests/test_editor_masaustu.cpp tests/test_editor_yardim.cpp tests/test_editor_fabrika.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_bridge_rapor.cpp tests/test_bridge_net.cpp tests/test_bridge_para.cpp tests/test_bridge_log.cpp tests/test_game_channel.cpp)
     # Guncelleyici cekirdegi (app/updater): curl/tar alt surecleri + kurulum
     # agaci. Yalniz masaustu editorunde yasar; Android'de guncelleme magazadan.
     list(APPEND ENGINE_TEST_SOURCES tests/test_updater.cpp app/updater.cpp)
@@ -636,7 +641,7 @@ if(NOT ANDROID)
     # derleme bayraklari burada da uygulanabilir.
     target_compile_options(engine_clodbake PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
     # --- engine_editor: motor duzenleme kipinde (ImGui paneller + ImGuizmo), masaustu / headless
-    add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/demo_scene.cpp app/updater.cpp)
+    add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/editor_ux.cpp app/editor_fabrika.cpp app/editor_karsilama.cpp app/editor_tur.cpp app/editor_masaustu.cpp app/editor_yardim.cpp app/demo_scene.cpp app/updater.cpp)
     target_sources(engine_editor PRIVATE app/editor_update.cpp) # guncelleme arayuzu (Yardim menusu, rozet, --guncelleme)
     # Stats panelinin "Sicak Tahsis" satiri AllocGate'i okur: sayac ancak override bu ikilide
     # varsa sayar. Eskiden editorde yoktu ve satir sabit "0 Bayt" basiyordu (olculmuyordu).
@@ -645,6 +650,16 @@ if(NOT ANDROID)
     if(WIN32)
         # psapi: durum cubugundaki RSS sayaci (GetProcessMemoryInfo). /proc yok.
         target_link_libraries(engine_editor PRIVATE psapi)
+        # U7b: exe ikonu (windres) + GUI alt sistemli baslatici TulparEditor.exe. engine_editor konsol
+        # uygulamasi kalir (stdout'una dayanan kapilar/testler); kurucunun kisayollari baslaticiyi
+        # cagirir, o da engine_editor'u konsol penceresiz (CREATE_NO_WINDOW) acar.
+        enable_language(RC)
+        configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tools/kurulum/editor_ikon.rc.in ${CMAKE_CURRENT_BINARY_DIR}/editor_ikon.rc @ONLY)
+        target_sources(engine_editor PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/editor_ikon.rc)
+        add_executable(tulpar_editor_baslatici WIN32 app/baslatici_win.cpp ${CMAKE_CURRENT_BINARY_DIR}/editor_ikon.rc)
+        set_target_properties(tulpar_editor_baslatici PROPERTIES OUTPUT_NAME TulparEditor)
+        target_link_options(tulpar_editor_baslatici PRIVATE -municode -static-libgcc -static-libstdc++)
+        add_dependencies(engine_editor tulpar_editor_baslatici)
     endif()
     target_include_directories(engine_editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
     target_compile_options(engine_editor PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off)

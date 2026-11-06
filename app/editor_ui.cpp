@@ -1178,4 +1178,10 @@ uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Ve
   return n;
 }
 
+namespace {
+bool g_gelismis = false;
+} // namespace
+bool editor_gelismis() { return g_gelismis; }
+void editor_gelismis_ayarla(bool gelismis) { g_gelismis = gelismis; }
+
 } // namespace tulpar::engine::app

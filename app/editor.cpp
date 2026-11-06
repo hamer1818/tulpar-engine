@@ -7,8 +7,12 @@
 #include <cstring>
 
 #include "app/editor_app.hpp"
+#include "app/editor_fabrika.hpp"
+#include "app/editor_masaustu.hpp"
 #include "app/editor_update.hpp"
+#include "content/image.hpp"
 #include "core/build_info.hpp"
+#include "platform/paths.hpp"
 #include "platform/startup_report.hpp"
 #include "platform/window.hpp"
 
@@ -37,7 +41,46 @@ bool w_is_fullscreen(void *user) { return static_cast<platform::Window *>(user)-
 int main(int argc, char **argv) {
   // Pencere, Vulkan ve sahne ACILMADAN once: surum sorgusu ve komut satirindan
   // guncelleme. Ag'a YALNIZ kullanici --guncelleme verince cikilir.
+  // Oyun fabrikasi (docs/FABRIKA.md, EDITOR-UYGULAMA-PLANI U3): pencere/Vulkan ACILMADAN.
+  //   engine_editor --yeni-oyun <dizin> --kimlik k --onek K --tr "Ad" --en "Name" [--paket p] [--tur arena] [--yon landscape]
+  //   engine_editor --kimlik-oner "Oyun Adı"     -> "kimlik ONEK" (formun otomatik doldurmasiyla ayni kural)
   for (int i = 1; i < argc; i++) {
+    if (!std::strcmp(argv[i], "--kimlik-oner") && i + 1 < argc) {
+      char k[40], o[16];
+      if (!app::fabrika_kimlik_oner(argv[i + 1], k, sizeof k) || !app::fabrika_onek_oner(k, o, sizeof o)) {
+        std::fprintf(stderr, "kimlik onerilemedi: '%s'\n", argv[i + 1]);
+        return 2;
+      }
+      std::printf("%s %s\n", k, o);
+      return 0;
+    }
+    if (!std::strcmp(argv[i], "--yeni-oyun") && i + 1 < argc) {
+      app::FabrikaIstek r;
+      r.dizin = argv[i + 1];
+      for (int j = 1; j + 1 < argc; j++) {
+        const char *a = argv[j], *v = argv[j + 1];
+        if (!std::strcmp(a, "--kimlik")) r.kimlik = v;
+        else if (!std::strcmp(a, "--onek")) r.onek = v;
+        else if (!std::strcmp(a, "--tr")) r.tr = v;
+        else if (!std::strcmp(a, "--en")) r.en = v;
+        else if (!std::strcmp(a, "--paket")) r.paket = v;
+        else if (!std::strcmp(a, "--tur")) r.tur = v;
+        else if (!std::strcmp(a, "--yon")) r.yon = v;
+      }
+      const app::FabrikaSonuc s = app::fabrika_uret(r);
+      if (!s.ok) { std::fprintf(stderr, "HATA: %s\n", s.hata); return 2; }
+      std::printf("iskelet: %s (tur %s, paket %s, onek %s, %u dosya)\n", r.dizin, r.tur, s.paket, r.onek, s.dosya);
+      return 0;
+    }
+  }
+  for (int i = 1; i < argc; i++) {
+    // Masaustu kaydi (U7b): menu girdisi + ikon + .sahne turu, PENCERESIZ. XDG_DATA_HOME ile yonlenir.
+    if (!std::strcmp(argv[i], "--masaustu-kaydet")) {
+      const app::MasaustuSonuc s = app::masaustu_kaydet(i + 1 < argc ? argv[i + 1] : nullptr, true);
+      if (!s.ok) { std::fprintf(stderr, "HATA: %s\n", s.hata); return s.desteklenmiyor ? 3 : 2; }
+      std::printf("masaustu: %u dosya %s altina yazildi (%s)\n", s.dosya, s.veri_dizini, app::kMasaustuKimlik);
+      return 0;
+    }
     if (!std::strcmp(argv[i], "--surum")) return app::update_cli_version();
     if (!std::strcmp(argv[i], "--guncelleme")) return app::update_cli(i + 1 < argc ? argv[i + 1] : nullptr);
   }
@@ -51,6 +94,15 @@ int main(int argc, char **argv) {
     else if (!std::strcmp(argv[i], "--validation")) o.validation = true;
     else if (!std::strcmp(argv[i], "--scene") && i + 1 < argc) o.scene_path = argv[++i];
     else if (!std::strcmp(argv[i], "--komut") && i + 1 < argc) o.command = argv[++i];
+    else if (!std::strcmp(argv[i], "--ux-rapor") && i + 1 < argc) o.ux_rapor = argv[++i];
+    else if (!std::strcmp(argv[i], "--karsilama")) o.karsilama = true;
+    else if (!std::strcmp(argv[i], "--kip") && i + 1 < argc) o.kip = argv[++i];
+    else if (!std::strcmp(argv[i], "--tur")) o.tur = true;
+    else if (!std::strcmp(argv[i], "--kapisiz")) o.kapisiz = true;
+    else if (!std::strcmp(argv[i], "--arac") && i + 1 < argc) o.arac = argv[++i];
+    else if (!std::strcmp(argv[i], "--yardim") && i + 1 < argc) o.yardim = argv[++i];
+    else if (!std::strcmp(argv[i], "--tur-adim") && i + 1 < argc) { o.tur = true; o.tur_adim = std::atoi(argv[++i]); }
+    else if (!std::strcmp(argv[i], "--karsilama-yeni") && i + 1 < argc) { o.karsilama_yeni = argv[++i]; o.karsilama = true; }
   }
   if (std::getenv("TULPAR_ENGINE_VK_VALIDATION")) o.validation = true;
   if (o.headless_frames > 0) return app::editor_run(o, nullptr);
@@ -62,6 +114,27 @@ int main(int argc, char **argv) {
   const char *surum = build_version();
   std::snprintf(title, sizeof title, surum[0] ? "Tulpar Editor %s" : "Tulpar Editor", surum);
   wc.width = o.width; wc.height = o.height; wc.title = title;
+  // Masaustu kimligi + pencere ikonu (U7b). Ikon bulunamazsa pencere ikonsuz acilir, sebep stderr'de.
+  wc.app_id = app::kMasaustuKimlik;
+  content::ImageRgba ikon;
+  {
+    char yol[1024], e[256];
+    if (platform::asset_path(yol, sizeof yol, app::kEditorIkonu) && content::image_load_file(yol, &ikon, e, sizeof e)) {
+      wc.icon_rgba = ikon.px; wc.icon_w = ikon.w; wc.icon_h = ikon.h;
+    } else {
+      std::fprintf(stderr, "[editor] pencere ikonu yuklenemedi: %s\n", yol);
+    }
+  }
+  // AppImage ilk acilista (ya da tasindiysa) kendini menuye/dosya turune kaydeder: AppImage tek
+  // dosya, kurulum adimi yok — kullanici onu calistirinca "uygulama" olmali (K3).
+  if (std::getenv("APPIMAGE")) {
+    char exe[1024];
+    if (app::masaustu_exe(exe, sizeof exe) && !app::masaustu_kayitli(exe)) {
+      const app::MasaustuSonuc s = app::masaustu_kaydet(exe, true);
+      if (s.ok) std::printf("[editor] masaustu kaydi: %u dosya (%s)\n", s.dosya, s.veri_dizini);
+      else std::fprintf(stderr, "[editor] masaustu kaydi yapilamadi: %s\n", s.hata);
+    }
+  }
   // Hata IKI yere: stderr (degismedi) + <ikili dizini>/engine_hata.log.
   // .exe'ye cift tiklayan kullanici konsolu goremez; gunluk onun icin.
   if (!win.open(wc)) { platform::startup_failure("pencere: %s", win.last_error()); return 1; }
@@ -76,5 +149,6 @@ int main(int argc, char **argv) {
   host.is_fullscreen = w_is_fullscreen;
   int rc = app::editor_run(o, &host);
   win.close();
+  content::image_free(ikon);
   return rc;
 }

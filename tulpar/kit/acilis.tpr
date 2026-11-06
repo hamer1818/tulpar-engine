@@ -1,0 +1,407 @@
+// kit_acilis — studyo acilisi (splash): ORTATEPE studyo karti + "Tulpar Engine ile gelistirildi" karti.
+// Ortak oyun kutuphanesi (docs/FABRIKA.md asama 1). Kaynak: Kupler ile Kureler acilis.tpr
+// (TASARIM §22, 2026-10-26; E1c titretmesi 2026-11-04). Studyonun BUTUN oyunlarinda ayni kartlar.
+//
+//   import "kit_kayit"; import "kit_dil"; import "kit_ses"; import "kit_acilis";
+//   g_kit_ac_cin = <kit_ses klibi>; g_kit_ac_muzik = <menu parcasi>;   // istege bagli
+//   acilis_baslat(oyun_kipi_mi);          // motor acildiktan sonra, kare disinda
+//   her kare: if (g_ac_aktif) { acilis_kare(dt); }  ... ui icinde ekranlardan SONRA acilis_ciz();
+//   girdi: if (!acilis_ortuyor()) {...}; menu kilidi: acilis_kilitli(); Geri: acilis_geri()
+//
+// Soguk baslatmada iki kart: ORTATEPE (~2.4 sn) ve Tulpar Engine (~1.9 sn); son 0.45 sn ana menuye
+// solar. 1. dokunus bulunulan karti hizla soldurur, 2. dokunus (ya da Geri) hepsini atlar. Girdi
+// SIZMAZ: acilis boyunca (solma dahil) menu kilitli; parmak kalktiktan bir kare sonra biter.
+// Cizim tek atlas: assets/resimler/acilis.png (1536x1024; motor deposunda tools/kit/acilis_atlasi.py
+// uretir). Atlas yoksa acilis hic gosterilmez (markasiz bir acilis kartinin anlami yok).
+// Ortam (ONEK = kit_oyun'un onegi): TULPAR_<ONEK>_ACILIS=0 kapatir; _ACILIS_TEST=<dizin> penceresizde
+// zorlar + kare ceker + sizinti kapisi; _ACILIS_ATLA=1 dokunuslari taklit eder; _ACILIS_KILIT_ESKI=1
+// kilidi kaldirir (pozitif kontrol); _ACILIS_TITRET=0 alfa titretmesini kapatir (kontrol).
+import "engine";
+import "kit_kayit";
+import "kit_dil";
+import "kit_ses";
+
+int R_ACILIS = -1;
+bool g_ac_aktif = false;
+int g_ac_faz = 0;              // 0 ORTATEPE, 1 Tulpar, 2 menuye solma, 3 parmak kalkmasini bekle
+float g_ac_t = 0.0;            // fazin icindeki sure
+int g_ac_bekle = 3;            // ilk kareler (yukleme takilmasi): saat islemez, yalniz zemin
+int g_ac_dokunus = 0;
+bool g_ac_onceki = false;
+int g_ac_son_kart = 0;         // solmada hangi kart (atlanan kartin o anki hali solar)
+float g_ac_son_t = 0.0;
+bool g_ac_cin = false;
+bool g_ac_muzik = false;
+int g_ac_kare = 0;             // acilis boyunca kare (olcum)
+int g_ac_kare_kart = 0;        // kartlarin cizildigi kare
+float AC_T1 = 2.4;
+float AC_T2 = 1.9;
+float AC_SOL = 0.45;
+float AC_KART_SOL = 0.35;      // kartin kendi sonundaki solma (atlamada da bu kadar)
+
+// Test (TULPAR_<ONEK>_ACILIS_TEST=<dizin>): penceresizde acilisi zorlar, belirli anlarda kare ceker
+// (<dizin>/acilis_<dil>_<ad>.ppm), TULPAR_<ONEK>_ACILIS_ATLA=1 ile dokunuslari taklit eder ve kilitli
+// pencerede ana menunun "Hikaye" dugmesine enjekte tiklama yollar: tiklama gecmemeli (sizinti=0).
+// Pozitif kontrol: TULPAR_<ONEK>_ACILIS_KILIT_ESKI=1 kilidi kaldirir -> ayni tiklama gecer (sizinti=1).
+// Ortam acilis_baslat'ta okunur (modul yuklenirken kit_oyun henuz onegi kurmamistir).
+str AC_TEST = "";
+bool AC_ATLA_TEST = false;
+bool AC_KILIT_ESKI = false;
+// Oyunun kancalari (acilis_baslat'tan once): kart 1'deki "cin" efekti ve solmada baslayan muzik
+// (kit_ses kimlikleri; -1 = yok).
+int g_kit_ac_cin = -1;
+int g_kit_ac_muzik = -1;
+bool g_ac_test_bas = false;    // taklit parmak basili
+
+// ---- Atlas (piksel; uretici ile AYNI) ------------------------------------------------------
+float AC_W = 1536.0;
+float AC_H = 1024.0;
+str AC_HARF = "ORTAEPULNGI";
+float[] AC_GEN = [95.7, 64.4, 71.8, 84.6, 57.0, 60.7, 73.6, 53.4, 75.4, 95.7, 13.8];   // px, 128 px hucrede (buyuk harf 92 px)
+float AC_HUCRE = 128.0;
+float AC_CAP = 92.0;
+float AC_TABAN = 110.0;
+int[] g_ac_ortatepe = [];
+int[] g_ac_motor = [];         // -1 = bosluk
+
+func ac_harf_dizin(str h): int {
+    for (int i = 0; i < len(AC_HARF); i++) { if (substring(AC_HARF, i, i + 1) == h) { return i; } }
+    return -1;
+}
+func ac_dizi(str s): int[] {
+    int[] r = [];
+    for (int i = 0; i < len(s); i++) { push(r, ac_harf_dizin(substring(s, i, i + 1))); }
+    return r;
+}
+
+func ac_kenet(float v): float { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
+func ac_yum(float v): float { float x = ac_kenet(v); return x * x * (3.0 - 2.0 * x); }
+func ac_cik3(float v): float { float x = 1.0 - ac_kenet(v); return 1.0 - x * x * x; }
+func ac_renk(int r, int g, int b, float a): int { return renk_a(r, g, b, toInt(ac_kenet(a) * 255.0 + 0.5)); }
+
+// main()'den, motor acildiktan sonra KARE DISINDA (resim yukleme). izin = oyun kipi buna uygun mu
+// (otopilot/test degil). Atlas yoksa acilis yok.
+func acilis_baslat(bool izin) {
+    AC_TEST = kit_ortam("ACILIS_TEST");
+    AC_ATLA_TEST = kit_ortam("ACILIS_ATLA") == "1";
+    AC_KILIT_ESKI = kit_ortam("ACILIS_KILIT_ESKI") == "1";
+    bool iste = len(AC_TEST) > 0 || (izin && kit_ortam("ACILIS") != "0");
+    if (!iste) { return; }
+    str yol = "assets/resimler/acilis.png";
+    if (!file_exists(yol)) { logla("acilis atlasi yok: acilis atlandi"); return; }
+    R_ACILIS = resim_yukle(yol);
+    if (R_ACILIS < 0) { logla("acilis atlasi yuklenemedi: acilis atlandi"); return; }
+    // E1c (2026-11-04, motor v0.22): isilti 384 px'lik radyal alfa, ~1.75x buyuk ve alfa 0.13-0.23 — koyu zeminde
+    // 8 bitlik hedef halka ciziyordu (penceresiz: radyal ortalamada 3.7 kodluk adim; titretmeyle 0.75).
+    // TULPAR_<ONEK>_ACILIS_TITRET=0 kontrol (eski goruntu).
+    if (kit_ortam("ACILIS_TITRET") != "0") { resim_titret(R_ACILIS, true); }
+    g_ac_ortatepe = ac_dizi("ORTATEPE");
+    g_ac_motor = ac_dizi("TULPAR ENGINE");
+    g_ac_aktif = true;
+    g_ac_faz = 0;
+    g_ac_t = 0.0;
+    logla(t"acilis: basladi (test {len(AC_TEST) > 0})");
+}
+func acilis_suruyor(): bool { return g_ac_aktif; }
+// Kart cizilirken alttaki ekranlar hic cizilmez (faz 0-1); solmada menu altta, kilitli.
+func acilis_ortuyor(): bool { return g_ac_aktif && g_ac_faz < 2; }
+
+func ac_basili(): bool {
+    if (len(AC_TEST) > 0) { return g_ac_test_bas; }
+    float b, x, y = isaretci_ac();
+    return b > 0.5;
+}
+// isaretci: dokunus varsa ilk parmak, yoksa fare (oyunun kendi isaretcisine bagli degil)
+func isaretci_ac(): (float, float, float) {
+    if (dokunus_sayisi() > 0) { return 1.0, eng_touch_x(0), eng_touch_y(0); }
+    return eng_mouse_down(0) ? 1.0 : 0.0, eng_mouse_x(), eng_mouse_y();
+}
+
+func ac_atla(bool hepsi) {
+    if (g_ac_faz >= 2) { return; }
+    if (hepsi) { ac_solmaya_gec(); return; }
+    float son = g_ac_faz == 0 ? AC_T1 : AC_T2;
+    // bulunulan kart hizla solar (kendi solmasinin basina; solmadaysa oldugu yerden)
+    if (g_ac_t < son - AC_KART_SOL) { g_ac_t = son - AC_KART_SOL; }
+}
+func ac_solmaya_gec() {
+    g_ac_son_kart = g_ac_faz;
+    g_ac_son_t = g_ac_t;
+    g_ac_faz = 2;
+    g_ac_t = 0.0;
+}
+// Geri tusu acilista: hepsini atla (uygulamadan cikma).
+func acilis_geri() { ac_atla(true); }
+
+// Kare basinda (girdi + saat). d: kare suresi (sn).
+func acilis_kare(float d) {
+    if (!g_ac_aktif) { return; }
+    g_ac_kare += 1;
+    bool bas = ac_basili();
+    bool yeni = bas && !g_ac_onceki;
+    g_ac_onceki = bas;
+    if (g_ac_bekle > 0) { g_ac_bekle -= 1; return; }
+    if (yeni && g_ac_faz < 2) {
+        g_ac_dokunus += 1;
+        ac_atla(g_ac_dokunus >= 2);
+    }
+    g_ac_t += d;
+    if (g_ac_faz == 0 && !g_ac_cin && g_ac_t >= 0.62) { g_ac_cin = true; if (g_kit_ac_cin >= 0) { kit_ses_cal(g_kit_ac_cin, 0.28, 0.0); } }
+    if (g_ac_faz == 0 && g_ac_t >= AC_T1) { g_ac_faz = 1; g_ac_t = 0.0; }
+    else if (g_ac_faz == 1 && g_ac_t >= AC_T2) { g_ac_son_kart = 1; g_ac_son_t = AC_T2; g_ac_faz = 2; g_ac_t = 0.0; }
+    if (g_ac_faz >= 2 && !g_ac_muzik) { g_ac_muzik = true; if (g_kit_ac_muzik >= 0) { kit_muzik_cal(g_kit_ac_muzik); } }
+    if (g_ac_faz == 2 && g_ac_t >= AC_SOL) { g_ac_faz = 3; }
+    if (g_ac_faz == 3 && !bas) {
+        g_ac_aktif = false;
+        logla(t"acilis: bitti ({g_ac_kare} kare, dokunus {g_ac_dokunus})");
+    }
+}
+
+// ---- Cizim ---------------------------------------------------------------------------------
+func ac_taban(): float { return min(yukseklik() * 1.0, genislik() * 0.5625); }
+
+func ac_parca(float px, float py, float pw, float ph, float x, float y, float w, float h, int renk_) {
+    resim_ciz_uv(R_ACILIS, x, y, w, h, px / AC_W, py / AC_H, (px + pw) / AC_W, (py + ph) / AC_H, renk_);
+}
+
+// Isik suzmesi: dikey bant (merkez bx, yari genislik bw) bir atlas bolgesinin (ekranda x,y,w,h) ustunden
+// geciyor; bolgenin bantla kesisen kismi dilimlere bolunup siluet/beyaz harf yeniden cizilir (sekle kirpili isik).
+func ac_suzme(float px, float py, float pw, float ph, float x, float y, float w, float h, float bx, float bw, int r, int g, int b, float tepe) {
+    float s0 = max(x, bx - bw);
+    float s1 = min(x + w, bx + bw);
+    if (s1 <= s0 || tepe <= 0.0) { return; }
+    int n = 28;
+    float dw = (s1 - s0) / n;
+    for (int i = 0; i < n; i++) {
+        float a0 = s0 + dw * i;
+        float m = a0 + dw * 0.5;
+        float k = 1.0 - abs(m - bx) / bw;
+        if (k <= 0.0) { continue; }
+        float u0 = px + (a0 - x) / w * pw;
+        float u1 = px + (a0 + dw - x) / w * pw;
+        resim_ciz_uv(R_ACILIS, a0, y, dw, h, u0 / AC_W, py / AC_H, u1 / AC_W, (py + ph) / AC_H, ac_renk(r, g, b, tepe * k * k));
+    }
+}
+
+// Harf dizisinin toplam genisligi (cap = buyuk harf boyu px, iz = harf arasi px, bosluk = cap * 0.62).
+func ac_yazi_gen(int[] dz, float cap, float iz): float {
+    float gs = cap / AC_CAP;
+    float t = 0.0;
+    for (int i = 0; i < len(dz); i++) {
+        t += dz[i] < 0 ? cap * 0.62 : AC_GEN[dz[i]] * gs;
+        if (i < len(dz) - 1) { t += iz; }
+    }
+    return t;
+}
+// Harf dizisi: ortali, taban cizgisi ty. a0/ad: harf basina gecikmeli belirme (t, harf i icin a = (t - a0 - ad*i)/as).
+// Suzme bandi bx/bw (bw <= 0 yok).
+func ac_yazi(int[] dz, float cx, float ty, float cap, float iz, float t, float a0, float ad, float as_, float carp, int r, int g, int b,
+             float bx, float bw, int sr, int sg, int sb, float stepe) {
+    float gs = cap / AC_CAP;
+    float x = cx - ac_yazi_gen(dz, cap, iz) * 0.5;
+    int harf = 0;
+    for (int i = 0; i < len(dz); i++) {
+        int h = dz[i];
+        if (h < 0) { x += cap * 0.62 + iz; continue; }
+        float gw = AC_GEN[h] * gs;
+        float a = ac_yum((t - a0 - ad * harf) / as_) * carp;
+        harf += 1;
+        float hx = x - (AC_HUCRE - AC_GEN[h]) * 0.5 * gs;
+        float hy = ty - AC_TABAN * gs;
+        float hw = AC_HUCRE * gs;
+        if (a > 0.0) {
+            // harf belirirken 6% asagidan yukari oturur
+            float dy = (1.0 - ac_cik3((t - a0 - ad * (harf - 1)) / as_)) * cap * 0.10;
+            ac_parca(h * AC_HUCRE, 512.0, AC_HUCRE, AC_HUCRE, hx, hy + dy, hw, hw, ac_renk(r, g, b, a));
+            if (bw > 0.0) { ac_suzme(h * AC_HUCRE, 512.0, AC_HUCRE, AC_HUCRE, hx, hy + dy, hw, hw, bx, bw, sr, sg, sb, stepe * a); }
+        }
+        x += gw + iz;
+    }
+}
+
+func ac_zemin(float a, float isik) {
+    float W = genislik() * 1.0;
+    float H = yukseklik() * 1.0;
+    dikdortgen(0.0, 0.0, W, H, ac_renk(16, 18, 26, a));                        // #10121A = Android pencere zemini
+    if (isik > 0.0) {
+        ac_parca(0.0, 640.0, 384.0, 384.0, W * 0.5 - W * 0.75, H * 0.46 - H * 0.95, W * 1.5, H * 1.9, ac_renk(38, 52, 92, a * isik * 0.9));
+    }
+}
+
+// ORTATEPE karti (t: kart icindeki sure; carp: genel opaklik carpani)
+func ac_kart1(float t, float carp) {
+    float W = genislik() * 1.0;
+    float H = yukseklik() * 1.0;
+    float B = ac_taban();
+    float sol = 1.0 - ac_yum((t - (AC_T1 - AC_KART_SOL)) / AC_KART_SOL);
+    float k = carp * sol;
+    float cx = W * 0.5;
+    float cy = H * 0.5 - B * 0.075;
+    // isaret: belirme + 0.86 -> 1.0 olcek
+    float am = ac_yum((t - 0.05) / 0.55) * k;
+    float sc = 0.86 + 0.14 * ac_cik3((t - 0.05) / 0.85);
+    float m = B * 0.40 * sc;
+    float mx = cx - m * 0.5;
+    float my = cy - m * 0.5;
+    // sicak isilti (isaretin arkasinda) + parilti aninda nabiz
+    float nab = ac_yum((t - 0.6) / 0.15) * (1.0 - ac_yum((t - 0.8) / 0.7));
+    float ig = B * (0.62 + 0.10 * nab);
+    ac_parca(0.0, 640.0, 384.0, 384.0, cx - ig * 0.5, cy - ig * 0.52, ig, ig, ac_renk(255, 186, 92, am * (0.13 + 0.10 * nab)));
+    if (am > 0.0) { ac_parca(0.0, 0.0, 512.0, 512.0, mx, my, m, m, ac_renk(255, 255, 255, am)); }
+    // tepe parilti yildizi (isaretin 256,100 noktasi)
+    float pa = ac_yum((t - 0.58) / 0.12) * (1.0 - ac_yum((t - 0.85) / 0.55)) * k;
+    if (pa > 0.0) {
+        float ps = m * (0.26 + 0.12 * ac_yum((t - 0.58) / 0.25));
+        float px = mx + m * 0.5;
+        float py = my + m * (100.0 / 512.0);
+        ac_parca(384.0, 704.0, 128.0, 128.0, px - ps * 0.5, py - ps * 0.5, ps, ps, ac_renk(255, 246, 222, pa));
+    }
+    // yazi: harf araligi genis -> yerine oturur
+    float cap = B * 0.058;
+    float iz = cap * (0.52 + 0.75 * (1.0 - ac_cik3((t - 0.30) / 1.05)));
+    float ty = my + m * (421.0 / 512.0) + B * 0.075 + cap;
+    // isik suzmesi: soldan saga (isaret + yazi), 1.15 .. 1.85 sn
+    float yg = ac_yazi_gen(g_ac_ortatepe, cap, cap * 0.52);
+    float sx0 = cx - yg * 0.5 - B * 0.12;
+    float sx1 = cx + yg * 0.5 + B * 0.12;
+    float su = (t - 1.15) / 0.75;
+    float bx = sx0 + (sx1 - sx0) * ac_kenet(su);
+    float bw = (su > 0.0 && su < 1.0) ? B * 0.09 : 0.0;
+    ac_yazi(g_ac_ortatepe, cx, ty, cap, iz, t, 0.34, 0.05, 0.45, k, 240, 236, 228, bx, bw, 255, 255, 255, 0.0);
+    if (bw > 0.0) {
+        ac_suzme(512.0, 0.0, 512.0, 512.0, mx, my, m, m, bx, bw, 255, 244, 214, 0.42 * am);
+        // yazinin uzerinde: altin isik (harf beyaz; tint carpimi beyazi gecemez -> sicak ton + parlaklik)
+        ac_yazi(g_ac_ortatepe, cx, ty, cap, iz, t, 0.34, 0.05, 0.45, 0.0, 0, 0, 0, bx, bw, 255, 214, 130, 0.85 * k);
+    }
+    // altin ayrac: ortadan acilir
+    float aw = B * 0.30 * ac_cik3((t - 0.85) / 0.6);
+    if (aw > 1.0) { ac_parca(384.0, 640.0, 512.0, 32.0, cx - aw * 0.5, ty + cap * 0.60, aw, max(3.0, B * 0.010), ac_renk(236, 190, 96, 0.9 * k)); }
+}
+
+// Tulpar Engine karti
+func ac_kart2(float t, float carp) {
+    float W = genislik() * 1.0;
+    float H = yukseklik() * 1.0;
+    float B = ac_taban();
+    float sol = 1.0 - ac_yum((t - (AC_T2 - AC_KART_SOL)) / AC_KART_SOL);
+    float k = carp * sol;
+    float cx = W * 0.5;
+    float o_alt = B * 0.030 / (18.6667 * ui_olcek());      // eng_text olcegi: satir boyu ~ 0.030 B
+    float satir = B * 0.030;
+    // dikey yerlesim (ust -> alt): [EN: "Made with"] logo, TULPAR ENGINE, [TR: "ile gelistirildi"], ayrac, TulparLang
+    float L = B * 0.30;
+    float cap = B * 0.056;
+    float ust_satir = g_kit_en ? satir + B * 0.03 : 0.0;
+    float alt_satir = g_kit_en ? 0.0 : satir + B * 0.022;
+    float toplam = ust_satir + L + B * 0.055 + cap + alt_satir + B * 0.045 + satir;
+    float y = H * 0.5 - toplam * 0.5;
+    float a_ust = ac_yum((t - 0.05) / 0.4) * k;
+    if (g_kit_en) {
+        str m1 = "Made with";
+        yazi(m1, cx - eng_text_width(m1, o_alt) * 0.5, y, o_alt, ac_renk(168, 172, 184, a_ust));
+        y += ust_satir;
+    }
+    float al = ac_yum(t / 0.45) * k;
+    float sc = 0.92 + 0.08 * ac_cik3(t / 0.7);
+    float l = L * sc;
+    float lx = cx - l * 0.5;
+    float ly = y + (L - l) * 0.5;
+    ac_parca(0.0, 640.0, 384.0, 384.0, cx - L * 0.9, y + L * 0.5 - L * 0.9, L * 1.8, L * 1.8, ac_renk(29, 187, 190, al * 0.14));
+    if (al > 0.0) { ac_parca(1024.0, 0.0, 512.0, 512.0, lx, ly, l, l, ac_renk(45, 196, 198, al)); }
+    float su = (t - 0.75) / 0.6;
+    float bw = (su > 0.0 && su < 1.0) ? B * 0.08 : 0.0;
+    float bx = (lx - B * 0.08) + (l + B * 0.16) * ac_kenet(su);
+    if (bw > 0.0) { ac_suzme(1024.0, 0.0, 512.0, 512.0, lx, ly, l, l, bx, bw, 210, 255, 252, 0.7 * al); }
+    y += L + B * 0.055 + cap;
+    float iz = cap * (0.42 + 0.45 * (1.0 - ac_cik3((t - 0.15) / 0.9)));
+    ac_yazi(g_ac_motor, cx, y, cap, iz, t, 0.18, 0.03, 0.4, k, 240, 236, 228, 0.0, 0.0, 0, 0, 0, 0.0);
+    float a_alt = ac_yum((t - 0.5) / 0.45) * k;
+    if (!g_kit_en) {
+        str m2 = "ile geliştirildi";
+        yazi(m2, cx - eng_text_width(m2, o_alt) * 0.5, y + B * 0.022, o_alt, ac_renk(168, 172, 184, a_alt));
+        y += alt_satir;
+    }
+    float aw = B * 0.16 * ac_cik3((t - 0.55) / 0.5);
+    if (aw > 1.0) { ac_parca(384.0, 640.0, 512.0, 32.0, cx - aw * 0.5, y + B * 0.024, aw, max(3.0, B * 0.008), ac_renk(45, 196, 198, 0.8 * k)); }
+    y += B * 0.045;
+    str m3 = "TulparLang";
+    float o3 = o_alt * 0.92;
+    yazi(m3, cx - eng_text_width(m3, o3) * 0.5, y, o3, ac_renk(45, 196, 198, ac_yum((t - 0.65) / 0.45) * k));
+}
+
+// ui_basla() ile ui_bitir() arasinda, ekranlardan SONRA (solmada menunun ustune).
+func acilis_ciz() {
+    if (!g_ac_aktif || g_ac_faz >= 3) { return; }
+    g_ac_kare_kart += 1;
+    if (g_ac_faz < 2) {
+        float isik = g_ac_faz == 0 ? ac_yum((g_ac_t - 0.0) / 0.5) : 1.0;
+        if (g_ac_bekle > 0) { isik = 0.0; }
+        ac_zemin(1.0, isik);
+        if (g_ac_bekle > 0) { return; }
+        if (g_ac_faz == 0) { ac_kart1(g_ac_t, 1.0); } else { ac_kart2(g_ac_t, 1.0); }
+        return;
+    }
+    // faz 2: kart (atlandigi haliyle) + zemin birlikte solar, altta menu
+    float a = 1.0 - ac_yum(g_ac_t / AC_SOL);
+    ac_zemin(a, 1.0);
+    if (g_ac_son_kart == 0) { ac_kart1(g_ac_son_t, a); } else { ac_kart2(g_ac_son_t, a); }
+}
+
+// Menu ve diger ekranlar acilis boyunca kilitli (solma + parmak kalkana dek). Pozitif kontrol kilidi kaldirir.
+func acilis_kilitli(): bool { return g_ac_aktif && !AC_KILIT_ESKI; }
+
+// ---- Test (TULPAR_<ONEK>_ACILIS_TEST) ---------------------------------------------------------
+// Cekim anlari (sn, kart icinde): kart 1 ve kart 2; sonra solma ortasi ve menu.
+float[] AC_CEK1 = [0.12, 0.45, 0.7, 1.0, 1.45, 2.0];
+float[] AC_CEK2 = [0.25, 0.6, 1.05, 1.45];
+int g_ac_cek_i = 0;
+int g_ac_test_kare = 0;
+int g_ac_sizinti = -1;          // -1 olculmedi
+int g_ac_kilit_kare = 0;        // kilitliyken menu cizilen kare (tiklama denenen)
+str g_ac_dil = "tr";
+func acilis_test_cek(str ad) {
+    ekran_goruntusu(AC_TEST + "/acilis_" + g_ac_dil + "_" + ad + ".ppm");
+    print(t"[acilis] cekim {ad} faz={g_ac_faz} t={toInt(g_ac_t * 1000.0)} ms kare={kare_no()}");
+}
+// Her kare (oyun.tpr ana dongusu, kare_bitir'den once). menu_tik: ana menuden bir ekran acildi mi (oyun.tpr verir).
+// Donus true: test bitti (cikis istendi).
+func acilis_test_kare(bool menu_acik_degisti, float hikaye_x, float hikaye_y): bool {
+    g_ac_test_kare += 1;
+    g_ac_dil = g_kit_en ? "en" : "tr";
+    if (g_ac_aktif && !AC_ATLA_TEST) {
+        if (g_ac_faz == 0 && g_ac_cek_i < len(AC_CEK1) && g_ac_bekle == 0 && g_ac_t >= AC_CEK1[g_ac_cek_i]) {
+            acilis_test_cek(t"1_{toInt(AC_CEK1[g_ac_cek_i] * 100.0)}");
+            g_ac_cek_i += 1;
+        } else if (g_ac_faz == 1) {
+            int j = g_ac_cek_i - len(AC_CEK1);
+            if (j < 0) { g_ac_cek_i = len(AC_CEK1); j = 0; }
+            if (j < len(AC_CEK2) && g_ac_t >= AC_CEK2[j]) { acilis_test_cek(t"2_{toInt(AC_CEK2[j] * 100.0)}"); g_ac_cek_i += 1; }
+        } else if (g_ac_faz == 2 && g_ac_t >= AC_SOL * 0.5 && g_ac_cek_i < 100) { acilis_test_cek("3_solma"); g_ac_cek_i = 100; }
+    }
+    if (AC_ATLA_TEST) {
+        // kart 1'in 0.6. sn'sinde dokun (kart 2'ye gec), kart 2'nin 0.3. sn'sinde ikinci dokunus (hepsini atla);
+        // parmak solma bitene + 20 kare daha basili kalir; bu surede her kare menudeki Hikaye dugmesine
+        // enjekte tiklama yollanir (kilit acikken bir tanesi bile gecse ekran degisir).
+        if (g_ac_faz == 0 && g_ac_t >= 0.6 && g_ac_dokunus == 0) { g_ac_test_bas = true; print(t"[acilis] dokunus 1 kart1 t={toInt(g_ac_t * 1000.0)} ms"); }
+        else if (g_ac_faz == 1 && g_ac_dokunus == 1 && g_ac_test_bas) { g_ac_test_bas = false; }
+        else if (g_ac_faz == 1 && g_ac_t >= 0.3 && g_ac_dokunus == 1) { g_ac_test_bas = true; print(t"[acilis] dokunus 2 kart2 t={toInt(g_ac_t * 1000.0)} ms"); }
+        if (g_ac_faz >= 2 && g_ac_test_bas) {
+            g_ac_kilit_kare += 1;
+            // birakis karesinde enjekte YOK: birakistan sonraki kare kilitsizdir, oraya dusen tiklama sizinti degil
+            if (g_ac_faz == 3 && g_ac_kilit_kare > 40) { g_ac_test_bas = false; } else { ui_test_tikla(hikaye_x, hikaye_y); }
+        }
+        if (menu_acik_degisti && g_ac_sizinti < 0) { g_ac_sizinti = g_ac_aktif ? 1 : 2; print(t"[acilis] menu ekrani degisti (aktif={g_ac_aktif})"); }
+    }
+    if (!g_ac_aktif && g_ac_test_kare > 0) {
+        if (g_ac_bitis_kare == 0) { g_ac_bitis_kare = g_ac_test_kare; }
+        if (g_ac_test_kare - g_ac_bitis_kare == 30) {
+            if (!AC_ATLA_TEST) { acilis_test_cek("4_menu"); }
+            int siz = g_ac_sizinti == 1 ? 1 : 0;
+            print(t"[kapi] acilis: dil={g_ac_dil} kare={g_ac_kare} kart_kare={g_ac_kare_kart} dokunus={g_ac_dokunus} atla={AC_ATLA_TEST ? 1 : 0} kilitli_tik={g_ac_kilit_kare} sizinti={siz} kilit_eski={AC_KILIT_ESKI ? 1 : 0} resim={R_ACILIS}");
+            cikis_iste();
+            return true;
+        }
+    }
+    return false;
+}
+int g_ac_bitis_kare = 0;

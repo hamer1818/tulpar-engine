@@ -655,6 +655,12 @@ struct Bridge {
   // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
   // render_frame'de SABITTI ve oyun izdusumu kurmak icin onu KOPYALIYORDU (Geri bildirim #12).
   float cam_fov = kBridgePi / 3.5f;
+  // Yakin/uzak kirpma: varsayilan kCamNear/kCamFar; sahnenin KAMERA bileseni (blob v10) degistirir.
+  float cam_near = kCamNear, cam_far = kCamFar;
+  // Sahnenin SES bilesenleri (blob v10): ses tablosu kaydi basina klip + bu sahnenin baslattigi
+  // dongulu ses (bosaltmada durdurulur; 3B olanlar her kare varligin konumunu izler).
+  int16_t scene_clip[content::kSceneMaxEntities] = {};
+  int32_t scene_voice[content::kSceneMaxEntities] = {};
   bool cam_mirror = false; // teng_camera_mirror: sahne yatay aynali (renderer view'a S(-1,1,1)); ekran isini / dunya->ekran ayni aynada
   Vec3 sray_o{0, 0, 0}, sray_d{0, 0, -1}; // son teng_screen_ray (hesapla-sonra-oku)
   float scr_x = 0, scr_y = 0;             // son teng_world_to_screen
@@ -1127,7 +1133,7 @@ void render_frame() {
   const uint32_t vis_w = b.headless ? b.fb_w : b.swap.logical_extent().width;
   const uint32_t vis_h_px = b.headless ? b.fb_h : b.swap.logical_extent().height;
   const float aspect = (float)vis_w / (float)(vis_h_px ? vis_h_px : 1);
-  Mat4 proj = Mat4::perspective(b.cam_fov, aspect, kCamNear, kCamFar); // ekran isini ayni degerleri kullanir (cam_frame)
+  Mat4 proj = Mat4::perspective(b.cam_fov, aspect, b.cam_near, b.cam_far); // ekran isini ayni degerleri kullanir (cam_frame)
   if (!b.headless && b.swap.rotation_radians() != 0.0f)
     proj = Mat4::rotate({0, 0, 1}, b.swap.rotation_radians()) * proj;
   b.ren.set_camera(Mat4::look_at(b.cam_eye, b.cam_target, {0, 1, 0}), proj);
@@ -1139,6 +1145,15 @@ void render_frame() {
       b.listener.forward = normalize(f);
       b.listener.up = {0, 1, 0};
       b.mixer.set_listener(b.listener);
+    }
+  }
+  // Sahnenin dongulu 3B sesleri varligi izler (hareketli varlikta ses de yurur).
+  if (b.audio_ok && b.scene_ok) {
+    const content::SceneBlobView &sv = b.srt.view();
+    for (uint32_t k = 0; k < sv.h->audio_count; k++) {
+      if (b.scene_voice[k] <= 0 || !(sv.audios[k].flags & content::kSceneBlobAudioSpatial)) continue;
+      const Mat4 m = b.srt.entity_matrix(sv.audios[k].entity, &b.phys);
+      b.mixer.set_voice_position(audio::VoiceHandle{(uint32_t)b.scene_voice[k]}, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]});
     }
   }
   b.ren.set_light(normalize(b.sun_dir), b.ambient, b.sun_diffuse);
@@ -1693,6 +1708,7 @@ int teng_init(const char *title, int width, int height) {
     else { blog(1, "UYARI font bulunamadi (%u aday denendi): eng_text cizmez, eng_rect calisir (TULPAR_ENGINE_FONT ile yol ver)", nc); g_log.warnings++; }
   }
   b.cam_eye = {0, 8, 14}; b.cam_target = {0, 0, 0};
+  b.cam_near = kCamNear; b.cam_far = kCamFar;
   b.cam_mirror = false;
   b.t0_ns = b.last_ns = platform::now_ns();
   rhi::vk_counters_read(b.dev.handle(), &b.vk_prev);
@@ -2938,6 +2954,48 @@ double teng_camera_y(void) { return g ? g->cam_eye.y : 0; }
 double teng_camera_z(void) { return g ? g->cam_eye.z : 0; }
 
 // --- sahne blob ---------------------------------------------------------------
+// --- v10: sahnenin kamera ve ses bilesenleri (EDITOR-UYGULAMA-PLANI U9) -----------------------
+namespace {
+// Kamera kaydini uygula: goz varligin dunya konumu, bakis -Z, gorus acisi/kirpma kayittan. Editorun
+// Oyun sekmesiyle AYNI kural (app/editor_app.cpp find_first_camera_entity).
+void scene_camera_apply(Bridge &b, uint32_t k) {
+  const content::SceneBlobCamera &c = b.srt.view().cameras[k];
+  const Mat4 m = b.srt.entity_matrix(c.entity, &b.phys);
+  Vec3 f{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
+  if (length_sq(f) < 1e-8f) f = Vec3{0, 0, -1};
+  b.cam_eye = Vec3{m.m[3][0], m.m[3][1], m.m[3][2]};
+  b.cam_target = b.cam_eye + normalize(f);
+  float deg = c.fov_deg;
+  if (deg < 10.0f || deg > 120.0f) {
+    BERR("sahne kamerasi '%s': gorus acisi %.1f derece 10..120 disinda, kirpildi", b.srt.view().entity_name(c.entity), (double)deg);
+    deg = deg < 10.0f ? 10.0f : 120.0f;
+  }
+  b.cam_fov = deg * kBridgePi / 180.0f;
+  b.cam_near = c.znear;
+  b.cam_far = c.zfar;
+}
+// Ses kaydinin klibi (gerekirse yukler). Donus: klip id, -1 yuklenemedi.
+int scene_clip_of(Bridge &b, uint32_t k) {
+  if (b.scene_clip[k] >= 0) return b.scene_clip[k];
+  char yol[1100];
+  std::snprintf(yol, sizeof yol, "%s/%s", b.scene_dir, b.srt.view().audio_clip(k));
+  const int id = teng_audio_load(yol);
+  b.scene_clip[k] = (int16_t)(id >= 0 ? id : -1);
+  return id;
+}
+int scene_sound_start(Bridge &b, uint32_t k) {
+  const content::SceneBlobAudio &a = b.srt.view().audios[k];
+  const int clip = scene_clip_of(b, k);
+  if (clip < 0) return 0;
+  const int loop = (a.flags & content::kSceneBlobAudioLoop) ? 1 : 0;
+  if (a.flags & content::kSceneBlobAudioSpatial) {
+    const Mat4 m = b.srt.entity_matrix(a.entity, &b.phys);
+    return teng_audio_play_3d(clip, m.m[3][0], m.m[3][1], m.m[3][2], a.volume, loop);
+  }
+  return teng_audio_play(clip, a.volume, loop);
+}
+} // namespace
+
 int teng_scene_load(const char *path) {
   CALLF("teng_scene_load", "%s", path ? path : "");
   if (!ready("teng_scene_load") || !path) return 0;
@@ -2968,6 +3026,37 @@ int teng_scene_load(const char *path) {
       b.prop_n[e]++;
     }
     if (pv.h->prop_count) BINFO("sahne ozellikleri: %u kayit (varlik basina en cok %u; nokta DUNYA uzayinda)", pv.h->prop_count, content::kSceneMaxProps);
+  }
+  // v10 kamera: ILK kamera bileseni uygulanir (betigin baslat'i onu degistirebilir; baska kamera:
+  // eng_scene_camera_use). Ses: cihaz aciksa klipler yuklenir, DONGULULER baslar; tek seferlikler
+  // eng_scene_sound_play ile. Ikisi de betik baslat'larindan ONCE (baslat sahne kamerasini gorsun).
+  {
+    const content::SceneBlobView &cv = b.srt.view();
+    for (uint32_t k = 0; k < content::kSceneMaxEntities; k++) { b.scene_clip[k] = -1; b.scene_voice[k] = 0; }
+    if (cv.h->camera_count) {
+      scene_camera_apply(b, 0);
+      BINFO("sahne kamerasi: '%s' (%u kameradan ilki) — goz (%.2f %.2f %.2f), aci %.1f derece, kirpma %.2f..%.1f",
+            cv.entity_name(cv.cameras[0].entity), cv.h->camera_count, (double)b.cam_eye.x, (double)b.cam_eye.y, (double)b.cam_eye.z,
+            (double)cv.cameras[0].fov_deg, (double)b.cam_near, (double)b.cam_far);
+    }
+    if (cv.h->audio_count) {
+      if (!b.audio_ok) {
+        BINFO("sahne sesleri: %u kaynak var ama ses cihazi kapali (eng_audio_open yok) — CALMADI; ses acildiktan sonra "
+              "eng_scene_sound_play ile calinir", cv.h->audio_count);
+      } else {
+        uint32_t dongu = 0, hata = 0;
+        for (uint32_t k = 0; k < cv.h->audio_count; k++) {
+          if (scene_clip_of(b, k) < 0) { hata++; continue; }
+          if (cv.audios[k].flags & content::kSceneBlobAudioLoop) {
+            b.scene_voice[k] = scene_sound_start(b, k);
+            if (b.scene_voice[k] > 0) dongu++;
+            else hata++;
+          }
+        }
+        BINFO("sahne sesleri: %u kaynak, %u dongulu basladi", cv.h->audio_count, dongu);
+        if (hata) BERR("sahne sesleri: %u kaynak yuklenemedi/calmadi (klip yolu sahne dizinine gore: %s)", hata, b.scene_dir);
+      }
+    }
   }
   if (b.scene_loads > 1)
     BDBG("bolum %u: her yukleme kaynak AYIRIR (arena + GPU doku/mesh); bolum sayisi cok artarsa kapasite dolar", b.scene_loads);
@@ -3401,6 +3490,27 @@ int teng_scene_set_visible(int i, int visible) {
   if (!scene_idx_ok(i, "teng_scene_set_visible")) return 0;
   return g->srt.set_hidden((uint32_t)i, visible == 0, &g->phys) ? 1 : 0;
 }
+// v10: i varligini (kamera bileseni olmali) kamera yap. Donus 1 / 0 (kamera bileseni yok -> hata).
+int teng_scene_camera_use(int i) {
+  CALLF("teng_scene_camera_use", "%d", i);
+  if (!scene_idx_ok(i, "teng_scene_camera_use")) return 0;
+  const content::SceneBlobView &v = g->srt.view();
+  for (uint32_t k = 0; k < v.h->camera_count; k++)
+    if (v.cameras[k].entity == (uint32_t)i) { scene_camera_apply(*g, k); return 1; }
+  BERR("teng_scene_camera_use: '%s' varliginin kamera bileseni yok", v.entity_name((uint32_t)i));
+  return 0;
+}
+// v10: i varliginin ses bilesenini cal (bilesenin ayarlariyla: duzey, dongu, 3B). Donus: ses id (0: calmadi).
+int teng_scene_sound_play(int i) {
+  CALLF("teng_scene_sound_play", "%d", i);
+  if (!scene_idx_ok(i, "teng_scene_sound_play")) return 0;
+  if (!audio_live("teng_scene_sound_play")) return 0;
+  const content::SceneBlobView &v = g->srt.view();
+  for (uint32_t k = 0; k < v.h->audio_count; k++)
+    if (v.audios[k].entity == (uint32_t)i) return scene_sound_start(*g, k);
+  BERR("teng_scene_sound_play: '%s' varliginin ses bileseni yok", v.entity_name((uint32_t)i));
+  return 0;
+}
 int teng_scene_visible(int i) { return scene_idx_ok(i, "teng_scene_visible") && !g->srt.hidden((uint32_t)i) ? 1 : 0; }
 double teng_scene_sx(int i) { return scene_idx_ok(i, "teng_scene_sx") ? g->srt.view().entities[i].scale[0] : 0; }
 double teng_scene_sy(int i) { return scene_idx_ok(i, "teng_scene_sy") ? g->srt.view().entities[i].scale[1] : 0; }
@@ -3475,6 +3585,9 @@ int teng_scene_unload(void) {
   // Sicak yukleme de buradan gecer: bitir -> yeniden yukle -> baslat.
   script_fire_bitir(b, b.reloading ? "sicak yukleme" : "sahne bosaltma");
   const uint32_t ents = b.srt.view().h->entity_count, bodies = b.srt.stats().bodies;
+  // Sahnenin baslattigi dongulu sesler sahneyle gider (klipler kalir: ayni yol yeniden yuklenmez).
+  for (uint32_t k = 0; k < b.srt.view().h->audio_count && k < content::kSceneMaxEntities; k++)
+    if (b.scene_voice[k] > 0 && b.audio_ok) { teng_audio_stop(b.scene_voice[k]); b.scene_voice[k] = 0; }
   bmap_scene(false);
   b.srt.despawn(b.phys);
   b.nav.shutdown(); // Detour nesneleri; veri arenada kalir (bir sonraki yukleme yeni kopya alir)
@@ -4636,8 +4749,11 @@ void teng_save_clear(void) {
 int teng_save_write(void) {
   CALL("teng_save_write");
   save_ensure();
-  char tmp[sizeof g_save.path + 8];
-  std::snprintf(tmp, sizeof tmp, "%s.tmp", g_save.path);
+  // Gecici ad SURECE ozgu (platform/fs.hpp fs_process_id): ayni kayit yolunu paylasan paralel
+  // surecler (penceresiz kapilar ayni gecici dosyayi acar) birbirinin .tmp'sini tasimasin.
+  // Son yazan kazanir; ikisi de hatasiz yazar.
+  char tmp[sizeof g_save.path + 24];
+  std::snprintf(tmp, sizeof tmp, "%s.%u.tmp", g_save.path, (unsigned)platform::fs_process_id());
   std::FILE *f = std::fopen(tmp, "wb");
   if (!f) { BERR("kayit yazilamadi (acilamadi): %s", tmp); return 0; }
   std::fprintf(f, "# tulpar engine kayit v1\n");
@@ -5674,7 +5790,7 @@ int teng_world_to_screen(double x, double y, double z) {
   if (!cam_frame(*g, &c)) return 0;
   const Vec3 v = Vec3{(float)x, (float)y, (float)z} - c.eye;
   const float zf = dot(v, c.f);
-  if (zf <= kCamNear) { g->scr_x = g->scr_y = -1.0f; return 0; } // kameranin arkasinda / yakin duzlemin onunde
+  if (zf <= g->cam_near) { g->scr_x = g->scr_y = -1.0f; return 0; } // kameranin arkasinda / yakin duzlemin onunde
   const float nx = dot(v, c.r) / (zf * c.tan_half * c.aspect), ny = dot(v, c.u) / (zf * c.tan_half);
   g->scr_x = (nx + 1.0f) * 0.5f * c.w;
   g->scr_y = (1.0f - ny) * 0.5f * c.h;

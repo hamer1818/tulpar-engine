@@ -149,11 +149,53 @@ ENGINE_TEST(editor_game_compiler_must_take_the_engine_extension) {
   const char *eski_path = std::getenv("PATH");
   static char path_yedek[8192];
   std::snprintf(path_yedek, sizeof path_yedek, "%s", eski_path ? eski_path : "");
-  // PATH'te tulpar YOK: ne yapilacagini soyler.
+  // PATH'te tulpar YOK: ne yapilacagini soyler. Standart kurulum yeri (HOME/.local/bin,
+  // LOCALAPPDATA/Programs/Tulpar) de bos bir koke yoneltilir — yoksa bu makinedeki gercek
+  // kurulum (~/.local/bin/tulpar) bulunur ve "yok" yolu hic sinanmazdi.
+  const char *eski_home = std::getenv("HOME");
+  const char *eski_la = std::getenv("LOCALAPPDATA");
+  static char home_yedek[1024], la_yedek[1024];
+  std::snprintf(home_yedek, sizeof home_yedek, "%s", eski_home ? eski_home : "");
+  std::snprintf(la_yedek, sizeof la_yedek, "%s", eski_la ? eski_la : "");
+  set_env("HOME", kok);
+  set_env("LOCALAPPDATA", kok);
   set_env("PATH", kok);
-  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
+  app::DerleyiciEksik eksik = app::DerleyiciEksik::Yok;
+  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why, &eksik));
   std::printf("    [bilgi] PATH'te tulpar yok: \"%s\"\n", why);
   CHECK(std::strstr(why, "PATH") != nullptr && std::strstr(why, "tulpar") != nullptr);
+  CHECK(eksik == app::DerleyiciEksik::KuruluDegil);   // editor "Tulpar'i kur" penceresini acar
+  {
+    const char *av[8];
+    CHECK(app::game_install_argv(eksik, nullptr, av, 8) >= 3);
+    bool url = false;
+    for (int i = 0; av[i]; i++) if (std::strstr(av[i], "https://tulparlang.dev/install.")) url = true;
+    CHECK(url);
+    CHECK(app::game_install_argv(app::DerleyiciEksik::Eski, nullptr, av, 8) == 0);   // yol yok -> kurulamaz
+    CHECK(app::game_install_argv(app::DerleyiciEksik::Eski, "/x/tulpar", av, 8) == 2 && !std::strcmp(av[1], "update"));
+    CHECK(app::game_install_argv(app::DerleyiciEksik::Yok, nullptr, av, 8) == 0);
+  }
+#if !defined(_WIN32)
+  // POZITIF KONTROL (standart yer): PATH bos ama HOME/.local/bin/tulpar var -> bulunur ve sinanir.
+  {
+    char lb[800], lt[900];
+    std::snprintf(lb, sizeof lb, "%s/.local", kok);
+    CHECK(alt_dizin(lb));
+    std::snprintf(lb, sizeof lb, "%s/.local/bin", kok);
+    CHECK(alt_dizin(lb));
+    std::snprintf(lt, sizeof lt, "%s/tulpar", lb);
+    CHECK(::symlink(exe, lt) == 0);
+    set_env("TULPAR_TEST_SAHTE_TULPAR", "1");
+    eksik = app::DerleyiciEksik::KuruluDegil;
+    CHECK(app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why, &eksik));
+    std::printf("    [bilgi] standart yerdeki tulpar: %s\n", out);
+    CHECK(std::strstr(out, ".local/bin/tulpar") != nullptr && eksik == app::DerleyiciEksik::Yok);
+    set_env("TULPAR_TEST_SAHTE_TULPAR", nullptr);
+    ::unlink(lt);
+  }
+#endif
+  set_env("HOME", home_yedek[0] ? home_yedek : nullptr);
+  set_env("LOCALAPPDATA", la_yedek[0] ? la_yedek : nullptr);
   // Sahte tulpar ONDE, eski PATH arkada: Windows'ta kopyalanan engine_tests.exe
   // MinGW DLL'lerini PATH'ten buluyor; PATH yalniz `bin` olunca sonda
   // STATUS_DLL_NOT_FOUND (0xC0000135) ile cikiyordu (olculdu, CI 2026-10-02).
@@ -166,9 +208,10 @@ ENGINE_TEST(editor_game_compiler_must_take_the_engine_extension) {
   set_env("PATH", path_yeni);
   // Eklentiyi tanimayan (eski) tulpar: REDDEDILIR, sebep ve cozum yazilir.
   set_env("TULPAR_TEST_SAHTE_TULPAR", "0");
-  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));
+  CHECK(!app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why, &eksik));
   std::printf("    [bilgi] eski tulpar: \"%s\"\n", why);
   CHECK(std::strstr(why, "tulpar update") != nullptr && std::strstr(why, "cikis 2") != nullptr);
+  CHECK(eksik == app::DerleyiciEksik::Eski && out[0]);   // "Guncelle" bu yolu kosturur
   // Taniyan tulpar: kabul edilir.
   set_env("TULPAR_TEST_SAHTE_TULPAR", "1");
   CHECK(app::game_find_compiler(kok, paket, out, sizeof out, why, sizeof why));

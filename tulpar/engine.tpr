@@ -273,6 +273,11 @@ func sahne_gorunur(i, gorunur): bool { return eng_scene_set_visible(i, gorunur);
 func scene_set_visible(i, visible): bool { return eng_scene_set_visible(i, visible); }
 func sahne_gorunur_mu(i): bool { return eng_scene_visible(i); }
 func scene_visible(i): bool { return eng_scene_visible(i); }
+// Kamera / ses bilesenleri (editorde verilen; sahne yuklenince ilk kamera ve dongulu sesler kendiliginden).
+func sahne_kamera_kullan(i): bool { return eng_scene_camera_use(i); }
+func scene_camera_use(i): bool { return eng_scene_camera_use(i); }
+func sahne_ses_cal(i): int { return eng_scene_sound_play(i); }
+func scene_sound_play(i): int { return eng_scene_sound_play(i); }
 func sahne_olcek_x(i): float { return eng_scene_sx(i); }
 func sahne_olcek_y(i): float { return eng_scene_sy(i); }
 func sahne_olcek_z(i): float { return eng_scene_sz(i); }

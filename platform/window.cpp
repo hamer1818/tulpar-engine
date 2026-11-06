@@ -44,6 +44,9 @@ struct Glfw {
   void (*set_window_monitor)(GLFWwindow *, GLFWmonitor *, int, int, int, int, int) = nullptr;
   const GLFWvidmode *(*get_video_mode)(GLFWmonitor *) = nullptr;
   void (*get_window_pos)(GLFWwindow *, int *, int *) = nullptr;
+  // Masaustu kimligi / ikon: SECMELI (GLFW 3.3 oncesinde HintString yok; ikon her surumde var).
+  void (*window_hint_string)(int, const char *) = nullptr;
+  void (*set_window_icon)(GLFWwindow *, int, const GLFWimage *) = nullptr;
 };
 Glfw g;
 double g_scroll_accum = 0;
@@ -125,6 +128,7 @@ bool load_glfw(char *err, size_t n) {
   O(get_primary_monitor, "glfwGetPrimaryMonitor"); O(get_window_monitor, "glfwGetWindowMonitor");
   O(set_window_monitor, "glfwSetWindowMonitor"); O(get_video_mode, "glfwGetVideoMode");
   O(get_window_pos, "glfwGetWindowPos");
+  O(window_hint_string, "glfwWindowHintString"); O(set_window_icon, "glfwSetWindowIcon");
 #undef O
   return true;
 }
@@ -168,6 +172,11 @@ bool Window::open(const WindowConfig &cfg) {
   }
   g.window_hint(GLFW_CLIENT_API, GLFW_NO_API);
   g.window_hint(GLFW_RESIZABLE, cfg.resizable ? GLFW_TRUE : GLFW_FALSE);
+  if (cfg.app_id && g.window_hint_string) {
+    g.window_hint_string(GLFW_WAYLAND_APP_ID, cfg.app_id);
+    g.window_hint_string(GLFW_X11_CLASS_NAME, cfg.app_id);
+    g.window_hint_string(GLFW_X11_INSTANCE_NAME, cfg.app_id);
+  }
   GLFWwindow *w = g.create_window((int)cfg.width, (int)cfg.height, cfg.title, nullptr, nullptr);
   if (!w) {
     const char *d = nullptr;
@@ -177,6 +186,13 @@ bool Window::open(const WindowConfig &cfg) {
   }
   g.set_scroll_callback(w, on_scroll);
   g.set_char_callback(w, on_char);
+  if (cfg.icon_rgba && cfg.icon_w && cfg.icon_h && g.set_window_icon) {
+    // Wayland'de GLFW "ikon desteklenmiyor" hatasi isaretler: zararsiz, app_id + .desktop yolu.
+    GLFWimage im{(int)cfg.icon_w, (int)cfg.icon_h, const_cast<unsigned char *>(cfg.icon_rgba)};
+    g.set_window_icon(w, 1, &im);
+    const char *d = nullptr;
+    (void)g.get_error(&d);
+  }
   win_ = w;
   return true;
 }

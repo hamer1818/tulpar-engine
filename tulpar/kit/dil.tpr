@@ -1,0 +1,74 @@
+// kit_dil — iki dilli metin (TR / EN) ve dil secimi.
+// Ortak oyun kutuphanesi (docs/FABRIKA.md asama 1). Kaynak: Kupler ile Kureler
+// (sabitler.tpr L, oyun.tpr dil_secimi / dil_kodu_coz; kural kullanicidan 2026-11-05).
+//
+//   import "engine";
+//   import "kit_kayit";
+//   import "kit_dil";
+//   kit_oyun("kup_kure", "KKS");
+//   kit_kayit_ac();
+//   kit_dil_ayarla(kit_dil_sec("kks_dil"));
+//   yazi(L("Oyna", "Play"), ...);
+//   ... TR | EN dugmesi: kit_dil_degistir(KIT_EN, "kks_dil");
+//
+// SECIM SIRASI: TULPAR_<ONEK>_DIL=tr|en (olcum/goruntu) > otopilot hep Turkce (kapi satirlari
+// dilden bagimsiz kalsin) > kayitli secim > cihaz dili. CIHAZ DILI: Android'de motor
+// AConfiguration'dan TULPAR_ENGINE_LANG'i kurar (bridge/android_host.cpp); masaustunde LANG.
+// KURAL: cihaz dili Turkce ise Turkce, DIGER HER DURUMDA English — bilinmeyen / bos / "C" dahil
+// (Play'de oyuncularin cogu Turkce okumuyor).
+//
+// L(tr, en) iki dizgiyi de ALIR; sablonda (g_kit_en ? t"..." : t"...") yalniz secilen kol
+// kurulur (kare bellegi iki katina cikmaz) — sik cizilen sablon metinlerde onu kullan.
+import "engine";
+import "kit_kayit";
+
+int KIT_TR = 0;
+int KIT_EN = 1;
+int g_kit_dil = 0;
+bool g_kit_en = false;
+int g_kit_dil_degisim = 0;   // oturumdaki dil degisimi (kapi)
+
+func L(str tr, str en): str { return g_kit_en ? en : tr; }
+
+// Yerel ayar dizgisi -> dil. "tr", "tr_TR.UTF-8", "TR" -> Turkce; geri kalan her sey English.
+func kit_dil_kodu_coz(str l): int {
+    if (len(l) < 2) { return KIT_EN; }
+    str k = substring(l, 0, 2);
+    if (k == "tr" || k == "TR") { return KIT_TR; }
+    return KIT_EN;
+}
+
+func kit_cihaz_dili(): int {
+    str l = env("TULPAR_ENGINE_LANG");
+    if (len(l) == 0) { l = env("LANG"); }
+    return kit_dil_kodu_coz(l);
+}
+
+// kayit_anahtari: kayitli secim ("" = kayit kullanma).
+func kit_dil_sec(str kayit_anahtari): int {
+    str o = kit_ortam("DIL");
+    if (o == "en") { return KIT_EN; }
+    if (o == "tr") { return KIT_TR; }
+    if (g_kit_otopilot) { return KIT_TR; }
+    if (len(kayit_anahtari) > 0) {
+        float k = kayit_oku_sayi(kayit_anahtari, -1.0);
+        if (k >= 0.0) { return k > 0.5 ? KIT_EN : KIT_TR; }
+    }
+    return kit_cihaz_dili();
+}
+
+func kit_dil_ayarla(int d) {
+    g_kit_dil = d == KIT_EN ? KIT_EN : KIT_TR;
+    g_kit_en = g_kit_dil == KIT_EN;
+}
+
+// Oyuncu secimi: uygular ve (izin varsa) kaydeder. Donus: dil gercekten degisti mi.
+func kit_dil_degistir(int d, str kayit_anahtari): bool {
+    int eski = g_kit_dil;
+    kit_dil_ayarla(d);
+    if (len(kayit_anahtari) > 0) { kit_ayar_yaz(kayit_anahtari, g_kit_dil * 1.0); }
+    if (eski != g_kit_dil) { g_kit_dil_degisim += 1; return true; }
+    return false;
+}
+
+func kit_dil_adi(): str { return g_kit_en ? "English" : "Turkce"; }

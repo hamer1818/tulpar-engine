@@ -148,6 +148,8 @@ SPEC = [
     ("eng_scene_is_dynamic", "bool", [("i", "int")], "Sahne varliginin govdesi dinamik mi (kuvvet uygulanabilir mi)."),
     ("eng_scene_set_visible", "bool", [("i", "int"), ("visible", "flag")], "Sahne varligini gizle/goster: gizli varlik cizilmez, isigi eklenmez, govdesi fizik dunyasindan cikar (carpismaz, isin gormez). Sahne yeniden yuklenince hepsi gorunur."),
     ("eng_scene_visible", "bool", [("i", "int")], "Sahne varligi gorunur mu."),
+    ("eng_scene_camera_use", "bool", [("i", "int")], "Sahne varligini (kamera bileseni olmali) kamera yap: goz varligin konumu, bakis -Z, aci/kirpma bilesenden. Sahne yuklenince ILK kamera zaten uygulanir. Kamera bileseni yoksa false."),
+    ("eng_scene_sound_play", "int", [("i", "int")], "Sahne varliginin ses bilesenini bilesenin ayarlariyla cal (duzey, dongu, 3B ise varligin konumundan). Dongulu sesler sahne yuklenince kendiliginden baslar. Donus: ses id (0: calmadi; ses kapali ya da bilesen yok)."),
     ("eng_scene_sx", "float", [("i", "int")], "Sahne varliginin dunya olcegi x (ilkelde boyu)."),
     ("eng_scene_sy", "float", [("i", "int")], "Sahne varliginin dunya olcegi y."),
     ("eng_scene_sz", "float", [("i", "int")], "Sahne varliginin dunya olcegi z."),
@@ -493,6 +495,18 @@ ANDROID_LIBS = ["tulpar_engine_android", "engine_content", "engine_renderer", "e
                 "engine_meshopt", "engine_astcenc"]
 
 
+# Ortak oyun kutuphanesi (docs/FABRIKA.md asama 1): `import "<ad>";` ile gelen
+# saf Tulpar modulleri. Paket ici yol tulpar/kit/ altindaki dosyanin adi; CMake
+# tulpar/kit/'i pakete AYNEN kopyalar (yeni modul = dosya + buraya bir satir).
+KIT_MODULES = [
+    ("kit_dil", "kit/dil.tpr"),
+    ("kit_kayit", "kit/kayit.tpr"),
+    ("kit_ses", "kit/ses.tpr"),
+    ("kit_acilis", "kit/acilis.tpr"),
+    ("kit_arayuz", "kit/arayuz.tpr"),
+]
+
+
 def manifest_text():
     fns = []
     for name, ret, params, doc in SPEC:
@@ -514,7 +528,8 @@ def manifest_text():
              '  "name": "engine",',
              '  "description": "Tulpar Engine — mobil oncelikli C++ oyun motoru (teng_* duz skaler C ABI). '
              'URETILMIS: tools/gen_engine_bindings.py (SPEC); elle duzenleme.",',
-             '  "modules": {"engine": "engine.tpr"},',
+             '  "modules": ' + json.dumps(dict([("engine", "engine.tpr")] + KIT_MODULES),
+                                          ensure_ascii=False) + ",",
              '  "link": {',
              '    "linux": ' + json.dumps({"lib_dirs": ["lib"], "libs": DESKTOP_LIBS, "group": True,
                                             "flags": ["-lpthread"]}, ensure_ascii=False) + ",",

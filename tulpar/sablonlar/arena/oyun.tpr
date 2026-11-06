@@ -1,0 +1,271 @@
+// {{OYUN_TR}} — {{OYUN_EN}}
+// Tulpar Engine oyun fabrikasi "arena" sablonundan uretildi (motor deposu tools/yeni_oyun.sh,
+// docs/FABRIKA.md). Oynanabilir en kucuk dongu: top yuvarla, pariltilari topla, sure bitince sonuc.
+// Genel parcalar motorun ortak kutuphanesinden gelir (kit_*): kip/kayit, iki dil, ses/muzik,
+// studyo acilisi, arayuz kiti. Oyuna ozgu kod BURADA.
+//
+//   tools/ortam.sh                                   # .motor baglantisi (bir kez)
+//   tulpar oyun.tpr                                  # pencereli
+//   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
+//   tools/dogrula.sh                                 # kapilar
+import "engine";
+import "kit_kayit";
+import "kit_dil";
+import "kit_ses";
+import "kit_acilis";
+import "kit_arayuz";
+
+// ---- Kimlik ve kip -----------------------------------------------------------------------------
+// Ortam degiskenleri TULPAR_{{ONEK}}_* (OTOPILOT, TEST, KAYIT_YAZ, DIL, ACILIS ...).
+bool g_otopilot = kit_oyun("{{KIMLIK}}", "{{ONEK}}");
+
+// ---- Oyun ayarlari ----------------------------------------------------------------------------
+float SURE_S = 20.0;          // tur suresi
+float HIZ = 5.0;
+float ARENA = 9.0;            // yari genislik (m)
+int PARILTI_N = 3;            // ayni anda sahnedeki parilti
+
+int EKRAN_ANA = 0;
+int EKRAN_OYUN = 1;
+int EKRAN_DURAKLAT = 2;
+int EKRAN_AYAR = 3;
+int EKRAN_SONUC = 4;
+int g_ekran = 0;
+int g_ayar_donus = 0;
+
+int g_top = 0;
+int[] g_parilti = [];
+float[] g_px = [];
+float[] g_pz = [];
+int g_toplanan = 0;
+int g_rekor = 0;
+float g_kalan = 0.0;
+int g_tohum = 12345;          // belirlenimli konum (otopilot kosumlari ayni sonucu versin)
+
+int SES_TOPLA = -1;
+int SES_TIKLA = -1;
+int MUZIK_MENU = -1;
+int MUZIK_OYUN = -1;
+
+// ---- Kayit ------------------------------------------------------------------------------------
+str K_EFEKT = "{{KIMLIK}}_efekt";
+str K_MUZIK = "{{KIMLIK}}_muzik";
+str K_DIL = "{{KIMLIK}}_dil";
+str K_REKOR = "{{KIMLIK}}_rekor";
+
+func ayarlari_oku() {
+    kit_kayit_ac();
+    g_kit_efekt = kit_ayar_oku(K_EFEKT, 0.8);
+    g_kit_muzik = kit_ayar_oku(K_MUZIK, 0.5);
+    g_rekor = toInt(kit_ayar_oku(K_REKOR, 0.0));
+    kit_dil_ayarla(kit_dil_sec(K_DIL));
+}
+
+// ---- Oyun -------------------------------------------------------------------------------------
+func rastgele(): float {
+    g_tohum = (g_tohum * 1103515245 + 12345) % 2147483648;
+    return (g_tohum % 10000) / 10000.0;
+}
+func parilti_kur(int i) {
+    float x = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
+    float z = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
+    g_px[i] = x;
+    g_pz[i] = z;
+    g_parilti[i] = kure(x, 0.45, z, 0.35, false, SARI);
+}
+func tur_baslat() {
+    g_toplanan = 0;
+    g_kalan = SURE_S;
+    isinla(g_top, 0.0, 0.6, 0.0);
+    for (int i = 0; i < PARILTI_N; i++) {
+        if (g_parilti[i] != 0) { sil(g_parilti[i]); }
+        parilti_kur(i);
+    }
+    g_ekran = EKRAN_OYUN;
+    kit_muzik_cal(MUZIK_OYUN);
+}
+func tur_bitir() {
+    if (g_toplanan > g_rekor) { g_rekor = g_toplanan; kit_ayar_yaz(K_REKOR, g_rekor * 1.0); }
+    g_ekran = EKRAN_SONUC;
+    kit_muzik_cal(MUZIK_MENU);
+}
+func oyun_adim(float d) {
+    float vx = yon_x() * HIZ;
+    float vz = -yon_y() * HIZ;
+    if (g_otopilot && !g_kapi_boz) {
+        // en yakin pariltiya don
+        int en = 0;
+        float eu = 1.0e9;
+        for (int i = 0; i < PARILTI_N; i++) {
+            float dx = g_px[i] - konum_x(g_top);
+            float dz = g_pz[i] - konum_z(g_top);
+            if (dx * dx + dz * dz < eu) { eu = dx * dx + dz * dz; en = i; }
+        }
+        float dx = g_px[en] - konum_x(g_top);
+        float dz = g_pz[en] - konum_z(g_top);
+        float u = sqrt(dx * dx + dz * dz) + 0.0001;
+        vx = dx / u * HIZ;
+        vz = dz / u * HIZ;
+    }
+    yuru(g_top, vx, vz);
+    for (int i = 0; i < PARILTI_N; i++) {
+        float dx = g_px[i] - konum_x(g_top);
+        float dz = g_pz[i] - konum_z(g_top);
+        if (dx * dx + dz * dz < 0.8 * 0.8) {
+            g_toplanan += 1;
+            kit_ses_cal(SES_TOPLA, 0.9, 0.05);
+            sil(g_parilti[i]);
+            parilti_kur(i);
+        }
+    }
+    if (konum_y(g_top) < -5.0) { isinla(g_top, 0.0, 0.6, 0.0); }
+    g_kalan -= d;
+    if (g_kalan <= 0.0) { tur_bitir(); }
+}
+
+// ---- Ekranlar ---------------------------------------------------------------------------------
+func ana_menu_ciz() {
+    float w = genislik();
+    k_yazi_orta(L("{{OYUN_TR}}", "{{OYUN_EN}}"), w * 0.5, ui_px(150.0), T_LOGO, KR_ALTIN_ACIK);
+    if (g_rekor > 0) { k_yazi_orta(L(t"Rekor {g_rekor}", t"Best {g_rekor}"), w * 0.5, ui_px(250.0), T_ALT, KR_YAZI_2); }
+    float bw = ui_px(320.0);
+    float bh = ui_px(72.0);
+    float x = (w - bw) * 0.5;
+    if (k_dugme("oyna", L("Oyna", "Play"), IK_OYNAT, STIL_BIRINCIL, x, ui_px(320.0), bw, bh)) { kit_ses_cal(SES_TIKLA, 0.6, 0.0); tur_baslat(); }
+    if (k_dugme("ayarlar", L("Ayarlar", "Settings"), IK_AYAR, STIL_IKINCIL, x, ui_px(410.0), bw, bh)) { kit_ses_cal(SES_TIKLA, 0.6, 0.0); g_ayar_donus = EKRAN_ANA; g_ekran = EKRAN_AYAR; }
+}
+func ayar_ciz() {
+    k_modal(L("Ayarlar", "Settings"), IK_AYAR, 620.0, 400.0);
+    float x = g_mx + k_g(3.0);
+    float w = g_mw - k_g(6.0);
+    float y = g_mic_y;
+    float h = ui_px(84.0);
+    float e = k_kaydirici("efekt", L("Efekt", "Effects"), IK_SES, g_kit_efekt, 0.0, 1.0, x, y, w, h, t"{toInt(g_kit_efekt * 100.0 + 0.5)}%");
+    if (e != g_kit_efekt) { g_kit_efekt = e; if (!ui_basili()) { kit_ayar_yaz(K_EFEKT, e); } }
+    y += h + k_g(1.5);
+    float m = k_kaydirici("muzik", L("Müzik", "Music"), IK_MUZIK, g_kit_muzik, 0.0, 1.0, x, y, w, h, t"{toInt(g_kit_muzik * 100.0 + 0.5)}%");
+    if (m != g_kit_muzik) { g_kit_muzik = m; kit_muzik_yenile(); if (!ui_basili()) { kit_ayar_yaz(K_MUZIK, m); } }
+    y += h + k_g(2.0);
+    int d = k_bolut(["Türkçe", "English"], 2, g_kit_dil, x, y, w, ui_px(64.0));
+    if (d != g_kit_dil) { kit_dil_degistir(d, K_DIL); }
+    if (k_modal_kapat("ayar_kapat")) { g_ekran = g_ayar_donus; }
+}
+func hud_ciz() {
+    k_yazi(L(t"Toplanan {g_toplanan}", t"Collected {g_toplanan}"), ui_px(24.0), ui_px(20.0), T_ALT, KR_YAZI);
+    k_yazi_sag(t"{toInt(g_kalan + 0.999)}", genislik() - ui_px(24.0), ui_px(20.0), T_BASLIK, KR_ALTIN);
+}
+func duraklat_ciz() {
+    k_modal(L("Duraklatıldı", "Paused"), IK_DURAKLAT, 520.0, 360.0);
+    float x = g_mx + k_g(3.0);
+    float w = g_mw - k_g(6.0);
+    float bh = ui_px(72.0);
+    if (k_dugme("devam", L("Devam", "Resume"), IK_OYNAT, STIL_BIRINCIL, x, g_mic_y, w, bh)) { g_ekran = EKRAN_OYUN; }
+    if (k_dugme("menu", L("Ana menü", "Main menu"), IK_EV, STIL_IKINCIL, x, g_mic_y + bh + k_g(1.5), w, bh)) { tur_bitir(); g_ekran = EKRAN_ANA; }
+}
+func sonuc_ciz() {
+    k_modal(L("Süre doldu", "Time's up"), IK_KUPA, 520.0, 380.0);
+    k_yazi_orta(L(t"{g_toplanan} parıltı", t"{g_toplanan} sparks"), g_mx + g_mw * 0.5, g_mic_y + k_g(1.0), T_EKRAN, KR_ALTIN_ACIK);
+    float x = g_mx + k_g(3.0);
+    float w = g_mw - k_g(6.0);
+    if (k_dugme("tekrar", L("Tekrar", "Again"), IK_TEKRAR, STIL_BIRINCIL, x, g_my + g_mh - ui_px(88.0), w, ui_px(72.0))) { tur_baslat(); }
+}
+
+// ---- Otopilot (penceresiz dogrulama) -----------------------------------------------------------
+int g_oto_tur = 0;
+// Pozitif kontrol (tools/dogrula.sh): TULPAR_{{ONEK}}_KAPI_BOZ=1 otopilot topu yonlendirmez -> 0 toplanir,
+// kapi BASARISIZ demeli. (main'de okunur: modul yuklenirken onek henuz kurulmamis olabilir.)
+bool g_kapi_boz = false;
+func otopilot_kare() {
+    if (!g_otopilot) { return; }
+    if (g_ekran == EKRAN_ANA && kare_no() > 30) {
+        if (g_oto_tur == 0) { ui_test_tikla_ad("oyna"); g_oto_tur = 1; }
+    }
+    if (g_ekran == EKRAN_SONUC && g_oto_tur == 1) {
+        g_oto_tur = 2;
+        int hata = hata_sayisi();
+        print(t"[kapi] {{KIMLIK}}: toplanan={g_toplanan} sure={toInt(SURE_S)} kip={kit_kip_adi()} dil={kit_dil_adi()} ses={g_kit_ses_var} hata={hata} uyari={uyari_sayisi()}");
+        if (g_toplanan >= 3 && hata == 0) { print("[kapi] TAMAM"); } else { print("[kapi] BASARISIZ"); }
+        cikis_iste();
+    }
+}
+
+func main() {
+    log_seviyesi(1);
+    ayarlari_oku();
+    g_kapi_boz = kit_ortam("KAPI_BOZ") == "1";
+    if (!motor_ac(L("{{OYUN_TR}}", "{{OYUN_EN}}"), 1280, 720)) { print("motor acilamadi: " + eng_last_error()); return; }
+    ui_tek_tiklama(true);
+    renk_tema_geri();
+    arayuz_yukle();
+    // Arena (zemin + dort duvar + isik) SAHNEDEN: assets/arena.sahne editorde duzenlenir
+    // (Tulpar Editor: Kaydet + Derle -> arena.sahneb), oyun derlenmis blob'u yukler. Blob yoksa
+    // (motorun engine_sahnec'i calismadi) ayni arena koddan kurulur ve UYARI basilir.
+    if (!sahne_yukle("assets/arena.sahneb")) {
+        logla("UYARI arena.sahneb yuklenemedi: arena koddan kuruldu (tools/ortam.sh sahneyi derler)");
+        gunes(0.5, 1.0, 0.35, 0.9);
+        ortam(renk(40, 46, 60));
+        golge_hacmi(0, 1, 0, 14, 60);
+        zemin_kur(ARENA, renk(70, 84, 110));
+        for (int i = -1; i <= 1; i += 2) {
+            kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(110, 120, 150));
+            kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(110, 120, 150));
+        }
+    }
+    g_top = kure(0.0, 0.6, 0.0, 0.5, true, renk(255, 110, 90));
+    for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }
+    kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);
+    SES_TOPLA = kit_ses_dene("ses_topla.wav", 880.0, 0.08);
+    SES_TIKLA = kit_ses_dene("ses_tikla.wav", 1200.0, 0.03);
+    MUZIK_MENU = kit_muzik_tanimla("menu", true);
+    MUZIK_OYUN = kit_muzik_tanimla("oyun", true);
+    g_kit_ac_cin = SES_TIKLA;
+    g_kit_ac_muzik = MUZIK_MENU;
+    acilis_baslat(!g_otopilot);
+    if (!acilis_suruyor()) { kit_muzik_cal(MUZIK_MENU); }
+    logla(t"{{KIMLIK}}: GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, kip {kit_kip_adi()}, dil {kit_dil_adi()}, " + kit_ses_ozet());
+
+    while (calisiyor()) {
+        bool pencere = kare_basla();
+        float d = dt();
+        if (d > 0.1) { d = 0.1; }
+        if ((!pencere || arka_planda()) && g_ekran == EKRAN_OYUN) { g_ekran = EKRAN_DURAKLAT; }
+        if (g_ac_aktif) { acilis_kare(d); }
+        if (geri_basildi()) {
+            if (g_ac_aktif) { acilis_geri(); }
+            else if (g_ekran == EKRAN_OYUN) { g_ekran = EKRAN_DURAKLAT; }
+            else if (g_ekran == EKRAN_DURAKLAT) { g_ekran = EKRAN_OYUN; }
+            else if (g_ekran == EKRAN_AYAR) { g_ekran = g_ayar_donus; }
+            else if (g_ekran == EKRAN_SONUC) { g_ekran = EKRAN_ANA; }
+            else { cikis_iste(); }
+        }
+        kit_muzik_guncelle(d);
+        if (g_ekran == EKRAN_OYUN && !acilis_ortuyor()) { oyun_adim(d); }
+        bool durmali = g_ekran != EKRAN_OYUN;
+        if (durmali != fizik_durakli()) { fizik_duraklat(durmali); }
+        float tx = konum_x(g_top);
+        float tz = konum_z(g_top);
+        kamera(tx * 0.6, 11.0, tz * 0.6 + 11.0, tx * 0.8, 0.0, tz * 0.8);
+        ui_basla();
+        g_k_kilit = acilis_kilitli();
+        if (g_k_kilit) { ui_etkin(false); }
+        if (!acilis_ortuyor()) {
+            int e0 = g_ekran;
+            if (e0 == EKRAN_ANA) { ana_menu_ciz(); }
+            else if (e0 == EKRAN_OYUN) {
+                hud_ciz();
+                if (k_ikon_dugme("duraklat", IK_DURAKLAT, genislik() * 0.5 - ui_px(36.0), ui_px(12.0), ui_px(56.0), STIL_HAYALET, "")) { g_ekran = EKRAN_DURAKLAT; }
+            }
+            else if (e0 == EKRAN_DURAKLAT) { duraklat_ciz(); }
+            else if (e0 == EKRAN_AYAR) { ayar_ciz(); }
+            else if (e0 == EKRAN_SONUC) { sonuc_ciz(); }
+        }
+        if (g_ac_aktif) { acilis_ciz(); }
+        ui_bitir();
+        otopilot_kare();
+        kare_bitir();
+    }
+    logla(t"{{KIMLIK}}: kapanis, rekor {g_rekor}, kare {kare_no()}");
+    motor_kapat();
+}
+
+main();

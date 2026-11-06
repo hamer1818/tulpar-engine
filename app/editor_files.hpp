@@ -121,6 +121,10 @@ struct FileDialog {
   FileListResult list;
   int32_t sel = -1;          // items indeksi (-1 = secim yok)
   bool open = false;         // kipli pencere acik mi
+  // Isletim sisteminin secicisi (U4, platform/dosya_secici.hpp) sonucu: 0 kullanilmadi (ImGui penceresi
+  // cizilir), 1 secildi (path dolu), 2 vazgecildi. file_dialog_draw bir sonraki cagrida bunu dondurur.
+  uint8_t yerli = 0;
+  char yerli_not[192] = {0}; // yerli secici kullanilamadiysa sebebi (ImGui penceresinde gosterilir)
   bool need_open = false;    // bu karede ImGui::OpenPopup cagrilsin
   bool ask_overwrite = false; // Kaydet: dosya var, onay bekleniyor
   bool focus_name = false;   // ad kutusuna odak (acilista / dosya seciminde)
@@ -182,5 +186,13 @@ const char *recent_last_error();
 // doner). AYNI LISTE -> AYNI BAYT.
 size_t recent_write(char *buf, size_t cap);
 bool recent_parse(const char *text, size_t len);
+
+// --- Kullanici ayar dosyasi yolu (EDITOR-UYGULAMA-PLANI U2) --------------------
+// `ad`in kullanici ayar dizinindeki yolu (platform::user_config_dir). Yeni yerde dosya YOKSA ve
+// `eski_yol` (eski konum: proje dizini ya da $HOME nokta dosyasi) VARSA icerik bir kez KOPYALANIR
+// (goc; eski dosyaya dokunulmaz — proje deposundaki dosyayi silmek kullanicinin karari).
+// Ayar dizini kurulamazsa eski yola duser ve *goc = 2 (cagiran loglar). *goc: 0 yok, 1 kopyalandi,
+// 2 eski yola dusuldu. Donus: false yalniz yol tampona sigmazsa.
+bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yol, int *goc);
 
 } // namespace tulpar::engine::app

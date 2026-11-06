@@ -72,6 +72,13 @@ void pop_text_size();
 // zaman NUL ile biter. Donus: yazilan uzunluk (bayt).
 uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap);
 
+// --- Basit / Gelismis kip (docs/EDITOR-UYGULAMA-PLANI.md U5) ----------------------------------
+// Basit (varsayilan, oyun yapan icin): teknik olcumler (SetPass, arena, tick, ucgen/piksel...),
+// gorunum kipleri ve deneysel menuler gizli; Stats kisa. Gelismis: bugunku ekranin TAMAMI.
+// Tek kaynak bu bayrak; tercih kullanici ayar dizininde ("kip" dosyasi).
+bool editor_gelismis();
+void editor_gelismis_ayarla(bool gelismis);
+
 class EditorUi {
 public:
   // rp/subpass: ImGui'nin cizecegi gecis (renk subpass'i). image_count: swapchain

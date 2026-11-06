@@ -1,0 +1,3 @@
+// Windows kaynak dosyasi (EDITOR-UYGULAMA-PLANI U7b): exe ikonu. CMake configure_file ile mutlak
+// yol doldurulur (windres goreli yolu calisma dizinine gore cozer).
+1 ICON "@CMAKE_CURRENT_SOURCE_DIR@/assets/ikon/tulpar.ico"

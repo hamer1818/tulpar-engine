@@ -86,6 +86,14 @@ def hex_escape_overflow(line):
     return out
 
 
+# --- 4. Cift kodlanmis UTF-8 (mojibake) --------------------------------------
+# UTF-8 bayt dizisi Latin-1 sanilip yeniden UTF-8 yazilinca "ş" -> "Å" + U+009F olur. Editor U3c'de
+# uc hata dizgisi boyle depoya girdi (2026-11-05: "Proje oluÅtu", "aÃ§Ä±lamadÄ±") — derlenir, kullanicinin
+# ekraninda bozuk cikar; hicbir kapi gormedi. Desen: Latin-1 harfi (U+00C2..U+00C5) + C1 denetim
+# karakteri (U+0080..U+00BF araligi; gercek metinde bu cift yok).
+MOJIBAKE_RE = re.compile("[\u00c2-\u00c5][\u0080-\u00bf]")
+
+
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     violations = []
@@ -105,6 +113,8 @@ def main():
             with open(path, encoding="utf-8", errors="replace") as f:
                 for ln, line in enumerate(f, 1):
                     # HER satirda: include olsun olmasin, dizgi kacisi tasmasi.
+                    if MOJIBAKE_RE.search(line):
+                        violations.append(f"{rel}:{ln}: cift kodlanmis UTF-8 (mojibake) -- metni \\xHH kacisiyla yeniden yaz")
                     for esc in hex_escape_overflow(line):
                         violations.append(
                             f"{rel}:{ln}: '{esc}' hex kacisi TASIYOR (C++ greedy okur, char araligini asar) -- dizgiyi bol")

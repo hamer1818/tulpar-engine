@@ -25,6 +25,28 @@ struct EditorOptions {
   // ("oynat.oyunu_calistir", "dosya.derle" ...). Otomasyon ve penceresiz
   // dogrulama icin; bilinmeyen anahtar editoru 2 ile bitirir (sessiz degil).
   const char *command = nullptr;
+  // --ux-rapor <dosya>: UX olcumu (app/editor_ux.hpp; kesik metin, tasan kaplama, gorunum orani,
+  // gorunen metinler) kapanista bu dosyaya. docs/EDITOR-UYGULAMA-PLANI.md U0.
+  const char *ux_rapor = nullptr;
+  // Acilis (karsilama) ekrani (U3): argumansiz pencereli acilista kendiliginden. --karsilama
+  // penceresizde de gosterir (goruntu/olcum); --karsilama-yeni <dizin> penceresizde formu
+  // doldurup "Olustur"un ISLEYICISINI calistirir (kapi: fabrika + sahne yukleme + derleme).
+  bool karsilama = false;
+  // --kip basit|gelismis (U5). null: pencereli kipte kullanicinin kayitli tercihi (yoksa basit),
+  // penceresizde gelismis (yerlesik kapilar bugunku ekrani olcer).
+  const char *kip = nullptr;
+  // --tur: ilk acilis turunu penceresizde de goster (goruntu); --tur-adim N baslangic adimi.
+  bool tur = false;
+  // --kapisiz: penceresiz kipte yerlesik kapilari KOSTURMA (baska bir sahnede --komut ile urun
+  // yolunu olcmek icin; kapilar tests/assets/editor.sahne fiksturlerine gore yazili).
+  bool kapisiz = false;
+  // --arac apk|dogrula: Oyun menusundeki proje aracini ikinci karede baslat; penceresizde editor
+  // aracin bitmesini bekler (U6 kapisi: menu -> betik -> Konsol -> cikis kodu).
+  const char *arac = nullptr;
+  // --yardim rehber|kisayollar|cokme: yardim penceresini penceresizde de ac (U8 UX kapisi).
+  const char *yardim = nullptr;
+  int tur_adim = 0;
+  const char *karsilama_yeni = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni
   // ikili AYNI argumanlarla yeniden baslatilir (app/editor_update.hpp). Bos
   // olabilir (testler/gomulu kullanim): o zaman yalniz --scene tasinir.

@@ -111,6 +111,9 @@ struct UpdRelease {
   bool notes_truncated = false;
 };
 bool upd_release_parse(const char *json, size_t len, const char *platform, UpdRelease *out, char *err, size_t err_cap);
+// AppImage kipi (U7c): ayni yanittan `tulpar-editor-<tag>-<mimari>.AppImage` (mimari: platformun
+// "linux-" sonrasi; release.yml'in yukledigi ad) + ayni ozet dosyasi.
+bool upd_release_parse_appimage(const char *json, size_t len, const char *platform, UpdRelease *out, char *err, size_t err_cap);
 
 // `sha256sum` bicimli metinde `name`in ozeti ("<64 hex>  <ad>" ya da
 // "<64 hex> *<ad>"). Bulunamaz ya da hex bozuksa false.
@@ -173,6 +176,10 @@ struct UpdaterConfig {
   const char *install_dir = nullptr;     // UTF-8. null: calisan ikilinin dizini (Windows'ta W-API ile; platform::exe_dir A-API'dir)
   bool allow_file_urls = false;          // file:// kabul (yalniz test / ortam ezmesi)
   uint32_t hash_budget_bytes = 0;        // poll basina SHA-256 baytlari; 0: kUpdHashBudget
+  // AppImage kipi (U7c): calisan AppImage DOSYASI (mutlak; $APPIMAGE). Doluysa install_dir yok sayilir:
+  // manifest/SURUM.txt aranmaz, Release'in .AppImage'i indirilir, ozetle dogrulanir ve bu dosyanin
+  // yerine konur (eski dosya <dizin>/.tulpar-editor-guncelleme/yedek-<surum>.AppImage; cleanup siler).
+  const char *appimage = nullptr;
 };
 
 // Sayaclar: reddedilen/sigmayan her sey burada gorunur (sessiz kirpma yok).
@@ -209,6 +216,8 @@ public:
   const char *kept_path(uint32_t i) const; // GORELI yol, `.yeni` EKSIZ (orn. "tests/assets/editor.sahne")
   const UpdCounters &counters() const;
   const char *install_dir() const;        // cozulmus kurulum dizini (UTF-8)
+  const char *appimage() const;           // AppImage kipinde calisan dosya, degilse ""
+
 
   // Acilista bir kez: `.guncelleme/` altindaki eski yedekleri ve yarim kalmis
   // indirme/acma dizinlerini siler. Silinemeyen (Windows'ta hala acik) dosya

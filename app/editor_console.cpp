@@ -412,6 +412,7 @@ void console_panel(ConsoleView &v) {
   // --- Arac cubugu: Temizle | ↓otomatik | ● N ▲ N ✗ N | ara ------------------
   {
     const float avail_w = ImGui::GetContentRegionAvail().x;
+    const float row_x0 = ImGui::GetCursorScreenPos().x;
     if (ImGui::Button("Temizle")) console_clear();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Listeyi temizle (d\xC3\xBC\xC5\x9F""en sat\xC4\xB1r say\xC4\xB1s\xC4\xB1 KALIR)");
     ImGui::SameLine(0.0f, st.ItemSpacing.x);
@@ -423,11 +424,14 @@ void console_panel(ConsoleView &v) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Otomatik kayd\xC4\xB1r: yeni sat\xC4\xB1r geldik\xC3\xA7""e alta kay");
     // Uc duzey dugmesi: simge + sayi, kendi tonunda; kapali olan soluk.
     for (uint32_t l = 0; l < kConsoleLevelCount; l++) {
-      ImGui::SameLine(0.0f, l == 0 ? st.ItemSpacing.x : st.ItemInnerSpacing.x);
       const ConsoleLevel lv = (ConsoleLevel)l;
       const bool on = v.show[l];
       char lbl[64];
       std::snprintf(lbl, sizeof lbl, "%s %u##duzey%u", level_icon(lv), cc.n[l], l);
+      // Sigmayan dugme alt satira (U1): dar panelde "✗ N" pencerenin disinda kalip gorunmuyordu.
+      const float gap = l == 0 ? st.ItemSpacing.x : st.ItemInnerSpacing.x;
+      const float bw = ImGui::CalcTextSize(lbl, nullptr, true).x + st.FramePadding.x * 2.0f;
+      if (ImGui::GetItemRectMax().x + gap + bw <= row_x0 + avail_w) ImGui::SameLine(0.0f, gap);
       ImGui::PushStyleColor(ImGuiCol_Button, on ? tone_u32(Tone::Bg3) : tone_u32(Tone::Bg1));
       ImGui::PushStyleColor(ImGuiCol_Text, tone_u32(level_tone(lv), on ? 1.0f : 0.4f));
       if (ImGui::Button(lbl)) v.show[l] = !on;
@@ -446,10 +450,15 @@ void console_panel(ConsoleView &v) {
                           "\x22Temizle\x22 bu sayac\xC4\xB1 SIFIRLAMAZ: neyi ka\xC3\xA7\xC4\xB1rd\xC4\xB1\xC4\x9F\xC4\xB1n bilgisi silinmez.",
                           drop, kConsoleCapacity);
     }
-    const float x = avail_w - search_w + st.ItemSpacing.x;
-    if (x > ImGui::GetCursorPosX()) ImGui::SameLine(x);
-    else ImGui::SameLine(0.0f, st.ItemSpacing.x);
-    ImGui::SetNextItemWidth(search_w);
+    // Dar panelde (U1: varsayilan yerlesimde Konsol sol sutunda) arama kutusu dugmelerin USTUNE
+    // biniyordu ("Temizle" yarisi gorunmez). Sigmiyorsa kendi satirina, tam genislikte.
+    const float used = ImGui::GetItemRectMax().x - row_x0;
+    if (used + st.ItemSpacing.x + search_w <= avail_w) {
+      ImGui::SameLine(avail_w - search_w + st.ItemSpacing.x);
+      ImGui::SetNextItemWidth(search_w);
+    } else {
+      ImGui::SetNextItemWidth(-FLT_MIN);
+    }
     ImGui::InputTextWithHint("##konsolara", "ara\xE2\x80\xA6", v.search, sizeof v.search);
   }
 
@@ -474,6 +483,11 @@ void console_panel(ConsoleView &v) {
       // genislikli yazi tipiyle bile satirlar hizali okunur (monospace yok).
       const float frame_col = ImGui::CalcTextSize("000000").x;
       const float tag_col = ImGui::CalcTextSize("[vulkan]").x;
+      // Dar panel (U1: varsayilan yerlesimde Konsol sol sutunda): kare + etiket sutunlari mesaja
+      // yer birakmiyordu (her satir "…"). Mesaja en az ~18 harf kalmiyorsa iki sutun gizlenir;
+      // ikisi de satirin ipucunda (fare ustundeyken) gorunur.
+      const bool dar = ImGui::GetContentRegionAvail().x - (fs + frame_col + tag_col + st.ItemInnerSpacing.x * 3.0f) <
+                       ImGui::CalcTextSize("0000000000000000").x;
       const float row_h = fs + st.FramePadding.y * 2.0f;
       ImGuiListClipper clip;
       clip.Begin((int)n, row_h);
@@ -495,15 +509,17 @@ void console_panel(ConsoleView &v) {
           const float ty = p.y + st.FramePadding.y;
           dl->AddText(ImVec2(x, ty), tone_u32(level_tone(e->level)), level_icon(e->level));
           x += fs + st.ItemInnerSpacing.x;
-          char nb[24];
-          std::snprintf(nb, sizeof nb, "%u", e->frame);
-          const float nw = ImGui::CalcTextSize(nb).x;
-          dl->AddText(ImVec2(x + frame_col - nw, ty), dim, nb); // saga dayali kare numarasi
-          x += frame_col + st.ItemInnerSpacing.x;
           char tb[kConsoleTagLen + 4];
           std::snprintf(tb, sizeof tb, "[%s]", e->tag);
-          dl->AddText(ImVec2(x, ty), dim, tb);
-          x += tag_col + st.ItemInnerSpacing.x;
+          if (!dar) {
+            char nb[24];
+            std::snprintf(nb, sizeof nb, "%u", e->frame);
+            const float nw = ImGui::CalcTextSize(nb).x;
+            dl->AddText(ImVec2(x + frame_col - nw, ty), dim, nb); // saga dayali kare numarasi
+            x += frame_col + st.ItemInnerSpacing.x;
+            dl->AddText(ImVec2(x, ty), dim, tb);
+            x += tag_col + st.ItemInnerSpacing.x;
+          }
           // Tekrar rozeti sagda; mesaj ona kadar kirpilir (sessiz kesme yok).
           float right = p.x + w - st.FramePadding.x;
           char rb[24] = {0};
@@ -517,7 +533,8 @@ void console_panel(ConsoleView &v) {
           char mb[kConsoleMsgLen + 8];
           editor_ellipsize(e->msg, right - x, mb, sizeof mb);
           dl->AddText(ImVec2(x, ty), e->level == ConsoleLevel::Bilgi ? text : tone_u32(level_tone(e->level)), mb);
-          if (ImGui::IsItemHovered() && std::strcmp(mb, e->msg) != 0) ImGui::SetTooltip("%s", e->msg);
+          if (ImGui::IsItemHovered() && dar) ImGui::SetTooltip("kare %u %s\n%s", e->frame, tb, e->msg);
+          else if (ImGui::IsItemHovered() && std::strcmp(mb, e->msg) != 0) ImGui::SetTooltip("%s", e->msg);
           ImGui::PopID();
         }
       }

@@ -1,0 +1,18 @@
+# {{OYUN_TR}} — Tulpar Engine oyun fabrikasi iskeleti (motor deposu tools/yeni_oyun.sh).
+#   tools/ortam.sh && tulpar oyun.tpr
+#   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr      # penceresiz otopilot + [kapi]
+name = "{{KIMLIK}}"
+
+[ext]
+# Motorun yerel eklenti paketi; .motor gitignore'lu bir baglanti (tools/ortam.sh kurar).
+paths = [".motor/tulpar-ext"]
+
+[android]
+package = "{{PAKET}}"
+name = "{{OYUN_TR}}"
+icon = "ikon.png"
+orientation = "{{YON}}"
+version_code = "1"
+version_name = "0.1.0"
+assets = "assets"
+splash_color = "#10121A"

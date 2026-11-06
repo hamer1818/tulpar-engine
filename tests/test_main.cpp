@@ -141,6 +141,13 @@ struct SurucuSabitle {
 int engine_tests_main(int argc, char **argv) {
   g_engine_tests_exe = (argc > 0 && argv && argv[0] && argv[0][0]) ? argv[0] : nullptr;
   if (argc >= 3 && std::strcmp(argv[1], "--argv-yankila") == 0) return argv_yankila(argc, argv);
+  // Testler isletim sisteminin dosya secicisini ACMAZ (zenity/kdialog kipli pencere acip bloklardi);
+  // editorun ImGui dosya penceresi olculur. Secicinin kendi testi bunu kendisi ezer.
+#if defined(_WIN32)
+  if (!std::getenv("TULPAR_DOSYA_SECICI")) _putenv_s("TULPAR_DOSYA_SECICI", "yok");
+#else
+  setenv("TULPAR_DOSYA_SECICI", "yok", 0);
+#endif
 #if !defined(__ANDROID__)
   // Gomulu oyun kanali kobaylari (--gomulu-sahte, --gomulu-kopru).
   if (const int r = game_channel_child_main(argc, argv); r >= 0) return r;

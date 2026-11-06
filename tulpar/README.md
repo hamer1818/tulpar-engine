@@ -65,6 +65,46 @@ gelen kazanır. Editörün F5/Ctrl+F5'i `PATH`'teki `tulpar`ı (önce `--ext <pa
 ile sınayarak) ve `<editör dizini>/tulpar-ext` paketini kullanır; `TULPAR_MOTOR_DERLEYICI`
 / `TULPAR_MOTOR_EKLENTI` ikisini ezer.
 
+## Ortak oyun kütüphanesi (`kit/`)
+
+`tulpar/kit/*.tpr` motorun eklenti paketiyle gelir; oyun yol yazmadan içe aktarır
+(plan: [docs/FABRIKA.md](../docs/FABRIKA.md)). Modül listesi `tools/gen_engine_bindings.py`
+`KIT_MODULES`'tadır (yeni modül = dosya + bir satır + betiği koştur).
+
+| modül | ne verir |
+|---|---|
+| `kit_kayit` | `kit_oyun(ad, ONEK)`: oyuncu / otopilot / penceresiz kipi; otopilot kayda yazmaz (istek sayılır), penceresiz koşum geçici dosyada boş başlar; `kit_ayar_oku/yaz` (yazım HEMEN diske), ayar sürüm göçü |
+| `kit_dil` | `L(tr, en)`, cihaz dili (Türkçe ise TR, gerisi EN), seçim sırası `TULPAR_<ONEK>_DIL` > otopilot TR > kayıt > cihaz, `kit_dil_degistir` |
+| `kit_ses` | efekt: dosya > `.flac` > sentetik ton > sessiz (sayılır), varyasyon, seyreltme; müzik: `kit_muzik_tanimla(ad, dongu)`, iki yuvalı çapraz geçiş, kısma |
+| `kit_arayuz` | arayüz kiti: 9 dilim atlas (`kit/varlik/arayuz.png`, üretici `tools/kit/arayuz_atlasi.py`), `k_dugme`/`k_panel`/`k_modal`/`k_kaydirici`/`k_anahtar`/`k_bolut`…, renk (`KR_*`), yazı ölçeği (`T_*`), ikonlar (`IK_*`) |
+| `kit_acilis` | stüdyo açılışı (ORTATEPE + "Made with Tulpar Engine"), girdi sızmaz; atlas `kit/varlik/acilis.png` (üretici `tools/kit/acilis_atlasi.py`); kancalar `g_kit_ac_cin`, `g_kit_ac_muzik` |
+
+```tpr
+import "engine";
+import "kit_kayit";
+import "kit_dil";
+bool g_oto = kit_oyun("benim_oyun", "BO");   // TULPAR_BO_OTOPILOT, TULPAR_BO_DIL ...
+kit_kayit_ac();
+kit_dil_ayarla(kit_dil_sec("bo_dil"));
+```
+
+Kapı: `tests/kit.test.tpr` (`tools/tulpar_dogrula.sh`, oyuncu + penceresiz kipte iki koşum +
+kip algısının pozitif kontrolü). İlk kullanıcısı Küpler ile Küreler (2026-11-05): dört modüle geçti, oyunun bütün kapıları
+(`--tam`, `--hikaye` 51/51, `--duello`, açılış) aynı sonucu veriyor; açılışın 24 karesi bayt aynı,
+ses NULL aygıtla 3600 karede aynı sayılar.
+
+### Yeni oyun (fabrika)
+
+```bash
+tools/yeni_oyun.sh ../benim-oyunum --kimlik benim --onek BO --tr "Benim Oyunum" --en "My Game" --git
+```
+
+`tulpar/sablonlar/arena/oyun.tpr` (oynanabilir en küçük döngü: menü, ayarlar, tur, duraklat, sonuç,
+otopilot + `[kapi]` satırı) ve `ortak/` dosyaları yer tutucular doldurularak kopyalanır; betik
+üretilen deponun `tools/dogrula.sh`'ini koşar, kırmızıysa kendisi de kırmızı döner. Android:
+iskeletteki `./apk_derle.sh [arm64-v8a|x86_64|ikisi]` (APK + statik doğrulama) ve
+`tools/android_dene.sh` (bağlı cihazda/emülatörde otopilot turu). Play'e yükleme iskelette yok.
+
 ## Tek kaynak kuralı
 
 208 `eng_*` fonksiyonunun tek kaynağı `tools/gen_engine_bindings.py` içindeki `SPEC`

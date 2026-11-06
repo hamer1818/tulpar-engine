@@ -1,7 +1,9 @@
 #include "platform/paths.hpp"
+#include "platform/fs_ops.hpp"
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #if defined(_WIN32)
@@ -111,8 +113,39 @@ bool asset_path_in(char *buf, size_t n, const char *relative, const char *source
 
   // 3. Gelistirme agaci (ENGINE_SOURCE_DIR). Bulunamasa da YAZILISI buf'ta
   // kalir: hata mesaji "hangi yola baktim"i soylemeye devam etsin.
+  // TULPAR_ENGINE_KAYNAKSIZ=1: bu adim ATLANIR — paket kapisi (tools/package.sh) kurulu duzenin
+  // kaynak agacina SIZMADAN calistigini derleyen makinede de olcebilsin (EDITOR-UYGULAMA-PLANI U7;
+  // yoksa pakette eksik bir sablon, derleme makinesinde kaynaktan bulunup gizlenirdi).
+  const char *kaynaksiz = std::getenv("TULPAR_ENGINE_KAYNAKSIZ");
+  if (kaynaksiz && kaynaksiz[0] == '1') return false;   // buf: calisma dizinindeki aday
   std::snprintf(buf, n, "%s/%s", (source_dir && *source_dir) ? source_dir : ".", relative);
   return path_exists(buf);
+}
+
+bool user_config_dir(char *buf, size_t n) {
+  if (!buf || n == 0) return false;
+  buf[0] = 0;
+  const char *ozel = std::getenv("TULPAR_EDITOR_AYAR_DIZINI");
+  int w = -1;
+  if (ozel && *ozel) {
+    w = std::snprintf(buf, n, "%s", ozel);
+  } else {
+#if defined(_WIN32)
+    const char *ad = std::getenv("APPDATA");
+    if (ad && *ad) w = std::snprintf(buf, n, "%s/Tulpar/Editor", ad);
+#elif defined(__APPLE__)
+    const char *home = std::getenv("HOME");
+    if (home && *home) w = std::snprintf(buf, n, "%s/Library/Application Support/Tulpar Editor", home);
+#else
+    const char *xdg = std::getenv("XDG_CONFIG_HOME");
+    const char *home = std::getenv("HOME");
+    if (xdg && *xdg) w = std::snprintf(buf, n, "%s/tulpar-editor", xdg);
+    else if (home && *home) w = std::snprintf(buf, n, "%s/.config/tulpar-editor", home);
+#endif
+  }
+  if (w <= 0 || (size_t)w >= n) { buf[0] = 0; return false; }
+  if (!fs_mkdir_p(buf)) { buf[0] = 0; return false; }
+  return true;
 }
 
 } // namespace tulpar::engine::platform

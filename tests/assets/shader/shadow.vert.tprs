@@ -1,4 +1,4 @@
-// kaynak-ozet: 7955a836cc95  (engine/rhi/shaders/shadow.vert)
+// kaynak-ozet: 2f35d7672a0c  (engine/rhi/shaders/shadow.vert)
 // Golge haritasi: yalniz derinlik. G3 (sabit boy dizi) kullanir — bu dosya
 // bugunku Tulpar gramerinden GECMEZ, alt kumeden gecer.
 str asama = "vert";

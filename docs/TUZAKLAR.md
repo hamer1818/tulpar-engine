@@ -387,6 +387,12 @@ sahne kapısı "dosya açılamadı → görünür atlama" yoluna düşüyor ve s
 çağırmalı) ya da bulamadığında ATLAMAK yerine KIRMIZI olmalı. Aynı sınıf: `wasm/dist` ve `android/dist`
 arşivleri (Tuzaklar 8aj). Genel kural: "atlandı" sayısı sessizce artıyorsa, kapılar erimiş demektir.
 
+**Ek (2026-11-05) — ELLE koşulan kapı da aynı yoldan erir.** Faz 8 bayt kapısı (`faz8_shader_audit.py`)
+kaynak GLSL değişince doğru biçimde "ATLANDI — yeniden taşı" diyordu, ama çıkışı 0'dı ve hiçbir otomasyon
+onu koşmuyordu: 2026-09-27'de 18/19 olan sonuç beş hafta içinde 14/19'a indi (4 shader dört ayrı PR'da
+değişti), kimse görmedi. Kural: ATLANDI ile biten bir kapı **bir yerde kırmızı sayılmalı** — burada
+`tools/yerel_ci.sh` "Faz 8 shader + yerlesim" aşaması ATLANDI'yı HATA sayar.
+
 ### 8an. Aynı `VkApi` tablosuyla ikinci cihaz açmak, paylaşılan cihazın giriş noktalarını EZER
 `VkApi` cihaz düzeyindeki fonksiyon işaretçilerini tek tabloda tutuyor. İki testin aynı tabloyla iki ayrı
 `VkDevice` açması, ikinci `init` sırasında tablodaki adresleri ikinci cihazınkilerle **değiştiriyor**; ikinci
@@ -2440,3 +2446,41 @@ yine 25 atlıyor. **Motor için:** aynı süreçte motoru 20+ kez kapatıp açan
 masaüstünde aynı duvara çarpar; Android'de (bionic, sistem ICD'si) ve editörün F5'inde (her oyun AYRI
 süreç) bu yol yok. **Kural:** "tek başına geçiyor, toplu geçiyor, alt kümede atlıyor" diyen test, sürecin
 geçmişine bağlı bir kaynağı ölçüyordur — önce sürücü günlüğünü aç.
+
+### 8dq. Türkçe yerel ayarda bash'in `[a-z]` aralığı "i"yi eşleştirmiyor — doğrulama yalnız bazı adlarda düşer
+`tools/yeni_oyun.sh` kimliği `[[ "$k" =~ ^[a-z][a-z0-9_]{1,30}$ ]]` ile denetliyordu. Bu makinede
+(`LANG=tr_TR.UTF-8`) `deneme` geçti, `ci_oyun` ve `kiri` REDDEDİLDİ: aralık ifadesi yerel ayarın sıralama
+tablosuna göre yorumlanıyor ve Türkçe tabloda `i` (noktalı/noktasız i çifti yüzünden) `a`–`z` aralığında
+değil. Hata yalnız adında `i` geçen girdide çıktığı için ilk denemeler yeşildi; yerel CI'ın fabrika
+adımındaki ilk gerçek ad (`ci_oyun`) yakaladı (ölçüldü 2026-11-05). **Kural:** betikte düzenli ifade
+ya da aralık denetimi `LC_ALL=C` altında yapılır (`gecerli() { local LC_ALL=C; [[ "$1" =~ $2 ]]; }`);
+`sort`, `tr a-z`, `[[ x < y ]]` aynı sınıftandır. İlgili: 8dp ("tek başına geçiyor, toplu düşüyor"
+gibi, burada da girdi kümesine bağlı yeşil).
+
+### 8dr. Aynı kayıt yolunu paylaşan paralel süreçler birbirinin `.tmp`'sini taşıyor — biri "kayit yerine konamadi"
+`teng_save_write` "gecici dosyaya yaz, sonra rename" deseninde geçici adı `<yol>.tmp` idi. Penceresiz kip
+(kit_kayit) her koşumu aynı geçici kayıt dosyasına bağlar; fabrika şablonunun `tools/dogrula.sh`'i üç
+koşumu PARALEL başlatınca hepsi açılışta aynı anda yazıyor, biri ötekinin `.tmp`'sini yerine koyuyor ve
+geç kalanın `rename`'i ENOENT ile düşüyordu → `hata=1`, kapı kırmızı. Üç doğrulamanın ikisinde oldu, tek
+koşumda hiç olmadı (ölçüldü 2026-11-05, RTX 5080 makinesi). Küp-Küre'nin 16 paralel `--hikaye`
+koşumu da aynı dosyayı açıyordu; şans eseri yakalanmamıştı. **Düzeltme:** geçici ad sürece özgü
+(`<yol>.<pid>.tmp`, `platform::fs_process_id`); son yazan kazanır, ikisi de hatasız. Sonra 6/6 yeşil.
+**Kural:** paralel koşturulacak her kapı (kullanıcı tercihi: testler tam güçte, paralel), süreçler arası
+paylaşılan dosya adı taşımamalı — geçici dosya adı sürece özgü olur.
+
+### 8ds. Çift kodlanmış UTF-8 (mojibake) dizgi derlenir ve ekranda bozuk çıkar
+**Belirti:** editör U3c'de başlangıç ekranına üç hata dizgisi `"Proje oluÅtu"` ve `"aÃ§Ä±lamadÄ±"`
+biçiminde depoya girdi. Dizgiler UTF-8 baytları Latin-1 sanılıp yeniden UTF-8 yazılarak üretilmişti.
+
+**Neden fark edilmedi:**
+- Derleyici bu dizgileri kabul eder.
+- UX ölçümü yalnız çizilen metne bakar; hata yolları da hiç çizilmemişti.
+
+**Bulunuşu:** 2026-11-06'da kaynağı okurken görüldü.
+
+**Kapı:** `tools/layer_check.py` artık Latin-1 harfi (U+00C2–U+00C5) ardından C1 aralığındaki bir
+karakter (U+0080–U+00BF) gelen her satırı ihlal sayar. Gerçek Türkçe metinde bu ikili geçmez.
+
+**Pozitif kontrol:** düzeltilmemiş dosyayla kapı 3 ihlal bildirdi.
+
+**Kural:** Türkçe C++ metni `\xHH` kaçışıyla yazılır (taşmaya karşı `layer_check`'in hex denetimi ayrıca bakar).

@@ -24,6 +24,8 @@
 #                                  link.<platform> arsivleri (lib/) +
 #                                  assets/fonts (HUD fontu + lisansi). Bildirimde
 #                                  link.<platform> yoksa GORUNUR atlanir.
+#           tulpar/sablonlar/**, tulpar/kit/varlik/*
+#                                  oyun fabrikasi (editorun "Yeni oyun"u; bkz. fabrika_dosyalari)
 #           OKUBENI.md
 #           SURUM.txt              "<surum> <platform>\n" (kaynak derlemesi:
 #                                  "kaynak <platform>"); ikilideki isaretten
@@ -113,6 +115,12 @@ kok = sys.argv[1]
 TARAMA = ("app", "bridge", "tools", "content", "renderer", "rhi", "sim",
           "audio", "gameplay", "core", "platform")
 UZANTI = (".c", ".cc", ".cpp", ".h", ".hpp")
+# Bu dosyalardaki assets/ yollari URETILEN OYUN PROJESINE goreli (oyun fabrikasi: "%s/assets/%s",
+# "assets/resimler/acilis.png" hedefleri). Yalniz motor deposunda gercekten VAR olanlar (ornegin
+# ikon icin okunan assets/fonts/DejaVuSans.ttf) paket varligi sayilir; gerisi atlanir. Bu tablo
+# olmadan U3a'dan (2026-11-05) beri varlik turetmesi "COZULEMEYEN VARLIK YOLU" ile duruyordu —
+# paket kapisi yerel_ci'de kosmadigi icin 2026-11-06'ya kadar gorulmedi.
+PROJE_ICI = {"app/editor_fabrika.cpp"}
 
 # C kaynagini kabaca tokenlere ayir: yorumlar ATILIR (icindeki tek tirnak
 # dizgi taramasini kaydirmasin), dizgi birlestirmesi (bitisik literal ve
@@ -184,9 +192,12 @@ for alt in TARAMA:
         if "assets/" not in metin:
             continue
         rel = os.path.relpath(p, kok)
+        proje_ici = rel.replace(os.sep, "/") in PROJE_ICI
         for s in birlesik_dizgiler(metin, makro):
             for m in YOL.finditer(s):
                 y = m.group(0)
+                if proje_ici and not os.path.isfile(os.path.join(kok, y)):
+                    continue  # uretilen oyun projesinin kendi assets/'i — motor varligi degil
                 if "%" in y or "<COZULMEDI:" in y or y.endswith("/") or "." not in os.path.basename(y):
                     cozulmedi.append((rel, s))
                 else:
@@ -638,6 +649,56 @@ eklenti_eksik_kitapliklar() {
   done <<< "$satirlar"
 }
 
+# --- Oyun fabrikasi (EDITOR-UYGULAMA-PLANI U7) ------------------------------
+# Editorun "Yeni oyun"u (app/editor_fabrika.cpp) sablonlari ve kit atlaslarini asset_path ile okur:
+# tulpar/sablonlar/** + tulpar/kit/varlik/*. Bunlar "assets/" ile baslamadigi icin varlik turetmesi
+# (varlik_yollari) onlari GORMEZ; 2026-11-06'ya kadar paket sablonsuzdu ve kurulu editorde Yeni oyun
+# "Sablon dosyasi bulunamadi" derdi — derleme makinesinde ENGINE_SOURCE_DIR kaynaktan buldugu icin
+# hic gorulmedi. Liste ELLE degil dizinlerden; .sahneb turetilmis (proje kendisi derler).
+fabrika_dosyalari() {
+  (cd "$kok" && find tulpar/sablonlar tulpar/kit/varlik -type f ! -name '*.sahneb' | LC_ALL=C sort)
+}
+
+# Kurulu duzende Yeni oyun: paketlenmis engine_editor, kaynak agacina SIZMADAN
+# (TULPAR_ENGINE_KAYNAKSIZ=1: asset_path ENGINE_SOURCE_DIR'e dusmez; calisma dizini bos gecici dizin)
+# bir oyun uretir; uretilen projenin tools/ortam.sh'i TULPAR_ENGINE_DIR=<paket> ile sahnesini paketin
+# engine_sahnec'iyle derler ve .motor'u pakete baglar. POZITIF KONTROL: oyun.tpr sablonu silinmis
+# paket kopyasi uretimi REDDETMELI (kapi gercekten paketin sablonuna bakiyor).
+fabrika_sinamasi() {
+  local cikti="$1" gun ed rc
+  cikti="$(cd "$cikti" && pwd)"
+  ed="$cikti/engine_editor"; [ -f "$ed.exe" ] && ed="$ed.exe"
+  gun="$(mktemp -d 2>/dev/null || mktemp -d -t tulpar_fabrika)"
+  uret() {  # uret <editor> <hedef> <log>
+    ( cd "$gun" && TULPAR_ENGINE_KAYNAKSIZ=1 "$1" --yeni-oyun "$2" --kimlik paket_oyun --onek PKO \
+        --tr "Paket Oyunu" --en "Package Game" ) > "$3" 2>&1
+  }
+  rc=0; uret "$ed" "$gun/oyun" "$gun/uret.log" || rc=$?
+  if [ "$rc" -ne 0 ] || [ ! -s "$gun/oyun/oyun.tpr" ] || [ ! -s "$gun/oyun/assets/arena.sahne" ]; then
+    echo "  FABRIKA kurulu duzende Yeni oyun DUSTU (cikis $rc):"; tail -3 "$gun/uret.log" | sed 's/^/      /'
+    rm -rf "$gun"; return 1
+  fi
+  if ! TULPAR_ENGINE_DIR="$cikti" bash "$gun/oyun/tools/ortam.sh" > "$gun/ortam.log" 2>&1 || [ ! -s "$gun/oyun/assets/arena.sahneb" ]; then
+    echo "  FABRIKA uretilen projenin ortam.sh'i paketle sahne derleyemedi:"; tail -4 "$gun/ortam.log" | sed 's/^/      /'
+    rm -rf "$gun"; return 1
+  fi
+  echo "  fabrika kurulu duzende Yeni oyun: $(head -1 "$gun/uret.log" | sed 's/^iskelet: [^ ]* //'); sahne paketin engine_sahnec'iyle derlendi"
+  # Pozitif kontrol: sablonsuz kopya.
+  cp -R "$cikti" "$gun/bozuk_paket"
+  rm -f "$gun/bozuk_paket/tulpar/sablonlar/arena/oyun.tpr"
+  local bed="$gun/bozuk_paket/$(basename "$ed")"
+  rc=0; uret "$bed" "$gun/bozuk_oyun" "$gun/bozuk.log" || rc=$?
+  if [ "$rc" -ne 0 ] && grep -q "oyun.tpr" "$gun/bozuk.log"; then
+    echo "  pozitif kontrol: sablonu silinmis kopyada Yeni oyun reddedildi ($(tail -1 "$gun/bozuk.log" | cut -c1-90))"
+  else
+    echo "  FABRIKA pozitif kontrol: sablonsuz kopya cikis $rc — kapi paketin sablonunu olcmuyor (kaynak agacina mi sizdi?)"
+    tail -3 "$gun/bozuk.log" | sed 's/^/      /'
+    rm -rf "$gun"; return 1
+  fi
+  rm -rf "$gun"
+  return 0
+}
+
 # Eklenti paketinin iki sinamasi (paket tamken cagrilir; 0 = gecti):
 #  1. KITAPLIK KAPISININ POZITIF KONTROLU: paketin bir kopyasindan ilk
 #     kitapligin arsivi silinir; eklenti_eksik_kitapliklar onu ADIYLA bulmali.
@@ -906,6 +967,12 @@ paketle() {
     [ -f "$kaynak" ] || ci_hata "$t$EXE uretilmemis ($kaynak yok) — eksik ikiliyle paket dagitilmaz."
     cp -f "$kaynak" "$cikti/"
   done
+  # 1b) Windows: GUI alt sistemli baslatici (app/baslatici_win.cpp; kurucunun kisayollari onu cagirir,
+  # engine_editor konsol penceresiz acilir). Yalniz Windows yapisinda uretilir.
+  if [ "$EXE" = ".exe" ]; then
+    [ -f "$yapi/TulparEditor.exe" ] || ci_hata "TulparEditor.exe uretilmemis — kurucunun kisayollari onu cagirir."
+    cp -f "$yapi/TulparEditor.exe" "$cikti/"
+  fi
 
   # 2) Varliklar (kaynaktan turetilen liste)
   local liste y d
@@ -1010,6 +1077,17 @@ paketle() {
     echo "  eklenti tulpar-ext/ <- $ekl_kaynak ($(du -sh "$cikti/tulpar-ext" | cut -f1))"
   fi
 
+  # 3d) Oyun fabrikasi: sablonlar + kit atlaslari (bkz. fabrika_dosyalari).
+  local fd fs=0
+  while IFS= read -r fd; do
+    [ -n "$fd" ] || continue
+    mkdir -p "$cikti/$(dirname "$fd")"
+    cp -f "$kok/$fd" "$cikti/$fd"
+    fs=$((fs + 1))
+  done < <(fabrika_dosyalari)
+  [ "$fs" -gt 0 ] || ci_hata "oyun fabrikasi dosyalari bulunamadi (tulpar/sablonlar, tulpar/kit/varlik) — Yeni oyun kurulu editorde calismaz."
+  echo "  fabrika tulpar/sablonlar + tulpar/kit/varlik ($fs dosya)"
+
   # 4) OKUBENI
   [ -f "$OKUBENI_KAYNAK" ] || ci_hata "OKUBENI kaynagi yok: $OKUBENI_KAYNAK"
   cp -f "$OKUBENI_KAYNAK" "$cikti/OKUBENI.md"
@@ -1023,7 +1101,7 @@ paketle() {
 
   # 5) Semboller: engine_editor striplenmemis ~15 MB. Yalniz IKILILER
   # striplenir (varliklarin uzerinden gecmek anlamsiz).
-  for t in "${IKILILER[@]}"; do
+  for t in "${IKILILER[@]}" TulparEditor; do
     [ -f "$cikti/$t$EXE" ] && strip "$cikti/$t$EXE" 2>/dev/null || true
   done
 
@@ -1070,6 +1148,19 @@ denetle() {
   done
 
   if [ -s "$cikti/OKUBENI.md" ]; then echo "  var     OKUBENI.md"; else echo "  EKSIK   OKUBENI.md"; eksik=$((eksik + 1)); fi
+
+  # Oyun fabrikasi: her sablon/kit dosyasi pakette; tamsa kurulu duzende uretim sinamasi.
+  local fd f_eksik=0
+  while IFS= read -r fd; do
+    [ -n "$fd" ] || continue
+    say=$((say + 1))
+    if [ -s "$cikti/$fd" ]; then echo "  var     $fd"; else echo "  EKSIK   $fd (Yeni oyun sablonu)"; f_eksik=$((f_eksik + 1)); fi
+  done < <(fabrika_dosyalari)
+  eksik=$((eksik + f_eksik))
+  if [ "$f_eksik" = 0 ] && { [ -f "$cikti/engine_editor" ] || [ -f "$cikti/engine_editor.exe" ]; } && \
+     { [ -f "$cikti/engine_sahnec" ] || [ -f "$cikti/engine_sahnec.exe" ]; }; then
+    if fabrika_sinamasi "$cikti"; then say=$((say + 1)); else eksik=$((eksik + 1)); fi
+  fi
 
   # Windows paketi: DLL'siz .exe hic acilmaz.
   if ls "$cikti"/*.exe >/dev/null 2>&1; then
@@ -1131,6 +1222,9 @@ denetle() {
 
   # Windows: baslaticilar. Hata halinde konsolu acik tutan tek sey onlar.
   if [ "$dl_plat" = "windows" ]; then
+    say=$((say + 1))
+    if [ -s "$cikti/TulparEditor.exe" ]; then echo "  var     TulparEditor.exe (konsolsuz baslatici)"
+    else echo "  EKSIK   TulparEditor.exe (kurucunun kisayollari onu cagirir)"; eksik=$((eksik + 1)); fi
     local t2
     for t2 in "${IKILILER[@]}"; do
       say=$((say + 1))

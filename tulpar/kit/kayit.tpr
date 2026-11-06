@@ -1,0 +1,104 @@
+// kit_kayit — oyun kimligi, calisma kipi (oyuncu / otopilot / penceresiz) ve kayit dosyasi.
+// Ortak oyun kutuphanesi (docs/FABRIKA.md asama 1). Kaynak: Kupler ile Kureler oyun.tpr
+// (kayit_dosyasi, ayarlari_oku, ayarlari_yaz; 2026-10-08 .. 11-05 telefonda olculen kurallar).
+//
+//   import "engine";
+//   import "kit_kayit";
+//   kit_oyun("kup_kure", "KKS");      // motor kurulmadan ONCE (eng_init'ten once de olur)
+//   kit_kayit_ac();                  // kurallara gore dosyayi baglar
+//   float ses = kit_ayar_oku("kks_efekt", 0.8);
+//   kit_ayar_yaz("kks_efekt", 0.5);  // izin varsa HEMEN diske
+//
+// KURALLAR (her biri bir kez sessiz bozulma olarak yasandi):
+//  * OTOPILOT KAYDA YAZMAZ. Penceresiz kosum (TULPAR_ENGINE_HEADLESS), TULPAR_<ONEK>_OTOPILOT=1
+//    ya da TULPAR_<ONEK>_TEST dolu ise oyun "otopilot"tur: menudeki oyun sayaci ajanlarin
+//    deneme oyunlarini sayiyordu, kaydirici testi oyuncunun ses ayarini eziyordu (P20 Pro,
+//    2026-10-08). Pozitif kontrol: TULPAR_<ONEK>_KAYIT_YAZ=1 yazimi acar.
+//  * Penceresiz kosum GECICI dosyaya yazar ve HER SEFERINDE BOS baslar: kapi satirlari onceki
+//    kosumlara bagli olmasin (iki makinede ayni satir). Gecici dizin tests/test.hpp tmp_dir()
+//    kurali (Windows'ta TEMP/TMP, sonra TMPDIR, sonra /tmp).
+//  * Pencereli otopilot (telefonda debug.tulpar.env) AYRI dosyaya yazar.
+//  * Oyuncu: motorun varsayilan kaydi (TULPAR_ENGINE_SAVE ya da calisma dizininde
+//    tulpar_kayit.txt; Android'de uygulama dizini). kit_kayit_ac() bu durumda DOSYAYA DOKUNMAZ.
+//  * Mobilde "cikista yaz" kancasi yok (Tuzaklar 8au): kit_ayar_yaz her degisikligi HEMEN yazar.
+import "engine";
+
+str g_kit_oyun = "oyun";     // dosya adi parcasi: tulpar_<ad>_kayit.txt
+str g_kit_onek = "OYUN";     // ortam degiskeni onegi: TULPAR_<ONEK>_...
+bool g_kit_penceresiz = false;
+bool g_kit_otopilot = false;
+bool g_kit_kayit_izin = true;
+int g_kit_yazim = 0;         // kit_ayar_yaz'in diske yazdigi kez (kapi: otopilotta 0 olmali)
+int g_kit_yazim_red = 0;     // izin yokken istenen yazim (sayilir, sessiz degil)
+
+func kit_ortam(str ad): str { return env("TULPAR_" + g_kit_onek + "_" + ad); }
+
+// Oyun kimligi + calisma kipi. Bir kez, oyunun basinda. Donus: otopilot mu
+// (ust duzey baslaticida kullanilabilsin: `bool g_oto = kit_oyun("x", "X");`).
+func kit_oyun(str ad, str onek): bool {
+    g_kit_oyun = ad;
+    g_kit_onek = onek;
+    g_kit_penceresiz = len(env("TULPAR_ENGINE_HEADLESS")) > 0;
+    g_kit_otopilot = g_kit_penceresiz || kit_ortam("OTOPILOT") == "1" || len(kit_ortam("TEST")) > 0;
+    g_kit_kayit_izin = !g_kit_otopilot || kit_ortam("KAYIT_YAZ") == "1";
+    return g_kit_otopilot;
+}
+
+func kit_gecici_dizin(): str {
+    str tmp = "";
+    if (env("OS") == "Windows_NT") { tmp = env("TEMP"); if (len(tmp) == 0) { tmp = env("TMP"); } }
+    if (len(tmp) == 0) { tmp = env("TMPDIR"); }
+    return len(tmp) == 0 ? "/tmp" : tmp;
+}
+
+// "" = motorun varsayilan kaydi (oyuncu).
+func kit_kayit_dosyasi(): str {
+    if (g_kit_penceresiz) { return kit_gecici_dizin() + "/tulpar_" + g_kit_oyun + "_kayit.txt"; }
+    if (g_kit_otopilot) { return "tulpar_" + g_kit_oyun + "_otopilot_kayit.txt"; }
+    return "";
+}
+
+// Dosyayi kurallara gore baglar. Penceresizde bos baslatir. Donus: baglanan yol.
+func kit_kayit_ac(): str {
+    str yol = kit_kayit_dosyasi();
+    if (len(yol) > 0) {
+        kayit_ac(yol);
+        if (g_kit_penceresiz) { kayit_temizle(); kayit_kaydet(); }
+    }
+    return kayit_yolu();
+}
+
+func kit_ayar_oku(str anahtar, float varsayilan): float { return kayit_oku_sayi(anahtar, varsayilan); }
+
+// Izin varsa yazar ve HEMEN diske. Donus: yazildi mi.
+func kit_ayar_yaz(str anahtar, float deger): bool {
+    if (!g_kit_kayit_izin) { g_kit_yazim_red += 1; return false; }
+    kayit_yaz_sayi(anahtar, deger);
+    kayit_kaydet();
+    g_kit_yazim += 1;
+    return true;
+}
+
+// Bircok anahtari tek dosya yazimiyla: kit_ayar_koy ... kit_ayar_kaydet.
+func kit_ayar_koy(str anahtar, float deger) { if (g_kit_kayit_izin) { kayit_yaz_sayi(anahtar, deger); } else { g_kit_yazim_red += 1; } }
+func kit_ayar_kaydet(): bool {
+    if (!g_kit_kayit_izin) { return false; }
+    kayit_kaydet();
+    g_kit_yazim += 1;
+    return true;
+}
+
+// Ayar surum gocu: kayittaki surum `surum`dan kucukse (ve yazma izni varsa) true doner;
+// cagiran varsayilanlari kit_ayar_koy ile yazar, sonra kit_ayar_gocu_bitti.
+func kit_ayar_gocu(str surum_anahtari, float surum): bool {
+    return g_kit_kayit_izin && kayit_oku_sayi(surum_anahtari, 0.0) < surum;
+}
+func kit_ayar_gocu_bitti(str surum_anahtari, float surum) {
+    kit_ayar_koy(surum_anahtari, surum);
+    kit_ayar_kaydet();
+}
+
+func kit_kip_adi(): str {
+    if (g_kit_penceresiz) { return "penceresiz"; }
+    return g_kit_otopilot ? "otopilot" : "oyuncu";
+}

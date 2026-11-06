@@ -1371,3 +1371,130 @@ ENGINE_TEST(updater_cancel_from_staged) {
   CHECK(snap_eq(before, snapshot(f.inst)));
   CHECK(platform::fs_remove_tree(f.base));
 }
+
+#if !defined(_WIN32)
+namespace {
+// AppImage (tek dosya) fiksturu: <kok>/Uygulamalar/Tulpar.AppImage (eski) + <kok>/yayin/{latest.json,
+// tulpar-editor-v0.2.0-<mimari>.AppImage, SHA256SUMS}. ozet_boz: SHA256SUMS'a yanlis ozet yazilir.
+struct TekFix {
+  char kok[512], uyg[700], ai[800], yayin[700], api[1400];
+};
+bool tek_kur(TekFix &t, bool ozet_boz) {
+  char tool[1024];
+  if (!platform::fs_system_tool("curl", tool, sizeof tool)) return false;
+  if (!test::tmp_mkdir(t.kok, sizeof t.kok, "upd_tek")) return false;
+  path_join(t.uyg, sizeof t.uyg, t.kok, "Uygulamalar");
+  path_join(t.yayin, sizeof t.yayin, t.kok, "yayin");
+  if (!platform::fs_mkdir_p(t.uyg) || !platform::fs_mkdir_p(t.yayin)) return false;
+  path_join(t.ai, sizeof t.ai, t.uyg, "Tulpar.AppImage");
+  if (!platform::fs_write_all(t.ai, "eski appimage v0.1.0\n", 21)) return false;
+  const char *arch = std::strncmp(kPlat, "linux-", 6) == 0 ? kPlat + 6 : kPlat;
+  char ad[160], yol[900], url[1400], sums_yol[900], sums_url[1400];
+  std::snprintf(ad, sizeof ad, "tulpar-editor-v0.2.0-%s.AppImage", arch);
+  path_join(yol, sizeof yol, t.yayin, ad);
+  const char *yeni = "yeni appimage v0.2.0 #!/bin/sh\n";
+  if (!platform::fs_write_all(yol, yeni, std::strlen(yeni))) return false;
+  uint8_t sha[32];
+  char hex[65];
+  if (!file_sha(yol, sha)) return false;
+  sha256_to_hex(sha, hex);
+  if (ozet_boz) hex[0] = hex[0] == '0' ? '1' : '0';
+  char sums[400];
+  const int sl = std::snprintf(sums, sizeof sums, "%s  %s\n", hex, ad);
+  path_join(sums_yol, sizeof sums_yol, t.yayin, "tulpar-engine-v0.2.0-SHA256SUMS.txt");
+  if (!platform::fs_write_all(sums_yol, sums, (size_t)sl)) return false;
+  if (!file_url(url, sizeof url, yol) || !file_url(sums_url, sizeof sums_url, sums_yol)) return false;
+  static char json[4096];
+  const int jl = std::snprintf(json, sizeof json,
+                               "{\"tag_name\":\"v0.2.0\",\"html_url\":\"https://github.com/hamer1818/tulpar-engine/releases/tag/v0.2.0\","
+                               "\"published_at\":\"2026-11-06T12:00:00Z\",\"body\":\"x\",\"assets\":["
+                               "{\"name\":\"tulpar-engine-v0.2.0-%s.tar.gz\",\"size\":1,\"browser_download_url\":\"%s\"},"
+                               "{\"name\":\"%s\",\"size\":%u,\"browser_download_url\":\"%s\"},"
+                               "{\"name\":\"tulpar-engine-v0.2.0-SHA256SUMS.txt\",\"size\":%d,\"browser_download_url\":\"%s\"}]}",
+                               kPlat, url, ad, (unsigned)std::strlen(yeni), url, sl, sums_url);
+  char lj[900];
+  path_join(lj, sizeof lj, t.yayin, "latest.json");
+  if (!platform::fs_write_all(lj, json, (size_t)jl)) return false;
+  return file_url(t.api, sizeof t.api, lj);
+}
+bool tek_init(SystemArena &ar, Updater &u, const TekFix &t) {
+  if (!ar.reserve(Updater::arena_bytes(), "upd_tek")) return false;
+  UpdaterConfig c;
+  c.current_version = "v0.1.0";
+  c.platform = kPlat;
+  c.api_url = t.api;
+  c.appimage = t.ai;
+  c.allow_file_urls = true;
+  char e[256];
+  return u.init(ar, c, e, sizeof e);
+}
+} // namespace
+
+// AppImage kipi (U7c): Release'in .AppImage'i indirilir, ozetle dogrulanir, calisan AppImage DOSYASININ
+// yerine konur (calistirilabilir); eski dosya yedekte, cleanup siler. Manifest/SURUM.txt ARANMAZ.
+ENGINE_TEST(updater_appimage_dosya_butun_degisir) {
+  TekFix t;
+  if (!tek_kur(t, false)) { test::skip("curl yok ya da fikstur kurulamadi — AppImage guncellemesi olculemedi"); return; }
+  SystemArena ar;
+  Updater u;
+  CHECK(tek_init(ar, u, t));
+  if (u.state() != UpdState::Idle) std::printf("    sebep: %s\n", u.reason());
+  CHECK(u.state() == UpdState::Idle);
+  CHECK(streq(u.appimage(), t.ai) && streq(u.install_dir(), t.uyg));
+  u.check();
+  drive(u);
+  CHECK(u.state() == UpdState::Available);
+  CHECK(contains(u.release().asset_name, ".AppImage"));   // tar.gz DEGIL
+  u.download();
+  drive(u);
+  if (u.state() != UpdState::Staged) std::printf("    indirme: %s / %s\n", upd_state_name(u.state()), u.reason());
+  CHECK(u.state() == UpdState::Staged && u.plan_summary().replace == 1);
+  CHECK(file_is(t.uyg, "Tulpar.AppImage", "eski appimage v0.1.0\n"));   // Staged: dokunulmadi
+  char err[256];
+  CHECK(u.install(err, sizeof err));
+  CHECK(u.state() == UpdState::Installed);
+  CHECK(file_is(t.uyg, "Tulpar.AppImage", "yeni appimage v0.2.0 #!/bin/sh\n"));
+  struct stat sb;
+  CHECK(::stat(t.ai, &sb) == 0 && (sb.st_mode & 0100));
+  CHECK(exists(t.uyg, ".tulpar-editor-guncelleme/yedek-v0.1.0.AppImage"));
+  Updater::cleanup(t.uyg);
+  CHECK(!exists(t.uyg, ".tulpar-editor-guncelleme"));
+  CHECK(platform::fs_remove_tree(t.kok));
+}
+
+// POZITIF KONTROLLER: bozuk ozet -> Failed, AppImage AYNEN; ikinci tasima duserse eski geri konur.
+ENGINE_TEST(updater_appimage_bozuk_ozet_ve_geri_alma) {
+  TekFix t;
+  if (!tek_kur(t, true)) { test::skip("curl yok ya da fikstur kurulamadi — AppImage guncellemesi olculemedi"); return; }
+  {
+    SystemArena ar;
+    Updater u;
+    CHECK(tek_init(ar, u, t));
+    u.check();
+    drive(u);
+    u.download();
+    drive(u);
+    if (u.state() != UpdState::Failed) std::printf("    durum: %s\n", upd_state_name(u.state()));
+    CHECK(u.state() == UpdState::Failed && contains(u.reason(), "ozet"));
+    CHECK(file_is(t.uyg, "Tulpar.AppImage", "eski appimage v0.1.0\n"));
+  }
+  CHECK(platform::fs_remove_tree(t.kok));
+  CHECK(tek_kur(t, false));
+  {
+    SystemArena ar;
+    Updater u;
+    CHECK(tek_init(ar, u, t));
+    u.check();
+    drive(u);
+    u.download();
+    drive(u);
+    CHECK(u.state() == UpdState::Staged);
+    u.test_fail_after(0);
+    char err[256];
+    CHECK(!u.install(err, sizeof err));
+    CHECK(u.state() == UpdState::Failed && contains(err, "geri kondu"));
+    CHECK(file_is(t.uyg, "Tulpar.AppImage", "eski appimage v0.1.0\n"));
+  }
+  CHECK(platform::fs_remove_tree(t.kok));
+}
+#endif

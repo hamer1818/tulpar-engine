@@ -1,0 +1,77 @@
+// kaynak-ozet: 2b6f10bf2976  (engine/rhi/shaders/godray.frag)
+// Volumetrik gunes huzmeleri (GPU Gems 3 + prosedurel aci gurultusu): radyal
+// smear (40 ornek, dither) + aci harmonikleri + Mie taci, bloom'un ustune.
+str asama = "frag";
+
+vec2 v_uv = girdi(0);
+sampler2D u_src = ornek(0, 0);  // parlak gecis (down[0])
+sampler2D u_src2 = ornek(0, 1); // bloom gecisi (up[0])
+struct Push {
+  vec4 texel; // xy: 1/kaynak0 olcusu, zw: 1/kaynak1 olcusu
+  vec4 p;     // xy: gunes UV, z: huzme uzunlugu, w: keskinlik
+  vec4 q;     // x: siddet, y: genel carpan, z: ornek sayisi, w: zaman
+}
+Push pc = itme();
+vec4 o_color = cikti(0);
+
+func main() {
+  vec2 sun_uv = pc.p.xy;
+  float density = max(pc.p.z, 0.05);
+  float decay = clamp(pc.p.w, 0.01, 0.999);
+  float weight = max(pc.q.x, 0.0);
+  float exposure = max(pc.q.y, 0.0);
+  float time_sec = pc.q.w;
+
+  vec2 ray_diff = v_uv - sun_uv;
+  // En-boy orani: texel.y / texel.x = W / H
+  float aspect = (pc.texel.x > 0.00001 && pc.texel.y > 0.00001) ? (pc.texel.y / pc.texel.x) : 1.0;
+  vec2 aspect_diff = vec2(ray_diff.x * aspect, ray_diff.y);
+  float dist = length(aspect_diff);
+
+  float angle = atan(aspect_diff.y, aspect_diff.x);
+  float t = time_sec * 0.04;
+
+  float s1 = sin(angle * 13.0 + t);
+  float s2 = sin(angle * 26.0 - t * 1.4 + 1.2);
+  float s3 = sin(angle * 52.0 + t * 2.2 + 2.8);
+  float s4 = sin(angle * 7.0 - t * 0.6 - 0.4);
+  float s5 = sin(angle * 104.0 + t * 3.1 + 4.1);
+  float shaft_noise = s1 * 0.36 + s2 * 0.26 + s3 * 0.16 + s4 * 0.14 + s5 * 0.08;
+  float shaft_mask = smoothstep(-0.15, 0.45, shaft_noise);
+
+  float sharpness = mix(1.2, 8.0, clamp((decay - 0.6) * 2.5, 0.0, 1.0));
+  float shaft_factor = pow(shaft_mask, sharpness);
+
+  float falloff_k = 2.6 / density;
+  float dist_atten = exp(-dist * falloff_k);
+  float corona = exp(-dist * 12.0) * 0.35;
+
+  const vec3 kSunColor = vec3(1.0, 0.95, 0.85);
+  vec3 proc_shafts = kSunColor * ((shaft_factor * 0.85 + corona) * dist_atten * (weight * 1.2));
+
+  // Radyal bulaniklastirma: 40 ornek, dither, normalize
+  const int kSamples = 40;
+  vec2 delta = ray_diff * (density * 0.5) / f32(kSamples);
+  float dither = fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453);
+  vec2 uv = v_uv - delta * dither;
+
+  float illum_decay = 1.0;
+  vec3 accum = vec3(0.0);
+  float total_weight = 0.0;
+  for (int i = 0; i < kSamples; i++) {
+    uv -= delta;
+    if (uv.x >= 0.001 && uv.x <= 0.999 && uv.y >= 0.001 && uv.y <= 0.999) {
+      vec3 s = texture(u_src, uv).rgb;
+      accum += s * illum_decay;
+      total_weight += illum_decay;
+    }
+    illum_decay *= decay;
+  }
+  if (total_weight > 0.001) {
+    accum = (accum / total_weight) * (weight * 1.5);
+  }
+
+  vec3 bloom = texture(u_src2, v_uv).rgb;
+  vec3 total_godrays = (accum * 0.35 + proc_shafts) * exposure;
+  o_color = vec4(bloom + total_godrays, 1.0);
+}

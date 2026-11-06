@@ -36,7 +36,22 @@ bool game_find_extension(const char *exe_dir, char *out, uint32_t cap, char *why
 // Oyunu derleyecek `tulpar`i bul (yukaridaki sira). `ext_dir`: PATH'teki aday
 // bu paketle sinanir (`--ext <paket> version` 0 ile cikmali; sondanin ciktisi
 // exe_dir/tulpar_eklenti_sonda.log). `why`: bulunamadiysa ne denendi, ne yapilmali.
-bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uint32_t cap, char *why, uint32_t why_cap);
+//
+// Sira: TULPAR_MOTOR_DERLEYICI > PATH'teki `tulpar` > kurulumcularin STANDART yeri
+// (Linux/macOS ~/.local/bin/tulpar, Windows %LOCALAPPDATA%/Programs/Tulpar/tulpar.exe).
+// Standart yer: install.sh/.ps1 PATH'i kabuk profiline yazar, ama masaustunden (menu/ikon) acilan
+// editor o profili okumamis olabilir — yeni kuran kullanici "kurdum ama bulamiyor"la karsilasmasin
+// (EDITOR-UYGULAMA-PLANI U6).
+// eksik (null olabilir): bulunamadiginda NEDEN — editor buna gore "Tulpar'i kur" / "Guncelle"
+// penceresi acar. TULPAR_MOTOR_DERLEYICI yanlissa Yok kalir: kullanicinin secimi, kurulum onerilmez.
+enum class DerleyiciEksik : uint8_t { Yok, KuruluDegil, Eski };
+bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uint32_t cap, char *why, uint32_t why_cap,
+                        DerleyiciEksik *eksik = nullptr);
+// Kurulum / guncelleme komutu (argv NULL ile biter; donus arguman sayisi, 0: kurulamadi).
+// Kur: Linux/macOS `bash -c "curl -fsSL https://tulparlang.dev/install.sh | bash"`,
+//      Windows `powershell ... iwr -useb https://tulparlang.dev/install.ps1 | iex`.
+// Guncelle: `<derleyici> update` (eski_yol: game_find_compiler'in buldugu, eklentiyi tanimayan tulpar).
+int game_install_argv(DerleyiciEksik neden, const char *eski_yol, const char **argv, int argv_cap);
 
 // Sahneyi yukleyen oyunlar: tulpar_root altindaki .tpr'lerden "<sahne adi>.sahneb"
 // metnini icerenler (oyun sahneyi derlenmis blob olarak yukler). Cikti
@@ -93,5 +108,10 @@ GameRunState game_run_poll(GameRun &r, void (*on_line)(void *user, const char *l
 // agac oldurulur. Her iki durumda sonraki poll'lar Finished/Failed toplar.
 // Gomulu kipte poll kanala kalp atisi da verir: poll edilmeyen oyun kapanir.
 bool game_run_stop(GameRun &r);
+// Yardimci arac sureci (Tulpar kurulumu, APK derlemesi, Dogrula): oyunla AYNI gunluk akisi
+// (game_run_poll satirlari verir, cikis kodunu toplar), ama eklenti/kanal yok. r.game = etiket.
+// env: cocugun ortamina eklenecek "AD=deger" dizgileri (NULL ile biter; null olabilir).
+bool game_tool_start(GameRun &r, const char *const *argv, const char *cwd, const char *log_path, const char *etiket,
+                     const char *const *env, char *err, uint32_t err_cap);
 
 } // namespace tulpar::engine::app
