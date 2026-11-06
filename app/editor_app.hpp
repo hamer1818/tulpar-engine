@@ -37,6 +37,12 @@ struct EditorOptions {
   const char *kip = nullptr;
   // --tur: ilk acilis turunu penceresizde de goster (goruntu); --tur-adim N baslangic adimi.
   bool tur = false;
+  // --kapisiz: penceresiz kipte yerlesik kapilari KOSTURMA (baska bir sahnede --komut ile urun
+  // yolunu olcmek icin; kapilar tests/assets/editor.sahne fiksturlerine gore yazili).
+  bool kapisiz = false;
+  // --arac apk|dogrula: Oyun menusundeki proje aracini ikinci karede baslat; penceresizde editor
+  // aracin bitmesini bekler (U6 kapisi: menu -> betik -> Konsol -> cikis kodu).
+  const char *arac = nullptr;
   int tur_adim = 0;
   const char *karsilama_yeni = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni

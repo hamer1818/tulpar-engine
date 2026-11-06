@@ -196,6 +196,28 @@ static int find_first_camera_entity(const content::SceneDesc &s) {
 // 240 kare = 60 fps'te 4 s.
 static constexpr uint32_t kGraphFrames = 240;
 
+// Oyun koku (U6, 2026-11-05): sahnenin dizininden yukari (en cok 4 duzey) ilk `tulpar.toml`.
+// Fabrikadan uretilen oyun deposunda F5 oyunu BURADA arar ve derleyiciyi buradan cagirir; yoksa
+// motor deposunun tulpar/ agaci (ornekler). Eskiden hep motorun tulpar/'i idi: fabrika projesinin
+// sahnesinde F5 oyunu bulamazdi.
+static void oyun_kokunu_coz(const char *scene_dir, char *tulpar_dir, size_t cap) {
+  char d[1024];
+  std::snprintf(d, sizeof d, "%s", scene_dir ? scene_dir : "");
+  for (int i = 0; i < 5 && d[0]; i++) {
+    char toml[1100];
+    std::snprintf(toml, sizeof toml, "%s/tulpar.toml", d);
+    if (platform::fs_kind(toml) == platform::FsKind::File) {
+      // Motorun kendi tulpar/ dizini de tulpar.toml tasir; o durumda zaten dogru kok.
+      std::snprintf(tulpar_dir, cap, "%s", d);
+      return;
+    }
+    char *sl = std::strrchr(d, '/');
+    if (!sl || sl == d) break;
+    *sl = 0;
+  }
+  platform::asset_path(tulpar_dir, cap, "tulpar");
+}
+
 // Son karede cizilen Stats kaplamasinin dikdortgeni (UX olcumu, editor_ux.hpp; w=0: cizilmedi).
 static UxRect g_stats_hud_rect{0, 0, 0, 0};
 // UX olcumu (--ux-rapor): sabit tablolar ~200 KB, yigina degil statige (ayirma yok).
@@ -1804,7 +1826,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // dizini -> cwd -> ENGINE_SOURCE_DIR sirasiyla deniyor ve BULAMAZSA son
   // denedigi yolu tamponda BIRAKIYOR, yani durum satiri hangi yola baktigimizi
   // soyleyebiliyor (sahne yolu icin de ayni cagri kullaniliyor).
-  platform::asset_path(st.tulpar_dir, sizeof st.tulpar_dir, "tulpar");
+  oyun_kokunu_coz(st.scene_dir, st.tulpar_dir, sizeof st.tulpar_dir);
   {
     content::SceneError err{};
     if (!content::scene_load(sys, st.scene_path, &st.scene, &err)) {
@@ -2057,6 +2079,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Editorden baslatilan oyun: Ctrl+F5 (kendi penceresi) ya da F5 (gomulu, Oyun
   // sekmesi). TEK yuva: ikisi ayni anda kosmaz (ikisi de ayni .sahneb'i okur).
   static GameRun oyun;
+  // U6: yardimci arac sureci — Tulpar kurulumu/guncellemesi, Android APK, Dogrula. Oyun yuvasindan
+  // AYRI (APK derlenirken oyun oynanabilir); ciktisi ayni gunluk akisiyla Konsol'a gelir.
+  static GameRun arac;
+  enum AracTur { AracYok = 0, AracKur = 1, AracApk = 2, AracDogrula = 3 };
+  static int arac_tur = AracYok;
+  static int arac_istek = AracYok;   // menuden: AracApk / AracDogrula (ana dongu baslatir)
+  // Derleyici eksik/eski: != Yok iken "Tulpar gerekli" penceresi acilir (K6: ilk Oynat'ta tek tikla kur).
+  static DerleyiciEksik kur_neden = DerleyiciEksik::Yok;
+  static char kur_yol[1024] = {0};   // Eski: guncellenecek tulpar
   static EditorGameView oyun_goruntu; // F5: oyunun karesi (Oyun sekmesi dokusu)
   // Durdur -> oyun kendi `bitir` yolundan cikana kadar gecen sure boyunca
   // Konsol'a akan satirlar bu oynatmaya ait; bu bayrak "kapaniyor" durumunu tutar.
@@ -2194,6 +2225,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!content::scene_save(frame, st.scene, path, &err)) { set_status(st, "KAYDEDILEMEDI: %s", err.msg); return false; }
     std::snprintf(st.scene_path, sizeof st.scene_path, "%s", path);
     content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
+    oyun_kokunu_coz(st.scene_dir, st.tulpar_dir, sizeof st.tulpar_dir);
     rescan_browse(st);
     st.dirty = false;
     recent_push(st.scene_path);
@@ -2228,6 +2260,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     });
     std::snprintf(st.scene_path, sizeof st.scene_path, "%s", path);
     content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
+    oyun_kokunu_coz(st.scene_dir, st.tulpar_dir, sizeof st.tulpar_dir);
     for (uint32_t i = 0; i < content::kSceneMaxAssets; i++) st.have[i] = false;
     for (uint32_t i = 0; i < st.scene.asset_count; i++) load_asset((int32_t)i);
     rescan_browse(st);
@@ -2271,7 +2304,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Penceresiz kipin yerlesik kapilari (gizmo, secim, duzen ...) karsilama ekrani acikken KOSMAZ:
   // ekran girdiyi kendine alir ve kapilar sahte kirmizi olurdu. Karsilama kosumunun olctugu sey
   // karsilamanin kendisidir (--karsilama-yeni kapisi).
-  const bool kapilar = headless && !opts.karsilama;
+  const bool kapilar = headless && !opts.karsilama && !opts.kapisiz;
   auto do_new = [&]() {
     // Varsayilan dunya + 0 varlik. STATIK ve const: yukaridaki `nd` ile ayni
     // sebep (yigin cercevesi kapisi); hic yazilmadigi icin her cagrida taze.
@@ -2372,9 +2405,20 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   auto run_game_with = [&](const char *game) {
     char exe[1024], comp[1024], ext[1024], why[768], log[1200], err[512];
     if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
-    if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) || !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why)) {
+    DerleyiciEksik eksik = DerleyiciEksik::Yok;
+    if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) ||
+        !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why, &eksik)) {
       set_status(st, "oyun calistirilamadi: derleyici/eklenti yok (Konsol)");
       console_log(ConsoleLevel::Hata, "oyun", "%s", why);
+      if (eksik != DerleyiciEksik::Yok) { kur_neden = eksik; std::snprintf(kur_yol, sizeof kur_yol, "%s", comp); }
+      return;
+    }
+    // Penceresiz editor PENCERELI oyun acmaz (CLAUDE.md "dogrulamak icin pencere acma"): 2026-11-05'te
+    // bir --kapisiz denemesi Ctrl+F5 oyununu kullanicinin masaustunde sesli acti. Cocuk da penceresiz
+    // kossun diye TULPAR_ENGINE_HEADLESS=N istenir; yoksa reddedilir ve nedeni yazilir.
+    if (headless && !(std::getenv("TULPAR_ENGINE_HEADLESS") && *std::getenv("TULPAR_ENGINE_HEADLESS"))) {
+      console_log(ConsoleLevel::Hata, "oyun", "penceresiz editor pencereli oyun acmaz: TULPAR_ENGINE_HEADLESS=N verin");
+      std::printf("[engine_editor] oyun: REDDEDILDI (penceresiz kip, TULPAR_ENGINE_HEADLESS yok)\n");
       return;
     }
     std::snprintf(log, sizeof log, "%s/oyun.log", exe);
@@ -2431,8 +2475,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   auto start_embedded_with = [&](const char *game) -> bool {
     char exe[1024], comp[1024], ext[1024], why[768], log[1200], err[512];
     if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
-    if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) || !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why)) {
+    DerleyiciEksik eksik = DerleyiciEksik::Yok;
+    if (!game_find_extension(exe, ext, sizeof ext, why, sizeof why) ||
+        !game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why, &eksik)) {
       console_log(ConsoleLevel::Hata, "oyun", "F5: %s", why);
+      if (eksik != DerleyiciEksik::Yok) { kur_neden = eksik; std::snprintf(kur_yol, sizeof kur_yol, "%s", comp); }
       return false;
     }
     uint32_t w = oyun_cizim_w ? oyun_cizim_w : vp.width(), h = oyun_cizim_h ? oyun_cizim_h : vp.height();
@@ -3494,7 +3541,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     UpdateUi *upd = nullptr; // menu cubugundaki guncelleme rozeti
     KarsilamaDurum *kars = nullptr; // Dosya > Baslangic ekrani (U3)
     TurDurum *tur = nullptr;        // Yardim > Ilk turu yeniden goster (U5)
-  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama, &tur};
+    int *arac_istek = nullptr;      // Oyun > Android APK / Dogrula (U6)
+    const GameRun *arac = nullptr;
+  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama, &tur, &arac_istek, &arac};
   ChromeMenuExtra menu_extra;
   menu_extra.ctx = &mx;
   menu_extra.on_badge = [](void *ctx) {
@@ -3547,6 +3596,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
     } else if (cat == CommandCategory::Play) {
+      // U6: projenin kendi betikleri (fabrika projesi: apk_derle.sh, tools/dogrula.sh). Arac kosarken soluk.
+      if (m->arac_istek && m->arac) {
+        const bool mesgul = m->arac->state == GameRunState::Running;
+        ImGui::Separator();
+        ImGui::BeginDisabled(mesgul);
+        if (ImGui::MenuItem(ICON_MD_ANDROID " Android APK olu\xC5\x9Ftur")) *m->arac_istek = AracApk;
+        if (ImGui::MenuItem(ICON_MD_CHECK " Projeyi do\xC4\x9Frula")) *m->arac_istek = AracDogrula;
+        ImGui::EndDisabled();
+        if (mesgul && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+          ImGui::SetTooltip("%s s\xC3\xBCr\xC3\xBCyor (Konsol)", m->arac->game);
+      }
       if (m->st && editor_gelismis()) {
         if (ImGui::BeginMenu("Sim\xC3\xBClasyon ve Fizik")) {
           if (ImGui::MenuItem(ICON_MD_BLUR_ON " MLS-MPM \xC3\x87ok Fazl\xC4\xB1 Sim\xC3\xBClat\xC3\xB6r")) {
@@ -8832,7 +8892,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (!fs.ok) {
           std::snprintf(karsilama.hata, sizeof karsilama.hata, "%s", fs.hata);
         } else if (!proje_sahnesi(karsilama.konum, fr.tur, sahne, sizeof sahne)) {
-          std::snprintf(karsilama.hata, sizeof karsilama.hata, "Proje oluÅtu ama sahnesi bulunamadÄ±: %s", karsilama.konum);
+          std::snprintf(karsilama.hata, sizeof karsilama.hata, "Proje olu\xC5\x9Ftu ama sahnesi bulunamad\xC4\xB1: %s", karsilama.konum);
         } else if (load_scene_from(sahne)) {
           const bool derlendi = do_compile();   // .sahneb: oyun ve F5 onu yukler
           console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "yeni oyun: %s (%u dosya, paket %s)%s", karsilama.konum, fs.dosya,
@@ -8842,14 +8902,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           karsilama_yeni_ok = derlendi;
           karsilama.acik = false;
         } else {
-          std::snprintf(karsilama.hata, sizeof karsilama.hata, "Sahne aÃ§Ä±lamadÄ±: %s", sahne);
+          std::snprintf(karsilama.hata, sizeof karsilama.hata, "Sahne a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", sahne);
         }
         if (karsilama.hata[0]) std::printf("[engine_editor] karsilama: HATA %s\n", karsilama.hata);
       } else if (ke == KarsilamaEylem::SonProje && karsilama.son_secili >= 0 && (uint32_t)karsilama.son_secili < son_n) {
         char yol[1024];
         std::snprintf(yol, sizeof yol, "%s", son[karsilama.son_secili]);
         if (load_scene_from(yol)) karsilama.acik = false;
-        else std::snprintf(karsilama.hata, sizeof karsilama.hata, "AÃ§Ä±lamadÄ±: %s", yol);
+        else std::snprintf(karsilama.hata, sizeof karsilama.hata, "A\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", yol);
       } else if (ke == KarsilamaEylem::Ac) {
         karsilama.acik = false;
         do_open_guarded();
@@ -8859,6 +8919,156 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (load_scene_from(yol)) karsilama.acik = false;
       } else if (ke == KarsilamaEylem::Kapat) {
         karsilama.acik = false;
+      }
+    }
+    // --- U6: yardimci araclar (Tulpar kurulumu, Android APK, Dogrula) ---------------------
+    {
+      void (*arac_satiri)(void *, const char *) = [](void *, const char *line) {
+        console_log(console_classify_level(line, false), "arac", "%s", line);
+        std::printf("[arac] %s\n", line);
+      };
+      if (arac.state == GameRunState::Running) {
+        const GameRunState ns = game_run_poll(arac, arac_satiri, nullptr);
+        if (ns != GameRunState::Running) {
+          const bool iyi = ns == GameRunState::Finished && arac.exit_code == 0;
+          console_log(iyi ? ConsoleLevel::Bilgi : ConsoleLevel::Hata, "arac", "%s bitti: \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d (%u sat\xC4\xB1r, g\xC3\xBCnl\xC3\xBCk %s)",
+                      arac.game, arac.exit_code, arac.lines, arac.log_path);
+          std::printf("[engine_editor] arac: %s bitti, cikis kodu %d\n", arac.game, arac.exit_code);
+          if (arac_tur == AracKur && iyi) {
+            // Kurulum bitti: derleyici YENIDEN aranir (PATH bu surece yansimaz; standart yer yakalar).
+            char exe[1024], ext[1024], comp[1024], why[768];
+            if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
+            if (game_find_extension(exe, ext, sizeof ext, why, sizeof why) && game_find_compiler(exe, ext, comp, sizeof comp, why, sizeof why)) {
+              set_status(st, "Tulpar haz\xC4\xB1r: %s \xE2\x80\x94 oynatmak i\xC3\xA7in F5", comp);
+              console_log(ConsoleLevel::Bilgi, "arac", "Tulpar haz\xC4\xB1r: %s", comp);
+            } else {
+              set_status(st, "Tulpar kuruldu ama kullan\xC4\xB1lam\xC4\xB1yor (Konsol)");
+              console_log(ConsoleLevel::Hata, "arac", "%s", why);
+            }
+          } else {
+            set_status(st, "%s: %s", arac.game, iyi ? "tamam" : "ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z (Konsol)");
+          }
+          arac_tur = AracYok;
+        }
+      }
+      if (opts.arac && frame_i == 2) {
+        if (!std::strcmp(opts.arac, "apk")) arac_istek = AracApk;
+        else if (!std::strcmp(opts.arac, "dogrula")) arac_istek = AracDogrula;
+        else std::printf("[engine_editor] --arac %s: BOYLE BIR ARAC YOK (apk | dogrula)\n", opts.arac);
+      }
+      if (arac_istek != AracYok) {
+        const int istek = arac_istek;
+        arac_istek = AracYok;
+        const char *betik_ad = istek == AracApk ? "apk_derle.sh" : "tools/dogrula.sh";
+        const char *etiket = istek == AracApk ? "APK derlemesi" : "Do\xC4\x9Frulama";
+        char betik[1100];
+        std::snprintf(betik, sizeof betik, "%s/%s", st.tulpar_dir, betik_ad);
+#if defined(_WIN32)
+        const bool apk_yok = istek == AracApk;
+#else
+        const bool apk_yok = false;
+#endif
+        if (apk_yok) {
+          set_status(st, "Android APK derlemesi \xC5\x9Fimdilik Linux/macOS'ta (Konsol)");
+          std::printf("[engine_editor] arac: REDDEDILDI (Windows'ta APK derlemesi yok)\n");
+          console_log(ConsoleLevel::Uyari, "arac",
+                      "Android APK derlemesi Windows'ta hen\xC3\xBCz yok (apk_derle.sh: bash + Android NDK). "
+                      "Linux/macOS makinesinde ya da WSL'de projenin k\xC3\xB6k\xC3\xBCnde ./apk_derle.sh");
+        } else if (platform::fs_kind(betik) != platform::FsKind::File) {
+          set_status(st, "bu proje %s ta\xC5\x9F\xC4\xB1m\xC4\xB1yor (Konsol)", betik_ad);
+          std::printf("[engine_editor] arac: REDDEDILDI (%s yok — fabrika projesi degil)\n", betik);
+          console_log(ConsoleLevel::Uyari, "arac",
+                      "%s yok: bu, oyun fabrikas\xC4\xB1yla \xC3\xBCretilmi\xC5\x9F bir proje de\xC4\x9Fil. Yeni proje: "
+                      "Dosya > Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ekran\xC4\xB1 > Yeni oyun",
+                      betik);
+        } else {
+          char exe[1024], ext[1024], comp[1024], why[768], log[1200], err[512];
+          if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
+          // Projenin betikleri motoru/derleyiciyi tools/ortam.sh'te kendisi bulur; editorun bildigini
+          // de verir (kurulu editorde motor deposu yok — ortam.sh EXT/TULPAR'i ezilebilir okur).
+          static char env_ext[1200], env_tulpar[1200];
+          const char *env[3] = {nullptr, nullptr, nullptr};
+          int ne = 0;
+          if (game_find_extension(exe, ext, sizeof ext, why, sizeof why)) {
+            std::snprintf(env_ext, sizeof env_ext, "EXT=%s", ext);
+            env[ne++] = env_ext;
+          }
+          if (game_find_compiler(exe, nullptr, comp, sizeof comp, why, sizeof why)) {   // sondasiz: UI donmasin
+            std::snprintf(env_tulpar, sizeof env_tulpar, "TULPAR=%s", comp);
+            env[ne++] = env_tulpar;
+          }
+          static const char *argv[3];
+          argv[0] = "bash";
+          argv[1] = betik_ad;
+          argv[2] = nullptr;
+          if (!editor_ayar_yolu(log, sizeof log, "arac.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/arac.log", exe);
+          if (game_tool_start(arac, argv, st.tulpar_dir, log, etiket, ne ? env : nullptr, err, sizeof err)) {
+            arac_tur = istek;
+            set_status(st, "%s s\xC3\xBCr\xC3\xBCyor (Konsol)", etiket);
+            console_log(ConsoleLevel::Bilgi, "arac", "%s ba\xC5\x9Flad\xC4\xB1: bash %s (dizin %s)", etiket, betik_ad, st.tulpar_dir);
+            std::printf("[engine_editor] arac: %s basladi (%s)\n", etiket, st.tulpar_dir);
+          } else {
+            set_status(st, "%s ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s", etiket, err);
+            console_log(ConsoleLevel::Hata, "arac", "%s ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s (Windows'ta MSYS2 bash PATH'te olmal\xC4\xB1)", etiket, err);
+          }
+        }
+      }
+      // "Tulpar gerekli" penceresi (K6: ilk Oynat'ta tek tikla kur). F5/Ctrl+F5 derleyiciyi bulamayinca acilir.
+      static const char *const kKurBaslik = "Tulpar gerekli###tulpar_kur";
+      if (kur_neden != DerleyiciEksik::Yok && !ImGui::IsPopupOpen(kKurBaslik)) {
+        ImGui::OpenPopup(kKurBaslik);
+        std::printf("[engine_editor] tulpar penceresi: acildi (%s)\n", kur_neden == DerleyiciEksik::KuruluDegil ? "kurulu-degil" : "eski");
+      }
+      ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Appearing);
+      if (ImGui::BeginPopupModal(kKurBaslik, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool kur = kur_neden == DerleyiciEksik::KuruluDegil;
+        const char *av[8];
+        const int an = game_install_argv(kur_neden, kur_yol, av, 8);
+        // Gosterilen komut: kurulumda asil is son argumandir (curl ... | bash / iwr ... | iex).
+        char komut[512] = "";
+        if (an > 0) std::snprintf(komut, sizeof komut, "%s", kur ? av[an - 1] : "tulpar update");
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 540.0f);
+        if (kur) {
+          ImGui::TextUnformatted("Oyunu derleyip \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1rmak i\xC3\xA7in TulparLang derleyicisi gerekiyor; bu bilgisayarda bulunamad\xC4\xB1.");
+          ImGui::Spacing();
+          ImGui::TextUnformatted("Tek t\xC4\xB1klamayla kurulur: y\xC3\xB6netici yetkisi istemez, kullan\xC4\xB1" "c\xC4\xB1 dizinine iner (tulparlang.dev). "
+                                 "\xC4\xB0lerleme Konsol'da g\xC3\xB6r\xC3\xBCn\xC3\xBCr.");
+        } else {
+          ImGui::TextUnformatted("Kurulu Tulpar bu motorun eklentisini tan\xC4\xB1m\xC4\xB1yor (eski s\xC3\xBCr\xC3\xBCm):");
+          ImGui::TextDisabled("%s", kur_yol);
+          ImGui::Spacing();
+          ImGui::TextUnformatted("G\xC3\xBCncelleme yerinde yap\xC4\xB1l\xC4\xB1r (tulpar update); ilerleme Konsol'da.");
+        }
+        ImGui::TextDisabled("%s", komut);
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        const bool mesgul = arac.state == GameRunState::Running;
+        ImGui::BeginDisabled(an == 0 || mesgul);
+        if (ImGui::Button(kur ? ICON_MD_DOWNLOAD " Tulpar'\xC4\xB1 kur" : ICON_MD_DOWNLOAD " G\xC3\xBCncelle")) {
+          char exe[1024], log[1200], err[512];
+          if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
+          if (!editor_ayar_yolu(log, sizeof log, "kurulum.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/kurulum.log", exe);
+          static const char *kav[8];
+          static char kyol[1024];
+          std::snprintf(kyol, sizeof kyol, "%s", kur_yol);
+          (void)game_install_argv(kur_neden, kyol, kav, 8);
+          if (game_tool_start(arac, kav, nullptr, log, kur ? "Tulpar kurulumu" : "Tulpar g\xC3\xBCncellemesi", nullptr, err, sizeof err)) {
+            arac_tur = AracKur;
+            set_status(st, "%s s\xC3\xBCr\xC3\xBCyor (Konsol)", kur ? "Tulpar kurulumu" : "Tulpar g\xC3\xBCncellemesi");
+            console_log(ConsoleLevel::Bilgi, "arac", "ba\xC5\x9Flad\xC4\xB1: %s", komut);
+          } else {
+            console_log(ConsoleLevel::Hata, "arac", "kurulum ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s", err);
+          }
+          kur_neden = DerleyiciEksik::Yok;
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Vazge\xC3\xA7")) {
+          kur_neden = DerleyiciEksik::Yok;
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
       }
     }
     if (tur.acik && !karsilama.acik) tur_ciz(tur);
@@ -9473,7 +9683,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               (double)sys.stats().peak / (1024.0 * 1024.0), 256u, sizeof(content::SceneOp),
               256.0 * (double)sizeof(content::SceneOp) / 1024.0);
   bool imgui_hata_var = false;
-  if (gecici_ayar[0]) platform::fs_remove_tree(gecici_ayar);   // penceresiz kosumun gecici ayar dizini
   if (opts.ux_rapor) {
     ux_olcum_bitir();
     if (ux_olcum_yaz(g_ux_olcum, opts.ux_rapor))
@@ -9541,9 +9750,26 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     for (int i = 0; i < 500 && game_run_poll(oyun, oyun_satiri, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
     std::printf("[engine_editor] calisan oyun durduruldu: %s\n", oyun.game);
   }
+  // Yardimci arac (U6): penceresizde BEKLENIR (APK derlemesi dakikalar surer, en cok 15 dk);
+  // pencereli editor kapanirken agac oldurulur (sahipsiz derleme surmesin).
+  if (arac.state == GameRunState::Running && headless) {
+    void (*arac_son)(void *, const char *) = [](void *, const char *line) { std::printf("[arac] %s\n", line); };
+    for (int i = 0; i < 90000 && game_run_poll(arac, arac_son, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
+  }
+  if (arac.state == GameRunState::Running) {
+    game_run_stop(arac);
+    for (int i = 0; i < 500 && game_run_poll(arac, nullptr, nullptr) == GameRunState::Running; i++) platform::thread_sleep_us(10000);
+    std::printf("[engine_editor] calisan arac durduruldu: %s\n", arac.game);
+  }
+  if (arac.state != GameRunState::Idle)
+    std::printf("[engine_editor] arac: %s, durum %s, cikis kodu %d, %u satir\n", arac.game,
+                arac.state == GameRunState::Finished ? "bitti" : arac.state == GameRunState::Failed ? "BASARISIZ" : "?", arac.exit_code, arac.lines);
   if (oyun.state != GameRunState::Idle)
     std::printf("[engine_editor] oyun: %s, durum %s, cikis kodu %d, %u satir\n", oyun.game,
                 oyun.state == GameRunState::Finished ? "bitti" : oyun.state == GameRunState::Failed ? "BASARISIZ" : "?", oyun.exit_code, oyun.lines);
+  // Penceresiz kosumun gecici ayar dizini: oyun/arac BEKLENDIKTEN sonra (arac.log orada; once
+  // silinince bekleme gunlugu bos okuyordu — "0 satir", 2026-11-06).
+  if (gecici_ayar[0]) platform::fs_remove_tree(gecici_ayar);
   jobs.shutdown();
   bodies_remove(st, phys);
   // VIEWPORT ImGui'DEN ONCE KAPANIR: doku descriptor'i ImGui'nin havuzundan

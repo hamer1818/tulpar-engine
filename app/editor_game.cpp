@@ -60,7 +60,53 @@ bool compiler_takes_extension(const char *comp, const char *ext_dir, const char 
 }
 } // namespace
 
-bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uint32_t cap, char *why, uint32_t why_cap) {
+namespace {
+// Kurulumcularin standart yeri (install.sh: ~/.local/bin; install.ps1 / Inno: %LOCALAPPDATA%\Programs\Tulpar).
+bool standart_yerde(char *out, uint32_t cap) {
+  char aday[1100];
+#if defined(_WIN32)
+  const char *la = std::getenv("LOCALAPPDATA");
+  if (!la || !*la) return false;
+  std::snprintf(aday, sizeof aday, "%s\\Programs\\Tulpar\\tulpar.exe", la);
+#else
+  const char *ev = std::getenv("HOME");
+  if (!ev || !*ev) return false;
+  std::snprintf(aday, sizeof aday, "%s/.local/bin/tulpar", ev);
+#endif
+  return platform::process_find_in_path(aday, out, cap);
+}
+} // namespace
+
+int game_install_argv(DerleyiciEksik neden, const char *eski_yol, const char **argv, int argv_cap) {
+  if (!argv || argv_cap < 7) return 0;
+  int n = 0;
+  if (neden == DerleyiciEksik::Eski) {
+    if (!eski_yol || !*eski_yol) return 0;
+    argv[n++] = eski_yol;
+    argv[n++] = "update";
+  } else if (neden == DerleyiciEksik::KuruluDegil) {
+#if defined(_WIN32)
+    argv[n++] = "powershell";
+    argv[n++] = "-NoProfile";
+    argv[n++] = "-ExecutionPolicy";
+    argv[n++] = "Bypass";
+    argv[n++] = "-Command";
+    argv[n++] = "iwr -useb https://tulparlang.dev/install.ps1 | iex";
+#else
+    argv[n++] = "bash";
+    argv[n++] = "-c";
+    argv[n++] = "curl -fsSL https://tulparlang.dev/install.sh | bash";
+#endif
+  } else {
+    return 0;
+  }
+  argv[n] = nullptr;
+  return n;
+}
+
+bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uint32_t cap, char *why, uint32_t why_cap,
+                        DerleyiciEksik *eksik) {
+  if (eksik) *eksik = DerleyiciEksik::Yok;
   if (!out || cap == 0) return false;
   out[0] = 0;
   if (why && why_cap) why[0] = 0;
@@ -72,11 +118,13 @@ bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uin
     if (why && why_cap) std::snprintf(why, why_cap, "TULPAR_MOTOR_DERLEYICI=%s bulunamadi ya da calistirilamaz", env);
     return false;
   }
-  if (!platform::process_find_in_path("tulpar", out, cap)) {
+  if (!platform::process_find_in_path("tulpar", out, cap) && !standart_yerde(out, cap)) {
     if (why && why_cap)
       std::snprintf(why, why_cap,
-                    "PATH'te `tulpar` yok. TulparLang'i kurun (https://tulparlang.dev; yerel eklenti destekli bir surum) "
-                    "ya da TULPAR_MOTOR_DERLEYICI verin");
+                    "PATH'te `tulpar` yok (standart kurulum yerinde de yok). TulparLang'i kurun (Oyun > Tulpar'\xC4\xB1 kur, "
+                    "ya da https://tulparlang.dev) ya da TULPAR_MOTOR_DERLEYICI verin");
+    if (eksik) *eksik = DerleyiciEksik::KuruluDegil;
+    out[0] = 0;
     return false;
   }
   if (!ext_dir || !*ext_dir) return true;
@@ -87,7 +135,7 @@ bool game_find_compiler(const char *exe_dir, const char *ext_dir, char *out, uin
                   "PATH'teki tulpar (%s) motorun eklenti paketini kullanamiyor (`tulpar --ext %s version` cikis %d; "
                   "ayrinti %s/tulpar_eklenti_sonda.log). Yerel eklenti (--ext) destekli bir TulparLang gerekir: `tulpar update`",
                   out, ext_dir, kod, exe_dir ? exe_dir : ".");
-  out[0] = 0;
+  if (eksik) *eksik = DerleyiciEksik::Eski;   // out SILINMEZ: "Guncelle" bu yolu kosturur
   return false;
 }
 
@@ -197,6 +245,29 @@ bool start_common(GameRun &r, const char *compiler, const char *ext_dir, const c
   return true;
 }
 } // namespace
+
+bool game_tool_start(GameRun &r, const char *const *argv, const char *cwd, const char *log_path, const char *etiket,
+                     const char *const *env, char *err, uint32_t err_cap) {
+  if (r.state == GameRunState::Running) {
+    if (err && err_cap) std::snprintf(err, err_cap, "zaten calisiyor: %s", r.game);
+    return false;
+  }
+  r.chan.close();
+  r = GameRun{};
+  std::snprintf(r.log_path, sizeof r.log_path, "%s", log_path ? log_path : "");
+  std::snprintf(r.game, sizeof r.game, "%s", etiket ? etiket : (argv && argv[0] ? argv[0] : ""));
+  platform::ProcessSpec s;
+  s.argv = argv;
+  s.cwd = cwd;
+  s.log_path = r.log_path[0] ? r.log_path : nullptr;
+  s.env = env;
+  if (!platform::process_start(r.proc, s, err, err_cap)) {
+    r.state = GameRunState::Failed;
+    return false;
+  }
+  r.state = GameRunState::Running;
+  return true;
+}
 
 bool game_run_start(GameRun &r, const char *compiler, const char *ext_dir, const char *tulpar_root, const char *game_rel,
                     const char *log_path, char *err, uint32_t err_cap) {

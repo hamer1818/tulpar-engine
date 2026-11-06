@@ -2467,3 +2467,20 @@ koşumu da aynı dosyayı açıyordu; şans eseri yakalanmamıştı. **Düzeltme
 (`<yol>.<pid>.tmp`, `platform::fs_process_id`); son yazan kazanır, ikisi de hatasız. Sonra 6/6 yeşil.
 **Kural:** paralel koşturulacak her kapı (kullanıcı tercihi: testler tam güçte, paralel), süreçler arası
 paylaşılan dosya adı taşımamalı — geçici dosya adı sürece özgü olur.
+
+### 8ds. Çift kodlanmış UTF-8 (mojibake) dizgi derlenir ve ekranda bozuk çıkar
+**Belirti:** editör U3c'de başlangıç ekranına üç hata dizgisi `"Proje oluÅtu"` ve `"aÃ§Ä±lamadÄ±"`
+biçiminde depoya girdi. Dizgiler UTF-8 baytları Latin-1 sanılıp yeniden UTF-8 yazılarak üretilmişti.
+
+**Neden fark edilmedi:**
+- Derleyici bu dizgileri kabul eder.
+- UX ölçümü yalnız çizilen metne bakar; hata yolları da hiç çizilmemişti.
+
+**Bulunuşu:** 2026-11-06'da kaynağı okurken görüldü.
+
+**Kapı:** `tools/layer_check.py` artık Latin-1 harfi (U+00C2–U+00C5) ardından C1 aralığındaki bir
+karakter (U+0080–U+00BF) gelen her satırı ihlal sayar. Gerçek Türkçe metinde bu ikili geçmez.
+
+**Pozitif kontrol:** düzeltilmemiş dosyayla kapı 3 ihlal bildirdi.
+
+**Kural:** Türkçe C++ metni `\xHH` kaçışıyla yazılır (taşmaya karşı `layer_check`'in hex denetimi ayrıca bakar).

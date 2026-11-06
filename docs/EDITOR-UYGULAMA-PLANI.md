@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -201,6 +201,35 @@ kapısı bir sayıya dayansın.
 - **Oyun > Doğrula** (projenin kapıları, sonuç konsolda yeşil/kırmızı).
 - **Kapı:** `PATH` boşken Oynat → açıklayıcı ekran (pozitif kontrol: `TULPAR_MOTOR_DERLEYICI`
   geçersiz yol → aynı ekran); APK menüsü emülatörde (varsa) üretilen projede `[kapi] TAMAM`.
+
+**U6 notu (2026-11-06, yapıldı):**
+- **Derleyici arama:** `game_find_compiler` PATH'te bulamazsa kurulumcuların standart yerine bakar
+  (`~/.local/bin/tulpar`, `%LOCALAPPDATA%\Programs\Tulpar\tulpar.exe`). Menüden açılan editör,
+  install betiğinin kabuk profiline yazdığı PATH'i görmeyebilir. Bulamazsa nedeni döner
+  (`DerleyiciEksik::KuruluDegil` / `Eski`).
+- **"Tulpar gerekli" penceresi:** F5 ya da Ctrl+F5 bu nedeni görünce açılır.
+  - Tek tıkla `curl … install.sh | bash` (Windows'ta `iwr … install.ps1 | iex`) ya da `tulpar update` çalışır.
+  - Çıktı Konsol'a akar; iş bitince derleyici yeniden aranır.
+- **Planın pozitif kontrolü değişti:** "TULPAR_MOTOR_DERLEYICI geçersiz → aynı ekran" artık geçerli değil.
+  Açıkça seçilmiş derleyici yanlışsa kurulum ÖNERİLMEZ, çünkü bu kullanıcının kendi seçimi. Pozitif
+  kontrol şimdi şu: derleyici varken pencere açılmaz ve oyun 0 ile biter.
+- **Oyun > Android APK oluştur / Projeyi doğrula:** projenin kendi `apk_derle.sh` ve `tools/dogrula.sh`
+  betiklerini alt süreçte çalıştırır. Editör bildiği `EXT` ve `TULPAR` değerlerini verir; çıktı
+  Konsol'a gider.
+- **Plandan sapma:** APK mantığı C++'a TAŞINMADI. Betik Android NDK + bash istiyor, Windows'ta menü
+  açık bir "henüz yok" mesajı verir. Fabrika projesi olmayan yerde menü reddeder.
+- **Güvenlik kuralı:** penceresiz editör, `TULPAR_ENGINE_HEADLESS` verilmeden pencereli oyun açmaz.
+  Bir `--kapisiz` denemesi oyunu kullanıcının masaüstünde açmıştı.
+- **Kapı** (`tools/editor_ux.sh --kapi`, ikinci dalga):
+  - derleyici yok → pencere açılır;
+  - derleyici var → pencere açılmaz, oyun 0 ile biter;
+  - `TULPAR_ENGINE_HEADLESS` yok → oyun reddedilir;
+  - `--arac dogrula` → Oluştur'un ürettiği projenin kapıları geçer;
+  - `--arac apk` fabrika dışı yerde → reddedilir.
+- **Elle doğrulandı:** `--arac apk` üretilen projede 5,7 MB arm64 APK üretti ve APK doğrulaması TAMAM.
+  Bu süre (~1 dk) yüzünden kapıda yok; yerel_ci "Fabrika" aşaması APK'yı zaten derliyor.
+- **U7'ye kalan:** şablonun `tools/ortam.sh`'inde motor yolu için `/mnt/veri/...` varsayılanı var.
+  Kurulu editörde motor deposu olmayacak, bu yüzden bu varsayılan editörün verdiği yola dönmeli.
 
 ### U7 — Kurulum ve dağıtım · ~3 oturum
 
