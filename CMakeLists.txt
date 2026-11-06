@@ -650,6 +650,16 @@ if(NOT ANDROID)
     if(WIN32)
         # psapi: durum cubugundaki RSS sayaci (GetProcessMemoryInfo). /proc yok.
         target_link_libraries(engine_editor PRIVATE psapi)
+        # U7b: exe ikonu (windres) + GUI alt sistemli baslatici TulparEditor.exe. engine_editor konsol
+        # uygulamasi kalir (stdout'una dayanan kapilar/testler); kurucunun kisayollari baslaticiyi
+        # cagirir, o da engine_editor'u konsol penceresiz (CREATE_NO_WINDOW) acar.
+        enable_language(RC)
+        configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tools/kurulum/editor_ikon.rc.in ${CMAKE_CURRENT_BINARY_DIR}/editor_ikon.rc @ONLY)
+        target_sources(engine_editor PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/editor_ikon.rc)
+        add_executable(tulpar_editor_baslatici WIN32 app/baslatici_win.cpp ${CMAKE_CURRENT_BINARY_DIR}/editor_ikon.rc)
+        set_target_properties(tulpar_editor_baslatici PROPERTIES OUTPUT_NAME TulparEditor)
+        target_link_options(tulpar_editor_baslatici PRIVATE -municode -static-libgcc -static-libstdc++)
+        add_dependencies(engine_editor tulpar_editor_baslatici)
     endif()
     target_include_directories(engine_editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
     target_compile_options(engine_editor PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off)

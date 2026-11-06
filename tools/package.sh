@@ -967,6 +967,12 @@ paketle() {
     [ -f "$kaynak" ] || ci_hata "$t$EXE uretilmemis ($kaynak yok) — eksik ikiliyle paket dagitilmaz."
     cp -f "$kaynak" "$cikti/"
   done
+  # 1b) Windows: GUI alt sistemli baslatici (app/baslatici_win.cpp; kurucunun kisayollari onu cagirir,
+  # engine_editor konsol penceresiz acilir). Yalniz Windows yapisinda uretilir.
+  if [ "$EXE" = ".exe" ]; then
+    [ -f "$yapi/TulparEditor.exe" ] || ci_hata "TulparEditor.exe uretilmemis — kurucunun kisayollari onu cagirir."
+    cp -f "$yapi/TulparEditor.exe" "$cikti/"
+  fi
 
   # 2) Varliklar (kaynaktan turetilen liste)
   local liste y d
@@ -1095,7 +1101,7 @@ paketle() {
 
   # 5) Semboller: engine_editor striplenmemis ~15 MB. Yalniz IKILILER
   # striplenir (varliklarin uzerinden gecmek anlamsiz).
-  for t in "${IKILILER[@]}"; do
+  for t in "${IKILILER[@]}" TulparEditor; do
     [ -f "$cikti/$t$EXE" ] && strip "$cikti/$t$EXE" 2>/dev/null || true
   done
 
@@ -1216,6 +1222,9 @@ denetle() {
 
   # Windows: baslaticilar. Hata halinde konsolu acik tutan tek sey onlar.
   if [ "$dl_plat" = "windows" ]; then
+    say=$((say + 1))
+    if [ -s "$cikti/TulparEditor.exe" ]; then echo "  var     TulparEditor.exe (konsolsuz baslatici)"
+    else echo "  EKSIK   TulparEditor.exe (kurucunun kisayollari onu cagirir)"; eksik=$((eksik + 1)); fi
     local t2
     for t2 in "${IKILILER[@]}"; do
       say=$((say + 1))

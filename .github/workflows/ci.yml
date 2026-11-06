@@ -516,6 +516,22 @@ jobs:
           TULPAR_PAKET_KOSU: zorunlu
         run: TULPAR="$RUNNER_TEMP/tulpar/tulpar" bash tools/package.sh yapi dagitim
 
+      # AppImage (EDITOR-UYGULAMA-PLANI U7b): paketten tek dosya; ici SALT OKUNUR acilip kaynaksiz
+      # kosar (lavapipe), masaustu kaydi, POZITIF KONTROL sahnesiz AppImage duser. Araclar surum +
+      # SHA-256 ile sabit (tools/kurulum/appimage.sh).
+      - name: AppImage (Linux kurulum kapisi)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: bash tools/kurulum/appimage.sh dagitim kurulum/Tulpar_Editor-x86_64.AppImage
+
+      - name: AppImage'i yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-appimage-linux-x86_64
+          path: kurulum/Tulpar_Editor-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
       # TOPLAYICI: zorunlu check "Linux x86_64 (GCC + lavapipe)" savas isinin
       # sonucunu da TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
       - name: Savas isinin sonucu
@@ -1408,6 +1424,22 @@ jobs:
           TULPAR_PAKET_PLATFORM: windows-x86_64
           TULPAR_PAKET_KOSU: zorunlu
         run: bash tools/package.sh yapi dagitim
+
+      # Inno Setup kurucusu (EDITOR-UYGULAMA-PLANI U7b, K2): derle -> sessiz kur -> kurulu yoldan
+      # kos (SwiftShader, kaynaksiz) + Yeni oyun -> kaldir; POZITIF KONTROL sahnesiz paketin
+      # kurulumu duser. ISCC runner imajinda; yoksa KIRMIZI.
+      - name: Kurucu (Inno Setup kapisi)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: bash tools/kurulum/windows_kurucu.sh dagitim kurulum
+
+      - name: Kurucuyu yukle
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-kurucu-windows-x64
+          path: kurulum/tulpar-editor-kurulum-windows-x64.exe
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'

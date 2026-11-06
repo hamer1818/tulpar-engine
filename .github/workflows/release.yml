@@ -623,6 +623,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Editorun AppImage'i (EDITOR-UYGULAMA-PLANI U7b): AYNI paketten, ayni kapiyla (salt okunur
+      # kosum + masaustu kaydi + pozitif kontrol). Guncelleyici bunu kullanmaz (tar.gz'yi kullanir).
+      - name: AppImage (Linux kurulum kapisi)
+        run: bash tools/kurulum/appimage.sh "paket/$AD" "tulpar-editor-${SURUM}-x86_64.AppImage"
+
+      - name: AppImage'i yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsiv-linux-x86_64-appimage
+          path: tulpar-editor-${{ needs.hazirlik.outputs.surum }}-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
   # -------------------------------------------------------------------------
   # macOS — CI'daki `macos` isinin arac zinciri birebir (MoltenVK dahil).
   # AArch64 fiber gecisi (core/jobs/fiber_switch_aarch64.S) YALNIZ burada kosar.
@@ -1449,6 +1462,22 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Editorun Inno Setup kurucusu (U7b, K2): AYNI paketten; derle -> sessiz kur -> kurulu yoldan
+      # kos + Yeni oyun -> kaldir; pozitif kontrol sahnesiz paketin kurulumu duser.
+      - name: Kurucu (Inno Setup kapisi)
+        run: |
+          set -euo pipefail
+          bash tools/kurulum/windows_kurucu.sh "paket/$AD" kurulum
+          mv kurulum/tulpar-editor-kurulum-windows-x64.exe "tulpar-editor-${SURUM}-kurulum-windows-x64.exe"
+
+      - name: Kurucuyu yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsiv-windows-x86_64-kurucu
+          path: tulpar-editor-${{ needs.hazirlik.outputs.surum }}-kurulum-windows-x64.exe
+          if-no-files-found: error
+          retention-days: 14
+
   # -------------------------------------------------------------------------
   # TOPLAMA — uc arsivi bir araya getirir ve SHA-256 ozet dosyasini uretir.
   # `needs` ucunu de kapsiyor: bir platform kirmizi ya da atlanmissa GitHub bu
@@ -1482,6 +1511,8 @@ jobs:
             "tulpar-engine-${SURUM}-linux-x86_64.tar.gz"
             "tulpar-engine-${SURUM}-macos-arm64.tar.gz"
             "tulpar-engine-${SURUM}-windows-x86_64.zip"
+            "tulpar-editor-${SURUM}-x86_64.AppImage"
+            "tulpar-editor-${SURUM}-kurulum-windows-x64.exe"
           )
           eksik=0
           for f in "${bekle[@]}"; do
@@ -1491,13 +1522,13 @@ jobs:
             fi
           done
           if [ "$eksik" -ne 0 ]; then
-            echo "::error::Uc platformun arsivi eksiksiz gelmeden surum uretilmez."
+            echo "::error::Uc platformun arsivi + editor kurulumlari eksiksiz gelmeden surum uretilmez."
             exit 1
           fi
 
           # Baska bir sey sizmis mi? (yanlis adla yuklenmis bir arsiv sessizce
           # yayina girmesin)
-          fazla="$(ls -1 | grep -vxF -e "${bekle[0]}" -e "${bekle[1]}" -e "${bekle[2]}" || true)"
+          fazla="$(ls -1 | grep -vxF -e "${bekle[0]}" -e "${bekle[1]}" -e "${bekle[2]}" -e "${bekle[3]}" -e "${bekle[4]}" || true)"
           if [ -n "$fazla" ]; then
             echo "::error::Beklenmeyen dosya(lar) indirildi:"
             echo "$fazla"
@@ -1603,6 +1634,8 @@ jobs:
             "dagitim/tulpar-engine-${SURUM}-linux-x86_64.tar.gz" \
             "dagitim/tulpar-engine-${SURUM}-macos-arm64.tar.gz" \
             "dagitim/tulpar-engine-${SURUM}-windows-x86_64.zip" \
+            "dagitim/tulpar-editor-${SURUM}-x86_64.AppImage" \
+            "dagitim/tulpar-editor-${SURUM}-kurulum-windows-x64.exe" \
             "dagitim/tulpar-engine-${SURUM}-SHA256SUMS.txt"
 
           url="$(gh release view "$SURUM" --repo "$DEPO" --json url --jq .url)"

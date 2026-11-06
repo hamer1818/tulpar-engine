@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu), **U7b Windows yazıldı, CI ölçecek** (Inno Setup + başlatıcı)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -303,8 +303,24 @@ kapısı bir sayıya dayansın.
   AppImage dosyasını bütün olarak değiştirmek U7c'ye kaldı.
 - **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur.
   Doğrusu örneği kullanıcı dizinine kopyalamak; U8'de ele alınacak.
-- **Sırada (Windows):** Inno Setup + windres ikonu. Yerelde derlenemiyor (MinGW/ISCC yok); CI'da
-  "gönder"le ölçülür.
+- **Windows (yazıldı, ÖLÇÜLMEDİ):** bu kısım yalnız GitHub CI'da ölçülebilir. Yerelde MinGW yok;
+  Inno Setup'ı wine altında kurma denemesine izin verilmedi.
+  - `TulparEditor.exe`: GUI alt sistemli başlatıcı (`app/baslatici_win.cpp`). engine_editor'u
+    konsol penceresi açmadan, aynı argümanlarla başlatır. engine_editor konsol uygulaması kalır,
+    çünkü kapılar ve testler stdout'unu okur.
+  - exe ikonu `windres` ile gömülür (`tools/kurulum/editor_ikon.rc.in`).
+  - `tools/kurulum/windows.iss`:
+    - kullanıcı başına kurulum (`%LOCALAPPDATA%\Programs\Tulpar Editor`);
+    - Başlat menüsü kısayolu, isteğe bağlı masaüstü kısayolu;
+    - HKCU'da `.sahne` → `TulparEditor.exe "%1"` ilişkisi;
+    - kaldırınca `.guncelleme` dizini de silinir.
+  - Kapı `tools/kurulum/windows_kurucu.sh`:
+    - derle → sessiz kur → kurulu yoldan kaynaksız koşum ve Yeni oyun → kaldır (dizin ve kayıt
+      temizlendi mi);
+    - pozitif kontrol: sahnesiz paketin kurulumu düşer.
+  - `ci.yml`: Linux işine AppImage, Windows işine kurucu adımı eklendi.
+  - `release.yml`: iki dosya da sürüme eklenir (SHA256SUMS dahil).
+  - İlk "gönder"de kırmızı dönerse buradan düzeltilir.
 
 ### U8 — Yardım ve destek · ~1 oturum
 
