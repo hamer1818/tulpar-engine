@@ -43,5 +43,7 @@ bool fabrika_dogrula(const FabrikaIstek &r, char *hata, size_t cap);
 FabrikaSonuc fabrika_uret(const FabrikaIstek &r);
 // Mevcut sablon turleri (tulpar/sablonlar altindaki "ortak" disi dizinler). Donus: sayi.
 uint32_t fabrika_sablonlar(char (*out)[32], uint32_t cap);
+// Uretilen projenin acilacak sahnesi: <dizin>/assets/<tur>.sahne, yoksa assets/ altindaki ilk .sahne.
+bool fabrika_proje_sahnesi(const char *dizin, const char *tur, char *out, size_t cap);
 
 } // namespace tulpar::engine::app

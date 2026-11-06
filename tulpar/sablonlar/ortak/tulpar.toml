@@ -5,7 +5,7 @@ name = "{{KIMLIK}}"
 
 [ext]
 # Motorun yerel eklenti paketi; .motor gitignore'lu bir baglanti (tools/ortam.sh kurar).
-paths = [".motor/yapi/tulpar-ext"]
+paths = [".motor/tulpar-ext"]
 
 [android]
 package = "{{PAKET}}"

@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -247,6 +247,34 @@ kapısı bir sayıya dayansın.
 - **macOS:** `.app` paketi ERTELE (iOS/macOS rafta; CI ayağı zaten var, ilk istek gelince).
 - **Kapı:** üç platformun paket kapısı (bugünkü `package.sh --denetle` + kurulu yoldan koşum).
   Pozitif kontrol: kurucuya bir dosyayı eksik koy → kurulu koşum düşer.
+
+**U7a notu (2026-11-06, yapıldı) — paket kurulu editörde oyun üretebiliyor:**
+- **Paket şablonsuzdu.** Paket `tulpar/sablonlar` ile `tulpar/kit/varlik`'i taşımıyordu. Kurulu
+  editörde "Yeni oyun", "Şablon dosyası bulunamadı" hatası verirdi. Derleme makinesinde bu hiç
+  görünmedi, çünkü `asset_path` ENGINE_SOURCE_DIR üzerinden kaynak ağacına düşüyordu.
+- **Paketleme U3a'dan beri duruyordu.** Varlık türetmesi fabrika dizgilerinde ("%s/assets/%s")
+  "çözülemeyen yol" hatası veriyordu. `package.sh` yerel_ci'de yoktu.
+- **Düzeltme:**
+  - `package.sh` fabrika dosyalarını dizinlerden türeterek pakete koyar.
+  - `PROJE_ICI` tablosu: `editor_fabrika.cpp`'deki proje-göreli `assets/` yolları motor varlığı
+    sayılmaz.
+  - Proje sahnesi bulma `fabrika_proje_sahnesi`'ne taşındı.
+- **Kapı:** `package.sh` içindeki `fabrika_sinamasi`.
+  - `TULPAR_ENGINE_KAYNAKSIZ=1` verilir; `asset_path` bu durumda kaynak ağacına düşmez. Bunun
+    üzerine paketlenmiş editör boş bir dizinde oyun üretir.
+  - Üretilen projenin `ortam.sh`'i sahneyi paketin `engine_sahnec`'iyle derler.
+  - Pozitif kontrol: `oyun.tpr` şablonu silinmiş paket kopyası üretimi reddeder.
+  - `package.sh` artık yerel_ci'de de koşuyor (5d).
+- **Şablonun motor bağı.** `ortam.sh`'te `/mnt/veri` varsayılanı kalktı. `.motor` artık motorun
+  İKİLİ dizinine bağlanıyor: kaynak ağacında `yapi/`, kurulu editörde kurulum dizini.
+  `tulpar.toml` `[ext]` yolu `.motor/tulpar-ext`, iki düzende de aynı. Editörün Oyun menüsü
+  `TULPAR_ENGINE_DIR`'i kendi dizini olarak verir.
+- **Elle doğrulandı, paketten ve kaynaksız:** `--karsilama-yeni` → `--arac dogrula` 3/3 geçti;
+  projede doğrudan `tulpar oyun.tpr` 30 kare koştu.
+- **Sırada (U7b):** ikon (K7), Linux AppImage + .desktop/MIME, Windows Inno Setup.
+  - AppImage salt okunur: güncelleyici dosya dosya değiştiremez. Karar: AppImage dosyası bütün
+    olarak yenisiyle değiştirilir (`$APPIMAGE`).
+  - Windows kurucusu yerelde derlenemez (MinGW/ISCC yok), CI'da ölçülür.
 
 ### U8 — Yardım ve destek · ~1 oturum
 

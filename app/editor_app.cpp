@@ -2275,25 +2275,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Argumansiz pencereli acilista gelir; eylemler buradaki lambdalarla (yukleme, derleme, son dosyalar).
   static KarsilamaDurum karsilama;
   karsilama.acik = opts.karsilama || (!headless && opts.scene_path == nullptr && opts.command == nullptr);
-  // Proje dizinindeki ilk sahne: <dizin>/assets/<tur>.sahne, yoksa assets/ altindaki ilk .sahne.
-  auto proje_sahnesi = [&](const char *dizin, const char *tur, char *out, size_t cap) -> bool {
-    std::snprintf(out, cap, "%s/assets/%s.sahne", dizin, tur);
-    if (platform::fs_kind(out) == platform::FsKind::File) return true;
-    char ad[256] = {0};
-    char adir[1100];
-    std::snprintf(adir, sizeof adir, "%s/assets", dizin);
-    platform::fs_list_dir(adir, [](const char *n, platform::FsKind k, void *u) {
-      const size_t l = std::strlen(n);
-      if (k == platform::FsKind::File && l > 6 && !std::strcmp(n + l - 6, ".sahne")) {
-        std::snprintf(static_cast<char *>(u), 256, "%s", n);
-        return false;
-      }
-      return true;
-    }, ad);
-    if (!ad[0]) return false;
-    std::snprintf(out, cap, "%s/assets/%s", dizin, ad);
-    return true;
-  };
   bool karsilama_yeni_ok = false;   // penceresiz kapi (--karsilama-yeni) icin
   // Ilk acilis turu (U5): pencereli kipte bir kez (kullanici ayar dizininde "tur" yoksa), karsilama
   // kapandiktan sonra. --tur penceresizde de gosterir (gorulmus sayilmaz).
@@ -8891,7 +8872,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         char sahne[1100];
         if (!fs.ok) {
           std::snprintf(karsilama.hata, sizeof karsilama.hata, "%s", fs.hata);
-        } else if (!proje_sahnesi(karsilama.konum, fr.tur, sahne, sizeof sahne)) {
+        } else if (!fabrika_proje_sahnesi(karsilama.konum, fr.tur, sahne, sizeof sahne)) {
           std::snprintf(karsilama.hata, sizeof karsilama.hata, "Proje olu\xC5\x9Ftu ama sahnesi bulunamad\xC4\xB1: %s", karsilama.konum);
         } else if (load_scene_from(sahne)) {
           const bool derlendi = do_compile();   // .sahneb: oyun ve F5 onu yukler
@@ -8986,9 +8967,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           if (!platform::exe_dir(exe, sizeof exe)) std::snprintf(exe, sizeof exe, ".");
           // Projenin betikleri motoru/derleyiciyi tools/ortam.sh'te kendisi bulur; editorun bildigini
           // de verir (kurulu editorde motor deposu yok — ortam.sh EXT/TULPAR'i ezilebilir okur).
-          static char env_ext[1200], env_tulpar[1200];
-          const char *env[3] = {nullptr, nullptr, nullptr};
+          static char env_ext[1200], env_tulpar[1200], env_motor[1200];
+          const char *env[4] = {nullptr, nullptr, nullptr, nullptr};
           int ne = 0;
+          // Motorun ikili dizini = editorun dizini (kurulu editor ve yapi/ ikisinde de tulpar-ext +
+          // engine_sahnec burada); ortam.sh .motor'u buraya baglar.
+          std::snprintf(env_motor, sizeof env_motor, "TULPAR_ENGINE_DIR=%s", exe);
+          env[ne++] = env_motor;
           if (game_find_extension(exe, ext, sizeof ext, why, sizeof why)) {
             std::snprintf(env_ext, sizeof env_ext, "EXT=%s", ext);
             env[ne++] = env_ext;

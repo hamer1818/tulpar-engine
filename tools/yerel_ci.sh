@@ -166,6 +166,15 @@ else
 fi
 asama "Fabrika: yeni_oyun (arena)" $(( $(zaman) - t )) "$r"
 
+# 5d) Dagitim paketi (tools/package.sh: paketle + tamlik + eklenti kosusu + kurulu duzende Yeni oyun).
+# CI'da her PR'da kosuyordu ama yerelde YOKTU: U3a'dan (2026-11-05) beri varlik turetmesi duruyordu
+# ve ancak 2026-11-06'da elle kosunca goruldu.
+t=$(zaman); r="OK"
+bash tools/package.sh yapi "$IS/paket" > "$IS/paket.log" 2>&1 || r="HATA $(grep -m1 -E 'HATA|EKSIK|FABRIKA|KOSU' "$IS/paket.log")"
+cp "$IS/paket.log" yapi/yerel_ci_paket.log
+[ "$r" = OK ] && r="OK $(du -sh "$IS/paket" | cut -f1); $(grep -c '^  var ' "$IS/paket.log") dosya var; fabrika + eklenti kosusu + pozitif kontroller"
+asama "Paket (package.sh)" $(( $(zaman) - t )) "$r"
+
 if [ "$HIZLI" = 0 ]; then
   # 6) clang sozdizimi (macOS ayaginin derleyici vekili)
   t=$(zaman); r="OK"

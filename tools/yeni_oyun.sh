@@ -9,8 +9,8 @@
 #           ayar anahtarlari "<kimlik>_efekt" ...
 #   ONEK    ortam degiskeni onegi (BUYUK harf): TULPAR_<ONEK>_OTOPILOT / _DIL / _ACILIS ...
 #
-# Uretilen depo: oyun.tpr (sablon), apk_derle.sh (Android APK + statik dogrulama), tulpar.toml ([ext] .motor/yapi/tulpar-ext + [android]),
-# tools/ortam.sh (.motor -> motor calisma agaci), tools/dogrula.sh (penceresiz kapi + pozitif
+# Uretilen depo: oyun.tpr (sablon), apk_derle.sh (Android APK + statik dogrulama), tulpar.toml ([ext] .motor/tulpar-ext + [android]),
+# tools/ortam.sh (.motor -> motorun ikili dizini, yapi/), tools/dogrula.sh (penceresiz kapi + pozitif
 # kontrol), assets/resimler/{acilis,arayuz}.png (kit atlaslari), ikon.png, .gitignore, OKUBENI.md.
 # Sonunda ISKELETIN KENDISI dogrulanir: tools/dogrula.sh kosar; kirmiziysa betik kirmizi doner
 # (uretilen oyun ilk gun calismiyorsa fabrika bozuktur).
@@ -53,7 +53,7 @@ PAKET="$(sed -n 's/^package = "\(.*\)"/\1/p' "$KOK/tulpar.toml")"
 if [ "${YENI_OYUN_BOZ:-0}" = 1 ]; then echo 'func bozuk( {' >> "$KOK/oyun.tpr"; echo "POZITIF KONTROL: YENI_OYUN_BOZ=1 sablonu bozdu" >&2; fi
 
 echo "iskelet: $KOK (tur $TUR, paket $PAKET, onek $ONEK)"
-ln -sfn "$MOTOR" "$KOK/.motor"
+ln -sfn "$MOTOR/yapi" "$KOK/.motor"   # motorun ikili dizini (tulpar.toml: .motor/tulpar-ext)
 bash "$KOK/tools/dogrula.sh"; rc=$?
 if [ $rc -ne 0 ]; then echo "YENI OYUN: KIRMIZI — uretilen iskelet dogrulamadan gecmedi (rc $rc)" >&2; exit 1; fi
 if [ "$GIT" = 1 ]; then

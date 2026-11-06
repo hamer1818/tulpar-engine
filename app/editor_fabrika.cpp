@@ -334,6 +334,25 @@ bool fabrika_dogrula(const FabrikaIstek &r, char *hata, size_t cap) {
   return true;
 }
 
+bool fabrika_proje_sahnesi(const char *dizin, const char *tur, char *out, size_t cap) {
+  std::snprintf(out, cap, "%s/assets/%s.sahne", dizin, tur);
+  if (platform::fs_kind(out) == platform::FsKind::File) return true;
+  char ad[256] = {0};
+  char adir[1100];
+  std::snprintf(adir, sizeof adir, "%s/assets", dizin);
+  platform::fs_list_dir(adir, [](const char *n, platform::FsKind k, void *u) {
+    const size_t l = std::strlen(n);
+    if (k == platform::FsKind::File && l > 6 && !std::strcmp(n + l - 6, ".sahne")) {
+      std::snprintf(static_cast<char *>(u), 256, "%s", n);
+      return false;
+    }
+    return true;
+  }, ad);
+  if (!ad[0]) return false;
+  std::snprintf(out, cap, "%s/assets/%s", dizin, ad);
+  return true;
+}
+
 uint32_t fabrika_sablonlar(char (*out)[32], uint32_t cap) {
   char kok[1024];
   if (!platform::asset_path(kok, sizeof kok, "tulpar/sablonlar")) return 0;

@@ -113,6 +113,11 @@ bool asset_path_in(char *buf, size_t n, const char *relative, const char *source
 
   // 3. Gelistirme agaci (ENGINE_SOURCE_DIR). Bulunamasa da YAZILISI buf'ta
   // kalir: hata mesaji "hangi yola baktim"i soylemeye devam etsin.
+  // TULPAR_ENGINE_KAYNAKSIZ=1: bu adim ATLANIR — paket kapisi (tools/package.sh) kurulu duzenin
+  // kaynak agacina SIZMADAN calistigini derleyen makinede de olcebilsin (EDITOR-UYGULAMA-PLANI U7;
+  // yoksa pakette eksik bir sablon, derleme makinesinde kaynaktan bulunup gizlenirdi).
+  const char *kaynaksiz = std::getenv("TULPAR_ENGINE_KAYNAKSIZ");
+  if (kaynaksiz && kaynaksiz[0] == '1') return false;   // buf: calisma dizinindeki aday
   std::snprintf(buf, n, "%s/%s", (source_dir && *source_dir) ? source_dir : ".", relative);
   return path_exists(buf);
 }
