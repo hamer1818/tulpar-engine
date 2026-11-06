@@ -19,6 +19,10 @@ constexpr const char *kMasaustuKimlik = "dev.tulparlang.TulparEditor";
 // Pencere ikonu (editor.cpp) ve hicolor kopyalari bu dosyalardan. Yollar SABIT dizgi: paketleyici
 // (tools/package.sh) varliklari kaynak dizgilerinden turetir.
 constexpr const char *kEditorIkonu = "assets/ikon/tulpar_256.png";
+// Windows kurucusunun (tools/kurulum/windows.iss) kisayol / .sahne / kaldirici ikonu. Kod okumaz; dizgi
+// BURADA durur cunku paketleyici varliklari kaynak dizgilerinden turetir — ilk CI kosusunda (#134)
+// kurulumda "assets/ikon/tulpar.ico yok" diye yakalandi.
+constexpr const char *kKurucuIkonu = "assets/ikon/tulpar.ico";
 
 struct MasaustuSonuc {
   bool ok = false;

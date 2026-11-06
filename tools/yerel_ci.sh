@@ -159,7 +159,10 @@ else
   # Uretilen oyunun Android APK'si (x86_64 debug) derlenip APK'nin KENDISINDEN dogrulanir
   # (paket, targetSdk, ABI, izin kumesi, ikon, varlik listesi). Cihaz kosumu (tools/android_dene.sh)
   # cihaz ister; burada yok.
-  ( cd "$fab/iyi" && CIKTI="$fab/apk" DEBUG=1 ./apk_derle.sh x86_64 ) > "$IS/fab_apk.log" 2>&1; ra=$?
+  # Kopru Android arsivleri cmake --build ile YENILENMEZ (ayri NDK yapisi): yeni builtin eklenince
+  # APK linki "undefined symbol teng_..." ile duser (2026-11-06, U9). Once tazelenir (ccache ile ~10 s).
+  bash tools/build_bridge_android.sh > "$IS/fab_kopru_android.log" 2>&1 || echo "UYARI: kopru Android arsivleri derlenemedi" >> "$IS/fab_apk.log"
+  ( cd "$fab/iyi" && CIKTI="$fab/apk" DEBUG=1 ./apk_derle.sh x86_64 ) >> "$IS/fab_apk.log" 2>&1; ra=$?
   cat "$IS/fab_apk.log" >> yapi/yerel_ci_fabrika.log
   if [ $ra != 0 ]; then r="HATA APK: $(grep -m1 -E 'HATA' "$IS/fab_apk.log")"
   else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
