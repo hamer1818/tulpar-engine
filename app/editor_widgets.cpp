@@ -652,6 +652,21 @@ void component_end() {
   ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
 }
 
+// "Bilesen ekle" listesi dugmenin ALTINA aciliyordu; dugme panelin dibindeyken liste ekranin disina
+// tasiyor ve yalniz arama kutusu gorunuyordu (arayuz surucusu, 2026-11-06). Altta yer yoksa (ekranin
+// alt yarisi) liste dugmenin USTUNE acilir; her iki durumda da yukseklik kalan alanla sinirli (kaydirilir).
+static void bilesen_listesi_konumla(const WidgetRect &b) {
+  const ImGuiStyle &s = ImGui::GetStyle();
+  const ImGuiViewport *vp = ImGui::GetMainViewport();
+  const float ust = vp->WorkPos.y, alt = vp->WorkPos.y + vp->WorkSize.y;
+  const float asagi = alt - b.y1, yukari = b.y0 - ust;
+  const bool yukari_ac = asagi < 320.0f && yukari > asagi;
+  const float yer = (yukari_ac ? yukari : asagi) - s.ItemInnerSpacing.y - 4.0f;
+  if (yukari_ac) ImGui::SetNextWindowPos(ImVec2(b.x0, b.y0 - s.ItemInnerSpacing.y * 0.5f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+  else ImGui::SetNextWindowPos(ImVec2(b.x0, b.y1 + s.ItemInnerSpacing.y * 0.5f));
+  ImGui::SetNextWindowSizeConstraints(ImVec2(b.x1 - b.x0, 0.0f), ImVec2(b.x1 - b.x0, yer > 120.0f ? yer : 120.0f));
+}
+
 int component_add_button(const char *const *names, uint32_t count) {
   int chosen = -1;
   const ImGuiStyle &s = ImGui::GetStyle();
@@ -659,8 +674,7 @@ int component_add_button(const char *const *names, uint32_t count) {
   ImGui::Dummy(ImVec2(0, s.ItemSpacing.y * 0.6f));
   if (ImGui::Button("+  Bileşen ekle", ImVec2(-FLT_MIN, 0))) ImGui::OpenPopup("liste");
   const WidgetRect b = item_rect();
-  ImGui::SetNextWindowPos(ImVec2(b.x0, b.y1 + s.ItemInnerSpacing.y * 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(b.x1 - b.x0, 0));
+  bilesen_listesi_konumla(b);
   if (ImGui::BeginPopup("liste")) {
     if (count == 0) ImGui::TextDisabled("Eklenecek bileşen kalmadı");
     for (uint32_t i = 0; i < count; i++) {
@@ -818,8 +832,7 @@ uint32_t component_add_button(const CreateMenuItem *items, uint32_t count, uint3
   ImGui::Dummy(ImVec2(0, s.ItemSpacing.y * 0.6f));
   if (ImGui::Button("+  Bileşen ekle", ImVec2(-FLT_MIN, 0))) ImGui::OpenPopup("liste");
   const WidgetRect b = item_rect();
-  ImGui::SetNextWindowPos(ImVec2(b.x0, b.y1 + s.ItemInnerSpacing.y * 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(b.x1 - b.x0, 0));
+  bilesen_listesi_konumla(b);
   if (ImGui::BeginPopup("liste")) {
     // Suzgec POPUP'A aittir (acilista sifirlanip odaklanir, secimde temizlenir):
     // sahnenin durumu degil, acilir pencerenin gecici hali. Sabit tampon --
@@ -1191,7 +1204,7 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
       if (ImGui::MenuItem("\xC3\x87o\xC4\x9F" "alt", "Ctrl+D")) res.action = HierarchyAction::Duplicate;
       if (ImGui::MenuItem("Ebeveynden ay\xC4\xB1r")) res.action = HierarchyAction::Detach;
       ImGui::Separator();
-      if (ImGui::MenuItem("Sil", "Del")) res.action = HierarchyAction::Delete;
+      if (ImGui::MenuItem("Sil", "Delete")) res.action = HierarchyAction::Delete;
       ImGui::Separator();
       if (ImGui::MenuItem("Kes", "Ctrl+X")) res.action = HierarchyAction::Cut;
       if (ImGui::MenuItem("Kopyala", "Ctrl+C")) res.action = HierarchyAction::Copy;

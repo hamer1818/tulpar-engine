@@ -57,8 +57,10 @@ def gunluk_kuyrugu(n=15):
 
 def baslat(argv):
     if canli_mi():
-        print(f"zaten calisiyor (pid {canli_mi()}); once: arayuz.py bitir")
-        return 1
+        # Eski oturum ACIK kalmis: yeni oturum onun yerine gecer. (Eskiden 1 ile donup eskisini
+        # birakiyordu; sonraki komutlar ESKI editore gidiyordu ve bu fark edilmiyordu.)
+        print(f"onceki oturum kapatiliyor (pid {canli_mi()})")
+        bitir()
     size, ek = "1600x900", []
     i = 0
     while i < len(argv):

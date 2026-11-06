@@ -4191,9 +4191,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // ne Material Icons'ta var, tofu kutusu cizerdi (tools/icon_check.py).
       // Pop sayisi PR #7'den ve DOGRU olan o: ustteki blok her iki dalda da
       // UC renk itiyor, main'in kosullu "2" pop'u burada yigin sizdirirdi.
-      if (ImGui::Button( ICON_MD_BAR_CHART " Stats")) show_stats = !show_stats;
+      if (ImGui::Button(ICON_MD_BAR_CHART " \xC4\xB0statistik##stats")) show_stats = !show_stats;
       ImGui::PopStyleColor(3);
-      if (ImGui::IsItemHovered()) ImGui::SetTooltip("İstatistikler Panelini Aç / Kapat (FPS, Poligon, Bellek, Çöp)");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Kare h\xC4\xB1z\xC4\xB1, \xC3\xA7izim ve bellek istatistiklerini a\xC3\xA7 / kapat");
 
       ImGui::SameLine();
       if (ImGui::Button(" ⋮ ")) ImGui::OpenPopup("ViewportOptionsMenu");
@@ -4331,13 +4331,25 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               ImGui::Dummy(ImVec2(iw, ih));
               char bek[160];
               const double gecen = (platform::now_ns() - oyun_baslangic_ns) / 1e9;
-              std::snprintf(bek, sizeof bek, ICON_MD_HOURGLASS_TOP " %s derleniyor / baslatiliyor... %.1f s", oyun.game, gecen);
+              std::snprintf(bek, sizeof bek, ICON_MD_HOURGLASS_TOP " %s derleniyor / ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor\xE2\x80\xA6 %.1f sn", oyun.game, gecen);
               const ImVec2 ts = ImGui::CalcTextSize(bek);
               gdl->AddText(ImVec2(p0.x + (iw - ts.x) * 0.5f, p0.y + (ih - ts.y) * 0.5f), IM_COL32(200, 205, 215, 255), bek);
             }
             oyun_rect = ViewportRect{p0.x, p0.y, iw, ih};
           } else {
             ImGui::Image((ImTextureID)vp.texture_id(), ImVec2((float)vp.width(), (float)vp.height()));
+            if (view_tab == ViewportTab::Game) {
+              // Oyun calismiyorken Oyun sekmesi sahne kamerasini gosterir; kullanici "oyun neden hareket
+              // etmiyor" diye beklemesin (arayuz surucusu, 2026-11-06): ustte ortali bir bilgi hapi.
+              const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
+              const char *bilgi = ICON_MD_PLAY_ARROW " Oyun \xC3\xA7" "al\xC4\xB1\xC5\x9Fm\xC4\xB1yor \xE2\x80\x94 F5 ile ba\xC5\x9Flat";
+              const ImVec2 ts = ImGui::CalcTextSize(bilgi);
+              const float px = 10.0f, py = 5.0f;
+              const ImVec2 b0(std::floor((r0.x + r1.x - ts.x) * 0.5f - px), r0.y + 12.0f);
+              ImDrawList *bdl = ImGui::GetWindowDrawList();
+              bdl->AddRectFilled(b0, ImVec2(b0.x + ts.x + 2 * px, b0.y + ts.y + 2 * py), tone_u32(Tone::Bg0, 0.85f), ts.y);
+              bdl->AddText(ImVec2(b0.x + px, b0.y + py), tone_u32(Tone::Text), bilgi);
+            }
           }
           view_hovered = ImGui::IsItemHovered();
           // Surukle-birak HEDEFI: Kaynaklar panelinden suruklenen dosya
@@ -4735,7 +4747,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (ImGui::MenuItem("Kopyala", "Ctrl+C", false, has_sel)) do_copy();
         if (ImGui::MenuItem("Yap\xC4\xB1\xC5\x9Ft\xC4\xB1r", "Ctrl+V", false, st.clip_count > 0)) do_paste();
         if (ImGui::MenuItem("\xC3\x87o\xC4\x9F" "alt", "Ctrl+D", false, has_sel)) do_add(0);
-        if (ImGui::MenuItem("Sil", "Del", false, has_sel)) do_remove();
+        if (ImGui::MenuItem("Sil", "Delete", false, has_sel)) do_remove();
 
         ImGui::Separator();
 
