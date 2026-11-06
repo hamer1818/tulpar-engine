@@ -40,7 +40,9 @@ struct PropItem {
 // ipucu), sag sutun widget (tam genislik). label_fraction: etiket sutununun
 // kullanilabilir genislige orani. false donerse (pencere kirpilmis) satir
 // cizme; true ise prop_end ZORUNLU.
-bool prop_begin(const char *id, float label_fraction = 0.38f);
+// 0.38 -> 0.44 (2026-11-06, arayuz surucusu): ~330 px'lik Ozellikler/Dunya panelinde "Huzme Yogunlugu",
+// "Normal kaydirma" gibi Turkce etiketler 125 px'e sigmayip "..." oluyordu.
+bool prop_begin(const char *id, float label_fraction = 0.44f);
 void prop_end();
 // Bir SONRAKI satirin etiket ipucuna eklenecek aciklama (tek kare gecerli).
 void prop_help(const char *text);
@@ -73,6 +75,9 @@ bool prop_filter_active();
 // Uc DragFloat, her birinin solunda AxisX/AxisY/AxisZ dolgulu X/Y/Z rozeti
 // (Unity/Godot). min == max: sinirsiz. Rozet alanin sol kenarina yapisiktir.
 PropItem prop_vec3(const char *label, float v[3], float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
+// Akan satir: ImGui::SameLine() yerine — `etiket`li (Small)Button ayni satira SIGMIYORSA alt satira
+// iner. Onayar/cip satirlari dar panelde sag kenardan KESILIYORDU ("Ogle 12:0", "Orman Is").
+void akis_ayni_satir(const char *etiket);
 PropItem prop_float(const char *label, float *v, float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
 PropItem prop_int(const char *label, int *v, int min = 0, int max = 0, const char *fmt = "%d");
 PropItem prop_text(const char *label, char *buf, uint32_t cap);

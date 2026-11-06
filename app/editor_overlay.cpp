@@ -557,9 +557,22 @@ bool tile_name(ImDrawList *dl, float px, const char *name, ImVec2 pos, float w, 
   // goruntusunde gorulen hata buydu. Dosya tarayicilari uzantiyi hicbir
   // zaman ayirmaz. Yalniz '_' ve '-' tercih edilir; ikisi de yoksa `fit`
   // noktasindan sert kirilir (uzanti ikinci satirda adin devamiyla kalir).
+  // Dizin ayiraci '/' da dogal kirilma yeri ("tulpar/" + "oyun.tpr"). Hicbiri yoksa ve sert kirilma
+  // ikinci satira bir-iki harf birakacaksa ("oyun.tp" / "r" — arayuz surucusu ekran goruntusu,
+  // 2026-11-06) uzantinin NOKTASINDAN ONCE kirilir: "uzun_ad" / ".gltf" okunur, "r" okunmaz.
   uint32_t brk = fit;
-  for (uint32_t k = fit; k > fit / 2; k--)
-    if (name[k - 1] == '_' || name[k - 1] == '-') { brk = k; break; }
+  bool ayirac = false;
+  for (uint32_t k = fit; k > 1; k--) {
+    const char c = name[k - 1];
+    // '/': dosya adi ikinci satira BUTUN sigiyorsa (dizin ile ad ayri satir); '_' '-' ilk satir yari dolunca.
+    const bool bolu = c == '/' && (k > fit / 2 || font->CalcTextSizeA(px, 3.4e38f, 0.0f, name + k).x <= w);
+    if (bolu || ((c == '_' || c == '-') && k > fit / 2)) { brk = k; ayirac = true; break; }
+  }
+  if (!ayirac && fit < n && n - fit <= 4) {
+    const char *nokta = std::strrchr(name, '.');
+    const uint32_t nk = nokta ? (uint32_t)(nokta - name) : 0;
+    if (nk > fit / 2 && nk <= fit) brk = nk;
+  }
   if (brk == 0) brk = fit > 0 ? fit : 1;
   const float w1 = font->CalcTextSizeA(px, 3.4e38f, 0.0f, name, name + brk).x;
   dl->AddText(font, px, ImVec2(pos.x + (w - w1) * 0.5f, pos.y), col, name, name + brk);
@@ -626,16 +639,16 @@ static AssetStyle asset_style_for_file(const char *path) {
 
   // 3B Modeller / Aglar: Model simgesi, Vurgu
   if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0) {
-    return {"\xE2\x97\x86", "MESH", Tone::Accent};
+    return {"\xE2\x97\x86", "MODEL", Tone::Accent};
   }
   // Dokular / Resimler: Kutu/Resim, Eksen Z (Mavi)
   if (std::strcmp(dot, ".png") == 0 || std::strcmp(dot, ".jpg") == 0 || std::strcmp(dot, ".jpeg") == 0 ||
       std::strcmp(dot, ".dds") == 0 || std::strcmp(dot, ".ktx2") == 0 || std::strcmp(dot, ".hdr") == 0) {
-    return {"\xE2\x96\xA3", "TEX", Tone::AxisZ};
+    return {"\xE2\x96\xA3", "DOKU", Tone::AxisZ};
   }
   // Malzemeler: Kure/Halka, Uyari (Amber/Turuncu)
   if (std::strcmp(dot, ".mat") == 0 || std::strcmp(dot, ".material") == 0) {
-    return {"\xE2\x97\x89", "MAT", Tone::Warn};
+    return {"\xE2\x97\x89", "MALZEME", Tone::Warn};
   }
   // Shaderlar: Simsek, Acik Vurgu
   if (std::strcmp(dot, ".frag") == 0 || std::strcmp(dot, ".vert") == 0 || std::strcmp(dot, ".spv") == 0 || std::strcmp(dot, ".glsl") == 0) {
@@ -643,15 +656,15 @@ static AssetStyle asset_style_for_file(const char *path) {
   }
   // Sahneler: Kure, Turkuaz
   if (std::strcmp(dot, ".sahne") == 0 || std::strcmp(dot, ".scene") == 0 || std::strcmp(dot, ".tscene") == 0) {
-    return {"\xE2\x97\x8E", "SCENE", Tone::Accent};
+    return {"\xE2\x97\x8E", "SAHNE", Tone::Accent};
   }
   // Betikler: Belge, Yesil (Ok)
   if (std::strcmp(dot, ".tpr") == 0 || std::strcmp(dot, ".tulpar") == 0 || std::strcmp(dot, ".lua") == 0) {
-    return {"\xE2\x96\xA4", "SCRIPT", Tone::Ok};
+    return {"\xE2\x96\xA4", "BET\xC4\xB0K", Tone::Ok};
   }
   // Ses: Nota, Amber
   if (std::strcmp(dot, ".wav") == 0 || std::strcmp(dot, ".mp3") == 0 || std::strcmp(dot, ".ogg") == 0) {
-    return {"\xE2\x99\xAA", "AUDIO", Tone::Warn};
+    return {"\xE2\x99\xAA", "SES", Tone::Warn};
   }
   return {"\xE2\x97\x86", "VARLIK", Tone::TextDim};
 }

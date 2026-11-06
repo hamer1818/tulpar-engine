@@ -3585,11 +3585,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
     if (!m) return;
     if (cat == CommandCategory::File) {
-      if (m->kars && ImGui::MenuItem(ICON_MD_HOME " Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ekran\xC4\xB1 (yeni oyun, son projeler)")) {
+      if (m->kars && ImGui::MenuItem(ICON_MD_HOME " Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ekran\xC4\xB1")) {
         m->kars->acik = true;
         m->kars->hata[0] = 0;
         m->kars->bilgi[0] = 0;
       }
+      // Aciklama ipucunda: uzun etiket butun menuyu genisletiyordu (arayuz surucusu, 2026-11-06).
+      if (m->kars && ImGui::IsItemHovered()) ImGui::SetTooltip("Yeni oyun olu\xC5\x9Ftur, son projelerden birini a\xC3\xA7");
       const char *rec[kRecentMax];
       const uint32_t nrec = recent_list(rec, kRecentMax);
       if (!ImGui::BeginMenu("Son dosyalar", nrec > 0)) return;
@@ -3624,7 +3626,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (m->tur && ImGui::MenuItem("\xC4\xB0lk turu yeniden g\xC3\xB6ster")) { m->tur->acik = true; m->tur->adim = 0; }
 #if !defined(_WIN32) && !defined(__APPLE__)
       // U7b: uygulama menusu + ikon + .sahne cift tik (AppImage bunu ilk acilista kendisi yapar).
-      if (ImGui::MenuItem("Uygulama men\xC3\xBCs\xC3\xBC" "ne ekle (.sahne dosyalar\xC4\xB1 edit\xC3\xB6rle a\xC3\xA7\xC4\xB1ls\xC4\xB1n)")) {
+      const bool masaustu_tik = ImGui::MenuItem("Uygulama men\xC3\xBCs\xC3\xBC" "ne ekle");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Edit\xC3\xB6r uygulama men\xC3\xBCs\xC3\xBC" "nde g\xC3\xB6r\xC3\xBCn\xC3\xBCr; .sahne dosyalar\xC4\xB1 \xC3\xA7ift t\xC4\xB1klay\xC4\xB1nca edit\xC3\xB6rle a\xC3\xA7\xC4\xB1l\xC4\xB1r");
+      if (masaustu_tik) {
         const MasaustuSonuc ms = masaustu_kaydet(nullptr, true);
         if (m->st) {
           if (ms.ok) set_status(*m->st, "uygulama men\xC3\xBCs\xC3\xBC" "ne eklendi (%u dosya, %s)", ms.dosya, ms.veri_dizini);
@@ -3643,7 +3647,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
       if (m->view_mode && editor_gelismis()) {
-        if (ImGui::BeginMenu("G\xC3\xB6r\xC3\xBCn\xC3\xBCm Kipi (Shading)")) {
+        if (ImGui::BeginMenu("G\xC3\xB6r\xC3\xBCnt\xC3\xBC kipi")) {
           if (ImGui::MenuItem("Ayd\xC4\xB1nlatmal\xC4\xB1 (Lit PBR)", nullptr, *m->view_mode == 0)) *m->view_mode = 0;
           if (ImGui::MenuItem("I\xC5\x9F\xC4\xB1ks\xC4\xB1z (Albedo)", nullptr, *m->view_mode == 1)) *m->view_mode = 1;
           if (ImGui::MenuItem("\xC3\x87" "arp\xC4\xB1\xC5\x9Fma (Colliders)", nullptr, *m->view_mode == 2)) *m->view_mode = 2;
@@ -3660,7 +3664,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::Separator();
         ImGui::BeginDisabled(mesgul);
         if (ImGui::MenuItem(ICON_MD_ANDROID " Android APK olu\xC5\x9Ftur")) *m->arac_istek = AracApk;
-        if (ImGui::MenuItem(ICON_MD_CHECK " Projeyi do\xC4\x9Frula")) *m->arac_istek = AracDogrula;
+        if (ImGui::MenuItem(ICON_MD_FACT_CHECK " Projeyi do\xC4\x9Frula")) *m->arac_istek = AracDogrula;
         ImGui::EndDisabled();
         if (mesgul && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
           ImGui::SetTooltip("%s s\xC3\xBCr\xC3\xBCyor (Konsol)", m->arac->game);
@@ -4873,7 +4877,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                       src_e.name[0] ? src_e.name : "I\xC5\x9F\xC4\xB1k",
                       src_e.light_type == content::SceneLightType::Directional ? "Y\xC3\xB6nl\xC3\xBC / G\xC3\xBCne\xC5\x9F" : "Nokta");
           ImGui::PopStyleColor();
-          ImGui::SameLine();
+          akis_ayni_satir("G\xC3\xBCne\xC5\x9F" "e D\xC3\xB6n");
           if (ImGui::SmallButton("G\xC3\xBCne\xC5\x9F" "e D\xC3\xB6n")) {
             SceneEntity mod = src_e;
             mod.light_godray = false;
@@ -4914,13 +4918,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.scene.godray_density = 1.0f; st.scene.godray_decay = 0.94f; st.scene.godray_weight = 0.35f; st.scene.godray_exposure = 0.35f;
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("Orman I\xC5\x9F\xC4\xB1klar\xC4\xB1");
         if (ImGui::SmallButton("Orman I\xC5\x9F\xC4\xB1klar\xC4\xB1")) {
           st.scene.godrays_enabled = true;
           st.scene.godray_density = 1.4f; st.scene.godray_decay = 0.97f; st.scene.godray_weight = 0.50f; st.scene.godray_exposure = 0.45f;
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("Hafif Sis");
         if (ImGui::SmallButton("Hafif Sis")) {
           st.scene.godrays_enabled = true;
           st.scene.godray_density = 0.6f; st.scene.godray_decay = 0.88f; st.scene.godray_weight = 0.20f; st.scene.godray_exposure = 0.25f;
@@ -4931,19 +4935,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.scene.godray_density = 1.2f; st.scene.godray_decay = 0.95f; st.scene.godray_weight = 0.40f; st.scene.godray_exposure = 0.50f;
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("Dramatik");
         if (ImGui::SmallButton("Dramatik")) {
           st.scene.godrays_enabled = true;
           st.scene.godray_density = 1.6f; st.scene.godray_decay = 0.98f; st.scene.godray_weight = 0.60f; st.scene.godray_exposure = 0.65f;
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("Ay I\xC5\x9F\xC4\xB1\xC4\x9F\xC4\xB1");
         if (ImGui::SmallButton("Ay I\xC5\x9F\xC4\xB1\xC4\x9F\xC4\xB1")) {
           st.scene.godrays_enabled = true;
           st.scene.godray_density = 0.8f; st.scene.godray_decay = 0.91f; st.scene.godray_weight = 0.25f; st.scene.godray_exposure = 0.20f;
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("S\xC4\xB1" "f\xC4\xB1rla");
         if (ImGui::SmallButton("S\xC4\xB1" "f\xC4\xB1rla")) {
           st.scene.godray_density = 0.8f; st.scene.godray_decay = 0.95f; st.scene.godray_weight = 0.5f; st.scene.godray_exposure = 0.3f;
           st.dirty = true;
@@ -4980,17 +4984,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f};
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("\xC3\x96\xC4\x9Fle 12:00");
         if (ImGui::SmallButton("\xC3\x96\xC4\x9Fle 12:00")) {
           st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f};
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("Bat\xC4\xB1m 18:30");
         if (ImGui::SmallButton("Bat\xC4\xB1m 18:30")) {
           st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f};
           st.dirty = true;
         }
-        ImGui::SameLine();
+        akis_ayni_satir("Gece 00:00");
         if (ImGui::SmallButton("Gece 00:00")) {
           st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f};
           st.dirty = true;
@@ -5005,7 +5009,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (prop_begin("sis_lab")) {
         prop_help("16 farkl\xC4\xB1 sis t\xC3\xBCr\xC3\xBC (Inigo Quilez analitik \xC3\xBCstel y\xC3\xBCkseklik sisi, Beer-Lambert mesafesi, Exp\xC2\xB2, \xC3\x87ift kademeli UE5). Mobilde 0 FPS d\xC3\xBC\xC5\x9F\xC3\xBC\xC5\x9F\xC3\xBC.");
         bool fog_on = st.scene.fog_enabled;
-        if (prop_check("Atmosferik Sis Etkin", &fog_on).changed) {
+        if (prop_check("Sis etkin", &fog_on).changed) {
           st.scene.fog_enabled = fog_on;
           st.dirty = true;
         }
@@ -5057,19 +5061,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             st.scene.fog_color = Vec3{0.78f, 0.82f, 0.90f}; st.scene.fog_scattering = 0.6f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Tekinsiz Orman");
           if (ImGui::SmallButton("Tekinsiz Orman")) {
             st.scene.fog_type = 2; st.scene.fog_density = 0.045f;
             st.scene.fog_color = Vec3{0.45f, 0.52f, 0.48f}; st.scene.fog_scattering = 0.3f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Korku / Zindan");
           if (ImGui::SmallButton("Korku / Zindan")) {
             st.scene.fog_type = 1; st.scene.fog_density = 0.08f;
             st.scene.fog_color = Vec3{0.18f, 0.18f, 0.22f}; st.scene.fog_scattering = 0.1f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Toksik Batakl\xC4\xB1k");
           if (ImGui::SmallButton("Toksik Batakl\xC4\xB1k")) {
             st.scene.fog_type = 5; st.scene.fog_density = 0.05f;
             st.scene.fog_height_falloff = 0.2f; st.scene.fog_base_height = -0.5f;
@@ -5082,21 +5086,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             st.scene.fog_color = Vec3{0.92f, 0.62f, 0.45f}; st.scene.fog_scattering = 1.2f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Cyberpunk Smog");
           if (ImGui::SmallButton("Cyberpunk Smog")) {
             st.scene.fog_type = 8; st.scene.fog_density = 0.04f;
             st.scene.fog_height_falloff = 0.15f; st.scene.fog_base_height = -0.2f;
             st.scene.fog_color = Vec3{0.15f, 0.75f, 0.85f}; st.scene.fog_scattering = 1.4f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("\xC3\x87\xC3\xB6l F\xC4\xB1rt\xC4\xB1nas\xC4\xB1");
           if (ImGui::SmallButton("\xC3\x87\xC3\xB6l F\xC4\xB1rt\xC4\xB1nas\xC4\xB1")) {
             st.scene.fog_type = 9; st.scene.fog_density = 0.06f;
             st.scene.fog_height_falloff = 0.08f; st.scene.fog_base_height = 0.0f;
             st.scene.fog_color = Vec3{0.85f, 0.65f, 0.40f}; st.scene.fog_scattering = 0.9f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Kutup Buzu / Tipi");
           if (ImGui::SmallButton("Kutup Buzu / Tipi")) {
             st.scene.fog_type = 10; st.scene.fog_density = 0.035f;
             st.scene.fog_height_falloff = 0.04f; st.scene.fog_base_height = 0.0f;
@@ -5109,21 +5113,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             st.scene.fog_color = Vec3{0.40f, 0.15f, 0.80f}; st.scene.fog_scattering = 1.5f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Volkanik K\xC3\xBCl");
           if (ImGui::SmallButton("Volkanik K\xC3\xBCl")) {
             st.scene.fog_type = 11; st.scene.fog_density = 0.07f;
             st.scene.fog_height_falloff = 0.10f; st.scene.fog_base_height = 0.0f;
             st.scene.fog_color = Vec3{0.32f, 0.22f, 0.18f}; st.scene.fog_scattering = 0.5f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Derin Deniz");
           if (ImGui::SmallButton("Derin Deniz")) {
             st.scene.fog_type = 12; st.scene.fog_density = 0.055f;
             st.scene.fog_height_falloff = 0.02f; st.scene.fog_base_height = 5.0f;
             st.scene.fog_color = Vec3{0.05f, 0.20f, 0.35f}; st.scene.fog_scattering = 0.4f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Kozmik Nebula");
           if (ImGui::SmallButton("Kozmik Nebula")) {
             st.scene.fog_type = 13; st.scene.fog_density = 0.03f;
             st.scene.fog_height_falloff = 0.01f; st.scene.fog_base_height = 0.0f;
@@ -5136,21 +5140,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             st.scene.fog_color = Vec3{0.75f, 0.75f, 0.78f}; st.scene.fog_scattering = 0.0f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Sabah Vadi Pusu");
           if (ImGui::SmallButton("Sabah Vadi Pusu")) {
             st.scene.fog_type = 6; st.scene.fog_density = 0.05f;
             st.scene.fog_height_falloff = 0.35f; st.scene.fog_base_height = -1.0f;
             st.scene.fog_color = Vec3{0.82f, 0.86f, 0.92f}; st.scene.fog_scattering = 0.5f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Da\xC4\x9F Bulut Denizi");
           if (ImGui::SmallButton("Da\xC4\x9F Bulut Denizi")) {
             st.scene.fog_type = 7; st.scene.fog_density = 0.04f;
             st.scene.fog_height_falloff = 0.08f; st.scene.fog_base_height = 8.0f;
             st.scene.fog_color = Vec3{0.90f, 0.92f, 0.96f}; st.scene.fog_scattering = 0.8f;
             st.dirty = true;
           }
-          ImGui::SameLine();
+          akis_ayni_satir("Sinematik Mie Sa\xC3\xA7\xC4\xB1l\xC4\xB1m");
           if (ImGui::SmallButton("Sinematik Mie Sa\xC3\xA7\xC4\xB1l\xC4\xB1m")) {
             st.scene.fog_type = 15; st.scene.fog_density = 0.02f;
             st.scene.fog_height_falloff = 0.04f; st.scene.fog_base_height = 0.0f;
@@ -5256,215 +5260,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         char cull_buf[64];
         std::snprintf(cull_buf, sizeof cull_buf, "%u / %u (%%%.0f ge\xC3\xA7" "ti)", c_surv, c_cand, (double)(surv_ratio * 100.0f));
         ImGui::ProgressBar(surv_ratio, ImVec2(-1.0f, 14.0f), cull_buf);
-        ImGui::BulletText("Dolayl\xC4\xB1 Paket (Indirect Batches): %u", ci.batches > 0 ? ci.batches : 1);
+        ImGui::BulletText("Dolayl\xC4\xB1 Paket (Indirect Batches): %u", ci.batches);
         ImGui::BulletText("Do\xC4\x9Frudan CPU \xC3\x87izimleri: %u", ci.cpu_draws);
-        ImGui::BulletText("Test Edilen Frustum Say\xC4\xB1s\xC4\xB1: %u (Kamera + G\xC3\xB6lge)", ci.frusta > 0 ? ci.frusta : 1);
+        ImGui::BulletText("Test Edilen Frustum Say\xC4\xB1s\xC4\xB1: %u (Kamera + G\xC3\xB6lge)", ci.frusta);
         ImGui::BulletText("G\xC3\xB6lge Dolayl\xC4\xB1 \xC3\x87izim: %s", ci.shadow ? "Aktif (Kademeli)" : "Kapal\xC4\xB1");
         if (ci.shadow) {
           ImGui::SameLine();
           ImGui::TextDisabled("(%u/%u)", ci.shadow_survived, ci.shadow_candidates);
         }
-        ImGui::BulletText("GPU Compute Ge\xC3\xA7i\xC5\x9F S\xC3\xBCresi: %.3f ms", ci.compute_ms > 0.0001f ? (double)ci.compute_ms : 0.042);
-        ImGui::BulletText("GPU Bellek Tahsisi: %.2f KB", ci.gpu_bytes > 0 ? (double)ci.gpu_bytes / 1024.0 : 128.0);
+        ImGui::BulletText("GPU Compute Ge\xC3\xA7i\xC5\x9F S\xC3\xBCresi: %.3f ms", (double)ci.compute_ms);
+        ImGui::BulletText("GPU Bellek Tahsisi: %.2f KB", (double)ci.gpu_bytes / 1024.0);
         prop_end();
       }
 
-      section_label("SES VE AKUST\xC4\xB0K M\xC4\xB0KSER\xC4\xB0 (AUDIO MIXER)");
-      if (prop_begin("audio_mixer_panel")) {
-        static audio::Mixer s_ed_mixer;
-        static bool s_ed_mixer_inited = false;
-        static float s_master_gain = 1.0f;
-        static float s_sfx_gain = 1.0f;
-        static float s_music_gain = 0.85f;
-        static bool s_audio_mute = false;
-        if (!s_ed_mixer_inited) {
-          s_ed_mixer.init(48000, 2);
-          s_ed_mixer_inited = true;
-        }
-        // Dinleyiciyi guncelle
-        {
-          audio::Listener l{};
-          const Vec3 eye = camera_eye(cam);
-          l.pos = eye;
-          Vec3 fwd = cam.target - eye;
-          const float fl = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
-          if (fl > 0.001f) { fwd.x /= fl; fwd.y /= fl; fwd.z /= fl; }
-          l.forward = fwd;
-          l.up = Vec3{0, 1.0f, 0};
-          s_ed_mixer.set_listener(l);
-        }
-        prop_float("Ana Ses (Master)", &s_master_gain, 0.01f, 0.0f, 2.0f, "%.2f");
-        prop_float("Efektler (SFX)", &s_sfx_gain, 0.01f, 0.0f, 2.0f, "%.2f");
-        prop_float("M\xC3\xBCzik (Music)", &s_music_gain, 0.01f, 0.0f, 2.0f, "%.2f");
-        prop_check("Sessiz (Mute)", &s_audio_mute);
-
-        ImGui::TextDisabled("Donan\xC4\xB1m: 48000 Hz \xC2\xB7 Stereo \xC2\xB7 32 Ses Yuvas\xC4\xB1");
-        const audio::MixerStats mst = s_ed_mixer.stats();
-        ImGui::BulletText("Aktif Sesler: %u / 32 (%u Uzamsal 3B)", mst.voices_active, mst.voices_spatial);
-        ImGui::BulletText("\xC4\xB0\xC5\x9Flenebilen Kareler: %llu \xC2\xB7 Tepe De\xC4\x9F" "er: %.2f dB", (unsigned long long)mst.frames_rendered, (double)mst.peak);
-        ImGui::BulletText("D\xC3\xBC\xC5\x9F" "en Komutlar: %u", mst.commands_dropped);
-
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton(ICON_MD_VOLUME_UP " Test Tonu \xC3\x87" "al (440 Hz Sin\xC3\xBCs)")) {
-          static float s_test_sine[4800];
-          static audio::Clip s_test_clip;
-          static bool s_clip_init = false;
-          if (!s_clip_init) {
-            for (int i = 0; i < 4800; i++) {
-              s_test_sine[i] = 0.25f * std::sin(2.0f * 3.14159265f * 440.0f * (float)i / 48000.0f);
-            }
-            s_test_clip.samples = s_test_sine;
-            s_test_clip.frames = 2400;
-            s_test_clip.channels = 2;
-            s_test_clip.rate = 48000;
-            s_clip_init = true;
-          }
-          if (!s_audio_mute) {
-            s_ed_mixer.play(&s_test_clip, s_master_gain * s_sfx_gain, false);
-            set_status(st, "440 Hz test sesi \xC3\xA7" "al\xC4\xB1nd\xC4\xB1 (kazan\xC3\xA7: %.2f)", (double)(s_master_gain * s_sfx_gain));
-          }
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton(ICON_MD_STOP " T\xC3\xBCm\xC3\xBCn\xC3\xBC Durdur")) {
-          s_ed_mixer.stop_all();
-          set_status(st, "t\xC3\xBCm ses kanallar\xC4\xB1 durduruldu");
-        }
-        ImGui::PopStyleVar();
-        prop_end();
-      }
-
-      section_label("F\xC4\xB0Z\xC4\xB0K VE \xC3\x87OK FAZLI D\xC4\xB0NAM\xC4\xB0KLER");
-      if (prop_begin("fizik_sim_panel")) {
-        ImGui::TextColored(tone(Tone::Accent), ICON_MD_SHIELD " [JOLT DETERMINISTIC] Kat\xC4\xB1 Cisim & Karakter Motoru");
-        ImGui::BulletText("Aktif G\xC3\xB6vdeler: %u / 1024", st.scene.entity_count);
-        ImGui::BulletText("Yer\xC3\xA7" "ekimi: X=0.0, Y=-9.81, Z=0.0 m/s\xC2\xB2");
-        ImGui::BulletText("Temas Halkas\xC4\xB1: 256 Olay Kapasitesi (SPSC)");
-
-        ImGui::Separator();
-        ImGui::TextColored(tone(Tone::AxisY), ICON_MD_BLUR_ON " [MLS-MPM SIMULATOR] 2026 \xC3\x87ok-Fazl\xC4\xB1 Kar / Kum / \xC3\x87" "amur");
-        static uint8_t s_mpm_buf[192 * 1024];
-        static Arena s_mpm_arena;
-        static sim::MlsMpmSimulator s_mpm_sim;
-        static bool s_mpm_inited = false;
-        static float s_mpm_cell_size = 0.20f;
-        if (!s_mpm_inited) {
-          s_mpm_arena.init(s_mpm_buf, sizeof s_mpm_buf, "mpm_arena");
-          s_mpm_sim.init(s_mpm_arena, 16, 16, 16, 1024, s_mpm_cell_size, Vec3{0, 0, 0});
-          s_mpm_inited = true;
-        }
-        prop_float("MPM H\xC3\xBC" "cre Boyutu", &s_mpm_cell_size, 0.01f, 0.05f, 1.0f, "%.2f m");
-        ImGui::BulletText("MPM Izgaras\xC4\xB1: 16x16x16 (4096 D\xC3\xBC\xC4\x9F\xC3\xBCm)");
-        ImGui::BulletText("Par\xC3\xA7" "ac\xC4\xB1k Havuzu: %u / 1024 (APIC Afin Korunumu)", s_mpm_sim.particle_count());
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton(" " ICON_MD_GRAIN " [MLS-MPM Par\xC3\xA7" "ac\xC4\xB1klar\xC4\xB1 P\xC3\xBCsk\xC3\xBCrt] ")) {
-          for (int i = 0; i < 64; i++) {
-            const Vec3 pos = {(float)(i % 4) * 0.1f, 2.0f + (float)(i / 16) * 0.1f, (float)((i / 4) % 4) * 0.1f};
-            const Vec3 vel = {0.0f, -0.5f, 0.0f};
-            s_mpm_sim.add_particle(pos, vel, 1.0f);
-          }
-          set_status(st, "64 MLS-MPM par\xC3\xA7" "ac\xC4\xB1\xC4\x9F\xC4\xB1 p\xC3\xBCsk\xC3\xBCrt\xC3\xBCld\xC3\xBC");
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton(" MPM S\xC4\xB1" "f\xC4\xB1rla ")) {
-          s_mpm_sim.clear_particles();
-          set_status(st, "MPM par\xC3\xA7" "ac\xC4\xB1klar\xC4\xB1 s\xC4\xB1" "f\xC4\xB1rland\xC4\xB1");
-        }
-        ImGui::PopStyleVar();
-
-        ImGui::Separator();
-        ImGui::TextColored(tone(Tone::AxisZ), ICON_MD_WAVES " [SPH AKI\xC5\x9EKAN D\xC4\xB0NAM\xC4\xB0\xC4\x9E\xC4\xB0] M\xC3\xBCller 2003 SCA Su Sim\xC3\xBClat\xC3\xB6r\xC3\xBC");
-        static sim::SphParams s_sph_cfg;
-        prop_float("Durgun Yo\xC4\x9Funluk", &s_sph_cfg.rest_density, 10.0f, 100.0f, 2000.0f, "%.0f kg/m\xC2\xB3");
-        prop_float("SPH Rijitlik", &s_sph_cfg.stiffness, 0.1f, 0.5f, 10.0f, "%.1f");
-        prop_float("SPH Viskozite", &s_sph_cfg.viscosity, 0.01f, 0.01f, 2.0f, "%.2f");
-        prop_float("Etki Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1 (h)", &s_sph_cfg.smoothing_radius, 0.01f, 0.05f, 1.0f, "%.2f m");
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton(" " ICON_MD_OPACITY " [SPH Ak\xC4\xB1\xC5\x9Fkan Damlas\xC4\xB1 B\xC4\xB1rak] ")) {
-          set_status(st, "SPH ak\xC4\xB1\xC5\x9Fkan damlas\xC4\xB1 sahneye b\xC4\xB1rak\xC4\xB1ld\xC4\xB1 (M\xC3\xBCller 2003)");
-        }
-        ImGui::PopStyleVar();
-
-        ImGui::Separator();
-        ImGui::TextColored(tone(Tone::Warn), ICON_MD_GROUPS " [BOIDS S\xC3\x9CR\xC3\x9C ZEKASI] Craig Reynolds Flocking + Spatial Hash");
-        static sim::BoidsConfig s_boids_p;
-        prop_float("Ayr\xC4\xB1lma A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1", &s_boids_p.separation_weight, 0.1f, 0.0f, 5.0f, "%.1f");
-        prop_float("Uyum A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1", &s_boids_p.alignment_weight, 0.1f, 0.0f, 5.0f, "%.1f");
-        prop_float("Birle\xC5\x9Fme A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1", &s_boids_p.cohesion_weight, 0.1f, 0.0f, 5.0f, "%.1f");
-        prop_float("Alg\xC4\xB1lama Yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &s_boids_p.perception_radius, 0.1f, 0.5f, 10.0f, "%.1f m");
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton(" " ICON_MD_AIRLINE_STOPS " [Boids S\xC3\xBCr\xC3\xBCs\xC3\xBC Ba\xC5\x9Flat] ")) {
-          set_status(st, "64 ajandan olu\xC5\x9F" "an Boids s\xC3\xBCr\xC3\xBCs\xC3\xBC ba\xC5\x9Flat\xC4\xB1ld\xC4\xB1");
-        }
-        ImGui::PopStyleVar();
-
-        ImGui::Separator();
-        ImGui::TextColored(tone(Tone::AccentLo), ICON_MD_ALT_ROUTE " [FABRIK IK & RTS FLOWFIELD] Kinematik ve Yol Bulma");
-        ImGui::BulletText("FABRIK Ters Kinematik: 32 Eklem Kapasitesi (Aristidou & Lasenby 2011)");
-        ImGui::BulletText("RTS Ak\xC4\xB1\xC5\x9F Alan\xC4\xB1: 32x32 Izgara, BFS Maliyet Yay\xC4\xB1l\xC4\xB1m\xC4\xB1");
-        prop_end();
-      }
-
-      section_label("A\xC4\x9E, ROLLBACK VE REPLAY (GGPO)");
-      if (prop_begin("network_rollback_panel")) {
-        ImGui::TextColored(tone(Tone::Ok), ICON_MD_SYNC " [GGPO DETERMINISTIC ROLLBACK] S\xC4\xB1" "f\xC4\xB1r Tahsisli");
-        static float s_rtt_ping = 45.0f;
-        static float s_pkt_loss = 0.5f;
-        static int s_rollback_frames = 8;
-        prop_int("Rollback Ge\xC3\xA7mi\xC5\x9F Tamponu", &s_rollback_frames, 1, 16);
-        prop_float("Sim\xC3\xBClasyon Gecikmesi (RTT)", &s_rtt_ping, 1.0f, 0.0f, 250.0f, "%.0f ms");
-        prop_float("Paket Kayb\xC4\xB1", &s_pkt_loss, 0.1f, 0.0f, 15.0f, "%% %.1f");
-        ImGui::BulletText("Desync Kontrol\xC3\xBC: 64-bit FNV-1a Durum \xC3\x96zeti (3 Platform Bit-E\xC5\x9F)");
-        ImGui::BulletText("Tahmin Penceresi: %u ms (Belirlenimli Resim\xC3\xBClasyon)", (uint32_t)((float)s_rollback_frames * 16.667f));
-
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton(" " ICON_MD_FIBER_MANUAL_RECORD " Replay Kayd\xC4\xB1 ")) {
-          set_status(st, "belirlenimli replay kayd\xC4\xB1 ba\xC5\x9Flat\xC4\xB1ld\xC4\xB1");
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton(" " ICON_MD_PLAY_ARROW " Replay Oynat ")) {
-          set_status(st, "replay oynat\xC4\xB1m\xC4\xB1 ba\xC5\x9Flat\xC4\xB1ld\xC4\xB1");
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton(" " ICON_MD_VERIFIED " Desync Kontrol\xC3\xBC ")) {
-          set_status(st, "senkronizasyon do\xC4\x9Fruland\xC4\xB1: 0 desync (bit-e\xC5\x9F durum)");
-        }
-        ImGui::PopStyleVar();
-        prop_end();
-      }
-
-      section_label("PROSED\xC3\x9CREL \xC4\xB0" "\xC3\x87" "ER\xC4\xB0K \xC3\x9CRET\xC4\xB0M\xC4\xB0 (WFC)");
-      if (prop_begin("wfc_quantum_panel")) {
-        ImGui::TextColored(tone(Tone::Accent), ICON_MD_CASINO " [WAVE FUNCTION COLLAPSE] 32-Karo K\xC4\xB1s\xC4\xB1t Yay\xC4\xB1l\xC4\xB1m\xC4\xB1");
-        prop_help("Gumin WFC algoritmasi: kuantum superpozisyon benzetimli komsuluk kisitlariyla deterministik dunya uretimi.");
-        static int s_wfc_sz = 16;
-        static int s_wfc_seed = 1337;
-        prop_int("Izgara Boyutu", &s_wfc_sz, 8, 32);
-        prop_int("Deterministik Tohum", &s_wfc_seed, 1, 999999);
-        ImGui::BulletText("Simetri Kural\xC4\xB1: DO\xC4\x9ERULANDI (Bit-Maske Yay\xC4\xB1l\xC4\xB1m\xC4\xB1)");
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton(" " ICON_MD_AUTO_FIX_HIGH " [WFC Zindan/D\xC3\xBCnya \xC3\x9Cret] ")) {
-          set_status(st, "WFC algoritmas\xC4\xB1 %dx%d haritay\xC4\xB1 0 \xC3\xA7" "eli\xC5\x9Fkiyle \xC3\xBCretti", s_wfc_sz, s_wfc_sz);
-        }
-        ImGui::PopStyleVar();
-        prop_end();
-      }
-
-      section_label("D\xC4\xB0NAM\xC4\xB0K KAL\xC4\xB0TE VE C\xC4\xB0HAZ SINIFI");
-      if (prop_begin("device_tiering_panel")) {
-        static int s_tier_sel = 2; // 0=Low, 1=Mid, 2=High
-        prop_combo("Cihaz S\xC4\xB1n\xC4\xB1" "f\xC4\xB1", &s_tier_sel, "D\xC3\xBC\xC5\x9F\xC3\xBCk (Low - Mobil)\0Orta (Mid - Konsol)\0Y\xC3\xBCksek (High - RX 7700 XT)\0");
-        const content::DeviceTier cur_tier = (content::DeviceTier)s_tier_sel;
-        const content::TierProfile &prof = content::device_tier_profile(cur_tier);
-        ImGui::BulletText("G\xC3\xB6lge Haritas\xC4\xB1 \xC3\x87\xC3\xB6z\xC3\xBCn\xC3\xBCrl\xC3\xBC\xC4\x9F\xC3\xBC: %u px", prof.shadow_map_size);
-        ImGui::BulletText("Maksimum Nokta I\xC5\x9F\xC4\xB1k K\xC3\xBCmesi: %u", prof.max_point_lights);
-        ImGui::BulletText("Pozlama EV De\xC4\x9F" "eri: %.2f", (double)prof.exposure_ev);
-        ImGui::BulletText("Analitik Sis (Atmospheric Fog): %s", prof.enable_fog ? "A\xC3\xA7\xC4\xB1k" : "Kapal\xC4\xB1");
-        ImGui::TextColored(tone(Tone::Ok), ICON_MD_SPEED " [DYNAMIC QUALITY SCALING] Asimetrik Histerezisli FPS Koruyucu");
-        ImGui::BulletText("Hedef Kare S\xC3\xBCresi: 16.67 ms (60 FPS)");
-        ImGui::BulletText("Dalgalanma \xC3\x96nleyici: 10 K\xC3\xB6t\xC3\xBC / 30 \xC4\xB0yi Kare E\xC5\x9Fi\xC4\x9Fi");
-        prop_end();
-      }
-
+      // (2026-11-06) Buradaki "Ses mikseri", "Fizik ve cok fazli dinamikler" (MPM/SPH/Boids/IK), "Ag,
+      // rollback ve replay", "WFC" ve "Cihaz sinifi" bolumleri KALDIRILDI: sahneye/oyuna hicbir sey
+      // yazmayan kaydiricilar ve "replay kaydi baslatildi", "0 desync", "WFC haritayi uretti" diyen ama hicbir
+      // is yapmayan dugmelerdi (yalan soyleyen arayuz; docs/EDITOR-DURUM.md Faz B). Motor tarafindaki
+      // sistemler duruyor; editore GERCEK baglantiyla donerler.
       section_label("G\xC4\xB0ZMOLAR");
       if (prop_begin("gizmo")) {
         prop_check("I\xC5\x9F\xC4\xB1k yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &st.gizmos.light_radius);
@@ -5537,12 +5350,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
         ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::Bg2));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone(Tone::Bg3));
+        // Akan satir: sigmayan dugme alt satira iner. Dar panelde (350 px) "Dunya & Sis" sag kenardan
+        // KESILIYORDU (arayuz surucusu, 2026-11-06).
         if (ImGui::SmallButton(" " ICON_MD_CONTENT_COPY " \xC3\x87o\xC4\x9F" "alt ")) do_add(0); // 📋 Çoğalt (Ctrl+D)
-        ImGui::SameLine();
+        akis_ayni_satir(" \xE2\x9C\x95 Sil ");
         if (ImGui::SmallButton(" \xE2\x9C\x95 Sil ")) do_remove(); // ✕ Sil (Del)
-        ImGui::SameLine();
+        akis_ayni_satir(" " ICON_MD_CENTER_FOCUS_STRONG " Odaklan ");
         if (ImGui::SmallButton(" " ICON_MD_CENTER_FOCUS_STRONG " Odaklan ")) cam.target = e.pos; // ⌖ Odaklan (F)
-        ImGui::SameLine();
+        akis_ayni_satir(" " ICON_MD_PUBLIC " D\xC3\xBCnya & Sis ");
         if (ImGui::SmallButton(" " ICON_MD_PUBLIC " D\xC3\xBCnya & Sis ")) st.sel.clear(); // 🌐 Dünya / Atmosfer / 16 Sis Laboratuvarı
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
@@ -5741,15 +5556,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               ImGui::TextDisabled("Kelvin \xC3\x96nayarlar\xC4\xB1:");
               ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
               if (ImGui::SmallButton("1800K")) { after = e; after.light_color = Vec3{1.0f, 0.57f, 0.17f}; commit(st, si, after); }
-              ImGui::SameLine();
+              akis_ayni_satir("2700K");
               if (ImGui::SmallButton("2700K")) { after = e; after.light_color = Vec3{1.0f, 0.73f, 0.43f}; commit(st, si, after); }
-              ImGui::SameLine();
+              akis_ayni_satir("3200K");
               if (ImGui::SmallButton("3200K")) { after = e; after.light_color = Vec3{1.0f, 0.81f, 0.57f}; commit(st, si, after); }
-              ImGui::SameLine();
+              akis_ayni_satir("5500K");
               if (ImGui::SmallButton("5500K")) { after = e; after.light_color = Vec3{1.0f, 0.96f, 0.90f}; commit(st, si, after); }
-              ImGui::SameLine();
+              akis_ayni_satir("6500K");
               if (ImGui::SmallButton("6500K")) { after = e; after.light_color = Vec3{1.0f, 1.0f, 1.0f}; commit(st, si, after); }
-              ImGui::SameLine();
+              akis_ayni_satir("10000K");
               if (ImGui::SmallButton("10000K")) { after = e; after.light_color = Vec3{0.80f, 0.88f, 1.0f}; commit(st, si, after); }
               ImGui::PopStyleVar();
 
@@ -5774,13 +5589,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 after = e; after.light_cast_shadow = cast_sh; commit(st, si, after);
               }
 
+              // Huzme bolumu isik tablosunu KAPATIP tam genislikte: eskiden tablonun deger sutununa ic ice
+              // tablo aciliyordu ve basligi/etiketi ~150 px'e sikisip kesiliyordu (arayuz surucusu, 2026-11-06).
+              prop_end();
               ImGui::Separator();
               ImGui::PushStyleColor(ImGuiCol_Text, tone_col(Tone::Warn));
-              ImGui::Text(ICON_MD_AUTO_AWESOME "  I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi (God Rays / Volumetric)");
+              ImGui::TextUnformatted(ICON_MD_AUTO_AWESOME "  I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi");
               ImGui::PopStyleColor();
-
               draw_godray_controls("godrays_light", &e, si);
-              prop_end();
             }
             end_component_card();
           }
@@ -5850,7 +5666,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           if (begin_component_card("\xE2\x88\x9E", "Fizik Eklemi (Joint)", content::kSceneJoint, nullptr, &act, true, Tone::AxisZ)) { // ∞
             if (prop_begin("eklem")) {
               prop_help("Baglanan varlik INDEKSTIR (-1 = dunyaya bagli). Sinirlar eksen etrafindaki aci araligidir.");
-              track_edit(st, e, si, prop_int("Ba\xC4\x9Flanan Varl\xC4\xB1k", &e.joint_target, -1, (int)st.scene.entity_count - 1));
+              track_edit(st, e, si, prop_int("Ba\xC4\x9Fl\xC4\xB1 varl\xC4\xB1k", &e.joint_target, -1, (int)st.scene.entity_count - 1));
               track_edit(st, e, si, prop_vec3("Eksen", &e.joint_axis.x, 0.01f, -1.0f, 1.0f, "%.2f"));
               track_edit(st, e, si, prop_float("Alt S\xC4\xB1n\xC4\xB1r", &e.joint_limit_min, 1.0f, -180.0f, 180.0f, "%.1f\xC2\xB0"));
               track_edit(st, e, si, prop_float("\xC3\x9Cst S\xC4\xB1n\xC4\xB1r", &e.joint_limit_max, 1.0f, -180.0f, 180.0f, "%.1f\xC2\xB0"));
@@ -5883,15 +5699,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               if (ImGui::SmallButton("D\xC3\xBCzl\xC3\xBCk")) {
                 after = e; after.terrain_amp = 3.0f; after.terrain_freq = 0.015f; after.terrain_octaves = 2; commit(st, si, after);
               }
-              ImGui::SameLine();
+              akis_ayni_satir("Tepeler");
               if (ImGui::SmallButton("Tepeler")) {
                 after = e; after.terrain_amp = 14.0f; after.terrain_freq = 0.03f; after.terrain_octaves = 4; commit(st, si, after);
               }
-              ImGui::SameLine();
+              akis_ayni_satir("Da\xC4\x9F" "lar");
               if (ImGui::SmallButton("Da\xC4\x9F" "lar")) {
                 after = e; after.terrain_amp = 35.0f; after.terrain_freq = 0.045f; after.terrain_octaves = 6; commit(st, si, after);
               }
-              ImGui::SameLine();
+              akis_ayni_satir("Kanyon");
               if (ImGui::SmallButton("Kanyon")) {
                 after = e; after.terrain_amp = 25.0f; after.terrain_freq = 0.02f; after.terrain_octaves = 5; commit(st, si, after);
               }
@@ -5968,15 +5784,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 \xC5\x9E" "ekillendirme Damgalar\xC4\xB1:");
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
             if (ImGui::SmallButton("Tepe Kabart")) stamp_raise_mountain(st, (uint32_t)si);
-            ImGui::SameLine();
+            akis_ayni_satir("Krater Kaz");
             if (ImGui::SmallButton("Krater Kaz")) stamp_carve_crater(st, (uint32_t)si);
-            ImGui::SameLine();
+            akis_ayni_satir("Plato D\xC3\xBCzle");
             if (ImGui::SmallButton("Plato D\xC3\xBCzle")) stamp_flatten_plateau(st, (uint32_t)si);
 
             if (ImGui::SmallButton("Yumu\xC5\x9F" "at")) stamp_smooth_erosion(st, (uint32_t)si);
-            ImGui::SameLine();
+            akis_ayni_satir("Kayal\xC4\xB1k");
             if (ImGui::SmallButton("Kayal\xC4\xB1k")) stamp_add_rock_noise(st, (uint32_t)si);
-            ImGui::SameLine();
+            akis_ayni_satir("Terasla");
             if (ImGui::SmallButton("Terasla")) stamp_terrace_steps(st, (uint32_t)si);
 
             ImGui::Spacing();
@@ -6057,7 +5873,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                                       std::strstr(e.name, "Sis") != nullptr ||
                                       std::strstr(e.name, "Fog") != nullptr);
           const char *pcard_icon = is_fog_volume ? ICON_MD_CLOUD : "\xE2\x88\xB4";
-          const char *pcard_title = is_fog_volume ? "Hacimsel Sis Hacmi (Fog Volume)" : "G\xC3\xB6rsel Efekt & Partik\xC3\xBCl Sistemi (VFX)";
+          const char *pcard_title = is_fog_volume ? "Hacimsel Sis" : "Par\xC3\xA7" "ac\xC4\xB1k Sistemi";
           const Tone pcard_tone = is_fog_volume ? Tone::AccentLo : Tone::Warn;
           if (begin_component_card(pcard_icon, pcard_title, content::kSceneParticle, nullptr, &act, true, pcard_tone)) {
             if (prop_begin("partikul")) {
@@ -6065,21 +5881,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 prop_help("Yerel Hacimsel Sis Hacmi (Local Fog Volume). Varl\xC4\xB1k konumu etraf\xC4\xB1nda yumu\xC5\x9F""ak 3B sis hacmi olu\xC5\x9Fturur.");
 
                 // Sis Yoğunluğu
-                track_edit(st, e, si, prop_float("Sis Yo\xC4\x9Funlu\xC4\x9Fu (Do\xC4\x9Fum H\xC4\xB1z\xC4\xB1)", &e.particle_spawn_rate, 2.0f, 0.0f, 400.0f, "%.0f puf/sn"));
+                track_edit(st, e, si, prop_float("Yo\xC4\x9Funluk", &e.particle_spawn_rate, 2.0f, 0.0f, 400.0f, "%.0f puf/sn"));
 
                 // Sis Puf Boyutu
-                track_edit(st, e, si, prop_float("Sis Puf Boyu (Giri\xC5\x9F)", &e.particle_size_start, 0.05f, 0.1f, 15.0f, "%.2f m"));
-                track_edit(st, e, si, prop_float("Sis Puf Boyu (Geni\xC5\x9Fleme)", &e.particle_size_end, 0.05f, 0.1f, 25.0f, "%.2f m"));
+                track_edit(st, e, si, prop_float("Puf boyu: ba\xC5\x9F", &e.particle_size_start, 0.05f, 0.1f, 15.0f, "%.2f m"));
+                track_edit(st, e, si, prop_float("Puf boyu: son", &e.particle_size_end, 0.05f, 0.1f, 25.0f, "%.2f m"));
 
                 // Hacim Yayılma Alanı (Jitter)
-                track_edit(st, e, si, prop_vec3("Hacim Yay\xC4\xB1lma Alan\xC4\xB1 (X/Y/Z)", &e.particle_jitter.x, 0.1f, 0.1f, 50.0f, "%.1f m"));
+                track_edit(st, e, si, prop_vec3("Hacim boyutu", &e.particle_jitter.x, 0.1f, 0.1f, 50.0f, "%.1f m"));
 
                 // Sis Renkleri
-                track_edit(st, e, si, prop_color("Sis Rengi (\xC3\x87""ekirdek)", &e.particle_color_start.x));
-                track_edit(st, e, si, prop_color("Sis Rengi (S\xC3\xB6n\xC3\xBCmlenme)", &e.particle_color_end.x));
+                track_edit(st, e, si, prop_color("\xC3\x87" "ekirdek rengi", &e.particle_color_start.x));
+                track_edit(st, e, si, prop_color("Kenar rengi", &e.particle_color_end.x));
 
                 // Sürüklenme ve Rüzgar
-                track_edit(st, e, si, prop_vec3("R\xC3\xBCzgar & S\xC3\xBCr\xC3\xBCklenme H\xC4\xB1z\xC4\xB1", &e.particle_velocity.x, 0.01f, -5.0f, 5.0f, "%.2f m/s"));
+                track_edit(st, e, si, prop_vec3("R\xC3\xBCzgar h\xC4\xB1z\xC4\xB1", &e.particle_velocity.x, 0.01f, -5.0f, 5.0f, "%.2f m/s"));
                 track_edit(st, e, si, prop_float("Hava Direnci (Sakinlik)", &e.particle_drag, 0.01f, 0.0f, 2.0f, "%.2f"));
                 track_edit(st, e, si, prop_float("Girdap / T\xC3\xBCrb\xC3\xBClans", &e.particle_curl_strength, 0.02f, 0.0f, 5.0f, "%.2f"));
 
@@ -6104,17 +5920,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 \xC5\x9E" "ekil Se\xC3\xA7""imi:");
                 ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
                 if (ImGui::SmallButton("3B K\xC3\xBCre")) { after = e; after.particle_billboard_type = 3; commit(st, si, after); }
-                ImGui::SameLine();
+                akis_ayni_satir("Disk");
                 if (ImGui::SmallButton("Disk")) { after = e; after.particle_billboard_type = 0; commit(st, si, after); }
-                ImGui::SameLine();
+                akis_ayni_satir("Zemin");
                 if (ImGui::SmallButton("Zemin")) { after = e; after.particle_billboard_type = 2; commit(st, si, after); }
-                ImGui::SameLine();
+                akis_ayni_satir("Koni");
                 if (ImGui::SmallButton("Koni")) { after = e; after.particle_billboard_type = 6; commit(st, si, after); }
-                ImGui::SameLine();
+                akis_ayni_satir("Silindir");
                 if (ImGui::SmallButton("Silindir")) { after = e; after.particle_billboard_type = 7; commit(st, si, after); }
-                ImGui::SameLine();
+                akis_ayni_satir("Halka");
                 if (ImGui::SmallButton("Halka")) { after = e; after.particle_billboard_type = 5; commit(st, si, after); }
-                ImGui::SameLine();
+                akis_ayni_satir("K\xC3\xBCp");
                 if (ImGui::SmallButton("K\xC3\xBCp")) { after = e; after.particle_billboard_type = 4; commit(st, si, after); }
                 ImGui::PopStyleVar();
 
@@ -6132,7 +5948,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.particle_drag = 0.5f;
                   commit(st, si, after);
                 }
-                ImGui::SameLine();
+                akis_ayni_satir("Yo\xC4\x9Fun Zindan");
                 if (ImGui::SmallButton("Yo\xC4\x9Fun Zindan")) {
                   after = e;
                   after.particle_size_start = 1.2f; after.particle_size_end = 3.5f;
@@ -6143,7 +5959,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.particle_drag = 0.4f;
                   commit(st, si, after);
                 }
-                ImGui::SameLine();
+                akis_ayni_satir("B\xC3\xBCy\xC3\xBCl\xC3\xBC Mor");
                 if (ImGui::SmallButton("B\xC3\xBCy\xC3\xBCl\xC3\xBC Mor")) {
                   after = e;
                   after.particle_size_start = 0.6f; after.particle_size_end = 2.2f;
@@ -6154,7 +5970,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.particle_drag = 0.6f;
                   commit(st, si, after);
                 }
-                ImGui::SameLine();
+                akis_ayni_satir("Zehirli Ye\xC5\x9Fil");
                 if (ImGui::SmallButton("Zehirli Ye\xC5\x9Fil")) {
                   after = e;
                   after.particle_size_start = 0.5f; after.particle_size_end = 2.0f;
@@ -6178,7 +5994,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.particle_drag = 0.8f;
                   commit(st, si, after);
                 }
-                ImGui::SameLine();
+                akis_ayni_satir("Baca / Koni Jeti");
                 if (ImGui::SmallButton("Baca / Koni Jeti")) {
                   after = e;
                   after.particle_billboard_type = 6; // Koni
@@ -6191,7 +6007,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.particle_drag = 0.4f;
                   commit(st, si, after);
                 }
-                ImGui::SameLine();
+                akis_ayni_satir("Kuyu / Silindir");
                 if (ImGui::SmallButton("Kuyu / Silindir")) {
                   after = e;
                   after.particle_billboard_type = 7; // Silindir
@@ -6204,7 +6020,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.particle_drag = 0.5f;
                   commit(st, si, after);
                 }
-                ImGui::SameLine();
+                akis_ayni_satir("Portal Halkas\xC4\xB1");
                 if (ImGui::SmallButton("Portal Halkas\xC4\xB1")) {
                   after = e;
                   after.particle_billboard_type = 5; // Torus
@@ -6289,27 +6105,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   ImGui::TextColored(tone(Tone::Accent), ICON_MD_AUTO_AWESOME " Aktif \xC3\x87" "izge: %s", s_active_graph_name);
                   ImGui::SameLine();
                   ImGui::TextDisabled("| Haz\xC4\xB1r \xC5\x9E" "ablon:");
-                  ImGui::SameLine();
+                  akis_ayni_satir("Ate\xC5\x9F");
                   if (ImGui::SmallButton("Ate\xC5\x9F")) {
                     s_vfx_graph.build_fire_graph();
                     s_active_graph_name = "Ate\xC5\x9F / Me\xC5\x9F" "ale (Fire)";
                   }
-                  ImGui::SameLine();
+                  akis_ayni_satir("Duman");
                   if (ImGui::SmallButton("Duman")) {
                     s_vfx_graph.build_smoke_graph();
                     s_active_graph_name = "Duman / Sis (Smoke)";
                   }
-                  ImGui::SameLine();
+                  akis_ayni_satir("K\xC4\xB1v\xC4\xB1lc\xC4\xB1m");
                   if (ImGui::SmallButton("K\xC4\xB1v\xC4\xB1lc\xC4\xB1m")) {
                     s_vfx_graph.build_sparks_graph();
                     s_active_graph_name = "K\xC4\xB1v\xC4\xB1lc\xC4\xB1m (Sparks)";
                   }
-                  ImGui::SameLine();
+                  akis_ayni_satir("Patlama");
                   if (ImGui::SmallButton("Patlama")) {
                     s_vfx_graph.build_explosion_graph();
                     s_active_graph_name = "Patlama / \xC5\x9Eok (Explosion)";
                   }
-                  ImGui::SameLine();
+                  akis_ayni_satir("B\xC3\xBCy\xC3\xBC");
                   if (ImGui::SmallButton("B\xC3\xBCy\xC3\xBC")) {
                     s_vfx_graph.build_magic_graph();
                     s_active_graph_name = "B\xC3\xBCy\xC3\xBC K\xC3\xBCresi (Magic Orb)";
@@ -6426,24 +6242,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
               // Açık Kaynak Standart VFX Şablon Kütüphanesi (Godot / Niagara / Effekseer Presets)
               int vfx_tpl = 0;
-              if (prop_combo("VFX \xC5\x9E" "ablonu (Preset)", &vfx_tpl,
-                             "\xC3\x96zel Yap\xC4\xB1land\xC4\xB1rma (Custom)\0"
-                             "Ate\xC5\x9F / Me\xC5\x9F" "ale (Fire & Torch)\0"
-                             "Duman / Sis (Smoke & Plume)\0"
-                             "K\xC4\xB1v\xC4\xB1lc\xC4\xB1m / Kaynak (Sparks)\0"
-                             "Ya\xC4\x9Fmur / Damla (Rain)\0"
-                             "Kar / Tipi (Snow)\0"
-                             "B\xC3\xBCy\xC3\xBC / Enerji K\xC3\xBCresi (Magic Orb)\0"
-                             "Patlama / \xC5\x9Eok (Explosion)\0"
-                             "Portal Halkas\xC4\xB1 (Portal Ring)\0"
-                             "Lazer S\xC3\xBCtunu (Laser Beam)\0"
-                             "Volkanik P\xC3\xBCsk\xC3\xBCrme (Volcano)\0"
-                             "Gezegen Diski (Saturn Ring)\0"
-                             "\xC5\x9Eok Dalgas\xC4\xB1 (Shockwave)\0"
-                             "Galaksi Girdab\xC4\xB1 (Galaxy Vortex)\0"
-                             "Kutup I\xC5\x9F\xC4\xB1\xC4\x9F\xC4\xB1 (Aurora Borealis)\0"
-                             "Meteor \xC4\xB0zi (Comet Trail)\0"
-                             "Enerji Kalkan\xC4\xB1 (Forcefield Cage)\0\0").changed && vfx_tpl > 0) {
+              if (prop_combo("Haz\xC4\xB1r efekt", &vfx_tpl,
+                             "\xC3\x96zel\0"
+                             "Ate\xC5\x9F / Me\xC5\x9F" "ale\0"
+                             "Duman / Sis\0"
+                             "K\xC4\xB1v\xC4\xB1lc\xC4\xB1m / Kaynak\0"
+                             "Ya\xC4\x9Fmur / Damla\0"
+                             "Kar / Tipi\0"
+                             "B\xC3\xBCy\xC3\xBC / Enerji K\xC3\xBCresi\0"
+                             "Patlama / \xC5\x9Eok\0"
+                             "Portal Halkas\xC4\xB1\0"
+                             "Lazer S\xC3\xBCtunu\0"
+                             "Volkanik P\xC3\xBCsk\xC3\xBCrme\0"
+                             "Gezegen Diski\0"
+                             "\xC5\x9Eok Dalgas\xC4\xB1\0"
+                             "Galaksi Girdab\xC4\xB1\0"
+                             "Kutup I\xC5\x9F\xC4\xB1\xC4\x9F\xC4\xB1\0"
+                             "Meteor \xC4\xB0zi\0"
+                             "Enerji Kalkan\xC4\xB1\0\0").changed && vfx_tpl > 0) {
                 st.particles.clear();
                 after = e;
                 if (vfx_tpl == 1) { // Ates
@@ -6591,45 +6407,38 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 commit(st, si, after);
               }
 
-              // MODÜL 1: Emisyon & Yaşam Döngüsü & Determinizm (Niagara Emitter State / Godot Time)
-              ImGui::Separator();
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_TIMER " 1. Emisyon & Ya\xC5\x9F" "am D\xC3\xB6ng\xC3\xBCs\xC3\xBC (Emission & Lifecycle)");
-              track_edit(st, e, si, prop_float("Yayma H\xC4\xB1z\xC4\xB1 (Spawn Rate)", &e.particle_spawn_rate, 0.5f, 0.0f, 1000.0f, "%.1f /s"));
-              track_edit(st, e, si, prop_float("Minimum \xC3\x96m\xC3\xBCr (Lifetime Min)", &e.particle_lifetime_min, 0.01f, 0.01f, 60.0f, "%.2f s"));
-              track_edit(st, e, si, prop_float("Maksimum \xC3\x96m\xC3\xBCr (Lifetime Max)", &e.particle_lifetime_max, 0.01f, 0.01f, 60.0f, "%.2f s"));
-              const float avg_life = (e.particle_lifetime_min + e.particle_lifetime_max) * 0.5f;
-              ImGui::TextDisabled("Kararl\xC4\xB1 Pop\xC3\xBClasyon Beklentisi: ~%.0f adet (Rate x Ortalama \xC3\x96m\xC3\xBCr)", e.particle_spawn_rate * avg_life);
+              // Bolumler TAM GENISLIKTE baslikla ayrilir (tablo kapanir, baslik, yeni tablo). Eskiden
+              // basliklar ve bilgi satirlari tablonun DEGER sutununa dusup ~150 px'te kesiliyordu; ayrica
+              // hicbir yere baglanmayan (kaydedilmeyen, sahneyi etkilemeyen) denetimler vardi — suruklenen
+              // ama hicbir sey yapmayan kaydiricilar ve sahte "modul hatti / telemetri" satirlari. Burada
+              // YALNIZ varliga yazilan ya da canli simulasyonu gercekten degistiren alanlar kaldi
+              // (arayuz surucusu taramasi, 2026-11-06).
+              auto bolum = [&](const char *kimlik, const char *baslik) {
+                prop_end();
+                ImGui::Spacing();
+                ImGui::SeparatorText(baslik);
+                prop_begin(kimlik);
+              };
 
-              // Deterministik Xorshift32 Tohumu & Rollback Netcode Uyumu
+              bolum("partikul_yayma", ICON_MD_TIMER " Yayma ve \xC3\xB6m\xC3\xBCr");
+              track_edit(st, e, si, prop_float("Yayma h\xC4\xB1z\xC4\xB1", &e.particle_spawn_rate, 0.5f, 0.0f, 1000.0f, "%.1f /sn"));
+              track_edit(st, e, si, prop_float("En k\xC4\xB1sa \xC3\xB6m\xC3\xBCr", &e.particle_lifetime_min, 0.01f, 0.01f, 60.0f, "%.2f sn"));
+              track_edit(st, e, si, prop_float("En uzun \xC3\xB6m\xC3\xBCr", &e.particle_lifetime_max, 0.01f, 0.01f, 60.0f, "%.2f sn"));
+              const float avg_life = (e.particle_lifetime_min + e.particle_lifetime_max) * 0.5f;
               static int s_user_seed = 1337;
-              if (prop_int("Deterministik Tohum (RNG Seed)", &s_user_seed, 1, 999999).changed) {
-                st.particle_rng = Rng((uint32_t)s_user_seed);
-              }
+              prop_help("Canl\xC4\xB1 \xC3\xB6nizlemenin rastgele say\xC4\xB1 \xC3\xBCreteci. Ayn\xC4\xB1 tohum ayn\xC4\xB1 da\xC4\x9F\xC4\xB1l\xC4\xB1m\xC4\xB1 verir.");
+              if (prop_int("Rastgele tohum", &s_user_seed, 1, 999999).changed) st.particle_rng = Rng((uint32_t)s_user_seed);
+              prop_end();
+              ImGui::TextDisabled("Ayn\xC4\xB1 anda yakla\xC5\x9F\xC4\xB1k %.0f par\xC3\xA7" "ac\xC4\xB1k", e.particle_spawn_rate * avg_life);
               ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-              if (ImGui::SmallButton(" " ICON_MD_CASINO " Zar At (Rastgele Tohum) ")) {
+              if (ImGui::SmallButton(" " ICON_MD_CASINO " Yeni tohum ")) {
                 s_user_seed = (int)(st.particle_rng.next_u32() % 999999 + 1);
                 st.particle_rng = Rng((uint32_t)s_user_seed);
               }
-              ImGui::SameLine();
-              if (ImGui::SmallButton(" " ICON_MD_RESTART_ALT " Tohumu S\xC4\xB1" "f\xC4\xB1rla (1337) ")) {
-                s_user_seed = 1337;
-                st.particle_rng = Rng(1337);
-              }
               ImGui::PopStyleVar();
+              prop_begin("partikul_yayma2");
 
-              static bool s_affects_gameplay = false;
-              if (prop_check("Oynan\xC4\xB1\xC5\x9F\xC4\xB1 Etkiler (affects_gameplay / Rollback GGPO)", &s_affects_gameplay).changed) {
-                // Gameplay flag updated
-              }
-              if (s_affects_gameplay) {
-                ImGui::TextColored(tone(Tone::Ok), ICON_MD_SYNC " [DETERM\xC4\xB0N\xC4\xB0ST\xC4\xB0K ROLLBACK AKT\xC4\xB0" "F] GGPO Senkronize, Bit-Identical Replay");
-              } else {
-                ImGui::TextDisabled(ICON_MD_SYNC_DISABLED " [KOZMET\xC4\xB0K VFX] Ayr\xC4\xB1k Asenkron \xC3\x87" "er\xC3\xA7" "eve (Fire-and-Forget, 0 Re-Sim CPU Y\xC3\xBCk\xC3\xBC)");
-              }
-
-              // MODÜL 2: Yayılım Geometrisi & Hız (Godot Emission Shape / Niagara Shape Location)
-              ImGui::Separator();
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_SHAPE_LINE " 2. Yay\xC4\xB1l\xC4\xB1m Geometrisi & H\xC4\xB1z (Emission Shape & Velocity)");
+              bolum("partikul_sekil", ICON_MD_SHAPE_LINE " \xC5\x9E" "ekil ve h\xC4\xB1z");
               const float spd_mag = length(e.particle_velocity);
               int geom_shape = 0;
               if (e.particle_jitter.y <= 0.08f && (e.particle_jitter.x > 0.1f || e.particle_jitter.z > 0.1f)) geom_shape = 2; // Disk / Halka
@@ -6637,110 +6446,65 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               else if (spd_mag > 2.0f && (e.particle_jitter.x > 0.5f || e.particle_jitter.z > 0.5f)) geom_shape = 4; // Konik Huni
               else if (e.particle_jitter.x <= 0.08f && e.particle_jitter.z <= 0.08f && spd_mag > 1.0f) geom_shape = 1; // Dogrusal Isin
               else if (e.particle_jitter.x > 0.5f && e.particle_jitter.y > 0.5f && e.particle_jitter.z > 0.5f) geom_shape = 5; // Kuresel Hacim
-
-              if (prop_combo("Yay\xC4\xB1l\xC4\xB1m Bi\xC3\xA7imi (Shape)", &geom_shape,
-                             "0: Nokta Kaynak (Point Source - 0B)\0"
-                             "1: Do\xC4\x9Frusal I\xC5\x9F\xC4\xB1n / S\xC3\xBCtun (Linear Beam - 1B)\0"
-                             "2: D\xC3\xBCzlemsel Disk / Halka (Planar Ring - 2B)\0"
-                             "3: Dikey Perde / Duvar (Vertical Curtain - 2B)\0"
-                             "4: Konik Huni / \xC3\x87" "e\xC5\x9Fme (Conical Fountain - 3B)\0"
-                             "5: 3B K\xC3\xBCresel Hacim (Spherical Volume - 3B)\0\0").changed) {
+              prop_help("H\xC4\xB1z ve sa\xC3\xA7\xC4\xB1lmay\xC4\xB1 bu \xC5\x9F" "ekle g\xC3\xB6re ayarlar; a\xC5\x9F" "a\xC4\x9F\xC4\xB1" "daki alanlardan ince ayar yap\xC4\xB1l\xC4\xB1r.");
+              if (prop_combo("Yay\xC4\xB1l\xC4\xB1m \xC5\x9F" "ekli", &geom_shape,
+                             "Nokta\0"
+                             "Do\xC4\x9Frusal \xC4\xB1\xC5\x9F\xC4\xB1n\0"
+                             "Halka\0"
+                             "Dikey perde\0"
+                             "Koni / \xC3\xA7" "e\xC5\x9Fme\0"
+                             "K\xC3\xBCre\0\0").changed) {
                 after = e;
-                if (geom_shape == 0) { // Point
-                  after.particle_velocity = Vec3{0.0f, 1.0f, 0.0f}; after.particle_jitter = Vec3{0.2f, 0.2f, 0.2f};
-                } else if (geom_shape == 1) { // Linear Beam
-                  after.particle_velocity = Vec3{0.0f, 12.0f, 0.0f}; after.particle_jitter = Vec3{0.03f, 0.1f, 0.03f};
-                } else if (geom_shape == 2) { // Planar Ring
-                  after.particle_velocity = Vec3{0.0f, 0.0f, 0.0f}; after.particle_jitter = Vec3{4.0f, 0.02f, 4.0f};
-                } else if (geom_shape == 3) { // Vertical Curtain
-                  after.particle_velocity = Vec3{0.0f, 1.0f, 0.0f}; after.particle_jitter = Vec3{4.0f, 2.0f, 0.02f};
-                } else if (geom_shape == 4) { // Conical Fountain
-                  after.particle_velocity = Vec3{0.0f, 7.0f, 0.0f}; after.particle_jitter = Vec3{2.5f, 0.8f, 2.5f};
-                } else if (geom_shape == 5) { // Spherical Volume
-                  after.particle_velocity = Vec3{0.0f, 0.0f, 0.0f}; after.particle_jitter = Vec3{3.0f, 3.0f, 3.0f};
-                }
+                if (geom_shape == 0) { after.particle_velocity = Vec3{0.0f, 1.0f, 0.0f}; after.particle_jitter = Vec3{0.2f, 0.2f, 0.2f}; }
+                else if (geom_shape == 1) { after.particle_velocity = Vec3{0.0f, 12.0f, 0.0f}; after.particle_jitter = Vec3{0.03f, 0.1f, 0.03f}; }
+                else if (geom_shape == 2) { after.particle_velocity = Vec3{0.0f, 0.0f, 0.0f}; after.particle_jitter = Vec3{4.0f, 0.02f, 4.0f}; }
+                else if (geom_shape == 3) { after.particle_velocity = Vec3{0.0f, 1.0f, 0.0f}; after.particle_jitter = Vec3{4.0f, 2.0f, 0.02f}; }
+                else if (geom_shape == 4) { after.particle_velocity = Vec3{0.0f, 7.0f, 0.0f}; after.particle_jitter = Vec3{2.5f, 0.8f, 2.5f}; }
+                else if (geom_shape == 5) { after.particle_velocity = Vec3{0.0f, 0.0f, 0.0f}; after.particle_jitter = Vec3{3.0f, 3.0f, 3.0f}; }
                 commit(st, si, after);
               }
+              track_edit(st, e, si, prop_vec3("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 h\xC4\xB1z\xC4\xB1", &e.particle_velocity.x, 0.02f));
+              track_edit(st, e, si, prop_vec3("Sa\xC3\xA7\xC4\xB1lma", &e.particle_jitter.x, 0.02f, 0.0f, 20.0f, "%.2f"));
 
-              static float s_shape_radius = 2.5f;
-              static float s_shape_inner_radius = 0.75f;
-              static float s_shape_spread = 0.5f;
-              if (geom_shape == 2) {
-                if (prop_float("Halka Yar\xC4\xB1\xC3\xA7" "ap\xC4\xB1 (Outer Radius)", &s_shape_radius, 0.05f, 0.1f, 50.0f, "%.2f m").changed) {
-                  after = e; after.particle_jitter.x = s_shape_radius; after.particle_jitter.z = s_shape_radius; commit(st, si, after);
-                }
-                prop_float("\xC4\xB0\xC3\xA7 Halka Yar\xC4\xB1\xC3\xA7" "ap\xC4\xB1 (Inner Radius)", &s_shape_inner_radius, 0.05f, 0.0f, s_shape_radius, "%.2f m");
-              } else if (geom_shape == 4) {
-                prop_float("Koni A\xC3\xA7\xC4\xB1sal Sa\xC3\xA7\xC4\xB1lmas\xC4\xB1 (Cone Spread)", &s_shape_spread, 0.02f, 0.05f, 1.0f, "%.2f rad");
-              } else if (geom_shape == 1 || geom_shape == 3 || geom_shape == 5) {
-                if (prop_float("Yay\xC4\xB1l\xC4\xB1m \xC3\x96l\xC3\xA7" "e\xC4\x9Fi (Shape Scale)", &s_shape_radius, 0.05f, 0.1f, 50.0f, "%.2f m").changed) {
-                  after = e;
-                  if (geom_shape == 5) { after.particle_jitter = Vec3{s_shape_radius, s_shape_radius, s_shape_radius}; }
-                  else if (geom_shape == 3) { after.particle_jitter.x = s_shape_radius; }
-                  commit(st, si, after);
-                }
-              }
-
-              track_edit(st, e, si, prop_vec3("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 H\xC4\xB1z\xC4\xB1 (Initial Velocity)", &e.particle_velocity.x, 0.02f));
-              track_edit(st, e, si, prop_vec3("Sa\xC3\xA7\xC4\xB1lma Sapmas\xC4\xB1 (Jitter / Spread)", &e.particle_jitter.x, 0.02f, 0.0f, 20.0f, "%.2f"));
-              ImGui::TextDisabled("H\xC4\xB1z: %.2f m/s | Analitik Geometri: %s", spd_mag,
-                                  geom_shape == 1 ? "1B Do\xC4\x9Frusal S\xC3\xBCtun (Linear Beam)" :
-                                  (geom_shape == 2 ? "2B D\xC3\xBCzlemsel Halka (Planar Ring)" :
-                                  (geom_shape == 3 ? "2B Dikey Perde (Vertical Curtain)" :
-                                  (geom_shape == 4 ? "3B Konik Huni (Conical Fountain)" :
-                                  (geom_shape == 5 ? "3B K\xC3\xBCresel Hacim (Spherical Volume)" : "0B Nokta (Point)")))));
-
-              // MODÜL 3: Kuvvetler & Akışkan Fiziği & Modül Hattı (Niagara Forces & Accelerations)
-              ImGui::Separator();
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_AIR " 3. Kuvvetler & Ak\xC4\xB1\xC5\x9Fkan Fizi\xC4\x9Fi (Forces & Dynamics)");
-              track_edit(st, e, si, prop_float("Yer\xC3\xA7" "ekimi \xC4\xB0vmesi (Gravity)", &e.particle_gravity, 0.1f, -50.0f, 50.0f, "%.1f m/s\xC2\xB2"));
-              track_edit(st, e, si, prop_float("Stokes Hava Direnci (Drag)", &e.particle_drag, 0.01f, 0.0f, 10.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("T\xC3\xBCrb\xC3\xBClans G\xC3\xBC" "c\xC3\xBC (Curl Strength)", &e.particle_curl_strength, 0.05f, 0.0f, 30.0f, "%.2f m/s\xC2\xB2"));
-              track_edit(st, e, si, prop_float("G\xC3\xBCr\xC3\xBClt\xC3\xBC Frekans\xC4\xB1 (Curl Freq)", &e.particle_curl_freq, 0.02f, 0.05f, 10.0f, "%.2f /m"));
+              bolum("partikul_kuvvet", ICON_MD_AIR " Kuvvetler");
+              track_edit(st, e, si, prop_float("Yer\xC3\xA7" "ekimi", &e.particle_gravity, 0.1f, -50.0f, 50.0f, "%.1f m/s\xC2\xB2"));
+              track_edit(st, e, si, prop_float("Hava direnci", &e.particle_drag, 0.01f, 0.0f, 10.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("T\xC3\xBCrb\xC3\xBClans", &e.particle_curl_strength, 0.05f, 0.0f, 30.0f, "%.2f m/s\xC2\xB2"));
+              track_edit(st, e, si, prop_float("T\xC3\xBCrb\xC3\xBClans s\xC4\xB1kl\xC4\xB1\xC4\x9F\xC4\xB1", &e.particle_curl_freq, 0.02f, 0.05f, 10.0f, "%.2f /m"));
               bool coll_val = e.particle_collision;
-              if (prop_check("Zemin \xC3\x87" "arp\xC4\xB1\xC5\x9Fmas\xC4\xB1 (Plane Collision y=0)", &coll_val).changed) {
+              prop_help("Par\xC3\xA7" "ac\xC4\xB1klar y=0 zemininden seker.");
+              if (prop_check("Zemine \xC3\xA7" "arpar", &coll_val).changed) {
                 after = e; after.particle_collision = coll_val; commit(st, si, after);
               }
-              track_edit(st, e, si, prop_float("Sekme Esnekli\xC4\x9Fi (Restitution)", &e.particle_bounce, 0.02f, 0.0f, 1.0f, "%.2f"));
-              static float s_friction = 0.30f;
-              prop_float("Yanal S\xC3\xBCrt\xC3\xBCnme (Tangential Friction)", &s_friction, 0.02f, 0.0f, 1.0f, "%.2f");
+              if (e.particle_collision) track_edit(st, e, si, prop_float("Sekme", &e.particle_bounce, 0.02f, 0.0f, 1.0f, "%.2f"));
 
-              // Aktif C++ Modül Hattı (VfxModulePipeline) Durumu
-              ImGui::TextDisabled("Aktif C++ Mod\xC3\xBCl Hatt\xC4\xB1 (VfxModulePipeline):");
-              ImGui::BulletText(" [x] CurlNoiseModule (3B Simplex Divergence-Free)");
-              ImGui::BulletText(" [x] StokesDragModule (Aerodinamik Viskoz Diren\xC3\xA7)");
-              ImGui::BulletText(" [x] GroundCollisionModule (Zemin D\xC3\xBCzlemi y=0)");
-              ImGui::BulletText(" [x] ColorRampModule & SizeOverLifeModule");
-
-              // MODÜL 4: Render Modeli, WBOIT & Görünüm (Godot DrawPass / McGuire WBOIT)
-              ImGui::Separator();
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_VISIBILITY " 4. Render Modeli, WBOIT & G\xC3\xB6r\xC3\xBCn\xC3\xBCm (Renderer & WBOIT)");
+              bolum("partikul_gorunum", ICON_MD_VISIBILITY " G\xC3\xB6r\xC3\xBCn\xC3\xBCm");
               int bb = (int)e.particle_billboard_type;
-              if (prop_combo("Render Modeli (Primitive Mesh)", &bb,
-                             "0: Kameraya D\xC3\xB6n\xC3\xBCk D\xC3\xB6rtgen (Billboard Quad - Sprite)\0"
-                             "1: H\xC4\xB1za G\xC3\xB6re Uzayan \xC4\xB0" "\xC4\x9Fne (Velocity-Aligned Streak)\0"
-                             "2: Yatay Zemin D\xC3\xBCzlemi (Horizontal Shockwave Plane)\0"
-                             "3: 3B K\xC3\xBCre Modeli (Mesh: 3D Sphere)\0"
-                             "4: 3B K\xC3\xBCp / Voksel (Mesh: 3D Box / Voxel)\0"
-                             "5: 3B Enerji Simiti (Mesh: 3D Torus)\0"
-                             "6: 3B Koni Modeli (Mesh: 3D Cone)\0"
-                             "7: 3B Silindir Modeli (Mesh: 3D Cylinder)\0\0").changed) {
+              if (prop_combo("Bi\xC3\xA7im", &bb,
+                             "Kameraya d\xC3\xB6n\xC3\xBCk\0"
+                             "H\xC4\xB1zla uzayan\0"
+                             "Yatay d\xC3\xBCzlem\0"
+                             "K\xC3\xBCre\0"
+                             "K\xC3\xBCp\0"
+                             "Simit\0"
+                             "Koni\0"
+                             "Silindir\0\0").changed) {
                 after = e; after.particle_billboard_type = (uint32_t)bb; commit(st, si, after);
               }
               bool rib_val = e.particle_ribbon;
-              if (prop_check("\xC5\x9E" "erit / Kuyruk \xC4\xB0zi (Ribbon Trail)", &rib_val).changed) {
+              if (prop_check("Kuyruk izi", &rib_val).changed) {
                 after = e; after.particle_ribbon = rib_val; commit(st, si, after);
               }
-              track_edit(st, e, si, prop_float("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 Boyutu (Size Start)", &e.particle_size_start, 0.005f, 0.0f, 10.0f, "%.3f m"));
-              track_edit(st, e, si, prop_float("Biti\xC5\x9F Boyutu (Size End)", &e.particle_size_end, 0.005f, 0.0f, 10.0f, "%.3f m"));
-              const float sz_ratio = e.particle_size_start > 1e-4f ? (e.particle_size_end / e.particle_size_start) * 100.0f : 0.0f;
-              ImGui::TextDisabled("Boyut Evrimi: %%%0.0f (%s)", sz_ratio, sz_ratio > 100.0f ? "Geni\xC5\x9Fleyen" : (sz_ratio < 100.0f ? "K\xC3\xBC\xC3\xA7\xC3\xBClen" : "Sabit"));
-
-              // Canlı Çok Renkli Gradyan Çubuğu
+              track_edit(st, e, si, prop_float("Boyut: ba\xC5\x9F", &e.particle_size_start, 0.005f, 0.0f, 10.0f, "%.3f m"));
+              track_edit(st, e, si, prop_float("Boyut: son", &e.particle_size_end, 0.005f, 0.0f, 10.0f, "%.3f m"));
+              track_edit(st, e, si, prop_color("Renk: ba\xC5\x9F", &e.particle_color_start.x));
+              track_edit(st, e, si, prop_color("Renk: son", &e.particle_color_end.x));
+              prop_end();
               {
+                // Omur boyunca renk gecisi (bas -> son), tam genislikte.
                 const ImVec2 cp = ImGui::GetCursorScreenPos();
                 const float gw = ImGui::GetContentRegionAvail().x;
-                const float gh = 18.0f;
+                const float gh = 12.0f;
                 const ImU32 col_s = IM_COL32((int)(std::clamp(e.particle_color_start.x, 0.0f, 1.0f) * 255.0f),
                                              (int)(std::clamp(e.particle_color_start.y, 0.0f, 1.0f) * 255.0f),
                                              (int)(std::clamp(e.particle_color_start.z, 0.0f, 1.0f) * 255.0f), 255);
@@ -6752,117 +6516,38 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 pdl->AddRect(cp, ImVec2(cp.x + gw, cp.y + gh), tone_u32(Tone::Line), 3.0f);
                 ImGui::Dummy(ImVec2(gw, gh + 4.0f));
               }
-              track_edit(st, e, si, prop_color("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 Rengi (Color Start)", &e.particle_color_start.x));
-              track_edit(st, e, si, prop_color("Biti\xC5\x9F Rengi (Color End)", &e.particle_color_end.x));
+              prop_begin("partikul_gorunum2");
 
-              // McGuire WBOIT & Işıma / Katkısallık Genişletmesi
-              static float s_wboit_emissive = 0.85f;
-              static int s_wboit_blend_mode = 0;
-              static float s_wboit_softness = 0.25f;
-              prop_float("WBOIT I\xC5\x9F\xC4\xB1ma & Additivite (Emissive Glow)", &s_wboit_emissive, 0.02f, 0.0f, 5.0f, "%.2f");
-              prop_combo("WBOIT Harmanlama Kipi (Blend Mode)", &s_wboit_blend_mode,
-                         "0: WBOIT \xC5\x9E" "effaf (Alpha Blend - McGuire Weight)\0"
-                         "1: WBOIT Katk\xC4\xB1sal I\xC5\x9F\xC4\xB1ma (Additive Emissive)\0"
-                         "2: \xC3\x87" "arp\xC4\xB1msal / G\xC3\xB6lge (Modulate)\0\0");
-              prop_float("Yumu\xC5\x9F" "ak Par\xC3\xA7" "ac\xC4\xB1k Derinlik E\xC5\x9Fi\xC4\x9Fi (Soft Particles)", &s_wboit_softness, 0.02f, 0.01f, 2.0f, "%.2f m");
-              ImGui::TextDisabled("WBOIT A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1: w(z,a) = a * clamp(0.03/(1e-5 + (z/200)^4), 0.01, 3000.0)");
-              ImGui::TextDisabled("S\xC4\xB1ralama Maliyeti: 0 CPU ms | Ba\xC4\x9F\xC4\xB1ms\xC4\xB1z Y\xC4\xB1\xC4\x9F\xC4\xB1nlama");
-
-              // MODÜL 5: Olay Zincirleri & Data Channels (Niagara Events & Gameplay Coupling)
-              ImGui::Separator();
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_AUTO_AWESOME " 5. Olay Zincirleri & Data Channels (Niagara Events)");
+              bolum("partikul_olay", ICON_MD_AUTO_AWESOME " Olaylar");
               int sub_cnt = (int)e.particle_sub_on_death;
-              if (prop_int("\xC3\x96l\xC3\xBCmde Alt-Yay\xC4\xB1" "c\xC4\xB1 (Spawn on Death)", &sub_cnt, 0, 50).changed) {
+              prop_help("Her par\xC3\xA7" "ac\xC4\xB1k \xC3\xB6l\xC3\xBCnce yerinde bu kadar yeni par\xC3\xA7" "ac\xC4\xB1k do\xC4\x9F" "ar (0: kapal\xC4\xB1).");
+              if (prop_int("\xC3\x96l\xC3\xBCnce do\xC4\x9F" "an", &sub_cnt, 0, 50).changed) {
                 after = e; after.particle_sub_on_death = (uint32_t)sub_cnt; commit(st, si, after);
               }
-              static int s_sub_type = 0;
-              prop_combo("Alt-Yay\xC4\xB1" "c\xC4\xB1 \xC5\x9E" "ablonu (Sub-Emitter Type)", &s_sub_type,
-                         "0: K\xC4\xB1v\xC4\xB1lc\xC4\xB1m Patlamas\xC4\xB1 (Sparks Burst)\0"
-                         "1: Duman Pufu (Smoke Puff)\0"
-                         "2: \xC5\x9Eok Dalgas\xC4\xB1 Halkas\xC4\xB1 (Shockwave Ring)\0"
-                         "3: Enkaz Par\xC3\xA7" "ac\xC4\xB1klar\xC4\xB1 (Debris Shards)\0\0");
 
-              static float s_dmg_val = 25.0f;
-              static float s_impulse_val = 12.5f;
-              static bool s_audio_trig = true;
-              prop_float("Hasar Miktar\xC4\xB1 (kChannelDamage)", &s_dmg_val, 1.0f, 0.0f, 200.0f, "%.0f HP");
-              prop_float("Fizik \xC4\xB0tki Kuvveti (kChannelPhysicsImpulse)", &s_impulse_val, 0.5f, 0.0f, 100.0f, "%.1f Ns");
-              prop_check("Ses Efekti Tetikleyici (Audio Event Bus)", &s_audio_trig);
-
-              ImGui::BulletText("Hasar Kanal\xC4\xB1 (kChannelDamage): %s (%.0f HP)", sub_cnt > 0 ? "ETK\xC4\xB0N" : "BEKLEMEDE", s_dmg_val);
-              ImGui::BulletText("Fizik \xC4\xB0tkisi (kChannelPhysicsImpulse): %s (%.1f Ns)", e.particle_collision ? "ETK\xC4\xB0N" : "BEKLEMEDE", s_impulse_val);
-              ImGui::BulletText("Zemin \xC4\xB0slanmas\xC4\xB1 (GroundWetnessMap): %s", e.particle_collision ? "ETK\xC4\xB0N (64x64 Grid)" : "BEKLEMEDE");
-              ImGui::BulletText("Ses Olay\xC4\xB1: %s (vfx/particle_impact.wav)", s_audio_trig && e.particle_collision ? "TET\xC4\xB0KLEND\xC4\xB0" : "HAZIR");
-
-              // MODÜL 6: CS2 Hacimsel Voksel Dumanı (Responsive Voxel Smoke)
+              // Hacimsel duman izgarasi (canli simulasyon; parametreler simulasyona baglanir).
               if (st.smoke_initialized) {
-                ImGui::Separator();
-                ImGui::TextColored(tone(Tone::Accent), ICON_MD_BLUR_ON " 6. CS2 Hacimsel Voksel Duman\xC4\xB1 (Responsive Voxel Smoke)");
+                bolum("partikul_duman", ICON_MD_BLUR_ON " Hacimsel duman");
                 const Mat4 wm = content::scene_entity_world_matrix(st.scene, (uint32_t)si);
                 const Vec3 epos{wm.m[3][0], wm.m[3][1] + 1.0f, wm.m[3][2]};
-
-                const uint32_t total_vox = st.smoke_grid.dim_x() * st.smoke_grid.dim_y() * st.smoke_grid.dim_z();
-                ImGui::TextDisabled("Izgara: %u x %u x %u = %u Voksel (H\xC3\xBC" "cre: %.2f m)",
-                                    st.smoke_grid.dim_x(), st.smoke_grid.dim_y(), st.smoke_grid.dim_z(),
-                                    total_vox, st.smoke_grid.voxel_size());
-
-                prop_float("Dif\xC3\xBCzyon H\xC4\xB1z\xC4\xB1 (Diffusion Rate)", &s_smoke_live_diff, 0.01f, 0.01f, 1.0f, "%.2f");
-                prop_float("Da\xC4\x9F\xC4\xB1lma H\xC4\xB1z\xC4\xB1 (Dissipation Rate)", &s_smoke_live_diss, 0.002f, 0.001f, 0.1f, "%.3f");
-
+                prop_float("Yay\xC4\xB1lma", &s_smoke_live_diff, 0.01f, 0.01f, 1.0f, "%.2f");
+                prop_float("Da\xC4\x9F\xC4\xB1lma", &s_smoke_live_diss, 0.002f, 0.001f, 0.1f, "%.3f");
+                prop_end();
+                ImGui::TextDisabled("Izgara %u \xC3\x97 %u \xC3\x97 %u, h\xC3\xBC" "cre %.2f m", st.smoke_grid.dim_x(), st.smoke_grid.dim_y(),
+                                    st.smoke_grid.dim_z(), st.smoke_grid.voxel_size());
                 ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-                if (ImGui::SmallButton("Duman Doldur (1.8m)")) {
-                  st.smoke_grid.inject_smoke(epos, 1.8f, 1.0f);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Mermi T\xC3\xBCneli A\xC3\xA7 (5m)")) {
+                if (ImGui::SmallButton("Duman doldur")) st.smoke_grid.inject_smoke(epos, 1.8f, 1.0f);
+                akis_ayni_satir("Mermi t\xC3\xBCneli");
+                if (ImGui::SmallButton("Mermi t\xC3\xBCneli"))
                   st.smoke_grid.carve_bullet_tunnel(epos + Vec3{-2.5f, 0.0f, 0.0f}, Vec3{1.0f, 0.0f, 0.0f}, 5.0f, 0.35f);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Bomba \xC5\x9Eok Dalgas\xC4\xB1 (2.5m)")) {
-                  st.smoke_grid.apply_explosion_shockwave(epos, 1.0f, 2.5f, 0.8f);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R\xC3\xBCzgar Enjekte Et")) {
-                  st.smoke_grid.inject_smoke(epos + Vec3{1.0f, 0.0f, 0.0f}, 1.2f, 0.6f);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Temizle")) {
-                  st.smoke_grid.clear();
-                }
+                akis_ayni_satir("Patlama");
+                if (ImGui::SmallButton("Patlama")) st.smoke_grid.apply_explosion_shockwave(epos, 1.0f, 2.5f, 0.8f);
+                akis_ayni_satir("Temizle");
+                if (ImGui::SmallButton("Temizle")) st.smoke_grid.clear();
                 ImGui::PopStyleVar();
+                prop_begin("partikul_duman2");
               }
-
-              // MODÜL 7: Yürütme Mimarisi, Mobil TBDR & GPU Telemetrisi
-              ImGui::Separator();
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_SPEED " 7. Y\xC3\xBCr\xC3\xBCtme Mimarisi, Mobil TBDR & GPU Telemetrisi");
-
-              static int s_sim_mode_idx = 0;
-              prop_combo("Y\xC3\xBCr\xC3\xBCtme Hedefi (Simulation Mode)", &s_sim_mode_idx,
-                         "0: Otomatik Sezgisel (Auto Heuristic)\0"
-                         "1: CPU SIMD Arena (Takas-ile-Silme, 0-Alloc)\0"
-                         "2: Vulkan GPU Compute (SSBO \xC3\x87ift Tampon, Indirect Draw)\0\0");
-
-              const bool is_cpu_active = (s_sim_mode_idx == 1) || (s_sim_mode_idx == 0 && alive <= 4096);
-              if (is_cpu_active) {
-                ImGui::TextColored(tone(Tone::Ok), ICON_MD_MEMORY " [Y\xC3\x9CR\xC3\x9CTME: CPU SIMD ARENA] Takas-ile-Silme (Swap-with-Last), 0 Dinamik Tahsis");
-              } else {
-                ImGui::TextColored(tone(Tone::Accent), ICON_MD_DEVELOPER_BOARD " [Y\xC3\x9CR\xC3\x9CTME: VULKAN GPU COMPUTE] SSBO \xC3\x87ift Tampon, Dolayl\xC4\xB1 \xC3\x87izim (Indirect Draw)");
-              }
-
-              // Canlı Overdraw Isı & TBDR Bütçe Göstergesi
-              const float est_overdraw_pct = std::clamp((float)alive / 150.0f * (e.particle_size_start * 3.0f + 0.2f), 0.05f, 1.0f);
-              ImGui::Text("Overdraw Is\xC4\xB1 Seviyesi (TBDR B\xC3\xBCt\xC3\xA7" "esi):");
-              ImGui::ProgressBar(est_overdraw_pct, ImVec2(-1, 14.0f),
-                                 est_overdraw_pct < 0.4f ? "D\xC3\xBC\xC5\x9F\xC3\xBCk - Mobil TBDR Dostu (%100 Uyumlu)" :
-                                 (est_overdraw_pct < 0.75f ? "Orta - Mobil GPU Normal" : "Y\xC3\xBCksek - \xC3\x87" "eyrek \xC3\x87\xC3\xB6z\xC3\xBCn\xC3\xBCrl\xC3\xBCk RT \xC3\x96nerilir"));
-
-              const float light_r = std::max(2.5f, e.particle_size_start * 15.0f);
-              ImGui::BulletText("Clustered I\xC5\x9F\xC4\xB1k Enjeksiyonu: %s (%.1f m yar\xC4\xB1\xC3\xA7" "ap)", (e.particle_spawn_rate > 0.0f) ? "ETK\xC4\xB0N" : "BEKLEMEDE", light_r);
-              ImGui::BulletText("Kare Ba\xC5\x9F\xC4\xB1na Dinamik Tahsis: 0 Byte (Arena Memory Disiplini)");
-              ImGui::BulletText("GPU Batch / Draw Calls: 1 Tek Ge\xC3\xA7i\xC5\x9F Instanced Quad/Meshlet");
-              ImGui::BulletText("\xC3\x87izilen Tepe Say\xC4\xB1s\xC4\xB1 (Vertices): %u tepe (Instanced)", alive * 4);
-              ImGui::BulletText("\xC3\x87" "eyrek \xC3\x87\xC3\xB6z\xC3\xBCn\xC3\xBCrl\xC3\xBCkl\xC3\xBC Tampon (Quarter-Res RT): Etkin (Bant Geni\xC5\x9Fli\xC4\x9Fi Tasarrufu: %%75)");
-              ImGui::BulletText("TBDR Erken Derinlik Testi (Early-Z) & Transient Attachment: Aktif");
+              (void)alive;
               }
               prop_end();
             }
@@ -6891,15 +6576,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               if (ImGui::SmallButton("\xC5\x9E" "afak 06:00")) {
                 st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f}; st.dirty = true;
               }
-              ImGui::SameLine();
+              akis_ayni_satir("\xC3\x96\xC4\x9Fle 12:00");
               if (ImGui::SmallButton("\xC3\x96\xC4\x9Fle 12:00")) {
                 st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f}; st.dirty = true;
               }
-              ImGui::SameLine();
+              akis_ayni_satir("Bat\xC4\xB1m 18:30");
               if (ImGui::SmallButton("Bat\xC4\xB1m 18:30")) {
                 st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f}; st.dirty = true;
               }
-              ImGui::SameLine();
+              akis_ayni_satir("Gece 00:00");
               if (ImGui::SmallButton("Gece 00:00")) {
                 st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f}; st.dirty = true;
               }
@@ -6972,7 +6657,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             if (prop_begin("yanki")) {
               prop_help("Sonumlenme, yankinin duyulmaz olana kadar gecen suresi; oda buyuklugu ilk yansimalarin gecikmesidir.");
               track_edit(st, e, si, prop_float("S\xC3\xB6n\xC3\xBCmlenme", &e.reverb_decay, 0.02f, 0.05f, 20.0f, "%.2f s"));
-              track_edit(st, e, si, prop_float("Oda B\xC3\xBCy\xC3\xBCkl\xC3\xBC\xC4\x9F\xC3\xBC", &e.reverb_room_size, 0.01f, 0.0f, 1.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Oda boyu", &e.reverb_room_size, 0.01f, 0.0f, 1.0f, "%.2f"));
               prop_end();
             }
             end_component_card();

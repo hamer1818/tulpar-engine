@@ -9177,8 +9177,11 @@ void ImGuiMenuColumns::CalcNextTotalWidth(bool update_offsets)
     for (int i = 0; i < IM_COUNTOF(Widths); i++)
     {
         ImU16 width = Widths[i];
+        // TULPAR YAMASI: etiket ile kisayol arasi 4, kisayol ile isaret arasi 2 aralik. ImGui'nin tek
+        // ItemSpacing'i "Ekle / cogalt Ctrl+D" ve "Tasi T [isaret]" yazilarini birbirine yapistiriyordu
+        // (arayuz surucusu menu ekran goruntuleri, 2026-11-06). Masaustu menulerindeki gibi ayrik sutun.
         if (want_spacing && width > 0)
-            offset += Spacing;
+            offset += (ImU16)(i == 2 ? Spacing * 4 : i == 3 ? Spacing * 2 : Spacing);
         want_spacing |= (width > 0);
         if (update_offsets)
         {

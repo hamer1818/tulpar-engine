@@ -554,18 +554,24 @@ void console_panel(ConsoleView &v) {
   if (sel && v.expanded) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, tone_u32(Tone::Bg2, 0.8f));
     if (ImGui::BeginChild("##konsol_ayrinti", ImVec2(0, detail_h), ImGuiChildFlags_Borders)) {
+      // Ust satir: duzey solda, [Kopyala][x] SAGA yasli. Etiket/kare bilgisi ALT satirda: dar panelde
+      // ayni satira sigmiyor ve dugmeler metnin ustune biniyordu (arayuz surucusu, 2026-11-06). Eskiden
+      // SameLine(GetContentRegionAvail().x - ...) metinden SONRA kalan genisligi pencere basindan
+      // uzaklik saniyordu.
+      const float x0 = ImGui::GetCursorPosX();
+      const float tam = ImGui::GetContentRegionAvail().x;
+      const float dugmeler = ImGui::CalcTextSize("Kopyala").x + st.FramePadding.x * 2.0f + st.ItemSpacing.x + frame_h;
       ImGui::AlignTextToFramePadding();
       ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(level_tone(sel->level))), "%s %s", level_icon(sel->level), level_name(sel->level));
-      ImGui::SameLine();
-      if (sel->repeat > 1)
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "\xC2\xB7 [%s] \xC2\xB7 kare %u\xE2\x80\x93%u \xC2\xB7 x%u", sel->tag, sel->frame,
-                           sel->last_frame, sel->repeat);
-      else ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "\xC2\xB7 [%s] \xC2\xB7 kare %u", sel->tag, sel->frame);
-      ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Kopyala").x - frame_h - st.ItemSpacing.x * 2.0f);
+      ImGui::SameLine(x0 + (tam - dugmeler > 0.0f ? tam - dugmeler : 0.0f));
       if (ImGui::Button("Kopyala")) ImGui::SetClipboardText(sel->msg);
       ImGui::SameLine();
       if (ImGui::Button("\xC3\x97##ayrinti_kapat", ImVec2(frame_h, frame_h))) v.expanded = false; // ×
       ImGui::PushTextWrapPos(0.0f);
+      if (sel->repeat > 1)
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "[%s] \xC2\xB7 kare %u\xE2\x80\x93%u \xC2\xB7 x%u", sel->tag, sel->frame,
+                           sel->last_frame, sel->repeat);
+      else ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "[%s] \xC2\xB7 kare %u", sel->tag, sel->frame);
       ImGui::TextUnformatted(sel->msg);
       if (sel->truncated)
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::Warn)), "(sat\xC4\xB1r %u bayta k\xC4\xB1rp\xC4\xB1ld\xC4\xB1)",

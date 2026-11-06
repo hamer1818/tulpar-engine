@@ -66,8 +66,23 @@ void prop_label(const char *label) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
   ImGui::AlignTextToFramePadding();
+  // Sondaki ASCII parantez ("Pozlama (Exposure)", "Yayma Hizi (Spawn Rate)") GORUNEN etiketten dusulur,
+  // ipucunda tam etiket kalir: ~130 px'lik sutunda Ingilizce ek Turkce adi "Karartma Guc..." diye
+  // kesiyordu (arayuz surucusu, 2026-11-06). Turkce parantez ("(Giris)" / "(Genisleme)") KALIR: iki
+  // satiri birbirinden ayiran odur. Arama (prop_row_visible) tam etiketle esler.
+  char gorunen[96];
+  std::snprintf(gorunen, sizeof gorunen, "%s", label);
+  size_t gl = std::strlen(gorunen);
+  if (gl > 3 && gorunen[gl - 1] == ')') {
+    char *ac = nullptr;
+    for (char *q = gorunen + gl - 1; q > gorunen + 1; q--)
+      if (q[0] == '(' && q[-1] == ' ') { ac = q; break; }
+    bool ascii = ac != nullptr;
+    for (char *q = ac; ascii && *q; q++) if ((unsigned char)*q >= 0x80) ascii = false;
+    if (ascii) ac[-1] = 0;
+  }
   char buf[96];
-  editor_ellipsize(label, ImGui::GetContentRegionAvail().x, buf, sizeof buf);
+  editor_ellipsize(gorunen, ImGui::GetContentRegionAvail().x, buf, sizeof buf);
   ImGui::PushStyleColor(ImGuiCol_Text, tone(g_label_tone));
   ImGui::TextUnformatted(buf);
   ImGui::PopStyleColor();
@@ -188,6 +203,13 @@ void draw_magnifier(ImDrawList *dl, ImVec2 c, float size, ImU32 col) {
 
 } // namespace
 
+void akis_ayni_satir(const char *etiket) {
+  ImGui::SameLine();
+  const ImGuiStyle &sy = ImGui::GetStyle();
+  const float w = ImGui::CalcTextSize(etiket, nullptr, true).x + sy.FramePadding.x * 2.0f;
+  if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+}
+
 // =============================================================================
 // Ozellik tablosu
 // =============================================================================
@@ -214,7 +236,7 @@ bool prop_begin(const char *id, float label_fraction) {
   // Etiket zaten sigmazsa "..." ile kirpiliyor ve ustune gelince tam adi
   // ipucunda gosteriliyor (bkz. prop_label), yani daraltmak bilgi kaybetmez.
   const float lo = std::floor(56.0f * (s.FramePadding.x / 6.0f)); // olcekle buyur
-  const float hi = std::floor(140.0f * (s.FramePadding.x / 6.0f));
+  const float hi = std::floor(160.0f * (s.FramePadding.x / 6.0f));
   float label_w = std::floor(avail * label_fraction);
   if (label_w < lo) label_w = lo;
   if (label_w > hi) label_w = hi;
@@ -676,56 +698,56 @@ const CreateMenuItem kCompLight[] = {
 const CreateMenuItem kCompPhysics[] = {
     {"Fizik G\xC3\xB6vdesi", "\xE2\x97\xBC", content::kSceneBody, nullptr, 0},         // ◼
     {"Karakter Kontrolc\xC3\xBC", "\xE2\x8A\x99", content::kSceneCharacter, nullptr, 0}, // ⊙
-    {"Fizik Eklemi (Joint)", ICON_MD_LINK, content::kSceneJoint, nullptr, 0},
+    {"Fizik Eklemi", ICON_MD_LINK, content::kSceneJoint, nullptr, 0},
 };
 const CreateMenuItem kCompCamera[] = {
     {"Kamera", ICON_MD_VIDEOCAM, content::kSceneCamera, nullptr, 0},
 };
 const CreateMenuItem kCompAudio[] = {
     {"Ses Kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, content::kSceneAudio, nullptr, 0},
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", ICON_MD_WAVES, content::kSceneReverb, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1", ICON_MD_WAVES, content::kSceneReverb, nullptr, 0},
 };
 const CreateMenuItem kCompScript[] = {
     {"Tulpar Betik", ICON_MD_DESCRIPTION, content::kSceneScript, nullptr, 0},
 };
 const CreateMenuItem kCompEnvironment[] = {
-    {"Arazi (Terrain)", ICON_MD_TERRAIN, content::kSceneTerrain, nullptr, 0},
-    {"Su (Gerstner)", ICON_MD_WATER, content::kSceneWater, nullptr, 0},
+    {"Arazi", ICON_MD_TERRAIN, content::kSceneTerrain, nullptr, 0},
+    {"Su", ICON_MD_WATER, content::kSceneWater, nullptr, 0},
     // ▦ (U+25A6): izgarali kare = voksel kafesi. Material'da karsiligi yok.
     {"Voksel D\xC3\xBCnyas\xC4\xB1", "\xE2\x96\xA6", content::kSceneVoxel, nullptr, 0},
     // Simgeler main'in Material Icons ailesinden kaliyor (tools/icon_check.py
     // kapisi bunlari denetliyor); PR #7'nin ham U+25C9/U+2601 gliflerine
     // donulmedi. Etiket PR #7'den: gokyuzu paneli artik atmosferi de
     // (gunun saati, turbidite) tasiyor.
-    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
-    {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", ICON_MD_LENS, content::kSceneRefProbe, nullptr, 0},
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
+    {"Yans\xC4\xB1ma Sondas\xC4\xB1", ICON_MD_LENS, content::kSceneRefProbe, nullptr, 0},
     {"R\xC3\xBCzgar Alan\xC4\xB1", "\xE2\x86\xAF", content::kSceneWind, nullptr, 0}, // ↯
 };
 const CreateMenuItem kCompAI[] = {
-    {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", ICON_MD_DIRECTIONS_RUN, content::kSceneNavAgent, nullptr, 0},
+    {"Yapay Zeka Ajan\xC4\xB1", ICON_MD_DIRECTIONS_RUN, content::kSceneNavAgent, nullptr, 0},
 };
 const CreateMenuItem kCompGameplay[] = {
     // ♥ (U+2665): Kalp
-    {"Can / Z\xC4\xB1rh (Health)", "\xE2\x99\xA5", content::kSceneHealth, nullptr, 0},
+    {"Can / Z\xC4\xB1rh", "\xE2\x99\xA5", content::kSceneHealth, nullptr, 0},
     // ⚔ (U+2694): Kiliclar
-    {"B\xC3\xBCy\xC3\xBC / Yetenek (GAS)", "\xE2\x9A\x94", content::kSceneAbility, nullptr, 0},
+    {"B\xC3\xBCy\xC3\xBC / Yetenek", "\xE2\x9A\x94", content::kSceneAbility, nullptr, 0},
     // ▣ (U+25A3): Kutu (Envanter cantasi gibi)
     {"Envanter", "\xE2\x96\xA3", content::kSceneInventory, nullptr, 0},
 };
 const CreateMenuItem kCompVFX[] = {
-    {"Partik\xC3\xBCl / VFX Yay\xC4\xB1""c\xC4\xB1", "\xE2\x88\xB4", content::kSceneParticle, nullptr, 0},
+    {"Partik\xC3\xBCl Yay\xC4\xB1""c\xC4\xB1", "\xE2\x88\xB4", content::kSceneParticle, nullptr, 0},
 };
 const CreateMenuItem kComponentMenu[] = {
-    {"Render", nullptr, 0, kCompModel, 3},
-    {"G\xC3\xB6rsel Efektler (VFX)", nullptr, 0, kCompVFX, 1},
-    {"\xC3\x87" "evre (Environment)", nullptr, 0, kCompEnvironment, 6},
+    {"G\xC3\xB6r\xC3\xBCnt\xC3\xBC", nullptr, 0, kCompModel, 3},
+    {"G\xC3\xB6rsel Efektler", nullptr, 0, kCompVFX, 1},
+    {"\xC3\x87" "evre", nullptr, 0, kCompEnvironment, 6},
     {"I\xC5\x9F\xC4\xB1k", nullptr, 0, kCompLight, 1},
     {"Fizik", nullptr, 0, kCompPhysics, 3},
     {"Kamera", nullptr, 0, kCompCamera, 1},
     {"Ses", nullptr, 0, kCompAudio, 2},
     {"Betik", nullptr, 0, kCompScript, 1},
-    {"Yapay Zeka (AI)", nullptr, 0, kCompAI, 1},
-    {"Oynan\xC4\xB1\xC5\x9F (Gameplay)", nullptr, 0, kCompGameplay, 3},
+    {"Yapay Zeka", nullptr, 0, kCompAI, 1},
+    {"Oynan\xC4\xB1\xC5\x9F", nullptr, 0, kCompGameplay, 3},
 };
 const uint32_t kComponentMenuCount = (uint32_t)(sizeof(kComponentMenu) / sizeof(kComponentMenu[0]));
 
@@ -837,48 +859,48 @@ const CreateMenuItem kCreate3D[] = {
     {"Silindir", "\xE2\x97\xBC", 21, nullptr, 0},   // ◼
     {"Koni", "\xE2\x97\xBC", 22, nullptr, 0},       // ◼
     {"D\xC3\xBCzlem / Zemin", "\xE2\x96\xAC", 8, nullptr, 0},   // ▬
-    {"D\xC3\xB6rtgen (Quad)", "\xE2\x96\xAC", 23, nullptr, 0}, // ▬
-    {"Simit (Torus)", "\xE2\x97\xBC", 24, nullptr, 0},      // ◼
+    {"D\xC3\xB6rtgen", "\xE2\x96\xAC", 23, nullptr, 0}, // ▬
+    {"Simit", "\xE2\x97\xBC", 24, nullptr, 0},      // ◼
 };
 const CreateMenuItem kCreateLight[] = {
-    {"Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F (Directional)", "\xE2\x98\x80", 14, nullptr, 0}, // ☀
-    {"I\xC5\x9F\xC4\xB1k H\xC3\xBCzmeli G\xC3\xBCne\xC5\x9F (Sun + God Rays)", ICON_MD_WB_SUNNY, 19, nullptr, 0},
-    {"Nokta I\xC5\x9F\xC4\xB1k (Point)", "\xE2\x97\x8F", 3, nullptr, 0},                           // ●
-    {"Spot I\xC5\x9F\xC4\xB1k (Spot Koni)", "\xE2\x86\x98", 15, nullptr, 0},                         // ↘
-    {"Hacimsel I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi (Fake Godray Beam)", ICON_MD_AUTO_AWESOME, 64, nullptr, 0},
-    {"Hacimsel Spot I\xC5\x9F\xC4\xB1k (Volumetric)", ICON_MD_FLASHLIGHT_ON, 63, nullptr, 0},
-    {"Alan / Dikd\xC3\xB6rtgen (Rect LTC)", "\xE2\x96\xAD", 16, nullptr, 0},
+    {"Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F", "\xE2\x98\x80", 14, nullptr, 0}, // ☀
+    {"I\xC5\x9F\xC4\xB1k H\xC3\xBCzmeli G\xC3\xBCne\xC5\x9F", ICON_MD_WB_SUNNY, 19, nullptr, 0},
+    {"Nokta I\xC5\x9F\xC4\xB1k", "\xE2\x97\x8F", 3, nullptr, 0},                           // ●
+    {"Spot I\xC5\x9F\xC4\xB1k", "\xE2\x86\x98", 15, nullptr, 0},                         // ↘
+    {"Hacimsel I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi", ICON_MD_AUTO_AWESOME, 64, nullptr, 0},
+    {"Hacimsel Spot I\xC5\x9F\xC4\xB1k", ICON_MD_FLASHLIGHT_ON, 63, nullptr, 0},
+    {"Alan / Dikd\xC3\xB6rtgen", "\xE2\x96\xAD", 16, nullptr, 0},
     {"T\xC3\xBCp / Kaps\xC3\xBCl I\xC5\x9F\xC4\xB1k", "\xE2\x95\x90", 17, nullptr, 0},
     {"Disk I\xC5\x9F\xC4\xB1k", "\xE2\x97\x89", 18, nullptr, 0},
 };
 const CreateMenuItem kCreateEnvironment[] = {
-    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)", "\xE2\x98\x81", 36, nullptr, 0}, // ☁
-    {"Prosed\xC3\xBCrel Arazi (Terrain)", "\xE2\x96\xB2", 31, nullptr, 0},              // ▲
-    {"Dinamik Su (Gerstner)", "\xE2\x89\x88", 32, nullptr, 0},                         // ≈
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer", "\xE2\x98\x81", 36, nullptr, 0}, // ☁
+    {"Prosed\xC3\xBCrel Arazi", "\xE2\x96\xB2", 31, nullptr, 0},              // ▲
+    {"Dinamik Su", "\xE2\x89\x88", 32, nullptr, 0},                         // ≈
     {"Voksel D\xC3\xBCnyas\xC4\xB1", "\xE2\x96\xA6", 33, nullptr, 0},                  // ▦
     {"R\xC3\xBCzgar Alan\xC4\xB1", "\xE2\x86\xAF", 34, nullptr, 0},                    // ↯
 };
 const CreateMenuItem kCreateVolumes[] = {
-    {"3B Hacimsel Sis (K\xC3\xBCre Puf / Fog Volume)", ICON_MD_CLOUD, 46, nullptr, 0},
-    {"Yatay Zemin Sisi (Ground Mist Sheet)", "\xE2\x96\xAC", 70, nullptr, 0},
-    {"Konik Baca Sisi / Duman Jeti (Cone Fog)", "\xE2\x96\xBC", 71, nullptr, 0},
-    {"Silindirik Kuyu / \xC5\x9E""aft Sisi (Cylinder Fog)", "\xE2\x95\x91", 72, nullptr, 0},
-    {"Portal / Halka Sisi (Torus Ring Fog)", "\xE2\x97\x8E", 73, nullptr, 0},
-    {"Voksel Duman / CS2 Dinamik Sis (Voxel Smoke)", ICON_MD_BLUR_ON, 74, nullptr, 0},
-    {"Tetikleyici Hacim (Trigger Volume)", "\xE2\x97\xA3", 47, nullptr, 0},
-    {"Engelleme Hacmi (Blocking Volume)", "\xE2\x96\xA3", 48, nullptr, 0},
-    {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", "\xE2\x97\x89", 37, nullptr, 0},
-    {"I\xC5\x9F\xC4\xB1k Hacmi Sondas\xC4\xB1 (GI Grid)", "\xE2\x97\x87", 45, nullptr, 0},
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", "\xE2\x97\x8E", 44, nullptr, 0},
+    {"3B Hacimsel Sis", ICON_MD_CLOUD, 46, nullptr, 0},
+    {"Yatay Zemin Sisi", "\xE2\x96\xAC", 70, nullptr, 0},
+    {"Konik Baca Sisi / Duman Jeti", "\xE2\x96\xBC", 71, nullptr, 0},
+    {"Silindirik Kuyu / \xC5\x9E""aft Sisi", "\xE2\x95\x91", 72, nullptr, 0},
+    {"Portal / Halka Sisi", "\xE2\x97\x8E", 73, nullptr, 0},
+    {"Voksel Duman / Dinamik Sis", ICON_MD_BLUR_ON, 74, nullptr, 0},
+    {"Tetikleyici Hacim", "\xE2\x97\xA3", 47, nullptr, 0},
+    {"Engelleme Hacmi", "\xE2\x96\xA3", 48, nullptr, 0},
+    {"Yans\xC4\xB1ma Sondas\xC4\xB1", "\xE2\x97\x89", 37, nullptr, 0},
+    {"I\xC5\x9F\xC4\xB1k Hacmi Sondas\xC4\xB1", "\xE2\x97\x87", 45, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1", "\xE2\x97\x8E", 44, nullptr, 0},
 };
 const CreateMenuItem kCreateVFX[] = {
-    {"Yang\xC4\xB1n & Ate\xC5\x9F (Fire & Embers)", "\xE2\x9A\xA1", 35, nullptr, 0},
-    {"Duman & Toz (Smoke & Dust)", "\xE2\x96\x91", 60, nullptr, 0},
-    {"K\xC4\xB1v\xC4\xB1lc\xC4\xB1m & \xC3\x87" "arp\xC4\xB1\xC5\x9Fma (Sparks)", "\xE2\x9A\xA1", 61, nullptr, 0},
+    {"Yang\xC4\xB1n & Ate\xC5\x9F", "\xE2\x9A\xA1", 35, nullptr, 0},
+    {"Duman & Toz", "\xE2\x96\x91", 60, nullptr, 0},
+    {"K\xC4\xB1v\xC4\xB1lc\xC4\xB1m & \xC3\x87" "arp\xC4\xB1\xC5\x9Fma", "\xE2\x9A\xA1", 61, nullptr, 0},
     {"Ya\xC4\x9Fmur & F\xC4\xB1rt\xC4\xB1na (Rain & Storm)", "\xE2\x98\x94", 62, nullptr, 0},
     {"Kar & Tipi (Snow & Blizzard)", "\xE2\x97\x8B", 66, nullptr, 0},
-    {"B\xC3\xBCy\xC3\xBC & I\xC5\x9F\xC4\xB1lt\xC4\xB1 (Magic Glow)", "\xE2\x9C\xA6", 67, nullptr, 0},
-    {"\xC3\x96zel Partik\xC3\xBCl Emitter (Custom)", "\xE2\x88\xB4", 68, nullptr, 0},
+    {"B\xC3\xBCy\xC3\xBC & I\xC5\x9F\xC4\xB1lt\xC4\xB1", "\xE2\x9C\xA6", 67, nullptr, 0},
+    {"\xC3\x96zel Partik\xC3\xBCl Yay\xC4\xB1""c\xC4\xB1", "\xE2\x88\xB4", 68, nullptr, 0},
 };
 const CreateMenuItem kCreatePhysics[] = {
     {"Sabit Kutu G\xC3\xB6vde", "\xE2\x96\xA1", 4, nullptr, 0},    // □
@@ -886,17 +908,17 @@ const CreateMenuItem kCreatePhysics[] = {
     {"Dinamik Kutu G\xC3\xB6vde", "\xE2\x96\xA7", 6, nullptr, 0},  // ▧
     {"Dinamik K\xC3\xBCre G\xC3\xB6vde", "\xE2\x97\x8D", 7, nullptr, 0}, // ◍
     {"Karakter Kontrolc\xC3\xBC", "\xE2\x8A\x99", 30, nullptr, 0},
-    {"Fizik Eklemi (Joint)", "\xE2\x88\x9E", 43, nullptr, 0},
+    {"Fizik Eklemi", "\xE2\x88\x9E", 43, nullptr, 0},
 };
 const CreateMenuItem kCreateGameplay[] = {
     {"Can & Z\xC4\xB1rh Varl\xC4\xB1\xC4\x9F\xC4\xB1", "\xE2\x99\xA5", 40, nullptr, 0},
-    {"B\xC3\xBCy\xC3\xBC / Yetenek Varl\xC4\xB1\xC4\x9F\xC4\xB1 (GAS)", "\xE2\x9A\x94", 41, nullptr, 0},
-    {"Sand\xC4\xB1k / Envanter (Inventory)", "\xE2\x96\xA3", 42, nullptr, 0},
-    {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", "\xE2\x86\x92", 39, nullptr, 0},
+    {"B\xC3\xBCy\xC3\xBC / Yetenek Varl\xC4\xB1\xC4\x9F\xC4\xB1", "\xE2\x9A\x94", 41, nullptr, 0},
+    {"Sand\xC4\xB1k / Envanter", "\xE2\x96\xA3", 42, nullptr, 0},
+    {"Yapay Zeka Ajan\xC4\xB1", "\xE2\x86\x92", 39, nullptr, 0},
 };
 const CreateMenuItem kCreateAudio[] = {
     {"3B Ses Kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, 13, nullptr, 0},
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", "\xE2\x97\x8E", 44, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1", "\xE2\x97\x8E", 44, nullptr, 0},
 };
 const CreateMenuItem kCreateTemplates[] = {
     {"Fizik Test Odas\xC4\xB1 (Zemin + D\xC3\xBC\xC5\x9F" "enler)", ICON_MD_SCIENCE, 50, nullptr, 0},
@@ -907,11 +929,11 @@ const CreateMenuItem kCreateMenu[] = {
     {"Bo\xC5\x9F Varl\xC4\xB1k", "\xE2\x97\x8B", 1, nullptr, 0}, // ○
     {"Model (glTF)", "\xE2\x97\x86", 2, nullptr, 0},     // ◆
     {"Animasyonlu Model", "\xE2\x86\xBB", 9, nullptr, 0},   // ↻
-    {"3B Nesneler (Primitives)", nullptr, 0, kCreate3D, (uint32_t)(sizeof(kCreate3D) / sizeof(kCreate3D[0]))},
+    {"3B Nesneler", "\xE2\x96\xA0", 0, kCreate3D, (uint32_t)(sizeof(kCreate3D) / sizeof(kCreate3D[0]))},
     {"I\xC5\x9F\xC4\xB1k & Ayd\xC4\xB1nlatma", "\xE2\x98\x80", 0, kCreateLight, (uint32_t)(sizeof(kCreateLight) / sizeof(kCreateLight[0]))},
     {"\xC3\x87" "evre & Do\xC4\x9F" "a", "\xE2\x96\xB2", 0, kCreateEnvironment, (uint32_t)(sizeof(kCreateEnvironment) / sizeof(kCreateEnvironment[0]))},
-    {"\xC3\x87" "evre Hacimleri (Volumes)", "\xE2\x97\x89", 0, kCreateVolumes, (uint32_t)(sizeof(kCreateVolumes) / sizeof(kCreateVolumes[0]))},
-    {"G\xC3\xB6rsel Efektler (VFX)", "\xE2\x88\xB4", 0, kCreateVFX, (uint32_t)(sizeof(kCreateVFX) / sizeof(kCreateVFX[0]))},
+    {"\xC3\x87" "evre Hacimleri", "\xE2\x97\x89", 0, kCreateVolumes, (uint32_t)(sizeof(kCreateVolumes) / sizeof(kCreateVolumes[0]))},
+    {"G\xC3\xB6rsel Efektler", "\xE2\x88\xB4", 0, kCreateVFX, (uint32_t)(sizeof(kCreateVFX) / sizeof(kCreateVFX[0]))},
     {"Fizik Nesneleri", "\xE2\x96\xA1", 0, kCreatePhysics, (uint32_t)(sizeof(kCreatePhysics) / sizeof(kCreatePhysics[0]))},
     {"Oynan\xC4\xB1\xC5\x9F & RPG", "\xE2\x9A\x94", 0, kCreateGameplay, (uint32_t)(sizeof(kCreateGameplay) / sizeof(kCreateGameplay[0]))},
     {"Ses & Akustik", ICON_MD_VOLUME_UP, 0, kCreateAudio, (uint32_t)(sizeof(kCreateAudio) / sizeof(kCreateAudio[0]))},
