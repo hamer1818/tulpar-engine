@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu), **U7b Windows yazıldı, CI ölçecek** (Inno Setup + başlatıcı), **U8 ✅** (Yardım: rehber, kısayollar, belgeler, çökme bildirimi; §U8 notu)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu), **U7b Windows yazıldı, CI ölçecek** (Inno Setup + başlatıcı), **U8 ✅** (Yardım: rehber, kısayollar, belgeler, çökme bildirimi; §U8 notu), **U7c ✅** (AppImage tek dosya güncelleme)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -299,8 +299,9 @@ kapısı bir sayıya dayansın.
   (`/tmp/.mount_*`). Proje `.motor` bağlantısı oraya bağlanırsa editör kapanınca kopardı. Bu yüzden
   `tulpar-ext` ve `engine_sahnec` `~/.local/share/tulpar-editor/motor-<sürüm>`'e kopyalanır;
   Oyun menüsü bu kalıcı yolu verir.
-- **Güncelleyici:** AppImage'ta devre dışı ve nedenini söyler ("yeni .AppImage'ı indirin").
-  AppImage dosyasını bütün olarak değiştirmek U7c'ye kaldı.
+- **Güncelleyici:** önce AppImage'ta devre dışıydı. **U7c (2026-11-06):** artık AppImage DOSYASI
+  bütün olarak yenisiyle değiştiriliyor: indir → SHA-256 → yedeğe al → yerine koy, düşerse geri al
+  (docs/GUNCELLEME.md "AppImage kipi").
 - **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur.
   Doğrusu örneği kullanıcı dizinine kopyalamak; U8'de ele alınacak.
 - **Windows (yazıldı, ÖLÇÜLMEDİ):** bu kısım yalnız GitHub CI'da ölçülebilir. Yerelde MinGW yok;

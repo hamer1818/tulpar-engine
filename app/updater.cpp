@@ -24,6 +24,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#if !defined(_WIN32)
+#include <sys/stat.h>   // chmod (AppImage calistirilabilir)
+#endif
 
 #include "core/crypto/sha256.hpp"
 #include "core/memory/arena.hpp"
@@ -44,6 +47,9 @@ constexpr uint32_t kMaxOpensPerPoll = 64; // cok kucuk dosyada acma maliyeti de 
 constexpr const char *kManifestName = "DOSYALAR.txt";
 constexpr const char *kVersionName = "SURUM.txt";
 constexpr const char *kGDir = ".guncelleme";
+// AppImage (tek dosya) kipi: calisma alani AppImage'in YANINDA (ayni birim: rename atomik). Ad kullanicinin
+// ~/Applications'indaki baska seylerle carpismasin diye uygulamaya ozgu.
+constexpr const char *kGDirTek = ".tulpar-editor-guncelleme";
 // Geri alma EKSIK kaldiysa `.guncelleme/` altina yazilir: yedek o an eski
 // dosyalarin TEK kopyasini tasiyabilir. Isaret varken cleanup() hicbir sey
 // silmez, init() Disabled olur, install() yedegi silmez — elle kurtarma icin.
@@ -654,7 +660,17 @@ int upd_version_compare(const UpdVersion &a, const UpdVersion &b) {
   }
 }
 
+namespace {
+bool release_parse_as(const char *json, size_t len, const char *platform, bool appimage, UpdRelease *out, char *err, size_t err_cap);
+}
 bool upd_release_parse(const char *json, size_t len, const char *platform, UpdRelease *out, char *err, size_t err_cap) {
+  return release_parse_as(json, len, platform, false, out, err, err_cap);
+}
+bool upd_release_parse_appimage(const char *json, size_t len, const char *platform, UpdRelease *out, char *err, size_t err_cap) {
+  return release_parse_as(json, len, platform, true, out, err, err_cap);
+}
+namespace {
+bool release_parse_as(const char *json, size_t len, const char *platform, bool appimage, UpdRelease *out, char *err, size_t err_cap) {
   if (!json || !out || !platform) { say(err, err_cap, "gecersiz arguman"); return false; }
   *out = UpdRelease{};
   Json j{json, json + len, false, nullptr};
@@ -672,7 +688,13 @@ bool upd_release_parse(const char *json, size_t len, const char *platform, UpdRe
   if (!upd_version_parse(out->tag, &v)) { say(err, err_cap, "tag_name bir surum degil: %.40s", out->tag); return false; }
   // Aranan adlar etiketten KURULUR (etiket dogrulandi: yalniz [v0-9A-Za-z.-]).
   char want_archive[160], want_sums[160];
-  say(want_archive, sizeof want_archive, "tulpar-engine-%s-%s.%s", out->tag, platform, platform_zip(platform) ? "zip" : "tar.gz");
+  if (appimage) {
+    // release.yml: tulpar-editor-<etiket>-<mimari>.AppImage (mimari platformun "linux-" sonrasi).
+    const char *arch = std::strncmp(platform, "linux-", 6) == 0 ? platform + 6 : platform;
+    say(want_archive, sizeof want_archive, "tulpar-editor-%s-%s.AppImage", out->tag, arch);
+  } else {
+    say(want_archive, sizeof want_archive, "tulpar-engine-%s-%s.%s", out->tag, platform, platform_zip(platform) ? "zip" : "tar.gz");
+  }
   say(want_sums, sizeof want_sums, "tulpar-engine-%s-SHA256SUMS.txt", out->tag);
   AssetPick ap{want_archive, want_sums, out, false, false, false};
   Json j2{json, json + len, false, nullptr};
@@ -682,6 +704,7 @@ bool upd_release_parse(const char *json, size_t len, const char *platform, UpdRe
   if (!ap.got_sums) { say(err, err_cap, "Release'te ozet dosyasi yok (%s)", want_sums); return false; }
   return true;
 }
+} // namespace
 
 bool upd_sums_find(const char *text, size_t len, const char *name, uint8_t out_sha[32]) {
   if (!text || !name || !out_sha) return false;
@@ -861,6 +884,8 @@ struct Updater::Impl {
   int32_t fail_after = -1;
   uint32_t moves = 0;
   bool broken = false; // geri alma eksik: check/download/install KAPALI (kBrokenMarker)
+  bool tek = false;     // AppImage kipi: tek dosya indirilir, dogrulanir, calisan AppImage'in yerine konur
+  char ai[kFull] = {0}; // calisan AppImage dosyasi (mutlak)
 
   char pa[kFull], pb[kFull]; // gecici yollar
 
@@ -992,7 +1017,9 @@ void Updater::Impl::on_check_done(int code) {
     return;
   }
   char err[kUpdErrLen];
-  if (!upd_release_parse(text, (size_t)n, platform, &rel, err, sizeof err)) { fail("%s", err); return; }
+  const bool ok = tek ? upd_release_parse_appimage(text, (size_t)n, platform, &rel, err, sizeof err)
+                      : upd_release_parse(text, (size_t)n, platform, &rel, err, sizeof err);
+  if (!ok) { fail("%s", err); return; }
   if (!url_ok(rel.asset_url) || !url_ok(rel.sums_url)) {
     fail("paket adresi reddedildi (yalniz https://github.com/): %.120s", url_ok(rel.asset_url) ? rel.sums_url : rel.asset_url);
     rel_valid = false;
@@ -1080,6 +1107,15 @@ void Updater::Impl::hash_archive_step() {
         return;
       }
       prog = 1.0f;
+      if (tek) {
+        // AppImage: acilacak arsiv yok — dogrulanmis dosya kurulmaya hazir.
+        plan = UpdPlanSummary{};
+        plan.replace = 1;
+        work = Work::None;
+        pk = ProcKind::None;
+        state = UpdState::Staged;
+        break;
+      }
       // Ac: goreli yollar, calisma dizini <is>.
       if (!join(pa, sizeof pa, work_dir, "acilan") || !platform::fs_mkdir_p(pa)) { fail("acma dizini yaratilamadi"); return; }
       if (!find_tool("tar")) return;
@@ -1441,61 +1477,78 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     return true;
   }
   say(m.platform, sizeof m.platform, "%s", c.platform);
-  // AppImage (U7b): ikili salt okunur squashfs icinde; dosya dosya guncelleme YAPILAMAZ. Yazilabilirlik
-  // denetimi bunu da yakalardi ama "yazilamiyor" kullaniciya ne yapacagini soylemez.
-  if (!(c.install_dir && *c.install_dir) && std::getenv("APPIMAGE")) {
-    m.set_reason("AppImage olarak calisiyor: yeni surum icin yeni .AppImage dosyasini indirip eskisinin yerine koyun");
-    return true;
-  }
-  if (c.install_dir && *c.install_dir) {
+  // AppImage (U7c): ikili salt okunur squashfs icinde, dosya dosya guncellenemez; AppImage DOSYASI
+  // butun olarak yenisiyle degistirilir. Kurulum dizini = AppImage'in dizini (calisma alani orada).
+  if (c.appimage && *c.appimage) {
+    if (c.appimage[0] != '/') { m.set_reason("AppImage yolu mutlak degil: %.80s", c.appimage); return true; }
+    if (std::strlen(c.appimage) > kFull - 400) { m.set_reason("AppImage yolu cok uzun"); return true; }
+    if (platform::fs_kind(c.appimage) != platform::FsKind::File) { m.set_reason("AppImage dosyasi bulunamadi: %.120s", c.appimage); return true; }
+    m.tek = true;
+    say(m.ai, sizeof m.ai, "%s", c.appimage);
+    say(m.inst, sizeof m.inst, "%s", c.appimage);
+    char *sl = std::strrchr(m.inst, '/');
+    if (sl == m.inst) sl[1] = 0;
+    else *sl = 0;
+    join(m.gdir, sizeof m.gdir, m.inst, kGDirTek);
+    join(m.work_dir, sizeof m.work_dir, m.gdir, "is");
+    join(m.log, sizeof m.log, m.work_dir, "alt.log");
+    say(m.bak, sizeof m.bak, "%s/yedek-%s.AppImage", m.gdir, m.cur_tag);
+    join(m.pb, sizeof m.pb, m.gdir, kBrokenMarker);
+    if (platform::fs_exists(m.pb)) {
+      m.set_reason("onceki bir guncellemenin geri almasi eksik kaldi — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
+      return true;
+    }
+  } else if (c.install_dir && *c.install_dir) {
     say(m.inst, sizeof m.inst, "%s", c.install_dir);
   } else if (!platform::fs_exe_dir_utf8(m.inst, sizeof m.inst)) {
     m.set_reason("calisan ikilinin dizini bulunamadi");
     return true;
   }
-  if (std::strlen(m.inst) > kFull - 400) { m.set_reason("kurulum yolu cok uzun"); return true; }
-  // Sondaki ayiricilar atilir.
-  for (size_t l = std::strlen(m.inst); l > 1 && (m.inst[l - 1] == '/' || m.inst[l - 1] == '\\'); l--) m.inst[l - 1] = 0;
-  join(m.gdir, sizeof m.gdir, m.inst, kGDir);
-  join(m.work_dir, sizeof m.work_dir, m.gdir, "is");
-  join(m.log, sizeof m.log, m.work_dir, "alt.log");
-  say(m.bak, sizeof m.bak, "%s/yedek-%s", m.gdir, m.cur_tag);
-  join(m.pa, sizeof m.pa, m.inst, kManifestName);
-  if (platform::fs_kind(m.pa) != platform::FsKind::File) {
-    m.set_reason("kurulum dizininde %s yok — paket kurulumu degil (%s)", kManifestName, m.inst);
-    return true;
-  }
-  join(m.pb, sizeof m.pb, m.gdir, kBrokenMarker);
-  if (platform::fs_exists(m.pb)) {
-    m.set_reason("onceki bir guncellemenin geri almasi eksik kaldi — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
-    return true;
-  }
+  if (!m.tek) {
+    if (std::strlen(m.inst) > kFull - 400) { m.set_reason("kurulum yolu cok uzun"); return true; }
+    // Sondaki ayiricilar atilir.
+    for (size_t l = std::strlen(m.inst); l > 1 && (m.inst[l - 1] == '/' || m.inst[l - 1] == '\\'); l--) m.inst[l - 1] = 0;
+    join(m.gdir, sizeof m.gdir, m.inst, kGDir);
+    join(m.work_dir, sizeof m.work_dir, m.gdir, "is");
+    join(m.log, sizeof m.log, m.work_dir, "alt.log");
+    say(m.bak, sizeof m.bak, "%s/yedek-%s", m.gdir, m.cur_tag);
+    join(m.pa, sizeof m.pa, m.inst, kManifestName);
+    if (platform::fs_kind(m.pa) != platform::FsKind::File) {
+      m.set_reason("kurulum dizininde %s yok — paket kurulumu degil (%s)", kManifestName, m.inst);
+      return true;
+    }
+    join(m.pb, sizeof m.pb, m.gdir, kBrokenMarker);
+    if (platform::fs_exists(m.pb)) {
+      m.set_reason("onceki bir guncellemenin geri almasi eksik kaldi — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
+      return true;
+    }
 
-  // Kurulu SURUM.txt: paketleyicinin yazdigi kimlik. `kaynak` = surumsuz
-  // (TULPAR_SURUM bos) CI paketi: hangi Release'in "daha yeni" oldugu
-  // bilinemez. Calisan ikilinin surumu/platformuyla ayrisiyorsa kurulum
-  // karisik (elle kopyalanmis ikili): manifest hangi surumu anlatiyor
-  // belli degil, dokunulmaz.
-  {
-    char sv[128], sver[kUpdTagLen], splat[32];
-    join(m.pb, sizeof m.pb, m.inst, kVersionName);
-    bool st = false;
-    const int64_t sn = platform::fs_read_all(m.pb, sv, sizeof sv, &st);
-    if (sn < 0) { m.set_reason("kurulumda %s yok — paket kurulumu degil", kVersionName); return true; }
-    if (st || !upd_surum_parse(sv, (size_t)sn, sver, sizeof sver, splat, sizeof splat)) {
-      m.set_reason("kurulu %s bicimsiz", kVersionName);
-      return true;
+    // Kurulu SURUM.txt: paketleyicinin yazdigi kimlik. `kaynak` = surumsuz
+    // (TULPAR_SURUM bos) CI paketi: hangi Release'in "daha yeni" oldugu
+    // bilinemez. Calisan ikilinin surumu/platformuyla ayrisiyorsa kurulum
+    // karisik (elle kopyalanmis ikili): manifest hangi surumu anlatiyor
+    // belli degil, dokunulmaz.
+    {
+      char sv[128], sver[kUpdTagLen], splat[32];
+      join(m.pb, sizeof m.pb, m.inst, kVersionName);
+      bool st = false;
+      const int64_t sn = platform::fs_read_all(m.pb, sv, sizeof sv, &st);
+      if (sn < 0) { m.set_reason("kurulumda %s yok — paket kurulumu degil", kVersionName); return true; }
+      if (st || !upd_surum_parse(sv, (size_t)sn, sver, sizeof sver, splat, sizeof splat)) {
+        m.set_reason("kurulu %s bicimsiz", kVersionName);
+        return true;
+      }
+      if (std::strcmp(sver, "kaynak") == 0) {
+        m.set_reason("surumsuz paket (%s: kaynak) — guncelleme yalniz surumlu Release paketlerinde calisir", kVersionName);
+        return true;
+      }
+      if (std::strcmp(sver, m.cur_tag) != 0 || std::strcmp(splat, m.platform) != 0) {
+        m.set_reason("kurulu %s (%s %s) calisan editorle (%s %s) uyusmuyor", kVersionName, sver, splat, m.cur_tag, m.platform);
+        return true;
+      }
     }
-    if (std::strcmp(sver, "kaynak") == 0) {
-      m.set_reason("surumsuz paket (%s: kaynak) — guncelleme yalniz surumlu Release paketlerinde calisir", kVersionName);
-      return true;
-    }
-    if (std::strcmp(sver, m.cur_tag) != 0 || std::strcmp(splat, m.platform) != 0) {
-      m.set_reason("kurulu %s (%s %s) calisan editorle (%s %s) uyusmuyor", kVersionName, sver, splat, m.cur_tag, m.platform);
-      return true;
-    }
-  }
 
+  }
   // --- Calisma bellegi (yalniz etkinken) ---
   const size_t need = buffers_bytes();
   if (a.remaining() < need) {
@@ -1521,18 +1574,20 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     return false;
   }
 
-  // Kurulu manifest simdiden gecerli mi (bozuksa guncelleme hic baslamasin).
-  bool trunc = false;
-  const int64_t n = platform::fs_read_all(m.pa, m.text, kUpdTextCap, &trunc);
-  char perr[kUpdErrLen];
-  if (n < 0 || trunc) {
-    if (trunc) m.ctr.capacity_overflow++;
-    m.set_reason("kurulu %s okunamadi%s", kManifestName, trunc ? " (cok buyuk)" : "");
-    return true;
-  }
-  if (!parse_manifest(m.text, (size_t)n, m.oldm, m.ctr, perr, sizeof perr)) {
-    m.set_reason("kurulu manifest gecersiz: %s", perr);
-    return true;
+  // Kurulu manifest simdiden gecerli mi (bozuksa guncelleme hic baslamasin). AppImage'ta manifest yok.
+  if (!m.tek) {
+    bool trunc = false;
+    const int64_t n = platform::fs_read_all(m.pa, m.text, kUpdTextCap, &trunc);
+    char perr[kUpdErrLen];
+    if (n < 0 || trunc) {
+      if (trunc) m.ctr.capacity_overflow++;
+      m.set_reason("kurulu %s okunamadi%s", kManifestName, trunc ? " (cok buyuk)" : "");
+      return true;
+    }
+    if (!parse_manifest(m.text, (size_t)n, m.oldm, m.ctr, perr, sizeof perr)) {
+      m.set_reason("kurulu manifest gecersiz: %s", perr);
+      return true;
+    }
   }
 
   // Yazilabilir mi: .guncelleme'ye sinama dosyasi. access()/izin bitleri
@@ -1546,7 +1601,8 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     if (!had_gdir) platform::fs_rmdir(m.gdir);
   }
   if (!writable) {
-    m.set_reason("kurulum dizini yazilamaz: %s (hata %d)", m.inst, platform::fs_last_error());
+    m.set_reason(m.tek ? "AppImage'in dizini yazilamaz: %s (hata %d) — AppImage'i yazabildiginiz bir yere (~/Applications) tasiyin"
+                       : "kurulum dizini yazilamaz: %s (hata %d)", m.inst, platform::fs_last_error());
     return true;
   }
 
@@ -1607,6 +1663,41 @@ bool Updater::install(char *err, size_t err_cap) {
     return false;
   }
   Impl &m = *m_;
+  if (m.tek) {
+    // AppImage: dogrulanmis yeni dosya -> calistirilabilir; calisan AppImage yedege (rename: calisan surec
+    // eski inode'u acik tutar, etkilenmez), yenisi yerine. Ikinci adim duserse ilki GERI alinir.
+    if (!join(m.pa, sizeof m.pa, m.work_dir, m.rel.asset_name)) { m.fail("yol cok uzun"); say(err, err_cap, "%s", m.reason); return false; }
+#if !defined(_WIN32)
+    ::chmod(m.pa, 0755);
+#endif
+    platform::fs_remove_file(m.bak);
+    if (!platform::fs_move(m.ai, m.bak)) {
+      m.fail("calisan AppImage yedege tasinamadi (hata %d): %s", platform::fs_last_error(), m.ai);
+      say(err, err_cap, "%s", m.reason);
+      return false;
+    }
+    const bool yerlesti = m.fail_after != 0 && platform::fs_move(m.pa, m.ai);
+    if (!yerlesti) {
+      const int e = platform::fs_last_error();
+      if (!platform::fs_move(m.bak, m.ai)) {
+        m.set_reason("yeni AppImage yerine konamadi (hata %d) VE GERI ALMA EKSIK — eski dosya: %s", e, m.bak);
+        m.state = UpdState::Failed;
+        m.work = Work::None;
+        m.broken = true;
+        char mk[kFull];
+        if (join(mk, sizeof mk, m.gdir, kBrokenMarker)) platform::fs_write_all(mk, m.reason, std::strlen(m.reason));
+      } else {
+        m.fail("yeni AppImage yerine konamadi (hata %d), eski geri kondu", e);
+      }
+      say(err, err_cap, "%s", m.reason);
+      return false;
+    }
+    m.state = UpdState::Installed;
+    m.prog = 1.0f;
+    platform::fs_remove_tree(m.work_dir); // yedek KALIR (cleanup bir sonraki acilista siler)
+    if (err && err_cap) err[0] = 0;
+    return true;
+  }
   // Onceki bir denemeden kalan ayni adli yedek (geri alinmis kurulum) silinir.
   if (!platform::fs_remove_tree(m.bak) || !platform::fs_mkdir_p(m.bak)) {
     say(err, err_cap, "yedek dizini hazirlanamadi: %s (hata %d)", m.bak, platform::fs_last_error());
@@ -1742,12 +1833,18 @@ void Updater::cleanup(const char *install_dir) {
   char dir[kFull];
   if (install_dir && *install_dir) say(dir, sizeof dir, "%s", install_dir);
   else if (!platform::fs_exe_dir_utf8(dir, sizeof dir)) return;
-  CleanCtx c;
-  if (!join(c.gdir, sizeof c.gdir, dir, kGDir) || !platform::fs_is_dir(c.gdir)) return;
-  char mk[kFull];
-  if (!join(mk, sizeof mk, c.gdir, kBrokenMarker) || platform::fs_exists(mk)) return; // elle kurtarma: dokunma
-  platform::fs_list_dir(c.gdir, clean_entry, &c);
-  platform::fs_rmdir(c.gdir);
+  // Paket kurulumunun ve AppImage'in (dir = AppImage'in dizini) calisma alanlari.
+  const char *const adlar[] = {kGDir, kGDirTek};
+  for (const char *ad : adlar) {
+    CleanCtx c;
+    if (!join(c.gdir, sizeof c.gdir, dir, ad) || !platform::fs_is_dir(c.gdir)) continue;
+    char mk[kFull];
+    if (!join(mk, sizeof mk, c.gdir, kBrokenMarker) || platform::fs_exists(mk)) continue; // elle kurtarma: dokunma
+    platform::fs_list_dir(c.gdir, clean_entry, &c);
+    platform::fs_rmdir(c.gdir);
+  }
 }
+
+const char *Updater::appimage() const { return (m_ && m_->tek) ? m_->ai : ""; }
 
 } // namespace tulpar::engine::app

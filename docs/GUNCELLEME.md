@@ -306,6 +306,35 @@ eski süreç kapanınca silinebilir — bu yüzden yedekler bir sonraki açılı
 `cleanup()` ile silinir. Salt-okunur dosyalar (macOS paketindeki `libglfw.3.dylib`
 0444) yeniden adlandırılabilir; silme yolunda Windows'ta öznitelik önce kaldırılır.
 
+## AppImage kipi (tek dosya, EDITOR-UYGULAMA-PLANI U7c, 2026-11-06)
+
+Linux AppImage'ta ikili salt okunur bir squashfs içinde çalışır; dosya dosya güncelleme yapılamaz.
+`$APPIMAGE` doluysa ve açık bir kurulum dizini verilmemişse güncelleyici **tek dosya** kipine geçer
+(`UpdaterConfig::appimage`):
+
+- **Denetim:** aynı `releases/latest` yanıtından `tulpar-editor-<etiket>-<mimari>.AppImage` aranır
+  (`upd_release_parse_appimage`). Bu adı `release.yml` yükler. Özet dosyası aynıdır
+  (`tulpar-engine-<etiket>-SHA256SUMS.txt`).
+- **İndirme ve doğrulama:** indirme ve SHA-256 doğrulaması paket kipiyle aynıdır (kareye bölünmüş).
+  Açılacak arşiv olmadığı için Doğrulanıyor'dan doğrudan Kurulmaya hazır'a geçilir.
+- **Kurulum:**
+  1. yeni dosya çalıştırılabilir yapılır;
+  2. çalışan AppImage `<AppImage dizini>/.tulpar-editor-guncelleme/yedek-<sürüm>.AppImage`'a
+     taşınır (rename: çalışan süreç eski inode'u açık tutar);
+  3. yeni dosya aynı ada taşınır.
+  İkinci taşıma düşerse birincisi geri alınır. O da düşerse `GERI-ALMA-EKSIK.txt` yazılır ve
+  güncelleyici kapanır (paket kipindeki kural).
+- **Yeniden başlatma** `$APPIMAGE`'ın kendisini çalıştırır. Yedeği bir sonraki açılışta
+  `cleanup` siler.
+- **Manifest ve SURUM.txt aranmaz.** AppImage'ın içi zaten değişmez.
+- **Koşul:** AppImage'ın durduğu dizin yazılabilir olmalı. Değilse güncelleyici kapalıdır ve
+  "~/Applications gibi yazabildiğiniz bir yere taşıyın" der.
+- **Testler:**
+  - `updater_appimage_dosya_butun_degisir`: file:// ile uçtan uca; çalıştırılabilirlik ve
+    yedek-cleanup ölçülür.
+  - `updater_appimage_bozuk_ozet_ve_geri_alma`: bozuk özet → Failed, dosya aynı kalır;
+    `test_fail_after(0)` → eski dosya geri konur.
+
 ## Güvenlik modeli
 
 - **Bütünlük:** arşiv, aynı Release'teki `...-SHA256SUMS.txt` ile; açılan her dosya yeni

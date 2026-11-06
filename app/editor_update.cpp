@@ -76,10 +76,13 @@ struct Resolved {
   char version[kUpdTagLen] = {0};
   const char *api_url = nullptr;
   bool allow_file_urls = false;
+  char appimage[kUpdPathCap] = {0};   // AppImage kipi (U7c): $APPIMAGE, acik kurulum dizini verilmediyse
 };
 void resolve(const UpdateUiConfig &c, Resolved *r) {
   const char *dir = c.install_dir;
   if (!dir || !*dir) dir = std::getenv("TULPAR_GUNCELLEME_DIZIN");
+  const char *ai = std::getenv("APPIMAGE");
+  if (!(dir && *dir) && ai && ai[0] == '/') std::snprintf(r->appimage, sizeof r->appimage, "%s", ai);
   if (dir && *dir) std::snprintf(r->install_dir, sizeof r->install_dir, "%s", dir);
   // UTF-8 (cekirdek ve process_start UTF-8 bekler; exe_dir Windows'ta ANSI verir).
   else if (!platform::fs_exe_dir_utf8(r->install_dir, sizeof r->install_dir)) r->install_dir[0] = 0;
@@ -98,8 +101,13 @@ UpdaterConfig to_updater_config(const Resolved &r) {
   uc.api_url = r.api_url;
   uc.install_dir = r.install_dir[0] ? r.install_dir : nullptr;
   uc.allow_file_urls = r.allow_file_urls;
+  uc.appimage = r.appimage[0] ? r.appimage : nullptr;
   return uc;
 }
+
+// Calisma/yedek dizininin adi: paket kurulumunda .guncelleme, AppImage'ta (U7c) AppImage'in yaninda
+// .tulpar-editor-guncelleme (app/updater.cpp kGDir / kGDirTek).
+const char *gdir_adi(const UpdateUi &u) { return (u.upd.appimage() && u.upd.appimage()[0]) ? ".tulpar-editor-guncelleme" : ".guncelleme"; }
 
 // --- Updater'a giden TEK kapi ------------------------------------------------
 // Penceresiz kipte reddeder (ve sayar); aksi halde durumu denetler, sayar,
@@ -202,8 +210,8 @@ void log_transition(UpdateUi &u, UpdState from, UpdState to) {
     // OTOMATIK denetim (cogunlukla "ag yok") yalniz Uyari — cevrimdisi bir
     // makinede her acilista kirmizi satir gurultuden ibaret olurdu.
     if (upd_reason_rollback_incomplete(u.upd.reason()))
-      console_log(ConsoleLevel::Hata, kTag, "KURULUM YARIM KALDI (%s): %s \xE2\x80\x94 %s/.guncelleme/ elle incelenmeli", upd_state_name(from),
-                  u.upd.reason(), u.install_dir);
+      console_log(ConsoleLevel::Hata, kTag, "KURULUM YARIM KALDI (%s): %s \xE2\x80\x94 %s/%s/ elle incelenmeli", upd_state_name(from),
+                  u.upd.reason(), u.install_dir, gdir_adi(u));
     else
       console_log((u.manual || u.download_stage) ? ConsoleLevel::Hata : ConsoleLevel::Uyari, kTag,
                   "ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z (%s): %s \xE2\x80\x94 kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi", upd_state_name(from), u.upd.reason());
@@ -289,11 +297,11 @@ void rollback_warning(UpdateUi &u) {
                "i\xC5\x9F" "aret kalkana kadar yeni g\xC3\xBCncelleme denemez.");
   ImGui::PopStyleColor();
   char line[kUpdPathCap + 96];
-  std::snprintf(line, sizeof line, "Elle kurtar\xC4\xB1n: %s/.guncelleme/ (yedek-*/ ve GERI-ALMA-EKSIK.txt). Ayr\xC4\xB1nt\xC4\xB1: docs/GUNCELLEME.md",
-                u.install_dir[0] ? u.install_dir : "<kurulum dizini>");
+  std::snprintf(line, sizeof line, "Elle kurtar\xC4\xB1n: %s/%s/ (yedek-* ve GERI-ALMA-EKSIK.txt). Ayr\xC4\xB1nt\xC4\xB1: docs/GUNCELLEME.md",
+                u.install_dir[0] ? u.install_dir : "<kurulum dizini>", gdir_adi(u));
   text_wrapped(line);
   if (ImGui::SmallButton("Yolu kopyala")) {
-    std::snprintf(line, sizeof line, "%s/.guncelleme", u.install_dir);
+    std::snprintf(line, sizeof line, "%s/%s", u.install_dir, gdir_adi(u));
     ImGui::SetClipboardText(line);
   }
 }
@@ -966,7 +974,7 @@ bool update_ui_install(UpdateUi &u, char *err, size_t err_cap) {
   std::snprintf(u.last_error, sizeof u.last_error, "%s", e);
   if (err && err_cap) std::snprintf(err, err_cap, "%s", e);
   if (upd_reason_rollback_incomplete(e))
-    console_log(ConsoleLevel::Hata, kTag, "KURULUM YARIM KALDI: %s \xE2\x80\x94 %s/.guncelleme/ elle incelenmeli", e, u.install_dir);
+    console_log(ConsoleLevel::Hata, kTag, "KURULUM YARIM KALDI: %s \xE2\x80\x94 %s/%s/ elle incelenmeli", e, u.install_dir, gdir_adi(u));
   else
     console_log(ConsoleLevel::Hata, kTag, "kurulum ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z: %s \xE2\x80\x94 kurulum dizini eski haline d\xC3\xB6nd\xC3\xBC", e);
   u.last_state = u.upd.state();
@@ -1038,7 +1046,9 @@ uint32_t update_acp() {
 
 bool update_ui_restart(const UpdateUi &u, int argc, char **argv, const char *scene, char *err, size_t err_cap) {
   char exe[kUpdPathCap + 32];
-  const int n = std::snprintf(exe, sizeof exe, "%s/%s", u.install_dir, kEditorExe);
+  // AppImage (U7c): yeni surum AppImage DOSYASININ kendisi (ayni yol, yeni icerik).
+  const char *ai = u.upd.appimage();
+  const int n = (ai && *ai) ? std::snprintf(exe, sizeof exe, "%s", ai) : std::snprintf(exe, sizeof exe, "%s/%s", u.install_dir, kEditorExe);
   if (n <= 0 || (size_t)n >= sizeof exe || !u.install_dir[0]) {
     std::snprintf(err, err_cap, "kurulum dizini bilinmiyor");
     return false;
