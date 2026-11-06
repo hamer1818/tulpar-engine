@@ -24,8 +24,9 @@ dogrula_metin "8 varlık"
 # 4) Metin girisi: Konsol aramasi suzer (eslesmeyen satir kaybolur)
 dogrula_metin "güncelleyici"
 tikla "ara…" pencere=Konsol
-yaz "yuklendi"
+yaz "yüklendi"
 bekle 2
 metin_yok "güncelleyici"
+dogrula_metin "yüklendi:"
 tus Escape
 cik

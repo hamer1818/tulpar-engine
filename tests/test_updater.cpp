@@ -968,16 +968,16 @@ ENGINE_TEST(updater_disabled_conditions) {
   char buf[512];
   std::snprintf(buf, sizeof buf, "kaynak %s\n", kPlat);
   CHECK(write_str(base, "SURUM.txt", buf));
-  CHECK(disabled_with(c, "surumsuz"));
+  CHECK(disabled_with(c, "s\xC3\xBCr\xC3\xBCms\xC3\xBCz"));
   std::snprintf(buf, sizeof buf, "v0.0.9 %s\n", kPlat);
   CHECK(write_str(base, "SURUM.txt", buf));
-  CHECK(disabled_with(c, "uyusmuyor"));
+  CHECK(disabled_with(c, "uyu\xC5\x9Fmuyor"));
   std::snprintf(buf, sizeof buf, "v0.1.0 %s\n", std::strcmp(kPlat, "linux-x86_64") == 0 ? "macos-arm64" : "linux-x86_64");
   CHECK(write_str(base, "SURUM.txt", buf));
-  CHECK(disabled_with(c, "uyusmuyor"));
+  CHECK(disabled_with(c, "uyu\xC5\x9Fmuyor"));
   std::snprintf(buf, sizeof buf, "v0.1.0 %s\r\n", kPlat);
   CHECK(write_str(base, "SURUM.txt", buf));
-  CHECK(disabled_with(c, "bicimsiz"));
+  CHECK(disabled_with(c, "bi\xC3\xA7imsiz"));
   CHECK(write_str(base, "SURUM.txt", surum));
 
   // --- Kurulu DOSYALAR.txt: KESIN bicim (tools/paket_manifest.py) ---
@@ -1027,7 +1027,7 @@ ENGINE_TEST(updater_disabled_conditions) {
   // HICBIR SEY silmez (yedek eski dosyalarin tek kopyasi olabilir).
   CHECK(write_str(base, ".guncelleme/GERI-ALMA-EKSIK.txt", "sebep\n"));
   CHECK(write_str(base, ".guncelleme/yedek-v0.0.9/engine_editor", "tek kopya\n"));
-  CHECK(disabled_with(c, "geri almasi eksik"));
+  CHECK(disabled_with(c, "geri almas\xC4\xB1 eksik"));
   Updater::cleanup(base);
   CHECK(file_is(base, ".guncelleme/yedek-v0.0.9/engine_editor", "tek kopya\n"));
   // Pozitif kontrol: isaret kalkinca cleanup ayni yedegi siler, init etkin.

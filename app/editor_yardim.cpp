@@ -135,6 +135,8 @@ void yardim_ciz(YardimDurum &d, const CommandDesc *tablo, uint32_t n) {
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (ImGui::Begin("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 rehberi###yardim_rehber", &d.rehber, ImGuiWindowFlags_NoCollapse)) {
+      // Esc kapatir (odaktayken): kullanici yardim penceresini klavyeyle kapatabilmeli.
+      if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) d.rehber = false;
       if (ImGui::BeginChild("##sayfalar", ImVec2(170.0f, 0.0f), ImGuiChildFlags_Borders)) {
         for (uint32_t i = 0; i < kSayfaN; i++)
           if (ImGui::Selectable(kSayfalar[i].baslik, d.sayfa == i)) d.sayfa = i;
@@ -167,6 +169,8 @@ void yardim_ciz(YardimDurum &d, const CommandDesc *tablo, uint32_t n) {
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (ImGui::Begin("K\xC4\xB1sayollar###yardim_kisayol", &d.kisayollar, ImGuiWindowFlags_NoCollapse)) {
+      // Esc kapatir (odaktayken): kullanici yardim penceresini klavyeyle kapatabilmeli.
+      if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) d.kisayollar = false;
       ImGui::SetNextItemWidth(-1.0f);
       ImGui::InputTextWithHint("##filtre", "Ara (ad ya da tu\xC5\x9F)\xE2\x80\xA6", d.filtre, sizeof d.filtre);
       if (ImGui::BeginTable("##kisayol", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerH)) {
