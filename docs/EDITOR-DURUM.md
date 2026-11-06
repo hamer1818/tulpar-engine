@@ -47,8 +47,8 @@ Bu belgedeki tablolar şu üç kaynağın kesişiminden çıkarıldı:
 | 1 | Anim | + | + | + | + | **tam** (klip seçici yok) |
 | 2 | Light | + | + | + | + | **tam** |
 | 3 | Body | + | + | + | + | **tam** |
-| 4 | Camera | + | + | **−** | **−** | editörde çalışır, **oyunda kaybolur** |
-| 5 | Audio | + | + | **−** | **−** | hiçbir yerde ses çalmaz |
+| 4 | Camera | + | + | **+** | **+** | **tam** (blob v10, 2026-11-06): sahne yüklenince ilk kamera uygulanır (göz varlığın konumu, bakış −Z, açı/kırpma bileşenden); `sahne_kamera_kullan(i)` başka kameraya geçer |
+| 5 | Audio | + | + | **+** | **+** | blob v10 (2026-11-06): ses açıksa döngülüler sahneyle başlar, 3B olanlar varlığı izler; `sahne_ses_cal(i)` tek seferlik. **Perde taşınmaz** (mikserde yok, `scene_check` muafiyeti). Editör kendisi ses çalmaz (F5 oyunu çalar) |
 | 6 | Script | + | + | **+** | **+** | motor betiği **çalıştırır**: `<taban>_baslat` / `_guncelle` adıyla çözülür (bkz. KOPRU §7.9). Kartta **Yeni betik** (iskeleti yazar ve atar, üzerine yazmaz), **Dış editörde aç** (`platform/process`), **F5** betikleriyle Oyun sekmesinde oynatır (gömülü, ayrı süreç), **Oyunu çalıştır** (Ctrl+F5) aynı ikiliyi kendi penceresinde; ikisi de motoru tanıyan derleyiciyi ister (`tools/motor_derleyici.sh`) |
 | 7 | Character | **+** | + | + | **+** | "Karakter Kontrolcüsü" kartı; sahne yüklenince (oyunda ve editörün F5'inde) karakter olarak **doğar** (kapsül ortalı, aynı varlıktaki gövde doğurulmaz), `sahne_karakter_yuru` ile sürülür (KOPRU §8) |
 | 8 | Particle | **−** | + | + | +² | paneli yok, **çizilmiyor** (§2.C) |
@@ -133,11 +133,11 @@ En değerli alt küme — **motor gerçekten kullanıyor, editörde arayüzü yo
 | Model | `primitive` | `scene_runtime.cpp` + `editor_app.cpp` (Faz 0'da bağlandı) |
 | Anim | `clip` | runtime kullanıyor; editörde `e.clip = 0` sabit |
 | Body | `shape`, `dynamic` | Jolt'a gidiyor |
-| Camera | `cam_fov` | kısmen |
+| Camera | `cam_fov`, `cam_near`, `cam_far` | köprü (v10) |
 | Terrain | `terrain_freq`, `terrain_octaves`, `terrain_seed` | `content/terrain.cpp` |
 | Water | `wave_length`, `wave_amplitude`, `wave_steepness`, `wave_speed`, `wave_direction` | `content/water_wave.cpp` |
 | Voxel | `voxel_size_x/y/z`, `voxel_cell` | `content/voxel.cpp` |
-| Audio | `audio_loop`, `audio_spatial` | — (runtime yok) |
+| Audio | `audio_clip`, `audio_volume`, `audio_loop`, `audio_spatial` | köprü (v10); `audio_pitch` — (mikserde perde yok) |
 | Script | `script_file`, `script_enabled` | — (runtime yok) |
 | Joint | `joint_limit_min`, `joint_limit_max` | — |
 | RefProbe | `ref_probe_intensity` | — |
@@ -251,7 +251,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 | C.5 | **Panel düzeni menüye** — `layout_save`/`layout_load` için komut + menü girişi | Altyapı tam; **en düşük emek / en yüksek his farkı** |
 | C.6 | **Bileşen başına aç/kapa** — `SceneEntity::components_enabled` maskesi | `component_header`'ın `enabled` parametresi zaten hazır |
 | C.7a | ~~Blob: Script~~ **BİTTİ** (v7) | Yazan + okuyan taraf: `SceneBlobScript`, `eng_scene_script` / `eng_scene_script_enabled` |
-| C.7b | Blob: Camera / Audio tablolarını yazan **ve** okuyan taraf | Ne yazanı ne okuyanı var. Not: eski satır "tek sürüm bump 5 → 6 hepsini kapsar" diyordu, **yanlış çıktı** — v6 bunları taşımadı, v7 yalnız Script'i aldı |
+| C.7b | ~~Blob: Camera / Audio~~ **BİTTİ** (v10, 2026-11-06, EDITOR-UYGULAMA-PLANI U9) | `SceneBlobCamera` / `SceneBlobAudio`, okuyan köprü (`eng_scene_camera_use`, `eng_scene_sound_play`). Not: eski satır "tek sürüm bump 5 → 6 hepsini kapsar" diyordu, **yanlış çıktı** — v6 bunları taşımadı, v7 yalnız Script'i aldı |
 | C.7c | Blob: ~~Character~~ / Wind tablolarını **okuyan** taraf | Character **BİTTİ** (SceneRuntime karakter olarak doğuruyor). Wind'in hâlâ okuyanı yok — "bloba yazılır, okunmaz" (D.5: önce tüketici shader) |
 
 ### Faz D — yeni çalışma zamanı *(pahalı, sırayla)*
@@ -259,7 +259,7 @@ tel kafes düğmesi · demo arka planının görünmez çarpışma kutuları.
 | # | İş | Bağlanacağı yer |
 |---|---|---|
 | D.1 | ~~Karakter kontrolcüsü~~ **BİTTİ** | Kodla üretilen (`karakter(...)`) ve sahnede yerleştirilen karakter (`sahne_karakter_yuru(i, ...)`) oyunda doğuyor, tetik ve ışın dahil (KOPRU §8). Editörün F5'i de karakteri doğuruyor (`scene_spawn_live`: karakterli varlığın gövdesi doğmaz, kapsül ortalı; Çarpışma görünümünde mavi kapsül kutusu). **F5 betikleri koşturur**: sahneyi yükleyen oyunu Ctrl+F5 ile aynı ikiliyle, ayrı süreçte başlatır ve karesini Oyun sekmesinde gösterir (`platform/game_channel`, KOPRU §5.1); sekme odaktayken klavye ve fare oyuna gider, F6/F10 oyunu duraklatır/ilerletir. Oyun ya da derleyici yoksa fizik önizlemesine düşer ve nedenini Konsol'a yazar. **Durdur** oynatma öncesine tam döner: oynatırken yapılan düzenlemeler geri alınır (Ctrl+Y geri getirir). F5'in fiziği hiç adımlamadığı hata: TUZAKLAR 8bw | `sim/physics.cpp` → `CharacterVirtual` |
-| D.2 | Ses kaynağı → mixer voice | `audio/mixer.cpp` + `audio/spatial.hpp` |
+| D.2 | ~~Ses kaynağı → mixer voice~~ **BİTTİ** (v10): köprü sahne yüklenince döngülü kaynakları mixer'a verir | `bridge/engine_api.cpp` (`scene_sound_start`) |
 | D.3 | NavAgent → yol bulma | `sim/navmesh.cpp` |
 | D.4 | Reverb | `audio/dsp.hpp` |
 | D.5 | Rüzgâr — **önce tüketici shader** (foliage/vertex animasyonu), sonra bileşen | `content/wind.cpp` değer üretiyor, okuyan yok |

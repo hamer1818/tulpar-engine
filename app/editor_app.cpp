@@ -6917,7 +6917,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             if (prop_begin("kamera")) {
               track_edit(st, e, si, prop_float("G\xC3\xB6r\xC3\xBC\xC5\x9F A\xC3\xA7\xC4\xB1s\xC4\xB1 (FOV)", &e.cam_fov, 0.5f, 10.0f, 120.0f, "%.1f\xC2\xB0"));
               track_edit(st, e, si, prop_float("Yak\xC4\xB1n K\xC4\xB1rpma", &e.cam_near, 0.01f, 0.01f, 10.0f, "%.2f m"));
-              track_edit(st, e, si, prop_float("Uzak K\xC4\xB1rpma", &e.cam_far, 1.0f, 1.0f, 5000.0f, "%.1f m"));
+              track_edit(st, e, si, prop_float("Uzak K\xC4\xB1rpma", &e.cam_far, 1.0f, e.cam_near + 0.01f > 1.0f ? e.cam_near + 0.01f : 1.0f, 5000.0f, "%.1f m"));
               prop_end();
             }
             end_component_card();
@@ -6931,7 +6931,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             if (prop_begin("ses")) {
               track_edit(st, e, si, prop_text("Ses Dosyas\xC4\xB1", e.audio_clip, sizeof e.audio_clip));
               track_edit(st, e, si, prop_float("Ses D\xC3\xBCzeyi", &e.audio_volume, 0.02f, 0.0f, 2.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("Perde", &e.audio_pitch, 0.02f, 0.1f, 3.0f, "%.2f"));
+              track_edit(st, e, si, prop_float("Perde (oyunda hen\xC3\xBCz yok)", &e.audio_pitch, 0.02f, 0.1f, 3.0f, "%.2f"));
               bool loop = e.audio_loop;
               if (prop_check("D\xC3\xB6ng\xC3\xBC", &loop).changed) { after = e; after.audio_loop = loop; commit(st, si, after); }
               bool spat = e.audio_spatial;

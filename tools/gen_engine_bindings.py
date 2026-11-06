@@ -148,6 +148,8 @@ SPEC = [
     ("eng_scene_is_dynamic", "bool", [("i", "int")], "Sahne varliginin govdesi dinamik mi (kuvvet uygulanabilir mi)."),
     ("eng_scene_set_visible", "bool", [("i", "int"), ("visible", "flag")], "Sahne varligini gizle/goster: gizli varlik cizilmez, isigi eklenmez, govdesi fizik dunyasindan cikar (carpismaz, isin gormez). Sahne yeniden yuklenince hepsi gorunur."),
     ("eng_scene_visible", "bool", [("i", "int")], "Sahne varligi gorunur mu."),
+    ("eng_scene_camera_use", "bool", [("i", "int")], "Sahne varligini (kamera bileseni olmali) kamera yap: goz varligin konumu, bakis -Z, aci/kirpma bilesenden. Sahne yuklenince ILK kamera zaten uygulanir. Kamera bileseni yoksa false."),
+    ("eng_scene_sound_play", "int", [("i", "int")], "Sahne varliginin ses bilesenini bilesenin ayarlariyla cal (duzey, dongu, 3B ise varligin konumundan). Dongulu sesler sahne yuklenince kendiliginden baslar. Donus: ses id (0: calmadi; ses kapali ya da bilesen yok)."),
     ("eng_scene_sx", "float", [("i", "int")], "Sahne varliginin dunya olcegi x (ilkelde boyu)."),
     ("eng_scene_sy", "float", [("i", "int")], "Sahne varliginin dunya olcegi y."),
     ("eng_scene_sz", "float", [("i", "int")], "Sahne varliginin dunya olcegi z."),

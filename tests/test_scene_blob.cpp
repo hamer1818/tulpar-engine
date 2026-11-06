@@ -994,7 +994,7 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 9);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 10);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
   // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
@@ -1002,7 +1002,8 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   // olculuyor), 6 (betik tablosu YOK) ve 7 (ozellik tablosu YOK: v7 blobu
   // okunsaydi prop_offset alani eski `script_reserved1` = 0 olurdu) ve 8
   // (SceneBlobParticle 48 bayt: renk/yercekimi/turbulans YOK; v8 blobu
-  // okunsaydi parcacik tablosunun adimi 112 sanilip komsu kayitlar kayardi).
+  // okunsaydi parcacik tablosunun adimi 112 sanilip komsu kayitlar kayardi) ve 9
+  // (kamera/ses tablosu YOK: v9 basligi 16 bayt kisa, header_size reddeder).
   // Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
   // kendiliginden kapsanir; yalniz yukaridaki sabit guncellenir.
   SceneBlobView v;
@@ -2213,4 +2214,73 @@ ENGINE_TEST(scene_runtime_particle_rate_matches_authored) {
   CHECK(avg > 7.5 && avg < 12.5);
   CHECK(avg_old > 30.0); // kontrol: olcu eski hatayi GORUYOR
   arena().reset_to(mark);
+}
+
+// v10 (EDITOR-UYGULAMA-PLANI U9) — KAMERA ve SES bilesenleri blob'da. Olculen: kayitlar veri
+// modelindeki degerlerin AYNISI; klip yolu metin tablosunda ve komsu metinler bozulmadi (intern
+// muhasebesi); bilesensiz varlik kayit uretmez. KONTROLLER (bozuk kayit REDDEDILIR): bilinmeyen ses
+// bayragi, sinir disi varlik, gecersiz kamera (uzak <= yakin), sifir olmayan ayrilmis alan.
+ENGINE_TEST(scene_blob_v10_camera_and_audio) {
+  static SceneDesc d;
+  scene_desc_reset(d);
+  SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "kamera_bir");
+  e.components = kSceneCamera;
+  e.pos = Vec3{1, 2, 9};
+  e.cam_fov = 70.0f; e.cam_near = 0.5f; e.cam_far = 80.0f;
+  CHECK(d.insert_entity(0, e));
+  SceneEntity a{};
+  std::snprintf(a.name, sizeof a.name, "selale_sesi_uzun_adli");
+  a.components = kSceneAudio;
+  std::snprintf(a.audio_clip, sizeof a.audio_clip, "sesler/selale_dongu.wav");
+  a.audio_volume = 0.4f; a.audio_loop = true; a.audio_spatial = true;
+  CHECK(d.insert_entity(1, a));
+  SceneEntity b2{};
+  std::snprintf(b2.name, sizeof b2.name, "zil");
+  b2.components = kSceneAudio | kSceneCamera;
+  std::snprintf(b2.audio_clip, sizeof b2.audio_clip, "zil.wav");
+  b2.audio_volume = 1.0f; b2.audio_loop = false; b2.audio_spatial = false;
+  CHECK(d.insert_entity(2, b2));
+  SceneEntity yok{};
+  std::snprintf(yok.name, sizeof yok.name, "bos");
+  CHECK(d.insert_entity(3, yok));
+  size_t n = 0;
+  void *buf = compile_to(d, &n);
+  SceneBlobView v;
+  SceneError err{};
+  CHECK(buf && scene_blob_open(buf, n, &v, &err));
+  if (!buf) return;
+  CHECK(v.h->camera_count == 2 && v.h->audio_count == 2);
+  CHECK(v.cameras[0].entity == 0 && v.cameras[0].fov_deg == 70.0f && v.cameras[0].znear == 0.5f && v.cameras[0].zfar == 80.0f);
+  CHECK(v.cameras[1].entity == 2);
+  CHECK(v.audios[0].entity == 1 && std::strcmp(v.audio_clip(0), "sesler/selale_dongu.wav") == 0 && v.audios[0].volume == 0.4f &&
+        v.audios[0].flags == (kSceneBlobAudioLoop | kSceneBlobAudioSpatial));
+  CHECK(v.audios[1].entity == 2 && std::strcmp(v.audio_clip(1), "zil.wav") == 0 && v.audios[1].flags == 0u);
+  // Komsu metinler saglam (klip intern'i muhasebeye girmeseydi ad/klip kayardi).
+  CHECK(std::strcmp(v.entity_name(1), "selale_sesi_uzun_adli") == 0 && std::strcmp(v.entity_name(3), "bos") == 0);
+  // Bozuk kayitlar: her biri ayri kopyada, ozet yeniden hesaplanir (ozet kapisi degil ALAN kapisi olculsun).
+  uint8_t *bad = static_cast<uint8_t *>(arena().alloc(n, kSceneBlobAlign));
+  CHECK(bad);
+  if (!bad) return;
+  auto boz = [&](int tur) {
+    std::memcpy(bad, buf, n);
+    auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
+    auto *cam = reinterpret_cast<SceneBlobCamera *>(bad + h->camera_offset);
+    auto *aud = reinterpret_cast<SceneBlobAudio *>(bad + h->audio_offset);
+    if (tur == 0) aud[0].flags |= 8u;
+    if (tur == 1) aud[1].entity = 99;
+    if (tur == 2) cam[0].zfar = cam[0].znear;
+    if (tur == 3) aud[0].reserved1 = 1;
+    if (tur == 4) aud[0].clip = h->string_size;
+    const size_t from = offsetof(SceneBlobHeader, header_size);
+    const uint64_t hv = scene_blob_fnv1a(bad + from, n - from);
+    h->hash_lo = (uint32_t)(hv & 0xFFFFFFFFu);
+    h->hash_hi = (uint32_t)(hv >> 32);
+    SceneBlobView bv;
+    SceneError be{};
+    const bool acildi = scene_blob_open(bad, n, &bv, &be);
+    std::printf("    [bilgi] bozuk v10 kaydi %d: %s\n", tur, acildi ? "ACILDI (HATA)" : be.msg);
+    return !acildi;
+  };
+  for (int t = 0; t < 5; t++) CHECK(boz(t));
 }

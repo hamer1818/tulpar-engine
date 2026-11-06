@@ -306,6 +306,11 @@ int teng_scene_is_dynamic(int i);
 // parcanin yerine ayni boy ve renkte fizik parcalari kurabilsin.
 int teng_scene_set_visible(int i, int visible);
 int teng_scene_visible(int i);
+// Sahnenin KAMERA / SES bilesenleri (blob v10, EDITOR-UYGULAMA-PLANI U9). Sahne yuklenince ilk
+// kamera uygulanir, dongulu sesler baslar (cihaz aciksa); bunlar baska kameraya gecer / tek
+// seferlik sesi calar. Bilesen yoksa hata loglanir ve 0 doner.
+int teng_scene_camera_use(int i);
+int teng_scene_sound_play(int i);
 double teng_scene_sx(int i);
 double teng_scene_sy(int i);
 double teng_scene_sz(int i);

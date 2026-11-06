@@ -72,7 +72,14 @@ constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
 // v5 ARA SURUM olarak atlanmadi — v5'i yazan bir .sahneb hic uretilmedi
 // (bicim bu agacta v4'ten dogrudan v6'ya gecti), numara yalniz #331'in
 // tarihcesiyle hizali kalsin diye tutuluyor.
-constexpr uint32_t kSceneBlobVersion = 9;
+// v10: KAMERA ve SES bilesenleri (EDITOR-UYGULAMA-PLANI U9, 2026-11-06). EDITOR-DURUM matrisinde
+// "editorde calisir, oyunda kaybolur" / "hicbir yerde ses calmaz" diye duruyorlardi. v7 kurali
+// korunuyor: tablolar OKUYANLARIYLA ayni degisiklikte geldi — kopru sahne yuklenince ilk kamerayi
+// uygular (eng_scene_camera_use ile degisir), dongulu sesleri baslatir (eng_scene_sound_play tek
+// seferlikleri calar). Basligin SONUNA dort u32 (16 hizali); tablolar plan_of'ta EN SONDA, yani
+// kamerasiz/sessiz sahnenin bolum ofsetleri v9'dakiyle ayni. audio_pitch TASINMIYOR: mikserde perde
+// yok (tools/scene_check.py BLOB_MUAF, gerekceli).
+constexpr uint32_t kSceneBlobVersion = 10;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -140,7 +147,27 @@ struct SceneBlobHeader {
   uint32_t script_count, script_offset;       // SceneBlobScript[]
   // --- v8: ozellik tablosu (v7'nin iki `script_reserved` alaninin yerinde) --
   uint32_t prop_count, prop_offset;           // SceneBlobProp[] ((varlik, ad) ile SIRALI)
+  // --- v10: kamera + ses (SONA; dort u32 = 16 bayt, hiza korunur) -----------
+  uint32_t camera_count, camera_offset;       // SceneBlobCamera[] (varlik sirasiyla)
+  uint32_t audio_count, audio_offset;         // SceneBlobAudio[]  (varlik sirasiyla)
 };
+// v10 kamera: konum/yon varligin DUNYA matrisinden (SceneBlobEntity::world; ileri -Z, yukari +Y —
+// editorun Oyun sekmesi ve kamera govdesi cizimiyle ayni kural). fov DERECE (SceneEntity::cam_fov).
+struct SceneBlobCamera {
+  uint32_t entity;
+  float fov_deg, znear, zfar;
+}; // 16 bayt
+// v10 ses: klip yolu metin tablosunda (sahne dizinine GORELI, .sahne'deki gibi).
+constexpr uint32_t kSceneBlobAudioLoop = 1u;     // dongulu: sahne yuklenince baslar
+constexpr uint32_t kSceneBlobAudioSpatial = 2u;  // 3B: varligin dunya konumundan calar
+constexpr uint32_t kSceneBlobAudioKnownFlags = kSceneBlobAudioLoop | kSceneBlobAudioSpatial;
+struct SceneBlobAudio {
+  uint32_t entity;
+  uint32_t clip, clip_len;   // metin ofseti + uzunluk (NUL haric)
+  uint32_t flags;            // kSceneBlobAudio*
+  float volume;
+  uint32_t reserved0, reserved1, reserved2; // 0
+}; // 32 bayt
 // GI sondasi: 6 yonlu ambient cube + dogrudan gunes gorunurlugu.
 // Yuz sirasi +X,-X,+Y,-Y,+Z,-Z; deger E(n)/pi, DOGRUSAL RGB (gi.hpp sozlesmesi).
 struct SceneBlobGiProbe {
@@ -353,6 +380,7 @@ static_assert(sizeof(SceneBlobParticle) == 112 && sizeof(SceneBlobParticle) % kS
               "v6 kayit boyutlari sabit (dosya formati)");
 static_assert(sizeof(SceneBlobScript) == 16, "v7 betik kaydi 16 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobProp) == 48 && sizeof(SceneBlobProp) % kSceneBlobAlign == 0, "v8 ozellik kaydi 48 bayt (dosya formati)");
+static_assert(sizeof(SceneBlobCamera) == 16 && sizeof(SceneBlobAudio) == 32, "v10 kamera/ses kayitlari (dosya formati)");
 
 // Acilmis blob: isaretciler blob'un icine bakar (kopya yok). Blob bellegi
 // gorunumden uzun yasamali ve 16 hizali olmali.
@@ -374,6 +402,8 @@ struct SceneBlobView {
   const SceneBlobCharacter *characters = nullptr;
   const SceneBlobScript *scripts = nullptr; // v7
   const SceneBlobProp *props = nullptr;     // v8 ((varlik, ad) ile sirali; bossa nullptr)
+  const SceneBlobCamera *cameras = nullptr; // v10 (bossa nullptr)
+  const SceneBlobAudio *audios = nullptr;   // v10 (bossa nullptr)
   const SceneBlobResident *residents = nullptr;
   const uint8_t *nav = nullptr; // bake edilmis Detour verisi (SALT OKUNUR; nav_size bayt)
   const SceneBlobDagMesh *dag_meshes = nullptr;
@@ -388,6 +418,7 @@ struct SceneBlobView {
   // i BETIK TABLOSU indeksi, varlik indeksi DEGIL (tabloda geri isaretci yok,
   // v6 tablolariyla ayni sozlesme).
   const char *script_path(uint32_t i) const { return str(scripts[i].path); }
+  const char *audio_clip(uint32_t i) const { return str(audios[i].clip); } // i SES TABLOSU indeksi
   uint64_t hash() const { return ((uint64_t)h->hash_hi << 32) | h->hash_lo; }
   SceneWorld world() const;
   Mat4 entity_matrix(uint32_t i) const;

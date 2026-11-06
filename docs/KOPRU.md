@@ -316,6 +316,18 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   `sahne_ilkel` parçanın boyunu, rengini ve ilkel yuvasını verir: oyun yıkılan parçanın yerine aynı boy ve
   renkte dinamik parçalar kurar. Kapı: `bridge_scene_entity_hide_removes_draw_and_body` (ışın duvara 4.50 m →
   gizliyken ıska → geri 4.50 m; çizim 6 → 5 → 6; pozitif kontrol gizlemeden önceki isabet).
+- **Sahnenin kamera ve ses bileşenleri** (2026-11-06, blob v10, EDITOR-UYGULAMA-PLANI U9).
+  - **Kamera:** sahne yüklenince ilk kamera bileşeni uygulanır, betiklerin `baslat`ından önce.
+    - Göz varlığın dünya konumu, bakış varlığın −Z ekseni.
+    - Açı ve yakın/uzak kırpma bileşenden gelir; yakın/uzak artık köprü alanı, sabit değil.
+    - `sahne_kamera_kullan(i)` başka bir kamera varlığına geçer.
+  - **Ses:** cihaz açıksa (`ses_ac`) klipler sahne dizinine göre yüklenir ve döngülü kaynaklar başlar.
+    - 3B olanlar her kare varlığın konumunu izler.
+    - `sahne_ses_cal(i)` bileşenin ayarlarıyla çalar ve ses id döner.
+    - Boşaltma, sahnenin döngülü seslerini durdurur.
+    - Cihaz kapalıyken yüklenen sahne çalmaz ve bunu bir kez bilgi satırıyla söyler.
+  - **Perde taşınmaz:** mikserde çalma hızı yok.
+  - **Kapı:** `bridge_scene_camera_and_audio_components`.
 - **Dönme kilidi** (Geri bildirim #26): `donme_kilidi(id, true)` dinamik gövdeyi devrilmez yapar (Jolt
   `EAllowedDOFs` öteleme, kilitlenince dik konum + açısal hız sıfır); yeniden kurulan gövdede korunur.
   Üstüne gövdesiz kafa/kalkan modeli taşıyan birlik için: devrilen gövde parçaların içine geçiyordu.

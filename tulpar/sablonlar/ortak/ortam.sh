@@ -29,7 +29,9 @@ if [ -d "$_ikili" ] && [ "$_onceki" != "$_ikili" ]; then ln -sfn "$_ikili" "$OYU
 for _s in "$OYUN_KOK"/assets/*.sahne; do
   [ -e "$_s" ] || continue
   _b="${_s%.sahne}.sahneb"
-  if [ ! -f "$_b" ] || [ "$_s" -nt "$_b" ]; then
+  # sahnec blob'dan yeniyse de: motor blob surumunu yukseltince (v9 -> v10) eski .sahneb acilmaz,
+  # .sahne degismedigi icin mtime bunu yakalamazdi.
+  if [ ! -f "$_b" ] || [ "$_s" -nt "$_b" ] || [ "$SAHNEC" -nt "$_b" ]; then
     if [ -x "$SAHNEC" ] || [ -x "$SAHNEC.exe" ]; then
       "$SAHNEC" "$_s" "$_b" >/dev/null || echo "UYARI: $(basename "$_s") derlenemedi" >&2
     else

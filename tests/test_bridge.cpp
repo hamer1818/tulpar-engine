@@ -4739,3 +4739,99 @@ ENGINE_TEST(bridge_stick_visible_exclude_hold) {
   // Gorunmezken (4 kare) 0, gorunurken 3 kare surukleme (birakis karesi cizmez).
   CHECK(std::strstr(g_kapanis_log, "cubuk: haric alanda baslayan 1 parmak, 3 karede cizildi, eylem basili-tut") != nullptr);
 }
+
+// --- Sahnenin KAMERA ve SES bilesenleri oyuna geliyor (blob v10, EDITOR-UYGULAMA-PLANI U9) --------
+// EDITOR-DURUM matrisi: Kamera "editorde calisir, oyunda kaybolur", Ses "hicbir yerde ses calmaz".
+// Olcu: sahne yuklenince ILK kamera uygulanir (goz varligin konumu, aci bilesenden); dongulu 3B ses
+// kendiliginden baslar; eng_scene_camera_use ikinci kameraya gecer; eng_scene_sound_play tek seferlik
+// sesi calar; bosaltma sahnenin dongulu sesini durdurur. KONTROLLER: kamera bileseni olmayan varliga
+// camera_use HATA + 0; ses cihazi KAPALIYKEN yuklenen sahne ses calmaz (sayi 0) ve kamerasiz sahne
+// varsayilan kamerayi degistirmez.
+ENGINE_TEST(bridge_scene_camera_and_audio_components) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  setenv("TULPAR_ENGINE_AUDIO_NULL", "1", 1);
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("kamera ses", kW, kH)) { unsetenv("TULPAR_ENGINE_AUDIO_NULL"); skip("Vulkan cihazi/kurulum yok"); return; }
+  static SystemArena sarena;
+  if (sarena.capacity() == 0) sarena.reserve(16u << 20, "bridge_kamera_ses");
+  char dir[512], wav[600], sblob[600], sblob2[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "kamera_ses"));
+  std::snprintf(wav, sizeof wav, "%s/dongu.wav", dir);
+  std::snprintf(sblob, sizeof sblob, "%s/sahne.sahneb", dir);
+  std::snprintf(sblob2, sizeof sblob2, "%s/kamerasiz.sahneb", dir);
+  CHECK(wav_yaz(wav, 1, 48000, 48000, 0.5f, 330.0f));
+  static content::SceneDesc sd;
+  content::scene_desc_reset(sd);
+  content::SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "kam_a");
+  e.components = content::kSceneCamera;
+  e.pos = Vec3{1, 2, 9};
+  e.cam_fov = 70.0f; e.cam_near = 0.5f; e.cam_far = 80.0f;
+  CHECK(sd.insert_entity(0, e));
+  std::snprintf(e.name, sizeof e.name, "kam_b");
+  e.pos = Vec3{5, 1, 0};
+  e.cam_fov = 40.0f;
+  CHECK(sd.insert_entity(1, e));
+  content::SceneEntity a{};
+  std::snprintf(a.name, sizeof a.name, "selale");
+  a.components = content::kSceneAudio;
+  std::snprintf(a.audio_clip, sizeof a.audio_clip, "dongu.wav");
+  a.audio_volume = 0.5f; a.audio_loop = true; a.audio_spatial = true;
+  CHECK(sd.insert_entity(2, a));
+  std::snprintf(a.name, sizeof a.name, "zil");
+  a.audio_loop = false; a.audio_spatial = false;
+  CHECK(sd.insert_entity(3, a));
+  content::SceneError se{};
+  CHECK(content::scene_blob_save(sarena, sd, sblob, &se));
+  // KONTROL sahnesi: ayni, kamerasiz ve sessiz.
+  static content::SceneDesc sd2;
+  content::scene_desc_reset(sd2);
+  content::SceneEntity z{};
+  std::snprintf(z.name, sizeof z.name, "bos");
+  CHECK(sd2.insert_entity(0, z));
+  CHECK(content::scene_blob_save(sarena, sd2, sblob2, &se));
+
+  // (1) Ses KAPALI: kamera uygulanir, ses calmaz.
+  teng_camera(0, 8, 14, 0, 0, 0);
+  CHECK(teng_scene_load(sblob) == 1);
+  const double kx = teng_camera_x(), ky = teng_camera_y(), kz = teng_camera_z(), fov = teng_camera_fov_get();
+  CHECK(std::fabs(kx - 1) < 1e-4 && std::fabs(ky - 2) < 1e-4 && std::fabs(kz - 9) < 1e-4 && std::fabs(fov - 70.0) < 1e-3);
+  teng_scene_unload();
+  // (2) Ses ACIK.
+  CHECK(teng_audio_open(0, 0) == 1);
+  CHECK(teng_scene_load(sblob) == 1);
+  run_frames(3);
+  platform::thread_sleep_us(120000);
+  const int calan_yuk = teng_audio_playing();
+  const int e0 = teng_error_count();
+  CHECK(teng_scene_camera_use(teng_scene_find("kam_b")) == 1);
+  const double bx = teng_camera_x(), bfov = teng_camera_fov_get();
+  CHECK(teng_scene_camera_use(teng_scene_find("selale")) == 0); // KONTROL: kamera bileseni yok
+  const int e1 = teng_error_count();
+  const int ses = teng_scene_sound_play(teng_scene_find("zil"));
+  platform::thread_sleep_us(120000);
+  const int calan_iki = teng_audio_playing();
+  teng_scene_unload();
+  run_frames(2);
+  platform::thread_sleep_us(150000);
+  const int calan_sonra = teng_audio_playing();
+  // (3) KONTROL: kamerasiz sahne kamerayi degistirmez.
+  teng_camera(3, 3, 3, 0, 0, 0);
+  CHECK(teng_scene_load(sblob2) == 1);
+  const double cx = teng_camera_x();
+  teng_scene_unload();
+  std::printf("    [bilgi] kamera: yukleme (%.2f %.2f %.2f) %.1f derece; kam_b x %.2f %.1f derece; kamerasiz sahnede x %.2f\n", kx, ky, kz, fov,
+              bx, bfov, cx);
+  std::printf("    [bilgi] ses: yuklemede %d calan (dongulu 3B), zil id %d -> %d calan, bosaltmadan sonra %d; hata %d -> %d\n", calan_yuk, ses,
+              calan_iki, calan_sonra, e0, e1);
+  CHECK(std::fabs(bx - 5) < 1e-4 && std::fabs(bfov - 40.0) < 1e-3);
+  CHECK(calan_yuk == 1 && ses > 0 && calan_iki == 2);
+  CHECK(calan_sonra < calan_iki && e1 == e0 + 1);
+  CHECK(std::fabs(cx - 3) < 1e-6);
+  teng_audio_close();
+  teng_shutdown();
+  unsetenv("TULPAR_ENGINE_AUDIO_NULL");
+  std::remove(wav); std::remove(sblob); std::remove(sblob2); rmdir(dir);
+}

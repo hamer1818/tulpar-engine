@@ -987,6 +987,10 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
       } else if (tok_is(t[0], "kamera")) {
         if (n != 4 || (seen_comp & kSceneCamera)) return p.fail("kamera fov yakin uzak (bir kez)");
         if (!p.num(t[1], &cur.cam_fov) || !p.num(t[2], &cur.cam_near) || !p.num(t[3], &cur.cam_far)) return false;
+        // Blob v10 bu kurali OKURKEN de denetler (scene_blob_open); burada yakalanmazsa .sahne acilir ama
+        // derlenmis oyun sahneyi hic yukleyemezdi — hata dogru yerde, satir numarasiyla.
+        if (!(cur.cam_fov > 0.0f && cur.cam_fov < 180.0f) || !(cur.cam_near > 0.0f) || !(cur.cam_far > cur.cam_near))
+          return p.fail("kamera: 0 < fov < 180 ve 0 < yakin < uzak olmali");
         seen_comp |= kSceneCamera;
       } else if (tok_is(t[0], "ses")) {
         if (n < 4 || (seen_comp & kSceneAudio)) return p.fail("ses \"klip\" ses_duzeyi perde [dongu|tek] [uzamsal|2b] (bir kez)");

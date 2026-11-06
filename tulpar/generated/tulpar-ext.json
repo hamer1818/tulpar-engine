@@ -102,6 +102,8 @@
     {"name": "eng_scene_is_dynamic", "symbol": "teng_scene_is_dynamic", "params": ["i: i32"], "returns": "bool", "doc": "Sahne varliginin govdesi dinamik mi (kuvvet uygulanabilir mi)."},
     {"name": "eng_scene_set_visible", "symbol": "teng_scene_set_visible", "params": ["i: i32", "visible: bool"], "returns": "bool", "doc": "Sahne varligini gizle/goster: gizli varlik cizilmez, isigi eklenmez, govdesi fizik dunyasindan cikar (carpismaz, isin gormez). Sahne yeniden yuklenince hepsi gorunur."},
     {"name": "eng_scene_visible", "symbol": "teng_scene_visible", "params": ["i: i32"], "returns": "bool", "doc": "Sahne varligi gorunur mu."},
+    {"name": "eng_scene_camera_use", "symbol": "teng_scene_camera_use", "params": ["i: i32"], "returns": "bool", "doc": "Sahne varligini (kamera bileseni olmali) kamera yap: goz varligin konumu, bakis -Z, aci/kirpma bilesenden. Sahne yuklenince ILK kamera zaten uygulanir. Kamera bileseni yoksa false."},
+    {"name": "eng_scene_sound_play", "symbol": "teng_scene_sound_play", "params": ["i: i32"], "returns": "i32", "doc": "Sahne varliginin ses bilesenini bilesenin ayarlariyla cal (duzey, dongu, 3B ise varligin konumundan). Dongulu sesler sahne yuklenince kendiliginden baslar. Donus: ses id (0: calmadi; ses kapali ya da bilesen yok)."},
     {"name": "eng_scene_sx", "symbol": "teng_scene_sx", "params": ["i: i32"], "returns": "f64", "doc": "Sahne varliginin dunya olcegi x (ilkelde boyu)."},
     {"name": "eng_scene_sy", "symbol": "teng_scene_sy", "params": ["i: i32"], "returns": "f64", "doc": "Sahne varliginin dunya olcegi y."},
     {"name": "eng_scene_sz", "symbol": "teng_scene_sz", "params": ["i: i32"], "returns": "f64", "doc": "Sahne varliginin dunya olcegi z."},

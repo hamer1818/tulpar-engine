@@ -31,10 +31,11 @@ struct Plan {
   uint32_t particles = 0, terrains = 0, voxels = 0, waters = 0, winds = 0, characters = 0; // v6
   uint32_t scripts = 0;                                                                   // v7
   uint32_t props = 0;                                                                     // v8
+  uint32_t cameras = 0, audios = 0;                                                       // v10
   size_t off_asset = 0, off_entity = 0, off_draw = 0, off_anim = 0, off_light = 0, off_body = 0, off_string = 0, off_resident = 0,
          off_nav = 0, off_dag_mesh = 0, off_dag_node = 0, off_dag_index = 0, off_dag_child = 0, off_gi = 0,
          off_particle = 0, off_terrain = 0, off_voxel = 0, off_water = 0, off_wind = 0, off_character = 0, off_script = 0,
-         off_prop = 0, total = 0;
+         off_prop = 0, off_camera = 0, off_audio = 0, total = 0;
 };
 // Varligin blob'a giden ozellik sayisi. SceneEntity::props sabit 16 yuvali;
 // prop_count'u scene_prop_set ve ayristirici 16'da tutuyor — buradaki kirpma
@@ -93,6 +94,11 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
     // muhasebesine bir kalem EKLENMIYOR — bilincli (scene_blob.hpp SceneBlobProp).
     // Ozellikler bilesen bitinden bagimsiz (scene.hpp E3): bit sorulmuyor.
     p.props += entity_prop_count(e);
+    if (e.components & kSceneCamera) p.cameras++;
+    if (e.components & kSceneAudio) {
+      p.audios++;
+      p.strings += (uint32_t)std::strlen(e.audio_clip) + 1; // intern() sirasi: ad, betik, SONRA klip (asagida)
+    }
     p.strings += (uint32_t)std::strlen(e.name) + 1;
   }
   if (p.strings == 0) p.strings = 1; // en az bir NUL: ofset 0 her zaman gecerli
@@ -120,7 +126,9 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   p.off_wind = o; o = align_up(o + sizeof(SceneBlobWind) * p.winds);
   p.off_character = o; o = align_up(o + sizeof(SceneBlobCharacter) * p.characters);
   p.off_script = o; o = align_up(o + sizeof(SceneBlobScript) * p.scripts); // v7
-  p.off_prop = o; o = align_up(o + sizeof(SceneBlobProp) * p.props);       // v8: EN SONDA (onceki ofsetler kaymaz)
+  p.off_prop = o; o = align_up(o + sizeof(SceneBlobProp) * p.props);       // v8
+  p.off_camera = o; o = align_up(o + sizeof(SceneBlobCamera) * p.cameras); // v10: EN SONDA (onceki ofsetler kaymaz)
+  p.off_audio = o; o = align_up(o + sizeof(SceneBlobAudio) * p.audios);
   p.total = o;
   return p;
 }
@@ -189,6 +197,8 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   h.character_count = p.characters; h.character_offset = (uint32_t)p.off_character;
   h.script_count = p.scripts; h.script_offset = (uint32_t)p.off_script; // v7
   h.prop_count = p.props; h.prop_offset = (uint32_t)p.off_prop;         // v8
+  h.camera_count = p.cameras; h.camera_offset = (uint32_t)p.off_camera; // v10
+  h.audio_count = p.audios; h.audio_offset = (uint32_t)p.off_audio;
   if (x) {
     h.resident_cpu = x->resident_cpu; h.resident_gpu = x->resident_gpu;
     h.peak_transient = x->peak_transient; h.peak_bytes = x->peak_bytes;
@@ -230,6 +240,8 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   auto *characters = reinterpret_cast<SceneBlobCharacter *>(b + p.off_character);
   auto *scripts = reinterpret_cast<SceneBlobScript *>(b + p.off_script);
   auto *props = reinterpret_cast<SceneBlobProp *>(b + p.off_prop);
+  auto *cameras = reinterpret_cast<SceneBlobCamera *>(b + p.off_camera);
+  auto *audios = reinterpret_cast<SceneBlobAudio *>(b + p.off_audio);
   char *strings = reinterpret_cast<char *>(b + p.off_string);
   uint32_t soff = 0;
   auto intern = [&](const char *s) {
@@ -249,6 +261,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   uint32_t npart = 0, nterr = 0, nvox = 0, nwat = 0, nwind = 0, nchar = 0; // v6
   uint32_t nscript = 0;                                                   // v7
   uint32_t nprop = 0;                                                     // v8
+  uint32_t ncam = 0, naud = 0;                                            // v10
   Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
   for (uint32_t i = 0; i < d.entity_count; i++) {
     const SceneEntity &e = d.entities[i];
@@ -378,6 +391,20 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
         props[nprop++] = r;
       }
     }
+    if (e.components & kSceneCamera) {
+      SceneBlobCamera ca{};
+      ca.entity = i; ca.fov_deg = e.cam_fov; ca.znear = e.cam_near; ca.zfar = e.cam_far;
+      cameras[ncam++] = ca;
+    }
+    if (e.components & kSceneAudio) {
+      SceneBlobAudio au{};
+      au.entity = i;
+      au.clip_len = (uint32_t)std::strlen(e.audio_clip);
+      au.clip = intern(e.audio_clip);
+      au.flags = (e.audio_loop ? kSceneBlobAudioLoop : 0u) | (e.audio_spatial ? kSceneBlobAudioSpatial : 0u);
+      au.volume = e.audio_volume;
+      audios[naud++] = au;
+    }
     ents[i] = be;
     const SceneBounds wb = scene_world_bounds(scene_entity_local_bounds(e, nullptr), m);
     lo = vmin(lo, wb.lo); hi = vmax(hi, wb.hi);
@@ -453,6 +480,9 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   if (!table_ok(h->character_offset, h->character_count, sizeof(SceneBlobCharacter), size)) return E.fail("karakter tablosu sinir disi");
   if (!table_ok(h->script_offset, h->script_count, sizeof(SceneBlobScript), size)) return E.fail("betik tablosu sinir disi");
   if (!table_ok(h->prop_offset, h->prop_count, sizeof(SceneBlobProp), size)) return E.fail("ozellik tablosu sinir disi"); // v8
+  if (!table_ok(h->camera_offset, h->camera_count, sizeof(SceneBlobCamera), size)) return E.fail("kamera tablosu sinir disi"); // v10
+  if (!table_ok(h->audio_offset, h->audio_count, sizeof(SceneBlobAudio), size)) return E.fail("ses tablosu sinir disi");
+  if (h->camera_count > h->entity_count || h->audio_count > h->entity_count) return E.fail("kamera/ses tablo sayisi varlik sayisindan buyuk");
   if (h->particle_count) { // v9: bayrak + alt yayici siniri kayit basina
     const SceneBlobParticle *pt = reinterpret_cast<const SceneBlobParticle *>(static_cast<const uint8_t *>(data) + h->particle_offset);
     for (uint32_t i = 0; i < h->particle_count; i++) {
@@ -491,6 +521,8 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   v.characters = h->character_count ? reinterpret_cast<const SceneBlobCharacter *>(b + h->character_offset) : nullptr;
   v.scripts = h->script_count ? reinterpret_cast<const SceneBlobScript *>(b + h->script_offset) : nullptr;
   v.props = h->prop_count ? reinterpret_cast<const SceneBlobProp *>(b + h->prop_offset) : nullptr;
+  v.cameras = h->camera_count ? reinterpret_cast<const SceneBlobCamera *>(b + h->camera_offset) : nullptr;
+  v.audios = h->audio_count ? reinterpret_cast<const SceneBlobAudio *>(b + h->audio_offset) : nullptr;
   v.strings = strings;
   for (uint32_t i = 0; i < h->resident_count; i++)
     if (v.residents[i].asset >= h->asset_count) return E.fail("yerlesik kaydi tanimsiz kaynaga bakiyor");
@@ -511,6 +543,22 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
     if (v.characters[i].entity >= h->entity_count) return E.fail("karakter kaydi tanimsiz varliga bakiyor");
   for (uint32_t i = 0; i < h->script_count; i++)
     if (v.scripts[i].entity >= h->entity_count) return E.fail("betik kaydi tanimsiz varliga bakiyor");
+  // v10: kopru kamerayi ve sesi varligin matrisinden kurar (entity DIZI INDEKSI) ve klibi dosya
+  // yolu olarak acar (NUL'lu metin, sinir icinde) — ikisi de burada olculur.
+  for (uint32_t i = 0; i < h->camera_count; i++) {
+    const SceneBlobCamera &c = v.cameras[i];
+    if (c.entity >= h->entity_count) return E.fail("kamera kaydi tanimsiz varliga bakiyor");
+    if (!(c.fov_deg > 0.0f && c.fov_deg < 180.0f) || !(c.znear > 0.0f) || !(c.zfar > c.znear))
+      return E.fail("kamera kaydi gecersiz (0 < fov < 180, 0 < yakin < uzak)");
+  }
+  for (uint32_t i = 0; i < h->audio_count; i++) {
+    const SceneBlobAudio &a = v.audios[i];
+    if (a.entity >= h->entity_count) return E.fail("ses kaydi tanimsiz varliga bakiyor");
+    if (a.clip >= h->string_size || a.clip + a.clip_len >= h->string_size) return E.fail("ses klibi yolu metin disi");
+    if (a.flags & ~kSceneBlobAudioKnownFlags) return E.fail("ses kaydinda bilinmeyen bayrak");
+    if (a.reserved0 || a.reserved1 || a.reserved2) return E.fail("ses kaydinin ayrilmis alani sifir degil");
+    if (!(a.volume >= 0.0f) || !(a.volume < 1.0e6f)) return E.fail("ses duzeyi negatif ya da sonlu degil");
+  }
   // Kume DAG: her dilim tablolarin icinde mi, dugum araliklari dilimin icinde mi,
   // cocuk baglantilari gecerli dugumu mu gosteriyor, indeksler mesh vertex'i mi.
   for (uint32_t i = 0; i < h->dag_mesh_count; i++) {
