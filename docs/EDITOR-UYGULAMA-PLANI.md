@@ -3,7 +3,7 @@
 > **Durum: UYGULANIYOR (başladı 2026-11-05).** Kararlar (kullanıcı): K1 Windows + Linux, K5 Basit
 > varsayılan, K6 ilk Oynat'ta tek tıkla kur; K2/K3/K4/K7/K8 önerildiği gibi (Inno Setup kullanıcı
 > başına, AppImage, nativefiledialog-extended, Tulpar logosu, APK menüsü U6'da).
-> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu), **U7b Windows yazıldı, CI ölçecek** (Inno Setup + başlatıcı)
+> Aşamalar: **U0 ✅**, **U1 ✅** (aşağıda §8), **U2 ✅** (§U2 altındaki not), **U3 ✅** (a: fabrika çekirdeği C++'ta, b: arena şablonu sahneden, c: başlangıç ekranı), **U4 ✅** (sistem dosya seçicisi; K4 değişti, §U4 notu), **U5 ✅** (Basit/Gelişmiş + ilk tur; §U5 notu ve §8 düzeltmesi), **U6 ✅** (Tulpar'ı kur/güncelle penceresi, Oyun > APK / Doğrula; §U6 notu), **U7a ✅** (paket kurulu düzende oyun üretir; §U7a notu), **U7b Linux ✅** (ikon, AppImage, masaüstü kaydı; §U7b notu), **U7b Windows yazıldı, CI ölçecek** (Inno Setup + başlatıcı), **U8 ✅** (Yardım: rehber, kısayollar, belgeler, çökme bildirimi; §U8 notu)
 > Bu belge iş başlayınca adım adım işaretlenir. Önceki editör belgeleri: `EDITOR-DURUM.md` (bileşen
 > matrisi, 2026-09-18), `EDITOR-PLAN.md` (E1–E5 kabuk/sahne fazları), `EDITOR-TASARIM.md`. Fabrika:
 > `FABRIKA.md`.
@@ -329,6 +329,31 @@ kapısı bir sayıya dayansın.
   (sürüm, lisanslar).
 - Çökme sonrası açılışta: "editör beklenmedik şekilde kapandı — rapor: <yol>, klasörü aç".
 - **Kapı:** kısayol sayfası komut tablosuyla aynı sayıda satır (tablo değişince sayfa kendiliğinden).
+
+**U8 notu (2026-11-06, yapıldı):**
+- **Yardım menüsü** (`app/editor_yardim`):
+  - Başlangıç rehberi: 5 kısa sayfa (ilk oyun, sahne, betik, oynat, Android).
+  - Kısayollar: ÇALIŞAN komut tablosundan üretilir; her komut bir satır, aramalı.
+  - Belgeler: GitHub `docs/`, tarayıcıda açılır.
+  - Hakkında zaten vardı.
+- **Çökme bildirimi:**
+  - Pencereli editör ayar dizinine `oturum.acik` işareti yazar, temiz kapanışta siler.
+  - İşaret durursa açılışta "beklenmedik şekilde kapandı" penceresi çıkar. En yeni çökme raporu
+    gösterilir; "Klasörü aç" ve "Yolu kopyala" düğmeleri vardır.
+  - Editöre `platform/crash` artık kuruluyor; raporlar `<ayar>/cokme` altına yazılıyor. Daha önce
+    editörde hiç kurulu değildi.
+  - İşaret, güncelleme sonrası yeniden başlatmadan ÖNCE silinir; yoksa yeni sürüm eski oturumu
+    "çökmüş" sanardı.
+- **Örnek sahne salt okunur yerdeyse** (AppImage, Program Files) açılışta söylenir: "Farklı kaydet
+  ile kendi klasörünüze kaydedin". U7b'nin bilinen sınırı buydu.
+- **Yan bulgu:** Stats kaplaması görünüm oturunca (kare 1–2) ilk kez açılıyor ve ImGui onu öndeki
+  pencerelerin üstüne koyuyordu. Açılışta açılan çökme penceresi onun ALTINDA kalıyordu. Yardım
+  pencereleri artık kare 4'ten sonra çiziliyor.
+- **Kapı** (`editor_ux.sh --kapi`):
+  - rehber, kısayollar ve çökme 1280x720'de kesik metin 0;
+  - kısayol sayfası 29 satır = tablo 29 komut.
+  - C++ testleri: tabloda kısayol değişince sayfa da değişiyor (pozitif kontrol); oturum işareti
+    çökmeyi yakalıyor, temiz kapanışı yakalamıyor.
 
 ### U9 — (ayrı karar) Bileşen boşlukları · kapsam U0'dan sonra belirlenir
 

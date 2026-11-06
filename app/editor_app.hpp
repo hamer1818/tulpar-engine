@@ -43,6 +43,8 @@ struct EditorOptions {
   // --arac apk|dogrula: Oyun menusundeki proje aracini ikinci karede baslat; penceresizde editor
   // aracin bitmesini bekler (U6 kapisi: menu -> betik -> Konsol -> cikis kodu).
   const char *arac = nullptr;
+  // --yardim rehber|kisayollar|cokme: yardim penceresini penceresizde de ac (U8 UX kapisi).
+  const char *yardim = nullptr;
   int tur_adim = 0;
   const char *karsilama_yeni = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni

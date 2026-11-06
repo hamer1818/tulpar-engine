@@ -100,6 +100,7 @@ int main(int argc, char **argv) {
     else if (!std::strcmp(argv[i], "--tur")) o.tur = true;
     else if (!std::strcmp(argv[i], "--kapisiz")) o.kapisiz = true;
     else if (!std::strcmp(argv[i], "--arac") && i + 1 < argc) o.arac = argv[++i];
+    else if (!std::strcmp(argv[i], "--yardim") && i + 1 < argc) o.yardim = argv[++i];
     else if (!std::strcmp(argv[i], "--tur-adim") && i + 1 < argc) { o.tur = true; o.tur_adim = std::atoi(argv[++i]); }
     else if (!std::strcmp(argv[i], "--karsilama-yeni") && i + 1 < argc) { o.karsilama_yeni = argv[++i]; o.karsilama = true; }
   }

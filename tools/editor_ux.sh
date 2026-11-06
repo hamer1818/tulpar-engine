@@ -49,6 +49,12 @@ bosev="$DIZIN/bos_ev"; mkdir -p "$bosev"
     "$ED" --headless 10 --kapisiz --scene "$SAHNE_A" --komut oynat.oyunu_calistir > "$DIZIN/u6_ret.log" 2>&1 ) &
 ( cd "$KOK" && DISPLAY= "$ED" --headless 10 --kapisiz --scene "$DIZIN/yeni_oyun/assets/arena.sahne" --arac dogrula > "$DIZIN/u6_dog.log" 2>&1 ) &
 ( cd "$KOK" && DISPLAY= "$ED" --headless 10 --kapisiz --arac apk > "$DIZIN/u6_apk.log" 2>&1 ) &
+# U8 Yardim: rehber / kisayollar / cokme bildirimi 1280x720'de kesik metin 0; kisayol sayfasi komut
+# tablosuyla ayni sayida satir (pozitif kontrolu C++ testinde: tablo degisince sayfa degisir).
+for y in rehber kisayollar cokme; do
+  ( cd "$KOK" && DISPLAY= "$ED" --headless 14 --kapisiz --size 1280x720 --yardim "$y" --ux-rapor "$DIZIN/u8_$y.txt" \
+      > "$DIZIN/u8_$y.log" 2>&1 ) &
+done
 wait
 al() { sed -n "s/.* $2=\([0-9.]*\).*/\1/p" <<< "$1"; }
 kirmizi=0
@@ -93,6 +99,12 @@ u6 "penceresiz editor TULPAR_ENGINE_HEADLESS'siz oyun acmadi" "grep -q 'oyun: RE
 u6 "Oyun > Dogrula: projenin kapilari gecti" \
   "grep -q 'deneme_oyunu dogrulama: [0-9]* gecti, 0 dustu' '$DIZIN/u6_dog.log' && grep -q 'arac: .*durum bitti, cikis kodu 0' '$DIZIN/u6_dog.log'"
 u6 "Oyun > APK: fabrika projesi olmayan yerde reddedildi" "grep -q 'arac: REDDEDILDI' '$DIZIN/u6_apk.log'"
+for y in rehber kisayollar cokme; do
+  k=$(al "$(head -1 "$DIZIN/u8_$y.txt" 2>/dev/null)" kesik)
+  u6 "yardim $y: kesik metin ${k:-rapor yok}" "[ '${k:-x}' = 0 ]"
+done
+ks="$(sed -n 's/.*kisayollar: \([0-9]*\) satir, tablo \([0-9]*\) komut.*/\1 \2/p' "$DIZIN/u8_kisayollar.log")"
+u6 "kisayol sayfasi = komut tablosu (${ks:-satir yok})" "[ -n '$ks' ] && [ '${ks% *}' = '${ks#* }' ]"
 echo "raporlar: $DIZIN"
 [ "$KAPI" = 1 ] && { [ $kirmizi = 0 ] && echo "EDITOR UX: YESIL" || echo "EDITOR UX: KIRMIZI"; }
 exit $kirmizi

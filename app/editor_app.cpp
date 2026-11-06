@@ -94,6 +94,8 @@
 #include "core/build_info.hpp"
 #include "app/editor_fabrika.hpp"
 #include "app/editor_masaustu.hpp"
+#include "app/editor_yardim.hpp"
+#include "platform/crash.hpp"
 #include "platform/fs.hpp"
 #include "platform/fs_ops.hpp"
 #include "rhi/offscreen.hpp"
@@ -1948,6 +1950,29 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 #endif
     std::snprintf(gecici_ayar, sizeof gecici_ayar, "%s", ayar_env);
   }
+  // Yardim (U8) + oturum isareti: onceki pencereli oturum temiz kapanmadiysa acilista bildirilir;
+  // cokme raporlari <ayar>/cokme altina (platform/crash). Penceresizde ayar dizini gecici: atlanir.
+  static YardimDurum yardim;
+  static char oturum_ayar[1024] = {0};
+  if (!headless && platform::user_config_dir(oturum_ayar, sizeof oturum_ayar)) {
+    yardim.cokme = yardim_oturum_baslat(oturum_ayar, yardim.cokme_rapor, sizeof yardim.cokme_rapor);
+    std::snprintf(yardim.cokme_dizin, sizeof yardim.cokme_dizin, "%s/cokme", oturum_ayar);
+    if (platform::fs_mkdir_p(yardim.cokme_dizin)) {
+      platform::CrashConfig cc;
+      cc.report_dir = yardim.cokme_dizin;
+      cc.build_id = build_version()[0] ? build_version() : "engine_editor";
+      platform::crash_reporter_install(cc);
+    }
+  }
+  if (opts.yardim) {
+    if (!std::strcmp(opts.yardim, "rehber")) yardim.rehber = true;
+    else if (!std::strcmp(opts.yardim, "kisayollar")) yardim.kisayollar = true;
+    else if (!std::strcmp(opts.yardim, "cokme")) {
+      yardim.cokme = true;
+      std::snprintf(yardim.cokme_rapor, sizeof yardim.cokme_rapor, "%s", "/ornek/ayar/cokme/crash_1234_11.txt");
+      std::snprintf(yardim.cokme_dizin, sizeof yardim.cokme_dizin, "%s", "/ornek/ayar/cokme");
+    }
+  }
   // Basit / Gelismis kip (U5): --kip > (pencereli) kayitli tercih > basit; penceresizde gelismis.
   {
     bool gel = headless;
@@ -3527,7 +3552,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     TurDurum *tur = nullptr;        // Yardim > Ilk turu yeniden goster (U5)
     int *arac_istek = nullptr;      // Oyun > Android APK / Dogrula (U6)
     const GameRun *arac = nullptr;
-  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama, &tur, &arac_istek, &arac};
+    YardimDurum *yardim = nullptr;  // Yardim > rehber / kisayollar (U8)
+  } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama, &tur, &arac_istek, &arac, &yardim};
   ChromeMenuExtra menu_extra;
   menu_extra.ctx = &mx;
   menu_extra.on_badge = [](void *ctx) {
@@ -3557,6 +3583,23 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       ImGui::EndMenu();
     } else if (cat == CommandCategory::Help) {
+      if (m->yardim) {
+        if (ImGui::MenuItem("Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 rehberi")) m->yardim->rehber = true;
+        if (ImGui::MenuItem("K\xC4\xB1sayollar")) m->yardim->kisayollar = true;
+        if (ImGui::MenuItem("Belgeler (taray\xC4\xB1" "c\xC4\xB1" "da)")) {
+#if defined(_WIN32)
+          const CodeEditorCandidate c[] = {{"explorer.exe", nullptr}};
+#elif defined(__APPLE__)
+          const CodeEditorCandidate c[] = {{"open", nullptr}};
+#else
+          const CodeEditorCandidate c[] = {{"xdg-open", nullptr}};
+#endif
+          char used[128], err[256];
+          if (!editor_open_with_candidates(kYardimBelgeAdresi, c, 1, used, sizeof used, err, sizeof err) && m->st)
+            set_status(*m->st, "taray\xC4\xB1" "c\xC4\xB1 a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s (%s)", err, kYardimBelgeAdresi);
+        }
+        ImGui::Separator();
+      }
       if (m->tur && ImGui::MenuItem("\xC4\xB0lk turu yeniden g\xC3\xB6ster")) { m->tur->acik = true; m->tur->adim = 0; }
 #if !defined(_WIN32) && !defined(__APPLE__)
       // U7b: uygulama menusu + ikon + .sahne cift tik (AppImage bunu ilk acilista kendisi yapar).
@@ -8915,7 +8958,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       } else if (ke == KarsilamaEylem::Ornek) {
         char yol[1024];
         platform::asset_path(yol, sizeof yol, "tests/assets/editor.sahne");
-        if (load_scene_from(yol)) karsilama.acik = false;
+        if (load_scene_from(yol)) {
+          karsilama.acik = false;
+          // Kurulu editorde (AppImage squashfs, Program Files) ornek SALT OKUNUR bir yerde: Kaydet duser.
+          // Kullaniciya once soylenir (U8; U7b'de bilinen sinir olarak yazildi).
+          char sina[1200];
+          std::snprintf(sina, sizeof sina, "%s/.tulpar_yazma_sinamasi.%u", st.scene_dir, (unsigned)platform::fs_process_id());
+          std::FILE *wf = std::fopen(sina, "wb");
+          if (wf) { std::fclose(wf); std::remove(sina); }
+          else {
+            set_status(st, "\xC3\x96rnek sahne salt okunur bir yerde: de\xC4\x9Fi\xC5\x9Fiklikleri Dosya > Farkl\xC4\xB1 kaydet ile kendi klas\xC3\xB6r\xC3\xBC" "n\xC3\xBCze kaydedin");
+            console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "\xC3\xB6rnek sahne salt okunur (%s): Farkl\xC4\xB1 kaydet kullan\xC4\xB1n", st.scene_dir);
+          }
+        }
       } else if (ke == KarsilamaEylem::Kapat) {
         karsilama.acik = false;
       }
@@ -9079,6 +9134,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
     }
     if (tur.acik && !karsilama.acik) tur_ciz(tur);
+    {
+      // Yardim pencereleri (U8). Kisayol sayfasi CALISAN tablodan (kullanici kisayollari dahil).
+      static CommandDesc tablo[kCommandCount];
+      for (uint32_t k = 1; k <= kCommandCount; k++) tablo[k - 1] = cmds.desc((CommandId)k);
+      // Ilk karelerde CIZILMEZ: Stats kaplamasi gorunum olcusu oturunca (kare 1-2) ilk kez Begin edilir;
+      // ImGui yeni pencereyi ustte acar, yani acilista (cokme bildirimi) erkenden acilan pencere onun
+      // ALTINDA kaliyordu (U8 kapisinin goruntusunde goruldu, 2026-11-06).
+      if (frame_i >= 4) yardim_ciz(yardim, tablo, kCommandCount);
+      if (opts.yardim && frame_i == 8 && yardim.kisayollar)
+        std::printf("[engine_editor] kisayollar: %u satir, tablo %u komut\n", yardim.son_kisayol_satiri, kCommandCount);
+    }
     if (opts.ux_rapor) {
       const ImVec2 ds = ImGui::GetIO().DisplaySize;
       ux_olcum_kare(g_ux_olcum, UxRect{view_rect.x, view_rect.y, view_rect.w, view_rect.h}, UxRect{0, 0, ds.x, ds.y},
@@ -9795,6 +9861,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // yazildi, eski surecin hicbir kaynagi (GPU, pencere dosyasi) kalmadi. Hata
   // olursa kullanicinin gorecegi yere de yazilir (engine_hata.log): pencere
   // kapanmak uzere, durum cubugu artik yok.
+  // Temiz kapanis: oturum isareti kalkar. Guncelleme sonrasi yeniden baslatmadan ONCE — yoksa yeni
+  // surum onceki oturumu "cokmus" sanardi.
+  if (oturum_ayar[0]) yardim_oturum_bitir(oturum_ayar);
   if (restart_after_update) {
     char e[512] = {0};
     if (update_ui_restart(upd_ui, opts.argc, opts.argv, st.scene_path, e, sizeof e))
