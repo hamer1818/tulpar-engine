@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 391
+#define TENG_ABI_COUNT 397
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -380,6 +380,12 @@ TENG_ABI(int, eng_notify_stat, teng_notify_stat, (int))
 TENG_ABI(const char *, eng_notify_last, teng_notify_last, (void))
 TENG_ABI(int, eng_open_url, teng_open_url, (const char *))
 TENG_ABI(int, eng_open_url_stat, teng_open_url_stat, (int))
+TENG_ABI(int, eng_google_signin, teng_google_signin, (const char *))
+TENG_ABI(int, eng_google_state, teng_google_state, (void))
+TENG_ABI(const char *, eng_google_token, teng_google_token, (void))
+TENG_ABI(const char *, eng_google_error, teng_google_error, (void))
+TENG_ABI(void, eng_google_reset, teng_google_reset, (void))
+TENG_ABI(int, eng_google_stat, teng_google_stat, (void))
 TENG_ABI(int, eng_ls_begin, teng_ls_begin, (int, int, int, int, int, int))
 TENG_ABI(void, eng_ls_end, teng_ls_end, (void))
 TENG_ABI(int, eng_ls_cmd, teng_ls_cmd, (int, int, int))

@@ -457,6 +457,12 @@ SPEC = [
     ("eng_notify_last", "str", [], "Son gonderilen bildirimin 'baslik|metin' ozeti ('' = yok; penceresiz dogrulama)."),
     ("eng_open_url", "bool", [("url", "str")], "BAGLANTI AC: Android'de sistem tarayicisi (Intent ACTION_VIEW). Yalniz http:// ve https:// (baska sema HATA). Masaustunde tarayici acilmaz: bilgi satiri + false (oyun adresi ekranda gostersin)."),
     ("eng_open_url_stat", "int", [("which", "int")], "Baglanti sayaci: 0 acilan, 1 reddedilen ya da acilamayan."),
+    ("eng_google_signin", "int", [("client_id", "str")], "GOOGLE ILE GIRIS (KOPRU §16): Android'de alttan acilan hesap secici (Credential Manager; Chrome yok). client_id = sunucunun Google 'Web uygulamasi' istemci kimligi (id_token'in aud'u). Doner: 1 basladi, 0 zaten suruyor / gecersiz kimlik, -1 bu platformda ya da APK'da yok (tools/android_google.py; oyun tarayici yoluna dussun). Sonuc eng_google_state ile yoklanir."),
+    ("eng_google_state", "int", [], "Google girisi durumu: 0 bos, 1 suruyor, 2 tamam (eng_google_token hazir), 3 oyuncu vazgecti, 4 hata (eng_google_error), 5 cihazda Google hesabi yok, 6 kullanilamaz."),
+    ("eng_google_token", "str", [], "Durum 2 iken id_token (JWT; SUNUCUDA dogrulanmali), degilse ''."),
+    ("eng_google_error", "str", [], "Son Google girisi hata metni ('' = yok)."),
+    ("eng_google_reset", "void", [], "Google girisi durumunu 0'a dondurur (suruyorken etkisiz)."),
+    ("eng_google_stat", "int", [], "Baslatilan Google girisi sayisi (dogrulama)."),
     # --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ---
     ("eng_ls_begin", "bool", [("seat", "int"), ("delay", "int"), ("group", "int"), ("session", "int"), ("hash_every", "int"), ("flags", "int")], "Kilit adim oturumu (iki koltuk). seat 0/1 yerel koltuk; yerel komut tick+delay'e yazilir; kare basina TAM group tik ya da hic; her hash_every tik'te durum ozeti saklanir/karsilastirilir. flags: 1 cevrimici (paket, onay, yedek, RTT), 2 kanonik sira ters (POZITIF KONTROL). Tik 0'dan; 0..delay-1 bos. Motor kurulmadan da calisir."),
     ("eng_ls_end", "void", [], "Kilit adim oturumunu kapatir."),

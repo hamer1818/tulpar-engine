@@ -16,6 +16,7 @@
 //               yeniden baglanir. KONTROL: kapanistan once ayni portu ikinci kez acmak
 //               basarisiz (bind: port kullanimda) ve kNetStatOpenFail sayar.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "bridge/bridge_host.hpp"
@@ -275,4 +276,60 @@ ENGINE_TEST(bridge_open_url_scheme_guard) {
   CHECK(teng_open_url_stat(0) == a0 + 2 && teng_open_url_stat(1) == r0 + 1 + 7);
   CHECK(teng_error_count() == h0 + 7);
   bridge::bridge_url_host(nullptr);
+}
+
+// Google ile giris (KOPRU §16): masaustunde host yok -> -1/6; sahte jeton ortam degiskeni; sahte host ile
+// suruyor -> tamam / vazgecildi; gecersiz istemci kimligi HATA ve host'a hic ulasmaz.
+namespace {
+int g_gg_basla = 0, g_gg_yokla = 0, g_gg_sonuc = 2, g_gg_sifirla = 0;
+char g_gg_istemci[128] = {0};
+int sahte_gg_basla(const char *c) { g_gg_basla++; std::snprintf(g_gg_istemci, sizeof g_gg_istemci, "%s", c); return 1; }
+int sahte_gg_yokla(char *tok, size_t tc, char *err, size_t ec) {
+  if (++g_gg_yokla < 3) return 1; // iki kare "suruyor"
+  if (g_gg_sonuc == 2) std::snprintf(tok, tc, "baslik.govde.imza");
+  else std::snprintf(err, ec, "GetCredentialCancellationException: vazgecti");
+  return g_gg_sonuc;
+}
+void sahte_gg_sifirla() { g_gg_sifirla++; }
+void ortam(const char *k, const char *v) {
+#if defined(_WIN32)
+  _putenv_s(k, v ? v : "");
+#else
+  if (v) setenv(k, v, 1); else unsetenv(k);
+#endif
+}
+} // namespace
+ENGINE_TEST(bridge_google_signin_paths) {
+  const char *ist = "123-abc.apps.googleusercontent.com";
+  ortam("TULPAR_ENGINE_GOOGLE_SAHTE", nullptr);
+  teng_google_reset();
+  const int h0 = teng_error_count();
+  CHECK(teng_google_signin(ist) == -1 && teng_google_state() == 6 && std::strlen(teng_google_error()) > 0); // masaustu
+  CHECK(std::strcmp(teng_google_token(), "") == 0);
+  teng_google_reset();
+  ortam("TULPAR_ENGINE_GOOGLE_SAHTE", "s.a.imza");
+  const int st0 = teng_google_stat();
+  CHECK(teng_google_signin(ist) == 1 && teng_google_state() == 2 && std::strcmp(teng_google_token(), "s.a.imza") == 0);
+  CHECK(teng_google_stat() == st0 + 1);
+  ortam("TULPAR_ENGINE_GOOGLE_SAHTE", nullptr);
+  teng_google_reset();
+  CHECK(teng_google_state() == 0 && std::strcmp(teng_google_token(), "") == 0);
+  bridge::bridge_google_host(sahte_gg_basla, sahte_gg_yokla, sahte_gg_sifirla);
+  // KONTROL: gecersiz istemci kimligi host'a ulasmaz
+  CHECK(teng_google_signin("") == 0 && teng_google_signin("a b c d e f") == 0 && teng_google_signin(nullptr) == 0);
+  CHECK(g_gg_basla == 0 && teng_error_count() == h0 + 3);
+  CHECK(teng_google_signin(ist) == 1 && g_gg_basla == 1 && std::strcmp(g_gg_istemci, ist) == 0);
+  CHECK(teng_google_signin(ist) == 0 && g_gg_basla == 1); // suruyor: ikinci istek yok
+  CHECK(teng_google_state() == 1 && teng_google_state() == 1 && std::strcmp(teng_google_token(), "") == 0);
+  CHECK(teng_google_state() == 2 && std::strcmp(teng_google_token(), "baslik.govde.imza") == 0);
+  teng_google_reset();
+  CHECK(g_gg_sifirla == 1 && teng_google_state() == 0);
+  g_gg_yokla = 0;
+  g_gg_sonuc = 3;
+  CHECK(teng_google_signin(ist) == 1);
+  while (teng_google_state() == 1) {}
+  CHECK(teng_google_state() == 3 && std::strcmp(teng_google_token(), "") == 0 && std::strstr(teng_google_error(), "vazgecti") != nullptr);
+  teng_google_reset();
+  bridge::bridge_google_host(nullptr, nullptr, nullptr);
+  CHECK(teng_error_count() == h0 + 3);
 }

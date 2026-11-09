@@ -576,6 +576,85 @@ bool android_open_url(const char *url) {
   std::printf("[engine_bridge] android: baglanti %s\n", ok ? "acildi" : "ACILAMADI (tarayici yok / JNI)");
   return ok;
 }
+// --- Google ile giris (teng_google_*, KOPRU §16) ----------------------------------
+// Java sinifi dev.tulparlang.engine.GoogleGiris (Credential Manager) APK'ya ancak oyun Google paketini
+// isterse girer (tools/android_google.py). NativeActivity'nin yerel is parcacigindaki FindClass sistem sinif
+// yukleyicisini kullanir, uygulama siniflarini GORMEZ: sinif etkinligin getClassLoader()'indan yuklenir ve
+// GlobalRef'te tutulur. Bulunamazsa (paket yok) start -1: oyun tarayici yoluna duser.
+jclass g_google_sinif = nullptr;
+bool g_google_yok = false;   // bir kez arandi, yok: her tiklamada istisna uretme
+jclass google_sinif(JNIEnv *e, JniScope &j) {
+  if (g_google_sinif || g_google_yok) return g_google_sinif;
+  jobject act = g_share_app->activity->clazz;
+  jmethodID gcl = e->GetMethodID(e->GetObjectClass(act), "getClassLoader", "()Ljava/lang/ClassLoader;");
+  jobject cl = gcl && j.ok() ? e->CallObjectMethod(act, gcl) : nullptr;
+  jclass clc = cl && j.ok() ? e->FindClass("java/lang/ClassLoader") : nullptr;
+  jmethodID load = clc && j.ok() ? e->GetMethodID(clc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;") : nullptr;
+  jobject c = load && j.ok() ? e->CallObjectMethod(cl, load, e->NewStringUTF("dev.tulparlang.engine.GoogleGiris")) : nullptr;
+  if (!c || !j.ok()) {
+    g_google_yok = true;
+    std::printf("[engine_bridge] android: google girisi YOK (dev.tulparlang.engine.GoogleGiris bu APK'da degil — tools/android_google.py)\n");
+    return nullptr;
+  }
+  g_google_sinif = (jclass)e->NewGlobalRef(c);
+  return g_google_sinif;
+}
+int android_google_start(const char *client) {
+  if (!g_share_app) return -1;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return -1;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return -1; }
+  int r = -1;
+  jclass c = google_sinif(e, j);
+  jmethodID m = c ? e->GetStaticMethodID(c, "basla", "(Landroid/app/Activity;Ljava/lang/String;)I") : nullptr;
+  if (m && j.ok()) {
+    r = e->CallStaticIntMethod(c, m, g_share_app->activity->clazz, e->NewStringUTF(client));
+    if (!j.ok()) r = -1;
+  } else {
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: google hesap secici %s\n", r == 1 ? "acildi" : r == 0 ? "zaten acik" : "ACILAMADI");
+  return r;
+}
+static void jkopya(JNIEnv *e, jstring s, char *out, size_t cap) {
+  if (!out || cap == 0) return;
+  out[0] = 0;
+  if (!s) return;
+  const char *u = e->GetStringUTFChars(s, nullptr);
+  if (u) { std::snprintf(out, cap, "%s", u); e->ReleaseStringUTFChars(s, u); }
+}
+int android_google_poll(char *tok, size_t tcap, char *err, size_t ecap) {
+  if (!g_share_app || !g_google_sinif) return 4;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return 1;
+  if (e->PushLocalFrame(8) != 0) { j.ok(); return 1; }
+  jmethodID md = e->GetStaticMethodID(g_google_sinif, "durum", "()I");
+  int d = md && j.ok() ? e->CallStaticIntMethod(g_google_sinif, md) : 1;
+  if (!j.ok()) d = 1;
+  if (d >= 2) {
+    jmethodID mt = e->GetStaticMethodID(g_google_sinif, "jeton", "()Ljava/lang/String;");
+    jmethodID mh = mt && j.ok() ? e->GetStaticMethodID(g_google_sinif, "hata", "()Ljava/lang/String;") : nullptr;
+    if (mt && mh && j.ok()) {
+      jkopya(e, (jstring)e->CallStaticObjectMethod(g_google_sinif, mt), tok, tcap);
+      if (j.ok()) jkopya(e, (jstring)e->CallStaticObjectMethod(g_google_sinif, mh), err, ecap);
+    }
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  return d;
+}
+void android_google_reset() {
+  if (!g_share_app || !g_google_sinif) return;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return;
+  jmethodID m = e->GetStaticMethodID(g_google_sinif, "sifirla", "()V");
+  if (m && j.ok()) e->CallStaticVoidMethod(g_google_sinif, m);
+  j.ok();
+}
 // --- Ag: Wi-Fi yayin kilidi (teng_net_wifi_lock, N2a 2026-10-23) ----------------
 // Cogu telefonun Wi-Fi surucusu guc tasarrufu icin coklu yayin VE yayin paketlerini
 // kilit yokken suzer: ayni agdaki rakibi bulan UDP yayini (oyun TASARIM §21) hic
@@ -891,6 +970,7 @@ extern "C" void android_main(android_app *app) {
   bridge::bridge_net_host(android_wifi_lock); // teng_net_wifi_lock: MulticastLock (g_share_app ile ayni Activity)
   bridge::bridge_notify_host(android_notify, android_notify_permission); // teng_notify (WoE M6)
   bridge::bridge_url_host(android_open_url);                              // teng_open_url
+  bridge::bridge_google_host(android_google_start, android_google_poll, android_google_reset); // teng_google_*
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
   // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun
