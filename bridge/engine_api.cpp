@@ -6647,6 +6647,55 @@ namespace tulpar::engine::bridge {
 void bridge_net_host(bool (*wifi_lock)(bool on)) { g_net.wifi_lock = wifi_lock; }
 } // namespace tulpar::engine::bridge
 
+// --- YEREL BILDIRIM (WoE M6, 2026-11-09; KOPRU §15) ------------------------------------------------
+// Oyun arka plandayken olaylari (rapor geldi, insaat bitti) bildirim cubuguna yazar. Android host
+// yolu verir (bridge_notify_host); masaustunde bildirim cubugu entegrasyonu YOK: bilgi satiri + sayac,
+// oyun ayni kodla penceresiz dogrulanir. Uzak (push) bildirim degil — surec olmusse gelmez.
+namespace {
+struct Notify {
+  bool (*post)(const char *title, const char *text, int id) = nullptr;
+  int (*permission)(bool request) = nullptr;
+  uint32_t stat[4] = {0, 0, 0, 0}; // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi
+  char last[256] = {0};            // son gonderilenin "baslik|metin" ozeti (dogrulama)
+};
+Notify g_notify;
+} // namespace
+namespace tulpar::engine::bridge {
+void bridge_notify_host(bool (*post)(const char *, const char *, int), int (*permission)(bool)) {
+  g_notify.post = post;
+  g_notify.permission = permission;
+}
+} // namespace tulpar::engine::bridge
+extern "C" {
+int teng_notify(const char *title, const char *text, int id) {
+  CALLF("teng_notify", "%d", id);
+  if (!title || !*title) { BERR("teng_notify: baslik bos"); g_notify.stat[1]++; return 0; }
+  if (id < 0) { BERR("teng_notify: kimlik %d gecersiz (>= 0; ayni kimlik oncekinin yerine gecer)", id); g_notify.stat[1]++; return 0; }
+  if (!text) text = "";
+  bool ok = true;
+  if (g_notify.post) ok = g_notify.post(title, text, id);
+  else BINFO("bildirim #%d (bu platformda bildirim cubugu yok, yalniz kayit): %s — %s", id, title, text);
+  if (ok) {
+    g_notify.stat[0]++;
+    std::snprintf(g_notify.last, sizeof g_notify.last, "%s|%s", title, text);
+  } else {
+    g_notify.stat[1]++;
+  }
+  return ok ? 1 : 0;
+}
+int teng_notify_permission(int request) {
+  CALLF("teng_notify_permission", "%d", request);
+  g_notify.stat[request ? 3 : 2]++;
+  if (!g_notify.permission) return 1; // masaustu: izin kavrami yok
+  return g_notify.permission(request != 0) ? 1 : 0;
+}
+int teng_notify_stat(int which) {
+  if (which < 0 || which > 3) { BERR("teng_notify_stat: %d gecersiz (0..3)", which); return 0; }
+  return (int)g_notify.stat[which];
+}
+const char *teng_notify_last(void) { return g_notify.last; }
+} // extern "C"
+
 extern "C" {
 int teng_net_open(int port, int broadcast) {
   CALLF("teng_net_open", "%d %d", port, broadcast);

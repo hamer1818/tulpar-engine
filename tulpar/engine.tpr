@@ -1542,6 +1542,19 @@ func net_stat(int which): int { return eng_net_stat(which); }
 func udp_wifi_kilidi(ac): bool { return eng_net_wifi_lock(ac); }
 func net_wifi_lock(on): bool { return eng_net_wifi_lock(on); }
 
+// ---- Yerel bildirim (WoE M6, 2026-11-09; KOPRU §15) ----
+// Android'de bildirim çubuğu (13+ için tulpar.toml [android] bildirim = true ve izin sorusu);
+// masaüstünde bilgi satırı. Aynı kimlik öncekinin yerine geçer. Süreç ölmüşse gelmez (push değil).
+func bildirim_gonder(str baslik, str yazi, int kimlik): bool { return eng_notify(baslik, yazi, kimlik); }
+func notify(str title, str text, int id): bool { return eng_notify(title, text, id); }
+func bildirim_izni(sor): bool { return eng_notify_permission(sor); }
+func notify_permission(request): bool { return eng_notify_permission(request); }
+// 0 gönderilen, 1 başarısız, 2 izin sorgusu, 3 izin isteği
+func bildirim_sayac(int hangi): int { return eng_notify_stat(hangi); }
+func notify_stat(int which): int { return eng_notify_stat(which); }
+func bildirim_son(): str { return eng_notify_last(); }
+func notify_last(): str { return eng_notify_last(); }
+
 // ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
 // Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }
 func kilit_basla(int koltuk, int gecikme, int grup, int oturum, int ozet_araligi, int bayrak): bool { return eng_ls_begin(koltuk, gecikme, grup, oturum, ozet_araligi, bayrak); }

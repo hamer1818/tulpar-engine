@@ -70,6 +70,10 @@ void bridge_report_crash_extra(int fd);
 // gerekmez, teng_net_wifi_lock 1 doner. nullptr: kapat (testler).
 void bridge_net_host(bool (*wifi_lock)(bool on));
 
+// Yerel bildirim (teng_notify, WoE M6): Android host bildirim cubuguna yazma + izin (POST_NOTIFICATIONS)
+// yolunu verir. Masaustu cagirmaz: teng_notify bilgi satiri yazar, sayar ve 1 doner. nullptr: kapat (testler).
+void bridge_notify_host(bool (*post)(const char *title, const char *text, int id), int (*permission)(bool request));
+
 // Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
 // varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:
 // yayin APK'sinda sahte reklam/bedava satin alma oyuncuya gorunmesin.

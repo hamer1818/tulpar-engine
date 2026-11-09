@@ -1515,4 +1515,33 @@ Ilk cevrimici yonetim oyunu (Warlords of Era) motorda dort eksik buldu (oyun dep
 | Kapasite | — | `kMaxImages` 32 -> 96 (renderer doku havuzu 128, sahneyle ortak), `kMaxHud` 1024 -> 4096, `engine.tpr _UI_KAYIT_MAX` 128 -> 512. | — |
 
 Windows linki `-lbcrypt` alir (mbedTLS entropisi BCryptGenRandom). Android arsiv listesine `engine_mbedtls` eklendi
-(`tools/build_bridge_android.sh`, `ANDROID_LIBS`); cihazda https kok dizini okumasi **olculmedi**.
+(`tools/build_bridge_android.sh`, `ANDROID_LIBS`). Cihazda olculdu (2026-11-09, emulator API 37): Android cacerts
+dizininden kok yukleme + gercek sunucuya https 200 (oyun deposu `tools/android_ag_dene.sh HTTPS=1`).
+
+## 15. Yerel bildirim (WoE M6, 2026-11-09)
+
+Yonetim oyununda olaylar oyuncu uygulamada degilken biter (insaat, egitim, sefer). Motor bunlari **bildirim
+cubuguna** yazar; oyun ne zaman yazacagina kendisi karar verir (Warlords of Era `ag/bildirim.tpr`: `arka_planda()`
+iken durum farki).
+
+| ABI | Tulpar | Davranis |
+|---|---|---|
+| `teng_notify(baslik, metin, id)` | `bildirim_gonder` / `notify` | Android: `Notification.Builder` + `NotificationManager.notify`; kanal `tulpar_oyun` (API 26+, IMPORTANCE_DEFAULT); kucuk simge uygulama simgesi (yoksa `android.R.drawable.ic_dialog_info`); dokununca uygulama acilir (`getLaunchIntentForPackage`, `PendingIntent.FLAG_IMMUTABLE`). Ayni `id` oncekinin yerine gecer. Bos baslik / `id < 0` HATA. Izin yoksa **gondermeden** 0 (Android izinsiz `notify`'i sessizce yutar; yanlis "gonderildi" olmasin diye once izin bakilir). Masaustu: bilgi satiri + sayac, 1. |
+| `teng_notify_permission(sor)` | `bildirim_izni` / `notify_permission` | 1 = izin var (API 33+ `checkSelfPermission(POST_NOTIFICATIONS)` ve `areNotificationsEnabled`). `sor=1` ve izin yoksa `Activity.requestPermissions` (oyun thread'inden; sonuc asenkron, oyun sonra yeniden bakar). Masaustu 1. |
+| `teng_notify_stat(0..3)` | `bildirim_sayac` | 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi. |
+| `teng_notify_last()` | `bildirim_son` | Son gonderilenin `baslik|metin` ozeti (penceresiz dogrulama). |
+
+Manifest izni derleyiciden: `tulpar.toml [android] bildirim = true` ya da `TULPAR_ANDROID_BILDIRIM=1` (TulparLang
+`dil/kacis-duzeltmeleri`, PR #496; varsayilan kapali). Host yolu `bridge_notify_host(post, permission)`
+(`bridge/bridge_host.hpp`); testler sahte host verir.
+
+Sinirlar: **uzak (push) bildirim degil** — surec oldurulmusse gelmez (FCM, Gradle + Google hesabi ister). Zamanli
+bildirim (AlarmManager) yok: NativeActivity paketinde BroadcastReceiver sinifi yok. Oyun arka plandayken kare
+dongusu `HostPoll::NoWindow` ile surdugu icin surec yasadikca olaylar yakalanir.
+
+Olculen: `tests/test_bridge_net.cpp bridge_notify_desktop_and_host_paths` (masaustu yolu, sahte host izin var/yok,
+gecersiz girdi host'a ulasmaz). Cihaz (emulator API 37, oyun deposu `tools/android_dene.sh`): otopilot turunda 3
+bildirim `dumpsys notification`'da (Insaat bitti / Egitim bitti / Savas raporu geldi); POZITIF KONTROL
+`BILDIRIM_IZIN=0` (izin geri alinir) -> 0 bildirim, kapi KIRMIZI, log "bildirim GOSTERILMEDI — izin yok". Izin
+istegi oyun thread'inden sistem penceresini acti ("Allow Warlords of Era to send you notifications?"), "Allow"
+sonrasi `granted=true`.

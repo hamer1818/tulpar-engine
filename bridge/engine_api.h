@@ -785,6 +785,12 @@ const char *teng_net_broadcast_ip(void); // yonlendirilmis yayin, yoksa 255.255.
 int teng_net_stat(int which);            // 0 acik .. 10 recv hatasi (KOPRU §11 tablosu)
 int teng_net_wifi_lock(int on);          // Android MulticastLock; masaustunde 1 (gerekmez)
 
+// --- yerel bildirim (WoE M6, 2026-11-09; KOPRU §15) --------------------------------------------------
+int teng_notify(const char *title, const char *text, int id); // 1 gonderildi; 0 izin yok / hata. Ayni id = yerine gecer
+int teng_notify_permission(int request);  // 1 izin var; request=1 yoksa sorar (Android 13+). Masaustunde 1
+int teng_notify_stat(int which);          // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi
+const char *teng_notify_last(void);       // son gonderilen "baslik|metin" ("" = yok)
+
 // --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1, sim/lockstep.hpp) ----------
 // Motor kurulmadan da calisir; teng_shutdown kapatir. flags: 1 cevrimici (paket + onay + ozet
 // karsilastirma), 2 kanonik sira TERS (pozitif kontrol). Kare: n = teng_ls_frame(); her tik:

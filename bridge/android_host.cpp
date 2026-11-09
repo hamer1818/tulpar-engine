@@ -402,6 +402,156 @@ bool android_share_text(const char *subject, const char *text) {
   std::printf("[engine_bridge] android: rapor paylasimi %s\n", ok ? "secici acildi" : "ACILAMADI (JNI)");
   return ok;
 }
+// --- Yerel bildirim (teng_notify, WoE M6 2026-11-09) ---------------------------
+// Oyun arka plandayken (pencere yok ama surec yasiyor; kare dongusu NoWindow ile
+// surer) "rapor geldi / insaat bitti" gibi olaylari bildirim cubuguna yazar.
+// Notification.Builder + NotificationManager.notify; Android 8+ kanal ister
+// ("tulpar_oyun", IMPORTANCE_DEFAULT). Android 13+ POST_NOTIFICATIONS calisma
+// zamani izni ister (manifest: tulpar.toml [android] bildirim = true); izin yoksa
+// notify istisna ATMAZ, sessizce gostermez — bu yuzden once izin bakilir ve
+// false donulur. Dokununca uygulama acilir (getLaunchIntentForPackage +
+// PendingIntent.FLAG_IMMUTABLE). Uzak (push) bildirim DEGIL: surec oldurulmusse
+// gelmez (FCM, Gradle + Google hesabi ister).
+constexpr const char *kBildirimKanal = "tulpar_oyun";
+bool g_kanal_kuruldu = false;
+jobject app_context(JniScope &j, android_app *app) {
+  JNIEnv *e = j.env;
+  jobject act = app->activity->clazz;
+  jmethodID gac = e->GetMethodID(e->GetObjectClass(act), "getApplicationContext", "()Landroid/content/Context;");
+  return gac && j.ok() ? e->CallObjectMethod(act, gac) : nullptr;
+}
+// 1 izin var, 0 yok. request: yoksa Activity.requestPermissions ile sor (API 33+; sonuc
+// asenkron — oyun sonra yeniden bakar). API < 33: izin kurulumda verilmis sayilir;
+// yine de NotificationManager.areNotificationsEnabled (oyuncu ayarlardan kapatmis olabilir).
+int android_notify_permission(bool request) {
+  if (!g_share_app) return 0;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return 0;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return 0; }
+  int sonuc = 0;
+  jobject ctx = app_context(j, g_share_app);
+  if (ctx && j.ok()) {
+    if (android_sdk() >= 33) {
+      jmethodID csp = e->GetMethodID(e->GetObjectClass(ctx), "checkSelfPermission", "(Ljava/lang/String;)I");
+      jstring izin = e->NewStringUTF("android.permission.POST_NOTIFICATIONS");
+      const jint r = csp && j.ok() ? e->CallIntMethod(ctx, csp, izin) : -1;
+      sonuc = j.ok() && r == 0 ? 1 : 0; // PackageManager.PERMISSION_GRANTED = 0
+      if (!sonuc && request) {
+        jobject act = g_share_app->activity->clazz;
+        jclass sc = e->FindClass("java/lang/String");
+        jobjectArray arr = sc && j.ok() ? e->NewObjectArray(1, sc, izin) : nullptr;
+        jmethodID rp = arr && j.ok() ? e->GetMethodID(e->GetObjectClass(act), "requestPermissions", "([Ljava/lang/String;I)V") : nullptr;
+        if (rp && j.ok()) { e->CallVoidMethod(act, rp, arr, (jint)7301); j.ok(); }
+        std::printf("[engine_bridge] android: POST_NOTIFICATIONS izni soruldu\n");
+      }
+    } else {
+      sonuc = 1;
+    }
+    if (sonuc) {
+      jmethodID gss = e->GetMethodID(e->GetObjectClass(ctx), "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+      jobject nm = gss && j.ok() ? e->CallObjectMethod(ctx, gss, e->NewStringUTF("notification")) : nullptr;
+      jmethodID ane = nm && j.ok() ? e->GetMethodID(e->GetObjectClass(nm), "areNotificationsEnabled", "()Z") : nullptr;
+      if (ane && j.ok()) sonuc = e->CallBooleanMethod(nm, ane) && j.ok() ? 1 : 0;
+    }
+  }
+  j.ok();
+  e->PopLocalFrame(nullptr);
+  return sonuc;
+}
+bool android_notify(const char *title, const char *text, int id) {
+  if (!g_share_app) return false;
+  if (!android_notify_permission(false)) {
+    std::printf("[engine_bridge] android: bildirim GOSTERILMEDI — izin yok (POST_NOTIFICATIONS / ayarlardan kapali)\n");
+    return false;
+  }
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return false;
+  if (e->PushLocalFrame(32) != 0) { j.ok(); return false; }
+  bool ok = false;
+  const int sdk = android_sdk();
+  jobject ctx = app_context(j, g_share_app);
+  jclass cc = ctx && j.ok() ? e->GetObjectClass(ctx) : nullptr;
+  jmethodID gss = cc ? e->GetMethodID(cc, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;") : nullptr;
+  jobject nm = gss && j.ok() ? e->CallObjectMethod(ctx, gss, e->NewStringUTF("notification")) : nullptr;
+  jclass nmc = nm && j.ok() ? e->GetObjectClass(nm) : nullptr;
+  // Kanal (API 26+): ayni kimlikle yeniden yaratmak zararsiz ama surec basina bir kez yeter.
+  if (nmc && sdk >= 26 && !g_kanal_kuruldu) {
+    jclass chc = e->FindClass("android/app/NotificationChannel");
+    jmethodID chi = chc && j.ok() ? e->GetMethodID(chc, "<init>", "(Ljava/lang/String;Ljava/lang/CharSequence;I)V") : nullptr;
+    jobject ch = chi && j.ok() ? e->NewObject(chc, chi, e->NewStringUTF(kBildirimKanal), e->NewStringUTF("Oyun"), (jint)3) : nullptr;
+    jmethodID cnc = ch && j.ok() ? e->GetMethodID(nmc, "createNotificationChannel", "(Landroid/app/NotificationChannel;)V") : nullptr;
+    if (cnc && j.ok()) { e->CallVoidMethod(nm, cnc, ch); g_kanal_kuruldu = j.ok(); }
+  }
+  // Kucuk simge: uygulama simgesi (ApplicationInfo.icon); yoksa android.R.drawable.ic_dialog_info.
+  jint simge = 0;
+  if (nmc) {
+    jmethodID gai = e->GetMethodID(cc, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;");
+    jobject ai = gai && j.ok() ? e->CallObjectMethod(ctx, gai) : nullptr;
+    jfieldID fi = ai && j.ok() ? e->GetFieldID(e->GetObjectClass(ai), "icon", "I") : nullptr;
+    if (fi && j.ok()) simge = e->GetIntField(ai, fi);
+    j.ok();
+    if (!simge) {
+      jclass rd = e->FindClass("android/R$drawable");
+      jfieldID f = rd && j.ok() ? e->GetStaticFieldID(rd, "ic_dialog_info", "I") : nullptr;
+      if (f && j.ok()) simge = e->GetStaticIntField(rd, f);
+      j.ok();
+    }
+  }
+  jclass bc = nmc ? e->FindClass("android/app/Notification$Builder") : nullptr;
+  jobject b = nullptr;
+  if (bc && j.ok()) {
+    if (sdk >= 26) {
+      jmethodID bi = e->GetMethodID(bc, "<init>", "(Landroid/content/Context;Ljava/lang/String;)V");
+      b = bi && j.ok() ? e->NewObject(bc, bi, ctx, e->NewStringUTF(kBildirimKanal)) : nullptr;
+    } else {
+      jmethodID bi = e->GetMethodID(bc, "<init>", "(Landroid/content/Context;)V");
+      b = bi && j.ok() ? e->NewObject(bc, bi, ctx) : nullptr;
+    }
+  }
+  if (b && j.ok()) {
+    const char *R = "Landroid/app/Notification$Builder;";
+    char sig[160];
+    std::snprintf(sig, sizeof sig, "(I)%s", R);
+    jmethodID m_icon = e->GetMethodID(bc, "setSmallIcon", sig);
+    std::snprintf(sig, sizeof sig, "(Ljava/lang/CharSequence;)%s", R);
+    jmethodID m_title = j.ok() ? e->GetMethodID(bc, "setContentTitle", sig) : nullptr;
+    jmethodID m_text = j.ok() ? e->GetMethodID(bc, "setContentText", sig) : nullptr;
+    std::snprintf(sig, sizeof sig, "(Z)%s", R);
+    jmethodID m_auto = j.ok() ? e->GetMethodID(bc, "setAutoCancel", sig) : nullptr;
+    std::snprintf(sig, sizeof sig, "(Landroid/app/PendingIntent;)%s", R);
+    jmethodID m_pi = j.ok() ? e->GetMethodID(bc, "setContentIntent", sig) : nullptr;
+    jmethodID m_build = j.ok() ? e->GetMethodID(bc, "build", "()Landroid/app/Notification;") : nullptr;
+    if (m_build && j.ok()) {
+      e->CallObjectMethod(b, m_icon, simge);
+      e->CallObjectMethod(b, m_title, e->NewStringUTF(title));
+      e->CallObjectMethod(b, m_text, e->NewStringUTF(text ? text : ""));
+      e->CallObjectMethod(b, m_auto, (jboolean)JNI_TRUE);
+      j.ok();
+      // Dokununca uygulamayi ac (yoksa bildirim yalniz silinir; zararsiz).
+      jmethodID gpm = e->GetMethodID(cc, "getPackageManager", "()Landroid/content/pm/PackageManager;");
+      jobject pm = gpm && j.ok() ? e->CallObjectMethod(ctx, gpm) : nullptr;
+      jmethodID gpn = pm && j.ok() ? e->GetMethodID(cc, "getPackageName", "()Ljava/lang/String;") : nullptr;
+      jobject pn = gpn && j.ok() ? e->CallObjectMethod(ctx, gpn) : nullptr;
+      jmethodID gli = pn && j.ok() ? e->GetMethodID(e->GetObjectClass(pm), "getLaunchIntentForPackage", "(Ljava/lang/String;)Landroid/content/Intent;") : nullptr;
+      jobject it = gli && j.ok() ? e->CallObjectMethod(pm, gli, pn) : nullptr;
+      jclass pic = it && j.ok() ? e->FindClass("android/app/PendingIntent") : nullptr;
+      jmethodID ga = pic && j.ok() ? e->GetStaticMethodID(pic, "getActivity", "(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;") : nullptr;
+      // FLAG_IMMUTABLE (0x04000000, API 31+ zorunlu) | FLAG_UPDATE_CURRENT (0x08000000)
+      jobject pi = ga && j.ok() ? e->CallStaticObjectMethod(pic, ga, ctx, (jint)0, it, (jint)(0x04000000 | 0x08000000)) : nullptr;
+      if (pi && j.ok()) e->CallObjectMethod(b, m_pi, pi);
+      j.ok();
+      jobject n = e->CallObjectMethod(b, m_build);
+      jmethodID nf = n && j.ok() ? e->GetMethodID(nmc, "notify", "(ILandroid/app/Notification;)V") : nullptr;
+      if (nf && j.ok()) { e->CallVoidMethod(nm, nf, (jint)id, n); ok = j.ok(); }
+    }
+  }
+  if (!ok) j.ok();
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: bildirim #%d %s\n", id, ok ? "gonderildi" : "GONDERILEMEDI (JNI)");
+  return ok;
+}
 // --- Ag: Wi-Fi yayin kilidi (teng_net_wifi_lock, N2a 2026-10-23) ----------------
 // Cogu telefonun Wi-Fi surucusu guc tasarrufu icin coklu yayin VE yayin paketlerini
 // kilit yokken suzer: ayni agdaki rakibi bulan UDP yayini (oyun TASARIM §21) hic
@@ -715,6 +865,7 @@ extern "C" void android_main(android_app *app) {
     bridge::bridge_report_host(dir, cihaz, android_share_text);
   }
   bridge::bridge_net_host(android_wifi_lock); // teng_net_wifi_lock: MulticastLock (g_share_app ile ayni Activity)
+  bridge::bridge_notify_host(android_notify, android_notify_permission); // teng_notify (WoE M6)
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
   // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun
