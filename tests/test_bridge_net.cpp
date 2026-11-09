@@ -251,3 +251,28 @@ ENGINE_TEST(bridge_notify_desktop_and_host_paths) {
   CHECK(teng_notify("Geri", "", 3) == 1 && g_sahte_cagri == 2);
   CHECK(teng_error_count() == h0 + 4);
 }
+
+// --- Baglanti ac (teng_open_url) -----------------------------------------------------------------
+// Masaustu: tarayici acilmaz, 0. Sahte host: http(s) iletilir. KONTROL: intent:/javascript:/file:, kontrol
+// karakterli ve bos adres HATA ve host'a ULASMAZ.
+namespace {
+int g_url_cagri = 0;
+char g_url_son[256];
+bool sahte_url(const char *u) { g_url_cagri++; std::snprintf(g_url_son, sizeof g_url_son, "%s", u); return true; }
+} // namespace
+ENGINE_TEST(bridge_open_url_scheme_guard) {
+  const int h0 = teng_error_count(), a0 = teng_open_url_stat(0), r0 = teng_open_url_stat(1);
+  CHECK(teng_open_url("https://www.google.com/device") == 0); // masaustu
+  CHECK(teng_error_count() == h0 && teng_open_url_stat(1) == r0 + 1);
+  bridge::bridge_url_host(sahte_url);
+  CHECK(teng_open_url("https://www.google.com/device") == 1);
+  CHECK(teng_open_url("http://185.169.180.27:8484/") == 1);
+  CHECK(g_url_cagri == 2 && std::strcmp(g_url_son, "http://185.169.180.27:8484/") == 0);
+  const char *kotu[] = {"intent://x#Intent;end", "javascript:alert(1)", "file:///sdcard/a", "", "https://a\nb", "HTTPS//x"};
+  for (const char *k : kotu) CHECK(teng_open_url(k) == 0);
+  CHECK(teng_open_url(nullptr) == 0);
+  CHECK(g_url_cagri == 2);
+  CHECK(teng_open_url_stat(0) == a0 + 2 && teng_open_url_stat(1) == r0 + 1 + 7);
+  CHECK(teng_error_count() == h0 + 7);
+  bridge::bridge_url_host(nullptr);
+}

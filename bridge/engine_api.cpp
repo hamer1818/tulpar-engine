@@ -6696,6 +6696,39 @@ int teng_notify_stat(int which) {
 const char *teng_notify_last(void) { return g_notify.last; }
 } // extern "C"
 
+// --- BAGLANTI AC (WoE, 2026-11-09; KOPRU §15) ---------------------------------------------------------
+// Google cihaz girisi "google.com/device" adresini acar. Yalniz http:// ve https:// (baska sema — intent:,
+// file:, javascript: — HATA: oyun metni sunucudan gelebilir). Masaustunde tarayici acilmaz (penceresiz
+// testler tarayici baslatmasin): bilgi satiri + 0.
+namespace {
+bool (*g_url_open)(const char *) = nullptr;
+uint32_t g_url_stat[2] = {0, 0}; // 0 acilan, 1 reddedilen/acilamayan
+} // namespace
+namespace tulpar::engine::bridge {
+void bridge_url_host(bool (*open_url)(const char *)) { g_url_open = open_url; }
+} // namespace tulpar::engine::bridge
+extern "C" {
+int teng_open_url(const char *url) {
+  CALLF("teng_open_url", "%s", url ? url : "(null)");
+  const bool sema = url && (std::strncmp(url, "https://", 8) == 0 || std::strncmp(url, "http://", 7) == 0);
+  bool temiz = sema;
+  for (const char *p = url; temiz && *p; p++) if ((unsigned char)*p < 0x20) temiz = false;
+  if (!temiz || std::strlen(url) > 2048) {
+    BERR("teng_open_url: yalniz http(s) baglantisi, kontrol karakteri yok, <= 2048 bayt");
+    g_url_stat[1]++;
+    return 0;
+  }
+  if (!g_url_open) { BINFO("baglanti (bu platformda tarayici acilmaz): %s", url); g_url_stat[1]++; return 0; }
+  const bool ok = g_url_open(url);
+  g_url_stat[ok ? 0 : 1]++;
+  return ok ? 1 : 0;
+}
+int teng_open_url_stat(int which) {
+  if (which < 0 || which > 1) { BERR("teng_open_url_stat: %d gecersiz (0..1)", which); return 0; }
+  return (int)g_url_stat[which];
+}
+} // extern "C"
+
 extern "C" {
 int teng_net_open(int port, int broadcast) {
   CALLF("teng_net_open", "%d %d", port, broadcast);

@@ -552,6 +552,30 @@ bool android_notify(const char *title, const char *text, int id) {
   std::printf("[engine_bridge] android: bildirim #%d %s\n", id, ok ? "gonderildi" : "GONDERILEMEDI (JNI)");
   return ok;
 }
+// --- Baglanti ac (teng_open_url, WoE 2026-11-09) ---------------------------------
+// Intent(ACTION_VIEW, Uri.parse(url)) -> sistem tarayicisi (ya da o baglantiyi tutan uygulama).
+// Sema denetimi kopruda (yalniz http/https). Tarayici yoksa ActivityNotFoundException -> false.
+bool android_open_url(const char *url) {
+  if (!g_share_app) return false;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return false;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return false; }
+  bool ok = false;
+  jclass uc = e->FindClass("android/net/Uri");
+  jmethodID parse = uc && j.ok() ? e->GetStaticMethodID(uc, "parse", "(Ljava/lang/String;)Landroid/net/Uri;") : nullptr;
+  jobject uri = parse && j.ok() ? e->CallStaticObjectMethod(uc, parse, e->NewStringUTF(url)) : nullptr;
+  jclass ic = uri && j.ok() ? e->FindClass("android/content/Intent") : nullptr;
+  jmethodID ctor = ic && j.ok() ? e->GetMethodID(ic, "<init>", "(Ljava/lang/String;Landroid/net/Uri;)V") : nullptr;
+  jobject it = ctor && j.ok() ? e->NewObject(ic, ctor, e->NewStringUTF("android.intent.action.VIEW"), uri) : nullptr;
+  jobject act = g_share_app->activity->clazz;
+  jmethodID start = it && j.ok() ? e->GetMethodID(e->GetObjectClass(act), "startActivity", "(Landroid/content/Intent;)V") : nullptr;
+  if (start && j.ok()) { e->CallVoidMethod(act, start, it); ok = j.ok(); }
+  if (!ok) j.ok();
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: baglanti %s\n", ok ? "acildi" : "ACILAMADI (tarayici yok / JNI)");
+  return ok;
+}
 // --- Ag: Wi-Fi yayin kilidi (teng_net_wifi_lock, N2a 2026-10-23) ----------------
 // Cogu telefonun Wi-Fi surucusu guc tasarrufu icin coklu yayin VE yayin paketlerini
 // kilit yokken suzer: ayni agdaki rakibi bulan UDP yayini (oyun TASARIM §21) hic
@@ -866,6 +890,7 @@ extern "C" void android_main(android_app *app) {
   }
   bridge::bridge_net_host(android_wifi_lock); // teng_net_wifi_lock: MulticastLock (g_share_app ile ayni Activity)
   bridge::bridge_notify_host(android_notify, android_notify_permission); // teng_notify (WoE M6)
+  bridge::bridge_url_host(android_open_url);                              // teng_open_url
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
   // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun

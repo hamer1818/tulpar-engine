@@ -1554,6 +1554,10 @@ func bildirim_sayac(int hangi): int { return eng_notify_stat(hangi); }
 func notify_stat(int which): int { return eng_notify_stat(which); }
 func bildirim_son(): str { return eng_notify_last(); }
 func notify_last(): str { return eng_notify_last(); }
+// Baglanti ac (Android tarayici; yalniz http/https). Masaustunde false — adresi ekranda goster.
+func baglanti_ac(str url): bool { return eng_open_url(url); }
+func open_url(str url): bool { return eng_open_url(url); }
+func baglanti_sayac(int hangi): int { return eng_open_url_stat(hangi); }
 
 // ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
 // Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }

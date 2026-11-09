@@ -455,6 +455,8 @@ SPEC = [
     ("eng_notify_permission", "bool", [("request", "flag")], "Bildirim izni var mi (Android 13+ calisma zamani izni + ayarlardan kapali degil). request=1: yoksa sistem iznini SORAR (sonuc asenkron; sonra yeniden bak). Masaustunde true."),
     ("eng_notify_stat", "int", [("which", "int")], "Bildirim sayaci: 0 gonderilen, 1 basarisiz (izin yok / bos baslik), 2 izin sorgusu, 3 izin istegi."),
     ("eng_notify_last", "str", [], "Son gonderilen bildirimin 'baslik|metin' ozeti ('' = yok; penceresiz dogrulama)."),
+    ("eng_open_url", "bool", [("url", "str")], "BAGLANTI AC: Android'de sistem tarayicisi (Intent ACTION_VIEW). Yalniz http:// ve https:// (baska sema HATA). Masaustunde tarayici acilmaz: bilgi satiri + false (oyun adresi ekranda gostersin)."),
+    ("eng_open_url_stat", "int", [("which", "int")], "Baglanti sayaci: 0 acilan, 1 reddedilen ya da acilamayan."),
     # --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ---
     ("eng_ls_begin", "bool", [("seat", "int"), ("delay", "int"), ("group", "int"), ("session", "int"), ("hash_every", "int"), ("flags", "int")], "Kilit adim oturumu (iki koltuk). seat 0/1 yerel koltuk; yerel komut tick+delay'e yazilir; kare basina TAM group tik ya da hic; her hash_every tik'te durum ozeti saklanir/karsilastirilir. flags: 1 cevrimici (paket, onay, yedek, RTT), 2 kanonik sira ters (POZITIF KONTROL). Tik 0'dan; 0..delay-1 bos. Motor kurulmadan da calisir."),
     ("eng_ls_end", "void", [], "Kilit adim oturumunu kapatir."),

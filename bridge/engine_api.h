@@ -790,6 +790,8 @@ int teng_notify(const char *title, const char *text, int id); // 1 gonderildi; 0
 int teng_notify_permission(int request);  // 1 izin var; request=1 yoksa sorar (Android 13+). Masaustunde 1
 int teng_notify_stat(int which);          // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi
 const char *teng_notify_last(void);       // son gonderilen "baslik|metin" ("" = yok)
+int teng_open_url(const char *url);       // 1 acildi (Android tarayici); 0 masaustu / gecersiz sema / hata
+int teng_open_url_stat(int which);        // 0 acilan, 1 reddedilen ya da acilamayan
 
 // --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1, sim/lockstep.hpp) ----------
 // Motor kurulmadan da calisir; teng_shutdown kapatir. flags: 1 cevrimici (paket + onay + ozet

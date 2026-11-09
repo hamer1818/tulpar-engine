@@ -74,6 +74,10 @@ void bridge_net_host(bool (*wifi_lock)(bool on));
 // yolunu verir. Masaustu cagirmaz: teng_notify bilgi satiri yazar, sayar ve 1 doner. nullptr: kapat (testler).
 void bridge_notify_host(bool (*post)(const char *title, const char *text, int id), int (*permission)(bool request));
 
+// Baglanti ac (teng_open_url): Android host Intent(ACTION_VIEW) yolunu verir. Masaustu vermez: teng_open_url
+// bilgi satiri yazar ve 0 doner (oyun adresi ekranda gosterir). nullptr: kapat (testler).
+void bridge_url_host(bool (*open_url)(const char *url));
+
 // Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
 // varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:
 // yayin APK'sinda sahte reklam/bedava satin alma oyuncuya gorunmesin.

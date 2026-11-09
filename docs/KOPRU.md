@@ -1518,7 +1518,7 @@ Windows linki `-lbcrypt` alir (mbedTLS entropisi BCryptGenRandom). Android arsiv
 (`tools/build_bridge_android.sh`, `ANDROID_LIBS`). Cihazda olculdu (2026-11-09, emulator API 37): Android cacerts
 dizininden kok yukleme + gercek sunucuya https 200 (oyun deposu `tools/android_ag_dene.sh HTTPS=1`).
 
-## 15. Yerel bildirim (WoE M6, 2026-11-09)
+## 15. Yerel bildirim ve baglanti acma (WoE M6, 2026-11-09)
 
 Yonetim oyununda olaylar oyuncu uygulamada degilken biter (insaat, egitim, sefer). Motor bunlari **bildirim
 cubuguna** yazar; oyun ne zaman yazacagina kendisi karar verir (Warlords of Era `ag/bildirim.tpr`: `arka_planda()`
@@ -1545,3 +1545,12 @@ bildirim `dumpsys notification`'da (Insaat bitti / Egitim bitti / Savas raporu g
 `BILDIRIM_IZIN=0` (izin geri alinir) -> 0 bildirim, kapi KIRMIZI, log "bildirim GOSTERILMEDI — izin yok". Izin
 istegi oyun thread'inden sistem penceresini acti ("Allow Warlords of Era to send you notifications?"), "Allow"
 sonrasi `granted=true`.
+
+**Baglanti ac** (`teng_open_url(url)` / Tulpar `baglanti_ac`, `teng_open_url_stat`): Android'de
+`Intent(ACTION_VIEW, Uri.parse(url))` ile sistem tarayicisi. Yalniz `http://` ve `https://`, kontrol karakteri yok,
+<= 2048 bayt — adres sunucudan gelebilir; `intent:` / `javascript:` / `file:` HATA ve host'a ulasmaz. Masaustunde
+tarayici ACILMAZ (penceresiz testler tarayici baslatmasin): bilgi satiri + 0, oyun adresi ekranda gosterir. Ilk
+kullanici: Warlords of Era "Google ile bagla" (OAuth cihaz akisi; `google.com/device`). Olculen:
+`bridge_open_url_scheme_guard` (sahte host; 7 kotu adres reddedildi); emulatorde (oyun deposu
+`tools/android_ag_dene.sh`) Chrome on plana geldi (`topResumedActivity=...ChromeTabbedActivity`) ve oyun arka
+planda sunucuyu yoklayip baglamayi tamamladi.
