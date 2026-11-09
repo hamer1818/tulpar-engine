@@ -655,8 +655,30 @@ void Renderer::ui_set_atlas(MaterialHandle atlas) { ui_atlas_ = atlas; }
 
 // Kuyruga bir dortgen: onbellek kaydi (kirli blok icindeyse) + tam ekran
 // harmanli katman denetimi burada yapilir (tek nokta).
+void Renderer::ui_clip(float x, float y, float w, float h) {
+  ui_clip_on_ = true;
+  ui_clip_x0_ = x; ui_clip_y0_ = y;
+  ui_clip_x1_ = w > 0 ? x + w : x; ui_clip_y1_ = h > 0 ? y + h : y;
+}
+void Renderer::ui_clip_off() { ui_clip_on_ = false; }
+
 void Renderer::ui_push_quad(float x, float y, float w, float h, float u0, float v0, float u1, float v1, uint32_t c,
                             bool opaque) {
+  if (ui_clip_on_) {
+    // Eksen hizali kesim: UV dogrusal oldugu icin kesilen kenarin UV'si ayni oranla kayar.
+    const float x1 = x + w, y1 = y + h;
+    const float nx0 = x > ui_clip_x0_ ? x : ui_clip_x0_, ny0 = y > ui_clip_y0_ ? y : ui_clip_y0_;
+    const float nx1 = x1 < ui_clip_x1_ ? x1 : ui_clip_x1_, ny1 = y1 < ui_clip_y1_ ? y1 : ui_clip_y1_;
+    if (nx1 <= nx0 || ny1 <= ny0 || w <= 0 || h <= 0) { ui_stats_.clipped++; return; }
+    if (nx0 != x || ny0 != y || nx1 != x1 || ny1 != y1) {
+      const float du = (u1 - u0) / w, dv = (v1 - v0) / h;
+      const float a0 = u0 + (nx0 - x) * du, a1 = u0 + (nx1 - x) * du;
+      const float b0 = v0 + (ny0 - y) * dv, b1 = v0 + (ny1 - y) * dv;
+      u0 = a0; u1 = a1; v0 = b0; v1 = b1;
+      x = nx0; y = ny0; w = nx1 - nx0; h = ny1 - ny0;
+      ui_stats_.clip_cut++;
+    }
+  }
   if (ui_quad_n_ >= ui_quad_cap_) { ui_stats_.dropped++; return; }
   // Atlas cozumu BURADA: gecerli malzeme yoksa dortgen SESSIZCE kaybolmaz,
   // dropped'a yazilir (ui_emit dizinin disina bakmaz).

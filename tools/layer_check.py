@@ -36,6 +36,7 @@ VENDORED = {
     "debug_draw.hpp": {"renderer"},    # glampert/debug-draw (kamu mali)
     "meshoptimizer.h": {"renderer"},   # zeux/meshoptimizer (MIT)
     "ratas": {"sim"},                  # jsnell/ratas zamanlayici carki (MIT)
+    "mbedtls": {"platform"},           # Mbed-TLS/mbedtls 3.6.2 LTS (Apache-2.0): yalniz platform/http.cpp (HTTPS)
 }
 
 BS = chr(92)  # ters bolu

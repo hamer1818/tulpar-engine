@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 365
+#define TENG_ABI_COUNT 385
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -202,6 +202,26 @@ TENG_ABI(void, eng_image_nine, teng_image_nine, (int, double, double, double, do
 TENG_ABI(int, eng_image_grid, teng_image_grid, (int, int, int, int))
 TENG_ABI(int, eng_image_dither, teng_image_dither, (int, int))
 TENG_ABI(void, eng_image_cell, teng_image_cell, (int, int, double, double, double, double, int64_t))
+TENG_ABI(void, eng_ui_clip, teng_ui_clip, (double, double, double, double))
+TENG_ABI(void, eng_ui_clip_end, teng_ui_clip_end, (void))
+TENG_ABI(int, eng_ui_clip_stat, teng_ui_clip_stat, (int))
+TENG_ABI(int, eng_frame_cap, teng_frame_cap, (int))
+TENG_ABI(int, eng_frame_cap_stat, teng_frame_cap_stat, (int))
+TENG_ABI(int, eng_http_request, teng_http_request, (const char *, const char *, const char *, const char *))
+TENG_ABI(int, eng_http_state, teng_http_state, (int))
+TENG_ABI(int, eng_http_status, teng_http_status, (int))
+TENG_ABI(const char *, eng_http_body, teng_http_body, (int))
+TENG_ABI(const char *, eng_http_error, teng_http_error, (int))
+TENG_ABI(int, eng_http_ms, teng_http_ms, (int))
+TENG_ABI(int, eng_http_release, teng_http_release, (int))
+TENG_ABI(void, eng_http_timeout, teng_http_timeout, (int))
+TENG_ABI(int, eng_text_input, teng_text_input, (int))
+TENG_ABI(const char *, eng_text_input_take, teng_text_input_take, (void))
+TENG_ABI(void, eng_text_input_inject, teng_text_input_inject, (const char *))
+TENG_ABI(int, eng_text_input_active, teng_text_input_active, (void))
+TENG_ABI(const char *, eng_text_apply, teng_text_apply, (const char *))
+TENG_ABI(int, eng_text_input_enter, teng_text_input_enter, (void))
+TENG_ABI(const char *, eng_text_pop, teng_text_pop, (const char *))
 TENG_ABI(double, eng_text_width, teng_text_width, (const char *, double))
 TENG_ABI(int, eng_audio_open, teng_audio_open, (int, int))
 TENG_ABI(void, eng_audio_close, teng_audio_close, (void))

@@ -259,6 +259,26 @@ SPEC = [
     ("eng_image_grid", "int", [("img", "int"), ("cell_w", "int"), ("cell_h", "int"), ("pad", "int")], "ATLAS: resmi cell_w x cell_h piksellik hucrelere boler (numara soldan saga, yukaridan asagi; her kenardan pad piksel ice). Donus hucre sayisi, gecersiz izgarada 0 + HATA."),
     ("eng_image_dither", "bool", [("img", "int"), ("on", "flag")], "Resmin HARMANLI cizimlerinde alfa titretmesi (+-0.5/255, ekran pikseline bagli gurultu): dusuk alfali genis yumusak gecislerde (isilti, golge) 8 bitlik hedefin halka/bant cizmesini kirar. Varsayilan kapali (pikseller bayt bayt ayni); opak cizimde etkisiz. Yukleme aninda bir kez."),
     ("eng_image_cell", "void", [("img", "int"), ("index", "int"), ("x", "num"), ("y", "num"), ("w", "num"), ("h", "num"), ("color", "color")], "ATLAS hucresini (eng_image_grid) kutuya cizer. Izgara yoksa ya da numara disariysa HATA, cizim yok."),
+    ("eng_ui_clip", "void", [("x", "num"), ("y", "num"), ("w", "num"), ("h", "num")], "KIRPMA ac: sonraki HUD cizimleri (dikdortgen, yazi, resim, 9 dilim, widget) bu kutuya kesilir (CPU, eksen hizali, UV orantili). Ic ice en cok 8 (kesisim). Dokunma alanlari kirpilmaz. Kare icinde; eng_ui_clip_end ile kapat."),
+    ("eng_ui_clip_end", "void", [], "KIRPMA kapat (son acilan). Acik kirpma yokken HATA."),
+    ("eng_ui_clip_stat", "int", [("which", "int")], "Son karenin kirpma sayaci: 0 tamamen kirpilip uretilmeyen dortgen, 1 kesilerek kuculen dortgen."),
+    ("eng_frame_cap", "bool", [("fps", "int")], "KARE HIZI SINIRI: 0 kapali (varsayilan), 1..240. Pencerede kare basinda kalan sure kadar uyunur (yonetim ekraninda pil). Penceresizde uyunmaz, sayilir."),
+    ("eng_frame_cap_stat", "int", [("which", "int")], "Kare hizi siniri sayaci: 0 uyku sayisi, 1 toplam uyku (ms)."),
+    ("eng_http_request", "int", [("method", "str"), ("url", "str"), ("body", "str"), ("headers", "str")], "HTTP istegi KUYRUGA yazar (engellemez; motorun is parcacigi yapar). Yontem GET/POST/PUT/DELETE; basliklar 'Ad: deger' satirlari (\\n ayrili) ya da bos. http:// ve https:// (mbedTLS; sertifika + ad dogrulamasi zorunlu, kok paket sistemden ya da TULPAR_CA_BUNDLE). Donus: tutamac, 0 hata (8 yuva dolu, govde > 64 KB ...)."),
+    ("eng_http_state", "int", [("h", "int")], "Istek durumu: 0 gecersiz tutamac, 1 suruyor, 2 bitti (yanit alindi; 4xx/5xx de 'bitti'), 3 hata (eng_http_error)."),
+    ("eng_http_status", "int", [("h", "int")], "HTTP durum kodu (200, 404 ...); bitmemisse 0."),
+    ("eng_http_body", "str", [("h", "int")], "Yanit govdesi (en cok 1 MB; daha buyugu HATA olur, kesilmez). eng_http_release'e kadar gecerli."),
+    ("eng_http_error", "str", [("h", "int")], "Hata metni (durum 3)."),
+    ("eng_http_ms", "int", [("h", "int")], "Istek suresi (ms): baglanti + gonderme + yanit."),
+    ("eng_http_release", "bool", [("h", "int")], "Yuvayi birakir (surerken HATA + false). Her istek birakilmali: 8 yuva."),
+    ("eng_http_timeout", "void", [("ms", "int")], "Baglanti/okuma zaman asimi (1000..120000 ms, varsayilan 15000)."),
+    ("eng_text_input", "bool", [("on", "flag")], "METIN GIRISI ac/kapat: Android'de ekran klavyesi acilir/kapanir; acikken yazilanlar biriktirilir (masaustu: klavye)."),
+    ("eng_text_input_take", "str", [], "Son cagridan beri yazilanlar (UTF-8). Silme '\\b', enter '\\n' karakteriyle gelir. Her kare cagrilir."),
+    ("eng_text_input_inject", "void", [("s", "str")], "Penceresiz dogrulama: metin yazilmis gibi enjekte eder (giris acik olmali). '<SIL>' silme, '<ENTER>' enter."),
+    ("eng_text_input_active", "bool", [], "Metin girisi acik mi."),
+    ("eng_text_apply", "str", [("old", "str")], "Yazilanlari METNE uygular ve tamponu bosaltir: silme son UTF-8 karakteri siler, enter metne girmez (eng_text_input_enter sayar). Metin kutusu her kare cagirir."),
+    ("eng_text_input_enter", "int", [], "Son eng_text_apply'da basilan enter sayisi."),
+    ("eng_text_pop", "str", [("s", "str")], "UTF-8 metnin SON KARAKTERINI siler (silme tusu; cok baytli harf tek seferde gider)."),
     ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi."),
     # ses
     ("eng_audio_open", "bool", [("rate", "int"), ("channels", "int")], "Ses cihazini acar (0,0 = varsayilan 48 kHz stereo). Acilamazsa false: oyun sessiz devam eder, hata loglanir."),
@@ -469,7 +489,7 @@ SYMBOL_OVERRIDE = {"eng_init": "teng_tulpar_init"}
 # engine_tulpar (yapistirici) teng_*'i ve TulparLang runtime'inin tulpar_ext_*
 # ABI'sini cagirir; derleyici -ltulpar_runtime'i eklentiden SONRA koyar.
 DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim",
-                "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_jolt",
+                "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_mbedtls", "engine_jolt",
                 "engine_recast", "engine_meshopt", "engine_astcenc"]
 # Windows (MSYS2 MINGW64): ayni arsivler, ayni grup (TulparLang'in Windows
 # linki de GNU ld; surucu MINGW64 clang++, -static). Sistem kitapliklari
@@ -486,12 +506,13 @@ DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_rend
 # ayni kalsin ve PSAPI_VERSION=1 basliklarinda da linklensin diye duruyorlar.
 # -lws2_32: platform/net.cpp (Winsock UDP, eng_net_*; N2a 2026-10-23) — psapi'nin
 # aksine kernel32'de karsiligi yok, sendto/recvfrom yalniz ws2_32.dll'de.
-WINDOWS_FLAGS = ["-lpsapi", "-lpthread", "-lws2_32"]
+# -lbcrypt: mbedTLS entropisi (BCryptGenRandom; HTTPS, WoE M1b 2026-11-08).
+WINDOWS_FLAGS = ["-lpsapi", "-lpthread", "-lws2_32", "-lbcrypt"]
 # Android: yapistirici + NativeActivity kabugu + kopru tek arsivde
 # (tulpar_engine_android, CMakeLists.txt); tools/build_bridge_android.sh
 # paketin android/<abi>/ dizinine koyar.
 ANDROID_LIBS = ["tulpar_engine_android", "engine_content", "engine_renderer", "engine_sim", "engine_rhi",
-                "engine_audio", "engine_core", "engine_platform", "engine_jolt", "engine_recast",
+                "engine_audio", "engine_core", "engine_platform", "engine_mbedtls", "engine_jolt", "engine_recast",
                 "engine_meshopt", "engine_astcenc"]
 
 

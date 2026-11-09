@@ -1501,3 +1501,18 @@ oklüzyon) köprüde yoktu: oyunlar yalnız düz ses çalabiliyordu. Dört fonks
   kamera +X'e bakarken -X'teki ses arkada (iki kanal yakın — panlama ön/arkayı
   AYIRAMAZ), HRTF'de 3 kHz sağ > 2x sol, geçersiz aralık HATA. KONTROL: düz ses iki
   kanalda eşit.
+
+## 14. Warlords of Era ekleri (2026-11-08): HTTP(S), kirpma, metin girisi, kare hizi
+
+Ilk cevrimici yonetim oyunu (Warlords of Era) motorda dort eksik buldu (oyun deposu `PLAN.md` §3, M1–M5).
+
+| ek | API (Tulpar) | sozlesme | kapi |
+|---|---|---|---|
+| **HTTP(S) istemcisi** (M1a/M1b) | `http_istek` / `http_durum` / `http_kod` / `http_govde` / `http_hata` / `http_birak` (`eng_http_*`) | Engellemez: istek kuyruga, motorun TEK is parcacigi `platform::http_exchange` ile yapar; 8 yuva, istek govdesi 64 KB, yanit 1 MB (statik tampon, ayirma yok). Tutamac nesil etiketli: birakilan tutamac HATA + 0. Connection: close, Content-Length + chunked; yanit tampona sigmazsa HATA (kesik govde basari verilmez). **https**: vendored mbedTLS 3.6.2 LTS (`third_party/mbedtls`, Apache-2.0), sertifika + ad dogrulamasi ZORUNLU; kok paket `TULPAR_CA_BUNDLE` > Linux paket yollari > Android `/system/etc/security/cacerts`; bulunamazsa HATA (dogrulamasiz baglanti yok). `platform::http_tls_ca_set` kok zinciri degistirir (sertifika pinleme / test). | `platform_http_url_parse`, `platform_http_exchange_against_local_server` (uzunluk, chunked, 404, tasma, red), `bridge_http_queue_is_async_and_handles_die`, `platform_https_verifies_certificate_and_name` (testin kendi mbedTLS sunucusu: guvenilen kok A -> 200; KONTROL kok B -> red, KONTROL ad uyusmaz -> red). `TULPAR_HTTPS_ONLINE=1` ile https://example.com (2026-11-08: 200, 577 bayt). |
+| **Kirpma** (M2) | `kirp_ac(x, y, w, h)` / `kirp_kapat()`, `kirpma_sayaci(0|1)` | HUD komutu (tur 3/4), flush'ta `Renderer::ui_clip`: her dortgen CPU'da kutuya kesilir, UV orantili daralir (eksen hizali dortgenlerde kesin; boru hatti/scissor ve batch degismez). Ic ice 8, kesisim. Dokunma alanlari kirpilmaz (cagiran yok sayar). Kare sonunda acik kalan kirpma HATA. | `renderer_ui_clip_cuts_quads_and_uv`: 200x100 dikdortgen 60x40 kutuda tam 2400 px; kutu disindaki dortgen uretilmez (sayilir); KONTROL kirpmasiz 20000 px. |
+| **Metin girisi** (M3) | `metin_girisi(ac)`, `metin_uygula(eski)`, `metin_enter()`, `metin_enjekte(s)` | Android: `ANativeActivity_showSoftInput`; tus olaylari JNI `KeyEvent.getUnicodeChar` ile kod noktasina (silme/enter ayri). Masaustu: GLFW char + silme/enter kenari. `metin_uygula` silmeyi UTF-8 guvenli uygular (TulparLang `"\b"`yi 'b' okur — betik kontrol karakteri karsilastirmaz). Penceresiz: `metin_enjekte("abc<SIL>d<ENTER>")`. **Sinir**: NativeActivity'de bazi ekran klavyeleri cok karakterli olaylari (ACTION_MULTIPLE, tahmin metni) tus olayi olarak gondermez; tam IME icin GameActivity gocu (FABRIKA ERTELE listesi). Cihazda olculmedi. | Oyun deposunda `tools/ag_dogrula.py`: ferman metni enjekte -> sunucuya UTF-8 "Merhaba dünya!" ulasir. |
+| **Kare hizi siniri** (M5) | `kare_hizi_siniri(fps)`, `kare_hizi_uyku(0|1)` | Kare basinda kalan sure kadar uyunur (pencerede); penceresizde uyunmaz, sayilir. 0 kapali. | Oyun otopilotu `fps=30` ve uyku sayaci. |
+| Kapasite | — | `kMaxImages` 32 -> 96 (renderer doku havuzu 128, sahneyle ortak), `kMaxHud` 1024 -> 4096, `engine.tpr _UI_KAYIT_MAX` 128 -> 512. | — |
+
+Windows linki `-lbcrypt` alir (mbedTLS entropisi BCryptGenRandom). Android arsiv listesine `engine_mbedtls` eklendi
+(`tools/build_bridge_android.sh`, `ANDROID_LIBS`); cihazda https kok dizini okumasi **olculmedi**.

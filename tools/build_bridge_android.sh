@@ -29,7 +29,7 @@ for ABI in $ABIS; do
     cmake --build "$BUILD" -j --target tulpar_engine_android 2>&1 | grep -E "error|Error" | grep -v third_party && { echo "HATA: derleme"; exit 1; } || true
     DIST="${TULPAR_EXT_DIR:-$ROOT/yapi/tulpar-ext}/android/$ABI"
     mkdir -p "$DIST"
-    for a in tulpar_engine_android engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core engine_platform engine_jolt engine_recast engine_meshopt engine_astcenc; do
+    for a in tulpar_engine_android engine_content engine_renderer engine_sim engine_rhi engine_audio engine_core engine_platform engine_mbedtls engine_jolt engine_recast engine_meshopt engine_astcenc; do
         f="$BUILD/lib$a.a"
         [ -f "$f" ] || { echo "HATA: $f yok"; exit 1; }
         cp "$f" "$DIST/"

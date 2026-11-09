@@ -99,6 +99,10 @@ struct AndroidHost {
   // debug.tulpar.hiz: yalniz debuggable APK (android_main'de bir kez sorulur).
   bool debuggable = false;
   uint32_t speed_poll = 0;
+  // Metin girisi (WoE M3): ekran klavyesi acikken tus olaylari kod noktasina cevrilir (JNI KeyEvent.getUnicodeChar)
+  bool text_on = false;
+  uint32_t text_buf[64] = {0};
+  uint32_t text_n = 0;
 };
 AndroidHost g_host;
 
@@ -235,8 +239,22 @@ void on_cmd(android_app *app, int32_t cmd) {
   default: break;
   }
 }
+// Tus olayinin unicode karsiligi: NDK vermiyor, KeyEvent(downTime, eventTime, action, code, repeat, meta)
+// kurulup getUnicodeChar(meta) cagrilir (JNI; yalniz metin girisi acikken, tus basina bir kez). 0 = karakter degil.
+uint32_t key_unicode(android_app *app, AInputEvent *ev);
 int32_t on_input(android_app *app, AInputEvent *ev) {
   AndroidHost *h = static_cast<AndroidHost *>(app->userData);
+  if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_KEY && h->text_on && AKeyEvent_getKeyCode(ev) != AKEYCODE_BACK) {
+    if (AKeyEvent_getAction(ev) == AKEY_EVENT_ACTION_DOWN) {
+      const int32_t kc = AKeyEvent_getKeyCode(ev);
+      uint32_t cp = 0;
+      if (kc == AKEYCODE_DEL) cp = 8;
+      else if (kc == AKEYCODE_ENTER) cp = 10;
+      else cp = key_unicode(app, ev);
+      if (cp && h->text_n < 64) h->text_buf[h->text_n++] = cp;
+    }
+    return 1;
+  }
   if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_KEY) {
     if (AKeyEvent_getKeyCode(ev) != AKEYCODE_BACK) return 0; // ses tuslari vb. sistemin
     const int32_t a = AKeyEvent_getAction(ev);
@@ -267,6 +285,25 @@ int32_t on_input(android_app *app, AInputEvent *ev) {
   default: break;
   }
   return 1;
+}
+uint32_t key_unicode(android_app *app, AInputEvent *ev) {
+  JniScope j(app);
+  JNIEnv *e = j.env;
+  if (!e) return 0;
+  jclass kc = e->FindClass("android/view/KeyEvent");
+  if (!kc || !j.ok()) return 0;
+  jmethodID ctor = e->GetMethodID(kc, "<init>", "(JJIIII)V");
+  jmethodID uni = e->GetMethodID(kc, "getUnicodeChar", "(I)I");
+  if (!ctor || !uni || !j.ok()) return 0;
+  const jlong dt = (jlong)(AKeyEvent_getDownTime(ev) / 1000000), et = (jlong)(AKeyEvent_getEventTime(ev) / 1000000);
+  const jint meta = AKeyEvent_getMetaState(ev);
+  jobject ke = e->NewObject(kc, ctor, dt, et, (jint)AKeyEvent_getAction(ev), (jint)AKeyEvent_getKeyCode(ev), (jint)AKeyEvent_getRepeatCount(ev), meta);
+  if (!ke || !j.ok()) return 0;
+  const jint cp = e->CallIntMethod(ke, uni, meta);
+  e->DeleteLocalRef(ke);
+  e->DeleteLocalRef(kc);
+  if (!j.ok() || cp <= 0) return 0;
+  return (uint32_t)cp;
 }
 // --- Kayit dosyasi dis dizinde (Geri bildirim #19) ---------------------------
 // Kayit varsayilan olarak cikarma kokunde (/data/user/0/<paket>/files/assets/
@@ -580,6 +617,20 @@ const bridge::HostSystem *a_system(void *user) {
   return &h->sys;
 }
 void a_back_to_game(void *user, bool on) { static_cast<AndroidHost *>(user)->back_to_game = on; }
+void a_soft_keyboard(void *user, bool on) {
+  AndroidHost *h = static_cast<AndroidHost *>(user);
+  h->text_on = on;
+  h->text_n = 0;
+  if (on) ANativeActivity_showSoftInput(h->app->activity, ANATIVEACTIVITY_SHOW_SOFT_INPUT_FORCED);
+  else ANativeActivity_hideSoftInput(h->app->activity, 0);
+}
+uint32_t a_text_chars(void *user, uint32_t *out, uint32_t cap) {
+  AndroidHost *h = static_cast<AndroidHost *>(user);
+  uint32_t n = h->text_n < cap ? h->text_n : cap;
+  for (uint32_t i = 0; i < n; i++) out[i] = h->text_buf[i];
+  h->text_n = 0;
+  return n;
+}
 const platform::TouchState *a_touch(void *user) {
   AndroidHost *h = static_cast<AndroidHost *>(user);
   if (h->app->window) {
@@ -607,6 +658,8 @@ bool bridge_host_open(BridgeHost *out, const char *title, uint32_t w, uint32_t h
   out->close = nullptr;
   out->system = a_system;
   out->back_to_game = a_back_to_game;
+  out->soft_keyboard = a_soft_keyboard;
+  out->text_chars = a_text_chars;
   std::printf("[engine_bridge] android host: pencere %dx%d\n", ANativeWindow_getWidth(g_host.app->window), ANativeWindow_getHeight(g_host.app->window));
   return true;
 }

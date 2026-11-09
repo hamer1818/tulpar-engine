@@ -352,6 +352,7 @@ struct UiStats {
   bool atlas_sorted = false;          // atlasa gore kararli siralama uygulandi mi
   uint32_t blocks_rebuilt = 0, blocks_reused = 0, blocks_overflow = 0;
   uint32_t sdf_quads = 0;             // SDF ornekleme yoluyla cizilen dortgen
+  uint32_t clipped = 0, clip_cut = 0; // kirpma: tamamen disarida kalip uretilmeyen / kesilerek kuculen dortgen
   uint32_t dither_batches = 0;        // titretmeli (set_ui_dither) cizim grubu
   const char *sdf_reason = "";        // SDF istendi ama kosmadiysa NEDEN
   uint32_t fullscreen_blended = 0;    // TBDR yasagi: tam ekrani kaplayan HARMANLI katman
@@ -608,6 +609,12 @@ public:
   void ui_set_atlas(MaterialHandle atlas);                    // glif atlasi (texel 0,0 beyaz)
   void ui_quad(float x, float y, float w, float h, float u0, float v0, float u1, float v1, uint32_t rgba);
   void ui_rect(float x, float y, float w, float h, uint32_t rgba); // duz kutu (beyaz texel)
+  // Kirpma dikdortgeni (WoE M2, 2026-11-08): acikken her dortgen CPU'da bu kutuya kesilir, UV orantili
+  // daraltilir (eksen hizali dortgenlerde kesin; boru hatti/scissor degismez, batch bolunmez). Tamamen
+  // disarida kalan dortgen uretilmez (ui_stats().clipped sayar). w/h <= 0 bos kutu: hepsi kirpilir.
+  void ui_clip(float x, float y, float w, float h);
+  void ui_clip_off();
+  bool ui_clip_on() const { return ui_clip_on_; }
   void ui_record(VkCommandBuffer cb);
   UiStats ui_stats() const { return ui_stats_; }
 
@@ -968,6 +975,8 @@ private:
   UiQuad *ui_block_quads_ = nullptr;
   uint32_t ui_block_cap_ = 0, ui_block_quad_cap_ = 0;
   int32_t ui_block_active_ = -1;
+  bool ui_clip_on_ = false;
+  float ui_clip_x0_ = 0, ui_clip_y0_ = 0, ui_clip_x1_ = 0, ui_clip_y1_ = 0;
   UiSortMode ui_sort_ = UiSortMode::OpaqueFirst;
   bool ui_sdf_ = false;       // gecerli durum: sonraki dortgenler SDF mi
   bool ui_sdf_failed_ = false; // boru hatti kurulamadi (bir kez denenir)

@@ -486,6 +486,30 @@ void teng_image_nine(int h, double x, double y, double w, double hh, double u0, 
 int teng_image_grid(int h, int cell_w, int cell_h, int pad); // hucre sayisi, 0 hata
 void teng_image_cell(int h, int index, double x, double y, double w, double hh, int64_t color);
 int teng_image_dither(int h, int on); // harmanli cizimde alfa titretmesi (E1c); varsayilan kapali
+// Kirpma (WoE M2): sonraki HUD cizimleri kutuya kesilir (CPU, eksen hizali, UV orantili). Ic ice 8.
+void teng_ui_clip(double x, double y, double w, double h);
+void teng_ui_clip_end(void);
+int teng_ui_clip_stat(int which); // son kare: 0 tamamen kirpilan dortgen, 1 kesilen dortgen
+// Kare hizi siniri (WoE M5): 0 kapali; penceresizde uyunmaz, sayilir
+int teng_frame_cap(int fps);
+int teng_frame_cap_stat(int which); // 0 uyku sayisi, 1 toplam uyku ms
+// HTTP(S) istemcisi (WoE M1a/M1b): engellemesiz; is parcacigi yapar. Tutamac 0 = hata. https: mbedTLS, dogrulamali.
+int teng_http_request(const char *method, const char *url, const char *body, const char *headers);
+int teng_http_state(int h);           // 0 gecersiz, 1 suruyor, 2 bitti, 3 hata
+int teng_http_status(int h);          // HTTP durum kodu (bittiyse)
+const char *teng_http_body(int h);    // yanit govdesi (bittiyse, release'e kadar gecerli)
+const char *teng_http_error(int h);   // hata metni (state 3)
+int teng_http_ms(int h);              // istek suresi (ms)
+int teng_http_release(int h);         // yuvayi birak (surerken HATA)
+void teng_http_timeout(int ms);       // baglanti/okuma zaman asimi (1000..120000, varsayilan 15000)
+// Metin girisi (WoE M3): ekran klavyesi (Android) + yazilanlar UTF-8; "\b" silme, "\n" enter
+int teng_text_input(int on);
+const char *teng_text_input_take(void);
+void teng_text_input_inject(const char *s); // penceresiz dogrulama
+int teng_text_input_active(void);
+const char *teng_text_pop(const char *s); // UTF-8 son karakteri sil (silme tusu)
+const char *teng_text_apply(const char *old); // yazilanlari metne uygula (silme dahil), tamponu bosalt
+int teng_text_input_enter(void);              // son apply'da enter sayisi
 double teng_text_width(const char *s, double scale);
 
 // --- anlik-kip (immediate mode) arayuz: menu / ayar / duraklat ---------------

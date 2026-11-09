@@ -48,6 +48,11 @@ struct BridgeHost {
   // Geri tusunu OYUNA bagla (Geri bildirim #8): true iken host olayi TUKETIR,
   // sistem etkinligi kapatmaz. Oyun geri tusunu ilk sordugunda cekirdek kurar.
   void (*back_to_game)(void *user, bool on) = nullptr;
+  // Metin girisi (WoE M3, 2026-11-08). soft_keyboard: ekran klavyesini ac/kapat (null = fiziksel klavye
+  // varsayilir, masaustu). text_chars: son cagridan beri yazilan kod noktalarini cikarir (8 = silme,
+  // 10 = enter); null ise cekirdek InputState::chars + tus kenarlarini kullanir (masaustu).
+  void (*soft_keyboard)(void *user, bool on) = nullptr;
+  uint32_t (*text_chars)(void *user, uint32_t *out, uint32_t cap) = nullptr;
 };
 
 // Teshis raporu (yayin adimi 6, teng_report_*): host rapor DIZININI (cokme

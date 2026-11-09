@@ -41,6 +41,7 @@
 #include "platform/crash.hpp"
 #include "platform/game_channel.hpp"
 #include "platform/memory.hpp" // os_resident_bytes (teng_rss_kb)
+#include "platform/http.hpp"  // teng_http_* (WoE M1a)
 #include "platform/net.hpp"    // teng_net_* (UDP, N2a)
 #include "platform/paths.hpp"
 #include "platform/thread.hpp"
@@ -57,6 +58,7 @@ using namespace tulpar::engine;
 
 namespace {
 void net_kapanis(); // dosya sonunda (ag, teng_net_*); teng_shutdown cagirir
+void http_kapanis(); // dosya sonunda (teng_http_*, WoE M1a); teng_shutdown cagirir
 void ls_kapanis();  // dosya sonunda (kilit adim, teng_ls_*)
 constexpr float kBridgePi = 3.14159265358979f;
 constexpr uint32_t kMaxEntities = 4096;
@@ -81,7 +83,7 @@ constexpr uint32_t kRenderMaxTextures = 128;
 // muzik yuvasi, TASARIM §14). Yuva basina statik ~150 B; asil bedel PCM (arena).
 constexpr uint32_t kMaxClips = 128;
 constexpr uint32_t kMaxVoices = 32; // audio::Mixer::kVoices ile ayni
-constexpr uint32_t kMaxHud = 1024;
+constexpr uint32_t kMaxHud = 4096; // WoE (2026-11-08): yonetim oyununun karti/kiyas satirlari 1024'e yaklasiyordu (9 dilim = 9 komut)
 constexpr uint32_t kMaxOverlap = 64;   // kure sorgusu sonuc tavani (sabit dizi, 0 ayirma)
 constexpr uint32_t kMaxNavPoints = 32; // navmesh duz yolunun kose sayisi tavani
 constexpr uint32_t kHudTextBytes = 64 << 10;
@@ -334,7 +336,7 @@ struct Ent {
   bool dying = false, bitir_running = false;
 };
 struct HudCmd {
-  uint8_t kind; // 0 rect, 1 text, 2 resim (M1: text_off = resim yuvasi, u0..v1 doku koordinati)
+  uint8_t kind; // 0 rect, 1 text, 2 resim (M1: text_off = resim yuvasi, u0..v1 doku koordinati), 3 kirpma ac (x,y,w,h), 4 kirpma kapat
   float x, y, w, h, scale;
   uint32_t rgba;
   uint32_t text_off;
@@ -342,8 +344,9 @@ struct HudCmd {
 };
 // Arayuz RESMI (M1, 2026-10-09): PNG/JPG -> sRGB doku (mip yok) + malzeme; HUD'da
 // HudCmd tur 2 olarak kuyruklanir, flush'ta ui_set_atlas(malzeme) + ui_quad. Renderer
-// degismedi (ui_quad zaten dortgen basina malzeme tasiyor). Sabit 32 yuva (A2).
-constexpr uint32_t kMaxImages = 32;
+// degismedi (ui_quad zaten dortgen basina malzeme tasiyor). Sabit yuva (A2): 32 idi, WoE (2026-11-08)
+// portre atlaslari + bina seviye arka planlari ile 20'yi gecti -> 96 (renderer doku havuzu 128, sahneyle ortak).
+constexpr uint32_t kMaxImages = 96;
 
 // ---------------------------------------------------------------------------
 // Anlik-kip arayuz durumu: isaretci + "hangi widget basili". Widget DEGERLERI
@@ -742,6 +745,17 @@ struct Bridge {
   };
   ImageSlot images[kMaxImages];
   uint32_t image_count = 0, image_rejected = 0;
+  // WoE (2026-11-08): kirpma (teng_ui_clip) sayaclari — son karede tamamen kirpilan / kesilen dortgen
+  uint32_t clip_last_clipped = 0, clip_last_cut = 0, clip_open = 0;
+  // Kare hizi siniri (teng_frame_cap): 0 kapali. Pencerede uyunur; penceresizde yalniz SAYILIR (kapi olcer).
+  int frame_cap = 0;
+  // Metin girisi (WoE M3): acikken yazilanlar UTF-8 olarak birikir, teng_text_input_take bosaltir.
+  bool text_on = false;
+  char text_buf[512] = {0};
+  uint32_t text_n = 0;
+  char text_out[512] = {0};
+  uint32_t text_total = 0;
+  uint64_t cap_last_ns = 0, cap_sleeps = 0, cap_sleep_us_total = 0;
   uint64_t image_draws = 0, image_opaque_draws = 0;
   uint64_t image_nine_calls = 0, image_cell_calls = 0; // tek FFI cagrisi -> 9 / 1 HUD komutu
   // Sahne karartma (Geri bildirim #16): duraklat/ayar ekraninda 3B sahneyi
@@ -1266,8 +1280,30 @@ void render_frame() {
     daire(o.x + b.stick.move.x * R, o.y - b.stick.move.y * R, R * 0.38f, renderer::Renderer::rgba(255, 255, 255, 120));
     b.stick_drawn_frames++;
   }
+  // Kirpma yigini (teng_ui_clip): ic ice kutular kesisir; kare sonunda acik kalan kirpma kapatilir (HATA sayilir).
+  float clip_st[8][4];
+  uint32_t clip_n = 0;
   for (uint32_t i = 0; i < b.hud_n; i++) {
     const HudCmd &c = b.hud[i];
+    if (c.kind == 3) {
+      float x0 = c.x, y0 = c.y, x1 = c.x + c.w, y1 = c.y + c.h;
+      if (clip_n > 0) {
+        const float *u = clip_st[clip_n - 1];
+        if (u[0] > x0) x0 = u[0];
+        if (u[1] > y0) y0 = u[1];
+        if (u[2] < x1) x1 = u[2];
+        if (u[3] < y1) y1 = u[3];
+      }
+      if (clip_n < 8) { clip_st[clip_n][0] = x0; clip_st[clip_n][1] = y0; clip_st[clip_n][2] = x1; clip_st[clip_n][3] = y1; clip_n++; }
+      b.ren.ui_clip(x0, y0, x1 - x0, y1 - y0);
+      continue;
+    }
+    if (c.kind == 4) {
+      if (clip_n > 0) clip_n--;
+      if (clip_n > 0) b.ren.ui_clip(clip_st[clip_n - 1][0], clip_st[clip_n - 1][1], clip_st[clip_n - 1][2] - clip_st[clip_n - 1][0], clip_st[clip_n - 1][3] - clip_st[clip_n - 1][1]);
+      else b.ren.ui_clip_off();
+      continue;
+    }
     if (c.kind == 0) b.ren.ui_rect(c.x, c.y, c.w, c.h, c.rgba);
     else if (c.kind == 2) {
       // Resim: kendi malzemesiyle tek dortgen, sonra atlas FONTA geri doner (ui_rect
@@ -1281,6 +1317,11 @@ void render_frame() {
       b.ren.ui_set_atlas(b.font_ok ? b.font.atlas() : renderer::MaterialHandle{});
     } else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
   }
+  if (clip_n > 0) { BERR("teng_ui_clip: kare sonunda %u kirpma acik kaldi (teng_ui_clip_end eksik)", clip_n); }
+  b.ren.ui_clip_off();
+  b.clip_open = 0;
+  b.clip_last_clipped = b.ren.ui_stats().clipped;
+  b.clip_last_cut = b.ren.ui_stats().clip_cut;
   b.hud_n = 0; b.hud_text_n = 0;
   {
     const uint32_t f = b.ren.ui_stats().fullscreen_blended, oyun = f > own_fsb ? f - own_fsb : 0;
@@ -1791,6 +1832,36 @@ static void alloc_frame_close(Bridge &b) {
   b.alloc_gpu_acc = 0;
 }
 
+} // extern "C"
+namespace {
+void text_put(Bridge &b, uint32_t cp) {
+  char u[4];
+  uint32_t n = 0;
+  if (cp < 0x80) { u[0] = (char)cp; n = 1; }
+  else if (cp < 0x800) { u[0] = (char)(0xC0 | (cp >> 6)); u[1] = (char)(0x80 | (cp & 0x3F)); n = 2; }
+  else if (cp < 0x10000) { u[0] = (char)(0xE0 | (cp >> 12)); u[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); u[2] = (char)(0x80 | (cp & 0x3F)); n = 3; }
+  else { u[0] = (char)(0xF0 | (cp >> 18)); u[1] = (char)(0x80 | ((cp >> 12) & 0x3F)); u[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); u[3] = (char)(0x80 | (cp & 0x3F)); n = 4; }
+  if (b.text_n + n >= sizeof b.text_buf) return;   // tasma: karakter dusurulur (okuyan her kare bosaltir)
+  for (uint32_t i = 0; i < n; i++) b.text_buf[b.text_n++] = u[i];
+  b.text_buf[b.text_n] = 0;
+  b.text_total++;
+}
+// Kare basinda: host'un kuyrugu (Android) ya da pencere girdisi (masaustu: char + silme/enter kenari)
+void text_collect(Bridge &b) {
+  if (b.host.text_chars) {
+    uint32_t cps[64];
+    const uint32_t n = b.host.text_chars(b.host.user, cps, 64);
+    for (uint32_t i = 0; i < n; i++) text_put(b, cps[i]);
+    return;
+  }
+  if (!b.in) return;
+  for (uint32_t i = 0; i < b.in->char_count; i++) text_put(b, b.in->chars[i]);
+  // GLFW: 259 BACKSPACE, 257 ENTER, 335 KP_ENTER (char geri cagrisi bunlari vermez)
+  if (b.cur_keys[259] && !b.prev_keys[259]) text_put(b, 8);
+  if ((b.cur_keys[257] && !b.prev_keys[257]) || (b.cur_keys[335] && !b.prev_keys[335])) text_put(b, 10);
+}
+} // namespace
+extern "C" {
 int teng_frame_begin(void) {
   if (!ready("teng_frame_begin")) return 0;
   Bridge &b = *g;
@@ -1801,6 +1872,18 @@ int teng_frame_begin(void) {
   b.in_frame = true;
   bool embed_step = false;
   if (b.embed) embed_step = embed_frame_wait(b);
+  if (b.frame_cap > 0 && !b.embed) {
+    // Kare hizi siniri: bir onceki kare basindan bu yana hedef sureden az gectiyse kalan kadar uyu.
+    const uint64_t hedef = 1000000000ull / (uint64_t)b.frame_cap;
+    const uint64_t t0 = platform::now_ns();
+    if (b.cap_last_ns && t0 - b.cap_last_ns < hedef) {
+      const uint64_t kalan_us = (hedef - (t0 - b.cap_last_ns)) / 1000ull;
+      b.cap_sleeps++;
+      b.cap_sleep_us_total += kalan_us;
+      if (!b.headless) platform::thread_sleep_us((uint32_t)kalan_us);
+    }
+    b.cap_last_ns = b.headless ? t0 : platform::now_ns();
+  }
   const uint64_t now = platform::now_ns();
   b.dt = (float)((now - b.last_ns) / 1e9);
   b.last_ns = now;
@@ -1858,6 +1941,7 @@ int teng_frame_begin(void) {
     b.touch = b.host.touch ? b.host.touch(b.host.user) : nullptr;
     if (b.in) { std::memcpy(b.prev_keys, b.cur_keys, sizeof b.cur_keys); std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys); }
     if (b.touch) b.stick.update(*b.touch, now);
+    if (b.text_on) text_collect(b);
   } else if (b.embed) {
     // Girdi editorden: Oyun sekmesi odaktayken editorun penceresinin tuslari,
     // fare KARE pikselinde. Fare -> parmak 0 (masaustu host ile ayni kural).
@@ -2528,6 +2612,7 @@ void teng_frame_end(void) {
 void teng_shutdown(void) {
   CALL("teng_shutdown");
   net_kapanis(); // ag motor kurulmadan da acik olabilir: once, kosulsuz (KOPRU §11)
+  http_kapanis();
   ls_kapanis();
   if (!g) return;
   Bridge &b = *g;
@@ -4295,6 +4380,119 @@ void teng_image_uv(int h, double x, double y, double w, double hh, double u0, do
   b.hud[b.hud_n++] = c;
 }
 void teng_image(int h, double x, double y, double w, double hh, int64_t color) { teng_image_uv(h, x, y, w, hh, 0, 0, 1, 1, color); }
+
+// KIRPMA (WoE M2, 2026-11-08): kaydirilabilir listeler icin. Acik oldugu surece sonraki HUD cizimleri
+// (dikdortgen, yazi, resim, 9 dilim, anlik-kip widget'lari) kutuya kesilir — CPU'da, renderer'da
+// (Renderer::ui_clip). Ic ice en cok 8; kesisim alinir. Dokunma alanlari KIRPILMAZ: cagiran kutu
+// disindaki ogeye dokunmayi kendisi yok sayar (kit_arayuz kaydirma kabi bunu yapar).
+void teng_ui_clip(double x, double y, double w, double hh) {
+  if (!ready("teng_ui_clip")) return;
+  Bridge &b = *g;
+  if (!b.in_frame) { BERR("teng_ui_clip: kare disinda"); return; }
+  if (b.hud_n >= kMaxHud) return;
+  b.hud[b.hud_n++] = HudCmd{3, (float)x, (float)y, (float)(w > 0 ? w : 0), (float)(hh > 0 ? hh : 0), 1.0f, 0, 0};
+  b.clip_open++;
+}
+void teng_ui_clip_end(void) {
+  if (!ready("teng_ui_clip_end")) return;
+  Bridge &b = *g;
+  if (!b.in_frame) { BERR("teng_ui_clip_end: kare disinda"); return; }
+  if (b.clip_open == 0) { BERR("teng_ui_clip_end: acik kirpma yok"); return; }
+  if (b.hud_n >= kMaxHud) return;
+  b.hud[b.hud_n++] = HudCmd{4, 0, 0, 0, 0, 1.0f, 0, 0};
+  b.clip_open--;
+}
+int teng_ui_clip_stat(int which) {
+  if (!ready("teng_ui_clip_stat")) return 0;
+  return which == 0 ? (int)g->clip_last_clipped : (int)g->clip_last_cut;
+}
+// KARE HIZI SINIRI (WoE M5): yonetim ekraninda 60 fps pil yer. 0 = sinirsiz. Pencerede kare basinda
+// uyunur; penceresizde uyunmaz ama uyku sayilir (teng_frame_cap_stat: 0 uyku sayisi, 1 toplam ms).
+int teng_frame_cap(int fps) {
+  if (!ready("teng_frame_cap")) return 0;
+  if (fps < 0 || fps > 240) { BERR("teng_frame_cap: %d gecersiz (0..240)", fps); return 0; }
+  g->frame_cap = fps;
+  g->cap_last_ns = 0;
+  BINFO("kare hizi siniri: %d%s", fps, fps == 0 ? " (kapali)" : " fps");
+  return 1;
+}
+// METIN GIRISI (WoE M3): on=1 ekran klavyesini acar (Android) ve yazilanlari biriktirmeye baslar.
+// teng_text_input_take: son cagridan beri yazilanlar UTF-8 ("\b" = silme, "\n" = enter).
+int teng_text_input(int on) {
+  if (!ready("teng_text_input")) return 0;
+  Bridge &b = *g;
+  if ((on != 0) == b.text_on) return 1;
+  b.text_on = on != 0;
+  b.text_n = 0; b.text_buf[0] = 0;
+  if (b.host.soft_keyboard) b.host.soft_keyboard(b.host.user, b.text_on);
+  BINFO("metin girisi %s%s", b.text_on ? "ACIK" : "kapali", b.host.soft_keyboard ? " (ekran klavyesi)" : "");
+  return 1;
+}
+const char *teng_text_input_take(void) {
+  if (!ready("teng_text_input_take")) return "";
+  Bridge &b = *g;
+  std::memcpy(b.text_out, b.text_buf, b.text_n + 1);
+  b.text_n = 0; b.text_buf[0] = 0;
+  return b.text_out;
+}
+// Penceresiz dogrulama: yazilmis gibi enjekte (UTF-8 metin). Betik dilleri kontrol karakteri yazamayabilir
+// (TulparLang "\\b"yi 'b' okur): "<SIL>" silme, "<ENTER>" enter olarak cevrilir.
+void teng_text_input_inject(const char *s) {
+  if (!ready("teng_text_input_inject") || !s) return;
+  Bridge &b = *g;
+  if (!b.text_on) { BERR("teng_text_input_inject: metin girisi kapali"); return; }
+  for (const char *p = s; *p;) {
+    if (std::strncmp(p, "<SIL>", 5) == 0) { if (b.text_n + 1 < sizeof b.text_buf) b.text_buf[b.text_n++] = 8; p += 5; continue; }
+    if (std::strncmp(p, "<ENTER>", 7) == 0) { if (b.text_n + 1 < sizeof b.text_buf) b.text_buf[b.text_n++] = 10; p += 7; continue; }
+    if (b.text_n + 1 >= sizeof b.text_buf) { BERR("teng_text_input_inject: tampon dolu"); break; }
+    b.text_buf[b.text_n++] = *p++;
+  }
+  b.text_buf[b.text_n] = 0;
+  b.text_total++;
+}
+// Yazilanlari METNE UYGULAR ve tamponu bosaltir: silme (8) son UTF-8 karakteri siler, enter (10) metne
+// girmez ama sayilir (teng_text_input_enter). Betik kontrol karakteri karsilastirmak zorunda kalmaz.
+static uint32_t g_text_enter = 0;
+const char *teng_text_apply(const char *old) {
+  static char out[2048];
+  g_text_enter = 0;
+  if (!ready("teng_text_apply")) { out[0] = 0; return out; }
+  Bridge &b = *g;
+  size_t n = old ? std::strlen(old) : 0;
+  if (n >= sizeof out) n = sizeof out - 1;
+  if (n) std::memmove(out, old, n);
+  for (uint32_t i = 0; i < b.text_n; i++) {
+    const unsigned char c = (unsigned char)b.text_buf[i];
+    if (c == 8) {
+      while (n > 0) { n--; const unsigned char d = (unsigned char)out[n]; if (d < 0x80 || d >= 0xC0) break; }
+    } else if (c == 10) { g_text_enter++; }
+    else if (n + 1 < sizeof out) { out[n++] = (char)c; }
+  }
+  out[n] = 0;
+  b.text_n = 0; b.text_buf[0] = 0;
+  return out;
+}
+int teng_text_input_enter(void) { return (int)g_text_enter; }
+// UTF-8 metnin son karakterini siler (silme tusu): devam baytlari (10xxxxxx) da gider. Statik tampon.
+const char *teng_text_pop(const char *s) {
+  static char out[2048];
+  if (!s) { out[0] = 0; return out; }
+  size_t n = std::strlen(s);
+  if (n >= sizeof out) n = sizeof out - 1;
+  std::memcpy(out, s, n);
+  while (n > 0) {
+    n--;
+    const unsigned char c = (unsigned char)out[n];
+    if (c < 0x80 || c >= 0xC0) break;
+  }
+  out[n] = 0;
+  return out;
+}
+int teng_text_input_active(void) { return ready("teng_text_input_active") && g->text_on ? 1 : 0; }
+int teng_frame_cap_stat(int which) {
+  if (!ready("teng_frame_cap_stat")) return 0;
+  return which == 0 ? (int)g->cap_sleeps : (int)(g->cap_sleep_us_total / 1000ull);
+}
 
 // 9 DILIM (F6, 2026-11-02). Oyun her paneli 9 ayri teng_image_uv FFI cagrisiyla ciziyordu
 // (Kupler ile Kureler arayuz.tpr k_cerceve, telefonda FFI bedeli olculdu: Tuzaklar 8cv). Ayni
@@ -6746,4 +6944,151 @@ int teng_ls_stat(int which) {
   default: BERR("teng_ls_stat: %d gecersiz (0..19, KOPRU §11.1)", which); return 0;
   }
 }
+
+// ===========================================================================
+// HTTP istemcisi (WoE M1a, 2026-11-08): cevrimici oyunun sunucu konusmasi. Kare dongusu BEKLEMEZ:
+// istek kuyruga yazilir, tek is parcacigi platform::http_exchange ile (engelleyerek) yapar, oyun her
+// kare durumu sorar. Sabit 8 yuva; tamponlar statik (ayirma yok, A2): istek govdesi 64 KB, yanit 1 MB.
+// Tutamac (nesil << 8) | yuva: birakilmis yuvaya eski tutamacla erisim HATA + 0 (Tuzaklar: nesil etiketi).
+// http:// ve https:// (M1b: mbedTLS, sertifika + ad dogrulamasi zorunlu; platform/http.hpp).
+// ===========================================================================
+} // extern "C"
+namespace {
+constexpr uint32_t kHttpSlots = 8, kHttpReqMax = 64u << 10, kHttpRespMax = 1u << 20;
+struct HttpSlot {
+  std::atomic<int> state{0}; // 0 bos, 1 kuyrukta, 2 calisiyor, 3 bitti, 4 hata
+  uint16_t gen = 0;
+  char method[8] = {0};
+  char url[1024] = {0};
+  char headers[1024] = {0};
+  uint32_t req_len = 0;
+  bool has_body = false;
+  platform::HttpResult res;
+  uint32_t ms = 0;
+};
+struct HttpSys {
+  HttpSlot s[kHttpSlots];
+  platform::Thread th;
+  std::atomic<bool> stop{false};
+  bool started = false;
+  uint32_t timeout_ms = 15000;
+  uint64_t sent = 0, ok = 0, failed = 0;
+};
+HttpSys g_http;
+char g_http_req[kHttpSlots][kHttpReqMax];
+char g_http_resp[kHttpSlots][kHttpRespMax];
+
+void http_worker(void *) {
+  while (!g_http.stop.load()) {
+    bool did = false;
+    for (uint32_t i = 0; i < kHttpSlots; i++) {
+      HttpSlot &sl = g_http.s[i];
+      int bekle = 1;
+      if (!sl.state.compare_exchange_strong(bekle, 2)) continue;
+      const uint64_t t0 = platform::now_ns();
+      const bool ok = platform::http_exchange(sl.method, sl.url, sl.headers[0] ? sl.headers : nullptr,
+                                              sl.has_body ? g_http_req[i] : nullptr, sl.req_len, g_http_resp[i], kHttpRespMax,
+                                              g_http.timeout_ms, &sl.res);
+      sl.ms = (uint32_t)((platform::now_ns() - t0) / 1000000ull);
+      sl.state.store(ok ? 3 : 4);
+      did = true;
+    }
+    if (!did) platform::thread_sleep_us(3000);
+  }
+}
+HttpSlot *http_slot(int h, const char *fn) {
+  const uint32_t i = (uint32_t)(h & 0xFF);
+  const uint16_t gen = (uint16_t)((uint32_t)h >> 8);
+  if (h <= 0 || i == 0 || i > kHttpSlots || g_http.s[i - 1].gen != gen || g_http.s[i - 1].state.load() == 0) {
+    BERR("%s: gecersiz ya da birakilmis http tutamaci %d", fn, h);
+    return nullptr;
+  }
+  return &g_http.s[i - 1];
+}
+void http_kapanis() {
+  if (!g_http.started) return;
+  g_http.stop.store(true);
+  platform::thread_join(g_http.th);
+  g_http.started = false;
+  g_http.stop.store(false);
+  for (uint32_t i = 0; i < kHttpSlots; i++) g_http.s[i].state.store(0);
+  if (g_http.sent) BINFO("kapanis (http): %llu istek, %llu yanit, %llu hata", (unsigned long long)g_http.sent, (unsigned long long)g_http.ok, (unsigned long long)g_http.failed);
+}
+} // namespace
+extern "C" {
+int teng_http_request(const char *method, const char *url, const char *body, const char *headers) {
+  CALLF("teng_http_request", "%s %s", method ? method : "", url ? url : "");
+  if (!method || !url || !*url) { BERR("teng_http_request: yontem/url yok"); return 0; }
+  if (std::strcmp(method, "GET") && std::strcmp(method, "POST") && std::strcmp(method, "PUT") && std::strcmp(method, "DELETE")) {
+    BERR("teng_http_request: yontem %s desteklenmiyor (GET/POST/PUT/DELETE)", method);
+    return 0;
+  }
+  const size_t bl = body ? std::strlen(body) : 0;
+  if (bl >= kHttpReqMax) { BERR("teng_http_request: govde %zu bayt (en cok %u)", bl, kHttpReqMax - 1); return 0; }
+  if (std::strlen(url) >= sizeof g_http.s[0].url) { BERR("teng_http_request: url cok uzun"); return 0; }
+  if (headers && std::strlen(headers) >= sizeof g_http.s[0].headers) { BERR("teng_http_request: basliklar cok uzun"); return 0; }
+  if (!g_http.started) {
+    if (!platform::thread_create(g_http.th, http_worker, nullptr, "tulpar_http")) { BERR("teng_http_request: is parcacigi baslatilamadi"); return 0; }
+    g_http.started = true;
+  }
+  for (uint32_t i = 0; i < kHttpSlots; i++) {
+    HttpSlot &sl = g_http.s[i];
+    if (sl.state.load() != 0) continue;
+    sl.gen = (uint16_t)(sl.gen + 1 == 0 ? 1 : sl.gen + 1);
+    std::snprintf(sl.method, sizeof sl.method, "%s", method);
+    std::snprintf(sl.url, sizeof sl.url, "%s", url);
+    // basliklar: oyun "Ad: deger" satirlarini \n ile verir; CRLF'ye cevrilir
+    uint32_t w = 0;
+    for (const char *p = headers ? headers : ""; *p && w + 3 < sizeof sl.headers; p++) {
+      if (*p == '\n') { sl.headers[w++] = '\r'; sl.headers[w++] = '\n'; }
+      else sl.headers[w++] = *p;
+    }
+    if (w >= 2 && !(sl.headers[w - 2] == '\r' && sl.headers[w - 1] == '\n') && w + 2 < sizeof sl.headers) { sl.headers[w++] = '\r'; sl.headers[w++] = '\n'; }
+    sl.headers[w] = 0;
+    sl.has_body = body != nullptr && bl > 0;
+    sl.req_len = (uint32_t)bl;
+    if (sl.has_body) std::memcpy(g_http_req[i], body, bl);
+    sl.res = platform::HttpResult{};
+    g_http.sent++;
+    sl.state.store(1);
+    return (int)(((uint32_t)sl.gen << 8) | (i + 1));
+  }
+  BERR("teng_http_request: %u yuva dolu (yanitlari teng_http_release ile birak)", kHttpSlots);
+  return 0;
+}
+int teng_http_state(int h) {
+  HttpSlot *sl = http_slot(h, "teng_http_state");
+  if (!sl) return 0;
+  const int st = sl->state.load();
+  return st == 1 || st == 2 ? 1 : (st == 3 ? 2 : 3);
+}
+int teng_http_status(int h) {
+  HttpSlot *sl = http_slot(h, "teng_http_status");
+  return sl && sl->state.load() >= 3 ? sl->res.status : 0;
+}
+const char *teng_http_body(int h) {
+  HttpSlot *sl = http_slot(h, "teng_http_body");
+  if (!sl || sl->state.load() != 3) return "";
+  return g_http_resp[sl - g_http.s];
+}
+const char *teng_http_error(int h) {
+  HttpSlot *sl = http_slot(h, "teng_http_error");
+  if (!sl) return "gecersiz tutamac";
+  return sl->state.load() == 4 ? sl->res.error : "";
+}
+int teng_http_ms(int h) {
+  HttpSlot *sl = http_slot(h, "teng_http_ms");
+  return sl && sl->state.load() >= 3 ? (int)sl->ms : 0;
+}
+int teng_http_release(int h) {
+  HttpSlot *sl = http_slot(h, "teng_http_release");
+  if (!sl) return 0;
+  const int st = sl->state.load();
+  if (st == 1 || st == 2) { BERR("teng_http_release: istek suruyor (bitmesini bekle)"); return 0; }
+  if (st == 3) g_http.ok++;
+  else g_http.failed++;
+  sl->state.store(0);
+  return 1;
+}
+void teng_http_timeout(int ms) { g_http.timeout_ms = (uint32_t)(ms < 1000 ? 1000 : (ms > 120000 ? 120000 : ms)); }
 } // extern "C"
