@@ -78,6 +78,10 @@ void bridge_notify_host(bool (*post)(const char *title, const char *text, int id
 // bilgi satiri yazar ve 0 doner (oyun adresi ekranda gosterir). nullptr: kapat (testler).
 void bridge_url_host(bool (*open_url)(const char *url));
 
+// Google ile giris (teng_google_*, KOPRU §16): Android host Credential Manager yolunu verir (Java sinifi
+// dev.tulparlang.engine.GoogleGiris; APK'da yoksa start -1). Masaustu vermez. nullptr: kapat (testler).
+void bridge_google_host(int (*start)(const char *client), int (*poll)(char *tok, size_t tcap, char *err, size_t ecap), void (*reset)());
+
 // Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
 // varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:
 // yayin APK'sinda sahte reklam/bedava satin alma oyuncuya gorunmesin.

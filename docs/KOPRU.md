@@ -1554,3 +1554,36 @@ kullanici: Warlords of Era "Google ile bagla" (OAuth cihaz akisi; `google.com/de
 `bridge_open_url_scheme_guard` (sahte host; 7 kotu adres reddedildi); emulatorde (oyun deposu
 `tools/android_ag_dene.sh`) Chrome on plana geldi (`topResumedActivity=...ChromeTabbedActivity`) ve oyun arka
 planda sunucuyu yoklayip baglamayi tamamladi.
+
+## 16. Google ile giriş — yerli hesap seçici (WoE, 2026-11-09)
+
+`eng_google_signin(client_id)` Android'de Google'ın **alttan açılan hesap seçicisini** (Credential Manager,
+"Sign in with Google") açar; Chrome açılmaz. `client_id` sunucunun Google Cloud **"Web uygulaması"** istemci
+kimliğidir: seçici ona (aud) bir `id_token` (JWT) verir, oyun onu sunucuya yollar, **sunucu Google'da doğrular**
+(`oauth2.googleapis.com/tokeninfo`). İstemcide doğrulama yok, istemcide gizli yok.
+
+- Durum (`eng_google_state`): 0 boş, 1 sürüyor, 2 tamam (`eng_google_token`), 3 vazgeçildi, 4 hata
+  (`eng_google_error`), 5 cihazda hesap yok, 6 kullanılamaz. `eng_google_signin` -1 dönerse (masaüstü, APK'da
+  paket yok) oyun tarayıcı yoluna düşmeli. Google'ın yapılandırma reddi ("[16] Account reauth failed": paket adı
+  / SHA-1 Google Cloud'daki **Android** istemcisinde kayıtlı değil) de 3 gelir; metinde "by the user" yoksa
+  oyuncu vazgeçmemiştir.
+- **Java**: `platform/android/java/dev/tulparlang/engine/GoogleGiris.java`. NativeActivity'de Java yok; sınıf
+  APK'ya `tools/android_google.py` ile girer: Maven'dan kilitli (`tools/android_google.kilit`, sha256)
+  androidx.credentials 1.6.0 + play-services-auth + googleid 1.2.1 (52 kütüphane) → R8 ile tek `classes.dex`
+  (~0,8 MB), kütüphane kaynakları aapt2 ile derlenir. R sınıfları dex'e GİRMEZ: kaynak kimlikleri ancak oyunun son
+  `aapt2 link`'inde belli olur — TulparLang `android/package_apk.sh` staging'deki `android_lib/`'i görünce
+  kaynakları `-R` ile bağlar, `--extra-packages` ile R'yi son kimliklerle üretir, javac + d8 ile kütüphane
+  dex'ine katar.
+  - `tools/android_google.py hazirla` → `yapi/tulpar-ext/android/google/`
+  - `tools/android_google.py ekle STAGE` → manifest `hasCode="true"` + kütüphane bileşenleri (HiddenActivity,
+    SignInHubActivity, androidx.startup ...) + `android_lib/`. Biyometri izinleri yazılmaz.
+- **JNI**: NativeActivity'nin yerel iş parçacığındaki `FindClass` uygulama sınıflarını görmez; sınıf
+  etkinliğin `getClassLoader()`'ından yüklenir (GlobalRef). Yerel geri çağrı kaydı yok: `basla / durum / jeton /
+  hata / sifirla` statik yöntemleri yoklanır.
+- Masaüstü: hesap seçici yok (-1/6). Penceresiz doğrulama için `TULPAR_ENGINE_GOOGLE_SAHTE=<id_token>` verilirse
+  `eng_google_signin` anında 2 + o jeton (Android'de yok sayılır).
+- Kapı `bridge_google_signin_paths` (masaüstü -1/6, sahte jeton, sahte host: sürüyor → tamam / vazgeçildi,
+  geçersiz istemci kimliği host'a ulaşmaz). Ölçüm (2026-11-09, API 37 emülatör, Google hesabı açık): seçici
+  "Choose an account — to continue to Warlords of Era" açıldı; sahte istemci kimliğiyle hesaba dokununca
+  `GetCredentialCancellationException: [16] Account reauth failed` JNI'den oyuna ulaştı, oyun tarayıcı yoluna
+  düştü ve turu tamamladı. Gerçek istemci kimliğiyle `id_token` yolu kullanıcı Google Cloud'u kurunca ölçülecek.

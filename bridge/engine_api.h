@@ -792,6 +792,13 @@ int teng_notify_stat(int which);          // 0 gonderilen, 1 basarisiz, 2 izin s
 const char *teng_notify_last(void);       // son gonderilen "baslik|metin" ("" = yok)
 int teng_open_url(const char *url);       // 1 acildi (Android tarayici); 0 masaustu / gecersiz sema / hata
 int teng_open_url_stat(int which);        // 0 acilan, 1 reddedilen ya da acilamayan
+// Google ile giris (KOPRU §16): Android hesap secicisi (Credential Manager) -> id_token (aud = client_id).
+int teng_google_signin(const char *client_id); // 1 basladi, 0 mesgul / gecersiz, -1 bu platformda / APK'da yok
+int teng_google_state(void);              // 0 bos, 1 suruyor, 2 tamam, 3 vazgecildi, 4 hata, 5 hesap yok, 6 kullanilamaz
+const char *teng_google_token(void);      // durum 2 iken id_token (JWT); degilse ""
+const char *teng_google_error(void);      // son hata metni
+void teng_google_reset(void);             // durum 0'a (suruyorken etkisiz)
+int teng_google_stat(void);               // baslatilan giris sayisi
 
 // --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1, sim/lockstep.hpp) ----------
 // Motor kurulmadan da calisir; teng_shutdown kapatir. flags: 1 cevrimici (paket + onay + ozet

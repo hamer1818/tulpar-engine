@@ -6729,6 +6729,85 @@ int teng_open_url_stat(int which) {
 }
 } // extern "C"
 
+// --- GOOGLE ILE GIRIS (WoE, 2026-11-09; KOPRU §16) ---------------------------------------------------
+// Android: Credential Manager hesap secicisi (alttan acilan sistem penceresi; Chrome yok). Java tarafi
+// dev.tulparlang.engine.GoogleGiris — APK'ya tools/android_google.py ile girer; girmemisse host -1 doner
+// ("kullanilamaz"), oyun tarayici yoluna duser. Sonuc bir id_token: oyun SUNUCUYA yollar, sunucu Google'da
+// dogrular (istemcide dogrulama yok). Masaustunde hesap secici YOK: -1; yalniz penceresiz dogrulama icin
+// TULPAR_ENGINE_GOOGLE_SAHTE=<id_token> verilirse aninda o jetonla "tamam" (Android'de yok sayilir).
+namespace {
+struct Google {
+  int (*start)(const char *client) = nullptr;           // 1 basladi, 0 mesgul, -1 kullanilamaz
+  int (*poll)(char *tok, size_t tcap, char *err, size_t ecap) = nullptr; // durum 0..5
+  void (*reset)() = nullptr;
+  int state = 0;          // 0 bos, 1 suruyor, 2 tamam, 3 vazgecildi, 4 hata, 5 hesap yok, 6 kullanilamaz
+  char token[4096] = {0};
+  char error[512] = {0};
+  uint32_t starts = 0;
+};
+Google g_google;
+} // namespace
+namespace tulpar::engine::bridge {
+void bridge_google_host(int (*start)(const char *), int (*poll)(char *, size_t, char *, size_t), void (*reset)()) {
+  g_google.start = start;
+  g_google.poll = poll;
+  g_google.reset = reset;
+}
+} // namespace tulpar::engine::bridge
+extern "C" {
+int teng_google_signin(const char *client_id) {
+  CALLF("teng_google_signin", "%s", client_id ? client_id : "(null)");
+  if (!client_id || std::strlen(client_id) < 8 || std::strlen(client_id) > 255 || std::strchr(client_id, ' ')) {
+    BERR("teng_google_signin: sunucu istemci kimligi gecersiz (Google Cloud 'Web uygulamasi' istemcisi, ...apps.googleusercontent.com)");
+    return 0;
+  }
+  if (g_google.state == 1) return 0;
+  g_google.token[0] = 0;
+  g_google.error[0] = 0;
+  if (!g_google.start) {
+    const char *sahte = std::getenv("TULPAR_ENGINE_GOOGLE_SAHTE");
+    if (sahte && *sahte) {
+      std::snprintf(g_google.token, sizeof g_google.token, "%s", sahte);
+      g_google.state = 2;
+      g_google.starts++;
+      BINFO("google girisi: SAHTE jeton (TULPAR_ENGINE_GOOGLE_SAHTE, yalniz masaustu dogrulamasi)");
+      return 1;
+    }
+    std::snprintf(g_google.error, sizeof g_google.error, "bu platformda Google hesap secicisi yok");
+    g_google.state = 6;
+    return -1;
+  }
+  const int r = g_google.start(client_id);
+  if (r == 1) { g_google.state = 1; g_google.starts++; }
+  else if (r < 0) {
+    g_google.state = 6;
+    std::snprintf(g_google.error, sizeof g_google.error, "Google paketi bu APK'da yok (tools/android_google.py)");
+  }
+  return r;
+}
+int teng_google_state(void) {
+  if (g_google.state == 1 && g_google.poll) {
+    const int s = g_google.poll(g_google.token, sizeof g_google.token, g_google.error, sizeof g_google.error);
+    if (s >= 2 && s <= 5) {
+      g_google.state = s;
+      if (s == 2) BINFO("google girisi: hesap secildi (id_token %zu bayt)", std::strlen(g_google.token));
+      else BINFO("google girisi: %s (%s)", s == 3 ? "oyuncu vazgecti" : s == 5 ? "cihazda Google hesabi yok" : "HATA", g_google.error);
+    }
+  }
+  return g_google.state;
+}
+const char *teng_google_token(void) { return g_google.state == 2 ? g_google.token : ""; }
+const char *teng_google_error(void) { return g_google.error; }
+void teng_google_reset(void) {
+  if (g_google.state == 1) return;
+  g_google.state = 0;
+  g_google.token[0] = 0;
+  g_google.error[0] = 0;
+  if (g_google.reset) g_google.reset();
+}
+int teng_google_stat(void) { return (int)g_google.starts; }
+} // extern "C"
+
 extern "C" {
 int teng_net_open(int port, int broadcast) {
   CALLF("teng_net_open", "%d %d", port, broadcast);

@@ -1558,6 +1558,19 @@ func notify_last(): str { return eng_notify_last(); }
 func baglanti_ac(str url): bool { return eng_open_url(url); }
 func open_url(str url): bool { return eng_open_url(url); }
 func baglanti_sayac(int hangi): int { return eng_open_url_stat(hangi); }
+// Google ile giris (KOPRU §16): Android'de alttan acilan hesap secici (Credential Manager), sonuc id_token.
+// istemci = sunucunun Google "Web uygulamasi" istemci kimligi. google_giris_baslat: 1 basladi, 0 suruyor,
+// -1 bu platformda / APK'da yok (tarayici yoluna dus). Durum: 0 bos, 1 suruyor, 2 tamam, 3 vazgecildi,
+// 4 hata, 5 hesap yok, 6 kullanilamaz. Jeton SUNUCUDA dogrulanir.
+func google_giris_baslat(str istemci): int { return eng_google_signin(istemci); }
+func google_signin(str client_id): int { return eng_google_signin(client_id); }
+func google_giris_durum(): int { return eng_google_state(); }
+func google_signin_state(): int { return eng_google_state(); }
+func google_giris_jeton(): str { return eng_google_token(); }
+func google_signin_token(): str { return eng_google_token(); }
+func google_giris_hata(): str { return eng_google_error(); }
+func google_giris_sifirla() { eng_google_reset(); }
+func google_giris_sayac(): int { return eng_google_stat(); }
 
 // ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
 // Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }
