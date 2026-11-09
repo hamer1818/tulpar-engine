@@ -246,8 +246,8 @@ void tls_sunucu_dongu(void *a) {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_init(&ssl);
     mbedtls_ssl_setup(&ssl, &conf);
-    mbedtls_ssl_set_bio(&ssl, &c, [](void *x, const unsigned char *b, size_t n) -> int { return (int)send(*(int *)x, b, n, 0); },
-                        [](void *x, unsigned char *b, size_t n) -> int { return (int)recv(*(int *)x, b, n, 0); }, nullptr);
+    mbedtls_ssl_set_bio(&ssl, &c, [](void *x, const unsigned char *b, size_t n) -> int { return (int)send(*(int *)x, (const char *)b, (int)n, 0); },
+                        [](void *x, unsigned char *b, size_t n) -> int { return (int)recv(*(int *)x, (char *)b, (int)n, 0); }, nullptr);
     int r;
     while ((r = mbedtls_ssl_handshake(&ssl)) == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {}
     if (r == 0) {
