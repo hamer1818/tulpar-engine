@@ -90,11 +90,27 @@ add_library(engine_platform STATIC
     platform/fs_ops.cpp
     platform/game_channel.cpp
     platform/net.cpp
+    platform/http.cpp
 )
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw)
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(engine_platform PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
 target_link_libraries(engine_platform PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+# mbedTLS 3.6.2 LTS (Apache-2.0, vendored: third_party/mbedtls, release tarball sha256
+# 8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca). Yalniz platform/http.cpp (HTTPS, WoE M1b)
+# kullanir; masaustu + Android tek kod yolu (karar K5).
+file(GLOB ENGINE_MBEDTLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/library/*.c)
+add_library(engine_mbedtls STATIC ${ENGINE_MBEDTLS_SOURCES})
+target_include_directories(engine_mbedtls PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/include)
+target_include_directories(engine_mbedtls PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/library)
+set_target_properties(engine_mbedtls PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(NOT MSVC)
+  target_compile_options(engine_mbedtls PRIVATE -w)
+endif()
+target_link_libraries(engine_platform PRIVATE engine_mbedtls)
+if(WIN32)
+  target_link_libraries(engine_mbedtls PUBLIC bcrypt) # mbedTLS entropi: BCryptGenRandom
+endif()
 # shm_open (platform/game_channel.cpp): glibc 2.34'ten once librt'de. Yeni
 # glibc'de librt bos bir uyumluluk kutuphanesi; baglamak zararsiz.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -433,7 +449,7 @@ message(STATUS "engine: Tulpar ABI kilidi saglam; pozitif kontrol (kasitli kayma
 # kendi kendine yeterli; editor de bunu kullanir (<editor dizini>/tulpar-ext).
 set(TULPAR_EXT_DIR ${CMAKE_BINARY_DIR}/tulpar-ext)
 set(TULPAR_EXT_LIBS engine_tulpar engine_bridge engine_content engine_renderer engine_sim engine_rhi
-    engine_audio engine_core engine_platform engine_jolt engine_recast engine_meshopt engine_astcenc)
+    engine_audio engine_core engine_platform engine_mbedtls engine_jolt engine_recast engine_meshopt engine_astcenc)
 # HUD fontu (+ lisansi) paketin ICINDE: kopru onu <TULPAR_EXT_PATH girdisi>/
 # assets/fonts'ta da arar. Editor oyunu TULPAR_EXT_PATH ile baslattigi icin
 # kurulu bir pakette (ENGINE_SOURCE_DIR yok) font buradan gelir.
@@ -546,6 +562,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_timers.cpp
     tests/test_lockstep.cpp
     tests/test_net.cpp
+    tests/test_http.cpp
     tests/test_state_machine.cpp
     tests/test_event_bus.cpp
     tests/test_boids.cpp
@@ -593,7 +610,7 @@ if(NOT ANDROID)
 endif()
 
 add_executable(engine_tests ${ENGINE_TEST_SOURCES} app/virtual_stick.cpp core/memory/alloc_gate_override.cpp)
-target_link_libraries(engine_tests PRIVATE engine_content engine_renderer engine_rhi engine_sim engine_audio engine_core ${CMAKE_DL_LIBS})
+target_link_libraries(engine_tests PRIVATE engine_content engine_renderer engine_rhi engine_sim engine_audio engine_core engine_mbedtls ${CMAKE_DL_LIBS})
 if(NOT ANDROID)
     # engine_bridge: Tulpar betiklerinin gordugu C ABI (tests/test_bridge.cpp onu kosturur).
     target_link_libraries(engine_tests PRIVATE engine_imgui engine_bridge)

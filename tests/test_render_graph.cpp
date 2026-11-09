@@ -1472,6 +1472,69 @@ ENGINE_TEST(renderer_ui_opaque_first_is_pixel_identical) {
   offscreen_destroy(off);
 }
 
+// --- WoE M2: CPU kirpma (kaydirilabilir listeler) ------------------------------
+// Kirpma acikken 200x100'luk dikdortgen 60x40'lik kutuya kesilmeli (tam piksel sayisi), kutunun tamamen
+// disindaki dortgen hic uretilmemeli (sayilarak). KONTROL: kirpma kapaliyken ayni cizim 200x100 verir.
+// (UV'nin orantili kaymasi bu testte piksel olarak OLCULMUYOR: duz renkli dikdortgen UV'den bagimsiz.)
+ENGINE_TEST(renderer_ui_clip_cuts_quads_and_uv) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  OrtakGpu &g = ortak_gpu();
+  if (!g.ok) { skip("Vulkan cihazi yok"); return; }
+  Device &dev = g.dev;
+  SystemArena &sys = g.sys;
+  const uint32_t W = 256, H = 192;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W; oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0;
+  rc.max_draws = 8;
+  bool ok = ren.init(dev, sys, offscreen_render_pass(off), rc);
+  CHECK(ok);
+  if (!ok) { offscreen_destroy(off); return; }
+  renderer::TextureHandle at = ren.create_texture(ui_atlas_pixels(255, 255, 255), kAtlasN, kAtlasN, false, false);
+  renderer::MaterialHandle atlas = ren.create_material(at, {1, 1, 1});
+  ren.set_camera(Mat4::identity(), Mat4::identity());
+  ren.set_render_size(W, H);
+  Rec rr{&ren};
+  auto kirmizi_say = [&](bool kirp, uint32_t *uretilmeyen, uint32_t *kesilen) -> uint32_t {
+    ren.begin_frame(0);
+    ren.ui_begin((float)W, (float)H, 0.0f);
+    ren.ui_set_atlas(atlas);
+    if (kirp) ren.ui_clip(50, 20, 60, 40);
+    ren.ui_rect(10, 10, 200, 100, renderer::Renderer::rgba(255, 0, 0, 255));
+    ren.ui_rect(200, 150, 30, 30, renderer::Renderer::rgba(0, 255, 0, 255)); // kutunun tamamen disinda
+    ren.ui_clip_off();
+    ren.ui_end();
+    const bool r = offscreen_render_custom(off, oc, rec_main_ui, &rr, &ores, rec_before);
+    CHECK(r);
+    if (!r) return 0;
+    *uretilmeyen = ren.ui_stats().clipped;
+    *kesilen = ren.ui_stats().clip_cut;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < W * H; i++) {
+      const uint8_t *p = ores.pixels + i * 4;
+      if (p[0] > 200 && p[1] < 60) n++;
+    }
+    return n;
+  };
+  uint32_t u0 = 0, k0 = 0, u1 = 0, k1 = 0;
+  const uint32_t kirpik = kirmizi_say(true, &u0, &k0);
+  const uint32_t tam = kirmizi_say(false, &u1, &k1);
+  std::printf("    [bilgi] kirpma: kirmizi %u px (60x40 = 2400 bekleniyor), uretilmeyen %u, kesilen %u; KONTROL kirpmasiz %u px (20000)\n",
+              kirpik, u0, k0, tam);
+  CHECK(kirpik == 2400);
+  CHECK(u0 == 1 && k0 == 1);
+  CHECK(tam == 20000 && u1 == 0 && k1 == 0);
+  ren.shutdown();
+  offscreen_destroy(off);
+}
+
 // --- U2: tek batch + atlas gruplamasi ---------------------------------------
 ENGINE_TEST(renderer_ui_batches_group_by_atlas) {
   if (!loader_ok()) { skip("Vulkan loader yok"); return; }

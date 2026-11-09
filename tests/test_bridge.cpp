@@ -2906,20 +2906,23 @@ ENGINE_TEST(bridge_ui_image_draws_srgb_png_like_rect) {
   CHECK(!yakin(sol, bos, 20));          // KONTROL: resimsiz kare farkli
   CHECK(std::abs((int)sag[1] - 180) <= 2);
   CHECK(teng_error_count() == e0);
-  // 4) KONTROL: tavan 32 + kare disi cizim.
+  // 4) KONTROL: tavan (96; WoE 2026-11-08'e kadar 32) + kare disi cizim.
+  const int kTavan = 96;
   int ok = 1;
-  for (int i = 1; i < 32; i++) {
+  for (int i = 1; i < kTavan; i++) {
     std::snprintf(yol2, sizeof yol2, "%s/k%d.png", dir, i);
     if (png_yaz(yol2, 4, 4, rgba) && teng_image_load(yol2) >= 0) ok++;
   }
-  std::snprintf(yol2, sizeof yol2, "%s/k32.png", dir);
+  std::snprintf(yol2, sizeof yol2, "%s/k%d.png", dir, kTavan);
   CHECK(png_yaz(yol2, 4, 4, rgba));
-  CHECK(ok == 32 && teng_image_load(yol2) == -1);
+  CHECK(ok == kTavan && teng_image_load(yol2) == -1);
   teng_image(r, 0, 0, 10, 10, 0xFFFFFFFF); // kare disi
   CHECK(teng_error_count() == e0 + 2);
   kapanis_yakala();
-  CHECK(std::strstr(g_kapanis_log, "kapanis (resim): 32/32 resim, 2 cizim (2 opak yoldan), tavan reddi 1") != nullptr);
-  for (int i = 1; i <= 32; i++) { std::snprintf(yol2, sizeof yol2, "%s/k%d.png", dir, i); std::remove(yol2); }
+  char beklenen[128];
+  std::snprintf(beklenen, sizeof beklenen, "kapanis (resim): %d/%d resim, 2 cizim (2 opak yoldan), tavan reddi 1", kTavan, kTavan);
+  CHECK(std::strstr(g_kapanis_log, beklenen) != nullptr);
+  for (int i = 1; i <= kTavan; i++) { std::snprintf(yol2, sizeof yol2, "%s/k%d.png", dir, i); std::remove(yol2); }
   std::remove(yol); rmdir(dir);
 }
 

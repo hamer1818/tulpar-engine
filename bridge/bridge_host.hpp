@@ -48,6 +48,11 @@ struct BridgeHost {
   // Geri tusunu OYUNA bagla (Geri bildirim #8): true iken host olayi TUKETIR,
   // sistem etkinligi kapatmaz. Oyun geri tusunu ilk sordugunda cekirdek kurar.
   void (*back_to_game)(void *user, bool on) = nullptr;
+  // Metin girisi (WoE M3, 2026-11-08). soft_keyboard: ekran klavyesini ac/kapat (null = fiziksel klavye
+  // varsayilir, masaustu). text_chars: son cagridan beri yazilan kod noktalarini cikarir (8 = silme,
+  // 10 = enter); null ise cekirdek InputState::chars + tus kenarlarini kullanir (masaustu).
+  void (*soft_keyboard)(void *user, bool on) = nullptr;
+  uint32_t (*text_chars)(void *user, uint32_t *out, uint32_t cap) = nullptr;
 };
 
 // Teshis raporu (yayin adimi 6, teng_report_*): host rapor DIZININI (cokme
@@ -64,6 +69,14 @@ void bridge_report_crash_extra(int fd);
 // verir (yayin paketlerini suzen Wi-Fi surucusu icin). Masaustu cagirmaz: kilit
 // gerekmez, teng_net_wifi_lock 1 doner. nullptr: kapat (testler).
 void bridge_net_host(bool (*wifi_lock)(bool on));
+
+// Yerel bildirim (teng_notify, WoE M6): Android host bildirim cubuguna yazma + izin (POST_NOTIFICATIONS)
+// yolunu verir. Masaustu cagirmaz: teng_notify bilgi satiri yazar, sayar ve 1 doner. nullptr: kapat (testler).
+void bridge_notify_host(bool (*post)(const char *title, const char *text, int id), int (*permission)(bool request));
+
+// Baglanti ac (teng_open_url): Android host Intent(ACTION_VIEW) yolunu verir. Masaustu vermez: teng_open_url
+// bilgi satiri yazar ve 0 doner (oyun adresi ekranda gosterir). nullptr: kapat (testler).
+void bridge_url_host(bool (*open_url)(const char *url));
 
 // Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
 // varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:

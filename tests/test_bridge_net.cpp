@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "bridge/bridge_host.hpp"
 #include "bridge/engine_api.h"
 #include "platform/net.hpp"
 #include "platform/thread.hpp"
@@ -204,4 +205,74 @@ ENGINE_TEST(bridge_lockstep_flat_api_round_trip_and_desync) {
   CHECK(teng_ls_frame() == 0); // ayrismadan sonra sim durur
   teng_shutdown();
   CHECK(teng_ls_tick() == -1); // kapanis kapatti
+}
+
+// --- Yerel bildirim (teng_notify, WoE M6 2026-11-09) --------------------------------------------
+// Motor kurulmadan calisir. Masaustu (host yok): bilgi satiri + sayac, 1; son ozet "baslik|metin".
+// Sahte host (Android yolunun yerine): baslik/metin/kimlik oldugu gibi iletilir; host false derse
+// (izin yok) 0 ve basarisiz sayaci +1. KONTROL: bos baslik ve negatif kimlik HATA, host CAGRILMAZ.
+namespace {
+int g_sahte_cagri = 0, g_sahte_id = -9, g_sahte_izin = 0, g_sahte_istek = 0;
+char g_sahte_metin[128];
+bool sahte_post(const char *t, const char *x, int id) {
+  g_sahte_cagri++;
+  g_sahte_id = id;
+  std::snprintf(g_sahte_metin, sizeof g_sahte_metin, "%s/%s", t, x);
+  return g_sahte_izin != 0;
+}
+int sahte_izin(bool istek) { if (istek) g_sahte_istek++; return g_sahte_izin; }
+} // namespace
+ENGINE_TEST(bridge_notify_desktop_and_host_paths) {
+  const int g0 = teng_notify_stat(0), f0 = teng_notify_stat(1), h0 = teng_error_count();
+  CHECK(teng_notify("Rapor geldi", "Kuşatma kazanıldı", 1) == 1);
+  CHECK(teng_notify_stat(0) == g0 + 1);
+  CHECK(std::strcmp(teng_notify_last(), "Rapor geldi|Kuşatma kazanıldı") == 0);
+  CHECK(teng_notify_permission(0) == 1 && teng_notify_permission(1) == 1);
+  CHECK(teng_error_count() == h0);
+  // KONTROL: gecersiz girdi HATA, sayilir, son ozet degismez
+  CHECK(teng_notify("", "x", 2) == 0);
+  CHECK(teng_notify("Baslik", "x", -1) == 0);
+  CHECK(teng_notify_stat(1) == f0 + 2 && teng_error_count() == h0 + 2);
+  CHECK(std::strcmp(teng_notify_last(), "Rapor geldi|Kuşatma kazanıldı") == 0);
+  // Sahte host: izin yok -> 0, izin var -> 1, metin bayt bayt iletilir
+  bridge::bridge_notify_host(sahte_post, sahte_izin);
+  g_sahte_izin = 0;
+  CHECK(teng_notify_permission(0) == 0);
+  CHECK(teng_notify_permission(1) == 0 && g_sahte_istek == 1);
+  CHECK(teng_notify("Insaat", "Kışla 3 bitti", 7) == 0);
+  CHECK(g_sahte_cagri == 1 && teng_notify_stat(1) == f0 + 3);
+  g_sahte_izin = 1;
+  CHECK(teng_notify("Insaat", "Kışla 3 bitti", 7) == 1);
+  CHECK(g_sahte_cagri == 2 && g_sahte_id == 7 && std::strcmp(g_sahte_metin, "Insaat/Kışla 3 bitti") == 0);
+  CHECK(teng_notify(nullptr, "x", 1) == 0 && g_sahte_cagri == 2); // host cagrilmadi
+  CHECK(teng_notify_stat(0) == g0 + 2);
+  CHECK(teng_notify_stat(9) == 0); // gecersiz sayac HATA
+  bridge::bridge_notify_host(nullptr, nullptr);
+  CHECK(teng_notify("Geri", "", 3) == 1 && g_sahte_cagri == 2);
+  CHECK(teng_error_count() == h0 + 4);
+}
+
+// --- Baglanti ac (teng_open_url) -----------------------------------------------------------------
+// Masaustu: tarayici acilmaz, 0. Sahte host: http(s) iletilir. KONTROL: intent:/javascript:/file:, kontrol
+// karakterli ve bos adres HATA ve host'a ULASMAZ.
+namespace {
+int g_url_cagri = 0;
+char g_url_son[256];
+bool sahte_url(const char *u) { g_url_cagri++; std::snprintf(g_url_son, sizeof g_url_son, "%s", u); return true; }
+} // namespace
+ENGINE_TEST(bridge_open_url_scheme_guard) {
+  const int h0 = teng_error_count(), a0 = teng_open_url_stat(0), r0 = teng_open_url_stat(1);
+  CHECK(teng_open_url("https://www.google.com/device") == 0); // masaustu
+  CHECK(teng_error_count() == h0 && teng_open_url_stat(1) == r0 + 1);
+  bridge::bridge_url_host(sahte_url);
+  CHECK(teng_open_url("https://www.google.com/device") == 1);
+  CHECK(teng_open_url("http://185.169.180.27:8484/") == 1);
+  CHECK(g_url_cagri == 2 && std::strcmp(g_url_son, "http://185.169.180.27:8484/") == 0);
+  const char *kotu[] = {"intent://x#Intent;end", "javascript:alert(1)", "file:///sdcard/a", "", "https://a\nb", "HTTPS//x"};
+  for (const char *k : kotu) CHECK(teng_open_url(k) == 0);
+  CHECK(teng_open_url(nullptr) == 0);
+  CHECK(g_url_cagri == 2);
+  CHECK(teng_open_url_stat(0) == a0 + 2 && teng_open_url_stat(1) == r0 + 1 + 7);
+  CHECK(teng_error_count() == h0 + 7);
+  bridge::bridge_url_host(nullptr);
 }

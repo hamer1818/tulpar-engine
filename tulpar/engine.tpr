@@ -1062,6 +1062,34 @@ func resim_izgara(r, hucre_w, hucre_h, bosluk): int { return eng_image_grid(r, h
 func image_grid_e(img, cell_w, cell_h, pad): int { return eng_image_grid(img, cell_w, cell_h, pad); }
 func resim_hucre(r, i, x, y, w, h, renk_) { eng_image_cell(r, i, x, y, w, h, renk_); }
 func resim_titret(int r, bool acik): bool { return eng_image_dither(r, acik); }
+// Kirpma (WoE M2): kaydirilabilir listeler. kirp_ac ... kirp_kapat arasindaki cizimler kutuya kesilir.
+func kirp_ac(float x, float y, float w, float h) { eng_ui_clip(x, y, w, h); }
+func kirp_kapat() { eng_ui_clip_end(); }
+func kirpma_sayaci(int ne): int { return eng_ui_clip_stat(ne); }
+func ui_clip(float x, float y, float w, float h) { eng_ui_clip(x, y, w, h); }
+func ui_clip_end() { eng_ui_clip_end(); }
+// Kare hizi siniri (WoE M5): 0 kapali
+func kare_hizi_siniri(int fps): bool { return eng_frame_cap(fps); }
+func frame_cap(int fps): bool { return eng_frame_cap(fps); }
+func kare_hizi_uyku(int ne): int { return eng_frame_cap_stat(ne); }
+// HTTP istemcisi (WoE M1a): http_istek -> tutamac; her kare http_durum (1 suruyor, 2 bitti, 3 hata);
+// bitince http_govde / http_kod; sonra MUTLAKA http_birak. http:// ve https:// (sertifika dogrulanir).
+func http_istek(str yontem, str url, str govde, str basliklar): int { return eng_http_request(yontem, url, govde, basliklar); }
+func http_durum(int h): int { return eng_http_state(h); }
+func http_kod(int h): int { return eng_http_status(h); }
+func http_govde(int h): str { return eng_http_body(h); }
+func http_hata(int h): str { return eng_http_error(h); }
+func http_sure_ms(int h): int { return eng_http_ms(h); }
+func http_birak(int h): bool { return eng_http_release(h); }
+func http_zaman_asimi(int ms) { eng_http_timeout(ms); }
+// Metin girisi (WoE M3): metin_girisi(true) ekran klavyesini acar; metin kutusu her kare
+// v = metin_uygula(v) cagirir (silme dahil yazilanlar uygulanir); metin_enter() o karede enter basildi mi.
+// Penceresiz dogrulama: metin_enjekte("abc<SIL>d<ENTER>").
+func metin_girisi(bool ac): bool { return eng_text_input(ac); }
+func metin_uygula(str eski): str { return eng_text_apply(eski); }
+func metin_enter(): bool { return eng_text_input_enter() > 0; }
+func metin_enjekte(str s) { eng_text_input_inject(s); }
+func metin_girisi_acik(): bool { return eng_text_input_active(); }
 func image_dither(int r, bool on): bool { return eng_image_dither(r, on); }
 func image_cell_e(img, index, x, y, w, h, color) { eng_image_cell(img, index, x, y, w, h, color); }
 func resim_gen(r): int { return eng_image_w(r); }
@@ -1167,7 +1195,7 @@ float _UI_YAZI_BOY = 18.6667;
 float _UI_KAYDIRICI_PAY = 12.0;
 float _UI_PENCERE_PAY = 24.0;    // pencere iç kenar boşluğu (tasarım birimi)
 float _UI_BASLIK_OLCEK = 1.5;
-int _UI_KAYIT_MAX = 128;         // ayrı widget adı; dolunca UYARI, sessiz büyüme yok
+int _UI_KAYIT_MAX = 512;         // ayrı widget adı; dolunca UYARI, sessiz büyüme yok (WoE 2026-11-08: 128 yonetim ekranlarina dar)
 
 float _ui_sabit_olcek = 0.0;     // 0 = otomatik (yukseklik() / 720)
 int _ui_uyari = 0;
@@ -1513,6 +1541,23 @@ func udp_sayac(int hangi): int { return eng_net_stat(hangi); }
 func net_stat(int which): int { return eng_net_stat(which); }
 func udp_wifi_kilidi(ac): bool { return eng_net_wifi_lock(ac); }
 func net_wifi_lock(on): bool { return eng_net_wifi_lock(on); }
+
+// ---- Yerel bildirim (WoE M6, 2026-11-09; KOPRU §15) ----
+// Android'de bildirim çubuğu (13+ için tulpar.toml [android] bildirim = true ve izin sorusu);
+// masaüstünde bilgi satırı. Aynı kimlik öncekinin yerine geçer. Süreç ölmüşse gelmez (push değil).
+func bildirim_gonder(str baslik, str yazi, int kimlik): bool { return eng_notify(baslik, yazi, kimlik); }
+func notify(str title, str text, int id): bool { return eng_notify(title, text, id); }
+func bildirim_izni(sor): bool { return eng_notify_permission(sor); }
+func notify_permission(request): bool { return eng_notify_permission(request); }
+// 0 gönderilen, 1 başarısız, 2 izin sorgusu, 3 izin isteği
+func bildirim_sayac(int hangi): int { return eng_notify_stat(hangi); }
+func notify_stat(int which): int { return eng_notify_stat(which); }
+func bildirim_son(): str { return eng_notify_last(); }
+func notify_last(): str { return eng_notify_last(); }
+// Baglanti ac (Android tarayici; yalniz http/https). Masaustunde false — adresi ekranda goster.
+func baglanti_ac(str url): bool { return eng_open_url(url); }
+func open_url(str url): bool { return eng_open_url(url); }
+func baglanti_sayac(int hangi): int { return eng_open_url_stat(hangi); }
 
 // ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
 // Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }
