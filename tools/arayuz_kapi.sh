@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/yeni_betik.txt (U10 B4): Davranis ekle -> hazir + Turkce ad -> olusan betik oyunda calisir.
 # tests/arayuz/hata_satiri.txt (U10 B3): bozuk betik -> Oynat -> "Kodu ac (satir 3)" -> Kod paneli o satirda.
 # tests/arayuz/kod.txt (U10 B2): cift tik Kod panelinde acar, panelden nesneye ekler, Ctrl+S yazar.
 # tests/arayuz/betik_{yeni,eski}.txt (U10 B1): atanan betik oyunda GERCEKTEN calisir; eski projede editor baglar.
@@ -73,7 +74,8 @@ oyun_kos() {  # oyun_kos <proje> <gunluk>
 if ! command -v tulpar > /dev/null; then
   echo "  ATLANDI: betik baglama — tulpar kurulu degil (oyun kosturulamaz)"
 else
-  B="$D/betik"; mkdir -p "$B/ui_yeni" "$B/ui_eski" "$B/ui_kod" "$B/ui_hata"
+  B="$D/betik"; mkdir -p "$B/ui_yeni" "$B/ui_eski" "$B/ui_kod" "$B/ui_hata" "$B/ui_yb"
+  "$ED" --yeni-oyun "$B/yb" --kimlik yb --onek YB --tr "Yeni Betik" --en "New Script" > /dev/null 2>&1
   betik_proje "$B/yeni" && betik_proje "$B/eski" && betik_proje "$B/kod" && betik_proje "$B/hata" || { echo "  KIRMIZI betik: proje uretilemedi"; kirmizi=1; }
   printf 'func dondur_baslat(id) {\n    logla("x");\n    y = = 3;\n}\n' > "$B/hata/assets/betikler/dondur.tpr"
   ( cd "$B/hata" && TULPAR_ENGINE_DIR="$KOK" bash tools/ortam.sh > /dev/null 2>&1 )
@@ -83,6 +85,11 @@ else
   ( kos betik_eski.txt "$B/ui_eski" --scene "$B/eski/assets/arena.sahne" ); re=$?
   ( kos kod.txt "$B/ui_kod" --scene "$B/kod/assets/arena.sahne" ); rk=$?
   ( kos hata_satiri.txt "$B/ui_hata" --scene "$B/hata/assets/arena.sahne" ); rh=$?
+  ( kos yeni_betik.txt "$B/ui_yb" --scene "$B/yb/assets/arena.sahne" ); rb=$?
+  oyun_kos "$B/yb" "$B/yb.log"
+  if [ $rb = 0 ] && grep -q 'betik "betikler/deneme_davranis.tpr" etkin' "$B/yb/assets/arena.sahne" && grep -q 'deneme_davranis başladı: duvar_guney' "$B/yb.log"; then
+    echo "  yeni betik: Davranis ekle -> Bos -> 'Deneme Davranis' -> deneme_davranis.tpr oyunda calisti"
+  else echo "  KIRMIZI yeni betik (cikis $rb):"; grep -E 'HATA|> ' "$B/ui_yb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E 'hata:|kanca' "$B/yb.log" | head -2 | sed 's/^/      /'; kirmizi=1; fi
   if [ $rh = 0 ]; then echo "  hata satiri: Oynat -> hata penceresi -> Kodu ac -> Kod paneli 3. satirda"
   else echo "  KIRMIZI hata satiri (cikis $rh):"; grep -E 'HATA|> ' "$B/ui_hata/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   oyun_kos "$B/yeni" "$B/yeni.log"; oyun_kos "$B/eski" "$B/eski_sonra.log"

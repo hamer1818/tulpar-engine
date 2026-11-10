@@ -78,4 +78,34 @@ bool kod_kaydet(KodPaneli &k, char *err, uint32_t err_cap);
 // Paneli cizer (k.acik iken). secili_ad: secili varligin adi (yoksa null); secilide_bu: o varligin betigi bu dosya.
 KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu);
 
+// --- B4: sade "Yeni betik" ve hazir davranislar ----------------------------------------------------------
+// Dosya diyalogu yerine tek alan ("Betigin adi") + "Ne yapsin?" secimi. Dosya <sahne dizini>/betikler/<ad>.tpr,
+// secili nesneye atanir ve Kod panelinde acilir. Hazirlar BUGUNKU kopruyle calisanlar (2026-11-11 gercek oyunda
+// denendi: 4 hazir derlendi, 7 kanca cozuldu; "Dokununca yok ol" sabit duvari carpisinca gizledi). "Dondur" YOK:
+// sahne varligina konum/donus veren islev koprude yok (yalniz dinamik govdeye hiz/itme).
+enum class BetikSablon : int { Bos = 0, Hareket, Zipla, YokOl, Sayi };
+struct BetikSablonBilgi {
+  const char *ad;        // secimde gorunen
+  const char *aciklama;  // tek satir: ne yapar, ne ister
+  const char *oneri;     // bos ad alanina onerilen dosya adi
+};
+const BetikSablonBilgi &betik_sablon_bilgi(BetikSablon t);
+// {AD} yerine taban adi koyarak betik metnini yazar. Donus: bayt (sigmazsa 0).
+uint32_t betik_sablon_metni(BetikSablon t, const char *ad, char *out, uint32_t cap);
+// Kullanicinin yazdigi addan dosya/kanca adi: Turkce harf katlanir (zıpla -> zipla), bosluk '_' olur, kucuk harf.
+bool betik_adi_oner(const char *girdi, char *out, uint32_t cap);
+
+struct YeniBetik {
+  bool ac = false;
+  bool ilk_kare = false;
+  char ad[64] = {0};
+  int tur = 0;
+  int32_t hedef = -1;       // atanacak varlik (-1: yalniz dosya)
+  char hedef_ad[64] = {0};
+  char hata[256] = {0};
+  bool kapat = false;       // cagiran olusturdu: pencere bir sonraki karede kendi icinden kapanir
+};
+// Pencereyi cizer. Donus true: kullanici "Olustur"a basti (cagiran dosyayi yazar, atar, acar; hata'yi doldurabilir).
+bool yeni_betik_ciz(YeniBetik &y);
+
 } // namespace tulpar::engine::app

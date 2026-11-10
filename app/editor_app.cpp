@@ -2274,6 +2274,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     std::printf("[engine_editor] kod paneli: %s%s\n", yol, satir > 0 ? " (satira git)" : "");
     return true;
   };
+  // U10 B4: sade "Yeni betik" penceresi (dosya diyalogu yerine ad + hazir davranis).
+  static YeniBetik yb;
+  auto yeni_betik_ac = [&](int32_t hedef) {
+    yb = YeniBetik{};
+    yb.ac = true;
+    yb.hedef = hedef;
+    if (hedef >= 0 && hedef < (int32_t)st.scene.entity_count) std::snprintf(yb.hedef_ad, sizeof yb.hedef_ad, "%s", st.scene.entities[hedef].name);
+    else yb.hedef = -1;
+    std::snprintf(yb.ad, sizeof yb.ad, "%s", betik_sablon_bilgi(BetikSablon::Bos).oneri);
+  };
   auto do_undo = [&]() {
     if (kod.yaziyor) return;
     if (st.edit_active) {
@@ -6888,13 +6898,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             }
             // Yeni betik: iskeleti yazar ve BU varliga atar. Diyalog tek
             // bosaltma yerinden (kipli pencereler bolumu) sonuclanir.
-            if (ImGui::SmallButton(ICON_MD_ADD " Yeni betik")) {
-              dlg_intent = IntentScriptNew;
-              script_new_target = si;
-              file_dialog_open(dlg, FileDialogMode::Kaydet, st.scene_dir, ".tpr", "Yeni betik");
-            }
-            if (ImGui::IsItemHovered())
-              ImGui::SetTooltip("Dosya ad\xC4\xB1 kanca ad\xC4\xB1 olur: kovala.tpr -> kovala_baslat, kovala_guncelle ...");
+            if (ImGui::SmallButton(ICON_MD_ADD " Yeni betik")) yeni_betik_ac(si);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Haz\xC4\xB1r bir davran\xC4\xB1\xC5\x9Ftan ba\xC5\x9Fla (hareket, z\xC4\xB1pla, yok ol ...)");
             ImGui::SameLine();
             ImGui::BeginDisabled(e.script_file[0] == 0);
             if (ImGui::SmallButton(ICON_MD_EDIT " D\xC3\xBCzenle")) kodu_ac(e.script_file, nullptr, 0);
@@ -7031,6 +7036,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Takili olanlari eleme isini de widget yapar (existing_components),
         // burada tek tek sormaya gerek yok.
         prop_set_filter(nullptr); // ekleme listesi ve diger paneller suzgecten etkilenmesin
+        // U10 B4: betik en cok aranan sey; "Bilesen ekle" listesinde kaybolmasin.
+        if (!has_sc) {
+          ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
+          ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::AccentLo, 0.55f));
+          if (ImGui::Button(ICON_MD_BOLT "  Davran\xC4\xB1\xC5\x9F ekle (betik)", ImVec2(-FLT_MIN, 0))) yeni_betik_ac(si);
+          ImGui::PopStyleColor();
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bu nesne ne yaps\xC4\xB1n? Haz\xC4\xB1r davran\xC4\xB1\xC5\x9Flardan se\xC3\xA7 ya da bo\xC5\x9F betikle ba\xC5\x9Fla.");
+        }
         const uint32_t add = component_add_button(kComponentMenu, kComponentMenuCount, e.components);
         if (add) { // 0 = secim yok; donus INDEKS degil BIT
           after = e;
@@ -9143,6 +9156,40 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       if (!acik_kalsin) betik_hata_acik = false;
     }
+    if (yeni_betik_ciz(yb)) {
+      char taban[64], why[200], dizin[1100], yol[1300], err[256];
+      static char metin[16 * 1024];
+      yb.hata[0] = 0;
+      if (!betik_adi_oner(yb.ad, taban, sizeof taban) || !editor_script_name_ok(taban, why, sizeof why)) {
+        std::snprintf(yb.hata, sizeof yb.hata, "Bu ad kullan\xC4\xB1lamaz: %s", why[0] ? why : yb.ad);
+      } else if (!st.scene_dir[0]) {
+        std::snprintf(yb.hata, sizeof yb.hata, "%s", "\xC3\x96nce sahneyi kaydedin (betik sahnenin klas\xC3\xB6r\xC3\xBC" "ne yaz\xC4\xB1l\xC4\xB1r).");
+      } else {
+        std::snprintf(dizin, sizeof dizin, "%s/betikler", st.scene_dir);
+        std::snprintf(yol, sizeof yol, "%s/%s.tpr", dizin, taban);
+        const uint32_t n = betik_sablon_metni((BetikSablon)yb.tur, taban, metin, sizeof metin);
+        if (file_exists(yol)) std::snprintf(yb.hata, sizeof yb.hata, "betikler/%s.tpr zaten var: ba\xC5\x9Fka bir ad yaz ya da Kaynaklar'dan a\xC3\xA7.", taban);
+        else if (!platform::fs_mkdir_p(dizin)) std::snprintf(yb.hata, sizeof yb.hata, "klas\xC3\xB6r yarat\xC4\xB1lamad\xC4\xB1: %s", dizin);
+        else if (!n || betik_dosya_yaz_degistiyse(yol, metin, n, err, sizeof err) < 0) std::snprintf(yb.hata, sizeof yb.hata, "yaz\xC4\xB1lamad\xC4\xB1: %s", yol);
+        else {
+          char label[content::kSceneScriptLen];
+          std::snprintf(label, sizeof label, "betikler/%s.tpr", taban);
+          if (yb.hedef >= 0 && yb.hedef < (int32_t)st.scene.entity_count) {
+            SceneEntity after = st.scene.entities[yb.hedef];
+            after.components |= content::kSceneScript;
+            after.script_enabled = true;
+            std::snprintf(after.script_file, sizeof after.script_file, "%s", label);
+            commit(st, yb.hedef, after);
+          }
+          rescan_browse(st);
+          kodu_ac(label, yol, 0);
+          betikleri_bagla();
+          set_status(st, "betik olu\xC5\x9Fturuldu: %s%s%s", label, yb.hedef >= 0 ? " \xE2\x86\x92 " : "", yb.hedef >= 0 ? yb.hedef_ad : "");
+          std::printf("[engine_editor] yeni betik: %s (hazir %d)\n", yol, yb.tur);
+          yb.kapat = true;
+        }
+      }
+    }
     if (kod.acik) {
       const int32_t ks = st.sel.primary();
       const bool ks_var = ks >= 0 && ks < (int32_t)st.scene.entity_count;
@@ -9160,7 +9207,6 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         std::snprintf(after.script_file, sizeof after.script_file, "%s", kod.etiket);
         if (commit(st, ks, after)) {
           set_status(st, "betik eklendi: %s \xE2\x86\x92 %s", kod.etiket, st.scene.entities[ks].name);
-          console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "betik eklendi: %s -> %s", kod.etiket, st.scene.entities[ks].name);
         }
       }
     }

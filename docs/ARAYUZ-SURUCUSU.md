@@ -97,6 +97,8 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     betik çalışmaz ("betik kancası YOK"). `tulpar` yoksa ATLANDI.
   - **`kod.txt` (U10 B2):** Kaynaklar'da betiğe çift tık Kod panelinde açar, panelden nesneye ekler; yazarken
     Ctrl+Z sahneyi geri almaz, Ctrl+S dosyaya yazar.
+  - **`yeni_betik.txt` (U10 B4):** "Davranış ekle (betik)" → Boş → "Deneme Davranış" → oluşan
+    `deneme_davranis.tpr` oyunda çalışır (`_baslat` logu).
   - **`hata_satiri.txt` (U10 B3):** bozuk betik → Oynat → "Kodu aç (satır 3)" → Kod paneli 3. satırda.
   - **`pozitif_kontrol.txt`:** olmayan öge çıkış 1 ve `HATA` satırı vermeli.
 

@@ -120,3 +120,31 @@ ENGINE_TEST(editor_kod_paneli_ac_kaydet_with_control) {
   // KONTROL: olmayan dosya false + sebep
   CHECK(!app::kod_ac(k, "/olmayan/yok.tpr", "", 0, err, sizeof err) && err[0]);
 }
+
+// U10 B4: hazir davranislar. Her metinde {AD} kalmaz, kancalar dosya adiyla baslar, global adlar onekli (butun
+// betikler TEK programa import edilir: iki betikte ayni global cakisirdi). Gercek derleme/calisma arayuz kapisinda.
+ENGINE_TEST(editor_betik_hazir_davranislar_with_control) {
+  static char m[16 * 1024];
+  for (int i = 0; i < (int)app::BetikSablon::Sayi; i++) {
+    const uint32_t n = app::betik_sablon_metni((app::BetikSablon)i, "altin_para", m, sizeof m);
+    const app::BetikSablonBilgi &b = app::betik_sablon_bilgi((app::BetikSablon)i);
+    std::printf("    [bilgi] hazir %d (%s): %u bayt, oneri %s\n", i, b.ad, n, b.oneri);
+    CHECK(n > 0 && n == std::strlen(m));
+    CHECK(std::strstr(m, "{AD}") == nullptr);
+    CHECK(std::strstr(m, "func altin_para_") != nullptr);           // en az bir kanca, dosya adiyla
+    CHECK(std::strstr(m, "Unity") != nullptr);                       // karsilik tablosu her hazirda
+    for (const char *p = m; (p = std::strstr(p, "\nfloat ")); p++)   // global = onekli
+      CHECK(!std::strncmp(p + 7, "altin_para_", 11));
+    char o[64];
+    CHECK(app::betik_adi_oner(b.oneri, o, sizeof o) && !std::strcmp(o, b.oneri)); // oneri zaten gecerli ad
+  }
+  CHECK(app::betik_sablon_metni(app::BetikSablon::YokOl, "x", m, sizeof m) && std::strstr(m, "func x_carpisma(id, diger, olay, x, y, z, hiz)"));
+  CHECK(app::betik_sablon_metni(app::BetikSablon::Hareket, "x", m, sizeof m) && std::strstr(m, "func x_guncelle(id, dt)"));
+  char o[64];
+  CHECK(app::betik_adi_oner("Altın Para", o, sizeof o) && !std::strcmp(o, "altin_para"));
+  CHECK(app::betik_adi_oner("zıpla", o, sizeof o) && !std::strcmp(o, "zipla"));
+  // KONTROL: bos ad ve sigmayan tampon
+  CHECK(!app::betik_adi_oner("", o, sizeof o));
+  CHECK(app::betik_sablon_metni(app::BetikSablon::Bos, "x", m, 16) == 0 && m[0] == 0);
+  CHECK(app::betik_sablon_metni(app::BetikSablon::Bos, "", m, sizeof m) == 0);
+}

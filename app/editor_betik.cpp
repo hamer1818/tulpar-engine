@@ -340,3 +340,192 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
 }
 
 } // namespace tulpar::engine::app
+
+// =====================================================================================================
+// B4: hazir davranislar + Yeni betik penceresi
+// =====================================================================================================
+#include "app/editor_fabrika.hpp"
+
+namespace tulpar::engine::app {
+namespace {
+// Uretildi: Turkce metin -> \xHH kacisli C dizgisi (tasma bolunmus). Kaynak metin bu dosyanin gecmisinde;
+// degistirirken Tulpar'da derlendigini (TULPAR_ENGINE_HEADLESS ile) yeniden olcun.
+const char *const kSablon_BOS =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (bo\xC5\x9F).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "//   {AD}_carpisma(id, diger, olay, x, y, z, hiz)   bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+    "// id = bu nesne. Kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n i\xC5\x9Flevi silebilirsin. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "\n"
+    "func {AD}_baslat(id) {\n"
+    "    logla(\"{AD} ba\xC5\x9Flad\xC4\xB1: \" + sahne_adi(id));\n"
+    "}\n"
+    "\n"
+    "func {AD}_guncelle(id, dt) {\n"
+    "    // Her karede \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r. \xC3\x96rnek: konumu oku -> sahne_x(id), sahne_y(id), sahne_z(id)\n"
+    "}\n";
+
+const char *const kSablon_HAREKET =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (ok tu\xC5\x9Flar\xC4\xB1yla hareket).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "//   {AD}_carpisma(id, diger, olay, x, y, z, hiz)   bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+    "// id = bu nesne. Kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n i\xC5\x9Flevi silebilirsin. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "// Nesnenin G\xC3\xB6vde bile\xC5\x9F" "eni D\xC4\xB0NAM\xC4\xB0K olmal\xC4\xB1 (\xC3\x96zellikler > G\xC3\xB6vde > Dinamik).\n"
+    "\n"
+    "float {AD}_HIZ = 4.0;   // saniyede ka\xC3\xA7 metre\n"
+    "\n"
+    "func {AD}_baslat(id) {\n"
+    "    if (!sahne_dinamik(id)) { logla(\"UYARI {AD}: \" + sahne_adi(id) + \" dinamik de\xC4\x9Fil \xE2\x80\x94 \xC3\x96zellikler > G\xC3\xB6vde > Dinamik'i a\xC3\xA7\"); }\n"
+    "}\n"
+    "\n"
+    "func {AD}_guncelle(id, dt) {\n"
+    "    if (!sahne_dinamik(id)) { return; }\n"
+    "    float vx = 0.0;\n"
+    "    float vz = 0.0;\n"
+    "    if (tus(\"left\")) { vx = vx - {AD}_HIZ; }\n"
+    "    if (tus(\"right\")) { vx = vx + {AD}_HIZ; }\n"
+    "    if (tus(\"up\")) { vz = vz - {AD}_HIZ; }\n"
+    "    if (tus(\"down\")) { vz = vz + {AD}_HIZ; }\n"
+    "    sahne_hiz_ver(id, vx, sahne_hiz_y(id), vz);   // dikey h\xC4\xB1z (d\xC3\xBC\xC5\x9Fme) korunur\n"
+    "}\n";
+
+const char *const kSablon_ZIPLA =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (Bo\xC5\x9Fluk tu\xC5\x9Fuyla z\xC4\xB1pla).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "//   {AD}_carpisma(id, diger, olay, x, y, z, hiz)   bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+    "// id = bu nesne. Kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n i\xC5\x9Flevi silebilirsin. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "// Nesnenin G\xC3\xB6vde bile\xC5\x9F" "eni D\xC4\xB0NAM\xC4\xB0K olmal\xC4\xB1 (\xC3\x96zellikler > G\xC3\xB6vde > Dinamik).\n"
+    "\n"
+    "float {AD}_ZIPLAMA = 5.0;   // yukar\xC4\xB1 h\xC4\xB1z (metre/saniye)\n"
+    "\n"
+    "func {AD}_baslat(id) {\n"
+    "    if (!sahne_dinamik(id)) { logla(\"UYARI {AD}: \" + sahne_adi(id) + \" dinamik de\xC4\x9Fil \xE2\x80\x94 \xC3\x96zellikler > G\xC3\xB6vde > Dinamik'i a\xC3\xA7\"); }\n"
+    "}\n"
+    "\n"
+    "func {AD}_guncelle(id, dt) {\n"
+    "    if (!sahne_dinamik(id)) { return; }\n"
+    "    float vy = sahne_hiz_y(id);\n"
+    "    bool yerde = vy > -0.05 && vy < 0.05;   // dikey h\xC4\xB1z ~0: yerde duruyor\n"
+    "    if (yerde && tus_basildi(\"space\")) {\n"
+    "        sahne_hiz_ver(id, sahne_hiz_x(id), {AD}_ZIPLAMA, sahne_hiz_z(id));\n"
+    "    }\n"
+    "}\n";
+
+const char *const kSablon_YOK_OL =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (dokununca yok ol).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "//   {AD}_carpisma(id, diger, olay, x, y, z, hiz)   bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+    "// id = bu nesne. Kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n i\xC5\x9Flevi silebilirsin. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "// Toplanacak para, k\xC4\xB1r\xC4\xB1lan kutu... Bir \xC5\x9F" "ey \xC3\xA7" "arp\xC4\xB1nca nesne kaybolur.\n"
+    "// Nesnenin G\xC3\xB6vde bile\xC5\x9F" "eni olmal\xC4\xB1 ve SAB\xC4\xB0T olmal\xC4\xB1 (dinamikse yere de\xC4\x9Fince hemen kaybolur).\n"
+    "\n"
+    "func {AD}_carpisma(id, diger, olay, x, y, z, hiz) {\n"
+    "    sahne_gorunur(id, false);\n"
+    "    logla(\"{AD}: \" + sahne_adi(id) + \" topland\xC4\xB1\");\n"
+    "}\n";
+
+const BetikSablonBilgi kBilgi[(int)BetikSablon::Sayi] = {
+    {"Bo\xC5\x9F", "Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ve her kare i\xC5\x9Flevleri; kendin doldur.", "davranis"},
+    {"Ok tu\xC5\x9Flar\xC4\xB1yla hareket", "Nesneyi ok tu\xC5\x9Flar\xC4\xB1yla y\xC3\xBCr\xC3\xBCt\xC3\xBCr (G\xC3\xB6vde dinamik olmal\xC4\xB1).", "hareket"},
+    {"Bo\xC5\x9Fluk tu\xC5\x9Fuyla z\xC4\xB1pla", "Yerdeyken Bo\xC5\x9Fluk'a bas\xC4\xB1nca z\xC4\xB1plar (G\xC3\xB6vde dinamik olmal\xC4\xB1).", "zipla"},
+    {"Dokununca yok ol", "Bir \xC5\x9F" "ey \xC3\xA7" "arp\xC4\xB1nca kaybolur: toplanacak para, k\xC4\xB1r\xC4\xB1lan kutu (G\xC3\xB6vde sabit olmal\xC4\xB1).", "toplanir"},
+};
+const char *const kMetin[(int)BetikSablon::Sayi] = {kSablon_BOS, kSablon_HAREKET, kSablon_ZIPLA, kSablon_YOK_OL};
+} // namespace
+
+const BetikSablonBilgi &betik_sablon_bilgi(BetikSablon t) {
+  const int i = (int)t >= 0 && (int)t < (int)BetikSablon::Sayi ? (int)t : 0;
+  return kBilgi[i];
+}
+
+uint32_t betik_sablon_metni(BetikSablon t, const char *ad, char *out, uint32_t cap) {
+  if (!out || cap == 0 || !ad || !*ad) return 0;
+  const int i = (int)t >= 0 && (int)t < (int)BetikSablon::Sayi ? (int)t : 0;
+  const char *m = kMetin[i];
+  const size_t al = std::strlen(ad);
+  uint32_t o = 0;
+  for (const char *p = m; *p;) {
+    if (!std::strncmp(p, "{AD}", 4)) {
+      if (o + al >= cap) { out[0] = 0; return 0; }
+      std::memcpy(out + o, ad, al); o += (uint32_t)al; p += 4;
+    } else {
+      if (o + 1 >= cap) { out[0] = 0; return 0; }
+      out[o++] = *p++;
+    }
+  }
+  out[o] = 0;
+  return o;
+}
+
+bool betik_adi_oner(const char *girdi, char *out, uint32_t cap) {
+  if (!out || cap == 0) return false;
+  out[0] = 0;
+  if (!girdi || !*girdi) return false;
+  char k[64];
+  if (!fabrika_kimlik_oner(girdi, k, sizeof k)) return false;
+  std::snprintf(out, cap, "%s", k);
+  return true;
+}
+
+bool yeni_betik_ciz(YeniBetik &y) {
+  if (!y.ac && !y.kapat) return false;
+  bool olustur = false;
+  static const char *const kBaslik = "Yeni betik###yeni_betik";
+  if (y.kapat && !ImGui::IsPopupOpen(kBaslik)) { y.kapat = false; y.ac = false; return false; }
+  if (!ImGui::IsPopupOpen(kBaslik)) { ImGui::OpenPopup(kBaslik); y.ilk_kare = true; }
+  ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 32.0f, 0.0f), ImGuiCond_Appearing);
+  bool acik = true;
+  if (ImGui::BeginPopupModal(kBaslik, &acik, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (y.kapat) { y.kapat = false; y.ac = false; ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return false; }
+    const float w = ImGui::GetFontSize() * 31.0f;
+    ImGui::TextUnformatted(y.hedef >= 0 ? "Bu nesne ne yaps\xC4\xB1n?" : "Ne yaps\xC4\xB1n?");
+    if (y.hedef >= 0) { ImGui::SameLine(); ImGui::TextDisabled("(%s)", y.hedef_ad); }
+    ImGui::Spacing();
+    for (int i = 0; i < (int)BetikSablon::Sayi; i++) {
+      const BetikSablonBilgi &b = betik_sablon_bilgi((BetikSablon)i);
+      char id[96];
+      std::snprintf(id, sizeof id, "%s##sablon%d", b.ad, i);
+      const char *eski_oneri = betik_sablon_bilgi((BetikSablon)y.tur).oneri;
+      if (ImGui::RadioButton(id, y.tur == i)) {
+        if (!y.ad[0] || !std::strcmp(y.ad, eski_oneri)) std::snprintf(y.ad, sizeof y.ad, "%s", b.oneri); // ad elle degismediyse oneriyi izle
+        y.tur = i;
+      }
+      ImGui::Indent(ImGui::GetFrameHeight());
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - ImGui::GetFrameHeight());
+      ImGui::TextDisabled("%s", b.aciklama);
+      ImGui::PopTextWrapPos();
+      ImGui::Unindent(ImGui::GetFrameHeight());
+    }
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Beti\xC4\x9Fin ad\xC4\xB1");
+    if (y.ilk_kare) { ImGui::SetKeyboardFocusHere(); y.ilk_kare = false; }
+    ImGui::SetNextItemWidth(w);
+    const bool enter = ImGui::InputTextWithHint("##betik_adi", "\xC3\xB6rn. z\xC4\xB1pla", y.ad, sizeof y.ad, ImGuiInputTextFlags_EnterReturnsTrue);
+    char taban[64];
+    const bool ad_ok = betik_adi_oner(y.ad, taban, sizeof taban);
+    if (ad_ok) ImGui::TextDisabled("dosya: betikler/%s.tpr", taban);
+    else ImGui::TextDisabled("bir ad yaz (harf, rakam, bo\xC5\x9Fluk)");
+    if (y.hata[0]) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", y.hata);
+    ImGui::Spacing();
+    ImGui::BeginDisabled(!ad_ok);
+    char eb[120];
+    if (y.hedef >= 0) std::snprintf(eb, sizeof eb, ICON_MD_ADD " Olu\xC5\x9Ftur ve %.40s nesnesine ekle", y.hedef_ad);
+    else std::snprintf(eb, sizeof eb, ICON_MD_ADD " Olu\xC5\x9Ftur");
+    if (ImGui::Button(eb) || (enter && ad_ok)) olustur = true;
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Vazge\xC3\xA7") || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { y.ac = false; ImGui::CloseCurrentPopup(); }
+    ImGui::EndPopup();
+  }
+  if (!acik) y.ac = false;
+  return olustur;
+}
+
+} // namespace tulpar::engine::app

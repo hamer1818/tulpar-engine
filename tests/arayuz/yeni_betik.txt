@@ -1,0 +1,22 @@
+# U10 B4 (tools/arayuz_kapi.sh): betiksiz nesnede "Davranis ekle (betik)" -> hazir sec -> Turkce ad -> Olustur.
+# Dosya betikler/deneme_davranis.tpr olur, nesneye atanir, Kod panelinde acilir; sahne kaydedilir. Kapi sonra
+# oyunu kosturup betigin _baslat'inin CALISTIGINI olcer.
+tikla "duvar_guney"
+bekle 2
+kaydir "Dönüşüm (Transform)" -30
+bekle 2
+tikla "Davranış ekle (betik)"
+bekle_oge "Oluştur ve duvar_guney nesnesine ekle"
+tikla "Boş##sablon0"
+tikla "##betik_adi"
+tus Ctrl+A
+yaz "Deneme Davranış"
+dogrula_metin "dosya: betikler/deneme_davranis.tpr"
+tikla "Oluştur ve duvar_guney nesnesine ekle"
+bekle 4
+dogrula_yok "###yeni_betik"
+dogrula_oge "deneme_davranis.tpr###kod_paneli" sira=1
+tikla "Kaydet" pencere=tulpar_toolbar
+bekle 3
+dogrula_metin "kaydedildi: /"
+cik
