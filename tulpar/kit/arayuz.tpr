@@ -181,28 +181,50 @@ func k_golge(float x, float y, float w, float h) {
 }
 
 // ---- Yazi --------------------------------------------------------------------------------------
-func k_yazi_boy(float o): float { return ui_px(18.6667) * o; }
-// Sigdir: once kucult (en az %60'a), yetmezse sayac (g_k_tasan) — kapi 0 bekler.
+// Yazi boyu ayari (2026-11-10, Kupler ile Kureler: "telefonda yazilar okunamayacak kadar kucuk"):
+// kitin BUTUN olcumu (k_gen, k_yazi_boy) ve cizimi (k_yaz) ayni etkin olcegi (k_o) kullanir, boylece
+// yerlesim carpanla birlikte buyur, kutuya sigdirma (k_sigdir) buyumus yaziyi olcer. Carpan kucuk yaziyi
+// tam, basliklari azalarak buyutur (o >= 2.0 logo/ekran basligi hic buyumez: zaten okunur, ekrana sigmali).
+// Varsayilan 1.0 = eski boy (diger oyunlar etkilenmez); oyun ayarindan k_yazi_carpani(c) ile kurar.
+float g_yazi_carpan = 1.0;
+// Sigdirmanin inebilecegi en kucuk olcek (carpandan ONCE; eskiden istenen boyun %60'i — T_KUCUK * 0.6 =
+// 0.43, 1080p telefonda ~12 px idi). Daha kucugu sigmiyor sayilir (g_k_tasan).
+float K_YAZI_TABAN = 0.6;
+func k_yazi_carpani(float c) { g_yazi_carpan = max(0.8, min(2.0, c)); }
+func k_o(float o): float {
+    float f = max(0.0, min(1.0, 2.0 - o));
+    return o * (1.0 + (g_yazi_carpan - 1.0) * f);
+}
+func k_gen(str m, float o): float { return eng_text_width(m, k_o(o)); }
+func k_yaz(str m, float x, float y, float o, int renk_) { yazi(m, x, y, k_o(o), renk_); }
+func k_yazi_boy(float o): float { return ui_px(18.6667) * k_o(o); }
+// Sigdir: once kucult (istenen boyun %60'ina ve K_YAZI_TABAN'a kadar), yetmezse sayac (g_k_tasan) — kapi 0
+// bekler. k_o dogrusal degil (basliklarda carpan azalir): bir duzeltme adimi atilir.
 func k_sigdir(str m, float o, float avail): float {
-    float w = eng_text_width(m, o);
+    float w = k_gen(m, o);
     if (w <= avail || avail <= 0.0) { return o; }
     g_k_kuculen += 1;
     float o2 = o * avail / w;
-    if (o2 < o * 0.6) { g_k_tasan += 1; logla(t"UYARI-DEGIL arayuz kiti: '{m}' sigmadi ({toInt(w)} > {toInt(avail)} px)"); return o * 0.6; }
+    float w2 = k_gen(m, o2);
+    if (w2 > avail && w2 > 0.0) { o2 = o2 * avail / w2; }
+    float en_az = min(o, max(o * 0.6, K_YAZI_TABAN));
+    // Tabanin altina inmesi gerekiyorsa sayilir (kapi 0 bekler) ama yine SIGDIRILIR: kutudan tasip komsu
+    // ogeye binen yazi, kucuk yazidan daha kotu (oyuncu "Cok buyuk" secince uzun cumleler).
+    if (o2 < en_az) { g_k_tasan += 1; logla(t"UYARI-DEGIL arayuz kiti: '{m}' sigmadi ({toInt(w)} > {toInt(avail)} px)"); }
     return o2;
 }
 // Golgeli yazi (3B sahne ustunde okunurluk).
 func k_yazi(str m, float x, float y, float o, int renk_) {
     float d = max(1.0, ui_px(1.4));
-    yazi(m, x + d, y + d, o, KR_GOLGE);
-    yazi(m, x, y, o, renk_);
+    k_yaz(m, x + d, y + d, o, KR_GOLGE);
+    k_yaz(m, x, y, o, renk_);
 }
-func k_yazi_orta(str m, float cx, float y, float o, int renk_) { k_yazi(m, cx - eng_text_width(m, o) * 0.5, y, o, renk_); }
-func k_yazi_sag(str m, float sx, float y, float o, int renk_) { k_yazi(m, sx - eng_text_width(m, o), y, o, renk_); }
+func k_yazi_orta(str m, float cx, float y, float o, int renk_) { k_yazi(m, cx - k_gen(m, o) * 0.5, y, o, renk_); }
+func k_yazi_sag(str m, float sx, float y, float o, int renk_) { k_yazi(m, sx - k_gen(m, o), y, o, renk_); }
 // Kutu icinde dikey ortali, genislige sigdirilmis (hizalama 0 orta, 1 sol, 2 sag).
 func k_yazi_kutu(str m, float x, float y, float w, float h, float o, int renk_, int hiza) {
     float o2 = k_sigdir(m, o, w);
-    float tw = eng_text_width(m, o2);
+    float tw = k_gen(m, o2);
     float ty = y + (h - k_yazi_boy(o2)) * 0.5;
     float tx = hiza == 1 ? x : (hiza == 2 ? x + w - tw : x + (w - tw) * 0.5);
     k_yazi(m, tx, ty, o2, renk_);
@@ -275,14 +297,14 @@ func k_dugme(str ad, str etiket, int ikon, int stil, float x, float y, float w, 
     float ara = ikon >= 0 && len(etiket) > 0 ? k_g(1.25) : 0.0;
     float pay = k_g(2.0);
     float o2 = len(etiket) > 0 ? k_sigdir(etiket, o, w - 2.0 * pay - ib - ara) : o;
-    float tw = len(etiket) > 0 ? eng_text_width(etiket, o2) : 0.0;
+    float tw = len(etiket) > 0 ? k_gen(etiket, o2) : 0.0;
     float top = ib + ara + tw;
     float sx = x + (w - top) * 0.5;
     int ir = stil == STIL_BIRINCIL && g_k_etkin ? KR_YAZI_KOYU : (g_k_etkin ? KR_ALTIN : KR_YAZI_3);
     if (ikon >= 0) { k_ikon(ikon, sx, y + oy + (h - ib) * 0.5, ib, ir); }
     if (len(etiket) > 0) {
         float ty = y + oy + (h - k_yazi_boy(o2)) * 0.5;
-        if (stil == STIL_BIRINCIL) { yazi(etiket, sx + ib + ara, ty, o2, yr); }
+        if (stil == STIL_BIRINCIL) { k_yaz(etiket, sx + ib + ara, ty, o2, yr); }
         else { k_yazi(etiket, sx + ib + ara, ty, o2, yr); }
     }
     return (d & 1) != 0;
@@ -315,14 +337,14 @@ func k_ikon_dugme(str ad, int ikon, float x, float y, float boy, int stil, str a
 func k_rozet(str m, float sx, float y, int zemin) {
     float o = T_KUCUK * 0.9;
     float h = k_g(2.75);
-    float w = max(h, eng_text_width(m, o) + k_g(1.5));
+    float w = max(h, k_gen(m, o) + k_g(1.5));
     k_cerceve(K_IZ_ACIK, sx - w * 0.6, y - h * 0.35, w, h, h * 0.5, zemin);
-    yazi(m, sx - w * 0.6 + (w - eng_text_width(m, o)) * 0.5, y - h * 0.35 + (h - k_yazi_boy(o)) * 0.5, o, KR_YAZI_KOYU);
+    k_yaz(m, sx - w * 0.6 + (w - k_gen(m, o)) * 0.5, y - h * 0.35 + (h - k_yazi_boy(o)) * 0.5, o, KR_YAZI_KOYU);
 }
 
 func k_cip_gen(str m, int ikon, float h): float {
     float o = h >= ui_px(40.0) ? T_GOVDE * 1.1 : T_KUCUK;
-    return k_g(3.0) + (ikon >= 0 ? h * 0.66 + k_g(0.75) : 0.0) + eng_text_width(m, o);
+    return k_g(3.0) + (ikon >= 0 ? h * 0.66 + k_g(0.75) : 0.0) + k_gen(m, o);
 }
 func k_ilerleme(float x, float y, float w, float h, float oran, int renk_) {
     if (oran < 0.0) { oran = 0.0; }
@@ -335,7 +357,7 @@ func k_satir(float x, float y, float w, float h) { k_cerceve(K_SATIR, x, y, w, h
 // Bolum basligi (ayar gruplari): kucuk altin harfler + ince cizgi.
 func k_bolum(str m, float x, float y, float w) {
     k_yazi(m, x, y, T_KUCUK, KR_ALTIN);
-    float tw = eng_text_width(m, T_KUCUK) + k_g(1.0);
+    float tw = k_gen(m, T_KUCUK) + k_g(1.0);
     dikdortgen(x + tw, y + k_yazi_boy(T_KUCUK) * 0.55, w - tw, max(1.0, ui_px(1.0)), KR_CIZGI);
 }
 
@@ -452,8 +474,8 @@ func k_daire_kirp(int f, float x, float y, float boy, float oran, bool ust, int 
 // Kaynak cipi: koyu hap; ikon + BUYUK sayi (en az 4 hane genisligi: sayi degisince cip titremez),
 // varsa ince ayirici + nufus ikonu + "n/m". Doner: genislik.
 func k_kaynak_gen(str deger, str ikinci, float h): float {
-    float w = k_g(1.5) * 2.0 + h * 0.6 + k_g(1.0) + max(eng_text_width(deger, T_ALT), eng_text_width("0000", T_ALT));
-    if (len(ikinci) > 0) { w += k_g(1.0) + h * 0.5 + k_g(0.75) + max(eng_text_width(ikinci, T_GOVDE), eng_text_width("00/00", T_GOVDE)) + k_g(1.5); }
+    float w = k_g(1.5) * 2.0 + h * 0.6 + k_g(1.0) + max(k_gen(deger, T_ALT), k_gen("0000", T_ALT));
+    if (len(ikinci) > 0) { w += k_g(1.0) + h * 0.5 + k_g(0.75) + max(k_gen(ikinci, T_GOVDE), k_gen("00/00", T_GOVDE)) + k_g(1.5); }
     return w;
 }
 func k_kaynak(int ikon, int ikon_renk, str deger, int deger_renk, str ikinci, int ikinci_renk, float x, float y, float h): float {
@@ -461,8 +483,8 @@ func k_kaynak(int ikon, int ikon_renk, str deger, int deger_renk, str ikinci, in
     float o2 = T_GOVDE;
     float ib = h * 0.6;
     float p = k_g(1.5);
-    float w1 = max(eng_text_width(deger, o1), eng_text_width("0000", o1));
-    float w2 = len(ikinci) > 0 ? max(eng_text_width(ikinci, o2), eng_text_width("00/00", o2)) : 0.0;
+    float w1 = max(k_gen(deger, o1), k_gen("0000", o1));
+    float w2 = len(ikinci) > 0 ? max(k_gen(ikinci, o2), k_gen("00/00", o2)) : 0.0;
     float ib2 = h * 0.5;
     float w = p + ib + k_g(1.0) + w1 + p;
     if (len(ikinci) > 0) { w += k_g(1.0) + ib2 + k_g(0.75) + w2 + p; }
@@ -498,8 +520,8 @@ func k_bolut_parca(str ad, str etiket, int ikon, bool secili, float x, float y, 
     float iy = y + (ly - y - ib) * 0.5 + ui_px(2.0);
     k_ikon(ikon, x + (w - ib) * 0.5, iy, ib, secili ? KR_YAZI_KOYU : KR_ALTIN_ACIK);
     float o = k_sigdir(etiket, T_KUCUK, w - k_g(1.0));
-    float tx = x + (w - eng_text_width(etiket, o)) * 0.5;
-    if (secili) { yazi(etiket, tx, ly, o, KR_YAZI_KOYU); } else { k_yazi(etiket, tx, ly, o, KR_YAZI_2); }
+    float tx = x + (w - k_gen(etiket, o)) * 0.5;
+    if (secili) { k_yaz(etiket, tx, ly, o, KR_YAZI_KOYU); } else { k_yazi(etiket, tx, ly, o, KR_YAZI_2); }
     return (d & 1) != 0;
 }
 
@@ -516,15 +538,15 @@ func k_daire_amber(float x, float y, float b, bool basili) {
 // Birlik bilgi balonu (secili birlik): koyu panel, ad altin, degerler beyaz.
 func k_bilgi_balonu(str ad, str deger, float cx, float alt_y) {
     float o = T_KUCUK * 1.05;
-    float wa = eng_text_width(ad, o);
-    float wd = eng_text_width(deger, o);
+    float wa = k_gen(ad, o);
+    float wd = k_gen(deger, o);
     float w = wa + k_g(1.0) + wd + k_g(3.0);
     float h = k_g(4.0);
     float x = cx - w * 0.5;
     float y = alt_y - h;
     k_cerceve(K_PANEL, x, y, w, h, ui_px(8.0), BEYAZ);
     float ty = y + (h - k_yazi_boy(o)) * 0.5;
-    yazi(ad, x + k_g(1.5), ty, o, KR_ALTIN_ACIK);
-    yazi(deger, x + k_g(1.5) + wa + k_g(1.0), ty, o, KR_YAZI);
+    k_yaz(ad, x + k_g(1.5), ty, o, KR_ALTIN_ACIK);
+    k_yaz(deger, x + k_g(1.5) + wa + k_g(1.0), ty, o, KR_YAZI);
 }
 
