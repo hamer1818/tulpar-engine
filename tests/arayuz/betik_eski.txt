@@ -1,0 +1,8 @@
+# U10 B1: ESKI proje (oyun.tpr'de baglanti satiri yok). Derle bir kez sorar; "Bağla" satiri ekler.
+dogrula_metin "duvar_dogu"
+tus Ctrl+B
+bekle_oge "Bağla"
+ekran betik_sor
+tikla "Bağla"
+dogrula_yok "###betik_bagla"
+cik

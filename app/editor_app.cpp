@@ -93,6 +93,7 @@
 #include "app/editor_karsilama.hpp"
 #include "app/editor_tur.hpp"
 #include "core/build_info.hpp"
+#include "app/editor_betik.hpp"
 #include "app/editor_fabrika.hpp"
 #include "app/editor_masaustu.hpp"
 #include "app/editor_yardim.hpp"
@@ -739,6 +740,24 @@ void rescan_browse(EditorState &st) {
   st.browse_count = st.browse_models;
   st.script_scan = editor_scan_scripts(st.scene_dir, st.tulpar_dir, st.scripts, EditorState::kBrowseCap, st.scan_scratch, kFileListMax);
   st.script_count = st.script_scan.count;
+  // U10: proje kokunun sahne dizinini KAPSADIGI fabrika projesinde ikinci kok ayni betikleri "tulpar/assets/..."
+  // diye bir daha verir; toplayici (assets/betikler.tpr) ve ana dosya (oyun.tpr) da atanabilir betik degildir.
+  char cift_onek[content::kScenePathLen] = {0};
+  {
+    const size_t tl = std::strlen(st.tulpar_dir);
+    if (tl && !std::strncmp(st.scene_dir, st.tulpar_dir, tl) && st.scene_dir[tl] == '/')
+      std::snprintf(cift_onek, sizeof cift_onek, "tulpar/%s/", st.scene_dir + tl + 1);
+  }
+  uint32_t yaz = 0;
+  for (uint32_t k = 0; k < st.script_count; k++) {
+    const char *ad = st.scripts[k];
+    const bool atla = !std::strcmp(ad, "betikler.tpr") || (!std::strncmp(ad, "tulpar/", 7) && !std::strcmp(ad + 7, kBetikToplayiciYol)) ||
+                      !std::strcmp(ad, "tulpar/oyun.tpr") || (cift_onek[0] && !std::strncmp(ad, cift_onek, std::strlen(cift_onek)));
+    if (atla) continue;
+    if (yaz != k) std::memcpy(st.scripts[yaz], st.scripts[k], sizeof st.scripts[0]);
+    yaz++;
+  }
+  st.script_count = yaz;
   for (uint32_t k = 0; k < st.script_count && st.browse_count < EditorState::kBrowseCap; k++) {
     AssetFile &f = st.browse[st.browse_count++];
     std::snprintf(f.name, sizeof f.name, "%s", st.scripts[k]);
@@ -2271,6 +2290,41 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     dlg_intent = IntentScene;
     file_dialog_open(dlg, FileDialogMode::Kaydet, st.scene_path[0] ? st.scene_path : st.scene_dir, ".sahne", "Farkl\xC4\xB1 kaydet");
   };
+  // --- U10 B1: betikler oyuna OTOMATIK baglanir (app/editor_betik.hpp) -----------------------------
+  // Kaydet ve Derle (Oynat da Derle'yi cagirir) toplayiciyi yazar. Ana dosyada baglanti satiri yoksa BIR
+  // KEZ sorulur (betik_baglanti_sor -> asagidaki pencere); Oynat'tan geldiyse cevaptan sonra oyun baslar.
+  static bool betik_baglanti_soruldu = false; // bu oturumda soruldu (Simdi degil dendiyse tekrar sorulmaz)
+  static bool betik_baglanti_sor = false;     // pencere acilsin
+  static bool betik_sonra_oynat = false;      // pencere kapaninca Oynat
+  auto betik_oyun_yolu = [&](char *out, size_t cap) -> bool {
+    if (!st.tulpar_dir[0]) return false;
+    std::snprintf(out, cap, "%s/oyun.tpr", st.tulpar_dir);
+    return file_exists(out); // motor deposunun ornekleri (tulpar/): ana dosya yok, kendi import'larini tasirlar
+  };
+  auto betikleri_bagla = [&]() {
+    char oyun[1100];
+    if (!st.scene_path[0] || !betik_oyun_yolu(oyun, sizeof oyun)) return;
+    static char metin[16 * 1024];
+    BetikToplayici bs;
+    const uint32_t n = betik_toplayici_metni(st.scene, st.scene_dir, st.tulpar_dir, metin, sizeof metin, &bs, file_exists);
+    if (!n) { console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "betik toplay\xC4\xB1" "c\xC4\xB1s\xC4\xB1 tampona s\xC4\xB1\xC4\x9Fmad\xC4\xB1"); return; }
+    char yol[1200], err[256];
+    std::snprintf(yol, sizeof yol, "%s/%s", st.tulpar_dir, kBetikToplayiciYol);
+    const int w = betik_dosya_yaz_degistiyse(yol, metin, n, err, sizeof err);
+    if (w < 0) console_log(ConsoleLevel::Hata, kConsoleTagEditor, "betikler ba\xC4\x9Flanamad\xC4\xB1: %s", err);
+    else if (w == 1) console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "betik listesi g\xC3\xBCncellendi: %u betik (%s)", bs.betik, kBetikToplayiciYol);
+    if (bs.disarida)
+      console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "%u betik proje klas\xC3\xB6r\xC3\xBC" "n\xC3\xBC" "n d\xC4\xB1\xC5\x9F\xC4\xB1" "nda, oyuna ba\xC4\x9Flanamaz: %s (proje klas\xC3\xB6r\xC3\xBC" "ne ta\xC5\x9F\xC4\xB1y\xC4\xB1n)",
+                  bs.disarida, bs.ilk_sorun);
+    if (bs.eksik) console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "%u beti\xC4\x9Fin dosyas\xC4\xB1 yok: %s", bs.eksik, bs.ilk_sorun);
+    if (bs.betik > 0 && !betik_baglanti_soruldu) {
+      static char om[256 * 1024];
+      size_t on = 0;
+      if (std::FILE *f = std::fopen(oyun, "rb")) { on = std::fread(om, 1, sizeof om - 1, f); std::fclose(f); }
+      om[on] = 0;
+      if (on && !betik_baglanti_var(om)) betik_baglanti_sor = true;
+    }
+  };
   // Sahneyi verilen yola yazar ve editorun ACIK DOSYASINI oraya tasir (kaynak
   // tarayicisi da yeni dizini gosterir — sahne dosyasi dizinini takip eder).
   auto save_scene_to = [&](const char *path) {
@@ -2288,6 +2342,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     recent_push(st.scene_path);
     recent_save(recent_file);
     set_status(st, "kaydedildi: %s", st.scene_path);
+    betikleri_bagla();
     return true;
   };
   auto do_save = [&]() {
@@ -2397,6 +2452,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Derle: veri modeli -> runtime blob (.sahneb, sahne dosyasinin yanina; PLAN §6).
   // Kaydet gibi kamerayi da yazar; dosyayi degil bellekteki sahneyi derler.
   auto do_compile = [&]() -> bool {
+    betikleri_bagla();
     st.scene.cam_target = cam.target; st.scene.cam_yaw = cam.yaw; st.scene.cam_pitch = cam.pitch; st.scene.cam_radius = cam.radius;
     char out[1024];
     if (!content::scene_blob_path_for(st.scene_path, out, sizeof out)) { set_status(st, "DERLENEMEDI: yol \xC3\xA7ok uzun"); return false; }
@@ -2577,6 +2633,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!neden) {
       // Oyun sahneyi DISKTEKI blobdan yukler: bellekteki son hal once derlenir.
       if (!do_compile()) return; // durum cubugu sebebi soyluyor; eski blobla oynatmak yaniltirdi
+      // Betikler henuz bagli degil: once sor (cevaptan sonra Oynat kendisi devam eder). Yoksa ilk oynatma
+      // "betik kancasi YOK" hatasiyla, betiksiz gecerdi.
+      if (betik_baglanti_sor) { betik_sonra_oynat = true; return; }
       if (oyun_secim[0]) {
         if (start_embedded_with(oyun_secim)) return;
         neden = "oyun gomulu baslatilamadi (Konsol)";
@@ -8900,6 +8959,51 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             set_status(st, "%s ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s", etiket, err);
             console_log(ConsoleLevel::Hata, "arac", "%s ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s (Windows'ta MSYS2 bash PATH'te olmal\xC4\xB1)", etiket, err);
           }
+        }
+      }
+      // U10 B1: "Betikler oyuna baglansin mi?" (eski proje: ana dosyada baglanti satiri yok).
+      {
+        static const char *const kBagBaslik = "Betikler oyuna ba\xC4\x9Flans\xC4\xB1n m\xC4\xB1?###betik_bagla";
+        if (betik_baglanti_sor && !ImGui::IsPopupOpen(kBagBaslik)) ImGui::OpenPopup(kBagBaslik);
+        ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 30.0f, 0.0f), ImGuiCond_Appearing);
+        if (ImGui::BeginPopupModal(kBagBaslik, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+          ImGui::PushTextWrapPos(ImGui::GetFontSize() * 29.0f);
+          ImGui::TextUnformatted("Nesnelere betik atad\xC4\xB1n ama bu projenin ana dosyas\xC4\xB1 (oyun.tpr) onlar\xC4\xB1 hen\xC3\xBCz tan\xC4\xB1m\xC4\xB1yor; "
+                                 "\xC5\x9Fu haliyle betikler \xC3\xA7" "al\xC4\xB1\xC5\x9Fmaz.");
+          ImGui::Spacing();
+          ImGui::TextUnformatted("Ana dosyaya tek sat\xC4\xB1r ekleyeyim mi? Sonra atad\xC4\xB1\xC4\x9F\xC4\xB1n her betik kendili\xC4\x9F" "inden \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r.");
+          ImGui::TextDisabled("%s", kBetikBaglantiSatiri);
+          ImGui::PopTextWrapPos();
+          ImGui::Spacing();
+          bool kapat = false;
+          if (ImGui::Button(ICON_MD_LINK " Ba\xC4\x9Fla")) {
+            char oyun[1100];
+            static char om[256 * 1024], yeni[256 * 1024 + 64];
+            size_t on = 0;
+            if (betik_oyun_yolu(oyun, sizeof oyun)) {
+              if (std::FILE *f = std::fopen(oyun, "rb")) { on = std::fread(om, 1, sizeof om - 1, f); std::fclose(f); }
+            }
+            om[on] = 0;
+            char err[256];
+            const uint32_t yn = on ? betik_baglanti_ekle(om, yeni, sizeof yeni) : 0;
+            if (yn && betik_dosya_yaz_degistiyse(oyun, yeni, yn, err, sizeof err) >= 0) {
+              console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "oyun.tpr: betik ba\xC4\x9Flant\xC4\xB1s\xC4\xB1 eklendi (%s)", kBetikBaglantiSatiri);
+              set_status(st, "betikler oyuna ba\xC4\x9Fland\xC4\xB1");
+              std::printf("[engine_editor] betik baglantisi: oyun.tpr'ye eklendi\n");
+            } else {
+              console_log(ConsoleLevel::Hata, kConsoleTagEditor, "oyun.tpr'ye ba\xC4\x9Flant\xC4\xB1 eklenemedi: %s", yn ? err : "dosya okunamad\xC4\xB1");
+            }
+            kapat = true;
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("\xC5\x9Eimdi de\xC4\x9Fil")) kapat = true;
+          if (kapat) {
+            betik_baglanti_sor = false;
+            betik_baglanti_soruldu = true;
+            ImGui::CloseCurrentPopup();
+            if (betik_sonra_oynat) { betik_sonra_oynat = false; cmds.invoke(CommandId::PlayToggle); }
+          }
+          ImGui::EndPopup();
         }
       }
       // "Tulpar gerekli" penceresi (K6: ilk Oynat'ta tek tikla kur). F5/Ctrl+F5 derleyiciyi bulamayinca acilir.

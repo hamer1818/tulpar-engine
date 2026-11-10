@@ -1,0 +1,91 @@
+// U10 B1 (docs/EDITOR-UYGULAMA-PLANI.md): betikler oyuna OTOMATIK baglanir. Toplayici metni, baglanti satiri
+// ve "yalniz degistiyse yaz" GPU'suz olculur; uctan uca yol (editor Derle -> oyun betigi kosturur) arayuz
+// kapisinda (tests/arayuz/betik.txt, tools/arayuz_kapi.sh).
+#include <cstdio>
+#include <cstring>
+
+#include "app/editor_betik.hpp"
+#include "tests/test.hpp"
+
+using namespace tulpar::engine;
+using namespace tulpar::engine::test;
+
+namespace {
+content::SceneEntity betikli(const char *ad, const char *dosya) {
+  content::SceneEntity e{};
+  std::snprintf(e.name, sizeof e.name, "%s", ad);
+  e.components = content::kSceneScript;
+  std::snprintf(e.script_file, sizeof e.script_file, "%s", dosya);
+  e.script_enabled = true;
+  return e;
+}
+bool yok_dosya(const char *yol) { return std::strstr(yol, "kayip") == nullptr; }
+} // namespace
+
+ENGINE_TEST(editor_betik_toplayici_lists_scene_scripts_with_control) {
+  static content::SceneDesc d;
+  d = content::SceneDesc{};
+  d.entities[d.entity_count++] = betikli("b", "betikler/zipla.tpr");
+  d.entities[d.entity_count++] = betikli("a", "betikler/dondur.tpr");
+  d.entities[d.entity_count++] = betikli("c", "betikler/dondur.tpr");        // ayni betik iki nesnede: TEK satir
+  d.entities[d.entity_count++] = betikli("d", "/baska/yer/disarida.tpr");    // proje disinda: sayilir, yazilmaz
+  d.entities[d.entity_count++] = betikli("e", "betikler/kayip.tpr");         // dosyasi yok: sayilir, yazilmaz
+  content::SceneEntity bos = betikli("f", "");                               // etiketsiz betik bileseni
+  d.entities[d.entity_count++] = bos;
+  content::SceneEntity kapali = betikli("g", "betikler/model_degil.tpr");
+  kapali.components = content::kSceneModel;                                   // betik bileseni yok
+  d.entities[d.entity_count++] = kapali;
+  static char m[8192];
+  app::BetikToplayici s;
+  const uint32_t n = app::betik_toplayici_metni(d, "/p/assets", "/p", m, sizeof m, &s, yok_dosya);
+  std::printf("    [bilgi] toplayici (%u bayt): betik %u, disarida %u, eksik %u, ilk sorun %s\n", n, s.betik, s.disarida,
+              s.eksik, s.ilk_sorun);
+  CHECK(n > 0 && n == std::strlen(m));
+  CHECK(s.betik == 2 && s.disarida == 1 && s.eksik == 1);
+  const char *a = std::strstr(m, "import \"assets/betikler/dondur\";\n");
+  const char *b = std::strstr(m, "import \"assets/betikler/zipla\";\n");
+  CHECK(a && b && a < b);                                  // SIRALI (varlik sirasindan bagimsiz)
+  CHECK(!std::strstr(m, "disarida") && !std::strstr(m, "kayip") && !std::strstr(m, "model_degil"));
+  int sayi = 0;
+  for (const char *p = m; (p = std::strstr(p, "assets/betikler/dondur")); p++) sayi++;
+  CHECK(sayi == 1);                                        // tekil
+  // KONTROL: betiksiz sahne -> import satiri yok ama dosya yine gecerli (oyun bos toplayiciyla derlenir).
+  static content::SceneDesc bos_sahne;
+  bos_sahne = content::SceneDesc{};
+  const uint32_t n2 = app::betik_toplayici_metni(bos_sahne, "/p/assets", "/p", m, sizeof m, &s, yok_dosya);
+  CHECK(n2 > 0 && s.betik == 0 && !std::strstr(m, "\nimport "));
+  // KONTROL: tampon sigmazsa 0 ve bos (yarim dosya yazilmaz).
+  CHECK(app::betik_toplayici_metni(d, "/p/assets", "/p", m, 40, &s, yok_dosya) == 0 && m[0] == 0);
+}
+
+ENGINE_TEST(editor_betik_baglanti_satiri_eklenir_with_control) {
+  const char *oyun = "// yorum: import \"assets/betikler\";\nimport \"engine\";\nimport \"kit_arayuz\";\n\nfunc main() {}\n";
+  CHECK(!app::betik_baglanti_var(oyun)); // yorum satirindaki sayilmaz
+  static char out[1024];
+  const uint32_t n = app::betik_baglanti_ekle(oyun, out, sizeof out);
+  CHECK(n == std::strlen(out));
+  CHECK(app::betik_baglanti_var(out));
+  // son import satirinin HEMEN altinda, gerisi aynen
+  CHECK(std::strstr(out, "import \"kit_arayuz\";\nimport \"assets/betikler\";\n\nfunc main() {}\n") != nullptr);
+  CHECK(std::strncmp(out, oyun, std::strlen("// yorum: import \"assets/betikler\";\nimport \"engine\";\n")) == 0);
+  // import'suz dosya: basa eklenir
+  CHECK(app::betik_baglanti_ekle("func main() {}\n", out, sizeof out) > 0 && !std::strncmp(out, "import \"assets/betikler\";\nfunc", 30));
+  // KONTROL: sigmayan tampon 0
+  CHECK(app::betik_baglanti_ekle(oyun, out, 20) == 0);
+}
+
+ENGINE_TEST(editor_betik_dosya_yalniz_degisince_yazilir) {
+  char dir[512], yol[700], err[256];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "betik_yaz"));
+  std::snprintf(yol, sizeof yol, "%s/betikler.tpr", dir);
+  const char *a = "import \"x\";\n";
+  CHECK(app::betik_dosya_yaz_degistiyse(yol, a, (uint32_t)std::strlen(a), err, sizeof err) == 1); // yeni
+  CHECK(app::betik_dosya_yaz_degistiyse(yol, a, (uint32_t)std::strlen(a), err, sizeof err) == 0); // ayni: dokunmaz
+  const char *b = "import \"y\";\n";
+  CHECK(app::betik_dosya_yaz_degistiyse(yol, b, (uint32_t)std::strlen(b), err, sizeof err) == 1); // degisti
+  char geri[64] = {0};
+  if (std::FILE *f = std::fopen(yol, "rb")) { std::fread(geri, 1, sizeof geri - 1, f); std::fclose(f); }
+  CHECK(!std::strcmp(geri, b));
+  // KONTROL: yazilamayan yol -1 + sebep
+  CHECK(app::betik_dosya_yaz_degistiyse("/olmayan/dizin/x.tpr", a, 3, err, sizeof err) == -1 && err[0]);
+}

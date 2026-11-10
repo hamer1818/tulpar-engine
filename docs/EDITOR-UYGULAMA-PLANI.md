@@ -390,6 +390,44 @@ Parçacık/Su/Voksel panelleri sonra. Bu aşama "normal uygulama" ölçütünün
     kamerasız sahne kamerayı değiştirmez; kamerasız varlıkta `camera_use` hata verir.
   - Eski sürüm reddi 1..9.
 
+### U10 — Betikler herkes için (kullanıcı isteği, 2026-11-11)
+
+**Kullanıcının sorusu:** "Betikler tam olarak neye bağlı, kendi kendine çalışabiliyor mu? Betiğe
+basınca seçili nesneye ekleniyor ama içinde ne var göremiyorum. Hiç bilmeyen biri için bile kolay
+olmalı; Unity/Unreal'in öğrenme süresi uzun olduğu için bunu kullanıyoruz."
+
+**Bugün nasıl çalışıyor (koddan ölçüldü):**
+- Betik bir `.tpr` dosyası. Adından türeyen işlevleri motor **adıyla** çağırır: `dondur.tpr` →
+  `dondur_baslat(id)` bir kez, `dondur_guncelle(id, dt)` her kare, `dondur_carpisma(...)`,
+  `dondur_bitir(id)`. Bu Unity'nin `Start` / `Update` / `OnCollision`'ı.
+- Betik **kendi başına çalışmaz**. Oyunun ana dosyası `oyun.tpr` (motoru açar, sahneyi yükler,
+  kare döngüsü) betiği **import etmek zorunda**; etmezse motor "betik kancası YOK" hatası basar
+  ve betik sessizce hiçbir şey yapmaz. Editör bu import satırını hiçbir yere yazmıyor.
+  - Fabrika projelerinde (asıl kullanım) "Yeni betik" import yolunu bile hesaplayamıyor; iskelete
+    `<oyunun import kokunden bu dosyanin yolu>` yazıyor.
+- Kaynaklar'da `.tpr`'ye çift tıklamak onu seçili nesneye **atıyor**. Unity'de ise çift tıklama
+  dosyayı **açar**. Betiğin içi editörde hiçbir yerde görünmüyor; tek yol Betik kartındaki
+  "Dış editörde aç" (VS Code / sistem uygulaması).
+- Betik kartındaki açıklama ASCII ve teknik ("AOT", "import kokunden", "docs/KOPRU.md 7.9").
+- Denendi (2026-11-11, fabrika projesi): `oyun.tpr` → `import "assets/betikler";`, editörün
+  yazdığı `assets/betikler.tpr` → `import "assets/betikler/dondur";` zinciri çalışıyor
+  (`dondur_baslat` duvarda koştu). Dosya boşken de oyun hatasız derleniyor.
+
+**Yapılacaklar (sırayla; her madde ayrı commit, kapısı ve pozitif kontrolüyle):**
+
+| # | ne | neden | durum |
+|---|---|---|---|
+| B1 | **Otomatik bağlama:** editör, sahnedeki betikleri `assets/betikler.tpr` toplayıcısına yazar (Kaydet / Derle / Oynat'ta); şablonlar `import "assets/betikler";` taşır. Eski projede satır yoksa editör **bir kez sorar** ve ekler. | Kullanıcı `import` kavramını hiç görmesin; atanan betik her zaman çalışsın. | ✅ 2026-11-11 (`app/editor_betik.cpp`; kapı `tests/arayuz/betik_{yeni,eski}.txt`) |
+| B2 | **Betik editörün içinde açılır:** Kaynaklar'da çift tıklama ve Betik kartındaki "Düzenle" yerleşik **Kod** paneli açar: satır numaralı, Kaydet (Ctrl+S), kaydedilmemiş işareti, "Dış editörde aç" seçeneği. Atama sürükle-bırakla ya da sağ tık "Seçili nesneye ekle" ile. | "İçinde ne var göremiyorum." Unity'deki gibi çift tık = aç. | |
+| B3 | **Hata satıra gider:** "Oyun başlatılamadı" penceresindeki "Kodu aç (satır N)" önce Kod panelinde o satırı açar ve vurgular. | Hata → düzelt → F5 döngüsü editörden çıkmadan. | |
+| B4 | **Yeni betik sade:** dosya diyaloğu yerine tek alan ("Betiğin adı"), dosya `assets/betikler/<ad>.tpr` olur; hazır davranış seçilir: Boş / Döndür / Yukarı-aşağı salla / Oyuncu kontrolü (ok tuşları) / Dokununca yok ol. İskelet sade Türkçe yorumlu; oluşturulunca Kod panelinde açılır. | Boş sayfa korkusu; ilk betik 10 saniyede çalışsın. | |
+| B5 | **Betik kartı anlaşılır:** "Bu nesne ne yapsın?" başlığı; betik adı + Düzenle; dosyada bulunan olaylar işaretli liste (✓ başlarken, ✓ her karede, — çarpışınca); "oyuna bağlı ✓ / bağlı değil" satırı; ipuçları Türkçe harfli ve teknik terimsiz. | Kullanıcı neyin ne zaman çalıştığını kartta görsün. | |
+| B6 | **Rehber:** Yardım > Başlangıç rehberi "Betik" sayfası bu modele göre yeniden yazılır (Unity karşılıkları tablosuyla: Start = `_baslat`, Update = `_guncelle`). | "Bu olayı anlamadım." | |
+| B7 | **Ana betik görünür:** Oyun menüsünde "Ana betiği aç (oyun.tpr)" — oyunun kendisi de Kod panelinde. | Ana dosyanın varlığı ve rolü gizli kalmasın. | |
+
+**Kapsam dışı (şimdilik):** sözdizimi renklendirme (B2'de düz metin + satır numarası yeter; sonra),
+otomatik tamamlama, betik sıcak yükleme (köprüde var, editöre bağlanması ayrı iş), görsel betik.
+
 ## 4. Sıra ve bağımlılık
 
 ```

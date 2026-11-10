@@ -16,6 +16,8 @@ import "kit_dil";
 import "kit_ses";
 import "kit_acilis";
 import "kit_arayuz";
+// Sahnede nesnelere atadigin betikler (editor assets/betikler.tpr dosyasini kendisi yazar):
+import "assets/betikler";
 
 bool g_otopilot = kit_oyun("{{KIMLIK}}", "{{ONEK}}");
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/betik_{yeni,eski}.txt (U10 B1): atanan betik oyunda GERCEKTEN calisir; eski projede editor baglar.
+#   Pozitif kontrol: baglanmamis eski projede ayni betik CALISMAZ ("betik kancasi YOK"). tulpar yoksa ATLANDI.
 # tests/arayuz/ornek.txt: karsilamadaki Ornek: Bilardo gecici oyun dizinine uretilip acilmali.
 # tests/arayuz/kaydet.txt GECICI KOPYA sahneyle: iki Ctrl+S, yol unutulmamali, dosya 7 varlikla yazilmali.
 # POZITIF KONTROL: tests/arayuz/pozitif_kontrol.txt (olmayan oge) cikis 1 + HATA satiri vermeli.
@@ -49,6 +51,42 @@ if [ $r2 = 1 ] && grep -q 'HATA: "Boyle Bir Menu Ogesi Yok"' "$D/pk/yanit.txt" 2
   echo "  pozitif kontrol: olmayan oge dustu (cikis 1)"
 else
   echo "  KAPI BOZUK: olmayan oge dusmedi (cikis $r2)"; kirmizi=1
+fi
+# --- U10 B1: betik baglama (yeni ve eski proje) ---
+betik_proje() {  # betik_proje <dizin> : arena projesi + duvara dondur.tpr
+  "$ED" --yeni-oyun "$1" --kimlik bk --onek BK --tr "Betik Kapisi" --en "Script Gate" > /dev/null 2>&1 || return 1
+  mkdir -p "$1/assets/betikler"
+  printf 'func dondur_baslat(id) {\n    logla("BETIK_KAPI_CALISTI " + sahne_adi(id));\n}\n' > "$1/assets/betikler/dondur.tpr"
+  python3 - "$1/assets/arena.sahne" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur.tpr" etkin\n',1)
+open(p,'w').write(s)
+PY
+}
+oyun_kos() {  # oyun_kos <proje> <gunluk>
+  ( cd "$1" && TULPAR_ENGINE_DIR="$KOK" bash tools/ortam.sh > /dev/null 2>&1; \
+    DISPLAY= WAYLAND_DISPLAY= TULPAR_ENGINE_HEADLESS=40 timeout 200 tulpar --ext "$KOK/yapi/tulpar-ext" oyun.tpr ) > "$2" 2>&1
+}
+if ! command -v tulpar > /dev/null; then
+  echo "  ATLANDI: betik baglama — tulpar kurulu degil (oyun kosturulamaz)"
+else
+  B="$D/betik"; mkdir -p "$B/ui_yeni" "$B/ui_eski"
+  betik_proje "$B/yeni" && betik_proje "$B/eski" || { echo "  KIRMIZI betik: proje uretilemedi"; kirmizi=1; }
+  sed -i '/^import "assets\/betikler";/d' "$B/eski/oyun.tpr"   # eski proje: baglanti satiri YOK
+  oyun_kos "$B/eski" "$B/eski_once.log"                          # pozitif kontrol: betik calismamali
+  ( kos betik_yeni.txt "$B/ui_yeni" --scene "$B/yeni/assets/arena.sahne" ); ry=$?
+  ( kos betik_eski.txt "$B/ui_eski" --scene "$B/eski/assets/arena.sahne" ); re=$?
+  oyun_kos "$B/yeni" "$B/yeni.log"; oyun_kos "$B/eski" "$B/eski_sonra.log"
+  if ! grep -q 'BETIK_KAPI_CALISTI duvar_dogu' "$B/eski_once.log" && grep -q 'betik kancasi YOK' "$B/eski_once.log"; then
+    echo "  betik pozitif kontrol: baglanmamis projede betik calismadi (kanca YOK)"
+  else echo "  KAPI BOZUK: baglanmamis projede betik calisti ya da hata yok"; kirmizi=1; fi
+  if [ $ry = 0 ] && grep -q 'import "assets/betikler/dondur";' "$B/yeni/assets/betikler.tpr" && grep -q 'BETIK_KAPI_CALISTI duvar_dogu' "$B/yeni.log"; then
+    echo "  betik (yeni proje): Derle baglandi, oyunda calisti"
+  else echo "  KIRMIZI betik (yeni proje, cikis $ry):"; grep -E 'HATA|kanca' "$B/yeni.log" | head -3 | sed 's/^/      /'; kirmizi=1; fi
+  if [ $re = 0 ] && grep -q '^import "assets/betikler";' "$B/eski/oyun.tpr" && grep -q 'BETIK_KAPI_CALISTI duvar_dogu' "$B/eski_sonra.log"; then
+    echo "  betik (eski proje): editor sordu, Bagla satiri ekledi, oyunda calisti"
+  else echo "  KIRMIZI betik (eski proje, cikis $re):"; grep -E 'HATA|> ' "$B/ui_eski/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 fi
 [ $kirmizi = 0 ] && echo "ARAYUZ SURUCUSU: YESIL" || echo "ARAYUZ SURUCUSU: KIRMIZI"
 exit $kirmizi

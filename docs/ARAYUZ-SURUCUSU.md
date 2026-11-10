@@ -91,6 +91,10 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     - Konsol araması eşleşmeyen satırı gizler.
   - **`kaydet.txt`:** geçici kopya sahnede iki Ctrl+S; yol korunmalı, ikinci kayıtta diyalog
     açılmamalı, dosyada 7 varlık olmalı (TUZAKLAR 8dt).
+  - **`ornek.txt`:** karşılamadaki "Örnek: Bilardo" geçici oyun klasörüne üretilip açılmalı.
+  - **`betik_yeni.txt` / `betik_eski.txt` (U10 B1):** duvara atanmış betik, editörde Derle'den sonra oyunda
+    gerçekten çalışmalı; eski projede editör "Bağla" diye sorar. Pozitif kontrol: bağlanmamış projede aynı
+    betik çalışmaz ("betik kancası YOK"). `tulpar` yoksa ATLANDI.
   - **`pozitif_kontrol.txt`:** olmayan öge çıkış 1 ve `HATA` satırı vermeli.
 
 ## Bilinen sınırlar

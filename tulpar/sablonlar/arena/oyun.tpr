@@ -14,6 +14,8 @@ import "kit_dil";
 import "kit_ses";
 import "kit_acilis";
 import "kit_arayuz";
+// Sahnede nesnelere atadigin betikler (editor assets/betikler.tpr dosyasini kendisi yazar):
+import "assets/betikler";
 
 // ---- Kimlik ve kip -----------------------------------------------------------------------------
 // Ortam degiskenleri TULPAR_{{ONEK}}_* (OTOPILOT, TEST, KAYIT_YAZ, DIL, ACILIS ...).

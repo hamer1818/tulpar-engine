@@ -1,0 +1,3 @@
+// OTOMATIK — Tulpar Editör yazar (Kaydet / Derle / Oynat). Elle düzenlemeyin.
+// Sahnede nesnelere atanan betikler oyuna buradan bağlanır; oyun.tpr bu dosyayı bir kez
+// import eder: import "assets/betikler";
