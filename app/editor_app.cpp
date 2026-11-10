@@ -2254,7 +2254,28 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Geri al / yinele GRUP isler: bir kullanici eylemi gunlukte N islem olabilir
   // (grup tasima = N set_entity, grup silme = N remove_entity). Sinirlar OpGroups'ta;
   // gunluk once biterse dongu orada durur (grup muhasebesi gunlugun onune gecemez).
+  // U10 B2: yerlesik Kod paneli (app/editor_betik.hpp). Metin kutusu aktifken Ctrl+Z/Ctrl+Y METNE aittir:
+  // editorun geri al'i (kCmdWhileTyping) sahneyi geri almasin.
+  static KodPaneli kod;
+  auto kodu_ac = [&](const char *etiket, const char *mutlak, int satir) -> bool {
+    char yol[1024], err[400];
+    if (mutlak && *mutlak) std::snprintf(yol, sizeof yol, "%s", mutlak);
+    else if (!editor_script_resolve(etiket, st.scene_dir, st.tulpar_dir, yol, sizeof yol)) {
+      set_status(st, "betik yolu \xC3\xA7\xC3\xB6z\xC3\xBClemedi: %s", etiket);
+      return false;
+    }
+    char lab[content::kSceneScriptLen] = {0};
+    if (!etiket || !*etiket) editor_script_label(yol, st.scene_dir, st.tulpar_dir, lab, sizeof lab);
+    if (!kod_ac(kod, yol, etiket && *etiket ? etiket : lab, satir, err, sizeof err)) {
+      set_status(st, "%s", err);
+      console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "%s", err);
+      return false;
+    }
+    std::printf("[engine_editor] kod paneli: %s%s\n", yol, satir > 0 ? " (satira git)" : "");
+    return true;
+  };
   auto do_undo = [&]() {
+    if (kod.yaziyor) return;
     if (st.edit_active) {
       const int32_t si = st.sel.primary();
       if (si >= 0 && si < (int32_t)st.scene.entity_count) {
@@ -2276,6 +2297,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (done) { st.dirty = true; clamp_selection(st); set_status(st, "geri alindi (%u i\xC5\x9Flem, %u kald\xC4\xB1)", done, st.hist.undo_count()); }
   };
   auto do_redo = [&]() {
+    if (kod.yaziyor) return;
     if (st.hist.redo_count() == 0) return;
     const uint32_t k = st.groups.redo_size();
     uint32_t done = 0;
@@ -6875,6 +6897,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               ImGui::SetTooltip("Dosya ad\xC4\xB1 kanca ad\xC4\xB1 olur: kovala.tpr -> kovala_baslat, kovala_guncelle ...");
             ImGui::SameLine();
             ImGui::BeginDisabled(e.script_file[0] == 0);
+            if (ImGui::SmallButton(ICON_MD_EDIT " D\xC3\xBCzenle")) kodu_ac(e.script_file, nullptr, 0);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Beti\xC4\x9Fi edit\xC3\xB6r\xC3\xBC" "n i\xC3\xA7inde a\xC3\xA7 (Kod paneli)");
+            ImGui::SameLine();
             if (ImGui::SmallButton(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6rde a\xC3\xA7")) {
               char yol[1024], kim[1024], err[640];
               if (!editor_script_resolve(e.script_file, st.scene_dir, st.tulpar_dir, yol, sizeof yol)) {
@@ -7140,18 +7165,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         const bool betik = st.browse[act.add_index].kind == AssetKind::Script;
         std::snprintf(add_file, sizeof add_file, "%s", st.browse[act.add_index].name);
         if (betik) {
-          // Bir .tpr sahneye KAYNAK olarak eklenemez (kaynak tablosu modeller
-          // icin). Secili varlik varsa dogrudan ATANIYOR — cift tiklamanin
-          // hicbir sey yapmamasi kullaniciya "bozuk" diye gorunurdu.
-          const int si = (int)st.sel.primary();
-          if (si >= 0 && si < (int)st.scene.entity_count) {
-            SceneEntity after = st.scene.entities[si];
-            after.components |= content::kSceneScript;
-            std::snprintf(after.script_file, sizeof after.script_file, "%s", add_file);
-            if (commit(st, si, after)) set_status(st, "betik atand\xC4\xB1: %s -> %s", st.scene.entities[si].name, add_file);
-          } else {
-            set_status(st, "betik atamak i\xC3\xA7in \xC3\xB6nce bir varl\xC4\xB1k se\xC3\xA7in: %s", add_file);
-          }
+          // U10 B2: cift tik betigi Kod panelinde ACAR (Unity gibi). Eskiden secili varliga ATIYORDU ve icerik hic
+          // gorunmuyordu (kullanici, 2026-11-11). Atama: panelde "<nesne> nesnesine ekle" ya da surukle-birak.
+          if (kodu_ac(add_file, nullptr, 0)) set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", add_file);
         } else {
           do_add_asset(add_file);
         }
@@ -9098,12 +9114,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (konum) {
           std::snprintf(etiket, sizeof etiket, ICON_MD_CODE " Kodu a\xC3\xA7 (sat\xC4\xB1r %u)", hs);
           if (ImGui::Button(etiket)) {
-            char kim[1024], err[640];
-            if (editor_open_in_code_editor_at(tam, hs, kim, sizeof kim, err, sizeof err)) {
+            // U10 B3: once editorun Kod panelinde, hata satiri vurgulu (pencere kapanir, duzelt -> F5).
+            if (kodu_ac(nullptr, tam, (int)hs)) {
               set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s:%u", gorunen, hs);
-            } else {
-              set_status(st, "kod edit\xC3\xB6r\xC3\xBC a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (Konsol)");
-              console_log(ConsoleLevel::Uyari, "oyun", "%s", err);
+              betik_hata_acik = false;
+              ImGui::CloseCurrentPopup();
             }
           }
           if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tam);
@@ -9127,6 +9142,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::EndPopup();
       }
       if (!acik_kalsin) betik_hata_acik = false;
+    }
+    if (kod.acik) {
+      const int32_t ks = st.sel.primary();
+      const bool ks_var = ks >= 0 && ks < (int32_t)st.scene.entity_count;
+      const bool ks_bu = ks_var && (st.scene.entities[ks].components & content::kSceneScript) && kod.etiket[0] &&
+                         !std::strcmp(st.scene.entities[ks].script_file, kod.etiket);
+      const KodEylem ke = kod_paneli_ciz(kod, ks_var ? st.scene.entities[ks].name : nullptr, ks_bu);
+      if (ke == KodEylem::DisEditor) {
+        char kim[1024], err[640];
+        if (editor_open_in_code_editor_at(kod.yol, (uint32_t)kod.imlec_satir, kim, sizeof kim, err, sizeof err)) set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", kod.yol);
+        else { set_status(st, "kod edit\xC3\xB6r\xC3\xBC a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (Konsol)"); console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "%s", err); }
+      } else if (ke == KodEylem::NesneyeEkle && ks_var && kod.etiket[0]) {
+        SceneEntity after = st.scene.entities[ks];
+        after.components |= content::kSceneScript;
+        after.script_enabled = true;
+        std::snprintf(after.script_file, sizeof after.script_file, "%s", kod.etiket);
+        if (commit(st, ks, after)) {
+          set_status(st, "betik eklendi: %s \xE2\x86\x92 %s", kod.etiket, st.scene.entities[ks].name);
+          console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "betik eklendi: %s -> %s", kod.etiket, st.scene.entities[ks].name);
+        }
+      }
     }
     if (tur.acik && !karsilama.acik) tur_ciz(tur);
     {

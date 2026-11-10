@@ -95,6 +95,9 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
   - **`betik_yeni.txt` / `betik_eski.txt` (U10 B1):** duvara atanmış betik, editörde Derle'den sonra oyunda
     gerçekten çalışmalı; eski projede editör "Bağla" diye sorar. Pozitif kontrol: bağlanmamış projede aynı
     betik çalışmaz ("betik kancası YOK"). `tulpar` yoksa ATLANDI.
+  - **`kod.txt` (U10 B2):** Kaynaklar'da betiğe çift tık Kod panelinde açar, panelden nesneye ekler; yazarken
+    Ctrl+Z sahneyi geri almaz, Ctrl+S dosyaya yazar.
+  - **`hata_satiri.txt` (U10 B3):** bozuk betik → Oynat → "Kodu aç (satır 3)" → Kod paneli 3. satırda.
   - **`pozitif_kontrol.txt`:** olmayan öge çıkış 1 ve `HATA` satırı vermeli.
 
 ## Bilinen sınırlar

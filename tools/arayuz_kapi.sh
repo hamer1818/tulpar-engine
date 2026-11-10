@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/hata_satiri.txt (U10 B3): bozuk betik -> Oynat -> "Kodu ac (satir 3)" -> Kod paneli o satirda.
+# tests/arayuz/kod.txt (U10 B2): cift tik Kod panelinde acar, panelden nesneye ekler, Ctrl+S yazar.
 # tests/arayuz/betik_{yeni,eski}.txt (U10 B1): atanan betik oyunda GERCEKTEN calisir; eski projede editor baglar.
 #   Pozitif kontrol: baglanmamis eski projede ayni betik CALISMAZ ("betik kancasi YOK"). tulpar yoksa ATLANDI.
 # tests/arayuz/ornek.txt: karsilamadaki Ornek: Bilardo gecici oyun dizinine uretilip acilmali.
@@ -71,13 +73,22 @@ oyun_kos() {  # oyun_kos <proje> <gunluk>
 if ! command -v tulpar > /dev/null; then
   echo "  ATLANDI: betik baglama — tulpar kurulu degil (oyun kosturulamaz)"
 else
-  B="$D/betik"; mkdir -p "$B/ui_yeni" "$B/ui_eski"
-  betik_proje "$B/yeni" && betik_proje "$B/eski" || { echo "  KIRMIZI betik: proje uretilemedi"; kirmizi=1; }
+  B="$D/betik"; mkdir -p "$B/ui_yeni" "$B/ui_eski" "$B/ui_kod" "$B/ui_hata"
+  betik_proje "$B/yeni" && betik_proje "$B/eski" && betik_proje "$B/kod" && betik_proje "$B/hata" || { echo "  KIRMIZI betik: proje uretilemedi"; kirmizi=1; }
+  printf 'func dondur_baslat(id) {\n    logla("x");\n    y = = 3;\n}\n' > "$B/hata/assets/betikler/dondur.tpr"
+  ( cd "$B/hata" && TULPAR_ENGINE_DIR="$KOK" bash tools/ortam.sh > /dev/null 2>&1 )
   sed -i '/^import "assets\/betikler";/d' "$B/eski/oyun.tpr"   # eski proje: baglanti satiri YOK
   oyun_kos "$B/eski" "$B/eski_once.log"                          # pozitif kontrol: betik calismamali
   ( kos betik_yeni.txt "$B/ui_yeni" --scene "$B/yeni/assets/arena.sahne" ); ry=$?
   ( kos betik_eski.txt "$B/ui_eski" --scene "$B/eski/assets/arena.sahne" ); re=$?
+  ( kos kod.txt "$B/ui_kod" --scene "$B/kod/assets/arena.sahne" ); rk=$?
+  ( kos hata_satiri.txt "$B/ui_hata" --scene "$B/hata/assets/arena.sahne" ); rh=$?
+  if [ $rh = 0 ]; then echo "  hata satiri: Oynat -> hata penceresi -> Kodu ac -> Kod paneli 3. satirda"
+  else echo "  KIRMIZI hata satiri (cikis $rh):"; grep -E 'HATA|> ' "$B/ui_hata/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   oyun_kos "$B/yeni" "$B/yeni.log"; oyun_kos "$B/eski" "$B/eski_sonra.log"
+  if [ $rk = 0 ] && grep -q 'KOD_PANELI_YAZDI' "$B/kod/assets/betikler/dondur.tpr"; then
+    echo "  kod paneli: cift tik acti, nesneye ekledi, Ctrl+Z sahneyi geri almadi, Ctrl+S yazdi"
+  else echo "  KIRMIZI kod paneli (cikis $rk):"; grep -E 'HATA|> ' "$B/ui_kod/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   if ! grep -q 'BETIK_KAPI_CALISTI duvar_dogu' "$B/eski_once.log" && grep -q 'betik kancasi YOK' "$B/eski_once.log"; then
     echo "  betik pozitif kontrol: baglanmamis projede betik calismadi (kanca YOK)"
   else echo "  KAPI BOZUK: baglanmamis projede betik calisti ya da hata yok"; kirmizi=1; fi

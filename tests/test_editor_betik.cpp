@@ -89,3 +89,34 @@ ENGINE_TEST(editor_betik_dosya_yalniz_degisince_yazilir) {
   // KONTROL: yazilamayan yol -1 + sebep
   CHECK(app::betik_dosya_yaz_degistiyse("/olmayan/dizin/x.tpr", a, 3, err, sizeof err) == -1 && err[0]);
 }
+
+// U10 B2: Kod paneli — satir ofseti, ac/kaydet, kirli paneli baska dosya EZMEZ, ayni dosyada satira gider.
+ENGINE_TEST(editor_kod_paneli_ac_kaydet_with_control) {
+  CHECK(app::kod_satir_ofseti("a\nbc\nd", 1) == 0);
+  CHECK(app::kod_satir_ofseti("a\nbc\nd", 2) == 2);
+  CHECK(app::kod_satir_ofseti("a\nbc\nd", 3) == 5);
+  CHECK(app::kod_satir_ofseti("a\nbc\nd", 99) == 6); // sinir: metnin sonu
+  CHECK(app::kod_satir_sayisi("a\nbc\nd") == 3 && app::kod_satir_sayisi("") == 1);
+  char dir[512], a[700], b[700], err[400];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "kod_paneli"));
+  std::snprintf(a, sizeof a, "%s/dondur.tpr", dir);
+  std::snprintf(b, sizeof b, "%s/zipla.tpr", dir);
+  if (std::FILE *f = std::fopen(a, "wb")) { std::fputs("func dondur_baslat(id) {\n}\n", f); std::fclose(f); }
+  if (std::FILE *f = std::fopen(b, "wb")) { std::fputs("func zipla_baslat(id) {\n}\n", f); std::fclose(f); }
+  static app::KodPaneli k;
+  CHECK(app::kod_ac(k, a, "betikler/dondur.tpr", 2, err, sizeof err));
+  CHECK(k.acik && !k.kirli && k.vurgu_satir == 2 && k.git_satir == 2 && std::strstr(k.metin, "dondur_baslat"));
+  std::snprintf(k.metin, sizeof k.metin, "func dondur_baslat(id) {\n    logla(\"x\");\n}\n");
+  k.kirli = true;
+  // KONTROL: kirliyken BASKA dosya acilmaz (kullanicinin yazdigi kaybolmasin)
+  CHECK(!app::kod_ac(k, b, "", 0, err, sizeof err) && err[0] && std::strstr(k.metin, "logla"));
+  // ayni dosya kirliyken: metin korunur, yalniz satira gidilir
+  CHECK(app::kod_ac(k, a, "betikler/dondur.tpr", 3, err, sizeof err) && std::strstr(k.metin, "logla") && k.git_satir == 3);
+  CHECK(app::kod_kaydet(k, err, sizeof err) && !k.kirli);
+  char geri[256] = {0};
+  if (std::FILE *f = std::fopen(a, "rb")) { std::fread(geri, 1, sizeof geri - 1, f); std::fclose(f); }
+  CHECK(std::strstr(geri, "logla(\"x\")") != nullptr);
+  CHECK(app::kod_ac(k, b, "", 0, err, sizeof err) && std::strstr(k.metin, "zipla_baslat")); // kaydedildi: artik acilir
+  // KONTROL: olmayan dosya false + sebep
+  CHECK(!app::kod_ac(k, "/olmayan/yok.tpr", "", 0, err, sizeof err) && err[0]);
+}
