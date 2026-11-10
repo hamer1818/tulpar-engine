@@ -44,6 +44,8 @@ struct OverlayInfo {
   float cam_target[3] = {0, 0, 0};
   int gizmo_op = 0; // 0 tasi, 1 dondur, 2 olcekle (editor_app gizmo_op ile ayni)
   bool gizmos_visible = true;
+  // Basit kip: arac cubugunu tekrarlayan gizmo kipi hapi ve (tek secenekli) golgeleme hapi cizilmez.
+  bool sade = false;
   bool playing = false;
   bool hovered = false; // fare goruntunun ustunde (ImGui::IsItemHovered)
   bool focused = false; // panel odakli (ImGui::IsWindowFocused)

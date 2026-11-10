@@ -541,7 +541,16 @@ void console_panel(ConsoleView &v) {
       clip.End();
       // ImGui gunluk penceresi kalibi: kullanici yukari kaydirdiysa yerinde
       // birakilir, dipteyse dipte tutulur.
-      if (v.autoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f) {
+      // ImGui gunluk penceresi kalibi, ama karar KULLANICI eylemine bagli (bkz. ConsoleView::dipte).
+      {
+        const float y = ImGui::GetScrollY(), ymax = ImGui::GetScrollMaxY();
+        const ImGuiIO &io = ImGui::GetIO();
+        const bool ustunde = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+        if (ustunde && io.MouseWheel > 0.0f) v.dipte = false;                       // teker yukari
+        if (ustunde && ImGui::IsMouseDragging(ImGuiMouseButton_Left) && y < ymax - 1.0f) v.dipte = false; // cubuk
+        if (y >= ymax - 1.0f && !(ustunde && io.MouseWheel > 0.0f)) v.dipte = true; // kullanici dibe indi
+      }
+      if (v.autoscroll && v.dipte) {
         ImGui::SetScrollHereY(1.0f);
         v.scrolled = true;
       }

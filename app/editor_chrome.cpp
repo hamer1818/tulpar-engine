@@ -125,7 +125,13 @@ void tooltip_text(const CommandDesc &d, const char *label, char *buf, uint32_t c
 
 // Son ogenin ipucu — pasif dugmede de (kullanici "neden basilmiyor"u okusun).
 void tip_last_item(const char *text) {
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
+  // Uzun aciklama SARILIR (~32 harf genisligi): 1366 px'te Oynat ipucu ekranin sagindan tasiyordu.
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled) && ImGui::BeginTooltip()) {
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+  }
 }
 
 // --- Arac cubugu dugmesi ------------------------------------------------------

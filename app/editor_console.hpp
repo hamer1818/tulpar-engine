@@ -92,6 +92,11 @@ const ConsoleEntry *console_by_seq(uint32_t seq); // kaydigi icin secim seq ile 
 struct ConsoleView {
   bool show[kConsoleLevelCount] = {true, true, true}; // duzey suzgeci
   bool autoscroll = true;                             // yeni satir geldikce alta kay
+  // Dibe yapisik mi: YALNIZ kullanicinin yukari kaydirmasi (teker/surukleme) birakir, dibe inmesi geri
+  // takar. Eskiden "y >= max-1" her kare yeniden olculuyordu: SetScrollHereY hedefi BIR SONRAKI karede
+  // uygulandigi icin arada satir gelince y < max kaliyor ve Konsol oyunun ilk satirlarinda takiliyordu
+  // (2026-11-10 arayuz surucusu: 23 satirda y=17, max=367).
+  bool dipte = true;
   char search[64] = {0};                              // metin/etiket aramasi (harf duyarsiz)
   int32_t selected = -1;                              // secili kaydin seq'i (-1 = yok)
   bool expanded = false;                              // secili satirin tam metni acik mi

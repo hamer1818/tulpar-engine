@@ -660,9 +660,9 @@ FileDialogAction file_dialog_draw(FileDialog &d) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.err);
   }
   if (d.yerli_not[0]) {   // isletim sisteminin secicisi yoktu: neden bu pencere (U4)
-    char nb[224];
-    editor_ellipsize(d.yerli_not, ImGui::GetContentRegionAvail().x, nb, sizeof nb);
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::TextMute)), "%s", nb);
+    // Kullaniciya sade cumle; teknik sebep (kdialog/zenity, ortam degiskeni) ipucunda.
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::TextMute)), "%s",
+                       "Sistem dosya se\xC3\xA7icisi yok; edit\xC3\xB6r\xC3\xBCn kendi se\xC3\xA7icisi kullan\xC4\xB1l\xC4\xB1yor.");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.yerli_not);
   }
 

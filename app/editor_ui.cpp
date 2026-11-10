@@ -1,4 +1,5 @@
 #include "app/editor_ui.hpp"
+#include "content/primitives.hpp"
 #include "platform/process.hpp"
 
 #include <cmath>
@@ -869,6 +870,72 @@ bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap,
   const CodeEditorCandidate adaylar[] = {{ozel, nullptr}, {"code", nullptr}, {"codium", nullptr}, {"xdg-open", nullptr}};
 #endif
   return editor_open_with_candidates(path, adaylar, (uint32_t)(sizeof adaylar / sizeof adaylar[0]), used, used_cap, err, err_cap);
+}
+
+bool editor_open_in_code_editor_at(const char *path, uint32_t line, char *used, uint32_t used_cap, char *err, uint32_t err_cap) {
+#if !defined(_WIN32)
+  const char *env = std::getenv("TULPAR_KOD_EDITORU");
+  if (line > 0 && path && *path && !(env && *env)) {
+    char yer[1100];
+    const int w = std::snprintf(yer, sizeof yer, "%s:%u", path, line);
+    const CodeEditorCandidate satirli[] = {{"code", "-g"}, {"codium", "-g"}};
+    if (w > 0 && (uint32_t)w < sizeof yer && editor_open_with_candidates(yer, satirli, 2, used, used_cap, err, err_cap)) return true;
+  }
+#else
+  (void)line; // Windows: Code.exe yolu ayri cozuluyor (yukarida); satirsiz yol yeterli
+#endif
+  return editor_open_in_code_editor(path, used, used_cap, err, err_cap);
+}
+
+bool betik_hata_konumu(const char *metin, char *dosya, uint32_t dosya_cap, uint32_t *satir) {
+  if (satir) *satir = 0;
+  if (dosya && dosya_cap) dosya[0] = 0;
+  if (!metin || !dosya || dosya_cap < 2) return false;
+  for (const char *p = std::strstr(metin, "--> "); p; p = std::strstr(p + 1, "--> ")) {
+    const char *b = p + 4;
+    const char *e = b;
+    while (*e && *e != '\n' && *e != '\r') e++;
+    while (e > b && (e[-1] == ' ' || e[-1] == '\t')) e--;
+    // Sondan: [":sutun"] ":satir". Iki sayisal parca varsa sondaki sutundur.
+    const char *c1 = e;
+    while (c1 > b && c1[-1] >= '0' && c1[-1] <= '9') c1--;
+    if (c1 == e || c1 <= b || c1[-1] != ':') continue;
+    const char *son = c1 - 1; // satirin ':'i (sutun yoksa)
+    const char *c2 = son;
+    while (c2 > b && c2[-1] >= '0' && c2[-1] <= '9') c2--;
+    const char *sayi = c1;
+    if (c2 != son && c2 > b && c2[-1] == ':') { sayi = c2; son = c2 - 1; }
+    const uint32_t n = (uint32_t)std::strtoul(sayi, nullptr, 10);
+    const size_t yl = (size_t)(son - b);
+    if (n == 0 || yl == 0 || yl >= dosya_cap) continue;
+    std::memcpy(dosya, b, yl);
+    dosya[yl] = 0;
+    if (satir) *satir = n;
+    return true;
+  }
+  return false;
+}
+
+void editor_saat_bicimi(float saat, char *out, uint32_t cap) {
+  if (!out || !cap) return;
+  if (!(saat >= 0.0f)) saat = 0.0f; // NaN dahil
+  int dk = (int)std::lround(saat * 60.0f);
+  if (dk > 24 * 60) dk = 24 * 60;
+  std::snprintf(out, cap, "%02d:%02d", dk / 60, dk % 60);
+}
+
+float editor_zemin_ustu(const content::SceneDesc &d, float x, float z, float tavan, float varsayilan) {
+  float en = -3.4e38f;
+  for (uint32_t i = 0; i < d.entity_count; i++) {
+    const content::SceneEntity &e = d.entities[i];
+    if (e.parent >= 0 || !(e.components & content::kSceneModel) || e.primitive != (int32_t)content::kPrimCube) continue;
+    if (std::fabs(e.rot_deg.x) > 0.01f || std::fabs(e.rot_deg.y) > 0.01f || std::fabs(e.rot_deg.z) > 0.01f) continue;
+    const float hx = 0.5f * std::fabs(e.scale.x), hy = 0.5f * std::fabs(e.scale.y), hz = 0.5f * std::fabs(e.scale.z);
+    if (x < e.pos.x - hx || x > e.pos.x + hx || z < e.pos.z - hz || z > e.pos.z + hz) continue;
+    const float ust = e.pos.y + hy;
+    if (ust <= tavan && ust > en) en = ust;
+  }
+  return en > -3.0e38f ? en : varsayilan;
 }
 
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset) {

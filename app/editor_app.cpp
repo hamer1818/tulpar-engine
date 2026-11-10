@@ -2125,6 +2125,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Derleyici eksik/eski: != Yok iken "Tulpar gerekli" penceresi acilir (K6: ilk Oynat'ta tek tikla kur).
   static DerleyiciEksik kur_neden = DerleyiciEksik::Yok;
   static char kur_yol[1024] = {0};   // Eski: guncellenecek tulpar
+  // "Oyun baslatilamadi" penceresi: oyunun (derleyicinin) ciktisi BASTAN biriktirilir; oyun hic kare
+  // vermeden hatayla biterse TAM metin + "Kodu ac (satir N)" gosterilir. Eskiden yalniz Konsol'daki
+  // dar satirlar vardi ("63 | }", "|^" ayri ayri ve kesik; 2026-11-10 arayuz surucusu degerlendirmesi).
+  static char oyun_cikti[8192] = {0};
+  static uint32_t oyun_cikti_n = 0;
+  static bool betik_hata_acik = false;
   static EditorGameView oyun_goruntu; // F5: oyunun karesi (Oyun sekmesi dokusu)
   // Durdur -> oyun kendi `bitir` yolundan cikana kadar gecen sure boyunca
   // Konsol'a akan satirlar bu oynatmaya ait; bu bayrak "kapaniyor" durumunu tutar.
@@ -2260,7 +2266,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.scene.cam_target = cam.target; st.scene.cam_yaw = cam.yaw; st.scene.cam_pitch = cam.pitch; st.scene.cam_radius = cam.radius;
     content::SceneError err{};
     if (!content::scene_save(frame, st.scene, path, &err)) { set_status(st, "KAYDEDILEMEDI: %s", err.msg); return false; }
-    std::snprintf(st.scene_path, sizeof st.scene_path, "%s", path);
+    // do_save `path` olarak st.scene_path'in KENDISINI verir: kaynak ile hedef ayni tamponda
+    // snprintf tanimsiz; glibc yolu BOSALTIYORDU (kayit dogru dosyaya yazilip editor sahneyi
+    // "unutuyordu": ikinci Ctrl+S motor dizininde Farkli kaydet acti; 2026-11-10 arayuz surucusu).
+    if (path != st.scene_path) std::snprintf(st.scene_path, sizeof st.scene_path, "%s", path);
     content::scene_dir_of(st.scene_path, st.scene_dir, sizeof st.scene_dir);
     oyun_kokunu_coz(st.scene_dir, st.tulpar_dir, sizeof st.tulpar_dir);
     rescan_browse(st);
@@ -2416,8 +2425,20 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // halkasi: ayni hatayi ikinci kez saymamak icin bilgi kalir.
   void (*oyun_satiri)(void *, const char *) = [](void *, const char *line) {
     const ConsoleLevel lv = (line[0] == ' ' && line[1] == ' ') ? ConsoleLevel::Bilgi : console_classify_level(line, false);
-    console_log(lv, "oyun", "%s", line);
+    // Basit kip: koprunun teknik bilgi satirlari (kurulum, PSO onbellegi, kapanis raporu — oyun basina
+    // ~30 satir) Konsol'a DUSMEZ; stdout'ta ve oyun.log'da durur. Uyari/hata ve oyunun kendi [tpr]
+    // satirlari her kipte gorunur (2026-11-10 degerlendirmesi: Konsol k301 satirlariyla doluyordu).
+    const bool koprunun_bilgisi = !std::strncmp(line, "[engine_bridge] k", 17) && std::strstr(line, " bilgi ") &&
+                                  !std::strstr(line, "[tpr]") && !std::strstr(line, "UYARI") && !std::strstr(line, "HATA");
+    if (!(koprunun_bilgisi && lv == ConsoleLevel::Bilgi && !editor_gelismis())) console_log(lv, "oyun", "%s", line);
     std::printf("[oyun] %s\n", line);
+    const size_t l = std::strlen(line);
+    if (oyun_cikti_n + l + 2 < sizeof oyun_cikti) {   // dolarsa kalan yazilmaz (ilk hata en basta)
+      std::memcpy(oyun_cikti + oyun_cikti_n, line, l);
+      oyun_cikti_n += (uint32_t)l;
+      oyun_cikti[oyun_cikti_n++] = '\n';
+      oyun_cikti[oyun_cikti_n] = 0;
+    }
   };
   static char oyun_secim[content::kScenePathLen] = {0}; // tulpar/ koke GORELI (disindaysa mutlak)
   // Fabrika projesinin .motor bagi (game_motor_bagla): oyun baslamadan once — derleyici tulpar.toml'daki
@@ -2449,6 +2470,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // Gunluk kullanici ayar dizinine: kurulu editorun dizini salt okunur olabilir (AppImage, U7b).
     if (!editor_ayar_yolu(log, sizeof log, "oyun.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/oyun.log", exe);
     motor_bagla();
+    oyun_cikti_n = 0; oyun_cikti[0] = 0; betik_hata_acik = false;
     if (!game_run_start(oyun, comp, ext, st.tulpar_dir, game, log, err, sizeof err)) {
       set_status(st, "oyun ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s", err);
       console_log(ConsoleLevel::Hata, "oyun", "ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s", err);
@@ -2517,6 +2539,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // Gunluk kullanici ayar dizinine: kurulu editorun dizini salt okunur olabilir (AppImage, U7b).
     if (!editor_ayar_yolu(log, sizeof log, "oyun.log", nullptr, nullptr)) std::snprintf(log, sizeof log, "%s/oyun.log", exe);
     motor_bagla();
+    oyun_cikti_n = 0; oyun_cikti[0] = 0; betik_hata_acik = false;
     if (!game_run_start_embedded(oyun, comp, ext, st.tulpar_dir, game, log, w, h, err, sizeof err)) {
       console_log(ConsoleLevel::Hata, "oyun", "F5: ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s", err);
       return false;
@@ -3234,6 +3257,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (kind == 4) e.components = content::kSceneBody;
         break;
       }
+      // Ilkel geometri (kup, kure, kapsul...) altindaki yuzeye OTURUR: merkez = yuzey + yarim yukseklik.
+      // Kok seviyesinde ve kameranin hedefinin en fazla 1 m ustundeki yuzeyler sayilir.
+      if (e.parent < 0 && (e.components & content::kSceneModel) && e.primitive >= 0) {
+        const float yuzey = editor_zemin_ustu(st.scene, e.pos.x, e.pos.z, cam.target.y + 1.0f, cam.target.y);
+        e.pos.y = yuzey + 0.5f * std::fabs(e.scale.y);
+      }
     }
     with_bodies(st, phys, [&] {
       if (st.hist.add_entity(st.scene, e)) {
@@ -3669,26 +3698,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (mesgul && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
           ImGui::SetTooltip("%s s\xC3\xBCr\xC3\xBCyor (Konsol)", m->arac->game);
       }
-      if (m->st && editor_gelismis()) {
-        if (ImGui::BeginMenu("Sim\xC3\xBClasyon ve Fizik")) {
-          if (ImGui::MenuItem(ICON_MD_BLUR_ON " MLS-MPM \xC3\x87ok Fazl\xC4\xB1 Sim\xC3\xBClat\xC3\xB6r")) {
-            set_status(*m->st, "MLS-MPM sim\xC3\xBClat\xC3\xB6r\xC3\xBC D\xC3\xBCnya panelinde g\xC3\xB6r\xC3\xBCnt\xC3\xBCleniyor");
-          }
-          if (ImGui::MenuItem(ICON_MD_WAVES " SPH Ak\xC4\xB1\xC5\x9Fkan Dinami\xC4\x9Fi (M\xC3\xBCller 2003)")) {
-            set_status(*m->st, "SPH ak\xC4\xB1\xC5\x9Fkan sim\xC3\xBClat\xC3\xB6r\xC3\xBC D\xC3\xBCnya panelinde g\xC3\xB6r\xC3\xBCnt\xC3\xBCleniyor");
-          }
-          if (ImGui::MenuItem(ICON_MD_GROUPS " Boids S\xC3\xBCr\xC3\xBC Zekas\xC4\xB1 (Reynolds)")) {
-            set_status(*m->st, "Boids s\xC3\xBCr\xC3\xBC sim\xC3\xBClasyonu D\xC3\xBCnya panelinde g\xC3\xB6r\xC3\xBCnt\xC3\xBCleniyor");
-          }
-          if (ImGui::MenuItem(ICON_MD_CASINO " WFC Kuantum Zindan \xC3\x9Cretici")) {
-            set_status(*m->st, "WFC kuantum zindan \xC3\xBCretici D\xC3\xBCnya panelinde g\xC3\xB6r\xC3\xBCnt\xC3\xBCleniyor");
-          }
-          if (ImGui::MenuItem(ICON_MD_SYNC " Rollback Netcode & Replay")) {
-            set_status(*m->st, "GGPO rollback netcode D\xC3\xBCnya panelinde g\xC3\xB6r\xC3\xBCnt\xC3\xBCleniyor");
-          }
-          ImGui::EndMenu();
-        }
-      }
+      // (2026-11-10) "Simulasyon ve Fizik" alt menusu KALDIRILDI: MLS-MPM / SPH / Boids / WFC / Rollback satirlari
+      // yalniz "Dunya panelinde goruntuleniyor" yaziyordu, o bolumler 2026-11-06'da kalkmisti (yalan soyleyen menu).
     }
   };
   {
@@ -3731,6 +3742,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         console_log(iyi ? ConsoleLevel::Bilgi : ConsoleLevel::Hata, "oyun", "oyun bitti: %s, \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d, %u satir (gunluk %s)", oyun.game,
                     oyun.exit_code, oyun.lines, oyun.log_path);
         set_status(st, "oyun bitti: \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d%s", oyun.exit_code, iyi ? "" : " (Konsol)");
+        {
+          // Derleme hatasi: pencere. Gomulude "hic kare yok", ayri pencerede derleyicinin konum satiri.
+          char hd[content::kScenePathLen]; uint32_t hs = 0;
+          const bool konumlu = betik_hata_konumu(oyun_cikti, hd, sizeof hd, &hs);
+          if (!iyi && oyun_cikti_n && ((st.play_embedded && !oyun_goruntu.has_frame()) || konumlu)) {
+            betik_hata_acik = true;
+            std::printf("[engine_editor] betik hatasi penceresi: acildi (%u bayt cikti)\n", oyun_cikti_n);
+          }
+        }
         if (st.play_embedded) {
           // Oyun KENDISI kapandi (cikis_iste, cokme, derleme hatasi): oynatma
           // da biter. Hic kare gelmediyse sebep neredeyse her zaman derleyicidir.
@@ -4391,6 +4411,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             oi.cam_eye[0] = eye.x; oi.cam_eye[1] = eye.y; oi.cam_eye[2] = eye.z;
             oi.cam_target[0] = cam.target.x; oi.cam_target[1] = cam.target.y; oi.cam_target[2] = cam.target.z;
             oi.gizmo_op = gizmo_op;
+            oi.sade = !editor_gelismis();
             oi.gizmos_visible = st.gizmos.light_radius || st.gizmos.light_glyph || st.gizmos.shadow_volume || st.gizmos.sun_dir || st.gizmos.camera_frustum || st.gizmos.env_volumes;
             oi.playing = st.playing;
             oi.hovered = view_hovered && !st.gizmo_was_over && !st.gizmo_was_using && !st.terrain_brush.active;
@@ -4550,6 +4571,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           ImGui::TextUnformatted(vp.last_error());
         }
         view_rect = ViewportRect{origin.x + offset_x, origin.y + offset_y, (float)vp.width(), (float)vp.height()};
+      }
+      // Oynatma cercevesi: oyun kosarken gorunumun etrafi uyari renginde (Unity'nin oynatma tonu gibi).
+      if (st.playing) {
+        const ImVec2 wp = ImGui::GetWindowPos(), wsz = ImGui::GetWindowSize();
+        ImGui::GetWindowDrawList()->AddRect(ImVec2(wp.x + 1.0f, wp.y + 1.0f), ImVec2(wp.x + wsz.x - 1.0f, wp.y + wsz.y - 1.0f),
+                                            tone_u32(Tone::Warn, st.paused ? 0.55f : 0.9f), 0.0f, 2.0f);
       }
       // Oynatma basladi: klavye oyuna gitsin diye panel odaga alinir.
       if (oyun_odak_iste) { ImGui::SetWindowFocus(); oyun_odak_iste = false; }
@@ -4916,11 +4943,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           }
         }
 
-        ImGui::Separator();
-        track_world_edit(st, prop_float("Pozlama (Exposure)", &st.scene.godray_exposure, 0.01f, 0.01f, 2.0f, "%.2f"));
-        track_world_edit(st, prop_float("H\xC3\xBCzme Yo\xC4\x9Funlu\xC4\x9Fu (Density)", &st.scene.godray_density, 0.02f, 0.1f, 2.5f, "%.2f"));
-        track_world_edit(st, prop_float("S\xC3\xB6n\xC3\xBCmleme (Decay)", &st.scene.godray_decay, 0.005f, 0.70f, 0.999f, "%.3f"));
-        track_world_edit(st, prop_float("\xC3\x96rnek A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1 (Weight)", &st.scene.godray_weight, 0.02f, 0.05f, 1.0f, "%.2f"));
+        // Ince ayar (pozlama/yogunluk/sonumleme/agirlik) yalniz Gelismis kipte: Basit kipte onayarlar yeter.
+        if (editor_gelismis()) {
+          ImGui::Separator();
+          track_world_edit(st, prop_float("Pozlama (Exposure)", &st.scene.godray_exposure, 0.01f, 0.01f, 2.0f, "%.2f"));
+          track_world_edit(st, prop_float("H\xC3\xBCzme Yo\xC4\x9Funlu\xC4\x9Fu (Density)", &st.scene.godray_density, 0.02f, 0.1f, 2.5f, "%.2f"));
+          track_world_edit(st, prop_float("S\xC3\xB6n\xC3\xBCmleme (Decay)", &st.scene.godray_decay, 0.005f, 0.70f, 0.999f, "%.3f"));
+          track_world_edit(st, prop_float("\xC3\x96rnek A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1 (Weight)", &st.scene.godray_weight, 0.02f, 0.05f, 1.0f, "%.2f"));
+        }
 
         ImGui::Spacing();
         ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 H\xC3\xBCzme \xC3\x96nayarlar\xC4\xB1:");
@@ -4972,7 +5002,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     auto draw_world_and_environment_properties = [&]() {
       section_label("G\xC3\x9CNE\xC5\x9E VE ORTAM");
       if (prop_begin("gunes")) {
-        track_world_edit(st, prop_vec3("Y\xC3\xB6n", &st.scene.sun_dir.x, 0.01f, -1.0f, 1.0f, "%.2f"));
+        // Basit kip: yon vektoru yerine "Gunun Saati" (asagida) gunesi dondurur.
+        if (editor_gelismis()) track_world_edit(st, prop_vec3("Y\xC3\xB6n", &st.scene.sun_dir.x, 0.01f, -1.0f, 1.0f, "%.2f"));
         track_world_edit(st, prop_float("\xC5\x9Eiddet", &st.scene.sun_diffuse, 0.01f, 0.0f, 5.0f, "%.2f"));
         track_world_edit(st, prop_color("Ortam", &st.scene.ambient.x));
         prop_end();
@@ -4981,7 +5012,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (prop_begin("atmosfer")) {
         prop_help("Fiziksel atmosfer modeli (Nishita / Bruneton) ve 24 saatlik dinamik g\xC3\xBCne\xC5\x9F d\xC3\xB6ng\xC3\xBCs\xC3\xBC.");
         float tod = st.scene.time_of_day;
-        const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, "%.1f:00");
+        char saat_fmt[16];
+        editor_saat_bicimi(tod, saat_fmt, sizeof saat_fmt); // "14.0:00" degil "14:00"
+        const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, saat_fmt);
         if (pit.changed) {
           st.scene.time_of_day = tod;
           const float ang = (tod - 6.0f) * (3.14159265f / 12.0f);
@@ -5017,7 +5050,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         prop_end();
       }
 
-      section_label("ATMOSFER\xC4\xB0K S\xC4\xB0S LABORATUVARI (16 S\xC4\xB0S T\xC3\x9CR\xC3\x9C)");
+      section_label("S\xC4\xB0S");
       if (prop_begin("sis_lab")) {
         prop_help("16 farkl\xC4\xB1 sis t\xC3\xBCr\xC3\xBC (Inigo Quilez analitik \xC3\xBCstel y\xC3\xBCkseklik sisi, Beer-Lambert mesafesi, Exp\xC2\xB2, \xC3\x87ift kademeli UE5). Mobilde 0 FPS d\xC3\xBC\xC5\x9F\xC3\xBC\xC5\x9F\xC3\xBC.");
         bool fog_on = st.scene.fog_enabled;
@@ -5178,7 +5211,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         prop_end();
       }
 
-      section_label("I\xC5\x9E\xC4\xB1K H\xC3\x9CZMELER\xC4\xB0 (GOD RAYS)");
+      // Basit kip: isik huzmeleri, golge hacmi, isik haritasi, goruntu kalitesi ve GPU eleme uzman ayarlari.
+      if (editor_gelismis()) {
+      section_label("I\xC5\x9EIK H\xC3\x9CZMELER\xC4\xB0");
       draw_godray_controls("godrays_world", nullptr, -1);
       section_label("G\xC3\x96LGE HACM\xC4\xB0");
       if (prop_begin("golge")) {
@@ -5187,7 +5222,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         track_world_edit(st, prop_float("Derinlik", &st.scene.shadow_depth, 0.5f, 1.0f, 2000.0f, "%.1f m"));
         prop_end();
       }
-      section_label("I\xC5\x9E\xC4\xB1K HAR\xC4\xB0TASI (GI)");
+      section_label("I\xC5\x9EIK HAR\xC4\xB0TASI");
       if (prop_begin("gi")) {
         prop_help("Statik i\xC5\x9F\xC4\xB1k/g\xC3\xB6lge \xC3\xB6nceden pi\xC5\x9Firilir (sonda \xC4\xB1zgaras\xC4\xB1, offline ray-tracing) ve viewport'ta \xC3\xB6nizlenir "
                   "-- runtime derlemesi (.sahneb) AYNI sonda tablosunu okur.");
@@ -5257,7 +5292,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                               (double)ti.render_scale);
       }
 
-      section_label("GPU K\xC3\x9CMELEME VE DOLAYLI \xC3\x87\xC4\xB0Z\xC4\xB0M (GPU CULL)");
+      section_label("GPU \xC4\xB0LE ELEME");
       if (prop_begin("gpu_cull_panel")) {
         const renderer::CullInfo ci = ren.cull_recorded();
         if (ci.enabled) {
@@ -5285,6 +5320,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         prop_end();
       }
 
+      } // Gelismis kip bolumleri
       // (2026-11-06) Buradaki "Ses mikseri", "Fizik ve cok fazli dinamikler" (MPM/SPH/Boids/IK), "Ag,
       // rollback ve replay", "WFC" ve "Cihaz sinifi" bolumleri KALDIRILDI: sahneye/oyuna hicbir sey
       // yazmayan kaydiricilar ve "replay kaydi baslatildi", "0 desync", "WFC haritayi uretti" diyen ama hicbir
@@ -5321,6 +5357,32 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     };
 
     if (ImGui::Begin(kPanelOzelliklerLabel)) {
+      // Oynatma seridi: oynatirken yapilan duzenleme Durdur'da GERI ALINIR (set_playing) ve gomulu
+      // oyun sahnenin DERLENMIS halini oynatir. Eskiden panel oynatmada da ayni gorunuyordu;
+      // kullanici duzenleyip "neden kaydolmadi" diye sorardi (2026-11-10 degerlendirmesi).
+      if (st.playing) {
+        ImDrawList *odl = ImGui::GetWindowDrawList();
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float ic = 3.0f + ImGui::GetStyle().FramePadding.x * 1.5f; // renk cubugu + bosluk
+        ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + ImGui::GetStyle().FramePadding.y));
+        ImGui::Indent(ic); // sarilan HER satir icin (SetCursorScreenPos yalniz ilk satiri kaydiriyordu)
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - ic - ImGui::GetStyle().FramePadding.x);
+        odl->ChannelsSplit(2);
+        odl->ChannelsSetCurrent(1);
+        ImGui::TextColored(tone(Tone::Warn), "%s", st.paused ? ICON_MD_PAUSE " Oyun duraklat\xC4\xB1ld\xC4\xB1" : ICON_MD_PLAY_ARROW " Oyun oynat\xC4\xB1l\xC4\xB1yor");
+        ImGui::TextUnformatted("Burada yapt\xC4\xB1\xC4\x9F\xC4\xB1n de\xC4\x9Fi\xC5\x9Fiklikler Durdur'da geri al\xC4\xB1n\xC4\xB1r. "
+                               "Kal\xC4\xB1" "c\xC4\xB1 d\xC3\xBCzenleme i\xC3\xA7in \xC3\xB6nce durdurun (F5).");
+        ImGui::PopTextWrapPos();
+        ImGui::Unindent(ic);
+        const ImVec2 p1(p0.x + w, ImGui::GetCursorScreenPos().y + ImGui::GetStyle().FramePadding.y);
+        odl->ChannelsSetCurrent(0);
+        odl->AddRectFilled(p0, p1, tone_u32(Tone::Warn, 0.14f), ImGui::GetStyle().FrameRounding);
+        odl->AddRectFilled(p0, ImVec2(p0.x + 3.0f, p1.y), tone_u32(Tone::Warn), 0.0f);
+        odl->ChannelsMerge();
+        ImGui::SetCursorScreenPos(ImVec2(p0.x, p1.y + ImGui::GetStyle().ItemSpacing.y));
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+      }
       const int si = (int)st.sel.primary();
       static int32_t last_inspected = -1;
       if (last_inspected != si) {
@@ -5435,8 +5497,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (has_visual) {
           act = ComponentCardAction::None;
           after = e;
-          if (begin_component_card(ICON_MD_COLOR_LENS, "Malzeme (PBR)", content::kSceneModel, nullptr, &act, true, Tone::Accent)) {
-            if (prop_begin("malzeme_pbr")) {
+          if (begin_component_card(ICON_MD_COLOR_LENS, editor_gelismis() ? "Malzeme (PBR)" : "Malzeme", content::kSceneModel, nullptr, &act, true, Tone::Accent)) {
+            // Basit kip: yalniz Renk + hazir malzemeler (asagida). PBR terimleri (metaliklik, puruzluluk,
+            // yansitirlik) ve doku yuvalari Gelismis'te.
+            if (!editor_gelismis() && prop_begin("malzeme_basit")) {
+              track_edit(st, e, si, prop_color("Renk", &e.tint.x));
+              prop_end();
+            }
+            if (editor_gelismis() && prop_begin("malzeme_pbr")) {
               track_edit(st, e, si, prop_color("Albedo / Renk", &e.tint.x));
               prop_help("0 = Yal\xC4\xB1tkan / Dielektrik (Ta\xC5\x9F, Tahta, Plastik), 1 = Tam Metal (Alt\xC4\xB1n, \xC3\x87" "elik).");
               track_edit(st, e, si, prop_float("Metaliklik", &e.metallic, 0.01f, 0.0f, 1.0f, "%.2f"));
@@ -5449,6 +5517,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               track_edit(st, e, si, prop_float("I\xC5\x9F\xC4\xB1ma \xC5\x9Fiddeti", &e.emissive_strength, 0.05f, 0.0f, 20.0f, "%.2f"));
 
               // --- Doku Yuvalari (Texture Maps) ---
+              // DURUSTLUK: bu yuvalar editorun ONIZLEME dokulari (st.entity_*_tex); SceneEntity'de alan yok,
+              // .sahne'ye yazilmaz, oyunda gorunmez. Kullanici kaydedildi sanmasin (2026-11-10).
+              prop_help("A\xC5\x9F" "a\xC4\x9F\xC4\xB1" "daki doku se\xC3\xA7imleri yaln\xC4\xB1z edit\xC3\xB6r \xC3\xB6nizlemesidir: sahneye kaydedilmez, oyunda g\xC3\xB6r\xC3\xBCnmez.");
               int albedo_idx = 0;
               if (st.entity_albedo_tex[si].valid()) {
                 if (st.entity_albedo_tex[si].id == st.tex_checker.id) albedo_idx = 1;
@@ -5494,7 +5565,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             }
 
             ImGui::Spacing();
-            ImGui::TextDisabled("12 Haz\xC4\xB1r PBR Malzeme \xC3\x96nayar\xC4\xB1:");
+            ImGui::TextDisabled("%s", editor_gelismis() ? "12 Haz\xC4\xB1r PBR Malzeme \xC3\x96nayar\xC4\xB1:" : "Haz\xC4\xB1r malzemeler:");
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
 
             auto apply_preset = [&](const char *label, Vec3 tint, float met, float rough, float refl, Vec3 emis = {0,0,0}, float emis_str = 1.0f) {
@@ -5558,7 +5629,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           if (begin_component_card("\xE2\x98\x80", "I\xC5\x9F\xC4\xB1k", content::kSceneLight, nullptr, &act, true, Tone::Warn)) {
             if (prop_begin("isik")) {
               int ltype = (int)e.light_type;
-              if (prop_combo("T\xC3\xBCr", &ltype, "Nokta (Point)\0Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F (Directional)\0Spot (Koni)\0Alan (Dikd\xC3\xB6rtgen LTC)\0T\xC3\xBCp (Kaps\xC3\xBCl)\0Disk\0").changed) {
+              if (prop_combo("T\xC3\xBCr", &ltype, "Nokta\0Y\xC3\xB6nl\xC3\xBC (g\xC3\xBCne\xC5\x9F)\0Spot (koni)\0Alan (dikd\xC3\xB6rtgen)\0T\xC3\xBCp (kaps\xC3\xBCl)\0Disk\0").changed) {
                 after.light_type = (content::SceneLightType)ltype;
                 commit(st, si, after);
               }
@@ -6574,7 +6645,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             if (prop_begin("gokyuzu")) {
               prop_help("Fiziksel atmosfer modeli (Nishita / Bruneton) ve dinamik g\xC3\xBCne\xC5\x9F d\xC3\xB6ng\xC3\xBCs\xC3\xBC.");
               float tod = st.scene.time_of_day;
-              const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, "%.1f:00");
+              char saat_fmt[16];
+        editor_saat_bicimi(tod, saat_fmt, sizeof saat_fmt); // "14.0:00" degil "14:00"
+        const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, saat_fmt);
               if (pit.changed) {
                 st.scene.time_of_day = tod;
                 const float ang = (tod - 6.0f) * (3.14159265f / 12.0f);
@@ -6904,19 +6977,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Hizli ekleme izgarasi: sutun sayisi EN GENIS etikete gore (U1, 2026-11-05). Sabit uc
         // sutun 1280x720'de "+ Zemin Sisi"yi 69 px'e sikistirip kesiyordu (U0 olcumu); dar
         // panelde iki ya da tek sutuna iner, etiket asla kesilmez.
+        // Basit kipte yalniz ilk BES (oyun kurmanin temeli); hacimsel efektler Gelismis'te ve "+" menusunde.
         struct HizliEkle { const char *ad; const char *ipucu; int tur; };
         static const HizliEkle kHizli[] = {
-            {"+ Bo\xC5\x9F", "Boş Varlık Oluştur (Empty Entity)", 1},
-            {"+ Model", "glTF / 3B Model Varlığı Ekle", 2},
-            {"+ I\xC5\x9F\xC4\xB1k", "Noktasal Işık (Point Light) Ekle", 3},
-            {"+ K\xC3\xBCp", "Temel Küp Primitifi Ekle", 10},
-            {"+ Huzme", "Hacimsel Işık Hüzmesi (Fake Godray Beam) Ekle", 64},
-            {"+ G\xC3\xB6k", "Atmosfer ve Skybox Ekle", 36},
-            {"+ Sis", "3B Hacimsel Sis Puf Bulutu (Küre)", 46},
-            {"+ Zemin Sisi", "Yatay Zemin Sisi (Ground Mist Sheet)", 70},
-            {"+ Duman", "Konik Baca Sisi / Duman Jeti", 71},
+            {"+ K\xC3\xBCp", "K\xC3\xBCp ekle (zemine oturur)", 10},
+            {"+ K\xC3\xBCre", "K\xC3\xBCre ekle (zemine oturur)", 11},
+            {"+ I\xC5\x9F\xC4\xB1k", "Nokta \xC4\xB1\xC5\x9F\xC4\xB1k ekle", 3},
+            {"+ Model", "3B model (glTF) ekle", 2},
+            {"+ Bo\xC5\x9F", "Bo\xC5\x9F varl\xC4\xB1k ekle (gruplamak i\xC3\xA7in)", 1},
+            {"+ G\xC3\xB6k", "G\xC3\xB6ky\xC3\xBCz\xC3\xBC ve atmosfer ekle", 36},
+            {"+ H\xC3\xBCzme", "Hacimsel \xC4\xB1\xC5\x9F\xC4\xB1k h\xC3\xBCzmesi ekle", 64},
+            {"+ Sis", "Hacimsel sis bulutu ekle", 46},
+            {"+ Zemin Sisi", "Yere yay\xC4\xB1lan sis ekle", 70},
+            {"+ Duman", "Duman s\xC3\xBCtunu ekle", 71},
         };
-        const int n_hizli = (int)(sizeof kHizli / sizeof kHizli[0]);
+        const int n_hizli = editor_gelismis() ? (int)(sizeof kHizli / sizeof kHizli[0]) : 5;
         const float avail_w = ImGui::GetContentRegionAvail().x;
         const float sp_x = ImGui::GetStyle().ItemSpacing.x;
         float en_genis = 0.0f;
@@ -8853,6 +8928,70 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
         ImGui::EndPopup();
       }
+    }
+    {
+      // "Oyun baslatilamadi" penceresi: derleyicinin TAM ciktisi + ilk hatanin satirina git.
+      static const char *const kHataBaslik = "Oyun ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1###betik_hata";
+      if (betik_hata_acik && !ImGui::IsPopupOpen(kHataBaslik)) ImGui::OpenPopup(kHataBaslik);
+      const float fs = ImGui::GetFontSize();
+      const ImVec2 ds = ImGui::GetIO().DisplaySize;
+      const float gw = std::min(fs * 40.0f, ds.x - fs * 2.0f);
+      ImGui::SetNextWindowSize(ImVec2(gw, 0.0f), ImGuiCond_Appearing);
+      ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+      bool acik_kalsin = true;
+      if (ImGui::BeginPopupModal(kHataBaslik, &acik_kalsin, ImGuiWindowFlags_NoSavedSettings)) {
+        char hd[content::kScenePathLen], tam[content::kScenePathLen * 2];
+        uint32_t hs = 0;
+        const bool konum = betik_hata_konumu(oyun_cikti, hd, sizeof hd, &hs);
+        const char *gorunen = hd;
+        if (konum) {
+          const bool mutlak = hd[0] == '/' || hd[0] == '\\' || (hd[0] && hd[1] == ':');
+          if (mutlak || !st.tulpar_dir[0]) std::snprintf(tam, sizeof tam, "%s", hd);
+          else std::snprintf(tam, sizeof tam, "%s/%s", st.tulpar_dir, hd);
+          const char *sl = std::strrchr(hd, '/');
+          gorunen = sl ? sl + 1 : hd;
+        }
+        ImGui::PushTextWrapPos(0.0f);
+        if (konum) ImGui::Text("Oyun kodunda hata var: %s, sat\xC4\xB1r %u. Oyun derlenemedi.", gorunen, hs);
+        else ImGui::TextUnformatted("Oyun hi\xC3\xA7 kare vermeden kapand\xC4\xB1. Derleyicinin \xC3\xA7\xC4\xB1kt\xC4\xB1s\xC4\xB1:");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        ImGui::InputTextMultiline("##betik_hata_metin", oyun_cikti, sizeof oyun_cikti,
+                                  ImVec2(-FLT_MIN, std::min(fs * 16.0f, ds.y * 0.5f)), ImGuiInputTextFlags_ReadOnly);
+        ImGui::Spacing();
+        char etiket[160];
+        if (konum) {
+          std::snprintf(etiket, sizeof etiket, ICON_MD_CODE " Kodu a\xC3\xA7 (sat\xC4\xB1r %u)", hs);
+          if (ImGui::Button(etiket)) {
+            char kim[1024], err[640];
+            if (editor_open_in_code_editor_at(tam, hs, kim, sizeof kim, err, sizeof err)) {
+              set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s:%u", gorunen, hs);
+            } else {
+              set_status(st, "kod edit\xC3\xB6r\xC3\xBC a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (Konsol)");
+              console_log(ConsoleLevel::Uyari, "oyun", "%s", err);
+            }
+          }
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tam);
+          ImGui::SameLine();
+        }
+        if (ImGui::Button(ICON_MD_CONTENT_COPY " Kopyala")) {
+          ImGui::SetClipboardText(oyun_cikti);
+          set_status(st, "hata metni panoya kopyaland\xC4\xB1");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_MD_PLAY_ARROW " Tekrar dene (F5)")) {
+          betik_hata_acik = false;
+          ImGui::CloseCurrentPopup();
+          cmds.invoke(CommandId::PlayToggle);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Kapat") || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+          betik_hata_acik = false;
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+      }
+      if (!acik_kalsin) betik_hata_acik = false;
     }
     if (tur.acik && !karsilama.acik) tur_ciz(tur);
     {

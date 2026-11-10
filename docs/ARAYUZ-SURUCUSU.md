@@ -89,6 +89,8 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     - satıra tıklayınca Dönüşüm paneli gelir; tıklamadan önce yoktur;
     - Delete varlık sayısını 7'ye indirir, Ctrl+Z 8'e geri getirir;
     - Konsol araması eşleşmeyen satırı gizler.
+  - **`kaydet.txt`:** geçici kopya sahnede iki Ctrl+S; yol korunmalı, ikinci kayıtta diyalog
+    açılmamalı, dosyada 7 varlık olmalı (TUZAKLAR 8dt).
   - **`pozitif_kontrol.txt`:** olmayan öge çıkış 1 ve `HATA` satırı vermeli.
 
 ## Bilinen sınırlar

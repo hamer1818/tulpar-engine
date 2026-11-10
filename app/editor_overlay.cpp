@@ -302,7 +302,8 @@ void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLay
     int n_keep = 0;
     for (int i = 0; i < n_cand; i++) {
       Cand &c = cand[i];
-      const bool wanted = (i != 0 || info.playing) && (i != 5 || (info.shading && *info.shading)) && (i != 6 || stats[0]) &&
+      const bool wanted = (i != 0 || info.playing) && (i != 5 || (info.shading && *info.shading && !info.sade)) && (i != 6 || stats[0]) &&
+                          (i != 3 || !info.sade) &&
                           (i != 7 || !info.gizmos_visible);
       if (!wanted) continue;
       c.w = pill_width(ps, c.icon, c.text);
@@ -708,7 +709,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
       ImGui::PushStyleColor(ImGuiCol_Text, on ? tone_u32(Tone::AccentHi) : text);
       if (ImGui::Button(mode == 0 ? "\xE2\x96\xA6##izgara" : "\xE2\x98\xB0##liste", ImVec2(btn_w, btn_w))) v.grid = (mode == 0); // ▦ ☰
       ImGui::PopStyleColor(2);
-      if (ImGui::IsItemHovered()) ImGui::SetTooltip(mode == 0 ? "Karo izgarasi" : "Liste");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip(mode == 0 ? "Karo \xC4\xB1zgaras\xC4\xB1" : "Liste");
       ImGui::SameLine(0.0f, mode == 0 ? st.ItemInnerSpacing.x : st.ItemSpacing.x);
     }
     ImGui::SetNextItemWidth(slider_w);
@@ -717,7 +718,9 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Karo boyutu");
     ImGui::SameLine(0.0f, st.ItemSpacing.x);
-    ImGui::SetNextItemWidth(search_w);
+    // Kalan genisligi doldurur: sabit search_w dar panelde sag kenardan tasiyordu (arayuz surucusu).
+    (void)search_w;
+    ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##ara", "ara\xE2\x80\xA6", v.filter, sizeof v.filter);
   }
 
@@ -865,6 +868,11 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
       const ImVec2 origin = ImGui::GetCursorScreenPos();
       lay.origin_x = origin.x; lay.origin_y = origin.y; lay.tile_w = ImGui::GetContentRegionAvail().x - pad * 0.5f; lay.tile_h = row_h;
       lay.gap = st.ItemSpacing.y * 0.5f; lay.cols = 1;
+      // Rozet karari LISTE icin bir kez (en uzun ada gore): satir satir karar verilince bazi satirlarda
+      // rozet var, bazilarinda yok — duzensiz gorunuyordu.
+      float en_uzun_ad = 0.0f;
+      for (uint32_t i = 0; i < file_count; i++)
+        if (contains_ci(files[i].name, v.filter)) en_uzun_ad = std::fmax(en_uzun_ad, ImGui::CalcTextSize(files[i].name).x);
       for (uint32_t i = 0; i < file_count; i++) {
         const AssetFile &f = files[i];
         if (!contains_ci(f.name, v.filter)) continue;
@@ -883,22 +891,36 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), f.in_scene ? accent : tone_u32(as.tone), as.icon);
         x += fs + st.ItemInnerSpacing.x;
         float right = q.x - st.FramePadding.x - btn - st.ItemInnerSpacing.x;
-        if (f.in_scene) {
-          const ImVec2 bs = ImGui::GetFont()->CalcTextSizeA(badge_px, 3.4e38f, 0.0f, "sahnede");
-          const float badge_w = bs.x + 10.0f;
-          badge(cdl, ImVec2(right - badge_w, p.y + (row_h - bs.y - 2.0f) * 0.5f), "sahnede", badge_px, 5.0f, st.FrameRounding, tone_u32(Tone::AccentHi),
-                tone_u32(Tone::Accent, 0.25f), nullptr);
-          right -= badge_w + st.ItemInnerSpacing.x;
-        }
+        // Oncelik ADDA: dar panelde iki rozet adi "che…", "lod_…" diye kesiyordu (arayuz surucusu,
+        // 2026-11-06). Sigmazsa once tur rozeti duser (satirin renkli simgesi turu zaten soyler), sonra
+        // "sahnede" rozeti yerine kucuk yesil nokta cizilir (ipucunda yazar).
+        const float ad_w = en_uzun_ad;
+        const ImVec2 bs = ImGui::GetFont()->CalcTextSizeA(badge_px, 3.4e38f, 0.0f, "sahnede");
+        const float sahnede_w = bs.x + 10.0f + st.ItemInnerSpacing.x;
         const ImVec2 as_bs = ImGui::GetFont()->CalcTextSizeA(badge_px, 3.4e38f, 0.0f, as.badge);
         const float as_badge_w = as_bs.x + 8.0f;
-        badge(cdl, ImVec2(right - as_badge_w, p.y + (row_h - as_bs.y - 2.0f) * 0.5f), as.badge, badge_px, 4.0f, st.FrameRounding, tone_u32(as.tone),
-              tone_u32(Tone::Bg0, 0.6f), nullptr);
-        right -= as_badge_w + st.ItemInnerSpacing.x;
+        const float bos = right - x;
+        const bool tur_rozeti = ad_w + sahnede_w + as_badge_w + st.ItemInnerSpacing.x <= bos;
+        const bool sahnede_rozeti = f.in_scene && ad_w + sahnede_w <= bos;
+        if (sahnede_rozeti) {
+          badge(cdl, ImVec2(right - (bs.x + 10.0f), p.y + (row_h - bs.y - 2.0f) * 0.5f), "sahnede", badge_px, 5.0f, st.FrameRounding,
+                tone_u32(Tone::AccentHi), tone_u32(Tone::Accent, 0.25f), nullptr);
+          right -= sahnede_w;
+        } else if (f.in_scene) {
+          const float r = 3.0f;
+          cdl->AddCircleFilled(ImVec2(right - r, p.y + row_h * 0.5f), r, tone_u32(Tone::Ok));
+          right -= 2.0f * r + st.ItemInnerSpacing.x;
+        }
+        if (tur_rozeti) {
+          badge(cdl, ImVec2(right - as_badge_w, p.y + (row_h - as_bs.y - 2.0f) * 0.5f), as.badge, badge_px, 4.0f, st.FrameRounding, tone_u32(as.tone),
+                tone_u32(Tone::Bg0, 0.6f), nullptr);
+          right -= as_badge_w + st.ItemInnerSpacing.x;
+        }
         char nb[content::kScenePathLen + 4];
         editor_ellipsize(f.name, right - x, nb, sizeof nb);
         cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), text, nb);
-        if (hov && std::strcmp(nb, f.name) != 0) ImGui::SetTooltip("%s", f.name);
+        if (hov && (std::strcmp(nb, f.name) != 0 || (f.in_scene && !sahnede_rozeti)))
+          ImGui::SetTooltip("%s%s", f.name, f.in_scene ? " (sahnede)" : "");
         // Surukle-birak kaynagi (liste gorunumu).
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
           // AYRI yuk tipi, ortak yuk + hedefte reddetme DEGIL: ImGui birakma

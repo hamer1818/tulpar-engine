@@ -2484,3 +2484,46 @@ karakter (U+0080–U+00BF) gelen her satırı ihlal sayar. Gerçek Türkçe meti
 **Pozitif kontrol:** düzeltilmemiş dosyayla kapı 3 ihlal bildirdi.
 
 **Kural:** Türkçe C++ metni `\xHH` kaçışıyla yazılır (taşmaya karşı `layer_check`'in hex denetimi ayrıca bakar).
+
+### 8dt. Tampon kendi üzerine `snprintf` edilir — glibc yolu boşaltır, kayıt "olur" ama editör dosyayı unutur
+**Belirti:** var olan bir sahnede ilk Ctrl+S dosyayı doğru yere yazıyor, ama hemen ardından:
+- araç çubuğu "(sahne yok)" diyor,
+- sahne adı `editor.sahne`ye dönüyor,
+- durum çubuğu "kaydedildi: " diyor ve yol boş kalıyor.
+
+İkinci Ctrl+S motorun kaynak dizininde "Farklı kaydet" açıyordu.
+
+**Neden:** `save_scene_to(path)` sonunda `snprintf(st.scene_path, …, "%s", path)` çağırıyordu. `do_save` ise
+`path` olarak `st.scene_path`'in KENDİSİNİ veriyordu. Kaynak ile hedef aynı tampon olunca C'de davranış
+tanımsız. glibc'de sonuç boş dizgi (ölçüldü 2026-11-10, CachyOS glibc). Hata 7f7830c'den beri vardı.
+Hiçbir test "kaydet → bir daha kaydet" zincirini koşmuyordu: dosya doğru yazıldığı için tek kayıtlık
+kontrol yeşildi.
+
+**Bulunuşu:** arayüz sürücüsüyle yapılan UX değerlendirmesi (2026-11-10).
+
+**Düzeltme:** `if (path != st.scene_path)` koşulu.
+
+**Kapı:** `tests/arayuz/kaydet.txt` (`tools/arayuz_kapi.sh`, yerel CI "Arayuz surucusu"). Senaryo geçici
+kopya sahnede iki Ctrl+S yapar ve şunları ister:
+- durum çubuğunda "kaydedildi: /…" yazmalı,
+- "(sahne yok)" görünmemeli,
+- ikinci kayıtta diyalog açılmamalı,
+- dosyada 7 varlık olmalı.
+
+**Pozitif kontrol:** koşul kaldırılınca senaryo `dogrula_metin "kaydedildi: /"` adımında kırmızı düştü.
+
+**Kural:** bir tamponu `snprintf`/`memcpy` ile doldururken kaynağın aynı tampon olabileceği yollar
+(kendini güncelleyen "yeniden kaydet", "yeniden aç") ya karşılaştırılır ya da önce geçici tampona alınır.
+
+### 8du. "Dipteyse dipte tut" kaydırması her kare yeniden ölçülürse ilk satır patlamasında takılır
+**Belirti:** Oynat'tan sonra Konsol, otomatik kaydırma açıkken oyunun ilk satırlarında kalıyordu. Yeni
+satırlar görünmüyordu.
+
+**Neden:** `SetScrollHereY` hedefi bir SONRAKİ karede uygulanır. Arada yeni satır gelince `y < max`
+olur ve "kullanıcı yukarı kaydırmış" sanılır. Ölçüm (2026-11-10, arayüz sürücüsü): 23 satırda `y=17`,
+`max=367`.
+
+**Düzeltme:** `ConsoleView::dipte` bayrağı. Yalnız kullanıcı eylemi (teker yukarı, kaydırma çubuğu
+sürükleme) bayrağı bırakır; dibe inmek bayrağı geri takar.
+
+**Kural:** "takip et" kararı, ertelenen bir kaydırmanın sonucundan değil kullanıcı girdisinden çıkar.

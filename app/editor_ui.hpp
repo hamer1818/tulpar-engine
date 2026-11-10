@@ -268,6 +268,13 @@ bool editor_script_resolve(const char *label, const char *scene_dir, const char 
 // vim/nano gibi terminal editorudur ve terminalsiz baslatilinca bos kalir.
 // `used` hangi programin acildigini yazar; basarisizsa `err` denenenleri.
 bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap, char *err, uint32_t err_cap);
+// Satira atlayarak acar: TULPAR_KOD_EDITORU yoksa once VS Code/Codium `-g yol:satir`; olmazsa
+// editor_open_in_code_editor (satirsiz). line == 0: dogrudan satirsiz yol.
+bool editor_open_in_code_editor_at(const char *path, uint32_t line, char *used, uint32_t used_cap, char *err, uint32_t err_cap);
+// Derleyici ciktisindaki ILK hata konumu (TulparLang bicimi "  --> oyun.tpr:57", satirdan sonra
+// ":sutun" de olabilir). Yol Windows'ta "C:\\x\\oyun.tpr:57" gibi ':' icerir: satir SON ':'dan alinir.
+// Bulursa true; dosya bos degil ve satir > 0.
+bool betik_hata_konumu(const char *metin, char *dosya, uint32_t dosya_cap, uint32_t *satir);
 // Yukaridakinin cekirdegi, aday listesi disaridan: kapi GERCEK bir kod
 // editoru acmadan (CI'da ve gelistiricinin masasinda) sirayi olcebilsin.
 struct CodeEditorCandidate {
@@ -288,6 +295,14 @@ bool editor_script_create(const char *abs_path, const char *import_path, char *e
 // giren islem sayisi — yeni kaynakla 2, mevcut kaynakla 1, eklenemediyse 0 —
 // cagiran onu TEK grup olarak iter; out_asset = kaynak indeksi.
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset);
+// Yeni ilkelin oturacagi yukseklik: (x,z) noktasinin ALTINDAKI en yuksek kutu ust yuzu (kok
+// seviyesindeki, donmemis kutu ilkelleri — arena zemini/duvarlari, platformlar). `tavan` ustundeki
+// yuzeyler sayilmaz (kameranin baktigi noktanin cok ustundeki bir tavana tirmanmasin). Yoksa
+// `varsayilan`. Eskiden yeni kup kameranin hedefine (zeminin TAM yuzeyine) merkezden konuyordu:
+// yarisi zemine gomuluydu (2026-11-10 arayuz surucusu degerlendirmesi).
+// Gunun saati (0..24, ondalik) -> "SS:DD" (DragFloat bicimi olarak; icinde '%' yok). 14.5 -> "14:30".
+void editor_saat_bicimi(float saat, char *out, uint32_t cap);
+float editor_zemin_ustu(const content::SceneDesc &d, float x, float z, float tavan, float varsayilan);
 
 // Surukleme bitince grubu gunluge yazar: once hepsi 'before'a dondurulur, sonra
 // SceneHistory once/sonra kaydeder (her varlik bir islem). Donus: islem sayisi.

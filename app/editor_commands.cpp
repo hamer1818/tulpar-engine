@@ -64,89 +64,89 @@ constexpr Chord kKeyF = (Chord)ImGuiKey_F;
 // ascii kimlik, gorunen ad, aciklama.
 constexpr CommandDesc k_defaults[] = {
     {CommandId::FileNew, CommandCategory::File, kCmdNone, chord_of(kModCtrl, kKeyN), kChordNone, "dosya.yeni", "Yeni",
-     "Bos sahne (kaydedilmemis degisiklik varsa sorulur)"},
+     "Bo\xC5\x9F sahne a\xC3\xA7" "ar (kaydedilmemi\xC5\x9F de\xC4\x9Fi\xC5\x9Fiklik varsa sorulur)"},
     {CommandId::FileOpen, CommandCategory::File, kCmdNone, chord_of(kModCtrl, kKeyO), kChordNone, "dosya.ac", "A\xC3\xA7\xE2\x80\xA6",
-     "Sahne dosyasi acar (kaydedilmemis degisiklik varsa sorulur)"},
+     "Sahne dosyas\xC4\xB1 a\xC3\xA7" "ar (kaydedilmemi\xC5\x9F de\xC4\x9Fi\xC5\x9Fiklik varsa sorulur)"},
     {CommandId::FileSave, CommandCategory::File, kCmdNone, chord_of(kModCtrl, kKeyS), kChordNone, "dosya.kaydet", "Kaydet",
-     "Sahneyi .sahne dosyasina yazar (kamerayi da)"},
+     "Sahneyi .sahne dosyas\xC4\xB1na kaydeder (kamera a\xC3\xA7\xC4\xB1s\xC4\xB1 dahil)"},
     {CommandId::FileSaveAs, CommandCategory::File, kCmdNone, chord_of(kModCtrl | kModShift, kKeyS), kChordNone, "dosya.farkli_kaydet",
-     "Farkl\xC4\xB1 kaydet\xE2\x80\xA6", "Sahneyi baska bir dosyaya yazar ve o dosyayi acik tutar"},
+     "Farkl\xC4\xB1 kaydet\xE2\x80\xA6", "Sahneyi ba\xC5\x9Fka bir dosyaya kaydeder ve o dosyayla devam eder"},
     {CommandId::FileCompile, CommandCategory::File, kCmdNone, chord_of(kModCtrl, kKeyB), kChordNone, "dosya.derle", "Derle",
-     "Bellekteki sahneyi .sahneb calisma blobuna derler"},
+     "Sahneyi oyunun y\xC3\xBCkledi\xC4\x9Fi .sahneb dosyas\xC4\xB1na derler (Oynat bunu kendisi de yapar)"},
     {CommandId::EditUndo, CommandCategory::Edit, kCmdWhileTyping, chord_of(kModCtrl, kKeyZ), kChordNone, "duzen.geri_al", "Geri al",
-     "Son kullanici eylemini geri alir (grup = tek eylem)"},
+     "Son i\xC5\x9Flemi geri al\xC4\xB1r"},
     // Yinele'nin IKI kisayolu var: Ctrl+Y (Windows gelenegi) ve Ctrl+Shift+Z
     // (Blender/Krita). Bugun editor_app.cpp'de tek satirda `||` ile duruyor;
     // tabloda ayri alan oldugu icin menu her ikisini de gosterebilir ve cakisma
     // taramasi ikisini de gorur.
     {CommandId::EditRedo, CommandCategory::Edit, kCmdWhileTyping, chord_of(kModCtrl, kKeyY), chord_of(kModCtrl | kModShift, kKeyZ), "duzen.yinele",
-     "Yinele", "Geri alinan eylemi yeniden uygular"},
+     "Yinele", "Geri al\xC4\xB1nan i\xC5\x9Flemi yeniden uygular"},
     {CommandId::EditDuplicate, CommandCategory::Edit, kCmdUndoable, chord_of(kModCtrl, kKeyD), kChordNone, "duzen.ekle", "Ekle / \xC3\xA7o\xC4\x9F""alt",
-     "Secili varlik varsa kopyasini, yoksa yeni bir varlik ekler"},
+     "Se\xC3\xA7ili varl\xC4\xB1k varsa kopyas\xC4\xB1n\xC4\xB1, yoksa yeni bir varl\xC4\xB1k ekler"},
     {CommandId::EditDelete, CommandCategory::Edit, kCmdUndoable | kCmdNeedsSelection, kKeyDelete, kChordNone, "duzen.sil", "Sil",
-     "Secili varliklarin tamamini siler (tek geri al getirir)"},
+     "Se\xC3\xA7ili varl\xC4\xB1klar\xC4\xB1 siler (tek geri al hepsini getirir)"},
     // Pano: kopyalanan varliklar editorun kendi tamponunda durur (isletim
     // sistemi panosu DEGIL — metin degil yapi kopyaliyoruz). Ctrl+C/V metin
     // kutusundayken tabloya GELMEZ (koruma !text_input), orada ImGui'nin kendi
     // kopyala/yapistir'i calisir.
     {CommandId::EditCut, CommandCategory::Edit, kCmdUndoable | kCmdNeedsSelection, chord_of(kModCtrl, kKeyX), kChordNone, "duzen.kes", "Kes",
-     "Secili varliklari panoya alir ve siler"},
+     "Se\xC3\xA7ili varl\xC4\xB1klar\xC4\xB1 panoya al\xC4\xB1r ve siler"},
     {CommandId::EditCopy, CommandCategory::Edit, kCmdNeedsSelection, chord_of(kModCtrl, kKeyC), kChordNone, "duzen.kopyala", "Kopyala",
-     "Secili varliklari panoya alir"},
+     "Se\xC3\xA7ili varl\xC4\xB1klar\xC4\xB1 panoya kopyalar"},
     {CommandId::EditPaste, CommandCategory::Edit, kCmdUndoable, chord_of(kModCtrl, kKeyV), kChordNone, "duzen.yapistir", "Yap\xC4\xB1\xC5\x9Ft\xC4\xB1r",
-     "Panodaki varliklari sahneye ekler (tek geri al)"},
+     "Panodaki varl\xC4\xB1klar\xC4\xB1 sahneye ekler (tek geri al)"},
     {CommandId::SelectAll, CommandCategory::Select, kCmdNone, chord_of(kModCtrl, kKeyA), kChordNone, "secim.tumu", "T\xC3\xBCm\xC3\xBCn\xC3\xBC se\xC3\xA7",
-     "Sahnedeki butun varliklari secime alir"},
+     "Sahnedeki b\xC3\xBCt\xC3\xBCn varl\xC4\xB1klar\xC4\xB1 se\xC3\xA7" "er"},
     {CommandId::SelectClear, CommandCategory::Select, kCmdNeedsSelection, kKeyEscape, kChordNone, "secim.temizle", "Se\xC3\xA7imi temizle",
-     "Secimi bosaltir"},
+     "Se\xC3\xA7imi temizler"},
     {CommandId::ViewGizmos, CommandCategory::View, kCmdCheckable, kKeyG, kChordNone, "gorunum.gizmolar", "Gizmolar\xC4\xB1 a\xC3\xA7/kapa",
-     "Isik yaricapi, golge hacmi ve gunes oku tel cizimleri"},
+     "I\xC5\x9F\xC4\xB1k yar\xC4\xB1\xC3\xA7" "ap\xC4\xB1, g\xC3\xB6lge hacmi ve g\xC3\xBCne\xC5\x9F y\xC3\xB6n\xC3\xBC \xC3\xA7izgilerini g\xC3\xB6sterir/gizler"},
     {CommandId::ViewConsole, CommandCategory::View, kCmdCheckable, kChordNone, kChordNone, "gorunum.konsol", "Konsol",
-     "Motor, Vulkan ve sahne iletilerini gosteren paneli ac/kapa"},
+     "Motor, oyun ve sahne iletilerini g\xC3\xB6steren paneli a\xC3\xA7" "ar/kapat\xC4\xB1r"},
     {CommandId::ViewFocus, CommandCategory::View, kCmdNeedsSelection, kKeyF, kChordNone, "gorunum.odak", "Se\xC3\xA7ili Varl\xC4\xB1\xC4\x9F""a Odaklan",
-     "Kamerayi secili varligin merkezine odaklar"},
+     "Kameray\xC4\xB1 se\xC3\xA7ili varl\xC4\xB1\xC4\x9F" "a odaklar"},
     // kCmdWhileTyping KONMADI: bu tablodaki kural degistiricisiz her bilesimi
     // HAM sayar (islev tuslari dahil), yani F5/F6/F10 ile ayni davranis —
     // metin yazarken tetiklenmez.
     {CommandId::ViewFullscreen, CommandCategory::View, kCmdCheckable, kKeyF11, kChordNone, "gorunum.tam_ekran",
-     "Tam ekran", "Pencereyi monitorun video kipine gecirir (F11 ile geri doner)"},
+     "Tam ekran", "Pencereyi tam ekrana al\xC4\xB1r (F11 ile geri d\xC3\xB6ner)"},
     {CommandId::GizmoTranslate, CommandCategory::Gizmo, kCmdCheckable, kKeyT, kChordNone, "gizmo.tasi", "Ta\xC5\x9F\xC4\xB1",
-     "ImGuizmo kipi: tasima"},
-    {CommandId::GizmoRotate, CommandCategory::Gizmo, kCmdCheckable, kKeyR, kChordNone, "gizmo.dondur", "D\xC3\xB6nd\xC3\xBCr", "ImGuizmo kipi: dondurme"},
+     "Se\xC3\xA7ili varl\xC4\xB1\xC4\x9F\xC4\xB1 oklarla ta\xC5\x9F\xC4\xB1"},
+    {CommandId::GizmoRotate, CommandCategory::Gizmo, kCmdCheckable, kKeyR, kChordNone, "gizmo.dondur", "D\xC3\xB6nd\xC3\xBCr", "Se\xC3\xA7ili varl\xC4\xB1\xC4\x9F\xC4\xB1 halkalarla d\xC3\xB6nd\xC3\xBCr"},
     // Dikkat: ham S. editor_app.cpp bugun bunu `key_down[S] && !key_down[CTRL]`
     // diye ELDE ayikliyordu (Ctrl+S kaydederken gizmo kipi de degismesin diye).
     // Bilesim esitligi degistiricileri DE karsilastirdigi icin o ayiklama artik
     // kendiliginden dogru: Ctrl basiliyken ham S ESLESMEZ.
-    {CommandId::GizmoScale, CommandCategory::Gizmo, kCmdCheckable, kKeyS, kChordNone, "gizmo.olcekle", "\xC3\x96l\xC3\xA7""ekle", "ImGuizmo kipi: olcekleme"},
+    {CommandId::GizmoScale, CommandCategory::Gizmo, kCmdCheckable, kKeyS, kChordNone, "gizmo.olcekle", "\xC3\x96l\xC3\xA7""ekle", "Se\xC3\xA7ili varl\xC4\xB1\xC4\x9F\xC4\xB1 kutucuklarla \xC3\xB6l\xC3\xA7" "ekle"},
     // F5: sahneyi yukleyen oyunu BETIKLERIYLE, Oyun sekmesinin icinde oynatir
     // (ayri surec, gomulu kanal; app/editor_game.hpp). Oyun ya da derleyici
     // yoksa editorun fizik onizlemesine duser ve nedenini Konsol'a yazar.
     {CommandId::PlayToggle, CommandCategory::Play, kCmdCheckable, kKeyF5, kChordNone, "oynat.baslat_durdur", "Oynat / Durdur",
-     "Oyunu betikleriyle Oyun sekmesinde oynatir (yoksa fizik onizlemesi); Durdur oynatma oncesine doner"},
+     "Oyunu betikleriyle Oyun sekmesinde oynat\xC4\xB1r (oyun yoksa fizik \xC3\xB6nizlemesi); Durdur, oynat\xC4\xB1rken yap\xC4\xB1lan de\xC4\x9Fi\xC5\x9Fiklikleri geri al\xC4\xB1r"},
     // Duraklat DURDURMAK DEGILDIR: oyun (ya da govdeler) yerinde kalir, yalniz zaman akmaz.
     {CommandId::PlayPause, CommandCategory::Play, kCmdCheckable, kKeyF6, kChordNone, "oynat.duraklat", "Duraklat",
-     "Oynatmayi dondurur: betik, fizik ve zaman durur (F10 ile kare ilerlet)"},
+     "Oynatmay\xC4\xB1 dondurur: betik, fizik ve zaman durur (F10 ile kare ilerlet)"},
     {CommandId::PlayStep, CommandCategory::Play, kCmdNone, kKeyF10, kChordNone, "oynat.kare_ilerlet", "Kare ilerlet",
-     "Duraklatilmisken TEK kare ilerletir"},
+     "Duraklat\xC4\xB1lm\xC4\xB1\xC5\x9Fken tek kare ilerletir"},
     // Geri sarma (app/editor_rewind.hpp): her 6 tikte fizik durumu kaydedilir
     // (12 s pencere); her basis bir kayit geri gider ve duraklatir.
     {CommandId::PlayStepBack, CommandCategory::Play, kCmdNone, chord_of(kModShift, kKeyF10), kChordNone, "oynat.geri_sar", "Geri sar",
-     "Fizik onizlemesini en yakin eski kayda (~0,1 s) geri sarar ve duraklatir; oradan devam ilk kosumla ayni"},
+     "Fizik \xC3\xB6nizlemesini en yak\xC4\xB1n eski kayda (~0,1 sn) geri sarar ve duraklat\xC4\xB1r; oradan devam ilk ko\xC5\x9Fumla ayn\xC4\xB1" "d\xC4\xB1r"},
     // F5 ile AYNI ikili; fark goruntunun yeri: bu, oyunu KENDI penceresinde
     // calistirir (tam ekran denemek, editorsuz olcmek icin).
     {CommandId::PlayRunGame, CommandCategory::Play, kCmdCheckable, chord_of(kModCtrl, kKeyF5), kChordNone, "oynat.oyunu_calistir",
      "Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r / durdur",
-     "Sahneyi derler, onu yukleyen Tulpar oyununu KENDI penceresinde calistirir; ciktisi Konsol'a akar"},
+     "Sahneyi derler ve onu y\xC3\xBCkleyen oyunu ayr\xC4\xB1 bir pencerede \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r; \xC3\xA7\xC4\xB1kt\xC4\xB1s\xC4\xB1 Konsol'a akar"},
     // Yardim: editor ici guncelleme (app/editor_update.hpp). Kisayolsuz — nadir
     // kullanilir, tus haritasinda yer kaplamasin. Kaynak derlemesinde de ETKIN:
     // pencere "neden kapali"yi ve "git pull && ./derle.sh" yolunu soyler (soluk
     // bir satir sebebini soylemezdi).
     {CommandId::HelpCheckUpdates, CommandCategory::Help, kCmdNone, kChordNone, kChordNone, "yardim.guncelleme_denetle",
-     "G\xC3\xBCncellemeleri denetle\xE2\x80\xA6", "GitHub'daki en son surumu sorar; yenisi varsa indirip kurmayi onerir"},
+     "G\xC3\xBCncellemeleri denetle\xE2\x80\xA6", "En son s\xC3\xBCr\xC3\xBCm\xC3\xBC denetler; yenisi varsa indirip kurmay\xC4\xB1 \xC3\xB6nerir"},
     {CommandId::HelpAutoCheck, CommandCategory::Help, kCmdCheckable, kChordNone, kChordNone, "yardim.otomatik_denetle", "Otomatik denetle",
-     "Acilista ve gunde bir kez yeni surumu kendiliginden sorar (~/.tulpar_guncelleme)"},
+     "A\xC3\xA7\xC4\xB1l\xC4\xB1\xC5\x9Fta ve g\xC3\xBCnde bir kez yeni s\xC3\xBCr\xC3\xBCm\xC3\xBC kendili\xC4\x9Finden denetler"},
     {CommandId::HelpAbout, CommandCategory::Help, kCmdNone, kChordNone, kChordNone, "yardim.hakkinda", "Hakk\xC4\xB1nda",
-     "Surum, platform, kurulum dizini ve guncelleyicinin durumu"},
+     "S\xC3\xBCr\xC3\xBCm, platform, kurulum dizini ve g\xC3\xBCncelleyicinin durumu"},
 };
 
 constexpr uint32_t k_default_count = (uint32_t)(sizeof(k_defaults) / sizeof(k_defaults[0]));
