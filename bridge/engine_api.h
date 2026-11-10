@@ -788,8 +788,12 @@ int teng_net_wifi_lock(int on);          // Android MulticastLock; masaustunde 1
 // --- yerel bildirim (WoE M6, 2026-11-09; KOPRU §15) --------------------------------------------------
 int teng_notify(const char *title, const char *text, int id); // 1 gonderildi; 0 izin yok / hata. Ayni id = yerine gecer
 int teng_notify_permission(int request);  // 1 izin var; request=1 yoksa sorar (Android 13+). Masaustunde 1
-int teng_notify_stat(int which);          // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi
+int teng_notify_stat(int which);          // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi, 4 kurulan zamanli, 5 iptal edilen
 const char *teng_notify_last(void);       // son gonderilen "baslik|metin" ("" = yok)
+// Zamanli bildirim (KOPRU §15.1): surec olse de gelir (Android AlarmManager + motorun Java alicisi).
+int teng_notify_at(const char *title, const char *text, int id, int delay_s); // 1 kuruldu; 0 izin yok / hata / APK'da yok
+int teng_notify_cancel(int id);           // id < 0: hepsi. Iptal edilen kayit sayisi
+int teng_notify_due(int id);              // kalan saniye (gecmis 0); kayit yoksa -1
 int teng_open_url(const char *url);       // 1 acildi (Android tarayici); 0 masaustu / gecersiz sema / hata
 int teng_open_url_stat(int which);        // 0 acilan, 1 reddedilen ya da acilamayan
 // Google ile giris (KOPRU §16): Android hesap secicisi (Credential Manager) -> id_token (aud = client_id).

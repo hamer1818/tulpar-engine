@@ -1554,6 +1554,14 @@ func bildirim_sayac(int hangi): int { return eng_notify_stat(hangi); }
 func notify_stat(int which): int { return eng_notify_stat(which); }
 func bildirim_son(): str { return eng_notify_last(); }
 func notify_last(): str { return eng_notify_last(); }
+// Zamanli bildirim (KOPRU §15.1): sn saniye sonra; surec olse de gelir (Android AlarmManager). Ayni kimlik
+// oncekinin yerine gecer — bildirim_gonder ile ayni kimligi kullan, cift bildirim olmaz.
+func bildirim_zamanla(str baslik, str yazi, int kimlik, int sn): bool { return eng_notify_at(baslik, yazi, kimlik, sn); }
+func notify_at(str title, str text, int id, int delay_s): bool { return eng_notify_at(title, text, id, delay_s); }
+func bildirim_iptal(int kimlik): int { return eng_notify_cancel(kimlik); }
+func notify_cancel(int id): int { return eng_notify_cancel(id); }
+func bildirim_kalan(int kimlik): int { return eng_notify_due(kimlik); }
+func notify_due(int id): int { return eng_notify_due(id); }
 // Baglanti ac (Android tarayici; yalniz http/https). Masaustunde false — adresi ekranda goster.
 func baglanti_ac(str url): bool { return eng_open_url(url); }
 func open_url(str url): bool { return eng_open_url(url); }

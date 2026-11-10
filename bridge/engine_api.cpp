@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <new>
 
 #include "app/virtual_stick.hpp"
@@ -6655,16 +6656,46 @@ namespace {
 struct Notify {
   bool (*post)(const char *title, const char *text, int id) = nullptr;
   int (*permission)(bool request) = nullptr;
-  uint32_t stat[4] = {0, 0, 0, 0}; // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi
+  // Zamanli (KOPRU §15.1): Android host AlarmManager; yoksa masaustu tablosu (asagida).
+  int (*at)(const char *title, const char *text, int id, int delay_s) = nullptr;
+  int (*cancel)(int id) = nullptr;
+  int (*due)(int id) = nullptr;
+  uint32_t stat[6] = {0, 0, 0, 0, 0, 0}; // 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi, 4 zamanli kurulan, 5 iptal
   char last[256] = {0};            // son gonderilenin "baslik|metin" ozeti (dogrulama)
 };
 Notify g_notify;
+// Masaustu zamanli tablo: bildirim cubugu yok; kayit tutulur, suresi gelince bilgi satiri yazilip silinir
+// (Android'de alici gosterip kaydi siler — teng_notify_due ikisinde de -1'e doner).
+struct Zamanli {
+  int id = -1;
+  long long an = 0;  // duvar saati (sn)
+  char ozet[256] = {0};
+};
+constexpr int kZamanliMax = 64;
+Zamanli g_zamanli[kZamanliMax];
+long long g_zamanli_saat = 0; // testler: 0 = gercek saat
+long long zamanli_simdi() { return g_zamanli_saat ? g_zamanli_saat : (long long)std::time(nullptr); }
+void zamanli_supur() {
+  const long long s = zamanli_simdi();
+  for (Zamanli &z : g_zamanli) {
+    if (z.id >= 0 && z.an <= s) {
+      BINFO("zamanli bildirim #%d suresi geldi (masaustu: bildirim cubugu yok): %s", z.id, z.ozet);
+      z.id = -1;
+    }
+  }
+}
 } // namespace
 namespace tulpar::engine::bridge {
 void bridge_notify_host(bool (*post)(const char *, const char *, int), int (*permission)(bool)) {
   g_notify.post = post;
   g_notify.permission = permission;
 }
+void bridge_notify_sched_host(int (*at)(const char *, const char *, int, int), int (*cancel)(int), int (*due)(int)) {
+  g_notify.at = at;
+  g_notify.cancel = cancel;
+  g_notify.due = due;
+}
+void bridge_notify_test_clock(long long now_s) { g_zamanli_saat = now_s; }
 } // namespace tulpar::engine::bridge
 extern "C" {
 int teng_notify(const char *title, const char *text, int id) {
@@ -6690,8 +6721,65 @@ int teng_notify_permission(int request) {
   return g_notify.permission(request != 0) ? 1 : 0;
 }
 int teng_notify_stat(int which) {
-  if (which < 0 || which > 3) { BERR("teng_notify_stat: %d gecersiz (0..3)", which); return 0; }
+  if (which < 0 || which > 5) { BERR("teng_notify_stat: %d gecersiz (0..5)", which); return 0; }
   return (int)g_notify.stat[which];
+}
+// Zamanli: en az 1 sn, en cok 30 gun. Ayni id oncekinin yerine gecer (Android: PendingIntent istek kodu).
+int teng_notify_at(const char *title, const char *text, int id, int delay_s) {
+  CALLF("teng_notify_at", "%d %d", id, delay_s);
+  if (!title || !*title) { BERR("teng_notify_at: baslik bos"); g_notify.stat[1]++; return 0; }
+  if (id < 0) { BERR("teng_notify_at: kimlik %d gecersiz (>= 0)", id); g_notify.stat[1]++; return 0; }
+  if (delay_s < 1 || delay_s > 30 * 86400) {
+    BERR("teng_notify_at: gecikme %d sn gecersiz (1..2592000; hemen gostermek icin teng_notify)", delay_s);
+    g_notify.stat[1]++;
+    return 0;
+  }
+  if (!text) text = "";
+  bool ok = false;
+  if (g_notify.at) {
+    ok = g_notify.at(title, text, id, delay_s) == 1;
+  } else {
+    zamanli_supur();
+    Zamanli *bos = nullptr;
+    for (Zamanli &z : g_zamanli) {
+      if (z.id == id) { bos = &z; break; }
+      if (z.id < 0 && !bos) bos = &z;
+    }
+    if (!bos) {
+      BERR("teng_notify_at: masaustu tablosu dolu (%d kayit)", kZamanliMax);
+    } else {
+      bos->id = id;
+      bos->an = zamanli_simdi() + delay_s;
+      std::snprintf(bos->ozet, sizeof bos->ozet, "%s|%s", title, text);
+      ok = true;
+    }
+  }
+  g_notify.stat[ok ? 4 : 1]++;
+  return ok ? 1 : 0;
+}
+int teng_notify_cancel(int id) {
+  CALLF("teng_notify_cancel", "%d", id);
+  int n = 0;
+  if (g_notify.cancel) {
+    n = g_notify.cancel(id);
+    if (n < 0) { BERR("teng_notify_cancel: host iptal edemedi (#%d)", id); return 0; }
+  } else {
+    zamanli_supur();
+    for (Zamanli &z : g_zamanli) {
+      if (z.id >= 0 && (id < 0 || z.id == id)) { z.id = -1; n++; }
+    }
+  }
+  g_notify.stat[5] += (uint32_t)n;
+  return n;
+}
+int teng_notify_due(int id) {
+  if (id < 0) { BERR("teng_notify_due: kimlik %d gecersiz (>= 0)", id); return -1; }
+  if (g_notify.due) return g_notify.due(id);
+  zamanli_supur();
+  for (const Zamanli &z : g_zamanli) {
+    if (z.id == id) return (int)std::max(0LL, z.an - zamanli_simdi());
+  }
+  return -1;
 }
 const char *teng_notify_last(void) { return g_notify.last; }
 } // extern "C"
