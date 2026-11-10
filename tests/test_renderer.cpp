@@ -139,6 +139,71 @@ ENGINE_TEST(renderer_shadow_map_actually_darkens) {
   dev.shutdown();
 }
 
+// set_shadow_casting(false): cizim ANA gecise girer, GOLGE gecisine girmez. Editor kilavuzlari (gizmo, secim
+// isareti) masaya golge dusuruyordu (2026-11-11). Uc kare: golgeli kup (KONTROL: zemin koyulasmali),
+// golgesiz kup (zemin golgesi kapali kareyle ayni olmali, kup yine cizilmeli), golge kapali.
+ENGINE_TEST(renderer_no_shadow_draw_casts_no_shadow_with_control) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "renderer_test")) { CHECK(false); return; }
+  Device dev;
+  DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU (Apple Paravirtual, CI macOS): piksel kapisi gercek cihazda olculur"); return; }
+  const uint32_t W = 256, H = 256;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W; oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.shadow_size = 1024;
+  rc.frames_in_flight = 1;
+  if (!ren.init(dev, sys, offscreen_render_pass(off), rc)) { CHECK(false); offscreen_destroy(off); dev.shutdown(); return; }
+  renderer::Vertex v[24];
+  uint32_t idx[36];
+  uint32_t n = renderer::Renderer::cube(v, idx);
+  renderer::MeshHandle cube = ren.create_mesh(v, 24, idx, n);
+  n = renderer::Renderer::plane(v, idx);
+  renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
+  ren.set_light(normalize(Vec3{1.0f, 1.4f, 0.0f}), {0.10f, 0.10f, 0.12f}, 0.9f);
+  ren.set_shadow_volume({0, 1.0f, 0}, 9.0f, 40.0f);
+  ren.set_camera(Mat4::look_at({0, 7.0f, 9.0f}, {0, 0.5f, 0}, {0, 1, 0}),
+                 Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
+  static uint8_t px[3][W * H * 4];
+  Rec rr{&ren};
+  for (int k = 0; k < 3; k++) {
+    ren.set_shadows_enabled(k != 2);
+    ren.begin_frame(0);
+    ren.draw(plane, Mat4::scale({16, 1, 16}), {0.8f, 0.8f, 0.8f});
+    ren.set_shadow_casting(k != 1);
+    ren.draw(cube, Mat4::translate({0, 2.5f, 0}) * Mat4::scale({2.4f, 2.4f, 2.4f}), {0.9f, 0.3f, 0.2f});
+    ren.set_shadow_casting(true);
+    if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
+    std::memcpy(px[k], ores.pixels, sizeof px[k]);
+  }
+  uint32_t golgeli = 0, golgesiz = 0, kup_farki = 0;
+  for (uint32_t i = 0; i < W * H; i++) {
+    const int a = px[0][i * 4] + px[0][i * 4 + 1] + px[0][i * 4 + 2];
+    const int b = px[1][i * 4] + px[1][i * 4 + 1] + px[1][i * 4 + 2];
+    const int c = px[2][i * 4] + px[2][i * 4 + 1] + px[2][i * 4 + 2];
+    if (a < c - 8) golgeli++;
+    if (b < c - 8) golgesiz++;
+    if (b != c) kup_farki++;
+  }
+  std::printf("    [bilgi] koyulasan: golgeli kup %u, golgesiz kup %u; golgesiz kare ile golgesi kapali kare farki %u piksel\n",
+              golgeli, golgesiz, kup_farki);
+  CHECK(golgeli > (W * H) / 200);   // KONTROL: ayni kup golge dusuruyor (kapi golgeyi gorebiliyor)
+  CHECK(golgesiz * 50 < golgeli);    // golgesiz cizim golge dusurmez
+  ren.begin_frame(0);
+  CHECK(ren.shadow_casting());       // begin_frame bayragi sifirlar (kare arasi sizmaz)
+  ren.shutdown();
+  offscreen_destroy(off);
+  dev.shutdown();
+}
+
 // Kume atamasi (CPU): ortadaki isik orta tile'i isaretler, koseleri isaretlemez;
 // kamera arkasindaki isik hicbir seyi isaretlemez; dev isik her seyi isaretler.
 #include "renderer/cluster.hpp"

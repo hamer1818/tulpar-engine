@@ -337,6 +337,12 @@ struct GizmoOptions {
 uint32_t editor_wire_box_m(renderer::Renderer &ren, renderer::MeshHandle cube, const Mat4 &m, Vec3 half, Vec3 color,
                            float th);
 uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th);
+// SECIM isareti: kutunun 8 kosesinde 3'er kisa cizgi (Godot gibi koseli parantez). Kenar boyunun `oran`i
+// kadar (en cok 0.5). Eskiden secili varlik SARIYA boyanarak cizilirdi: kendi rengi hic gorunmuyordu,
+// secili iken renk degistirmek fark edilmiyordu (kullanici, 2026-11-11). Donus: cizim sayisi (24).
+uint32_t editor_select_corners(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th, float oran);
+// Yukaridakinin geometrisi (GPU'suz olculsun): a[i]->b[i] 24 parca. Donus 24.
+uint32_t editor_select_corner_segments(Vec3 lo, Vec3 hi, float oran, Vec3 *a, Vec3 *b);
 uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, const content::SceneDesc &d, const int32_t *sel,
                             uint32_t n, const GizmoOptions &o);
 

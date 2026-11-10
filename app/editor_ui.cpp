@@ -1248,6 +1248,34 @@ uint32_t editor_wire_box_m(renderer::Renderer &ren, renderer::MeshHandle cube, c
   return n;
 }
 
+uint32_t editor_select_corner_segments(Vec3 lo, Vec3 hi, float oran, Vec3 *a, Vec3 *b) {
+  if (oran > 0.5f) oran = 0.5f;
+  if (oran < 0.0f) oran = 0.0f;
+  const Vec3 d = hi - lo;
+  const Vec3 l{d.x * oran, d.y * oran, d.z * oran};
+  uint32_t n = 0;
+  for (int k = 0; k < 8; k++) {
+    const Vec3 c{(k & 1) ? hi.x : lo.x, (k & 2) ? hi.y : lo.y, (k & 4) ? hi.z : lo.z};
+    const float sx = (k & 1) ? -1.0f : 1.0f, sy = (k & 2) ? -1.0f : 1.0f, sz = (k & 4) ? -1.0f : 1.0f; // kutunun ICINE
+    a[n] = c; b[n] = Vec3{c.x + sx * l.x, c.y, c.z}; n++;
+    a[n] = c; b[n] = Vec3{c.x, c.y + sy * l.y, c.z}; n++;
+    a[n] = c; b[n] = Vec3{c.x, c.y, c.z + sz * l.z}; n++;
+  }
+  return n;
+}
+
+uint32_t editor_select_corners(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th, float oran) {
+  Vec3 a[24], b[24];
+  const uint32_t n = editor_select_corner_segments(lo, hi, oran, a, b);
+  uint32_t c = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    if (length_sq(b[i] - a[i]) < 1e-12f) continue; // yassi kutu (duzlem): o eksende parca yok
+    ren.draw(cube, segment_matrix(a[i], b[i], th), color);
+    c++;
+  }
+  return c;
+}
+
 uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th) {
   uint32_t n = 0;
   wire_box(ren, cube, (lo + hi) * 0.5f, (hi - lo) * 0.5f, color, th, &n);

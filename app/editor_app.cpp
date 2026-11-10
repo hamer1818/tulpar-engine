@@ -9152,9 +9152,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       const SceneEntity &e = st.scene.entities[i];
       if (e.flags & content::kSceneHidden) continue; // panelde gozu kapatilmis varlik CIZILMEZ
       const Mat4 m = live_matrix(st, phys, i);
+      // Secili varlik KENDI rengiyle cizilir; secim koseli parantezle gosterilir (asagida, gizmolardan
+      // once). Eskiden sel ? sari : e.tint idi: secili iken renk degistirmek gorunmuyordu (2026-11-11).
       const bool sel = st.sel.contains((int32_t)i);
-      Vec3 tint = sel ? Vec3{1.0f, 0.9f, 0.4f} : e.tint;
-      if (st.scene.fog_enabled && !sel) {
+      Vec3 tint = e.tint;
+      if (st.scene.fog_enabled) {
         const Vec3 e_pos{m.m[3][0], m.m[3][1], m.m[3][2]};
         const float dist = length(e_pos - c_pos);
         float f = 0.0f;
@@ -9263,7 +9265,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (!drew && (e.components & content::kSceneBody)) {
         // Modelsiz govde: carpisan hacmi kutu olarak goster (kure de kutu, yaricap kadar).
         const Vec3 s = e.shape == content::SceneShape::Box ? e.half * 2.0f : Vec3{e.radius * 2, e.radius * 2, e.radius * 2};
-        ren.draw(ds.cube, m * Mat4::scale(s), sel ? tint : Vec3{0.55f, 0.6f, 0.7f});
+        ren.draw(ds.cube, m * Mat4::scale(s), Vec3{0.55f, 0.6f, 0.7f}); // secim: koseli parantez
         drew = true;
       }
       if (!drew && (e.components & content::kSceneParticle)) {
@@ -9273,7 +9275,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         drew = true;
       }
       if (!drew && !(e.components & (content::kSceneLight | content::kSceneCamera | content::kSceneParticle)))
-        ren.draw(ds.cube, m * Mat4::scale({0.3f, 0.3f, 0.3f}), sel ? tint : Vec3{0.9f, 0.9f, 0.3f}); // bos varlik isareti
+        ren.draw(ds.cube, m * Mat4::scale({0.3f, 0.3f, 0.3f}), Vec3{0.9f, 0.9f, 0.3f}); // bos varlik isareti
       // main'in ikinci add_point_light dongusu BURADAN kaldirildi: PR #7 ayni
       // isiklari begin_frame oncesi on-geciste zaten ekliyor, ikisi birlikte
       // her isigi IKI KEZ kaydediyordu (kume butcesi iki katina cikar, parlaklik
@@ -9524,6 +9526,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
     }
     // Isik yaricapi / golge hacmi / gunes yonu: motorun kendi draw'u ile ince kutular.
+    // Buradan gizmolarin sonuna kadar her sey KILAVUZ: golge DUSURMEZ (set_shadow_casting).
+    ren.set_shadow_casting(false);
     // --- Gorunum kipi kaplamalari -------------------------------------------
     if (view_mode == 2) { // Carpisma: govdeyle DONEN tel kutu; dinamik turuncu, sabit yesil.
       for (uint32_t i = 0; i < st.scene.entity_count; i++) {
@@ -9573,6 +9577,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         editor_wire_aabb(ren, ds.cube, lo, hi, cluster_col, 0.03f);
       }
     }
+    if (st.sel.count && !st.playing) {
+      // Secim isareti: sinir kutusunun koselerinde kisa cizgiler; kalinlik kamera uzakligiyla (ekranda
+      // ~1.5 px), kutu kalinlik kadar disa acilir (yuzeye gomulmesin). Birincil secim turuncu, digerleri
+      // acik sari.
+      const Vec3 eye = camera_eye(cam);
+      const int32_t birincil = st.sel.primary();
+      for (uint32_t k = 0; k < st.sel.count; k++) {
+        const int32_t i = st.sel.items[k];
+        if (i < 0 || (uint32_t)i >= st.scene.entity_count || (st.scene.entities[i].flags & content::kSceneHidden)) continue;
+        const content::SceneBounds b = entity_world_bounds_one(st, phys, (uint32_t)i);
+        const Vec3 mrk = (b.lo + b.hi) * 0.5f;
+        float th = length(mrk - eye) * 0.0028f;
+        th = std::clamp(th, 0.0015f, 0.08f);
+        const Vec3 pad{th * 1.5f, th * 1.5f, th * 1.5f};
+        const Vec3 renk = i == birincil ? Vec3{1.0f, 0.55f, 0.1f} : Vec3{1.0f, 0.85f, 0.4f};
+        editor_select_corners(ren, ds.cube, b.lo - pad, b.hi + pad, renk, th, 0.28f);
+      }
+    }
     {
       // Gunes oku yalniz gunesle ugrasilirken; golge hacmi tel kutusu yalniz Gelismis kipte (kilavuz,
       // sahnenin en buyuk kutusu — Basit kullanicida "bu kirmizi kutu ne" sorusuydu).
@@ -9584,6 +9606,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       go.light_radius_selected_only = true; // menzil kutusu yalniz secili isikta (Unity gibi; iki kipte)
       st.gizmo_draws = editor_draw_gizmos(ren, ds.cube, st.scene, st.sel.items, st.sel.count, go);
     }
+    ren.set_shadow_casting(true);
     if (headless) {
       oyun_kare_hazirla(0); // penceresiz kare senkron: tek yuva yeter
       if (!rhi::offscreen_render_custom(off, oc, record_cb, &rctx, &ores, before_cb)) { std::fprintf(stderr, "kare: %s\n", ores.error); return 1; }

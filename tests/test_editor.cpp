@@ -554,6 +554,29 @@ ENGINE_TEST(editor_time_format_and_ground_snap_with_control) {
   CHECK(app::editor_zemin_ustu(d, 1, 1, 1.0f, -7.0f) == -7.0f);
 }
 
+// Secim koseli parantezi: 8 kose x 3 parca; her parca kutunun ICINE, kenarin `oran`i kadar uzanir.
+// (Secili varlik artik sariya boyanmiyor: kendi rengi gorunur, secim bu isaretle okunur; 2026-11-11.)
+ENGINE_TEST(editor_select_corner_geometry_with_control) {
+  Vec3 a[24], b[24];
+  const Vec3 lo{-1, 0, -2}, hi{1, 4, 2};
+  CHECK(app::editor_select_corner_segments(lo, hi, 0.25f, a, b) == 24);
+  uint32_t x = 0, y = 0, z = 0;
+  for (int i = 0; i < 24; i++) {
+    const Vec3 d = b[i] - a[i];
+    // kose gercekten kutunun kosesi
+    CHECK((a[i].x == lo.x || a[i].x == hi.x) && (a[i].y == lo.y || a[i].y == hi.y) && (a[i].z == lo.z || a[i].z == hi.z));
+    // uc kutunun icinde
+    CHECK(b[i].x >= lo.x && b[i].x <= hi.x && b[i].y >= lo.y && b[i].y <= hi.y && b[i].z >= lo.z && b[i].z <= hi.z);
+    if (std::fabs(d.x) > 0) { x++; CHECK(std::fabs(std::fabs(d.x) - 0.5f) < 1e-6f); } // 2 * 0.25
+    if (std::fabs(d.y) > 0) { y++; CHECK(std::fabs(std::fabs(d.y) - 1.0f) < 1e-6f); } // 4 * 0.25
+    if (std::fabs(d.z) > 0) { z++; CHECK(std::fabs(std::fabs(d.z) - 1.0f) < 1e-6f); } // 4 * 0.25
+  }
+  CHECK(x == 8 && y == 8 && z == 8);
+  // KONTROL: oran 0.5'te kirpilir (karsi kosedeki parcayla ortada bulusur, asmaz).
+  app::editor_select_corner_segments(lo, hi, 3.0f, a, b);
+  CHECK(std::fabs(std::fabs(b[0].x - a[0].x) - 1.0f) < 1e-6f);
+}
+
 ENGINE_TEST(editor_light_and_shadow_gizmos_draw_with_control) {
   if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok"); return; }
   static SystemArena sys;

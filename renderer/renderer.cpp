@@ -1872,6 +1872,7 @@ void Renderer::begin_frame(uint32_t frame_index) {
   ui_query_reset_[frame_] = false;
   ui_query_written_[frame_] = false;
   draw_count_ = 0;
+  draw_shadow_ = true;
   cull_ready_ = false; // record_cull kaydedene kadar CPU yolu gecerli
   skin_count_ = 0;
   stats_.dropped = 0;
@@ -2237,6 +2238,7 @@ uint32_t Renderer::build_batches() {
     // farkli, kendi shader'ini ister. Sayilir (CullInfo::cpu_draws), sessizce
     // kaybolmaz.
     if (d.skin_offset != kNoSkin) { cull_.cpu_draws++; continue; }
+    if (!d.shadow) { cull_.cpu_draws++; continue; } // golgesiz: dolayli golge cizimine girmesin
     bool cont = false;
     if (cull_batches_n_ > 0) {
       const CullBatchCpu &L = batches_[cull_batches_n_ - 1];
@@ -2501,6 +2503,7 @@ void Renderer::record_shadow_pass(VkCommandBuffer cb) {
     for (uint32_t i = 0; i < draw_count_; i++) {
       const Draw &d = draws_[i];
       if (indirect && fi < cull_frusta_n_ && d.batch != kNoBatch) continue;
+      if (!d.shadow) continue;
       const VkPipeline want = d.skin_offset == kNoSkin ? pipe_shadow_ : pipe_skin_shadow_;
       if (want != bound_pipe) { a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want); bound_pipe = want; }
       if (d.mesh != bound) {
@@ -2528,7 +2531,7 @@ void Renderer::draw(MeshHandle mesh, MaterialHandle material, const Mat4 &model,
   const Vec3 lc = srgb_to_linear(color);
   if (meshes_[mesh.id].skinned) { stats_.dropped++; return; } // iskeletli mesh draw_skinned ister
   draws_[draw_count_++] = Draw{mesh.id,  material.id, model, Vec3{lc.x * mc.x, lc.y * mc.y, lc.z * mc.z}, kNoSkin,
-                               prev_model ? *prev_model : model, reactive, kNoBatch};
+                               prev_model ? *prev_model : model, reactive, kNoBatch, draw_shadow_};
 }
 
 void Renderer::draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4 &model, Vec3 color, const Mat4 *joints,
@@ -2542,7 +2545,7 @@ void Renderer::draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4
   draws_[draw_count_++] = Draw{mesh.id,     material.id,
                                model,       Vec3{lc.x * mc.x, lc.y * mc.y, lc.z * mc.z},
                                skin_count_, prev_model ? *prev_model : model,
-                               reactive,    kNoBatch};
+                               reactive,    kNoBatch, draw_shadow_};
   skin_count_ += n;
 }
 
