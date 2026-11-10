@@ -1056,9 +1056,9 @@ uint32_t arrow(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 a, Vec3 
 // sorunuydu. Kup mesh KULLANMAZ demiyoruz (motor cizgiyi de kup'tan orer,
 // editor_ui.hpp'nin "ayri boru hatti yok" kurali), yalniz kup TEK BASINA
 // (dolgun, buyuk) yerine ince cubuklardan yildiz cizilir.
-uint32_t light_glyph(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 c, Vec3 color, float th) {
+uint32_t light_glyph(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 c, Vec3 color, float th, float k = 1.0f) {
   static const Vec3 kAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-  const float len = 0.35f;
+  const float len = 0.35f * k;
   uint32_t n = 0;
   for (int a = 0; a < 3; a++) {
     ren.draw(cube, segment_matrix(c - kAxes[a] * len, c + kAxes[a] * len, th), color);
@@ -1119,16 +1119,22 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
       bool is_sel = false;
       for (uint32_t k = 0; k < n && !is_sel; k++) is_sel = sel && sel[k] == (int32_t)i;
       const Vec3 tint = e.light_color * (is_sel ? 1.0f : 0.35f);
+      float k = 1.0f; // isaret olcegi (kamera uzakligi; bkz. GizmoOptions::scale_by_camera)
+      if (o.scale_by_camera) {
+        const float dk = std::sqrt(length_sq(p - o.camera_eye)) / 10.0f;
+        k = dk < 0.04f ? 0.04f : (dk > 2.0f ? 2.0f : dk);
+      }
+      const float thk = th * k;
       const bool directional = e.light_type == content::SceneLightType::Directional;
       // Yaricap tel-kutusu yalniz Nokta icin anlamli (Yonlu'de "yaricap" alani
       // panelde de gizli -- ikisi tutarli olmali).
-      if (o.light_radius && !directional) {
+      if (o.light_radius && !directional && (is_sel || !o.light_radius_selected_only)) {
         // editor.sahne'deki kirmizi isik 8 birim yaricapli; tam kalinlikta 16
         // birimlik kirmizi kutu sahneye hakim oluyor ve hata gibi okunuyordu
         // (kullanicinin gordugu "buyuk kalin kirmizi kutu" bu) -- secili
         // degilse yarim kalinlik.
         const float r = e.light_radius;
-        wire_box(ren, cube, p, {r, r, r}, tint, is_sel ? th : th * 0.5f, &draws);
+        wire_box(ren, cube, p, {r, r, r}, tint, is_sel ? thk : thk * 0.5f, &draws);
       }
       if (o.light_glyph) {
         if (directional) {
@@ -1137,7 +1143,7 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
           // yon boyunca isaga dogru bir ok.
           const Vec3 fwd{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
           const Vec3 dir = length_sq(fwd) > 1e-8f ? normalize(fwd) : Vec3{0, -1, 0};
-          draws += arrow(ren, cube, p, p + dir * 1.2f, tint, is_sel ? th * 1.5f : th);
+          draws += arrow(ren, cube, p, p + dir * (1.2f * k), tint, is_sel ? thk * 1.5f : thk);
           if (e.light_godray && is_sel) {
             const Vec3 right{m.m[0][0], m.m[0][1], m.m[0][2]};
             const Vec3 up{m.m[1][0], m.m[1][1], m.m[1][2]};
@@ -1148,7 +1154,7 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
             draws += arrow(ren, cube, p - up * sp, p - up * sp + dir * 1.5f, tint * 0.8f, th);
           }
         } else if (e.light_type == content::SceneLightType::Spot) {
-          draws += light_glyph(ren, cube, p, tint, is_sel ? th * 1.5f : th);
+          draws += light_glyph(ren, cube, p, tint, is_sel ? thk * 1.5f : thk, k);
           if (is_sel) {
             const Vec3 fwd{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
             const Vec3 dir = length_sq(fwd) > 1e-8f ? normalize(fwd) : Vec3{0, -1, 0};
@@ -1163,7 +1169,7 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
             draws += arrow(ren, cube, p, base - right * cone_rad, tint * 0.7f, th * 0.6f);
           }
         } else {
-          draws += light_glyph(ren, cube, p, tint, is_sel ? th * 1.5f : th);
+          draws += light_glyph(ren, cube, p, tint, is_sel ? thk * 1.5f : thk, k);
         }
       }
     }

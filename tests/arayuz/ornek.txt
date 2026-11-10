@@ -1,0 +1,10 @@
+# Ornek senaryosu (tools/arayuz_kapi.sh): karsilama -> "Ornek: Bilardo" OYNANABILIR bilardo projesini
+# TULPAR_OYUNLAR_DIZINI altina uretir ve acar (2026-11-10; eskiden motorun test sahnesi aciliyordu).
+# Kapi betigi sonra uretilen projede bilardo.sahneb'i ve oyun.tpr'yi arar.
+dogrula_oge "Örnek: Bilardo"
+tikla "Örnek: Bilardo"
+dogrula_metin "bilardo.sahne  (41 varlık)"
+dogrula_metin "masa_kumas"
+metin_yok "kure_1"
+ekran ornek
+cik

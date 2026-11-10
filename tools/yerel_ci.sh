@@ -159,9 +159,12 @@ t=$(zaman); r="OK"
 fab="$IS/fabrika"; mkdir -p "$fab"
 bash tools/yeni_oyun.sh "$fab/iyi" --kimlik ci_oyun --onek CIO --tr "CI Oyunu" --en "CI Game" > "$IS/fab_iyi.log" 2>&1 & p1=$!
 YENI_OYUN_BOZ=1 bash tools/yeni_oyun.sh "$fab/boz" --kimlik ci_boz --onek CIB --tr "CI Bozuk" --en "CI Broken" > "$IS/fab_boz.log" 2>&1 & p2=$!
-wait $p1; rf1=$?; wait $p2; rf2=$?
-cat "$IS/fab_iyi.log" "$IS/fab_boz.log" > yapi/yerel_ci_fabrika.log
+# Bilardo sablonu (karsilamadaki "Ornek: Bilardo" de bu): otopilot >= 5 top, KAPI_BOZ kirmizi, ses acik.
+bash tools/yeni_oyun.sh "$fab/bilardo" --kimlik ci_bilardo --onek CIBL --tr "CI Bilardo" --en "CI Billiards" --tur bilardo > "$IS/fab_bilardo.log" 2>&1 & p3=$!
+wait $p1; rf1=$?; wait $p2; rf2=$?; wait $p3; rf3=$?
+cat "$IS/fab_iyi.log" "$IS/fab_boz.log" "$IS/fab_bilardo.log" > yapi/yerel_ci_fabrika.log
 if [ $rf1 != 0 ]; then r="HATA yeni_oyun: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_iyi.log")"
+elif [ $rf3 != 0 ]; then r="HATA bilardo sablonu: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_bilardo.log")"
 elif [ $rf2 = 0 ]; then r="HATA pozitif kontrol: bozuk sablon YESIL gecti"
 else
   # Uretilen oyunun Android APK'si (x86_64 debug) derlenip APK'nin KENDISINDEN dogrulanir
@@ -173,9 +176,9 @@ else
   ( cd "$fab/iyi" && CIKTI="$fab/apk" DEBUG=1 ./apk_derle.sh x86_64 ) >> "$IS/fab_apk.log" 2>&1; ra=$?
   cat "$IS/fab_apk.log" >> yapi/yerel_ci_fabrika.log
   if [ $ra != 0 ]; then r="HATA APK: $(grep -m1 -E 'HATA' "$IS/fab_apk.log")"
-  else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
+  else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); $(grep -m1 'dogrulama:' "$IS/fab_bilardo.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
 fi
-asama "Fabrika: yeni_oyun (arena)" $(( $(zaman) - t )) "$r"
+asama "Fabrika: yeni_oyun (arena + bilardo)" $(( $(zaman) - t )) "$r"
 
 # 5d) Dagitim paketi (tools/package.sh: paketle + tamlik + eklenti kosusu + kurulu duzende Yeni oyun).
 # CI'da her PR'da kosuyordu ama yerelde YOKTU: U3a'dan (2026-11-05) beri varlik turetmesi duruyordu

@@ -358,6 +358,32 @@ void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLay
   }
 
   if (lay.gizmo) draw_axis_gizmo(dl, gizmo_c, R, end_r, fs, info.view, axis_hover);
+  if (lay.gizmo && info.has_sun) {
+    // Gunes noktasi: eksen izdusumu dogrusal -> v'nin izdusumu = sum v_i * eksen_i.
+    AxisProjection pr;
+    overlay_project_axes(info.view, R, &pr);
+    float v[3] = {info.sun_dir[0], info.sun_dir[1], info.sun_dir[2]};
+    const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (l > 1e-6f) {
+      for (float &k : v) k /= l;
+      const float sx = v[0] * pr.x[0] + v[1] * pr.x[1] + v[2] * pr.x[2];
+      const float sy = v[0] * pr.y[0] + v[1] * pr.y[1] + v[2] * pr.y[2];
+      const float sd = v[0] * pr.depth[0] + v[1] * pr.depth[1] + v[2] * pr.depth[2];
+      const ImVec2 p(gizmo_c.x + sx, gizmo_c.y + sy);
+      const bool arkada = sd < -0.02f;
+      const ImU32 sari = arkada ? IM_COL32(200, 170, 60, 140) : IM_COL32(255, 214, 64, 255);
+      const float sr = end_r * 0.62f;
+      for (int k = 0; k < 8; k++) { // isinlar
+        const float a = (float)k * 0.785398f;
+        const ImVec2 u(std::cos(a), std::sin(a));
+        dl->AddLine(ImVec2(p.x + u.x * sr * 1.25f, p.y + u.y * sr * 1.25f), ImVec2(p.x + u.x * sr * 1.75f, p.y + u.y * sr * 1.75f), sari, 1.5f);
+      }
+      dl->AddCircleFilled(p, sr, sari, 20);
+      const float dx = mouse.x - p.x, dy = mouse.y - p.y;
+      if (info.hovered && dx * dx + dy * dy <= sr * sr * 4.0f)
+        ImGui::SetTooltip("G\xC3\xBCne\xC5\x9F y\xC3\xB6n\xC3\xBC (D\xC3\xBCnya > G\xC3\xBCn\xC3\xBCn Saati ile de\xC4\x9Fi\xC5\x9Fir)");
+    }
+  }
 
   // --- c) + e) Alt satir: kamera hapi solda, ipucu sagda. Ust satirin ve
   // gostergenin ALTINDA kalmali (ust uste binme yok); sigmayan dusurulur.

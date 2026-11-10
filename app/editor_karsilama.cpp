@@ -49,6 +49,9 @@ bool girdi(const char *etiket, const char *ipucu, char *buf, size_t cap, float w
 } // namespace
 
 void karsilama_kok(char *out, uint32_t cap) {
+  // TULPAR_OYUNLAR_DIZINI: kapilar ve arayuz surucusu kullanicinin GERCEK oyun klasorune yazmasin.
+  const char *ozel = std::getenv("TULPAR_OYUNLAR_DIZINI");
+  if (ozel && *ozel) { std::snprintf(out, cap, "%s", ozel); return; }
 #if defined(_WIN32)
   const char *h = std::getenv("USERPROFILE");
   std::snprintf(out, cap, "%s/Documents/TulparOyunlari", (h && *h) ? h : ".");
@@ -225,7 +228,10 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   const float bw = (ImGui::GetContentRegionAvail().x - st.ItemSpacing.x) * 0.5f;
   if (ImGui::Button(ICON_MD_FOLDER_OPEN "  A\xC3\xA7...", ImVec2(bw, 0))) e = KarsilamaEylem::Ac;
   ImGui::SameLine();
-  if (ImGui::Button(ICON_MD_SPORTS_ESPORTS "  \xC3\x96rnek sahne", ImVec2(bw, 0))) e = KarsilamaEylem::Ornek;
+  if (ImGui::Button(ICON_MD_SPORTS_ESPORTS "  \xC3\x96rnek: Bilardo", ImVec2(bw, 0))) e = KarsilamaEylem::Ornek;
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Oynanabilir bilardo \xC3\xB6rne\xC4\x9Fi (F5). \xC4\xB0lk a\xC3\xA7\xC4\xB1l\xC4\xB1\xC5\x9Fta oyun klas\xC3\xB6r\xC3\xBC" "n\xC3\xBC" "ze\n"
+                      "Ornek_Bilardo olarak kopyalan\xC4\xB1r; de\xC4\x9Fi\xC5\x9Fiklikleri kaydedebilirsiniz.");
   if (ImGui::Button("Bo\xC5\x9F edit\xC3\xB6rle ba\xC5\x9Fla", ImVec2(-FLT_MIN, 0))) e = KarsilamaEylem::Kapat;
   ImGui::EndChild();
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) e = KarsilamaEylem::Kapat;

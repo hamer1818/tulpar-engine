@@ -1,7 +1,7 @@
 # Kaydet senaryosu (tools/arayuz_kapi.sh): editor GECICI KOPYA sahneyle acilir (--scene).
 # Gerileme kapisi: save_scene_to, st.scene_path'i kendi uzerine snprintf ediyordu; glibc yolu
 # bosaltiyordu -> ilk Ctrl+S dosyayi yaziyor ama editor sahneyi "unutuyordu" (arac cubugu
-# "(sahne yok)", ikinci Ctrl+S motor dizininde Farkli kaydet). 2026-11-10, arayuz surucusu.
+# "(sahne yok)" — artik "isimsiz.sahne" —, ikinci Ctrl+S motor dizininde Farkli kaydet). 2026-11-10, arayuz surucusu.
 
 # 1) Bir degisiklik: kirli isaret (sahne adi arac cubugunda kalir)
 tikla "kure_2"
@@ -11,12 +11,12 @@ dogrula_metin "7 varlık"
 # 2) Ilk kayit: yol durum cubugunda TAM yazmali, sahne adi korunmali
 tus Ctrl+S
 dogrula_metin "kaydedildi: /"
-metin_yok "(sahne yok)"
+metin_yok "isimsiz.sahne"
 dogrula_metin "editor.sahne  (7 varlık)"
 
 # 3) Ikinci kayit: diyalog ACILMAMALI (yol hala biliniyor)
 tus Ctrl+S
 bekle 3
 dogrula_yok "Farklı kaydet###dosya_diyalogu"
-metin_yok "(sahne yok)"
+metin_yok "isimsiz.sahne"
 cik

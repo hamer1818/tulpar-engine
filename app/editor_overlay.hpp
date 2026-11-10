@@ -46,6 +46,11 @@ struct OverlayInfo {
   bool gizmos_visible = true;
   // Basit kip: arac cubugunu tekrarlayan gizmo kipi hapi ve (tek secenekli) golgeleme hapi cizilmez.
   bool sade = false;
+  // Gunes yonu (isiga DOGRU, normalize edilmesi gerekmez). Eksen gostergesinde sari GUNES NOKTASI olarak
+  // cizilir. Eskiden yalniz sahnenin ortasinda 13 m'lik kalin 3B ok vardi: bos sahnede bile "istaka
+  // gibi bir model duruyor" sanildi (kullanici, 2026-11-10). 3B ok artik yalniz gunes duzenlenirken.
+  bool has_sun = false;
+  float sun_dir[3] = {0, 1, 0};
   bool playing = false;
   bool hovered = false; // fare goruntunun ustunde (ImGui::IsItemHovered)
   bool focused = false; // panel odakli (ImGui::IsWindowFocused)

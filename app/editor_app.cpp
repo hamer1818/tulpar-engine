@@ -2141,6 +2141,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   static bool oyun_odak_iste = false;         // oynatma basladi: Gorunum paneline odak
   static bool gomulu_secim_bekliyor = false;  // oyun secici F5 icin acildi (secilince gomulu baslar)
   static uint64_t oyun_baslangic_ns = 0;
+  // Gunesin 3B oku yalniz gunes/saat denetimiyle ugrasilirken (+1.5 s) cizilir; gerisinde yon eksen
+  // gostergesindeki sari noktadan okunur (OverlayInfo::sun_dir).
+  static uint64_t gunes_ilgi_ns = 0;
+  auto gunes_ilgi = [&]() {
+    if (ImGui::IsItemActive() || ImGui::IsItemHovered()) gunes_ilgi_ns = platform::now_ns();
+  };
+  auto gunes_dugme = [&](const char *etiket) {
+    const bool b = ImGui::SmallButton(etiket);
+    gunes_ilgi();
+    return b;
+  };
   static bool oyun_girdi_odak = false; // ONCEKI karede Oyun sekmesi odaktaydi: klavye oyunun
   static ViewportRect oyun_rect{};     // oyun karesinin EKRAN dikdortgeni (fare -> kare pikseli)
   static bool gorunum_odak = false;    // Gorunum paneli bu karede odakta
@@ -4412,6 +4423,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             oi.cam_target[0] = cam.target.x; oi.cam_target[1] = cam.target.y; oi.cam_target[2] = cam.target.z;
             oi.gizmo_op = gizmo_op;
             oi.sade = !editor_gelismis();
+            oi.has_sun = st.gizmos.sun_dir;
+            oi.sun_dir[0] = st.scene.sun_dir.x; oi.sun_dir[1] = st.scene.sun_dir.y; oi.sun_dir[2] = st.scene.sun_dir.z;
             oi.gizmos_visible = st.gizmos.light_radius || st.gizmos.light_glyph || st.gizmos.shadow_volume || st.gizmos.sun_dir || st.gizmos.camera_frustum || st.gizmos.env_volumes;
             oi.playing = st.playing;
             oi.hovered = view_hovered && !st.gizmo_was_over && !st.gizmo_was_using && !st.terrain_brush.active;
@@ -4671,7 +4684,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       const bool scene_active = (st.sel.count == 0);
       ImGui::PushStyleColor(ImGuiCol_Header, scene_active ? tone(Tone::Accent, 0.28f) : tone(Tone::Bg2, 0.40f));
       ImGui::PushStyleColor(ImGuiCol_HeaderHovered, tone(Tone::Accent, 0.38f));
-      const char *scn_raw = st.scene_path[0] ? st.scene_path : "editor.sahne";
+      // Kaydedilmemis sahne UC yerde de "isimsiz.sahne" (Ozellikler basligi, arac cubugu): burada
+      // "editor.sahne", arac cubugunda "(sahne yok)" yaziyordu (2026-11-10).
+      const char *scn_raw = st.scene_path[0] ? st.scene_path : "isimsiz.sahne";
       const char *sl = std::strrchr(scn_raw, '/');
       if (!sl) sl = std::strrchr(scn_raw, '\\');
       const char *scn_base = sl ? sl + 1 : scn_raw;
@@ -5003,7 +5018,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       section_label("G\xC3\x9CNE\xC5\x9E VE ORTAM");
       if (prop_begin("gunes")) {
         // Basit kip: yon vektoru yerine "Gunun Saati" (asagida) gunesi dondurur.
-        if (editor_gelismis()) track_world_edit(st, prop_vec3("Y\xC3\xB6n", &st.scene.sun_dir.x, 0.01f, -1.0f, 1.0f, "%.2f"));
+        if (editor_gelismis()) { track_world_edit(st, prop_vec3("Y\xC3\xB6n", &st.scene.sun_dir.x, 0.01f, -1.0f, 1.0f, "%.2f")); gunes_ilgi(); }
         track_world_edit(st, prop_float("\xC5\x9Eiddet", &st.scene.sun_diffuse, 0.01f, 0.0f, 5.0f, "%.2f"));
         track_world_edit(st, prop_color("Ortam", &st.scene.ambient.x));
         prop_end();
@@ -5015,6 +5030,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         char saat_fmt[16];
         editor_saat_bicimi(tod, saat_fmt, sizeof saat_fmt); // "14.0:00" degil "14:00"
         const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, saat_fmt);
+        gunes_ilgi();
         if (pit.changed) {
           st.scene.time_of_day = tod;
           const float ang = (tod - 6.0f) * (3.14159265f / 12.0f);
@@ -5025,22 +5041,22 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
         ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 Zaman:");
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        if (ImGui::SmallButton("\xC5\x9E" "afak 06:00")) {
+        if (gunes_dugme("\xC5\x9E" "afak 06:00")) {
           st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f};
           st.dirty = true;
         }
         akis_ayni_satir("\xC3\x96\xC4\x9Fle 12:00");
-        if (ImGui::SmallButton("\xC3\x96\xC4\x9Fle 12:00")) {
+        if (gunes_dugme("\xC3\x96\xC4\x9Fle 12:00")) {
           st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f};
           st.dirty = true;
         }
         akis_ayni_satir("Bat\xC4\xB1m 18:30");
-        if (ImGui::SmallButton("Bat\xC4\xB1m 18:30")) {
+        if (gunes_dugme("Bat\xC4\xB1m 18:30")) {
           st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f};
           st.dirty = true;
         }
         akis_ayni_satir("Gece 00:00");
-        if (ImGui::SmallButton("Gece 00:00")) {
+        if (gunes_dugme("Gece 00:00")) {
           st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f};
           st.dirty = true;
         }
@@ -6648,6 +6664,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               char saat_fmt[16];
         editor_saat_bicimi(tod, saat_fmt, sizeof saat_fmt); // "14.0:00" degil "14:00"
         const PropItem pit = prop_float("G\xC3\xBCn\xC3\xBCn Saati", &tod, 0.1f, 0.0f, 24.0f, saat_fmt);
+        gunes_ilgi();
               if (pit.changed) {
                 st.scene.time_of_day = tod;
                 const float ang = (tod - 6.0f) * (3.14159265f / 12.0f);
@@ -6658,19 +6675,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               }
               ImGui::TextDisabled("H\xC4\xB1zl\xC4\xB1 Zaman:");
               ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-              if (ImGui::SmallButton("\xC5\x9E" "afak 06:00")) {
+              if (gunes_dugme("\xC5\x9E" "afak 06:00")) {
                 st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f}; st.dirty = true;
               }
               akis_ayni_satir("\xC3\x96\xC4\x9Fle 12:00");
-              if (ImGui::SmallButton("\xC3\x96\xC4\x9Fle 12:00")) {
+              if (gunes_dugme("\xC3\x96\xC4\x9Fle 12:00")) {
                 st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f}; st.dirty = true;
               }
               akis_ayni_satir("Bat\xC4\xB1m 18:30");
-              if (ImGui::SmallButton("Bat\xC4\xB1m 18:30")) {
+              if (gunes_dugme("Bat\xC4\xB1m 18:30")) {
                 st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f}; st.dirty = true;
               }
               akis_ayni_satir("Gece 00:00");
-              if (ImGui::SmallButton("Gece 00:00")) {
+              if (gunes_dugme("Gece 00:00")) {
                 st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f}; st.dirty = true;
               }
               ImGui::PopStyleVar();
@@ -8752,21 +8769,35 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         karsilama.acik = false;
         do_open_guarded();
       } else if (ke == KarsilamaEylem::Ornek) {
-        char yol[1024];
-        platform::asset_path(yol, sizeof yol, "tests/assets/editor.sahne");
-        if (load_scene_from(yol)) {
-          karsilama.acik = false;
-          // Kurulu editorde (AppImage squashfs, Program Files) ornek SALT OKUNUR bir yerde: Kaydet duser.
-          // Kullaniciya once soylenir (U8; U7b'de bilinen sinir olarak yazildi).
-          char sina[1200];
-          std::snprintf(sina, sizeof sina, "%s/.tulpar_yazma_sinamasi.%u", st.scene_dir, (unsigned)platform::fs_process_id());
-          std::FILE *wf = std::fopen(sina, "wb");
-          if (wf) { std::fclose(wf); std::remove(sina); }
+        // Ornek = OYNANABILIR bilardo (tulpar/sablonlar/bilardo). Ilk tiklamada kullanicinin oyun klasorune
+        // fabrikayla uretilir (yazilabilir: kurulu editorde eski ornek salt okunur bir dizindeydi), sonra
+        // her seferinde o proje acilir. Eskiden motorun test sahnesi (kure/boru/kup) aciliyordu: kullanici
+        // "anlamsiz" buldu (2026-11-10).
+        char kok[1024], dizin[1100], sahne[1200];
+        karsilama_kok(kok, sizeof kok);
+        std::snprintf(dizin, sizeof dizin, "%s/Ornek_Bilardo", kok);
+        karsilama.hata[0] = 0;
+        bool hazir = fabrika_proje_sahnesi(dizin, "bilardo", sahne, sizeof sahne);
+        if (!hazir) {
+          FabrikaIstek fr;
+          fr.dizin = dizin; fr.kimlik = "ornek_bilardo"; fr.onek = "OB";
+          fr.tr = "\xC3\x96rnek Bilardo"; fr.en = "Sample Billiards"; fr.tur = "bilardo"; fr.yon = "landscape";
+          const FabrikaSonuc fs = fabrika_uret(fr);
+          if (!fs.ok) std::snprintf(karsilama.hata, sizeof karsilama.hata, "\xC3\x96rnek kurulamad\xC4\xB1: %s", fs.hata);
           else {
-            set_status(st, "\xC3\x96rnek sahne salt okunur bir yerde: de\xC4\x9Fi\xC5\x9Fiklikleri Dosya > Farkl\xC4\xB1 kaydet ile kendi klas\xC3\xB6r\xC3\xBC" "n\xC3\xBCze kaydedin");
-            console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "\xC3\xB6rnek sahne salt okunur (%s): Farkl\xC4\xB1 kaydet kullan\xC4\xB1n", st.scene_dir);
+            hazir = fabrika_proje_sahnesi(dizin, "bilardo", sahne, sizeof sahne);
+            console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "\xC3\xB6rnek bilardo kuruldu: %s (%u dosya)", dizin, fs.dosya);
           }
         }
+        if (hazir && load_scene_from(sahne)) {
+          const bool derlendi = do_compile(); // F5 bilardo.sahneb'i yukler
+          karsilama.acik = false;
+          std::printf("[engine_editor] karsilama: ornek bilardo %s, derleme %s\n", sahne, derlendi ? "evet" : "HAYIR");
+          set_status(st, "\xC3\x96rnek bilardo a\xC3\xA7\xC4\xB1ld\xC4\xB1 \xE2\x80\x94 F5 ile oynay\xC4\xB1n");
+        } else if (!karsilama.hata[0]) {
+          std::snprintf(karsilama.hata, sizeof karsilama.hata, "\xC3\x96rnek a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", sahne);
+        }
+        if (karsilama.hata[0]) std::printf("[engine_editor] karsilama: HATA %s\n", karsilama.hata);
       } else if (ke == KarsilamaEylem::Kapat) {
         karsilama.acik = false;
       }
@@ -9542,7 +9573,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         editor_wire_aabb(ren, ds.cube, lo, hi, cluster_col, 0.03f);
       }
     }
-    st.gizmo_draws = editor_draw_gizmos(ren, ds.cube, st.scene, st.sel.items, st.sel.count, st.gizmos);
+    {
+      // Gunes oku yalniz gunesle ugrasilirken; golge hacmi tel kutusu yalniz Gelismis kipte (kilavuz,
+      // sahnenin en buyuk kutusu — Basit kullanicida "bu kirmizi kutu ne" sorusuydu).
+      GizmoOptions go = st.gizmos;
+      go.sun_dir = st.gizmos.sun_dir && gunes_ilgi_ns && platform::now_ns() - gunes_ilgi_ns < 1500000000ull;
+      go.shadow_volume = st.gizmos.shadow_volume && editor_gelismis();
+      go.scale_by_camera = true;                       // isik isaretleri ekranda ~sabit boy
+      go.camera_eye = camera_eye(cam);
+      go.light_radius_selected_only = true; // menzil kutusu yalniz secili isikta (Unity gibi; iki kipte)
+      st.gizmo_draws = editor_draw_gizmos(ren, ds.cube, st.scene, st.sel.items, st.sel.count, go);
+    }
     if (headless) {
       oyun_kare_hazirla(0); // penceresiz kare senkron: tek yuva yeter
       if (!rhi::offscreen_render_custom(off, oc, record_cb, &rctx, &ores, before_cb)) { std::fprintf(stderr, "kare: %s\n", ores.error); return 1; }

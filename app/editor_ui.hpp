@@ -323,6 +323,13 @@ struct GizmoOptions {
   bool camera_frustum = true;  // kamera varliklarinin govdesi + gorus alani (tel kafes)
   bool env_volumes = true;     // cevre hacimleri: yansima sondasi (IBL) + yanki alani (Reverb)
   float thickness = 0.06f;     // tel kalinligi (dunya birimi)
+  // Kamera konumu verilirse isik isaretleri UZAKLIGA gore olceklenir (ekranda ~sabit boy; 10 m'de 1x,
+  // 0.04x..2x). Verilmezse eski sabit dunya boyu. Gercek olcekli kucuk sahnede (bilardo masasi,
+  // 2026-11-10) 0.7 m'lik yildiz + 2.6 m'lik yaricap kutusu lambanin etrafinda "direk" gibi gorunuyordu.
+  bool scale_by_camera = false;
+  Vec3 camera_eye{0, 0, 0};
+  // true: isik yaricapi kutusu yalniz SECILI isikta (Unity'nin menzil kuresi gibi). Basit kip.
+  bool light_radius_selected_only = false;
 };
 // Donus: yapilan ren.draw cagrisi sayisi (secili isik daha parlak cizilir).
 // Gorunum kipleri (Carpisma / Sinirlar) icin tel kutular. _m: yerel yarim

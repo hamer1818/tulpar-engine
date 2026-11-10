@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/ornek.txt: karsilamadaki Ornek: Bilardo gecici oyun dizinine uretilip acilmali.
 # tests/arayuz/kaydet.txt GECICI KOPYA sahneyle: iki Ctrl+S, yol unutulmamali, dosya 7 varlikla yazilmali.
 # POZITIF KONTROL: tests/arayuz/pozitif_kontrol.txt (olmayan oge) cikis 1 + HATA satiri vermeli.
 #   tools/arayuz_kapi.sh [cikti-dizini]
 set -uo pipefail
 KOK="$(cd "$(dirname "$0")/.." && pwd)"
 ED="${ED:-$KOK/yapi/engine_editor}"
-D="${1:-$(mktemp -d)}"; mkdir -p "$D/temel" "$D/pk" "$D/kaydet"
+D="${1:-$(mktemp -d)}"; mkdir -p "$D/temel" "$D/pk" "$D/kaydet" "$D/ornek"
 [ -x "$ED" ] || { echo "HATA: $ED yok"; exit 2; }
 kos() {  # kos <senaryo> <dizin> [editor argumanlari...]
   local s="$1" d="$2"; shift 2
@@ -19,7 +20,9 @@ cp -r "$KOK/tests/assets" "$D/kaydet/assets"
 kos temel.txt "$D/temel" & p1=$!
 kos pozitif_kontrol.txt "$D/pk" & p2=$!
 kos kaydet.txt "$D/kaydet" --scene "$D/kaydet/assets/editor.sahne" & p3=$!
-wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?
+# Ornek bilardo kullanicinin ~/TulparOyunlari'na DEGIL gecici dizine uretilsin.
+TULPAR_OYUNLAR_DIZINI="$D/ornek/oyunlar" kos ornek.txt "$D/ornek" --karsilama & p4=$!
+wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?; wait $p4; r4=$?
 kirmizi=0
 n=$(grep -c '^\.son .* tamam' "$D/temel/yanit.txt" 2>/dev/null || echo 0)
 if [ $r1 = 0 ] && [ -s "$D/temel/menu.png" ] && [ -s "$D/temel/secili.png" ]; then
@@ -34,6 +37,13 @@ if [ $r3 = 0 ] && [ "$nk" = 7 ]; then
 else
   echo "  KIRMIZI kaydet senaryosu (cikis $r3, dosyada $nk varlik):"; grep -E 'HATA|^> ' "$D/kaydet/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'
   kirmizi=1
+fi
+ob="$D/ornek/oyunlar/Ornek_Bilardo"
+if [ $r4 = 0 ] && [ -s "$ob/assets/bilardo.sahneb" ] && grep -q 'func oto_nisan' "$ob/oyun.tpr" 2>/dev/null; then
+  echo "  ornek senaryosu: Ornek: Bilardo uretildi + acildi (41 varlik), bilardo.sahneb derlendi"
+else
+  echo "  KIRMIZI ornek senaryosu (cikis $r4):"; grep -E 'HATA|^> ' "$D/ornek/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'
+  ls "$ob" "$ob/assets" 2>&1 | head -6 | sed 's/^/      /'; kirmizi=1
 fi
 if [ $r2 = 1 ] && grep -q 'HATA: "Boyle Bir Menu Ogesi Yok"' "$D/pk/yanit.txt" 2>/dev/null; then
   echo "  pozitif kontrol: olmayan oge dustu (cikis 1)"

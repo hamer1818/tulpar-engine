@@ -467,7 +467,7 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
       const float left_min = ImGui::GetItemRectMax().x + gap_group();
       const float right = wp.x + ws.x - toolbar_pad().x;
       const char *name = basename_of(s.scene_path);
-      if (!*name) name = "(sahne yok)";
+      if (!*name) name = "isimsiz.sahne"; // kaydedilmemis (hiyerarsi ve Ozellikler ile ayni ad)
       static const char kDot[] = "●";
       const float dot_w = ImGui::CalcTextSize(kDot).x;
       const float avail = right - left_min - dot_w - gap_item();

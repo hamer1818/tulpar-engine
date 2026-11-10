@@ -1,0 +1,662 @@
+// {{OYUN_TR}} — {{OYUN_EN}}
+// Tulpar Engine oyun fabrikasi "bilardo" sablonundan uretildi (motor deposu tools/yeni_oyun.sh,
+// docs/FABRIKA.md). Masa, bantlar, cepler ve toplar SAHNEDEN gelir (assets/bilardo.sahne; editorde
+// duzenlenir, Kaydet + Derle -> bilardo.sahneb). Toplarin fizigi BURADA: duzlemde esnek carpisma,
+// bant sekmesi, yuvarlanma surtunmesi, cep. Belirlenimli (otopilot kosumlari ayni sonucu verir).
+//
+//   Nisan: fareyi/parmagi masada gezdir. Guc: bas, geri cek, birak. Klavye: <- -> nisan, Bosluk guc.
+//
+//   tools/ortam.sh                                   # .motor baglantisi (bir kez)
+//   tulpar oyun.tpr                                  # pencereli
+//   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
+//   tools/dogrula.sh                                 # kapilar
+import "engine";
+import "kit_kayit";
+import "kit_dil";
+import "kit_ses";
+import "kit_acilis";
+import "kit_arayuz";
+
+bool g_otopilot = kit_oyun("{{KIMLIK}}", "{{ONEK}}");
+
+// ---- Masa ve fizik ayarlari (metre, saniye) ---------------------------------------------------
+float MASA_W = 2.24;          // oyun alani (x) — sahnede masa_kumas yoksa
+float MASA_H = 1.12;          // oyun alani (z)
+float TOP_R = 0.0286;
+float SURTUNME = 0.8;         // sabit yavaslama (m/s^2)
+float SURUKLEME = 0.4;        // hiza orantili yavaslama (1/s)
+float TOP_SEKME = 0.94;       // top-top
+float BANT_SEKME = 0.75;      // top-bant
+float CEP_KOSE = 0.065;       // cep yakalama yaricapi
+float CEP_ORTA = 0.055;
+float MAX_HIZ = 3.6;          // tam guclu atis (m/s)
+int ALT_ADIM = 8;
+int TOP_N = 16;               // 0 beyaz, 1..15
+int OTO_SON_KARE = 1380;      // otopilot turu bu karede kapanir (dogrula.sh 1500 kare kosar)
+
+int EKRAN_ANA = 0;
+int EKRAN_OYUN = 1;
+int EKRAN_DURAKLAT = 2;
+int EKRAN_AYAR = 3;
+int EKRAN_SONUC = 4;
+int g_ekran = 0;
+int g_ayar_donus = 0;
+
+// Toplar: konum/hiz/durum (betik), gorunen kure (kinematik), sahnedeki baslangic.
+int[] g_top = [];
+float[] g_x = [];
+float[] g_z = [];
+float[] g_vx = [];
+float[] g_vz = [];
+int[] g_aktif = [];
+float[] g_x0 = [];
+float[] g_z0 = [];
+float[] g_cx = [];            // cepler
+float[] g_cz = [];
+float[] g_cr = [];
+int g_cep_n = 0;
+
+int g_atis = 0;
+int g_cebe = 0;               // cebe giren renkli top
+int g_beyaz_cebe = 0;
+int g_rekor = 0;              // en az atis (0 = yok)
+bool g_hareket = false;       // toplar yuvarlaniyor
+float g_nisan_aci = 3.14159;  // radyan; yon = (cos, sin) x-z duzleminde
+bool g_cekiyor = false;       // guc cekiliyor (basili)
+float g_bas_x = 0.0;          // basildigi masa noktasi
+float g_bas_z = 0.0;
+float g_guc = 0.0;            // 0..1
+bool g_klavye_guc = false;
+float g_carpma_sesi = 0.0;    // bu karede en sert carpma (ses icin)
+bool g_cep_sesi = false;
+
+int g_istaka = 0;
+int[] g_iz = [];              // nisan cizgisi noktalari
+int IZ_N = 12;
+
+int SES_CARP = -1;
+int SES_CEP = -1;
+int SES_ISTAKA = -1;
+int SES_TIKLA = -1;
+int MUZIK_MENU = -1;
+int MUZIK_OYUN = -1;
+
+str K_EFEKT = "{{KIMLIK}}_efekt";
+str K_MUZIK = "{{KIMLIK}}_muzik";
+str K_DIL = "{{KIMLIK}}_dil";
+str K_REKOR = "{{KIMLIK}}_rekor";
+
+func ayarlari_oku() {
+    kit_kayit_ac();
+    g_kit_efekt = kit_ayar_oku(K_EFEKT, 0.8);
+    g_kit_muzik = kit_ayar_oku(K_MUZIK, 0.4);
+    g_rekor = toInt(kit_ayar_oku(K_REKOR, 0.0));
+    kit_dil_ayarla(kit_dil_sec(K_DIL));
+}
+
+// ---- Sahneden kurulum -------------------------------------------------------------------------
+func cep_ekle(str ad, float yaricap) {
+    int i = sahne_bul(ad);
+    if (i < 0) { return; }
+    push(g_cx, sahne_x(i));
+    push(g_cz, sahne_z(i));
+    push(g_cr, yaricap);
+    g_cep_n += 1;
+}
+func masayi_kur() {
+    int k = sahne_bul("masa_kumas");
+    if (k >= 0) { MASA_W = sahne_olcek_x(k) - 0.04; MASA_H = sahne_olcek_z(k) - 0.04; }
+    cep_ekle("cep_kb", CEP_KOSE);
+    cep_ekle("cep_kd", CEP_KOSE);
+    cep_ekle("cep_gb", CEP_KOSE);
+    cep_ekle("cep_gd", CEP_KOSE);
+    cep_ekle("cep_ko", CEP_ORTA);
+    cep_ekle("cep_go", CEP_ORTA);
+    for (int n = 0; n < TOP_N; n++) {
+        int i = sahne_bul(t"top_{n}");
+        float x = -MASA_W * 0.25 + n * 1.0 * 0.07;
+        float z = 0.0;
+        int r = renk(240, 240, 235);
+        if (i >= 0) {
+            x = sahne_x(i);
+            z = sahne_z(i);
+            r = sahne_renk(i);
+            if (n == 0) { TOP_R = sahne_olcek_x(i) * 0.5; }
+            sahne_gorunur(i, false);   // sahnedeki isaret gizlenir; oyunun kuresi yerine gecer
+        }
+        push(g_x0, x);
+        push(g_z0, z);
+        push(g_x, x);
+        push(g_z, z);
+        push(g_vx, 0.0);
+        push(g_vz, 0.0);
+        push(g_aktif, 1);
+        push(g_top, kinematik_kure(x, TOP_R, z, TOP_R, r));
+    }
+    g_istaka = kinematik_kutu(0.0, TOP_R + 0.01, 0.0, 0.006, 0.006, 0.6, renk(196, 150, 96));
+    for (int j = 0; j < IZ_N; j++) { push(g_iz, kinematik_kure(0.0, TOP_R, 0.0, 0.0045, renk(235, 235, 220))); }
+    nisan_gizle();
+}
+
+// ---- Fizik ------------------------------------------------------------------------------------
+func toplari_yerlestir() {
+    for (int t = 0; t < TOP_N; t++) {
+        if (g_aktif[t] == 1) { isinla(g_top[t], g_x[t], TOP_R, g_z[t]); }
+    }
+}
+func cebe_dusur(int t) {
+    g_aktif[t] = 0;
+    g_vx[t] = 0.0;
+    g_vz[t] = 0.0;
+    gorunur(g_top[t], false);
+    g_cep_sesi = true;
+    if (t == 0) { g_beyaz_cebe += 1; } else { g_cebe += 1; }
+}
+func adim(float h) {
+    float xs = MASA_W * 0.5 - TOP_R;
+    float zs = MASA_H * 0.5 - TOP_R;
+    for (int t = 0; t < TOP_N; t++) {
+        if (g_aktif[t] == 0) { continue; }
+        float vx = g_vx[t];
+        float vz = g_vz[t];
+        float v = sqrt(vx * vx + vz * vz);
+        if (v > 0.0) {
+            float yeni = v - (SURTUNME + SURUKLEME * v) * h;
+            if (yeni < 0.0) { yeni = 0.0; }
+            vx = vx * yeni / v;
+            vz = vz * yeni / v;
+        }
+        float x = g_x[t] + vx * h;
+        float z = g_z[t] + vz * h;
+        if (x > xs) { x = xs - (x - xs); vx = -vx * BANT_SEKME; g_carpma_sesi = max(g_carpma_sesi, abs(vx) * 0.5); }
+        if (x < -xs) { x = -xs + (-xs - x); vx = -vx * BANT_SEKME; g_carpma_sesi = max(g_carpma_sesi, abs(vx) * 0.5); }
+        if (z > zs) { z = zs - (z - zs); vz = -vz * BANT_SEKME; g_carpma_sesi = max(g_carpma_sesi, abs(vz) * 0.5); }
+        if (z < -zs) { z = -zs + (-zs - z); vz = -vz * BANT_SEKME; g_carpma_sesi = max(g_carpma_sesi, abs(vz) * 0.5); }
+        g_x[t] = x;
+        g_z[t] = z;
+        g_vx[t] = vx;
+        g_vz[t] = vz;
+        for (int c = 0; c < g_cep_n; c++) {
+            float dx = x - g_cx[c];
+            float dz = z - g_cz[c];
+            if (dx * dx + dz * dz < g_cr[c] * g_cr[c]) { cebe_dusur(t); break; }
+        }
+    }
+    float d2 = 4.0 * TOP_R * TOP_R;
+    for (int a = 0; a < TOP_N; a++) {
+        if (g_aktif[a] == 0) { continue; }
+        for (int b = a + 1; b < TOP_N; b++) {
+            if (g_aktif[b] == 0) { continue; }
+            float dx = g_x[b] - g_x[a];
+            float dz = g_z[b] - g_z[a];
+            float uu = dx * dx + dz * dz;
+            if (uu >= d2 || uu < 1.0e-12) { continue; }
+            // SUREKLI carpisma: alt adimda toplar birkac mm ic ice gecmis olur; normali o anki
+            // merkezlerden almak kesme vuruslarinda derecelerce sapma demek (hayalet top nisani 1 m
+            // sonra cebi kaciriyordu). Ikisi de TAM temas anina geri sarilir (tau <= 0), orada
+            // cozulur, kalan sure yeni hizlarla ilerletilir.
+            float wx = g_vx[b] - g_vx[a];
+            float wz = g_vz[b] - g_vz[a];
+            float dw = dx * wx + dz * wz;
+            float ww = wx * wx + wz * wz;
+            float tau = 0.0;
+            if (dw < 0.0 && ww > 1.0e-12) {
+                float disk = dw * dw - ww * (uu - d2);
+                if (disk > 0.0) { tau = (-dw - sqrt(disk)) / ww; }
+                if (tau < -h) { tau = -h; }
+            }
+            g_x[a] += g_vx[a] * tau; g_z[a] += g_vz[a] * tau;
+            g_x[b] += g_vx[b] * tau; g_z[b] += g_vz[b] * tau;
+            dx = g_x[b] - g_x[a];
+            dz = g_z[b] - g_z[a];
+            float u = sqrt(dx * dx + dz * dz);
+            if (u < 1.0e-9) { u = 1.0e-9; }
+            float nx = dx / u;
+            float nz = dz / u;
+            float yv = (g_vx[a] - g_vx[b]) * nx + (g_vz[a] - g_vz[b]) * nz;   // yaklasma hizi
+            if (yv > 0.0) {
+                float j = yv * (1.0 + TOP_SEKME) * 0.5;   // esit kutle
+                g_vx[a] -= j * nx; g_vz[a] -= j * nz;
+                g_vx[b] += j * nx; g_vz[b] += j * nz;
+                g_carpma_sesi = max(g_carpma_sesi, yv);
+            }
+            g_x[a] -= g_vx[a] * tau; g_z[a] -= g_vz[a] * tau;
+            g_x[b] -= g_vx[b] * tau; g_z[b] -= g_vz[b] * tau;
+            // Duran toplarda kalan ic ice gecme (dizilim) ikiye bolunup ayrilir.
+            dx = g_x[b] - g_x[a];
+            dz = g_z[b] - g_z[a];
+            u = sqrt(dx * dx + dz * dz);
+            if (u < 2.0 * TOP_R && u > 1.0e-9) {
+                float ic = (2.0 * TOP_R - u) * 0.5;
+                g_x[a] -= dx / u * ic; g_z[a] -= dz / u * ic;
+                g_x[b] += dx / u * ic; g_z[b] += dz / u * ic;
+            }
+        }
+    }
+}
+func hepsi_durdu(): bool {
+    for (int t = 0; t < TOP_N; t++) {
+        if (g_aktif[t] == 1 && g_vx[t] * g_vx[t] + g_vz[t] * g_vz[t] > 0.003 * 0.003) { return false; }
+    }
+    return true;
+}
+func beyazi_geri_koy() {
+    float x = g_x0[0];
+    float z = g_z0[0];
+    bool dolu = true;
+    int deneme = 0;
+    while (dolu && deneme < 40) {
+        dolu = false;
+        for (int t = 1; t < TOP_N; t++) {
+            if (g_aktif[t] == 0) { continue; }
+            float dx = g_x[t] - x;
+            float dz = g_z[t] - z;
+            if (dx * dx + dz * dz < 4.4 * TOP_R * TOP_R) { dolu = true; }
+        }
+        if (dolu) { x -= 2.2 * TOP_R; deneme += 1; }
+    }
+    g_x[0] = x;
+    g_z[0] = z;
+    g_vx[0] = 0.0;
+    g_vz[0] = 0.0;
+    g_aktif[0] = 1;
+    gorunur(g_top[0], true);
+}
+
+// ---- Nisan ------------------------------------------------------------------------------------
+func nisan_gizle() {
+    gorunur(g_istaka, false);
+    for (int j = 0; j < IZ_N; j++) { gorunur(g_iz[j], false); }
+}
+// Beyaz topun (x0,z0)'dan (dx,dz) yonunde ilk carptigi topa uzaklik (yoksa banda kadar; en cok 1.6 m).
+func ilk_carpma(float dx, float dz): float {
+    float en = 1.6;
+    for (int t = 1; t < TOP_N; t++) {
+        if (g_aktif[t] == 0) { continue; }
+        float ox = g_x[t] - g_x[0];
+        float oz = g_z[t] - g_z[0];
+        float p = ox * dx + oz * dz;
+        if (p <= 0.0) { continue; }
+        float q = ox * ox + oz * oz - p * p;
+        float rr = 4.0 * TOP_R * TOP_R;
+        if (q >= rr) { continue; }
+        float s = p - sqrt(rr - q);
+        if (s < en) { en = s; }
+    }
+    return en;
+}
+func nisan_ciz() {
+    float dx = cos(g_nisan_aci);
+    float dz = sin(g_nisan_aci);
+    float bx = g_x[0];
+    float bz = g_z[0];
+    float geri = 0.03 + g_guc * 0.22;       // istaka guc cekildikce geri gelir
+    float yari = 0.6;
+    isinla(g_istaka, bx - dx * (geri + yari + TOP_R), TOP_R + 0.012, bz - dz * (geri + yari + TOP_R));
+    don_ver(g_istaka, atan2(dx, dz) * 57.29578);
+    gorunur(g_istaka, true);
+    float uz = ilk_carpma(dx, dz);
+    for (int j = 0; j < IZ_N; j++) {
+        float s = TOP_R * 2.5 + j * 1.0 * 0.075;
+        if (s < uz) {
+            isinla(g_iz[j], bx + dx * s, TOP_R, bz + dz * s);
+            gorunur(g_iz[j], true);
+        } else { gorunur(g_iz[j], false); }
+    }
+}
+func atis_yap(float guc) {
+    float h = MAX_HIZ * max(0.05, min(1.0, guc));
+    g_vx[0] = cos(g_nisan_aci) * h;
+    g_vz[0] = sin(g_nisan_aci) * h;
+    g_atis += 1;
+    g_hareket = true;
+    g_guc = 0.0;
+    g_cekiyor = false;
+    g_klavye_guc = false;
+    nisan_gizle();
+    kit_ses_cal(SES_ISTAKA, 0.4 + guc * 0.6, 0.0);
+}
+// Imlec (fare ya da 0. parmak) masa duzleminde: true ve g_im_x/z.
+float g_im_x = 0.0;
+float g_im_z = 0.0;
+bool g_im_basili = false;
+// Menudeki "Oyna" tiklamasi oyuna gecmesin: tur basinda basili olan imlec once BIRAKILMALI.
+bool g_birak_bekle = false;
+func imlec_oku(): bool {
+    float sx = eng_mouse_x();
+    float sy = eng_mouse_y();
+    g_im_basili = eng_mouse_down(0);
+    if (dokunus_sayisi() > 0) { sx = eng_touch_x(0); sy = eng_touch_y(0); g_im_basili = true; }
+    if (g_birak_bekle) {
+        if (g_im_basili) { g_im_basili = false; } else { g_birak_bekle = false; }
+    }
+    if (sy < ui_px(96.0)) { g_im_basili = false; return false; }   // ust serit: HUD ve duraklat dugmesi
+    if (!ekran_isini(sx, sy)) { return false; }
+    Vec3 o = ekran_isini_baslangic();
+    Vec3 d = ekran_isini_yon();
+    if (d.y > -0.0001) { return false; }
+    float k = (TOP_R - o.y) / d.y;
+    g_im_x = o.x + d.x * k;
+    g_im_z = o.z + d.z * k;
+    return true;
+}
+func nisan_girdisi(float dt_) {
+    if (tus("left")) { g_nisan_aci -= 1.2 * dt_; }
+    if (tus("right")) { g_nisan_aci += 1.2 * dt_; }
+    if (tus("space")) { g_klavye_guc = true; g_guc = min(1.0, g_guc + dt_ * 0.8); }
+    else if (g_klavye_guc) { atis_yap(g_guc); return; }
+    bool gor = imlec_oku();
+    if (!g_cekiyor) {
+        if (gor) {
+            float dx = g_im_x - g_x[0];
+            float dz = g_im_z - g_z[0];
+            if (dx * dx + dz * dz > 0.0004) { g_nisan_aci = atan2(dz, dx); }
+            if (g_im_basili) { g_cekiyor = true; g_bas_x = g_im_x; g_bas_z = g_im_z; g_guc = 0.0; }
+        }
+    } else {
+        if (gor) {
+            float dx = g_im_x - g_bas_x;
+            float dz = g_im_z - g_bas_z;
+            g_guc = min(1.0, sqrt(dx * dx + dz * dz) / 0.6);   // 60 cm cekis = tam guc
+        }
+        if (!g_im_basili) {
+            if (g_guc > 0.04) { atis_yap(g_guc); } else { g_cekiyor = false; g_guc = 0.0; }
+        }
+    }
+}
+
+// ---- Otopilot: hayalet top nisani -------------------------------------------------------------
+// Yol acik mi: (ax,az)->(bx,bz) dogrusunda, haric iki top disinda bir top 2R'den yakin mi.
+func yol_acik(float ax, float az, float bx, float bz, int h1, int h2): bool {
+    float dx = bx - ax;
+    float dz = bz - az;
+    float l = sqrt(dx * dx + dz * dz);
+    if (l < 1.0e-6) { return true; }
+    dx = dx / l; dz = dz / l;
+    for (int t = 0; t < TOP_N; t++) {
+        if (t == h1 || t == h2 || g_aktif[t] == 0) { continue; }
+        float ox = g_x[t] - ax;
+        float oz = g_z[t] - az;
+        float p = ox * dx + oz * dz;
+        if (p <= 0.0 || p >= l) { continue; }
+        float q = ox * ox + oz * oz - p * p;
+        if (q < 4.0 * TOP_R * TOP_R) { return false; }
+    }
+    return true;
+}
+float g_oto_guc = 0.0;
+func oto_nisan(): bool {
+    float en_puan = -1.0e9;
+    bool bulundu = false;
+    for (int t = 1; t < TOP_N; t++) {
+        if (g_aktif[t] == 0) { continue; }
+        for (int c = 0; c < g_cep_n; c++) {
+            float px = g_cx[c] - g_x[t];
+            float pz = g_cz[c] - g_z[t];
+            float pl = sqrt(px * px + pz * pz);
+            if (pl < 1.0e-6) { continue; }
+            px = px / pl; pz = pz / pl;
+            float gx = g_x[t] - px * 2.0 * TOP_R;      // hayalet top
+            float gz = g_z[t] - pz * 2.0 * TOP_R;
+            float ax = gx - g_x[0];
+            float az = gz - g_z[0];
+            float al = sqrt(ax * ax + az * az);
+            if (al < 1.0e-6) { continue; }
+            float kes = (ax * px + az * pz) / al;       // 1 = tam karsidan
+            if (kes < 0.3) { continue; }
+            if (!yol_acik(g_x[0], g_z[0], gx, gz, 0, t)) { continue; }
+            if (!yol_acik(g_x[t], g_z[t], g_cx[c], g_cz[c], t, 0)) { continue; }
+            float puan = kes * 2.0 - (al + pl) * 0.6;
+            if (puan > en_puan) {
+                en_puan = puan;
+                bulundu = true;
+                g_nisan_aci = atan2(az, ax);
+                g_oto_guc = min(1.0, max(0.35, (1.1 + (al + pl * 1.6) * 1.2 / kes) / MAX_HIZ));
+            }
+        }
+    }
+    if (!bulundu) {
+        // Acik vurus yok: en yakin topa orta guc (dagitir).
+        float eu = 1.0e9;
+        for (int t = 1; t < TOP_N; t++) {
+            if (g_aktif[t] == 0) { continue; }
+            float dx = g_x[t] - g_x[0];
+            float dz = g_z[t] - g_z[0];
+            if (dx * dx + dz * dz < eu) { eu = dx * dx + dz * dz; g_nisan_aci = atan2(dz, dx); }
+        }
+        g_oto_guc = 0.75;
+    }
+    return bulundu;
+}
+
+// ---- Tur --------------------------------------------------------------------------------------
+func tur_baslat() {
+    g_atis = 0;
+    g_cebe = 0;
+    g_beyaz_cebe = 0;
+    g_hareket = false;
+    g_guc = 0.0;
+    g_cekiyor = false;
+    for (int t = 0; t < TOP_N; t++) {
+        g_x[t] = g_x0[t];
+        g_z[t] = g_z0[t];
+        g_vx[t] = 0.0;
+        g_vz[t] = 0.0;
+        g_aktif[t] = 1;
+        gorunur(g_top[t], true);
+    }
+    g_nisan_aci = 0.0;
+    g_birak_bekle = true;
+    toplari_yerlestir();
+    g_ekran = EKRAN_OYUN;
+    kit_muzik_cal(MUZIK_OYUN);
+}
+func tur_bitir() {
+    if (g_cebe == TOP_N - 1 && (g_rekor == 0 || g_atis < g_rekor)) { g_rekor = g_atis; kit_ayar_yaz(K_REKOR, g_rekor * 1.0); }
+    nisan_gizle();
+    g_ekran = EKRAN_SONUC;
+    kit_muzik_cal(MUZIK_MENU);
+}
+int g_oto_bekle = 0;
+func oyun_adim(float d) {
+    g_carpma_sesi = 0.0;
+    g_cep_sesi = false;
+    if (g_hareket) {
+        float h = d / (ALT_ADIM * 1.0);
+        for (int s = 0; s < ALT_ADIM; s++) { adim(h); }
+        toplari_yerlestir();
+        if (hepsi_durdu()) {
+            g_hareket = false;
+            for (int t = 0; t < TOP_N; t++) { g_vx[t] = 0.0; g_vz[t] = 0.0; }
+            if (g_aktif[0] == 0) { beyazi_geri_koy(); toplari_yerlestir(); }
+            if (g_cebe == TOP_N - 1) { tur_bitir(); return; }
+            g_oto_bekle = 20;
+        }
+    } else if (g_otopilot) {
+        if (!g_kapi_boz) {
+            oto_nisan();
+            g_guc = g_oto_guc;
+            nisan_ciz();
+            g_oto_bekle -= 1;
+            if (g_oto_bekle <= 0) { atis_yap(g_oto_guc); }
+        }
+    } else {
+        nisan_girdisi(d);
+        if (g_ekran == EKRAN_OYUN && !g_hareket) { nisan_ciz(); }
+    }
+    if (g_carpma_sesi > 0.15) { kit_ses_cal(SES_CARP, min(1.0, g_carpma_sesi * 0.35), 0.08); }
+    if (g_cep_sesi) { kit_ses_cal(SES_CEP, 0.8, 0.05); }
+    if (g_otopilot && kare_no() >= OTO_SON_KARE) { tur_bitir(); }
+}
+
+// ---- Ekranlar ---------------------------------------------------------------------------------
+func ana_menu_ciz() {
+    float w = genislik();
+    k_yazi_orta(L("{{OYUN_TR}}", "{{OYUN_EN}}"), w * 0.5, ui_px(150.0), T_LOGO, KR_ALTIN_ACIK);
+    if (g_rekor > 0) { k_yazi_orta(L(t"Rekor: {g_rekor} atış", t"Best: {g_rekor} shots"), w * 0.5, ui_px(250.0), T_ALT, KR_YAZI_2); }
+    float bw = ui_px(320.0);
+    float bh = ui_px(72.0);
+    float x = (w - bw) * 0.5;
+    if (k_dugme("oyna", L("Oyna", "Play"), IK_OYNAT, STIL_BIRINCIL, x, ui_px(320.0), bw, bh)) { kit_ses_cal(SES_TIKLA, 0.6, 0.0); tur_baslat(); }
+    if (k_dugme("ayarlar", L("Ayarlar", "Settings"), IK_AYAR, STIL_IKINCIL, x, ui_px(410.0), bw, bh)) { kit_ses_cal(SES_TIKLA, 0.6, 0.0); g_ayar_donus = EKRAN_ANA; g_ekran = EKRAN_AYAR; }
+}
+func ayar_ciz() {
+    k_modal(L("Ayarlar", "Settings"), IK_AYAR, 620.0, 400.0);
+    float x = g_mx + k_g(3.0);
+    float w = g_mw - k_g(6.0);
+    float y = g_mic_y;
+    float h = ui_px(84.0);
+    float e = k_kaydirici("efekt", L("Efekt", "Effects"), IK_SES, g_kit_efekt, 0.0, 1.0, x, y, w, h, t"{toInt(g_kit_efekt * 100.0 + 0.5)}%");
+    if (e != g_kit_efekt) { g_kit_efekt = e; if (!ui_basili()) { kit_ayar_yaz(K_EFEKT, e); } }
+    y += h + k_g(1.5);
+    float m = k_kaydirici("muzik", L("Müzik", "Music"), IK_MUZIK, g_kit_muzik, 0.0, 1.0, x, y, w, h, t"{toInt(g_kit_muzik * 100.0 + 0.5)}%");
+    if (m != g_kit_muzik) { g_kit_muzik = m; kit_muzik_yenile(); if (!ui_basili()) { kit_ayar_yaz(K_MUZIK, m); } }
+    y += h + k_g(2.0);
+    int d = k_bolut(["Türkçe", "English"], 2, g_kit_dil, x, y, w, ui_px(64.0));
+    if (d != g_kit_dil) { kit_dil_degistir(d, K_DIL); }
+    if (k_modal_kapat("ayar_kapat")) { g_ekran = g_ayar_donus; }
+}
+func hud_ciz() {
+    k_yazi(L(t"Atış {g_atis}", t"Shots {g_atis}"), ui_px(24.0), ui_px(20.0), T_ALT, KR_YAZI);
+    k_yazi_sag(t"{g_cebe}/{TOP_N - 1}", genislik() - ui_px(24.0), ui_px(20.0), T_BASLIK, KR_ALTIN);
+    if (!g_hareket) {
+        float bw = ui_px(260.0);
+        float bx = (genislik() - bw) * 0.5;
+        float by = yukseklik() - ui_px(40.0);
+        eng_rect(bx, by, bw, ui_px(14.0), renk(30, 34, 44));
+        if (g_guc > 0.0) { eng_rect(bx, by, bw * g_guc, ui_px(14.0), renk(250, 190, 70)); }
+        if (!g_cekiyor && !g_klavye_guc) {
+            k_yazi_orta(L("Nişan al · bas, geri çek, bırak", "Aim · press, pull back, release"), genislik() * 0.5, by - ui_px(36.0), T_ALT, KR_YAZI_2);
+        }
+    }
+}
+func duraklat_ciz() {
+    k_modal(L("Duraklatıldı", "Paused"), IK_DURAKLAT, 520.0, 360.0);
+    float x = g_mx + k_g(3.0);
+    float w = g_mw - k_g(6.0);
+    float bh = ui_px(72.0);
+    if (k_dugme("devam", L("Devam", "Resume"), IK_OYNAT, STIL_BIRINCIL, x, g_mic_y, w, bh)) { g_ekran = EKRAN_OYUN; g_birak_bekle = true; }
+    if (k_dugme("menu", L("Ana menü", "Main menu"), IK_EV, STIL_IKINCIL, x, g_mic_y + bh + k_g(1.5), w, bh)) { tur_bitir(); g_ekran = EKRAN_ANA; }
+}
+func sonuc_ciz() {
+    str baslik = L("Oyun bitti", "Game over");
+    if (g_cebe == TOP_N - 1) { baslik = L("Masa temizlendi", "Table cleared"); }
+    k_modal(baslik, IK_KUPA, 520.0, 380.0);
+    k_yazi_orta(L(t"{g_cebe} top · {g_atis} atış", t"{g_cebe} balls · {g_atis} shots"), g_mx + g_mw * 0.5, g_mic_y + k_g(1.0), T_EKRAN, KR_ALTIN_ACIK);
+    float x = g_mx + k_g(3.0);
+    float w = g_mw - k_g(6.0);
+    if (k_dugme("tekrar", L("Tekrar", "Again"), IK_TEKRAR, STIL_BIRINCIL, x, g_my + g_mh - ui_px(88.0), w, ui_px(72.0))) { tur_baslat(); }
+}
+
+// ---- Otopilot (penceresiz dogrulama) -----------------------------------------------------------
+int g_oto_tur = 0;
+// Kapi: en az 5 top (olculdu 2026-11-10: 14 atista 10 top). Pozitif kontrol (tools/dogrula.sh):
+// TULPAR_{{ONEK}}_KAPI_BOZ=1 otopilot ATIS YAPMAZ -> 0 top cebe
+// girer, kapi BASARISIZ demeli.
+bool g_kapi_boz = false;
+func otopilot_kare() {
+    if (!g_otopilot) { return; }
+    if (g_ekran == EKRAN_ANA && kare_no() > 30) {
+        if (g_oto_tur == 0) { ui_test_tikla_ad("oyna"); g_oto_tur = 1; }
+    }
+    if (g_ekran == EKRAN_SONUC && g_oto_tur == 1) {
+        g_oto_tur = 2;
+        int hata = hata_sayisi();
+        print(t"[kapi] {{KIMLIK}}: cebe={g_cebe} atis={g_atis} beyaz_cebe={g_beyaz_cebe} kip={kit_kip_adi()} dil={kit_dil_adi()} ses={g_kit_ses_var} hata={hata} uyari={uyari_sayisi()}");
+        if (g_cebe >= 5 && hata == 0) { print("[kapi] TAMAM"); } else { print("[kapi] BASARISIZ"); }
+        cikis_iste();
+    }
+}
+
+func kamera_kur() {
+    // Masa (cerceve dahil) ekrana SIGAR: motorun gorus acisi 51.4 derece (tan 0.481), kamera 60 derece
+    // egik (derinlik sin 60 ile kisalir), ust 96 px HUD icin %12 pay. Dikey ekranda kamera 90 derece
+    // doner: masanin uzun kenari ekranin uzun kenarina gelir. (Editorun Oyun sekmesi ~4:3; 2.05 m'lik
+    // sabit uzaklik orada masanin yanlarini kesiyordu, 2026-11-10.)
+    float en = genislik() * 1.0;
+    float boy = yukseklik() * 1.0;
+    float asp = en / max(1.0, boy);
+    float uzun = MASA_W * 0.5 + 0.2;
+    float kisa = MASA_H * 0.5 + 0.2;
+    bool dikey = boy > en;
+    float yatay_yari = uzun;
+    float dikey_yari = kisa;
+    if (dikey) { yatay_yari = kisa; dikey_yari = uzun; }
+    float uz = max(yatay_yari / (0.481 * asp), dikey_yari * 0.866 / 0.481) * 1.12;
+    if (dikey) { kamera(-uz * 0.5, uz * 0.86, 0.0, 0.0, 0.0, 0.0); }
+    else { kamera(0.0, uz * 0.86, uz * 0.5, 0.0, 0.0, 0.04); }
+}
+
+func main() {
+    log_seviyesi(1);
+    ayarlari_oku();
+    g_kapi_boz = kit_ortam("KAPI_BOZ") == "1";
+    if (!motor_ac(L("{{OYUN_TR}}", "{{OYUN_EN}}"), 1280, 720)) { print("motor acilamadi: " + eng_last_error()); return; }
+    ui_tek_tiklama(true);
+    renk_tema_geri();
+    arayuz_yukle();
+    // Masa SAHNEDEN: assets/bilardo.sahne editorde duzenlenir (Kaydet + Derle -> bilardo.sahneb). Blob
+    // yoksa (engine_sahnec calismadi) duz yesil bir masa koddan kurulur ve UYARI basilir.
+    if (!sahne_yukle("assets/bilardo.sahneb")) {
+        logla("UYARI bilardo.sahneb yuklenemedi: masa koddan kuruldu (tools/ortam.sh sahneyi derler)");
+        gunes(0.35, 1.0, 0.25, 0.6);
+        ortam(renk(52, 48, 44));
+        golge_hacmi(0, 0, 0, 2.2, 8);
+        kutu(0.0, -0.025, 0.0, MASA_W * 0.5 + 0.02, 0.025, MASA_H * 0.5 + 0.02, false, renk(26, 107, 56));
+    }
+    masayi_kur();
+    kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);
+    SES_CARP = kit_ses_dene("ses_carp.wav", 1500.0, 0.025);
+    SES_CEP = kit_ses_dene("ses_cep.wav", 420.0, 0.09);
+    SES_ISTAKA = kit_ses_dene("ses_istaka.wav", 900.0, 0.04);
+    SES_TIKLA = kit_ses_dene("ses_tikla.wav", 1200.0, 0.03);
+    MUZIK_MENU = kit_muzik_tanimla("menu", true);
+    MUZIK_OYUN = kit_muzik_tanimla("oyun", true);
+    g_kit_ac_cin = SES_TIKLA;
+    g_kit_ac_muzik = MUZIK_MENU;
+    acilis_baslat(!g_otopilot);
+    if (!acilis_suruyor()) { kit_muzik_cal(MUZIK_MENU); }
+    logla(t"{{KIMLIK}}: GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, kip {kit_kip_adi()}, dil {kit_dil_adi()}, {TOP_N} top, {g_cep_n} cep, " + kit_ses_ozet());
+
+    while (calisiyor()) {
+        bool pencere = kare_basla();
+        float d = dt();
+        if (d > 0.05) { d = 0.05; }
+        if ((!pencere || arka_planda()) && g_ekran == EKRAN_OYUN) { g_ekran = EKRAN_DURAKLAT; }
+        if (g_ac_aktif) { acilis_kare(d); }
+        if (geri_basildi()) {
+            if (g_ac_aktif) { acilis_geri(); }
+            else if (g_ekran == EKRAN_OYUN) { g_ekran = EKRAN_DURAKLAT; }
+            else if (g_ekran == EKRAN_DURAKLAT) { g_ekran = EKRAN_OYUN; }
+            else if (g_ekran == EKRAN_AYAR) { g_ekran = g_ayar_donus; }
+            else if (g_ekran == EKRAN_SONUC) { g_ekran = EKRAN_ANA; }
+            else { cikis_iste(); }
+        }
+        kit_muzik_guncelle(d);
+        if (g_ekran == EKRAN_OYUN && !acilis_ortuyor()) { oyun_adim(d); }
+        else if (g_ekran != EKRAN_OYUN) { nisan_gizle(); }
+        kamera_kur();
+        ui_basla();
+        g_k_kilit = acilis_kilitli();
+        if (g_k_kilit) { ui_etkin(false); }
+        if (!acilis_ortuyor()) {
+            int e0 = g_ekran;
+            if (e0 == EKRAN_ANA) { ana_menu_ciz(); }
+            else if (e0 == EKRAN_OYUN) {
+                hud_ciz();
+                if (k_ikon_dugme("duraklat", IK_DURAKLAT, genislik() * 0.5 - ui_px(36.0), ui_px(12.0), ui_px(56.0), STIL_HAYALET, "")) { g_ekran = EKRAN_DURAKLAT; }
+            }
+            else if (e0 == EKRAN_DURAKLAT) { duraklat_ciz(); }
+            else if (e0 == EKRAN_AYAR) { ayar_ciz(); }
+            else if (e0 == EKRAN_SONUC) { sonuc_ciz(); }
+        }
+        if (g_ac_aktif) { acilis_ciz(); }
+        ui_bitir();
+        otopilot_kare();
+        kare_bitir();
+    }
+    logla(t"{{KIMLIK}}: kapanis, rekor {g_rekor}, kare {kare_no()}");
+    motor_kapat();
+}
+
+main();

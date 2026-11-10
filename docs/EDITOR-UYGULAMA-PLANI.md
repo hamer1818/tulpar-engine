@@ -302,7 +302,7 @@ kapısı bir sayıya dayansın.
 - **Güncelleyici:** önce AppImage'ta devre dışıydı. **U7c (2026-11-06):** artık AppImage DOSYASI
   bütün olarak yenisiyle değiştiriliyor: indir → SHA-256 → yedeğe al → yerine koy, düşerse geri al
   (docs/GUNCELLEME.md "AppImage kipi").
-- **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur.
+- **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur. **Kalktı (2026-11-10):** örnek artık oynanabilir bilardo; kullanıcının oyun klasörüne üretilip oradan açılır.
   Doğrusu örneği kullanıcı dizinine kopyalamak; U8'de ele alınacak.
 - **Windows (yazıldı, ÖLÇÜLMEDİ):** bu kısım yalnız GitHub CI'da ölçülebilir. Yerelde MinGW yok;
   Inno Setup'ı wine altında kurma denemesine izin verilmedi.
