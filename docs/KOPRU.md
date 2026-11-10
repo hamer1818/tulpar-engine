@@ -1621,3 +1621,39 @@ kimliğidir: seçici ona (aud) bir `id_token` (JWT) verir, oyun onu sunucuya yol
   "Choose an account — to continue to Warlords of Era" açıldı; sahte istemci kimliğiyle hesaba dokununca
   `GetCredentialCancellationException: [16] Account reauth failed` JNI'den oyuna ulaştı, oyun tarayıcı yoluna
   düştü ve turu tamamladı. Gerçek istemci kimliğiyle `id_token` yolu kullanıcı Google Cloud'u kurunca ölçülecek.
+
+## 17. Google Play Oyunlar — giriş + kayıtlı oyun (Küpler ile Küreler, 2026-11-10)
+
+Oyuncunun ilerlemesi Play Games Services v2 **kayıtlı oyun** (Snapshots) ile oyuncunun Drive'ındaki gizli
+uygulama klasörüne yazılır; Play yönetir. Sunucu yok, istemcide gizli yok, oyun kimden ne aldığını bilmez
+(yalnız Play'in verdiği görünen ad). §16'dan farkı: id_token / sunucu doğrulaması yok; giriş Play Oyunlar
+hesabıdır ve v2'de çoğu cihazda **kendiliğinden** açıktır.
+
+- Tulpar: `oyunlar_giris(etkilesimli)` (0 sessiz sorgu = isAuthenticated, 1 Play'in giriş penceresi) → 1
+  başladı, 0 sürüyor, -1 bu platformda / APK'da yok. `oyunlar_durum()`: 0 sorulmadı, 1 sürüyor, 2 girişli
+  (`oyunlar_oyuncu()`), 3 girişsiz, 4 hata (`oyunlar_hata()`), 6 kullanılamaz. Kayıt: `oyunlar_oku(ad)` /
+  `oyunlar_yaz(ad, veri, aciklama, ilerleme)` başlatır (girişsizken 0, host'a ulaşmaz), `oyunlar_islem()`
+  yoklar (0 boş, 1 sürüyor, 2 tamam, 4 hata, 5 kayıt yok), `oyunlar_veri()` okunan metin. Ad 1-100,
+  `[A-Za-z0-9-._~]`; kayıt en çok 64 KB metin (UTF-8).
+- **Çatışma**: politika `RESOLUTION_POLICY_HIGHEST_PROGRESS` — iki cihaz çevrimdışı yazdıysa `ilerleme`si
+  büyük olan kalır (oyun anlamlı bir ölçü verir: taç, açılan bölüm...). Play karar veremezse sunucudaki sürüm
+  seçilir ve işlem sürer. Oyun yine kendi birleştirmesini yapmalı (bulut + yerel, ilerisi kazanır).
+- **Java**: `platform/android/java/dev/tulparlang/engine/PlayOyunlar.java` (giris / oku / yaz / durumlar;
+  yerel geri çağrı yok, §16 gibi yoklanır). APK'ya `tools/android_google.py` **oyunlar profiliyle** girer:
+  - `tools/android_google.py hazirla --profil oyunlar` → `yapi/tulpar-ext/android/oyunlar/`
+    (play-services-games-v2 22.1.0 + 20 bağımlılık, kilit `tools/android_oyunlar.kilit`, R8 → ~290 KB dex).
+    Bu profilde ZamanliBildirim YOK: izin kümesine yeni izin girmez (yalnız `<queries>` gms + vending).
+  - `tools/android_google.py ekle STAGE [PAKET] --oyunlar-kimligi <sayı>`: manifeste
+    `com.google.android.gms.games.APP_ID` (değer `res/values/tulpar_oyunlar.xml` dizgesinden; sayısal değer
+    doğrudan `android:value`'ya yazılırsa tamsayı olur). Kimlik Play Console > Play Games Services >
+    Yapılandırma'da. SDK kendini `PlayGamesInitProvider` ile başlatır.
+  - AAB için TulparLang `package_aab.sh` `android_lib/`'i okumalı (TulparLang #498; öncesinde AAB'de dex
+    sessizce düşerdi).
+- Play Console (kullanıcı, bir kez): Play Games Services'ı aç, Android kimlik bilgisi (Play uygulama imzalama
+  SHA-1'i; yerel test için yükleme anahtarınınki de), **Kayıtlı oyunlar: Açık**, test kullanıcıları (yayınlanana
+  dek yalnız onlar girebilir).
+- Masaüstü: Play Oyunlar yok (-1/6). Penceresiz doğrulama: `TULPAR_ENGINE_PGS_SAHTE=<dizin>` → "Sahte Oyuncu"
+  girişli, kayıtlar `<dizin>/<ad>.txt` (işlem anında biter); `-` → girişsiz.
+- Kapı `bridge_pgs_paths`: masaüstü -1/6; sahte bulut yazılanı AYNEN geri okur (UTF-8), olmayan kayıt 5,
+  girişsizken kayıt işlemi yok; geçersiz ad / 64 KB üstü HATA ve yazılmaz; sahte host ile giriş ve oku/yaz
+  sürüyor → tamam, ikinci istek sürerken host'a ulaşmaz, `ilerleme` host'a iletilir.

@@ -6896,6 +6896,149 @@ void teng_google_reset(void) {
 int teng_google_stat(void) { return (int)g_google.starts; }
 } // extern "C"
 
+// --- GOOGLE PLAY OYUNLAR: giris + kayitli oyun (Kupler ile Kureler, 2026-11-10; KOPRU §17) ---------------
+// Android: Play Games Services v2 (dev.tulparlang.engine.PlayOyunlar; APK'ya android_google.py --profil oyunlar).
+// Kayit oyuncunun Drive'indaki gizli uygulama klasorunde, Play yonetir; sunucu ve istemci gizli yok.
+// Masaustu: Play Oyunlar yok (-1, durum 6). Penceresiz dogrulama icin TULPAR_ENGINE_PGS_SAHTE=<dizin>:
+// "Sahte Oyuncu" girisli, kayitlar <dizin>/<ad>.txt (islem ANINDA biter); "-" verilirse oyuncu girissiz (3).
+namespace {
+struct Pgs {
+  int (*signin)(int) = nullptr;
+  int (*poll_signin)(char *, size_t, char *, size_t) = nullptr;
+  int (*open)(const char *, const char *, const char *, int) = nullptr;
+  int (*poll_op)(char *, size_t, char *, size_t) = nullptr;
+  void (*op_reset)() = nullptr;
+  int state = 0;   // 0 sorulmadi, 1 suruyor, 2 girisli, 3 girissiz, 4 hata, 6 kullanilamaz
+  int op = 0;      // 0 bos, 1 suruyor, 2 tamam, 4 hata, 5 kayit yok (bos)
+  char player[256] = {0};
+  char data[65536] = {0};
+  char error[512] = {0};
+  uint32_t stat[4] = {0, 0, 0, 0};   // giris, okuma, yazma, hata
+};
+Pgs g_pgs;
+const char *pgs_sahte() { const char *s = std::getenv("TULPAR_ENGINE_PGS_SAHTE"); return (s && *s) ? s : nullptr; }
+// Play Oyunlar kayit adi kurali: 1-100 karakter, [A-Za-z0-9-._~].
+bool pgs_ad_gecerli(const char *ad) {
+  if (!ad) return false;
+  const size_t n = std::strlen(ad);
+  if (n == 0 || n > 100) return false;
+  for (size_t i = 0; i < n; i++) {
+    const char c = ad[i];
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~')) return false;
+  }
+  return true;
+}
+void pgs_hata_say(int st) { if (st == 4) g_pgs.stat[3]++; }
+} // namespace
+namespace tulpar::engine::bridge {
+void bridge_pgs_host(int (*signin)(int), int (*poll_signin)(char *, size_t, char *, size_t),
+                     int (*open)(const char *, const char *, const char *, int),
+                     int (*poll_op)(char *, size_t, char *, size_t), void (*op_reset)()) {
+  g_pgs.signin = signin;
+  g_pgs.poll_signin = poll_signin;
+  g_pgs.open = open;
+  g_pgs.poll_op = poll_op;
+  g_pgs.op_reset = op_reset;
+  g_pgs.state = 0;
+  g_pgs.op = 0;
+}
+} // namespace tulpar::engine::bridge
+extern "C" {
+int teng_pgs_signin(int interactive) {
+  CALLF("teng_pgs_signin", "%d", interactive);
+  if (g_pgs.state == 1) return 0;
+  g_pgs.error[0] = 0;
+  if (!g_pgs.signin) {
+    if (const char *d = pgs_sahte()) {
+      g_pgs.stat[0]++;
+      if (std::strcmp(d, "-") == 0) { g_pgs.state = 3; g_pgs.player[0] = 0; return 1; }
+      g_pgs.state = 2;
+      std::snprintf(g_pgs.player, sizeof g_pgs.player, "Sahte Oyuncu");
+      BINFO("Play Oyunlar: SAHTE (TULPAR_ENGINE_PGS_SAHTE=%s, yalniz masaustu dogrulamasi)", d);
+      return 1;
+    }
+    std::snprintf(g_pgs.error, sizeof g_pgs.error, "bu platformda Google Play Oyunlar yok");
+    g_pgs.state = 6;
+    return -1;
+  }
+  const int r = g_pgs.signin(interactive);
+  if (r == 1) { g_pgs.state = 1; g_pgs.stat[0]++; }
+  else if (r < 0) { g_pgs.state = 6; std::snprintf(g_pgs.error, sizeof g_pgs.error, "Play Oyunlar paketi bu APK'da yok"); }
+  return r;
+}
+int teng_pgs_state(void) {
+  if (g_pgs.state == 1 && g_pgs.poll_signin) {
+    const int s = g_pgs.poll_signin(g_pgs.player, sizeof g_pgs.player, g_pgs.error, sizeof g_pgs.error);
+    if (s >= 2 && s <= 4) {
+      g_pgs.state = s;
+      pgs_hata_say(s);
+      if (s == 2) BINFO("Play Oyunlar: girisli (%s)", g_pgs.player);
+      else BINFO("Play Oyunlar: %s %s", s == 3 ? "girissiz" : "giris HATASI", g_pgs.error);
+    }
+  }
+  return g_pgs.state;
+}
+const char *teng_pgs_player(void) { return g_pgs.state == 2 ? g_pgs.player : ""; }
+// data nullptr: oku. Doner 1 basladi, 0 mesgul / gecersiz / girissiz, -1 kullanilamaz.
+static int pgs_ac(const char *name, const char *data, const char *desc, int progress) {
+  if (!pgs_ad_gecerli(name)) { BERR("Play Oyunlar: kayit adi gecersiz (1-100, [A-Za-z0-9-._~]): %s", name ? name : "(null)"); return 0; }
+  if (data && std::strlen(data) >= sizeof g_pgs.data) { BERR("Play Oyunlar: kayit cok buyuk (%zu bayt, en cok %zu)", std::strlen(data), sizeof g_pgs.data - 1); return 0; }
+  if (g_pgs.op == 1 || g_pgs.state != 2) return 0;
+  g_pgs.error[0] = 0;
+  g_pgs.data[0] = 0;
+  g_pgs.stat[data ? 2 : 1]++;
+  if (!g_pgs.open) {
+    const char *d = pgs_sahte();
+    if (!d) return -1;
+    char yol[1024];
+    std::snprintf(yol, sizeof yol, "%s/%s.txt", d, name);
+    if (data) {
+      std::FILE *f = std::fopen(yol, "wb");
+      const bool ok = f && std::fwrite(data, 1, std::strlen(data), f) == std::strlen(data);
+      if (f) std::fclose(f);
+      g_pgs.op = ok ? 2 : 4;
+      if (!ok) std::snprintf(g_pgs.error, sizeof g_pgs.error, "sahte kayit yazilamadi: %.400s", yol);
+    } else {
+      std::FILE *f = std::fopen(yol, "rb");
+      size_t n = f ? std::fread(g_pgs.data, 1, sizeof g_pgs.data - 1, f) : 0;
+      if (f) std::fclose(f);
+      g_pgs.data[n] = 0;
+      g_pgs.op = n > 0 ? 2 : 5;
+    }
+    pgs_hata_say(g_pgs.op);
+    return 1;
+  }
+  const int r = g_pgs.open(name, data, desc, progress);
+  if (r == 1) g_pgs.op = 1;
+  return r;
+}
+int teng_pgs_load(const char *name) { CALLF("teng_pgs_load", "%s", name ? name : "(null)"); return pgs_ac(name, nullptr, nullptr, 0); }
+int teng_pgs_save(const char *name, const char *data, const char *desc, int progress) {
+  CALLF("teng_pgs_save", "%s %d", name ? name : "(null)", progress);
+  return pgs_ac(name, data ? data : "", desc, progress);
+}
+int teng_pgs_op(void) {
+  if (g_pgs.op == 1 && g_pgs.poll_op) {
+    const int s = g_pgs.poll_op(g_pgs.data, sizeof g_pgs.data, g_pgs.error, sizeof g_pgs.error);
+    if (s == 2 || s == 4 || s == 5) {
+      g_pgs.op = s;
+      pgs_hata_say(s);
+      if (s == 4) BINFO("Play Oyunlar: kayit islemi HATA %s", g_pgs.error);
+    }
+  }
+  return g_pgs.op;
+}
+const char *teng_pgs_data(void) { return g_pgs.op == 2 ? g_pgs.data : ""; }
+const char *teng_pgs_error(void) { return g_pgs.error; }
+void teng_pgs_op_reset(void) {
+  if (g_pgs.op == 1) return;
+  g_pgs.op = 0;
+  g_pgs.data[0] = 0;
+  if (g_pgs.op_reset) g_pgs.op_reset();
+}
+int teng_pgs_stat(int which) { return which >= 0 && which < 4 ? (int)g_pgs.stat[which] : 0; }
+} // extern "C"
+
 extern "C" {
 int teng_net_open(int port, int broadcast) {
   CALLF("teng_net_open", "%d %d", port, broadcast);

@@ -803,6 +803,17 @@ const char *teng_google_token(void);      // durum 2 iken id_token (JWT); degils
 const char *teng_google_error(void);      // son hata metni
 void teng_google_reset(void);             // durum 0'a (suruyorken etkisiz)
 int teng_google_stat(void);               // baslatilan giris sayisi
+// Google Play Oyunlar (KOPRU §17): giris + kayitli oyun (oyuncunun Drive'i; Play yonetir).
+int teng_pgs_signin(int interactive);     // 1 basladi, 0 suruyor, -1 bu platformda / APK'da yok; interactive 0 sessiz sorgu
+int teng_pgs_state(void);                 // 0 sorulmadi, 1 suruyor, 2 girisli, 3 girissiz, 4 hata, 6 kullanilamaz
+const char *teng_pgs_player(void);        // girisliyken gorunen ad
+int teng_pgs_load(const char *name);      // 1 basladi, 0 mesgul / girissiz / gecersiz ad, -1 yok
+int teng_pgs_save(const char *name, const char *data, const char *desc, int progress); // ayni donusler
+int teng_pgs_op(void);                    // 0 bos, 1 suruyor, 2 tamam, 4 hata, 5 kayit yok
+const char *teng_pgs_data(void);          // op 2 iken okunan kayit
+const char *teng_pgs_error(void);         // son hata metni
+void teng_pgs_op_reset(void);             // op 0'a (suruyorken etkisiz)
+int teng_pgs_stat(int which);             // 0 giris, 1 okuma, 2 yazma, 3 hata sayisi
 
 // --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1, sim/lockstep.hpp) ----------
 // Motor kurulmadan da calisir; teng_shutdown kapatir. flags: 1 cevrimici (paket + onay + ozet
