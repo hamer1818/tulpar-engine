@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 400
+#define TENG_ABI_COUNT 410
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -389,6 +389,16 @@ TENG_ABI(const char *, eng_google_token, teng_google_token, (void))
 TENG_ABI(const char *, eng_google_error, teng_google_error, (void))
 TENG_ABI(void, eng_google_reset, teng_google_reset, (void))
 TENG_ABI(int, eng_google_stat, teng_google_stat, (void))
+TENG_ABI(int, eng_pgs_signin, teng_pgs_signin, (int))
+TENG_ABI(int, eng_pgs_state, teng_pgs_state, (void))
+TENG_ABI(const char *, eng_pgs_player, teng_pgs_player, (void))
+TENG_ABI(int, eng_pgs_load, teng_pgs_load, (const char *))
+TENG_ABI(int, eng_pgs_save, teng_pgs_save, (const char *, const char *, const char *, int))
+TENG_ABI(int, eng_pgs_op, teng_pgs_op, (void))
+TENG_ABI(const char *, eng_pgs_data, teng_pgs_data, (void))
+TENG_ABI(const char *, eng_pgs_error, teng_pgs_error, (void))
+TENG_ABI(void, eng_pgs_op_reset, teng_pgs_op_reset, (void))
+TENG_ABI(int, eng_pgs_stat, teng_pgs_stat, (int))
 TENG_ABI(int, eng_ls_begin, teng_ls_begin, (int, int, int, int, int, int))
 TENG_ABI(void, eng_ls_end, teng_ls_end, (void))
 TENG_ABI(int, eng_ls_cmd, teng_ls_cmd, (int, int, int))

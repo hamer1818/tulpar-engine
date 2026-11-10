@@ -393,3 +393,87 @@ ENGINE_TEST(bridge_google_signin_paths) {
   bridge::bridge_google_host(nullptr, nullptr, nullptr);
   CHECK(teng_error_count() == h0 + 3);
 }
+
+// Google Play Oyunlar (KOPRU §17): masaustunde host yok -> -1/6; TULPAR_ENGINE_PGS_SAHTE=<dizin> sahte bulut
+// (yazilan kayit AYNEN geri okunur, olmayan kayit 5) ve "-" girissiz; girissizken kayit islemi host'a ulasmaz;
+// gecersiz ad / buyuk kayit HATA; sahte host ile giris + oku + yaz suruyor -> tamam ve catisma olcusu iletilir.
+namespace {
+int g_pg_giris = 0, g_pg_yokla = 0, g_pg_ac = 0, g_pg_op_yokla = 0, g_pg_sifirla = 0, g_pg_ilerleme = -1;
+char g_pg_ad[128] = {0}, g_pg_veri[256] = {0};
+bool g_pg_yaz = false;
+int sahte_pg_giris(int) { g_pg_giris++; return 1; }
+int sahte_pg_yokla(char *o, size_t oc, char *, size_t) {
+  if (++g_pg_yokla < 3) return 1;
+  std::snprintf(o, oc, "Deneme Oyuncu");
+  return 2;
+}
+int sahte_pg_ac(const char *ad, const char *veri, const char *, int ilerleme) {
+  g_pg_ac++;
+  g_pg_op_yokla = 0;
+  std::snprintf(g_pg_ad, sizeof g_pg_ad, "%s", ad);
+  g_pg_yaz = veri != nullptr;
+  if (veri) std::snprintf(g_pg_veri, sizeof g_pg_veri, "%s", veri);
+  g_pg_ilerleme = ilerleme;
+  return 1;
+}
+int sahte_pg_op(char *o, size_t oc, char *, size_t) {
+  if (++g_pg_op_yokla < 2) return 1;
+  if (!g_pg_yaz) std::snprintf(o, oc, "%s", g_pg_veri);
+  return 2;
+}
+void sahte_pg_sifirla() { g_pg_sifirla++; }
+} // namespace
+ENGINE_TEST(bridge_pgs_paths) {
+  bridge::bridge_pgs_host(nullptr, nullptr, nullptr, nullptr, nullptr);
+  ortam("TULPAR_ENGINE_PGS_SAHTE", nullptr);
+  const int h0 = teng_error_count();
+  CHECK(teng_pgs_signin(0) == -1 && teng_pgs_state() == 6 && std::strlen(teng_pgs_error()) > 0); // masaustu
+  CHECK(teng_pgs_load("kayit") == 0 && teng_pgs_op() == 0);                                       // girissiz: islem yok
+  // Sahte bulut: girissiz ("-")
+  ortam("TULPAR_ENGINE_PGS_SAHTE", "-");
+  CHECK(teng_pgs_signin(0) == 1 && teng_pgs_state() == 3 && std::strcmp(teng_pgs_player(), "") == 0);
+  CHECK(teng_pgs_save("kayit", "x", "", 1) == 0 && teng_pgs_op() == 0);
+  // Sahte bulut: dizin
+  char dizin[600];
+  std::snprintf(dizin, sizeof dizin, "%s", test::tmp_dir());
+  ortam("TULPAR_ENGINE_PGS_SAHTE", dizin);
+  char yol[700];
+  std::snprintf(yol, sizeof yol, "%s/tulpar_pgs_test_yok.txt", dizin);
+  std::remove(yol);
+  CHECK(teng_pgs_signin(1) == 1 && teng_pgs_state() == 2 && std::strcmp(teng_pgs_player(), "Sahte Oyuncu") == 0);
+  CHECK(teng_pgs_load("tulpar_pgs_test_yok") == 1 && teng_pgs_op() == 5 && std::strcmp(teng_pgs_data(), "") == 0);
+  teng_pgs_op_reset();
+  const char *icerik = "kks_tac=12\nkks_dil=1\ncekirdek=\xc3\xa7\xc4\xb1\n";
+  const int y0 = teng_pgs_stat(2), o0 = teng_pgs_stat(1);
+  CHECK(teng_pgs_save("tulpar_pgs_test", icerik, "Tac 12", 12) == 1 && teng_pgs_op() == 2);
+  teng_pgs_op_reset();
+  CHECK(teng_pgs_load("tulpar_pgs_test") == 1 && teng_pgs_op() == 2 && std::strcmp(teng_pgs_data(), icerik) == 0);
+  CHECK(teng_pgs_stat(2) == y0 + 1 && teng_pgs_stat(1) == o0 + 1);
+  teng_pgs_op_reset();
+  CHECK(teng_pgs_op() == 0 && std::strcmp(teng_pgs_data(), "") == 0);
+  // KONTROL: gecersiz ad ve buyuk kayit HATA, sahte dosya yazilmaz
+  CHECK(teng_pgs_load("") == 0 && teng_pgs_load("a/b") == 0 && teng_pgs_save("bosluk var", "x", "", 0) == 0);
+  static char buyuk[70000];
+  std::memset(buyuk, 'a', sizeof buyuk - 1);
+  buyuk[sizeof buyuk - 1] = 0;
+  CHECK(teng_pgs_save("tulpar_pgs_test", buyuk, "", 0) == 0);
+  CHECK(teng_error_count() == h0 + 4);
+  std::snprintf(yol, sizeof yol, "%s/tulpar_pgs_test.txt", dizin);
+  std::remove(yol);
+  ortam("TULPAR_ENGINE_PGS_SAHTE", nullptr);
+  // Sahte host (Android yolu): giris suruyor -> girisli; yaz/oku suruyor -> tamam; ilerleme host'a ulasir
+  bridge::bridge_pgs_host(sahte_pg_giris, sahte_pg_yokla, sahte_pg_ac, sahte_pg_op, sahte_pg_sifirla);
+  CHECK(teng_pgs_state() == 0);
+  CHECK(teng_pgs_load("kks") == 0 && g_pg_ac == 0);   // girissiz: host'a ulasmaz
+  CHECK(teng_pgs_signin(0) == 1 && g_pg_giris == 1 && teng_pgs_signin(0) == 0 && g_pg_giris == 1);
+  CHECK(teng_pgs_state() == 1 && teng_pgs_state() == 1 && teng_pgs_state() == 2 && std::strcmp(teng_pgs_player(), "Deneme Oyuncu") == 0);
+  CHECK(teng_pgs_save("kks", "tac=3", "Tac 3", 3) == 1 && g_pg_ac == 1 && g_pg_yaz && g_pg_ilerleme == 3 && std::strcmp(g_pg_veri, "tac=3") == 0);
+  CHECK(teng_pgs_load("kks") == 0 && g_pg_ac == 1);   // suruyor: ikinci islem yok
+  CHECK(teng_pgs_op() == 1 && teng_pgs_op() == 2);
+  teng_pgs_op_reset();
+  CHECK(g_pg_sifirla == 1);
+  CHECK(teng_pgs_load("kks") == 1 && !g_pg_yaz && teng_pgs_op() == 1 && teng_pgs_op() == 2 && std::strcmp(teng_pgs_data(), "tac=3") == 0);
+  teng_pgs_op_reset();
+  bridge::bridge_pgs_host(nullptr, nullptr, nullptr, nullptr, nullptr);
+  CHECK(teng_error_count() == h0 + 4);
+}

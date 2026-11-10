@@ -90,6 +90,13 @@ void bridge_url_host(bool (*open_url)(const char *url));
 // dev.tulparlang.engine.GoogleGiris; APK'da yoksa start -1). Masaustu vermez. nullptr: kapat (testler).
 void bridge_google_host(int (*start)(const char *client), int (*poll)(char *tok, size_t tcap, char *err, size_t ecap), void (*reset)());
 
+// Google Play Oyunlar (teng_pgs_*, KOPRU §17): Android host Play Games Services v2 yolunu verir (Java sinifi
+// dev.tulparlang.engine.PlayOyunlar; APK'da yoksa signin -1). open: data nullptr = oku, degilse yaz.
+// Masaustu vermez. nullptr: kapat (testler).
+void bridge_pgs_host(int (*signin)(int interactive), int (*poll_signin)(char *player, size_t pcap, char *err, size_t ecap),
+                     int (*open)(const char *name, const char *data, const char *desc, int progress),
+                     int (*poll_op)(char *data, size_t dcap, char *err, size_t ecap), void (*op_reset)());
+
 // Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
 // varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:
 // yayin APK'sinda sahte reklam/bedava satin alma oyuncuya gorunmesin.

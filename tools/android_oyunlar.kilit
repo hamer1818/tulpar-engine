@@ -1,0 +1,22 @@
+# tools/android_google.py kilitle — elle duzenleme; surum: KOKLER
+androidx.activity:activity:1.0.0:aar d1bc9842455c2e534415d88c44df4d52413b478db9093a1ba36324f705f44c3d https://dl.google.com/android/maven2/androidx/activity/activity/1.0.0/activity-1.0.0.aar
+androidx.annotation:annotation:1.1.0:jar d38d63edb30f1467818d50aaf05f8a692dea8b31392a049bfa991b159ad5b692 https://dl.google.com/android/maven2/androidx/annotation/annotation/1.1.0/annotation-1.1.0.jar
+androidx.arch.core:core-common:2.1.0:jar fe1237bf029d063e7f29fe39aeaf73ef74c8b0a3658486fc29d3c54326653889 https://dl.google.com/android/maven2/androidx/arch/core/core-common/2.1.0/core-common-2.1.0.jar
+androidx.arch.core:core-runtime:2.0.0:aar 87e65fc767c712b437649c7cee2431ebb4bed6daef82e501d4125b3ed3f65f8e https://dl.google.com/android/maven2/androidx/arch/core/core-runtime/2.0.0/core-runtime-2.0.0.aar
+androidx.collection:collection:1.1.0:jar 632a0e5407461de774409352940e292a291037724207a787820c77daf7d33b72 https://dl.google.com/android/maven2/androidx/collection/collection/1.1.0/collection-1.1.0.jar
+androidx.core:core:1.2.0:aar 524b8b88ceb6a74a7e44e6b567a135660f211799904cb218bfee5be1166820b2 https://dl.google.com/android/maven2/androidx/core/core/1.2.0/core-1.2.0.aar
+androidx.customview:customview:1.0.0:aar 20e5b8f6526a34595a604f56718da81167c0b40a7a94a57daa355663f2594df2 https://dl.google.com/android/maven2/androidx/customview/customview/1.0.0/customview-1.0.0.aar
+androidx.fragment:fragment:1.1.0:aar a14c8b8f2153f128e800fbd266a6beab1c283982a29ec570d2cc05d307d81496 https://dl.google.com/android/maven2/androidx/fragment/fragment/1.1.0/fragment-1.1.0.aar
+androidx.lifecycle:lifecycle-common:2.1.0:jar 76db6be533bd730fb361c2feb12a2c26d9952824746847da82601ef81f082643 https://dl.google.com/android/maven2/androidx/lifecycle/lifecycle-common/2.1.0/lifecycle-common-2.1.0.jar
+androidx.lifecycle:lifecycle-livedata:2.0.0:aar c82609ced8c498f0a701a30fb6771bb7480860daee84d82e0a81ee86edf7ba39 https://dl.google.com/android/maven2/androidx/lifecycle/lifecycle-livedata/2.0.0/lifecycle-livedata-2.0.0.aar
+androidx.lifecycle:lifecycle-livedata-core:2.0.0:aar fde334ec7e22744c0f5bfe7caf1a84c9d717327044400577bdf9bd921ec4f7bc https://dl.google.com/android/maven2/androidx/lifecycle/lifecycle-livedata-core/2.0.0/lifecycle-livedata-core-2.0.0.aar
+androidx.lifecycle:lifecycle-runtime:2.1.0:aar e5173897b965e870651e83d9d5af1742d3f532d58863223a390ce3a194c8312b https://dl.google.com/android/maven2/androidx/lifecycle/lifecycle-runtime/2.1.0/lifecycle-runtime-2.1.0.aar
+androidx.lifecycle:lifecycle-viewmodel:2.1.0:aar ba55fb7ac1b2828d5327cda8acf7085d990b2b4c43ef336caa67686249b8523d https://dl.google.com/android/maven2/androidx/lifecycle/lifecycle-viewmodel/2.1.0/lifecycle-viewmodel-2.1.0.aar
+androidx.loader:loader:1.0.0:aar 11f735cb3b55c458d470bed9e25254375b518b4b1bad6926783a7026db0f5025 https://dl.google.com/android/maven2/androidx/loader/loader/1.0.0/loader-1.0.0.aar
+androidx.savedstate:savedstate:1.0.0:aar 2510a5619c37579c9ce1a04574faaf323cd0ffe2fc4e20fa8f8f01e5bb402e83 https://dl.google.com/android/maven2/androidx/savedstate/savedstate/1.0.0/savedstate-1.0.0.aar
+androidx.versionedparcelable:versionedparcelable:1.1.0:aar 9a1d77140ac222b7866b5054ee7d159bc1800987ed2d46dd6afdd145abb710c1 https://dl.google.com/android/maven2/androidx/versionedparcelable/versionedparcelable/1.1.0/versionedparcelable-1.1.0.aar
+androidx.viewpager:viewpager:1.0.0:aar 147af4e14a1984010d8f155e5e19d781f03c1d70dfed02a8e0d18428b8fc8682 https://dl.google.com/android/maven2/androidx/viewpager/viewpager/1.0.0/viewpager-1.0.0.aar
+com.google.android.gms:play-services-base:18.5.0:aar 59a5c0c2da12311d75d965ce1f419498536b1a167fb28ff7dfc2dfd9cefa4157 https://dl.google.com/android/maven2/com/google/android/gms/play-services-base/18.5.0/play-services-base-18.5.0.aar
+com.google.android.gms:play-services-basement:18.9.0:aar c6ed7236b1b3ce0296b508a5c0a09108fd52d83559d35cad2639505cd04ab255 https://dl.google.com/android/maven2/com/google/android/gms/play-services-basement/18.9.0/play-services-basement-18.9.0.aar
+com.google.android.gms:play-services-games-v2:22.1.0:aar da31b7a5a8682a0b00428999de1a26fc537b06db755c0d15e57e0eac1f000043 https://dl.google.com/android/maven2/com/google/android/gms/play-services-games-v2/22.1.0/play-services-games-v2-22.1.0.aar
+com.google.android.gms:play-services-tasks:18.2.0:aar 7f2aaa8f502068eaf54356ca92aec04271d6e7c416c52c45c0d23440fcbd1654 https://dl.google.com/android/maven2/com/google/android/gms/play-services-tasks/18.2.0/play-services-tasks-18.2.0.aar

@@ -1579,6 +1579,25 @@ func google_signin_token(): str { return eng_google_token(); }
 func google_giris_hata(): str { return eng_google_error(); }
 func google_giris_sifirla() { eng_google_reset(); }
 func google_giris_sayac(): int { return eng_google_stat(); }
+// Google Play Oyunlar (KOPRU §17): giris + kayitli oyun (oyuncunun Drive'i, Play yonetir; sunucu yok).
+// oyunlar_giris(etkilesimli): 1 basladi, 0 suruyor, -1 bu platformda / APK'da yok. Durum: 0 sorulmadi,
+// 1 suruyor, 2 girisli, 3 girissiz, 4 hata, 6 kullanilamaz. Kayit: oyunlar_oku / oyunlar_yaz baslatir,
+// oyunlar_islem yoklar (0 bos, 1 suruyor, 2 tamam, 4 hata, 5 kayit yok), oyunlar_veri okunan metin.
+func oyunlar_giris(bool etkilesimli): int { return eng_pgs_signin(etkilesimli ? 1 : 0); }
+func pgs_signin(bool interactive): int { return eng_pgs_signin(interactive ? 1 : 0); }
+func oyunlar_durum(): int { return eng_pgs_state(); }
+func pgs_state(): int { return eng_pgs_state(); }
+func oyunlar_oyuncu(): str { return eng_pgs_player(); }
+func oyunlar_oku(str ad): int { return eng_pgs_load(ad); }
+func pgs_load(str name): int { return eng_pgs_load(name); }
+func oyunlar_yaz(str ad, str veri, str aciklama, int ilerleme): int { return eng_pgs_save(ad, veri, aciklama, ilerleme); }
+func pgs_save(str name, str data, str desc, int progress): int { return eng_pgs_save(name, data, desc, progress); }
+func oyunlar_islem(): int { return eng_pgs_op(); }
+func pgs_op(): int { return eng_pgs_op(); }
+func oyunlar_veri(): str { return eng_pgs_data(); }
+func oyunlar_hata(): str { return eng_pgs_error(); }
+func oyunlar_islem_sifirla() { eng_pgs_op_reset(); }
+func oyunlar_sayac(int hangi): int { return eng_pgs_stat(hangi); }
 
 // ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
 // Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }

@@ -738,6 +738,105 @@ void android_google_reset() {
   if (m && j.ok()) e->CallStaticVoidMethod(g_google_sinif, m);
   j.ok();
 }
+// --- Google Play Oyunlar: giris + kayitli oyun (teng_pgs_*, KOPRU §17) ------------------------------
+// Java sinifi dev.tulparlang.engine.PlayOyunlar (play-services-games-v2) APK'ya ancak oyun "oyunlar" profilini
+// isterse girer (tools/android_google.py --profil oyunlar). Sinif etkinligin sinif yukleyicisinden (GoogleGiris
+// ile ayni sebep), yoksa signin -1: oyun bulut kaydini gizler.
+jclass g_pgs_sinif = nullptr;
+bool g_pgs_yok = false;
+jclass pgs_sinif(JNIEnv *e, JniScope &j) {
+  if (g_pgs_sinif || g_pgs_yok) return g_pgs_sinif;
+  jobject act = g_share_app->activity->clazz;
+  jmethodID gcl = e->GetMethodID(e->GetObjectClass(act), "getClassLoader", "()Ljava/lang/ClassLoader;");
+  jobject cl = gcl && j.ok() ? e->CallObjectMethod(act, gcl) : nullptr;
+  jclass clc = cl && j.ok() ? e->FindClass("java/lang/ClassLoader") : nullptr;
+  jmethodID load = clc && j.ok() ? e->GetMethodID(clc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;") : nullptr;
+  jobject c = load && j.ok() ? e->CallObjectMethod(cl, load, e->NewStringUTF("dev.tulparlang.engine.PlayOyunlar")) : nullptr;
+  if (!c || !j.ok()) {
+    g_pgs_yok = true;
+    std::printf("[engine_bridge] android: Play Oyunlar YOK (dev.tulparlang.engine.PlayOyunlar bu APK'da degil — android_google.py --profil oyunlar)\n");
+    return nullptr;
+  }
+  g_pgs_sinif = (jclass)e->NewGlobalRef(c);
+  return g_pgs_sinif;
+}
+int android_pgs_signin(int interactive) {
+  if (!g_share_app) return -1;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return -1;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return -1; }
+  int r = -1;
+  jclass c = pgs_sinif(e, j);
+  jmethodID m = c ? e->GetStaticMethodID(c, "giris", "(Landroid/app/Activity;I)I") : nullptr;
+  if (m && j.ok()) {
+    r = e->CallStaticIntMethod(c, m, g_share_app->activity->clazz, (jint)interactive);
+    if (!j.ok()) r = -1;
+  } else {
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: Play Oyunlar girisi %s (%s)\n", r == 1 ? "basladi" : r == 0 ? "zaten suruyor" : "BASLAMADI",
+              interactive ? "etkilesimli" : "sessiz");
+  return r;
+}
+// Statik int yontemi + (durum >= 2 ise) iki dizge (veri, hata) — giris ve islem yoklamasinin ortak yolu.
+static int pgs_yokla(const char *durum_ad, const char *veri_ad, char *out, size_t ocap, char *err, size_t ecap) {
+  if (!g_share_app || !g_pgs_sinif) return 4;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return 1;
+  if (e->PushLocalFrame(8) != 0) { j.ok(); return 1; }
+  jmethodID md = e->GetStaticMethodID(g_pgs_sinif, durum_ad, "()I");
+  int d = md && j.ok() ? e->CallStaticIntMethod(g_pgs_sinif, md) : 1;
+  if (!j.ok()) d = 1;
+  if (d >= 2) {
+    jmethodID mv = e->GetStaticMethodID(g_pgs_sinif, veri_ad, "()Ljava/lang/String;");
+    jmethodID mh = mv && j.ok() ? e->GetStaticMethodID(g_pgs_sinif, "hata", "()Ljava/lang/String;") : nullptr;
+    if (mv && mh && j.ok()) {
+      jkopya(e, (jstring)e->CallStaticObjectMethod(g_pgs_sinif, mv), out, ocap);
+      if (j.ok()) jkopya(e, (jstring)e->CallStaticObjectMethod(g_pgs_sinif, mh), err, ecap);
+    }
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  return d;
+}
+int android_pgs_poll_signin(char *player, size_t pcap, char *err, size_t ecap) {
+  return pgs_yokla("girisDurum", "oyuncu", player, pcap, err, ecap);
+}
+int android_pgs_open(const char *name, const char *data, const char *desc, int progress) {
+  if (!g_share_app || !g_pgs_sinif) return -1;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return -1;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return -1; }
+  int r = -1;
+  jmethodID m = data ? e->GetStaticMethodID(g_pgs_sinif, "yaz", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)I")
+                     : e->GetStaticMethodID(g_pgs_sinif, "oku", "(Landroid/app/Activity;Ljava/lang/String;)I");
+  if (m && j.ok()) {
+    jobject act = g_share_app->activity->clazz;
+    r = data ? e->CallStaticIntMethod(g_pgs_sinif, m, act, e->NewStringUTF(name), e->NewStringUTF(data), e->NewStringUTF(desc ? desc : ""), (jint)progress)
+             : e->CallStaticIntMethod(g_pgs_sinif, m, act, e->NewStringUTF(name));
+    if (!j.ok()) r = -1;
+  } else {
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  return r;
+}
+int android_pgs_poll_op(char *data, size_t dcap, char *err, size_t ecap) {
+  return pgs_yokla("islemDurum", "veri", data, dcap, err, ecap);
+}
+void android_pgs_op_reset() {
+  if (!g_share_app || !g_pgs_sinif) return;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return;
+  jmethodID m = e->GetStaticMethodID(g_pgs_sinif, "islemSifirla", "()V");
+  if (m && j.ok()) e->CallStaticVoidMethod(g_pgs_sinif, m);
+  j.ok();
+}
 // --- Ag: Wi-Fi yayin kilidi (teng_net_wifi_lock, N2a 2026-10-23) ----------------
 // Cogu telefonun Wi-Fi surucusu guc tasarrufu icin coklu yayin VE yayin paketlerini
 // kilit yokken suzer: ayni agdaki rakibi bulan UDP yayini (oyun TASARIM §21) hic
@@ -1055,6 +1154,7 @@ extern "C" void android_main(android_app *app) {
   bridge::bridge_notify_sched_host(android_notify_at, android_notify_cancel, android_notify_due); // teng_notify_at (§15.1)
   bridge::bridge_url_host(android_open_url);                              // teng_open_url
   bridge::bridge_google_host(android_google_start, android_google_poll, android_google_reset); // teng_google_*
+  bridge::bridge_pgs_host(android_pgs_signin, android_pgs_poll_signin, android_pgs_open, android_pgs_poll_op, android_pgs_op_reset); // teng_pgs_*
   char lv[PROP_VALUE_MAX] = {0};
   if (__system_property_get("debug.tulpar.log", lv) > 0) setenv("TULPAR_ENGINE_LOG", lv, 1);
   // Cihaz dili: Android'de LANG yok, oyun Tulpar'dan JNI'ye inemez. Glue'nun

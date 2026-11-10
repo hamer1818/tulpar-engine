@@ -15,6 +15,14 @@ androidx.credentials + play-services-auth + googleid) Gradle'siz APK'ya sokar:
         kaynaklari -R ile baglar, kutuphane R siniflarini SON kaynak kimlikleriyle uretip dex'e katar.
     tools/android_google.py kilitle              # bagimlilik agacini yeniden coz, kilidi yaz (surum yukseltme)
 
+Profiller (--profil, varsayilan giris): her profil kendi kokleri, kilidi, Java siniflari ve ciktisiyla.
+    giris    Google ile giris (GoogleGiris, KOPRU §16) + motorun ZamanliBildirim alicisi (§15.1)
+             kilit tools/android_google.kilit, cikti yapi/tulpar-ext/android/google
+    oyunlar  Google Play Oyunlar v2: giris + kayitli oyun (PlayOyunlar, KOPRU §17); bildirim alicisi YOK
+             (izin kumesine RECEIVE_BOOT_COMPLETED girmez). kilit tools/android_oyunlar.kilit,
+             cikti yapi/tulpar-ext/android/oyunlar. ekle --oyunlar-kimligi <Play Console oyun kimligi>
+             zorunlu: manifeste com.google.android.gms.games.APP_ID (+ res/values dizgesi) yazilir.
+
 R siniflari R8'e KUTUPHANE olarak verilir (cikti dex'te yok): kaynak kimlikleri ancak oyunun son
 aapt2 link'inde belli olur, R orada uretilir. Boylece kutuphane kodundaki R.string.x gibi atiflar
 oyunun kendi kaynaklariyla cakismadan dogru kimligi bulur.
@@ -43,6 +51,17 @@ MOTOR_UST = ['<uses-permission android:name="android.permission.RECEIVE_BOOT_COM
 MOTOR_UYGULAMA = ['<receiver android:name="dev.tulparlang.engine.ZamanliBildirim" android:exported="false">'
                   '<intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" />'
                   '<action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter></receiver>']
+# Profil: kokler, kilit dosyasi, derlenen Java dosyalari, R8 keep kurallari, motor manifest parcalari, cikti dizini.
+PROFILLER = {
+    "giris": {"kokler": KOKLER, "kilit": KILIT, "java": ["GoogleGiris.java", "ZamanliBildirim.java"],
+              "keep": ["-keep class dev.tulparlang.engine.GoogleGiris { public static *; }",
+                       "-keep class dev.tulparlang.engine.ZamanliBildirim { public *; }"],
+              "ust": MOTOR_UST, "uyg": MOTOR_UYGULAMA, "cikti": "google"},
+    "oyunlar": {"kokler": ["com.google.android.gms:play-services-games-v2:22.1.0"],
+                "kilit": os.path.join(KOK, "tools", "android_oyunlar.kilit"), "java": ["PlayOyunlar.java"],
+                "keep": ["-keep class dev.tulparlang.engine.PlayOyunlar { public static *; }"],
+                "ust": [], "uyg": [], "cikti": "oyunlar"},
+}
 A = "{http://schemas.android.com/apk/res/android}"
 NS = "{http://maven.apache.org/POM/4.0.0}"
 
@@ -76,9 +95,9 @@ def _vkey(v):
     return [int(x) if x.isdigit() else -1 for x in re.split(r"[.-]", v)]
 
 
-def kilitle():
+def kilitle(pr):
     """Maven POM'larindan derleme+calisma bagimliliklarini coz (en yuksek surum kazanir), kilidi yaz."""
-    secilen, kuyruk = {}, [tuple(x.split(":")) for x in KOKLER]
+    secilen, kuyruk = {}, [tuple(x.split(":")) for x in pr["kokler"]]
     while kuyruk:
         g, a, v = kuyruk.pop()
         v = v.strip("[]")
@@ -110,15 +129,15 @@ def kilitle():
         if veri is None:
             raise SystemExit("HATA: indirilemedi " + url)
         satir.append(f"{g}:{a}:{v}:{uz} {hashlib.sha256(veri).hexdigest()} {url}")
-    with open(KILIT, "w") as f:
+    with open(pr["kilit"], "w") as f:
         f.write("# tools/android_google.py kilitle — elle duzenleme; surum: KOKLER\n" + "\n".join(satir) + "\n")
-    print(f"kilit: {len(satir)} kutuphane -> {os.path.relpath(KILIT, KOK)}")
+    print(f"kilit: {len(satir)} kutuphane -> {os.path.relpath(pr['kilit'], KOK)}")
 
 
-def indir():
+def indir(pr):
     os.makedirs(ONBELLEK, exist_ok=True)
     out = []
-    for l in open(KILIT):
+    for l in open(pr["kilit"]):
         if not l.strip() or l.startswith("#"):
             continue
         ad, sha, url = l.split()
@@ -173,9 +192,9 @@ def _manifest_parcalari(aar_dizinleri):
     return [temiz(s) for s in ust], [temiz(s) for s in uygulama]
 
 
-def hazirla(cikti):
+def hazirla(cikti, pr):
     ar = sdk_araclari()
-    kut = indir()
+    kut = indir(pr)
     is_ = tempfile.mkdtemp(prefix="tulpar_google_")
     try:
         jarlar, aarlar, kurallar, paketler, res_zip = [], [], [], [], []
@@ -202,8 +221,8 @@ def hazirla(cikti):
                 paketler.append(pk)
         # R siniflari (kutuphane olarak; gecici kimlikler): tum kaynaklarla sahte bir uygulama bagla
         ust, uyg = _manifest_parcalari(aarlar)
-        ust += MOTOR_UST
-        uyg += MOTOR_UYGULAMA
+        ust += pr["ust"]
+        uyg += pr["uyg"]
         sahte = os.path.join(is_, "sahte.xml")
         with open(sahte, "w") as f:
             f.write('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.tulparlang.googlegecici">'
@@ -228,7 +247,9 @@ def hazirla(cikti):
                     z.write(os.path.join(dp, f), os.path.relpath(os.path.join(dp, f), rcls))
         # Motorun Java'si
         cls = os.path.join(is_, "cls")
-        kaynak = [os.path.join(dp, f) for dp, _, fs in os.walk(JAVA_KOK) for f in fs if f.endswith(".java")]
+        kaynak = [os.path.join(dp, f) for dp, _, fs in os.walk(JAVA_KOK) for f in fs if f in pr["java"]]
+        if len(kaynak) != len(pr["java"]):
+            raise SystemExit(f"HATA: profilin Java dosyalari eksik: {pr['java']} ({JAVA_KOK})")
         cp = os.pathsep.join([ar["android_jar"], rjar] + jarlar)
         kos(["javac", "--release", "11", "-nowarn", "-cp", cp, "-d", cls] + kaynak)
         cjar = os.path.join(is_, "motor.jar")
@@ -256,8 +277,7 @@ def hazirla(cikti):
             tekil.append(j)
         pro = os.path.join(is_, "motor.pro")
         with open(pro, "w") as f:
-            f.write("-keep class dev.tulparlang.engine.GoogleGiris { public static *; }\n"
-                    "-keep class dev.tulparlang.engine.ZamanliBildirim { public *; }\n"
+            f.write("\n".join(pr["keep"]) + "\n"
                     "-dontobfuscate\n-ignorewarnings\n-dontwarn **\n"
                     "-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n")
         dexd = os.path.join(is_, "dex")
@@ -282,7 +302,7 @@ def hazirla(cikti):
             f.write("\n".join(ust) + "\n")
         with open(os.path.join(cikti, "manifest_uygulama.xml"), "w") as f:
             f.write("\n".join(uyg) + "\n")
-        bilgi = {"kilit_sha256": hashlib.sha256(open(KILIT, "rb").read()).hexdigest(),
+        bilgi = {"kilit_sha256": hashlib.sha256(open(pr["kilit"], "rb").read()).hexdigest(),
                  "java_sha256": hashlib.sha256(b"".join(open(k, "rb").read() for k in sorted(kaynak))).hexdigest(),
                  "dex": {f: os.path.getsize(os.path.join(cikti, f)) for f in dexler}, "paket": len(paketler), "build_tools": ar["bt"]}
         with open(os.path.join(cikti, "bilgi.json"), "w") as f:
@@ -294,7 +314,7 @@ def hazirla(cikti):
 
 
 # ---------------------------------------------------------------- ekle -------
-def ekle(stage, paket):
+def ekle(stage, paket, oyunlar_kimligi=""):
     mf = os.path.join(stage, "AndroidManifest.xml")
     if not os.path.exists(mf):
         raise SystemExit("HATA: staging manifesti yok: " + mf)
@@ -310,6 +330,18 @@ def ekle(stage, paket):
         raise SystemExit('HATA: manifestte android:hasCode="false" yok (derleyici bicimi degismis?)')
     s = s.replace('android:hasCode="false"', 'android:hasCode="true"', 1)
     s = s.replace("  <application ", "  <!-- android_lib:google (tulpar-engine tools/android_google.py) -->\n  " + ust.replace("\n", "\n  ") + "\n  <application ", 1)
+    oyunlar = "PlayGamesInitProvider" in uyg   # oyunlar profili (play-services-games-v2 saglayicisi)
+    if oyunlar:
+        # Play Oyunlar: oyun kimligi (Play Console > Play Games Services > Yapilandirma) olmadan SDK baslamaz.
+        # Sayisal deger dogrudan android:value'ya yazilamaz (tamsayi olur): res/values dizgesi uzerinden.
+        if not re.fullmatch(r"[0-9]{6,20}", oyunlar_kimligi or ""):
+            raise SystemExit("HATA: oyunlar profili --oyunlar-kimligi <sayisal Play Oyunlar kimligi> ister")
+        uyg += '\n<meta-data android:name="com.google.android.gms.games.APP_ID" android:value="@string/tulpar_oyunlar_kimligi" />'
+        rv = os.path.join(stage, "res", "values")
+        os.makedirs(rv, exist_ok=True)
+        with open(os.path.join(rv, "tulpar_oyunlar.xml"), "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+                    f'  <string name="tulpar_oyunlar_kimligi" translatable="false">{oyunlar_kimligi}</string>\n</resources>\n')
     s = s.replace("  </application>", "    " + uyg.replace("\n", "\n    ") + "\n  </application>", 1)
     open(mf, "w", encoding="utf-8").write(s)
     hedef = os.path.join(stage, "android_lib")
@@ -319,19 +351,34 @@ def ekle(stage, paket):
     print(f"google paketi eklendi: {stage} (paket {pk}, hasCode=true)")
 
 
+def _secenek(arg, ad):
+    if ad in arg:
+        i = arg.index(ad)
+        if i + 1 >= len(arg):
+            raise SystemExit(f"HATA: {ad} deger ister")
+        v = arg[i + 1]
+        del arg[i:i + 2]
+        return v
+    return ""
+
+
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ("hazirla", "ekle", "kilitle"):
+    arg = sys.argv[1:]
+    profil = _secenek(arg, "--profil") or "giris"
+    kimlik = _secenek(arg, "--oyunlar-kimligi")
+    if not arg or arg[0] not in ("hazirla", "ekle", "kilitle") or profil not in PROFILLER:
         print(__doc__)
         return 2
-    varsayilan = os.path.join(KOK, "yapi", "tulpar-ext", "android", "google")
-    if sys.argv[1] == "kilitle":
-        kilitle()
-    elif sys.argv[1] == "hazirla":
-        hazirla(sys.argv[2] if len(sys.argv) > 2 else varsayilan)
+    pr = PROFILLER[profil]
+    varsayilan = os.path.join(KOK, "yapi", "tulpar-ext", "android", pr["cikti"])
+    if arg[0] == "kilitle":
+        kilitle(pr)
+    elif arg[0] == "hazirla":
+        hazirla(arg[1] if len(arg) > 1 else varsayilan, pr)
     else:
-        if len(sys.argv) < 3:
-            raise SystemExit("kullanim: android_google.py ekle STAGE [PAKET]")
-        ekle(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else varsayilan)
+        if len(arg) < 2:
+            raise SystemExit("kullanim: android_google.py ekle STAGE [PAKET] [--profil oyunlar --oyunlar-kimligi N]")
+        ekle(arg[1], arg[2] if len(arg) > 2 else varsayilan, kimlik)
     return 0
 
 
