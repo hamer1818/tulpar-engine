@@ -253,6 +253,66 @@ ENGINE_TEST(bridge_notify_desktop_and_host_paths) {
   CHECK(teng_error_count() == h0 + 4);
 }
 
+// --- Zamanli bildirim (teng_notify_at/_cancel/_due, KOPRU §15.1) ---------------------------------
+// Masaustu tablosu (test saati): kur -> kalan dogru; ayni id yerine gecer; suresi gelen silinir (-1, Android
+// alicisinin gosterip kaydi silmesiyle ayni); iptal tek/hepsi sayar. Sahte host: girdiler oldugu gibi gider,
+// host 0 derse (izin yok / sinif yok) 0 ve basarisiz +1. KONTROL: bos baslik, negatif id, 0 ve 30 gunu asan
+// gecikme HATA ve host'a ULASMAZ.
+namespace {
+int g_z_cagri = 0, g_z_id = -9, g_z_sn = -9, g_z_sonuc = 1, g_z_iptal = -9;
+char g_z_metin[128];
+int sahte_at(const char *t, const char *x, int id, int sn) {
+  g_z_cagri++;
+  g_z_id = id;
+  g_z_sn = sn;
+  std::snprintf(g_z_metin, sizeof g_z_metin, "%s/%s", t, x);
+  return g_z_sonuc;
+}
+int sahte_iptal(int id) { g_z_iptal = id; return id < 0 ? 3 : 1; }
+int sahte_kalan(int id) { return id == 5 ? 42 : -1; }
+} // namespace
+ENGINE_TEST(bridge_notify_scheduled_paths) {
+  const int k0 = teng_notify_stat(4), i0 = teng_notify_stat(5), f0 = teng_notify_stat(1), h0 = teng_error_count();
+  teng_notify_cancel(-1);
+  const int i1 = teng_notify_stat(5);
+  bridge::bridge_notify_test_clock(1000000);
+  CHECK(teng_notify_at("Insaat bitti", "Kışla Sv. 3", 102, 600) == 1);
+  CHECK(teng_notify_at("Egitim bitti", "", 301, 60) == 1);
+  CHECK(teng_notify_due(102) == 600 && teng_notify_due(301) == 60 && teng_notify_due(7) == -1);
+  CHECK(teng_notify_stat(4) == k0 + 2);
+  // ayni id yerine gecer (tek kayit, yeni sure)
+  CHECK(teng_notify_at("Insaat bitti", "Kışla Sv. 4", 102, 900) == 1 && teng_notify_due(102) == 900);
+  // saat ilerler: 301'in suresi gelir -> silinir; 102 kalir
+  bridge::bridge_notify_test_clock(1000000 + 61);
+  CHECK(teng_notify_due(301) == -1 && teng_notify_due(102) == 839);
+  CHECK(teng_notify_cancel(301) == 0); // zaten gosterildi
+  CHECK(teng_notify_at("Rapor", "x", 1, 30) == 1);
+  CHECK(teng_notify_cancel(102) == 1 && teng_notify_due(102) == -1 && teng_notify_due(1) == 30);
+  CHECK(teng_notify_cancel(-1) == 1 && teng_notify_due(1) == -1);
+  CHECK(teng_notify_stat(5) == i1 + 2);
+  CHECK(teng_error_count() == h0);
+  // KONTROL: gecersiz girdi HATA, kurulmaz
+  CHECK(teng_notify_at("", "x", 2, 10) == 0);
+  CHECK(teng_notify_at("B", "x", -1, 10) == 0);
+  CHECK(teng_notify_at("B", "x", 2, 0) == 0);
+  CHECK(teng_notify_at("B", "x", 2, 30 * 86400 + 1) == 0);
+  CHECK(teng_notify_due(2) == -1 && teng_notify_due(-3) == -1);
+  CHECK(teng_notify_stat(1) == f0 + 4 && teng_error_count() == h0 + 5);
+  // Sahte host (Android yolu): girdiler iletilir; host 0 -> 0 + basarisiz
+  bridge::bridge_notify_sched_host(sahte_at, sahte_iptal, sahte_kalan);
+  CHECK(teng_notify_at("Araştırma bitti", "Demircilik", 4, 3600) == 1);
+  CHECK(g_z_cagri == 1 && g_z_id == 4 && g_z_sn == 3600 && std::strcmp(g_z_metin, "Araştırma bitti/Demircilik") == 0);
+  g_z_sonuc = 0;
+  CHECK(teng_notify_at("X", "y", 4, 10) == 0 && teng_notify_stat(1) == f0 + 5);
+  CHECK(teng_notify_at("X", "y", 4, 0) == 0 && g_z_cagri == 2); // gecersiz gecikme host'a ulasmadi
+  CHECK(teng_notify_due(5) == 42 && teng_notify_due(6) == -1);
+  CHECK(teng_notify_cancel(-1) == 3 && g_z_iptal == -1);
+  CHECK(teng_notify_stat(4) == k0 + 5 && teng_notify_stat(5) == i1 + 5);
+  bridge::bridge_notify_sched_host(nullptr, nullptr, nullptr);
+  bridge::bridge_notify_test_clock(0);
+  CHECK(teng_notify_stat(5) >= i0);
+}
+
 // --- Baglanti ac (teng_open_url) -----------------------------------------------------------------
 // Masaustu: tarayici acilmaz, 0. Sahte host: http(s) iletilir. KONTROL: intent:/javascript:/file:, kontrol
 // karakterli ve bos adres HATA ve host'a ULASMAZ.

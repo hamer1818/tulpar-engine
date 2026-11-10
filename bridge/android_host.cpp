@@ -552,6 +552,89 @@ bool android_notify(const char *title, const char *text, int id) {
   std::printf("[engine_bridge] android: bildirim #%d %s\n", id, ok ? "gonderildi" : "GONDERILEMEDI (JNI)");
   return ok;
 }
+// --- Zamanli bildirim (teng_notify_at/_cancel/_due, KOPRU §15.1) -------------------
+// Surec olse de gelen bildirim: Java alicisi dev.tulparlang.engine.ZamanliBildirim (AlarmManager +
+// SharedPreferences; yeniden baslatmada BOOT_COMPLETED ile yeniden kurulur). Sinif APK'ya motorun Java
+// paketiyle girer (tools/android_google.py); yoksa at 0 ("bu APK'da yok"), oyun surecteki teng_notify ile
+// yetinir. FindClass yerel is parcacigindan uygulama siniflarini GORMEZ: etkinligin sinif yukleyicisi.
+jclass g_zamanli_sinif = nullptr;
+bool g_zamanli_yok = false;
+jclass zamanli_sinif(JNIEnv *e, JniScope &j) {
+  if (g_zamanli_sinif || g_zamanli_yok) return g_zamanli_sinif;
+  jobject act = g_share_app->activity->clazz;
+  jmethodID gcl = e->GetMethodID(e->GetObjectClass(act), "getClassLoader", "()Ljava/lang/ClassLoader;");
+  jobject cl = gcl && j.ok() ? e->CallObjectMethod(act, gcl) : nullptr;
+  jclass clc = cl && j.ok() ? e->FindClass("java/lang/ClassLoader") : nullptr;
+  jmethodID load = clc && j.ok() ? e->GetMethodID(clc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;") : nullptr;
+  jobject c = load && j.ok() ? e->CallObjectMethod(cl, load, e->NewStringUTF("dev.tulparlang.engine.ZamanliBildirim")) : nullptr;
+  if (!c || !j.ok()) {
+    g_zamanli_yok = true;
+    std::printf("[engine_bridge] android: zamanli bildirim YOK (dev.tulparlang.engine.ZamanliBildirim bu APK'da degil — tools/android_google.py)\n");
+    return nullptr;
+  }
+  g_zamanli_sinif = (jclass)e->NewGlobalRef(c);
+  return g_zamanli_sinif;
+}
+int android_notify_at(const char *title, const char *text, int id, int delay_s) {
+  if (!g_share_app) return 0;
+  if (!android_notify_permission(false)) {
+    std::printf("[engine_bridge] android: zamanli bildirim #%d KURULMADI — izin yok\n", id);
+    return 0;
+  }
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return 0;
+  if (e->PushLocalFrame(16) != 0) { j.ok(); return 0; }
+  int r = 0;
+  jclass c = zamanli_sinif(e, j);
+  jmethodID m = c ? e->GetStaticMethodID(c, "kur", "(Landroid/content/Context;IJLjava/lang/String;Ljava/lang/String;)I") : nullptr;
+  if (m && j.ok()) {
+    r = e->CallStaticIntMethod(c, m, g_share_app->activity->clazz, (jint)id, (jlong)delay_s * 1000,
+                               e->NewStringUTF(title), e->NewStringUTF(text ? text : ""));
+    if (!j.ok()) r = 0;
+  } else {
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  std::printf("[engine_bridge] android: zamanli bildirim #%d %d sn sonra %s\n", id, delay_s, r == 1 ? "kuruldu" : "KURULAMADI");
+  return r;
+}
+int android_notify_cancel(int id) {
+  if (!g_share_app) return -1;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return -1;
+  if (e->PushLocalFrame(8) != 0) { j.ok(); return -1; }
+  int r = 0; // sinif yoksa iptal edilecek kayit da yok
+  jclass c = zamanli_sinif(e, j);
+  jmethodID m = c ? e->GetStaticMethodID(c, "iptal", "(Landroid/content/Context;I)I") : nullptr;
+  if (m && j.ok()) {
+    r = e->CallStaticIntMethod(c, m, g_share_app->activity->clazz, (jint)id);
+    if (!j.ok()) r = -1;
+  } else {
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  return r;
+}
+int android_notify_due(int id) {
+  if (!g_share_app) return -1;
+  JniScope j(g_share_app);
+  JNIEnv *e = j.env;
+  if (!e) return -1;
+  if (e->PushLocalFrame(8) != 0) { j.ok(); return -1; }
+  long long ms = -1;
+  jclass c = zamanli_sinif(e, j);
+  jmethodID m = c ? e->GetStaticMethodID(c, "kalan", "(Landroid/content/Context;I)J") : nullptr;
+  if (m && j.ok()) {
+    ms = e->CallStaticLongMethod(c, m, g_share_app->activity->clazz, (jint)id);
+    if (!j.ok()) ms = -1;
+  } else {
+    j.ok();
+  }
+  e->PopLocalFrame(nullptr);
+  return ms < 0 ? -1 : (int)((ms + 999) / 1000);
+}
 // --- Baglanti ac (teng_open_url, WoE 2026-11-09) ---------------------------------
 // Intent(ACTION_VIEW, Uri.parse(url)) -> sistem tarayicisi (ya da o baglantiyi tutan uygulama).
 // Sema denetimi kopruda (yalniz http/https). Tarayici yoksa ActivityNotFoundException -> false.
@@ -969,6 +1052,7 @@ extern "C" void android_main(android_app *app) {
   }
   bridge::bridge_net_host(android_wifi_lock); // teng_net_wifi_lock: MulticastLock (g_share_app ile ayni Activity)
   bridge::bridge_notify_host(android_notify, android_notify_permission); // teng_notify (WoE M6)
+  bridge::bridge_notify_sched_host(android_notify_at, android_notify_cancel, android_notify_due); // teng_notify_at (§15.1)
   bridge::bridge_url_host(android_open_url);                              // teng_open_url
   bridge::bridge_google_host(android_google_start, android_google_poll, android_google_reset); // teng_google_*
   char lv[PROP_VALUE_MAX] = {0};

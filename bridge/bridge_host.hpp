@@ -73,6 +73,14 @@ void bridge_net_host(bool (*wifi_lock)(bool on));
 // Yerel bildirim (teng_notify, WoE M6): Android host bildirim cubuguna yazma + izin (POST_NOTIFICATIONS)
 // yolunu verir. Masaustu cagirmaz: teng_notify bilgi satiri yazar, sayar ve 1 doner. nullptr: kapat (testler).
 void bridge_notify_host(bool (*post)(const char *title, const char *text, int id), int (*permission)(bool request));
+// Zamanli bildirim (teng_notify_at/_cancel/_due, KOPRU §15.1): Android host AlarmManager yolunu verir (Java
+// sinifi dev.tulparlang.engine.ZamanliBildirim; APK'da yoksa at 0). Masaustu vermez: motor kendi tablosunda
+// tutar (bildirim cubugu yok; penceresiz dogrulama icin). nullptr: kapat (testler).
+// at: 1 kuruldu / 0 hata; cancel: id < 0 hepsi, iptal edilen sayi (-1 hata); due: kalan sn, yoksa -1.
+void bridge_notify_sched_host(int (*at)(const char *title, const char *text, int id, int delay_s),
+                              int (*cancel)(int id), int (*due)(int id));
+// Testler: masaustu zamanli tablosunun saati (duvar sn). 0 = gercek saat.
+void bridge_notify_test_clock(long long now_s);
 
 // Baglanti ac (teng_open_url): Android host Intent(ACTION_VIEW) yolunu verir. Masaustu vermez: teng_open_url
 // bilgi satiri yazar ve 0 doner (oyun adresi ekranda gosterir). nullptr: kapat (testler).

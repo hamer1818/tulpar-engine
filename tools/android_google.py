@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16).
+"""Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
 
 NativeActivity oyunlarinin Java'si/Gradle'i yok. Bu arac Google'in hesap secicisini (Credential Manager:
 androidx.credentials + play-services-auth + googleid) Gradle'siz APK'ya sokar:
@@ -8,6 +8,7 @@ androidx.credentials + play-services-auth + googleid) Gradle'siz APK'ya sokar:
         Maven'dan kilitli surumleri indirir (tools/android_google.kilit: ad + sha256; onbellek
         ~/.cache/tulpar-engine/maven), platform/android/java/**.java'yi derler, R8 ile kucultur ->
         classes.dex; kutuphane kaynaklarini aapt2 ile derler (res/*.zip), manifest parcalarini birlestirir.
+        Motorun kendi Java bilesenleri de buradan girer: ZamanliBildirim alicisi (KOPRU §15.1, MOTOR_*).
     tools/android_google.py ekle STAGE [PAKET]   # `tulpar build --target=android` staging dizinine
         manifest: hasCode="true" + kutuphane etkinlikleri/saglayicilari/izinleri; STAGE/android_lib/
         (classes.dex, res/*.zip, paketler.txt). TulparLang android/package_apk.sh android_lib'i gorunce
@@ -35,6 +36,13 @@ DISLA = {"org.jetbrains.kotlin:kotlin-stdlib-jdk7", "org.jetbrains.kotlin:kotlin
 # Oyun parmak izi/biyometri kullanmaz: biometric kutuphanesinin izinleri manifeste YAZILMAZ (Play
 # listesinde "parmak izi" gorunmesin). Kod yolu biyometri istemez (yalniz Google kimligi).
 IZIN_DISLA = {"android.permission.USE_BIOMETRIC", "android.permission.USE_FINGERPRINT"}
+# Motorun kendi Java bilesenleri (Maven kutuphanesi degil): zamanli bildirim alicisi (KOPRU §15.1). Disa acik
+# degil; AlarmManager PendingIntent'i ve sistemin BOOT_COMPLETED yayini (system uid) yine ulasir. Yeniden
+# baslatmada alarmlar silindigi icin alici kayitlari SharedPreferences'tan yeniden kurar.
+MOTOR_UST = ['<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />']
+MOTOR_UYGULAMA = ['<receiver android:name="dev.tulparlang.engine.ZamanliBildirim" android:exported="false">'
+                  '<intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" />'
+                  '<action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter></receiver>']
 A = "{http://schemas.android.com/apk/res/android}"
 NS = "{http://maven.apache.org/POM/4.0.0}"
 
@@ -194,6 +202,8 @@ def hazirla(cikti):
                 paketler.append(pk)
         # R siniflari (kutuphane olarak; gecici kimlikler): tum kaynaklarla sahte bir uygulama bagla
         ust, uyg = _manifest_parcalari(aarlar)
+        ust += MOTOR_UST
+        uyg += MOTOR_UYGULAMA
         sahte = os.path.join(is_, "sahte.xml")
         with open(sahte, "w") as f:
             f.write('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.tulparlang.googlegecici">'
@@ -247,6 +257,7 @@ def hazirla(cikti):
         pro = os.path.join(is_, "motor.pro")
         with open(pro, "w") as f:
             f.write("-keep class dev.tulparlang.engine.GoogleGiris { public static *; }\n"
+                    "-keep class dev.tulparlang.engine.ZamanliBildirim { public *; }\n"
                     "-dontobfuscate\n-ignorewarnings\n-dontwarn **\n"
                     "-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n")
         dexd = os.path.join(is_, "dex")

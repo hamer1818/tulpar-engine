@@ -1528,16 +1528,16 @@ iken durum farki).
 |---|---|---|
 | `teng_notify(baslik, metin, id)` | `bildirim_gonder` / `notify` | Android: `Notification.Builder` + `NotificationManager.notify`; kanal `tulpar_oyun` (API 26+, IMPORTANCE_DEFAULT); kucuk simge uygulama simgesi (yoksa `android.R.drawable.ic_dialog_info`); dokununca uygulama acilir (`getLaunchIntentForPackage`, `PendingIntent.FLAG_IMMUTABLE`). Ayni `id` oncekinin yerine gecer. Bos baslik / `id < 0` HATA. Izin yoksa **gondermeden** 0 (Android izinsiz `notify`'i sessizce yutar; yanlis "gonderildi" olmasin diye once izin bakilir). Masaustu: bilgi satiri + sayac, 1. |
 | `teng_notify_permission(sor)` | `bildirim_izni` / `notify_permission` | 1 = izin var (API 33+ `checkSelfPermission(POST_NOTIFICATIONS)` ve `areNotificationsEnabled`). `sor=1` ve izin yoksa `Activity.requestPermissions` (oyun thread'inden; sonuc asenkron, oyun sonra yeniden bakar). Masaustu 1. |
-| `teng_notify_stat(0..3)` | `bildirim_sayac` | 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi. |
+| `teng_notify_stat(0..5)` | `bildirim_sayac` | 0 gonderilen, 1 basarisiz, 2 izin sorgusu, 3 izin istegi (4/5 zamanli: §15.1). |
 | `teng_notify_last()` | `bildirim_son` | Son gonderilenin `baslik|metin` ozeti (penceresiz dogrulama). |
 
 Manifest izni derleyiciden: `tulpar.toml [android] bildirim = true` ya da `TULPAR_ANDROID_BILDIRIM=1` (TulparLang
 `dil/kacis-duzeltmeleri`, PR #496; varsayilan kapali). Host yolu `bridge_notify_host(post, permission)`
 (`bridge/bridge_host.hpp`); testler sahte host verir.
 
-Sinirlar: **uzak (push) bildirim degil** — surec oldurulmusse gelmez (FCM, Gradle + Google hesabi ister). Zamanli
-bildirim (AlarmManager) yok: NativeActivity paketinde BroadcastReceiver sinifi yok. Oyun arka plandayken kare
-dongusu `HostPoll::NoWindow` ile surdugu icin surec yasadikca olaylar yakalanir.
+Sinirlar: **uzak (push) bildirim degil** (FCM, Gradle + Google hesabi ister): sunucuda olup istemcinin bilmedigi
+olay (gelen saldiri) bildirilemez. Oyun arka plandayken kare dongusu `HostPoll::NoWindow` ile surdugu icin surec
+yasadikca olaylar yakalanir; surec olurse zamani BILINEN olaylar icin §15.1.
 
 Olculen: `tests/test_bridge_net.cpp bridge_notify_desktop_and_host_paths` (masaustu yolu, sahte host izin var/yok,
 gecersiz girdi host'a ulasmaz). Cihaz (emulator API 37, oyun deposu `tools/android_dene.sh`): otopilot turunda 3
@@ -1545,6 +1545,40 @@ bildirim `dumpsys notification`'da (Insaat bitti / Egitim bitti / Savas raporu g
 `BILDIRIM_IZIN=0` (izin geri alinir) -> 0 bildirim, kapi KIRMIZI, log "bildirim GOSTERILMEDI — izin yok". Izin
 istegi oyun thread'inden sistem penceresini acti ("Allow Warlords of Era to send you notifications?"), "Allow"
 sonrasi `granted=true`.
+
+### 15.1 Zamanli bildirim (WoE, 2026-11-10)
+
+Insaat, egitim, sefer varisi gibi olaylarin bitis zamani istemcide bellidir. Oyun arka plana gecince bunlari
+sisteme birakir; surec oldurulse de (oyuncu son uygulamalardan kaydirdi, sistem bellek icin oldurdu) bildirim gelir.
+
+| ABI | Tulpar | Davranis |
+|---|---|---|
+| `teng_notify_at(baslik, metin, id, sn)` | `bildirim_zamanla` / `notify_at` | `sn` saniye sonra (1..2592000) bildirim. Ayni `id` oncekinin yerine gecer. Bildirim kimligi de `id`: oyun ayni olay icin `teng_notify`'da ayni kimligi kullanirsa (surec yasiyorsa once o yazar) cift bildirim olmaz. Bos baslik / `id < 0` / gecersiz `sn` HATA, host'a ulasmaz. Izin yoksa ya da APK'da alici yoksa 0. |
+| `teng_notify_cancel(id)` | `bildirim_iptal` / `notify_cancel` | Iptal; `id < 0` hepsi. Doner: iptal edilen kayit sayisi. |
+| `teng_notify_due(id)` | `bildirim_kalan` / `notify_due` | Kalan saniye; kayit yoksa (kurulmadi, gosterildi, iptal) -1. |
+| `teng_notify_stat(4/5)` | `bildirim_sayac` | 4 kurulan zamanli, 5 iptal edilen. |
+
+**Android:** Java alicisi `dev.tulparlang.engine.ZamanliBildirim` (`platform/android/java/`). `kur` kaydi
+SharedPreferences'a (`tulpar_zamanli`) yazar ve `AlarmManager.setAndAllowWhileIdle(RTC_WAKEUP)` kurar. Bu alarm
+kesin degildir: `SCHEDULE_EXACT_ALARM` izni istemez, Doze'da birkac dakika kayabilir. Suresi gelince sistem aliciyi
+(gerekirse sureci yeni baslatip) uyandirir. Alici bildirimi `teng_notify` ile ayni kanal, simge ve "dokununca ac"
+niyetiyle kendisi kurar, kaydi siler; Tulpar kodu kosmaz. Yeniden baslatma alarmlari siler: alici
+`BOOT_COMPLETED` / `MY_PACKAGE_REPLACED`'de kayitlari yeniden kurar, suresi gecmisleri hemen gosterir. Alici disa
+acik degil (`exported=false`); PendingIntent ve sistem yayini (system uid) yine ulasir. Sinif ve manifest
+parcalari (alici + `RECEIVE_BOOT_COMPLETED`) APK'ya motorun Java paketiyle girer (`tools/android_google.py`,
+`MOTOR_*`). Paket yoksa `teng_notify_at` 0 doner, oyun surecteki `teng_notify` ile yetinir. Kopru sinifi
+etkinligin sinif yukleyicisinden bulur (§16 ile ayni).
+
+**Masaustu:** bildirim cubugu yok. Motor kendi tablosunda (64 kayit) tutar; suresi gelen kayit bilgi satiri
+yazilip silinir. Boylece `teng_notify_due` Android'deki gibi -1'e doner ve oyun ayni kodla penceresiz dogrulanir.
+Host yolu `bridge_notify_sched_host(at, cancel, due)`; testler icin `bridge_notify_test_clock(sn)`.
+
+Olculen: `tests/test_bridge_net.cpp bridge_notify_scheduled_paths`. Kapsam: masaustu tablosu test saatiyle (kur,
+yerine gecme, suresi gelince silinme, tek/hepsi iptal), sahte host, gecersiz girdinin host'a ulasmamasi.
+Cihazda (emulator API 37, 2026-11-10; oyun deposu `tools/android_dene.sh`):
+- Oyun #999'u 30 sn sonraya kurdu, betik `am kill` ile sureci oldurdu (`pidof` bos), bildirim 53 sn sonra geldi.
+- POZITIF KONTROL `ZAMANLI=-30` (kurulup hemen iptal): gelmedi, kapi KIRMIZI.
+- Yeniden baslatma: 150 sn'lik kayit, emulator `adb reboot` ile 66. sn'de yeniden basladi, bildirim 208. sn'de geldi.
 
 **Baglanti ac** (`teng_open_url(url)` / Tulpar `baglanti_ac`, `teng_open_url_stat`): Android'de
 `Intent(ACTION_VIEW, Uri.parse(url))` ile sistem tarayicisi. Yalniz `http://` ve `https://`, kontrol karakteri yok,
