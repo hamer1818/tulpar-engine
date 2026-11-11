@@ -6958,7 +6958,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   }
                   if (ob_bagli) {
                     ImGui::TextColored(ok_r, ICON_MD_LINK " Oyuna ba\xC4\x9Fl\xC4\xB1");
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Kaydet ve Oynat betikleri oyuna kendili\xC4\x9F" "inden ba\xC4\x9Flar (assets/betikler.tpr).");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Kaydet ve Oynat betikleri oyuna kendili\xC4\x9F" "inden ba\xC4\x9Flar.");
                   }
                   else {
                     ImGui::TextColored(uyar, ICON_MD_LINK_OFF " Oyuna ba\xC4\x9Fl\xC4\xB1 de\xC4\x9Fil");

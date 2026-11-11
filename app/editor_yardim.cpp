@@ -39,7 +39,7 @@ const Sayfa kSayfalar[] = {
      "\xC4\xB0lk beti\xC4\x9Finiz:\n"
      "1. Nesneyi se\xC3\xA7in; \xC3\x96zellikler panelinde \"Davran\xC4\xB1\xC5\x9F ekle (betik)\" d\xC3\xBC\xC4\x9Fmesine bas\xC4\xB1n.\n"
      "2. Bir ad yaz\xC4\xB1n, haz\xC4\xB1r bir davran\xC4\xB1\xC5\x9F se\xC3\xA7in (ok tu\xC5\x9Flar\xC4\xB1yla hareket, bo\xC5\x9Flukla z\xC4\xB1pla, dokununca yok ol) ya da Bo\xC5\x9F.\n"
-     "3. Olu\xC5\x9Ftur: dosya assets/betikler i\xC3\xA7ine yaz\xC4\xB1l\xC4\xB1r, nesneye eklenir ve Kod panelinde a\xC3\xA7\xC4\xB1l\xC4\xB1r.\n"
+     "3. Olu\xC5\x9Ftur: dosya projenin betikler klas\xC3\xB6r\xC3\xBC" "ne yaz\xC4\xB1l\xC4\xB1r, nesneye eklenir ve Kod panelinde a\xC3\xA7\xC4\xB1l\xC4\xB1r.\n"
      "4. F5 ile oynat\xC4\xB1n. Betikler oyuna kendili\xC4\x9Finden ba\xC4\x9Flan\xC4\xB1r; ba\xC5\x9Fka bir yere bir \xC5\x9F" "ey yazman\xC4\xB1z gerekmez.\n"
      "\n"
      "Ne zaman \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r? \xC4\xB0\xC5\x9Flevin ad\xC4\xB1 s\xC3\xB6yler: beti\xC4\x9Fin ad\xC4\xB1 + olay. zipla.tpr i\xC3\xA7in:\n"
