@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/editor_tercih.hpp"
 #include "app/editor_yardim.hpp"
 #include "platform/fs_ops.hpp"
 
@@ -58,4 +59,30 @@ ENGINE_TEST(yardim_oturum_isareti_cokmeyi_yakalar) {
   CHECK(!yardim_oturum_baslat(kok, rapor, sizeof rapor));
   yardim_oturum_bitir(kok);
   platform::fs_remove_tree(kok);
+}
+
+// U11 B1: tercih dosyasi. Gidis-donus ayni; gecersiz deger en yakin gecerliye cekilir ve SESSIZ degil (false);
+// bilinmeyen anahtar ve yorum atlanir (eski/yeni editor ayni dosyayi okuyabilsin). KONTROL: bos metin varsayilan.
+ENGINE_TEST(tercih_dosyasi_gidis_donus_with_control) {
+  Tercihler t;
+  t.yazi = 130;
+  t.oto_kayit_dk = 5;
+  char m[256];
+  CHECK(tercih_metni(t, m, sizeof m) > 0);
+  Tercihler u;
+  CHECK(tercih_ayristir(m, &u) && u.yazi == 130 && u.oto_kayit_dk == 5);
+  Tercihler v;
+  CHECK(!tercih_ayristir("yazi = 120\noto_kayit_dk = 3\nbilinmeyen = 7\n# yorum = 1\n", &v));
+  CHECK(v.yazi == 115 && v.oto_kayit_dk == 2); // 120 -> 115 (en yakin), 3 -> 2
+  Tercihler k;
+  CHECK(tercih_ayristir("", &k) && k.yazi == 100 && k.oto_kayit_dk == 0);
+  // Dosya yolu: yazilan okunur; olmayan dosya varsayilan + false.
+  char kok[512], yol[700];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "tercih"));
+  std::snprintf(yol, sizeof yol, "%s/tercihler.txt", kok);
+  CHECK(tercih_yaz(yol, t));
+  Tercihler w;
+  CHECK(tercih_oku(yol, &w) && w.yazi == 130 && w.oto_kayit_dk == 5);
+  std::snprintf(yol, sizeof yol, "%s/yok.txt", kok);
+  CHECK(!tercih_oku(yol, &w) && w.yazi == 100);
 }

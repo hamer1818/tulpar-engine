@@ -42,6 +42,7 @@ constexpr Chord kKeyEscape = (Chord)ImGuiKey_Escape;
 constexpr Chord kKeyX = (Chord)ImGuiKey_X;
 constexpr Chord kKeyC = (Chord)ImGuiKey_C;
 constexpr Chord kKeyV = (Chord)ImGuiKey_V;
+constexpr Chord kKeyComma = (Chord)ImGuiKey_Comma;
 constexpr Chord kKeyF5 = (Chord)ImGuiKey_F5;
 constexpr Chord kKeyF6 = (Chord)ImGuiKey_F6;
 constexpr Chord kKeyF10 = (Chord)ImGuiKey_F10;
@@ -95,6 +96,8 @@ constexpr CommandDesc k_defaults[] = {
      "Se\xC3\xA7ili varl\xC4\xB1klar\xC4\xB1 panoya kopyalar"},
     {CommandId::EditPaste, CommandCategory::Edit, kCmdUndoable, chord_of(kModCtrl, kKeyV), kChordNone, "duzen.yapistir", "Yap\xC4\xB1\xC5\x9Ft\xC4\xB1r",
      "Panodaki varl\xC4\xB1klar\xC4\xB1 sahneye ekler (tek geri al)"},
+    {CommandId::EditPreferences, CommandCategory::Edit, kCmdNone, chord_of(kModCtrl, kKeyComma), kChordNone, "duzen.tercihler",
+     "Tercihler\xE2\x80\xA6", "Yaz\xC4\xB1 boyutu, Basit/Geli\xC5\x9Fmi\xC5\x9F kip, otomatik kay\xC4\xB1t, g\xC3\xBCncelleme, panel d\xC3\xBCzeni"},
     {CommandId::SelectAll, CommandCategory::Select, kCmdNone, chord_of(kModCtrl, kKeyA), kChordNone, "secim.tumu", "T\xC3\xBCm\xC3\xBCn\xC3\xBC se\xC3\xA7",
      "Sahnedeki b\xC3\xBCt\xC3\xBCn varl\xC4\xB1klar\xC4\xB1 se\xC3\xA7" "er"},
     {CommandId::SelectClear, CommandCategory::Select, kCmdNeedsSelection, kKeyEscape, kChordNone, "secim.temizle", "Se\xC3\xA7imi temizle",
@@ -110,6 +113,8 @@ constexpr CommandDesc k_defaults[] = {
     // metin yazarken tetiklenmez.
     {CommandId::ViewFullscreen, CommandCategory::View, kCmdCheckable, kKeyF11, kChordNone, "gorunum.tam_ekran",
      "Tam ekran", "Pencereyi tam ekrana al\xC4\xB1r (F11 ile geri d\xC3\xB6ner)"},
+    {CommandId::ViewResetLayout, CommandCategory::View, kCmdNone, kChordNone, kChordNone, "gorunum.duzeni_sifirla",
+     "D\xC3\xBCzeni s\xC4\xB1" "f\xC4\xB1rla", "Panelleri ilk a\xC3\xA7\xC4\xB1l\xC4\xB1\xC5\x9Ftaki yerlerine d\xC3\xB6nd\xC3\xBCr\xC3\xBCr"},
     {CommandId::GizmoTranslate, CommandCategory::Gizmo, kCmdCheckable, kKeyT, kChordNone, "gizmo.tasi", "Ta\xC5\x9F\xC4\xB1",
      "Se\xC3\xA7ili varl\xC4\xB1\xC4\x9F\xC4\xB1 oklarla ta\xC5\x9F\xC4\xB1"},
     {CommandId::GizmoRotate, CommandCategory::Gizmo, kCmdCheckable, kKeyR, kChordNone, "gizmo.dondur", "D\xC3\xB6nd\xC3\xBCr", "Se\xC3\xA7ili varl\xC4\xB1\xC4\x9F\xC4\xB1 halkalarla d\xC3\xB6nd\xC3\xBCr"},

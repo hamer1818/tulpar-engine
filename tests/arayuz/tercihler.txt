@@ -1,0 +1,17 @@
+# U11 B1 (tools/arayuz_kapi.sh): Duzen > Tercihler... -> yazi "Buyuk", otomatik kaydet "1 dk". Sonra sahne kirletilir
+# (kup eklenir); kapi TULPAR_EDITOR_OTO_KAYIT_SN=2 verir: dosyaya ELLE kaydetmeden yazilmali. POZITIF KONTROL:
+# kirletmeden hemen sonra (aralik dolmadan) durum "otomatik kaydedildi" DEGIL. Kapi tercihler.txt'yi okur.
+tikla "Düzen" pencere=MainMenuBar
+tikla "Tercihler…" pencere=Menu
+bekle_oge "###tercihler" sira=1
+tikla "Büyük##yazi2"
+tikla "1 dk##oto1"
+bekle 2
+ekran tercihler
+tikla "Kapat" pencere=tercihler
+dogrula_yok "###tercihler"
+tikla "+ Küp"
+bekle 2
+metin_yok "otomatik kaydedildi"
+dogrula_metin "otomatik kaydedildi" kare=600
+cik

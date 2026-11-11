@@ -1,0 +1,7 @@
+# U11 B1: ayni ayar diziniyle IKINCI acilis. Kapi bu kosumun yanitindaki menu ogesi boyunu ilk (varsayilan) kosumla
+# karsilastirir: "Buyuk" (%115) kalici olmali. Duzen sifirlama komutu Gorunum menusunde.
+ogeler pencere=MainMenuBar
+tikla "Görünüm" pencere=MainMenuBar
+tikla "Düzeni sıfırla" pencere=Menu
+dogrula_metin "panel düzeni sıfırlandı"
+cik

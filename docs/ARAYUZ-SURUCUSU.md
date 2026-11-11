@@ -99,6 +99,9 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     Ctrl+Z sahneyi geri almaz, Ctrl+S dosyaya yazar.
   - **`yeni_betik.txt` (U10 B4):** "Davranış ekle (betik)" → Boş → "Deneme Davranış" → oluşan
     `deneme_davranis.tpr` oyunda çalışır (`_baslat` logu).
+  - **`tercihler.txt` + `tercihler_kalici.txt` (U11 B1):** Düzen > Tercihler… → "Büyük" + otomatik kaydet; küp
+    eklenir ve `TULPAR_EDITOR_OTO_KAYIT_SN=2` ile elle kaydetmeden diske yazılır. İkinci açılışta menü öğesi
+    boyu büyümüş olmalı (kalıcı); Görünüm > Düzeni sıfırla. Kontrol: varsayılan ayarla ilk koşum.
   - **`karsilama.txt` (U11 A3):** karşılamada yalnız Türkçe ad + "Bilardo" kartı → Oluştur; proje bilardo
     şablonundan, İngilizce adı Türkçe ad. Kontrol: ad yazılmadan "Başlamak için oyununa bir ad ver." görünür.
   - **`sade_dil.txt` (U11 A1):** Basit kipte oynat → durdur; Konsol'da `[engine_bridge]`, `: GPU`, mutlak yol ve

@@ -70,12 +70,14 @@ enum class CommandId : uint16_t {
   EditCut,        // Ctrl+X
   EditCopy,       // Ctrl+C
   EditPaste,      // Ctrl+V (pano bossa etkin degil)
+  EditPreferences, // Ctrl+, (U11 B1: Tercihler penceresi)
   SelectAll,      // Ctrl+A
   SelectClear,    // Esc
   ViewGizmos,     // G
   ViewConsole,    // (kisayolsuz) Konsol panelini ac/kapa
   ViewFocus,      // F
   ViewFullscreen, // F11 (host desteklemiyorsa soluk)
+  ViewResetLayout, // (kisayolsuz) U11 B1: panel duzenini ilk acilistaki haline dondur
   GizmoTranslate, // T
   GizmoRotate,    // R
   GizmoScale,     // S

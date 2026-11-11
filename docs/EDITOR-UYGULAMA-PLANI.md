@@ -453,7 +453,7 @@ yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar 
 
 | # | ne | bulgu | durum |
 |---|---|---|---|
-| B1 | **Tercihler penceresi:** yazı boyu, tema, otomatik kayıt, Basit/Gelişmiş, dil; **Görünüm > Düzeni sıfırla** | Ayarlar penceresi yok (puan 4) | |
+| B1 | **Tercihler penceresi:** yazı boyu, tema, otomatik kayıt, Basit/Gelişmiş, dil; **Görünüm > Düzeni sıfırla** | Ayarlar penceresi yok (puan 4) | ✅ 2026-11-11: **Düzen > Tercihler… (Ctrl+,)** — yazı boyu %90/%100/%115/%130 (tüm arayüz ölçeği, `set_ui_scale`), Basit/Gelişmiş, otomatik kaydet (kapalı/1/2/5/10 dk; oynatırken, adsız sahnede ve Kod paneline yazarken kaydetmez), güncelleme denetimi, panel düzenini sıfırla. `tercihler.txt` (anahtar = değer; bilinmeyen atlanır, geçersiz değer en yakına). **Görünüm > Düzeni sıfırla** komut tablosunda (eskiden "⋮" menüsüne gömülüydü). Tema ve dil YOK: açık tema ayrı iş (C6), editörün İngilizce arayüzü yok. Kapılar: `tercih_dosyasi_gidis_donus_with_control`, `tests/arayuz/tercihler{,_kalici}.txt` (yazı boyu kalıcı: menü öğesi 22 → 26 px; küp elle kaydetmeden diske; kontrol: varsayılan boy + aralık dolmadan "otomatik kaydedildi" yok) |
 | B2 | **Sade "+" menüsü:** Basit'te az ve anlaşılır kategori, teknik adlar Gelişmiş'te ("Model (glTF)", "Çevre Hacimleri"); "Tulpar Betik Nesnesi" yeni adıyla; **Hızlı ekle** seçim varken de erişilir | 14 kategori; seçim varken hızlı ekle kayboluyor | |
 | B3 | **Okunur yeni nesne adları:** "Küp", "Küp 2" (Türkçe harfli, boşluklu) | `kup_6` | |
 | B4 | **Yeni projede "ilk adımlar" kartı:** ne oynanır, F5, ilk nesne, ilk davranış; şablonun kodda doğan oyuncu/parıltıları editörde işaretli ya da açıklanmış | Yeni proje boş kutu gibi | |
@@ -468,6 +468,7 @@ yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar 
 | C3 | 1280×720'de kesilen etiketler (Dünya: "Kamera gör…", araç çubuğu sağ ucu) + bu çözünürlük için UX kapısı | Kapı yalnız büyük çözünürlükte | |
 | C4 | Varsayılan ışık ve gökyüzü: yeni sahne düz görünmesin | | |
 | C5 | Seçim yokken Özellikler'de Dünya ayarlarının tekrarı yerine sahne özeti; gizmo görünürlük ayarları Görünüm'e | Aynı ayar iki yerde | |
+| C6 | **Açık tema** (Tercihler'de Tema seçeneği): palet `constexpr`, ~34 yerde elle `IM_COL32` — hepsi tona bağlanır, iki palet, ekran görüntüsü kapısı | B1'de işlevsiz seçenek göstermemek için ayrıldı | |
 
 ## 4. Sıra ve bağımlılık
 

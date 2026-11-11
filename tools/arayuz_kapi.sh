@@ -5,6 +5,8 @@
 #   gorunur (pozitif kontrol). tulpar yoksa ATLANDI.
 # tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
+# tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
+#   sifirla; kontrol: varsayilan boyla ilk kosum + aralik dolmadan "otomatik kaydedildi" yok.
 # tests/arayuz/karsilama.txt (U11 A3): sablon karti + Ingilizce ad bos -> Turkce ad; kontrol: ad yokken uyari satiri.
 # tests/arayuz/ana_betik.txt (U10 B7): Oynat > Ana betigi ac -> oyun.tpr Kod panelinde, "nesneye ekle" yok (kontrol:
 #   siradan betikte var).
@@ -76,6 +78,18 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
+TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
+cp -r "$KOK/tests/assets" "$TR/assets"
+TULPAR_EDITOR_AYAR_DIZINI="$TR/ayar0" kos tercihler_kalici.txt "$TR/ui0" --scene "$TR/assets/editor.sahne"; r0=$?  # kontrol: varsayilan boy
+TULPAR_EDITOR_AYAR_DIZINI="$TR/ayar" TULPAR_EDITOR_OTO_KAYIT_SN=2 kos tercihler.txt "$TR/ui1" --scene "$TR/assets/editor.sahne"; r1=$?
+TULPAR_EDITOR_AYAR_DIZINI="$TR/ayar" kos tercihler_kalici.txt "$TR/ui2" --scene "$TR/assets/editor.sahne"; r2=$?
+boy() { grep -m1 '^"Dosya" @' "$1" | sed -E 's/.* ([0-9]+)x([0-9]+)\).*/\2/'; }
+b0=$(boy "$TR/ui0/yanit.txt"); b2=$(boy "$TR/ui2/yanit.txt"); nk=$(grep -c '^nesne ' "$TR/assets/editor.sahne")
+if [ $r0 = 0 ] && [ $r1 = 0 ] && [ $r2 = 0 ] && grep -q '^yazi = 115$' "$TR/ayar/tercihler.txt" && grep -q '^oto_kayit_dk = 1$' "$TR/ayar/tercihler.txt" \
+   && [ "$nk" = 9 ] && [ -n "$b0" ] && [ -n "$b2" ] && [ "$b2" -gt "$b0" ]; then
+  echo "  tercihler: Buyuk + 1 dk yazildi, kup otomatik kaydedildi (9 varlik), menu boyu $b0 -> $b2 px (kalici), duzen sifirlandi"
+else echo "  KIRMIZI tercihler (cikis $r0/$r1/$r2, varlik $nk, boy $b0 -> $b2):"; grep -hE 'HATA|> ' "$TR"/ui*/yanit.txt 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 A3: karsilama formu (sablon karti, Ingilizce ad istege bagli; tulpar gerekmez) ---
 KR="$D/karsilama"; mkdir -p "$KR/ui"
 TULPAR_OYUNLAR_DIZINI="$KR/oyunlar" kos karsilama.txt "$KR/ui" --karsilama --kip basit; rkr=$?

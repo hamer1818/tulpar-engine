@@ -96,6 +96,7 @@
 #include "app/editor_betik.hpp"
 #include "app/editor_fabrika.hpp"
 #include "app/editor_masaustu.hpp"
+#include "app/editor_tercih.hpp"
 #include "app/editor_yardim.hpp"
 #include "platform/crash.hpp"
 #include "platform/fs.hpp"
@@ -723,6 +724,15 @@ void yol_takma_tazele(const EditorState &st) {
   const char *ev = std::getenv("HOME");
   if (!ev || !*ev) ev = std::getenv("USERPROFILE");
   console_set_path_alias(1, ev, "~");
+}
+
+// Basit / Gelismis kip (U5): uygula + kullanici ayar dizinine yaz. Gorunum menusu ve Tercihler AYNI yol.
+void editor_kip_kaydet(bool gel) {
+  editor_gelismis_ayarla(gel);
+  char kip_yol[1024];
+  if (editor_ayar_yolu(kip_yol, sizeof kip_yol, "kip", nullptr, nullptr)) {
+    if (std::FILE *kf = std::fopen(kip_yol, "wb")) { std::fputs(gel ? "gelismis\n" : "basit\n", kf); std::fclose(kf); }
+  }
 }
 
 void set_status(EditorState &st, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
@@ -1997,6 +2007,18 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Yardim (U8) + oturum isareti: onceki pencereli oturum temiz kapanmadiysa acilista bildirilir;
   // cokme raporlari <ayar>/cokme altina (platform/crash). Penceresizde ayar dizini gecici: atlanir.
   static YardimDurum yardim;
+  // U11 B1: Tercihler (yazi boyu = arayuz olcegi, otomatik kayit). Penceresiz kipte ayar dizini gecici: kapilar
+  // kullanicinin tercihini gormez.
+  static Tercihler tercih;
+  static TercihPencere tercih_p;
+  static char tercih_yol[1024] = {0};
+  static bool duzen_sifirla = false;
+  if (editor_ayar_yolu(tercih_yol, sizeof tercih_yol, "tercihler.txt", nullptr, nullptr)) {
+    tercih_oku(tercih_yol, &tercih);
+    std::snprintf(tercih_p.ayar_dizini, sizeof tercih_p.ayar_dizini, "%s", tercih_yol);
+    if (char *s = std::strrchr(tercih_p.ayar_dizini, '/')) *s = 0;
+  }
+  if (tercih.yazi != 100) ui.set_ui_scale((float)tercih.yazi / 100.0f);
   static char oturum_ayar[1024] = {0};
   if (!headless && platform::user_config_dir(oturum_ayar, sizeof oturum_ayar)) {
     yardim.cokme = yardim_oturum_baslat(oturum_ayar, yardim.cokme_rapor, sizeof yardim.cokme_rapor);
@@ -3739,6 +3761,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   cmds.bind(CommandId::HelpCheckUpdates, [](void *c) { update_ui_check(*static_cast<UpdateUi *>(c), true); }, &upd_ui);
   cmds.bind(CommandId::HelpAutoCheck, [](void *c) { update_ui_toggle_auto(*static_cast<UpdateUi *>(c)); }, &upd_ui, nullptr,
             [](const void *c) { return static_cast<const UpdateUi *>(c)->settings.auto_check; });
+  cmds.bind(CommandId::EditPreferences, [](void *c) { static_cast<TercihPencere *>(c)->acik = true; }, &tercih_p);
+  cmds.bind(CommandId::ViewResetLayout, [](void *c) { *static_cast<bool *>(c) = true; }, &duzen_sifirla);
   cmds.bind(CommandId::HelpAbout, [](void *c) { update_ui_open_about(*static_cast<UpdateUi *>(c)); }, &upd_ui);
   // Dosya menusune "Son dosyalar" alt menusu: komut tablosu KOMUT tasir, bu ise
   // bir veri listesi — chrome'un ek oge kancasindan geliyor.
@@ -3818,13 +3842,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     } else if (cat == CommandCategory::View) {
       // Basit / Gelismis kip (U5): tercih kullanici ayar dizinine yazilir.
       bool gel = editor_gelismis();
-      if (ImGui::MenuItem("Geli\xC5\x9Fmi\xC5\x9F kip (teknik \xC3\xB6l\xC3\xA7\xC3\xBCmler, g\xC3\xB6r\xC3\xBCn\xC3\xBCm kipleri)", nullptr, &gel)) {
-        editor_gelismis_ayarla(gel);
-        char kip_yol[1024];
-        if (editor_ayar_yolu(kip_yol, sizeof kip_yol, "kip", nullptr, nullptr)) {
-          if (std::FILE *kf = std::fopen(kip_yol, "wb")) { std::fputs(gel ? "gelismis\n" : "basit\n", kf); std::fclose(kf); }
-        }
-      }
+      if (ImGui::MenuItem("Geli\xC5\x9Fmi\xC5\x9F kip (teknik \xC3\xB6l\xC3\xA7\xC3\xBCmler, g\xC3\xB6r\xC3\xBCn\xC3\xBCm kipleri)", nullptr, &gel)) editor_kip_kaydet(gel);
       if (m->view_mode && editor_gelismis()) {
         if (ImGui::BeginMenu("G\xC3\xB6r\xC3\xBCnt\xC3\xBC kipi")) {
           if (ImGui::MenuItem("Ayd\xC4\xB1nlatmal\xC4\xB1 (Lit PBR)", nullptr, *m->view_mode == 0)) *m->view_mode = 0;
@@ -4401,7 +4419,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           layout_apply_default(layout_dockspace_id(), vp_main->WorkSize.x, vp_main->WorkSize.y);
           console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "varsay\xC4\xB1lan panel d\xC3\xBCzeni uyguland\xC4\xB1");
         }
-        if (ImGui::MenuItem("☀ Işık ve Gölge Gizmolarnı Göster", nullptr, st.gizmos.light_radius)) {
+        if (ImGui::MenuItem("☀ Işık ve Gölge Gizmolarını Göster", nullptr, st.gizmos.light_radius)) {
           st.gizmos.light_radius = !st.gizmos.light_radius;
           st.gizmos.light_glyph = st.gizmos.light_radius;
           st.gizmos.shadow_volume = st.gizmos.light_radius;
@@ -9328,6 +9346,39 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // ImGui yeni pencereyi ustte acar, yani acilista (cokme bildirimi) erkenden acilan pencere onun
       // ALTINDA kaliyordu (U8 kapisinin goruntusunde goruldu, 2026-11-06).
       if (frame_i >= 4) yardim_ciz(yardim, tablo, kCommandCount);
+      // U11 B1: Tercihler.
+      if (frame_i >= 4 && tercih_p.acik) {
+        bool gel = editor_gelismis();
+        const uint32_t te = tercih_ciz(tercih_p, tercih, &gel, cmds.checked(CommandId::HelpAutoCheck));
+        if (te & kTercihDegisti) {
+          ui.set_ui_scale((float)tercih.yazi / 100.0f);
+          if (tercih_yol[0] && !tercih_yaz(tercih_yol, tercih)) set_status(st, "tercihler kaydedilemedi: %s", tercih_yol);
+        }
+        if (te & kTercihKip) editor_kip_kaydet(gel);
+        if (te & kTercihDuzen) duzen_sifirla = true;
+        if (te & kTercihGuncelleme) cmds.invoke(CommandId::HelpAutoCheck);
+      }
+      if (duzen_sifirla) {
+        duzen_sifirla = false;
+        const ImGuiViewport *vm = ImGui::GetMainViewport();
+        if (layout_apply_default(layout_dockspace_id(), vm->WorkSize.x, vm->WorkSize.y)) set_status(st, "panel d\xC3\xBCzeni s\xC4\xB1" "f\xC4\xB1rland\xC4\xB1");
+        else set_status(st, "panel d\xC3\xBCzeni s\xC4\xB1" "f\xC4\xB1rlanamad\xC4\xB1: %s", layout_last_error());
+      }
+      // U11 B1: otomatik kayit — kirli, adli, oynatilmayan sahne; kod paneline yazilirken degil (odak kaybi yok).
+      {
+        static uint64_t oto_son_ns = 0;
+        const uint64_t simdi = platform::now_ns();
+        if (!st.dirty || !oto_son_ns) oto_son_ns = simdi; // sayac ILK kirlenmeden baslar
+        // TULPAR_EDITOR_OTO_KAYIT_SN: kapilar icin aralik (saniye) — yalniz verilince, tercih ACIKKEN.
+        static const char *oto_sn = std::getenv("TULPAR_EDITOR_OTO_KAYIT_SN");
+        const uint64_t aralik_ns = (oto_sn && *oto_sn) ? (uint64_t)std::atoi(oto_sn) * 1000000000ull
+                                                       : (uint64_t)tercih.oto_kayit_dk * 60ull * 1000000000ull;
+        if (tercih.oto_kayit_dk > 0 && st.dirty && st.scene_path[0] && !st.playing && !kod.yaziyor && simdi - oto_son_ns >= aralik_ns) {
+          do_save();
+          oto_son_ns = simdi;
+          if (!st.dirty) set_status(st, "otomatik kaydedildi: %s", st.scene_path);
+        }
+      }
       if (opts.yardim && frame_i == 8 && yardim.kisayollar)
         std::printf("[engine_editor] kisayollar: %u satir, tablo %u komut\n", yardim.son_kisayol_satiri, kCommandCount);
     }
