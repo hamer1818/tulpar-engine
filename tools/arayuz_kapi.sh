@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
+#   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
 # tests/arayuz/ana_betik.txt (U10 B7): Oynat > Ana betigi ac -> oyun.tpr Kod panelinde, "nesneye ekle" yok (kontrol:
 #   siradan betikte var).
 # tests/arayuz/betik_karti.txt (U10 B5): kart kancalari isaretler, bagli degil -> Bagla -> bagli; Kod panelinde
@@ -107,6 +109,29 @@ else
   ( kos hata_satiri.txt "$B/ui_hata" --scene "$B/hata/assets/arena.sahne" ); rh=$?
   ( kos yeni_betik.txt "$B/ui_yb" --scene "$B/yb/assets/arena.sahne" ); rb=$?
   oyun_kos "$B/yb" "$B/yb.log"
+  # --- U10 B4b: Dondur + Salla hazirlari oyunda GERCEKTEN hareket ettirir ---
+  mkdir -p "$B/ui_hz"
+  "$ED" --yeni-oyun "$B/hz" --kimlik hz --onek HZ --tr "Hazirlar" --en "Presets" > /dev/null 2>&1
+  ( kos hazirlar.txt "$B/ui_hz" --scene "$B/hz/assets/arena.sahne" ); rhz=$?
+  hb="$B/hz/assets/betikler"
+  # Olcum kancasi (_bitir; hazirlarda yok): donen duvarin eski ucuna isin, sallanan duvarin yuksekligi.
+  sonda() {
+    printf '\nfunc dondur_kapi_bitir(id) {\n    float d = isin(sahne_ilk_x(id) + 7.0, 6.0, sahne_ilk_z(id), 0.0, -1.0, 0.0, 20.0, 0);\n    if (d >= 0.0 && isin_sahne() == id) { logla("KAPI_DONDUR uc_dolu"); } else { logla("KAPI_DONDUR uc_bos"); }\n}\n' >> "$hb/dondur_kapi.tpr"
+    printf '\nfunc salla_kapi_bitir(id) {\n    float f = sahne_y(id) - sahne_ilk_y(id);\n    if (f * f > 0.0025) { logla("KAPI_SALLA oynadi"); } else { logla("KAPI_SALLA yerinde"); }\n}\n' >> "$hb/salla_kapi.tpr"
+  }
+  if [ $rhz = 0 ] && [ -f "$hb/dondur_kapi.tpr" ] && [ -f "$hb/salla_kapi.tpr" ]; then
+    sonda
+    oyun_kos "$B/hz" "$B/hz.log"
+    # Pozitif kontrol: hiz / yukseklik 0 -> ayni sonda "yerinde" demeli.
+    sed -i 's/^float dondur_kapi_HIZ = 90.0;/float dondur_kapi_HIZ = 0.0;/; ' "$hb/dondur_kapi.tpr"
+    sed -i 's/^float salla_kapi_YUKSEKLIK = 0.5;/float salla_kapi_YUKSEKLIK = 0.0;/' "$hb/salla_kapi.tpr"
+    oyun_kos "$B/hz" "$B/hz_pk.log"
+  fi
+  if [ $rhz = 0 ] && grep -q 'KAPI_DONDUR uc_bos' "$B/hz.log" && grep -q 'KAPI_SALLA oynadi' "$B/hz.log" && grep -q 'kapanis: .* hata 0,' "$B/hz.log" \
+     && grep -q 'KAPI_DONDUR uc_dolu' "$B/hz_pk.log" && grep -q 'KAPI_SALLA yerinde' "$B/hz_pk.log"; then
+    echo "  hazirlar: Dondur duvari cevirdi, Salla oynatti (hata 0); pozitif kontrol: hiz/yukseklik 0 -> ikisi de yerinde"
+  else echo "  KIRMIZI hazirlar (cikis $rhz):"; grep -E 'HATA|> ' "$B/ui_hz/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+    grep -hE 'KAPI_|hata:| hata [1-9]|kanca' "$B/hz.log" "$B/hz_pk.log" 2>/dev/null | head -6 | sed 's/^/      /'; kirmizi=1; fi
   if [ $rb = 0 ] && grep -q 'betik "betikler/deneme_davranis.tpr" etkin' "$B/yb/assets/arena.sahne" && grep -q 'deneme_davranis başladı: duvar_guney' "$B/yb.log"; then
     echo "  yeni betik: Davranis ekle -> Bos -> 'Deneme Davranis' -> deneme_davranis.tpr oyunda calisti"
   else echo "  KIRMIZI yeni betik (cikis $rb):"; grep -E 'HATA|> ' "$B/ui_yb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E 'hata:|kanca' "$B/yb.log" | head -2 | sed 's/^/      /'; kirmizi=1; fi

@@ -1135,12 +1135,13 @@ bool scene_save(Arena &scratch, const SceneDesc &d, const char *path, SceneError
   return ok;
 }
 
-Quat scene_entity_rotation(const SceneEntity &e) {
-  const Quat qx = Quat::axis_angle({1, 0, 0}, e.rot_deg.x * kDeg2Rad);
-  const Quat qy = Quat::axis_angle({0, 1, 0}, e.rot_deg.y * kDeg2Rad);
-  const Quat qz = Quat::axis_angle({0, 0, 1}, e.rot_deg.z * kDeg2Rad);
+Quat scene_euler_deg_quat(Vec3 deg) {
+  const Quat qx = Quat::axis_angle({1, 0, 0}, deg.x * kDeg2Rad);
+  const Quat qy = Quat::axis_angle({0, 1, 0}, deg.y * kDeg2Rad);
+  const Quat qz = Quat::axis_angle({0, 0, 1}, deg.z * kDeg2Rad);
   return normalize(qz * qy * qx);
 }
+Quat scene_entity_rotation(const SceneEntity &e) { return scene_euler_deg_quat(e.rot_deg); }
 Mat4 scene_entity_matrix(const SceneEntity &e) {
   return Mat4::translate(e.pos) * Mat4::rotate({0, 0, 1}, e.rot_deg.z * kDeg2Rad) * Mat4::rotate({0, 1, 0}, e.rot_deg.y * kDeg2Rad) *
          Mat4::rotate({1, 0, 0}, e.rot_deg.x * kDeg2Rad) * Mat4::scale(e.scale);

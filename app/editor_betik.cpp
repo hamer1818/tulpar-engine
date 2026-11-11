@@ -438,13 +438,60 @@ const char *const kSablon_YOK_OL =
     "    logla(\"{AD}: \" + sahne_adi(id) + \" topland\xC4\xB1\");\n"
     "}\n";
 
+// U10 B4b: sahne varligini tasiyan/donduren kopru islevleriyle (sahne_dondur, sahne_konum_ver, sahne_ilk_*).
+const char *const kSablon_DONDUR =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (kendi \xC3\xA7" "evresinde d\xC3\xB6n).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "//   {AD}_carpisma(id, diger, olay, x, y, z, hiz)   bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+    "// id = bu nesne. Kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n i\xC5\x9Flevi silebilirsin. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "// Para, \xC3\xB6" "d\xC3\xBCl, pervane... Nesnenin G\xC3\xB6vdesi YOK ya da SAB\xC4\xB0T olmal\xC4\xB1 (dinamik g\xC3\xB6vdeyi fizik d\xC3\xB6nd\xC3\xBCr\xC3\xBCr).\n"
+    "\n"
+    "float {AD}_HIZ = 90.0;   // saniyede ka\xC3\xA7 derece (eksi yazarsan ters y\xC3\xB6ne)\n"
+    "\n"
+    "func {AD}_baslat(id) {\n"
+    "    if (sahne_dinamik(id)) { logla(\"UYARI {AD}: \" + sahne_adi(id) + \" dinamik \xE2\x80\x94 \xC3\x96zellikler > G\xC3\xB6vde > Sabit yap\"); }\n"
+    "}\n"
+    "\n"
+    "func {AD}_guncelle(id, dt) {\n"
+    "    if (sahne_dinamik(id)) { return; }\n"
+    "    sahne_dondur(id, 0.0, {AD}_HIZ * dt, 0.0);   // dik eksen (Y) \xC3\xA7" "evresinde\n"
+    "}\n";
+
+const char *const kSablon_SALLA =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (yukar\xC4\xB1-a\xC5\x9F" "a\xC4\x9F\xC4\xB1 salla).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "//   {AD}_carpisma(id, diger, olay, x, y, z, hiz)   bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+    "// id = bu nesne. Kullanmad\xC4\xB1\xC4\x9F\xC4\xB1n i\xC5\x9Flevi silebilirsin. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "// Yerinde s\xC3\xBCz\xC3\xBClen \xC3\xB6" "d\xC3\xBCl, inip kalkan platform... G\xC3\xB6vdesi YOK ya da SAB\xC4\xB0T olmal\xC4\xB1.\n"
+    "// Edit\xC3\xB6rde koydu\xC4\x9Fun yerin \xC3\xA7" "evresinde sallan\xC4\xB1r.\n"
+    "\n"
+    "float {AD}_YUKSEKLIK = 0.5;   // en \xC3\xA7ok ka\xC3\xA7 metre yukar\xC4\xB1 / a\xC5\x9F" "a\xC4\x9F\xC4\xB1\n"
+    "float {AD}_SURE = 2.0;        // bir gidip gelme ka\xC3\xA7 saniye\n"
+    "\n"
+    "func {AD}_baslat(id) {\n"
+    "    if (sahne_dinamik(id)) { logla(\"UYARI {AD}: \" + sahne_adi(id) + \" dinamik \xE2\x80\x94 \xC3\x96zellikler > G\xC3\xB6vde > Sabit yap\"); }\n"
+    "}\n"
+    "\n"
+    "func {AD}_guncelle(id, dt) {\n"
+    "    if (sahne_dinamik(id)) { return; }\n"
+    "    float y = sahne_ilk_y(id) + sin(zaman() * 6.2832 / {AD}_SURE) * {AD}_YUKSEKLIK;\n"
+    "    sahne_konum_ver(id, sahne_ilk_x(id), y, sahne_ilk_z(id));\n"
+    "}\n";
+
+
 const BetikSablonBilgi kBilgi[(int)BetikSablon::Sayi] = {
     {"Bo\xC5\x9F", "Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ve her kare i\xC5\x9Flevleri; kendin doldur.", "davranis"},
     {"Ok tu\xC5\x9Flar\xC4\xB1yla hareket", "Nesneyi ok tu\xC5\x9Flar\xC4\xB1yla y\xC3\xBCr\xC3\xBCt\xC3\xBCr (G\xC3\xB6vde dinamik olmal\xC4\xB1).", "hareket"},
     {"Bo\xC5\x9Fluk tu\xC5\x9Fuyla z\xC4\xB1pla", "Yerdeyken Bo\xC5\x9Fluk'a bas\xC4\xB1nca z\xC4\xB1plar (G\xC3\xB6vde dinamik olmal\xC4\xB1).", "zipla"},
     {"Dokununca yok ol", "Bir \xC5\x9F" "ey \xC3\xA7" "arp\xC4\xB1nca kaybolur: toplanacak para, k\xC4\xB1r\xC4\xB1lan kutu (G\xC3\xB6vde sabit olmal\xC4\xB1).", "toplanir"},
+    {"D\xC3\xB6nd\xC3\xBCr", "Kendi \xC3\xA7" "evresinde d\xC3\xB6ner: para, \xC3\xB6" "d\xC3\xBCl, pervane (G\xC3\xB6vde yok ya da sabit).", "dondur"},
+    {"Yukar\xC4\xB1-a\xC5\x9F" "a\xC4\x9F\xC4\xB1 salla", "Yerinde inip kalkar: s\xC3\xBCz\xC3\xBClen \xC3\xB6" "d\xC3\xBCl, platform (G\xC3\xB6vde yok ya da sabit).", "salla"},
 };
-const char *const kMetin[(int)BetikSablon::Sayi] = {kSablon_BOS, kSablon_HAREKET, kSablon_ZIPLA, kSablon_YOK_OL};
+const char *const kMetin[(int)BetikSablon::Sayi] = {kSablon_BOS, kSablon_HAREKET, kSablon_ZIPLA, kSablon_YOK_OL, kSablon_DONDUR, kSablon_SALLA};
 } // namespace
 
 const BetikSablonBilgi &betik_sablon_bilgi(BetikSablon t) {

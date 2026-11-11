@@ -140,6 +140,16 @@ public:
   // parcalar icin; sahne yeniden yuklenince hepsi gorunur baslar.
   bool set_hidden(uint32_t i, bool hidden, sim::Physics *ph);
   bool hidden(uint32_t i) const { return i < kSceneMaxEntities && hidden_[i]; }
+  // KONUM/DONUS EZMESI (U10 B4b; betikten sahne_konum_ver / sahne_dondur): varligin yazar donusumu yerine
+  // (pos, rot) kullanilir; olcek yazarinki kalir. Cizim, isik, parcacik ve 3B ses entity_matrix'ten okudugu
+  // icin hepsi birlikte tasinir. Sabit govde YERINDE isinlanir (ustundeki dinamik govdeleri itmez — hareketli
+  // platform icin kinematik govde), tetik govdesi move_sensor ile tasinir. Dinamik govdeli varlik ve karakter
+  // REDDEDILIR (false): onlari fizik tasir. Cocuklar BIRLIKTE GELMEZ (blob dunya matrisini pisirmis tutar,
+  // ebeveyn bilgisi yok). Sahne yeniden yuklenince ezmeler kalkar.
+  bool set_pose(uint32_t i, Vec3 pos, Quat rot, sim::Physics *ph);
+  // Su anki konum/donus (ezme varsa o, yoksa yazarinki). Dinamik/karakter icin yazarinki: canlisi entity_matrix'te.
+  void pose(uint32_t i, Vec3 *pos, Quat *rot) const;
+  bool posed(uint32_t i) const { return i < kSceneMaxEntities && posed_[i]; }
 
 private:
   SceneBlobView view_;
@@ -185,6 +195,9 @@ private:
   uint32_t mat_pool_n_ = 0;
   renderer::MaterialHandle terrain_pool_{}, voxel_pool_{}, water_pool_{};
   bool hidden_[kSceneMaxEntities] = {};
+  bool posed_[kSceneMaxEntities] = {};
+  Vec3 pose_pos_[kSceneMaxEntities] = {};
+  Quat pose_rot_[kSceneMaxEntities] = {};
 };
 
 } // namespace tulpar::engine::content

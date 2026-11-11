@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 410
+#define TENG_ABI_COUNT 416
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -108,6 +108,12 @@ TENG_ABI(int, eng_scene_tint, teng_scene_tint, (int))
 TENG_ABI(int, eng_scene_primitive, teng_scene_primitive, (int))
 TENG_ABI(void, eng_scene_set_velocity, teng_scene_set_velocity, (int, double, double, double))
 TENG_ABI(void, eng_scene_impulse, teng_scene_impulse, (int, double, double, double))
+TENG_ABI(int, eng_scene_set_pos, teng_scene_set_pos, (int, double, double, double))
+TENG_ABI(int, eng_scene_set_rot, teng_scene_set_rot, (int, double, double, double))
+TENG_ABI(int, eng_scene_rotate, teng_scene_rotate, (int, double, double, double))
+TENG_ABI(double, eng_scene_home_x, teng_scene_home_x, (int))
+TENG_ABI(double, eng_scene_home_y, teng_scene_home_y, (int))
+TENG_ABI(double, eng_scene_home_z, teng_scene_home_z, (int))
 TENG_ABI(int, eng_scene_is_character, teng_scene_is_character, (int))
 TENG_ABI(void, eng_scene_character_move, teng_scene_character_move, (int, double, double, int))
 TENG_ABI(int, eng_scene_character_grounded, teng_scene_character_grounded, (int))

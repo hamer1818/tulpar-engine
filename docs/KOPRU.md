@@ -316,6 +316,21 @@ Windows işi 2026-10-05'ten, #86, beri `ci.yml` ile aynı `tools/windows_kapilar
   `sahne_ilkel` parçanın boyunu, rengini ve ilkel yuvasını verir: oyun yıkılan parçanın yerine aynı boy ve
   renkte dinamik parçalar kurar. Kapı: `bridge_scene_entity_hide_removes_draw_and_body` (ışın duvara 4.50 m →
   gizliyken ıska → geri 4.50 m; çizim 6 → 5 → 6; pozitif kontrol gizlemeden önceki isabet).
+- **Sahne varlığını taşı / döndür** (2026-11-11, EDITOR-UYGULAMA-PLANI U10 B4b: "Döndür", "Yukarı-aşağı salla"
+  hazırları).
+  - `sahne_konum_ver(i, x, y, z)`, `sahne_donus_ver(i, rx, ry, rz)` (derece, editörün kuralı: önce X, sonra Y,
+    sonra Z), `sahne_dondur(i, dx, dy, dz)` (DÜNYA eksenlerinde ekler; her kare `dy = hız * dt`).
+    `sahne_ilk_x/y/z(i)` editörde yerleştirilen yeri verir; taşınsa da değişmez.
+  - Gövdesiz, sabit gövdeli ve tetik varlıklar için. Çizim, ışık, parçacık ve 3B ses `entity_matrix`'ten
+    okuduğu için birlikte gider. Sabit gövde yerinde ışınlanır (`set_transform`): üstündeki dinamik gövdeleri
+    İTMEZ; itecek hareketli platform kinematik gövde ister. Tetik `move_sensor` ile taşınır.
+  - Dinamik gövdeli varlık ve karakter HATA + `false`: onları fizik taşır (`sahne_hiz_ver`,
+    `sahne_karakter_yuru`). Çocuklar birlikte GELMEZ (blob dünya matrisini pişirmiş tutar, ebeveyn bilgisi
+    yok). Sahne yeniden yüklenince hepsi yazarın yerine döner.
+  - Kapı: `bridge_scene_entity_move_and_rotate_with_control` (duvar 10 m taşınınca ışın eski yerde ıska, yeni
+    yerde isabet; 90° dönünce uzun ucu boşalır, yan isabet eder; 45+45 = 90; dinamik küp ve sınır dışı
+    reddedilir; yeniden yükleme yazarın yeri). Pozitif kontrol: aynı ışınlar hareketten önce ölçer; gövde
+    taşıma kapatılınca 3 denetim düşüyor (ölçüldü). Oyunda: `tests/arayuz/hazirlar.txt` (`arayuz_kapi.sh`).
 - **Sahnenin kamera ve ses bileşenleri** (2026-11-06, blob v10, EDITOR-UYGULAMA-PLANI U9).
   - **Kamera:** sahne yüklenince ilk kamera bileşeni uygulanır, betiklerin `baslat`ından önce.
     - Göz varlığın dünya konumu, bakış varlığın −Z ekseni.

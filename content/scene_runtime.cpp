@@ -201,6 +201,7 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   stats_ = SceneRuntimeStats{};
   bodies_live_ = false;
   for (uint32_t k = 0; k < kSceneMaxEntities; k++) hidden_[k] = false; // yeni sahne: hepsi gorunur
+  for (uint32_t k = 0; k < kSceneMaxEntities; k++) posed_[k] = false;  // ... ve yazarin yerinde
   // CIHAZ VAR MI? `init()` cagrilmamis bir Renderer gecerli bir nesnedir ama
   // GPU kaynagi yaratamaz. Motorun CPU tarafini olcen kapilar bilerek boyle
   // bir Renderer veriyor (test_scene_blob.cpp `scene_runtime_applies_baked_gi_ambient`
@@ -458,7 +459,37 @@ Mat4 SceneRuntime::entity_matrix(uint32_t i, const sim::Physics *ph) const {
     const sim::BodyId id = body_ids_[e.body];
     if (b.dynamic && id.valid()) return Mat4::translate(ph->position(id)) * to_mat4(ph->rotation(id)) * Mat4::scale(v3(b.scale));
   }
+  if (i < kSceneMaxEntities && posed_[i]) return Mat4::translate(pose_pos_[i]) * to_mat4(pose_rot_[i]) * Mat4::scale(v3(e.scale));
   return view_.entity_matrix(i);
+}
+
+void SceneRuntime::pose(uint32_t i, Vec3 *pos, Quat *rot) const {
+  if (!view_.h || i >= view_.h->entity_count) { *pos = Vec3{}; *rot = Quat::identity(); return; }
+  if (i < kSceneMaxEntities && posed_[i]) { *pos = pose_pos_[i]; *rot = pose_rot_[i]; return; }
+  *pos = v3(view_.entities[i].pos);
+  *rot = q4(view_.entities[i].quat);
+}
+
+bool SceneRuntime::set_pose(uint32_t i, Vec3 pos, Quat rot, sim::Physics *ph) {
+  if (!view_.h || i >= view_.h->entity_count || i >= kSceneMaxEntities) return false;
+  if (entity_dynamic(i) || (ent_char_ && ent_char_[i] >= 0)) return false; // fizik tasir
+  rot = normalize(rot);
+  const SceneBlobEntity &e = view_.entities[i];
+  const int32_t bi = e.body;
+  if (ph && bodies_live_ && bi >= 0 && (uint32_t)bi < view_.h->body_count && body_ids_[bi].valid()) {
+    // Govdenin varliga gore YEREL yeri korunur (bugun govde varligin ortasinda; yarin kaydirma gelirse de dogru).
+    const SceneBlobBody &b = view_.bodies[bi];
+    const Quat qe = q4(e.quat);
+    const Vec3 yerel = rotate(conjugate(qe), v3(b.pos) - v3(e.pos));
+    const Vec3 bp = pos + rotate(rot, yerel);
+    const Quat bq = normalize(rot * conjugate(qe) * q4(b.quat));
+    const sim::BodyId id = body_ids_[bi];
+    if (ph->is_sensor(id) ? !ph->move_sensor(id, bp, bq) : !ph->set_transform(id, bp, bq)) return false;
+  }
+  posed_[i] = true;
+  pose_pos_[i] = pos;
+  pose_rot_[i] = rot;
+  return true;
 }
 
 sim::BodyId SceneRuntime::entity_body(uint32_t i) const {

@@ -388,6 +388,9 @@ void scene_dir_of(const char *path, char *out, size_t cap);
 // zinciri KATILMAZ (dunya icin scene_entity_world_matrix).
 Mat4 scene_entity_matrix(const SceneEntity &e);
 Quat scene_entity_rotation(const SceneEntity &e);
+// Editorun Euler kurali (derece, Rz*Ry*Rx: once X, sonra Y, sonra Z) -> kuaterniyon. scene_entity_rotation
+// bunu cagirir; kopru (sahne_donus_ver) de ayni kurali kullanir.
+Quat scene_euler_deg_quat(Vec3 deg);
 
 // --- Sahne agaci (Faz E2) ----------------------------------------------------
 // Agac gecerli mi: her ebeveyn indeksi sinir icinde, kendine bakan yok, dongu

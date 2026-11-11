@@ -4389,6 +4389,80 @@ ENGINE_TEST(bridge_scene_entity_hide_removes_draw_and_body) {
   teng_shutdown();
 }
 
+// U10 B4b: sahne varligini tasi / dondur. duvar_sabit (sabit govde, yari boyut 2 x 0.75 x 0.25: X boyunca uzun)
+// tasininca ISIN yeni yerde ona carpar, eski yerde carpmaz; Y'de 90 derece donunce uzun ekseni Z'ye gecer. Govde
+// ve cizim ayni kaynaktan (entity_matrix) okundugu icin teng_scene_x da yeni yeri verir; home_x yazarinkinde kalir.
+// POZITIF KONTROL: ayni isinlar hareketten ONCE eski durumu olcer (once (x+1.5) carpar, (z+1.5) carpmaz). Dinamik
+// govdeli kup ve sinir disi indeks reddedilir (hata sayilir), yeniden yukleme her seyi yazarin yerine dondurur.
+static bool duvara_carpar(int duvar, double x, double z) {
+  const double d = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  return d > 0 && teng_ray_scene() == duvar;
+}
+ENGINE_TEST(bridge_scene_entity_move_and_rotate_with_control) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static SystemArena arena;
+  if (arena.capacity() == 0) arena.reserve(64u << 20, "sahne_tasi");
+  char src[768], blob[768];
+  std::snprintf(src, sizeof src, "%s/editor.sahne", assets_dir());
+  std::snprintf(blob, sizeof blob, "%s/_tasi_test.sahneb", assets_dir());
+  static content::SceneDesc desc;
+  content::SceneError serr{};
+  if (!content::scene_load(arena, src, &desc, &serr) || !content::scene_blob_save(arena, desc, blob, &serr)) {
+    std::printf("    [bilgi] sahne: %s\n", serr.msg);
+    CHECK(false);
+    return;
+  }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("sahne tasi", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_scene_load(blob) == 1);
+  const int duvar = teng_scene_find("duvar_sabit"), kup = teng_scene_find("kup_dusen"), lamba = teng_scene_find("lamba_kirmizi");
+  CHECK(duvar >= 0 && kup >= 0 && lamba >= 0);
+  if (duvar < 0 || kup < 0 || lamba < 0) { teng_shutdown(); return; }
+  run_frames(2);
+  const double x = teng_scene_x(duvar), y = teng_scene_y(duvar), z = teng_scene_z(duvar);
+  // Kontrol: isinlar once yazar durumunu olcuyor.
+  const bool once_uzun = duvara_carpar(duvar, x + 1.5, z), once_yan = duvara_carpar(duvar, x, z + 1.5);
+  CHECK(once_uzun && !once_yan);
+  // Tasi.
+  const double nx = x + 10;
+  CHECK(teng_scene_set_pos(duvar, nx, y, z) == 1);
+  run_frames(1);
+  const bool eski = duvara_carpar(duvar, x, z), yeni = duvara_carpar(duvar, nx, z);
+  CHECK(!eski && yeni);
+  CHECK(std::fabs(teng_scene_x(duvar) - nx) < 1e-4 && std::fabs(teng_scene_home_x(duvar) - x) < 1e-4);
+  // Dondur: 90 derece Y -> uzun eksen Z'ye.
+  CHECK(teng_scene_set_rot(duvar, 0, 90, 0) == 1);
+  run_frames(1);
+  const bool r_uzun = duvara_carpar(duvar, nx + 1.5, z), r_yan = duvara_carpar(duvar, nx, z + 1.5);
+  CHECK(!r_uzun && r_yan);
+  CHECK(std::fabs(teng_scene_x(duvar) - nx) < 1e-4); // donus konumu bozmaz
+  // Goreli: 0'dan iki kez 45 = 90 (birikiyor).
+  CHECK(teng_scene_set_rot(duvar, 0, 0, 0) == 1 && teng_scene_rotate(duvar, 0, 45, 0) == 1 && teng_scene_rotate(duvar, 0, 45, 0) == 1);
+  run_frames(1);
+  const bool g_uzun = duvara_carpar(duvar, nx + 1.5, z), g_yan = duvara_carpar(duvar, nx, z + 1.5);
+  CHECK(!g_uzun && g_yan);
+  // Govdesiz varlik (isik) tasinir.
+  CHECK(teng_scene_set_pos(lamba, 1, 3, 1) == 1 && std::fabs(teng_scene_y(lamba) - 3) < 1e-4);
+  // Ret: dinamik govde ve sinir disi indeks HATA, yer degismez.
+  const double kx = teng_scene_x(kup);
+  const int h0 = teng_error_count();
+  CHECK(teng_scene_set_pos(kup, kx + 3, 5, 0) == 0 && teng_scene_rotate(kup, 0, 10, 0) == 0);
+  CHECK(teng_scene_set_pos(9999, 0, 0, 0) == 0);
+  CHECK(teng_error_count() == h0 + 3);
+  CHECK(std::fabs(teng_scene_x(kup) - kx) < 0.5); // fizik tasiyor; isinlanmadi
+  // Yeniden yukleme: yazarin yeri.
+  CHECK(teng_scene_unload() == 1 && teng_scene_load(blob) == 1);
+  run_frames(1);
+  const bool geri = duvara_carpar(duvar, x + 1.5, z);
+  std::printf("    [bilgi] sahne tasi: once uzun %d yan %d; tasininca eski %d yeni %d; 90 derece uzun %d yan %d; 45+45 uzun %d yan %d; "
+              "yeniden yukleme %d (x %.2f)\n",
+              once_uzun, once_yan, eski, yeni, r_uzun, r_yan, g_uzun, g_yan, geri, teng_scene_x(duvar));
+  CHECK(geri && std::fabs(teng_scene_x(duvar) - x) < 1e-4);
+  teng_shutdown();
+}
+
 // Kopru varligini gizle: CIZILMEZ ama govdesi fizikte kalir (oyunda fizik kutusu
 // gizlenir, ustune yuzlu karakter konur). Cizim sayisi bir azalir, isin hala
 // govdeye carpar; geri gosterince cizim doner. POZITIF KONTROL: gizlemeden once

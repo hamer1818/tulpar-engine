@@ -267,6 +267,21 @@ func sahne_dinamik(i): bool { return eng_scene_is_dynamic(i); }
 func sahne_hiz_ver(i, vx, vy, vz) { eng_scene_set_velocity(i, vx, vy, vz); }
 func sahne_itme(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
 func scene_impulse(i, ix, iy, iz) { eng_scene_impulse(i, ix, iy, iz); }
+// Sahne varligini tasi / dondur (govdesiz, sabit govdeli ya da tetik varlik; dinamik ve karakterde hata).
+// Donus derece: sahne_dondur(i, 0, 90 * dt, 0) her karede -> saniyede 90 derece Y ekseninde.
+// sahne_ilk_x/y/z: editorde yerlestirildigi yer (tasinsa da degismez).
+func sahne_konum_ver(i, x, y, z): bool { return eng_scene_set_pos(i, x, y, z); }
+func scene_set_pos(i, x, y, z): bool { return eng_scene_set_pos(i, x, y, z); }
+func sahne_donus_ver(i, rx, ry, rz): bool { return eng_scene_set_rot(i, rx, ry, rz); }
+func scene_set_rotation(i, rx, ry, rz): bool { return eng_scene_set_rot(i, rx, ry, rz); }
+func sahne_dondur(i, dx, dy, dz): bool { return eng_scene_rotate(i, dx, dy, dz); }
+func scene_rotate(i, dx, dy, dz): bool { return eng_scene_rotate(i, dx, dy, dz); }
+func sahne_ilk_x(i): float { return eng_scene_home_x(i); }
+func sahne_ilk_y(i): float { return eng_scene_home_y(i); }
+func sahne_ilk_z(i): float { return eng_scene_home_z(i); }
+func scene_home_x(i): float { return eng_scene_home_x(i); }
+func scene_home_y(i): float { return eng_scene_home_y(i); }
+func scene_home_z(i): float { return eng_scene_home_z(i); }
 // Sahne varligini gizle/goster (gizli: cizilmez, isik yok, govde fizikten
 // cikar). Olcek/renk/ilkel: yikilan parcanin yerine ayni boyda parca kurmak icin.
 func sahne_gorunur(i, gorunur): bool { return eng_scene_set_visible(i, gorunur); }
