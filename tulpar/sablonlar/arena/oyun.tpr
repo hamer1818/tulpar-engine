@@ -204,13 +204,13 @@ func main() {
     // (motorun engine_sahnec'i calismadi) ayni arena koddan kurulur ve UYARI basilir.
     if (!sahne_yukle("assets/arena.sahneb")) {
         logla("UYARI arena.sahneb yuklenemedi: arena koddan kuruldu (tools/ortam.sh sahneyi derler)");
-        gunes(0.5, 1.0, 0.35, 0.9);
-        ortam(renk(40, 46, 60));
+        gunes(0.55, 0.75, 0.45, 1.05);   // assets/arena.sahne ile AYNI (yatik gunes: duvarlar ve golge okunur)
+        ortam(renk(51, 56, 77));
         golge_hacmi(0, 1, 0, 14, 60);
-        zemin_kur(ARENA, renk(70, 84, 110));
+        zemin_kur(ARENA, renk(56, 74, 102));
         for (int i = -1; i <= 1; i += 2) {
-            kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(110, 120, 150));
-            kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(110, 120, 150));
+            kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(168, 178, 204));
+            kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(168, 178, 204));
         }
     }
     g_top = kure(0.0, 0.6, 0.0, 0.5, true, renk(255, 110, 90));

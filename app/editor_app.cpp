@@ -556,6 +556,9 @@ struct EditorState {
   renderer::TextureHandle tex_brick_normal{};
   renderer::TextureHandle tex_rough_orm{};
   renderer::TextureHandle tex_grid{};
+  // U11 C4: editor zemin izgarasi (Izgara: Acik). Eskiden show_grid HICBIR YERDE okunmuyordu: dugme bir sey yapmiyordu.
+  renderer::MeshHandle izgara_mesh{};
+  renderer::MaterialHandle izgara_mat{};
   renderer::TextureHandle tex_wood{};
   // Prosedurel uretimin GECICI alani: her uretimde mark/reset_to ile geri
   // sarilir. Motorun tek bellek kaynagi arena -- std::malloc DEGIL (AllocGate
@@ -1852,6 +1855,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
     }
     st.tex_grid = ren.create_texture(grid_px, 64, 64, true, true);
+    // U11 C4: zemin izgarasi — 100 x 100 m cift yuzlu dortgen. KENDI dokusu (malzeme dokusu "Izgara" kalin ve parlakti,
+    // doseme kenarinda cift cizgi): 10 m'lik doseme, 1 m'de ince soluk ara cizgi, 10 m'de belirgin ana cizgi; mipmap
+    // uzakta cizgileri kendiliginden soldurur. y = -0.003: sahnenin kendi zemini ustte kalir, z-cakismasi yok.
+    {
+      alignas(16) static uint8_t iz_px[320 * 320 * 4];
+      for (int y = 0; y < 320; y++)
+        for (int x = 0; x < 320; x++) {
+          const bool ana = x < 2 || y < 2, ara = (x % 32) == 0 || (y % 32) == 0;
+          const uint8_t c = ana ? 92 : ara ? 58 : 34;
+          uint8_t *q = iz_px + (y * 320 + x) * 4;
+          q[0] = c; q[1] = (uint8_t)(c + 2); q[2] = (uint8_t)(c + 6); q[3] = 255;
+        }
+      const renderer::TextureHandle iz_tex = ren.create_texture(iz_px, 320, 320, true, true);
+      constexpr float R = 50.0f, U = R / 10.0f, Y = -0.003f;
+      const renderer::Vertex v[8] = {
+          {{-R, Y, -R}, {0, 1, 0}, {-U, -U}}, {{R, Y, -R}, {0, 1, 0}, {U, -U}}, {{R, Y, R}, {0, 1, 0}, {U, U}}, {{-R, Y, R}, {0, 1, 0}, {-U, U}},
+          {{-R, Y, -R}, {0, -1, 0}, {-U, -U}}, {{R, Y, -R}, {0, -1, 0}, {U, -U}}, {{R, Y, R}, {0, -1, 0}, {U, U}}, {{-R, Y, R}, {0, -1, 0}, {-U, U}}};
+      const uint32_t ix[12] = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7}; // iki sarim: hangi taraftan bakilirsa bakilsin
+      st.izgara_mesh = ren.create_mesh(v, 8, ix, 12);
+      st.izgara_mat = ren.create_material(iz_tex.valid() ? iz_tex : st.tex_grid, Vec3{1.0f, 1.0f, 1.0f});
+    }
 
     // Ahsap / Halka Haritasi (Wood 64x64)
     alignas(16) static uint8_t wood_px[64 * 64 * 4];
@@ -9981,6 +10005,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // Isik yaricapi / golge hacmi / gunes yonu: motorun kendi draw'u ile ince kutular.
     // Buradan gizmolarin sonuna kadar her sey KILAVUZ: golge DUSURMEZ (set_shadow_casting).
     ren.set_shadow_casting(false);
+    // U11 C4: zemin izgarasi (derinlik testli: nesnelerin onune gecmez, sahnenin zemini varsa altinda kalir).
+    if (show_grid && st.izgara_mesh.valid() && st.izgara_mat.valid()) ren.draw(st.izgara_mesh, st.izgara_mat, Mat4::identity(), Vec3{1, 1, 1});
     // --- Gorunum kipi kaplamalari -------------------------------------------
     if (view_mode == 2) { // Carpisma: govdeyle DONEN tel kutu; dinamik turuncu, sabit yesil.
       for (uint32_t i = 0; i < st.scene.entity_count; i++) {

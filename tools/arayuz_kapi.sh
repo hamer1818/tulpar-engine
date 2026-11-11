@@ -7,6 +7,7 @@
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
 # tests/arayuz/kaynaklar.txt (U11 B5): bos Kaynaklar eylemli, Model ice aktar kopyalar; kontrol: once karo yok.
 # tests/arayuz/ilk_adimlar{,_gizli}.txt (U11 B4): kart sablonu anlatir, adimlar isaretlenir, gizle kalici.
+# tests/arayuz/izgara.txt (U11 C4): Izgara dugmesi gercekten cizer; kontrol: kapaliyken goruntu duz.
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -97,6 +98,23 @@ TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar_gizli.txt "$IA/ui2" --scene
 if [ $ria1 = 0 ] && [ $ria2 = 0 ] && grep -qE "^26 .*/p$" "$IA/ayar/ilk_adimlar.txt" 2>/dev/null; then
   echo "  ilk adimlar: kart sablonu anlatti, nesne ekle + kaydet isaretlendi, gizle kalici (bitler 26)"
 else echo "  KIRMIZI ilk adimlar (cikis $ria1/$ria2):"; grep -hE 'HATA|> ' "$IA"/ui*/yanit.txt 2>/dev/null | tail -3 | sed 's/^/      /'; cat "$IA/ayar/ilk_adimlar.txt" 2>&1 | head -2 | sed 's/^/      /'; kirmizi=1; fi
+# --- U11 C4: zemin izgarasi gercekten cizilir (tulpar gerekmez) ---
+IZ="$D/izgara"; mkdir -p "$IZ/ui"; cp -r "$KOK/tests/assets" "$IZ/assets"
+kos izgara.txt "$IZ/ui" --scene "$IZ/assets/editor.sahne" --kip basit; riz=$?
+izs=$(python3 - "$IZ/ui/izgara_acik.png" "$IZ/ui/izgara_kapali.png" <<'PYI' 2>/dev/null
+import sys
+from PIL import Image, ImageStat
+v=[]
+for f in sys.argv[1:3]:
+    im=Image.open(f).convert('L'); w,h=im.size
+    v.append(ImageStat.Stat(im.crop((int(w*0.22),int(h*0.2),int(w*0.75),int(h*0.9)))).stddev[0])
+print('%.1f %.1f' % (v[0], v[1]))
+PYI
+)
+ia=${izs%% *}; ik=${izs##* }
+if [ $riz = 0 ] && [ -n "$izs" ] && awk "BEGIN{exit !($ia > $ik + 4.0)}"; then
+  echo "  izgara: acikken gorunum dokulu (sapma $ia), kapaliyken duz ($ik)"
+else echo "  KIRMIZI izgara (cikis $riz, sapma acik/kapali: ${izs:-olculemedi})"; grep -E 'HATA|> ' "$IZ/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 C5: secimsiz Ozellikler = sahne ozeti; gizmolar Gorunum menusunde (tulpar gerekmez) ---
 SO="$D/ozet"; mkdir -p "$SO/ui"; cp -r "$KOK/tests/assets" "$SO/assets"
 kos sahne_ozeti.txt "$SO/ui" --scene "$SO/assets/editor.sahne" --kip basit; rso=$?
