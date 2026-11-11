@@ -1,0 +1,19 @@
+# U10 B7 (tools/arayuz_kapi.sh): Oynat > "Ana betiği aç (oyun.tpr)" oyunun ana dosyasini Kod panelinde acar; panel
+# rolunu yazar ve onu bir nesneye eklemeyi ONERMEZ. Pozitif kontrol: ayni secimle siradan bir betik acilinca
+# "nesnesine ekle" gorunur ve ana dosya satiri kaybolur (bayrak dosya degisince duser).
+tikla "duvar_bati"
+bekle 2
+tikla "Oynat" pencere=MainMenuBar
+tikla "Ana betiği aç (oyun.tpr)" pencere=Menu
+bekle_oge "oyun.tpr###kod_paneli" sira=1
+dogrula_metin "Oyunun ana dosyası"
+dogrula_metin "oyun fabrikasi"
+metin_yok "duvar_bati nesnesine ekle"
+ekran ana_betik
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+dogrula_metin "func dondur_baslat"   # baslik degil: ImGui ### penceresinin adini etkinlesmeden tazelemiyor (gorunen baslik dogru)
+dogrula_metin "duvar_bati nesnesine ekle"
+metin_yok "Oyunun ana dosyası"
+cik

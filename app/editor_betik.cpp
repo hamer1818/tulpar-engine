@@ -241,6 +241,7 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   ImGui::SameLine();
   if (ImGui::Button(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6rde a\xC3\xA7")) eylem = KodEylem::DisEditor;
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("VS Code ya da sistemin metin d\xC3\xBCzenleyicisi; kaydedince burada da g\xC3\xBCncellenir.");
+  if (k.ana) secili_ad = nullptr; // ana dosya bir nesnenin davranisi degil: "nesneye ekle" anlamsiz
   if (secili_ad && !secilide_bu) {
     ImGui::SameLine();
     char eb[200];
@@ -250,6 +251,12 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   } else if (secili_ad && secilide_bu) {
     ImGui::SameLine();
     ImGui::TextDisabled(ICON_MD_CHECK " %.40s nesnesinde \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1yor", secili_ad);
+  }
+  if (k.ana) { // sarilir: tek satir dar panelde kesiliyordu (1600x900, olculdu)
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled(ICON_MD_INFO " Oyunun ana dosyas\xC4\xB1: motoru a\xC3\xA7" "ar, sahneyi y\xC3\xBCkler, her kareyi d\xC3\xB6nd\xC3\xBCr\xC3\xBCr. "
+                         "Nesnelerin davran\xC4\xB1\xC5\x9Flar\xC4\xB1 kendi betiklerinde.");
+    ImGui::PopTextWrapPos();
   }
   if (k.dis_degisti) {
     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), ICON_MD_WARNING " Dosya d\xC4\xB1\xC5\x9F" "ar\xC4\xB1" "da de\xC4\x9Fi\xC5\x9Fti.");

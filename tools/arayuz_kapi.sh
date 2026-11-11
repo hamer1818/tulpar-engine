@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/ana_betik.txt (U10 B7): Oynat > Ana betigi ac -> oyun.tpr Kod panelinde, "nesneye ekle" yok (kontrol:
+#   siradan betikte var).
 # tests/arayuz/betik_karti.txt (U10 B5): kart kancalari isaretler, bagli degil -> Bagla -> bagli; Kod panelinde
 #   _guncelle eklenince "her karede" isaretlenir. Pozitif kontrol senaryonun icinde: ayni satir once cizgili.
 # tests/arayuz/yeni_betik.txt (U10 B4): Davranis ekle -> hazir + Turkce ad -> olusan betik oyunda calisir.
@@ -69,6 +71,13 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U10 B7: Oynat > Ana betigi ac (tulpar gerekmez) ---
+A="$D/ana"; mkdir -p "$A/ui"
+if betik_proje "$A/p"; then
+  ( kos ana_betik.txt "$A/ui" --scene "$A/p/assets/arena.sahne" ); rab=$?
+  if [ $rab = 0 ]; then echo "  ana betik: Oynat menusu oyun.tpr'yi Kod panelinde acti, nesneye ekle onermedi; siradan betikte onerdi"
+  else echo "  KIRMIZI ana betik (cikis $rab):"; grep -E 'HATA|> ' "$A/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+else echo "  KIRMIZI ana betik: proje uretilemedi"; kirmizi=1; fi
 # --- U10 B5: Betik karti (tulpar gerekmez: yalniz editor) ---
 K="$D/kart"; mkdir -p "$K/ui"
 if betik_proje "$K/p"; then

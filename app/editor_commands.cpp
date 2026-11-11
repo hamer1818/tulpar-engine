@@ -137,6 +137,10 @@ constexpr CommandDesc k_defaults[] = {
     {CommandId::PlayRunGame, CommandCategory::Play, kCmdCheckable, chord_of(kModCtrl, kKeyF5), kChordNone, "oynat.oyunu_calistir",
      "Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r / durdur",
      "Sahneyi derler ve onu y\xC3\xBCkleyen oyunu ayr\xC4\xB1 bir pencerede \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r; \xC3\xA7\xC4\xB1kt\xC4\xB1s\xC4\xB1 Konsol'a akar"},
+    // U10 B7: ana dosyanin varligi ve rolu gizli kalmasin. Projede oyun.tpr yoksa (motor ornekleri) soluk.
+    {CommandId::PlayOpenMain, CommandCategory::Play, kCmdNone, kChordNone, kChordNone, "oynat.ana_betik",
+     "Ana beti\xC4\x9Fi a\xC3\xA7 (oyun.tpr)",
+     "Oyunun ana dosyas\xC4\xB1n\xC4\xB1 Kod panelinde a\xC3\xA7" "ar: motoru a\xC3\xA7" "an, sahneyi y\xC3\xBCkleyen, her kareyi d\xC3\xB6nd\xC3\xBCren dosya"},
     // Yardim: editor ici guncelleme (app/editor_update.hpp). Kisayolsuz — nadir
     // kullanilir, tus haritasinda yer kaplamasin. Kaynak derlemesinde de ETKIN:
     // pencere "neden kapali"yi ve "git pull && ./derle.sh" yolunu soyler (soluk

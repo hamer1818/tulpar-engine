@@ -53,6 +53,7 @@ struct KodPaneli {
   bool acik = false;
   char yol[1024] = {0};       // mutlak yol
   char etiket[256] = {0};     // sahnedeki betik etiketi (atama icin; bos olabilir)
+  bool ana = false;           // U10 B7: oyunun ana dosyasi (oyun.tpr): nesneye eklenmez, rolu yazilir
   char metin[kKodKapasite] = {0};
   bool kirli = false;         // kaydedilmemis degisiklik
   bool salt_okunur = false;   // kapasiteye sigmayan dosya

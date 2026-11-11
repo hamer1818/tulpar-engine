@@ -2271,6 +2271,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "%s", err);
       return false;
     }
+    kod.ana = false; // ana dosyayi acan cagiran (B7) sonra true yapar
     std::printf("[engine_editor] kod paneli: %s%s\n", yol, satir > 0 ? " (satira git)" : "");
     return true;
   };
@@ -3677,6 +3678,18 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               const GameRun *g = static_cast<const GameCmdCtx *>(c)->g;
               return g->state == GameRunState::Running && !g->embedded; // F5'in oyunu "ayri pencerede calisiyor" gorunmesin
             });
+  // U10 B7: Oyun > Ana betigi ac. Ana dosya yoksa (motor ornekleri; tulpar_dir yok) soluk.
+  auto ana_betigi_ac = [&]() {
+    char y[1100];
+    if (!betik_oyun_yolu(y, sizeof y)) return;
+    if (kodu_ac(nullptr, y, 0)) { kod.ana = true; set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", y); }
+  };
+  struct AnaCmdCtx {
+    decltype(&ana_betigi_ac) ac;
+    decltype(&betik_oyun_yolu) yol;
+  } acx{&ana_betigi_ac, &betik_oyun_yolu};
+  cmds.bind(CommandId::PlayOpenMain, [](void *c) { (*static_cast<AnaCmdCtx *>(c)->ac)(); }, &acx,
+            [](const void *c) { char y[1100]; return (*static_cast<const AnaCmdCtx *>(c)->yol)(y, sizeof y); });
   cmds.bind(CommandId::PlayStep, [](void *c) { static_cast<CmdCtx *>(c)->st->step_request++; }, &cc,
             [](const void *c) {
               const EditorState *s = static_cast<const CmdCtx *>(c)->st;
