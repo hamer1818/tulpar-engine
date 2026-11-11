@@ -33,7 +33,7 @@ float CEP_KOSE = 0.065;       // cep yakalama yaricapi
 float CEP_ORTA = 0.055;
 float MAX_HIZ = 3.6;          // tam guclu atis (m/s)
 int ALT_ADIM = 8;
-int TOP_N = 16;               // 0 beyaz, 1..15
+int TOP_N = 16;               // 0 beyaz, gerisi renkli; masayi_kur sahnedeki "top*" sayisina gore KURAR
 int OTO_SON_KARE = 1380;      // otopilot turu bu karede kapanir (dogrula.sh 1500 kare kosar)
 
 int EKRAN_ANA = 0;
@@ -105,6 +105,24 @@ func cep_ekle(str ad, float yaricap) {
     push(g_cr, yaricap);
     g_cep_n += 1;
 }
+// Bir top: sahne nesnesi (i >= 0: konum ve renk ondan, isaret gizlenir; oyunun kuresi yerine gecer) ya da yedek konum.
+func top_ekle(int i, float x, float z) {
+    int r = renk(240, 240, 235);
+    if (i >= 0) {
+        x = sahne_x(i);
+        z = sahne_z(i);
+        r = sahne_renk(i);
+        sahne_gorunur(i, false);
+    }
+    push(g_x0, x);
+    push(g_z0, z);
+    push(g_x, x);
+    push(g_z, z);
+    push(g_vx, 0.0);
+    push(g_vz, 0.0);
+    push(g_aktif, 1);
+    push(g_top, kinematik_kure(x, TOP_R, z, TOP_R, r));
+}
 func masayi_kur() {
     int k = sahne_bul("masa_kumas");
     if (k >= 0) { MASA_W = sahne_olcek_x(k) - 0.04; MASA_H = sahne_olcek_z(k) - 0.04; }
@@ -114,27 +132,20 @@ func masayi_kur() {
     cep_ekle("cep_gd", CEP_KOSE);
     cep_ekle("cep_ko", CEP_ORTA);
     cep_ekle("cep_go", CEP_ORTA);
-    for (int n = 0; n < TOP_N; n++) {
-        int i = sahne_bul(t"top_{n}");
-        float x = -MASA_W * 0.25 + n * 1.0 * 0.07;
-        float z = 0.0;
-        int r = renk(240, 240, 235);
-        if (i >= 0) {
-            x = sahne_x(i);
-            z = sahne_z(i);
-            r = sahne_renk(i);
-            if (n == 0) { TOP_R = sahne_olcek_x(i) * 0.5; }
-            sahne_gorunur(i, false);   // sahnedeki isaret gizlenir; oyunun kuresi yerine gecer
-        }
-        push(g_x0, x);
-        push(g_z0, z);
-        push(g_x, x);
-        push(g_z, z);
-        push(g_vx, 0.0);
-        push(g_vz, 0.0);
-        push(g_aktif, 1);
-        push(g_top, kinematik_kure(x, TOP_R, z, TOP_R, r));
+    // Toplar SAHNEDEN, adiyla: "top_0" beyaz (ilk sirada), adi "top" ile baslayan HER nesne bir top. Editorde
+    // kopyalanan top ("top_3 2") ya da yeni eklenen ("top_ekstra") da oyuna girer — eskiden sabit top_0..top_15
+    // aranirdi ve kopya topun icinden gecilirdi (kullanici, 2026-11-11). Sahnede hic top yoksa 16'lik yedek dizilim.
+    int beyaz = sahne_bul("top_0");
+    if (beyaz >= 0) { TOP_R = sahne_olcek_x(beyaz) * 0.5; top_ekle(beyaz, 0.0, 0.0); }
+    int ns = sahne_sayisi();
+    for (int i = 0; i < ns; i++) {
+        str ad = sahne_adi(i);
+        if (i != beyaz && len(ad) >= 3 && substring(ad, 0, 3) == "top") { top_ekle(i, 0.0, 0.0); }
     }
+    if (len(g_top) == 0) {
+        for (int n = 0; n < 16; n++) { top_ekle(-1, -MASA_W * 0.25 + n * 1.0 * 0.07, 0.0); }
+    }
+    TOP_N = len(g_top);
     g_istaka = kinematik_kutu(0.0, TOP_R + 0.01, 0.0, 0.006, 0.006, 0.6, renk(196, 150, 96));
     for (int j = 0; j < IZ_N; j++) { push(g_iz, kinematik_kure(0.0, TOP_R, 0.0, 0.0045, renk(235, 235, 220))); }
     nisan_gizle();
