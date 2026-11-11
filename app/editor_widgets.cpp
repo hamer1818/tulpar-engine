@@ -302,6 +302,28 @@ bool prop_row_visible(const char *label) {
 void prop_set_filter(const char *filter) { g_prop_filter = (filter && *filter) ? filter : nullptr; }
 bool prop_filter_active() { return g_prop_filter != nullptr; }
 
+// U11 C2: GOSTERIMDE "-0.0" yok. Bicimin basamaginda sifira yuvarlanan deger (-0.0f, gizmodan kalan -0.00001)
+// isaretsiz 0 gosterilir; VERI yalniz kullanici degistirirse yazilir (sessiz duzeltme yok).
+float gosterim_sifirla(float v, const char *fmt) {
+  int basamak = 3;
+  if (fmt) {
+    const char *n = std::strchr(fmt, '.');
+    if (n && n[1] >= '0' && n[1] <= '9') basamak = n[1] - '0';
+    else if (std::strstr(fmt, "%d") || std::strstr(fmt, "%.0")) basamak = 0;
+  }
+  float esik = 0.5f;
+  for (int i = 0; i < basamak; i++) esik *= 0.1f;
+  return std::fabs(v) < esik ? 0.0f : v;
+}
+namespace {
+bool drag_float_temiz(const char *id, float *v, float speed, float min, float max, const char *fmt, ImGuiSliderFlags sf) {
+  float g = gosterim_sifirla(*v, fmt);
+  const bool ch = ImGui::DragFloat(id, &g, speed, min, max, fmt, sf);
+  if (ch) *v = g;
+  return ch;
+}
+} // namespace
+
 PropItem prop_vec3(const char *label, float v[3], float speed, float min, float max, const char *fmt) {
   if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
@@ -363,7 +385,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     ImGui::SetCursorScreenPos(ImVec2(fx, p.y));
     ImGui::SetNextItemWidth(field_w);
     ImGui::PushID(a);
-    const bool ch = ImGui::DragFloat("##v", &v[a], speed, min, max, fmt, sf);
+    const bool ch = drag_float_temiz("##v", &v[a], speed, min, max, fmt, sf);
     ImGui::PopID();
     accumulate(it, ch);
     g_vec3_layout.field[a] = item_rect();
@@ -403,7 +425,7 @@ PropItem prop_float(const char *label, float *v, float speed, float min, float m
   ImGui::PushID(label);
   prop_label(label);
   const ImGuiSliderFlags sf = (min < max) ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-  accumulate(it, ImGui::DragFloat("##v", v, speed, min, max, fmt, sf));
+  accumulate(it, drag_float_temiz("##v", v, speed, min, max, fmt, sf));
   ImGui::PopID();
   return it;
 }

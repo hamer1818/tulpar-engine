@@ -79,6 +79,8 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min = 0, fl
 // iner. Onayar/cip satirlari dar panelde sag kenardan KESILIYORDU ("Ogle 12:0", "Orman Is").
 void akis_ayni_satir(const char *etiket);
 PropItem prop_float(const char *label, float *v, float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
+// U11 C2: gosterilecek deger — bicimin basamaginda sifira yuvarlaniyorsa isaretsiz 0 ("-0.0°" yok). Saf; test eder.
+float gosterim_sifirla(float v, const char *fmt);
 PropItem prop_int(const char *label, int *v, int min = 0, int max = 0, const char *fmt = "%d");
 PropItem prop_text(const char *label, char *buf, uint32_t cap);
 // Satir genisliginde renk ornegi (uzerinde altigen kod); tiklayinca secici

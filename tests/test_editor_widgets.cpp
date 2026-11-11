@@ -1024,3 +1024,18 @@ ENGINE_TEST(create_menu_basit_subset_with_control) {
   CHECK(nb < nt && yb < ty);                 // KONTROL: Basit gercekten sade
   CHECK(!agacta_kod(b, nb, 74) && agacta_kod(t, nt, 74)); // voksel duman yalniz Gelismis'te
 }
+
+// U11 C2: "-0.0°" gosterilmez. Bicimin basamaginda sifira yuvarlanan deger isaretsiz 0; yuvarlanmayan aynen.
+// KONTROL: esigin hemen ustu (-0.06 @ %.1f) korunur (her negatif kucuk deger silinmiyor).
+ENGINE_TEST(gosterim_sifirla_eksi_sifir_with_control) {
+  const float a = app::gosterim_sifirla(-0.00001f, "%.1f\xC2\xB0");
+  CHECK(a == 0.0f && !std::signbit(a));
+  const float b = app::gosterim_sifirla(-0.0f, "%.3f");
+  CHECK(b == 0.0f && !std::signbit(b));
+  CHECK(app::gosterim_sifirla(-0.04f, "%.1f") == 0.0f);
+  CHECK(app::gosterim_sifirla(-0.06f, "%.1f") == -0.06f);   // KONTROL
+  CHECK(app::gosterim_sifirla(0.0004f, "%.3f") == 0.0f && app::gosterim_sifirla(0.0006f, "%.3f") == 0.0006f);
+  char m[32];
+  std::snprintf(m, sizeof m, "%.1f", (double)app::gosterim_sifirla(-0.00001f, "%.1f"));
+  CHECK(!std::strcmp(m, "0.0"));
+}

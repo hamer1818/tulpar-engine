@@ -464,7 +464,7 @@ yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar 
 | # | ne | bulgu | durum |
 |---|---|---|---|
 | C1 | İkon tutarlılığı (Kaydet indirme oku değil disket), menülerde eksik ikonlar | | ✅ 2026-11-11: araç çubuğu ve görünüm çubuğu TEK aileden (Material): Oynat/Durdur, Taşı/Döndür/Ölçekle, Yakala (ızgara), Gizmolar (göz; eskiden güneş), Kaydet (disket; eskiden indirme oku), Derle (anahtar), Izgara açık/kapalı (+ sabit `###izgara` kimliği: etiket değişince düğme yeni öğe sayılıyordu). İkon kapısı 0 eksik glif |
-| C2 | Sayı biçimi: `-0.0°` yok; ölçü birimleri tutarlı | | |
+| C2 | Sayı biçimi: `-0.0°` yok; ölçü birimleri tutarlı | | ✅ 2026-11-11: `gosterim_sifirla` — biçimin basamağında sıfıra yuvarlanan değer (−0.0f, gizmodan kalan −0.00001) GÖSTERİMDE işaretsiz 0; veri yalnız kullanıcı değiştirirse yazılır (sessiz düzeltme yok). `prop_vec3` / `prop_float` hepsi. Kapı `gosterim_sifirla_eksi_sifir_with_control` (kontrol: −0.06 @ %.1f korunur); canlı: gizmo sürüklemesi sonrası dönüş "0.0°" (eskiden "-0.0°") |
 | C3 | 1280×720'de kesilen etiketler (Dünya: "Kamera gör…", araç çubuğu sağ ucu) + bu çözünürlük için UX kapısı | Kapı yalnız büyük çözünürlükte | |
 | C4 | Varsayılan ışık ve gökyüzü: yeni sahne düz görünmesin | | |
 | C5 | Seçim yokken Özellikler'de Dünya ayarlarının tekrarı yerine sahne özeti; gizmo görünürlük ayarları Görünüm'e | Aynı ayar iki yerde | |
