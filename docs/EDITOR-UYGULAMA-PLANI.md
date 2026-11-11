@@ -463,7 +463,7 @@ yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar 
 
 | # | ne | bulgu | durum |
 |---|---|---|---|
-| C1 | İkon tutarlılığı (Kaydet indirme oku değil disket), menülerde eksik ikonlar | | |
+| C1 | İkon tutarlılığı (Kaydet indirme oku değil disket), menülerde eksik ikonlar | | ✅ 2026-11-11: araç çubuğu ve görünüm çubuğu TEK aileden (Material): Oynat/Durdur, Taşı/Döndür/Ölçekle, Yakala (ızgara), Gizmolar (göz; eskiden güneş), Kaydet (disket; eskiden indirme oku), Derle (anahtar), Izgara açık/kapalı (+ sabit `###izgara` kimliği: etiket değişince düğme yeni öğe sayılıyordu). İkon kapısı 0 eksik glif |
 | C2 | Sayı biçimi: `-0.0°` yok; ölçü birimleri tutarlı | | |
 | C3 | 1280×720'de kesilen etiketler (Dünya: "Kamera gör…", araç çubuğu sağ ucu) + bu çözünürlük için UX kapısı | Kapı yalnız büyük çözünürlükte | |
 | C4 | Varsayılan ışık ve gökyüzü: yeni sahne düz görünmesin | | |

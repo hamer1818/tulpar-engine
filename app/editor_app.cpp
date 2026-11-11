@@ -4326,7 +4326,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       ImGui::SameLine();
 
       if (view_tab == ViewportTab::Scene) {
-        if (ImGui::Button(show_grid ? "⊞ Izgara: Açık" : "⊞ Izgara: Kapalı")) show_grid = !show_grid;
+        if (ImGui::Button(show_grid ? ICON_MD_GRID_ON " Izgara: Açık###izgara" : ICON_MD_GRID_OFF " Izgara: Kapalı###izgara")) show_grid = !show_grid;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("3B Zemin Izgarasını Göster / Gizle");
 
         // Gorunum kipi (UE5 "View Mode"). Dordu de CPU tarafinda DOGRU:
@@ -4440,7 +4440,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           layout_apply_default(layout_dockspace_id(), vp_main->WorkSize.x, vp_main->WorkSize.y);
           console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "varsay\xC4\xB1lan panel d\xC3\xBCzeni uyguland\xC4\xB1");
         }
-        if (ImGui::MenuItem("☀ Işık ve Gölge Gizmolarını Göster", nullptr, st.gizmos.light_radius)) {
+        if (ImGui::MenuItem(ICON_MD_LIGHTBULB " Işık ve Gölge Gizmolarını Göster", nullptr, st.gizmos.light_radius)) {
           st.gizmos.light_radius = !st.gizmos.light_radius;
           st.gizmos.light_glyph = st.gizmos.light_radius;
           st.gizmos.shadow_volume = st.gizmos.light_radius;

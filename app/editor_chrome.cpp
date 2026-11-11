@@ -17,6 +17,7 @@
 
 #include "app/editor_ui.hpp"
 
+#include <IconsMaterialDesign.h>
 #include <imgui.h>
 #include <imgui_internal.h> // BeginViewportSideBar, IM_TRUNC
 
@@ -379,7 +380,9 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
 
     // 1) Oynat / Durdur — sabit genislik: iki metin arasinda dugme zipla(ma)sin.
     {
-      static const char kPlay[] = "▶ Oynat", kStop[] = "■ Durdur";
+      // U11 C1: araç cubugu ikonlari TEK aileden (Material): eskiden DejaVu Unicode simgeleri (▶ ✥ ↻ ▣ ⊞ ☀ ⬇ ⚒)
+      // ve Material karisikti; Kaydet "indirme oku", Gizmolar "gunes" gosteriyordu.
+      static const char kPlay[] = ICON_MD_PLAY_ARROW " Oynat", kStop[] = ICON_MD_STOP " Durdur";
       const float w = ImMax(ImGui::CalcTextSize(kPlay).x, ImGui::CalcTextSize(kStop).x) + st.FramePadding.x * 2.0f;
       ToolBtn b;
       b.id = "##oynat";
@@ -393,9 +396,9 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     // 2) Gizmo kipi: uclu bolumlu kontrol (esit genislik, dis koseler yuvarlak).
     {
       struct Seg { CommandId id; const char *label; const char *iid; };
-      static const Seg segs[3] = {{CommandId::GizmoTranslate, "✥ Taşı", "##gz_tasi"},
-                                  {CommandId::GizmoRotate, "↻ Döndür", "##gz_dondur"},
-                                  {CommandId::GizmoScale, "▣ Ölçekle", "##gz_olcekle"}};
+      static const Seg segs[3] = {{CommandId::GizmoTranslate, ICON_MD_OPEN_WITH " Taşı", "##gz_tasi"},
+                                  {CommandId::GizmoRotate, ICON_MD_ROTATE_RIGHT " Döndür", "##gz_dondur"},
+                                  {CommandId::GizmoScale, ICON_MD_OPEN_IN_FULL " Ölçekle", "##gz_olcekle"}};
       float w = 0.0f;
       for (const Seg &sg : segs) w = ImMax(w, ImGui::CalcTextSize(sg.label).x);
       w = IM_TRUNC(w + st.FramePadding.x * 2.0f);
@@ -423,7 +426,7 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     {
       ToolBtn b;
       b.id = "##yakala";
-      b.label = "⊞ Yakala";
+      b.label = ICON_MD_GRID_ON " Yakala";
       b.look = s.snap ? Look::Outline : Look::Plain; // anahtar: sessiz (kenarlik + metin)
       if (tool_button(b, bh)) out->snap_toggled = true;
       rec_item(g_rects[(int)ChromeRect::SnapToggle]);
@@ -444,7 +447,7 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     {
       ToolBtn b;
       b.id = "##gizmolar";
-      b.label = "☀ Gizmolar";
+      b.label = ICON_MD_VISIBILITY " Gizmolar";
       b.look = t.checked(CommandId::ViewGizmos) ? Look::Outline : Look::Plain;
       command_button(t, CommandId::ViewGizmos, b, bh, &g_rects[(int)ChromeRect::GizmoVisible]);
     }
@@ -454,12 +457,12 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     {
       ToolBtn b;
       b.id = "##kaydet";
-      b.label = "⬇ Kaydet";
+      b.label = ICON_MD_SAVE " Kaydet";
       command_button(t, CommandId::FileSave, b, bh, nullptr);
       ImGui::SameLine(0.0f, gap_item());
       ToolBtn c;
       c.id = "##derle";
-      c.label = "⚒ Derle";
+      c.label = ICON_MD_BUILD " Derle";
       command_button(t, CommandId::FileCompile, c, bh, nullptr);
     }
 
