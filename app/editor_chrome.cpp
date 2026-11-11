@@ -422,6 +422,9 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     }
     vsep(bh);
 
+    // U11 C7: Basit kipte Yakala / Gizmolar / Derle CIZILMEZ (menude ve kisayolda durur): F5 zaten derler, yakalama
+    // ve gizmo gorunurlugu yeni baslayanin ilk haftasinda gereken ayar degil (Tur B gezintisi, 2026-11-11).
+    if (s.gelismis) {
     // 3) Yakalama (tabloda yok -> ChromeOutput) + adim kaydiraci (acikken).
     {
       ToolBtn b;
@@ -452,6 +455,7 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
       command_button(t, CommandId::ViewGizmos, b, bh, &g_rects[(int)ChromeRect::GizmoVisible]);
     }
     vsep(bh);
+    }
 
     // 5) Kaydet / Derle
     {
@@ -459,11 +463,13 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
       b.id = "##kaydet";
       b.label = ICON_MD_SAVE " Kaydet";
       command_button(t, CommandId::FileSave, b, bh, nullptr);
-      ImGui::SameLine(0.0f, gap_item());
-      ToolBtn c;
-      c.id = "##derle";
-      c.label = ICON_MD_BUILD " Derle";
-      command_button(t, CommandId::FileCompile, c, bh, nullptr);
+      if (s.gelismis) {
+        ImGui::SameLine(0.0f, gap_item());
+        ToolBtn c;
+        c.id = "##derle";
+        c.label = ICON_MD_BUILD " Derle";
+        command_button(t, CommandId::FileCompile, c, bh, nullptr);
+      }
     }
 
     // 6) Sag blok: [nokta hucresi][sahne adi]. Nokta yalniz kirliyken cizilir ama

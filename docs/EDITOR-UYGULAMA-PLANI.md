@@ -468,7 +468,7 @@ yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar 
 | C3 | 1280×720'de kesilen etiketler (Dünya: "Kamera gör…", araç çubuğu sağ ucu) + bu çözünürlük için UX kapısı | Kapı yalnız büyük çözünürlükte | |
 | C4 | Varsayılan ışık ve gökyüzü: yeni sahne düz görünmesin | | |
 | C5 | Seçim yokken Özellikler'de Dünya ayarlarının tekrarı yerine sahne özeti; gizmo görünürlük ayarları Görünüm'e | Aynı ayar iki yerde | |
-| C7 | Basit kipte araç çubuğu sade: "Derle" (F5 zaten derler), "Yakala", "Gizmolar" Gelişmiş'te | Tur B gezintisi (2026-11-11) | |
+| C7 | Basit kipte araç çubuğu sade: "Derle" (F5 zaten derler), "Yakala", "Gizmolar" Gelişmiş'te | Tur B gezintisi (2026-11-11) | ✅ 2026-11-11: Basit'te araç çubuğu Oynat · Taşı/Döndür/Ölçekle · Kaydet; üçü menü ve kısayolda durur. Kapı `editor_chrome_toolbar_basit_sade_with_control` (Basit: yakala/gizmolar/derle çizilmez; kontrol: Gelişmiş'te üçü de çizilir) |
 | C6 | **Açık tema** (Tercihler'de Tema seçeneği): palet `constexpr`, ~34 yerde elle `IM_COL32` — hepsi tona bağlanır, iki palet, ekran görüntüsü kapısı | B1'de işlevsiz seçenek göstermemek için ayrıldı | |
 
 ## 4. Sıra ve bağımlılık
