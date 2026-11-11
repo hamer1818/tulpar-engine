@@ -133,9 +133,21 @@ TULPAR_EDITOR_AYAR_DIZINI="$TR/ayar" TULPAR_EDITOR_OTO_KAYIT_SN=2 kos tercihler.
 TULPAR_EDITOR_AYAR_DIZINI="$TR/ayar" kos tercihler_kalici.txt "$TR/ui2" --scene "$TR/assets/editor.sahne"; r2=$?
 boy() { grep -m1 '^"Dosya" @' "$1" | sed -E 's/.* ([0-9]+)x([0-9]+)\).*/\2/'; }
 b0=$(boy "$TR/ui0/yanit.txt"); b2=$(boy "$TR/ui2/yanit.txt"); nk=$(grep -c '^nesne ' "$TR/assets/editor.sahne")
+# U11 C6: tema kalici — ikinci acilista panel zemini ACIK; kontrol kosusunda (varsayilan) KOYU.
+tz=$(python3 - "$TR/ui0/tema.png" "$TR/ui2/tema.png" <<'PYT' 2>/dev/null
+import sys
+from PIL import Image
+v=[]
+for f in sys.argv[1:3]:
+    im=Image.open(f).convert('L'); w,h=im.size; v.append(im.getpixel((int(w*0.08), int(h*0.45))))
+print(v[0], v[1])
+PYT
+)
+t0=${tz%% *}; t2=${tz##* }
 if [ $r0 = 0 ] && [ $r1 = 0 ] && [ $r2 = 0 ] && grep -q '^yazi = 115$' "$TR/ayar/tercihler.txt" && grep -q '^oto_kayit_dk = 1$' "$TR/ayar/tercihler.txt" \
-   && [ "$nk" = 9 ] && [ -n "$b0" ] && [ -n "$b2" ] && [ "$b2" -gt "$b0" ]; then
-  echo "  tercihler: Buyuk + 1 dk yazildi, kup otomatik kaydedildi (9 varlik), menu boyu $b0 -> $b2 px (kalici), duzen sifirlandi"
+   && [ "$nk" = 9 ] && [ -n "$b0" ] && [ -n "$b2" ] && [ "$b2" -gt "$b0" ] && grep -q '^tema = 1$' "$TR/ayar/tercihler.txt" \
+   && [ -n "$tz" ] && [ "$t2" -gt 150 ] && [ "$t0" -lt 60 ]; then
+  echo "  tercihler: Buyuk + 1 dk + Acik tema yazildi, kup otomatik kaydedildi (9 varlik), menu boyu $b0 -> $b2 px, panel zemini $t0 -> $t2 (kalici), duzen sifirlandi"
 else echo "  KIRMIZI tercihler (cikis $r0/$r1/$r2, varlik $nk, boy $b0 -> $b2):"; grep -hE 'HATA|> ' "$TR"/ui*/yanit.txt 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 A3: karsilama formu (sablon karti, Ingilizce ad istege bagli; tulpar gerekmez) ---
 KR="$D/karsilama"; mkdir -p "$KR/ui"

@@ -2057,7 +2057,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     std::snprintf(tercih_p.ayar_dizini, sizeof tercih_p.ayar_dizini, "%s", tercih_yol);
     if (char *s = std::strrchr(tercih_p.ayar_dizini, '/')) *s = 0;
   }
-  if (tercih.yazi != 100) ui.set_ui_scale((float)tercih.yazi / 100.0f);
+  editor_tema_ayarla(tercih.tema); // U11 C6
+  if (tercih.yazi != 100 || tercih.tema != 0) ui.set_ui_scale((float)tercih.yazi / 100.0f); // stili (tema) yeniden kurar
   static char oturum_ayar[1024] = {0};
   if (!headless && platform::user_config_dir(oturum_ayar, sizeof oturum_ayar)) {
     yardim.cokme = yardim_oturum_baslat(oturum_ayar, yardim.cokme_rapor, sizeof yardim.cokme_rapor);
@@ -9453,6 +9454,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         bool gel = editor_gelismis();
         const uint32_t te = tercih_ciz(tercih_p, tercih, &gel, cmds.checked(CommandId::HelpAutoCheck));
         if (te & kTercihDegisti) {
+          editor_tema_ayarla(tercih.tema);              // U11 C6: palet once, sonra stil yeniden kurulur
           ui.set_ui_scale((float)tercih.yazi / 100.0f);
           if (tercih_yol[0] && !tercih_yaz(tercih_yol, tercih)) set_status(st, "tercihler kaydedilemedi: %s", tercih_yol);
         }

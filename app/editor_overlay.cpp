@@ -98,7 +98,7 @@ void draw_axis_gizmo(ImDrawList *dl, ImVec2 c, float R, float end_r, float font_
       dl->AddLine(c, p, back ? tone_mix(t, Tone::Bg0, 0.55f, 0.8f) : tone_u32(t, 0.95f), line_th);
       dl->AddCircleFilled(p, end_r, fill, 24);
       const ImVec2 ls = text_size(kLetter[e.axis], letter_px);
-      dl->AddText(ImGui::GetFont(), letter_px, ImVec2(p.x - ls.x * 0.5f, p.y - ls.y * 0.5f), back ? tone_u32(Tone::TextDim) : tone_u32(Tone::Bg0),
+      dl->AddText(ImGui::GetFont(), letter_px, ImVec2(p.x - ls.x * 0.5f, p.y - ls.y * 0.5f), back ? tone_u32(Tone::TextDim) : (ImU32)editor_koyu_murekkep(),
                   kLetter[e.axis]);
     } else {
       // Negatif uc: halka (Blender gelenegi) — yon bilgisi kaybolmaz, harf yok.
@@ -288,7 +288,7 @@ void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLay
   const char *mode_txt = info.cam_mode == CameraMode::Orbit ? "Y\xC3\xB6r\xC3\xBCnge" : "U\xC3\xA7u\xC5\x9F";
   const char *space_txt = info.gizmo_space == GizmoSpace::World ? "D\xC3\xBCnya" : "Yerel";
   Cand cand[8] = {
-      {"\xE2\x96\xB6", "OYNATILIYOR", tone_u32(Tone::Bg0), tone_u32(Tone::Bg0), tone_u32(Tone::Accent, 0.92f), 0, 0, -1, 0, 0, false, false},
+      {"\xE2\x96\xB6", "OYNATILIYOR", (ImU32)editor_koyu_murekkep(), (ImU32)editor_koyu_murekkep(), tone_u32(Tone::Accent, 0.92f), 0, 0, -1, 0, 0, false, false},
       {nullptr, proj_txt, 0, text, pill_bg, chip_border, 2, 0, 0, 0, false, false},
       {nullptr, mode_txt, 0, text, pill_bg, chip_border, 4, 1, 0, 0, false, false},
       {kOpIcon[op], kOpName[op], accent, text, pill_bg, pill_border, 1, -1, 0, 0, false, false},
@@ -631,7 +631,7 @@ bool add_button(ImVec2 pos, float size) {
   ImGui::PushStyleColor(ImGuiCol_Button, tone_u32(Tone::Accent, 0.85f));
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tone_u32(Tone::AccentHi));
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, tone_u32(Tone::AccentLo));
-  ImGui::PushStyleColor(ImGuiCol_Text, tone_u32(Tone::Bg0));
+  ImGui::PushStyleColor(ImGuiCol_Text, (ImU32)editor_koyu_murekkep());
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
   const bool pressed = ImGui::Button("\xE2\x9C\x9A##ekle", ImVec2(size, size)); // ✚
   ImGui::PopStyleVar();

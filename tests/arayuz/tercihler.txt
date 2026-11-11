@@ -6,6 +6,7 @@ tikla "Tercihler…" pencere=Menu
 bekle_oge "###tercihler" sira=1
 tikla "Büyük##yazi2"
 tikla "1 dk##oto1"
+tikla "Açık##tema"
 bekle 2
 ekran tercihler
 tikla "Kapat" pencere=tercihler

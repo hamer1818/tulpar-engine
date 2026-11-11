@@ -62,6 +62,7 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
       bool tam = true;
       if (!std::strcmp(k, "yazi")) t->yazi = yakin(kYazi, v, &tam);
       else if (!std::strcmp(k, "oto_kayit_dk")) t->oto_kayit_dk = yakin(kOto, v, &tam);
+      else if (!std::strcmp(k, "tema")) { tam = v == 0 || v == 1; t->tema = v == 1 ? 1 : 0; }
       if (!tam) ok = false;
     }
     if (!son) break;
@@ -71,8 +72,8 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
 }
 
 uint32_t tercih_metni(const Tercihler &t, char *out, uint32_t cap) {
-  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\n",
-                              t.yazi, t.oto_kayit_dk);
+  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\n",
+                              t.yazi, t.oto_kayit_dk, t.tema);
   return n > 0 && (uint32_t)n < cap ? (uint32_t)n : 0;
 }
 
@@ -127,6 +128,13 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
     }
   }
   aciklama("B\xC3\xBCt\xC3\xBCn aray\xC3\xBCz\xC3\xBC (yaz\xC4\xB1lar, d\xC3\xBC\xC4\x9Fmeler, paneller) birlikte b\xC3\xBCy\xC3\xBCt\xC3\xBCr.");
+  ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.5f));
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted("Tema");
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Koyu##tema", t.tema == 0) && t.tema != 0) { t.tema = 0; r |= kTercihDegisti; }
+  ImGui::SameLine();
+  if (ImGui::RadioButton("A\xC3\xA7\xC4\xB1k##tema", t.tema == 1) && t.tema != 1) { t.tema = 1; r |= kTercihDegisti; }
   ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.5f));
   ImGui::AlignTextToFramePadding();
   ImGui::TextUnformatted("Aray\xC3\xBCz");

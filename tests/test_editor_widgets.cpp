@@ -1039,3 +1039,46 @@ ENGINE_TEST(gosterim_sifirla_eksi_sifir_with_control) {
   std::snprintf(m, sizeof m, "%.1f", (double)app::gosterim_sifirla(-0.00001f, "%.1f"));
   CHECK(!std::strcmp(m, "0.0"));
 }
+
+// U11 C6: iki temanin KARSITLIGI (WCAG 2.1 goreli parlaklik). Ana metin/panel >= 7, metin/dugme-girdi-secim ve ikincil
+// metin >= 4.5, vurgu/uyari/hata/tamam >= 3, pasif metin >= 2.5. KONTROL: ayni iki renk 1.0 (olcum gercekten oran).
+static double wcag_l(const float c[4]) {
+  auto ch = [](double v) { return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
+}
+static double karsitlik(int tema, app::Tone a, app::Tone b) {
+  float x[4], y[4];
+  app::editor_tema_tonu(tema, a, x);
+  app::editor_tema_tonu(tema, b, y);
+  double la = wcag_l(x), lb = wcag_l(y);
+  if (la < lb) { const double t = la; la = lb; lb = t; }
+  return (la + 0.05) / (lb + 0.05);
+}
+ENGINE_TEST(editor_tema_karsitligi_with_control) {
+  using app::Tone;
+  struct Cift { Tone on, zemin; double alt; const char *ad; };
+  static const Cift kCift[] = {
+      {Tone::Text, Tone::Bg1, 7.0, "metin/panel"},       {Tone::Text, Tone::Bg3, 4.5, "metin/dugme"},
+      {Tone::Text, Tone::Input, 4.5, "metin/girdi"},     {Tone::Text, Tone::Select, 4.5, "metin/secim"},
+      {Tone::Text, Tone::Bg2, 4.5, "metin/kart"},        {Tone::TextDim, Tone::Bg1, 4.5, "ikincil/panel"},
+      {Tone::TextMute, Tone::Bg1, 2.5, "pasif/panel"},   {Tone::AccentHi, Tone::Bg1, 3.0, "vurgu/panel"},
+      {Tone::Warn, Tone::Bg1, 3.0, "uyari/panel"},       {Tone::Err, Tone::Bg1, 3.0, "hata/panel"},
+      {Tone::Ok, Tone::Bg1, 3.0, "tamam/panel"},
+  };
+  for (int tema = 0; tema < 2; tema++) {
+    for (const Cift &c : kCift) {
+      const double k = karsitlik(tema, c.on, c.zemin);
+      if (k < c.alt) std::printf("    [bilgi] %s tema %s: %.2f < %.1f\n", tema ? "acik" : "koyu", c.ad, k, c.alt);
+      CHECK(k >= c.alt);
+    }
+    std::printf("    [bilgi] %s tema: metin/panel %.1f, ikincil %.1f, pasif %.1f, vurgu %.1f, uyari %.1f\n", tema ? "acik" : "koyu",
+                karsitlik(tema, Tone::Text, Tone::Bg1), karsitlik(tema, Tone::TextDim, Tone::Bg1), karsitlik(tema, Tone::TextMute, Tone::Bg1),
+                karsitlik(tema, Tone::AccentHi, Tone::Bg1), karsitlik(tema, Tone::Warn, Tone::Bg1));
+  }
+  CHECK(std::fabs(karsitlik(0, Tone::Bg1, Tone::Bg1) - 1.0) < 1e-9); // KONTROL
+  // Temalar gercekten farkli (acik tema koyunun kopyasi degil).
+  float k0[4], k1[4];
+  app::editor_tema_tonu(0, Tone::Bg1, k0);
+  app::editor_tema_tonu(1, Tone::Bg1, k1);
+  CHECK(wcag_l(k1) > wcag_l(k0) + 0.5);
+}

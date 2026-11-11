@@ -540,7 +540,9 @@ PropItem prop_color(const char *label, float rgb[3]) {
   ImGui::PushFont(nullptr, s.FontSizeBase * 0.88f);
   const ImVec2 hs = ImGui::CalcTextSize(hex);
   ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(r.x1 - hs.x - s.FramePadding.x, r.y0 + (h - hs.y) * 0.5f),
-                                      lum > 0.55f ? tone_u32(Tone::Bg0, 0.85f) : tone_u32(Tone::White, 0.85f), hex);
+                                      // U11 C6: murekkep TEMADAN BAGIMSIZ (ornegin rengine gore): Bg0 acik temada acik
+                                      // gri — acik ornekte beyaz uzerine beyaz kaliyordu.
+                                      lum > 0.55f ? (ImU32)editor_koyu_murekkep(0.85f) : tone_u32(Tone::White, 0.85f), hex);
   ImGui::PopFont();
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s  (%.3f, %.3f, %.3f)", hex, rgb[0], rgb[1], rgb[2]);
 

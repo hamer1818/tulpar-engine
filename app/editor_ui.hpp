@@ -52,6 +52,14 @@ enum class Tone : uint8_t {
 };
 // out[4] = r,g,b,a (0..1). Gecersiz t: Text.
 void editor_tone(Tone t, float out[4]);
+// U11 C6: tema (0 koyu, 1 acik). Ayarlamak etkin paleti degistirir; ImGui stili icin editor_apply_theme yeniden
+// cagrilmali (EditorUi::set_ui_scale yapar). editor_tema_tonu: istenen temanin HAM sRGB tonu (karsitlik testi).
+void editor_tema_ayarla(int tema);
+// Renkli zemin (eksen diski, vurgu dugmesi, renk ornegi) uzerindeki KOYU murekkep: temadan bagimsiz (Bg0 acik temada
+// acik gri olur). Koyu paletin bg0'i, tema donusumuyle (sRGB hedefte dogrusal) — koyu temada eski Bg0 ile bayt ayni.
+uint32_t editor_koyu_murekkep(float alfa = 1.0f);
+int editor_tema();
+void editor_tema_tonu(int tema, Tone t, float out[4]);
 
 // --- Tipografi olcegi --------------------------------------------------------
 // Tek font yuzu, UC boyut kademesi. Vendored ImGui 1.92 dinamik boyut

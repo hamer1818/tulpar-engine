@@ -68,10 +68,13 @@ ENGINE_TEST(tercih_dosyasi_gidis_donus_with_control) {
   Tercihler t;
   t.yazi = 130;
   t.oto_kayit_dk = 5;
+  t.tema = 1;
   char m[256];
   CHECK(tercih_metni(t, m, sizeof m) > 0);
   Tercihler u;
-  CHECK(tercih_ayristir(m, &u) && u.yazi == 130 && u.oto_kayit_dk == 5);
+  CHECK(tercih_ayristir(m, &u) && u.yazi == 130 && u.oto_kayit_dk == 5 && u.tema == 1);
+  Tercihler tg;
+  CHECK(!tercih_ayristir("tema = 7\n", &tg) && tg.tema == 0); // gecersiz tema: koyu + false
   Tercihler v;
   CHECK(!tercih_ayristir("yazi = 120\noto_kayit_dk = 3\nbilinmeyen = 7\n# yorum = 1\n", &v));
   CHECK(v.yazi == 115 && v.oto_kayit_dk == 2); // 120 -> 115 (en yakin), 3 -> 2
