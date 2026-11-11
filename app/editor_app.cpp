@@ -5158,7 +5158,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (editor_gelismis()) {
           ImGui::Separator();
           track_world_edit(st, prop_float("Pozlama (Exposure)", &st.scene.godray_exposure, 0.01f, 0.01f, 2.0f, "%.2f"));
-          track_world_edit(st, prop_float("H\xC3\xBCzme Yo\xC4\x9Funlu\xC4\x9Fu (Density)", &st.scene.godray_density, 0.02f, 0.1f, 2.5f, "%.2f"));
+          track_world_edit(st, prop_float("Yo\xC4\x9Funluk (Density)", &st.scene.godray_density, 0.02f, 0.1f, 2.5f, "%.2f"));
           track_world_edit(st, prop_float("S\xC3\xB6n\xC3\xBCmleme (Decay)", &st.scene.godray_decay, 0.005f, 0.70f, 0.999f, "%.3f"));
           track_world_edit(st, prop_float("\xC3\x96rnek A\xC4\x9F\xC4\xB1rl\xC4\xB1\xC4\x9F\xC4\xB1 (Weight)", &st.scene.godray_weight, 0.02f, 0.05f, 1.0f, "%.2f"));
         }
@@ -7033,7 +7033,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   const bool var = (kk_bit & r.bit) != 0;
                   ImGui::TextColored(var ? ok_r : sonuk, "  %s %s", var ? ICON_MD_CHECK : "\xE2\x80\x94", r.ne);
                 }
-                if (!kk_bit) ImGui::TextColored(uyar, ICON_MD_WARNING " Dosyada bu beti\xC4\x9Fin i\xC5\x9Flevi yok (ad dosya ad\xC4\xB1yla ba\xC5\x9Flamal\xC4\xB1).");
+                if (!kk_bit) { // U11 C3: sarilir (1280x720'de panel kenarinda kesiliyordu)
+                  ImGui::PushStyleColor(ImGuiCol_Text, uyar);
+                  ImGui::TextWrapped(ICON_MD_WARNING " Dosyada bu beti\xC4\x9Fin i\xC5\x9Flevi yok (ad dosya ad\xC4\xB1yla ba\xC5\x9Flamal\xC4\xB1).");
+                  ImGui::PopStyleColor();
+                }
                 char oyun_yolu[1100];
                 if (betik_oyun_yolu(oyun_yolu, sizeof oyun_yolu)) {
                   char *ob_yol = betik_kart_ob_yol; // "Bagla" penceresi yazinca bosaltir: kart hemen tazelenir

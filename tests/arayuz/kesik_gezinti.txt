@@ -1,0 +1,24 @@
+# U11 C3 (tools/editor_ux.sh --kapi): VARSAYILAN DISI ekranlarda kesik metin. UX raporu (--ux-rapor) butun gezinti
+# boyunca kesik metni toplar; kapi 1280x720'de Basit ve Gelismis kipte 0 bekler. Varsayilan olcum yalniz ilk ekrani
+# (Ozellikler + Kaynaklar, secim yok) goruyordu; Dunya sekmesi, bilesenli nesneler, Tercihler, Konsol hic olculmuyordu.
+tikla "Dünya" pencere=DockSpace
+bekle 4
+tikla "Özellikler" pencere=DockSpace
+tikla "kure_1" pencere=Sahne
+bekle 4
+tikla "kup_dusen" pencere=Sahne
+bekle 4
+tikla "lamba_kirmizi" pencere=Sahne
+bekle 4
+tikla "duvar_sabit" pencere=Sahne
+bekle 4
+tikla "Konsol" pencere=DockSpace
+bekle 4
+tikla "Düzen" pencere=MainMenuBar
+tikla "Tercihler…" pencere=Menu
+bekle 4
+tikla "Kapat" pencere=tercihler
+tikla "Ekle" pencere=MainMenuBar
+bekle 3
+tus Escape
+cik

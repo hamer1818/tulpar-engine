@@ -1,10 +1,12 @@
 // L6 APP — Editor UX olcumu (editor_ux.hpp).
 #include "app/editor_ux.hpp"
+#include "app/editor_ui.hpp" // g_editor_kisaltma_kanca
 
 #include <cstdio>
 #include <cstring>
 
 #include <imgui.h>
+#include <imgui_internal.h> // GetCurrentWindow (kisaltmanin penceresi)
 
 namespace tulpar::engine::app {
 namespace {
@@ -38,6 +40,12 @@ void kopyala(char *dst, uint32_t cap, const char *a, const char *son) {
 void kanca(const char *pencere, const char *metin, const char *son, float gerek, float alan) {
   if (g_ux) ux_olcum_metin(*g_ux, pencere, metin, son, gerek, alan);
 }
+void kisaltma_kanca(const char *orijinal) {
+  if (!g_ux) return;
+  ImGuiWindow *w = ImGui::GetCurrentContext() ? ImGui::GetCurrentWindow() : nullptr;
+  // Kok pencere adi (alt cocuk "Ozellikler###Ozellikler/##..." olsa da panel adi gorunsun).
+  ux_olcum_kisaltma(*g_ux, w && w->RootWindow ? w->RootWindow->Name : (w ? w->Name : "?"), orijinal);
+}
 
 } // namespace
 
@@ -49,10 +57,31 @@ void ux_olcum_sifirla(UxOlcum &o) {
 void ux_olcum_baslat(UxOlcum *o) {
   g_ux = o;
   GImGuiTulparMetinKanca = o ? &kanca : nullptr;
+  g_editor_kisaltma_kanca = o ? &kisaltma_kanca : nullptr;
 }
 void ux_olcum_bitir() {
   g_ux = nullptr;
   GImGuiTulparMetinKanca = nullptr;
+  g_editor_kisaltma_kanca = nullptr;
+}
+
+void ux_olcum_kisaltma(UxOlcum &o, const char *pencere, const char *orijinal) {
+  if (!orijinal || o.kare < 2) return;
+  const char *son = orijinal + std::strlen(orijinal);
+  const uint64_t k = fnv(orijinal, son, pencere);
+  for (uint32_t i = 0; i < o.kisaltma_n; i++)
+    if (o.kisaltma_ozet[i] == k) {
+      if (o.kisaltma_son[i] != o.kare) { o.kisaltma_son[i] = o.kare; o.kisaltma_tekrar[i]++; } // kare basina bir
+      return;
+    }
+  if (o.kisaltma_n >= UxOlcum::kKisaltma) { o.kisaltma_tasan++; return; }
+  o.kisaltma_ozet[o.kisaltma_n] = k;
+  kopyala(o.kisaltma[o.kisaltma_n], UxOlcum::kOrnek, orijinal, son);
+  kopyala(o.kisaltma_pencere[o.kisaltma_n], 48, pencere ? pencere : "?", (pencere ? pencere : "?") + std::strlen(pencere ? pencere : "?"));
+  o.kisaltma_kare[o.kisaltma_n] = o.kare;
+  o.kisaltma_son[o.kisaltma_n] = o.kare;
+  o.kisaltma_tekrar[o.kisaltma_n] = 1;
+  o.kisaltma_n++;
 }
 
 void ux_olcum_metin(UxOlcum &o, const char *pencere, const char *metin, const char *son, float gerek, float alan) {
@@ -114,13 +143,16 @@ bool ux_olcum_yaz(const UxOlcum &o, const char *dosya) {
   std::FILE *f = dosya ? std::fopen(dosya, "w") : stdout;
   if (!f) return false;
   std::fprintf(f, "[ux] ozet kare=%u kesik=%u kesik_tasan=%u kaplama_tasan_kare=%u kaplama_tasma_px=%.0f "
-                  "gorunum_orani=%.3f gorunum_orani_min=%.3f metin=%u metin_tasan=%u\n",
+                  "gorunum_orani=%.3f gorunum_orani_min=%.3f metin=%u metin_tasan=%u kisaltma=%u\n",
                o.kare, o.kesik_n, o.kesik_tasan, o.kaplama_tasan_kare, (double)o.kaplama_tasma_px,
-               (double)o.gorunum_orani_son, (double)o.gorunum_orani_min, o.metin_n, o.metin_tasan);
+               (double)o.gorunum_orani_son, (double)o.gorunum_orani_min, o.metin_n, o.metin_tasan, o.kisaltma_n);
   for (uint32_t i = 0; i < o.kesik_n; i++)
     std::fprintf(f, "[ux] kesik pencere='%s' gerek=%.0f alan=%.0f ilk_kare=%u kare_sayisi=%u metin='%s'\n",
                  o.kesik_pencere[i], (double)o.kesik_gerek[i], (double)o.kesik_alan[i], o.kesik_kare[i],
                  o.kesik_tekrar[i], o.kesik[i]);
+  for (uint32_t i = 0; i < o.kisaltma_n; i++)
+    std::fprintf(f, "[ux] kisaltma pencere='%s' ilk_kare=%u kare_sayisi=%u metin='%s'\n", o.kisaltma_pencere[i], o.kisaltma_kare[i],
+                 o.kisaltma_tekrar[i], o.kisaltma[i]);
   for (uint32_t i = 0; i < o.metin_n; i++) std::fprintf(f, "[ux] metin '%s'\n", o.metin[i]);
   if (dosya) std::fclose(f);
   return true;

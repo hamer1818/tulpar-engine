@@ -42,6 +42,16 @@ float g_trailing_w = 0.0f;          // prop_reserve_trailing: bir sonraki satir
 float g_row_trailing = 0.0f;        // CIZILEN satirin ayrilmis sag payi
 float g_row_right = 0.0f;           // cizilen satirin deger hucresinin sag kenari (ekran)
 bool g_row_drawn = false;           // son prop_* satir cizdi mi
+// U11 C3: onay kutusu satiri: etiket kendi sutununa sigmazsa deger sutununa TASABILIR (kutu sagda). prop_check
+// kurar, prop_label tuketir. g_label_tasti: bu satirda tasti (kutu saga yaslanmali).
+float g_label_kutu = 0.0f;
+bool g_label_tasti = false;
+// U11 C3: UYARLANIR etiket sutunu. Her prop tablosu onceki karede en uzun (sigmasi gereken) etiketin istedigi
+// genisligi hatirlar; sutun o kadar acilir (panelin %45'ine kadar). 1280x720'de ~78 px'lik sutun "Huzme Yogunlugu",
+// "Albedo Dokusu", "Normal Haritasi" etiketlerini kesiyordu (UX kisaltma olcumu, 2026-11-11). Sabit tablo, ayirma yok.
+struct EtiketOlcu { ImGuiID id; int kare; float onceki, simdiki; };
+EtiketOlcu g_etiket_olcu[64] = {};
+int g_etiket_slot = -1;
 WidgetRect g_trailing_rect;
 WidgetRect g_slot_rect;
 PropVec3Layout g_vec3_layout;
@@ -82,10 +92,39 @@ void prop_label(const char *label) {
     if (ascii) ac[-1] = 0;
   }
   char buf[96];
-  editor_ellipsize(gorunen, ImGui::GetContentRegionAvail().x, buf, sizeof buf);
+  const float sutun = ImGui::GetContentRegionAvail().x;
+  float genis = sutun;
+  g_label_tasti = false;
+  // U11 C3: onay kutusu satirinda etiket deger sutununa tasabilir (1280x720'de "Kamera gor…", "Cevre hacim…").
+  if (g_label_kutu > 0.0f) {
+    if (ImGuiTable *tb = ImGui::GetCurrentTable()) {
+      const float sag = tb->Columns[tb->ColumnsCount - 1].WorkMaxX;
+      const float g = sag - ImGui::GetCursorScreenPos().x - g_label_kutu - ImGui::GetStyle().ItemInnerSpacing.x * 2.0f;
+      if (g > genis) genis = g;
+    }
+  }
+  // Olcu: sigmasi GEREKEN etiket (onay kutusu satiri tasabildigi icin sayilmaz).
+  if (g_label_kutu <= 0.0f && g_etiket_slot >= 0) {
+    const float w = ImGui::CalcTextSize(gorunen).x;
+    if (w > g_etiket_olcu[g_etiket_slot].simdiki) g_etiket_olcu[g_etiket_slot].simdiki = w;
+  }
+  editor_ellipsize(gorunen, genis, buf, sizeof buf);
   ImGui::PushStyleColor(ImGuiCol_Text, tone(g_label_tone));
-  ImGui::TextUnformatted(buf);
+  if (ImGui::CalcTextSize(buf).x > sutun + 0.5f) {
+    // Sutun kirpmasinin disina: hucrenin cizim listesine genis kirpma ile. Fare alani yine etiket hucresi.
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float fh = ImGui::GetFrameHeight();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->PushClipRect(p, ImVec2(p.x + genis, p.y + fh), false);
+    dl->AddText(ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(ImGuiCol_Text), buf);
+    dl->PopClipRect();
+    ImGui::Dummy(ImVec2(sutun, ImGui::GetTextLineHeight()));
+    g_label_tasti = true;
+  } else {
+    ImGui::TextUnformatted(buf);
+  }
   ImGui::PopStyleColor();
+  g_label_kutu = 0.0f;
   const bool cut = std::strcmp(buf, label) != 0;
   if ((cut || g_help) && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
     if (g_help) ImGui::SetTooltip("%s\n%s", label, g_help);
@@ -240,6 +279,25 @@ bool prop_begin(const char *id, float label_fraction) {
   float label_w = std::floor(avail * label_fraction);
   if (label_w < lo) label_w = lo;
   if (label_w > hi) label_w = hi;
+  // U11 C3: onceki karede olculen en uzun etiket (dar panelde %45'e, genis panelde 200 px olcegine kadar).
+  {
+    const ImGuiID tid = ImGui::GetID(id);
+    const int kare = ImGui::GetFrameCount();
+    int bos = -1, yer = -1;
+    for (int i = 0; i < 64; i++) {
+      if (g_etiket_olcu[i].id == tid) { yer = i; break; }
+      if (bos < 0 && (g_etiket_olcu[i].id == 0 || kare - g_etiket_olcu[i].kare > 600)) bos = i;
+    }
+    if (yer < 0 && bos >= 0) { g_etiket_olcu[bos] = EtiketOlcu{tid, kare, 0.0f, 0.0f}; yer = bos; }
+    g_etiket_slot = yer;
+    if (yer >= 0) {
+      EtiketOlcu &e = g_etiket_olcu[yer];
+      if (e.kare != kare) { e.onceki = e.simdiki; e.simdiki = 0.0f; e.kare = kare; }
+      const float tavan = std::floor(std::fmin(avail * 0.50f, 200.0f * (s.FramePadding.x / 6.0f)));
+      const float gerek = std::floor(e.onceki + s.CellPadding.x + 2.0f);
+      if (gerek > label_w) label_w = gerek < tavan ? gerek : (tavan > label_w ? tavan : label_w);
+    }
+  }
   if (label_w > avail * 0.6f) label_w = std::floor(avail * 0.6f); // cok dar panel
   ImGui::TableSetupColumn("etiket", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, label_w);
   ImGui::TableSetupColumn("deger", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize);
@@ -247,6 +305,7 @@ bool prop_begin(const char *id, float label_fraction) {
 }
 
 void prop_end() {
+  g_etiket_slot = -1;
   ImGui::EndTable();
   ImGui::PopStyleVar();
 }
@@ -517,7 +576,9 @@ PropItem prop_check(const char *label, bool *v) {
   if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
+  g_label_kutu = ImGui::GetFrameHeight(); // etiket tasabilir; kutu genisligi kadar yer kalsin
   prop_label(label);
+  if (g_label_tasti) ImGui::SetCursorScreenPos(ImVec2(g_row_right - ImGui::GetFrameHeight(), ImGui::GetCursorScreenPos().y));
   accumulate(it, ImGui::Checkbox("##v", v));
   ImGui::PopID();
   return it;
@@ -542,10 +603,27 @@ PropItem prop_asset(const char *label, int *index, const char (*names)[128], uin
   const bool has = (count > 0 && names != nullptr);
   const char *cur = (has && index && *index >= 0 && (uint32_t)*index < count) ? names[*index] : "-";
   char preview[160];
-  // Onizleme: ok + iki padding disinda kalan genislige kirp.
-  editor_ellipsize(cur, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - s.FramePadding.x * 2.0f, preview, sizeof preview);
+  // U11 C3: onizlemede DOSYA ADI (klasor ve .gltf/.glb/.tpr yok): 1280x720'de "lod_spher…", "checker_…" kesiliyordu.
+  // Acilan listede ve ipucunda tam yol kalir.
+  char kisa[128];
+  {
+    const char *b = cur;
+    for (const char *q = cur; *q; q++) if (*q == '/' || *q == '\\') b = q + 1;
+    std::snprintf(kisa, sizeof kisa, "%s", b);
+    if (char *nk = std::strrchr(kisa, '.'))
+      if (!std::strcmp(nk, ".gltf") || !std::strcmp(nk, ".glb") || !std::strcmp(nk, ".tpr")) *nk = 0;
+  }
+  {
+    // Kullanici verisi (keyfi uzunlukta dosya adi): "…" + ipucunda tam ad beklenen kalip; UX kisaltma olcumu
+    // BIZIM etiketlerimizi sayar, bunu degil.
+    void (*kk)(const char *) = g_editor_kisaltma_kanca;
+    g_editor_kisaltma_kanca = nullptr;
+    editor_ellipsize(kisa, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - s.FramePadding.x * 2.0f, preview, sizeof preview);
+    g_editor_kisaltma_kanca = kk;
+  }
   if (!has) ImGui::BeginDisabled();
   const bool open = ImGui::BeginCombo("##v", preview);
+  if (has && std::strcmp(preview, cur) != 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", cur);
   // Etkinlik bayraklari KUTUNUN kendisinden (liste acikken "son oge" bir
   // Selectable olurdu). Deger degisimi asagida listeden isaretlenir.
   accumulate(it, false);

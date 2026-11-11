@@ -337,6 +337,8 @@ void editor_tone(Tone t, float out[4]) {
   out[3] = c.w;
 }
 
+void (*g_editor_kisaltma_kanca)(const char *orijinal) = nullptr;
+
 uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap) {
   if (!out || cap == 0) return 0;
   out[0] = 0;
@@ -361,6 +363,7 @@ uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap) {
   std::memcpy(out, s, m);
   std::memcpy(out + m, kDots, 3);
   out[m + 3] = 0;
+  if (g_editor_kisaltma_kanca) g_editor_kisaltma_kanca(s);
   return m + 3;
 }
 

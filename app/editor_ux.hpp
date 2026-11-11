@@ -31,6 +31,15 @@ struct UxOlcum {
   float kesik_gerek[kKesik], kesik_alan[kKesik];
   uint32_t kesik_kare[kKesik];       // ilk goruldugu kare (gecici yerlesim karelerini ayirt etmek icin)
   uint32_t kesik_tekrar[kKesik];     // kac karede goruldu
+  // U11 C3: editor_ellipsize'in "…" ile KISALTTIGI metin (tasmaz, ama kullanici okuyamaz: "Kamera gor…").
+  static constexpr uint32_t kKisaltma = 128;
+  uint32_t kisaltma_n = 0, kisaltma_tasan = 0;
+  uint64_t kisaltma_ozet[kKisaltma];
+  char kisaltma[kKisaltma][kOrnek];
+  char kisaltma_pencere[kKisaltma][48];
+  uint32_t kisaltma_kare[kKisaltma];
+  uint32_t kisaltma_tekrar[kKisaltma]; // kac karede goruldu (uyarlanir yerlesimin tek karelik gecikmesi ayrilsin)
+  uint32_t kisaltma_son[kKisaltma];
   uint32_t kare = 0;
   uint32_t kaplama_tasan_kare = 0;   // kaplamanin gorunumden tastigi kare sayisi
   float kaplama_tasma_px = 0.0f;     // en buyuk tasma (piksel)
@@ -47,6 +56,8 @@ void ux_olcum_bitir();
 void ux_olcum_kare(UxOlcum &o, const UxRect &gorunum, const UxRect &ekran, const UxRect &kaplama);
 // Kanca girisi (testler de dogrudan cagirir).
 void ux_olcum_metin(UxOlcum &o, const char *pencere, const char *metin, const char *son, float gerek, float alan);
+// U11 C3: kisaltma kaydi (kanca; testler dogrudan). Ilk iki kare sayilmaz (yerlesim oturmamis).
+void ux_olcum_kisaltma(UxOlcum &o, const char *pencere, const char *orijinal);
 // Rapor: "[ux] ..." satirlari; dosya null ise stdout. Donus: yazildi mi.
 bool ux_olcum_yaz(const UxOlcum &o, const char *dosya);
 

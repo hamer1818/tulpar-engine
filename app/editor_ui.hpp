@@ -71,6 +71,8 @@ void pop_text_size();
 // ImGui baglami gerekir (CalcTextSize). Sigiyorsa oldugu gibi kopyalar. out her
 // zaman NUL ile biter. Donus: yazilan uzunluk (bayt).
 uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap);
+// U11 C3: editor_ellipsize GERCEKTEN kirptiginda cagrilir (orijinal metin). UX olcumu kurar (editor_ux); null: bedelsiz.
+extern void (*g_editor_kisaltma_kanca)(const char *orijinal);
 
 // --- Basit / Gelismis kip (docs/EDITOR-UYGULAMA-PLANI.md U5) ----------------------------------
 // Basit (varsayilan, oyun yapan icin): teknik olcumler (SetPass, arena, tick, ucgen/piksel...),
