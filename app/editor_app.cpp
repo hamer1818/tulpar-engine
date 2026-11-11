@@ -7922,19 +7922,23 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       do_paste();
       const uint32_t n_pasted = st.scene.entity_count; // geri al'DAN ONCE (rapor bunu yazsin)
       const bool grew = n_pasted == n0 + 2;
-      bool same_fields = false;
+      bool same_fields = false, ad_tek = false;
       if (grew) {
         SceneEntity a = st.scene.entities[0], b = st.scene.entities[n0];
+        // U11 B3: yapistirilan BENZERSIZ ad alir ("Kup" -> "Kup 2"); ad kaynaktan farkli ve sahnede TEK olmali,
+        // geri kalan her alan bayt ayni (yalniz konum otelendi).
+        ad_tek = std::strcmp(a.name, b.name) != 0 && st.scene.find_entity(b.name) == (int32_t)n0;
         b.pos.x -= 1.0f; // yapistirmanin otelemesi
+        std::snprintf(b.name, sizeof b.name, "%s", a.name);
         same_fields = content::scene_entity_equal(a, b);
       }
       do_undo();
       content::scene_write(st.scene, txt_after, sizeof txt_after);
       const bool back = std::strcmp(txt_before, txt_after) == 0 && st.scene.entity_count == n0;
-      const bool pok = empty_noop && copied == 2 && grew && same_fields && back;
-      std::printf("[engine_editor] pano kapisi: kopyalanan %u, yapistirinca %u -> %u, alanlar ayni %s, KONTROL bos pano eklemedi %s, geri al baslangica dondu %s %s\n",
-                  copied, n0, n_pasted, same_fields ? "evet" : "HAYIR", empty_noop ? "evet" : "HAYIR", back ? "evet" : "HAYIR",
-                  pok ? "OK" : "HATA");
+      const bool pok = empty_noop && copied == 2 && grew && same_fields && ad_tek && back;
+      std::printf("[engine_editor] pano kapisi: kopyalanan %u, yapistirinca %u -> %u, alanlar ayni %s, ad benzersiz %s, KONTROL bos pano eklemedi %s, geri al baslangica dondu %s %s\n",
+                  copied, n0, n_pasted, same_fields ? "evet" : "HAYIR", ad_tek ? "evet" : "HAYIR", empty_noop ? "evet" : "HAYIR",
+                  back ? "evet" : "HAYIR", pok ? "OK" : "HATA");
       if (!pok) return 1;
       st.clip_count = 0;
       st.sel.set_single(0);

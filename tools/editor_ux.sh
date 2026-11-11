@@ -73,6 +73,14 @@ done
 YASAK='setpass|arena|tahsis|tick|\(tris\)|verts|piksel|overdraw|batch|k\xC3\xBCme'
 yb=$(grep '^\[ux\] metin' "$DIZIN/kip_basit.txt" 2>/dev/null | grep -ciE "$(printf "$YASAK")")
 yg=$(grep '^\[ux\] metin' "$DIZIN/kip_gelismis.txt" 2>/dev/null | grep -ciE "$(printf "$YASAK")")
+# Rapor dosyasi YOKSA olcum yapilmamistir (editor acilis kapisinda dustu): "0 terim" diye OLCUM gibi basma
+# (2026-11-11: pano kapisi HATA verip cikti, kapi "teknik terim 0 (Gelismis 0)" diyordu — sebep gorunmuyordu).
+for k in basit gelismis; do
+  if [ ! -s "$DIZIN/kip_$k.txt" ]; then
+    echo "  KIRMIZI $k kip: UX raporu YOK — editor olcumden once cikti:"; grep -E 'HATA' "$DIZIN/kip_$k.log" | tail -2 | sed 's/^/      /'
+    [ "$KAPI" = 1 ] && kirmizi=1
+  fi
+done
 if [ "${yb:-x}" = 0 ] && [ "${yg:-0}" -gt 0 ]; then echo "  Basit kip: teknik terim 0 (Gelismis'te $yg — olcum Stats'i goruyor)"
 else echo "  KIRMIZI Basit kip: teknik terim ${yb:-rapor yok} (Gelismis ${yg:-?})"; grep '^\[ux\] metin' "$DIZIN/kip_basit.txt" | grep -iE "$(printf "$YASAK")" | head -3; [ "$KAPI" = 1 ] && kirmizi=1; fi
 for r in 1280x720 1366x768; do
