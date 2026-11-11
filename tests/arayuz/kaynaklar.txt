@@ -1,0 +1,15 @@
+# U11 B5 (tools/arayuz_kapi.sh): bos Kaynaklar eylemli; "Model ice aktar..." (kapi TULPAR_DOSYA_SECICI=sabit:<gltf>
+# verir) modeli proje klasorune kopyalar ve listede gosterir. Yol kisa ("assets"), cift egik cizgi yok.
+# POZITIF KONTROL: ice aktarmadan ONCE karo yok, bos durum var; SONRA tersi.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+dogrula_metin "Burada henüz 3B model ya da"
+metin_yok "checker_"
+metin_yok "//"
+tikla "Model içe aktar…"
+bekle 3
+dogrula_metin "içe aktarıldı: checker_cube.gltf"
+dogrula_metin "checker_"
+metin_yok "Burada henüz 3B model ya da"
+ekran kaynaklar
+cik

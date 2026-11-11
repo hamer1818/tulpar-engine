@@ -99,6 +99,8 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     Ctrl+Z sahneyi geri almaz, Ctrl+S dosyaya yazar.
   - **`yeni_betik.txt` (U10 B4):** "Davranış ekle (betik)" → Boş → "Deneme Davranış" → oluşan
     `deneme_davranis.tpr` oyunda çalışır (`_baslat` logu).
+  - **`kaynaklar.txt` (U11 B5):** boş Kaynaklar eylemli; "Model içe aktar…" (`TULPAR_DOSYA_SECICI=sabit:<gltf>`)
+    modeli proje klasörüne kopyalar ve listeler. Kontrol: içe aktarmadan önce karo yok, boş durum var.
   - **`ilk_adimlar.txt` + `ilk_adimlar_gizli.txt` (U11 B4):** yeni fabrika projesinde kart şablonu anlatır, "Bir
     nesne ekle" küp ekler, Ctrl+S "Kaydet"i işaretler, × gizler; ikinci açılışta gizli kalır (genel ipucu görünür).
   - **`ekle_menu.txt` (U11 B2):** Basit kipte nesne seçiliyken Ekle > Şekiller > Küp (8 → 9 varlık); menüde teknik

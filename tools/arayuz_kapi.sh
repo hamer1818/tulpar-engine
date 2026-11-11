@@ -5,6 +5,7 @@
 #   gorunur (pozitif kontrol). tulpar yoksa ATLANDI.
 # tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
+# tests/arayuz/kaynaklar.txt (U11 B5): bos Kaynaklar eylemli, Model ice aktar kopyalar; kontrol: once karo yok.
 # tests/arayuz/ilk_adimlar{,_gizli}.txt (U11 B4): kart sablonu anlatir, adimlar isaretlenir, gizle kalici.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -80,6 +81,13 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U11 B5: bos Kaynaklar + model ice aktar (tulpar gerekmez) ---
+KY="$D/kaynak"; mkdir -p "$KY/ui"
+"$ED" --yeni-oyun "$KY/p" --kimlik kay --onek KY --tr "Kaynak" --en "Asset" > /dev/null 2>&1
+TULPAR_DOSYA_SECICI="sabit:$KOK/tests/assets/checker_cube.gltf" kos kaynaklar.txt "$KY/ui" --scene "$KY/p/assets/arena.sahne" --kip basit; rky=$?
+if [ $rky = 0 ] && cmp -s "$KOK/tests/assets/checker_cube.gltf" "$KY/p/assets/checker_cube.gltf"; then
+  echo "  kaynaklar: bos durum eylemli, Model ice aktar -> checker_cube.gltf proje klasorunde ve listede"
+else echo "  KIRMIZI kaynaklar (cikis $rky):"; grep -E 'HATA|> ' "$KY/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B4: Ilk adimlar karti (yeni fabrika projesi; tulpar gerekmez) ---
 IA="$D/ilk"; mkdir -p "$IA/ui1" "$IA/ui2"
 "$ED" --yeni-oyun "$IA/p" --kimlik ilk --onek IL --tr "Ilk Adim" --en "First Step" > /dev/null 2>&1

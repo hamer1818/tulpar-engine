@@ -67,6 +67,7 @@
 #include "core/memory/alloc_gate.hpp"
 #include "core/profiler/profiler.hpp"
 #include "platform/memory.hpp"   // os_resident_bytes (durum cubugu RSS)
+#include "platform/dosya_secici.hpp"
 #include "platform/thread.hpp"
 #include "platform/paths.hpp"   // varlik yolu: ikilinin yani -> calisma dizini -> kaynak agaci
 #include "platform/startup_report.hpp" // guncelleme sonrasi yeniden baslatma hatasi: engine_hata.log
@@ -7330,6 +7331,25 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       AssetsAction act;
       assets_panel(st.assets_view, st.scene_dir, st.browse, st.browse_count, st.scene.assets, st.have, st.scene.asset_count, &act);
       if (act.refresh) rescan_browse(st);
+      // U11 B5: Model ice aktar (dosya secici -> sahne klasorune kopya, .gltf bagimliliklariyla) + Yeni betik.
+      if (act.yeni_betik) yeni_betik_ac(st.sel.primary());
+      if (act.ice_aktar) {
+        platform::SeciciIstek r;
+        r.kip = platform::SeciciKip::DosyaAc;
+        r.baslik = "3B model i\xC3\xA7" "e aktar (.glb / .gltf)";
+        char sec[1024], err[400], hedef[1100];
+        const platform::SeciciSonuc s = platform::dosya_secici(r, sec, sizeof sec, err, sizeof err);
+        if (s == platform::SeciciSonuc::Secildi) {
+          if (editor_model_ice_aktar(sec, st.scene_dir, hedef, sizeof hedef, err, sizeof err)) {
+            rescan_browse(st);
+            set_status(st, "i\xC3\xA7" "e aktar\xC4\xB1ld\xC4\xB1: %s \xE2\x80\x94 sahneye eklemek i\xC3\xA7in \xC3\xA7ift t\xC4\xB1kla ya da s\xC3\xBCr\xC3\xBCkle", editor_basename(hedef));
+          } else {
+            set_status(st, "i\xC3\xA7" "e aktar\xC4\xB1lamad\xC4\xB1: %s", err);
+          }
+        } else if (s != platform::SeciciSonuc::Vazgecildi) {
+          set_status(st, "dosya se\xC3\xA7ici a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", err);
+        }
+      }
       if (act.add_index >= 0 && act.add_index < (int)st.browse_count) {
         // Once kopyala: do_add_asset listeyi yeniden tarar, isaretci bayatlar.
         char add_file[content::kScenePathLen];

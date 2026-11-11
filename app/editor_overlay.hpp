@@ -183,6 +183,8 @@ struct AssetsView {
 struct AssetsAction {
   bool refresh = false; // dizin yeniden taransin
   int add_index = -1;   // files[i] sahneye eklensin (-1 = yok)
+  bool ice_aktar = false;  // U11 B5: "Model ice aktar..." (cagiran dosya secici acar, editor_model_ice_aktar)
+  bool yeni_betik = false; // U11 B5: bos durumdaki "Yeni betik"
 };
 // Yerlesimin OLCUM ciktisi (kapilar bir karoya "tiklarken" izgarayi yeniden
 // turetmez): govde cocugunun ekran dikdortgeni, karo olcusu, sutun sayisi ve

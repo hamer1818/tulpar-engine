@@ -1,10 +1,12 @@
 #include "app/editor_overlay.hpp"
+#include "app/editor_console.hpp" // console_shorten_paths (U11 B5)
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include <imgui.h>
+#include <IconsMaterialDesign.h>
 #include <imgui_internal.h> // GetCurrentWindow: imlec/yerlesim durumunu TAM geri almak icin
 
 namespace tulpar::engine::app {
@@ -718,18 +720,31 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     const float avail_w = ImGui::GetContentRegionAvail().x;
     const float btn_w = frame_h; // kare simge dugmeleri
     const float slider_w = ImTrunc(fs * 5.0f), search_w = ImTrunc(fs * 8.5f);
-    const float cluster_w = btn_w * 3.0f + slider_w + search_w + st.ItemSpacing.x * 4.0f + st.ItemInnerSpacing.x;
+    const float cluster_w = btn_w * 4.0f + st.ItemInnerSpacing.x + slider_w + search_w + st.ItemSpacing.x * 4.0f + st.ItemInnerSpacing.x;
     const bool two_rows = avail_w < cluster_w + fs * 6.0f; // dar panel: yol kendi satirinda
-    const float path_w = two_rows ? avail_w - btn_w - st.ItemSpacing.x : avail_w - cluster_w - st.ItemSpacing.x;
+    const float path_w = two_rows ? avail_w - btn_w * 2.0f - st.ItemInnerSpacing.x - st.ItemSpacing.x : avail_w - cluster_w - st.ItemSpacing.x;
     char pbuf[content::kScenePathLen + 8];
-    overlay_ellipsize_left(dir ? dir : "", path_w > fs ? path_w : fs, pbuf, sizeof pbuf);
+    // U11 B5: yol kisa (proje koku silinir, ev "~"; Konsol'la ayni kural) ve "//" tek egik cizgi.
+    char kisa[content::kScenePathLen + 8], tek[content::kScenePathLen + 8];
+    console_shorten_paths(dir ? dir : "", kisa, sizeof kisa);
+    {
+      size_t t = 0;
+      for (const char *q = kisa; *q && t + 1 < sizeof tek; q++)
+        if (!(*q == '/' && t > 0 && tek[t - 1] == '/')) tek[t++] = *q;
+      tek[t] = 0;
+      if (!tek[0]) std::snprintf(tek, sizeof tek, "%s", "(proje klas\xC3\xB6r\xC3\xBC)");
+    }
+    overlay_ellipsize_left(tek, path_w > fs ? path_w : fs, pbuf, sizeof pbuf);
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(dim), "%s", pbuf);
     if (ImGui::IsItemHovered() && dir && *dir) ImGui::SetTooltip("%s", dir);
     if (!two_rows) ImGui::SameLine(avail_w - cluster_w + st.ItemSpacing.x);
-    else ImGui::SameLine(avail_w - btn_w + st.ItemSpacing.x);
+    else ImGui::SameLine(avail_w - btn_w * 2.0f - st.ItemInnerSpacing.x + st.ItemSpacing.x);
     if (ImGui::Button("\xE2\x86\xBB##yenile", ImVec2(btn_w, btn_w)) && out) out->refresh = true; // ↻
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dizini yeniden tara");
+    ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
+    if (ImGui::Button(ICON_MD_ADD "##ice_aktar", ImVec2(btn_w, btn_w)) && out) out->ice_aktar = true;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
     if (!two_rows) ImGui::SameLine(0.0f, st.ItemSpacing.x);
     // Izgara / liste: etkin olan vurgulu.
     for (int mode = 0; mode < 2; mode++) {
@@ -806,7 +821,40 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     lay.body_h = ImGui::GetWindowSize().y;
     uint32_t shown = 0;
     if (file_count == 0) {
-      empty_state("Bu dizinde .gltf/.glb yok");
+      // U11 B5: bos durum EYLEMLI (eskiden teknik "Bu dizinde .gltf/.glb yok" ve hicbir dugme).
+      const ImVec2 av = ImGui::GetContentRegionAvail();
+      const char *bas = "Burada hen\xC3\xBCz 3B model ya da betik yok";
+      const char *alt = "Modeller ve davran\xC4\xB1\xC5\x9Flar (betikler) burada g\xC3\xB6r\xC3\xBCn\xC3\xBCr.";
+      const float bw1 = ImGui::CalcTextSize(ICON_MD_ADD " Model i\xC3\xA7" "e aktar\xE2\x80\xA6").x + st.FramePadding.x * 2.0f;
+      const float bw2 = ImGui::CalcTextSize(ICON_MD_BOLT " Yeni betik").x + st.FramePadding.x * 2.0f;
+      // Dar panel (varsayilan yerlesimde Kaynaklar sol sutunda, ~260 px): metin SARILIR, dugmeler sigmazsa alt alta
+      // tam genislikte (ilk denemede "...ya da be" / "Yeni b" diye kesiliyordu, 1600x900).
+      const float tb = bw1 + bw2 + st.ItemSpacing.x;
+      const bool tek_satir = tb <= av.x;
+      const float kenar = ImTrunc(fs * 0.5f);
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + av.x - kenar);
+      const float x0 = ImGui::GetCursorPosX() + kenar;
+      const float yazi_h = ImGui::CalcTextSize(bas, nullptr, false, av.x - kenar * 2.0f).y + ImGui::CalcTextSize(alt, nullptr, false, av.x - kenar * 2.0f).y;
+      const float blok_h = yazi_h + st.ItemSpacing.y * 2.0f + (tek_satir ? frame_h : frame_h * 2.0f + st.ItemSpacing.y);
+      ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (av.y > blok_h ? (av.y - blok_h) * 0.5f : 0.0f));
+      auto satir = [&](const char *t, ImU32 c) {
+        const float tw = ImGui::CalcTextSize(t).x;
+        ImGui::SetCursorPosX(tw <= av.x - kenar * 2.0f ? x0 - kenar + (av.x - tw) * 0.5f : x0); // sigarsa ortali
+        ImGui::PushStyleColor(ImGuiCol_Text, c);
+        ImGui::TextWrapped("%s", t);
+        ImGui::PopStyleColor();
+      };
+      satir(bas, text);
+      satir(alt, dim);
+      ImGui::PopTextWrapPos();
+      ImGui::Dummy(ImVec2(0, st.ItemSpacing.y * 0.5f));
+      if (tek_satir) ImGui::SetCursorPosX(x0 - kenar + (av.x - tb) * 0.5f);
+      else ImGui::SetCursorPosX(x0);
+      const float bgen = tek_satir ? 0.0f : av.x - kenar * 2.0f;
+      if (ImGui::Button(ICON_MD_ADD " Model i\xC3\xA7" "e aktar\xE2\x80\xA6", ImVec2(bgen, 0)) && out) out->ice_aktar = true;
+      if (tek_satir) ImGui::SameLine();
+      else ImGui::SetCursorPosX(x0);
+      if (ImGui::Button(ICON_MD_BOLT " Yeni betik", ImVec2(bgen, 0)) && out) out->yeni_betik = true;
       lay.empty = true;
     } else if (v.grid) {
       const float name_px = ImTrunc(fs * 0.85f); // karo adi: kucuk, iki satir
