@@ -108,4 +108,9 @@ struct YeniBetik {
 // Pencereyi cizer. Donus true: kullanici "Olustur"a basti (cagiran dosyayi yazar, atar, acar; hata'yi doldurabilir).
 bool yeni_betik_ciz(YeniBetik &y);
 
+// --- B5: Betik karti ------------------------------------------------------------------------------------
+// Dosyada hangi kancalar var (karta isaretli liste): "func <taban>_baslat(" ... satir basinda.
+enum : uint32_t { kKancaBaslat = 1u, kKancaGuncelle = 2u, kKancaCarpisma = 4u, kKancaBitir = 8u, kKancaBolge = 16u };
+uint32_t betik_kancalari(const char *metin, const char *taban);
+
 } // namespace tulpar::engine::app

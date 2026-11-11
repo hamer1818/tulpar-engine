@@ -148,3 +148,15 @@ ENGINE_TEST(editor_betik_hazir_davranislar_with_control) {
   CHECK(app::betik_sablon_metni(app::BetikSablon::Bos, "x", m, 16) == 0 && m[0] == 0);
   CHECK(app::betik_sablon_metni(app::BetikSablon::Bos, "", m, sizeof m) == 0);
 }
+
+// U10 B5: kartin "bu betik ne zaman calisir" listesi dosyadaki kancalardan.
+ENGINE_TEST(editor_betik_kancalari_with_control) {
+  const char *m = "// func zipla_bitir(id) yorumda: sayilmaz\nfunc zipla_baslat(id) {\n}\n  func zipla_guncelle(id, dt) {\n}\n"
+                  "func baska_carpisma(id) {}\nfunc zipla_bolge_girdi(id, b) {}\n";
+  const uint32_t k = app::betik_kancalari(m, "zipla");
+  CHECK((k & app::kKancaBaslat) && (k & app::kKancaGuncelle) && (k & app::kKancaBolge));
+  CHECK(!(k & app::kKancaCarpisma) && !(k & app::kKancaBitir)); // baska betigin kancasi ve yorum sayilmaz
+  // KONTROL: taban eslesmesi tam onek (ziplama_baslat "zipla"nin kancasi DEGIL)
+  CHECK(app::betik_kancalari("func ziplama_baslat(id) {}\n", "zipla") == 0);
+  CHECK(app::betik_kancalari(m, "") == 0);
+}

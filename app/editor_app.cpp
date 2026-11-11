@@ -2328,6 +2328,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   static bool betik_baglanti_soruldu = false; // bu oturumda soruldu (Simdi degil dendiyse tekrar sorulmaz)
   static bool betik_baglanti_sor = false;     // pencere acilsin
   static bool betik_sonra_oynat = false;      // pencere kapaninca Oynat
+  static char betik_kart_ob_yol[1100] = {0};  // B5 kartinin "oyuna bagli mi" onbellegi; bos = hemen yeniden oku
   auto betik_oyun_yolu = [&](char *out, size_t cap) -> bool {
     if (!st.tulpar_dir[0]) return false;
     std::snprintf(out, cap, "%s/oyun.tpr", st.tulpar_dir);
@@ -6860,20 +6861,37 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (has_sc) {
           act = ComponentCardAction::None;
           after = e;
-          if (begin_component_card(ICON_MD_CODE, "Tulpar Betik", content::kSceneScript, nullptr, &act, true, Tone::AccentLo)) {
+          if (begin_component_card(ICON_MD_BOLT, "Davran\xC4\xB1\xC5\x9F (betik)", content::kSceneScript, nullptr, &act, true, Tone::AccentLo)) {
+            // U10 B5: kart "bu nesne ne yapar, ne zaman calisir, oyuna bagli mi" sorularini cevaplar. Eski hali
+            // teknik ASCII metindi ("AOT", "import etmeli", "docs/KOPRU.md 7.9").
+            char betik_yol[1024] = {0};
+            const bool cozuldu = e.script_file[0] && editor_script_resolve(e.script_file, st.scene_dir, st.tulpar_dir, betik_yol, sizeof betik_yol);
+            const bool dosya_var = cozuldu && file_exists(betik_yol);
+            // Kancalar dosyadan; kart her kare cizildigi icin ONBELLEKLI (yol + damga, ~0.5 s'de bir yoklanir).
+            static char kk_yol[1024] = {0};
+            static int64_t kk_damga = 0, kk_boy = 0;
+            static uint32_t kk_bit = 0, kk_kare = 0;
+            if (dosya_var && (std::strcmp(kk_yol, betik_yol) != 0 || ++kk_kare % 30 == 0)) {
+              int64_t d = 0, bo = 0;
+              platform::fs_file_stamp(betik_yol, &d, &bo);
+              if (std::strcmp(kk_yol, betik_yol) != 0 || d != kk_damga || bo != kk_boy) {
+                static char km[64 * 1024];
+                size_t kn = 0;
+                if (std::FILE *kf = std::fopen(betik_yol, "rb")) { kn = std::fread(km, 1, sizeof km - 1, kf); std::fclose(kf); }
+                km[kn] = 0;
+                char taban[128];
+                editor_script_base(betik_yol, taban, sizeof taban);
+                kk_bit = betik_kancalari(km, taban);
+                std::snprintf(kk_yol, sizeof kk_yol, "%s", betik_yol);
+                kk_damga = d; kk_boy = bo;
+              }
+            }
             if (prop_begin("betik")) {
-              prop_help("Motor bu beti\xC4\x9Fi CALISTIRIR: dosya ad\xC4\xB1ndan t\xC3\xBCretilen <ad>_baslat(id), "
-                        "<ad>_guncelle(id, dt), <ad>_carpisma(...), <ad>_bitir(id) fonksiyonlarini "
-                        "adiyla cagirir. SART: oyun bu dosyayi import etmeli (AOT; import edilmeyen "
-                        "betik yoktur, motor yuklemede hata basar). Bkz. docs/KOPRU.md 7.9.");
-              // Secici INDEKS ister, alan METIN tutar. Her karede dogrusal
-              // arama: n taranan betik sayisi (olculdu: depoda 5) ve bu kod
-              // yalniz kart ACIKKEN kosuyor — ayri bir esleme tablosu tutmak
-              // (ve onu her taramada tazelemek) daha pahali olurdu.
+              // Secici INDEKS ister, alan METIN tutar (n = taranan betik sayisi; kart acikken).
               int sel = -1;
               for (uint32_t k = 0; k < st.script_count; k++)
                 if (!std::strcmp(st.scripts[k], e.script_file)) { sel = (int)k; break; }
-              if (prop_asset("Betik (.tpr)", &sel, st.scripts, st.script_count).changed && sel >= 0) {
+              if (prop_asset("Betik", &sel, st.scripts, st.script_count).changed && sel >= 0) {
                 after = e;
                 std::snprintf(after.script_file, sizeof after.script_file, "%s", st.scripts[sel]);
                 commit(st, si, after);
@@ -6887,51 +6905,75 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 }
                 ImGui::EndDragDropTarget();
               }
-              // Listede OLMAYAN bir yol (elle yazilmis, baska depodan gelmis)
-              // SILINMIYOR: secici onu "-" gosterir ama uzerine yazmaz, metin
-              // alani oldugu gibi durur. Tarama kokleri ve tavanlari var; bu
-              // alan olmasaydi disaridaki bir betik hic atanamazdi.
-              track_edit(st, e, si, prop_text("Yol (elle)", e.script_file, sizeof e.script_file));
+              // Listede olmayan yol (elle yazilmis) SILINMIYOR; elle alan yalniz Gelismis'te.
+              if (editor_gelismis()) track_edit(st, e, si, prop_text("Yol (elle)", e.script_file, sizeof e.script_file));
               bool en = e.script_enabled;
               if (prop_check("Etkin", &en).changed) { after = e; after.script_enabled = en; commit(st, si, after); }
               prop_end();
             }
-            // Yeni betik: iskeleti yazar ve BU varliga atar. Diyalog tek
-            // bosaltma yerinden (kipli pencereler bolumu) sonuclanir.
-            if (ImGui::SmallButton(ICON_MD_ADD " Yeni betik")) yeni_betik_ac(si);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Haz\xC4\xB1r bir davran\xC4\xB1\xC5\x9Ftan ba\xC5\x9Fla (hareket, z\xC4\xB1pla, yok ol ...)");
-            ImGui::SameLine();
-            ImGui::BeginDisabled(e.script_file[0] == 0);
-            if (ImGui::SmallButton(ICON_MD_EDIT " D\xC3\xBCzenle")) kodu_ac(e.script_file, nullptr, 0);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Beti\xC4\x9Fi edit\xC3\xB6r\xC3\xBC" "n i\xC3\xA7inde a\xC3\xA7 (Kod paneli)");
-            ImGui::SameLine();
-            if (ImGui::SmallButton(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6rde a\xC3\xA7")) {
-              char yol[1024], kim[1024], err[640];
-              if (!editor_script_resolve(e.script_file, st.scene_dir, st.tulpar_dir, yol, sizeof yol)) {
-                set_status(st, "betik yolu \xC3\xA7\xC3\xB6z\xC3\xBClemedi: %s", e.script_file);
-              } else if (!file_exists(yol)) {
-                // Etiket sahnede duruyor ama dosya yok: once "Yeni betik".
-                set_status(st, "betik dosyas\xC4\xB1 YOK: %s (etiket %s)", yol, e.script_file);
-                console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "betik dosyas\xC4\xB1 yok: %s (etiket %s)", yol, e.script_file);
-              } else if (editor_open_in_code_editor(yol, kim, sizeof kim, err, sizeof err)) {
-                set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", yol);
-                console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "betik a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s -> %s", yol, kim);
+            // Ne zaman calisir (dosyadaki islevler) + oyuna bagli mi.
+            {
+              const ImVec4 ok_r = tone(Tone::Ok), sonuk = tone(Tone::TextMute), uyar = tone(Tone::Warn);
+              if (!e.script_file[0]) {
+                ImGui::TextColored(sonuk, "Hen\xC3\xBCz betik se\xC3\xA7ilmedi: listeden se\xC3\xA7 ya da Yeni betik.");
+              } else if (!dosya_var) {
+                ImGui::TextColored(uyar, ICON_MD_WARNING " Dosya bulunamad\xC4\xB1: %s", e.script_file);
               } else {
-                set_status(st, "%s", err);
-                console_log(ConsoleLevel::Hata, kConsoleTagEditor, "%s", err);
+                struct Satir { uint32_t bit; const char *ne; };
+                static const Satir kSatir[] = {{kKancaBaslat, "oyun ba\xC5\x9Flarken"}, {kKancaGuncelle, "her karede"},
+                                               {kKancaCarpisma, "\xC3\xA7" "arp\xC4\xB1\xC5\x9F\xC4\xB1nca"}, {kKancaBitir, "oyun biterken"},
+                                               {kKancaBolge, "b\xC3\xB6lgeye girince/\xC3\xA7\xC4\xB1k\xC4\xB1nca"}};
+                ImGui::TextColored(sonuk, "Ne zaman \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r?");
+                for (const Satir &r : kSatir) { // alt alta: dar panelde kesilmesin
+                  if (r.bit == kKancaBolge && !(kk_bit & r.bit)) continue; // nadir: yoksa satir da yok
+                  const bool var = (kk_bit & r.bit) != 0;
+                  ImGui::TextColored(var ? ok_r : sonuk, "  %s %s", var ? ICON_MD_CHECK : "\xE2\x80\x94", r.ne);
+                }
+                if (!kk_bit) ImGui::TextColored(uyar, ICON_MD_WARNING " Dosyada bu beti\xC4\x9Fin i\xC5\x9Flevi yok (ad dosya ad\xC4\xB1yla ba\xC5\x9Flamal\xC4\xB1).");
+                char oyun_yolu[1100];
+                if (betik_oyun_yolu(oyun_yolu, sizeof oyun_yolu)) {
+                  char *ob_yol = betik_kart_ob_yol; // "Bagla" penceresi yazinca bosaltir: kart hemen tazelenir
+                  static bool ob_bagli = false;
+                  static uint32_t ob_kare = 0;
+                  if (std::strcmp(ob_yol, oyun_yolu) != 0 || ++ob_kare % 60 == 0) {
+                    static char om[256 * 1024];
+                    size_t on = 0;
+                    if (std::FILE *of = std::fopen(oyun_yolu, "rb")) { on = std::fread(om, 1, sizeof om - 1, of); std::fclose(of); }
+                    om[on] = 0;
+                    ob_bagli = betik_baglanti_var(om);
+                    std::snprintf(ob_yol, sizeof betik_kart_ob_yol, "%s", oyun_yolu);
+                  }
+                  if (ob_bagli) {
+                    ImGui::TextColored(ok_r, ICON_MD_LINK " Oyuna ba\xC4\x9Fl\xC4\xB1");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Kaydet ve Oynat betikleri oyuna kendili\xC4\x9F" "inden ba\xC4\x9Flar (assets/betikler.tpr).");
+                  }
+                  else {
+                    ImGui::TextColored(uyar, ICON_MD_LINK_OFF " Oyuna ba\xC4\x9Fl\xC4\xB1 de\xC4\x9Fil");
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Ba\xC4\x9Fla")) { betik_baglanti_soruldu = false; betik_baglanti_sor = true; ob_yol[0] = 0; }
+                  }
+                }
               }
             }
-            ImGui::EndDisabled();
-            // Betigi GERCEKTEN kosturmanin yolu: oyunu ayri surecte calistir.
-            // Ust arac seridinde yer yok (800 px'te Kaydet/Derle seridin disina
-            // tasiyordu, olculdu); komut Oynat menusunde ve Ctrl+F5'te de var.
-            {
+            if (ImGui::Button(ICON_MD_EDIT " D\xC3\xBCzenle") && dosya_var) kodu_ac(e.script_file, nullptr, 0);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Beti\xC4\x9Fi edit\xC3\xB6r\xC3\xBC" "n i\xC3\xA7inde a\xC3\xA7 (Kod paneli)");
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_MD_ADD " Yeni betik")) yeni_betik_ac(si);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Haz\xC4\xB1r bir davran\xC4\xB1\xC5\x9Ftan ba\xC5\x9Fla (hareket, z\xC4\xB1pla, yok ol ...)");
+            if (editor_gelismis()) { // ayri satir: dar panelde "Dis editor" kesiliyordu (1600x900, olculdu)
+              ImGui::BeginDisabled(!dosya_var);
+              if (ImGui::SmallButton(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6r")) {
+                char kim[1024], err[640];
+                if (editor_open_in_code_editor(betik_yol, kim, sizeof kim, err, sizeof err)) set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", betik_yol);
+                else { set_status(st, "%s", err); console_log(ConsoleLevel::Hata, kConsoleTagEditor, "%s", err); }
+              }
+              ImGui::EndDisabled();
+              // Betigi ayri pencerede kosturmak (Ctrl+F5): Gelismis kipte; Basit'te F5 yeter.
+              ImGui::SameLine();
               const bool kosuyor = cmds.checked(CommandId::PlayRunGame);
-              if (ImGui::SmallButton(kosuyor ? ICON_MD_STOP " Oyunu durdur" : ICON_MD_PLAY_ARROW " Oyunu \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r"))
+              if (ImGui::SmallButton(kosuyor ? ICON_MD_STOP " Durdur" : ICON_MD_PLAY_ARROW " Ayr\xC4\xB1 pencerede"))
                 cmds.invoke(CommandId::PlayRunGame);
-              if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Ctrl+F5. Sahneyi derler, onu y\xC3\xBCkleyen oyunu motoru tan\xC4\xB1yan derleyiciyle ayr\xC4\xB1 pencerede "
-                                  "\xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r; \xC3\xA7\xC4\xB1kt\xC4\xB1 Konsol'a akar.");
+              if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ctrl+F5: oyunu kendi penceresinde \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r; \xC3\xA7\xC4\xB1kt\xC4\xB1 Konsol'a akar.");
             }
             // Nesne ozellikleri (E5): betigin bildirdikleri + bu varligin
             // ustune yazdiklari. Betik disk taramasi YALNIZ burada (kart acik).
@@ -9019,6 +9061,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "oyun.tpr: betik ba\xC4\x9Flant\xC4\xB1s\xC4\xB1 eklendi (%s)", kBetikBaglantiSatiri);
               set_status(st, "betikler oyuna ba\xC4\x9Fland\xC4\xB1");
               std::printf("[engine_editor] betik baglantisi: oyun.tpr'ye eklendi\n");
+              betik_kart_ob_yol[0] = 0;
             } else {
               console_log(ConsoleLevel::Hata, kConsoleTagEditor, "oyun.tpr'ye ba\xC4\x9Flant\xC4\xB1 eklenemedi: %s", yn ? err : "dosya okunamad\xC4\xB1");
             }

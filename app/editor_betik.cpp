@@ -529,3 +529,32 @@ bool yeni_betik_ciz(YeniBetik &y) {
 }
 
 } // namespace tulpar::engine::app
+
+namespace tulpar::engine::app {
+
+uint32_t betik_kancalari(const char *m, const char *taban) {
+  if (!m || !taban || !*taban) return 0;
+  struct K { const char *ek; uint32_t bit; };
+  static const K kK[] = {{"_baslat(", kKancaBaslat}, {"_guncelle(", kKancaGuncelle}, {"_carpisma(", kKancaCarpisma},
+                         {"_bitir(", kKancaBitir}, {"_tetik_girdi(", kKancaBolge}, {"_tetik_cikti(", kKancaBolge},
+                         {"_bolge_girdi(", kKancaBolge}, {"_bolge_cikti(", kKancaBolge}};
+  const size_t tl = std::strlen(taban);
+  uint32_t r = 0;
+  for (const char *p = m; *p;) {
+    const char *q = p;
+    while (*q == ' ' || *q == '\t') q++;
+    if (!std::strncmp(q, "func ", 5)) {
+      q += 5;
+      while (*q == ' ') q++;
+      if (!std::strncmp(q, taban, tl))
+        for (const K &k : kK)
+          if (!std::strncmp(q + tl, k.ek, std::strlen(k.ek))) r |= k.bit;
+    }
+    const char *son = std::strchr(p, '\n');
+    if (!son) break;
+    p = son + 1;
+  }
+  return r;
+}
+
+} // namespace tulpar::engine::app

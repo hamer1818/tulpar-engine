@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/betik_karti.txt (U10 B5): kart kancalari isaretler, bagli degil -> Bagla -> bagli; Kod panelinde
+#   _guncelle eklenince "her karede" isaretlenir. Pozitif kontrol senaryonun icinde: ayni satir once cizgili.
 # tests/arayuz/yeni_betik.txt (U10 B4): Davranis ekle -> hazir + Turkce ad -> olusan betik oyunda calisir.
 # tests/arayuz/hata_satiri.txt (U10 B3): bozuk betik -> Oynat -> "Kodu ac (satir 3)" -> Kod paneli o satirda.
 # tests/arayuz/kod.txt (U10 B2): cift tik Kod panelinde acar, panelden nesneye ekler, Ctrl+S yazar.
@@ -67,6 +69,15 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U10 B5: Betik karti (tulpar gerekmez: yalniz editor) ---
+K="$D/kart"; mkdir -p "$K/ui"
+if betik_proje "$K/p"; then
+  sed -i '/^import "assets\/betikler";/d' "$K/p/oyun.tpr"     # bagli DEGIL baslasin; kart Bagla'yi gostermeli
+  ( kos betik_karti.txt "$K/ui" --scene "$K/p/assets/arena.sahne" ); rkk=$?
+  if [ $rkk = 0 ] && grep -q '^import "assets/betikler";' "$K/p/oyun.tpr" && grep -q 'func dondur_guncelle(id, dt)' "$K/p/assets/betikler/dondur.tpr"; then
+    echo "  betik karti: baslarken isaretli, bagli degil -> Bagla -> bagli; _guncelle eklenince her karede isaretlendi"
+  else echo "  KIRMIZI betik karti (cikis $rkk):"; grep -E 'HATA|> ' "$K/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+else echo "  KIRMIZI betik karti: proje uretilemedi"; kirmizi=1; fi
 oyun_kos() {  # oyun_kos <proje> <gunluk>
   ( cd "$1" && TULPAR_ENGINE_DIR="$KOK" bash tools/ortam.sh > /dev/null 2>&1; \
     DISPLAY= WAYLAND_DISPLAY= TULPAR_ENGINE_HEADLESS=40 timeout 200 tulpar --ext "$KOK/yapi/tulpar-ext" oyun.tpr ) > "$2" 2>&1

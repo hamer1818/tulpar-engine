@@ -722,7 +722,7 @@ const CreateMenuItem kCompAudio[] = {
     {"Yank\xC4\xB1 Alan\xC4\xB1", ICON_MD_WAVES, content::kSceneReverb, nullptr, 0},
 };
 const CreateMenuItem kCompScript[] = {
-    {"Tulpar Betik", ICON_MD_DESCRIPTION, content::kSceneScript, nullptr, 0},
+    {"Davran\xC4\xB1\xC5\x9F (betik)", ICON_MD_BOLT, content::kSceneScript, nullptr, 0},
 };
 const CreateMenuItem kCompEnvironment[] = {
     {"Arazi", ICON_MD_TERRAIN, content::kSceneTerrain, nullptr, 0},
