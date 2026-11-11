@@ -12,7 +12,12 @@
 #include <stb_image_write.h>
 
 #include "platform/fs.hpp"
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include "platform/fs_ops.hpp"
+#include "platform/thread.hpp"
 
 namespace tulpar::engine::app {
 
@@ -251,6 +256,12 @@ struct Durum {
   bool acik = false, canli = false, bitti = false, hazir = false;
   std::FILE *kaynak = nullptr;
   std::FILE *yanit = nullptr;
+  // Canli kip (POSIX): FIFO BLOKLAMADAN okunur. Eskiden fopen/fgets komut gelene kadar editoru durduruyordu:
+  // kare cizilmiyor, gomulu oyun 5 s sonra "editor sessiz" UYARISIYLA kapaniyordu (2026-11-11, UX turu
+  // sirasinda olculdu). O_RDWR: kanal kendi yazanini tasir, istemci her komutta kapatsa da EOF gelmez.
+  int fd = -1;
+  char kuyruk[2048] = "";
+  uint32_t kuyruk_n = 0;
   char kaynak_yol[1024] = "";
   char dizin[1024] = "";
   uint32_t komut_no = 0, hata = 0, ekran_no = 0;
@@ -641,17 +652,41 @@ bool bekleyeni_isle() {
   return true;
 }
 
-bool satir_oku(char *b, size_t cap) {
+// Donus: 1 satir var, 0 henuz yok (canli kip: kare cizmeye devam), -1 kaynak bitti.
+int satir_oku(char *b, size_t cap) {
+#ifndef _WIN32
+  if (g_d.canli && g_d.kaynak_yol[0] && std::strcmp(g_d.kaynak_yol, "-") != 0) {
+    if (g_d.fd < 0) {
+      g_d.fd = ::open(g_d.kaynak_yol, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+      if (g_d.fd < 0) return -1;
+    }
+    for (;;) {
+      for (uint32_t i = 0; i < g_d.kuyruk_n; i++)
+        if (g_d.kuyruk[i] == '\n') {
+          const uint32_t n = i + 1 < cap ? i + 1 : (uint32_t)cap - 1;
+          std::memcpy(b, g_d.kuyruk, n);
+          b[n] = 0;
+          std::memmove(g_d.kuyruk, g_d.kuyruk + i + 1, g_d.kuyruk_n - i - 1);
+          g_d.kuyruk_n -= i + 1;
+          return 1;
+        }
+      if (g_d.kuyruk_n >= sizeof g_d.kuyruk - 1) g_d.kuyruk_n = 0; // satir sonu olmayan dev girdi: at
+      const ssize_t r = ::read(g_d.fd, g_d.kuyruk + g_d.kuyruk_n, sizeof g_d.kuyruk - 1 - g_d.kuyruk_n);
+      if (r <= 0) return 0; // EAGAIN: komut yok, kare cizilsin
+      g_d.kuyruk_n += (uint32_t)r;
+    }
+  }
+#endif
   for (;;) {
     if (!g_d.kaynak) {
-      if (!g_d.canli) return false;
-      g_d.kaynak = std::fopen(g_d.kaynak_yol, "r");   // FIFO: bir yazan acana kadar bekler
-      if (!g_d.kaynak) return false;
+      if (!g_d.canli) return -1;
+      g_d.kaynak = std::fopen(g_d.kaynak_yol, "r");   // Windows / stdin: bir yazan acana kadar bekler
+      if (!g_d.kaynak) return -1;
     }
-    if (std::fgets(b, (int)cap, g_d.kaynak)) return true;
+    if (std::fgets(b, (int)cap, g_d.kaynak)) return 1;
     if (g_d.kaynak != stdin) std::fclose(g_d.kaynak);
     g_d.kaynak = nullptr;
-    if (!g_d.canli) return false;
+    if (!g_d.canli) return -1;
   }
 }
 
@@ -754,7 +789,12 @@ bool surucu_kare(platform::InputState &in, uint8_t *rgba, uint32_t w, uint32_t h
     if (g_d.bitti) return false;
     char satir[1024];
     if (g_d.yanit) std::fflush(g_d.yanit);
-    if (!satir_oku(satir, sizeof satir)) {
+    const int so = satir_oku(satir, sizeof satir);
+    if (so == 0) { // canli: komut yok, bu kare bos gecsin (editor ve gomulu oyun yasamaya devam eder)
+      platform::thread_sleep_us(16000); // ~60 Hz: bos beklerken cekirdegi yakmasin
+      return true;
+    }
+    if (so < 0) {
       if (!g_d.canli) yaz_yanit("betik bitti (%u komut, %u hata)", g_d.komut_no, g_d.hata);
       return false;
     }
@@ -768,6 +808,9 @@ int surucu_bitir() {
   GImGuiTulparMetinKonumKanca = nullptr;
   if (ImGuiContext *g = ImGui::GetCurrentContext()) g->TestEngineHookItems = false;
   if (g_d.yanit) { std::fprintf(g_d.yanit, ".kapandi %u hata\n", g_d.hata); std::fclose(g_d.yanit); g_d.yanit = nullptr; }
+#ifndef _WIN32
+  if (g_d.fd >= 0) { ::close(g_d.fd); g_d.fd = -1; }
+#endif
   if (g_d.kaynak && g_d.kaynak != stdin) std::fclose(g_d.kaynak);
   g_d.kaynak = nullptr;
   g_d.acik = false;

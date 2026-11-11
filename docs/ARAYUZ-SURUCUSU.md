@@ -109,6 +109,10 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
 
 ## Bilinen sınırlar
 
+- Canlı kip (POSIX) komut kanalını **bloklamadan** okur: komut yokken editör kare çizmeye devam eder
+  (boşta ~60 Hz). 2026-11-11'e kadar bloklayarak okuyordu; düşünürken geçen her saniye editörü
+  durduruyor, gömülü oyun 5 s sonra "editör sessiz" diye kapanıyordu. Windows'ta canlı kip yok (FIFO).
+
 - Metnin yeri, metnin kendisidir: üst üste çizilen iki metin (menü altında kalan araç
   çubuğu) ayırt edilmez. Öge eşleşmesi önce gelir ve görünürlük kırpmaya bakar, z-sırasına
   bakmaz.

@@ -428,6 +428,47 @@ olmalı; Unity/Unreal'in öğrenme süresi uzun olduğu için bunu kullanıyoruz
 **Kapsam dışı (şimdilik):** sözdizimi renklendirme (B2'de düz metin + satır numarası yeter; sonra),
 otomatik tamamlama, betik sıcak yükleme (köprüde var, editöre bağlanması ayrı iş), görsel betik.
 
+### U11 — UX mükemmelliği (kullanıcı kararı, 2026-11-11)
+
+**Kullanıcı:** "Arayüzü mükemmel hale getirmeye devam edeceğiz. UX'i abartacağız." "Bu turların hepsini
+yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar ertelendi.
+
+**Ölçüm (2026-11-11, arayüz sürücüsü, Basit kip, 1600×900 + 1280×720):**
+- Gezilen akış: karşılama → yeni oyun → F5 → durdur → seç/ekle → yeniden adlandır → gizmo → geri al →
+  kaydet → menüler.
+- Puan **7,2/10**; çıta "mükemmel" (Unity/Godot cilası). Önceki ~7,5 bir tahmindi.
+- Alanlar: betik 8,5 · sahne düzenleme 8 · özellikler 7,5 · oynat 7,5 · yardım 7,5 · açılış 7 · görsel cila 7 ·
+  küçük ekran 7 · **dil/geri bildirim 5,5** · **ayarlar 4**.
+- Her turdan sonra aynı gezinti tekrarlanır ve yeniden puanlanır.
+
+**Tur A — en çok kazanç**
+
+| # | ne | bulgu | durum |
+|---|---|---|---|
+| A1 | **Basit kipte sade dil:** Konsol'da ham motor satırları (`[engine_bridge] k421 bilgi …`) Basit'te gizli (Gelişmiş'te ve süzgeçle görünür); durum çubuğu ve Konsol'da yollar kısaltılır (proje köküne göre); Türkçe harfsiz metinler düzelir ("geri alindi"); Basit'te fps / çizim / kamera koordinatı katmanları gizli | Kullanıcı motorun iç günlüğünü okuyor | |
+| A2 | **Temiz Durdur:** gömülü oyun durdurulunca "editör 5 s sessiz → kapanıyor" UYARISI çıkmaz; editör kapanış sinyali verir | Her oynatmadan sonra sahte ▲1 | ✅ 2026-11-11: ürün hatası DEĞİLDİ — kullanıcı yolunda Durdur temiz (`gomulu: editor durdurdu`, betik kipinde ölçüldü). Uyarıyı canlı sürücü üretiyordu: FIFO'yu bloklayarak okuyor, komut beklerken editör kare çizmiyordu → oyun 5 s sonra kapanıyordu. Canlı kip artık bloklamasız (O_RDWR\|O_NONBLOCK, boşta 16 ms uyku); ölçüm: 9 s komutsuz bekleme sonrası oyun 546. karede editörün Durdur'uyla kapandı, uyarı yok |
+| A3 | **Açılış formu:** şablon kartları (ad, tek cümle açıklama, ne oynanır); İngilizce ad isteğe bağlı (Türkçeden önerilir); başlıkta "(kaynak derlemesi)" yok; arka plan karartılır; konum kısa gösterilir | Şablon "arena" açıklamasız, İngilizce ad zorunlu | |
+
+**Tur B**
+
+| # | ne | bulgu | durum |
+|---|---|---|---|
+| B1 | **Tercihler penceresi:** yazı boyu, tema, otomatik kayıt, Basit/Gelişmiş, dil; **Görünüm > Düzeni sıfırla** | Ayarlar penceresi yok (puan 4) | |
+| B2 | **Sade "+" menüsü:** Basit'te az ve anlaşılır kategori, teknik adlar Gelişmiş'te ("Model (glTF)", "Çevre Hacimleri"); "Tulpar Betik Nesnesi" yeni adıyla; **Hızlı ekle** seçim varken de erişilir | 14 kategori; seçim varken hızlı ekle kayboluyor | |
+| B3 | **Okunur yeni nesne adları:** "Küp", "Küp 2" (Türkçe harfli, boşluklu) | `kup_6` | |
+| B4 | **Yeni projede "ilk adımlar" kartı:** ne oynanır, F5, ilk nesne, ilk davranış; şablonun kodda doğan oyuncu/parıltıları editörde işaretli ya da açıklanmış | Yeni proje boş kutu gibi | |
+| B5 | **Boş Kaynaklar:** teknik "Bu dizinde .gltf/.glb yok" yerine ne konacağı + **İçe aktar** düğmesi; yol `…//assets` çift eğik çizgisiz | Boş durum eylemsiz | |
+
+**Tur C — cila**
+
+| # | ne | bulgu | durum |
+|---|---|---|---|
+| C1 | İkon tutarlılığı (Kaydet indirme oku değil disket), menülerde eksik ikonlar | | |
+| C2 | Sayı biçimi: `-0.0°` yok; ölçü birimleri tutarlı | | |
+| C3 | 1280×720'de kesilen etiketler (Dünya: "Kamera gör…", araç çubuğu sağ ucu) + bu çözünürlük için UX kapısı | Kapı yalnız büyük çözünürlükte | |
+| C4 | Varsayılan ışık ve gökyüzü: yeni sahne düz görünmesin | | |
+| C5 | Seçim yokken Özellikler'de Dünya ayarlarının tekrarı yerine sahne özeti; gizmo görünürlük ayarları Görünüm'e | Aynı ayar iki yerde | |
+
 ## 4. Sıra ve bağımlılık
 
 ```
