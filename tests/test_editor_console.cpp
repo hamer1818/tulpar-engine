@@ -305,3 +305,46 @@ ENGINE_TEST(console_panel_draws_mixed_levels) {
   CHECK(p2.vertices < p.vertices);
   app::console_clear();
 }
+
+// U11 A1: kullaniciya gosterilen yollar kisa. Proje koku silinir (cift ayirici dahil), ev dizini "~"; benzer
+// onekli kardes dizin ("/ev/ali2") eslesmez. Kayit ANINDA uygulanir. KONTROL: takma adlar kapaliyken metin aynen.
+ENGINE_TEST(console_shortens_paths_with_control) {
+  app::console_set_path_alias(0, "/ev/ali/oyunlar/yildiz/", "");
+  app::console_set_path_alias(1, "/ev/ali", "~");
+  char o[512];
+  CHECK(!std::strcmp(app::console_shorten_paths("y\xC3\xBCklendi: /ev/ali/oyunlar/yildiz/assets/a.sahne", o, sizeof o), "y\xC3\xBCklendi: assets/a.sahne"));
+  CHECK(!std::strcmp(app::console_shorten_paths("derlendi: /ev/ali/oyunlar/yildiz//assets/a.sahneb", o, sizeof o), "derlendi: assets/a.sahneb"));
+  CHECK(!std::strcmp(app::console_shorten_paths("a\xC3\xA7\xC4\xB1ld\xC4\xB1: /ev/ali/Belgeler/x.sahne", o, sizeof o), "a\xC3\xA7\xC4\xB1ld\xC4\xB1: ~/Belgeler/x.sahne"));
+  CHECK(!std::strcmp(app::console_shorten_paths("/ev/ali2/x ve /ev/ali", o, sizeof o), "/ev/ali2/x ve ~"));
+  // Kayit aninda: konsola dusen satir kisa.
+  app::console_clear();
+  app::console_log(app::ConsoleLevel::Bilgi, "editor", "kaydedildi: %s", "/ev/ali/oyunlar/yildiz/assets/a.sahne");
+  const app::ConsoleEntry *e = app::console_at(app::console_size() - 1);
+  CHECK(e && !std::strcmp(e->msg, "kaydedildi: assets/a.sahne"));
+  // KONTROL: takma adlar kapali -> aynen.
+  app::console_set_path_alias(0, nullptr, nullptr);
+  app::console_set_path_alias(1, "", "");
+  CHECK(!std::strcmp(app::console_shorten_paths("/ev/ali/oyunlar/yildiz/assets/a.sahne", o, sizeof o), "/ev/ali/oyunlar/yildiz/assets/a.sahne"));
+  app::console_clear();
+}
+
+// U11 A1: Basit kip teknik BILGI satirlarini gizler, teknik uyari/hata her kipte gorunur; Gelismis'te hepsi.
+ENGINE_TEST(console_basit_hides_technical_info_with_control) {
+  app::console_clear();
+  app::console_log(app::ConsoleLevel::Bilgi, "oyun", "Toplanan 3");
+  app::console_log_teknik(app::ConsoleLevel::Bilgi, "oyun", "[engine_bridge] k0 bilgi pso onbellegi");
+  app::console_log_teknik(app::ConsoleLevel::Uyari, "oyun", "UYARI teknik ama onemli");
+  app::ConsoleView v;
+  uint32_t idx[8];
+  v.teknik_gizle = true;
+  const uint32_t basit = app::console_filtered(v, idx, 8);
+  v.teknik_gizle = false; // KONTROL: Gelismis
+  const uint32_t gelismis = app::console_filtered(v, idx, 8);
+  std::printf("    [bilgi] konsol: Basit %u satir, Gelismis %u satir\n", basit, gelismis);
+  CHECK(basit == 2 && gelismis == 3);
+  // Ayni metin teknik ve teknik olmayan iki kayit: tekrar toplama birlestirmez.
+  app::console_log(app::ConsoleLevel::Bilgi, "oyun", "x");
+  app::console_log_teknik(app::ConsoleLevel::Bilgi, "oyun", "x");
+  CHECK(app::console_size() == 5);
+  app::console_clear();
+}

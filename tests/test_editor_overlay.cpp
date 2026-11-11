@@ -234,6 +234,10 @@ ENGINE_TEST(editor_overlay_axes_project_identity_right_up_and_flip) {
 }
 
 ENGINE_TEST(editor_overlay_axis_x_endpoint_pixel_matches_palette) {
+  // Gelismis kip: istatistik hapi ve kamera hapi bu kipte (U11 A1). Basit kipin karsiligi asagida.
+  const bool kip0 = app::editor_gelismis();
+  app::editor_gelismis_ayarla(true);
+  struct KipGeri { bool k; ~KipGeri() { app::editor_gelismis_ayarla(k); } } kip_geri{kip0};
   OverlayCtx c;
   fill_info(c.info, {15.1f, 12.3f, 14.9f}, {0, 0, 0});
   c.info.focused = true;
@@ -250,6 +254,21 @@ ENGINE_TEST(editor_overlay_axis_x_endpoint_pixel_matches_palette) {
   CHECK(c.lay.gizmo && c.lay.top_row && c.lay.camera && c.lay.hint && c.lay.border);
   std::printf("    [bilgi] ust satir: %u hap (izdusum/kamera kipi/gizmo kipi/gizmo uzayi/istatistik)\n", c.lay.pills);
   CHECK(c.lay.pills == 5); // izdusum + kamera kipi + gizmo kipi + gizmo uzayi + istatistik
+  // U11 A1: Basit kipte ayni cagri olcum hapini ve kamera koordinatini CIZMEZ, ipucu yine cizilir.
+  {
+    app::editor_gelismis_ayarla(false);
+    OverlayCtx cb;
+    fill_info(cb.info, {15.1f, 12.3f, 14.9f}, {0, 0, 0});
+    cb.info.focused = cb.info.hovered = true;
+    EditorProbe pb;
+    pb.width = 960; pb.height = 600;
+    pb.draw = draw_overlay_probe;
+    pb.ctx = &cb;
+    PROBE_OR_RETURN(pb);
+    std::printf("    [bilgi] Basit kip: %u hap, kamera %d, ipucu %d\n", cb.lay.pills, (int)cb.lay.camera, (int)cb.lay.hint);
+    CHECK(cb.lay.pills == 4 && !cb.lay.camera && cb.lay.hint);
+    app::editor_gelismis_ayarla(true);
+  }
   // Tiklanabilir uc cip de yerini bildirdi (etkilesim kapisi bu dikdortgenleri kullanir).
   CHECK(c.lay.chip_proj.valid() && c.lay.chip_mode.valid() && c.lay.chip_space.valid());
   app::AxisProjection pr;
@@ -362,7 +381,7 @@ ENGINE_TEST(editor_overlay_tiny_rect_never_overflows) {
   c.draw = true;
   PROBE_OR_RETURN(p);
   std::printf("    [bilgi] 360x240 kontrol: haplar %u gosterge %d kamera %d ipucu %d\n", c.lay.pills, (int)c.lay.gizmo, (int)c.lay.camera, (int)c.lay.hint);
-  CHECK(c.lay.top_row && c.lay.gizmo && c.lay.camera);
+  CHECK(c.lay.top_row && c.lay.gizmo && (c.lay.camera || !app::editor_gelismis()));
 }
 
 ENGINE_TEST(editor_overlay_nav_gizmo_click_returns_axis_outside_disc_does_not) {

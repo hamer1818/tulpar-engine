@@ -851,8 +851,8 @@ bool update_ui_init(UpdateUi &u, Arena &a, const UpdateUiConfig &c, uint64_t now
   if (!disabled && !u.headless && u.install_dir[0]) Updater::cleanup(u.install_dir);
   const int64_t now = now_unix();
   u.auto_why = upd_auto_decide(u.settings, disabled, u.headless, std::getenv("TULPAR_GUNCELLEME"), now);
-  if (disabled) console_log(ConsoleLevel::Bilgi, kTag, "g\xC3\xBCncelleyici kapal\xC4\xB1: %s", u.upd.reason());
-  else console_log(ConsoleLevel::Bilgi, kTag, "kurulu %s (%s), otomatik denetim: %s", u.current_version, u.platform, upd_auto_why_text(u.auto_why));
+  if (disabled) console_log_teknik(ConsoleLevel::Bilgi, kTag, "g\xC3\xBCncelleyici kapal\xC4\xB1: %s", u.upd.reason());
+  else console_log_teknik(ConsoleLevel::Bilgi, kTag, "kurulu %s (%s), otomatik denetim: %s", u.current_version, u.platform, upd_auto_why_text(u.auto_why));
   if (u.auto_why == UpdAutoWhy::Go) request_check(u, false);
   else if (u.auto_why == UpdAutoWhy::Recent) u.next_auto_ns = now_ns + (uint64_t)upd_auto_wait_sec(u.settings, now) * kNsPerSec;
   return true;

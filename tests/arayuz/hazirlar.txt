@@ -30,5 +30,5 @@ bekle 4
 dogrula_yok "###yeni_betik"
 tikla "Kaydet" pencere=tulpar_toolbar
 bekle 3
-dogrula_metin "kaydedildi: /"
+dogrula_metin "kaydedildi: assets/"
 cik

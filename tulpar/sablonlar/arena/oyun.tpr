@@ -224,7 +224,7 @@ func main() {
     g_kit_ac_muzik = MUZIK_MENU;
     acilis_baslat(!g_otopilot);
     if (!acilis_suruyor()) { kit_muzik_cal(MUZIK_MENU); }
-    logla(t"{{KIMLIK}}: GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, kip {kit_kip_adi()}, dil {kit_dil_adi()}, " + kit_ses_ozet());
+    logla_ayrinti(t"{{KIMLIK}}: GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, kip {kit_kip_adi()}, dil {kit_dil_adi()}, " + kit_ses_ozet());
 
     while (calisiyor()) {
         bool pencere = kare_basla();
@@ -266,7 +266,7 @@ func main() {
         otopilot_kare();
         kare_bitir();
     }
-    logla(t"{{KIMLIK}}: kapanis, rekor {g_rekor}, kare {kare_no()}");
+    logla_ayrinti(t"{{KIMLIK}}: kapanis, rekor {g_rekor}, kare {kare_no()}");
     motor_kapat();
 }
 

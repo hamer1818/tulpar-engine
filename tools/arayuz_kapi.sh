@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Arayuz surucusu kapisi (docs/ARAYUZ-SURUCUSU.md): penceresiz editor tests/arayuz/temel.txt
 # senaryosunu kosar (menu, hiyerarsi tiklamasi, Delete/Ctrl+Z, metin girisi) — cikis 0 olmali.
+# tests/arayuz/sade_dil.txt (U11 A1): Basit kipte Konsol sade (motor satiri, uzun yol, fps yok); Gelismis'te
+#   gorunur (pozitif kontrol). tulpar yoksa ATLANDI.
 # tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
 # tests/arayuz/ana_betik.txt (U10 B7): Oynat > Ana betigi ac -> oyun.tpr Kod panelinde, "nesneye ekle" yok (kontrol:
@@ -109,6 +111,12 @@ else
   ( kos hata_satiri.txt "$B/ui_hata" --scene "$B/hata/assets/arena.sahne" ); rh=$?
   ( kos yeni_betik.txt "$B/ui_yb" --scene "$B/yb/assets/arena.sahne" ); rb=$?
   oyun_kos "$B/yb" "$B/yb.log"
+  # --- U11 A1: Basit kipte sade dil (oynat/durdur sonrasi Konsol + goruntu) ---
+  mkdir -p "$B/ui_sd"
+  "$ED" --yeni-oyun "$B/sd" --kimlik sd --onek SD --tr "Sade Dil" --en "Plain Words" > /dev/null 2>&1
+  ( kos sade_dil.txt "$B/ui_sd" --scene "$B/sd/assets/arena.sahne" --kip basit ); rsd=$?
+  if [ $rsd = 0 ]; then echo "  sade dil: Basit kipte Konsol'da motor satiri / uzun yol / fps yok; Gelismis'te var (kontrol)"
+  else echo "  KIRMIZI sade dil (cikis $rsd):"; grep -E 'HATA|> ' "$B/ui_sd/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   # --- U10 B4b: Dondur + Salla hazirlari oyunda GERCEKTEN hareket ettirir ---
   mkdir -p "$B/ui_hz"
   "$ED" --yeni-oyun "$B/hz" --kimlik hz --onek HZ --tr "Hazirlar" --en "Presets" > /dev/null 2>&1

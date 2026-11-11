@@ -210,6 +210,10 @@ func sim_tick(): int { return eng_sim_tick(); }
 func genislik(): int { return eng_width(); }
 func yukseklik(): int { return eng_height(); }
 func logla(msg) { eng_log(msg); }
+// Ayrinti satiri (teshis: GPU, kip, ses ozeti...). Gunluge/logcat'e normal gider; editorun Konsol'u Basit kipte
+// gizler, Gelismis'te gosterir (oneki "[ayrinti] "; editor siler).
+func logla_ayrinti(msg) { eng_log("[ayrinti] " + msg); }
+func log_detail(msg) { eng_log("[ayrinti] " + msg); }
 func engine_log(msg) { eng_log(msg); }
 func log_seviyesi(n) { eng_log_level(n); }
 func pencersiz(kare, cikti) { eng_set_headless(kare, cikti); }

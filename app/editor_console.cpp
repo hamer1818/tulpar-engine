@@ -99,9 +99,18 @@ bool set_msg(char *dst, const char *src, bool force) {
   return true;
 }
 
-void push(ConsoleLevel level, const char *tag, const char *text, bool force_trunc) {
+struct Alias {
+  char prefix[1024] = {0};
+  char repl[16] = {0};
+  size_t n = 0;
+};
+Alias g_alias[kConsoleAliasCount];
+
+void push(ConsoleLevel level, const char *tag, const char *text, bool force_trunc, bool teknik = false) {
   if ((uint32_t)level >= kConsoleLevelCount) level = ConsoleLevel::Bilgi;
   if (!text) text = "";
+  char kisa[kConsoleMsgLen * 2];
+  text = console_shorten_paths(text, kisa, sizeof kisa);
   if (!tag || !*tag) tag = kConsoleTagEngine;
   Ring &r = g_ring;
   // ARDISIK AYNI SATIR: yeni kayit acma, sayaci artir (Unity "Collapse").
@@ -111,7 +120,8 @@ void push(ConsoleLevel level, const char *tag, const char *text, bool force_trun
     ConsoleEntry &last = r.e[(r.head + r.count - 1) % kConsoleCapacity];
     char probe[kConsoleMsgLen];
     set_msg(probe, text, force_trunc);
-    if (last.level == level && std::strncmp(last.tag, tag, kConsoleTagLen - 1) == 0 && std::strcmp(last.msg, probe) == 0) {
+    if (last.level == level && last.teknik == teknik && std::strncmp(last.tag, tag, kConsoleTagLen - 1) == 0 &&
+        std::strcmp(last.msg, probe) == 0) {
       if (last.repeat < 0xFFFFFFFFu) last.repeat++;
       last.last_frame = r.frame;
       return;
@@ -127,6 +137,7 @@ void push(ConsoleLevel level, const char *tag, const char *text, bool force_trun
   ConsoleEntry &e = r.e[(r.head + r.count) % kConsoleCapacity];
   e = ConsoleEntry{};
   e.level = level;
+  e.teknik = teknik;
   e.frame = e.last_frame = r.frame;
   e.repeat = 1;
   e.seq = r.seq++;
@@ -281,6 +292,52 @@ void console_log(ConsoleLevel level, const char *tag, const char *fmt, ...) {
   va_end(ap);
 }
 void console_log_raw(ConsoleLevel level, const char *tag, const char *text) { push(level, tag, text, false); }
+void console_log_teknik_raw(ConsoleLevel level, const char *tag, const char *text) { push(level, tag, text, false, true); }
+void console_log_teknik(ConsoleLevel level, const char *tag, const char *fmt, ...) {
+  char buf[kConsoleMsgLen * 2];
+  va_list ap;
+  va_start(ap, fmt);
+  std::vsnprintf(buf, sizeof buf, fmt ? fmt : "", ap);
+  va_end(ap);
+  push(level, tag, buf, false, true);
+}
+
+void console_set_path_alias(uint32_t slot, const char *prefix, const char *replacement) {
+  if (slot >= kConsoleAliasCount) return;
+  Alias &a = g_alias[slot];
+  std::snprintf(a.prefix, sizeof a.prefix, "%s", prefix ? prefix : "");
+  a.n = std::strlen(a.prefix);
+  while (a.n > 1 && (a.prefix[a.n - 1] == '/' || a.prefix[a.n - 1] == '\\')) a.prefix[--a.n] = 0; // sondaki ayirici yok
+  std::snprintf(a.repl, sizeof a.repl, "%s", replacement ? replacement : "");
+}
+const char *console_shorten_paths(const char *in, char *out, size_t cap) {
+  if (!out || cap == 0) return in;
+  if (!in) in = "";
+  size_t o = 0;
+  for (const char *p = in; *p && o + 1 < cap;) {
+    bool hit = false;
+    for (const Alias &a : g_alias) { // yuva sirasi = oncelik (proje koku ev dizininin icinde olabilir)
+      if (a.n < 2 || std::strncmp(p, a.prefix, a.n) != 0) continue;
+      const char nx = p[a.n];
+      if (nx != '/' && nx != '\\' && nx != 0) continue; // "/ev/kullanici2" "/ev/kullanici" ile eslesmesin
+      const size_t rl = std::strlen(a.repl);
+      if (rl) {
+        if (o + rl >= cap) break;
+        std::memcpy(out + o, a.repl, rl);
+        o += rl;
+        p += a.n; // ayirici kalir: "~/x"
+      } else {
+        p += a.n; // proje koku: "assets/a.sahne" (bas ayiricilar da gider; "kok//assets" de)
+        while (*p == '/' || *p == '\\') p++;
+      }
+      hit = true;
+      break;
+    }
+    if (!hit) out[o++] = *p++;
+  }
+  out[o] = 0;
+  return out;
+}
 
 void console_clear() {
   g_ring.head = g_ring.count = 0;
@@ -309,6 +366,7 @@ const ConsoleEntry *console_by_seq(uint32_t seq) {
 bool console_row_visible(const ConsoleEntry &e, const ConsoleView &v) {
   const uint32_t l = (uint32_t)e.level;
   if (l < kConsoleLevelCount && !v.show[l]) return false;
+  if (e.teknik && v.teknik_gizle && e.level == ConsoleLevel::Bilgi) return false;
   if (v.search[0] == 0) return true;
   return contains_ci(e.msg, v.search) || contains_ci(e.tag, v.search);
 }
@@ -406,7 +464,14 @@ void console_panel(ConsoleView &v) {
   const ImGuiStyle &st = ImGui::GetStyle();
   const float fs = ImGui::GetFontSize();
   const float frame_h = ImGui::GetFrameHeight();
-  const ConsoleCounts cc = console_counts();
+  ConsoleCounts cc = console_counts();
+  if (v.teknik_gizle) { // Basit: rozetler GORUNEBILECEK satirlari sayar (gizli teknik bilgi "● 17" diye sisirmesin)
+    cc = ConsoleCounts{};
+    for (uint32_t i = 0; i < g_ring.count; i++) {
+      const ConsoleEntry *e = console_at(i);
+      if (e && !(e->teknik && e->level == ConsoleLevel::Bilgi) && (uint32_t)e->level < kConsoleLevelCount) cc.n[(uint32_t)e->level]++;
+    }
+  }
   const ImU32 dim = tone_u32(Tone::TextDim), text = tone_u32(Tone::Text);
 
   // --- Arac cubugu: Temizle | ↓otomatik | ● N ▲ N ✗ N | ara ------------------

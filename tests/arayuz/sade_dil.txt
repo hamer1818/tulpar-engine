@@ -1,0 +1,28 @@
+# U11 A1 (tools/arayuz_kapi.sh): Basit kipte oynat -> durdur; Konsol'da motorun ic satirlari ve uzun yollar YOK,
+# goruntude fps / kamera koordinati YOK. POZITIF KONTROL: Gelismis kipe gecince ayni satirlar ve olcumler GORUNUR
+# (yani "yok" olcumu bos Konsol'dan gelmiyor).
+dogrula_metin "duvar_dogu"
+metin_yok " fps"
+metin_yok "· hedef"
+tus F5
+dogrula_metin "oyun çalışıyor" kare=1200
+bekle 30
+tus F5
+bekle 20
+tikla "Konsol" pencere=DockSpace
+bekle 3
+dogrula_metin "yüklendi: assets/arena"
+dogrula_metin "durduruldu"
+metin_yok "hatayla"
+metin_yok "[engine_bridge]"
+metin_yok ": GPU"
+metin_yok "yüklendi: /"
+ekran basit
+tikla "Görünüm" pencere=MainMenuBar
+tikla "Gelişmiş kip" pencere=Menu
+bekle 3
+dogrula_metin "[engine_bridge]"
+dogrula_metin " fps"
+dogrula_metin "· hedef"
+ekran gelismis
+cik

@@ -274,7 +274,9 @@ void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLay
     bool keep, hot;
   };
   char stats[96] = {0};
-  if (info.frame_ms > 0.0f)
+  // U11 A1: kare suresi / cizim sayisi Gelismis'te; Basit kip olcum gostermez (DURUM: "ms, cizim" oyun yapana
+  // bir sey soylemiyordu).
+  if (info.frame_ms > 0.0f && editor_gelismis())
     std::snprintf(stats, sizeof stats, "%.1f ms \xC2\xB7 %.0f fps \xC2\xB7 %u \xC3\xA7izim \xC2\xB7 %u varl\xC4\xB1k", (double)info.frame_ms,
                   (double)(1000.0f / info.frame_ms), info.draw_calls, info.entity_count);
   static const char *const kOpIcon[3] = {"\xE2\x9C\xA5", "\xE2\x86\xBB", "\xE2\x87\xB2"}; // ✥ ↻ ⇲ (DejaVuSans'ta var)
@@ -396,13 +398,14 @@ void viewport_overlay(const ViewportRect &r, const OverlayInfo &info, OverlayLay
       char cam[128];
       std::snprintf(cam, sizeof cam, "kamera %.1f, %.1f, %.1f \xC2\xB7 hedef %.1f, %.1f, %.1f", (double)info.cam_eye[0], (double)info.cam_eye[1],
                     (double)info.cam_eye[2], (double)info.cam_target[0], (double)info.cam_target[1], (double)info.cam_target[2]);
-      const float cam_w = pill_width(ps, nullptr, cam);
+      // U11 A1: kamera koordinati yalniz Gelismis'te; Basit'te ipucu tek basina sagda.
+      const float cam_w = editor_gelismis() ? pill_width(ps, nullptr, cam) : 1e9f;
       // Ipucu da KENDI hapinin icinde: cıplak metin acik zeminde (dama tahtasi
       // zemin, gokyuzu) golgeye ragmen okunmuyordu — kamera hapiyla ayni zemin.
       const float hint_w = info.hint && *info.hint ? pill_width(ps, nullptr, info.hint) : 0.0f;
       const float avail = r.w - 2.0f * pad;
       const bool both = hint_w > 0.0f && cam_w + gap + hint_w <= avail;
-      const bool cam_only = !both && cam_w <= avail;
+      const bool cam_only = !both && cam_w <= avail && editor_gelismis();
       const bool hint_only = !both && !cam_only && hint_w > 0.0f && hint_w <= avail;
       if (both || cam_only) {
         pill_draw(dl, ps, ImVec2(rmin.x + pad, row_y), cam_w, nullptr, 0, cam, dim, pill_bg, pill_border);

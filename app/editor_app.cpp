@@ -712,12 +712,28 @@ uint32_t entity_pick_bounds(const EditorState &st, const sim::Physics &phys, con
   return m;
 }
 
+// U11 A1: kullaniciya gosterilen yollar kisa (proje koku silinir, ev dizini "~"). Kare basinda ve her durum
+// iletisinde (sahne ilk kareden ONCE yuklenir) cagrilir; degismediyse iki strcmp.
+void yol_takma_tazele(const EditorState &st) {
+  static char ak[1100] = {0};
+  const char *kok = st.tulpar_dir[0] ? st.tulpar_dir : st.scene_dir;
+  if (std::strcmp(ak, kok) == 0) return;
+  std::snprintf(ak, sizeof ak, "%s", kok);
+  console_set_path_alias(0, kok, "");
+  const char *ev = std::getenv("HOME");
+  if (!ev || !*ev) ev = std::getenv("USERPROFILE");
+  console_set_path_alias(1, ev, "~");
+}
+
 void set_status(EditorState &st, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void set_status(EditorState &st, const char *fmt, ...) {
+  yol_takma_tazele(st);
   va_list ap;
   va_start(ap, fmt);
-  std::vsnprintf(st.status, sizeof st.status, fmt, ap);
+  char ham[sizeof st.status * 2];
+  std::vsnprintf(ham, sizeof ham, fmt, ap);
   va_end(ap);
+  console_shorten_paths(ham, st.status, sizeof st.status); // U11 A1: durum cubugu da kisa yol
   // Durum cubugu yalniz SON iletiyi tutar: art arda iki hatada ilki okunmadan
   // siliniyordu. Ayni satir konsola da dusuyor (gecmis orada kaliyor); duzey
   // metinden turetiliyor ("KAYDEDILEMEDI" -> Hata), siniflandirici konsolunkiyle
@@ -781,10 +797,10 @@ void bodies_spawn(EditorState &st, sim::Physics &ph) {
   st.live = content::scene_spawn_live(st.scene, ph, st.bodies, st.chars);
   st.bodies_live = true;
   if (st.live.characters || st.live.characters_failed)
-    console_log(ConsoleLevel::Bilgi, kConsoleTagScene, "oynat: %u g\xC3\xB6vde, %u karakter (%u g\xC3\xB6vde bile\xC5\x9F" "eni karakterin yerine gecti)",
+    console_log_teknik(ConsoleLevel::Bilgi, kConsoleTagScene, "oynat: %u g\xC3\xB6vde, %u karakter (%u g\xC3\xB6vde bile\xC5\x9F" "eni karakterin yerine gecti)",
                 st.live.bodies, st.live.characters, st.live.bodies_replaced);
   if (st.live.characters_failed)
-    console_log(ConsoleLevel::Hata, kConsoleTagScene, "oynat: %u karakter DOGAMADI — boy > 2*yaricap olmal\xC4\xB1 (Karakter karti), ya da havuz dolu",
+    console_log(ConsoleLevel::Hata, kConsoleTagScene, "oynat: %u karakter do\xC4\x9Fmad\xC4\xB1 \xE2\x80\x94 boy, yar\xC4\xB1\xC3\xA7" "ap\xC4\xB1n iki kat\xC4\xB1ndan b\xC3\xBCy\xC3\xBCk olmal\xC4\xB1 (Karakter kart\xC4\xB1) ya da havuz dolu",
                 st.live.characters_failed);
 }
 void bodies_remove(EditorState &st, sim::Physics &ph) {
@@ -837,11 +853,11 @@ uint32_t propagate_selection_edit(EditorState &st, int index, const SceneEntity 
   // hedef ise bilincli atlandi, yine de soylenir.
   if (ms.props_overflow)
     console_log(ConsoleLevel::Uyari, kConsoleTagEditor,
-                "coklu duzenleme: %u \xC3\xB6zellik yaz\xC4\xB1lamad\xC4\xB1 (hedefte %u \xC3\xB6zellik tavani dolu)", ms.props_overflow,
+                "\xC3\xA7oklu d\xC3\xBCzenleme: %u \xC3\xB6zellik yaz\xC4\xB1lamad\xC4\xB1 (hedefte %u \xC3\xB6zellik tavan\xC4\xB1 dolu)", ms.props_overflow,
                 content::kSceneMaxProps);
   if (ms.props_script_skipped)
     console_log(ConsoleLevel::Bilgi, kConsoleTagEditor,
-                "coklu duzenleme: ozellikler %u varliga yayilmadi (betikleri farkli)", ms.props_script_skipped);
+                "\xC3\xA7oklu d\xC3\xBCzenleme: \xC3\xB6zellikler %u varl\xC4\xB1\xC4\x9F" "a yay\xC4\xB1lmad\xC4\xB1 (betikleri farkl\xC4\xB1)", ms.props_script_skipped);
   return n;
 }
 
@@ -1394,7 +1410,7 @@ bool prop_edit_enter(EditorState &st, int32_t ent, const char *name, uint32_t fr
   std::snprintf(st.pe_name, sizeof st.pe_name, "%s", name);
   st.pe_sel_count = st.sel.count;
   st.pe_exit_after_drag = false;
-  set_status(st, "nokta duzenleme: %s.%s (gizmo noktada; Esc ya da tekrar " ICON_MD_OPEN_WITH " ile cik)", st.scene.entities[ent].name,
+  set_status(st, "nokta d\xC3\xBCzenleme: %s.%s (gizmo noktada; Esc ya da tekrar " ICON_MD_OPEN_WITH " ile \xC3\xA7\xC4\xB1k)", st.scene.entities[ent].name,
              st.pe_name);
   return true;
 }
@@ -1403,7 +1419,7 @@ bool prop_edit_enter(EditorState &st, int32_t ent, const char *name, uint32_t fr
 void prop_edit_exit(EditorState &st, const char *why) {
   if (!prop_edit_active(st)) return;
   if (st.pe_drag) { st.pe_exit_after_drag = true; return; }
-  set_status(st, "nokta duzenleme bitti: %s", why);
+  set_status(st, "nokta d\xC3\xBCzenleme bitti: %s", why);
   st.pe_entity = -1;
   st.pe_name[0] = 0;
   st.pe_exit_after_drag = false;
@@ -1416,7 +1432,7 @@ void prop_edit_validate(EditorState &st, uint32_t frame) {
   if (!prop_edit_active(st) || st.pe_drag) return;
   const char *why = nullptr;
   if (st.playing) why = "oynatma basladi";
-  else if (st.sel.primary() != st.pe_entity || st.sel.count != st.pe_sel_count) why = "secim degisti";
+  else if (st.sel.primary() != st.pe_entity || st.sel.count != st.pe_sel_count) why = "se\xC3\xA7im de\xC4\x9Fi\xC5\x9Fti";
   else {
     const PropEditState ps = prop_edit_point(st, st.pe_entity, st.pe_name, frame, nullptr, nullptr);
     if (ps != PropEditState::Ok) why = prop_edit_state_text(ps);
@@ -1885,7 +1901,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   };
   rescan_browse(st);
   std::printf("[engine_editor] sahne %s: %u varlik, %u kaynak\n", st.scene_path, st.scene.entity_count, st.scene.asset_count);
-  console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "sahne %s: %u varl\xC4\xB1k, %u kaynak", st.scene_path, st.scene.entity_count,
+  console_log_teknik(ConsoleLevel::Bilgi, kConsoleTagEditor, "sahne %s: %u varl\xC4\xB1k, %u kaynak", st.scene_path, st.scene.entity_count,
               st.scene.asset_count);
 
   // Editorun KENDI yardimci geometrisi. Eskiden burada demo sahnesinin tam
@@ -2188,8 +2204,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!oyun.chan.acquire(&px, &fr) || !px) return;
     if (oyun_goruntu.stages() == 0) {
       const double s0 = (platform::now_ns() - oyun_baslangic_ns) / 1e9;
-      set_status(st, "oynat: %s — Oyun sekmesinde (t\xC4\xB1kla: klavye oyuna; F5 durdur, F6 duraklat)", oyun.game);
-      console_log(ConsoleLevel::Bilgi, "oyun", "F5: ilk kare %.1f s'de geldi (%ux%u)", s0, oyun.chan.width(), oyun.chan.height());
+      set_status(st, "oyun \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1yor \xE2\x80\x94 klavye i\xC3\xA7in oyuna t\xC4\xB1kla \xC2\xB7 F5 durdur \xC2\xB7 F6 duraklat");
+      console_log_teknik(ConsoleLevel::Bilgi, "oyun", "F5: ilk kare %.1f s'de geldi (%ux%u)", s0, oyun.chan.width(), oyun.chan.height());
     }
     oyun_goruntu.stage(px, slot);
   };
@@ -2244,10 +2260,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Butun oynatma duzenlemeleri geri alindiysa kirli bayragi da oynatma
         // oncesine doner (yalniz oynatirken kirlenen sahne "kaydedilmedi" demesin).
         if (st.groups.depth() == play_group_mark) st.dirty = play_dirty_mark;
-        set_status(st, "durduruldu: oynatma sirasindaki %u duzenleme geri alindi (Ctrl+Y geri getirir)", geri);
-        console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "durdur: oynatma sirasindaki %u duzenleme geri alindi (yinele ile geri gelir)", geri);
+        set_status(st, "durduruldu: oynatma s\xC4\xB1ras\xC4\xB1ndaki %u d\xC3\xBCzenleme geri al\xC4\xB1nd\xC4\xB1 (Ctrl+Y geri getirir)", geri);
+        console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "durdur: oynatma s\xC4\xB1ras\xC4\xB1ndaki %u d\xC3\xBCzenleme geri al\xC4\xB1nd\xC4\xB1 (yinele ile geri gelir)", geri);
       } else {
-        set_status(st, "durduruldu: sahne oynatma oncesine dondu");
+        set_status(st, "durduruldu: sahne oynatma \xC3\xB6ncesine d\xC3\xB6nd\xC3\xBC");
       }
     }
   };
@@ -2294,7 +2310,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       st.edit_active = false;
       ImGui::ClearActiveID();
-      set_status(st, "degisiklik iptal edildi");
+      set_status(st, "de\xC4\x9Fi\xC5\x9Fiklik iptal edildi");
       return;
     }
     if (st.hist.undo_count() == 0) return;
@@ -2305,7 +2321,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       for (uint32_t i = 0; i < k && st.hist.undo(st.scene); i++) done++;
     });
     assets_after_history(na0);
-    if (done) { st.dirty = true; clamp_selection(st); set_status(st, "geri alindi (%u i\xC5\x9Flem, %u kald\xC4\xB1)", done, st.hist.undo_count()); }
+    if (done) { st.dirty = true; clamp_selection(st); set_status(st, "geri al\xC4\xB1nd\xC4\xB1 (%u i\xC5\x9Flem, %u kald\xC4\xB1)", done, st.hist.undo_count()); }
   };
   auto do_redo = [&]() {
     if (kod.yaziyor) return;
@@ -2394,7 +2410,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // yuklemede *out'u bastan kurar, onceki sahneden kalinti tasinmaz.
     static content::SceneDesc nd;
     content::SceneError err{};
-    if (!content::scene_load(sys, path, &nd, &err)) { set_status(st, "ACILAMADI: %s (%s)", path, err.msg); return false; }
+    if (!content::scene_load(sys, path, &nd, &err)) { set_status(st, "a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s (%s)", path, err.msg); return false; }
     with_bodies(st, phys, [&] {
       st.scene = nd;
       st.hist.clear();
@@ -2459,8 +2475,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     char e[256];
     if (!update_ui_install(upd_ui, e, sizeof e)) {
       // Geri alma eksikse "degismedi" YALAN olur (pencere kurtarma yolunu gosterir).
-      if (upd_reason_rollback_incomplete(e)) set_status(st, "GUNCELLEME YARIM KALDI: %s (.g\xC3\xBCncelleme/ elle incelenmeli)", e);
-      else set_status(st, "GUNCELLEME KURULAMADI: %s (kurulum dizini degismedi)", e);
+      if (upd_reason_rollback_incomplete(e)) set_status(st, "g\xC3\xBCncelleme yar\xC4\xB1m kald\xC4\xB1: %s (.g\xC3\xBCncelleme/ elle incelenmeli)", e);
+      else set_status(st, "g\xC3\xBCncelleme kurulamad\xC4\xB1: %s (kurulum dizini de\xC4\x9Fi\xC5\x9Fmedi)", e);
       return;
     }
     set_status(st, "g\xC3\xBCncelleme kuruldu: editor yeniden ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor");
@@ -2509,7 +2525,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!content::scene_blob_save_ex(frame, st.scene, ek ? &extras : nullptr, out, &err)) { set_status(st, "DERLENEMEDI: %s", err.msg); return false; }
     content::SceneBlobView v;
     if (!content::scene_blob_load(frame, out, &v, &err)) { set_status(st, "DERLENDI ama a\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", err.msg); return false; }
-    set_status(st, "derlendi: %s (%u bayt, %u \xC3\xA7izim, %u isik, %u g\xC3\xB6vde, ozet %08x)", out, v.h->total_size, v.h->draw_count, v.h->light_count,
+    if (!editor_gelismis()) { set_status(st, "derlendi: %s", out); return true; } // U11 A1: sayilar Gelismis'te
+    set_status(st, "derlendi: %s (%u bayt, %u \xC3\xA7izim, %u \xC4\xB1\xC5\x9F\xC4\xB1k, %u g\xC3\xB6vde, \xC3\xB6zet %08x)", out, v.h->total_size, v.h->draw_count, v.h->light_count,
                v.h->body_count, (unsigned)v.h->hash_lo);
     return true;
   };
@@ -2531,7 +2548,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // satirlari her kipte gorunur (2026-11-10 degerlendirmesi: Konsol k301 satirlariyla doluyordu).
     const bool koprunun_bilgisi = !std::strncmp(line, "[engine_bridge] k", 17) && std::strstr(line, " bilgi ") &&
                                   !std::strstr(line, "[tpr]") && !std::strstr(line, "UYARI") && !std::strstr(line, "HATA");
-    if (!(koprunun_bilgisi && lv == ConsoleLevel::Bilgi && !editor_gelismis())) console_log(lv, "oyun", "%s", line);
+    // U11 A1: koprunun bilgisi TEKNIK olarak kaydedilir (Basit'te gizli, Gelismis'te gorunur; eskiden Basit'te hic
+    // kaydedilmiyordu). Oyunun kendi satirlari ("[engine_bridge] k12 bilgi [tpr] Toplanan 3") onekten arinir:
+    // kullanici yalniz oyununun soyledigini gorur. Uyari/hata satirlarinda "[engine_bridge] kN " oneki gider.
+    const char *goster = line;
+    if (!std::strncmp(line, "[engine_bridge] k", 17)) {
+      const char *q = line + 17;
+      while (*q >= '0' && *q <= '9') q++;
+      if (*q == ' ') q++;
+      if (!std::strncmp(q, "bilgi ", 6)) q += 6;
+      if (!std::strncmp(q, "[tpr] ", 6)) q += 6;
+      if (!koprunun_bilgisi) goster = q;
+    }
+    // Oyunun AYRINTI satiri (engine.tpr logla_ayrinti: "[ayrinti] " oneki): teknik, onek silinir.
+    const bool ayrinti = !std::strncmp(goster, "[ayrinti] ", 10);
+    if (ayrinti) goster += 10;
+    if (ayrinti && lv == ConsoleLevel::Bilgi) console_log_teknik_raw(lv, "oyun", goster);
+    else if (koprunun_bilgisi && lv == ConsoleLevel::Bilgi) console_log_teknik_raw(lv, "oyun", line);
+    else console_log_raw(lv, "oyun", goster);
     std::printf("[oyun] %s\n", line);
     const size_t l = std::strlen(line);
     if (oyun_cikti_n + l + 2 < sizeof oyun_cikti) {   // dolarsa kalan yazilmaz (ilk hata en basta)
@@ -2578,7 +2612,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       return;
     }
     set_status(st, "oyun \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1yor: %s", game);
-    console_log(ConsoleLevel::Bilgi, "oyun", "\xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1l\xC4\xB1yor: %s %s (eklenti %s, dizin %s, gunluk %s)", comp, game, ext, st.tulpar_dir, log);
+    console_log(ConsoleLevel::Bilgi, "oyun", "\xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1l\xC4\xB1yor: %s %s (eklenti %s, dizin %s, g\xC3\xBCnl\xC3\xBCk %s)", comp, game, ext, st.tulpar_dir, log);
   };
   auto do_run_game = [&]() {
     if (st.play_embedded) {
@@ -2602,7 +2636,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (r.too_big) console_log(ConsoleLevel::Uyari, "oyun", "%u .tpr 256 KB'tan b\xC3\xBCy\xC3\xBCk, oyun aramasinda OKUNMADI", r.too_big);
     if (r.count == 1) {
       std::snprintf(oyun_secim, sizeof oyun_secim, "%s", bulunan[0]);
-      console_log(ConsoleLevel::Bilgi, "oyun", "bu sahneyi y\xC3\xBCkleyen oyun: %s (%u .tpr tarand\xC4\xB1)", oyun_secim, r.scanned);
+      console_log_teknik(ConsoleLevel::Bilgi, "oyun", "bu sahneyi y\xC3\xBCkleyen oyun: %s (%u .tpr tarand\xC4\xB1)", oyun_secim, r.scanned);
       run_game_with(oyun_secim);
       return;
     }
@@ -2650,14 +2684,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     oyun_odak_iste = true;
     oyun_kapaniyor = false;
     oyun_baslangic_ns = platform::now_ns();
-    set_status(st, "oynat: %s derleniyor (Oyun sekmesi %ux%u; F5 durdurur)", game, w, h);
-    console_log(ConsoleLevel::Bilgi, "oyun", "F5: %s Oyun sekmesinde \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1l\xC4\xB1yor (%ux%u, derleyici %s, gunluk %s)", game, w, h, comp, log);
+    set_status(st, "oyun haz\xC4\xB1rlan\xC4\xB1yor\xE2\x80\xA6 (F5 vazge\xC3\xA7" "er)");
+    console_log_teknik(ConsoleLevel::Bilgi, "oyun", "F5: %s Oyun sekmesinde \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1l\xC4\xB1yor (%ux%u, derleyici %s, gunluk %s)", game, w, h, comp, log);
     return true;
   };
   auto play_start_auto = [&](bool allow_embedded) {
     if (st.playing) return;
     if (oyun.state == GameRunState::Running) {
-      set_status(st, oyun_kapaniyor ? "\xC3\xB6nceki oynatma hala kapaniyor: bir an sonra tekrar deneyin"
+      set_status(st, oyun_kapaniyor ? "\xC3\xB6nceki oynatma h\xC3\xA2l\xC3\xA2 kapan\xC4\xB1yor: bir an sonra tekrar deneyin"
                                     : "oynatilamadi: ayri pencerede bir oyun \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1yor (Ctrl+F5 ile durdurun)");
       return;
     }
@@ -2680,7 +2714,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         const GameFindResult r = game_find_for_scene(st.tulpar_dir, st.scene_path, bulunan, 8, tarama, kFileListMax, metin, sizeof metin);
         if (r.count == 1) {
           std::snprintf(oyun_secim, sizeof oyun_secim, "%s", bulunan[0]);
-          console_log(ConsoleLevel::Bilgi, "oyun", "bu sahneyi y\xC3\xBCkleyen oyun: %s (%u .tpr tarand\xC4\xB1)", oyun_secim, r.scanned);
+          console_log_teknik(ConsoleLevel::Bilgi, "oyun", "bu sahneyi y\xC3\xBCkleyen oyun: %s (%u .tpr tarand\xC4\xB1)", oyun_secim, r.scanned);
           if (start_embedded_with(oyun_secim)) return;
           neden = "oyun gomulu baslatilamadi (Konsol)";
         } else if (r.count > 1) {
@@ -2721,7 +2755,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     content::SceneBlobExtras x{};
     st.gi_baked = false;
     if (!content::scene_gi_bake(st.gi_arena, g, opt, &x, &st.gi_report)) {
-      set_status(st, "GI pisirilemedi: sahne bos ya da izgara kurulamad\xC4\xB1");
+      set_status(st, "GI pi\xC5\x9Firilemedi: sahne bo\xC5\x9F ya da \xC4\xB1zgara kurulamad\xC4\xB1");
       return;
     }
     const size_t need = content::scene_blob_compile_ex(st.scene, &x, nullptr, 0);
@@ -2737,7 +2771,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       set_status(st, "GI pisirildi: %u sonda (%u ge\xC3\xA7" "erli), %.3f s", st.gi_report.probes, st.gi_report.probes - st.gi_report.probes_inside,
                  st.gi_report.seconds);
     else
-      set_status(st, "GI pisirildi ama sonda izgarasi a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (sahne \xC3\xA7ok kucuk/b\xC3\xBCy\xC3\xBCk olabilir)");
+      set_status(st, "GI pi\xC5\x9Firildi ama sonda \xC4\xB1zgaras\xC4\xB1 a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (sahne \xC3\xA7ok k\xC3\xBC\xC3\xA7\xC3\xBCk/b\xC3\xBCy\xC3\xBCk olabilir)");
   };
   // kind: 0 = kopya/varsayilan (secili varsa kopyasi, yoksa bos ya da model),
   // 1 bos, 2 model, 3 isik, 4 govde (Sahne panelinin "+" menusu).
@@ -3401,7 +3435,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     const uint32_t n = st.sel.sorted_desc(idx); // buyukten kucuge; tersten okuyacagiz
     st.clip_count = 0;
     for (uint32_t i = n; i > 0; i--) st.clip[st.clip_count++] = st.scene.entities[idx[i - 1]];
-    set_status(st, "panoya alindi (%u varl\xC4\xB1k)", st.clip_count);
+    set_status(st, "panoya al\xC4\xB1nd\xC4\xB1 (%u varl\xC4\xB1k)", st.clip_count);
   };
   auto do_cut = [&]() {
     if (st.sel.count == 0) return;
@@ -3533,7 +3567,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (a >= 0 && !st.have[a]) load_asset(a);
     st.sel.set_single((int32_t)st.scene.entity_count - 1);
     rescan_browse(st);
-    set_status(st, "kaynak eklendi: %s (%s)", file, (a >= 0 && st.have[a]) ? "yuklendi" : "YUKLENEMEDI");
+    set_status(st, "kaynak eklendi: %s (%s)", file, (a >= 0 && st.have[a]) ? "y\xC3\xBCklendi" : "y\xC3\xBCklenemedi");
   };
   // --- Komut tablosu: menu, arac cubugu ve kisayollar TEK kaynaktan ----------
   // (editor_commands.hpp'nin varlik sebebi: ayni komut iki yerde yazilmasin,
@@ -3838,6 +3872,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   while (running) {
     ENGINE_ZONE("frame");
     console_set_frame(frame_i);
+    yol_takma_tazele(st);
     console_capture_drain(); // kare basina BIR kez; yakalama kapaliysa no-op
     if (frame_i == 1 && opts.command) {
       // Ikinci kare: ilk karede panel/sahne kurulumu biter, komut kurulmus bir
@@ -3855,9 +3890,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       const GameRunState ns = game_run_poll(oyun, oyun_satiri, nullptr);
       if (ns != GameRunState::Running) {
         const bool iyi = ns == GameRunState::Finished && oyun.exit_code == 0;
-        console_log(iyi ? ConsoleLevel::Bilgi : ConsoleLevel::Hata, "oyun", "oyun bitti: %s, \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d, %u satir (gunluk %s)", oyun.game,
-                    oyun.exit_code, oyun.lines, oyun.log_path);
-        set_status(st, "oyun bitti: \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d%s", oyun.exit_code, iyi ? "" : " (Konsol)");
+        // U11 A1: temiz bitis teknik satir + sade durum ("oyun durdu"); hatali bitis her kipte gorunur.
+        if (iyi) console_log_teknik(ConsoleLevel::Bilgi, "oyun", "oyun bitti: %s, \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu 0, %u sat\xC4\xB1r (g\xC3\xBCnl\xC3\xBCk %s)", oyun.game,
+                                     oyun.lines, oyun.log_path);
+        else console_log(ConsoleLevel::Hata, "oyun", "oyun hatayla bitti: %s, \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d, %u sat\xC4\xB1r (g\xC3\xBCnl\xC3\xBCk %s)", oyun.game,
+                         oyun.exit_code, oyun.lines, oyun.log_path);
+        if (iyi) { if (!oyun.stop_ns) set_status(st, "oyun bitti"); } // kullanici durdurduysa "durduruldu" zaten yazildi
+        else set_status(st, "oyun hatayla bitti (kod %d) \xE2\x80\x94 ayr\xC4\xB1nt\xC4\xB1 Konsol'da", oyun.exit_code);
         {
           // Derleme hatasi: pencere. Gomulude "hic kare yok", ayri pencerede derleyicinin konum satiri.
           char hd[content::kScenePathLen]; uint32_t hs = 0;
@@ -4465,11 +4504,24 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               ImGui::Image((ImTextureID)oyun_goruntu.texture_id(), ImVec2(iw, ih));
             } else {
               ImGui::Dummy(ImVec2(iw, ih));
-              char bek[160];
+              // U11 A1: "oyun.tpr derleniyor / baslatiliyor" yerine sade baslik + belirsiz ilerleme seridi; dosya adi
+              // ve derleme ayrintisi yalniz Gelismis'te (ikinci satir).
+              char bek[160], alt[200] = {0};
               const double gecen = (platform::now_ns() - oyun_baslangic_ns) / 1e9;
-              std::snprintf(bek, sizeof bek, ICON_MD_HOURGLASS_TOP " %s derleniyor / ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor\xE2\x80\xA6 %.1f sn", oyun.game, gecen);
+              std::snprintf(bek, sizeof bek, "Oyun haz\xC4\xB1rlan\xC4\xB1yor\xE2\x80\xA6 %.0f sn", gecen);
+              if (editor_gelismis()) std::snprintf(alt, sizeof alt, "%s derleniyor / ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor", oyun.game);
               const ImVec2 ts = ImGui::CalcTextSize(bek);
-              gdl->AddText(ImVec2(p0.x + (iw - ts.x) * 0.5f, p0.y + (ih - ts.y) * 0.5f), IM_COL32(200, 205, 215, 255), bek);
+              const float cy = p0.y + ih * 0.5f;
+              gdl->AddText(ImVec2(p0.x + (iw - ts.x) * 0.5f, cy - ts.y - 6.0f), IM_COL32(220, 225, 235, 255), bek);
+              const float bw = std::fmin(iw * 0.4f, 320.0f), bh = 4.0f, bx = p0.x + (iw - bw) * 0.5f, by = cy + 4.0f;
+              gdl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh), IM_COL32(255, 255, 255, 28), bh * 0.5f);
+              const float t = (float)std::fmod(gecen * 0.8, 1.0), sw = bw * 0.3f;
+              const float sx0 = bx + (bw + sw) * t - sw, sx1 = sx0 + sw;
+              gdl->AddRectFilled(ImVec2(std::fmax(sx0, bx), by), ImVec2(std::fmin(sx1, bx + bw), by + bh), ImGui::ColorConvertFloat4ToU32(tone(Tone::Accent)), bh * 0.5f);
+              if (alt[0]) {
+                const ImVec2 as = ImGui::CalcTextSize(alt);
+                gdl->AddText(ImVec2(p0.x + (iw - as.x) * 0.5f, by + bh + 10.0f), IM_COL32(140, 145, 155, 255), alt);
+              }
             }
             oyun_rect = ViewportRect{p0.x, p0.y, iw, ih};
           } else {
@@ -4723,7 +4775,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // --- Kaplamadan gelen gezinme eylemleri (cip/gosterge tiklamalari) ------
     if (ovres.axis_clicked >= 0) {
       camera_align(cam, (CameraAxis)ovres.axis_clicked);
-      static const char *const kAx[6] = {"+X", "-X", "Ust", "Alt", "On", "Arka"};
+      static const char *const kAx[6] = {"+X", "-X", "\xC3\x9Cst", "Alt", "\xC3\x96n", "Arka"};
       set_status(st, "eksen gorunusu: %s", kAx[ovres.axis_clicked]);
     }
     if (ovres.ortho_toggled) cam.proj = cam.proj == CameraProjection::Perspective ? CameraProjection::Ortho : CameraProjection::Perspective;
@@ -4952,8 +5004,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 if (e.light_radius <= 0.1f) { e.light_radius = 8.0f; lfix++; }
               }
             }
-            if (lfix) { st.dirty = true; set_status(st, "SROS: %u isik d\xC3\xBCzeltildi", lfix); }
-            else set_status(st, "SROS: Isiklar sa\xC4\x9Fl\xC4\xB1kl\xC4\xB1");
+            if (lfix) { st.dirty = true; set_status(st, "SROS: %u \xC4\xB1\xC5\x9F\xC4\xB1k d\xC3\xBCzeltildi", lfix); }
+            else set_status(st, "SROS: I\xC5\x9F\xC4\xB1klar sa\xC4\x9Fl\xC4\xB1kl\xC4\xB1");
           }
           if (ImGui::MenuItem(ICON_MD_AUTO_FIX_HIGH "  T\xC3\xBCm Sahneyi Otomatik Onar (Quick Fix)")) {
             uint32_t ops = 0;
@@ -5011,7 +5063,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // tam bunun icin kapilar var (bkz. tools/scene_check.py).
     auto draw_godray_controls = [&](const char *prefix, SceneEntity *opt_e, int si) {
       if (prop_begin(prefix)) {
-        prop_help("Ekran-uzayi radial occlusion blur ve atmosferik volumetrik isik huzmeleri (God Rays / Crepuscular Rays).");
+        prop_help("G\xC3\xBCne\xC5\x9Ften s\xC3\xBCz\xC3\xBClen \xC4\xB1\xC5\x9F\xC4\xB1k huzmeleri (God Rays): ekran uzay\xC4\xB1nda hesaplan\xC4\xB1r.");
 
         bool gr_on = st.scene.godrays_enabled;
         if (prop_check("H\xC3\xBCzmeler Etkin (God Rays)", &gr_on).changed) {
@@ -5361,7 +5413,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       section_label("G\xC3\x96R\xC3\x9CN\xC3\x9CM");
       if (prop_begin("golge_kalite")) {
-        prop_help("G\xC3\xB6lge haritasi kapatilinca sahne duz aydinlanir; egilim de\xC4\x9F" "erleri golge akne/ayrilma dengesidir.");
+        prop_help("G\xC3\xB6lge haritas\xC4\xB1 kapat\xC4\xB1l\xC4\xB1nca sahne d\xC3\xBCz ayd\xC4\xB1nlan\xC4\xB1r; e\xC4\x9Filim de\xC4\x9F" "erleri g\xC3\xB6lge lekesi/ayr\xC4\xB1lma dengesidir.");
         prop_check("G\xC3\xB6lgeler", &st.render.shadows);
         prop_float("Derinlik e\xC4\x9Filimi", &st.render.shadow_bias, 0.0001f, 0.0f, 0.02f, "%.4f");
         prop_float("Normal kayd\xC4\xB1rma", &st.render.shadow_normal_offset, 0.005f, 0.0f, 1.0f, "%.3f m");
@@ -5823,8 +5875,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               if (prop_check("Dinamik", &dyn).changed) { after = e; after.dynamic = dyn; commit(st, si, after); }
               ImGui::EndDisabled();
               bool sen = e.body_sensor;
-              prop_help("Carpisma tepkisi YOK, icinden gecilir. Icine giren/cikan g\xC3\xB6vde betige bildirilir: bolgenin betigine "
-                        "<ad>_tetik_girdi(id, diger, kopru) / _tetik_cikti, girenin betigine <ad>_bolge_girdi(id, bolge) / _bolge_cikti.");
+              prop_help("\xC3\x87" "arp\xC4\xB1\xC5\x9Fma tepkisi yok, i\xC3\xA7inden ge\xC3\xA7ilir. \xC4\xB0\xC3\xA7ine giren/\xC3\xA7\xC4\xB1kan g\xC3\xB6vde beti\xC4\x9F" "e bildirilir: b\xC3\xB6lgenin beti\xC4\x9Fine "
+                        "<ad>_tetik_girdi(id, diger, kopru) / _tetik_cikti, girenin beti\xC4\x9Fine <ad>_bolge_girdi(id, bolge) / _bolge_cikti.");
               if (prop_check("Tetik (b\xC3\xB6lge)", &sen).changed) {
                 after = e;
                 after.body_sensor = sen;
@@ -5853,7 +5905,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           after = e;
           if (begin_component_card("\xE2\x8A\x99", "Karakter Kontrolc\xC3\xBC", content::kSceneCharacter, nullptr, &act, true, Tone::AxisY)) { // ⊙
             if (prop_begin("karakter")) {
-              prop_help("Kapsul \xC3\xA7" "arp\xC4\xB1\xC5\x9F" "an: yaricap + g\xC3\xB6vde yuksekligi. Egim s\xC4\xB1n\xC4\xB1r\xC4\xB1, \xC3\xBCzerinde YURUNEBILEN en dik yuzeyin acisidir.");
+              prop_help("Kaps\xC3\xBCl \xC3\xA7" "arp\xC4\xB1\xC5\x9F" "an: yar\xC4\xB1\xC3\xA7" "ap + g\xC3\xB6vde y\xC3\xBCksekli\xC4\x9Fi. E\xC4\x9Fim s\xC4\xB1n\xC4\xB1r\xC4\xB1, \xC3\xBCzerinde y\xC3\xBCr\xC3\xBCnebilen en dik y\xC3\xBCzeyin a\xC3\xA7\xC4\xB1s\xC4\xB1" "d\xC4\xB1r.");
               track_edit(st, e, si, prop_float("Yar\xC4\xB1\xC3\xA7""ap", &e.char_radius, 0.01f, 0.05f, 5.0f, "%.2f m"));
               track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.char_height, 0.02f, 0.1f, 10.0f, "%.2f m"));
               track_edit(st, e, si, prop_float("K\xC3\xBCtle", &e.char_mass, 0.5f, 1.0f, 500.0f, "%.1f kg"));
@@ -7315,6 +7367,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // dengesizlik: "Begin/End mismatch"). Bayragi Begin'den ONCE oku.
     if (show_console) {
       const bool konsol_acik = ImGui::Begin(kPanelKonsolLabel, &show_console);
+      console_view.teknik_gizle = !editor_gelismis();
       if (konsol_acik) console_panel(console_view);
       ImGui::End();
     }
@@ -7351,7 +7404,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       const bool fresh = pi >= 0 && pi < (int32_t)st.scene.entity_count && st.hist.undo_count() == st.pe_drag_undo &&
                          st.hist.redo_count() == st.pe_drag_redo;
       if (!fresh) {
-        set_status(st, "nokta suruklemesi gunluge yazilmadi: s\xC3\xBCr\xC3\xBCkleme sirasinda sahne de\xC4\x9Fi\xC5\x9Fti");
+        set_status(st, "nokta s\xC3\xBCr\xC3\xBCklemesi g\xC3\xBCnl\xC3\xBC\xC4\x9F" "e yaz\xC4\xB1lmad\xC4\xB1: s\xC3\xBCr\xC3\xBCkleme s\xC4\xB1ras\xC4\xB1nda sahne de\xC4\x9Fi\xC5\x9Fti");
       } else {
         const SceneEntity after = st.scene.entities[pi];
         st.scene.entities[pi] = st.pe_drag_before;
@@ -8845,7 +8898,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       const char *ad = st.scene_path[0] ? file_path_base(st.scene_path) : "adsiz sahne";
       if (upd_bekliyor)
         std::snprintf(msg, sizeof msg, "\x22%s\x22 dosyas\xC4\xB1nda kaydedilmemi\xC5\x9F de\xC4\x9Fi\xC5\x9Fiklikler var.\nG\xC3\xBCncelleme kurulup edit\xC3\xB6r yeniden ba\xC5\x9Flat\xC4\xB1lacak.", ad);
-      else std::snprintf(msg, sizeof msg, "\x22%s\x22 dosyasinda kaydedilmemis degisiklikler var.\nNe yapilsin?", ad);
+      else std::snprintf(msg, sizeof msg, "\"%s\" dosyas\xC4\xB1nda kaydedilmemi\xC5\x9F de\xC4\x9Fi\xC5\x9Fiklikler var.\nNe yap\xC4\xB1ls\xC4\xB1n?", ad);
       const ConfirmResult cr = upd_bekliyor ? confirm_modal(confirm, "G\xC3\xBCncellemeden \xC3\xB6nce", msg, "Kaydet ve devam et", "Vazge\xC3\xA7", "Kaydetmeden devam et")
                                             : confirm_modal(confirm, "Sahne kaydedilmedi", msg, "Kaydet", "Vazge\xC3\xA7", "Kaydetme");
       if (cr == ConfirmResult::Ok) {
@@ -10003,10 +10056,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   }
   if (arac.state != GameRunState::Idle)
     std::printf("[engine_editor] arac: %s, durum %s, cikis kodu %d, %u satir\n", arac.game,
-                arac.state == GameRunState::Finished ? "bitti" : arac.state == GameRunState::Failed ? "BASARISIZ" : "?", arac.exit_code, arac.lines);
+                arac.state == GameRunState::Finished ? "bitti" : arac.state == GameRunState::Failed ? "ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z" : "?", arac.exit_code, arac.lines);
   if (oyun.state != GameRunState::Idle)
     std::printf("[engine_editor] oyun: %s, durum %s, cikis kodu %d, %u satir\n", oyun.game,
-                oyun.state == GameRunState::Finished ? "bitti" : oyun.state == GameRunState::Failed ? "BASARISIZ" : "?", oyun.exit_code, oyun.lines);
+                oyun.state == GameRunState::Finished ? "bitti" : oyun.state == GameRunState::Failed ? "ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z" : "?", oyun.exit_code, oyun.lines);
   // Penceresiz kosumun gecici ayar dizini: oyun/arac BEKLENDIKTEN sonra (arac.log orada; once
   // silinince bekleme gunlugu bos okuyordu — "0 satir", 2026-11-06).
   if (gecici_ayar[0]) platform::fs_remove_tree(gecici_ayar);
@@ -10036,7 +10089,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (update_ui_restart(upd_ui, opts.argc, opts.argv, st.scene_path, e, sizeof e))
       std::printf("[engine_editor] guncelleme: yeni surum baslatildi\n");
     else
-      platform::startup_failure("guncelleme kuruldu ama yeni editor baslatilamadi: %s — editoru elle acin", e);
+      platform::startup_failure("g\xC3\xBCncelleme kuruldu ama yeni edit\xC3\xB6r ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1: %s \xE2\x80\x94 edit\xC3\xB6r\xC3\xBC elle a\xC3\xA7\xC4\xB1n", e);
   }
   if (imgui_hata_var) return 1;
   if (komut_hata) return 2;

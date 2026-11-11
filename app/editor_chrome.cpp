@@ -539,9 +539,9 @@ void chrome_status_bar(const ChromeState &s) {
     if (!s.gelismis) {
       // Basit kip (EDITOR-UYGULAMA-PLANI U5): "kare N · tick N" ve kamera konumu oyun yapana bir sey
       // soylemez — dusulur; kalanlar sola kayar.
-      std::snprintf(seg[2], sizeof seg[2], "%s", seg[3]);
-      std::snprintf(seg[3], sizeof seg[3], "%s", seg[4]);
-      n_seg = 4;
+      // U11 A1: kare suresi (ms) de Gelismis'te: Basit kip olcum gostermez.
+      std::snprintf(seg[2], sizeof seg[2], "%s", seg[4]);
+      n_seg = 3;
     }
     float w[kSegs];
     float total = 0.0f;

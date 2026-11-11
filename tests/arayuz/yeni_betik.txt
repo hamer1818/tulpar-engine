@@ -18,5 +18,5 @@ dogrula_yok "###yeni_betik"
 dogrula_oge "deneme_davranis.tpr###kod_paneli" sira=1
 tikla "Kaydet" pencere=tulpar_toolbar
 bekle 3
-dogrula_metin "kaydedildi: /"
+dogrula_metin "kaydedildi: assets/"
 cik
