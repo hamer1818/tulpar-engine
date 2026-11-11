@@ -26,7 +26,7 @@ bool yok_dosya(const char *yol) { return std::strstr(yol, "kayip") == nullptr; }
 
 ENGINE_TEST(editor_betik_toplayici_lists_scene_scripts_with_control) {
   static content::SceneDesc d;
-  d = content::SceneDesc{};
+  content::scene_desc_reset(d);
   d.entities[d.entity_count++] = betikli("b", "betikler/zipla.tpr");
   d.entities[d.entity_count++] = betikli("a", "betikler/dondur.tpr");
   d.entities[d.entity_count++] = betikli("c", "betikler/dondur.tpr");        // ayni betik iki nesnede: TEK satir
@@ -53,7 +53,7 @@ ENGINE_TEST(editor_betik_toplayici_lists_scene_scripts_with_control) {
   CHECK(sayi == 1);                                        // tekil
   // KONTROL: betiksiz sahne -> import satiri yok ama dosya yine gecerli (oyun bos toplayiciyla derlenir).
   static content::SceneDesc bos_sahne;
-  bos_sahne = content::SceneDesc{};
+  content::scene_desc_reset(bos_sahne);
   const uint32_t n2 = app::betik_toplayici_metni(bos_sahne, "/p/assets", "/p", m, sizeof m, &s, yok_dosya);
   CHECK(n2 > 0 && s.betik == 0 && !std::strstr(m, "\nimport "));
   // KONTROL: tampon sigmazsa 0 ve bos (yarim dosya yazilmaz).

@@ -539,7 +539,7 @@ ENGINE_TEST(editor_time_format_and_ground_snap_with_control) {
   app::editor_saat_bicimi(-1.0f, b, sizeof b);  CHECK(!std::strcmp(b, "00:00"));
   CHECK(std::strchr(b, '%') == nullptr); // DragFloat bicimi: belirtec yok
   static content::SceneDesc d;
-  d = content::SceneDesc{};
+  content::scene_desc_reset(d);
   content::SceneEntity zemin{};
   zemin.components = content::kSceneModel; zemin.primitive = (int32_t)content::kPrimCube;
   zemin.pos = Vec3{0, -0.25f, 0}; zemin.scale = Vec3{20, 0.5f, 20};
