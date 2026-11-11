@@ -135,6 +135,10 @@ extern const uint32_t kComponentMenuCount;
 // Donus: tiklanan yapragin `code`u, tiklanmadiysa 0. Acik bir popup/menu
 // baglami GEREKTIRIR.
 int create_menu_draw(const CreateMenuItem *items, uint32_t count);
+// U11 B2: kipe gore olustur agaci (Basit: sade, gunluk dil; Gelismis: kCreateMenu). Sahne "+" ve ana menu "Ekle".
+extern const CreateMenuItem kCreateMenuBasit[];
+extern const uint32_t kCreateMenuBasitCount;
+const CreateMenuItem *create_menu_items(bool gelismis, uint32_t *n);
 
 // Tam genislik "+ Bilesen ekle" dugmesi; acilan listeden secilen indeks, yoksa -1.
 int component_add_button(const char *const *names, uint32_t count);

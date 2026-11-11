@@ -951,10 +951,61 @@ const CreateMenuItem kCreateMenu[] = {
     {"Oynan\xC4\xB1\xC5\x9F & RPG", "\xE2\x9A\x94", 0, kCreateGameplay, (uint32_t)(sizeof(kCreateGameplay) / sizeof(kCreateGameplay[0]))},
     {"Ses & Akustik", ICON_MD_VOLUME_UP, 0, kCreateAudio, (uint32_t)(sizeof(kCreateAudio) / sizeof(kCreateAudio[0]))},
     {"Kamera Varl\xC4\xB1\xC4\x9F\xC4\xB1", ICON_MD_VIDEOCAM, 12, nullptr, 0},
-    {"Tulpar Betik Nesnesi", "\xE2\x96\xA4", 38, nullptr, 0},
+    {"Davran\xC4\xB1\xC5\x9Fl\xC4\xB1 Nesne (betik)", ICON_MD_BOLT, 38, nullptr, 0},
     {"H\xC4\xB1zl\xC4\xB1 \xC5\x9E" "ablonlar", "\xE2\x9A\xA1", 0, kCreateTemplates, (uint32_t)(sizeof(kCreateTemplates) / sizeof(kCreateTemplates[0]))},
 };
 const uint32_t kCreateMenuCount = (uint32_t)(sizeof(kCreateMenu) / sizeof(kCreateMenu[0]));
+
+// U11 B2: BASIT kipin agaci. Olcumde (2026-11-11) "+" 14 kategoriydi, bir kismi teknik ("Model (glTF)", "Cevre
+// Hacimleri", "Oynanis & RPG"). Basit: oyun yapanin ilk haftada istedikleri, gunluk dille; kodlar AYNI do_add
+// dallari (yeni tur yok). Tam liste Gelismis'te.
+const CreateMenuItem kCreateBasitSekil[] = {
+    {"K\xC3\xBCp", "\xE2\x97\xBC", 10, nullptr, 0},
+    {"K\xC3\xBCre", "\xE2\x97\x8F", 11, nullptr, 0},
+    {"Kaps\xC3\xBCl", "\xE2\x97\xBC", 20, nullptr, 0},
+    {"Silindir", "\xE2\x97\xBC", 21, nullptr, 0},
+    {"Koni", "\xE2\x97\xBC", 22, nullptr, 0},
+    {"Zemin (d\xC3\xBCzlem)", "\xE2\x96\xAC", 8, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitFizik[] = {
+    {"D\xC3\xBC\xC5\x9F" "en kutu", "\xE2\x96\xA7", 6, nullptr, 0},
+    {"Yuvarlanan top", "\xE2\x97\x8D", 7, nullptr, 0},
+    {"Duvar / engel (sabit)", "\xE2\x96\xA1", 4, nullptr, 0},
+    {"Karakter (oyuncu)", "\xE2\x8A\x99", 30, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitIsik[] = {
+    {"G\xC3\xBCne\xC5\x9F", "\xE2\x98\x80", 14, nullptr, 0},
+    {"Lamba (nokta \xC4\xB1\xC5\x9F\xC4\xB1k)", "\xE2\x97\x8F", 3, nullptr, 0},
+    {"Spot \xC4\xB1\xC5\x9F\xC4\xB1k", "\xE2\x86\x98", 15, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitDoga[] = {
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC", "\xE2\x98\x81", 36, nullptr, 0},
+    {"Arazi", "\xE2\x96\xB2", 31, nullptr, 0},
+    {"Su", "\xE2\x89\x88", 32, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitEfekt[] = {
+    {"Ate\xC5\x9F", "\xE2\x9A\xA1", 35, nullptr, 0},
+    {"Duman", "\xE2\x96\x91", 60, nullptr, 0},
+    {"Ya\xC4\x9Fmur", "\xE2\x98\x94", 62, nullptr, 0},
+    {"Kar", "\xE2\x97\x8B", 66, nullptr, 0},
+};
+const CreateMenuItem kCreateMenuBasit[] = {
+    {"\xC5\x9E" "ekiller", "\xE2\x96\xA0", 0, kCreateBasitSekil, (uint32_t)(sizeof(kCreateBasitSekil) / sizeof(kCreateBasitSekil[0]))},
+    {"Fizikli nesneler", "\xE2\x96\xA1", 0, kCreateBasitFizik, (uint32_t)(sizeof(kCreateBasitFizik) / sizeof(kCreateBasitFizik[0]))},
+    {"I\xC5\x9F\xC4\xB1k", "\xE2\x98\x80", 0, kCreateBasitIsik, (uint32_t)(sizeof(kCreateBasitIsik) / sizeof(kCreateBasitIsik[0]))},
+    {"Do\xC4\x9F" "a", "\xE2\x96\xB2", 0, kCreateBasitDoga, (uint32_t)(sizeof(kCreateBasitDoga) / sizeof(kCreateBasitDoga[0]))},
+    {"Efektler", "\xE2\x88\xB4", 0, kCreateBasitEfekt, (uint32_t)(sizeof(kCreateBasitEfekt) / sizeof(kCreateBasitEfekt[0]))},
+    {"Kamera", ICON_MD_VIDEOCAM, 12, nullptr, 0},
+    {"Ses kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, 13, nullptr, 0},
+    {"3B model (dosyadan)", "\xE2\x97\x86", 2, nullptr, 0},
+    {"Bo\xC5\x9F nesne", "\xE2\x97\x8B", 1, nullptr, 0},
+};
+const uint32_t kCreateMenuBasitCount = (uint32_t)(sizeof(kCreateMenuBasit) / sizeof(kCreateMenuBasit[0]));
+
+const CreateMenuItem *create_menu_items(bool gelismis, uint32_t *n) {
+  if (n) *n = gelismis ? kCreateMenuCount : kCreateMenuBasitCount;
+  return gelismis ? kCreateMenu : kCreateMenuBasit;
+}
 
 int create_menu_draw(const CreateMenuItem *items, uint32_t count) {
   int result = 0;
@@ -1368,7 +1419,9 @@ int hierarchy_toolbar(uint32_t entity_count, bool has_selection) {
     // Liste artik BURADA yazmiyor: tek dogruluk kaynagi kCreateMenu. Ayni
     // tablo sahne panelinin sag tik menusunu de beslediginde ikisi bir daha
     // birbirinden kayamaz (eskiden ayni liste elle iki kez yazilmisti).
-    result = create_menu_draw(kCreateMenu, kCreateMenuCount);
+    uint32_t cn = 0;
+    const CreateMenuItem *ct = create_menu_items(editor_gelismis(), &cn); // U11 B2: Basit kipte sade agac
+    result = create_menu_draw(ct, cn);
     ImGui::EndPopup();
   }
   ImGui::SameLine(0, std::floor(s.ItemInnerSpacing.x * 0.5f));

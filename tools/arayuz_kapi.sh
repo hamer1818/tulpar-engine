@@ -5,6 +5,7 @@
 #   gorunur (pozitif kontrol). tulpar yoksa ATLANDI.
 # tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
+# tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
 #   sifirla; kontrol: varsayilan boyla ilk kosum + aralik dolmadan "otomatik kaydedildi" yok.
 # tests/arayuz/karsilama.txt (U11 A3): sablon karti + Ingilizce ad bos -> Turkce ad; kontrol: ad yokken uyari satiri.
@@ -78,6 +79,11 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U11 B2: sade "+" / ana menu "Ekle" (tulpar gerekmez) ---
+EK="$D/ekle"; mkdir -p "$EK/ui"; cp -r "$KOK/tests/assets" "$EK/assets"
+kos ekle_menu.txt "$EK/ui" --scene "$EK/assets/editor.sahne" --kip basit; rek=$?
+if [ $rek = 0 ]; then echo "  ekle menusu: Basit kipte sade agac, secim varken Ekle > Sekiller > Kup eklendi; Gelismis'te tam liste (kontrol)"
+else echo "  KIRMIZI ekle menusu (cikis $rek):"; grep -E 'HATA|> ' "$EK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
 cp -r "$KOK/tests/assets" "$TR/assets"

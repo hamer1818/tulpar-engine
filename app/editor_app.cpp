@@ -3777,12 +3777,28 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     int *arac_istek = nullptr;      // Oyun > Android APK / Dogrula (U6)
     const GameRun *arac = nullptr;
     YardimDurum *yardim = nullptr;  // Yardim > rehber / kisayollar (U8)
+    int *ekle_istek = nullptr;      // U11 B2: ana menu "Ekle" -> do_add kodu (menu cubugundan sonra uygulanir)
   } mx{&guard_then, PendingOpenPath, &view_mode, &st, &upd_ui, &karsilama, &tur, &arac_istek, &arac, &yardim};
+  static int ekle_istek = 0;
+  mx.ekle_istek = &ekle_istek;
   ChromeMenuExtra menu_extra;
   menu_extra.ctx = &mx;
   menu_extra.on_badge = [](void *ctx) {
     MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
     if (m && m->upd) update_ui_open_window(*m->upd);
+  };
+  // U11 B2: "Ekle" ana menusu Secim'den sonra (Unity'nin GameObject menusu): secim varken de nesne eklenir, Basit
+  // kipte sade agac. Kod Sahne "+"siyla AYNI tablodan.
+  menu_extra.after = [](void *ctx, CommandCategory cat) {
+    MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
+    if (!m || cat != CommandCategory::Select) return;
+    if (ImGui::BeginMenu("Ekle")) {
+      uint32_t cn = 0;
+      const CreateMenuItem *ct = create_menu_items(editor_gelismis(), &cn);
+      const int r = create_menu_draw(ct, cn);
+      if (r > 0 && m->ekle_istek) *m->ekle_istek = r;
+      ImGui::EndMenu();
+    }
   };
   menu_extra.fn = [](void *ctx, CommandCategory cat) {
     MenuExtraCtx *m = static_cast<MenuExtraCtx *>(ctx);
@@ -4226,6 +4242,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     cs.update_badge = update_ui_badge(upd_ui);
     cs.update_badge_tip = cs.update_badge ? "Yeni s\xC3\xBCr\xC3\xBCm \xE2\x80\x94 ayr\xC4\xB1nt\xC4\xB1, s\xC3\xBCr\xC3\xBCm notlar\xC4\xB1 ve kurulum i\xC3\xA7in t\xC4\xB1klay\xC4\xB1n" : nullptr;
     chrome_menu_bar(cmds, cs, menu_extra);
+    if (ekle_istek > 0) { const int k = ekle_istek; ekle_istek = 0; do_add(k); }
     ChromeOutput co;
     chrome_toolbar(cmds, cs, &co);
     if (co.snap_toggled) snap_on = !snap_on;

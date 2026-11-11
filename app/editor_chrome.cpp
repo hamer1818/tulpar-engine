@@ -278,6 +278,7 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
         if (extra.fn) extra.fn(extra.ctx, (CommandCategory)cur);
         ImGui::EndMenu();
       }
+      if (cur != kCommandCategoryCount && extra.after) extra.after(extra.ctx, (CommandCategory)cur);
       cur = (uint32_t)d.category;
       const char *title = command_category_name(d.category);
       // Baslik dikdortgeni: BeginMenuEx menubar'da Selectable'i ItemSpacing*2 ile
@@ -308,6 +309,7 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
     if (extra.fn && cur < kCommandCategoryCount) extra.fn(extra.ctx, (CommandCategory)cur);
     ImGui::EndMenu();
   }
+  if (cur < kCommandCategoryCount && extra.after) extra.after(extra.ctx, (CommandCategory)cur);
 
   // Sag uc: [guncelleme rozeti] urun adi (soluk). Sahne adi arac cubugunda
   // (kirli noktasiyla birlikte).

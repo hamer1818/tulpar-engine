@@ -994,3 +994,33 @@ ENGINE_TEST(editor_widgets_hierarchy_collapse_bitset_shifts) {
   std::printf("    [bilgi] katlama kumesi %u bit (%zu bayt), silme/ekleme kaydirmasi dogru\n", app::HierarchyCollapse::kMax,
               sizeof(app::HierarchyCollapse));
 }
+
+// U11 B2: Basit kip agaci tam agacin ALT KUMESI (her yaprak kodu kCreateMenu'de var: Basit yeni tur icat etmez) ve
+// teknik adlar icermez. KONTROL: tam agacta Basit'in gostermedigi kodlar var (agaclar ayni degil).
+static bool agacta_kod(const app::CreateMenuItem *it, uint32_t n, int kod) {
+  for (uint32_t i = 0; i < n; i++)
+    if (it[i].children ? agacta_kod(it[i].children, it[i].child_count, kod) : it[i].code == kod) return true;
+  return false;
+}
+static uint32_t yaprak_say(const app::CreateMenuItem *it, uint32_t n, const app::CreateMenuItem *tam, uint32_t tn, uint32_t *eksik) {
+  uint32_t y = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    if (it[i].children) { y += yaprak_say(it[i].children, it[i].child_count, tam, tn, eksik); continue; }
+    y++;
+    if (!agacta_kod(tam, tn, it[i].code)) (*eksik)++;
+    CHECK(std::strstr(it[i].label, "glTF") == nullptr && std::strstr(it[i].label, "Tulpar") == nullptr);
+  }
+  return y;
+}
+ENGINE_TEST(create_menu_basit_subset_with_control) {
+  uint32_t nb = 0, nt = 0, eksik = 0;
+  const app::CreateMenuItem *b = app::create_menu_items(false, &nb);
+  const app::CreateMenuItem *t = app::create_menu_items(true, &nt);
+  const uint32_t yb = yaprak_say(b, nb, t, nt, &eksik);
+  uint32_t ty = 0;
+  for (uint32_t i = 0; i < nt; i++) ty += t[i].children ? t[i].child_count : 1;
+  std::printf("    [bilgi] olustur agaci: Basit %u ust / %u yaprak, tam %u ust / ~%u yaprak\n", nb, yb, nt, ty);
+  CHECK(eksik == 0);
+  CHECK(nb < nt && yb < ty);                 // KONTROL: Basit gercekten sade
+  CHECK(!agacta_kod(b, nb, 74) && agacta_kod(t, nt, 74)); // voksel duman yalniz Gelismis'te
+}
