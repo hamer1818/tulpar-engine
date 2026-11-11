@@ -558,3 +558,35 @@ ENGINE_TEST(editor_ayar_yolu_kullanici_dizinine_bir_kez_tasir) {
   CHECK(std::strcmp(yol, eski) == 0);
   ayar_env(nullptr);
 }
+
+// U11 B3: okunur benzersiz ad. Bos sahnede taban aynen; sonra ilk bos numara; cogaltma sondaki " N"i atar;
+// UTF-8 harfin ortasindan kesmez. KONTROL: sorgu yoksa (var = nullptr) her zaman taban.
+namespace {
+struct AdKume { const char *a[8]; int n; };
+bool ad_var(void *u, const char *ad) {
+  const AdKume *k = static_cast<const AdKume *>(u);
+  for (int i = 0; i < k->n; i++) if (!std::strcmp(k->a[i], ad)) return true;
+  return false;
+}
+} // namespace
+ENGINE_TEST(editor_benzersiz_ad_with_control) {
+  char o[32];
+  AdKume bos{{}, 0};
+  app::editor_benzersiz_ad("K\xC3\xBCp", ad_var, &bos, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp"));
+  AdKume k{{"K\xC3\xBCp", "K\xC3\xBCp 2", "K\xC3\xBCp 4"}, 3};
+  app::editor_benzersiz_ad("K\xC3\xBCp", ad_var, &k, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp 3"));                        // ilk bos numara
+  app::editor_benzersiz_ad("K\xC3\xBCp 2", ad_var, &k, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp 3"));                        // cogaltma: "Kup 2 2" degil
+  AdKume d{{"duvar_dogu"}, 1};
+  app::editor_benzersiz_ad("duvar_dogu", ad_var, &d, o, sizeof o);
+  CHECK(!std::strcmp(o, "duvar_dogu 2"));
+  // Uzun Turkce ad: 32 bayta sigar, "ş" (2 bayt) ortasindan kesilmez.
+  AdKume u{{"\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F"}, 1};
+  app::editor_benzersiz_ad(u.a[0], ad_var, &u, o, sizeof o);
+  CHECK(std::strlen(o) < sizeof o && (std::strlen(o) - 2) % 2 == 0 && o[std::strlen(o) - 2] == ' ');
+  // KONTROL: sorgu yok -> taban.
+  app::editor_benzersiz_ad("K\xC3\xBCp", nullptr, nullptr, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp"));
+}

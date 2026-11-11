@@ -195,4 +195,8 @@ bool recent_parse(const char *text, size_t len);
 // 2 eski yola dusuldu. Donus: false yalniz yol tampona sigmazsa.
 bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yol, int *goc);
 
+// U11 B3: yeni nesnenin OKUNUR, sahnede benzersiz adi (Unity "Cube", "Cube (1)"): "Kup", "Kup 2", "Kup 3"... — ilk
+// bos numara. taban'in sonundaki " <sayi>" atilir (cogaltma: "Kup 2" -> "Kup 3", "duvar 7" -> "duvar 2" degil ilk bos).
+// var(ad): sahnede bu ad var mi (cagiran SceneDesc ile baglar). out en cok cap-1 bayt; UTF-8 harfin ortasindan kesmez.
+void editor_benzersiz_ad(const char *taban, bool (*var)(void *u, const char *ad), void *u, char *out, size_t cap);
 } // namespace tulpar::engine::app

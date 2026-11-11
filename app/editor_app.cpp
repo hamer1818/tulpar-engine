@@ -735,6 +735,9 @@ void editor_kip_kaydet(bool gel) {
   }
 }
 
+// U11 B3: editor_benzersiz_ad'in sahne sorgusu.
+bool sahnede_ad_var(void *u, const char *ad) { return static_cast<const content::SceneDesc *>(u)->find_entity(ad) >= 0; }
+
 void set_status(EditorState &st, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void set_status(EditorState &st, const char *fmt, ...) {
   yol_takma_tazele(st);
@@ -2802,41 +2805,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     const int32_t prim = st.sel.primary();
     if (kind == 0 && prim >= 0) {
       e = st.scene.entities[prim];
-      std::snprintf(e.name, sizeof e.name, "%.24s_kopya", st.scene.entities[prim].name);
+      editor_benzersiz_ad(st.scene.entities[prim].name, sahnede_ad_var, &st.scene, e.name, sizeof e.name); // "Kup" -> "Kup 2"
       e.pos.x += 1.5f;
     } else {
-      static const char *const kStem[] = {
-        "nesne", "bos_varlik", "model", "isik_nokta", "kutu_sabit",
-        "kure_sabit", "kutu_dinamik", "kure_dinamik", "zemin",
-        "animasyon", "kup", "kure", "kamera", "ses_3b", "isik_gunes",
-        "isik_spot", "isik_alan", "isik_tup", "isik_disk", "isik_godray"
-      };
-      // Ilkel geometriler 20..24 araliginda.
-      static const char *const kPrimStem[] = {"kapsul", "silindir", "koni", "dortgen", "simit"};
-      static const char *const kExtraStem[] = {
-        "karakter", "arazi", "su", "voksel", "ruzgar",
-        "vfx_ates", "skybox", "sonda", "betik", "ajan",
-        "can_varlik", "yetenek_varlik", "sandik", "eklem", "yanki",
-        "gi_sondasi", "sis_hacmi", "tetikleyici", "engel_hacmi"
-      };
-      static const char *const kVfxStem[] = {
-        "vfx_duman", "vfx_kivilcim", "vfx_yagmur", "hacimsel_spot", "isik_huzmesi", "vfx", "vfx_kar", "vfx_buyu", "vfx_ozel"
-      };
-      const char *stem = "nesne";
+      // U11 B3: OKUNUR adlar (eskiden ASCII kok + varlik sayisi: "kup_6", "kure_dinamik_6"). Sira = do_add kodlari.
+      static const char *const kStem[] = {"Nesne", "Bo\xC5\x9F nesne", "Model", "Lamba", "Duvar", "Sabit k\xC3\xBCre", "Kutu", "Top", "Zemin", "Animasyonlu model", "K\xC3\xBCp", "K\xC3\xBCre", "Kamera", "Ses kayna\xC4\x9F\xC4\xB1", "G\xC3\xBCne\xC5\x9F", "Spot \xC4\xB1\xC5\x9F\xC4\xB1k", "Alan \xC4\xB1\xC5\x9F\xC4\xB1\xC4\x9F\xC4\xB1", "T\xC3\xBCp \xC4\xB1\xC5\x9F\xC4\xB1k", "Disk \xC4\xB1\xC5\x9F\xC4\xB1k", "I\xC5\x9F\xC4\xB1k huzmesi"};
+      static const char *const kPrimStem[] = {"Kaps\xC3\xBCl", "Silindir", "Koni", "D\xC3\xB6rtgen", "Simit"}; // 20..24
+      static const char *const kExtraStem[] = {"Karakter", "Arazi", "Su", "Voksel d\xC3\xBCnya", "R\xC3\xBCzgar", "Ate\xC5\x9F", "G\xC3\xB6ky\xC3\xBCz\xC3\xBC", "Yans\xC4\xB1ma sondas\xC4\xB1", "Davran\xC4\xB1\xC5\x9Fl\xC4\xB1 nesne", "Yapay zeka ajan\xC4\xB1", "Can varl\xC4\xB1\xC4\x9F\xC4\xB1", "Yetenek varl\xC4\xB1\xC4\x9F\xC4\xB1", "Sand\xC4\xB1k", "Fizik eklemi", "Yank\xC4\xB1 alan\xC4\xB1", "I\xC5\x9F\xC4\xB1k sondas\xC4\xB1", "Sis hacmi", "Tetik b\xC3\xB6lgesi", "Engel hacmi"}; // 30..
+      static const char *const kVfxStem[] = {"Duman", "K\xC4\xB1v\xC4\xB1lc\xC4\xB1m", "Ya\xC4\x9Fmur", "Hacimsel spot", "I\xC5\x9F\xC4\xB1k huzmesi", "Efekt", "Kar", "B\xC3\xBCy\xC3\xBC \xC4\xB1\xC5\x9F\xC4\xB1lt\xC4\xB1s\xC4\xB1", "Par\xC3\xA7" "ac\xC4\xB1k yay\xC4\xB1" "c\xC4\xB1"}; // 60..
+      const char *stem = "Nesne";
       if (kind >= content::kPrimCapsule && kind <= content::kPrimTorus) stem = kPrimStem[kind - content::kPrimCapsule];
       else if (kind >= 30 && kind < 30 + (int)(sizeof(kExtraStem)/sizeof(kExtraStem[0]))) stem = kExtraStem[kind - 30];
       else if (kind >= 60 && kind < 60 + (int)(sizeof(kVfxStem)/sizeof(kVfxStem[0]))) stem = kVfxStem[kind - 60];
       else if (kind >= 70 && kind <= 74) {
-        static const char *const kFogVolStem[] = {
-          "sis_zemin_tabakasi", "sis_koni_plume", "sis_silindir_kolon", "sis_halka_torus", "sis_voksel_dumani"
-        };
+        static const char *const kFogVolStem[] = {"Zemin sisi", "Baca duman\xC4\xB1", "Kuyu sisi", "Halka sisi", "Voksel duman"};
         stem = kFogVolStem[kind - 70];
       }
-      else if (kind == 50) stem = "fizik_odasi";
-      else if (kind == 51) stem = "doga_paketi";
-      else if (kind == 52) stem = "rpg_sahnesi";
+      else if (kind == 50) stem = "Fizik odas\xC4\xB1";
+      else if (kind == 51) stem = "Do\xC4\x9F" "a paketi";
+      else if (kind == 52) stem = "RPG sahnesi";
       else if (kind >= 0 && kind < (int)(sizeof(kStem)/sizeof(kStem[0]))) stem = kStem[kind];
-      std::snprintf(e.name, sizeof e.name, "%s_%u", stem, st.scene.entity_count + 1);
+      editor_benzersiz_ad(stem, sahnede_ad_var, &st.scene, e.name, sizeof e.name);
       e.pos = cam.target;
       e.parent = parent;
 
@@ -3475,11 +3464,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       for (uint32_t i = 0; i < st.clip_count; i++) {
         SceneEntity e = st.clip[i];
         e.pos.x += 1.0f;
+        // U11 B3: ayni adli iki nesne betiklerin sahne_bul'unu belirsiz birakirdi: "Kup" -> "Kup 2".
+        { char ad[sizeof e.name]; editor_benzersiz_ad(e.name, sahnede_ad_var, &st.scene, ad, sizeof ad); std::snprintf(e.name, sizeof e.name, "%s", ad); }
         if (st.hist.add_entity(st.scene, e)) ops++;
         else break; // kapasite doldu: sessizce kirpma yok, asagida bildirilir
       }
     });
-    if (!ops) { set_status(st, "yapistirilamadi (kapasite %u)", content::kSceneMaxEntities); return; }
+    if (!ops) { set_status(st, "yap\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1lamad\xC4\xB1 (kapasite %u)", content::kSceneMaxEntities); return; }
     st.groups.push(ops);
     st.dirty = true;
     st.sel.clear();
@@ -3506,7 +3497,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (st.hist.set_entity(st.scene, (uint32_t)i, after)) {
         st.groups.push(1);
         st.dirty = true;
-        set_status(st, "adlandirildi: %s", after.name);
+        set_status(st, "adland\xC4\xB1r\xC4\xB1ld\xC4\xB1: %s", after.name);
       }
       break;
     }

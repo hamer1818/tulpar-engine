@@ -889,4 +889,28 @@ bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yo
   return true;
 }
 
+void editor_benzersiz_ad(const char *taban, bool (*var)(void *, const char *), void *u, char *out, size_t cap) {
+  if (!out || cap == 0) return;
+  out[0] = 0;
+  char kok[64];
+  std::snprintf(kok, sizeof kok, "%s", taban && *taban ? taban : "Nesne");
+  // Sondaki " <sayi>" atilir: cogaltilan "Kup 2" yeni numara alir, "Kup 2 2" olmaz.
+  size_t n = std::strlen(kok);
+  size_t j = n;
+  while (j > 0 && kok[j - 1] >= '0' && kok[j - 1] <= '9') j--;
+  if (j < n && j > 1 && kok[j - 1] == ' ') kok[j - 1] = 0;
+  // Yer: sonek (" 999") icin pay; UTF-8 devam baytinda kesilmez.
+  const size_t pay = 5;
+  n = std::strlen(kok);
+  if (cap > pay && n > cap - 1 - pay) {
+    n = cap - 1 - pay;
+    while (n > 0 && ((unsigned char)kok[n] & 0xC0) == 0x80) n--;
+    kok[n] = 0;
+  }
+  if (!var || !var(u, kok)) { std::snprintf(out, cap, "%s", kok); return; }
+  for (unsigned k = 2; k < 10000; k++) {
+    std::snprintf(out, cap, "%s %u", kok, k);
+    if (!var(u, out)) return;
+  }
+}
 } // namespace tulpar::engine::app
