@@ -3860,6 +3860,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
 #endif
     } else if (cat == CommandCategory::View) {
+      if (m->st && ImGui::BeginMenu("Gizmolar (g\xC3\xB6r\xC3\xBCn\xC3\xBCm)")) { // U11 C5: Dunya ayarlarindan tasindi
+        auto &gz = m->st->gizmos;
+        ImGui::MenuItem("I\xC5\x9F\xC4\xB1k yar\xC4\xB1\xC3\xA7" "ap\xC4\xB1", nullptr, &gz.light_radius);
+        ImGui::MenuItem("I\xC5\x9F\xC4\xB1k i\xC5\x9F" "areti", nullptr, &gz.light_glyph);
+        ImGui::MenuItem("G\xC3\xB6lge hacmi", nullptr, &gz.shadow_volume);
+        ImGui::MenuItem("G\xC3\xBCne\xC5\x9F y\xC3\xB6n\xC3\xBC", nullptr, &gz.sun_dir);
+        ImGui::MenuItem("Kamera g\xC3\xB6r\xC3\xBC\xC5\x9F alan\xC4\xB1", nullptr, &gz.camera_frustum);
+        ImGui::MenuItem("\xC3\x87" "evre hacimleri", nullptr, &gz.env_volumes);
+        ImGui::EndMenu();
+      }
       // Basit / Gelismis kip (U5): tercih kullanici ayar dizinine yazilir.
       bool gel = editor_gelismis();
       if (ImGui::MenuItem("Geli\xC5\x9Fmi\xC5\x9F kip (teknik \xC3\xB6l\xC3\xA7\xC3\xBCmler, g\xC3\xB6r\xC3\xBCn\xC3\xBCm kipleri)", nullptr, &gel)) editor_kip_kaydet(gel);
@@ -4893,7 +4903,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       ImGui::PopStyleColor(2);
       if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Sahnenin kendisi: t\xC4\xB1klay\xC4\xB1nca \xC3\x96zellikler'de sahne ve d\xC3\xBCnya ayarlar\xC4\xB1 a\xC3\xA7\xC4\xB1l\xC4\xB1r");
+        ImGui::SetTooltip("Sahnenin kendisi: t\xC4\xB1klay\xC4\xB1nca \xC3\x96zellikler'de sahne \xC3\xB6zeti; g\xC3\xBCne\xC5\x9F, g\xC3\xB6ky\xC3\xBCz\xC3\xBC ve sis D\xC3\xBCnya sekmesinde");
       }
       ImGui::Separator();
 
@@ -5538,16 +5548,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // yazmayan kaydiricilar ve "replay kaydi baslatildi", "0 desync", "WFC haritayi uretti" diyen ama hicbir
       // is yapmayan dugmelerdi (yalan soyleyen arayuz; docs/EDITOR-DURUM.md Faz B). Motor tarafindaki
       // sistemler duruyor; editore GERCEK baglantiyla donerler.
-      section_label("G\xC4\xB0ZMOLAR");
-      if (prop_begin("gizmo")) {
-        prop_check("I\xC5\x9F\xC4\xB1k yar\xC4\xB1\xC3\xA7""ap\xC4\xB1", &st.gizmos.light_radius);
-        prop_check("I\xC5\x9F\xC4\xB1k i\xC5\x9F" "areti", &st.gizmos.light_glyph);
-        prop_check("G\xC3\xB6lge hacmi", &st.gizmos.shadow_volume);
-        prop_check("G\xC3\xBCne\xC5\x9F y\xC3\xB6n\xC3\xBC", &st.gizmos.sun_dir);
-        prop_check("Kamera g\xC3\xB6r\xC3\xBC\xC5\x9F alan\xC4\xB1", &st.gizmos.camera_frustum);
-        prop_check("\xC3\x87" "evre hacimleri", &st.gizmos.env_volumes);
-        prop_end();
-      }
+      // U11 C5: GIZMOLAR bolumu buradan Gorunum > Gizmolar alt menusune tasindi: sahnenin degil, editor GORUNUMUNUN
+      // ayari (dunya ayarlariyla ayni yerde durunca sahneye yaziliyor sanilirdi).
       section_label("KAMERA");
       if (prop_begin("kamera")) {
         prop_vec3("Hedef", &cam.target.x, 0.05f, 0, 0, "%.2f");
@@ -7318,8 +7320,23 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
         ImGui::Dummy(ImVec2(0.0f, 4.0f));
 
-        // 4. Dünya ve Ortam Ayarları
-        draw_world_and_environment_properties();
+        // 4. U11 C5: Sahne ozeti. Eskiden burada Dunya sekmesinin TAMAMI tekrar ediyordu (iki yerde ayni ayar).
+        {
+          uint32_t isik = 0, betik = 0, govde = 0;
+          for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+            const uint32_t c = st.scene.entities[i].components;
+            if (c & content::kSceneLight) isik++;
+            if (c & content::kSceneScript) betik++;
+            if (c & content::kSceneBody) govde++;
+          }
+          section_label("SAHNE");
+          char saat[16];
+          editor_saat_bicimi(st.scene.time_of_day, saat, sizeof saat);
+          ImGui::TextColored(tone(Tone::TextDim), "%u nesne \xC2\xB7 %u \xC4\xB1\xC5\x9F\xC4\xB1k \xC2\xB7 %u fizikli \xC2\xB7 %u davran\xC4\xB1\xC5\x9Fl\xC4\xB1", st.scene.entity_count, isik, govde, betik);
+          ImGui::TextColored(tone(Tone::TextDim), "G\xC3\xBCn saati %s \xC2\xB7 sis %s", saat, st.scene.fog_enabled ? "a\xC3\xA7\xC4\xB1k" : "kapal\xC4\xB1");
+          if (ImGui::Button(ICON_MD_PUBLIC " D\xC3\xBCnya ayarlar\xC4\xB1", ImVec2(-FLT_MIN, 0))) ImGui::SetWindowFocus(kPanelDunyaLabel);
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "G\xC3\xBCne\xC5\x9F, g\xC3\xB6ky\xC3\xBCz\xC3\xBC, sis, g\xC3\xB6lge ve kamera: D\xC3\xBCnya sekmesi");
+        }
       }
     }
     ImGui::End();

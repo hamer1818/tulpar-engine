@@ -1,0 +1,14 @@
+# U11 C5 (tools/arayuz_kapi.sh): secim yokken Ozellikler dunya ayarlarini TEKRARLAMAZ (sahne ozeti + "Dunya ayarlari");
+# gizmo gorunurlukleri Gorunum > Gizmolar'da. POZITIF KONTROL: dugmeye basinca ayni ayarlar Dunya sekmesinde gorunur.
+dogrula_metin "8 nesne"
+metin_yok "GÜNEŞ VE ORTAM"
+metin_yok "GİZMOLAR"
+tikla "Dünya ayarları"
+dogrula_metin "GÜNEŞ VE ORTAM"
+metin_yok "GİZMOLAR"
+tikla "Görünüm" pencere=MainMenuBar
+uzerine "Gizmolar (görünüm)" pencere=Menu
+bekle 3
+dogrula_oge "Gölge hacmi"
+tus Escape
+cik

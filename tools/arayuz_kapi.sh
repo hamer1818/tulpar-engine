@@ -7,6 +7,7 @@
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
 # tests/arayuz/kaynaklar.txt (U11 B5): bos Kaynaklar eylemli, Model ice aktar kopyalar; kontrol: once karo yok.
 # tests/arayuz/ilk_adimlar{,_gizli}.txt (U11 B4): kart sablonu anlatir, adimlar isaretlenir, gizle kalici.
+# tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
 #   sifirla; kontrol: varsayilan boyla ilk kosum + aralik dolmadan "otomatik kaydedildi" yok.
@@ -96,6 +97,11 @@ TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar_gizli.txt "$IA/ui2" --scene
 if [ $ria1 = 0 ] && [ $ria2 = 0 ] && grep -qE "^26 .*/p$" "$IA/ayar/ilk_adimlar.txt" 2>/dev/null; then
   echo "  ilk adimlar: kart sablonu anlatti, nesne ekle + kaydet isaretlendi, gizle kalici (bitler 26)"
 else echo "  KIRMIZI ilk adimlar (cikis $ria1/$ria2):"; grep -hE 'HATA|> ' "$IA"/ui*/yanit.txt 2>/dev/null | tail -3 | sed 's/^/      /'; cat "$IA/ayar/ilk_adimlar.txt" 2>&1 | head -2 | sed 's/^/      /'; kirmizi=1; fi
+# --- U11 C5: secimsiz Ozellikler = sahne ozeti; gizmolar Gorunum menusunde (tulpar gerekmez) ---
+SO="$D/ozet"; mkdir -p "$SO/ui"; cp -r "$KOK/tests/assets" "$SO/assets"
+kos sahne_ozeti.txt "$SO/ui" --scene "$SO/assets/editor.sahne" --kip basit; rso=$?
+if [ $rso = 0 ]; then echo "  sahne ozeti: secimsiz Ozellikler dunya ayarlarini tekrarlamiyor; Dunya sekmesinde var (kontrol); gizmolar Gorunum'de"
+else echo "  KIRMIZI sahne ozeti (cikis $rso):"; grep -E 'HATA|> ' "$SO/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B2: sade "+" / ana menu "Ekle" (tulpar gerekmez) ---
 EK="$D/ekle"; mkdir -p "$EK/ui"; cp -r "$KOK/tests/assets" "$EK/assets"
 kos ekle_menu.txt "$EK/ui" --scene "$EK/assets/editor.sahne" --kip basit; rek=$?

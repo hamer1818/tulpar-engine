@@ -103,6 +103,8 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     modeli proje klasörüne kopyalar ve listeler. Kontrol: içe aktarmadan önce karo yok, boş durum var.
   - **`ilk_adimlar.txt` + `ilk_adimlar_gizli.txt` (U11 B4):** yeni fabrika projesinde kart şablonu anlatır, "Bir
     nesne ekle" küp ekler, Ctrl+S "Kaydet"i işaretler, × gizler; ikinci açılışta gizli kalır (genel ipucu görünür).
+  - **`sahne_ozeti.txt` (U11 C5):** seçimsiz Özellikler dünya ayarlarını tekrarlamaz, "Dünya ayarları" Dünya sekmesini
+    açar (kontrol: "GÜNEŞ VE ORTAM" orada görünür); gizmolar Görünüm > Gizmolar'da.
   - **`ekle_menu.txt` (U11 B2):** Basit kipte nesne seçiliyken Ekle > Şekiller > Küp (8 → 9 varlık); menüde teknik
     kategori yok. Kontrol: Gelişmiş kipte "Çevre Hacimleri" ve "Davranışlı Nesne (betik)" görünür.
   - **`tercihler.txt` + `tercihler_kalici.txt` (U11 B1):** Düzen > Tercihler… → "Büyük" + otomatik kaydet; küp
