@@ -353,6 +353,46 @@ bool fabrika_proje_sahnesi(const char *dizin, const char *tur, char *out, size_t
   return true;
 }
 
+void fabrika_sablon_bilgi_ayristir(const char *m, SablonBilgi *o) {
+  if (!m || !o) return;
+  for (const char *p = m; *p;) {
+    const char *son = std::strchr(p, '\n');
+    const size_t n = son ? (size_t)(son - p) : std::strlen(p);
+    const char *iki = (const char *)std::memchr(p, ':', n);
+    if (iki && p[0] != '#') {
+      const size_t kn = (size_t)(iki - p);
+      const char *v = iki + 1;
+      while (v < p + n && *v == ' ') v++;
+      size_t vn = (size_t)(p + n - v);
+      while (vn && (v[vn - 1] == ' ' || v[vn - 1] == '\r')) vn--;
+      auto anahtar = [&](const char *k) { return std::strlen(k) == kn && !std::strncmp(p, k, kn); };
+      if (anahtar("ad")) std::snprintf(o->ad, sizeof o->ad, "%.*s", (int)vn, v);
+      else if (anahtar("aciklama")) std::snprintf(o->aciklama, sizeof o->aciklama, "%.*s", (int)vn, v);
+      else if (anahtar("ikon")) std::snprintf(o->ikon, sizeof o->ikon, "%.*s", (int)vn, v);
+      else if (anahtar("yon")) o->yon = (vn == 5 && !std::strncmp(v, "dikey", 5)) ? 1 : 0;
+    }
+    if (!son) break;
+    p = son + 1;
+  }
+}
+
+bool fabrika_sablon_bilgi(const char *tur, SablonBilgi *out) {
+  if (!out) return false;
+  *out = SablonBilgi{};
+  std::snprintf(out->ad, sizeof out->ad, "%s", tur ? tur : "?");
+  char rel[160], yol[1024];
+  std::snprintf(rel, sizeof rel, "tulpar/sablonlar/%s/sablon.txt", tur ? tur : "");
+  if (!platform::asset_path(yol, sizeof yol, rel)) return false;
+  std::FILE *f = std::fopen(yol, "rb");
+  if (!f) return false;
+  char m[2048];
+  const size_t n = std::fread(m, 1, sizeof m - 1, f);
+  std::fclose(f);
+  m[n] = 0;
+  fabrika_sablon_bilgi_ayristir(m, out);
+  return true;
+}
+
 uint32_t fabrika_sablonlar(char (*out)[32], uint32_t cap) {
   char kok[1024];
   if (!platform::asset_path(kok, sizeof kok, "tulpar/sablonlar")) return 0;

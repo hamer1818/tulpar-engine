@@ -1,0 +1,4 @@
+ad: Top topla
+aciklama: Topu ok tuşlarıyla yuvarla, süre bitmeden parıltıları topla. Hareket, toplama, süre ve skor hazır.
+yon: yatay
+ikon: top

@@ -1,0 +1,16 @@
+# U11 A3 (tools/arayuz_kapi.sh): karsilama formu. Sablon KART ile secilir (Bilardo), Ingilizce ad BOS birakilir
+# (istege bagli: Turkce ad kullanilir). Kapi sonra uretilen projede bilardo sablonunu ve "TR — TR" satirini arar.
+# POZITIF KONTROL: ad yazilmadan once "Baslamak icin oyununa bir ad ver." gorunur, yazinca kaybolur.
+dogrula_metin "Başlamak için oyununa bir ad ver."
+metin_yok "kaynak derlemesi"
+tikla "##Oyunun adı"
+yaz "Kart Deneme"
+metin_yok "Başlamak için oyununa bir ad ver."
+dogrula_metin "boş: Kart Deneme"
+tikla "Bilardo" pencere=karsilama
+bekle 2
+ekran karsilama
+tikla "Oluştur" pencere=karsilama
+bekle_oge "Sahne" kare=600
+dogrula_metin "masa_kumas" kare=600
+cik

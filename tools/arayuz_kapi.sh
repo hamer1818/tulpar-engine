@@ -5,6 +5,7 @@
 #   gorunur (pozitif kontrol). tulpar yoksa ATLANDI.
 # tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
+# tests/arayuz/karsilama.txt (U11 A3): sablon karti + Ingilizce ad bos -> Turkce ad; kontrol: ad yokken uyari satiri.
 # tests/arayuz/ana_betik.txt (U10 B7): Oynat > Ana betigi ac -> oyun.tpr Kod panelinde, "nesneye ekle" yok (kontrol:
 #   siradan betikte var).
 # tests/arayuz/betik_karti.txt (U10 B5): kart kancalari isaretler, bagli degil -> Bagla -> bagli; Kod panelinde
@@ -75,6 +76,13 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U11 A3: karsilama formu (sablon karti, Ingilizce ad istege bagli; tulpar gerekmez) ---
+KR="$D/karsilama"; mkdir -p "$KR/ui"
+TULPAR_OYUNLAR_DIZINI="$KR/oyunlar" kos karsilama.txt "$KR/ui" --karsilama --kip basit; rkr=$?
+kp="$KR/oyunlar/kart_deneme"
+if [ $rkr = 0 ] && grep -q 'func oto_nisan' "$kp/oyun.tpr" 2>/dev/null && head -1 "$kp/oyun.tpr" | grep -q '^// Kart Deneme — Kart Deneme$'; then
+  echo "  karsilama: Bilardo karti secildi, Ingilizce ad bos -> Turkce ad kullanildi, proje uretildi"
+else echo "  KIRMIZI karsilama (cikis $rkr):"; grep -E 'HATA|> ' "$KR/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; head -1 "$kp/oyun.tpr" 2>&1 | sed 's/^/      /'; kirmizi=1; fi
 # --- U10 B7: Oynat > Ana betigi ac (tulpar gerekmez) ---
 A="$D/ana"; mkdir -p "$A/ui"
 if betik_proje "$A/p"; then

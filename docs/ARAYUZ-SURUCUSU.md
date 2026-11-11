@@ -99,6 +99,8 @@ Hedef `"etiket"` ya da `x y` (piksel) olarak verilir. Etiket eşleşmesi:
     Ctrl+Z sahneyi geri almaz, Ctrl+S dosyaya yazar.
   - **`yeni_betik.txt` (U10 B4):** "Davranış ekle (betik)" → Boş → "Deneme Davranış" → oluşan
     `deneme_davranis.tpr` oyunda çalışır (`_baslat` logu).
+  - **`karsilama.txt` (U11 A3):** karşılamada yalnız Türkçe ad + "Bilardo" kartı → Oluştur; proje bilardo
+    şablonundan, İngilizce adı Türkçe ad. Kontrol: ad yazılmadan "Başlamak için oyununa bir ad ver." görünür.
   - **`sade_dil.txt` (U11 A1):** Basit kipte oynat → durdur; Konsol'da `[engine_bridge]`, `: GPU`, mutlak yol ve
     "hatayla" yok, görüntüde fps / kamera hapı yok. Pozitif kontrol: Görünüm > Gelişmiş kip'e geçince hepsi görünür.
   - **`ana_betik.txt` (U10 B7):** Oynat > "Ana betiği aç (oyun.tpr)" ana dosyayı Kod panelinde açar, rolünü
