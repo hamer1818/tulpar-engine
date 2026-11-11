@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/editor_ilk_adim.hpp"
 #include "app/editor_tercih.hpp"
 #include "app/editor_yardim.hpp"
 #include "platform/fs_ops.hpp"
@@ -85,4 +86,37 @@ ENGINE_TEST(tercih_dosyasi_gidis_donus_with_control) {
   CHECK(tercih_oku(yol, &w) && w.yazi == 130 && w.oto_kayit_dk == 5);
   std::snprintf(yol, sizeof yol, "%s/yok.txt", kok);
   CHECK(!tercih_oku(yol, &w) && w.yazi == 100);
+}
+
+// U11 B4: Ilk adimlar ilerleme dosyasi. Proje satiri guncellenir (digerleri korunur), benzer yollu proje karismaz,
+// 64 proje tavaninda EN ESKI duser. KONTROL: bilinmeyen proje 0.
+ENGINE_TEST(ilk_adim_dosyasi_with_control) {
+  static char m[64 * 1100], o[64 * 1100 + 1200];
+  m[0] = 0;
+  uint32_t n = ilk_adim_guncelle(m, "/ev/a/oyun", kIlkEkle, o, sizeof o);
+  CHECK(n > 0 && ilk_adim_bitleri(o, "/ev/a/oyun") == kIlkEkle);
+  std::snprintf(m, sizeof m, "%s", o);
+  n = ilk_adim_guncelle(m, "/ev/a/oyun2", kIlkOynat, o, sizeof o);
+  std::snprintf(m, sizeof m, "%s", o);
+  n = ilk_adim_guncelle(m, "/ev/a/oyun", kIlkEkle | kIlkKaydet, o, sizeof o);
+  CHECK(ilk_adim_bitleri(o, "/ev/a/oyun") == (kIlkEkle | kIlkKaydet)); // guncellendi, cift satir yok
+  CHECK(ilk_adim_bitleri(o, "/ev/a/oyun2") == kIlkOynat);              // digeri korundu, onek karismadi
+  CHECK(ilk_adim_bitleri(o, "/ev/a/oyu") == 0);                        // KONTROL: bilinmeyen
+  // Tavan: 70 proje -> ilk projeler duser, son eklenen durur.
+  m[0] = 0;
+  for (int i = 0; i < 70; i++) {
+    char p[32];
+    std::snprintf(p, sizeof p, "/p/%d", i);
+    n = ilk_adim_guncelle(m, p, kIlkGizli, o, sizeof o);
+    CHECK(n > 0);
+    std::snprintf(m, sizeof m, "%s", o);
+  }
+  CHECK(ilk_adim_bitleri(m, "/p/0") == 0 && ilk_adim_bitleri(m, "/p/69") == kIlkGizli && ilk_adim_bitleri(m, "/p/10") == kIlkGizli);
+  // Dosya: isaretle bitleri EKLER (silmez).
+  char kok[512], yol[700];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "ilk_adim"));
+  std::snprintf(yol, sizeof yol, "%s/ilk_adimlar.txt", kok);
+  CHECK(ilk_adim_isaretle(yol, "/ev/x", kIlkOynat) == kIlkOynat);
+  CHECK(ilk_adim_isaretle(yol, "/ev/x", kIlkKaydet) == (kIlkOynat | kIlkKaydet));
+  CHECK(ilk_adim_oku(yol, "/ev/x") == (kIlkOynat | kIlkKaydet));
 }

@@ -49,6 +49,7 @@ struct SablonBilgi {
   char ad[48] = "";
   char aciklama[200] = "";
   char ikon[16] = "";
+  char kodda[200] = ""; // U11 B4: sahnede GORUNMEYEN, koddan doganlar (Ilk adimlar karti)
   int yon = 0; // 0 yatay, 1 dikey
 };
 bool fabrika_sablon_bilgi(const char *tur, SablonBilgi *out);

@@ -96,6 +96,8 @@
 #include "app/editor_betik.hpp"
 #include "app/editor_fabrika.hpp"
 #include "app/editor_masaustu.hpp"
+#include "app/editor_ilk_adim.hpp"
+#include "app/editor_ilk_adim.hpp"
 #include "app/editor_tercih.hpp"
 #include "app/editor_yardim.hpp"
 #include "platform/crash.hpp"
@@ -2016,6 +2018,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   static TercihPencere tercih_p;
   static char tercih_yol[1024] = {0};
   static bool duzen_sifirla = false;
+  // U11 B4: Ilk adimlar karti (fabrika projesi, Basit kip). Ilerleme kullanici ayar dizininde, proje basina.
+  static bool ilk_kaydet_oldu = false;
+  static char ia_yol[1024] = {0};
+  static char ia_proje[1100] = {0};
+  static char ia_sahne[content::kScenePathLen] = {0};
+  static uint32_t ia_bit = 0, ia_son_n = 0;
+  static SablonBilgi ia_sablon;
+  static bool ia_sablon_var = false;
+  if (!editor_ayar_yolu(ia_yol, sizeof ia_yol, "ilk_adimlar.txt", nullptr, nullptr)) ia_yol[0] = 0;
   if (editor_ayar_yolu(tercih_yol, sizeof tercih_yol, "tercihler.txt", nullptr, nullptr)) {
     tercih_oku(tercih_yol, &tercih);
     std::snprintf(tercih_p.ayar_dizini, sizeof tercih_p.ayar_dizini, "%s", tercih_yol);
@@ -2414,6 +2425,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     oyun_kokunu_coz(st.scene_dir, st.tulpar_dir, sizeof st.tulpar_dir);
     rescan_browse(st);
     st.dirty = false;
+    ilk_kaydet_oldu = true; // U11 B4: Ilk adimlar "Kaydet"
     recent_push(st.scene_path);
     recent_save(recent_file);
     set_status(st, "kaydedildi: %s", st.scene_path);
@@ -4880,7 +4892,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       ImGui::PopStyleColor(2);
       if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Sahne K\xC3\xB6k\xC3\xBC: T\xC4\xB1klayarak D\xC3\xBCnya ve Atmosfer ayarlar\xC4\xB1n\xC4\xB1 M\xC3\xBC" "fetti\xC5\x9F'te a\xC3\xA7\xC4\xB1n");
+        ImGui::SetTooltip("Sahnenin kendisi: t\xC4\xB1klay\xC4\xB1nca \xC3\x96zellikler'de sahne ve d\xC3\xBCnya ayarlar\xC4\xB1 a\xC3\xA7\xC4\xB1l\xC4\xB1r");
       }
       ImGui::Separator();
 
@@ -7262,8 +7274,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
         ImGui::Dummy(ImVec2(0.0f, 3.0f));
 
-        // 3. Bilgilendirici İpucu Kartı (Kırpılmayan esnek şerit)
-        {
+        // 3. U11 B4: Ilk adimlar (fabrika projesi, Basit kip, gizlenmediyse) — yoksa genel ipucu karti.
+        if (!editor_gelismis() && ia_proje[0] && !(ia_bit & kIlkGizli)) {
+          switch (ilk_adim_ciz(ia_bit, ia_sablon_var ? ia_sablon.aciklama : "", ia_sablon_var ? ia_sablon.kodda : "")) {
+          case IlkAdimEylem::Oynat: cmds.invoke(CommandId::PlayToggle); break;
+          case IlkAdimEylem::Ekle: do_add(10); break;
+          case IlkAdimEylem::Davranis:
+            if (st.scene.entity_count) st.sel.set_single((int32_t)st.scene.entity_count - 1);
+            set_status(st, "\xC3\x96zellikler'de \"Davran\xC4\xB1\xC5\x9F ekle (betik)\" d\xC3\xBC\xC4\x9Fmesine bas: nesne ne yaps\xC4\xB1n?");
+            break;
+          case IlkAdimEylem::Kaydet: do_save(); break;
+          case IlkAdimEylem::Gizle: if (ia_yol[0]) ia_bit = ilk_adim_isaretle(ia_yol, ia_proje, kIlkGizli); break;
+          case IlkAdimEylem::Rehber: yardim.rehber = true; break;
+          case IlkAdimEylem::Yok: break;
+          }
+        } else {
           const ImVec2 cur = ImGui::GetCursorScreenPos();
           const float hint_w = ImGui::GetContentRegionAvail().x;
           ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -9371,6 +9396,35 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         const ImGuiViewport *vm = ImGui::GetMainViewport();
         if (layout_apply_default(layout_dockspace_id(), vm->WorkSize.x, vm->WorkSize.y)) set_status(st, "panel d\xC3\xBCzeni s\xC4\xB1" "f\xC4\xB1rland\xC4\xB1");
         else set_status(st, "panel d\xC3\xBCzeni s\xC4\xB1" "f\xC4\xB1rlanamad\xC4\xB1: %s", layout_last_error());
+      }
+      // U11 B4: Ilk adimlar — olaylar durum degisikliklerinden (oynatma, varlik sayisi artisi, betikli nesne,
+      // basarili kayit). Proje = fabrika projesi (oyun.tpr var); degilse kart yok, dosyaya yazilmaz.
+      {
+        char oy[1100];
+        const char *proje = betik_oyun_yolu(oy, sizeof oy) ? st.tulpar_dir : "";
+        if (std::strcmp(ia_proje, proje) != 0 || std::strcmp(ia_sahne, st.scene_path) != 0) {
+          const bool proje_degisti = std::strcmp(ia_proje, proje) != 0;
+          std::snprintf(ia_proje, sizeof ia_proje, "%s", proje);
+          std::snprintf(ia_sahne, sizeof ia_sahne, "%s", st.scene_path);
+          if (proje_degisti) ia_bit = (ia_yol[0] && ia_proje[0]) ? ilk_adim_oku(ia_yol, ia_proje) : 0;
+          ia_son_n = st.scene.entity_count;
+          ilk_kaydet_oldu = false;
+          // Sablon: fabrika sahnesi "<tur>.sahne" (fabrika_proje_sahnesi kurali).
+          char tur[64];
+          std::snprintf(tur, sizeof tur, "%s", editor_basename(st.scene_path));
+          if (char *nk = std::strrchr(tur, '.')) *nk = 0;
+          ia_sablon_var = tur[0] && fabrika_sablon_bilgi(tur, &ia_sablon);
+        }
+        if (ia_proje[0] && ia_yol[0]) {
+          uint32_t yeni = 0;
+          if (st.playing) yeni |= kIlkOynat;
+          if (st.scene.entity_count > ia_son_n) yeni |= kIlkEkle;
+          ia_son_n = st.scene.entity_count;
+          for (uint32_t i = 0; i < st.scene.entity_count; i++)
+            if (st.scene.entities[i].components & content::kSceneScript) { yeni |= kIlkDavranis; break; }
+          if (ilk_kaydet_oldu) { yeni |= kIlkKaydet; ilk_kaydet_oldu = false; }
+          if (yeni & ~ia_bit) ia_bit = ilk_adim_isaretle(ia_yol, ia_proje, yeni);
+        }
       }
       // U11 B1: otomatik kayit — kirli, adli, oynatilmayan sahne; kod paneline yazilirken degil (odak kaybi yok).
       {

@@ -369,6 +369,7 @@ void fabrika_sablon_bilgi_ayristir(const char *m, SablonBilgi *o) {
       if (anahtar("ad")) std::snprintf(o->ad, sizeof o->ad, "%.*s", (int)vn, v);
       else if (anahtar("aciklama")) std::snprintf(o->aciklama, sizeof o->aciklama, "%.*s", (int)vn, v);
       else if (anahtar("ikon")) std::snprintf(o->ikon, sizeof o->ikon, "%.*s", (int)vn, v);
+      else if (anahtar("kodda")) std::snprintf(o->kodda, sizeof o->kodda, "%.*s", (int)vn, v);
       else if (anahtar("yon")) o->yon = (vn == 5 && !std::strncmp(v, "dikey", 5)) ? 1 : 0;
     }
     if (!son) break;

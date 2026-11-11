@@ -2,3 +2,4 @@ ad: Top topla
 aciklama: Topu ok tuşlarıyla yuvarla, süre bitmeden parıltıları topla. Hareket, toplama, süre ve skor hazır.
 yon: yatay
 ikon: top
+kodda: Oyuncu topu ve parıltılar sahnede değil, oyun başlayınca oyun.tpr içinde doğar; sahnede zemin ve duvarlar var.

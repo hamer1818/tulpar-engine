@@ -5,6 +5,7 @@
 #   gorunur (pozitif kontrol). tulpar yoksa ATLANDI.
 # tests/arayuz/hazirlar.txt (U10 B4b): Dondur + Salla hazirlari oyunda hareket ettirir (sonda _bitir kancasi);
 #   pozitif kontrol: hiz/yukseklik 0 -> yerinde. tulpar yoksa ATLANDI.
+# tests/arayuz/ilk_adimlar{,_gizli}.txt (U11 B4): kart sablonu anlatir, adimlar isaretlenir, gizle kalici.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
 #   sifirla; kontrol: varsayilan boyla ilk kosum + aralik dolmadan "otomatik kaydedildi" yok.
@@ -79,6 +80,14 @@ s=s.replace('nesne "duvar_dogu"\n','nesne "duvar_dogu"\n  betik "betikler/dondur
 open(p,'w').write(s)
 PY
 }
+# --- U11 B4: Ilk adimlar karti (yeni fabrika projesi; tulpar gerekmez) ---
+IA="$D/ilk"; mkdir -p "$IA/ui1" "$IA/ui2"
+"$ED" --yeni-oyun "$IA/p" --kimlik ilk --onek IL --tr "Ilk Adim" --en "First Step" > /dev/null 2>&1
+TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar.txt "$IA/ui1" --scene "$IA/p/assets/arena.sahne" --kip basit; ria1=$?
+TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar_gizli.txt "$IA/ui2" --scene "$IA/p/assets/arena.sahne" --kip basit; ria2=$?
+if [ $ria1 = 0 ] && [ $ria2 = 0 ] && grep -qE "^26 .*/p$" "$IA/ayar/ilk_adimlar.txt" 2>/dev/null; then
+  echo "  ilk adimlar: kart sablonu anlatti, nesne ekle + kaydet isaretlendi, gizle kalici (bitler 26)"
+else echo "  KIRMIZI ilk adimlar (cikis $ria1/$ria2):"; grep -hE 'HATA|> ' "$IA"/ui*/yanit.txt 2>/dev/null | tail -3 | sed 's/^/      /'; cat "$IA/ayar/ilk_adimlar.txt" 2>&1 | head -2 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B2: sade "+" / ana menu "Ekle" (tulpar gerekmez) ---
 EK="$D/ekle"; mkdir -p "$EK/ui"; cp -r "$KOK/tests/assets" "$EK/assets"
 kos ekle_menu.txt "$EK/ui" --scene "$EK/assets/editor.sahne" --kip basit; rek=$?
