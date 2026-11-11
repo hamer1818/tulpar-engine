@@ -33,20 +33,34 @@ const Sayfa kSayfalar[] = {
      "say\xC4\xB1yla da girebilirsiniz.\n"
      "\xE2\x80\xA2 Yeni nesne: Sahne panelindeki + d\xC3\xBC\xC4\x9Fmesi.\n"
      "\xE2\x80\xA2 Geri al Ctrl+Z, yinele Ctrl+Y."},
-    {"Betik (oyun kodu)",
-     "Oyunun kurallar\xC4\xB1 Tulpar dilinde yaz\xC4\xB1l\xC4\xB1r: projenin k\xC3\xB6k\xC3\xBCndeki oyun.tpr.\n"
-     "\xE2\x80\xA2 Nesneye betik ba\xC4\x9Flamak: \xC3\x96zellikler panelindeki Betik b\xC3\xB6l\xC3\xBCm\xC3\xBC.\n"
-     "\xE2\x80\xA2 Betik dosyas\xC4\xB1 \xC3\xA7ift t\xC4\xB1klan\xC4\xB1nca kod d\xC3\xBCzenleyicinizde a\xC3\xA7\xC4\xB1l\xC4\xB1r (VS Code varsa o).\n"
-     "\xE2\x80\xA2 Kaydedip F5'e bas\xC4\xB1nca oyun yeniden derlenir; hatalar Konsol panelinde g\xC3\xB6r\xC3\xBCn\xC3\xBCr."},
+    // U10 B6: betik modeli (otomatik baglama, Kod paneli, hazir davranislar, kanca adlari + Unity karsiliklari).
+    {"Betik (davran\xC4\xB1\xC5\x9F)",
+     "Betik, bir nesnenin ne yapaca\xC4\x9F\xC4\xB1n\xC4\xB1 s\xC3\xB6yleyen k\xC3\xBC\xC3\xA7\xC3\xBCk bir dosyad\xC4\xB1r (Unity'deki script gibi).\n\n"
+     "\xC4\xB0lk beti\xC4\x9Finiz:\n"
+     "1. Nesneyi se\xC3\xA7in; \xC3\x96zellikler panelinde \"Davran\xC4\xB1\xC5\x9F ekle (betik)\" d\xC3\xBC\xC4\x9Fmesine bas\xC4\xB1n.\n"
+     "2. Bir ad yaz\xC4\xB1n, haz\xC4\xB1r bir davran\xC4\xB1\xC5\x9F se\xC3\xA7in (ok tu\xC5\x9Flar\xC4\xB1yla hareket, bo\xC5\x9Flukla z\xC4\xB1pla, dokununca yok ol) ya da Bo\xC5\x9F.\n"
+     "3. Olu\xC5\x9Ftur: dosya assets/betikler i\xC3\xA7ine yaz\xC4\xB1l\xC4\xB1r, nesneye eklenir ve Kod panelinde a\xC3\xA7\xC4\xB1l\xC4\xB1r.\n"
+     "4. F5 ile oynat\xC4\xB1n. Betikler oyuna kendili\xC4\x9Finden ba\xC4\x9Flan\xC4\xB1r; ba\xC5\x9Fka bir yere bir \xC5\x9F" "ey yazman\xC4\xB1z gerekmez.\n"
+     "\n"
+     "Ne zaman \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r? \xC4\xB0\xC5\x9Flevin ad\xC4\xB1 s\xC3\xB6yler: beti\xC4\x9Fin ad\xC4\xB1 + olay. zipla.tpr i\xC3\xA7in:\n"
+     "\xE2\x80\xA2 zipla_baslat(id): oyun ba\xC5\x9Flarken bir kez (Unity'de Start)\n"
+     "\xE2\x80\xA2 zipla_guncelle(id, dt): her karede; dt ge\xC3\xA7" "en s\xC3\xBCre, saniye (Unity'de Update)\n"
+     "\xE2\x80\xA2 zipla_carpisma(id, diger, ...): bir \xC5\x9F" "eye \xC3\xA7" "arp\xC4\xB1nca (Unity'de OnCollisionEnter)\n"
+     "\xE2\x80\xA2 zipla_bitir(id): oyun biterken (Unity'de OnDestroy)\n"
+     "\xC3\x96zellikler'deki kart hangilerinin dosyada oldu\xC4\x9Funu i\xC5\x9F" "aretler.\n"
+     "\n"
+     "\xE2\x80\xA2 D\xC3\xBCzenlemek: Kaynaklar'da beti\xC4\x9F" "e \xC3\xA7ift t\xC4\xB1klay\xC4\xB1n ya da karttaki D\xC3\xBCzenle; Ctrl+S kaydeder.\n"
+     "\xE2\x80\xA2 Oyun bir hatayla a\xC3\xA7\xC4\xB1lmazsa \"Kodu a\xC3\xA7\" sizi do\xC4\x9Frudan hatal\xC4\xB1 sat\xC4\xB1ra g\xC3\xB6t\xC3\xBCr\xC3\xBCr.\n"
+     "\xE2\x80\xA2 Oyunun ana dosyas\xC4\xB1 oyun.tpr: motoru a\xC3\xA7" "ar, sahneyi y\xC3\xBCkler, her kareyi d\xC3\xB6nd\xC3\xBCr\xC3\xBCr (Oynat > Ana beti\xC4\x9Fi a\xC3\xA7)."},
     {"Oynat",
      "F5: oyunu G\xC3\xB6r\xC3\xBCn\xC3\xBCm panelinin Oyun sekmesinde oynat\xC4\xB1r; tekrar F5 durdurur.\n"
      "F6 duraklat\xC4\xB1r, F10 tek kare ilerletir.\n"
      "Ctrl+F5: oyunu ayr\xC4\xB1 pencerede \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r.\n"
      "Oyunun yazd\xC4\xB1\xC4\x9F\xC4\xB1 her sat\xC4\xB1r Konsol'a gelir; k\xC4\xB1rm\xC4\xB1z\xC4\xB1 sat\xC4\xB1rlar hatad\xC4\xB1r."},
     {"Android'e \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F",
-     "Oyun > Android APK olu\xC5\x9Ftur: projenin APK's\xC4\xB1n\xC4\xB1 derler ve kendisinden do\xC4\x9Frular "
+     "Oynat > Android APK olu\xC5\x9Ftur: projenin APK's\xC4\xB1n\xC4\xB1 derler ve kendisinden do\xC4\x9Frular "
      "(\xC3\xA7\xC4\xB1kt\xC4\xB1: projede cikti/apk). Android ara\xC3\xA7lar\xC4\xB1 gerekir (tulpar update --android).\n"
-     "Oyun > Projeyi do\xC4\x9Frula: oyunun kendi denetimlerini penceresiz ko\xC5\x9Fturur.\n"
+     "Oynat > Projeyi do\xC4\x9Frula: oyunun kendi denetimlerini penceresiz ko\xC5\x9Fturur.\n"
      "Google Play'e y\xC3\xBCkleme edit\xC3\xB6rden yap\xC4\xB1lmaz."},
 };
 constexpr uint32_t kSayfaN = sizeof kSayfalar / sizeof kSayfalar[0];

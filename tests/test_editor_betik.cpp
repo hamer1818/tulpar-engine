@@ -5,6 +5,8 @@
 #include <cstring>
 
 #include "app/editor_betik.hpp"
+#include "app/editor_commands.hpp"
+#include "app/editor_yardim.hpp"
 #include "tests/test.hpp"
 
 using namespace tulpar::engine;
@@ -159,4 +161,39 @@ ENGINE_TEST(editor_betik_kancalari_with_control) {
   // KONTROL: taban eslesmesi tam onek (ziplama_baslat "zipla"nin kancasi DEGIL)
   CHECK(app::betik_kancalari("func ziplama_baslat(id) {}\n", "zipla") == 0);
   CHECK(app::betik_kancalari(m, "") == 0);
+}
+
+// U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
+// "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
+// andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.
+ENGINE_TEST(editor_rehber_betik_sayfasi_kodla_uyumlu_with_control) {
+  const char *m = nullptr;
+  for (uint32_t i = 0; i < app::yardim_rehber_sayisi(); i++)
+    if (!std::strncmp(app::yardim_rehber_baslik(i), "Betik", 5)) m = app::yardim_rehber_metin(i);
+  CHECK(m != nullptr);
+  if (!m) return;
+  static char f[8 * 1024];
+  uint32_t n = 0;
+  for (const char *p = m; *p && n + 64 < sizeof f;) { // "• " ile baslayan satirlar -> "func " + gerisi
+    const char *son = std::strchr(p, '\n');
+    const size_t l = son ? (size_t)(son - p) : std::strlen(p);
+    if (l > 4 && !std::strncmp(p, "\xE2\x80\xA2 ", 4)) {
+      n += (uint32_t)std::snprintf(f + n, sizeof f - n, "func %.*s\n", (int)(l - 4 < 200 ? l - 4 : 200), p + 4);
+    }
+    if (!son) break;
+    p = son + 1;
+  }
+  const uint32_t hepsi = app::kKancaBaslat | app::kKancaGuncelle | app::kKancaCarpisma | app::kKancaBitir;
+  CHECK(app::betik_kancalari(f, "zipla") == hepsi);
+  // KONTROL: ayni metin baska taban adiyla hicbir kanca vermez (eslesme gercekten ada bakiyor).
+  CHECK(app::betik_kancalari(f, "kos") == 0);
+  // Andigi menu komutu (Oynat > Ana betigi ac) tabloda ayni adla var.
+  const char *ana = "Ana beti\xC4\x9Fi a\xC3\xA7";
+  const app::CommandDesc *t = app::command_defaults();
+  bool komut = false;
+  for (uint32_t i = 0; i < app::kCommandCount; i++)
+    if (t[i].id == app::CommandId::PlayOpenMain) komut = std::strstr(t[i].name, ana) != nullptr;
+  CHECK(komut && std::strstr(m, ana) != nullptr);
+  CHECK(std::strstr(m, "Davran\xC4\xB1\xC5\x9F ekle (betik)") != nullptr);    // karttaki dugmenin adi
+  CHECK(std::strstr(m, "d\xC3\xBCzenleyicinizde") == nullptr);                    // eski model gitti
 }
