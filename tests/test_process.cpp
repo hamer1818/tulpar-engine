@@ -22,6 +22,8 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <fcntl.h>
+#include <io.h>
 #include <process.h>
 #include <windows.h>
 #endif
@@ -317,6 +319,19 @@ int process_test_child_main(int argc, char **argv) {
     std::fclose(f);
     return 0;
   }
+  // --stdin-yankila <cikti>: stdin'i EOF'a kadar okuyup dosyaya yaz (stdin_path kapisi).
+  if (argc >= 3 && !std::strcmp(argv[1], "--stdin-yankila")) {
+#if defined(_WIN32)
+    _setmode(_fileno(stdin), _O_BINARY); // Windows CRT stdin METIN kipinde: \r\n -> \n bozulurdu (CI 2026-11-12)
+#endif
+    FILE *f = std::fopen(argv[2], "wb");
+    if (!f) return 3;
+    char b[256];
+    size_t n;
+    while ((n = std::fread(b, 1, sizeof b, stdin)) > 0) std::fwrite(b, 1, n, f);
+    std::fclose(f);
+    return 0;
+  }
   // --torun-baslat <pid dosyasi> <exe>: torunu baslat, pid'ini yaz, 30 s uyu.
   if (argc >= 4 && !std::strcmp(argv[1], "--torun-baslat")) {
     const long g = spawn_grandchild(argv[3]);
@@ -332,6 +347,52 @@ int process_test_child_main(int argc, char **argv) {
     return 0;
   }
   return -1;
+}
+
+// stdin_path: cocugun stdin'i BIR DOSYA (tek seferlik LSP: `tulpar --lsp` istekleri dosyadan okur, yanitlari log'a yazar).
+// POZITIF KONTROL: stdin_path verilmeyen cocuk (log_path var: stdin /dev/null) HICBIR sey okumaz.
+ENGINE_TEST(process_stdin_path_feeds_the_child_from_a_file) {
+  char exe[1100];
+  if (!self_exe(exe, sizeof exe)) { test::skip("engine_tests'in kendi yolu bulunamadi (exe_dir)"); return; }
+  char dir[512], girdi[700], out[700], log[700], out2[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "stdin_dosya"));
+  std::snprintf(girdi, sizeof girdi, "%s/girdi.bin", dir);
+  std::snprintf(out, sizeof out, "%s/cikti.bin", dir);
+  std::snprintf(out2, sizeof out2, "%s/cikti2.bin", dir);
+  std::snprintf(log, sizeof log, "%s/gunluk.txt", dir);
+  const char *icerik = "Content-Length: 5\r\n\r\nmerha\nT\xC3\xBCrk\xC3\xA7" "e \xC5\x9F\n"; // CRLF + UTF-8 bozulmadan gecmeli
+  FILE *g = std::fopen(girdi, "wb");
+  CHECK(g != nullptr);
+  if (g) { std::fwrite(icerik, 1, std::strlen(icerik), g); std::fclose(g); }
+  const char *argv[] = {exe, "--stdin-yankila", out, nullptr};
+  platform::ProcessSpec s;
+  s.argv = argv;
+  s.log_path = log;
+  s.stdin_path = girdi;
+  platform::Process p;
+  char err[256] = {0};
+  const bool b = platform::process_start(p, s, err, sizeof err);
+  if (!b) std::printf("    FAIL baslatilamadi: %s\n", err);
+  CHECK(b);
+  CHECK((b ? wait_exit(p) : -1) == 0);
+  char got[512];
+  const size_t n = slurp(out, got, sizeof got);
+  CHECK(n == std::strlen(icerik) && !std::memcmp(got, icerik, n));
+  // KONTROL: stdin_path YOK -> cocuk bos okur
+  const char *argv2[] = {exe, "--stdin-yankila", out2, nullptr};
+  platform::ProcessSpec s2;
+  s2.argv = argv2;
+  s2.log_path = log;
+  const bool b2 = platform::process_start(p, s2, err, sizeof err);
+  CHECK(b2);
+  CHECK((b2 ? wait_exit(p) : -1) == 0);
+  CHECK(slurp(out2, got, sizeof got) == 0);
+  // Olmayan girdi dosyasi: baslatma CAGIRANDA hata verir
+  platform::ProcessSpec s3;
+  s3.argv = argv;
+  s3.stdin_path = "/yok/yok/girdi.bin";
+  err[0] = 0;
+  CHECK(!platform::process_start(p, s3, err, sizeof err) && err[0]);
 }
 
 // Ortam ekleri: cocuk GORUR, ayni ad EZILIR (iki kez gecmez), ebeveynin

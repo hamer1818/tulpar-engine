@@ -11,6 +11,7 @@
 
 #include <imgui.h>
 
+#include "app/editor_ui.hpp" // editor_ellipsize (U11 C3)
 #include "app/editor_ux.hpp"
 
 using namespace tulpar::engine;
@@ -116,4 +117,40 @@ ENGINE_TEST(editor_ux_isinma_kareleri_kesik_sayilmaz) {
   g_o.kare = 2;
   ux_olcum_metin(g_o, "p", m, m + std::strlen(m), 100.0f, 10.0f);
   CHECK((g_o.kesik_n) == (1u));
+}
+
+// U11 C3: editor_ellipsize'in "…" ile KISALTTIGI etiket UX olcumune girer (pencere adiyla), kare sayisi tutulur.
+// KONTROL: sigan metin kisaltma degildir; kanca kapaliyken olcum degismez.
+ENGINE_TEST(editor_ux_kisaltma_olculur_with_control) {
+  ImGuiContext *ctx = ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  io.IniFilename = nullptr;
+  io.Fonts->AddFontDefault();
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+  ux_olcum_sifirla(g_o);
+  g_o.kare = 2;
+  ux_olcum_baslat(&g_o);
+  char out[128];
+  for (int kare = 0; kare < 2; kare++) {
+    io.DisplaySize = ImVec2(800, 600);
+    io.DeltaTime = 1.0f / 60.0f;
+    ImGui::NewFrame();
+    ImGui::Begin("kisaltma_penceresi", nullptr, ImGuiWindowFlags_NoSavedSettings);
+    editor_ellipsize("Kamera g\xC3\xB6r\xC3\xBC\xC5\x9F alan\xC4\xB1 \xC3\xA7ok uzun bir etiket", 60.0f, out, sizeof out);
+    editor_ellipsize("k\xC4\xB1sa", 500.0f, out, sizeof out); // KONTROL: sigar
+    ImGui::End();
+    ImGui::Render();
+    g_o.kare++;
+  }
+  std::printf("    [bilgi] kisaltma: %u kayit, pencere '%s', %u kare\n", g_o.kisaltma_n, g_o.kisaltma_n ? g_o.kisaltma_pencere[0] : "-",
+              g_o.kisaltma_n ? g_o.kisaltma_tekrar[0] : 0u);
+  CHECK(g_o.kisaltma_n == 1 && std::strstr(g_o.kisaltma_pencere[0], "kisaltma_penceresi") && g_o.kisaltma_tekrar[0] == 2);
+  ux_olcum_bitir();
+  ImGui::NewFrame();
+  ImGui::Begin("kisaltma_penceresi", nullptr, ImGuiWindowFlags_NoSavedSettings);
+  editor_ellipsize("kancasiz: bu da cok uzun bir etiket olsun ki kisalsin", 40.0f, out, sizeof out);
+  ImGui::End();
+  ImGui::Render();
+  CHECK(g_o.kisaltma_n == 1); // kanca kapali
+  ImGui::DestroyContext(ctx);
 }

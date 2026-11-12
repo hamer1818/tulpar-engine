@@ -1,0 +1,26 @@
+# U11 B2+B3 (tools/arayuz_kapi.sh): Basit kipte "+" ve ana menu "Ekle" SADE agac; secim VARKEN Ekle > Sekiller > Kup
+# eklenir (eskiden hizli ekle secim varken kayboluyordu). POZITIF KONTROL: Gelismis kipte ayni menude teknik
+# kategori ("Cevre Hacimleri") gorunur — "yok" olcumu bos menuden gelmiyor.
+tikla "kure_1" pencere=Sahne
+dogrula_metin "8 varlık"
+tikla "Ekle" pencere=MainMenuBar
+dogrula_oge "Şekiller" pencere=Menu
+metin_yok "Çevre Hacimleri"
+metin_yok "Tulpar Betik"
+uzerine "Şekiller" pencere=Menu
+bekle 3
+tikla "Küp" pencere=Menu_01
+dogrula_metin "9 varlık"
+# U11 B3: okunur ad; cogaltma ilk bos numarayi alir. Kontrol: "Küp 2" cogaltmadan ONCE yok.
+dogrula_metin "Küp"
+metin_yok "Küp 2"
+metin_yok "kup_9"
+tus Ctrl+D
+dogrula_metin "Küp 2"
+tikla "Görünüm" pencere=MainMenuBar
+tikla "Gelişmiş kip" pencere=Menu
+tikla "Ekle" pencere=MainMenuBar
+dogrula_oge "Çevre Hacimleri" pencere=Menu
+dogrula_oge "Davranışlı Nesne (betik)" pencere=Menu
+tus Escape
+cik

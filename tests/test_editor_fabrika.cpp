@@ -63,11 +63,14 @@ ENGINE_TEST(fabrika_uretir_dolu_dizine_yazmaz) {
   const FabrikaSonuc s = fabrika_uret(r);
   if (!s.ok) std::printf("    hata: %s\n", s.hata);
   CHECK(s.ok);
-  CHECK(s.dosya == 12u);   // 8 metin + 2 kit atlasi + sablon sahnesi + ikon
+  CHECK(s.dosya == 13u);   // 8 metin + 2 kit atlasi + sablon sahnesi + betik toplayicisi (U10 B1) + ikon
   CHECK(std::strcmp(s.paket, "dev.tulparlang.ilkoyun") == 0);
   std::snprintf(p, sizeof p, "%s/oyun.tpr", hedef);
   CHECK(oku(p, buf, sizeof buf));
   CHECK(std::strstr(buf, "kit_oyun(\"ilk_oyun\", \"ILK\")") != nullptr);
+  CHECK(std::strstr(buf, "\nimport \"assets/betikler\";") != nullptr); // U10 B1: atanan betikler oyuna bagli
+  std::snprintf(p, sizeof p, "%s/assets/betikler.tpr", hedef);
+  CHECK(oku(p, buf, sizeof buf) && std::strstr(buf, "OTOMATIK") != nullptr);
   CHECK(std::strstr(buf, "{{") == nullptr);
   std::snprintf(p, sizeof p, "%s/tulpar.toml", hedef);
   CHECK(oku(p, buf, sizeof buf) && std::strstr(buf, "package = \"dev.tulparlang.ilkoyun\"") && std::strstr(buf, "İlk Oyun"));
@@ -104,4 +107,27 @@ ENGINE_TEST(fabrika_sablon_listesi) {
   bool arena = false;
   for (uint32_t i = 0; i < n; i++) if (std::strcmp(t[i], "arena") == 0) arena = true;
   CHECK(arena);
+}
+
+// U11 A3: karsilamadaki sablon kartlari sablon.txt'den. Ayristirici anahtarlari okur, bilinmeyeni ve yorumu atlar;
+// HER sablonun karti dolu olmali (aciklamasiz yeni sablon kartta ham dizin adiyla gorunurdu).
+ENGINE_TEST(fabrika_sablon_kartlari_with_control) {
+  app::SablonBilgi b;
+  app::fabrika_sablon_bilgi_ayristir("# yorum\nad: Top topla \naciklama: Topu yuvarla.\r\nyon: dikey\nikon: top\nbilinmeyen: x\n", &b);
+  CHECK(!std::strcmp(b.ad, "Top topla") && !std::strcmp(b.aciklama, "Topu yuvarla.") && b.yon == 1 && !std::strcmp(b.ikon, "top"));
+  app::SablonBilgi c;
+  app::fabrika_sablon_bilgi_ayristir("ad: X\nyon: yatay\n", &c);
+  CHECK(c.yon == 0 && c.aciklama[0] == 0);
+  char t[8][32];
+  const uint32_t n = app::fabrika_sablonlar(t, 8);
+  CHECK(n >= 2);
+  for (uint32_t i = 0; i < n; i++) {
+    app::SablonBilgi s;
+    const bool var = app::fabrika_sablon_bilgi(t[i], &s);
+    std::printf("    [bilgi] sablon %s: \"%s\" (%s)\n", t[i], s.ad, s.yon ? "dikey" : "yatay");
+    CHECK(var && s.aciklama[0] && std::strcmp(s.ad, t[i]) != 0);
+  }
+  // KONTROL: olmayan sablon -> false, ad = tur (kart yine cizilir, bos kalmaz).
+  app::SablonBilgi y;
+  CHECK(!app::fabrika_sablon_bilgi("boyle_sablon_yok", &y) && !std::strcmp(y.ad, "boyle_sablon_yok"));
 }

@@ -12,6 +12,7 @@
 #endif
 
 #include "bridge/engine_api.h"
+#include "bridge/embed_dt.hpp"
 
 #include "platform/fs.hpp"
 
@@ -1889,6 +1890,7 @@ int teng_frame_begin(void) {
   b.dt = (float)((now - b.last_ns) / 1e9);
   b.last_ns = now;
   if (b.dt > 0.25f) b.dt = 0.25f;
+  if (b.embed && !embed_step) b.dt = bridge::embed_dt_snap(b.dt); // kare-kare dagilim: bridge/embed_dt.hpp (kullanici "kasa kasa")
   if (b.headless && !b.embed) b.dt = 1.0f / 60.0f;
   if (embed_step) b.dt = 1.0f / 60.0f; // duraklatmada tek adim: gecen gercek sure degil, BIR kare
   b.time_s += b.dt;
@@ -3659,6 +3661,53 @@ void teng_scene_impulse(int i, double ix, double iy, double iz) {
   BDBG("sahne %d (\"%s\") durtu (%.2f %.2f %.2f): hiz (%.2f %.2f %.2f)", i, g->srt.view().entity_name((uint32_t)i), ix, iy, iz, v.x + ix, v.y + iy,
        v.z + iz);
 }
+// --- sahne varligini tasi / dondur (U10 B4b) ---------------------------------------
+static bool scene_pose_writable(int i, const char *fn) {
+  if (!scene_idx_ok(i, fn)) return false;
+  const char *ad = g->srt.view().entity_name((uint32_t)i);
+  if (g->srt.entity_character((uint32_t)i).valid()) {
+    BERR("%s: '%s' karakter: konumunu sahne_karakter_yuru verir", fn, ad);
+    return false;
+  }
+  if (g->srt.entity_dynamic((uint32_t)i)) {
+    BERR("%s: '%s' dinamik govdeli: onu fizik tasir (hizini sahne_hiz_ver verir; ya da govdeyi Sabit yap)", fn, ad);
+    return false;
+  }
+  return true;
+}
+static int scene_pose_apply(int i, Vec3 p, Quat q, const char *fn) {
+  if (g->srt.set_pose((uint32_t)i, p, q, &g->phys)) return 1;
+  BERR("%s: '%s' tasinamadi (govde fizikte reddetti)", fn, g->srt.view().entity_name((uint32_t)i));
+  return 0;
+}
+int teng_scene_set_pos(int i, double x, double y, double z) {
+  CALLF("teng_scene_set_pos", "%d (%.2f %.2f %.2f)", i, x, y, z);
+  if (!scene_pose_writable(i, "teng_scene_set_pos")) return 0;
+  Vec3 p;
+  Quat q;
+  g->srt.pose((uint32_t)i, &p, &q);
+  return scene_pose_apply(i, {(float)x, (float)y, (float)z}, q, "teng_scene_set_pos");
+}
+int teng_scene_set_rot(int i, double rx, double ry, double rz) {
+  CALLF("teng_scene_set_rot", "%d (%.1f %.1f %.1f)", i, rx, ry, rz);
+  if (!scene_pose_writable(i, "teng_scene_set_rot")) return 0;
+  Vec3 p;
+  Quat q;
+  g->srt.pose((uint32_t)i, &p, &q);
+  return scene_pose_apply(i, p, content::scene_euler_deg_quat({(float)rx, (float)ry, (float)rz}), "teng_scene_set_rot");
+}
+int teng_scene_rotate(int i, double dx, double dy, double dz) {
+  CALLF("teng_scene_rotate", "%d (%.1f %.1f %.1f)", i, dx, dy, dz);
+  if (!scene_pose_writable(i, "teng_scene_rotate")) return 0;
+  Vec3 p;
+  Quat q;
+  g->srt.pose((uint32_t)i, &p, &q);
+  // Dunya ekseninde: yeni = artis * eski (artis once X, sonra Y, sonra Z — set_rot'la ayni kural).
+  return scene_pose_apply(i, p, content::scene_euler_deg_quat({(float)dx, (float)dy, (float)dz}) * q, "teng_scene_rotate");
+}
+double teng_scene_home_x(int i) { return scene_idx_ok(i, "teng_scene_home_x") ? g->srt.view().entities[i].pos[0] : 0; }
+double teng_scene_home_y(int i) { return scene_idx_ok(i, "teng_scene_home_y") ? g->srt.view().entities[i].pos[1] : 0; }
+double teng_scene_home_z(int i) { return scene_idx_ok(i, "teng_scene_home_z") ? g->srt.view().entities[i].pos[2] : 0; }
 int teng_scene_loaded(void) { return g && g->scene_ok ? 1 : 0; }
 int teng_scene_unload(void) {
   CALL("teng_scene_unload");

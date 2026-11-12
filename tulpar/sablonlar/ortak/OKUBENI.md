@@ -1,6 +1,6 @@
 # {{OYUN_TR}} ({{OYUN_EN}})
 
-Tulpar Engine oyun fabrikasından (`tools/yeni_oyun.sh`, arena şablonu) üretildi.
+Tulpar Engine oyun fabrikasından (`tools/yeni_oyun.sh`, motor deposundaki `tulpar/sablonlar/` şablonlarından biri) üretildi.
 
 ```bash
 tools/ortam.sh                                        # .motor bağlantısı + sürümler

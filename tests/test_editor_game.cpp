@@ -20,6 +20,7 @@
 #include "content/gltf.hpp"
 #include "content/scene.hpp"
 #include "core/memory/arena.hpp"
+#include "platform/fs_ops.hpp"
 #include "platform/paths.hpp"
 #include "platform/thread.hpp"
 #include "tests/test.hpp"
@@ -421,4 +422,61 @@ ENGINE_TEST(editor_game_example_scene_models_sit_on_their_colliders) {
               (double)en_kotu, en_kotu_ad);
   CHECK(olculen >= 20); // KONTROL: olcum bos degil (dort sahne, zemin + duvar + sutun + kasa)
   CHECK(kayik == 0);
+}
+
+// Fabrika projesinin .motor bagi (game_motor_bagla). Arayuz surucusuyle bulundu (2026-11-06):
+// editorde Yeni oyun -> F5, tulpar.toml'daki .motor/tulpar-ext yokken derleyicide "eklenti
+// bulunamadi" ile dustu. Windows'ta CI bu testle sembolik bag / junction yolunu da kosar.
+ENGINE_TEST(game_motor_bagi_kurulur_yenilenir_ezmez) {
+  char kok[512];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "motor_bagi"));
+  char p[700], m1[700], m2[700], y[900];
+  std::snprintf(p, sizeof p, "%s/proje", kok);
+  std::snprintf(m1, sizeof m1, "%s/motor1", kok);
+  std::snprintf(m2, sizeof m2, "%s/motor2", kok);
+  std::snprintf(y, sizeof y, "%s/tulpar-ext", m1);
+  CHECK(platform::fs_mkdir_p(y));
+  std::snprintf(y, sizeof y, "%s/tulpar-ext/tulpar-ext.json", m1);
+  CHECK(platform::fs_write_all(y, "{\"m\":1}", 7));
+  std::snprintf(y, sizeof y, "%s/tulpar-ext", m2);
+  CHECK(platform::fs_mkdir_p(y));
+  std::snprintf(y, sizeof y, "%s/tulpar-ext/tulpar-ext.json", m2);
+  CHECK(platform::fs_write_all(y, "{\"m\":2}", 7));
+  CHECK(platform::fs_mkdir_p(p));
+  char e[700], bag_json[900];
+  std::snprintf(bag_json, sizeof bag_json, "%s/.motor/tulpar-ext/tulpar-ext.json", p);
+  char b[64];
+  bool kesik = false;
+  // Kontrol: tulpar.toml yok / .motor gecmiyor -> dokunulmaz.
+  CHECK(app::game_motor_bagla(p, m1, e, sizeof e));
+  CHECK(platform::fs_read_all(bag_json, b, sizeof b, &kesik) < 0);
+  std::snprintf(y, sizeof y, "%s/tulpar.toml", p);
+  CHECK(platform::fs_write_all(y, "[ext]\npaths = [\"ext\"]\n", 22));
+  CHECK(app::game_motor_bagla(p, m1, e, sizeof e));
+  CHECK(platform::fs_read_all(bag_json, b, sizeof b, &kesik) < 0);
+  // Fabrika toml'u: bag kurulur, .motor/tulpar-ext motor1'in paketidir.
+  const char *toml = "[ext]\npaths = [\".motor/tulpar-ext\"]\n";
+  CHECK(platform::fs_write_all(y, toml, std::strlen(toml)));
+  CHECK(app::game_motor_bagla(p, m1, e, sizeof e));
+  if (e[0]) std::printf("    hata: %s\n", e);
+  CHECK(platform::fs_read_all(bag_json, b, sizeof b, &kesik) == 7 && !std::memcmp(b, "{\"m\":1}", 7));
+  CHECK(app::game_motor_bagla(p, m1, e, sizeof e));   // ayni: dokunmaz
+  // Eski bag (baska motor) yenilenir.
+  CHECK(app::game_motor_bagla(p, m2, e, sizeof e));
+  CHECK(platform::fs_read_all(bag_json, b, sizeof b, &kesik) == 7 && !std::memcmp(b, "{\"m\":2}", 7));
+  // Motorda tulpar-ext yoksa false + sebep.
+  CHECK(!app::game_motor_bagla(p, kok, e, sizeof e) && std::strstr(e, "tulpar-ext"));
+  // Bag DEGIL, gercek bir .motor dizini: EZILMEZ (kullanicinin icerigi silinmez).
+  char gercek[900];
+  std::snprintf(gercek, sizeof gercek, "%s/proje2", kok);
+  std::snprintf(y, sizeof y, "%s/.motor", gercek);
+  CHECK(platform::fs_mkdir_p(y));
+  std::snprintf(y, sizeof y, "%s/.motor/benim.txt", gercek);
+  CHECK(platform::fs_write_all(y, "x", 1));
+  std::snprintf(y, sizeof y, "%s/tulpar.toml", gercek);
+  CHECK(platform::fs_write_all(y, toml, std::strlen(toml)));
+  CHECK(!app::game_motor_bagla(gercek, m1, e, sizeof e));
+  std::snprintf(y, sizeof y, "%s/.motor/benim.txt", gercek);
+  CHECK(platform::fs_kind(y) == platform::FsKind::File);
+  platform::fs_remove_tree(kok);
 }

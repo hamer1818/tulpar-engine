@@ -1,0 +1,26 @@
+# Parametre ipucu: imlec bir cagrinin parantezinde iken imza (kutuphaneden: kure(x, y, z, r, dinamik, renk_): int) ve
+# 2. parametre vurgulu. Parantezden cikinca kaybolur (POZITIF KONTROL: metin_yok). Parametre adi yalniz balonda gecer.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "func dondur_baslat"
+tus Ctrl+Home
+tus End
+tus Enter
+yaz "k"
+yaz "u"
+yaz "r"
+yaz "e"
+yaz "("
+bekle 4
+dogrula_metin "dinamik"
+dogrula_metin "renk_"
+yaz "1"
+yaz ","
+bekle 3
+ekran kod_ipucu
+tus End
+bekle 3
+metin_yok "dinamik"
+cik

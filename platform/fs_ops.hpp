@@ -54,6 +54,10 @@ bool fs_remove_file(const char *path);
 bool fs_remove_tree(const char *path);
 // Tasi/yeniden adlandir. Hedef VARSA false (yukariya bak). Dosya ya da dizin.
 bool fs_move(const char *from, const char *to);
+// Dizin bagi: `link` -> `target` (POSIX symlink; Windows dizin sembolik bagi, yetki yoksa
+// (Gelistirici Kipi kapali) baglanti noktasi/junction — yetki istemez, yerel birimde calisir).
+// `link` zaten bir BAG ise yenilenir; bag olmayan bir dosya/dizinse false (icerik silinmez).
+bool fs_link_dir(const char *target, const char *link);
 
 // Dizin gezme: `.` ve `..` verilmez. fn false donerse gezme durur.
 using FsDirFn = bool (*)(const char *name, FsKind kind, void *user);

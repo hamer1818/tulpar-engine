@@ -318,6 +318,18 @@ int teng_scene_tint(int i);
 int teng_scene_primitive(int i);
 void teng_scene_set_velocity(int i, double vx, double vy, double vz);
 void teng_scene_impulse(int i, double ix, double iy, double iz); // hiz += i
+// Sahne varligini TASI / DONDUR (U10 B4b: "Dondur", "Yukari-asagi salla" hazir davranislari). Govdesiz, sabit
+// govdeli ve tetik varliklar icin; cizim, isik, parcacik, 3B ses birlikte gider. Sabit govde yerinde isinlanir
+// (ustundekileri itmez). DINAMIK govdeli varlik ve karakter HATA + 0: onlari fizik tasir (hiz / karakter_yuru).
+// Donus derece, editorun kurali (Rz*Ry*Rx). teng_scene_rotate DUNYA eksenlerinde ekler (x, y, z sirasiyla).
+// Cocuklar birlikte gelmez. Sahne yeniden yuklenince hepsi yazarin yerine doner.
+int teng_scene_set_pos(int i, double x, double y, double z);
+int teng_scene_set_rot(int i, double rx_deg, double ry_deg, double rz_deg);
+int teng_scene_rotate(int i, double dx_deg, double dy_deg, double dz_deg);
+// Yazarin (editorde yerlestirilen) konumu: tasinsa da degismez. Salla gibi "yerinin cevresinde" davranislar icin.
+double teng_scene_home_x(int i);
+double teng_scene_home_y(int i);
+double teng_scene_home_z(int i);
 // Sahne karakterleri: editordeki "Karakter Kontrolcusu" bileseni sahne
 // yuklenince karakter olarak dogar (ayni varlikta govde bileseni varsa o
 // dogurulmaz). Kapsul yazar konumuna ORTALI: teng_scene_x/y/z MERKEZI verir

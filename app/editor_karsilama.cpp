@@ -7,7 +7,7 @@
 
 #include <IconsMaterialDesign.h>
 #include <imgui.h>
-#include <imgui_internal.h> // BringWindowToDisplayFront (karartma katmani)
+#include <imgui_internal.h>
 
 #include "app/editor_fabrika.hpp"
 #include "app/editor_ui.hpp"
@@ -49,6 +49,9 @@ bool girdi(const char *etiket, const char *ipucu, char *buf, size_t cap, float w
 } // namespace
 
 void karsilama_kok(char *out, uint32_t cap) {
+  // TULPAR_OYUNLAR_DIZINI: kapilar ve arayuz surucusu kullanicinin GERCEK oyun klasorune yazmasin.
+  const char *ozel = std::getenv("TULPAR_OYUNLAR_DIZINI");
+  if (ozel && *ozel) { std::snprintf(out, cap, "%s", ozel); return; }
 #if defined(_WIN32)
   const char *h = std::getenv("USERPROFILE");
   std::snprintf(out, cap, "%s/Documents/TulparOyunlari", (h && *h) ? h : ".");
@@ -85,19 +88,17 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
     d.baslatildi = true;
     karsilama_kok(d.kok, sizeof d.kok);
     d.sablon_n = fabrika_sablonlar(d.sablonlar, 8);
+    for (uint32_t i = 0; i < d.sablon_n; i++) {
+      SablonBilgi b;
+      fabrika_sablon_bilgi(d.sablonlar[i], &b);
+      std::snprintf(d.sablon_ad[i], sizeof d.sablon_ad[i], "%s", b.ad);
+      std::snprintf(d.sablon_aciklama[i], sizeof d.sablon_aciklama[i], "%s", b.aciklama);
+      std::snprintf(d.sablon_ikon[i], sizeof d.sablon_ikon[i], "%s", b.ikon);
+      d.sablon_yon[i] = b.yon;
+    }
+    if (d.sablon_n) d.yon = d.sablon_yon[d.sablon >= 0 && (uint32_t)d.sablon < d.sablon_n ? d.sablon : 0];
   }
   const ImGuiViewport *vp = ImGui::GetMainViewport();
-  // Arkadaki editor gorunur ama soluk ("henuz baslamadin"): tam ekran, girdisiz karartma penceresi.
-  ImGui::SetNextWindowPos(vp->Pos);
-  ImGui::SetNextWindowSize(vp->Size);
-  ImGui::SetNextWindowBgAlpha(0.55f);
-  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.02f, 0.03f, 1.0f));
-  ImGui::Begin("##karsilama_karartma", nullptr,
-               ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoDocking |
-                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-  ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());   // dock panellerinin USTUNE (karsilamanin altina)
-  ImGui::End();
-  ImGui::PopStyleColor();
   // Ekranin cogu: kenarlarda 6% pay, en az 640x420.
   ImVec2 boy(vp->WorkSize.x * 0.88f, vp->WorkSize.y * 0.86f);
   if (boy.x > 1100.0f) boy.x = 1100.0f;
@@ -109,12 +110,34 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
                               ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar;
   if (!ImGui::Begin("Tulpar Edit\xC3\xB6r##karsilama", nullptr, wf)) { ImGui::End(); return e; }
   const ImGuiStyle &st = ImGui::GetStyle();
+  // Arkadaki editor gorunur ama soluk ("henuz baslamadin"). U11 A3: eskiden ayri bir karartma penceresiydi ve
+  // dock panellerinin ALTINDA kaliyordu (ekran goruntusunde arka plan hic kararmamisti; pencerenin kendi
+  // cizim listesine pencere disina cizmek de gorunmedi — olculdu). Simdi ON PLAN listesinde, karsilamanin
+  // disina dusen dort dikdortgen: her paneli ortuyor, karsilamaya dokunmuyor. Karsilama acikken acilir
+  // pencere/ipucu yalniz kendi alaninda dogdugu icin onlar da karanlikta kalmaz.
+  {
+    ImDrawList *dl = ImGui::GetForegroundDrawList(ImGui::GetMainViewport());
+    const ImVec2 a = ImGui::GetWindowPos(), b(a.x + ImGui::GetWindowSize().x, a.y + ImGui::GetWindowSize().y);
+    const ImVec2 v0 = vp->Pos, v1(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y);
+    // Alfa 225: cerceve tamponu sRGB, karisim DOGRUSAL uzayda. Alfa 175 algida yalniz ~%35 karartiyordu
+    // (olculdu 2026-11-11, sürücü: yazi 230 -> 144, göz farki seçmiyor); 225 hesapla ~85, kipli pencere gibi.
+    const ImU32 kc = IM_COL32(4, 5, 8, 225);
+    dl->PushClipRect(v0, v1, false);
+    dl->AddRectFilled(v0, ImVec2(v1.x, a.y), kc);
+    dl->AddRectFilled(ImVec2(v0.x, b.y), v1, kc);
+    dl->AddRectFilled(ImVec2(v0.x, a.y), ImVec2(a.x, b.y), kc);
+    dl->AddRectFilled(ImVec2(b.x, a.y), ImVec2(v1.x, b.y), kc);
+    dl->PopClipRect();
+  }
   // --- Baslik ---
   push_text_size(TextSize::Lg);
   ImGui::TextColored(renk(Tone::AccentHi), "Tulpar Edit\xC3\xB6r");
   pop_text_size();
   ImGui::SameLine();
-  ImGui::TextColored(renk(Tone::TextDim), "%s", surum && surum[0] ? surum : "(kaynak derlemesi)");
+  // Surum; "(kaynak derlemesi)" gelistirici bilgisi, yalniz Gelismis'te (U11 A3).
+  if (surum && surum[0]) ImGui::TextColored(renk(Tone::TextDim), "%s", surum);
+  else if (editor_gelismis()) ImGui::TextColored(renk(Tone::TextDim), "(kaynak derlemesi)");
+  else ImGui::NewLine();
   ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - ImGui::GetFrameHeight());
   if (ImGui::Button(ICON_MD_CLOSE "##karsilama_kapat", ImVec2(ImGui::GetFrameHeight(), 0))) e = KarsilamaEylem::Kapat;
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bo\xC5\x9F edit\xC3\xB6rle ba\xC5\x9Fla (Esc)");
@@ -130,18 +153,48 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   ImGui::Dummy(ImVec2(0, st.ItemSpacing.y));
   const float w = ImGui::GetContentRegionAvail().x - st.ItemSpacing.x;
   bool degisti = girdi("Oyunun ad\xC4\xB1", "\xC3\xB6rn. Par\xC4\xB1lt\xC4\xB1 Av\xC4\xB1", d.tr, sizeof d.tr, w);
-  girdi("\xC4\xB0ngilizce ad\xC4\xB1 (ma\xC4\x9F" "aza ve \xC4\xB0ngilizce men\xC3\xBC i\xC3\xA7in)", "e.g. Spark Hunt", d.en,
-        sizeof d.en, w);
+  // U11 A3: Ingilizce ad ISTEGE BAGLI; bos kalirsa Turkce ad kullanilir (ipucu bunu gosterir).
+  {
+    char ipucu[96];
+    if (d.tr[0]) std::snprintf(ipucu, sizeof ipucu, "bo\xC5\x9F: %s", d.tr);
+    else std::snprintf(ipucu, sizeof ipucu, "e.g. Spark Hunt");
+    girdi("\xC4\xB0ngilizce ad\xC4\xB1 (iste\xC4\x9F" "e ba\xC4\x9Fl\xC4\xB1)", ipucu, d.en, sizeof d.en, w);
+  }
   if (degisti) karsilama_oneri(d);
-  // Sablon + yon
+  // U11 A3: sablon KARTLARI (combo'daki ic ad "arena" yerine ad + ne oynanir). Kart secilince ekran yonu
+  // sablonun onerisine gecer; yon yine degistirilebilir.
   if (d.sablon_n > 0) {
-    ImGui::TextColored(renk(Tone::TextDim), "\xC5\x9E" "ablon");
-    ImGui::SetNextItemWidth(w * 0.5f - st.ItemSpacing.x);
-    if (ImGui::BeginCombo("##sablon", karsilama_sablon(d))) {
-      for (uint32_t i = 0; i < d.sablon_n; i++)
-        if (ImGui::Selectable(d.sablonlar[i], d.sablon == (int)i)) d.sablon = (int)i;
-      ImGui::EndCombo();
+    ImGui::TextColored(renk(Tone::TextDim), "Ne t\xC3\xBCr bir oyun?");
+    // Yukseklik: baslik satiri + uc satir aciklama (0.92 olcekli) + ic bosluk; uzun aciklama kesilmez, tasmaz.
+    const float kw = (w - st.ItemSpacing.x) * 0.5f, kh = ImGui::GetTextLineHeight() * (1.45f + 3.0f * 0.92f) + st.FramePadding.x * 3.2f;
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    for (uint32_t i = 0; i < d.sablon_n; i++) {
+      if (i % 2) ImGui::SameLine();
+      ImGui::PushID((int)i);
+      const ImVec2 p0 = ImGui::GetCursorScreenPos();
+      if (ImGui::InvisibleButton("##sablon_kart", ImVec2(kw, kh))) {
+        d.sablon = (int)i;
+        d.yon = d.sablon_yon[i];
+      }
+      // Gorunmez dugmenin etiketi yok: sablon adini bildir (arayuz surucusu kartı adiyla bulur).
+      { ImGuiContext &g = *GImGui; IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetItemID(), d.sablon_ad[i], 0); }
+      const bool sec = d.sablon == (int)i, ust = ImGui::IsItemHovered();
+      const ImVec2 p1(p0.x + kw, p0.y + kh);
+      dl->AddRectFilled(p0, p1, ImGui::GetColorU32(renk(sec ? Tone::Bg3 : ust ? Tone::Bg2 : Tone::Bg1)), 6.0f);
+      dl->AddRect(p0, p1, ImGui::GetColorU32(renk(sec ? Tone::Accent : Tone::Line)), 6.0f, sec ? 2.0f : 1.0f); // 1.92.8+: (.., rounding, THICKNESS)
+      const char *ik = !std::strcmp(d.sablon_ikon[i], "top")       ? ICON_MD_SPORTS_SOCCER
+                       : !std::strcmp(d.sablon_ikon[i], "bilardo") ? ICON_MD_ADJUST
+                                                                    : ICON_MD_SPORTS_ESPORTS;
+      const float pad = st.FramePadding.x * 1.5f, lh = ImGui::GetTextLineHeight();
+      dl->AddText(ImVec2(p0.x + pad, p0.y + pad), ImGui::GetColorU32(renk(sec ? Tone::AccentHi : Tone::TextDim)), ik);
+      dl->AddText(ImVec2(p0.x + pad + lh * 1.5f, p0.y + pad), ImGui::GetColorU32(renk(Tone::Text)), d.sablon_ad[i]);
+      dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.92f, ImVec2(p0.x + pad, p0.y + pad + lh * 1.45f),
+                  ImGui::GetColorU32(renk(Tone::TextDim)), d.sablon_aciklama[i], nullptr, kw - pad * 2.0f);
+      if (sec) dl->AddText(ImVec2(p1.x - pad - lh, p0.y + pad), ImGui::GetColorU32(renk(Tone::Accent)), ICON_MD_CHECK_CIRCLE);
+      ImGui::PopID();
     }
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(renk(Tone::TextDim), "Ekran:");
     ImGui::SameLine();
     ImGui::RadioButton("Yatay", &d.yon, 0);
     ImGui::SameLine();
@@ -150,10 +203,24 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   {
     // Konum: metin + "Sec..." (isletim sisteminin klasor secicisi, U4). Secilen klasor KOK olur,
     // oyun onun altinda <kimlik> dizinine kurulur.
-    const float sec_w = ImGui::CalcTextSize("Se\xC3\xA7...").x + st.FramePadding.x * 2.0f;
-    if (girdi("Konum", "klas\xC3\xB6r", d.konum, sizeof d.konum, w - sec_w - st.ItemSpacing.x)) d.konum_elle = true;
-    ImGui::SameLine();
-    if (ImGui::Button("Se\xC3\xA7...##konum", ImVec2(sec_w, 0))) {
+    // U11 A3: konum KISA gosterilir ("~/TulparOyunlari/yildiz"); elle yazma Gelismis bolumunde.
+    const float sec_w = ImGui::CalcTextSize("De\xC4\x9Fi\xC5\x9Ftir\xE2\x80\xA6").x + st.FramePadding.x * 2.0f;
+    ImGui::TextColored(renk(Tone::TextDim), "Nereye kaydedilsin?");
+    {
+      char kisa[1024], kirp[1024];
+      const char *ev = std::getenv("HOME");
+      if (!ev || !*ev) ev = std::getenv("USERPROFILE");
+      const size_t el = ev ? std::strlen(ev) : 0;
+      const char *k = d.konum[0] ? d.konum : d.kok;
+      if (el > 1 && !std::strncmp(k, ev, el) && (k[el] == '/' || k[el] == '\\' || !k[el])) std::snprintf(kisa, sizeof kisa, "~%s", k + el);
+      else std::snprintf(kisa, sizeof kisa, "%s", k);
+      editor_ellipsize(kisa, w - sec_w - st.ItemSpacing.x * 2.0f - st.FramePadding.x * 2.0f, kirp, sizeof kirp);
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextColored(renk(Tone::Text), ICON_MD_FOLDER " %s", kirp);
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", k);
+    }
+    ImGui::SameLine(w - sec_w);
+    if (ImGui::Button("De\xC4\x9Fi\xC5\x9Ftir\xE2\x80\xA6##konum", ImVec2(sec_w, 0))) {
       platform::SeciciIstek r;
       r.kip = platform::SeciciKip::KlasorSec;
       r.baslik = "Oyunun kurulaca\xC4\x9F\xC4\xB1 klas\xC3\xB6r";
@@ -172,6 +239,7 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   }
   if (ImGui::TreeNodeEx("Geli\xC5\x9Fmi\xC5\x9F", d.gelismis ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
     d.gelismis = true;
+    if (girdi("Konum (tam yol)", "klas\xC3\xB6r", d.konum, sizeof d.konum, w)) d.konum_elle = true;
     if (girdi("Kimlik (dosya ve kay\xC4\xB1t ad\xC4\xB1)", "parilti_avi", d.kimlik, sizeof d.kimlik, w)) {
       d.kimlik_elle = true;
       karsilama_oneri(d);
@@ -183,15 +251,20 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
     d.gelismis = false;
   }
   ImGui::Dummy(ImVec2(0, st.ItemSpacing.y));
-  const bool hazir = d.tr[0] && d.en[0] && d.kimlik[0] && d.konum[0];
+  const bool hazir = d.tr[0] && d.kimlik[0] && d.konum[0]; // U11 A3: Ingilizce ad istege bagli
+  // Vurgu rengi YALNIZ hazirken: soluk ama mavi dugme "basilabilir" okunuyordu (arayuz surucusu ekran
+  // goruntusu, 2026-11-06: hazir degilken (34,80,188), hazirken (38,99,235) — fark goze gorunmuyordu).
   if (!hazir) ImGui::BeginDisabled();
-  ImGui::PushStyleColor(ImGuiCol_Button, renk(Tone::Accent));
-  if (ImGui::Button(ICON_MD_ROCKET_LAUNCH "  Olu\xC5\x9Ftur", ImVec2(w, ImGui::GetFrameHeight() * 1.4f))) e = KarsilamaEylem::YeniOyun;
-  ImGui::PopStyleColor();
+  if (hazir) ImGui::PushStyleColor(ImGuiCol_Button, renk(Tone::Accent));
+  if (ImGui::Button(ICON_MD_ROCKET_LAUNCH "  Olu\xC5\x9Ftur", ImVec2(w, ImGui::GetFrameHeight() * 1.4f))) {
+    if (!d.en[0]) std::snprintf(d.en, sizeof d.en, "%s", d.tr); // bos Ingilizce ad: Turkce ad
+    e = KarsilamaEylem::YeniOyun;
+  }
+  if (hazir) ImGui::PopStyleColor();
   if (!hazir) ImGui::EndDisabled();
   if (d.hata[0]) ImGui::TextColored(renk(Tone::Err), "%s", d.hata);
   else if (d.bilgi[0]) ImGui::TextColored(renk(Tone::Ok), "%s", d.bilgi);
-  else if (!hazir) ImGui::TextColored(renk(Tone::TextMute), "Oyunun ad\xC4\xB1n\xC4\xB1 ve \xC4\xB0ngilizce ad\xC4\xB1n\xC4\xB1 yaz.");
+  else if (!hazir) ImGui::TextColored(renk(Tone::TextMute), "Ba\xC5\x9Flamak i\xC3\xA7in oyununa bir ad ver.");
   ImGui::EndChild();
 
   ImGui::SameLine();
@@ -223,7 +296,10 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   const float bw = (ImGui::GetContentRegionAvail().x - st.ItemSpacing.x) * 0.5f;
   if (ImGui::Button(ICON_MD_FOLDER_OPEN "  A\xC3\xA7...", ImVec2(bw, 0))) e = KarsilamaEylem::Ac;
   ImGui::SameLine();
-  if (ImGui::Button(ICON_MD_SPORTS_ESPORTS "  \xC3\x96rnek sahne", ImVec2(bw, 0))) e = KarsilamaEylem::Ornek;
+  if (ImGui::Button(ICON_MD_SPORTS_ESPORTS "  \xC3\x96rnek: Bilardo", ImVec2(bw, 0))) e = KarsilamaEylem::Ornek;
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Oynanabilir bilardo \xC3\xB6rne\xC4\x9Fi (F5). \xC4\xB0lk a\xC3\xA7\xC4\xB1l\xC4\xB1\xC5\x9Fta oyun klas\xC3\xB6r\xC3\xBC" "n\xC3\xBC" "ze\n"
+                      "Ornek_Bilardo olarak kopyalan\xC4\xB1r; de\xC4\x9Fi\xC5\x9Fiklikleri kaydedebilirsiniz.");
   if (ImGui::Button("Bo\xC5\x9F edit\xC3\xB6rle ba\xC5\x9Fla", ImVec2(-FLT_MIN, 0))) e = KarsilamaEylem::Kapat;
   ImGui::EndChild();
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) e = KarsilamaEylem::Kapat;

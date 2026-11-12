@@ -1,0 +1,5 @@
+ad: Bilardo
+aciklama: Istakayla vur, topları ceplere sok. Masa, bantlar ve toplar sahnede; editörde düzenlenir.
+yon: yatay
+ikon: bilardo
+kodda: Masa, bantlar, cepler ve toplar sahnede; vuruş ve fizik oyun.tpr içinde.

@@ -2484,3 +2484,105 @@ karakter (U+0080–U+00BF) gelen her satırı ihlal sayar. Gerçek Türkçe meti
 **Pozitif kontrol:** düzeltilmemiş dosyayla kapı 3 ihlal bildirdi.
 
 **Kural:** Türkçe C++ metni `\xHH` kaçışıyla yazılır (taşmaya karşı `layer_check`'in hex denetimi ayrıca bakar).
+
+### 8dt. Tampon kendi üzerine `snprintf` edilir — glibc yolu boşaltır, kayıt "olur" ama editör dosyayı unutur
+**Belirti:** var olan bir sahnede ilk Ctrl+S dosyayı doğru yere yazıyor, ama hemen ardından:
+- araç çubuğu "(sahne yok)" diyor,
+- sahne adı `editor.sahne`ye dönüyor,
+- durum çubuğu "kaydedildi: " diyor ve yol boş kalıyor.
+
+İkinci Ctrl+S motorun kaynak dizininde "Farklı kaydet" açıyordu.
+
+**Neden:** `save_scene_to(path)` sonunda `snprintf(st.scene_path, …, "%s", path)` çağırıyordu. `do_save` ise
+`path` olarak `st.scene_path`'in KENDİSİNİ veriyordu. Kaynak ile hedef aynı tampon olunca C'de davranış
+tanımsız. glibc'de sonuç boş dizgi (ölçüldü 2026-11-10, CachyOS glibc). Hata 7f7830c'den beri vardı.
+Hiçbir test "kaydet → bir daha kaydet" zincirini koşmuyordu: dosya doğru yazıldığı için tek kayıtlık
+kontrol yeşildi.
+
+**Bulunuşu:** arayüz sürücüsüyle yapılan UX değerlendirmesi (2026-11-10).
+
+**Düzeltme:** `if (path != st.scene_path)` koşulu.
+
+**Kapı:** `tests/arayuz/kaydet.txt` (`tools/arayuz_kapi.sh`, yerel CI "Arayuz surucusu"). Senaryo geçici
+kopya sahnede iki Ctrl+S yapar ve şunları ister:
+- durum çubuğunda "kaydedildi: /…" yazmalı,
+- "(sahne yok)" görünmemeli,
+- ikinci kayıtta diyalog açılmamalı,
+- dosyada 7 varlık olmalı.
+
+**Pozitif kontrol:** koşul kaldırılınca senaryo `dogrula_metin "kaydedildi: /"` adımında kırmızı düştü.
+
+**Kural:** bir tamponu `snprintf`/`memcpy` ile doldururken kaynağın aynı tampon olabileceği yollar
+(kendini güncelleyen "yeniden kaydet", "yeniden aç") ya karşılaştırılır ya da önce geçici tampona alınır.
+
+### 8du. "Dipteyse dipte tut" kaydırması her kare yeniden ölçülürse ilk satır patlamasında takılır
+**Belirti:** Oynat'tan sonra Konsol, otomatik kaydırma açıkken oyunun ilk satırlarında kalıyordu. Yeni
+satırlar görünmüyordu.
+
+**Neden:** `SetScrollHereY` hedefi bir SONRAKİ karede uygulanır. Arada yeni satır gelince `y < max`
+olur ve "kullanıcı yukarı kaydırmış" sanılır. Ölçüm (2026-11-10, arayüz sürücüsü): 23 satırda `y=17`,
+`max=367`.
+
+**Düzeltme:** `ConsoleView::dipte` bayrağı. Yalnız kullanıcı eylemi (teker yukarı, kaydırma çubuğu
+sürükleme) bayrağı bırakır; dibe inmek bayrağı geri takar.
+
+**Kural:** "takip et" kararı, ertelenen bir kaydırmanın sonucundan değil kullanıcı girdisinden çıkar.
+
+### 8dv. Konuşma tabanlı bir araç, bağlamsız çağrılırsa yüzlerce sahte hata verir — ve boru gerekmeyebilir
+**Belirti:** Kod panelinde canlı hata denetimi için `tulpar --lsp` tek seferlik kosturuldu. Eklenti dizini (`--ext`)
+verilmeyince taze bir projede **148 sahte** "bulunamadı" çıktı; betik dosyasında (kendi `import`'u yok) `logla` bile
+bulunamadı sanıldı.
+
+**Neden:** Çözümleyici, motorun işlevlerini `import "engine"` ve eklenti dizininden bilir. Betik dosyaları `oyun.tpr`'nin
+zinciriyle derlenir, tek başına çözümlenemez.
+
+**Düzeltme:** `--ext <kütüphane dizini>` her zaman verilir (dizin yoksa aşama atlanır); betik dosyalarında 1. satırın
+başına `oyun.tpr`'nin `import`'ları eklenir (satır sayısı değişmez, 1. satırda sütun kayması geri alınır). İstekler
+dosyaya yazılıp çocuğun stdin'i dosya yapılır (`ProcessSpec::stdin_path`): boru, iki yönlü bekleme ve kilitlenme yok.
+Ölçüm (2026-11-12, Linux, tulpar 3.46.1): oturum ~0,1 s; gerçek `oyun.tpr` + betikte 0 sahte alarm, bilinmeyen işlev
+satır/sütunla bulundu. Kapı: `tests/arayuz/kod_hata.txt` (betikte `logla` korunarak), `process_stdin_path_*`.
+
+**Kural:** Bir aracı "sonuç doğru mu" diye değil "bağlamı eksikken ne diyor" diye de ölç; pozitif kontrol yanında
+yanlış-alarm kontrolü de koy.
+
+### 8dw. Ham `IM_COL32` bu hedefte parlak çıkar; editörün kendi paletini kullan
+**Belirti:** Öneri listesi ve parametre ipucu için `IM_COL32(30, 32, 44, 250)` koyu zemin seçildi; ekranda gri-mavi
+(~110,120,140) göründü, arkadaki yazı sezildi.
+
+**Neden:** Çerçeve tamponu sRGB, karışım doğrusal: ham sRGB baytı doğrusal sayılıp parlaklaşıyor (aynı ders açılış
+formundaki karartmada alfa 175 → 225 ile öğrenilmişti). `editor_tone(...)` değerleri bu dönüşümü zaten taşır.
+
+**Kural:** Zemin/çerçeve/vurgu için `Tone` paleti (`editor_tone` + `GetColorU32`); ham `IM_COL32` yalnız açık, doygun
+metin renklerinde ve gözle doğrulandıktan sonra.
+
+### 8dx. Eklenen testler kayıt tavanını doldurur — tavan görünür kırılır ama CI'a düşmeden yerelde yakala
+**Belirti:** 768 test eklenince 2 test "KAYIT TAŞMASI" ile hiç koşmadı (özet satırı kırmızı).
+
+**Düzeltme:** `Registry::kMax` 768 → 1024. **Kural:** yeni test dosyası/çok test eklerken özet satırının
+`koşan/kayıtlı` kısmını ve `KAYIT TAŞMASI` iletisini oku.
+
+### 8dy. Sabit adımlı fizik + jitterli `dt` = kare başına 0 ya da 2 adım ("kasa kasa")
+**Belirti:** Editörün Oynat'ında top sabit hızla giderken takılıyor gibiydi (kullanıcı: "kasa kasa hareket ediyor").
+
+**Ölçüm (2026-11-12, Linux, RTX 5080, "Top topla" otopilot, 583 kare, topun kare başına yer değiştirmesi):** karelerin
+**%16'sı donuk (0 fizik adımı), %16'sı çift adım**. Fizik sabit 1/60 adımla ilerliyor (`sim::TickClock`); gömülü kipte oyun
+kendi saatinde 60 Hz'e uyuyor ama gerçek `dt`'yi ölçüyor, uyku ve kare işi 16–18 ms arasında oynatıyor: 16,6 ms → 0 adım,
+17,0 ms → 2 adım.
+
+**Düzeltme:** `bridge/embed_dt.hpp` — dt 60 Hz bandındaysa (%80–%125) tam 1/60 sayılır; band dışı (gerçek takılma) olduğu
+gibi geçer. Tempo zaten mutlak programa bağlı olduğundan ortalama süre aynı. Sonuç (aynı ölçüm): donuk 0, çift 0, adım
+0,0788–0,0833. Kapı: `bridge_embed_dt_snap_*` (±1,5 ms jitterle 794/793 → 0/0, pozitif kontrol: sabitlemesiz sorun var).
+
+**Kural:** Sabit adımlı simülasyona gerçek ölçülmüş `dt` besleyen her kare döngüsünde "kare başına adım sayısı"nın dağılımını ölç;
+ortalama doğru çıkar, dağılım bozuk olabilir.
+
+### 8dz. `SetNextWindowPos()` pencereyi dock'tan çıkarır — dock isteği sessizce iptal olur
+**Belirti:** Kod paneli "Görünüm"ün yanında sekme olsun diye `SetNextWindowDockID` verildi, pencere yüzen kaldı
+(`IsWindowDocked() == 0`, `GetWindowDockID() == 0`).
+
+**Neden:** ImGui `SetNextWindowPos`'u varsayılan olarak "undock" sayar (`PosUndock`, `DockContextProcessUndockWindow`); yüzen
+yedek için verdiğimiz `FirstUseEver` konum, dock'u hemen geri alıyordu. Hata iletisi yok.
+
+**Düzeltme:** konum/boyut yalnız dock hedefi yokken verilir. Kapı: `tests/arayuz/kod_sekme.txt` — Kod penceresinin dikey
+aralığı Özellikler panelininkiyle aynı mı (kenetli pencereler paylaşır). **Kural:** dock'lanacak pencereye konum verme.
+

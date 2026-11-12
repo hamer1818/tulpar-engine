@@ -1,4 +1,5 @@
 #include "app/editor_ui.hpp"
+#include "content/primitives.hpp"
 #include "platform/process.hpp"
 
 #include <cmath>
@@ -122,29 +123,61 @@ constexpr ImVec4 rgb(int r, int g, int b, float a = 1.0f) {
 }
 constexpr ImVec4 fade(ImVec4 c, float a) { return ImVec4(c.x, c.y, c.z, a); }
 
-constexpr ImVec4 kBg0 = rgb(0x10, 0x11, 0x14);      // void: derin obsidyen boslugu, dok arasi
-constexpr ImVec4 kInput = rgb(0x15, 0x16, 0x1A);    // sunken: cokuk girdi kuyusu, arama
-constexpr ImVec4 kBg1 = rgb(0x1A, 0x1C, 0x22);      // panel: ana slate panel zemini
-constexpr ImVec4 kBg2 = rgb(0x22, 0x25, 0x2D);      // raised: kartlar, sekme cubuklari, baslik bandi
-constexpr ImVec4 kBg3 = rgb(0x2B, 0x2E, 0x38);      // control: modern notr dugmeler
-constexpr ImVec4 kBg4 = rgb(0x38, 0x3D, 0x4A);      // control_hi: uzerine gelince
-constexpr ImVec4 kLine = rgb(0x28, 0x2C, 0x36);     // sleek 1px hairline ayirac ve cerceve
-constexpr ImVec4 kText = rgb(0xF1, 0xF3, 0xF7);     // ana metin (berrak net beyaz)
-constexpr ImVec4 kTextDim = rgb(0x94, 0x9D, 0xAB);  // etiket, ikincil bilgi
-constexpr ImVec4 kTextMute = rgb(0x56, 0x5D, 0x6B); // pasif, ipucu, yer tutucu
-// Vurgu: O3DE / Unreal / Prowl esintili modern kobalt/gokyuzu mavisi
-constexpr ImVec4 kAccent = rgb(0x25, 0x63, 0xEB);
-constexpr ImVec4 kAccentHi = rgb(0x38, 0xBD, 0xF8); // imlec, tik, baglanti
-constexpr ImVec4 kAccentLo = rgb(0x1D, 0x4E, 0xD8); // basili tutamak
-constexpr ImVec4 kSelect = rgb(0x1E, 0x29, 0x3B);   // liste/agac secim seridi
-constexpr ImVec4 kWarn = rgb(0xF5, 0x9E, 0x0B);     // kaydedilmemis, surukle hedefi
-constexpr ImVec4 kWhite = rgb(0xFF, 0xFF, 0xFF);    // yalniz saydam katmanlar icin
-// Eksen renkleri: O3DE / Unreal / Blender standardi
-constexpr ImVec4 kAxisX = rgb(0xEF, 0x44, 0x44);
-constexpr ImVec4 kAxisY = rgb(0x22, 0xC5, 0x5E);
-constexpr ImVec4 kAxisZ = rgb(0x3B, 0x82, 0xF6);
-constexpr ImVec4 kOk = rgb(0x10, 0xB9, 0x81);
-constexpr ImVec4 kErr = rgb(0xEF, 0x44, 0x44);
+// U11 C6: palet bir YAPI; iki tema (koyu = eski sabitlerin BAYT AYNISI, acik = yeni). theme_colors ve editor_tone
+// ETKIN paleti okur; Tercihler > Tema degistirir. Elle yazilmis birkac durum rengi (uzerine gelme, basili...) de
+// palete girdi: acik temada koyu sabit kalsalardi okunmazdi.
+struct Palet {
+  ImVec4 bg0, input, bg1, bg2, bg3, bg4, line, text, text_dim, text_mute, accent, accent_hi, accent_lo, select, warn, white,
+      axis_x, axis_y, axis_z, ok, err;
+  ImVec4 frame_hover, button_active, scroll_active, slider_grab, row_alt;
+};
+constexpr Palet kKoyu = {
+    rgb(0x10, 0x11, 0x14), // bg0: void: derin obsidyen boslugu, dok arasi
+    rgb(0x15, 0x16, 0x1A), // input: sunken: cokuk girdi kuyusu, arama
+    rgb(0x1A, 0x1C, 0x22), // bg1: panel: ana slate panel zemini
+    rgb(0x22, 0x25, 0x2D), // bg2: raised: kartlar, sekme cubuklari, baslik bandi
+    rgb(0x2B, 0x2E, 0x38), // bg3: control: modern notr dugmeler
+    rgb(0x38, 0x3D, 0x4A), // bg4: control_hi: uzerine gelince
+    rgb(0x28, 0x2C, 0x36), // line: 1px ayirac ve cerceve
+    rgb(0xF1, 0xF3, 0xF7), // text
+    rgb(0x94, 0x9D, 0xAB), // text_dim: etiket, ikincil bilgi
+    rgb(0x56, 0x5D, 0x6B), // text_mute: pasif, ipucu, yer tutucu
+    rgb(0x25, 0x63, 0xEB), // accent (kobalt)
+    rgb(0x38, 0xBD, 0xF8), // accent_hi: imlec, tik, baglanti
+    rgb(0x1D, 0x4E, 0xD8), // accent_lo: basili tutamak
+    rgb(0x1E, 0x29, 0x3B), // select: liste/agac secim seridi
+    rgb(0xF5, 0x9E, 0x0B), // warn
+    rgb(0xFF, 0xFF, 0xFF), // white: yalniz saydam katmanlar icin
+    rgb(0xEF, 0x44, 0x44), rgb(0x22, 0xC5, 0x5E), rgb(0x3B, 0x82, 0xF6), // eksenler
+    rgb(0x10, 0xB9, 0x81), rgb(0xEF, 0x44, 0x44), // ok / err
+    rgb(0x17, 0x16, 0x15), rgb(0x28, 0x28, 0x28), rgb(0x4A, 0x47, 0x43), rgb(0x56, 0x52, 0x4E), // durum renkleri
+    rgb(0xFF, 0xFF, 0xFF, 0.025f), // satir ardisik zemini
+};
+// Acik tema: ayni kademe kurali tersine — panel acik gri, girdi BEYAZ (alan olarak okunur), dugme panelden bir ton
+// koyu; vurgu ve durum renkleri acik zeminde okunsun diye koyulastirildi (karsitlik tests/test_editor_widgets.cpp).
+constexpr Palet kAcik = {
+    rgb(0xC9, 0xCE, 0xD6), // bg0: dok arasi / sekme seridi
+    rgb(0xFA, 0xFB, 0xFC), // input
+    rgb(0xE6, 0xE9, 0xEE), // bg1: panel
+    rgb(0xF2, 0xF4, 0xF7), // bg2: kart / acilir pencere
+    rgb(0xD6, 0xDB, 0xE2), // bg3: dugme
+    rgb(0xC8, 0xCE, 0xD8), // bg4: dugme uzerine gelme
+    rgb(0xB8, 0xBF, 0xCA), // line
+    rgb(0x15, 0x19, 0x21), // text
+    rgb(0x44, 0x4C, 0x59), // text_dim
+    rgb(0x67, 0x70, 0x7E), // text_mute
+    rgb(0x25, 0x63, 0xEB), // accent
+    rgb(0x1A, 0x56, 0xC4), // accent_hi (acik zeminde koyu)
+    rgb(0x1E, 0x40, 0xAF), // accent_lo
+    rgb(0xC6, 0xD7, 0xF5), // select
+    rgb(0xA1, 0x4A, 0x06), // warn (koyu kehribar)
+    rgb(0xFF, 0xFF, 0xFF), // white
+    rgb(0xD0, 0x22, 0x22), rgb(0x15, 0x80, 0x3D), rgb(0x25, 0x63, 0xEB), // eksenler
+    rgb(0x04, 0x78, 0x57), rgb(0xB9, 0x1C, 0x1C), // ok / err
+    rgb(0xF0, 0xF3, 0xF7), rgb(0xBC, 0xC3, 0xCE), rgb(0x8E, 0x97, 0xA5), rgb(0x9A, 0xA3, 0xB0),
+    rgb(0x00, 0x00, 0x00, 0.03f),
+};
+const Palet *g_palet = &kKoyu;
 bool g_theme_srgb = false; // son editor_apply_theme'in srgb_target'i (editor_tone bunu izler)
 
 // sRGB (8-bit yazarken kastettigimiz deger) -> dogrusal. Alfa CEVRILMEZ.
@@ -198,82 +231,86 @@ void theme_sizes(ImGuiStyle &s) {
 // (fade), boylece pencere uzerinde de dok uzerinde de ayni okunur.
 void theme_colors(ImGuiStyle &s) {
   ImVec4 *c = s.Colors;
-  c[ImGuiCol_Text] = kText;
-  c[ImGuiCol_TextDisabled] = kTextMute;
-  c[ImGuiCol_WindowBg] = kBg1;
-  c[ImGuiCol_ChildBg] = fade(kBg0, 0.0f); // saydam: cocuk alan pencereyi bozmasin
-  c[ImGuiCol_PopupBg] = fade(kBg2, 0.98f);
-  c[ImGuiCol_Border] = kLine;
-  c[ImGuiCol_BorderShadow] = fade(kBg0, 0.0f);
+  const Palet &P = *g_palet;
+  c[ImGuiCol_Text] = P.text;
+  c[ImGuiCol_TextDisabled] = P.text_mute;
+  c[ImGuiCol_WindowBg] = P.bg1;
+  c[ImGuiCol_ChildBg] = fade(P.bg0, 0.0f); // saydam: cocuk alan pencereyi bozmasin
+  // Opak: 0.98 alfada menu/acilir pencere altindaki arac cubugu yazilari HAYALET gibi okunuyordu
+  // (arayuz surucusunun ilk ekran goruntusunde, 2026-11-06: Dosya menusu altinda "Oynat", "Tasi"
+  // seciliyordu; parlak metin ~%7 sizdi — karisim dogrusal uzayda, goruntu sRGB).
+  c[ImGuiCol_PopupBg] = P.bg2;
+  c[ImGuiCol_Border] = P.line;
+  c[ImGuiCol_BorderShadow] = fade(P.bg0, 0.0f);
   // Girdi alani COKUK (panelden koyu), dugme KABARIK (panelden acik).
-  c[ImGuiCol_FrameBg] = kInput;
-  c[ImGuiCol_FrameBgHovered] = rgb(0x17, 0x16, 0x15);
-  c[ImGuiCol_FrameBgActive] = kBg0; // yazarken daha da coker
-  c[ImGuiCol_InputTextCursor] = kAccentHi;
+  c[ImGuiCol_FrameBg] = P.input;
+  c[ImGuiCol_FrameBgHovered] = P.frame_hover;
+  c[ImGuiCol_FrameBgActive] = P.bg0; // yazarken daha da coker
+  c[ImGuiCol_InputTextCursor] = P.accent_hi;
   // Baslik / dock sekme SERIDI: odakli ya da degil, hep en dip ton. Odak
   // sekmenin ustundeki cizgiyle (overline) gosterilir; serit rengi degisince
   // (eski: aktif Bg2) odakli panelin sekme cubugu icerikten daha acik kaliyor ve
   // pasif sekme seridin icinde kayboluyordu (Unity/Unreal: serit hep koyu).
-  c[ImGuiCol_TitleBg] = kBg0;
-  c[ImGuiCol_TitleBgActive] = kBg0;
-  c[ImGuiCol_TitleBgCollapsed] = fade(kBg0, 0.75f);
-  c[ImGuiCol_MenuBarBg] = kBg0;
-  c[ImGuiCol_ScrollbarBg] = fade(kBg0, 0.55f);
-  c[ImGuiCol_ScrollbarGrab] = kBg3;
-  c[ImGuiCol_ScrollbarGrabHovered] = kBg4;
-  c[ImGuiCol_ScrollbarGrabActive] = rgb(0x4A, 0x47, 0x43); // vurgu DEGIL: notr kalsin
-  c[ImGuiCol_CheckMark] = kAccentHi;
-  c[ImGuiCol_CheckboxSelectedBg] = fade(kAccent, 0.30f);
-  c[ImGuiCol_SliderGrab] = rgb(0x56, 0x52, 0x4E);
-  c[ImGuiCol_SliderGrabActive] = kAccent;
-  c[ImGuiCol_Button] = kBg3;
-  c[ImGuiCol_ButtonHovered] = kBg4;
-  c[ImGuiCol_ButtonActive] = rgb(0x28, 0x28, 0x28); // basilinca ICERI goker
+  c[ImGuiCol_TitleBg] = P.bg0;
+  c[ImGuiCol_TitleBgActive] = P.bg0;
+  c[ImGuiCol_TitleBgCollapsed] = fade(P.bg0, 0.75f);
+  c[ImGuiCol_MenuBarBg] = P.bg0;
+  c[ImGuiCol_ScrollbarBg] = fade(P.bg0, 0.55f);
+  c[ImGuiCol_ScrollbarGrab] = P.bg3;
+  c[ImGuiCol_ScrollbarGrabHovered] = P.bg4;
+  c[ImGuiCol_ScrollbarGrabActive] = P.scroll_active; // vurgu DEGIL: notr kalsin
+  c[ImGuiCol_CheckMark] = P.accent_hi;
+  c[ImGuiCol_CheckboxSelectedBg] = fade(P.accent, 0.30f);
+  c[ImGuiCol_SliderGrab] = P.slider_grab;
+  c[ImGuiCol_SliderGrabActive] = P.accent;
+  c[ImGuiCol_Button] = P.bg3;
+  c[ImGuiCol_ButtonHovered] = P.bg4;
+  c[ImGuiCol_ButtonActive] = P.button_active; // basilinca ICERI goker
   // Liste/agac secimi: UE5'te secim DOYGUN DEGIL -- sakin bir mavi-gri seritle
   // gosterilir, yazi okunur kalir. Doygun dolgu satiri "secili" degil
   // "uyarilmis" gosterir ve uzun listede goz yorar.
-  c[ImGuiCol_Header] = kSelect;
-  c[ImGuiCol_HeaderHovered] = kBg2; // uzerine gelme: yuzey BIR kademe yukari
-  c[ImGuiCol_HeaderActive] = kAccentLo;
+  c[ImGuiCol_Header] = P.select;
+  c[ImGuiCol_HeaderHovered] = P.bg2; // uzerine gelme: yuzey BIR kademe yukari
+  c[ImGuiCol_HeaderActive] = P.accent_lo;
   // Panel ayiraci UE5'te ACIK degil KOYU bir cizgidir: paneller birbirinden
   // "isikla" degil "bosluk"la ayrilir.
-  c[ImGuiCol_Separator] = kBg0;
-  c[ImGuiCol_SeparatorHovered] = kAccentLo;
-  c[ImGuiCol_SeparatorActive] = kAccent;
-  c[ImGuiCol_ResizeGrip] = fade(kLine, 0.55f);
-  c[ImGuiCol_ResizeGripHovered] = kAccentLo;
-  c[ImGuiCol_ResizeGripActive] = kAccent;
+  c[ImGuiCol_Separator] = P.bg0;
+  c[ImGuiCol_SeparatorHovered] = P.accent_lo;
+  c[ImGuiCol_SeparatorActive] = P.accent;
+  c[ImGuiCol_ResizeGrip] = fade(P.line, 0.55f);
+  c[ImGuiCol_ResizeGripHovered] = P.accent_lo;
+  c[ImGuiCol_ResizeGripActive] = P.accent;
   // Sekmeler: pasif sekme seritle AYNI (yalniz yazi), secili sekme pencere
   // zeminiyle BIRLESIR (odakli/odaksiz fark etmez — Unity'de de panel odagini
   // sekmenin rengi degil ustundeki cizgi soyler), ustunde bir ton acik.
-  c[ImGuiCol_Tab] = kBg0;
-  c[ImGuiCol_TabHovered] = kBg2;
-  c[ImGuiCol_TabSelected] = kBg1;
-  c[ImGuiCol_TabSelectedOverline] = kAccent;
-  c[ImGuiCol_TabDimmed] = kBg0;
-  c[ImGuiCol_TabDimmedSelected] = kBg1;
-  c[ImGuiCol_TabDimmedSelectedOverline] = fade(kTextDim, 0.45f);
-  c[ImGuiCol_DockingPreview] = fade(kAccent, 0.35f);
-  c[ImGuiCol_DockingEmptyBg] = kBg0;
-  c[ImGuiCol_PlotLines] = kTextDim;
-  c[ImGuiCol_PlotLinesHovered] = kAccentHi;
-  c[ImGuiCol_PlotHistogram] = kAccent;
-  c[ImGuiCol_PlotHistogramHovered] = kAccentHi;
-  c[ImGuiCol_TableHeaderBg] = kBg2;
-  c[ImGuiCol_TableBorderStrong] = kLine;
-  c[ImGuiCol_TableBorderLight] = fade(kLine, 0.5f);
-  c[ImGuiCol_TableRowBg] = fade(kBg0, 0.0f);
-  c[ImGuiCol_TableRowBgAlt] = fade(kWhite, 0.025f);
-  c[ImGuiCol_TextLink] = kAccentHi;
-  c[ImGuiCol_TextSelectedBg] = fade(kAccent, 0.35f);
-  c[ImGuiCol_TreeLines] = fade(kLine, 0.7f);
-  c[ImGuiCol_DragDropTarget] = kWarn;
-  c[ImGuiCol_DragDropTargetBg] = fade(kWarn, 0.15f);
-  c[ImGuiCol_UnsavedMarker] = kWarn;
-  c[ImGuiCol_NavCursor] = kAccentHi;
-  c[ImGuiCol_NavWindowingHighlight] = fade(kWhite, 0.70f);
-  c[ImGuiCol_NavWindowingDimBg] = fade(kBg0, 0.55f);
-  c[ImGuiCol_ModalWindowDimBg] = fade(kBg0, 0.70f);
+  c[ImGuiCol_Tab] = P.bg0;
+  c[ImGuiCol_TabHovered] = P.bg2;
+  c[ImGuiCol_TabSelected] = P.bg1;
+  c[ImGuiCol_TabSelectedOverline] = P.accent;
+  c[ImGuiCol_TabDimmed] = P.bg0;
+  c[ImGuiCol_TabDimmedSelected] = P.bg1;
+  c[ImGuiCol_TabDimmedSelectedOverline] = fade(P.text_dim, 0.45f);
+  c[ImGuiCol_DockingPreview] = fade(P.accent, 0.35f);
+  c[ImGuiCol_DockingEmptyBg] = P.bg0;
+  c[ImGuiCol_PlotLines] = P.text_dim;
+  c[ImGuiCol_PlotLinesHovered] = P.accent_hi;
+  c[ImGuiCol_PlotHistogram] = P.accent;
+  c[ImGuiCol_PlotHistogramHovered] = P.accent_hi;
+  c[ImGuiCol_TableHeaderBg] = P.bg2;
+  c[ImGuiCol_TableBorderStrong] = P.line;
+  c[ImGuiCol_TableBorderLight] = fade(P.line, 0.5f);
+  c[ImGuiCol_TableRowBg] = fade(P.bg0, 0.0f);
+  c[ImGuiCol_TableRowBgAlt] = P.row_alt;
+  c[ImGuiCol_TextLink] = P.accent_hi;
+  c[ImGuiCol_TextSelectedBg] = fade(P.accent, 0.35f);
+  c[ImGuiCol_TreeLines] = fade(P.line, 0.7f);
+  c[ImGuiCol_DragDropTarget] = P.warn;
+  c[ImGuiCol_DragDropTargetBg] = fade(P.warn, 0.15f);
+  c[ImGuiCol_UnsavedMarker] = P.warn;
+  c[ImGuiCol_NavCursor] = P.accent_hi;
+  c[ImGuiCol_NavWindowingHighlight] = fade(P.white, 0.70f);
+  c[ImGuiCol_NavWindowingDimBg] = fade(P.bg0, 0.55f);
+  c[ImGuiCol_ModalWindowDimBg] = fade(P.bg0, 0.70f);
 }
 } // namespace
 
@@ -319,19 +356,42 @@ void pop_text_size() {
   ImGui::PopFont();
 }
 
+uint32_t editor_koyu_murekkep(float alfa) {
+  float c[4];
+  const Palet *k = g_palet;
+  g_palet = &kKoyu;
+  editor_tone(Tone::Bg0, c);
+  g_palet = k;
+  return ImGui::ColorConvertFloat4ToU32(ImVec4(c[0], c[1], c[2], c[3] * alfa));
+}
+void editor_tema_ayarla(int tema) { g_palet = tema == 1 ? &kAcik : &kKoyu; }
+int editor_tema() { return g_palet == &kAcik ? 1 : 0; }
+void editor_tema_tonu(int tema, Tone t, float out[4]) {
+  const Palet *k = g_palet;
+  g_palet = tema == 1 ? &kAcik : &kKoyu;
+  const bool srgb = g_theme_srgb;
+  g_theme_srgb = false; // ham sRGB (karsitlik hesabi)
+  editor_tone(t, out);
+  g_theme_srgb = srgb;
+  g_palet = k;
+}
+
 void editor_tone(Tone t, float out[4]) {
   // SIRA, Tone enum'uyla BIREBIR aynidir; biri degisirse digeri de degismeli.
-  static constexpr ImVec4 kTable[(int)Tone::Count] = {
-      kBg0,   kBg1,      kBg2,      kBg3,  kBg4,   kLine,  kText,  kTextDim, kAccent,
-      kAccentHi, kAccentLo, kWarn,  kWhite, kAxisX, kAxisY, kAxisZ, kOk,      kErr, kInput,
-      kTextMute, kSelect};
+  const Palet &P = *g_palet;
+  const ImVec4 kTable[(int)Tone::Count] = {
+      P.bg0,       P.bg1,       P.bg2,  P.bg3,   P.bg4,    P.line,   P.text, P.text_dim, P.accent,
+      P.accent_hi, P.accent_lo, P.warn, P.white, P.axis_x, P.axis_y, P.axis_z, P.ok,     P.err, P.input,
+      P.text_mute, P.select};
   static_assert((int)Tone::Count == 21, "Tone enum ile kTable AYRISTI");
-  const ImVec4 c = (int)t < (int)Tone::Count ? kTable[(int)t] : kText; // enum tabani uint8_t: negatif olamaz
+  const ImVec4 c = (int)t < (int)Tone::Count ? kTable[(int)t] : P.text; // enum tabani uint8_t: negatif olamaz
   out[0] = g_theme_srgb ? srgb_to_linear_ch(c.x) : c.x;
   out[1] = g_theme_srgb ? srgb_to_linear_ch(c.y) : c.y;
   out[2] = g_theme_srgb ? srgb_to_linear_ch(c.z) : c.z;
   out[3] = c.w;
 }
+
+void (*g_editor_kisaltma_kanca)(const char *orijinal) = nullptr;
 
 uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap) {
   if (!out || cap == 0) return 0;
@@ -357,6 +417,7 @@ uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap) {
   std::memcpy(out, s, m);
   std::memcpy(out + m, kDots, 3);
   out[m + 3] = 0;
+  if (g_editor_kisaltma_kanca) g_editor_kisaltma_kanca(s);
   return m + 3;
 }
 
@@ -868,6 +929,72 @@ bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap,
   return editor_open_with_candidates(path, adaylar, (uint32_t)(sizeof adaylar / sizeof adaylar[0]), used, used_cap, err, err_cap);
 }
 
+bool editor_open_in_code_editor_at(const char *path, uint32_t line, char *used, uint32_t used_cap, char *err, uint32_t err_cap) {
+#if !defined(_WIN32)
+  const char *env = std::getenv("TULPAR_KOD_EDITORU");
+  if (line > 0 && path && *path && !(env && *env)) {
+    char yer[1100];
+    const int w = std::snprintf(yer, sizeof yer, "%s:%u", path, line);
+    const CodeEditorCandidate satirli[] = {{"code", "-g"}, {"codium", "-g"}};
+    if (w > 0 && (uint32_t)w < sizeof yer && editor_open_with_candidates(yer, satirli, 2, used, used_cap, err, err_cap)) return true;
+  }
+#else
+  (void)line; // Windows: Code.exe yolu ayri cozuluyor (yukarida); satirsiz yol yeterli
+#endif
+  return editor_open_in_code_editor(path, used, used_cap, err, err_cap);
+}
+
+bool betik_hata_konumu(const char *metin, char *dosya, uint32_t dosya_cap, uint32_t *satir) {
+  if (satir) *satir = 0;
+  if (dosya && dosya_cap) dosya[0] = 0;
+  if (!metin || !dosya || dosya_cap < 2) return false;
+  for (const char *p = std::strstr(metin, "--> "); p; p = std::strstr(p + 1, "--> ")) {
+    const char *b = p + 4;
+    const char *e = b;
+    while (*e && *e != '\n' && *e != '\r') e++;
+    while (e > b && (e[-1] == ' ' || e[-1] == '\t')) e--;
+    // Sondan: [":sutun"] ":satir". Iki sayisal parca varsa sondaki sutundur.
+    const char *c1 = e;
+    while (c1 > b && c1[-1] >= '0' && c1[-1] <= '9') c1--;
+    if (c1 == e || c1 <= b || c1[-1] != ':') continue;
+    const char *son = c1 - 1; // satirin ':'i (sutun yoksa)
+    const char *c2 = son;
+    while (c2 > b && c2[-1] >= '0' && c2[-1] <= '9') c2--;
+    const char *sayi = c1;
+    if (c2 != son && c2 > b && c2[-1] == ':') { sayi = c2; son = c2 - 1; }
+    const uint32_t n = (uint32_t)std::strtoul(sayi, nullptr, 10);
+    const size_t yl = (size_t)(son - b);
+    if (n == 0 || yl == 0 || yl >= dosya_cap) continue;
+    std::memcpy(dosya, b, yl);
+    dosya[yl] = 0;
+    if (satir) *satir = n;
+    return true;
+  }
+  return false;
+}
+
+void editor_saat_bicimi(float saat, char *out, uint32_t cap) {
+  if (!out || !cap) return;
+  if (!(saat >= 0.0f)) saat = 0.0f; // NaN dahil
+  int dk = (int)std::lround(saat * 60.0f);
+  if (dk > 24 * 60) dk = 24 * 60;
+  std::snprintf(out, cap, "%02d:%02d", dk / 60, dk % 60);
+}
+
+float editor_zemin_ustu(const content::SceneDesc &d, float x, float z, float tavan, float varsayilan) {
+  float en = -3.4e38f;
+  for (uint32_t i = 0; i < d.entity_count; i++) {
+    const content::SceneEntity &e = d.entities[i];
+    if (e.parent >= 0 || !(e.components & content::kSceneModel) || e.primitive != (int32_t)content::kPrimCube) continue;
+    if (std::fabs(e.rot_deg.x) > 0.01f || std::fabs(e.rot_deg.y) > 0.01f || std::fabs(e.rot_deg.z) > 0.01f) continue;
+    const float hx = 0.5f * std::fabs(e.scale.x), hy = 0.5f * std::fabs(e.scale.y), hz = 0.5f * std::fabs(e.scale.z);
+    if (x < e.pos.x - hx || x > e.pos.x + hx || z < e.pos.z - hz || z > e.pos.z + hz) continue;
+    const float ust = e.pos.y + hy;
+    if (ust <= tavan && ust > en) en = ust;
+  }
+  return en > -3.0e38f ? en : varsayilan;
+}
+
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset) {
   if (out_asset) *out_asset = -1;
   if (!file || !*file) return 0;
@@ -986,9 +1113,9 @@ uint32_t arrow(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 a, Vec3 
 // sorunuydu. Kup mesh KULLANMAZ demiyoruz (motor cizgiyi de kup'tan orer,
 // editor_ui.hpp'nin "ayri boru hatti yok" kurali), yalniz kup TEK BASINA
 // (dolgun, buyuk) yerine ince cubuklardan yildiz cizilir.
-uint32_t light_glyph(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 c, Vec3 color, float th) {
+uint32_t light_glyph(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 c, Vec3 color, float th, float k = 1.0f) {
   static const Vec3 kAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-  const float len = 0.35f;
+  const float len = 0.35f * k;
   uint32_t n = 0;
   for (int a = 0; a < 3; a++) {
     ren.draw(cube, segment_matrix(c - kAxes[a] * len, c + kAxes[a] * len, th), color);
@@ -1049,16 +1176,22 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
       bool is_sel = false;
       for (uint32_t k = 0; k < n && !is_sel; k++) is_sel = sel && sel[k] == (int32_t)i;
       const Vec3 tint = e.light_color * (is_sel ? 1.0f : 0.35f);
+      float k = 1.0f; // isaret olcegi (kamera uzakligi; bkz. GizmoOptions::scale_by_camera)
+      if (o.scale_by_camera) {
+        const float dk = std::sqrt(length_sq(p - o.camera_eye)) / 10.0f;
+        k = dk < 0.04f ? 0.04f : (dk > 2.0f ? 2.0f : dk);
+      }
+      const float thk = th * k;
       const bool directional = e.light_type == content::SceneLightType::Directional;
       // Yaricap tel-kutusu yalniz Nokta icin anlamli (Yonlu'de "yaricap" alani
       // panelde de gizli -- ikisi tutarli olmali).
-      if (o.light_radius && !directional) {
+      if (o.light_radius && !directional && (is_sel || !o.light_radius_selected_only)) {
         // editor.sahne'deki kirmizi isik 8 birim yaricapli; tam kalinlikta 16
         // birimlik kirmizi kutu sahneye hakim oluyor ve hata gibi okunuyordu
         // (kullanicinin gordugu "buyuk kalin kirmizi kutu" bu) -- secili
         // degilse yarim kalinlik.
         const float r = e.light_radius;
-        wire_box(ren, cube, p, {r, r, r}, tint, is_sel ? th : th * 0.5f, &draws);
+        wire_box(ren, cube, p, {r, r, r}, tint, is_sel ? thk : thk * 0.5f, &draws);
       }
       if (o.light_glyph) {
         if (directional) {
@@ -1067,7 +1200,7 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
           // yon boyunca isaga dogru bir ok.
           const Vec3 fwd{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
           const Vec3 dir = length_sq(fwd) > 1e-8f ? normalize(fwd) : Vec3{0, -1, 0};
-          draws += arrow(ren, cube, p, p + dir * 1.2f, tint, is_sel ? th * 1.5f : th);
+          draws += arrow(ren, cube, p, p + dir * (1.2f * k), tint, is_sel ? thk * 1.5f : thk);
           if (e.light_godray && is_sel) {
             const Vec3 right{m.m[0][0], m.m[0][1], m.m[0][2]};
             const Vec3 up{m.m[1][0], m.m[1][1], m.m[1][2]};
@@ -1078,7 +1211,7 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
             draws += arrow(ren, cube, p - up * sp, p - up * sp + dir * 1.5f, tint * 0.8f, th);
           }
         } else if (e.light_type == content::SceneLightType::Spot) {
-          draws += light_glyph(ren, cube, p, tint, is_sel ? th * 1.5f : th);
+          draws += light_glyph(ren, cube, p, tint, is_sel ? thk * 1.5f : thk, k);
           if (is_sel) {
             const Vec3 fwd{-m.m[2][0], -m.m[2][1], -m.m[2][2]};
             const Vec3 dir = length_sq(fwd) > 1e-8f ? normalize(fwd) : Vec3{0, -1, 0};
@@ -1093,7 +1226,7 @@ uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, 
             draws += arrow(ren, cube, p, base - right * cone_rad, tint * 0.7f, th * 0.6f);
           }
         } else {
-          draws += light_glyph(ren, cube, p, tint, is_sel ? th * 1.5f : th);
+          draws += light_glyph(ren, cube, p, tint, is_sel ? thk * 1.5f : thk, k);
         }
       }
     }
@@ -1170,6 +1303,34 @@ uint32_t editor_wire_box_m(renderer::Renderer &ren, renderer::MeshHandle cube, c
     ren.draw(cube, m * Mat4::translate({s0 * h.x, s1 * h.y, 0}) * Mat4::scale({th, th, h.z * 2 + th}), color); n++;
   }
   return n;
+}
+
+uint32_t editor_select_corner_segments(Vec3 lo, Vec3 hi, float oran, Vec3 *a, Vec3 *b) {
+  if (oran > 0.5f) oran = 0.5f;
+  if (oran < 0.0f) oran = 0.0f;
+  const Vec3 d = hi - lo;
+  const Vec3 l{d.x * oran, d.y * oran, d.z * oran};
+  uint32_t n = 0;
+  for (int k = 0; k < 8; k++) {
+    const Vec3 c{(k & 1) ? hi.x : lo.x, (k & 2) ? hi.y : lo.y, (k & 4) ? hi.z : lo.z};
+    const float sx = (k & 1) ? -1.0f : 1.0f, sy = (k & 2) ? -1.0f : 1.0f, sz = (k & 4) ? -1.0f : 1.0f; // kutunun ICINE
+    a[n] = c; b[n] = Vec3{c.x + sx * l.x, c.y, c.z}; n++;
+    a[n] = c; b[n] = Vec3{c.x, c.y + sy * l.y, c.z}; n++;
+    a[n] = c; b[n] = Vec3{c.x, c.y, c.z + sz * l.z}; n++;
+  }
+  return n;
+}
+
+uint32_t editor_select_corners(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th, float oran) {
+  Vec3 a[24], b[24];
+  const uint32_t n = editor_select_corner_segments(lo, hi, oran, a, b);
+  uint32_t c = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    if (length_sq(b[i] - a[i]) < 1e-12f) continue; // yassi kutu (duzlem): o eksende parca yok
+    ren.draw(cube, segment_matrix(a[i], b[i], th), color);
+    c++;
+  }
+  return c;
 }
 
 uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th) {

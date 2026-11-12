@@ -3965,6 +3965,7 @@ const char* ImGui::FindRenderedTextEnd(const char* text, const char* text_end)
 // RenderText***() functions calls ImDrawList::AddText() calls ImBitmapFont::RenderText()
 // TULPAR YAMASI (imconfig.h): UX olcum kancasi; nullptr = kapali.
 void (*GImGuiTulparMetinKanca)(const char *, const char *, const char *, float, float) = nullptr;
+void (*GImGuiTulparMetinKonumKanca)(const char *, const char *, float, float, float, float, const float *) = nullptr;   // tetik: imgui_draw.cpp ImFont::RenderText
 
 void ImGui::RenderText(ImVec2 pos, const char* text, const char* text_end, bool hide_text_after_hash)
 {

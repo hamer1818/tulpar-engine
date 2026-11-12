@@ -81,6 +81,9 @@ struct ChromeMenuExtra {
   void *ctx = nullptr;
   // Guncelleme rozeti tiklandi (ChromeState::update_badge doluyken). Ayni ctx.
   void (*on_badge)(void *ctx) = nullptr;
+  // U11 B2: bir kategorinin menusunden SONRA tablodan gelmeyen ayri bir UST menu (bugun: Secim'den sonra "Ekle").
+  // Kategori acik olsun olmasin her kare cagrilir; cagiran kendi BeginMenu/EndMenu'sunu yapar.
+  void (*after)(void *ctx, CommandCategory cat) = nullptr;
 };
 void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extra = ChromeMenuExtra{});
 

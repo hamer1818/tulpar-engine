@@ -31,6 +31,14 @@ done
 for k in basit gelismis; do
   ( cd "$KOK" && DISPLAY= "$ED" --headless 60 --kip "$k" --ux-rapor "$DIZIN/kip_$k.txt" > "$DIZIN/kip_$k.log" 2>&1 ) &
 done
+# U11 C3: VARSAYILAN DISI ekranlar 1280x720'de (Dunya sekmesi, bilesenli nesneler, Tercihler, Konsol, Ekle menusu):
+# surucu gezintisi + UX raporu. Kalici (>=2 kare) kesik metin ve etiket KISALTMASI ("Kamera gor…") 0 olmali.
+mkdir -p "$DIZIN/gezi" && cp -r "$KOK/tests/assets" "$DIZIN/gezi/assets"
+for k in basit gelismis; do
+  mkdir -p "$DIZIN/gezi/$k"
+  ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= "$ED" --size 1280x720 --kip "$k" --scene "$DIZIN/gezi/assets/editor.sahne" \
+      --surucu "$KOK/tests/arayuz/kesik_gezinti.txt" --surucu-dizin "$DIZIN/gezi/$k" --ux-rapor "$DIZIN/gezi_$k.txt" > "$DIZIN/gezi_$k.log" 2>&1 ) &
+done
 mkdir -p "$DIZIN/dolu" && echo x > "$DIZIN/dolu/var.txt"
 ( cd "$KOK" && DISPLAY= "$ED" --headless 20 --karsilama-yeni "$DIZIN/yeni_oyun" > "$DIZIN/kyeni.log" 2>&1 ) &
 ( cd "$KOK" && DISPLAY= "$ED" --headless 20 --karsilama-yeni "$DIZIN/dolu" > "$DIZIN/kdolu.log" 2>&1 ) &
@@ -73,6 +81,26 @@ done
 YASAK='setpass|arena|tahsis|tick|\(tris\)|verts|piksel|overdraw|batch|k\xC3\xBCme'
 yb=$(grep '^\[ux\] metin' "$DIZIN/kip_basit.txt" 2>/dev/null | grep -ciE "$(printf "$YASAK")")
 yg=$(grep '^\[ux\] metin' "$DIZIN/kip_gelismis.txt" 2>/dev/null | grep -ciE "$(printf "$YASAK")")
+# U11 C3 gezintisi: kalici kisaltma/kesik 0. Konsol satirlari ve durum cubugu bilerek kisaltilir (tam metin
+# tiklayinca); POZITIF KONTROL onlardan: Konsol kisaltmasi > 0 = kanca bu kosumda gercekten olcuyor.
+for k in basit gelismis; do
+  f="$DIZIN/gezi_$k.txt"
+  if [ ! -s "$f" ]; then echo "  KIRMIZI 1280x720 gezinti ($k): UX raporu YOK"; grep -E 'HATA' "$DIZIN/gezi_$k.log" | tail -2 | sed 's/^/      /'; [ "$KAPI" = 1 ] && kirmizi=1; continue; fi
+  ks=$(grep '^\[ux\] kisaltma' "$f" | grep -v "pencere='Konsol\|tulpar_status" | grep -vc "kare_sayisi=1 ")
+  kk=$(grep '^\[ux\] kesik' "$f" | grep -vc "kare_sayisi=1 ")
+  kon=$(grep -c "^\[ux\] kisaltma pencere='Konsol" "$f")
+  if [ "$ks" = 0 ] && [ "$kk" = 0 ] && [ "$kon" -gt 0 ]; then echo "  1280x720 gezinti ($k): kisaltma 0, kesik 0 (kontrol: Konsol satirinda $kon kisaltma olculdu)"
+  else echo "  KIRMIZI 1280x720 gezinti ($k): kisaltma $ks, kesik $kk, kontrol Konsol $kon"
+    grep '^\[ux\] \(kisaltma\|kesik\)' "$f" | grep -v "pencere='Konsol\|tulpar_status\|kare_sayisi=1 " | head -4 | sed 's/^/      /'; [ "$KAPI" = 1 ] && kirmizi=1; fi
+done
+# Rapor dosyasi YOKSA olcum yapilmamistir (editor acilis kapisinda dustu): "0 terim" diye OLCUM gibi basma
+# (2026-11-11: pano kapisi HATA verip cikti, kapi "teknik terim 0 (Gelismis 0)" diyordu — sebep gorunmuyordu).
+for k in basit gelismis; do
+  if [ ! -s "$DIZIN/kip_$k.txt" ]; then
+    echo "  KIRMIZI $k kip: UX raporu YOK — editor olcumden once cikti:"; grep -E 'HATA' "$DIZIN/kip_$k.log" | tail -2 | sed 's/^/      /'
+    [ "$KAPI" = 1 ] && kirmizi=1
+  fi
+done
 if [ "${yb:-x}" = 0 ] && [ "${yg:-0}" -gt 0 ]; then echo "  Basit kip: teknik terim 0 (Gelismis'te $yg — olcum Stats'i goruyor)"
 else echo "  KIRMIZI Basit kip: teknik terim ${yb:-rapor yok} (Gelismis ${yg:-?})"; grep '^\[ux\] metin' "$DIZIN/kip_basit.txt" | grep -iE "$(printf "$YASAK")" | head -3; [ "$KAPI" = 1 ] && kirmizi=1; fi
 for r in 1280x720 1366x768; do

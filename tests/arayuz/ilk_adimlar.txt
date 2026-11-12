@@ -1,0 +1,18 @@
+# U11 B4 (tools/arayuz_kapi.sh): yeni fabrika projesinde Basit kip, secim yok -> "Ilk adimlar" karti: sablonun
+# aciklamasi + sablonun ne nerede oldugu notu + dort adim. "Bir nesne ekle" kup ekler; Ctrl+S "Kaydet"i isaretler; x gizler.
+# Kapi ayar dizinindeki ilk_adimlar.txt'de proje bitlerini (ekle 2 + kaydet 8 + gizli 16 = 26) arar.
+dogrula_metin "İlk adımlar"
+dogrula_metin "Bu oyunda: Topu"
+dogrula_metin "sahnede"
+dogrula_metin "kuralları"
+metin_yok "İpucu"
+tikla "Bir nesne ekle"
+dogrula_metin "Küp"
+tikla "arena.sahne" pencere=Sahne
+tus Ctrl+S
+bekle 3
+ekran ilk_adimlar
+tikla "##ilk_gizle"
+dogrula_metin "İpucu"
+metin_yok "İlk adımlar"
+cik

@@ -1,0 +1,19 @@
+# Kod paneli YUZEN pencere degil, "Gorunum"un yanindaki SEKME olarak acilir (kullanici, 2026-11-12). Kapi yanit.txt'deki
+# pencere satirlarindan Kod penceresinin dikey araligini Ozellikler panelininkiyle karsilastirir: kenetli pencereler ayni
+# dikey araligi paylasir, yuzen pencere paylasmaz. KONTROL: ImGui'de SetNextWindowPos pencereyi dock'tan CIKARIR; ilk denemede
+# konum verdigimiz icin sekme sessizce yuzen kaldi. Oynat'a basinca Gorunum sekmesine donulur: Kod sekmesi gizlenir.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+bekle 6
+ogeler
+ekran kod_sekme
+tus F5
+bekle 30
+dogrula_metin "Oyun hazırlanıyor"
+metin_yok "Dış editörde aç"
+ekran kod_sekme_oynat
+tus F5
+bekle 10
+cik

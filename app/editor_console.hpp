@@ -29,6 +29,7 @@
 // acilmazsa cikti ESKISI GIBI terminale gider (kapinin olumsuz kontrolu budur).
 #pragma once
 #include <cstdarg>
+#include <cstddef>
 #include <cstdint>
 
 namespace tulpar::engine::app {
@@ -51,6 +52,9 @@ constexpr const char *kConsoleTagScene = "sahne";
 struct ConsoleEntry {
   ConsoleLevel level = ConsoleLevel::Bilgi;
   bool truncated = false;              // mesaj kConsoleMsgLen'e sigmadi ("…")
+  // U11 A1: TEKNIK satir (motorun ic gunlugu, olcum, kurulum ayrintisi). Basit kipte bilgi duzeyindekiler
+  // GIZLENIR (uyari/hata her kipte gorunur); silinmez, Gelismis'e gecince geri gelir.
+  bool teknik = false;
   char tag[kConsoleTagLen] = {0};
   uint32_t frame = 0;                  // ILK gorulusteki kare numarasi
   uint32_t last_frame = 0;             // son tekrarin karesi (repeat > 1 ise)
@@ -78,7 +82,19 @@ void console_logv(ConsoleLevel level, const char *tag, const char *fmt, va_list 
 // Bicimlendirilmemis HAZIR satir (yakalama yolu bunu kullanir: yakalanan metin
 // bir bicim dizesi DEGILDIR — icindeki '%' bicimlendiriciye verilemez).
 void console_log_raw(ConsoleLevel level, const char *tag, const char *text);
+// Teknik satir (bkz. ConsoleEntry::teknik).
+void console_log_teknik(ConsoleLevel level, const char *tag, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+void console_log_teknik_raw(ConsoleLevel level, const char *tag, const char *text);
 void console_clear();
+
+// --- Yol kisaltma (U11 A1) ----------------------------------------------------
+// Kullaniciya gosterilen metinde uzun mutlak yollar kisalir: yuva 0 = proje koku (onek + '/' silinir:
+// ".../oyunlar/x/assets/a.sahne" -> "assets/a.sahne"), yuva 1 = ev dizini ("~"). Kayit ANINDA uygulanir
+// (Konsol + durum cubugu ayni kural); stdout ve gunluk dosyalari tam yolu tutar. null/"" yuvayi kapatir.
+constexpr uint32_t kConsoleAliasCount = 2;
+void console_set_path_alias(uint32_t slot, const char *prefix, const char *replacement);
+// in -> out (cap). Donus: out. in == out OLAMAZ.
+const char *console_shorten_paths(const char *in, char *out, size_t cap);
 
 // --- Okuma ------------------------------------------------------------------
 uint32_t console_size();                  // halkada duran kayit
@@ -91,7 +107,13 @@ const ConsoleEntry *console_by_seq(uint32_t seq); // kaydigi icin secim seq ile 
 // --- Panel gorunumu ---------------------------------------------------------
 struct ConsoleView {
   bool show[kConsoleLevelCount] = {true, true, true}; // duzey suzgeci
+  bool teknik_gizle = false;                          // Basit kip: teknik BILGI satirlari gizli (cagiran kurar)
   bool autoscroll = true;                             // yeni satir geldikce alta kay
+  // Dibe yapisik mi: YALNIZ kullanicinin yukari kaydirmasi (teker/surukleme) birakir, dibe inmesi geri
+  // takar. Eskiden "y >= max-1" her kare yeniden olculuyordu: SetScrollHereY hedefi BIR SONRAKI karede
+  // uygulandigi icin arada satir gelince y < max kaliyor ve Konsol oyunun ilk satirlarinda takiliyordu
+  // (2026-11-10 arayuz surucusu: 23 satirda y=17, max=367).
+  bool dipte = true;
   char search[64] = {0};                              // metin/etiket aramasi (harf duyarsiz)
   int32_t selected = -1;                              // secili kaydin seq'i (-1 = yok)
   bool expanded = false;                              // secili satirin tam metni acik mi

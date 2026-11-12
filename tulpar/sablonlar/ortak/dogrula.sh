@@ -2,7 +2,7 @@
 # {{OYUN_TR}} — oyunun KAPILARI (pencere ACMAZ). Son satir her zaman ozettir:
 #   {{KIMLIK}} dogrulama: N gecti, M dustu
 #
-# 1) penceresiz otopilot: menu -> Oyna -> tur -> sonuc; "[kapi] TAMAM" (en az 3 parilti, hata 0)
+# 1) penceresiz otopilot: menu -> Oyna -> tur -> sonuc; "[kapi] TAMAM" (esigi oyun.tpr koyar: arena 3 parilti, bilardo 5 top; hata 0)
 # 2) POZITIF KONTROL: TULPAR_{{ONEK}}_KAPI_BOZ=1 otopilotu durdurur -> kapi BASARISIZ demeli
 #    (kapi gercekten oyunu olcuyor; otopilotsuz tur hicbir sey toplamaz)
 # 3) ses yolu: TULPAR_ENGINE_AUDIO_NULL=1 ile ses cihazi acik kosum da TAMAM

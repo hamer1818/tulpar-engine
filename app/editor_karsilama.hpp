@@ -35,6 +35,11 @@ struct KarsilamaDurum {
   int yon = 0;               // 0 yatay, 1 dikey
   char sablonlar[8][32] = {};
   uint32_t sablon_n = 0;
+  // U11 A3: kartlarin bilgisi (sablon.txt; editor_fabrika SablonBilgi ile ayni alanlar).
+  char sablon_ad[8][48] = {};
+  char sablon_aciklama[8][200] = {};
+  char sablon_ikon[8][16] = {};
+  int sablon_yon[8] = {};
   char hata[256] = "";       // formun altindaki kirmizi satir (bos: yok)
   char bilgi[256] = "";      // yesil satir (son eylemin sonucu)
   int32_t son_secili = -1;

@@ -1,0 +1,13 @@
+# "Ayri pencerede ac": Kod sekmesi kapanir, kod BAGIMSIZ bir surecte (engine_editor --kod) acilir. Kapi ortami
+# TULPAR_KOD_PENCERESI_EK ile cocugu penceresiz kosturur (--headless 2500 --out x.ppm): ana editor `cik` ile kapandiktan SONRA
+# cocugun hala yasadigi ve karesini yazdigi olculur (yasamasaydi dosya hic olusmazdi).
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+dogrula_metin "Ayrı pencerede aç"
+tikla "Ayrı pencerede aç"
+bekle 6
+metin_yok "Dış editörde aç"
+dogrula_metin "ayrı pencerede açıldı"
+cik

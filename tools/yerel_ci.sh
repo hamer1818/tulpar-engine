@@ -145,15 +145,26 @@ cp "$IS/ux.log" yapi/yerel_ci_ux.log
 [ "$r" = OK ] && r="OK $(awk '/^1920x1080/{print "1920x1080 kesik "$2", gorunum "$4}' "$IS/ux.log")"
 asama "Editor UX (kesik/tasma/gorunum)" $(( $(zaman) - t )) "$r"
 
+# 5b3) Arayuz surucusu (docs/ARAYUZ-SURUCUSU.md): penceresiz editoru betikle sur — menu, hiyerarsi
+# tiklamasi, Delete/Ctrl+Z, metin girisi; POZITIF KONTROL olmayan oge cikis 1.
+t=$(zaman); r="OK"
+bash tools/arayuz_kapi.sh "$IS/arayuz" > "$IS/arayuz.log" 2>&1 || r="HATA $(grep -m1 -E 'KIRMIZI|BOZUK' "$IS/arayuz.log")"
+cp "$IS/arayuz.log" yapi/yerel_ci_arayuz.log
+[ "$r" = OK ] && r="OK $(grep -o '[0-9]* komut tamam' "$IS/arayuz.log"); pozitif kontrol dustu"
+asama "Arayuz surucusu (betikli)" $(( $(zaman) - t )) "$r"
+
 # 5c) Oyun fabrikasi (docs/FABRIKA.md asama 2): sablondan uretilen oyun ilk gun dogrulamadan
 # gecmeli; POZITIF KONTROL YENI_OYUN_BOZ=1 (sablona bozuk satir) KIRMIZI donmeli. Ikisi paralel.
 t=$(zaman); r="OK"
 fab="$IS/fabrika"; mkdir -p "$fab"
 bash tools/yeni_oyun.sh "$fab/iyi" --kimlik ci_oyun --onek CIO --tr "CI Oyunu" --en "CI Game" > "$IS/fab_iyi.log" 2>&1 & p1=$!
 YENI_OYUN_BOZ=1 bash tools/yeni_oyun.sh "$fab/boz" --kimlik ci_boz --onek CIB --tr "CI Bozuk" --en "CI Broken" > "$IS/fab_boz.log" 2>&1 & p2=$!
-wait $p1; rf1=$?; wait $p2; rf2=$?
-cat "$IS/fab_iyi.log" "$IS/fab_boz.log" > yapi/yerel_ci_fabrika.log
+# Bilardo sablonu (karsilamadaki "Ornek: Bilardo" de bu): otopilot >= 5 top, KAPI_BOZ kirmizi, ses acik.
+bash tools/yeni_oyun.sh "$fab/bilardo" --kimlik ci_bilardo --onek CIBL --tr "CI Bilardo" --en "CI Billiards" --tur bilardo > "$IS/fab_bilardo.log" 2>&1 & p3=$!
+wait $p1; rf1=$?; wait $p2; rf2=$?; wait $p3; rf3=$?
+cat "$IS/fab_iyi.log" "$IS/fab_boz.log" "$IS/fab_bilardo.log" > yapi/yerel_ci_fabrika.log
 if [ $rf1 != 0 ]; then r="HATA yeni_oyun: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_iyi.log")"
+elif [ $rf3 != 0 ]; then r="HATA bilardo sablonu: $(grep -m1 -E '✗|HATA|KIRMIZI' "$IS/fab_bilardo.log")"
 elif [ $rf2 = 0 ]; then r="HATA pozitif kontrol: bozuk sablon YESIL gecti"
 else
   # Uretilen oyunun Android APK'si (x86_64 debug) derlenip APK'nin KENDISINDEN dogrulanir
@@ -165,9 +176,9 @@ else
   ( cd "$fab/iyi" && CIKTI="$fab/apk" DEBUG=1 ./apk_derle.sh x86_64 ) >> "$IS/fab_apk.log" 2>&1; ra=$?
   cat "$IS/fab_apk.log" >> yapi/yerel_ci_fabrika.log
   if [ $ra != 0 ]; then r="HATA APK: $(grep -m1 -E 'HATA' "$IS/fab_apk.log")"
-  else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
+  else r="OK $(grep -m1 'dogrulama:' "$IS/fab_iyi.log"); $(grep -m1 'dogrulama:' "$IS/fab_bilardo.log"); APK $(du -h "$fab"/apk/*.apk | cut -f1) dogrulandi; bozuk sablon kirmizi"; fi
 fi
-asama "Fabrika: yeni_oyun (arena)" $(( $(zaman) - t )) "$r"
+asama "Fabrika: yeni_oyun (arena + bilardo)" $(( $(zaman) - t )) "$r"
 
 # 5d) Dagitim paketi (tools/package.sh: paketle + tamlik + eklenti kosusu + kurulu duzende Yeni oyun).
 # CI'da her PR'da kosuyordu ama yerelde YOKTU: U3a'dan (2026-11-05) beri varlik turetmesi duruyordu

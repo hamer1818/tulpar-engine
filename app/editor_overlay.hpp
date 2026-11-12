@@ -44,6 +44,13 @@ struct OverlayInfo {
   float cam_target[3] = {0, 0, 0};
   int gizmo_op = 0; // 0 tasi, 1 dondur, 2 olcekle (editor_app gizmo_op ile ayni)
   bool gizmos_visible = true;
+  // Basit kip: arac cubugunu tekrarlayan gizmo kipi hapi ve (tek secenekli) golgeleme hapi cizilmez.
+  bool sade = false;
+  // Gunes yonu (isiga DOGRU, normalize edilmesi gerekmez). Eksen gostergesinde sari GUNES NOKTASI olarak
+  // cizilir. Eskiden yalniz sahnenin ortasinda 13 m'lik kalin 3B ok vardi: bos sahnede bile "istaka
+  // gibi bir model duruyor" sanildi (kullanici, 2026-11-10). 3B ok artik yalniz gunes duzenlenirken.
+  bool has_sun = false;
+  float sun_dir[3] = {0, 1, 0};
   bool playing = false;
   bool hovered = false; // fare goruntunun ustunde (ImGui::IsItemHovered)
   bool focused = false; // panel odakli (ImGui::IsWindowFocused)
@@ -176,6 +183,8 @@ struct AssetsView {
 struct AssetsAction {
   bool refresh = false; // dizin yeniden taransin
   int add_index = -1;   // files[i] sahneye eklensin (-1 = yok)
+  bool ice_aktar = false;  // U11 B5: "Model ice aktar..." (cagiran dosya secici acar, editor_model_ice_aktar)
+  bool yeni_betik = false; // U11 B5: bos durumdaki "Yeni betik"
 };
 // Yerlesimin OLCUM ciktisi (kapilar bir karoya "tiklarken" izgarayi yeniden
 // turetmez): govde cocugunun ekran dikdortgeni, karo olcusu, sutun sayisi ve

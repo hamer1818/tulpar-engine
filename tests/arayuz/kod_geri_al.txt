@@ -1,0 +1,7 @@
+# Ayri pencereden "Editore geri al" istegi (kapi, istek dosyasini editor acilmadan ONCE ayar dizinine birakir): calisan editor
+# istegi yoklayip dosyayi Kod SEKMESI olarak acar ve istegi tuketir. KONTROL: istek olmayan oturumda sekme YOK.
+bekle 70
+dogrula_metin "Dış editörde aç"
+dogrula_metin "func dondur_baslat"
+ekran kod_geri_al
+cik

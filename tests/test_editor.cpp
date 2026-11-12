@@ -107,6 +107,7 @@ ENGINE_TEST(editor_imgui_draws_into_offscreen_pass) {
 // Sahne veri modelinin donusum sirasi (T*Rz*Ry*Rx*S) ImGuizmo'nun
 // Recompose/Decompose gelenegiyle ayni olmali; yoksa gizmo her karede
 // Euler'i "duzeltir" ve varlik titrer. Kontrol: ters sira farkli matris verir.
+#include "content/primitives.hpp"
 #include "content/scene.hpp"
 #include <ImGuizmo.h>
 ENGINE_TEST(editor_scene_matrix_matches_gizmo_convention) {
@@ -505,6 +506,75 @@ ENGINE_TEST(editor_script_open_resolves_label_and_walks_candidates) {
 #else
   unsetenv("TULPAR_TEST_SAHTE_EDITOR");
 #endif
+}
+
+// Betik hatasi penceresi (Oyun baslatilamadi) "Kodu ac (satir N)" icin konumu derleyici ciktisindan
+// cikarir. Ornek metin TulparLang'in GERCEK ciktisi (2026-11-10, tulpar bozuk.tpr).
+ENGINE_TEST(editor_script_error_location_parse_with_control) {
+  const char *gercek =
+      "hata: ayr\xC4\xB1\xC5\x9Ft\xC4\xB1rma hatas\xC4\xB1: ifadede beklenmeyen sembol\n"
+      "  --> bozuk.tpr:57\n    |\n 57 |     tanimsiz_bir_sey(1, ;\n    |                         ^\n"
+      "hata: ikinci\n  --> bozuk.tpr:63\n";
+  char d[256];
+  uint32_t n = 0;
+  CHECK(app::betik_hata_konumu(gercek, d, sizeof d, &n));
+  CHECK(!std::strcmp(d, "bozuk.tpr") && n == 57); // ILK hata
+  CHECK(app::betik_hata_konumu("  --> kit/arayuz.tpr:12:5\n", d, sizeof d, &n));
+  CHECK(!std::strcmp(d, "kit/arayuz.tpr") && n == 12); // sutun atlanir
+  CHECK(app::betik_hata_konumu("  --> C:\\Oyun\\oyun.tpr:9\r\n", d, sizeof d, &n));
+  CHECK(!std::strcmp(d, "C:\\Oyun\\oyun.tpr") && n == 9); // surucu harfindeki ':' yolun parcasi
+  // KONTROL: konumsuz metin, sayisiz ok, satir 0 -> false ve cikti bos.
+  CHECK(!app::betik_hata_konumu("hata: eklenti bulunamadi\n", d, sizeof d, &n) && d[0] == 0 && n == 0);
+  CHECK(!app::betik_hata_konumu("  --> oyun.tpr\n", d, sizeof d, &n));
+  CHECK(!app::betik_hata_konumu("  --> oyun.tpr:0\n", d, sizeof d, &n));
+}
+
+// Gunun Saati alani "14.0:00" gosteriyordu (bicim "%.1f:00"); artik SS:DD. Zemin ustu: yeni ilkel
+// altindaki kutunun ust yuzune oturur (arena zemini), tavan ustu sayilmaz, kutu disi varsayilan.
+ENGINE_TEST(editor_time_format_and_ground_snap_with_control) {
+  char b[16];
+  app::editor_saat_bicimi(14.0f, b, sizeof b);  CHECK(!std::strcmp(b, "14:00"));
+  app::editor_saat_bicimi(6.5f, b, sizeof b);   CHECK(!std::strcmp(b, "06:30"));
+  app::editor_saat_bicimi(23.99f, b, sizeof b); CHECK(!std::strcmp(b, "23:59"));
+  app::editor_saat_bicimi(-1.0f, b, sizeof b);  CHECK(!std::strcmp(b, "00:00"));
+  CHECK(std::strchr(b, '%') == nullptr); // DragFloat bicimi: belirtec yok
+  static content::SceneDesc d;
+  content::scene_desc_reset(d);
+  content::SceneEntity zemin{};
+  zemin.components = content::kSceneModel; zemin.primitive = (int32_t)content::kPrimCube;
+  zemin.pos = Vec3{0, -0.25f, 0}; zemin.scale = Vec3{20, 0.5f, 20};
+  content::SceneEntity tavan = zemin; tavan.pos = Vec3{0, 10, 0}; tavan.scale = Vec3{4, 1, 4};
+  d.entities[d.entity_count++] = zemin;
+  d.entities[d.entity_count++] = tavan;
+  CHECK(std::fabs(app::editor_zemin_ustu(d, 1, 1, 1.0f, -7.0f) - 0.0f) < 1e-5f);   // zemin ustu, tavan sayilmaz
+  CHECK(std::fabs(app::editor_zemin_ustu(d, 1, 1, 20.0f, -7.0f) - 10.5f) < 1e-5f); // tavan izinliyse en yuksek
+  // KONTROL: kutunun disinda ve donuk kutuda varsayilan.
+  CHECK(app::editor_zemin_ustu(d, 50, 0, 1.0f, -7.0f) == -7.0f);
+  d.entities[0].rot_deg.y = 45.0f;
+  CHECK(app::editor_zemin_ustu(d, 1, 1, 1.0f, -7.0f) == -7.0f);
+}
+
+// Secim koseli parantezi: 8 kose x 3 parca; her parca kutunun ICINE, kenarin `oran`i kadar uzanir.
+// (Secili varlik artik sariya boyanmiyor: kendi rengi gorunur, secim bu isaretle okunur; 2026-11-11.)
+ENGINE_TEST(editor_select_corner_geometry_with_control) {
+  Vec3 a[24], b[24];
+  const Vec3 lo{-1, 0, -2}, hi{1, 4, 2};
+  CHECK(app::editor_select_corner_segments(lo, hi, 0.25f, a, b) == 24);
+  uint32_t x = 0, y = 0, z = 0;
+  for (int i = 0; i < 24; i++) {
+    const Vec3 d = b[i] - a[i];
+    // kose gercekten kutunun kosesi
+    CHECK((a[i].x == lo.x || a[i].x == hi.x) && (a[i].y == lo.y || a[i].y == hi.y) && (a[i].z == lo.z || a[i].z == hi.z));
+    // uc kutunun icinde
+    CHECK(b[i].x >= lo.x && b[i].x <= hi.x && b[i].y >= lo.y && b[i].y <= hi.y && b[i].z >= lo.z && b[i].z <= hi.z);
+    if (std::fabs(d.x) > 0) { x++; CHECK(std::fabs(std::fabs(d.x) - 0.5f) < 1e-6f); } // 2 * 0.25
+    if (std::fabs(d.y) > 0) { y++; CHECK(std::fabs(std::fabs(d.y) - 1.0f) < 1e-6f); } // 4 * 0.25
+    if (std::fabs(d.z) > 0) { z++; CHECK(std::fabs(std::fabs(d.z) - 1.0f) < 1e-6f); } // 4 * 0.25
+  }
+  CHECK(x == 8 && y == 8 && z == 8);
+  // KONTROL: oran 0.5'te kirpilir (karsi kosedeki parcayla ortada bulusur, asmaz).
+  app::editor_select_corner_segments(lo, hi, 3.0f, a, b);
+  CHECK(std::fabs(std::fabs(b[0].x - a[0].x) - 1.0f) < 1e-6f);
 }
 
 ENGINE_TEST(editor_light_and_shadow_gizmos_draw_with_control) {

@@ -4,11 +4,46 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "platform/fs_ops.hpp"
 #include "platform/paths.hpp"
 #include "platform/thread.hpp"
 #include "platform/time.hpp"
 
 namespace tulpar::engine::app {
+
+bool game_motor_bagla(const char *proje, const char *motor_dizini, char *err, uint32_t err_cap) {
+  if (err && err_cap) err[0] = 0;
+  if (!proje || !*proje || !motor_dizini || !*motor_dizini) return true;
+  char yol[1200];
+  std::snprintf(yol, sizeof yol, "%s/tulpar.toml", proje);
+  static char toml[16 * 1024];
+  bool kesik = false;
+  if (platform::fs_read_all(yol, toml, sizeof toml, &kesik) < 0) return true;   // fabrika projesi degil
+  if (!std::strstr(toml, ".motor/")) return true;
+  char hedef_ext[1200], bag[1200];
+  std::snprintf(hedef_ext, sizeof hedef_ext, "%s/tulpar-ext", motor_dizini);
+  if (platform::fs_kind(hedef_ext) != platform::FsKind::Dir) {
+    if (err && err_cap) std::snprintf(err, err_cap, "motor dizininde tulpar-ext yok: %s", hedef_ext);
+    return false;
+  }
+  // Bag zaten AYNI eklentiyi mi gosteriyor: .motor/tulpar-ext'in bildirimini karsilastir (yol esitligi
+  // degil — /a/../b ya da junction ayni yeri baska yazar).
+  std::snprintf(yol, sizeof yol, "%s/.motor/tulpar-ext/tulpar-ext.json", proje);
+  char a[1200];
+  std::snprintf(a, sizeof a, "%s/tulpar-ext.json", hedef_ext);
+  static char b1[64 * 1024], b2[64 * 1024];
+  const int64_t n1 = platform::fs_read_all(yol, b1, sizeof b1, &kesik);
+  const int64_t n2 = platform::fs_read_all(a, b2, sizeof b2, &kesik);
+  if (n1 >= 0 && n1 == n2 && std::memcmp(b1, b2, (size_t)n1) == 0) return true;
+  std::snprintf(bag, sizeof bag, "%s/.motor", proje);
+  if (!platform::fs_link_dir(motor_dizini, bag)) {
+    if (err && err_cap)
+      std::snprintf(err, err_cap, ".motor baglanamadi (%s -> %s, hata %d): projede tools/ortam.sh calistirin", bag, motor_dizini,
+                    platform::fs_last_error());
+    return false;
+  }
+  return true;
+}
 
 bool game_find_extension(const char *exe_dir, char *out, uint32_t cap, char *why, uint32_t why_cap) {
   if (!out || cap == 0) return false;

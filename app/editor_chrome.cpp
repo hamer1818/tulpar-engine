@@ -17,6 +17,7 @@
 
 #include "app/editor_ui.hpp"
 
+#include <IconsMaterialDesign.h>
 #include <imgui.h>
 #include <imgui_internal.h> // BeginViewportSideBar, IM_TRUNC
 
@@ -125,7 +126,13 @@ void tooltip_text(const CommandDesc &d, const char *label, char *buf, uint32_t c
 
 // Son ogenin ipucu — pasif dugmede de (kullanici "neden basilmiyor"u okusun).
 void tip_last_item(const char *text) {
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
+  // Uzun aciklama SARILIR (~32 harf genisligi): 1366 px'te Oynat ipucu ekranin sagindan tasiyordu.
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled) && ImGui::BeginTooltip()) {
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+  }
 }
 
 // --- Arac cubugu dugmesi ------------------------------------------------------
@@ -272,6 +279,7 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
         if (extra.fn) extra.fn(extra.ctx, (CommandCategory)cur);
         ImGui::EndMenu();
       }
+      if (cur != kCommandCategoryCount && extra.after) extra.after(extra.ctx, (CommandCategory)cur);
       cur = (uint32_t)d.category;
       const char *title = command_category_name(d.category);
       // Baslik dikdortgeni: BeginMenuEx menubar'da Selectable'i ItemSpacing*2 ile
@@ -302,6 +310,7 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
     if (extra.fn && cur < kCommandCategoryCount) extra.fn(extra.ctx, (CommandCategory)cur);
     ImGui::EndMenu();
   }
+  if (cur < kCommandCategoryCount && extra.after) extra.after(extra.ctx, (CommandCategory)cur);
 
   // Sag uc: [guncelleme rozeti] urun adi (soluk). Sahne adi arac cubugunda
   // (kirli noktasiyla birlikte).
@@ -371,7 +380,9 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
 
     // 1) Oynat / Durdur — sabit genislik: iki metin arasinda dugme zipla(ma)sin.
     {
-      static const char kPlay[] = "▶ Oynat", kStop[] = "■ Durdur";
+      // U11 C1: araç cubugu ikonlari TEK aileden (Material): eskiden DejaVu Unicode simgeleri (▶ ✥ ↻ ▣ ⊞ ☀ ⬇ ⚒)
+      // ve Material karisikti; Kaydet "indirme oku", Gizmolar "gunes" gosteriyordu.
+      static const char kPlay[] = ICON_MD_PLAY_ARROW " Oynat", kStop[] = ICON_MD_STOP " Durdur";
       const float w = ImMax(ImGui::CalcTextSize(kPlay).x, ImGui::CalcTextSize(kStop).x) + st.FramePadding.x * 2.0f;
       ToolBtn b;
       b.id = "##oynat";
@@ -385,9 +396,9 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     // 2) Gizmo kipi: uclu bolumlu kontrol (esit genislik, dis koseler yuvarlak).
     {
       struct Seg { CommandId id; const char *label; const char *iid; };
-      static const Seg segs[3] = {{CommandId::GizmoTranslate, "✥ Taşı", "##gz_tasi"},
-                                  {CommandId::GizmoRotate, "↻ Döndür", "##gz_dondur"},
-                                  {CommandId::GizmoScale, "▣ Ölçekle", "##gz_olcekle"}};
+      static const Seg segs[3] = {{CommandId::GizmoTranslate, ICON_MD_OPEN_WITH " Taşı", "##gz_tasi"},
+                                  {CommandId::GizmoRotate, ICON_MD_ROTATE_RIGHT " Döndür", "##gz_dondur"},
+                                  {CommandId::GizmoScale, ICON_MD_OPEN_IN_FULL " Ölçekle", "##gz_olcekle"}};
       float w = 0.0f;
       for (const Seg &sg : segs) w = ImMax(w, ImGui::CalcTextSize(sg.label).x);
       w = IM_TRUNC(w + st.FramePadding.x * 2.0f);
@@ -411,11 +422,14 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     }
     vsep(bh);
 
+    // U11 C7: Basit kipte Yakala / Gizmolar / Derle CIZILMEZ (menude ve kisayolda durur): F5 zaten derler, yakalama
+    // ve gizmo gorunurlugu yeni baslayanin ilk haftasinda gereken ayar degil (Tur B gezintisi, 2026-11-11).
+    if (s.gelismis) {
     // 3) Yakalama (tabloda yok -> ChromeOutput) + adim kaydiraci (acikken).
     {
       ToolBtn b;
       b.id = "##yakala";
-      b.label = "⊞ Yakala";
+      b.label = ICON_MD_GRID_ON " Yakala";
       b.look = s.snap ? Look::Outline : Look::Plain; // anahtar: sessiz (kenarlik + metin)
       if (tool_button(b, bh)) out->snap_toggled = true;
       rec_item(g_rects[(int)ChromeRect::SnapToggle]);
@@ -436,23 +450,26 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
     {
       ToolBtn b;
       b.id = "##gizmolar";
-      b.label = "☀ Gizmolar";
+      b.label = ICON_MD_VISIBILITY " Gizmolar";
       b.look = t.checked(CommandId::ViewGizmos) ? Look::Outline : Look::Plain;
       command_button(t, CommandId::ViewGizmos, b, bh, &g_rects[(int)ChromeRect::GizmoVisible]);
     }
     vsep(bh);
+    }
 
     // 5) Kaydet / Derle
     {
       ToolBtn b;
       b.id = "##kaydet";
-      b.label = "⬇ Kaydet";
+      b.label = ICON_MD_SAVE " Kaydet";
       command_button(t, CommandId::FileSave, b, bh, nullptr);
-      ImGui::SameLine(0.0f, gap_item());
-      ToolBtn c;
-      c.id = "##derle";
-      c.label = "⚒ Derle";
-      command_button(t, CommandId::FileCompile, c, bh, nullptr);
+      if (s.gelismis) {
+        ImGui::SameLine(0.0f, gap_item());
+        ToolBtn c;
+        c.id = "##derle";
+        c.label = ICON_MD_BUILD " Derle";
+        command_button(t, CommandId::FileCompile, c, bh, nullptr);
+      }
     }
 
     // 6) Sag blok: [nokta hucresi][sahne adi]. Nokta yalniz kirliyken cizilir ama
@@ -461,7 +478,7 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
       const float left_min = ImGui::GetItemRectMax().x + gap_group();
       const float right = wp.x + ws.x - toolbar_pad().x;
       const char *name = basename_of(s.scene_path);
-      if (!*name) name = "(sahne yok)";
+      if (!*name) name = "isimsiz.sahne"; // kaydedilmemis (hiyerarsi ve Ozellikler ile ayni ad)
       static const char kDot[] = "●";
       const float dot_w = ImGui::CalcTextSize(kDot).x;
       const float avail = right - left_min - dot_w - gap_item();
@@ -533,9 +550,9 @@ void chrome_status_bar(const ChromeState &s) {
     if (!s.gelismis) {
       // Basit kip (EDITOR-UYGULAMA-PLANI U5): "kare N · tick N" ve kamera konumu oyun yapana bir sey
       // soylemez — dusulur; kalanlar sola kayar.
-      std::snprintf(seg[2], sizeof seg[2], "%s", seg[3]);
-      std::snprintf(seg[3], sizeof seg[3], "%s", seg[4]);
-      n_seg = 4;
+      // U11 A1: kare suresi (ms) de Gelismis'te: Basit kip olcum gostermez.
+      std::snprintf(seg[2], sizeof seg[2], "%s", seg[4]);
+      n_seg = 3;
     }
     float w[kSegs];
     float total = 0.0f;

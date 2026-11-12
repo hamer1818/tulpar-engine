@@ -500,6 +500,12 @@ public:
   // Kare: begin (UBO yaz) -> draw*N -> record(cb): subpass0 depth, next, subpass1 renk.
   void begin_frame(uint32_t frame_index);
   void draw(MeshHandle mesh, const Mat4 &model, Vec3 color); // varsayilan malzeme
+  // Sonraki cizimler GOLGE gecisine girer mi (varsayilan evet; begin_frame sifirlar). Editor kilavuzlari
+  // (gizmo, secim isareti, tel kutu) kapatir: yoksa isik isareti ve gunes oku masaya golge dusuruyordu
+  // (2026-11-11). Golgesiz cizim GPU eleme kumesine ALINMAZ (dolayli golge cizimi onu da cizerdi);
+  // CPU yolunda yalniz ana gecise girer, CullInfo::cpu_draws'ta sayilir.
+  void set_shadow_casting(bool on) { draw_shadow_ = on; }
+  bool shadow_casting() const { return draw_shadow_; }
   // prev_model: ONCEKI karenin model matrisi (hareket vektoru icin). nullptr =
   // duran nesne (prev = model, MV 0). Cagiran sozlesmesi BOZULMAZ: varsayilan
   // argumanlar, bugunku cagrilar aynen derlenir. Nesne KIMLIGI tutulmaz —
@@ -764,6 +770,7 @@ private:
     Mat4 prev_model;      // hareket vektoru icin (verilmezse = model)
     float reactive;       // 0..1 MV guvenilmezlik maskesi
     uint32_t batch;       // GPU cull kumesi; kNoBatch = CPU yolunda cizilir
+    bool shadow = true;   // golge gecisine girer mi (set_shadow_casting)
   };
   // ui.vert'in push blogu: GLSL Push { vec2 screen; vec2 rot; float encode; }.
   // Eskiden burada ciplak bir `const float push[5]` vardi (renderer.cpp);
@@ -879,6 +886,7 @@ private:
   MaterialHandle default_material_{};
   Draw *draws_ = nullptr;
   uint32_t draw_count_ = 0;
+  bool draw_shadow_ = true;
   RendererStats stats_{};
   Mat4 view_{}, proj_{};
   Vec3 light_dir_{0.4f, 1.0f, 0.3f}, ambient_{0.12f, 0.13f, 0.16f};

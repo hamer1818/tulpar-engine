@@ -147,6 +147,12 @@ SeciciSonuc dosya_secici(const SeciciIstek &r, char *out, size_t cap, char *err,
   if (out && cap) out[0] = 0;
   if (err && err_cap) err[0] = 0;
   const char *au = dosya_secici_arka_uc();
+  // Kapilar icin: TULPAR_DOSYA_SECICI=sabit:<yol> -> kullanici o yolu secmis gibi (penceresiz kosumda gercek secici
+  // acilmaz; "yok" kardesi). Uretimde degisken verilmez.
+  if (!std::strncmp(au, "sabit:", 6)) {
+    if (out && cap) std::snprintf(out, cap, "%s", au + 6);
+    return (out && out[0]) ? SeciciSonuc::Secildi : SeciciSonuc::Vazgecildi;
+  }
   if (!std::strcmp(au, "yok")) {
     if (err) std::snprintf(err, err_cap, "sistem dosya se\xC3\xA7icisi bulunamad\xC4\xB1 (kdialog/zenity yok ya da TULPAR_DOSYA_SECICI=yok)");
     return SeciciSonuc::Yok;

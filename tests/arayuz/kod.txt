@@ -1,0 +1,25 @@
+# U10 B2 (tools/arayuz_kapi.sh): Kaynaklar'da betige CIFT TIK editorun Kod panelinde acar (eskiden secili nesneye
+# atiyordu); paneldeki dugme secili nesneye ekler; yazarken Ctrl+Z METNI geri alir, sahneyi DEGIL; Ctrl+S kaydeder.
+# Kapi sonra dosyada yazilan satiri arar.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "duvar_bati"
+tikla "duvar_bati nesnesine ekle"
+dogrula_metin "duvar_bati nesnesinde çalışıyor"
+dogrula_metin "geri al 1"
+tikla "func dondur_baslat"
+tus End
+tus Enter
+yaz "    logla(\"KOD_PANELI_YAZDI\");"
+dogrula_metin "kaydedilmedi"
+tus Ctrl+Z
+bekle 2
+dogrula_metin "geri al 1"
+tus Ctrl+Y
+tus Ctrl+S
+bekle 2
+dogrula_metin "kaydedildi"
+ekran kod
+cik

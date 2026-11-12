@@ -24,6 +24,20 @@
 extern void (*GImGuiTulparMetinKanca)(const char *pencere, const char *metin, const char *metin_son,
                                       float gerek, float alan);
 
+// ---- TULPAR YAMASI (app/editor_surucu.hpp: arayuz surucusu) ------------------------------------
+// ImGui'nin test motoru kancalari acik: her oge (dugme, menu, sekme, pencere...) kimligi +
+// dikdortgeni (ItemAdd) ve etiketi + durumu (ItemInfo) ile bildirilir. Kancalarin tanimi
+// imgui_tulpar.cpp'de (engine_imgui); GImGuiTulparOgeKanca nullptr iken ve ImGuiContext::
+// TestEngineHookItems false iken bedelsiz. dikdortgen: x0,y0,x1,y1 (ItemAdd) ya da nullptr
+// (ItemInfo); etiket: ItemInfo'da etiket, ItemAdd'de nullptr.
+#define IMGUI_ENABLE_TEST_ENGINE
+extern void (*GImGuiTulparOgeKanca)(unsigned id, const float *dikdortgen, const char *etiket, int bayrak);
+// Cizilen her metnin ekrandaki yeri (sol ust x,y + olcu) ve kirpma dikdortgeni (x0,y0,x1,y1).
+// Tetik ImFont::RenderText (imgui_draw.cpp): ImGui widget'lari, InputText ve editorun dogrudan
+// cizdigi metinler (hiyerarsi satirlari, durum cubugu) buradan gecer. Surucunun "metne tikla" yolu.
+extern void (*GImGuiTulparMetinKonumKanca)(const char *metin, const char *metin_son, float x, float y, float w, float h,
+                                           const float *kirpma);
+
 //---- Define assertion handler. Defaults to calling assert().
 // - If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
 // - Compiling with NDEBUG will usually strip out assert() to nothing, which is NOT recommended because we use asserts to notify of programmer mistakes.

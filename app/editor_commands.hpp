@@ -70,12 +70,14 @@ enum class CommandId : uint16_t {
   EditCut,        // Ctrl+X
   EditCopy,       // Ctrl+C
   EditPaste,      // Ctrl+V (pano bossa etkin degil)
+  EditPreferences, // Ctrl+, (U11 B1: Tercihler penceresi)
   SelectAll,      // Ctrl+A
   SelectClear,    // Esc
   ViewGizmos,     // G
   ViewConsole,    // (kisayolsuz) Konsol panelini ac/kapa
   ViewFocus,      // F
   ViewFullscreen, // F11 (host desteklemiyorsa soluk)
+  ViewResetLayout, // (kisayolsuz) U11 B1: panel duzenini ilk acilistaki haline dondur
   GizmoTranslate, // T
   GizmoRotate,    // R
   GizmoScale,     // S
@@ -84,6 +86,7 @@ enum class CommandId : uint16_t {
   PlayStep,       // F10 (duraklatilmisken TEK sabit adim ilerlet)
   PlayStepBack,   // Shift+F10 (fizik onizlemesini en yakin ESKI kayda geri sar; duraklatir)
   PlayRunGame,    // Ctrl+F5 (Tulpar oyununu AYRI surecte derle + calistir / durdur)
+  PlayOpenMain,   // (kisayolsuz) U10 B7: oyunun ana dosyasini (oyun.tpr) Kod panelinde ac
   HelpCheckUpdates, // (kisayolsuz) GitHub'da yeni surum var mi; pencereyi acar
   HelpAutoCheck,    // (kisayolsuz) acilista + gunde bir otomatik denetim ac/kapa
   HelpAbout,        // (kisayolsuz) surum, platform, kurulum dizini, guncelleyici durumu

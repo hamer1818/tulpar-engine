@@ -1,0 +1,5 @@
+# U11 B4: ayni ayar diziniyle ikinci acilis — gizlenen kart KALICI gizli (genel ipucu karti gorunur).
+# POZITIF KONTROL (kapi): ayni projede bos ayar diziniyle kart gorunur (ilk_adimlar.txt'nin ilk kosumu).
+dogrula_metin "İpucu"
+metin_yok "İlk adımlar"
+cik

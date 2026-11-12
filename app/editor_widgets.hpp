@@ -40,7 +40,9 @@ struct PropItem {
 // ipucu), sag sutun widget (tam genislik). label_fraction: etiket sutununun
 // kullanilabilir genislige orani. false donerse (pencere kirpilmis) satir
 // cizme; true ise prop_end ZORUNLU.
-bool prop_begin(const char *id, float label_fraction = 0.38f);
+// 0.38 -> 0.44 (2026-11-06, arayuz surucusu): ~330 px'lik Ozellikler/Dunya panelinde "Huzme Yogunlugu",
+// "Normal kaydirma" gibi Turkce etiketler 125 px'e sigmayip "..." oluyordu.
+bool prop_begin(const char *id, float label_fraction = 0.44f);
 void prop_end();
 // Bir SONRAKI satirin etiket ipucuna eklenecek aciklama (tek kare gecerli).
 void prop_help(const char *text);
@@ -73,7 +75,12 @@ bool prop_filter_active();
 // Uc DragFloat, her birinin solunda AxisX/AxisY/AxisZ dolgulu X/Y/Z rozeti
 // (Unity/Godot). min == max: sinirsiz. Rozet alanin sol kenarina yapisiktir.
 PropItem prop_vec3(const char *label, float v[3], float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
+// Akan satir: ImGui::SameLine() yerine — `etiket`li (Small)Button ayni satira SIGMIYORSA alt satira
+// iner. Onayar/cip satirlari dar panelde sag kenardan KESILIYORDU ("Ogle 12:0", "Orman Is").
+void akis_ayni_satir(const char *etiket);
 PropItem prop_float(const char *label, float *v, float speed, float min = 0, float max = 0, const char *fmt = "%.3f");
+// U11 C2: gosterilecek deger — bicimin basamaginda sifira yuvarlaniyorsa isaretsiz 0 ("-0.0°" yok). Saf; test eder.
+float gosterim_sifirla(float v, const char *fmt);
 PropItem prop_int(const char *label, int *v, int min = 0, int max = 0, const char *fmt = "%d");
 PropItem prop_text(const char *label, char *buf, uint32_t cap);
 // Satir genisliginde renk ornegi (uzerinde altigen kod); tiklayinca secici
@@ -130,6 +137,10 @@ extern const uint32_t kComponentMenuCount;
 // Donus: tiklanan yapragin `code`u, tiklanmadiysa 0. Acik bir popup/menu
 // baglami GEREKTIRIR.
 int create_menu_draw(const CreateMenuItem *items, uint32_t count);
+// U11 B2: kipe gore olustur agaci (Basit: sade, gunluk dil; Gelismis: kCreateMenu). Sahne "+" ve ana menu "Ekle".
+extern const CreateMenuItem kCreateMenuBasit[];
+extern const uint32_t kCreateMenuBasitCount;
+const CreateMenuItem *create_menu_items(bool gelismis, uint32_t *n);
 
 // Tam genislik "+ Bilesen ekle" dugmesi; acilan listeden secilen indeks, yoksa -1.
 int component_add_button(const char *const *names, uint32_t count);

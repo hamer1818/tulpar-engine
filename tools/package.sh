@@ -120,7 +120,8 @@ UZANTI = (".c", ".cc", ".cpp", ".h", ".hpp")
 # ikon icin okunan assets/fonts/DejaVuSans.ttf) paket varligi sayilir; gerisi atlanir. Bu tablo
 # olmadan U3a'dan (2026-11-05) beri varlik turetmesi "COZULEMEYEN VARLIK YOLU" ile duruyordu —
 # paket kapisi yerel_ci'de kosmadigi icin 2026-11-06'ya kadar gorulmedi.
-PROJE_ICI = {"app/editor_fabrika.cpp"}
+# app/editor_betik.*: oyun projesinin assets/betikler.tpr toplayicisi (U10 B1) — ayni sinif.
+PROJE_ICI = {"app/editor_fabrika.cpp", "app/editor_betik.hpp", "app/editor_betik.cpp"}
 
 # C kaynagini kabaca tokenlere ayir: yorumlar ATILIR (icindeki tek tirnak
 # dizgi taramasini kaydirmasin), dizgi birlestirmesi (bitisik literal ve

@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include <IconsMaterialDesign.h> // ikon makrolari (IconFontCppHeaders, Zlib)
+#include "app/editor_ui.hpp"   // editor_gelismis (U10 B5)
 #include "platform/fs.hpp"
 
 namespace tulpar::engine::app {
@@ -819,8 +820,12 @@ PropsPanelResult props_panel(SceneEntity &e, SceneEntity &after, const PropsPane
     std::snprintf(msg, sizeof msg, ICON_MD_WARNING " Betik taranamad\xC4\xB1: %s", in.note ? in.note : "?");
     wrapped(warn, msg);
   } else if (in.decl_count == 0 && e.prop_count == 0) {
-    wrapped(dim, "Bu betik \xC3\xB6zellik bildirmiyor. Kodda ad\xC4\xB1 ve varsay\xC4\xB1lan\xC4\xB1 yaz\xC4\xB1l\xC4\xB1 bir \xC3\xA7" "a\xC4\x9Fr\xC4\xB1, "
-                 "\xC3\xB6rn. ozellik_sayi(i, \"hiz\", 3.5), burada bir sat\xC4\xB1r olur.");
+    // U10 B5: Basit kipte kod ornegi yok (kart teknik terimsiz); Gelismis'te nasil eklenecegi yazar.
+    if (editor_gelismis())
+      wrapped(dim, "Bu betik \xC3\xB6zellik bildirmiyor. Kodda ad\xC4\xB1 ve varsay\xC4\xB1lan\xC4\xB1 yaz\xC4\xB1l\xC4\xB1 bir \xC3\xA7" "a\xC4\x9Fr\xC4\xB1, "
+                   "\xC3\xB6rn. ozellik_sayi(i, \"hiz\", 3.5), burada bir sat\xC4\xB1r olur.");
+    else
+      wrapped(dim, "Bu beti\xC4\x9Fin buradan ayarlanan bir de\xC4\x9F" "eri (h\xC4\xB1z, g\xC3\xBC\xC3\xA7 ...) yok.");
   }
 
   if (scanned && in.decl_count > 0 && prop_begin("ozellik_bildirim")) {

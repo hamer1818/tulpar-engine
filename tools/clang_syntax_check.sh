@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.." || exit 1   # depo koku
 if ! command -v clang++ >/dev/null 2>&1; then
     echo "clang_syntax_check: ATLANDI (clang++ yok)"; exit 0
 fi
-FLAGS="-std=c++17 -fsyntax-only -fno-exceptions -fno-rtti -Wall -Wextra -DENGINE_MEM_CANARY=1 -DENGINE_SOURCE_DIR=\".\" -DPHYSICS_GOLDEN_HASH=0ull -DJPH_CROSS_PLATFORM_DETERMINISTIC -I. -Ithird_party/vulkan -Ithird_party/jolt -Ithird_party/recast/Recast/Include -Ithird_party/recast/Detour/Include -Ithird_party/glfw -Ithird_party/cgltf -Ithird_party/stb -Ithird_party/meshoptimizer -Ithird_party/imgui -Ithird_party/miniaudio -Ithird_party/astcenc -Ithird_party/iconfont -Ithird_party/debug_draw -Ithird_party -DIMGUI_IMPL_VULKAN_NO_PROTOTYPES"
+FLAGS="-std=c++17 -fsyntax-only -fno-exceptions -fno-rtti -Wall -Wextra -DENGINE_MEM_CANARY=1 -DENGINE_SOURCE_DIR=\".\" -DPHYSICS_GOLDEN_HASH=0ull -DJPH_CROSS_PLATFORM_DETERMINISTIC -I. -Ithird_party/vulkan -Ithird_party/jolt -Ithird_party/recast/Recast/Include -Ithird_party/recast/Detour/Include -Ithird_party/glfw -Ithird_party/cgltf -Ithird_party/stb -Ithird_party/meshoptimizer -Ithird_party/imgui -Ithird_party/miniaudio -Ithird_party/astcenc -Ithird_party/iconfont -Ithird_party/debug_draw -Ithird_party/mbedtls/include -Ithird_party -DIMGUI_IMPL_VULKAN_NO_PROTOTYPES"
 case "$(uname -m)" in x86_64) FLAGS="$FLAGS -DJPH_USE_SSE4_1 -DJPH_USE_SSE4_2 -msse4.2";; esac
 # YALNIZ HATA kirmizi: macOS CI -Werror kullanmiyor, yani clang uyarisi orada
 # isi dusurmez. Eskiden uyari da HATA sayiliyordu ve betik hep kirmiziydi

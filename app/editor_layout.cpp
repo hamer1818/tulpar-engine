@@ -345,7 +345,11 @@ bool layout_default(ImGuiID dockspace_id, float w, float h, LayoutFile *out, Lay
   out->root_h = trunc_min1(h);
   const float W = out->root_w, H = out->root_h;
   const float left = trunc_min1(W * kLayoutDefaultLeft);
-  const float right = trunc_min1(W * kLayoutDefaultRight);
+  // U11 C3: Ozellikler'e alt sinir — 1280x720'de %22 = 281 px, ic genislik ~230 px: etiket sutunu "Albedo Dokusu"
+  // gibi etiketleri kesiyordu. Alt sinir 300 px (genis ekranda %22 zaten buyuk), ama gorunumun yarisini gecmez.
+  float right_w = W * kLayoutDefaultRight;
+  if (right_w < kLayoutDefaultRightMin && kLayoutDefaultRightMin < W * 0.35f) right_w = kLayoutDefaultRightMin;
+  const float right = trunc_min1(right_w);
   const float rest = trunc_min1(W - left);
   const float mid = trunc_min1(W - left - right);
   const float left_bot = trunc_min1(H * kLayoutDefaultLeftBottom);

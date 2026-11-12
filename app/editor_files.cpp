@@ -660,9 +660,9 @@ FileDialogAction file_dialog_draw(FileDialog &d) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.err);
   }
   if (d.yerli_not[0]) {   // isletim sisteminin secicisi yoktu: neden bu pencere (U4)
-    char nb[224];
-    editor_ellipsize(d.yerli_not, ImGui::GetContentRegionAvail().x, nb, sizeof nb);
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::TextMute)), "%s", nb);
+    // Kullaniciya sade cumle; teknik sebep (kdialog/zenity, ortam degiskeni) ipucunda.
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(tone_u32(Tone::TextMute)), "%s",
+                       "Sistem dosya se\xC3\xA7icisi yok; edit\xC3\xB6r\xC3\xBCn kendi se\xC3\xA7icisi kullan\xC4\xB1l\xC4\xB1yor.");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", d.yerli_not);
   }
 
@@ -889,4 +889,91 @@ bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yo
   return true;
 }
 
+void editor_benzersiz_ad(const char *taban, bool (*var)(void *, const char *), void *u, char *out, size_t cap) {
+  if (!out || cap == 0) return;
+  out[0] = 0;
+  char kok[64];
+  std::snprintf(kok, sizeof kok, "%s", taban && *taban ? taban : "Nesne");
+  // Sondaki " <sayi>" atilir: cogaltilan "Kup 2" yeni numara alir, "Kup 2 2" olmaz.
+  size_t n = std::strlen(kok);
+  size_t j = n;
+  while (j > 0 && kok[j - 1] >= '0' && kok[j - 1] <= '9') j--;
+  if (j < n && j > 1 && kok[j - 1] == ' ') kok[j - 1] = 0;
+  // Yer: sonek (" 999") icin pay; UTF-8 devam baytinda kesilmez.
+  const size_t pay = 5;
+  n = std::strlen(kok);
+  if (cap > pay && n > cap - 1 - pay) {
+    n = cap - 1 - pay;
+    while (n > 0 && ((unsigned char)kok[n] & 0xC0) == 0x80) n--;
+    kok[n] = 0;
+  }
+  if (!var || !var(u, kok)) { std::snprintf(out, cap, "%s", kok); return; }
+  for (unsigned k = 2; k < 10000; k++) {
+    std::snprintf(out, cap, "%s %u", kok, k);
+    if (!var(u, out)) return;
+  }
+}
+namespace {
+bool dosya_kopya(const char *a, const char *b) {
+  std::FILE *fa = std::fopen(a, "rb");
+  if (!fa) return false;
+  std::FILE *fb = std::fopen(b, "wb");
+  if (!fb) { std::fclose(fa); return false; }
+  char buf[64 * 1024];
+  bool ok = true;
+  for (size_t n; (n = std::fread(buf, 1, sizeof buf, fa)) > 0;)
+    if (std::fwrite(buf, 1, n, fb) != n) { ok = false; break; }
+  std::fclose(fa);
+  if (std::fclose(fb) != 0) ok = false;
+  return ok;
+}
+bool var_mi(const char *p) { struct stat sb; return ::stat(p, &sb) == 0; }
+} // namespace
+
+bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *hedef_yol, size_t cap, char *err, size_t ecap) {
+  if (err && ecap) err[0] = 0;
+  if (hedef_yol && cap) hedef_yol[0] = 0;
+  auto hata = [&](const char *m, const char *a) { if (err && ecap) std::snprintf(err, ecap, m, a ? a : ""); return false; };
+  if (!kaynak || !*kaynak || !hedef_dizin || !*hedef_dizin) return hata("i\xC3\xA7" "e aktar\xC4\xB1lacak dosya ya da hedef klas\xC3\xB6r yok%s", "");
+  // Ad: son ayiricidan sonrasi — Windows secicisi '\\' doner (yalniz '/'ye bakmak tum yolu ad sanardi).
+  const char *ad = kaynak;
+  for (const char *q = kaynak; *q; q++) if (*q == '/' || *q == '\\') ad = q + 1;
+  const char *nk = std::strrchr(ad, '.');
+  const bool glb = nk && (!std::strcmp(nk, ".glb") || !std::strcmp(nk, ".GLB"));
+  const bool gltf = nk && (!std::strcmp(nk, ".gltf") || !std::strcmp(nk, ".GLTF"));
+  if (!glb && !gltf) return hata("yaln\xC4\xB1z .glb ve .gltf modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
+  if (!var_mi(kaynak)) return hata("dosya bulunamad\xC4\xB1: %s", kaynak);
+  char hedef[2048];
+  std::snprintf(hedef, sizeof hedef, "%s/%s", hedef_dizin, ad);
+  if (var_mi(hedef)) return hata("bu adda bir model zaten var: %s (\xC3\xB6nce yeniden adland\xC4\xB1r)", ad);
+  if (!dosya_kopya(kaynak, hedef)) return hata("kopyalanamad\xC4\xB1: %s", hedef);
+  if (hedef_yol && cap) std::snprintf(hedef_yol, cap, "%s", hedef);
+  if (!gltf) return true;
+  // .gltf: goreli "uri" bagimliliklari (.bin, dokular). JSON'u tam ayristirmadan: "uri" : "x" ciftleri.
+  char kdir[2048];
+  std::snprintf(kdir, sizeof kdir, "%.*s", (int)(ad - kaynak), kaynak);
+  static char m[4 * 1024 * 1024];
+  size_t n = 0;
+  if (std::FILE *f = std::fopen(kaynak, "rb")) { n = std::fread(m, 1, sizeof m - 1, f); std::fclose(f); }
+  m[n] = 0;
+  for (const char *p = m; (p = std::strstr(p, "\"uri\"")) != nullptr;) {
+    p += 5;
+    while (*p == ' ' || *p == ':' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != '"') continue;
+    const char *b = ++p;
+    while (*p && *p != '"') p++;
+    const size_t l = (size_t)(p - b);
+    if (!l || l > 900 || !std::strncmp(b, "data:", 5) || std::memchr(b, ':', l) || (l >= 2 && b[0] == '.' && b[1] == '.')) continue;
+    char rel[1024], a[3072], d[3072];
+    std::snprintf(rel, sizeof rel, "%.*s", (int)l, b);
+    std::snprintf(a, sizeof a, "%s%s", kdir, rel);
+    std::snprintf(d, sizeof d, "%s/%s", hedef_dizin, rel);
+    if (var_mi(d) || !var_mi(a)) continue;
+    char dd[3072];
+    std::snprintf(dd, sizeof dd, "%s", d);
+    if (char *s2 = std::strrchr(dd, '/')) { *s2 = 0; platform::fs_mkdir_p(dd); }
+    if (!dosya_kopya(a, d)) return hata("model kopyaland\xC4\xB1 ama ba\xC4\x9F\xC4\xB1ml\xC4\xB1l\xC4\xB1\xC4\x9F\xC4\xB1 kopyalanamad\xC4\xB1: %s", rel);
+  }
+  return true;
+}
 } // namespace tulpar::engine::app

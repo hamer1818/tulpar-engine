@@ -1,0 +1,13 @@
+# U11 C4 (tools/arayuz_kapi.sh): "Izgara" dugmesi GERCEKTEN cizer (eskiden show_grid hicbir yerde okunmuyordu).
+# Bos yeni sahnede iki ekran: acik / kapali. Kapi gorunum bolgesinin parlaklik sapmasini karsilastirir: acikken cizgi
+# dokusu var (yuksek sapma), kapaliyken duz renk. Iki goruntu birbirinin pozitif kontrolu.
+tikla "Dosya" pencere=MainMenuBar
+tikla "Yeni" pencere=Menu
+bekle 5
+dogrula_metin "Izgara: Açık"
+ekran izgara_acik
+tikla "Izgara: Açık"
+bekle 5
+dogrula_metin "Izgara: Kapalı"
+ekran izgara_kapali
+cik

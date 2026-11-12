@@ -302,7 +302,7 @@ kapısı bir sayıya dayansın.
 - **Güncelleyici:** önce AppImage'ta devre dışıydı. **U7c (2026-11-06):** artık AppImage DOSYASI
   bütün olarak yenisiyle değiştiriliyor: indir → SHA-256 → yedeğe al → yerine koy, düşerse geri al
   (docs/GUNCELLEME.md "AppImage kipi").
-- **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur.
+- **Bilinen sınır:** AppImage'ta "Örnek sahne" salt okunur yerde açılır, kaydetmek başarısız olur. **Kalktı (2026-11-10):** örnek artık oynanabilir bilardo; kullanıcının oyun klasörüne üretilip oradan açılır.
   Doğrusu örneği kullanıcı dizinine kopyalamak; U8'de ele alınacak.
 - **Windows (yazıldı, ÖLÇÜLMEDİ):** bu kısım yalnız GitHub CI'da ölçülebilir. Yerelde MinGW yok;
   Inno Setup'ı wine altında kurma denemesine izin verilmedi.
@@ -390,6 +390,104 @@ Parçacık/Su/Voksel panelleri sonra. Bu aşama "normal uygulama" ölçütünün
     kamerasız sahne kamerayı değiştirmez; kamerasız varlıkta `camera_use` hata verir.
   - Eski sürüm reddi 1..9.
 
+### U10 — Betikler herkes için (kullanıcı isteği, 2026-11-11)
+
+**Kullanıcının sorusu:** "Betikler tam olarak neye bağlı, kendi kendine çalışabiliyor mu? Betiğe
+basınca seçili nesneye ekleniyor ama içinde ne var göremiyorum. Hiç bilmeyen biri için bile kolay
+olmalı; Unity/Unreal'in öğrenme süresi uzun olduğu için bunu kullanıyoruz."
+
+**Bugün nasıl çalışıyor (koddan ölçüldü):**
+- Betik bir `.tpr` dosyası. Adından türeyen işlevleri motor **adıyla** çağırır: `dondur.tpr` →
+  `dondur_baslat(id)` bir kez, `dondur_guncelle(id, dt)` her kare, `dondur_carpisma(...)`,
+  `dondur_bitir(id)`. Bu Unity'nin `Start` / `Update` / `OnCollision`'ı.
+- Betik **kendi başına çalışmaz**. Oyunun ana dosyası `oyun.tpr` (motoru açar, sahneyi yükler,
+  kare döngüsü) betiği **import etmek zorunda**; etmezse motor "betik kancası YOK" hatası basar
+  ve betik sessizce hiçbir şey yapmaz. Editör bu import satırını hiçbir yere yazmıyor.
+  - Fabrika projelerinde (asıl kullanım) "Yeni betik" import yolunu bile hesaplayamıyor; iskelete
+    `<oyunun import kokunden bu dosyanin yolu>` yazıyor.
+- Kaynaklar'da `.tpr`'ye çift tıklamak onu seçili nesneye **atıyor**. Unity'de ise çift tıklama
+  dosyayı **açar**. Betiğin içi editörde hiçbir yerde görünmüyor; tek yol Betik kartındaki
+  "Dış editörde aç" (VS Code / sistem uygulaması).
+- Betik kartındaki açıklama ASCII ve teknik ("AOT", "import kokunden", "docs/KOPRU.md 7.9").
+- Denendi (2026-11-11, fabrika projesi): `oyun.tpr` → `import "assets/betikler";`, editörün
+  yazdığı `assets/betikler.tpr` → `import "assets/betikler/dondur";` zinciri çalışıyor
+  (`dondur_baslat` duvarda koştu). Dosya boşken de oyun hatasız derleniyor.
+
+**Yapılacaklar (sırayla; her madde ayrı commit, kapısı ve pozitif kontrolüyle):**
+
+| # | ne | neden | durum |
+|---|---|---|---|
+| B1 | **Otomatik bağlama:** editör, sahnedeki betikleri `assets/betikler.tpr` toplayıcısına yazar (Kaydet / Derle / Oynat'ta); şablonlar `import "assets/betikler";` taşır. Eski projede satır yoksa editör **bir kez sorar** ve ekler. | Kullanıcı `import` kavramını hiç görmesin; atanan betik her zaman çalışsın. | ✅ 2026-11-11 (`app/editor_betik.cpp`; kapı `tests/arayuz/betik_{yeni,eski}.txt`) |
+| B2 | **Betik editörün içinde açılır:** Kaynaklar'da çift tıklama ve Betik kartındaki "Düzenle" yerleşik **Kod** paneli açar: satır numaralı, Kaydet (Ctrl+S), kaydedilmemiş işareti, "Dış editörde aç" seçeneği. Atama sürükle-bırakla ya da sağ tık "Seçili nesneye ekle" ile. | "İçinde ne var göremiyorum." Unity'deki gibi çift tık = aç. | ✅ 2026-11-11 (kapı `tests/arayuz/kod.txt`; pozitif kontrol: geri al koruması kalkınca sahne geri alınıyor → kırmızı) |
+| B3 | **Hata satıra gider:** "Oyun başlatılamadı" penceresindeki "Kodu aç (satır N)" önce Kod panelinde o satırı açar ve vurgular. | Hata → düzelt → F5 döngüsü editörden çıkmadan. | ✅ 2026-11-11 (kapı `tests/arayuz/hata_satiri.txt`) |
+| B4 | **Yeni betik sade:** dosya diyaloğu yerine tek alan ("Betiğin adı"), dosya `assets/betikler/<ad>.tpr` olur; hazır davranış seçilir: Boş / Döndür / Yukarı-aşağı salla / Oyuncu kontrolü (ok tuşları) / Dokununca yok ol. İskelet sade Türkçe yorumlu; oluşturulunca Kod panelinde açılır. | Boş sayfa korkusu; ilk betik 10 saniyede çalışsın. | ✅ 2026-11-11: Boş / Ok tuşlarıyla hareket / Boşlukla zıpla / Dokununca yok ol (gerçek oyunda denendi). **B4b (2026-11-11):** Döndür ve Yukarı-aşağı salla eklendi; köprüye `sahne_konum_ver` / `sahne_donus_ver` / `sahne_dondur` / `sahne_ilk_*` (KOPRU.md). Kapı `tests/arayuz/hazirlar.txt`: oyunda dönen duvarın eski ucu boşalıyor, sallanan duvar oynuyor; pozitif kontrol hız/yükseklik 0 → yerinde. Betiksiz nesnede "Davranış ekle (betik)" düğmesi. Kapı `tests/arayuz/yeni_betik.txt` |
+| B5 | **Betik kartı anlaşılır:** "Bu nesne ne yapsın?" başlığı; betik adı + Düzenle; dosyada bulunan olaylar işaretli liste (✓ başlarken, ✓ her karede, — çarpışınca); "oyuna bağlı ✓ / bağlı değil" satırı; ipuçları Türkçe harfli ve teknik terimsiz. | Kullanıcı neyin ne zaman çalıştığını kartta görsün. | ✅ 2026-11-11: kart adı "Davranış (betik)"; "Ne zaman çalışır?" listesi dosyadan okunur (değişince kendiliğinden tazelenir); "Oyuna bağlı ✓ / değil + Bağla"; elle yol, dış editör, ayrı pencere ve kod örneği yalnız Gelişmiş'te. Kapı `tests/arayuz/betik_karti.txt` (pozitif kontrol: aynı satır önce çizgili, `_guncelle` eklenince işaretli) |
+| B6 | **Rehber:** Yardım > Başlangıç rehberi "Betik" sayfası bu modele göre yeniden yazılır (Unity karşılıkları tablosuyla: Start = `_baslat`, Update = `_guncelle`). | "Bu olayı anlamadım." | ✅ 2026-11-11: "Betik (davranış)" sayfası: ilk betik 4 adımda, olay adları + Unity karşılıkları, Kod paneli, hata satırı, ana dosya. Kapı `editor_rehber_betik_sayfasi_kodla_uyumlu_with_control`: sayfadaki kanca adları `betik_kancalari` ile tanınmalı, andığı komut tabloda olmalı (pozitif kontrol: `zipla_update` yazılınca kırmızı, ölçüldü) |
+| B7 | **Ana betik görünür:** Oyun menüsünde "Ana betiği aç (oyun.tpr)" — oyunun kendisi de Kod panelinde. | Ana dosyanın varlığı ve rolü gizli kalmasın. | ✅ 2026-11-11: menü adı "Oynat" (Oyun menüsü yok); Kod paneli ana dosyada rolünü yazar ve "nesneye ekle" önermez; projede `oyun.tpr` yoksa (motor örnekleri) soluk. Kapı `tests/arayuz/ana_betik.txt` (kontrol: sıradan betikte "nesneye ekle" görünür) |
+
+**Sonradan yapıldı (2026-11-12, kullanıcı isteği "hepsi önemli"):** Kod panelinde Tulpar sözdizimi — renklendirme
+(TulparLang lexer'ının Türkçe + İngilizce sözcükleri), Enter girintisi / Tab 4 boşluk / `}` geri girinti, parantez
+kapatma ve eşleştirme, öneri listesi (motorun `engine.tpr` + `kit/*.tpr` işlevleri imzalarıyla, dosyanın kendi
+`func`'ları; Tab/Enter/Yukarı/Aşağı/Esc/Ctrl+Boşluk/fare), parametre ipucu balonu ve canlı söz dizimi denetimi
+(`tulpar typecheck` + tek seferlik `tulpar --lsp`; ayrışma, tip, bilinmeyen işlev). Kapılar `tests/arayuz/kod_*.txt`.
+**Kod sekmesi ve bağımsız pencere (2026-11-12):** Kod paneli "Görünüm"ün yanında sekme olarak açılır; "Ayrı pencerede aç" onu
+**ayrı bir süreçte** (`engine_editor --kod <dosya> [--proje ..] [--kutuphane ..]`, `process_start_detached`) kendi işletim
+sistemi penceresine ayırır: editör kapansa da açık kalır (aynı süreçte bir ImGui viewport editörle birlikte ölürdü). Pencere
+yalnız Kod panelini tam ekran gösterir; kullanıcının tema/yazı boyutu tercihini okur; kaydedilmemiş değişiklikte pencere kapatma
+iptal edilip "Kaydet / Kaydetmeden kapat / Vazgeç" sorulur (`Window::cancel_close`). Kapılar: `kod_sekme.txt`, `kod_ayir.txt`
+(ana editör kapandıktan SONRA çocuk sürecin yaşadığı ölçülür), `kod_pencere.txt`, `editor_kod_penceresi_argv_*`. **Gerçek
+işletim sistemi penceresi yolu (swapchain) bu oturumda çalıştırılmadı** (penceresiz yol ve sürücü doğrulandı).
+**Geri birleştirme:** bağımsız pencerede "Editöre geri al": ayar dizinine `kod_istekleri/istek_<pid>_<n>.txt` (unix saniyesi + yol)
+bırakılır; çalışan editör ~1/3 s'de bir yoklar, dosyayı sekme olarak açar ve isteği siler, pencere kapanır. Editör yoksa (ya da
+kaydedilmemiş başka dosya açma izin vermiyorsa) pencere ~3 s sonra isteği geri alır, uyarır ve AÇIK KALIR; 60 sn'den eski istek atılır.
+Kapılar: `kod_geri_al.txt`, `kod_geri_al_yok.txt`, `editor_kod_istegi_yaz_ve_al_*`.
+**Hâlâ kapsam dışı:** betik sıcak yükleme, görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
+(Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
+
+### U11 — UX mükemmelliği (kullanıcı kararı, 2026-11-11)
+
+**Kullanıcı:** "Arayüzü mükemmel hale getirmeye devam edeceğiz. UX'i abartacağız." "Bu turların hepsini
+yapacağız." Fabrika aşama 3–5 (Play, reklam, ilk oyun) bu iş bitene kadar ertelendi.
+
+**Ölçüm (2026-11-11, arayüz sürücüsü, Basit kip, 1600×900 + 1280×720):**
+- Gezilen akış: karşılama → yeni oyun → F5 → durdur → seç/ekle → yeniden adlandır → gizmo → geri al →
+  kaydet → menüler.
+- Puan **7,2/10**; çıta "mükemmel" (Unity/Godot cilası). Önceki ~7,5 bir tahmindi.
+- Alanlar: betik 8,5 · sahne düzenleme 8 · özellikler 7,5 · oynat 7,5 · yardım 7,5 · açılış 7 · görsel cila 7 ·
+  küçük ekran 7 · **dil/geri bildirim 5,5** · **ayarlar 4**.
+- Her turdan sonra aynı gezinti tekrarlanır ve yeniden puanlanır.
+
+**Tur A — en çok kazanç**
+
+| # | ne | bulgu | durum |
+|---|---|---|---|
+| A1 | **Basit kipte sade dil:** Konsol'da ham motor satırları (`[engine_bridge] k421 bilgi …`) Basit'te gizli (Gelişmiş'te ve süzgeçle görünür); durum çubuğu ve Konsol'da yollar kısaltılır (proje köküne göre); Türkçe harfsiz metinler düzelir ("geri alindi"); Basit'te fps / çizim / kamera koordinatı katmanları gizli | Kullanıcı motorun iç günlüğünü okuyor | ✅ 2026-11-11: Konsol girdisinde **teknik** bayrağı; Basit'te teknik BİLGİ gizli (uyarı/hata her kipte), rozet sayaçları görünenleri sayar. Oyun satırları `[engine_bridge] kN bilgi [tpr]` önekinden arınır; `logla_ayrinti` (engine.tpr, `[ayrinti] ` öneki) teknik sayılır, şablonların GPU/kapanış satırları ona geçti. Yollar kayıt anında kısalır (proje kökü silinir, ev `~`; Konsol + durum çubuğu). ~35 ASCII Türkçe ileti düzeldi ("geri alındı", kaydedilmemiş değişiklik penceresi, ipuçları). Basit'te fps/çizim/kamera hapı ve durum çubuğu ms'i yok. Oyun sekmesi "Oyun hazırlanıyor… N sn" + ilerleme şeridi; "çıkış kodu 0" yerine "oyun bitti"/"durduruldu". Kapılar: `console_shortens_paths_with_control`, `console_basit_hides_technical_info_with_control`, overlay testine Basit karşı ölçümü (4 hap, kamera yok), `tests/arayuz/sade_dil.txt` (pozitif kontrol: Gelişmiş'te motor satırı + fps + kamera görünür). Bulunan hata: kullanıcı durdurunca "oyun hatayla bitti (kod 0)" diyordu (koşul), düzeldi ve senaryoda denetleniyor |
+| A2 | **Temiz Durdur:** gömülü oyun durdurulunca "editör 5 s sessiz → kapanıyor" UYARISI çıkmaz; editör kapanış sinyali verir | Her oynatmadan sonra sahte ▲1 | ✅ 2026-11-11: ürün hatası DEĞİLDİ — kullanıcı yolunda Durdur temiz (`gomulu: editor durdurdu`, betik kipinde ölçüldü). Uyarıyı canlı sürücü üretiyordu: FIFO'yu bloklayarak okuyor, komut beklerken editör kare çizmiyordu → oyun 5 s sonra kapanıyordu. Canlı kip artık bloklamasız (O_RDWR\|O_NONBLOCK, boşta 16 ms uyku); ölçüm: 9 s komutsuz bekleme sonrası oyun 546. karede editörün Durdur'uyla kapandı, uyarı yok |
+| A3 | **Açılış formu:** şablon kartları (ad, tek cümle açıklama, ne oynanır); İngilizce ad isteğe bağlı (Türkçeden önerilir); başlıkta "(kaynak derlemesi)" yok; arka plan karartılır; konum kısa gösterilir | Şablon "arena" açıklamasız, İngilizce ad zorunlu | ✅ 2026-11-11: şablon **kartları** (`tulpar/sablonlar/<tür>/sablon.txt`: ad, açıklama, yön, ikon; kart seçilince ekran yönü şablonun önerisine geçer; sürücü kartı adıyla bulur); İngilizce ad isteğe bağlı (ipucu "boş: <Türkçe ad>", boşsa Türkçe ad kullanılır); "(kaynak derlemesi)" yalnız Gelişmiş'te; konum `~/TulparOyunlari/…` + "Değiştir…", tam yol Gelişmiş'te. **Karartma gerçekten çalışmıyordu:** ayrı pencere panellerin altında kalıyordu; ön plan listesine taşındı ve alfa 175 → 225 (çerçeve tamponu sRGB, karışım doğrusal: 175 algıda ~%35 karartıyordu; ölçüldü yazı 230 → 144, 225 ile 95). Kapılar: `fabrika_sablon_kartlari_with_control` (her şablonun kartı dolu), `tests/arayuz/karsilama.txt` (Bilardo kartı + boş İngilizce ad → proje `// Kart Deneme — Kart Deneme`; kontrol: ad yokken uyarı satırı) |
+
+**Tur B**
+
+| # | ne | bulgu | durum |
+|---|---|---|---|
+| B1 | **Tercihler penceresi:** yazı boyu, tema, otomatik kayıt, Basit/Gelişmiş, dil; **Görünüm > Düzeni sıfırla** | Ayarlar penceresi yok (puan 4) | ✅ 2026-11-11: **Düzen > Tercihler… (Ctrl+,)** — yazı boyu %90/%100/%115/%130 (tüm arayüz ölçeği, `set_ui_scale`), Basit/Gelişmiş, otomatik kaydet (kapalı/1/2/5/10 dk; oynatırken, adsız sahnede ve Kod paneline yazarken kaydetmez), güncelleme denetimi, panel düzenini sıfırla. `tercihler.txt` (anahtar = değer; bilinmeyen atlanır, geçersiz değer en yakına). **Görünüm > Düzeni sıfırla** komut tablosunda (eskiden "⋮" menüsüne gömülüydü). Tema ve dil YOK: açık tema ayrı iş (C6), editörün İngilizce arayüzü yok. Kapılar: `tercih_dosyasi_gidis_donus_with_control`, `tests/arayuz/tercihler{,_kalici}.txt` (yazı boyu kalıcı: menü öğesi 22 → 26 px; küp elle kaydetmeden diske; kontrol: varsayılan boy + aralık dolmadan "otomatik kaydedildi" yok) |
+| B2 | **Sade "+" menüsü:** Basit'te az ve anlaşılır kategori, teknik adlar Gelişmiş'te ("Model (glTF)", "Çevre Hacimleri"); "Tulpar Betik Nesnesi" yeni adıyla; **Hızlı ekle** seçim varken de erişilir | 14 kategori; seçim varken hızlı ekle kayboluyor | ✅ 2026-11-11: Basit kipte ayrı ağaç (9 üst / 24 yaprak, günlük dil: "Şekiller", "Fizikli nesneler: Düşen kutu, Yuvarlanan top, Duvar / engel, Karakter", "Işık", "Doğa", "Efektler", "Kamera", "Ses kaynağı", "3B model (dosyadan)", "Boş nesne"); tam ağaç (14 / ~60) Gelişmiş'te, "Tulpar Betik Nesnesi" → "Davranışlı Nesne (betik)". Ana menü çubuğunda **Ekle** (Seçim'den sonra; Unity'nin GameObject menüsü): seçim varken de ekler, aynı tablo. Menü çubuğu kancasına `after` (tablodan gelmeyen üst menü). Kapılar: `create_menu_basit_subset_with_control` (Basit ⊂ tam, teknik ad yok), `tests/arayuz/ekle_menu.txt` (seçim varken Küp eklenir 8 → 9; kontrol: Gelişmiş'te "Çevre Hacimleri") |
+| B3 | **Okunur yeni nesne adları:** "Küp", "Küp 2" (Türkçe harfli, boşluklu) | `kup_6` | ✅ 2026-11-11: `editor_benzersiz_ad` — okunur Türkçe kök ("Küp", "Top", "Lamba", "Duvar", "Ses kaynağı"…; tablo do_add kodlarıyla) + sahnede ilk boş numara ("Küp 2"); çoğaltma ve **yapıştırma** da aynı kural (yapıştırma eskiden aynı adı kopyalıyordu → betiklerin `sahne_bul`'u belirsizdi); sondaki " N" atılır ("Küp 2" → "Küp 3"), 32 bayta UTF-8 harf bölmeden sığar. Kapılar: `editor_benzersiz_ad_with_control`, `ekle_menu.txt` (Küp → Ctrl+D → "Küp 2"; kontrol: önce "Küp 2" yok) |
+| B4 | **Yeni projede "ilk adımlar" kartı:** ne oynanır, F5, ilk nesne, ilk davranış; şablonun kodda doğan oyuncu/parıltıları editörde işaretli ya da açıklanmış | Yeni proje boş kutu gibi | ✅ 2026-11-11: Basit kipte (fabrika projesi, seçim yok) **İlk adımlar** kartı: "Bu oyunda: …" (`sablon.txt` açıklama) + "koddan doğar" notu (yeni `kodda` anahtarı) + dört adım (Oyunu dene · Bir nesne ekle · Bir nesneye davranış ver · Kaydet) — durum değişikliklerinden kendiliğinden işaretlenir, yapılmamış adım tıklanınca işi başlatır/yolu gösterir; bitince "Başlangıç rehberi". İlerleme ve gizleme proje başına KULLANICI ayar dizininde (`ilk_adimlar.txt`; proje klasörüne yazılmaz, 64 proje tavanı). Sahne kökü ipucundaki "Müfettiş" → "Özellikler". Kapılar: `ilk_adim_dosyasi_with_control`, `tests/arayuz/ilk_adimlar{,_gizli}.txt` (ekle + kaydet işaretlenir, gizle kalıcı; dosyada bitler 26) |
+| B5 | **Boş Kaynaklar:** teknik "Bu dizinde .gltf/.glb yok" yerine ne konacağı + **İçe aktar** düğmesi; yol `…//assets` çift eğik çizgisiz | Boş durum eylemsiz | ✅ 2026-11-11: boş durum "Burada henüz 3B model ya da betik yok" + **Model içe aktar…** + **Yeni betik**; dar panelde metin sarılır, düğmeler alt alta. Başlıkta kalıcı "+" (içe aktar). `editor_model_ice_aktar`: .glb / .gltf proje klasörüne kopya, .gltf'nin göreli `uri` bağımlılıkları (alt klasör dahil) gelir, `data:` ve `../` atlanır, aynı adlı model ezilmez (reddedilir), Windows `\` ayracı. Yol kısa ("assets"; Konsol'la aynı kural, "//" tek). Dosya seçicide kapı arka ucu `TULPAR_DOSYA_SECICI=sabit:<yol>`. Kapılar: `editor_model_ice_aktar_with_control`, `tests/arayuz/kaynaklar.txt` (kontrol: içe aktarmadan önce karo yok) |
+
+**Tur C — cila**
+
+| # | ne | bulgu | durum |
+|---|---|---|---|
+| C1 | İkon tutarlılığı (Kaydet indirme oku değil disket), menülerde eksik ikonlar | | ✅ 2026-11-11: araç çubuğu ve görünüm çubuğu TEK aileden (Material): Oynat/Durdur, Taşı/Döndür/Ölçekle, Yakala (ızgara), Gizmolar (göz; eskiden güneş), Kaydet (disket; eskiden indirme oku), Derle (anahtar), Izgara açık/kapalı (+ sabit `###izgara` kimliği: etiket değişince düğme yeni öğe sayılıyordu). İkon kapısı 0 eksik glif |
+| C2 | Sayı biçimi: `-0.0°` yok; ölçü birimleri tutarlı | | ✅ 2026-11-11: `gosterim_sifirla` — biçimin basamağında sıfıra yuvarlanan değer (−0.0f, gizmodan kalan −0.00001) GÖSTERİMDE işaretsiz 0; veri yalnız kullanıcı değiştirirse yazılır (sessiz düzeltme yok). `prop_vec3` / `prop_float` hepsi. Kapı `gosterim_sifirla_eksi_sifir_with_control` (kontrol: −0.06 @ %.1f korunur); canlı: gizmo sürüklemesi sonrası dönüş "0.0°" (eskiden "-0.0°") |
+| C3 | 1280×720'de kesilen etiketler (Dünya: "Kamera gör…", araç çubuğu sağ ucu) + bu çözünürlük için UX kapısı | Kapı yalnız büyük çözünürlükte | ✅ 2026-11-11: **ölçümün kör noktası kapandı** — UX ölçümü yalnız taşan metni sayıyordu, `editor_ellipsize`'ın "…" ile kısalttığı etiketleri görmüyordu: yeni **kısaltma** kaydı (pencere + kare sayısı). Kapı: `tests/arayuz/kesik_gezinti.txt` (Dünya, bileşenli nesneler, Tercihler, Konsol, Ekle) 1280×720'de iki kipte kalıcı kısaltma/kesik 0 (`editor_ux.sh --kapi`; pozitif kontrol: Konsol satırlarında kısaltma > 0, `editor_ux_kisaltma_olculur_with_control`). Düzeltmeler: onay kutusu satırında etiket değer sütununa taşar (kutu sağda); **uyarlanır etiket sütunu** (önceki karenin en uzun etiketi, panelin %50'sine kadar); varsayılan düzende Özellikler alt sınırı 300 px (1920 görünüm oranı 0.486 korundu); varlık seçici önizlemesi dosya adı (klasör/uzantı yok, ipucunda tam yol; kullanıcı verisi ölçümde sayılmaz); "Hüzme Yoğunluğu" → "Yoğunluk" (bölüm zaten Hüzmeler); betik kartı uyarısı sarılır |
+| C4 | Varsayılan ışık ve gökyüzü: yeni sahne düz görünmesin | | ✅ 2026-11-11: **"Izgara" düğmesi hiçbir şey yapmıyordu** (`show_grid` yalnız değiştiriliyor, hiçbir yerde okunmuyordu) — artık editörün 3B geçişinde derinlik testli zemin ızgarası (100 m, 1 m ince ara / 10 m ana çizgi, kendi dokusu, mipmap ile uzakta soluk, gölge düşürmez); boş yeni sahne artık boşlukta değil. Arena şablonu: yatık güneş (0.55 0.75 0.45, 1.05), biraz aydınlık ortam, koyu zemin + açık duvar (görünüm parlaklık sapması 34.1 → 39.7; oyunun yedek kodu aynı değerlerle; şablon doğrulaması 3/3). Kapı `tests/arayuz/izgara.txt` (açık/kapalı sapma 12.9 / 1.5; iki görüntü birbirinin kontrolü) |
+| C5 | Seçim yokken Özellikler'de Dünya ayarlarının tekrarı yerine sahne özeti; gizmo görünürlük ayarları Görünüm'e | Aynı ayar iki yerde | ✅ 2026-11-11: seçimsiz Özellikler = başlık + hızlı ekle + ilk adımlar/ipucu + **SAHNE** özeti ("8 nesne · 1 ışık · 2 fizikli · 1 davranışlı", "Gün saati 14:00 · sis kapalı") + "Dünya ayarları" (Dünya sekmesini öne getirir). Gizmo görünürlükleri dünya ayarlarından **Görünüm > Gizmolar (görünüm)** alt menüsüne (sahnenin değil görünümün ayarı). Sahne kökü ipucu güncel. Kapı `tests/arayuz/sahne_ozeti.txt` (kontrol: ayarlar Dünya sekmesinde) |
+| C7 | Basit kipte araç çubuğu sade: "Derle" (F5 zaten derler), "Yakala", "Gizmolar" Gelişmiş'te | Tur B gezintisi (2026-11-11) | ✅ 2026-11-11: Basit'te araç çubuğu Oynat · Taşı/Döndür/Ölçekle · Kaydet; üçü menü ve kısayolda durur. Kapı `editor_chrome_toolbar_basit_sade_with_control` (Basit: yakala/gizmolar/derle çizilmez; kontrol: Gelişmiş'te üçü de çizilir) |
+| C8 | Bilardo şablonu kopyalanan topları görmüyordu (kullanıcı, 2026-11-11: "kopyalanan topların içinden geçiyor") | Betik sabit `top_0..top_15` arıyordu | ✅ 2026-11-11: toplar sahneden adla toplanır — `top_0` beyaz, adı "top" ile başlayan her nesne bir top (kopya "top_3 2", yeni "top_ekstra"); sahnede top yoksa 16'lık yedek. Ölçüldü: kopyalı sahnede yeni betik 17, eski 16 top; şablon doğrulaması 3/3 |
+| C6 | **Açık tema** (Tercihler'de Tema seçeneği): palet `constexpr`, ~34 yerde elle `IM_COL32` — hepsi tona bağlanır, iki palet, ekran görüntüsü kapısı | B1'de işlevsiz seçenek göstermemek için ayrıldı | ✅ 2026-11-11: palet bir YAPI (`Palet`; koyu = eski sabitlerin bayt aynısı — eski sürümle penceresiz kare piksel piksel aynı, 0 fark), **açık tema** (girdi beyaz, düğme panelden bir ton koyu, vurgu/durum renkleri açık zeminde koyulaştırılmış); `theme_colors` içindeki elle yazılmış durum renkleri palete girdi. Tercihler > Tema Koyu / Açık (`tema = 0/1`, kalıcı). Renkli zemin üstündeki koyu mürekkep temadan bağımsız (`editor_koyu_murekkep`: renk örneği yazısı açık temada beyaz üstüne beyaz kalıyordu; eksen harfleri, ✚ ekle düğmesi, OYNATILIYOR hapı). Kapılar: `editor_tema_karsitligi_with_control` (WCAG: metin/panel koyu 15.3 açık 14.5; ikincil 6.2 / 7.1; vurgu ≥ 3; kontrol: aynı renk 1.0), tercih kapısı panel zemini 29 → 233 (kalıcı; kontrol: varsayılan koşu koyu) |
+
 ## 4. Sıra ve bağımlılık
 
 ```
@@ -467,6 +565,25 @@ artık süreç kimliğiyle.
 6. Dosya > Aç: işletim sisteminin dosya seçicisi mi geldi?
 7. Ekranda anlamadığın bir terim gördün mü? (liste)
 8. Toplam süre ≤ 10 dk mı? Puan (1–10): ___
+
+**Ajanın ön doğrulaması — arayüz sürücüsü (2026-11-06, `docs/ARAYUZ-SURUCUSU.md`):** penceresiz
+editör komutla sürülüyor (tıkla / yaz / tuş / ekran görüntüsü; hedef etiketle). Adım 3–4, karşılama
+ekranından gerçek tıklamalarla koşturuldu: Yeni oyun → ad + İngilizce ad + konum → Oluştur → sahne
+açıldı → F5 → oyun Oyun sekmesinde çalıştı ("Toplanan 1"). Bulunan ve düzeltilenler:
+
+- **F5 yeni projede düşüyordu:** derleyici "eklenti bulunamadı: .motor/tulpar-ext (tulpar.toml)"
+  dedi. `.motor` bağını yalnız `tools/ortam.sh` kuruyordu, yani yalnız Oyun menüsü araçları.
+  Artık oyun başlamadan editör kuruyor: `game_motor_bagla`. Windows'ta bu bir sembolik bağ, yetki
+  yoksa junction. Test: `game_motor_bagi_kurulur_yenilenir_ezmez`.
+- **Menüler yarı saydamdı:** `PopupBg` alfası 0.98'di; açık menünün altından araç çubuğu yazıları
+  hayalet gibi okunuyordu (~%7 sızma ölçüldü). Artık opak.
+- **Pasif "Oluştur" düğmesi etkin gibi görünüyordu:** pasifken (34,80,188), hazırken (38,99,235)
+  ölçüldü; fark gözle seçilmiyordu. Vurgu rengi artık yalnız hazırken var.
+- **Rehberde yanlış varsayılan klasör:** "Belgeler/TulparOyunlari" yazıyordu; Linux'ta varsayılan
+  `~/TulparOyunlari`.
+
+Kalan adımlar pencereli/kurulu yolda kullanıcıda: 1, 2, 5'in kapat/yeniden aç kısmı ve 6 (işletim
+sisteminin seçicisi).
 
 **U1 sonrası (2026-11-05, aynı ölçüm, `tools/editor_ux.sh --kapi` YEŞİL, yerel CI'da):**
 

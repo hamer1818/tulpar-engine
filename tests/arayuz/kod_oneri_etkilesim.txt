@@ -1,0 +1,43 @@
+# Oneri listesi etkilesimi (kapi dosyayi onceden kurar: qa_uc / qa_bir / qa_iki(zzz_iki) islevleri). Siralama: kisa ad once,
+# esitte dosyadaki sira -> qa_uc, qa_bir, qa_iki. 1) Asagi + Enter ikinciyi (qa_bir) yazar; 2) fareyle listedeki satira
+# tiklamak onu yazar (tiklama kutuya GITMEZ: imlec oynamaz); 3) tek harfte liste kendiliginden acilmaz, Ctrl+Bosluk acar,
+# Esc kapatir ve yazilan harf yerinde kalir. Sonda Ctrl+S: dosyada tam bu satirlar aranir.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "func dondur_baslat"
+tus Ctrl+End
+tus Enter
+yaz "q"
+yaz "a"
+bekle 4
+dogrula_metin "qa_uc"
+tus Down
+bekle 2
+tus Enter
+bekle 3
+tus Enter
+yaz "q"
+yaz "a"
+bekle 4
+dogrula_metin "(zzz_iki)"
+ekran kod_fare_once
+tikla "(zzz_iki)"
+bekle 6
+tus End
+tus Enter
+yaz "y"
+bekle 4
+metin_yok "yazi"
+tus Ctrl+Space
+bekle 4
+dogrula_metin "yazi"
+ekran kod_ctrl_bosluk
+tus Esc
+bekle 3
+metin_yok "yazi"
+tus Ctrl+S
+bekle 3
+dogrula_metin "kaydedildi"
+cik

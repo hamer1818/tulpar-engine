@@ -195,4 +195,12 @@ bool recent_parse(const char *text, size_t len);
 // 2 eski yola dusuldu. Donus: false yalniz yol tampona sigmazsa.
 bool editor_ayar_yolu(char *out, size_t cap, const char *ad, const char *eski_yol, int *goc);
 
+// U11 B3: yeni nesnenin OKUNUR, sahnede benzersiz adi (Unity "Cube", "Cube (1)"): "Kup", "Kup 2", "Kup 3"... — ilk
+// bos numara. taban'in sonundaki " <sayi>" atilir (cogaltma: "Kup 2" -> "Kup 3", "duvar 7" -> "duvar 2" degil ilk bos).
+// var(ad): sahnede bu ad var mi (cagiran SceneDesc ile baglar). out en cok cap-1 bayt; UTF-8 harfin ortasindan kesmez.
+void editor_benzersiz_ad(const char *taban, bool (*var)(void *u, const char *ad), void *u, char *out, size_t cap);
+// U11 B5: 3B modeli (.glb / .gltf) hedef dizine KOPYALAR. .gltf'nin goreli "uri" bagimliliklari (.bin, dokular)
+// ayni goreli yollarla gelir (data: URI'ler atlanir; var olan bagimlilik ezilmez). Ayni adli model varsa
+// KOPYALAMAZ (false + err). hedef_yol: kopyanin tam yolu. Donus false: err insan dilinde.
+bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *hedef_yol, size_t cap, char *err, size_t err_cap);
 } // namespace tulpar::engine::app

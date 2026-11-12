@@ -1,0 +1,34 @@
+# U10 B4b (tools/arayuz_kapi.sh): "Döndür" ve "Yukarı-aşağı salla" hazırları iki sabit duvara eklenir, sahne
+# kaydedilir. Kapı sonra oyunu koşturur: dönen duvarın eski ucu boşalmalı, sallanan duvar yerinden oynamalı;
+# hız/yükseklik 0 yapılınca (pozitif kontrol) ikisi de yerinde kalmalı.
+tikla "duvar_guney"
+bekle 2
+kaydir "Dönüşüm (Transform)" -30
+bekle 2
+tikla "Davranış ekle (betik)"
+bekle_oge "Oluştur ve duvar_guney nesnesine ekle"
+tikla "Döndür##sablon4"
+tikla "##betik_adi"
+tus Ctrl+A
+yaz "Dondur Kapi"
+dogrula_metin "dosya: betikler/dondur_kapi.tpr"
+ekran hazirlar
+tikla "Oluştur ve duvar_guney nesnesine ekle"
+bekle 4
+dogrula_yok "###yeni_betik"
+tikla "duvar_kuzey" pencere=Sahne
+bekle 2
+tikla "Davranış ekle (betik)"
+bekle_oge "Oluştur ve duvar_kuzey nesnesine ekle"
+tikla "Yukarı-aşağı salla##sablon5"
+tikla "##betik_adi"
+tus Ctrl+A
+yaz "Salla Kapi"
+dogrula_metin "dosya: betikler/salla_kapi.tpr"
+tikla "Oluştur ve duvar_kuzey nesnesine ekle"
+bekle 4
+dogrula_yok "###yeni_betik"
+tikla "Kaydet" pencere=tulpar_toolbar
+bekle 3
+dogrula_metin "kaydedildi: assets/"
+cik

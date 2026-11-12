@@ -592,7 +592,8 @@ if(NOT ANDROID)
         third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp
         third_party/imgui/imgui_widgets.cpp third_party/imgui/imgui_demo.cpp
         third_party/imgui/imgui_impl_vulkan.cpp third_party/imgui/ImGuizmo.cpp
-        third_party/imgui/imnodes.cpp third_party/imgui/ImSequencer.cpp third_party/imgui/ImCurveEdit.cpp)
+        third_party/imgui/imnodes.cpp third_party/imgui/ImSequencer.cpp third_party/imgui/ImCurveEdit.cpp
+        third_party/imgui/imgui_tulpar.cpp)
     # iconfont: yalniz #define'lerden olusan tek baslik (IconFontCppHeaders,
     # Zlib). Kod uretmez, bu yuzden ayri hedef degil -- imgui ile ayni
     # gorunurlukte olmasi yeterli (ikonlari ImGui cagrilari tuketiyor).
@@ -600,7 +601,7 @@ if(NOT ANDROID)
     # Prototip yok: Vulkan fonksiyonlari bizim dlopen'li yukleyiciden (ImGui_ImplVulkan_LoadFunctions).
     target_compile_definitions(engine_imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
     target_compile_options(engine_imgui PRIVATE -fno-exceptions -fno-rtti -w)
-    list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/editor_ux.cpp app/editor_fabrika.cpp app/editor_karsilama.cpp app/editor_tur.cpp app/editor_masaustu.cpp app/editor_yardim.cpp tests/test_editor_ux.cpp tests/test_editor_masaustu.cpp tests/test_editor_yardim.cpp tests/test_editor_fabrika.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_bridge_rapor.cpp tests/test_bridge_net.cpp tests/test_bridge_para.cpp tests/test_bridge_log.cpp tests/test_game_channel.cpp)
+    list(APPEND ENGINE_TEST_SOURCES tests/test_editor.cpp tests/editor_probe.cpp tests/test_editor_chrome.cpp tests/test_editor_widgets.cpp tests/test_editor_multiedit.cpp tests/test_editor_props.cpp tests/test_prefab.cpp tests/test_editor_overlay.cpp tests/test_editor_camera.cpp tests/test_editor_console.cpp tests/test_editor_files.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/editor_ux.cpp app/editor_fabrika.cpp app/editor_karsilama.cpp app/editor_tur.cpp app/editor_masaustu.cpp app/editor_yardim.cpp app/editor_surucu.cpp app/editor_betik.cpp app/editor_kod_penceresi.cpp app/editor_tercih.cpp app/editor_ilk_adim.cpp tests/test_editor_betik.cpp tests/test_editor_surucu.cpp tests/test_editor_ux.cpp tests/test_editor_masaustu.cpp tests/test_editor_yardim.cpp tests/test_editor_fabrika.cpp tests/test_editor_game.cpp tests/test_bridge.cpp tests/test_bridge_rapor.cpp tests/test_bridge_net.cpp tests/test_bridge_para.cpp tests/test_bridge_log.cpp tests/test_game_channel.cpp)
     # Guncelleyici cekirdegi (app/updater): curl/tar alt surecleri + kurulum
     # agaci. Yalniz masaustu editorunde yasar; Android'de guncelleme magazadan.
     list(APPEND ENGINE_TEST_SOURCES tests/test_updater.cpp app/updater.cpp)
@@ -658,7 +659,7 @@ if(NOT ANDROID)
     # derleme bayraklari burada da uygulanabilir.
     target_compile_options(engine_clodbake PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
     # --- engine_editor: motor duzenleme kipinde (ImGui paneller + ImGuizmo), masaustu / headless
-    add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/editor_ux.cpp app/editor_fabrika.cpp app/editor_karsilama.cpp app/editor_tur.cpp app/editor_masaustu.cpp app/editor_yardim.cpp app/demo_scene.cpp app/updater.cpp)
+    add_executable(engine_editor app/editor.cpp app/editor_app.cpp app/editor_ui.cpp app/editor_viewport.cpp app/editor_commands.cpp app/editor_layout.cpp app/editor_chrome.cpp app/editor_widgets.cpp app/editor_multiedit.cpp app/editor_props.cpp app/editor_overlay.cpp app/editor_camera.cpp app/editor_console.cpp app/editor_files.cpp app/editor_game.cpp app/editor_game_view.cpp app/editor_ux.cpp app/editor_fabrika.cpp app/editor_karsilama.cpp app/editor_tur.cpp app/editor_masaustu.cpp app/editor_yardim.cpp app/editor_surucu.cpp app/editor_betik.cpp app/editor_kod_penceresi.cpp app/editor_tercih.cpp app/editor_ilk_adim.cpp app/demo_scene.cpp app/updater.cpp)
     target_sources(engine_editor PRIVATE app/editor_update.cpp) # guncelleme arayuzu (Yardim menusu, rozet, --guncelleme)
     # Stats panelinin "Sicak Tahsis" satiri AllocGate'i okur: sayac ancak override bu ikilide
     # varsa sayar. Eskiden editorde yoktu ve satir sabit "0 Bayt" basiyordu (olculmuyordu).

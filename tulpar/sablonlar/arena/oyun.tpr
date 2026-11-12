@@ -8,18 +8,38 @@
 //   tulpar oyun.tpr                                  # pencereli
 //   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
 //   tools/dogrula.sh                                 # kapilar
+// =====================================================================================================
+// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; geri kalanı bunun ayrıntısı)
+//
+//  1) SAHNE — editörde gördüğün her şey: assets/arena.sahne. Zemin, duvarlar, "oyuncu" topu ve "parilti_1..3".
+//     Konumlarını, boylarını, renklerini editörde değiştir (Kaydet + Derle); Oynat'ta aynısını görürsün.
+//     Oyun bu nesneleri ADIYLA bulur (aşağıdaki sahneden_oku): "oyuncu" adını ve "parilti" ile başlayan adları
+//     değiştirme. Daha fazla parıltı istersen bir parıltıyı kopyala (Ctrl+D): oyun hepsini kendisi sayar.
+//
+//  2) KURALLAR — bu dosya: topu yürütmek (oyun_adim), parıltı toplamak, süre, skor, menüler.
+//     Okuma sırası: oyun ayarları → sahneden_oku → tur_baslat / oyun_adim → ekranlar → main() (ana döngü).
+//
+//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış vermek için: editörde nesneyi seç → "Davranış ekle".
+//     Betik assets/betikler/ içinde durur; aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
+//
+//  NE NEREDE DEĞİŞİR:  süre, hız → "Oyun ayarları" (SURE_S, HIZ)  ·  konum, renk, boy → editörde
+//                      yeni kural → oyun_adim()  ·  yeni ekran/menü → "Ekranlar" bölümü
+// =====================================================================================================
+
 import "engine";
 import "kit_kayit";
 import "kit_dil";
 import "kit_ses";
 import "kit_acilis";
 import "kit_arayuz";
+// Sahnede nesnelere atadigin betikler (editor assets/betikler.tpr dosyasini kendisi yazar):
+import "assets/betikler";
 
 // ---- Kimlik ve kip -----------------------------------------------------------------------------
 // Ortam degiskenleri TULPAR_{{ONEK}}_* (OTOPILOT, TEST, KAYIT_YAZ, DIL, ACILIS ...).
 bool g_otopilot = kit_oyun("{{KIMLIK}}", "{{ONEK}}");
 
-// ---- Oyun ayarlari ----------------------------------------------------------------------------
+// ---- Oyun ayarları ----------------------------------------------------------------------------
 float SURE_S = 20.0;          // tur suresi
 float HIZ = 5.0;
 float ARENA = 9.0;            // yari genislik (m)
@@ -34,6 +54,22 @@ int g_ekran = 0;
 int g_ayar_donus = 0;
 
 int g_top = 0;
+// Oyuncu topu ve parıltılar SAHNEDE durur (assets/arena.sahne: "oyuncu", "parilti_1"...): editörde ne görüyorsan
+// oyunda o çıkar; konumu/boyu/rengi editörde değiştir. Sahnede yoksa aşağıdaki varsayılanlar kullanılır.
+float OYUNCU_X = 0.0;
+float OYUNCU_Y = 0.6;
+float OYUNCU_Z = 0.0;
+float OYUNCU_R = 0.5;
+int OYUNCU_RENK = 0;
+float PARILTI_R = 0.35;
+// Parıltılar ÇARPIŞMAZ: top içlerinden geçer ve değdiği anda toplar. (Eskiden sabit küre gövdeydi: top onlara çarpıp
+// üstlerine tırmanıyor, toplama geç fark ediliyordu — kullanıcı, 2026-11-12.) Motorun çarpışma grubu mekanizması:
+// parıltılar grup 1, geri kalan her şey grup 0; (0, 1) çifti kapalı.
+int GRUP_PARILTI = 1;
+float g_temas = 0.85;         // toplama mesafesi = oyuncu yarıçapı + parıltı yarıçapı (sahneden_oku hesaplar)
+int PARILTI_RENK = 0;
+float[] g_p0x = [];           // sahnedeki parıltıların başlangıç konumu
+float[] g_p0z = [];
 int[] g_parilti = [];
 float[] g_px = [];
 float[] g_pz = [];
@@ -66,20 +102,53 @@ func rastgele(): float {
     g_tohum = (g_tohum * 1103515245 + 12345) % 2147483648;
     return (g_tohum % 10000) / 10000.0;
 }
+func parilti_koy(int i, float x, float z) {
+    g_px[i] = x;
+    g_pz[i] = z;
+    g_parilti[i] = kure(x, 0.45, z, PARILTI_R, false, PARILTI_RENK);
+    carpisma_grubu(g_parilti[i], GRUP_PARILTI);
+}
 func parilti_kur(int i) {
     float x = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
     float z = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
-    g_px[i] = x;
-    g_pz[i] = z;
-    g_parilti[i] = kure(x, 0.45, z, 0.35, false, SARI);
+    parilti_koy(i, x, z);
+}
+// Sahnedeki "oyuncu" ve "parilti*" nesnelerini okur; oyunun kendi kürelerini onların yerine doğurur
+// (sahne nesnesi gizlenir — yoksa iki top üst üste görünürdü). Sahnede yoksa varsayılan: 1 oyuncu, 3 parıltı.
+func sahneden_oku() {
+    PARILTI_RENK = SARI;
+    OYUNCU_RENK = renk(255, 110, 90);
+    int o = sahne_bul("oyuncu");
+    if (o >= 0) {
+        OYUNCU_X = sahne_x(o);
+        OYUNCU_Y = sahne_y(o);
+        OYUNCU_Z = sahne_z(o);
+        OYUNCU_R = sahne_olcek_x(o) * 0.5;
+        OYUNCU_RENK = sahne_renk(o);
+        sahne_gorunur(o, false);
+    }
+    int ns = sahne_sayisi();
+    int n = 0;
+    for (int i = 0; i < ns; i++) {
+        str ad = sahne_adi(i);
+        if (len(ad) >= 7 && substring(ad, 0, 7) == "parilti") {
+            if (n == 0) { PARILTI_R = sahne_olcek_x(i) * 0.5; PARILTI_RENK = sahne_renk(i); }
+            push(g_p0x, sahne_x(i));
+            push(g_p0z, sahne_z(i));
+            sahne_gorunur(i, false);
+            n += 1;
+        }
+    }
+    if (n > 0) { PARILTI_N = n; }
+    g_temas = OYUNCU_R + PARILTI_R;
 }
 func tur_baslat() {
     g_toplanan = 0;
     g_kalan = SURE_S;
-    isinla(g_top, 0.0, 0.6, 0.0);
+    isinla(g_top, OYUNCU_X, OYUNCU_Y, OYUNCU_Z);
     for (int i = 0; i < PARILTI_N; i++) {
         if (g_parilti[i] != 0) { sil(g_parilti[i]); }
-        parilti_kur(i);
+        if (i < len(g_p0x)) { parilti_koy(i, g_p0x[i], g_p0z[i]); } else { parilti_kur(i); }
     }
     g_ekran = EKRAN_OYUN;
     kit_muzik_cal(MUZIK_OYUN);
@@ -111,14 +180,14 @@ func oyun_adim(float d) {
     for (int i = 0; i < PARILTI_N; i++) {
         float dx = g_px[i] - konum_x(g_top);
         float dz = g_pz[i] - konum_z(g_top);
-        if (dx * dx + dz * dz < 0.8 * 0.8) {
+        if (dx * dx + dz * dz < g_temas * g_temas) {
             g_toplanan += 1;
             kit_ses_cal(SES_TOPLA, 0.9, 0.05);
             sil(g_parilti[i]);
             parilti_kur(i);
         }
     }
-    if (konum_y(g_top) < -5.0) { isinla(g_top, 0.0, 0.6, 0.0); }
+    if (konum_y(g_top) < -5.0) { isinla(g_top, OYUNCU_X, OYUNCU_Y, OYUNCU_Z); }
     g_kalan -= d;
     if (g_kalan <= 0.0) { tur_bitir(); }
 }
@@ -202,16 +271,18 @@ func main() {
     // (motorun engine_sahnec'i calismadi) ayni arena koddan kurulur ve UYARI basilir.
     if (!sahne_yukle("assets/arena.sahneb")) {
         logla("UYARI arena.sahneb yuklenemedi: arena koddan kuruldu (tools/ortam.sh sahneyi derler)");
-        gunes(0.5, 1.0, 0.35, 0.9);
-        ortam(renk(40, 46, 60));
+        gunes(0.55, 0.75, 0.45, 1.05);   // assets/arena.sahne ile AYNI (yatik gunes: duvarlar ve golge okunur)
+        ortam(renk(51, 56, 77));
         golge_hacmi(0, 1, 0, 14, 60);
-        zemin_kur(ARENA, renk(70, 84, 110));
+        zemin_kur(ARENA, renk(56, 74, 102));
         for (int i = -1; i <= 1; i += 2) {
-            kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(110, 120, 150));
-            kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(110, 120, 150));
+            kutu(i * (ARENA + 0.25), 0.5, 0.0, 0.25, 0.5, ARENA + 0.5, false, renk(168, 178, 204));
+            kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(168, 178, 204));
         }
     }
-    g_top = kure(0.0, 0.6, 0.0, 0.5, true, renk(255, 110, 90));
+    sahneden_oku();
+    carpisma_cifti(0, GRUP_PARILTI, false);   // oyuncu parıltıların içinden geçer
+    g_top = kure(OYUNCU_X, OYUNCU_Y, OYUNCU_Z, OYUNCU_R, true, OYUNCU_RENK);
     for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }
     kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);
     SES_TOPLA = kit_ses_dene("ses_topla.wav", 880.0, 0.08);
@@ -222,7 +293,7 @@ func main() {
     g_kit_ac_muzik = MUZIK_MENU;
     acilis_baslat(!g_otopilot);
     if (!acilis_suruyor()) { kit_muzik_cal(MUZIK_MENU); }
-    logla(t"{{KIMLIK}}: GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, kip {kit_kip_adi()}, dil {kit_dil_adi()}, " + kit_ses_ozet());
+    logla_ayrinti(t"{{KIMLIK}}: GPU {eng_gpu_name()} {genislik()}x{yukseklik()}, kip {kit_kip_adi()}, dil {kit_dil_adi()}, " + kit_ses_ozet());
 
     while (calisiyor()) {
         bool pencere = kare_basla();
@@ -264,7 +335,7 @@ func main() {
         otopilot_kare();
         kare_bitir();
     }
-    logla(t"{{KIMLIK}}: kapanis, rekor {g_rekor}, kare {kare_no()}");
+    logla_ayrinti(t"{{KIMLIK}}: kapanis, rekor {g_rekor}, kare {kare_no()}");
     motor_kapat();
 }
 

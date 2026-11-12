@@ -1,0 +1,11 @@
+# U10 B3 (tools/arayuz_kapi.sh): duvara atanmis betigin 3. satiri bozuk. Oynat -> "Oyun baslatilamadi" penceresi ->
+# "Kodu ac (satir 3)" editorun Kod panelinde O SATIRDA acar (imlec 3. satirda).
+tikla "Oynat" pencere=tulpar_toolbar
+bekle_oge "Kopyala" kare=900
+dogrula_oge "Kodu aç (satır 3)"
+tikla "Kodu aç (satır 3)"
+bekle 8
+dogrula_metin "Satır 3, sütun 1"
+dogrula_yok "###betik_hata"
+ekran hata_satiri
+cik

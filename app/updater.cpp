@@ -1464,25 +1464,25 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
 
   // --- Disabled kosullari (init HATASI degil) ---
   if (!c.current_version || !*c.current_version) {
-    m.set_reason("kaynak derlemesi (surum yok): guncelleme yalniz paketlenmis surumlerde calisir");
+    m.set_reason("kaynak derlemesi (s\xC3\xBCr\xC3\xBCm yok): g\xC3\xBCncelleme yaln\xC4\xB1z paketlenmi\xC5\x9F s\xC3\xBCr\xC3\xBCmlerde \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r");
     return true;
   }
   if (!upd_version_parse(c.current_version, &m.cur)) {
-    m.set_reason("kurulu surum ayristirilamadi: %.40s", c.current_version);
+    m.set_reason("kurulu s\xC3\xBCr\xC3\xBCm ayr\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1lamad\xC4\xB1: %.40s", c.current_version);
     return true;
   }
   say(m.cur_tag, sizeof m.cur_tag, "%s", c.current_version);
   if (!platform_known(c.platform)) {
-    m.set_reason("bu platform icin paket yayinlanmiyor: %.30s", c.platform ? c.platform : "(bos)");
+    m.set_reason("bu platform i\xC3\xA7in paket yay\xC4\xB1nlanm\xC4\xB1yor: %.30s", c.platform ? c.platform : "(bos)");
     return true;
   }
   say(m.platform, sizeof m.platform, "%s", c.platform);
   // AppImage (U7c): ikili salt okunur squashfs icinde, dosya dosya guncellenemez; AppImage DOSYASI
   // butun olarak yenisiyle degistirilir. Kurulum dizini = AppImage'in dizini (calisma alani orada).
   if (c.appimage && *c.appimage) {
-    if (c.appimage[0] != '/') { m.set_reason("AppImage yolu mutlak degil: %.80s", c.appimage); return true; }
-    if (std::strlen(c.appimage) > kFull - 400) { m.set_reason("AppImage yolu cok uzun"); return true; }
-    if (platform::fs_kind(c.appimage) != platform::FsKind::File) { m.set_reason("AppImage dosyasi bulunamadi: %.120s", c.appimage); return true; }
+    if (c.appimage[0] != '/') { m.set_reason("AppImage yolu mutlak de\xC4\x9Fil: %.80s", c.appimage); return true; }
+    if (std::strlen(c.appimage) > kFull - 400) { m.set_reason("AppImage yolu \xC3\xA7ok uzun"); return true; }
+    if (platform::fs_kind(c.appimage) != platform::FsKind::File) { m.set_reason("AppImage dosyas\xC4\xB1 bulunamad\xC4\xB1: %.120s", c.appimage); return true; }
     m.tek = true;
     say(m.ai, sizeof m.ai, "%s", c.appimage);
     say(m.inst, sizeof m.inst, "%s", c.appimage);
@@ -1495,17 +1495,17 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     say(m.bak, sizeof m.bak, "%s/yedek-%s.AppImage", m.gdir, m.cur_tag);
     join(m.pb, sizeof m.pb, m.gdir, kBrokenMarker);
     if (platform::fs_exists(m.pb)) {
-      m.set_reason("onceki bir guncellemenin geri almasi eksik kaldi — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
+      m.set_reason("\xC3\xB6nceki bir g\xC3\xBCncellemenin geri almas\xC4\xB1 eksik kald\xC4\xB1 — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
       return true;
     }
   } else if (c.install_dir && *c.install_dir) {
     say(m.inst, sizeof m.inst, "%s", c.install_dir);
   } else if (!platform::fs_exe_dir_utf8(m.inst, sizeof m.inst)) {
-    m.set_reason("calisan ikilinin dizini bulunamadi");
+    m.set_reason("\xC3\xA7" "al\xC4\xB1\xC5\x9F" "an ikilinin dizini bulunamad\xC4\xB1");
     return true;
   }
   if (!m.tek) {
-    if (std::strlen(m.inst) > kFull - 400) { m.set_reason("kurulum yolu cok uzun"); return true; }
+    if (std::strlen(m.inst) > kFull - 400) { m.set_reason("kurulum yolu \xC3\xA7ok uzun"); return true; }
     // Sondaki ayiricilar atilir.
     for (size_t l = std::strlen(m.inst); l > 1 && (m.inst[l - 1] == '/' || m.inst[l - 1] == '\\'); l--) m.inst[l - 1] = 0;
     join(m.gdir, sizeof m.gdir, m.inst, kGDir);
@@ -1514,12 +1514,12 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     say(m.bak, sizeof m.bak, "%s/yedek-%s", m.gdir, m.cur_tag);
     join(m.pa, sizeof m.pa, m.inst, kManifestName);
     if (platform::fs_kind(m.pa) != platform::FsKind::File) {
-      m.set_reason("kurulum dizininde %s yok — paket kurulumu degil (%s)", kManifestName, m.inst);
+      m.set_reason("kurulum dizininde %s yok — paket kurulumu de\xC4\x9Fil (%s)", kManifestName, m.inst);
       return true;
     }
     join(m.pb, sizeof m.pb, m.gdir, kBrokenMarker);
     if (platform::fs_exists(m.pb)) {
-      m.set_reason("onceki bir guncellemenin geri almasi eksik kaldi — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
+      m.set_reason("\xC3\xB6nceki bir g\xC3\xBCncellemenin geri almas\xC4\xB1 eksik kald\xC4\xB1 — %s elle incelenmeli (%s)", m.gdir, kBrokenMarker);
       return true;
     }
 
@@ -1533,17 +1533,17 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
       join(m.pb, sizeof m.pb, m.inst, kVersionName);
       bool st = false;
       const int64_t sn = platform::fs_read_all(m.pb, sv, sizeof sv, &st);
-      if (sn < 0) { m.set_reason("kurulumda %s yok — paket kurulumu degil", kVersionName); return true; }
+      if (sn < 0) { m.set_reason("kurulumda %s yok — paket kurulumu de\xC4\x9Fil", kVersionName); return true; }
       if (st || !upd_surum_parse(sv, (size_t)sn, sver, sizeof sver, splat, sizeof splat)) {
-        m.set_reason("kurulu %s bicimsiz", kVersionName);
+        m.set_reason("kurulu %s bi\xC3\xA7imsiz", kVersionName);
         return true;
       }
       if (std::strcmp(sver, "kaynak") == 0) {
-        m.set_reason("surumsuz paket (%s: kaynak) — guncelleme yalniz surumlu Release paketlerinde calisir", kVersionName);
+        m.set_reason("s\xC3\xBCr\xC3\xBCms\xC3\xBCz paket (%s: kaynak) — g\xC3\xBCncelleme yaln\xC4\xB1z s\xC3\xBCr\xC3\xBCml\xC3\xBC Release paketlerinde \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r", kVersionName);
         return true;
       }
       if (std::strcmp(sver, m.cur_tag) != 0 || std::strcmp(splat, m.platform) != 0) {
-        m.set_reason("kurulu %s (%s %s) calisan editorle (%s %s) uyusmuyor", kVersionName, sver, splat, m.cur_tag, m.platform);
+        m.set_reason("kurulu %s (%s %s) \xC3\xA7" "al\xC4\xB1\xC5\x9F" "an edit\xC3\xB6rle (%s %s) uyu\xC5\x9Fmuyor", kVersionName, sver, splat, m.cur_tag, m.platform);
         return true;
       }
     }
@@ -1581,11 +1581,11 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
     char perr[kUpdErrLen];
     if (n < 0 || trunc) {
       if (trunc) m.ctr.capacity_overflow++;
-      m.set_reason("kurulu %s okunamadi%s", kManifestName, trunc ? " (cok buyuk)" : "");
+      m.set_reason("kurulu %s okunamad\xC4\xB1%s", kManifestName, trunc ? " (\xC3\xA7ok b\xC3\xBCy\xC3\xBCk)" : "");
       return true;
     }
     if (!parse_manifest(m.text, (size_t)n, m.oldm, m.ctr, perr, sizeof perr)) {
-      m.set_reason("kurulu manifest gecersiz: %s", perr);
+      m.set_reason("kurulu manifest ge\xC3\xA7" "ersiz: %s", perr);
       return true;
     }
   }
@@ -1618,7 +1618,7 @@ bool Updater::init(Arena &a, const UpdaterConfig &c, char *err, size_t err_cap) 
       url = kUpdDefaultApiUrl;
     }
   }
-  if (std::strlen(url) >= sizeof m.api_url) { m.set_reason("guncelleme adresi cok uzun"); return true; }
+  if (std::strlen(url) >= sizeof m.api_url) { m.set_reason("g\xC3\xBCncelleme adresi \xC3\xA7ok uzun"); return true; }
   say(m.api_url, sizeof m.api_url, "%s", url);
   say(m.user_agent, sizeof m.user_agent, "tulpar-engine/%s", m.cur_tag);
   m.hash_budget = c.hash_budget_bytes ? c.hash_budget_bytes : kUpdHashBudget;
@@ -1680,7 +1680,7 @@ bool Updater::install(char *err, size_t err_cap) {
     if (!yerlesti) {
       const int e = platform::fs_last_error();
       if (!platform::fs_move(m.bak, m.ai)) {
-        m.set_reason("yeni AppImage yerine konamadi (hata %d) VE GERI ALMA EKSIK — eski dosya: %s", e, m.bak);
+        m.set_reason("yeni AppImage yerine konamad\xC4\xB1 (hata %d) VE GERI ALMA EKSIK — eski dosya: %s", e, m.bak);
         m.state = UpdState::Failed;
         m.work = Work::None;
         m.broken = true;
@@ -1714,7 +1714,7 @@ bool Updater::install(char *err, size_t err_cap) {
     if (bad) {
       // En kotu durum: geri alma da eksik kaldi. Yedek SILINMEZ, calisma alani
       // da (acilan paket) — elle kurtarma icin ikisi de gerekli.
-      m.set_reason("kurulum basarisiz (%s) VE GERI ALMA EKSIK: %u adim geri alinamadi — yedek: %s", why, bad, m.bak);
+      m.set_reason("kurulum ba\xC5\x9F" "ar\xC4\xB1s\xC4\xB1z (%s) VE GERI ALMA EKSIK: %u ad\xC4\xB1m geri al\xC4\xB1namad\xC4\xB1 — yedek: %s", why, bad, m.bak);
       m.state = UpdState::Failed;
       m.work = Work::None;
       m.broken = true;

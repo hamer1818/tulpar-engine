@@ -1,0 +1,20 @@
+# Ana kod nesneyi adiyla yonetiyorsa Ozellikler soyler (kullanici, 2026-11-12: "oyuncu nesnesi neyle calisiyor?").
+# "oyuncu" ve "parilti_1" oyun.tpr'de tirnakli aranir -> bilgi karti + "oyun.tpr'yi ac"; "duvar_bati" aranmaz -> kart YOK
+# (pozitif kontrol: kartin gorunmesi nesne adina bagli, her nesnede degil).
+tikla "oyuncu" pencere=Sahne
+bekle 3
+dogrula_metin "Bu nesneyi oyunun ana kodu yönetiyor"
+dogrula_metin "oyuncu"
+tikla "parilti_1" pencere=Sahne
+bekle 3
+dogrula_metin "Bu nesneyi oyunun ana kodu yönetiyor"
+tikla "duvar_bati" pencere=Sahne
+bekle 3
+metin_yok "Bu nesneyi oyunun ana kodu yönetiyor"
+tikla "oyuncu" pencere=Sahne
+bekle 3
+tikla "oyun.tpr'yi aç"
+bekle_oge "oyun.tpr###kod_paneli" sira=1
+dogrula_metin "Oyunun ana dosyası"
+ekran ana_kod_nesne
+cik

@@ -1,0 +1,34 @@
+# U10 B5 (tools/arayuz_kapi.sh): Betik karti "ne zaman calisir / oyuna bagli mi" sorularini cevaplar.
+# Proje: duvar_dogu'ya dondur.tpr atanmis (yalniz dondur_baslat var), oyun.tpr'de baglanti satiri YOK.
+# Kart: baslarken isaretli, her karede cizgili, "Oyuna bagli degil" + Bagla. Bagla -> "Oyuna bagli".
+# Kod panelinde _guncelle eklenip Ctrl+S -> ayni kartta "her karede" isaretlenir (kart dosyayi yeniden okur).
+tikla "duvar_dogu"
+bekle 2
+kaydir "Dönüşüm (Transform)" -30
+bekle 2
+dogrula_metin "Ne zaman çalışır?"
+metin_yok "— oyun başlarken"
+dogrula_metin "— her karede"
+dogrula_metin "Oyuna bağlı değil"
+metin_yok "AOT"
+ekran kart_once
+tikla "Bağla"
+bekle_oge "###betik_bagla"
+tikla "Bağla" pencere=betik_bagla
+dogrula_yok "###betik_bagla"
+metin_yok "Oyuna bağlı değil"
+dogrula_metin "Oyuna bağlı"
+tikla "Düzenle"
+bekle_oge "dondur.tpr###kod_paneli" sira=1
+tikla "func dondur_baslat"
+tus Ctrl+End
+tus Enter
+yaz "func dondur_guncelle(id, dt) {"
+tus Enter
+yaz "}"
+tus Ctrl+S
+bekle 2
+dogrula_metin "kaydedildi"
+metin_yok "— her karede"
+ekran kart_sonra
+cik

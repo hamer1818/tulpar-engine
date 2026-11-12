@@ -43,6 +43,18 @@ bool fabrika_dogrula(const FabrikaIstek &r, char *hata, size_t cap);
 FabrikaSonuc fabrika_uret(const FabrikaIstek &r);
 // Mevcut sablon turleri (tulpar/sablonlar altindaki "ortak" disi dizinler). Donus: sayi.
 uint32_t fabrika_sablonlar(char (*out)[32], uint32_t cap);
+// U11 A3: sablonun karttaki bilgisi (tulpar/sablonlar/<tur>/sablon.txt, "anahtar: deger" satirlari: ad, aciklama,
+// yon = yatay|dikey, ikon). Dosya yoksa ad = tur, gerisi bos, yon yatay (false doner ama out dolu).
+struct SablonBilgi {
+  char ad[48] = "";
+  char aciklama[200] = "";
+  char ikon[16] = "";
+  char kodda[200] = ""; // U11 B4: sahnede GORUNMEYEN, koddan doganlar (Ilk adimlar karti)
+  int yon = 0; // 0 yatay, 1 dikey
+};
+bool fabrika_sablon_bilgi(const char *tur, SablonBilgi *out);
+// Metin ayristirici (dosyasiz; test bunu kullanir).
+void fabrika_sablon_bilgi_ayristir(const char *metin, SablonBilgi *out);
 // Uretilen projenin acilacak sahnesi: <dizin>/assets/<tur>.sahne, yoksa assets/ altindaki ilk .sahne.
 bool fabrika_proje_sahnesi(const char *dizin, const char *tur, char *out, size_t cap);
 

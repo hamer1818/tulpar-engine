@@ -1,0 +1,7 @@
+# U10 B1 (tools/arayuz_kapi.sh): yeni sablon projesi, duvara betik atanmis sahne. Derle (Ctrl+B) betikleri
+# assets/betikler.tpr toplayicisina yazar; kapi sonra oyunu kosturup betigin CALISTIGINI olcer.
+dogrula_metin "duvar_dogu"
+tus Ctrl+B
+bekle 5
+metin_yok "Betikler oyuna bağlansın mı?"
+cik

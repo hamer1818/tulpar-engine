@@ -994,3 +994,91 @@ ENGINE_TEST(editor_widgets_hierarchy_collapse_bitset_shifts) {
   std::printf("    [bilgi] katlama kumesi %u bit (%zu bayt), silme/ekleme kaydirmasi dogru\n", app::HierarchyCollapse::kMax,
               sizeof(app::HierarchyCollapse));
 }
+
+// U11 B2: Basit kip agaci tam agacin ALT KUMESI (her yaprak kodu kCreateMenu'de var: Basit yeni tur icat etmez) ve
+// teknik adlar icermez. KONTROL: tam agacta Basit'in gostermedigi kodlar var (agaclar ayni degil).
+static bool agacta_kod(const app::CreateMenuItem *it, uint32_t n, int kod) {
+  for (uint32_t i = 0; i < n; i++)
+    if (it[i].children ? agacta_kod(it[i].children, it[i].child_count, kod) : it[i].code == kod) return true;
+  return false;
+}
+static uint32_t yaprak_say(const app::CreateMenuItem *it, uint32_t n, const app::CreateMenuItem *tam, uint32_t tn, uint32_t *eksik) {
+  uint32_t y = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    if (it[i].children) { y += yaprak_say(it[i].children, it[i].child_count, tam, tn, eksik); continue; }
+    y++;
+    if (!agacta_kod(tam, tn, it[i].code)) (*eksik)++;
+    CHECK(std::strstr(it[i].label, "glTF") == nullptr && std::strstr(it[i].label, "Tulpar") == nullptr);
+  }
+  return y;
+}
+ENGINE_TEST(create_menu_basit_subset_with_control) {
+  uint32_t nb = 0, nt = 0, eksik = 0;
+  const app::CreateMenuItem *b = app::create_menu_items(false, &nb);
+  const app::CreateMenuItem *t = app::create_menu_items(true, &nt);
+  const uint32_t yb = yaprak_say(b, nb, t, nt, &eksik);
+  uint32_t ty = 0;
+  for (uint32_t i = 0; i < nt; i++) ty += t[i].children ? t[i].child_count : 1;
+  std::printf("    [bilgi] olustur agaci: Basit %u ust / %u yaprak, tam %u ust / ~%u yaprak\n", nb, yb, nt, ty);
+  CHECK(eksik == 0);
+  CHECK(nb < nt && yb < ty);                 // KONTROL: Basit gercekten sade
+  CHECK(!agacta_kod(b, nb, 74) && agacta_kod(t, nt, 74)); // voksel duman yalniz Gelismis'te
+}
+
+// U11 C2: "-0.0°" gosterilmez. Bicimin basamaginda sifira yuvarlanan deger isaretsiz 0; yuvarlanmayan aynen.
+// KONTROL: esigin hemen ustu (-0.06 @ %.1f) korunur (her negatif kucuk deger silinmiyor).
+ENGINE_TEST(gosterim_sifirla_eksi_sifir_with_control) {
+  const float a = app::gosterim_sifirla(-0.00001f, "%.1f\xC2\xB0");
+  CHECK(a == 0.0f && !std::signbit(a));
+  const float b = app::gosterim_sifirla(-0.0f, "%.3f");
+  CHECK(b == 0.0f && !std::signbit(b));
+  CHECK(app::gosterim_sifirla(-0.04f, "%.1f") == 0.0f);
+  CHECK(app::gosterim_sifirla(-0.06f, "%.1f") == -0.06f);   // KONTROL
+  CHECK(app::gosterim_sifirla(0.0004f, "%.3f") == 0.0f && app::gosterim_sifirla(0.0006f, "%.3f") == 0.0006f);
+  char m[32];
+  std::snprintf(m, sizeof m, "%.1f", (double)app::gosterim_sifirla(-0.00001f, "%.1f"));
+  CHECK(!std::strcmp(m, "0.0"));
+}
+
+// U11 C6: iki temanin KARSITLIGI (WCAG 2.1 goreli parlaklik). Ana metin/panel >= 7, metin/dugme-girdi-secim ve ikincil
+// metin >= 4.5, vurgu/uyari/hata/tamam >= 3, pasif metin >= 2.5. KONTROL: ayni iki renk 1.0 (olcum gercekten oran).
+static double wcag_l(const float c[4]) {
+  auto ch = [](double v) { return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
+}
+static double karsitlik(int tema, app::Tone a, app::Tone b) {
+  float x[4], y[4];
+  app::editor_tema_tonu(tema, a, x);
+  app::editor_tema_tonu(tema, b, y);
+  double la = wcag_l(x), lb = wcag_l(y);
+  if (la < lb) { const double t = la; la = lb; lb = t; }
+  return (la + 0.05) / (lb + 0.05);
+}
+ENGINE_TEST(editor_tema_karsitligi_with_control) {
+  using app::Tone;
+  struct Cift { Tone on, zemin; double alt; const char *ad; };
+  static const Cift kCift[] = {
+      {Tone::Text, Tone::Bg1, 7.0, "metin/panel"},       {Tone::Text, Tone::Bg3, 4.5, "metin/dugme"},
+      {Tone::Text, Tone::Input, 4.5, "metin/girdi"},     {Tone::Text, Tone::Select, 4.5, "metin/secim"},
+      {Tone::Text, Tone::Bg2, 4.5, "metin/kart"},        {Tone::TextDim, Tone::Bg1, 4.5, "ikincil/panel"},
+      {Tone::TextMute, Tone::Bg1, 2.5, "pasif/panel"},   {Tone::AccentHi, Tone::Bg1, 3.0, "vurgu/panel"},
+      {Tone::Warn, Tone::Bg1, 3.0, "uyari/panel"},       {Tone::Err, Tone::Bg1, 3.0, "hata/panel"},
+      {Tone::Ok, Tone::Bg1, 3.0, "tamam/panel"},
+  };
+  for (int tema = 0; tema < 2; tema++) {
+    for (const Cift &c : kCift) {
+      const double k = karsitlik(tema, c.on, c.zemin);
+      if (k < c.alt) std::printf("    [bilgi] %s tema %s: %.2f < %.1f\n", tema ? "acik" : "koyu", c.ad, k, c.alt);
+      CHECK(k >= c.alt);
+    }
+    std::printf("    [bilgi] %s tema: metin/panel %.1f, ikincil %.1f, pasif %.1f, vurgu %.1f, uyari %.1f\n", tema ? "acik" : "koyu",
+                karsitlik(tema, Tone::Text, Tone::Bg1), karsitlik(tema, Tone::TextDim, Tone::Bg1), karsitlik(tema, Tone::TextMute, Tone::Bg1),
+                karsitlik(tema, Tone::AccentHi, Tone::Bg1), karsitlik(tema, Tone::Warn, Tone::Bg1));
+  }
+  CHECK(std::fabs(karsitlik(0, Tone::Bg1, Tone::Bg1) - 1.0) < 1e-9); // KONTROL
+  // Temalar gercekten farkli (acik tema koyunun kopyasi degil).
+  float k0[4], k1[4];
+  app::editor_tema_tonu(0, Tone::Bg1, k0);
+  app::editor_tema_tonu(1, Tone::Bg1, k1);
+  CHECK(wcag_l(k1) > wcag_l(k0) + 0.5);
+}

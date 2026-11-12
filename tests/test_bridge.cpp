@@ -35,7 +35,9 @@
 
 #include <unistd.h>
 
+#include "bridge/embed_dt.hpp"
 #include "bridge/engine_api.h"
+#include "sim/schedule.hpp"
 #include "content/scene.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_compile.hpp"
@@ -4389,6 +4391,80 @@ ENGINE_TEST(bridge_scene_entity_hide_removes_draw_and_body) {
   teng_shutdown();
 }
 
+// U10 B4b: sahne varligini tasi / dondur. duvar_sabit (sabit govde, yari boyut 2 x 0.75 x 0.25: X boyunca uzun)
+// tasininca ISIN yeni yerde ona carpar, eski yerde carpmaz; Y'de 90 derece donunce uzun ekseni Z'ye gecer. Govde
+// ve cizim ayni kaynaktan (entity_matrix) okundugu icin teng_scene_x da yeni yeri verir; home_x yazarinkinde kalir.
+// POZITIF KONTROL: ayni isinlar hareketten ONCE eski durumu olcer (once (x+1.5) carpar, (z+1.5) carpmaz). Dinamik
+// govdeli kup ve sinir disi indeks reddedilir (hata sayilir), yeniden yukleme her seyi yazarin yerine dondurur.
+static bool duvara_carpar(int duvar, double x, double z) {
+  const double d = teng_raycast(x, 6, z, 0, -1, 0, 20, 0);
+  return d > 0 && teng_ray_scene() == duvar;
+}
+ENGINE_TEST(bridge_scene_entity_move_and_rotate_with_control) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static SystemArena arena;
+  if (arena.capacity() == 0) arena.reserve(64u << 20, "sahne_tasi");
+  char src[768], blob[768];
+  std::snprintf(src, sizeof src, "%s/editor.sahne", assets_dir());
+  std::snprintf(blob, sizeof blob, "%s/_tasi_test.sahneb", assets_dir());
+  static content::SceneDesc desc;
+  content::SceneError serr{};
+  if (!content::scene_load(arena, src, &desc, &serr) || !content::scene_blob_save(arena, desc, blob, &serr)) {
+    std::printf("    [bilgi] sahne: %s\n", serr.msg);
+    CHECK(false);
+    return;
+  }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("sahne tasi", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_scene_load(blob) == 1);
+  const int duvar = teng_scene_find("duvar_sabit"), kup = teng_scene_find("kup_dusen"), lamba = teng_scene_find("lamba_kirmizi");
+  CHECK(duvar >= 0 && kup >= 0 && lamba >= 0);
+  if (duvar < 0 || kup < 0 || lamba < 0) { teng_shutdown(); return; }
+  run_frames(2);
+  const double x = teng_scene_x(duvar), y = teng_scene_y(duvar), z = teng_scene_z(duvar);
+  // Kontrol: isinlar once yazar durumunu olcuyor.
+  const bool once_uzun = duvara_carpar(duvar, x + 1.5, z), once_yan = duvara_carpar(duvar, x, z + 1.5);
+  CHECK(once_uzun && !once_yan);
+  // Tasi.
+  const double nx = x + 10;
+  CHECK(teng_scene_set_pos(duvar, nx, y, z) == 1);
+  run_frames(1);
+  const bool eski = duvara_carpar(duvar, x, z), yeni = duvara_carpar(duvar, nx, z);
+  CHECK(!eski && yeni);
+  CHECK(std::fabs(teng_scene_x(duvar) - nx) < 1e-4 && std::fabs(teng_scene_home_x(duvar) - x) < 1e-4);
+  // Dondur: 90 derece Y -> uzun eksen Z'ye.
+  CHECK(teng_scene_set_rot(duvar, 0, 90, 0) == 1);
+  run_frames(1);
+  const bool r_uzun = duvara_carpar(duvar, nx + 1.5, z), r_yan = duvara_carpar(duvar, nx, z + 1.5);
+  CHECK(!r_uzun && r_yan);
+  CHECK(std::fabs(teng_scene_x(duvar) - nx) < 1e-4); // donus konumu bozmaz
+  // Goreli: 0'dan iki kez 45 = 90 (birikiyor).
+  CHECK(teng_scene_set_rot(duvar, 0, 0, 0) == 1 && teng_scene_rotate(duvar, 0, 45, 0) == 1 && teng_scene_rotate(duvar, 0, 45, 0) == 1);
+  run_frames(1);
+  const bool g_uzun = duvara_carpar(duvar, nx + 1.5, z), g_yan = duvara_carpar(duvar, nx, z + 1.5);
+  CHECK(!g_uzun && g_yan);
+  // Govdesiz varlik (isik) tasinir.
+  CHECK(teng_scene_set_pos(lamba, 1, 3, 1) == 1 && std::fabs(teng_scene_y(lamba) - 3) < 1e-4);
+  // Ret: dinamik govde ve sinir disi indeks HATA, yer degismez.
+  const double kx = teng_scene_x(kup);
+  const int h0 = teng_error_count();
+  CHECK(teng_scene_set_pos(kup, kx + 3, 5, 0) == 0 && teng_scene_rotate(kup, 0, 10, 0) == 0);
+  CHECK(teng_scene_set_pos(9999, 0, 0, 0) == 0);
+  CHECK(teng_error_count() == h0 + 3);
+  CHECK(std::fabs(teng_scene_x(kup) - kx) < 0.5); // fizik tasiyor; isinlanmadi
+  // Yeniden yukleme: yazarin yeri.
+  CHECK(teng_scene_unload() == 1 && teng_scene_load(blob) == 1);
+  run_frames(1);
+  const bool geri = duvara_carpar(duvar, x + 1.5, z);
+  std::printf("    [bilgi] sahne tasi: once uzun %d yan %d; tasininca eski %d yeni %d; 90 derece uzun %d yan %d; 45+45 uzun %d yan %d; "
+              "yeniden yukleme %d (x %.2f)\n",
+              once_uzun, once_yan, eski, yeni, r_uzun, r_yan, g_uzun, g_yan, geri, teng_scene_x(duvar));
+  CHECK(geri && std::fabs(teng_scene_x(duvar) - x) < 1e-4);
+  teng_shutdown();
+}
+
 // Kopru varligini gizle: CIZILMEZ ama govdesi fizikte kalir (oyunda fizik kutusu
 // gizlenir, ustune yuzlu karakter konur). Cizim sayisi bir azalir, isin hala
 // govdeye carpar; geri gosterince cizim doner. POZITIF KONTROL: gizlemeden once
@@ -4837,4 +4913,41 @@ ENGINE_TEST(bridge_scene_camera_and_audio_components) {
   teng_shutdown();
   unsetenv("TULPAR_ENGINE_AUDIO_NULL");
   std::remove(wav); std::remove(sblob); std::remove(sblob2); rmdir(dir);
+}
+
+// Gomulu kip kare suresi: 60 Hz bandinda dt TAM 1/60 olur, boylece fizik her karede tam bir adim atar. Olculen hata
+// (2026-11-12): kare suresi 16-18 ms oynarken karelerin %16'sinda 0, %16'sinda 2 fizik adimi vardi ("kasa kasa").
+// Burada AYNI kosulu sentetik jitterle kuruyoruz (mutlak 60 Hz programi + her kareye +-1.5 ms sapma, belirlenimli).
+ENGINE_TEST(bridge_embed_dt_snap_makes_every_frame_one_physics_step_with_control) {
+  using tulpar::engine::bridge::embed_dt_snap;
+  using tulpar::engine::bridge::kEmbedDt;
+  auto olc = [&](bool sabitle, uint32_t *sifir, uint32_t *cift, uint32_t *toplam_tik) {
+    tulpar::engine::sim::TickClock clk;
+    uint32_t z = 0, c = 0;
+    uint32_t rng = 12345u;
+    double onceki = 0.0;
+    const int kKare = 3000;
+    for (int k = 1; k <= kKare; k++) {
+      rng = rng * 1664525u + 1013904223u;
+      const double sapma = ((double)(rng >> 8) / 16777216.0 * 2.0 - 1.0) * 0.0015; // +-1.5 ms
+      const double t = k * (1.0 / 60.0) + sapma;                                       // mutlak program: ortalama 60 Hz
+      float dt = (float)(t - onceki);
+      onceki = t;
+      if (sabitle) dt = embed_dt_snap(dt);
+      const uint32_t n = clk.advance((double)dt, 1.0, false);
+      if (n == 0) z++;
+      else if (n > 1) c++;
+    }
+    *sifir = z; *cift = c; *toplam_tik = (uint32_t)clk.ticks;
+  };
+  uint32_t z0, c0, t0, z1, c1, t1;
+  olc(false, &z0, &c0, &t0);
+  olc(true, &z1, &c1, &t1);
+  std::printf("    [bilgi] 3000 kare, +-1.5 ms jitter: ham dt -> donuk %u, cift %u | sabitlenmis -> donuk %u, cift %u (tik %u / %u)\n", z0, c0, z1, c1, t0, t1);
+  CHECK(z0 > 100 && c0 > 100);            // KONTROL: sabitleme olmadan sorun GERCEKTEN var (olcum yontemi hatayi gosteriyor)
+  CHECK(z1 == 0 && c1 == 0);              // sabitlenince her karede tam 1 adim
+  CHECK(t1 == 3000);                      // ve sim saati kaymadi: 3000 kare = 3000 tik
+  // Band disi oldugu gibi gecer: gercek takilma yakalama icin, yavas kare 60 Hz sayilmaz, cok kisa kare de
+  CHECK(embed_dt_snap(0.050f) == 0.050f && embed_dt_snap(0.025f) == 0.025f && embed_dt_snap(0.004f) == 0.004f);
+  CHECK(embed_dt_snap(0.0161f) == kEmbedDt && embed_dt_snap(0.0176f) == kEmbedDt && embed_dt_snap(0.0200f) == kEmbedDt);
 }

@@ -41,6 +41,7 @@ public:
   bool is_open() const { return win_ != nullptr; }
   void poll();
   bool should_close() const;
+  void cancel_close(); // kapatma istegini geri al (kaydedilmemis degisiklik sorusu icin)
   void request_close();
   void framebuffer_size(uint32_t *w, uint32_t *h) const;
   // TAM EKRAN: pencere -> monitorun video kipi; geri donuste KAYDEDILEN pencere

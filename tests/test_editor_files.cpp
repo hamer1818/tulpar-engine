@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include "app/editor_files.hpp"
+#include "platform/fs_ops.hpp"
 #include "app/editor_ui.hpp"
 #include "tests/editor_probe.hpp"
 #include "platform/fs.hpp"
@@ -557,4 +558,69 @@ ENGINE_TEST(editor_ayar_yolu_kullanici_dizinine_bir_kez_tasir) {
   CHECK(goc == 2);
   CHECK(std::strcmp(yol, eski) == 0);
   ayar_env(nullptr);
+}
+
+// U11 B3: okunur benzersiz ad. Bos sahnede taban aynen; sonra ilk bos numara; cogaltma sondaki " N"i atar;
+// UTF-8 harfin ortasindan kesmez. KONTROL: sorgu yoksa (var = nullptr) her zaman taban.
+namespace {
+struct AdKume { const char *a[8]; int n; };
+bool ad_var(void *u, const char *ad) {
+  const AdKume *k = static_cast<const AdKume *>(u);
+  for (int i = 0; i < k->n; i++) if (!std::strcmp(k->a[i], ad)) return true;
+  return false;
+}
+} // namespace
+ENGINE_TEST(editor_benzersiz_ad_with_control) {
+  char o[32];
+  AdKume bos{{}, 0};
+  app::editor_benzersiz_ad("K\xC3\xBCp", ad_var, &bos, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp"));
+  AdKume k{{"K\xC3\xBCp", "K\xC3\xBCp 2", "K\xC3\xBCp 4"}, 3};
+  app::editor_benzersiz_ad("K\xC3\xBCp", ad_var, &k, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp 3"));                        // ilk bos numara
+  app::editor_benzersiz_ad("K\xC3\xBCp 2", ad_var, &k, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp 3"));                        // cogaltma: "Kup 2 2" degil
+  AdKume d{{"duvar_dogu"}, 1};
+  app::editor_benzersiz_ad("duvar_dogu", ad_var, &d, o, sizeof o);
+  CHECK(!std::strcmp(o, "duvar_dogu 2"));
+  // Uzun Turkce ad: 32 bayta sigar, "ş" (2 bayt) ortasindan kesilmez.
+  AdKume u{{"\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F\xC5\x9F"}, 1};
+  app::editor_benzersiz_ad(u.a[0], ad_var, &u, o, sizeof o);
+  CHECK(std::strlen(o) < sizeof o && (std::strlen(o) - 2) % 2 == 0 && o[std::strlen(o) - 2] == ' ');
+  // KONTROL: sorgu yok -> taban.
+  app::editor_benzersiz_ad("K\xC3\xBCp", nullptr, nullptr, o, sizeof o);
+  CHECK(!std::strcmp(o, "K\xC3\xBCp"));
+}
+
+// U11 B5: model ice aktarma. .glb tek dosya; .gltf goreli bagimliliklariyla (alt klasor dahil); data: ve ../ atlanir;
+// ayni adli model REDDEDILIR (ezilmez); yanlis uzanti reddedilir. KONTROL: bagimliligi olmayan kaynakta kopya yine olur.
+ENGINE_TEST(editor_model_ice_aktar_with_control) {
+  char kok[512], kay[700], hed[700], y[900], h[1100], err[400];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "ice_aktar"));
+  std::snprintf(kay, sizeof kay, "%s/kaynak", kok);
+  std::snprintf(hed, sizeof hed, "%s/hedef", kok);
+  std::snprintf(y, sizeof y, "%s/doku", kay);
+  CHECK(platform::fs_mkdir_p(y) && platform::fs_mkdir_p(hed));
+  auto yaz = [](const char *p, const char *m) { if (std::FILE *f = std::fopen(p, "wb")) { std::fputs(m, f); std::fclose(f); } };
+  auto var = [](const char *p) { struct stat sb; return ::stat(p, &sb) == 0; };
+  std::snprintf(y, sizeof y, "%s/top.glb", kay); yaz(y, "glTF");
+  std::snprintf(y, sizeof y, "%s/ev.gltf", kay);
+  yaz(y, "{\"buffers\":[{\"uri\": \"ev.bin\"}],\"images\":[{\"uri\":\"doku/renk.png\"},{\"uri\":\"data:image/png;base64,AA\"},{\"uri\":\"../disari.png\"}]}");
+  std::snprintf(y, sizeof y, "%s/ev.bin", kay); yaz(y, "BIN");
+  std::snprintf(y, sizeof y, "%s/doku/renk.png", kay); yaz(y, "PNG");
+  std::snprintf(y, sizeof y, "%s/top.glb", kay);
+  CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
+  CHECK(std::strstr(h, "/hedef/top.glb") != nullptr);
+  std::snprintf(y, sizeof y, "%s/ev.gltf", kay);
+  CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
+  char p[1100];
+  std::snprintf(p, sizeof p, "%s/ev.bin", hed); CHECK(var(p));
+  std::snprintf(p, sizeof p, "%s/doku/renk.png", hed); CHECK(var(p));
+  std::snprintf(p, sizeof p, "%s/../disari.png", hed); CHECK(!var(p));
+  // Ayni ad: reddedilir, mevcut dosya ezilmez.
+  CHECK(!app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err) && std::strstr(err, "zaten var"));
+  // Yanlis uzanti.
+  std::snprintf(y, sizeof y, "%s/ev.bin", kay);
+  CHECK(!app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err) && std::strstr(err, ".glb"));
+  std::printf("    [bilgi] ice aktar: glb + gltf (bin + doku/renk.png), data: ve ../ atlandi, ayni ad reddi: %s\n", err[0] ? "var" : "?");
 }

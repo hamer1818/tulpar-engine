@@ -1,0 +1,12 @@
+# Kaynaklar'da betik varken rol satiri ve karo ipucu (kullanici, 2026-11-12: "bu betikler ne, nerede kullanilir bilmiyorum").
+# Satir: "Betik = nesne davranisi. Cift tik: kodunu ac ...". Karonun ustune gelince: rol + iki eylem (cift tik, surukle).
+# KONTROL (kaynaklar.txt): betiksiz projede satir YOK.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 3
+dogrula_metin "Betik = nesne davranışı"
+uzerine "dondur.tpr"
+bekle 10
+dogrula_metin "bir nesnenin davranışı"
+dogrula_metin "Çift tık: kodunu aç"
+ekran kaynaklar_betik
+cik

@@ -1,0 +1,32 @@
+# Arayuz surucusu temel senaryosu (tools/arayuz_kapi.sh). Varsayilan sahne: tests/assets/editor.sahne.
+# Her satir bir komut; ilk HATA'da betik durur ve editor 1 ile cikar.
+
+# 1) Menu: tikla -> ogeler gorunur -> Escape ile kapanir
+dogrula_yok "Farklı kaydet…"
+tikla "Dosya"
+dogrula_oge "Farklı kaydet…" pencere=Menu
+ekran menu
+tus Escape
+dogrula_yok "Farklı kaydet…"
+
+# 2) Hiyerarsi: secim yokken Donusum paneli yok; satira tiklayinca gelir (metne tiklama yolu)
+metin_yok "Dönüşüm (Transform)"
+tikla "kure_2"
+dogrula_metin "Dönüşüm (Transform)"
+ekran secili
+
+# 3) Klavye: Delete varligi siler, Ctrl+Z geri getirir (gunluk + kisayol yolu)
+tus Delete
+dogrula_metin "7 varlık"
+tus Ctrl+Z
+dogrula_metin "8 varlık"
+
+# 4) Metin girisi: Konsol aramasi suzer (eslesmeyen satir kaybolur)
+dogrula_metin "güncelleyici"
+tikla "ara…" pencere=Konsol
+yaz "yüklendi"
+bekle 2
+metin_yok "güncelleyici"
+dogrula_metin "yüklendi:"
+tus Escape
+cik

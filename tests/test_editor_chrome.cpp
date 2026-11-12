@@ -700,3 +700,26 @@ ENGINE_TEST(editor_commands_game_input_lets_only_play_through) {
   CHECK(mr && mr->id == CommandId::GizmoRotate);
   CHECK(ms && ms->id == CommandId::FileSave);
 }
+
+// U11 C7: Basit kipte arac cubugu sade — Yakala, Gizmolar ve Derle CIZILMEZ; Oynat, gizmo kipi ve Kaydet cizilir.
+// KONTROL: ayni durum Gelismis'te uc dugmeyi de cizer (dikdortgenler kaydedilir).
+ENGINE_TEST(editor_chrome_toolbar_basit_sade_with_control) {
+  float r[4];
+  static Ctx c;
+  for (int kip = 0; kip < 2; kip++) {
+    c = Ctx{};
+    bind_all(c);
+    fill_state(c);
+    c.s.gelismis = kip == 1;
+    const ProbeStatus st = run_probe(c, 1280, 720, 3, nullptr, nullptr);
+    if (probe_not_ok(st, g_probe_err, __FILE__, __LINE__)) return;
+    const bool snap = app::chrome_probe_rect(ChromeRect::SnapToggle, r), giz = app::chrome_probe_rect(ChromeRect::GizmoVisible, r);
+    const bool derle = app::chrome_probe_tool(CommandId::FileCompile, r), kaydet = app::chrome_probe_tool(CommandId::FileSave, r);
+    const bool oynat = app::chrome_probe_rect(ChromeRect::Transport, r), tasi = app::chrome_probe_tool(CommandId::GizmoTranslate, r);
+    std::printf("    [bilgi] %s: yakala %d gizmolar %d derle %d | kaydet %d oynat %d tasi %d\n", kip ? "Gelismis" : "Basit", snap, giz, derle,
+                kaydet, oynat, tasi);
+    CHECK(kaydet && oynat && tasi);
+    if (kip == 0) CHECK(!snap && !giz && !derle);
+    else CHECK(snap && giz && derle);
+  }
+}

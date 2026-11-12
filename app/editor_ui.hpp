@@ -52,6 +52,14 @@ enum class Tone : uint8_t {
 };
 // out[4] = r,g,b,a (0..1). Gecersiz t: Text.
 void editor_tone(Tone t, float out[4]);
+// U11 C6: tema (0 koyu, 1 acik). Ayarlamak etkin paleti degistirir; ImGui stili icin editor_apply_theme yeniden
+// cagrilmali (EditorUi::set_ui_scale yapar). editor_tema_tonu: istenen temanin HAM sRGB tonu (karsitlik testi).
+void editor_tema_ayarla(int tema);
+// Renkli zemin (eksen diski, vurgu dugmesi, renk ornegi) uzerindeki KOYU murekkep: temadan bagimsiz (Bg0 acik temada
+// acik gri olur). Koyu paletin bg0'i, tema donusumuyle (sRGB hedefte dogrusal) — koyu temada eski Bg0 ile bayt ayni.
+uint32_t editor_koyu_murekkep(float alfa = 1.0f);
+int editor_tema();
+void editor_tema_tonu(int tema, Tone t, float out[4]);
 
 // --- Tipografi olcegi --------------------------------------------------------
 // Tek font yuzu, UC boyut kademesi. Vendored ImGui 1.92 dinamik boyut
@@ -71,6 +79,8 @@ void pop_text_size();
 // ImGui baglami gerekir (CalcTextSize). Sigiyorsa oldugu gibi kopyalar. out her
 // zaman NUL ile biter. Donus: yazilan uzunluk (bayt).
 uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap);
+// U11 C3: editor_ellipsize GERCEKTEN kirptiginda cagrilir (orijinal metin). UX olcumu kurar (editor_ux); null: bedelsiz.
+extern void (*g_editor_kisaltma_kanca)(const char *orijinal);
 
 // --- Basit / Gelismis kip (docs/EDITOR-UYGULAMA-PLANI.md U5) ----------------------------------
 // Basit (varsayilan, oyun yapan icin): teknik olcumler (SetPass, arena, tick, ucgen/piksel...),
@@ -268,6 +278,13 @@ bool editor_script_resolve(const char *label, const char *scene_dir, const char 
 // vim/nano gibi terminal editorudur ve terminalsiz baslatilinca bos kalir.
 // `used` hangi programin acildigini yazar; basarisizsa `err` denenenleri.
 bool editor_open_in_code_editor(const char *path, char *used, uint32_t used_cap, char *err, uint32_t err_cap);
+// Satira atlayarak acar: TULPAR_KOD_EDITORU yoksa once VS Code/Codium `-g yol:satir`; olmazsa
+// editor_open_in_code_editor (satirsiz). line == 0: dogrudan satirsiz yol.
+bool editor_open_in_code_editor_at(const char *path, uint32_t line, char *used, uint32_t used_cap, char *err, uint32_t err_cap);
+// Derleyici ciktisindaki ILK hata konumu (TulparLang bicimi "  --> oyun.tpr:57", satirdan sonra
+// ":sutun" de olabilir). Yol Windows'ta "C:\\x\\oyun.tpr:57" gibi ':' icerir: satir SON ':'dan alinir.
+// Bulursa true; dosya bos degil ve satir > 0.
+bool betik_hata_konumu(const char *metin, char *dosya, uint32_t dosya_cap, uint32_t *satir);
 // Yukaridakinin cekirdegi, aday listesi disaridan: kapi GERCEK bir kod
 // editoru acmadan (CI'da ve gelistiricinin masasinda) sirayi olcebilsin.
 struct CodeEditorCandidate {
@@ -288,6 +305,14 @@ bool editor_script_create(const char *abs_path, const char *import_path, char *e
 // giren islem sayisi — yeni kaynakla 2, mevcut kaynakla 1, eklenemediyse 0 —
 // cagiran onu TEK grup olarak iter; out_asset = kaynak indeksi.
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset);
+// Yeni ilkelin oturacagi yukseklik: (x,z) noktasinin ALTINDAKI en yuksek kutu ust yuzu (kok
+// seviyesindeki, donmemis kutu ilkelleri — arena zemini/duvarlari, platformlar). `tavan` ustundeki
+// yuzeyler sayilmaz (kameranin baktigi noktanin cok ustundeki bir tavana tirmanmasin). Yoksa
+// `varsayilan`. Eskiden yeni kup kameranin hedefine (zeminin TAM yuzeyine) merkezden konuyordu:
+// yarisi zemine gomuluydu (2026-11-10 arayuz surucusu degerlendirmesi).
+// Gunun saati (0..24, ondalik) -> "SS:DD" (DragFloat bicimi olarak; icinde '%' yok). 14.5 -> "14:30".
+void editor_saat_bicimi(float saat, char *out, uint32_t cap);
+float editor_zemin_ustu(const content::SceneDesc &d, float x, float z, float tavan, float varsayilan);
 
 // Surukleme bitince grubu gunluge yazar: once hepsi 'before'a dondurulur, sonra
 // SceneHistory once/sonra kaydeder (her varlik bir islem). Donus: islem sayisi.
@@ -308,6 +333,13 @@ struct GizmoOptions {
   bool camera_frustum = true;  // kamera varliklarinin govdesi + gorus alani (tel kafes)
   bool env_volumes = true;     // cevre hacimleri: yansima sondasi (IBL) + yanki alani (Reverb)
   float thickness = 0.06f;     // tel kalinligi (dunya birimi)
+  // Kamera konumu verilirse isik isaretleri UZAKLIGA gore olceklenir (ekranda ~sabit boy; 10 m'de 1x,
+  // 0.04x..2x). Verilmezse eski sabit dunya boyu. Gercek olcekli kucuk sahnede (bilardo masasi,
+  // 2026-11-10) 0.7 m'lik yildiz + 2.6 m'lik yaricap kutusu lambanin etrafinda "direk" gibi gorunuyordu.
+  bool scale_by_camera = false;
+  Vec3 camera_eye{0, 0, 0};
+  // true: isik yaricapi kutusu yalniz SECILI isikta (Unity'nin menzil kuresi gibi). Basit kip.
+  bool light_radius_selected_only = false;
 };
 // Donus: yapilan ren.draw cagrisi sayisi (secili isik daha parlak cizilir).
 // Gorunum kipleri (Carpisma / Sinirlar) icin tel kutular. _m: yerel yarim
@@ -315,6 +347,12 @@ struct GizmoOptions {
 uint32_t editor_wire_box_m(renderer::Renderer &ren, renderer::MeshHandle cube, const Mat4 &m, Vec3 half, Vec3 color,
                            float th);
 uint32_t editor_wire_aabb(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th);
+// SECIM isareti: kutunun 8 kosesinde 3'er kisa cizgi (Godot gibi koseli parantez). Kenar boyunun `oran`i
+// kadar (en cok 0.5). Eskiden secili varlik SARIYA boyanarak cizilirdi: kendi rengi hic gorunmuyordu,
+// secili iken renk degistirmek fark edilmiyordu (kullanici, 2026-11-11). Donus: cizim sayisi (24).
+uint32_t editor_select_corners(renderer::Renderer &ren, renderer::MeshHandle cube, Vec3 lo, Vec3 hi, Vec3 color, float th, float oran);
+// Yukaridakinin geometrisi (GPU'suz olculsun): a[i]->b[i] 24 parca. Donus 24.
+uint32_t editor_select_corner_segments(Vec3 lo, Vec3 hi, float oran, Vec3 *a, Vec3 *b);
 uint32_t editor_draw_gizmos(renderer::Renderer &ren, renderer::MeshHandle cube, const content::SceneDesc &d, const int32_t *sel,
                             uint32_t n, const GizmoOptions &o);
 

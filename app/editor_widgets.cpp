@@ -42,6 +42,16 @@ float g_trailing_w = 0.0f;          // prop_reserve_trailing: bir sonraki satir
 float g_row_trailing = 0.0f;        // CIZILEN satirin ayrilmis sag payi
 float g_row_right = 0.0f;           // cizilen satirin deger hucresinin sag kenari (ekran)
 bool g_row_drawn = false;           // son prop_* satir cizdi mi
+// U11 C3: onay kutusu satiri: etiket kendi sutununa sigmazsa deger sutununa TASABILIR (kutu sagda). prop_check
+// kurar, prop_label tuketir. g_label_tasti: bu satirda tasti (kutu saga yaslanmali).
+float g_label_kutu = 0.0f;
+bool g_label_tasti = false;
+// U11 C3: UYARLANIR etiket sutunu. Her prop tablosu onceki karede en uzun (sigmasi gereken) etiketin istedigi
+// genisligi hatirlar; sutun o kadar acilir (panelin %45'ine kadar). 1280x720'de ~78 px'lik sutun "Huzme Yogunlugu",
+// "Albedo Dokusu", "Normal Haritasi" etiketlerini kesiyordu (UX kisaltma olcumu, 2026-11-11). Sabit tablo, ayirma yok.
+struct EtiketOlcu { ImGuiID id; int kare; float onceki, simdiki; };
+EtiketOlcu g_etiket_olcu[64] = {};
+int g_etiket_slot = -1;
 WidgetRect g_trailing_rect;
 WidgetRect g_slot_rect;
 PropVec3Layout g_vec3_layout;
@@ -66,11 +76,55 @@ void prop_label(const char *label) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
   ImGui::AlignTextToFramePadding();
+  // Sondaki ASCII parantez ("Pozlama (Exposure)", "Yayma Hizi (Spawn Rate)") GORUNEN etiketten dusulur,
+  // ipucunda tam etiket kalir: ~130 px'lik sutunda Ingilizce ek Turkce adi "Karartma Guc..." diye
+  // kesiyordu (arayuz surucusu, 2026-11-06). Turkce parantez ("(Giris)" / "(Genisleme)") KALIR: iki
+  // satiri birbirinden ayiran odur. Arama (prop_row_visible) tam etiketle esler.
+  char gorunen[96];
+  std::snprintf(gorunen, sizeof gorunen, "%s", label);
+  size_t gl = std::strlen(gorunen);
+  if (gl > 3 && gorunen[gl - 1] == ')') {
+    char *ac = nullptr;
+    for (char *q = gorunen + gl - 1; q > gorunen + 1; q--)
+      if (q[0] == '(' && q[-1] == ' ') { ac = q; break; }
+    bool ascii = ac != nullptr;
+    for (char *q = ac; ascii && *q; q++) if ((unsigned char)*q >= 0x80) ascii = false;
+    if (ascii) ac[-1] = 0;
+  }
   char buf[96];
-  editor_ellipsize(label, ImGui::GetContentRegionAvail().x, buf, sizeof buf);
+  const float sutun = ImGui::GetContentRegionAvail().x;
+  float genis = sutun;
+  g_label_tasti = false;
+  // U11 C3: onay kutusu satirinda etiket deger sutununa tasabilir (1280x720'de "Kamera gor…", "Cevre hacim…").
+  if (g_label_kutu > 0.0f) {
+    if (ImGuiTable *tb = ImGui::GetCurrentTable()) {
+      const float sag = tb->Columns[tb->ColumnsCount - 1].WorkMaxX;
+      const float g = sag - ImGui::GetCursorScreenPos().x - g_label_kutu - ImGui::GetStyle().ItemInnerSpacing.x * 2.0f;
+      if (g > genis) genis = g;
+    }
+  }
+  // Olcu: sigmasi GEREKEN etiket (onay kutusu satiri tasabildigi icin sayilmaz).
+  if (g_label_kutu <= 0.0f && g_etiket_slot >= 0) {
+    const float w = ImGui::CalcTextSize(gorunen).x;
+    if (w > g_etiket_olcu[g_etiket_slot].simdiki) g_etiket_olcu[g_etiket_slot].simdiki = w;
+  }
+  editor_ellipsize(gorunen, genis, buf, sizeof buf);
   ImGui::PushStyleColor(ImGuiCol_Text, tone(g_label_tone));
-  ImGui::TextUnformatted(buf);
+  if (ImGui::CalcTextSize(buf).x > sutun + 0.5f) {
+    // Sutun kirpmasinin disina: hucrenin cizim listesine genis kirpma ile. Fare alani yine etiket hucresi.
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float fh = ImGui::GetFrameHeight();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->PushClipRect(p, ImVec2(p.x + genis, p.y + fh), false);
+    dl->AddText(ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(ImGuiCol_Text), buf);
+    dl->PopClipRect();
+    ImGui::Dummy(ImVec2(sutun, ImGui::GetTextLineHeight()));
+    g_label_tasti = true;
+  } else {
+    ImGui::TextUnformatted(buf);
+  }
   ImGui::PopStyleColor();
+  g_label_kutu = 0.0f;
   const bool cut = std::strcmp(buf, label) != 0;
   if ((cut || g_help) && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
     if (g_help) ImGui::SetTooltip("%s\n%s", label, g_help);
@@ -188,6 +242,13 @@ void draw_magnifier(ImDrawList *dl, ImVec2 c, float size, ImU32 col) {
 
 } // namespace
 
+void akis_ayni_satir(const char *etiket) {
+  ImGui::SameLine();
+  const ImGuiStyle &sy = ImGui::GetStyle();
+  const float w = ImGui::CalcTextSize(etiket, nullptr, true).x + sy.FramePadding.x * 2.0f;
+  if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+}
+
 // =============================================================================
 // Ozellik tablosu
 // =============================================================================
@@ -214,10 +275,29 @@ bool prop_begin(const char *id, float label_fraction) {
   // Etiket zaten sigmazsa "..." ile kirpiliyor ve ustune gelince tam adi
   // ipucunda gosteriliyor (bkz. prop_label), yani daraltmak bilgi kaybetmez.
   const float lo = std::floor(56.0f * (s.FramePadding.x / 6.0f)); // olcekle buyur
-  const float hi = std::floor(140.0f * (s.FramePadding.x / 6.0f));
+  const float hi = std::floor(160.0f * (s.FramePadding.x / 6.0f));
   float label_w = std::floor(avail * label_fraction);
   if (label_w < lo) label_w = lo;
   if (label_w > hi) label_w = hi;
+  // U11 C3: onceki karede olculen en uzun etiket (dar panelde %45'e, genis panelde 200 px olcegine kadar).
+  {
+    const ImGuiID tid = ImGui::GetID(id);
+    const int kare = ImGui::GetFrameCount();
+    int bos = -1, yer = -1;
+    for (int i = 0; i < 64; i++) {
+      if (g_etiket_olcu[i].id == tid) { yer = i; break; }
+      if (bos < 0 && (g_etiket_olcu[i].id == 0 || kare - g_etiket_olcu[i].kare > 600)) bos = i;
+    }
+    if (yer < 0 && bos >= 0) { g_etiket_olcu[bos] = EtiketOlcu{tid, kare, 0.0f, 0.0f}; yer = bos; }
+    g_etiket_slot = yer;
+    if (yer >= 0) {
+      EtiketOlcu &e = g_etiket_olcu[yer];
+      if (e.kare != kare) { e.onceki = e.simdiki; e.simdiki = 0.0f; e.kare = kare; }
+      const float tavan = std::floor(std::fmin(avail * 0.50f, 200.0f * (s.FramePadding.x / 6.0f)));
+      const float gerek = std::floor(e.onceki + s.CellPadding.x + 2.0f);
+      if (gerek > label_w) label_w = gerek < tavan ? gerek : (tavan > label_w ? tavan : label_w);
+    }
+  }
   if (label_w > avail * 0.6f) label_w = std::floor(avail * 0.6f); // cok dar panel
   ImGui::TableSetupColumn("etiket", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, label_w);
   ImGui::TableSetupColumn("deger", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize);
@@ -225,6 +305,7 @@ bool prop_begin(const char *id, float label_fraction) {
 }
 
 void prop_end() {
+  g_etiket_slot = -1;
   ImGui::EndTable();
   ImGui::PopStyleVar();
 }
@@ -279,6 +360,28 @@ bool prop_row_visible(const char *label) {
 } // namespace
 void prop_set_filter(const char *filter) { g_prop_filter = (filter && *filter) ? filter : nullptr; }
 bool prop_filter_active() { return g_prop_filter != nullptr; }
+
+// U11 C2: GOSTERIMDE "-0.0" yok. Bicimin basamaginda sifira yuvarlanan deger (-0.0f, gizmodan kalan -0.00001)
+// isaretsiz 0 gosterilir; VERI yalniz kullanici degistirirse yazilir (sessiz duzeltme yok).
+float gosterim_sifirla(float v, const char *fmt) {
+  int basamak = 3;
+  if (fmt) {
+    const char *n = std::strchr(fmt, '.');
+    if (n && n[1] >= '0' && n[1] <= '9') basamak = n[1] - '0';
+    else if (std::strstr(fmt, "%d") || std::strstr(fmt, "%.0")) basamak = 0;
+  }
+  float esik = 0.5f;
+  for (int i = 0; i < basamak; i++) esik *= 0.1f;
+  return std::fabs(v) < esik ? 0.0f : v;
+}
+namespace {
+bool drag_float_temiz(const char *id, float *v, float speed, float min, float max, const char *fmt, ImGuiSliderFlags sf) {
+  float g = gosterim_sifirla(*v, fmt);
+  const bool ch = ImGui::DragFloat(id, &g, speed, min, max, fmt, sf);
+  if (ch) *v = g;
+  return ch;
+}
+} // namespace
 
 PropItem prop_vec3(const char *label, float v[3], float speed, float min, float max, const char *fmt) {
   if (!prop_row_visible(label)) return PropItem{};
@@ -341,7 +444,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     ImGui::SetCursorScreenPos(ImVec2(fx, p.y));
     ImGui::SetNextItemWidth(field_w);
     ImGui::PushID(a);
-    const bool ch = ImGui::DragFloat("##v", &v[a], speed, min, max, fmt, sf);
+    const bool ch = drag_float_temiz("##v", &v[a], speed, min, max, fmt, sf);
     ImGui::PopID();
     accumulate(it, ch);
     g_vec3_layout.field[a] = item_rect();
@@ -381,7 +484,7 @@ PropItem prop_float(const char *label, float *v, float speed, float min, float m
   ImGui::PushID(label);
   prop_label(label);
   const ImGuiSliderFlags sf = (min < max) ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-  accumulate(it, ImGui::DragFloat("##v", v, speed, min, max, fmt, sf));
+  accumulate(it, drag_float_temiz("##v", v, speed, min, max, fmt, sf));
   ImGui::PopID();
   return it;
 }
@@ -437,7 +540,9 @@ PropItem prop_color(const char *label, float rgb[3]) {
   ImGui::PushFont(nullptr, s.FontSizeBase * 0.88f);
   const ImVec2 hs = ImGui::CalcTextSize(hex);
   ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(r.x1 - hs.x - s.FramePadding.x, r.y0 + (h - hs.y) * 0.5f),
-                                      lum > 0.55f ? tone_u32(Tone::Bg0, 0.85f) : tone_u32(Tone::White, 0.85f), hex);
+                                      // U11 C6: murekkep TEMADAN BAGIMSIZ (ornegin rengine gore): Bg0 acik temada acik
+                                      // gri — acik ornekte beyaz uzerine beyaz kaliyordu.
+                                      lum > 0.55f ? (ImU32)editor_koyu_murekkep(0.85f) : tone_u32(Tone::White, 0.85f), hex);
   ImGui::PopFont();
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s  (%.3f, %.3f, %.3f)", hex, rgb[0], rgb[1], rgb[2]);
 
@@ -473,7 +578,9 @@ PropItem prop_check(const char *label, bool *v) {
   if (!prop_row_visible(label)) return PropItem{};
   PropItem it;
   ImGui::PushID(label);
+  g_label_kutu = ImGui::GetFrameHeight(); // etiket tasabilir; kutu genisligi kadar yer kalsin
   prop_label(label);
+  if (g_label_tasti) ImGui::SetCursorScreenPos(ImVec2(g_row_right - ImGui::GetFrameHeight(), ImGui::GetCursorScreenPos().y));
   accumulate(it, ImGui::Checkbox("##v", v));
   ImGui::PopID();
   return it;
@@ -498,10 +605,27 @@ PropItem prop_asset(const char *label, int *index, const char (*names)[128], uin
   const bool has = (count > 0 && names != nullptr);
   const char *cur = (has && index && *index >= 0 && (uint32_t)*index < count) ? names[*index] : "-";
   char preview[160];
-  // Onizleme: ok + iki padding disinda kalan genislige kirp.
-  editor_ellipsize(cur, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - s.FramePadding.x * 2.0f, preview, sizeof preview);
+  // U11 C3: onizlemede DOSYA ADI (klasor ve .gltf/.glb/.tpr yok): 1280x720'de "lod_spher…", "checker_…" kesiliyordu.
+  // Acilan listede ve ipucunda tam yol kalir.
+  char kisa[128];
+  {
+    const char *b = cur;
+    for (const char *q = cur; *q; q++) if (*q == '/' || *q == '\\') b = q + 1;
+    std::snprintf(kisa, sizeof kisa, "%s", b);
+    if (char *nk = std::strrchr(kisa, '.'))
+      if (!std::strcmp(nk, ".gltf") || !std::strcmp(nk, ".glb") || !std::strcmp(nk, ".tpr")) *nk = 0;
+  }
+  {
+    // Kullanici verisi (keyfi uzunlukta dosya adi): "…" + ipucunda tam ad beklenen kalip; UX kisaltma olcumu
+    // BIZIM etiketlerimizi sayar, bunu degil.
+    void (*kk)(const char *) = g_editor_kisaltma_kanca;
+    g_editor_kisaltma_kanca = nullptr;
+    editor_ellipsize(kisa, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - s.FramePadding.x * 2.0f, preview, sizeof preview);
+    g_editor_kisaltma_kanca = kk;
+  }
   if (!has) ImGui::BeginDisabled();
   const bool open = ImGui::BeginCombo("##v", preview);
+  if (has && std::strcmp(preview, cur) != 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", cur);
   // Etkinlik bayraklari KUTUNUN kendisinden (liste acikken "son oge" bir
   // Selectable olurdu). Deger degisimi asagida listeden isaretlenir.
   accumulate(it, false);
@@ -630,6 +754,21 @@ void component_end() {
   ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
 }
 
+// "Bilesen ekle" listesi dugmenin ALTINA aciliyordu; dugme panelin dibindeyken liste ekranin disina
+// tasiyor ve yalniz arama kutusu gorunuyordu (arayuz surucusu, 2026-11-06). Altta yer yoksa (ekranin
+// alt yarisi) liste dugmenin USTUNE acilir; her iki durumda da yukseklik kalan alanla sinirli (kaydirilir).
+static void bilesen_listesi_konumla(const WidgetRect &b) {
+  const ImGuiStyle &s = ImGui::GetStyle();
+  const ImGuiViewport *vp = ImGui::GetMainViewport();
+  const float ust = vp->WorkPos.y, alt = vp->WorkPos.y + vp->WorkSize.y;
+  const float asagi = alt - b.y1, yukari = b.y0 - ust;
+  const bool yukari_ac = asagi < 320.0f && yukari > asagi;
+  const float yer = (yukari_ac ? yukari : asagi) - s.ItemInnerSpacing.y - 4.0f;
+  if (yukari_ac) ImGui::SetNextWindowPos(ImVec2(b.x0, b.y0 - s.ItemInnerSpacing.y * 0.5f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+  else ImGui::SetNextWindowPos(ImVec2(b.x0, b.y1 + s.ItemInnerSpacing.y * 0.5f));
+  ImGui::SetNextWindowSizeConstraints(ImVec2(b.x1 - b.x0, 0.0f), ImVec2(b.x1 - b.x0, yer > 120.0f ? yer : 120.0f));
+}
+
 int component_add_button(const char *const *names, uint32_t count) {
   int chosen = -1;
   const ImGuiStyle &s = ImGui::GetStyle();
@@ -637,8 +776,7 @@ int component_add_button(const char *const *names, uint32_t count) {
   ImGui::Dummy(ImVec2(0, s.ItemSpacing.y * 0.6f));
   if (ImGui::Button("+  Bileşen ekle", ImVec2(-FLT_MIN, 0))) ImGui::OpenPopup("liste");
   const WidgetRect b = item_rect();
-  ImGui::SetNextWindowPos(ImVec2(b.x0, b.y1 + s.ItemInnerSpacing.y * 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(b.x1 - b.x0, 0));
+  bilesen_listesi_konumla(b);
   if (ImGui::BeginPopup("liste")) {
     if (count == 0) ImGui::TextDisabled("Eklenecek bileşen kalmadı");
     for (uint32_t i = 0; i < count; i++) {
@@ -676,56 +814,56 @@ const CreateMenuItem kCompLight[] = {
 const CreateMenuItem kCompPhysics[] = {
     {"Fizik G\xC3\xB6vdesi", "\xE2\x97\xBC", content::kSceneBody, nullptr, 0},         // ◼
     {"Karakter Kontrolc\xC3\xBC", "\xE2\x8A\x99", content::kSceneCharacter, nullptr, 0}, // ⊙
-    {"Fizik Eklemi (Joint)", ICON_MD_LINK, content::kSceneJoint, nullptr, 0},
+    {"Fizik Eklemi", ICON_MD_LINK, content::kSceneJoint, nullptr, 0},
 };
 const CreateMenuItem kCompCamera[] = {
     {"Kamera", ICON_MD_VIDEOCAM, content::kSceneCamera, nullptr, 0},
 };
 const CreateMenuItem kCompAudio[] = {
     {"Ses Kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, content::kSceneAudio, nullptr, 0},
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", ICON_MD_WAVES, content::kSceneReverb, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1", ICON_MD_WAVES, content::kSceneReverb, nullptr, 0},
 };
 const CreateMenuItem kCompScript[] = {
-    {"Tulpar Betik", ICON_MD_DESCRIPTION, content::kSceneScript, nullptr, 0},
+    {"Davran\xC4\xB1\xC5\x9F (betik)", ICON_MD_BOLT, content::kSceneScript, nullptr, 0},
 };
 const CreateMenuItem kCompEnvironment[] = {
-    {"Arazi (Terrain)", ICON_MD_TERRAIN, content::kSceneTerrain, nullptr, 0},
-    {"Su (Gerstner)", ICON_MD_WATER, content::kSceneWater, nullptr, 0},
+    {"Arazi", ICON_MD_TERRAIN, content::kSceneTerrain, nullptr, 0},
+    {"Su", ICON_MD_WATER, content::kSceneWater, nullptr, 0},
     // ▦ (U+25A6): izgarali kare = voksel kafesi. Material'da karsiligi yok.
     {"Voksel D\xC3\xBCnyas\xC4\xB1", "\xE2\x96\xA6", content::kSceneVoxel, nullptr, 0},
     // Simgeler main'in Material Icons ailesinden kaliyor (tools/icon_check.py
     // kapisi bunlari denetliyor); PR #7'nin ham U+25C9/U+2601 gliflerine
     // donulmedi. Etiket PR #7'den: gokyuzu paneli artik atmosferi de
     // (gunun saati, turbidite) tasiyor.
-    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
-    {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", ICON_MD_LENS, content::kSceneRefProbe, nullptr, 0},
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer", ICON_MD_CLOUD, content::kSceneSkybox, nullptr, 0},
+    {"Yans\xC4\xB1ma Sondas\xC4\xB1", ICON_MD_LENS, content::kSceneRefProbe, nullptr, 0},
     {"R\xC3\xBCzgar Alan\xC4\xB1", "\xE2\x86\xAF", content::kSceneWind, nullptr, 0}, // ↯
 };
 const CreateMenuItem kCompAI[] = {
-    {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", ICON_MD_DIRECTIONS_RUN, content::kSceneNavAgent, nullptr, 0},
+    {"Yapay Zeka Ajan\xC4\xB1", ICON_MD_DIRECTIONS_RUN, content::kSceneNavAgent, nullptr, 0},
 };
 const CreateMenuItem kCompGameplay[] = {
     // ♥ (U+2665): Kalp
-    {"Can / Z\xC4\xB1rh (Health)", "\xE2\x99\xA5", content::kSceneHealth, nullptr, 0},
+    {"Can / Z\xC4\xB1rh", "\xE2\x99\xA5", content::kSceneHealth, nullptr, 0},
     // ⚔ (U+2694): Kiliclar
-    {"B\xC3\xBCy\xC3\xBC / Yetenek (GAS)", "\xE2\x9A\x94", content::kSceneAbility, nullptr, 0},
+    {"B\xC3\xBCy\xC3\xBC / Yetenek", "\xE2\x9A\x94", content::kSceneAbility, nullptr, 0},
     // ▣ (U+25A3): Kutu (Envanter cantasi gibi)
     {"Envanter", "\xE2\x96\xA3", content::kSceneInventory, nullptr, 0},
 };
 const CreateMenuItem kCompVFX[] = {
-    {"Partik\xC3\xBCl / VFX Yay\xC4\xB1""c\xC4\xB1", "\xE2\x88\xB4", content::kSceneParticle, nullptr, 0},
+    {"Partik\xC3\xBCl Yay\xC4\xB1""c\xC4\xB1", "\xE2\x88\xB4", content::kSceneParticle, nullptr, 0},
 };
 const CreateMenuItem kComponentMenu[] = {
-    {"Render", nullptr, 0, kCompModel, 3},
-    {"G\xC3\xB6rsel Efektler (VFX)", nullptr, 0, kCompVFX, 1},
-    {"\xC3\x87" "evre (Environment)", nullptr, 0, kCompEnvironment, 6},
+    {"G\xC3\xB6r\xC3\xBCnt\xC3\xBC", nullptr, 0, kCompModel, 3},
+    {"G\xC3\xB6rsel Efektler", nullptr, 0, kCompVFX, 1},
+    {"\xC3\x87" "evre", nullptr, 0, kCompEnvironment, 6},
     {"I\xC5\x9F\xC4\xB1k", nullptr, 0, kCompLight, 1},
     {"Fizik", nullptr, 0, kCompPhysics, 3},
     {"Kamera", nullptr, 0, kCompCamera, 1},
     {"Ses", nullptr, 0, kCompAudio, 2},
     {"Betik", nullptr, 0, kCompScript, 1},
-    {"Yapay Zeka (AI)", nullptr, 0, kCompAI, 1},
-    {"Oynan\xC4\xB1\xC5\x9F (Gameplay)", nullptr, 0, kCompGameplay, 3},
+    {"Yapay Zeka", nullptr, 0, kCompAI, 1},
+    {"Oynan\xC4\xB1\xC5\x9F", nullptr, 0, kCompGameplay, 3},
 };
 const uint32_t kComponentMenuCount = (uint32_t)(sizeof(kComponentMenu) / sizeof(kComponentMenu[0]));
 
@@ -796,8 +934,7 @@ uint32_t component_add_button(const CreateMenuItem *items, uint32_t count, uint3
   ImGui::Dummy(ImVec2(0, s.ItemSpacing.y * 0.6f));
   if (ImGui::Button("+  Bileşen ekle", ImVec2(-FLT_MIN, 0))) ImGui::OpenPopup("liste");
   const WidgetRect b = item_rect();
-  ImGui::SetNextWindowPos(ImVec2(b.x0, b.y1 + s.ItemInnerSpacing.y * 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(b.x1 - b.x0, 0));
+  bilesen_listesi_konumla(b);
   if (ImGui::BeginPopup("liste")) {
     // Suzgec POPUP'A aittir (acilista sifirlanip odaklanir, secimde temizlenir):
     // sahnenin durumu degil, acilir pencerenin gecici hali. Sabit tampon --
@@ -837,48 +974,48 @@ const CreateMenuItem kCreate3D[] = {
     {"Silindir", "\xE2\x97\xBC", 21, nullptr, 0},   // ◼
     {"Koni", "\xE2\x97\xBC", 22, nullptr, 0},       // ◼
     {"D\xC3\xBCzlem / Zemin", "\xE2\x96\xAC", 8, nullptr, 0},   // ▬
-    {"D\xC3\xB6rtgen (Quad)", "\xE2\x96\xAC", 23, nullptr, 0}, // ▬
-    {"Simit (Torus)", "\xE2\x97\xBC", 24, nullptr, 0},      // ◼
+    {"D\xC3\xB6rtgen", "\xE2\x96\xAC", 23, nullptr, 0}, // ▬
+    {"Simit", "\xE2\x97\xBC", 24, nullptr, 0},      // ◼
 };
 const CreateMenuItem kCreateLight[] = {
-    {"Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F (Directional)", "\xE2\x98\x80", 14, nullptr, 0}, // ☀
-    {"I\xC5\x9F\xC4\xB1k H\xC3\xBCzmeli G\xC3\xBCne\xC5\x9F (Sun + God Rays)", ICON_MD_WB_SUNNY, 19, nullptr, 0},
-    {"Nokta I\xC5\x9F\xC4\xB1k (Point)", "\xE2\x97\x8F", 3, nullptr, 0},                           // ●
-    {"Spot I\xC5\x9F\xC4\xB1k (Spot Koni)", "\xE2\x86\x98", 15, nullptr, 0},                         // ↘
-    {"Hacimsel I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi (Fake Godray Beam)", ICON_MD_AUTO_AWESOME, 64, nullptr, 0},
-    {"Hacimsel Spot I\xC5\x9F\xC4\xB1k (Volumetric)", ICON_MD_FLASHLIGHT_ON, 63, nullptr, 0},
-    {"Alan / Dikd\xC3\xB6rtgen (Rect LTC)", "\xE2\x96\xAD", 16, nullptr, 0},
+    {"Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F", "\xE2\x98\x80", 14, nullptr, 0}, // ☀
+    {"I\xC5\x9F\xC4\xB1k H\xC3\xBCzmeli G\xC3\xBCne\xC5\x9F", ICON_MD_WB_SUNNY, 19, nullptr, 0},
+    {"Nokta I\xC5\x9F\xC4\xB1k", "\xE2\x97\x8F", 3, nullptr, 0},                           // ●
+    {"Spot I\xC5\x9F\xC4\xB1k", "\xE2\x86\x98", 15, nullptr, 0},                         // ↘
+    {"Hacimsel I\xC5\x9F\xC4\xB1k H\xC3\xBCzmesi", ICON_MD_AUTO_AWESOME, 64, nullptr, 0},
+    {"Hacimsel Spot I\xC5\x9F\xC4\xB1k", ICON_MD_FLASHLIGHT_ON, 63, nullptr, 0},
+    {"Alan / Dikd\xC3\xB6rtgen", "\xE2\x96\xAD", 16, nullptr, 0},
     {"T\xC3\xBCp / Kaps\xC3\xBCl I\xC5\x9F\xC4\xB1k", "\xE2\x95\x90", 17, nullptr, 0},
     {"Disk I\xC5\x9F\xC4\xB1k", "\xE2\x97\x89", 18, nullptr, 0},
 };
 const CreateMenuItem kCreateEnvironment[] = {
-    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer (Skybox)", "\xE2\x98\x81", 36, nullptr, 0}, // ☁
-    {"Prosed\xC3\xBCrel Arazi (Terrain)", "\xE2\x96\xB2", 31, nullptr, 0},              // ▲
-    {"Dinamik Su (Gerstner)", "\xE2\x89\x88", 32, nullptr, 0},                         // ≈
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC & Atmosfer", "\xE2\x98\x81", 36, nullptr, 0}, // ☁
+    {"Prosed\xC3\xBCrel Arazi", "\xE2\x96\xB2", 31, nullptr, 0},              // ▲
+    {"Dinamik Su", "\xE2\x89\x88", 32, nullptr, 0},                         // ≈
     {"Voksel D\xC3\xBCnyas\xC4\xB1", "\xE2\x96\xA6", 33, nullptr, 0},                  // ▦
     {"R\xC3\xBCzgar Alan\xC4\xB1", "\xE2\x86\xAF", 34, nullptr, 0},                    // ↯
 };
 const CreateMenuItem kCreateVolumes[] = {
-    {"3B Hacimsel Sis (K\xC3\xBCre Puf / Fog Volume)", ICON_MD_CLOUD, 46, nullptr, 0},
-    {"Yatay Zemin Sisi (Ground Mist Sheet)", "\xE2\x96\xAC", 70, nullptr, 0},
-    {"Konik Baca Sisi / Duman Jeti (Cone Fog)", "\xE2\x96\xBC", 71, nullptr, 0},
-    {"Silindirik Kuyu / \xC5\x9E""aft Sisi (Cylinder Fog)", "\xE2\x95\x91", 72, nullptr, 0},
-    {"Portal / Halka Sisi (Torus Ring Fog)", "\xE2\x97\x8E", 73, nullptr, 0},
-    {"Voksel Duman / CS2 Dinamik Sis (Voxel Smoke)", ICON_MD_BLUR_ON, 74, nullptr, 0},
-    {"Tetikleyici Hacim (Trigger Volume)", "\xE2\x97\xA3", 47, nullptr, 0},
-    {"Engelleme Hacmi (Blocking Volume)", "\xE2\x96\xA3", 48, nullptr, 0},
-    {"Yans\xC4\xB1ma Sondas\xC4\xB1 (Probe)", "\xE2\x97\x89", 37, nullptr, 0},
-    {"I\xC5\x9F\xC4\xB1k Hacmi Sondas\xC4\xB1 (GI Grid)", "\xE2\x97\x87", 45, nullptr, 0},
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", "\xE2\x97\x8E", 44, nullptr, 0},
+    {"3B Hacimsel Sis", ICON_MD_CLOUD, 46, nullptr, 0},
+    {"Yatay Zemin Sisi", "\xE2\x96\xAC", 70, nullptr, 0},
+    {"Konik Baca Sisi / Duman Jeti", "\xE2\x96\xBC", 71, nullptr, 0},
+    {"Silindirik Kuyu / \xC5\x9E""aft Sisi", "\xE2\x95\x91", 72, nullptr, 0},
+    {"Portal / Halka Sisi", "\xE2\x97\x8E", 73, nullptr, 0},
+    {"Voksel Duman / Dinamik Sis", ICON_MD_BLUR_ON, 74, nullptr, 0},
+    {"Tetikleyici Hacim", "\xE2\x97\xA3", 47, nullptr, 0},
+    {"Engelleme Hacmi", "\xE2\x96\xA3", 48, nullptr, 0},
+    {"Yans\xC4\xB1ma Sondas\xC4\xB1", "\xE2\x97\x89", 37, nullptr, 0},
+    {"I\xC5\x9F\xC4\xB1k Hacmi Sondas\xC4\xB1", "\xE2\x97\x87", 45, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1", "\xE2\x97\x8E", 44, nullptr, 0},
 };
 const CreateMenuItem kCreateVFX[] = {
-    {"Yang\xC4\xB1n & Ate\xC5\x9F (Fire & Embers)", "\xE2\x9A\xA1", 35, nullptr, 0},
-    {"Duman & Toz (Smoke & Dust)", "\xE2\x96\x91", 60, nullptr, 0},
-    {"K\xC4\xB1v\xC4\xB1lc\xC4\xB1m & \xC3\x87" "arp\xC4\xB1\xC5\x9Fma (Sparks)", "\xE2\x9A\xA1", 61, nullptr, 0},
+    {"Yang\xC4\xB1n & Ate\xC5\x9F", "\xE2\x9A\xA1", 35, nullptr, 0},
+    {"Duman & Toz", "\xE2\x96\x91", 60, nullptr, 0},
+    {"K\xC4\xB1v\xC4\xB1lc\xC4\xB1m & \xC3\x87" "arp\xC4\xB1\xC5\x9Fma", "\xE2\x9A\xA1", 61, nullptr, 0},
     {"Ya\xC4\x9Fmur & F\xC4\xB1rt\xC4\xB1na (Rain & Storm)", "\xE2\x98\x94", 62, nullptr, 0},
     {"Kar & Tipi (Snow & Blizzard)", "\xE2\x97\x8B", 66, nullptr, 0},
-    {"B\xC3\xBCy\xC3\xBC & I\xC5\x9F\xC4\xB1lt\xC4\xB1 (Magic Glow)", "\xE2\x9C\xA6", 67, nullptr, 0},
-    {"\xC3\x96zel Partik\xC3\xBCl Emitter (Custom)", "\xE2\x88\xB4", 68, nullptr, 0},
+    {"B\xC3\xBCy\xC3\xBC & I\xC5\x9F\xC4\xB1lt\xC4\xB1", "\xE2\x9C\xA6", 67, nullptr, 0},
+    {"\xC3\x96zel Partik\xC3\xBCl Yay\xC4\xB1""c\xC4\xB1", "\xE2\x88\xB4", 68, nullptr, 0},
 };
 const CreateMenuItem kCreatePhysics[] = {
     {"Sabit Kutu G\xC3\xB6vde", "\xE2\x96\xA1", 4, nullptr, 0},    // □
@@ -886,17 +1023,17 @@ const CreateMenuItem kCreatePhysics[] = {
     {"Dinamik Kutu G\xC3\xB6vde", "\xE2\x96\xA7", 6, nullptr, 0},  // ▧
     {"Dinamik K\xC3\xBCre G\xC3\xB6vde", "\xE2\x97\x8D", 7, nullptr, 0}, // ◍
     {"Karakter Kontrolc\xC3\xBC", "\xE2\x8A\x99", 30, nullptr, 0},
-    {"Fizik Eklemi (Joint)", "\xE2\x88\x9E", 43, nullptr, 0},
+    {"Fizik Eklemi", "\xE2\x88\x9E", 43, nullptr, 0},
 };
 const CreateMenuItem kCreateGameplay[] = {
     {"Can & Z\xC4\xB1rh Varl\xC4\xB1\xC4\x9F\xC4\xB1", "\xE2\x99\xA5", 40, nullptr, 0},
-    {"B\xC3\xBCy\xC3\xBC / Yetenek Varl\xC4\xB1\xC4\x9F\xC4\xB1 (GAS)", "\xE2\x9A\x94", 41, nullptr, 0},
-    {"Sand\xC4\xB1k / Envanter (Inventory)", "\xE2\x96\xA3", 42, nullptr, 0},
-    {"Yapay Zeka Ajan\xC4\xB1 (NavAgent)", "\xE2\x86\x92", 39, nullptr, 0},
+    {"B\xC3\xBCy\xC3\xBC / Yetenek Varl\xC4\xB1\xC4\x9F\xC4\xB1", "\xE2\x9A\x94", 41, nullptr, 0},
+    {"Sand\xC4\xB1k / Envanter", "\xE2\x96\xA3", 42, nullptr, 0},
+    {"Yapay Zeka Ajan\xC4\xB1", "\xE2\x86\x92", 39, nullptr, 0},
 };
 const CreateMenuItem kCreateAudio[] = {
     {"3B Ses Kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, 13, nullptr, 0},
-    {"Yank\xC4\xB1 Alan\xC4\xB1 (Reverb)", "\xE2\x97\x8E", 44, nullptr, 0},
+    {"Yank\xC4\xB1 Alan\xC4\xB1", "\xE2\x97\x8E", 44, nullptr, 0},
 };
 const CreateMenuItem kCreateTemplates[] = {
     {"Fizik Test Odas\xC4\xB1 (Zemin + D\xC3\xBC\xC5\x9F" "enler)", ICON_MD_SCIENCE, 50, nullptr, 0},
@@ -907,19 +1044,70 @@ const CreateMenuItem kCreateMenu[] = {
     {"Bo\xC5\x9F Varl\xC4\xB1k", "\xE2\x97\x8B", 1, nullptr, 0}, // ○
     {"Model (glTF)", "\xE2\x97\x86", 2, nullptr, 0},     // ◆
     {"Animasyonlu Model", "\xE2\x86\xBB", 9, nullptr, 0},   // ↻
-    {"3B Nesneler (Primitives)", nullptr, 0, kCreate3D, (uint32_t)(sizeof(kCreate3D) / sizeof(kCreate3D[0]))},
+    {"3B Nesneler", "\xE2\x96\xA0", 0, kCreate3D, (uint32_t)(sizeof(kCreate3D) / sizeof(kCreate3D[0]))},
     {"I\xC5\x9F\xC4\xB1k & Ayd\xC4\xB1nlatma", "\xE2\x98\x80", 0, kCreateLight, (uint32_t)(sizeof(kCreateLight) / sizeof(kCreateLight[0]))},
     {"\xC3\x87" "evre & Do\xC4\x9F" "a", "\xE2\x96\xB2", 0, kCreateEnvironment, (uint32_t)(sizeof(kCreateEnvironment) / sizeof(kCreateEnvironment[0]))},
-    {"\xC3\x87" "evre Hacimleri (Volumes)", "\xE2\x97\x89", 0, kCreateVolumes, (uint32_t)(sizeof(kCreateVolumes) / sizeof(kCreateVolumes[0]))},
-    {"G\xC3\xB6rsel Efektler (VFX)", "\xE2\x88\xB4", 0, kCreateVFX, (uint32_t)(sizeof(kCreateVFX) / sizeof(kCreateVFX[0]))},
+    {"\xC3\x87" "evre Hacimleri", "\xE2\x97\x89", 0, kCreateVolumes, (uint32_t)(sizeof(kCreateVolumes) / sizeof(kCreateVolumes[0]))},
+    {"G\xC3\xB6rsel Efektler", "\xE2\x88\xB4", 0, kCreateVFX, (uint32_t)(sizeof(kCreateVFX) / sizeof(kCreateVFX[0]))},
     {"Fizik Nesneleri", "\xE2\x96\xA1", 0, kCreatePhysics, (uint32_t)(sizeof(kCreatePhysics) / sizeof(kCreatePhysics[0]))},
     {"Oynan\xC4\xB1\xC5\x9F & RPG", "\xE2\x9A\x94", 0, kCreateGameplay, (uint32_t)(sizeof(kCreateGameplay) / sizeof(kCreateGameplay[0]))},
     {"Ses & Akustik", ICON_MD_VOLUME_UP, 0, kCreateAudio, (uint32_t)(sizeof(kCreateAudio) / sizeof(kCreateAudio[0]))},
     {"Kamera Varl\xC4\xB1\xC4\x9F\xC4\xB1", ICON_MD_VIDEOCAM, 12, nullptr, 0},
-    {"Tulpar Betik Nesnesi", "\xE2\x96\xA4", 38, nullptr, 0},
+    {"Davran\xC4\xB1\xC5\x9Fl\xC4\xB1 Nesne (betik)", ICON_MD_BOLT, 38, nullptr, 0},
     {"H\xC4\xB1zl\xC4\xB1 \xC5\x9E" "ablonlar", "\xE2\x9A\xA1", 0, kCreateTemplates, (uint32_t)(sizeof(kCreateTemplates) / sizeof(kCreateTemplates[0]))},
 };
 const uint32_t kCreateMenuCount = (uint32_t)(sizeof(kCreateMenu) / sizeof(kCreateMenu[0]));
+
+// U11 B2: BASIT kipin agaci. Olcumde (2026-11-11) "+" 14 kategoriydi, bir kismi teknik ("Model (glTF)", "Cevre
+// Hacimleri", "Oynanis & RPG"). Basit: oyun yapanin ilk haftada istedikleri, gunluk dille; kodlar AYNI do_add
+// dallari (yeni tur yok). Tam liste Gelismis'te.
+const CreateMenuItem kCreateBasitSekil[] = {
+    {"K\xC3\xBCp", "\xE2\x97\xBC", 10, nullptr, 0},
+    {"K\xC3\xBCre", "\xE2\x97\x8F", 11, nullptr, 0},
+    {"Kaps\xC3\xBCl", "\xE2\x97\xBC", 20, nullptr, 0},
+    {"Silindir", "\xE2\x97\xBC", 21, nullptr, 0},
+    {"Koni", "\xE2\x97\xBC", 22, nullptr, 0},
+    {"Zemin (d\xC3\xBCzlem)", "\xE2\x96\xAC", 8, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitFizik[] = {
+    {"D\xC3\xBC\xC5\x9F" "en kutu", "\xE2\x96\xA7", 6, nullptr, 0},
+    {"Yuvarlanan top", "\xE2\x97\x8D", 7, nullptr, 0},
+    {"Duvar / engel (sabit)", "\xE2\x96\xA1", 4, nullptr, 0},
+    {"Karakter (oyuncu)", "\xE2\x8A\x99", 30, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitIsik[] = {
+    {"G\xC3\xBCne\xC5\x9F", "\xE2\x98\x80", 14, nullptr, 0},
+    {"Lamba (nokta \xC4\xB1\xC5\x9F\xC4\xB1k)", "\xE2\x97\x8F", 3, nullptr, 0},
+    {"Spot \xC4\xB1\xC5\x9F\xC4\xB1k", "\xE2\x86\x98", 15, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitDoga[] = {
+    {"G\xC3\xB6ky\xC3\xBCz\xC3\xBC", "\xE2\x98\x81", 36, nullptr, 0},
+    {"Arazi", "\xE2\x96\xB2", 31, nullptr, 0},
+    {"Su", "\xE2\x89\x88", 32, nullptr, 0},
+};
+const CreateMenuItem kCreateBasitEfekt[] = {
+    {"Ate\xC5\x9F", "\xE2\x9A\xA1", 35, nullptr, 0},
+    {"Duman", "\xE2\x96\x91", 60, nullptr, 0},
+    {"Ya\xC4\x9Fmur", "\xE2\x98\x94", 62, nullptr, 0},
+    {"Kar", "\xE2\x97\x8B", 66, nullptr, 0},
+};
+const CreateMenuItem kCreateMenuBasit[] = {
+    {"\xC5\x9E" "ekiller", "\xE2\x96\xA0", 0, kCreateBasitSekil, (uint32_t)(sizeof(kCreateBasitSekil) / sizeof(kCreateBasitSekil[0]))},
+    {"Fizikli nesneler", "\xE2\x96\xA1", 0, kCreateBasitFizik, (uint32_t)(sizeof(kCreateBasitFizik) / sizeof(kCreateBasitFizik[0]))},
+    {"I\xC5\x9F\xC4\xB1k", "\xE2\x98\x80", 0, kCreateBasitIsik, (uint32_t)(sizeof(kCreateBasitIsik) / sizeof(kCreateBasitIsik[0]))},
+    {"Do\xC4\x9F" "a", "\xE2\x96\xB2", 0, kCreateBasitDoga, (uint32_t)(sizeof(kCreateBasitDoga) / sizeof(kCreateBasitDoga[0]))},
+    {"Efektler", "\xE2\x88\xB4", 0, kCreateBasitEfekt, (uint32_t)(sizeof(kCreateBasitEfekt) / sizeof(kCreateBasitEfekt[0]))},
+    {"Kamera", ICON_MD_VIDEOCAM, 12, nullptr, 0},
+    {"Ses kayna\xC4\x9F\xC4\xB1", ICON_MD_VOLUME_UP, 13, nullptr, 0},
+    {"3B model (dosyadan)", "\xE2\x97\x86", 2, nullptr, 0},
+    {"Bo\xC5\x9F nesne", "\xE2\x97\x8B", 1, nullptr, 0},
+};
+const uint32_t kCreateMenuBasitCount = (uint32_t)(sizeof(kCreateMenuBasit) / sizeof(kCreateMenuBasit[0]));
+
+const CreateMenuItem *create_menu_items(bool gelismis, uint32_t *n) {
+  if (n) *n = gelismis ? kCreateMenuCount : kCreateMenuBasitCount;
+  return gelismis ? kCreateMenu : kCreateMenuBasit;
+}
 
 int create_menu_draw(const CreateMenuItem *items, uint32_t count) {
   int result = 0;
@@ -1169,7 +1357,7 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
       if (ImGui::MenuItem("\xC3\x87o\xC4\x9F" "alt", "Ctrl+D")) res.action = HierarchyAction::Duplicate;
       if (ImGui::MenuItem("Ebeveynden ay\xC4\xB1r")) res.action = HierarchyAction::Detach;
       ImGui::Separator();
-      if (ImGui::MenuItem("Sil", "Del")) res.action = HierarchyAction::Delete;
+      if (ImGui::MenuItem("Sil", "Delete")) res.action = HierarchyAction::Delete;
       ImGui::Separator();
       if (ImGui::MenuItem("Kes", "Ctrl+X")) res.action = HierarchyAction::Cut;
       if (ImGui::MenuItem("Kopyala", "Ctrl+C")) res.action = HierarchyAction::Copy;
@@ -1333,7 +1521,9 @@ int hierarchy_toolbar(uint32_t entity_count, bool has_selection) {
     // Liste artik BURADA yazmiyor: tek dogruluk kaynagi kCreateMenu. Ayni
     // tablo sahne panelinin sag tik menusunu de beslediginde ikisi bir daha
     // birbirinden kayamaz (eskiden ayni liste elle iki kez yazilmisti).
-    result = create_menu_draw(kCreateMenu, kCreateMenuCount);
+    uint32_t cn = 0;
+    const CreateMenuItem *ct = create_menu_items(editor_gelismis(), &cn); // U11 B2: Basit kipte sade agac
+    result = create_menu_draw(ct, cn);
     ImGui::EndPopup();
   }
   ImGui::SameLine(0, std::floor(s.ItemInnerSpacing.x * 0.5f));
