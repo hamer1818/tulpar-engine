@@ -122,13 +122,13 @@ bool build_env_w(const char *const *add, wchar_t *out, size_t cap, char *err, si
 }
 bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out, char *err, size_t cap) {
   static char cmd8[32768];
-  static wchar_t cmd[32768], cwd[1024], log[1024];
+  static wchar_t cmd[32768], cwd[1024], log[1024], girdi[1024];
   static wchar_t envblk[65536];
   if (job_out) *job_out = nullptr;
   if (!s.argv || !s.argv[0]) { say(err, cap, "bos komut"); return false; }
   if (s.env && !build_env_w(s.env, envblk, 65536, err, cap)) return false;
   if (!process_quote_windows(s.argv, cmd8, sizeof cmd8)) { say(err, cap, "komut satiri 32 KB sinirini asti"); return false; }
-  if (!widen(cmd8, cmd, 32768) || (s.cwd && !widen(s.cwd, cwd, 1024)) || (s.log_path && !widen(s.log_path, log, 1024))) {
+  if (!widen(cmd8, cmd, 32768) || (s.cwd && !widen(s.cwd, cwd, 1024)) || (s.log_path && !widen(s.log_path, log, 1024)) || (s.stdin_path && !widen(s.stdin_path, girdi, 1024))) {
     say(err, cap, "gecersiz UTF-8 yol/arguman");
     return false;
   }
@@ -142,6 +142,22 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = si.hStdError = lh;
     si.hStdInput = nullptr;
+  }
+  HANDLE ih = INVALID_HANDLE_VALUE;
+  if (s.stdin_path) {
+    SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
+    ih = CreateFileW(girdi, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (ih == INVALID_HANDLE_VALUE) {
+      if (lh != INVALID_HANDLE_VALUE) CloseHandle(lh);
+      say(err, cap, "girdi dosyasi acilamadi: %s", s.stdin_path);
+      return false;
+    }
+    if (!(si.dwFlags & STARTF_USESTDHANDLES)) { // gunluk yoksa cikis/hata devralinan konsolun kalir
+      si.dwFlags = STARTF_USESTDHANDLES;
+      si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+      si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    }
+    si.hStdInput = ih;
   }
   // Gunluge yazan cocuk icin konsol penceresi ACILMAZ (derleyici her
   // "Oynat"ta bir kara pencere yakip sondururdu).
@@ -159,9 +175,10 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out
   }
   const DWORD flags = CREATE_UNICODE_ENVIRONMENT | (detached ? DETACHED_PROCESS : 0) | (s.log_path ? CREATE_NO_WINDOW : 0) | (job ? CREATE_SUSPENDED : 0);
   PROCESS_INFORMATION pi{};
-  const BOOL ok = CreateProcessW(nullptr, cmd, nullptr, nullptr, s.log_path ? TRUE : FALSE, flags, s.env ? envblk : nullptr, s.cwd ? cwd : nullptr, &si, &pi);
+  const BOOL ok = CreateProcessW(nullptr, cmd, nullptr, nullptr, (s.log_path || s.stdin_path) ? TRUE : FALSE, flags, s.env ? envblk : nullptr, s.cwd ? cwd : nullptr, &si, &pi);
   const DWORD e = ok ? 0 : GetLastError();
   if (lh != INVALID_HANDLE_VALUE) CloseHandle(lh);
+  if (ih != INVALID_HANDLE_VALUE) CloseHandle(ih);
   if (!ok) {
     if (job) CloseHandle(job);
     if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) say(err, cap, "program bulunamadi: %s", s.argv[0]);
@@ -318,11 +335,22 @@ bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, siz
     logfd = ::open(s.log_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (logfd < 0) { say(err, cap, "gunluk dosyasi acilamadi: %s", s.log_path); ::close(pfd[0]); ::close(pfd[1]); return false; }
   }
+  int infd = -1;
+  if (s.stdin_path) {
+    infd = ::open(s.stdin_path, O_RDONLY | O_CLOEXEC);
+    if (infd < 0) {
+      say(err, cap, "girdi dosyasi acilamadi: %s", s.stdin_path);
+      ::close(pfd[0]); ::close(pfd[1]);
+      if (logfd >= 0) ::close(logfd);
+      return false;
+    }
+  }
   const pid_t pid = ::fork();
   if (pid < 0) {
     say(err, cap, "fork basarisiz (errno %d)", errno);
     ::close(pfd[0]); ::close(pfd[1]);
     if (logfd >= 0) ::close(logfd);
+    if (infd >= 0) ::close(infd);
     return false;
   }
   if (pid == 0) {
@@ -341,10 +369,11 @@ bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, siz
     if (detached || logfd >= 0) {
       const int nul = ::open("/dev/null", O_RDWR);
       if (nul >= 0) {
-        ::dup2(nul, 0);
+        if (infd < 0) ::dup2(nul, 0);
         if (logfd < 0) { ::dup2(nul, 1); ::dup2(nul, 2); }
       }
     }
+    if (infd >= 0) ::dup2(infd, 0);
     ::execvp(s.argv[0], const_cast<char *const *>(s.argv));
     child_fail(pfd[1], 'e');
   }
@@ -353,6 +382,7 @@ bool spawn_posix(const ProcessSpec &s, bool detached, pid_t *out, char *err, siz
   if (!detached) ::setpgid(pid, pid);
   ::close(pfd[1]);
   if (logfd >= 0) ::close(logfd);
+  if (infd >= 0) ::close(infd);
   // exec basarirsa CLOEXEC boruyu kapatir ve read 0 doner; basarisizsa
   // cocugun yazdigi ExecFail gelir.
   ExecFail f{};

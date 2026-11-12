@@ -80,13 +80,19 @@ struct KodPaneli {
   bool kutu_odak = false;     // tiklamadan sonra metin kutusu odagini geri al
   float oneri_x0 = 0, oneri_y0 = 0, oneri_x1 = 0, oneri_y1 = 0; // son cizilen liste dikdortgeni (fare tiklamasi icin)
   // Canli soz dizimi denetimi: duzenleme durunca tampon gecici dosyaya yazilir, `tulpar typecheck` kosar.
-  struct Hata { int satir = 0, sutun = 0; bool uyari = false; char ileti[140] = {0}; };
+  struct Hata { int satir = 0, sutun = 0, uzunluk = 0; bool uyari = false; char ileti[140] = {0}; }; // sutun < 0: tum satir; uzunluk 0: sutundaki kelime
   static constexpr int kHataMax = 8;
   Hata hatalar[kHataMax];
   int hata_n = 0;
   bool tani_yapildi = false;  // en az bir denetim tamamlandi (yoksa "denetleniyor" gosterilir)
   bool tani_suruyor = false;
   bool tani_yok = false;      // tulpar bulunamadi: denetim sessizce kapali
+  int tani_asama = 0;         // 0 bos, 1 `tulpar typecheck` kosuyor, 2 `tulpar --lsp` (ad/degisken cozumu) kosuyor
+  Hata tani_gecici[kHataMax];  // 1. asamanin sonucu (2. asama bitince birlestirilir)
+  int tani_gecici_n = 0;
+  char tani_exe[1100] = {0};  // bulunan `tulpar` yolu
+  int tani_kayma = 0;         // LSP: 1. satira eklenen on ekin uzunlugu
+  char proje_dizin[1024] = {0};     // editor doldurur: oyun.tpr + tulpar.toml'un oldugu kok (LSP kok dizini)
   platform::Process tani_sur;
   uint32_t tani_ozet = 0;     // son denetlenen metnin ozeti
   uint32_t duzenleme_kare = 0;
@@ -114,6 +120,27 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
 // Imlecteki ya da hemen solundaki parantezin eslesi (dize/yorum icindekiler sayilmaz; sinif = kod_siniflandir ciktisi).
 // Donus: eslesen bayt konumu ya da -1; *kendi: baktigimiz parantezin konumu.
 int kod_parantez_esi(const char *metin, const uint8_t *sinif, int imlec, int *kendi);
+
+// --- Parametre ipucu ------------------------------------------------------------------------------------
+// Imlec `ad(` ... `)` cagrisinin ICINDEYSE: ad, kacinci parametrede oldugu (0-tabanli, ust duzey virgullerden) ve '(' konumu.
+// Ic ice parantezler, dize ve yorum icindekiler sayilmaz; en fazla ~2000 bayt geriye bakilir. Donus: '(' konumu ya da -1.
+int kod_cagri_bul(const char *metin, const uint8_t *sinif, int imlec, char *ad, int ad_cap, int *param);
+// Adin imzasi ("kure(x, y, z, r, dinamik, renk_): int"): once dosyanin kendi func'i, sonra sozluk. Donus: bulundu mu.
+bool kod_imza_bul(const char *metin, const char *ad, char *imza, int cap);
+
+// --- Canli denetim: cikti ayristiricilari (saf; tests/test_editor_betik.cpp) ---------------------------------
+// `tulpar typecheck` ciktisi: "hata: <ileti>\n  --> dosya:SATIR\n ... | ^" ayrisma hatalari ve
+// "Tip Hatasi: <ileti> at line N" tip hatalari. Donus: yazilan kayit sayisi (cap'e kadar).
+int kod_tani_typecheck_oku(const char *log, KodPaneli::Hata *out, int cap);
+// `tulpar --lsp` ciktisi: publishDiagnostics (satir/sutun 0-tabanli gelir; satir 1-tabanli, sutun 0-tabanli yazilir).
+// kayma: 1. satira eklenen on ekin uzunlugu (satirda sutun bundan geri alinir).
+int kod_tani_lsp_oku(const char *log, int kayma, KodPaneli::Hata *out, int cap);
+// Tek seferlik LSP oturumunun girdisi (initialize, initialized, didOpen, shutdown, exit): dosyaya yazilip cocugun stdin'i
+// olur. onek: 1. satirin basina eklenen metin (betik dosyalarinda oyun.tpr'nin import'lari; satir sayisi degismez), null olabilir.
+// Donus: bayt, sigmazsa 0.
+uint32_t kod_lsp_girdisi(const char *dosya_yolu, const char *kok_yolu, const char *onek, const char *metin, char *out, uint32_t cap);
+// oyun.tpr metninden `import "..."` satirlarini (betikler toplayicisi HARIC) tek satirda birlestirir: " " ile ayrik. Donus: bayt.
+uint32_t kod_oyun_importlari(const char *oyun_metni, char *out, uint32_t cap);
 
 // 1-tabanli satirin bayt ofseti (satir sayisindan buyukse metnin sonu).
 uint32_t kod_satir_ofseti(const char *m, int satir);

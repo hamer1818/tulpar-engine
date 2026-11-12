@@ -1,10 +1,13 @@
-# Canli soz dizimi denetimi: baslangicta "soz dizimi tamam"; acik parantezli ifade yazilinca hata satiri + ileti; duzelince geri
-# gelir. `tulpar typecheck` gerekir (yoksa kapi bu senaryoyu atlar). POZITIF KONTROL: hata aninda "tamam" yazisi YOK.
+# Canli denetim (kullanici, 2026-11-12): UC tur hata, hepsi kaydetmeden. 1) ayrisma ("tulpar typecheck"), 2) tip hatasi
+# (typecheck: beyan turu), 3) bilinmeyen islev (tulpar --lsp, tek seferlik; betikte oyun.tpr'nin import'lari onek olur —
+# onsuz logla bile "bulunamadi" sanilirdi: bu senaryo `logla` satirini koruyup SAHTE alarm olmadigini da olcer).
+# Her adimdan sonra eskisi silinir (satir basi + Shift+Home). `tulpar` gerekir (yoksa kapi bu senaryoyu atlar).
+# POZITIF KONTROL: hata aninda "tamam" yazisi YOK; duzelince geri gelir.
 tikla "Kaynaklar" pencere=DockSpace
 bekle 2
 cift_tikla "dondur.tpr"
 bekle_oge "Dış editörde aç"
-bekle 40
+bekle 60
 dogrula_metin "söz dizimi tamam"
 tikla "func dondur_baslat"
 tus Ctrl+Home
@@ -23,5 +26,43 @@ tus End
 tus Shift+Home
 tus Backspace
 bekle 90
+dogrula_metin "söz dizimi tamam"
+yaz "i"
+yaz "n"
+yaz "t"
+yaz " "
+yaz "a"
+yaz " "
+yaz "="
+yaz " "
+yaz "\""
+yaz "s"
+yaz "\""
+yaz ";"
+bekle 90
+dogrula_metin "tür uyuşmazlığı"
+ekran kod_tip
+tus End
+tus Shift+Home
+tus Backspace
+bekle 90
+dogrula_metin "söz dizimi tamam"
+yaz "y"
+yaz "o"
+yaz "k"
+yaz "f"
+yaz "n"
+yaz "("
+yaz "1"
+yaz ")"
+yaz ";"
+bekle 120
+dogrula_metin "bulunamadı"
+metin_yok "söz dizimi tamam"
+ekran kod_islev
+tus End
+tus Shift+Home
+tus Backspace
+bekle 120
 dogrula_metin "söz dizimi tamam"
 cik

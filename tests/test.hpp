@@ -62,7 +62,7 @@ struct Registry {
   //
   // 640 -> 768 (2026-09-25): guncelleyici cekirdegi (test_updater/test_sha256)
   // ile 603'e cikildi, pay yine %6'ya inmisti; arayuz testleri de geliyor.
-  static constexpr int kMax = 768;
+  static constexpr int kMax = 1024;
   static Case cases[kMax];
   static int count;
   static int failures;      // mevcut testteki CHECK basarisizliklari

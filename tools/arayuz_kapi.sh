@@ -261,12 +261,34 @@ PY3
     then echo "  kod onerisi: 'kur' -> kure() oneri listesi, Tab kabul + parantez, logla(\"x\") kapanislar kendiliginden, kapanista atlandi"
     else echo "  KIRMIZI kod onerisi (cikis $rkz):"; grep -E 'HATA|> ' "$B/ui_kz/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; sed -n 1,6p "$B/kz/assets/betikler/dondur.tpr" | cat -A | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kod onerisi: proje uretilemedi"; kirmizi=1; fi
+  # Oneri etkilesimi: klavye gezinme + Enter, fareyle satir secme, tek harfte Ctrl+Bosluk, Esc.
+  mkdir -p "$B/ui_ke"
+  if betik_proje "$B/ke"; then
+    printf 'func qa_bir() {\n}\nfunc qa_iki(zzz_iki) {\n}\nfunc qa_uc() {\n}\nfunc dondur_baslat(id) {\n    logla("BETIK_KAPI_CALISTI " + sahne_adi(id));\n}\n' > "$B/ke/assets/betikler/dondur.tpr"
+    ( kos kod_oneri_etkilesim.txt "$B/ui_ke" --scene "$B/ke/assets/arena.sahne" ); rke=$?
+    if [ $rke = 0 ] && python3 - "$B/ke/assets/betikler/dondur.tpr" <<'PY4'
+import sys
+m = open(sys.argv[1], encoding='utf-8').read()
+# 1) Asagi+Enter: 2. oneri qa_bir ; 2) fare: 3. satir qa_iki ; 3) Esc: tek harf y yerinde
+ok = m.rstrip('\n').endswith('qa_bir()\nqa_iki()\ny')
+sys.exit(0 if ok else 1)
+PY4
+    then echo "  kod oneri etkilesimi: Asagi+Enter ikinciyi, fare tiklamasi ucuncuyu yazdi, Ctrl+Bosluk tek harfte acti, Esc kapatti"
+    else echo "  KIRMIZI kod oneri etkilesimi (cikis $rke):"; grep -E 'HATA|> ' "$B/ui_ke/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'; tail -6 "$B/ke/assets/betikler/dondur.tpr" | cat -A | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod oneri etkilesimi: proje uretilemedi"; kirmizi=1; fi
+  # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
+  mkdir -p "$B/ui_ki"
+  if betik_proje "$B/ki"; then
+    ( kos kod_ipucu.txt "$B/ui_ki" --scene "$B/ki/assets/arena.sahne" ); rki=$?
+    if [ $rki = 0 ]; then echo "  kod ipucu: kure( icinde imza ve parametre adlari gorundu, parantezden cikinca kayboldu (kontrol)"
+    else echo "  KIRMIZI kod ipucu (cikis $rki):"; grep -E 'HATA|> ' "$B/ui_ki/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod ipucu: proje uretilemedi"; kirmizi=1; fi
   # Canli soz dizimi denetimi (tulpar typecheck gerekir).
   if command -v tulpar > /dev/null; then
     mkdir -p "$B/ui_kh"
     if betik_proje "$B/kh"; then
       ( kos kod_hata.txt "$B/ui_kh" --scene "$B/kh/assets/arena.sahne" ); rkh=$?
-      if [ $rkh = 0 ]; then echo "  kod hatasi: acik parantezli ifade -> satir isareti + ileti, 'tamam' kayboldu; duzelince geri geldi"
+      if [ $rkh = 0 ]; then echo "  kod hatasi: ayrisma, tip hatasi ve bilinmeyen islev (LSP) isaretlendi, 'tamam' kayboldu, duzelince geri geldi; betikte logla icin sahte alarm yok"
       else echo "  KIRMIZI kod hatasi (cikis $rkh):"; grep -E 'HATA|> ' "$B/ui_kh/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
     else echo "  KIRMIZI kod hatasi: proje uretilemedi"; kirmizi=1; fi
   else echo "  ATLANDI: kod hatasi — tulpar kurulu degil (typecheck kosturulamaz)"; fi

@@ -425,8 +425,13 @@ olmalı; Unity/Unreal'in öğrenme süresi uzun olduğu için bunu kullanıyoruz
 | B6 | **Rehber:** Yardım > Başlangıç rehberi "Betik" sayfası bu modele göre yeniden yazılır (Unity karşılıkları tablosuyla: Start = `_baslat`, Update = `_guncelle`). | "Bu olayı anlamadım." | ✅ 2026-11-11: "Betik (davranış)" sayfası: ilk betik 4 adımda, olay adları + Unity karşılıkları, Kod paneli, hata satırı, ana dosya. Kapı `editor_rehber_betik_sayfasi_kodla_uyumlu_with_control`: sayfadaki kanca adları `betik_kancalari` ile tanınmalı, andığı komut tabloda olmalı (pozitif kontrol: `zipla_update` yazılınca kırmızı, ölçüldü) |
 | B7 | **Ana betik görünür:** Oyun menüsünde "Ana betiği aç (oyun.tpr)" — oyunun kendisi de Kod panelinde. | Ana dosyanın varlığı ve rolü gizli kalmasın. | ✅ 2026-11-11: menü adı "Oynat" (Oyun menüsü yok); Kod paneli ana dosyada rolünü yazar ve "nesneye ekle" önermez; projede `oyun.tpr` yoksa (motor örnekleri) soluk. Kapı `tests/arayuz/ana_betik.txt` (kontrol: sıradan betikte "nesneye ekle" görünür) |
 
-**Kapsam dışı (şimdilik):** sözdizimi renklendirme (B2'de düz metin + satır numarası yeter; sonra),
-otomatik tamamlama, betik sıcak yükleme (köprüde var, editöre bağlanması ayrı iş), görsel betik.
+**Sonradan yapıldı (2026-11-12, kullanıcı isteği "hepsi önemli"):** Kod panelinde Tulpar sözdizimi — renklendirme
+(TulparLang lexer'ının Türkçe + İngilizce sözcükleri), Enter girintisi / Tab 4 boşluk / `}` geri girinti, parantez
+kapatma ve eşleştirme, öneri listesi (motorun `engine.tpr` + `kit/*.tpr` işlevleri imzalarıyla, dosyanın kendi
+`func`'ları; Tab/Enter/Yukarı/Aşağı/Esc/Ctrl+Boşluk/fare), parametre ipucu balonu ve canlı söz dizimi denetimi
+(`tulpar typecheck` + tek seferlik `tulpar --lsp`; ayrışma, tip, bilinmeyen işlev). Kapılar `tests/arayuz/kod_*.txt`.
+**Hâlâ kapsam dışı:** betik sıcak yükleme, görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
+(Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 
 ### U11 — UX mükemmelliği (kullanıcı kararı, 2026-11-11)
 

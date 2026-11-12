@@ -2362,6 +2362,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (file_exists(e)) { std::snprintf(kod.kutuphane_dizin, sizeof kod.kutuphane_dizin, "%s", a); break; }
       }
     }
+    std::snprintf(kod.proje_dizin, sizeof kod.proje_dizin, "%s", st.tulpar_dir); // LSP kok dizini (oyun.tpr + tulpar.toml)
     if (!kod.gecici_dizin[0] && tercih_p.ayar_dizini[0]) std::snprintf(kod.gecici_dizin, sizeof kod.gecici_dizin, "%s/kod_denetim", tercih_p.ayar_dizini);
     std::printf("[engine_editor] kod paneli: %s%s\n", yol, satir > 0 ? " (satira git)" : "");
     return true;

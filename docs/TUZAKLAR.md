@@ -2527,3 +2527,37 @@ olur ve "kullanıcı yukarı kaydırmış" sanılır. Ölçüm (2026-11-10, aray
 sürükleme) bayrağı bırakır; dibe inmek bayrağı geri takar.
 
 **Kural:** "takip et" kararı, ertelenen bir kaydırmanın sonucundan değil kullanıcı girdisinden çıkar.
+
+### 8dv. Konuşma tabanlı bir araç, bağlamsız çağrılırsa yüzlerce sahte hata verir — ve boru gerekmeyebilir
+**Belirti:** Kod panelinde canlı hata denetimi için `tulpar --lsp` tek seferlik kosturuldu. Eklenti dizini (`--ext`)
+verilmeyince taze bir projede **148 sahte** "bulunamadı" çıktı; betik dosyasında (kendi `import`'u yok) `logla` bile
+bulunamadı sanıldı.
+
+**Neden:** Çözümleyici, motorun işlevlerini `import "engine"` ve eklenti dizininden bilir. Betik dosyaları `oyun.tpr`'nin
+zinciriyle derlenir, tek başına çözümlenemez.
+
+**Düzeltme:** `--ext <kütüphane dizini>` her zaman verilir (dizin yoksa aşama atlanır); betik dosyalarında 1. satırın
+başına `oyun.tpr`'nin `import`'ları eklenir (satır sayısı değişmez, 1. satırda sütun kayması geri alınır). İstekler
+dosyaya yazılıp çocuğun stdin'i dosya yapılır (`ProcessSpec::stdin_path`): boru, iki yönlü bekleme ve kilitlenme yok.
+Ölçüm (2026-11-12, Linux, tulpar 3.46.1): oturum ~0,1 s; gerçek `oyun.tpr` + betikte 0 sahte alarm, bilinmeyen işlev
+satır/sütunla bulundu. Kapı: `tests/arayuz/kod_hata.txt` (betikte `logla` korunarak), `process_stdin_path_*`.
+
+**Kural:** Bir aracı "sonuç doğru mu" diye değil "bağlamı eksikken ne diyor" diye de ölç; pozitif kontrol yanında
+yanlış-alarm kontrolü de koy.
+
+### 8dw. Ham `IM_COL32` bu hedefte parlak çıkar; editörün kendi paletini kullan
+**Belirti:** Öneri listesi ve parametre ipucu için `IM_COL32(30, 32, 44, 250)` koyu zemin seçildi; ekranda gri-mavi
+(~110,120,140) göründü, arkadaki yazı sezildi.
+
+**Neden:** Çerçeve tamponu sRGB, karışım doğrusal: ham sRGB baytı doğrusal sayılıp parlaklaşıyor (aynı ders açılış
+formundaki karartmada alfa 175 → 225 ile öğrenilmişti). `editor_tone(...)` değerleri bu dönüşümü zaten taşır.
+
+**Kural:** Zemin/çerçeve/vurgu için `Tone` paleti (`editor_tone` + `GetColorU32`); ham `IM_COL32` yalnız açık, doygun
+metin renklerinde ve gözle doğrulandıktan sonra.
+
+### 8dx. Eklenen testler kayıt tavanını doldurur — tavan görünür kırılır ama CI'a düşmeden yerelde yakala
+**Belirti:** 768 test eklenince 2 test "KAYIT TAŞMASI" ile hiç koşmadı (özet satırı kırmızı).
+
+**Düzeltme:** `Registry::kMax` 768 → 1024. **Kural:** yeni test dosyası/çok test eklerken özet satırının
+`koşan/kayıtlı` kısmını ve `KAYIT TAŞMASI` iletisini oku.
+

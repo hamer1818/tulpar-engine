@@ -32,6 +32,10 @@ struct ProcessSpec {
   const char *const *argv = nullptr; // NULL ile biter; argv[0] = program (PATH'te aranir)
   const char *cwd = nullptr;         // null: cagiranin dizini
   const char *log_path = nullptr;    // null: cagiranin stdout/stderr'i; dolu: ikisi de BU dosyaya (kesilerek)
+  // null: stdin devralinmaz (POSIX: /dev/null — log_path ya da detached ise; Windows: yok); dolu: cocugun stdin'i BU dosya
+  // (okunur). Konusma tabanli bir programi (LSP: `tulpar --lsp`) tek seferlik kosturmak icin: tum istekler dosyada
+  // hazir yazilir, cocuk okuyup EOF'ta cikar, yanitlar log_path'e dusar. Boru yok: iki yonlu bekleme ve kilitlenme yok.
+  const char *stdin_path = nullptr;
   // Cocugun ortamina EKLER: "AD=deger" dizgileri, NULL ile biter. Cocuk
   // cagiranin ortamini + bunlari gorur; ayni ad varsa BU deger kazanir (iki
   // kez gecmez). Cagiranin KENDI ortami degismez — setenv yapip fork etmek

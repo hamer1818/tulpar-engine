@@ -165,6 +165,11 @@ bool ana_kod_nesneyi_anar(const char *m, const char *nesne, char *anilan, size_t
 
 namespace tulpar::engine::app {
 namespace {
+bool strstr_n(const char *s, size_t n, const char *alt) {
+  const size_t al = std::strlen(alt);
+  for (size_t i = 0; i + al <= n; i++) if (!std::strncmp(s + i, alt, al)) return true;
+  return false;
+}
 bool kod_kelime_listede(const char *b, size_t n, const char *const *liste) {
   for (; *liste; liste++)
     if (std::strlen(*liste) == n && !std::strncmp(*liste, b, n)) return true;
@@ -367,6 +372,53 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
   const int m = n < cap ? n : cap;
   for (int i = 0; i < m; i++) { std::snprintf(ad[i], 40, "%s", ad_[i].ad); std::snprintf(imza[i], 96, "%s", ad_[i].imza); }
   return m;
+}
+
+int kod_cagri_bul(const char *m, const uint8_t *sn, int imlec, char *ad, int ad_cap, int *param) {
+  if (!m || !sn || !ad || ad_cap < 2) return -1;
+  int d = 0, virgul = 0;
+  const int alt = imlec > 2000 ? imlec - 2000 : 0;
+  for (int i = imlec - 1; i >= alt; i--) {
+    const char c = m[i];
+    if (sn[i] == kSDize || sn[i] == kSYorum) continue;
+    if (c == ')' || c == ']' || c == '}') d++;
+    else if (c == '(' || c == '[' || c == '{') {
+      if (d > 0) { d--; continue; }
+      if (c != '(') return -1; // koseli/kume parantezin ICINDE: cagri degil (dizi/blok)
+      int e = i; // parantezden onceki kelime
+      while (e > 0 && (m[e - 1] == ' ' || m[e - 1] == '\t')) e--;
+      int b = e;
+      while (b > 0 && kod_ident_ic((unsigned char)m[b - 1])) b--;
+      if (b == e || e - b >= ad_cap || (m[b] >= '0' && m[b] <= '9')) return -1;
+      // `func ad(` TANIMI cagri degildir
+      int o = b; while (o > 0 && (m[o - 1] == ' ' || m[o - 1] == '\t')) o--;
+      if (o >= 4 && !std::strncmp(m + o - 4, "func", 4) && (o == 4 || !kod_ident_ic((unsigned char)m[o - 5]))) return -1;
+      std::snprintf(ad, (size_t)ad_cap, "%.*s", e - b, m + b);
+      if (param) *param = virgul;
+      return i;
+    }
+    else if (c == ',' && d == 0) virgul++;
+  }
+  return -1;
+}
+
+bool kod_imza_bul(const char *metin, const char *ad, char *imza, int cap) {
+  if (!ad || !*ad || !imza || cap < 2) return false;
+  const size_t al = std::strlen(ad);
+  if (metin) {
+    for (const char *p = metin; *p;) {
+      const char *son = std::strchr(p, '\n');
+      const char *e = son ? son : p + std::strlen(p);
+      const char *q = p; while (q < e && (*q == ' ' || *q == '\t')) q++;
+      const char *a, *im; size_t an, in; uint8_t tur;
+      if (satir_tanim(q, e, &a, &an, &im, &in, &tur) && tur == 1 && an == al && !std::strncmp(a, ad, al)) { std::snprintf(imza, (size_t)cap, "%.*s", (int)in, im); return true; }
+      if (!son) break;
+      p = son + 1;
+    }
+  }
+  for (int i = 0; i < g_soz_n; i++)
+    if (g_soz[i].tur == 1 && std::strlen(g_soz[i].ad) == al && !std::strcmp(g_soz[i].ad, ad)) { std::snprintf(imza, (size_t)cap, "%s", g_soz[i].imza); return true; }
+  return false;
 }
 
 int kod_parantez_esi(const char *m, const uint8_t *sn, int imlec, int *kendi) {
@@ -617,37 +669,56 @@ int kod_geri_cagri(ImGuiInputTextCallbackData *d) {
 
 namespace {
 // ---- Canli soz dizimi denetimi ------------------------------------------------------------------------
-// Duzenleme durunca tampon gecici dosyaya yazilir ve `tulpar typecheck` kosar (olculdu 2026-11-12: ~5 ms, ayrisma
-// hatalarini satir ve sutunla verir; kaydetmeye gerek yok, projeye dosya yazilmaz). Cikti:
-//   hata: <ileti>\n  --> <dosya>:<satir>\n    |\n  5 | <kod>\n    |    ^   <- sutun
+// Iki asama (olculdu 2026-11-12): 1) tampon gecici dosyaya yazilir, `tulpar typecheck` (~5 ms): ayrisma hatalari ve tip
+// hatalari (beyan/arguman sayisi). Ayrisma hatasi varsa dur. 2) `tulpar --lsp` TEK SEFERLIK (istekler dosyada, stdin
+// dosyadan; ~0,1 s): bilinmeyen islev/degisken, satir ve sutun araligiyla. LSP motorun eklenti dizini (--ext) olmadan
+// 148 sahte "bulunamadi" verdi: dizin yoksa bu asama atlanir. Betik dosyalarinda (import'u olmayan) 1. satirin basina
+// oyun.tpr'nin import'lari konur (satir sayisi ayni): onsuz `logla` bile bulunamadi sanilirdi.
+}  // namespace
+namespace {
 uint32_t kod_ozet(const char *m) {
   uint32_t h = 2166136261u;
   for (const unsigned char *p = (const unsigned char *)m; *p; p++) h = (h ^ *p) * 16777619u;
   return h;
 }
-void tani_oku(KodPaneli &k, const char *log) {
-  k.hata_n = 0;
+}  // namespace
+
+int kod_tani_typecheck_oku(const char *log, KodPaneli::Hata *out, int cap) {
+  int n = 0;
   const char *p = log;
-  while (*p && k.hata_n < KodPaneli::kHataMax) {
+  while (*p && n < cap) {
     const char *son = std::strchr(p, '\n');
     const size_t l = son ? (size_t)(son - p) : std::strlen(p);
-    const bool hata = !std::strncmp(p, "hata:", 5) || !std::strncmp(p, "Hata:", 5);
-    const bool uyari = !std::strncmp(p, "uyar\xC4\xB1:", 7) || !std::strncmp(p, "uyari:", 6);
-    if (hata || uyari) {
-      KodPaneli::Hata &h = k.hatalar[k.hata_n];
+    if (!std::strncmp(p, "Tip Hatasi:", 11)) { // "Tip Hatasi: <ileti> at line N"
+      KodPaneli::Hata &h = out[n];
       h = KodPaneli::Hata{};
-      h.uyari = uyari;
-      const char *ms = p + (hata ? 5 : (p[4] == '\xC4' ? 7 : 6));
+      char sat[400];
+      std::snprintf(sat, sizeof sat, "%.*s", (int)(l < 399 ? l : 399), p + 11);
+      char *at = std::strstr(sat, " at line ");
+      if (at) { h.satir = std::atoi(at + 9); *at = 0; }
+      const char *ms = sat; while (*ms == ' ') ms++;
+      char ad[64], t1[32], t2[32]; int a1 = 0, a2 = 0;
+      if (std::sscanf(ms, "Type mismatch in declaration of '%63[^']': expected %31[^,], got %31s", ad, t1, t2) == 3)
+        std::snprintf(h.ileti, sizeof h.ileti, "'%s' i\xC3\xA7in t\xC3\xBCr uyu\xC5\x9Fmazl\xC4\xB1\xC4\x9F\xC4\xB1: %s bekleniyordu, %s verildi", ad, t1, t2);
+      else if (std::sscanf(ms, "Function '%63[^']' expects %d argument(s), got %d", ad, &a1, &a2) == 3)
+        std::snprintf(h.ileti, sizeof h.ileti, "'%s' i\xC5\x9Flevi %d arg\xC3\xBCman bekliyor, %d verildi", ad, a1, a2);
+      else std::snprintf(h.ileti, sizeof h.ileti, "%s", ms);
+      h.sutun = -1; // sutun verilmez: tum satir
+      if (h.satir > 0) n++;
+    } else if (!std::strncmp(p, "hata:", 5) || !std::strncmp(p, "Hata:", 5)) {
+      KodPaneli::Hata &h = out[n];
+      h = KodPaneli::Hata{};
+      const char *ms = p + 5;
       while (*ms == ' ') ms++;
       std::snprintf(h.ileti, sizeof h.ileti, "%.*s", (int)(l - (size_t)(ms - p)), ms);
-      // sonraki satirlar: "  --> dosya:SATIR", sonra kod ve ^ satiri
+      h.sutun = -1;
       const char *q = son ? son + 1 : nullptr;
       for (int i = 0; q && *q && i < 6; i++) {
         const char *qe = std::strchr(q, '\n');
         const size_t ql = qe ? (size_t)(qe - q) : std::strlen(q);
         char sat[512]; // satiri kopyala: strchr/strrchr gunlugun KALANINA bakmasin (yanlis satirdaki ':' yakalaniyordu)
         std::snprintf(sat, sizeof sat, "%.*s", (int)(ql < 511 ? ql : 511), q);
-        if (!std::strncmp(sat, "hata:", 5) || !std::strncmp(sat, "uyar", 4)) break; // sonraki kayit
+        if (!std::strncmp(sat, "hata:", 5) || !std::strncmp(sat, "Tip Hatasi:", 11)) break; // sonraki kayit
         if (std::strstr(sat, "--> ")) { const char *c = std::strrchr(sat, ':'); if (c) h.satir = std::atoi(c + 1); }
         const char *sim = std::strchr(sat, '^');
         const char *bar = std::strchr(sat, '|');
@@ -655,46 +726,206 @@ void tani_oku(KodPaneli &k, const char *log) {
         if (!qe) break;
         q = qe + 1;
       }
-      if (h.satir > 0) k.hata_n++;
+      if (h.satir > 0) n++;
     }
     if (!son) break;
     p = son + 1;
   }
+  return n;
 }
+
+int kod_tani_lsp_oku(const char *log, int kayma, KodPaneli::Hata *out, int cap) {
+  int n = 0;
+  const char *p = log;
+  while (n < cap && (p = std::strstr(p, "{\"range\":{\"start\":{\"line\":")) != nullptr) {
+    int l1 = 0, c1 = 0, l2 = 0, c2 = 0, sev = 1;
+    if (std::sscanf(p, "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}},\"severity\":%d", &l1, &c1, &l2, &c2, &sev) < 5) { p++; continue; }
+    const char *m = std::strstr(p, "\"message\":\"");
+    if (!m) break;
+    m += 11;
+    KodPaneli::Hata &h = out[n];
+    h = KodPaneli::Hata{};
+    h.satir = l1 + 1;
+    h.sutun = c1 - (l1 == 0 ? kayma : 0);
+    if (h.sutun < 0) h.sutun = 0;
+    h.uzunluk = l2 == l1 && c2 > c1 ? c2 - c1 : 0;
+    h.uyari = sev >= 2;
+    size_t o = 0; // JSON dizgisini coz; ilk satirla yetin ("\nipucu: ..." atilir)
+    for (; *m && *m != '"' && o + 1 < sizeof h.ileti; m++) {
+      if (*m == '\\') {
+        m++;
+        if (*m == 'n') break;
+        if (*m == 'u' && m[1] && m[2] && m[3] && m[4]) { m += 4; h.ileti[o++] = '?'; continue; }
+        if (*m == 't') h.ileti[o++] = ' ';
+        else if (*m) h.ileti[o++] = *m;
+      } else h.ileti[o++] = *m;
+    }
+    h.ileti[o] = 0;
+    n++;
+    p = m;
+  }
+  return n;
+}
+
+namespace {
+bool json_ekle(char *out, uint32_t cap, uint32_t *n, const char *s, size_t len, bool kacir) {
+  for (size_t i = 0; i < len; i++) {
+    const unsigned char c = (unsigned char)s[i];
+    char t[8]; int tl = 0;
+    if (!kacir) { t[0] = (char)c; tl = 1; }
+    else if (c == '"') { t[0] = '\\'; t[1] = '"'; tl = 2; }
+    else if (c == '\\') { t[0] = '\\'; t[1] = '\\'; tl = 2; }
+    else if (c == '\n') { t[0] = '\\'; t[1] = 'n'; tl = 2; }
+    else if (c == '\r') { t[0] = '\\'; t[1] = 'r'; tl = 2; }
+    else if (c == '\t') { t[0] = '\\'; t[1] = 't'; tl = 2; }
+    else if (c < 0x20) tl = std::snprintf(t, sizeof t, "\\u%04x", c);
+    else { t[0] = (char)c; tl = 1; }
+    if (*n + (uint32_t)tl + 1 >= cap) return false;
+    std::memcpy(out + *n, t, (size_t)tl);
+    *n += (uint32_t)tl;
+  }
+  return true;
+}
+// Yol -> "file://" URI govdesi (JSON kacisli): Windows ters bolu '/' olur, "C:/..." icin "file:///C:/...".
+bool uri_yaz(char *out, uint32_t cap, uint32_t *n, const char *yol) {
+  char t[1200];
+  size_t o = 0;
+  for (const char *p = yol; *p && o + 1 < sizeof t; p++) t[o++] = *p == '\\' ? '/' : *p;
+  t[o] = 0;
+  const char *on = (o > 1 && t[1] == ':') ? "file:///" : "file://";
+  return json_ekle(out, cap, n, on, std::strlen(on), false) && json_ekle(out, cap, n, t, o, true);
+}
+}  // namespace
+
+uint32_t kod_lsp_girdisi(const char *dosya, const char *kok, const char *onek, const char *metin, char *out, uint32_t cap) {
+  static char govde[kKodKapasite * 3 + 8192];
+  uint32_t n = 0;
+  auto parca = [&](const char *s) { return json_ekle(govde, sizeof govde, &n, s, std::strlen(s), false); };
+  uint32_t toplam = 0;
+  auto mesaj = [&]() -> bool { // govde[0..n) bir mesaj: baslik + govde'yi out'a ekle
+    char baslik[64];
+    const int bl = std::snprintf(baslik, sizeof baslik, "Content-Length: %u\r\n\r\n", n);
+    if (toplam + (uint32_t)bl + n + 1 >= cap) return false;
+    std::memcpy(out + toplam, baslik, (size_t)bl); toplam += (uint32_t)bl;
+    std::memcpy(out + toplam, govde, n); toplam += n;
+    n = 0;
+    return true;
+  };
+  bool ok = parca("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"rootUri\":\"") && uri_yaz(govde, sizeof govde, &n, kok) &&
+            parca("\"}}") && mesaj();
+  ok = ok && parca("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}") && mesaj();
+  ok = ok && parca("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"") && uri_yaz(govde, sizeof govde, &n, dosya) &&
+       parca("\",\"languageId\":\"tulpar\",\"version\":1,\"text\":\"") && (!onek || json_ekle(govde, sizeof govde, &n, onek, std::strlen(onek), true)) &&
+       json_ekle(govde, sizeof govde, &n, metin, std::strlen(metin), true) && parca("\"}}}") && mesaj();
+  ok = ok && parca("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"shutdown\"}") && mesaj();
+  ok = ok && parca("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}") && mesaj();
+  return ok ? toplam : 0;
+}
+
+uint32_t kod_oyun_importlari(const char *m, char *out, uint32_t cap) {
+  uint32_t n = 0;
+  if (!m || cap < 2) return 0;
+  for (const char *p = m; *p;) {
+    const char *son = std::strchr(p, '\n');
+    const size_t l = son ? (size_t)(son - p) : std::strlen(p);
+    if (l > 8 && !std::strncmp(p, "import \"", 8) && !strstr_n(p, l, "assets/betikler")) {
+      if (n + l + 2 >= cap) break;
+      std::memcpy(out + n, p, l); n += (uint32_t)l;
+      out[n++] = ' ';
+    }
+    if (!son) break;
+    p = son + 1;
+  }
+  out[n] = 0;
+  return n;
+}
+
+namespace {
 // Sureci baslatir ya da biten sureci toplar. Her karede cagrilir; is yoksa O(1).
+void tani_bitir(KodPaneli &k) {
+  // sirala (satira gore, kararli) ve ayni satirdaki ayni iletiyi tekille
+  for (int i = 1; i < k.hata_n; i++) { KodPaneli::Hata t = k.hatalar[i]; int j = i - 1; while (j >= 0 && k.hatalar[j].satir > t.satir) { k.hatalar[j + 1] = k.hatalar[j]; j--; } k.hatalar[j + 1] = t; }
+  k.tani_asama = 0;
+  k.tani_yapildi = true;
+}
 void tani_yurut(KodPaneli &k, uint32_t kare) {
-  char log[1100], dosya[1100];
+  char log[1100], dosya[1100], lsp_log[1100], lsp_giris[1100];
   if (!k.gecici_dizin[0] || k.tani_yok) return;
   std::snprintf(log, sizeof log, "%s/denetim.log", k.gecici_dizin);
   std::snprintf(dosya, sizeof dosya, "%s/kod_denetim.tpr", k.gecici_dizin);
+  std::snprintf(lsp_log, sizeof lsp_log, "%s/lsp_cikis.log", k.gecici_dizin);
+  std::snprintf(lsp_giris, sizeof lsp_giris, "%s/lsp_giris.bin", k.gecici_dizin);
   if (k.tani_suruyor) {
     int cikis = 0;
     const platform::ProcessState ps = platform::process_poll(k.tani_sur, &cikis);
     if (ps == platform::ProcessState::Running) return;
     k.tani_suruyor = false;
-    if (ps == platform::ProcessState::Exited) {
-      static char lg[16 * 1024];
-      size_t n = 0;
-      if (std::FILE *f = std::fopen(log, "rb")) { n = std::fread(lg, 1, sizeof lg - 1, f); std::fclose(f); }
-      lg[n] = 0;
-      if (cikis == 0 || cikis == 2) { tani_oku(k, lg); k.tani_yapildi = true; }
+    static char lg[256 * 1024];
+    const char *yol = k.tani_asama == 1 ? log : lsp_log;
+    size_t n = 0;
+    if (std::FILE *f = std::fopen(yol, "rb")) { n = std::fread(lg, 1, sizeof lg - 1, f); std::fclose(f); }
+    lg[n] = 0;
+    if (k.tani_asama == 1) {
+      k.tani_gecici_n = (ps == platform::ProcessState::Exited && (cikis == 0 || cikis == 1 || cikis == 2)) ? kod_tani_typecheck_oku(lg, k.tani_gecici, KodPaneli::kHataMax) : 0;
+      bool ayrisma = false; // 1. asama ayrisma hatasi verdiyse LSP'ye gerek yok (o da ayni hatayi verir, art arda sahte hatalar da)
+      for (int i = 0; i < k.tani_gecici_n; i++) if (std::strstr(k.tani_gecici[i].ileti, "ayr\xC4\xB1\xC5\x9Ft\xC4\xB1rma")) ayrisma = true;
+      bool lsp_olur = k.proje_dizin[0] && k.kutuphane_dizin[0] && !ayrisma && k.tani_exe[0];
+      static char oyun_m[256 * 1024];
+      char onek[4096] = {0};
+      char oyun[1100];
+      std::snprintf(oyun, sizeof oyun, "%s/oyun.tpr", k.proje_dizin);
+      size_t on = 0;
+      if (lsp_olur) { if (std::FILE *f = std::fopen(oyun, "rb")) { on = std::fread(oyun_m, 1, sizeof oyun_m - 1, f); std::fclose(f); } }
+      oyun_m[on] = 0;
+      lsp_olur = lsp_olur && on > 0 && std::strncmp(k.yol, k.proje_dizin, std::strlen(k.proje_dizin)) == 0;
+      if (lsp_olur) {
+        // Ana dosya ve kendi import'u olan dosya on eksiz; betik dosyalarina oyun.tpr'nin import'lari
+        const bool kendi_import = std::strstr(k.metin, "import \"") != nullptr;
+        if (!kendi_import) kod_oyun_importlari(oyun_m, onek, sizeof onek);
+        static char girdi[kKodKapasite * 3 + 16384];
+        const uint32_t gl = kod_lsp_girdisi(k.yol, k.proje_dizin, onek, k.metin, girdi, sizeof girdi);
+        std::FILE *f = gl ? std::fopen(lsp_giris, "wb") : nullptr;
+        if (f) { std::fwrite(girdi, 1, gl, f); std::fclose(f); } else lsp_olur = false;
+        if (lsp_olur) {
+          const char *argv[] = {k.tani_exe, "--ext", k.kutuphane_dizin, "--lsp", nullptr};
+          platform::ProcessSpec sp;
+          sp.argv = argv; sp.cwd = k.proje_dizin; sp.log_path = lsp_log; sp.stdin_path = lsp_giris;
+          char err[200];
+          k.tani_kayma = (int)std::strlen(onek);
+          if (platform::process_start(k.tani_sur, sp, err, sizeof err)) { k.tani_suruyor = true; k.tani_asama = 2; return; }
+        }
+      }
+      k.hata_n = k.tani_gecici_n;
+      for (int i = 0; i < k.hata_n; i++) k.hatalar[i] = k.tani_gecici[i];
+      tani_bitir(k);
+      return;
     }
+    // 2. asama bitti: LSP bulgularini 1. asamaninkilerle birlestir (ayni satirda ayni ileti tekil)
+    KodPaneli::Hata lsp[KodPaneli::kHataMax];
+    const int ln = ps == platform::ProcessState::Exited ? kod_tani_lsp_oku(lg, k.tani_kayma, lsp, KodPaneli::kHataMax) : 0;
+    k.hata_n = 0;
+    for (int i = 0; i < k.tani_gecici_n && k.hata_n < KodPaneli::kHataMax; i++) k.hatalar[k.hata_n++] = k.tani_gecici[i];
+    for (int i = 0; i < ln && k.hata_n < KodPaneli::kHataMax; i++) {
+      bool var = false;
+      for (int j = 0; j < k.hata_n; j++) if (k.hatalar[j].satir == lsp[i].satir && !std::strcmp(k.hatalar[j].ileti, lsp[i].ileti)) var = true;
+      if (!var) k.hatalar[k.hata_n++] = lsp[i];
+    }
+    tani_bitir(k);
     return;
   }
   if (!k.acik || k.salt_okunur) return;
   const uint32_t oz = kod_ozet(k.metin);
   if (k.tani_yapildi && oz == k.tani_ozet) return;
   if (k.tani_yapildi && kare - k.duzenleme_kare < 30) return; // yazarken bekle (~0.5 s)
-  char exe[1100];
-  if (!platform::process_find_in_path("tulpar", exe, sizeof exe)) { k.tani_yok = true; return; }
+  if (!k.tani_exe[0] && !platform::process_find_in_path("tulpar", k.tani_exe, sizeof k.tani_exe)) { k.tani_yok = true; return; }
   platform::fs_mkdir_p(k.gecici_dizin);
   if (std::FILE *f = std::fopen(dosya, "wb")) { std::fwrite(k.metin, 1, std::strlen(k.metin), f); std::fclose(f); } else return;
-  const char *argv[] = {exe, "typecheck", dosya, nullptr};
+  const char *argv[] = {k.tani_exe, "typecheck", dosya, nullptr};
   platform::ProcessSpec sp;
   sp.argv = argv; sp.cwd = k.gecici_dizin; sp.log_path = log;
   char err[200];
   k.tani_ozet = oz;
-  if (platform::process_start(k.tani_sur, sp, err, sizeof err)) k.tani_suruyor = true;
+  if (platform::process_start(k.tani_sur, sp, err, sizeof err)) { k.tani_suruyor = true; k.tani_asama = 1; }
   else k.tani_yok = true;
 }
 
@@ -870,6 +1101,9 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
     ImFont *font = ImGui::GetFont();
     const ImVec4 zm = ImGui::GetStyle().Colors[ImGuiCol_FrameBg];
     const bool koyu = (zm.x + zm.y + zm.z) < 1.5f;
+    // Editor paletinden renk: ham IM_COL32 hedefte (sRGB, karisim dogrusal) PARLAK cikiyordu — koyu zemin gri-mavi gorundu,
+    // arkadaki yazi seziliyordu (olculdu 2026-11-12). Palet degerleri bu donusumu zaten tasir.
+    auto ton = [](Tone t, float a = 1.0f) { float c[4]; editor_tone(t, c); return ImGui::GetColorU32(ImVec4(c[0], c[1], c[2], c[3] * a)); };
     if (k.yaziyor || kutu_aktifti) {
       int kendi = -1;
       const int es = kod_parantez_esi(k.metin, k.sinif, k.imlec_ofs, &kendi);
@@ -894,13 +1128,21 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
     for (int h = 0; h < (k.hata_n > 0 ? 1 : 0); h++) { // yalniz ILK hata: sonrakiler cogu kez onun art arda sonucu
       const KodPaneli::Hata &he = k.hatalar[h];
       const uint32_t ls = kod_satir_ofseti(k.metin, he.satir);
-      uint32_t bas = ls;
-      int kolon = he.sutun < 0 ? 0 : he.sutun;
-      for (int c = 0; c < kolon && k.metin[bas] && k.metin[bas] != '\n'; c++) bas++;
-      uint32_t son = bas;
-      while (k.metin[son] && k.metin[son] != '\n' && kod_ident_harf(k.metin[son])) son++;
-      if (son <= bas + 1) { son = bas; for (int c = 0; c < 2 && k.metin[son] && k.metin[son] != '\n'; c++) son++; }
-      if (son == bas) { bas = ls; son = ls; while (k.metin[son] && k.metin[son] != '\n') son++; } // bos satir: tum satiri isaretle
+      uint32_t satir_son = ls; while (k.metin[satir_son] && k.metin[satir_son] != '\n') satir_son++;
+      uint32_t bas = ls, son = ls;
+      if (he.sutun < 0) { // sutun bilinmiyor (tip hatasi): satirin yazili kismi
+        while (bas < satir_son && (k.metin[bas] == ' ' || k.metin[bas] == '\t')) bas++;
+        son = satir_son;
+      } else {
+        for (int c = 0; c < he.sutun && bas < satir_son; c++) bas++;
+        son = bas;
+        if (he.uzunluk > 0) { for (int c = 0; c < he.uzunluk && son < satir_son; c++) son++; }
+        else {
+          while (son < satir_son && kod_ident_harf(k.metin[son])) son++;
+          if (son <= bas + 1) { son = bas; for (int c = 0; c < 2 && son < satir_son; c++) son++; }
+        }
+      }
+      if (son == bas) { bas = ls; son = satir_son; } // bos satir: tum satir
       const ImVec2 a = kod_nokta(k.metin, bas, x0, y0, fs), b = kod_nokta(k.metin, son, x0, y0, fs);
       const ImU32 renk = he.uyari ? IM_COL32(230, 180, 60, 255) : IM_COL32(240, 80, 70, 255);
       const float yy = a.y + fs - 2.0f;
@@ -929,24 +1171,77 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
       if (ly + lh > vp2->WorkPos.y + vp2->WorkSize.y) ly = kp.y - lh - 2.0f; // alta sigmiyorsa imlecin ustune
       k.oneri_x0 = lx; k.oneri_y0 = ly; k.oneri_x1 = lx + en; k.oneri_y1 = ly + lh;
       ImDrawList *fd = ImGui::GetForegroundDrawList();
-      const ImU32 zem = koyu ? IM_COL32(30, 32, 44, 250) : IM_COL32(250, 250, 252, 250);
-      fd->AddRectFilled(ImVec2(lx, ly), ImVec2(lx + en, ly + lh), zem, 4.0f);
-      fd->AddRect(ImVec2(lx, ly), ImVec2(lx + en, ly + lh), koyu ? IM_COL32(90, 96, 120, 255) : IM_COL32(170, 175, 190, 255), 4.0f);
+      fd->AddRectFilled(ImVec2(lx, ly), ImVec2(lx + en, ly + lh), ton(Tone::Bg2), 4.0f);
+      fd->AddRect(ImVec2(lx, ly), ImVec2(lx + en, ly + lh), ton(Tone::Line), 4.0f);
       static const ImU32 kT[3] = {IM_COL32(197, 134, 232, 255), IM_COL32(120, 170, 255, 255), IM_COL32(232, 168, 100, 255)};
       for (int i = 0; i < k.oneri_n; i++) {
         const float ry = ly + 3.0f + i * satir_h;
-        if (i == k.oneri_sel) fd->AddRectFilled(ImVec2(lx + 2.0f, ry), ImVec2(lx + en - 2.0f, ry + satir_h), koyu ? IM_COL32(60, 90, 160, 255) : IM_COL32(200, 215, 250, 255), 3.0f);
+        if (i == k.oneri_sel) fd->AddRectFilled(ImVec2(lx + 2.0f, ry), ImVec2(lx + en - 2.0f, ry + satir_h), ton(Tone::AccentLo), 3.0f);
         const bool islev = k.oneri_imza[i][0] && k.oneri_imza[i][std::strlen(k.oneri_ad[i])] == '(';
         const bool sabit = k.oneri_imza[i][0] && !islev;
-        const ImU32 renk_ad = i == k.oneri_sel ? (koyu ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 24, 40, 255)) // secili satirda okunur
+        const ImU32 renk_ad = i == k.oneri_sel ? ton(Tone::White) // secili satirda okunur
                                                : (!k.oneri_imza[i][0] ? kT[0] : (islev ? kT[1] : kT[2]));
         const float tx = lx + fs * 0.6f;
         fd->AddText(font, fs, ImVec2(tx, ry + 2.0f), renk_ad, k.oneri_ad[i]);
         const float aw = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, k.oneri_ad[i]).x;
-        if (islev) fd->AddText(font, fs * 0.9f, ImVec2(tx + aw, ry + 3.0f), i == k.oneri_sel ? (koyu ? IM_COL32(205, 214, 240, 255) : IM_COL32(60, 70, 100, 255)) : (koyu ? IM_COL32(140, 146, 165, 255) : IM_COL32(110, 116, 135, 255)), k.oneri_imza[i] + std::strlen(k.oneri_ad[i]));
+        if (islev) fd->AddText(font, fs * 0.9f, ImVec2(tx + aw, ry + 3.0f), i == k.oneri_sel ? ton(Tone::Text) : ton(Tone::TextMute), k.oneri_imza[i] + std::strlen(k.oneri_ad[i]));
         (void)sabit;
       }
-    } else { k.oneri_x0 = k.oneri_y0 = k.oneri_x1 = k.oneri_y1 = 0; }
+    } else {
+      k.oneri_x0 = k.oneri_y0 = k.oneri_x1 = k.oneri_y1 = 0;
+      // Parametre ipucu: imlec bir cagrinin parantezinin icindeyse imza, o anki parametre vurgulu (oneri listesi kapaliyken).
+      char cad[48]; int cpar = 0;
+      const int cp = kutu_aktifti ? kod_cagri_bul(k.metin, k.sinif, k.imlec_ofs, cad, sizeof cad, &cpar) : -1;
+      char imza[160];
+      if (cp >= 0 && kod_imza_bul(k.metin, cad, imza, sizeof imza)) {
+        const char *pa = std::strchr(imza, '(');
+        const char *pk = pa;
+        for (int d = 0; pk && *pk; pk++) { if (*pk == '(') d++; else if (*pk == ')' && --d == 0) break; }
+        if (pa && pk && *pk == ')') {
+          const float x_ad = kod_nokta(k.metin, (uint32_t)(cp - (int)std::strlen(cad)), x0, y0, fs).x; // (bosluk varsa az kayar: onemsiz)
+          const ImVec2 satir_nok = kod_nokta(k.metin, (uint32_t)cp, x0, y0, fs);
+          const float pad = 4.0f;
+          // parcalar: "ad(" + parametreler (", " ile ayrik) + ")" + donus
+          struct Parca { const char *b, *e; bool aktif; };
+          Parca pc[24]; int pn = 0;
+          pc[pn++] = {imza, pa + 1, false};
+          const char *ps = pa + 1; int dd = 0, idx = 0;
+          for (const char *q = pa + 1; q <= pk && pn < 22; q++) {
+            if (q == pk || (*q == ',' && dd == 0)) {
+              const char *pe = q; const char *pb = ps; while (pb < pe && *pb == ' ') pb++;
+              pc[pn++] = {pb, pe, idx == cpar};
+              if (q != pk) pc[pn++] = {q, q + 1, false}; // virgul
+              ps = q + 1; idx++;
+            } else if (*q == '(' || *q == '[') dd++;
+            else if (*q == ')' || *q == ']') dd--;
+          }
+          pc[pn++] = {pk, pk + std::strlen(pk), false}; // ")" ve ": donus"
+          float w = pad * 2.0f;
+          for (int i = 0; i < pn; i++) w += font->CalcTextSizeA(fs, FLT_MAX, 0.0f, pc[i].b, pc[i].e).x + (i > 1 && i < pn - 1 && pc[i].b[0] == ',' ? fs * 0.35f : 0.0f);
+          float by = satir_nok.y - fs - 2.0f * pad - 2.0f;
+          if (by < ic->InnerClipRect.Min.y) by = satir_nok.y + fs + 2.0f; // ustte yer yoksa satirin altina
+          float bx = x_ad;
+          const ImGuiViewport *vp3 = ImGui::GetMainViewport();
+          if (bx + w > vp3->WorkPos.x + vp3->WorkSize.x) bx = vp3->WorkPos.x + vp3->WorkSize.x - w - 4.0f;
+          ImDrawList *fd = ImGui::GetForegroundDrawList();
+          fd->AddRectFilled(ImVec2(bx, by), ImVec2(bx + w, by + fs + 2.0f * pad), ton(Tone::Bg2), 4.0f);
+          fd->AddRect(ImVec2(bx, by), ImVec2(bx + w, by + fs + 2.0f * pad), ton(Tone::Line), 4.0f);
+          float tx = bx + pad;
+          const float ty = by + pad;
+          for (int i = 0; i < pn; i++) {
+            const float pw = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, pc[i].b, pc[i].e).x;
+            if (pc[i].aktif) {
+              fd->AddRectFilled(ImVec2(tx - 2.0f, ty - 1.0f), ImVec2(tx + pw + 2.0f, ty + fs + 1.0f), ton(Tone::AccentLo), 3.0f);
+              fd->AddText(font, fs, ImVec2(tx, ty), ton(Tone::White), pc[i].b, pc[i].e);
+            } else {
+              const bool ad_kismi = i == 0, son = i == pn - 1;
+              fd->AddText(font, fs, ImVec2(tx, ty), ad_kismi ? ton(Tone::AccentHi) : son ? ton(Tone::TextMute) : ton(Tone::Text), pc[i].b, pc[i].e);
+            }
+            tx += pw + (i > 1 && i < pn - 1 && pc[i].b[0] == ',' ? fs * 0.35f : 0.0f);
+          }
+        }
+      }
+    }
   }
   // Oluk: satir numaralari, metin kutusunun kaydirmasiyla hizali; hata satiri kirmizi.
   if (ic) {

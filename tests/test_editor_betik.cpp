@@ -262,6 +262,84 @@ ENGINE_TEST(editor_kod_parantez_esi_with_control) {
   CHECK(app::kod_parantez_esi(m, sn, (int)(dz - m) + 1, &kendi) == -1); // dize icindeki (
 }
 
+// Parametre ipucu: imlec hangi cagrinin kacinci parametresinde; imza dosyadan ya da kutuphaneden.
+ENGINE_TEST(editor_kod_cagri_ve_imza_with_control) {
+  char dir[512], yol[600];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "kod_imza"));
+  std::snprintf(yol, sizeof yol, "%s/engine.tpr", dir);
+  std::FILE *f = std::fopen(yol, "wb");
+  CHECK(f != nullptr);
+  if (f) { std::fputs("func kure(x, y, z, r, dinamik, renk_): int { return 1; }\n", f); std::fclose(f); }
+  app::kod_oneri_sozlugu_yukle(dir);
+  static uint8_t sn[512];
+  char ad[48]; int par = -1;
+  const char *m = "func yerel(a, b) {}\nint k = kure(1, f(2, 3), \"a,b\", ";   // imlec sonda: 3 ust duzey virgul sonrasi (idx 3)
+  app::kod_siniflandir(m, sn);
+  int cp = app::kod_cagri_bul(m, sn, (int)std::strlen(m), ad, sizeof ad, &par);
+  CHECK(cp > 0 && m[cp] == '(' && !std::strcmp(ad, "kure") && par == 3); // ic ice f(2, 3) ve dizedeki "a,b" virgulleri sayilmaz
+  const char *m2 = "kure(1, f(2, 3)";
+  app::kod_siniflandir(m2, sn);
+  cp = app::kod_cagri_bul(m2, sn, 14, ad, sizeof ad, &par);                 // imlec "f(2, 3" icinde -> f, idx 1
+  CHECK(cp > 0 && !std::strcmp(ad, "f") && par == 1);
+  cp = app::kod_cagri_bul(m2, sn, (int)std::strlen(m2), ad, sizeof ad, &par); // f( kapandi -> yine kure, idx 1
+  CHECK(cp == 4 && !std::strcmp(ad, "kure") && par == 1);
+  // KONTROL: tanim (func ad(), diziler, kapanmis cagri ve yorum ipucu vermez
+  const char *t1 = "func tanim(a, ";
+  app::kod_siniflandir(t1, sn);
+  CHECK(app::kod_cagri_bul(t1, sn, (int)std::strlen(t1), ad, sizeof ad, &par) == -1);
+  const char *t2 = "int[] a = [1, 2, ";
+  app::kod_siniflandir(t2, sn);
+  CHECK(app::kod_cagri_bul(t2, sn, (int)std::strlen(t2), ad, sizeof ad, &par) == -1);
+  const char *t3 = "kure(1, 2); x = ";
+  app::kod_siniflandir(t3, sn);
+  CHECK(app::kod_cagri_bul(t3, sn, (int)std::strlen(t3), ad, sizeof ad, &par) == -1);
+  const char *t4 = "// kure(1, ";
+  app::kod_siniflandir(t4, sn);
+  CHECK(app::kod_cagri_bul(t4, sn, (int)std::strlen(t4), ad, sizeof ad, &par) == -1);
+  // imza: dosyanin func'i kutuphaneyi gecer; kutuphane islevi; olmayan ad; dil sozcugu islev degil
+  char im[160];
+  CHECK(app::kod_imza_bul("func kure(a) { }\n", "kure", im, sizeof im) && !std::strcmp(im, "kure(a)"));
+  CHECK(app::kod_imza_bul(nullptr, "kure", im, sizeof im) && !std::strcmp(im, "kure(x, y, z, r, dinamik, renk_): int"));
+  CHECK(!app::kod_imza_bul(nullptr, "yokfn", im, sizeof im));
+  CHECK(!app::kod_imza_bul(nullptr, "if", im, sizeof im));
+}
+
+// Canli denetim ciktisinin ayristirilmasi: ayrisma, tip hatasi (Turkceye cevrilir), LSP araligi ve 1. satir on eki.
+ENGINE_TEST(editor_kod_tani_ayristir_with_control) {
+  app::KodPaneli::Hata h[8];
+  const char *tc = "hata: ayr\xC4\xB1\xC5\x9Ft\xC4\xB1rma hatas\xC4\xB1: tip ad\xC4\xB1 bekleniyordu\n  --> /tmp/x y/k.tpr:5\n    |\n  5 | func g( {\n    |         ^\n    = ipucu: ...\n"
+                   "Tip Hatasi: Type mismatch in declaration of 'x': expected int, got str at line 4\n"
+                   "Tip Hatasi: Function 'f' expects 1 argument(s), got 2 at line 6\ntulpar typecheck: 3 issue(s)\n";
+  int n = app::kod_tani_typecheck_oku(tc, h, 8);
+  CHECK(n == 3);
+  CHECK(h[0].satir == 5 && h[0].sutun == 8 && std::strstr(h[0].ileti, "tip ad")); // yolda bosluk ve ':' olsa da satir/sutun
+  CHECK(h[1].satir == 4 && h[1].sutun == -1 && std::strstr(h[1].ileti, "'x' i\xC3\xA7in t\xC3\xBCr") && std::strstr(h[1].ileti, "int bekleniyordu, str verildi"));
+  CHECK(h[2].satir == 6 && std::strstr(h[2].ileti, "'f' i\xC5\x9Flevi 1 arg\xC3\xBCman bekliyor, 2 verildi"));
+  CHECK(app::kod_tani_typecheck_oku("tulpar typecheck: ok (k.tpr)\n", h, 8) == 0); // KONTROL: temiz cikti
+  // LSP: satir 0-tabanli -> 1-tabanli; 1. satirda on ek uzunlugu geri alinir; ileti ilk satirla sinirli; \" kacisi cozulur
+  const char *lsp = "Content-Length: 1\r\n\r\n{\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"diagnostics\":["
+                    "{\"range\":{\"start\":{\"line\":0,\"character\":30},\"end\":{\"line\":0,\"character\":36}},\"severity\":1,\"source\":\"tulpar\",\"message\":\"'yok_fn' ad\xC4\xB1nda bir fonksiyon bulunamad\xC4\xB1\\nipucu: x\"},"
+                    "{\"range\":{\"start\":{\"line\":3,\"character\":4},\"end\":{\"line\":3,\"character\":9}},\"severity\":2,\"source\":\"tulpar\",\"message\":\"uyar\\\"i\"}]}}";
+  n = app::kod_tani_lsp_oku(lsp, 24, h, 8);
+  CHECK(n == 2);
+  CHECK(h[0].satir == 1 && h[0].sutun == 6 && h[0].uzunluk == 6 && !h[0].uyari && !std::strcmp(h[0].ileti, "'yok_fn' ad\xC4\xB1nda bir fonksiyon bulunamad\xC4\xB1"));
+  CHECK(h[1].satir == 4 && h[1].sutun == 4 && h[1].uzunluk == 5 && h[1].uyari && !std::strcmp(h[1].ileti, "uyar\"i")); // 1. satir disinda kayma yok
+  CHECK(app::kod_tani_lsp_oku("{\"id\":1,\"result\":null}", 0, h, 8) == 0);
+  // oyun.tpr import'lari: betik toplayicisi haric, tek satirda
+  char on[512];
+  const uint32_t ol = app::kod_oyun_importlari("// x\nimport \"engine\";\nimport \"kit_dil\";\nimport \"assets/betikler\";\nint a;\n", on, sizeof on);
+  CHECK(ol > 0 && !std::strcmp(on, "import \"engine\"; import \"kit_dil\"; "));
+  // LSP girdisi: yol URI'ye (Windows yolu dahil), metin JSON'a kacirilir, bes mesaj
+  static char gi[4096];
+  const uint32_t gl = app::kod_lsp_girdisi("C:\\o\\a b.tpr", "/proje", "import \"e\"; ", "x = \"s\\n\";\n\tTr: \xC5\x9F", gi, sizeof gi);
+  CHECK(gl > 0 && std::strstr(gi, "\"rootUri\":\"file:///proje\"") && std::strstr(gi, "\"uri\":\"file:///C:/o/a b.tpr\""));
+  CHECK(std::strstr(gi, "\"text\":\"import \\\"e\\\"; x = \\\"s\\\\n\\\";\\n\\tTr: \xC5\x9F\""));
+  int mesaj = 0;
+  for (const char *q = gi; (q = std::strstr(q, "Content-Length: ")) != nullptr; q++) mesaj++;
+  CHECK(mesaj == 5);
+  CHECK(app::kod_lsp_girdisi("/a.tpr", "/", nullptr, "x", gi, 20) == 0); // sigmayan tampon: 0, yarim girdi yok
+}
+
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
 // "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
 // andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.
