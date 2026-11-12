@@ -124,6 +124,12 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
 // Donus: eslesen bayt konumu ya da -1; *kendi: baktigimiz parantezin konumu.
 int kod_parantez_esi(const char *metin, const uint8_t *sinif, int imlec, int *kendi);
 
+// --- Canli kod: proje kodunun parmak izi ------------------------------------------------------------------
+// <kok>/*.tpr ve <kok>/assets/betikler/*.tpr icin (ad, degisim zamani, boy) ozeti. `assets/betikler.tpr` toplayicisi HARIC:
+// editor onu kendisi yazar (Kaydet/Derle/Oynat), dahil olsaydi her oynatma kendini yeniden baslatirdi. 0 = kok yok.
+// Editor oyun calisirken bunu yoklar; degisince oyun yeniden baslar (Tercihler > Kod degisince oyunu yeniden baslat).
+uint64_t betik_proje_damgasi(const char *kok);
+
 // --- Parametre ipucu ------------------------------------------------------------------------------------
 // Imlec `ad(` ... `)` cagrisinin ICINDEYSE: ad, kacinci parametrede oldugu (0-tabanli, ust duzey virgullerden) ve '(' konumu.
 // Ic ice parantezler, dize ve yorum icindekiler sayilmaz; en fazla ~2000 bayt geriye bakilir. Donus: '(' konumu ya da -1.

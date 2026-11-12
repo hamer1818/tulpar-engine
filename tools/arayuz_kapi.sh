@@ -332,6 +332,41 @@ PY5
     if [ $rky = 0 ] && [ -z "$(ls "$B/ky2_ayar/kod_istekleri" 2>/dev/null)" ]; then echo "  kod geri al (editor yok): pencere acik kaldi, uyardi, istegi geri aldi"
     else echo "  KIRMIZI kod geri al, editor yok (cikis $rky):"; grep -E 'HATA|> ' "$B/ui_ky2/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kod geri al: proje uretilemedi"; kirmizi=1; fi
+  # CANLI KOD: oyun calisirken kod kaydedilince oyun yeniden baslar (tulpar gerekir); tercih kapaliyken baslamaz (kontrol).
+  if command -v tulpar > /dev/null; then
+    mkdir -p "$B/ui_kc" "$B/ui_kck" "$B/kc_ayar" "$B/kck_ayar"
+    printf 'canli_kod = 0\n' > "$B/kck_ayar/tercihler.txt"
+    if betik_proje "$B/kc" && betik_proje "$B/kck"; then
+      oyun_ac() { ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= TULPAR_ENGINE_HEADLESS=60 TULPAR_EDITOR_AYAR_DIZINI="$1" timeout 400 "$ED" --size 1600x900 --surucu "$KOK/tests/arayuz/$2" --surucu-dizin "$3" --scene "$4" > "$3/editor.log" 2>&1 ); }
+      oyun_ac "$B/kc_ayar" kod_canli.txt "$B/ui_kc" "$B/kc/assets/arena.sahne"; rkc=$?
+      oyun_ac "$B/kck_ayar" kod_canli_kapali.txt "$B/ui_kck" "$B/kck/assets/arena.sahne"; rkck=$?
+      nkc=$(grep -c "gomulu kip: kanal" "$B/ui_kc/editor.log"); nkck=$(grep -c "gomulu kip: kanal" "$B/ui_kck/editor.log")
+      if [ $rkc = 0 ] && [ $rkck = 0 ] && [ "$nkc" -ge 2 ] && [ "$nkck" = 1 ]; then
+        echo "  canli kod: kod kaydedilince oyun yeniden basladi (baslatma $nkc), tercih kapaliyken baslamadi ($nkck) (kontrol)"
+      else echo "  KIRMIZI canli kod (cikis $rkc/$rkck, baslatma acik=$nkc kapali=$nkck):"; grep -hE 'HATA|> ' "$B/ui_kc/yanit.txt" "$B/ui_kck/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+    else echo "  KIRMIZI canli kod: proje uretilemedi"; kirmizi=1; fi
+  else echo "  ATLANDI: canli kod — tulpar kurulu degil (oyun kosturulamaz)"; fi
+  # Gizmo Kod sekmesinin USTUNE cikmaz (secili nesne + Gorunum sekmesi ortulu). KONTROL: Gorunum aciksa gizmo GORUNUR (piksel sayimi).
+  mkdir -p "$B/ui_kz2"
+  if betik_proje "$B/kz2" && python3 -c "import PIL" 2> /dev/null; then
+    ( kos kod_gizmo.txt "$B/ui_kz2" --scene "$B/kz2/assets/arena.sahne" ); rkz2=$?
+    sonuc=$(python3 - "$B/ui_kz2" <<'PY6'
+import sys
+from PIL import Image
+def say(yol):
+    px = Image.open(yol).convert('RGB').load(); n = 0
+    for y in range(140, 840):
+        for x in range(310, 1240):
+            r, g, b = px[x, y]
+            if (r > 200 and g < 90 and b < 90) or (g > 170 and r < 90 and b < 110) or (b > 200 and r < 90 and g < 140): n += 1
+    return n
+print(say(sys.argv[1] + '/kod_gizmo_goruntu.png'), say(sys.argv[1] + '/kod_gizmo_kod.png'))
+PY6
+)
+    set -- $sonuc
+    if [ $rkz2 = 0 ] && [ "${1:-0}" -gt 300 ] && [ "${2:-9999}" -lt 5 ]; then echo "  gizmo: Gorunum acikken gorunur ($1 piksel), Kod sekmesi ortunce Kod'un ustune CIKMADI ($2 piksel)"
+    else echo "  KIRMIZI gizmo (cikis $rkz2, gorunum=${1:-?} kod=${2:-?} piksel)"; kirmizi=1; fi
+  else echo "  ATLANDI: gizmo kapisi — proje uretilemedi ya da PIL yok"; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

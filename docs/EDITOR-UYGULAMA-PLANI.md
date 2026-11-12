@@ -441,7 +441,14 @@ işletim sistemi penceresi yolu (swapchain) bu oturumda çalıştırılmadı** (
 bırakılır; çalışan editör ~1/3 s'de bir yoklar, dosyayı sekme olarak açar ve isteği siler, pencere kapanır. Editör yoksa (ya da
 kaydedilmemiş başka dosya açma izin vermiyorsa) pencere ~3 s sonra isteği geri alır, uyarır ve AÇIK KALIR; 60 sn'den eski istek atılır.
 Kapılar: `kod_geri_al.txt`, `kod_geri_al_yok.txt`, `editor_kod_istegi_yaz_ve_al_*`.
-**Hâlâ kapsam dışı:** betik sıcak yükleme, görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
+**Canlı kod (2026-11-12):** oyun editörde çalışırken `oyun.tpr` ya da `assets/betikler/*.tpr` değişirse (Kod paneli, ayrı pencere, dış
+editör: dosya parmak izi `betik_proje_damgasi`, otomatik üretilen `betikler.tpr` hariç) oyun kendiliğinden durdurulup yeniden başlar.
+Tulpar AOT derlendiği için çalışan koda yama yapılmaz; derleme önbelleği yeniden başlatmayı kısa tutar. İki ardışık yoklamada aynı
+yeni parmak izi görülünce tetiklenir (yarım yazılmış dosya). Derleme hatasında oturum AÇIK kalır: düzeltip kaydedince tekrar dener;
+açık Durdur ya da oyunun kendi kapanışı oturumu bitirir. Tercihler > OYNATMA > "Kod değişince oyunu yeniden başlat" (varsayılan açık).
+Kapılar: `kod_canli.txt` (2 başlatma) + `kod_canli_kapali.txt` (kontrol: tercih kapalı, 1), `editor_betik_proje_damgasi_*`.
+Sahne için sıcak yükleme (`sahne_izle`) şablonlarda henüz açık değil.
+**Hâlâ kapsam dışı:** görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 
 ### U11 — UX mükemmelliği (kullanıcı kararı, 2026-11-11)

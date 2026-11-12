@@ -622,6 +622,14 @@ struct EditorState {
   // sekmesinde. playing de true (arayuz ayni: Durdur, Oyun sekmesi, geri alma
   // isareti), ama editorun kendi fizigi DOGMAZ — sahneyi oyun oynatiyor.
   bool play_embedded = false;
+  // CANLI KOD (Tercihler > "Kod degisince oyunu yeniden baslat"): oyun AOT derlenir, calisan koda yama yapilamaz; kod degisince
+  // oyun durdurulup yeniden baslar. Oturum kullanici Durdur diyene (ya da oyun kendi kapanana) kadar surer: derleme hatasinda
+  // oturum ACIK kalir, duzeltip kaydedince tekrar dener. Parmak izi: betik_proje_damgasi (toplayici haric).
+  bool canli_oturum = false;
+  bool canli_yeniden = false;       // durduruldu, kapanmasi bekleniyor -> ayni karede degil, kapaninca baslat
+  uint64_t canli_damga = 0;         // oturum basindaki / son yeniden baslatmadaki parmak izi
+  uint64_t canli_aday = 0;          // degisiklik gorulen yeni parmak izi: ikinci yoklamada AYNI ise tetiklenir (yarim yazilmis dosya)
+  uint32_t canli_sayac = 0;         // yeniden baslatma sayisi (log + kapi)
   // GI (isik probe) onizleme -- SADECE EDITOR, .sahne/.sahneb'e YAZILMAZ.
   // "Isik Haritasini Pisir" butonuyla bellekte pisirilir (ayni bellek-ici
   // bake->derle->ac yolu .sahneb derleyicisinin kullandigi, disk YOK).
@@ -2766,6 +2774,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     ImGui::SetWindowFocus(kPanelGorunumLabel); // Kod sekmesi one acikken Oynat oyunu arkada birakmasin (Gorunum sekmesine gec)
     oyun_kapaniyor = false;
     oyun_baslangic_ns = platform::now_ns();
+    {
+      // Canli kod oturumu: yalniz fabrika projesinde (oyun.tpr var) ve tercih aciksa. Her (yeniden) baslatmada parmak izi tazelenir.
+      char oy[1100];
+      std::snprintf(oy, sizeof oy, "%s/oyun.tpr", st.tulpar_dir);
+      st.canli_oturum = tercih.canli_kod != 0 && file_exists(oy);
+      st.canli_damga = st.canli_oturum ? betik_proje_damgasi(st.tulpar_dir) : 0;
+      st.canli_aday = 0;
+    }
     set_status(st, "oyun haz\xC4\xB1rlan\xC4\xB1yor\xE2\x80\xA6 (F5 vazge\xC3\xA7" "er)");
     console_log_teknik(ConsoleLevel::Bilgi, "oyun", "F5: %s Oyun sekmesinde \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1l\xC4\xB1yor (%ux%u, derleyici %s, gunluk %s)", game, w, h, comp, log);
     return true;
@@ -3766,7 +3782,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               // (host yok) yalniz fizik: kapilar belirlenimli kalsin, gomulu
               // yol kendi kapisinda ACIKCA istenir. Arayuz surucusu urun gibi davranir: gomulu oyun
               // acilir (oyun da penceresiz: surucu istemcisi TULPAR_ENGINE_HEADLESS verir).
-              if (x->st->playing) (*x->play)(false);
+              if (x->st->playing) { x->st->canli_oturum = false; (*x->play)(false); } // acik Durdur: canli oturum biter
               else (*x->play_auto)(x->host != nullptr || surucu_acik());
             },
             &cc, nullptr, [](const void *c) { return static_cast<const CmdCtx *>(c)->st->playing; });
@@ -3988,6 +4004,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         else console_log(ConsoleLevel::Hata, "oyun", "oyun hatayla bitti: %s, \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F kodu %d, %u sat\xC4\xB1r (g\xC3\xBCnl\xC3\xBCk %s)", oyun.game,
                          oyun.exit_code, oyun.lines, oyun.log_path);
         if (iyi) { if (!oyun.stop_ns) set_status(st, "oyun bitti"); } // kullanici durdurduysa "durduruldu" zaten yazildi
+        if (iyi && !st.canli_yeniden) st.canli_oturum = false; // oyun kendi kapandi (ya da Durdur): oturum biter; HATALI bitis oturumu ACIK birakir
         else set_status(st, "oyun hatayla bitti (kod %d) \xE2\x80\x94 ayr\xC4\xB1nt\xC4\xB1 Konsol'da", oyun.exit_code);
         {
           // Derleme hatasi: pencere. Gomulude "hic kare yok", ayri pencerede derleyicinin konum satiri.
@@ -4008,6 +4025,31 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
         oyun_kapaniyor = false;
       }
+    }
+    // --- CANLI KOD: kod degisti mi? (~1/4 s'de bir) -------------------------------------------------------------------------
+    // Oturum acikken proje kodunun parmak izi yoklanir; degisiklik IKI ardisik yoklamada AYNI gorulurse (yarim yazilmis dosya
+    // yuklenmesin) oyun durdurulur ve kapaninca yeniden baslar. Oyun hata verip kapandiysa (oynamiyor) dogrudan baslatmayi dener.
+    if (st.canli_oturum && tercih.canli_kod && !st.canli_yeniden && frame_i % 15 == 0) {
+      const uint64_t d = betik_proje_damgasi(st.tulpar_dir);
+      if (d != st.canli_damga) {
+        if (d == st.canli_aday) {
+          st.canli_damga = d;
+          st.canli_aday = 0;
+          st.canli_sayac++;
+          console_log(ConsoleLevel::Bilgi, "oyun", "kod de\xC4\x9Fi\xC5\x9Fti: oyun yeniden ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor (%u. kez)", st.canli_sayac);
+          set_status(st, "kod de\xC4\x9Fi\xC5\x9Fti \xE2\x86\x92 oyun yeniden ba\xC5\x9Flat\xC4\xB1l\xC4\xB1yor");
+          st.canli_yeniden = true;
+          if (st.playing) set_playing(false); // durdur; kapanisi bekle, sonra baslat
+        } else {
+          st.canli_aday = d;
+        }
+      } else {
+        st.canli_aday = 0;
+      }
+    }
+    if (st.canli_yeniden && !st.playing && oyun.state != GameRunState::Running) {
+      st.canli_yeniden = false;
+      play_start_auto(host != nullptr || surucu_acik());
     }
     // Oyun sekmesi dokusu YALNIZ burada, kare BASINDA kurulur/birakilir: bu
     // karenin ImGui cizimi henuz kurulmadi, yani hicbir cizim komutu eski
@@ -4340,7 +4382,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     view_rect = ViewportRect{};
     view_hovered = false;
     ovres = OverlayResult{}; // panel kapaliyken bayat sonuc uygulanmasin
+    // Gorunum GORUNUR mu (sekme etkin): gizmo ImGuizmo'nun tam ekran varsayilan penceresine ciziliyor; Gorunum baska bir sekmenin
+    // (Kod) arkasinda kalinca Begin false doner ama gizmo yine cizilir ve KOD EDITORUNUN USTUNDE gorunurdu (kullanici, 2026-11-12).
+    bool gorunum_gorunur = false;
     if (ImGui::Begin(kPanelGorunumLabel)) {
+      gorunum_gorunur = true;
       // 1) Viewport Ust Arac Cubugu (Sekmeler + Araclar + Stats + 3 Nokta)
       ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.0f, 4.0f));
@@ -7579,7 +7625,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       if (st.pe_exit_after_drag) prop_edit_exit(st, "s\xC3\xBCr\xC3\xBCkleme bitti, \xC3\xA7\xC4\xB1k\xC4\xB1\xC5\x9F istenmi\xC5\x9Fti");
     };
-    if (view_tab == ViewportTab::Scene && gz >= 0 && gz < (int32_t)st.scene.entity_count && !gz_locked) {
+    if (gorunum_gorunur && view_tab == ViewportTab::Scene && gz >= 0 && gz < (int32_t)st.scene.entity_count && !gz_locked) {
       SceneEntity &e = st.scene.entities[gz];
       Mat4 proj_gl;
       {

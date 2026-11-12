@@ -63,6 +63,7 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
       if (!std::strcmp(k, "yazi")) t->yazi = yakin(kYazi, v, &tam);
       else if (!std::strcmp(k, "oto_kayit_dk")) t->oto_kayit_dk = yakin(kOto, v, &tam);
       else if (!std::strcmp(k, "tema")) { tam = v == 0 || v == 1; t->tema = v == 1 ? 1 : 0; }
+      else if (!std::strcmp(k, "canli_kod")) { tam = v == 0 || v == 1; t->canli_kod = v == 0 ? 0 : 1; }
       if (!tam) ok = false;
     }
     if (!son) break;
@@ -72,8 +73,8 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
 }
 
 uint32_t tercih_metni(const Tercihler &t, char *out, uint32_t cap) {
-  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\n",
-                              t.yazi, t.oto_kayit_dk, t.tema);
+  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\ncanli_kod = %d\n",
+                              t.yazi, t.oto_kayit_dk, t.tema, t.canli_kod);
   return n > 0 && (uint32_t)n < cap ? (uint32_t)n : 0;
 }
 
@@ -160,6 +161,14 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
     }
   }
   aciklama("Kaydedilmemi\xC5\x9F de\xC4\x9Fi\xC5\x9Fiklik varsa sahneyi bu aral\xC4\xB1kla kaydeder. Oynat\xC4\xB1rken ve hi\xC3\xA7 kaydedilmemi\xC5\x9F yeni sahnede kaydetmez.");
+
+  // --- Oynatma ---
+  baslik("OYNATMA");
+  {
+    bool c = t.canli_kod != 0;
+    if (ImGui::Checkbox("Kod de\xC4\x9Fi\xC5\x9Fince oyunu yeniden ba\xC5\x9Flat##canli_kod", &c)) { t.canli_kod = c ? 1 : 0; r |= kTercihDegisti; }
+  }
+  aciklama("Oyun \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1rken oyun.tpr ya da bir beti\xC4\x9Fin kodu kaydedilirse (Kod paneli, ayr\xC4\xB1 pencere ya da d\xC4\xB1\xC5\x9F edit\xC3\xB6r fark etmez) oyun kendili\xC4\x9Finden kapan\xC4\xB1p yeniden a\xC3\xA7\xC4\xB1l\xC4\xB1r: kodu de\xC4\x9Fi\xC5\x9Ftir, hemen g\xC3\xB6r. Hata varsa d\xC3\xBCzeltip tekrar kaydedince yeniden dener.");
 
   // --- Guncelleme ---
   baslik("G\xC3\x9CNCELLEME");

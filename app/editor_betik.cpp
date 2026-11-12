@@ -374,6 +374,40 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
   return m;
 }
 
+namespace {
+struct DamgaGez { const char *dizin; uint64_t h; };
+uint64_t damga_karistir(uint64_t h, const void *v, size_t n) {
+  const unsigned char *p = static_cast<const unsigned char *>(v);
+  for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 1099511628211ull;
+  return h;
+}
+bool damga_gez(const char *ad, platform::FsKind k, void *u) {
+  DamgaGez *g = static_cast<DamgaGez *>(u);
+  const size_t l = std::strlen(ad);
+  if (k != platform::FsKind::File || l < 5 || std::strcmp(ad + l - 4, ".tpr")) return true;
+  if (!std::strcmp(ad, "betikler.tpr")) return true; // editorun kendi yazdigi toplayici
+  char yol[1300];
+  std::snprintf(yol, sizeof yol, "%s/%s", g->dizin, ad);
+  int64_t m = 0, b = 0;
+  if (!platform::fs_file_stamp(yol, &m, &b)) return true;
+  g->h = damga_karistir(g->h, ad, l);
+  g->h = damga_karistir(g->h, &m, sizeof m);
+  g->h = damga_karistir(g->h, &b, sizeof b);
+  return true;
+}
+} // namespace
+
+uint64_t betik_proje_damgasi(const char *kok) {
+  if (!kok || !*kok) return 0;
+  DamgaGez g{kok, 14695981039346656037ull};
+  platform::fs_list_dir(kok, damga_gez, &g);
+  char alt[1200];
+  std::snprintf(alt, sizeof alt, "%s/assets/betikler", kok);
+  g.dizin = alt;
+  platform::fs_list_dir(alt, damga_gez, &g); // dizin yoksa gezme sessizce hicbir sey yapmaz
+  return g.h ? g.h : 1;
+}
+
 int kod_cagri_bul(const char *m, const uint8_t *sn, int imlec, char *ad, int ad_cap, int *param) {
   if (!m || !sn || !ad || ad_cap < 2) return -1;
   int d = 0, virgul = 0;

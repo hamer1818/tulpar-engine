@@ -1,0 +1,18 @@
+# KONTROL: tercih kapali (canli_kod = 0) -> ayni akis, oyun YENIDEN BASLAMAZ ("gomulu kip: kanal" 1 kez).
+tus F5
+dogrula_metin "oyun çalışıyor" kare=2500
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "func dondur_baslat"
+tus Ctrl+End
+tus Enter
+yaz "// canli degisiklik"
+tus Ctrl+S
+bekle 5
+dogrula_metin "kaydedildi"
+bekle 1800
+tus F5
+bekle 20
+cik

@@ -406,6 +406,39 @@ ENGINE_TEST(editor_kod_istegi_yaz_ve_al_with_control) {
   CHECK(!app::kod_istegi_yaz("", "/a.tpr", nullptr, 0) && !app::kod_istegi_yaz(dir, "", nullptr, 0));
 }
 
+// Canli kod: proje kodunun parmak izi. Kod dosyasi degisince / eklenince / silinince DEGISIR; toplayici (betikler.tpr), baska uzanti,
+// ve degismeyen dosya DEGISTIRMEZ (editorun kendi yazisi oyunu yeniden baslatmasin).
+ENGINE_TEST(editor_betik_proje_damgasi_with_control) {
+  char kok[512], yol[700];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "damga"));
+  std::snprintf(yol, sizeof yol, "%s/assets/betikler", kok);
+  CHECK(platform::fs_mkdir_p(yol));
+  auto yaz = [&](const char *alt, const char *m) {
+    char y[800];
+    std::snprintf(y, sizeof y, "%s/%s", kok, alt);
+    std::FILE *f = std::fopen(y, "wb");
+    CHECK(f != nullptr);
+    if (f) { std::fputs(m, f); std::fclose(f); }
+  };
+  yaz("oyun.tpr", "import \"engine\";\n");
+  yaz("assets/betikler/dondur.tpr", "func dondur_baslat(id) {}\n");
+  const uint64_t a = app::betik_proje_damgasi(kok);
+  CHECK(a != 0 && app::betik_proje_damgasi(kok) == a);                       // kararli
+  yaz("assets/betikler.tpr", "import \"assets/betikler/dondur\";\n");       // toplayici: damgayi DEGISTIRMEZ
+  yaz("notlar.txt", "x");                                                    // baska uzanti: degistirmez
+  CHECK(app::betik_proje_damgasi(kok) == a);
+  yaz("assets/betikler/dondur.tpr", "func dondur_baslat(id) { logla(\"x\"); }\n"); // boy degisti
+  const uint64_t b = app::betik_proje_damgasi(kok);
+  CHECK(b != a);
+  yaz("assets/betikler/yeni.tpr", "func yeni_baslat(id) {}\n");               // yeni betik
+  const uint64_t c = app::betik_proje_damgasi(kok);
+  CHECK(c != b);
+  yaz("oyun.tpr", "import \"engine\";\n// degisti\n");                       // ana dosya
+  CHECK(app::betik_proje_damgasi(kok) != c);
+  CHECK(app::betik_proje_damgasi("") == 0 && app::betik_proje_damgasi(nullptr) == 0);
+  CHECK(app::betik_proje_damgasi("/yok/yok/proje") != 0 && app::betik_proje_damgasi("/yok/yok/proje") == app::betik_proje_damgasi("/yok/baska")); // dizin yok: hep ayni bos parmak izi (0 = "kok verilmedi")
+}
+
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
 // "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
 // andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.
