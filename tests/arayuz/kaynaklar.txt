@@ -4,6 +4,7 @@
 tikla "Kaynaklar" pencere=DockSpace
 bekle 2
 dogrula_metin "Burada henüz 3B model ya da"
+metin_yok "Betik = nesne davranışı"
 metin_yok "checker_"
 metin_yok "//"
 tikla "Model içe aktar…"

@@ -276,6 +276,13 @@ PY4
     then echo "  kod oneri etkilesimi: Asagi+Enter ikinciyi, fare tiklamasi ucuncuyu yazdi, Ctrl+Bosluk tek harfte acti, Esc kapatti"
     else echo "  KIRMIZI kod oneri etkilesimi (cikis $rke):"; grep -E 'HATA|> ' "$B/ui_ke/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'; tail -6 "$B/ke/assets/betikler/dondur.tpr" | cat -A | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kod oneri etkilesimi: proje uretilemedi"; kirmizi=1; fi
+  # Kaynaklar: betik varken rol satiri + karo ipucu (betiksiz projede satir yok: kaynaklar.txt).
+  mkdir -p "$B/ui_kb"
+  if betik_proje "$B/kb"; then
+    ( kos kaynaklar_betik.txt "$B/ui_kb" --scene "$B/kb/assets/arena.sahne" ); rkb=$?
+    if [ $rkb = 0 ]; then echo "  kaynaklar betik: rol satiri ve karo ipucu (cift tik: kodunu ac, surukle: ata) gorundu"
+    else echo "  KIRMIZI kaynaklar betik (cikis $rkb):"; grep -E 'HATA|> ' "$B/ui_kb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kaynaklar betik: proje uretilemedi"; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

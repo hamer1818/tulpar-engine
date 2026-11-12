@@ -10,6 +10,24 @@
 //   tulpar oyun.tpr                                  # pencereli
 //   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
 //   tools/dogrula.sh                                 # kapilar
+// =====================================================================================================
+// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; geri kalanı bunun ayrıntısı)
+//
+//  1) SAHNE — editörde gördüğün her şey: assets/bilardo.sahne. Masa, bantlar, cepler ("cep_*") ve toplar
+//     ("top_0" beyaz, "top_1".."top_15"). Yerlerini, renklerini editörde değiştir (Kaydet + Derle); Oynat'ta
+//     aynısını görürsün. Oyun nesneleri ADIYLA bulur: adı "top" ile başlayan HER nesne bir toptur (kopyaladığın
+//     top da oyuna girer), "cep_" ile başlayanlar cep, "masa_kumas" oynanan alandır.
+//
+//  2) KURALLAR — bu dosya: topların fiziği (çarpışma, bant sekmesi, sürtünme), nişan alma, cebe girme,
+//     tur ve skor. Okuma sırası: masa/fizik ayarları → sahneden kurulum → fizik → nişan → tur → ekranlar → main().
+//
+//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış vermek için: editörde nesneyi seç → "Davranış ekle".
+//     Betik assets/betikler/ içinde durur; aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
+//
+//  NE NEREDE DEĞİŞİR:  masa boyu, sürtünme, sekme → "Masa ve fizik ayarları"  ·  top/cep yeri → editörde
+//                      nişan hissi → "Nişan" bölümü  ·  menü/ekran → "Ekranlar" bölümü
+// =====================================================================================================
+
 import "engine";
 import "kit_kayit";
 import "kit_dil";
@@ -21,7 +39,7 @@ import "assets/betikler";
 
 bool g_otopilot = kit_oyun("{{KIMLIK}}", "{{ONEK}}");
 
-// ---- Masa ve fizik ayarlari (metre, saniye) ---------------------------------------------------
+// ---- Masa ve fizik ayarları (metre, saniye) ---------------------------------------------------
 float MASA_W = 2.24;          // oyun alani (x) — sahnede masa_kumas yoksa
 float MASA_H = 1.12;          // oyun alani (z)
 float TOP_R = 0.0286;
@@ -276,7 +294,7 @@ func beyazi_geri_koy() {
     gorunur(g_top[0], true);
 }
 
-// ---- Nisan ------------------------------------------------------------------------------------
+// ---- Nişan ------------------------------------------------------------------------------------
 func nisan_gizle() {
     gorunur(g_istaka, false);
     for (int j = 0; j < IZ_N; j++) { gorunur(g_iz[j], false); }

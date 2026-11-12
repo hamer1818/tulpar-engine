@@ -8,6 +8,24 @@
 //   tulpar oyun.tpr                                  # pencereli
 //   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
 //   tools/dogrula.sh                                 # kapilar
+// =====================================================================================================
+// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; geri kalanı bunun ayrıntısı)
+//
+//  1) SAHNE — editörde gördüğün her şey: assets/arena.sahne. Zemin, duvarlar, "oyuncu" topu ve "parilti_1..3".
+//     Konumlarını, boylarını, renklerini editörde değiştir (Kaydet + Derle); Oynat'ta aynısını görürsün.
+//     Oyun bu nesneleri ADIYLA bulur (aşağıdaki sahneden_oku): "oyuncu" adını ve "parilti" ile başlayan adları
+//     değiştirme. Daha fazla parıltı istersen bir parıltıyı kopyala (Ctrl+D): oyun hepsini kendisi sayar.
+//
+//  2) KURALLAR — bu dosya: topu yürütmek (oyun_adim), parıltı toplamak, süre, skor, menüler.
+//     Okuma sırası: oyun ayarları → sahneden_oku → tur_baslat / oyun_adim → ekranlar → main() (ana döngü).
+//
+//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış vermek için: editörde nesneyi seç → "Davranış ekle".
+//     Betik assets/betikler/ içinde durur; aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
+//
+//  NE NEREDE DEĞİŞİR:  süre, hız → "Oyun ayarları" (SURE_S, HIZ)  ·  konum, renk, boy → editörde
+//                      yeni kural → oyun_adim()  ·  yeni ekran/menü → "Ekranlar" bölümü
+// =====================================================================================================
+
 import "engine";
 import "kit_kayit";
 import "kit_dil";
@@ -21,7 +39,7 @@ import "assets/betikler";
 // Ortam degiskenleri TULPAR_{{ONEK}}_* (OTOPILOT, TEST, KAYIT_YAZ, DIL, ACILIS ...).
 bool g_otopilot = kit_oyun("{{KIMLIK}}", "{{ONEK}}");
 
-// ---- Oyun ayarlari ----------------------------------------------------------------------------
+// ---- Oyun ayarları ----------------------------------------------------------------------------
 float SURE_S = 20.0;          // tur suresi
 float HIZ = 5.0;
 float ARENA = 9.0;            // yari genislik (m)

@@ -702,6 +702,18 @@ static AssetStyle asset_style_for_file(const char *path) {
 }
 } // namespace
 
+// Kaynaklar'daki bir dosyanin ne ise yaradigi ve ne yapilabilecegi (ipucu). Kullanici "bu betikler ne, nerede kullanilir"
+// diye sasirmisti (2026-11-12): rol ve iki eylem acikca yazilir.
+static void kaynak_ipucu(const AssetFile &f) {
+  if (f.kind == AssetKind::Script) {
+    ImGui::SetTooltip("%s\nBetik = bir nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (oyun ba\xC5\x9Flarken / her karede \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r).\n"
+                      "\xC3\x87ift t\xC4\xB1k: kodunu a\xC3\xA7.\nS\xC3\xBCr\xC3\xBCkle \xE2\x86\x92 bir nesnenin \xC3\xBCst\xC3\xBCne b\xC4\xB1rak: o nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 olur.%s",
+                      f.name, f.in_scene ? "\n(\xE2\x97\x8F bir nesnede kullan\xC4\xB1l\xC4\xB1yor)" : "");
+  } else {
+    ImGui::SetTooltip("%s\n\xC3\x87ift t\xC4\xB1k ya da s\xC3\xBCr\xC3\xBCkle: sahneye ekle.%s", f.name, f.in_scene ? "\n(\xE2\x97\x8F sahnede)" : "");
+  }
+}
+
 void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32_t file_count, const char (*scene_assets)[content::kScenePathLen],
                   const bool *loaded, uint32_t scene_asset_count, AssetsAction *out, AssetsLayout *out_layout) {
   if (out) *out = AssetsAction{};
@@ -768,6 +780,19 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     ImGui::InputTextWithHint("##ara", "ara\xE2\x80\xA6", v.filter, sizeof v.filter);
   }
 
+  // --- Rol satiri: listede betik varsa, ne ise yaradigi tek cumlede (sarilir; dar panelde kesilmez) --------------
+  {
+    bool betik_var = false;
+    for (uint32_t i = 0; i < file_count && !betik_var; i++) betik_var = files[i].kind == AssetKind::Script;
+    if (betik_var) {
+      ImGui::PushStyleColor(ImGuiCol_Text, tone_u32(Tone::TextMute));
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextWrapped(ICON_MD_INFO " Betik = nesne davran\xC4\xB1\xC5\x9F\xC4\xB1. \xC3\x87ift t\xC4\xB1k: kodunu a\xC3\xA7 \xC2\xB7 nesnenin \xC3\xBCst\xC3\xBCne s\xC3\xBCr\xC3\xBCkle: ata.");
+      ImGui::PopTextWrapPos();
+      ImGui::PopStyleColor();
+    }
+  }
+
   // --- Govde ------------------------------------------------------------------
   // GENIS panel (alt dok, kisa ve genis): Unity Project penceresi gibi IKI BOLME
   // yan yana — solda "Sahnedeki kaynaklar", sagda karo izgarasi; boylece kisa
@@ -824,7 +849,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
       // U11 B5: bos durum EYLEMLI (eskiden teknik "Bu dizinde .gltf/.glb yok" ve hicbir dugme).
       const ImVec2 av = ImGui::GetContentRegionAvail();
       const char *bas = "Burada hen\xC3\xBCz 3B model ya da betik yok";
-      const char *alt = "Modeller ve davran\xC4\xB1\xC5\x9Flar (betikler) burada g\xC3\xB6r\xC3\xBCn\xC3\xBCr.";
+      const char *alt = "Modeller ve davran\xC4\xB1\xC5\x9Flar (betikler) burada g\xC3\xB6r\xC3\xBCn\xC3\xBCr. Betik: \xC3\xA7ift t\xC4\xB1kla kodunu a\xC3\xA7, bir nesneye s\xC3\xBCr\xC3\xBCkleyip b\xC4\xB1rak.";
       const float bw1 = ImGui::CalcTextSize(ICON_MD_ADD " Model i\xC3\xA7" "e aktar\xE2\x80\xA6").x + st.FramePadding.x * 2.0f;
       const float bw2 = ImGui::CalcTextSize(ICON_MD_BOLT " Yeni betik").x + st.FramePadding.x * 2.0f;
       // Dar panel (varsayilan yerlesimde Kaynaklar sol sutunda, ~260 px): metin SARILIR, dugmeler sigmazsa alt alta
@@ -911,7 +936,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
 
         // 4. Alt Dosya Adı Plakası
         const bool cut = tile_name(cdl, name_px, f.name, ImVec2(p.x + st.FramePadding.x * 0.5f, p.y + thumb_h + 4.0f), tw - st.FramePadding.x, text);
-        if (hov && cut) ImGui::SetTooltip("%s", f.name);
+        if (hov) kaynak_ipucu(f);
         // Surukle-birak kaynagi: karoyu goruntu alanina birakinca sahneye eklenir
         // (hedef tarafi editor_app.cpp'deki "ASSET_FILE" yuku). PR #7 karo
         // cizimini yeniledi ama BU kaynagi dusurmustu: karo artik hicbir yere
@@ -996,8 +1021,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         char nb[content::kScenePathLen + 4];
         editor_ellipsize(f.name, right - x, nb, sizeof nb);
         cdl->AddText(ImVec2(x, p.y + st.FramePadding.y), text, nb);
-        if (hov && (std::strcmp(nb, f.name) != 0 || (f.in_scene && !sahnede_rozeti)))
-          ImGui::SetTooltip("%s%s", f.name, f.in_scene ? " (sahnede)" : "");
+        if (hov) kaynak_ipucu(f);
         // Surukle-birak kaynagi (liste gorunumu).
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
           // AYRI yuk tipi, ortak yuk + hedefte reddetme DEGIL: ImGui birakma
