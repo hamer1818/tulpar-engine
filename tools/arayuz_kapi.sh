@@ -381,6 +381,17 @@ PY6
     if [ $rkz2 = 0 ] && [ "${1:-0}" -gt 300 ] && [ "${2:-9999}" -lt 5 ]; then echo "  gizmo: Gorunum acikken gorunur ($1 piksel), Kod sekmesi ortunce Kod'un ustune CIKMADI ($2 piksel)"
     else echo "  KIRMIZI gizmo (cikis $rkz2, gorunum=${1:-?} kod=${2:-?} piksel)"; kirmizi=1; fi
   else echo "  ATLANDI: gizmo kapisi — proje uretilemedi ya da PIL yok"; fi
+  # Tanima git / yeniden adlandir (LSP; tulpar gerekir).
+  if command -v tulpar > /dev/null; then
+    mkdir -p "$B/ui_kt"
+    if betik_proje "$B/kt"; then
+      printf 'func qa_hesap(a) {\n    return a + 1;\n}\nfunc dondur_baslat(id) {\n    logla(t"{qa_hesap(1)}");\n    qa_hesap(2);\n}\n' > "$B/kt/assets/betikler/dondur.tpr"
+      ( kos kod_tanim.txt "$B/ui_kt" --scene "$B/kt/assets/arena.sahne" ); rkt=$?
+      nyeni=$(grep -o "qa_sonuc" "$B/kt/assets/betikler/dondur.tpr" | wc -l); neski=$(grep -o "qa_hesap" "$B/kt/assets/betikler/dondur.tpr" | wc -l)
+      if [ $rkt = 0 ] && [ "$nyeni" = 3 ] && [ "$neski" = 0 ]; then echo "  kod tanim: F12 tanima gitti, Alt+Sol dondu, 'func' reddedildi, F2 ile 3 kullanim yeniden adlandirildi"
+      else echo "  KIRMIZI kod tanim (cikis $rkt, yeni=$nyeni eski=$neski):"; grep -E 'HATA|> ' "$B/ui_kt/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; cat "$B/kt/assets/betikler/dondur.tpr" | sed 's/^/      | /'; kirmizi=1; fi
+    else echo "  KIRMIZI kod tanim: proje uretilemedi"; kirmizi=1; fi
+  else echo "  ATLANDI: kod tanim — tulpar kurulu degil"; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

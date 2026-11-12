@@ -452,6 +452,12 @@ Kapılar: `kod_canli.txt` (2 başlatma) + `kod_canli_kapali.txt` (kontrol: terci
 sayıyla yeniden kurulur, oyuncu ışınlanır, skor/süre kalır; bilardo: masa baştan okunur, oyun sürüyorsa tur yeni dizilimle başlar).
 Editörde çalışırken yapılan sahne düzenlemeleri Durdur'da geri alınır (mevcut kural). Tercih tek: "Değişiklikleri çalışan oyuna uygula".
 Kapılar: `kod_sahne.txt` (+ kapalı kontrol), `kod_sahne_bilardo.txt`.
+**Tanıma git / yeniden adlandır (2026-11-12):** Kod panelinde **F12** ya da **Ctrl+tık**: imlecin altındaki işlevin tanımına git (aynı dosya: tek seferlik
+`tulpar --lsp`; kütüphane/başka dosya: LSP yalnız aynı dosyayı bilir, bu yüzden `func <ad>(` satırı proje + motor kütüphanesi dosyalarında
+aranır; kütüphane dosyaları YALNIZ OKUNUR açılır), **Alt+Sol** geri (konum ve sütun korunur), **F2** yeniden adlandır (LSP `rename`; proje
+dosyaları diske yazılır, açık dosya tampona ve kaydedilmemiş sayılır). LSP `t"{...}"` içindeki kullanımları görmez: bunlar ayrıca tam sözcük
+eşleşmesiyle adlandırılır. Reddedilen adlar: dil sözcüğü, geçersiz karakter, **betik kancası** (`<dosya>_baslat` vb.: motor adı dosya adından
+arar). Yalnız işlev adları (LSP global değişkenler için null döner). Kapılar: `kod_tanim.txt`, `editor_kod_tanim_*`, `editor_kod_sablon_*`.
 **Hâlâ kapsam dışı:** görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 
