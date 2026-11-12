@@ -249,6 +249,27 @@ PY2
     then echo "  kod yazimi: Enter girintiyi korudu ({ sonrasi +4), } geri aldi, Tab 4 bosluk"
     else echo "  KIRMIZI kod yazimi (cikis $rky2):"; grep -E 'HATA|> ' "$B/ui_ky/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; sed -n 1,8p "$B/ky/assets/betikler/dondur.tpr" | cat -A | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kod yazimi: proje uretilemedi"; kirmizi=1; fi
+  # Oneri listesi + parantez kapatma (motor kutuphanesinden oneri; Tab acar; kapanisin ustunden atlanir).
+  mkdir -p "$B/ui_kz"
+  if betik_proje "$B/kz"; then
+    ( kos kod_zeka.txt "$B/ui_kz" --scene "$B/kz/assets/arena.sahne" ); rkz=$?
+    if [ $rkz = 0 ] && python3 - "$B/kz/assets/betikler/dondur.tpr" <<'PY3'
+import sys
+m = open(sys.argv[1], encoding='utf-8').read()
+sys.exit(0 if 'func dondur_baslat(id) {\n    kure(0);\n    logla("x");\n' in m else 1)
+PY3
+    then echo "  kod onerisi: 'kur' -> kure() oneri listesi, Tab kabul + parantez, logla(\"x\") kapanislar kendiliginden, kapanista atlandi"
+    else echo "  KIRMIZI kod onerisi (cikis $rkz):"; grep -E 'HATA|> ' "$B/ui_kz/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; sed -n 1,6p "$B/kz/assets/betikler/dondur.tpr" | cat -A | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod onerisi: proje uretilemedi"; kirmizi=1; fi
+  # Canli soz dizimi denetimi (tulpar typecheck gerekir).
+  if command -v tulpar > /dev/null; then
+    mkdir -p "$B/ui_kh"
+    if betik_proje "$B/kh"; then
+      ( kos kod_hata.txt "$B/ui_kh" --scene "$B/kh/assets/arena.sahne" ); rkh=$?
+      if [ $rkh = 0 ]; then echo "  kod hatasi: acik parantezli ifade -> satir isareti + ileti, 'tamam' kayboldu; duzelince geri geldi"
+      else echo "  KIRMIZI kod hatasi (cikis $rkh):"; grep -E 'HATA|> ' "$B/ui_kh/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+    else echo "  KIRMIZI kod hatasi: proje uretilemedi"; kirmizi=1; fi
+  else echo "  ATLANDI: kod hatasi — tulpar kurulu degil (typecheck kosturulamaz)"; fi
   if ! grep -q 'BETIK_KAPI_CALISTI duvar_dogu' "$B/eski_once.log" && grep -q 'betik kancasi YOK' "$B/eski_once.log"; then
     echo "  betik pozitif kontrol: baglanmamis projede betik calismadi (kanca YOK)"
   else echo "  KAPI BOZUK: baglanmamis projede betik calisti ya da hata yok"; kirmizi=1; fi

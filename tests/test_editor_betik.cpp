@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "app/editor_betik.hpp"
+#include "platform/fs_ops.hpp"
 #include "app/editor_commands.hpp"
 #include "app/editor_yardim.hpp"
 #include "tests/test.hpp"
@@ -200,6 +201,65 @@ ENGINE_TEST(editor_kod_siniflandir_with_control) {
   app::kod_siniflandir(m2, s);
   CHECK(s[std::strstr(m2, "iftar") - m2] == app::kSNormal && s[std::strstr(m2, "func if") - m2] == app::kSDize);
   CHECK(s[std::strstr(m2, "while") - m2] == app::kSYorum);
+}
+
+// Oneri sozlugu: motor kutuphanesinden (engine.tpr + kit/*.tpr) ve dosyanin kendi tanimlarindan; siralama ve eleme.
+ENGINE_TEST(editor_kod_oneri_with_control) {
+  char dir[512], kit[560], yol[600];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "kod_oneri"));
+  std::snprintf(kit, sizeof kit, "%s/kit", dir);
+  CHECK(platform::fs_mkdir_p(kit));
+  std::snprintf(yol, sizeof yol, "%s/engine.tpr", dir);
+  auto yaz = [&](const char *y, const char *m) { std::FILE *f = std::fopen(y, "wb"); CHECK(f != nullptr); std::fputs(m, f); std::fclose(f); };
+  yaz(yol, "// yorum: func gizli(a) {}\nfunc kure(x, y, z, r, dinamik, renk_): int { return eng_spawn_sphere(x); }\n"
+           "func kutu(x): int { return 1; }\nint SARI = 4107493119;  int YELLOW_E = 4107493119;\nint g_ic = 0;\nfunc sifir(): bool { return true; }\n");
+  std::snprintf(yol, sizeof yol, "%s/kit/ses.tpr", dir);
+  yaz(yol, "func kit_ses_cal(id, ses) {\n}\n");
+  const uint32_t n = app::kod_oneri_sozlugu_yukle(dir);
+  CHECK(n > 40); // dil sozcukleri (~100) + 4 islev + 1 sabit
+  char ad[10][40], im[10][96];
+  const char *m = "func kurt_x(a) {\n}\n";
+  int k = app::kod_oneri_bul(m, "ku", ad, im, 10);
+  CHECK(k == 3 && !std::strcmp(ad[0], "kurt_x") && !std::strcmp(ad[1], "kure") && !std::strcmp(ad[2], "kutu")); // dosya once, sonra kisa-uzun
+  CHECK(!std::strcmp(im[1], "kure(x, y, z, r, dinamik, renk_): int")); // imza: parametreler + donus tipi, govde yok
+  // buyuk/kucuk harf duyarsiz; BUYUK motor sabiti gelir, g_ (kucuk harfli) gelmez
+  k = app::kod_oneri_bul(nullptr, "sar", ad, im, 10); // ("sa" olsaydi dilin sayim/say\xC4\xB1m sozcukleri de gelirdi)
+  CHECK(k == 1 && !std::strcmp(ad[0], "SARI"));
+  k = app::kod_oneri_bul(nullptr, "g_", ad, im, 10);
+  CHECK(k == 0);
+  // kit dosyasi taranir; dil sozcugu (func) en sonda ve imzasiz
+  k = app::kod_oneri_bul(nullptr, "kit_", ad, im, 10);
+  CHECK(k == 1 && !std::strcmp(ad[0], "kit_ses_cal"));
+  k = app::kod_oneri_bul(nullptr, "fu", ad, im, 10);
+  CHECK(k == 1 && !std::strcmp(ad[0], "func") && im[0][0] == 0);
+  // KONTROL: tam yazilmis ad oneri degil; yorumdaki tanim sozluge girmez; olmayan onek bos
+  k = app::kod_oneri_bul(nullptr, "kure", ad, im, 10);
+  CHECK(k == 0);
+  CHECK(app::kod_oneri_bul(nullptr, "gizli", ad, im, 10) == 0);
+  CHECK(app::kod_oneri_bul(nullptr, "zzz", ad, im, 10) == 0);
+  CHECK(app::kod_oneri_bul(nullptr, "", ad, im, 10) == 0);
+  // sozluk dizin degisince yeniden kurulur (bos dizin: yalniz dil sozcukleri)
+  CHECK(app::kod_oneri_sozlugu_yukle("") < n);
+  CHECK(app::kod_oneri_bul(nullptr, "kut", ad, im, 10) == 0);
+  app::kod_oneri_sozlugu_yukle(dir);
+}
+
+// Parantez eslesmesi: imlecin ustundeki ya da hemen solundaki parantez; dize ve yorumdakiler sayilmaz.
+ENGINE_TEST(editor_kod_parantez_esi_with_control) {
+  static uint8_t sn[256];
+  const char *m = "f(a[1], {b}) // ) \n\"(\" g(";
+  app::kod_siniflandir(m, sn);
+  int kendi = -1;
+  CHECK(app::kod_parantez_esi(m, sn, 1, &kendi) == 11 && kendi == 1);   // ( ustunde -> kapanisi
+  CHECK(app::kod_parantez_esi(m, sn, 12, &kendi) == 1 && kendi == 11);  // imlec ) 'den SONRA -> acilisi
+  CHECK(app::kod_parantez_esi(m, sn, 3, &kendi) == 5 && kendi == 3);    // [ ]
+  CHECK(app::kod_parantez_esi(m, sn, 8, &kendi) == 10 && kendi == 8);   // { }
+  // KONTROL: yorumdaki ) ve dizedeki ( sayilmaz; esi olmayan paranteze -1 doner (kendi yine dolu)
+  const char *dd = std::strstr(m, "g(");
+  CHECK(app::kod_parantez_esi(m, sn, (int)(dd - m) + 1, &kendi) == -1 && kendi == (int)(dd - m) + 1);
+  CHECK(app::kod_parantez_esi(m, sn, 0, &kendi) == -1);                 // parantez degil
+  const char *dz = std::strstr(m, "\"(\"");
+  CHECK(app::kod_parantez_esi(m, sn, (int)(dz - m) + 1, &kendi) == -1); // dize icindeki (
 }
 
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari

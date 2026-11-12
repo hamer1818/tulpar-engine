@@ -1,0 +1,45 @@
+# Kod paneli oneri listesi ve parantez kapatma (kullanici, 2026-11-12: "hepsi onemli"). Motorun kutuphane dizininden
+# (engine.tpr) oneri gelir; Tab kabul eder ve parantezi acar; ( " kapanisi kendiliginden eklenir, kapanisi yazinca
+# ustunden atlanir. Her harf AYRI yaz: surucu bir karede cok harf verirse "tek harf yazildi" kosulu uymaz.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "func dondur_baslat"
+tus Ctrl+Home
+tus End
+tus Enter
+yaz "k"
+yaz "u"
+bekle 3
+yaz "r"
+bekle 4
+dogrula_metin "dinamik, renk_): int"
+ekran kod_oneri
+tus Tab
+bekle 3
+yaz "0"
+tus End
+yaz ";"
+tus Enter
+yaz "l"
+yaz "o"
+yaz "g"
+yaz "l"
+yaz "a"
+yaz "("
+bekle 3
+yaz "\""
+bekle 3
+yaz "x"
+bekle 3
+yaz "\""
+bekle 3
+yaz ")"
+bekle 3
+yaz ";"
+tus Ctrl+S
+bekle 3
+dogrula_metin "kaydedildi"
+ekran kod_zeka
+cik

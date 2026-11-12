@@ -13,6 +13,7 @@
 #include <cstdint>
 
 #include "content/scene.hpp"
+#include "platform/process.hpp"
 
 namespace tulpar::engine::app {
 
@@ -46,7 +47,8 @@ int betik_dosya_yaz_degistiyse(const char *yol, const char *metin, uint32_t n, c
 // --- B2: yerlesik Kod paneli -------------------------------------------------------------------------------
 // Betik editorun ICINDE acilir (Kaynaklar'da cift tik, Betik kartinda Duzenle, hata penceresinde Kodu ac):
 // satir numarali duz metin, Kaydet (Ctrl+S), kaydedilmemis isareti, disarida degisince yeniden yukleme,
-// "Secili nesneye ekle", "Dis editorde ac". Soz dizimi renklendirme YOK (U10 kapsam disi).
+// "Secili nesneye ekle", "Dis editorde ac". Tulpar soz dizimi (2026-11-12): renklendirme, girinti, parantez kapatma ve
+// eslestirme, oneri listesi (motor/kit/dosya islevleri) ve canli soz dizimi denetimi (`tulpar typecheck`).
 constexpr uint32_t kKodKapasite = 128 * 1024;
 
 struct KodPaneli {
@@ -67,6 +69,29 @@ struct KodPaneli {
   bool odak_iste = false;     // acilinca pencere one gelsin
   uint32_t kontrol_kare = 0;  // disarida degisim yoklamasi (kare sayaci)
   uint8_t sinif[kKodKapasite] = {0}; // renklendirme: metnin her baytinin sinifi (kod_siniflandir)
+  int imlec_ofs = 0;          // imlecin bayt konumu (parantez eslestirme, oneri listesi konumu)
+  // Oneri listesi (callback metin tamponunu gorur; sonuc burada, cizimi panel yapar).
+  static constexpr int kOneriMax = 10;
+  int oneri_n = 0, oneri_sel = 0, oneri_bas = 0; // oneri_bas: yazilan kelimenin bayt baslangici
+  char oneri_ad[kOneriMax][40] = {{0}};
+  char oneri_imza[kOneriMax][96] = {{0}};
+  bool oneri_kabul = false;   // Tab/Enter/tiklama: secili oneri bir sonraki callback'te metne yazilir
+  bool oneri_iste = false;    // Ctrl+Bosluk: kelime kisa olsa da liste ac
+  bool kutu_odak = false;     // tiklamadan sonra metin kutusu odagini geri al
+  float oneri_x0 = 0, oneri_y0 = 0, oneri_x1 = 0, oneri_y1 = 0; // son cizilen liste dikdortgeni (fare tiklamasi icin)
+  // Canli soz dizimi denetimi: duzenleme durunca tampon gecici dosyaya yazilir, `tulpar typecheck` kosar.
+  struct Hata { int satir = 0, sutun = 0; bool uyari = false; char ileti[140] = {0}; };
+  static constexpr int kHataMax = 8;
+  Hata hatalar[kHataMax];
+  int hata_n = 0;
+  bool tani_yapildi = false;  // en az bir denetim tamamlandi (yoksa "denetleniyor" gosterilir)
+  bool tani_suruyor = false;
+  bool tani_yok = false;      // tulpar bulunamadi: denetim sessizce kapali
+  platform::Process tani_sur;
+  uint32_t tani_ozet = 0;     // son denetlenen metnin ozeti
+  uint32_t duzenleme_kare = 0;
+  char gecici_dizin[1024] = {0};    // editor doldurur (ayar dizini/kod_denetim)
+  char kutuphane_dizin[1024] = {0}; // editor doldurur: engine.tpr + kit/ burada (oneri sozlugu)
   int onc_boy = -1, onc_imlec = -1; // otomatik girinti: bir onceki karedeki metin boyu ve imlec (tek harf eklendi mi)
 };
 
@@ -78,6 +103,17 @@ enum class KodEylem { Yok, DisEditor, NesneyeEkle };
 // (UTF-8 devam baytlari kendi karakterinin sinifini alir); `s` en az strlen(m) bayt olmali.
 enum KodSinif : uint8_t { kSNormal = 0, kSAnahtar, kSTur, kSDize, kSSayi, kSYorum, kSSabit, kSIslev, kSinifSayisi };
 void kod_siniflandir(const char *metin, uint8_t *sinif);
+
+// --- Oneri sozlugu ----------------------------------------------------------------------------------------
+// Motor kutuphanesi (<dizin>/engine.tpr + <dizin>/kit/*.tpr) ve dilin sozcukleri. Yeniden yukleme yalniz dizin degisince.
+// Donus: sozlukteki girdi sayisi (anahtar sozcukler dahil).
+uint32_t kod_oneri_sozlugu_yukle(const char *kutuphane_dizin);
+// `onek` ile baslayan (buyuk/kucuk harf duyarsiz) en fazla `cap` oneri; once dosyanin kendi islevleri, sonra motor, sonra dil.
+// metin: acik dosya (kendi func'lari ve global'leri icin, null olabilir). ad/imza dizileri kOneriMax uzunlugunda.
+int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*imza)[96], int cap);
+// Imlecteki ya da hemen solundaki parantezin eslesi (dize/yorum icindekiler sayilmaz; sinif = kod_siniflandir ciktisi).
+// Donus: eslesen bayt konumu ya da -1; *kendi: baktigimiz parantezin konumu.
+int kod_parantez_esi(const char *metin, const uint8_t *sinif, int imlec, int *kendi);
 
 // 1-tabanli satirin bayt ofseti (satir sayisindan buyukse metnin sonu).
 uint32_t kod_satir_ofseti(const char *m, int satir);

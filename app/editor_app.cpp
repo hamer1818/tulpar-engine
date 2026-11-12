@@ -2350,6 +2350,19 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       return false;
     }
     kod.ana = false; // ana dosyayi acan cagiran (B7) sonra true yapar
+    // Tulpar soz dizimi yardimlari: oneri sozlugu motorun kutuphane dizininden, canli denetim ayar dizininden.
+    if (!kod.kutuphane_dizin[0]) {
+      char adaylar[3][1100];
+      std::snprintf(adaylar[0], sizeof adaylar[0], "%s/.motor/tulpar-ext", st.tulpar_dir);
+      std::snprintf(adaylar[1], sizeof adaylar[1], "%s/../yapi/tulpar-ext", st.tulpar_dir);
+      platform::asset_path(adaylar[2], sizeof adaylar[2], "tulpar-ext");
+      for (auto &a : adaylar) {
+        char e[1200];
+        std::snprintf(e, sizeof e, "%s/engine.tpr", a);
+        if (file_exists(e)) { std::snprintf(kod.kutuphane_dizin, sizeof kod.kutuphane_dizin, "%s", a); break; }
+      }
+    }
+    if (!kod.gecici_dizin[0] && tercih_p.ayar_dizini[0]) std::snprintf(kod.gecici_dizin, sizeof kod.gecici_dizin, "%s/kod_denetim", tercih_p.ayar_dizini);
     std::printf("[engine_editor] kod paneli: %s%s\n", yol, satir > 0 ? " (satira git)" : "");
     return true;
   };
