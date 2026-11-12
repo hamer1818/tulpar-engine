@@ -462,6 +462,10 @@ arar). Yalnız işlev adları (LSP global değişkenler için null döner). Kap�
 listelenir (`OpGroups`: bir eylem = günlükte N işlem; "Taşı: duvar", "Sil: …", "Ekle: …", "… ve N nesne daha"). Bir satıra tıklamak o âna
 döndürür (editörün kendi `do_undo`/`do_redo`'su: gruplar, fizik, kaynak bakımı aynı); yinelenebilir eylemler soluk. Kapı: `gecmis.txt`
 (9 / 10 / 12 varlık), `editor_gecmis_listesi_*`.
+**Sürükle-bırak içe aktarma (2026-11-12):** işletim sisteminden editör penceresine bırakılan dosyalar (`GLFW drop` → `InputState::drop_paths`; eski
+GLFW'de sembol yoksa özellik sessizce kapalı): `.glb/.gltf` sahne klasörüne kopyalanır (bağımlılıklarıyla) ve sahneye eklenir; `.tpr`
+`assets/betikler/<ad>.tpr` olarak kopyalanır (ad tanımlayıcı olur, çakışırsa `_2`) ve Kod'da açılır; başka türler söylenerek atlanır. Kaynak yerinde kalır
+(kopya). Sürücüde `birak <dosya>` (aynı girdi yolu). Kapı: `birak.txt`, `editor_betik_ice_aktar_*`. **Gerçek OS bırakma yolu CI/yerelde çalıştırılmadı.**
 **Hâlâ kapsam dışı:** görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 

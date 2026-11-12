@@ -535,6 +535,33 @@ ENGINE_TEST(editor_kod_tanim_ara_with_control) {
   CHECK(!app::kod_tanim_ara(proje, kut, "yok_islev", &h) && !app::kod_tanim_ara(proje, kut, "A", &h) && !app::kod_tanim_ara(proje, kut, "", &h)); // KONTROL: yok / global degisken / bos
 }
 
+// Disaridan birakilan betik: assets/betikler/ icine kopya; adi tanimlayici olur; ayni ad varsa _2; kaynak bozulmaz.
+ENGINE_TEST(editor_betik_ice_aktar_with_control) {
+  char kok[512], dis[600], kaynak[800], hedef[900], err[200];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "betik_ice"));
+  std::snprintf(dis, sizeof dis, "%s/dis", kok);
+  CHECK(platform::fs_mkdir_p(dis));
+  std::snprintf(kaynak, sizeof kaynak, "%s/Benim Betik-1.tpr", dis);
+  std::FILE *f = std::fopen(kaynak, "wb");
+  CHECK(f != nullptr);
+  if (f) { std::fputs("func benim_betik_1_baslat(id) {}\n", f); std::fclose(f); }
+  CHECK(app::betik_ice_aktar(kaynak, kok, hedef, sizeof hedef, err, sizeof err));
+  CHECK(std::strstr(hedef, "/assets/betikler/Benim_Betik_1.tpr") != nullptr && platform::fs_exists(hedef));   // bosluk/tire -> _
+  char o[200] = {0};
+  std::FILE *g = std::fopen(hedef, "rb");
+  CHECK(g != nullptr);
+  if (g) { const size_t n = std::fread(o, 1, sizeof o - 1, g); o[n] = 0; std::fclose(g); }
+  CHECK(!std::strcmp(o, "func benim_betik_1_baslat(id) {}\n") && platform::fs_exists(kaynak)); // icerik ayni; KAYNAK yerinde (tasima degil kopya)
+  CHECK(app::betik_ice_aktar(kaynak, kok, hedef, sizeof hedef, err, sizeof err) && std::strstr(hedef, "Benim_Betik_1_2.tpr")); // ayni ad: _2
+  // rakamla baslayan ad tanimlayici olsun; KONTROL: olmayan kaynak / bos kok reddedilir
+  std::snprintf(kaynak, sizeof kaynak, "%s/7ozel.tpr", dis);
+  f = std::fopen(kaynak, "wb");
+  if (f) { std::fputs("x", f); std::fclose(f); }
+  CHECK(app::betik_ice_aktar(kaynak, kok, hedef, sizeof hedef, err, sizeof err) && std::strstr(hedef, "/b7ozel.tpr"));
+  CHECK(!app::betik_ice_aktar("/yok/yok.tpr", kok, hedef, sizeof hedef, err, sizeof err) && err[0]);
+  CHECK(!app::betik_ice_aktar(kaynak, "", hedef, sizeof hedef, err, sizeof err));
+}
+
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
 // "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
 // andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.

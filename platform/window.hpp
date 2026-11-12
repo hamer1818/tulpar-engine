@@ -31,6 +31,10 @@ struct InputState {
   static constexpr uint32_t kMaxChars = 32;
   uint32_t chars[kMaxChars] = {};
   uint32_t char_count = 0;
+  // Isletim sisteminden pencereye BIRAKILAN dosyalar (GLFW drop): bu poll'da gelenler, bir sonraki poll'da sifirlanir (okuyan KOPYALAR).
+  static constexpr uint32_t kMaxDrops = 8, kDropLen = 1024;
+  char drop_paths[kMaxDrops][kDropLen] = {};
+  uint32_t drop_count = 0;
 };
 
 class Window {

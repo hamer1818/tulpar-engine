@@ -4336,6 +4336,39 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       else gio.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     }
     ui.begin_frame(in, (float)fw, (float)fh, dt);
+    // --- ISLETIM SISTEMINDEN BIRAKILAN DOSYALAR (surukle-birak; GLFW drop / suruculu `birak`) -------------------------------
+    // .glb/.gltf: sahne klasorune kopyalanir (bagimliliklariyla) ve sahneye eklenir; .tpr: assets/betikler/'e kopyalanir ve Kod'da acilir.
+    // Baska turler soylenerek atlanir (sessiz degil). Acilis ekrani acikken yok sayilir (hedef proje yok).
+    if (in && in->drop_count && !karsilama.acik) {
+      uint32_t modeller = 0, betikler = 0, atlanan = 0;
+      char son_hata[300] = {0};
+      for (uint32_t di = 0; di < in->drop_count; di++) {
+        const char *yol = in->drop_paths[di];
+        auto uzanti = [&](const char *u) {
+          const size_t yl = std::strlen(yol), ul = std::strlen(u);
+          if (ul > yl) return false;
+          for (size_t i = 0; i < ul; i++) { char a = yol[yl - ul + i]; if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a'); if (a != u[i]) return false; }
+          return true;
+        };
+        char hedef[1100], err[300] = {0};
+        if (uzanti(".glb") || uzanti(".gltf")) {
+          if (!st.scene_dir[0]) { atlanan++; std::snprintf(son_hata, sizeof son_hata, "model i\xC3\xA7" "e aktarmak i\xC3\xA7in \xC3\xB6nce bir sahne a\xC3\xA7"); }
+          else if (editor_model_ice_aktar(yol, st.scene_dir, hedef, sizeof hedef, err, sizeof err)) { rescan_browse(st); do_add_asset(editor_basename(hedef)); modeller++; }
+          else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }
+        } else if (uzanti(".tpr")) {
+          char oyun_yolu[1100];
+          if (!betik_oyun_yolu(oyun_yolu, sizeof oyun_yolu)) { atlanan++; std::snprintf(son_hata, sizeof son_hata, "bet\xC4\xB1k i\xC3\xA7" "e aktarmak i\xC3\xA7in oyun projesi (oyun.tpr) gerekli"); }
+          else if (betik_ice_aktar(yol, st.tulpar_dir, hedef, sizeof hedef, err, sizeof err)) { rescan_browse(st); kodu_ac(nullptr, hedef, 0); betikler++; }
+          else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }
+        } else {
+          atlanan++;
+          std::snprintf(son_hata, sizeof son_hata, "%s: desteklenmeyen t\xC3\xBCr (.glb, .gltf, .tpr b\xC4\xB1rak\xC4\xB1labilir)", editor_basename(yol));
+        }
+      }
+      if (modeller || betikler) set_status(st, "b\xC4\xB1rak\xC4\xB1ld\xC4\xB1: %u model, %u bet\xC4\xB1k%s", modeller, betikler, atlanan ? " (bir k\xC4\xB1sm\xC4\xB1 al\xC4\xB1nmad\xC4\xB1: Konsol)" : "");
+      else set_status(st, "b\xC4\xB1rak\xC4\xB1lan dosya al\xC4\xB1nmad\xC4\xB1: %s", son_hata);
+      if (atlanan) console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "b\xC4\xB1rak\xC4\xB1lan dosya al\xC4\xB1nmad\xC4\xB1: %s", son_hata);
+    }
     // Kisayollar: komut tablosundan. Koruma kurali tablonun (ham T/R/S/Delete
     // metin yazarken VE kaydirac suruklerken kapali; Ctrl+* yalniz metinde kapali).
     InputGuards guards{ui.wants_text_input(), ui.wants_keyboard()};

@@ -399,6 +399,16 @@ PY6
     if [ $rgc = 0 ]; then echo "  gecmis: 3 eylem listelendi; Baslangic / 1. / 3. adima tiklayinca sahne o ana dondu (9 / 10 / 12 varlik)"
     else echo "  KIRMIZI gecmis (cikis $rgc):"; grep -E 'HATA|> ' "$B/ui_gc/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI gecmis: proje uretilemedi"; kirmizi=1; fi
+  # Surukle-birak: .tpr -> assets/betikler/ + Kod'da acilir; .gltf -> sahneye eklenir; baska tur uyarilir.
+  mkdir -p "$B/ui_bb" "$B/bb_dis"
+  if betik_proje "$B/bb"; then
+    printf 'func birakilan_baslat(id) {\n    logla("birakildi");\n}\n' > "$B/bb_dis/Birakilan Betik.tpr"; printf 'x' > "$B/bb_dis/not.txt"
+    sed -e "s|@BIRAK_TPR@|$B/bb_dis/Birakilan Betik.tpr|; s|@BIRAK_MODEL@|$KOK/tests/assets/checker_cube.gltf|; s|@BIRAK_TXT@|$B/bb_dis/not.txt|" "$KOK/tests/arayuz/birak.txt" > "$B/birak_s.txt"
+    ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= TULPAR_ENGINE_HEADLESS=60 timeout 200 "$ED" --size 1600x900 --surucu "$B/birak_s.txt" --surucu-dizin "$B/ui_bb" --scene "$B/bb/assets/arena.sahne" > "$B/ui_bb/editor.log" 2>&1 ); rbb=$?
+    if [ $rbb = 0 ] && cmp -s "$B/bb_dis/Birakilan Betik.tpr" "$B/bb/assets/betikler/Birakilan_Betik.tpr" && [ -f "$B/bb/assets/checker_cube.gltf" ] && [ -f "$B/bb_dis/Birakilan Betik.tpr" ]; then
+      echo "  birak: .tpr assets/betikler'e kopyalandi + Kod'da acildi, .gltf sahneye eklendi, .txt uyarildi; kaynaklar yerinde (kopya)"
+    else echo "  KIRMIZI birak (cikis $rbb):"; grep -E 'HATA|> ' "$B/ui_bb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; ls "$B/bb/assets" "$B/bb/assets/betikler" 2>&1 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI birak: proje uretilemedi"; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

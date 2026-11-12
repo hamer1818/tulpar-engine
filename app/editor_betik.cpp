@@ -374,6 +374,44 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
   return m;
 }
 
+bool betik_ice_aktar(const char *kaynak, const char *kok, char *hedef, size_t cap, char *err, size_t err_cap) {
+  auto hata = [&](const char *m) { if (err && err_cap) std::snprintf(err, err_cap, "%s", m); return false; };
+  if (!kaynak || !*kaynak || !kok || !*kok) return hata("yol yok");
+  const char *ad = kaynak;
+  for (const char *p = kaynak; *p; p++) if (*p == '/' || *p == '\\') ad = p + 1;
+  char taban[96];
+  size_t n = 0;
+  for (const char *p = ad; *p && *p != '.' && n + 1 < sizeof taban; p++)
+    taban[n++] = (kod_ident_ic((unsigned char)*p)) ? *p : '_'; // bosluk, tire vb. -> _ (betik adi tanimlayici olmali)
+  taban[n] = 0;
+  if (!n || (taban[0] >= '0' && taban[0] <= '9')) { std::memmove(taban + 1, taban, n + 1 < sizeof taban - 1 ? n + 1 : n); taban[0] = 'b'; n = std::strlen(taban); }
+  static char m[1 << 20];
+  std::FILE *f = std::fopen(kaynak, "rb");
+  if (!f) return hata("dosya okunamad\xC4\xB1");
+  const size_t okunan = std::fread(m, 1, sizeof m - 1, f);
+  const bool buyuk = std::fgetc(f) != EOF;
+  std::fclose(f);
+  if (buyuk) return hata("dosya 1 MB'tan b\xC3\xBCy\xC3\xBCk");
+  m[okunan] = 0;
+  char dizin[1200];
+  std::snprintf(dizin, sizeof dizin, "%s/assets/betikler", kok);
+  if (!platform::fs_mkdir_p(dizin)) return hata("assets/betikler olu\xC5\x9Fturulamad\xC4\xB1");
+  char yol[1300];
+  for (int k = 1; k < 100; k++) {
+    if (k == 1) std::snprintf(yol, sizeof yol, "%s/%s.tpr", dizin, taban);
+    else std::snprintf(yol, sizeof yol, "%s/%s_%d.tpr", dizin, taban, k);
+    if (platform::fs_kind(yol) == platform::FsKind::None) break;
+    if (k == 99) return hata("ayn\xC4\xB1 adl\xC4\xB1 \xC3\xA7ok betik var");
+  }
+  std::FILE *o = std::fopen(yol, "wb");
+  if (!o) return hata("yaz\xC4\xB1lamad\xC4\xB1");
+  const bool ok = std::fwrite(m, 1, okunan, o) == okunan;
+  std::fclose(o);
+  if (!ok) return hata("yaz\xC4\xB1lamad\xC4\xB1");
+  std::snprintf(hedef, cap, "%s", yol);
+  return true;
+}
+
 namespace {
 struct DamgaGez { const char *dizin; uint64_t h; };
 uint64_t damga_karistir(uint64_t h, const void *v, size_t n) {

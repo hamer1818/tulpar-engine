@@ -248,6 +248,7 @@ struct Adim {
   const void *ustte;   // != null: bu adimdan ONCE fare bu kok pencerenin uzerinde olmali (ortulme)
   uint32_t chars[16];
   uint32_t nchar;
+  bool birak;          // bu karede isletim sisteminden bir dosya BIRAKILIR (g_d.birak_yol)
 };
 constexpr uint32_t kAdim = 96;
 
@@ -262,6 +263,7 @@ struct Durum {
   // sirasinda olculdu). O_RDWR: kanal kendi yazanini tasir, istemci her komutta kapatsa da EOF gelmez.
   int fd = -1;
   char kuyruk[2048] = "";
+  char birak_yol[1100] = "";
   uint32_t kuyruk_n = 0;
   char kaynak_yol[1024] = "";
   char dizin[1024] = "";
@@ -601,8 +603,17 @@ bool komut_isle(const char *satir, uint8_t *rgba, uint32_t w, uint32_t h) {
   if (!std::strcmp(k, "ekran")) { ekran_al(an ? arg[0] : nullptr, rgba, w, h); return true; }
   if (!std::strcmp(k, "ogeler")) { ogeleri_yaz(an ? arg[0] : nullptr); return true; }
   if (!std::strcmp(k, "metinler")) { metinleri_yaz(an ? arg[0] : nullptr); return true; }
+  if (!std::strcmp(k, "birak")) { // birak <dosya>: isletim sisteminden pencereye dosya BIRAKILMIS gibi (GLFW drop ile ayni girdi yolu)
+    if (!an) { yaz_yanit("HATA: birak <dosya yolu>"); yanit_bitir(false); return true; }
+    g_d.plan_n = 0;
+    std::snprintf(g_d.birak_yol, sizeof g_d.birak_yol, "%s", arg[0]);
+    Adim &a = adim_ekle(); a.birak = true;
+    bos_adim(3);
+    plan_baslat("birakildi");
+    return false;
+  }
   if (!std::strcmp(k, "cik")) { yaz_yanit("cikiliyor (%u hata)", g_d.hata); yanit_bitir(true); g_d.bitti = true; return false; }
-  yaz_yanit("HATA: bilinmeyen komut '%s' (tikla sag_tikla cift_tikla uzerine surukle kaydir tus yaz fare bekle "
+  yaz_yanit("HATA: bilinmeyen komut '%s' (tikla sag_tikla cift_tikla uzerine surukle kaydir tus yaz birak fare bekle "
             "dogrula_oge dogrula_yok dogrula_metin metin_yok ekran ogeler metinler cik)", k);
   yanit_bitir(false);
   return true;
@@ -734,6 +745,7 @@ bool surucu_kare(platform::InputState &in, uint8_t *rgba, uint32_t w, uint32_t h
   g_metin[g_yaz].n = g_metin[g_yaz].tasan = 0;
   // Bir onceki adimin tusu/karakterleri birakilir.
   in.char_count = 0;
+  in.drop_count = 0; // birakilan dosya yalniz BIR kare gorunur (Window::poll ile ayni sozlesme)
   if (g_d.tus_basili) { in.key_down[g_d.tus_basili] = false; g_d.tus_basili = 0; }
   in.key_down[GLFW_KEY_LEFT_CONTROL] = in.key_down[GLFW_KEY_LEFT_SHIFT] = in.key_down[GLFW_KEY_LEFT_ALT] = in.key_down[GLFW_KEY_LEFT_SUPER] = false;
   for (int b = 0; b < 3; b++) in.mouse_down[b] = false;
@@ -776,6 +788,7 @@ bool surucu_kare(platform::InputState &in, uint8_t *rgba, uint32_t w, uint32_t h
         in.key_down[GLFW_KEY_LEFT_SUPER] = a.tus.super;
       }
       for (uint32_t i = 0; i < a.nchar && i < platform::InputState::kMaxChars; i++) in.chars[in.char_count++] = a.chars[i];
+      if (a.birak) { in.drop_count = 1; std::snprintf(in.drop_paths[0], platform::InputState::kDropLen, "%s", g_d.birak_yol); }
       return true;
     }
     if (g_d.plan_bitince_yanitla) {

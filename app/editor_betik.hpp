@@ -140,6 +140,11 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
 // Donus: eslesen bayt konumu ya da -1; *kendi: baktigimiz parantezin konumu.
 int kod_parantez_esi(const char *metin, const uint8_t *sinif, int imlec, int *kendi);
 
+// --- Disaridan birakilan betik (.tpr) -----------------------------------------------------------------------
+// Isletim sisteminden editore surukle-birak: <kok>/assets/betikler/<ad>.tpr olarak KOPYALANIR (ad: harf/rakam/_; ayni ad varsa <ad>_2...;
+// kaynak bozulmaz). hedef: yazilan mutlak yol. false: err'de sebep.
+bool betik_ice_aktar(const char *kaynak, const char *proje_kok, char *hedef, size_t cap, char *err, size_t err_cap);
+
 // --- Canli kod: proje kodunun parmak izi ------------------------------------------------------------------
 // <kok>/*.tpr ve <kok>/assets/betikler/*.tpr icin (ad, degisim zamani, boy) ozeti. `assets/betikler.tpr` toplayicisi HARIC:
 // editor onu kendisi yazar (Kaydet/Derle/Oynat), dahil olsaydi her oynatma kendini yeniden baslatirdi. 0 = kok yok.
