@@ -1536,7 +1536,7 @@ Manifest izni derleyiciden: `tulpar.toml [android] bildirim = true` ya da `TULPA
 (`bridge/bridge_host.hpp`); testler sahte host verir.
 
 Sinirlar: **uzak (push) bildirim degil** (FCM, Gradle + Google hesabi ister): sunucuda olup istemcinin bilmedigi
-olay (gelen saldiri) bildirilemez. Oyun arka plandayken kare dongusu `HostPoll::NoWindow` ile surdugu icin surec
+olay (gelen saldiri) icin arka plan yoklamasi var (§15.2). Oyun arka plandayken kare dongusu `HostPoll::NoWindow` ile surdugu icin surec
 yasadikca olaylar yakalanir; surec olurse zamani BILINEN olaylar icin §15.1.
 
 Olculen: `tests/test_bridge_net.cpp bridge_notify_desktop_and_host_paths` (masaustu yolu, sahte host izin var/yok,
@@ -1588,6 +1588,33 @@ kullanici: Warlords of Era "Google ile bagla" (OAuth cihaz akisi; `google.com/de
 `bridge_open_url_scheme_guard` (sahte host; 7 kotu adres reddedildi); emulatorde (oyun deposu
 `tools/android_ag_dene.sh`) Chrome on plana geldi (`topResumedActivity=...ChromeTabbedActivity`) ve oyun arka
 planda sunucuyu yoklayip baglamayi tamamladi.
+
+### 15.2 Arka plan yoklamasi (WoE, 2026-11-12)
+
+Uzak (push/FCM) bildirim Firebase projesi + Google hesabi ister; yok. Sunucuda olup istemcinin bilmedigi olay (gelen
+saldiri) icin `ZamanliBildirim` alicisi oyun kapaliyken sunucuyu araliklarla **yoklar**. Yeni ABI yok: oyun kayit
+dizinine (goreli yol; Android'de motorun calisma dizini `files/assets`) `tulpar_yoklama.json` yazar:
+
+```json
+{"surum": 1, "url": "https://ornek/api/uyarilar", "govde": {"jeton": "...", "dil": "tr"}, "aralik_sn": 900}
+```
+
+Alici `govde`'yi `url`'ye POST eder; yanit `{"bildirimler": [{"id", "baslik", "metin"}]}`. Her biri `teng_notify`
+ile ayni kanal ve "dokununca ac" niyetiyle gosterilir; ayni `id` 24 saat icinde bir kez (SharedPreferences `y<id>`).
+Oyun on plandaysa gosterilmez (oyun kendisi yazar). Zincir: her `teng_notify_at` kurulumunda ve `BOOT_COMPLETED`'da
+alarm (kurulu degilse) `aralik_sn` sonraya kurulur (`setAndAllowWhileIdle`, kesin degil; Doze'da uzar); her yoklama
+bir sonrakini kurar. Ayar dosyasi silinir/bosaltilirsa zincir durur. "Kurulu mu" sorusu kaydedilen zamana bakar:
+PendingIntent alarm tetiklendikten sonra da sistemde kalir (ilk surumde zincir bu yuzden yeniden kurulmuyordu).
+`https://` HttpsURLConnection ile; `http://` (yerel test sunucusu, emulator `10.0.2.2`) duz soketle — Android'in
+cleartext yasagi HttpURLConnection'a uygulanir. Logcat (`tulpar`): `yoklama: N bildirim`, `yoklama: X sn sonra kuruldu`.
+
+Paket: sinif `tools/android_google.py hazirla` ile `yapi/tulpar-ext/android/google/classes.dex`'e girer (oyunun APK'si
+hazir paketi kullanir: Java degisince `hazirla` yeniden kosulmali).
+
+Olculen (emulator API 31, oyun deposu `tools/android_uyari_dene.sh`, 2026-11-12): oyun sunucuya girip ayari yazdi,
+ana ekrana atildi, surec `am kill` ile olduruldu, rakip saldirdi; "You are under attack! — Bozkurt's army arrives in
+3 min" bildirimi geldi (iki ardisik tur TAMAM). POZITIF KONTROL `POZITIF=1` (saldiri yok): yoklama kostu
+(`0 bildirim`), bildirim gelmedi, KIRMIZI.
 
 ## 16. Google ile giriş — yerli hesap seçici (WoE, 2026-11-09)
 
