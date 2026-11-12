@@ -38,7 +38,9 @@ GOOGLE = "https://dl.google.com/android/maven2/"
 CENTRAL = "https://repo1.maven.org/maven2/"
 KOKLER = ["androidx.credentials:credentials:1.6.0",
           "androidx.credentials:credentials-play-services-auth:1.6.0",
-          "com.google.android.libraries.identity.googleid:googleid:1.2.1"]
+          "com.google.android.libraries.identity.googleid:googleid:1.2.1",
+          # FCM (KOPRU §15.3): oyun varliklarinda firebase.json yoksa Fcm hicbir sey yapmaz
+          "com.google.firebase:firebase-messaging:25.1.3"]
 # Kotlin 1.8+ stdlib'i jdk7/jdk8'i icerir (ayri jar = cift sinif); -common yalniz meta veri.
 DISLA = {"org.jetbrains.kotlin:kotlin-stdlib-jdk7", "org.jetbrains.kotlin:kotlin-stdlib-jdk8", "org.jetbrains.kotlin:kotlin-stdlib-common"}
 # Oyun parmak izi/biyometri kullanmaz: biometric kutuphanesinin izinleri manifeste YAZILMAZ (Play
@@ -48,14 +50,17 @@ IZIN_DISLA = {"android.permission.USE_BIOMETRIC", "android.permission.USE_FINGER
 # degil; AlarmManager PendingIntent'i ve sistemin BOOT_COMPLETED yayini (system uid) yine ulasir. Yeniden
 # baslatmada alarmlar silindigi icin alici kayitlari SharedPreferences'tan yeniden kurar.
 MOTOR_UST = ['<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />']
-MOTOR_UYGULAMA = ['<receiver android:name="dev.tulparlang.engine.ZamanliBildirim" android:exported="false">'
+MOTOR_UYGULAMA = ['<provider android:name="dev.tulparlang.engine.Fcm" android:authorities="${applicationId}.tulparfcm"'
+                  ' android:exported="false" android:initOrder="90" />',
+                  '<receiver android:name="dev.tulparlang.engine.ZamanliBildirim" android:exported="false">'
                   '<intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" />'
                   '<action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter></receiver>']
 # Profil: kokler, kilit dosyasi, derlenen Java dosyalari, R8 keep kurallari, motor manifest parcalari, cikti dizini.
 PROFILLER = {
-    "giris": {"kokler": KOKLER, "kilit": KILIT, "java": ["GoogleGiris.java", "ZamanliBildirim.java"],
+    "giris": {"kokler": KOKLER, "kilit": KILIT, "java": ["GoogleGiris.java", "ZamanliBildirim.java", "Fcm.java"],
               "keep": ["-keep class dev.tulparlang.engine.GoogleGiris { public static *; }",
-                       "-keep class dev.tulparlang.engine.ZamanliBildirim { public *; }"],
+                       "-keep class dev.tulparlang.engine.ZamanliBildirim { public *; }",
+                       "-keep class dev.tulparlang.engine.Fcm { *; }"],
               "ust": MOTOR_UST, "uyg": MOTOR_UYGULAMA, "cikti": "google"},
     "oyunlar": {"kokler": ["com.google.android.gms:play-services-games-v2:22.1.0"],
                 "kilit": os.path.join(KOK, "tools", "android_oyunlar.kilit"), "java": ["PlayOyunlar.java"],
@@ -178,12 +183,21 @@ def _manifest_parcalari(aar_dizinleri):
         for e in (list(app) if app is not None else []):
             anahtar = (e.tag, e.get(A + "name", ""))
             if anahtar in gorulen:
-                # ayni saglayici (androidx.startup) birden cok kutuphanede: meta-data cocuklari birlesir
-                if e.tag == "provider":
+                # ayni bilesen birden cok kutuphanede: meta-data cocuklari birlesir — saglayici (androidx.startup)
+                # ve hizmet (Firebase ComponentDiscoveryService: her kutuphane kendi ComponentRegistrar'ini meta-data
+                # olarak ekler; birlesmezse "Firebase Messaging component is not present")
+                if e.tag in ("provider", "service"):
+                    etiket = e.tag
                     for i, s in enumerate(uygulama):
-                        if f'android:name="{anahtar[1]}"' in s and s.startswith("<provider"):
+                        if f'android:name="{anahtar[1]}"' in s and s.startswith("<" + etiket):
                             cocuk = "".join(ET.tostring(c, encoding="unicode") for c in e)
-                            uygulama[i] = s.replace("</provider>", cocuk + "</provider>") if "</provider>" in s else s
+                            if not cocuk:
+                                break
+                            if f"</{etiket}>" in s:
+                                uygulama[i] = s.replace(f"</{etiket}>", cocuk + f"</{etiket}>")
+                            elif s.rstrip().endswith("/>"):
+                                uygulama[i] = s.rstrip()[:-2].rstrip() + ">" + cocuk + f"</{etiket}>"
+                            break
                 continue
             gorulen.add(anahtar)
             uygulama.append(ET.tostring(e, encoding="unicode"))
@@ -329,6 +343,10 @@ def ekle(stage, paket, oyunlar_kimligi=""):
     if 'android:hasCode="false"' not in s:
         raise SystemExit('HATA: manifestte android:hasCode="false" yok (derleyici bicimi degismis?)')
     s = s.replace('android:hasCode="false"', 'android:hasCode="true"', 1)
+    # oyunun manifestinde zaten olan izinler (INTERNET, POST_NOTIFICATIONS...) ikinci kez yazilmaz
+    var_olan = set(re.findall(r'<uses-permission[^>]*android:name="([^"]+)"', s))
+    ust = "\n".join(l for l in ust.split("\n")
+                    if not (m := re.search(r'<uses-permission[^>]*android:name="([^"]+)"', l)) or m.group(1) not in var_olan)
     s = s.replace("  <application ", "  <!-- android_lib:google (tulpar-engine tools/android_google.py) -->\n  " + ust.replace("\n", "\n  ") + "\n  <application ", 1)
     oyunlar = "PlayGamesInitProvider" in uyg   # oyunlar profili (play-services-games-v2 saglayicisi)
     if oyunlar:
