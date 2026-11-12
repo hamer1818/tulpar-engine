@@ -5675,6 +5675,32 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        // Oyunun ana kodu (oyun.tpr) bu nesneyi ADIYLA yonetiyorsa EN USTTE soyle (bilesenlerin altinda kaydirmadan
+        // gorunmuyordu): "oyuncu" betiksiz gorunur ama oyunda hareket eder; kullanici bu bagi goremiyordu (2026-11-12).
+        {
+          static char ak_nesne[128] = {0}, ak_ad[64] = {0};
+          static bool ak_var = false;
+          static uint32_t ak_kare = 0;
+          char ak_yol[1100];
+          if (betik_oyun_yolu(ak_yol, sizeof ak_yol)) {
+            if (std::strcmp(ak_nesne, e.name) != 0 || ++ak_kare % 60 == 0) {
+              static char ak_metin[256 * 1024];
+              size_t kn = 0;
+              if (std::FILE *kf = std::fopen(ak_yol, "rb")) { kn = std::fread(ak_metin, 1, sizeof ak_metin - 1, kf); std::fclose(kf); }
+              ak_metin[kn] = 0;
+              ak_var = ana_kod_nesneyi_anar(ak_metin, e.name, ak_ad, sizeof ak_ad);
+              std::snprintf(ak_nesne, sizeof ak_nesne, "%s", e.name);
+            }
+            if (ak_var) {
+              ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
+              ImGui::TextColored(tone(Tone::Accent), ICON_MD_INFO "  Bu nesneyi oyunun ana kodu y\xC3\xB6netiyor");
+              ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextMute));
+              ImGui::TextWrapped("oyun.tpr bu nesneyi \"%s\" ad\xC4\xB1yla bulur; hareketi, toplama ve skoru orada. Ad\xC4\xB1n\xC4\xB1 de\xC4\x9Fi\xC5\x9Ftirirsen oyun onu bulamaz.", ak_ad);
+              ImGui::PopStyleColor();
+              if (ImGui::Button(ICON_MD_CODE "  oyun.tpr'yi a\xC3\xA7", ImVec2(-FLT_MIN, 0))) ana_betigi_ac();
+            }
+          }
+        }
 
         // Prowl & O3DE Donusum Karti (Transform Card)
         bool tf_reset = false;

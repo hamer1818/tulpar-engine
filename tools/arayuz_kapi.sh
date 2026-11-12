@@ -19,6 +19,7 @@
 #   _guncelle eklenince "her karede" isaretlenir. Pozitif kontrol senaryonun icinde: ayni satir once cizgili.
 # tests/arayuz/yeni_betik.txt (U10 B4): Davranis ekle -> hazir + Turkce ad -> olusan betik oyunda calisir.
 # tests/arayuz/hata_satiri.txt (U10 B3): bozuk betik -> Oynat -> "Kodu ac (satir 3)" -> Kod paneli o satirda.
+# tests/arayuz/ana_kod_nesne.txt: oyun.tpr nesneyi adiyla aniyorsa Ozellikler karti; anmiyorsa yok (kontrol).
 # tests/arayuz/kod.txt (U10 B2): cift tik Kod panelinde acar, panelden nesneye ekler, Ctrl+S yazar.
 # tests/arayuz/betik_{yeni,eski}.txt (U10 B1): atanan betik oyunda GERCEKTEN calisir; eski projede editor baglar.
 #   Pozitif kontrol: baglanmamis eski projede ayni betik CALISMAZ ("betik kancasi YOK"). tulpar yoksa ATLANDI.
@@ -163,6 +164,12 @@ if betik_proje "$A/p"; then
   if [ $rab = 0 ]; then echo "  ana betik: Oynat menusu oyun.tpr'yi Kod panelinde acti, nesneye ekle onermedi; siradan betikte onerdi"
   else echo "  KIRMIZI ana betik (cikis $rab):"; grep -E 'HATA|> ' "$A/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 else echo "  KIRMIZI ana betik: proje uretilemedi"; kirmizi=1; fi
+# --- Ana kodun adla yonettigi nesne: Ozellikler'de bilgi karti (tulpar gerekmez) ---
+AK="$D/anakod"; mkdir -p "$AK/ui"
+"$ED" --yeni-oyun "$AK/p" --kimlik ak --onek AK --tr "Ana Kod" --en "Main Code" > /dev/null 2>&1
+( kos ana_kod_nesne.txt "$AK/ui" --scene "$AK/p/assets/arena.sahne" ); rak=$?
+if [ $rak = 0 ]; then echo "  ana kod nesnesi: oyuncu/parilti_1 secilince bilgi karti + oyun.tpr acilir; duvar_bati'da kart yok (kontrol)"
+else echo "  KIRMIZI ana kod nesnesi (cikis $rak):"; grep -E 'HATA|> ' "$AK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U10 B5: Betik karti (tulpar gerekmez: yalniz editor) ---
 K="$D/kart"; mkdir -p "$K/ui"
 if betik_proje "$K/p"; then

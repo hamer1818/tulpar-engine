@@ -127,6 +127,39 @@ int betik_dosya_yaz_degistiyse(const char *yol, const char *metin, uint32_t n, c
   return 1;
 }
 
+bool ana_kod_nesneyi_anar(const char *m, const char *nesne, char *anilan, size_t cap) {
+  if (!m || !nesne || !*nesne || !anilan || cap < 2) return false;
+  const size_t nl = std::strlen(nesne);
+  for (const char *p = m; *p;) {
+    const char *son = std::strchr(p, '\n');
+    const size_t n = son ? (size_t)(son - p) : std::strlen(p);
+    for (size_t i = 0; i < n; i++) {
+      if (p[i] == '/' && i + 1 < n && p[i + 1] == '/') break; // satir sonu yorumu
+      if (p[i] != '"') continue;
+      size_t j = i + 1;
+      while (j < n && p[j] != '"') j++;
+      if (j >= n) break;                                    // kapanmamis tirnak
+      const size_t len = j - i - 1;
+      bool uygun = len >= 3 && len <= 40 && len <= nl;
+      for (size_t k = 0; uygun && k < len; k++) {
+        const char c = p[i + 1 + k];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) uygun = false;
+      }
+      if (uygun && !std::strncmp(nesne, p + i + 1, len)) {
+        const char s = nesne[len]; // onek tam bir kelime olmali: "top" -> "top_0" evet, "topac" hayir
+        if (s == 0 || !((s >= 'a' && s <= 'z') || (s >= 'A' && s <= 'Z'))) {
+          std::snprintf(anilan, cap, "%.*s", (int)len, p + i + 1);
+          return true;
+        }
+      }
+      i = j; // literalin icini tekrar tarama
+    }
+    if (!son) break;
+    p = son + 1;
+  }
+  return false;
+}
+
 } // namespace tulpar::engine::app
 
 // =====================================================================================================

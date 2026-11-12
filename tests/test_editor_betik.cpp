@@ -163,6 +163,22 @@ ENGINE_TEST(editor_betik_kancalari_with_control) {
   CHECK(app::betik_kancalari(m, "") == 0);
 }
 
+// Ana kod (oyun.tpr) bir nesneyi adiyla aniyorsa Ozellikler bunu soyler.
+ENGINE_TEST(editor_ana_kod_nesneyi_anar_with_control) {
+  const char *m = "int o = sahne_bul(\"oyuncu\");\nif (substring(ad, 0, 7) == \"parilti\") {}\n"
+                  "// sahne_bul(\"gizli_yorum\")\nlogla(\"Merhaba dunya\");\nstr k = \"top\";\n";
+  char a[64];
+  CHECK(app::ana_kod_nesneyi_anar(m, "oyuncu", a, sizeof a) && !std::strcmp(a, "oyuncu"));
+  CHECK(app::ana_kod_nesneyi_anar(m, "parilti_3", a, sizeof a) && !std::strcmp(a, "parilti"));
+  CHECK(app::ana_kod_nesneyi_anar(m, "top_0", a, sizeof a) && !std::strcmp(a, "top"));
+  // KONTROL: anilmayan ad, yorumdaki ad, kelimenin icinde kalan onek ve bosluklu metin eslesmez
+  CHECK(!app::ana_kod_nesneyi_anar(m, "duvar_bati", a, sizeof a));
+  CHECK(!app::ana_kod_nesneyi_anar(m, "gizli_yorum", a, sizeof a));
+  CHECK(!app::ana_kod_nesneyi_anar(m, "topac", a, sizeof a));
+  CHECK(!app::ana_kod_nesneyi_anar(m, "Merhaba dunya", a, sizeof a));
+  CHECK(!app::ana_kod_nesneyi_anar(m, "", a, sizeof a));
+}
+
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
 // "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
 // andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.

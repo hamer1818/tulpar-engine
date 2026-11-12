@@ -114,4 +114,12 @@ bool yeni_betik_ciz(YeniBetik &y);
 enum : uint32_t { kKancaBaslat = 1u, kKancaGuncelle = 2u, kKancaCarpisma = 4u, kKancaBitir = 8u, kKancaBolge = 16u };
 uint32_t betik_kancalari(const char *metin, const char *taban);
 
+// --- Ana kodun adla yonettigi nesneler -------------------------------------------------------------------
+// Oyunun ana dosyasi (oyun.tpr) bir sahne nesnesini ADIYLA bulabilir (`sahne_bul("oyuncu")`, adi "parilti" ile
+// baslayan her nesne ...). Nesne Ozellikler'de betiksiz gorunur ama oyunda bir sey yapar; kullanici bunu
+// goremedigi icin "oyuncu nesnesi neyle calisiyor?" diye sasiriyordu (2026-11-12). Metinde tirnakli bir ad
+// (3-40 harf/rakam/_ ) nesne adinin ONEKIYSE (sonraki harf bir harf degil: "parilti" -> "parilti_1") onu yazar.
+// Donus true: eslesti, `anilan` ad ile dolar. Yorum satirlari (//) sayilmaz.
+bool ana_kod_nesneyi_anar(const char *metin, const char *nesne_adi, char *anilan, size_t cap);
+
 } // namespace tulpar::engine::app
