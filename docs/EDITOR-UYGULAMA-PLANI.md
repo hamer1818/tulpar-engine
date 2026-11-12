@@ -447,7 +447,11 @@ Tulpar AOT derlendiği için çalışan koda yama yapılmaz; derleme önbelleği
 yeni parmak izi görülünce tetiklenir (yarım yazılmış dosya). Derleme hatasında oturum AÇIK kalır: düzeltip kaydedince tekrar dener;
 açık Durdur ya da oyunun kendi kapanışı oturumu bitirir. Tercihler > OYNATMA > "Kod değişince oyunu yeniden başlat" (varsayılan açık).
 Kapılar: `kod_canli.txt` (2 başlatma) + `kod_canli_kapali.txt` (kontrol: tercih kapalı, 1), `editor_betik_proje_damgasi_*`.
-Sahne için sıcak yükleme (`sahne_izle`) şablonlarda henüz açık değil.
+**Canlı sahne:** oyun editörde çalışırken sahne değişirse (parmak izi, iki ardışık yoklama) editör `.sahneb`'yi kendiliğinden derler;
+şablonlar `sahne_izle(true)` ile izler ve `sahne_degisti()` ile oyunu yeniden başlatmadan günceller (arena: parıltılar sahnedeki konum ve
+sayıyla yeniden kurulur, oyuncu ışınlanır, skor/süre kalır; bilardo: masa baştan okunur, oyun sürüyorsa tur yeni dizilimle başlar).
+Editörde çalışırken yapılan sahne düzenlemeleri Durdur'da geri alınır (mevcut kural). Tercih tek: "Değişiklikleri çalışan oyuna uygula".
+Kapılar: `kod_sahne.txt` (+ kapalı kontrol), `kod_sahne_bilardo.txt`.
 **Hâlâ kapsam dışı:** görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 

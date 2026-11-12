@@ -341,6 +341,20 @@ PY5
       oyun_ac "$B/kc_ayar" kod_canli.txt "$B/ui_kc" "$B/kc/assets/arena.sahne"; rkc=$?
       oyun_ac "$B/kck_ayar" kod_canli_kapali.txt "$B/ui_kck" "$B/kck/assets/arena.sahne"; rkck=$?
       nkc=$(grep -c "gomulu kip: kanal" "$B/ui_kc/editor.log"); nkck=$(grep -c "gomulu kip: kanal" "$B/ui_kck/editor.log")
+      # CANLI SAHNE (ayni projeler/ayar dizinleri): sahne degisince oyuna uygulanir, oyun yeniden BASLAMAZ; tercih kapaliyken uygulanmaz.
+      mkdir -p "$B/ui_ks1" "$B/ui_ks2"
+      oyun_ac "$B/kc_ayar" kod_sahne.txt "$B/ui_ks1" "$B/kc/assets/arena.sahne"; rks1=$?
+      oyun_ac "$B/kck_ayar" kod_sahne.txt "$B/ui_ks2" "$B/kck/assets/arena.sahne"; rks2=$?
+      nsa=$(grep -c "sahne yenilendi: 4 parilti" "$B/ui_ks1/editor.log"); nsb=$(grep -c "gomulu kip: kanal" "$B/ui_ks1/editor.log"); nsk=$(grep -c "sahne yenilendi" "$B/ui_ks2/editor.log")
+      if [ $rks1 = 0 ] && [ $rks2 = 0 ] && [ "$nsa" -ge 1 ] && [ "$nsb" = 1 ] && [ "$nsk" = 0 ]; then
+        echo "  canli sahne: sahne degisince oyuna uygulandi (4 parilti), oyun yeniden BASLAMADI; tercih kapaliyken uygulanmadi (kontrol)"
+      else echo "  KIRMIZI canli sahne (cikis $rks1/$rks2, uygulandi=$nsa baslatma=$nsb kapali-uygulandi=$nsk):"; grep -hE 'HATA|> ' "$B/ui_ks1/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+      mkdir -p "$B/ui_ksb" "$B/ksb_ayar"
+      "$ED" --yeni-oyun "$B/ksb" --kimlik ksb --onek KB --tur bilardo --tr "Canli Bilardo" --en "Live Pool" > /dev/null 2>&1
+      oyun_ac "$B/ksb_ayar" kod_sahne_bilardo.txt "$B/ui_ksb" "$B/ksb/assets/bilardo.sahne"; rksb=$?
+      nba=$(grep -c "sahne yenilendi: 16 top, 6 cep" "$B/ui_ksb/editor.log"); nbb=$(grep -c "gomulu kip: kanal" "$B/ui_ksb/editor.log")
+      if [ $rksb = 0 ] && [ "$nba" -ge 1 ] && [ "$nbb" = 1 ]; then echo "  canli sahne (bilardo): masa yeniden okundu (16 top, 6 cep), oyun yeniden BASLAMADI"
+      else echo "  KIRMIZI canli sahne bilardo (cikis $rksb, uygulandi=$nba baslatma=$nbb):"; grep -hE 'HATA|> ' "$B/ui_ksb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
       if [ $rkc = 0 ] && [ $rkck = 0 ] && [ "$nkc" -ge 2 ] && [ "$nkck" = 1 ]; then
         echo "  canli kod: kod kaydedilince oyun yeniden basladi (baslatma $nkc), tercih kapaliyken baslamadi ($nkck) (kontrol)"
       else echo "  KIRMIZI canli kod (cikis $rkc/$rkck, baslatma acik=$nkc kapali=$nkck):"; grep -hE 'HATA|> ' "$B/ui_kc/yanit.txt" "$B/ui_kck/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi

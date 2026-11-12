@@ -66,6 +66,7 @@ float PARILTI_R = 0.35;
 // üstlerine tırmanıyor, toplama geç fark ediliyordu — kullanıcı, 2026-11-12.) Motorun çarpışma grubu mekanizması:
 // parıltılar grup 1, geri kalan her şey grup 0; (0, 1) çifti kapalı.
 int GRUP_PARILTI = 1;
+float g_oyuncu_r = 0.5;       // oyuncu kürenin KURULDUĞU yarıçap (sahnede boyu sonradan değişirse yeniden başlatana kadar bu geçerli)
 float g_temas = 0.85;         // toplama mesafesi = oyuncu yarıçapı + parıltı yarıçapı (sahneden_oku hesaplar)
 int PARILTI_RENK = 0;
 float[] g_p0x = [];           // sahnedeki parıltıların başlangıç konumu
@@ -112,6 +113,27 @@ func parilti_kur(int i) {
     float x = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
     float z = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
     parilti_koy(i, x, z);
+}
+// SAHNE SICAK YÜKLEME: editörde bir şey değiştirip (oyun çalışırken) kaydedince sahne diskte yenilenir, oyun yeniden başlamadan
+// buraya düşer. Sahne nesneleri taze (gizlenmeleri sıfırlanmış): tekrar gizlenir, parıltılar sahnedeki konumlarla yeniden kurulur
+// (sayı değiştiyse yenisi ya da eksiği), oyuncu sahnedeki konuma ışınlanır. Skor, süre ve ekran DEĞİŞMEZ. Oyuncunun boyu/rengi
+// kürenin kendisini yeniden kurmak ister: bir sonraki oyunda geçerli.
+func sahne_degisti() {
+    for (int i = 0; i < len(g_parilti); i++) { if (g_parilti[i] != 0) { sil(g_parilti[i]); } }
+    g_parilti = [];
+    g_px = [];
+    g_pz = [];
+    g_p0x = [];
+    g_p0z = [];
+    sahneden_oku();
+    OYUNCU_R = g_oyuncu_r;
+    g_temas = OYUNCU_R + PARILTI_R;
+    for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }
+    isinla(g_top, OYUNCU_X, OYUNCU_Y, OYUNCU_Z);
+    for (int i = 0; i < PARILTI_N; i++) {
+        if (i < len(g_p0x)) { parilti_koy(i, g_p0x[i], g_p0z[i]); } else { parilti_kur(i); }
+    }
+    logla(t"sahne yenilendi: {PARILTI_N} parilti");
 }
 // Sahnedeki "oyuncu" ve "parilti*" nesnelerini okur; oyunun kendi kürelerini onların yerine doğurur
 // (sahne nesnesi gizlenir — yoksa iki top üst üste görünürdü). Sahnede yoksa varsayılan: 1 oyuncu, 3 parıltı.
@@ -280,9 +302,11 @@ func main() {
             kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(168, 178, 204));
         }
     }
+    sahne_izle(true);                          // sıcak yükleme: editörde kaydedilen sahne oyuna anında düşer (sahne_degisti)
     sahneden_oku();
     carpisma_cifti(0, GRUP_PARILTI, false);   // oyuncu parıltıların içinden geçer
     g_top = kure(OYUNCU_X, OYUNCU_Y, OYUNCU_Z, OYUNCU_R, true, OYUNCU_RENK);
+    g_oyuncu_r = OYUNCU_R;
     for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }
     kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);
     SES_TOPLA = kit_ses_dene("ses_topla.wav", 880.0, 0.08);
@@ -299,6 +323,7 @@ func main() {
         bool pencere = kare_basla();
         float d = dt();
         if (d > 0.1) { d = 0.1; }
+        if (sahne_yenilendi()) { sahne_degisti(); }
         if ((!pencere || arka_planda()) && g_ekran == EKRAN_OYUN) { g_ekran = EKRAN_DURAKLAT; }
         if (g_ac_aktif) { acilis_kare(d); }
         if (geri_basildi()) {

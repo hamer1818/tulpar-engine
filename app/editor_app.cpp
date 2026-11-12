@@ -508,6 +508,20 @@ struct TerrainBrushSettings {
   bool hit_valid = false;
 };
 
+// Sahnenin parmak izi (8 baytlik kelimelerle FNV): oyun calisirken "sahne degisti mi" sorusu icin. Degisiklik surerken (gizmo
+// surukleme) her yoklamada farkli cikar; yazma bitince IKI ardisik yoklama ayni olur ve derleme o zaman yapilir (dogal debounce).
+static uint64_t sahne_parmak_izi(const content::SceneDesc &d) {
+  uint64_t h = 1469598103934665603ull;
+  const unsigned char *b = reinterpret_cast<const unsigned char *>(&d);
+  const size_t n = sizeof d / 8;
+  for (size_t i = 0; i < n; i++) {
+    uint64_t w;
+    std::memcpy(&w, b + i * 8, 8);
+    h = (h ^ w) * 1099511628211ull;
+  }
+  return h;
+}
+
 struct EditorState {
   SceneDesc scene;
   content::SceneHistory hist;
@@ -630,6 +644,9 @@ struct EditorState {
   uint64_t canli_damga = 0;         // oturum basindaki / son yeniden baslatmadaki parmak izi
   uint64_t canli_aday = 0;          // degisiklik gorulen yeni parmak izi: ikinci yoklamada AYNI ise tetiklenir (yarim yazilmis dosya)
   uint32_t canli_sayac = 0;         // yeniden baslatma sayisi (log + kapi)
+  // CANLI SAHNE: oyun calisirken sahne degisirse .sahneb kendiliginden derlenir; oyun (sahne_izle) yeniden baslamadan yukler.
+  uint64_t sahne_damga = 0, sahne_aday = 0;
+  uint32_t sahne_canli_sayac = 0;
   // GI (isik probe) onizleme -- SADECE EDITOR, .sahne/.sahneb'e YAZILMAZ.
   // "Isik Haritasini Pisir" butonuyla bellekte pisirilir (ayni bellek-ici
   // bake->derle->ac yolu .sahneb derleyicisinin kullandigi, disk YOK).
@@ -2781,6 +2798,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       st.canli_oturum = tercih.canli_kod != 0 && file_exists(oy);
       st.canli_damga = st.canli_oturum ? betik_proje_damgasi(st.tulpar_dir) : 0;
       st.canli_aday = 0;
+      st.sahne_damga = sahne_parmak_izi(st.scene);
+      st.sahne_aday = 0;
     }
     set_status(st, "oyun haz\xC4\xB1rlan\xC4\xB1yor\xE2\x80\xA6 (F5 vazge\xC3\xA7" "er)");
     console_log_teknik(ConsoleLevel::Bilgi, "oyun", "F5: %s Oyun sekmesinde \xC3\xA7" "al\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1l\xC4\xB1yor (%ux%u, derleyici %s, gunluk %s)", game, w, h, comp, log);
@@ -4045,6 +4064,25 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       } else {
         st.canli_aday = 0;
+      }
+    }
+    // --- CANLI SAHNE: oyun calisirken sahne degisti mi? ---------------------------------------------------------------------
+    if (st.playing && st.play_embedded && tercih.canli_kod && oyun.state == GameRunState::Running && frame_i % 15 == 7) {
+      const uint64_t d = sahne_parmak_izi(st.scene);
+      if (d != st.sahne_damga) {
+        if (d == st.sahne_aday) {
+          st.sahne_aday = 0;
+          if (do_compile()) { // yazar .sahneb'yi; oyun (sahne_izle) dosya damgasini gorup yukler
+            st.sahne_canli_sayac++;
+            console_log(ConsoleLevel::Bilgi, "oyun", "sahne de\xC4\x9Fi\xC5\x9Fti: oyuna uyguland\xC4\xB1 (%u. kez)", st.sahne_canli_sayac);
+            set_status(st, "sahne de\xC4\x9Fi\xC5\x9Fti \xE2\x86\x92 oyuna uyguland\xC4\xB1");
+          }
+          st.sahne_damga = sahne_parmak_izi(st.scene); // derleme kamera alanlarini yazar: DERLEMEDEN SONRAKI hal yeni referans
+        } else {
+          st.sahne_aday = d;
+        }
+      } else {
+        st.sahne_aday = 0;
       }
     }
     if (st.canli_yeniden && !st.playing && oyun.state != GameRunState::Running) {

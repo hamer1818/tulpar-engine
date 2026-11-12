@@ -1,0 +1,12 @@
+# CANLI SAHNE: oyun calisirken sahne degisince (parilti_1 cogaltildi) editor .sahneb'yi derler, oyun (sahne_izle) YENIDEN BASLAMADAN
+# yukler ve sahne_degisti() 4 parilti kurar. Kapi editor.log'da "sahne yenilendi: 4 parilti" arar ve "gomulu kip: kanal" 1 kez
+# kalmali (oyun yeniden BASLAMADI). KONTROL (tercih kapali): satir yok.
+tus F5
+dogrula_metin "oyun çalışıyor" kare=2500
+tikla "parilti_1" pencere=Sahne
+bekle 20
+tikla "Çoğalt" pencere=Ozellikler
+bekle 3000
+tus F5
+bekle 20
+cik
