@@ -162,6 +162,72 @@ bool ana_kod_nesneyi_anar(const char *m, const char *nesne, char *anilan, size_t
 
 } // namespace tulpar::engine::app
 
+
+namespace tulpar::engine::app {
+namespace {
+bool kod_kelime_listede(const char *b, size_t n, const char *const *liste) {
+  for (; *liste; liste++)
+    if (std::strlen(*liste) == n && !std::strncmp(*liste, b, n)) return true;
+  return false;
+}
+// TulparLang lexer'indaki sozcuk tablosu (src/lexer/lexer.cpp get_keyword_map). Turkce ve ASCII yazimlar ayri ayri.
+const char *const kAnahtar[] = {"e\xC4\x9F" "er", "eger", "yoksa", "de\xC4\x9Filse", "degilse", "iken", "i\xC3\xA7in", "icin", "i\xC3\xA7inde", "icinde",
+  "dur", "devam_et", "devam", "geri_d\xC3\xB6nd\xC3\xBCr", "geri_dondur", "d\xC3\xB6nd\xC3\xBCr", "dondur", "don", "tekrar", "if", "else", "while", "for", "match",
+  "e\xC5\x9Fle", "esle", "async", "await", "bekle", "in", "break", "continue", "return", "fonksiyon", "i\xC5\x9Flev", "islev", "fonk", "func",
+  "tip", "type", "struct", "enum", "say\xC4\xB1m", "sayim", "de\xC4\x9Fi\xC5\x9Fken", "degisken", "var", "const", "let", "ta\xC5\x9F\xC4\xB1", "tasi", "move",
+  "dene", "yakala", "sonunda", "f\xC4\xB1rlat", "import", nullptr};
+const char *const kTur[] = {"tams" "ay\xC4\xB1", "tamsayi", "ondal\xC4\xB1k", "ondalik", "metin", "mant\xC4\xB1ksal", "mantiksal", "dizi",
+  "diziTams" "ay\xC4\xB1", "diziTamsayi", "diziOndal\xC4\xB1k", "diziOndalik", "diziMetin", "diziMant\xC4\xB1ksal", "diziMantiksal", "diziJson",
+  "json", "int", "float", "str", "bool", "array", "arrayInt", "arrayFloat", "arrayStr", "arrayBool", "arrayJson", nullptr};
+const char *const kSabit[] = {"do\xC4\x9Fru", "dogru", "yanl\xC4\xB1\xC5\x9F", "yanlis", "true", "false", "null", nullptr};
+bool kod_ident_bas(unsigned char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c >= 0x80; }
+bool kod_ident_ic(unsigned char c) { return kod_ident_bas(c) || (c >= '0' && c <= '9'); }
+} // namespace
+
+void kod_siniflandir(const char *m, uint8_t *s) {
+  if (!m || !s) return;
+  const size_t n = std::strlen(m);
+  size_t i = 0;
+  auto boya = [&](size_t a, size_t b, uint8_t c) { for (size_t k = a; k < b; k++) s[k] = c; };
+  while (i < n) {
+    const unsigned char c = (unsigned char)m[i];
+    if (c == '/' && i + 1 < n && m[i + 1] == '/') { // satir yorumu
+      size_t j = i; while (j < n && m[j] != '\n') j++;
+      boya(i, j, kSYorum); i = j; continue;
+    }
+    if (c == '/' && i + 1 < n && m[i + 1] == '*') { // blok yorum (kapanmazsa dosya sonuna kadar)
+      size_t j = i + 2; while (j + 1 < n && !(m[j] == '*' && m[j + 1] == '/')) j++;
+      j = j + 1 < n ? j + 2 : n;
+      boya(i, j, kSYorum); i = j; continue;
+    }
+    const bool on_ek = (c == 't' || c == 'f') && i + 1 < n && m[i + 1] == '"' && (i == 0 || !kod_ident_ic((unsigned char)m[i - 1]));
+    if (c == '"' || on_ek) { // dize ("..." ve t"..." / f"..."); kapanmayan dize satir sonunda biter
+      size_t j = i + (on_ek ? 2 : 1);
+      while (j < n && m[j] != '"' && m[j] != '\n') { if (m[j] == '\\' && j + 1 < n && m[j + 1] != '\n') j++; j++; }
+      if (j < n && m[j] == '"') j++;
+      boya(i, j, kSDize); i = j; continue;
+    }
+    if (c >= '0' && c <= '9') { // sayi: 12, 3.5, 0x1F, 1e-3
+      size_t j = i + 1;
+      while (j < n && (kod_ident_ic((unsigned char)m[j]) || (m[j] == '.' && j + 1 < n && m[j + 1] >= '0' && m[j + 1] <= '9') ||
+                       ((m[j] == '-' || m[j] == '+') && (m[j - 1] == 'e' || m[j - 1] == 'E') && j + 1 < n && m[j + 1] >= '0' && m[j + 1] <= '9'))) j++;
+      boya(i, j, kSSayi); i = j; continue;
+    }
+    if (kod_ident_bas(c)) {
+      size_t j = i + 1; while (j < n && kod_ident_ic((unsigned char)m[j])) j++;
+      uint8_t sn = kSNormal;
+      if (kod_kelime_listede(m + i, j - i, kAnahtar)) sn = kSAnahtar;
+      else if (kod_kelime_listede(m + i, j - i, kTur)) sn = kSTur;
+      else if (kod_kelime_listede(m + i, j - i, kSabit)) sn = kSSabit;
+      else { size_t k = j; while (k < n && (m[k] == ' ' || m[k] == '\t')) k++; if (k < n && m[k] == '(') sn = kSIslev; }
+      boya(i, j, sn); i = j; continue;
+    }
+    s[i] = kSNormal; i++;
+  }
+  s[n] = kSNormal;
+}
+} // namespace tulpar::engine::app
+
 // =====================================================================================================
 // B2: Kod paneli
 // =====================================================================================================
@@ -214,6 +280,7 @@ bool kod_ac(KodPaneli &k, const char *yol, const char *etiket, int satir, char *
   k.vurgu_satir = satir > 0 ? satir : 0;
   k.git_satir = satir > 0 ? satir : 0;
   k.git_adim = 0;
+  k.onc_boy = k.onc_imlec = -1;
   return true;
 }
 
@@ -228,8 +295,45 @@ bool kod_kaydet(KodPaneli &k, char *err, uint32_t err_cap) {
 }
 
 namespace {
+// Tulpar'a gore yazim yardimi. Metin kutusu girdiyi kendi isler; BIR HARF eklenen kareyi (onceki boy + 1, imlec + 1)
+// yakalayip duzeltiriz (ImGui'nin harf suzgecinde tampon yok, orada metne eklenemez). Yapistirma bu kosula uymaz.
+//   Enter  : onceki satirin girintisi, satir `{` ile bitiyorsa 4 bosluk fazlasi.
+//   Tab    : 4 bosluk (Tulpar kodu bosluk girintili; sekme karakteri gorunumde kayar).
+//   }      : yalniz girinti olan satirda yazilirsa bir seviye geri.
+void kod_yazim_yardimi(ImGuiInputTextCallbackData *d, KodPaneli *k) {
+  const int imlec = d->CursorPos, boy = d->BufTextLen;
+  const bool tek_harf = k->onc_boy >= 0 && boy == k->onc_boy + 1 && imlec == k->onc_imlec + 1 && imlec > 0 && !d->HasSelection();
+  if (tek_harf && !k->salt_okunur) {
+    const char c = d->Buf[imlec - 1];
+    int satir_bas = imlec - 1; // yeni harften onceki satirin basi (Enter icin: bir onceki satir)
+    if (c == '\n') {
+      int b = imlec - 1;
+      while (b > 0 && d->Buf[b - 1] != '\n') b--;
+      int g = 0; while (b + g < imlec - 1 && d->Buf[b + g] == ' ') g++;
+      int e = imlec - 2; while (e >= b && (d->Buf[e] == ' ' || d->Buf[e] == '\t')) e--;
+      const bool ac = e >= b && d->Buf[e] == '{';
+      char gir[80]; int n = 0;
+      for (; n < g && n < 60; n++) gir[n] = ' ';
+      if (ac) for (int j = 0; j < 4; j++) gir[n++] = ' ';
+      gir[n] = 0;
+      if (n) d->InsertChars(imlec, gir);
+    } else if (c == '\t') {
+      d->DeleteChars(imlec - 1, 1);
+      d->InsertChars(imlec - 1, "    ");
+    } else if (c == '}') {
+      int b = satir_bas; while (b > 0 && d->Buf[b - 1] != '\n') b--;
+      bool bosluk = satir_bas - b >= 4;
+      for (int j = b; j < satir_bas && bosluk; j++) if (d->Buf[j] != ' ') bosluk = false;
+      if (bosluk) d->DeleteChars(satir_bas - 4, 4);
+    }
+  }
+  k->onc_boy = d->BufTextLen;
+  k->onc_imlec = d->CursorPos;
+}
+
 int kod_geri_cagri(ImGuiInputTextCallbackData *d) {
   KodPaneli *k = static_cast<KodPaneli *>(d->UserData);
+  kod_yazim_yardimi(d, k);
   int s = 1, c = 1;
   for (int i = 0; i < d->CursorPos && d->Buf[i]; i++) {
     if (d->Buf[i] == '\n') { s++; c = 1; }
@@ -311,7 +415,12 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   if (k.git_satir > 0 && k.git_adim == 0) { ImGui::SetKeyboardFocusHere(); k.git_adim = 1; }
   const ImGuiInputTextFlags fl = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackAlways |
                                  (k.salt_okunur ? ImGuiInputTextFlags_ReadOnly : 0);
+  // Metin kutusunun kendi yazisi gorunmez: ayni konuma sinif renkleriyle asagida biz ciziyoruz (imlec ve secim yine
+  // kutunun). Alfa 0 DEGIL 1/255: ImGui alfa 0 metni hic cizmez, oysa arayuz surucusu (ve ekran okuyucu) satiri tam
+  // metin olarak buradan okur; parcali renkli cizim satiri boler (tam satir aramasi "func dondur_baslat" bulamazdi).
+  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1.0f / 255.0f));
   if (ImGui::InputTextMultiline("##kod", k.metin, sizeof k.metin, kutu, fl, kod_geri_cagri, &k)) { k.kirli = true; k.vurgu_satir = 0; }
+  ImGui::PopStyleColor();
   const ImGuiID kid = ImGui::GetItemID();
   k.yaziyor = ImGui::IsItemActive();
   ImGuiWindow *ic = nullptr; // metin kutusunun kendi alt penceresi (kaydirma onda)
@@ -328,6 +437,42 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
       bitti = true;
     }
     if (bitti) { k.git_satir = 0; k.git_adim = 0; }
+  }
+  // Renkli metin: gorunen satirlar, sinif basina bir parca. Koyu/acik tema ayri palet (zemin parlakligindan).
+  if (ic) {
+    kod_siniflandir(k.metin, k.sinif);
+    const ImVec4 zem = ImGui::GetStyle().Colors[ImGuiCol_FrameBg];
+    const bool koyu = (zem.x + zem.y + zem.z) < 1.5f;
+    static const ImU32 kKoyu[kSinifSayisi] = {IM_COL32(222, 224, 232, 255), IM_COL32(197, 134, 232, 255), IM_COL32(86, 182, 214, 255),
+      IM_COL32(152, 200, 110, 255), IM_COL32(232, 168, 100, 255), IM_COL32(112, 122, 142, 255), IM_COL32(232, 168, 100, 255), IM_COL32(120, 170, 255, 255)};
+    static const ImU32 kAcik[kSinifSayisi] = {IM_COL32(40, 42, 54, 255), IM_COL32(150, 50, 170, 255), IM_COL32(0, 120, 160, 255),
+      IM_COL32(40, 130, 40, 255), IM_COL32(190, 100, 20, 255), IM_COL32(110, 118, 130, 255), IM_COL32(190, 100, 20, 255), IM_COL32(30, 90, 200, 255)};
+    const ImU32 *pal = koyu ? kKoyu : kAcik;
+    ImDrawList *dl = ic->DrawList;
+    dl->PushClipRect(ic->InnerClipRect.Min, ic->InnerClipRect.Max, true);
+    const float x0 = ic->Pos.x + st.FramePadding.x - ic->Scroll.x;
+    float y = ic->Pos.y + st.FramePadding.y - ic->Scroll.y;
+    const float alt_sinir = ic->InnerClipRect.Max.y;
+    ImFont *font = ImGui::GetFont();
+    for (const char *p = k.metin; *p && y < alt_sinir;) {
+      const char *son = std::strchr(p, '\n');
+      const char *bitis = son ? son : p + std::strlen(p);
+      if (y + fs >= ic->InnerClipRect.Min.y) {
+        float x = x0;
+        for (const char *a = p; a < bitis;) {
+          const uint8_t sn = k.sinif[a - k.metin];
+          const char *b = a + 1;
+          while (b < bitis && k.sinif[b - k.metin] == sn) b++;
+          dl->AddText(font, fs, ImVec2(x, y), pal[sn], a, b);
+          x += font->CalcTextSizeA(fs, FLT_MAX, 0.0f, a, b).x;
+          a = b;
+        }
+      }
+      y += fs;
+      if (!son) break;
+      p = son + 1;
+    }
+    dl->PopClipRect();
   }
   // Oluk: satir numaralari, metin kutusunun kaydirmasiyla hizali; hata satiri kirmizi.
   if (ic) {

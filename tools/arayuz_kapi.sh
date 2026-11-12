@@ -237,6 +237,18 @@ else
   if [ $rk = 0 ] && grep -q 'KOD_PANELI_YAZDI' "$B/kod/assets/betikler/dondur.tpr"; then
     echo "  kod paneli: cift tik acti, nesneye ekledi, Ctrl+Z sahneyi geri almadi, Ctrl+S yazdi"
   else echo "  KIRMIZI kod paneli (cikis $rk):"; grep -E 'HATA|> ' "$B/ui_kod/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  # Kod paneli Tulpar'a gore yazar (girinti, Tab, }): kaydedilen dosyada dizilimi ara.
+  mkdir -p "$B/ui_ky"
+  if betik_proje "$B/ky"; then
+    ( kos kod_yazim.txt "$B/ui_ky" --scene "$B/ky/assets/arena.sahne" ); rky2=$?
+    if [ $rky2 = 0 ] && python3 - "$B/ky/assets/betikler/dondur.tpr" <<'PY2'
+import sys
+m = open(sys.argv[1], encoding='utf-8').read()
+sys.exit(0 if 'func dondur_baslat(id) {\n    a\n    b\n}\n    t' in m else 1)
+PY2
+    then echo "  kod yazimi: Enter girintiyi korudu ({ sonrasi +4), } geri aldi, Tab 4 bosluk"
+    else echo "  KIRMIZI kod yazimi (cikis $rky2):"; grep -E 'HATA|> ' "$B/ui_ky/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; sed -n 1,8p "$B/ky/assets/betikler/dondur.tpr" | cat -A | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod yazimi: proje uretilemedi"; kirmizi=1; fi
   if ! grep -q 'BETIK_KAPI_CALISTI duvar_dogu' "$B/eski_once.log" && grep -q 'betik kancasi YOK' "$B/eski_once.log"; then
     echo "  betik pozitif kontrol: baglanmamis projede betik calismadi (kanca YOK)"
   else echo "  KAPI BOZUK: baglanmamis projede betik calisti ya da hata yok"; kirmizi=1; fi

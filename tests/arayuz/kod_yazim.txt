@@ -1,0 +1,23 @@
+# Kod paneli Tulpar'a gore yazar (Ctrl+Home ile 1. satir: tiklama satiri tutturamayabilir): `{` ile biten satirdan sonra Enter 4 bosluk girinti, sonraki Enter girintiyi korur,
+# girintili bos satirda `}` bir seviye geri, Tab 4 bosluk. Kapi kaydedilen dosyada tam bu dizilimi arar.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "func dondur_baslat"
+tus Ctrl+Home
+tus End
+tus Enter
+yaz "a"
+tus Enter
+yaz "b"
+tus Enter
+yaz "}"
+tus Enter
+tus Tab
+yaz "t"
+tus Ctrl+S
+bekle 2
+dogrula_metin "kaydedildi"
+ekran kod_yazim
+cik

@@ -179,6 +179,29 @@ ENGINE_TEST(editor_ana_kod_nesneyi_anar_with_control) {
   CHECK(!app::ana_kod_nesneyi_anar(m, "", a, sizeof a));
 }
 
+// Kod paneli renklendirmesi: TulparLang'in kendi sozcukleri (Turkce ve Ingilizce ikizleri), dize/yorum/sayi/islev.
+ENGINE_TEST(editor_kod_siniflandir_with_control) {
+  static uint8_t s[256];
+  const char *m = "func f(int x) { // not\n  e\xC4\x9F" "er (x > 3.5) { logla(t\"a{x}\"); } yoksa { return doğru; }\n}\n/* b\nc */ int y = null;";
+  app::kod_siniflandir(m, s);
+  auto sn = [&](const char *kelime, int n = 0) -> int { // n. gecen `kelime`nin ilk baytinin sinifi
+    const char *p = m;
+    for (int i = 0; i <= n; i++) { p = std::strstr(i ? p + 1 : p, kelime); if (!p) return -1; }
+    return s[p - m];
+  };
+  CHECK(sn("func") == app::kSAnahtar && sn("int") == app::kSTur && sn("e\xC4\x9F" "er") == app::kSAnahtar);   // eger: Turkce ikiz
+  CHECK(sn("yoksa") == app::kSAnahtar && sn("return") == app::kSAnahtar && sn("do\xC4\x9F" "ru") == app::kSSabit && sn("null") == app::kSSabit);
+  CHECK(sn("f(") == app::kSIslev && sn("logla") == app::kSIslev && sn("x >") == app::kSNormal);
+  CHECK(sn("3.5") == app::kSSayi && sn("// not") == app::kSYorum && sn("t\"a{x}\"") == app::kSDize);
+  CHECK(sn("b\nc") == app::kSYorum && sn("c */") == app::kSYorum && sn("y =") == app::kSNormal); // blok yorum satirlar arasi
+  CHECK(s[std::strlen(m)] == app::kSNormal);
+  // KONTROL: anahtar sozcuk bir adin ICINDE kalirsa sayilmaz; dizenin icindeki "func" dize olarak kalir
+  const char *m2 = "int iftar = 1; str k = \"func if\"; // while\n";
+  app::kod_siniflandir(m2, s);
+  CHECK(s[std::strstr(m2, "iftar") - m2] == app::kSNormal && s[std::strstr(m2, "func if") - m2] == app::kSDize);
+  CHECK(s[std::strstr(m2, "while") - m2] == app::kSYorum);
+}
+
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
 // "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
 // andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.

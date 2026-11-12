@@ -66,9 +66,18 @@ struct KodPaneli {
   bool yaziyor = false;       // metin kutusu AKTIF: editorun Ctrl+Z / Ctrl+Y'si sahneyi geri almasin
   bool odak_iste = false;     // acilinca pencere one gelsin
   uint32_t kontrol_kare = 0;  // disarida degisim yoklamasi (kare sayaci)
+  uint8_t sinif[kKodKapasite] = {0}; // renklendirme: metnin her baytinin sinifi (kod_siniflandir)
+  int onc_boy = -1, onc_imlec = -1; // otomatik girinti: bir onceki karedeki metin boyu ve imlec (tek harf eklendi mi)
 };
 
 enum class KodEylem { Yok, DisEditor, NesneyeEkle };
+
+// --- Tulpar soz dizimi: renklendirme sinifi ---------------------------------------------------------------
+// Anahtar sozcuk tablosu TulparLang'in kendi lexer'indan (src/lexer/lexer.cpp, 2026-11-12) alindi: Turkce ve
+// Ingilizce ikizleri (eger/if, icin/for, fonksiyon/func ...) birlikte. Metindeki HER bayt icin bir sinif yazar
+// (UTF-8 devam baytlari kendi karakterinin sinifini alir); `s` en az strlen(m) bayt olmali.
+enum KodSinif : uint8_t { kSNormal = 0, kSAnahtar, kSTur, kSDize, kSSayi, kSYorum, kSSabit, kSIslev, kSinifSayisi };
+void kod_siniflandir(const char *metin, uint8_t *sinif);
 
 // 1-tabanli satirin bayt ofseti (satir sayisindan buyukse metnin sonu).
 uint32_t kod_satir_ofseti(const char *m, int satir);
