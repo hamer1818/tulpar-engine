@@ -526,6 +526,8 @@ public:
   bool redo(SceneDesc &d);
   uint32_t undo_count() const { return cursor_; }
   uint32_t redo_count() const { return count_ - cursor_; }
+  uint32_t count() const { return count_; }                                  // gunlukteki toplam islem (uygulanan + yinelenebilir)
+  const SceneOp *op(uint32_t i) const { return i < count_ ? &ops_[i] : nullptr; } // salt okunur: gecmis paneli
   void clear() { count_ = cursor_ = 0; }
 
 private:

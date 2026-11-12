@@ -192,6 +192,10 @@ public:
   uint32_t redo_size();
   void clear() { count_ = cursor_ = 0; }
   uint32_t depth() const { return cursor_; }
+  // Salt okunur (gecmis paneli): undo_size()/redo_size() imleci OYNATIR, bunlar oynatmaz.
+  uint32_t count() const { return count_; }
+  uint32_t cursor() const { return cursor_; }
+  uint32_t size_at(uint32_t i) const { return i < count_ ? sizes_[i] : 0; }
 
 private:
   static constexpr uint32_t kCap = 256;

@@ -392,6 +392,13 @@ PY6
       else echo "  KIRMIZI kod tanim (cikis $rkt, yeni=$nyeni eski=$neski):"; grep -E 'HATA|> ' "$B/ui_kt/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; cat "$B/kt/assets/betikler/dondur.tpr" | sed 's/^/      | /'; kirmizi=1; fi
     else echo "  KIRMIZI kod tanim: proje uretilemedi"; kirmizi=1; fi
   else echo "  ATLANDI: kod tanim — tulpar kurulu degil"; fi
+  # Gecmis paneli: eylemler listelenir, satira tiklamak o ana dondurur (sahne nesne sayisi izler).
+  mkdir -p "$B/ui_gc"
+  if betik_proje "$B/gc"; then
+    ( kos gecmis.txt "$B/ui_gc" --scene "$B/gc/assets/arena.sahne" ); rgc=$?
+    if [ $rgc = 0 ]; then echo "  gecmis: 3 eylem listelendi; Baslangic / 1. / 3. adima tiklayinca sahne o ana dondu (9 / 10 / 12 varlik)"
+    else echo "  KIRMIZI gecmis (cikis $rgc):"; grep -E 'HATA|> ' "$B/ui_gc/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI gecmis: proje uretilemedi"; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

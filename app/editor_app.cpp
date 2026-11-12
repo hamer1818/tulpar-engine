@@ -95,6 +95,7 @@
 #include "app/editor_tur.hpp"
 #include "core/build_info.hpp"
 #include "app/editor_betik.hpp"
+#include "app/editor_gecmis.hpp"
 #include "app/editor_kod_penceresi.hpp"
 #include "app/editor_fabrika.hpp"
 #include "app/editor_masaustu.hpp"
@@ -7540,6 +7541,32 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
     }
     ImGui::End();
+    // --- GECMIS paneli: kullanici eylemleri listesi; satira tikla = o ana don (editorun do_undo/do_redo'su) -----------------
+    {
+      static GecmisGorunum gecmis_gv;
+      static uint32_t gecmis_son_imlec = 0xFFFFFFFFu, gecmis_son_n = 0xFFFFFFFFu;
+      // Eski kayitli duzende "Gecmis" yok: ilk acilista Ozellikler'in dock dugumune girsin (alt sol sutun dar: sekme adlari kisaliyor) (konum VERILMEZ: SetNextWindowPos dock'u iptal eder, 8dz).
+      if (const ImGuiWindow *kw = ImGui::FindWindowByName(kPanelOzelliklerLabel); kw && kw->DockId) ImGui::SetNextWindowDockID(kw->DockId, ImGuiCond_FirstUseEver);
+      int gecmis_hedef = -1;
+      if (ImGui::Begin(kPanelGecmisLabel)) {
+        gecmis_kur(st.hist, st.groups, &gecmis_gv); // yalniz sekme gorunurken (liste en fazla 256 satir)
+        const bool kaydir = gecmis_gv.imlec != gecmis_son_imlec || gecmis_gv.n != gecmis_son_n;
+        gecmis_son_imlec = gecmis_gv.imlec; gecmis_son_n = gecmis_gv.n;
+        gecmis_hedef = gecmis_ciz(gecmis_gv, kaydir);
+      }
+      ImGui::End();
+      if (gecmis_hedef >= 0) {
+        const uint32_t hedef = (uint32_t)gecmis_hedef;
+        uint32_t cur = gecmis_gv.imlec;
+        for (uint32_t guvenlik = 0; guvenlik < GecmisGorunum::kMax + 2 && cur != hedef; guvenlik++) {
+          const uint32_t once = st.hist.undo_count();
+          if (cur > hedef) { do_undo(); cur--; if (st.hist.undo_count() == once) break; }
+          else { const uint32_t re = st.hist.redo_count(); do_redo(); cur++; if (st.hist.redo_count() == re) break; }
+        }
+        if (cur == 0) set_status(st, "ge\xC3\xA7mi\xC5\x9F: ba\xC5\x9Flang\xC4\xB1\xC3\xA7" "a d\xC3\xB6n\xC3\xBCld\xC3\xBC");
+        else set_status(st, "ge\xC3\xA7mi\xC5\x9F: %u. ad\xC4\xB1ma d\xC3\xB6n\xC3\xBCld\xC3\xBC", cur);
+      }
+    }
     // NOT: burada ikinci bir konsol paneli (ShowConsolePanel) daha
     // ciziliyordu; AYNI show_console bayragina bagliydi, yani konsolu
     // acinca IKI konsol geliyordu. Calisan olan asagidaki console_panel:

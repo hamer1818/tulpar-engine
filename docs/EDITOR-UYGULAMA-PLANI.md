@@ -458,6 +458,10 @@ aranır; kütüphane dosyaları YALNIZ OKUNUR açılır), **Alt+Sol** geri (konu
 dosyaları diske yazılır, açık dosya tampona ve kaydedilmemiş sayılır). LSP `t"{...}"` içindeki kullanımları görmez: bunlar ayrıca tam sözcük
 eşleşmesiyle adlandırılır. Reddedilen adlar: dil sözcüğü, geçersiz karakter, **betik kancası** (`<dosya>_baslat` vb.: motor adı dosya adından
 arar). Yalnız işlev adları (LSP global değişkenler için null döner). Kapılar: `kod_tanim.txt`, `editor_kod_tanim_*`, `editor_kod_sablon_*`.
+**Geçmiş paneli (2026-11-12):** sağ sütunda (Özellikler / Dünya / **Geçmiş**; alt sol sütunda üçüncü sekme "Kayna…" diye kısalıyordu) kullanıcı eylemleri
+listelenir (`OpGroups`: bir eylem = günlükte N işlem; "Taşı: duvar", "Sil: …", "Ekle: …", "… ve N nesne daha"). Bir satıra tıklamak o âna
+döndürür (editörün kendi `do_undo`/`do_redo`'su: gruplar, fizik, kaynak bakımı aynı); yinelenebilir eylemler soluk. Kapı: `gecmis.txt`
+(9 / 10 / 12 varlık), `editor_gecmis_listesi_*`.
 **Hâlâ kapsam dışı:** görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 

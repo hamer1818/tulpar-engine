@@ -1,0 +1,27 @@
+# GECMIS paneli: 3 eylem (Kup ekle, Ctrl+D, Ctrl+D) listelenir; satira tiklamak o ana doner (geri al / yinele), sahne nesne sayisi izler.
+# 1. eylem -> 10 varlik; Baslangic -> 9; 3. eylem -> 12. KONTROL: imlec baslangicta 0, ardindan eylem eklenince listenin ucuna gelir.
+tikla "+ Küp" pencere=Ozellikler
+bekle 5
+tus Ctrl+D
+bekle 3
+tus Ctrl+D
+bekle 3
+tikla "Geçmiş" pencere=DockSpace
+bekle 5
+dogrula_metin "3 eylem · 3 uygulanmış"
+dogrula_metin "3. Ekle: Küp 3"
+dogrula_metin "(12 varlık)"
+tikla "1. Ekle: Küp"
+bekle 8
+dogrula_metin "3 eylem · 1 uygulanmış"
+dogrula_metin "(10 varlık)"
+tikla "Başlangıç"
+bekle 8
+dogrula_metin "3 eylem · 0 uygulanmış"
+dogrula_metin "(9 varlık)"
+tikla "3. Ekle: Küp 3"
+bekle 8
+dogrula_metin "3 eylem · 3 uygulanmış"
+dogrula_metin "(12 varlık)"
+ekran gecmis
+cik
