@@ -283,6 +283,23 @@ PY4
     if [ $rkb = 0 ]; then echo "  kaynaklar betik: rol satiri ve karo ipucu (cift tik: kodunu ac, surukle: ata) gorundu"
     else echo "  KIRMIZI kaynaklar betik (cikis $rkb):"; grep -E 'HATA|> ' "$B/ui_kb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kaynaklar betik: proje uretilemedi"; kirmizi=1; fi
+  # Kod paneli SEKME olarak acilir (kenetli): Kod penceresinin dikey araligi Ozellikler'inkiyle ayni; Oynat'ta gizlenir.
+  mkdir -p "$B/ui_ks"
+  if betik_proje "$B/ks"; then
+    ( kos kod_sekme.txt "$B/ui_ks" --scene "$B/ks/assets/arena.sahne" ); rks=$?
+    if [ $rks = 0 ] && python3 - "$B/ui_ks/yanit.txt" <<'PY5'
+import re, sys
+t = open(sys.argv[1], encoding='utf-8').read()
+def pen(ad):
+    m = re.search(r'@ ?[^()\n]*' + re.escape(ad) + r' \((\d+),(\d+) (\d+)x(\d+)\)', t)  # adin basinda ikon karakteri olabilir
+    return tuple(int(x) for x in m.groups()) if m else None
+kod, oz = pen('dondur.tpr###kod_paneli'), pen('Özellikler###Ozellikler')
+ok = bool(kod and oz and abs(kod[1] - oz[1]) <= 2 and abs(kod[3] - oz[3]) <= 2 and kod[2] > 600)
+sys.exit(0 if ok else 1)
+PY5
+    then echo "  kod sekmesi: Gorunum'un yanina kenetlendi (Ozellikler ile ayni dikey aralik), Oynat'ta gizlendi"
+    else echo "  KIRMIZI kod sekmesi (cikis $rks):"; grep -E 'HATA|> ' "$B/ui_ks/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E "kod_paneli\" @|Ozellikler###Ozellikler\" @" "$B/ui_ks/yanit.txt" | head -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod sekmesi: proje uretilemedi"; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

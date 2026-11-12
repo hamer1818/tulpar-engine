@@ -12,6 +12,7 @@
 #endif
 
 #include "bridge/engine_api.h"
+#include "bridge/embed_dt.hpp"
 
 #include "platform/fs.hpp"
 
@@ -1889,6 +1890,7 @@ int teng_frame_begin(void) {
   b.dt = (float)((now - b.last_ns) / 1e9);
   b.last_ns = now;
   if (b.dt > 0.25f) b.dt = 0.25f;
+  if (b.embed && !embed_step) b.dt = bridge::embed_dt_snap(b.dt); // kare-kare dagilim: bridge/embed_dt.hpp (kullanici "kasa kasa")
   if (b.headless && !b.embed) b.dt = 1.0f / 60.0f;
   if (embed_step) b.dt = 1.0f / 60.0f; // duraklatmada tek adim: gecen gercek sure degil, BIR kare
   b.time_s += b.dt;

@@ -2561,3 +2561,28 @@ metin renklerinde ve gözle doğrulandıktan sonra.
 **Düzeltme:** `Registry::kMax` 768 → 1024. **Kural:** yeni test dosyası/çok test eklerken özet satırının
 `koşan/kayıtlı` kısmını ve `KAYIT TAŞMASI` iletisini oku.
 
+### 8dy. Sabit adımlı fizik + jitterli `dt` = kare başına 0 ya da 2 adım ("kasa kasa")
+**Belirti:** Editörün Oynat'ında top sabit hızla giderken takılıyor gibiydi (kullanıcı: "kasa kasa hareket ediyor").
+
+**Ölçüm (2026-11-12, Linux, RTX 5080, "Top topla" otopilot, 583 kare, topun kare başına yer değiştirmesi):** karelerin
+**%16'sı donuk (0 fizik adımı), %16'sı çift adım**. Fizik sabit 1/60 adımla ilerliyor (`sim::TickClock`); gömülü kipte oyun
+kendi saatinde 60 Hz'e uyuyor ama gerçek `dt`'yi ölçüyor, uyku ve kare işi 16–18 ms arasında oynatıyor: 16,6 ms → 0 adım,
+17,0 ms → 2 adım.
+
+**Düzeltme:** `bridge/embed_dt.hpp` — dt 60 Hz bandındaysa (%80–%125) tam 1/60 sayılır; band dışı (gerçek takılma) olduğu
+gibi geçer. Tempo zaten mutlak programa bağlı olduğundan ortalama süre aynı. Sonuç (aynı ölçüm): donuk 0, çift 0, adım
+0,0788–0,0833. Kapı: `bridge_embed_dt_snap_*` (±1,5 ms jitterle 794/793 → 0/0, pozitif kontrol: sabitlemesiz sorun var).
+
+**Kural:** Sabit adımlı simülasyona gerçek ölçülmüş `dt` besleyen her kare döngüsünde "kare başına adım sayısı"nın dağılımını ölç;
+ortalama doğru çıkar, dağılım bozuk olabilir.
+
+### 8dz. `SetNextWindowPos()` pencereyi dock'tan çıkarır — dock isteği sessizce iptal olur
+**Belirti:** Kod paneli "Görünüm"ün yanında sekme olsun diye `SetNextWindowDockID` verildi, pencere yüzen kaldı
+(`IsWindowDocked() == 0`, `GetWindowDockID() == 0`).
+
+**Neden:** ImGui `SetNextWindowPos`'u varsayılan olarak "undock" sayar (`PosUndock`, `DockContextProcessUndockWindow`); yüzen
+yedek için verdiğimiz `FirstUseEver` konum, dock'u hemen geri alıyordu. Hata iletisi yok.
+
+**Düzeltme:** konum/boyut yalnız dock hedefi yokken verilir. Kapı: `tests/arayuz/kod_sekme.txt` — Kod penceresinin dikey
+aralığı Özellikler panelininkiyle aynı mı (kenetli pencereler paylaşır). **Kural:** dock'lanacak pencereye konum verme.
+

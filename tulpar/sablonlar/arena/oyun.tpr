@@ -62,6 +62,11 @@ float OYUNCU_Z = 0.0;
 float OYUNCU_R = 0.5;
 int OYUNCU_RENK = 0;
 float PARILTI_R = 0.35;
+// Parıltılar ÇARPIŞMAZ: top içlerinden geçer ve değdiği anda toplar. (Eskiden sabit küre gövdeydi: top onlara çarpıp
+// üstlerine tırmanıyor, toplama geç fark ediliyordu — kullanıcı, 2026-11-12.) Motorun çarpışma grubu mekanizması:
+// parıltılar grup 1, geri kalan her şey grup 0; (0, 1) çifti kapalı.
+int GRUP_PARILTI = 1;
+float g_temas = 0.85;         // toplama mesafesi = oyuncu yarıçapı + parıltı yarıçapı (sahneden_oku hesaplar)
 int PARILTI_RENK = 0;
 float[] g_p0x = [];           // sahnedeki parıltıların başlangıç konumu
 float[] g_p0z = [];
@@ -101,6 +106,7 @@ func parilti_koy(int i, float x, float z) {
     g_px[i] = x;
     g_pz[i] = z;
     g_parilti[i] = kure(x, 0.45, z, PARILTI_R, false, PARILTI_RENK);
+    carpisma_grubu(g_parilti[i], GRUP_PARILTI);
 }
 func parilti_kur(int i) {
     float x = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
@@ -134,6 +140,7 @@ func sahneden_oku() {
         }
     }
     if (n > 0) { PARILTI_N = n; }
+    g_temas = OYUNCU_R + PARILTI_R;
 }
 func tur_baslat() {
     g_toplanan = 0;
@@ -173,7 +180,7 @@ func oyun_adim(float d) {
     for (int i = 0; i < PARILTI_N; i++) {
         float dx = g_px[i] - konum_x(g_top);
         float dz = g_pz[i] - konum_z(g_top);
-        if (dx * dx + dz * dz < 0.8 * 0.8) {
+        if (dx * dx + dz * dz < g_temas * g_temas) {
             g_toplanan += 1;
             kit_ses_cal(SES_TOPLA, 0.9, 0.05);
             sil(g_parilti[i]);
@@ -274,6 +281,7 @@ func main() {
         }
     }
     sahneden_oku();
+    carpisma_cifti(0, GRUP_PARILTI, false);   // oyuncu parıltıların içinden geçer
     g_top = kure(OYUNCU_X, OYUNCU_Y, OYUNCU_Z, OYUNCU_R, true, OYUNCU_RENK);
     for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }
     kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);

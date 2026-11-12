@@ -35,7 +35,9 @@
 
 #include <unistd.h>
 
+#include "bridge/embed_dt.hpp"
 #include "bridge/engine_api.h"
+#include "sim/schedule.hpp"
 #include "content/scene.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_compile.hpp"
@@ -4911,4 +4913,41 @@ ENGINE_TEST(bridge_scene_camera_and_audio_components) {
   teng_shutdown();
   unsetenv("TULPAR_ENGINE_AUDIO_NULL");
   std::remove(wav); std::remove(sblob); std::remove(sblob2); rmdir(dir);
+}
+
+// Gomulu kip kare suresi: 60 Hz bandinda dt TAM 1/60 olur, boylece fizik her karede tam bir adim atar. Olculen hata
+// (2026-11-12): kare suresi 16-18 ms oynarken karelerin %16'sinda 0, %16'sinda 2 fizik adimi vardi ("kasa kasa").
+// Burada AYNI kosulu sentetik jitterle kuruyoruz (mutlak 60 Hz programi + her kareye +-1.5 ms sapma, belirlenimli).
+ENGINE_TEST(bridge_embed_dt_snap_makes_every_frame_one_physics_step_with_control) {
+  using tulpar::engine::bridge::embed_dt_snap;
+  using tulpar::engine::bridge::kEmbedDt;
+  auto olc = [&](bool sabitle, uint32_t *sifir, uint32_t *cift, uint32_t *toplam_tik) {
+    tulpar::engine::sim::TickClock clk;
+    uint32_t z = 0, c = 0;
+    uint32_t rng = 12345u;
+    double onceki = 0.0;
+    const int kKare = 3000;
+    for (int k = 1; k <= kKare; k++) {
+      rng = rng * 1664525u + 1013904223u;
+      const double sapma = ((double)(rng >> 8) / 16777216.0 * 2.0 - 1.0) * 0.0015; // +-1.5 ms
+      const double t = k * (1.0 / 60.0) + sapma;                                       // mutlak program: ortalama 60 Hz
+      float dt = (float)(t - onceki);
+      onceki = t;
+      if (sabitle) dt = embed_dt_snap(dt);
+      const uint32_t n = clk.advance((double)dt, 1.0, false);
+      if (n == 0) z++;
+      else if (n > 1) c++;
+    }
+    *sifir = z; *cift = c; *toplam_tik = (uint32_t)clk.ticks;
+  };
+  uint32_t z0, c0, t0, z1, c1, t1;
+  olc(false, &z0, &c0, &t0);
+  olc(true, &z1, &c1, &t1);
+  std::printf("    [bilgi] 3000 kare, +-1.5 ms jitter: ham dt -> donuk %u, cift %u | sabitlenmis -> donuk %u, cift %u (tik %u / %u)\n", z0, c0, z1, c1, t0, t1);
+  CHECK(z0 > 100 && c0 > 100);            // KONTROL: sabitleme olmadan sorun GERCEKTEN var (olcum yontemi hatayi gosteriyor)
+  CHECK(z1 == 0 && c1 == 0);              // sabitlenince her karede tam 1 adim
+  CHECK(t1 == 3000);                      // ve sim saati kaymadi: 3000 kare = 3000 tik
+  // Band disi oldugu gibi gecer: gercek takilma yakalama icin, yavas kare 60 Hz sayilmaz, cok kisa kare de
+  CHECK(embed_dt_snap(0.050f) == 0.050f && embed_dt_snap(0.025f) == 0.025f && embed_dt_snap(0.004f) == 0.004f);
+  CHECK(embed_dt_snap(0.0161f) == kEmbedDt && embed_dt_snap(0.0176f) == kEmbedDt && embed_dt_snap(0.0200f) == kEmbedDt);
 }

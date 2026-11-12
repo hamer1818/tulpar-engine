@@ -2759,6 +2759,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.play_embedded = true;
     set_playing(true);
     oyun_odak_iste = true;
+    ImGui::SetWindowFocus(kPanelGorunumLabel); // Kod sekmesi one acikken Oynat oyunu arkada birakmasin (Gorunum sekmesine gec)
     oyun_kapaniyor = false;
     oyun_baslangic_ns = platform::now_ns();
     set_status(st, "oyun haz\xC4\xB1rlan\xC4\xB1yor\xE2\x80\xA6 (F5 vazge\xC3\xA7" "er)");

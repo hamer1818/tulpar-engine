@@ -452,6 +452,7 @@ int kod_parantez_esi(const char *m, const uint8_t *sn, int imlec, int *kendi) {
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include "app/editor_layout.hpp"
 #include "app/editor_ui.hpp"
 #include "platform/fs.hpp"
 
@@ -960,9 +961,18 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   char baslik[400];
   std::snprintf(baslik, sizeof baslik, "%s %s%s###kod_paneli", ICON_MD_CODE, ad, k.kirli ? " \xE2\x97\x8F" : "");
   const ImGuiViewport *vp = ImGui::GetMainViewport();
-  ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x * 0.5f, vp->WorkSize.y * 0.7f), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_FirstUseEver,
-                          ImVec2(0.5f, 0.5f));
+  // Sekme olarak ac: "Gorunum" panelinin dock dugumune (kullanici, 2026-11-12: yuzen pencere yerine editorun icinde sekme).
+  // Appearing: yalniz ACILISTA; sonra kullanici ayirip baska yere koyabilir. Gorunum kenetli degilse (DockId 0) yuzen kalir.
+  // DIKKAT: SetNextWindowPos() ImGui'de pencereyi dock'tan CIKARIR (PosUndock; imgui.cpp, DockContextProcessUndockWindow) —
+  // ilk denemede konum verdigimiz icin dock sessizce iptal oldu (docked=0). Konum/boyut yalniz yuzen yedekte verilir.
+  const ImGuiWindow *gw = ImGui::FindWindowByName(kPanelGorunumLabel);
+  if (gw && gw->DockId) {
+    ImGui::SetNextWindowDockID(gw->DockId, ImGuiCond_Appearing);
+  } else {
+    ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x * 0.5f, vp->WorkSize.y * 0.7f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_FirstUseEver,
+                            ImVec2(0.5f, 0.5f));
+  }
   if (k.odak_iste) { ImGui::SetNextWindowFocus(); k.odak_iste = false; }
   bool acik = true;
   if (!ImGui::Begin(baslik, &acik, ImGuiWindowFlags_NoCollapse)) { ImGui::End(); if (!acik) k.acik = false; return eylem; }
