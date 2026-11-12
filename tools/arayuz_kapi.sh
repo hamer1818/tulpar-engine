@@ -300,6 +300,23 @@ PY5
     then echo "  kod sekmesi: Gorunum'un yanina kenetlendi (Ozellikler ile ayni dikey aralik), Oynat'ta gizlendi"
     else echo "  KIRMIZI kod sekmesi (cikis $rks):"; grep -E 'HATA|> ' "$B/ui_ks/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E "kod_paneli\" @|Ozellikler###Ozellikler\" @" "$B/ui_ks/yanit.txt" | head -3 | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kod sekmesi: proje uretilemedi"; kirmizi=1; fi
+  # Ayri pencerede ac: sekme kapanir, kod BAGIMSIZ surecte acilir; ana editor kapandiktan sonra cocuk yasar (kare dosyasi olusur).
+  mkdir -p "$B/ui_ka"
+  if betik_proje "$B/ka"; then
+    KARE="$B/ka/ayri_kare.ppm"; rm -f "$KARE"
+    ( export TULPAR_KOD_PENCERESI_EK="--headless 2500 --out $KARE"; kos kod_ayir.txt "$B/ui_ka" --scene "$B/ka/assets/arena.sahne" ); rka=$?
+    var_hemen=0; [ -f "$KARE" ] && var_hemen=1     # ana editor KAPANDIKTAN hemen sonra: cocuk daha bitirmemis olmali (2500 kare)
+    for i in $(seq 1 120); do [ -f "$KARE" ] && break; sleep 0.5; done
+    if [ $rka = 0 ] && [ $var_hemen = 0 ] && [ -s "$KARE" ]; then
+      echo "  kod ayirma: sekme kapandi, bagimsiz surec editor kapandiktan SONRA da yasadi ve karesini yazdi"
+    else echo "  KIRMIZI kod ayirma (cikis $rka, kare hemen=$var_hemen, kare var=$([ -s "$KARE" ] && echo evet || echo hayir)):"; grep -E 'HATA|> ' "$B/ui_ka/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod ayirma: proje uretilemedi"; kirmizi=1; fi
+  # Bagimsiz kod penceresi (--kod): tam pencere kod paneli, yaz + Ctrl+S dosyaya.
+  mkdir -p "$B/ui_kp" "$B/kp"
+  printf 'func dondur_baslat(id) {\n    logla("selam");\n}\n' > "$B/kp/dondur.tpr"
+  ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= timeout 200 "$ED" --kod "$B/kp/dondur.tpr" --size 1100x800 --surucu "$KOK/tests/arayuz/kod_pencere.txt" --surucu-dizin "$B/ui_kp" > "$B/ui_kp/editor.log" 2>&1 ); rkp=$?
+  if [ $rkp = 0 ] && tail -c 20 "$B/kp/dondur.tpr" | grep -q 'x=1;'; then echo "  kod penceresi: --kod tam pencerede acildi (sahne/panel yok), yazi Ctrl+S ile dosyaya gitti"
+  else echo "  KIRMIZI kod penceresi (cikis $rkp):"; grep -E 'HATA|> ' "$B/ui_kp/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

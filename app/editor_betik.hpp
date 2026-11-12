@@ -69,6 +69,8 @@ struct KodPaneli {
   bool odak_iste = false;     // acilinca pencere one gelsin
   uint32_t kontrol_kare = 0;  // disarida degisim yoklamasi (kare sayaci)
   uint8_t sinif[kKodKapasite] = {0}; // renklendirme: metnin her baytinin sinifi (kod_siniflandir)
+  bool tam_pencere = false;   // bagimsiz kod penceresi (engine_editor --kod): tum pencereyi kaplar, sekme/dock yok
+  bool kapat_iste = false;    // tam_pencere: isletim sistemi pencere kapatma istedi (kirliyse once sorulur)
   int imlec_ofs = 0;          // imlecin bayt konumu (parantez eslestirme, oneri listesi konumu)
   // Oneri listesi (callback metin tamponunu gorur; sonuc burada, cizimi panel yapar).
   static constexpr int kOneriMax = 10;
@@ -101,7 +103,7 @@ struct KodPaneli {
   int onc_boy = -1, onc_imlec = -1; // otomatik girinti: bir onceki karedeki metin boyu ve imlec (tek harf eklendi mi)
 };
 
-enum class KodEylem { Yok, DisEditor, NesneyeEkle };
+enum class KodEylem { Yok, DisEditor, NesneyeEkle, AyriPencere };
 
 // --- Tulpar soz dizimi: renklendirme sinifi ---------------------------------------------------------------
 // Anahtar sozcuk tablosu TulparLang'in kendi lexer'indan (src/lexer/lexer.cpp, 2026-11-12) alindi: Turkce ve

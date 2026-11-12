@@ -95,6 +95,7 @@
 #include "app/editor_tur.hpp"
 #include "core/build_info.hpp"
 #include "app/editor_betik.hpp"
+#include "app/editor_kod_penceresi.hpp"
 #include "app/editor_fabrika.hpp"
 #include "app/editor_masaustu.hpp"
 #include "app/editor_ilk_adim.hpp"
@@ -1998,6 +1999,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (!ui.icons_ok())
       console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "ikon fontu y\xC3\xBCklenemedi (%s): ikonlar bos kutu cizilecek", ipath);
   }
+  // BAGIMSIZ KOD PENCERESI: sahne/Oynat/panel yok, yalniz Kod paneli (app/editor_kod_penceresi.hpp). Cihaz, swapchain ve arayuz
+  // hazir; geri kalan kurulum (sahne, fizik, panel durumu) atlanir.
+  if (opts.kod_dosyasi) return kod_penceresi_calistir(dev, headless ? nullptr : &swap, off, oc, ores, ui, host, opts, headless);
 
   // NOT: ImNodes baglami EditorUi::init icinde kuruluyor (ImGui baglamiyla
   // ayni yerde, shutdown'da da orada yikiliyor). Burada ikinci bir
@@ -9471,6 +9475,25 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         char kim[1024], err[640];
         if (editor_open_in_code_editor_at(kod.yol, (uint32_t)kod.imlec_satir, kim, sizeof kim, err, sizeof err)) set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", kod.yol);
         else { set_status(st, "kod edit\xC3\xB6r\xC3\xBC a\xC3\xA7\xC4\xB1lamad\xC4\xB1 (Konsol)"); console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "%s", err); }
+      } else if (ke == KodEylem::AyriPencere) {
+        // Sekmeyi KENDI penceresine ayir: ayri surec (editor kapansa da yasar). Kaydedilmemis degisiklik once yazilir, yoksa iki
+        // kopya ayri ayri degisir ve biri digerinin uzerine yazardi; yazilamazsa ayirma YAPILMAZ.
+        char err[640] = {0};
+        bool devam = true;
+        if (kod.kirli) {
+          if (!kod_kaydet(kod, err, sizeof err)) { set_status(st, "ayr\xC4\xB1lamad\xC4\xB1: kaydedilemedi (%s)", err); devam = false; }
+        }
+        if (devam) {
+          const char *proje = st.tulpar_dir[0] && file_exists(st.tulpar_dir) ? st.tulpar_dir : "";
+          if (kod_penceresi_baslat(kod.yol, proje, kod.kutuphane_dizin, err, sizeof err)) {
+            set_status(st, "ayr\xC4\xB1 pencerede a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", editor_basename(kod.yol));
+            console_log_teknik(ConsoleLevel::Bilgi, "kod", "ba\xC4\x9F\xC4\xB1ms\xC4\xB1z kod penceresi ba\xC5\x9Flat\xC4\xB1ld\xC4\xB1: %s", kod.yol);
+            kod.acik = false; // sekme kapanir; dosya artik o pencerede
+          } else {
+            set_status(st, "ayr\xC4\xB1 pencere ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1 (Konsol)");
+            console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "ayr\xC4\xB1 kod penceresi: %s", err);
+          }
+        }
       } else if (ke == KodEylem::NesneyeEkle && ks_var && kod.etiket[0]) {
         SceneEntity after = st.scene.entities[ks];
         after.components |= content::kSceneScript;

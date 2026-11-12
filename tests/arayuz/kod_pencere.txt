@@ -1,0 +1,19 @@
+# Bagimsiz kod penceresi (engine_editor --kod <dosya>): sahne ve paneller yok, Kod paneli TAM pencerede. Yaz + Ctrl+S dosyaya
+# gider. Tam pencerede "Ayri pencerede ac" dugmesi YOK (zaten ayri pencere): metin_yok kontrolu.
+bekle 8
+dogrula_metin "func dondur_baslat"
+dogrula_metin "Dış editörde aç"
+metin_yok "Ayrı pencerede aç"
+metin_yok "Sahne"
+tikla "func dondur_baslat"
+tus Ctrl+End
+tus Enter
+yaz "x"
+yaz "="
+yaz "1"
+yaz ";"
+tus Ctrl+S
+bekle 3
+dogrula_metin "kaydedildi"
+ekran kod_pencere
+cik

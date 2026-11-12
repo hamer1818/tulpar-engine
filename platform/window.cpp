@@ -216,6 +216,7 @@ void Window::poll() {
 }
 
 bool Window::should_close() const { return win_ && g.window_should_close(static_cast<GLFWwindow *>(win_)); }
+void Window::cancel_close() { if (win_) g.set_window_should_close(static_cast<GLFWwindow *>(win_), 0); }
 void Window::request_close() { if (win_) g.set_window_should_close(static_cast<GLFWwindow *>(win_), 1); }
 
 void Window::framebuffer_size(uint32_t *w, uint32_t *h) const {

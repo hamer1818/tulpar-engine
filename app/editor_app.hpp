@@ -53,6 +53,11 @@ struct EditorOptions {
   bool surucu_canli = false;
   int tur_adim = 0;
   const char *karsilama_yeni = nullptr;
+  // --kod <dosya> [--proje <dizin>] [--kutuphane <dizin>]: BAGIMSIZ KOD PENCERESI (app/editor_kod_penceresi.hpp). Sahne yok;
+  // yalniz Kod paneli tam pencerede. Penceresiz de calisir (--headless N --out x.ppm, --surucu): kapilar bunu kullanir.
+  const char *kod_dosyasi = nullptr;
+  const char *kod_proje = nullptr;
+  const char *kod_kutuphane = nullptr;
   // Surecin kendi argumanlari (main'in argc/argv'si). Guncelleme kurulunca yeni
   // ikili AYNI argumanlarla yeniden baslatilir (app/editor_update.hpp). Bos
   // olabilir (testler/gomulu kullanim): o zaman yalniz --scene tasinir.
@@ -74,6 +79,8 @@ struct EditorHost {
   // (sessizce hicbir sey yapan bir dugme yok).
   bool (*set_fullscreen)(void *user, bool on) = nullptr;
   bool (*is_fullscreen)(void *user) = nullptr;
+  // Pencere kapatma istegini geri al (kaydedilmemis degisiklik sorulurken). nullptr = desteklenmiyor: kapatma anindadir.
+  void (*cancel_close)(void *user) = nullptr;
 };
 
 int editor_run(const EditorOptions &opts, const EditorHost *host);

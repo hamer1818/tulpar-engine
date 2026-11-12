@@ -966,7 +966,13 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   // DIKKAT: SetNextWindowPos() ImGui'de pencereyi dock'tan CIKARIR (PosUndock; imgui.cpp, DockContextProcessUndockWindow) —
   // ilk denemede konum verdigimiz icin dock sessizce iptal oldu (docked=0). Konum/boyut yalniz yuzen yedekte verilir.
   const ImGuiWindow *gw = ImGui::FindWindowByName(kPanelGorunumLabel);
-  if (gw && gw->DockId) {
+  ImGuiWindowFlags pencere_bayrak = ImGuiWindowFlags_NoCollapse;
+  if (k.tam_pencere) { // bagimsiz pencere: ana viewport'un tamami, baslik cubugu yok (isletim sisteminin baslik cubugu var)
+    ImGui::SetNextWindowPos(vp->WorkPos);
+    ImGui::SetNextWindowSize(vp->WorkSize);
+    pencere_bayrak |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking |
+                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+  } else if (gw && gw->DockId) {
     ImGui::SetNextWindowDockID(gw->DockId, ImGuiCond_Appearing);
   } else {
     ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x * 0.5f, vp->WorkSize.y * 0.7f), ImGuiCond_FirstUseEver);
@@ -975,7 +981,8 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   }
   if (k.odak_iste) { ImGui::SetNextWindowFocus(); k.odak_iste = false; }
   bool acik = true;
-  if (!ImGui::Begin(baslik, &acik, ImGuiWindowFlags_NoCollapse)) { ImGui::End(); if (!acik) k.acik = false; return eylem; }
+  if (k.kapat_iste) { acik = false; k.kapat_iste = false; } // pencere kapatma istegi: asagidaki "kaydedilmedi" akisina girer
+  if (!ImGui::Begin(baslik, k.tam_pencere ? nullptr : &acik, pencere_bayrak)) { ImGui::End(); if (!acik) k.acik = false; return eylem; }
   const ImGuiStyle &st = ImGui::GetStyle();
   // --- Arac satiri ---
   ImGui::BeginDisabled(k.salt_okunur || !k.kirli);
@@ -985,6 +992,12 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   ImGui::SameLine();
   if (ImGui::Button(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6rde a\xC3\xA7")) eylem = KodEylem::DisEditor;
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("VS Code ya da sistemin metin d\xC3\xBCzenleyicisi; kaydedince burada da g\xC3\xBCncellenir.");
+  if (!k.tam_pencere) { // sekme kipinde: kendi penceresine ayir (ayri surec: editor kapansa da acik kalir)
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_MD_OPEN_IN_BROWSER " Ayr\xC4\xB1 pencerede a\xC3\xA7")) eylem = KodEylem::AyriPencere;
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Kodu kendi penceresine ay\xC4\xB1r (taray\xC4\xB1" "c\xC4\xB1" "da sekmeyi ay\xC4\xB1rmak gibi).\nBa\xC4\x9F\xC4\xB1ms\xC4\xB1z bir pencere: edit\xC3\xB6r kapansa da a\xC3\xA7\xC4\xB1k kal\xC4\xB1r.");
+  }
   if (k.ana) secili_ad = nullptr; // ana dosya bir nesnenin davranisi degil: "nesneye ekle" anlamsiz
   if (secili_ad && !secilide_bu) {
     ImGui::SameLine();

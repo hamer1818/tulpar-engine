@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "app/editor_betik.hpp"
+#include "app/editor_kod_penceresi.hpp"
 #include "platform/fs_ops.hpp"
 #include "app/editor_commands.hpp"
 #include "app/editor_yardim.hpp"
@@ -338,6 +339,27 @@ ENGINE_TEST(editor_kod_tani_ayristir_with_control) {
   for (const char *q = gi; (q = std::strstr(q, "Content-Length: ")) != nullptr; q++) mesaj++;
   CHECK(mesaj == 5);
   CHECK(app::kod_lsp_girdisi("/a.tpr", "/", nullptr, "x", gi, 20) == 0); // sigmayan tampon: 0, yarim girdi yok
+}
+
+// Bagimsiz kod penceresinin cocuk arguman listesi: bosluklu yol tek arguman, bos secenekler atlanir, test eki (TULPAR_KOD_PENCERESI_EK)
+// bosluktan bolunur; sigmazsa 0 (yarim komut satiri baska bir komut olurdu).
+ENGINE_TEST(editor_kod_penceresi_argv_with_control) {
+  const char *argv[24];
+  static char tp[2048];
+  size_t n = app::kod_penceresi_argv("/ap/Tulpar Editor.AppImage", "/proje x/assets/b.tpr", "/proje x", "/kut", nullptr, argv, 24, tp, sizeof tp);
+  CHECK(n == 9 && !argv[9]);
+  CHECK(!std::strcmp(argv[0], "/ap/Tulpar Editor.AppImage") && !std::strcmp(argv[1], "--kod") && !std::strcmp(argv[2], "/proje x/assets/b.tpr"));
+  CHECK(!std::strcmp(argv[3], "--proje") && !std::strcmp(argv[4], "/proje x") && !std::strcmp(argv[5], "--kutuphane") && !std::strcmp(argv[6], "/kut"));
+  CHECK(!std::strcmp(argv[7], "--size") && !std::strcmp(argv[8], "1100x800"));
+  // proje/kutuphane bos: o seceneklerin kendisi de yok; test eki bolunur
+  n = app::kod_penceresi_argv("/e", "/d.tpr", "", nullptr, "--headless  300 --out /t x.ppm", argv, 24, tp, sizeof tp);
+  CHECK(n == 10 && !std::strcmp(argv[3], "--size") && !std::strcmp(argv[5], "--headless") && !std::strcmp(argv[6], "300") && !std::strcmp(argv[7], "--out"));
+  CHECK(!std::strcmp(argv[8], "/t") && !std::strcmp(argv[9], "x.ppm") && !argv[10]); // "/t x.ppm" iki arguman: "/t" ve "x.ppm"
+  // KONTROL: exe ya da dosya yoksa 0; sigmayan tampon/argv 0
+  CHECK(app::kod_penceresi_argv("", "/d.tpr", nullptr, nullptr, nullptr, argv, 24, tp, sizeof tp) == 0);
+  CHECK(app::kod_penceresi_argv("/e", "", nullptr, nullptr, nullptr, argv, 24, tp, sizeof tp) == 0);
+  CHECK(app::kod_penceresi_argv("/e", "/d.tpr", "/p", "/k", nullptr, argv, 5, tp, sizeof tp) == 0);
+  CHECK(app::kod_penceresi_argv("/e", "/d.tpr", "/p", "/k", nullptr, argv, 24, tp, 20) == 0);
 }
 
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari

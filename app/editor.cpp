@@ -36,6 +36,7 @@ const platform::InputState *w_input(void *user) { return &static_cast<platform::
 void w_window_size(void *user, uint32_t *w, uint32_t *h) { static_cast<platform::Window *>(user)->window_size(w, h); }
 bool w_set_fullscreen(void *user, bool on) { return static_cast<platform::Window *>(user)->set_fullscreen(on); }
 bool w_is_fullscreen(void *user) { return static_cast<platform::Window *>(user)->is_fullscreen(); }
+void w_cancel_close(void *user) { static_cast<platform::Window *>(user)->cancel_close(); }
 } // namespace
 
 int main(int argc, char **argv) {
@@ -106,6 +107,9 @@ int main(int argc, char **argv) {
     else if (!std::strcmp(argv[i], "--yardim") && i + 1 < argc) o.yardim = argv[++i];
     else if (!std::strcmp(argv[i], "--tur-adim") && i + 1 < argc) { o.tur = true; o.tur_adim = std::atoi(argv[++i]); }
     else if (!std::strcmp(argv[i], "--karsilama-yeni") && i + 1 < argc) { o.karsilama_yeni = argv[++i]; o.karsilama = true; }
+    else if (!std::strcmp(argv[i], "--kod") && i + 1 < argc) o.kod_dosyasi = argv[++i];
+    else if (!std::strcmp(argv[i], "--proje") && i + 1 < argc) o.kod_proje = argv[++i];
+    else if (!std::strcmp(argv[i], "--kutuphane") && i + 1 < argc) o.kod_kutuphane = argv[++i];
   }
   if (std::getenv("TULPAR_ENGINE_VK_VALIDATION")) o.validation = true;
   // Surucu her zaman penceresiz (pencere acmadan dogrulama) ve yerlesik kapilar KOSMAZ (sahte tiklama
@@ -119,6 +123,11 @@ int main(int argc, char **argv) {
   char title[64];
   const char *surum = build_version();
   std::snprintf(title, sizeof title, surum[0] ? "Tulpar Editor %s" : "Tulpar Editor", surum);
+  if (o.kod_dosyasi) { // bagimsiz kod penceresi: baslikta dosya adi (gorev cubugunda ayirt edilsin)
+    const char *ad = o.kod_dosyasi;
+    for (const char *q = o.kod_dosyasi; *q; q++) if (*q == '/' || *q == '\\') ad = q + 1;
+    std::snprintf(title, sizeof title, "%.40s \xE2\x80\x94 Tulpar Kod", ad);
+  }
   wc.width = o.width; wc.height = o.height; wc.title = title;
   // Masaustu kimligi + pencere ikonu (U7b). Ikon bulunamazsa pencere ikonsuz acilir, sebep stderr'de.
   wc.app_id = app::kMasaustuKimlik;
@@ -153,6 +162,7 @@ int main(int argc, char **argv) {
   host.window_size = w_window_size;
   host.set_fullscreen = w_set_fullscreen;
   host.is_fullscreen = w_is_fullscreen;
+  host.cancel_close = w_cancel_close;
   int rc = app::editor_run(o, &host);
   win.close();
   content::image_free(ikon);

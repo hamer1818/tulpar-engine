@@ -430,6 +430,13 @@ olmalı; Unity/Unreal'in öğrenme süresi uzun olduğu için bunu kullanıyoruz
 kapatma ve eşleştirme, öneri listesi (motorun `engine.tpr` + `kit/*.tpr` işlevleri imzalarıyla, dosyanın kendi
 `func`'ları; Tab/Enter/Yukarı/Aşağı/Esc/Ctrl+Boşluk/fare), parametre ipucu balonu ve canlı söz dizimi denetimi
 (`tulpar typecheck` + tek seferlik `tulpar --lsp`; ayrışma, tip, bilinmeyen işlev). Kapılar `tests/arayuz/kod_*.txt`.
+**Kod sekmesi ve bağımsız pencere (2026-11-12):** Kod paneli "Görünüm"ün yanında sekme olarak açılır; "Ayrı pencerede aç" onu
+**ayrı bir süreçte** (`engine_editor --kod <dosya> [--proje ..] [--kutuphane ..]`, `process_start_detached`) kendi işletim
+sistemi penceresine ayırır: editör kapansa da açık kalır (aynı süreçte bir ImGui viewport editörle birlikte ölürdü). Pencere
+yalnız Kod panelini tam ekran gösterir; kullanıcının tema/yazı boyutu tercihini okur; kaydedilmemiş değişiklikte pencere kapatma
+iptal edilip "Kaydet / Kaydetmeden kapat / Vazgeç" sorulur (`Window::cancel_close`). Kapılar: `kod_sekme.txt`, `kod_ayir.txt`
+(ana editör kapandıktan SONRA çocuk sürecin yaşadığı ölçülür), `kod_pencere.txt`, `editor_kod_penceresi_argv_*`. **Gerçek
+işletim sistemi penceresi yolu (swapchain) bu oturumda çalıştırılmadı** (penceresiz yol ve sürücü doğrulandı).
 **Hâlâ kapsam dışı:** betik sıcak yükleme, görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 
