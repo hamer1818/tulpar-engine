@@ -57,9 +57,10 @@ MOTOR_UYGULAMA = ['<provider android:name="dev.tulparlang.engine.Fcm" android:au
                   '<action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter></receiver>']
 # Profil: kokler, kilit dosyasi, derlenen Java dosyalari, R8 keep kurallari, motor manifest parcalari, cikti dizini.
 PROFILLER = {
-    "giris": {"kokler": KOKLER, "kilit": KILIT, "java": ["GoogleGiris.java", "ZamanliBildirim.java", "Fcm.java"],
+    "giris": {"kokler": KOKLER, "kilit": KILIT, "java": ["GoogleGiris.java", "ZamanliBildirim.java", "Klavye.java", "Fcm.java"],
               "keep": ["-keep class dev.tulparlang.engine.GoogleGiris { public static *; }",
                        "-keep class dev.tulparlang.engine.ZamanliBildirim { public *; }",
+                       "-keep class dev.tulparlang.engine.Klavye { public static *; }",
                        "-keep class dev.tulparlang.engine.Fcm { *; }"],
               "ust": MOTOR_UST, "uyg": MOTOR_UYGULAMA, "cikti": "google"},
     "oyunlar": {"kokler": ["com.google.android.gms:play-services-games-v2:22.1.0"],
