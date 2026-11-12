@@ -5830,7 +5830,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             }
             if (ak_var) {
               ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
-              ImGui::TextColored(tone(Tone::Accent), ICON_MD_INFO "  Bu nesneyi oyunun ana kodu y\xC3\xB6netiyor");
+              ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::Accent));
+              ImGui::PushTextWrapPos(0.0f); // dar Ozellikler panelinde (1280x720) baslik sagdan kesiliyordu: sarilir
+              ImGui::TextWrapped(ICON_MD_INFO "  Bu nesneyi oyunun ana kodu y\xC3\xB6netiyor");
+              ImGui::PopTextWrapPos();
+              ImGui::PopStyleColor();
               ImGui::PushStyleColor(ImGuiCol_Text, tone(Tone::TextMute));
               ImGui::TextWrapped("oyun.tpr bu nesneyi \"%s\" ad\xC4\xB1yla bulur; hareketi, toplama ve skoru orada. Ad\xC4\xB1n\xC4\xB1 de\xC4\x9Fi\xC5\x9Ftirirsen oyun onu bulamaz.", ak_ad);
               ImGui::PopStyleColor();

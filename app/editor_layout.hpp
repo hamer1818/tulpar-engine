@@ -75,7 +75,7 @@ const char *layout_panel_name(uint32_t i); // i < kLayoutPanelCount, yoksa null
 bool layout_is_panel(const char *name);
 
 // Varsayilan yerlesimin sektor oranlari (kok olcusunun kesri).
-constexpr float kLayoutDefaultLeft = 0.18f;   // Sahne
+constexpr float kLayoutDefaultLeft = 0.20f;   // Sahne (0.18 -> 0.20: 1280x720'de nesne adlari "duvar_do..." diye kisaliyordu)
 constexpr float kLayoutDefaultRight = 0.22f;  // Ozellikler
 constexpr float kLayoutDefaultRightMin = 300.0f; // U11 C3: Ozellikler alt siniri (px; dar ekranda etiketler kesilmesin)
 constexpr float kLayoutDefaultLeftBottom = 0.42f; // sol sutunun alti: Kaynaklar + Konsol (sekmeli; U1)

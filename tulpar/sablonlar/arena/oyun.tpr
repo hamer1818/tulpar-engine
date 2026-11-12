@@ -1,4 +1,32 @@
 // {{OYUN_TR}} — {{OYUN_EN}}
+// ====================================================================
+// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; gerisi bunun ayrıntısı)
+//
+//  1) SAHNE — editörde gördüğün her şey: assets/arena.sahne.
+//     Zemin, duvarlar, "oyuncu" topu ve "parilti_1..3". Konumlarını, boyunu
+//     ve rengini editörde değiştir (Kaydet + Derle); Oynat'ta aynısını görürsün.
+//     Oyun bu nesneleri ADIYLA bulur (aşağıda sahneden_oku): "oyuncu" adını
+//     ve "parilti" ile başlayan adları değiştirme. Daha fazla parıltı için bir
+//     parıltıyı kopyala (Ctrl+D): oyun hepsini kendisi sayar.
+//
+//  2) KURALLAR — bu dosya: topu yürütmek (oyun_adim), parıltı toplamak,
+//     süre, skor, menüler. Okuma sırası: oyun ayarları → sahneden_oku →
+//     tur_baslat / oyun_adim → ekranlar → main() (ana döngü).
+//
+//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış için: editörde
+//     nesneyi seç → "Davranış ekle". Betik assets/betikler/ içinde durur;
+//     aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
+//
+//  NE NEREDE DEĞİŞİR:
+//     süre, hız          → "Oyun ayarları" (SURE_S, HIZ)
+//     konum, renk, boy   → editörde
+//     yeni kural         → oyun_adim()      yeni ekran/menü → "Ekranlar"
+//
+//  CANLI: oyun editörde çalışırken kodu kaydedersen oyun yeniden başlar,
+//  sahneyi değiştirirsen oyuna anında uygulanır.
+// ====================================================================
+//
+// ---- Teknik notlar --------------------------------------------------------
 // Tulpar Engine oyun fabrikasi "arena" sablonundan uretildi (motor deposu tools/yeni_oyun.sh,
 // docs/FABRIKA.md). Oynanabilir en kucuk dongu: top yuvarla, pariltilari topla, sure bitince sonuc.
 // Genel parcalar motorun ortak kutuphanesinden gelir (kit_*): kip/kayit, iki dil, ses/muzik,
@@ -8,24 +36,6 @@
 //   tulpar oyun.tpr                                  # pencereli
 //   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
 //   tools/dogrula.sh                                 # kapilar
-// =====================================================================================================
-// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; geri kalanı bunun ayrıntısı)
-//
-//  1) SAHNE — editörde gördüğün her şey: assets/arena.sahne. Zemin, duvarlar, "oyuncu" topu ve "parilti_1..3".
-//     Konumlarını, boylarını, renklerini editörde değiştir (Kaydet + Derle); Oynat'ta aynısını görürsün.
-//     Oyun bu nesneleri ADIYLA bulur (aşağıdaki sahneden_oku): "oyuncu" adını ve "parilti" ile başlayan adları
-//     değiştirme. Daha fazla parıltı istersen bir parıltıyı kopyala (Ctrl+D): oyun hepsini kendisi sayar.
-//
-//  2) KURALLAR — bu dosya: topu yürütmek (oyun_adim), parıltı toplamak, süre, skor, menüler.
-//     Okuma sırası: oyun ayarları → sahneden_oku → tur_baslat / oyun_adim → ekranlar → main() (ana döngü).
-//
-//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış vermek için: editörde nesneyi seç → "Davranış ekle".
-//     Betik assets/betikler/ içinde durur; aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
-//
-//  NE NEREDE DEĞİŞİR:  süre, hız → "Oyun ayarları" (SURE_S, HIZ)  ·  konum, renk, boy → editörde
-//                      yeni kural → oyun_adim()  ·  yeni ekran/menü → "Ekranlar" bölümü
-// =====================================================================================================
-
 import "engine";
 import "kit_kayit";
 import "kit_dil";
