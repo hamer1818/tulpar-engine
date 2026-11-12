@@ -39,3 +39,27 @@ nesne "duvar_guney"
   model ilkel 10 0.66 0.7 0.8
   govde kutu 0.5 0.5 0.5 sabit
 son
+nesne "oyuncu"
+  konum 0 0.6 0
+  donus 0 0 0
+  olcek 1 1 1
+  model ilkel 11 1 0.43 0.35
+son
+nesne "parilti_1"
+  konum -5 0.45 -4
+  donus 0 0 0
+  olcek 0.7 0.7 0.7
+  model ilkel 11 1 0.85 0.2
+son
+nesne "parilti_2"
+  konum 4 0.45 -5
+  donus 0 0 0
+  olcek 0.7 0.7 0.7
+  model ilkel 11 1 0.85 0.2
+son
+nesne "parilti_3"
+  konum 2 0.45 5
+  donus 0 0 0
+  olcek 0.7 0.7 0.7
+  model ilkel 11 1 0.85 0.2
+son

@@ -36,6 +36,17 @@ int g_ekran = 0;
 int g_ayar_donus = 0;
 
 int g_top = 0;
+// Oyuncu topu ve parıltılar SAHNEDE durur (assets/arena.sahne: "oyuncu", "parilti_1"...): editörde ne görüyorsan
+// oyunda o çıkar; konumu/boyu/rengi editörde değiştir. Sahnede yoksa aşağıdaki varsayılanlar kullanılır.
+float OYUNCU_X = 0.0;
+float OYUNCU_Y = 0.6;
+float OYUNCU_Z = 0.0;
+float OYUNCU_R = 0.5;
+int OYUNCU_RENK = 0;
+float PARILTI_R = 0.35;
+int PARILTI_RENK = 0;
+float[] g_p0x = [];           // sahnedeki parıltıların başlangıç konumu
+float[] g_p0z = [];
 int[] g_parilti = [];
 float[] g_px = [];
 float[] g_pz = [];
@@ -68,20 +79,51 @@ func rastgele(): float {
     g_tohum = (g_tohum * 1103515245 + 12345) % 2147483648;
     return (g_tohum % 10000) / 10000.0;
 }
+func parilti_koy(int i, float x, float z) {
+    g_px[i] = x;
+    g_pz[i] = z;
+    g_parilti[i] = kure(x, 0.45, z, PARILTI_R, false, PARILTI_RENK);
+}
 func parilti_kur(int i) {
     float x = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
     float z = (rastgele() * 2.0 - 1.0) * (ARENA - 1.0);
-    g_px[i] = x;
-    g_pz[i] = z;
-    g_parilti[i] = kure(x, 0.45, z, 0.35, false, SARI);
+    parilti_koy(i, x, z);
+}
+// Sahnedeki "oyuncu" ve "parilti*" nesnelerini okur; oyunun kendi kürelerini onların yerine doğurur
+// (sahne nesnesi gizlenir — yoksa iki top üst üste görünürdü). Sahnede yoksa varsayılan: 1 oyuncu, 3 parıltı.
+func sahneden_oku() {
+    PARILTI_RENK = SARI;
+    OYUNCU_RENK = renk(255, 110, 90);
+    int o = sahne_bul("oyuncu");
+    if (o >= 0) {
+        OYUNCU_X = sahne_x(o);
+        OYUNCU_Y = sahne_y(o);
+        OYUNCU_Z = sahne_z(o);
+        OYUNCU_R = sahne_olcek_x(o) * 0.5;
+        OYUNCU_RENK = sahne_renk(o);
+        sahne_gorunur(o, false);
+    }
+    int ns = sahne_sayisi();
+    int n = 0;
+    for (int i = 0; i < ns; i++) {
+        str ad = sahne_adi(i);
+        if (len(ad) >= 7 && substring(ad, 0, 7) == "parilti") {
+            if (n == 0) { PARILTI_R = sahne_olcek_x(i) * 0.5; PARILTI_RENK = sahne_renk(i); }
+            push(g_p0x, sahne_x(i));
+            push(g_p0z, sahne_z(i));
+            sahne_gorunur(i, false);
+            n += 1;
+        }
+    }
+    if (n > 0) { PARILTI_N = n; }
 }
 func tur_baslat() {
     g_toplanan = 0;
     g_kalan = SURE_S;
-    isinla(g_top, 0.0, 0.6, 0.0);
+    isinla(g_top, OYUNCU_X, OYUNCU_Y, OYUNCU_Z);
     for (int i = 0; i < PARILTI_N; i++) {
         if (g_parilti[i] != 0) { sil(g_parilti[i]); }
-        parilti_kur(i);
+        if (i < len(g_p0x)) { parilti_koy(i, g_p0x[i], g_p0z[i]); } else { parilti_kur(i); }
     }
     g_ekran = EKRAN_OYUN;
     kit_muzik_cal(MUZIK_OYUN);
@@ -120,7 +162,7 @@ func oyun_adim(float d) {
             parilti_kur(i);
         }
     }
-    if (konum_y(g_top) < -5.0) { isinla(g_top, 0.0, 0.6, 0.0); }
+    if (konum_y(g_top) < -5.0) { isinla(g_top, OYUNCU_X, OYUNCU_Y, OYUNCU_Z); }
     g_kalan -= d;
     if (g_kalan <= 0.0) { tur_bitir(); }
 }
@@ -213,7 +255,8 @@ func main() {
             kutu(0.0, 0.5, i * (ARENA + 0.25), ARENA + 0.5, 0.5, 0.25, false, renk(168, 178, 204));
         }
     }
-    g_top = kure(0.0, 0.6, 0.0, 0.5, true, renk(255, 110, 90));
+    sahneden_oku();
+    g_top = kure(OYUNCU_X, OYUNCU_Y, OYUNCU_Z, OYUNCU_R, true, OYUNCU_RENK);
     for (int i = 0; i < PARILTI_N; i++) { push(g_parilti, 0); push(g_px, 0.0); push(g_pz, 0.0); }
     kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);
     SES_TOPLA = kit_ses_dene("ses_topla.wav", 880.0, 0.08);
