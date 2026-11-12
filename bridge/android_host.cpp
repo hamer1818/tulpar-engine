@@ -1052,15 +1052,66 @@ const bridge::HostSystem *a_system(void *user) {
   return &h->sys;
 }
 void a_back_to_game(void *user, bool on) { static_cast<AndroidHost *>(user)->back_to_game = on; }
+// --- Ekran klavyesi: dev.tulparlang.engine.Klavye (KOPRU §14) -------------------
+// ANativeActivity_showSoftInput NativeContentView'a klavye ister; o gorunum metin duzenleyici olmadigi icin
+// bircok cihazda klavye ACILMAZ (WoE 2026-11-12, emulator API 31: mInputShown=false). Klavye sinifi gorunmez bir
+// metin duzenleyiciye acar, yazilanlari kod noktasi kuyruguna koyar; burada her karede bosaltilir. Sinif APK'da
+// yoksa (motorun Java paketi eklenmemis) eski yola dusulur.
+jclass g_klavye_sinif = nullptr;
+bool g_klavye_yok = false;
+jclass klavye_sinif(android_app *app, JNIEnv *e, JniScope &j) {
+  if (g_klavye_sinif || g_klavye_yok) return g_klavye_sinif;
+  jobject act = app->activity->clazz;
+  jmethodID gcl = e->GetMethodID(e->GetObjectClass(act), "getClassLoader", "()Ljava/lang/ClassLoader;");
+  jobject cl = gcl && j.ok() ? e->CallObjectMethod(act, gcl) : nullptr;
+  jclass clc = cl && j.ok() ? e->FindClass("java/lang/ClassLoader") : nullptr;
+  jmethodID load = clc && j.ok() ? e->GetMethodID(clc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;") : nullptr;
+  jobject c = load && j.ok() ? e->CallObjectMethod(cl, load, e->NewStringUTF("dev.tulparlang.engine.Klavye")) : nullptr;
+  if (!c || !j.ok()) {
+    g_klavye_yok = true;
+    std::printf("[engine_bridge] android: Klavye sinifi yok — ANativeActivity_showSoftInput (bazi cihazlarda klavye acilmaz)\n");
+    return nullptr;
+  }
+  g_klavye_sinif = (jclass)e->NewGlobalRef(c);
+  return g_klavye_sinif;
+}
+bool klavye_java(android_app *app, bool on) {
+  JniScope j(app);
+  JNIEnv *e = j.env;
+  if (!e) return false;
+  jclass c = klavye_sinif(app, e, j);
+  if (!c) return false;
+  jmethodID m = e->GetStaticMethodID(c, "goster", "(Landroid/app/Activity;Z)I");
+  if (!m || !j.ok()) return false;
+  const jint r = e->CallStaticIntMethod(c, m, app->activity->clazz, (jboolean)on);
+  return j.ok() && r == 1;
+}
+void klavye_al(AndroidHost *h) {
+  if (!g_klavye_sinif) return;
+  JniScope j(h->app);
+  JNIEnv *e = j.env;
+  if (!e) return;
+  jmethodID m = e->GetStaticMethodID(g_klavye_sinif, "al", "()[I");
+  if (!m || !j.ok()) return;
+  jintArray a = (jintArray)e->CallStaticObjectMethod(g_klavye_sinif, m);
+  if (!a || !j.ok()) return;
+  const jsize n = e->GetArrayLength(a);
+  jint *p = e->GetIntArrayElements(a, nullptr);
+  for (jsize i = 0; p && i < n && h->text_n < 64; i++) if (p[i] > 0) h->text_buf[h->text_n++] = (uint32_t)p[i];
+  if (p) e->ReleaseIntArrayElements(a, p, JNI_ABORT);
+  e->DeleteLocalRef(a);
+}
 void a_soft_keyboard(void *user, bool on) {
   AndroidHost *h = static_cast<AndroidHost *>(user);
   h->text_on = on;
   h->text_n = 0;
+  if (klavye_java(h->app, on)) return;
   if (on) ANativeActivity_showSoftInput(h->app->activity, ANATIVEACTIVITY_SHOW_SOFT_INPUT_FORCED);
   else ANativeActivity_hideSoftInput(h->app->activity, 0);
 }
 uint32_t a_text_chars(void *user, uint32_t *out, uint32_t cap) {
   AndroidHost *h = static_cast<AndroidHost *>(user);
+  if (h->text_on) klavye_al(h);
   uint32_t n = h->text_n < cap ? h->text_n : cap;
   for (uint32_t i = 0; i < n; i++) out[i] = h->text_buf[i];
   h->text_n = 0;
