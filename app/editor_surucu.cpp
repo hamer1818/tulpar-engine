@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#define GLFW_INCLUDE_NONE // GL/gl.h arama: CI Linux runner'inda GL baslik paketi yok (yerelde var, o yuzden gorunmemisti)
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>

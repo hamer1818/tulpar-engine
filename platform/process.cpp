@@ -134,14 +134,18 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out
   }
   STARTUPINFOW si{};
   si.cb = sizeof si;
-  HANDLE lh = INVALID_HANDLE_VALUE;
+  HANDLE lh = INVALID_HANDLE_VALUE, nh = INVALID_HANDLE_VALUE; // nh: stdin icin NUL (POSIX'teki /dev/null)
   if (s.log_path) {
     SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE}; // cocuk MIRAS almali
     lh = CreateFileW(log, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (lh == INVALID_HANDLE_VALUE) { say(err, cap, "gunluk dosyasi acilamadi: %s", s.log_path); return false; }
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = si.hStdError = lh;
-    si.hStdInput = nullptr;
+    // stdin: NUL. `nullptr` birakmak cocugun stdin'ini GECERSIZ yapiyordu (CI Windows 2026-11-12: stdin okuyan cocuk 0 ile cikmadi);
+    // POSIX tarafi /dev/null veriyor, Windows'ta esdegeri NUL.
+    SECURITY_ATTRIBUTES sn{sizeof sn, nullptr, TRUE};
+    nh = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sn, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    si.hStdInput = nh != INVALID_HANDLE_VALUE ? nh : nullptr;
   }
   HANDLE ih = INVALID_HANDLE_VALUE;
   if (s.stdin_path) {
@@ -149,6 +153,7 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out
     ih = CreateFileW(girdi, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (ih == INVALID_HANDLE_VALUE) {
       if (lh != INVALID_HANDLE_VALUE) CloseHandle(lh);
+      if (nh != INVALID_HANDLE_VALUE) CloseHandle(nh);
       say(err, cap, "girdi dosyasi acilamadi: %s", s.stdin_path);
       return false;
     }
@@ -179,6 +184,7 @@ bool spawn_win(const ProcessSpec &s, bool detached, HANDLE *out, HANDLE *job_out
   const DWORD e = ok ? 0 : GetLastError();
   if (lh != INVALID_HANDLE_VALUE) CloseHandle(lh);
   if (ih != INVALID_HANDLE_VALUE) CloseHandle(ih);
+  if (nh != INVALID_HANDLE_VALUE) CloseHandle(nh);
   if (!ok) {
     if (job) CloseHandle(job);
     if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) say(err, cap, "program bulunamadi: %s", s.argv[0]);

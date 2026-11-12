@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 
+#define GLFW_INCLUDE_NONE // CI Linux runner'inda GL/gl.h yok (bkz. app/editor_surucu.cpp)
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>

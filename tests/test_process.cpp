@@ -22,6 +22,8 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <fcntl.h>
+#include <io.h>
 #include <process.h>
 #include <windows.h>
 #endif
@@ -319,6 +321,9 @@ int process_test_child_main(int argc, char **argv) {
   }
   // --stdin-yankila <cikti>: stdin'i EOF'a kadar okuyup dosyaya yaz (stdin_path kapisi).
   if (argc >= 3 && !std::strcmp(argv[1], "--stdin-yankila")) {
+#if defined(_WIN32)
+    _setmode(_fileno(stdin), _O_BINARY); // Windows CRT stdin METIN kipinde: \r\n -> \n bozulurdu (CI 2026-11-12)
+#endif
     FILE *f = std::fopen(argv[2], "wb");
     if (!f) return 3;
     char b[256];
