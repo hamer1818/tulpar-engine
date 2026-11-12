@@ -9465,6 +9465,18 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
     }
+    // Bagimsiz kod penceresinden "Editore geri al" istekleri (editor_kod_penceresi.hpp): ayar dizinindeki istek dosyalarini ~1/3 s'de
+    // bir yokla; dosya sekme olarak acilir ve istek SILINIR (pencere bunu gorup kapanir). Acilamazsa (kaydedilmemis baska dosya)
+    // istek kalir: pencere zaman asiminda uyarir ve acik kalir.
+    if (frame_i % 20 == 0) {
+      char idz[1024];
+      if (kod_istek_dizini(idz, sizeof idz)) {
+        struct IstekCtx { decltype(kodu_ac) *ac; };
+        IstekCtx ictx{&kodu_ac};
+        const uint32_t n = kod_istekleri_al(idz, [](const char *yol, void *u) -> bool { return (*static_cast<IstekCtx *>(u)->ac)(nullptr, yol, 0); }, &ictx);
+        if (n) set_status(st, "ayr\xC4\xB1 pencereden geri al\xC4\xB1nd\xC4\xB1: %s", editor_basename(kod.yol));
+      }
+    }
     if (kod.acik) {
       const int32_t ks = st.sel.primary();
       const bool ks_var = ks >= 0 && ks < (int32_t)st.scene.entity_count;

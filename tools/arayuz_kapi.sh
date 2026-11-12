@@ -317,6 +317,21 @@ PY5
   ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= timeout 200 "$ED" --kod "$B/kp/dondur.tpr" --size 1100x800 --surucu "$KOK/tests/arayuz/kod_pencere.txt" --surucu-dizin "$B/ui_kp" > "$B/ui_kp/editor.log" 2>&1 ); rkp=$?
   if [ $rkp = 0 ] && tail -c 20 "$B/kp/dondur.tpr" | grep -q 'x=1;'; then echo "  kod penceresi: --kod tam pencerede acildi (sahne/panel yok), yazi Ctrl+S ile dosyaya gitti"
   else echo "  KIRMIZI kod penceresi (cikis $rkp):"; grep -E 'HATA|> ' "$B/ui_kp/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  # Geri birlestirme: (a) editor ACIKKEN istek dosyasi sekme olarak acilir ve tuketilir; (b) editor yokken pencere acik kalir.
+  mkdir -p "$B/ui_kg" "$B/ui_ky2" "$B/kg_ayar"
+  if betik_proje "$B/kg"; then
+    mkdir -p "$B/kg_ayar/kod_istekleri"
+    printf '%s\n%s\n' "$(date +%s)" "$B/kg/assets/betikler/dondur.tpr" > "$B/kg_ayar/kod_istekleri/istek_9_1.txt"
+    printf '%s\n%s\n' "$(( $(date +%s) - 3600 ))" "/yok/bayat.tpr" > "$B/kg_ayar/kod_istekleri/istek_9_2.txt"       # bayat istek: yok sayilip silinmeli
+    ( export TULPAR_EDITOR_AYAR_DIZINI="$B/kg_ayar"; kos kod_geri_al.txt "$B/ui_kg" --scene "$B/kg/assets/arena.sahne" ); rkg=$?
+    if [ $rkg = 0 ] && [ ! -e "$B/kg_ayar/kod_istekleri/istek_9_1.txt" ] && [ ! -e "$B/kg_ayar/kod_istekleri/istek_9_2.txt" ]; then
+      echo "  kod geri al (editor acik): istek sekme olarak acildi ve tuketildi; bayat istek silindi"
+    else echo "  KIRMIZI kod geri al (cikis $rkg):"; grep -E 'HATA|> ' "$B/ui_kg/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; ls "$B/kg_ayar/kod_istekleri" | sed 's/^/      kalan: /'; kirmizi=1; fi
+    printf 'func dondur_baslat(id) {\n    logla("selam");\n}\n' > "$B/ky2.tpr"
+    ( export TULPAR_EDITOR_AYAR_DIZINI="$B/ky2_ayar"; cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= timeout 200 "$ED" --kod "$B/ky2.tpr" --size 1100x800 --surucu "$KOK/tests/arayuz/kod_geri_al_yok.txt" --surucu-dizin "$B/ui_ky2" > "$B/ui_ky2/editor.log" 2>&1 ); rky=$?
+    if [ $rky = 0 ] && [ -z "$(ls "$B/ky2_ayar/kod_istekleri" 2>/dev/null)" ]; then echo "  kod geri al (editor yok): pencere acik kaldi, uyardi, istegi geri aldi"
+    else echo "  KIRMIZI kod geri al, editor yok (cikis $rky):"; grep -E 'HATA|> ' "$B/ui_ky2/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI kod geri al: proje uretilemedi"; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

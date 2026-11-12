@@ -28,6 +28,18 @@ size_t kod_penceresi_argv(const char *exe, const char *dosya, const char *proje,
 // Bagimsiz sureci baslatir (detached). false: err'de sebep (ornegin exe bulunamadi).
 bool kod_penceresi_baslat(const char *dosya, const char *proje, const char *kutuphane, char *err, size_t err_cap);
 
+// --- Geri birlestirme (pencere -> editor sekmesi) ------------------------------------------------------------------
+// Ayri surec editorle konusamaz; ortak ayar dizinine ISTEK DOSYASI birakir: "istek_<pid>_<n>.txt" = unix saniyesi + dosya yolu.
+// Calisan editor dizini yoklar (kod_istekleri_al), yolu sekme olarak acar ve dosyayi SILER; pencere dosyanin yok olmasini bekler.
+// Editor yoksa dosya tuketilmez: pencere zaman asiminda onu geri alir ve acik kalir (kayip yok). 60 sn'den eski istek yok sayilir.
+bool kod_istegi_yaz(const char *dizin, const char *dosya_yolu, char *istek_yolu, size_t cap);
+// Her gecerli istek icin fn(yol, user): true donerse istek dosyasi silinir (tuketildi), false: kalir (editor su an acamiyor).
+// Donus: tuketilen istek sayisi.
+typedef bool (*KodIstekFn)(const char *yol, void *user);
+uint32_t kod_istekleri_al(const char *dizin, KodIstekFn fn, void *user);
+// Istek dizini (ayar dizini/kod_istekleri). false: ayar dizini kurulamadi.
+bool kod_istek_dizini(char *out, size_t cap);
+
 // `engine_editor --kod` giris noktasi: editor_run'in cihaz/swapchain/ui kurulumundan SONRA cagrilir. Donus: cikis kodu.
 int kod_penceresi_calistir(rhi::Device &dev, rhi::Swapchain *swap, rhi::OffscreenTarget *off, const rhi::OffscreenConfig &oc,
                            rhi::OffscreenResult &ores, EditorUi &ui, const EditorHost *host, const EditorOptions &opts, bool headless);

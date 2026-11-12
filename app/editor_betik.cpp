@@ -992,6 +992,12 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   ImGui::SameLine();
   if (ImGui::Button(ICON_MD_OPEN_IN_NEW " D\xC4\xB1\xC5\x9F edit\xC3\xB6rde a\xC3\xA7")) eylem = KodEylem::DisEditor;
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("VS Code ya da sistemin metin d\xC3\xBCzenleyicisi; kaydedince burada da g\xC3\xBCncellenir.");
+  if (k.tam_pencere) { // bagimsiz pencerede: editorun icine sekme olarak geri al (editor aciksa; istek dosyasi, editor_kod_penceresi.hpp)
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_MD_TAB " Edit\xC3\xB6re geri al")) eylem = KodEylem::EditoreDon;
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Bu kodu a\xC3\xA7\xC4\xB1k olan Tulpar Edit\xC3\xB6r'\xC3\xBCn i\xC3\xA7ine sekme olarak ta\xC5\x9F\xC4\xB1r ve bu pencereyi kapat\xC4\xB1r.\nEdit\xC3\xB6r a\xC3\xA7\xC4\xB1k de\xC4\x9Filse pencere a\xC3\xA7\xC4\xB1k kal\xC4\xB1r.");
+  }
   if (!k.tam_pencere) { // sekme kipinde: kendi penceresine ayir (ayri surec: editor kapansa da acik kalir)
     ImGui::SameLine();
     if (ImGui::Button(ICON_MD_OPEN_IN_BROWSER " Ayr\xC4\xB1 pencerede a\xC3\xA7")) eylem = KodEylem::AyriPencere;
@@ -1295,6 +1301,10 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   // --- Durum satiri ---
   ImGui::TextDisabled("Sat\xC4\xB1r %d, s\xC3\xBCtun %d  \xC2\xB7  %d sat\xC4\xB1r  \xC2\xB7  %s", k.imlec_satir, k.imlec_sutun, satir_n,
                       k.kirli ? "kaydedilmedi" : "kaydedildi");
+  if (k.uyari_mesaj[0]) {
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "\xC2\xB7  " ICON_MD_WARNING " %s", k.uyari_mesaj);
+  }
   if (k.hata_n > 0) {
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.35f, 1.0f), "\xC2\xB7  " ICON_MD_ERROR " Sat\xC4\xB1r %d: %.60s%s", k.hatalar[0].satir, k.hatalar[0].ileti,

@@ -1,0 +1,9 @@
+# Editor ACIK DEGIL: bagimsiz pencerede "Editore geri al" istegi tuketilmez (kimse yoklamiyor); ~180 kare sonra pencere istegi
+# geri alir, uyarir ve ACIK KALIR (kayip yok).
+bekle 8
+tikla "Editöre geri al"
+bekle 200
+dogrula_metin "Tulpar Editör açık değil"
+dogrula_metin "func dondur_baslat"
+ekran kod_geri_al_yok
+cik

@@ -437,6 +437,10 @@ yalnız Kod panelini tam ekran gösterir; kullanıcının tema/yazı boyutu terc
 iptal edilip "Kaydet / Kaydetmeden kapat / Vazgeç" sorulur (`Window::cancel_close`). Kapılar: `kod_sekme.txt`, `kod_ayir.txt`
 (ana editör kapandıktan SONRA çocuk sürecin yaşadığı ölçülür), `kod_pencere.txt`, `editor_kod_penceresi_argv_*`. **Gerçek
 işletim sistemi penceresi yolu (swapchain) bu oturumda çalıştırılmadı** (penceresiz yol ve sürücü doğrulandı).
+**Geri birleştirme:** bağımsız pencerede "Editöre geri al": ayar dizinine `kod_istekleri/istek_<pid>_<n>.txt` (unix saniyesi + yol)
+bırakılır; çalışan editör ~1/3 s'de bir yoklar, dosyayı sekme olarak açar ve isteği siler, pencere kapanır. Editör yoksa (ya da
+kaydedilmemiş başka dosya açma izin vermiyorsa) pencere ~3 s sonra isteği geri alır, uyarır ve AÇIK KALIR; 60 sn'den eski istek atılır.
+Kapılar: `kod_geri_al.txt`, `kod_geri_al_yok.txt`, `editor_kod_istegi_yaz_ve_al_*`.
 **Hâlâ kapsam dışı:** betik sıcak yükleme, görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 

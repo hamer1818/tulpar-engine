@@ -3,6 +3,7 @@
 // kapisinda (tests/arayuz/betik.txt, tools/arayuz_kapi.sh).
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "app/editor_betik.hpp"
 #include "app/editor_kod_penceresi.hpp"
@@ -360,6 +361,49 @@ ENGINE_TEST(editor_kod_penceresi_argv_with_control) {
   CHECK(app::kod_penceresi_argv("/e", "", nullptr, nullptr, nullptr, argv, 24, tp, sizeof tp) == 0);
   CHECK(app::kod_penceresi_argv("/e", "/d.tpr", "/p", "/k", nullptr, argv, 5, tp, sizeof tp) == 0);
   CHECK(app::kod_penceresi_argv("/e", "/d.tpr", "/p", "/k", nullptr, argv, 24, tp, 20) == 0);
+}
+
+// Ayri pencereden editore geri alma: istek dosyasi. Tuketilen silinir, tuketilmeyen (editor su an acamiyor) KALIR, bayat/bozuk atilir.
+namespace {
+struct IstekSay { int cagri = 0; char son[300] = {0}; bool kabul = true; };
+bool istek_fn(const char *yol, void *u) {
+  IstekSay *s = static_cast<IstekSay *>(u);
+  s->cagri++;
+  std::snprintf(s->son, sizeof s->son, "%s", yol);
+  return s->kabul;
+}
+} // namespace
+ENGINE_TEST(editor_kod_istegi_yaz_ve_al_with_control) {
+  char dir[512], yol[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "kod_istek"));
+  char istek[800];
+  CHECK(app::kod_istegi_yaz(dir, "/proje/assets/betikler/d ondur.tpr", istek, sizeof istek));   // bosluklu yol
+  CHECK(platform::fs_exists(istek));
+  IstekSay red; red.kabul = false;
+  CHECK(app::kod_istekleri_al(dir, istek_fn, &red) == 0 && red.cagri == 1);
+  CHECK(platform::fs_exists(istek));                                                           // KONTROL: kabul edilmeyen istek KALIR
+  IstekSay ok;
+  CHECK(app::kod_istekleri_al(dir, istek_fn, &ok) == 1 && ok.cagri == 1 && !std::strcmp(ok.son, "/proje/assets/betikler/d ondur.tpr"));
+  CHECK(!platform::fs_exists(istek));                                                          // tuketildi: dosya silindi
+  CHECK(app::kod_istekleri_al(dir, istek_fn, &ok) == 0 && ok.cagri == 1);                       // bir daha gelmez
+  // Bayat (1 saat once) ve bozuk istekler fn'e HIC gitmez, silinir
+  std::snprintf(yol, sizeof yol, "%s/istek_1_1.txt", dir);
+  std::FILE *f = std::fopen(yol, "wb");
+  CHECK(f != nullptr);
+  if (f) { std::fprintf(f, "%lld\n/yok/bayat.tpr\n", (long long)std::time(nullptr) - 3600); std::fclose(f); }
+  std::snprintf(yol, sizeof yol, "%s/istek_1_2.txt", dir);
+  f = std::fopen(yol, "wb");
+  if (f) { std::fputs("bozuk", f); std::fclose(f); }
+  std::snprintf(yol, sizeof yol, "%s/baska.txt", dir);                                          // "istek_" ile baslamayan dosyaya dokunulmaz
+  f = std::fopen(yol, "wb");
+  if (f) { std::fputs("x", f); std::fclose(f); }
+  IstekSay hic;
+  CHECK(app::kod_istekleri_al(dir, istek_fn, &hic) == 0 && hic.cagri == 0);
+  std::snprintf(yol, sizeof yol, "%s/istek_1_1.txt", dir);
+  CHECK(!platform::fs_exists(yol));
+  std::snprintf(yol, sizeof yol, "%s/baska.txt", dir);
+  CHECK(platform::fs_exists(yol));
+  CHECK(!app::kod_istegi_yaz("", "/a.tpr", nullptr, 0) && !app::kod_istegi_yaz(dir, "", nullptr, 0));
 }
 
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
