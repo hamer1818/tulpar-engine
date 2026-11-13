@@ -1756,6 +1756,43 @@ MeshHandle Renderer::create_mesh(const Vertex *verts, uint32_t nverts, const uin
   return MeshHandle{mesh_count_ - 1};
 }
 
+MeshHandle Renderer::create_dynamic_mesh(const Vertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices) {
+  if (mesh_count_ >= cfg_.max_meshes || nverts == 0) return MeshHandle{};
+  Mesh &m = meshes_[mesh_count_];
+  m = Mesh{};
+  rhi::MemoryAlloc im;
+  if (!make_buffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, sizeof(uint32_t) * nindices,
+                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &m.ibuf, &im)) return MeshHandle{};
+  if (!upload(m.ibuf, indices, sizeof(uint32_t) * nindices, 0)) return MeshHandle{};
+  for (uint32_t f = 0; f < cfg_.frames_in_flight; f++) {
+    rhi::MemoryAlloc vm;
+    if (!make_buffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(GpuVertex) * nverts,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &m.dyn_vbuf[f], &vm) || !vm.mapped)
+      return MeshHandle{};
+    m.dyn_map[f] = vm.mapped;
+    auto *dst = static_cast<GpuVertex *>(vm.mapped);
+    for (uint32_t i = 0; i < nverts; i++) pack_vertex(verts[i], &dst[i]);     // ilk icerik: tum kare tamponlari gecerli olsun
+  }
+  m.vbuf = m.dyn_vbuf[frame_];
+  m.dynamic = true;
+  m.dyn_verts = nverts;
+  m.index_count = nindices;
+  mesh_bounds(verts, nverts, &m.center, &m.radius);
+  stats_.meshes = ++mesh_count_;
+  return MeshHandle{mesh_count_ - 1};
+}
+
+bool Renderer::update_dynamic_mesh(MeshHandle handle, const Vertex *verts, uint32_t nverts) {
+  if (!handle.valid() || handle.id >= mesh_count_) return false;
+  Mesh &m = meshes_[handle.id];
+  if (!m.dynamic || nverts != m.dyn_verts || !m.dyn_map[frame_]) return false;
+  auto *dst = static_cast<GpuVertex *>(m.dyn_map[frame_]);
+  for (uint32_t i = 0; i < nverts; i++) pack_vertex(verts[i], &dst[i]);
+  m.vbuf = m.dyn_vbuf[frame_];
+  mesh_bounds(verts, nverts, &m.center, &m.radius);
+  return true;
+}
+
 bool Renderer::update_mesh_vertices(MeshHandle handle, const Vertex *verts, uint32_t nverts) {
   if (!handle.valid() || handle.id >= mesh_count_) return false;
   Mesh &m = meshes_[handle.id];

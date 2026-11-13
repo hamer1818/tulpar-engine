@@ -1783,3 +1783,22 @@ Kapılar: `import_cokgen_ucgenleme_alan_ve_sarim` (içbükey L: üçgen alanlar�
 Ölçüm: masaüstü (başsız) L-çokgen mesh `bitir` + 20 kare p50 7,6 ms; P20 Pro'da (2026-11-14) içerik testleri geçti. Deneme: `tulpar/examples/engine_mesh_kodla.tpr`.
 **Henüz yok:** editörde çokgen çizimi (P2), UV/malzeme çoklu, kodla mesh'in `.sahne`ye kaydı (yalnız çalışma zamanı modeli).
 
+## 21. Morph target (A5, 2026-11-14)
+
+glTF morph hedefleri (POSITION farkı) **iskeletsiz** mesh'te. `eng_model_morph_count(model)` (0 = yok) · `eng_morph_weight(id, hedef, w)` (hedef = glTF `weights` sırası, en çok 8;
+w tavansız, [0,1] dışı "abartma" geçerli) · `eng_morph_get` · `eng_morph_rejected`. Tulpar: `morph_sayisi/morph_agirlik/morph_oku/morph_reddedilen` (+EN ikizler).
+Hata (loglanır, durum bozulmaz): model varlığı değil, modelde morph yok, hedef aralık dışı, NaN.
+
+Mekanizma: yükleyici hedefleri `ModelMesh::morph_deltas`'a okur; **morph'lu mesh'te meshopt/LOD/DAG atlanır** (köşe sırası deltalarla gider), `model_compact` taban
+köşe + indeks + deltayı saklar. İlk `morph_weight` varlığa **kopya mesh'ler** (renderer `create_dynamic_mesh`: kare yuvası başına ayrı host-görünür tampon) verir; ağırlık
+değişince taban + Σ w·delta CPU'da karılır (`content::blend_morph_targets`) ve o karenin tamponuna yazılır (`update_dynamic_mesh`: bekleme/staging yok; GPU'nun okuyabildiği
+önceki karenin tamponuna dokunulmaz — fence halkası garanti eder). Ağırlık değişmeyen karede iş yok. Havuz **16 varlık**; yuva ayrılınca (despawn) AYNI modelde kopya mesh'ler yeniden
+kullanılır, başka modelde **yanar** (mesh tutamacı geri verilmez; `morph_burned`). Dolunca ya da mesh havuzu bitince varlık taban şekille kalır ve `eng_morph_rejected` sayar.
+
+Sınırlar (sessiz değil): 8 hedef/mesh (fazlası `Model::morph_dropped`), 16384 köşe/mesh (aşan mesh morph'suz yüklenir, `morph_meshes_dropped`), iskeletli mesh'te morph atlanır
+(`morph_skipped`). Normaller TABAN kalır (hedef normal farkı okunmuyor): büyük deformasyonda aydınlatma kabaca yanlış. glTF `weights` animasyon kanalı (klip olarak oynatma) ve
+iskeletli+morph (yüz animasyonu) **henüz yok**.
+Kapılar: `content_morph_hedefleri_yuklenir_ve_compact_korur` (delta değerleri, LOD yok, compact saklaması + morph'suz kontrol), `render_dinamik_mesh_kare_halkasi` (6 kare/2 yuva, mesh sayısı artmaz,
+statik/yanlış-köşe reddi; **P20 Pro'da geçti 2026-11-14**), köprü testi 10a0 (ağırlık 1 → 5770 piksel fark, 0'a dönüş 0 piksel fark = doğru yeniden karışım, 4 kasıtlı hata sayıldı, yuva yeniden kullanımı).
+Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).
+

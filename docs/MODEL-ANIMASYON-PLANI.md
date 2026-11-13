@@ -38,7 +38,8 @@ sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 P
 | A2 geçiş | ✅ `eng_anim_crossfade` + `model_pose_blend` (smoothstep, slerp); KOPRU §18; geçişte 200×60 = 0,82 ms (masaüstü) |
 | A4 olay + kök hareketi | ✅ `olay` satırı + faz kuyruğu, `kok` durum bayrağı (poz'dan kilitli), köprü/Tulpar `animator_olay`, KOPRU §19 |
 | P1 kodla mesh | ✅ `mesh_basla/kose/ucgen/cokgen_nokta/cokgen_yukselt/bitir`, tavanlar sayılır, KOPRU §20, `examples/engine_mesh_kodla.tpr` |
-| M1 (kalan), P2, A5 | ⏳ |
+| A5 morph target | ✅ (kısmi) iskeletsiz mesh'te glTF hedefleri + `eng_morph_weight` + kare halkalı dinamik mesh, KOPRU §21; **yok:** `weights` klip kanalı, iskeletli+morph, normal deltası |
+| M1 (kalan), P2 | ⏳ |
 
 ## 3. Fazlar (öncelik sırasıyla)
 

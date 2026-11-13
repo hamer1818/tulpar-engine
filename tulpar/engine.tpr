@@ -356,6 +356,15 @@ func karakter_ziplama(id, hiz) { eng_character_set_jump(id, hiz); }
 func character_set_jump(id, speed) { eng_character_set_jump(id, speed); }
 func model_yukle(yol): int { return eng_load_model(yol); }
 func model_koy(m, x, y, z, olcek, renk_): int { return eng_spawn_model(m, x, y, z, olcek, renk_); }
+// Morph target (A5): glTF blend shape agirligi; hedef = glTF weights sirasi (0..7)
+func morph_sayisi(m): int { return eng_model_morph_count(m); }
+func morph_agirlik(id, hedef, w) { eng_morph_weight(id, hedef, w); }
+func morph_oku(id, hedef): float { return eng_morph_get(id, hedef); }
+func morph_reddedilen(): int { return eng_morph_rejected(); }
+func morph_count(m): int { return eng_model_morph_count(m); }
+func morph_weight(id, target, w) { eng_morph_weight(id, target, w); }
+func morph_get(id, target): float { return eng_morph_get(id, target); }
+func morph_rejected(): int { return eng_morph_rejected(); }
 // Kodla mesh (P1): mesh_basla -> mesh_kose/mesh_ucgen ya da mesh_cokgen_nokta + mesh_cokgen_yukselt -> mesh_bitir = model (model_koy ile cizilir)
 func mesh_basla(): int { return eng_mesh_begin(); }
 func mesh_kose(x, y, z, u, v): int { return eng_mesh_vertex(x, y, z, u, v); }

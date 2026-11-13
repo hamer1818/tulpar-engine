@@ -2597,3 +2597,14 @@ ImGuizmo kendi **tam ekran varsayılan penceresine** çizer — ve o her pencere
 **Düzeltme:** gizmo bloğu `gorunum_gorunur` (Görünüm `Begin` true) koşuluna bağlandı. Kapı: `tests/arayuz/kod_gizmo.txt` (piksel sayımı,
 pozitif kontrol: Görünüm açıkken gizmo görünür). **Kural:** bir panelin viewport'una bağlı çizim, o panelin `Begin` sonucuna bağlı olmalı.
 
+
+### 8eb. Kanca izi kapısı (`bridge_runs…` 10c2/12) kendinden ÖNCEKİ fizik gövdesi ekle-sil'ine duyarlı
+**Belirti:** Kapıya (A5, 2026-11-14) bir morph bloğu eklendi; bloğun içinde `teng_spawn_box` (sabit) + `teng_despawn` vardı. Sonuç: "eski" ve "hızlı"
+kanca koşumlarının izi 52. karede `kdev_carpisma` argümanlarında (`a3..a7`, temas noktası/hız) ayrıştı ve kapı kırmızı döndü (`ilk fark 173`, -1 olmalı).
+Blok kaldırılınca geçti.
+
+**Neden:** İki koşum aynı süreçte art arda kurulur ve fizik gövdesi havuzu/sırası süreç içinde taşınır; önceki bir gövde ekle-sil'i temas sıralamasını (dolayısıyla
+çarpışma kancasının sayısal argümanlarını) kaydırıyor. (Mekanizmanın tamamı çözülmedi: ölçülen gözlem — gövdesiz `teng_spawn_light` ile aynı test geçiyor.)
+
+**Kural:** Bu dosyada kanca izi kapısından ÖNCE çalışan yeni test blokları **gövdesiz** varlık kullanmalı (model, ışık); kutu/küre/tetik ekle-sil yalnız
+kapıdan sonra (ya da başka test dosyasında). Kapıyı gevşetme: iki koşumun izi ayrışıyorsa bu gerçek bir belirlenimlilik bulgusu olabilir.

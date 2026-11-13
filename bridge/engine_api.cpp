@@ -34,6 +34,7 @@
 #include "content/font.hpp"
 #include "content/gltf.hpp"
 #include "content/mesh_import.hpp"
+#include "content/morph.hpp"
 #include "sim/animator.hpp"
 #include "content/image.hpp"
 #include "content/scene_blob.hpp"
@@ -326,6 +327,7 @@ struct Ent {
   int32_t asset = -1;
   sim::BodyId body;
   // Animasyon (yalniz Kind::Model): klip < 0 = statik cizim.
+  int32_t morph = -1;      // A5: Bridge::morphs indeksi (-1 = morph yok; ilk teng_morph_weight'te yuva alinir)
   int32_t animator = -1;   // A3: Bridge::anim_rts indeksi (animatör varsa klip/geçiş alanlarını GEÇERSİZ kılar)
   int32_t anim_clip = -1;
   float anim_speed = 1.0f, anim_time = 0.0f;
@@ -670,6 +672,18 @@ struct Bridge {
   AnimDefSlot anim_defs[kAnimDefs];
   AnimRtSlot anim_rts[kAnimRts];
   uint32_t anim_rejected = 0;
+  // A5 morph havuzu: varlik basina KOPYA mesh'ler (renderer dinamik mesh: kare basina ayri tampon) + agirliklar. Yuva modele baglanir; ayni modelde
+  // yeniden kullanilir, baska modelde YANAR (mesh tutamaci geri verilmez) ve sayilir. Dolunca morph REDDEDILIR (varlik taban sekille cizilir) ve sayilir.
+  static constexpr uint32_t kMorphSlots = 16, kMorphSlotMeshes = 16;
+  struct MorphSlot {
+    bool used = false, created = false, dirty = false;
+    int32_t asset = -1;
+    float w[content::kModelMaxMorph] = {};
+    renderer::MeshHandle meshes[kMorphSlotMeshes];   // asset'in mesh i'sine karsilik; morph'suzlar modelin ortak tutamaci
+    content::UploadedModel up;                       // draw_model'e verilen kopya (meshes -> yukaridaki dizi)
+  };
+  MorphSlot morphs[kMorphSlots];
+  uint32_t morph_rejected = 0, morph_burned = 0, morph_updates = 0;
   // kamera / dunya
   Vec3 cam_eye{0, 8, 14}, cam_target{0, 0, 0};
   // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
@@ -850,6 +864,20 @@ Vec3 color_of(int64_t c) { // 0xRRGGBBAA -> sRGB 0..1
 uint32_t rgba_of(int64_t c) {
   return renderer::Renderer::rgba((uint8_t)((c >> 24) & 0xFF), (uint8_t)((c >> 16) & 0xFF), (uint8_t)((c >> 8) & 0xFF), (uint8_t)(c & 0xFF));
 }
+// A5: morph yuvasini sahnede uygula: taban + sum(w*delta) -> kopya mesh'in bu karenin tamponuna. Normaller TABAN kalir (hedef normal farki yuklenmez).
+static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms) {
+  static renderer::Vertex vv[content::kModelMaxMorphVerts];
+  static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts];
+  for (uint32_t i = 0; i < mdl.mesh_count && i < Bridge::kMorphSlotMeshes; i++) {
+    const content::ModelMesh &mm = mdl.meshes[i];
+    if (!mm.morph_count || !mm.morph_deltas || !mm.verts) continue;
+    for (uint32_t v = 0; v < mm.vertex_count; v++) { vv[v] = mm.verts[v]; base[v] = mm.verts[v].pos; }
+    content::blend_morph_targets(base, mm.vertex_count, mm.morph_deltas, ms.w, mm.morph_count, outp);
+    for (uint32_t v = 0; v < mm.vertex_count; v++) vv[v].pos = outp[v];
+    if (b.ren.update_dynamic_mesh(ms.meshes[i], vv, mm.vertex_count)) b.morph_updates++;
+  }
+}
+
 bool ready(const char *fn) {
   if (g && g->inited) return true;
   BERR("%s: motor kurulmadan cagrildi (once eng_init)", fn);
@@ -970,6 +998,8 @@ void free_slot(uint32_t slot) {
   if (e.kinematic && g->kin_count) g->kin_count--;
   if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts) g->anim_rts[e.animator].used = false;   // A3: animator calisma yuvasi geri
   e.animator = -1;
+  if (e.morph >= 0 && (uint32_t)e.morph < Bridge::kMorphSlots) g->morphs[e.morph].used = false;   // A5: morph yuvasi geri (meshler ayni modelde yeniden kullanilir)
+  e.morph = -1;
   e.ch = sim::CharacterId{};
   e.alive = false;
   e.body = sim::BodyId{};
@@ -1281,7 +1311,13 @@ void render_frame() {
           }
         }
         if (!posed) {
-          content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod);
+          const content::UploadedModel *upm = &b.ups[e.asset];
+          if (e.morph >= 0 && (uint32_t)e.morph < Bridge::kMorphSlots && b.morphs[e.morph].used) {   // A5: morph: KOPYA mesh'ler, agirlik degistiyse yeniden karisim
+            Bridge::MorphSlot &ms = b.morphs[e.morph];
+            if (ms.dirty) { morph_apply(b, mdl, ms); ms.dirty = false; }
+            upm = &ms.up;
+          }
+          content::draw_model(b.ren, mdl, *upm, m, e.color, e.morph >= 0 ? nullptr : &view_lod);
         }
         drawn++;
       }
@@ -4173,6 +4209,72 @@ int teng_mesh_end(void) {
   BINFO("mesh modeli %u: %u kose, %u ucgen (kodla uretildi)", i, mb.nv, mb.nt);
   return (int)i;
 }
+// ---- A5: morph target ---------------------------------------------------------------------------------------------------
+// glTF morph hedefleri (POSITION farki) iskeletsiz mesh'te. Agirlik varlik basina; ilk teng_morph_weight varliga KOPYA mesh'ler (renderer dinamik mesh,
+// kare basina tampon) verir ve model onlarla cizilir (LOD'suz). Havuz 16 yuva; dolunca varlik taban sekille kalir ve teng_morph_reddedilen sayar.
+static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
+  if (e.morph >= 0 && (uint32_t)e.morph < Bridge::kMorphSlots) return &b.morphs[e.morph];
+  const content::Model &mdl = b.models[e.asset];
+  if (mdl.mesh_count > Bridge::kMorphSlotMeshes) { b.morph_rejected++; BERR("%s: model %d %u mesh'li (en cok %u)", who, e.asset, mdl.mesh_count, Bridge::kMorphSlotMeshes); return nullptr; }
+  int pick = -1;
+  for (uint32_t i = 0; i < Bridge::kMorphSlots && pick < 0; i++) if (!b.morphs[i].used && b.morphs[i].created && b.morphs[i].asset == e.asset) pick = (int)i;
+  for (uint32_t i = 0; i < Bridge::kMorphSlots && pick < 0; i++) if (!b.morphs[i].used && !b.morphs[i].created) pick = (int)i;
+  for (uint32_t i = 0; i < Bridge::kMorphSlots && pick < 0; i++)
+    if (!b.morphs[i].used) { pick = (int)i; b.morph_burned++; b.morphs[i].created = false; }   // baska modelin meshleri: geri verilemez, yanar (sayilir)
+  if (pick < 0) { b.morph_rejected++; BERR("%s: morph havuzu dolu (%u yuva)", who, Bridge::kMorphSlots); return nullptr; }
+  Bridge::MorphSlot &ms = b.morphs[pick];
+  if (!ms.created) {
+    for (uint32_t i = 0; i < mdl.mesh_count; i++) {
+      const content::ModelMesh &mm = mdl.meshes[i];
+      ms.meshes[i] = b.ups[e.asset].meshes[i];
+      if (mm.morph_count && mm.verts && mm.indices) {
+        const renderer::MeshHandle h = b.ren.create_dynamic_mesh(mm.verts, mm.vertex_count, mm.indices, mm.index_count);
+        if (!h.valid()) { b.morph_rejected++; b.morph_burned++; BERR("%s: dinamik mesh olusturulamadi (mesh havuzu dolu?)", who); return nullptr; }
+        ms.meshes[i] = h;
+      }
+    }
+    ms.up = b.ups[e.asset];
+    ms.up.meshes = ms.meshes;
+    ms.created = true;
+    ms.asset = e.asset;
+  }
+  ms.used = true; ms.dirty = true;
+  for (uint32_t t = 0; t < content::kModelMaxMorph; t++) ms.w[t] = 0.0f;
+  e.morph = pick;
+  return &ms;
+}
+int teng_model_morph_count(int asset) {
+  CALLF("teng_model_morph_count", "%d", asset);
+  if (!ready("teng_model_morph_count")) return 0;
+  if (asset < 0 || (uint32_t)asset >= g->model_count) { BERR("teng_model_morph_count: model %d yok (%u yuklu)", asset, g->model_count); return 0; }
+  uint32_t n = 0;
+  const content::Model &m = g->models[asset];
+  for (uint32_t i = 0; i < m.mesh_count; i++) if (m.meshes[i].morph_count > n) n = m.meshes[i].morph_count;
+  return (int)n;
+}
+void teng_morph_weight(int id, int target, double w) {
+  CALLF("teng_morph_weight", "#%d hedef %d w %.3f", id, target, w);
+  if (!ready("teng_morph_weight")) return;
+  const int s = slot_of(id, "teng_morph_weight");
+  if (s < 0) return;
+  Ent &e = g->ents[s];
+  if (e.kind != Kind::Model || e.asset < 0 || (uint32_t)e.asset >= g->model_count) { BERR("teng_morph_weight: #%d bir model varligi degil", id); return; }
+  const int n = teng_model_morph_count(e.asset);
+  if (n == 0) { BERR("teng_morph_weight: model %d'de morph hedefi yok", e.asset); return; }
+  if (target < 0 || target >= n) { BERR("teng_morph_weight: hedef %d aralik disi (modelde %d hedef)", target, n); return; }
+  if (!(w == w)) { BERR("teng_morph_weight: agirlik NaN"); return; }
+  Bridge::MorphSlot *ms = morph_acquire(*g, e, "teng_morph_weight");
+  if (!ms) return;
+  if (ms->w[target] != (float)w) { ms->w[target] = (float)w; ms->dirty = true; }
+}
+double teng_morph_get(int id, int target) {
+  const int s = slot_of(id, "teng_morph_get");
+  if (s < 0) return 0.0;
+  const Ent &e = g->ents[s];
+  if (e.morph < 0 || target < 0 || (uint32_t)target >= content::kModelMaxMorph) return 0.0;
+  return g->morphs[e.morph].w[target];
+}
+int teng_morph_rejected(void) { return g ? (int)g->morph_rejected : 0; }
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint) {
   CALLF("teng_spawn_model", "model %d (%.2f %.2f %.2f) x%.2f", asset, x, y, z, scale);
   if (!ready("teng_spawn_model")) return 0;

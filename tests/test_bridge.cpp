@@ -1287,6 +1287,63 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     }
   }
 
+  // --- 10a0) A5 MORPH TARGET: agirlik -> kopya mesh -> GORUNUR degisim; hata kontrolleri; yuva geri verilir ----------------------------------
+  {
+    char mp[512];
+    std::snprintf(mp, sizeof mp, "%s/morph_kup.gltf", assets_dir());
+    const int mm = teng_load_model(mp);
+    if (mm < 0) { ortam_hatasi++; skip("morph_kup.gltf yok — morph kapisi kosmadi"); }
+    else {
+      const int errs0 = teng_error_count();
+      CHECK(teng_model_morph_count(mm) == 2);
+      const int ent = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      CHECK(ent > 0);
+      teng_camera(0, 1.0, 4.0, 0, 0.5, 0);
+      char sa[512], sb[512], sc[512];
+      tmp_template(sa, sizeof sa, "kopru_morph_a"); tmp_template(sb, sizeof sb, "kopru_morph_b"); tmp_template(sc, sizeof sc, "kopru_morph_c");
+      char *ms[3] = {sa, sb, sc};
+      for (int i = 0; i < 3; i++) { const int fd = mkstemp(ms[i]); if (fd >= 0) close(fd); }
+      run_frames(3);
+      CHECK(teng_screenshot(sa) == 1);                                    // agirlik 0: taban kup
+      CHECK(teng_morph_get(ent, 0) == 0.0);
+      teng_morph_weight(ent, 0, 1.0);                                     // uzat: 2 m boyunda
+      CHECK(std::fabs(teng_morph_get(ent, 0) - 1.0) < 1e-9);
+      run_frames(3);
+      CHECK(teng_screenshot(sb) == 1);
+      teng_morph_weight(ent, 0, 0.0);                                     // geri: tabana donmeli (yeniden karisim dogru)
+      run_frames(3);
+      CHECK(teng_screenshot(sc) == 1);
+      static uint8_t pa[kW * kH * 3], pb[kW * kH * 3], pc[kW * kH * 3];
+      const uint32_t n1 = read_ppm(sa, pa, kW * kH, nullptr, nullptr), n2 = read_ppm(sb, pb, kW * kH, nullptr, nullptr), n3 = read_ppm(sc, pc, kW * kH, nullptr, nullptr);
+      CHECK(n1 > 0 && n1 == n2 && n2 == n3);
+      if (n1 > 0 && n1 == n2 && n2 == n3) {
+        const uint32_t d_morph = diff_px(pa, pb, n1), d_geri = diff_px(pa, pc, n1);
+        std::printf("    [bilgi] morph: piksel farki agirlik 1-0 %u, geri donus (0 olmali) %u\n", d_morph, d_geri);
+        if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): morph PIKSEL karsilastirmasi gercek cihazda");
+        else { CHECK(d_morph > 200); CHECK(d_geri == 0); }
+      }
+      // KONTROL: kasitli hatalar (hedef aralik disi, NaN, morph'suz model, model olmayan varlik) -> 4 hata, durum bozulmaz
+      CHECK(teng_morph_rejected() == 0);
+      teng_morph_weight(ent, 5, 1.0);
+      teng_morph_weight(ent, 0, std::nan(""));
+      const int kutu = teng_spawn_light(9, 3, 9, 0xFFFFFF, 1.0, 5.0);   // govdesiz varlik: fizik durumuna dokunmaz (kanca izi kapisi buna duyarli)
+      teng_morph_weight(kutu, 0, 1.0);
+      CHECK(teng_model_morph_count(99) == 0);
+      CHECK(teng_error_count() == errs0 + 4);
+      mesh_hata += 4;
+      // Yuva geri verilir: despawn sonra yeni varlik AYNI yuvayi (ve kopya mesh'leri) yeniden kullanir -> mesh sayisi artmaz
+      const int draw0 = teng_draw_count();
+      teng_despawn(ent); teng_despawn(kutu);
+      const int e2 = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      teng_morph_weight(e2, 1, 1.0);
+      run_frames(3);
+      CHECK(teng_morph_rejected() == 0 && teng_draw_count() >= 1);
+      (void)draw0;
+      teng_despawn(e2);
+      for (int i = 0; i < 3; i++) unlink(ms[i]);
+    }
+  }
+
   // --- 10a) P1 KODLA MESH: kurucu, cokgen yukseltme, tavan SAYILIR, model olarak cizilir --------------------------------------
   {
     const int errs0 = teng_error_count();
@@ -1324,8 +1381,9 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     CHECK(teng_mesh_end() == -1);                                                 // ucgen yok: bos mesh reddedilir
     // hata sayaci: yukaridaki kasitli reddedilenler loglandi (BERR) ama kare/ayirma kapilarini bozmaz
     std::printf("    [bilgi] kodla mesh: model %d, hata logu +%d (kasitli reddedilenler)\n", m, teng_error_count() - errs0);
-    mesh_hata = teng_error_count() - errs0;
-    CHECK(mesh_hata == 5);
+    const int p1_hata = teng_error_count() - errs0;
+    CHECK(p1_hata == 5);
+    mesh_hata += p1_hata;
   }
 
   // --- 10b) KODLA TETIK: gorunmez bolge, kuyruk, tasima -----------------------

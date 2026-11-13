@@ -594,17 +594,42 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
           }
         }
       }
-      if (mm.skin < 0 && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { set_error(out, "arena dolu (meshopt)", nullptr); ok = false; break; }
+      // A5: morph hedefleri (POSITION farki). Yalniz iskeletsiz mesh'te; morph'lu mesh'te meshopt/LOD/DAG atlanir (kose sirasi korunmali).
+      if (prim.targets_count > 0) {
+        if (mm.skin >= 0) out->morph_skipped++;
+        else if (mm.vertex_count > kModelMaxMorphVerts) out->morph_meshes_dropped++;
+        else {
+          // Hedef t = glTF weights[t]: POSITION'u olmayan hedef SIFIR fark olur (indeks kaymasin).
+          const uint32_t nt = (uint32_t)(prim.targets_count < kModelMaxMorph ? prim.targets_count : kModelMaxMorph);
+          if (prim.targets_count > kModelMaxMorph) out->morph_dropped += (uint32_t)(prim.targets_count - kModelMaxMorph);
+          mm.morph_deltas = arena.alloc_array_zeroed<Vec3>(nt * mm.vertex_count);
+          if (!mm.morph_deltas) { set_error(out, "arena dolu (morph)", nullptr); ok = false; break; }
+          for (uint32_t t = 0; t < nt; t++) {
+            const cgltf_accessor *tp = nullptr;
+            for (cgltf_size a = 0; a < prim.targets[t].attributes_count; a++)
+              if (prim.targets[t].attributes[a].type == cgltf_attribute_type_position) tp = prim.targets[t].attributes[a].data;
+            if (!tp || tp->count != pos->count) continue;
+            for (uint32_t v = 0; v < mm.vertex_count; v++) {
+              float d[3] = {0, 0, 0};
+              cgltf_accessor_read_float(tp, v, d, 3);
+              mm.morph_deltas[t * mm.vertex_count + v] = {d[0], d[1], d[2]};
+            }
+          }
+          if (!ok) break;
+          mm.morph_count = nt;
+        }
+      }
+      if (mm.skin < 0 && mm.morph_count == 0 && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { set_error(out, "arena dolu (meshopt)", nullptr); ok = false; break; }
       // Ince esik: kucuk iskeletli mesh'e LOD uretmek renderer mesh kapasitesini (256) bosuna tuketir (her LOD ayri mesh tutamaci; havuz testi
       // bridge_model_pool_holds_game_characters_and_reports 108 kucuk iskeletli modelle bunu yakaladi). Yalniz >= kSkinLodMinTris ucgenli.
-      if (lim.lods && (mm.skin < 0 || mm.index_count / 3 >= kSkinLodMinTris)) {
+      if (lim.lods && mm.morph_count == 0 && (mm.skin < 0 || mm.index_count / 3 >= kSkinLodMinTris)) {
         // A7 (mobil karakter butcesi, P20 Pro): ISKELETLI mesh'lere de LOD. Sadelestirme yalniz var olan kose indekslerini secer (ayni kose
         // tamponu), yani skin_verts (eklem/agirlik) ayni indekslerle gecerli kalir. Deformasyonu korumak icin hata esigi yariya iner.
         const float ratios[kModelMaxLods] = {0.5f, 0.25f};
         const float er = mm.skin >= 0 ? lim.lod_error * 0.5f : lim.lod_error;
         if (!mesh_build_lods(arena, mm, ratios, kModelMaxLods, er)) { set_error(out, "arena dolu (lod)", nullptr); ok = false; break; }
       }
-      if (mm.skin < 0 && lim.cluster_dag) {
+      if (mm.skin < 0 && mm.morph_count == 0 && lim.cluster_dag) {
         const DeviceClass dc = lim.cluster_class == 0 ? DeviceClass::Low : (lim.cluster_class >= 2 ? DeviceClass::High : DeviceClass::Mid);
         ClusterDag *dag = arena.alloc_array_zeroed<ClusterDag>(1);
         if (!dag) { set_error(out, "arena dolu (kume DAG)", nullptr); ok = false; break; }
@@ -818,8 +843,15 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
   for (uint32_t i = 0; i < src.image_count; i++) dst->images[i].rgba = nullptr;
   for (uint32_t i = 0; i < src.mesh_count; i++) {
     ModelMesh &mm = dst->meshes[i];
-    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr;
+    const ModelMesh &sm = src.meshes[i];
+    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr; mm.morph_deltas = nullptr;
     for (uint32_t k = 0; k < kModelMaxLods; k++) mm.lod_indices[k] = nullptr;
+    if (sm.morph_count && sm.morph_deltas && sm.verts) {   // A5: morph her kare CPU'da karilir: taban kose + farklar kalici kopyada KALIR
+      mm.verts = copy_array(keep, sm.verts, sm.vertex_count);
+      mm.indices = copy_array(keep, sm.indices, sm.index_count);   // dinamik (kopya) mesh kurmak icin
+      mm.morph_deltas = copy_array(keep, sm.morph_deltas, sm.morph_count * sm.vertex_count);
+      if (!mm.verts || !mm.indices || !mm.morph_deltas) return false;
+    }
   }
   for (uint32_t i = 0; i < src.skin_count; i++) {
     ModelSkin &s = dst->skins[i];

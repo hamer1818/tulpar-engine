@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 435 fonksiyon · 815 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 439 fonksiyon · 817 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -49,7 +49,7 @@ mindmap
       prefab
     Köprü L6
       TulparLang C ABI
-      435 fonksiyon
+      439 fonksiyon
       Android / masaüstü host
     Editör
       panel + gizmo
@@ -169,7 +169,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7795 satır)
+### renderer — L3 (24 dosya, 7842 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (59 dosya, 13233 satır)
+### content — L6 (59 dosya, 13274 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -407,7 +407,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10572 satır)
+### bridge — L6 (11 dosya, 10681 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -421,7 +421,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (69 dosya, 15762 satır)
+### tools — L7 (70 dosya, 15821 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -459,6 +459,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/layout_check.py` — CPU-GPU yerlesim denetimi (Faz 8.4) — shader bloklari ile C++ struct'lari.
 - `tools/make_test_gltf.py` — Test varligi uretici: dama dokulu kup -> engine/tests/assets/checker_cube.gltf
 - `tools/make_test_karakter.py` — Ölçüm varlığı üretici: N eklemli, ~T üçgenli İSKELETLİ "karakter" (zincir silindir) -> <çıktı>.gltf
+- `tools/make_test_morph.py` — tests/assets/morph_kup.gltf: A5 (morph target) test varligi. 8 koseli kup (kenar 1, merkez orijin), 2 hedef:
 - `tools/ozellik_haritasi.py` — Motor ÖZELLİK HARİTASI üretici (docs/OZELLIK-HARITASI.md).
 - `tools/package.sh` — Tulpar Engine — dagitim paketi. CI de insan da AYNI kodu kosar: paketleme
 - `tools/paket_denetle.sh` — Paket yerlesimi + (Windows'ta) MinGW DLL kapisi.
@@ -495,7 +496,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 
 ## 2. Köprü API (TulparLang ↔ motor)
 
-Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **427** fonksiyon. Sözleşme: `docs/KOPRU.md`.
+Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **431** fonksiyon. Sözleşme: `docs/KOPRU.md`.
 
 ### yasam dongusu (37)
 
@@ -623,7 +624,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_kinematic_move(id:int, x:num, y:num, z:num)` → void — Kinematik govdeyi hedefe surur: bu karenin sim adimlarinda varir, hiz turetilir (itme dog…
 - `eng_is_kinematic(id:int)` → bool — Varlik kinematik govde mi.
 
-### Carpisma gruplari (Geri bildirim #25): takim mermisi kendi… (46)
+### Carpisma gruplari (Geri bildirim #25): takim mermisi kendi… (50)
 
 - `eng_collision_group(id:int, group:int)` → bool — Govdeyi carpisma grubuna (0..15) alir; grup 0 varsayilan (grup atanmamis her sey: sahne,…
 - `eng_collision_group_of(id:int)` → int — Varligin carpisma grubu (0 varsayilan).
@@ -642,6 +643,10 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_character_ground_state(id:int)` → int — Zemin durumu: 0 zeminde, 1 dik yamac (kayar), 2 desteksiz, 3 havada.
 - `eng_character_set_jump(id:int, speed:num)` → void — Ziplama hizi (m/s, varsayilan 4.0).
 - `eng_load_model(path:str)` → int — glTF modeli yukler. Donus: model tutamaci, -1 hata.
+- `eng_model_morph_count(asset:int)` → int — Modelin morph hedefi sayisi (glTF targets; 0 = yok).
+- `eng_morph_weight(id:int, target:int, w:num)` → void — Model varliginin morph hedef agirligi (genelde 0..1). Ilk cagri varliga kopya mesh yuvasi…
+- `eng_morph_get(id:int, target:int)` → float — Morph hedef agirligini okur.
+- `eng_morph_rejected()` → int — Havuz/mesh tavani yuzunden reddedilen morph sayisi.
 - `eng_mesh_begin()` → int — Kodla mesh kuruculugunu sifirlar (P1). 1 = ok.
 - `eng_mesh_vertex(x:num, y:num, z:num, u:num, v:num)` → int — Kurucuya kose ekler (4096 tavan). Donus: kose indeksi, -1 tavan.
 - `eng_mesh_tri(a:int, b:int, c:int)` → int — Kurucuya ucgen ekler (8192 tavan, CCW). 1 = ok, 0 = reddedildi (sayilir).
@@ -1073,7 +1078,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **815** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **817** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1081,7 +1086,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `bridge` — 70
 - `scene` — 48
 - `renderer` — 37
-- `content` — 28
+- `content` — 29
 - `updater` — 20
 - `audio` — 16
 - `cluster` — 16
@@ -1089,7 +1094,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `math` — 14
 - `fixed` — 13
 - `particles` — 13
-- `render` — 11
+- `render` — 12
 - `clod` — 10
 - `import` — 10
 - `files` — 9
@@ -1218,7 +1223,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 30 test
+- `tests/test_content.cpp` — 32 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test
@@ -1350,6 +1355,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/layout_check.py` — CPU-GPU yerlesim denetimi (Faz 8.4) — shader bloklari ile C++ struct'lari.
 - `tools/make_test_gltf.py` — Test varligi uretici: dama dokulu kup -> engine/tests/assets/checker_cube.gltf
 - `tools/make_test_karakter.py` — Ölçüm varlığı üretici: N eklemli, ~T üçgenli İSKELETLİ "karakter" (zincir silindir) -> <çıktı>.gltf
+- `tools/make_test_morph.py` — tests/assets/morph_kup.gltf: A5 (morph target) test varligi. 8 koseli kup (kenar 1, merkez orijin), 2 hedef:
 - `tools/ozellik_haritasi.py` — Motor ÖZELLİK HARİTASI üretici (docs/OZELLIK-HARITASI.md).
 - `tools/package.sh` — Tulpar Engine — dagitim paketi. CI de insan da AYNI kodu kosar: paketleme
 - `tools/paket_denetle.sh` — Paket yerlesimi + (Windows'ta) MinGW DLL kapisi.
@@ -1555,6 +1561,7 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8dy** — Sabit adımlı fizik + jitterli `dt` = kare başına 0 ya da 2 adım ("kasa kasa")
 - **8dz** — `SetNextWindowPos()` pencereyi dock'tan çıkarır — dock isteği sessizce iptal olur
 - **8ea** — Panel gizlenince onun viewport'una bağlı çizim sürer — gizmo başka sekmenin üstüne çıkar
+- **8eb** — Kanca izi kapısı (`bridge_runs…` 10c2/12) kendinden ÖNCEKİ fizik gövdesi ekle-sil'ine duyarlı
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 
@@ -1698,7 +1705,7 @@ Kapasiteler init'te alınır; dolunca geçersiz handle döner ve SAYILIR (sessiz
 - `content/font.hpp`: `kFontFallbackCount`=11
 - `content/gi.hpp`: `kGiMaxLights`=64
 - `content/importer.hpp`: `kImportDirLen`=512, `kImportPathLen`=640, `kImportExtLen`=16
-- `content/model.hpp`: `kModelMaxLods`=2, `kModelMaxSkins`=4, `kModelMaxJoints`=128
+- `content/model.hpp`: `kModelMaxLods`=2, `kModelMaxSkins`=4, `kModelMaxJoints`=128, `kModelMaxMorph`=8, `kModelMaxMorphVerts`=16384
 - `content/pack.hpp`: `kPackMaxName`=255
 - `content/particle_meshlet.hpp`: `kParticleMeshletSize`=64
 - `content/primitives.hpp`: `kPrimitiveSlotCount`=25

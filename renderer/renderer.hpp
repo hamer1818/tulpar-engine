@@ -398,6 +398,11 @@ public:
   MeshHandle create_mesh(const Vertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
   MeshHandle create_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
   bool update_mesh_vertices(MeshHandle handle, const Vertex *verts, uint32_t nverts);
+  // A5 (morph): KARE BASINA guncellenebilen mesh. Her kare-yuvasi icin ayri host-gorunur vertex tamponu (frames_in_flight adet): update, o
+  // karenin tamponuna yazar ve mesh'i ona baglar; GPU'nun okuyabildigi onceki karenin tamponuna DOKUNMAZ (fence halkasi zaten garanti
+  // ediyor). update_mesh_vertices'in aksine bekleme/staging yok. Tavan: mesh havuzundan bir tutamac (create_mesh gibi, geri verilmez).
+  MeshHandle create_dynamic_mesh(const Vertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
+  bool update_dynamic_mesh(MeshHandle handle, const Vertex *verts, uint32_t nverts);
   // Indeks araligi seyrek (Mali kurali, CPU'da olculur) mesh sayisi; kapi 0 bekler.
   uint32_t sparse_mesh_count() const { return sparse_mesh_count_; }
   // RGBA8, mip zinciri blit ile uretilir (yukleme aninda). Mobil asil yol ASTC (Faz 6).
@@ -733,6 +738,11 @@ private:
     VkBuffer vbuf = VK_NULL_HANDLE, ibuf = VK_NULL_HANDLE;
     uint32_t index_count = 0;
     bool skinned = false;
+    // A5: dinamik mesh: kare basina ayri host-gorunur vertex tamponu (dyn_vbuf[frame_]); vbuf o karenin tamponuna isaret eder.
+    bool dynamic = false;
+    uint32_t dyn_verts = 0;
+    VkBuffer dyn_vbuf[3] = {};
+    void *dyn_map[3] = {};
     // Yerel (model uzayi) sinir kuresi: yukleme aninda vertex'lerden olculur.
     // GPU cull bunu model matrisiyle donusturur.
     Vec3 center{0, 0, 0};

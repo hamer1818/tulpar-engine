@@ -96,7 +96,14 @@ struct ModelMesh {
   // yeniden siralanmis, WEIGHTS_0 unorm16). Iskeletli mesh'te meshopt/LOD atlanir.
   int32_t skin = -1;
   renderer::SkinnedVertex *skin_verts = nullptr;
+  // A5 (morph target): glTF POSITION farklari. `morph_deltas` = morph_count x vertex_count (hedef-major), taban `verts` KALIR (model_compact
+  // bu mesh'te verts'i de saklar). Morph'lu mesh'te meshopt/LOD/DAG ATLANIR (kose sirasi deltalarla birlikte gider). Iskeletli mesh'te morph
+  // bu surumde YOK (Model::morph_skipped sayar).
+  Vec3 *morph_deltas = nullptr;
+  uint32_t morph_count = 0;
 };
+constexpr uint32_t kModelMaxMorph = 8;          // mesh basina en cok morph hedefi (asan hedefler Model::morph_dropped'a sayilir)
+constexpr uint32_t kModelMaxMorphVerts = 16384; // morph'lu mesh'in en cok kosesi (asani morph'suz yuklenir, sayilir)
 // Yukleme sonrasi mesh optimizasyonu olcumu (meshoptimizer analyze*): sayilar
 // ucgen agirlikli ortalama. ACMR = donusturulen vertex / ucgen (0.5 en iyi).
 struct ModelOptStats {
@@ -118,6 +125,8 @@ struct Model {
   ModelClip *clips = nullptr;        uint32_t clip_count = 0;
   // GltfLimits::max_clips'i asan animasyon sayisi (yuklenmedi; sessiz degil, sayilir).
   uint32_t clips_dropped = 0;
+  // A5: morph hedefi tavani asan (yuklenmeyen) hedefler / kose tavanini asip morph'suz yuklenen mesh'ler / iskeletli oldugu icin morph'u atlanan mesh'ler.
+  uint32_t morph_dropped = 0, morph_meshes_dropped = 0, morph_skipped = 0;
   Vec3 bounds_min{0, 0, 0}, bounds_max{0, 0, 0}; // ornek uzayinda, tum instance'lar
   ModelOptStats opt;
   // Ayni goruntu hem renk (sRGB) hem veri (dogrusal) olarak kullanilmis:

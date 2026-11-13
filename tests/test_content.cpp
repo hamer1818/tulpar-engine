@@ -2127,3 +2127,73 @@ ENGINE_TEST(content_kok_hareketi_okuma_ve_kilit) {
   content::PoseMixEntry e0b[1] = {{yuru, 0.0f, 1.0f}};
   CHECK(content::model_pose_mix(m, e0b, 1, s3, &pa, false) && std::memcmp(pb.skin_mats[0], pa.skin_mats[0], sizeof(Mat4) * jc) == 0);   // kilitli t=0.5 == kilitsiz t=0 (hareket tamamen kilitlendi)
 }
+
+// A5: glTF morph hedefleri. morph_kup.gltf (tools/make_test_morph.py): 8 koseli kup, hedef 0 'uzat' (ust 4 kose y +1), hedef 1 'genislet' (x +-0.5).
+// Morph'lu mesh'te meshopt/LOD atlanir (kose sirasi deltalarla gider): 8 kose / 36 indeks AYNEN kalir. model_compact taban kose + indeks + delta'yi saklar.
+ENGINE_TEST(content_morph_hedefleri_yuklenir_ve_compact_korur) {
+  static SystemArena sys, keep;
+  if (!sys.reserve(32u << 20, "content_morph") || !keep.reserve(8u << 20, "content_morph_keep")) { CHECK(false); return; }
+  char path[512];
+  CHECK(asset_path(path, sizeof path, "morph_kup.gltf"));
+  static content::Model m, k;
+  CHECK(content::gltf_load(sys, path, &m));
+  CHECK(m.mesh_count == 1 && m.meshes[0].morph_count == 2 && m.meshes[0].vertex_count == 8 && m.meshes[0].index_count == 36);
+  CHECK(m.morph_dropped == 0 && m.morph_meshes_dropped == 0 && m.morph_skipped == 0);
+  CHECK(m.meshes[0].lod_index_count[0] == 0);                            // morph'lu mesh'e LOD uretilmedi
+  float uzat_y = 0, gen_x = 0; uint32_t ust = 0;
+  for (uint32_t v = 0; v < 8; v++) {
+    const Vec3 d0 = m.meshes[0].morph_deltas[v], d1 = m.meshes[0].morph_deltas[8 + v];
+    CHECK(d0.x == 0 && d0.z == 0 && d1.y == 0 && d1.z == 0);
+    if (m.meshes[0].verts[v].pos.y > 0) { ust++; uzat_y += d0.y; CHECK(d0.y == 1.0f); } else CHECK(d0.y == 0.0f);
+    gen_x += std::fabs(d1.x);
+  }
+  CHECK(ust == 4 && uzat_y == 4.0f && gen_x == 4.0f);                    // 4 ust kose +1; 8 kose x 0.5
+  // KONTROL: delta uygulamasi blend_morph_targets ile elle hesapla ayni (agirlik 0.5 -> ust y = 0.5 + 0.5 = 1.0)
+  CHECK(content::model_compact(keep, m, &k));
+  CHECK(k.meshes[0].verts && k.meshes[0].indices && k.meshes[0].morph_deltas && k.meshes[0].morph_count == 2);
+  CHECK(std::memcmp(k.meshes[0].morph_deltas, m.meshes[0].morph_deltas, sizeof(Vec3) * 16) == 0 && k.meshes[0].indices[3] == m.meshes[0].indices[3]);
+  // KONTROL: morph'suz model (skin_karakter) compact'ta verts'i atar (morph'lu mesh'e ozel saklama)
+  static content::Model plain, plain_k;
+  CHECK(asset_path(path, sizeof path, "skin_karakter.gltf") && content::gltf_load(sys, path, &plain));
+  CHECK(plain.meshes[0].morph_count == 0 && content::model_compact(keep, plain, &plain_k) && plain_k.meshes[0].verts == nullptr);
+}
+
+// A5: renderer dinamik mesh (kare basina ayri host-gorunur tampon). Cihaz kapisi (Mali dahil): kurma + her karede guncelleme calisir, mesh sayisi
+// guncellemeyle ARTMAZ (tutamac geri verilmez: sizinti olmamali), statik mesh / yanlis kose sayisi REDDEDILIR (kontrol). Piksel dogrulamasi kopru testinde.
+ENGINE_TEST(render_dinamik_mesh_kare_halkasi) {
+  static SystemArena sys;
+  if (!sys.reserve(32u << 20, "dinamik_mesh")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (dinamik mesh kapisi atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 2;
+  rc.shadow_size = 256;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  renderer::Vertex v[3] = {};
+  for (int i = 0; i < 3; i++) { v[i].pos = Vec3{(float)i, 0, 0}; v[i].nrm = Vec3{0, 0, 1}; }
+  const uint32_t idx[3] = {0, 1, 2};
+  renderer::MeshHandle dyn = ren.create_dynamic_mesh(v, 3, idx, 3);
+  renderer::MeshHandle stat = ren.create_mesh(v, 3, idx, 3);
+  CHECK(dyn.valid() && stat.valid());
+  const uint32_t meshes0 = ren.stats().meshes;
+  for (uint32_t f = 0; f < 6; f++) {                     // 6 kare: her iki kare yuvasina da yazilir
+    ren.begin_frame(f);
+    v[2].pos = Vec3{2.0f, (float)f, 0};
+    CHECK(ren.update_dynamic_mesh(dyn, v, 3));
+    ren.draw(dyn, Mat4::identity(), {1, 1, 1});
+  }
+  CHECK(ren.stats().meshes == meshes0);                  // guncelleme mesh havuzunu tuketmez
+  CHECK(!ren.update_dynamic_mesh(stat, v, 3));           // KONTROL: statik mesh dinamik guncellenemez
+  CHECK(!ren.update_dynamic_mesh(dyn, v, 2));            // KONTROL: kose sayisi degisemez
+  CHECK(!ren.update_dynamic_mesh(renderer::MeshHandle{}, v, 3));
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}

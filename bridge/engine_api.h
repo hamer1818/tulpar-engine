@@ -396,6 +396,13 @@ int teng_character_grounded(int id);
 int teng_character_ground_state(int id); // 0 zeminde, 1 dik yamac (kayar), 2 desteksiz, 3 havada
 void teng_character_set_jump(int id, double speed); // ziplama hizi m/s (varsayilan 4.0)
 int teng_load_model(const char *path);                  // glTF; -1 hata
+// --- morph target (A5) --------------------------------------------------------------------------------------------------
+// glTF morph hedefleri (POSITION farki), iskeletsiz mesh'te. Hedef t = glTF weights[t] (en cok 8). Normaller taban kalir; morph'lu mesh LOD'suz cizilir.
+// Agirlik tavani yok ([0,1] disi "abartma" gecerli). Havuz 16 varlik; dolunca varlik taban sekille kalir ve teng_morph_rejected sayar.
+int teng_model_morph_count(int asset);                        // modelin en cok hedefli mesh'inin hedef sayisi (0 = morph yok)
+void teng_morph_weight(int id, int target, double w);         // hata: model varligi degil / hedef yok / NaN / havuz dolu
+double teng_morph_get(int id, int target);
+int teng_morph_rejected(void);                                // havuz/mesh tavani yuzunden reddedilen morph sayisi
 // --- kodla mesh (P1) ------------------------------------------------------------------------------------------------
 // Prosedurel geometri: basla -> kose/ucgen (ya da cokgen_nokta + cokgen_yukselt) -> bitir => model tutamaci (spawn_model ile cizilir).
 // Tavan: 4096 kose, 8192 ucgen, 32 cokgen noktasi; asan ekleme REDDEDILIR (log) ve teng_mesh_rejected() sayar. Sarim CCW (disa bakan) olmali.
