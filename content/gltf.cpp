@@ -934,7 +934,7 @@ bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t cl
   return true;
 }
 
-bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose) {
+bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose, bool lock_root) {
   uint32_t first = n;
   for (uint32_t i = 0; i < n; i++) if (e[i].weight > 0.0f && e[i].clip < m.clip_count && m.clips[e[i].clip].clip && m.clips[e[i].clip].skin >= 0) { first = i; break; }
   if (first == n) return false;
@@ -957,11 +957,23 @@ bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScrat
     }
     cum += e[i].weight;
   }
+  if (lock_root && sk.joint_count) { la.t[0].x = sk.joints[0].bind_t.x; la.t[0].z = sk.joints[0].bind_t.z; }
   sim::Skeleton skel{sk.joints, sk.joint_count};
   sim::ClipSampler::to_model(skel, la, scratch.model);
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[skin]);
   pose->skin_mats[skin] = scratch.skin[skin];
   pose->joint_count[skin] = sk.joint_count;
+  return true;
+}
+
+bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, float out_xz[2]) {
+  if (clip >= m.clip_count || !m.clips[clip].clip || m.clips[clip].skin < 0) return false;
+  const ModelSkin &sk = m.skins[m.clips[clip].skin];
+  if (!sk.joint_count) return false;
+  sim::LocalPose lp{scratch.t, scratch.r, scratch.s, sk.joint_count};
+  sim::ClipSampler::sample(m.clips[clip].clip, time_s, lp);
+  out_xz[0] = lp.t[0].x;
+  out_xz[1] = lp.t[0].z;
   return true;
 }
 

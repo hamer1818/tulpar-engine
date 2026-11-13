@@ -146,3 +146,45 @@ ENGINE_TEST(animator_gecis_smoothstep_ve_belirlenimli) {
   CHECK(pa.n == pb.n && std::memcmp(&a.cur_phase, &b.cur_phase, sizeof(float)) == 0);   // aynı girdi, aynı sonuç (belirlenimli, bit eşit)
   for (uint32_t k = 0; k < pa.n; k++) CHECK(std::memcmp(&pa.e[k], &pb.e[k], sizeof pa.e[k]) == 0);
 }
+
+// A4: animasyon olayları. Faz geçişinde kuyruğa girer (callback yok), döngüde her turda, tek klipte bir kez; kuyruk doluyken düşenler SAYILIR.
+// Kontrol: olay fazının ALTINDA kalan adımlarda tetiklenmez; başka durumun olayı bu durumda tetiklenmez.
+ENGINE_TEST(animator_olaylar_faz_gecisinde_kuyruga_girer) {
+  static AnimatorDef d;
+  AnimatorError e;
+  const char *t =
+      "tulpar-animator 1\n"
+      "durum yuru klip salla dongu kok\n"          // salla 2 s
+      "durum zipla klip egil tek\n"                // egil 1 s
+      "olay yuru 0.25 adim_sol\n"
+      "olay yuru 0.75 adim_sag\n"
+      "olay zipla 1.0 indi\n"
+      "baslangic yuru\n";
+  CHECK(animator_parse(t, std::strlen(t), &d, &e) && animator_bind(&d, ad_fn, nullptr, 3, &e));
+  CHECK(d.event_count == 3 && d.states[0].root_motion && !d.states[1].root_motion && d.events[2].state == 1);
+  AnimatorRt rt;
+  animator_reset(d, &rt);
+  animator_update(d, &rt, 0.4f, kSure, 3);                      // faz 0.2: 0.25'in altinda
+  CHECK(animator_event_pop(&rt) == -1);                         // kontrol: erken tetiklenmez
+  animator_update(d, &rt, 0.2f, kSure, 3);                      // faz 0.3 > 0.25
+  const int32_t a = animator_event_pop(&rt);
+  CHECK(a == 0 && std::strcmp(d.events[a].name, "adim_sol") == 0 && animator_event_pop(&rt) == -1);
+  animator_update(d, &rt, 0.9f, kSure, 3);                      // faz 0.75'e ulasir: 0.3 + 0.45 = 0.75 -> adim_sag (<=)
+  CHECK(animator_event_pop(&rt) == 1);
+  animator_update(d, &rt, 1.0f, kSure, 3);                      // 0.75 + 0.5 = 1.25 -> tur asildi: faz 0.25 -> (0.75,1] ve [0, 0.25] = adim_sol (0.25 <= 0.25)
+  CHECK(animator_event_pop(&rt) == 0 && animator_event_pop(&rt) == -1);
+  CHECK(rt.events_fired == 3 && rt.events_dropped == 0);
+  // kuyruk tasmasi: 9 olayi tek adimda uretmek icin cok sik olay
+  static AnimatorDef d2;
+  const char *c =
+      "tulpar-animator 1\ndurum a klip salla dongu\n"
+      "olay a 0.1 e1\nolay a 0.2 e2\nolay a 0.3 e3\nolay a 0.4 e4\nolay a 0.5 e5\nolay a 0.6 e6\nolay a 0.7 e7\nolay a 0.8 e8\nolay a 0.9 e9\n";
+  CHECK(animator_parse(c, std::strlen(c), &d2, &e) && animator_bind(&d2, ad_fn, nullptr, 3, &e));
+  AnimatorRt r2;
+  animator_reset(d2, &r2);
+  animator_update(d2, &r2, 1.99f, kSure, 3);                    // faz ~0.995: 9 olayin hepsi bir adimda
+  CHECK(r2.events_fired == 9 && r2.ev_count == kAnimEventQueue && r2.events_dropped == 1);
+  // bozuk olay tanimlari
+  CHECK(!animator_parse("tulpar-animator 1\ndurum a klip x\nolay a 1.5 e\n", 52, &d2, &e));       // faz 0..1 disinda
+  CHECK(!animator_parse("tulpar-animator 1\ndurum a klip x\nolay yok 0.5 e\n", 54, &d2, &e));     // bilinmeyen durum
+}

@@ -435,6 +435,8 @@ void teng_animator_param(int id, const char *name, double v);  // sayi parametre
 void teng_animator_trigger(int id, const char *name);          // tetik (bir sonraki adimda gecisle tuketilir)
 const char *teng_animator_state(int id);                       // gecerli durum adi ("" yok)
 int teng_animator_fading(int id);                              // durum gecisi suruyor mu
+// A4: animator olayi (".animator" `olay <durum> <faz> <ad>`): kuyruktaki EN ESKI olayin adini doner ve kuyruktan cikarir; "" = bos (callback yok, kuyruk).
+const char *teng_animator_event(int id);
 double teng_anim_time(int id);                                 // klip icindeki an (s)
 int teng_anim_done(int id);                                    // dongusuz klip bitti mi
 

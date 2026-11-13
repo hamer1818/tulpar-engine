@@ -180,6 +180,7 @@
     {"name": "eng_animator_trigger", "symbol": "teng_animator_trigger", "params": ["id: i32", "name: str"], "doc": "Animator tetigini kurar; bir sonraki adimda ilgili gecis onu TUKETIR."},
     {"name": "eng_animator_state", "symbol": "teng_animator_state", "params": ["id: i32"], "returns": "str", "doc": "Animatorun gecerli durum adi (\"\" yok)."},
     {"name": "eng_animator_fading", "symbol": "teng_animator_fading", "params": ["id: i32"], "returns": "bool", "doc": "Animator durum gecisi suruyor mu."},
+    {"name": "eng_animator_event", "symbol": "teng_animator_event", "params": ["id: i32"], "returns": "str", "doc": "Animator olay kuyrugundan EN ESKI olayin adini cikarir (\"\" = bos). Olay .animator'da `olay <durum> <faz 0..1> <ad>`; durum fazi esigi gecince kuyruga girer, kuyruk 8 (dolunca duser ve sayilir). Kok hareketi: durum satirinda `kok` -> klibin kok yatay otelenmesi varligi yuruttur."},
     {"name": "eng_anim_time", "symbol": "teng_anim_time", "params": ["id: i32"], "returns": "f64", "doc": "Varligin klip icindeki ani (s)."},
     {"name": "eng_anim_done", "symbol": "teng_anim_done", "params": ["id: i32"], "returns": "bool", "doc": "Dongusuz klip bitti mi."},
     {"name": "eng_key_down", "symbol": "teng_key_down", "params": ["name: str"], "returns": "bool", "doc": "Tus basili mi: \"W\",\"A\",\"SPACE\",\"UP\",\"ESC\",\"ENTER\",\"SHIFT\",\"0\"..\"9\"."},

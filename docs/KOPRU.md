@@ -1760,4 +1760,9 @@ geçiş başlamaz (sıçramasız); tetik geçişle **tüketilir** (bir tetik bir
 Kapılar: `animator_parse_ve_bind`, `animator_bozuk_tanimlar_reddedilir` (9 kötü tanım + sağlam kontrol), `animator_hiza_gore_gecis_ve_karisim_agirliklari`,
 `animator_tetik_tuketilir_ve_bitince_doner`, `animator_gecis_smoothstep_ve_belirlenimli`, `content_pose_mix_kurallari`, köprü testi (durum/geçiş/bitince/clear).
 Deneme: `~/TulparOyunlari/animasyon_deneme/animator_deneme.tpr` (örnek yerel dizin; YUKARI/ASAGI hız, SPACE zıpla).
-**Henüz yok:** editörde animatör kartı/grafiği, katman maskeleri, IK.
+**A4 (2026-11-14) — olay ve kök hareketi:** `olay <durum> <faz 0..1> <ad>` (en çok 16): durumun normalleşmiş fazı bu değeri GEÇİNCE olay kuyruğa girer
+(döngüde her turda; sarma karesinde iki aralık taranır). Kuyruk 8, dolunca olay düşer ve `events_dropped` SAYILIR. Tulpar: `animator_olay(id)` / `animator_event(id)` →
+olay adı (boşsa kuyruk boş; çarpışma kuyruğu kalıbı, callback yok). `durum <ad> klip <klip> ... kok`: klibin kök (eklem 0) yatay (x,z) ötelenmesi varlığı
+yürütür (yaw ile döner, ölçekle çarpılır; dinamik gövdede uygulanmaz) ve poz'dan KİLİTLENİR (karakter yerinde kaymaz, çift hareket yok). Kapılar:
+`animator_olaylar_faz_gecisinde_kuyruga_girer`, `content_kok_hareketi_okuma_ve_kilit`, köprü testi (kök z=2.000, olay 2 adet).
+**Henüz yok:** animatör durum grafiği görünümü, katman maskeleri, IK.

@@ -1245,6 +1245,42 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
         CHECK(std::strcmp(teng_animator_state(ent), "") == 0);
         unlink(ayol);
       }
+      // A4: kok hareketi + olay kuyrugu (skin_karakter.gltf: 'yuru' klibi kok z 0 -> 1 m / 1 s).
+      {
+        char kp[768], adir[512], ayol[600];
+        std::snprintf(kp, sizeof kp, "%s/skin_karakter.gltf", assets_dir());
+        const int km = teng_load_model(kp);
+        CHECK(km >= 0);
+        CHECK(test::tmp_mkdir(adir, sizeof adir, "animator_kok"));
+        char kok_yol[600], sabit_yol[600];
+        std::snprintf(kok_yol, sizeof kok_yol, "%s/kok.animator", adir);
+        std::snprintf(sabit_yol, sizeof sabit_yol, "%s/sabit.animator", adir);
+        if (std::FILE *f = std::fopen(kok_yol, "wb")) { std::fputs("tulpar-animator 1\ndurum y klip yuru dongu kok\nolay y 0.5 adim\n", f); std::fclose(f); }
+        if (std::FILE *f = std::fopen(sabit_yol, "wb")) { std::fputs("tulpar-animator 1\ndurum y klip yuru dongu\n", f); std::fclose(f); }
+        const int k1 = teng_spawn_model(km, 0, 0, 0, 2.0, 0xFFFFFFFF);
+        CHECK(k1 > 0 && teng_animator_set(k1, kok_yol) == 1);
+        run_frames(60);                                                       // 1 s: 1 m * olcek 2 = ~2 m, +z
+        const double z1 = teng_z(k1);
+        std::printf("    [bilgi] kok hareketi: 1 s sonra z = %.3f (beklenen ~2.0), x = %.3f\n", z1, teng_x(k1));
+        CHECK(z1 > 1.9 && z1 < 2.1 && std::fabs(teng_x(k1)) < 1e-3);
+        teng_set_yaw(k1, 90.0);                                               // yaw 90: +z yerel -> dunyada +x
+        const double x0 = teng_x(k1), z0 = teng_z(k1);
+        run_frames(30);                                                       // 0.5 s -> ~1 m
+        CHECK(teng_x(k1) - x0 > 0.9 && teng_x(k1) - x0 < 1.1 && std::fabs(teng_z(k1) - z0) < 1e-2);
+        // olay: faz 0.5'te 'adim' (dongu basina bir kez; ~2.5 tur -> 2-3 olay), kuyruk bosalinca ""
+        run_frames(6);                                                        // 1.6 s: 2. tur olayi (faz 0.5) float yuvarlama payini asar
+        int olay = 0;        for (int i = 0; i < 8; i++) { const char *o = teng_animator_event(k1); if (o && !std::strcmp(o, "adim")) olay++; }
+        std::printf("    [bilgi] animator olaylari: %d adet\n", olay);
+        CHECK(olay >= 2 && olay <= 3);
+        CHECK(std::strcmp(teng_animator_event(k1), "") == 0);
+        // KONTROL: 'kok' yazilmayan durum varligi HAREKET ettirmez
+        const int k2 = teng_spawn_model(km, 5, 0, 0, 2.0, 0xFFFFFFFF);
+        CHECK(k2 > 0 && teng_animator_set(k2, sabit_yol) == 1);
+        run_frames(60);
+        CHECK(std::fabs(teng_z(k2)) < 1e-4 && std::fabs(teng_x(k2) - 5.0) < 1e-4);
+        teng_despawn(k1); teng_despawn(k2);
+        unlink(kok_yol); unlink(sabit_yol);
+      }
       teng_despawn(ent);
       unlink(shot_stat); unlink(shot_stat2); unlink(shot_anim); unlink(shot_bos);
     }

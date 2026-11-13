@@ -946,6 +946,8 @@ func animator_param(id, ad, deger) { eng_animator_param(id, ad, deger); }
 func animator_tetik(id, ad) { eng_animator_trigger(id, ad); }
 func animator_durum(id): str { return eng_animator_state(id); }
 func animator_geciyor(id): bool { return eng_animator_fading(id); }
+func animator_olay(id): str { return eng_animator_event(id); }
+func animator_event(id): str { return eng_animator_event(id); }
 func animator_set(id, path): bool { return eng_animator_set(id, path); }
 func animator_clear(id) { eng_animator_clear(id); }
 func animator_trigger(id, name) { eng_animator_trigger(id, name); }

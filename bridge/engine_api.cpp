@@ -1244,7 +1244,9 @@ void render_frame() {
           content::PoseMixEntry me[sim::kAnimMaxEntries];
           for (uint32_t k = 0; k < ap.n; k++) me[k] = {(uint32_t)(ap.e[k].clip < 0 ? 0 : ap.e[k].clip), ap.e[k].time, ap.e[k].weight};
           content::ModelPose pose;
-          if (ap.n && content::model_pose_mix(mdl, me, ap.n, b.pose_scratch, &pose)) {
+          const sim::AnimatorDef &adef = b.anim_defs[rs.def].def;
+          const bool kilit = adef.states[rs.rt.cur].root_motion || (rs.rt.prev >= 0 && adef.states[rs.rt.prev].root_motion);   // A4: kok hareketi varliga aktarilir
+          if (ap.n && content::model_pose_mix(mdl, me, ap.n, b.pose_scratch, &pose, kilit)) {
             content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod, nullptr, &pose);
             posed = true;
             b.last_posed++;
@@ -2586,7 +2588,41 @@ void teng_frame_end(void) {
         const uint32_t nc = am.clip_count < 64 ? am.clip_count : 64;
         for (uint32_t c = 0; c < nc; c++) dur[c] = am.clips[c].duration;
         Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
-        if (rs.used && rs.def >= 0) sim::animator_update(b.anim_defs[rs.def].def, &rs.rt, b.dt, dur, nc);
+        if (rs.used && rs.def >= 0) {
+          const sim::AnimatorDef &ad = b.anim_defs[rs.def].def;
+          const bool kok = ad.states[rs.rt.cur].root_motion && !e.dynamic;   // A4: dinamik govdede kok hareketi YOK (fizik sahibi)
+          sim::AnimatorPose once, sonra;
+          if (kok) sim::animator_pose(ad, rs.rt, dur, nc, &once);
+          sim::animator_update(ad, &rs.rt, b.dt, dur, nc);
+          if (kok) {
+            sim::animator_pose(ad, rs.rt, dur, nc, &sonra);
+            // Girdi basina klibin KENDI ilerlemesi (donguyu saran adimda sondan basa ek): agirlikli toplam = yerel yatay hareket
+            float dx = 0, dz = 0;
+            for (uint32_t j = 0; j < sonra.n; j++)
+              for (uint32_t k2 = 0; k2 < once.n; k2++) {
+                if (once.e[k2].clip != sonra.e[j].clip || sonra.e[j].clip < 0) continue;
+                const uint32_t cl = (uint32_t)sonra.e[j].clip;
+                float a0[2], a1[2];
+                if (!content::model_clip_root_xz(am, cl, once.e[k2].time, b.pose_scratch, a0) || !content::model_clip_root_xz(am, cl, sonra.e[j].time, b.pose_scratch, a1)) break;
+                float ddx = a1[0] - a0[0], ddz = a1[1] - a0[1];
+                if (sonra.e[j].time < once.e[k2].time - 1e-6f) {            // dongu sardi: (sonu - bas) + (yeni - 0)
+                  float s0[2], se[2];
+                  if (content::model_clip_root_xz(am, cl, 0.0f, b.pose_scratch, s0) && content::model_clip_root_xz(am, cl, am.clips[cl].duration, b.pose_scratch, se)) {
+                    ddx = (se[0] - a0[0]) + (a1[0] - s0[0]);
+                    ddz = (se[1] - a0[1]) + (a1[1] - s0[1]);
+                  }
+                }
+                dx += sonra.e[j].weight * ddx;
+                dz += sonra.e[j].weight * ddz;
+                break;
+              }
+            if (dx != 0.0f || dz != 0.0f) {
+              const float yr = e.yaw_deg * kBridgePi / 180.0f, cy = std::cos(yr), sy = std::sin(yr);
+              const float wx = (dx * cy + dz * sy) * e.scale, wz = (-dx * sy + dz * cy) * e.scale;   // yaw: +Y etrafinda
+              teng_set_pos(make_id(i), e.pos.x + wx, e.pos.y, e.pos.z + wz);
+            }
+          }
+        }
         continue;
       }
       if (e.anim_clip < 0) continue;
@@ -4403,6 +4439,15 @@ const char *teng_animator_state(int id) {
   if (e.animator < 0 || !g->anim_rts[e.animator].used) return "";
   const Bridge::AnimRtSlot &rs = g->anim_rts[e.animator];
   return g->anim_defs[rs.def].def.states[rs.rt.cur].name;
+}
+const char *teng_animator_event(int id) {
+  const int32_t s = slot_of(id, "teng_animator_event");
+  if (s < 0) return "";
+  const Ent &e = g->ents[s];
+  if (e.animator < 0 || !g->anim_rts[e.animator].used) return "";
+  Bridge::AnimRtSlot &rs = g->anim_rts[e.animator];
+  const int32_t i = sim::animator_event_pop(&rs.rt);
+  return i < 0 ? "" : g->anim_defs[rs.def].def.events[i].name;
 }
 int teng_animator_fading(int id) {
   const int32_t s = slot_of(id, "teng_animator_fading");

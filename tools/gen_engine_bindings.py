@@ -231,6 +231,7 @@ SPEC = [
     ("eng_animator_trigger", "void", [("id", "int"), ("name", "str")], "Animator tetigini kurar; bir sonraki adimda ilgili gecis onu TUKETIR."),
     ("eng_animator_state", "str", [("id", "int")], "Animatorun gecerli durum adi (\"\" yok)."),
     ("eng_animator_fading", "bool", [("id", "int")], "Animator durum gecisi suruyor mu."),
+    ("eng_animator_event", "str", [("id", "int")], "Animator olay kuyrugundan EN ESKI olayin adini cikarir (\"\" = bos). Olay .animator'da `olay <durum> <faz 0..1> <ad>`; durum fazi esigi gecince kuyruga girer, kuyruk 8 (dolunca duser ve sayilir). Kok hareketi: durum satirinda `kok` -> klibin kok yatay otelenmesi varligi yuruttur."),
     ("eng_anim_time", "float", [("id", "int")], "Varligin klip icindeki ani (s)."),
     ("eng_anim_done", "bool", [("id", "int")], "Dongusuz klip bitti mi."),
     # girdi

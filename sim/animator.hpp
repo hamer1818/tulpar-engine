@@ -19,6 +19,8 @@
 //   gecis herhangi zipla sure 0.1 tetik ziplama
 //   gecis zipla bekle sure 0.2 bitince
 //   baslangic bekle
+//   olay bekle 0.25 adim_sol        # A4: durumun fazı 0.25'i GEÇİNCE 'adim_sol' olayı kuyruğa girer (döngüde her turda)
+//   durum yuru klip yuru dongu kok  # A4: kök hareketi: klibin kök yatay ötelenmesi varlığı yürütür, poz'dan kilitlenir
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -27,6 +29,7 @@ namespace tulpar::engine::sim {
 
 constexpr uint32_t kAnimMaxStates = 16, kAnimMaxTrans = 48, kAnimMaxParams = 16, kAnimMaxPoints = 4, kAnimNameLen = 24;
 constexpr uint32_t kAnimMaxEntries = 4;   // AnimatorPose: iki durum x iki karışım noktası
+constexpr uint32_t kAnimMaxEvents = 16, kAnimEventQueue = 8;   // A4: tanımdaki olay sayısı, çalışma zamanı kuyruk kapasitesi (dolunca düşer ve SAYILIR)
 
 enum class AnimOp : uint8_t { None = 0, Gt, Lt, Ge, Le, Eq };
 
@@ -38,7 +41,9 @@ struct AnimState {
   AnimPoint points[kAnimMaxPoints];         // blend: eşiğe göre artan; klip durumu: points[0] tek nokta
   uint32_t point_count = 0;
   bool loop = true;
+  bool root_motion = false;                 // A4: bu durumda klibin kök (eklem 0) yatay ötelenmesi varlığı hareket ettirir ve poz'dan kilitlenir
 };
+struct AnimEvent { int32_t state = -1; float phase = 0; char name[kAnimNameLen] = {0}; };   // A4: durumun fazı bu değeri GEÇİNCE kuyruğa girer
 struct AnimTransition {
   int32_t from = -1;                        // -1 = herhangi bir durum
   int32_t to = 0;
@@ -59,6 +64,8 @@ struct AnimatorDef {
   AnimParam params[kAnimMaxParams];
   uint32_t param_count = 0;
   int32_t start = 0;
+  AnimEvent events[kAnimMaxEvents];
+  uint32_t event_count = 0;
 };
 
 struct AnimatorError { char msg[160] = {0}; uint32_t line = 0; };
@@ -80,6 +87,10 @@ struct AnimatorRt {
   float fade = 0, fade_dur = 0;
   bool ended = false;                       // tek klip bitti (on_end için)
   uint32_t transitions_taken = 0;           // test/ölçüm sayacı
+  int32_t evq[kAnimEventQueue] = {};        // A4: kuyruğa girmiş olay indeksleri (tanımdaki events[] sırası)
+  uint32_t ev_head = 0, ev_count = 0;
+  uint32_t events_dropped = 0;              // kuyruk doluyken düşen olay sayısı (sessiz değil)
+  uint32_t events_fired = 0;
 };
 struct AnimatorPose {
   uint32_t n = 0;
@@ -93,5 +104,7 @@ void animator_trigger(const AnimatorDef &d, AnimatorRt *rt, int32_t param);     
 void animator_update(const AnimatorDef &d, AnimatorRt *rt, float dt, const float *durations, uint32_t clip_count);
 // Mevcut karışım listesi (ağırlıklar toplamı 1): geçişte smoothstep ağırlıklı iki durum, karışım durumunda iki komşu nokta.
 void animator_pose(const AnimatorDef &d, const AnimatorRt &rt, const float *durations, uint32_t clip_count, AnimatorPose *out);
+// A4: kuyruktaki en eski olayın TANIM indeksi (def.events[i].name), kuyruk boşsa -1. Çağrı olayı kuyruktan çıkarır (çarpışma kuyruğu kalıbı: callback yok).
+int32_t animator_event_pop(AnimatorRt *rt);
 
 } // namespace tulpar::engine::sim

@@ -127,6 +127,7 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
   char param_n[kAnimMaxTrans][kAnimNameLen];   // blend parametre adlari durum basina (cozum sonda)
   char blend_param[kAnimMaxStates][kAnimNameLen] = {};
   char start_n[kAnimNameLen] = {0};
+  char ev_state_n[kAnimMaxEvents][kAnimNameLen] = {};
   bool header = false, ok = true;
   int32_t in_blend = -1;
   uint32_t satir = 0;
@@ -179,6 +180,7 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
         for (uint32_t k = 4; k < n; k++) {
           if (esit(tok[k], "dongu")) s.loop = true;
           else if (esit(tok[k], "tek")) s.loop = false;
+          else if (esit(tok[k], "kok")) s.root_motion = true;
           else if (esit(tok[k], "hiz") && k + 1 < n && sayi(tok[k + 1], &s.points[0].speed)) k++;
           else { hata(err, satir, "gecersiz anahtar '%s'", tok[k]); ok = false; break; }
         }
@@ -210,6 +212,13 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
       }
       if (ok && !kosul) { hata(err, satir, "gecis kosulsuz olamaz: eger / tetik / bitince"); ok = false; }
       out->trans_count++;
+    } else if (esit(tok[0], "olay") && n == 4) {
+      if (out->event_count >= kAnimMaxEvents) { hata(err, satir, "en cok 16 olay"); ok = false; break; }
+      AnimEvent &ev = out->events[out->event_count];
+      if (!kopya_ad(ev_state_n[out->event_count], tok[1]) || !sayi(tok[2], &ev.phase) || ev.phase < 0.0f || ev.phase > 1.0f || !kopya_ad(ev.name, tok[3])) {
+        hata(err, satir, "olay <durum> <faz 0..1> <ad>"); ok = false; break;
+      }
+      out->event_count++;
     } else if (esit(tok[0], "baslangic") && n == 2) {
       if (!kopya_ad(start_n, tok[1])) { hata(err, satir, "durum adi en cok 23 karakter"); ok = false; }
     } else {
@@ -238,6 +247,10 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
       if (t.trigger && !out->params[t.param].trigger) { hata(err, 0, "'%s' bir tetik degil (param ... tetik)", param_n[i]); ok = false; break; }
       if (!t.trigger && out->params[t.param].trigger) { hata(err, 0, "'%s' tetik: 'tetik %s' yazin", param_n[i], param_n[i]); ok = false; break; }
     }
+  }
+  for (uint32_t i = 0; ok && i < out->event_count; i++) {
+    out->events[i].state = durum_ara(*out, ev_state_n[i]);
+    if (out->events[i].state < 0) { hata(err, 0, "olay: bilinmeyen durum '%s'", ev_state_n[i]); ok = false; }
   }
   if (ok) {
     out->start = start_n[0] ? durum_ara(*out, start_n) : 0;
@@ -277,9 +290,22 @@ void animator_update(const AnimatorDef &d, AnimatorRt *rt, float dt, const float
   if (d.state_count == 0 || rt->cur < 0 || (uint32_t)rt->cur >= d.state_count) return;
   // 1) fazlar
   const AnimState &cs = d.states[rt->cur];
+  const float phase_old = rt->cur_phase;
   rt->cur_phase += dt * durum_faz_hizi(d, *rt, rt->cur, dur, nclip);
-  if (cs.loop) { while (rt->cur_phase >= 1.0f) rt->cur_phase -= 1.0f; while (rt->cur_phase < 0.0f) rt->cur_phase += 1.0f; }
+  bool sardi = false;
+  if (cs.loop) { while (rt->cur_phase >= 1.0f) { rt->cur_phase -= 1.0f; sardi = true; } while (rt->cur_phase < 0.0f) rt->cur_phase += 1.0f; }
   else if (rt->cur_phase >= 1.0f) { rt->cur_phase = 1.0f; rt->ended = true; }
+  // A4 olaylari: (phase_old, phase_new] icinde kalan olaylar; dongude turu asarsa (phase_old,1] ve [0,phase_new]. Sira tanim sirasi (belirlenimli).
+  for (uint32_t i = 0; i < d.event_count; i++) {
+    const AnimEvent &ev = d.events[i];
+    if (ev.state != rt->cur) continue;
+    const bool vur = sardi ? (ev.phase > phase_old || ev.phase <= rt->cur_phase) : (ev.phase > phase_old && ev.phase <= rt->cur_phase);
+    if (!vur) continue;
+    rt->events_fired++;
+    if (rt->ev_count >= kAnimEventQueue) { rt->events_dropped++; continue; }
+    rt->evq[(rt->ev_head + rt->ev_count) % kAnimEventQueue] = (int32_t)i;
+    rt->ev_count++;
+  }
   if (rt->prev >= 0) {
     const AnimState &ps = d.states[rt->prev];
     rt->prev_phase += dt * durum_faz_hizi(d, *rt, rt->prev, dur, nclip);
@@ -306,6 +332,14 @@ void animator_update(const AnimatorDef &d, AnimatorRt *rt, float dt, const float
     rt->transitions_taken++;
     break;
   }
+}
+
+int32_t animator_event_pop(AnimatorRt *rt) {
+  if (rt->ev_count == 0) return -1;
+  const int32_t i = rt->evq[rt->ev_head];
+  rt->ev_head = (rt->ev_head + 1) % kAnimEventQueue;
+  rt->ev_count--;
+  return i;
 }
 
 void animator_pose(const AnimatorDef &d, const AnimatorRt &rt, const float *dur, uint32_t nclip, AnimatorPose *out) {

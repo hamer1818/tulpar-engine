@@ -208,7 +208,10 @@ bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t cl
 // Ötelenme/ölçek doğrusal, dönüş sıralı slerp (kümülatif ağırlıkla). Hepsi AYNI iskelete ait olmalı; değilse false. Tek girdi =
 // model_pose_evaluate ile BİT EŞİT.
 struct PoseMixEntry { uint32_t clip; float time; float weight; };
-bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose);
+// lock_root (A4 kök hareketi): sonuçta eklem 0'ın YATAY (x, z) ötelenmesi bind değerine kilitlenir — hareket varlığa aktarıldığında görsel çift hareket olmasın.
+bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose, bool lock_root = false);
+// Klibin t anındaki kök (eklem 0) YEREL yatay ötelenmesi (x, z): kök hareketi farkı için. false: geçersiz klip.
+bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, float out_xz[2]);
 
 // LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
 // nullptr = hep LOD0.

@@ -2100,3 +2100,30 @@ ENGINE_TEST(render_karakter_lod_olcum) {
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }
+
+// A4: kök hareketi çekirdeği. 'yuru' klibi (skin_karakter.gltf) kökü z: 0 -> 1 m / 1 s ilerletir. model_clip_root_xz t=0.5'te z=0.5; lock_root poz'dan
+// kök ötelenmesini bind'e kilitler (t=0'da fark YOK, t=0.5'te fark VAR: kontrol).
+ENGINE_TEST(content_kok_hareketi_okuma_ve_kilit) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_kok")) { CHECK(false); return; }
+  char path[512];
+  CHECK(asset_path(path, sizeof path, "skin_karakter.gltf"));
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  uint32_t yuru = 99;
+  for (uint32_t i = 0; i < m.clip_count; i++) if (!std::strcmp(m.clips[i].name, "yuru")) yuru = i;
+  CHECK(yuru != 99);
+  static content::PoseScratch s1, s2, s3;
+  float r0[2], r5[2], r1[2];
+  CHECK(content::model_clip_root_xz(m, yuru, 0.0f, s1, r0) && content::model_clip_root_xz(m, yuru, 0.5f, s1, r5) && content::model_clip_root_xz(m, yuru, 1.0f, s1, r1));
+  CHECK(std::fabs(r0[1]) < 1e-3f && std::fabs(r5[1] - 0.5f) < 2e-2f && std::fabs(r1[1] - 1.0f) < 2e-2f && std::fabs(r5[0]) < 1e-3f);
+  content::ModelPose pa, pb;
+  content::PoseMixEntry e0[1] = {{yuru, 0.0f, 1.0f}}, e5[1] = {{yuru, 0.5f, 1.0f}};
+  const uint32_t jc = m.skins[0].joint_count;
+  CHECK(content::model_pose_mix(m, e0, 1, s1, &pa, false) && content::model_pose_mix(m, e0, 1, s2, &pb, true));
+  CHECK(std::memcmp(pa.skin_mats[0], pb.skin_mats[0], sizeof(Mat4) * jc) == 0);                        // t=0: kok bind'de zaten: fark yok
+  CHECK(content::model_pose_mix(m, e5, 1, s1, &pa, false) && content::model_pose_mix(m, e5, 1, s2, &pb, true));
+  CHECK(std::memcmp(pa.skin_mats[0], pb.skin_mats[0], sizeof(Mat4) * jc) != 0);                        // t=0.5: kilitsiz kok ilerlemis, kilitli degil
+  content::PoseMixEntry e0b[1] = {{yuru, 0.0f, 1.0f}};
+  CHECK(content::model_pose_mix(m, e0b, 1, s3, &pa, false) && std::memcmp(pb.skin_mats[0], pa.skin_mats[0], sizeof(Mat4) * jc) == 0);   // kilitli t=0.5 == kilitsiz t=0 (hareket tamamen kilitlendi)
+}
