@@ -396,6 +396,19 @@ int teng_character_grounded(int id);
 int teng_character_ground_state(int id); // 0 zeminde, 1 dik yamac (kayar), 2 desteksiz, 3 havada
 void teng_character_set_jump(int id, double speed); // ziplama hizi m/s (varsayilan 4.0)
 int teng_load_model(const char *path);                  // glTF; -1 hata
+// --- kodla mesh (P1) ------------------------------------------------------------------------------------------------
+// Prosedurel geometri: basla -> kose/ucgen (ya da cokgen_nokta + cokgen_yukselt) -> bitir => model tutamaci (spawn_model ile cizilir).
+// Tavan: 4096 kose, 8192 ucgen, 32 cokgen noktasi; asan ekleme REDDEDILIR (log) ve teng_mesh_rejected() sayar. Sarim CCW (disa bakan) olmali.
+int teng_mesh_begin(void);                                             // kuruciyi sifirlar; 1 ok
+int teng_mesh_vertex(double x, double y, double z, double u, double v); // kose indeksi, -1 tavan
+int teng_mesh_tri(int a, int b, int c);                              // 1 ok, 0 reddedildi (aralik disi / tavan)
+void teng_mesh_color(int64_t color);                                    // tek malzeme rengi (varsayilan acik gri)
+int teng_mesh_vertex_count(void);
+int teng_mesh_tri_count(void);
+int teng_mesh_rejected(void);                                        // basla'dan beri reddedilen ekleme sayisi
+int teng_mesh_poly_point(double x, double z);                        // XZ noktasi ekler; donus: nokta sayisi
+int teng_mesh_poly_extrude(double h);                                // noktalari h kadar kati yapar (h<=0: yalniz ust yuz); donus: eklenen ucgen, 0 gecersiz
+int teng_mesh_end(void);                                             // model tutamaci, -1 hata
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint);
 int teng_spawn_light(double x, double y, double z, int64_t color, double intensity, double radius);
 void teng_despawn(int id);

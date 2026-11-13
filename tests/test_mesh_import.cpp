@@ -12,6 +12,7 @@
 #include "core/memory/arena.hpp"
 
 using namespace tulpar::engine;
+using namespace tulpar::engine::content;
 
 namespace {
 SystemArena &arena() {
@@ -223,4 +224,55 @@ ENGINE_TEST(import_stl_buyuk_olcum) {
     std::printf("    [olcum] STL %u ucgen: yukleme %.0f ms (birlestirme + yumusak normal + meshopt + LOD); sonuc %u kose, %u ucgen\n", nt, ms, kose_say(m), ucgen_say(m));
     CHECK(ucgen_say(m) == nt);
   }
+}
+
+// P1: çokgen üçgenleme + kodla mesh. L biçimli (içbükey) çokgenin üçgen ALANLARI toplamı = çokgen alanı (yelpaze yanlış verirdi) ve her üçgen +Y'ye bakar.
+namespace {
+float tri_alan_y(const float *xz, const uint32_t *t) {   // işaretli alan (x,z): + ise yukarıdan CCW (+Y normal)
+  const float ax = xz[2 * t[0]], az = xz[2 * t[0] + 1], bx = xz[2 * t[1]], bz = xz[2 * t[1] + 1], cx = xz[2 * t[2]], cz = xz[2 * t[2] + 1];
+  return -((bx - ax) * (cz - az) - (bz - az) * (cx - ax)) * 0.5f;   // (b-a)x(c-a) y bileşeni = -(dx1*dz2 - dz1*dx2)
+}
+} // namespace
+
+ENGINE_TEST(import_cokgen_ucgenleme_alan_ve_sarim) {
+  const float L[12] = {0, 0, 2, 0, 2, 1, 1, 1, 1, 2, 0, 2};
+  float ters[12];
+  for (int i = 0; i < 6; i++) { ters[2 * i] = L[2 * (5 - i)]; ters[2 * i + 1] = L[2 * (5 - i) + 1]; }
+  for (int k = 0; k < 2; k++) {                                          // her iki giriş yönü de +Y sarımına çıkar
+    const float *p = k == 0 ? L : ters;
+    uint32_t t[12];
+    CHECK(polygon_triangulate_xz(p, 6, t) == 4);
+    float toplam = 0;
+    for (int i = 0; i < 4; i++) {
+      const float a = tri_alan_y(p, &t[3 * i]);
+      CHECK(a > 1e-6f);                                                  // her üçgen +Y'ye bakıyor (negatif = ters sarım)
+      toplam += a;
+    }
+    CHECK(std::fabs(toplam - 3.0f) < 1e-4f);                             // yelpaze içbükeyde 3'ten farklı verirdi (taşan alan)
+  }
+  uint32_t t[3];
+  const float cizgi[6] = {0, 0, 1, 0, 2, 0};
+  CHECK(polygon_triangulate_xz(cizgi, 3, t) == 0);                       // KONTROL: alanı sıfır çokgen reddedilir
+  const float nan2[6] = {0, 0, 1, 0, NAN, 1};
+  CHECK(polygon_triangulate_xz(nan2, 3, t) == 0);                        // KONTROL: NaN reddedilir
+  CHECK(polygon_triangulate_xz(L, 2, t) == 0);
+}
+
+ENGINE_TEST(import_mesh_from_triangles_kutu_ve_reddedilenler) {
+  Arena &a = arena();
+  const Vec3 p[4] = {{0, 0, 0}, {2, 0, 0}, {0, 3, 0}, {0, 0, 4}};
+  const Vec2 uv[4] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+  const uint32_t idx[6] = {0, 2, 1, 0, 3, 2};
+  static Model m;
+  CHECK(mesh_from_triangles(a, p, uv, 4, idx, 2, Vec3{1, 0, 0}, &m));
+  CHECK(m.mesh_count == 1 && m.instance_count == 1 && m.material_count == 1);
+  CHECK(m.meshes[0].index_count == 6);
+  CHECK(std::fabs(m.bounds_min.x) < 1e-6f && std::fabs(m.bounds_max.x - 2) < 1e-6f && std::fabs(m.bounds_max.y - 3) < 1e-6f && std::fabs(m.bounds_max.z - 4) < 1e-6f);   // dönüşüm YOK
+  CHECK(m.materials[0].base_color.x == 1.0f && m.materials[0].base_color.y == 0.0f);
+  const uint32_t kotu[3] = {0, 1, 4};
+  CHECK(!mesh_from_triangles(a, p, uv, 4, kotu, 1, Vec3{1, 1, 1}, &m) && m.error[0]);            // KONTROL: köşe sayısını aşan indeks
+  CHECK(!mesh_from_triangles(a, p, uv, 4, idx, 0, Vec3{1, 1, 1}, &m) && m.error[0]);             // KONTROL: üçgensiz
+  const Vec3 nanp[3] = {{0, 0, 0}, {1, 0, 0}, {NAN, 1, 0}};
+  const uint32_t i3[3] = {0, 1, 2};
+  CHECK(!mesh_from_triangles(a, nanp, nullptr, 3, i3, 1, Vec3{1, 1, 1}, &m) && m.error[0]);      // KONTROL: NaN konum
 }

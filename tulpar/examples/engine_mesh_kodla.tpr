@@ -1,0 +1,39 @@
+// Tulpar Engine — KODLA MESH (P1): prosedürel geometri. L biçimli (içbükey) çokgeni yükseltir, elle bir üçgen ekler, model yapıp çizer.
+//
+// Pencersiz doğrulama:  TULPAR_ENGINE_HEADLESS=30 DISPLAY= tulpar examples/engine_mesh_kodla.tpr
+// Çalıştır (pencere):   tulpar examples/engine_mesh_kodla.tpr
+//
+// Tavanlar sayılır: 4096 köşe, 8192 üçgen, 32 çokgen noktası (bkz. docs/KOPRU.md §20); aşan ekleme reddedilir ve mesh_reddedilen() verir.
+
+import "engine";
+
+func main() {
+    if (!motor_ac("Tulpar Engine — kodla mesh", 960, 540)) {
+        logla("motor acilamadi");
+        return;
+    }
+    mesh_basla();
+    mesh_renk(renk(255, 140, 0));
+    mesh_cokgen_nokta(0.0, 0.0);
+    mesh_cokgen_nokta(2.0, 0.0);
+    mesh_cokgen_nokta(2.0, 1.0);
+    mesh_cokgen_nokta(1.0, 1.0);
+    mesh_cokgen_nokta(1.0, 2.0);
+    mesh_cokgen_nokta(0.0, 2.0);
+    int ucgen = mesh_cokgen_yukselt(1.5);
+    int m = mesh_bitir();
+    logla(t"L-sekli: {ucgen} ucgen, model {m}, reddedilen {mesh_reddedilen()}");
+    zemin_kur(12.0, renk(60, 70, 80));
+    int e = model_koy(m, -1.0, 0.0, -1.0, 1.0, renk(255, 255, 255));
+    isik(4.0, 6.0, 4.0, renk(255, 255, 255), 1.0, 20.0);
+    while (calisiyor()) {
+        kare_basla();
+        kamera(4.0, 3.5, 5.0, 0.5, 0.5, 0.0);
+        if (eng_headless() && kare_no() >= 20) { cikis_iste(); }
+        kare_bitir();
+    }
+    print(t"[kapi] kare={kare_no()} ucgen={ucgen} reddedilen={mesh_reddedilen()} hata={hata_sayisi()}");
+    motor_kapat();
+}
+
+main();

@@ -37,7 +37,8 @@ sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 P
 | A3 animatör | 🟡 **CPU maliyeti (200 karakter × 60 eklem, tek parçacık):** masaüstü düz 0,47 ms / geçiş 0,81 / **4 klip karışımı 1,52 ms**; P20 Pro düz 2,3–5,2 ms (çekirdeğe/ısınmaya göre ±2×) / geçiş 9,8 / **4 klip karışımı 19,7 ms** (≈0,1 ms/karakter) → mobilde ~40 karakter aynı anda 4 klip karışımında ≈4 ms.  çekirdek + köprü + Tulpar ✅ (`sim/animator`, `.animator`, `model_pose_mix`, KOPRU §19, 6 test + köprü testi); editör: Kaynaklar'da ANİMATÖR kartı, çift tık Kod panelinde açar, canlı söz dizimi denetimi (`kod_animator_tani`, kırmızı şerit); **kalan:** durum grafiği görünümü |
 | A2 geçiş | ✅ `eng_anim_crossfade` + `model_pose_blend` (smoothstep, slerp); KOPRU §18; geçişte 200×60 = 0,82 ms (masaüstü) |
 | A4 olay + kök hareketi | ✅ `olay` satırı + faz kuyruğu, `kok` durum bayrağı (poz'dan kilitli), köprü/Tulpar `animator_olay`, KOPRU §19 |
-| M1 (kalan), P1, P2, A5 | ⏳ |
+| P1 kodla mesh | ✅ `mesh_basla/kose/ucgen/cokgen_nokta/cokgen_yukselt/bitir`, tavanlar sayılır, KOPRU §20, `examples/engine_mesh_kodla.tpr` |
+| M1 (kalan), P2, A5 | ⏳ |
 
 ## 3. Fazlar (öncelik sırasıyla)
 

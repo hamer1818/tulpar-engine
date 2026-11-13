@@ -39,4 +39,14 @@ bool obj_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim 
 bool stl_load_memory(Arena &arena, const unsigned char *data, size_t size, Model *out, const GltfLimits &lim = GltfLimits{},
                      const MeshImportOptions *opt = nullptr);
 
+// P1: KODLA MESH. Bellekteki köşe (konum + uv) ve indeks listesinden Model (tek malzeme, tek mesh): dönüşüm YOK (eksen/ölçek/pivot
+// çağıranın), normal yumuşak (smooth_angle_deg) hesaplanır, meshopt + LOD glTF yoluyla aynı. indeks >= nv ya da üçgen yoksa false (error dolu).
+bool mesh_from_triangles(Arena &arena, const Vec3 *pos, const Vec2 *uv, uint32_t nv, const uint32_t *idx, uint32_t ntri, Vec3 color, Model *out,
+                         const GltfLimits &lim = GltfLimits{}, float smooth_angle_deg = 60.0f);
+
+// P1/P2: XZ düzlemindeki çokgenin (x,z çiftleri, n >= 3, en çok 256) kulak kesmeyle üçgenlenmesi. Çıktı `tri_out[3*(n-2)]` NOKTA indeksi,
+// sarım HER ZAMAN +Y'ye bakan (yukarıdan CCW) — giriş sırası ne olursa olsun. Dönüş: üçgen sayısı; 0 = geçersiz (n < 3, alan ~ 0, NaN).
+// Kendini kesen çokgende kulak bulunamazsa yelpaze (n-2 üçgen yine); içbükey çokgen doğru üçgenlenir.
+uint32_t polygon_triangulate_xz(const float *xz, uint32_t n, uint32_t *tri_out);
+
 } // namespace tulpar::engine::content

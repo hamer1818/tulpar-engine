@@ -555,4 +555,58 @@ bool obj_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
   return obj_isle(arena, path, out, lim, opt);
 }
 
+bool mesh_from_triangles(Arena &arena, const Vec3 *pos, const Vec2 *uv, uint32_t nv, const uint32_t *idx, uint32_t ntri, Vec3 color, Model *out,
+                         const GltfLimits &lim, float smooth_angle_deg) {
+  *out = Model{};
+  if (!pos || !idx || ntri == 0 || nv == 0) { hata(out, "bos mesh (kose ya da ucgen yok)"); return false; }
+  if (ntri > kMaxTris) { hata(out, "ucgen siniri asildi (en cok 4M)"); return false; }
+  const uint32_t nc = ntri * 3;
+  Giris g;
+  g.ntri = ntri;
+  g.pos = static_cast<Vec3 *>(std::malloc(sizeof(Vec3) * nc));
+  g.uv = uv ? static_cast<Vec2 *>(std::malloc(sizeof(Vec2) * nc)) : nullptr;
+  bool tamam = g.pos && (!uv || g.uv);
+  for (uint32_t i = 0; tamam && i < nc; i++) {
+    if (idx[i] >= nv) { hata(out, "ucgen indeksi kose sayisini asiyor"); tamam = false; break; }
+    if (!finite3(pos[idx[i]])) { hata(out, "kose konumu sonlu degil (NaN/Inf)"); tamam = false; break; }
+    g.pos[i] = pos[idx[i]];
+    if (g.uv) g.uv[i] = uv[idx[i]];
+  }
+  if (!g.pos || (uv && !g.uv)) hata(out, "bellek");
+  bool ok = false;
+  if (tamam) {
+    MeshImportOptions o;
+    o.z_up = false; o.fit_size = 0.0f; o.scale = 1.0f; o.ground_pivot = false; o.smooth_angle_deg = smooth_angle_deg; o.color = color;
+    ok = model_kur(arena, out, g, lim, o);
+  }
+  std::free(g.pos); std::free(g.uv); std::free(g.nrm);
+  return ok;
+}
+
+uint32_t polygon_triangulate_xz(const float *xz, uint32_t n, uint32_t *tri_out) {
+  if (!xz || !tri_out || n < 3 || n > 256) return 0;
+  Vec3 *p = static_cast<Vec3 *>(std::malloc(sizeof(Vec3) * n));
+  if (!p) return 0;
+  float alan2 = 0;                                   // işaretli alan x2 (Newell y): + ise normal +Y
+  for (uint32_t i = 0; i < n; i++) {
+    if (!std::isfinite(xz[2 * i]) || !std::isfinite(xz[2 * i + 1])) { std::free(p); return 0; }
+    p[i] = Vec3{xz[2 * i], 0, xz[2 * i + 1]};
+  }
+  for (uint32_t i = 0; i < n; i++) {
+    const Vec3 a = p[i], b = p[(i + 1) % n];
+    alan2 += (a.z - b.z) * (a.x + b.x);
+  }
+  if (std::fabs(alan2) < 1e-12f) { std::free(p); return 0; }
+  Buf<uint32_t> t;
+  ucgenle(p, n, t);
+  std::free(p);
+  if (t.n != 3 * (n - 2)) return 0;
+  for (uint32_t i = 0; i < t.n; i += 3) {
+    uint32_t a = t.p[i], b = t.p[i + 1], c = t.p[i + 2];
+    if (alan2 < 0) std::swap(b, c);                  // -Y'ye bakıyordu: +Y'ye çevir
+    tri_out[i] = a; tri_out[i + 1] = b; tri_out[i + 2] = c;
+  }
+  return n - 2;
+}
+
 } // namespace tulpar::engine::content

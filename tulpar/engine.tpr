@@ -356,6 +356,27 @@ func karakter_ziplama(id, hiz) { eng_character_set_jump(id, hiz); }
 func character_set_jump(id, speed) { eng_character_set_jump(id, speed); }
 func model_yukle(yol): int { return eng_load_model(yol); }
 func model_koy(m, x, y, z, olcek, renk_): int { return eng_spawn_model(m, x, y, z, olcek, renk_); }
+// Kodla mesh (P1): mesh_basla -> mesh_kose/mesh_ucgen ya da mesh_cokgen_nokta + mesh_cokgen_yukselt -> mesh_bitir = model (model_koy ile cizilir)
+func mesh_basla(): int { return eng_mesh_begin(); }
+func mesh_kose(x, y, z, u, v): int { return eng_mesh_vertex(x, y, z, u, v); }
+func mesh_ucgen(a, b, c): int { return eng_mesh_tri(a, b, c); }
+func mesh_renk(renk_) { eng_mesh_color(renk_); }
+func mesh_kose_say(): int { return eng_mesh_vertex_count(); }
+func mesh_ucgen_say(): int { return eng_mesh_tri_count(); }
+func mesh_reddedilen(): int { return eng_mesh_rejected(); }
+func mesh_cokgen_nokta(x, z): int { return eng_mesh_poly_point(x, z); }
+func mesh_cokgen_yukselt(h): int { return eng_mesh_poly_extrude(h); }
+func mesh_bitir(): int { return eng_mesh_end(); }
+func mesh_begin(): int { return eng_mesh_begin(); }
+func mesh_vertex(x, y, z, u, v): int { return eng_mesh_vertex(x, y, z, u, v); }
+func mesh_tri(a, b, c): int { return eng_mesh_tri(a, b, c); }
+func mesh_color(c) { eng_mesh_color(c); }
+func mesh_vertex_count(): int { return eng_mesh_vertex_count(); }
+func mesh_tri_count(): int { return eng_mesh_tri_count(); }
+func mesh_rejected(): int { return eng_mesh_rejected(); }
+func mesh_poly_point(x, z): int { return eng_mesh_poly_point(x, z); }
+func mesh_poly_extrude(h): int { return eng_mesh_poly_extrude(h); }
+func mesh_end(): int { return eng_mesh_end(); }
 func isik(x, y, z, renk_, siddet, yaricap): int { return eng_spawn_light(x, y, z, renk_, siddet, yaricap); }
 func light(x, y, z, color, intensity, radius): int { return eng_spawn_light(x, y, z, color, intensity, radius); }
 func sil(id) { eng_despawn(id); }

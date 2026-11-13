@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 425 fonksiyon · 813 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 435 fonksiyon · 815 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -49,7 +49,7 @@ mindmap
       prefab
     Köprü L6
       TulparLang C ABI
-      425 fonksiyon
+      435 fonksiyon
       Android / masaüstü host
     Editör
       panel + gizmo
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (59 dosya, 13169 satır)
+### content — L6 (59 dosya, 13233 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -407,7 +407,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10429 satır)
+### bridge — L6 (11 dosya, 10572 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -421,7 +421,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (69 dosya, 15752 satır)
+### tools — L7 (69 dosya, 15762 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -495,7 +495,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 
 ## 2. Köprü API (TulparLang ↔ motor)
 
-Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **417** fonksiyon. Sözleşme: `docs/KOPRU.md`.
+Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **427** fonksiyon. Sözleşme: `docs/KOPRU.md`.
 
 ### yasam dongusu (37)
 
@@ -623,7 +623,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_kinematic_move(id:int, x:num, y:num, z:num)` → void — Kinematik govdeyi hedefe surur: bu karenin sim adimlarinda varir, hiz turetilir (itme dog…
 - `eng_is_kinematic(id:int)` → bool — Varlik kinematik govde mi.
 
-### Carpisma gruplari (Geri bildirim #25): takim mermisi kendi… (36)
+### Carpisma gruplari (Geri bildirim #25): takim mermisi kendi… (46)
 
 - `eng_collision_group(id:int, group:int)` → bool — Govdeyi carpisma grubuna (0..15) alir; grup 0 varsayilan (grup atanmamis her sey: sahne,…
 - `eng_collision_group_of(id:int)` → int — Varligin carpisma grubu (0 varsayilan).
@@ -642,6 +642,16 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_character_ground_state(id:int)` → int — Zemin durumu: 0 zeminde, 1 dik yamac (kayar), 2 desteksiz, 3 havada.
 - `eng_character_set_jump(id:int, speed:num)` → void — Ziplama hizi (m/s, varsayilan 4.0).
 - `eng_load_model(path:str)` → int — glTF modeli yukler. Donus: model tutamaci, -1 hata.
+- `eng_mesh_begin()` → int — Kodla mesh kuruculugunu sifirlar (P1). 1 = ok.
+- `eng_mesh_vertex(x:num, y:num, z:num, u:num, v:num)` → int — Kurucuya kose ekler (4096 tavan). Donus: kose indeksi, -1 tavan.
+- `eng_mesh_tri(a:int, b:int, c:int)` → int — Kurucuya ucgen ekler (8192 tavan, CCW). 1 = ok, 0 = reddedildi (sayilir).
+- `eng_mesh_color(color:color)` → void — Kodla mesh'in tek malzeme rengi.
+- `eng_mesh_vertex_count()` → int — Kurucudaki kose sayisi.
+- `eng_mesh_tri_count()` → int — Kurucudaki ucgen sayisi.
+- `eng_mesh_rejected()` → int — mesh_begin'den beri tavan/gecersiz yuzunden reddedilen ekleme sayisi.
+- `eng_mesh_poly_point(x:num, z:num)` → int — Cokgen noktasi (XZ) ekler (en cok 32). Donus: nokta sayisi.
+- `eng_mesh_poly_extrude(h:num)` → int — Cokgen noktalarini h kadar kati yapar (h<=0: yalniz ust yuz). Donus: eklenen ucgen, 0 = g…
+- `eng_mesh_end()` → int — Kurulan mesh'i modele cevirir. Donus: model tutamaci (eng_spawn_model ile cizilir), -1 ha…
 - `eng_spawn_model(asset:int, x:num, y:num, z:num, scale:num, tint:color)` → int — Model varligi (govdesiz). Donus: varlik id.
 - `eng_spawn_light(x:num, y:num, z:num, color:color, intensity:num, radius:num)` → int — Nokta isik. Donus: varlik id.
 - `eng_despawn(id:int)` → void — Varligi (ve govdesini) siler.
@@ -1063,7 +1073,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **813** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **815** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1081,11 +1091,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `particles` — 13
 - `render` — 11
 - `clod` — 10
+- `import` — 10
 - `files` — 9
 - `multiedit` — 9
 - `rhi` — 9
 - `console` — 8
-- `import` — 8
 - `platform` — 8
 - `process` — 8
 - `behavior` — 7
@@ -1260,7 +1270,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_lod_select.cpp` — 3 test
 - `tests/test_math.cpp` — 14 test
 - `tests/test_memory.cpp` — 6 test
-- `tests/test_mesh_import.cpp` — 7 test
+- `tests/test_mesh_import.cpp` — 9 test
 - `tests/test_meshlet_pipeline.cpp` — 6 test
 - `tests/test_morph.cpp` — 5 test
 - `tests/test_navmesh.cpp` — 5 test

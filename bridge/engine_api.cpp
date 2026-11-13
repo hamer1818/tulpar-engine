@@ -33,6 +33,7 @@
 #include "bridge/bridge_host.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
+#include "content/mesh_import.hpp"
 #include "sim/animator.hpp"
 #include "content/image.hpp"
 #include "content/scene_blob.hpp"
@@ -4041,6 +4042,135 @@ int teng_load_model(const char *path) {
   b.model_count++;
   if (b.models[i].clips_dropped) BERR("model %u: %s klip tavani asildi, %u klip yuklenmedi", i, path, b.models[i].clips_dropped);
   BINFO("model %u: %s (%u mesh, %u malzeme, %u doku, %u klip)", i, path, b.ups[i].mesh_count, b.ups[i].material_count, b.ups[i].texture_count, b.models[i].clip_count);
+  return (int)i;
+}
+// ---- P1: kodla mesh -----------------------------------------------------------------------------------------------------
+// Kurucu TEK ve sabit boyutlu (ayirma yok): 4096 kose, 8192 ucgen, 32 cokgen noktasi. Tavan dolunca ekleme REDDEDILIR, loglanir ve
+// teng_mesh_rejected() ile okunur (sessiz kesme yok). bitir() modeli model_yukle ile ayni havuza (kMaxModels) koyar: spawn_model ile cizilir.
+namespace {
+constexpr uint32_t kMeshVerts = 4096, kMeshTris = 8192, kMeshPoly = 32;
+struct MeshBuilder {
+  Vec3 pos[kMeshVerts];
+  Vec2 uv[kMeshVerts];
+  uint32_t idx[kMeshTris * 3];
+  uint32_t nv = 0, nt = 0;
+  float poly[kMeshPoly * 2];
+  uint32_t np = 0;
+  Vec3 color{0.8f, 0.8f, 0.85f};
+  bool open = false;
+  uint32_t rejected = 0;
+} mb;
+bool mesh_tri_ekle(uint32_t a, uint32_t b, uint32_t c, const char *fn) {
+  if (a >= mb.nv || b >= mb.nv || c >= mb.nv) { mb.rejected++; BERR("%s: ucgen indeksi (%u,%u,%u) kose sayisini (%u) asiyor", fn, a, b, c, mb.nv); return false; }
+  if (mb.nt >= kMeshTris) { mb.rejected++; BERR("%s: ucgen tavani dolu (%u)", fn, kMeshTris); return false; }
+  mb.idx[mb.nt * 3] = a; mb.idx[mb.nt * 3 + 1] = b; mb.idx[mb.nt * 3 + 2] = c; mb.nt++;
+  return true;
+}
+int mesh_kose_ekle(Vec3 p, Vec2 t, const char *fn) {
+  if (mb.nv >= kMeshVerts) { mb.rejected++; BERR("%s: kose tavani dolu (%u)", fn, kMeshVerts); return -1; }
+  mb.pos[mb.nv] = p; mb.uv[mb.nv] = t;
+  return (int)mb.nv++;
+}
+} // namespace
+int teng_mesh_begin(void) {
+  CALLF("teng_mesh_begin", "");
+  if (!ready("teng_mesh_begin")) return 0;
+  mb.nv = mb.nt = mb.np = 0; mb.rejected = 0; mb.color = Vec3{0.8f, 0.8f, 0.85f}; mb.open = true;
+  return 1;
+}
+int teng_mesh_vertex(double x, double y, double z, double u, double v) {
+  CALLF("teng_mesh_vertex", "(%.2f %.2f %.2f) uv (%.2f %.2f)", x, y, z, u, v);
+  if (!mb.open) { BERR("teng_mesh_vertex: once teng_mesh_begin"); return -1; }
+  return mesh_kose_ekle(Vec3{(float)x, (float)y, (float)z}, Vec2{(float)u, (float)v}, "teng_mesh_vertex");
+}
+int teng_mesh_tri(int a, int b, int c) {
+  CALLF("teng_mesh_tri", "%d %d %d", a, b, c);
+  if (!mb.open) { BERR("teng_mesh_tri: once teng_mesh_begin"); return 0; }
+  if (a < 0 || b < 0 || c < 0) { mb.rejected++; BERR("teng_mesh_tri: negatif indeks (%d,%d,%d)", a, b, c); return 0; }
+  return mesh_tri_ekle((uint32_t)a, (uint32_t)b, (uint32_t)c, "teng_mesh_tri") ? 1 : 0;
+}
+void teng_mesh_color(int64_t color) {
+  CALLF("teng_mesh_color", "%08llx", (unsigned long long)color);
+  if (!mb.open) { BERR("teng_mesh_color: once teng_mesh_begin"); return; }
+  mb.color = color_of(color);
+}
+int teng_mesh_vertex_count(void) { return mb.open ? (int)mb.nv : 0; }
+int teng_mesh_tri_count(void) { return mb.open ? (int)mb.nt : 0; }
+int teng_mesh_rejected(void) { return (int)mb.rejected; }
+int teng_mesh_poly_point(double x, double z) {
+  CALLF("teng_mesh_poly_point", "(%.2f %.2f)", x, z);
+  if (!mb.open) { BERR("teng_mesh_poly_point: once teng_mesh_begin"); return 0; }
+  if (mb.np >= kMeshPoly) { mb.rejected++; BERR("teng_mesh_poly_point: nokta tavani dolu (%u)", kMeshPoly); return (int)mb.np; }
+  mb.poly[mb.np * 2] = (float)x; mb.poly[mb.np * 2 + 1] = (float)z; mb.np++;
+  return (int)mb.np;
+}
+// Biriken noktalari (XZ) yukseklik kadar kati yapar (h <= 0: yalniz ust yuz, y=0). Ust +Y, taban -Y, yan yuzler dis normalli. Noktalari temizler.
+// Donus: eklenen ucgen sayisi; 0 = gecersiz cokgen ya da tavan (hicbir sey eklenmez).
+int teng_mesh_poly_extrude(double h) {
+  CALLF("teng_mesh_poly_extrude", "h %.2f", h);
+  if (!mb.open) { BERR("teng_mesh_poly_extrude: once teng_mesh_begin"); return 0; }
+  const uint32_t n = mb.np;
+  mb.np = 0;
+  uint32_t tri[(kMeshPoly - 2) * 3];
+  const uint32_t nt = content::polygon_triangulate_xz(mb.poly, n, tri);
+  if (!nt) { mb.rejected++; BERR("teng_mesh_poly_extrude: gecersiz cokgen (%u nokta, alan ~ 0 ya da NaN)", n); return 0; }
+  const float y1 = (float)(h > 0 ? h : 0);
+  const bool kati = h > 0;
+  const uint32_t ek_kose = n + (kati ? n + 4 * n : 0), ek_tri = nt + (kati ? nt + 2 * n : 0);
+  if (mb.nv + ek_kose > kMeshVerts || mb.nt + ek_tri > kMeshTris) { mb.rejected++; BERR("teng_mesh_poly_extrude: tavan (kose %u+%u/%u, ucgen %u+%u/%u)", mb.nv, ek_kose, kMeshVerts, mb.nt, ek_tri, kMeshTris); return 0; }
+  // normal +Y olacak sekilde sirala: kapaklarin sarimi yukaridan CCW; yan yuzler icin noktalarin kendisi de ayni yonde gezilmeli.
+  float alan2 = 0;
+  for (uint32_t i = 0; i < n; i++) { const uint32_t j = (i + 1) % n; alan2 += (mb.poly[2 * i + 1] - mb.poly[2 * j + 1]) * (mb.poly[2 * i] + mb.poly[2 * j]); }
+  const uint32_t ust0 = mb.nv;
+  for (uint32_t i = 0; i < n; i++) mesh_kose_ekle(Vec3{mb.poly[2 * i], y1, mb.poly[2 * i + 1]}, Vec2{mb.poly[2 * i], mb.poly[2 * i + 1]}, "cokgen");
+  for (uint32_t i = 0; i < nt; i++) mesh_tri_ekle(ust0 + tri[3 * i], ust0 + tri[3 * i + 1], ust0 + tri[3 * i + 2], "cokgen");
+  if (kati) {
+    const uint32_t alt0 = mb.nv;
+    for (uint32_t i = 0; i < n; i++) mesh_kose_ekle(Vec3{mb.poly[2 * i], 0, mb.poly[2 * i + 1]}, Vec2{mb.poly[2 * i], mb.poly[2 * i + 1]}, "cokgen");
+    for (uint32_t i = 0; i < nt; i++) mesh_tri_ekle(alt0 + tri[3 * i], alt0 + tri[3 * i + 2], alt0 + tri[3 * i + 1], "cokgen");   // taban: ters sarim (-Y)
+    for (uint32_t i = 0; i < n; i++) {                                                      // yan yuz: kenar basina ayri 4 kose (sert kenar)
+      uint32_t a = i, b = (i + 1) % n;
+      if (alan2 < 0) std::swap(a, b);                                                       // noktalar saat yonundeyse kenari ters gez
+      const float ax = mb.poly[2 * a], az = mb.poly[2 * a + 1], bx = mb.poly[2 * b], bz = mb.poly[2 * b + 1];
+      const float len = std::sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
+      const uint32_t q = mb.nv;
+      mesh_kose_ekle(Vec3{ax, 0, az}, Vec2{0, 0}, "cokgen"); mesh_kose_ekle(Vec3{bx, 0, bz}, Vec2{len, 0}, "cokgen");
+      mesh_kose_ekle(Vec3{bx, y1, bz}, Vec2{len, y1}, "cokgen"); mesh_kose_ekle(Vec3{ax, y1, az}, Vec2{0, y1}, "cokgen");
+      mesh_tri_ekle(q, q + 1, q + 2, "cokgen"); mesh_tri_ekle(q, q + 2, q + 3, "cokgen");
+    }
+  }
+  return (int)ek_tri;
+}
+// Kurulan mesh'i modele cevirip GPU'ya yukler. Donus: model tutamaci (spawn_model ile cizilir), -1 hata (bos/gecersiz/kapasite). Kurucu kapanir.
+int teng_mesh_end(void) {
+  CALLF("teng_mesh_end", "kose %u ucgen %u", mb.nv, mb.nt);
+  if (!ready("teng_mesh_end")) return -1;
+  if (!mb.open) { BERR("teng_mesh_end: once teng_mesh_begin"); return -1; }
+  mb.open = false;
+  Bridge &b = *g;
+  if (b.model_count >= kMaxModels) { b.model_rejected++; BERR("teng_mesh_end: model kapasitesi dolu (%u)", kMaxModels); return -1; }
+  const uint32_t i = b.model_count;
+  b.models[i] = content::Model{};
+  if (!b.model_tmp_ok && b.sys.remaining() > (kModelTmpBytes + (64u << 20)))
+    b.model_tmp_ok = b.sys.carve(b.model_tmp, kModelTmpBytes, "model_yukleme", OverflowPolicy::ReturnNull);
+  const size_t arena0 = b.sys.used();
+  static content::Model tmp_m;
+  static content::UploadedModel tmp_u;
+  tmp_m = content::Model{};
+  if (b.model_tmp_ok) {
+    b.model_tmp.reset();
+    if (!content::mesh_from_triangles(b.model_tmp, mb.pos, mb.uv, mb.nv, mb.idx, mb.nt, mb.color, &tmp_m)) { BERR("teng_mesh_end: %s", tmp_m.error); b.model_tmp.reset(); return -1; }
+    if (!content::upload_model(b.ren, b.model_tmp, tmp_m, &tmp_u)) { b.model_tmp.reset(); BERR("teng_mesh_end: GPU'ya yuklenemedi"); return -1; }
+    if (!content::model_compact(b.sys, tmp_m, &b.models[i]) || !content::uploaded_model_copy(b.sys, tmp_u, &b.ups[i])) { b.model_tmp.reset(); BERR("teng_mesh_end: kalici kopya icin arena dolu"); return -1; }
+    b.model_tmp_bytes += b.model_tmp.used();
+    b.model_tmp.reset();
+  } else {
+    if (!content::mesh_from_triangles(b.sys, mb.pos, mb.uv, mb.nv, mb.idx, mb.nt, mb.color, &b.models[i])) { BERR("teng_mesh_end: %s", b.models[i].error); return -1; }
+    if (!content::upload_model(b.ren, b.sys, b.models[i], &b.ups[i])) { BERR("teng_mesh_end: GPU'ya yuklenemedi"); return -1; }
+  }
+  b.model_arena_bytes += b.sys.used() - arena0;
+  b.model_count++;
+  BINFO("mesh modeli %u: %u kose, %u ucgen (kodla uretildi)", i, mb.nv, mb.nt);
   return (int)i;
 }
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint) {

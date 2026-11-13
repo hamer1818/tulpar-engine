@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 425
+#define TENG_ABI_COUNT 435
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -142,6 +142,16 @@ TENG_ABI(int, eng_character_grounded, teng_character_grounded, (int))
 TENG_ABI(int, eng_character_ground_state, teng_character_ground_state, (int))
 TENG_ABI(void, eng_character_set_jump, teng_character_set_jump, (int, double))
 TENG_ABI(int, eng_load_model, teng_load_model, (const char *))
+TENG_ABI(int, eng_mesh_begin, teng_mesh_begin, (void))
+TENG_ABI(int, eng_mesh_vertex, teng_mesh_vertex, (double, double, double, double, double))
+TENG_ABI(int, eng_mesh_tri, teng_mesh_tri, (int, int, int))
+TENG_ABI(void, eng_mesh_color, teng_mesh_color, (int64_t))
+TENG_ABI(int, eng_mesh_vertex_count, teng_mesh_vertex_count, (void))
+TENG_ABI(int, eng_mesh_tri_count, teng_mesh_tri_count, (void))
+TENG_ABI(int, eng_mesh_rejected, teng_mesh_rejected, (void))
+TENG_ABI(int, eng_mesh_poly_point, teng_mesh_poly_point, (double, double))
+TENG_ABI(int, eng_mesh_poly_extrude, teng_mesh_poly_extrude, (double))
+TENG_ABI(int, eng_mesh_end, teng_mesh_end, (void))
 TENG_ABI(int, eng_spawn_model, teng_spawn_model, (int, double, double, double, double, int64_t))
 TENG_ABI(int, eng_spawn_light, teng_spawn_light, (double, double, double, int64_t, double, double))
 TENG_ABI(void, eng_despawn, teng_despawn, (int))

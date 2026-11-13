@@ -1766,3 +1766,20 @@ olay adı (boşsa kuyruk boş; çarpışma kuyruğu kalıbı, callback yok). `du
 yürütür (yaw ile döner, ölçekle çarpılır; dinamik gövdede uygulanmaz) ve poz'dan KİLİTLENİR (karakter yerinde kaymaz, çift hareket yok). Kapılar:
 `animator_olaylar_faz_gecisinde_kuyruga_girer`, `content_kok_hareketi_okuma_ve_kilit`, köprü testi (kök z=2.000, olay 2 adet).
 **Henüz yok:** animatör durum grafiği görünümü, katman maskeleri, IK.
+
+## 20. Kodla mesh (P1, 2026-11-14)
+
+Prosedürel geometri: kırılan duvar, dalga, el yapımı çokgen oyunda üretilir ve model gibi çizilir. Düz skaler ABI (struct/dizi yok), "kur sonra bitir":
+`eng_mesh_begin()` → `eng_mesh_vertex(x,y,z,u,v)` (köşe indeksi) + `eng_mesh_tri(a,b,c)` (CCW = dışa bakan) · `eng_mesh_color(c)` ·
+`eng_mesh_poly_point(x,z)` + `eng_mesh_poly_extrude(h)` (XZ çokgeni kulak kesmeyle üçgenler; h>0 kapaklı kati: üst +Y, taban −Y, yan yüzler sert kenarlı dış normal; h<=0 yalnız üst yüz) →
+`eng_mesh_end()` = model tutamacı (`eng_spawn_model` ile çizilir; `-1` hata). Tulpar: `mesh_basla/kose/ucgen/renk/cokgen_nokta/cokgen_yukselt/bitir` (+EN ikizler `mesh_begin/vertex/tri/...`).
+Sayaçlar: `mesh_kose_say`, `mesh_ucgen_say`, `mesh_reddedilen`.
+
+Tavan (sessiz değil): **4096 köşe, 8192 üçgen, 32 çokgen noktası**; aşan ekleme REDDEDİLİR, hata loglanır ve `mesh_reddedilen` sayar (aralık dışı/negatif indeks, tavan, geçersiz çokgen
+(alan ≈ 0, NaN, <3 nokta), `basla`sız çağrı, bitirilmiş kurucuya ikinci `bitir`). Boş mesh (üçgensiz) `bitir`de reddedilir. Model havuzu (`kMaxModels` 128) `model_yukle` ile ortaktır.
+Çekirdek `content::mesh_from_triangles` (STL/OBJ ile aynı kurucu: yumuşak normal 60°, meshopt, LOD; dönüşüm YOK) ve `content::polygon_triangulate_xz` (giriş yönü ne olursa +Y sarımı).
+Kapılar: `import_cokgen_ucgenleme_alan_ve_sarim` (içbükey L: üçgen alanları toplamı 3, hepsi +Y; ters giriş yönü; alan 0 / NaN / <3 nokta reddi),
+`import_mesh_from_triangles_kutu_ve_reddedilenler`, köprü testi 10a (L-çokgen 20 üçgen/36 köşe, 5 kasıtlı red sayıldı, 4096 köşe tavanı, model gerçekten çizildi: 1 → despawn → 0 çizim).
+Ölçüm: masaüstü (başsız) L-çokgen mesh `bitir` + 20 kare p50 7,6 ms; P20 Pro'da (2026-11-14) içerik testleri geçti. Deneme: `tulpar/examples/engine_mesh_kodla.tpr`.
+**Henüz yok:** editörde çokgen çizimi (P2), UV/malzeme çoklu, kodla mesh'in `.sahne`ye kaydı (yalnız çalışma zamanı modeli).
+

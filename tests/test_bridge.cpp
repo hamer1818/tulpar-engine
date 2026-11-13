@@ -459,6 +459,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // Kapi bayraklari: kasitli hata sayisi hangi bolumlerin kostuguna bagli.
   bool sahne_kapisi = false, anim_kapisi = false, ses_kapisi = false;
   int ortam_hatasi = 0; // ortamdan gelen (kasitsiz) hatalar: cihaz/kaynak yok
+  int mesh_hata = 0;    // P1 kodla mesh: kasitli reddedilenler (10a'da sayilir)
   int oz_hata = 0;      // 4.8 nesne ozellikleri: kasitli hatalar (orada tek tek sayilir)
   const TengScriptVm *sahte_vm = nullptr; // 4.5c'nin VM'i (4.8 kendi VM'ini kurup geri koyar)
   {
@@ -1286,6 +1287,47 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     }
   }
 
+  // --- 10a) P1 KODLA MESH: kurucu, cokgen yukseltme, tavan SAYILIR, model olarak cizilir --------------------------------------
+  {
+    const int errs0 = teng_error_count();
+    CHECK(teng_mesh_begin() == 1);
+    // elle ucgen: 3 kose + 1 ucgen
+    CHECK(teng_mesh_vertex(0, 0, 0, 0, 0) == 0 && teng_mesh_vertex(1, 0, 0, 1, 0) == 1 && teng_mesh_vertex(0, 0, 1, 0, 1) == 2);
+    CHECK(teng_mesh_tri(0, 2, 1) == 1 && teng_mesh_tri_count() == 1 && teng_mesh_vertex_count() == 3);
+    CHECK(teng_mesh_tri(0, 1, 3) == 0 && teng_mesh_rejected() == 1);              // KONTROL: aralik disi indeks reddedilir ve SAYILIR
+    // cokgen: L bicimli (ICBUKEY) 6 nokta, 2 m yuksek => ust 4 ucgen + taban 4 + yan 6 kenar x 2 = 20 ucgen (+ onceki 1)
+    const double L[6][2] = {{0, 0}, {2, 0}, {2, 1}, {1, 1}, {1, 2}, {0, 2}};
+    for (int i = 0; i < 6; i++) CHECK(teng_mesh_poly_point(L[i][0], L[i][1]) == i + 1);
+    CHECK(teng_mesh_poly_extrude(2.0) == 20);
+    CHECK(teng_mesh_tri_count() == 21 && teng_mesh_vertex_count() == 3 + 6 + 6 + 24);
+    // KONTROL: gecersiz cokgen (2 nokta) hicbir sey eklemez, sayilir
+    const int r0 = teng_mesh_rejected();
+    teng_mesh_poly_point(0, 0); teng_mesh_poly_point(1, 0);
+    CHECK(teng_mesh_poly_extrude(1.0) == 0 && teng_mesh_rejected() == r0 + 1 && teng_mesh_tri_count() == 21);
+    teng_mesh_color(0xFF8800);
+    const int m = teng_mesh_end();
+    CHECK(m >= 0);
+    const int ent = teng_spawn_model(m, 60, 0, 60, 1.0, 0xFFFFFFFF);
+    CHECK(ent > 0);
+    run_frames(2);
+    const int cizim1 = teng_draw_count();
+    teng_despawn(ent);
+    run_frames(2);
+    std::printf("    [bilgi] kodla mesh cizimi: varlikli %d, varliksiz %d cizim\n", cizim1, teng_draw_count());
+    CHECK(cizim1 == teng_draw_count() + 1);                                       // model gercekten cizildi (KONTROL: kalkinca tam 1 eksilir)
+    CHECK(teng_mesh_end() == -1);                                                 // KONTROL: kurucu kapandi, ikinci bitir reddedilir
+    // tavan: 4096 koseyi doldur, bir fazlasi -1 doner ve sayilir
+    CHECK(teng_mesh_begin() == 1);
+    int son = 0;
+    for (int i = 0; i < 4096; i++) son = teng_mesh_vertex(i, 0, 0, 0, 0);
+    CHECK(son == 4095 && teng_mesh_vertex(0, 0, 0, 0, 0) == -1 && teng_mesh_rejected() == 1);
+    CHECK(teng_mesh_end() == -1);                                                 // ucgen yok: bos mesh reddedilir
+    // hata sayaci: yukaridaki kasitli reddedilenler loglandi (BERR) ama kare/ayirma kapilarini bozmaz
+    std::printf("    [bilgi] kodla mesh: model %d, hata logu +%d (kasitli reddedilenler)\n", m, teng_error_count() - errs0);
+    mesh_hata = teng_error_count() - errs0;
+    CHECK(mesh_hata == 5);
+  }
+
   // --- 10b) KODLA TETIK: gorunmez bolge, kuyruk, tasima -----------------------
   // Sahnenin uzaginda (30, *, 30): sabit bir zemin kutusu, onun ustune binen
   // bir TETIK kutusu ve yukaridan birakilan bir kure. Kure tetigin icinden
@@ -1916,6 +1958,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   beklenen += kod_hata; // 10d: kodla betik baglamanin kasitli reddleri (orada tek tek sayildi)
   beklenen += hiz_hata; // 10c2: 9 parametreli kanca (2) + bozulan esleme girdisi (1)
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
+  beklenen += mesh_hata; // 10a: kodla mesh'in kasitli reddleri (aralik disi indeks, gecersiz cokgen, kapali kurucu, tavan, bos mesh)
   beklenen += oz_hata; // 4.8: nesne ozelliklerinin kasitli hatalari (tur uyusmazligi, ad kurali, sinir disi)
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;
