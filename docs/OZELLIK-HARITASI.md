@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 418 fonksiyon · 801 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 418 fonksiyon · 802 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -1054,7 +1054,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **801** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **802** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1076,12 +1076,12 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `multiedit` — 9
 - `rhi` — 9
 - `console` — 8
+- `import` — 8
 - `platform` — 8
 - `process` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
-- `import` — 7
 - `timer` — 7
 - `anim` — 6
 - `engine` — 6
@@ -1249,7 +1249,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_lod_select.cpp` — 3 test
 - `tests/test_math.cpp` — 14 test
 - `tests/test_memory.cpp` — 6 test
-- `tests/test_mesh_import.cpp` — 6 test
+- `tests/test_mesh_import.cpp` — 7 test
 - `tests/test_meshlet_pipeline.cpp` — 6 test
 - `tests/test_morph.cpp` — 5 test
 - `tests/test_navmesh.cpp` — 5 test

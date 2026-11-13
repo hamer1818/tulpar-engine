@@ -2,6 +2,7 @@
 // ölçek dönüşümü, çokgen üçgenleme ALANI (yelpaze içbükeyde yanlış alan verirdi), bozuk dosya reddi; her biri bir KONTROLLE eşlenir.
 #include "tests/test.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -184,4 +185,42 @@ ENGINE_TEST(import_gltf_load_uzantiya_gore_yonlendirir) {
   char gl[512];
   CHECK(content::gltf_load(arena(), "/olmayan/x.gltf", &m) == false);                  // kontrol: glTF yolu hâlâ glTF hatası verir
   (void)gl;
+}
+
+// Yükleme süresi ölçümü (CİHAZA ÖZGÜ, basılır; eşik YOK): ~200K üçgenli küre STL'i (ikili, bellekten) -> birleştirme + yumuşak normal + meshopt + LOD.
+// Kapı iddiası yalnız bizim kodumuz: üçgen sayısı korunur ve süre ölçülür (cihazda: tools/android_run.sh tests import_stl_buyuk).
+ENGINE_TEST(import_stl_buyuk_olcum) {
+  constexpr uint32_t ST = 316, SL = 316;                          // ~2*ST*SL ≈ 200K üçgen
+  const uint32_t nt = 2 * ST * SL - 2 * SL;
+  static unsigned char *buf = nullptr;
+  if (!buf) buf = static_cast<unsigned char *>(std::malloc(84 + (size_t)nt * 50));
+  CHECK(buf != nullptr);
+  if (!buf) return;
+  std::memset(buf, 0, 84);
+  std::memcpy(buf + 80, &nt, 4);
+  uint32_t k = 0;
+  auto nok = [&](uint32_t i, uint32_t j, float *p) {
+    const float th = 3.14159265f * (float)i / (float)ST, ph = 2.0f * 3.14159265f * (float)j / (float)SL;
+    p[0] = 50.0f * std::sin(th) * std::cos(ph); p[1] = 50.0f * std::sin(th) * std::sin(ph); p[2] = 50.0f * std::cos(th);
+  };
+  for (uint32_t i = 0; i < ST; i++)
+    for (uint32_t j = 0; j < SL; j++) {
+      float a[3], b[3], c[3], d[3];
+      nok(i, j, a); nok(i, j + 1, b); nok(i + 1, j, c); nok(i + 1, j + 1, d);
+      unsigned char *p;
+      if (i > 0) { p = buf + 84 + (size_t)k++ * 50; std::memset(p, 0, 50); std::memcpy(p + 12, a, 12); std::memcpy(p + 24, c, 12); std::memcpy(p + 36, b, 12); }
+      if (i < ST - 1) { p = buf + 84 + (size_t)k++ * 50; std::memset(p, 0, 50); std::memcpy(p + 12, b, 12); std::memcpy(p + 24, c, 12); std::memcpy(p + 36, d, 12); }
+    }
+  CHECK(k == nt);
+  static SystemArena big;
+  if (big.capacity() == 0) big.reserve(512u << 20, "stl_buyuk");
+  static content::Model m;
+  const auto t0 = std::chrono::steady_clock::now();
+  const bool ok = content::stl_load_memory(big, buf, 84 + (size_t)nt * 50, &m);
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  CHECK(ok);
+  if (ok) {
+    std::printf("    [olcum] STL %u ucgen: yukleme %.0f ms (birlestirme + yumusak normal + meshopt + LOD); sonuc %u kose, %u ucgen\n", nt, ms, kose_say(m), ucgen_say(m));
+    CHECK(ucgen_say(m) == nt);
+  }
 }
