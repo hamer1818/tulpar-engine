@@ -9,6 +9,7 @@
 # tests/arayuz/ilk_adimlar{,_gizli}.txt (U11 B4): kart sablonu anlatir, adimlar isaretlenir, gizle kalici.
 # tests/arayuz/izgara.txt (U11 C4): Izgara dugmesi gercekten cizer; kontrol: kapaliyken goruntu duz.
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
+# tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
 #   sifirla; kontrol: varsayilan boyla ilk kosum + aralik dolmadan "otomatik kaydedildi" yok.
@@ -178,6 +179,12 @@ EK="$D/ekle"; mkdir -p "$EK/ui"; cp -r "$KOK/tests/assets" "$EK/assets"
 kos ekle_menu.txt "$EK/ui" --scene "$EK/assets/editor.sahne" --kip basit; rek=$?
 if [ $rek = 0 ]; then echo "  ekle menusu: Basit kipte sade agac, secim varken Ekle > Sekiller > Kup eklendi; Gelismis'te tam liste (kontrol)"
 else echo "  KIRMIZI ekle menusu (cikis $rek):"; grep -E 'HATA|> ' "$EK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- P2: cokgen cizim araci (tikla-nokta, Geri sil, Enter, tutamac surukle, geri al; tulpar gerekmez) ---
+CK="$D/cokgen"; mkdir -p "$CK/ui"
+cp -r "$KOK/tests/assets" "$CK/assets"
+kos cokgen.txt "$CK/ui" --scene "$CK/assets/editor.sahne" --kip basit --size 1280x720; rck=$?  # tiklar Gorunum koordinatinda: boyut sabit
+if [ $rck = 0 ]; then echo "  cokgen araci: 6 tik -> Geri sil -> Enter 5 nokta, tutamac suruklendi, iki Ctrl+Z tohum kareye dondu (kontrol: Enter oncesi 4 nokta)"
+else echo "  KIRMIZI cokgen araci (cikis $rck):"; grep -E 'HATA|> ' "$CK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
 cp -r "$KOK/tests/assets" "$TR/assets"

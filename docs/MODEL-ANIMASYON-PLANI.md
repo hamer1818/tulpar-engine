@@ -39,7 +39,8 @@ sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 P
 | A4 olay + kök hareketi | ✅ `olay` satırı + faz kuyruğu, `kok` durum bayrağı (poz'dan kilitli), köprü/Tulpar `animator_olay`, KOPRU §19 |
 | P1 kodla mesh | ✅ `mesh_basla/kose/ucgen/cokgen_nokta/cokgen_yukselt/bitir`, tavanlar sayılır, KOPRU §20, `examples/engine_mesh_kodla.tpr` |
 | A5 morph target | ✅ (kısmi) iskeletsiz mesh'te glTF hedefleri + `eng_morph_weight` + kare halkalı dinamik mesh, KOPRU §21; **yok:** `weights` klip kanalı, iskeletli+morph, normal deltası |
-| M1 (kalan), P2 | ⏳ |
+| P2 editörde çokgen | ✅ `kScenePoly` (`cokgen yukseklik n x z …`, ≤ 32 nokta, blob v12), `content/poly.*` tek kaynak (editör/oyun mesh'i aynı `poly_soup`; çarpışma Hertel–Mehlhorn dışbükey parçalar → Jolt statik ConvexHull/StaticCompound, dünya uzayına pişirilmiş). Editör: Ekle > Şekiller > **Çokgen (çiz)** → zemine tıkla-nokta, Geri sil, Enter (günlüğe tek işlem), Esc; seçili çokgende nokta tutamaçları fareyle sürüklenir; Çokgen kartı: yükseklik, Yeniden çiz, Nokta ekle, Son noktayı sil. Kapılar: `poly_sahne_calisma_zamani_disbukey_govdeler` (L'nin iç köşe boşluğuna ışın çarpmaz; **kontrol:** tek dışbükey gövde boşluğu doldurur), `tests/arayuz/cokgen.txt` (kontrol: Enter öncesi tohum 4 nokta). **Yok / sınır:** gövde bileşenli varlıkta çokgen gövdesi kurulmaz; `sahne_konum_ver` çokgen gövdesini taşımaz; navmesh bake çokgeni görmez; P1'in köprü yükseltmesi (`teng_mesh_poly_extrude`) hâlâ kendi üçgenlemesini kullanıyor; yüz/kenar düzenleme ERTELİ |
+| M1 (kalan) | ⏳ |
 
 ## 3. Fazlar (öncelik sırasıyla)
 

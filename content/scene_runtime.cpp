@@ -1,4 +1,5 @@
 #include "content/scene_runtime.hpp"
+#include "content/poly.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -213,6 +214,9 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   // GI, tutamac tablolarinin sifirlanmasi) aynen kurulur.
   const bool gpu = r.ready();
   body_ids_ = view.h->body_count ? arena.alloc_array<sim::BodyId>(view.h->body_count) : nullptr;
+  poly_body_ = view.h->poly_count ? arena.alloc_array<sim::BodyId>(view.h->poly_count) : nullptr;
+  if (view.h->poly_count && !poly_body_) return false;
+  for (uint32_t i = 0; i < view.h->poly_count; i++) poly_body_[i] = sim::BodyId{};
   if (view.h->body_count && !body_ids_) return false;
   for (uint32_t i = 0; i < view.h->body_count; i++) body_ids_[i] = sim::BodyId{};
   const uint32_t nc = view.h->character_count;
@@ -263,6 +267,7 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
     terrain_meshes_[i] = renderer::MeshHandle{};
     voxel_meshes_[i] = renderer::MeshHandle{};
     water_meshes_[i] = renderer::MeshHandle{};
+    poly_meshes_[i] = renderer::MeshHandle{};
     entity_mats_[i] = renderer::MaterialHandle{};
   }
 
@@ -296,6 +301,28 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
     water_meshes_[w.entity] = make_water_mesh(arena, r, wave);
     arena.reset_to(tmp_mark);
   }
+  stats_.polys = stats_.polys_failed = 0;
+  if (view.h->poly_count) {
+    renderer::Vertex *pv = arena.alloc_array<renderer::Vertex>(kPolyMaxVerts);
+    uint32_t *pi = arena.alloc_array<uint32_t>(kPolyMaxVerts);
+    if (!pv || !pi) return false;
+    for (uint32_t k = 0; k < kPolyMaxVerts; k++) pi[k] = k; // çorba: sıralı indeks
+    uint32_t used = 0;
+    for (uint32_t i = 0; i < view.h->poly_count; i++) {
+      const SceneBlobPoly &po = view.polys[i];
+      const uint32_t nv = poly_soup(po.pts, po.n, po.height, pv);
+      if (!nv || po.entity >= kSceneMaxEntities) { stats_.polys_failed++; continue; }
+      poly_soup_pad(pv, nv);
+      renderer::MeshHandle &slot = poly_pool_[used];
+      if (!(slot.valid() && r.update_mesh_vertices(slot, pv, kPolyMaxVerts))) slot = r.create_mesh(pv, kPolyMaxVerts, pi, kPolyMaxVerts);
+      if (!slot.valid()) { stats_.polys_failed++; continue; }
+      poly_meshes_[po.entity] = slot;
+      used++;
+      stats_.polys++;
+    }
+    if (used > poly_pool_n_) poly_pool_n_ = used;
+    arena.reset_to(tmp_mark);
+  }
 
   // Malzemeler de YUKLEME aninda: create_material kare icinde cagrilirsa
   // "kare basina 0 ayirma" kapisi duser. Havuz sahneler arasi kalici (8dc):
@@ -311,7 +338,7 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   uint32_t k = 0;
   for (uint32_t i = 0; i < view.h->draw_count; i++) {
     const SceneBlobDraw &d = view.draws[i];
-    if (d.primitive < 0 || d.entity >= kSceneMaxEntities) continue;
+    if (d.entity >= kSceneMaxEntities || (d.primitive < 0 && !poly_meshes_[d.entity].valid())) continue;
     if (k >= kSceneMaxEntities) { stats_.materials_failed++; continue; }
     entity_mats_[d.entity] = malzeme(mat_pool_[k], pbr_of(d));
     k++;
@@ -328,6 +355,10 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   if (view.h->water_count) {
     renderer::PbrParams p; p.metallic = 0.1f; p.roughness = 0.1f;
     water_mat_ = malzeme(water_pool_, p);
+  }
+  if (view.h->poly_count) {
+    renderer::PbrParams p; p.metallic = 0.0f; p.roughness = 0.8f;
+    poly_mat_ = malzeme(poly_mat_pool_, p);
   }
   return true;
 }
@@ -419,6 +450,36 @@ uint32_t SceneRuntime::spawn(sim::Physics &ph) {
     char_body_[k] = ph.character_body(char_ids_[k]);
     stats_.characters++;
   }
+  // P2: çokgen çarpışması — dışbükey parçalar (içbükey L tek gövde olsaydı iç köşedeki boşluk dolu sayılırdı), DÜNYA uzayına
+  // pişirilmiş statik gövde (ölçek dahil; set_pose bu gövdeyi TAŞIMAZ). Gövde bileşeni olan varlıkta kurulmaz: yazar
+  // çarpışmayı orada açıkça seçmiş, ikisi üst üste binerdi. h = 0 (düz zemin) 5 cm kalınlığında aşağı doğru levha.
+  stats_.poly_parts = stats_.poly_bodies_failed = 0;
+  for (uint32_t i = 0; i < view_.h->poly_count; i++) {
+    const SceneBlobPoly &po = view_.polys[i];
+    if (po.entity >= view_.h->entity_count || view_.entities[po.entity].body >= 0) continue;
+    uint32_t part_n[kPolyMaxPoints], part_idx[3 * kPolyMaxPoints];
+    const uint32_t np = poly_convex_parts(po.pts, po.n, part_n, part_idx);
+    if (!np) { stats_.poly_bodies_failed++; continue; }
+    Vec3 pts[6 * kPolyMaxPoints];
+    uint32_t pn2[kPolyMaxPoints];
+    const Mat4 w = view_.entity_matrix(po.entity);
+    const float y0 = po.height > 0.0f ? 0.0f : -0.05f, y1 = po.height > 0.0f ? po.height : 0.0f;
+    uint32_t off = 0, o = 0;
+    for (uint32_t k = 0; k < np; k++) {
+      for (uint32_t j = 0; j < part_n[k]; j++) {
+        const uint32_t q = part_idx[off + j];
+        pts[o++] = transform_point(w, Vec3{po.pts[2 * q], y0, po.pts[2 * q + 1]});
+        pts[o++] = transform_point(w, Vec3{po.pts[2 * q], y1, po.pts[2 * q + 1]});
+      }
+      pn2[k] = 2 * part_n[k];
+      off += part_n[k];
+    }
+    poly_body_[i] = ph.add_static_convex_parts(pts, pn2, np);
+    if (!poly_body_[i].valid()) { stats_.poly_bodies_failed++; continue; }
+    if (po.entity < kSceneMaxEntities && hidden_[po.entity]) ph.set_body_enabled(poly_body_[i], false);
+    stats_.poly_parts += np;
+    n++;
+  }
   bodies_live_ = true;
   stats_.bodies = n;
   return n;
@@ -433,6 +494,10 @@ void SceneRuntime::despawn(sim::Physics &ph) {
     if (char_ids_[k].valid()) ph.remove_character(char_ids_[k]); // ic govdeyi de o kaldirir
     char_ids_[k] = sim::CharacterId{};
     char_body_[k] = sim::BodyId{};
+  }
+  for (uint32_t i = 0; i < view_.h->poly_count; i++) {
+    if (poly_body_[i].valid()) ph.remove(poly_body_[i]);
+    poly_body_[i] = sim::BodyId{};
   }
   stats_.characters = 0;
   bodies_live_ = false;
@@ -517,6 +582,9 @@ bool SceneRuntime::set_hidden(uint32_t i, bool hidden, sim::Physics *ph) {
   hidden_[i] = hidden;
   const sim::BodyId b = entity_body(i);
   if (ph && b.valid() && bodies_live_) ph->set_body_enabled(b, !hidden);
+  if (ph && bodies_live_)   // P2: çokgen gövdesi de (gizli çokgen çarpışmasın)
+    for (uint32_t k = 0; k < view_.h->poly_count; k++)
+      if (view_.polys[k].entity == i && poly_body_[k].valid()) ph->set_body_enabled(poly_body_[k], !hidden);
   return true;
 }
 
@@ -538,6 +606,10 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
     const Mat4 m = entity_matrix(d.entity, ph);
     // Prosedurel ilkel kaynaga TERCIH edilir: ikisi de doluysa varligi editorde
     // ilkel olarak gorduk demektir (bkz. content/primitives.hpp yuva tablosu).
+    if (d.entity < kSceneMaxEntities && poly_meshes_[d.entity].valid()) {   // P2: çokgen, ilkelden ve kaynaktan önce
+      if (entity_mats_[d.entity].valid()) { r.draw(poly_meshes_[d.entity], entity_mats_[d.entity], m, v3(d.tint)); stats_.draws++; }
+      continue;
+    }
     if (d.primitive >= 0 && (uint32_t)d.primitive < kPrimitiveSlotCount && prims_[d.primitive].valid() &&
         entity_mats_[d.entity].valid()) {
       r.draw(prims_[d.primitive], entity_mats_[d.entity], m, v3(d.tint));
@@ -586,6 +658,12 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
     const SceneBlobVoxel &v = view_.voxels[i];
     if (!voxel_meshes_[v.entity].valid()) continue;
     r.draw(voxel_meshes_[v.entity], voxel_mat_, entity_matrix(v.entity, ph), Vec3{0.8f, 0.8f, 0.8f});
+    stats_.draws++;
+  }
+  for (uint32_t i = 0; i < view_.h->poly_count; i++) {   // P2: model bileşeni olmayan çokgen (olan yukarıda kendi malzemesiyle)
+    const uint32_t ent = view_.polys[i].entity;
+    if (ent >= kSceneMaxEntities || hidden_[ent] || !poly_meshes_[ent].valid() || view_.entities[ent].draw >= 0) continue;
+    r.draw(poly_meshes_[ent], poly_mat_, entity_matrix(ent, ph), Vec3{0.75f, 0.75f, 0.75f});
     stats_.draws++;
   }
   for (uint32_t i = 0; i < view_.h->water_count; i++) {

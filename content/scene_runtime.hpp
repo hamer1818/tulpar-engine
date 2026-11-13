@@ -84,6 +84,9 @@ struct SceneRuntimeStats {
   // yeniden kullanilan / kurulamayan (renderer malzeme havuzu dolu -> varlik
   // CIZILMEZ; kopru HATA basar) malzeme sayisi.
   uint32_t materials_created = 0, materials_reused = 0, materials_failed = 0;
+  // P2 çokgen: mesh'i kurulan / kurulamayan (mesh havuzu dolu ya da geçersiz çokgen -> ÇİZİLMEZ), fizikteki dışbükey parça
+  // toplamı ve gövdesi kurulamayan çokgen sayısı (sessiz değil: köprü uyarır).
+  uint32_t polys = 0, polys_failed = 0, poly_parts = 0, poly_bodies_failed = 0;
 };
 
 class SceneRuntime {
@@ -179,6 +182,14 @@ private:
   renderer::MeshHandle terrain_meshes_[kSceneMaxEntities] = {};
   renderer::MeshHandle voxel_meshes_[kSceneMaxEntities] = {};
   renderer::MeshHandle water_meshes_[kSceneMaxEntities] = {};
+  // P2 çokgen: varlık indeksiyle mesh (havuzdan ödünç). Havuz SAHNELER ARASI KALICI (Tuzaklar 8dc'nin mesh karşılığı): her mesh
+  // sabit kPolyMaxVerts köşeli çorba, yeniden yüklemede update_mesh_vertices ile üzerine yazılır — renderer'da mesh silme yok,
+  // her yüklemede yenisini kurmak bölüm geçişlerinde havuzu tüketirdi.
+  renderer::MeshHandle poly_meshes_[kSceneMaxEntities] = {};
+  renderer::MeshHandle poly_pool_[kSceneMaxEntities] = {};
+  uint32_t poly_pool_n_ = 0;
+  sim::BodyId *poly_body_ = nullptr; // [poly_count] statik dışbükey gövde
+  renderer::MaterialHandle poly_mat_{}, poly_mat_pool_{}; // model bileşeni OLMAYAN çokgen (gri)
   // Cizim kaydi basina PBR malzemesi (ilkel yolunda). YUKLEME aninda kurulur:
   // kare icinde create_material cagirmak ayirma demek olurdu.
   renderer::MaterialHandle entity_mats_[kSceneMaxEntities] = {};

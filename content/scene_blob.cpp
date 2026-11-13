@@ -32,10 +32,11 @@ struct Plan {
   uint32_t scripts = 0;                                                                   // v7
   uint32_t props = 0;                                                                     // v8
   uint32_t cameras = 0, audios = 0;                                                       // v10
+  uint32_t polys = 0;                                                                     // v12
   size_t off_asset = 0, off_entity = 0, off_draw = 0, off_anim = 0, off_light = 0, off_body = 0, off_string = 0, off_resident = 0,
          off_nav = 0, off_dag_mesh = 0, off_dag_node = 0, off_dag_index = 0, off_dag_child = 0, off_gi = 0,
          off_particle = 0, off_terrain = 0, off_voxel = 0, off_water = 0, off_wind = 0, off_character = 0, off_script = 0,
-         off_prop = 0, off_camera = 0, off_audio = 0, total = 0;
+         off_prop = 0, off_camera = 0, off_audio = 0, off_poly = 0, total = 0;
 };
 // Varligin blob'a giden ozellik sayisi. SceneEntity::props sabit 16 yuvali;
 // prop_count'u scene_prop_set ve ayristirici 16'da tutuyor — buradaki kirpma
@@ -95,6 +96,7 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
     // Ozellikler bilesen bitinden bagimsiz (scene.hpp E3): bit sorulmuyor.
     p.props += entity_prop_count(e);
     if (e.components & kSceneCamera) p.cameras++;
+    if (e.components & kScenePoly) p.polys++;
     if (e.components & kSceneAudio) {
       p.audios++;
       p.strings += (uint32_t)std::strlen(e.audio_clip) + 1; // intern() sirasi: ad, betik, SONRA klip (asagida)
@@ -129,6 +131,7 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   p.off_prop = o; o = align_up(o + sizeof(SceneBlobProp) * p.props);       // v8
   p.off_camera = o; o = align_up(o + sizeof(SceneBlobCamera) * p.cameras); // v10: EN SONDA (onceki ofsetler kaymaz)
   p.off_audio = o; o = align_up(o + sizeof(SceneBlobAudio) * p.audios);
+  p.off_poly = o; o = align_up(o + sizeof(SceneBlobPoly) * p.polys);       // v12: EN SONDA
   p.total = o;
   return p;
 }
@@ -199,6 +202,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   h.prop_count = p.props; h.prop_offset = (uint32_t)p.off_prop;         // v8
   h.camera_count = p.cameras; h.camera_offset = (uint32_t)p.off_camera; // v10
   h.audio_count = p.audios; h.audio_offset = (uint32_t)p.off_audio;
+  h.poly_count = p.polys; h.poly_offset = (uint32_t)p.off_poly;         // v12
   if (x) {
     h.resident_cpu = x->resident_cpu; h.resident_gpu = x->resident_gpu;
     h.peak_transient = x->peak_transient; h.peak_bytes = x->peak_bytes;
@@ -242,6 +246,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   auto *props = reinterpret_cast<SceneBlobProp *>(b + p.off_prop);
   auto *cameras = reinterpret_cast<SceneBlobCamera *>(b + p.off_camera);
   auto *audios = reinterpret_cast<SceneBlobAudio *>(b + p.off_audio);
+  auto *polys = reinterpret_cast<SceneBlobPoly *>(b + p.off_poly);
   char *strings = reinterpret_cast<char *>(b + p.off_string);
   uint32_t soff = 0;
   auto intern = [&](const char *s) {
@@ -261,7 +266,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
   uint32_t npart = 0, nterr = 0, nvox = 0, nwat = 0, nwind = 0, nchar = 0; // v6
   uint32_t nscript = 0;                                                   // v7
   uint32_t nprop = 0;                                                     // v8
-  uint32_t ncam = 0, naud = 0;                                            // v10
+  uint32_t ncam = 0, naud = 0, npoly = 0;                                // v10, v12
   Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
   for (uint32_t i = 0; i < d.entity_count; i++) {
     const SceneEntity &e = d.entities[i];
@@ -396,6 +401,12 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
       ca.entity = i; ca.fov_deg = e.cam_fov; ca.znear = e.cam_near; ca.zfar = e.cam_far;
       cameras[ncam++] = ca;
     }
+    if (e.components & kScenePoly) {
+      SceneBlobPoly po{};
+      po.entity = i; po.n = e.poly_n; po.height = e.poly_h;
+      for (uint32_t k = 0; k < 2 * kScenePolyMaxPoints; k++) po.pts[k] = e.poly_pts[k];
+      polys[npoly++] = po;
+    }
     if (e.components & kSceneAudio) {
       SceneBlobAudio au{};
       au.entity = i;
@@ -482,6 +493,8 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   if (!table_ok(h->prop_offset, h->prop_count, sizeof(SceneBlobProp), size)) return E.fail("ozellik tablosu sinir disi"); // v8
   if (!table_ok(h->camera_offset, h->camera_count, sizeof(SceneBlobCamera), size)) return E.fail("kamera tablosu sinir disi"); // v10
   if (!table_ok(h->audio_offset, h->audio_count, sizeof(SceneBlobAudio), size)) return E.fail("ses tablosu sinir disi");
+  if (!table_ok(h->poly_offset, h->poly_count, sizeof(SceneBlobPoly), size)) return E.fail("cokgen tablosu sinir disi"); // v12
+  if (h->poly_count > h->entity_count) return E.fail("cokgen tablo sayisi varlik sayisindan buyuk");
   if (h->camera_count > h->entity_count || h->audio_count > h->entity_count) return E.fail("kamera/ses tablo sayisi varlik sayisindan buyuk");
   if (h->particle_count) { // v9: bayrak + alt yayici siniri kayit basina
     const SceneBlobParticle *pt = reinterpret_cast<const SceneBlobParticle *>(static_cast<const uint8_t *>(data) + h->particle_offset);
@@ -522,6 +535,7 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
   v.scripts = h->script_count ? reinterpret_cast<const SceneBlobScript *>(b + h->script_offset) : nullptr;
   v.props = h->prop_count ? reinterpret_cast<const SceneBlobProp *>(b + h->prop_offset) : nullptr;
   v.cameras = h->camera_count ? reinterpret_cast<const SceneBlobCamera *>(b + h->camera_offset) : nullptr;
+  v.polys = h->poly_count ? reinterpret_cast<const SceneBlobPoly *>(b + h->poly_offset) : nullptr;
   v.audios = h->audio_count ? reinterpret_cast<const SceneBlobAudio *>(b + h->audio_offset) : nullptr;
   v.strings = strings;
   for (uint32_t i = 0; i < h->resident_count; i++)
@@ -550,6 +564,14 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
     if (c.entity >= h->entity_count) return E.fail("kamera kaydi tanimsiz varliga bakiyor");
     if (!(c.fov_deg > 0.0f && c.fov_deg < 180.0f) || !(c.znear > 0.0f) || !(c.zfar > c.znear))
       return E.fail("kamera kaydi gecersiz (0 < fov < 180, 0 < yakin < uzak)");
+  }
+  for (uint32_t i = 0; i < h->poly_count; i++) {   // v12: cokgen kaydi (dusmanca blob: nokta sayisi/deger sinirli, NaN yok)
+    const SceneBlobPoly &po = v.polys[i];
+    if (po.entity >= h->entity_count) return E.fail("cokgen kaydi tanimsiz varliga bakiyor");
+    if (po.n < 3 || po.n > kScenePolyMaxPoints) return E.fail("cokgen nokta sayisi 3..32 disinda");
+    if (!(po.height >= 0.0f) || po.height > 10000.0f) return E.fail("cokgen yuksekligi 0..10000 disinda");
+    for (uint32_t k = 0; k < 2 * po.n; k++) if (!std::isfinite(po.pts[k])) return E.fail("cokgen noktasi sonlu degil");
+    if (po.reserved) return E.fail("cokgen kaydinin ayrilmis alani sifir degil");
   }
   for (uint32_t i = 0; i < h->audio_count; i++) {
     const SceneBlobAudio &a = v.audios[i];
@@ -612,8 +634,14 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
     if (e.draw >= 0 && v.draws[e.draw].primitive < -1) return E.fail("cizim ilkel yuvasi gecersiz");
     // Ne kaynak ne ilkel: cizilecek bir sey yok, yani derleyici bozuk bir kayit
     // yazmis. Sessizce gorunmez bir varlik birakmak yerine BURADA dur.
-    if (e.draw >= 0 && v.draws[e.draw].asset < 0 && v.draws[e.draw].primitive < 0)
-      return E.fail("cizim kaydinda ne kaynak ne ilkel var");
+    // v12: ikisi de yoksa geometri varligin COKGEN kaydidir (editorun "Cokgen"i: model bileseni renk/malzeme tasir) — kayit
+    // gercekten olmali, bit tek basina yetmez (bit var / kayit yok = yine gorunmez varlik).
+    if (e.draw >= 0 && v.draws[e.draw].asset < 0 && v.draws[e.draw].primitive < 0) {
+      bool poly = false;
+      if (e.components & kScenePoly)
+        for (uint32_t k = 0; k < h->poly_count && !poly; k++) poly = v.polys[k].entity == i;
+      if (!poly) return E.fail("cizim kaydinda ne kaynak ne ilkel ne cokgen var");
+    }
     if (e.anim >= 0 && v.anims[e.anim].entity != i) return E.fail("animasyon tablosu varlikla tutarsiz");
     if (e.light >= 0 && v.lights[e.light].entity != i) return E.fail("isik tablosu varlikla tutarsiz");
     if (e.body >= 0 && v.bodies[e.body].entity != i) return E.fail("govde tablosu varlikla tutarsiz");

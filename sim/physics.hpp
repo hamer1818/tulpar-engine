@@ -119,6 +119,10 @@ public:
 
   BodyId add_box(Vec3 half_extent, Vec3 pos, Quat rot, bool dynamic);
   BodyId add_sphere(float radius, Vec3 pos, bool dynamic);
+  // STATIK dışbükey parçalar (P2 çokgen): her parça part_n[k] noktalık bir dışbükey gövde (noktalar art arda `pts`'te,
+  // DÜNYA uzayında; gövde orijinde, birim dönüşle kurulur). Tek parça ConvexHull, çok parça StaticCompound tek gövde.
+  // Yalnız yükleme anında (Jolt şekil kurulumu ayırır); bozuk parça (düzlemsel/<4 nokta) varsa geçersiz id döner.
+  BodyId add_static_convex_parts(const Vec3 *pts, const uint32_t *part_n, uint32_t parts);
   // KINEMATIK govde (Geri bildirim #11): hareket ettirilir, dinamik govdeleri
   // ITER ve onlarla carpisir, ama kuvvet/yercekimi/carpma onu etkilemez (sonsuz
   // kutle). Hareketli katmanda (MOVING). Hareket move_kinematic ile (hiz

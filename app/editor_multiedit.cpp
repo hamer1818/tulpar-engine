@@ -149,6 +149,9 @@ const Leaf kLeaves[] = {
     {offsetof(SceneEntity, voxel_size_y), sizeof(uint32_t), "voxel_size_y"},
     {offsetof(SceneEntity, voxel_size_z), sizeof(uint32_t), "voxel_size_z"},
     {offsetof(SceneEntity, voxel_cell), sizeof(float), "voxel_cell"},
+    {offsetof(SceneEntity, poly_n), sizeof(uint32_t), "poly_n"},
+    {offsetof(SceneEntity, poly_h), sizeof(float), "poly_h"},
+    {offsetof(SceneEntity, poly_pts), sizeof(SceneEntity::poly_pts), "poly_pts"},
 };
 } // namespace
 
