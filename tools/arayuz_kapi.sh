@@ -26,13 +26,14 @@
 # tests/arayuz/ornek.txt: karsilamadaki Ornek: Bilardo gecici oyun dizinine uretilip acilmali.
 # tests/arayuz/klavye_acilis{,_bos}.txt: karsilama yalniz klavyeyle (odak + yaz + Enter); bos adla Enter olusturmaz.
 # tests/arayuz/dil_en.txt (TULPAR_EDITOR_DIL=en): menuler/paneller Ingilizce, Turkce basliklar kalmaz.
+# tests/arayuz/animasyon_onizleme.txt (A1): Animasyon karti klip secici + Onizle; goruntu farki (acikken degisir, durdurunca sabit).
 # tests/arayuz/kaydet.txt GECICI KOPYA sahneyle: iki Ctrl+S, yol unutulmamali, dosya 7 varlikla yazilmali.
 # POZITIF KONTROL: tests/arayuz/pozitif_kontrol.txt (olmayan oge) cikis 1 + HATA satiri vermeli.
 #   tools/arayuz_kapi.sh [cikti-dizini]
 set -uo pipefail
 KOK="$(cd "$(dirname "$0")/.." && pwd)"
 ED="${ED:-$KOK/yapi/engine_editor}"
-D="${1:-$(mktemp -d)}"; mkdir -p "$D/temel" "$D/pk" "$D/kaydet" "$D/ornek" "$D/klavye" "$D/klavye_bos" "$D/dil_en"
+D="${1:-$(mktemp -d)}"; mkdir -p "$D/temel" "$D/pk" "$D/kaydet" "$D/ornek" "$D/klavye" "$D/klavye_bos" "$D/dil_en" "$D/anim"
 [ -x "$ED" ] || { echo "HATA: $ED yok"; exit 2; }
 kos() {  # kos <senaryo> <dizin> [editor argumanlari...]
   local s="$1" d="$2"; shift 2
@@ -48,8 +49,14 @@ kos kaydet.txt "$D/kaydet" --scene "$D/kaydet/assets/editor.sahne" & p3=$!
 TULPAR_OYUNLAR_DIZINI="$D/ornek/oyunlar" kos ornek.txt "$D/ornek" --karsilama & p4=$!
 TULPAR_OYUNLAR_DIZINI="$D/klavye/oyunlar" kos klavye_acilis.txt "$D/klavye" --karsilama & p5=$!
 TULPAR_OYUNLAR_DIZINI="$D/klavye_bos/oyunlar" kos klavye_acilis_bos.txt "$D/klavye_bos" --karsilama & p6=$!
-TULPAR_EDITOR_DIL=en kos dil_en.txt "$D/dil_en" --scene "$KOK/tests/assets/editor.sahne" & p7=$!
-wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?; wait $p4; r4=$?; wait $p5; r5=$?; wait $p6; r6=$?; wait $p7; r7=$?
+TULPAR_EDITOR_DIL=en TULPAR_DIL_EKSIK="$D/dil_en/eksik.txt" kos dil_en.txt "$D/dil_en" --scene "$KOK/tests/assets/editor.sahne" & p7=$!
+# A1 animasyon onizleme: iskeletli sallanan karakter, Oynat'a basmadan Onizle.
+python3 "$KOK/tools/make_test_karakter.py" 12 600 "$D/anim/karakter.gltf" > /dev/null
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 2 2 2" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1" "son" > "$D/anim/k.sahne"
+kos animasyon_onizleme.txt "$D/anim" --scene "$D/anim/k.sahne" & p8=$!
+wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?; wait $p4; r4=$?; wait $p5; r5=$?; wait $p6; r6=$?; wait $p7; r7=$?; wait $p8; r8=$?
 kirmizi=0
 n=$(grep -c '^\.son .* tamam' "$D/temel/yanit.txt" 2>/dev/null || echo 0)
 if [ $r1 = 0 ] && [ -s "$D/temel/menu.png" ] && [ -s "$D/temel/secili.png" ]; then
@@ -84,8 +91,33 @@ else
 fi
 if [ $r7 = 0 ] && [ -s "$D/dil_en/dil_en.png" ]; then
   echo "  dil English: ana pencere + menuler Ingilizce cizildi, Turkce basliklar kalmadi"
+  # Kapsam tavani (ratchet): turda Turkce KALAN metin sayisi tavani asmamali; ceviri eklendikce tavan INER.
+  if python3 "$KOK/tools/dil_kapsam.py" "$D/dil_en/eksik.txt" 1 > "$D/dil_en/kapsam.txt" 2>&1; then
+    echo "  $(tail -1 "$D/dil_en/kapsam.txt")"
+  else
+    echo "  KIRMIZI dil kapsam: $(tail -1 "$D/dil_en/kapsam.txt")"; head -8 "$D/dil_en/kapsam.txt" | sed 's/^/      /'; kirmizi=1
+  fi
 else
   echo "  KIRMIZI dil English (cikis $r7):"; grep -E 'HATA|^> ' "$D/dil_en/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'; kirmizi=1
+fi
+if [ $r8 = 0 ]; then
+  fark() { python3 - "$1" "$2" <<'PY'
+import sys
+from PIL import Image, ImageChops
+a, b = Image.open(sys.argv[1]).convert("L"), Image.open(sys.argv[2]).convert("L")
+box = (340, 170, 1230, 860)   # gorunum bolgesi (1600x900)
+d = ImageChops.difference(a.crop(box), b.crop(box))
+print(sum(1 for v in d.getdata() if v > 24))
+PY
+  }
+  fa="$(fark "$D/anim/anim_a.png" "$D/anim/anim_b.png")"; fc="$(fark "$D/anim/anim_c.png" "$D/anim/anim_d.png")"
+  if [ "${fa:-0}" -gt 150 ] && [ "${fc:-9999}" -lt 20 ]; then
+    echo "  animasyon onizleme: Onizle acikken kareler degisti ($fa piksel), Durdur'dan sonra sabit ($fc piksel; kontrol)"
+  else
+    echo "  KIRMIZI animasyon onizleme: onizleme farki $fa piksel (>150 beklenir), durdurunca $fc (<20 beklenir)"; kirmizi=1
+  fi
+else
+  echo "  KIRMIZI animasyon onizleme (cikis $r8):"; grep -E 'HATA|^> ' "$D/anim/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'; kirmizi=1
 fi
 if [ $r2 = 1 ] && grep -q 'HATA: "Boyle Bir Menu Ogesi Yok"' "$D/pk/yanit.txt" 2>/dev/null; then
   echo "  pozitif kontrol: olmayan oge dustu (cikis 1)"

@@ -841,6 +841,31 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
   return true;
 }
 
+bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t clip_b, float time_b, float w, PoseScratch &scratch,
+                      ModelPose *pose) {
+  if (clip_a >= m.clip_count || clip_b >= m.clip_count) return false;
+  const ModelClip &ca = m.clips[clip_a], &cb = m.clips[clip_b];
+  if (!ca.clip || !cb.clip || ca.skin < 0 || ca.skin != cb.skin) return false;
+  if (!(w > 0.0f)) return model_pose_evaluate(m, clip_a, time_a, scratch, pose);   // w <= 0 / NaN: yalniz A (bit esit)
+  if (w >= 1.0f) return model_pose_evaluate(m, clip_b, time_b, scratch, pose);
+  const ModelSkin &sk = m.skins[ca.skin];
+  sim::LocalPose la{scratch.t, scratch.r, scratch.s, sk.joint_count};
+  sim::LocalPose lb{scratch.t2, scratch.r2, scratch.s2, sk.joint_count};
+  sim::ClipSampler::sample(ca.clip, time_a, la);
+  sim::ClipSampler::sample(cb.clip, time_b, lb);
+  for (uint32_t j = 0; j < sk.joint_count; j++) {
+    la.t[j] = la.t[j] + (lb.t[j] - la.t[j]) * w;
+    la.s[j] = la.s[j] + (lb.s[j] - la.s[j]) * w;
+    la.r[j] = slerp(la.r[j], lb.r[j], w);
+  }
+  sim::Skeleton skel{sk.joints, sk.joint_count};
+  sim::ClipSampler::to_model(skel, la, scratch.model);
+  sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[ca.skin]);
+  pose->skin_mats[ca.skin] = scratch.skin[ca.skin];
+  pose->joint_count[ca.skin] = sk.joint_count;
+  return true;
+}
+
 void ModelLod::set_view(Vec3 eye, Vec3 target, float fov_y) {
   camera_pos = eye;
   const Vec3 f = target - eye;

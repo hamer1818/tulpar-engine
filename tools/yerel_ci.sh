@@ -136,6 +136,12 @@ else
 fi
 asama "Faz 8 shader + yerlesim" $(( $(zaman) - t )) "$r"
 
+# 5c) Ozellik haritasi taze mi (2026-11-13): docs/OZELLIK-HARITASI.md kaynaktan URETILIR (tools/ozellik_haritasi.py);
+# koprü/komut/test/belge degisince eskir. Kirmizi = `python3 tools/ozellik_haritasi.py` ile yenile ve commit'e kat.
+t=$(zaman); r="OK"
+if ! python3 tools/ozellik_haritasi.py --denetle > "$IS/harita.log" 2>&1; then r="HATA $(tail -1 "$IS/harita.log")"; fi
+asama "Ozellik haritasi taze" $(( $(zaman) - t )) "$r"
+
 # 5b2) Editor UX kapisi (docs/EDITOR-UYGULAMA-PLANI.md U1): dort cozunurlukte kesik metin 0,
 # Stats gorunumden tasmaz, 1920x1080'de 3B gorunum orani >= 0.45. Pozitif kontrol C++ testinde
 # (editor_ux_imgui_kancasi_kesik_metni_gorur: ImGui yamasi canli mi).

@@ -1876,6 +1876,7 @@ void Renderer::begin_frame(uint32_t frame_index) {
   cull_ready_ = false; // record_cull kaydedene kadar CPU yolu gecerli
   skin_count_ = 0;
   stats_.dropped = 0;
+  stats_.skin_dropped = 0;
   FrameUbo u;
   // --- Faz 5: alt-piksel jitter (Halton 2,3) --------------------------------
   // Kaydirma clip uzayinda, projeksiyonun SOLUNDAN carpilir: proj_ zaten
@@ -2538,7 +2539,8 @@ void Renderer::draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4
                             uint32_t n, const Mat4 *prev_model, float reactive) {
   if (!mesh.valid() || mesh.id >= mesh_count_ || !meshes_[mesh.id].skinned || n == 0) { stats_.dropped++; return; }
   if (!material.valid() || material.id >= material_count_) material = default_material_;
-  if (draw_count_ >= cfg_.max_draws || skin_count_ + n > cfg_.max_skin_matrices) { stats_.dropped++; return; }
+  if (draw_count_ >= cfg_.max_draws) { stats_.dropped++; return; }
+  if (skin_count_ + n > cfg_.max_skin_matrices) { stats_.dropped++; stats_.skin_dropped++; return; }
   std::memcpy(static_cast<Mat4 *>(skin_mem_[frame_].mapped) + skin_count_, joints, sizeof(Mat4) * n);
   const Vec3 mc = materials_[material.id].color;
   const Vec3 lc = srgb_to_linear(color);

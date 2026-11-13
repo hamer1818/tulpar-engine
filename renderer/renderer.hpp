@@ -195,7 +195,10 @@ struct RendererConfig {
   // pipeline = 0" kapisinin pozitif kontrolu icindir (kare ici kurulumun
   // gercekten sayilabildigini gostermek); urunde asla kapatilmaz.
   bool ui_prewarm_sdf = true;
-  uint32_t max_skin_matrices = 4096;    // kare basina eklem matrisi (SSBO, set 0 binding 4)    // 2B arayuz: kare basina (ucgen listesi, 6/dortgen)
+  // Kare basina eklem matrisi (SSBO, set 0 binding 4). 4096 iken 60 eklemli karakterden yalniz 68 cizilebiliyor,
+  // fazlasi SESSIZCE kayboluyordu (karakter butcesi olcumu, 2026-11-13: 200 karakterlik sahnede cizim sayisi 68'de takildi).
+  // 16384 = 273 karakter x 60 eklem (1 MiB / kare tamponu, 3 kare = 3 MiB); tasarsa RendererStats::skin_dropped sayar.
+  uint32_t max_skin_matrices = 16384;    // 2B arayuz: kare basina (ucgen listesi, 6/dortgen)
 
   // --- Derlenmis render graph + son islem (bloom) — VARSAYILAN KAPALI ------
   // false: bugunku yol BIT BIT ayni; sahne dogrudan cagiranin gecisine cizilir.
@@ -377,6 +380,7 @@ struct ShadowInfo {
 struct RendererStats {
   uint32_t draws = 0;      // son kare
   uint32_t dropped = 0;    // kapasite asimi (sayilir, sessiz degil)
+  uint32_t skin_dropped = 0; // eklem matrisi tavani yuzunden CIZILMEYEN iskeletli cizim (dropped'a da girer; son karede)
   uint32_t meshes = 0;
   uint32_t textures = 0;
   uint32_t materials = 0;

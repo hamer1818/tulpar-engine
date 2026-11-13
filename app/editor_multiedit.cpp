@@ -42,6 +42,7 @@ const Leaf kLeaves[] = {
     {offsetof(SceneEntity, clip), sizeof(uint32_t), "clip"},
     {offsetof(SceneEntity, phase), sizeof(float), "phase"},
     {offsetof(SceneEntity, speed), sizeof(float), "speed"},
+    {offsetof(SceneEntity, anim_mode), sizeof(uint8_t), "anim_mode"},   // A1b: calma kipi (ileri-geri/dongu/tek)
     {offsetof(SceneEntity, light_color.x), sizeof(float), "light_color.x"},
     {offsetof(SceneEntity, light_color.y), sizeof(float), "light_color.y"},
     {offsetof(SceneEntity, light_color.z), sizeof(float), "light_color.z"},

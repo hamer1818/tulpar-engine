@@ -1,0 +1,21 @@
+# A1 (docs/MODEL-ANIMASYON-PLANI.md): Animasyon karti Klip secici + "Onizle" (Oynat'a basmadan animasyon oynar).
+# Kapi (tools/arayuz_kapi.sh) goruntuleri karsilastirir: onizleme ACIKKEN iki ekran FARKLI, Durdur'dan sonra iki ekran AYNI
+# (kontrol: fark gercekten onizlemeden geliyor). Sahne: tek iskeletli sallanan karakter (tools/make_test_karakter.py).
+tikla 66 206
+bekle 3
+tus F
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "0: salla"
+tikla "Önizle"
+bekle 15
+ekran anim_a
+bekle 22
+ekran anim_b
+tikla "Durdur"
+bekle 8
+ekran anim_c
+bekle 22
+ekran anim_d
+cik

@@ -935,6 +935,11 @@ func animasyon(id, klip, hiz, dongu) { eng_set_anim(id, klip, hiz, dongu); }
 func anim(id, clip, speed, loop) { eng_set_anim(id, clip, speed, loop); }
 func animasyon_dur(id) { eng_set_anim(id, -1, 1.0, false); }
 func anim_stop(id) { eng_set_anim(id, -1, 1.0, false); }
+// A2: yumusak gecis — calan klip `sure` saniyede yenisine karisir (smoothstep). Calan klip yoksa ya da sure <= 0: aninda.
+func animasyon_gecis(id, klip, hiz, dongu, sure) { eng_anim_crossfade(id, klip, hiz, dongu, sure); }
+func anim_crossfade(id, clip, speed, loop, secs) { eng_anim_crossfade(id, clip, speed, loop, secs); }
+func animasyon_geciyor(id) { return eng_anim_fading(id); }
+func anim_fading(id) { return eng_anim_fading(id); }
 func animasyon_zamani(id): float { return eng_anim_time(id); }
 func animasyon_bitti(id): bool { return eng_anim_done(id); }
 func anim_done(id): bool { return eng_anim_done(id); }

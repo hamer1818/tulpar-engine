@@ -288,7 +288,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
     }
     if (e.components & kSceneAnim) {
       SceneBlobAnim an{};
-      an.entity = i; an.clip = e.clip; an.phase = e.phase; an.speed = e.speed;
+      an.entity = i; an.clip = e.clip; an.phase = e.phase; an.speed = e.speed; an.mode = e.anim_mode;
       anims[na] = an; be.anim = (int32_t)na++;
     }
     if (e.components & kSceneLight) {

@@ -33,6 +33,11 @@ ENGINE_TEST(dil_cekirdek_sayi_simge_ve_parca) {
   CHECK(!std::strcmp(cev("-3.5 varlık", o, sizeof o), "-3.5 entities"));    // eksi + ondalik tek sayi
   CHECK(!std::strcmp(cev("\xEE\xAE\x9B  Dosya  ", o, sizeof o), "\xEE\xAE\x9B  File  ")); // simge + bosluklar korunur
   CHECK(!std::strcmp(cev("Dosya · 12 varlık", o, sizeof o), "File \xC2\xB7 12 entities"));  // " · " parcalari
+  CHECK(!std::strcmp(cev("1. Dosya > Başlangıç ekranı > Yeni oyun: oyunun adını yazın, Oluştur'a basın.", o, sizeof o),
+                      "1. File > Start screen > New game: type the game's name and press Create."));
+  CHECK(!std::strcmp(cev("arena.sahne  (9 varlık)", o, sizeof o), "arena.sahne (9 entities)") ||
+        !std::strcmp(cev("arena.sahne  (9 varlık)", o, sizeof o), "arena.sahne  (9 entities)")); // "ad (# varlik)" kalibi
+  CHECK(!std::strcmp(cev("yüklendi: editor.sahne", o, sizeof o), "loaded: editor.sahne"));            // "onek: degisken" kalibi
   // Pozitif kontrol: sozlukte olmayan metin AYNEN doner (nesne adi, yol, kullanici metni).
   CHECK(!std::strcmp(cev("kure_1", o, sizeof o), "kure_1"));
   CHECK(!std::strcmp(cev("Sözlükte Yok Bu Cümle", o, sizeof o), "Sözlükte Yok Bu Cümle"));

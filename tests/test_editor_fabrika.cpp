@@ -63,7 +63,7 @@ ENGINE_TEST(fabrika_uretir_dolu_dizine_yazmaz) {
   const FabrikaSonuc s = fabrika_uret(r);
   if (!s.ok) std::printf("    hata: %s\n", s.hata);
   CHECK(s.ok);
-  CHECK(s.dosya == 13u);   // 8 metin + 2 kit atlasi + sablon sahnesi + betik toplayicisi (U10 B1) + ikon
+  CHECK(s.dosya == 14u);   // 9 metin (yayin.env dahil) + 2 kit atlasi + sablon sahnesi + betik toplayicisi (U10 B1) + ikon
   CHECK(std::strcmp(s.paket, "dev.tulparlang.ilkoyun") == 0);
   std::snprintf(p, sizeof p, "%s/oyun.tpr", hedef);
   CHECK(oku(p, buf, sizeof buf));
@@ -76,7 +76,10 @@ ENGINE_TEST(fabrika_uretir_dolu_dizine_yazmaz) {
   CHECK(oku(p, buf, sizeof buf) && std::strstr(buf, "package = \"dev.tulparlang.ilkoyun\"") && std::strstr(buf, "İlk Oyun"));
   static const char *const beklenen[] = {"tools/dogrula.sh", "tools/ortam.sh", "tools/android_dene.sh", "apk_derle.sh",
                                          ".gitignore", "OKUBENI.md", "assets/resimler/acilis.png", "assets/resimler/arayuz.png",
-                                         "assets/arena.sahne"};
+                                         "assets/arena.sahne", "yayin.env"};
+  std::snprintf(p, sizeof p, "%s/yayin.env", hedef);   // paket adi + dosya adi doldurulmus, yer tutucu kalmamis
+  CHECK(oku(p, buf, sizeof buf) && std::strstr(buf, "PAKET=dev.tulparlang.ilkoyun\n") && std::strstr(buf, "DOSYA=ilk_oyun\n") &&
+        std::strstr(buf, "{{") == nullptr);
   for (const char *f : beklenen) {
     std::snprintf(p, sizeof p, "%s/%s", hedef, f);
     CHECK(platform::fs_kind(p) == platform::FsKind::File);

@@ -327,6 +327,11 @@ struct Ent {
   int32_t anim_clip = -1;
   float anim_speed = 1.0f, anim_time = 0.0f;
   bool anim_loop = true;
+  // A2 gecis (teng_anim_crossfade): onceki klip fade suresince ağirlikla karistirilir; bitince prev = -1.
+  int32_t anim_prev_clip = -1;
+  float anim_prev_speed = 1.0f, anim_prev_time = 0.0f;
+  bool anim_prev_loop = true;
+  float anim_fade = 0.0f, anim_fade_dur = 0.0f;
   // Kodla baglanan betik (teng_script_attach): Bridge::bound havuzunda indis
   // (`bound`, yukarida), -1 = betik yok. Iki kilit, ikisi de `_bitir`in YENIDEN GIRISI icin:
   //   dying        teng_despawn bitir'i cagirirken: kanca icinden ayni varliga
@@ -1223,7 +1228,19 @@ void render_frame() {
         // ki hata her karede tekrar etmesin.
         if (e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count) {
           content::ModelPose pose;
-          if (content::model_pose_evaluate(mdl, (uint32_t)e.anim_clip, e.anim_time, b.pose_scratch, &pose)) {
+          bool ok;
+          if (e.anim_prev_clip >= 0 && e.anim_fade_dur > 0.0f) {
+            // A2: gecis suruyor. w yumusatilir (smoothstep): baslangic ve bitis hizi 0, ani sicrama yok. Farkli iskeletli
+            // iki klipte (model_pose_blend false) yalniz yeni klibe dusulur.
+            const float x = e.anim_fade / e.anim_fade_dur;
+            const float w = x <= 0.0f ? 0.0f : x >= 1.0f ? 1.0f : x * x * (3.0f - 2.0f * x);
+            ok = content::model_pose_blend(mdl, (uint32_t)e.anim_prev_clip, e.anim_prev_time, (uint32_t)e.anim_clip, e.anim_time, w,
+                                           b.pose_scratch, &pose) ||
+                 content::model_pose_evaluate(mdl, (uint32_t)e.anim_clip, e.anim_time, b.pose_scratch, &pose);
+          } else {
+            ok = content::model_pose_evaluate(mdl, (uint32_t)e.anim_clip, e.anim_time, b.pose_scratch, &pose);
+          }
+          if (ok) {
             content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, nullptr, nullptr, &pose);
             posed = true;
             b.last_posed++;
@@ -2546,6 +2563,17 @@ void teng_frame_end(void) {
         while (e.anim_time < 0) e.anim_time += dur;
       } else if (e.anim_time > dur) e.anim_time = dur;
       else if (e.anim_time < 0) e.anim_time = 0;
+      if (e.anim_prev_clip >= 0) {                       // A2: onceki klip de ilerler; sure dolunca gecis biter
+        if ((uint32_t)e.anim_prev_clip >= mdl.clip_count) { e.anim_prev_clip = -1; continue; }
+        const float pd = mdl.clips[e.anim_prev_clip].duration;
+        e.anim_prev_time += b.dt * e.anim_prev_speed;
+        if (pd <= 0) e.anim_prev_time = 0;
+        else if (e.anim_prev_loop) { while (e.anim_prev_time >= pd) e.anim_prev_time -= pd; while (e.anim_prev_time < 0) e.anim_prev_time += pd; }
+        else if (e.anim_prev_time > pd) e.anim_prev_time = pd;
+        else if (e.anim_prev_time < 0) e.anim_prev_time = 0;
+        e.anim_fade += b.dt;
+        if (e.anim_fade >= e.anim_fade_dur) e.anim_prev_clip = -1;
+      }
     }
   }
   if (b.have_window) {
@@ -4220,8 +4248,39 @@ void teng_set_anim(int id, int clip, double speed, int loop) {
   e.anim_speed = (float)speed;
   e.anim_loop = loop != 0;
   e.anim_time = 0;
+  e.anim_prev_clip = -1;   // acik gecis varsa iptal (set_anim = ANINDA degisim)
   BDBG("#%d animasyon: klip %d \"%s\" %.2f s, hiz %.2f, %s", id, clip, m->clips[clip].name, m->clips[clip].duration, speed, loop ? "dongulu" : "tek sefer");
   if (speed == 0.0) BDBG("#%d animasyon hizi 0: poz ilk karede donar (kasitli mi?)", id);
+}
+// A2 (docs/MODEL-ANIMASYON-PLANI.md): yumusak gecis. Su an calan klip `fade_s` saniyede yenisine karisarak dolar (smoothstep).
+// Calan klip yoksa ya da fade_s <= 0: set_anim gibi ANINDA. Gecisin ortasinda yeni gecis istenirse onceki HEDEF klip kaynak olur
+// (kaynak pozu yakalanmaz: o anda kucuk bir sicrama olabilir; sik tetiklenen oyunlarda gecisi bitirmeden tetiklememek temiz sonuc verir).
+// Iki klip farkli iskelete aitse karisim yapilamaz, yeni klibe aninda gecilir (hata degil, BDBG).
+void teng_anim_crossfade(int id, int clip, double speed, int loop, double fade_s) {
+  CALLF("teng_anim_crossfade", "#%d klip %d hiz %.2f %s gecis %.2f s", id, clip, speed, loop ? "dongu" : "tek", fade_s);
+  const int32_t s = slot_of(id, "teng_anim_crossfade");
+  if (s < 0) return;
+  Ent &e = g->ents[s];
+  const int32_t onceki = e.anim_clip;
+  const float onceki_zaman = e.anim_time, onceki_hiz = e.anim_speed;
+  const bool onceki_dongu = e.anim_loop;
+  teng_set_anim(id, clip, speed, loop);                  // dogrulama + yeni klibi kurar (hata varsa clip degismez)
+  if (clip < 0 || e.anim_clip != clip || onceki < 0 || !(fade_s > 0.0)) return;
+  const content::Model *m = model_of(e.asset, "teng_anim_crossfade");
+  if (!m || onceki >= (int32_t)m->clip_count || m->clips[onceki].skin != m->clips[clip].skin) {
+    BDBG("#%d gecis yapilamadi (onceki klip yok ya da farkli iskelet): aninda degisim", id);
+    return;
+  }
+  e.anim_prev_clip = onceki;
+  e.anim_prev_time = onceki_zaman;
+  e.anim_prev_speed = onceki_hiz;
+  e.anim_prev_loop = onceki_dongu;
+  e.anim_fade = 0.0f;
+  e.anim_fade_dur = (float)fade_s;
+}
+int teng_anim_fading(int id) {
+  const int32_t s = slot_of(id, "teng_anim_fading");
+  return s < 0 ? 0 : (g->ents[s].anim_prev_clip >= 0 ? 1 : 0);
 }
 double teng_anim_time(int id) { const int32_t s = slot_of(id, "teng_anim_time"); return s < 0 ? 0.0 : g->ents[s].anim_time; }
 int teng_anim_done(int id) {

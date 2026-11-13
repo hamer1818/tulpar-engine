@@ -172,6 +172,8 @@
     {"name": "eng_model_clip_duration", "symbol": "teng_model_clip_duration", "params": ["asset: i32", "clip: i32"], "returns": "f64", "doc": "Klibin suresi (s)."},
     {"name": "eng_model_clip_name", "symbol": "teng_model_clip_name", "params": ["asset: i32", "clip: i32"], "returns": "str", "doc": "Klibin adi."},
     {"name": "eng_set_anim", "symbol": "teng_set_anim", "params": ["id: i32", "clip: i32", "speed: f64", "loop: bool"], "doc": "Model varligina klip atar; her kare poz degerlendirilir. clip < 0: animasyonu kapat (statik)."},
+    {"name": "eng_anim_crossfade", "symbol": "teng_anim_crossfade", "params": ["id: i32", "clip: i32", "speed: f64", "loop: bool", "fade_s: f64"], "doc": "Yumusak gecis: calan klip fade_s saniyede yenisine karisir (smoothstep). Calan klip yoksa / fade_s <= 0: eng_set_anim gibi aninda. Iki klip ayni iskelete ait olmali (degilse aninda)."},
+    {"name": "eng_anim_fading", "symbol": "teng_anim_fading", "params": ["id: i32"], "returns": "bool", "doc": "Gecis (eng_anim_crossfade) suruyor mu."},
     {"name": "eng_anim_time", "symbol": "teng_anim_time", "params": ["id: i32"], "returns": "f64", "doc": "Varligin klip icindeki ani (s)."},
     {"name": "eng_anim_done", "symbol": "teng_anim_done", "params": ["id: i32"], "returns": "bool", "doc": "Dongusuz klip bitti mi."},
     {"name": "eng_key_down", "symbol": "teng_key_down", "params": ["name: str"], "returns": "bool", "doc": "Tus basili mi: \"W\",\"A\",\"SPACE\",\"UP\",\"ESC\",\"ENTER\",\"SHIFT\",\"0\"..\"9\"."},

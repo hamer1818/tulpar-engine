@@ -1747,3 +1747,79 @@ ENGINE_TEST(content_gltf_clip_cap_counted) {
   std::printf("    [bilgi] max_clips=4: %u klip, %u dustu\n", k.clip_count, k.clips_dropped);
   CHECK(k.clip_count == 4 && k.clips_dropped == 4);
 }
+
+// Eklem matrisi tavanı SAYILIR (karakter bütçesi ölçümü, 2026-11-13): eskiden 4096 matris dolunca iskeletli çizim
+// sessizce kayboluyordu (200 karakterlik sahnede 68'de takıldı). Artık RendererStats::skin_dropped sayar. Kontrol:
+// tavana SIĞAN çizim sayılmaz (skin_dropped yalnız taşanı sayar), tavan küçük verilince taşan sayılır.
+ENGINE_TEST(render_skin_matris_tavani_sayilir) {
+  static SystemArena sys;
+  if (!sys.reserve(32u << 20, "skin_tavan")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (iskelet tavan kapisi atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 256;
+  rc.max_skin_matrices = 100;   // küçük tavan: taşma kolay üretilir
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  renderer::SkinnedVertex v[3] = {};
+  const uint32_t idx[3] = {0, 1, 2};
+  for (int i = 0; i < 3; i++) { v[i].weights[0] = 65535; v[i].pos = Vec3{(float)i, 0, 0}; v[i].nrm = Vec3{0, 0, 1}; }
+  renderer::MeshHandle mesh = ren.create_skinned_mesh(v, 3, idx, 3);
+  CHECK(mesh.valid());
+  static Mat4 joints[60];
+  renderer::MaterialHandle mat;   // geçersiz = varsayılan malzeme
+  ren.begin_frame(0);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 60);   // 60 <= 100: kabul
+  CHECK(ren.stats().skin_dropped == 0 && ren.skin_matrices_used() == 60);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 60);   // 120 > 100: taşar -> SAYILIR
+  CHECK(ren.stats().skin_dropped == 1 && ren.skin_matrices_used() == 60);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 30);   // 90 <= 100: sığar, sayaç artmaz (kontrol)
+  CHECK(ren.stats().skin_dropped == 1 && ren.skin_matrices_used() == 90);
+  CHECK(ren.stats().dropped >= ren.stats().skin_dropped);
+  ren.begin_frame(0);                                                     // yeni karede sayaç sıfırlanır
+  CHECK(ren.stats().skin_dropped == 0);
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// A2: iki klibi karistirma (model_pose_blend). skin_tube'un "bend" klibi uc eklemi 1 s'de Z etrafinda 90 derece cevirir.
+// Kapilar: w=0 BIT ESIT yalniz A, w=1 BIT ESIT yalniz B; w=0.5, t=0 (0 derece) ile t=1 (90 derece) arasinin ORTASI = 45 derece
+// (cos45 ~ 0.7071; matrisler dogrusal ortalama olsaydi ~ 0.5 cikardi: slerp kontrolu); ters yonlu (antipodal) quaternion'da kisa yol.
+ENGINE_TEST(content_pose_blend_endpoints_and_midpoint) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_blend")) { CHECK(false); return; }
+  char path[512];
+  if (!asset_path(path, sizeof path, "skin_tube.gltf")) { CHECK(false); return; }
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  CHECK(m.clip_count >= 1 && m.skin_count >= 1);
+  static content::PoseScratch sc, sa, sb, sw;
+  content::ModelPose pa, pb, pw, pe;
+  CHECK(content::model_pose_evaluate(m, 0, 0.0f, sa, &pa));
+  CHECK(content::model_pose_evaluate(m, 0, 1.0f, sb, &pb));
+  const uint32_t jc = pa.joint_count[0];
+  CHECK(jc == 2);
+  // w = 0: A ile BIT ESIT
+  CHECK(content::model_pose_blend(m, 0, 0.0f, 0, 1.0f, 0.0f, sw, &pw));
+  CHECK(std::memcmp(pw.skin_mats[0], pa.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  // w = 1: B ile BIT ESIT
+  CHECK(content::model_pose_blend(m, 0, 0.0f, 0, 1.0f, 1.0f, sw, &pw));
+  CHECK(std::memcmp(pw.skin_mats[0], pb.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  // w = 0.5: uc eklemde (j = 1) donus A ile B'nin ortasi (45 derece)
+  CHECK(content::model_pose_blend(m, 0, 0.0f, 0, 1.0f, 0.5f, sc, &pe));
+  const float c = pe.skin_mats[0][1].m[0][0];
+  const float ca = pa.skin_mats[0][1].m[0][0], cb = pb.skin_mats[0][1].m[0][0];   // 1.0 (0 derece) ve ~0.0 (90 derece)
+  std::printf("    [bilgi] gecis: m00 A %.4f, B %.4f, w=0.5 -> %.4f (cos45 = 0.7071)\n", ca, cb, c);
+  CHECK(std::fabs(ca - 1.0f) < 1e-3f && std::fabs(cb) < 2e-2f);
+  CHECK(std::fabs(c - 0.70710678f) < 2e-2f);
+  // gecersiz klip -> false (cagiran tek klibe duser)
+  CHECK(!content::model_pose_blend(m, 0, 0.0f, 99, 0.0f, 0.5f, sc, &pe));
+}

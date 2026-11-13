@@ -589,6 +589,10 @@ struct EditorState {
   OpGroups groups; // bir kullanici eylemi = gunlukte N islem (grup tasima/silme)
   bool playing = false, dirty = false;
   float play_time = 0;
+  // A1 (docs/MODEL-ANIMASYON-PLANI.md): Oynat'a basmadan animasyon ONIZLEMESI. Acikken sahnedeki animasyonlu modeller kendi
+  // saatiyle (anim_onizle_t) oynar; Oynat baslayinca kapanir (oyun kendi saatini kullanir).
+  bool anim_onizle = false;
+  float anim_onizle_t = 0;
   // Surukleme / metin duzenleme: aktiflesince kopya, birakinca tek islem.
   SceneEntity edit_before;
   bool edit_active = false, gizmo_was_using = false, gizmo_was_over = false;
@@ -2999,6 +3003,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         break;
       case 9: // Animasyonlu Model
         e.components = content::kSceneModel | content::kSceneAnim;
+        e.anim_mode = (uint8_t)content::kAnimLoop;   // yeni animasyonlu model DONGUDE calar (yuruyus gibi klipler); eski dosyalar ileri-geri kalir
         e.asset = st.scene.asset_count > 1 ? 1 : (st.scene.asset_count ? 0 : -1);
         e.clip = 0;
         e.speed = 1.0f;
@@ -4228,6 +4233,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     was_playing = st.playing;
 
+    if (st.playing) st.anim_onizle = false;
+    else if (st.anim_onizle) st.anim_onizle_t += dt;
     // Sim: yalniz oynatilirken (sabit adim). Duraklatilmisken zaman AKMAZ ama
     // govdeler yerinde durur; F10 tek adim ilerletir. fs.advance duraklamada
     // cagrilmaz — yoksa birikmis zaman devam edince bir anda bosalirdi.
@@ -5842,6 +5849,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        // U10 B4 + yeni kullanici turu (2026-11-13): betik en cok aranan sey. "Ilk adimlar" karti "Ozellikler'de Davranis ekle
+        // dugmesine bas" diyor ama dugme Donusum/Model/Malzeme'nin ALTINDAydi; 720p'de kaydirmadan gorunmuyordu. Betiksiz
+        // nesnede hizli eylemlerin hemen altinda, tam genislikte.
+        if (!has_sc) {
+          ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::AccentLo, 0.55f));
+          if (ImGui::Button(ICON_MD_BOLT "  Davran\xC4\xB1\xC5\x9F ekle (betik)", ImVec2(-FLT_MIN, 0))) yeni_betik_ac(si);
+          ImGui::PopStyleColor();
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bu nesne ne yaps\xC4\xB1n? Haz\xC4\xB1r davran\xC4\xB1\xC5\x9Flardan se\xC3\xA7 ya da bo\xC5\x9F betikle ba\xC5\x9Fla.");
+          ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        }
         // Oyunun ana kodu (oyun.tpr) bu nesneyi ADIYLA yonetiyorsa EN USTTE soyle (bilesenlerin altinda kaydirmadan
         // gorunmuyordu): "oyuncu" betiksiz gorunur ama oyunda hareket eder; kullanici bu bagi goremiyordu (2026-11-12).
         {
@@ -6051,7 +6068,48 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           act = ComponentCardAction::None;
           if (begin_component_card("\xE2\x86\xBB", "Animasyon", content::kSceneAnim, nullptr, &act, true, Tone::Accent)) {
             if (prop_begin("anim")) {
-              track_edit(st, e, si, prop_float("Faz", &e.phase, 0.01f, 0.0f, 10.0f, "%.2f"));
+              // A1: klip secici + oynatmadan onizleme + zaman cubugu (eskiden yalniz Faz/Hiz vardi ve klip secilemiyordu).
+              const content::Model *am = (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset]) ? &st.models[e.asset] : nullptr;
+              const uint32_t nclip = am ? am->clip_count : 0;
+              float dur = 0.0f;
+              if (nclip == 0) {
+                ImGui::TextColored(tone(Tone::TextMute), "Bu modelin animasyonu yok (ya da kaynak yok).");
+              } else {
+                static char klip_adlari[32 * 66 + 2];
+                size_t kn = 0;
+                for (uint32_t k = 0; k < nclip && k < 32; k++) {
+                  const char *ad = am->clips[k].name[0] ? am->clips[k].name : "(adsiz)";
+                  kn += (size_t)std::snprintf(klip_adlari + kn, sizeof klip_adlari - kn - 1, "%u: %s", k, ad) + 1;
+                }
+                klip_adlari[kn] = 0;
+                int ci = (int)(e.clip < nclip ? e.clip : 0);
+                if (prop_combo("Klip", &ci, klip_adlari).changed) {
+                  after = e;
+                  after.clip = (uint32_t)ci;
+                  after.phase = 0.0f;
+                  commit(st, si, after);
+                }
+                dur = am->clips[ci].duration;
+                ImGui::TextColored(tone(Tone::TextMute), "%.2f s \xC2\xB7 %u klip", dur, nclip);
+                int mod = (int)e.anim_mode;
+                if (mod > 2) mod = 0;
+                // Kip: 0 ileri-geri (eski varsayilan), 1 dongu, 2 tek. ComboItems sirasi kAnim* sabitleriyle ayni.
+                if (prop_combo("Kip", &mod, "\xC4\xB0leri-geri\0" "D\xC3\xB6ng\xC3\xBC\0" "Tek (sonda durur)\0").changed) {
+                  after = e;
+                  after.anim_mode = (uint8_t)mod;
+                  commit(st, si, after);
+                }
+                const bool onizle = st.anim_onizle;
+                if (ImGui::Button(onizle ? ICON_MD_PAUSE " Durdur##anim_onizle" : ICON_MD_PLAY_ARROW " \xC3\x96nizle##anim_onizle")) {
+                  st.anim_onizle = !onizle;
+                  if (st.anim_onizle) st.anim_onizle_t = 0.0f;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Oynat'a bas\xC4\xB1" "madan sahnedeki t\xC3\xBCm animasyonlu modelleri oynat\xC4\xB1r (\xC3\xB6nizleme; Oynat ba\xC5\x9F" "lay\xC4\xB1nca kapan\xC4\xB1r)");
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MD_SKIP_PREVIOUS "##anim_basa")) { st.anim_onizle_t = 0.0f; after = e; after.phase = 0.0f; commit(st, si, after); }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ba\xC5\x9F" "a sar (faz = 0)");
+              }
+              track_edit(st, e, si, prop_float("An / Faz (s)", &e.phase, 0.01f, 0.0f, dur > 0.0f ? dur : 10.0f, "%.2f"));
               track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.speed, 0.01f, 0.0f, 10.0f, "%.2f"));
               prop_end();
             }
@@ -7410,14 +7468,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Takili olanlari eleme isini de widget yapar (existing_components),
         // burada tek tek sormaya gerek yok.
         prop_set_filter(nullptr); // ekleme listesi ve diger paneller suzgecten etkilenmesin
-        // U10 B4: betik en cok aranan sey; "Bilesen ekle" listesinde kaybolmasin.
-        if (!has_sc) {
-          ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
-          ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::AccentLo, 0.55f));
-          if (ImGui::Button(ICON_MD_BOLT "  Davran\xC4\xB1\xC5\x9F ekle (betik)", ImVec2(-FLT_MIN, 0))) yeni_betik_ac(si);
-          ImGui::PopStyleColor();
-          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bu nesne ne yaps\xC4\xB1n? Haz\xC4\xB1r davran\xC4\xB1\xC5\x9Flardan se\xC3\xA7 ya da bo\xC5\x9F betikle ba\xC5\x9Fla.");
-        }
+        // "Davranis ekle (betik)" artik panelin EN USTUNDE (hizli eylemlerin altinda): bkz. yukari (yeni kullanici turu, 2026-11-13).
         const uint32_t add = component_add_button(kComponentMenu, kComponentMenuCount, e.components);
         if (add) { // 0 = secim yok; donus INDEKS degil BIT
           after = e;
@@ -9948,8 +9999,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         lod.distance1 = 24.0f; lod.distance2 = 34.0f;
         if ((e.components & content::kSceneAnim) && e.clip < mdl.clip_count) {
           const float dur = mdl.clips[e.clip].duration;
-          float t = std::fmod((st.playing ? st.play_time * e.speed : 0.0f) + e.phase, 2.0f * dur);
-          if (t > dur) t = 2.0f * dur - t;
+          const float zt = st.playing ? st.play_time : (st.anim_onizle ? st.anim_onizle_t : 0.0f);   // A1: oynatmadan onizleme
+          const float t = content::scene_anim_time(e.anim_mode, zt * e.speed + e.phase, dur);
           content::ModelPose pose;
           if (content::model_pose_evaluate(mdl, e.clip, t, st.pose_scratch, &pose)) {
             content::draw_model(ren, mdl, up, m, tint, nullptr, nullptr, &pose);
