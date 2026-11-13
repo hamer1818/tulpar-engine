@@ -332,6 +332,83 @@ PY5
     if [ $rky = 0 ] && [ -z "$(ls "$B/ky2_ayar/kod_istekleri" 2>/dev/null)" ]; then echo "  kod geri al (editor yok): pencere acik kaldi, uyardi, istegi geri aldi"
     else echo "  KIRMIZI kod geri al, editor yok (cikis $rky):"; grep -E 'HATA|> ' "$B/ui_ky2/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
   else echo "  KIRMIZI kod geri al: proje uretilemedi"; kirmizi=1; fi
+  # CANLI KOD: oyun calisirken kod kaydedilince oyun yeniden baslar (tulpar gerekir); tercih kapaliyken baslamaz (kontrol).
+  if command -v tulpar > /dev/null; then
+    mkdir -p "$B/ui_kc" "$B/ui_kck" "$B/kc_ayar" "$B/kck_ayar"
+    printf 'canli_kod = 0\n' > "$B/kck_ayar/tercihler.txt"
+    if betik_proje "$B/kc" && betik_proje "$B/kck"; then
+      oyun_ac() { ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= TULPAR_ENGINE_HEADLESS=60 TULPAR_EDITOR_AYAR_DIZINI="$1" timeout 400 "$ED" --size 1600x900 --surucu "$KOK/tests/arayuz/$2" --surucu-dizin "$3" --scene "$4" > "$3/editor.log" 2>&1 ); }
+      oyun_ac "$B/kc_ayar" kod_canli.txt "$B/ui_kc" "$B/kc/assets/arena.sahne"; rkc=$?
+      oyun_ac "$B/kck_ayar" kod_canli_kapali.txt "$B/ui_kck" "$B/kck/assets/arena.sahne"; rkck=$?
+      nkc=$(grep -c "gomulu kip: kanal" "$B/ui_kc/editor.log"); nkck=$(grep -c "gomulu kip: kanal" "$B/ui_kck/editor.log")
+      # CANLI SAHNE (ayni projeler/ayar dizinleri): sahne degisince oyuna uygulanir, oyun yeniden BASLAMAZ; tercih kapaliyken uygulanmaz.
+      mkdir -p "$B/ui_ks1" "$B/ui_ks2"
+      oyun_ac "$B/kc_ayar" kod_sahne.txt "$B/ui_ks1" "$B/kc/assets/arena.sahne"; rks1=$?
+      oyun_ac "$B/kck_ayar" kod_sahne.txt "$B/ui_ks2" "$B/kck/assets/arena.sahne"; rks2=$?
+      nsa=$(grep -c "sahne yenilendi: 4 parilti" "$B/ui_ks1/editor.log"); nsb=$(grep -c "gomulu kip: kanal" "$B/ui_ks1/editor.log"); nsk=$(grep -c "sahne yenilendi" "$B/ui_ks2/editor.log")
+      if [ $rks1 = 0 ] && [ $rks2 = 0 ] && [ "$nsa" -ge 1 ] && [ "$nsb" = 1 ] && [ "$nsk" = 0 ]; then
+        echo "  canli sahne: sahne degisince oyuna uygulandi (4 parilti), oyun yeniden BASLAMADI; tercih kapaliyken uygulanmadi (kontrol)"
+      else echo "  KIRMIZI canli sahne (cikis $rks1/$rks2, uygulandi=$nsa baslatma=$nsb kapali-uygulandi=$nsk):"; grep -hE 'HATA|> ' "$B/ui_ks1/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+      mkdir -p "$B/ui_ksb" "$B/ksb_ayar"
+      "$ED" --yeni-oyun "$B/ksb" --kimlik ksb --onek KB --tur bilardo --tr "Canli Bilardo" --en "Live Pool" > /dev/null 2>&1
+      oyun_ac "$B/ksb_ayar" kod_sahne_bilardo.txt "$B/ui_ksb" "$B/ksb/assets/bilardo.sahne"; rksb=$?
+      nba=$(grep -c "sahne yenilendi: 16 top, 6 cep" "$B/ui_ksb/editor.log"); nbb=$(grep -c "gomulu kip: kanal" "$B/ui_ksb/editor.log")
+      if [ $rksb = 0 ] && [ "$nba" -ge 1 ] && [ "$nbb" = 1 ]; then echo "  canli sahne (bilardo): masa yeniden okundu (16 top, 6 cep), oyun yeniden BASLAMADI"
+      else echo "  KIRMIZI canli sahne bilardo (cikis $rksb, uygulandi=$nba baslatma=$nbb):"; grep -hE 'HATA|> ' "$B/ui_ksb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+      if [ $rkc = 0 ] && [ $rkck = 0 ] && [ "$nkc" -ge 2 ] && [ "$nkck" = 1 ]; then
+        echo "  canli kod: kod kaydedilince oyun yeniden basladi (baslatma $nkc), tercih kapaliyken baslamadi ($nkck) (kontrol)"
+      else echo "  KIRMIZI canli kod (cikis $rkc/$rkck, baslatma acik=$nkc kapali=$nkck):"; grep -hE 'HATA|> ' "$B/ui_kc/yanit.txt" "$B/ui_kck/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+    else echo "  KIRMIZI canli kod: proje uretilemedi"; kirmizi=1; fi
+  else echo "  ATLANDI: canli kod — tulpar kurulu degil (oyun kosturulamaz)"; fi
+  # Gizmo Kod sekmesinin USTUNE cikmaz (secili nesne + Gorunum sekmesi ortulu). KONTROL: Gorunum aciksa gizmo GORUNUR (piksel sayimi).
+  mkdir -p "$B/ui_kz2"
+  if betik_proje "$B/kz2" && python3 -c "import PIL" 2> /dev/null; then
+    ( kos kod_gizmo.txt "$B/ui_kz2" --scene "$B/kz2/assets/arena.sahne" ); rkz2=$?
+    sonuc=$(python3 - "$B/ui_kz2" <<'PY6'
+import sys
+from PIL import Image
+def say(yol):
+    px = Image.open(yol).convert('RGB').load(); n = 0
+    for y in range(140, 840):
+        for x in range(310, 1240):
+            r, g, b = px[x, y]
+            if (r > 200 and g < 90 and b < 90) or (g > 170 and r < 90 and b < 110) or (b > 200 and r < 90 and g < 140): n += 1
+    return n
+print(say(sys.argv[1] + '/kod_gizmo_goruntu.png'), say(sys.argv[1] + '/kod_gizmo_kod.png'))
+PY6
+)
+    set -- $sonuc
+    if [ $rkz2 = 0 ] && [ "${1:-0}" -gt 300 ] && [ "${2:-9999}" -lt 5 ]; then echo "  gizmo: Gorunum acikken gorunur ($1 piksel), Kod sekmesi ortunce Kod'un ustune CIKMADI ($2 piksel)"
+    else echo "  KIRMIZI gizmo (cikis $rkz2, gorunum=${1:-?} kod=${2:-?} piksel)"; kirmizi=1; fi
+  else echo "  ATLANDI: gizmo kapisi — proje uretilemedi ya da PIL yok"; fi
+  # Tanima git / yeniden adlandir (LSP; tulpar gerekir).
+  if command -v tulpar > /dev/null; then
+    mkdir -p "$B/ui_kt"
+    if betik_proje "$B/kt"; then
+      printf 'func qa_hesap(a) {\n    return a + 1;\n}\nfunc dondur_baslat(id) {\n    logla(t"{qa_hesap(1)}");\n    qa_hesap(2);\n}\n' > "$B/kt/assets/betikler/dondur.tpr"
+      ( kos kod_tanim.txt "$B/ui_kt" --scene "$B/kt/assets/arena.sahne" ); rkt=$?
+      nyeni=$(grep -o "qa_sonuc" "$B/kt/assets/betikler/dondur.tpr" | wc -l); neski=$(grep -o "qa_hesap" "$B/kt/assets/betikler/dondur.tpr" | wc -l)
+      if [ $rkt = 0 ] && [ "$nyeni" = 3 ] && [ "$neski" = 0 ]; then echo "  kod tanim: F12 tanima gitti, Alt+Sol dondu, 'func' reddedildi, F2 ile 3 kullanim yeniden adlandirildi"
+      else echo "  KIRMIZI kod tanim (cikis $rkt, yeni=$nyeni eski=$neski):"; grep -E 'HATA|> ' "$B/ui_kt/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; cat "$B/kt/assets/betikler/dondur.tpr" | sed 's/^/      | /'; kirmizi=1; fi
+    else echo "  KIRMIZI kod tanim: proje uretilemedi"; kirmizi=1; fi
+  else echo "  ATLANDI: kod tanim — tulpar kurulu degil"; fi
+  # Gecmis paneli: eylemler listelenir, satira tiklamak o ana dondurur (sahne nesne sayisi izler).
+  mkdir -p "$B/ui_gc"
+  if betik_proje "$B/gc"; then
+    ( kos gecmis.txt "$B/ui_gc" --scene "$B/gc/assets/arena.sahne" ); rgc=$?
+    if [ $rgc = 0 ]; then echo "  gecmis: 3 eylem listelendi; Baslangic / 1. / 3. adima tiklayinca sahne o ana dondu (9 / 10 / 12 varlik)"
+    else echo "  KIRMIZI gecmis (cikis $rgc):"; grep -E 'HATA|> ' "$B/ui_gc/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI gecmis: proje uretilemedi"; kirmizi=1; fi
+  # Surukle-birak: .tpr -> assets/betikler/ + Kod'da acilir; .gltf -> sahneye eklenir; baska tur uyarilir.
+  mkdir -p "$B/ui_bb" "$B/bb_dis"
+  if betik_proje "$B/bb"; then
+    printf 'func birakilan_baslat(id) {\n    logla("birakildi");\n}\n' > "$B/bb_dis/Birakilan Betik.tpr"; printf 'x' > "$B/bb_dis/not.txt"
+    sed -e "s|@BIRAK_TPR@|$B/bb_dis/Birakilan Betik.tpr|; s|@BIRAK_MODEL@|$KOK/tests/assets/checker_cube.gltf|; s|@BIRAK_TXT@|$B/bb_dis/not.txt|" "$KOK/tests/arayuz/birak.txt" > "$B/birak_s.txt"
+    ( cd "$KOK" && DISPLAY= WAYLAND_DISPLAY= TULPAR_ENGINE_HEADLESS=60 timeout 200 "$ED" --size 1600x900 --surucu "$B/birak_s.txt" --surucu-dizin "$B/ui_bb" --scene "$B/bb/assets/arena.sahne" > "$B/ui_bb/editor.log" 2>&1 ); rbb=$?
+    if [ $rbb = 0 ] && cmp -s "$B/bb_dis/Birakilan Betik.tpr" "$B/bb/assets/betikler/Birakilan_Betik.tpr" && [ -f "$B/bb/assets/checker_cube.gltf" ] && [ -f "$B/bb_dis/Birakilan Betik.tpr" ]; then
+      echo "  birak: .tpr assets/betikler'e kopyalandi + Kod'da acildi, .gltf sahneye eklendi, .txt uyarildi; kaynaklar yerinde (kopya)"
+    else echo "  KIRMIZI birak (cikis $rbb):"; grep -E 'HATA|> ' "$B/ui_bb/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; ls "$B/bb/assets" "$B/bb/assets/betikler" 2>&1 | sed 's/^/      /'; kirmizi=1; fi
+  else echo "  KIRMIZI birak: proje uretilemedi"; kirmizi=1; fi
   # Parametre ipucu: kure( icinde imza + parametre adlari; parantezden cikinca kaybolur.
   mkdir -p "$B/ui_ki"
   if betik_proje "$B/ki"; then

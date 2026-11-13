@@ -11,7 +11,7 @@ namespace tulpar::engine::app {
 
 namespace {
 
-const char *const k_panels[kLayoutPanelCount] = {kPanelSahne, kPanelGorunum, kPanelOzellikler, kPanelKaynaklar, kPanelDunya, kPanelKonsol};
+const char *const k_panels[kLayoutPanelCount] = {kPanelSahne, kPanelGorunum, kPanelOzellikler, kPanelKaynaklar, kPanelDunya, kPanelKonsol, kPanelGecmis};
 
 // Modul durumu: host'un dockspace kimligi, son hata, son kayitta atlanan
 // pencere sayisi. Ucu de kare icinde DEGISMEZ (yalniz duzen islemlerinde).
@@ -328,10 +328,10 @@ bool layout_file_equal(const LayoutFile &a, const LayoutFile &b) {
 //   0 kok      (X: sol / kalan)
 //   1  sol     (Y: ust / alt)
 //   2   ust    -> Sahne
-//   3   alt    -> Kaynaklar + Konsol (sekmeli)
+//   3   alt    -> Kaynaklar + Konsol (sekmeli; ucuncu sekme "Kayna..." diye kisaliyordu: Gecmis buraya KONMAZ)
 //   4  kalan   (X: orta / sag)
 //   5   orta   -> Gorunum
-//   6   sag    -> Ozellikler + Dunya (sekmeli)
+//   6   sag    -> Ozellikler + Dunya + Gecmis (sekmeli)
 // Olculer trunc'lanir: dosya tam sayilarla okunur ve ImGui zaten ImTrunc'luyor.
 bool layout_default(ImGuiID dockspace_id, float w, float h, LayoutFile *out, LayoutError *err) {
   clear_err();
@@ -365,7 +365,8 @@ bool layout_default(ImGuiID dockspace_id, float w, float h, LayoutFile *out, Lay
   n[6] = LayoutNode{4, {-1, -1}, 2, right, H};
   struct Slot { const char *name; uint32_t node, order; };
   const Slot slots[] = {{kPanelSahne, 2, 0},      {kPanelGorunum, 5, 0}, {kPanelOzellikler, 6, 0},
-                        {kPanelKaynaklar, 3, 0}, {kPanelDunya, 6, 1},   {kPanelKonsol, 3, 1}};
+                        {kPanelKaynaklar, 3, 0}, {kPanelDunya, 6, 1},   {kPanelKonsol, 3, 1},
+                        {kPanelGecmis, 6, 2}};
   out->window_count = (uint32_t)(sizeof slots / sizeof slots[0]);
   for (uint32_t i = 0; i < out->window_count; i++) {
     // Kaynak BIZIM sabit tablomuz (k_panels), kirpma olamaz; yine de sinirli kopya.

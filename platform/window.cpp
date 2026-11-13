@@ -36,6 +36,7 @@ struct Glfw {
   const char *(*get_error)(const char **) = nullptr;
   GLFWscrollfun (*set_scroll_callback)(GLFWwindow *, GLFWscrollfun) = nullptr;
   GLFWcharfun (*set_char_callback)(GLFWwindow *, GLFWcharfun) = nullptr;
+  void *(*set_drop_callback)(GLFWwindow *, void (*)(GLFWwindow *, int, const char **)) = nullptr; // secmeli (eski GLFW'de yok: surukle-birak olmaz)
   // Tam ekran: SECMELI semboller (yoksa yetenek kapali, pencere acilmaya
   // devam eder — zorunlu sembol listesine konursa eski bir GLFW butun
   // pencereyi dusururdu).
@@ -54,6 +55,12 @@ uint32_t g_chars[InputState::kMaxChars];
 uint32_t g_char_count = 0;
 void on_scroll(GLFWwindow *, double, double y) { g_scroll_accum += y; }
 void on_char(GLFWwindow *, unsigned int cp) { if (g_char_count < InputState::kMaxChars) g_chars[g_char_count++] = cp; }
+char g_drop_paths[InputState::kMaxDrops][InputState::kDropLen];
+uint32_t g_drop_count = 0;
+void on_drop(GLFWwindow *, int n, const char **paths) { // yol(lar) UTF-8; sigmayan yol ATLANIR (kesilmis yol baska bir dosyayi gosterirdi)
+  for (int i = 0; i < n && g_drop_count < InputState::kMaxDrops; i++)
+    if (paths[i] && std::strlen(paths[i]) < InputState::kDropLen) std::snprintf(g_drop_paths[g_drop_count++], InputState::kDropLen, "%s", paths[i]);
+}
 
 bool load_glfw(char *err, size_t n) {
   if (g.lib) return true;
@@ -125,6 +132,7 @@ bool load_glfw(char *err, size_t n) {
 #undef L
   // Secmeli (yoklugu hata DEGIL): tam ekran yetenegi.
 #define O(field, sym) g.field = (decltype(g.field))dl_sym(g.lib, sym);
+  O(set_drop_callback, "glfwSetDropCallback");
   O(get_primary_monitor, "glfwGetPrimaryMonitor"); O(get_window_monitor, "glfwGetWindowMonitor");
   O(set_window_monitor, "glfwSetWindowMonitor"); O(get_video_mode, "glfwGetVideoMode");
   O(get_window_pos, "glfwGetWindowPos");
@@ -186,6 +194,7 @@ bool Window::open(const WindowConfig &cfg) {
   }
   g.set_scroll_callback(w, on_scroll);
   g.set_char_callback(w, on_char);
+  if (g.set_drop_callback) g.set_drop_callback(w, on_drop);
   if (cfg.icon_rgba && cfg.icon_w && cfg.icon_h && g.set_window_icon) {
     // Wayland'de GLFW "ikon desteklenmiyor" hatasi isaretler: zararsiz, app_id + .desktop yolu.
     GLFWimage im{(int)cfg.icon_w, (int)cfg.icon_h, const_cast<unsigned char *>(cfg.icon_rgba)};
@@ -213,6 +222,9 @@ void Window::poll() {
   input_.char_count = g_char_count;
   for (uint32_t i = 0; i < g_char_count; i++) input_.chars[i] = g_chars[i];
   g_char_count = 0;
+  input_.drop_count = g_drop_count;
+  for (uint32_t i = 0; i < g_drop_count; i++) std::snprintf(input_.drop_paths[i], InputState::kDropLen, "%s", g_drop_paths[i]);
+  g_drop_count = 0;
 }
 
 bool Window::should_close() const { return win_ && g.window_should_close(static_cast<GLFWwindow *>(win_)); }

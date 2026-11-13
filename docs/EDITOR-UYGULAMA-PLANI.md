@@ -441,7 +441,32 @@ işletim sistemi penceresi yolu (swapchain) bu oturumda çalıştırılmadı** (
 bırakılır; çalışan editör ~1/3 s'de bir yoklar, dosyayı sekme olarak açar ve isteği siler, pencere kapanır. Editör yoksa (ya da
 kaydedilmemiş başka dosya açma izin vermiyorsa) pencere ~3 s sonra isteği geri alır, uyarır ve AÇIK KALIR; 60 sn'den eski istek atılır.
 Kapılar: `kod_geri_al.txt`, `kod_geri_al_yok.txt`, `editor_kod_istegi_yaz_ve_al_*`.
-**Hâlâ kapsam dışı:** betik sıcak yükleme, görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
+**Canlı kod (2026-11-12):** oyun editörde çalışırken `oyun.tpr` ya da `assets/betikler/*.tpr` değişirse (Kod paneli, ayrı pencere, dış
+editör: dosya parmak izi `betik_proje_damgasi`, otomatik üretilen `betikler.tpr` hariç) oyun kendiliğinden durdurulup yeniden başlar.
+Tulpar AOT derlendiği için çalışan koda yama yapılmaz; derleme önbelleği yeniden başlatmayı kısa tutar. İki ardışık yoklamada aynı
+yeni parmak izi görülünce tetiklenir (yarım yazılmış dosya). Derleme hatasında oturum AÇIK kalır: düzeltip kaydedince tekrar dener;
+açık Durdur ya da oyunun kendi kapanışı oturumu bitirir. Tercihler > OYNATMA > "Kod değişince oyunu yeniden başlat" (varsayılan açık).
+Kapılar: `kod_canli.txt` (2 başlatma) + `kod_canli_kapali.txt` (kontrol: tercih kapalı, 1), `editor_betik_proje_damgasi_*`.
+**Canlı sahne:** oyun editörde çalışırken sahne değişirse (parmak izi, iki ardışık yoklama) editör `.sahneb`'yi kendiliğinden derler;
+şablonlar `sahne_izle(true)` ile izler ve `sahne_degisti()` ile oyunu yeniden başlatmadan günceller (arena: parıltılar sahnedeki konum ve
+sayıyla yeniden kurulur, oyuncu ışınlanır, skor/süre kalır; bilardo: masa baştan okunur, oyun sürüyorsa tur yeni dizilimle başlar).
+Editörde çalışırken yapılan sahne düzenlemeleri Durdur'da geri alınır (mevcut kural). Tercih tek: "Değişiklikleri çalışan oyuna uygula".
+Kapılar: `kod_sahne.txt` (+ kapalı kontrol), `kod_sahne_bilardo.txt`.
+**Tanıma git / yeniden adlandır (2026-11-12):** Kod panelinde **F12** ya da **Ctrl+tık**: imlecin altındaki işlevin tanımına git (aynı dosya: tek seferlik
+`tulpar --lsp`; kütüphane/başka dosya: LSP yalnız aynı dosyayı bilir, bu yüzden `func <ad>(` satırı proje + motor kütüphanesi dosyalarında
+aranır; kütüphane dosyaları YALNIZ OKUNUR açılır), **Alt+Sol** geri (konum ve sütun korunur), **F2** yeniden adlandır (LSP `rename`; proje
+dosyaları diske yazılır, açık dosya tampona ve kaydedilmemiş sayılır). LSP `t"{...}"` içindeki kullanımları görmez: bunlar ayrıca tam sözcük
+eşleşmesiyle adlandırılır. Reddedilen adlar: dil sözcüğü, geçersiz karakter, **betik kancası** (`<dosya>_baslat` vb.: motor adı dosya adından
+arar). Yalnız işlev adları (LSP global değişkenler için null döner). Kapılar: `kod_tanim.txt`, `editor_kod_tanim_*`, `editor_kod_sablon_*`.
+**Geçmiş paneli (2026-11-12):** sağ sütunda (Özellikler / Dünya / **Geçmiş**; alt sol sütunda üçüncü sekme "Kayna…" diye kısalıyordu) kullanıcı eylemleri
+listelenir (`OpGroups`: bir eylem = günlükte N işlem; "Taşı: duvar", "Sil: …", "Ekle: …", "… ve N nesne daha"). Bir satıra tıklamak o âna
+döndürür (editörün kendi `do_undo`/`do_redo`'su: gruplar, fizik, kaynak bakımı aynı); yinelenebilir eylemler soluk. Kapı: `gecmis.txt`
+(9 / 10 / 12 varlık), `editor_gecmis_listesi_*`.
+**Sürükle-bırak içe aktarma (2026-11-12):** işletim sisteminden editör penceresine bırakılan dosyalar (`GLFW drop` → `InputState::drop_paths`; eski
+GLFW'de sembol yoksa özellik sessizce kapalı): `.glb/.gltf` sahne klasörüne kopyalanır (bağımlılıklarıyla) ve sahneye eklenir; `.tpr`
+`assets/betikler/<ad>.tpr` olarak kopyalanır (ad tanımlayıcı olur, çakışırsa `_2`) ve Kod'da açılır; başka türler söylenerek atlanır. Kaynak yerinde kalır
+(kopya). Sürücüde `birak <dosya>` (aynı girdi yolu). Kapı: `birak.txt`, `editor_betik_ice_aktar_*`. **Gerçek OS bırakma yolu CI/yerelde çalıştırılmadı.**
+**Hâlâ kapsam dışı:** görsel betik, tanıma git / yeniden adlandır (LSP destekliyor, editöre bağlı değil).
 (Betik sıcak yükleme köprüde var, editöre bağlanması ayrı iş.)
 
 ### U11 — UX mükemmelliği (kullanıcı kararı, 2026-11-11)

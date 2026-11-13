@@ -1,0 +1,74 @@
+# Tanima git (F12) ve yeniden adlandir (F2): kapi dondur.tpr'yi onceden kurar (qa_hesap 1. satirda tanimli, 6. satirda cagrilir, 5. satirda
+# t-dizesinde). 1) F12: imlec 6. satirdaki qa_hesap uzerinde -> 1. satira gider; 2) Alt+Sol: 6. satira doner; 3) F2: "func" (dil sozcugu)
+# REDDEDILIR (pencere acik kalir, neden yazar); 4) F2: qa_sonuc -> uc kullanim da degisir. Kapi dosyada qa_sonuc 3, qa_hesap 0 sayar.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+bekle 40
+tikla "func dondur_baslat"
+tus Ctrl+Home
+tus Down
+tus Down
+tus Down
+tus Down
+tus Down
+tus Home
+tus Right
+tus Right
+tus Right
+tus Right
+tus Right
+tus Right
+dogrula_metin "Satır 6, sütun 7"
+tus F12
+bekle 60
+dogrula_metin "Satır 1, sütun"
+ekran kod_tanim
+tus Alt+Left
+bekle 10
+dogrula_metin "Satır 6, sütun"
+# 2b) kutuphane islevi (logla): LSP bulamaz, dosya aramasi engine.tpr'yi YALNIZ OKUNUR acar; Alt+Sol geri
+tus Up
+tus Home
+tus Right
+tus Right
+tus Right
+tus Right
+tus Right
+tus Right
+tus F12
+bekle 60
+dogrula_metin "kütüphane dosyası"
+ekran kod_tanim_kutuphane
+tus Alt+Left
+bekle 20
+dogrula_metin "Satır 5, sütun 7"
+tus Down
+tus Home
+tus Right
+tus Right
+tus Right
+tus Right
+tus Right
+tus Right
+tus F2
+bekle 5
+dogrula_metin "işlevinin yeni adı"
+yaz "func"
+bekle 3
+dogrula_metin "dil sözcüğü"
+tus Enter
+bekle 5
+dogrula_metin "işlevinin yeni adı"
+tus Ctrl+A
+yaz "qa_sonuc"
+bekle 3
+tus Enter
+bekle 80
+dogrula_metin "yer yeniden adlandırıldı"
+tus Ctrl+S
+bekle 5
+dogrula_metin "kaydedildi"
+ekran kod_tanim_ad
+cik

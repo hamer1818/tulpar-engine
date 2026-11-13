@@ -73,6 +73,14 @@ ENGINE_TEST(tercih_dosyasi_gidis_donus_with_control) {
   CHECK(tercih_metni(t, m, sizeof m) > 0);
   Tercihler u;
   CHECK(tercih_ayristir(m, &u) && u.yazi == 130 && u.oto_kayit_dk == 5 && u.tema == 1);
+  CHECK(u.canli_kod == 1);                                                       // varsayilan: canli kod ACIK ve dosyaya yazilir
+  t.canli_kod = 0;
+  CHECK(tercih_metni(t, m, sizeof m) > 0);
+  Tercihler cu;
+  CHECK(tercih_ayristir(m, &cu) && cu.canli_kod == 0);                           // kapali -> gidis-donus
+  Tercihler cg;
+  CHECK(!tercih_ayristir("canli_kod = 5\n", &cg) && cg.canli_kod == 1);          // KONTROL: gecersiz deger varsayilana (acik) + false
+  t.canli_kod = 1;
   Tercihler tg;
   CHECK(!tercih_ayristir("tema = 7\n", &tg) && tg.tema == 0); // gecersiz tema: koyu + false
   Tercihler v;

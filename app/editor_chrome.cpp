@@ -316,7 +316,8 @@ void chrome_menu_bar(CommandTable &t, const ChromeState &s, ChromeMenuExtra extr
   // (kirli noktasiyla birlikte).
   static const char kBrand[] = "Tulpar Editör";
   const float bw = ImGui::CalcTextSize(kBrand).x;
-  const float brand_x = ImGui::GetWindowWidth() - bw - st.WindowPadding.x;
+  // SameLine(ofset) icerik baslangicindan (WindowPadding dahil) sayar: iki pay cikarilmazsa yazi ekran kenarinda kesilir.
+  const float brand_x = ImGui::GetWindowWidth() - bw - st.WindowPadding.x * 2.0f;
   // Rozet: yalniz metin varsa (yoksa ImGui'ye tek ek cagri bile gitmez). Hap
   // bicimli, vurgu kenarlikli: "tiklanabilir bildirim" — menu basligiyla
   // karismasin. Yukseklik menu satirinin kendisi (tiklama alani), hap onun

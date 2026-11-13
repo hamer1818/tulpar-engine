@@ -1,0 +1,21 @@
+# CANLI KOD: oyun calisirken Kod panelinden kaydedilen degisiklik oyunu YENIDEN BASLATIR (Tercihler > Kod degisince oyunu
+# yeniden baslat, varsayilan acik). Kapi editor.log'da "gomulu kip: kanal" satirini sayar: 2 (ilk + yeniden). KONTROL
+# (kod_canli_kapali.txt ayni akis, tercih kapali): 1.
+tus F5
+dogrula_metin "oyun çalışıyor" kare=2500
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+tikla "func dondur_baslat"
+tus Ctrl+End
+tus Enter
+yaz "// canli degisiklik"
+tus Ctrl+S
+bekle 5
+dogrula_metin "kaydedildi"
+bekle 1800   # yeniden baslatma + derleme icin sure (durum satiri hemen "oyun hazirlaniyor"a gecer; kapi log sayar)
+ekran kod_canli
+tus F5
+bekle 20
+cik

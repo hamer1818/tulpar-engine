@@ -62,6 +62,7 @@ struct KodPaneli {
   bool dis_degisti = false;   // kirliyken dosya disarida degisti (kullaniciya sorulur)
   int64_t damga = 0, boy = 0; // son okuma/yazmadaki dosya damgasi
   int git_satir = 0;          // >0: bu satira git (imlec + kaydirma; iki karede)
+  int git_sutun = 0;          // gidilen satirda KARAKTER sutunu (0 = satir basi): tanima git / geri imleci adin uzerine koyar
   int git_adim = 0;
   int vurgu_satir = 0;        // hata satiri (kirmizi serit), 0 = yok
   int imlec_satir = 1, imlec_sutun = 1;
@@ -69,6 +70,21 @@ struct KodPaneli {
   bool odak_iste = false;     // acilinca pencere one gelsin
   uint32_t kontrol_kare = 0;  // disarida degisim yoklamasi (kare sayaci)
   uint8_t sinif[kKodKapasite] = {0}; // renklendirme: metnin her baytinin sinifi (kod_siniflandir)
+  // LSP istekleri: tanima git (F12 / Ctrl+tik) ve yeniden adlandir (F2). Hata denetiminden AYRI surec ve gunluk (karismasin).
+  platform::Process istek_sur;
+  bool istek_suruyor = false;
+  int istek_tur = 0;                 // 1 tanim, 2 yeniden adlandir
+  int istek_kayma = 0;               // onekli 1. satirda sutun kaymasi
+  char istek_yeni[80] = {0};
+  char istek_ad[80] = {0};           // tanima git: imlecteki ad (LSP bulamazsa dosyalarda aranir)
+  bool tanim_iste = false;           // bu karede tanima git
+  bool tanim_sonraki = false;        // Ctrl+tik: imlec bu karede oynadi, SONRAKI karede sor
+  bool ad_popup = false;             // yeniden adlandir penceresi
+  char ad_giris[80] = {0}, ad_eski[80] = {0};
+  int ad_ofs = 0;                    // penceredeki adin bayt konumu
+  char geri_yol[1100] = {0};         // Alt+Sol: tanima gitmeden onceki yer (tek seviye)
+  int geri_satir = 0, geri_sutun = 0;
+  bool geri_var = false;
   bool tam_pencere = false;   // bagimsiz kod penceresi (engine_editor --kod): tum pencereyi kaplar, sekme/dock yok
   char uyari_mesaj[160] = {0}; // tam_pencere: durum satirinda (ornegin "Tulpar Editor acik degil")
   bool kapat_iste = false;    // tam_pencere: isletim sistemi pencere kapatma istedi (kirliyse once sorulur)
@@ -124,6 +140,17 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
 // Donus: eslesen bayt konumu ya da -1; *kendi: baktigimiz parantezin konumu.
 int kod_parantez_esi(const char *metin, const uint8_t *sinif, int imlec, int *kendi);
 
+// --- Disaridan birakilan betik (.tpr) -----------------------------------------------------------------------
+// Isletim sisteminden editore surukle-birak: <kok>/assets/betikler/<ad>.tpr olarak KOPYALANIR (ad: harf/rakam/_; ayni ad varsa <ad>_2...;
+// kaynak bozulmaz). hedef: yazilan mutlak yol. false: err'de sebep.
+bool betik_ice_aktar(const char *kaynak, const char *proje_kok, char *hedef, size_t cap, char *err, size_t err_cap);
+
+// --- Canli kod: proje kodunun parmak izi ------------------------------------------------------------------
+// <kok>/*.tpr ve <kok>/assets/betikler/*.tpr icin (ad, degisim zamani, boy) ozeti. `assets/betikler.tpr` toplayicisi HARIC:
+// editor onu kendisi yazar (Kaydet/Derle/Oynat), dahil olsaydi her oynatma kendini yeniden baslatirdi. 0 = kok yok.
+// Editor oyun calisirken bunu yoklar; degisince oyun yeniden baslar (Tercihler > Kod degisince oyunu yeniden baslat).
+uint64_t betik_proje_damgasi(const char *kok);
+
 // --- Parametre ipucu ------------------------------------------------------------------------------------
 // Imlec `ad(` ... `)` cagrisinin ICINDEYSE: ad, kacinci parametrede oldugu (0-tabanli, ust duzey virgullerden) ve '(' konumu.
 // Ic ice parantezler, dize ve yorum icindekiler sayilmaz; en fazla ~2000 bayt geriye bakilir. Donus: '(' konumu ya da -1.
@@ -141,7 +168,32 @@ int kod_tani_lsp_oku(const char *log, int kayma, KodPaneli::Hata *out, int cap);
 // Tek seferlik LSP oturumunun girdisi (initialize, initialized, didOpen, shutdown, exit): dosyaya yazilip cocugun stdin'i
 // olur. onek: 1. satirin basina eklenen metin (betik dosyalarinda oyun.tpr'nin import'lari; satir sayisi degismez), null olabilir.
 // Donus: bayt, sigmazsa 0.
-uint32_t kod_lsp_girdisi(const char *dosya_yolu, const char *kok_yolu, const char *onek, const char *metin, char *out, uint32_t cap);
+// istek (null olabilir): oturuma EK istek ("definition" | "references" | "rename"), id 3. satir/sutun 0-tabanli, sutun KARAKTER (bayt degil) ve
+// onekli 1. satirda onek uzunlugu eklenir (cevaplarda geri alinir). yeni: rename icin yeni ad.
+uint32_t kod_lsp_girdisi(const char *dosya_yolu, const char *kok_yolu, const char *onek, const char *metin, char *out, uint32_t cap,
+                         const char *istek = nullptr, int satir = 0, int sutun = 0, const char *yeni = nullptr);
+
+// --- Tanima git / yeniden adlandir (LSP) -------------------------------------------------------------------
+struct KodKonum { char yol[1100]; int satir = 0, sutun = 0; };            // 0-tabanli satir ve KARAKTER sutunu
+struct KodDuzenleme { char yol[1100]; int s1 = 0, c1 = 0, s2 = 0, c2 = 0; char yeni[80]; };
+// file:// URI -> yol (%XX cozulur, Windows "file:///C:/..." -> "C:/..."). false: file:// degil.
+bool kod_lsp_uri_yol(const char *uri, char *out, size_t cap);
+// id 3 cevabindan ilk Location (nesne ya da dizi); null/bos/yoksa false. kayma: onekli 1. satirda geri alinir.
+bool kod_lsp_tanim_oku(const char *log, int kayma, KodKonum *out);
+// rename cevabi: "changes" icindeki tum duzenlemeler (cap'e kadar). Donus: sayi (0 = degisiklik yok / reddedildi).
+int kod_lsp_duzenle_oku(const char *log, int kayma, KodDuzenleme *out, int cap);
+// LSP yalniz AYNI dosyadaki tanimi verir (kutuphane/baska dosya icin null). Yedek: proje (<kok>/*.tpr, assets/betikler/*.tpr) ve kutuphane
+// (<kutuphane>/engine.tpr, kit/*.tpr) dosyalarinda `func <ad>(` satirini arar; proje once. Donus: bulundu mu (0-tabanli satir, ad sutunu).
+bool kod_tanim_ara(const char *proje_dizin, const char *kutuphane_dizin, const char *ad, KodKonum *out);
+// `yol`a ait duzenlemeleri metne uygular (sondan basa; cakisan/aralik disi atilir). Donus: uygulanan sayi; sigmazsa metin DEGISMEZ ve 0.
+uint32_t kod_duzenle_uygula(char *metin, uint32_t cap, const KodDuzenleme *d, int n, const char *yol);
+// LSP metin sablonlarinin ICINDEKI kullanimlari gormez (t"{qa_hesap(1)}"): t"..." / f"..." dizelerinde {...} icindeki TAM SOZCUK `eski`leri
+// `yeni` yapar (nokta ya da harf bitisigi degil). Donus: degisen sayi; sigmazsa o yer atlanir, metin bozulmaz.
+uint32_t kod_sablon_dizesinde_adlandir(char *metin, uint32_t cap, const char *eski, const char *yeni);
+// Imlecin (bayt konumu) altindaki ad: kelimenin sinirlari. Donus: uzunluk (0 = ad yok); *bas bayt baslangici.
+int kod_imlec_adi(const char *metin, int imlec, int *bas, char *ad, int cap);
+// Yeni ad gecerli mi (tanimlayici, dil sozcugu degil). false ise sebep `neden`de.
+bool kod_ad_gecerli(const char *ad, const char *eski, const char *dosya_tabani, char *neden, size_t cap);
 // oyun.tpr metninden `import "..."` satirlarini (betikler toplayicisi HARIC) tek satirda birlestirir: " " ile ayrik. Donus: bayt.
 uint32_t kod_oyun_importlari(const char *oyun_metni, char *out, uint32_t cap);
 

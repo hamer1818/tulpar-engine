@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/editor_gecmis.hpp"
 #include "app/editor_ui.hpp"
 #include "app/editor_viewport.hpp"
 #include "core/memory/arena.hpp"
@@ -1041,3 +1042,59 @@ ENGINE_TEST(editor_viewport_nan_mouse_is_invalid) {
   const float inf = 1.0f / 0.0f;
   CHECK(!app::viewport_map_mouse(panel, inf, 300.0f, 800, 600).valid);
 }
+
+// GECMIS paneli: eylem listesi gunluk + eylem gruplarindan kurulur (en sona hizali), aciklamalar Turkce ve gercek degisimden turer,
+// imlec uygulanmis eylem sayisidir. KONTROL: grup bilgisi YOKSA (tasma/temizlik) eski islemler "N daha eski islem" olur, bozulmaz.
+ENGINE_TEST(editor_gecmis_listesi_with_control) {
+  static content::SceneDesc d;
+  make_scene(d);
+  content::SceneHistory h;
+  CHECK(h.init(gate_arena(), 64));
+  app::OpGroups g;
+  // 1) tasi (tek islem)
+  content::SceneEntity e = d.entities[0];
+  e.pos = e.pos + Vec3{1.0f, 0.0f, 0.0f};
+  CHECK(h.set_entity(d, 0, e));
+  g.push(1);
+  // 2) iki nesneyi birlikte tasi (tek eylem, iki islem)
+  app::Selection sel;
+  sel.set_single(0);
+  sel.toggle(1);
+  const uint32_t ops = app::selection_translate(d, h, sel.items, sel.count, Vec3{0.0f, 2.0f, 0.0f});
+  g.push(ops);
+  // 3) yeniden adlandir
+  content::SceneEntity e2 = d.entities[1];
+  std::snprintf(e2.name, sizeof e2.name, "%s", "yeni_ad");
+  CHECK(h.set_entity(d, 1, e2));
+  g.push(1);
+  // 4) sil
+  CHECK(h.remove_entity(d, 2));
+  g.push(1);
+  static app::GecmisGorunum v;
+  app::gecmis_kur(h, g, &v);
+  CHECK(v.n == 4 && v.imlec == 4 && v.eski == 0);
+  CHECK(std::strstr(v.s[0].metin, "Taşı: ") && v.s[0].op_say == 1);
+  CHECK(std::strstr(v.s[1].metin, "Taşı: ") && std::strstr(v.s[1].metin, "1 nesne daha") && v.s[1].op_say == 2);
+  CHECK(std::strstr(v.s[2].metin, "Yeniden adlandır: yeni_ad"));
+  CHECK(std::strstr(v.s[3].metin, "Sil: "));
+  // geri al: imlec geriler, liste ayni (yinelenebilir satirlar kalir)
+  const uint32_t k = g.undo_size();
+  for (uint32_t i = 0; i < k; i++) h.undo(d);
+  app::gecmis_kur(h, g, &v);
+  CHECK(v.n == 4 && v.imlec == 3);
+  // KONTROL: grup bilgisi olmayan (temizlenmis) OpGroups: eylem yok, gunluktekiler "daha eski islem"
+  app::OpGroups bos;
+  app::gecmis_kur(h, bos, &v);
+  CHECK(v.n == 0 && v.imlec == 0 && v.eski == h.count());
+  // Aciklama: Ekle ve Dunya
+  content::SceneOp op{};
+  op.kind = content::SceneOp::Add;
+  std::snprintf(op.after.name, sizeof op.after.name, "%s", "Kup");
+  char m[112];
+  app::gecmis_op_metni(op, 1, m, sizeof m);
+  CHECK(!std::strcmp(m, "Ekle: Kup"));
+  op.kind = content::SceneOp::World;
+  app::gecmis_op_metni(op, 1, m, sizeof m);
+  CHECK(std::strstr(m, "Dünya"));
+}
+

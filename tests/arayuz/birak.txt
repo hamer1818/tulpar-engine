@@ -1,0 +1,16 @@
+# SURUKLE-BIRAK: isletim sisteminden pencereye dosya birakilir (`birak` = GLFW drop ile ayni girdi yolu). Kapi ortami BIRAK_TPR / BIRAK_MODEL
+# yollarini verir. .tpr -> assets/betikler/ icine kopyalanir ve Kod sekmesinde acilir; .gltf -> sahne klasorune kopyalanir ve sahneye
+# EKLENIR (9 -> 10 varlik); baska tur (.txt) UYARILIR, hicbir sey eklenmez (KONTROL).
+birak "@BIRAK_TPR@"
+bekle 10
+dogrula_metin "Dış editörde aç"
+dogrula_metin "func birakilan_baslat"
+birak "@BIRAK_MODEL@"
+bekle 15
+dogrula_metin "(10 varlık)"
+birak "@BIRAK_TXT@"
+bekle 10
+dogrula_metin "desteklenmeyen tür"
+dogrula_metin "(10 varlık)"
+ekran birak
+cik

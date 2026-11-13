@@ -59,7 +59,8 @@ constexpr const char *kPanelOzellikler = "Ozellikler"; // secili varlik
 constexpr const char *kPanelKaynaklar = "Kaynaklar";   // kaynak tarayici
 constexpr const char *kPanelDunya = "Dunya";           // gunes/golge/kamera
 constexpr const char *kPanelKonsol = "Konsol";         // motor/Vulkan/sahne iletileri
-constexpr uint32_t kLayoutPanelCount = 6;
+constexpr const char *kPanelGecmis = "Gecmis";         // geri al gecmisi (eylem listesi, tikla: o noktaya don)
+constexpr uint32_t kLayoutPanelCount = 7;
 // Gorunen ETIKETLER: ImGui'nin "###" kurali — kimlik ### SONRASIDIR, oncesi
 // yalniz gosterilir. Boylece sekmede "Görünüm" yazar, dosyada/kimlikte
 // "Gorunum" kalir: etiket dil ya da surumle degisse de kayitli duzen yuklenir.
@@ -69,11 +70,12 @@ constexpr const char *kPanelOzelliklerLabel = "\xC3\x96zellikler###Ozellikler"; 
 constexpr const char *kPanelKaynaklarLabel = "Kaynaklar";
 constexpr const char *kPanelDunyaLabel = "D\xC3\xBCnya###Dunya";                          // Dünya
 constexpr const char *kPanelKonsolLabel = "Konsol";
+constexpr const char *kPanelGecmisLabel = "Ge\xC3\xA7mi\xC5\x9F###Gecmis";                         // Geçmiş
 const char *layout_panel_name(uint32_t i); // i < kLayoutPanelCount, yoksa null
 bool layout_is_panel(const char *name);
 
 // Varsayilan yerlesimin sektor oranlari (kok olcusunun kesri).
-constexpr float kLayoutDefaultLeft = 0.18f;   // Sahne
+constexpr float kLayoutDefaultLeft = 0.20f;   // Sahne (0.18 -> 0.20: 1280x720'de nesne adlari "duvar_do..." diye kisaliyordu)
 constexpr float kLayoutDefaultRight = 0.22f;  // Ozellikler
 constexpr float kLayoutDefaultRightMin = 300.0f; // U11 C3: Ozellikler alt siniri (px; dar ekranda etiketler kesilmesin)
 constexpr float kLayoutDefaultLeftBottom = 0.42f; // sol sutunun alti: Kaynaklar + Konsol (sekmeli; U1)

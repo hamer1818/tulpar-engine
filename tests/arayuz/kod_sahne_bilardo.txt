@@ -1,0 +1,9 @@
+# CANLI SAHNE (bilardo sablonu): oyun calisirken sahneye nesne eklenince masa yeniden okunur (sahne_degisti: kendi kureleri silinip
+# masayi_kur); kapi editor.log'da "sahne yenilendi: 16 top, 6 cep" arar ve oyunun yeniden BASLAMADIGINI (kanal 1 kez) dogrular.
+tus F5
+dogrula_metin "oyun çalışıyor" kare=2500
+tikla "+ Küp" pencere=Ozellikler
+bekle 3000
+tus F5
+bekle 20
+cik

@@ -2586,3 +2586,14 @@ yedek için verdiğimiz `FirstUseEver` konum, dock'u hemen geri alıyordu. Hata 
 **Düzeltme:** konum/boyut yalnız dock hedefi yokken verilir. Kapı: `tests/arayuz/kod_sekme.txt` — Kod penceresinin dikey
 aralığı Özellikler panelininkiyle aynı mı (kenetli pencereler paylaşır). **Kural:** dock'lanacak pencereye konum verme.
 
+### 8ea. Panel gizlenince onun viewport'una bağlı çizim sürer — gizmo başka sekmenin üstüne çıkar
+**Belirti:** Bir nesne seçiliyken Kod sekmesi "Görünüm"ü örtünce x/y/z taşıma okları Kod editörünün ortasında görünüyordu
+(kullanıcı, 2026-11-12). Ölçüm: kod alanında 399 doygun eksen pikseli (Görünüm açıkken 1262).
+
+**Neden:** `ImGuizmo::Manipulate` Görünüm penceresinin *içinde* değil, kare döngüsünde sonradan çağrılıyor; pencerenin çizim
+listesini (`SetDrawlist`) yalnız `Begin` true iken kuruyor. Sekme gizlenince `Begin` false döner, çizim listesi kurulmaz,
+ImGuizmo kendi **tam ekran varsayılan penceresine** çizer — ve o her pencerenin üstünde.
+
+**Düzeltme:** gizmo bloğu `gorunum_gorunur` (Görünüm `Begin` true) koşuluna bağlandı. Kapı: `tests/arayuz/kod_gizmo.txt` (piksel sayımı,
+pozitif kontrol: Görünüm açıkken gizmo görünür). **Kural:** bir panelin viewport'una bağlı çizim, o panelin `Begin` sonucuna bağlı olmalı.
+

@@ -1,4 +1,32 @@
 // {{OYUN_TR}} — {{OYUN_EN}}
+// ====================================================================
+// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; gerisi bunun ayrıntısı)
+//
+//  1) SAHNE — editörde gördüğün her şey: assets/bilardo.sahne.
+//     Masa, bantlar, cepler ("cep_*") ve toplar ("top_0" beyaz, "top_1..15").
+//     Yerlerini, renklerini editörde değiştir (Kaydet + Derle); Oynat'ta
+//     aynısını görürsün. Oyun nesneleri ADIYLA bulur: adı "top" ile başlayan
+//     HER nesne bir toptur (kopyaladığın top da oyuna girer), "cep_" ile
+//     başlayanlar cep, "masa_kumas" oynanan alandır.
+//
+//  2) KURALLAR — bu dosya: topların fiziği (çarpışma, bant sekmesi,
+//     sürtünme), nişan alma, cebe girme, tur ve skor. Okuma sırası: masa/fizik
+//     ayarları → sahneden kurulum → fizik → nişan → tur → ekranlar → main().
+//
+//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış için: editörde
+//     nesneyi seç → "Davranış ekle". Betik assets/betikler/ içinde durur;
+//     aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
+//
+//  NE NEREDE DEĞİŞİR:
+//     masa boyu, sürtünme, sekme → "Masa ve fizik ayarları"
+//     top / cep yeri             → editörde
+//     nişan hissi → "Nişan"      menü / ekran → "Ekranlar"
+//
+//  CANLI: oyun editörde çalışırken kodu kaydedersen oyun yeniden başlar,
+//  sahneyi değiştirirsen masa baştan okunur.
+// ====================================================================
+//
+// ---- Teknik notlar --------------------------------------------------------
 // Tulpar Engine oyun fabrikasi "bilardo" sablonundan uretildi (motor deposu tools/yeni_oyun.sh,
 // docs/FABRIKA.md). Masa, bantlar, cepler ve toplar SAHNEDEN gelir (assets/bilardo.sahne; editorde
 // duzenlenir, Kaydet + Derle -> bilardo.sahneb). Toplarin fizigi BURADA: duzlemde esnek carpisma,
@@ -10,24 +38,6 @@
 //   tulpar oyun.tpr                                  # pencereli
 //   TULPAR_ENGINE_HEADLESS=1500 DISPLAY= tulpar oyun.tpr   # penceresiz otopilot + [kapi] satiri
 //   tools/dogrula.sh                                 # kapilar
-// =====================================================================================================
-// BU OYUN NASIL ÇALIŞIR?  (önce bunu oku; geri kalanı bunun ayrıntısı)
-//
-//  1) SAHNE — editörde gördüğün her şey: assets/bilardo.sahne. Masa, bantlar, cepler ("cep_*") ve toplar
-//     ("top_0" beyaz, "top_1".."top_15"). Yerlerini, renklerini editörde değiştir (Kaydet + Derle); Oynat'ta
-//     aynısını görürsün. Oyun nesneleri ADIYLA bulur: adı "top" ile başlayan HER nesne bir toptur (kopyaladığın
-//     top da oyuna girer), "cep_" ile başlayanlar cep, "masa_kumas" oynanan alandır.
-//
-//  2) KURALLAR — bu dosya: topların fiziği (çarpışma, bant sekmesi, sürtünme), nişan alma, cebe girme,
-//     tur ve skor. Okuma sırası: masa/fizik ayarları → sahneden kurulum → fizik → nişan → tur → ekranlar → main().
-//
-//  3) BETİKLER (isteğe bağlı) — tek bir nesneye ek davranış vermek için: editörde nesneyi seç → "Davranış ekle".
-//     Betik assets/betikler/ içinde durur; aşağıdaki `import "assets/betikler"` satırı onu oyuna bağlar.
-//
-//  NE NEREDE DEĞİŞİR:  masa boyu, sürtünme, sekme → "Masa ve fizik ayarları"  ·  top/cep yeri → editörde
-//                      nişan hissi → "Nişan" bölümü  ·  menü/ekran → "Ekranlar" bölümü
-// =====================================================================================================
-
 import "engine";
 import "kit_kayit";
 import "kit_dil";
@@ -461,6 +471,30 @@ func oto_nisan(): bool {
 }
 
 // ---- Tur --------------------------------------------------------------------------------------
+// SAHNE SICAK YÜKLEME: editörde (oyun çalışırken) sahne değişip kaydedilince oyun yeniden başlamadan buraya düşer. Sahne nesneleri
+// taze (gizlenmeleri sıfırlanmış) ve toplar/cepler sahneden yeniden okunur: oyunun kendi küreleri silinip masa baştan kurulur.
+// Oyun sürüyorsa tur yeni dizilimle baştan başlar (rekor ve ayarlar kalır); menüdeyse yalnız masa tazelenir.
+func sahne_degisti() {
+    for (int t = 0; t < len(g_top); t++) { sil(g_top[t]); }
+    for (int j = 0; j < len(g_iz); j++) { sil(g_iz[j]); }
+    if (g_istaka != 0) { sil(g_istaka); }
+    g_top = [];
+    g_x = [];
+    g_z = [];
+    g_vx = [];
+    g_vz = [];
+    g_aktif = [];
+    g_x0 = [];
+    g_z0 = [];
+    g_cx = [];
+    g_cz = [];
+    g_cr = [];
+    g_iz = [];
+    g_cep_n = 0;
+    masayi_kur();
+    if (g_ekran == EKRAN_OYUN) { tur_baslat(); }
+    logla(t"sahne yenilendi: {TOP_N} top, {g_cep_n} cep");
+}
 func tur_baslat() {
     g_atis = 0;
     g_cebe = 0;
@@ -635,6 +669,7 @@ func main() {
         golge_hacmi(0, 0, 0, 2.2, 8);
         kutu(0.0, -0.025, 0.0, MASA_W * 0.5 + 0.02, 0.025, MASA_H * 0.5 + 0.02, false, renk(26, 107, 56));
     }
+    sahne_izle(true);                          // sıcak yükleme: editörde kaydedilen sahne oyuna anında düşer (sahne_degisti)
     masayi_kur();
     kit_ses_ac(!g_otopilot || len(env("TULPAR_ENGINE_AUDIO_NULL")) > 0);
     SES_CARP = kit_ses_dene("ses_carp.wav", 1500.0, 0.025);
@@ -653,6 +688,7 @@ func main() {
         bool pencere = kare_basla();
         float d = dt();
         if (d > 0.05) { d = 0.05; }
+        if (sahne_yenilendi()) { sahne_degisti(); }
         if ((!pencere || arka_planda()) && g_ekran == EKRAN_OYUN) { g_ekran = EKRAN_DURAKLAT; }
         if (g_ac_aktif) { acilis_kare(d); }
         if (geri_basildi()) {

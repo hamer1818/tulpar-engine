@@ -1,0 +1,13 @@
+# Gizmo (x/y/z oklari) Kod sekmesinin USTUNE cikmaz: bir nesne secili iken Kod sekmesi Gorunum'u ortunce ImGuizmo'nun tam ekran
+# varsayilan penceresine ciziyordu (kullanici, 2026-11-12). Kapi, secili nesne + acik Kod sekmesinde kod alaninda doygun
+# kirmizi/yesil/mavi eksen pikselleri sayar. KONTROL: ayni secim Gorunum acikken gizmoyu GOSTERIR (kod_gizmo_goruntu).
+tikla "oyuncu" pencere=Sahne
+bekle 15
+ekran kod_gizmo_goruntu
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+cift_tikla "dondur.tpr"
+bekle_oge "Dış editörde aç"
+bekle 15
+ekran kod_gizmo_kod
+cik

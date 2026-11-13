@@ -406,6 +406,162 @@ ENGINE_TEST(editor_kod_istegi_yaz_ve_al_with_control) {
   CHECK(!app::kod_istegi_yaz("", "/a.tpr", nullptr, 0) && !app::kod_istegi_yaz(dir, "", nullptr, 0));
 }
 
+// Canli kod: proje kodunun parmak izi. Kod dosyasi degisince / eklenince / silinince DEGISIR; toplayici (betikler.tpr), baska uzanti,
+// ve degismeyen dosya DEGISTIRMEZ (editorun kendi yazisi oyunu yeniden baslatmasin).
+ENGINE_TEST(editor_betik_proje_damgasi_with_control) {
+  char kok[512], yol[700];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "damga"));
+  std::snprintf(yol, sizeof yol, "%s/assets/betikler", kok);
+  CHECK(platform::fs_mkdir_p(yol));
+  auto yaz = [&](const char *alt, const char *m) {
+    char y[800];
+    std::snprintf(y, sizeof y, "%s/%s", kok, alt);
+    std::FILE *f = std::fopen(y, "wb");
+    CHECK(f != nullptr);
+    if (f) { std::fputs(m, f); std::fclose(f); }
+  };
+  yaz("oyun.tpr", "import \"engine\";\n");
+  yaz("assets/betikler/dondur.tpr", "func dondur_baslat(id) {}\n");
+  const uint64_t a = app::betik_proje_damgasi(kok);
+  CHECK(a != 0 && app::betik_proje_damgasi(kok) == a);                       // kararli
+  yaz("assets/betikler.tpr", "import \"assets/betikler/dondur\";\n");       // toplayici: damgayi DEGISTIRMEZ
+  yaz("notlar.txt", "x");                                                    // baska uzanti: degistirmez
+  CHECK(app::betik_proje_damgasi(kok) == a);
+  yaz("assets/betikler/dondur.tpr", "func dondur_baslat(id) { logla(\"x\"); }\n"); // boy degisti
+  const uint64_t b = app::betik_proje_damgasi(kok);
+  CHECK(b != a);
+  yaz("assets/betikler/yeni.tpr", "func yeni_baslat(id) {}\n");               // yeni betik
+  const uint64_t c = app::betik_proje_damgasi(kok);
+  CHECK(c != b);
+  yaz("oyun.tpr", "import \"engine\";\n// degisti\n");                       // ana dosya
+  CHECK(app::betik_proje_damgasi(kok) != c);
+  CHECK(app::betik_proje_damgasi("") == 0 && app::betik_proje_damgasi(nullptr) == 0);
+  CHECK(app::betik_proje_damgasi("/yok/yok/proje") != 0 && app::betik_proje_damgasi("/yok/yok/proje") == app::betik_proje_damgasi("/yok/baska")); // dizin yok: hep ayni bos parmak izi (0 = "kok verilmedi")
+}
+
+// Tanima git / yeniden adlandir (LSP): cevap ayristirma, duzenleme uygulama, ad dogrulama.
+ENGINE_TEST(editor_kod_tanim_ve_yeniden_adlandir_with_control) {
+  char yol[1100];
+  CHECK(app::kod_lsp_uri_yol("file:///proje/a%20b/oyun.tpr", yol, sizeof yol) && !std::strcmp(yol, "/proje/a b/oyun.tpr"));
+  CHECK(app::kod_lsp_uri_yol("file:///C:/oyun/x.tpr", yol, sizeof yol) && !std::strcmp(yol, "C:/oyun/x.tpr"));
+  CHECK(!app::kod_lsp_uri_yol("http://x/y", yol, sizeof yol));
+  // tanim: nesne ya da dizi; null/bos -> false; 1. satirda onek geri alinir
+  app::KodKonum k;
+  CHECK(app::kod_lsp_tanim_oku("Content-Length: 9\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"uri\":\"file:///p/o.tpr\",\"range\":{\"start\":{\"line\":81,\"character\":5},\"end\":{\"line\":81,\"character\":16}}}}", 0, &k) &&
+        !std::strcmp(k.yol, "/p/o.tpr") && k.satir == 81 && k.sutun == 5);
+  CHECK(app::kod_lsp_tanim_oku("{\"id\":3,\"result\":[{\"uri\":\"file:///p/o.tpr\",\"range\":{\"start\":{\"line\":0,\"character\":40},\"end\":{\"line\":0,\"character\":45}}}]}", 30, &k) && k.satir == 0 && k.sutun == 10);
+  CHECK(!app::kod_lsp_tanim_oku("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":null}", 0, &k));      // KONTROL: tanim yok
+  CHECK(!app::kod_lsp_tanim_oku("{\"id\":3,\"result\":[]}", 0, &k) && !app::kod_lsp_tanim_oku("{\"id\":2,\"result\":null}", 0, &k));
+  // rename: changes -> duzenlemeler
+  const char *rn = "{\"id\":3,\"result\":{\"changes\":{\"file:///p/o.tpr\":[{\"range\":{\"start\":{\"line\":1,\"character\":4},\"end\":{\"line\":1,\"character\":9}},\"newText\":\"yeni\"},"
+                   "{\"range\":{\"start\":{\"line\":3,\"character\":0},\"end\":{\"line\":3,\"character\":5}},\"newText\":\"yeni\"}],\"file:///p/b.tpr\":[{\"range\":{\"start\":{\"line\":0,\"character\":2},\"end\":{\"line\":0,\"character\":7}},\"newText\":\"yeni\"}]}}}";
+  app::KodDuzenleme d[8];
+  int n = app::kod_lsp_duzenle_oku(rn, 0, d, 8);
+  CHECK(n == 3 && !std::strcmp(d[0].yol, "/p/o.tpr") && d[0].s1 == 1 && d[0].c1 == 4 && d[0].c2 == 9 && !std::strcmp(d[2].yol, "/p/b.tpr") && d[2].s1 == 0);
+  CHECK(app::kod_lsp_duzenle_oku("{\"id\":3,\"result\":{\"changes\":{\"file:///p/o.tpr\":[]}}}", 0, d, 8) == 0 && app::kod_lsp_duzenle_oku("{\"id\":3,\"result\":null}", 0, d, 8) == 0);
+  // uygulama: yalniz eslesen dosya, birden cok duzenleme dogru yere (sondan basa), \u015f gibi ASCII disi karakter 1 sutun
+  char m[256];
+  std::snprintf(m, sizeof m, "%s", "x\n    adim(1);\n\nadim(2) + adim(\xC5\x9F);\n");  // satir1: adim(1) ; satir3: adim(2)
+  app::KodDuzenleme e[3] = {};
+  std::snprintf(e[0].yol, sizeof e[0].yol, "/p/o.tpr"); e[0].s1 = 1; e[0].c1 = 4; e[0].s2 = 1; e[0].c2 = 8; std::snprintf(e[0].yeni, sizeof e[0].yeni, "yeni_adim");
+  std::snprintf(e[1].yol, sizeof e[1].yol, "/p/o.tpr"); e[1].s1 = 3; e[1].c1 = 0; e[1].s2 = 3; e[1].c2 = 4; std::snprintf(e[1].yeni, sizeof e[1].yeni, "yeni_adim");
+  std::snprintf(e[2].yol, sizeof e[2].yol, "/p/o.tpr"); e[2].s1 = 3; e[2].c1 = 10; e[2].s2 = 3; e[2].c2 = 14; std::snprintf(e[2].yeni, sizeof e[2].yeni, "yeni_adim");
+  CHECK(app::kod_duzenle_uygula(m, sizeof m, e, 3, "/p/o.tpr") == 3);
+  CHECK(!std::strcmp(m, "x\n    yeni_adim(1);\n\nyeni_adim(2) + yeni_adim(\xC5\x9F);\n"));
+  CHECK(app::kod_duzenle_uygula(m, sizeof m, e, 3, "/baska.tpr") == 0);                          // KONTROL: baska dosya: dokunulmaz
+  char kucuk[16] = "adim(1)";
+  CHECK(app::kod_duzenle_uygula(kucuk, sizeof kucuk, e, 1, "/p/o.tpr") == 0 && !std::strcmp(kucuk, "adim(1)")); // aralik disi (satir yok) ya da sigmaz: bozulmaz
+  // ad: imlecin ustundeki kelime
+  int bas = -1;
+  char ad[64];
+  CHECK(app::kod_imlec_adi("  yeni_adim(1);", 6, &bas, ad, sizeof ad) == 9 && bas == 2 && !std::strcmp(ad, "yeni_adim"));
+  CHECK(app::kod_imlec_adi("  (1);", 2, &bas, ad, sizeof ad) == 0 && app::kod_imlec_adi("  12ab", 3, &bas, ad, sizeof ad) == 0);
+  // yeni ad gecerli mi
+  char neden[160];
+  CHECK(app::kod_ad_gecerli("yeni_adim", "adim", "dondur", neden, sizeof neden));
+  CHECK(!app::kod_ad_gecerli("1adim", "adim", "dondur", neden, sizeof neden) && !app::kod_ad_gecerli("a-b", "adim", "dondur", neden, sizeof neden));
+  CHECK(!app::kod_ad_gecerli("func", "adim", "dondur", neden, sizeof neden) && !app::kod_ad_gecerli("", "adim", "dondur", neden, sizeof neden));
+  CHECK(!app::kod_ad_gecerli("baska_ad", "dondur_baslat", "dondur", neden, sizeof neden) && std::strstr(neden, "kanca"));      // betik kancasi: motor ARAR
+  CHECK(app::kod_ad_gecerli("baska_ad", "dondur_yardim", "dondur", neden, sizeof neden));                                     // kanca degil
+  // istek girdisi: onekli 1. satirda sutun kayar, rename yeni adi tasir
+  static char gi[4096];
+  CHECK(app::kod_lsp_girdisi("/p/o.tpr", "/p", "import \"e\"; ", "adim(1);\n", gi, sizeof gi, "rename", 0, 2, "yeni") > 0);
+  CHECK(std::strstr(gi, "\"method\":\"textDocument/rename\"") && std::strstr(gi, "\"line\":0,\"character\":14") && std::strstr(gi, "\"newName\":\"yeni\""));
+  CHECK(app::kod_lsp_girdisi("/p/o.tpr", "/p", nullptr, "adim(1);\n", gi, sizeof gi, "definition", 3, 2, nullptr) > 0 && std::strstr(gi, "\"line\":3,\"character\":2"));
+}
+
+// LSP'nin gormedigi t"{...}" ici kullanimlar: tam sozcuk, yalniz sablon dizesinin suslu parantezi icinde.
+ENGINE_TEST(editor_kod_sablon_dizesinde_adlandir_with_control) {
+  char m[512];
+  std::snprintf(m, sizeof m, "%s", "logla(t\"a {adim(1)} b {adim2} {x.adim} adim {yeni_adim(adim(2))}\");\nlogla(\"adim {adim}\");\n// t\"{adim}\"\nadim(3);\nlogla(f\"{adim(1)}\");");
+  const uint32_t n = app::kod_sablon_dizesinde_adlandir(m, sizeof m, "adim", "ADIM");
+  CHECK(n == 3);                                                                                  // {adim(1)}, {...adim(2)}, f"{adim(1)}"
+  CHECK(std::strstr(m, "t\"a {ADIM(1)} b {adim2} {x.adim} adim {yeni_adim(ADIM(2))}\")"));   // {} ici tam sozcuk; adim2/x.adim/yeni_adim DEGISMEZ; {} DISI "adim" degismez
+  CHECK(std::strstr(m, "logla(\"adim {adim}\")") && std::strstr(m, "// t\"{adim}\"") && std::strstr(m, "\nadim(3);")); // KONTROL: sablon olmayan dize, yorum ve normal kod DOKUNULMAZ
+  CHECK(std::strstr(m, "f\"{ADIM(1)}\""));
+  char dar[40];
+  std::snprintf(dar, sizeof dar, "%s", "t\"{adim}\"");
+  CHECK(app::kod_sablon_dizesinde_adlandir(dar, sizeof dar, "adim", "cok_uzun_bir_yeni_ad_burada_ve_daha") == 0 && !std::strcmp(dar, "t\"{adim}\"")); // sigmaz: bozulmaz
+}
+
+// Tanima git yedegi: proje once, sonra kutuphane; ad tam eslesmeli ("kure" "kure_x"i bulmaz).
+ENGINE_TEST(editor_kod_tanim_ara_with_control) {
+  char kok[512], kut[600], yol[800];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "tanim_ara"));
+  std::snprintf(kut, sizeof kut, "%s/kutuphane", kok);
+  std::snprintf(yol, sizeof yol, "%s/proje/assets/betikler", kok);
+  CHECK(platform::fs_mkdir_p(yol));
+  std::snprintf(yol, sizeof yol, "%s/kutuphane/kit", kok);
+  CHECK(platform::fs_mkdir_p(yol));
+  auto yaz = [&](const char *alt, const char *m) {
+    char y[900];
+    std::snprintf(y, sizeof y, "%s/%s", kok, alt);
+    std::FILE *f = std::fopen(y, "wb");
+    CHECK(f != nullptr);
+    if (f) { std::fputs(m, f); std::fclose(f); }
+  };
+  yaz("proje/oyun.tpr", "import \"engine\";\nfunc ana_islev(a) {}\n");
+  yaz("proje/assets/betikler/dondur.tpr", "// x\n  func yerel_islev(id) {}\nfunc kure_x(a) {}\n");
+  yaz("kutuphane/engine.tpr", "int A = 1;\nfunc kure(x, y): int { return 1; }\nfunc logla(m) {}\n");
+  yaz("kutuphane/kit/ses.tpr", "\n\nfunc kit_ses_cal(id) {}\n");
+  char proje[600];
+  std::snprintf(proje, sizeof proje, "%s/proje", kok);
+  app::KodKonum h;
+  CHECK(app::kod_tanim_ara(proje, kut, "ana_islev", &h) && h.satir == 1 && h.sutun == 5 && std::strstr(h.yol, "proje/oyun.tpr"));
+  CHECK(app::kod_tanim_ara(proje, kut, "yerel_islev", &h) && h.satir == 1 && h.sutun == 7 && std::strstr(h.yol, "betikler/dondur.tpr"));  // girintili
+  CHECK(app::kod_tanim_ara(proje, kut, "logla", &h) && h.satir == 2 && std::strstr(h.yol, "kutuphane/engine.tpr"));
+  CHECK(app::kod_tanim_ara(proje, kut, "kit_ses_cal", &h) && h.satir == 2 && std::strstr(h.yol, "kit/ses.tpr"));
+  CHECK(app::kod_tanim_ara(proje, kut, "kure", &h) && std::strstr(h.yol, "kutuphane/engine.tpr") && h.satir == 1);   // kure_x (proje) DEGIL: tam eslesme
+  CHECK(!app::kod_tanim_ara(proje, kut, "yok_islev", &h) && !app::kod_tanim_ara(proje, kut, "A", &h) && !app::kod_tanim_ara(proje, kut, "", &h)); // KONTROL: yok / global degisken / bos
+}
+
+// Disaridan birakilan betik: assets/betikler/ icine kopya; adi tanimlayici olur; ayni ad varsa _2; kaynak bozulmaz.
+ENGINE_TEST(editor_betik_ice_aktar_with_control) {
+  char kok[512], dis[600], kaynak[800], hedef[900], err[200];
+  CHECK(test::tmp_mkdir(kok, sizeof kok, "betik_ice"));
+  std::snprintf(dis, sizeof dis, "%s/dis", kok);
+  CHECK(platform::fs_mkdir_p(dis));
+  std::snprintf(kaynak, sizeof kaynak, "%s/Benim Betik-1.tpr", dis);
+  std::FILE *f = std::fopen(kaynak, "wb");
+  CHECK(f != nullptr);
+  if (f) { std::fputs("func benim_betik_1_baslat(id) {}\n", f); std::fclose(f); }
+  CHECK(app::betik_ice_aktar(kaynak, kok, hedef, sizeof hedef, err, sizeof err));
+  CHECK(std::strstr(hedef, "/assets/betikler/Benim_Betik_1.tpr") != nullptr && platform::fs_exists(hedef));   // bosluk/tire -> _
+  char o[200] = {0};
+  std::FILE *g = std::fopen(hedef, "rb");
+  CHECK(g != nullptr);
+  if (g) { const size_t n = std::fread(o, 1, sizeof o - 1, g); o[n] = 0; std::fclose(g); }
+  CHECK(!std::strcmp(o, "func benim_betik_1_baslat(id) {}\n") && platform::fs_exists(kaynak)); // icerik ayni; KAYNAK yerinde (tasima degil kopya)
+  CHECK(app::betik_ice_aktar(kaynak, kok, hedef, sizeof hedef, err, sizeof err) && std::strstr(hedef, "Benim_Betik_1_2.tpr")); // ayni ad: _2
+  // rakamla baslayan ad tanimlayici olsun; KONTROL: olmayan kaynak / bos kok reddedilir
+  std::snprintf(kaynak, sizeof kaynak, "%s/7ozel.tpr", dis);
+  f = std::fopen(kaynak, "wb");
+  if (f) { std::fputs("x", f); std::fclose(f); }
+  CHECK(app::betik_ice_aktar(kaynak, kok, hedef, sizeof hedef, err, sizeof err) && std::strstr(hedef, "/b7ozel.tpr"));
+  CHECK(!app::betik_ice_aktar("/yok/yok.tpr", kok, hedef, sizeof hedef, err, sizeof err) && err[0]);
+  CHECK(!app::betik_ice_aktar(kaynak, "", hedef, sizeof hedef, err, sizeof err));
+}
+
 // U10 B6: Baslangic rehberinin Betik sayfasi KODLA ayni seyi soyler. Sayfadaki "• zipla_<olay>(" satirlari
 // "func " eklenince betik_kancalari'nin taniyacagi kancalar olmali (kanca adi degisirse rehber yalan soylerdi);
 // andigi menu komutu tabloda olmali; eski model ("kod duzenleyicinizde acilir") kalmamali.

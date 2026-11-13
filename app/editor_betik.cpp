@@ -374,6 +374,78 @@ int kod_oneri_bul(const char *metin, const char *onek, char (*ad)[40], char (*im
   return m;
 }
 
+bool betik_ice_aktar(const char *kaynak, const char *kok, char *hedef, size_t cap, char *err, size_t err_cap) {
+  auto hata = [&](const char *m) { if (err && err_cap) std::snprintf(err, err_cap, "%s", m); return false; };
+  if (!kaynak || !*kaynak || !kok || !*kok) return hata("yol yok");
+  const char *ad = kaynak;
+  for (const char *p = kaynak; *p; p++) if (*p == '/' || *p == '\\') ad = p + 1;
+  char taban[96];
+  size_t n = 0;
+  for (const char *p = ad; *p && *p != '.' && n + 1 < sizeof taban; p++)
+    taban[n++] = (kod_ident_ic((unsigned char)*p)) ? *p : '_'; // bosluk, tire vb. -> _ (betik adi tanimlayici olmali)
+  taban[n] = 0;
+  if (!n || (taban[0] >= '0' && taban[0] <= '9')) { std::memmove(taban + 1, taban, n + 1 < sizeof taban - 1 ? n + 1 : n); taban[0] = 'b'; n = std::strlen(taban); }
+  static char m[1 << 20];
+  std::FILE *f = std::fopen(kaynak, "rb");
+  if (!f) return hata("dosya okunamad\xC4\xB1");
+  const size_t okunan = std::fread(m, 1, sizeof m - 1, f);
+  const bool buyuk = std::fgetc(f) != EOF;
+  std::fclose(f);
+  if (buyuk) return hata("dosya 1 MB'tan b\xC3\xBCy\xC3\xBCk");
+  m[okunan] = 0;
+  char dizin[1200];
+  std::snprintf(dizin, sizeof dizin, "%s/assets/betikler", kok);
+  if (!platform::fs_mkdir_p(dizin)) return hata("assets/betikler olu\xC5\x9Fturulamad\xC4\xB1");
+  char yol[1300];
+  for (int k = 1; k < 100; k++) {
+    if (k == 1) std::snprintf(yol, sizeof yol, "%s/%s.tpr", dizin, taban);
+    else std::snprintf(yol, sizeof yol, "%s/%s_%d.tpr", dizin, taban, k);
+    if (platform::fs_kind(yol) == platform::FsKind::None) break;
+    if (k == 99) return hata("ayn\xC4\xB1 adl\xC4\xB1 \xC3\xA7ok betik var");
+  }
+  std::FILE *o = std::fopen(yol, "wb");
+  if (!o) return hata("yaz\xC4\xB1lamad\xC4\xB1");
+  const bool ok = std::fwrite(m, 1, okunan, o) == okunan;
+  std::fclose(o);
+  if (!ok) return hata("yaz\xC4\xB1lamad\xC4\xB1");
+  std::snprintf(hedef, cap, "%s", yol);
+  return true;
+}
+
+namespace {
+struct DamgaGez { const char *dizin; uint64_t h; };
+uint64_t damga_karistir(uint64_t h, const void *v, size_t n) {
+  const unsigned char *p = static_cast<const unsigned char *>(v);
+  for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 1099511628211ull;
+  return h;
+}
+bool damga_gez(const char *ad, platform::FsKind k, void *u) {
+  DamgaGez *g = static_cast<DamgaGez *>(u);
+  const size_t l = std::strlen(ad);
+  if (k != platform::FsKind::File || l < 5 || std::strcmp(ad + l - 4, ".tpr")) return true;
+  if (!std::strcmp(ad, "betikler.tpr")) return true; // editorun kendi yazdigi toplayici
+  char yol[1300];
+  std::snprintf(yol, sizeof yol, "%s/%s", g->dizin, ad);
+  int64_t m = 0, b = 0;
+  if (!platform::fs_file_stamp(yol, &m, &b)) return true;
+  g->h = damga_karistir(g->h, ad, l);
+  g->h = damga_karistir(g->h, &m, sizeof m);
+  g->h = damga_karistir(g->h, &b, sizeof b);
+  return true;
+}
+} // namespace
+
+uint64_t betik_proje_damgasi(const char *kok) {
+  if (!kok || !*kok) return 0;
+  DamgaGez g{kok, 14695981039346656037ull};
+  platform::fs_list_dir(kok, damga_gez, &g);
+  char alt[1200];
+  std::snprintf(alt, sizeof alt, "%s/assets/betikler", kok);
+  g.dizin = alt;
+  platform::fs_list_dir(alt, damga_gez, &g); // dizin yoksa gezme sessizce hicbir sey yapmaz
+  return g.h ? g.h : 1;
+}
+
 int kod_cagri_bul(const char *m, const uint8_t *sn, int imlec, char *ad, int ad_cap, int *param) {
   if (!m || !sn || !ad || ad_cap < 2) return -1;
   int d = 0, virgul = 0;
@@ -500,6 +572,7 @@ bool kod_ac(KodPaneli &k, const char *yol, const char *etiket, int satir, char *
   k.git_adim = 0;
   k.onc_boy = k.onc_imlec = -1;
   k.oneri_n = 0; k.oneri_kabul = false;
+  k.uyari_mesaj[0] = 0; k.tanim_iste = k.tanim_sonraki = false; k.ad_popup = false;
   k.hata_n = 0; k.tani_yapildi = false;
   return true;
 }
@@ -798,7 +871,8 @@ bool uri_yaz(char *out, uint32_t cap, uint32_t *n, const char *yol) {
 }
 }  // namespace
 
-uint32_t kod_lsp_girdisi(const char *dosya, const char *kok, const char *onek, const char *metin, char *out, uint32_t cap) {
+uint32_t kod_lsp_girdisi(const char *dosya, const char *kok, const char *onek, const char *metin, char *out, uint32_t cap, const char *istek, int satir,
+                         int sutun, const char *yeni) {
   static char govde[kKodKapasite * 3 + 8192];
   uint32_t n = 0;
   auto parca = [&](const char *s) { return json_ekle(govde, sizeof govde, &n, s, std::strlen(s), false); };
@@ -818,9 +892,290 @@ uint32_t kod_lsp_girdisi(const char *dosya, const char *kok, const char *onek, c
   ok = ok && parca("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"") && uri_yaz(govde, sizeof govde, &n, dosya) &&
        parca("\",\"languageId\":\"tulpar\",\"version\":1,\"text\":\"") && (!onek || json_ekle(govde, sizeof govde, &n, onek, std::strlen(onek), true)) &&
        json_ekle(govde, sizeof govde, &n, metin, std::strlen(metin), true) && parca("\"}}}") && mesaj();
+  if (ok && istek && *istek) {
+    char sonek[64];
+    const int kayma = onek ? (int)std::strlen(onek) : 0; // onekli 1. satirda sutun kayar (karakter sayisi: onek ASCII)
+    std::snprintf(sonek, sizeof sonek, "\"position\":{\"line\":%d,\"character\":%d}", satir, satir == 0 ? sutun + kayma : sutun);
+    ok = parca("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/") && parca(istek) && parca("\",\"params\":{\"textDocument\":{\"uri\":\"") &&
+         uri_yaz(govde, sizeof govde, &n, dosya) && parca("\"},") && parca(sonek);
+    if (ok && !std::strcmp(istek, "references")) ok = parca(",\"context\":{\"includeDeclaration\":true}");
+    if (ok && !std::strcmp(istek, "rename") && yeni) ok = parca(",\"newName\":\"") && json_ekle(govde, sizeof govde, &n, yeni, std::strlen(yeni), true) && parca("\"");
+    ok = ok && parca("}}") && mesaj();
+  }
   ok = ok && parca("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"shutdown\"}") && mesaj();
   ok = ok && parca("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}") && mesaj();
   return ok ? toplam : 0;
+}
+
+namespace {
+int hex1(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
+// bayt konumu <-> (satir, karakter sutunu): UTF-8 devam baytlari sutun sayilmaz (LSP karakter ister; ASCII disi harf bir karakter)
+void konum_satir_sutun(const char *m, int ofs, int *satir, int *sutun) {
+  int s = 0, c = 0;
+  for (int i = 0; i < ofs && m[i]; i++) {
+    if (m[i] == '\n') { s++; c = 0; }
+    else if (((unsigned char)m[i] & 0xC0) != 0x80) c++;
+  }
+  *satir = s; *sutun = c;
+}
+int satir_sutun_bayt(const char *m, int satir, int sutun) { // -1: yok
+  int i = 0, s = 0;
+  while (s < satir) { while (m[i] && m[i] != '\n') i++; if (!m[i]) return -1; i++; s++; }
+  int c = 0;
+  while (c < sutun) {
+    if (!m[i] || m[i] == '\n') return -1;
+    i++;
+    while (((unsigned char)m[i] & 0xC0) == 0x80) i++;
+    c++;
+  }
+  return i;
+}
+// "..." JSON dizgisini (kacislarini cozerek) out'a; p dizginin ACILIS tirnagindan SONRAKI karakteri gosterir. Donus: kapanis tirnagi sonrasi.
+const char *json_dizge(const char *p, char *out, size_t cap) {
+  size_t o = 0;
+  for (; *p && *p != '"'; p++) {
+    char c = *p;
+    if (c == '\\') {
+      p++;
+      if (*p == 'n') c = '\n'; else if (*p == 't') c = '\t'; else if (*p == 'u') { p += 4; c = '?'; } else c = *p;
+      if (!*p) break;
+    }
+    if (o + 1 < cap) out[o++] = c;
+  }
+  out[o] = 0;
+  return *p == '"' ? p + 1 : p;
+}
+} // namespace
+
+bool kod_lsp_uri_yol(const char *uri, char *out, size_t cap) {
+  if (!uri || std::strncmp(uri, "file://", 7)) return false;
+  const char *p = uri + 7;
+  if (p[0] == '/' && p[1] && p[2] == ':') p++; // file:///C:/x -> C:/x
+  size_t o = 0;
+  for (; *p && o + 1 < cap; p++) {
+    if (*p == '%' && hex1(p[1]) >= 0 && hex1(p[2]) >= 0) { out[o++] = (char)(hex1(p[1]) * 16 + hex1(p[2])); p += 2; }
+    else out[o++] = *p;
+  }
+  out[o] = 0;
+  return o > 0;
+}
+
+bool kod_lsp_tanim_oku(const char *log, int kayma, KodKonum *out) {
+  const char *p = log;
+  while ((p = std::strstr(p, "\"id\":3")) != nullptr) { // yanit: {"jsonrpc":"2.0","id":3,"result":...}
+    const char *r = std::strstr(p, "\"result\":");
+    if (!r) return false;
+    r += 9;
+    while (*r == ' ') r++;
+    if (std::strncmp(r, "{", 1) && std::strncmp(r, "[{", 2)) return false; // null / [] / bos
+    const char *u = std::strstr(r, "\"uri\":\"");
+    const char *st = std::strstr(r, "\"start\":{\"line\":");
+    if (!u || !st) return false;
+    char uri[1300];
+    json_dizge(u + 7, uri, sizeof uri);
+    int l = 0, c = 0;
+    if (std::sscanf(st, "\"start\":{\"line\":%d,\"character\":%d", &l, &c) != 2) return false;
+    if (!kod_lsp_uri_yol(uri, out->yol, sizeof out->yol)) return false;
+    out->satir = l;
+    out->sutun = (l == 0 && c >= kayma) ? c - kayma : c;
+    return true;
+  }
+  return false;
+}
+
+int kod_lsp_duzenle_oku(const char *log, int kayma, KodDuzenleme *out, int cap) {
+  const char *p = std::strstr(log, "\"changes\":{");
+  if (!p) return 0;
+  p += 11;
+  int n = 0;
+  while (n < cap) {
+    const char *u = std::strstr(p, "\"file://");
+    if (!u) break;
+    char uri[1300], yol[1100];
+    const char *after = json_dizge(u + 1, uri, sizeof uri);
+    if (!kod_lsp_uri_yol(uri, yol, sizeof yol)) { p = after; continue; }
+    const char *kapanis = std::strchr(after, ']');
+    if (!kapanis) break;
+    for (const char *e = after; n < cap;) {
+      const char *r = std::strstr(e, "{\"range\":{\"start\":{\"line\":");
+      if (!r || r > kapanis) break;
+      int l1 = 0, c1 = 0, l2 = 0, c2 = 0;
+      if (std::sscanf(r, "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}},\"newText\":\"", &l1, &c1, &l2, &c2) != 4) { e = r + 1; continue; }
+      const char *nt = std::strstr(r, "\"newText\":\"");
+      if (!nt || nt > kapanis) break;
+      KodDuzenleme &d = out[n];
+      d = KodDuzenleme{};
+      std::snprintf(d.yol, sizeof d.yol, "%s", yol);
+      d.s1 = l1; d.c1 = (l1 == 0 && c1 >= kayma) ? c1 - kayma : c1;
+      d.s2 = l2; d.c2 = (l2 == 0 && c2 >= kayma) ? c2 - kayma : c2;
+      e = json_dizge(nt + 11, d.yeni, sizeof d.yeni);
+      n++;
+    }
+    p = kapanis + 1;
+  }
+  return n;
+}
+
+namespace {
+struct AraCtx { const char *dizin; const char *ad; KodKonum *out; bool bulundu; };
+bool tanim_dosyada(const char *yol, const char *ad, KodKonum *out) {
+  std::FILE *f = std::fopen(yol, "rb");
+  if (!f) return false;
+  static char buf[512 * 1024];
+  const size_t n = std::fread(buf, 1, sizeof buf - 1, f);
+  std::fclose(f);
+  buf[n] = 0;
+  const size_t al = std::strlen(ad);
+  int satir = 0;
+  for (const char *p = buf; *p;) {
+    const char *son = std::strchr(p, '\n');
+    const char *e = son ? son : p + std::strlen(p);
+    const char *q = p;
+    while (q < e && (*q == ' ' || *q == '\t')) q++;
+    if (e - q > 5 && !std::strncmp(q, "func ", 5)) {
+      const char *a = q + 5;
+      while (a < e && *a == ' ') a++;
+      if ((size_t)(e - a) > al && !std::strncmp(a, ad, al) && !kod_ident_ic((unsigned char)a[al])) {
+        std::snprintf(out->yol, sizeof out->yol, "%s", yol);
+        out->satir = satir;
+        int sutun = 0;
+        for (const char *c = p; c < a; c++) if (((unsigned char)*c & 0xC0) != 0x80) sutun++;
+        out->sutun = sutun;
+        return true;
+      }
+    }
+    satir++;
+    if (!son) break;
+    p = son + 1;
+  }
+  return false;
+}
+bool ara_gez(const char *ad_, platform::FsKind k, void *u) {
+  AraCtx *c = static_cast<AraCtx *>(u);
+  const size_t l = std::strlen(ad_);
+  if (c->bulundu || k != platform::FsKind::File || l < 5 || std::strcmp(ad_ + l - 4, ".tpr")) return true;
+  if (!std::strcmp(ad_, "betikler.tpr")) return true; // editorun toplayicisi
+  char yol[1300];
+  std::snprintf(yol, sizeof yol, "%s/%s", c->dizin, ad_);
+  c->bulundu = tanim_dosyada(yol, c->ad, c->out);
+  return true;
+}
+} // namespace
+
+bool kod_tanim_ara(const char *proje, const char *kut, const char *ad, KodKonum *out) {
+  if (!ad || !*ad || !out) return false;
+  char dizin[1200];
+  AraCtx c{nullptr, ad, out, false};
+  if (proje && *proje) {
+    char oyun[1200];
+    std::snprintf(oyun, sizeof oyun, "%s/oyun.tpr", proje);
+    if (tanim_dosyada(oyun, ad, out)) return true;
+    std::snprintf(dizin, sizeof dizin, "%s/assets/betikler", proje);
+    c.dizin = dizin;
+    platform::fs_list_dir(dizin, ara_gez, &c);
+    if (c.bulundu) return true;
+  }
+  if (kut && *kut) {
+    char eng[1200];
+    std::snprintf(eng, sizeof eng, "%s/engine.tpr", kut);
+    if (tanim_dosyada(eng, ad, out)) return true;
+    std::snprintf(dizin, sizeof dizin, "%s/kit", kut);
+    c.dizin = dizin;
+    platform::fs_list_dir(dizin, ara_gez, &c);
+    if (c.bulundu) return true;
+  }
+  return false;
+}
+
+uint32_t kod_duzenle_uygula(char *metin, uint32_t cap, const KodDuzenleme *d, int n, const char *yol) {
+  // Sondan basa: onceki konumlar kaymasin. Once secim (yol eslesen), baslangic konumuna gore azalan sira.
+  int idx[256], k = 0;
+  const size_t yl = std::strlen(yol);
+  for (int i = 0; i < n && k < 256; i++) if (std::strlen(d[i].yol) == yl && !std::strcmp(d[i].yol, yol)) idx[k++] = i;
+  for (int i = 1; i < k; i++) { int t = idx[i], j = i - 1; while (j >= 0 && (d[idx[j]].s1 < d[t].s1 || (d[idx[j]].s1 == d[t].s1 && d[idx[j]].c1 < d[t].c1))) { idx[j + 1] = idx[j]; j--; } idx[j + 1] = t; }
+  uint32_t uyg = 0; // yukaridaki ekleme siralamasi baslangic konumuna gore AZALAN (en sondaki duzenleme once)
+  size_t uz = std::strlen(metin);
+  int son_s = 1 << 30, son_c = 1 << 30;
+  for (int q = 0; q < k; q++) {
+    const KodDuzenleme &e = d[idx[q]];
+    if (e.s1 > son_s || (e.s1 == son_s && e.c2 > son_c)) continue; // cakisan
+    const int a = satir_sutun_bayt(metin, e.s1, e.c1), b = satir_sutun_bayt(metin, e.s2, e.c2);
+    if (a < 0 || b < a) continue;
+    const size_t yl2 = std::strlen(e.yeni);
+    if (uz - (size_t)(b - a) + yl2 + 1 > cap) continue; // sigmaz: bu duzenleme uygulanmaz, metin bozulmaz
+    std::memmove(metin + a + yl2, metin + b, uz - (size_t)b + 1);
+    std::memcpy(metin + a, e.yeni, yl2);
+    uz = uz - (size_t)(b - a) + yl2;
+    son_s = e.s1; son_c = e.c1;
+    uyg++;
+  }
+  return uyg;
+}
+
+uint32_t kod_sablon_dizesinde_adlandir(char *m, uint32_t cap, const char *eski, const char *yeni) {
+  const size_t el = std::strlen(eski), yl = std::strlen(yeni);
+  if (!el) return 0;
+  uint32_t say = 0;
+  size_t n = std::strlen(m);
+  size_t i = 0;
+  while (i < n) {
+    if (m[i] == '/' && i + 1 < n && m[i + 1] == '/') { while (i < n && m[i] != '\n') i++; continue; } // yorum
+    const bool sablon = (m[i] == 't' || m[i] == 'f') && i + 1 < n && m[i + 1] == '"' && (i == 0 || !kod_ident_ic((unsigned char)m[i - 1]));
+    if (m[i] == '"' || sablon) {
+      size_t j = i + (sablon ? 2 : 1);
+      int derin = 0;
+      while (j < n && m[j] != '\n') {
+        if (m[j] == '\\' && j + 1 < n) { j += 2; continue; }
+        if (m[j] == '"' && derin == 0) break;
+        if (sablon && m[j] == '{') { derin++; j++; continue; }
+        if (sablon && m[j] == '}' && derin > 0) { derin--; j++; continue; }
+        if (sablon && derin > 0 && j + el <= n && !std::strncmp(m + j, eski, el) && (j == 0 || !(kod_ident_ic((unsigned char)m[j - 1]) || m[j - 1] == '.')) &&
+            !kod_ident_ic((unsigned char)m[j + el])) {
+          if (n - el + yl + 1 > cap) { j += el; continue; }
+          std::memmove(m + j + yl, m + j + el, n - (j + el) + 1);
+          std::memcpy(m + j, yeni, yl);
+          n = n - el + yl;
+          j += yl;
+          say++;
+          continue;
+        }
+        j++;
+      }
+      i = j < n ? j + 1 : j;
+      continue;
+    }
+    i++;
+  }
+  return say;
+}
+
+int kod_imlec_adi(const char *m, int imlec, int *bas, char *ad, int cap) {
+  if (!m || imlec < 0) return 0;
+  int b = imlec, e = imlec;
+  while (b > 0 && kod_ident_ic((unsigned char)m[b - 1])) b--;
+  while (m[e] && kod_ident_ic((unsigned char)m[e])) e++;
+  if (e == b || (m[b] >= '0' && m[b] <= '9') || e - b >= cap) return 0;
+  std::snprintf(ad, (size_t)cap, "%.*s", e - b, m + b);
+  if (bas) *bas = b;
+  return e - b;
+}
+
+bool kod_ad_gecerli(const char *ad, const char *eski, const char *dosya_tabani, char *neden, size_t cap) {
+  auto soyle = [&](const char *m) { if (neden && cap) std::snprintf(neden, cap, "%s", m); return false; };
+  if (!ad || !*ad) return soyle("ad bo\xC5\x9F");
+  if (!kod_ident_bas((unsigned char)ad[0])) return soyle("ad harf ya da _ ile ba\xC5\x9Flamal\xC4\xB1");
+  for (const char *p = ad; *p; p++) if (!kod_ident_ic((unsigned char)*p)) return soyle("ad yaln\xC4\xB1zca harf, rakam ve _ i\xC3\\xA7" "ermeli");
+  if (kod_kelime_listede(ad, std::strlen(ad), kAnahtar) || kod_kelime_listede(ad, std::strlen(ad), kTur) || kod_kelime_listede(ad, std::strlen(ad), kSabit))
+    return soyle("bu bir dil s\xC3\xB6zc\xC3\xBC\xC4\x9F\xC3\xBC, ad olamaz");
+  // Betik kancasi: <dosya>_baslat / _guncelle ... motor bu adlari ARAR; adini degistirmek betigi sessizce susturur.
+  if (dosya_tabani && *dosya_tabani && eski) {
+    static const char *const ek[] = {"_baslat", "_guncelle", "_carpisma", "_bitir", "_tetik_girdi", "_tetik_cikti", "_bolge_girdi", "_bolge_cikti", nullptr};
+    const size_t tl = std::strlen(dosya_tabani);
+    for (const char *const *e = ek; *e; e++)
+      if (!std::strncmp(eski, dosya_tabani, tl) && !std::strcmp(eski + tl, *e))
+        return soyle("bu bir betik kancas\xC4\xB1: motor ad\xC4\xB1 dosya ad\xC4\xB1ndan arar (ad\xC4\xB1n\xC4\xB1 de\xC4\x9Fi\xC5\x9Ftirirsen kanca \xC3\\xA7" "al\xC4\xB1\xC5\x9Fmaz)");
+  }
+  return true;
 }
 
 uint32_t kod_oyun_importlari(const char *m, char *out, uint32_t cap) {
@@ -930,6 +1285,140 @@ void tani_yurut(KodPaneli &k, uint32_t kare) {
   else k.tani_yok = true;
 }
 
+namespace {}
+// ---- Tanima git / yeniden adlandir (LSP, tek seferlik; hata denetiminden ayri surec) ---------------------------------
+namespace {
+const char *dosya_tabani(const char *yol, char *out, size_t cap) { // "/a/b/dondur.tpr" -> "dondur"
+  const char *ad = yol;
+  for (const char *p = yol; *p; p++) if (*p == '/' || *p == '\\') ad = p + 1;
+  std::snprintf(out, cap, "%s", ad);
+  if (char *n = std::strrchr(out, '.')) *n = 0;
+  return out;
+}
+bool istek_baslat(KodPaneli &k, int tur, const char *yeni) {
+  if (k.istek_suruyor || !k.gecici_dizin[0]) return false;
+  if (!k.proje_dizin[0] || !k.kutuphane_dizin[0]) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "tan\xC4\xB1ma git: proje (oyun.tpr) gerekli"); return false; }
+  if (!k.tani_exe[0] && !platform::process_find_in_path("tulpar", k.tani_exe, sizeof k.tani_exe)) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "tulpar kurulu de\xC4\x9Fil"); return false; }
+  static char oyun_m[256 * 1024];
+  char oyun[1100], onek[4096] = {0};
+  std::snprintf(oyun, sizeof oyun, "%s/oyun.tpr", k.proje_dizin);
+  size_t on = 0;
+  if (std::FILE *f = std::fopen(oyun, "rb")) { on = std::fread(oyun_m, 1, sizeof oyun_m - 1, f); std::fclose(f); }
+  oyun_m[on] = 0;
+  if (!on) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "oyun.tpr okunamad\xC4\xB1"); return false; }
+  if (!std::strstr(k.metin, "import \"")) kod_oyun_importlari(oyun_m, onek, sizeof onek);
+  int satir = 0, sutun = 0;
+  konum_satir_sutun(k.metin, k.imlec_ofs, &satir, &sutun);
+  { int b0 = 0; if (!kod_imlec_adi(k.metin, k.imlec_ofs, &b0, k.istek_ad, sizeof k.istek_ad)) k.istek_ad[0] = 0; }
+  static char girdi[kKodKapasite * 3 + 16384];
+  const uint32_t gl = kod_lsp_girdisi(k.yol, k.proje_dizin, onek, k.metin, girdi, sizeof girdi, tur == 1 ? "definition" : "rename", satir, sutun, yeni);
+  char giris[1100], cikis[1100];
+  std::snprintf(giris, sizeof giris, "%s/lsp_istek_giris.bin", k.gecici_dizin);
+  std::snprintf(cikis, sizeof cikis, "%s/lsp_istek_cikis.log", k.gecici_dizin);
+  platform::fs_mkdir_p(k.gecici_dizin);
+  std::FILE *f = gl ? std::fopen(giris, "wb") : nullptr;
+  if (!f) return false;
+  std::fwrite(girdi, 1, gl, f);
+  std::fclose(f);
+  const char *argv[] = {k.tani_exe, "--ext", k.kutuphane_dizin, "--lsp", nullptr};
+  platform::ProcessSpec sp;
+  sp.argv = argv; sp.cwd = k.proje_dizin; sp.log_path = cikis; sp.stdin_path = giris;
+  char err[200];
+  k.istek_kayma = (int)std::strlen(onek);
+  k.istek_tur = tur;
+  std::snprintf(k.istek_yeni, sizeof k.istek_yeni, "%s", yeni ? yeni : "");
+  if (!platform::process_start(k.istek_sur, sp, err, sizeof err)) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "LSP ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1"); return false; }
+  k.istek_suruyor = true;
+  k.uyari_mesaj[0] = 0;
+  return true;
+}
+// Tanima git: ayni dosyada satira, baska dosyada o dosyayi acarak. Kutuphane (motor) dosyalari YALNIZ OKUNUR acilir.
+void tanima_git(KodPaneli &k, const KodKonum &h) {
+  char beklenen[1100];
+  std::snprintf(beklenen, sizeof beklenen, "%s", k.yol);
+  const bool ayni = !std::strcmp(h.yol, beklenen);
+  std::snprintf(k.geri_yol, sizeof k.geri_yol, "%s", k.yol);
+  k.geri_satir = k.imlec_satir;
+  k.geri_sutun = k.imlec_sutun - 1;
+  k.geri_var = true;
+  if (ayni) { k.git_satir = h.satir + 1; k.git_sutun = h.sutun; k.git_adim = 0; return; }
+  if (k.kirli) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "tan\xC4\xB1m ba\xC5\x9Fka dosyada: \xC3\xB6nce kaydet (Ctrl+S)"); k.geri_var = false; return; }
+  char e[200];
+  k.git_sutun = h.sutun;
+  if (!kod_ac(k, h.yol, "", h.satir + 1, e, sizeof e)) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "%.150s", e); return; }
+  const size_t kl = std::strlen(k.kutuphane_dizin), pl = std::strlen(k.proje_dizin);
+  const bool kutuphane = (kl && !std::strncmp(h.yol, k.kutuphane_dizin, kl)) || (pl && std::strncmp(h.yol, k.proje_dizin, pl) != 0);
+  if (kutuphane) { k.salt_okunur = true; std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "k\xC3\xBCt\xC3\xBCphane dosyas\xC4\xB1: yaln\xC4\xB1z okunur (Alt+Sol: geri)"); }
+  else std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "Alt+Sol: geri");
+}
+void geri_don(KodPaneli &k) {
+  if (!k.geri_var) return;
+  KodKonum h;
+  std::snprintf(h.yol, sizeof h.yol, "%s", k.geri_yol);
+  h.satir = k.geri_satir - 1;
+  const bool ayni = !std::strcmp(k.geri_yol, k.yol);
+  k.geri_var = false;
+  if (ayni) { k.git_satir = k.geri_satir; k.git_sutun = k.geri_sutun; k.git_adim = 0; return; }
+  if (k.kirli) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "geri: \xC3\xB6nce kaydet (Ctrl+S)"); k.geri_var = true; return; }
+  char e[200];
+  k.git_sutun = k.geri_sutun;
+  kod_ac(k, h.yol, "", k.geri_satir, e, sizeof e);
+  k.uyari_mesaj[0] = 0;
+}
+// Yeniden adlandirma sonucu: bu dosya TAMPONA (kirli), diger proje dosyalari diske yazilir.
+void adlandirma_uygula(KodPaneli &k, const KodDuzenleme *d, int n) {
+  uint32_t tampon = kod_duzenle_uygula(k.metin, kKodKapasite, d, n, k.yol);
+  if (tampon) tampon += kod_sablon_dizesinde_adlandir(k.metin, kKodKapasite, k.ad_eski, k.istek_yeni); // LSP t"{...}" icini gormez
+  if (tampon) { k.kirli = true; k.vurgu_satir = 0; }
+  uint32_t dosya = 0;
+  for (int i = 0; i < n; i++) {
+    bool islendi = false;
+    for (int j = 0; j < i; j++) if (!std::strcmp(d[j].yol, d[i].yol)) islendi = true;
+    if (islendi || !std::strcmp(d[i].yol, k.yol)) continue;
+    const size_t pl = std::strlen(k.proje_dizin);
+    if (!pl || std::strncmp(d[i].yol, k.proje_dizin, pl) != 0) continue; // proje DISINA (kutuphane) yazilmaz
+    static char dm[kKodKapasite];
+    std::FILE *f = std::fopen(d[i].yol, "rb");
+    if (!f) continue;
+    const size_t m = std::fread(dm, 1, sizeof dm - 1, f);
+    std::fclose(f);
+    dm[m] = 0;
+    if (const uint32_t u = kod_duzenle_uygula(dm, sizeof dm, d, n, d[i].yol)) {
+      kod_sablon_dizesinde_adlandir(dm, sizeof dm, k.ad_eski, k.istek_yeni);
+      char e[200];
+      if (betik_dosya_yaz_degistiyse(d[i].yol, dm, (uint32_t)std::strlen(dm), e, sizeof e) >= 0) dosya++;
+    }
+  }
+  if (tampon || dosya) std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "%u yer yeniden adland\xC4\xB1r\xC4\xB1ld\xC4\xB1%s", tampon + dosya, dosya ? " (ba\xC5\x9Fka dosyalar kaydedildi)" : " \xE2\x80\x94 kaydet: Ctrl+S");
+  else std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "yeniden adland\xC4\xB1rma uygulanamad\xC4\xB1");
+}
+void istek_yurut(KodPaneli &k, uint32_t kare) {
+  if (!k.istek_suruyor) return;
+  int cikis = 0;
+  const platform::ProcessState ps = platform::process_poll(k.istek_sur, &cikis);
+  if (ps == platform::ProcessState::Running) return;
+  k.istek_suruyor = false;
+  static char lg[256 * 1024];
+  char yol[1100];
+  std::snprintf(yol, sizeof yol, "%s/lsp_istek_cikis.log", k.gecici_dizin);
+  size_t n = 0;
+  if (std::FILE *f = std::fopen(yol, "rb")) { n = std::fread(lg, 1, sizeof lg - 1, f); std::fclose(f); }
+  lg[n] = 0;
+  if (k.istek_tur == 1) {
+    KodKonum h;
+    if (ps == platform::ProcessState::Exited && kod_lsp_tanim_oku(lg, k.istek_kayma, &h)) tanima_git(k, h);
+    else if (k.istek_ad[0] && kod_tanim_ara(k.proje_dizin, k.kutuphane_dizin, k.istek_ad, &h)) tanima_git(k, h); // LSP: yalniz ayni dosya
+    else std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "tan\xC4\xB1m bulunamad\xC4\xB1 (yaln\xC4\xB1z i\xC5\x9Flev adlar\xC4\xB1)");
+  } else if (k.istek_tur == 2) {
+    static KodDuzenleme d[256];
+    const int dn = ps == platform::ProcessState::Exited ? kod_lsp_duzenle_oku(lg, k.istek_kayma, d, 256) : 0;
+    if (dn > 0) { adlandirma_uygula(k, d, dn); k.duzenleme_kare = kare; }
+    else std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "yeniden adland\xC4\xB1r\xC4\xB1lamad\xC4\xB1 (yaln\xC4\xB1z i\xC5\x9Flev adlar\xC4\xB1)");
+  }
+  k.istek_tur = 0;
+}
+} // namespace
+
 // Bayt konumunun metin kutusundaki ekran konumu (sol ust). x0/y0: 1. satir 1. sutunun konumu (kaydirma dahil).
 ImVec2 kod_nokta(const char *m, uint32_t ofs, float x0, float y0, float fs) {
   int satir = 0; uint32_t ls = 0;
@@ -946,6 +1435,7 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   if (!k.acik) return eylem;
   const uint32_t kare_no = (uint32_t)ImGui::GetFrameCount();
   tani_yurut(k, kare_no);
+  istek_yurut(k, kare_no);
   kod_oneri_sozlugu_yukle(k.kutuphane_dizin);
   // Disarida degisti mi (VS Code'da kaydedildi): ~0.5 s'de bir yoklanir. Kirli degilse SESSIZCE yeniden okunur.
   if (++k.kontrol_kare % 30 == 0) {
@@ -1061,6 +1551,22 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
     }
   }
   if (kutu_aktifti && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space, false)) k.oneri_iste = true;
+  // Tanima git (F12), yeniden adlandir (F2), geri (Alt+Sol). Oneri listesi aciksa tuslar onunki degil: bunlar listede kullanilmaz.
+  bool ad_popup_ac = false;
+  if (kutu_aktifti) {
+    const ImGuiIO &io = ImGui::GetIO();
+    if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) k.tanim_iste = true;
+    if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) geri_don(k);
+    if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
+      int bas = 0;
+      char eski[80];
+      if (k.salt_okunur) std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "k\xC3\xBCt\xC3\xBCphane dosyas\xC4\xB1 yaln\xC4\xB1z okunur: yeniden adland\xC4\xB1r\xC4\xB1lamaz");
+      else if (kod_imlec_adi(k.metin, k.imlec_ofs, &bas, eski, sizeof eski) == 0) std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "imle\xC3\xA7 bir i\xC5\x9Flev ad\xC4\xB1n\xC4\xB1n \xC3\xBCzerinde de\xC4\x9Fil");
+      else { std::snprintf(k.ad_eski, sizeof k.ad_eski, "%s", eski); std::snprintf(k.ad_giris, sizeof k.ad_giris, "%s", eski); k.ad_ofs = k.imlec_ofs; ad_popup_ac = true; }
+    }
+  }
+  if (k.tanim_sonraki) { k.tanim_sonraki = false; k.tanim_iste = true; } // Ctrl+tik: imlec bir onceki karede oynadi
+  if (k.tanim_iste) { k.tanim_iste = false; istek_baslat(k, 1, nullptr); }
   if (k.kutu_odak) { ImGui::SetKeyboardFocusHere(); k.kutu_odak = false; }
   // Metin kutusunun kendi yazisi gorunmez: ayni konuma sinif renkleriyle asagida biz ciziyoruz (imlec ve secim yine
   // kutunun). Alfa 0 DEGIL 1/255: ImGui alfa 0 metni hic cizmez, oysa arayuz surucusu (ve ekran okuyucu) satiri tam
@@ -1069,6 +1575,7 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   if (ImGui::InputTextMultiline("##kod", k.metin, sizeof k.metin, kutu, fl, kod_geri_cagri, &k)) { k.kirli = true; k.vurgu_satir = 0; k.duzenleme_kare = kare_no; }
   ImGui::PopStyleColor();
   const ImGuiID kid = ImGui::GetItemID();
+  if (ImGui::IsItemHovered() && ImGui::GetIO().KeyCtrl && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) k.tanim_sonraki = true; // Ctrl+tik: tanima git
   k.yaziyor = ImGui::IsItemActive();
   ImGuiWindow *ic = nullptr; // metin kutusunun kendi alt penceresi (kaydirma onda)
   if (ImGuiWindow *w = ImGui::GetCurrentWindow(); w->DC.ChildWindows.Size > 0) ic = w->DC.ChildWindows.back();
@@ -1078,7 +1585,8 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
     if (ic) ImGui::SetScrollY(ic, std::max(0.0f, (k.git_satir - 1) * fs - ic->Size.y * 0.35f));
     bool bitti = ++k.git_adim > 6;
     if (ImGuiInputTextState *s = ImGui::GetInputTextState(kid)) {
-      const int o = (int)kod_satir_ofseti(k.metin, k.git_satir);
+      int o = (int)kod_satir_ofseti(k.metin, k.git_satir);
+      for (int c = 0; c < k.git_sutun && k.metin[o] && k.metin[o] != '\n'; c++) { o++; while (((unsigned char)k.metin[o] & 0xC0) == 0x80) o++; }
       s->ReloadSelectionStart = s->ReloadSelectionEnd = o;
       s->WantReloadUserBuf = true;
       bitti = true;
@@ -1301,6 +1809,9 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   // --- Durum satiri ---
   ImGui::TextDisabled("Sat\xC4\xB1r %d, s\xC3\xBCtun %d  \xC2\xB7  %d sat\xC4\xB1r  \xC2\xB7  %s", k.imlec_satir, k.imlec_sutun, satir_n,
                       k.kirli ? "kaydedilmedi" : "kaydedildi");
+  ImGui::SameLine();
+  ImGui::TextDisabled("\xC2\xB7  F12 tan\xC4\xB1m  F2 ad");
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("F12 ya da Ctrl+t\xC4\xB1k: i\xC5\x9Flev ad\xC4\xB1n\xC4\xB1n tan\xC4\xB1m\xC4\xB1na git (Alt+Sol: geri)\nF2: i\xC5\x9Flevi her yerde yeniden adland\xC4\xB1r");
   if (k.uyari_mesaj[0]) {
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "\xC2\xB7  " ICON_MD_WARNING " %s", k.uyari_mesaj);
@@ -1322,6 +1833,37 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
     if (!kod_kaydet(k, e, sizeof e)) std::fprintf(stderr, "[editor] kod paneli: %s\n", e);
   }
   ImGui::End();
+  if (ad_popup_ac) { k.ad_popup = true; ImGui::OpenPopup("###kod_ad"); }
+  if (ImGui::BeginPopupModal("Yeniden adland\xC4\xB1r###kod_ad", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::Text("\"%s\" i\xC5\x9Flevinin yeni ad\xC4\xB1:", k.ad_eski);
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    // ImGui tek satirli kutuda Enter'i HER ZAMAN etkinlikten dusurur: reddedilen Enter'dan sonra yazi hicbir yere gitmezdi. Bu kutu icin
+    // ConfigInputTextEnterKeepActive acilir (Enter: kutuda kalir ve metni secer; reddedilince dogrudan yeni ad yazilabilir).
+    ImGuiIO &gio = ImGui::GetIO();
+    const bool eski_kip = gio.ConfigInputTextEnterKeepActive;
+    gio.ConfigInputTextEnterKeepActive = true;
+    const bool enter = ImGui::InputText("##ad_giris", k.ad_giris, sizeof k.ad_giris, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    gio.ConfigInputTextEnterKeepActive = eski_kip;
+    char neden[160] = {0}, taban[160];
+    dosya_tabani(k.yol, taban, sizeof taban);
+    const bool gecerli = kod_ad_gecerli(k.ad_giris, k.ad_eski, taban, neden, sizeof neden);
+    if (!gecerli) ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s", neden);
+    else if (!std::strcmp(k.ad_giris, k.ad_eski)) ImGui::TextDisabled("ad ayn\xC4\xB1");
+    else ImGui::TextDisabled("Enter: t\xC3\xBCm kullan\xC4\xB1mlar yeniden adland\xC4\xB1r\xC4\xB1l\xC4\xB1r");
+    const bool degisik = gecerli && std::strcmp(k.ad_giris, k.ad_eski) != 0;
+    ImGui::BeginDisabled(!degisik);
+    const bool tamam = ImGui::Button("Adland\xC4\xB1r") || (enter && degisik);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Vazge\xC3\xA7") || (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) { k.ad_popup = false; ImGui::CloseCurrentPopup(); }
+    if (tamam) {
+      k.imlec_ofs = k.ad_ofs;
+      istek_baslat(k, 2, k.ad_giris);
+      k.ad_popup = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
   if (!acik) {
     if (k.kirli) { k.acik = true; ImGui::OpenPopup("###kod_kapat_sor"); } // kaydedilmemis: sor
     else k.acik = false;
