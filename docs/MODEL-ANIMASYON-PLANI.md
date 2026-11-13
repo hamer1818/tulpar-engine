@@ -28,7 +28,7 @@ sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 P
 
 | faz | durum |
 |---|---|
-| bütçe ölçümü (§6/4) | ✅ f1840fa — masaüstü ölçüldü, eklem matrisi tavanı 4096→16384 + `skin_dropped`; **mobil ölçülmedi** |
+| bütçe ölçümü (§6/4) | ✅ masaüstü f1840fa (eklem matrisi tavanı 4096→16384 + `skin_dropped`) + **mobil P20 Pro ölçüldü** (köşe başına süperdoğrusal; öneri ≲ 50K iskeletli köşe/kare) |
 | A1 editörde animasyon | ✅ 6540ab7 — klip seçici, ▶ Önizle (Oynat'sız), zaman çubuğu; kapı: görüntü farkı + kontrol |
 | A1b çalma kipi | ✅ — ileri-geri / **döngü** / tek (`animasyon klip faz hiz [dongu\|tek]`, blob v11, `scene_anim_time` editör+oyunda ortak); yeni animasyonlu model varsayılan döngüde; eski sahneler ileri-geri kalır |
 | A2 geçiş | ✅ `eng_anim_crossfade` + `model_pose_blend` (smoothstep, slerp); KOPRU §18; geçişte 200×60 = 0,82 ms (masaüstü) |
@@ -90,13 +90,18 @@ Bugün animasyon yalnız oyun kodundan çağrılabiliyor; editörde modeli seçi
 ### Faz A5 — Morph target + yüz/şekil animasyonu (M)
 - Mevcut `morph.cpp`'yi sahneye ve köprüye bağla; glTF `weights` kanalı klip olarak çalsın; `eng_morph_agirlik(id, hedef, w)`.
 
+### Faz A7 — İskeletli LOD ve köşe bütçesi (M, **mobil ölçümünden doğdu**)
+- Uzaktaki iskeletli karakter için **ayrık LOD** (ModelLod bugün yalnız statik mesh'lerde etkin; iskeletli çizim `lod = nullptr` ile LOD0'da çiziliyor: `bridge/engine_api.cpp`/`app` pozlu yol) — LOD köşeleri aynı iskelet ağırlıklarını taşımalı (meshopt simplify skin attribute'ları korur).
+- Editör Stats panelinde **iskeletli köşe/kare** göstergesi + cihaz sınıfı bütçesi (`device_tier`): aşılınca uyarı (kare süresi dalgalanmasından önce).
+- **Kapı:** `render_karakter_butcesi_olcum` cihazda koşar (`tools/android_run.sh tests render_karakter`); LOD açıkken aynı sahnede fark ölçülür (önce/sonra tablosu).
+
 ### Faz A6 — Karakter yeniden hedefleme (L, **ertele**)
 Mixamo'dan indirilen bir animasyonu başka karaktere uygulamak (humanoid eşleme). Değerli ama büyük; A1–A4 bitip gerçek bir karakter oyunu ihtiyacı doğunca açılır.
 
 ## 4. Sıra ve bağımlılık
 
 ```
-A1 (editörde gör) → A2 (geçiş) → M1 (içe aktarma sağlamlığı) → M2 (STL/OBJ) → A3 (animatör) → A4 (olay/kök) → P1 (kodla mesh) → P2 (editörde çokgen) → A5 → [A6]
+A1 (editörde gör) → A2 (geçiş) → M1 (içe aktarma sağlamlığı) → M2 (STL/OBJ) → A3 (animatör) → A7 (iskeletli LOD) → A4 (olay/kök) → P1 (kodla mesh) → P2 (editörde çokgen) → A5 → [A6]
 ```
 Gerekçe: kullanıcı animasyonları ve hareketi beğendi — **en görünür kazanç A1/A2**. M1 sınır hatalarını açar (yoksa gerçek bir model sessizce sığmaz). STL/OBJ küçük ve bağımsız.
 A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).
@@ -131,4 +136,20 @@ A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).
    **Asıl bulgu — gerçek sınır GPU/CPU değil bir sabitti:** `max_skin_matrices = 4096` (kare başına eklem matrisi) → 60 eklemli karakterden yalnız **68** çizilebiliyordu,
    fazlası **sessizce kayboluyordu** (200 karakterlik sahnede çizim sayısı 68'de takıldı). 16384'e çıkarıldı (273 karakter × 60 eklem, 1 MiB/kare tamponu) ve taşma artık
    `RendererStats::skin_dropped` ile sayılır (kapı: `render_skin_matris_tavani_sayilir`, pozitif kontrol dahil).
-   **Mobil henüz ÖLÇÜLMEDİ** (bağlı telefon yok): masaüstü sayısı mobil için iddia edilmez. Geçici hedef: **40 karakter × 60 eklem × 10K üçgen** (RTX'te +0,3 ms civarı), telefonda aynı betikle ölçülünce güncellenir.
+   **MOBİL ÖLÇÜLDÜ 2026-11-13 — Huawei P20 Pro (Kirin 970, Mali-G72 MP12, Android 10, arm64):** `tools/android_run.sh tests anim_olcum` ve
+   `render_karakter` (iki tur, 640x360 ofscreen + CSM gölge, 60 eklem; kare = çizim + GPU bitişi + piksel okuma, taban N=1 üstü fark).
+   Masaüstünün **tersine** burada sınır GPU: karakter sayısı değil **kare başına toplam iskeletli köşe** belirleyici.
+
+   | karakter (köşe/karakter) | 5 | 10 | 20 | 40 |
+   |---|---|---|---|---|
+   | ~5K üçgen (2400 köşe) + gölge | +1,0–1,3 ms | +2,6–3,1 | +5,6–7,1 | +19–24 |
+   | ~15K üçgen (7500 köşe) + gölge | +1,3–1,7 ms | +12–14 | +29–37 | +49–54 |
+
+   CPU poz hesabı (aynı cihaz): 200 karakter × 60 eklem **2,25 ms** (masaüstü 0,47; 4,8× yavaş), × 128 eklem 4,8 ms, geçiş sırasında 3,9 ms —
+   CPU sorun değil. **Sonuç:** kare başına ~40K iskeletli köşeye kadar ucuz (+1–1,7 ms), ~50K'da +6 ms, 75K'da +12–14 ms, 100K'da +20 ms
+   (süperdoğrusal). Mobil bütçe önerisi: **kare başına ≲ 50K iskeletli köşe** = ~20 karakter × 5K üçgen ya da ~6 karakter × 15K üçgen
+   (60 fps için kare bütçesinin ~1/3'ü). **Dikkat:** iki tur, cihaz ısınma/frekans düşmesiyle gürültülü (aynı çalışmada sonraki varyant bazen
+   daha pahalı çıktı: "gölge atmaz" varyantı gölge atandan yavaştı — sıralama etkisi, gölgenin payı bu veriden ayrılamaz). Masaüstü RTX 5080'de
+   aynı test 40 karakter × 15K üçgen +0,13 ms: iki cihaz arasında ~100–400× fark. **Çıkarım:** (1) masaüstü sezgisiyle karakter sayısı
+   mobilde 20–50× aşırı olur; (2) mobil hedefli oyunlarda **iskeletli LOD** (uzakta daha az köşe/eklem) ve köşe bütçesi göstergesi gerekli
+   (plan A7, aşağıda); (3) "daha fazla karakter" isteği masaüstü kipine özgü bir ayar olmalı (cihaz sınıfı başına bütçe, `device_tier`).

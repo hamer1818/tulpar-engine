@@ -18,7 +18,9 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
+#if !defined(__ANDROID__)
 #include "bridge/engine_api.h"
+#endif
 #include "platform/http.hpp"
 #include "platform/net.hpp"
 #include "platform/thread.hpp"
@@ -147,6 +149,11 @@ ENGINE_TEST(platform_http_exchange_against_local_server) {
   CHECK(!ok && r.status == 0);
 }
 
+#if defined(__ANDROID__)
+// Android test ikilisinde engine_bridge (teng_*) YOK (CMake: yalniz masaustu); eskiden bu dosya Android'de LINK HATASI veriyordu
+// (undefined teng_http_*) ve telefonda engine_tests hic derlenmiyordu (2026-11-13, P20 Pro olcumu). Gorunur ATLANDI.
+ENGINE_TEST(bridge_http_queue_is_async_and_handles_die) { test::skip("kopru (teng_*) Android test ikilisinde yok: masaustu kapisi"); }
+#else
 ENGINE_TEST(bridge_http_queue_is_async_and_handles_die) {
   static MiniSunucu m;
   m = MiniSunucu{};
@@ -178,6 +185,7 @@ ENGINE_TEST(bridge_http_queue_is_async_and_handles_die) {
   kapat(m.ls);
   teng_shutdown();   // is parcacigi kapanisi (kurulmamis motor: http_kapanis yine kosar)
 }
+#endif
 
 // --- M1b: HTTPS (mbedTLS) -------------------------------------------------------------------------------
 // Testin kendi TLS sunucusu (mbedTLS sunucu tarafi, kendinden imzali EC sertifika, CN=localhost). Istemci:

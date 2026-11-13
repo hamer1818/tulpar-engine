@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 418 fonksiyon · 791 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 418 fonksiyon · 793 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -417,7 +417,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (69 dosya, 15720 satır)
+### tools — L7 (69 dosya, 15737 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1052,12 +1052,12 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **791** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **793** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
 - `editor` — 124
-- `bridge` — 69
+- `bridge` — 70
 - `scene` — 48
 - `renderer` — 37
 - `content` — 24
@@ -1069,9 +1069,9 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `fixed` — 13
 - `particles` — 13
 - `clod` — 10
+- `render` — 10
 - `files` — 9
 - `multiedit` — 9
-- `render` — 9
 - `rhi` — 9
 - `console` — 8
 - `platform` — 8
@@ -1195,7 +1195,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 24 test
+- `tests/test_content.cpp` — 25 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test
@@ -1233,7 +1233,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_geom_density.cpp` — 1 test
 - `tests/test_gesture.cpp` — 5 test
 - `tests/test_graph_builder.cpp` — 2 test
-- `tests/test_http.cpp` — 4 test
+- `tests/test_http.cpp` — 5 test
 - `tests/test_ik.cpp` — 4 test
 - `tests/test_indirect_cull.cpp` — 3 test
 - `tests/test_input.cpp` — 2 test

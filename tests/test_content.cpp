@@ -2,6 +2,8 @@
 // (make_test_gltf.py, belirlenimli). Cihazda: TULPAR_ENGINE_ASSETS dizini
 // (android_run.sh push eder); yoksa GORUNUR atlanir.
 #include <algorithm>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1822,4 +1824,98 @@ ENGINE_TEST(content_pose_blend_endpoints_and_midpoint) {
   CHECK(std::fabs(c - 0.70710678f) < 2e-2f);
   // gecersiz klip -> false (cagiran tek klibe duser)
   CHECK(!content::model_pose_blend(m, 0, 0.0f, 99, 0.0f, 0.5f, sc, &pe));
+}
+
+// Karakter bütçesi — GPU/çizim yarısı (docs/MODEL-ANIMASYON-PLANI.md §6 madde 4; cihazda: tools/android_run.sh tests render_karakter).
+// N iskeletli karakter (60 eklem, ~15K üçgen: zincir silindir) 640x360 ofscreen'e CSM gölgesiyle çizilir; kare süresi = çizim + GPU
+// bitişi + piksel okuma (tabanı N=1 ile aynıdır, FARK karakter maliyetidir). SAYILAR CİHAZA ÖZGÜDÜR: basılır, eşik YOK.
+// Kapı iddiası yalnız bizim kodumuz: N karakterin HEPSİ çizilir (skin_dropped == 0, çizim sayısı) ve süre N ile artar
+// (ölçüm gerçekten iş yapıyor). Sanal GPU'da (CI macOS Paravirtual) ölçüm anlamsız: ATLANDI.
+ENGINE_TEST(render_karakter_butcesi_olcum) {
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "karakter_olcum")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (karakter olcumu atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU: karakter olcumu gercek cihazda"); return; }
+  const uint32_t W = 640, H = 360;
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = W; oc.height = H;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 1024;
+  rc.max_skin_matrices = 16384;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  // Zincir silindir: J halka, her halka eklem i (agirlik 0.7) ve i+1 (0.3). Uc varyant: (SEG, golge atar mi):
+  // ~15K ucgen + golge, ~15K ucgen golgesiz (golge gecisinin payini ayirir), ~5K ucgen + golge.
+  constexpr uint32_t J = 60, SEGMAX = 125;
+  static renderer::SkinnedVertex verts[J * SEGMAX];
+  static uint32_t idx[(J - 1) * SEGMAX * 6];
+  static Mat4 joints[J];
+  ren.set_light({0.4f, 1.0f, 0.3f}, {1, 1, 1}, 1.0f);
+  ren.set_camera(Mat4::look_at({0, 9, 16}, {0, 0.8f, -2}, {0, 1, 0}), Mat4::perspective(0.7f, (float)W / (float)H, 0.1f, 80.0f));
+  ren.set_render_size(W, H);
+  Rec rr{&ren};
+  struct Varyant { uint32_t seg; bool golge; const char *ad; };
+  const Varyant vars[] = {{125, true, "~15K ucgen, golge ATAR"}, {125, false, "~15K ucgen, golge atmaz"}, {40, true, "~5K ucgen, golge ATAR"}};
+  const uint32_t Ns[] = {1, 5, 10, 15, 20, 30, 40};
+  std::printf("    [olcum] karakter: %u eklem; %ux%u ofscreen, golge %u; GPU %s\n", J, W, H, rc.shadow_size, dev.caps().device_name);
+  for (const Varyant &vr : vars) {
+    const uint32_t SEG = vr.seg;
+    uint32_t ni = 0;
+    for (uint32_t i = 0; i < J; i++)
+      for (uint32_t k = 0; k < SEG; k++) {
+        const float a = 2.0f * kPi * (float)k / (float)SEG;
+        renderer::SkinnedVertex &v = verts[i * SEG + k];
+        v.pos = Vec3{0.12f * std::cos(a), 0.05f * (float)i, 0.12f * std::sin(a)};
+        v.nrm = Vec3{std::cos(a), 0.0f, std::sin(a)};
+        v.uv = Vec2{(float)k / SEG, (float)i / J};
+        v.joints[0] = (uint8_t)i; v.joints[1] = (uint8_t)(i + 1 < J ? i + 1 : i); v.joints[2] = v.joints[3] = 0;
+        v.weights[0] = i + 1 < J ? 45875 : 65535; v.weights[1] = i + 1 < J ? 19660 : 0; v.weights[2] = v.weights[3] = 0;
+      }
+    for (uint32_t i = 0; i + 1 < J; i++)
+      for (uint32_t k = 0; k < SEG; k++) {
+        const uint32_t a = i * SEG + k, b = i * SEG + (k + 1) % SEG, c = a + SEG, d = b + SEG;
+        const uint32_t t[6] = {a, c, b, b, c, d};
+        for (uint32_t q : t) idx[ni++] = q;
+      }
+    renderer::MeshHandle mesh = ren.create_skinned_mesh(verts, J * SEG, idx, ni);
+    CHECK(mesh.valid());
+    ren.set_shadow_casting(vr.golge);
+    std::printf("    [olcum] -- %s (%u ucgen)\n", vr.ad, ni / 3);
+    double taban = 0.0;
+    for (uint32_t n : Ns) {
+      const uint32_t cols = (uint32_t)std::ceil(std::sqrt((double)n * 1.6));
+      double best[40];
+      uint32_t last_draws = 0, last_drop = 0;
+      for (uint32_t f = 0; f < 50; f++) {
+        auto t0 = std::chrono::steady_clock::now();
+        ren.begin_frame(0);
+        for (uint32_t c = 0; c < n; c++) {
+          for (uint32_t j = 0; j < J; j++) {   // her kare farkli poz (kucuk donus): matris yuklemesi gercek maliyetle
+            const float ang = 0.25f * std::sin(0.1f * (float)f + 0.3f * (float)j + 0.2f * (float)c);
+            joints[j] = Mat4::rotate(Vec3{0, 0, 1}, ang);
+          }
+          const Mat4 mdl = Mat4::translate({((float)(c % cols) - (float)cols * 0.5f) * 0.9f, 0.0f, -(float)(c / cols) * 0.9f}) * Mat4::scale({0.3f, 0.3f, 0.3f});
+          ren.draw_skinned(mesh, renderer::MaterialHandle{}, mdl, {0.9f, 0.9f, 1.0f}, joints, J);
+        }
+        last_draws = ren.stats().draws; last_drop = ren.stats().skin_dropped;
+        if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
+        auto t1 = std::chrono::steady_clock::now();
+        if (f >= 10) best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+      }
+      std::sort(best, best + 40);
+      if (n == 1) taban = best[20];
+      std::printf("    [olcum] %3u karakter: p50 %6.2f ms (p10 %.2f, p90 %.2f)  taban uzeri %+6.2f ms\n", n, best[20], best[4], best[36], best[20] - taban);
+      CHECK(last_drop == 0 && last_draws >= n);     // HEPSI cizildi (eklem matrisi tavani asilmadi)
+      if (n == 40) CHECK(best[20] > taban);          // olcum is yapiyor: 40 karakter 1 karakterden pahali
+    }
+  }
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
 }
