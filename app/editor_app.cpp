@@ -2278,10 +2278,21 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   auto gunes_ilgi = [&]() {
     if (ImGui::IsItemActive() || ImGui::IsItemHovered()) gunes_ilgi_ns = platform::now_ns();
   };
+  // Hizli zaman dugmeleri ESIT genislikte (en genis etiket): degisken genislikli dugmeler dar sutunda
+  // pürüzlü bir sol kenar birakiyordu (arayuz surucusu, 2026-11-13).
+  auto gunes_dugme_w = [&]() {
+    return ImGui::CalcTextSize("\xC5\x9E" "afak 06:00").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+  };
   auto gunes_dugme = [&](const char *etiket) {
-    const bool b = ImGui::SmallButton(etiket);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, 0.0f)); // SmallButton ile ayni yukseklik
+    const bool b = ImGui::Button(etiket, ImVec2(gunes_dugme_w(), 0.0f));
+    ImGui::PopStyleVar();
     gunes_ilgi();
     return b;
+  };
+  auto gunes_sonraki = [&]() {
+    ImGui::SameLine();
+    if (ImGui::GetContentRegionAvail().x < gunes_dugme_w()) ImGui::NewLine();
   };
   static bool oyun_girdi_odak = false; // ONCEKI karede Oyun sekmesi odaktaydi: klavye oyunun
   static ViewportRect oyun_rect{};     // oyun karesinin EKRAN dikdortgeni (fare -> kare pikseli)
@@ -5425,17 +5436,17 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f};
           st.dirty = true;
         }
-        akis_ayni_satir("\xC3\x96\xC4\x9Fle 12:00");
+        gunes_sonraki();
         if (gunes_dugme("\xC3\x96\xC4\x9Fle 12:00")) {
           st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f};
           st.dirty = true;
         }
-        akis_ayni_satir("Bat\xC4\xB1m 18:30");
+        gunes_sonraki();
         if (gunes_dugme("Bat\xC4\xB1m 18:30")) {
           st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f};
           st.dirty = true;
         }
-        akis_ayni_satir("Gece 00:00");
+        gunes_sonraki();
         if (gunes_dugme("Gece 00:00")) {
           st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f};
           st.dirty = true;
@@ -7080,15 +7091,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               if (gunes_dugme("\xC5\x9E" "afak 06:00")) {
                 st.scene.time_of_day = 6.0f; st.scene.sun_dir = Vec3{0.85f, 0.05f, 0.35f}; st.dirty = true;
               }
-              akis_ayni_satir("\xC3\x96\xC4\x9Fle 12:00");
+              gunes_sonraki();
               if (gunes_dugme("\xC3\x96\xC4\x9Fle 12:00")) {
                 st.scene.time_of_day = 12.0f; st.scene.sun_dir = Vec3{0.0f, 1.0f, 0.35f}; st.dirty = true;
               }
-              akis_ayni_satir("Bat\xC4\xB1m 18:30");
+              gunes_sonraki();
               if (gunes_dugme("Bat\xC4\xB1m 18:30")) {
                 st.scene.time_of_day = 18.5f; st.scene.sun_dir = Vec3{-0.85f, 0.02f, 0.35f}; st.dirty = true;
               }
-              akis_ayni_satir("Gece 00:00");
+              gunes_sonraki();
               if (gunes_dugme("Gece 00:00")) {
                 st.scene.time_of_day = 24.0f; st.scene.sun_dir = Vec3{0.0f, -1.0f, 0.35f}; st.dirty = true;
               }

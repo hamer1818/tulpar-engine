@@ -39,7 +39,8 @@ void baslik(const char *m) {
   ImGui::Separator();
 }
 void aciklama(const char *m) {
-  ImGui::PushStyleColor(ImGuiCol_Text, renk(Tone::TextMute));
+  // TextMute "pasif" metin icin (~2,7:1); burada paragraflar OKUNMALI (gezinti 2026-11-13) -> TextDim.
+  ImGui::PushStyleColor(ImGuiCol_Text, renk(Tone::TextDim));
   ImGui::PushTextWrapPos(0.0f);
   ImGui::TextUnformatted(m);
   ImGui::PopTextWrapPos();
