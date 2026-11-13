@@ -130,7 +130,7 @@ bool simge_baslangici(const char *p, const char *son, uint32_t *uz) {
 }
 
 // Tek parcayi (simge/bosluk kenarlari ayrilmis) cevirir; yazar: out[o..]. Bulunamazsa false.
-bool cevir_parca(const char *p, uint32_t len, char *out, uint32_t cap, uint32_t *o) {
+bool cevir_parca(const char *p, uint32_t len, char *out, uint32_t cap, uint32_t *o, bool logla = true) {
   char norm[kHalkaCap];
   Sayilar sy;
   const uint32_t n = normallestir(p, len, norm, sizeof norm, &sy);
@@ -151,7 +151,27 @@ bool cevir_parca(const char *p, uint32_t len, char *out, uint32_t cap, uint32_t 
       }
     }
   }
-  if (idx < 0) { eksik_yaz(norm, n); return false; }
+  // "ad (# varlik)" kalibi: sondaki parantezli bolum anahtardir, bastaki degisken ad aynen kalir.
+  const char *bas_p = nullptr;
+  uint32_t bas_n = 0;
+  if (idx < 0 && len > 4 && p[len - 1] == ')') {
+    for (uint32_t i = len - 1; i > 0; i--) {
+      if (p[i] == '(' && p[i - 1] == ' ') {
+        Sayilar sy2;
+        char pn[128];
+        const uint32_t pnn = normallestir(p + i, len - i, pn, sizeof pn, &sy2);
+        const int j = pnn ? ara(pn, pnn) : -1;
+        if (j >= 0) { idx = j; bas_p = p; bas_n = i; sy = sy2; }
+        break;
+      }
+    }
+  }
+  if (idx < 0) { if (logla) eksik_yaz(norm, n); return false; }
+  if (bas_n) {
+    if (*o + bas_n + 1 >= cap) return false;
+    std::memcpy(out + *o, bas_p, bas_n);
+    *o += bas_n;
+  }
   const char *en = kSozluk[idx].en;
   int sk = 0;
   for (const char *q = en; *q; q++) {
@@ -167,8 +187,16 @@ bool cevir_parca(const char *p, uint32_t len, char *out, uint32_t cap, uint32_t 
   }
   if (kuyruk) {
     if (*o + kuyruk + 1 >= cap) return false;
-    std::memcpy(out + *o, kuyruk_p, kuyruk);
-    *o += kuyruk;
+    // Kuyruk da bir sozluk metni olabilir ("guncelleyici kapali: kaynak derlemesi (...)"): once onu cevir.
+    const char *kb = kuyruk_p;
+    uint32_t kn = kuyruk;
+    while (kn && *kb == ' ') { out[(*o)++] = ' '; kb++; kn--; }
+    const uint32_t once = *o;
+    if (!(kn > 1 && cevir_parca(kb, kn, out, cap, o, false))) {
+      *o = once;
+      std::memcpy(out + *o, kb, kn);
+      *o += kn;
+    }
   }
   return true;
 }
@@ -197,7 +225,10 @@ const char *dil_cevir(const char *bas, const char *son, const char **cevrilmis_s
   if (on >= kHalkaCap / 2) return bas;
   std::memcpy(out, bas, on);
   o = on;
-  bool tamam = cevir_parca(b, (uint32_t)(e - b), out, kHalkaCap - 64, &o);
+  // " · " iceren metinde butunun eksik kaydi YALNIZ parcalar da basarisizsa yazilir (gurultu olmasin).
+  bool bolunecek = false;
+  for (const char *q = b; q + 1 < e; q++) if ((unsigned char)q[0] == 0xC2 && (unsigned char)q[1] == 0xB7) { bolunecek = true; break; }
+  bool tamam = cevir_parca(b, (uint32_t)(e - b), out, kHalkaCap - 64, &o, !bolunecek);
   if (!tamam) {
     // " · " ile bolup parca parca (durum cubugu / ozet satirlari); en az bir parca cevrilmeli.
     o = on;
@@ -234,6 +265,21 @@ const char *dil_cevir(const char *bas, const char *son, const char **cevrilmis_s
   out[o] = 0;
   *cevrilmis_son = out + o;
   return out;
+}
+
+uint32_t dil_cevir_kopya(const char *metin, char *out, uint32_t cap) {
+  if (!out || cap == 0) return 0;
+  out[0] = 0;
+  if (!metin) return 0;
+  const char *son = metin + std::strlen(metin);
+  const char *cs = son;
+  const char *cb = g_dil == Dil::En ? dil_cevir(metin, son, &cs) : metin;
+  if (g_dil != Dil::En) cs = son;
+  uint32_t n = (uint32_t)(cs - cb);
+  if (n >= cap) n = cap - 1;
+  std::memcpy(out, cb, n);
+  out[n] = 0;
+  return n;
 }
 
 uint32_t dil_sozluk_sayisi() { return kN; }

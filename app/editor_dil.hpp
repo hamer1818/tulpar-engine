@@ -27,6 +27,9 @@ bool dil_ayristir(const char *metin, Dil *d);
 // Çeviri çekirdeği (kanca bunu çağırır; testler doğrudan çağırır). Dil Tr iken de çalışır = sözlük araması
 // (kanca yalnız En iken kurulur). Dönüş: çevrilmiş aralık (halka tampon, hemen tüketilmeli) ya da aynı aralık.
 const char *dil_cevir(const char *bas, const char *son, const char **cevrilmis_son);
+// Dil En iken metni çevirip out'a kopyalar (NUL'lu); Tr iken ya da çeviri yoksa aynen kopyalar. Kendi kısaltmasını
+// (ortadan/soldan) yapan arayüz kodu önce bunu çağırır, yoksa İngilizce arayüzde Türkçe bir parça çizilir.
+uint32_t dil_cevir_kopya(const char *metin, char *out, uint32_t cap);
 // Sözlükte kaç çift var ve kaç tanesi geçerli (anahtar tekrarı = hata; testin pozitif kontrolü).
 uint32_t dil_sozluk_sayisi();
 uint32_t dil_sozluk_tekrar(); // aynı (sayı normalleşmiş) anahtarın ikinci kez girmesi

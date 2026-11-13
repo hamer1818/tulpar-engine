@@ -15,5 +15,44 @@ tus Escape
 tikla "Add"
 dogrula_metin "Light & Lighting"
 tus Escape
+# Kapsam turu: yardim sayfalari, Hakkinda, Tercihler, ilk tur (kapi tools/dil_kapsam.py ile Turkce kalan metni SAYAR)
+tikla "Yardım" pencere=MainMenuBar
+tikla "Başlangıç rehberi"
+dogrula_metin "Getting started guide"
+tus Escape
+tikla "Yardım" pencere=MainMenuBar
+tikla "Kısayollar"
+dogrula_metin "Shortcuts"
+tus Escape
+tikla "Yardım" pencere=MainMenuBar
+tikla "Hakkında"
+dogrula_metin "About"
+tus Escape
+tikla "Düzen" pencere=MainMenuBar
+tikla "Tercihler…"
+dogrula_metin "Preferences"
+tus Escape
+tikla "Görünüm" pencere=MainMenuBar
+tus Escape
+tikla "Gizmo" pencere=MainMenuBar
+tus Escape
+tikla "Oynat" pencere=MainMenuBar
+tus Escape
+tikla "Seçim" pencere=MainMenuBar
+tus Escape
+tikla "Dosya" pencere=MainMenuBar
+tus Escape
+# Koordinatla (1600x900 kapi boyu): ham Turkce etiketler Ingilizce cizilen metinle eslesmiyor.
+tikla 100 410
+bekle 5
+ekran dil_en_isik
+tikla 66 206
+bekle 5
+tikla 1384 75
+bekle 5
+ekran dil_en_dunya
+tikla 1143 138
+bekle 5
+ekran dil_en_stats
 ekran dil_en
 cik

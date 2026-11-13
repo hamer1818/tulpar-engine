@@ -48,7 +48,7 @@ kos kaydet.txt "$D/kaydet" --scene "$D/kaydet/assets/editor.sahne" & p3=$!
 TULPAR_OYUNLAR_DIZINI="$D/ornek/oyunlar" kos ornek.txt "$D/ornek" --karsilama & p4=$!
 TULPAR_OYUNLAR_DIZINI="$D/klavye/oyunlar" kos klavye_acilis.txt "$D/klavye" --karsilama & p5=$!
 TULPAR_OYUNLAR_DIZINI="$D/klavye_bos/oyunlar" kos klavye_acilis_bos.txt "$D/klavye_bos" --karsilama & p6=$!
-TULPAR_EDITOR_DIL=en kos dil_en.txt "$D/dil_en" --scene "$KOK/tests/assets/editor.sahne" & p7=$!
+TULPAR_EDITOR_DIL=en TULPAR_DIL_EKSIK="$D/dil_en/eksik.txt" kos dil_en.txt "$D/dil_en" --scene "$KOK/tests/assets/editor.sahne" & p7=$!
 wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?; wait $p4; r4=$?; wait $p5; r5=$?; wait $p6; r6=$?; wait $p7; r7=$?
 kirmizi=0
 n=$(grep -c '^\.son .* tamam' "$D/temel/yanit.txt" 2>/dev/null || echo 0)
@@ -84,6 +84,12 @@ else
 fi
 if [ $r7 = 0 ] && [ -s "$D/dil_en/dil_en.png" ]; then
   echo "  dil English: ana pencere + menuler Ingilizce cizildi, Turkce basliklar kalmadi"
+  # Kapsam tavani (ratchet): turda Turkce KALAN metin sayisi tavani asmamali; ceviri eklendikce tavan INER.
+  if python3 "$KOK/tools/dil_kapsam.py" "$D/dil_en/eksik.txt" 1 > "$D/dil_en/kapsam.txt" 2>&1; then
+    echo "  $(tail -1 "$D/dil_en/kapsam.txt")"
+  else
+    echo "  KIRMIZI dil kapsam: $(tail -1 "$D/dil_en/kapsam.txt")"; head -8 "$D/dil_en/kapsam.txt" | sed 's/^/      /'; kirmizi=1
+  fi
 else
   echo "  KIRMIZI dil English (cikis $r7):"; grep -E 'HATA|^> ' "$D/dil_en/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'; kirmizi=1
 fi

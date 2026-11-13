@@ -1,5 +1,6 @@
 #include "app/editor_overlay.hpp"
 #include "app/editor_console.hpp" // console_shorten_paths (U11 B5)
+#include "app/editor_dil.hpp"   // dil_cevir_kopya (soldan kisaltma cevrilmis metinde)
 
 #include <cmath>
 #include <cstdio>
@@ -745,6 +746,11 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         if (!(*q == '/' && t > 0 && tek[t - 1] == '/')) tek[t++] = *q;
       tek[t] = 0;
       if (!tek[0]) std::snprintf(tek, sizeof tek, "%s", "(proje klas\xC3\xB6r\xC3\xBC)");
+    }
+    {
+      char cev[content::kScenePathLen + 8];   // arayuz dili: soldan kisaltma CEVRILMIS metinde yapilir
+      dil_cevir_kopya(tek, cev, sizeof cev);
+      std::snprintf(tek, sizeof tek, "%s", cev);
     }
     overlay_ellipsize_left(tek, path_w > fs ? path_w : fs, pbuf, sizeof pbuf);
     ImGui::AlignTextToFramePadding();
