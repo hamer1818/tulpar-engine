@@ -38,12 +38,17 @@ void proje_adi(const char *yol, char *out, size_t cap) {
   std::snprintf(out, cap, "%s  \xC2\xB7  %s", ust[0] ? ust : "?", dosya);
 }
 
+// Girdide Enter: forma "Olustur" demek (klavyeyle bitirme). Kare basinda sifirlanir.
+bool g_girdi_enter = false;
+
 bool girdi(const char *etiket, const char *ipucu, char *buf, size_t cap, float w) {
   ImGui::TextColored(renk(Tone::TextDim), "%s", etiket);
   ImGui::SetNextItemWidth(w);
   char id[96];
   std::snprintf(id, sizeof id, "##%s", etiket);
-  return ImGui::InputTextWithHint(id, ipucu, buf, cap);
+  const bool r = ImGui::InputTextWithHint(id, ipucu, buf, cap);
+  if (ImGui::IsItemDeactivated() && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) g_girdi_enter = true;
+  return r;
 }
 
 } // namespace
@@ -84,8 +89,10 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
                              uint32_t son_n) {
   KarsilamaEylem e = KarsilamaEylem::Yok;
   if (!d.acik) return e;
+  g_girdi_enter = false;
   if (!d.baslatildi) {
     d.baslatildi = true;
+    d.odak_ad = true;
     karsilama_kok(d.kok, sizeof d.kok);
     d.sablon_n = fabrika_sablonlar(d.sablonlar, 8);
     for (uint32_t i = 0; i < d.sablon_n; i++) {
@@ -152,6 +159,9 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   pop_text_size();
   ImGui::Dummy(ImVec2(0, st.ItemSpacing.y));
   const float w = ImGui::GetContentRegionAvail().x - st.ItemSpacing.x;
+  // Klavye: karsilama acilinca ilk Tab beklemeden ad alanina yaz; Enter formu tamamlar (surucu gezintisi
+  // 2026-11-13: Tab ad alanina inmiyor, yazilan metin bosa gidiyor, Enter diyalogu kapatiyordu).
+  if (d.odak_ad) { ImGui::SetKeyboardFocusHere(); d.odak_ad = false; }
   bool degisti = girdi("Oyunun ad\xC4\xB1", "\xC3\xB6rn. Par\xC4\xB1lt\xC4\xB1 Av\xC4\xB1", d.tr, sizeof d.tr, w);
   // U11 A3: Ingilizce ad ISTEGE BAGLI; bos kalirsa Turkce ad kullanilir (ipucu bunu gosterir).
   {
@@ -166,7 +176,18 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   if (d.sablon_n > 0) {
     ImGui::TextColored(renk(Tone::TextDim), "Ne t\xC3\xBCr bir oyun?");
     // Yukseklik: baslik satiri + uc satir aciklama (0.92 olcekli) + ic bosluk; uzun aciklama kesilmez, tasmaz.
-    const float kw = (w - st.ItemSpacing.x) * 0.5f, kh = ImGui::GetTextLineHeight() * (1.45f + 3.0f * 0.92f) + st.FramePadding.x * 3.2f;
+    const float kw = (w - st.ItemSpacing.x) * 0.5f;
+    float kh = ImGui::GetTextLineHeight() * (1.45f + 3.0f * 0.92f) + st.FramePadding.x * 3.2f;
+    {
+      // Aciklama baska dilde uc satira sigmayabilir (Ingilizce daha uzun): en uzun aciklamanin sarili yuksekligine gore ac.
+      // CalcTextSize ceviriyi de olcer (dil kancasi); aciklama 0.92 olcekli cizildigi icin sarma genisligi 1/0.92.
+      const float pad0 = st.FramePadding.x * 1.5f;
+      for (uint32_t i = 0; i < d.sablon_n; i++) {
+        const float h = ImGui::CalcTextSize(d.sablon_aciklama[i], nullptr, false, (kw - pad0 * 2.0f) / 0.92f).y * 0.92f;
+        const float gerek = ImGui::GetTextLineHeight() * 1.45f + h + pad0 * 2.0f;
+        if (gerek > kh) kh = gerek;
+      }
+    }
     ImDrawList *dl = ImGui::GetWindowDrawList();
     for (uint32_t i = 0; i < d.sablon_n; i++) {
       if (i % 2) ImGui::SameLine();
@@ -259,7 +280,7 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   // goruntusu, 2026-11-06: hazir degilken (34,80,188), hazirken (38,99,235) — fark goze gorunmuyordu).
   if (!hazir) ImGui::BeginDisabled();
   if (hazir) ImGui::PushStyleColor(ImGuiCol_Button, renk(Tone::Accent));
-  if (ImGui::Button(ICON_MD_ROCKET_LAUNCH "  Olu\xC5\x9Ftur", ImVec2(w, ImGui::GetFrameHeight() * 1.4f))) {
+  if (ImGui::Button(ICON_MD_ROCKET_LAUNCH "  Olu\xC5\x9Ftur", ImVec2(w, ImGui::GetFrameHeight() * 1.4f)) || (hazir && g_girdi_enter)) {
     if (!d.en[0]) std::snprintf(d.en, sizeof d.en, "%s", d.tr); // bos Ingilizce ad: Turkce ad
     e = KarsilamaEylem::YeniOyun;
   }

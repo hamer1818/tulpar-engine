@@ -1738,6 +1738,13 @@ void ImDrawList::AddText(ImFont* font, float font_size, const ImVec2& pos, ImU32
     // Accept null ranges
     if (text_begin == text_end || text_begin[0] == 0)
         return;
+    // TULPAR YAMASI (imconfig.h): arayuz dili (editorun dogrudan dl->AddText cizimleri de cevrilir)
+    if (GImGuiTulparCeviri)
+    {
+        if (!text_end)
+            text_end = text_begin + ImStrlen(text_begin);
+        text_begin = GImGuiTulparCeviri(text_begin, text_end, &text_end);
+    }
     // No need to strlen() here: font->RenderText() will do it and may early out.
 
     // Pull default font/size from the shared ImDrawListSharedData instance

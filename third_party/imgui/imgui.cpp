@@ -3967,6 +3967,18 @@ const char* ImGui::FindRenderedTextEnd(const char* text, const char* text_end)
 void (*GImGuiTulparMetinKanca)(const char *, const char *, const char *, float, float) = nullptr;
 void (*GImGuiTulparMetinKonumKanca)(const char *, const char *, float, float, float, float, const float *) = nullptr;   // tetik: imgui_draw.cpp ImFont::RenderText
 
+// TULPAR YAMASI (imconfig.h): arayuz dili — aralik [bas,son) cevrilir (nullptr = Turkce, bedelsiz).
+const char* (*GImGuiTulparCeviri)(const char*, const char*, const char**) = nullptr;
+static inline void TulparCevir(const char*& bas, const char*& son)
+{
+    if (!GImGuiTulparCeviri || !bas)
+        return;
+    if (!son)
+        son = bas + ImStrlen(bas);
+    if (son > bas)
+        bas = GImGuiTulparCeviri(bas, son, &son);
+}
+
 void ImGui::RenderText(ImVec2 pos, const char* text, const char* text_end, bool hide_text_after_hash)
 {
     ImGuiContext& g = *GImGui;
@@ -3984,6 +3996,7 @@ void ImGui::RenderText(ImVec2 pos, const char* text, const char* text_end, bool 
             text_end = text + ImStrlen(text); // FIXME-OPT (not reached by our internal calls)
         text_display_end = text_end;
     }
+    TulparCevir(text, text_display_end);
 
     if (text != text_display_end)
     {
@@ -4006,6 +4019,7 @@ void ImGui::RenderTextWrapped(ImVec2 pos, const char* text, const char* text_end
 
     if (!text_end)
         text_end = text + ImStrlen(text); // FIXME-OPT (not reached by our internal calls)
+    TulparCevir(text, text_end);
 
     if (text != text_end)
     {
@@ -4029,6 +4043,7 @@ void ImGui::RenderTextWrapped(ImVec2 pos, const char* text, const char* text_end
 // better advantage of the render function taking size into account for coarse clipping.
 void ImGui::RenderTextClippedEx(ImDrawList* draw_list, const ImVec2& pos_min, const ImVec2& pos_max, const char* text, const char* text_display_end, const ImVec2* text_size_if_known, const ImVec2& align, const ImRect* clip_rect)
 {
+    TulparCevir(text, text_display_end);
     // Perform CPU side clipping for single clipped element to avoid using scissor state
     ImVec2 pos = pos_min;
     const ImVec2 text_size = text_size_if_known ? *text_size_if_known : CalcTextSize(text, text_display_end, false, 0.0f);
@@ -4082,6 +4097,7 @@ void ImGui::RenderTextEllipsis(ImDrawList* draw_list, const ImVec2& pos_min, con
     ImGuiContext& g = *GImGui;
     if (text_end_full == NULL)
         text_end_full = FindRenderedTextEnd(text);
+    TulparCevir(text, text_end_full);
     const ImVec2 text_size = text_size_if_known ? *text_size_if_known : CalcTextSize(text, text_end_full, false, 0.0f);
 
     //draw_list->AddLineV(pos_max.x, pos_min.y - 4, pos_max.y + 6, IM_COL32(0, 0, 255, 255));
@@ -6544,6 +6560,7 @@ ImVec2 ImGui::CalcTextSize(const char* text, const char* text_end, bool hide_tex
         text_display_end = FindRenderedTextEnd(text, text_end);      // Hide anything after a '##' string
     else
         text_display_end = text_end;
+    TulparCevir(text, text_display_end);
 
     ImFont* font = g.Font;
     const float font_size = g.FontSize;

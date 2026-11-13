@@ -1,0 +1,10 @@
+# Klavye ile acilis (2026-11-13): karsilama acilinca ad alanina ODAK vardir (Tab gerekmez), yazilan metin oraya
+# gider, Enter formu tamamlar ve proje olusur. Fare hic kullanilmaz.
+# (Eskiden Tab ad alanina inmiyor, yazi bosa gidiyor, Enter diyalogu kapatiyordu.)
+dogrula_oge "Oluştur"
+yaz "Klavye Kapisi"
+dogrula_metin "Klavye Kapisi"
+tus Enter
+dogrula_metin "arena.sahne  (9 varlık)"
+ekran klavye_acilis
+cik

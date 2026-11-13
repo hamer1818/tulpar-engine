@@ -397,7 +397,20 @@ uint32_t editor_ellipsize(const char *s, float max_w, char *out, uint32_t cap) {
   if (!out || cap == 0) return 0;
   out[0] = 0;
   if (!s) return 0;
-  const uint32_t n = (uint32_t)std::strlen(s);
+  uint32_t n = (uint32_t)std::strlen(s);
+  // Arayuz dili: kisaltma CEVRILMIS metin uzerinde yapilmali; yoksa Ingilizce arayuzde Turkce bir on ek
+  // ("Bloom siddet…") cizilirdi (eksik-metin turu, 2026-11-13).
+  char cevrilmis[1024];
+  if (GImGuiTulparCeviri && n > 0 && n < sizeof cevrilmis - 8) {
+    const char *ts = nullptr;
+    const char *tb = GImGuiTulparCeviri(s, s + n, &ts);
+    if (tb != s && (uint32_t)(ts - tb) < sizeof cevrilmis) {
+      std::memcpy(cevrilmis, tb, (size_t)(ts - tb));
+      cevrilmis[ts - tb] = 0;
+      s = cevrilmis;
+      n = (uint32_t)(ts - tb);
+    }
+  }
   if (!ImGui::GetCurrentContext() || ImGui::CalcTextSize(s).x <= max_w) {
     const uint32_t m = n < cap - 1 ? n : cap - 1;
     std::memcpy(out, s, m);

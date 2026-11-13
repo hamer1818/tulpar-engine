@@ -31,6 +31,7 @@ struct KarsilamaDurum {
   bool onek_elle = false;
   bool konum_elle = false;
   bool gelismis = false;
+  bool odak_ad = false; // acilista Oyunun adi alanina klavye odagi (bir kez)
   int sablon = 0;
   int yon = 0;               // 0 yatay, 1 dikey
   char sablonlar[8][32] = {};

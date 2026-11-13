@@ -1,0 +1,8 @@
+# Klavye ile acilis POZITIF KONTROLU: ad bos iken Enter proje OLUSTURMAZ ve karsilama acik kalir; yani
+# klavye_acilis.txt'nin gecmesi Enter'in bos form icin de "gecmis" sayilmasindan degil, ad yazilmasindan gelir.
+dogrula_oge "Oluştur"
+tus Enter
+bekle 10
+dogrula_metin "Başlamak için oyununa bir ad ver."
+metin_yok "arena.sahne"
+cik
