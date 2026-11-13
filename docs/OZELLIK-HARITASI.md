@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 424 fonksiyon · 809 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 424 fonksiyon · 811 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (59 dosya, 13140 satır)
+### content — L6 (59 dosya, 13154 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -1062,7 +1062,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **809** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **811** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1070,7 +1070,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `bridge` — 70
 - `scene` — 48
 - `renderer` — 37
-- `content` — 26
+- `content` — 27
 - `updater` — 20
 - `audio` — 16
 - `cluster` — 16
@@ -1078,8 +1078,8 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `math` — 14
 - `fixed` — 13
 - `particles` — 13
+- `render` — 11
 - `clod` — 10
-- `render` — 10
 - `files` — 9
 - `multiedit` — 9
 - `rhi` — 9
@@ -1207,7 +1207,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 27 test
+- `tests/test_content.cpp` — 29 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test

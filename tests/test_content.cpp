@@ -1983,3 +1983,120 @@ ENGINE_TEST(content_pose_mix_kurallari) {
   CHECK(std::memcmp(p1.skin_mats[0], p3.skin_mats[0], sizeof(Mat4) * jc) == 0);
   CHECK(!content::model_pose_mix(m, e1, 0, s1, &p1));                                    // girdi yok
 }
+
+// A7: iskeletli LOD. skin_karakter.gltf (24 eklem, ~2000 üçgen, tools/make_test_karakter.py): eşik (1500 üçgen) üstü olduğundan LOD üretilir;
+// LOD indeksleri AYNI köşe tamponuna bakar ve her başvurulan köşenin ağırlığı vardır (skin_verts geçerli). KONTROL: küçük iskeletli model (skin_tube,
+// 96 üçgen) LOD ÜRETMEZ (mesh kapasitesi korunur). Seçim: yakın = LOD0, uzak = LOD2 (static ile aynı ölçüt).
+ENGINE_TEST(content_skinned_lod_uretilir_ve_secilir) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_skin_lod")) { CHECK(false); return; }
+  char p1[512], p2[512];
+  CHECK(asset_path(p1, sizeof p1, "skin_karakter.gltf") && asset_path(p2, sizeof p2, "skin_tube.gltf"));
+  static content::Model m, kucuk;
+  CHECK(content::gltf_load(sys, p1, &m) && content::gltf_load(sys, p2, &kucuk));
+  CHECK(m.mesh_count >= 1 && m.meshes[0].skin >= 0 && m.meshes[0].skin_verts != nullptr);
+  const content::ModelMesh &mm = m.meshes[0];
+  CHECK(mm.index_count / 3 >= 1500);
+  CHECK(mm.lod_index_count[0] > 0 && mm.lod_index_count[0] < mm.index_count);
+  CHECK(mm.lod_index_count[1] > 0 && mm.lod_index_count[1] <= mm.lod_index_count[0]);
+  bool gecerli = true;
+  for (uint32_t k = 0; k < content::kModelMaxLods; k++)
+    for (uint32_t i = 0; i < mm.lod_index_count[k]; i++) {
+      const uint32_t v = mm.lod_indices[k][i];
+      if (v >= mm.vertex_count) { gecerli = false; break; }
+      const renderer::SkinnedVertex &sv = mm.skin_verts[v];
+      if (sv.weights[0] + sv.weights[1] + sv.weights[2] + sv.weights[3] == 0) gecerli = false;
+    }
+  CHECK(gecerli);
+  std::printf("    [bilgi] iskeletli LOD: LOD0 %u ucgen, LOD1 %u, LOD2 %u\n", mm.index_count / 3, mm.lod_index_count[0] / 3, mm.lod_index_count[1] / 3);
+  CHECK(kucuk.meshes[0].skin >= 0 && kucuk.meshes[0].lod_index_count[0] == 0 && kucuk.meshes[0].lod_index_count[1] == 0);   // kontrol: kucuk model LOD'suz
+}
+
+// A7 ölçümü: iskeletli LOD'un maliyeti DÜŞÜRÜP düşürmediği (cihazda: tools/android_run.sh tests render_karakter_lod). Aynı zincir silindir (60 eklem, ~15K üçgen)
+// üç düzeyde çizilir: LOD0 (15K), LOD1 (%50), LOD2 (%25); N karakter. Sayılar cihaza özgüdür, BASILIR (eşik yok); kapı iddiası: üçgen sayıları azalır,
+// hepsi çizilir (skin_dropped == 0).
+ENGINE_TEST(render_karakter_lod_olcum) {
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "karakter_lod")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (LOD olcumu atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU: LOD olcumu gercek cihazda"); return; }
+  const uint32_t W = 640, H = 360;
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = W; oc.height = H;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1; rc.shadow_size = 1024; rc.max_skin_matrices = 16384;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  constexpr uint32_t J = 60, SEG = 125;
+  static renderer::SkinnedVertex sv[J * SEG];
+  static renderer::Vertex vv[J * SEG];
+  static uint32_t idx[(J - 1) * SEG * 6];
+  uint32_t ni = 0;
+  for (uint32_t i = 0; i < J; i++)
+    for (uint32_t k = 0; k < SEG; k++) {
+      const float a = 2.0f * kPi * (float)k / (float)SEG;
+      renderer::SkinnedVertex &v = sv[i * SEG + k];
+      v.pos = Vec3{0.12f * std::cos(a), 0.05f * (float)i, 0.12f * std::sin(a)};
+      v.nrm = Vec3{std::cos(a), 0.0f, std::sin(a)};
+      v.uv = Vec2{(float)k / SEG, (float)i / J};
+      v.joints[0] = (uint8_t)i; v.joints[1] = (uint8_t)(i + 1 < J ? i + 1 : i); v.joints[2] = v.joints[3] = 0;
+      v.weights[0] = i + 1 < J ? 45875 : 65535; v.weights[1] = i + 1 < J ? 19660 : 0; v.weights[2] = v.weights[3] = 0;
+      vv[i * SEG + k].pos = v.pos; vv[i * SEG + k].nrm = v.nrm; vv[i * SEG + k].uv = v.uv;
+    }
+  for (uint32_t i = 0; i + 1 < J; i++)
+    for (uint32_t k = 0; k < SEG; k++) {
+      const uint32_t a = i * SEG + k, b = i * SEG + (k + 1) % SEG, c = a + SEG, d = b + SEG;
+      const uint32_t t[6] = {a, c, b, b, c, d};
+      for (uint32_t q : t) idx[ni++] = q;
+    }
+  content::ModelMesh mm{};
+  mm.verts = vv; mm.vertex_count = J * SEG; mm.indices = idx; mm.index_count = ni;
+  const float ratios[content::kModelMaxLods] = {0.5f, 0.25f};
+  CHECK(content::mesh_build_lods(sys, mm, ratios, content::kModelMaxLods, 0.025f));
+  renderer::MeshHandle mesh[3];
+  uint32_t tris[3];
+  mesh[0] = ren.create_skinned_mesh(sv, J * SEG, idx, ni); tris[0] = ni / 3;
+  for (uint32_t l = 0; l < 2; l++) {
+    mesh[l + 1] = mm.lod_index_count[l] ? ren.create_skinned_mesh(sv, J * SEG, mm.lod_indices[l], mm.lod_index_count[l]) : mesh[l];
+    tris[l + 1] = mm.lod_index_count[l] ? mm.lod_index_count[l] / 3 : tris[l];
+  }
+  CHECK(mesh[0].valid() && mesh[1].valid() && mesh[2].valid());
+  CHECK(tris[1] < tris[0] && tris[2] < tris[1]);                                  // LOD gercekten azaltiyor
+  static Mat4 joints[J];
+  ren.set_light({0.4f, 1.0f, 0.3f}, {1, 1, 1}, 1.0f);
+  ren.set_camera(Mat4::look_at({0, 9, 16}, {0, 0.8f, -2}, {0, 1, 0}), Mat4::perspective(0.7f, (float)W / (float)H, 0.1f, 80.0f));
+  ren.set_render_size(W, H);
+  Rec rr{&ren};
+  std::printf("    [olcum] iskeletli LOD: %u eklem; LOD0 %u, LOD1 %u, LOD2 %u ucgen; %ux%u; GPU %s\n", J, tris[0], tris[1], tris[2], W, H, dev.caps().device_name);
+  for (uint32_t n : {10u, 20u, 40u}) {
+    const uint32_t cols = (uint32_t)std::ceil(std::sqrt((double)n * 1.6));
+    double p50[3] = {};
+    for (uint32_t lv = 0; lv < 3; lv++) {
+      double best[40];
+      for (uint32_t f = 0; f < 50; f++) {
+        auto t0 = std::chrono::steady_clock::now();
+        ren.begin_frame(0);
+        for (uint32_t c = 0; c < n; c++) {
+          for (uint32_t j = 0; j < J; j++) joints[j] = Mat4::rotate(Vec3{0, 0, 1}, 0.25f * std::sin(0.1f * (float)f + 0.3f * (float)j + 0.2f * (float)c));
+          const Mat4 mdl = Mat4::translate({((float)(c % cols) - (float)cols * 0.5f) * 0.9f, 0.0f, -(float)(c / cols) * 0.9f}) * Mat4::scale({0.3f, 0.3f, 0.3f});
+          ren.draw_skinned(mesh[lv], renderer::MaterialHandle{}, mdl, {0.9f, 0.9f, 1.0f}, joints, J);
+        }
+        CHECK(ren.stats().skin_dropped == 0);
+        if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
+        auto t1 = std::chrono::steady_clock::now();
+        if (f >= 10) best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+      }
+      std::sort(best, best + 40);
+      p50[lv] = best[20];
+    }
+    std::printf("    [olcum] %2u karakter: LOD0 %.2f ms, LOD1 %.2f ms, LOD2 %.2f ms\n", n, p50[0], p50[1], p50[2]);
+  }
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}

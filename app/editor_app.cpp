@@ -10022,7 +10022,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           const float t = content::scene_anim_time(e.anim_mode, zt * e.speed + e.phase, dur);
           content::ModelPose pose;
           if (content::model_pose_evaluate(mdl, e.clip, t, st.pose_scratch, &pose)) {
-            content::draw_model(ren, mdl, up, m, tint, nullptr, nullptr, &pose);
+            content::draw_model(ren, mdl, up, m, tint, &lod, nullptr, &pose);
             drew = true;
           }
         }

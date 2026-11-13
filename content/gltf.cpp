@@ -15,6 +15,7 @@
 namespace tulpar::engine::content {
 
 namespace {
+constexpr uint32_t kSkinLodMinTris = 1500;   // A7: iskeletli LOD yalniz bu ucgen sayisindan buyuk mesh'lere
 void set_error(Model *m, const char *what, const char *detail) {
   std::snprintf(m->error, sizeof m->error, "%s%s%s", what, detail ? ": " : "", detail ? detail : "");
 }
@@ -594,9 +595,14 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
         }
       }
       if (mm.skin < 0 && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { set_error(out, "arena dolu (meshopt)", nullptr); ok = false; break; }
-      if (mm.skin < 0 && lim.lods) {
+      // Ince esik: kucuk iskeletli mesh'e LOD uretmek renderer mesh kapasitesini (256) bosuna tuketir (her LOD ayri mesh tutamaci; havuz testi
+      // bridge_model_pool_holds_game_characters_and_reports 108 kucuk iskeletli modelle bunu yakaladi). Yalniz >= kSkinLodMinTris ucgenli.
+      if (lim.lods && (mm.skin < 0 || mm.index_count / 3 >= kSkinLodMinTris)) {
+        // A7 (mobil karakter butcesi, P20 Pro): ISKELETLI mesh'lere de LOD. Sadelestirme yalniz var olan kose indekslerini secer (ayni kose
+        // tamponu), yani skin_verts (eklem/agirlik) ayni indekslerle gecerli kalir. Deformasyonu korumak icin hata esigi yariya iner.
         const float ratios[kModelMaxLods] = {0.5f, 0.25f};
-        if (!mesh_build_lods(arena, mm, ratios, kModelMaxLods, lim.lod_error)) { set_error(out, "arena dolu (lod)", nullptr); ok = false; break; }
+        const float er = mm.skin >= 0 ? lim.lod_error * 0.5f : lim.lod_error;
+        if (!mesh_build_lods(arena, mm, ratios, kModelMaxLods, er)) { set_error(out, "arena dolu (lod)", nullptr); ok = false; break; }
       }
       if (mm.skin < 0 && lim.cluster_dag) {
         const DeviceClass dc = lim.cluster_class == 0 ? DeviceClass::Low : (lim.cluster_class >= 2 ? DeviceClass::High : DeviceClass::Mid);
@@ -782,7 +788,9 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
     for (uint32_t k = 0; k < kModelMaxLods; k++) {
       if (!m.meshes[i].lod_index_count[k]) continue;
       out->lod_meshes[i * kModelMaxLods + k] =
-          r.create_mesh(m.meshes[i].verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k]);
+          (m.meshes[i].skin >= 0 && m.meshes[i].skin_verts)
+              ? r.create_skinned_mesh(m.meshes[i].skin_verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k])
+              : r.create_mesh(m.meshes[i].verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k]);
       if (!out->lod_meshes[i * kModelMaxLods + k].valid()) return false;
     }
   }
@@ -998,11 +1006,17 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
       // model sessizce gorunmezdi (kopru kapisi "statik" kareyi bos ekranla
       // karsilastirip farki animasyona yaziyordu).
       static const Mat4 kBindPose[kModelMaxJoints] = {};
+      uint32_t slevel = 0;                    // A7: iskeletli LOD (static ile ayni olcut ve geri dusme kurali)
+      if (lod && u.lod_meshes) {
+        slevel = model_lod_level(*lod, Vec3{world.m[3][0], world.m[3][1], world.m[3][2]});
+        while (slevel > 0 && !u.lod_meshes[inst.mesh * kModelMaxLods + (slevel - 1)].valid()) slevel--;
+        if (slevel > 0) mesh = u.lod_meshes[inst.mesh * kModelMaxLods + (slevel - 1)];
+      }
       if (pose && (uint32_t)skin < kModelMaxSkins && pose->skin_mats[skin])
         r.draw_skinned(mesh, mh, world, tint, pose->skin_mats[skin], pose->joint_count[skin]);
       else if ((uint32_t)skin < m.skin_count)
         r.draw_skinned(mesh, mh, world, tint, kBindPose, m.skins[skin].joint_count);
-      if (lod_counts) lod_counts[0]++;
+      if (lod_counts) lod_counts[slevel]++;
       continue;
     }
     uint32_t level = 0;

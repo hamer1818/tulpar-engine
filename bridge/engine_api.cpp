@@ -1245,7 +1245,7 @@ void render_frame() {
           for (uint32_t k = 0; k < ap.n; k++) me[k] = {(uint32_t)(ap.e[k].clip < 0 ? 0 : ap.e[k].clip), ap.e[k].time, ap.e[k].weight};
           content::ModelPose pose;
           if (ap.n && content::model_pose_mix(mdl, me, ap.n, b.pose_scratch, &pose)) {
-            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, nullptr, nullptr, &pose);
+            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod, nullptr, &pose);
             posed = true;
             b.last_posed++;
           }
@@ -1269,7 +1269,7 @@ void render_frame() {
             ok = content::model_pose_evaluate(mdl, (uint32_t)e.anim_clip, e.anim_time, b.pose_scratch, &pose);
           }
           if (ok) {
-            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, nullptr, nullptr, &pose);
+            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod, nullptr, &pose);
             posed = true;
             b.last_posed++;
           } else {

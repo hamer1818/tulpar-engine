@@ -555,7 +555,7 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
         const float t = scene_anim_time(a.mode, time_s * a.speed + a.phase, dur); // editor onizlemesiyle AYNI fonksiyon
         ModelPose pose;
         if (model_pose_evaluate(mdl, a.clip, t, *pose_scratch_, &pose)) {
-          draw_model(r, mdl, up, m, v3(d.tint), nullptr, nullptr, &pose);
+          draw_model(r, mdl, up, m, v3(d.tint), &lod, nullptr, &pose);   // A7: iskeletli LOD
           drew = true;
         }
       }
