@@ -176,7 +176,18 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   if (d.sablon_n > 0) {
     ImGui::TextColored(renk(Tone::TextDim), "Ne t\xC3\xBCr bir oyun?");
     // Yukseklik: baslik satiri + uc satir aciklama (0.92 olcekli) + ic bosluk; uzun aciklama kesilmez, tasmaz.
-    const float kw = (w - st.ItemSpacing.x) * 0.5f, kh = ImGui::GetTextLineHeight() * (1.45f + 3.0f * 0.92f) + st.FramePadding.x * 3.2f;
+    const float kw = (w - st.ItemSpacing.x) * 0.5f;
+    float kh = ImGui::GetTextLineHeight() * (1.45f + 3.0f * 0.92f) + st.FramePadding.x * 3.2f;
+    {
+      // Aciklama baska dilde uc satira sigmayabilir (Ingilizce daha uzun): en uzun aciklamanin sarili yuksekligine gore ac.
+      // CalcTextSize ceviriyi de olcer (dil kancasi); aciklama 0.92 olcekli cizildigi icin sarma genisligi 1/0.92.
+      const float pad0 = st.FramePadding.x * 1.5f;
+      for (uint32_t i = 0; i < d.sablon_n; i++) {
+        const float h = ImGui::CalcTextSize(d.sablon_aciklama[i], nullptr, false, (kw - pad0 * 2.0f) / 0.92f).y * 0.92f;
+        const float gerek = ImGui::GetTextLineHeight() * 1.45f + h + pad0 * 2.0f;
+        if (gerek > kh) kh = gerek;
+      }
+    }
     ImDrawList *dl = ImGui::GetWindowDrawList();
     for (uint32_t i = 0; i < d.sablon_n; i++) {
       if (i % 2) ImGui::SameLine();

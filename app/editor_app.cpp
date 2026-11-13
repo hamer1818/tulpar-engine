@@ -102,6 +102,7 @@
 #include "app/editor_ilk_adim.hpp"
 #include "app/editor_ilk_adim.hpp"
 #include "app/editor_tercih.hpp"
+#include "app/editor_dil.hpp"
 #include "app/editor_yardim.hpp"
 #include "platform/crash.hpp"
 #include "platform/fs.hpp"
@@ -2092,6 +2093,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (char *s = std::strrchr(tercih_p.ayar_dizini, '/')) *s = 0;
   }
   editor_tema_ayarla(tercih.tema); // U11 C6
+  {
+    // Arayuz dili: TULPAR_EDITOR_DIL (tr/en) tercihi ezer (kapilar, surucu, kurulum denemeleri); yoksa tercih.
+    Dil dl = tercih.dil == 1 ? Dil::En : Dil::Tr;
+    if (const char *ev = std::getenv("TULPAR_EDITOR_DIL")) dil_ayristir(ev, &dl);
+    dil_ayarla(dl);
+  }
   if (tercih.yazi != 100 || tercih.tema != 0) ui.set_ui_scale((float)tercih.yazi / 100.0f); // stili (tema) yeniden kurar
   static char oturum_ayar[1024] = {0};
   if (!headless && platform::user_config_dir(oturum_ayar, sizeof oturum_ayar)) {
@@ -9708,6 +9715,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         const uint32_t te = tercih_ciz(tercih_p, tercih, &gel, cmds.checked(CommandId::HelpAutoCheck));
         if (te & kTercihDegisti) {
           editor_tema_ayarla(tercih.tema);              // U11 C6: palet once, sonra stil yeniden kurulur
+          if (!std::getenv("TULPAR_EDITOR_DIL")) dil_ayarla(tercih.dil == 1 ? Dil::En : Dil::Tr);
           ui.set_ui_scale((float)tercih.yazi / 100.0f);
           if (tercih_yol[0] && !tercih_yaz(tercih_yol, tercih)) set_status(st, "tercihler kaydedilemedi: %s", tercih_yol);
         }

@@ -25,13 +25,14 @@
 #   Pozitif kontrol: baglanmamis eski projede ayni betik CALISMAZ ("betik kancasi YOK"). tulpar yoksa ATLANDI.
 # tests/arayuz/ornek.txt: karsilamadaki Ornek: Bilardo gecici oyun dizinine uretilip acilmali.
 # tests/arayuz/klavye_acilis{,_bos}.txt: karsilama yalniz klavyeyle (odak + yaz + Enter); bos adla Enter olusturmaz.
+# tests/arayuz/dil_en.txt (TULPAR_EDITOR_DIL=en): menuler/paneller Ingilizce, Turkce basliklar kalmaz.
 # tests/arayuz/kaydet.txt GECICI KOPYA sahneyle: iki Ctrl+S, yol unutulmamali, dosya 7 varlikla yazilmali.
 # POZITIF KONTROL: tests/arayuz/pozitif_kontrol.txt (olmayan oge) cikis 1 + HATA satiri vermeli.
 #   tools/arayuz_kapi.sh [cikti-dizini]
 set -uo pipefail
 KOK="$(cd "$(dirname "$0")/.." && pwd)"
 ED="${ED:-$KOK/yapi/engine_editor}"
-D="${1:-$(mktemp -d)}"; mkdir -p "$D/temel" "$D/pk" "$D/kaydet" "$D/ornek" "$D/klavye" "$D/klavye_bos"
+D="${1:-$(mktemp -d)}"; mkdir -p "$D/temel" "$D/pk" "$D/kaydet" "$D/ornek" "$D/klavye" "$D/klavye_bos" "$D/dil_en"
 [ -x "$ED" ] || { echo "HATA: $ED yok"; exit 2; }
 kos() {  # kos <senaryo> <dizin> [editor argumanlari...]
   local s="$1" d="$2"; shift 2
@@ -47,7 +48,8 @@ kos kaydet.txt "$D/kaydet" --scene "$D/kaydet/assets/editor.sahne" & p3=$!
 TULPAR_OYUNLAR_DIZINI="$D/ornek/oyunlar" kos ornek.txt "$D/ornek" --karsilama & p4=$!
 TULPAR_OYUNLAR_DIZINI="$D/klavye/oyunlar" kos klavye_acilis.txt "$D/klavye" --karsilama & p5=$!
 TULPAR_OYUNLAR_DIZINI="$D/klavye_bos/oyunlar" kos klavye_acilis_bos.txt "$D/klavye_bos" --karsilama & p6=$!
-wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?; wait $p4; r4=$?; wait $p5; r5=$?; wait $p6; r6=$?
+TULPAR_EDITOR_DIL=en kos dil_en.txt "$D/dil_en" --scene "$KOK/tests/assets/editor.sahne" & p7=$!
+wait $p1; r1=$?; wait $p2; r2=$?; wait $p3; r3=$?; wait $p4; r4=$?; wait $p5; r5=$?; wait $p6; r6=$?; wait $p7; r7=$?
 kirmizi=0
 n=$(grep -c '^\.son .* tamam' "$D/temel/yanit.txt" 2>/dev/null || echo 0)
 if [ $r1 = 0 ] && [ -s "$D/temel/menu.png" ] && [ -s "$D/temel/secili.png" ]; then
@@ -79,6 +81,11 @@ if [ $r6 = 0 ] && [ ! -e "$D/klavye_bos/oyunlar" ]; then
   echo "  klavye acilis pozitif kontrol: bos adla Enter proje olusturmadi"
 else
   echo "  KAPI BOZUK: bos adla Enter proje olusturdu (cikis $r6)"; kirmizi=1
+fi
+if [ $r7 = 0 ] && [ -s "$D/dil_en/dil_en.png" ]; then
+  echo "  dil English: ana pencere + menuler Ingilizce cizildi, Turkce basliklar kalmadi"
+else
+  echo "  KIRMIZI dil English (cikis $r7):"; grep -E 'HATA|^> ' "$D/dil_en/yanit.txt" 2>/dev/null | tail -4 | sed 's/^/      /'; kirmizi=1
 fi
 if [ $r2 = 1 ] && grep -q 'HATA: "Boyle Bir Menu Ogesi Yok"' "$D/pk/yanit.txt" 2>/dev/null; then
   echo "  pozitif kontrol: olmayan oge dustu (cikis 1)"

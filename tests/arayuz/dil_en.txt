@@ -1,0 +1,19 @@
+# Arayuz dili English (TULPAR_EDITOR_DIL=en; tools/arayuz_kapi.sh): ana pencere ve menu Ingilizce cizilir,
+# o ekranlarda Turkce menu etiketi KALMAZ. (Surucu ogeleri HAM etiketle tutar; bu yuzden dogrulama CIZILEN metinle: dogrula_metin.)
+# Pozitif kontrol: ayni ekranlar Turkce kosuda Turkce
+# (tests/arayuz/temel.txt "Dosya" menusunu Turkce acar) — yani Ingilizce metin dil kancasindan gelir, sabit degildir.
+dogrula_metin "Save"
+dogrula_metin "Properties"
+dogrula_metin "Quick Add Entity:"
+metin_yok "Hızlı Varlık Ekle"
+dogrula_metin "Scene"
+metin_yok "Kaydet"
+tikla "File"
+dogrula_metin "Save as…"
+dogrula_metin "Recent files"
+tus Escape
+tikla "Add"
+dogrula_metin "Light & Lighting"
+tus Escape
+ekran dil_en
+cik

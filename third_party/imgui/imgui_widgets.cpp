@@ -173,6 +173,12 @@ void ImGui::TextEx(const char* text, const char* text_end, ImGuiTextFlags flags)
     const char* text_begin = text;
     if (text_end == NULL)
         text_end = text + ImStrlen(text); // FIXME-OPT
+    // TULPAR YAMASI (imconfig.h): arayuz dili
+    if (GImGuiTulparCeviri && text_end > text)
+    {
+        text = GImGuiTulparCeviri(text, text_end, &text_end);
+        text_begin = text;
+    }
 
     const ImVec2 text_pos(window->DC.CursorPos.x, window->DC.CursorPos.y + window->DC.CurrLineTextBaseOffset);
     const float wrap_pos_x = window->DC.TextWrapPos;
@@ -4731,6 +4737,20 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
         return false;
+
+    // TULPAR YAMASI (imconfig.h): arayuz dili — ipucu metni (odaktayken imlec yolu AddText'ten gecmez)
+    char tulpar_hint[160];
+    if (GImGuiTulparCeviri && hint && hint[0])
+    {
+        const char* ts = NULL;
+        const char* tb = GImGuiTulparCeviri(hint, hint + ImStrlen(hint), &ts);
+        if (tb != hint && ts - tb < (int)sizeof(tulpar_hint))
+        {
+            memcpy(tulpar_hint, tb, (size_t)(ts - tb));
+            tulpar_hint[ts - tb] = 0;
+            hint = tulpar_hint;
+        }
+    }
 
     IM_ASSERT(buf != NULL && buf_size >= 0);
     IM_ASSERT(!((flags & ImGuiInputTextFlags_CallbackHistory) && (flags & ImGuiInputTextFlags_Multiline)));        // Can't use both together (they both use up/down keys)

@@ -15,6 +15,7 @@ struct Tercihler {
   int yazi = 100;       // arayuz olcegi, yuzde: 90 / 100 / 115 / 130
   int oto_kayit_dk = 0; // 0 kapali; 1 / 2 / 5 / 10 dakika
   int tema = 0;         // U11 C6: 0 koyu, 1 acik
+  int dil = 0;          // 0 Turkce, 1 English (app/editor_dil.hpp; ceviri cizim katmaninda)
   int canli_kod = 1;    // 1: oyun calisirken kod degisirse oyun kendiliginden yeniden baslar (varsayilan ACIK); 0 kapali
 };
 

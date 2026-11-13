@@ -38,6 +38,14 @@ extern void (*GImGuiTulparOgeKanca)(unsigned id, const float *dikdortgen, const 
 extern void (*GImGuiTulparMetinKonumKanca)(const char *metin, const char *metin_son, float x, float y, float w, float h,
                                            const float *kirpma);
 
+// ---- TULPAR YAMASI (app/editor_dil.hpp: arayuz dili) --------------------------------------------
+// Metin CEVIRI kancasi: cizilen/olculen her metin (Text/Button/Menu/AddText...) cizim katmaninda sozluge
+// bakilip cevrilir; kaynak Turkce sabitlere dokunulmaz. nullptr (Turkce) iken bedelsiz. Donus: cevrilmis
+// aralik (kalici olmayan halka tampon; hemen tuketilmeli) ya da ayni aralik. ImGui YUKSELTILINCE bu yama
+// (imgui.cpp: RenderText/RenderTextWrapped/RenderTextClippedEx/RenderTextEllipsis/CalcTextSize,
+// imgui_widgets.cpp: TextEx, imgui_draw.cpp: ImDrawList::AddText) KORUNMALI; kaybolursa editor_dil testi KIRMIZI.
+extern const char *(*GImGuiTulparCeviri)(const char *bas, const char *son, const char **cevrilmis_son);
+
 //---- Define assertion handler. Defaults to calling assert().
 // - If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
 // - Compiling with NDEBUG will usually strip out assert() to nothing, which is NOT recommended because we use asserts to notify of programmer mistakes.
