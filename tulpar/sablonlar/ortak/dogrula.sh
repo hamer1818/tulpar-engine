@@ -7,7 +7,7 @@
 #    (kapi gercekten oyunu olcuyor; otopilotsuz tur hicbir sey toplamaz)
 # 3) ses yolu: TULPAR_ENGINE_AUDIO_NULL=1 ile ses cihazi acik kosum da TAMAM
 set -uo pipefail
-. "$(dirname "${BASH_SOURCE[0]}")/ortam.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/ortam.sh" || exit 1   # motor bilinmiyorsa DUR (eskiden sessizce yanlis hatalar basiyordu, 2026-11-13)
 cd "$OYUN_KOK"
 gecti=0; dustu=0
 gec() { echo "✓ $*"; gecti=$((gecti + 1)); }

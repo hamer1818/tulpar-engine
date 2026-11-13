@@ -20,7 +20,7 @@
 # listesi oyunun assets/ dizinine ad ad esit (.md haric).
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
-. tools/ortam.sh
+. tools/ortam.sh || exit 1
 OYUN="$OYUN_KOK"
 ABI_SECIM="${1:-arm64-v8a}"
 case "$ABI_SECIM" in arm64-v8a) ABIS="arm64-v8a" ;; x86_64) ABIS="x86_64" ;; ikisi) ABIS="arm64-v8a x86_64" ;;
