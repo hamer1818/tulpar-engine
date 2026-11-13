@@ -79,7 +79,9 @@ constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
 // seferlikleri calar). Basligin SONUNA dort u32 (16 hizali); tablolar plan_of'ta EN SONDA, yani
 // kamerasiz/sessiz sahnenin bolum ofsetleri v9'dakiyle ayni. audio_pitch TASINMIYOR: mikserde perde
 // yok (tools/scene_check.py BLOB_MUAF, gerekceli).
-constexpr uint32_t kSceneBlobVersion = 10;
+// v11 (A1b, 2026-11-13): SceneBlobAnim'e `mode` (calma kipi: ileri-geri / dongu / tek). 16 -> 20 bayt kayit; eski v10 blob'lar
+// REDDEDILIR (surum kapisi) — .sahneb turetilmistir, engine_sahnec / editor Derle yeniden uretir.
+constexpr uint32_t kSceneBlobVersion = 11;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -240,6 +242,7 @@ struct SceneBlobDraw {
 struct SceneBlobAnim {
   uint32_t entity, clip;
   float phase, speed;
+  uint32_t mode;   // v11: kAnimPingPong / kAnimLoop / kAnimOnce (content/scene.hpp)
 };
 struct SceneBlobLight {
   uint32_t entity; float pos[3]; // dunya konumu (matris cevirisi)
@@ -373,7 +376,7 @@ static_assert(sizeof(SceneBlobResident) == 32, "yerlesik kaydi 32 bayt (dosya fo
 static_assert(sizeof(SceneBlobDagNode) == 80 && sizeof(SceneBlobDagMesh) == 48, "DAG kayit boyutlari sabit (dosya formati)");
 static_assert(sizeof(SceneBlobGiProbe) == 80, "GI sonda kaydi 80 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobEntity) == 128 && sizeof(SceneBlobLight) == 48 && sizeof(SceneBlobBody) == 80 &&
-                  sizeof(SceneBlobAsset) == 16 && sizeof(SceneBlobDraw) == 52 && sizeof(SceneBlobAnim) == 16,
+                  sizeof(SceneBlobAsset) == 16 && sizeof(SceneBlobDraw) == 52 && sizeof(SceneBlobAnim) == 20,
               "blob kayit boyutlari sabit (dosya formati)");
 static_assert(sizeof(SceneBlobParticle) == 112 && sizeof(SceneBlobParticle) % kSceneBlobAlign == 0 && sizeof(SceneBlobTerrain) == 48 && sizeof(SceneBlobWater) == 32 &&
                   sizeof(SceneBlobWind) == 32 && sizeof(SceneBlobVoxel) == 32 && sizeof(SceneBlobCharacter) == 32,

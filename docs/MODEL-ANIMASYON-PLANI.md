@@ -24,6 +24,16 @@ karakteri **yürütüp koşturabilmek** (animasyonlar akıcı geçsin), ve kodla
 kare içinde 0 ayırma (kapasiteler init'te); STL konteyneri yok; yeni dosya formatı = bozuk girdiyle (kesik, NaN, yalan sayaç) test edilir;
 sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 Pro) her faz sonunda ölçülür.
 
+## 2b. Durum (2026-11-13)
+
+| faz | durum |
+|---|---|
+| bütçe ölçümü (§6/4) | ✅ f1840fa — masaüstü ölçüldü, eklem matrisi tavanı 4096→16384 + `skin_dropped`; **mobil ölçülmedi** |
+| A1 editörde animasyon | ✅ 6540ab7 — klip seçici, ▶ Önizle (Oynat'sız), zaman çubuğu; kapı: görüntü farkı + kontrol |
+| A1b çalma kipi | ✅ — ileri-geri / **döngü** / tek (`animasyon klip faz hiz [dongu\|tek]`, blob v11, `scene_anim_time` editör+oyunda ortak); yeni animasyonlu model varsayılan döngüde; eski sahneler ileri-geri kalır |
+| A2 geçiş | ⏳ sıradaki |
+| M1, M2, A3, A4, P1, P2, A5 | ⏳ |
+
 ## 3. Fazlar (öncelik sırasıyla)
 
 Boyut: **S** ≈ bir oturum, **M** ≈ 2–3, **L** ≈ 4+. Her faz kendi commit/PR'ı; sıra kullanıcının "en çok görünen" kazancına göredir.

@@ -17,6 +17,21 @@
 namespace tulpar::engine::content {
 
 constexpr uint32_t kSceneVersion = 1;
+// Animasyon calma kipi (SceneEntity::anim_mode; blob'da SceneBlobAnim::mode).
+constexpr uint32_t kAnimPingPong = 0, kAnimLoop = 1, kAnimOnce = 2;
+// Ham saat (saniye * hiz + faz) -> klip icindeki an. dur <= 0: 0. Editor onizlemesi ve sahne calisma zamani AYNI fonksiyonu kullanir
+// (ayrisirlarsa editorde gordugun oyunda cikmaz).
+inline float scene_anim_time(uint32_t mode, float raw, float dur) {
+  if (dur <= 0.0f) return 0.0f;
+  if (raw < 0.0f) raw = 0.0f;
+  if (mode == kAnimLoop) {
+    float t = raw - dur * (float)(long)(raw / dur);
+    return t;
+  }
+  if (mode == kAnimOnce) return raw > dur ? dur : raw;
+  float t = raw - 2.0f * dur * (float)(long)(raw / (2.0f * dur));   // ileri-geri
+  return t > dur ? 2.0f * dur - t : t;
+}
 constexpr uint32_t kSceneMaxEntities = 256;
 constexpr uint32_t kSceneMaxAssets = 16;
 constexpr uint32_t kSceneNameLen = 32;   // NUL dahil
@@ -164,6 +179,9 @@ struct SceneEntity {
   // animasyon
   uint32_t clip = 0;
   float phase = 0, speed = 1;
+  // Calma kipi (A1b, 2026-11-13): 0 ileri-geri (eski varsayilan: dosyada YAZILMAZ, eski sahneler ayni kalir), 1 dongu (yuruyus gibi
+  // dongusel klipler), 2 tek (sonda durur). Dosyada `animasyon klip faz hiz [dongu|tek]`.
+  uint8_t anim_mode = 0;
   // isik
   Vec3 light_color{1, 1, 1};
   float light_intensity = 1, light_radius = 5;
@@ -280,7 +298,8 @@ struct SceneEntity {
 // arenasi" satiri) ve yigin cercevelerini (CMake 128 KB kapisi) yeniden olc.
 // Tuzaklar 8aw: sizeof alan SIRASI degisimini gormez; burada gormesi
 // gerekmiyor, ikili yerlesime dayanan tuketici yok (.sahneb kendi bicimi).
-static_assert(sizeof(SceneEntity) == 1468, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
+// 2026-11-13 (A1b, anim_mode uint8_t, hizalama dolgusuyla +4): 1468 -> 1472 B; yigin cercevesi kapisi (128 KB) derlemede gecti.
+static_assert(sizeof(SceneEntity) == 1472, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar)
 // + ozellikler (bilesenden bagimsiz, yukarida).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);

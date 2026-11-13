@@ -235,7 +235,9 @@ void write_entity(Out &o, const SceneEntity &e) {
     o.ch(' '); o.vec(e.emissive); o.ch(' '); o.num(e.emissive_strength); o.ch('\n');
   }
   if (e.components & kSceneAnim) {
-    o.puts("  animasyon "); o.num((float)e.clip); o.ch(' '); o.num(e.phase); o.ch(' '); o.num(e.speed); o.ch('\n');
+    o.puts("  animasyon "); o.num((float)e.clip); o.ch(' '); o.num(e.phase); o.ch(' '); o.num(e.speed);
+    if (e.anim_mode == kAnimLoop) o.puts(" dongu"); else if (e.anim_mode == kAnimOnce) o.puts(" tek");   // ileri-geri varsayilan: yazilmaz
+    o.ch('\n');
   }
   if (e.components & kSceneLight) {
     o.puts("  isik "); o.vec(e.light_color); o.ch(' '); o.num(e.light_intensity); o.ch(' '); o.num(e.light_radius);
@@ -389,7 +391,7 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
     return false;
   const uint32_t c = a.components;
   if ((c & kSceneModel) && (a.asset != b.asset || !veq(a.tint, b.tint))) return false;
-  if ((c & kSceneAnim) && (a.clip != b.clip || !feq(a.phase, b.phase) || !feq(a.speed, b.speed))) return false;
+  if ((c & kSceneAnim) && (a.clip != b.clip || !feq(a.phase, b.phase) || !feq(a.speed, b.speed) || a.anim_mode != b.anim_mode)) return false;
   if ((c & kSceneLight) && (!veq(a.light_color, b.light_color) || !feq(a.light_intensity, b.light_intensity) || !feq(a.light_radius, b.light_radius) ||
                             a.light_type != b.light_type || !feq(a.light_spot_inner, b.light_spot_inner) || !feq(a.light_spot_outer, b.light_spot_outer) ||
                             !feq(a.light_width, b.light_width) || !feq(a.light_height, b.light_height) || a.light_cast_shadow != b.light_cast_shadow ||
@@ -925,8 +927,14 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         if (n != 1 || (seen_comp & kSceneInventory)) return p.fail("envanter (bir kez)");
         seen_comp |= kSceneInventory;
       } else if (tok_is(t[0], "animasyon")) {
-        if (n != 4 || (seen_comp & kSceneAnim)) return p.fail("animasyon klip faz hiz (bir kez)");
+        if (n < 4 || n > 5 || (seen_comp & kSceneAnim)) return p.fail("animasyon klip faz hiz [dongu|tek] (bir kez)");
         if (!p.uint(t[1], &cur.clip) || !p.num(t[2], &cur.phase) || !p.num(t[3], &cur.speed)) return false;
+        cur.anim_mode = 0;
+        if (n == 5) {
+          if (tok_is(t[4], "dongu")) cur.anim_mode = (uint8_t)kAnimLoop;
+          else if (tok_is(t[4], "tek")) cur.anim_mode = (uint8_t)kAnimOnce;
+          else return p.fail("animasyon kipi: dongu | tek (yazilmazsa ileri-geri)");
+        }
         seen_comp |= kSceneAnim;
       } else if (tok_is(t[0], "isik")) {
         // n==6: eski dosya (turu yok, varsayilan Nokta -- geriye donuk okunur).

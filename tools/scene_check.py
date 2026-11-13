@@ -41,6 +41,9 @@ BRANCHY = {
     # "govde kutu x y z dinamik" (6) | "govde kure r sabit" (4).
     # Sayici iki dali birlestirip fazla sayiyor; gercegi 6.
     "govde": 6,
+    # "animasyon klip faz hiz" (5 jeton: kip yazilmadan) | "... dongu" / "... tek" (6 sayilir: iki dal toplanir).
+    # Gercek en buyuk: anahtar + 3 sayi + kip = 5 (A1b, 2026-11-13).
+    "animasyon": 5,
 }
 
 # Yazici cagrilarinin CIKTIYA koydugu metin (jeton sayimi icin temsilci).

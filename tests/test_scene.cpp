@@ -1334,3 +1334,51 @@ ENGINE_TEST(scene_props_travel_with_script_card_reset_and_copy) {
   for (uint32_t k = 0; k < kSceneMaxProps; k++) bos = bos && std::memcmp(&e.props[k], &kBos, sizeof kBos) == 0;
   CHECK(bos);
 }
+
+// A1b (2026-11-13): animasyon calma kipi. scene_anim_time editor onizlemesi ve sahne calisma zamaninin ORTAK fonksiyonu:
+// ileri-geri (eski varsayilan), dongu (yuruyus), tek (sonda durur). Pozitif kontrol: uc kip ayni ham saatte FARKLI an verir.
+ENGINE_TEST(scene_anim_mod_zaman_fonksiyonu) {
+  using namespace tulpar::engine::content;
+  const float dur = 2.0f;
+  // ileri-geri: 0..2 ileri, 2..4 geri, 4'te basa doner
+  CHECK(scene_anim_time(kAnimPingPong, 1.0f, dur) == 1.0f);
+  CHECK(scene_anim_time(kAnimPingPong, 3.0f, dur) == 1.0f);          // geri yolda
+  CHECK(scene_anim_time(kAnimPingPong, 4.0f, dur) == 0.0f);
+  // dongu: sondan basa SICRAR (yuruyus donguleri geri yurumez)
+  CHECK(scene_anim_time(kAnimLoop, 3.0f, dur) == 1.0f);
+  CHECK(scene_anim_time(kAnimLoop, 2.5f, dur) == 0.5f);
+  CHECK(scene_anim_time(kAnimLoop, 4.0f, dur) == 0.0f);
+  // tek: sonda durur
+  CHECK(scene_anim_time(kAnimOnce, 1.0f, dur) == 1.0f);
+  CHECK(scene_anim_time(kAnimOnce, 5.0f, dur) == dur);
+  // ayni ham saatte uc kip birbirinden farkli (kontrol: kip gercekten bir sey degistiriyor)
+  CHECK(scene_anim_time(kAnimPingPong, 3.0f, dur) != scene_anim_time(kAnimLoop, 3.0f, dur) ||
+        scene_anim_time(kAnimLoop, 5.0f, dur) != scene_anim_time(kAnimOnce, 5.0f, dur));
+  CHECK(scene_anim_time(kAnimLoop, 2.5f, dur) != scene_anim_time(kAnimPingPong, 2.5f, dur));
+  CHECK(scene_anim_time(kAnimLoop, -1.0f, dur) == 0.0f && scene_anim_time(kAnimLoop, 1.0f, 0.0f) == 0.0f);   // negatif saat, sifir sure
+}
+
+// Dosya turu: kip yazilir/okunur; ileri-geri varsayilan YAZILMAZ (eski sahneler bayt ayni kalir).
+ENGINE_TEST(scene_anim_mod_dosya_turu) {
+  using namespace tulpar::engine::content;
+  static SceneDesc d, d2;
+  SceneError err{};
+  const char *kaynak =
+      "tulpar-sahne 1\nnesne \"a\"\n  konum 0 0 0\n  animasyon 1 0.5 2 dongu\nson\n"
+      "nesne \"b\"\n  konum 1 0 0\n  animasyon 0 0 1\nson\n"
+      "nesne \"c\"\n  konum 2 0 0\n  animasyon 0 0 1 tek\nson\n";
+  CHECK(scene_parse(kaynak, std::strlen(kaynak), &d, &err));
+  CHECK(d.entity_count == 3);
+  CHECK(d.entities[0].anim_mode == kAnimLoop && d.entities[1].anim_mode == kAnimPingPong && d.entities[2].anim_mode == kAnimOnce);
+  static char out[8192];
+  const size_t n = scene_write(d, out, sizeof out);
+  CHECK(n > 0 && n < sizeof out);
+  CHECK(std::strstr(out, "animasyon 1 0.5 2 dongu") != nullptr);
+  CHECK(std::strstr(out, "animasyon 0 0 1 tek") != nullptr);
+  CHECK(std::strstr(out, "animasyon 0 0 1\n") != nullptr);   // ileri-geri: kip YAZILMAZ
+  CHECK(scene_parse(out, std::strlen(out), &d2, &err));
+  CHECK(d2.entities[0].anim_mode == kAnimLoop && d2.entities[2].anim_mode == kAnimOnce);
+  CHECK(!scene_entity_equal(d.entities[0], d.entities[1]));
+  const char *kotu = "tulpar-sahne 1\nnesne \"a\"\n  animasyon 0 0 1 ters\nson\n";
+  CHECK(!scene_parse(kotu, std::strlen(kotu), &d2, &err));   // bilinmeyen kip reddedilir
+}

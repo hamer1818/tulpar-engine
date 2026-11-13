@@ -3003,6 +3003,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         break;
       case 9: // Animasyonlu Model
         e.components = content::kSceneModel | content::kSceneAnim;
+        e.anim_mode = (uint8_t)content::kAnimLoop;   // yeni animasyonlu model DONGUDE calar (yuruyus gibi klipler); eski dosyalar ileri-geri kalir
         e.asset = st.scene.asset_count > 1 ? 1 : (st.scene.asset_count ? 0 : -1);
         e.clip = 0;
         e.speed = 1.0f;
@@ -6089,7 +6090,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   commit(st, si, after);
                 }
                 dur = am->clips[ci].duration;
-                ImGui::TextColored(tone(Tone::TextMute), "%.2f s \xC2\xB7 %u klip", dur, nclip);   // ileri-geri (ping-pong) calar: sahne bicimi bugun donguyu tutmuyor (A1b)
+                ImGui::TextColored(tone(Tone::TextMute), "%.2f s \xC2\xB7 %u klip", dur, nclip);
+                int mod = (int)e.anim_mode;
+                if (mod > 2) mod = 0;
+                // Kip: 0 ileri-geri (eski varsayilan), 1 dongu, 2 tek. ComboItems sirasi kAnim* sabitleriyle ayni.
+                if (prop_combo("Kip", &mod, "\xC4\xB0leri-geri\0" "D\xC3\xB6ng\xC3\xBC\0" "Tek (sonda durur)\0").changed) {
+                  after = e;
+                  after.anim_mode = (uint8_t)mod;
+                  commit(st, si, after);
+                }
                 const bool onizle = st.anim_onizle;
                 if (ImGui::Button(onizle ? ICON_MD_PAUSE " Durdur##anim_onizle" : ICON_MD_PLAY_ARROW " \xC3\x96nizle##anim_onizle")) {
                   st.anim_onizle = !onizle;
@@ -9991,8 +10000,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if ((e.components & content::kSceneAnim) && e.clip < mdl.clip_count) {
           const float dur = mdl.clips[e.clip].duration;
           const float zt = st.playing ? st.play_time : (st.anim_onizle ? st.anim_onizle_t : 0.0f);   // A1: oynatmadan onizleme
-          float t = std::fmod(zt * e.speed + e.phase, 2.0f * dur);
-          if (t > dur) t = 2.0f * dur - t;
+          const float t = content::scene_anim_time(e.anim_mode, zt * e.speed + e.phase, dur);
           content::ModelPose pose;
           if (content::model_pose_evaluate(mdl, e.clip, t, st.pose_scratch, &pose)) {
             content::draw_model(ren, mdl, up, m, tint, nullptr, nullptr, &pose);

@@ -552,8 +552,7 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
       const SceneBlobAnim &a = view_.anims[e.anim];
       if (a.clip < mdl.clip_count) {
         const float dur = mdl.clips[a.clip].duration;
-        float t = std::fmod(time_s * a.speed + a.phase, 2.0f * dur); // ileri-geri (editorle ayni)
-        if (t > dur) t = 2.0f * dur - t;
+        const float t = scene_anim_time(a.mode, time_s * a.speed + a.phase, dur); // editor onizlemesiyle AYNI fonksiyon
         ModelPose pose;
         if (model_pose_evaluate(mdl, a.clip, t, *pose_scratch_, &pose)) {
           draw_model(r, mdl, up, m, v3(d.tint), nullptr, nullptr, &pose);

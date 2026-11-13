@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 416 fonksiyon · 788 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 416 fonksiyon · 790 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -267,7 +267,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (57 dosya, 12370 satır)
+### content — L6 (57 dosya, 12399 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -327,7 +327,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (73 dosya, 35707 satır)
+### app — L6 (73 dosya, 35716 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -417,7 +417,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (69 dosya, 15715 satır)
+### tools — L7 (69 dosya, 15718 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1050,13 +1050,13 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **788** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **790** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
 - `editor` — 124
 - `bridge` — 69
-- `scene` — 46
+- `scene` — 48
 - `renderer` — 37
 - `content` — 23
 - `updater` — 20
@@ -1270,7 +1270,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_replay.cpp` — 5 test
 - `tests/test_rhi.cpp` — 9 test
 - `tests/test_rollback.cpp` — 4 test
-- `tests/test_scene.cpp` — 23 test
+- `tests/test_scene.cpp` — 25 test
 - `tests/test_scene_blob.cpp` — 29 test
 - `tests/test_scene_faz2.cpp` — 1 test
 - `tests/test_sha256.cpp` — 5 test

@@ -64,7 +64,7 @@ void fill(SceneDesc &d) {
   e = SceneEntity{};
   std::snprintf(e.name, sizeof e.name, "boru");
   e.pos = {4, 0, -3.5f}; e.scale = {1.2f, 1.2f, 1.2f};
-  e.components = kSceneModel | kSceneAnim; e.asset = 1; e.clip = 0; e.phase = 0.35f; e.speed = 1.0f / 7.0f;
+  e.components = kSceneModel | kSceneAnim; e.asset = 1; e.clip = 0; e.phase = 0.35f; e.speed = 1.0f / 7.0f; e.anim_mode = (uint8_t)kAnimLoop;
   d.insert_entity(d.entity_count, e);
   e = SceneEntity{};
   std::snprintf(e.name, sizeof e.name, "lamba");
@@ -152,6 +152,7 @@ ENGINE_TEST(scene_blob_compile_is_deterministic_and_matches_desc) {
   const SceneBlobEntity &kure = v.entities[0], &boru = v.entities[1], &lamba = v.entities[2], &kutu = v.entities[3], &kg = v.entities[4], &bos = v.entities[5];
   CHECK(kure.draw == 0 && kure.anim == -1 && kure.light == -1 && kure.body == -1);
   CHECK(boru.draw == 1 && boru.anim == 0 && v.anims[0].entity == 1 && feq(v.anims[0].speed, 1.0f / 7.0f) && feq(v.anims[0].phase, 0.35f));
+  CHECK(v.anims[0].mode == kAnimLoop);   // A1b: calma kipi blob v11 ile tasinir
   CHECK(lamba.light == 0 && lamba.draw == -1);
   CHECK(v.draws[0].asset == 0 && v3eq(v.draws[0].tint, {0.85f, 0.9f, 1.0f}) && v.draws[1].asset == 1);
   // Isik konumu = matris cevirisi (dondurulmus varlikta bile konum).
@@ -994,7 +995,7 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 10);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 11);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
   // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
@@ -1003,7 +1004,8 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   // okunsaydi prop_offset alani eski `script_reserved1` = 0 olurdu) ve 8
   // (SceneBlobParticle 48 bayt: renk/yercekimi/turbulans YOK; v8 blobu
   // okunsaydi parcacik tablosunun adimi 112 sanilip komsu kayitlar kayardi) ve 9
-  // (kamera/ses tablosu YOK: v9 basligi 16 bayt kisa, header_size reddeder).
+  // (kamera/ses tablosu YOK: v9 basligi 16 bayt kisa, header_size reddeder) ve 10
+  // (SceneBlobAnim 16 bayt: calma kipi YOK; v10 blobu okunsaydi animasyon tablosunun adimi 16 sanilip kayitlar kayardi).
   // Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
   // kendiliginden kapsanir; yalniz yukaridaki sabit guncellenir.
   SceneBlobView v;
