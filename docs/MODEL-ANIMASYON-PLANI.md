@@ -31,7 +31,7 @@ sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 P
 | bütçe ölçümü (§6/4) | ✅ f1840fa — masaüstü ölçüldü, eklem matrisi tavanı 4096→16384 + `skin_dropped`; **mobil ölçülmedi** |
 | A1 editörde animasyon | ✅ 6540ab7 — klip seçici, ▶ Önizle (Oynat'sız), zaman çubuğu; kapı: görüntü farkı + kontrol |
 | A1b çalma kipi | ✅ — ileri-geri / **döngü** / tek (`animasyon klip faz hiz [dongu\|tek]`, blob v11, `scene_anim_time` editör+oyunda ortak); yeni animasyonlu model varsayılan döngüde; eski sahneler ileri-geri kalır |
-| A2 geçiş | ⏳ sıradaki |
+| A2 geçiş | ✅ `eng_anim_crossfade` + `model_pose_blend` (smoothstep, slerp); KOPRU §18; geçişte 200×60 = 0,82 ms (masaüstü) |
 | M1, M2, A3, A4, P1, P2, A5 | ⏳ |
 
 ## 3. Fazlar (öncelik sırasıyla)

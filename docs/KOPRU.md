@@ -1725,3 +1725,17 @@ hesabıdır ve v2'de çoğu cihazda **kendiliğinden** açıktır.
 - Kapı `bridge_pgs_paths`: masaüstü -1/6; sahte bulut yazılanı AYNEN geri okur (UTF-8), olmayan kayıt 5,
   girişsizken kayıt işlemi yok; geçersiz ad / 64 KB üstü HATA ve yazılmaz; sahte host ile giriş ve oku/yaz
   sürüyor → tamam, ikinci istek sürerken host'a ulaşmaz, `ilerleme` host'a iletilir.
+
+## 18. Animasyon geçişi — `eng_anim_crossfade` (A2, 2026-11-13)
+
+`eng_anim_crossfade(id, klip, hız, döngü, süre_s)` (Tulpar: `animasyon_gecis` / `anim_crossfade`; `eng_anim_fading` →
+`animasyon_geciyor` / `anim_fading`): çalan klip `süre_s` saniyede yenisine **smoothstep** ağırlıkla karışır
+(eklem başına ötelenme/ölçek doğrusal, dönüş **slerp**, antipodal güvenli). Kurallar:
+
+- Çalan klip yoksa ya da `süre_s <= 0`: `eng_set_anim` gibi **anında** (hata değil).
+- `eng_set_anim` açık geçişi **iptal eder** (anında değişim).
+- İki klip **aynı iskelete** ait olmalı; değilse yeni klibe anında geçilir (`BDBG`).
+- Geçişin ortasında yeni geçiş: önceki **hedef** klip kaynak olur; kaynak pozu yakalanmaz, o anda küçük sıçrama olabilir.
+- Çekirdek: `content::model_pose_blend` (w = 0 / 1 uçlarında `model_pose_evaluate` ile **bit eşit**), kare içi ayırma yok.
+- Ölçüm (masaüstü CPU, tek parçacık, 2026-11-13): 200 karakter × 60 eklem geçiş sırasında **0,82 ms** (geçişsiz 0,47 ms); mobil ölçülmedi.
+- Kapılar: `content_pose_blend_endpoints_and_midpoint` (uçlar bit eşit, orta = 45°), `bridge_runs_a_scripted_game_headless` (geçiş süresi, sıfır süre, klipsiz, `set_anim` iptali).

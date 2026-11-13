@@ -425,6 +425,9 @@ int teng_model_clip_count(int asset);
 double teng_model_clip_duration(int asset, int clip);
 const char *teng_model_clip_name(int asset, int clip);
 void teng_set_anim(int id, int clip, double speed, int loop); // clip < 0: animasyonu kapat (statik)
+// Yumusak gecis (A2): calan klip fade_s saniyede yenisine karisir (smoothstep). Calan klip yoksa / fade_s <= 0: set_anim gibi aninda.
+void teng_anim_crossfade(int id, int clip, double speed, int loop, double fade_s);
+int teng_anim_fading(int id);                                  // gecis suruyor mu
 double teng_anim_time(int id);                                 // klip icindeki an (s)
 int teng_anim_done(int id);                                    // dongusuz klip bitti mi
 

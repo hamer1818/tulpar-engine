@@ -1196,6 +1196,24 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       teng_set_anim(ent, 0, 4.0, 0);
       run_frames(60);
       CHECK(teng_anim_done(ent) == 1);
+      // A2: yumusak gecis (teng_anim_crossfade). Sure boyunca "geciyor", sonra biter; kontroller: sure 0 / klipsiz / set_anim aninda.
+      teng_set_anim(ent, 0, 1.0, 1);
+      run_frames(10);
+      teng_anim_crossfade(ent, 0, 2.0, 1, 0.5);
+      CHECK(teng_anim_fading(ent) == 1);
+      run_frames(15);                          // 0.25 s < 0.5 s
+      CHECK(teng_anim_fading(ent) == 1);
+      run_frames(20);                          // 0.58 s > 0.5 s
+      CHECK(teng_anim_fading(ent) == 0);
+      teng_anim_crossfade(ent, 0, 1.0, 1, 0.0);                 // sure 0 = aninda (gecis YOK)
+      CHECK(teng_anim_fading(ent) == 0);
+      teng_anim_crossfade(ent, 0, 1.0, 1, 1.0);
+      CHECK(teng_anim_fading(ent) == 1);
+      teng_set_anim(ent, 0, 1.0, 1);                            // set_anim acik gecisi iptal eder
+      CHECK(teng_anim_fading(ent) == 0);
+      teng_set_anim(ent, -1, 1.0, 0);
+      teng_anim_crossfade(ent, 0, 1.0, 1, 0.5);                 // calan klip yok: gecis degil, aninda baslar
+      CHECK(teng_anim_fading(ent) == 0 && teng_anim_time(ent) == 0.0);
       teng_set_anim(ent, -1, 1.0, 0); // statige don (hata degil)
       CHECK(teng_anim_time(ent) == 0.0);
       teng_despawn(ent);

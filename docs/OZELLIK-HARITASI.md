@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 416 fonksiyon · 790 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 418 fonksiyon · 791 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -49,7 +49,7 @@ mindmap
       prefab
     Köprü L6
       TulparLang C ABI
-      416 fonksiyon
+      418 fonksiyon
       Android / masaüstü host
     Editör
       panel + gizmo
@@ -267,7 +267,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (57 dosya, 12399 satır)
+### content — L6 (57 dosya, 12432 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -403,7 +403,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10180 satır)
+### bridge — L6 (11 dosya, 10242 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -417,7 +417,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (69 dosya, 15718 satır)
+### tools — L7 (69 dosya, 15720 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -491,7 +491,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 
 ## 2. Köprü API (TulparLang ↔ motor)
 
-Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **408** fonksiyon. Sözleşme: `docs/KOPRU.md`.
+Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **410** fonksiyon. Sözleşme: `docs/KOPRU.md`.
 
 ### yasam dongusu (37)
 
@@ -664,12 +664,14 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_script_name(id:int)` → str — Varliga bagli betigin taban adi (\"dusman\"); betik yoksa ya da id 0 ise bos metin (hata…
 - `eng_script_count()` → int — Betik bagli kopru varligi sayisi (havuz tavani 512).
 
-### model animasyonu (6)
+### model animasyonu (8)
 
 - `eng_model_clip_count(asset:int)` → int — Modelin animasyon klip sayisi (glTF animations).
 - `eng_model_clip_duration(asset:int, clip:int)` → float — Klibin suresi (s).
 - `eng_model_clip_name(asset:int, clip:int)` → str — Klibin adi.
 - `eng_set_anim(id:int, clip:int, speed:num, loop:flag)` → void — Model varligina klip atar; her kare poz degerlendirilir. clip < 0: animasyonu kapat (stat…
+- `eng_anim_crossfade(id:int, clip:int, speed:num, loop:flag, fade_s:num)` → void — Yumusak gecis: calan klip fade_s saniyede yenisine karisir (smoothstep). Calan klip yoksa…
+- `eng_anim_fading(id:int)` → bool — Gecis (eng_anim_crossfade) suruyor mu.
 - `eng_anim_time(id:int)` → float — Varligin klip icindeki ani (s).
 - `eng_anim_done(id:int)` → bool — Dongusuz klip bitti mi.
 
@@ -1050,7 +1052,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **790** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **791** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1058,7 +1060,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `bridge` — 69
 - `scene` — 48
 - `renderer` — 37
-- `content` — 23
+- `content` — 24
 - `updater` — 20
 - `audio` — 16
 - `cluster` — 16
@@ -1193,7 +1195,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 23 test
+- `tests/test_content.cpp` — 24 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test

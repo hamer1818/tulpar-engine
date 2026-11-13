@@ -178,12 +178,20 @@ struct PoseScratch {
   Vec3 t[kModelMaxJoints];
   Quat r[kModelMaxJoints];
   Vec3 s[kModelMaxJoints];
+  Vec3 t2[kModelMaxJoints];   // A2: ikinci klip (karisim) yerel pozu
+  Quat r2[kModelMaxJoints];
+  Vec3 s2[kModelMaxJoints];
   Mat4 model[kModelMaxJoints];
   Mat4 skin[kModelMaxSkins][kModelMaxJoints];
 };
 // clip'i time_s'de (dongusel) ornekler, ilgili iskeletin skin matrislerini
 // scratch.skin[skin]'e yazar ve pose'u gunceller. false: gecersiz klip.
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose);
+// A2 (docs/MODEL-ANIMASYON-PLANI.md): iki klibi karistirir — w = 0 ise yalniz A, w = 1 ise yalniz B (bit esit: model_pose_evaluate ile).
+// Eklem basina ceviri/olcek dogrusal, donus slerp (antipodal guvenli). Iki klip AYNI iskelete ait olmali; degilse false
+// (cagiran tek klibe duser). Ayirma yok.
+bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t clip_b, float time_b, float w, PoseScratch &scratch,
+                      ModelPose *pose);
 
 // LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
 // nullptr = hep LOD0.
