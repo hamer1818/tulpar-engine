@@ -1960,8 +1960,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (i < 0 || i >= (int32_t)st.scene.asset_count) return false;
     st.have[i] = content::gltf_load(sys, asset(st.scene.assets[i]), &st.models[i]) && content::upload_model(ren, sys, st.models[i], &st.ups[i]);
     if (!st.have[i]) {
-      console_log(ConsoleLevel::Uyari, kConsoleTagScene, "kaynak y\xC3\xBCklenemedi: %s", st.scene.assets[i]);
-      std::printf("[engine_editor] kaynak yuklenemedi: %s\n", st.scene.assets[i]);
+      // Neden de yazilir (Model::error: ornek "128'den fazla eklem", bozuk dosya); eskiden yalniz yol yaziliyordu.
+      console_log(ConsoleLevel::Uyari, kConsoleTagScene, "kaynak yüklenemedi: %s — %s", st.scene.assets[i],
+                  st.models[i].error[0] ? st.models[i].error : "neden bilinmiyor (dosya yok ya da GPU yüklemesi başarısız)");
+      std::printf("[engine_editor] kaynak yuklenemedi: %s (%s)\n", st.scene.assets[i], st.models[i].error);
+    } else {
+      // M1: yuklenen modelin ozeti + butce uyarisi (ucgen/eklem/klip; mobil iskeletli kose butcesi).
+      char ozet[400];
+      const uint32_t uyari = content::model_budget_text(st.models[i], ozet, sizeof ozet);
+      console_log(uyari ? ConsoleLevel::Uyari : ConsoleLevel::Bilgi, kConsoleTagScene, "%s \xC2\xB7 %s", st.scene.assets[i], ozet);
     }
     return st.have[i];
   };
@@ -3695,7 +3702,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     int32_t a = -1;
     uint32_t ops = 0;
     with_bodies(st, phys, [&] { ops = editor_add_asset_entity(st.scene, st.hist, file, cam.target, &a); });
-    if (!ops) { set_status(st, "kaynak eklenemedi: %s", file); return; }
+    if (!ops) {
+      char neden[240];
+      editor_add_asset_neden(st.scene, file, neden, sizeof neden);
+      set_status(st, "kaynak eklenemedi: %s \xE2\x80\x94 %s", file, neden);
+      console_log(ConsoleLevel::Uyari, kConsoleTagScene, "kaynak eklenemedi: %s \xE2\x80\x94 %s", file, neden);
+      return;
+    }
     st.groups.push(ops);
     st.dirty = true;
     if (a >= 0 && !st.have[a]) load_asset(a);

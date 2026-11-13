@@ -1919,3 +1919,38 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }
+
+// M1: model bütçesi (model_budget / model_budget_text). skin_tube: 2 eklem, 1 klip, iskeletli; checker_cube: iskeletsiz (0 iskeletli köşe,
+// 0 eklem). Pozitif kontrol: iskeletli model "eklem" ve "köşe" yazar, iskeletsiz yazmaz; sentetik ağır karakter UYARI üretir.
+ENGINE_TEST(content_model_butce_ozeti_ve_uyari) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_butce")) { CHECK(false); return; }
+  char p1[512], p2[512];
+  CHECK(asset_path(p1, sizeof p1, "skin_tube.gltf") && asset_path(p2, sizeof p2, "checker_cube.gltf"));
+  static content::Model tube, cube;
+  CHECK(content::gltf_load(sys, p1, &tube) && content::gltf_load(sys, p2, &cube));
+  const content::ModelBudget bt = content::model_budget(tube), bc = content::model_budget(cube);
+  CHECK(bt.joints == 2 && bt.clips == 1 && bt.skinned_vertices > 0 && bt.triangles > 0);
+  CHECK(bc.joints == 0 && bc.skinned_vertices == 0 && bc.triangles == 12);   // küp: 6 yüz x 2 üçgen
+  char t1[300], t2[300];
+  const uint32_t w1 = content::model_budget_text(tube, t1, sizeof t1), w2 = content::model_budget_text(cube, t2, sizeof t2);
+  std::printf("    [bilgi] tup: %s\n    [bilgi] kup: %s\n", t1, t2);
+  CHECK(std::strstr(t1, "eklem") != nullptr && std::strstr(t2, "eklem") == nullptr);   // iskeletsiz modelde eklem satiri YOK (kontrol)
+  CHECK(w1 == 0 && w2 == 0);                                                          // küçük modeller uyarı üretmez
+  // sentetik AĞIR karakter: iskeletli köşe bütçenin 1/4'ünü aşınca uyarı (ve kaç kopya sığar)
+  static content::Model agir = tube;
+  static content::ModelMesh mm;
+  mm = tube.meshes[tube.instances[0].mesh];
+  mm.vertex_count = 20000;
+  static content::ModelMesh *meshes_p[1];
+  agir.meshes = &mm; agir.mesh_count = 1;
+  static content::ModelInstance inst;
+  inst = tube.instances[0]; inst.mesh = 0;
+  agir.instances = &inst; agir.instance_count = 1;
+  char t3[300];
+  CHECK(content::model_budget_text(agir, t3, sizeof t3) == 1 && std::strstr(t3, "UYARI") != nullptr && std::strstr(t3, "2 kopya") != nullptr);
+  (void)meshes_p;
+  agir.clips_dropped = 3;
+  char t4[300];
+  CHECK(content::model_budget_text(agir, t4, sizeof t4) == 1 && std::strstr(t4, "3 klip") != nullptr);
+}

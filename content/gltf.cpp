@@ -841,6 +841,51 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
   return true;
 }
 
+ModelBudget model_budget(const Model &m) {
+  ModelBudget b;
+  b.meshes = m.mesh_count; b.instances = m.instance_count; b.images = m.image_count;
+  b.clips = m.clip_count; b.clips_dropped = m.clips_dropped;
+  for (uint32_t i = 0; i < m.instance_count; i++) {
+    const uint32_t mi = m.instances[i].mesh;
+    if (mi >= m.mesh_count) continue;
+    const ModelMesh &mm = m.meshes[mi];
+    b.triangles += mm.index_count / 3;
+    if (mm.skin >= 0) b.skinned_vertices += mm.vertex_count;
+  }
+  for (uint32_t i = 0; i < m.skin_count; i++)
+    if (m.skins[i].joint_count > b.joints) b.joints = m.skins[i].joint_count;
+  return b;
+}
+
+uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
+  // Parçalar " · " ile ayrılır: editör dili İngilizce iken her parça sözlükten ayrı çevrilir (app/editor_dil.hpp).
+  const ModelBudget b = model_budget(m);
+  uint32_t warn = 0;
+  uint32_t n = 0;
+  auto ekle = [&](const char *fmt, uint32_t a0, uint32_t a1 = 0) {
+    if (n >= cap) return;
+    n += (uint32_t)std::snprintf(out + n, cap - n, "%s", n ? " · " : "");
+    if (n < cap) n += (uint32_t)std::snprintf(out + n, cap - n, fmt, a0, a1);
+  };
+  out[0] = 0;
+  ekle("%u mesh", b.meshes);
+  ekle("%u üçgen", b.triangles);
+  ekle("%u klip", b.clips);
+  if (b.joints) {
+    ekle("iskelet %u eklem", b.joints);
+    ekle("%u köşe", b.skinned_vertices);
+  }
+  if (b.joints && b.skinned_vertices && b.skinned_vertices <= kMobileSkinnedVertexBudget / 4)
+    ekle("mobilde ≈ %u kopya sığar", kMobileSkinnedVertexBudget / b.skinned_vertices);
+  if (b.clips_dropped) { ekle("UYARI: %u klip yüklenmedi (model başına en çok %u)", b.clips_dropped, GltfLimits{}.max_clips); warn = 1; }
+  if (b.skinned_vertices > kMobileSkinnedVertexBudget / 4) {
+    ekle("UYARI: ağır iskeletli model, mobilde kare başına ≲ %uK köşe önerilir", kMobileSkinnedVertexBudget / 1000);
+    ekle("≈ %u kopya", b.skinned_vertices ? kMobileSkinnedVertexBudget / b.skinned_vertices : 0);
+    warn = 1;
+  }
+  return warn;
+}
+
 bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t clip_b, float time_b, float w, PoseScratch &scratch,
                       ModelPose *pose) {
   if (clip_a >= m.clip_count || clip_b >= m.clip_count) return false;

@@ -173,6 +173,17 @@ struct ModelPose {
   const Mat4 *skin_mats[kModelMaxSkins] = {};
   uint32_t joint_count[kModelMaxSkins] = {};
 };
+// Model bütçesi (M1, docs/MODEL-ANIMASYON-PLANI.md): editör "kaynak yüklendi" satırı ve mobil uyarısı bunu kullanır.
+// triangles = LOD0, TÜM örnekler (instance) toplamı; skinned_vertices = iskeletli mesh'lerin örnek başına köşe toplamı (kare başına
+// iskeletli köşe bütçesinin birimi: P20 Pro ölçümü, ≲ 50K köşe/kare önerilir).
+struct ModelBudget {
+  uint32_t meshes = 0, instances = 0, triangles = 0, skinned_vertices = 0, joints = 0, clips = 0, clips_dropped = 0, images = 0;
+};
+ModelBudget model_budget(const Model &m);
+constexpr uint32_t kMobileSkinnedVertexBudget = 50000;   // kare başına (P20 Pro / Mali-G72 ölçümü, 2026-11-13)
+// Tek satır özet + uyarı: out'a yazar; dönüş: uyarı var mı (0/1). Sayılar ve cihaz notu Türkçe.
+uint32_t model_budget_text(const Model &m, char *out, uint32_t cap);
+
 // Klip degerlendirme calisma alani: ayirma yok, cagiranin (statik ya da arena).
 struct PoseScratch {
   Vec3 t[kModelMaxJoints];

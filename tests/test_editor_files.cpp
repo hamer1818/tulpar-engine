@@ -624,3 +624,24 @@ ENGINE_TEST(editor_model_ice_aktar_with_control) {
   CHECK(!app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err) && std::strstr(err, ".glb"));
   std::printf("    [bilgi] ice aktar: glb + gltf (bin + doku/renk.png), data: ve ../ atlandi, ayni ad reddi: %s\n", err[0] ? "var" : "?");
 }
+
+// M1: "kaynak eklenemedi" artık NEDENİNİ söyler (eskiden yalnız dosya adı): kaynak tablosu dolu (16) / varlık tavanı (256) / bilinmiyor.
+// Kontrol: tabloda ZATEN olan kaynak "dolu" nedenini üretmez; dolu değilse "bilinmiyor".
+ENGINE_TEST(editor_kaynak_eklenemedi_nedenini_soyler) {
+  using namespace tulpar::engine;
+  static content::SceneDesc d;
+  content::scene_desc_reset(d);
+  char ad[32], neden[300];
+  for (uint32_t i = 0; i < content::kSceneMaxAssets; i++) { std::snprintf(ad, sizeof ad, "m%u.gltf", i); CHECK(d.add_asset(ad) == (int32_t)i); }
+  CHECK(d.add_asset("fazla.gltf") == -1);                                  // tablo gerçekten dolu
+  app::editor_add_asset_neden(d, "fazla.gltf", neden, sizeof neden);
+  CHECK(std::strstr(neden, "16 model") != nullptr);                          // nedeni sayıyla söyler
+  app::editor_add_asset_neden(d, "m3.gltf", neden, sizeof neden);
+  CHECK(std::strstr(neden, "16 model") == nullptr);                          // var olan kaynak "dolu" değil (kontrol)
+  content::scene_desc_reset(d);
+  app::editor_add_asset_neden(d, "x.gltf", neden, sizeof neden);
+  CHECK(std::strstr(neden, "bilinmiyor") != nullptr);
+  d.entity_count = content::kSceneMaxEntities;
+  app::editor_add_asset_neden(d, "x.gltf", neden, sizeof neden);
+  CHECK(std::strstr(neden, "256") != nullptr);
+}

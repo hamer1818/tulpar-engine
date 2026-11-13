@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 418 fonksiyon · 793 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 418 fonksiyon · 795 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -267,7 +267,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (57 dosya, 12432 satır)
+### content — L6 (57 dosya, 12488 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -327,7 +327,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (73 dosya, 35716 satır)
+### app — L6 (73 dosya, 35744 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -1052,15 +1052,15 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **793** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **795** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
-- `editor` — 124
+- `editor` — 125
 - `bridge` — 70
 - `scene` — 48
 - `renderer` — 37
-- `content` — 24
+- `content` — 25
 - `updater` — 20
 - `audio` — 16
 - `cluster` — 16
@@ -1195,7 +1195,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 25 test
+- `tests/test_content.cpp` — 26 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test
@@ -1211,7 +1211,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_editor_console.cpp` — 8 test
 - `tests/test_editor_dil.cpp` — 4 test
 - `tests/test_editor_fabrika.cpp` — 5 test
-- `tests/test_editor_files.cpp` — 12 test
+- `tests/test_editor_files.cpp` — 13 test
 - `tests/test_editor_game.cpp` — 7 test
 - `tests/test_editor_masaustu.cpp` — 2 test
 - `tests/test_editor_multiedit.cpp` — 9 test
