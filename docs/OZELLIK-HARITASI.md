@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 416 fonksiyon · 786 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 416 fonksiyon · 788 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -169,7 +169,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7789 satır)
+### renderer — L3 (24 dosya, 7795 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -417,7 +417,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (67 dosya, 15539 satır)
+### tools — L7 (69 dosya, 15689 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -449,10 +449,12 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/hrtf_kemar.py` — MIT KEMAR "compact" HRIR kumesi -> audio/hrtf_kemar.h (depoya girer; _spv.h gibi).
 - `tools/icon_check.py` — Editor ikon kapisi: cizilemeyecek ikon kalmasin.
 - `tools/kanca_olcumu.py` — Betik kancasi olcumu: kanca basina dagitim suresi + kare basina kalici bellek.
+- `tools/karakter_olcum.sh` — Karakter bütçesi ölçümü (docs/MODEL-ANIMASYON-PLANI.md §6 madde 4): N iskeletli karakter sahnede, kare süresi.
 - `tools/layer_check.py` — engine/ katman bagimlilik denetimi — ihlal = BUILD HATASI (plan §2).
 - `tools/layout_audit.py` — CPU-GPU yerlesim denetimi + KONTROLU — bagimsiz kosulabilir kapi.
 - `tools/layout_check.py` — CPU-GPU yerlesim denetimi (Faz 8.4) — shader bloklari ile C++ struct'lari.
 - `tools/make_test_gltf.py` — Test varligi uretici: dama dokulu kup -> engine/tests/assets/checker_cube.gltf
+- `tools/make_test_karakter.py` — Ölçüm varlığı üretici: N eklemli, ~T üçgenli İSKELETLİ "karakter" (zincir silindir) -> <çıktı>.gltf
 - `tools/ozellik_haritasi.py` — Motor ÖZELLİK HARİTASI üretici (docs/OZELLIK-HARITASI.md).
 - `tools/package.sh` — Tulpar Engine — dagitim paketi. CI de insan da AYNI kodu kosar: paketleme
 - `tools/paket_denetle.sh` — Paket yerlesimi + (Windows'ta) MinGW DLL kapisi.
@@ -1048,7 +1050,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **786** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **788** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1067,15 +1069,16 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `clod` — 10
 - `files` — 9
 - `multiedit` — 9
+- `render` — 9
 - `rhi` — 9
 - `console` — 8
 - `platform` — 8
 - `process` — 8
-- `render` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
 - `timer` — 7
+- `anim` — 6
 - `engine` — 6
 - `gi` — 6
 - `meshlet` — 6
@@ -1083,7 +1086,6 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `rng` — 6
 - `spatial` — 6
 - `value` — 6
-- `anim` — 5
 - `bvh` — 5
 - `cascade` — 5
 - `fabrika` — 5
@@ -1173,7 +1175,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 ### Test dosyaları
 
 - `tests/test_alloc_gate.cpp` — 2 test
-- `tests/test_animation.cpp` — 5 test
+- `tests/test_animation.cpp` — 6 test
 - `tests/test_anticheat.cpp` — 4 test
 - `tests/test_audio.cpp` — 15 test
 - `tests/test_behavior_tree.cpp` — 7 test
@@ -1191,7 +1193,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 22 test
+- `tests/test_content.cpp` — 23 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test
@@ -1316,10 +1318,12 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/hrtf_kemar.py` — MIT KEMAR "compact" HRIR kumesi -> audio/hrtf_kemar.h (depoya girer; _spv.h gibi).
 - `tools/icon_check.py` — Editor ikon kapisi: cizilemeyecek ikon kalmasin.
 - `tools/kanca_olcumu.py` — Betik kancasi olcumu: kanca basina dagitim suresi + kare basina kalici bellek.
+- `tools/karakter_olcum.sh` — Karakter bütçesi ölçümü (docs/MODEL-ANIMASYON-PLANI.md §6 madde 4): N iskeletli karakter sahnede, kare süresi.
 - `tools/layer_check.py` — engine/ katman bagimlilik denetimi — ihlal = BUILD HATASI (plan §2).
 - `tools/layout_audit.py` — CPU-GPU yerlesim denetimi + KONTROLU — bagimsiz kosulabilir kapi.
 - `tools/layout_check.py` — CPU-GPU yerlesim denetimi (Faz 8.4) — shader bloklari ile C++ struct'lari.
 - `tools/make_test_gltf.py` — Test varligi uretici: dama dokulu kup -> engine/tests/assets/checker_cube.gltf
+- `tools/make_test_karakter.py` — Ölçüm varlığı üretici: N eklemli, ~T üçgenli İSKELETLİ "karakter" (zincir silindir) -> <çıktı>.gltf
 - `tools/ozellik_haritasi.py` — Motor ÖZELLİK HARİTASI üretici (docs/OZELLIK-HARITASI.md).
 - `tools/package.sh` — Tulpar Engine — dagitim paketi. CI de insan da AYNI kodu kosar: paketleme
 - `tools/paket_denetle.sh` — Paket yerlesimi + (Windows'ta) MinGW DLL kapisi.
@@ -1563,7 +1567,7 @@ Hangi dizinde geçtiği yanında; anlamı için ilgili dosyada/`CLAUDE.md`'de ar
 - `TULPAR_ENGINE_ASSETS` — app, bridge, tests, tools
 - `TULPAR_ENGINE_AUDIO` — app
 - `TULPAR_ENGINE_AUDIO_F32` — bridge
-- `TULPAR_ENGINE_AUDIO_NULL` — bridge, tests
+- `TULPAR_ENGINE_AUDIO_NULL` — bridge, tests, tools
 - `TULPAR_ENGINE_AYNA_SARIM_ESKI` — bridge, tests
 - `TULPAR_ENGINE_BLOOM` — bridge
 - `TULPAR_ENGINE_DIR` — app, tools

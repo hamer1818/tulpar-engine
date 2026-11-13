@@ -1,5 +1,7 @@
 // Faz 2: animasyon — sikistirma hata sinirlari, sabit iz eleme, ornekleme,
 // dongu, model uzayi zinciri, 0 ayirma, paralel/seri bit esitligi.
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -175,4 +177,105 @@ ENGINE_TEST(anim_parallel_eval_equals_serial) {
            std::memcmp(par[i].r, ser[i].r, sizeof par[i].r) == 0;
   CHECK(same);
   js.shutdown();
+}
+
+// ---- Karakter bütçesi ölçümü (2026-11-13, docs/MODEL-ANIMASYON-PLANI.md §6 madde 4) --------------------------------
+// "Ekranda kaç iskeletli karakter taşır?" sorusunun CPU yarısı: bir karakter için her kare yapılan iş =
+// ClipSampler::sample + to_model + skin_matrices (sahne çalışma zamanının yaptığı üçlü). Burada N karakter × J eklem
+// bu üçlünün süresi (tek iş parçacığı, ısınmadan sonra en iyi 5 turun medyanı) basılır. SAYI cihaza özgüdür: bu
+// makinede (masaüstü) ölçülür ve BASILIR, mobil için İDDİA EDİLMEZ (Mali-G72 ölçümü cihaz ister).
+// Kapı iddiası yalnız bizim kodumuz için: süre N ile orantılı artar (kontrolün kendisi: ölçüm gerçekten iş yapıyor) ve
+// kare içinde 0 ayırma. Mutlak ms için eşik YOK.
+namespace {
+constexpr uint32_t BJ = 128, BS = 60;
+struct BenchFx {
+  SystemArena sys;
+  Joint joints[BJ];
+  Mat4 inv[BJ];
+  Vec3 t[BJ][BS], s[BJ][BS];
+  Quat r[BJ][BS];
+  RawTrack tracks[BJ];
+  const ClipHeader *clip = nullptr, *clip60 = nullptr;   // 128 ve 60 eklemli iki klip (sample, eklem sayısı eşit ister)
+  bool init() {
+    if (!sys.reserve(32u << 20, "anim_bench")) return false;
+    for (uint32_t j = 0; j < BJ; j++) {
+      joints[j].parent = j == 0 ? -1 : (int16_t)((j - 1) / 2);   // ikili ağaç: gerçek iskelete benzer derinlik (~7)
+      inv[j] = Mat4::identity();
+      for (uint32_t k = 0; k < BS; k++) {
+        float ph = (float)k / BS * 2 * kPi;
+        t[j][k] = j == 0 ? Vec3{0, 1, 0} : Vec3{0.1f, 0.2f, 0};
+        r[j][k] = Quat::axis_angle(j % 3 == 0 ? Vec3{0, 1, 0} : j % 3 == 1 ? Vec3{1, 0, 0} : Vec3{0, 0, 1}, 0.4f * std::sin(ph + j));
+        s[j][k] = Vec3{1, 1, 1};
+      }
+      tracks[j] = RawTrack{t[j], r[j], s[j]};
+    }
+    RawClip raw{tracks, BJ, BS, 30.0f};
+    ClipBuildStats st;
+    clip = ClipBuilder::build(sys, raw, 1e-5f, &st);
+    RawClip raw60{tracks, 60, BS, 30.0f};
+    clip60 = ClipBuilder::build(sys, raw60, 1e-5f, &st);
+    return clip != nullptr && clip60 != nullptr;
+  }
+};
+BenchFx *bfx() {
+  static BenchFx f;
+  static bool ok = f.init();
+  return ok ? &f : nullptr;
+}
+double tur_ms(BenchFx *f, uint32_t joints, uint32_t chars, float t0) {
+  static Vec3 t[BJ], s[BJ];
+  static Quat r[BJ];
+  static Mat4 model[BJ], skin[BJ];
+  LocalPose pose{t, r, s, joints};
+  Skeleton sk{f->joints, joints};
+  double best[5];
+  for (int tur = 0; tur < 7; tur++) {                      // 2 ısınma + 5 ölçüm
+    auto a = std::chrono::steady_clock::now();
+    float acc = 0;
+    for (uint32_t c = 0; c < chars; c++) {
+      ClipSampler::sample(joints == 60 ? f->clip60 : f->clip, t0 + c * 0.0173f, pose);
+      ClipSampler::to_model(sk, pose, model);
+      ClipSampler::skin_matrices(model, f->inv, joints, skin);
+      acc += skin[joints - 1].m[3][0];                       // sonucu kullan: derleyici işi silemesin
+    }
+    auto b = std::chrono::steady_clock::now();
+    test::escape(&acc);
+    if (tur >= 2) best[tur - 2] = std::chrono::duration<double, std::milli>(b - a).count();
+  }
+  std::sort(best, best + 5);
+  return best[2];
+}
+} // namespace
+
+ENGINE_TEST(anim_olcum_karakter_butcesi) {
+  BenchFx *f = bfx();
+  CHECK(f != nullptr);
+  if (!f) return;
+  const uint32_t eklemler[] = {60, 128};
+  const uint32_t karakterler[] = {10, 50, 100, 200};
+  double ilk60 = 0, son60 = 0;
+  for (uint32_t j : eklemler) {
+    std::printf("    [olcum] %3u eklem:", j);
+    for (uint32_t n : karakterler) {
+      const double ms = tur_ms(f, j, n, 0.1f);
+      std::printf("  %3u karakter %.3f ms", n, ms);
+      if (j == 60 && n == 10) ilk60 = ms;
+      if (j == 60 && n == 200) son60 = ms;
+    }
+    std::printf("\n");
+  }
+  std::printf("    [olcum] (masaustu CPU, tek parcacik, sample+to_model+skin; mobil icin iddia YOK)\n");
+  CHECK(ilk60 > 0.0 && son60 > ilk60 * 8.0);               // 20x iş > 8x süre: ölçüm gerçekten ölçeklenir (kontrol)
+  Vec3 t[BJ], s[BJ];
+  Quat r[BJ];
+  Mat4 model[BJ], skin[BJ];
+  LocalPose pose{t, r, s, 60};
+  Skeleton sk{f->joints, 60};
+  AllocGate::begin_frame();
+  for (int i = 0; i < 200; i++) {
+    ClipSampler::sample(f->clip60, i * 0.0137f, pose);
+    ClipSampler::to_model(sk, pose, model);
+    ClipSampler::skin_matrices(model, f->inv, 60, skin);
+  }
+  CHECK(AllocGate::end_frame() == 0);
 }

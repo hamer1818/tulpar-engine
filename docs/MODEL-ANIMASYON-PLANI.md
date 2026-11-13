@@ -12,7 +12,7 @@ Bu belge **plandır, kod yok**. Bugünkü durum `docs/OZELLIK-HARITASI.md` ve ka
 | Morph target | 🟡 `content/morph.cpp` karıştırma fonksiyonu hazır; sahneye / köprüye / editöre **bağlı değil** |
 | STL, OBJ, PLY, FBX | ❌ yok (dosya uzantısı reddedilir: "yalnız .glb ve .gltf") |
 | Poligon / kod ile mesh | ❌ Yalnız 8 sabit ilkel (`kPrim*`: düzlem, küp, küre, kapsül, silindir, koni, dörtgen, simit) ve arazi/su/voksel üreticileri. Köprüde `mesh_olustur` yok |
-| Sınırlar | sahnede en çok **16 model kaynağı** (`kSceneMaxAssets`), **256 varlık**, model başına **32 klip** (`max_clips`), **128 eklem** ve model başına **4 iskelet** (`kModelMaxSkins`), glTF başına 128 mesh / 32 doku |
+| Sınırlar | sahnede en çok **16 model kaynağı** (`kSceneMaxAssets`), **256 varlık**, model başına **32 klip** (`max_clips`), **128 eklem** ve model başına **4 iskelet** (`kModelMaxSkins`), kare başına **16384 eklem matrisi** (eskiden 4096; 2026-11-13), glTF başına 128 mesh / 32 doku |
 | Fizik çarpıştırıcı | "Modellere Otomatik Collider Ekle" menüsü var; içe aktarılan mesh'ten dışbükey kabuk/üçgen mesh çarpışması **ölçülmedi** |
 
 ## 2. Hedef ve ilkeler
@@ -107,4 +107,18 @@ A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).
 1. **"Poligon"** derken P1/P2 (kendi çokgenini yapmak) mi, yoksa yalnız "düşük poligonlu model içe aktarmak" mı kastedildi? (Varsayılan: ikisi de, M2/M1 önce.)
 2. **OBJ** de gelsin mi (STL'e ek)? (Varsayılan: evet, küçük.)
 3. **Animatör** (A3) ne kadar derin? (Varsayılan: dar — durum + geçiş + 1B karışım.)
-4. **Hedef cihaz bütçesi:** karakter başına eklem/üçgen tavanı (varsayılan: 60 eklem, 15K üçgen/karakter, ekranda 10 karakter).
+4. **Hedef cihaz bütçesi — ÖLÇÜLDÜ 2026-11-13 (kullanıcı "daha fazla taşır" dedi, haklı çıktı; masaüstünde):**
+   `tools/karakter_olcum.sh <eklem> <üçgen> <N...>` (N iskeletli, animasyonlu karakter, her biri kendi fazında; köprü p50, taban N=1 ≈ 12,7 ms).
+   RTX 5080 (Vulkan 1.4), 1280x720, gölgeli, taban üstü **fark**:
+
+   | karakter | N=50 | N=100 | N=200 |
+   |---|---|---|---|
+   | 60 eklem, 5K üçgen | — | +0,3 ms | +0,7 ms |
+   | 60 eklem, 15K üçgen | — | +0,7 ms | +1,7 ms (3 M iskeletli üçgen/kare) |
+   | 128 eklem, 30K üçgen | +0,7 ms | +2,0 ms | (tavan: 16384 matris = 128 karakter) |
+
+   CPU yarısı (`anim_olcum_karakter_butcesi`, tek parçacık, poz örnekleme + model + skin): 200 karakter × 60 eklem **0,47 ms**, × 128 eklem 1,0 ms.
+   **Asıl bulgu — gerçek sınır GPU/CPU değil bir sabitti:** `max_skin_matrices = 4096` (kare başına eklem matrisi) → 60 eklemli karakterden yalnız **68** çizilebiliyordu,
+   fazlası **sessizce kayboluyordu** (200 karakterlik sahnede çizim sayısı 68'de takıldı). 16384'e çıkarıldı (273 karakter × 60 eklem, 1 MiB/kare tamponu) ve taşma artık
+   `RendererStats::skin_dropped` ile sayılır (kapı: `render_skin_matris_tavani_sayilir`, pozitif kontrol dahil).
+   **Mobil henüz ÖLÇÜLMEDİ** (bağlı telefon yok): masaüstü sayısı mobil için iddia edilmez. Geçici hedef: **40 karakter × 60 eklem × 10K üçgen** (RTX'te +0,3 ms civarı), telefonda aynı betikle ölçülünce güncellenir.

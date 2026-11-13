@@ -1747,3 +1747,45 @@ ENGINE_TEST(content_gltf_clip_cap_counted) {
   std::printf("    [bilgi] max_clips=4: %u klip, %u dustu\n", k.clip_count, k.clips_dropped);
   CHECK(k.clip_count == 4 && k.clips_dropped == 4);
 }
+
+// Eklem matrisi tavanı SAYILIR (karakter bütçesi ölçümü, 2026-11-13): eskiden 4096 matris dolunca iskeletli çizim
+// sessizce kayboluyordu (200 karakterlik sahnede 68'de takıldı). Artık RendererStats::skin_dropped sayar. Kontrol:
+// tavana SIĞAN çizim sayılmaz (skin_dropped yalnız taşanı sayar), tavan küçük verilince taşan sayılır.
+ENGINE_TEST(render_skin_matris_tavani_sayilir) {
+  static SystemArena sys;
+  if (!sys.reserve(32u << 20, "skin_tavan")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (iskelet tavan kapisi atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 256;
+  rc.max_skin_matrices = 100;   // küçük tavan: taşma kolay üretilir
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  renderer::SkinnedVertex v[3] = {};
+  const uint32_t idx[3] = {0, 1, 2};
+  for (int i = 0; i < 3; i++) { v[i].weights[0] = 65535; v[i].pos = Vec3{(float)i, 0, 0}; v[i].nrm = Vec3{0, 0, 1}; }
+  renderer::MeshHandle mesh = ren.create_skinned_mesh(v, 3, idx, 3);
+  CHECK(mesh.valid());
+  static Mat4 joints[60];
+  renderer::MaterialHandle mat;   // geçersiz = varsayılan malzeme
+  ren.begin_frame(0);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 60);   // 60 <= 100: kabul
+  CHECK(ren.stats().skin_dropped == 0 && ren.skin_matrices_used() == 60);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 60);   // 120 > 100: taşar -> SAYILIR
+  CHECK(ren.stats().skin_dropped == 1 && ren.skin_matrices_used() == 60);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 30);   // 90 <= 100: sığar, sayaç artmaz (kontrol)
+  CHECK(ren.stats().skin_dropped == 1 && ren.skin_matrices_used() == 90);
+  CHECK(ren.stats().dropped >= ren.stats().skin_dropped);
+  ren.begin_frame(0);                                                     // yeni karede sayaç sıfırlanır
+  CHECK(ren.stats().skin_dropped == 0);
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
