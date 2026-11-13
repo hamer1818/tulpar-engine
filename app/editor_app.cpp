@@ -9269,6 +9269,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       for (uint32_t i = 0; i < son_n; i++) son_var[i] = recent_exists(i);
       KarsilamaEylem ke = karsilama_ciz(karsilama, build_version(), son, son_var, son_n);
       if (opts.karsilama_yeni && frame_i == 3) ke = KarsilamaEylem::YeniOyun;
+      // Karsilama oturumunun satirlari (acilis sahnesi, guncelleyici) yeni projenin Konsolunda kafa
+      // karistirir; proje secilince temizlenir (arayuz surucusu gezintisi, 2026-11-13).
       if (ke == KarsilamaEylem::YeniOyun) {
         karsilama.hata[0] = 0;
         FabrikaIstek fr;
@@ -9281,7 +9283,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           std::snprintf(karsilama.hata, sizeof karsilama.hata, "%s", fs.hata);
         } else if (!fabrika_proje_sahnesi(karsilama.konum, fr.tur, sahne, sizeof sahne)) {
           std::snprintf(karsilama.hata, sizeof karsilama.hata, "Proje olu\xC5\x9Ftu ama sahnesi bulunamad\xC4\xB1: %s", karsilama.konum);
-        } else if (load_scene_from(sahne)) {
+        } else if ((console_clear(), load_scene_from(sahne))) {
           const bool derlendi = do_compile();   // .sahneb: oyun ve F5 onu yukler
           console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "yeni oyun: %s (%u dosya, paket %s)%s", karsilama.konum, fs.dosya,
                       fs.paket, derlendi ? "" : " — sahne DERLENEMEDI");
@@ -9296,6 +9298,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       } else if (ke == KarsilamaEylem::SonProje && karsilama.son_secili >= 0 && (uint32_t)karsilama.son_secili < son_n) {
         char yol[1024];
         std::snprintf(yol, sizeof yol, "%s", son[karsilama.son_secili]);
+        console_clear();
         if (load_scene_from(yol)) karsilama.acik = false;
         else std::snprintf(karsilama.hata, sizeof karsilama.hata, "A\xC3\xA7\xC4\xB1lamad\xC4\xB1: %s", yol);
       } else if (ke == KarsilamaEylem::Ac) {
@@ -9322,7 +9325,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             console_log(ConsoleLevel::Bilgi, kConsoleTagEditor, "\xC3\xB6rnek bilardo kuruldu: %s (%u dosya)", dizin, fs.dosya);
           }
         }
-        if (hazir && load_scene_from(sahne)) {
+        if (hazir && (console_clear(), load_scene_from(sahne))) {
           const bool derlendi = do_compile(); // F5 bilardo.sahneb'i yukler
           karsilama.acik = false;
           std::printf("[engine_editor] karsilama: ornek bilardo %s, derleme %s\n", sahne, derlendi ? "evet" : "HAYIR");
