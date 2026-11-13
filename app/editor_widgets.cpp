@@ -1463,6 +1463,16 @@ HierarchyResult hierarchy_row_impl(int id, const HierarchyRow &r, HierarchyState
     const float gy = std::floor(rr.y0 + (rr.y1 - rr.y0 - gs.y) * 0.5f);
     dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(right - gs.x, gy), tone_u32(Tone::TextDim, 0.85f), glyphs);
     ImGui::PopFont();
+    // Glifler kendi basina anlasilmiyordu (gezinti 2026-11-13): uzerine gelince adlari.
+    if (hovered && ImGui::IsMouseHoveringRect(ImVec2(right - gs.x - 2.0f, rr.y0), ImVec2(right + 2.0f, rr.y1))) {
+      char tip[128] = {0};
+      if (r.has_model) std::strcat(tip, "\xE2\x97\x86 3B model\n");
+      if (r.has_light) std::strcat(tip, "\xE2\x98\x80 \xC4\xB1\xC5\x9F\xC4\xB1k\n");
+      if (r.has_body) std::strcat(tip, "\xE2\x97\xBC fizik g\xC3\xB6vdesi\n");
+      if (r.has_anim) std::strcat(tip, "\xE2\x86\xBB animasyon\n");
+      tip[std::strlen(tip) - 1] = 0;
+      ImGui::SetTooltip("%s", tip);
+    }
     right -= gs.x + s.ItemInnerSpacing.x;
   }
 

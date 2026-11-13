@@ -6,6 +6,8 @@
 #include <IconsMaterialDesign.h>
 #include <imgui.h>
 
+#include "app/editor_ui.hpp" // editor_tone
+
 namespace tulpar::engine::app {
 
 namespace {
@@ -67,7 +69,10 @@ int gecmis_ciz(const GecmisGorunum &v, bool kaydir) {
   if (v.n == 0) {
     ImGui::Dummy(ImVec2(0, fs * 0.5f));
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextDisabled("Henüz bir düzenleme yok. Bir nesneyi taşı, ekle ya da sil: eylemler burada listelenir; birine tıklayınca sahne o âna döner.");
+    // Yardim metni TextDisabled (text_mute, ~2,7:1) degil TextDim: bos durumun tek isi okunmak (gezinti 2026-11-13).
+    float d[4];
+    editor_tone(Tone::TextDim, d);
+    ImGui::TextColored(ImVec4(d[0], d[1], d[2], d[3]), "Henüz bir düzenleme yok. Bir nesneyi taşı, ekle ya da sil: eylemler burada listelenir; birine tıklayınca sahne o âna döner.");
     ImGui::PopTextWrapPos();
     return hedef;
   }
