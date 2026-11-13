@@ -1160,3 +1160,6 @@
 {"≈ # kopya", "≈ # copies"},
 {"kaynak eklenemedi:", "could not add asset:"},
 {"kaynak yüklenemedi:", "could not load asset:"},
+{"3B model içe aktar (.glb / .gltf / .stl / .obj)", "Import 3D model (.glb / .gltf / .stl / .obj)"},
+{"3B model içe aktar (.glb / .gltf / .stl / .obj): proje klasörüne kopyalanır", "Import 3D model (.glb / .gltf / .stl / .obj): copied into the project folder"},
+{"NOT: # doku haritası (map_*) bu sürümde YOK, yalnız Kd rengi kullanıldı", "NOTE: # texture maps (map_*) are not supported in this version, only the Kd color was used"},

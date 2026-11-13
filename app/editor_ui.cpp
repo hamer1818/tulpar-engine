@@ -707,7 +707,7 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
   for (struct dirent *de = ::readdir(dp); de; de = ::readdir(dp)) {
     const char *nm = de->d_name;
     if (nm[0] == '.') continue; // gizli + . / ..
-    if (!ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb")) continue;
+    if (!ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj")) continue;   // M2: STL/OBJ
     if (std::strlen(nm) >= content::kScenePathLen) continue;
     if (n >= cap) break;
     AssetFile f;

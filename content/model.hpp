@@ -127,6 +127,7 @@ struct Model {
   // kac yeni ORM goruntusu uretildi / kac malzemede yapilamadi.
   uint32_t occlusion_merged = 0, occlusion_unmerged = 0;
   char error[160] = {0};
+  char note[160] = {0};   // BAŞARILI içe aktarmada bilgi notu (örn. OBJ: doku haritası desteklenmedi); konsol özeti yazar
 };
 
 // GPU'ya yuklenmis hal: her mesh/malzeme icin renderer tutamaclari.

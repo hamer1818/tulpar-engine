@@ -941,13 +941,39 @@ bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *h
   const char *nk = std::strrchr(ad, '.');
   const bool glb = nk && (!std::strcmp(nk, ".glb") || !std::strcmp(nk, ".GLB"));
   const bool gltf = nk && (!std::strcmp(nk, ".gltf") || !std::strcmp(nk, ".GLTF"));
-  if (!glb && !gltf) return hata("yaln\xC4\xB1z .glb ve .gltf modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
+  const bool stl = nk && (!std::strcmp(nk, ".stl") || !std::strcmp(nk, ".STL"));
+  const bool obj = nk && (!std::strcmp(nk, ".obj") || !std::strcmp(nk, ".OBJ"));
+  if (!glb && !gltf && !stl && !obj) return hata("yaln\xC4\xB1z .glb, .gltf, .stl ve .obj modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
   if (!var_mi(kaynak)) return hata("dosya bulunamad\xC4\xB1: %s", kaynak);
   char hedef[2048];
   std::snprintf(hedef, sizeof hedef, "%s/%s", hedef_dizin, ad);
   if (var_mi(hedef)) return hata("bu adda bir model zaten var: %s (\xC3\xB6nce yeniden adland\xC4\xB1r)", ad);
   if (!dosya_kopya(kaynak, hedef)) return hata("kopyalanamad\xC4\xB1: %s", hedef);
   if (hedef_yol && cap) std::snprintf(hedef_yol, cap, "%s", hedef);
+  if (obj) {
+    // M2: OBJ'nin "mtllib X" malzeme dosyasi (ayni dizinde) birlikte kopyalanir; yoksa sessizce atlanir (OBJ yine acilir, varsayilan renk).
+    char kd2[2048];
+    std::snprintf(kd2, sizeof kd2, "%.*s", (int)(ad - kaynak), kaynak);
+    static char om[256 * 1024];
+    size_t on = 0;
+    if (std::FILE *f = std::fopen(kaynak, "rb")) { on = std::fread(om, 1, sizeof om - 1, f); std::fclose(f); }
+    om[on] = 0;
+    for (const char *p = om; (p = std::strstr(p, "mtllib ")) != nullptr;) {
+      p += 7;
+      while (*p == ' ') p++;
+      const char *b = p;
+      while (*p && *p != '\n' && *p != '\r') p++;
+      size_t l = (size_t)(p - b);
+      while (l && b[l - 1] == ' ') l--;
+      if (!l || l > 200 || std::memchr(b, '/', l) || std::memchr(b, '\\', l) || (l >= 2 && b[0] == '.' && b[1] == '.')) continue;
+      char rel[256], a2[2400], d2[2400];
+      std::snprintf(rel, sizeof rel, "%.*s", (int)l, b);
+      std::snprintf(a2, sizeof a2, "%s%s", kd2, rel);
+      std::snprintf(d2, sizeof d2, "%s/%s", hedef_dizin, rel);
+      if (!var_mi(d2) && var_mi(a2)) dosya_kopya(a2, d2);
+    }
+    return true;
+  }
   if (!gltf) return true;
   // .gltf: goreli "uri" bagimliliklari (.bin, dokular). JSON'u tam ayristirmadan: "uri" : "x" ciftleri.
   char kdir[2048];

@@ -762,7 +762,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dizini yeniden tara");
     ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
     if (ImGui::Button(ICON_MD_ADD "##ice_aktar", ImVec2(btn_w, btn_w)) && out) out->ice_aktar = true;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .stl / .obj): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
     if (!two_rows) ImGui::SameLine(0.0f, st.ItemSpacing.x);
     // Izgara / liste: etkin olan vurgulu.
     for (int mode = 0; mode < 2; mode++) {

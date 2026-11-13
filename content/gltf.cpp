@@ -1,6 +1,7 @@
 #include "content/gltf.hpp"
 #include "content/cluster_dag.hpp"
 #include "content/meshopt.hpp"
+#include "content/mesh_import.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -193,6 +194,19 @@ void extend_bounds(Model *out, const Mat4 &world, const renderer::Vertex *v, uin
 } // namespace
 
 bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
+  // M2: uzantiya gore yonlendirme (.stl / .obj -> content/mesh_import.cpp, ayni Model yapisi). Bridge, sahne calisma zamani ve editorun
+  // tum cagri noktalari gltf_load'u kullandigi icin onlara dokunulmaz.
+  if (path) {
+    const size_t pl = std::strlen(path);
+    auto bit = [&](const char *ek) {
+      const size_t el = std::strlen(ek);
+      if (pl < el) return false;
+      for (size_t i = 0; i < el; i++) { char c = path[pl - el + i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ek[i]) return false; }
+      return true;
+    };
+    if (bit(".stl")) return stl_load(arena, path, out, lim);
+    if (bit(".obj")) return obj_load(arena, path, out, lim);
+  }
   *out = Model{};
   cgltf_options opt{};
   cgltf_data *data = nullptr;
@@ -877,6 +891,7 @@ uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
   }
   if (b.joints && b.skinned_vertices && b.skinned_vertices <= kMobileSkinnedVertexBudget / 4)
     ekle("mobilde ≈ %u kopya sığar", kMobileSkinnedVertexBudget / b.skinned_vertices);
+  if (m.note[0] && n + 4 < cap) { n += (uint32_t)std::snprintf(out + n, cap - n, " · NOT: %s", m.note); }
   if (b.clips_dropped) { ekle("UYARI: %u klip yüklenmedi (model başına en çok %u)", b.clips_dropped, GltfLimits{}.max_clips); warn = 1; }
   if (b.skinned_vertices > kMobileSkinnedVertexBudget / 4) {
     ekle("UYARI: ağır iskeletli model, mobilde kare başına ≲ %uK köşe önerilir", kMobileSkinnedVertexBudget / 1000);

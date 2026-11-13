@@ -4394,7 +4394,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           return true;
         };
         char hedef[1100], err[300] = {0};
-        if (uzanti(".glb") || uzanti(".gltf")) {
+        if (uzanti(".glb") || uzanti(".gltf") || uzanti(".stl") || uzanti(".obj")) {
           if (!st.scene_dir[0]) { atlanan++; std::snprintf(son_hata, sizeof son_hata, "model i\xC3\xA7" "e aktarmak i\xC3\xA7in \xC3\xB6nce bir sahne a\xC3\xA7"); }
           else if (editor_model_ice_aktar(yol, st.scene_dir, hedef, sizeof hedef, err, sizeof err)) { rescan_browse(st); do_add_asset(editor_basename(hedef)); modeller++; }
           else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }
@@ -4405,7 +4405,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }
         } else {
           atlanan++;
-          std::snprintf(son_hata, sizeof son_hata, "%s: desteklenmeyen t\xC3\xBCr (.glb, .gltf, .tpr b\xC4\xB1rak\xC4\xB1labilir)", editor_basename(yol));
+          std::snprintf(son_hata, sizeof son_hata, "%s: desteklenmeyen t\xC3\xBCr (.glb, .gltf, .stl, .obj, .tpr b\xC4\xB1rak\xC4\xB1labilir)", editor_basename(yol));
         }
       }
       if (modeller || betikler) set_status(st, "b\xC4\xB1rak\xC4\xB1ld\xC4\xB1: %u model, %u bet\xC4\xB1k%s", modeller, betikler, atlanan ? " (bir k\xC4\xB1sm\xC4\xB1 al\xC4\xB1nmad\xC4\xB1: Konsol)" : "");
@@ -7643,7 +7643,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (act.ice_aktar) {
         platform::SeciciIstek r;
         r.kip = platform::SeciciKip::DosyaAc;
-        r.baslik = "3B model i\xC3\xA7" "e aktar (.glb / .gltf)";
+        r.baslik = "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .stl / .obj)";
         char sec[1024], err[400], hedef[1100];
         const platform::SeciciSonuc s = platform::dosya_secici(r, sec, sizeof sec, err, sizeof err);
         if (s == platform::SeciciSonuc::Secildi) {

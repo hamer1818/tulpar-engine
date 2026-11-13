@@ -459,7 +459,7 @@ extern "C" void android_main(android_app *app) {
       // kaplamalarini da getiriyor (APK'da 1 dosya, listede 16).
       const char *dot = std::strrchr(name, '.');
       if (!dot) continue;
-      const bool ours = !std::strcmp(dot, ".gltf") || !std::strcmp(dot, ".glb") || !std::strcmp(dot, ".bin") ||
+      const bool ours = !std::strcmp(dot, ".gltf") || !std::strcmp(dot, ".glb") || !std::strcmp(dot, ".bin") || !std::strcmp(dot, ".stl") || !std::strcmp(dot, ".obj") || !std::strcmp(dot, ".mtl") ||
                         !std::strcmp(dot, ".png") || !std::strcmp(dot, ".jpg") || !std::strcmp(dot, ".ktx2") ||
                         !std::strcmp(dot, ".ttf") || !std::strcmp(dot, ".sahne");
       if (!ours) continue;
