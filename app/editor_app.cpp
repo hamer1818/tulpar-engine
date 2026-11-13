@@ -4555,12 +4555,15 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
 
       // Sağ Taraf: [ ICON_MD_BAR_CHART Stats ] [ ⋮ ]
-      const float right_width = 115.0f;
-      const float avail_w = ImGui::GetContentRegionAvail().x;
-      if (avail_w > right_width) {
-        ImGui::SameLine(ImGui::GetWindowWidth() - right_width - ImGui::GetStyle().WindowPadding.x);
-      } else {
-        ImGui::SameLine();
+      // Genislik ELLE 115 yazilmisti ve "⋮" panelin sag kenarindan tasiyordu (arayuz surucusu,
+      // 2026-11-13); artik gercek dugme genislikleri + aralik, imlec kalan yere gore kaydirilir.
+      const ImGuiStyle &gst = ImGui::GetStyle();
+      const float right_width = ImGui::CalcTextSize(ICON_MD_BAR_CHART " \xC4\xB0statistik").x + gst.FramePadding.x * 2.0f +
+                                gst.ItemSpacing.x + ImGui::CalcTextSize(" ⋮ ").x + gst.FramePadding.x * 2.0f;
+      ImGui::SameLine();
+      {
+        const float avail_w = ImGui::GetContentRegionAvail().x;
+        if (avail_w > right_width) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail_w - right_width);
       }
 
       const bool stats_btn_active = show_stats;
@@ -4741,7 +4744,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               // Oyun calismiyorken Oyun sekmesi sahne kamerasini gosterir; kullanici "oyun neden hareket
               // etmiyor" diye beklemesin (arayuz surucusu, 2026-11-06): ustte ortali bir bilgi hapi.
               const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
-              const char *bilgi = ICON_MD_PLAY_ARROW " Oyun \xC3\xA7" "al\xC4\xB1\xC5\x9Fm\xC4\xB1yor \xE2\x80\x94 F5 ile ba\xC5\x9Flat";
+              // Fizik onizlemesi kosarken (gomulu oyun yok) "calismiyor" demek durum cubuguyla celisirdi
+              // (arayuz surucusu, 2026-11-13).
+              const char *bilgi = st.playing
+                  ? ICON_MD_PLAY_ARROW " Fizik \xC3\xB6nizlemesi \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1yor \xE2\x80\x94 F5 ile durdur"
+                  : ICON_MD_PLAY_ARROW " Oyun \xC3\xA7" "al\xC4\xB1\xC5\x9Fm\xC4\xB1yor \xE2\x80\x94 F5 ile ba\xC5\x9Flat";
               const ImVec2 ts = ImGui::CalcTextSize(bilgi);
               const float px = 10.0f, py = 5.0f;
               const ImVec2 b0(std::floor((r0.x + r1.x - ts.x) * 0.5f - px), r0.y + 12.0f);
