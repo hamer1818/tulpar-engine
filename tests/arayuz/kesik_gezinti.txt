@@ -12,6 +12,13 @@ tikla "lamba_kirmizi" pencere=Sahne
 bekle 4
 tikla "duvar_sabit" pencere=Sahne
 bekle 4
+# POZITIF KONTROL kaynagi (tools/editor_ux.sh): F5 oyunsuz sahnede uzun bir Konsol satiri yazar ("F5 fizik
+# onizlemesi: ... yalniz fizik onizlemesi") — dar panelde kisalir, yani kanca bu kosumda gercekten olcuyor. Eskiden
+# kontrolu "yuklendi: /tam/yol" satiri sagliyordu; yol kisaltma onarilinca satir sigdi ve kontrol sessizce 0 oldu.
+tus F5
+bekle 8
+tus F5
+bekle 6
 tikla "Konsol" pencere=DockSpace
 bekle 4
 tikla "Düzen" pencere=MainMenuBar

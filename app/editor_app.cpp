@@ -750,7 +750,11 @@ uint32_t entity_pick_bounds(const EditorState &st, const sim::Physics &phys, con
 // iletisinde (sahne ilk kareden ONCE yuklenir) cagrilir; degismediyse iki strcmp.
 void yol_takma_tazele(const EditorState &st) {
   static char ak[1100] = {0};
-  const char *kok = st.tulpar_dir[0] ? st.tulpar_dir : st.scene_dir;
+  // Sahne oyun kokunun (tulpar/) DISINDAysa kok sahnenin dizinidir: aksi halde "yuklendi: /mnt/.../editor.sahne"
+  // tam yol kaliyordu (arayuz surucusu, 2026-11-13; tests/assets/editor.sahne).
+  const size_t tl = std::strlen(st.tulpar_dir);
+  const bool sahne_kokte = tl && std::strncmp(st.scene_dir, st.tulpar_dir, tl) == 0 && (st.scene_dir[tl] == '/' || st.scene_dir[tl] == 0);
+  const char *kok = sahne_kokte ? st.tulpar_dir : st.scene_dir;
   if (std::strcmp(ak, kok) == 0) return;
   std::snprintf(ak, sizeof ak, "%s", kok);
   console_set_path_alias(0, kok, "");
@@ -2814,8 +2818,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       return;
     }
     const char *neden = nullptr;
+    bool neden_bilgi = false; // oyun yoksa fizik onizlemesi NORMAL yol: uyari degil bilgi (sayac her F5'te sismesin)
     if (!allow_embedded) neden = "penceresiz kip (gomulu oyun yalniz acikca istenince)";
-    else if (!st.scene_path[0]) neden = "sahne henuz kaydedilmedi (oyun sahneyi diskteki .sahneb'den yukler)";
+    else if (!st.scene_path[0]) { neden = "sahne ad\xC4\xB1ns\xC4\xB1z: kaydedince F5 sahneyi y\xC3\xBckleyen oyunu bulabilir; \xC5\x9Fimdilik yaln\xC4\xB1z fizik \xC3\xB6nizlemesi"; neden_bilgi = true; }
     if (!neden) {
       // Oyun sahneyi DISKTEKI blobdan yukler: bellekteki son hal once derlenir.
       if (!do_compile()) return; // durum cubugu sebebi soyluyor; eski blobla oynatmak yaniltirdi
@@ -2843,11 +2848,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           set_status(st, "F5: bu sahneyi birden \xC3\xA7ok oyun yukluyor, se\xC3\xA7in");
           return;
         } else {
-          neden = "tulpar/ altinda bu sahneyi (.sahneb) yukleyen oyun yok";
+          { neden = "bu sahneyi y\xC3\xBckleyen bir oyun bulunamad\xC4\xB1 (tulpar/ alt\xC4\xB1nda .sahneb aran\xC4\xB1r); yaln\xC4\xB1z fizik \xC3\xB6nizlemesi"; neden_bilgi = true; }
         }
       }
     }
-    console_log(ConsoleLevel::Uyari, kConsoleTagEditor, "F5 fizik \xC3\xB6nizlemesi: %s", neden);
+    console_log(neden_bilgi ? ConsoleLevel::Bilgi : ConsoleLevel::Uyari, kConsoleTagEditor, "F5 fizik \xC3\xB6nizlemesi: %s", neden);
     set_playing(true);
   };
   // GI onizleme pisirme: sahne+yuklu modellerden bellek-ici bake -> derle ->
