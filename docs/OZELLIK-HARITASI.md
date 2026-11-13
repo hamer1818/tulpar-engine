@@ -327,7 +327,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (73 dosya, 35667 satır)
+### app — L6 (73 dosya, 35707 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -417,7 +417,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (69 dosya, 15689 satır)
+### tools — L7 (69 dosya, 15715 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1356,6 +1356,7 @@ Kurulum/paketleme: `tools/kurulum/*` (AppImage, Inno Setup), ortak oyun kiti: `t
 
 ## 6. Belgeler (`docs/`)
 
+- `docs/8s.md` — 
 - `docs/ACIK_KAYNAK_MOTOR_INCELEME_VE_UYARLAMA.md` — TULPARENGINE — AÇIK KAYNAK MOTOR DERİN İNCELEME, TERSİNE MÜHENDİSLİK VE UYARLAMA RAPORU
 - `docs/ARAYUZ-SURUCUSU.md` — Arayüz sürücüsü — editörü komutla sürmek
 - `docs/BOSLUK-TARAMASI.md` — Boşluk Taraması — "GitHub Derinlik Taraması (Mobil)" belgesine karşı (2026-09-14)

@@ -589,6 +589,10 @@ struct EditorState {
   OpGroups groups; // bir kullanici eylemi = gunlukte N islem (grup tasima/silme)
   bool playing = false, dirty = false;
   float play_time = 0;
+  // A1 (docs/MODEL-ANIMASYON-PLANI.md): Oynat'a basmadan animasyon ONIZLEMESI. Acikken sahnedeki animasyonlu modeller kendi
+  // saatiyle (anim_onizle_t) oynar; Oynat baslayinca kapanir (oyun kendi saatini kullanir).
+  bool anim_onizle = false;
+  float anim_onizle_t = 0;
   // Surukleme / metin duzenleme: aktiflesince kopya, birakinca tek islem.
   SceneEntity edit_before;
   bool edit_active = false, gizmo_was_using = false, gizmo_was_over = false;
@@ -4228,6 +4232,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     was_playing = st.playing;
 
+    if (st.playing) st.anim_onizle = false;
+    else if (st.anim_onizle) st.anim_onizle_t += dt;
     // Sim: yalniz oynatilirken (sabit adim). Duraklatilmisken zaman AKMAZ ama
     // govdeler yerinde durur; F10 tek adim ilerletir. fs.advance duraklamada
     // cagrilmaz — yoksa birikmis zaman devam edince bir anda bosalirdi.
@@ -6061,7 +6067,40 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           act = ComponentCardAction::None;
           if (begin_component_card("\xE2\x86\xBB", "Animasyon", content::kSceneAnim, nullptr, &act, true, Tone::Accent)) {
             if (prop_begin("anim")) {
-              track_edit(st, e, si, prop_float("Faz", &e.phase, 0.01f, 0.0f, 10.0f, "%.2f"));
+              // A1: klip secici + oynatmadan onizleme + zaman cubugu (eskiden yalniz Faz/Hiz vardi ve klip secilemiyordu).
+              const content::Model *am = (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset]) ? &st.models[e.asset] : nullptr;
+              const uint32_t nclip = am ? am->clip_count : 0;
+              float dur = 0.0f;
+              if (nclip == 0) {
+                ImGui::TextColored(tone(Tone::TextMute), "Bu modelin animasyonu yok (ya da kaynak yok).");
+              } else {
+                static char klip_adlari[32 * 66 + 2];
+                size_t kn = 0;
+                for (uint32_t k = 0; k < nclip && k < 32; k++) {
+                  const char *ad = am->clips[k].name[0] ? am->clips[k].name : "(adsiz)";
+                  kn += (size_t)std::snprintf(klip_adlari + kn, sizeof klip_adlari - kn - 1, "%u: %s", k, ad) + 1;
+                }
+                klip_adlari[kn] = 0;
+                int ci = (int)(e.clip < nclip ? e.clip : 0);
+                if (prop_combo("Klip", &ci, klip_adlari).changed) {
+                  after = e;
+                  after.clip = (uint32_t)ci;
+                  after.phase = 0.0f;
+                  commit(st, si, after);
+                }
+                dur = am->clips[ci].duration;
+                ImGui::TextColored(tone(Tone::TextMute), "%.2f s \xC2\xB7 %u klip", dur, nclip);   // ileri-geri (ping-pong) calar: sahne bicimi bugun donguyu tutmuyor (A1b)
+                const bool onizle = st.anim_onizle;
+                if (ImGui::Button(onizle ? ICON_MD_PAUSE " Durdur##anim_onizle" : ICON_MD_PLAY_ARROW " \xC3\x96nizle##anim_onizle")) {
+                  st.anim_onizle = !onizle;
+                  if (st.anim_onizle) st.anim_onizle_t = 0.0f;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Oynat'a bas\xC4\xB1" "madan sahnedeki t\xC3\xBCm animasyonlu modelleri oynat\xC4\xB1r (\xC3\xB6nizleme; Oynat ba\xC5\x9F" "lay\xC4\xB1nca kapan\xC4\xB1r)");
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MD_SKIP_PREVIOUS "##anim_basa")) { st.anim_onizle_t = 0.0f; after = e; after.phase = 0.0f; commit(st, si, after); }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ba\xC5\x9F" "a sar (faz = 0)");
+              }
+              track_edit(st, e, si, prop_float("An / Faz (s)", &e.phase, 0.01f, 0.0f, dur > 0.0f ? dur : 10.0f, "%.2f"));
               track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.speed, 0.01f, 0.0f, 10.0f, "%.2f"));
               prop_end();
             }
@@ -9951,7 +9990,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         lod.distance1 = 24.0f; lod.distance2 = 34.0f;
         if ((e.components & content::kSceneAnim) && e.clip < mdl.clip_count) {
           const float dur = mdl.clips[e.clip].duration;
-          float t = std::fmod((st.playing ? st.play_time * e.speed : 0.0f) + e.phase, 2.0f * dur);
+          const float zt = st.playing ? st.play_time : (st.anim_onizle ? st.anim_onizle_t : 0.0f);   // A1: oynatmadan onizleme
+          float t = std::fmod(zt * e.speed + e.phase, 2.0f * dur);
           if (t > dur) t = 2.0f * dur - t;
           content::ModelPose pose;
           if (content::model_pose_evaluate(mdl, e.clip, t, st.pose_scratch, &pose)) {
