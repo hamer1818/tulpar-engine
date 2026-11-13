@@ -9256,6 +9256,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (karsilama.acik) {
       if (opts.karsilama_yeni && frame_i == 3) {
         // Penceresiz kapi: formu doldur, Olustur'un isleyicisini calistir (tiklama degil — isleyici).
+        // Ad alani acilista odakli (klavye gezinmesi): ImGui etkin InputText'in kendi tamponunu tutar ve
+        // asagida kodla yazilan metni ezerdi ("adi gerekli" hatasi, editor_ux.sh 2026-11-13). Odagi birak.
+        ImGui::ClearActiveID();
         std::snprintf(karsilama.tr, sizeof karsilama.tr, "Deneme Oyunu");
         std::snprintf(karsilama.en, sizeof karsilama.en, "Test Game");
         karsilama_kok(karsilama.kok, sizeof karsilama.kok);
