@@ -447,6 +447,7 @@ FabrikaSonuc fabrika_uret(const FabrikaIstek &r) {
       {"tulpar/sablonlar/ortak/ortam.sh", "tools/ortam.sh", true},
       {"tulpar/sablonlar/ortak/dogrula.sh", "tools/dogrula.sh", true},
       {"tulpar/sablonlar/ortak/android_dene.sh", "tools/android_dene.sh", true},
+      {"tulpar/sablonlar/ortak/yayin.env", "yayin.env", false},
   };
   for (const Kopya &k : kopyalar) {
     if (!platform::asset_path(kaynak, sizeof kaynak, k.kaynak)) { yaz_hata(s, "Şablon dosyası bulunamadı: %s", kaynak); return s; }
