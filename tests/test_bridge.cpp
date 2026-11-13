@@ -1216,6 +1216,35 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       CHECK(teng_anim_fading(ent) == 0 && teng_anim_time(ent) == 0.0);
       teng_set_anim(ent, -1, 1.0, 0); // statige don (hata degil)
       CHECK(teng_anim_time(ent) == 0.0);
+      // A3: animator (durum makinesi): a (dongu) --x>0.5--> b (tek, 1 s) --bitince--> a. Tanim dosyasi test dizininde.
+      {
+        char adir[512], ayol[600];
+        CHECK(test::tmp_mkdir(adir, sizeof adir, "animator_kopru"));
+        std::snprintf(ayol, sizeof ayol, "%s/t.animator", adir);
+        char metin[800];
+        std::snprintf(metin, sizeof metin,
+                      "tulpar-animator 1\nparam x sayi 0\nparam t tetik\ndurum a klip %s dongu\ndurum b klip %s tek\n"
+                      "gecis a b sure 0.2 eger x > 0.5\ngecis b a sure 0.1 bitince\nbaslangic a\n",
+                      teng_model_clip_name(model, 0), teng_model_clip_name(model, 0));
+        std::FILE *af = std::fopen(ayol, "wb");
+        CHECK(af != nullptr);
+        if (af) { std::fputs(metin, af); std::fclose(af); }
+        CHECK(teng_animator_set(ent, ayol) == 1);
+        CHECK(std::strcmp(teng_animator_state(ent), "a") == 0 && teng_animator_fading(ent) == 0);
+        run_frames(10);
+        CHECK(std::strcmp(teng_animator_state(ent), "a") == 0);              // kosul yok: a'da KALIR (kontrol)
+        teng_animator_param(ent, "x", 1.0);
+        run_frames(2);
+        CHECK(std::strcmp(teng_animator_state(ent), "b") == 0 && teng_animator_fading(ent) == 1);
+        run_frames(20);                                                      // 0.33 s > 0.2 s gecis
+        CHECK(teng_animator_fading(ent) == 0 && std::strcmp(teng_animator_state(ent), "b") == 0);
+        teng_animator_param(ent, "x", 0.0);
+        run_frames(90);                                                      // b tek klip (1 s) biter -> bitince a
+        CHECK(std::strcmp(teng_animator_state(ent), "a") == 0);
+        teng_animator_clear(ent);
+        CHECK(std::strcmp(teng_animator_state(ent), "") == 0);
+        unlink(ayol);
+      }
       teng_despawn(ent);
       unlink(shot_stat); unlink(shot_stat2); unlink(shot_anim); unlink(shot_bos);
     }

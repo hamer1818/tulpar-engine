@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 418
+#define TENG_ABI_COUNT 424
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -171,6 +171,12 @@ TENG_ABI(const char *, eng_model_clip_name, teng_model_clip_name, (int, int))
 TENG_ABI(void, eng_set_anim, teng_set_anim, (int, int, double, int))
 TENG_ABI(void, eng_anim_crossfade, teng_anim_crossfade, (int, int, double, int, double))
 TENG_ABI(int, eng_anim_fading, teng_anim_fading, (int))
+TENG_ABI(int, eng_animator_set, teng_animator_set, (int, const char *))
+TENG_ABI(void, eng_animator_clear, teng_animator_clear, (int))
+TENG_ABI(void, eng_animator_param, teng_animator_param, (int, const char *, double))
+TENG_ABI(void, eng_animator_trigger, teng_animator_trigger, (int, const char *))
+TENG_ABI(const char *, eng_animator_state, teng_animator_state, (int))
+TENG_ABI(int, eng_animator_fading, teng_animator_fading, (int))
 TENG_ABI(double, eng_anim_time, teng_anim_time, (int))
 TENG_ABI(int, eng_anim_done, teng_anim_done, (int))
 TENG_ABI(int, eng_key_down, teng_key_down, (const char *))

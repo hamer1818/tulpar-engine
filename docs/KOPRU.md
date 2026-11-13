@@ -1739,3 +1739,25 @@ hesabıdır ve v2'de çoğu cihazda **kendiliğinden** açıktır.
 - Çekirdek: `content::model_pose_blend` (w = 0 / 1 uçlarında `model_pose_evaluate` ile **bit eşit**), kare içi ayırma yok.
 - Ölçüm (masaüstü CPU, tek parçacık, 2026-11-13): 200 karakter × 60 eklem geçiş sırasında **0,82 ms** (geçişsiz 0,47 ms); mobil ölçülmedi.
 - Kapılar: `content_pose_blend_endpoints_and_midpoint` (uçlar bit eşit, orta = 45°), `bridge_runs_a_scripted_game_headless` (geçiş süresi, sıfır süre, klipsiz, `set_anim` iptali).
+
+## 19. Animatör — `.animator` (A3, 2026-11-13)
+
+Durum makinesi + hıza göre 1B karışım + geçiş koşulu; klip adları modelden çözülür. Çekirdek `sim/animator` (klip İNDEKSLİ, GPU/model bilmez),
+karışım `content::model_pose_mix` (N klibin ağırlıklı karışımı; tek girdi `model_pose_evaluate` ile bit eşit). Köprü: `eng_animator_set(id, yol)`
+(Tulpar `animator_ata` / `animator_set`; false ⇒ neden Konsol'da: satır numarası ya da modelde olmayan klip adı), `eng_animator_param(id, ad, v)`,
+`eng_animator_trigger(id, ad)`, `eng_animator_state(id)` → durum adı, `eng_animator_fading(id)`, `eng_animator_clear(id)`.
+Animatör **`eng_set_anim` / `eng_anim_crossfade`'i ezer** (varlık animatörle yönetilir).
+
+Dosya (`.animator`, `#` yorum): `tulpar-animator 1` · `param <ad> sayi [varsayılan]` / `param <ad> tetik` · `durum <ad> klip <klip> [hiz h] [dongu|tek]` ·
+`durum <ad> karisim <param>` + `nokta <eşik> <klip> [hiz h]` satırları (en çok 4, eşikler artan) + `son` ·
+`gecis <kaynak|herhangi> <hedef> [sure s] eger <param> <op> <değer>` (`> < >= <= ==`) | `tetik <param>` | `bitince` · `baslangic <durum>`.
+Kapasite: 16 durum, 48 geçiş, 16 parametre, 4 karışım noktası; bridge: 8 tanım + 256 çalışma yuvası (dolunca reddedilir, sayılır). Koşulsuz geçiş,
+bilinmeyen durum/parametre, tetiği sayı gibi kullanma, artmayan eşikler, tanımsız klip adı **HATA** (sessiz değil).
+
+Kurallar: karışım durumunun iki klibi **normalleşmiş fazla senkron** ilerler (yürü/koş adımları birlikte); geçiş **smoothstep** ağırlıklı ve sürerken yeni
+geçiş başlamaz (sıçramasız); tetik geçişle **tüketilir** (bir tetik bir geçiş); `bitince` yalnız `tek` klipte (bittiğinde) sağlanır; ilk sağlanan geçiş
+(liste sırası) kazanır. Belirlenimli (yalnız float toplama/çarpma), kare içi ayırma yok (`kare ici ayirma 0` bridge kapanış satırı).
+Kapılar: `animator_parse_ve_bind`, `animator_bozuk_tanimlar_reddedilir` (9 kötü tanım + sağlam kontrol), `animator_hiza_gore_gecis_ve_karisim_agirliklari`,
+`animator_tetik_tuketilir_ve_bitince_doner`, `animator_gecis_smoothstep_ve_belirlenimli`, `content_pose_mix_kurallari`, köprü testi (durum/geçiş/bitince/clear).
+Deneme: `~/TulparOyunlari/animasyon_deneme/animator_deneme.tpr` (örnek yerel dizin; YUKARI/ASAGI hız, SPACE zıpla).
+**Henüz yok:** editörde animatör kartı/grafiği, katman maskeleri, IK.

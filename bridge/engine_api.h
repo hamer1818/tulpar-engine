@@ -428,6 +428,13 @@ void teng_set_anim(int id, int clip, double speed, int loop); // clip < 0: anima
 // Yumusak gecis (A2): calan klip fade_s saniyede yenisine karisir (smoothstep). Calan klip yoksa / fade_s <= 0: set_anim gibi aninda.
 void teng_anim_crossfade(int id, int clip, double speed, int loop, double fade_s);
 int teng_anim_fading(int id);                                  // gecis suruyor mu
+// Animator (A3, docs/MODEL-ANIMASYON-PLANI.md): .animator dosyasi (durum makinesi + 1B karisim + gecis kosulu); klip adlari modelden cozulur.
+int teng_animator_set(int id, const char *path);               // 1 = baglandi; 0 = hata (neden BERR'de: satir/klip adi). set_anim/crossfade'i ezer
+void teng_animator_clear(int id);
+void teng_animator_param(int id, const char *name, double v);  // sayi parametresi
+void teng_animator_trigger(int id, const char *name);          // tetik (bir sonraki adimda gecisle tuketilir)
+const char *teng_animator_state(int id);                       // gecerli durum adi ("" yok)
+int teng_animator_fading(int id);                              // durum gecisi suruyor mu
 double teng_anim_time(int id);                                 // klip icindeki an (s)
 int teng_anim_done(int id);                                    // dongusuz klip bitti mi
 

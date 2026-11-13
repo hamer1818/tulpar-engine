@@ -939,6 +939,18 @@ func anim_stop(id) { eng_set_anim(id, -1, 1.0, false); }
 func animasyon_gecis(id, klip, hiz, dongu, sure) { eng_anim_crossfade(id, klip, hiz, dongu, sure); }
 func anim_crossfade(id, clip, speed, loop, secs) { eng_anim_crossfade(id, clip, speed, loop, secs); }
 func animasyon_geciyor(id) { return eng_anim_fading(id); }
+// A3 animator: .animator dosyasi (durum makinesi + hiza gore karisim + gecis kosulu). Ayrinti: docs/KOPRU.md §19.
+func animator_ata(id, yol): bool { return eng_animator_set(id, yol); }
+func animator_kaldir(id) { eng_animator_clear(id); }
+func animator_param(id, ad, deger) { eng_animator_param(id, ad, deger); }
+func animator_tetik(id, ad) { eng_animator_trigger(id, ad); }
+func animator_durum(id): str { return eng_animator_state(id); }
+func animator_geciyor(id): bool { return eng_animator_fading(id); }
+func animator_set(id, path): bool { return eng_animator_set(id, path); }
+func animator_clear(id) { eng_animator_clear(id); }
+func animator_trigger(id, name) { eng_animator_trigger(id, name); }
+func animator_state(id): str { return eng_animator_state(id); }
+func animator_fading(id): bool { return eng_animator_fading(id); }
 func anim_fading(id) { return eng_anim_fading(id); }
 func animasyon_zamani(id): float { return eng_anim_time(id); }
 func animasyon_bitti(id): bool { return eng_anim_done(id); }

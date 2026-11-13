@@ -1954,3 +1954,32 @@ ENGINE_TEST(content_model_butce_ozeti_ve_uyari) {
   char t4[300];
   CHECK(content::model_budget_text(agir, t4, sizeof t4) == 1 && std::strstr(t4, "3 klip") != nullptr);
 }
+
+// A3: model_pose_mix. Tek girdi = model_pose_evaluate ile BİT EŞİT; iki eşit ağırlık = model_pose_blend(w=0.5) ile BİT EŞİT; üç girdi toplamı
+// ağırlıkla normalleşir (ağırlıklar 2:1:1 toplam 4 ile 0.5:0.25:0.25 aynı sonucu verir); ağırlığı 0 olan girdi sonucu DEĞİŞTİRMEZ (kontrol).
+ENGINE_TEST(content_pose_mix_kurallari) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_mix")) { CHECK(false); return; }
+  char path[512];
+  CHECK(asset_path(path, sizeof path, "skin_tube.gltf"));
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  static content::PoseScratch s1, s2, s3;
+  content::ModelPose p1, p2, p3;
+  const uint32_t jc = 2;
+  content::PoseMixEntry e1[1] = {{0, 0.3f, 1.0f}};
+  CHECK(content::model_pose_mix(m, e1, 1, s1, &p1) && content::model_pose_evaluate(m, 0, 0.3f, s2, &p2));
+  CHECK(std::memcmp(p1.skin_mats[0], p2.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  content::PoseMixEntry e2[2] = {{0, 0.0f, 0.5f}, {0, 1.0f, 0.5f}};
+  CHECK(content::model_pose_mix(m, e2, 2, s1, &p1) && content::model_pose_blend(m, 0, 0.0f, 0, 1.0f, 0.5f, s2, &p2));
+  CHECK(std::memcmp(p1.skin_mats[0], p2.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  content::PoseMixEntry a[3] = {{0, 0.0f, 2.0f}, {0, 0.5f, 1.0f}, {0, 1.0f, 1.0f}};
+  content::PoseMixEntry b[3] = {{0, 0.0f, 0.5f}, {0, 0.5f, 0.25f}, {0, 1.0f, 0.25f}};
+  CHECK(content::model_pose_mix(m, a, 3, s1, &p1) && content::model_pose_mix(m, b, 3, s3, &p3));
+  for (uint32_t j = 0; j < jc; j++)
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) CHECK(std::fabs(p1.skin_mats[0][j].m[c][r] - p3.skin_mats[0][j].m[c][r]) < 1e-5f);
+  content::PoseMixEntry c0[3] = {{0, 0.0f, 0.5f}, {0, 0.7f, 0.0f}, {0, 1.0f, 0.5f}};   // ortadaki ağırlık 0
+  CHECK(content::model_pose_mix(m, c0, 3, s1, &p1) && content::model_pose_mix(m, e2, 2, s3, &p3));
+  CHECK(std::memcmp(p1.skin_mats[0], p3.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  CHECK(!content::model_pose_mix(m, e1, 0, s1, &p1));                                    // girdi yok
+}

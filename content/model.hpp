@@ -204,6 +204,11 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
 // (cagiran tek klibe duser). Ayirma yok.
 bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t clip_b, float time_b, float w, PoseScratch &scratch,
                       ModelPose *pose);
+// A3: N (<= 8) klibin AĞIRLIKLI karışımı (animatör çıktısı). Ağırlığı <= 0 olanlar atlanır; ağırlıklar toplamı 1 olmasa da normalleşir.
+// Ötelenme/ölçek doğrusal, dönüş sıralı slerp (kümülatif ağırlıkla). Hepsi AYNI iskelete ait olmalı; değilse false. Tek girdi =
+// model_pose_evaluate ile BİT EŞİT.
+struct PoseMixEntry { uint32_t clip; float time; float weight; };
+bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose);
 
 // LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
 // nullptr = hep LOD0.

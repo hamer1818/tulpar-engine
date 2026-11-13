@@ -33,6 +33,7 @@
 #include "bridge/bridge_host.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
+#include "sim/animator.hpp"
 #include "content/image.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
@@ -324,6 +325,7 @@ struct Ent {
   int32_t asset = -1;
   sim::BodyId body;
   // Animasyon (yalniz Kind::Model): klip < 0 = statik cizim.
+  int32_t animator = -1;   // A3: Bridge::anim_rts indeksi (animatör varsa klip/geçiş alanlarını GEÇERSİZ kılar)
   int32_t anim_clip = -1;
   float anim_speed = 1.0f, anim_time = 0.0f;
   bool anim_loop = true;
@@ -660,6 +662,13 @@ struct Bridge {
   // varliklar
   Ent ents[kMaxEntities];
   uint32_t ent_high = 0, ent_alive = 0;
+  // A3 animator havuzlari: tanim (dosya basina, modele baglanmis klip indeksleri) ve varlik basina calisma durumu. Dolunca REDDEDILIR ve sayilir.
+  struct AnimDefSlot { sim::AnimatorDef def; char path[128] = {0}; int32_t asset = -1; bool used = false; };
+  struct AnimRtSlot { sim::AnimatorRt rt; int32_t def = -1; bool used = false; };
+  static constexpr uint32_t kAnimDefs = 8, kAnimRts = 256;
+  AnimDefSlot anim_defs[kAnimDefs];
+  AnimRtSlot anim_rts[kAnimRts];
+  uint32_t anim_rejected = 0;
   // kamera / dunya
   Vec3 cam_eye{0, 8, 14}, cam_target{0, 0, 0};
   // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
@@ -958,6 +967,8 @@ void free_slot(uint32_t slot) {
   if (e.kind == Kind::Character) g->phys.remove_character(e.ch); // ic govdeyi de o kaldirir
   else if (e.body.valid()) g->phys.remove(e.body);
   if (e.kinematic && g->kin_count) g->kin_count--;
+  if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts) g->anim_rts[e.animator].used = false;   // A3: animator calisma yuvasi geri
+  e.animator = -1;
   e.ch = sim::CharacterId{};
   e.alive = false;
   e.body = sim::BodyId{};
@@ -1223,6 +1234,23 @@ void render_frame() {
         const content::Model &mdl = b.models[e.asset];
         const Mat4 m = ent_matrix(e) * Mat4::scale({e.scale, e.scale, e.scale});
         bool posed = false;
+        if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts && b.anim_rts[e.animator].used) {   // A3: animator cikisi
+          const Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
+          float dur[64] = {};
+          const uint32_t nc = mdl.clip_count < 64 ? mdl.clip_count : 64;
+          for (uint32_t c = 0; c < nc; c++) dur[c] = mdl.clips[c].duration;
+          sim::AnimatorPose ap;
+          sim::animator_pose(b.anim_defs[rs.def].def, rs.rt, dur, nc, &ap);
+          content::PoseMixEntry me[sim::kAnimMaxEntries];
+          for (uint32_t k = 0; k < ap.n; k++) me[k] = {(uint32_t)(ap.e[k].clip < 0 ? 0 : ap.e[k].clip), ap.e[k].time, ap.e[k].weight};
+          content::ModelPose pose;
+          if (ap.n && content::model_pose_mix(mdl, me, ap.n, b.pose_scratch, &pose)) {
+            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, nullptr, nullptr, &pose);
+            posed = true;
+            b.last_posed++;
+          }
+        }
+        if (!posed)
         // Klip atanmissa poz her kare degerlendirilir (iskeletli cizim);
         // atanmamissa statik + LOD. Degerlendirme basarisizsa klip kapatilir
         // ki hata her karede tekrar etmesin.
@@ -2551,7 +2579,17 @@ void teng_frame_end(void) {
     ENGINE_ZONE("anim");
     for (uint32_t i = 0; i < b.ent_high; i++) {
       Ent &e = b.ents[i];
-      if (!e.alive || e.kind != Kind::Model || e.anim_clip < 0) continue;
+      if (!e.alive || e.kind != Kind::Model) continue;
+      if (e.animator >= 0 && e.asset >= 0 && (uint32_t)e.asset < b.model_count) {      // A3: animator klip/gecis alanlarini ezer
+        const content::Model &am = b.models[e.asset];
+        float dur[64] = {};
+        const uint32_t nc = am.clip_count < 64 ? am.clip_count : 64;
+        for (uint32_t c = 0; c < nc; c++) dur[c] = am.clips[c].duration;
+        Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
+        if (rs.used && rs.def >= 0) sim::animator_update(b.anim_defs[rs.def].def, &rs.rt, b.dt, dur, nc);
+        continue;
+      }
+      if (e.anim_clip < 0) continue;
       if (e.asset < 0 || (uint32_t)e.asset >= b.model_count) continue;
       const content::Model &mdl = b.models[e.asset];
       if ((uint32_t)e.anim_clip >= mdl.clip_count) continue;
@@ -4278,6 +4316,101 @@ void teng_anim_crossfade(int id, int clip, double speed, int loop, double fade_s
   e.anim_fade = 0.0f;
   e.anim_fade_dur = (float)fade_s;
 }
+// --- A3 animator -----------------------------------------------------------------------------------------------------
+static const char *animator_clip_name(void *user, uint32_t c) {
+  const content::Model *m = static_cast<const content::Model *>(user);
+  return c < m->clip_count ? m->clips[c].name : nullptr;
+}
+int teng_animator_set(int id, const char *path) {
+  CALLF("teng_animator_set", "#%d %s", id, path ? path : "");
+  const int32_t s = slot_of(id, "teng_animator_set");
+  if (s < 0 || !path) return 0;
+  Ent &e = g->ents[s];
+  if (e.kind != Kind::Model) { BERR("teng_animator_set: #%d model degil (%s)", id, kind_name(e.kind)); return 0; }
+  const content::Model *m = model_of(e.asset, "teng_animator_set");
+  if (!m) return 0;
+  // tanim: ayni dosya + ayni model daha once cozuldu mu
+  int32_t di = -1;
+  for (uint32_t i = 0; i < Bridge::kAnimDefs; i++)
+    if (g->anim_defs[i].used && g->anim_defs[i].asset == e.asset && !std::strcmp(g->anim_defs[i].path, path)) { di = (int32_t)i; break; }
+  if (di < 0) {
+    for (uint32_t i = 0; i < Bridge::kAnimDefs; i++) if (!g->anim_defs[i].used) { di = (int32_t)i; break; }
+    if (di < 0) { g->anim_rejected++; BERR("teng_animator_set: animator tanim havuzu dolu (%u)", Bridge::kAnimDefs); return 0; }
+    std::FILE *f = std::fopen(path, "rb");
+    if (!f) { BERR("teng_animator_set: dosya acilamadi: %s", path); return 0; }
+    static char txt[64 * 1024];
+    const size_t n = std::fread(txt, 1, sizeof txt - 1, f);
+    std::fclose(f);
+    sim::AnimatorError er;
+    Bridge::AnimDefSlot &ds = g->anim_defs[di];
+    if (!sim::animator_parse(txt, n, &ds.def, &er)) { BERR("teng_animator_set: %s satir %u: %s", path, er.line, er.msg); return 0; }
+    if (!sim::animator_bind(&ds.def, animator_clip_name, const_cast<content::Model *>(m), m->clip_count, &er)) { BERR("teng_animator_set: %s: %s", path, er.msg); return 0; }
+    std::snprintf(ds.path, sizeof ds.path, "%s", path);
+    ds.asset = e.asset;
+    ds.used = true;
+  }
+  // calisma yuvasi (varligin kendi yuvasi varsa yeniden kullanilir)
+  int32_t ri = e.animator;
+  if (ri < 0) {
+    for (uint32_t i = 0; i < Bridge::kAnimRts; i++) if (!g->anim_rts[i].used) { ri = (int32_t)i; break; }
+    if (ri < 0) { g->anim_rejected++; BERR("teng_animator_set: animator calisma havuzu dolu (%u)", Bridge::kAnimRts); return 0; }
+  }
+  Bridge::AnimRtSlot &rs = g->anim_rts[ri];
+  rs.used = true;
+  rs.def = di;
+  sim::animator_reset(g->anim_defs[di].def, &rs.rt);
+  e.animator = ri;
+  e.anim_clip = -1; e.anim_prev_clip = -1;
+  BDBG("#%d animator: %s (%u durum, %u gecis)", id, path, g->anim_defs[di].def.state_count, g->anim_defs[di].def.trans_count);
+  return 1;
+}
+void teng_animator_clear(int id) {
+  const int32_t s = slot_of(id, "teng_animator_clear");
+  if (s < 0) return;
+  Ent &e = g->ents[s];
+  if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts) g->anim_rts[e.animator].used = false;
+  e.animator = -1;
+}
+static Bridge::AnimRtSlot *animator_of(int id, const char *who) {
+  const int32_t s = slot_of(id, who);
+  if (s < 0) return nullptr;
+  const Ent &e = g->ents[s];
+  if (e.animator < 0 || !g->anim_rts[e.animator].used) { BERR("%s: #%d icin animator yok (once teng_animator_set)", who, id); return nullptr; }
+  return &g->anim_rts[e.animator];
+}
+void teng_animator_param(int id, const char *name, double v) {
+  CALLF("teng_animator_param", "#%d %s = %.3f", id, name ? name : "", v);
+  Bridge::AnimRtSlot *rs = animator_of(id, "teng_animator_param");
+  if (!rs || !name) return;
+  const sim::AnimatorDef &d = g->anim_defs[rs->def].def;
+  const int32_t p = sim::animator_param_index(d, name);
+  if (p < 0 || d.params[p].trigger) { BERR("teng_animator_param: '%s' sayi parametresi degil / yok", name); return; }
+  sim::animator_set(d, &rs->rt, p, (float)v);
+}
+void teng_animator_trigger(int id, const char *name) {
+  CALLF("teng_animator_trigger", "#%d %s", id, name ? name : "");
+  Bridge::AnimRtSlot *rs = animator_of(id, "teng_animator_trigger");
+  if (!rs || !name) return;
+  const sim::AnimatorDef &d = g->anim_defs[rs->def].def;
+  const int32_t p = sim::animator_param_index(d, name);
+  if (p < 0 || !d.params[p].trigger) { BERR("teng_animator_trigger: '%s' tetik degil / yok", name); return; }
+  sim::animator_trigger(d, &rs->rt, p);
+}
+const char *teng_animator_state(int id) {
+  const int32_t s = slot_of(id, "teng_animator_state");
+  if (s < 0) return "";
+  const Ent &e = g->ents[s];
+  if (e.animator < 0 || !g->anim_rts[e.animator].used) return "";
+  const Bridge::AnimRtSlot &rs = g->anim_rts[e.animator];
+  return g->anim_defs[rs.def].def.states[rs.rt.cur].name;
+}
+int teng_animator_fading(int id) {
+  const int32_t s = slot_of(id, "teng_animator_fading");
+  if (s < 0) return 0;
+  const Ent &e = g->ents[s];
+  return (e.animator >= 0 && g->anim_rts[e.animator].used && g->anim_rts[e.animator].rt.prev >= 0) ? 1 : 0;
+}
+
 int teng_anim_fading(int id) {
   const int32_t s = slot_of(id, "teng_anim_fading");
   return s < 0 ? 0 : (g->ents[s].anim_prev_clip >= 0 ? 1 : 0);

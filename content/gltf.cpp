@@ -926,6 +926,37 @@ bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t cl
   return true;
 }
 
+bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose) {
+  uint32_t first = n;
+  for (uint32_t i = 0; i < n; i++) if (e[i].weight > 0.0f && e[i].clip < m.clip_count && m.clips[e[i].clip].clip && m.clips[e[i].clip].skin >= 0) { first = i; break; }
+  if (first == n) return false;
+  const int32_t skin = m.clips[e[first].clip].skin;
+  const ModelSkin &sk = m.skins[skin];
+  sim::LocalPose la{scratch.t, scratch.r, scratch.s, sk.joint_count};
+  sim::ClipSampler::sample(m.clips[e[first].clip].clip, e[first].time, la);
+  float cum = e[first].weight;
+  sim::LocalPose lb{scratch.t2, scratch.r2, scratch.s2, sk.joint_count};
+  for (uint32_t i = first + 1; i < n; i++) {
+    if (!(e[i].weight > 0.0f) || e[i].clip >= m.clip_count) continue;
+    const ModelClip &mc = m.clips[e[i].clip];
+    if (!mc.clip || mc.skin != skin) return false;                        // farkli iskelet: karisim YOK
+    sim::ClipSampler::sample(mc.clip, e[i].time, lb);
+    const float f = e[i].weight / (cum + e[i].weight);                    // kumulatif agirlikla: ilk girdiye geri donuk yanlilik yok
+    for (uint32_t j = 0; j < sk.joint_count; j++) {
+      la.t[j] = la.t[j] + (lb.t[j] - la.t[j]) * f;
+      la.s[j] = la.s[j] + (lb.s[j] - la.s[j]) * f;
+      la.r[j] = slerp(la.r[j], lb.r[j], f);
+    }
+    cum += e[i].weight;
+  }
+  sim::Skeleton skel{sk.joints, sk.joint_count};
+  sim::ClipSampler::to_model(skel, la, scratch.model);
+  sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[skin]);
+  pose->skin_mats[skin] = scratch.skin[skin];
+  pose->joint_count[skin] = sk.joint_count;
+  return true;
+}
+
 void ModelLod::set_view(Vec3 eye, Vec3 target, float fov_y) {
   camera_pos = eye;
   const Vec3 f = target - eye;

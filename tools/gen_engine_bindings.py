@@ -225,6 +225,12 @@ SPEC = [
     ("eng_set_anim", "void", [("id", "int"), ("clip", "int"), ("speed", "num"), ("loop", "flag")], "Model varligina klip atar; her kare poz degerlendirilir. clip < 0: animasyonu kapat (statik)."),
     ("eng_anim_crossfade", "void", [("id", "int"), ("clip", "int"), ("speed", "num"), ("loop", "flag"), ("fade_s", "num")], "Yumusak gecis: calan klip fade_s saniyede yenisine karisir (smoothstep). Calan klip yoksa / fade_s <= 0: eng_set_anim gibi aninda. Iki klip ayni iskelete ait olmali (degilse aninda)."),
     ("eng_anim_fading", "bool", [("id", "int")], "Gecis (eng_anim_crossfade) suruyor mu."),
+    ("eng_animator_set", "bool", [("id", "int"), ("path", "str")], "Varliga animator baglar (.animator: durum makinesi + 1B karisim + gecis kosulu; klip adlari modelden cozulur). false: hata (satir/klip adi Konsol'da). eng_set_anim / eng_anim_crossfade'i ezer."),
+    ("eng_animator_clear", "void", [("id", "int")], "Animatoru kaldirir (varlik statige / eng_set_anim'e doner)."),
+    ("eng_animator_param", "void", [("id", "int"), ("name", "str"), ("v", "num")], "Animator sayi parametresini ayarlar (orn. hiz); gecis kosullari ve 1B karisim bunu okur."),
+    ("eng_animator_trigger", "void", [("id", "int"), ("name", "str")], "Animator tetigini kurar; bir sonraki adimda ilgili gecis onu TUKETIR."),
+    ("eng_animator_state", "str", [("id", "int")], "Animatorun gecerli durum adi (\"\" yok)."),
+    ("eng_animator_fading", "bool", [("id", "int")], "Animator durum gecisi suruyor mu."),
     ("eng_anim_time", "float", [("id", "int")], "Varligin klip icindeki ani (s)."),
     ("eng_anim_done", "bool", [("id", "int")], "Dongusuz klip bitti mi."),
     # girdi

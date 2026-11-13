@@ -339,6 +339,7 @@ add_library(engine_sim STATIC
     sim/physics.cpp
     sim/navmesh.cpp
     sim/animation.cpp
+    sim/animator.cpp
     sim/ik.cpp
     sim/lag_compensation.cpp
     sim/camera_rig.cpp
@@ -519,6 +520,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_renderer.cpp
     tests/test_content.cpp
     tests/test_mesh_import.cpp
+    tests/test_animator.cpp
     tests/test_scene.cpp
     tests/test_scene_blob.cpp
     tests/test_render_graph.cpp
