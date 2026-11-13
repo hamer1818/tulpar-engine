@@ -707,12 +707,14 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
   for (struct dirent *de = ::readdir(dp); de; de = ::readdir(dp)) {
     const char *nm = de->d_name;
     if (nm[0] == '.') continue; // gizli + . / ..
-    if (!ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj")) continue;   // M2: STL/OBJ
+    const bool anim = ends_with_ci(nm, ".animator");
+    if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj")) continue;   // M2: STL/OBJ; A3: .animator
     if (std::strlen(nm) >= content::kScenePathLen) continue;
     if (n >= cap) break;
     AssetFile f;
     std::snprintf(f.name, sizeof f.name, "%s", nm);
-    for (uint32_t i = 0; i < d.asset_count; i++)
+    f.kind = anim ? AssetKind::Animator : AssetKind::Model;
+    for (uint32_t i = 0; i < d.asset_count && !anim; i++)
       if (!std::strcmp(d.assets[i], nm)) { f.in_scene = true; f.index = (int32_t)i; break; }
     uint32_t k = n; // ada gore sirali ekle: readdir sirasi dosya sistemine bagli
     while (k > 0 && std::strcmp(out[k - 1].name, f.name) > 0) { out[k] = out[k - 1]; k--; }

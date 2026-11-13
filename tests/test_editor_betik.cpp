@@ -596,3 +596,30 @@ ENGINE_TEST(editor_rehber_betik_sayfasi_kodla_uyumlu_with_control) {
   CHECK(std::strstr(m, "Davran\xC4\xB1\xC5\x9F ekle (betik)") != nullptr);    // karttaki dugmenin adi
   CHECK(std::strstr(m, "d\xC3\xBCzenleyicinizde") == nullptr);                    // eski model gitti
 }
+
+// A3: .animator canlı denetimi (Kod paneli): süreç yok, animator_parse. Sağlam tanım 0 hata; koşulsuz geçiş 3. satırda 1 hata (kırmızı şerit satırı);
+// Kaynaklar listesi .animator'ı AssetKind::Animator ile görür (kontrol: .txt görmez).
+ENGINE_TEST(editor_animator_tani_ve_kaynak_listesi) {
+  using namespace tulpar::engine::app;
+  KodPaneli::Hata h[KodPaneli::kHataMax];
+  const char *iyi = "tulpar-animator 1\ndurum a klip x\ndurum b klip y\ngecis a b sure 0.2 bitince\n";
+  CHECK(kod_animator_tani(iyi, h, KodPaneli::kHataMax) == 0);
+  const char *kotu = "tulpar-animator 1\ndurum a klip x\ngecis a a sure 1\n";
+  CHECK(kod_animator_tani(kotu, h, KodPaneli::kHataMax) == 1 && h[0].satir == 3 && std::strstr(h[0].ileti, "kosulsuz") != nullptr);
+  CHECK(kod_animator_tani("durum a klip x\n", h, KodPaneli::kHataMax) == 1 && h[0].satir == 1);   // başlık yok
+  char dir[512], yol[600];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "animator_liste"));
+  const char *adlar[] = {"k.animator", "not.txt", "m.glb"};
+  for (const char *a : adlar) { std::snprintf(yol, sizeof yol, "%s/%s", dir, a); if (std::FILE *f = std::fopen(yol, "wb")) { std::fputs("x", f); std::fclose(f); } }
+  static content::SceneDesc d;
+  content::scene_desc_reset(d);
+  AssetFile files[16];
+  const uint32_t n = editor_scan_assets(dir, d, files, 16);
+  bool anim = false, txt = false, glb = false;
+  for (uint32_t i = 0; i < n; i++) {
+    if (!std::strcmp(files[i].name, "k.animator") && files[i].kind == AssetKind::Animator) anim = true;
+    if (!std::strcmp(files[i].name, "not.txt")) txt = true;
+    if (!std::strcmp(files[i].name, "m.glb") && files[i].kind == AssetKind::Model) glb = true;
+  }
+  CHECK(anim && glb && !txt && n == 2);
+}

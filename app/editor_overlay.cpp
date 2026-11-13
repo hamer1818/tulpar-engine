@@ -670,6 +670,7 @@ static AssetStyle asset_style_for_file(const char *path) {
   const char *dot = std::strrchr(path, '.');
   if (!dot) return {"\xE2\x97\x86", "VARLIK", Tone::TextDim};
 
+  if (std::strcmp(dot, ".animator") == 0) return {"\xE2\x86\xBB", "ANIMAT\xC3\x96R", Tone::Warn};   // ↻  (A3)
   // 3B Modeller / Aglar: Model simgesi, Vurgu
   if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0) {
     return {"\xE2\x97\x86", "MODEL", Tone::Accent};

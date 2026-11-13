@@ -162,6 +162,8 @@ bool kod_imza_bul(const char *metin, const char *ad, char *imza, int cap);
 // `tulpar typecheck` ciktisi: "hata: <ileti>\n  --> dosya:SATIR\n ... | ^" ayrisma hatalari ve
 // "Tip Hatasi: <ileti> at line N" tip hatalari. Donus: yazilan kayit sayisi (cap'e kadar).
 int kod_tani_typecheck_oku(const char *log, KodPaneli::Hata *out, int cap);
+// A3: .animator canli denetimi (surec yok): sozdizimi/baglama hatasi -> 1 Hata (satir, ileti); saglamsa 0.
+int kod_animator_tani(const char *metin, KodPaneli::Hata *out, int cap);
 // `tulpar --lsp` ciktisi: publishDiagnostics (satir/sutun 0-tabanli gelir; satir 1-tabanli, sutun 0-tabanli yazilir).
 // kayma: 1. satira eklenen on ekin uzunlugu (satirda sutun bundan geri alinir).
 int kod_tani_lsp_oku(const char *log, int kayma, KodPaneli::Hata *out, int cap);

@@ -7661,8 +7661,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Once kopyala: do_add_asset listeyi yeniden tarar, isaretci bayatlar.
         char add_file[content::kScenePathLen];
         const bool betik = st.browse[act.add_index].kind == AssetKind::Script;
+        const bool animator = st.browse[act.add_index].kind == AssetKind::Animator;
         std::snprintf(add_file, sizeof add_file, "%s", st.browse[act.add_index].name);
-        if (betik) {
+        if (animator) {
+          // A3: .animator dosyasi Kod panelinde acilir (canli soz dizimi denetimi; sahneye model gibi EKLENMEZ).
+          char tam[1100];
+          std::snprintf(tam, sizeof tam, "%s/%s", st.scene_dir, add_file);
+          if (kodu_ac(nullptr, tam, 0)) set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", add_file);
+        } else if (betik) {
           // U10 B2: cift tik betigi Kod panelinde ACAR (Unity gibi). Eskiden secili varliga ATIYORDU ve icerik hic
           // gorunmuyordu (kullanici, 2026-11-11). Atama: panelde "<nesne> nesnesine ekle" ya da surukle-birak.
           if (kodu_ac(add_file, nullptr, 0)) set_status(st, "a\xC3\xA7\xC4\xB1ld\xC4\xB1: %s", add_file);

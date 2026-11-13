@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 424 fonksiyon · 808 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 424 fonksiyon · 809 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -331,7 +331,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (73 dosya, 35770 satır)
+### app — L6 (73 dosya, 35804 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -1062,11 +1062,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **808** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **809** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
-- `editor` — 125
+- `editor` — 126
 - `bridge` — 70
 - `scene` — 48
 - `renderer` — 37
@@ -1217,7 +1217,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_ebr.cpp` — 1 test
 - `tests/test_ecs_snapshot.cpp` — 2 test
 - `tests/test_editor.cpp` — 21 test
-- `tests/test_editor_betik.cpp` — 20 test
+- `tests/test_editor_betik.cpp` — 21 test
 - `tests/test_editor_camera.cpp` — 8 test
 - `tests/test_editor_chrome.cpp` — 12 test
 - `tests/test_editor_console.cpp` — 8 test

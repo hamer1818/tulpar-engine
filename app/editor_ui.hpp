@@ -207,7 +207,7 @@ private:
 // Tarayici listesi artik IKI tur tasiyor. Tur bir bayrak degil ENUM, cunku
 // davranis her yerde ayrisiyor: modeller sahneye eklenir, betikler secili
 // varliga ATANIR; surukleme yukleri bile farkli ("ASSET_FILE" / "SCRIPT_FILE").
-enum class AssetKind : uint8_t { Model, Script };
+enum class AssetKind : uint8_t { Model, Script, Animator };   // Animator: .animator (A3); cift tik Kod panelinde acar
 struct AssetFile {
   char name[content::kScenePathLen] = {0};
   bool in_scene = false; // sahnenin kaynak tablosunda kayitli mi

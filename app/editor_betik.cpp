@@ -1,4 +1,5 @@
 #include "app/editor_betik.hpp"
+#include "sim/animator.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -1196,6 +1197,19 @@ uint32_t kod_oyun_importlari(const char *m, char *out, uint32_t cap) {
   return n;
 }
 
+// A3: .animator dosyasinin canli denetimi: surec yok, animator_parse ayni karede (ms altinda). Hata satiri kirmizi seritle gosterilir.
+int kod_animator_tani(const char *metin, KodPaneli::Hata *out, int cap) {
+  sim::AnimatorDef def;
+  sim::AnimatorError er;
+  if (sim::animator_parse(metin, std::strlen(metin), &def, &er)) return 0;
+  if (cap < 1) return 0;
+  out[0] = KodPaneli::Hata{};
+  out[0].satir = er.line > 0 ? (int)er.line : 1;
+  out[0].sutun = -1;
+  std::snprintf(out[0].ileti, sizeof out[0].ileti, "%s", er.msg);
+  return 1;
+}
+
 namespace {
 // Sureci baslatir ya da biten sureci toplar. Her karede cagrilir; is yoksa O(1).
 void tani_bitir(KodPaneli &k) {
@@ -1273,6 +1287,15 @@ void tani_yurut(KodPaneli &k, uint32_t kare) {
   const uint32_t oz = kod_ozet(k.metin);
   if (k.tani_yapildi && oz == k.tani_ozet) return;
   if (k.tani_yapildi && kare - k.duzenleme_kare < 30) return; // yazarken bekle (~0.5 s)
+  {
+    const size_t yl = std::strlen(k.yol);
+    if (yl >= 9 && !std::strcmp(k.yol + yl - 9, ".animator")) {   // A3: tulpar typecheck yerine kendi ayristiricimiz
+      k.hata_n = kod_animator_tani(k.metin, k.hatalar, KodPaneli::kHataMax);
+      k.tani_ozet = oz;
+      tani_bitir(k);
+      return;
+    }
+  }
   if (!k.tani_exe[0] && !platform::process_find_in_path("tulpar", k.tani_exe, sizeof k.tani_exe)) { k.tani_yok = true; return; }
   platform::fs_mkdir_p(k.gecici_dizin);
   if (std::FILE *f = std::fopen(dosya, "wb")) { std::fwrite(k.metin, 1, std::strlen(k.metin), f); std::fclose(f); } else return;
