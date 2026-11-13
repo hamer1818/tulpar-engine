@@ -239,6 +239,9 @@ KarsilamaEylem karsilama_ciz(KarsilamaDurum &d, const char *surum, const char *c
   }
   if (ImGui::TreeNodeEx("Geli\xC5\x9Fmi\xC5\x9F", d.gelismis ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
     d.gelismis = true;
+    // Agac dugumu icerigi girintiler: dis w ile girdi kaydirma cubugunun altina tasiyordu
+    // (arayuz surucusu, 1280x720, 2026-11-13). Girintili alanin genisligi kullanilir.
+    const float w = ImGui::GetContentRegionAvail().x - st.ItemSpacing.x;
     if (girdi("Konum (tam yol)", "klas\xC3\xB6r", d.konum, sizeof d.konum, w)) d.konum_elle = true;
     if (girdi("Kimlik (dosya ve kay\xC4\xB1t ad\xC4\xB1)", "parilti_avi", d.kimlik, sizeof d.kimlik, w)) {
       d.kimlik_elle = true;
