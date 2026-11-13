@@ -54,7 +54,7 @@ def uret(eklem, ucgen):
     o_jnt = ekle(struct.pack("<%dB" % len(jnt), *jnt), 34962); o_wgt = ekle(f(wgt), 34962)
     o_idx = ekle(struct.pack("<%dI" % len(idx), *idx), 34963)
     o_ibm = ekle(f(ibm)); o_tin = ekle(f(t_in)); o_rot = ekle(f(rot))
-    veri = b"".join(x[0] for x in bolumler)
+    o_tin2 = o_rot2 = None   # 2. klip tamponlari asagida eklenir
     bv, ac = [], []
     def bview(o, hedef=None):
         d = {"buffer": 0, "byteOffset": o[0], "byteLength": o[1]}
@@ -71,6 +71,18 @@ def uret(eklem, ucgen):
     a_ibm = acc(bview(o_ibm), 5126, eklem, "MAT4")
     a_tin = acc(bview(o_tin), 5126, anahtar, "SCALAR", min=[t_in[0]], max=[t_in[-1]])
     v_rot = bview(o_rot)
+    # 2. klip "egil": 1,2 sn, X ekseni etrafinda daha genis salinim (A2 gecis denemesi: iki klip FARKLI gorunmeli)
+    sure2 = 1.2
+    t_in2 = [sure2 * k / (anahtar - 1) for k in range(anahtar)]
+    rot2 = []
+    for j in range(eklem):
+        for k in range(anahtar):
+            ang = 0.45 * math.sin(2 * math.pi * k / (anahtar - 1) + 0.15 * j)
+            rot2 += [math.sin(ang / 2), 0.0, 0.0, math.cos(ang / 2)]
+    o_tin2 = ekle(f(t_in2)); o_rot2 = ekle(f(rot2))
+    a_tin2 = acc(bview(o_tin2), 5126, anahtar, "SCALAR", min=[t_in2[0]], max=[t_in2[-1]])
+    v_rot2 = bview(o_rot2)
+    veri = b"".join(x[0] for x in bolumler)
     nodes = [{"name": "karakter", "mesh": 0, "skin": 0}]
     for j in range(eklem):
         n = {"name": "eklem_%d" % j, "translation": [0, 0 if j == 0 else h, 0]}
@@ -82,13 +94,18 @@ def uret(eklem, ucgen):
         ac.append({"bufferView": v_rot, "byteOffset": j * anahtar * 16, "componentType": 5126, "count": anahtar, "type": "VEC4"})
         ornek.append({"input": a_tin, "output": len(ac) - 1, "interpolation": "LINEAR"})
         kanallar.append({"sampler": j, "target": {"node": j + 1, "path": "rotation"}})
+    kanallar2, ornek2 = [], []
+    for j in range(eklem):
+        ac.append({"bufferView": v_rot2, "byteOffset": j * anahtar * 16, "componentType": 5126, "count": anahtar, "type": "VEC4"})
+        ornek2.append({"input": a_tin2, "output": len(ac) - 1, "interpolation": "LINEAR"})
+        kanallar2.append({"sampler": j, "target": {"node": j + 1, "path": "rotation"}})
     g = {
         "asset": {"version": "2.0", "generator": "tools/make_test_karakter.py"},
         "scene": 0, "scenes": [{"nodes": [0, 1]}],
         "nodes": nodes,
         "meshes": [{"primitives": [{"attributes": {"POSITION": a_pos, "NORMAL": a_nrm, "JOINTS_0": a_jnt, "WEIGHTS_0": a_wgt}, "indices": a_idx}]}],
         "skins": [{"joints": list(range(1, eklem + 1)), "inverseBindMatrices": a_ibm, "skeleton": 1}],
-        "animations": [{"name": "salla", "samplers": ornek, "channels": kanallar}],
+        "animations": [{"name": "salla", "samplers": ornek, "channels": kanallar}, {"name": "egil", "samplers": ornek2, "channels": kanallar2}],
         "accessors": ac, "bufferViews": bv,
         "buffers": [{"byteLength": len(veri), "uri": "data:application/octet-stream;base64," + base64.b64encode(veri).decode()}],
     }
