@@ -3,8 +3,7 @@
 # hız/yükseklik 0 yapılınca (pozitif kontrol) ikisi de yerinde kalmalı.
 tikla "duvar_guney"
 bekle 2
-kaydir "Dönüşüm (Transform)" -30
-bekle 2
+# (Davranis ekle dugmesi artik panelin EN USTUNDE: kaydirmaya gerek yok, 2026-11-13)
 tikla "Davranış ekle (betik)"
 bekle_oge "Oluştur ve duvar_guney nesnesine ekle"
 tikla "Döndür##sablon4"

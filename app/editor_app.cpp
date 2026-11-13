@@ -5842,6 +5842,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        // U10 B4 + yeni kullanici turu (2026-11-13): betik en cok aranan sey. "Ilk adimlar" karti "Ozellikler'de Davranis ekle
+        // dugmesine bas" diyor ama dugme Donusum/Model/Malzeme'nin ALTINDAydi; 720p'de kaydirmadan gorunmuyordu. Betiksiz
+        // nesnede hizli eylemlerin hemen altinda, tam genislikte.
+        if (!has_sc) {
+          ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::AccentLo, 0.55f));
+          if (ImGui::Button(ICON_MD_BOLT "  Davran\xC4\xB1\xC5\x9F ekle (betik)", ImVec2(-FLT_MIN, 0))) yeni_betik_ac(si);
+          ImGui::PopStyleColor();
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bu nesne ne yaps\xC4\xB1n? Haz\xC4\xB1r davran\xC4\xB1\xC5\x9Flardan se\xC3\xA7 ya da bo\xC5\x9F betikle ba\xC5\x9Fla.");
+          ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        }
         // Oyunun ana kodu (oyun.tpr) bu nesneyi ADIYLA yonetiyorsa EN USTTE soyle (bilesenlerin altinda kaydirmadan
         // gorunmuyordu): "oyuncu" betiksiz gorunur ama oyunda hareket eder; kullanici bu bagi goremiyordu (2026-11-12).
         {
@@ -7410,14 +7420,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         // Takili olanlari eleme isini de widget yapar (existing_components),
         // burada tek tek sormaya gerek yok.
         prop_set_filter(nullptr); // ekleme listesi ve diger paneller suzgecten etkilenmesin
-        // U10 B4: betik en cok aranan sey; "Bilesen ekle" listesinde kaybolmasin.
-        if (!has_sc) {
-          ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.6f));
-          ImGui::PushStyleColor(ImGuiCol_Button, tone(Tone::AccentLo, 0.55f));
-          if (ImGui::Button(ICON_MD_BOLT "  Davran\xC4\xB1\xC5\x9F ekle (betik)", ImVec2(-FLT_MIN, 0))) yeni_betik_ac(si);
-          ImGui::PopStyleColor();
-          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bu nesne ne yaps\xC4\xB1n? Haz\xC4\xB1r davran\xC4\xB1\xC5\x9Flardan se\xC3\xA7 ya da bo\xC5\x9F betikle ba\xC5\x9Fla.");
-        }
+        // "Davranis ekle (betik)" artik panelin EN USTUNDE (hizli eylemlerin altinda): bkz. yukari (yeni kullanici turu, 2026-11-13).
         const uint32_t add = component_add_button(kComponentMenu, kComponentMenuCount, e.components);
         if (add) { // 0 = secim yok; donus INDEKS degil BIT
           after = e;
