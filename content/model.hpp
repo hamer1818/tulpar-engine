@@ -118,6 +118,8 @@ struct ModelMesh {
   // bu surumde YOK (Model::morph_skipped sayar).
   Vec3 *morph_deltas = nullptr;
   uint32_t morph_count = 0;
+  // A5: hedef NORMAL farklari (ayni duzen); hicbir hedefte NORMAL yoksa nullptr (normaller taban kalir).
+  Vec3 *morph_normal_deltas = nullptr;
 };
 constexpr uint32_t kModelMaxMorph = 8;          // mesh basina en cok morph hedefi (asan hedefler Model::morph_dropped'a sayilir)
 constexpr uint32_t kModelMaxMorphVerts = 16384; // morph'lu mesh'in en cok kosesi (asani morph'suz yuklenir, sayilir)

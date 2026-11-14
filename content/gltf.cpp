@@ -703,14 +703,28 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
           mm.morph_deltas = arena.alloc_array_zeroed<Vec3>(nt * mm.vertex_count);
           if (!mm.morph_deltas) { set_error(out, "arena dolu (morph)", nullptr); ok = false; break; }
           for (uint32_t t = 0; t < nt; t++) {
-            const cgltf_accessor *tp = nullptr;
-            for (cgltf_size a = 0; a < prim.targets[t].attributes_count; a++)
+            const cgltf_accessor *tp = nullptr, *tn = nullptr;
+            for (cgltf_size a = 0; a < prim.targets[t].attributes_count; a++) {
               if (prim.targets[t].attributes[a].type == cgltf_attribute_type_position) tp = prim.targets[t].attributes[a].data;
-            if (!tp || tp->count != pos->count) continue;
-            for (uint32_t v = 0; v < mm.vertex_count; v++) {
-              float d[3] = {0, 0, 0};
-              cgltf_accessor_read_float(tp, v, d, 3);
-              mm.morph_deltas[t * mm.vertex_count + v] = {d[0], d[1], d[2]};
+              if (prim.targets[t].attributes[a].type == cgltf_attribute_type_normal) tn = prim.targets[t].attributes[a].data;
+            }
+            if (tp && tp->count == pos->count)
+              for (uint32_t v = 0; v < mm.vertex_count; v++) {
+                float d[3] = {0, 0, 0};
+                cgltf_accessor_read_float(tp, v, d, 3);
+                mm.morph_deltas[t * mm.vertex_count + v] = {d[0], d[1], d[2]};
+              }
+            // A5: NORMAL farki (ilk gorulen hedefte dizi ayrilir; NORMAL'siz hedef sifir fark). Taban NORMAL'i yoksa anlamsiz: atlanir.
+            if (tn && nrm && tn->count == pos->count) {
+              if (!mm.morph_normal_deltas) {
+                mm.morph_normal_deltas = arena.alloc_array_zeroed<Vec3>(nt * mm.vertex_count);
+                if (!mm.morph_normal_deltas) { set_error(out, "arena dolu (morph normal)", nullptr); ok = false; break; }
+              }
+              for (uint32_t v = 0; v < mm.vertex_count; v++) {
+                float d[3] = {0, 0, 0};
+                cgltf_accessor_read_float(tn, v, d, 3);
+                mm.morph_normal_deltas[t * mm.vertex_count + v] = {d[0], d[1], d[2]};
+              }
             }
           }
           if (!ok) break;
@@ -952,13 +966,17 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
   for (uint32_t i = 0; i < src.mesh_count; i++) {
     ModelMesh &mm = dst->meshes[i];
     const ModelMesh &sm = src.meshes[i];
-    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr; mm.morph_deltas = nullptr;
+    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr; mm.morph_deltas = nullptr; mm.morph_normal_deltas = nullptr;
     for (uint32_t k = 0; k < kModelMaxLods; k++) mm.lod_indices[k] = nullptr;
     if (sm.morph_count && sm.morph_deltas && sm.verts) {   // A5: morph her kare CPU'da karilir: taban kose + farklar kalici kopyada KALIR
       mm.verts = copy_array(keep, sm.verts, sm.vertex_count);
       mm.indices = copy_array(keep, sm.indices, sm.index_count);   // dinamik (kopya) mesh kurmak icin
       mm.morph_deltas = copy_array(keep, sm.morph_deltas, sm.morph_count * sm.vertex_count);
       if (!mm.verts || !mm.indices || !mm.morph_deltas) return false;
+      if (sm.morph_normal_deltas) {
+        mm.morph_normal_deltas = copy_array(keep, sm.morph_normal_deltas, sm.morph_count * sm.vertex_count);
+        if (!mm.morph_normal_deltas) return false;
+      }
     }
   }
   for (uint32_t i = 0; i < src.skin_count; i++) {

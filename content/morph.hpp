@@ -24,5 +24,9 @@ namespace tulpar::engine::content {
 // guncelleme, ic donguler her defasinda okuyup HEMEN yazdigi icin guvenli).
 void blend_morph_targets(const Vec3 *base_positions, uint32_t vertex_count, const Vec3 *target_deltas,
                           const float *weights, uint32_t target_count, Vec3 *out_positions);
+// A5: normal farklari (glTF hedef NORMAL). Ayni karisim + BIRIM uzunluga normalize; sifira inen normal (karsit delta) tabanda kalir
+// (NaN golgelendirme yerine). target_deltas == nullptr: cikti = taban.
+void blend_morph_normals(const Vec3 *base_normals, uint32_t vertex_count, const Vec3 *target_deltas, const float *weights,
+                         uint32_t target_count, Vec3 *out_normals);
 
 } // namespace tulpar::engine::content

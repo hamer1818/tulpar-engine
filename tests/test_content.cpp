@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "content/gltf.hpp"
+#include "content/morph.hpp"
 #include "content/ktx2.hpp"
 
 #include <stb_image.h>
@@ -2232,6 +2233,29 @@ ENGINE_TEST(content_morph_klibi_weights_kanali) {
   CHECK(content::model_clip_morph_weights(k, 0, 0.5f, 0, w) == 2 && std::fabs(w[0] - 0.5f) < 1e-4f);
   CHECK(asset_path(path, sizeof path, "morph_kup.gltf") && content::gltf_load(sys, path, &duz));
   CHECK(duz.clip_count == 0 && duz.meshes[0].morph_count == 2);       // KONTROL
+  // A5 normal farki: hedef 0'da (0,1,0) - n, hedef 1'de NORMAL yok -> sifir. w0 = 1: butun normaller yukari, birim.
+  // KONTROL: normalsiz morph_kup'ta dizi yok (taban normal kalir), compact diziyi tasir.
+  CHECK(m.meshes[0].morph_normal_deltas != nullptr && duz.meshes[0].morph_normal_deltas == nullptr);
+  CHECK(k.meshes[0].morph_normal_deltas != nullptr && k.meshes[0].morph_normal_deltas != m.meshes[0].morph_normal_deltas);
+  static Vec3 bn[8], on[8];
+  for (uint32_t v = 0; v < 8; v++) {
+    bn[v] = m.meshes[0].verts[v].nrm;
+    const Vec3 d1 = m.meshes[0].morph_normal_deltas[8 + v];
+    CHECK(d1.x == 0 && d1.y == 0 && d1.z == 0);
+  }
+  const float w10[2] = {1.0f, 0.0f}, w01[2] = {0.0f, 1.0f}, wyari[2] = {0.5f, 0.0f};
+  content::blend_morph_normals(bn, 8, m.meshes[0].morph_normal_deltas, w10, 2, on);
+  for (uint32_t v = 0; v < 8; v++) CHECK(std::fabs(on[v].x) < 1e-5f && std::fabs(on[v].y - 1.0f) < 1e-5f && std::fabs(on[v].z) < 1e-5f);
+  content::blend_morph_normals(bn, 8, m.meshes[0].morph_normal_deltas, w01, 2, on);   // normalsiz hedef: taban
+  for (uint32_t v = 0; v < 8; v++) CHECK(std::fabs(on[v].x - bn[v].x) < 1e-6f && std::fabs(on[v].y - bn[v].y) < 1e-6f);
+  content::blend_morph_normals(bn, 8, m.meshes[0].morph_normal_deltas, wyari, 2, on);  // ara: birim uzunluk
+  for (uint32_t v = 0; v < 8; v++) CHECK(std::fabs(on[v].x * on[v].x + on[v].y * on[v].y + on[v].z * on[v].z - 1.0f) < 1e-5f);
+  // Sifira inen normal (karsit delta) tabanda kalir, NaN yok.
+  const Vec3 tn[1] = {{0, 0, 1}}, td[1] = {{0, 0, -1}};
+  Vec3 tc[1];
+  const float w1[1] = {1.0f};
+  content::blend_morph_normals(tn, 1, td, w1, 1, tc);
+  CHECK(tc[0].x == 0 && tc[0].y == 0 && tc[0].z == 1);
 }
 
 // A5: renderer dinamik mesh (kare basina ayri host-gorunur tampon). Cihaz kapisi (Mali dahil): kurma + her karede guncelleme calisir, mesh sayisi

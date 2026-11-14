@@ -4,7 +4,8 @@
   hedef 1 'genislet': tum kosenin x'i isaretine gore +0.5 (genislik 1 -> 2)
 Iskeletsiz (A5 yalniz iskeletsiz mesh'te morph yapar). Tekrar uretilebilir (belirlenimli): python3 tools/make_test_morph.py
 Ayrica tests/assets/morph_kup_anim.gltf: ayni kup + iskeletsiz 'nefes' klibi (glTF `weights` kanali, LINEAR, 2 s):
-  t=0 [0, 0] -> t=1 [1, 0.5] -> t=2 [0, 0]. morph_kup.gltf bayt bayt ayni kalir (klipsiz kapilar ona bagli)."""
+  t=0 [0, 0] -> t=1 [1, 0.5] -> t=2 [0, 0]. Hedef 0'da NORMAL farki da var: (0,1,0) - n (w=1'de butun normaller yukari).
+morph_kup.gltf bayt bayt ayni kalir (klipsiz/normalsiz kapilar ona bagli)."""
 import base64, json, struct, sys, os
 
 h = 0.5
@@ -61,14 +62,19 @@ import copy
 buf2 = bytearray(buf)
 o_t = len(buf2); buf2.extend(struct.pack("<3f", 0.0, 1.0, 2.0))
 o_w = len(buf2); buf2.extend(struct.pack("<6f", 0.0, 0.0, 1.0, 0.5, 0.0, 0.0))
+o_dn = len(buf2)
+for n in N: buf2.extend(struct.pack("<3f", -n[0], 1.0 - n[1], -n[2]))
 g2 = copy.deepcopy(g)
 g2["asset"]["generator"] = "tulpar-engine tools/make_test_morph.py (anim)"
-g2["bufferViews"] += [{"buffer": 0, "byteOffset": o_t, "byteLength": 12}, {"buffer": 0, "byteOffset": o_w, "byteLength": 24}]
+g2["bufferViews"] += [{"buffer": 0, "byteOffset": o_t, "byteLength": 12}, {"buffer": 0, "byteOffset": o_w, "byteLength": 24},
+                      {"buffer": 0, "byteOffset": o_dn, "byteLength": 96}]
 nv = len(g2["bufferViews"])
-g2["accessors"] += [{"bufferView": nv - 2, "componentType": 5126, "count": 3, "type": "SCALAR", "min": [0.0], "max": [2.0]},
-                    {"bufferView": nv - 1, "componentType": 5126, "count": 6, "type": "SCALAR"}]
+g2["accessors"] += [{"bufferView": nv - 3, "componentType": 5126, "count": 3, "type": "SCALAR", "min": [0.0], "max": [2.0]},
+                    {"bufferView": nv - 2, "componentType": 5126, "count": 6, "type": "SCALAR"},
+                    {"bufferView": nv - 1, "componentType": 5126, "count": 8, "type": "VEC3"}]
 na = len(g2["accessors"])
-g2["animations"] = [{"name": "nefes", "samplers": [{"input": na - 2, "output": na - 1, "interpolation": "LINEAR"}],
+g2["meshes"][0]["primitives"][0]["targets"][0]["NORMAL"] = na - 1
+g2["animations"] = [{"name": "nefes", "samplers": [{"input": na - 3, "output": na - 2, "interpolation": "LINEAR"}],
                      "channels": [{"sampler": 0, "target": {"node": 0, "path": "weights"}}]}]
 g2["buffers"] = [{"byteLength": len(buf2), "uri": "data:application/octet-stream;base64," + base64.b64encode(bytes(buf2)).decode()}]
 out2 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "assets", "morph_kup_anim.gltf")

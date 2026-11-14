@@ -900,7 +900,7 @@ static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
 // clip >= 0: klibin `weights` izi olan mesh'te izin agirliklari teng_morph_weight'inkini EZER (klip calarken yuz klibin); izi olmayan mesh'te elle verilen kalir.
 static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, int32_t clip = -1, float clip_t = 0.0f) {
   static renderer::Vertex vv[content::kModelMaxMorphVerts];
-  static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts];
+  static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts], basen[content::kModelMaxMorphVerts];
   for (uint32_t i = 0; i < mdl.mesh_count && i < Bridge::kMorphSlotMeshes; i++) {
     const content::ModelMesh &mm = mdl.meshes[i];
     if (!mm.morph_count || !mm.morph_deltas || !mm.verts) continue;
@@ -914,6 +914,11 @@ static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot 
     }
     content::blend_morph_targets(base, mm.vertex_count, mm.morph_deltas, w, mm.morph_count, outp);
     for (uint32_t v = 0; v < mm.vertex_count; v++) vv[v].pos = outp[v];
+    if (mm.morph_normal_deltas) {   // A5: hedef normal farki varsa normaller de karilir (yoksa taban normal kalir)
+      for (uint32_t v = 0; v < mm.vertex_count; v++) basen[v] = mm.verts[v].nrm;
+      content::blend_morph_normals(basen, mm.vertex_count, mm.morph_normal_deltas, w, mm.morph_count, outp);
+      for (uint32_t v = 0; v < mm.vertex_count; v++) vv[v].nrm = outp[v];
+    }
     if (b.ren.update_dynamic_mesh(ms.meshes[i], vv, mm.vertex_count)) b.morph_updates++;
   }
 }
