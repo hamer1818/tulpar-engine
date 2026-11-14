@@ -1,4 +1,5 @@
 #include "content/scene.hpp"
+#include "content/poly.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -76,7 +77,7 @@ struct Tok {
 // satir). Tavan bir GUVENLIK siniri, bicim kurali degil: her satirin kendi
 // jeton sayisi zaten ayri ayri denetleniyor, o yuzden buyutmek bir satiri
 // sessizce kabul ettirmez — yalniz "fazla jeton" hatasinin esigini kaldirir.
-constexpr size_t kMaxTok = 16;
+constexpr size_t kMaxTok = 72; // P2: `cokgen h n x z x z ...` en cok 3 + 64 jeton
 
 // Satiri bosluklardan boler; "..." tek jeton (kacis yok, cift tirnak ad icinde olamaz).
 // Donus: jeton sayisi; *bad = kapanmamis tirnak / fazla jeton.
@@ -346,6 +347,11 @@ void write_entity(Out &o, const SceneEntity &e) {
     o.puts("  voksel "); o.num(e.voxel_size_x); o.ch(' '); o.num(e.voxel_size_y); o.ch(' ');
     o.num(e.voxel_size_z); o.ch(' '); o.num(e.voxel_cell); o.ch('\n');
   }
+  if (e.components & kScenePoly) {
+    o.puts("  cokgen "); o.num(e.poly_h); o.ch(' '); o.num(e.poly_n);
+    for (uint32_t i = 0; i < e.poly_n && i < kScenePolyMaxPoints; i++) { o.ch(' '); o.num(e.poly_pts[2 * i]); o.ch(' '); o.num(e.poly_pts[2 * i + 1]); }
+    o.ch('\n');
+  }
   if (e.components & kSceneWater) {
     o.puts("  su "); o.num(e.wave_length); o.ch(' '); o.num(e.wave_amplitude); o.ch(' ');
     o.num(e.wave_steepness); o.ch(' '); o.num(e.wave_speed); o.ch(' '); o.vec2(e.wave_direction); o.ch('\n');
@@ -447,6 +453,10 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
     if (a.voxel_size_x != b.voxel_size_x || a.voxel_size_y != b.voxel_size_y || a.voxel_size_z != b.voxel_size_z ||
         !feq(a.voxel_cell, b.voxel_cell))
       return false;
+  }
+  if (c & kScenePoly) {
+    if (a.poly_n != b.poly_n || !feq(a.poly_h, b.poly_h)) return false;
+    for (uint32_t i = 0; i < a.poly_n * 2 && i < 2 * kScenePolyMaxPoints; i++) if (!feq(a.poly_pts[i], b.poly_pts[i])) return false;
   }
   if (c & kSceneWater) {
     if (!feq(a.wave_length, b.wave_length) || !feq(a.wave_amplitude, b.wave_amplitude) ||
@@ -874,6 +884,18 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
             !p.num(t[4], &cur.voxel_cell))
           return false;
         seen_comp |= kSceneVoxel;
+      } else if (tok_is(t[0], "cokgen")) {
+        if (n < 3 || (seen_comp & kScenePoly)) return p.fail("cokgen yukseklik n x z x z ... (bir kez)");
+        uint32_t pn = 0;
+        if (!p.num(t[1], &cur.poly_h) || !p.uint(t[2], &pn)) return false;
+        if (pn < 3 || pn > kScenePolyMaxPoints) return p.fail("cokgen nokta sayisi 3..32 olmali");
+        if (n != 3 + 2 * (size_t)pn) return p.fail("cokgen: nokta sayisi ile x z cift sayisi uyusmuyor");
+        if (!(cur.poly_h >= 0.0f) || cur.poly_h > 10000.0f) return p.fail("cokgen yuksekligi 0..10000 olmali");
+        for (uint32_t i = 0; i < pn; i++)
+          if (!p.num(t[3 + 2 * i], &cur.poly_pts[2 * i]) || !p.num(t[4 + 2 * i], &cur.poly_pts[2 * i + 1])) return false;
+        if (!(poly_area(cur.poly_pts, pn) > 1e-9f)) return p.fail("cokgen alani sifir (ya da gecersiz nokta)");
+        cur.poly_n = pn;
+        seen_comp |= kScenePoly;
       } else if (tok_is(t[0], "su")) {
         if (n != 7 || (seen_comp & kSceneWater)) return p.fail("su dalga_boyu genlik sivrilik hiz dx dy (bir kez)");
         if (!p.num(t[1], &cur.wave_length) || !p.num(t[2], &cur.wave_amplitude) || !p.num(t[3], &cur.wave_steepness) ||
@@ -1389,7 +1411,14 @@ SceneBounds scene_entity_local_bounds(const SceneEntity &e, const SceneBounds *m
   // nesnenin ustune tiklar, hicbir sey secilmez.
   // YAKLASIM: silindir/koni gibi bazi ureteclerin y ekseni 1 birime kadar
   // cikar; secim kutusu o durumda gercek geometriden kucuktur.
-  if ((e.components & kSceneModel) && e.primitive >= 0) grow({-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f});
+  if (e.components & kScenePoly) {   // P2: cokgenin gercek siniri (y 0..poly_h)
+    float lx = 1e30f, lz = 1e30f, hx = -1e30f, hz = -1e30f;
+    for (uint32_t i = 0; i < e.poly_n && i < kScenePolyMaxPoints; i++) {
+      lx = std::fmin(lx, e.poly_pts[2 * i]); hx = std::fmax(hx, e.poly_pts[2 * i]);
+      lz = std::fmin(lz, e.poly_pts[2 * i + 1]); hz = std::fmax(hz, e.poly_pts[2 * i + 1]);
+    }
+    if (hx >= lx) grow({lx, 0.0f, lz}, {hx, e.poly_h, hz});
+  } else if ((e.components & kSceneModel) && e.primitive >= 0) grow({-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f});
   else if ((e.components & kSceneModel) && model) grow(model->lo, model->hi);
   if (e.components & kSceneBody) {
     if (e.shape == SceneShape::Box) grow(e.half * -1.0f, e.half);

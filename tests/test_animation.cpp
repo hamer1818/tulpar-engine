@@ -294,6 +294,41 @@ ENGINE_TEST(anim_olcum_karakter_butcesi) {
     }
     std::printf("    [olcum]  60 eklem: 200 karakter GECIS SIRASINDA (2 klip + slerp) %.3f ms\n", en_iyi);
   }
+  {
+    // A3: karisim agaci gecisi: 4 klip ornekle + ardisik slerp (model_pose_mix'in yaptigi is) + animator guncellemesi dahil DEGIL (ihmal edilir).
+    Vec3 t1[BJ], s1[BJ], t2[BJ], s2[BJ];
+    Quat r1[BJ], r2[BJ];
+    Mat4 model[BJ], skin[BJ];
+    LocalPose pa{t1, r1, s1, 60}, pb{t2, r2, s2, 60};
+    Skeleton sk{f->joints, 60};
+    double en_iyi = 1e9;
+    for (int tur = 0; tur < 7; tur++) {
+      auto a0 = std::chrono::steady_clock::now();
+      float acc = 0;
+      for (uint32_t c = 0; c < 200; c++) {
+        ClipSampler::sample(f->clip60, 0.1f + c * 0.0173f, pa);
+        float cum = 0.25f;
+        for (int k = 1; k < 4; k++) {
+          ClipSampler::sample(f->clip60, 0.3f * (float)k + c * 0.0131f, pb);
+          const float fk = 0.25f / (cum + 0.25f);
+          for (uint32_t j = 0; j < 60; j++) {
+            pa.t[j] = pa.t[j] + (pb.t[j] - pa.t[j]) * fk;
+            pa.s[j] = pa.s[j] + (pb.s[j] - pa.s[j]) * fk;
+            pa.r[j] = slerp(pa.r[j], pb.r[j], fk);
+          }
+          cum += 0.25f;
+        }
+        ClipSampler::to_model(sk, pa, model);
+        ClipSampler::skin_matrices(model, f->inv, 60, skin);
+        acc += skin[59].m[3][0];
+      }
+      auto b0 = std::chrono::steady_clock::now();
+      test::escape(&acc);
+      const double ms = std::chrono::duration<double, std::milli>(b0 - a0).count();
+      if (tur >= 2 && ms < en_iyi) en_iyi = ms;
+    }
+    std::printf("    [olcum]  60 eklem: 200 karakter 4 KLIP KARISIMI (animator gecisi + karisim agaci) %.3f ms\n", en_iyi);
+  }
   std::printf("    [olcum] (masaustu CPU, tek parcacik, sample+to_model+skin; mobil icin iddia YOK)\n");
   CHECK(ilk60 > 0.0 && son60 > ilk60 * 8.0);               // 20x iş > 8x süre: ölçüm gerçekten ölçeklenir (kontrol)
   Vec3 t[BJ], s[BJ];

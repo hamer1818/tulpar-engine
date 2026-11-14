@@ -1,0 +1,27 @@
+# M1 (tools/arayuz_kapi.sh, --size 1280x720: sag tik Kaynaklar karosunun koordinatinda): Kaynaklar > karoya sag tik >
+# "Ice aktarma ayarlari" penceresi; Birim cm -> boyut 100 kat kuculur (canli onizleme, kaydetmeden), Kaydet ayar dosyasini
+# yazar (betik dosya icerigini ayrica denetler). A7: "Ozel LOD mesafesi" 24/34 alanlarini acar ve dosyaya yazilir (kup LOD'suz:
+# bilgi satiri); Istatistik Basit kipte iskeletli cizim (skin_tube) varken "Karakter yuku" satirini gosterir. POZITIF KONTROL: degisiklikten ONCE boyut 1 m ve "kayıtlı".
+tikla "Kaynaklar"
+bekle 3
+sag_tikla 70 625
+tikla "aktarma ayarları"
+dogrula_metin "İçe aktarma: checker_cube.gltf"
+dogrula_metin "boyut 1.000 × 1.000 × 1.000 m"
+dogrula_metin "kayıtlı"
+tikla "metre (m)" pencere=model_ayar
+tikla "santimetre (cm)"
+dogrula_metin "boyut 0.010 × 0.010 × 0.010 m"
+dogrula_metin "kaydedilmedi"
+metin_yok "LOD1 mesafesi"
+# "Ozel LOD mesafesi" kutusu: prop satirinda kutu ##v, etikete tik isaretlemez -> koordinat (1280x720)
+tikla 275 265
+dogrula_metin "LOD1 mesafesi"
+dogrula_metin "Bu modelde LOD seviyesi yok"
+ekran model_ayar
+tikla "Kaydet" pencere=model_ayar
+dogrula_metin "model ayarı kaydedildi: checker_cube.gltf.ayar"
+dogrula_metin "kayıtlı"
+tikla "İstatistik"
+dogrula_metin "Karakter yükü:"
+cik

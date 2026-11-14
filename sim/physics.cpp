@@ -23,6 +23,8 @@
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -690,6 +692,38 @@ BodyId Physics::add_box(Vec3 half, Vec3 pos, Quat rot, bool dynamic) {
 BodyId Physics::add_sphere(float radius, Vec3 pos, bool dynamic) {
   JPH::ShapeRefC shape = new JPH::SphereShape(radius);
   return add_body(impl_, shape, pos, Quat::identity(), dynamic);
+}
+
+BodyId Physics::add_static_convex_parts(const Vec3 *pts, const uint32_t *part_n, uint32_t parts) {
+  if (!impl_ || !pts || !part_n || parts == 0) return BodyId{};
+  // Kabuk konveks yarıçapı 0: çokgen keskin kenarlı seviye geometrisi; varsayılan 0.05 m köşeleri yuvarlar ve ince
+  // (h küçük) çokgende kabuğu reddettirir.
+  auto hull = [&](const Vec3 *p, uint32_t n) -> JPH::ShapeRefC {
+    if (n < 4) return nullptr;
+    JPH::Array<JPH::Vec3> v;
+    v.reserve(n);
+    for (uint32_t i = 0; i < n; i++) v.push_back(to_jph(p[i]));
+    JPH::ConvexHullShapeSettings hs(v, 0.0f);
+    JPH::ShapeSettings::ShapeResult r = hs.Create();
+    return r.IsValid() ? r.Get() : nullptr;
+  };
+  JPH::ShapeRefC shape;
+  if (parts == 1) {
+    shape = hull(pts, part_n[0]);
+  } else {
+    JPH::StaticCompoundShapeSettings cs;
+    uint32_t off = 0;
+    for (uint32_t k = 0; k < parts; k++) {
+      JPH::ShapeRefC h = hull(pts + off, part_n[k]);
+      if (!h) return BodyId{};
+      cs.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), h);
+      off += part_n[k];
+    }
+    JPH::ShapeSettings::ShapeResult r = cs.Create();
+    if (r.IsValid()) shape = r.Get();
+  }
+  if (!shape) return BodyId{};
+  return add_body(impl_, shape, Vec3{0, 0, 0}, Quat::identity(), false);
 }
 
 void Physics::remove(BodyId id) {

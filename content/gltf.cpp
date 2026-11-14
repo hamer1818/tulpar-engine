@@ -1,6 +1,8 @@
 #include "content/gltf.hpp"
 #include "content/cluster_dag.hpp"
 #include "content/meshopt.hpp"
+#include "content/mesh_import.hpp"
+#include "content/model_import.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -14,6 +16,7 @@
 namespace tulpar::engine::content {
 
 namespace {
+constexpr uint32_t kSkinLodMinTris = 1500;   // A7: iskeletli LOD yalniz bu ucgen sayisindan buyuk mesh'lere
 void set_error(Model *m, const char *what, const char *detail) {
   std::snprintf(m->error, sizeof m->error, "%s%s%s", what, detail ? ": " : "", detail ? detail : "");
 }
@@ -164,6 +167,46 @@ void eval_channel(const cgltf_animation_sampler &sm, float t, int comps, float *
   }
   for (int i = 0; i < comps; i++) out[i] = a[i] + (b[i] - a[i]) * u;
 }
+// A5: `weights` kanali: cikis SCALAR, anahtar basina nt_full deger (kubikte 3 x: giris teget, deger, cikis teget). Yalniz ilk nt yazilir.
+void eval_weights(const cgltf_animation_sampler &sm, float t, uint32_t nt_full, uint32_t nt, float *out) {
+  const cgltf_accessor *in = sm.input, *ov = sm.output;
+  const uint32_t n = (uint32_t)in->count;
+  for (uint32_t j = 0; j < nt; j++) out[j] = 0.0f;
+  if (n == 0 || nt_full == 0) return;
+  const uint32_t stride = sm.interpolation == cgltf_interpolation_type_cubic_spline ? 3 : 1, mid = stride == 3 ? 1 : 0;
+  auto read = [&](uint32_t k, float *v) {
+    for (uint32_t j = 0; j < nt; j++) {
+      v[j] = 0.0f;
+      const cgltf_size el = (cgltf_size)((k * stride + mid) * nt_full + j);
+      if (el < ov->count) cgltf_accessor_read_float(ov, el, &v[j], 1);
+    }
+  };
+  float t0 = 0, t1 = 0;
+  cgltf_accessor_read_float(in, 0, &t0, 1);
+  if (t <= t0 || n == 1) { read(0, out); return; }
+  cgltf_accessor_read_float(in, n - 1, &t1, 1);
+  if (t >= t1) { read(n - 1, out); return; }
+  uint32_t lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const uint32_t mi = (lo + hi) / 2;
+    float tm = 0;
+    cgltf_accessor_read_float(in, mi, &tm, 1);
+    if (tm <= t) lo = mi; else hi = mi;
+  }
+  float ta = 0, tb = 0, a[kModelMaxMorph], b[kModelMaxMorph];
+  cgltf_accessor_read_float(in, lo, &ta, 1);
+  cgltf_accessor_read_float(in, lo + 1, &tb, 1);
+  read(lo, a);
+  if (sm.interpolation == cgltf_interpolation_type_step) { for (uint32_t j = 0; j < nt; j++) out[j] = a[j]; return; }
+  read(lo + 1, b);
+  const float u = tb > ta ? (t - ta) / (tb - ta) : 0.0f;
+  for (uint32_t j = 0; j < nt; j++) out[j] = a[j] + (b[j] - a[j]) * u;
+}
+uint32_t mesh_target_count(const cgltf_mesh &me) {
+  if (me.weights_count) return (uint32_t)me.weights_count;
+  return me.primitives_count ? (uint32_t)me.primitives[0].targets_count : 0;
+}
+
 int32_t skin_of_node(const cgltf_data *d, const cgltf_node *node, int32_t *joint_index) {
   for (cgltf_size s = 0; s < d->skins_count; s++)
     for (cgltf_size j = 0; j < d->skins[s].joints_count; j++)
@@ -192,7 +235,42 @@ void extend_bounds(Model *out, const Mat4 &world, const renderer::Vertex *v, uin
 }
 } // namespace
 
+namespace {
+bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits &lim);
+}
+// M1: tek giris. Ayar dosyasi (`<yol>.ayar`, content/model_import.hpp) okunur, bicim ayarsiz (dokunulmamis) yuklenir, sonra C
+// instance'lara uygulanir. STL'nin M2 varsayilani (Z-yukari, 1 m, taban) artik ayarin VARSAYILANI: ayni sonuc, tek yol.
 bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
+  ModelImportSettings ayar;
+  bool var = false;
+  char hata_metni[160] = {0};
+  if (!model_import_load(path, &ayar, &var, hata_metni, sizeof hata_metni)) {
+    *out = Model{};
+    std::snprintf(out->error, sizeof out->error, "%s", hata_metni);
+    return false;
+  }
+  if (!gltf_load_file(arena, path, out, lim)) return false;
+  model_import_apply(*out, ayar);
+  return true;
+}
+namespace {
+bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
+  // M2: uzantiya gore yonlendirme (.stl / .obj -> content/mesh_import.cpp, ayni Model yapisi). Bridge, sahne calisma zamani ve editorun
+  // tum cagri noktalari gltf_load'u kullandigi icin onlara dokunulmaz.
+  if (path) {
+    const size_t pl = std::strlen(path);
+    auto bit = [&](const char *ek) {
+      const size_t el = std::strlen(ek);
+      if (pl < el) return false;
+      for (size_t i = 0; i < el; i++) { char c = path[pl - el + i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ek[i]) return false; }
+      return true;
+    };
+    // Ayarsiz (dokunulmamis) yukleme: eksen/olcek/pivot gltf_load'da model_import_apply ile (instance matrisi).
+    MeshImportOptions ham;
+    ham.z_up = false; ham.fit_size = 0.0f; ham.scale = 1.0f; ham.ground_pivot = false;
+    if (bit(".stl")) return stl_load(arena, path, out, lim, &ham);
+    if (bit(".obj")) return obj_load(arena, path, out, lim, &ham);
+  }
   *out = Model{};
   cgltf_options opt{};
   cgltf_data *data = nullptr;
@@ -456,13 +534,51 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
       const cgltf_size nk = ch.sampler->input->count;
       if (nk) { float tl = 0; cgltf_accessor_read_float(ch.sampler->input, nk - 1, &tl, 1); if (tl > duration) duration = tl; }
     }
-    if (skin_idx < 0 || (uint32_t)skin_idx >= nskin || duration <= 0) continue; // iskelete bagli degil: atla (bilgi)
-    const ModelSkin &ms = out->skins[skin_idx];
-    const cgltf_skin &sk = data->skins[skin_idx];
-    const uint32_t jc = ms.joint_count;
+    // A5: `weights` kanallari (morph'lu mesh'i olan dugum). Iskeletsiz klip yalniz bunlarla gecerli.
+    uint32_t wch = 0;
+    for (cgltf_size c = 0; c < an.channels_count; c++) {
+      const cgltf_animation_channel &ch = an.channels[c];
+      if (ch.target_path == cgltf_animation_path_type_weights && ch.sampler && ch.sampler->input && ch.sampler->output && ch.target_node &&
+          ch.target_node->mesh && mesh_target_count(*ch.target_node->mesh))
+        wch++;
+    }
+    const bool skin_ok = skin_idx >= 0 && (uint32_t)skin_idx < nskin;
+    if ((!skin_ok && wch == 0) || duration <= 0) continue; // ne iskelete ne morph'a bagli: atla (bilgi)
     const float rate = lim.clip_sample_rate > 0 ? lim.clip_sample_rate : 30.0f;
     uint32_t samples = (uint32_t)(duration * rate) + 1;
     if (samples < 2) samples = 2;
+    ModelClip &mc = out->clips[cn];
+    if (an.name) std::snprintf(mc.name, sizeof mc.name, "%s", an.name);
+    mc.duration = (float)(samples - 1) / rate;
+    mc.sample_rate = rate;
+    mc.skin = -1;
+    if (wch) {
+      if (wch > kModelMaxMorphTracks) { out->morph_tracks_dropped += wch - kModelMaxMorphTracks; wch = kModelMaxMorphTracks; }
+      mc.morph_tracks = arena.alloc_array_zeroed<ModelMorphTrack>(wch);
+      if (!mc.morph_tracks) { set_error(out, "arena dolu (morph izi)", nullptr); ok = false; break; }
+      for (cgltf_size c = 0; c < an.channels_count && mc.morph_track_count < wch; c++) {
+        const cgltf_animation_channel &ch = an.channels[c];
+        if (ch.target_path != cgltf_animation_path_type_weights || !ch.sampler || !ch.sampler->input || !ch.sampler->output || !ch.target_node ||
+            !ch.target_node->mesh)
+          continue;
+        const uint32_t nt_full = mesh_target_count(*ch.target_node->mesh);
+        if (!nt_full) continue;
+        const uint32_t nt = nt_full < kModelMaxMorph ? nt_full : kModelMaxMorph;
+        ModelMorphTrack &tr = mc.morph_tracks[mc.morph_track_count];
+        tr.gltf_mesh = (int32_t)(ch.target_node->mesh - data->meshes);
+        tr.weight_count = nt;
+        tr.samples = samples;
+        tr.w = arena.alloc_array<float>(samples * nt);
+        if (!tr.w) { set_error(out, "arena dolu (morph izi)", nullptr); ok = false; break; }
+        for (uint32_t i = 0; i < samples; i++) eval_weights(*ch.sampler, (float)i / rate, nt_full, nt, tr.w + i * nt);
+        mc.morph_track_count++;
+      }
+      if (!ok) break;
+    }
+    if (!skin_ok) { cn++; continue; }   // yalniz morph izli klip
+    const ModelSkin &ms = out->skins[skin_idx];
+    const cgltf_skin &sk = data->skins[skin_idx];
+    const uint32_t jc = ms.joint_count;
     sim::RawTrack *tracks = arena.alloc_array_zeroed<sim::RawTrack>(jc);
     Vec3 *tt = arena.alloc_array<Vec3>(jc * samples);
     Quat *rr = arena.alloc_array<Quat>(jc * samples);
@@ -493,10 +609,7 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
     }
     sim::RawClip raw;
     raw.tracks = tracks; raw.joints = jc; raw.samples = samples; raw.sample_rate = rate;
-    ModelClip &mc = out->clips[cn];
-    if (an.name) std::snprintf(mc.name, sizeof mc.name, "%s", an.name);
     mc.skin = skin_idx;
-    mc.duration = (float)(samples - 1) / rate;
     mc.clip = sim::ClipBuilder::build(arena, raw, 1e-5f, &mc.stats);
     if (!mc.clip) { set_error(out, "klip sikistirma", an.name); ok = false; break; }
     cn++;
@@ -579,12 +692,56 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
           }
         }
       }
-      if (mm.skin < 0 && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { set_error(out, "arena dolu (meshopt)", nullptr); ok = false; break; }
-      if (mm.skin < 0 && lim.lods) {
-        const float ratios[kModelMaxLods] = {0.5f, 0.25f};
-        if (!mesh_build_lods(arena, mm, ratios, kModelMaxLods, lim.lod_error)) { set_error(out, "arena dolu (lod)", nullptr); ok = false; break; }
+      // A5: morph hedefleri (POSITION/NORMAL farki). Morph'lu mesh'te meshopt/LOD/DAG atlanir (kose sirasi korunmali). Iskeletli mesh'te de
+      // (yuz animasyonu): farklar BIND uzayinda tabana eklenir, sonra GPU deri giydirir (glTF sirasi: morph -> skin).
+      if (prim.targets_count > 0) {
+        if (mm.vertex_count > kModelMaxMorphVerts) out->morph_meshes_dropped++;
+        else {
+          // Hedef t = glTF weights[t]: POSITION'u olmayan hedef SIFIR fark olur (indeks kaymasin).
+          const uint32_t nt = (uint32_t)(prim.targets_count < kModelMaxMorph ? prim.targets_count : kModelMaxMorph);
+          if (prim.targets_count > kModelMaxMorph) out->morph_dropped += (uint32_t)(prim.targets_count - kModelMaxMorph);
+          mm.morph_deltas = arena.alloc_array_zeroed<Vec3>(nt * mm.vertex_count);
+          if (!mm.morph_deltas) { set_error(out, "arena dolu (morph)", nullptr); ok = false; break; }
+          for (uint32_t t = 0; t < nt; t++) {
+            const cgltf_accessor *tp = nullptr, *tn = nullptr;
+            for (cgltf_size a = 0; a < prim.targets[t].attributes_count; a++) {
+              if (prim.targets[t].attributes[a].type == cgltf_attribute_type_position) tp = prim.targets[t].attributes[a].data;
+              if (prim.targets[t].attributes[a].type == cgltf_attribute_type_normal) tn = prim.targets[t].attributes[a].data;
+            }
+            if (tp && tp->count == pos->count)
+              for (uint32_t v = 0; v < mm.vertex_count; v++) {
+                float d[3] = {0, 0, 0};
+                cgltf_accessor_read_float(tp, v, d, 3);
+                mm.morph_deltas[t * mm.vertex_count + v] = {d[0], d[1], d[2]};
+              }
+            // A5: NORMAL farki (ilk gorulen hedefte dizi ayrilir; NORMAL'siz hedef sifir fark). Taban NORMAL'i yoksa anlamsiz: atlanir.
+            if (tn && nrm && tn->count == pos->count) {
+              if (!mm.morph_normal_deltas) {
+                mm.morph_normal_deltas = arena.alloc_array_zeroed<Vec3>(nt * mm.vertex_count);
+                if (!mm.morph_normal_deltas) { set_error(out, "arena dolu (morph normal)", nullptr); ok = false; break; }
+              }
+              for (uint32_t v = 0; v < mm.vertex_count; v++) {
+                float d[3] = {0, 0, 0};
+                cgltf_accessor_read_float(tn, v, d, 3);
+                mm.morph_normal_deltas[t * mm.vertex_count + v] = {d[0], d[1], d[2]};
+              }
+            }
+          }
+          if (!ok) break;
+          mm.morph_count = nt;
+        }
       }
-      if (mm.skin < 0 && lim.cluster_dag) {
+      if (mm.skin < 0 && mm.morph_count == 0 && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { set_error(out, "arena dolu (meshopt)", nullptr); ok = false; break; }
+      // Ince esik: kucuk iskeletli mesh'e LOD uretmek renderer mesh kapasitesini (256) bosuna tuketir (her LOD ayri mesh tutamaci; havuz testi
+      // bridge_model_pool_holds_game_characters_and_reports 108 kucuk iskeletli modelle bunu yakaladi). Yalniz >= kSkinLodMinTris ucgenli.
+      if (lim.lods && mm.morph_count == 0 && (mm.skin < 0 || mm.index_count / 3 >= kSkinLodMinTris)) {
+        // A7 (mobil karakter butcesi, P20 Pro): ISKELETLI mesh'lere de LOD. Sadelestirme yalniz var olan kose indekslerini secer (ayni kose
+        // tamponu), yani skin_verts (eklem/agirlik) ayni indekslerle gecerli kalir. Deformasyonu korumak icin hata esigi yariya iner.
+        const float ratios[kModelMaxLods] = {0.5f, 0.25f};
+        const float er = mm.skin >= 0 ? lim.lod_error * 0.5f : lim.lod_error;
+        if (!mesh_build_lods(arena, mm, ratios, kModelMaxLods, er)) { set_error(out, "arena dolu (lod)", nullptr); ok = false; break; }
+      }
+      if (mm.skin < 0 && mm.morph_count == 0 && lim.cluster_dag) {
         const DeviceClass dc = lim.cluster_class == 0 ? DeviceClass::Low : (lim.cluster_class >= 2 ? DeviceClass::High : DeviceClass::Mid);
         ClusterDag *dag = arena.alloc_array_zeroed<ClusterDag>(1);
         if (!dag) { set_error(out, "arena dolu (kume DAG)", nullptr); ok = false; break; }
@@ -596,6 +753,14 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
     }
   }
   out->mesh_count = ok ? mi : 0;
+  // A5: morph izlerini ModelMesh araligina coz (glTF mesh -> ilk primitif + sayisi).
+  for (uint32_t c = 0; ok && c < out->clip_count; c++)
+    for (uint32_t k = 0; k < out->clips[c].morph_track_count; k++) {
+      ModelMorphTrack &tr = out->clips[c].morph_tracks[k];
+      if (tr.gltf_mesh < 0 || (cgltf_size)tr.gltf_mesh >= data->meshes_count) { tr.mesh_n = 0; continue; }
+      tr.mesh_first = mesh_first[tr.gltf_mesh];
+      tr.mesh_n = mesh_n[tr.gltf_mesh];
+    }
   // Instance'lar: sahnedeki (ya da tum) dugumler, dunya matrisiyle
   uint32_t ninst = 0;
   out->instances = arena.alloc_array_zeroed<ModelInstance>(lim.max_instances);
@@ -620,6 +785,7 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   cgltf_free(data);
   return ok;
 }
+} // namespace (gltf_load_file)
 
 // NORMAL HARITASI MIP ZINCIRI — CPU'da, her seviyeden sonra YENIDEN
 // NORMALLESTIREREK.
@@ -768,7 +934,10 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
     for (uint32_t k = 0; k < kModelMaxLods; k++) {
       if (!m.meshes[i].lod_index_count[k]) continue;
       out->lod_meshes[i * kModelMaxLods + k] =
-          r.create_mesh(m.meshes[i].verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k]);
+          (m.meshes[i].skin >= 0 && m.meshes[i].skin_verts)
+              ? r.create_skinned_mesh(m.meshes[i].skin_verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k],
+                                      m.meshes[i].lod_vertex_count[k])
+              : r.create_mesh(m.meshes[i].verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k]);
       if (!out->lod_meshes[i * kModelMaxLods + k].valid()) return false;
     }
   }
@@ -796,8 +965,23 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
   for (uint32_t i = 0; i < src.image_count; i++) dst->images[i].rgba = nullptr;
   for (uint32_t i = 0; i < src.mesh_count; i++) {
     ModelMesh &mm = dst->meshes[i];
-    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr;
+    const ModelMesh &sm = src.meshes[i];
+    mm.verts = nullptr; mm.indices = nullptr; mm.skin_verts = nullptr; mm.dag = nullptr; mm.morph_deltas = nullptr; mm.morph_normal_deltas = nullptr;
     for (uint32_t k = 0; k < kModelMaxLods; k++) mm.lod_indices[k] = nullptr;
+    if (sm.morph_count && sm.morph_deltas && sm.verts) {   // A5: morph her kare CPU'da karilir: taban kose + farklar kalici kopyada KALIR
+      mm.verts = copy_array(keep, sm.verts, sm.vertex_count);
+      mm.indices = copy_array(keep, sm.indices, sm.index_count);   // dinamik (kopya) mesh kurmak icin
+      mm.morph_deltas = copy_array(keep, sm.morph_deltas, sm.morph_count * sm.vertex_count);
+      if (!mm.verts || !mm.indices || !mm.morph_deltas) return false;
+      if (sm.skin_verts) {   // iskeletli+morph: taban iskeletli koseler (eklem/agirlik) de kalir
+        mm.skin_verts = copy_array(keep, sm.skin_verts, sm.vertex_count);
+        if (!mm.skin_verts) return false;
+      }
+      if (sm.morph_normal_deltas) {
+        mm.morph_normal_deltas = copy_array(keep, sm.morph_normal_deltas, sm.morph_count * sm.vertex_count);
+        if (!mm.morph_normal_deltas) return false;
+      }
+    }
   }
   for (uint32_t i = 0; i < src.skin_count; i++) {
     ModelSkin &s = dst->skins[i];
@@ -814,6 +998,17 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
     std::memcpy(blob, h, h->total_bytes);
     dst->clips[i].clip = static_cast<const sim::ClipHeader *>(blob);
   }
+  for (uint32_t i = 0; i < src.clip_count; i++) {   // A5: morph izleri (kalici kopya)
+    const ModelClip &sc = src.clips[i];
+    if (!sc.morph_track_count) continue;
+    ModelMorphTrack *tr = copy_array(keep, sc.morph_tracks, sc.morph_track_count);
+    if (!tr) return false;
+    for (uint32_t k = 0; k < sc.morph_track_count; k++) {
+      tr[k].w = copy_array(keep, sc.morph_tracks[k].w, sc.morph_tracks[k].samples * sc.morph_tracks[k].weight_count);
+      if (!tr[k].w) return false;
+    }
+    dst->clips[i].morph_tracks = tr;
+  }
   return true;
 }
 
@@ -825,6 +1020,24 @@ bool uploaded_model_copy(Arena &keep, const UploadedModel &src, UploadedModel *d
   dst->meshes = copy_array(keep, src.meshes, src.mesh_count);
   dst->lod_meshes = copy_array(keep, src.lod_meshes, nm * kModelMaxLods);
   return dst->textures && dst->materials && dst->meshes && dst->lod_meshes;
+}
+
+uint32_t model_clip_morph_weights(const Model &m, uint32_t clip, float time_s, uint32_t mesh, float out[kModelMaxMorph]) {
+  if (clip >= m.clip_count) return 0;
+  const ModelClip &c = m.clips[clip];
+  for (uint32_t k = 0; k < c.morph_track_count; k++) {
+    const ModelMorphTrack &tr = c.morph_tracks[k];
+    if (mesh < tr.mesh_first || mesh >= tr.mesh_first + tr.mesh_n || !tr.samples || !tr.w || !tr.weight_count) continue;
+    float x = time_s * c.sample_rate;
+    if (!(x > 0.0f)) x = 0.0f;   // NaN dahil
+    const float son = (float)(tr.samples - 1);
+    if (x > son) x = son;
+    const uint32_t i0 = (uint32_t)x, i1 = i0 + 1 < tr.samples ? i0 + 1 : i0;
+    const float f = x - (float)i0;
+    for (uint32_t j = 0; j < tr.weight_count; j++) out[j] = tr.w[i0 * tr.weight_count + j] * (1.0f - f) + tr.w[i1 * tr.weight_count + j] * f;
+    return tr.weight_count;
+  }
+  return 0;
 }
 
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose) {
@@ -839,6 +1052,61 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
   pose->skin_mats[mc.skin] = scratch.skin[mc.skin];
   pose->joint_count[mc.skin] = sk.joint_count;
   return true;
+}
+
+ModelBudget model_budget(const Model &m) {
+  ModelBudget b;
+  b.meshes = m.mesh_count; b.instances = m.instance_count; b.images = m.image_count;
+  b.clips = m.clip_count; b.clips_dropped = m.clips_dropped;
+  for (uint32_t i = 0; i < m.instance_count; i++) {
+    const uint32_t mi = m.instances[i].mesh;
+    if (mi >= m.mesh_count) continue;
+    const ModelMesh &mm = m.meshes[mi];
+    b.triangles += mm.index_count / 3;
+    if (mm.skin >= 0) b.skinned_vertices += mm.vertex_count;
+  }
+  for (uint32_t i = 0; i < m.skin_count; i++)
+    if (m.skins[i].joint_count > b.joints) b.joints = m.skins[i].joint_count;
+  return b;
+}
+
+uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
+  // Parçalar " · " ile ayrılır: editör dili İngilizce iken her parça sözlükten ayrı çevrilir (app/editor_dil.hpp).
+  const ModelBudget b = model_budget(m);
+  uint32_t warn = 0;
+  uint32_t n = 0;
+  auto ekle = [&](const char *fmt, uint32_t a0, uint32_t a1 = 0) {
+    if (n >= cap) return;
+    n += (uint32_t)std::snprintf(out + n, cap - n, "%s", n ? " · " : "");
+    if (n < cap) n += (uint32_t)std::snprintf(out + n, cap - n, fmt, a0, a1);
+  };
+  out[0] = 0;
+  ekle("%u mesh", b.meshes);
+  ekle("%u üçgen", b.triangles);
+  ekle("%u klip", b.clips);
+  {   // M1: ice aktarma ayarindan SONRAKI boyut (metre): "20 m'lik bir kapi" ya da "2 cm'lik bir karakter" burada gorunur
+    const Vec3 d = m.bounds_max - m.bounds_min;
+    if (n < cap) n += (uint32_t)std::snprintf(out + n, cap - n, " · boyut %.2f × %.2f × %.2f m", (double)d.x, (double)d.y, (double)d.z);
+  }
+  if (b.joints) {
+    ekle("iskelet %u eklem", b.joints);
+    ekle("%u köşe", b.skinned_vertices);
+  }
+  if (b.joints && b.skinned_vertices && b.skinned_vertices <= kMobileSkinnedVertexBudget / 4)
+    ekle("mobilde ≈ %u kopya sığar", kMobileSkinnedVertexBudget / b.skinned_vertices);
+  if (m.note[0] && n + 4 < cap) { n += (uint32_t)std::snprintf(out + n, cap - n, " · NOT: %s", m.note); }
+  // M1: yalniz sayacta kalan sinirlar artik okunur (kullanici "yuz ifadesi neden calismiyor" diye aramasin).
+  if (m.morph_dropped) { ekle("UYARI: %u morph hedefi yüklenmedi (mesh başına en çok %u)", m.morph_dropped, kModelMaxMorph); warn = 1; }
+  if (m.morph_meshes_dropped) { ekle("UYARI: %u mesh morph'suz yüklendi (morph için en çok %u köşe)", m.morph_meshes_dropped, kModelMaxMorphVerts); warn = 1; }
+  if (m.morph_tracks_dropped) { ekle("UYARI: %u morph animasyon izi yüklenmedi (klip başına en çok %u)", m.morph_tracks_dropped, kModelMaxMorphTracks); warn = 1; }
+  if (m.morph_skipped) { ekle("UYARI: %u iskeletli mesh'in morph'u atlandı (iskelet + morph bu sürümde yok)", m.morph_skipped); warn = 1; }
+  if (b.clips_dropped) { ekle("UYARI: %u klip yüklenmedi (model başına en çok %u)", b.clips_dropped, GltfLimits{}.max_clips); warn = 1; }
+  if (b.skinned_vertices > kMobileSkinnedVertexBudget / 4) {
+    ekle("UYARI: ağır iskeletli model, mobilde kare başına ≲ %uK köşe önerilir", kMobileSkinnedVertexBudget / 1000);
+    ekle("≈ %u kopya", b.skinned_vertices ? kMobileSkinnedVertexBudget / b.skinned_vertices : 0);
+    warn = 1;
+  }
+  return warn;
 }
 
 bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t clip_b, float time_b, float w, PoseScratch &scratch,
@@ -866,6 +1134,52 @@ bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t cl
   return true;
 }
 
+bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose, bool lock_root) {
+  uint32_t first = n;
+  for (uint32_t i = 0; i < n; i++) if (e[i].weight > 0.0f && e[i].clip < m.clip_count && m.clips[e[i].clip].clip && m.clips[e[i].clip].skin >= 0) { first = i; break; }
+  if (first == n) return false;
+  const int32_t skin = m.clips[e[first].clip].skin;
+  const ModelSkin &sk = m.skins[skin];
+  sim::LocalPose la{scratch.t, scratch.r, scratch.s, sk.joint_count};
+  sim::ClipSampler::sample(m.clips[e[first].clip].clip, e[first].time, la);
+  float cum = e[first].weight;
+  sim::LocalPose lb{scratch.t2, scratch.r2, scratch.s2, sk.joint_count};
+  for (uint32_t i = first + 1; i < n; i++) {
+    if (!(e[i].weight > 0.0f) || e[i].clip >= m.clip_count) continue;
+    const ModelClip &mc = m.clips[e[i].clip];
+    if (!mc.clip || mc.skin != skin) return false;                        // farkli iskelet: karisim YOK
+    sim::ClipSampler::sample(mc.clip, e[i].time, lb);
+    const float f = e[i].weight / (cum + e[i].weight);                    // kumulatif agirlikla: ilk girdiye geri donuk yanlilik yok
+    for (uint32_t j = 0; j < sk.joint_count; j++) {
+      la.t[j] = la.t[j] + (lb.t[j] - la.t[j]) * f;
+      la.s[j] = la.s[j] + (lb.s[j] - la.s[j]) * f;
+      la.r[j] = slerp(la.r[j], lb.r[j], f);
+    }
+    cum += e[i].weight;
+  }
+  if (lock_root && sk.joint_count) { la.t[0].x = sk.joints[0].bind_t.x; la.t[0].z = sk.joints[0].bind_t.z; }
+  sim::Skeleton skel{sk.joints, sk.joint_count};
+  sim::ClipSampler::to_model(skel, la, scratch.model);
+  sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[skin]);
+  pose->skin_mats[skin] = scratch.skin[skin];
+  pose->joint_count[skin] = sk.joint_count;
+  return true;
+}
+
+bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, float out_xz[2]) {
+  if (clip >= m.clip_count || !m.clips[clip].clip || m.clips[clip].skin < 0) return false;
+  const ModelSkin &sk = m.skins[m.clips[clip].skin];
+  if (!sk.joint_count) return false;
+  sim::LocalPose lp{scratch.t, scratch.r, scratch.s, sk.joint_count};
+  sim::ClipSampler::sample(m.clips[clip].clip, time_s, lp);
+  // M1: ice aktarma ayarinin dogrusal kismi (eksen + olcek; oteleme konum farkinda duser): olcekli modelde yuruyus da olceklenir.
+  const Mat4 &C = m.import_xform;
+  const Vec3 t = lp.t[0];
+  out_xz[0] = C.m[0][0] * t.x + C.m[1][0] * t.y + C.m[2][0] * t.z;
+  out_xz[1] = C.m[0][2] * t.x + C.m[1][2] * t.y + C.m[2][2] * t.z;
+  return true;
+}
+
 void ModelLod::set_view(Vec3 eye, Vec3 target, float fov_y) {
   camera_pos = eye;
   const Vec3 f = target - eye;
@@ -873,6 +1187,14 @@ void ModelLod::set_view(Vec3 eye, Vec3 target, float fov_y) {
   camera_forward = len > 1e-6f ? f * (1.0f / len) : Vec3{0, 0, 0};
   const float ref = std::tan(kModelLodRefFovY * 0.5f);
   depth_scale = (fov_y > 0.0f && ref > 0.0f) ? std::tan(fov_y * 0.5f) / ref : 1.0f;
+}
+
+ModelLod model_lod_effective(const Model &m, const ModelLod &lod) {
+  ModelLod ml = lod;
+  if (m.lod_distance1 > 0.0f) ml.distance1 = m.lod_distance1;
+  if (m.lod_distance2 > 0.0f) ml.distance2 = m.lod_distance2;
+  if (ml.distance2 < ml.distance1) ml.distance2 = ml.distance1;
+  return ml;
 }
 
 uint32_t model_lod_level(const ModelLod &lod, Vec3 p) {
@@ -892,6 +1214,13 @@ uint32_t model_lod_level(const ModelLod &lod, Vec3 p) {
 
 void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, const Mat4 &model, Vec3 tint,
                 const ModelLod *lod, uint32_t lod_counts[kModelMaxLods + 1], const ModelPose *pose) {
+  // A7: modelin kendi esikleri (.ayar) cagiraninkini ezer; biri verilmisse obur cagirandan. lod2 < lod1 olamaz (ayristirici
+  // reddeder; burada yalniz karisik kaynak — biri modelden biri cagirandan — icin kenetlenir).
+  ModelLod ml;
+  if (lod && (m.lod_distance1 > 0.0f || m.lod_distance2 > 0.0f)) {
+    ml = model_lod_effective(m, *lod);
+    lod = &ml;
+  }
   for (uint32_t i = 0; i < m.instance_count; i++) {
     const ModelInstance &inst = m.instances[i];
     if (inst.mesh >= u.mesh_count) continue;
@@ -907,11 +1236,17 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
       // model sessizce gorunmezdi (kopru kapisi "statik" kareyi bos ekranla
       // karsilastirip farki animasyona yaziyordu).
       static const Mat4 kBindPose[kModelMaxJoints] = {};
+      uint32_t slevel = 0;                    // A7: iskeletli LOD (static ile ayni olcut ve geri dusme kurali)
+      if (lod && u.lod_meshes) {
+        slevel = model_lod_level(*lod, Vec3{world.m[3][0], world.m[3][1], world.m[3][2]});
+        while (slevel > 0 && !u.lod_meshes[inst.mesh * kModelMaxLods + (slevel - 1)].valid()) slevel--;
+        if (slevel > 0) mesh = u.lod_meshes[inst.mesh * kModelMaxLods + (slevel - 1)];
+      }
       if (pose && (uint32_t)skin < kModelMaxSkins && pose->skin_mats[skin])
         r.draw_skinned(mesh, mh, world, tint, pose->skin_mats[skin], pose->joint_count[skin]);
       else if ((uint32_t)skin < m.skin_count)
         r.draw_skinned(mesh, mh, world, tint, kBindPose, m.skins[skin].joint_count);
-      if (lod_counts) lod_counts[0]++;
+      if (lod_counts) lod_counts[slevel]++;
       continue;
     }
     uint32_t level = 0;

@@ -1,0 +1,35 @@
+# P2 (tools/arayuz_kapi.sh, --size 1280x720: tiklar Gorunum koordinatinda): Ekle > Sekiller > Cokgen (ciz) cizim aracini acar; Gorunum'e 6 tik nokta koyar, Geri silme
+# sonuncuyu alir, Enter varliga yazar (gunluge TEK islem: Ctrl+Z tohum kareye doner). POZITIF KONTROL: Enter'dan ONCE
+# varlik hala 4 noktali tohum — "5 nokta" olcumu tiklarin kendisinden geliyor, tohumdan degil. Tutamac suruklemesi de
+# tek islem (iki Ctrl+Z: once surukleme, sonra cizim geri alinir).
+tikla "Ekle" pencere=MainMenuBar
+uzerine "Şekiller" pencere=Menu
+bekle 3
+tikla "Çokgen (çiz)" pencere=Menu_01
+dogrula_metin "zemine tıklayarak nokta koy"
+kaydir 1120 500 -40
+dogrula_metin "çiziliyor: 0 nokta"
+dogrula_metin "4 nokta · alan 4.00"
+tikla 520 430
+tikla 700 430
+tikla 720 560
+tikla 620 640
+tikla 500 560
+tikla 450 480
+dogrula_metin "çokgen: 6 nokta"
+tus Backspace
+dogrula_metin "çokgen: 5 nokta (son nokta alındı)"
+dogrula_metin "4 nokta · alan 4.00"
+tus Enter
+metin_yok "çiziliyor"
+dogrula_metin "5 nokta · alan"
+ekran cokgen
+# Nokta tutamacini surukle (alt kosedeki nokta, Enter'dan sonra secili cokgenin tutamaci): gunluge TEK islem.
+metin_yok "noktası taşındı"
+surukle 620 640 0 40
+dogrula_metin "noktası taşındı"
+tus Ctrl+Z
+metin_yok "çiziliyor"
+tus Ctrl+Z
+dogrula_metin "4 nokta · alan 4.00"
+cik

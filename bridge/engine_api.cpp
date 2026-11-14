@@ -33,6 +33,9 @@
 #include "bridge/bridge_host.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
+#include "content/mesh_import.hpp"
+#include "content/morph.hpp"
+#include "sim/animator.hpp"
 #include "content/image.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
@@ -324,6 +327,8 @@ struct Ent {
   int32_t asset = -1;
   sim::BodyId body;
   // Animasyon (yalniz Kind::Model): klip < 0 = statik cizim.
+  int32_t morph = -1;      // A5: Bridge::morphs indeksi (-1 = morph yok; ilk teng_morph_weight'te yuva alinir)
+  int32_t animator = -1;   // A3: Bridge::anim_rts indeksi (animatör varsa klip/geçiş alanlarını GEÇERSİZ kılar)
   int32_t anim_clip = -1;
   float anim_speed = 1.0f, anim_time = 0.0f;
   bool anim_loop = true;
@@ -660,6 +665,25 @@ struct Bridge {
   // varliklar
   Ent ents[kMaxEntities];
   uint32_t ent_high = 0, ent_alive = 0;
+  // A3 animator havuzlari: tanim (dosya basina, modele baglanmis klip indeksleri) ve varlik basina calisma durumu. Dolunca REDDEDILIR ve sayilir.
+  struct AnimDefSlot { sim::AnimatorDef def; char path[128] = {0}; int32_t asset = -1; bool used = false; };
+  struct AnimRtSlot { sim::AnimatorRt rt; int32_t def = -1; bool used = false; };
+  static constexpr uint32_t kAnimDefs = 8, kAnimRts = 256;
+  AnimDefSlot anim_defs[kAnimDefs];
+  AnimRtSlot anim_rts[kAnimRts];
+  uint32_t anim_rejected = 0;
+  // A5 morph havuzu: varlik basina KOPYA mesh'ler (renderer dinamik mesh: kare basina ayri tampon) + agirliklar. Yuva modele baglanir; ayni modelde
+  // yeniden kullanilir, baska modelde YANAR (mesh tutamaci geri verilmez) ve sayilir. Dolunca morph REDDEDILIR (varlik taban sekille cizilir) ve sayilir.
+  static constexpr uint32_t kMorphSlots = 16, kMorphSlotMeshes = 16;
+  struct MorphSlot {
+    bool used = false, created = false, dirty = false;
+    int32_t asset = -1;
+    float w[content::kModelMaxMorph] = {};
+    renderer::MeshHandle meshes[kMorphSlotMeshes];   // asset'in mesh i'sine karsilik; morph'suzlar modelin ortak tutamaci
+    content::UploadedModel up;                       // draw_model'e verilen kopya (meshes -> yukaridaki dizi)
+  };
+  MorphSlot morphs[kMorphSlots];
+  uint32_t morph_rejected = 0, morph_burned = 0, morph_updates = 0;
   // kamera / dunya
   Vec3 cam_eye{0, 8, 14}, cam_target{0, 0, 0};
   // Dikey gorus acisi (radyan). Varsayilan pi/3.5 (~51.4 derece) — 2026-10-07'ye kadar
@@ -840,6 +864,89 @@ Vec3 color_of(int64_t c) { // 0xRRGGBBAA -> sRGB 0..1
 uint32_t rgba_of(int64_t c) {
   return renderer::Renderer::rgba((uint8_t)((c >> 24) & 0xFF), (uint8_t)((c >> 16) & 0xFF), (uint8_t)((c >> 8) & 0xFF), (uint8_t)(c & 0xFF));
 }
+// A5: (teng_morph_weight ve morph klibi) yuva alma — aciklama teng_morph_weight ustunde.
+static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
+  if (e.morph >= 0 && (uint32_t)e.morph < Bridge::kMorphSlots) return &b.morphs[e.morph];
+  const content::Model &mdl = b.models[e.asset];
+  if (mdl.mesh_count > Bridge::kMorphSlotMeshes) { b.morph_rejected++; BERR("%s: model %d %u mesh'li (en cok %u)", who, e.asset, mdl.mesh_count, Bridge::kMorphSlotMeshes); return nullptr; }
+  int pick = -1;
+  for (uint32_t i = 0; i < Bridge::kMorphSlots && pick < 0; i++) if (!b.morphs[i].used && b.morphs[i].created && b.morphs[i].asset == e.asset) pick = (int)i;
+  for (uint32_t i = 0; i < Bridge::kMorphSlots && pick < 0; i++) if (!b.morphs[i].used && !b.morphs[i].created) pick = (int)i;
+  for (uint32_t i = 0; i < Bridge::kMorphSlots && pick < 0; i++)
+    if (!b.morphs[i].used) { pick = (int)i; b.morph_burned++; b.morphs[i].created = false; }   // baska modelin meshleri: geri verilemez, yanar (sayilir)
+  if (pick < 0) { b.morph_rejected++; BERR("%s: morph havuzu dolu (%u yuva)", who, Bridge::kMorphSlots); return nullptr; }
+  Bridge::MorphSlot &ms = b.morphs[pick];
+  if (!ms.created) {
+    for (uint32_t i = 0; i < mdl.mesh_count; i++) {
+      const content::ModelMesh &mm = mdl.meshes[i];
+      ms.meshes[i] = b.ups[e.asset].meshes[i];
+      if (mm.morph_count && mm.verts && mm.indices) {
+        const renderer::MeshHandle h = mm.skin >= 0 && mm.skin_verts   // iskeletli+morph: eklem/agirlikli kopya, draw_skinned ile cizilir
+                                           ? b.ren.create_dynamic_skinned_mesh(mm.skin_verts, mm.vertex_count, mm.indices, mm.index_count)
+                                           : b.ren.create_dynamic_mesh(mm.verts, mm.vertex_count, mm.indices, mm.index_count);
+        if (!h.valid()) { b.morph_rejected++; b.morph_burned++; BERR("%s: dinamik mesh olusturulamadi (mesh havuzu dolu?)", who); return nullptr; }
+        ms.meshes[i] = h;
+      }
+    }
+    ms.up = b.ups[e.asset];
+    ms.up.meshes = ms.meshes;
+    ms.created = true;
+    ms.asset = e.asset;
+  }
+  ms.used = true; ms.dirty = true;
+  for (uint32_t t = 0; t < content::kModelMaxMorph; t++) ms.w[t] = 0.0f;
+  e.morph = pick;
+  return &ms;
+}
+// A5: morph yuvasini sahnede uygula: taban + sum(w*delta) -> kopya mesh'in bu karenin tamponuna. Normaller TABAN kalir (hedef normal farki yuklenmez).
+// clip >= 0: klibin `weights` izi olan mesh'te izin agirliklari teng_morph_weight'inkini EZER (klip calarken yuz klibin); izi olmayan mesh'te elle verilen kalir.
+static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, int32_t clip = -1, float clip_t = 0.0f) {
+  static renderer::Vertex vv[content::kModelMaxMorphVerts];
+  static renderer::SkinnedVertex sv[content::kModelMaxMorphVerts];
+  static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts], basen[content::kModelMaxMorphVerts];
+  for (uint32_t i = 0; i < mdl.mesh_count && i < Bridge::kMorphSlotMeshes; i++) {
+    const content::ModelMesh &mm = mdl.meshes[i];
+    if (!mm.morph_count || !mm.morph_deltas || !mm.verts) continue;
+    for (uint32_t v = 0; v < mm.vertex_count; v++) { vv[v] = mm.verts[v]; base[v] = mm.verts[v].pos; }
+    float w[content::kModelMaxMorph];
+    for (uint32_t t = 0; t < content::kModelMaxMorph; t++) w[t] = ms.w[t];
+    if (clip >= 0) {
+      float cw[content::kModelMaxMorph];
+      const uint32_t n = content::model_clip_morph_weights(mdl, (uint32_t)clip, clip_t, i, cw);
+      for (uint32_t t = 0; t < n; t++) w[t] = cw[t];
+    }
+    content::blend_morph_targets(base, mm.vertex_count, mm.morph_deltas, w, mm.morph_count, outp);
+    for (uint32_t v = 0; v < mm.vertex_count; v++) vv[v].pos = outp[v];
+    if (mm.morph_normal_deltas) {   // A5: hedef normal farki varsa normaller de karilir (yoksa taban normal kalir)
+      for (uint32_t v = 0; v < mm.vertex_count; v++) basen[v] = mm.verts[v].nrm;
+      content::blend_morph_normals(basen, mm.vertex_count, mm.morph_normal_deltas, w, mm.morph_count, outp);
+      for (uint32_t v = 0; v < mm.vertex_count; v++) vv[v].nrm = outp[v];
+    }
+    if (mm.skin >= 0 && mm.skin_verts) {   // iskeletli: ayni karisim BIND uzayinda, eklem/agirlik tabandan
+      for (uint32_t v = 0; v < mm.vertex_count; v++) { sv[v] = mm.skin_verts[v]; sv[v].pos = vv[v].pos; sv[v].nrm = vv[v].nrm; }
+      if (b.ren.update_dynamic_skinned_mesh(ms.meshes[i], sv, mm.vertex_count)) b.morph_updates++;
+    } else if (b.ren.update_dynamic_mesh(ms.meshes[i], vv, mm.vertex_count)) b.morph_updates++;
+  }
+}
+
+// A5: varligin bu karedeki morph'u. Klibin `weights` izi morph'lu bir mesh'i suruyorsa yuva ilk karede alinir ve her kare karilir; yalniz elle
+// agirlik varsa degistigi karede. Donus: cizimde kullanilacak UploadedModel (morph yoksa modelin ortagi). Uc cizim yolu (animator, klip,
+// statik) ayni kopya mesh'i kullanir — iskeletli+morph'ta poz GPU'da, sekil CPU'da.
+static const content::UploadedModel *morph_kare(Bridge &b, Ent &e, const content::Model &mdl) {
+  bool klip_morph = e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count && mdl.clips[e.anim_clip].morph_track_count > 0;
+  if (klip_morph) {   // iz morph'u YUKLENMIS bir mesh'i suruyor mu (morph'suz mesh icin yuva bosuna alinmasin)
+    bool var = false;
+    for (uint32_t k = 0; k < mdl.mesh_count && !var; k++) var = mdl.meshes[k].morph_count > 0;
+    klip_morph = var;
+  }
+  if (klip_morph && e.morph < 0) morph_acquire(b, e, "morph klibi");
+  if (e.morph < 0 || (uint32_t)e.morph >= Bridge::kMorphSlots || !b.morphs[e.morph].used) return &b.ups[e.asset];
+  Bridge::MorphSlot &ms = b.morphs[e.morph];
+  if (klip_morph) { morph_apply(b, mdl, ms, e.anim_clip, e.anim_time); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
+  else if (ms.dirty) { morph_apply(b, mdl, ms); ms.dirty = false; }
+  return &ms.up;
+}
+
 bool ready(const char *fn) {
   if (g && g->inited) return true;
   BERR("%s: motor kurulmadan cagrildi (once eng_init)", fn);
@@ -958,6 +1065,10 @@ void free_slot(uint32_t slot) {
   if (e.kind == Kind::Character) g->phys.remove_character(e.ch); // ic govdeyi de o kaldirir
   else if (e.body.valid()) g->phys.remove(e.body);
   if (e.kinematic && g->kin_count) g->kin_count--;
+  if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts) g->anim_rts[e.animator].used = false;   // A3: animator calisma yuvasi geri
+  e.animator = -1;
+  if (e.morph >= 0 && (uint32_t)e.morph < Bridge::kMorphSlots) g->morphs[e.morph].used = false;   // A5: morph yuvasi geri (meshler ayni modelde yeniden kullanilir)
+  e.morph = -1;
   e.ch = sim::CharacterId{};
   e.alive = false;
   e.body = sim::BodyId{};
@@ -1222,11 +1333,32 @@ void render_frame() {
       if (e.asset >= 0 && (uint32_t)e.asset < b.model_count) {
         const content::Model &mdl = b.models[e.asset];
         const Mat4 m = ent_matrix(e) * Mat4::scale({e.scale, e.scale, e.scale});
+        const content::UploadedModel *upm = morph_kare(b, e, mdl);   // A5: morph kopyasi (yoksa modelin ortagi)
         bool posed = false;
+        if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts && b.anim_rts[e.animator].used) {   // A3: animator cikisi
+          const Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
+          float dur[64] = {};
+          const uint32_t nc = mdl.clip_count < 64 ? mdl.clip_count : 64;
+          for (uint32_t c = 0; c < nc; c++) dur[c] = mdl.clips[c].duration;
+          sim::AnimatorPose ap;
+          sim::animator_pose(b.anim_defs[rs.def].def, rs.rt, dur, nc, &ap);
+          content::PoseMixEntry me[sim::kAnimMaxEntries];
+          for (uint32_t k = 0; k < ap.n; k++) me[k] = {(uint32_t)(ap.e[k].clip < 0 ? 0 : ap.e[k].clip), ap.e[k].time, ap.e[k].weight};
+          content::ModelPose pose;
+          const sim::AnimatorDef &adef = b.anim_defs[rs.def].def;
+          const bool kilit = adef.states[rs.rt.cur].root_motion || (rs.rt.prev >= 0 && adef.states[rs.rt.prev].root_motion);   // A4: kok hareketi varliga aktarilir
+          if (ap.n && content::model_pose_mix(mdl, me, ap.n, b.pose_scratch, &pose, kilit)) {
+            content::draw_model(b.ren, mdl, *upm, m, e.color, &view_lod, nullptr, &pose);
+            posed = true;
+            b.last_posed++;
+          }
+        }
+        if (!posed)
         // Klip atanmissa poz her kare degerlendirilir (iskeletli cizim);
         // atanmamissa statik + LOD. Degerlendirme basarisizsa klip kapatilir
         // ki hata her karede tekrar etmesin.
-        if (e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count) {
+        // A5: yalniz morph izli (iskeletsiz) klip poz yoluna girmez; agirliklari asagida morph yuvasina uygulanir.
+        if (e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count && mdl.clips[e.anim_clip].skin >= 0) {
           content::ModelPose pose;
           bool ok;
           if (e.anim_prev_clip >= 0 && e.anim_fade_dur > 0.0f) {
@@ -1241,7 +1373,7 @@ void render_frame() {
             ok = content::model_pose_evaluate(mdl, (uint32_t)e.anim_clip, e.anim_time, b.pose_scratch, &pose);
           }
           if (ok) {
-            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, nullptr, nullptr, &pose);
+            content::draw_model(b.ren, mdl, *upm, m, e.color, &view_lod, nullptr, &pose);
             posed = true;
             b.last_posed++;
           } else {
@@ -1250,7 +1382,7 @@ void render_frame() {
           }
         }
         if (!posed) {
-          content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod);
+          content::draw_model(b.ren, mdl, *upm, m, e.color, e.morph >= 0 ? nullptr : &view_lod);
         }
         drawn++;
       }
@@ -2551,7 +2683,51 @@ void teng_frame_end(void) {
     ENGINE_ZONE("anim");
     for (uint32_t i = 0; i < b.ent_high; i++) {
       Ent &e = b.ents[i];
-      if (!e.alive || e.kind != Kind::Model || e.anim_clip < 0) continue;
+      if (!e.alive || e.kind != Kind::Model) continue;
+      if (e.animator >= 0 && e.asset >= 0 && (uint32_t)e.asset < b.model_count) {      // A3: animator klip/gecis alanlarini ezer
+        const content::Model &am = b.models[e.asset];
+        float dur[64] = {};
+        const uint32_t nc = am.clip_count < 64 ? am.clip_count : 64;
+        for (uint32_t c = 0; c < nc; c++) dur[c] = am.clips[c].duration;
+        Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
+        if (rs.used && rs.def >= 0) {
+          const sim::AnimatorDef &ad = b.anim_defs[rs.def].def;
+          const bool kok = ad.states[rs.rt.cur].root_motion && !e.dynamic;   // A4: dinamik govdede kok hareketi YOK (fizik sahibi)
+          sim::AnimatorPose once, sonra;
+          if (kok) sim::animator_pose(ad, rs.rt, dur, nc, &once);
+          sim::animator_update(ad, &rs.rt, b.dt, dur, nc);
+          if (kok) {
+            sim::animator_pose(ad, rs.rt, dur, nc, &sonra);
+            // Girdi basina klibin KENDI ilerlemesi (donguyu saran adimda sondan basa ek): agirlikli toplam = yerel yatay hareket
+            float dx = 0, dz = 0;
+            for (uint32_t j = 0; j < sonra.n; j++)
+              for (uint32_t k2 = 0; k2 < once.n; k2++) {
+                if (once.e[k2].clip != sonra.e[j].clip || sonra.e[j].clip < 0) continue;
+                const uint32_t cl = (uint32_t)sonra.e[j].clip;
+                float a0[2], a1[2];
+                if (!content::model_clip_root_xz(am, cl, once.e[k2].time, b.pose_scratch, a0) || !content::model_clip_root_xz(am, cl, sonra.e[j].time, b.pose_scratch, a1)) break;
+                float ddx = a1[0] - a0[0], ddz = a1[1] - a0[1];
+                if (sonra.e[j].time < once.e[k2].time - 1e-6f) {            // dongu sardi: (sonu - bas) + (yeni - 0)
+                  float s0[2], se[2];
+                  if (content::model_clip_root_xz(am, cl, 0.0f, b.pose_scratch, s0) && content::model_clip_root_xz(am, cl, am.clips[cl].duration, b.pose_scratch, se)) {
+                    ddx = (se[0] - a0[0]) + (a1[0] - s0[0]);
+                    ddz = (se[1] - a0[1]) + (a1[1] - s0[1]);
+                  }
+                }
+                dx += sonra.e[j].weight * ddx;
+                dz += sonra.e[j].weight * ddz;
+                break;
+              }
+            if (dx != 0.0f || dz != 0.0f) {
+              const float yr = e.yaw_deg * kBridgePi / 180.0f, cy = std::cos(yr), sy = std::sin(yr);
+              const float wx = (dx * cy + dz * sy) * e.scale, wz = (-dx * sy + dz * cy) * e.scale;   // yaw: +Y etrafinda
+              teng_set_pos(make_id(i), e.pos.x + wx, e.pos.y, e.pos.z + wz);
+            }
+          }
+        }
+        continue;
+      }
+      if (e.anim_clip < 0) continue;
       if (e.asset < 0 || (uint32_t)e.asset >= b.model_count) continue;
       const content::Model &mdl = b.models[e.asset];
       if ((uint32_t)e.anim_clip >= mdl.clip_count) continue;
@@ -3969,6 +4145,171 @@ int teng_load_model(const char *path) {
   BINFO("model %u: %s (%u mesh, %u malzeme, %u doku, %u klip)", i, path, b.ups[i].mesh_count, b.ups[i].material_count, b.ups[i].texture_count, b.models[i].clip_count);
   return (int)i;
 }
+// ---- P1: kodla mesh -----------------------------------------------------------------------------------------------------
+// Kurucu TEK ve sabit boyutlu (ayirma yok): 4096 kose, 8192 ucgen, 32 cokgen noktasi. Tavan dolunca ekleme REDDEDILIR, loglanir ve
+// teng_mesh_rejected() ile okunur (sessiz kesme yok). bitir() modeli model_yukle ile ayni havuza (kMaxModels) koyar: spawn_model ile cizilir.
+namespace {
+constexpr uint32_t kMeshVerts = 4096, kMeshTris = 8192, kMeshPoly = 32;
+struct MeshBuilder {
+  Vec3 pos[kMeshVerts];
+  Vec2 uv[kMeshVerts];
+  uint32_t idx[kMeshTris * 3];
+  uint32_t nv = 0, nt = 0;
+  float poly[kMeshPoly * 2];
+  uint32_t np = 0;
+  Vec3 color{0.8f, 0.8f, 0.85f};
+  bool open = false;
+  uint32_t rejected = 0;
+} mb;
+bool mesh_tri_ekle(uint32_t a, uint32_t b, uint32_t c, const char *fn) {
+  if (a >= mb.nv || b >= mb.nv || c >= mb.nv) { mb.rejected++; BERR("%s: ucgen indeksi (%u,%u,%u) kose sayisini (%u) asiyor", fn, a, b, c, mb.nv); return false; }
+  if (mb.nt >= kMeshTris) { mb.rejected++; BERR("%s: ucgen tavani dolu (%u)", fn, kMeshTris); return false; }
+  mb.idx[mb.nt * 3] = a; mb.idx[mb.nt * 3 + 1] = b; mb.idx[mb.nt * 3 + 2] = c; mb.nt++;
+  return true;
+}
+int mesh_kose_ekle(Vec3 p, Vec2 t, const char *fn) {
+  if (mb.nv >= kMeshVerts) { mb.rejected++; BERR("%s: kose tavani dolu (%u)", fn, kMeshVerts); return -1; }
+  mb.pos[mb.nv] = p; mb.uv[mb.nv] = t;
+  return (int)mb.nv++;
+}
+} // namespace
+int teng_mesh_begin(void) {
+  CALLF("teng_mesh_begin", "");
+  if (!ready("teng_mesh_begin")) return 0;
+  mb.nv = mb.nt = mb.np = 0; mb.rejected = 0; mb.color = Vec3{0.8f, 0.8f, 0.85f}; mb.open = true;
+  return 1;
+}
+int teng_mesh_vertex(double x, double y, double z, double u, double v) {
+  CALLF("teng_mesh_vertex", "(%.2f %.2f %.2f) uv (%.2f %.2f)", x, y, z, u, v);
+  if (!mb.open) { BERR("teng_mesh_vertex: once teng_mesh_begin"); return -1; }
+  return mesh_kose_ekle(Vec3{(float)x, (float)y, (float)z}, Vec2{(float)u, (float)v}, "teng_mesh_vertex");
+}
+int teng_mesh_tri(int a, int b, int c) {
+  CALLF("teng_mesh_tri", "%d %d %d", a, b, c);
+  if (!mb.open) { BERR("teng_mesh_tri: once teng_mesh_begin"); return 0; }
+  if (a < 0 || b < 0 || c < 0) { mb.rejected++; BERR("teng_mesh_tri: negatif indeks (%d,%d,%d)", a, b, c); return 0; }
+  return mesh_tri_ekle((uint32_t)a, (uint32_t)b, (uint32_t)c, "teng_mesh_tri") ? 1 : 0;
+}
+void teng_mesh_color(int64_t color) {
+  CALLF("teng_mesh_color", "%08llx", (unsigned long long)color);
+  if (!mb.open) { BERR("teng_mesh_color: once teng_mesh_begin"); return; }
+  mb.color = color_of(color);
+}
+int teng_mesh_vertex_count(void) { return mb.open ? (int)mb.nv : 0; }
+int teng_mesh_tri_count(void) { return mb.open ? (int)mb.nt : 0; }
+int teng_mesh_rejected(void) { return (int)mb.rejected; }
+int teng_mesh_poly_point(double x, double z) {
+  CALLF("teng_mesh_poly_point", "(%.2f %.2f)", x, z);
+  if (!mb.open) { BERR("teng_mesh_poly_point: once teng_mesh_begin"); return 0; }
+  if (mb.np >= kMeshPoly) { mb.rejected++; BERR("teng_mesh_poly_point: nokta tavani dolu (%u)", kMeshPoly); return (int)mb.np; }
+  mb.poly[mb.np * 2] = (float)x; mb.poly[mb.np * 2 + 1] = (float)z; mb.np++;
+  return (int)mb.np;
+}
+// Biriken noktalari (XZ) yukseklik kadar kati yapar (h <= 0: yalniz ust yuz, y=0). Ust +Y, taban -Y, yan yuzler dis normalli. Noktalari temizler.
+// Donus: eklenen ucgen sayisi; 0 = gecersiz cokgen ya da tavan (hicbir sey eklenmez).
+int teng_mesh_poly_extrude(double h) {
+  CALLF("teng_mesh_poly_extrude", "h %.2f", h);
+  if (!mb.open) { BERR("teng_mesh_poly_extrude: once teng_mesh_begin"); return 0; }
+  const uint32_t n = mb.np;
+  mb.np = 0;
+  uint32_t tri[(kMeshPoly - 2) * 3];
+  const uint32_t nt = content::polygon_triangulate_xz(mb.poly, n, tri);
+  if (!nt) { mb.rejected++; BERR("teng_mesh_poly_extrude: gecersiz cokgen (%u nokta, alan ~ 0 ya da NaN)", n); return 0; }
+  const float y1 = (float)(h > 0 ? h : 0);
+  const bool kati = h > 0;
+  const uint32_t ek_kose = n + (kati ? n + 4 * n : 0), ek_tri = nt + (kati ? nt + 2 * n : 0);
+  if (mb.nv + ek_kose > kMeshVerts || mb.nt + ek_tri > kMeshTris) { mb.rejected++; BERR("teng_mesh_poly_extrude: tavan (kose %u+%u/%u, ucgen %u+%u/%u)", mb.nv, ek_kose, kMeshVerts, mb.nt, ek_tri, kMeshTris); return 0; }
+  // normal +Y olacak sekilde sirala: kapaklarin sarimi yukaridan CCW; yan yuzler icin noktalarin kendisi de ayni yonde gezilmeli.
+  float alan2 = 0;
+  for (uint32_t i = 0; i < n; i++) { const uint32_t j = (i + 1) % n; alan2 += (mb.poly[2 * i + 1] - mb.poly[2 * j + 1]) * (mb.poly[2 * i] + mb.poly[2 * j]); }
+  const uint32_t ust0 = mb.nv;
+  for (uint32_t i = 0; i < n; i++) mesh_kose_ekle(Vec3{mb.poly[2 * i], y1, mb.poly[2 * i + 1]}, Vec2{mb.poly[2 * i], mb.poly[2 * i + 1]}, "cokgen");
+  for (uint32_t i = 0; i < nt; i++) mesh_tri_ekle(ust0 + tri[3 * i], ust0 + tri[3 * i + 1], ust0 + tri[3 * i + 2], "cokgen");
+  if (kati) {
+    const uint32_t alt0 = mb.nv;
+    for (uint32_t i = 0; i < n; i++) mesh_kose_ekle(Vec3{mb.poly[2 * i], 0, mb.poly[2 * i + 1]}, Vec2{mb.poly[2 * i], mb.poly[2 * i + 1]}, "cokgen");
+    for (uint32_t i = 0; i < nt; i++) mesh_tri_ekle(alt0 + tri[3 * i], alt0 + tri[3 * i + 2], alt0 + tri[3 * i + 1], "cokgen");   // taban: ters sarim (-Y)
+    for (uint32_t i = 0; i < n; i++) {                                                      // yan yuz: kenar basina ayri 4 kose (sert kenar)
+      uint32_t a = i, b = (i + 1) % n;
+      if (alan2 < 0) std::swap(a, b);                                                       // noktalar saat yonundeyse kenari ters gez
+      const float ax = mb.poly[2 * a], az = mb.poly[2 * a + 1], bx = mb.poly[2 * b], bz = mb.poly[2 * b + 1];
+      const float len = std::sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
+      const uint32_t q = mb.nv;
+      mesh_kose_ekle(Vec3{ax, 0, az}, Vec2{0, 0}, "cokgen"); mesh_kose_ekle(Vec3{bx, 0, bz}, Vec2{len, 0}, "cokgen");
+      mesh_kose_ekle(Vec3{bx, y1, bz}, Vec2{len, y1}, "cokgen"); mesh_kose_ekle(Vec3{ax, y1, az}, Vec2{0, y1}, "cokgen");
+      mesh_tri_ekle(q, q + 1, q + 2, "cokgen"); mesh_tri_ekle(q, q + 2, q + 3, "cokgen");
+    }
+  }
+  return (int)ek_tri;
+}
+// Kurulan mesh'i modele cevirip GPU'ya yukler. Donus: model tutamaci (spawn_model ile cizilir), -1 hata (bos/gecersiz/kapasite). Kurucu kapanir.
+int teng_mesh_end(void) {
+  CALLF("teng_mesh_end", "kose %u ucgen %u", mb.nv, mb.nt);
+  if (!ready("teng_mesh_end")) return -1;
+  if (!mb.open) { BERR("teng_mesh_end: once teng_mesh_begin"); return -1; }
+  mb.open = false;
+  Bridge &b = *g;
+  if (b.model_count >= kMaxModels) { b.model_rejected++; BERR("teng_mesh_end: model kapasitesi dolu (%u)", kMaxModels); return -1; }
+  const uint32_t i = b.model_count;
+  b.models[i] = content::Model{};
+  if (!b.model_tmp_ok && b.sys.remaining() > (kModelTmpBytes + (64u << 20)))
+    b.model_tmp_ok = b.sys.carve(b.model_tmp, kModelTmpBytes, "model_yukleme", OverflowPolicy::ReturnNull);
+  const size_t arena0 = b.sys.used();
+  static content::Model tmp_m;
+  static content::UploadedModel tmp_u;
+  tmp_m = content::Model{};
+  if (b.model_tmp_ok) {
+    b.model_tmp.reset();
+    if (!content::mesh_from_triangles(b.model_tmp, mb.pos, mb.uv, mb.nv, mb.idx, mb.nt, mb.color, &tmp_m)) { BERR("teng_mesh_end: %s", tmp_m.error); b.model_tmp.reset(); return -1; }
+    if (!content::upload_model(b.ren, b.model_tmp, tmp_m, &tmp_u)) { b.model_tmp.reset(); BERR("teng_mesh_end: GPU'ya yuklenemedi"); return -1; }
+    if (!content::model_compact(b.sys, tmp_m, &b.models[i]) || !content::uploaded_model_copy(b.sys, tmp_u, &b.ups[i])) { b.model_tmp.reset(); BERR("teng_mesh_end: kalici kopya icin arena dolu"); return -1; }
+    b.model_tmp_bytes += b.model_tmp.used();
+    b.model_tmp.reset();
+  } else {
+    if (!content::mesh_from_triangles(b.sys, mb.pos, mb.uv, mb.nv, mb.idx, mb.nt, mb.color, &b.models[i])) { BERR("teng_mesh_end: %s", b.models[i].error); return -1; }
+    if (!content::upload_model(b.ren, b.sys, b.models[i], &b.ups[i])) { BERR("teng_mesh_end: GPU'ya yuklenemedi"); return -1; }
+  }
+  b.model_arena_bytes += b.sys.used() - arena0;
+  b.model_count++;
+  BINFO("mesh modeli %u: %u kose, %u ucgen (kodla uretildi)", i, mb.nv, mb.nt);
+  return (int)i;
+}
+// ---- A5: morph target ---------------------------------------------------------------------------------------------------
+// glTF morph hedefleri (POSITION farki) iskeletsiz mesh'te. Agirlik varlik basina; ilk teng_morph_weight varliga KOPYA mesh'ler (renderer dinamik mesh,
+// kare basina tampon) verir ve model onlarla cizilir (LOD'suz). Havuz 16 yuva; dolunca varlik taban sekille kalir ve teng_morph_reddedilen sayar.
+// Yuva alma (morph_acquire) render dongusunun ustunde: morph klibi (weights izi) yuvayi ilk karede kendisi alir.
+int teng_model_morph_count(int asset) {
+  CALLF("teng_model_morph_count", "%d", asset);
+  if (!ready("teng_model_morph_count")) return 0;
+  if (asset < 0 || (uint32_t)asset >= g->model_count) { BERR("teng_model_morph_count: model %d yok (%u yuklu)", asset, g->model_count); return 0; }
+  uint32_t n = 0;
+  const content::Model &m = g->models[asset];
+  for (uint32_t i = 0; i < m.mesh_count; i++) if (m.meshes[i].morph_count > n) n = m.meshes[i].morph_count;
+  return (int)n;
+}
+void teng_morph_weight(int id, int target, double w) {
+  CALLF("teng_morph_weight", "#%d hedef %d w %.3f", id, target, w);
+  if (!ready("teng_morph_weight")) return;
+  const int s = slot_of(id, "teng_morph_weight");
+  if (s < 0) return;
+  Ent &e = g->ents[s];
+  if (e.kind != Kind::Model || e.asset < 0 || (uint32_t)e.asset >= g->model_count) { BERR("teng_morph_weight: #%d bir model varligi degil", id); return; }
+  const int n = teng_model_morph_count(e.asset);
+  if (n == 0) { BERR("teng_morph_weight: model %d'de morph hedefi yok", e.asset); return; }
+  if (target < 0 || target >= n) { BERR("teng_morph_weight: hedef %d aralik disi (modelde %d hedef)", target, n); return; }
+  if (!(w == w)) { BERR("teng_morph_weight: agirlik NaN"); return; }
+  Bridge::MorphSlot *ms = morph_acquire(*g, e, "teng_morph_weight");
+  if (!ms) return;
+  if (ms->w[target] != (float)w) { ms->w[target] = (float)w; ms->dirty = true; }
+}
+double teng_morph_get(int id, int target) {
+  const int s = slot_of(id, "teng_morph_get");
+  if (s < 0) return 0.0;
+  const Ent &e = g->ents[s];
+  if (e.morph < 0 || target < 0 || (uint32_t)target >= content::kModelMaxMorph) return 0.0;
+  return g->morphs[e.morph].w[target];
+}
+int teng_morph_rejected(void) { return g ? (int)g->morph_rejected : 0; }
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint) {
   CALLF("teng_spawn_model", "model %d (%.2f %.2f %.2f) x%.2f", asset, x, y, z, scale);
   if (!ready("teng_spawn_model")) return 0;
@@ -4278,6 +4619,110 @@ void teng_anim_crossfade(int id, int clip, double speed, int loop, double fade_s
   e.anim_fade = 0.0f;
   e.anim_fade_dur = (float)fade_s;
 }
+// --- A3 animator -----------------------------------------------------------------------------------------------------
+static const char *animator_clip_name(void *user, uint32_t c) {
+  const content::Model *m = static_cast<const content::Model *>(user);
+  return c < m->clip_count ? m->clips[c].name : nullptr;
+}
+int teng_animator_set(int id, const char *path) {
+  CALLF("teng_animator_set", "#%d %s", id, path ? path : "");
+  const int32_t s = slot_of(id, "teng_animator_set");
+  if (s < 0 || !path) return 0;
+  Ent &e = g->ents[s];
+  if (e.kind != Kind::Model) { BERR("teng_animator_set: #%d model degil (%s)", id, kind_name(e.kind)); return 0; }
+  const content::Model *m = model_of(e.asset, "teng_animator_set");
+  if (!m) return 0;
+  // tanim: ayni dosya + ayni model daha once cozuldu mu
+  int32_t di = -1;
+  for (uint32_t i = 0; i < Bridge::kAnimDefs; i++)
+    if (g->anim_defs[i].used && g->anim_defs[i].asset == e.asset && !std::strcmp(g->anim_defs[i].path, path)) { di = (int32_t)i; break; }
+  if (di < 0) {
+    for (uint32_t i = 0; i < Bridge::kAnimDefs; i++) if (!g->anim_defs[i].used) { di = (int32_t)i; break; }
+    if (di < 0) { g->anim_rejected++; BERR("teng_animator_set: animator tanim havuzu dolu (%u)", Bridge::kAnimDefs); return 0; }
+    std::FILE *f = std::fopen(path, "rb");
+    if (!f) { BERR("teng_animator_set: dosya acilamadi: %s", path); return 0; }
+    static char txt[64 * 1024];
+    const size_t n = std::fread(txt, 1, sizeof txt - 1, f);
+    std::fclose(f);
+    sim::AnimatorError er;
+    Bridge::AnimDefSlot &ds = g->anim_defs[di];
+    if (!sim::animator_parse(txt, n, &ds.def, &er)) { BERR("teng_animator_set: %s satir %u: %s", path, er.line, er.msg); return 0; }
+    if (!sim::animator_bind(&ds.def, animator_clip_name, const_cast<content::Model *>(m), m->clip_count, &er)) { BERR("teng_animator_set: %s: %s", path, er.msg); return 0; }
+    std::snprintf(ds.path, sizeof ds.path, "%s", path);
+    ds.asset = e.asset;
+    ds.used = true;
+  }
+  // calisma yuvasi (varligin kendi yuvasi varsa yeniden kullanilir)
+  int32_t ri = e.animator;
+  if (ri < 0) {
+    for (uint32_t i = 0; i < Bridge::kAnimRts; i++) if (!g->anim_rts[i].used) { ri = (int32_t)i; break; }
+    if (ri < 0) { g->anim_rejected++; BERR("teng_animator_set: animator calisma havuzu dolu (%u)", Bridge::kAnimRts); return 0; }
+  }
+  Bridge::AnimRtSlot &rs = g->anim_rts[ri];
+  rs.used = true;
+  rs.def = di;
+  sim::animator_reset(g->anim_defs[di].def, &rs.rt);
+  e.animator = ri;
+  e.anim_clip = -1; e.anim_prev_clip = -1;
+  BDBG("#%d animator: %s (%u durum, %u gecis)", id, path, g->anim_defs[di].def.state_count, g->anim_defs[di].def.trans_count);
+  return 1;
+}
+void teng_animator_clear(int id) {
+  const int32_t s = slot_of(id, "teng_animator_clear");
+  if (s < 0) return;
+  Ent &e = g->ents[s];
+  if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts) g->anim_rts[e.animator].used = false;
+  e.animator = -1;
+}
+static Bridge::AnimRtSlot *animator_of(int id, const char *who) {
+  const int32_t s = slot_of(id, who);
+  if (s < 0) return nullptr;
+  const Ent &e = g->ents[s];
+  if (e.animator < 0 || !g->anim_rts[e.animator].used) { BERR("%s: #%d icin animator yok (once teng_animator_set)", who, id); return nullptr; }
+  return &g->anim_rts[e.animator];
+}
+void teng_animator_param(int id, const char *name, double v) {
+  CALLF("teng_animator_param", "#%d %s = %.3f", id, name ? name : "", v);
+  Bridge::AnimRtSlot *rs = animator_of(id, "teng_animator_param");
+  if (!rs || !name) return;
+  const sim::AnimatorDef &d = g->anim_defs[rs->def].def;
+  const int32_t p = sim::animator_param_index(d, name);
+  if (p < 0 || d.params[p].trigger) { BERR("teng_animator_param: '%s' sayi parametresi degil / yok", name); return; }
+  sim::animator_set(d, &rs->rt, p, (float)v);
+}
+void teng_animator_trigger(int id, const char *name) {
+  CALLF("teng_animator_trigger", "#%d %s", id, name ? name : "");
+  Bridge::AnimRtSlot *rs = animator_of(id, "teng_animator_trigger");
+  if (!rs || !name) return;
+  const sim::AnimatorDef &d = g->anim_defs[rs->def].def;
+  const int32_t p = sim::animator_param_index(d, name);
+  if (p < 0 || !d.params[p].trigger) { BERR("teng_animator_trigger: '%s' tetik degil / yok", name); return; }
+  sim::animator_trigger(d, &rs->rt, p);
+}
+const char *teng_animator_state(int id) {
+  const int32_t s = slot_of(id, "teng_animator_state");
+  if (s < 0) return "";
+  const Ent &e = g->ents[s];
+  if (e.animator < 0 || !g->anim_rts[e.animator].used) return "";
+  const Bridge::AnimRtSlot &rs = g->anim_rts[e.animator];
+  return g->anim_defs[rs.def].def.states[rs.rt.cur].name;
+}
+const char *teng_animator_event(int id) {
+  const int32_t s = slot_of(id, "teng_animator_event");
+  if (s < 0) return "";
+  const Ent &e = g->ents[s];
+  if (e.animator < 0 || !g->anim_rts[e.animator].used) return "";
+  Bridge::AnimRtSlot &rs = g->anim_rts[e.animator];
+  const int32_t i = sim::animator_event_pop(&rs.rt);
+  return i < 0 ? "" : g->anim_defs[rs.def].def.events[i].name;
+}
+int teng_animator_fading(int id) {
+  const int32_t s = slot_of(id, "teng_animator_fading");
+  if (s < 0) return 0;
+  const Ent &e = g->ents[s];
+  return (e.animator >= 0 && g->anim_rts[e.animator].used && g->anim_rts[e.animator].rt.prev >= 0) ? 1 : 0;
+}
+
 int teng_anim_fading(int id) {
   const int32_t s = slot_of(id, "teng_anim_fading");
   return s < 0 ? 0 : (g->ents[s].anim_prev_clip >= 0 ? 1 : 0);

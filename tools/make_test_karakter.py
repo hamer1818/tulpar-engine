@@ -83,6 +83,13 @@ def uret(eklem, ucgen):
     a_tin2 = acc(bview(o_tin2), 5126, anahtar, "SCALAR", min=[t_in2[0]], max=[t_in2[-1]])
     v_rot2 = bview(o_rot2)
     veri = b"".join(x[0] for x in bolumler)
+    # 3. klip "yuru": KOK HAREKETI (A4): eklem 0 yerel ötelenmesi z: 0 -> 1 m, 1 sn (dongu basina 1 metre ilerler)
+    t_in3 = [0.0, 1.0]
+    tr3 = [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    o_tin3 = ekle(f(t_in3)); o_tr3 = ekle(f(tr3))
+    veri = b"".join(x[0] for x in bolumler)
+    a_tin3 = acc(bview(o_tin3), 5126, 2, "SCALAR", min=[0.0], max=[1.0])
+    a_tr3 = acc(bview(o_tr3), 5126, 2, "VEC3")
     nodes = [{"name": "karakter", "mesh": 0, "skin": 0}]
     for j in range(eklem):
         n = {"name": "eklem_%d" % j, "translation": [0, 0 if j == 0 else h, 0]}
@@ -105,7 +112,8 @@ def uret(eklem, ucgen):
         "nodes": nodes,
         "meshes": [{"primitives": [{"attributes": {"POSITION": a_pos, "NORMAL": a_nrm, "JOINTS_0": a_jnt, "WEIGHTS_0": a_wgt}, "indices": a_idx}]}],
         "skins": [{"joints": list(range(1, eklem + 1)), "inverseBindMatrices": a_ibm, "skeleton": 1}],
-        "animations": [{"name": "salla", "samplers": ornek, "channels": kanallar}, {"name": "egil", "samplers": ornek2, "channels": kanallar2}],
+        "animations": [{"name": "salla", "samplers": ornek, "channels": kanallar}, {"name": "egil", "samplers": ornek2, "channels": kanallar2},
+                       {"name": "yuru", "samplers": [{"input": a_tin3, "output": a_tr3, "interpolation": "LINEAR"}], "channels": [{"sampler": 0, "target": {"node": 1, "path": "translation"}}]}],
         "accessors": ac, "bufferViews": bv,
         "buffers": [{"byteLength": len(veri), "uri": "data:application/octet-stream;base64," + base64.b64encode(veri).decode()}],
     }

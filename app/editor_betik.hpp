@@ -85,6 +85,7 @@ struct KodPaneli {
   char geri_yol[1100] = {0};         // Alt+Sol: tanima gitmeden onceki yer (tek seviye)
   int geri_satir = 0, geri_sutun = 0;
   bool geri_var = false;
+  bool anim_grafik = true;     // A3: .animator acikken durum grafigi gorunur (metnin ustunde)
   bool tam_pencere = false;   // bagimsiz kod penceresi (engine_editor --kod): tum pencereyi kaplar, sekme/dock yok
   char uyari_mesaj[160] = {0}; // tam_pencere: durum satirinda (ornegin "Tulpar Editor acik degil")
   bool kapat_iste = false;    // tam_pencere: isletim sistemi pencere kapatma istedi (kirliyse once sorulur)
@@ -162,6 +163,8 @@ bool kod_imza_bul(const char *metin, const char *ad, char *imza, int cap);
 // `tulpar typecheck` ciktisi: "hata: <ileti>\n  --> dosya:SATIR\n ... | ^" ayrisma hatalari ve
 // "Tip Hatasi: <ileti> at line N" tip hatalari. Donus: yazilan kayit sayisi (cap'e kadar).
 int kod_tani_typecheck_oku(const char *log, KodPaneli::Hata *out, int cap);
+// A3: .animator canli denetimi (surec yok): sozdizimi/baglama hatasi -> 1 Hata (satir, ileti); saglamsa 0.
+int kod_animator_tani(const char *metin, KodPaneli::Hata *out, int cap);
 // `tulpar --lsp` ciktisi: publishDiagnostics (satir/sutun 0-tabanli gelir; satir 1-tabanli, sutun 0-tabanli yazilir).
 // kayma: 1. satira eklenen on ekin uzunlugu (satirda sutun bundan geri alinir).
 int kod_tani_lsp_oku(const char *log, int kayma, KodPaneli::Hata *out, int cap);

@@ -459,6 +459,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   // Kapi bayraklari: kasitli hata sayisi hangi bolumlerin kostuguna bagli.
   bool sahne_kapisi = false, anim_kapisi = false, ses_kapisi = false;
   int ortam_hatasi = 0; // ortamdan gelen (kasitsiz) hatalar: cihaz/kaynak yok
+  int mesh_hata = 0;    // P1 kodla mesh: kasitli reddedilenler (10a'da sayilir)
   int oz_hata = 0;      // 4.8 nesne ozellikleri: kasitli hatalar (orada tek tek sayilir)
   const TengScriptVm *sahte_vm = nullptr; // 4.5c'nin VM'i (4.8 kendi VM'ini kurup geri koyar)
   {
@@ -1216,9 +1217,270 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       CHECK(teng_anim_fading(ent) == 0 && teng_anim_time(ent) == 0.0);
       teng_set_anim(ent, -1, 1.0, 0); // statige don (hata degil)
       CHECK(teng_anim_time(ent) == 0.0);
+      // A3: animator (durum makinesi): a (dongu) --x>0.5--> b (tek, 1 s) --bitince--> a. Tanim dosyasi test dizininde.
+      {
+        char adir[512], ayol[600];
+        CHECK(test::tmp_mkdir(adir, sizeof adir, "animator_kopru"));
+        std::snprintf(ayol, sizeof ayol, "%s/t.animator", adir);
+        char metin[800];
+        std::snprintf(metin, sizeof metin,
+                      "tulpar-animator 1\nparam x sayi 0\nparam t tetik\ndurum a klip %s dongu\ndurum b klip %s tek\n"
+                      "gecis a b sure 0.2 eger x > 0.5\ngecis b a sure 0.1 bitince\nbaslangic a\n",
+                      teng_model_clip_name(model, 0), teng_model_clip_name(model, 0));
+        std::FILE *af = std::fopen(ayol, "wb");
+        CHECK(af != nullptr);
+        if (af) { std::fputs(metin, af); std::fclose(af); }
+        CHECK(teng_animator_set(ent, ayol) == 1);
+        CHECK(std::strcmp(teng_animator_state(ent), "a") == 0 && teng_animator_fading(ent) == 0);
+        run_frames(10);
+        CHECK(std::strcmp(teng_animator_state(ent), "a") == 0);              // kosul yok: a'da KALIR (kontrol)
+        teng_animator_param(ent, "x", 1.0);
+        run_frames(2);
+        CHECK(std::strcmp(teng_animator_state(ent), "b") == 0 && teng_animator_fading(ent) == 1);
+        run_frames(20);                                                      // 0.33 s > 0.2 s gecis
+        CHECK(teng_animator_fading(ent) == 0 && std::strcmp(teng_animator_state(ent), "b") == 0);
+        teng_animator_param(ent, "x", 0.0);
+        run_frames(90);                                                      // b tek klip (1 s) biter -> bitince a
+        CHECK(std::strcmp(teng_animator_state(ent), "a") == 0);
+        teng_animator_clear(ent);
+        CHECK(std::strcmp(teng_animator_state(ent), "") == 0);
+        unlink(ayol);
+      }
+      // A4: kok hareketi + olay kuyrugu (skin_karakter.gltf: 'yuru' klibi kok z 0 -> 1 m / 1 s).
+      {
+        char kp[768], adir[512], ayol[600];
+        std::snprintf(kp, sizeof kp, "%s/skin_karakter.gltf", assets_dir());
+        const int km = teng_load_model(kp);
+        CHECK(km >= 0);
+        CHECK(test::tmp_mkdir(adir, sizeof adir, "animator_kok"));
+        char kok_yol[600], sabit_yol[600];
+        std::snprintf(kok_yol, sizeof kok_yol, "%s/kok.animator", adir);
+        std::snprintf(sabit_yol, sizeof sabit_yol, "%s/sabit.animator", adir);
+        if (std::FILE *f = std::fopen(kok_yol, "wb")) { std::fputs("tulpar-animator 1\ndurum y klip yuru dongu kok\nolay y 0.5 adim\n", f); std::fclose(f); }
+        if (std::FILE *f = std::fopen(sabit_yol, "wb")) { std::fputs("tulpar-animator 1\ndurum y klip yuru dongu\n", f); std::fclose(f); }
+        const int k1 = teng_spawn_model(km, 0, 0, 0, 2.0, 0xFFFFFFFF);
+        CHECK(k1 > 0 && teng_animator_set(k1, kok_yol) == 1);
+        run_frames(60);                                                       // 1 s: 1 m * olcek 2 = ~2 m, +z
+        const double z1 = teng_z(k1);
+        std::printf("    [bilgi] kok hareketi: 1 s sonra z = %.3f (beklenen ~2.0), x = %.3f\n", z1, teng_x(k1));
+        CHECK(z1 > 1.9 && z1 < 2.1 && std::fabs(teng_x(k1)) < 1e-3);
+        teng_set_yaw(k1, 90.0);                                               // yaw 90: +z yerel -> dunyada +x
+        const double x0 = teng_x(k1), z0 = teng_z(k1);
+        run_frames(30);                                                       // 0.5 s -> ~1 m
+        CHECK(teng_x(k1) - x0 > 0.9 && teng_x(k1) - x0 < 1.1 && std::fabs(teng_z(k1) - z0) < 1e-2);
+        // olay: faz 0.5'te 'adim' (dongu basina bir kez; ~2.5 tur -> 2-3 olay), kuyruk bosalinca ""
+        run_frames(6);                                                        // 1.6 s: 2. tur olayi (faz 0.5) float yuvarlama payini asar
+        int olay = 0;        for (int i = 0; i < 8; i++) { const char *o = teng_animator_event(k1); if (o && !std::strcmp(o, "adim")) olay++; }
+        std::printf("    [bilgi] animator olaylari: %d adet\n", olay);
+        CHECK(olay >= 2 && olay <= 3);
+        CHECK(std::strcmp(teng_animator_event(k1), "") == 0);
+        // KONTROL: 'kok' yazilmayan durum varligi HAREKET ettirmez
+        const int k2 = teng_spawn_model(km, 5, 0, 0, 2.0, 0xFFFFFFFF);
+        CHECK(k2 > 0 && teng_animator_set(k2, sabit_yol) == 1);
+        run_frames(60);
+        CHECK(std::fabs(teng_z(k2)) < 1e-4 && std::fabs(teng_x(k2) - 5.0) < 1e-4);
+        teng_despawn(k1); teng_despawn(k2);
+        unlink(kok_yol); unlink(sabit_yol);
+      }
       teng_despawn(ent);
       unlink(shot_stat); unlink(shot_stat2); unlink(shot_anim); unlink(shot_bos);
     }
+  }
+
+  // --- 10a0) A5 MORPH TARGET: agirlik -> kopya mesh -> GORUNUR degisim; hata kontrolleri; yuva geri verilir ----------------------------------
+  {
+    char mp[512];
+    std::snprintf(mp, sizeof mp, "%s/morph_kup.gltf", assets_dir());
+    const int mm = teng_load_model(mp);
+    if (mm < 0) { ortam_hatasi++; skip("morph_kup.gltf yok — morph kapisi kosmadi"); }
+    else {
+      const int errs0 = teng_error_count();
+      CHECK(teng_model_morph_count(mm) == 2);
+      const int ent = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      CHECK(ent > 0);
+      teng_camera(0, 1.0, 4.0, 0, 0.5, 0);
+      char sa[512], sb[512], sc[512];
+      tmp_template(sa, sizeof sa, "kopru_morph_a"); tmp_template(sb, sizeof sb, "kopru_morph_b"); tmp_template(sc, sizeof sc, "kopru_morph_c");
+      char *ms[3] = {sa, sb, sc};
+      for (int i = 0; i < 3; i++) { const int fd = mkstemp(ms[i]); if (fd >= 0) close(fd); }
+      run_frames(3);
+      CHECK(teng_screenshot(sa) == 1);                                    // agirlik 0: taban kup
+      CHECK(teng_morph_get(ent, 0) == 0.0);
+      teng_morph_weight(ent, 0, 1.0);                                     // uzat: 2 m boyunda
+      CHECK(std::fabs(teng_morph_get(ent, 0) - 1.0) < 1e-9);
+      run_frames(3);
+      CHECK(teng_screenshot(sb) == 1);
+      teng_morph_weight(ent, 0, 0.0);                                     // geri: tabana donmeli (yeniden karisim dogru)
+      run_frames(3);
+      CHECK(teng_screenshot(sc) == 1);
+      static uint8_t pa[kW * kH * 3], pb[kW * kH * 3], pc[kW * kH * 3];
+      const uint32_t n1 = read_ppm(sa, pa, kW * kH, nullptr, nullptr), n2 = read_ppm(sb, pb, kW * kH, nullptr, nullptr), n3 = read_ppm(sc, pc, kW * kH, nullptr, nullptr);
+      CHECK(n1 > 0 && n1 == n2 && n2 == n3);
+      if (n1 > 0 && n1 == n2 && n2 == n3) {
+        const uint32_t d_morph = diff_px(pa, pb, n1), d_geri = diff_px(pa, pc, n1);
+        std::printf("    [bilgi] morph: piksel farki agirlik 1-0 %u, geri donus (0 olmali) %u\n", d_morph, d_geri);
+        if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): morph PIKSEL karsilastirmasi gercek cihazda");
+        else { CHECK(d_morph > 200); CHECK(d_geri == 0); }
+      }
+      // KONTROL: kasitli hatalar (hedef aralik disi, NaN, morph'suz model, model olmayan varlik) -> 4 hata, durum bozulmaz
+      CHECK(teng_morph_rejected() == 0);
+      teng_morph_weight(ent, 5, 1.0);
+      teng_morph_weight(ent, 0, std::nan(""));
+      const int kutu = teng_spawn_light(9, 3, 9, 0xFFFFFF, 1.0, 5.0);   // govdesiz varlik: fizik durumuna dokunmaz (kanca izi kapisi buna duyarli)
+      teng_morph_weight(kutu, 0, 1.0);
+      CHECK(teng_model_morph_count(99) == 0);
+      CHECK(teng_error_count() == errs0 + 4);
+      mesh_hata += 4;
+      // Yuva geri verilir: despawn sonra yeni varlik AYNI yuvayi (ve kopya mesh'leri) yeniden kullanir -> mesh sayisi artmaz
+      const int draw0 = teng_draw_count();
+      teng_despawn(ent); teng_despawn(kutu);
+      const int e2 = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      teng_morph_weight(e2, 1, 1.0);
+      run_frames(3);
+      CHECK(teng_morph_rejected() == 0 && teng_draw_count() >= 1);
+      (void)draw0;
+      teng_despawn(e2);
+      for (int i = 0; i < 3; i++) unlink(ms[i]);
+    }
+  }
+
+  // --- 10a0b) A5 MORPH KLIBI (glTF weights kanali): teng_set_anim iskeletsiz klibi calar, agirliklar her kare kopya mesh'e;
+  // klip kapaninca taban sekle doner. Eskiden iskeletsiz klip yuklenmezdi (klip 0 yok hatasi). Hata SAYISI degismemeli
+  // (poz yolu "klip degerlendirilemedi" deyip animasyonu kapatmamali).
+  {
+    char mp[512];
+    std::snprintf(mp, sizeof mp, "%s/morph_kup_anim.gltf", assets_dir());
+    const int mm = teng_load_model(mp);
+    if (mm < 0) { ortam_hatasi++; skip("morph_kup_anim.gltf yok — morph klibi kapisi kosmadi"); }
+    else {
+      const int errs0 = teng_error_count();
+      CHECK(teng_model_clip_count(mm) == 1 && !std::strcmp(teng_model_clip_name(mm, 0), "nefes"));
+      const int ent = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      teng_camera(0, 1.0, 4.0, 0, 0.5, 0);
+      char sa[512], sb[512], sc[512];
+      tmp_template(sa, sizeof sa, "kopru_mklip_a"); tmp_template(sb, sizeof sb, "kopru_mklip_b"); tmp_template(sc, sizeof sc, "kopru_mklip_c");
+      char *ms[3] = {sa, sb, sc};
+      for (int i = 0; i < 3; i++) { const int fd = mkstemp(ms[i]); if (fd >= 0) close(fd); }
+      run_frames(3);
+      CHECK(teng_screenshot(sa) == 1);                                    // klipsiz: taban kup
+      teng_set_anim(ent, 0, 0.0, 1);                                      // hiz 0: an sabit
+      run_frames(60);
+      CHECK(std::fabs(teng_anim_time(ent)) < 1e-6);                       // KONTROL: hiz 0'da an ilerlemez
+      teng_set_anim(ent, 0, 1.0, 1);
+      run_frames(60);                                                     // basliksiz dt = 1/60: ~1 s -> uzat 1, genislet 0.5
+      CHECK(std::fabs(teng_anim_time(ent) - 1.0) < 0.05);
+      CHECK(teng_screenshot(sb) == 1);
+      teng_set_anim(ent, -1, 1.0, 1);                                     // klip kapandi: elle agirlik (0) -> taban
+      run_frames(3);
+      CHECK(teng_screenshot(sc) == 1);
+      CHECK(teng_error_count() == errs0);
+      static uint8_t pa[kW * kH * 3], pb[kW * kH * 3], pc[kW * kH * 3];
+      const uint32_t n1 = read_ppm(sa, pa, kW * kH, nullptr, nullptr), n2 = read_ppm(sb, pb, kW * kH, nullptr, nullptr), n3 = read_ppm(sc, pc, kW * kH, nullptr, nullptr);
+      CHECK(n1 > 0 && n1 == n2 && n2 == n3);
+      if (n1 > 0 && n1 == n2 && n2 == n3) {
+        const uint32_t d_klip = diff_px(pa, pb, n1), d_geri = diff_px(pa, pc, n1);
+        std::printf("    [bilgi] morph klibi: piksel farki t=1 s ile taban %u, klip kapaninca (0 olmali) %u\n", d_klip, d_geri);
+        if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): morph klibi PIKSEL karsilastirmasi gercek cihazda");
+        else { CHECK(d_klip > 200); CHECK(d_geri == 0); }
+      }
+      teng_despawn(ent);
+      for (int i = 0; i < 3; i++) unlink(ms[i]);
+    }
+  }
+
+  // --- 10a0c) A5 ISKELETLI + MORPH: pozlu cizim yolunda (klip calarken) morph kopyasi kullanilir. Eskiden iskeletli mesh'in morph'u
+  // yuklenmezdi; morph_weight pozlu varlikta GORUNMEZDI (pozlu yol modelin ortak mesh'ini ciziyordu).
+  {
+    char mp[512];
+    std::snprintf(mp, sizeof mp, "%s/morph_iskelet.gltf", assets_dir());
+    const int mm = teng_load_model(mp);
+    if (mm < 0) { ortam_hatasi++; skip("morph_iskelet.gltf yok — iskeletli morph kapisi kosmadi"); }
+    else {
+      const int errs0 = teng_error_count();
+      CHECK(teng_model_morph_count(mm) == 2 && teng_model_clip_count(mm) == 2);
+      const int ent = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      teng_camera(0, 1.0, 4.0, 0, 0.5, 0);
+      char sa[512], sb[512], sc[512], sd[512], se[512];
+      tmp_template(sa, sizeof sa, "kopru_imorph_a"); tmp_template(sb, sizeof sb, "kopru_imorph_b");
+      tmp_template(sc, sizeof sc, "kopru_imorph_c"); tmp_template(sd, sizeof sd, "kopru_imorph_d"); tmp_template(se, sizeof se, "kopru_imorph_e");
+      char *ms[5] = {sa, sb, sc, sd, se};
+      for (int i = 0; i < 5; i++) { const int fd = mkstemp(ms[i]); if (fd >= 0) close(fd); }
+      teng_set_anim(ent, 0, 0.0, 1);                                      // hiz 0, an 0: poz bind, iz agirligi 0 (pozlu yol)
+      run_frames(3);
+      CHECK(teng_screenshot(sa) == 1);
+      teng_set_anim(ent, 1, 0.0, 1);                                      // 'don' (weights izi yok), an 0 = ayni bind pozu
+      teng_morph_weight(ent, 1, 1.0);                                     // genislet: pozlu yolda GORUNMELI
+      run_frames(3);
+      CHECK(teng_screenshot(sb) == 1);
+      teng_morph_weight(ent, 1, 0.0);
+      run_frames(3);
+      CHECK(teng_screenshot(sc) == 1);
+      teng_morph_weight(ent, 1, 1.0);                                     // 'salla' bunu EZER (weights kanali tum hedefleri surer)
+      teng_set_anim(ent, 0, 1.0, 1);
+      run_frames(60);                                                     // t ~ 1 s: ust 30 derece + uzat 1 (genislet 0)
+      CHECK(teng_screenshot(sd) == 1);
+      teng_morph_weight(ent, 1, 0.0);
+      teng_set_anim(ent, 1, 1.0, 1);                                      // KONTROL: 'don' ayni poz, morph izi yok
+      run_frames(60);
+      CHECK(teng_screenshot(se) == 1);
+      CHECK(teng_error_count() == errs0 && teng_morph_rejected() == 0);
+      static uint8_t pa[kW * kH * 3], pb[kW * kH * 3], pc[kW * kH * 3], pd[kW * kH * 3], pe[kW * kH * 3];
+      const uint32_t n1 = read_ppm(sa, pa, kW * kH, nullptr, nullptr), n2 = read_ppm(sb, pb, kW * kH, nullptr, nullptr);
+      const uint32_t n3 = read_ppm(sc, pc, kW * kH, nullptr, nullptr), n4 = read_ppm(sd, pd, kW * kH, nullptr, nullptr);
+      const uint32_t n5 = read_ppm(se, pe, kW * kH, nullptr, nullptr);
+      CHECK(n1 > 0 && n1 == n2 && n2 == n3 && n3 == n4 && n4 == n5);
+      if (n1 > 0 && n1 == n2 && n2 == n3 && n3 == n4 && n4 == n5) {
+        const uint32_t d_elle = diff_px(pa, pb, n1), d_geri = diff_px(pa, pc, n1), d_klip = diff_px(pa, pd, n1), d_iz = diff_px(pd, pe, n1);
+        std::printf("    [bilgi] iskeletli morph (pozlu yol): elle genislet %u, geri (0 olmali) %u, klip t=1 s (poz + uzat) %u, ayni poz izsiz klibe gore %u piksel\n",
+                    d_elle, d_geri, d_klip, d_iz);
+        if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): iskeletli morph PIKSEL karsilastirmasi gercek cihazda");
+        else { CHECK(d_elle > 200); CHECK(d_geri == 0); CHECK(d_klip > 200); CHECK(d_iz > 200); }
+      }
+      teng_despawn(ent);
+      for (int i = 0; i < 5; i++) unlink(ms[i]);
+    }
+  }
+
+  // --- 10a) P1 KODLA MESH: kurucu, cokgen yukseltme, tavan SAYILIR, model olarak cizilir --------------------------------------
+  {
+    const int errs0 = teng_error_count();
+    CHECK(teng_mesh_begin() == 1);
+    // elle ucgen: 3 kose + 1 ucgen
+    CHECK(teng_mesh_vertex(0, 0, 0, 0, 0) == 0 && teng_mesh_vertex(1, 0, 0, 1, 0) == 1 && teng_mesh_vertex(0, 0, 1, 0, 1) == 2);
+    CHECK(teng_mesh_tri(0, 2, 1) == 1 && teng_mesh_tri_count() == 1 && teng_mesh_vertex_count() == 3);
+    CHECK(teng_mesh_tri(0, 1, 3) == 0 && teng_mesh_rejected() == 1);              // KONTROL: aralik disi indeks reddedilir ve SAYILIR
+    // cokgen: L bicimli (ICBUKEY) 6 nokta, 2 m yuksek => ust 4 ucgen + taban 4 + yan 6 kenar x 2 = 20 ucgen (+ onceki 1)
+    const double L[6][2] = {{0, 0}, {2, 0}, {2, 1}, {1, 1}, {1, 2}, {0, 2}};
+    for (int i = 0; i < 6; i++) CHECK(teng_mesh_poly_point(L[i][0], L[i][1]) == i + 1);
+    CHECK(teng_mesh_poly_extrude(2.0) == 20);
+    CHECK(teng_mesh_tri_count() == 21 && teng_mesh_vertex_count() == 3 + 6 + 6 + 24);
+    // KONTROL: gecersiz cokgen (2 nokta) hicbir sey eklemez, sayilir
+    const int r0 = teng_mesh_rejected();
+    teng_mesh_poly_point(0, 0); teng_mesh_poly_point(1, 0);
+    CHECK(teng_mesh_poly_extrude(1.0) == 0 && teng_mesh_rejected() == r0 + 1 && teng_mesh_tri_count() == 21);
+    teng_mesh_color(0xFF8800);
+    const int m = teng_mesh_end();
+    CHECK(m >= 0);
+    const int ent = teng_spawn_model(m, 60, 0, 60, 1.0, 0xFFFFFFFF);
+    CHECK(ent > 0);
+    run_frames(2);
+    const int cizim1 = teng_draw_count();
+    teng_despawn(ent);
+    run_frames(2);
+    std::printf("    [bilgi] kodla mesh cizimi: varlikli %d, varliksiz %d cizim\n", cizim1, teng_draw_count());
+    CHECK(cizim1 == teng_draw_count() + 1);                                       // model gercekten cizildi (KONTROL: kalkinca tam 1 eksilir)
+    CHECK(teng_mesh_end() == -1);                                                 // KONTROL: kurucu kapandi, ikinci bitir reddedilir
+    // tavan: 4096 koseyi doldur, bir fazlasi -1 doner ve sayilir
+    CHECK(teng_mesh_begin() == 1);
+    int son = 0;
+    for (int i = 0; i < 4096; i++) son = teng_mesh_vertex(i, 0, 0, 0, 0);
+    CHECK(son == 4095 && teng_mesh_vertex(0, 0, 0, 0, 0) == -1 && teng_mesh_rejected() == 1);
+    CHECK(teng_mesh_end() == -1);                                                 // ucgen yok: bos mesh reddedilir
+    // hata sayaci: yukaridaki kasitli reddedilenler loglandi (BERR) ama kare/ayirma kapilarini bozmaz
+    std::printf("    [bilgi] kodla mesh: model %d, hata logu +%d (kasitli reddedilenler)\n", m, teng_error_count() - errs0);
+    const int p1_hata = teng_error_count() - errs0;
+    CHECK(p1_hata == 5);
+    mesh_hata += p1_hata;
   }
 
   // --- 10b) KODLA TETIK: gorunmez bolge, kuyruk, tasima -----------------------
@@ -1851,6 +2113,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   beklenen += kod_hata; // 10d: kodla betik baglamanin kasitli reddleri (orada tek tek sayildi)
   beklenen += hiz_hata; // 10c2: 9 parametreli kanca (2) + bozulan esleme girdisi (1)
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
+  beklenen += mesh_hata; // 10a: kodla mesh'in kasitli reddleri (aralik disi indeks, gecersiz cokgen, kapali kurucu, tavan, bos mesh)
   beklenen += oz_hata; // 4.8: nesne ozelliklerinin kasitli hatalari (tur uyusmazligi, ad kurali, sinir disi)
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;

@@ -381,6 +381,8 @@ struct RendererStats {
   uint32_t draws = 0;      // son kare
   uint32_t dropped = 0;    // kapasite asimi (sayilir, sessiz degil)
   uint32_t skin_dropped = 0; // eklem matrisi tavani yuzunden CIZILMEYEN iskeletli cizim (dropped'a da girer; son karede)
+  uint32_t skin_draws = 0;   // A7: son karede kabul edilen iskeletli cizim (golge gecisi ayri sayilmaz: cizim listesi tek)
+  uint64_t skin_verts = 0;   // A7: o cizimlerin KOSE toplami (LOD secildiyse secilen seviyenin mesh'i) — mobil butce bununla olculur
   uint32_t meshes = 0;
   uint32_t textures = 0;
   uint32_t materials = 0;
@@ -396,8 +398,18 @@ public:
 
   // Yukleme: staging ile device-local. Kare icinde CAGRILMAZ.
   MeshHandle create_mesh(const Vertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
-  MeshHandle create_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
+  // used_verts: indekslerin kullandigi tekil kose (LOD tam tamponu paylasir; 0 = nverts). Yalniz stats_.skin_verts icin.
+  MeshHandle create_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices,
+                                 uint32_t used_verts = 0);
   bool update_mesh_vertices(MeshHandle handle, const Vertex *verts, uint32_t nverts);
+  // A5 (morph): KARE BASINA guncellenebilen mesh. Her kare-yuvasi icin ayri host-gorunur vertex tamponu (frames_in_flight adet): update, o
+  // karenin tamponuna yazar ve mesh'i ona baglar; GPU'nun okuyabildigi onceki karenin tamponuna DOKUNMAZ (fence halkasi zaten garanti
+  // ediyor). update_mesh_vertices'in aksine bekleme/staging yok. Tavan: mesh havuzundan bir tutamac (create_mesh gibi, geri verilmez).
+  MeshHandle create_dynamic_mesh(const Vertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
+  bool update_dynamic_mesh(MeshHandle handle, const Vertex *verts, uint32_t nverts);
+  // A5 iskeletli+morph: ayni kare halkasi, SkinnedVertex (eklem/agirlik dahil). draw_skinned ile cizilir; statik guncelleme REDDEDILIR (ve tersi).
+  MeshHandle create_dynamic_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
+  bool update_dynamic_skinned_mesh(MeshHandle handle, const SkinnedVertex *verts, uint32_t nverts);
   // Indeks araligi seyrek (Mali kurali, CPU'da olculur) mesh sayisi; kapi 0 bekler.
   uint32_t sparse_mesh_count() const { return sparse_mesh_count_; }
   // RGBA8, mip zinciri blit ile uretilir (yukleme aninda). Mobil asil yol ASTC (Faz 6).
@@ -732,7 +744,13 @@ private:
   struct Mesh {
     VkBuffer vbuf = VK_NULL_HANDLE, ibuf = VK_NULL_HANDLE;
     uint32_t index_count = 0;
+    uint32_t vert_count = 0;   // A7: iskeletli kose butcesi (stats_.skin_verts) icin
     bool skinned = false;
+    // A5: dinamik mesh: kare basina ayri host-gorunur vertex tamponu (dyn_vbuf[frame_]); vbuf o karenin tamponuna isaret eder.
+    bool dynamic = false;
+    uint32_t dyn_verts = 0;
+    VkBuffer dyn_vbuf[3] = {};
+    void *dyn_map[3] = {};
     // Yerel (model uzayi) sinir kuresi: yukleme aninda vertex'lerden olculur.
     // GPU cull bunu model matrisiyle donusturur.
     Vec3 center{0, 0, 0};

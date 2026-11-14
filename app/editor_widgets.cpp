@@ -976,6 +976,7 @@ const CreateMenuItem kCreate3D[] = {
     {"D\xC3\xBCzlem / Zemin", "\xE2\x96\xAC", 8, nullptr, 0},   // ▬
     {"D\xC3\xB6rtgen", "\xE2\x96\xAC", 23, nullptr, 0}, // ▬
     {"Simit", "\xE2\x97\xBC", 24, nullptr, 0},      // ◼
+    {"\xC3\x87okgen (\xC3\xA7iz)", ICON_MD_PENTAGON, 80, nullptr, 0}, // P2: zemine tıkla-nokta, Enter
 };
 const CreateMenuItem kCreateLight[] = {
     {"Y\xC3\xB6nl\xC3\xBC G\xC3\xBCne\xC5\x9F", "\xE2\x98\x80", 14, nullptr, 0}, // ☀
@@ -1068,6 +1069,7 @@ const CreateMenuItem kCreateBasitSekil[] = {
     {"Silindir", "\xE2\x97\xBC", 21, nullptr, 0},
     {"Koni", "\xE2\x97\xBC", 22, nullptr, 0},
     {"Zemin (d\xC3\xBCzlem)", "\xE2\x96\xAC", 8, nullptr, 0},
+    {"\xC3\x87okgen (\xC3\xA7iz)", ICON_MD_PENTAGON, 80, nullptr, 0},
 };
 const CreateMenuItem kCreateBasitFizik[] = {
     {"D\xC3\xBC\xC5\x9F" "en kutu", "\xE2\x96\xA7", 6, nullptr, 0},

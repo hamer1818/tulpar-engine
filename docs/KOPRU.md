@@ -1739,3 +1739,87 @@ hesabıdır ve v2'de çoğu cihazda **kendiliğinden** açıktır.
 - Çekirdek: `content::model_pose_blend` (w = 0 / 1 uçlarında `model_pose_evaluate` ile **bit eşit**), kare içi ayırma yok.
 - Ölçüm (masaüstü CPU, tek parçacık, 2026-11-13): 200 karakter × 60 eklem geçiş sırasında **0,82 ms** (geçişsiz 0,47 ms); mobil ölçülmedi.
 - Kapılar: `content_pose_blend_endpoints_and_midpoint` (uçlar bit eşit, orta = 45°), `bridge_runs_a_scripted_game_headless` (geçiş süresi, sıfır süre, klipsiz, `set_anim` iptali).
+
+## 19. Animatör — `.animator` (A3, 2026-11-13)
+
+Durum makinesi + hıza göre 1B karışım + geçiş koşulu; klip adları modelden çözülür. Çekirdek `sim/animator` (klip İNDEKSLİ, GPU/model bilmez),
+karışım `content::model_pose_mix` (N klibin ağırlıklı karışımı; tek girdi `model_pose_evaluate` ile bit eşit). Köprü: `eng_animator_set(id, yol)`
+(Tulpar `animator_ata` / `animator_set`; false ⇒ neden Konsol'da: satır numarası ya da modelde olmayan klip adı), `eng_animator_param(id, ad, v)`,
+`eng_animator_trigger(id, ad)`, `eng_animator_state(id)` → durum adı, `eng_animator_fading(id)`, `eng_animator_clear(id)`.
+Animatör **`eng_set_anim` / `eng_anim_crossfade`'i ezer** (varlık animatörle yönetilir).
+
+Dosya (`.animator`, `#` yorum): `tulpar-animator 1` · `param <ad> sayi [varsayılan]` / `param <ad> tetik` · `durum <ad> klip <klip> [hiz h] [dongu|tek]` ·
+`durum <ad> karisim <param>` + `nokta <eşik> <klip> [hiz h]` satırları (en çok 4, eşikler artan) + `son` ·
+`gecis <kaynak|herhangi> <hedef> [sure s] eger <param> <op> <değer>` (`> < >= <= ==`) | `tetik <param>` | `bitince` · `baslangic <durum>`.
+Kapasite: 16 durum, 48 geçiş, 16 parametre, 4 karışım noktası; bridge: 8 tanım + 256 çalışma yuvası (dolunca reddedilir, sayılır). Koşulsuz geçiş,
+bilinmeyen durum/parametre, tetiği sayı gibi kullanma, artmayan eşikler, tanımsız klip adı **HATA** (sessiz değil).
+
+Kurallar: karışım durumunun iki klibi **normalleşmiş fazla senkron** ilerler (yürü/koş adımları birlikte); geçiş **smoothstep** ağırlıklı ve sürerken yeni
+geçiş başlamaz (sıçramasız); tetik geçişle **tüketilir** (bir tetik bir geçiş); `bitince` yalnız `tek` klipte (bittiğinde) sağlanır; ilk sağlanan geçiş
+(liste sırası) kazanır. Belirlenimli (yalnız float toplama/çarpma), kare içi ayırma yok (`kare ici ayirma 0` bridge kapanış satırı).
+Kapılar: `animator_parse_ve_bind`, `animator_bozuk_tanimlar_reddedilir` (9 kötü tanım + sağlam kontrol), `animator_hiza_gore_gecis_ve_karisim_agirliklari`,
+`animator_tetik_tuketilir_ve_bitince_doner`, `animator_gecis_smoothstep_ve_belirlenimli`, `content_pose_mix_kurallari`, köprü testi (durum/geçiş/bitince/clear).
+Deneme: `~/TulparOyunlari/animasyon_deneme/animator_deneme.tpr` (örnek yerel dizin; YUKARI/ASAGI hız, SPACE zıpla).
+**A4 (2026-11-14) — olay ve kök hareketi:** `olay <durum> <faz 0..1> <ad>` (en çok 16): durumun normalleşmiş fazı bu değeri GEÇİNCE olay kuyruğa girer
+(döngüde her turda; sarma karesinde iki aralık taranır). Kuyruk 8, dolunca olay düşer ve `events_dropped` SAYILIR. Tulpar: `animator_olay(id)` / `animator_event(id)` →
+olay adı (boşsa kuyruk boş; çarpışma kuyruğu kalıbı, callback yok). `durum <ad> klip <klip> ... kok`: klibin kök (eklem 0) yatay (x,z) ötelenmesi varlığı
+yürütür (yaw ile döner, ölçekle çarpılır; dinamik gövdede uygulanmaz) ve poz'dan KİLİTLENİR (karakter yerinde kaymaz, çift hareket yok). Kapılar:
+`animator_olaylar_faz_gecisinde_kuyruga_girer`, `content_kok_hareketi_okuma_ve_kilit`, köprü testi (kök z=2.000, olay 2 adet).
+**Henüz yok:** animatör durum grafiği görünümü, katman maskeleri, IK.
+
+## 20. Kodla mesh (P1, 2026-11-14)
+
+Prosedürel geometri: kırılan duvar, dalga, el yapımı çokgen oyunda üretilir ve model gibi çizilir. Düz skaler ABI (struct/dizi yok), "kur sonra bitir":
+`eng_mesh_begin()` → `eng_mesh_vertex(x,y,z,u,v)` (köşe indeksi) + `eng_mesh_tri(a,b,c)` (CCW = dışa bakan) · `eng_mesh_color(c)` ·
+`eng_mesh_poly_point(x,z)` + `eng_mesh_poly_extrude(h)` (XZ çokgeni kulak kesmeyle üçgenler; h>0 kapaklı kati: üst +Y, taban −Y, yan yüzler sert kenarlı dış normal; h<=0 yalnız üst yüz) →
+`eng_mesh_end()` = model tutamacı (`eng_spawn_model` ile çizilir; `-1` hata). Tulpar: `mesh_basla/kose/ucgen/renk/cokgen_nokta/cokgen_yukselt/bitir` (+EN ikizler `mesh_begin/vertex/tri/...`).
+Sayaçlar: `mesh_kose_say`, `mesh_ucgen_say`, `mesh_reddedilen`.
+
+Tavan (sessiz değil): **4096 köşe, 8192 üçgen, 32 çokgen noktası**; aşan ekleme REDDEDİLİR, hata loglanır ve `mesh_reddedilen` sayar (aralık dışı/negatif indeks, tavan, geçersiz çokgen
+(alan ≈ 0, NaN, <3 nokta), `basla`sız çağrı, bitirilmiş kurucuya ikinci `bitir`). Boş mesh (üçgensiz) `bitir`de reddedilir. Model havuzu (`kMaxModels` 128) `model_yukle` ile ortaktır.
+Çekirdek `content::mesh_from_triangles` (STL/OBJ ile aynı kurucu: yumuşak normal 60°, meshopt, LOD; dönüşüm YOK) ve `content::polygon_triangulate_xz` (giriş yönü ne olursa +Y sarımı).
+Kapılar: `import_cokgen_ucgenleme_alan_ve_sarim` (içbükey L: üçgen alanları toplamı 3, hepsi +Y; ters giriş yönü; alan 0 / NaN / <3 nokta reddi),
+`import_mesh_from_triangles_kutu_ve_reddedilenler`, köprü testi 10a (L-çokgen 20 üçgen/36 köşe, 5 kasıtlı red sayıldı, 4096 köşe tavanı, model gerçekten çizildi: 1 → despawn → 0 çizim).
+Ölçüm: masaüstü (başsız) L-çokgen mesh `bitir` + 20 kare p50 7,6 ms; P20 Pro'da (2026-11-14) içerik testleri geçti. Deneme: `tulpar/examples/engine_mesh_kodla.tpr`.
+**Henüz yok:** editörde çokgen çizimi (P2), UV/malzeme çoklu, kodla mesh'in `.sahne`ye kaydı (yalnız çalışma zamanı modeli).
+
+## 21. Morph target (A5, 2026-11-14)
+
+glTF morph hedefleri (POSITION farkı) iskeletsiz **ve iskeletli** mesh'te (iskeletli: 2026-11-14). `eng_model_morph_count(model)` (0 = yok) · `eng_morph_weight(id, hedef, w)` (hedef = glTF `weights` sırası, en çok 8;
+w tavansız, [0,1] dışı "abartma" geçerli) · `eng_morph_get` · `eng_morph_rejected`. Tulpar: `morph_sayisi/morph_agirlik/morph_oku/morph_reddedilen` (+EN ikizler).
+Hata (loglanır, durum bozulmaz): model varlığı değil, modelde morph yok, hedef aralık dışı, NaN.
+
+Mekanizma: yükleyici hedefleri `ModelMesh::morph_deltas`'a okur; **morph'lu mesh'te meshopt/LOD/DAG atlanır** (köşe sırası deltalarla gider), `model_compact` taban
+köşe + indeks + deltayı saklar. İlk `morph_weight` varlığa **kopya mesh'ler** (renderer `create_dynamic_mesh`: kare yuvası başına ayrı host-görünür tampon) verir; ağırlık
+değişince taban + Σ w·delta CPU'da karılır (`content::blend_morph_targets`) ve o karenin tamponuna yazılır (`update_dynamic_mesh`: bekleme/staging yok; GPU'nun okuyabildiği
+önceki karenin tamponuna dokunulmaz — fence halkası garanti eder). Ağırlık değişmeyen karede iş yok. Havuz **16 varlık**; yuva ayrılınca (despawn) AYNI modelde kopya mesh'ler yeniden
+kullanılır, başka modelde **yanar** (mesh tutamacı geri verilmez; `morph_burned`). Dolunca ya da mesh havuzu bitince varlık taban şekille kalır ve `eng_morph_rejected` sayar.
+
+Sınırlar (sessiz değil): 8 hedef/mesh (fazlası `Model::morph_dropped`), 16384 köşe/mesh (aşan mesh morph'suz yüklenir, `morph_meshes_dropped`), iskeletli mesh'te morph atlanır
+(`morph_skipped`). **Normal farkı** (hedef `NORMAL`, 2026-11-14): varsa normaller de aynı ağırlıkla karılıp birim uzunluğa normalize edilir
+(`content::blend_morph_normals`; sıfıra inen normal tabanda kalır, NaN yok); hiçbir hedefte `NORMAL` yoksa taban normal kalır.
+
+**İskeletli + morph (yüz animasyonu, 2026-11-14):** farklar BIND uzayında tabana eklenir, deri GPU'da giydirilir (glTF sırası: morph → skin). Kopya mesh
+renderer'ın **dinamik iskeletli mesh**'i (`create_dynamic_skinned_mesh` / `update_dynamic_skinned_mesh`: aynı kare halkası, 32 baytlık iskeletli köşe; düz/iskeletli
+güncelleme birbirinin mesh'ine reddedilir). Köprüde üç çizim yolu (animatör, klip, statik) aynı kopyayı kullanır (`morph_kare`): eskiden pozlu yol modelin ortak
+mesh'ini çizdiği için `morph_weight` klip çalan varlıkta görünmezdi. **glTF kuralı:** `weights` kanalı mesh'in BÜTÜN hedeflerini sürer — kanallı klip çalarken elle
+ağırlık o mesh'te tamamen ezilir; yalnız iskelet izli klipte elle ağırlık geçerli kalır. `model_compact` iskeletli morph mesh'inde `skin_verts`'i de saklar.
+`Model::morph_skipped` artık hep 0 (eski sayaç).
+
+**Morph klibi (glTF `weights` kanalı, 2026-11-14):** `weights` kanallı animasyon normal bir klip olarak yüklenir (iskeletsiz de olur: `skin = -1`; eskiden iskeletsiz klip
+hiç yüklenmezdi — böyle bir animasyonu olan modelde sonraki kliplerin indeksi bu yüzden kayabilir). `eng_set_anim(id, klip, hız, döngü)` / `anim_oynat` ile çalınır;
+ağırlıklar klibin hızında (30 Hz) örneklenmiş izden doğrusal okunur (`content::model_clip_morph_weights`) ve her kare kopya mesh'e karılır. Morph yuvası ilk karede
+kendiliğinden alınır (`morph_weight` gerekmez). Klip çalarken **izi olan mesh'te klip, `morph_weight`'i ezer**; klip kapanınca elle verilen ağırlığa döner. Klip başına en
+çok 4 iz (`Model::morph_tracks_dropped`). **Yok:** geçiş (`anim_crossfade`) ve animatörde (A3) morph izi karışımı (yalnız geçerli klip), editörde/sahne çalışma
+zamanında morph çizimi (editör Animasyon kartı klibi listeler ama küp şekil değiştirmez).
+Kapılar: `content_morph_klibi_weights_kanali` (ağırlık örnekleri, kenetleme, NaN, compact; normal farkı: w=1'de bütün normaller yukarı, ara ağırlık birim, karşıt delta
+tabanda; kontrol: klipsiz/normalsiz `morph_kup.gltf` 0 klip, normal dizisi yok), köprü 10a0b (t=1 s'de 10010 piksel fark — normal farkı eklenmeden önce 9228, fazlası yalnız ışıktan;
+klip kapanınca 0; hata sayısı değişmez; kontrol: hız 0'da an ilerlemez). Deneme varlığı: `tests/assets/morph_kup_anim.gltf`.
+İskeletli kapılar: `content_iskeletli_morph_yuklenir_ve_compact_korur` (skin_verts/verts aynı sıra, LOD yok, compact saklar; kontrol: iskeletsiz morph_kup skin_verts taşımaz),
+`render_dinamik_mesh_kare_halkasi` (dinamik iskeletli: 6 kare, mesh sayısı artmaz, `skin_verts` sayılır, çapraz güncelleme reddi; **P20 Pro'da geçti**), köprü 10a0c
+(pozlu yolda elle genişlet 4922 piksel, geri 0, `salla` t=1 s 5774; **kontrol:** aynı pozdaki izsiz `don` klibine göre 5619 piksel = farkı morph izi yapıyor). Varlık:
+`tests/assets/morph_iskelet.gltf` (2 eklem, `salla` = dönüş + weights, `don` = yalnız dönüş). Köprü piksel kapıları masaüstünde (köprü testi Android derlemesinde yok).
+Kapılar: `content_morph_hedefleri_yuklenir_ve_compact_korur` (delta değerleri, LOD yok, compact saklaması + morph'suz kontrol), `render_dinamik_mesh_kare_halkasi` (6 kare/2 yuva, mesh sayısı artmaz,
+statik/yanlış-köşe reddi; **P20 Pro'da geçti 2026-11-14**), köprü testi 10a0 (ağırlık 1 → 5770 piksel fark, 0'a dönüş 0 piksel fark = doğru yeniden karışım, 4 kasıtlı hata sayıldı, yuva yeniden kullanımı).
+Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).
+

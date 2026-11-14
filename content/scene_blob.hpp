@@ -81,7 +81,9 @@ constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
 // yok (tools/scene_check.py BLOB_MUAF, gerekceli).
 // v11 (A1b, 2026-11-13): SceneBlobAnim'e `mode` (calma kipi: ileri-geri / dongu / tek). 16 -> 20 bayt kayit; eski v10 blob'lar
 // REDDEDILIR (surum kapisi) — .sahneb turetilmistir, engine_sahnec / editor Derle yeniden uretir.
-constexpr uint32_t kSceneBlobVersion = 11;
+// v12 (P2, 2026-11-14): cokgen tablosu (SceneBlobPoly: nokta sayisi, yukseklik, 32 nokta). Baslik SONUNA 4 u32 (16 B: hiza korunur);
+// eski v11 blob'lar REDDEDILIR (surum kapisi) — .sahneb turetilmistir, engine_sahnec / editor Derle yeniden uretir.
+constexpr uint32_t kSceneBlobVersion = 12;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -152,6 +154,9 @@ struct SceneBlobHeader {
   // --- v10: kamera + ses (SONA; dort u32 = 16 bayt, hiza korunur) -----------
   uint32_t camera_count, camera_offset;       // SceneBlobCamera[] (varlik sirasiyla)
   uint32_t audio_count, audio_offset;         // SceneBlobAudio[]  (varlik sirasiyla)
+  // --- v12: cokgen (SONA; iki u32 + iki ayrilmis = 16 bayt, hiza korunur) ---
+  uint32_t poly_count, poly_offset;           // SceneBlobPoly[] (varlik sirasiyla)
+  uint32_t poly_reserved0, poly_reserved1;
 };
 // v10 kamera: konum/yon varligin DUNYA matrisinden (SceneBlobEntity::world; ileri -Z, yukari +Y —
 // editorun Oyun sekmesi ve kamera govdesi cizimiyle ayni kural). fov DERECE (SceneEntity::cam_fov).
@@ -313,6 +318,15 @@ struct SceneBlobWind {
   float reserved;
 }; // 32 bayt
 
+// v12 cokgen: SceneEntity::poly_* (XZ noktalari yerel uzayda, y=0 tabani). n 3..32, h >= 0 (0 = yalniz ust yuz). 272 bayt (16 hizali).
+struct SceneBlobPoly {
+  uint32_t entity;
+  uint32_t n;
+  float height;
+  uint32_t reserved;
+  float pts[64];
+}; // 272 bayt
+
 struct SceneBlobVoxel {
   uint32_t entity;
   uint32_t size_x, size_y, size_z;
@@ -384,6 +398,7 @@ static_assert(sizeof(SceneBlobParticle) == 112 && sizeof(SceneBlobParticle) % kS
 static_assert(sizeof(SceneBlobScript) == 16, "v7 betik kaydi 16 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobProp) == 48 && sizeof(SceneBlobProp) % kSceneBlobAlign == 0, "v8 ozellik kaydi 48 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobCamera) == 16 && sizeof(SceneBlobAudio) == 32, "v10 kamera/ses kayitlari (dosya formati)");
+static_assert(sizeof(SceneBlobPoly) == 272 && sizeof(SceneBlobPoly) % kSceneBlobAlign == 0, "v12 cokgen kaydi 272 bayt (dosya formati)");
 
 // Acilmis blob: isaretciler blob'un icine bakar (kopya yok). Blob bellegi
 // gorunumden uzun yasamali ve 16 hizali olmali.
@@ -407,6 +422,7 @@ struct SceneBlobView {
   const SceneBlobProp *props = nullptr;     // v8 ((varlik, ad) ile sirali; bossa nullptr)
   const SceneBlobCamera *cameras = nullptr; // v10 (bossa nullptr)
   const SceneBlobAudio *audios = nullptr;   // v10 (bossa nullptr)
+  const SceneBlobPoly *polys = nullptr;     // v12 (bossa nullptr)
   const SceneBlobResident *residents = nullptr;
   const uint8_t *nav = nullptr; // bake edilmis Detour verisi (SALT OKUNUR; nav_size bayt)
   const SceneBlobDagMesh *dag_meshes = nullptr;

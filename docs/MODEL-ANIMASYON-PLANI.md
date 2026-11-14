@@ -28,11 +28,18 @@ sürücü/cihaz verisi ölçülür, iddia edilmez. Mobil bütçe (Mali-G72 P20 P
 
 | faz | durum |
 |---|---|
-| bütçe ölçümü (§6/4) | ✅ f1840fa — masaüstü ölçüldü, eklem matrisi tavanı 4096→16384 + `skin_dropped`; **mobil ölçülmedi** |
+| bütçe ölçümü (§6/4) | ✅ masaüstü f1840fa (eklem matrisi tavanı 4096→16384 + `skin_dropped`) + **mobil P20 Pro ölçüldü** (köşe başına süperdoğrusal; öneri ≲ 50K iskeletli köşe/kare) |
 | A1 editörde animasyon | ✅ 6540ab7 — klip seçici, ▶ Önizle (Oynat'sız), zaman çubuğu; kapı: görüntü farkı + kontrol |
 | A1b çalma kipi | ✅ — ileri-geri / **döngü** / tek (`animasyon klip faz hiz [dongu\|tek]`, blob v11, `scene_anim_time` editör+oyunda ortak); yeni animasyonlu model varsayılan döngüde; eski sahneler ileri-geri kalır |
+| M2 STL + OBJ | ✅ `content/mesh_import.cpp` (STL ikili+ASCII, OBJ + MTL Kd; `gltf_load` uzantıya göre yönlendirir, çağrı noktaları değişmedi); editör: Kaynaklar listesi, içe aktar, sürükle-bırak, dosya seçici; açı eşikli yumuşak normal, Z→Y yukarı, 1 m sığdırma, taban pivotu; **yok:** OBJ doku haritası (not düşer), FBX/PLY. **Ölçüm (`import_stl_buyuk_olcum`, 199K üçgenlik küre STL, birleştirme + normal + meshopt + LOD):** masaüstü RTX makinesi CPU 147 ms, **P20 Pro 4157 ms (28× yavaş)**; testlerin hepsi arm64'te geçti. Çıkarım: büyük STL/OBJ'yi çalışma zamanında yüklemek mobilde saniyeler sürer → çalışma zamanı için glTF/önbellek (importer cache) tercih edilmeli; editörde (masaüstü) sorun değil |
+| A7 iskeletli LOD | ✅ iskeletli mesh'lere de ayrık LOD (≥1500 üçgen; kapasite koruması), `draw_model` iskeletli yolda LOD seçer (bridge/editör/sahne çalışma zamanı). **P20 Pro ölçümü (60 eklem, 15K üçgen; `render_karakter_lod_olcum`):** 40 karakter LOD0 **92,8 ms → LOD1 38,4 → LOD2 16,1 ms (5,8×)**; 20 karakter 43,0 → 33,3 → 18,9 ms. Masaüstü RTX 5080'de fark yok (GPU çok hızlı). Kapılar: `content_skinned_lod_uretilir_ve_secilir` (LOD indeksleri geçerli köşeye/ağırlığa bakar; küçük model LOD'suz = kontrol). **Dikkat:** her LOD ayrı renderer mesh tutamacı: havuz testi (108 küçük iskeletli model) bunu yakaladı → eşik. **Köşe bütçesi göstergesi** (2026-11-14): `RendererStats::skin_draws/skin_verts` (son kare, kabul edilen iskeletli çizim; düşen sayılmaz), editör İstatistik'te "İskeletli köşe: N K / 50K (mobil)" (Basit kipte iskeletli çizim varsa "Karakter yükü"), aşınca turuncu + ipucu. Köşe = LOD'un **kullandığı tekil köşe** (`ModelMesh::lod_vertex_count`; LOD tam tamponu paylaştığı için `vertex_count` LOD'da düşmez — ilk sayaç bunu kaçırırdı): skin_karakter 1032 → LOD1 537 → LOD2 290 (masaüstü = P20 Pro). **LOD mesafesi model başına:** `.ayar` `lod1`/`lod2` (m; yoksa sahne 24/34), `model_lod_effective` + İçe aktarma ayarları penceresinde "Özel LOD mesafesi". Kapılar: `render_skin_matris_tavani_sayilir` (sayaç + used_verts kontrolü), `content_skinned_lod_uretilir_ve_secilir` (tekil sayım = saf sayım; kontrol: model eşiği yokken 10 m'de LOD0, 8 m eşikte LOD1), `model_ayar_metin_*` (yazıcı lod'suz dosyayı bayt bayt aynı yazar, lod2 < lod1 red), `arayuz/model_ayar.txt`. **Yok:** `device_tier` başına bütçe (bütçe tek: P20 Pro ölçümü), köprüden çalışma zamanında LOD mesafesi |
+| M1 içe aktarma | ✅ model bütçe özeti (konsol: üçgen/eklem/klip/boyut (m) + "mobilde ≈ N kopya sığar" + morph sınır uyarıları), "kaynak eklenemedi" nedeni (16 kaynak / 256 varlık); **içe aktarma ayarları** `content/model_import.*`: `<model>.ayar` (birim m/cm/mm/inç, yukarı Y/Z, ölçek, 1 m sığdır, pivot köken/taban/merkez) — dönüşüm köşelere değil instance matrislerine uygulanır, kök hareketi de ölçeklenir, ayar özeti derleyici ölçüm önbelleği anahtarına girer; STL'nin M2 varsayılanı ayarın varsayılanı. Editör: Kaynaklar karosunda CPU önizleme (`app/editor_onizleme.*`, üstündeyken döner), sağ tık **İçe aktarma ayarları…** (canlı yeniden uygulama, Kaydet/Geri al/Varsayılan). Kapılar: `tests/test_model_import.cpp` (bozuk/kesik glTF/GLB 7/7 red, çökme yok), `tests/test_editor_onizleme.cpp`, `tests/arayuz/model_ayar.txt`. **Yok:** doku sıkıştırma ayarı, Khronos örnek seti kapısı, `kSceneMaxAssets` 16 kararı (ölçülmedi), modelde olmayan dosyanın önizlemesi |
+| A3 animatör | ✅ **CPU maliyeti (200 karakter × 60 eklem, tek parçacık):** masaüstü düz 0,47 ms / geçiş 0,81 / **4 klip karışımı 1,52 ms**; P20 Pro düz 2,3–5,2 ms (çekirdeğe/ısınmaya göre ±2×) / geçiş 9,8 / **4 klip karışımı 19,7 ms** (≈0,1 ms/karakter) → mobilde ~40 karakter aynı anda 4 klip karışımında ≈4 ms.  çekirdek + köprü + Tulpar ✅ (`sim/animator`, `.animator`, `model_pose_mix`, KOPRU §19, 6 test + köprü testi); editör: Kaynaklar'da ANİMATÖR kartı, çift tık Kod panelinde açar, canlı söz dizimi denetimi (`kod_animator_tani`, kırmızı şerit); **durum grafiği** (`app/editor_animator_grafik.*`): Kod panelinde metnin üstünde düğüm/ok görünümü + Tablo sekmesi; yerleşim saf ve belirlenimli (başlangıçtan genişlik öncelikli katman = sütun, `herhangi` ayrı düğüm, **ulaşılamaz durum turuncu + sayılır**, en sağ sütunda görünür kalır); düğüme/geçiş etiketine tık = metinde o satır; metin bozukken son geçerli hâl soluk + hata satırı. Grafik SALT OKUNUR (kaynak metin). Kapılar: `editor_animator_grafik_*` (2 test; kontrol: giren geçiş eklenince ulaşılamaz işareti kalkar), `tests/arayuz/animator_grafik.txt` (kontrol: grafik kapalı → koşul etiketi çizilmez). **Yok:** grafikte sürükleyerek düzenleme, oyun çalışırken etkin durumun canlı vurgusu |
 | A2 geçiş | ✅ `eng_anim_crossfade` + `model_pose_blend` (smoothstep, slerp); KOPRU §18; geçişte 200×60 = 0,82 ms (masaüstü) |
-| M1, M2, A3, A4, P1, P2, A5 | ⏳ |
+| A4 olay + kök hareketi | ✅ `olay` satırı + faz kuyruğu, `kok` durum bayrağı (poz'dan kilitli), köprü/Tulpar `animator_olay`, KOPRU §19 |
+| P1 kodla mesh | ✅ `mesh_basla/kose/ucgen/cokgen_nokta/cokgen_yukselt/bitir`, tavanlar sayılır, KOPRU §20, `examples/engine_mesh_kodla.tpr` |
+| A5 morph target | ✅ (kısmi) iskeletsiz mesh'te glTF hedefleri + `eng_morph_weight` + kare halkalı dinamik mesh, KOPRU §21; **`weights` klip kanalı ✅** (iskeletsiz klip yüklenir, `eng_set_anim` çalar, klip izi elle ağırlığı ezer; P20 Pro `morph` 7/7); **normal deltası ✅** (hedef NORMAL karılır + normalize); **iskeletli+morph ✅** (dinamik iskeletli mesh, pozlu yolda morph kopyası; P20 Pro morph 8/8 + dinamik mesh); **yok:** geçiş/animatörde morph izi karışımı (yalnız geçerli klip), editörde/sahne çalışma zamanında morph çizimi |
+| P2 editörde çokgen | ✅ `kScenePoly` (`cokgen yukseklik n x z …`, ≤ 32 nokta, blob v12), `content/poly.*` tek kaynak (editör/oyun mesh'i aynı `poly_soup`; çarpışma Hertel–Mehlhorn dışbükey parçalar → Jolt statik ConvexHull/StaticCompound, dünya uzayına pişirilmiş). Editör: Ekle > Şekiller > **Çokgen (çiz)** → zemine tıkla-nokta, Geri sil, Enter (günlüğe tek işlem), Esc; seçili çokgende nokta tutamaçları fareyle sürüklenir; Çokgen kartı: yükseklik, Yeniden çiz, Nokta ekle, Son noktayı sil. Kapılar: `poly_sahne_calisma_zamani_disbukey_govdeler` (L'nin iç köşe boşluğuna ışın çarpmaz; **kontrol:** tek dışbükey gövde boşluğu doldurur), `tests/arayuz/cokgen.txt` (kontrol: Enter öncesi tohum 4 nokta). **Yok / sınır:** gövde bileşenli varlıkta çokgen gövdesi kurulmaz; `sahne_konum_ver` çokgen gövdesini taşımaz; navmesh bake çokgeni görmez; P1'in köprü yükseltmesi (`teng_mesh_poly_extrude`) hâlâ kendi üçgenlemesini kullanıyor; yüz/kenar düzenleme ERTELİ |
 
 ## 3. Fazlar (öncelik sırasıyla)
 
@@ -90,13 +97,18 @@ Bugün animasyon yalnız oyun kodundan çağrılabiliyor; editörde modeli seçi
 ### Faz A5 — Morph target + yüz/şekil animasyonu (M)
 - Mevcut `morph.cpp`'yi sahneye ve köprüye bağla; glTF `weights` kanalı klip olarak çalsın; `eng_morph_agirlik(id, hedef, w)`.
 
+### Faz A7 — İskeletli LOD ve köşe bütçesi (M, **mobil ölçümünden doğdu**)
+- Uzaktaki iskeletli karakter için **ayrık LOD** (ModelLod bugün yalnız statik mesh'lerde etkin; iskeletli çizim `lod = nullptr` ile LOD0'da çiziliyor: `bridge/engine_api.cpp`/`app` pozlu yol) — LOD köşeleri aynı iskelet ağırlıklarını taşımalı (meshopt simplify skin attribute'ları korur).
+- Editör Stats panelinde **iskeletli köşe/kare** göstergesi + cihaz sınıfı bütçesi (`device_tier`): aşılınca uyarı (kare süresi dalgalanmasından önce).
+- **Kapı:** `render_karakter_butcesi_olcum` cihazda koşar (`tools/android_run.sh tests render_karakter`); LOD açıkken aynı sahnede fark ölçülür (önce/sonra tablosu).
+
 ### Faz A6 — Karakter yeniden hedefleme (L, **ertele**)
 Mixamo'dan indirilen bir animasyonu başka karaktere uygulamak (humanoid eşleme). Değerli ama büyük; A1–A4 bitip gerçek bir karakter oyunu ihtiyacı doğunca açılır.
 
 ## 4. Sıra ve bağımlılık
 
 ```
-A1 (editörde gör) → A2 (geçiş) → M1 (içe aktarma sağlamlığı) → M2 (STL/OBJ) → A3 (animatör) → A4 (olay/kök) → P1 (kodla mesh) → P2 (editörde çokgen) → A5 → [A6]
+A1 (editörde gör) → A2 (geçiş) → M1 (içe aktarma sağlamlığı) → M2 (STL/OBJ) → A3 (animatör) → A7 (iskeletli LOD) → A4 (olay/kök) → P1 (kodla mesh) → P2 (editörde çokgen) → A5 → [A6]
 ```
 Gerekçe: kullanıcı animasyonları ve hareketi beğendi — **en görünür kazanç A1/A2**. M1 sınır hatalarını açar (yoksa gerçek bir model sessizce sığmaz). STL/OBJ küçük ve bağımsız.
 A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).
@@ -131,4 +143,20 @@ A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).
    **Asıl bulgu — gerçek sınır GPU/CPU değil bir sabitti:** `max_skin_matrices = 4096` (kare başına eklem matrisi) → 60 eklemli karakterden yalnız **68** çizilebiliyordu,
    fazlası **sessizce kayboluyordu** (200 karakterlik sahnede çizim sayısı 68'de takıldı). 16384'e çıkarıldı (273 karakter × 60 eklem, 1 MiB/kare tamponu) ve taşma artık
    `RendererStats::skin_dropped` ile sayılır (kapı: `render_skin_matris_tavani_sayilir`, pozitif kontrol dahil).
-   **Mobil henüz ÖLÇÜLMEDİ** (bağlı telefon yok): masaüstü sayısı mobil için iddia edilmez. Geçici hedef: **40 karakter × 60 eklem × 10K üçgen** (RTX'te +0,3 ms civarı), telefonda aynı betikle ölçülünce güncellenir.
+   **MOBİL ÖLÇÜLDÜ 2026-11-13 — Huawei P20 Pro (Kirin 970, Mali-G72 MP12, Android 10, arm64):** `tools/android_run.sh tests anim_olcum` ve
+   `render_karakter` (iki tur, 640x360 ofscreen + CSM gölge, 60 eklem; kare = çizim + GPU bitişi + piksel okuma, taban N=1 üstü fark).
+   Masaüstünün **tersine** burada sınır GPU: karakter sayısı değil **kare başına toplam iskeletli köşe** belirleyici.
+
+   | karakter (köşe/karakter) | 5 | 10 | 20 | 40 |
+   |---|---|---|---|---|
+   | ~5K üçgen (2400 köşe) + gölge | +1,0–1,3 ms | +2,6–3,1 | +5,6–7,1 | +19–24 |
+   | ~15K üçgen (7500 köşe) + gölge | +1,3–1,7 ms | +12–14 | +29–37 | +49–54 |
+
+   CPU poz hesabı (aynı cihaz): 200 karakter × 60 eklem **2,25 ms** (masaüstü 0,47; 4,8× yavaş), × 128 eklem 4,8 ms, geçiş sırasında 3,9 ms —
+   CPU sorun değil. **Sonuç:** kare başına ~40K iskeletli köşeye kadar ucuz (+1–1,7 ms), ~50K'da +6 ms, 75K'da +12–14 ms, 100K'da +20 ms
+   (süperdoğrusal). Mobil bütçe önerisi: **kare başına ≲ 50K iskeletli köşe** = ~20 karakter × 5K üçgen ya da ~6 karakter × 15K üçgen
+   (60 fps için kare bütçesinin ~1/3'ü). **Dikkat:** iki tur, cihaz ısınma/frekans düşmesiyle gürültülü (aynı çalışmada sonraki varyant bazen
+   daha pahalı çıktı: "gölge atmaz" varyantı gölge atandan yavaştı — sıralama etkisi, gölgenin payı bu veriden ayrılamaz). Masaüstü RTX 5080'de
+   aynı test 40 karakter × 15K üçgen +0,13 ms: iki cihaz arasında ~100–400× fark. **Çıkarım:** (1) masaüstü sezgisiyle karakter sayısı
+   mobilde 20–50× aşırı olur; (2) mobil hedefli oyunlarda **iskeletli LOD** (uzakta daha az köşe/eklem) ve köşe bütçesi göstergesi gerekli
+   (plan A7, aşağıda); (3) "daha fazla karakter" isteği masaüstü kipine özgü bir ayar olmalı (cihaz sınıfı başına bütçe, `device_tier`).

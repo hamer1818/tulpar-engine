@@ -2,12 +2,15 @@
 // (make_test_gltf.py, belirlenimli). Cihazda: TULPAR_ENGINE_ASSETS dizini
 // (android_run.sh push eder); yoksa GORUNUR atlanir.
 #include <algorithm>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "content/gltf.hpp"
+#include "content/morph.hpp"
 #include "content/ktx2.hpp"
 
 #include <stb_image.h>
@@ -1784,8 +1787,17 @@ ENGINE_TEST(render_skin_matris_tavani_sayilir) {
   ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 30);   // 90 <= 100: sığar, sayaç artmaz (kontrol)
   CHECK(ren.stats().skin_dropped == 1 && ren.skin_matrices_used() == 90);
   CHECK(ren.stats().dropped >= ren.stats().skin_dropped);
+  // A7: iskeletli köşe bütçesi sayacı: kabul edilen iki çizim (3 köşe) sayılır, taşan (düşen) SAYILMAZ.
+  CHECK(ren.stats().skin_draws == 2 && ren.stats().skin_verts == 6);
   ren.begin_frame(0);                                                     // yeni karede sayaç sıfırlanır
-  CHECK(ren.stats().skin_dropped == 0);
+  CHECK(ren.stats().skin_dropped == 0 && ren.stats().skin_draws == 0 && ren.stats().skin_verts == 0);
+  // used_verts: LOD tamponu paylaşır; kullanılan köşe verilince o sayılır (KONTROL: verilmeyince tam tampon).
+  const uint32_t idx_yari[3] = {0, 0, 1};
+  renderer::MeshHandle lodm = ren.create_skinned_mesh(v, 3, idx_yari, 3, 2);
+  CHECK(lodm.valid());
+  ren.draw_skinned(lodm, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
+  CHECK(ren.stats().skin_draws == 2 && ren.stats().skin_verts == 2 + 3);
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }
@@ -1822,4 +1834,517 @@ ENGINE_TEST(content_pose_blend_endpoints_and_midpoint) {
   CHECK(std::fabs(c - 0.70710678f) < 2e-2f);
   // gecersiz klip -> false (cagiran tek klibe duser)
   CHECK(!content::model_pose_blend(m, 0, 0.0f, 99, 0.0f, 0.5f, sc, &pe));
+}
+
+// Karakter bütçesi — GPU/çizim yarısı (docs/MODEL-ANIMASYON-PLANI.md §6 madde 4; cihazda: tools/android_run.sh tests render_karakter).
+// N iskeletli karakter (60 eklem, ~15K üçgen: zincir silindir) 640x360 ofscreen'e CSM gölgesiyle çizilir; kare süresi = çizim + GPU
+// bitişi + piksel okuma (tabanı N=1 ile aynıdır, FARK karakter maliyetidir). SAYILAR CİHAZA ÖZGÜDÜR: basılır, eşik YOK.
+// Kapı iddiası yalnız bizim kodumuz: N karakterin HEPSİ çizilir (skin_dropped == 0, çizim sayısı) ve süre N ile artar
+// (ölçüm gerçekten iş yapıyor). Sanal GPU'da (CI macOS Paravirtual) ölçüm anlamsız: ATLANDI.
+ENGINE_TEST(render_karakter_butcesi_olcum) {
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "karakter_olcum")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (karakter olcumu atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU: karakter olcumu gercek cihazda"); return; }
+  const uint32_t W = 640, H = 360;
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = W; oc.height = H;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 1024;
+  rc.max_skin_matrices = 16384;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  // Zincir silindir: J halka, her halka eklem i (agirlik 0.7) ve i+1 (0.3). Uc varyant: (SEG, golge atar mi):
+  // ~15K ucgen + golge, ~15K ucgen golgesiz (golge gecisinin payini ayirir), ~5K ucgen + golge.
+  constexpr uint32_t J = 60, SEGMAX = 125;
+  static renderer::SkinnedVertex verts[J * SEGMAX];
+  static uint32_t idx[(J - 1) * SEGMAX * 6];
+  static Mat4 joints[J];
+  ren.set_light({0.4f, 1.0f, 0.3f}, {1, 1, 1}, 1.0f);
+  ren.set_camera(Mat4::look_at({0, 9, 16}, {0, 0.8f, -2}, {0, 1, 0}), Mat4::perspective(0.7f, (float)W / (float)H, 0.1f, 80.0f));
+  ren.set_render_size(W, H);
+  Rec rr{&ren};
+  struct Varyant { uint32_t seg; bool golge; const char *ad; };
+  const Varyant vars[] = {{125, true, "~15K ucgen, golge ATAR"}, {125, false, "~15K ucgen, golge atmaz"}, {40, true, "~5K ucgen, golge ATAR"}};
+  const uint32_t Ns[] = {1, 5, 10, 15, 20, 30, 40};
+  std::printf("    [olcum] karakter: %u eklem; %ux%u ofscreen, golge %u; GPU %s\n", J, W, H, rc.shadow_size, dev.caps().device_name);
+  for (const Varyant &vr : vars) {
+    const uint32_t SEG = vr.seg;
+    uint32_t ni = 0;
+    for (uint32_t i = 0; i < J; i++)
+      for (uint32_t k = 0; k < SEG; k++) {
+        const float a = 2.0f * kPi * (float)k / (float)SEG;
+        renderer::SkinnedVertex &v = verts[i * SEG + k];
+        v.pos = Vec3{0.12f * std::cos(a), 0.05f * (float)i, 0.12f * std::sin(a)};
+        v.nrm = Vec3{std::cos(a), 0.0f, std::sin(a)};
+        v.uv = Vec2{(float)k / SEG, (float)i / J};
+        v.joints[0] = (uint8_t)i; v.joints[1] = (uint8_t)(i + 1 < J ? i + 1 : i); v.joints[2] = v.joints[3] = 0;
+        v.weights[0] = i + 1 < J ? 45875 : 65535; v.weights[1] = i + 1 < J ? 19660 : 0; v.weights[2] = v.weights[3] = 0;
+      }
+    for (uint32_t i = 0; i + 1 < J; i++)
+      for (uint32_t k = 0; k < SEG; k++) {
+        const uint32_t a = i * SEG + k, b = i * SEG + (k + 1) % SEG, c = a + SEG, d = b + SEG;
+        const uint32_t t[6] = {a, c, b, b, c, d};
+        for (uint32_t q : t) idx[ni++] = q;
+      }
+    renderer::MeshHandle mesh = ren.create_skinned_mesh(verts, J * SEG, idx, ni);
+    CHECK(mesh.valid());
+    ren.set_shadow_casting(vr.golge);
+    std::printf("    [olcum] -- %s (%u ucgen)\n", vr.ad, ni / 3);
+    double taban = 0.0;
+    for (uint32_t n : Ns) {
+      const uint32_t cols = (uint32_t)std::ceil(std::sqrt((double)n * 1.6));
+      double best[40];
+      uint32_t last_draws = 0, last_drop = 0;
+      for (uint32_t f = 0; f < 50; f++) {
+        auto t0 = std::chrono::steady_clock::now();
+        ren.begin_frame(0);
+        for (uint32_t c = 0; c < n; c++) {
+          for (uint32_t j = 0; j < J; j++) {   // her kare farkli poz (kucuk donus): matris yuklemesi gercek maliyetle
+            const float ang = 0.25f * std::sin(0.1f * (float)f + 0.3f * (float)j + 0.2f * (float)c);
+            joints[j] = Mat4::rotate(Vec3{0, 0, 1}, ang);
+          }
+          const Mat4 mdl = Mat4::translate({((float)(c % cols) - (float)cols * 0.5f) * 0.9f, 0.0f, -(float)(c / cols) * 0.9f}) * Mat4::scale({0.3f, 0.3f, 0.3f});
+          ren.draw_skinned(mesh, renderer::MaterialHandle{}, mdl, {0.9f, 0.9f, 1.0f}, joints, J);
+        }
+        last_draws = ren.stats().draws; last_drop = ren.stats().skin_dropped;
+        if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
+        auto t1 = std::chrono::steady_clock::now();
+        if (f >= 10) best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+      }
+      std::sort(best, best + 40);
+      if (n == 1) taban = best[20];
+      std::printf("    [olcum] %3u karakter: p50 %6.2f ms (p10 %.2f, p90 %.2f)  taban uzeri %+6.2f ms\n", n, best[20], best[4], best[36], best[20] - taban);
+      CHECK(last_drop == 0 && last_draws >= n);     // HEPSI cizildi (eklem matrisi tavani asilmadi)
+      if (n == 40) CHECK(best[20] > taban);          // olcum is yapiyor: 40 karakter 1 karakterden pahali
+    }
+  }
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// M1: model bütçesi (model_budget / model_budget_text). skin_tube: 2 eklem, 1 klip, iskeletli; checker_cube: iskeletsiz (0 iskeletli köşe,
+// 0 eklem). Pozitif kontrol: iskeletli model "eklem" ve "köşe" yazar, iskeletsiz yazmaz; sentetik ağır karakter UYARI üretir.
+ENGINE_TEST(content_model_butce_ozeti_ve_uyari) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_butce")) { CHECK(false); return; }
+  char p1[512], p2[512];
+  CHECK(asset_path(p1, sizeof p1, "skin_tube.gltf") && asset_path(p2, sizeof p2, "checker_cube.gltf"));
+  static content::Model tube, cube;
+  CHECK(content::gltf_load(sys, p1, &tube) && content::gltf_load(sys, p2, &cube));
+  const content::ModelBudget bt = content::model_budget(tube), bc = content::model_budget(cube);
+  CHECK(bt.joints == 2 && bt.clips == 1 && bt.skinned_vertices > 0 && bt.triangles > 0);
+  CHECK(bc.joints == 0 && bc.skinned_vertices == 0 && bc.triangles == 12);   // küp: 6 yüz x 2 üçgen
+  char t1[300], t2[300];
+  const uint32_t w1 = content::model_budget_text(tube, t1, sizeof t1), w2 = content::model_budget_text(cube, t2, sizeof t2);
+  std::printf("    [bilgi] tup: %s\n    [bilgi] kup: %s\n", t1, t2);
+  CHECK(std::strstr(t1, "eklem") != nullptr && std::strstr(t2, "eklem") == nullptr);   // iskeletsiz modelde eklem satiri YOK (kontrol)
+  CHECK(w1 == 0 && w2 == 0);                                                          // küçük modeller uyarı üretmez
+  // sentetik AĞIR karakter: iskeletli köşe bütçenin 1/4'ünü aşınca uyarı (ve kaç kopya sığar)
+  static content::Model agir = tube;
+  static content::ModelMesh mm;
+  mm = tube.meshes[tube.instances[0].mesh];
+  mm.vertex_count = 20000;
+  static content::ModelMesh *meshes_p[1];
+  agir.meshes = &mm; agir.mesh_count = 1;
+  static content::ModelInstance inst;
+  inst = tube.instances[0]; inst.mesh = 0;
+  agir.instances = &inst; agir.instance_count = 1;
+  char t3[300];
+  CHECK(content::model_budget_text(agir, t3, sizeof t3) == 1 && std::strstr(t3, "UYARI") != nullptr && std::strstr(t3, "2 kopya") != nullptr);
+  (void)meshes_p;
+  agir.clips_dropped = 3;
+  char t4[300];
+  CHECK(content::model_budget_text(agir, t4, sizeof t4) == 1 && std::strstr(t4, "3 klip") != nullptr);
+  // M1: boyut (metre) ve morph sinirlari okunur; KONTROL: kup (morph'suz) uyari uretmez (yukarida w2 == 0), boyutu 1 m (checker_cube -0.5..0.5, olculdu).
+  CHECK(std::strstr(t2, "boyut 1.00 × 1.00 × 1.00 m") != nullptr);
+  agir.clips_dropped = 0;
+  agir.morph_skipped = 1;
+  char t5[400];
+  CHECK(content::model_budget_text(agir, t5, sizeof t5) == 1 && std::strstr(t5, "morph'u atland") != nullptr);
+  agir.morph_skipped = 0;
+}
+
+// A3: model_pose_mix. Tek girdi = model_pose_evaluate ile BİT EŞİT; iki eşit ağırlık = model_pose_blend(w=0.5) ile BİT EŞİT; üç girdi toplamı
+// ağırlıkla normalleşir (ağırlıklar 2:1:1 toplam 4 ile 0.5:0.25:0.25 aynı sonucu verir); ağırlığı 0 olan girdi sonucu DEĞİŞTİRMEZ (kontrol).
+ENGINE_TEST(content_pose_mix_kurallari) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_mix")) { CHECK(false); return; }
+  char path[512];
+  CHECK(asset_path(path, sizeof path, "skin_tube.gltf"));
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  static content::PoseScratch s1, s2, s3;
+  content::ModelPose p1, p2, p3;
+  const uint32_t jc = 2;
+  content::PoseMixEntry e1[1] = {{0, 0.3f, 1.0f}};
+  CHECK(content::model_pose_mix(m, e1, 1, s1, &p1) && content::model_pose_evaluate(m, 0, 0.3f, s2, &p2));
+  CHECK(std::memcmp(p1.skin_mats[0], p2.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  content::PoseMixEntry e2[2] = {{0, 0.0f, 0.5f}, {0, 1.0f, 0.5f}};
+  CHECK(content::model_pose_mix(m, e2, 2, s1, &p1) && content::model_pose_blend(m, 0, 0.0f, 0, 1.0f, 0.5f, s2, &p2));
+  CHECK(std::memcmp(p1.skin_mats[0], p2.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  content::PoseMixEntry a[3] = {{0, 0.0f, 2.0f}, {0, 0.5f, 1.0f}, {0, 1.0f, 1.0f}};
+  content::PoseMixEntry b[3] = {{0, 0.0f, 0.5f}, {0, 0.5f, 0.25f}, {0, 1.0f, 0.25f}};
+  CHECK(content::model_pose_mix(m, a, 3, s1, &p1) && content::model_pose_mix(m, b, 3, s3, &p3));
+  for (uint32_t j = 0; j < jc; j++)
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) CHECK(std::fabs(p1.skin_mats[0][j].m[c][r] - p3.skin_mats[0][j].m[c][r]) < 1e-5f);
+  content::PoseMixEntry c0[3] = {{0, 0.0f, 0.5f}, {0, 0.7f, 0.0f}, {0, 1.0f, 0.5f}};   // ortadaki ağırlık 0
+  CHECK(content::model_pose_mix(m, c0, 3, s1, &p1) && content::model_pose_mix(m, e2, 2, s3, &p3));
+  CHECK(std::memcmp(p1.skin_mats[0], p3.skin_mats[0], sizeof(Mat4) * jc) == 0);
+  CHECK(!content::model_pose_mix(m, e1, 0, s1, &p1));                                    // girdi yok
+}
+
+// A7: iskeletli LOD. skin_karakter.gltf (24 eklem, ~2000 üçgen, tools/make_test_karakter.py): eşik (1500 üçgen) üstü olduğundan LOD üretilir;
+// LOD indeksleri AYNI köşe tamponuna bakar ve her başvurulan köşenin ağırlığı vardır (skin_verts geçerli). KONTROL: küçük iskeletli model (skin_tube,
+// 96 üçgen) LOD ÜRETMEZ (mesh kapasitesi korunur). Seçim: yakın = LOD0, uzak = LOD2 (static ile aynı ölçüt).
+ENGINE_TEST(content_skinned_lod_uretilir_ve_secilir) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_skin_lod")) { CHECK(false); return; }
+  char p1[512], p2[512];
+  CHECK(asset_path(p1, sizeof p1, "skin_karakter.gltf") && asset_path(p2, sizeof p2, "skin_tube.gltf"));
+  static content::Model m, kucuk;
+  CHECK(content::gltf_load(sys, p1, &m) && content::gltf_load(sys, p2, &kucuk));
+  CHECK(m.mesh_count >= 1 && m.meshes[0].skin >= 0 && m.meshes[0].skin_verts != nullptr);
+  const content::ModelMesh &mm = m.meshes[0];
+  CHECK(mm.index_count / 3 >= 1500);
+  CHECK(mm.lod_index_count[0] > 0 && mm.lod_index_count[0] < mm.index_count);
+  CHECK(mm.lod_index_count[1] > 0 && mm.lod_index_count[1] <= mm.lod_index_count[0]);
+  bool gecerli = true;
+  for (uint32_t k = 0; k < content::kModelMaxLods; k++)
+    for (uint32_t i = 0; i < mm.lod_index_count[k]; i++) {
+      const uint32_t v = mm.lod_indices[k][i];
+      if (v >= mm.vertex_count) { gecerli = false; break; }
+      const renderer::SkinnedVertex &sv = mm.skin_verts[v];
+      if (sv.weights[0] + sv.weights[1] + sv.weights[2] + sv.weights[3] == 0) gecerli = false;
+    }
+  CHECK(gecerli);
+  std::printf("    [bilgi] iskeletli LOD: LOD0 %u ucgen, LOD1 %u, LOD2 %u\n", mm.index_count / 3, mm.lod_index_count[0] / 3, mm.lod_index_count[1] / 3);
+  // A7: LOD'un kullandigi tekil kose sayisi (butce sayaci bunu kullanir): saf sayimla AYNI, LOD'da gercekten azalir.
+  for (uint32_t k = 0; k < content::kModelMaxLods; k++) {
+    static uint8_t gor[1u << 20];
+    CHECK(mm.vertex_count <= sizeof gor);
+    std::memset(gor, 0, mm.vertex_count);
+    uint32_t say = 0;
+    for (uint32_t i = 0; i < mm.lod_index_count[k]; i++) if (!gor[mm.lod_indices[k][i]]++) say++;
+    CHECK(mm.lod_vertex_count[k] == say);
+    CHECK(say > 0 && say < mm.vertex_count);
+    std::printf("    [bilgi] LOD%u kullanilan kose %u / %u\n", k + 1, say, mm.vertex_count);
+  }
+  CHECK(mm.lod_vertex_count[1] <= mm.lod_vertex_count[0]);
+  // A7: modelin .ayar esigi cagiraninkini ezer; verilmeyen taraf cagirandan; lod2 < lod1 kenetlenir.
+  content::ModelLod cl;
+  cl.distance1 = 24.0f; cl.distance2 = 34.0f;
+  m.lod_distance1 = 8.0f; m.lod_distance2 = 0.0f;
+  content::ModelLod el = content::model_lod_effective(m, cl);
+  CHECK(el.distance1 == 8.0f && el.distance2 == 34.0f);
+  m.lod_distance1 = 40.0f;
+  el = content::model_lod_effective(m, cl);
+  CHECK(el.distance1 == 40.0f && el.distance2 == 40.0f);
+  // Secim gercekten degisiyor (KONTROL: model esigi yokken 10 m'de LOD0, 8 m esikte LOD1).
+  cl.camera_pos = Vec3{0, 0, 0};
+  m.lod_distance1 = 0.0f;
+  CHECK(content::model_lod_level(content::model_lod_effective(m, cl), Vec3{10, 0, 0}) == 0);
+  m.lod_distance1 = 8.0f;
+  CHECK(content::model_lod_level(content::model_lod_effective(m, cl), Vec3{10, 0, 0}) == 1);
+  m.lod_distance1 = 0.0f;
+  CHECK(kucuk.meshes[0].skin >= 0 && kucuk.meshes[0].lod_index_count[0] == 0 && kucuk.meshes[0].lod_index_count[1] == 0);   // kontrol: kucuk model LOD'suz
+}
+
+// A7 ölçümü: iskeletli LOD'un maliyeti DÜŞÜRÜP düşürmediği (cihazda: tools/android_run.sh tests render_karakter_lod). Aynı zincir silindir (60 eklem, ~15K üçgen)
+// üç düzeyde çizilir: LOD0 (15K), LOD1 (%50), LOD2 (%25); N karakter. Sayılar cihaza özgüdür, BASILIR (eşik yok); kapı iddiası: üçgen sayıları azalır,
+// hepsi çizilir (skin_dropped == 0).
+ENGINE_TEST(render_karakter_lod_olcum) {
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "karakter_lod")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (LOD olcumu atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU: LOD olcumu gercek cihazda"); return; }
+  const uint32_t W = 640, H = 360;
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = W; oc.height = H;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1; rc.shadow_size = 1024; rc.max_skin_matrices = 16384;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  constexpr uint32_t J = 60, SEG = 125;
+  static renderer::SkinnedVertex sv[J * SEG];
+  static renderer::Vertex vv[J * SEG];
+  static uint32_t idx[(J - 1) * SEG * 6];
+  uint32_t ni = 0;
+  for (uint32_t i = 0; i < J; i++)
+    for (uint32_t k = 0; k < SEG; k++) {
+      const float a = 2.0f * kPi * (float)k / (float)SEG;
+      renderer::SkinnedVertex &v = sv[i * SEG + k];
+      v.pos = Vec3{0.12f * std::cos(a), 0.05f * (float)i, 0.12f * std::sin(a)};
+      v.nrm = Vec3{std::cos(a), 0.0f, std::sin(a)};
+      v.uv = Vec2{(float)k / SEG, (float)i / J};
+      v.joints[0] = (uint8_t)i; v.joints[1] = (uint8_t)(i + 1 < J ? i + 1 : i); v.joints[2] = v.joints[3] = 0;
+      v.weights[0] = i + 1 < J ? 45875 : 65535; v.weights[1] = i + 1 < J ? 19660 : 0; v.weights[2] = v.weights[3] = 0;
+      vv[i * SEG + k].pos = v.pos; vv[i * SEG + k].nrm = v.nrm; vv[i * SEG + k].uv = v.uv;
+    }
+  for (uint32_t i = 0; i + 1 < J; i++)
+    for (uint32_t k = 0; k < SEG; k++) {
+      const uint32_t a = i * SEG + k, b = i * SEG + (k + 1) % SEG, c = a + SEG, d = b + SEG;
+      const uint32_t t[6] = {a, c, b, b, c, d};
+      for (uint32_t q : t) idx[ni++] = q;
+    }
+  content::ModelMesh mm{};
+  mm.verts = vv; mm.vertex_count = J * SEG; mm.indices = idx; mm.index_count = ni;
+  const float ratios[content::kModelMaxLods] = {0.5f, 0.25f};
+  CHECK(content::mesh_build_lods(sys, mm, ratios, content::kModelMaxLods, 0.025f));
+  renderer::MeshHandle mesh[3];
+  uint32_t tris[3];
+  mesh[0] = ren.create_skinned_mesh(sv, J * SEG, idx, ni); tris[0] = ni / 3;
+  for (uint32_t l = 0; l < 2; l++) {
+    mesh[l + 1] = mm.lod_index_count[l] ? ren.create_skinned_mesh(sv, J * SEG, mm.lod_indices[l], mm.lod_index_count[l]) : mesh[l];
+    tris[l + 1] = mm.lod_index_count[l] ? mm.lod_index_count[l] / 3 : tris[l];
+  }
+  CHECK(mesh[0].valid() && mesh[1].valid() && mesh[2].valid());
+  CHECK(tris[1] < tris[0] && tris[2] < tris[1]);                                  // LOD gercekten azaltiyor
+  static Mat4 joints[J];
+  ren.set_light({0.4f, 1.0f, 0.3f}, {1, 1, 1}, 1.0f);
+  ren.set_camera(Mat4::look_at({0, 9, 16}, {0, 0.8f, -2}, {0, 1, 0}), Mat4::perspective(0.7f, (float)W / (float)H, 0.1f, 80.0f));
+  ren.set_render_size(W, H);
+  Rec rr{&ren};
+  std::printf("    [olcum] iskeletli LOD: %u eklem; LOD0 %u, LOD1 %u, LOD2 %u ucgen; %ux%u; GPU %s\n", J, tris[0], tris[1], tris[2], W, H, dev.caps().device_name);
+  for (uint32_t n : {10u, 20u, 40u}) {
+    const uint32_t cols = (uint32_t)std::ceil(std::sqrt((double)n * 1.6));
+    double p50[3] = {};
+    for (uint32_t lv = 0; lv < 3; lv++) {
+      double best[40];
+      for (uint32_t f = 0; f < 50; f++) {
+        auto t0 = std::chrono::steady_clock::now();
+        ren.begin_frame(0);
+        for (uint32_t c = 0; c < n; c++) {
+          for (uint32_t j = 0; j < J; j++) joints[j] = Mat4::rotate(Vec3{0, 0, 1}, 0.25f * std::sin(0.1f * (float)f + 0.3f * (float)j + 0.2f * (float)c));
+          const Mat4 mdl = Mat4::translate({((float)(c % cols) - (float)cols * 0.5f) * 0.9f, 0.0f, -(float)(c / cols) * 0.9f}) * Mat4::scale({0.3f, 0.3f, 0.3f});
+          ren.draw_skinned(mesh[lv], renderer::MaterialHandle{}, mdl, {0.9f, 0.9f, 1.0f}, joints, J);
+        }
+        CHECK(ren.stats().skin_dropped == 0);
+        if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
+        auto t1 = std::chrono::steady_clock::now();
+        if (f >= 10) best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+      }
+      std::sort(best, best + 40);
+      p50[lv] = best[20];
+    }
+    std::printf("    [olcum] %2u karakter: LOD0 %.2f ms, LOD1 %.2f ms, LOD2 %.2f ms\n", n, p50[0], p50[1], p50[2]);
+  }
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// A4: kök hareketi çekirdeği. 'yuru' klibi (skin_karakter.gltf) kökü z: 0 -> 1 m / 1 s ilerletir. model_clip_root_xz t=0.5'te z=0.5; lock_root poz'dan
+// kök ötelenmesini bind'e kilitler (t=0'da fark YOK, t=0.5'te fark VAR: kontrol).
+ENGINE_TEST(content_kok_hareketi_okuma_ve_kilit) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "content_kok")) { CHECK(false); return; }
+  char path[512];
+  CHECK(asset_path(path, sizeof path, "skin_karakter.gltf"));
+  static content::Model m;
+  CHECK(content::gltf_load(sys, path, &m));
+  uint32_t yuru = 99;
+  for (uint32_t i = 0; i < m.clip_count; i++) if (!std::strcmp(m.clips[i].name, "yuru")) yuru = i;
+  CHECK(yuru != 99);
+  static content::PoseScratch s1, s2, s3;
+  float r0[2], r5[2], r1[2];
+  CHECK(content::model_clip_root_xz(m, yuru, 0.0f, s1, r0) && content::model_clip_root_xz(m, yuru, 0.5f, s1, r5) && content::model_clip_root_xz(m, yuru, 1.0f, s1, r1));
+  CHECK(std::fabs(r0[1]) < 1e-3f && std::fabs(r5[1] - 0.5f) < 2e-2f && std::fabs(r1[1] - 1.0f) < 2e-2f && std::fabs(r5[0]) < 1e-3f);
+  content::ModelPose pa, pb;
+  content::PoseMixEntry e0[1] = {{yuru, 0.0f, 1.0f}}, e5[1] = {{yuru, 0.5f, 1.0f}};
+  const uint32_t jc = m.skins[0].joint_count;
+  CHECK(content::model_pose_mix(m, e0, 1, s1, &pa, false) && content::model_pose_mix(m, e0, 1, s2, &pb, true));
+  CHECK(std::memcmp(pa.skin_mats[0], pb.skin_mats[0], sizeof(Mat4) * jc) == 0);                        // t=0: kok bind'de zaten: fark yok
+  CHECK(content::model_pose_mix(m, e5, 1, s1, &pa, false) && content::model_pose_mix(m, e5, 1, s2, &pb, true));
+  CHECK(std::memcmp(pa.skin_mats[0], pb.skin_mats[0], sizeof(Mat4) * jc) != 0);                        // t=0.5: kilitsiz kok ilerlemis, kilitli degil
+  content::PoseMixEntry e0b[1] = {{yuru, 0.0f, 1.0f}};
+  CHECK(content::model_pose_mix(m, e0b, 1, s3, &pa, false) && std::memcmp(pb.skin_mats[0], pa.skin_mats[0], sizeof(Mat4) * jc) == 0);   // kilitli t=0.5 == kilitsiz t=0 (hareket tamamen kilitlendi)
+}
+
+// A5: glTF morph hedefleri. morph_kup.gltf (tools/make_test_morph.py): 8 koseli kup, hedef 0 'uzat' (ust 4 kose y +1), hedef 1 'genislet' (x +-0.5).
+// Morph'lu mesh'te meshopt/LOD atlanir (kose sirasi deltalarla gider): 8 kose / 36 indeks AYNEN kalir. model_compact taban kose + indeks + delta'yi saklar.
+ENGINE_TEST(content_morph_hedefleri_yuklenir_ve_compact_korur) {
+  static SystemArena sys, keep;
+  if (!sys.reserve(32u << 20, "content_morph") || !keep.reserve(8u << 20, "content_morph_keep")) { CHECK(false); return; }
+  char path[512];
+  CHECK(asset_path(path, sizeof path, "morph_kup.gltf"));
+  static content::Model m, k;
+  CHECK(content::gltf_load(sys, path, &m));
+  CHECK(m.mesh_count == 1 && m.meshes[0].morph_count == 2 && m.meshes[0].vertex_count == 8 && m.meshes[0].index_count == 36);
+  CHECK(m.morph_dropped == 0 && m.morph_meshes_dropped == 0 && m.morph_skipped == 0);
+  CHECK(m.meshes[0].lod_index_count[0] == 0);                            // morph'lu mesh'e LOD uretilmedi
+  float uzat_y = 0, gen_x = 0; uint32_t ust = 0;
+  for (uint32_t v = 0; v < 8; v++) {
+    const Vec3 d0 = m.meshes[0].morph_deltas[v], d1 = m.meshes[0].morph_deltas[8 + v];
+    CHECK(d0.x == 0 && d0.z == 0 && d1.y == 0 && d1.z == 0);
+    if (m.meshes[0].verts[v].pos.y > 0) { ust++; uzat_y += d0.y; CHECK(d0.y == 1.0f); } else CHECK(d0.y == 0.0f);
+    gen_x += std::fabs(d1.x);
+  }
+  CHECK(ust == 4 && uzat_y == 4.0f && gen_x == 4.0f);                    // 4 ust kose +1; 8 kose x 0.5
+  // KONTROL: delta uygulamasi blend_morph_targets ile elle hesapla ayni (agirlik 0.5 -> ust y = 0.5 + 0.5 = 1.0)
+  CHECK(content::model_compact(keep, m, &k));
+  CHECK(k.meshes[0].verts && k.meshes[0].indices && k.meshes[0].morph_deltas && k.meshes[0].morph_count == 2);
+  CHECK(std::memcmp(k.meshes[0].morph_deltas, m.meshes[0].morph_deltas, sizeof(Vec3) * 16) == 0 && k.meshes[0].indices[3] == m.meshes[0].indices[3]);
+  // KONTROL: morph'suz model (skin_karakter) compact'ta verts'i atar (morph'lu mesh'e ozel saklama)
+  static content::Model plain, plain_k;
+  CHECK(asset_path(path, sizeof path, "skin_karakter.gltf") && content::gltf_load(sys, path, &plain));
+  CHECK(plain.meshes[0].morph_count == 0 && content::model_compact(keep, plain, &plain_k) && plain_k.meshes[0].verts == nullptr);
+}
+
+// A5: glTF `weights` kanali. morph_kup_anim.gltf (tools/make_test_morph.py): ayni kup + iskeletsiz 'nefes' klibi, LINEAR
+// t=0 [0,0] -> t=1 [1,0.5] -> t=2 [0,0]. Eskiden iskeletsiz klip YUKLENMEZDI (clip_count 0). Klip poz yollarina girmez (false),
+// agirlik ornekler arasi dogrusal, kenetli; compact izleri korur. KONTROL: morph_kup.gltf (ayni kup, klipsiz) clip_count 0.
+ENGINE_TEST(content_morph_klibi_weights_kanali) {
+  static SystemArena sys, keep;
+  if (!sys.reserve(32u << 20, "content_morph_klip") || !keep.reserve(8u << 20, "content_morph_klip_keep")) { CHECK(false); return; }
+  char path[512];
+  static content::Model m, k, duz;
+  CHECK(asset_path(path, sizeof path, "morph_kup_anim.gltf") && content::gltf_load(sys, path, &m));
+  CHECK(m.clip_count == 1 && m.clips[0].skin < 0 && m.clips[0].clip == nullptr && m.clips[0].morph_track_count == 1);
+  CHECK(std::fabs(m.clips[0].duration - 2.0f) < 1e-4f && !std::strcmp(m.clips[0].name, "nefes"));
+  CHECK(m.clips[0].morph_tracks[0].mesh_first == 0 && m.clips[0].morph_tracks[0].mesh_n == 1 && m.clips[0].morph_tracks[0].weight_count == 2);
+  CHECK(m.morph_tracks_dropped == 0);
+  struct { float t, w0, w1; } bek[] = {{0.0f, 0, 0}, {0.5f, 0.5f, 0.25f}, {1.0f, 1.0f, 0.5f}, {1.5f, 0.5f, 0.25f}, {2.0f, 0, 0}, {9.0f, 0, 0}, {-1.0f, 0, 0}};
+  float w[content::kModelMaxMorph];
+  for (const auto &b : bek) {
+    CHECK(content::model_clip_morph_weights(m, 0, b.t, 0, w) == 2);
+    CHECK(std::fabs(w[0] - b.w0) < 1e-4f && std::fabs(w[1] - b.w1) < 1e-4f);
+  }
+  CHECK(content::model_clip_morph_weights(m, 0, std::nanf(""), 0, w) == 2 && w[0] == 0.0f);   // NaN -> 0. an
+  CHECK(content::model_clip_morph_weights(m, 0, 1.0f, 1, w) == 0);   // olmayan mesh
+  CHECK(content::model_clip_morph_weights(m, 5, 1.0f, 0, w) == 0);   // olmayan klip
+  static content::PoseScratch ps;
+  content::ModelPose pose;
+  CHECK(!content::model_pose_evaluate(m, 0, 1.0f, ps, &pose));        // iskeletsiz klip poz vermez (cagiran statik/morph yola duser)
+  CHECK(content::model_compact(keep, m, &k));
+  CHECK(k.clips[0].morph_track_count == 1 && k.clips[0].morph_tracks != m.clips[0].morph_tracks);
+  CHECK(content::model_clip_morph_weights(k, 0, 0.5f, 0, w) == 2 && std::fabs(w[0] - 0.5f) < 1e-4f);
+  CHECK(asset_path(path, sizeof path, "morph_kup.gltf") && content::gltf_load(sys, path, &duz));
+  CHECK(duz.clip_count == 0 && duz.meshes[0].morph_count == 2);       // KONTROL
+  // A5 normal farki: hedef 0'da (0,1,0) - n, hedef 1'de NORMAL yok -> sifir. w0 = 1: butun normaller yukari, birim.
+  // KONTROL: normalsiz morph_kup'ta dizi yok (taban normal kalir), compact diziyi tasir.
+  CHECK(m.meshes[0].morph_normal_deltas != nullptr && duz.meshes[0].morph_normal_deltas == nullptr);
+  CHECK(k.meshes[0].morph_normal_deltas != nullptr && k.meshes[0].morph_normal_deltas != m.meshes[0].morph_normal_deltas);
+  static Vec3 bn[8], on[8];
+  for (uint32_t v = 0; v < 8; v++) {
+    bn[v] = m.meshes[0].verts[v].nrm;
+    const Vec3 d1 = m.meshes[0].morph_normal_deltas[8 + v];
+    CHECK(d1.x == 0 && d1.y == 0 && d1.z == 0);
+  }
+  const float w10[2] = {1.0f, 0.0f}, w01[2] = {0.0f, 1.0f}, wyari[2] = {0.5f, 0.0f};
+  content::blend_morph_normals(bn, 8, m.meshes[0].morph_normal_deltas, w10, 2, on);
+  for (uint32_t v = 0; v < 8; v++) CHECK(std::fabs(on[v].x) < 1e-5f && std::fabs(on[v].y - 1.0f) < 1e-5f && std::fabs(on[v].z) < 1e-5f);
+  content::blend_morph_normals(bn, 8, m.meshes[0].morph_normal_deltas, w01, 2, on);   // normalsiz hedef: taban
+  for (uint32_t v = 0; v < 8; v++) CHECK(std::fabs(on[v].x - bn[v].x) < 1e-6f && std::fabs(on[v].y - bn[v].y) < 1e-6f);
+  content::blend_morph_normals(bn, 8, m.meshes[0].morph_normal_deltas, wyari, 2, on);  // ara: birim uzunluk
+  for (uint32_t v = 0; v < 8; v++) CHECK(std::fabs(on[v].x * on[v].x + on[v].y * on[v].y + on[v].z * on[v].z - 1.0f) < 1e-5f);
+  // Sifira inen normal (karsit delta) tabanda kalir, NaN yok.
+  const Vec3 tn[1] = {{0, 0, 1}}, td[1] = {{0, 0, -1}};
+  Vec3 tc[1];
+  const float w1[1] = {1.0f};
+  content::blend_morph_normals(tn, 1, td, w1, 1, tc);
+  CHECK(tc[0].x == 0 && tc[0].y == 0 && tc[0].z == 1);
+}
+
+// A5: renderer dinamik mesh (kare basina ayri host-gorunur tampon). Cihaz kapisi (Mali dahil): kurma + her karede guncelleme calisir, mesh sayisi
+// guncellemeyle ARTMAZ (tutamac geri verilmez: sizinti olmamali), statik mesh / yanlis kose sayisi REDDEDILIR (kontrol). Piksel dogrulamasi kopru testinde.
+ENGINE_TEST(render_dinamik_mesh_kare_halkasi) {
+  static SystemArena sys;
+  if (!sys.reserve(32u << 20, "dinamik_mesh")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (dinamik mesh kapisi atlandi)"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 2;
+  rc.shadow_size = 256;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  renderer::Vertex v[3] = {};
+  for (int i = 0; i < 3; i++) { v[i].pos = Vec3{(float)i, 0, 0}; v[i].nrm = Vec3{0, 0, 1}; }
+  const uint32_t idx[3] = {0, 1, 2};
+  renderer::MeshHandle dyn = ren.create_dynamic_mesh(v, 3, idx, 3);
+  renderer::MeshHandle stat = ren.create_mesh(v, 3, idx, 3);
+  CHECK(dyn.valid() && stat.valid());
+  const uint32_t meshes0 = ren.stats().meshes;
+  for (uint32_t f = 0; f < 6; f++) {                     // 6 kare: her iki kare yuvasina da yazilir
+    ren.begin_frame(f);
+    v[2].pos = Vec3{2.0f, (float)f, 0};
+    CHECK(ren.update_dynamic_mesh(dyn, v, 3));
+    ren.draw(dyn, Mat4::identity(), {1, 1, 1});
+  }
+  CHECK(ren.stats().meshes == meshes0);                  // guncelleme mesh havuzunu tuketmez
+  CHECK(!ren.update_dynamic_mesh(stat, v, 3));           // KONTROL: statik mesh dinamik guncellenemez
+  CHECK(!ren.update_dynamic_mesh(dyn, v, 2));            // KONTROL: kose sayisi degisemez
+  CHECK(!ren.update_dynamic_mesh(renderer::MeshHandle{}, v, 3));
+  // A5 iskeletli+morph: dinamik iskeletli mesh ayni halkada guncellenir, draw_skinned kabul eder (skin_draws). KONTROL: iskeletli/duz
+  // guncellemeler birbirinin mesh'ine REDDEDILIR (yanlis paketle tampon tasardi: 20 / 32 bayt kose).
+  renderer::SkinnedVertex sv[3] = {};
+  for (int i = 0; i < 3; i++) { sv[i].pos = v[i].pos; sv[i].nrm = Vec3{0, 0, 1}; sv[i].weights[0] = 65535; }
+  renderer::MeshHandle dsk = ren.create_dynamic_skinned_mesh(sv, 3, idx, 3);
+  CHECK(dsk.valid());
+  const uint32_t meshes1 = ren.stats().meshes;
+  static Mat4 joints[2];
+  for (uint32_t f = 0; f < 6; f++) {
+    ren.begin_frame(f);
+    sv[2].pos = Vec3{2.0f, (float)f, 0};
+    CHECK(ren.update_dynamic_skinned_mesh(dsk, sv, 3));
+    ren.draw_skinned(dsk, renderer::MaterialHandle{}, Mat4::identity(), {1, 1, 1}, joints, 2);
+    CHECK(ren.stats().skin_draws == 1 && ren.stats().skin_verts == 3);
+  }
+  CHECK(ren.stats().meshes == meshes1);
+  CHECK(!ren.update_dynamic_mesh(dsk, v, 3));            // KONTROL: iskeletli dinamige duz kose yazilamaz
+  CHECK(!ren.update_dynamic_skinned_mesh(dyn, sv, 3));   // KONTROL: duz dinamige iskeletli kose yazilamaz
+  CHECK(!ren.update_dynamic_skinned_mesh(dsk, sv, 2));
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// A5 iskeletli+morph: morph_iskelet.gltf (tools/make_test_morph.py): 2 eklemli kup + 2 hedef; 'salla' klibi AYNI klipte eklem donusu + weights.
+// Eskiden iskeletli mesh'in morph'u atlanirdi (morph_skipped 1). KONTROL: morph_kup (iskeletsiz) compact'ta skin_verts tasimaz.
+ENGINE_TEST(content_iskeletli_morph_yuklenir_ve_compact_korur) {
+  static SystemArena sys, keep;
+  if (!sys.reserve(32u << 20, "iskelet_morph") || !keep.reserve(8u << 20, "iskelet_morph_keep")) { CHECK(false); return; }
+  char path[512];
+  static content::Model m, k;
+  CHECK(asset_path(path, sizeof path, "morph_iskelet.gltf") && content::gltf_load(sys, path, &m));
+  CHECK(m.mesh_count == 1 && m.meshes[0].skin >= 0 && m.meshes[0].skin_verts && m.meshes[0].morph_count == 2 && m.morph_skipped == 0);
+  CHECK(m.meshes[0].vertex_count == 8 && m.meshes[0].lod_index_count[0] == 0);   // kose sirasi korunur, LOD yok
+  uint32_t ust = 0;
+  for (uint32_t v = 0; v < 8; v++) {
+    const renderer::SkinnedVertex &s = m.meshes[0].skin_verts[v];
+    CHECK(s.pos.x == m.meshes[0].verts[v].pos.x && s.pos.y == m.meshes[0].verts[v].pos.y);   // skin_verts ile verts ayni sira
+    if (s.pos.y > 0) { ust++; CHECK(m.meshes[0].morph_deltas[v].y == 1.0f); }
+  }
+  CHECK(ust == 4);
+  CHECK(m.clip_count == 2 && m.clips[0].skin == 0 && m.clips[0].clip != nullptr && m.clips[0].morph_track_count == 1);
+  CHECK(m.clips[1].skin == 0 && m.clips[1].morph_track_count == 0);   // 'don': yalniz iskelet
+  float w[content::kModelMaxMorph];
+  CHECK(content::model_clip_morph_weights(m, 0, 1.0f, 0, w) == 2 && std::fabs(w[0] - 1.0f) < 1e-4f && std::fabs(w[1]) < 1e-6f);
+  static content::PoseScratch ps;
+  content::ModelPose pose;
+  CHECK(content::model_pose_evaluate(m, 0, 1.0f, ps, &pose));         // ayni klip poz da verir
+  CHECK(content::model_compact(keep, m, &k));
+  CHECK(k.meshes[0].skin_verts && k.meshes[0].morph_deltas && k.meshes[0].indices && k.meshes[0].skin_verts != m.meshes[0].skin_verts);
+  CHECK(std::memcmp(k.meshes[0].skin_verts, m.meshes[0].skin_verts, sizeof(renderer::SkinnedVertex) * 8) == 0);
+  static content::Model duz, duz_k;
+  CHECK(asset_path(path, sizeof path, "morph_kup.gltf") && content::gltf_load(sys, path, &duz) && content::model_compact(keep, duz, &duz_k));
+  CHECK(duz_k.meshes[0].skin_verts == nullptr && duz_k.meshes[0].verts != nullptr);   // KONTROL
 }

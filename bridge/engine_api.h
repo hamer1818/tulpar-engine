@@ -396,6 +396,26 @@ int teng_character_grounded(int id);
 int teng_character_ground_state(int id); // 0 zeminde, 1 dik yamac (kayar), 2 desteksiz, 3 havada
 void teng_character_set_jump(int id, double speed); // ziplama hizi m/s (varsayilan 4.0)
 int teng_load_model(const char *path);                  // glTF; -1 hata
+// --- morph target (A5) --------------------------------------------------------------------------------------------------
+// glTF morph hedefleri (POSITION farki), iskeletsiz mesh'te. Hedef t = glTF weights[t] (en cok 8). Normaller taban kalir; morph'lu mesh LOD'suz cizilir.
+// Agirlik tavani yok ([0,1] disi "abartma" gecerli). Havuz 16 varlik; dolunca varlik taban sekille kalir ve teng_morph_rejected sayar.
+int teng_model_morph_count(int asset);                        // modelin en cok hedefli mesh'inin hedef sayisi (0 = morph yok)
+void teng_morph_weight(int id, int target, double w);         // hata: model varligi degil / hedef yok / NaN / havuz dolu
+double teng_morph_get(int id, int target);
+int teng_morph_rejected(void);                                // havuz/mesh tavani yuzunden reddedilen morph sayisi
+// --- kodla mesh (P1) ------------------------------------------------------------------------------------------------
+// Prosedurel geometri: basla -> kose/ucgen (ya da cokgen_nokta + cokgen_yukselt) -> bitir => model tutamaci (spawn_model ile cizilir).
+// Tavan: 4096 kose, 8192 ucgen, 32 cokgen noktasi; asan ekleme REDDEDILIR (log) ve teng_mesh_rejected() sayar. Sarim CCW (disa bakan) olmali.
+int teng_mesh_begin(void);                                             // kuruciyi sifirlar; 1 ok
+int teng_mesh_vertex(double x, double y, double z, double u, double v); // kose indeksi, -1 tavan
+int teng_mesh_tri(int a, int b, int c);                              // 1 ok, 0 reddedildi (aralik disi / tavan)
+void teng_mesh_color(int64_t color);                                    // tek malzeme rengi (varsayilan acik gri)
+int teng_mesh_vertex_count(void);
+int teng_mesh_tri_count(void);
+int teng_mesh_rejected(void);                                        // basla'dan beri reddedilen ekleme sayisi
+int teng_mesh_poly_point(double x, double z);                        // XZ noktasi ekler; donus: nokta sayisi
+int teng_mesh_poly_extrude(double h);                                // noktalari h kadar kati yapar (h<=0: yalniz ust yuz); donus: eklenen ucgen, 0 gecersiz
+int teng_mesh_end(void);                                             // model tutamaci, -1 hata
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint);
 int teng_spawn_light(double x, double y, double z, int64_t color, double intensity, double radius);
 void teng_despawn(int id);
@@ -428,6 +448,15 @@ void teng_set_anim(int id, int clip, double speed, int loop); // clip < 0: anima
 // Yumusak gecis (A2): calan klip fade_s saniyede yenisine karisir (smoothstep). Calan klip yoksa / fade_s <= 0: set_anim gibi aninda.
 void teng_anim_crossfade(int id, int clip, double speed, int loop, double fade_s);
 int teng_anim_fading(int id);                                  // gecis suruyor mu
+// Animator (A3, docs/MODEL-ANIMASYON-PLANI.md): .animator dosyasi (durum makinesi + 1B karisim + gecis kosulu); klip adlari modelden cozulur.
+int teng_animator_set(int id, const char *path);               // 1 = baglandi; 0 = hata (neden BERR'de: satir/klip adi). set_anim/crossfade'i ezer
+void teng_animator_clear(int id);
+void teng_animator_param(int id, const char *name, double v);  // sayi parametresi
+void teng_animator_trigger(int id, const char *name);          // tetik (bir sonraki adimda gecisle tuketilir)
+const char *teng_animator_state(int id);                       // gecerli durum adi ("" yok)
+int teng_animator_fading(int id);                              // durum gecisi suruyor mu
+// A4: animator olayi (".animator" `olay <durum> <faz> <ad>`): kuyruktaki EN ESKI olayin adini doner ve kuyruktan cikarir; "" = bos (callback yok, kuyruk).
+const char *teng_animator_event(int id);
 double teng_anim_time(int id);                                 // klip icindeki an (s)
 int teng_anim_done(int id);                                    // dongusuz klip bitti mi
 

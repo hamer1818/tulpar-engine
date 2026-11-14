@@ -207,7 +207,7 @@ private:
 // Tarayici listesi artik IKI tur tasiyor. Tur bir bayrak degil ENUM, cunku
 // davranis her yerde ayrisiyor: modeller sahneye eklenir, betikler secili
 // varliga ATANIR; surukleme yukleri bile farkli ("ASSET_FILE" / "SCRIPT_FILE").
-enum class AssetKind : uint8_t { Model, Script };
+enum class AssetKind : uint8_t { Model, Script, Animator };   // Animator: .animator (A3); cift tik Kod panelinde acar
 struct AssetFile {
   char name[content::kScenePathLen] = {0};
   bool in_scene = false; // sahnenin kaynak tablosunda kayitli mi
@@ -309,6 +309,8 @@ bool editor_script_create(const char *abs_path, const char *import_path, char *e
 // giren islem sayisi — yeni kaynakla 2, mevcut kaynakla 1, eklenemediyse 0 —
 // cagiran onu TEK grup olarak iter; out_asset = kaynak indeksi.
 uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h, const char *file, Vec3 pos, int32_t *out_asset);
+// "Kaynak eklenemedi" nedeni (M1): kaynak tablosu dolu (16), varlik tavani (256) ya da bilinmeyen; out'a okunur Turkce metin.
+void editor_add_asset_neden(const content::SceneDesc &d, const char *file, char *out, uint32_t cap);
 // Yeni ilkelin oturacagi yukseklik: (x,z) noktasinin ALTINDAKI en yuksek kutu ust yuzu (kok
 // seviyesindeki, donmemis kutu ilkelleri — arena zemini/duvarlari, platformlar). `tavan` ustundeki
 // yuzeyler sayilmaz (kameranin baktigi noktanin cok ustundeki bir tavana tirmanmasin). Yoksa

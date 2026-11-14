@@ -69,13 +69,27 @@ struct ModelSkin {
   Mat4 *inverse_bind = nullptr;   // [joint_count]
   char name[64] = {0};
 };
-// Klip: glTF animasyonu sabit hizda ornekleyip ClipBuilder ile sikistirilmis.
+// A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
+// Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).
+struct ModelMorphTrack {
+  int32_t gltf_mesh = -1;          // yukleme sirasinda; sonra ModelMesh araligina cozulur
+  uint32_t mesh_first = 0, mesh_n = 0;
+  uint32_t weight_count = 0;       // <= kModelMaxMorph (fazlasi Model::morph_dropped)
+  uint32_t samples = 0;
+  float *w = nullptr;              // [samples * weight_count], ornek-major
+};
+constexpr uint32_t kModelMaxMorphTracks = 4;   // klip basina (asan iz Model::morph_tracks_dropped)
+// Klip: glTF animasyonu sabit hizda ornekleyip ClipBuilder ile sikistirilmis. A5: iskeletsiz klip GECERLIDIR (yalniz morph izleri):
+// skin = -1, clip = nullptr — poz yollari (model_pose_*) bunu false ile reddeder, morph agirligi model_clip_morph_weights'ten.
 struct ModelClip {
   char name[64] = {0};
-  int32_t skin = -1;              // hangi iskelet
+  int32_t skin = -1;              // hangi iskelet (-1: iskelet izi yok)
   float duration = 0;             // saniye
+  float sample_rate = 30.0f;      // A5: morph izlerinin ornek hizi
   const sim::ClipHeader *clip = nullptr;
   sim::ClipBuildStats stats{};
+  ModelMorphTrack *morph_tracks = nullptr;
+  uint32_t morph_track_count = 0;
 };
 struct ModelMesh {
   renderer::Vertex *verts = nullptr;
@@ -88,6 +102,9 @@ struct ModelMesh {
   uint32_t *lod_indices[kModelMaxLods] = {};
   uint32_t lod_index_count[kModelMaxLods] = {};
   float lod_error[kModelMaxLods] = {}; // bagil (mesh olcegine gore)
+  // A7: LOD indekslerinin GERCEKTEN kullandigi (tekil) kose sayisi. LOD ayni vertex tamponunu paylasir, yani vertex_count
+  // LOD'da dusmez; iskeletli kose butcesi (RendererStats::skin_verts) bunu sayar.
+  uint32_t lod_vertex_count[kModelMaxLods] = {};
   // Kume (cluster) DAG: GltfLimits::cluster_dag acikken kurulur (Faz 9).
   // Ayrik LOD'larin (lod_indices) YERINE GECMEZ, ustune gelir: LOD butun mesh'i
   // birden degistirir, DAG kume kume ve cut'i runtime secer.
@@ -96,7 +113,16 @@ struct ModelMesh {
   // yeniden siralanmis, WEIGHTS_0 unorm16). Iskeletli mesh'te meshopt/LOD atlanir.
   int32_t skin = -1;
   renderer::SkinnedVertex *skin_verts = nullptr;
+  // A5 (morph target): glTF POSITION farklari. `morph_deltas` = morph_count x vertex_count (hedef-major), taban `verts` KALIR (model_compact
+  // bu mesh'te verts'i de saklar). Morph'lu mesh'te meshopt/LOD/DAG ATLANIR (kose sirasi deltalarla birlikte gider). Iskeletli mesh'te de
+  // morph var (2026-11-14): farklar bind uzayinda, skin_verts de compact'ta saklanir. morph_skipped artik hep 0 (eski sayac, uyum icin).
+  Vec3 *morph_deltas = nullptr;
+  uint32_t morph_count = 0;
+  // A5: hedef NORMAL farklari (ayni duzen); hicbir hedefte NORMAL yoksa nullptr (normaller taban kalir).
+  Vec3 *morph_normal_deltas = nullptr;
 };
+constexpr uint32_t kModelMaxMorph = 8;          // mesh basina en cok morph hedefi (asan hedefler Model::morph_dropped'a sayilir)
+constexpr uint32_t kModelMaxMorphVerts = 16384; // morph'lu mesh'in en cok kosesi (asani morph'suz yuklenir, sayilir)
 // Yukleme sonrasi mesh optimizasyonu olcumu (meshoptimizer analyze*): sayilar
 // ucgen agirlikli ortalama. ACMR = donusturulen vertex / ucgen (0.5 en iyi).
 struct ModelOptStats {
@@ -118,7 +144,16 @@ struct Model {
   ModelClip *clips = nullptr;        uint32_t clip_count = 0;
   // GltfLimits::max_clips'i asan animasyon sayisi (yuklenmedi; sessiz degil, sayilir).
   uint32_t clips_dropped = 0;
+  // A5: morph hedefi tavani asan (yuklenmeyen) hedefler / kose tavanini asip morph'suz yuklenen mesh'ler / iskeletli oldugu icin morph'u atlanan mesh'ler.
+  uint32_t morph_dropped = 0, morph_meshes_dropped = 0, morph_skipped = 0;
+  uint32_t morph_tracks_dropped = 0;   // A5: klip basina kModelMaxMorphTracks'i asan `weights` kanali (yuklenmedi, sayilir)
   Vec3 bounds_min{0, 0, 0}, bounds_max{0, 0, 0}; // ornek uzayinda, tum instance'lar
+  // M1 ice aktarma ayari (content/model_import.hpp): instance'larin ONUNE carpilan C ve C'den onceki ham sinir (editor ayari
+  // degistirince eski C geri alinir). Ayarsiz glTF'te birim matris ve ham = bounds.
+  Mat4 import_xform;
+  Vec3 import_raw_min{0, 0, 0}, import_raw_max{0, 0, 0};
+  // A7: model basina LOD esikleri (metre, .ayar `lod1`/`lod2`); 0 = cagiranin ModelLod esigi. draw_model uygular.
+  float lod_distance1 = 0.0f, lod_distance2 = 0.0f;
   ModelOptStats opt;
   // Ayni goruntu hem renk (sRGB) hem veri (dogrusal) olarak kullanilmis:
   // glTF'te gecersiz. Renk kazanir, sayac artar — sessiz yanlis yok.
@@ -127,6 +162,7 @@ struct Model {
   // kac yeni ORM goruntusu uretildi / kac malzemede yapilamadi.
   uint32_t occlusion_merged = 0, occlusion_unmerged = 0;
   char error[160] = {0};
+  char note[160] = {0};   // BAŞARILI içe aktarmada bilgi notu (örn. OBJ: doku haritası desteklenmedi); konsol özeti yazar
 };
 
 // GPU'ya yuklenmis hal: her mesh/malzeme icin renderer tutamaclari.
@@ -173,6 +209,17 @@ struct ModelPose {
   const Mat4 *skin_mats[kModelMaxSkins] = {};
   uint32_t joint_count[kModelMaxSkins] = {};
 };
+// Model bütçesi (M1, docs/MODEL-ANIMASYON-PLANI.md): editör "kaynak yüklendi" satırı ve mobil uyarısı bunu kullanır.
+// triangles = LOD0, TÜM örnekler (instance) toplamı; skinned_vertices = iskeletli mesh'lerin örnek başına köşe toplamı (kare başına
+// iskeletli köşe bütçesinin birimi: P20 Pro ölçümü, ≲ 50K köşe/kare önerilir).
+struct ModelBudget {
+  uint32_t meshes = 0, instances = 0, triangles = 0, skinned_vertices = 0, joints = 0, clips = 0, clips_dropped = 0, images = 0;
+};
+ModelBudget model_budget(const Model &m);
+constexpr uint32_t kMobileSkinnedVertexBudget = 50000;   // kare başına (P20 Pro / Mali-G72 ölçümü, 2026-11-13)
+// Tek satır özet + uyarı: out'a yazar; dönüş: uyarı var mı (0/1). Sayılar ve cihaz notu Türkçe.
+uint32_t model_budget_text(const Model &m, char *out, uint32_t cap);
+
 // Klip degerlendirme calisma alani: ayirma yok, cagiranin (statik ya da arena).
 struct PoseScratch {
   Vec3 t[kModelMaxJoints];
@@ -186,12 +233,23 @@ struct PoseScratch {
 };
 // clip'i time_s'de (dongusel) ornekler, ilgili iskeletin skin matrislerini
 // scratch.skin[skin]'e yazar ve pose'u gunceller. false: gecersiz klip.
+// A5: klibin t anindaki morph agirliklari (mesh = ModelMesh indeksi). Donus: agirlik sayisi; 0 = bu klip bu mesh'i surmez.
+// t [0, duration]'a kenetlenir (dongu cagiranin isi), ornekler arasi dogrusal. Ayirma yok.
+uint32_t model_clip_morph_weights(const Model &m, uint32_t clip, float time_s, uint32_t mesh, float out[kModelMaxMorph]);
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose);
 // A2 (docs/MODEL-ANIMASYON-PLANI.md): iki klibi karistirir — w = 0 ise yalniz A, w = 1 ise yalniz B (bit esit: model_pose_evaluate ile).
 // Eklem basina ceviri/olcek dogrusal, donus slerp (antipodal guvenli). Iki klip AYNI iskelete ait olmali; degilse false
 // (cagiran tek klibe duser). Ayirma yok.
 bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t clip_b, float time_b, float w, PoseScratch &scratch,
                       ModelPose *pose);
+// A3: N (<= 8) klibin AĞIRLIKLI karışımı (animatör çıktısı). Ağırlığı <= 0 olanlar atlanır; ağırlıklar toplamı 1 olmasa da normalleşir.
+// Ötelenme/ölçek doğrusal, dönüş sıralı slerp (kümülatif ağırlıkla). Hepsi AYNI iskelete ait olmalı; değilse false. Tek girdi =
+// model_pose_evaluate ile BİT EŞİT.
+struct PoseMixEntry { uint32_t clip; float time; float weight; };
+// lock_root (A4 kök hareketi): sonuçta eklem 0'ın YATAY (x, z) ötelenmesi bind değerine kilitlenir — hareket varlığa aktarıldığında görsel çift hareket olmasın.
+bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose, bool lock_root = false);
+// Klibin t anındaki kök (eklem 0) YEREL yatay ötelenmesi (x, z): kök hareketi farkı için. false: geçersiz klip.
+bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, float out_xz[2]);
 
 // LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
 // nullptr = hep LOD0.
@@ -227,6 +285,8 @@ struct ModelLod {
 };
 // Saf secim (ayirma yok, renderer gerekmez): istenen seviye 0/1/2. O seviye
 // uretilmemisse bir alta inmek draw_model'in isi (Tuzaklar 8cx).
+// A7: modelin .ayar esikleri (Model::lod_distance1/2, 0 = yok) uygulanmis kopya; draw_model bunu kullanir.
+ModelLod model_lod_effective(const Model &m, const ModelLod &lod);
 uint32_t model_lod_level(const ModelLod &lod, Vec3 world_pos);
 // Tum instance'lari cizer (model matrisi * instance.world). Secilen LOD sayilari
 // (0/1/2) istege bagli raporlanir.

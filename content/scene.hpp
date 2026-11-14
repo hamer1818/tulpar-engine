@@ -84,13 +84,15 @@ enum SceneComponentBits : uint32_t {
   kSceneHealth    = 1u << 18, // Can ve zirh verisi
   kSceneAbility   = 1u << 19, // Büyü / yetenek tanımları
   kSceneInventory = 1u << 20, // Envanter kapasitesi ve başlangıç eşyaları
+  // --- P2 (2026-11-14) ---------------------------------------------------
+  kScenePoly      = 1u << 21, // editörde çizilen XZ çokgeni (noktalar + yükseklik); renk/malzeme kSceneModel alanlarından
 };
-// Bilesen bitlerinin TAMAMINI kapsayan maske (bit 0..20). Ayristirici, satir
+// Bilesen bitlerinin TAMAMINI kapsayan maske (bit 0..21). Ayristirici, satir
 // anahtarlarini tek bir `seen` maskesinde biriktirip sonunda BUNUNLA maskeler;
 // eskiden yerinde duran `0xFFu` sabiti yeni bitleri SESSIZCE kirpardi (varlik
 // diske yazilir, geri okunurken bileseni kaybolurdu). Yeni bir bit eklenince
 // burasi da buyumeli.
-constexpr uint32_t kSceneComponentMask = 0x001FFFFFu;
+constexpr uint32_t kSceneComponentMask = 0x003FFFFFu;
 enum class SceneShape : uint32_t { Box = 0, Sphere = 1 };
 // Nokta: kSceneLight'in standart omni turu (yaricapli, konum onemli).
 // Yonlu: entity-bazli yon gostergesi (gizmo gunes-oku cizer).
@@ -133,6 +135,7 @@ enum SceneEntityFlags : uint32_t {
 // DIKKAT: burada `kScene... = 1u << N` biciminde sabit YAZMA — tools/
 // scene_check.py o bicimi BILESEN BITI sayar ve YAZ/OKU/ESITLIK arar.
 constexpr uint32_t kSceneMaxProps = 16;
+constexpr uint32_t kScenePolyMaxPoints = 32; // P2: cokgen nokta tavani (poly_pts = 2 x bu)
 constexpr uint32_t kScenePropNameLen = 24; // NUL dahil: ad en cok 23 karakter
 // Tur kodlari; 0 bilerek bos (sifirlanmis bir SceneProp gecerli bir tur
 // tasimasin). Metin anahtarlari: ozellik_sayi / _tam / _bayrak / _nokta.
@@ -270,6 +273,11 @@ struct SceneEntity {
   // voksel (kSceneVoxel)
   uint32_t voxel_size_x = 16, voxel_size_y = 16, voxel_size_z = 16;
   float voxel_cell = 1.0f;
+  // cokgen (kScenePoly, P2): XZ noktalari (yerel uzay, y=0 tabani), poly_h > 0 kati / 0 yalniz ust yuz. En cok kScenePolyMaxPoints nokta;
+  // content/poly.hpp ayni tavani static_assert eder. Renk/malzeme: model bileseni (`model kaynak -1 r g b`, `malzeme`).
+  uint32_t poly_n = 0;
+  float poly_h = 1.0f;
+  float poly_pts[64] = {};
   // gokyuzu (kSceneSkybox). Panelde sabit bir dugme vardi, ARKASINDA ALAN DA
   // YOKTU: bileseni eklemek ve HDRI secmek hicbir sey kaydetmiyordu. Bilesen
   // biti "gokyuzu var mi"yi, bu alan HANGI gokyuzu oldugunu tasir; bos metin
@@ -288,6 +296,7 @@ struct SceneEntity {
   SceneProp props[kSceneMaxProps] = {};
   uint32_t prop_count = 0;
 };
+// P2 (2026-11-14): cokgen alanlari +264 B (1472 -> 1736: poly_n 4 + poly_h 4 + 64 x 4 nokta).
 // BUTCE KAPISI, yerlesim sozlesmesi DEGIL. Olculdu 2026-09-25, x86_64 GCC
 // 16.2.1 (Linux): E3 oncesi 824 B, ozelliklerle 1468 B (+16 x 40 + 4). En genis
 // hizalama 4 bayt (float/int32; bool 1), yani AArch64 / MinGW / Android ayni sayi.
@@ -299,7 +308,7 @@ struct SceneEntity {
 // Tuzaklar 8aw: sizeof alan SIRASI degisimini gormez; burada gormesi
 // gerekmiyor, ikili yerlesime dayanan tuketici yok (.sahneb kendi bicimi).
 // 2026-11-13 (A1b, anim_mode uint8_t, hizalama dolgusuyla +4): 1468 -> 1472 B; yigin cercevesi kapisi (128 KB) derlemede gecti.
-static_assert(sizeof(SceneEntity) == 1472, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
+static_assert(sizeof(SceneEntity) == 1736, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar)
 // + ozellikler (bilesenden bagimsiz, yukarida).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);

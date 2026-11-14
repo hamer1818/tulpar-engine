@@ -707,12 +707,14 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
   for (struct dirent *de = ::readdir(dp); de; de = ::readdir(dp)) {
     const char *nm = de->d_name;
     if (nm[0] == '.') continue; // gizli + . / ..
-    if (!ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb")) continue;
+    const bool anim = ends_with_ci(nm, ".animator");
+    if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj")) continue;   // M2: STL/OBJ; A3: .animator
     if (std::strlen(nm) >= content::kScenePathLen) continue;
     if (n >= cap) break;
     AssetFile f;
     std::snprintf(f.name, sizeof f.name, "%s", nm);
-    for (uint32_t i = 0; i < d.asset_count; i++)
+    f.kind = anim ? AssetKind::Animator : AssetKind::Model;
+    for (uint32_t i = 0; i < d.asset_count && !anim; i++)
       if (!std::strcmp(d.assets[i], nm)) { f.in_scene = true; f.index = (int32_t)i; break; }
     uint32_t k = n; // ada gore sirali ekle: readdir sirasi dosya sistemine bagli
     while (k > 0 && std::strcmp(out[k - 1].name, f.name) > 0) { out[k] = out[k - 1]; k--; }
@@ -1026,6 +1028,19 @@ uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h
   e.components = content::kSceneModel;
   e.asset = a;
   return h.add_entity(d, e) ? aops + 1u : aops;
+}
+
+void editor_add_asset_neden(const content::SceneDesc &d, const char *file, char *out, uint32_t cap) {
+  bool var = false;
+  for (uint32_t i = 0; file && i < d.asset_count; i++)
+    if (!std::strcmp(d.assets[i], file)) { var = true; break; }
+  if (!var && d.asset_count >= content::kSceneMaxAssets)
+    std::snprintf(out, cap, "sahne en \xC3\xA7ok %u model kayna\xC4\x9F\xC4\xB1 ta\xC5\x9F\xC4\xB1r (%u dolu): kullan\xC4\xB1lmayan bir kayna\xC4\x9F\xC4\xB1 sahneden kald\xC4\xB1r ya da modelleri tek dosyada birle\xC5\x9Ftir",
+                  content::kSceneMaxAssets, d.asset_count);
+  else if (d.entity_count >= content::kSceneMaxEntities)
+    std::snprintf(out, cap, "sahne en çok %u varlık taşır (%u dolu): kullanılmayanları sil", content::kSceneMaxEntities, d.entity_count);
+  else
+    std::snprintf(out, cap, "neden bilinmiyor (dosya adı geçersiz olabilir)");
 }
 
 uint32_t selection_commit(content::SceneDesc &d, content::SceneHistory &h, const int32_t *sel, uint32_t n,

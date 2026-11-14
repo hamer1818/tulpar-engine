@@ -995,7 +995,7 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 11);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 12);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
   // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
