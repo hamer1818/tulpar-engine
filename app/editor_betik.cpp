@@ -1,4 +1,5 @@
 #include "app/editor_betik.hpp"
+#include "app/editor_animator_grafik.hpp"
 #include "sim/animator.hpp"
 
 #include <algorithm>
@@ -1540,6 +1541,19 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
     if (ImGui::SmallButton("Diskteki halini y\xC3\xBCkle")) { char e[64]; k.kirli = false; kod_ac(k, k.yol, k.etiket, 0, e, sizeof e); }
   }
   if (k.salt_okunur) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Dosya %u KB'tan b\xC3\xBCy\xC3\xBCk: yaln\xC4\xB1z okunur.", kKodKapasite / 1024);
+  // --- A3: .animator durum grafigi (metnin ustunde; kaynak metin, grafik ondan turetilir). Dugume/gecise tik = o satira git.
+  {
+    const size_t yl = std::strlen(k.yol);
+    if (yl >= 9 && !std::strcmp(k.yol + yl - 9, ".animator")) {
+      ImGui::SameLine();
+      ImGui::Checkbox("Durum grafi\xC4\x9Fi", &k.anim_grafik);
+      if (k.anim_grafik) {
+        const float h = std::max(ImGui::GetFontSize() * 9.0f, ImGui::GetContentRegionAvail().y * 0.45f);
+        int gs = 0;
+        if (animator_grafik_ciz(k.metin, h, &gs)) { k.git_satir = gs; k.git_sutun = 0; k.git_adim = 0; }
+      }
+    }
+  }
   // --- Metin + satir numaralari ---
   const float fs = ImGui::GetFontSize();
   const int satir_n = kod_satir_sayisi(k.metin);

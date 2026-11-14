@@ -1,0 +1,38 @@
+# A3 (tools/arayuz_kapi.sh): Kaynaklar'da .animator'a cift tik -> Kod panelinde metnin USTUNDE durum grafigi. Grafik metinden
+# turetilir: durum/gecis sayisi, kosul etiketi, ulasilamaz uyarisi; gecis etiketine tik = metinde o satir (13). Tablo sekmesi
+# ayni bilgiyi satir satir verir. Metin bozulunca son gecerli hal soluk + hata satiri.
+# POZITIF KONTROL: "Durum grafigi" kapatilinca kosul etiketi CIZILMEZ (etiket gercekten grafikten geliyor, metinden degil).
+tikla "Kaynaklar" pencere=DockSpace
+bekle 2
+tikla "☰" pencere=Kaynaklar
+tikla "ara…" pencere=Kaynaklar
+yaz "yuru"
+bekle 2
+cift_tikla "yuru.animator"
+bekle_oge "Dış editörde aç"
+dogrula_metin "4 durum · 4 geçiş · 2 parametre"
+dogrula_metin "hiz > 0.5 · 0.3 s"
+dogrula_metin "1 durum ulaşılamaz"
+ekran animator_grafik
+tikla "tetik ziplama · 0.1 s"
+bekle 8
+dogrula_metin "Satır 13, sütun 1"
+tikla "Tablo"
+dogrula_metin "Durum içeriği"
+dogrula_metin "karışım (hiz): 0→salla 3→egil · döngü"
+tikla "Grafik"
+tikla "Durum grafiği"
+bekle 2
+metin_yok "hiz > 0.5 · 0.3 s"
+tikla "Durum grafiği"
+bekle 2
+dogrula_metin "hiz > 0.5 · 0.3 s"
+tikla "baslangic"
+tus End
+tus Enter
+yaz "gecis bekle kos sure 1 yanlis"
+bekle 4
+dogrula_metin "son geçerli hâli gösteriliyor"
+dogrula_metin "satır 16: gecersiz gecis anahtari 'yanlis'"
+ekran animator_hatali
+cik

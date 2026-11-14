@@ -85,6 +85,7 @@ struct KodPaneli {
   char geri_yol[1100] = {0};         // Alt+Sol: tanima gitmeden onceki yer (tek seviye)
   int geri_satir = 0, geri_sutun = 0;
   bool geri_var = false;
+  bool anim_grafik = true;     // A3: .animator acikken durum grafigi gorunur (metnin ustunde)
   bool tam_pencere = false;   // bagimsiz kod penceresi (engine_editor --kod): tum pencereyi kaplar, sekme/dock yok
   char uyari_mesaj[160] = {0}; // tam_pencere: durum satirinda (ornegin "Tulpar Editor acik degil")
   bool kapat_iste = false;    // tam_pencere: isletim sistemi pencere kapatma istedi (kirliyse once sorulur)

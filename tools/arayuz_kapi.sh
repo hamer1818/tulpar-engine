@@ -10,6 +10,7 @@
 # tests/arayuz/izgara.txt (U11 C4): Izgara dugmesi gercekten cizer; kontrol: kapaliyken goruntu duz.
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/model_ayar.txt (M1): Kaynaklar sag tik -> ice aktarma ayarlari, cm canli onizleme, Kaydet .ayar yazar.
+# tests/arayuz/animator_grafik.txt (A3): .animator cift tik -> durum grafigi; etikete tik satira gider; kontrol: kapali -> etiket yok.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -194,6 +195,16 @@ kos model_ayar.txt "$MA/ui" --scene "$MA/assets/editor.sahne" --kip basit --size
 if [ $rma = 0 ] && grep -qx 'birim cm' "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null; then
   echo "  model ayari: sag tik -> pencere, cm secince boyut 1 -> 0.01 m (canli), Kaydet checker_cube.gltf.ayar'a 'birim cm' yazdi (kontrol: once 1 m, kayitli)"
 else echo "  KIRMIZI model ayari (cikis $rma, dosya: $(tr '\n' ' ' < "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null || echo yok))"; grep -E 'HATA|> ' "$MA/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- A3: animator durum grafigi (Kaynaklar cift tik -> Kod panelinde grafik, tik satira gider, tablo, bozuk metin; tulpar gerekmez) ---
+AG="$D/animator_grafik"; mkdir -p "$AG/ui"
+cp -r "$KOK/tests/assets" "$AG/assets"
+printf '%s\n' "tulpar-animator 1" "param hiz sayi 0" "param ziplama tetik" "durum bekle klip salla" "durum kos karisim hiz" \
+  "  nokta 0 salla" "  nokta 3 egil" "son" "durum zipla klip egil tek" "durum yalniz klip salla" \
+  "gecis bekle kos sure 0.3 eger hiz > 0.5" "gecis kos bekle sure 0.3 eger hiz < 0.5" \
+  "gecis herhangi zipla sure 0.1 tetik ziplama" "gecis zipla bekle sure 0.2 bitince" "baslangic bekle" > "$AG/assets/yuru.animator"
+kos animator_grafik.txt "$AG/ui" --scene "$AG/assets/editor.sahne"; rag=$?
+if [ $rag = 0 ]; then echo "  animator grafigi: 4 durum/4 gecis, kosul etiketi, ulasilamaz uyarisi, etikete tik -> satir 13, tablo, bozuk metinde son gecerli hal (kontrol: grafik kapali -> etiket yok)"
+else echo "  KIRMIZI animator grafigi (cikis $rag):"; grep -E 'HATA|> ' "$AG/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
 cp -r "$KOK/tests/assets" "$TR/assets"
