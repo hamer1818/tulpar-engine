@@ -692,10 +692,10 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
           }
         }
       }
-      // A5: morph hedefleri (POSITION farki). Yalniz iskeletsiz mesh'te; morph'lu mesh'te meshopt/LOD/DAG atlanir (kose sirasi korunmali).
+      // A5: morph hedefleri (POSITION/NORMAL farki). Morph'lu mesh'te meshopt/LOD/DAG atlanir (kose sirasi korunmali). Iskeletli mesh'te de
+      // (yuz animasyonu): farklar BIND uzayinda tabana eklenir, sonra GPU deri giydirir (glTF sirasi: morph -> skin).
       if (prim.targets_count > 0) {
-        if (mm.skin >= 0) out->morph_skipped++;
-        else if (mm.vertex_count > kModelMaxMorphVerts) out->morph_meshes_dropped++;
+        if (mm.vertex_count > kModelMaxMorphVerts) out->morph_meshes_dropped++;
         else {
           // Hedef t = glTF weights[t]: POSITION'u olmayan hedef SIFIR fark olur (indeks kaymasin).
           const uint32_t nt = (uint32_t)(prim.targets_count < kModelMaxMorph ? prim.targets_count : kModelMaxMorph);
@@ -973,6 +973,10 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
       mm.indices = copy_array(keep, sm.indices, sm.index_count);   // dinamik (kopya) mesh kurmak icin
       mm.morph_deltas = copy_array(keep, sm.morph_deltas, sm.morph_count * sm.vertex_count);
       if (!mm.verts || !mm.indices || !mm.morph_deltas) return false;
+      if (sm.skin_verts) {   // iskeletli+morph: taban iskeletli koseler (eklem/agirlik) de kalir
+        mm.skin_verts = copy_array(keep, sm.skin_verts, sm.vertex_count);
+        if (!mm.skin_verts) return false;
+      }
       if (sm.morph_normal_deltas) {
         mm.morph_normal_deltas = copy_array(keep, sm.morph_normal_deltas, sm.morph_count * sm.vertex_count);
         if (!mm.morph_normal_deltas) return false;

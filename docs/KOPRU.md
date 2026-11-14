@@ -1785,7 +1785,7 @@ Kapılar: `import_cokgen_ucgenleme_alan_ve_sarim` (içbükey L: üçgen alanlar�
 
 ## 21. Morph target (A5, 2026-11-14)
 
-glTF morph hedefleri (POSITION farkı) **iskeletsiz** mesh'te. `eng_model_morph_count(model)` (0 = yok) · `eng_morph_weight(id, hedef, w)` (hedef = glTF `weights` sırası, en çok 8;
+glTF morph hedefleri (POSITION farkı) iskeletsiz **ve iskeletli** mesh'te (iskeletli: 2026-11-14). `eng_model_morph_count(model)` (0 = yok) · `eng_morph_weight(id, hedef, w)` (hedef = glTF `weights` sırası, en çok 8;
 w tavansız, [0,1] dışı "abartma" geçerli) · `eng_morph_get` · `eng_morph_rejected`. Tulpar: `morph_sayisi/morph_agirlik/morph_oku/morph_reddedilen` (+EN ikizler).
 Hata (loglanır, durum bozulmaz): model varlığı değil, modelde morph yok, hedef aralık dışı, NaN.
 
@@ -1797,7 +1797,14 @@ kullanılır, başka modelde **yanar** (mesh tutamacı geri verilmez; `morph_bur
 
 Sınırlar (sessiz değil): 8 hedef/mesh (fazlası `Model::morph_dropped`), 16384 köşe/mesh (aşan mesh morph'suz yüklenir, `morph_meshes_dropped`), iskeletli mesh'te morph atlanır
 (`morph_skipped`). **Normal farkı** (hedef `NORMAL`, 2026-11-14): varsa normaller de aynı ağırlıkla karılıp birim uzunluğa normalize edilir
-(`content::blend_morph_normals`; sıfıra inen normal tabanda kalır, NaN yok); hiçbir hedefte `NORMAL` yoksa taban normal kalır. İskeletli+morph (yüz animasyonu) **henüz yok**.
+(`content::blend_morph_normals`; sıfıra inen normal tabanda kalır, NaN yok); hiçbir hedefte `NORMAL` yoksa taban normal kalır.
+
+**İskeletli + morph (yüz animasyonu, 2026-11-14):** farklar BIND uzayında tabana eklenir, deri GPU'da giydirilir (glTF sırası: morph → skin). Kopya mesh
+renderer'ın **dinamik iskeletli mesh**'i (`create_dynamic_skinned_mesh` / `update_dynamic_skinned_mesh`: aynı kare halkası, 32 baytlık iskeletli köşe; düz/iskeletli
+güncelleme birbirinin mesh'ine reddedilir). Köprüde üç çizim yolu (animatör, klip, statik) aynı kopyayı kullanır (`morph_kare`): eskiden pozlu yol modelin ortak
+mesh'ini çizdiği için `morph_weight` klip çalan varlıkta görünmezdi. **glTF kuralı:** `weights` kanalı mesh'in BÜTÜN hedeflerini sürer — kanallı klip çalarken elle
+ağırlık o mesh'te tamamen ezilir; yalnız iskelet izli klipte elle ağırlık geçerli kalır. `model_compact` iskeletli morph mesh'inde `skin_verts`'i de saklar.
+`Model::morph_skipped` artık hep 0 (eski sayaç).
 
 **Morph klibi (glTF `weights` kanalı, 2026-11-14):** `weights` kanallı animasyon normal bir klip olarak yüklenir (iskeletsiz de olur: `skin = -1`; eskiden iskeletsiz klip
 hiç yüklenmezdi — böyle bir animasyonu olan modelde sonraki kliplerin indeksi bu yüzden kayabilir). `eng_set_anim(id, klip, hız, döngü)` / `anim_oynat` ile çalınır;
@@ -1808,6 +1815,10 @@ zamanında morph çizimi (editör Animasyon kartı klibi listeler ama küp şeki
 Kapılar: `content_morph_klibi_weights_kanali` (ağırlık örnekleri, kenetleme, NaN, compact; normal farkı: w=1'de bütün normaller yukarı, ara ağırlık birim, karşıt delta
 tabanda; kontrol: klipsiz/normalsiz `morph_kup.gltf` 0 klip, normal dizisi yok), köprü 10a0b (t=1 s'de 10010 piksel fark — normal farkı eklenmeden önce 9228, fazlası yalnız ışıktan;
 klip kapanınca 0; hata sayısı değişmez; kontrol: hız 0'da an ilerlemez). Deneme varlığı: `tests/assets/morph_kup_anim.gltf`.
+İskeletli kapılar: `content_iskeletli_morph_yuklenir_ve_compact_korur` (skin_verts/verts aynı sıra, LOD yok, compact saklar; kontrol: iskeletsiz morph_kup skin_verts taşımaz),
+`render_dinamik_mesh_kare_halkasi` (dinamik iskeletli: 6 kare, mesh sayısı artmaz, `skin_verts` sayılır, çapraz güncelleme reddi; **P20 Pro'da geçti**), köprü 10a0c
+(pozlu yolda elle genişlet 4922 piksel, geri 0, `salla` t=1 s 5774; **kontrol:** aynı pozdaki izsiz `don` klibine göre 5619 piksel = farkı morph izi yapıyor). Varlık:
+`tests/assets/morph_iskelet.gltf` (2 eklem, `salla` = dönüş + weights, `don` = yalnız dönüş). Köprü piksel kapıları masaüstünde (köprü testi Android derlemesinde yok).
 Kapılar: `content_morph_hedefleri_yuklenir_ve_compact_korur` (delta değerleri, LOD yok, compact saklaması + morph'suz kontrol), `render_dinamik_mesh_kare_halkasi` (6 kare/2 yuva, mesh sayısı artmaz,
 statik/yanlış-köşe reddi; **P20 Pro'da geçti 2026-11-14**), köprü testi 10a0 (ağırlık 1 → 5770 piksel fark, 0'a dönüş 0 piksel fark = doğru yeniden karışım, 4 kasıtlı hata sayıldı, yuva yeniden kullanımı).
 Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).

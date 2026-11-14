@@ -881,7 +881,9 @@ static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
       const content::ModelMesh &mm = mdl.meshes[i];
       ms.meshes[i] = b.ups[e.asset].meshes[i];
       if (mm.morph_count && mm.verts && mm.indices) {
-        const renderer::MeshHandle h = b.ren.create_dynamic_mesh(mm.verts, mm.vertex_count, mm.indices, mm.index_count);
+        const renderer::MeshHandle h = mm.skin >= 0 && mm.skin_verts   // iskeletli+morph: eklem/agirlikli kopya, draw_skinned ile cizilir
+                                           ? b.ren.create_dynamic_skinned_mesh(mm.skin_verts, mm.vertex_count, mm.indices, mm.index_count)
+                                           : b.ren.create_dynamic_mesh(mm.verts, mm.vertex_count, mm.indices, mm.index_count);
         if (!h.valid()) { b.morph_rejected++; b.morph_burned++; BERR("%s: dinamik mesh olusturulamadi (mesh havuzu dolu?)", who); return nullptr; }
         ms.meshes[i] = h;
       }
@@ -900,6 +902,7 @@ static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
 // clip >= 0: klibin `weights` izi olan mesh'te izin agirliklari teng_morph_weight'inkini EZER (klip calarken yuz klibin); izi olmayan mesh'te elle verilen kalir.
 static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, int32_t clip = -1, float clip_t = 0.0f) {
   static renderer::Vertex vv[content::kModelMaxMorphVerts];
+  static renderer::SkinnedVertex sv[content::kModelMaxMorphVerts];
   static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts], basen[content::kModelMaxMorphVerts];
   for (uint32_t i = 0; i < mdl.mesh_count && i < Bridge::kMorphSlotMeshes; i++) {
     const content::ModelMesh &mm = mdl.meshes[i];
@@ -919,8 +922,29 @@ static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot 
       content::blend_morph_normals(basen, mm.vertex_count, mm.morph_normal_deltas, w, mm.morph_count, outp);
       for (uint32_t v = 0; v < mm.vertex_count; v++) vv[v].nrm = outp[v];
     }
-    if (b.ren.update_dynamic_mesh(ms.meshes[i], vv, mm.vertex_count)) b.morph_updates++;
+    if (mm.skin >= 0 && mm.skin_verts) {   // iskeletli: ayni karisim BIND uzayinda, eklem/agirlik tabandan
+      for (uint32_t v = 0; v < mm.vertex_count; v++) { sv[v] = mm.skin_verts[v]; sv[v].pos = vv[v].pos; sv[v].nrm = vv[v].nrm; }
+      if (b.ren.update_dynamic_skinned_mesh(ms.meshes[i], sv, mm.vertex_count)) b.morph_updates++;
+    } else if (b.ren.update_dynamic_mesh(ms.meshes[i], vv, mm.vertex_count)) b.morph_updates++;
   }
+}
+
+// A5: varligin bu karedeki morph'u. Klibin `weights` izi morph'lu bir mesh'i suruyorsa yuva ilk karede alinir ve her kare karilir; yalniz elle
+// agirlik varsa degistigi karede. Donus: cizimde kullanilacak UploadedModel (morph yoksa modelin ortagi). Uc cizim yolu (animator, klip,
+// statik) ayni kopya mesh'i kullanir — iskeletli+morph'ta poz GPU'da, sekil CPU'da.
+static const content::UploadedModel *morph_kare(Bridge &b, Ent &e, const content::Model &mdl) {
+  bool klip_morph = e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count && mdl.clips[e.anim_clip].morph_track_count > 0;
+  if (klip_morph) {   // iz morph'u YUKLENMIS bir mesh'i suruyor mu (morph'suz mesh icin yuva bosuna alinmasin)
+    bool var = false;
+    for (uint32_t k = 0; k < mdl.mesh_count && !var; k++) var = mdl.meshes[k].morph_count > 0;
+    klip_morph = var;
+  }
+  if (klip_morph && e.morph < 0) morph_acquire(b, e, "morph klibi");
+  if (e.morph < 0 || (uint32_t)e.morph >= Bridge::kMorphSlots || !b.morphs[e.morph].used) return &b.ups[e.asset];
+  Bridge::MorphSlot &ms = b.morphs[e.morph];
+  if (klip_morph) { morph_apply(b, mdl, ms, e.anim_clip, e.anim_time); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
+  else if (ms.dirty) { morph_apply(b, mdl, ms); ms.dirty = false; }
+  return &ms.up;
 }
 
 bool ready(const char *fn) {
@@ -1309,6 +1333,7 @@ void render_frame() {
       if (e.asset >= 0 && (uint32_t)e.asset < b.model_count) {
         const content::Model &mdl = b.models[e.asset];
         const Mat4 m = ent_matrix(e) * Mat4::scale({e.scale, e.scale, e.scale});
+        const content::UploadedModel *upm = morph_kare(b, e, mdl);   // A5: morph kopyasi (yoksa modelin ortagi)
         bool posed = false;
         if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts && b.anim_rts[e.animator].used) {   // A3: animator cikisi
           const Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
@@ -1323,7 +1348,7 @@ void render_frame() {
           const sim::AnimatorDef &adef = b.anim_defs[rs.def].def;
           const bool kilit = adef.states[rs.rt.cur].root_motion || (rs.rt.prev >= 0 && adef.states[rs.rt.prev].root_motion);   // A4: kok hareketi varliga aktarilir
           if (ap.n && content::model_pose_mix(mdl, me, ap.n, b.pose_scratch, &pose, kilit)) {
-            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod, nullptr, &pose);
+            content::draw_model(b.ren, mdl, *upm, m, e.color, &view_lod, nullptr, &pose);
             posed = true;
             b.last_posed++;
           }
@@ -1348,7 +1373,7 @@ void render_frame() {
             ok = content::model_pose_evaluate(mdl, (uint32_t)e.anim_clip, e.anim_time, b.pose_scratch, &pose);
           }
           if (ok) {
-            content::draw_model(b.ren, mdl, b.ups[e.asset], m, e.color, &view_lod, nullptr, &pose);
+            content::draw_model(b.ren, mdl, *upm, m, e.color, &view_lod, nullptr, &pose);
             posed = true;
             b.last_posed++;
           } else {
@@ -1357,21 +1382,6 @@ void render_frame() {
           }
         }
         if (!posed) {
-          const content::UploadedModel *upm = &b.ups[e.asset];
-          // A5: klibin morph izi varsa yuva ilk karede alinir (teng_morph_weight beklenmez) ve her kare yeniden karilir.
-          bool klip_morph = e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count && mdl.clips[e.anim_clip].morph_track_count > 0;
-          if (klip_morph) {   // iz morph'u YUKLENMIS bir mesh'i suruyor mu (iskeletli mesh'in morph'u atlanir: yuva bosuna alinmasin)
-            bool var = false;
-            for (uint32_t k = 0; k < mdl.mesh_count && !var; k++) var = mdl.meshes[k].morph_count > 0;
-            klip_morph = var;
-          }
-          if (klip_morph && e.morph < 0) morph_acquire(b, e, "morph klibi");
-          if (e.morph >= 0 && (uint32_t)e.morph < Bridge::kMorphSlots && b.morphs[e.morph].used) {   // A5: morph: KOPYA mesh'ler, agirlik degistiyse yeniden karisim
-            Bridge::MorphSlot &ms = b.morphs[e.morph];
-            if (klip_morph) { morph_apply(b, mdl, ms, e.anim_clip, e.anim_time); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
-            else if (ms.dirty) { morph_apply(b, mdl, ms); ms.dirty = false; }
-            upm = &ms.up;
-          }
           content::draw_model(b.ren, mdl, *upm, m, e.color, e.morph >= 0 ? nullptr : &view_lod);
         }
         drawn++;

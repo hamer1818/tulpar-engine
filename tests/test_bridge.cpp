@@ -1388,6 +1388,59 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     }
   }
 
+  // --- 10a0c) A5 ISKELETLI + MORPH: pozlu cizim yolunda (klip calarken) morph kopyasi kullanilir. Eskiden iskeletli mesh'in morph'u
+  // yuklenmezdi; morph_weight pozlu varlikta GORUNMEZDI (pozlu yol modelin ortak mesh'ini ciziyordu).
+  {
+    char mp[512];
+    std::snprintf(mp, sizeof mp, "%s/morph_iskelet.gltf", assets_dir());
+    const int mm = teng_load_model(mp);
+    if (mm < 0) { ortam_hatasi++; skip("morph_iskelet.gltf yok — iskeletli morph kapisi kosmadi"); }
+    else {
+      const int errs0 = teng_error_count();
+      CHECK(teng_model_morph_count(mm) == 2 && teng_model_clip_count(mm) == 2);
+      const int ent = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      teng_camera(0, 1.0, 4.0, 0, 0.5, 0);
+      char sa[512], sb[512], sc[512], sd[512], se[512];
+      tmp_template(sa, sizeof sa, "kopru_imorph_a"); tmp_template(sb, sizeof sb, "kopru_imorph_b");
+      tmp_template(sc, sizeof sc, "kopru_imorph_c"); tmp_template(sd, sizeof sd, "kopru_imorph_d"); tmp_template(se, sizeof se, "kopru_imorph_e");
+      char *ms[5] = {sa, sb, sc, sd, se};
+      for (int i = 0; i < 5; i++) { const int fd = mkstemp(ms[i]); if (fd >= 0) close(fd); }
+      teng_set_anim(ent, 0, 0.0, 1);                                      // hiz 0, an 0: poz bind, iz agirligi 0 (pozlu yol)
+      run_frames(3);
+      CHECK(teng_screenshot(sa) == 1);
+      teng_set_anim(ent, 1, 0.0, 1);                                      // 'don' (weights izi yok), an 0 = ayni bind pozu
+      teng_morph_weight(ent, 1, 1.0);                                     // genislet: pozlu yolda GORUNMELI
+      run_frames(3);
+      CHECK(teng_screenshot(sb) == 1);
+      teng_morph_weight(ent, 1, 0.0);
+      run_frames(3);
+      CHECK(teng_screenshot(sc) == 1);
+      teng_morph_weight(ent, 1, 1.0);                                     // 'salla' bunu EZER (weights kanali tum hedefleri surer)
+      teng_set_anim(ent, 0, 1.0, 1);
+      run_frames(60);                                                     // t ~ 1 s: ust 30 derece + uzat 1 (genislet 0)
+      CHECK(teng_screenshot(sd) == 1);
+      teng_morph_weight(ent, 1, 0.0);
+      teng_set_anim(ent, 1, 1.0, 1);                                      // KONTROL: 'don' ayni poz, morph izi yok
+      run_frames(60);
+      CHECK(teng_screenshot(se) == 1);
+      CHECK(teng_error_count() == errs0 && teng_morph_rejected() == 0);
+      static uint8_t pa[kW * kH * 3], pb[kW * kH * 3], pc[kW * kH * 3], pd[kW * kH * 3], pe[kW * kH * 3];
+      const uint32_t n1 = read_ppm(sa, pa, kW * kH, nullptr, nullptr), n2 = read_ppm(sb, pb, kW * kH, nullptr, nullptr);
+      const uint32_t n3 = read_ppm(sc, pc, kW * kH, nullptr, nullptr), n4 = read_ppm(sd, pd, kW * kH, nullptr, nullptr);
+      const uint32_t n5 = read_ppm(se, pe, kW * kH, nullptr, nullptr);
+      CHECK(n1 > 0 && n1 == n2 && n2 == n3 && n3 == n4 && n4 == n5);
+      if (n1 > 0 && n1 == n2 && n2 == n3 && n3 == n4 && n4 == n5) {
+        const uint32_t d_elle = diff_px(pa, pb, n1), d_geri = diff_px(pa, pc, n1), d_klip = diff_px(pa, pd, n1), d_iz = diff_px(pd, pe, n1);
+        std::printf("    [bilgi] iskeletli morph (pozlu yol): elle genislet %u, geri (0 olmali) %u, klip t=1 s (poz + uzat) %u, ayni poz izsiz klibe gore %u piksel\n",
+                    d_elle, d_geri, d_klip, d_iz);
+        if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): iskeletli morph PIKSEL karsilastirmasi gercek cihazda");
+        else { CHECK(d_elle > 200); CHECK(d_geri == 0); CHECK(d_klip > 200); CHECK(d_iz > 200); }
+      }
+      teng_despawn(ent);
+      for (int i = 0; i < 5; i++) unlink(ms[i]);
+    }
+  }
+
   // --- 10a) P1 KODLA MESH: kurucu, cokgen yukseltme, tavan SAYILIR, model olarak cizilir --------------------------------------
   {
     const int errs0 = teng_error_count();

@@ -2294,6 +2294,57 @@ ENGINE_TEST(render_dinamik_mesh_kare_halkasi) {
   CHECK(!ren.update_dynamic_mesh(stat, v, 3));           // KONTROL: statik mesh dinamik guncellenemez
   CHECK(!ren.update_dynamic_mesh(dyn, v, 2));            // KONTROL: kose sayisi degisemez
   CHECK(!ren.update_dynamic_mesh(renderer::MeshHandle{}, v, 3));
+  // A5 iskeletli+morph: dinamik iskeletli mesh ayni halkada guncellenir, draw_skinned kabul eder (skin_draws). KONTROL: iskeletli/duz
+  // guncellemeler birbirinin mesh'ine REDDEDILIR (yanlis paketle tampon tasardi: 20 / 32 bayt kose).
+  renderer::SkinnedVertex sv[3] = {};
+  for (int i = 0; i < 3; i++) { sv[i].pos = v[i].pos; sv[i].nrm = Vec3{0, 0, 1}; sv[i].weights[0] = 65535; }
+  renderer::MeshHandle dsk = ren.create_dynamic_skinned_mesh(sv, 3, idx, 3);
+  CHECK(dsk.valid());
+  const uint32_t meshes1 = ren.stats().meshes;
+  static Mat4 joints[2];
+  for (uint32_t f = 0; f < 6; f++) {
+    ren.begin_frame(f);
+    sv[2].pos = Vec3{2.0f, (float)f, 0};
+    CHECK(ren.update_dynamic_skinned_mesh(dsk, sv, 3));
+    ren.draw_skinned(dsk, renderer::MaterialHandle{}, Mat4::identity(), {1, 1, 1}, joints, 2);
+    CHECK(ren.stats().skin_draws == 1 && ren.stats().skin_verts == 3);
+  }
+  CHECK(ren.stats().meshes == meshes1);
+  CHECK(!ren.update_dynamic_mesh(dsk, v, 3));            // KONTROL: iskeletli dinamige duz kose yazilamaz
+  CHECK(!ren.update_dynamic_skinned_mesh(dyn, sv, 3));   // KONTROL: duz dinamige iskeletli kose yazilamaz
+  CHECK(!ren.update_dynamic_skinned_mesh(dsk, sv, 2));
   rhi::offscreen_destroy(off);
   dev.shutdown();
+}
+
+// A5 iskeletli+morph: morph_iskelet.gltf (tools/make_test_morph.py): 2 eklemli kup + 2 hedef; 'salla' klibi AYNI klipte eklem donusu + weights.
+// Eskiden iskeletli mesh'in morph'u atlanirdi (morph_skipped 1). KONTROL: morph_kup (iskeletsiz) compact'ta skin_verts tasimaz.
+ENGINE_TEST(content_iskeletli_morph_yuklenir_ve_compact_korur) {
+  static SystemArena sys, keep;
+  if (!sys.reserve(32u << 20, "iskelet_morph") || !keep.reserve(8u << 20, "iskelet_morph_keep")) { CHECK(false); return; }
+  char path[512];
+  static content::Model m, k;
+  CHECK(asset_path(path, sizeof path, "morph_iskelet.gltf") && content::gltf_load(sys, path, &m));
+  CHECK(m.mesh_count == 1 && m.meshes[0].skin >= 0 && m.meshes[0].skin_verts && m.meshes[0].morph_count == 2 && m.morph_skipped == 0);
+  CHECK(m.meshes[0].vertex_count == 8 && m.meshes[0].lod_index_count[0] == 0);   // kose sirasi korunur, LOD yok
+  uint32_t ust = 0;
+  for (uint32_t v = 0; v < 8; v++) {
+    const renderer::SkinnedVertex &s = m.meshes[0].skin_verts[v];
+    CHECK(s.pos.x == m.meshes[0].verts[v].pos.x && s.pos.y == m.meshes[0].verts[v].pos.y);   // skin_verts ile verts ayni sira
+    if (s.pos.y > 0) { ust++; CHECK(m.meshes[0].morph_deltas[v].y == 1.0f); }
+  }
+  CHECK(ust == 4);
+  CHECK(m.clip_count == 2 && m.clips[0].skin == 0 && m.clips[0].clip != nullptr && m.clips[0].morph_track_count == 1);
+  CHECK(m.clips[1].skin == 0 && m.clips[1].morph_track_count == 0);   // 'don': yalniz iskelet
+  float w[content::kModelMaxMorph];
+  CHECK(content::model_clip_morph_weights(m, 0, 1.0f, 0, w) == 2 && std::fabs(w[0] - 1.0f) < 1e-4f && std::fabs(w[1]) < 1e-6f);
+  static content::PoseScratch ps;
+  content::ModelPose pose;
+  CHECK(content::model_pose_evaluate(m, 0, 1.0f, ps, &pose));         // ayni klip poz da verir
+  CHECK(content::model_compact(keep, m, &k));
+  CHECK(k.meshes[0].skin_verts && k.meshes[0].morph_deltas && k.meshes[0].indices && k.meshes[0].skin_verts != m.meshes[0].skin_verts);
+  CHECK(std::memcmp(k.meshes[0].skin_verts, m.meshes[0].skin_verts, sizeof(renderer::SkinnedVertex) * 8) == 0);
+  static content::Model duz, duz_k;
+  CHECK(asset_path(path, sizeof path, "morph_kup.gltf") && content::gltf_load(sys, path, &duz) && content::model_compact(keep, duz, &duz_k));
+  CHECK(duz_k.meshes[0].skin_verts == nullptr && duz_k.meshes[0].verts != nullptr);   // KONTROL
 }

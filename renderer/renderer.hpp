@@ -407,6 +407,9 @@ public:
   // ediyor). update_mesh_vertices'in aksine bekleme/staging yok. Tavan: mesh havuzundan bir tutamac (create_mesh gibi, geri verilmez).
   MeshHandle create_dynamic_mesh(const Vertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
   bool update_dynamic_mesh(MeshHandle handle, const Vertex *verts, uint32_t nverts);
+  // A5 iskeletli+morph: ayni kare halkasi, SkinnedVertex (eklem/agirlik dahil). draw_skinned ile cizilir; statik guncelleme REDDEDILIR (ve tersi).
+  MeshHandle create_dynamic_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices);
+  bool update_dynamic_skinned_mesh(MeshHandle handle, const SkinnedVertex *verts, uint32_t nverts);
   // Indeks araligi seyrek (Mali kurali, CPU'da olculur) mesh sayisi; kapi 0 bekler.
   uint32_t sparse_mesh_count() const { return sparse_mesh_count_; }
   // RGBA8, mip zinciri blit ile uretilir (yukleme aninda). Mobil asil yol ASTC (Faz 6).

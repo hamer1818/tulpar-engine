@@ -116,6 +116,16 @@ static void pack_vertex(const Vertex &v, GpuVertex *out) {
   out->uv[1] = half_from_float(v.uv.y);
 }
 
+static void pack_skinned_vertex(const SkinnedVertex &sv, GpuSkinnedVertex *out) {
+  GpuVertex tmp;
+  pack_vertex(Vertex{sv.pos, sv.nrm, sv.uv}, &tmp);
+  std::memcpy(out->pos, tmp.pos, sizeof tmp.pos);
+  out->nrm[0] = tmp.nrm[0]; out->nrm[1] = tmp.nrm[1];
+  out->uv[0] = tmp.uv[0]; out->uv[1] = tmp.uv[1];
+  std::memcpy(out->joints, sv.joints, 4);
+  std::memcpy(out->weights, sv.weights, 8);
+}
+
 bool Renderer::upload_packed(VkBuffer dst, const Vertex *v, const SkinnedVertex *sv, uint32_t n) {
   rhi::VkApi &a = dev_->api();
   const VkDeviceSize size = (VkDeviceSize)(sv ? sizeof(GpuSkinnedVertex) : sizeof(GpuVertex)) * n;
@@ -126,15 +136,7 @@ bool Renderer::upload_packed(VkBuffer dst, const Vertex *v, const SkinnedVertex 
     return false;
   if (sv) {
     auto *dstv = static_cast<GpuSkinnedVertex *>(sm.mapped);
-    for (uint32_t i = 0; i < n; i++) {
-      GpuVertex tmp;
-      pack_vertex(Vertex{sv[i].pos, sv[i].nrm, sv[i].uv}, &tmp);
-      std::memcpy(dstv[i].pos, tmp.pos, sizeof tmp.pos);
-      dstv[i].nrm[0] = tmp.nrm[0]; dstv[i].nrm[1] = tmp.nrm[1];
-      dstv[i].uv[0] = tmp.uv[0]; dstv[i].uv[1] = tmp.uv[1];
-      std::memcpy(dstv[i].joints, sv[i].joints, 4);
-      std::memcpy(dstv[i].weights, sv[i].weights, 8);
-    }
+    for (uint32_t i = 0; i < n; i++) pack_skinned_vertex(sv[i], &dstv[i]);
   } else {
     auto *dstv = static_cast<GpuVertex *>(sm.mapped);
     for (uint32_t i = 0; i < n; i++) pack_vertex(v[i], &dstv[i]);
@@ -1785,9 +1787,49 @@ MeshHandle Renderer::create_dynamic_mesh(const Vertex *verts, uint32_t nverts, c
 bool Renderer::update_dynamic_mesh(MeshHandle handle, const Vertex *verts, uint32_t nverts) {
   if (!handle.valid() || handle.id >= mesh_count_) return false;
   Mesh &m = meshes_[handle.id];
-  if (!m.dynamic || nverts != m.dyn_verts || !m.dyn_map[frame_]) return false;
+  if (!m.dynamic || m.skinned || nverts != m.dyn_verts || !m.dyn_map[frame_]) return false;   // iskeletli: update_dynamic_skinned_mesh
   auto *dst = static_cast<GpuVertex *>(m.dyn_map[frame_]);
   for (uint32_t i = 0; i < nverts; i++) pack_vertex(verts[i], &dst[i]);
+  m.vbuf = m.dyn_vbuf[frame_];
+  mesh_bounds(verts, nverts, &m.center, &m.radius);
+  return true;
+}
+
+// A5 iskeletli+morph: create_dynamic_mesh'in iskeletli ikizi (kare yuvasi basina host-gorunur tampon, eklem/agirlik da her yazimda paketlenir).
+MeshHandle Renderer::create_dynamic_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices) {
+  if (mesh_count_ >= cfg_.max_meshes || nverts == 0) return MeshHandle{};
+  Mesh &m = meshes_[mesh_count_];
+  m = Mesh{};
+  rhi::MemoryAlloc im;
+  if (!make_buffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, sizeof(uint32_t) * nindices,
+                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &m.ibuf, &im)) return MeshHandle{};
+  if (!upload(m.ibuf, indices, sizeof(uint32_t) * nindices, 0)) return MeshHandle{};
+  for (uint32_t f = 0; f < cfg_.frames_in_flight; f++) {
+    rhi::MemoryAlloc vm;
+    if (!make_buffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(GpuSkinnedVertex) * nverts,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &m.dyn_vbuf[f], &vm) || !vm.mapped)
+      return MeshHandle{};
+    m.dyn_map[f] = vm.mapped;
+    auto *dst = static_cast<GpuSkinnedVertex *>(vm.mapped);
+    for (uint32_t i = 0; i < nverts; i++) pack_skinned_vertex(verts[i], &dst[i]);
+  }
+  m.vbuf = m.dyn_vbuf[frame_];
+  m.dynamic = true;
+  m.skinned = true;
+  m.dyn_verts = nverts;
+  m.vert_count = nverts;
+  m.index_count = nindices;
+  mesh_bounds(verts, nverts, &m.center, &m.radius);
+  stats_.meshes = ++mesh_count_;
+  return MeshHandle{mesh_count_ - 1};
+}
+
+bool Renderer::update_dynamic_skinned_mesh(MeshHandle handle, const SkinnedVertex *verts, uint32_t nverts) {
+  if (!handle.valid() || handle.id >= mesh_count_) return false;
+  Mesh &m = meshes_[handle.id];
+  if (!m.dynamic || !m.skinned || nverts != m.dyn_verts || !m.dyn_map[frame_]) return false;
+  auto *dst = static_cast<GpuSkinnedVertex *>(m.dyn_map[frame_]);
+  for (uint32_t i = 0; i < nverts; i++) pack_skinned_vertex(verts[i], &dst[i]);
   m.vbuf = m.dyn_vbuf[frame_];
   mesh_bounds(verts, nverts, &m.center, &m.radius);
   return true;

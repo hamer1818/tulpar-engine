@@ -114,8 +114,8 @@ struct ModelMesh {
   int32_t skin = -1;
   renderer::SkinnedVertex *skin_verts = nullptr;
   // A5 (morph target): glTF POSITION farklari. `morph_deltas` = morph_count x vertex_count (hedef-major), taban `verts` KALIR (model_compact
-  // bu mesh'te verts'i de saklar). Morph'lu mesh'te meshopt/LOD/DAG ATLANIR (kose sirasi deltalarla birlikte gider). Iskeletli mesh'te morph
-  // bu surumde YOK (Model::morph_skipped sayar).
+  // bu mesh'te verts'i de saklar). Morph'lu mesh'te meshopt/LOD/DAG ATLANIR (kose sirasi deltalarla birlikte gider). Iskeletli mesh'te de
+  // morph var (2026-11-14): farklar bind uzayinda, skin_verts de compact'ta saklanir. morph_skipped artik hep 0 (eski sayac, uyum icin).
   Vec3 *morph_deltas = nullptr;
   uint32_t morph_count = 0;
   // A5: hedef NORMAL farklari (ayni duzen); hicbir hedefte NORMAL yoksa nullptr (normaller taban kalir).
