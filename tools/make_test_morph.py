@@ -2,7 +2,9 @@
 """tests/assets/morph_kup.gltf: A5 (morph target) test varligi. 8 koseli kup (kenar 1, merkez orijin), 2 hedef:
   hedef 0 'uzat'    : ust 4 kosenin y'si +1 (kup 2 m boyuna uzar)
   hedef 1 'genislet': tum kosenin x'i isaretine gore +0.5 (genislik 1 -> 2)
-Iskeletsiz (A5 yalniz iskeletsiz mesh'te morph yapar). Tekrar uretilebilir (belirlenimli): python3 tools/make_test_morph.py"""
+Iskeletsiz (A5 yalniz iskeletsiz mesh'te morph yapar). Tekrar uretilebilir (belirlenimli): python3 tools/make_test_morph.py
+Ayrica tests/assets/morph_kup_anim.gltf: ayni kup + iskeletsiz 'nefes' klibi (glTF `weights` kanali, LINEAR, 2 s):
+  t=0 [0, 0] -> t=1 [1, 0.5] -> t=2 [0, 0]. morph_kup.gltf bayt bayt ayni kalir (klipsiz kapilar ona bagli)."""
 import base64, json, struct, sys, os
 
 h = 0.5
@@ -53,3 +55,24 @@ with open(out, "w") as f:
     json.dump(g, f, indent=1, sort_keys=True)
     f.write("\n")
 print("yazildi:", os.path.normpath(out))
+
+# --- A5: weights kanalli klip (ayri dosya) ---
+import copy
+buf2 = bytearray(buf)
+o_t = len(buf2); buf2.extend(struct.pack("<3f", 0.0, 1.0, 2.0))
+o_w = len(buf2); buf2.extend(struct.pack("<6f", 0.0, 0.0, 1.0, 0.5, 0.0, 0.0))
+g2 = copy.deepcopy(g)
+g2["asset"]["generator"] = "tulpar-engine tools/make_test_morph.py (anim)"
+g2["bufferViews"] += [{"buffer": 0, "byteOffset": o_t, "byteLength": 12}, {"buffer": 0, "byteOffset": o_w, "byteLength": 24}]
+nv = len(g2["bufferViews"])
+g2["accessors"] += [{"bufferView": nv - 2, "componentType": 5126, "count": 3, "type": "SCALAR", "min": [0.0], "max": [2.0]},
+                    {"bufferView": nv - 1, "componentType": 5126, "count": 6, "type": "SCALAR"}]
+na = len(g2["accessors"])
+g2["animations"] = [{"name": "nefes", "samplers": [{"input": na - 2, "output": na - 1, "interpolation": "LINEAR"}],
+                     "channels": [{"sampler": 0, "target": {"node": 0, "path": "weights"}}]}]
+g2["buffers"] = [{"byteLength": len(buf2), "uri": "data:application/octet-stream;base64," + base64.b64encode(bytes(buf2)).decode()}]
+out2 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "assets", "morph_kup_anim.gltf")
+with open(out2, "w") as f:
+    json.dump(g2, f, indent=1, sort_keys=True)
+    f.write("\n")
+print("yazildi:", os.path.normpath(out2))

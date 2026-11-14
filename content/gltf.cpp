@@ -167,6 +167,46 @@ void eval_channel(const cgltf_animation_sampler &sm, float t, int comps, float *
   }
   for (int i = 0; i < comps; i++) out[i] = a[i] + (b[i] - a[i]) * u;
 }
+// A5: `weights` kanali: cikis SCALAR, anahtar basina nt_full deger (kubikte 3 x: giris teget, deger, cikis teget). Yalniz ilk nt yazilir.
+void eval_weights(const cgltf_animation_sampler &sm, float t, uint32_t nt_full, uint32_t nt, float *out) {
+  const cgltf_accessor *in = sm.input, *ov = sm.output;
+  const uint32_t n = (uint32_t)in->count;
+  for (uint32_t j = 0; j < nt; j++) out[j] = 0.0f;
+  if (n == 0 || nt_full == 0) return;
+  const uint32_t stride = sm.interpolation == cgltf_interpolation_type_cubic_spline ? 3 : 1, mid = stride == 3 ? 1 : 0;
+  auto read = [&](uint32_t k, float *v) {
+    for (uint32_t j = 0; j < nt; j++) {
+      v[j] = 0.0f;
+      const cgltf_size el = (cgltf_size)((k * stride + mid) * nt_full + j);
+      if (el < ov->count) cgltf_accessor_read_float(ov, el, &v[j], 1);
+    }
+  };
+  float t0 = 0, t1 = 0;
+  cgltf_accessor_read_float(in, 0, &t0, 1);
+  if (t <= t0 || n == 1) { read(0, out); return; }
+  cgltf_accessor_read_float(in, n - 1, &t1, 1);
+  if (t >= t1) { read(n - 1, out); return; }
+  uint32_t lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const uint32_t mi = (lo + hi) / 2;
+    float tm = 0;
+    cgltf_accessor_read_float(in, mi, &tm, 1);
+    if (tm <= t) lo = mi; else hi = mi;
+  }
+  float ta = 0, tb = 0, a[kModelMaxMorph], b[kModelMaxMorph];
+  cgltf_accessor_read_float(in, lo, &ta, 1);
+  cgltf_accessor_read_float(in, lo + 1, &tb, 1);
+  read(lo, a);
+  if (sm.interpolation == cgltf_interpolation_type_step) { for (uint32_t j = 0; j < nt; j++) out[j] = a[j]; return; }
+  read(lo + 1, b);
+  const float u = tb > ta ? (t - ta) / (tb - ta) : 0.0f;
+  for (uint32_t j = 0; j < nt; j++) out[j] = a[j] + (b[j] - a[j]) * u;
+}
+uint32_t mesh_target_count(const cgltf_mesh &me) {
+  if (me.weights_count) return (uint32_t)me.weights_count;
+  return me.primitives_count ? (uint32_t)me.primitives[0].targets_count : 0;
+}
+
 int32_t skin_of_node(const cgltf_data *d, const cgltf_node *node, int32_t *joint_index) {
   for (cgltf_size s = 0; s < d->skins_count; s++)
     for (cgltf_size j = 0; j < d->skins[s].joints_count; j++)
@@ -494,13 +534,51 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       const cgltf_size nk = ch.sampler->input->count;
       if (nk) { float tl = 0; cgltf_accessor_read_float(ch.sampler->input, nk - 1, &tl, 1); if (tl > duration) duration = tl; }
     }
-    if (skin_idx < 0 || (uint32_t)skin_idx >= nskin || duration <= 0) continue; // iskelete bagli degil: atla (bilgi)
-    const ModelSkin &ms = out->skins[skin_idx];
-    const cgltf_skin &sk = data->skins[skin_idx];
-    const uint32_t jc = ms.joint_count;
+    // A5: `weights` kanallari (morph'lu mesh'i olan dugum). Iskeletsiz klip yalniz bunlarla gecerli.
+    uint32_t wch = 0;
+    for (cgltf_size c = 0; c < an.channels_count; c++) {
+      const cgltf_animation_channel &ch = an.channels[c];
+      if (ch.target_path == cgltf_animation_path_type_weights && ch.sampler && ch.sampler->input && ch.sampler->output && ch.target_node &&
+          ch.target_node->mesh && mesh_target_count(*ch.target_node->mesh))
+        wch++;
+    }
+    const bool skin_ok = skin_idx >= 0 && (uint32_t)skin_idx < nskin;
+    if ((!skin_ok && wch == 0) || duration <= 0) continue; // ne iskelete ne morph'a bagli: atla (bilgi)
     const float rate = lim.clip_sample_rate > 0 ? lim.clip_sample_rate : 30.0f;
     uint32_t samples = (uint32_t)(duration * rate) + 1;
     if (samples < 2) samples = 2;
+    ModelClip &mc = out->clips[cn];
+    if (an.name) std::snprintf(mc.name, sizeof mc.name, "%s", an.name);
+    mc.duration = (float)(samples - 1) / rate;
+    mc.sample_rate = rate;
+    mc.skin = -1;
+    if (wch) {
+      if (wch > kModelMaxMorphTracks) { out->morph_tracks_dropped += wch - kModelMaxMorphTracks; wch = kModelMaxMorphTracks; }
+      mc.morph_tracks = arena.alloc_array_zeroed<ModelMorphTrack>(wch);
+      if (!mc.morph_tracks) { set_error(out, "arena dolu (morph izi)", nullptr); ok = false; break; }
+      for (cgltf_size c = 0; c < an.channels_count && mc.morph_track_count < wch; c++) {
+        const cgltf_animation_channel &ch = an.channels[c];
+        if (ch.target_path != cgltf_animation_path_type_weights || !ch.sampler || !ch.sampler->input || !ch.sampler->output || !ch.target_node ||
+            !ch.target_node->mesh)
+          continue;
+        const uint32_t nt_full = mesh_target_count(*ch.target_node->mesh);
+        if (!nt_full) continue;
+        const uint32_t nt = nt_full < kModelMaxMorph ? nt_full : kModelMaxMorph;
+        ModelMorphTrack &tr = mc.morph_tracks[mc.morph_track_count];
+        tr.gltf_mesh = (int32_t)(ch.target_node->mesh - data->meshes);
+        tr.weight_count = nt;
+        tr.samples = samples;
+        tr.w = arena.alloc_array<float>(samples * nt);
+        if (!tr.w) { set_error(out, "arena dolu (morph izi)", nullptr); ok = false; break; }
+        for (uint32_t i = 0; i < samples; i++) eval_weights(*ch.sampler, (float)i / rate, nt_full, nt, tr.w + i * nt);
+        mc.morph_track_count++;
+      }
+      if (!ok) break;
+    }
+    if (!skin_ok) { cn++; continue; }   // yalniz morph izli klip
+    const ModelSkin &ms = out->skins[skin_idx];
+    const cgltf_skin &sk = data->skins[skin_idx];
+    const uint32_t jc = ms.joint_count;
     sim::RawTrack *tracks = arena.alloc_array_zeroed<sim::RawTrack>(jc);
     Vec3 *tt = arena.alloc_array<Vec3>(jc * samples);
     Quat *rr = arena.alloc_array<Quat>(jc * samples);
@@ -531,10 +609,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
     sim::RawClip raw;
     raw.tracks = tracks; raw.joints = jc; raw.samples = samples; raw.sample_rate = rate;
-    ModelClip &mc = out->clips[cn];
-    if (an.name) std::snprintf(mc.name, sizeof mc.name, "%s", an.name);
     mc.skin = skin_idx;
-    mc.duration = (float)(samples - 1) / rate;
     mc.clip = sim::ClipBuilder::build(arena, raw, 1e-5f, &mc.stats);
     if (!mc.clip) { set_error(out, "klip sikistirma", an.name); ok = false; break; }
     cn++;
@@ -664,6 +739,14 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
   }
   out->mesh_count = ok ? mi : 0;
+  // A5: morph izlerini ModelMesh araligina coz (glTF mesh -> ilk primitif + sayisi).
+  for (uint32_t c = 0; ok && c < out->clip_count; c++)
+    for (uint32_t k = 0; k < out->clips[c].morph_track_count; k++) {
+      ModelMorphTrack &tr = out->clips[c].morph_tracks[k];
+      if (tr.gltf_mesh < 0 || (cgltf_size)tr.gltf_mesh >= data->meshes_count) { tr.mesh_n = 0; continue; }
+      tr.mesh_first = mesh_first[tr.gltf_mesh];
+      tr.mesh_n = mesh_n[tr.gltf_mesh];
+    }
   // Instance'lar: sahnedeki (ya da tum) dugumler, dunya matrisiyle
   uint32_t ninst = 0;
   out->instances = arena.alloc_array_zeroed<ModelInstance>(lim.max_instances);
@@ -893,6 +976,17 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
     std::memcpy(blob, h, h->total_bytes);
     dst->clips[i].clip = static_cast<const sim::ClipHeader *>(blob);
   }
+  for (uint32_t i = 0; i < src.clip_count; i++) {   // A5: morph izleri (kalici kopya)
+    const ModelClip &sc = src.clips[i];
+    if (!sc.morph_track_count) continue;
+    ModelMorphTrack *tr = copy_array(keep, sc.morph_tracks, sc.morph_track_count);
+    if (!tr) return false;
+    for (uint32_t k = 0; k < sc.morph_track_count; k++) {
+      tr[k].w = copy_array(keep, sc.morph_tracks[k].w, sc.morph_tracks[k].samples * sc.morph_tracks[k].weight_count);
+      if (!tr[k].w) return false;
+    }
+    dst->clips[i].morph_tracks = tr;
+  }
   return true;
 }
 
@@ -904,6 +998,24 @@ bool uploaded_model_copy(Arena &keep, const UploadedModel &src, UploadedModel *d
   dst->meshes = copy_array(keep, src.meshes, src.mesh_count);
   dst->lod_meshes = copy_array(keep, src.lod_meshes, nm * kModelMaxLods);
   return dst->textures && dst->materials && dst->meshes && dst->lod_meshes;
+}
+
+uint32_t model_clip_morph_weights(const Model &m, uint32_t clip, float time_s, uint32_t mesh, float out[kModelMaxMorph]) {
+  if (clip >= m.clip_count) return 0;
+  const ModelClip &c = m.clips[clip];
+  for (uint32_t k = 0; k < c.morph_track_count; k++) {
+    const ModelMorphTrack &tr = c.morph_tracks[k];
+    if (mesh < tr.mesh_first || mesh >= tr.mesh_first + tr.mesh_n || !tr.samples || !tr.w || !tr.weight_count) continue;
+    float x = time_s * c.sample_rate;
+    if (!(x > 0.0f)) x = 0.0f;   // NaN dahil
+    const float son = (float)(tr.samples - 1);
+    if (x > son) x = son;
+    const uint32_t i0 = (uint32_t)x, i1 = i0 + 1 < tr.samples ? i0 + 1 : i0;
+    const float f = x - (float)i0;
+    for (uint32_t j = 0; j < tr.weight_count; j++) out[j] = tr.w[i0 * tr.weight_count + j] * (1.0f - f) + tr.w[i1 * tr.weight_count + j] * f;
+    return tr.weight_count;
+  }
+  return 0;
 }
 
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose) {
@@ -964,6 +1076,7 @@ uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
   // M1: yalniz sayacta kalan sinirlar artik okunur (kullanici "yuz ifadesi neden calismiyor" diye aramasin).
   if (m.morph_dropped) { ekle("UYARI: %u morph hedefi yüklenmedi (mesh başına en çok %u)", m.morph_dropped, kModelMaxMorph); warn = 1; }
   if (m.morph_meshes_dropped) { ekle("UYARI: %u mesh morph'suz yüklendi (morph için en çok %u köşe)", m.morph_meshes_dropped, kModelMaxMorphVerts); warn = 1; }
+  if (m.morph_tracks_dropped) { ekle("UYARI: %u morph animasyon izi yüklenmedi (klip başına en çok %u)", m.morph_tracks_dropped, kModelMaxMorphTracks); warn = 1; }
   if (m.morph_skipped) { ekle("UYARI: %u iskeletli mesh'in morph'u atlandı (iskelet + morph bu sürümde yok)", m.morph_skipped); warn = 1; }
   if (b.clips_dropped) { ekle("UYARI: %u klip yüklenmedi (model başına en çok %u)", b.clips_dropped, GltfLimits{}.max_clips); warn = 1; }
   if (b.skinned_vertices > kMobileSkinnedVertexBudget / 4) {

@@ -2202,6 +2202,38 @@ ENGINE_TEST(content_morph_hedefleri_yuklenir_ve_compact_korur) {
   CHECK(plain.meshes[0].morph_count == 0 && content::model_compact(keep, plain, &plain_k) && plain_k.meshes[0].verts == nullptr);
 }
 
+// A5: glTF `weights` kanali. morph_kup_anim.gltf (tools/make_test_morph.py): ayni kup + iskeletsiz 'nefes' klibi, LINEAR
+// t=0 [0,0] -> t=1 [1,0.5] -> t=2 [0,0]. Eskiden iskeletsiz klip YUKLENMEZDI (clip_count 0). Klip poz yollarina girmez (false),
+// agirlik ornekler arasi dogrusal, kenetli; compact izleri korur. KONTROL: morph_kup.gltf (ayni kup, klipsiz) clip_count 0.
+ENGINE_TEST(content_morph_klibi_weights_kanali) {
+  static SystemArena sys, keep;
+  if (!sys.reserve(32u << 20, "content_morph_klip") || !keep.reserve(8u << 20, "content_morph_klip_keep")) { CHECK(false); return; }
+  char path[512];
+  static content::Model m, k, duz;
+  CHECK(asset_path(path, sizeof path, "morph_kup_anim.gltf") && content::gltf_load(sys, path, &m));
+  CHECK(m.clip_count == 1 && m.clips[0].skin < 0 && m.clips[0].clip == nullptr && m.clips[0].morph_track_count == 1);
+  CHECK(std::fabs(m.clips[0].duration - 2.0f) < 1e-4f && !std::strcmp(m.clips[0].name, "nefes"));
+  CHECK(m.clips[0].morph_tracks[0].mesh_first == 0 && m.clips[0].morph_tracks[0].mesh_n == 1 && m.clips[0].morph_tracks[0].weight_count == 2);
+  CHECK(m.morph_tracks_dropped == 0);
+  struct { float t, w0, w1; } bek[] = {{0.0f, 0, 0}, {0.5f, 0.5f, 0.25f}, {1.0f, 1.0f, 0.5f}, {1.5f, 0.5f, 0.25f}, {2.0f, 0, 0}, {9.0f, 0, 0}, {-1.0f, 0, 0}};
+  float w[content::kModelMaxMorph];
+  for (const auto &b : bek) {
+    CHECK(content::model_clip_morph_weights(m, 0, b.t, 0, w) == 2);
+    CHECK(std::fabs(w[0] - b.w0) < 1e-4f && std::fabs(w[1] - b.w1) < 1e-4f);
+  }
+  CHECK(content::model_clip_morph_weights(m, 0, std::nanf(""), 0, w) == 2 && w[0] == 0.0f);   // NaN -> 0. an
+  CHECK(content::model_clip_morph_weights(m, 0, 1.0f, 1, w) == 0);   // olmayan mesh
+  CHECK(content::model_clip_morph_weights(m, 5, 1.0f, 0, w) == 0);   // olmayan klip
+  static content::PoseScratch ps;
+  content::ModelPose pose;
+  CHECK(!content::model_pose_evaluate(m, 0, 1.0f, ps, &pose));        // iskeletsiz klip poz vermez (cagiran statik/morph yola duser)
+  CHECK(content::model_compact(keep, m, &k));
+  CHECK(k.clips[0].morph_track_count == 1 && k.clips[0].morph_tracks != m.clips[0].morph_tracks);
+  CHECK(content::model_clip_morph_weights(k, 0, 0.5f, 0, w) == 2 && std::fabs(w[0] - 0.5f) < 1e-4f);
+  CHECK(asset_path(path, sizeof path, "morph_kup.gltf") && content::gltf_load(sys, path, &duz));
+  CHECK(duz.clip_count == 0 && duz.meshes[0].morph_count == 2);       // KONTROL
+}
+
 // A5: renderer dinamik mesh (kare basina ayri host-gorunur tampon). Cihaz kapisi (Mali dahil): kurma + her karede guncelleme calisir, mesh sayisi
 // guncellemeyle ARTMAZ (tutamac geri verilmez: sizinti olmamali), statik mesh / yanlis kose sayisi REDDEDILIR (kontrol). Piksel dogrulamasi kopru testinde.
 ENGINE_TEST(render_dinamik_mesh_kare_halkasi) {

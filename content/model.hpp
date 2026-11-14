@@ -69,13 +69,27 @@ struct ModelSkin {
   Mat4 *inverse_bind = nullptr;   // [joint_count]
   char name[64] = {0};
 };
-// Klip: glTF animasyonu sabit hizda ornekleyip ClipBuilder ile sikistirilmis.
+// A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
+// Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).
+struct ModelMorphTrack {
+  int32_t gltf_mesh = -1;          // yukleme sirasinda; sonra ModelMesh araligina cozulur
+  uint32_t mesh_first = 0, mesh_n = 0;
+  uint32_t weight_count = 0;       // <= kModelMaxMorph (fazlasi Model::morph_dropped)
+  uint32_t samples = 0;
+  float *w = nullptr;              // [samples * weight_count], ornek-major
+};
+constexpr uint32_t kModelMaxMorphTracks = 4;   // klip basina (asan iz Model::morph_tracks_dropped)
+// Klip: glTF animasyonu sabit hizda ornekleyip ClipBuilder ile sikistirilmis. A5: iskeletsiz klip GECERLIDIR (yalniz morph izleri):
+// skin = -1, clip = nullptr — poz yollari (model_pose_*) bunu false ile reddeder, morph agirligi model_clip_morph_weights'ten.
 struct ModelClip {
   char name[64] = {0};
-  int32_t skin = -1;              // hangi iskelet
+  int32_t skin = -1;              // hangi iskelet (-1: iskelet izi yok)
   float duration = 0;             // saniye
+  float sample_rate = 30.0f;      // A5: morph izlerinin ornek hizi
   const sim::ClipHeader *clip = nullptr;
   sim::ClipBuildStats stats{};
+  ModelMorphTrack *morph_tracks = nullptr;
+  uint32_t morph_track_count = 0;
 };
 struct ModelMesh {
   renderer::Vertex *verts = nullptr;
@@ -130,6 +144,7 @@ struct Model {
   uint32_t clips_dropped = 0;
   // A5: morph hedefi tavani asan (yuklenmeyen) hedefler / kose tavanini asip morph'suz yuklenen mesh'ler / iskeletli oldugu icin morph'u atlanan mesh'ler.
   uint32_t morph_dropped = 0, morph_meshes_dropped = 0, morph_skipped = 0;
+  uint32_t morph_tracks_dropped = 0;   // A5: klip basina kModelMaxMorphTracks'i asan `weights` kanali (yuklenmedi, sayilir)
   Vec3 bounds_min{0, 0, 0}, bounds_max{0, 0, 0}; // ornek uzayinda, tum instance'lar
   // M1 ice aktarma ayari (content/model_import.hpp): instance'larin ONUNE carpilan C ve C'den onceki ham sinir (editor ayari
   // degistirince eski C geri alinir). Ayarsiz glTF'te birim matris ve ham = bounds.
@@ -216,6 +231,9 @@ struct PoseScratch {
 };
 // clip'i time_s'de (dongusel) ornekler, ilgili iskeletin skin matrislerini
 // scratch.skin[skin]'e yazar ve pose'u gunceller. false: gecersiz klip.
+// A5: klibin t anindaki morph agirliklari (mesh = ModelMesh indeksi). Donus: agirlik sayisi; 0 = bu klip bu mesh'i surmez.
+// t [0, duration]'a kenetlenir (dongu cagiranin isi), ornekler arasi dogrusal. Ayirma yok.
+uint32_t model_clip_morph_weights(const Model &m, uint32_t clip, float time_s, uint32_t mesh, float out[kModelMaxMorph]);
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose);
 // A2 (docs/MODEL-ANIMASYON-PLANI.md): iki klibi karistirir — w = 0 ise yalniz A, w = 1 ise yalniz B (bit esit: model_pose_evaluate ile).
 // Eklem basina ceviri/olcek dogrusal, donus slerp (antipodal guvenli). Iki klip AYNI iskelete ait olmali; degilse false

@@ -1344,6 +1344,50 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
     }
   }
 
+  // --- 10a0b) A5 MORPH KLIBI (glTF weights kanali): teng_set_anim iskeletsiz klibi calar, agirliklar her kare kopya mesh'e;
+  // klip kapaninca taban sekle doner. Eskiden iskeletsiz klip yuklenmezdi (klip 0 yok hatasi). Hata SAYISI degismemeli
+  // (poz yolu "klip degerlendirilemedi" deyip animasyonu kapatmamali).
+  {
+    char mp[512];
+    std::snprintf(mp, sizeof mp, "%s/morph_kup_anim.gltf", assets_dir());
+    const int mm = teng_load_model(mp);
+    if (mm < 0) { ortam_hatasi++; skip("morph_kup_anim.gltf yok — morph klibi kapisi kosmadi"); }
+    else {
+      const int errs0 = teng_error_count();
+      CHECK(teng_model_clip_count(mm) == 1 && !std::strcmp(teng_model_clip_name(mm, 0), "nefes"));
+      const int ent = teng_spawn_model(mm, 0, 0, 0, 1.0, 0xFFFFFFFF);
+      teng_camera(0, 1.0, 4.0, 0, 0.5, 0);
+      char sa[512], sb[512], sc[512];
+      tmp_template(sa, sizeof sa, "kopru_mklip_a"); tmp_template(sb, sizeof sb, "kopru_mklip_b"); tmp_template(sc, sizeof sc, "kopru_mklip_c");
+      char *ms[3] = {sa, sb, sc};
+      for (int i = 0; i < 3; i++) { const int fd = mkstemp(ms[i]); if (fd >= 0) close(fd); }
+      run_frames(3);
+      CHECK(teng_screenshot(sa) == 1);                                    // klipsiz: taban kup
+      teng_set_anim(ent, 0, 0.0, 1);                                      // hiz 0: an sabit
+      run_frames(60);
+      CHECK(std::fabs(teng_anim_time(ent)) < 1e-6);                       // KONTROL: hiz 0'da an ilerlemez
+      teng_set_anim(ent, 0, 1.0, 1);
+      run_frames(60);                                                     // basliksiz dt = 1/60: ~1 s -> uzat 1, genislet 0.5
+      CHECK(std::fabs(teng_anim_time(ent) - 1.0) < 0.05);
+      CHECK(teng_screenshot(sb) == 1);
+      teng_set_anim(ent, -1, 1.0, 1);                                     // klip kapandi: elle agirlik (0) -> taban
+      run_frames(3);
+      CHECK(teng_screenshot(sc) == 1);
+      CHECK(teng_error_count() == errs0);
+      static uint8_t pa[kW * kH * 3], pb[kW * kH * 3], pc[kW * kH * 3];
+      const uint32_t n1 = read_ppm(sa, pa, kW * kH, nullptr, nullptr), n2 = read_ppm(sb, pb, kW * kH, nullptr, nullptr), n3 = read_ppm(sc, pc, kW * kH, nullptr, nullptr);
+      CHECK(n1 > 0 && n1 == n2 && n2 == n3);
+      if (n1 > 0 && n1 == n2 && n2 == n3) {
+        const uint32_t d_klip = diff_px(pa, pb, n1), d_geri = diff_px(pa, pc, n1);
+        std::printf("    [bilgi] morph klibi: piksel farki t=1 s ile taban %u, klip kapaninca (0 olmali) %u\n", d_klip, d_geri);
+        if (test::gpu_is_virtual(teng_gpu_name())) skip("sanal GPU (Apple Paravirtual, CI macOS): morph klibi PIKSEL karsilastirmasi gercek cihazda");
+        else { CHECK(d_klip > 200); CHECK(d_geri == 0); }
+      }
+      teng_despawn(ent);
+      for (int i = 0; i < 3; i++) unlink(ms[i]);
+    }
+  }
+
   // --- 10a) P1 KODLA MESH: kurucu, cokgen yukseltme, tavan SAYILIR, model olarak cizilir --------------------------------------
   {
     const int errs0 = teng_error_count();

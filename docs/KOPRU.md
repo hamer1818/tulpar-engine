@@ -1796,8 +1796,16 @@ değişince taban + Σ w·delta CPU'da karılır (`content::blend_morph_targets`
 kullanılır, başka modelde **yanar** (mesh tutamacı geri verilmez; `morph_burned`). Dolunca ya da mesh havuzu bitince varlık taban şekille kalır ve `eng_morph_rejected` sayar.
 
 Sınırlar (sessiz değil): 8 hedef/mesh (fazlası `Model::morph_dropped`), 16384 köşe/mesh (aşan mesh morph'suz yüklenir, `morph_meshes_dropped`), iskeletli mesh'te morph atlanır
-(`morph_skipped`). Normaller TABAN kalır (hedef normal farkı okunmuyor): büyük deformasyonda aydınlatma kabaca yanlış. glTF `weights` animasyon kanalı (klip olarak oynatma) ve
-iskeletli+morph (yüz animasyonu) **henüz yok**.
+(`morph_skipped`). Normaller TABAN kalır (hedef normal farkı okunmuyor): büyük deformasyonda aydınlatma kabaca yanlış. İskeletli+morph (yüz animasyonu) **henüz yok**.
+
+**Morph klibi (glTF `weights` kanalı, 2026-11-14):** `weights` kanallı animasyon normal bir klip olarak yüklenir (iskeletsiz de olur: `skin = -1`; eskiden iskeletsiz klip
+hiç yüklenmezdi — böyle bir animasyonu olan modelde sonraki kliplerin indeksi bu yüzden kayabilir). `eng_set_anim(id, klip, hız, döngü)` / `anim_oynat` ile çalınır;
+ağırlıklar klibin hızında (30 Hz) örneklenmiş izden doğrusal okunur (`content::model_clip_morph_weights`) ve her kare kopya mesh'e karılır. Morph yuvası ilk karede
+kendiliğinden alınır (`morph_weight` gerekmez). Klip çalarken **izi olan mesh'te klip, `morph_weight`'i ezer**; klip kapanınca elle verilen ağırlığa döner. Klip başına en
+çok 4 iz (`Model::morph_tracks_dropped`). **Yok:** geçiş (`anim_crossfade`) ve animatörde (A3) morph izi karışımı (yalnız geçerli klip), editörde/sahne çalışma
+zamanında morph çizimi (editör Animasyon kartı klibi listeler ama küp şekil değiştirmez).
+Kapılar: `content_morph_klibi_weights_kanali` (ağırlık örnekleri, kenetleme, NaN, compact; kontrol: klipsiz `morph_kup.gltf` 0 klip), köprü 10a0b (t=1 s'de 9228 piksel fark,
+klip kapanınca 0; hata sayısı değişmez; kontrol: hız 0'da an ilerlemez). Deneme varlığı: `tests/assets/morph_kup_anim.gltf`.
 Kapılar: `content_morph_hedefleri_yuklenir_ve_compact_korur` (delta değerleri, LOD yok, compact saklaması + morph'suz kontrol), `render_dinamik_mesh_kare_halkasi` (6 kare/2 yuva, mesh sayısı artmaz,
 statik/yanlış-köşe reddi; **P20 Pro'da geçti 2026-11-14**), köprü testi 10a0 (ağırlık 1 → 5770 piksel fark, 0'a dönüş 0 piksel fark = doğru yeniden karışım, 4 kasıtlı hata sayıldı, yuva yeniden kullanımı).
 Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).
