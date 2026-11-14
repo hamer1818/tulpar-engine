@@ -128,6 +128,10 @@ struct Model {
   // A5: morph hedefi tavani asan (yuklenmeyen) hedefler / kose tavanini asip morph'suz yuklenen mesh'ler / iskeletli oldugu icin morph'u atlanan mesh'ler.
   uint32_t morph_dropped = 0, morph_meshes_dropped = 0, morph_skipped = 0;
   Vec3 bounds_min{0, 0, 0}, bounds_max{0, 0, 0}; // ornek uzayinda, tum instance'lar
+  // M1 ice aktarma ayari (content/model_import.hpp): instance'larin ONUNE carpilan C ve C'den onceki ham sinir (editor ayari
+  // degistirince eski C geri alinir). Ayarsiz glTF'te birim matris ve ham = bounds.
+  Mat4 import_xform;
+  Vec3 import_raw_min{0, 0, 0}, import_raw_max{0, 0, 0};
   ModelOptStats opt;
   // Ayni goruntu hem renk (sRGB) hem veri (dogrusal) olarak kullanilmis:
   // glTF'te gecersiz. Renk kazanir, sayac artar — sessiz yanlis yok.

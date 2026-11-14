@@ -37,6 +37,7 @@
 #include "content/particle_module.hpp"
 #include "content/ribbon.hpp"
 #include "content/vfx_graph.hpp"
+#include "content/model_import.hpp"
 #include "content/poly.hpp"
 #include "content/scene.hpp"
 #include "content/scene_blob.hpp"
@@ -80,6 +81,7 @@
 #include "app/editor_commands.hpp"
 #include "app/editor_files.hpp"
 #include "app/editor_layout.hpp"
+#include "app/editor_onizleme.hpp"
 #include "app/editor_overlay.hpp"
 #include "app/editor_game_view.hpp"
 #include "app/editor_viewport.hpp"
@@ -622,6 +624,15 @@ struct EditorState {
     int32_t hover = -1; // kaplamanın bu kare bulduğu tutamaç (girdi aynı izdüşümü kullanır)
   } poly;
   renderer::MeshHandle poly_meshes[content::kSceneMaxEntities] = {};
+  // M1 ice aktarma ayarlari penceresi (Kaynaklar > sag tik). Degisiklik yuklu modele YERINDE uygulanir (model_import_reapply:
+  // gorunum aninda guncellenir, GPU verisi ayni); Kaydet `<model>.ayar` yazar — oyun/derleyici yalniz kaydedileni gorur.
+  struct ModelAyar {
+    bool acik = false;
+    char dosya[content::kScenePathLen] = {0};
+    int32_t asset = -1;               // sahnede yukluyse kaynak indeksi
+    content::ModelImportSettings ilk, duzen;
+    char hata[160] = {0};             // okunan ayar dosyasi bozuksa
+  } model_ayar;
   RenderSettings render;    // golge/pozlama/bloom/olceklendirme (oturum ayari)
   GizmoOptions gizmos;      // isik yaricapi / golge hacmi / gunes yonu
   uint32_t gizmo_draws = 0; // son karede gizmolarin yaptigi cizim sayisi
@@ -1636,6 +1647,97 @@ bool prop_marker_pick(EditorState &st, uint32_t ent, const Mat4 &vp_mat, const V
   return true;
 }
 
+// --- M1: içe aktarma ayarları penceresi ----------------------------------------------
+const content::Model *karo_modeli_saglayici(void *u, int32_t a) {
+  const EditorState *s = static_cast<const EditorState *>(u);
+  return a >= 0 && a < (int32_t)s->scene.asset_count && s->have[a] ? &s->models[a] : nullptr;
+}
+void model_ayar_yolu(const EditorState &st, const char *dosya, char *out, size_t cap) { std::snprintf(out, cap, "%s/%s", st.scene_dir, dosya); }
+void model_ayar_ac(EditorState &st, const AssetFile &f) {
+  EditorState::ModelAyar &ma = st.model_ayar;
+  if (ma.acik && ma.asset >= 0 && ma.asset < (int32_t)st.scene.asset_count && st.have[ma.asset])
+    content::model_import_reapply(st.models[ma.asset], ma.ilk); // kaydedilmemis onizleme geri alinir
+  ma = EditorState::ModelAyar{};
+  std::snprintf(ma.dosya, sizeof ma.dosya, "%s", f.name);
+  ma.asset = f.in_scene && f.index >= 0 && f.index < (int32_t)st.scene.asset_count ? f.index : -1;
+  char yol[1100];
+  model_ayar_yolu(st, f.name, yol, sizeof yol);
+  bool var = false;
+  if (!content::model_import_load(yol, &ma.ilk, &var, ma.hata, sizeof ma.hata)) ma.ilk = content::model_import_defaults(yol);
+  ma.duzen = ma.ilk;
+  ma.acik = true;
+}
+void model_ayar_penceresi(EditorState &st) {
+  EditorState::ModelAyar &ma = st.model_ayar;
+  if (!ma.acik) return;
+  content::Model *m = ma.asset >= 0 && ma.asset < (int32_t)st.scene.asset_count && st.have[ma.asset] ? &st.models[ma.asset] : nullptr;
+  char yol[1100];
+  model_ayar_yolu(st, ma.dosya, yol, sizeof yol);
+  bool acik = true, kapat_geri_al = false;
+  ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 26.0f, 0), ImGuiCond_Appearing);
+  char baslik[200];
+  std::snprintf(baslik, sizeof baslik, "\xC4\xB0\xC3\xA7" "e aktarma: %s###model_ayar", editor_basename(ma.dosya));
+  if (ImGui::Begin(baslik, &acik, ImGuiWindowFlags_NoCollapse)) {
+    if (ma.hata[0]) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f), "%s (varsay\xC4\xB1lanla a\xC3\xA7\xC4\xB1ld\xC4\xB1)", ma.hata);
+    const content::ModelImportSettings once = ma.duzen;
+    if (prop_begin("model_ayar")) {
+      int birim = (int)ma.duzen.unit, yukari = ma.duzen.z_up ? 1 : 0, pivot = (int)ma.duzen.pivot;
+      bool sigdir = ma.duzen.fit > 0.0f;
+      prop_help("Dosyadaki 1 birim ka\xC3\xA7 metre: Blender/glTF genelde metre, CAD ve 3B bask\xC4\xB1 dosyalar\xC4\xB1 milimetre.");
+      if (prop_combo("Birim", &birim, "metre (m)\0santimetre (cm)\0milimetre (mm)\0in\xC3\xA7\0").changed) ma.duzen.unit = (content::ModelUnit)birim;
+      prop_help("glTF ve Blender d\xC4\xB1\xC5\x9F" "a aktar\xC4\xB1m\xC4\xB1 Y-yukar\xC4\xB1" "d\xC4\xB1r; STL/CAD \xC3\xA7o\xC4\x9Fu zaman Z-yukar\xC4\xB1 (model yatm\xC4\xB1\xC5\x9F g\xC3\xB6r\xC3\xBCn\xC3\xBCrse de\xC4\x9Fi\xC5\x9Ftir).");
+      if (prop_combo("Yukar\xC4\xB1 eksen", &yukari, "Y\0Z\0").changed) ma.duzen.z_up = yukari == 1;
+      prop_help("A\xC3\xA7\xC4\xB1kken birim ve \xC3\xB6l\xC3\xA7" "ek yerine modelin EN B\xC3\x9CY\xC3\x9CK boyutu bu kadar metre olur.");
+      if (prop_check("Boyuta s\xC4\xB1\xC4\x9F" "d\xC4\xB1r", &sigdir).changed) ma.duzen.fit = sigdir ? (once.fit > 0.0f ? once.fit : 1.0f) : 0.0f;
+      if (sigdir) prop_float("S\xC4\xB1\xC4\x9F" "d\xC4\xB1rma boyu", &ma.duzen.fit, 0.05f, 0.01f, 10000.0f, "%.2f m");
+      else prop_float("\xC3\x96l\xC3\xA7" "ek", &ma.duzen.scale, 0.01f, 0.0001f, 100000.0f, "%.3f");
+      prop_help("Nesnenin konumu modelin hangi noktas\xC4\xB1: taban ortas\xC4\xB1 modeli zemine oturtur.");
+      if (prop_combo("Pivot", &pivot, "dosyan\xC4\xB1n k\xC3\xB6keni\0taban ortas\xC4\xB1\0merkez\0").changed) ma.duzen.pivot = (content::ModelPivot)pivot;
+      prop_end();
+    }
+    if (!(ma.duzen.scale > 0.0f)) ma.duzen.scale = once.scale;
+    if (ma.duzen.fit < 0.0f) ma.duzen.fit = 0.0f;
+    if (m && !content::model_import_equal(once, ma.duzen)) content::model_import_reapply(*m, ma.duzen); // canli onizleme
+    if (m) {
+      const Vec3 d = m->bounds_max - m->bounds_min;
+      ImGui::TextDisabled("boyut %.3f \xC3\x97 %.3f \xC3\x97 %.3f m", (double)d.x, (double)d.y, (double)d.z);
+      const float ka = ImGui::GetFontSize() * 9.0f;
+      const ImVec2 p0 = ImGui::GetCursorScreenPos();
+      ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + ka, p0.y + ka), ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+      float rgb[4];
+      editor_tone(Tone::Text, rgb);
+      model_thumb_draw(*m, (float)ImGui::GetTime() * 0.9f, ImGui::GetWindowDrawList(), p0.x + 4, p0.y + 4, p0.x + ka - 4, p0.y + ka - 4, rgb);
+      ImGui::Dummy(ImVec2(ka, ka));
+    } else {
+      ImGui::TextDisabled("Model sahnede de\xC4\x9Fil: ayar kaydedilir, sahneye eklenince uygulan\xC4\xB1r.");
+    }
+    const bool degisti = !content::model_import_equal(ma.duzen, ma.ilk);
+    ImGui::BeginDisabled(!degisti);
+    if (ImGui::Button(ICON_MD_SAVE " Kaydet")) {
+      if (content::model_import_save(yol, ma.duzen)) {
+        ma.ilk = ma.duzen;
+        ma.hata[0] = 0;
+        const bool vars = content::model_import_equal(ma.duzen, content::model_import_defaults(yol));
+        set_status(st, vars ? "model ayar\xC4\xB1 varsay\xC4\xB1lana d\xC3\xB6nd\xC3\xBC: %s (ayar dosyas\xC4\xB1 silindi)" : "model ayar\xC4\xB1 kaydedildi: %s.ayar", ma.dosya);
+      } else {
+        set_status(st, "model ayar\xC4\xB1 yaz\xC4\xB1lamad\xC4\xB1: %s.ayar", ma.dosya);
+      }
+    }
+    akis_ayni_satir("Geri al");
+    if (ImGui::Button("Geri al")) { ma.duzen = ma.ilk; if (m) content::model_import_reapply(*m, ma.duzen); }
+    ImGui::EndDisabled();
+    akis_ayni_satir("Varsay\xC4\xB1lan");
+    if (ImGui::Button("Varsay\xC4\xB1lan")) { ma.duzen = content::model_import_defaults(yol); if (m) content::model_import_reapply(*m, ma.duzen); }
+    ImGui::TextDisabled(degisti ? "kaydedilmedi: oyun ve Derle kaydedilen ayar\xC4\xB1 kullan\xC4\xB1r" : "kay\xC4\xB1tl\xC4\xB1");
+  }
+  ImGui::End();
+  if (!acik) kapat_geri_al = true;
+  if (kapat_geri_al) {   // kapatinca kaydedilmemis onizleme geri alinir (oyunla editor ayni seyi gostersin)
+    if (m && !content::model_import_equal(ma.duzen, ma.ilk)) content::model_import_reapply(*m, ma.ilk);
+    ma.acik = false;
+  }
+}
+
 // --- P2: çokgen aracı ------------------------------------------------------------
 // Ekran ışını -> varlığın YEREL y=0 düzlemi (döndürülmüş/ölçekli varlıkta da noktalar yerel uzayda kalır: .sahne yerel tutar).
 bool poly_ray_local(const EditorState &st, uint32_t ent, Vec3 ro, Vec3 rd, float out[2]) {
@@ -2146,6 +2248,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     for (uint32_t i = n0; i < st.scene.asset_count; i++)
       if (!st.have[i]) load_asset((int32_t)i);
   };
+  assets_panel_set_thumbs(AssetsThumbProvider{karo_modeli_saglayici, &st}); // M1: yuklu modeller karoda onizlenir
   rescan_browse(st);
   std::printf("[engine_editor] sahne %s: %u varlik, %u kaynak\n", st.scene_path, st.scene.entity_count, st.scene.asset_count);
   console_log_teknik(ConsoleLevel::Bilgi, kConsoleTagEditor, "sahne %s: %u varl\xC4\xB1k, %u kaynak", st.scene_path, st.scene.entity_count,
@@ -7924,8 +8027,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           do_add_asset(add_file);
         }
       }
+      if (act.ayar_index >= 0 && act.ayar_index < (int)st.browse_count) model_ayar_ac(st, st.browse[act.ayar_index]);
     }
     ImGui::End();
+    model_ayar_penceresi(st);
     // --- GECMIS paneli: kullanici eylemleri listesi; satira tikla = o ana don (editorun do_undo/do_redo'su) -----------------
     {
       static GecmisGorunum gecmis_gv;

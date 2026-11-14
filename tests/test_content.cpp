@@ -1953,6 +1953,13 @@ ENGINE_TEST(content_model_butce_ozeti_ve_uyari) {
   agir.clips_dropped = 3;
   char t4[300];
   CHECK(content::model_budget_text(agir, t4, sizeof t4) == 1 && std::strstr(t4, "3 klip") != nullptr);
+  // M1: boyut (metre) ve morph sinirlari okunur; KONTROL: kup (morph'suz) uyari uretmez (yukarida w2 == 0), boyutu 1 m (checker_cube -0.5..0.5, olculdu).
+  CHECK(std::strstr(t2, "boyut 1.00 × 1.00 × 1.00 m") != nullptr);
+  agir.clips_dropped = 0;
+  agir.morph_skipped = 1;
+  char t5[400];
+  CHECK(content::model_budget_text(agir, t5, sizeof t5) == 1 && std::strstr(t5, "morph'u atland") != nullptr);
+  agir.morph_skipped = 0;
 }
 
 // A3: model_pose_mix. Tek girdi = model_pose_evaluate ile BİT EŞİT; iki eşit ağırlık = model_pose_blend(w=0.5) ile BİT EŞİT; üç girdi toplamı

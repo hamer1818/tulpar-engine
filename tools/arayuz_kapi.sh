@@ -9,6 +9,7 @@
 # tests/arayuz/ilk_adimlar{,_gizli}.txt (U11 B4): kart sablonu anlatir, adimlar isaretlenir, gizle kalici.
 # tests/arayuz/izgara.txt (U11 C4): Izgara dugmesi gercekten cizer; kontrol: kapaliyken goruntu duz.
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
+# tests/arayuz/model_ayar.txt (M1): Kaynaklar sag tik -> ice aktarma ayarlari, cm canli onizleme, Kaydet .ayar yazar.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -185,6 +186,14 @@ cp -r "$KOK/tests/assets" "$CK/assets"
 kos cokgen.txt "$CK/ui" --scene "$CK/assets/editor.sahne" --kip basit --size 1280x720; rck=$?  # tiklar Gorunum koordinatinda: boyut sabit
 if [ $rck = 0 ]; then echo "  cokgen araci: 6 tik -> Geri sil -> Enter 5 nokta, tutamac suruklendi, iki Ctrl+Z tohum kareye dondu (kontrol: Enter oncesi 4 nokta)"
 else echo "  KIRMIZI cokgen araci (cikis $rck):"; grep -E 'HATA|> ' "$CK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- M1: model ice aktarma ayarlari (sag tik -> pencere -> cm -> Kaydet; dosya icerigi burada denetlenir) ---
+MA="$D/model_ayar"; mkdir -p "$MA/ui"
+cp -r "$KOK/tests/assets" "$MA/assets"
+rm -f "$MA/assets/checker_cube.gltf.ayar"
+kos model_ayar.txt "$MA/ui" --scene "$MA/assets/editor.sahne" --kip basit --size 1280x720; rma=$?  # sag tik karo koordinatinda
+if [ $rma = 0 ] && grep -qx 'birim cm' "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null; then
+  echo "  model ayari: sag tik -> pencere, cm secince boyut 1 -> 0.01 m (canli), Kaydet checker_cube.gltf.ayar'a 'birim cm' yazdi (kontrol: once 1 m, kayitli)"
+else echo "  KIRMIZI model ayari (cikis $rma, dosya: $(tr '\n' ' ' < "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null || echo yok))"; grep -E 'HATA|> ' "$MA/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
 cp -r "$KOK/tests/assets" "$TR/assets"

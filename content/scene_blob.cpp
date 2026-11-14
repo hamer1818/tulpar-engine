@@ -1,4 +1,5 @@
 #include "content/scene_blob.hpp"
+#include "content/model_import.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -1538,7 +1539,9 @@ bool scene_compile(Arena &arena, const SceneDesc &d, const char *dir, const Scen
     for (uint32_t i = 0; i < d.asset_count; i++) {
       res[i].asset = i;
       std::snprintf(path, sizeof path, "%s/%s", dir && *dir ? dir : ".", d.assets[i]);
-      const uint64_t key = opt.cache ? import_key(path, &st, sizeof st, kMeasureRecordVersion) : 0;
+      uint64_t key = opt.cache ? import_key(path, &st, sizeof st, kMeasureRecordVersion) : 0;
+      // M1: ice aktarma ayari (`<kaynak>.ayar`) da girdidir — ayar degisince eski olcum isabet SAYILMAZ.
+      if (key) { const uint64_t ah = model_import_file_hash(path); if (ah) { key = content_fnv1a(&ah, sizeof ah, key); if (!key) key = 1; } }
       ImportProduct prod;
       bool have = false;
       if (key && import_lookup(*opt.cache, key, ".olcum", &prod)) {

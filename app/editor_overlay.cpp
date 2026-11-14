@@ -1,6 +1,7 @@
 #include "app/editor_overlay.hpp"
 #include "app/editor_console.hpp" // console_shorten_paths (U11 B5)
 #include "app/editor_dil.hpp"   // dil_cevir_kopya (soldan kisaltma cevrilmis metinde)
+#include "app/editor_onizleme.hpp" // model_thumb_draw (M1)
 
 #include <cmath>
 #include <cstdio>
@@ -716,6 +717,24 @@ static void kaynak_ipucu(const AssetFile &f) {
   }
 }
 
+namespace {
+AssetsThumbProvider g_thumbs;
+// Karo sag tik menusu (M1): yalniz model dosyalari. Popup kimligi karonun PushID kapsaminda (karo basina ayri).
+void karo_menu(const AssetFile &f, bool hov, AssetsAction *out, int i) {
+  if (f.kind != AssetKind::Model) return;
+  if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##karo_menu");
+  if (ImGui::BeginPopup("##karo_menu")) {
+    if (ImGui::MenuItem(ICON_MD_TUNE " \xC4\xB0\xC3\xA7" "e aktarma ayarlar\xC4\xB1\xE2\x80\xA6") && out) out->ayar_index = i;
+    ImGui::EndPopup();
+  }
+}
+const content::Model *karo_modeli(const AssetFile &f) {
+  if (!g_thumbs.model || f.kind != AssetKind::Model || !f.in_scene || f.index < 0) return nullptr;
+  return g_thumbs.model(g_thumbs.user, f.index);
+}
+} // namespace
+void assets_panel_set_thumbs(const AssetsThumbProvider &p) { g_thumbs = p; }
+
 void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32_t file_count, const char (*scene_assets)[content::kScenePathLen],
                   const bool *loaded, uint32_t scene_asset_count, AssetsAction *out, AssetsLayout *out_layout) {
   if (out) *out = AssetsAction{};
@@ -925,10 +944,22 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
 
         // 3. Varlık Türü İkonu ve Rozeti
         const AssetStyle as = asset_style_for_file(f.name);
-        const float real_glyph_px = std::floor(thumb_h * 0.46f);
-        const ImVec2 gs = ImGui::GetFont()->CalcTextSizeA(real_glyph_px, 3.4e38f, 0.0f, as.icon);
-        cdl->AddText(ImGui::GetFont(), real_glyph_px, ImVec2(p.x + (tw - gs.x) * 0.5f, p.y + (thumb_h - gs.y) * 0.5f),
-                     f.in_scene ? tone_u32(Tone::AccentHi) : tone_u32(as.tone, 0.90f), as.icon);
+        // M1: yuklenmis modelde gercek onizleme (ustundeyken doner); yoksa tur simgesi.
+        const content::Model *tm = karo_modeli(f);
+        uint32_t thumb_n = 0;
+        if (tm) {
+          const float yaw = hov ? (float)ImGui::GetTime() * 1.3f : 0.65f;
+          float rgb[4];
+          editor_tone(Tone::Text, rgb);
+          const float m2 = 3.0f;
+          thumb_n = model_thumb_draw(*tm, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb);
+        }
+        if (!thumb_n) {
+          const float real_glyph_px = std::floor(thumb_h * 0.46f);
+          const ImVec2 gs = ImGui::GetFont()->CalcTextSizeA(real_glyph_px, 3.4e38f, 0.0f, as.icon);
+          cdl->AddText(ImGui::GetFont(), real_glyph_px, ImVec2(p.x + (tw - gs.x) * 0.5f, p.y + (thumb_h - gs.y) * 0.5f),
+                       f.in_scene ? tone_u32(Tone::AccentHi) : tone_u32(as.tone, 0.90f), as.icon);
+        }
 
         // Tür Rozeti (Sağ-Alt)
         const float as_badge_w = ImGui::GetFont()->CalcTextSizeA(badge_px, 3.4e38f, 0.0f, as.badge).x + 8.0f;
@@ -965,6 +996,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         bool add = dbl;
         if (hov || ImGui::IsItemActive()) add |= add_button(ImVec2(q.x - btn - 4.0f, p.y + 4.0f), btn);
         if (add && out) out->add_index = (int)i;
+        karo_menu(f, hov, out, (int)i);
         ImGui::PopID();
         shown++;
       }
@@ -1045,6 +1077,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         bool add = dbl;
         if (hov || ImGui::IsItemActive()) add |= add_button(ImVec2(q.x - st.FramePadding.x - btn, p.y + (row_h - btn) * 0.5f), btn);
         if (add && out) out->add_index = (int)i;
+        karo_menu(f, hov, out, (int)i);
         ImGui::SetCursorScreenPos(ImVec2(p.x, q.y + st.ItemSpacing.y * 0.5f));
         ImGui::PopID();
         shown++;

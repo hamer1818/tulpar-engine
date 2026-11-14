@@ -2,6 +2,7 @@
 #include "content/cluster_dag.hpp"
 #include "content/meshopt.hpp"
 #include "content/mesh_import.hpp"
+#include "content/model_import.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -194,7 +195,26 @@ void extend_bounds(Model *out, const Mat4 &world, const renderer::Vertex *v, uin
 }
 } // namespace
 
+namespace {
+bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits &lim);
+}
+// M1: tek giris. Ayar dosyasi (`<yol>.ayar`, content/model_import.hpp) okunur, bicim ayarsiz (dokunulmamis) yuklenir, sonra C
+// instance'lara uygulanir. STL'nin M2 varsayilani (Z-yukari, 1 m, taban) artik ayarin VARSAYILANI: ayni sonuc, tek yol.
 bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
+  ModelImportSettings ayar;
+  bool var = false;
+  char hata_metni[160] = {0};
+  if (!model_import_load(path, &ayar, &var, hata_metni, sizeof hata_metni)) {
+    *out = Model{};
+    std::snprintf(out->error, sizeof out->error, "%s", hata_metni);
+    return false;
+  }
+  if (!gltf_load_file(arena, path, out, lim)) return false;
+  model_import_apply(*out, ayar);
+  return true;
+}
+namespace {
+bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
   // M2: uzantiya gore yonlendirme (.stl / .obj -> content/mesh_import.cpp, ayni Model yapisi). Bridge, sahne calisma zamani ve editorun
   // tum cagri noktalari gltf_load'u kullandigi icin onlara dokunulmaz.
   if (path) {
@@ -205,8 +225,11 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
       for (size_t i = 0; i < el; i++) { char c = path[pl - el + i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ek[i]) return false; }
       return true;
     };
-    if (bit(".stl")) return stl_load(arena, path, out, lim);
-    if (bit(".obj")) return obj_load(arena, path, out, lim);
+    // Ayarsiz (dokunulmamis) yukleme: eksen/olcek/pivot gltf_load'da model_import_apply ile (instance matrisi).
+    MeshImportOptions ham;
+    ham.z_up = false; ham.fit_size = 0.0f; ham.scale = 1.0f; ham.ground_pivot = false;
+    if (bit(".stl")) return stl_load(arena, path, out, lim, &ham);
+    if (bit(".obj")) return obj_load(arena, path, out, lim, &ham);
   }
   *out = Model{};
   cgltf_options opt{};
@@ -665,6 +688,7 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   cgltf_free(data);
   return ok;
 }
+} // namespace (gltf_load_file)
 
 // NORMAL HARITASI MIP ZINCIRI — CPU'da, her seviyeden sonra YENIDEN
 // NORMALLESTIREREK.
@@ -925,6 +949,10 @@ uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
   ekle("%u mesh", b.meshes);
   ekle("%u üçgen", b.triangles);
   ekle("%u klip", b.clips);
+  {   // M1: ice aktarma ayarindan SONRAKI boyut (metre): "20 m'lik bir kapi" ya da "2 cm'lik bir karakter" burada gorunur
+    const Vec3 d = m.bounds_max - m.bounds_min;
+    if (n < cap) n += (uint32_t)std::snprintf(out + n, cap - n, " · boyut %.2f × %.2f × %.2f m", (double)d.x, (double)d.y, (double)d.z);
+  }
   if (b.joints) {
     ekle("iskelet %u eklem", b.joints);
     ekle("%u köşe", b.skinned_vertices);
@@ -932,6 +960,10 @@ uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
   if (b.joints && b.skinned_vertices && b.skinned_vertices <= kMobileSkinnedVertexBudget / 4)
     ekle("mobilde ≈ %u kopya sığar", kMobileSkinnedVertexBudget / b.skinned_vertices);
   if (m.note[0] && n + 4 < cap) { n += (uint32_t)std::snprintf(out + n, cap - n, " · NOT: %s", m.note); }
+  // M1: yalniz sayacta kalan sinirlar artik okunur (kullanici "yuz ifadesi neden calismiyor" diye aramasin).
+  if (m.morph_dropped) { ekle("UYARI: %u morph hedefi yüklenmedi (mesh başına en çok %u)", m.morph_dropped, kModelMaxMorph); warn = 1; }
+  if (m.morph_meshes_dropped) { ekle("UYARI: %u mesh morph'suz yüklendi (morph için en çok %u köşe)", m.morph_meshes_dropped, kModelMaxMorphVerts); warn = 1; }
+  if (m.morph_skipped) { ekle("UYARI: %u iskeletli mesh'in morph'u atlandı (iskelet + morph bu sürümde yok)", m.morph_skipped); warn = 1; }
   if (b.clips_dropped) { ekle("UYARI: %u klip yüklenmedi (model başına en çok %u)", b.clips_dropped, GltfLimits{}.max_clips); warn = 1; }
   if (b.skinned_vertices > kMobileSkinnedVertexBudget / 4) {
     ekle("UYARI: ağır iskeletli model, mobilde kare başına ≲ %uK köşe önerilir", kMobileSkinnedVertexBudget / 1000);
@@ -1004,8 +1036,11 @@ bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch
   if (!sk.joint_count) return false;
   sim::LocalPose lp{scratch.t, scratch.r, scratch.s, sk.joint_count};
   sim::ClipSampler::sample(m.clips[clip].clip, time_s, lp);
-  out_xz[0] = lp.t[0].x;
-  out_xz[1] = lp.t[0].z;
+  // M1: ice aktarma ayarinin dogrusal kismi (eksen + olcek; oteleme konum farkinda duser): olcekli modelde yuruyus da olceklenir.
+  const Mat4 &C = m.import_xform;
+  const Vec3 t = lp.t[0];
+  out_xz[0] = C.m[0][0] * t.x + C.m[1][0] * t.y + C.m[2][0] * t.z;
+  out_xz[1] = C.m[0][2] * t.x + C.m[1][2] * t.y + C.m[2][2] * t.z;
   return true;
 }
 

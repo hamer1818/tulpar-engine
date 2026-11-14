@@ -30,6 +30,7 @@
 #include "app/editor_camera.hpp"   // CameraAxis, CameraMode, CameraProjection, GizmoSpace
 #include "app/editor_ui.hpp"       // AssetFile, Tone, editor_ellipsize
 #include "app/editor_viewport.hpp" // ViewportRect
+#include "content/model.hpp"       // Model (karo onizlemesi, M1)
 #include "content/scene.hpp"       // kScenePathLen, SceneBounds
 
 namespace tulpar::engine::app {
@@ -185,7 +186,15 @@ struct AssetsAction {
   int add_index = -1;   // files[i] sahneye eklensin (-1 = yok)
   bool ice_aktar = false;  // U11 B5: "Model ice aktar..." (cagiran dosya secici acar, editor_model_ice_aktar)
   bool yeni_betik = false; // U11 B5: bos durumdaki "Yeni betik"
+  int ayar_index = -1;      // M1: files[i] icin "Ice aktarma ayarlari" (sag tik menusu; -1 = yok)
 };
+// M1: model karosu onizlemesi. Saglayici editor_app kurar: sahne kaynak indeksi -> YUKLENMIS model (yoksa nullptr; karo
+// eski simgesini cizer). Kapilar saglayicisiz cagirir: davranis eskisiyle ayni.
+struct AssetsThumbProvider {
+  const content::Model *(*model)(void *user, int32_t scene_asset) = nullptr;
+  void *user = nullptr;
+};
+void assets_panel_set_thumbs(const AssetsThumbProvider &p);
 // Yerlesimin OLCUM ciktisi (kapilar bir karoya "tiklarken" izgarayi yeniden
 // turetmez): govde cocugunun ekran dikdortgeni, karo olcusu, sutun sayisi ve
 // ilk karonun sol-ust kosesi. Liste kipinde tile_h = satir yuksekligi, cols = 1.
