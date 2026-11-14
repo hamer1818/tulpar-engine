@@ -1786,8 +1786,17 @@ ENGINE_TEST(render_skin_matris_tavani_sayilir) {
   ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 30);   // 90 <= 100: sığar, sayaç artmaz (kontrol)
   CHECK(ren.stats().skin_dropped == 1 && ren.skin_matrices_used() == 90);
   CHECK(ren.stats().dropped >= ren.stats().skin_dropped);
+  // A7: iskeletli köşe bütçesi sayacı: kabul edilen iki çizim (3 köşe) sayılır, taşan (düşen) SAYILMAZ.
+  CHECK(ren.stats().skin_draws == 2 && ren.stats().skin_verts == 6);
   ren.begin_frame(0);                                                     // yeni karede sayaç sıfırlanır
-  CHECK(ren.stats().skin_dropped == 0);
+  CHECK(ren.stats().skin_dropped == 0 && ren.stats().skin_draws == 0 && ren.stats().skin_verts == 0);
+  // used_verts: LOD tamponu paylaşır; kullanılan köşe verilince o sayılır (KONTROL: verilmeyince tam tampon).
+  const uint32_t idx_yari[3] = {0, 0, 1};
+  renderer::MeshHandle lodm = ren.create_skinned_mesh(v, 3, idx_yari, 3, 2);
+  CHECK(lodm.valid());
+  ren.draw_skinned(lodm, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
+  ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
+  CHECK(ren.stats().skin_draws == 2 && ren.stats().skin_verts == 2 + 3);
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }
@@ -2016,6 +2025,34 @@ ENGINE_TEST(content_skinned_lod_uretilir_ve_secilir) {
     }
   CHECK(gecerli);
   std::printf("    [bilgi] iskeletli LOD: LOD0 %u ucgen, LOD1 %u, LOD2 %u\n", mm.index_count / 3, mm.lod_index_count[0] / 3, mm.lod_index_count[1] / 3);
+  // A7: LOD'un kullandigi tekil kose sayisi (butce sayaci bunu kullanir): saf sayimla AYNI, LOD'da gercekten azalir.
+  for (uint32_t k = 0; k < content::kModelMaxLods; k++) {
+    static uint8_t gor[1u << 20];
+    CHECK(mm.vertex_count <= sizeof gor);
+    std::memset(gor, 0, mm.vertex_count);
+    uint32_t say = 0;
+    for (uint32_t i = 0; i < mm.lod_index_count[k]; i++) if (!gor[mm.lod_indices[k][i]]++) say++;
+    CHECK(mm.lod_vertex_count[k] == say);
+    CHECK(say > 0 && say < mm.vertex_count);
+    std::printf("    [bilgi] LOD%u kullanilan kose %u / %u\n", k + 1, say, mm.vertex_count);
+  }
+  CHECK(mm.lod_vertex_count[1] <= mm.lod_vertex_count[0]);
+  // A7: modelin .ayar esigi cagiraninkini ezer; verilmeyen taraf cagirandan; lod2 < lod1 kenetlenir.
+  content::ModelLod cl;
+  cl.distance1 = 24.0f; cl.distance2 = 34.0f;
+  m.lod_distance1 = 8.0f; m.lod_distance2 = 0.0f;
+  content::ModelLod el = content::model_lod_effective(m, cl);
+  CHECK(el.distance1 == 8.0f && el.distance2 == 34.0f);
+  m.lod_distance1 = 40.0f;
+  el = content::model_lod_effective(m, cl);
+  CHECK(el.distance1 == 40.0f && el.distance2 == 40.0f);
+  // Secim gercekten degisiyor (KONTROL: model esigi yokken 10 m'de LOD0, 8 m esikte LOD1).
+  cl.camera_pos = Vec3{0, 0, 0};
+  m.lod_distance1 = 0.0f;
+  CHECK(content::model_lod_level(content::model_lod_effective(m, cl), Vec3{10, 0, 0}) == 0);
+  m.lod_distance1 = 8.0f;
+  CHECK(content::model_lod_level(content::model_lod_effective(m, cl), Vec3{10, 0, 0}) == 1);
+  m.lod_distance1 = 0.0f;
   CHECK(kucuk.meshes[0].skin >= 0 && kucuk.meshes[0].lod_index_count[0] == 0 && kucuk.meshes[0].lod_index_count[1] == 0);   // kontrol: kucuk model LOD'suz
 }
 

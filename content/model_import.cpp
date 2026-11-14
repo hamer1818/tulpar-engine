@@ -39,7 +39,8 @@ void put_num(char *b, size_t cap, float v) {
 } // namespace
 
 bool model_import_equal(const ModelImportSettings &a, const ModelImportSettings &b) {
-  return a.unit == b.unit && a.z_up == b.z_up && a.scale == b.scale && a.fit == b.fit && a.pivot == b.pivot;
+  return a.unit == b.unit && a.z_up == b.z_up && a.scale == b.scale && a.fit == b.fit && a.pivot == b.pivot && a.lod1 == b.lod1 &&
+         a.lod2 == b.lod2;
 }
 
 float model_unit_meters(ModelUnit u) {
@@ -143,11 +144,17 @@ bool model_import_parse(const char *text, size_t len, ModelImportSettings *out, 
       else if (!std::strcmp(v, "taban")) s.pivot = ModelPivot::Base;
       else if (!std::strcmp(v, "merkez")) s.pivot = ModelPivot::Center;
       else return fail("pivot koken | taban | merkez olmali");
+    } else if (tok_eq(tk[0], tl[0], "lod1") || tok_eq(tk[0], tl[0], "lod2")) {
+      const bool ikinci = tk[0][3] == '2';
+      if (!once(ikinci ? 64 : 32)) return fail(ikinci ? "lod2 bir kez yazilir" : "lod1 bir kez yazilir");
+      float *d = ikinci ? &s.lod2 : &s.lod1;
+      if (!num(d) || *d < 0.0f || *d > 1e5f) return fail("lod1/lod2 0 (varsayilan) ile 1e5 arasi metre olmali");
     } else {
-      return fail("bilinmeyen anahtar (birim, yukari, olcek, sigdir, pivot)");
+      return fail("bilinmeyen anahtar (birim, yukari, olcek, sigdir, pivot, lod1, lod2)");
     }
   }
   if (!header) { line = 0; return fail("bos dosya ('tulpar-model-ayar 1' yok)"); }
+  if (s.lod1 > 0.0f && s.lod2 > 0.0f && s.lod2 < s.lod1) { line = 0; return fail("lod2 lod1'den kucuk olamaz (uzak esik yakin esikten once gelmez)"); }
   *out = s;
   return true;
 }
@@ -156,8 +163,15 @@ size_t model_import_write(const ModelImportSettings &s, char *buf, size_t cap) {
   char sc[32], ft[32];
   put_num(sc, sizeof sc, s.scale);
   put_num(ft, sizeof ft, s.fit);
-  const int n = std::snprintf(buf, cap, "tulpar-model-ayar 1\nbirim %s\nyukari %s\nolcek %s\nsigdir %s\npivot %s\n", unit_name(s.unit),
-                              s.z_up ? "z" : "y", sc, ft, pivot_name(s.pivot));
+  int n = std::snprintf(buf, cap, "tulpar-model-ayar 1\nbirim %s\nyukari %s\nolcek %s\nsigdir %s\npivot %s\n", unit_name(s.unit),
+                        s.z_up ? "z" : "y", sc, ft, pivot_name(s.pivot));
+  for (int k = 0; k < 2 && n > 0 && (size_t)n < cap; k++) {   // A7: yalniz verilmis LOD esikleri (eski dosyalar bayt bayt ayni kalir)
+    const float v = k ? s.lod2 : s.lod1;
+    if (!(v > 0.0f)) continue;
+    char t[32];
+    put_num(t, sizeof t, v);
+    n += std::snprintf(buf + n, cap - (size_t)n, "lod%d %s\n", k + 1, t);
+  }
   return n > 0 && (size_t)n < cap ? (size_t)n : 0;
 }
 
@@ -241,6 +255,8 @@ void model_import_apply(Model &m, const ModelImportSettings &s) {
   m.import_xform = C;
   m.bounds_min = lo;
   m.bounds_max = hi;
+  m.lod_distance1 = s.lod1;
+  m.lod_distance2 = s.lod2;
   for (uint32_t i = 0; i < m.instance_count; i++) m.instances[i].world = C * m.instances[i].world;
 }
 
@@ -254,6 +270,8 @@ void model_import_reapply(Model &m, const ModelImportSettings &s) {
   m.import_xform = C;
   m.bounds_min = lo;
   m.bounds_max = hi;
+  m.lod_distance1 = s.lod1;
+  m.lod_distance2 = s.lod2;
 }
 
 } // namespace tulpar::engine::content

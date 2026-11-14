@@ -192,8 +192,8 @@ MA="$D/model_ayar"; mkdir -p "$MA/ui"
 cp -r "$KOK/tests/assets" "$MA/assets"
 rm -f "$MA/assets/checker_cube.gltf.ayar"
 kos model_ayar.txt "$MA/ui" --scene "$MA/assets/editor.sahne" --kip basit --size 1280x720; rma=$?  # sag tik karo koordinatinda
-if [ $rma = 0 ] && grep -qx 'birim cm' "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null; then
-  echo "  model ayari: sag tik -> pencere, cm secince boyut 1 -> 0.01 m (canli), Kaydet checker_cube.gltf.ayar'a 'birim cm' yazdi (kontrol: once 1 m, kayitli)"
+if [ $rma = 0 ] && grep -qx 'birim cm' "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null && grep -qx 'lod1 24' "$MA/assets/checker_cube.gltf.ayar" && grep -qx 'lod2 34' "$MA/assets/checker_cube.gltf.ayar"; then
+  echo "  model ayari: sag tik -> pencere, cm secince boyut 1 -> 0.01 m (canli), Kaydet checker_cube.gltf.ayar'a 'birim cm' + lod1 24 / lod2 34 yazdi, Istatistik'te karakter yuku (kontrol: once 1 m, kayitli, LOD alani kapali)"
 else echo "  KIRMIZI model ayari (cikis $rma, dosya: $(tr '\n' ' ' < "$MA/assets/checker_cube.gltf.ayar" 2>/dev/null || echo yok))"; grep -E 'HATA|> ' "$MA/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- A3: animator durum grafigi (Kaynaklar cift tik -> Kod panelinde grafik, tik satira gider, tablo, bozuk metin; tulpar gerekmez) ---
 AG="$D/animator_grafik"; mkdir -p "$AG/ui"

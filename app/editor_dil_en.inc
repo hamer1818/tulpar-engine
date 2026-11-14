@@ -1175,3 +1175,8 @@
 {"# durum · # geçiş · # parametre", "# states · # transitions · # parameters"},
 {"# durum ulaşılamaz", "# states unreachable"},
 {"durum yok", "no states"},
+{"İskeletli köşe:", "Skinned verts:"},
+{"Karakter yükü:", "Character load:"},
+{"#K / #K (mobil)", "#K / #K (mobile)"},
+{"Özel LOD mesafesi", "Custom LOD distance"},
+{"LOD# mesafesi", "LOD# distance"},

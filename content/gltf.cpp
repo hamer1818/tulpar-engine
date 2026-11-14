@@ -838,7 +838,8 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
       if (!m.meshes[i].lod_index_count[k]) continue;
       out->lod_meshes[i * kModelMaxLods + k] =
           (m.meshes[i].skin >= 0 && m.meshes[i].skin_verts)
-              ? r.create_skinned_mesh(m.meshes[i].skin_verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k])
+              ? r.create_skinned_mesh(m.meshes[i].skin_verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k],
+                                      m.meshes[i].lod_vertex_count[k])
               : r.create_mesh(m.meshes[i].verts, m.meshes[i].vertex_count, m.meshes[i].lod_indices[k], m.meshes[i].lod_index_count[k]);
       if (!out->lod_meshes[i * kModelMaxLods + k].valid()) return false;
     }
@@ -1053,6 +1054,14 @@ void ModelLod::set_view(Vec3 eye, Vec3 target, float fov_y) {
   depth_scale = (fov_y > 0.0f && ref > 0.0f) ? std::tan(fov_y * 0.5f) / ref : 1.0f;
 }
 
+ModelLod model_lod_effective(const Model &m, const ModelLod &lod) {
+  ModelLod ml = lod;
+  if (m.lod_distance1 > 0.0f) ml.distance1 = m.lod_distance1;
+  if (m.lod_distance2 > 0.0f) ml.distance2 = m.lod_distance2;
+  if (ml.distance2 < ml.distance1) ml.distance2 = ml.distance1;
+  return ml;
+}
+
 uint32_t model_lod_level(const ModelLod &lod, Vec3 p) {
   const Vec3 d{p.x - lod.camera_pos.x, p.y - lod.camera_pos.y, p.z - lod.camera_pos.z};
   const Vec3 f = lod.camera_forward;
@@ -1070,6 +1079,13 @@ uint32_t model_lod_level(const ModelLod &lod, Vec3 p) {
 
 void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, const Mat4 &model, Vec3 tint,
                 const ModelLod *lod, uint32_t lod_counts[kModelMaxLods + 1], const ModelPose *pose) {
+  // A7: modelin kendi esikleri (.ayar) cagiraninkini ezer; biri verilmisse obur cagirandan. lod2 < lod1 olamaz (ayristirici
+  // reddeder; burada yalniz karisik kaynak — biri modelden biri cagirandan — icin kenetlenir).
+  ModelLod ml;
+  if (lod && (m.lod_distance1 > 0.0f || m.lod_distance2 > 0.0f)) {
+    ml = model_lod_effective(m, *lod);
+    lod = &ml;
+  }
   for (uint32_t i = 0; i < m.instance_count; i++) {
     const ModelInstance &inst = m.instances[i];
     if (inst.mesh >= u.mesh_count) continue;

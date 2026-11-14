@@ -1802,7 +1802,8 @@ bool Renderer::update_mesh_vertices(MeshHandle handle, const Vertex *verts, uint
   return true;
 }
 
-MeshHandle Renderer::create_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices) {
+MeshHandle Renderer::create_skinned_mesh(const SkinnedVertex *verts, uint32_t nverts, const uint32_t *indices, uint32_t nindices,
+                                         uint32_t used_verts) {
   if (mesh_count_ >= cfg_.max_meshes) return MeshHandle{};
   Mesh &m = meshes_[mesh_count_];
   rhi::MemoryAlloc vm, im;
@@ -1813,6 +1814,7 @@ MeshHandle Renderer::create_skinned_mesh(const SkinnedVertex *verts, uint32_t nv
   if (!upload_packed(m.vbuf, nullptr, verts, nverts) || !upload(m.ibuf, indices, sizeof(uint32_t) * nindices, 0))
     return MeshHandle{};
   m.index_count = nindices;
+  m.vert_count = used_verts && used_verts < nverts ? used_verts : nverts;
   mesh_bounds(verts, nverts, &m.center, &m.radius);
   m.skinned = true;
   stats_.meshes = ++mesh_count_;
@@ -1914,6 +1916,8 @@ void Renderer::begin_frame(uint32_t frame_index) {
   skin_count_ = 0;
   stats_.dropped = 0;
   stats_.skin_dropped = 0;
+  stats_.skin_draws = 0;
+  stats_.skin_verts = 0;
   FrameUbo u;
   // --- Faz 5: alt-piksel jitter (Halton 2,3) --------------------------------
   // Kaydirma clip uzayinda, projeksiyonun SOLUNDAN carpilir: proj_ zaten
@@ -2586,6 +2590,8 @@ void Renderer::draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4
                                skin_count_, prev_model ? *prev_model : model,
                                reactive,    kNoBatch, draw_shadow_};
   skin_count_ += n;
+  stats_.skin_draws++;
+  stats_.skin_verts += meshes_[mesh.id].vert_count;
 }
 
 void Renderer::record(VkCommandBuffer cb) {

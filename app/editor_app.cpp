@@ -238,6 +238,22 @@ static UxRect g_stats_hud_rect{0, 0, 0, 0};
 // UX olcumu (--ux-rapor): sabit tablolar ~200 KB, yigina degil statige (ayirma yok).
 static UxOlcum g_ux_olcum;
 
+// A7: iskeletli kose butcesi satiri (Basit kipte yalniz iskeletli cizim varsa). Butce P20 Pro / Mali-G72 olcumunden
+// (content::kMobileSkinnedVertexBudget); MASAUSTU GPU'su icin anlamsiz bir sinir, mobil hedef icin erken uyari.
+static void stats_skin_row(const renderer::RendererStats &rs, const char *label) {
+  const uint64_t b = content::kMobileSkinnedVertexBudget;
+  char buf[64];
+  std::snprintf(buf, sizeof buf, "%.1fK / %lluK (mobil)", (double)rs.skin_verts / 1000.0, (unsigned long long)(b / 1000));
+  ImGui::TextDisabled("%s", label);
+  ImGui::SameLine(150.0f);
+  ImGui::TextColored(tone(rs.skin_verts > b ? Tone::Warn : Tone::Text), "%s%s", rs.skin_verts > b ? ICON_MD_WARNING " " : "", buf);
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Bu karede %u iskeletli \xC3\xA7izim, %llu k\xC3\xB6\xC5\x9F" "e (LOD se\xC3\xA7ildiyse se\xC3\xA7ilen seviye).\n"
+                      "Mobil b\xC3\xBC" "t\xC3\xA7" "e: kare ba\xC5\x9F\xC4\xB1na \xE2\x89\xB2 %lluK (P20 Pro / Mali-G72 \xC3\xB6l\xC3\xA7\xC3\xBCm\xC3\xBC).\n"
+                      "A\xC5\x9F\xC4\xB1l\xC4\xB1yorsa LOD mesafelerini k\xC4\xB1salt: Kaynaklar > sa\xC4\x9F t\xC4\xB1k > \xC4\xB0\xC3\xA7" "e aktarma ayarlar\xC4\xB1.",
+                      rs.skin_draws, (unsigned long long)rs.skin_verts, (unsigned long long)(b / 1000));
+}
+
 static void draw_stats_overlay(bool *open, float dt, const renderer::RendererStats &rs, const content::SceneDesc &scene,
                                uint32_t vp_w, uint32_t vp_h, ViewportTab tab, const Arena &arena, const ViewportRect &vr,
                                const Profiler &prof, const rhi::Device &dev, const renderer::ShadowInfo &sh, uint64_t allocs_frame) {
@@ -343,6 +359,7 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
       metric_row("Sahnede:", buf, tone(Tone::Text));
       std::snprintf(buf, sizeof buf, "%u", poly.triangles);
       metric_row("Model ayr\xC4\xB1nt\xC4\xB1s\xC4\xB1:", buf, tone(Tone::TextDim));
+      if (rs.skin_draws) stats_skin_row(rs, "Karakter y\xC3\xBCk\xC3\xBC:");
       ImGui::TextDisabled("Ayr\xC4\xB1nt\xC4\xB1lar: G\xC3\xB6r\xC3\xBCn\xC3\xBCm > Geli\xC5\x9Fmi\xC5\x9F kip");
       ImGui::End();
       ImGui::PopStyleColor(2);
@@ -354,6 +371,8 @@ static void draw_stats_overlay(bool *open, float dt, const renderer::RendererSta
 
     std::snprintf(buf, sizeof buf, "%u verts", poly.vertices);
     metric_row("K\xC3\xB6\xC5\x9F" "eler (Verts):", buf, tone(Tone::Text));
+
+    stats_skin_row(rs, "\xC4\xB0skeletli k\xC3\xB6\xC5\x9F" "e:");
 
     std::snprintf(buf, sizeof buf, "%u batch", rs.draws);
     metric_row("\xC3\x87izim \xC3\x87" "a\xC4\x9Fr\xC4\xB1s\xC4\xB1:", buf, tone(Tone::Text));
@@ -1674,10 +1693,12 @@ void model_ayar_penceresi(EditorState &st) {
   char yol[1100];
   model_ayar_yolu(st, ma.dosya, yol, sizeof yol);
   bool acik = true, kapat_geri_al = false;
-  ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 26.0f, 0), ImGuiCond_Appearing);
+  // Genislik sabit, yukseklik icerige gore: "Ozel LOD mesafesi" alan acinca Kaydet pencerenin altina kaymasin (A7'de goruldu).
+  const float pg = ImGui::GetFontSize() * 26.0f;
+  ImGui::SetNextWindowSizeConstraints(ImVec2(pg, 0), ImVec2(pg, FLT_MAX));
   char baslik[200];
   std::snprintf(baslik, sizeof baslik, "\xC4\xB0\xC3\xA7" "e aktarma: %s###model_ayar", editor_basename(ma.dosya));
-  if (ImGui::Begin(baslik, &acik, ImGuiWindowFlags_NoCollapse)) {
+  if (ImGui::Begin(baslik, &acik, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
     if (ma.hata[0]) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f), "%s (varsay\xC4\xB1lanla a\xC3\xA7\xC4\xB1ld\xC4\xB1)", ma.hata);
     const content::ModelImportSettings once = ma.duzen;
     if (prop_begin("model_ayar")) {
@@ -1693,14 +1714,32 @@ void model_ayar_penceresi(EditorState &st) {
       else prop_float("\xC3\x96l\xC3\xA7" "ek", &ma.duzen.scale, 0.01f, 0.0001f, 100000.0f, "%.3f");
       prop_help("Nesnenin konumu modelin hangi noktas\xC4\xB1: taban ortas\xC4\xB1 modeli zemine oturtur.");
       if (prop_combo("Pivot", &pivot, "dosyan\xC4\xB1n k\xC3\xB6keni\0taban ortas\xC4\xB1\0merkez\0").changed) ma.duzen.pivot = (content::ModelPivot)pivot;
+      // A7: model basina LOD esikleri. Varsayilan sahnede 24 / 34 m (content/scene_runtime.cpp); kalabalik karakterli mobil
+      // sahnede kisaltmak iskeletli kose yukunu dusurur (P20 Pro: 40 karakter LOD0 92,8 ms -> LOD2 16,1 ms).
+      bool ozel_lod = ma.duzen.lod1 > 0.0f || ma.duzen.lod2 > 0.0f;
+      prop_help("Uzaktaki kopyalar daha az \xC3\xBC\xC3\xA7genle \xC3\xA7izilir (LOD1, LOD2). Varsay\xC4\xB1lan 24 / 34 m. Mobilde \xC3\xA7ok karakter "
+                "varsa k\xC4\xB1salt: \xC4\xB0statistik'te \"\xC4\xB0skeletli k\xC3\xB6\xC5\x9F" "e\" b\xC3\xBC" "t\xC3\xA7" "eyi a\xC5\x9F\xC4\xB1yorsa.");
+      if (prop_check("\xC3\x96zel LOD mesafesi", &ozel_lod).changed) {
+        ma.duzen.lod1 = ozel_lod ? (once.lod1 > 0.0f ? once.lod1 : 24.0f) : 0.0f;
+        ma.duzen.lod2 = ozel_lod ? (once.lod2 > 0.0f ? once.lod2 : 34.0f) : 0.0f;
+      }
+      if (ozel_lod) {
+        prop_float("LOD1 mesafesi", &ma.duzen.lod1, 0.25f, 0.5f, 10000.0f, "%.1f m");
+        prop_float("LOD2 mesafesi", &ma.duzen.lod2, 0.25f, 0.5f, 10000.0f, "%.1f m");
+      }
       prop_end();
     }
     if (!(ma.duzen.scale > 0.0f)) ma.duzen.scale = once.scale;
     if (ma.duzen.fit < 0.0f) ma.duzen.fit = 0.0f;
+    if (ma.duzen.lod1 > 0.0f && ma.duzen.lod2 < ma.duzen.lod1) ma.duzen.lod2 = ma.duzen.lod1;   // ayristirici lod2 < lod1'i reddeder
     if (m && !content::model_import_equal(once, ma.duzen)) content::model_import_reapply(*m, ma.duzen); // canli onizleme
     if (m) {
       const Vec3 d = m->bounds_max - m->bounds_min;
       ImGui::TextDisabled("boyut %.3f \xC3\x97 %.3f \xC3\x97 %.3f m", (double)d.x, (double)d.y, (double)d.z);
+      bool lod_var = false;
+      for (uint32_t i = 0; i < m->mesh_count && !lod_var; i++) lod_var = m->meshes[i].lod_indices[0] != nullptr;
+      if (!lod_var && (ma.duzen.lod1 > 0.0f || ma.duzen.lod2 > 0.0f))
+        ImGui::TextDisabled(ICON_MD_INFO " Bu modelde LOD seviyesi yok (k\xC3\xBC\xC3\xA7\xC3\xBCk model): mesafe etkisiz.");
       const float ka = ImGui::GetFontSize() * 9.0f;
       const ImVec2 p0 = ImGui::GetCursorScreenPos();
       ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + ka, p0.y + ka), ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);

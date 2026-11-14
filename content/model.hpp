@@ -88,6 +88,9 @@ struct ModelMesh {
   uint32_t *lod_indices[kModelMaxLods] = {};
   uint32_t lod_index_count[kModelMaxLods] = {};
   float lod_error[kModelMaxLods] = {}; // bagil (mesh olcegine gore)
+  // A7: LOD indekslerinin GERCEKTEN kullandigi (tekil) kose sayisi. LOD ayni vertex tamponunu paylasir, yani vertex_count
+  // LOD'da dusmez; iskeletli kose butcesi (RendererStats::skin_verts) bunu sayar.
+  uint32_t lod_vertex_count[kModelMaxLods] = {};
   // Kume (cluster) DAG: GltfLimits::cluster_dag acikken kurulur (Faz 9).
   // Ayrik LOD'larin (lod_indices) YERINE GECMEZ, ustune gelir: LOD butun mesh'i
   // birden degistirir, DAG kume kume ve cut'i runtime secer.
@@ -132,6 +135,8 @@ struct Model {
   // degistirince eski C geri alinir). Ayarsiz glTF'te birim matris ve ham = bounds.
   Mat4 import_xform;
   Vec3 import_raw_min{0, 0, 0}, import_raw_max{0, 0, 0};
+  // A7: model basina LOD esikleri (metre, .ayar `lod1`/`lod2`); 0 = cagiranin ModelLod esigi. draw_model uygular.
+  float lod_distance1 = 0.0f, lod_distance2 = 0.0f;
   ModelOptStats opt;
   // Ayni goruntu hem renk (sRGB) hem veri (dogrusal) olarak kullanilmis:
   // glTF'te gecersiz. Renk kazanir, sayac artar — sessiz yanlis yok.
@@ -260,6 +265,8 @@ struct ModelLod {
 };
 // Saf secim (ayirma yok, renderer gerekmez): istenen seviye 0/1/2. O seviye
 // uretilmemisse bir alta inmek draw_model'in isi (Tuzaklar 8cx).
+// A7: modelin .ayar esikleri (Model::lod_distance1/2, 0 = yok) uygulanmis kopya; draw_model bunu kullanir.
+ModelLod model_lod_effective(const Model &m, const ModelLod &lod);
 uint32_t model_lod_level(const ModelLod &lod, Vec3 world_pos);
 // Tum instance'lari cizer (model matrisi * instance.world). Secilen LOD sayilari
 // (0/1/2) istege bagli raporlanir.

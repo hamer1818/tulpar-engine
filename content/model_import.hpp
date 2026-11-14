@@ -16,6 +16,8 @@
 //   olcek 1.5         # birimin üstüne çarpan (> 0)
 //   sigdir 0          # > 0: en büyük boyut bu kadar METRE olur (birim/olcek yerine)
 //   pivot taban       # koken | taban | merkez
+//   lod1 12           # A7: LOD1'e gecis derinligi (m); 0 / yok = varsayilan (sahne 24, kopru/demo kendi degeri)
+//   lod2 20           # A7: LOD2'ye gecis; ikisi de verildiyse lod2 >= lod1. Yazici yalniz 0 OLMAYANI yazar.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -33,6 +35,7 @@ struct ModelImportSettings {
   float scale = 1.0f;
   float fit = 0.0f;
   ModelPivot pivot = ModelPivot::Origin;
+  float lod1 = 0.0f, lod2 = 0.0f;   // A7: LOD esikleri (metre, gorus derinligi); 0 = motorun/cagiranin varsayilani
 };
 bool model_import_equal(const ModelImportSettings &a, const ModelImportSettings &b);
 float model_unit_meters(ModelUnit u);

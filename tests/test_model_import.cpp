@@ -92,6 +92,16 @@ ENGINE_TEST(model_ayar_metin_gidis_donus_ve_reddedilenler) {
   // Yorum ve boş satır serbest; eksik anahtar varsayılan.
   const char *kisa = "tulpar-model-ayar 1\n\n# not\nolcek 2  # iki kat\n";
   CHECK(model_import_parse(kisa, std::strlen(kisa), &r, err, sizeof err) && r.scale == 2.0f && r.unit == ModelUnit::M && !r.z_up);
+  // A7: LOD esikleri. Yazici yalniz verilmisi yazar: eski (lod'suz) ayar dosyalari bayt bayt ayni kalir (KONTROL: yukaridaki a'da yok).
+  CHECK(!std::strstr(a, "lod"));
+  s.lod1 = 12.5f; s.lod2 = 20.0f;
+  char c[512];
+  const size_t nc = model_import_write(s, c, sizeof c);
+  CHECK(nc > na && std::strstr(c, "lod1 12.5\nlod2 20\n"));
+  CHECK(model_import_parse(c, nc, &r, err, sizeof err) && model_import_equal(r, s) && r.lod1 == 12.5f && r.lod2 == 20.0f);
+  CHECK(!model_import_equal(r, ModelImportSettings{}));
+  const char *tek = "tulpar-model-ayar 1\nlod2 30\n";                     // yalniz biri: obur 0 (cagiranin)
+  CHECK(model_import_parse(tek, std::strlen(tek), &r, err, sizeof err) && r.lod1 == 0.0f && r.lod2 == 30.0f);
   struct { const char *t, *satir; } kotu[] = {
       {"", "satir 0"},
       {"tulpar-model-ayar 2\n", "satir 1"},
@@ -102,6 +112,9 @@ ENGINE_TEST(model_ayar_metin_gidis_donus_ve_reddedilenler) {
       {"tulpar-model-ayar 1\nrenk kirmizi\n", "satir 2"},
       {"tulpar-model-ayar 1\npivot\n", "satir 2"},
       {"tulpar-model-ayar 1\nsigdir -1\n", "satir 2"},
+      {"tulpar-model-ayar 1\nlod1 -3\n", "satir 2"},                       // A7
+      {"tulpar-model-ayar 1\nlod2 10\nlod2 12\n", "satir 3"},
+      {"tulpar-model-ayar 1\nlod1 20\nlod2 10\n", "satir 0"},              // uzak esik yakindan once: dosya butunu
   };
   for (const auto &k : kotu) {
     err[0] = 0;

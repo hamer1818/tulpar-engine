@@ -64,6 +64,7 @@ bool mesh_build_lods(Arena &arena, ModelMesh &mm, const float *ratios, uint32_t 
     mm.lod_indices[i] = nullptr;
     mm.lod_index_count[i] = 0;
     mm.lod_error[i] = 0;
+    mm.lod_vertex_count[i] = 0;
     if (mm.index_count < 12) continue;
     uint32_t *dst = arena.alloc_array<uint32_t>(mm.index_count);
     if (!dst) return false;
@@ -76,6 +77,17 @@ bool mesh_build_lods(Arena &arena, ModelMesh &mm, const float *ratios, uint32_t 
     mm.lod_indices[i] = dst;
     mm.lod_index_count[i] = (uint32_t)got;
     mm.lod_error[i] = err;
+    // Tekil kose sayimi: gecici bit kumesi arenadan, hemen geri birakilir (dst yerinde kalir).
+    const size_t isaret = arena.mark();
+    uint32_t *bit = arena.alloc_array_zeroed<uint32_t>((mm.vertex_count + 31) / 32);
+    if (!bit) return false;
+    uint32_t tekil = 0;
+    for (size_t k = 0; k < got; k++) {
+      const uint32_t v = dst[k];
+      if (v < mm.vertex_count && !(bit[v >> 5] & (1u << (v & 31)))) { bit[v >> 5] |= 1u << (v & 31); tekil++; }
+    }
+    arena.reset_to(isaret);
+    mm.lod_vertex_count[i] = tekil;
   }
   return true;
 }
