@@ -2683,3 +2683,19 @@ toplanır, her mesh'in eklem indeksi ona çevrilir (koşul: aynı düğümün te
 `model_paylasilan_kemikler_her_skine_poz` (birleşik: ters sıralı iki skin'in köşeleri aynı eklemde; kontrol: ters bağ bozulunca yedek yol).
 **Kural:** gerçek model tek tavanı değil hepsini birden zorlar — içe aktarırken her tavanın sayacını (`clips_dropped`, kesilen bayt,
 birim tahmini) kullanıcıya göster; "sayıldı" kimse okumuyorsa sessizdir.
+
+### 8eh. Pozsuz iskelet "S = birim" varsayımı sınırları da bozar — birim tahmini ölçeği İKİ KEZ uygular
+**Belirti:** 8eg'den sonra Mike sahnede animasyonla hiç görünmüyordu; animasyonsuz kopyası yere yatık çiziliyordu (2026-11-16, başsız
+editör karesi). Yükleme özeti "boyut 1,59 × 1,60 m" diyordu, yani her şey doğru görünüyordu.
+
+**Neden:** birleşik iskelet (8eg) eklemlerin ATALARINI da iskelete alır; Mike'ta atalar X -90° + 0,01 ölçek (Sketchfab/FAB kökü). glTF'te
+doğru sonuç budur: poz, köşeleri dikeltip metreye indirir. Ama (1) pozsuz çizim skin matrisini BİRİM sayıyordu (8da'nın `kBindPose`'u)
+→ ham, cm'lik, Z-yukarı köşeler; (2) model sınırları iskeletli mesh'te bile MESH DÜĞÜMÜNÜN matrisiyle ham köşelerden hesaplanıyordu →
+160 "m". 8eg'in cm tahmini bu yanlış sınıra bakıp 0,01'i ikinci kez uyguladı: pozlu Mike 1,6 cm. 8ef'te kemiğe takılı parçalar için
+"S bağ pozunda birim değildir" bulunmuştu; aynı varsayım çizim ve sınır yolunda yaşamaya devam ediyordu.
+
+**Düzeltme:** `ModelSkin::bind_mats[j] = W_bag(eklem j) * IBM[j]` yüklemede; pozsuz çizim ve iskeletli sınırlar onunla. Mike artık
+ayarsız 1,5 m ve ayakta; cm tahmini tetiklenmez. Pozsuz Mike yine yatık: bu dosyanın kendi dinlenme duruşu (düğüm TRS'leri), glTF'e
+göre doğru. Kapı: `model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni` (bind_mats = pre·to_model(bağ TRS)·IBM; kontrol: fbx_tarzi'de
+birimden 2,0 sapar). **Kural:** bir varsayım bir yolda yanlış çıkınca (8ef) aynı varsayımı kullanan BÜTÜN yolları ara — çizim, sınır,
+seçim kutusu, birim tahmini. Ve "boyut doğru" özeti çizimi doğrulamaz: kareye bak.

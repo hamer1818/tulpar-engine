@@ -226,6 +226,25 @@ void extend_bounds(Model *out, const Mat4 &world, const renderer::Vertex *v, uin
                        q.z > out->bounds_max.z ? q.z : out->bounds_max.z};
   }
 }
+
+void extend_bounds_skinned(Model *out, const ModelSkin &sk, const renderer::SkinnedVertex *v, uint32_t n, bool *first) {
+  for (uint32_t i = 0; i < n; i++) {
+    Vec3 q{0, 0, 0};
+    float ws = 0;
+    for (int c = 0; c < 4; c++) {
+      const float w = v[i].weights[c] * (1.0f / 65535.0f);
+      if (w <= 0 || v[i].joints[c] >= sk.joint_count) continue;
+      q = q + transform_point(sk.bind_mats[v[i].joints[c]], v[i].pos) * w;
+      ws += w;
+    }
+    if (ws <= 0) q = v[i].pos;
+    if (*first) { out->bounds_min = out->bounds_max = q; *first = false; continue; }
+    out->bounds_min = {q.x < out->bounds_min.x ? q.x : out->bounds_min.x, q.y < out->bounds_min.y ? q.y : out->bounds_min.y,
+                       q.z < out->bounds_min.z ? q.z : out->bounds_min.z};
+    out->bounds_max = {q.x > out->bounds_max.x ? q.x : out->bounds_max.x, q.y > out->bounds_max.y ? q.y : out->bounds_max.y,
+                       q.z > out->bounds_max.z ? q.z : out->bounds_max.z};
+  }
+}
 } // namespace
 
 namespace {
@@ -618,6 +637,19 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     ms.pre = pre;
     ms.pre_birim = birim;
   }
+  // Bag pozu skin matrisleri (ModelSkin::bind_mats): dugumun glTF dunya matrisi (pre dahil butun atalar) * ters bag.
+  for (uint32_t si = 0; ok && si < nskin; si++) {
+    ModelSkin &ms = out->skins[si];
+    ms.bind_mats = arena.alloc_array<Mat4>(ms.joint_count ? ms.joint_count : 1);
+    if (!ms.bind_mats) { set_error(out, "arena dolu (skin)", nullptr); ok = false; break; }
+    for (uint32_t k = 0; k < ms.joint_count; k++) {
+      float wm[16];
+      cgltf_node_transform_world(skin_nodes[si][k], wm);
+      Mat4 w;
+      for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) w.m[c][rr] = wm[c * 4 + rr];
+      ms.bind_mats[k] = w * ms.inverse_bind[k];
+    }
+  }
   // Paylasilan kemikler (birlesik olmayan yol): s'nin HER eklemi (ayni dugum) p'de varsa s, p'nin pozundan doldurulur (pose_from).
   for (uint32_t sa = 0; ok && sa < nskin; sa++)
     for (uint32_t p = 0; ok && p < nskin; p++) {
@@ -918,7 +950,11 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       out->instances[ninst].kemik_skin1 = iskeletli ? 0 : kemik_skin1;
       out->instances[ninst].kemik = iskeletli ? 0 : kemik;
       out->instances[ninst].kemik_bag = kemik_bag;
-      extend_bounds(out, world, out->meshes[mesh_first[m] + k].verts, out->meshes[mesh_first[m] + k].vertex_count, &first_bound);
+      const ModelMesh &bm = out->meshes[mesh_first[m] + k];
+      if (iskeletli && bm.skin_verts && out->skins[bm.skin].bind_mats)   // iskeletli: glTF bag pozu (mesh dugumu YOK SAYILIR)
+        extend_bounds_skinned(out, out->skins[bm.skin], bm.skin_verts, bm.vertex_count, &first_bound);
+      else
+        extend_bounds(out, world, bm.verts, bm.vertex_count, &first_bound);
       ninst++;
     }
   }
@@ -1424,8 +1460,8 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
       }
       if (pose && (uint32_t)skin < kModelMaxSkins && pose->skin_mats[skin])
         r.draw_skinned(mesh, mh, world, tint, pose->skin_mats[skin], pose->joint_count[skin]);
-      else if ((uint32_t)skin < m.skin_count)
-        r.draw_skinned(mesh, mh, world, tint, kBindPose, m.skins[skin].joint_count);
+      else if ((uint32_t)skin < m.skin_count)   // glTF bag pozu (bind_mats; yuklemeden gelmeyen elle kurulu modelde birim)
+        r.draw_skinned(mesh, mh, world, tint, m.skins[skin].bind_mats ? m.skins[skin].bind_mats : kBindPose, m.skins[skin].joint_count);
       if (lod_counts) lod_counts[slevel]++;
       continue;
     }

@@ -499,3 +499,47 @@ ENGINE_TEST(model_fbx_tarzi_kok_ustu_ve_kati_parca) {
   arena().reset_to(mark);
 }
 
+
+// --- 8) bağ pozu skin matrisleri (ModelSkin::bind_mats) --------------------------------------------------------------------------
+// Pozsuz iskeletli mesh ve model sınırları glTF bağ pozuyla: S_bag[j] = W_bag(eklem j) * IBM[j]. Eskiden S birim varsayıldı (Fab "Mike":
+// ata düğümlerinde X -90 derece + 0,01 ölçek — pozsuz yatık ve 100 kat, sınırlar 160 "m", cm tahmini 0,01'i İKİNCİ kez uyguladı ve pozlu
+// Mike 1,6 cm'e çöktü; TUZAKLAR 8eh). Kapı: bind_mats, poz yolunun bağ TRS'iyle (pre * to_model * IBM) ürettiğine 1e-4 içinde eşit —
+// yani pozsuz çizim ile "klibi bağ pozunda durdur" aynı şekli verir. KONTROL: fbx_tarzi'de bind_mats birim DEĞİL (eski varsayım farklı
+// çizerdi) ve sınırlar ham köşe sınırından farklı.
+ENGINE_TEST(model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni) {
+  const char *const dosyalar[] = {"fbx_tarzi_karakter.gltf", "iki_skin_karakter.gltf"};
+  for (const char *ad : dosyalar) {
+    char yol[1024];
+    if (!asset_path(yol, sizeof yol, ad)) { skip("tests/assets bag pozu varligi yok"); return; }
+    const size_t mark = arena().mark();
+    static Model m;
+    m = Model{};
+    CHECK(gltf_load(arena(), yol, &m) && m.skin_count >= 1);
+    static PoseScratch sc;
+    float sapma = 0, birimden = 0;
+    for (uint32_t si = 0; si < m.skin_count; si++) {
+      const ModelSkin &sk = m.skins[si];
+      CHECK(sk.bind_mats != nullptr);
+      if (!sk.bind_mats) continue;
+      for (uint32_t j = 0; j < sk.joint_count; j++) { sc.t[j] = sk.joints[j].bind_t; sc.r[j] = sk.joints[j].bind_r; sc.s[j] = sk.joints[j].bind_s; }
+      sim::LocalPose lp{sc.t, sc.r, sc.s, sk.joint_count};
+      sim::ClipSampler::to_model(sim::Skeleton{sk.joints, sk.joint_count}, lp, sc.model);
+      for (uint32_t j = 0; j < sk.joint_count; j++) {
+        const Mat4 beklenen = (sk.pre_birim ? sc.model[j] : sk.pre * sc.model[j]) * sk.inverse_bind[j];
+        for (int a = 0; a < 4; a++) for (int b = 0; b < 4; b++) {
+          const float d = std::fabs(beklenen.m[a][b] - sk.bind_mats[j].m[a][b]);
+          const float ref = std::fabs(beklenen.m[a][b]) > 1.0f ? std::fabs(beklenen.m[a][b]) : 1.0f;
+          if (d / ref > sapma) sapma = d / ref;
+          const float bi = std::fabs(sk.bind_mats[j].m[a][b] - (a == b ? 1.0f : 0.0f));
+          if (bi > birimden) birimden = bi;
+        }
+      }
+    }
+    CHECK(sapma < 1e-4f);
+    const bool fbx = std::strstr(ad, "fbx") != nullptr;
+    if (fbx) CHECK(birimden > 0.5f);   // KONTROL: birim varsayımı bu modelde farklı çizerdi
+    std::printf("    [bilgi] %s: bind_mats ~ pre*to_model*IBM (bagil sapma %.2g), birimden en cok %.3f, sinir y %.3f..%.3f\n", ad, (double)sapma,
+                (double)birimden, (double)m.bounds_min.y, (double)m.bounds_max.y);
+    arena().reset_to(mark);
+  }
+}

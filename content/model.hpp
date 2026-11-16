@@ -79,6 +79,11 @@ struct ModelSkin {
   // Poz: model[j] = pre * to_model(...)[j]. Birimse carpilmaz (pre_birim): eski iskeletler bit esit kalir.
   Mat4 pre;
   bool pre_birim = true;
+  // BAG POZU SKIN MATRISLERI (2026-11-16, Fab "Mike"): bind_mats[j] = W_bag(eklem j) * IBM[j] — glTF'in pozsuz sonucu. BIRIM DEGIL:
+  // eklemin atalari (Sketchfab koku: X -90 derece, olcek 0,01) ters bagda yoksa koseler ancak bununla dikilir ve metreye iner.
+  // Pozsuz cizim ve model sinirlari bunu kullanir; eskiden birim varsayilip ham kose cizildi (Mike yatik + 100 kat) ve sinirlar
+  // mesh dugumunden alindi (160 "m" -> cm tahmini 0,01'i IKINCI kez uyguladi, pozlu Mike 1,6 cm). TUZAKLAR 8eh.
+  Mat4 *bind_mats = nullptr;   // [joint_count] (Arena)
 };
 // A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
 // Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).
