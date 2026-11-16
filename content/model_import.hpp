@@ -44,6 +44,13 @@ struct ModelImportSettings {
   //     RGBA kalir — CPU cozumu bellek kazandirmaz — ve Model::note bunu soyler.
   uint32_t doku_en_cok = 0;
   bool doku_astc = false;
+  // A6 yeniden hedefleme: `animasyon_kaynak <dosya>` (modelin dizinine gore; .glb/.gltf). Yuklemede o dosyanin iskeletli klipleri bu
+  // modelin iskeletine uygulanir ve EKLENIR (content/retarget). Bos = yok. Oyun / editor / telefon ayni gltf_load yolundan gecer.
+  // Mixamo her animasyonu AYRI dosyada verir ("Walking.glb", klip adi "mixamo.com"): anahtar en cok 8 kez yazilir; tek klipli kaynakta
+  // aktarilan klip DOSYA ADINI alir ("Walking") — otomatik animator rolleri buradan bulur.
+  static constexpr uint32_t kAnimKaynakMax = 8;
+  char anim_kaynak[kAnimKaynakMax][96] = {};
+  uint32_t anim_kaynak_n = 0;
 };
 bool model_import_equal(const ModelImportSettings &a, const ModelImportSettings &b);
 float model_unit_meters(ModelUnit u);

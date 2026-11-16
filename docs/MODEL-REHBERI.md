@@ -50,6 +50,16 @@ File → Import → FBX → (Mixamo ise Action Editor'da klipleri yeniden adland
    Kodla: nesneyi neyle hareket ettirirsen ettir (`sahne_konum_ver`, fizik), animatör hızı hareketten okur. Zıplama gibi anlık işler:
    `sahne_animator_tetik(sahne_bul("ad"), "zipla")`.
 
+## Mixamo animasyonunu kendi karakterine uygulamak (A6)
+
+1. Mixamo'dan animasyonu indir (FBX ise Blender'da aç → **glTF Binary (.glb)** olarak dışa aktar), dosyaya anlamlı ad ver:
+   `Walking.glb`, `Running.glb`, `Idle.glb` — tek klipli dosyada aktarılan klip DOSYA adını alır.
+2. Dosyaları proje klasörüne koy. Karakterinin Kaynaklar karosuna **sağ tık → İçe aktarma ayarları → Animasyon kaynakları →
+   Animasyon kaynağı ekle…** (en çok 8), **Kaydet**: model yeniden yüklenir, "N klip aktarıldı" yazar.
+3. Animasyon kartında **Animatör oluştur (otomatik)**: Idle / Walking / Running adlarından bekle / yürü / koş kendiliğinden kurulur.
+Şart: iki modelin dinlenme pozu benzer olmalı (ikisi de T ya da ikisi de A). Kemik adları Mixamo, Unreal, Blender gibi yaygın
+adlandırmalardan tanınır; tanınmazsa ayar penceresi nedenini söyler.
+
 ## Sınırlar
 
 Sahne başına 64 model dosyası · model başına 64 klip, 128 eklem · telefonda karede toplam ≲ 50 bin iskeletli köşe (P20 Pro ölçümü).

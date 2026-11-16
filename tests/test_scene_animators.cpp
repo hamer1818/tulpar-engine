@@ -11,6 +11,7 @@
 #include "content/gltf.hpp"
 #include "content/scene.hpp"
 #include "content/morph_pool.hpp"
+#include "content/retarget.hpp"
 #include "content/scene_animators.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
@@ -854,5 +855,110 @@ ENGINE_TEST(sahne_64_kaynak_blobdan_gecer) {
   for (uint32_t i = 40; i < kSceneMaxAssets; i++) { std::snprintf(ad, sizeof ad, "p%u.glb", i); CHECK(d.add_asset(ad) == (int32_t)i); }
   CHECK(kSceneMaxAssets == 64 && d.add_asset("fazla.glb") == -1);   // KONTROL: tavan
   std::printf("    [bilgi] kaynak tavani %u: 40 kaynakli blob acildi, 65. reddedildi\n", kSceneMaxAssets);
+  arena().reset_to(mark);
+}
+
+// --- 13) A6 YENİDEN HEDEFLEME (2026-11-16) --------------------------------------------------------------------------------------------
+// tools/make_test_insansi.py: aynı dünya dinlenme pozu, farklı adlandırma (Mixamo / Unreal) ve hedefte FARKLI kemik eksenleri
+// (--eksen-kaydir). Kaynağın "Selam" klibi (sol kol yukarı, sağ dirsek, kalça 1 m ileri) hedefe aktarılır.
+// Kapı: 4 anda el/baş/ayak/kalça dünya konumları kaynakla 1 mm içinde AYNI. KONTROL: (a) bozuk adlı hedef reddedilir;
+// (b) yerel dönüşü olduğu gibi kopyalamak (saf yöntem) aynı hedefte konumu BELİRGİN bozar — ölçü dünya farkı yönteminden geliyor.
+namespace {
+void eklem_dunya(const ModelSkin &sk, const Vec3 *t, const Quat *r, const Vec3 *s, Vec3 *out) {
+  static Mat4 m[128];
+  sim::LocalPose lp{const_cast<Vec3 *>(t), const_cast<Quat *>(r), const_cast<Vec3 *>(s), sk.joint_count};
+  sim::ClipSampler::to_model(sim::Skeleton{sk.joints, sk.joint_count}, lp, m);
+  for (uint32_t j = 0; j < sk.joint_count; j++) {
+    const Mat4 w = sk.pre_birim ? m[j] : sk.pre * m[j];
+    out[j] = Vec3{w.m[3][0], w.m[3][1], w.m[3][2]};
+  }
+}
+} // namespace
+ENGINE_TEST(model_yeniden_hedefleme_insansi) {
+  char ky[1024], hy[1024], by[1024];
+  if (!asset_path(ky, sizeof ky, "insansi_mixamo.gltf") || !asset_path(hy, sizeof hy, "insansi_unreal.gltf") || !asset_path(by, sizeof by, "insansi_bozuk.gltf")) {
+    skip("tests/assets/insansi_*.gltf yok");
+    return;
+  }
+  const size_t mark = arena().mark();
+  static Model k, h, b;
+  k = Model{}; h = Model{}; b = Model{};
+  CHECK(gltf_load(arena(), ky, &k) && gltf_load(arena(), hy, &h) && gltf_load(arena(), by, &b));
+  CHECK(k.clip_count == 1 && h.clip_count == 0 && k.skin_count == 1 && h.skin_count == 1);
+  int16_t mk[kHumanoidBones], mh[kHumanoidBones], mb[kHumanoidBones];
+  const uint32_t nk = humanoid_map(k.skins[0], mk), nh = humanoid_map(h.skins[0], mh), nb = humanoid_map(b.skins[0], mb);
+  std::printf("    [bilgi] insansi esleme: mixamo %u, unreal %u, bozuk %u / %u\n", nk, nh, nb, kHumanoidBones);
+  CHECK(nk == kHumanoidBones && nh == kHumanoidBones && nb == 0);
+  RetargetReport rb;
+  CHECK(!model_retarget(arena(), b, k, 64, &rb) && rb.error[0] && b.clip_count == 0);   // KONTROL (a)
+  RetargetReport r;
+  CHECK(model_retarget(arena(), h, k, 64, &r) && r.clips == 1 && h.clip_count == 1 && r.mapped == kHumanoidBones);
+  if (h.clip_count != 1) { arena().reset_to(mark); return; }
+  static PoseScratch sk, sh;
+  static Vec3 wk[128], wh[128];
+  const uint32_t bak[] = {0, 4, 8, 16, 11, 19};   // kalca, bas, sol el, sag el, sol ayak, sag ayak (kanonik)
+  float en = 0, saf_en = 0;
+  for (float t : {0.0f, 0.25f, 0.5f, 1.0f}) {
+    sim::LocalPose lk{sk.t, sk.r, sk.s, k.skins[0].joint_count}, lh{sh.t, sh.r, sh.s, h.skins[0].joint_count};
+    sim::ClipSampler::sample(k.clips[0].clip, t, lk);
+    sim::ClipSampler::sample(h.clips[0].clip, t, lh);
+    eklem_dunya(k.skins[0], sk.t, sk.r, sk.s, wk);
+    eklem_dunya(h.skins[0], sh.t, sh.r, sh.s, wh);
+    for (uint32_t i : bak) {
+      const Vec3 d = wk[mk[i]] - wh[mh[i]];
+      en = std::fmax(en, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
+    }
+    // KONTROL (b): saf yontem — kaynagin YEREL donusunu hedefin eklemine aynen yaz
+    for (uint32_t i = 0; i < kHumanoidBones; i++) sh.r[mh[i]] = sk.r[mk[i]];
+    eklem_dunya(h.skins[0], sh.t, sh.r, sh.s, wh);
+    for (uint32_t i : bak) {
+      const Vec3 d = wk[mk[i]] - wh[mh[i]];
+      saf_en = std::fmax(saf_en, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
+    }
+  }
+  std::printf("    [bilgi] yeniden hedefleme: en buyuk konum farki %.5f m (saf yerel kopya %.3f m), sol el t=1: (%.3f %.3f %.3f)\n", (double)en,
+              (double)saf_en, (double)wk[mk[8]].x, (double)wk[mk[8]].y, (double)wk[mk[8]].z);
+  CHECK(en < 1e-3f);
+  CHECK(saf_en > 0.05f);   // KONTROL (b)
+  arena().reset_to(mark);
+}
+
+// A6 uçtan uca (.ayar `animasyon_kaynak`): Mixamo iş akışı — her animasyon ayrı dosya, tek klipli. Hedefe Yuru.gltf + Kos.gltf (aynı
+// kaynağın kopyaları) bağlanır: klipler DOSYA adını alır ve otomatik animatör onları yürü/koş rolüne yerleştirir. KONTROL: olmayan dosya
+// modeli düşürmez, nedeni Model::note'ta; ayarsız aynı hedefte klip yok.
+ENGINE_TEST(model_animasyon_kaynagi_ayardan) {
+  char ky[1024], hy[1024];
+  if (!asset_path(ky, sizeof ky, "insansi_mixamo.gltf") || !asset_path(hy, sizeof hy, "insansi_unreal.gltf")) { skip("tests/assets/insansi_*.gltf yok"); return; }
+  char dir[512], y[700];
+  CHECK(tmp_mkdir(dir, sizeof dir, "anim_kaynak"));
+  auto kopyala = [&](const char *a, const char *hedef_ad) {
+    std::snprintf(y, sizeof y, "%s/%s", dir, hedef_ad);
+    std::FILE *f = std::fopen(a, "rb"), *g = std::fopen(y, "wb");
+    static char bf[1 << 16];
+    size_t n;
+    while (f && g && (n = std::fread(bf, 1, sizeof bf, f)) > 0) std::fwrite(bf, 1, n, g);
+    if (f) std::fclose(f);
+    if (g) std::fclose(g);
+  };
+  kopyala(hy, "karakter.gltf");
+  kopyala(ky, "Yuru.gltf");
+  kopyala(ky, "Kos.gltf");
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  std::snprintf(y, sizeof y, "%s/karakter.gltf", dir);
+  CHECK(gltf_load(arena(), y, &m) && m.clip_count == 0);   // KONTROL: ayarsiz
+  char ayar[720];
+  std::snprintf(ayar, sizeof ayar, "%s/karakter.gltf.ayar", dir);
+  CHECK(yaz(ayar, "tulpar-model-ayar 1\nanimasyon_kaynak Yuru.gltf\nanimasyon_kaynak Kos.gltf\nanimasyon_kaynak Yok.gltf\n"));
+  m = Model{};
+  CHECK(gltf_load(arena(), y, &m));
+  std::printf("    [bilgi] animasyon_kaynak: %u klip (%s, %s), not '%s'\n", m.clip_count, m.clip_count > 0 ? m.clips[0].name : "-",
+              m.clip_count > 1 ? m.clips[1].name : "-", m.note);
+  CHECK(m.clip_count == 2 && m.retargeted_clips == 2 && !std::strcmp(m.clips[0].name, "Yuru") && !std::strcmp(m.clips[1].name, "Kos"));
+  CHECK(std::strstr(m.note, "Yok.gltf") && std::strstr(m.note, "y\xC3\xBCklenemedi"));   // KONTROL: olmayan dosya soylendi
+  static char metin[4096];
+  sim::AnimAutoReport r;
+  CHECK(animator_auto_text_model(m, metin, sizeof metin, &r) > 0 && r.walk == 0 && r.run == 1);
   arena().reset_to(mark);
 }

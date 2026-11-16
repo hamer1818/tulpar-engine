@@ -84,6 +84,8 @@ struct ModelSkin {
   // Pozsuz cizim ve model sinirlari bunu kullanir; eskiden birim varsayilip ham kose cizildi (Mike yatik + 100 kat) ve sinirlar
   // mesh dugumunden alindi (160 "m" -> cm tahmini 0,01'i IKINCI kez uyguladi, pozlu Mike 1,6 cm). TUZAKLAR 8eh.
   Mat4 *bind_mats = nullptr;   // [joint_count] (Arena)
+  // A6 yeniden hedefleme (2026-11-16): eklem dugum adlari (insansi esleme kemigi adindan bulur). [joint_count][kModelJointNameLen]
+  char (*joint_names)[48] = nullptr;
 };
 // A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
 // Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).
@@ -188,6 +190,7 @@ struct Model {
   char error[160] = {0};
   // DOKU AYARI (madde 3c; .ayar doku_en_cok / doku_sikistir): yuklemede kucultulen goruntu sayisi ve ASTC istegi + onbellek dizini.
   uint32_t images_downscaled = 0;
+  uint32_t retargeted_clips = 0;   // A6: animasyon_kaynak'tan aktarilan klip sayisi
   bool tex_astc = false;
   char tex_cache_dir[300] = {0};
   int32_t bounds_clip = -1;   // sinirlar hangi klibin ilk karesinden (bekleme klibi); -1 = bag pozu / iskeletsiz

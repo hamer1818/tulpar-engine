@@ -4,6 +4,7 @@
 #include "content/mesh_import.hpp"
 #include "content/model_import.hpp"
 #include "content/ktx2.hpp"
+#include "content/retarget.hpp"
 #include "platform/fs.hpp"
 
 #include <algorithm>
@@ -313,6 +314,31 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   }
   out->tex_astc = ayar.doku_astc;
   if (ayar.doku_astc) std::snprintf(out->tex_cache_dir, sizeof out->tex_cache_dir, "%s.doku", path);
+  // A6: animasyon_kaynak — baska dosyanin iskeletli klipleri bu iskelete. Kaynak HAM yuklenir (kendi .ayar'i okunmaz: zincir olmasin);
+  // basarisizlik modeli dusurmez, nedeni Model::note'a yazilir (sessiz degil).
+  for (uint32_t ak = 0; ak < ayar.anim_kaynak_n; ak++) {
+    const char *ad = ayar.anim_kaynak[ak];
+    char kaynak[1200];
+    const char *son = std::strrchr(path, '/');
+    std::snprintf(kaynak, sizeof kaynak, "%.*s%s", son ? (int)(son - path + 1) : 0, path, ad);
+    char tek[64];   // dosya adi (dizinsiz, uzantisiz): tek klipli kaynakta klibin adi
+    const char *ds = std::strrchr(ad, '/');
+    std::snprintf(tek, sizeof tek, "%s", ds ? ds + 1 : ad);
+    if (char *nokta = std::strrchr(tek, '.')) *nokta = 0;
+    static Model km;   // yalniz yukleme aninda (klipler hedefe kopyalanir); tek is parcacigi
+    km = Model{};
+    RetargetReport rr;
+    const size_t nl = std::strlen(out->note);
+    if (!gltf_load_file(arena, kaynak, &km, lim)) {
+      std::snprintf(out->note + nl, sizeof out->note - nl, "%sanimasyon_kayna\xC4\x9F\xC4\xB1 y\xC3\xBCklenemedi: %s", nl ? " \xC2\xB7 " : "", ad);
+    } else if (!model_retarget(arena, *out, km, lim.max_clips, &rr, tek)) {
+      std::snprintf(out->note + nl, sizeof out->note - nl, "%s%s aktar\xC4\xB1lamad\xC4\xB1: %s", nl ? " \xC2\xB7 " : "", ad, rr.error);
+    } else {
+      out->retargeted_clips += rr.clips;
+      std::snprintf(out->note + nl, sizeof out->note - nl, "%s%s: %u klip (%u kemik)%s", nl ? " \xC2\xB7 " : "", ad, rr.clips, rr.mapped,
+                    rr.clips_dropped ? ", baz\xC4\xB1lar\xC4\xB1 tavan\xC4\xB1 a\xC5\x9Ft\xC4\xB1" : "");
+    }
+  }
   return true;
 }
 
@@ -773,6 +799,14 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) if (pre.m[c][rr] != (c == rr ? 1.0f : 0.0f)) birim = false;
     ms.pre = pre;
     ms.pre_birim = birim;
+  }
+  // A6: eklem adlari (yeniden hedefleme insansi eslemesi)
+  for (uint32_t si = 0; ok && si < nskin; si++) {
+    ModelSkin &ms = out->skins[si];
+    ms.joint_names = reinterpret_cast<char (*)[48]>(arena.alloc_array_zeroed<char>((size_t)(ms.joint_count ? ms.joint_count : 1) * 48));
+    if (!ms.joint_names) { set_error(out, "arena dolu (skin)", nullptr); ok = false; break; }
+    for (uint32_t k = 0; k < ms.joint_count; k++)
+      std::snprintf(ms.joint_names[k], 48, "%s", skin_nodes[si][k]->name ? skin_nodes[si][k]->name : "");
   }
   // Bag pozu skin matrisleri (ModelSkin::bind_mats): dugumun glTF dunya matrisi (pre dahil butun atalar) * ters bag.
   for (uint32_t si = 0; ok && si < nskin; si++) {

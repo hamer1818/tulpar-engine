@@ -103,13 +103,21 @@ Bugün animasyon yalnız oyun kodundan çağrılabiliyor; editörde modeli seçi
 - Editör Stats panelinde **iskeletli köşe/kare** göstergesi + cihaz sınıfı bütçesi (`device_tier`): aşılınca uyarı (kare süresi dalgalanmasından önce).
 - **Kapı:** `render_karakter_butcesi_olcum` cihazda koşar (`tools/android_run.sh tests render_karakter`); LOD açıkken aynı sahnede fark ölçülür (önce/sonra tablosu).
 
-### Faz A6 — Karakter yeniden hedefleme (L, **ertele**)
-Mixamo'dan indirilen bir animasyonu başka karaktere uygulamak (humanoid eşleme). Değerli ama büyük; A1–A4 bitip gerçek bir karakter oyunu ihtiyacı doğunca açılır.
+### Faz A6 — Karakter yeniden hedefleme ✅ (2026-11-16)
+Mixamo'dan indirilen bir animasyonu başka karaktere uygulamak (humanoid eşleme). `content/retarget.*`: eklem adlarından 21 kanonik kemik
+(Mixamo / Unreal / Blender-Rigify / genel / Sketchfab ekleri; parmak ve uç kemikler atlanır), dünya uzayında dinlenme farkı
+(W_h = W_k(anim)·W_k(dinlenme)⁻¹·W_h(dinlenme)) — kemik eksen gelenekleri farklı olsa da doğru; kalça ötelemesi kalça yüksekliği oranıyla.
+`.ayar` `animasyon_kaynak <dosya>` (en çok 8; tek klipli kaynakta klip DOSYA adını alır: Walking.glb -> "Walking", otomatik animatör
+rolü buradan bulur); editör içe aktarma ayarlarında "Animasyon kaynakları" listesi, Kaydet modeli yeniden yükler. Kapılar:
+`model_yeniden_hedefleme_insansi` (`tools/make_test_insansi.py`: Mixamo kaynak -> eksenleri kaydırılmış Unreal hedef, 4 anda el/baş/
+ayak/kalça 0,03 mm; kontrol: saf yerel kopya 1,46 m sapar, bozuk adlı hedef reddedilir), `model_animasyon_kaynagi_ayardan` (Yuru/Kos
+dosya adlı klipler, otomatik animatör yürü/koş; kontrol: olmayan dosya modeli düşürmez, notta). **Sınır:** iki modelin dinlenme pozu
+benzer olmalı (T↔A farkı kollarda kalır).
 
 ## 4. Sıra ve bağımlılık
 
 ```
-A1 (editörde gör) → A2 (geçiş) → M1 (içe aktarma sağlamlığı) → M2 (STL/OBJ) → A3 (animatör) → A7 (iskeletli LOD) → A4 (olay/kök) → P1 (kodla mesh) → P2 (editörde çokgen) → A5 → [A6]
+A1 (editörde gör) → A2 (geçiş) → M1 (içe aktarma sağlamlığı) → M2 (STL/OBJ) → A3 (animatör) → A7 (iskeletli LOD) → A4 (olay/kök) → P1 (kodla mesh) → P2 (editörde çokgen) → A5 → A6 ✅
 ```
 Gerekçe: kullanıcı animasyonları ve hareketi beğendi — **en görünür kazanç A1/A2**. M1 sınır hatalarını açar (yoksa gerçek bir model sessizce sığmaz). STL/OBJ küçük ve bağımsız.
 A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).

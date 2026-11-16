@@ -2745,3 +2745,10 @@ normalleştirme) ve `doku_sikistir astc` (cihaz ASTC LDR destekliyorsa 6x6 + mip
 ve `astc_unsupported`); bütçe satırı `doku ≈ N MB` + 128 MB üstünde UYARI; editör içe aktarma ayarlarında iki alan, Kaydet modeli yeniden
 yükler. Kapılar: `model_doku_siniri_yarilar` (188/128/218 elle hesaplı; kontrol: sınır altı dokunulmaz), `model_doku_astc_onbellekli`
 (P20 Pro: 1. yükleme kodladı, 2. önbellekten; masaüstü: RGBA + söylendi). **Kural:** "yüklendi" özeti bellek bütçesini de söylemeli.
+
+### 8eo. Android uzantı süzgecinin İKİNCİ kopyası (motorun test/demo APK'sı) eksik kaldı
+**Belirti (önlenen):** 8ed'de `bridge/asset_filter.hpp` düzeltilmişti; `app/android_main.cpp` (motorun kendi test/demo APK'sı) ayrı bir
+elle listeyle çıkarıyordu ve `.jpeg`, `.ayar`, `.animator` orada yoktu — Mike'ın `.jpeg` dokuları ve `animasyon_kaynak` ayarı test APK'sında
+sessizce düşerdi (2026-11-16, A6 sırasında kodda fark edildi). **Düzeltme:** `android_main` artık `bridge::android_asset_wanted`'ı çağırır:
+tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağırsın.
+

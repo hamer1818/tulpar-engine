@@ -1938,6 +1938,46 @@ void model_ayar_penceresi(EditorState &st) {
       prop_check("ASTC s\xC4\xB1k\xC4\xB1\xC5\x9Ft\xC4\xB1r (telefon)", &ma.duzen.doku_astc);
       prop_end();
     }
+    {   // A6: animasyon kaynaklari (yeniden hedefleme). Mixamo gibi ayri dosyalardaki animasyonlar bu karaktere uygulanir.
+      ImGui::SeparatorText("Animasyon kaynaklar\xC4\xB1");
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("Ba\xC5\x9Fka bir modelin (\xC3\xB6r. Mixamo'dan indirilen Walking.glb) animasyonlar\xC4\xB1 bu karaktere uygulan\xC4\xB1r; "
+                          "tek klipli dosyada klip dosyan\xC4\xB1n ad\xC4\xB1n\xC4\xB1 al\xC4\xB1r. \xC4\xB0ki modelin dinlenme pozu benzer olmal\xC4\xB1 (ikisi de T ya da A).");
+      ImGui::PopTextWrapPos();
+      int sil = -1;
+      for (uint32_t k = 0; k < ma.duzen.anim_kaynak_n; k++) {
+        ImGui::PushID((int)k);
+        if (ImGui::SmallButton(ICON_MD_CLOSE)) sil = (int)k;
+        ImGui::SameLine();
+        ImGui::TextUnformatted(ma.duzen.anim_kaynak[k]);
+        ImGui::PopID();
+      }
+      if (sil >= 0) {
+        for (uint32_t k = (uint32_t)sil; k + 1 < ma.duzen.anim_kaynak_n; k++) std::memcpy(ma.duzen.anim_kaynak[k], ma.duzen.anim_kaynak[k + 1], sizeof ma.duzen.anim_kaynak[0]);
+        ma.duzen.anim_kaynak_n--;
+      }
+      ImGui::BeginDisabled(ma.duzen.anim_kaynak_n >= content::ModelImportSettings::kAnimKaynakMax);
+      ImGui::SetNextItemWidth(-FLT_MIN);
+      if (ImGui::BeginCombo("##anim_kaynak_ekle", ICON_MD_ADD " Animasyon kayna\xC4\x9F\xC4\xB1 ekle\xE2\x80\xA6")) {
+        for (uint32_t k = 0; k < st.browse_count; k++) {
+          const AssetFile &bf = st.browse[k];
+          if (bf.kind != AssetKind::Model || !std::strcmp(bf.name, ma.dosya) || std::strchr(bf.name, ' ')) continue;
+          bool zaten = false;
+          for (uint32_t q = 0; q < ma.duzen.anim_kaynak_n; q++) zaten |= !std::strcmp(ma.duzen.anim_kaynak[q], bf.name);
+          if (zaten) continue;
+          if (ImGui::Selectable(bf.name) && std::strlen(bf.name) < sizeof ma.duzen.anim_kaynak[0])
+            std::snprintf(ma.duzen.anim_kaynak[ma.duzen.anim_kaynak_n++], sizeof ma.duzen.anim_kaynak[0], "%s", bf.name);
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::EndDisabled();
+      if (m && m->retargeted_clips) ImGui::TextColored(tone(Tone::Ok), ICON_MD_CHECK " %u klip aktar\xC4\xB1ld\xC4\xB1", m->retargeted_clips);
+      if (m && m->note[0] && std::strstr(m->note, "aktar\xC4\xB1lamad\xC4\xB1")) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(tone(Tone::Warn), ICON_MD_WARNING " %s", m->note);
+        ImGui::PopTextWrapPos();
+      }
+    }
     if (!(ma.duzen.scale > 0.0f)) ma.duzen.scale = once.scale;
     if (ma.duzen.fit < 0.0f) ma.duzen.fit = 0.0f;
     if (ma.duzen.lod1 > 0.0f && ma.duzen.lod2 < ma.duzen.lod1) ma.duzen.lod2 = ma.duzen.lod1;   // ayristirici lod2 < lod1'i reddeder
@@ -1963,7 +2003,9 @@ void model_ayar_penceresi(EditorState &st) {
     ImGui::BeginDisabled(!degisti);
     if (ImGui::Button(ICON_MD_SAVE " Kaydet")) {
       if (content::model_import_save(yol, ma.duzen)) {
-        if (ma.asset >= 0 && (ma.duzen.doku_en_cok != ma.ilk.doku_en_cok || ma.duzen.doku_astc != ma.ilk.doku_astc)) ma.yeniden_yukle = ma.asset;
+        bool kaynak_degisti = ma.duzen.anim_kaynak_n != ma.ilk.anim_kaynak_n;
+        for (uint32_t k = 0; k < ma.duzen.anim_kaynak_n && !kaynak_degisti; k++) kaynak_degisti = std::strcmp(ma.duzen.anim_kaynak[k], ma.ilk.anim_kaynak[k]) != 0;
+        if (ma.asset >= 0 && (ma.duzen.doku_en_cok != ma.ilk.doku_en_cok || ma.duzen.doku_astc != ma.ilk.doku_astc || kaynak_degisti)) ma.yeniden_yukle = ma.asset;
         ma.ilk = ma.duzen;
         ma.hata[0] = 0;
         const bool vars = content::model_import_equal(ma.duzen, content::model_import_defaults(yol));
@@ -8618,7 +8660,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (st.model_ayar.yeniden_yukle >= 0) {   // madde 3c: doku ayari degisti -> kaynak yeniden yuklenir (GPU dokulari yeniden)
       const int32_t ya = st.model_ayar.yeniden_yukle;
       st.model_ayar.yeniden_yukle = -1;
-      if (load_asset(ya)) set_status(st, "doku ayar\xC4\xB1 uyguland\xC4\xB1: %s yeniden y\xC3\xBCklendi", st.scene.assets[ya]);
+      if (load_asset(ya)) set_status(st, "model ayar\xC4\xB1 uyguland\xC4\xB1: %s yeniden y\xC3\xBCklendi (%u klip)", st.scene.assets[ya], st.models[ya].clip_count);
     }
     // --- GECMIS paneli: kullanici eylemleri listesi; satira tikla = o ana don (editorun do_undo/do_redo'su) -----------------
     {
