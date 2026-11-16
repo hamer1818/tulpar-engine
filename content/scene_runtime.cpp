@@ -246,6 +246,8 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
   // A8: animatorler (kodsuz). Modeli yuklenmemis varlik atlanir (cizilmiyor zaten); dosya/ayristirma/klip hatasi SAYILIR ve son
   // hatanin metni stats_.animator_error'da (kopru sahne yuklerken HATA basar) — sessiz "animasyon donuk" degil.
   animators_.clear();
+  morph_.reset();
+  for (uint32_t a = 0; a < kSceneMaxAssets; a++) morph_klip_[a] = a < view.h->asset_count && have_[a] && model_has_morph_clips(models_[a]);
   for (uint32_t i = 0; i < view.h->anim_count; i++) {
     const char *ctrl = view.anim_ctrl(i);
     if (!ctrl[0]) continue;
@@ -621,6 +623,7 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
   stats_.draws = 0;
   stats_.lights = 0;
   for (uint32_t k = 0; k <= kModelMaxLods; k++) stats_.lod[k] = 0;
+  morph_.begin_frame();
   ModelLod lod;
   lod.camera_pos = cam_pos;
   lod.distance1 = 24.0f;
@@ -646,7 +649,19 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
     }
     if (d.asset < 0 || (uint32_t)d.asset >= kSceneMaxAssets || !have_[d.asset]) continue;
     const Model &mdl = models_[d.asset];
-    const UploadedModel &up = ups_[d.asset];
+    const UploadedModel *upp = &ups_[d.asset];
+    // A5: morph — karisim listesi (animator ya da tek klip) yuz ifadesini de surer; kopya mesh'ler MorphPool'da (editorle ayni).
+    if (e.anim >= 0 && morph_klip_[d.asset]) {
+      PoseMixEntry me[sim::kAnimMaxEntries];
+      uint32_t mn = 0;
+      if (animators_.has(d.entity)) mn = animators_.mix(d.entity, me, sim::kAnimMaxEntries);
+      else {
+        const SceneBlobAnim &a = view_.anims[e.anim];
+        if (a.clip < mdl.clip_count) { me[0] = {a.clip, scene_anim_time(a.mode, time_s * a.speed + a.phase, mdl.clips[a.clip].duration), 1.0f}; mn = 1; }
+      }
+      if (const UploadedModel *mu = morph_.frame(r, d.entity, d.asset, mdl, ups_[d.asset], me, mn)) upp = mu;
+    }
+    const UploadedModel &up = *upp;
     bool drew = false;
     if (e.anim >= 0 && pose_scratch_ && animators_.has(d.entity)) {   // A8: animator klip/faz/hiz alanlarini EZER
       ModelPose pose;

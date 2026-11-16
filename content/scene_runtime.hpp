@@ -11,6 +11,7 @@
 #include "content/model.hpp"
 #include "content/particles.hpp"
 #include "content/primitives.hpp"
+#include "content/morph_pool.hpp"
 #include "content/scene_animators.hpp"
 #include "content/scene_blob.hpp"
 #include "content/terrain.hpp"
@@ -160,6 +161,7 @@ public:
   // A8: sahne animatorleri (salt okunur: gecerli durum adi, otomatik parametreler — kapi ve kopru gostergesi).
   const SceneAnimators &animators() const { return animators_; }
   SceneAnimators &animators() { return animators_; }   // kopru: betikten tetik / parametre
+  const MorphPool &morph() const { return morph_; }   // A5: morph yuvasi / guncelleme sayaclari
 
 private:
   SceneBlobView view_;
@@ -174,6 +176,8 @@ private:
   int32_t *ent_char_ = nullptr;          // [entity_count] -> tablo indeksi, -1 yok
   PoseScratch *pose_scratch_ = nullptr;
   SceneAnimators animators_;   // A8 (sabit diziler: ~100 KB; SceneRuntime hep statik/kalici omurlu)
+  MorphPool morph_;            // A5: sahne varliklarinda morph (klip / animator karisimi); editorle AYNI sinif
+  bool morph_klip_[kSceneMaxAssets] = {};   // kaynakta morph'lu mesh'i suren klip var mi (yuklemede)
   SceneRuntimeStats stats_;
   SceneGi gi_; // ok()==false (bake yok) ise apply_world eski davranista kalir
   // --- v6 bilesenleri -------------------------------------------------------

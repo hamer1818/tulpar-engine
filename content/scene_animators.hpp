@@ -43,6 +43,8 @@ public:
   // Hız doğrudan (editörün "Önizleme hızı" kaydırıcısı: oynatmadan bekle → yürü → koş denenir). Aynı yumuşatma + ilerletme.
   void step_params(uint32_t ent, float speed, float vertical, float dt);
   bool pose(uint32_t ent, PoseScratch &scratch, ModelPose *pose) const;
+  // Şu anki karışım listesi (klip, an, ağırlık): poz ve MORPH ağırlıkları aynı listeden (MorphPool). Dönüş: girdi sayısı (0 = yok).
+  uint32_t mix(uint32_t ent, PoseMixEntry *out, uint32_t cap) const;
   const char *state_name(uint32_t ent) const;      // "" = animatör yok
   const char *path(uint32_t ent) const;            // "" = animatör yok
   float param(uint32_t ent, const char *name) const;   // test/gösterge; yoksa 0

@@ -10,6 +10,7 @@
 
 #include "content/gltf.hpp"
 #include "content/scene.hpp"
+#include "content/morph_pool.hpp"
 #include "content/scene_animators.hpp"
 #include "content/scene_blob.hpp"
 #include "content/scene_runtime.hpp"
@@ -666,4 +667,99 @@ ENGINE_TEST(model_siniri_bekleme_klibinin_ilk_karesinden) {
     }
     buyuk.reset_to(mk);
   }
+}
+
+// --- 10) MORPH: karışım ağırlıkları + sahne çalışma zamanı (A5 devamı, 2026-11-16) --------------------------------------------------
+// Eskiden morph yalnız köprünün kendi varlıklarında, tek klip için çiziliyordu: `.sahne` varlığında ve editörde yüz ifadesi oynamıyor,
+// geçiş/animatör karışımında morph izi karışmıyordu. model_mix_morph_weights: w = Σ a_i * W_i(t_i).
+// KONTROL: ağırlığı 0 girdi katkı vermez; morph'suz mesh 0 döner.
+ENGINE_TEST(morph_karisim_agirliklari) {
+  char yol[1024];
+  if (!asset_path(yol, sizeof yol, "khronos_AnimatedMorphCube.glb")) { skip("tests/assets/khronos_AnimatedMorphCube.glb yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.clip_count == 1 && model_has_morph_clips(m));
+  const float t1 = m.clips[0].duration * 0.25f, t2 = m.clips[0].duration * 0.6f;
+  float a[kModelMaxMorph], b[kModelMaxMorph], k[kModelMaxMorph], z[kModelMaxMorph];
+  const uint32_t na = model_clip_morph_weights(m, 0, t1, 0, a);
+  const uint32_t nb = model_clip_morph_weights(m, 0, t2, 0, b);
+  const PoseMixEntry me[2] = {{0, t1, 0.3f}, {0, t2, 0.7f}};
+  const uint32_t nk = model_mix_morph_weights(m, me, 2, 0, k);
+  CHECK(na == 2 && nb == 2 && nk == 2);
+  float hata = 0;
+  for (uint32_t t = 0; t < 2; t++) hata = std::fmax(hata, std::fabs(k[t] - (0.3f * a[t] + 0.7f * b[t])));
+  const PoseMixEntry sifir[2] = {{0, t1, 0.0f}, {0, t2, 1.0f}};
+  model_mix_morph_weights(m, sifir, 2, 0, z);
+  std::printf("    [bilgi] morph karisim: t1 (%.3f %.3f) t2 (%.3f %.3f) -> 0.3/0.7 (%.3f %.3f), hata %.2g\n", (double)a[0], (double)a[1], (double)b[0],
+              (double)b[1], (double)k[0], (double)k[1], (double)hata);
+  CHECK(hata < 1e-6f && std::fabs(a[0] - b[0]) + std::fabs(a[1] - b[1]) > 0.01f);   // iki an gercekten farkli
+  CHECK(std::fabs(z[0] - b[0]) < 1e-6f && std::fabs(z[1] - b[1]) < 1e-6f);             // KONTROL: 0 agirlik katki vermez
+  static Model kutu;
+  kutu = Model{};
+  if (asset_path(yol, sizeof yol, "khronos_Box.glb")) {
+    CHECK(gltf_load(arena(), yol, &kutu) && model_mix_morph_weights(kutu, me, 2, 0, z) == 0 && !model_has_morph_clips(kutu));   // KONTROL
+  }
+  arena().reset_to(mark);
+}
+
+// Sahne çalışma zamanı uçtan uca (GPU): AnimatedMorphCube + animasyon bileşeni -> MorphPool her karede kopya mesh'i günceller.
+// KONTROL: animasyon bileşeni olmayan aynı varlıkta hiç güncelleme yok (yuva alınmaz).
+ENGINE_TEST(sahne_runtime_morph_oynar) {
+  char kaynak[1024];
+  if (!asset_path(kaynak, sizeof kaynak, "khronos_AnimatedMorphCube.glb")) { skip("tests/assets/khronos_AnimatedMorphCube.glb yok"); return; }
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  const size_t mark = arena().mark();
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(arena(), api, dc)) { skip("Vulkan cihazi yok"); arena().reset_to(mark); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, arena(), oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); arena().reset_to(mark); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0;
+  if (!ren.init(dev, arena(), rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); arena().reset_to(mark); return; }
+  char dir[512], yol[700];
+  CHECK(tmp_mkdir(dir, sizeof dir, "sahne_rt_morph"));
+  {
+    std::FILE *f = std::fopen(kaynak, "rb");
+    std::snprintf(yol, sizeof yol, "%s/kup.glb", dir);
+    std::FILE *g = std::fopen(yol, "wb");
+    static char bf[1 << 16];
+    size_t n;
+    while (f && g && (n = std::fread(bf, 1, sizeof bf, f)) > 0) std::fwrite(bf, 1, n, g);
+    if (f) std::fclose(f);
+    if (g) std::fclose(g);
+  }
+  static SceneDesc d;
+  static SceneRuntime rt;
+  SceneError err{};
+  uint32_t guncelleme[2] = {}, yuva[2] = {};
+  for (int tur = 0; tur < 2; tur++) {
+    sahne_kur(d, "kup.glb", "");
+    if (tur == 1) d.entities[0].components = kSceneModel;   // KONTROL: animasyonsuz
+    const size_t need = scene_blob_compile(d, nullptr, 0);
+    void *buf = arena().alloc(need, kSceneBlobAlign);
+    SceneBlobView v;
+    CHECK(buf && scene_blob_compile(d, buf, need) == need && scene_blob_open(buf, need, &v, &err));
+    CHECK(rt.init(arena(), ren, v, dir) && rt.stats().assets_loaded == 1);
+    for (int k = 0; k < 5; k++) {
+      ren.begin_frame(0);
+      rt.draw(ren, Vec3{0, 0, 5}, 0.2f * (float)k, nullptr);
+    }
+    guncelleme[tur] = rt.morph().stats().updates;
+    yuva[tur] = rt.morph().stats().slots_used;
+  }
+  std::printf("    [bilgi] sahne morph: animasyonlu %u guncelleme (%u yuva), animasyonsuz %u\n", guncelleme[0], yuva[0], guncelleme[1]);
+  CHECK(guncelleme[0] == 5 && yuva[0] == 1);
+  CHECK(guncelleme[1] == 0);
+  ren.shutdown();
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+  arena().reset_to(mark);
 }

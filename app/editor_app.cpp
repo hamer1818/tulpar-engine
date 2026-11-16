@@ -60,6 +60,7 @@
 // scene_runtime.hpp'de bildirildi) -- editorde gorulen sey oyunda cikan sey
 // olsun diye; ikinci bir geometri kopyasi YOK.
 #include "content/scene_runtime.hpp"
+#include "content/morph_pool.hpp"
 #include "content/scene_animators.hpp"
 #include "app/editor_animator_grafik.hpp"
 #include "app/editor_animator_metin.hpp"
@@ -930,6 +931,8 @@ Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i) {
 // karttaki "Onizleme hizi" kaydiricisindan gelir. Baglar IMZA degisince yeniden kurulur: varlik/dosya/model degisti, Kod panelinde
 // .animator kaydedildi, oynatma ya da onizleme basladi/bitti (her biri baslangic durumundan temiz baslasin).
 content::SceneAnimators g_sahne_anim;
+content::MorphPool g_morph;                          // A5: editorde morph (oyunla ayni sinif)
+bool g_morph_klip[content::kSceneMaxAssets] = {};   // kaynakta morph'lu mesh'i suren klip var mi (kaynak yuklenince)
 uint64_t g_sahne_anim_imza = 0;
 float g_anim_onizle_hiz = 0.0f;   // kart kaydiricisi (m/s); yalniz Onizle'de kullanilir
 uint32_t g_anim_hata_sayisi = 0;
@@ -2459,6 +2462,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   // Kaynak yukleme (glTF -> GPU); tarayicidan eklenen kaynak da buradan gecer.
   auto load_asset = [&](int32_t i) {
     if (i < 0 || i >= (int32_t)st.scene.asset_count) return false;
+    g_morph.forget_model(i);   // A5: bu indeksteki eski modelin morph kopyalari gecersiz
+    if ((uint32_t)i < content::kSceneMaxAssets) g_morph_klip[i] = false;
     st.have[i] = content::gltf_load(sys, asset(st.scene.assets[i]), &st.models[i]) && content::upload_model(ren, sys, st.models[i], &st.ups[i]);
     if (!st.have[i]) {
       // Neden de yazilir (Model::error: ornek "128'den fazla eklem", bozuk dosya); eskiden yalniz yol yaziliyordu.
@@ -2469,6 +2474,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // M1: yuklenen modelin ozeti + butce uyarisi (ucgen/eklem/klip; mobil iskeletli kose butcesi).
       char ozet[400];
       const uint32_t uyari = content::model_budget_text(st.models[i], ozet, sizeof ozet);
+      if (i >= 0 && (uint32_t)i < content::kSceneMaxAssets) g_morph_klip[i] = content::model_has_morph_clips(st.models[i]);   // A5
       console_log(uyari ? ConsoleLevel::Uyari : ConsoleLevel::Bilgi, kConsoleTagScene, "%s \xC2\xB7 %s", st.scene.assets[i], ozet);
     }
     return st.have[i];
@@ -4814,6 +4820,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
     if (st.playing) st.anim_onizle = false;
     anim_baglari_tazele(st);   // A8: imza degistiyse (dosya/varlik/oynatma) yeniden bagla
+    g_morph.begin_frame();     // A5: iki kare kullanilmayan morph yuvasi baska varliga gecer
     {   // A8c: kart/grafikteki ▶: bu dosyayi kullanan varlikta (secili oncelikli) durumu baslat; oynatmiyorsak onizleme acilir.
       char oy[1200], od[sim::kAnimNameLen];
       float oh = -1.0f;
@@ -10988,7 +10995,20 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       if (!drew && (e.components & content::kSceneModel) && e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset]) {
         const content::Model &mdl = st.models[e.asset];
-        const content::UploadedModel &up = st.ups[e.asset];
+        const content::UploadedModel *upp = &st.ups[e.asset];
+        // A5: morph (yuz ifadesi) — oyundaki SceneRuntime ile AYNI MorphPool ve ayni karisim listesi (animator ya da tek klip).
+        if ((e.components & content::kSceneAnim) && g_morph_klip[e.asset]) {
+          content::PoseMixEntry me[sim::kAnimMaxEntries];
+          uint32_t mn = 0;
+          if (g_sahne_anim.has(i)) mn = g_sahne_anim.mix(i, me, sim::kAnimMaxEntries);
+          else if (e.clip < mdl.clip_count) {
+            const float zt = st.playing ? st.play_time : (st.anim_onizle ? st.anim_onizle_t : 0.0f);
+            me[0] = {e.clip, content::scene_anim_time(e.anim_mode, zt * e.speed + e.phase, mdl.clips[e.clip].duration), 1.0f};
+            mn = 1;
+          }
+          if (const content::UploadedModel *mu = g_morph.frame(ren, i, e.asset, mdl, st.ups[e.asset], me, mn)) upp = mu;
+        }
+        const content::UploadedModel &up = *upp;
         content::ModelLod lod;
         lod.set_view(camera_eye(cam), cam.target, cam.fov_y); // gorus derinligi (Tuzaklar 8cy)
         lod.distance1 = 24.0f; lod.distance2 = 34.0f;

@@ -143,6 +143,18 @@ bool SceneAnimators::pose(uint32_t ent, PoseScratch &scratch, ModelPose *out) co
   return animator_model_pose(d.def, slots_[ent].rt, *d.model, scratch, out);
 }
 
+uint32_t SceneAnimators::mix(uint32_t ent, PoseMixEntry *out, uint32_t cap) const {
+  if (!has(ent) || !out) return 0;
+  const Def &d = defs_[slots_[ent].def];
+  float dur[kSceneAnimMaxClips];
+  const uint32_t nc = animator_clip_durations(*d.model, dur, kSceneAnimMaxClips);
+  sim::AnimatorPose ap;
+  sim::animator_pose(d.def, slots_[ent].rt, dur, nc, &ap);
+  uint32_t n = 0;
+  for (uint32_t k = 0; k < ap.n && n < cap; k++) if (ap.e[k].clip >= 0) out[n++] = {(uint32_t)ap.e[k].clip, ap.e[k].time, ap.e[k].weight};
+  return n;
+}
+
 const char *SceneAnimators::state_name(uint32_t ent) const {
   if (!has(ent)) return "";
   const Def &d = defs_[slots_[ent].def];

@@ -383,7 +383,7 @@ add_dependencies(engine_renderer engine_layer_check engine_shader_check)
 add_library(engine_content STATIC content/gltf.cpp content/mesh_import.cpp content/model_import.cpp content/poly.cpp content/image.cpp content/meshopt.cpp content/ktx2.cpp content/font.cpp content/scene.cpp content/scene_blob.cpp content/scene_runtime.cpp content/scene_animators.cpp content/primitives.cpp content/prefab.cpp content/vendored_impl.c
     # --- PR #322: yeni icerik modulleri (content/pack.cpp ALINMADI: main'in
     # .tpak'i mmap'li, belirlenimli ve kapili — PR'inki daha basit bir format)
-    content/voxel.cpp content/morph.cpp content/terrain.cpp content/lod_select.cpp content/water_wave.cpp content/wind.cpp content/occlusion.cpp content/clod_format.cpp content/device_tier.cpp content/dynamic_quality.cpp)
+    content/voxel.cpp content/morph.cpp content/morph_pool.cpp content/terrain.cpp content/lod_select.cpp content/water_wave.cpp content/wind.cpp content/occlusion.cpp content/clod_format.cpp content/device_tier.cpp content/dynamic_quality.cpp)
 target_include_directories(engine_content PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cgltf
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)

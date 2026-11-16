@@ -35,6 +35,7 @@
 #include "content/gltf.hpp"
 #include "content/mesh_import.hpp"
 #include "content/morph.hpp"
+#include "content/morph_pool.hpp"
 #include "sim/animator.hpp"
 #include "content/image.hpp"
 #include "content/scene_blob.hpp"
@@ -901,7 +902,7 @@ static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
 }
 // A5: morph yuvasini sahnede uygula: taban + sum(w*delta) -> kopya mesh'in bu karenin tamponuna. Normaller TABAN kalir (hedef normal farki yuklenmez).
 // clip >= 0: klibin `weights` izi olan mesh'te izin agirliklari teng_morph_weight'inkini EZER (klip calarken yuz klibin); izi olmayan mesh'te elle verilen kalir.
-static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, int32_t clip = -1, float clip_t = 0.0f) {
+static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, const content::PoseMixEntry *me = nullptr, uint32_t mn = 0) {
   static renderer::Vertex vv[content::kModelMaxMorphVerts];
   static renderer::SkinnedVertex sv[content::kModelMaxMorphVerts];
   static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts], basen[content::kModelMaxMorphVerts];
@@ -911,9 +912,9 @@ static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot 
     for (uint32_t v = 0; v < mm.vertex_count; v++) { vv[v] = mm.verts[v]; base[v] = mm.verts[v].pos; }
     float w[content::kModelMaxMorph];
     for (uint32_t t = 0; t < content::kModelMaxMorph; t++) w[t] = ms.w[t];
-    if (clip >= 0) {
+    if (mn) {   // A5: karisim listesi (animator / gecis / tek klip) bu mesh'i suruyorsa elle verileni EZER
       float cw[content::kModelMaxMorph];
-      const uint32_t n = content::model_clip_morph_weights(mdl, (uint32_t)clip, clip_t, i, cw);
+      const uint32_t n = content::model_mix_morph_weights(mdl, me, mn, i, cw);
       for (uint32_t t = 0; t < n; t++) w[t] = cw[t];
     }
     content::blend_morph_targets(base, mm.vertex_count, mm.morph_deltas, w, mm.morph_count, outp);
@@ -933,9 +934,37 @@ static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot 
 // A5: varligin bu karedeki morph'u. Klibin `weights` izi morph'lu bir mesh'i suruyorsa yuva ilk karede alinir ve her kare karilir; yalniz elle
 // agirlik varsa degistigi karede. Donus: cizimde kullanilacak UploadedModel (morph yoksa modelin ortagi). Uc cizim yolu (animator, klip,
 // statik) ayni kopya mesh'i kullanir — iskeletli+morph'ta poz GPU'da, sekil CPU'da.
+// A5: varligin bu karedeki karisim listesi (morph icin): animator > A2 gecisi (iki klip, smoothstep) > tek klip. Poz yollariyla AYNI kaynak.
+static uint32_t morph_karisim(Bridge &b, const Ent &e, const content::Model &mdl, content::PoseMixEntry *me) {
+  if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts && b.anim_rts[e.animator].used) {
+    const Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
+    float dur[64] = {};
+    const uint32_t nc = mdl.clip_count < 64 ? mdl.clip_count : 64;
+    for (uint32_t c = 0; c < nc; c++) dur[c] = mdl.clips[c].duration;
+    sim::AnimatorPose ap;
+    sim::animator_pose(b.anim_defs[rs.def].def, rs.rt, dur, nc, &ap);
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < ap.n; k++) if (ap.e[k].clip >= 0) me[n++] = {(uint32_t)ap.e[k].clip, ap.e[k].time, ap.e[k].weight};
+    return n;
+  }
+  if (e.anim_clip < 0 || (uint32_t)e.anim_clip >= mdl.clip_count) return 0;
+  if (e.anim_prev_clip >= 0 && (uint32_t)e.anim_prev_clip < mdl.clip_count && e.anim_fade_dur > 0.0f) {
+    const float x = e.anim_fade / e.anim_fade_dur;
+    const float w = x <= 0.0f ? 0.0f : x >= 1.0f ? 1.0f : x * x * (3.0f - 2.0f * x);
+    me[0] = {(uint32_t)e.anim_prev_clip, e.anim_prev_time, 1.0f - w};
+    me[1] = {(uint32_t)e.anim_clip, e.anim_time, w};
+    return 2;
+  }
+  me[0] = {(uint32_t)e.anim_clip, e.anim_time, 1.0f};
+  return 1;
+}
+
 static const content::UploadedModel *morph_kare(Bridge &b, Ent &e, const content::Model &mdl) {
-  bool klip_morph = e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count && mdl.clips[e.anim_clip].morph_track_count > 0;
-  if (klip_morph) {   // iz morph'u YUKLENMIS bir mesh'i suruyor mu (morph'suz mesh icin yuva bosuna alinmasin)
+  content::PoseMixEntry me[sim::kAnimMaxEntries];
+  const uint32_t mn = morph_karisim(b, e, mdl, me);
+  bool klip_morph = false;   // listedeki bir klip morph'u YUKLENMIS bir mesh'i suruyor mu (yoksa yuva bosuna alinmasin)
+  for (uint32_t k = 0; k < mn && !klip_morph; k++) klip_morph = mdl.clips[me[k].clip].morph_track_count > 0;
+  if (klip_morph) {
     bool var = false;
     for (uint32_t k = 0; k < mdl.mesh_count && !var; k++) var = mdl.meshes[k].morph_count > 0;
     klip_morph = var;
@@ -943,7 +972,7 @@ static const content::UploadedModel *morph_kare(Bridge &b, Ent &e, const content
   if (klip_morph && e.morph < 0) morph_acquire(b, e, "morph klibi");
   if (e.morph < 0 || (uint32_t)e.morph >= Bridge::kMorphSlots || !b.morphs[e.morph].used) return &b.ups[e.asset];
   Bridge::MorphSlot &ms = b.morphs[e.morph];
-  if (klip_morph) { morph_apply(b, mdl, ms, e.anim_clip, e.anim_time); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
+  if (klip_morph) { morph_apply(b, mdl, ms, me, mn); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
   else if (ms.dirty) { morph_apply(b, mdl, ms); ms.dirty = false; }
   return &ms.up;
 }
