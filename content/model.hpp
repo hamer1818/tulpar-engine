@@ -60,6 +60,7 @@ struct ModelMaterial {
 constexpr uint32_t kModelMaxLods = 2; // LOD1, LOD2 (LOD0 = indices)
 constexpr uint32_t kModelMaxSkins = 4;
 constexpr uint32_t kModelMaxJoints = 128; // vertex eklem indeksi u8
+static_assert(kModelMaxSkins == 4, "ModelSkin::pose_from boyutu kModelMaxSkins ile ayni olmali");
 
 // Iskelet (glTF skin): eklemler ebeveyn-once sirada (sim::to_model kurali),
 // glTF eklem sirasindan yeniden siralanmis; vertex eklem indeksleri de oyle.
@@ -68,6 +69,23 @@ struct ModelSkin {
   uint32_t joint_count = 0;
   Mat4 *inverse_bind = nullptr;   // [joint_count]
   char name[64] = {0};
+  // PAYLASILAN KEMIKLER (2026-11-16, gercek model: RobotExpressive / FBX2glTF): bir model birden cok glTF skin'i AYNI dugumlerle
+  // tasiyabilir (mesh basina bir skin). Klip tek skin'e baglanir; obur skin'in mesh'leri poz almazsa DINLENME (T) durusunda kalir.
+  // pose_from[p] != nullptr: bu skin'in eklem j'si, skin p'nin model uzayindaki pose_from[p][j]. eklemidir (yuklemede dugum
+  // kimliginden kurulur; bu skin'in her eklemi p'de olmali). Poz islevleri p'yi hesaplayinca bu skin'i de doldurur.
+  uint8_t *pose_from[4] = {};     // [kModelMaxSkins] (asagida static_assert)
+  // KOK USTU DONUSUM (2026-11-16, RobotExpressive): kok eklemin ebeveyni eklem DEGIL ama donusu/olcegi var ("RobotArmature":
+  // X -90 derece, olcek 100 — FBX2glTF izi). glTF'te eklemin dunya donusumu bu atalari da icerir; ters bag matrisleri ona gore.
+  // Poz: model[j] = pre * to_model(...)[j]. Birimse carpilmaz (pre_birim): eski iskeletler bit esit kalir.
+  Mat4 pre;
+  bool pre_birim = true;
+  // BAG POZU SKIN MATRISLERI (2026-11-16, Fab "Mike"): bind_mats[j] = W_bag(eklem j) * IBM[j] — glTF'in pozsuz sonucu. BIRIM DEGIL:
+  // eklemin atalari (Sketchfab koku: X -90 derece, olcek 0,01) ters bagda yoksa koseler ancak bununla dikilir ve metreye iner.
+  // Pozsuz cizim ve model sinirlari bunu kullanir; eskiden birim varsayilip ham kose cizildi (Mike yatik + 100 kat) ve sinirlar
+  // mesh dugumunden alindi (160 "m" -> cm tahmini 0,01'i IKINCI kez uyguladi, pozlu Mike 1,6 cm). TUZAKLAR 8eh.
+  Mat4 *bind_mats = nullptr;   // [joint_count] (Arena)
+  // A6 yeniden hedefleme (2026-11-16): eklem dugum adlari (insansi esleme kemigi adindan bulur). [joint_count][kModelJointNameLen]
+  char (*joint_names)[48] = nullptr;
 };
 // A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
 // Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).
@@ -134,6 +152,14 @@ struct ModelOptStats {
 struct ModelInstance {
   uint32_t mesh = 0;
   Mat4 world;
+  // KEMIGE TAKILI KATI PARCA (2026-11-16, RobotExpressive: bacak/govde/kafa iskeletli degil, kemik dugumlerinin COCUGU): iskeletsiz
+  // mesh'in atalarinda eklem varsa o eklem. +1 kodlu (0 = yok): alloc_array_zeroed ile kurulan instance "skin 0 eklem 0"a baglanmasin.
+  // Pozla cizimde world = model * C * S[eklem] * kemik_bag, kemik_bag = (W_eklem_bag * IBM)^-1 * W_parca (yuklemede, C'siz). Bag
+  // pozunda S = W_eklem * IBM oldugundan sonuc C * W_parca (sabit cizimle ayni). S bag pozunda BIRIM OLMAK ZORUNDA DEGIL: FBX2glTF
+  // ters bag matrislerini iskeletli MESH DUGUMUNE gore yazar (RobotExpressive'de W*IBM = olcek 100, -90 derece) — ilk deneme
+  // "S birimdir" varsayimiyla parcalari 100 kat buyuttu.
+  uint8_t kemik_skin1 = 0, kemik = 0;
+  Mat4 kemik_bag;
 };
 struct Model {
   ModelImage *images = nullptr;      uint32_t image_count = 0;
@@ -162,6 +188,12 @@ struct Model {
   // kac yeni ORM goruntusu uretildi / kac malzemede yapilamadi.
   uint32_t occlusion_merged = 0, occlusion_unmerged = 0;
   char error[160] = {0};
+  // DOKU AYARI (madde 3c; .ayar doku_en_cok / doku_sikistir): yuklemede kucultulen goruntu sayisi ve ASTC istegi + onbellek dizini.
+  uint32_t images_downscaled = 0;
+  uint32_t retargeted_clips = 0;   // A6: animasyon_kaynak'tan aktarilan klip sayisi
+  bool tex_astc = false;
+  char tex_cache_dir[300] = {0};
+  int32_t bounds_clip = -1;   // sinirlar hangi klibin ilk karesinden (bekleme klibi); -1 = bag pozu / iskeletsiz
   char note[160] = {0};   // BAŞARILI içe aktarmada bilgi notu (örn. OBJ: doku haritası desteklenmedi); konsol özeti yazar
 };
 
@@ -177,7 +209,13 @@ struct UploadedModel {
   // onu hic CAGIRMAZSA goruntu eski davranista kalirdi ve dogrudan
   // fonksiyonu olcen bir test bunu goremezdi.
   uint32_t normal_mip_textures = 0;
+  // doku_sikistir astc: ASTC olarak yuklenen doku sayisi, onbellekten gelen, cihaz desteklemedigi icin RGBA kalan (Model::tex_astc ise).
+  uint32_t astc_textures = 0, astc_cached = 0;
+  bool astc_unsupported = false;
 };
+// Doku siniri (doku_en_cok): en uzun kenari max_px'ten buyuk goruntu 2x2 kutuyla YARILANIR (sRGB dogrusal uzayda ortalanir; normal
+// haritasi yeniden normallestirilir). Donus: kucultulen goruntu sayisi (Model::images_downscaled'a da eklenir).
+uint32_t model_limit_textures(Arena &arena, Model &m, uint32_t max_px);
 
 // Modeli renderer'a yukler (dokular + malzemeler + mesh'ler). Yukleme aninda.
 bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedModel *out);
@@ -214,7 +252,9 @@ struct ModelPose {
 // iskeletli köşe bütçesinin birimi: P20 Pro ölçümü, ≲ 50K köşe/kare önerilir).
 struct ModelBudget {
   uint32_t meshes = 0, instances = 0, triangles = 0, skinned_vertices = 0, joints = 0, clips = 0, clips_dropped = 0, images = 0;
+  uint64_t texture_bytes = 0;   // RGBA8 + mip (x 4/3) GPU tahmini (ASTC oncesi); madde 3c bütçe uyarısı
 };
+constexpr uint64_t kMobileTextureBudget = 128ull << 20;   // model başına doku belleği önerisi (P20 Pro'da 6 GB RAM'in ~%2'si; kaba sınır)
 ModelBudget model_budget(const Model &m);
 constexpr uint32_t kMobileSkinnedVertexBudget = 50000;   // kare başına (P20 Pro / Mali-G72 ölçümü, 2026-11-13)
 // Tek satır özet + uyarı: out'a yazar; dönüş: uyarı var mı (0/1). Sayılar ve cihaz notu Türkçe.
@@ -250,6 +290,9 @@ struct PoseMixEntry { uint32_t clip; float time; float weight; };
 bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose, bool lock_root = false);
 // Klibin t anındaki kök (eklem 0) YEREL yatay ötelenmesi (x, z): kök hareketi farkı için. false: geçersiz klip.
 bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, float out_xz[2]);
+// Iskeletsiz instance'in bu pozdaki dunya matrisi: kemige takili kati parca kemikle tasinir (ModelInstance::kemik_*), degilse
+// model * inst.world. draw_model bunu kullanir; kapi da (tek kaynak).
+Mat4 model_instance_world(const Model &m, const ModelInstance &inst, const ModelPose *pose, const Mat4 &model);
 
 // LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
 // nullptr = hep LOD0.

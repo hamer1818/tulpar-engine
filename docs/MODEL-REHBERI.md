@@ -1,0 +1,66 @@
+# Model rehberi — dışarıdan karakter ve eşya getirmek
+
+Bu sayfa oyun yapan kişi içindir: hangi dosyayı nereden bulursun, editöre nasıl alırsın, animasyonu nasıl çalıştırırsın.
+Ölçüm ve iç ayrıntı: `docs/MODEL-ANIMASYON-PLANI.md`.
+
+## Hangi dosya?
+
+| Biçim | Ne zaman |
+|---|---|
+| **GLB / glTF** | En iyisi. İskelet, animasyon klipleri, dokular, yüz ifadeleri tek dosyada. Karakterler için bunu seç. |
+| OBJ (+ .mtl) | Hareketsiz eşya (kaya, sandık, ev). Animasyon yok. |
+| STL | Yalnız şekil (3B baskı modelleri). Renk ve animasyon yok. |
+| **FBX** | Doğrudan yüklenir (2026-11-16): iskelet, animasyon, dokular; Unreal/Mixamo santimetresi metreye kendiliğinden iner. Yüz ifadeleri (blend shape) yok — gerekiyorsa GLB. |
+
+## Nereden?
+
+- **Quaternius** (quaternius.com) — CC0 (her işe serbest), düşük poligon, klipleri `Idle`, `Walk`, `Run`, `Jump` adlı: otomatik animatör
+  doğrudan tanır. Paketlerin çoğu FBX gelir — doğrudan kullan (Blend ise GLB/FBX'e çevir). Hazır GLB örneği: three.js deposundaki `RobotExpressive.glb`
+  (Quaternius, CC0) — editörde baştan sona denendi (2026-11-16).
+- **Kenney** (kenney.nl) — CC0, eşya ve ortam.
+- **Poly Pizza** (poly.pizza) — düşük poligon, CC0 / CC-BY (CC-BY'de yazarın adını oyunda an).
+- **Sketchfab** — "Downloadable" + lisans süzgeci, "glTF" olarak indir.
+- **Mixamo** (Adobe) — ücretsiz animasyon; FBX verir, her dosyada tek klip. Dosyayı `Idle.fbx` / `Walking.fbx` / `Running.fbx` diye adlandırıp
+  karakterin **Animasyon kaynakları**na ekle (aşağıda): klip dosya adını alır, otomatik animatör tanır.
+- **Fab** (Epic) — ürün sayfasında **Formats**'a bak:
+  - glTF / FBX / OBJ seçeneği varsa indir, kullan.
+  - Yalnız **Unreal Engine** biçimi varsa (indirince "Unreal projesi oluştur" der): Unreal'ı kur, boş projeye ekle, modele sağ tık →
+    **Asset Actions → Export** → FBX ya da glTF. Haritalar (seviyeler) taşınmaz: içindeki modelleri tek tek dışa aktar,
+    sahneyi editörde kur.
+  - Lisans: ürün **"UE-Only"** / "yalnız Unreal Engine projelerinde" diyorsa başka motorda KULLANILAMAZ (dışa aktarmak teknik olarak
+    mümkün olsa bile). Oyun satılacaksa her ürünün lisansını sayfasında oku.
+
+## FBX ne zaman GLB'ye çevrilmeli? (Blender, ücretsiz)
+
+FBX doğrudan yüklenir. Yalnız yüz ifadesi (blend shape) gerekiyorsa ya da dokular bulunamıyorsa (FBX dokuyu dışarıdan gösteriyorsa
+yanındaki dosyaları da kopyala; konsol "N doku bulunamadı" der): File → Import → FBX → File → Export → **glTF 2.0** → **glTF Binary (.glb)**.
+
+## Editörde
+
+1. **Kaynaklar** → **Model içe aktar…** (ya da dosyayı pencereye sürükle bırak). Dosya sahne klasörüne kopyalanır; Konsol bütçe satırı
+   yazar (üçgen, eklem, klip, boyut, "mobilde ≈ N kopya sığar"). Turuncu uyarı = telefon için ağır.
+2. Kaynaklar'da karta **çift tık** → sahneye eklenir. Animasyonlu modelde **Animasyon** bileşeni kendiliğinden gelir (bekleme klibi, döngü).
+3. Boyu/yönü tuhafsa: karta **sağ tık → içe aktarma ayarları** (birim cm/m, yukarı eksen, ölçek, pivot; önizleme canlı).
+4. Animasyon kartında **Animatör oluştur (otomatik)** → bekle/yürü/koş (+ zıpla) kurulur. Kartın **Hareketler** bölümünde her hareket
+   bir satır: klibini listeden seç, yürüme/koşma hızını değiştir, **▶** ile dene. **Önizleme hızı**'nı sürükle: geçişi gör.
+   **Hareket ekle** → el sallama, yumruk gibi tek seferlik bir klip ekler ve bir **tuş** önerir (1, 2, …): oyunda o tuşa basınca oynar,
+   bitince yürümeye döner — kod gerekmez. **Geri al** son değişikliği geri alır.
+   **Düzenle** → durum grafiği: kutular klipleri gösterir; bir duruma ya da oka tıkla, üstte düzenlenir. Durum ekle / Geçiş ekle / sağ tık
+   menüleri; her değişiklik hemen kaydedilir.
+5. Yürütmek için kod gerekmez: **Davranış ekle → Devriye (ileri-geri yürü)**; oyunda hız 1,5 m/s → yürür, 4+ → koşar.
+   Kodla: nesneyi neyle hareket ettirirsen ettir (`sahne_konum_ver`, fizik), animatör hızı hareketten okur. Zıplama gibi anlık işler:
+   `sahne_animator_tetik(sahne_bul("ad"), "zipla")`.
+
+## Mixamo animasyonunu kendi karakterine uygulamak (A6)
+
+1. Mixamo'dan animasyonu indir (**FBX doğrudan olur**; glb de), dosyaya anlamlı ad ver:
+   `Walking.fbx`, `Running.fbx`, `Idle.fbx` — tek klipli dosyada aktarılan klip DOSYA adını alır.
+2. Dosyaları proje klasörüne koy. Karakterinin Kaynaklar karosuna **sağ tık → İçe aktarma ayarları → Animasyon kaynakları →
+   Animasyon kaynağı ekle…** (en çok 8), **Kaydet**: model yeniden yüklenir, "N klip aktarıldı" yazar.
+3. Animasyon kartında **Animatör oluştur (otomatik)**: Idle / Walking / Running adlarından bekle / yürü / koş kendiliğinden kurulur.
+Şart: iki modelin dinlenme pozu benzer olmalı (ikisi de T ya da ikisi de A). Kemik adları Mixamo, Unreal, Blender gibi yaygın
+adlandırmalardan tanınır; tanınmazsa ayar penceresi nedenini söyler.
+
+## Sınırlar
+
+Sahne başına 64 model dosyası · model başına 64 klip, 128 eklem · telefonda karede toplam ≲ 50 bin iskeletli köşe (P20 Pro ölçümü).

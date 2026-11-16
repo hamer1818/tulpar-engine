@@ -239,6 +239,7 @@ void write_entity(Out &o, const SceneEntity &e) {
     o.puts("  animasyon "); o.num((float)e.clip); o.ch(' '); o.num(e.phase); o.ch(' '); o.num(e.speed);
     if (e.anim_mode == kAnimLoop) o.puts(" dongu"); else if (e.anim_mode == kAnimOnce) o.puts(" tek");   // ileri-geri varsayilan: yazilmaz
     o.ch('\n');
+    if (e.anim_ctrl[0]) { o.puts("  animator "); o.str(e.anim_ctrl); o.ch('\n'); }   // A8: yalniz doluyken (eski sahneler ayni)
   }
   if (e.components & kSceneLight) {
     o.puts("  isik "); o.vec(e.light_color); o.ch(' '); o.num(e.light_intensity); o.ch(' '); o.num(e.light_radius);
@@ -397,7 +398,8 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
     return false;
   const uint32_t c = a.components;
   if ((c & kSceneModel) && (a.asset != b.asset || !veq(a.tint, b.tint))) return false;
-  if ((c & kSceneAnim) && (a.clip != b.clip || !feq(a.phase, b.phase) || !feq(a.speed, b.speed) || a.anim_mode != b.anim_mode)) return false;
+  if ((c & kSceneAnim) && (a.clip != b.clip || !feq(a.phase, b.phase) || !feq(a.speed, b.speed) || a.anim_mode != b.anim_mode ||
+                           std::strcmp(a.anim_ctrl, b.anim_ctrl) != 0)) return false;
   if ((c & kSceneLight) && (!veq(a.light_color, b.light_color) || !feq(a.light_intensity, b.light_intensity) || !feq(a.light_radius, b.light_radius) ||
                             a.light_type != b.light_type || !feq(a.light_spot_inner, b.light_spot_inner) || !feq(a.light_spot_outer, b.light_spot_outer) ||
                             !feq(a.light_width, b.light_width) || !feq(a.light_height, b.light_height) || a.light_cast_shadow != b.light_cast_shadow ||
@@ -958,6 +960,10 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
           else return p.fail("animasyon kipi: dongu | tek (yazilmazsa ileri-geri)");
         }
         seen_comp |= kSceneAnim;
+      } else if (tok_is(t[0], "animator")) {
+        // A8: `animasyon` satirinin ARDINDAN (yazici sirasi); animasyonsuz varlikta anlamsiz -> hata (sessiz yok sayma degil).
+        if (n != 2 || !(seen_comp & kSceneAnim) || cur.anim_ctrl[0]) return p.fail("animator \"dosya\" (animasyon satirindan sonra, bir kez)");
+        if (!p.str(t[1], cur.anim_ctrl, sizeof cur.anim_ctrl)) return false;
       } else if (tok_is(t[0], "isik")) {
         // n==6: eski dosya (turu yok, varsayilan Nokta -- geriye donuk okunur).
         // n>=7: 7. token tur anahtar sozcugu ("nokta"/"yonlu"/"spot"/"alan"/"tup"/"disk").

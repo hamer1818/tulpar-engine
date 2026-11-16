@@ -280,3 +280,41 @@ ENGINE_TEST(model_bozuk_gltf_glb_reddedilir) {
   }
   std::printf("    [bilgi] bozuk model: %u/%u reddedildi (son hata: %s)\n", red, deneme, m.error);
 }
+
+// UV KANALI (2026-11-16, Fab "Mike"): Unreal dönüşümü TEXCOORD_0'ı tamamen sıfır yazmış, gerçek UV TEXCOORD_1'de — model dokunun tek
+// pikseliyle düz mavi çiziliyordu. Kapı: kanal 0 dejenereyse kanal 1 okunur ve Model::note söyler. KONTROL: kanal 0 sağlamsa (aynı
+// dosya, kanallar yer değiştirmiş) kanal 0 okunur, not yok — seçim dejenerelikten geliyor, "hep kanal 1"den değil.
+ENGINE_TEST(gltf_dejenere_uv_kanali_digerine_duser) {
+  char dir[512];
+  CHECK(tmp_mkdir(dir, sizeof dir, "uv_kanali"));
+  const char *const tampon[2] = {
+      "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAzczMPc3MTD5mZmY/zcxMPs3MzD3NzEw/",   // uv0 = 0, uv1 dolu
+      "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAzczMPc3MTD5mZmY/zcxMPs3MzD3NzEw/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"};  // uv0 dolu, uv1 = 0
+  for (int k = 0; k < 2; k++) {
+    static char metin[4096];
+    std::snprintf(metin, sizeof metin,
+                  "{\"asset\":{\"version\":\"2.0\"},\"buffers\":[{\"byteLength\":84,\"uri\":\"data:application/octet-stream;base64,%s\"}],"
+                  "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":24},"
+                  "{\"buffer\":0,\"byteOffset\":60,\"byteLength\":24}],"
+                  "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},"
+                  "{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"},{\"bufferView\":2,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"}],"
+                  "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"TEXCOORD_0\":1,\"TEXCOORD_1\":2}}]}],"
+                  "\"nodes\":[{\"mesh\":0}],\"scenes\":[{\"nodes\":[0]}],\"scene\":0}",
+                  tampon[k]);
+    char yol[600];
+    std::snprintf(yol, sizeof yol, "%s/uv%d.gltf", dir, k);
+    CHECK(yaz(yol, metin));
+    const size_t mark = arena().mark();
+    static Model m;
+    m = Model{};
+    CHECK(gltf_load(arena(), yol, &m) && m.mesh_count == 1);
+    if (m.mesh_count == 1) {
+      const Vec2 uv = m.meshes[0].verts[1].uv;
+      CHECK(std::fabs(uv.x - 0.9f) < 1e-6f && std::fabs(uv.y - 0.2f) < 1e-6f);   // iki durumda da dolu kanal
+      if (k == 0) CHECK(std::strstr(m.note, "UV") != nullptr);
+      else CHECK(m.note[0] == 0);   // KONTROL: sağlam kanal 0 olduğu gibi
+      std::printf("    [bilgi] uv%d: kose 1 uv (%.2f, %.2f), not '%s'\n", k, (double)uv.x, (double)uv.y, m.note);
+    }
+    arena().reset_to(mark);
+  }
+}

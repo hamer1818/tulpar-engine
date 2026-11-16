@@ -943,7 +943,8 @@ bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *h
   const bool gltf = nk && (!std::strcmp(nk, ".gltf") || !std::strcmp(nk, ".GLTF"));
   const bool stl = nk && (!std::strcmp(nk, ".stl") || !std::strcmp(nk, ".STL"));
   const bool obj = nk && (!std::strcmp(nk, ".obj") || !std::strcmp(nk, ".OBJ"));
-  if (!glb && !gltf && !stl && !obj) return hata("yaln\xC4\xB1z .glb, .gltf, .stl ve .obj modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
+  const bool fbx = nk && (!std::strcmp(nk, ".fbx") || !std::strcmp(nk, ".FBX"));   // madde 4: ufbx
+  if (!glb && !gltf && !stl && !obj && !fbx) return hata("yaln\xC4\xB1z .glb, .gltf, .fbx, .stl ve .obj modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
   if (!var_mi(kaynak)) return hata("dosya bulunamad\xC4\xB1: %s", kaynak);
   char hedef[2048];
   std::snprintf(hedef, sizeof hedef, "%s/%s", hedef_dizin, ad);
@@ -978,10 +979,16 @@ bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *h
   // .gltf: goreli "uri" bagimliliklari (.bin, dokular). JSON'u tam ayristirmadan: "uri" : "x" ciftleri.
   char kdir[2048];
   std::snprintf(kdir, sizeof kdir, "%.*s", (int)(ad - kaynak), kaynak);
-  static char m[4 * 1024 * 1024];
+  // Dosyanin TAMAMI okunur: eskiden 4 MB'lik sabit tampondu ve Fab'in 5,4 MB'lik scene.gltf'inde (42 klip) "uri"ler 5,36 MB'ta
+  // basladigi icin .bin ve dokular SESSIZCE kopyalanmiyordu -> "glTF tampon yukleme" (2026-11-16, kullanici modeli). Tavan 256 MB.
+  struct stat sb{};
+  if (::stat(kaynak, &sb) != 0 || sb.st_size <= 0 || sb.st_size > (256 << 20)) return hata("model okunamad\xC4\xB1 (boyut): %s", ad);
+  char *m = static_cast<char *>(std::malloc((size_t)sb.st_size + 1));
+  if (!m) return hata("bellek yetmedi: %s", ad);
   size_t n = 0;
-  if (std::FILE *f = std::fopen(kaynak, "rb")) { n = std::fread(m, 1, sizeof m - 1, f); std::fclose(f); }
+  if (std::FILE *f = std::fopen(kaynak, "rb")) { n = std::fread(m, 1, (size_t)sb.st_size, f); std::fclose(f); }
   m[n] = 0;
+  struct Birak { char *p; ~Birak() { std::free(p); } } birak{m};
   for (const char *p = m; (p = std::strstr(p, "\"uri\"")) != nullptr;) {
     p += 5;
     while (*p == ' ' || *p == ':' || *p == '\t' || *p == '\n' || *p == '\r') p++;

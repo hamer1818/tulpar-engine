@@ -5,12 +5,20 @@ Karakter bütçesi ölçümü (docs/MODEL-ANIMASYON-PLANI.md §6) içindir: ger�
 her eklemi 2 sn'lik döngüde sallanan bir klip içeren tek dosyalık glTF (tampon data URI). Depoya GİRMEZ (çıktı büyük);
 yeniden üretilir, belirlenimlidir (aynı girdi, aynı bayt).
 
-  python3 tools/make_test_karakter.py <eklem> <ucgen> <cikti.gltf>
+  python3 tools/make_test_karakter.py <eklem> <ucgen> <cikti.gltf> [--iki-skin]
+
+--iki-skin (2026-11-16): ikinci bir dugum ayni zinciri IKINCI skin ile ciziyor; skin 1 ayni eklem dugumlerini TERS sirayla listeler
+(FBX2glTF ciktisi gibi: mesh basina skin, kemikler ortak). Klip tek skin'e baglanir; obur skin'in mesh'i poz almazsa T durusunda
+kalirdi (RobotExpressive'de goruldu). tests/assets/iki_skin_karakter.gltf = `6 60 ... --iki-skin`.
+
+--fbx-tarzi (2026-11-16): FBX2glTF ciktisinin iki ozelligi — (1) kok eklemin ustunde donuslu/olcekli "Armature" dugumu (X -90
+derece, olcek 2) ve iskeletli mesh dugumu AYNI donusumu tasir (ters bag matrisleri mesh dugumune gore: degismez); (2) son ekleme
+COCUK olarak takili iskeletsiz kati parca ("parca", yerel +h). tests/assets/fbx_tarzi_karakter.gltf = `6 60 ... --fbx-tarzi`.
 """
 import base64, json, math, struct, sys
 
 
-def uret(eklem, ucgen):
+def uret(eklem, ucgen, iki_skin=False):
     h = 0.05                                   # eklem aralığı (m): 60 eklem ≈ 3 m boy (ölçek sahnede ayarlanır)
     halka = eklem
     seg = max(3, round(ucgen / (2 * (halka - 1))))
@@ -80,6 +88,12 @@ def uret(eklem, ucgen):
             ang = 0.45 * math.sin(2 * math.pi * k / (anahtar - 1) + 0.15 * j)
             rot2 += [math.sin(ang / 2), 0.0, 0.0, math.cos(ang / 2)]
     o_tin2 = ekle(f(t_in2)); o_rot2 = ekle(f(rot2))
+    if iki_skin:   # skin 1: eklemler TERS sirada -> mesh 1'in eklem indeksleri ve ters bag matrisleri de ters
+        jnt_r = [eklem - 1 - v if w > 0 else 0 for v, w in zip(jnt, wgt)]
+        ibm_r = []
+        for i in reversed(range(eklem)):
+            ibm_r += [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -i * h, 0, 1]
+        o_jnt_r = ekle(struct.pack("<%dB" % len(jnt_r), *jnt_r), 34962); o_ibm_r = ekle(f(ibm_r))
     a_tin2 = acc(bview(o_tin2), 5126, anahtar, "SCALAR", min=[t_in2[0]], max=[t_in2[-1]])
     v_rot2 = bview(o_rot2)
     veri = b"".join(x[0] for x in bolumler)
@@ -91,6 +105,7 @@ def uret(eklem, ucgen):
     a_tin3 = acc(bview(o_tin3), 5126, 2, "SCALAR", min=[0.0], max=[1.0])
     a_tr3 = acc(bview(o_tr3), 5126, 2, "VEC3")
     nodes = [{"name": "karakter", "mesh": 0, "skin": 0}]
+    eklem_dugum0 = 1
     for j in range(eklem):
         n = {"name": "eklem_%d" % j, "translation": [0, 0 if j == 0 else h, 0]}
         if j + 1 < eklem: n["children"] = [j + 2]
@@ -106,12 +121,23 @@ def uret(eklem, ucgen):
         ac.append({"bufferView": v_rot2, "byteOffset": j * anahtar * 16, "componentType": 5126, "count": anahtar, "type": "VEC4"})
         ornek2.append({"input": a_tin2, "output": len(ac) - 1, "interpolation": "LINEAR"})
         kanallar2.append({"sampler": j, "target": {"node": j + 1, "path": "rotation"}})
+    meshes = [{"primitives": [{"attributes": {"POSITION": a_pos, "NORMAL": a_nrm, "JOINTS_0": a_jnt, "WEIGHTS_0": a_wgt}, "indices": a_idx}]}]
+    skins = [{"joints": list(range(1, eklem + 1)), "inverseBindMatrices": a_ibm, "skeleton": 1}]
+    sahne_dugum = [0, 1]
+    if iki_skin:
+        a_jnt_r = acc(bview(o_jnt_r, 34962), 5121, nv, "VEC4")
+        a_ibm_r = acc(bview(o_ibm_r), 5126, eklem, "MAT4")
+        meshes.append({"primitives": [{"attributes": {"POSITION": a_pos, "NORMAL": a_nrm, "JOINTS_0": a_jnt_r, "WEIGHTS_0": a_wgt}, "indices": a_idx}]})
+        skins.append({"joints": list(reversed(range(1, eklem + 1))), "inverseBindMatrices": a_ibm_r, "skeleton": 1})
+        nodes.append({"name": "karakter_ikinci", "mesh": 1, "skin": 1})
+        sahne_dugum.append(len(nodes) - 1)
+    veri = b"".join(x[0] for x in bolumler)
     g = {
         "asset": {"version": "2.0", "generator": "tools/make_test_karakter.py"},
-        "scene": 0, "scenes": [{"nodes": [0, 1]}],
+        "scene": 0, "scenes": [{"nodes": sahne_dugum}],
         "nodes": nodes,
-        "meshes": [{"primitives": [{"attributes": {"POSITION": a_pos, "NORMAL": a_nrm, "JOINTS_0": a_jnt, "WEIGHTS_0": a_wgt}, "indices": a_idx}]}],
-        "skins": [{"joints": list(range(1, eklem + 1)), "inverseBindMatrices": a_ibm, "skeleton": 1}],
+        "meshes": meshes,
+        "skins": skins,
         "animations": [{"name": "salla", "samplers": ornek, "channels": kanallar}, {"name": "egil", "samplers": ornek2, "channels": kanallar2},
                        {"name": "yuru", "samplers": [{"input": a_tin3, "output": a_tr3, "interpolation": "LINEAR"}], "channels": [{"sampler": 0, "target": {"node": 1, "path": "translation"}}]}],
         "accessors": ac, "bufferViews": bv,
@@ -120,10 +146,30 @@ def uret(eklem, ucgen):
     return g, nv, len(idx) // 3
 
 
+def fbx_tarzi(g, eklem):
+    h = 0.05
+    nodes = g["nodes"]
+    q = [-0.7071067811865476, 0.0, 0.0, 0.7071067811865476]
+    arm = len(nodes)
+    nodes.append({"name": "Armature", "rotation": q, "scale": [2.0, 2.0, 2.0], "children": [1]})
+    g["scenes"][0]["nodes"] = [0 if n == 0 else (arm if n == 1 else n) for n in g["scenes"][0]["nodes"]]
+    nodes[0]["rotation"] = q
+    nodes[0]["scale"] = [2.0, 2.0, 2.0]
+    pos = g["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
+    idx = g["meshes"][0]["primitives"][0]["indices"]
+    g["meshes"].append({"primitives": [{"attributes": {"POSITION": pos}, "indices": idx}]})
+    parca = len(nodes)
+    nodes.append({"name": "parca", "mesh": len(g["meshes"]) - 1, "translation": [0.0, h, 0.0]})
+    nodes[eklem].setdefault("children", []).append(parca)   # son eklem dugumu: indeks eklem (0 karakter, 1.. eklemler)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    secenek = sys.argv[4] if len(sys.argv) == 5 else ""
+    if len(sys.argv) not in (4, 5) or secenek not in ("", "--iki-skin", "--fbx-tarzi"):
         sys.exit(__doc__)
-    g, nv, nt = uret(int(sys.argv[1]), int(sys.argv[2]))
+    g, nv, nt = uret(int(sys.argv[1]), int(sys.argv[2]), secenek == "--iki-skin")
+    if secenek == "--fbx-tarzi":
+        fbx_tarzi(g, int(sys.argv[1]))
     with open(sys.argv[3], "w") as f:
         json.dump(g, f)
     print("karakter: %d eklem, %d kose, %d ucgen -> %s" % (int(sys.argv[1]), nv, nt, sys.argv[3]))

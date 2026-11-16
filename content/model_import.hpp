@@ -36,6 +36,21 @@ struct ModelImportSettings {
   float fit = 0.0f;
   ModelPivot pivot = ModelPivot::Origin;
   float lod1 = 0.0f, lod2 = 0.0f;   // A7: LOD esikleri (metre, gorus derinligi); 0 = motorun/cagiranin varsayilani
+  // DOKU (madde 3c, 2026-11-16; Fab "Mike": 8 doku x 4096^2 RGBA = ~700 MB GPU, telefona sigmaz):
+  //   doku_en_cok <px>: yuklemede en uzun kenari bundan buyuk doku YARILANARAK kucultulur (sRGB dogrusal ortalama, normal yeniden
+  //     normallestirilir). 0 = dokunma. 4096 -> 1024: 16 kat az bellek.
+  //   doku_sikistir astc: cihaz ASTC LDR destekliyorsa (Mali/Adreno/Apple) dokular 6x6 ASTC'ye kodlanir (yaklasik 8 kat az; mip'li),
+  //     kodlanan modelin yaninda `<model>.doku/` onbellegine yazilir (ikinci yukleme kodlamaz). Desteklemeyen cihazda (masaustu NVIDIA)
+  //     RGBA kalir — CPU cozumu bellek kazandirmaz — ve Model::note bunu soyler.
+  uint32_t doku_en_cok = 0;
+  bool doku_astc = false;
+  // A6 yeniden hedefleme: `animasyon_kaynak <dosya>` (modelin dizinine gore; .glb/.gltf). Yuklemede o dosyanin iskeletli klipleri bu
+  // modelin iskeletine uygulanir ve EKLENIR (content/retarget). Bos = yok. Oyun / editor / telefon ayni gltf_load yolundan gecer.
+  // Mixamo her animasyonu AYRI dosyada verir ("Walking.glb", klip adi "mixamo.com"): anahtar en cok 8 kez yazilir; tek klipli kaynakta
+  // aktarilan klip DOSYA ADINI alir ("Walking") — otomatik animator rolleri buradan bulur.
+  static constexpr uint32_t kAnimKaynakMax = 8;
+  char anim_kaynak[kAnimKaynakMax][96] = {};
+  uint32_t anim_kaynak_n = 0;
 };
 bool model_import_equal(const ModelImportSettings &a, const ModelImportSettings &b);
 float model_unit_meters(ModelUnit u);

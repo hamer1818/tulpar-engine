@@ -2608,3 +2608,147 @@ Blok kaldırılınca geçti.
 
 **Kural:** Bu dosyada kanca izi kapısından ÖNCE çalışan yeni test blokları **gövdesiz** varlık kullanmalı (model, ışık); kutu/küre/tetik ekle-sil yalnız
 kapıdan sonra (ya da başka test dosyasında). Kapıyı gevşetme: iki koşumun izi ayrışıyorsa bu gerçek bir belirlenimlilik bulgusu olabilir.
+
+### 8ec. Özellik tablosunda ilk satırdan ÖNCE çizilen öğe görünmez — ama arayüz sürücüsü onu "var" sayar
+**Belirti:** A8 Animasyon kartında "Animatör: …", durum satırı ve Önizle düğmesi ekranda yoktu; `dogrula_metin "Animatör: …"` yine de
+GEÇİYORDU (2026-11-16). Aynı sebeple "Bu modelin animasyonu yok" satırı A1'den beri hiç görünmüyormuş.
+
+**Neden:** `prop_begin` bir ImGui tablosu açar; satırı `prop_label` içindeki `TableNextRow` açar. Tablo içinde ilk `TableNextRow`'dan önce
+çağrılan `Text`/`Button` "satır -1"e düşer ve kırpılır — ama öğe kaydedilir, sürücü metni bulur.
+
+**Düzeltme:** serbest metin/düğme `satir_ac(etiket)` (TableNextRow + sütun 0 etiket + sütun 1) ile kendi satırında; geniş eylem düğmeleri
+tablonun ALTINDA tam genişlik. **Kural:** prop tablosunda `prop_*` dışında bir şey çizeceksen önce satır aç; metin kapısının yanında
+**ekran görüntüsüne bak** — "metin var" görünür demek değil.
+
+### 8ed. Yeni varlık uzantısı Android süzgecine eklenmeyince telefonda sessizce yok (8cu'nun tekrarı)
+**Belirti:** A3 (`.animator`), M1 (`.ayar`), M2 (`.stl .obj .mtl`) masaüstünde çalışıyordu; `bridge/asset_filter.hpp` listesinde YOKTU, yani
+APK'dan çıkarılmıyorlardı: telefonda animatör bağlanamaz, STL/OBJ modeli görünmez olurdu (2026-11-16, A8 sırasında kodda fark edildi; cihazda
+görülmeden).
+
+**Neden:** Uzantı listesi ile içe aktarıcılar ayrı yerde; yeni biçim eklerken liste hatırlanmıyor ve masaüstü kapıları süzgeçten geçmiyor.
+
+**Düzeltme:** uzantılar eklendi + `bridge_android_asset_filter_keeps_every_decodable_audio_format` testine örnek adlar. **Kural:** yeni
+bir varlık biçimi (içe aktarıcı, editör dosyası, oyunun okuduğu metin) = `bridge/asset_filter.hpp` + o testte bir satır, aynı commit'te.
+
+### 8ee. Kemikleri ortak birden çok skin — klip tek skin'i sürer, öbür mesh T duruşunda kalır
+**Belirti:** Dışarıdan indirilen gerçek bir karakter (RobotExpressive, Quaternius, FBX2glTF ile çevrilmiş; 2026-11-16 kullanıcı gezintisi)
+editörde ve oyunda kollar açık **dinlenme duruşunda** duruyordu; Idle seçili, önizleme açık, hiçbir hata yok. Bizim test karakterlerimizde
+olmuyordu (tek skin).
+
+**Neden:** FBX'ten çevrilen modellerde mesh başına bir glTF skin'i olur, kemik düğümleri ORTAKTIR. Yükleyici klibi ilk kanalın
+düğümünün skin'ine bağlıyor; `model_pose_evaluate/blend/mix` yalnız o skin'in matrislerini dolduruyordu. Öbür skin'in mesh'leri
+`skin_mats == nullptr` ile — yani bağ pozunda — çiziliyordu.
+
+**Düzeltme:** yüklemede `ModelSkin::pose_from[p]` (bu skin'in her eklemi p'de hangi sırada; düğüm kimliğinden); üç poz yolu p'yi
+hesaplayınca paylaşan skin'leri de doldurur. Kapı: `model_paylasilan_kemikler_her_skine_poz` (`tests/assets/iki_skin_karakter.gltf`,
+`make_test_karakter.py --iki-skin`: ikinci skin aynı zinciri TERS sırayla listeler; aynı kemiğin matrisi iki skin'de bit eşit;
+kontrol: eşleme silinince ikinci skin boş). **Kural:** içe aktarma kapısına gerçek araçların (FBX2glTF, Blender, Mixamo) ürettiği
+yapıları da koy — elle üretilmiş test varlığı yalnız bizim varsaydığımız şekli sınar.
+
+### 8ef. Kemiğe ÇOCUK olarak takılı katı parçalar ve kök üstü Armature — "kollar kafada, bacaklar kıpırdamıyor"
+**Belirti:** RobotExpressive oyunda yürürken (8ee düzeltildikten sonra) kollar başın üstünde, bacaklar hareketsizdi (kullanıcı, 2026-11-16).
+Ekran görüntüsünü "hareket ediyor" diye ben geçirmiştim: kare farkı hareketi ölçer, DOĞRU pozu ölçmez.
+
+**Neden (iki ayrı):** (1) Modelin gövde/bacak/kafa/kol parçaları iskeletli DEĞİL; kemik düğümlerinin çocuğu olan katı mesh'ler (yalnız
+eller iskeletli). Yükleyici her mesh'i bağ pozundaki dünya matrisiyle sabit çiziyordu. (2) Kök eklemin üstünde "RobotArmature" (X -90°,
+ölçek 100) var; poz zinciri kök eklemin ebeveyninden başlıyordu, iskeletli eller bu dönüşümü kaybediyordu. Ayrıca FBX2glTF ters bağ
+matrislerini iskeletli MESH DÜĞÜMÜNE göre yazar: bağ pozunda `W * IBM` birim değil, Armature dönüşümüdür — "S bağ pozunda birimdir"
+varsayımıyla yazılan ilk düzeltme parçaları 100 kat büyüttü.
+
+**Düzeltme:** `ModelSkin::pre` (kök üstü dünya matrisi, poz yollarında `model = pre * to_model`); iskeletli mesh düğüm dönüşümü glTF
+kuralıyla yok sayılır; katı parça için yüklemede `kemik_bag = (W_eklem * IBM)^-1 * W_parça`, çizimde `model * C * S * kemik_bag`
+(`model_instance_world`, tek kaynak). Kapı: `model_fbx_tarzi_kok_ustu_ve_kati_parca` (`fbx_tarzi_karakter.gltf`, `--fbx-tarzi`: parçanın
+pozlu konumu zincirin ELLE hesabıyla 0,1 mm içinde; kontrol: sabit konumdan 0,4 m kayar). **Yan hata:** `skins` `alloc_array_zeroed`
+ile ayrıldığı için yeni `pre` alanı SIFIR matris kaldı ve kök üstü düğümü olmayan her iskeletin pozu sıfırlandı — `model_paylasilan`
+kapısı yakaladı; varsayılan artık açıkça yazılıyor (8u ailesi). **Kural:** poz kapısı "hareket var mı"yı değil, bilinen bir pozla
+**sayısal eşitliği** ölçmeli; gerçek model görüntüsünde de kolu/bacağı tek tek gözle.
+
+### 8eg. Gerçek modelde dört sessiz tavan birden — "eklendi ama hiçbir şey yok", sonra "Walk yok", sonra yarım poz
+**Belirti:** Fab'den indirilen "Mike the Customizable Robot" (Unreal'dan çevrilmiş .gltf, 5,4 MB JSON, 42 klip, 52 skin; kullanıcı,
+2026-11-16) sırayla: içe aktarınca "glTF tampon yükleme" hatası; düzeltilince sahneye eklendi ama görünmedi; görününce otomatik
+animatör yürüme bulamadı ve saldırgan beklemeyi (IdleAggro) seçti; poz alınca bazı parçalar (göz, kas, ayak IK) yerinde kaldı.
+
+**Neden (dördü de sessiz):** (1) `editor_model_ice_aktar` .gltf'i sabit 4 MB tampona okuyordu; `"uri"`ler 5,36 MB'tadır → .bin ve
+dokular hiç kopyalanmadı. (2) Unreal birimi santimetre: 160 birimlik karakter 160 m, kamera uzak düzlemini aşıyor. (3) Klip tavanı 32;
+Walk 37. sıradaydı → `clips_dropped`'a sayıldı ama kimse okumadı. Otomatik animatör de rol başına İLK eşleşeni alıyordu. (4) 52 skin'in
+her biri 1–17 eklemlik ALT KÜME; klipler eklem OLMAYAN ara düğümleri de oynatıyor — skin başına iskelet + `pose_from` (8ee) bu düğümleri
+hiç örneklemiyor, alt küme skin'leri tam eşleşmediği için çoğu poz almıyordu.
+
+**Düzeltme:** (1) dosyanın tamamı okunur (tavan 256 MB, aşılırsa hata); (2) iskeletli model 20 m'den büyükse ve kullanıcının `.ayar`'ı
+yoksa birim cm yazılır, durum çubuğu söyler; (3) klip tavanı 64 (animatör/köprü süre tabloları zaten 64), otomatik animatör rol başına
+EN KISA adı seçer; (4) **birleşik iskelet**: birden çok skin ya da çok köklü eklem ormanında bütün eklemler + ataları tek iskelette
+toplanır, her mesh'in eklem indeksi ona çevrilir (koşul: aynı düğümün ters bağı her skin'de aynı; değilse eski yol ve neden
+`Model::note`'ta). Mike: 52 skin → 1 iskelet, 77 eklem, 40 klip (2'si silah nesnesi animasyonu, iskelete bağlı değil). Kapılar:
+`editor_model_ice_aktar_with_control` (5 MB dolgulu .gltf), `animator_otomatik_metin…` (c2, ters sıra kontrolü),
+`model_paylasilan_kemikler_her_skine_poz` (birleşik: ters sıralı iki skin'in köşeleri aynı eklemde; kontrol: ters bağ bozulunca yedek yol).
+**Kural:** gerçek model tek tavanı değil hepsini birden zorlar — içe aktarırken her tavanın sayacını (`clips_dropped`, kesilen bayt,
+birim tahmini) kullanıcıya göster; "sayıldı" kimse okumuyorsa sessizdir.
+
+### 8eh. Pozsuz iskelet "S = birim" varsayımı sınırları da bozar — birim tahmini ölçeği İKİ KEZ uygular
+**Belirti:** 8eg'den sonra Mike sahnede animasyonla hiç görünmüyordu; animasyonsuz kopyası yere yatık çiziliyordu (2026-11-16, başsız
+editör karesi). Yükleme özeti "boyut 1,59 × 1,60 m" diyordu, yani her şey doğru görünüyordu.
+
+**Neden:** birleşik iskelet (8eg) eklemlerin ATALARINI da iskelete alır; Mike'ta atalar X -90° + 0,01 ölçek (Sketchfab/FAB kökü). glTF'te
+doğru sonuç budur: poz, köşeleri dikeltip metreye indirir. Ama (1) pozsuz çizim skin matrisini BİRİM sayıyordu (8da'nın `kBindPose`'u)
+→ ham, cm'lik, Z-yukarı köşeler; (2) model sınırları iskeletli mesh'te bile MESH DÜĞÜMÜNÜN matrisiyle ham köşelerden hesaplanıyordu →
+160 "m". 8eg'in cm tahmini bu yanlış sınıra bakıp 0,01'i ikinci kez uyguladı: pozlu Mike 1,6 cm. 8ef'te kemiğe takılı parçalar için
+"S bağ pozunda birim değildir" bulunmuştu; aynı varsayım çizim ve sınır yolunda yaşamaya devam ediyordu.
+
+**Düzeltme:** `ModelSkin::bind_mats[j] = W_bag(eklem j) * IBM[j]` yüklemede; pozsuz çizim ve iskeletli sınırlar onunla. Mike artık
+ayarsız 1,5 m ve ayakta; cm tahmini tetiklenmez. Pozsuz Mike yine yatık: bu dosyanın kendi dinlenme duruşu (düğüm TRS'leri), glTF'e
+göre doğru. Kapı: `model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni` (bind_mats = pre·to_model(bağ TRS)·IBM; kontrol: fbx_tarzi'de
+birimden 2,0 sapar). **Kural:** bir varsayım bir yolda yanlış çıkınca (8ef) aynı varsayımı kullanan BÜTÜN yolları ara — çizim, sınır,
+seçim kutusu, birim tahmini. Ve "boyut doğru" özeti çizimi doğrulamaz: kareye bak.
+
+### 8ei. Dosyanın UV kanalı 0 tamamen sıfır — model düz renk, hiçbir hata yok
+**Belirti:** Mike (8eg/8eh) dokuları yüklü, malzeme doğru, ama robot düz parlak mavi (2026-11-16, başsız editör yakın çekimi).
+**Neden:** Unreal → glTF dönüşümü (FAB) `TEXCOORD_0`'ı bütün köşelerde (0,0) yazmış, gerçek UV `TEXCOORD_1`'de; malzeme kanal 0'ı
+istiyor. Her köşe dokunun tek pikselini örnekliyordu. Yükleyici ayrıca malzemenin `texCoord` alanına bakmadan ilk UV kanalını alıyordu.
+**Düzeltme:** `uv_kanali`: önce renk dokusunun istediği kanal; o kanal dejenereyse (hepsi aynı) dejenere olmayan öbür kanal, sayılır ve
+`Model::note`'a yazılır. Kapı: `gltf_dejenere_uv_kanali_digerine_duser` (kontrol: kanallar yer değişince kanal 0 olduğu gibi, not yok).
+**Kural:** yükleme özeti "doku var" demek dokunun GÖRÜNDÜĞÜ demek değil — gerçek modelde yakın çekime bak.
+
+### 8ej. Ada sığmayan klip `#N` sıra numarasıyla yazılınca model değişince SESSİZCE başka klip oynar
+**Belirti (önlenen):** Mike'ın klip adları (`SK_ZMikeAnim_ZMIKE_IdleBreaker`, 30 karakter) animatör ad alanının 24 baytına sığmıyor,
+dosyaya `#18` yazılıyordu. Model yeniden dışa aktarılıp klip sırası kayarsa (yeni klip eklendi, biri silindi) `#18` hata vermeden başka
+klibi gösterir. **Düzeltme:** klip adı alanı ayrı ve 64 bayt (`kAnimClipNameLen`, `ModelClip::name` ile aynı); `#N` yalnız boşluklu
+adlarda. Kapı: `editor_animator_metin_ad_ve_klip_jetonu` (63 karakter aynen, 64 `#N`). **Kural:** konumla (sıra, indeks) adlandırma yalnız
+son çare; dosyada adla yazılabiliyorsa adla yaz.
+
+### 8ek. Duvar saati ile "N kat iş daha pahalı" kontrolü hızlı GPU'da gürültüye boğulur
+**Belirti:** `render_karakter_butcesi_olcum` RTX 5080'de arada kırmızı (2026-11-16): 40 karakter 1 karakterden yalnız +0,01..0,28 ms pahalı,
+kare süresinin ~1,7 ms'si sabit gönder/bekle. **Düzeltme:** `offscreen_render_custom` artık GPU zaman damgası yazıyor (gölge geçişi dahil);
+kontrol GPU geçiş süresiyle (0,02 → 0,18 ms, 7 kat); damga yoksa (MoltenVK aynı değeri verir) duvar saati. **Kural:** iş miktarı iddiası
+iş süresiyle ölçülür (GPU damgası), sabit maliyeti içeren duvar saatiyle değil.
+
+
+### 8el. Aynı iskeleti paylaşan mesh'ler paleti her çizimde yeniden yükler — tavan aşılır, son karakterin kolu yok olur
+**Belirti:** Mike'ın düğüm animasyonu eklemleri iskeleti 77'den 88 ekleme büyütünce 4 Mike'lı sahnede sonuncunun el sallayan kolu
+kayboldu (2026-11-16, başsız editör karesi). Yükleyicinin pozu iki durumda köşe köşe aynıydı — sorun çizimdeydi.
+**Neden:** `draw_model` her iskeletli mesh için `draw_skinned(..., joints, n)` çağırıyor, o da n matrisi kare SSBO'suna KOPYALIYORDU.
+Mike 52 mesh: 52 x 88 x 4 = 18.304 > 16.384 tavan; taşan çizim `skin_dropped` sayılıyordu ama editörde kimse okumuyordu. 77 eklemde 16.016
+— sınırın hemen altında, yani hata ilk bağlamada bile kıl payı saklanıyordu.
+**Düzeltme:** `Renderer::skin_palette` (bir kez yükle) + `draw_skinned_palette` (ofsetle çiz); `draw_model` skin başına bir palet. Mike
+başına 88 matris (52 kat az). Kapı: `render_skin_matris_tavani_sayilir` (5 mesh = 60 matris; kontrol: eski yolla 1'i sığar; gerçek model
+`draw_model` -> eklem sayısı kadar). **Kural:** "sayılır" bir tavan editörde görünmüyorsa sessizdir; ve paylaşılan veriyi paylaş.
+
+### 8em. İskeletsiz düğüm animasyonu (kapı, pervane) sessizce atlanıyordu
+**Belirti:** Khronos InterpolationTest'in 9 klibinin hiçbiri yüklenmiyordu ("ne iskelete ne morph'a bağlı: atla (bilgi)"); Mike'ın göz /
+kaş / ayak IK düğümleri de oynamıyordu. **Düzeltme:** hareketli TRS kanalının hedeflediği eklem olmayan düğümler birleşik iskelete girer
+(skin olmasa da); mesh kendi düğümü ya da atası eklemse kemiğe takılı çizilir (`W_poz * W_bag^-1 * W_mesh`). Tek anahtarlı (süre 0)
+kanallar sayılmaz. Kapı: `khronos_dugum_animasyonu_oynar` (9/9 klip parçayı oynatır; kontrol: pozsuz = sabit dünya).
+
+### 8en. Gerçek modelin dokuları telefon belleğini tek başına doldurur — "yüklendi" der, oyun çöker
+**Belirti (önlenen):** Fab "Mike" 8 doku x 4096² (RGBA + mip ≈ 450 MB GPU); masaüstünde sorunsuz, telefonda bellek yetmez. Yükleme özeti
+yalnız üçgen/eklem söylüyordu. **Düzeltme:** `.ayar` `doku_en_cok <px>` (yüklemede yarılama: sRGB doğrusal ortalama, normal yeniden
+normalleştirme) ve `doku_sikistir astc` (cihaz ASTC LDR destekliyorsa 6x6 + mip, `<model>.doku/` önbelleği; desteklemeyen masaüstünde RGBA
+ve `astc_unsupported`); bütçe satırı `doku ≈ N MB` + 128 MB üstünde UYARI; editör içe aktarma ayarlarında iki alan, Kaydet modeli yeniden
+yükler. Kapılar: `model_doku_siniri_yarilar` (188/128/218 elle hesaplı; kontrol: sınır altı dokunulmaz), `model_doku_astc_onbellekli`
+(P20 Pro: 1. yükleme kodladı, 2. önbellekten; masaüstü: RGBA + söylendi). **Kural:** "yüklendi" özeti bellek bütçesini de söylemeli.
+
+### 8eo. Android uzantı süzgecinin İKİNCİ kopyası (motorun test/demo APK'sı) eksik kaldı
+**Belirti (önlenen):** 8ed'de `bridge/asset_filter.hpp` düzeltilmişti; `app/android_main.cpp` (motorun kendi test/demo APK'sı) ayrı bir
+elle listeyle çıkarıyordu ve `.jpeg`, `.ayar`, `.animator` orada yoktu — Mike'ın `.jpeg` dokuları ve `animasyon_kaynak` ayarı test APK'sında
+sessizce düşerdi (2026-11-16, A6 sırasında kodda fark edildi). **Düzeltme:** `android_main` artık `bridge::android_asset_wanted`'ı çağırır:
+tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağırsın.
+

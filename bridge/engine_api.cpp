@@ -35,6 +35,7 @@
 #include "content/gltf.hpp"
 #include "content/mesh_import.hpp"
 #include "content/morph.hpp"
+#include "content/morph_pool.hpp"
 #include "sim/animator.hpp"
 #include "content/image.hpp"
 #include "content/scene_blob.hpp"
@@ -723,6 +724,7 @@ struct Bridge {
   bridge::BackKeySample back_sample;
   bool back_edge = false, back_down = false, back_listen = false, back_unheard_said = false;
   uint32_t back_inject = 0, back_total = 0;
+  int key_inject_pending = -1, key_inject_now = -1;   // teng_key_test_press: penceresiz dogrulamada bir karelik tus basisi
   // Arka plan (Geri bildirim #9). `app_paused` host'tan (ya da teng_debug_app_pause)
   // kare basinda; gecis aninda ses cihazi durdurulur/surdurulur. `audio_auto_paused`:
   // sesi MOTOR durdurdu (donuste yalniz onu surdurur).
@@ -900,7 +902,7 @@ static Bridge::MorphSlot *morph_acquire(Bridge &b, Ent &e, const char *who) {
 }
 // A5: morph yuvasini sahnede uygula: taban + sum(w*delta) -> kopya mesh'in bu karenin tamponuna. Normaller TABAN kalir (hedef normal farki yuklenmez).
 // clip >= 0: klibin `weights` izi olan mesh'te izin agirliklari teng_morph_weight'inkini EZER (klip calarken yuz klibin); izi olmayan mesh'te elle verilen kalir.
-static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, int32_t clip = -1, float clip_t = 0.0f) {
+static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot &ms, const content::PoseMixEntry *me = nullptr, uint32_t mn = 0) {
   static renderer::Vertex vv[content::kModelMaxMorphVerts];
   static renderer::SkinnedVertex sv[content::kModelMaxMorphVerts];
   static Vec3 base[content::kModelMaxMorphVerts], outp[content::kModelMaxMorphVerts], basen[content::kModelMaxMorphVerts];
@@ -910,9 +912,9 @@ static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot 
     for (uint32_t v = 0; v < mm.vertex_count; v++) { vv[v] = mm.verts[v]; base[v] = mm.verts[v].pos; }
     float w[content::kModelMaxMorph];
     for (uint32_t t = 0; t < content::kModelMaxMorph; t++) w[t] = ms.w[t];
-    if (clip >= 0) {
+    if (mn) {   // A5: karisim listesi (animator / gecis / tek klip) bu mesh'i suruyorsa elle verileni EZER
       float cw[content::kModelMaxMorph];
-      const uint32_t n = content::model_clip_morph_weights(mdl, (uint32_t)clip, clip_t, i, cw);
+      const uint32_t n = content::model_mix_morph_weights(mdl, me, mn, i, cw);
       for (uint32_t t = 0; t < n; t++) w[t] = cw[t];
     }
     content::blend_morph_targets(base, mm.vertex_count, mm.morph_deltas, w, mm.morph_count, outp);
@@ -932,9 +934,37 @@ static void morph_apply(Bridge &b, const content::Model &mdl, Bridge::MorphSlot 
 // A5: varligin bu karedeki morph'u. Klibin `weights` izi morph'lu bir mesh'i suruyorsa yuva ilk karede alinir ve her kare karilir; yalniz elle
 // agirlik varsa degistigi karede. Donus: cizimde kullanilacak UploadedModel (morph yoksa modelin ortagi). Uc cizim yolu (animator, klip,
 // statik) ayni kopya mesh'i kullanir — iskeletli+morph'ta poz GPU'da, sekil CPU'da.
+// A5: varligin bu karedeki karisim listesi (morph icin): animator > A2 gecisi (iki klip, smoothstep) > tek klip. Poz yollariyla AYNI kaynak.
+static uint32_t morph_karisim(Bridge &b, const Ent &e, const content::Model &mdl, content::PoseMixEntry *me) {
+  if (e.animator >= 0 && (uint32_t)e.animator < Bridge::kAnimRts && b.anim_rts[e.animator].used) {
+    const Bridge::AnimRtSlot &rs = b.anim_rts[e.animator];
+    float dur[64] = {};
+    const uint32_t nc = mdl.clip_count < 64 ? mdl.clip_count : 64;
+    for (uint32_t c = 0; c < nc; c++) dur[c] = mdl.clips[c].duration;
+    sim::AnimatorPose ap;
+    sim::animator_pose(b.anim_defs[rs.def].def, rs.rt, dur, nc, &ap);
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < ap.n; k++) if (ap.e[k].clip >= 0) me[n++] = {(uint32_t)ap.e[k].clip, ap.e[k].time, ap.e[k].weight};
+    return n;
+  }
+  if (e.anim_clip < 0 || (uint32_t)e.anim_clip >= mdl.clip_count) return 0;
+  if (e.anim_prev_clip >= 0 && (uint32_t)e.anim_prev_clip < mdl.clip_count && e.anim_fade_dur > 0.0f) {
+    const float x = e.anim_fade / e.anim_fade_dur;
+    const float w = x <= 0.0f ? 0.0f : x >= 1.0f ? 1.0f : x * x * (3.0f - 2.0f * x);
+    me[0] = {(uint32_t)e.anim_prev_clip, e.anim_prev_time, 1.0f - w};
+    me[1] = {(uint32_t)e.anim_clip, e.anim_time, w};
+    return 2;
+  }
+  me[0] = {(uint32_t)e.anim_clip, e.anim_time, 1.0f};
+  return 1;
+}
+
 static const content::UploadedModel *morph_kare(Bridge &b, Ent &e, const content::Model &mdl) {
-  bool klip_morph = e.anim_clip >= 0 && (uint32_t)e.anim_clip < mdl.clip_count && mdl.clips[e.anim_clip].morph_track_count > 0;
-  if (klip_morph) {   // iz morph'u YUKLENMIS bir mesh'i suruyor mu (morph'suz mesh icin yuva bosuna alinmasin)
+  content::PoseMixEntry me[sim::kAnimMaxEntries];
+  const uint32_t mn = morph_karisim(b, e, mdl, me);
+  bool klip_morph = false;   // listedeki bir klip morph'u YUKLENMIS bir mesh'i suruyor mu (yoksa yuva bosuna alinmasin)
+  for (uint32_t k = 0; k < mn && !klip_morph; k++) klip_morph = mdl.clips[me[k].clip].morph_track_count > 0;
+  if (klip_morph) {
     bool var = false;
     for (uint32_t k = 0; k < mdl.mesh_count && !var; k++) var = mdl.meshes[k].morph_count > 0;
     klip_morph = var;
@@ -942,7 +972,7 @@ static const content::UploadedModel *morph_kare(Bridge &b, Ent &e, const content
   if (klip_morph && e.morph < 0) morph_acquire(b, e, "morph klibi");
   if (e.morph < 0 || (uint32_t)e.morph >= Bridge::kMorphSlots || !b.morphs[e.morph].used) return &b.ups[e.asset];
   Bridge::MorphSlot &ms = b.morphs[e.morph];
-  if (klip_morph) { morph_apply(b, mdl, ms, e.anim_clip, e.anim_time); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
+  if (klip_morph) { morph_apply(b, mdl, ms, me, mn); ms.dirty = true; }   // sonraki karede klip durursa elle agirliga doner
   else if (ms.dirty) { morph_apply(b, mdl, ms); ms.dirty = false; }
   return &ms.up;
 }
@@ -2116,6 +2146,8 @@ int teng_frame_begin(void) {
     std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
   }
   if (b.dbg_touch_on) { b.touch = &b.dbg_touch; b.stick.update(b.dbg_touch, now); }
+  b.key_inject_now = b.key_inject_pending;   // enjekte tus BU karede basili + yeni basildi sayilir
+  b.key_inject_pending = -1;
   // --- yasam dongusu: arka plan -> ses durur, on plan -> surer -------------
   {
     bool p = false;
@@ -2547,6 +2579,14 @@ void teng_frame_end(void) {
     // Buradaki temizlik, olaylarin "son adimda olusanlar" olmasini saglar ve
     // oyun onlari SONRAKI kare boyunca istedigi anda okuyabilir.
     b.phys.clear_contacts();
+    // A8c: sahne animatorlerinin TUSLU tetikleri (`param selam tetik tus E`): bu karede basilan tus tetigi verir — betik gerekmez.
+    // Ayni ad kumesi teng_key_pressed ile (key_code). Kare basina bir kez, adimlardan once (tetik ilk adimda tuketilir).
+    if (b.scene_ok && (b.in || b.key_inject_now >= 0) && b.srt.animators().keyed())
+      b.srt.animators().keys([](void *u, const char *ad) {
+        const Bridge &bb = *static_cast<const Bridge *>(u);
+        const int c = key_code(ad);
+        return c >= 0 && (c == bb.key_inject_now || (bb.in && bb.cur_keys[c] && !bb.prev_keys[c]));
+      }, &b);
     for (uint32_t t = 0; t < ticks; t++) {
       if (b.kin_count) kinematic_tick(b, ticks - t);
       b.phys.step(b.fs.step_s, 1);
@@ -2698,26 +2738,11 @@ void teng_frame_end(void) {
           sim::animator_update(ad, &rs.rt, b.dt, dur, nc);
           if (kok) {
             sim::animator_pose(ad, rs.rt, dur, nc, &sonra);
-            // Girdi basina klibin KENDI ilerlemesi (donguyu saran adimda sondan basa ek): agirlikli toplam = yerel yatay hareket
-            float dx = 0, dz = 0;
-            for (uint32_t j = 0; j < sonra.n; j++)
-              for (uint32_t k2 = 0; k2 < once.n; k2++) {
-                if (once.e[k2].clip != sonra.e[j].clip || sonra.e[j].clip < 0) continue;
-                const uint32_t cl = (uint32_t)sonra.e[j].clip;
-                float a0[2], a1[2];
-                if (!content::model_clip_root_xz(am, cl, once.e[k2].time, b.pose_scratch, a0) || !content::model_clip_root_xz(am, cl, sonra.e[j].time, b.pose_scratch, a1)) break;
-                float ddx = a1[0] - a0[0], ddz = a1[1] - a0[1];
-                if (sonra.e[j].time < once.e[k2].time - 1e-6f) {            // dongu sardi: (sonu - bas) + (yeni - 0)
-                  float s0[2], se[2];
-                  if (content::model_clip_root_xz(am, cl, 0.0f, b.pose_scratch, s0) && content::model_clip_root_xz(am, cl, am.clips[cl].duration, b.pose_scratch, se)) {
-                    ddx = (se[0] - a0[0]) + (a1[0] - s0[0]);
-                    ddz = (se[1] - a0[1]) + (a1[1] - s0[1]);
-                  }
-                }
-                dx += sonra.e[j].weight * ddx;
-                dz += sonra.e[j].weight * ddz;
-                break;
-              }
+            // Girdi basina klibin KENDI ilerlemesi (donguyu saran adimda sondan basa ek): agirlikli toplam = yerel yatay hareket.
+            // Sahne varliklariyla AYNI islev (content::animator_root_delta).
+            float kd[2];
+            content::animator_root_delta(am, once, sonra, b.pose_scratch, kd);
+            const float dx = kd[0], dz = kd[1];
             if (dx != 0.0f || dz != 0.0f) {
               const float yr = e.yaw_deg * kBridgePi / 180.0f, cy = std::cos(yr), sy = std::sin(yr);
               const float wx = (dx * cy + dz * sy) * e.scale, wz = (-dx * sy + dz * cy) * e.scale;   // yaw: +Y etrafinda
@@ -3355,6 +3380,16 @@ int teng_scene_load(const char *path) {
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
+  if (b.srt.stats().animators) BINFO("sahne animatorleri: %u (hiz/dikey hareketten, kodsuz)", b.srt.stats().animators);
+  {   // A8c: tuslu tetikler — bilinmeyen tus adi hic calismazdi (sessiz): yuklemede HATA
+    const char *tuslar[32];
+    const uint32_t tn = b.srt.animators().key_names(tuslar, 32);
+    for (uint32_t i = 0; i < tn; i++)
+      if (key_code(tuslar[i]) < 0) BERR("sahne animatoru: bilinmeyen tus \"%s\" (A-Z, 0-9, SPACE, ENTER, SHIFT, CTRL, ALT, TAB) — bu tetik tusla CALISMAZ", tuslar[i]);
+    if (tn) BINFO("sahne animatorleri: %u tuslu tetik (kodsuz)", tn);
+  }
+  if (b.srt.stats().animators_failed)   // A8: baglanamayan animator varlik klibine duser — sessiz degil
+    BERR("sahne: %u animator baglanamadi, son hata: %s", b.srt.stats().animators_failed, b.srt.stats().animator_error);
   if (b.srt.stats().materials_failed)
     BERR("sahne: %u cizim kaydinin malzemesi KURULAMADI (renderer malzeme havuzu dolu?) — o varliklar CIZILMEZ (Tuzaklar 8dc)",
          b.srt.stats().materials_failed);
@@ -3804,6 +3839,32 @@ int teng_scene_sound_play(int i) {
   return 0;
 }
 int teng_scene_visible(int i) { return scene_idx_ok(i, "teng_scene_visible") && !g->srt.hidden((uint32_t)i) ? 1 : 0; }
+// A8: sahne animatoru — betikten tetik / parametre / durum.
+int teng_scene_animator_trigger(int i, const char *name) {
+  CALLF("teng_scene_animator_trigger", "%d %s", i, name ? name : "");
+  if (!scene_idx_ok(i, "teng_scene_animator_trigger") || !name) return 0;
+  content::SceneAnimators &sa = g->srt.animators();
+  if (!sa.has((uint32_t)i)) { BERR("sahne_animator_tetik: '%s' varliginin animatoru yok (Animasyon kartinda Animator olustur)", g->srt.view().entity_name((uint32_t)i)); return 0; }
+  if (!sa.trigger((uint32_t)i, name)) { BERR("sahne_animator_tetik: '%s' animatorunde '%s' adli tetik yok (%s)", g->srt.view().entity_name((uint32_t)i), name, sa.path((uint32_t)i)); return 0; }
+  return 1;
+}
+int teng_scene_animator_param(int i, const char *name, double v) {
+  CALLF("teng_scene_animator_param", "%d %s %.3f", i, name ? name : "", v);
+  if (!scene_idx_ok(i, "teng_scene_animator_param") || !name) return 0;
+  content::SceneAnimators &sa = g->srt.animators();
+  if (!sa.has((uint32_t)i)) { BERR("sahne_animator_param: '%s' varliginin animatoru yok", g->srt.view().entity_name((uint32_t)i)); return 0; }
+  if (!sa.set_param((uint32_t)i, name, (float)v)) { BERR("sahne_animator_param: '%s' animatorunde '%s' adli SAYI parametresi yok", g->srt.view().entity_name((uint32_t)i), name); return 0; }
+  return 1;
+}
+const char *teng_scene_animator_state(int i) {
+  if (!scene_idx_ok(i, "teng_scene_animator_state")) return "";
+  return g->srt.animators().state_name((uint32_t)i);
+}
+const char *teng_scene_animator_event(int i) {
+  if (!scene_idx_ok(i, "teng_scene_animator_event")) return "";
+  const char *ad = g->srt.animators().event_pop((uint32_t)i);
+  return ad ? ad : "";
+}
 double teng_scene_sx(int i) { return scene_idx_ok(i, "teng_scene_sx") ? g->srt.view().entities[i].scale[0] : 0; }
 double teng_scene_sy(int i) { return scene_idx_ok(i, "teng_scene_sy") ? g->srt.view().entities[i].scale[1] : 0; }
 double teng_scene_sz(int i) { return scene_idx_ok(i, "teng_scene_sz") ? g->srt.view().entities[i].scale[2] : 0; }
@@ -4758,13 +4819,21 @@ int teng_key_down(const char *name) {
   const int c = key_code(name);
   if (c < 0) { BERR("teng_key_down: bilinmeyen tus adi \"%s\" (W/A/S/D, SPACE, UP.., ESC, ENTER, SHIFT, 0-9)", name ? name : ""); return 0; }
   if (back_is_esc(c)) { back_listen_on(*g); return g->back_down || g->back_edge ? 1 : 0; }
-  return g && g->in && g->cur_keys[c] ? 1 : 0;
+  return g && ((g->in && g->cur_keys[c]) || c == g->key_inject_now) ? 1 : 0;
 }
 int teng_key_pressed(const char *name) {
   const int c = key_code(name);
   if (c < 0) { BERR("teng_key_pressed: bilinmeyen tus adi \"%s\" (W/A/S/D, SPACE, UP.., ESC, ENTER, SHIFT, 0-9)", name ? name : ""); return 0; }
   if (back_is_esc(c)) { back_listen_on(*g); return g->back_edge ? 1 : 0; }
-  return g && g->in && g->cur_keys[c] && !g->prev_keys[c] ? 1 : 0;
+  return g && ((g->in && g->cur_keys[c] && !g->prev_keys[c]) || c == g->key_inject_now) ? 1 : 0;
+}
+void teng_key_test_press(const char *name) {
+  CALLF("teng_key_test_press", "%s", name ? name : "");
+  if (!ready("teng_key_test_press")) return;
+  const int c = key_code(name);
+  if (c < 0) { BERR("teng_key_test_press: bilinmeyen tus adi \"%s\"", name ? name : ""); return; }
+  g->key_inject_pending = c;
+  BDBG("tus %s: basis kuyruklandi, sonraki kare basili", name);
 }
 int teng_app_paused(void) { return g && g->app_paused ? 1 : 0; }
 int teng_safe_inset_left(void) { return g ? g->safe[0] : 0; }

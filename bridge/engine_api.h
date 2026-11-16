@@ -306,6 +306,12 @@ int teng_scene_is_dynamic(int i);
 // parcanin yerine ayni boy ve renkte fizik parcalari kurabilsin.
 int teng_scene_set_visible(int i, int visible);
 int teng_scene_visible(int i);
+// A8: sahne varliginin animatoru (.sahne `animator` satiri) — betikten tetik / sayi parametresi / gecerli durum. Animator yoksa ya da
+// o adla o turde parametre yoksa HATA + 0. hiz/dikey hareketten her adim yeniden yazilir (betikten verilen deger bir adim yasar).
+int teng_scene_animator_trigger(int i, const char *name);
+int teng_scene_animator_param(int i, const char *name, double v);
+const char *teng_scene_animator_state(int i);
+const char *teng_scene_animator_event(int i);   // A4/3b: sahne animatoru olay kuyrugundan en eski olay ("" = bos)
 // Sahnenin KAMERA / SES bilesenleri (blob v10, EDITOR-UYGULAMA-PLANI U9). Sahne yuklenince ilk
 // kamera uygulanir, dongulu sesler baslar (cihaz aciksa); bunlar baska kameraya gecer / tek
 // seferlik sesi calar. Bilesen yoksa hata loglanir ve 0 doner.
@@ -463,6 +469,7 @@ int teng_anim_done(int id);                                    // dongusuz klip 
 // --- girdi -----------------------------------------------------------------
 int teng_key_down(const char *name);    // "W","A","S","D","SPACE","UP","LEFT","ESC","ENTER","SHIFT", "0".."9"
 int teng_key_pressed(const char *name); // bu karede basildi
+void teng_key_test_press(const char *name); // penceresiz dogrulama: sonraki kare bu tus basili + yeni basildi (A8c)
 // Geri (Geri bildirim #8): Android'de sistem geri tusu, masaustunde Esc; bu
 // karede basildi mi. ILK cagri geri tusunu OYUNA baglar — Android'de etkinlik
 // artik kapanmaz, oyun karar verir (cikis: teng_close). Hic sormayan oyunda

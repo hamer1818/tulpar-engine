@@ -87,6 +87,7 @@ struct KodPaneli {
   bool geri_var = false;
   bool anim_grafik = true;     // A3: .animator acikken durum grafigi gorunur (metnin ustunde)
   bool tam_pencere = false;   // bagimsiz kod penceresi (engine_editor --kod): tum pencereyi kaplar, sekme/dock yok
+  char bilgi_mesaj[160] = {0}; // A8b: basari iletisi (yesil, uyari yoksa gosterilir) — grafikten duzenleme sonucu
   char uyari_mesaj[160] = {0}; // tam_pencere: durum satirinda (ornegin "Tulpar Editor acik degil")
   bool kapat_iste = false;    // tam_pencere: isletim sistemi pencere kapatma istedi (kirliyse once sorulur)
   int imlec_ofs = 0;          // imlecin bayt konumu (parantez eslestirme, oneri listesi konumu)
@@ -214,7 +215,7 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu);
 // secili nesneye atanir ve Kod panelinde acilir. Hazirlar BUGUNKU kopruyle calisanlar (2026-11-11 gercek oyunda
 // denendi: 4 hazir derlendi, 7 kanca cozuldu; "Dokununca yok ol" sabit duvari carpisinca gizledi). Dondur ve Salla
 // (B4b) koprunun sahne_dondur / sahne_konum_ver islevleriyle; govdesiz ya da sabit govdeli nesnede calisir.
-enum class BetikSablon : int { Bos = 0, Hareket, Zipla, YokOl, Dondur, Salla, Sayi };
+enum class BetikSablon : int { Bos = 0, Hareket, Zipla, YokOl, Dondur, Salla, Devriye, Sayi };
 struct BetikSablonBilgi {
   const char *ad;        // secimde gorunen
   const char *aciklama;  // tek satir: ne yapar, ne ister

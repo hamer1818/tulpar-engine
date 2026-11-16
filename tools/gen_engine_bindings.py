@@ -148,6 +148,10 @@ SPEC = [
     ("eng_scene_is_dynamic", "bool", [("i", "int")], "Sahne varliginin govdesi dinamik mi (kuvvet uygulanabilir mi)."),
     ("eng_scene_set_visible", "bool", [("i", "int"), ("visible", "flag")], "Sahne varligini gizle/goster: gizli varlik cizilmez, isigi eklenmez, govdesi fizik dunyasindan cikar (carpismaz, isin gormez). Sahne yeniden yuklenince hepsi gorunur."),
     ("eng_scene_visible", "bool", [("i", "int")], "Sahne varligi gorunur mu."),
+    ("eng_scene_animator_trigger", "bool", [("i", "int"), ("name", "str")], "Sahne varliginin animatorune (.sahne `animator`, editorde Animasyon karti) TETIK gonderir; ilgili gecis bir sonraki adimda onu tuketir. Animator ya da o adla tetik yoksa HATA + false."),
+    ("eng_scene_animator_param", "bool", [("i", "int"), ("name", "str"), ("v", "num")], "Sahne varliginin animator SAYI parametresini ayarlar. hiz/dikey hareketten her adim yeniden yazilir (bunlari surmek icin baska ad). Yoksa HATA + false."),
+    ("eng_scene_animator_state", "str", [("i", "int")], "Sahne varliginin animatorunun gecerli durum adi (\"\" = animator yok)."),
+    ("eng_scene_animator_event", "str", [("i", "int")], "Sahne varliginin animator OLAY kuyrugundan en eski olayin adini cikarir (\"\" = bos). `olay <durum> <faz> <ad>` (ayak sesi gibi); kuyruk 8, okunmazsa dolar ve dusen sayilir."),
     ("eng_scene_camera_use", "bool", [("i", "int")], "Sahne varligini (kamera bileseni olmali) kamera yap: goz varligin konumu, bakis -Z, aci/kirpma bilesenden. Sahne yuklenince ILK kamera zaten uygulanir. Kamera bileseni yoksa false."),
     ("eng_scene_sound_play", "int", [("i", "int")], "Sahne varliginin ses bilesenini bilesenin ayarlariyla cal (duzey, dongu, 3B ise varligin konumundan). Dongulu sesler sahne yuklenince kendiliginden baslar. Donus: ses id (0: calmadi; ses kapali ya da bilesen yok)."),
     ("eng_scene_sx", "float", [("i", "int")], "Sahne varliginin dunya olcegi x (ilkelde boyu)."),
@@ -251,6 +255,7 @@ SPEC = [
     # girdi
     ("eng_key_down", "bool", [("name", "str")], "Tus basili mi: \"W\",\"A\",\"SPACE\",\"UP\",\"ESC\",\"ENTER\",\"SHIFT\",\"0\"..\"9\"."),
     ("eng_key_pressed", "bool", [("name", "str")], "Tus bu karede basildi mi."),
+    ("eng_key_test_press", "void", [("name", "str")], "Pencersiz dogrulama: sonraki kareye bu tusun basisini enjekte eder (eng_key_pressed ve sahne animatoru tuslari gorur)."),
     ("eng_back_pressed", "bool", [], "Geri bu karede basildi mi: Android'de sistem geri tusu, masaustunde Esc. ILK cagri geri tusunu OYUNA baglar: Android'de etkinlik artik kapanmaz, oyun karar verir (duraklat/menu; cikmak icin eng_close). Hic sormayan oyunda sistem eski davranisla kapatir. Android'de eng_key_pressed(\"ESC\") ayni basisi gorur."),
     ("eng_back_test_press", "void", [], "Pencersiz dogrulama: sonraki kareye bir geri basisi enjekte eder (o kare eng_back_pressed true)."),
     ("eng_app_paused", "bool", [], "Uygulama arka planda mi (Android: ana ekran / baska uygulama; masaustunde false). Motor arka plana geciste sesi KENDISI durdurur, donuste surdurur; oyun bunu duraklatma karari icin okur."),

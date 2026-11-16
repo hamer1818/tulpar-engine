@@ -623,6 +623,27 @@ ENGINE_TEST(editor_model_ice_aktar_with_control) {
   std::snprintf(y, sizeof y, "%s/ev.bin", kay);
   CHECK(!app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err) && std::strstr(err, ".glb"));
   std::printf("    [bilgi] ice aktar: glb + gltf (bin + doku/renk.png), data: ve ../ atlandi, ayni ad reddi: %s\n", err[0] ? "var" : "?");
+  // BUYUK .gltf (2026-11-16, Fab "Mike" 5,4 MB): "uri"ler dosyanin 4 MB'tan SONRAKI kisminda — eskiden sabit 4 MB tampon onlari hic
+  // gormuyordu, .bin kopyalanmiyordu. 5 MB dolgu + sonda buffers/images.
+  std::snprintf(y, sizeof y, "%s/buyuk.gltf", kay);
+  if (std::FILE *f = std::fopen(y, "wb")) {
+    std::fputs("{\"asset\":{\"version\":\"2.0\",\"extras\":\"", f);
+    static char dolgu[1 << 20];
+    std::memset(dolgu, 'x', sizeof dolgu);
+    for (int k = 0; k < 5; k++) std::fwrite(dolgu, 1, sizeof dolgu, f);
+    std::fputs("\"},\"buffers\":[{\"uri\":\"buyuk.bin\"}],\"images\":[{\"uri\":\"doku/buyuk.png\"}]}", f);
+    std::fclose(f);
+  }
+  std::snprintf(y, sizeof y, "%s/buyuk.bin", kay); yaz(y, "BIN");
+  std::snprintf(y, sizeof y, "%s/doku/buyuk.png", kay); yaz(y, "PNG");
+  std::snprintf(y, sizeof y, "%s/buyuk.gltf", kay);
+  CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
+  std::snprintf(p, sizeof p, "%s/buyuk.bin", hed); CHECK(var(p));
+  // Madde 4: .fbx de ice aktarilir (dogrudan yuklenir; KONTROL yukarida: .bin gibi model olmayan uzanti reddediliyor)
+  std::snprintf(y, sizeof y, "%s/Walking.FBX", kay); yaz(y, "FBX");
+  CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
+  std::snprintf(p, sizeof p, "%s/Walking.FBX", hed); CHECK(var(p));
+  std::snprintf(p, sizeof p, "%s/doku/buyuk.png", hed); CHECK(var(p));
 }
 
 // M1: "kaynak eklenemedi" artık NEDENİNİ söyler (eskiden yalnız dosya adı): kaynak tablosu dolu (16) / varlık tavanı (256) / bilinmiyor.
@@ -634,10 +655,12 @@ ENGINE_TEST(editor_kaynak_eklenemedi_nedenini_soyler) {
   char ad[32], neden[300];
   for (uint32_t i = 0; i < content::kSceneMaxAssets; i++) { std::snprintf(ad, sizeof ad, "m%u.gltf", i); CHECK(d.add_asset(ad) == (int32_t)i); }
   CHECK(d.add_asset("fazla.gltf") == -1);                                  // tablo gerçekten dolu
+  char sayi[32];
+  std::snprintf(sayi, sizeof sayi, "%u model", content::kSceneMaxAssets);
   app::editor_add_asset_neden(d, "fazla.gltf", neden, sizeof neden);
-  CHECK(std::strstr(neden, "16 model") != nullptr);                          // nedeni sayıyla söyler
+  CHECK(std::strstr(neden, sayi) != nullptr);                                // nedeni sayıyla söyler
   app::editor_add_asset_neden(d, "m3.gltf", neden, sizeof neden);
-  CHECK(std::strstr(neden, "16 model") == nullptr);                          // var olan kaynak "dolu" değil (kontrol)
+  CHECK(std::strstr(neden, sayi) == nullptr);                                // var olan kaynak "dolu" değil (kontrol)
   content::scene_desc_reset(d);
   app::editor_add_asset_neden(d, "x.gltf", neden, sizeof neden);
   CHECK(std::strstr(neden, "bilinmiyor") != nullptr);

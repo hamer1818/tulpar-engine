@@ -188,3 +188,45 @@ ENGINE_TEST(animator_olaylar_faz_gecisinde_kuyruga_girer) {
   CHECK(!animator_parse("tulpar-animator 1\ndurum a klip x\nolay a 1.5 e\n", 52, &d2, &e));       // faz 0..1 disinda
   CHECK(!animator_parse("tulpar-animator 1\ndurum a klip x\nolay yok 0.5 e\n", 54, &d2, &e));     // bilinmeyen durum
 }
+
+// A8c: animator_goto (editörde ▶ önizleme): koşul aranmadan durum başlar, sonraki adımlarda geçişler kendi koşullarıyla işler.
+// zipla'ya git -> 'bitince' ile bekle'ye döner; fade>0 iken önceki durum karışımda kalır. KONTROL: goto'suz aynı adımlarda zipla'ya hiç
+// girilmez (tetik yok) ve geçersiz durum indeksi hiçbir şeyi değiştirmez.
+ENGINE_TEST(animator_goto_durumu_baslatir_sonra_gecisler_isler) {
+  static AnimatorDef d;
+  CHECK(kur(&d));
+  AnimatorRt rt, kontrol;
+  animator_reset(d, &rt);
+  animator_reset(d, &kontrol);
+  const int32_t zipla = 2, bekle = 0;
+  animator_goto(d, &rt, zipla, 0.15f);
+  CHECK(rt.cur == zipla && rt.prev == bekle && rt.cur_phase == 0.0f);
+  AnimatorPose p;
+  animator_pose(d, rt, kSure, 3, &p);
+  CHECK(p.n == 2);   // gecis karisimi: onceki + yeni
+  bool dondu = false;
+  for (int i = 0; i < 120 && !dondu; i++) {   // egil 1 s, tek -> bitince bekle
+    animator_update(d, &rt, 1.0f / 60.0f, kSure, 3);
+    animator_update(d, &kontrol, 1.0f / 60.0f, kSure, 3);
+    CHECK(kontrol.cur == bekle);   // KONTROL: goto'suz zipla'ya girilmez
+    dondu = rt.cur == bekle;
+  }
+  CHECK(dondu);
+  const AnimatorRt once = rt;
+  animator_goto(d, &rt, 99, 0.1f);
+  animator_goto(d, &rt, -1, 0.1f);
+  CHECK(std::memcmp(&once, &rt, sizeof rt) == 0);   // gecersiz durum: degisiklik yok
+}
+
+// A8c: `param <ad> tetik tus <TUŞ>` ayrıştırılır (sim tuşu yalnız ad olarak taşır). KONTROL: bozuk biçim / uzun ad reddedilir.
+ENGINE_TEST(animator_tetik_tusu_ayristirilir) {
+  static AnimatorDef d;
+  AnimatorError e;
+  const char *iyi = "tulpar-animator 1\nparam selam tetik tus E\nparam vur tetik\ndurum a klip salla dongu\nbaslangic a\n";
+  CHECK(animator_parse(iyi, std::strlen(iyi), &d, &e));
+  CHECK(d.param_count == 2 && d.params[0].trigger && !std::strcmp(d.params[0].key, "E") && d.params[1].key[0] == 0);
+  const char *kotu1 = "tulpar-animator 1\nparam selam tetik E\ndurum a klip salla dongu\n";
+  const char *kotu2 = "tulpar-animator 1\nparam selam tetik tus COKUZUNTUSADI\ndurum a klip salla dongu\n";
+  CHECK(!animator_parse(kotu1, std::strlen(kotu1), &d, &e) && e.line == 2);
+  CHECK(!animator_parse(kotu2, std::strlen(kotu2), &d, &e) && e.line == 2);
+}

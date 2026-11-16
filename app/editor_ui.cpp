@@ -708,9 +708,12 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
     const char *nm = de->d_name;
     if (nm[0] == '.') continue; // gizli + . / ..
     const bool anim = ends_with_ci(nm, ".animator");
-    if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj")) continue;   // M2: STL/OBJ; A3: .animator
+    if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj") && !ends_with_ci(nm, ".fbx")) continue;   // M2: STL/OBJ; A3: .animator; madde 4: FBX
     if (std::strlen(nm) >= content::kScenePathLen) continue;
-    if (n >= cap) break;
+    // Dolunca KESMEK yerine alfabetik ilk `cap` tutulur: eskiden ilk `cap` dosya readdir SIRASIYLA aliniyordu ve hangi dosyalarin
+    // listelendigi dosya sistemine bagliydi (2026-11-16: btrfs'te yesil, CI ext4'te .fbx'ler girip lod_sphere disarida kaldi).
+    if (n >= cap && std::strcmp(nm, out[n - 1].name) >= 0) continue;
+    if (n >= cap) n--;   // en sondakini (alfabetik en buyuk) at, yenisi sirali eklenecek
     AssetFile f;
     std::snprintf(f.name, sizeof f.name, "%s", nm);
     f.kind = anim ? AssetKind::Animator : AssetKind::Model;
@@ -1023,7 +1026,14 @@ uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h
   for (char *q = stem; *q; q++)
     if (*q == '.') { *q = 0; break; }
   content::SceneEntity e{};
-  std::snprintf(e.name, sizeof e.name, "%.20s_%u", stem, d.entity_count + 1);
+  // Ad: dosyanin adi ("RobotExpressive"); ayni ad varsa _2, _3 ... Eskiden her zaman "_<varlik sayisi>" ekleniyordu
+  // ("RobotExpressive_10"): kullaniciya hicbir sey soylemeyen bir sayi (A8 kullanici gezintisi, 2026-11-16).
+  auto ad_var = [&](const char *ad) {
+    for (uint32_t i = 0; i < d.entity_count; i++) if (!std::strcmp(d.entities[i].name, ad)) return true;
+    return false;
+  };
+  std::snprintf(e.name, sizeof e.name, "%.24s", stem);
+  for (uint32_t k = 2; ad_var(e.name) && k < 1000; k++) std::snprintf(e.name, sizeof e.name, "%.24s_%u", stem, k);
   e.pos = pos;
   e.components = content::kSceneModel;
   e.asset = a;

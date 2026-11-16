@@ -11,6 +11,10 @@
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/model_ayar.txt (M1): Kaynaklar sag tik -> ice aktarma ayarlari, cm canli onizleme, Kaydet .ayar yazar.
 # tests/arayuz/animator_grafik.txt (A3): .animator cift tik -> durum grafigi; etikete tik satira gider; kontrol: kapali -> etiket yok.
+# tests/arayuz/kullanici_karakter.txt (A8): yeni oyun + model -> otomatik animator -> Devriye -> oyunda yurur; kontrol: hiz 0.
+# tests/arayuz/animator_grafik_duzenle.txt (A8b): grafikten Durum ekle / Gecis ekle / red / Geri al; dosya diskte denetlenir.
+# tests/arayuz/animator_kart.txt (A8c): Animasyon karti Hareketler: roller, Hareket ekle, Geri al; dosya kabukta denetlenir.
+# tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -205,6 +209,53 @@ printf '%s\n' "tulpar-animator 1" "param hiz sayi 0" "param ziplama tetik" "duru
 kos animator_grafik.txt "$AG/ui" --scene "$AG/assets/editor.sahne"; rag=$?
 if [ $rag = 0 ]; then echo "  animator grafigi: 4 durum/4 gecis, kosul etiketi, ulasilamaz uyarisi, etikete tik -> satir 13, tablo, bozuk metinde son gecerli hal (kontrol: grafik kapali -> etiket yok)"
 else echo "  KIRMIZI animator grafigi (cikis $rag):"; grep -E 'HATA|> ' "$AG/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- A8: kodsuz animator (Animasyon karti tek tik -> <model>.animator + bagla, onizleme hizi, Duzenle -> canli grafik, Kaldir/geri al,
+# Ctrl+S sahneye `animator` satiri). Olcut: senaryo cikisi 0 VE dosya yazildi VE sahnede satir var (yalniz senaryo yetmez: Ctrl+S'in
+# dosyaya ne yazdigini senaryo goremez). Kontrol senaryonun icinde: olusturmadan once durum satiri yok.
+A8="$D/anim8"; mkdir -p "$A8"
+cp "$KOK/tests/assets/karakter_kup.gltf" "$A8/"
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter_kup.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 1 1 1" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8/k.sahne"
+kos animator_otomatik.txt "$A8" --scene "$A8/k.sahne"; ra8=$?
+if [ $ra8 = 0 ] && [ -s "$A8/karakter_kup.animator" ] && grep -q '^  animator "karakter_kup.animator"$' "$A8/k.sahne"; then
+  echo "  kodsuz animator: tek tik olustur+bagla, hiz 3 -> 'hareket · 3.0 m/s', grafikte 'su an', kaldir/geri al, sahnede animator satiri"
+else
+  echo "  KIRMIZI kodsuz animator (cikis $ra8, dosya $([ -s "$A8/karakter_kup.animator" ] && echo var || echo YOK), sahne satiri $(grep -c animator "$A8/k.sahne" 2>/dev/null)):"
+  grep -E 'HATA|> ' "$A8/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1
+fi
+# --- A8b: animatoru grafikten duzenleme (Durum ekle varsayilanlari, tetikli gecis, red edilen 'bitince', Geri al). Olcut: senaryo
+# cikisi 0 VE diskteki dosya beklenen satirlari tasir VE reddedilen/geri alinan 'bitince' satiri YOK (grafik her islemi hemen kaydeder).
+A8B="$D/anim8b"; mkdir -p "$A8B"
+cp "$KOK/tests/assets/karakter_kup.gltf" "$A8B/"
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter_kup.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 1 1 1" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8B/k.sahne"
+kos animator_grafik_duzenle.txt "$A8B" --scene "$A8B/k.sahne"; ra8b=$?
+af="$A8B/karakter_kup.animator"
+if [ $ra8b = 0 ] && grep -q '^durum saldiri klip saldiri tek$' "$af" && grep -q '^gecis herhangi saldiri sure 0.2 tetik zipla$' "$af" \
+   && grep -q '^param zipla tetik$' "$af" && ! grep -q 'bitince' "$af"; then
+  echo "  animator grafik duzenleme: Durum ekle (saldiri, Tek) + tetikli gecis dosyada; karisimdan 'bitince' reddedildi; Geri al geri aldi"
+else
+  echo "  KIRMIZI animator grafik duzenleme (cikis $ra8b):"; grep -E 'HATA|> ' "$A8B/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+  sed 's/^/      | /' "$af" 2>/dev/null; kirmizi=1
+fi
+# --- A8c: Animasyon karti HAREKETLER (roller + Hareket ekle + Geri al). Olcut: senaryo cikisi 0 VE dosyada tek seferlik durum,
+# tetik ve iki gecis VE 'saldiri' durumu TEK kez (Geri al'dan sonra yeniden ekleme cift yazmadi).
+A8C="$D/anim8c"; mkdir -p "$A8C"
+cp "$KOK/tests/assets/karakter_kup.gltf" "$A8C/"
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter_kup.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 1 1 1" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8C/k.sahne"
+kos animator_kart.txt "$A8C" --scene "$A8C/k.sahne"; ra8c=$?
+cf="$A8C/karakter_kup.animator"
+if [ $ra8c = 0 ] && [ "$(grep -c '^durum saldiri klip saldiri tek$' "$cf")" = 1 ] && grep -q '^param saldiri tetik tus 1$' "$cf" \
+   && grep -q '^gecis herhangi saldiri sure 0.1 tetik saldiri$' "$cf" && grep -q '^gecis saldiri hareket sure 0.2 bitince$' "$cf"; then
+  echo "  animator karti: Bekle/Yuru/Kos satirlari, Hareket ekle (saldiri: tek + tetik + tus 1 + giris/donus), Geri al kaldirdi, yeniden eklendi"
+else
+  echo "  KIRMIZI animator karti (cikis $ra8c):"; grep -E 'HATA|> ' "$A8C/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+  sed 's/^/      | /' "$cf" 2>/dev/null; kirmizi=1
+fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
 cp -r "$KOK/tests/assets" "$TR/assets"
@@ -301,6 +352,25 @@ else
     sed -i 's/^float dondur_kapi_HIZ = 90.0;/float dondur_kapi_HIZ = 0.0;/; ' "$hb/dondur_kapi.tpr"
     sed -i 's/^float salla_kapi_YUKSEKLIK = 0.5;/float salla_kapi_YUKSEKLIK = 0.0;/' "$hb/salla_kapi.tpr"
     oyun_kos "$B/hz" "$B/hz_pk.log"
+  fi
+  # --- A8: kullanici akisi — model -> otomatik animator -> Devriye -> oyunda yurur (tulpar gerekir) ---
+  mkdir -p "$B/ui_kk"
+  "$ED" --yeni-oyun "$B/kk" --kimlik kk --onek KK --tr "Karakter" --en "Character" > /dev/null 2>&1
+  cp "$KOK/tests/assets/karakter_kup.gltf" "$B/kk/assets/"
+  ( kos kullanici_karakter.txt "$B/ui_kk" --scene "$B/kk/assets/arena.sahne" ); rkk=$?
+  kb="$B/kk/assets/betikler/devriye.tpr"
+  if [ $rkk = 0 ] && [ -f "$kb" ]; then
+    printf '\nfunc devriye_bitir(id) {\n    float d = sahne_z(id) - sahne_ilk_z(id);\n    if (d > 0.4) { logla("KAPI_DEVRIYE yurudu " + sahne_animator_durum(id)); } else { logla("KAPI_DEVRIYE yerinde"); }\n}\n' >> "$kb"
+    oyun_kos "$B/kk" "$B/kk.log"
+    sed -i 's/^float devriye_HIZ = 1.5;/float devriye_HIZ = 0.0;/' "$kb"
+    oyun_kos "$B/kk" "$B/kk_pk.log"
+  fi
+  if [ $rkk = 0 ] && grep -q 'KAPI_DEVRIYE yurudu hareket' "$B/kk.log" && grep -q 'sahne animatorleri: 1' "$B/kk.log" && grep -q 'kapanis: .* hata 0,' "$B/kk.log" \
+     && grep -q 'KAPI_DEVRIYE yerinde' "$B/kk_pk.log"; then
+    echo "  kullanici karakter: model -> otomatik animator -> Devriye -> oyunda yurudu (animator bagli, hata 0); kontrol: hiz 0 -> yerinde"
+  else
+    echo "  KIRMIZI kullanici karakter (cikis $rkk):"; grep -E 'HATA|> ' "$B/ui_kk/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+    grep -E 'KAPI_DEVRIYE|animator|HATA' "$B/kk.log" "$B/kk_pk.log" 2>/dev/null | head -6 | sed 's/^/      /'; kirmizi=1
   fi
   if [ $rhz = 0 ] && grep -q 'KAPI_DONDUR uc_bos' "$B/hz.log" && grep -q 'KAPI_SALLA oynadi' "$B/hz.log" && grep -q 'kapanis: .* hata 0,' "$B/hz.log" \
      && grep -q 'KAPI_DONDUR uc_dolu' "$B/hz_pk.log" && grep -q 'KAPI_SALLA yerinde' "$B/hz_pk.log"; then

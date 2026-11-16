@@ -1765,7 +1765,28 @@ Deneme: `~/TulparOyunlari/animasyon_deneme/animator_deneme.tpr` (örnek yerel di
 olay adı (boşsa kuyruk boş; çarpışma kuyruğu kalıbı, callback yok). `durum <ad> klip <klip> ... kok`: klibin kök (eklem 0) yatay (x,z) ötelenmesi varlığı
 yürütür (yaw ile döner, ölçekle çarpılır; dinamik gövdede uygulanmaz) ve poz'dan KİLİTLENİR (karakter yerinde kaymaz, çift hareket yok). Kapılar:
 `animator_olaylar_faz_gecisinde_kuyruga_girer`, `content_kok_hareketi_okuma_ve_kilit`, köprü testi (kök z=2.000, olay 2 adet).
-**Henüz yok:** animatör durum grafiği görünümü, katman maskeleri, IK.
+**A8 (2026-11-16) — sahne animatörü, kodsuz:** `.sahne` varlığında `animator "dosya.animator"` (animasyon satırının ardından, sahne dizinine göre;
+blob v13). `teng_scene_load` onu `SceneRuntime` içinde bağlar ve her sim adımında `hiz` (yatay m/s) ile `dikey`i (m/s) varlığın dünya konumundan
+yazar (fizik, karakter ya da `sahne_konum_ver` ezmesi) — tanımda o adla sayı parametresi varsa. Günlük: `sahne animatorleri: N`; bağlanamayan
+`HATA sahne: N animator baglanamadi, son hata: <dosya satir n: neden>` (varlık klibine düşer). Klip adı yerine `#N` (sıra numarası; ardından rakam
+gelen `#` yorum sayılmaz). **Kök hareketi (2026-11-16):** `durum ... kok` sahne varlığını da yürütür — yerel kök ilerlemesi varlığın ölçeği ve
+dönüşüyle dünyaya çevrilip ezme (`sahne_konum_ver` ile aynı yol) olarak uygulanır, pozda kök kilitlenir; dinamik gövdede ve karakterde
+KAPALI (fizik sahibi; klibin kendi yürüyüşü görünür). Sabit gövdeli varlıkta gövde taşınmaz. **Olaylar:** `sahne_animator_olay(i)` /
+`eng_scene_animator_event` kuyruktan en eski olay adı ("" = boş); okunmazsa 8'de dolar, düşen sayılır. Kapılar:
+`sahne_runtime_kok_hareketi_ve_olay` (1 s'de z 1,000; kontrol `kok`suz z 0), köprü testinde `darbe` olayı. Editörün iç fizik önizlemesinde
+kök hareketi uygulanmaz (klibin yürüyüşü görünür); gömülü oyun (Oynat) köprüden geçtiği için uygular.
+Kapılar: `sahne_runtime_animatoru_blobdan_kurar_ve_hareketle_besler`, `sahne_animatorleri_hareketten_hiz_besler`.
+Betikten: `sahne_animator_tetik(i, ad)` / `scene_animator_trigger` (tetik; ilgili geçiş bir sonraki adımda tüketir), `sahne_animator_param(i, ad, v)`
+(sayı parametresi; `hiz`/`dikey` her adım hareketten yeniden yazılır — kendi değerini sürmek için başka ad), `sahne_animator_durum(i)` → geçerli durum
+("" = animatör yok). Animatör ya da o adla o türde parametre yoksa HATA + false. `i` = `sahne_bul("ad")`. Kapı: `bridge_scene_animator_tetik_param_durum`
+(bekle → tetik → vur; kontrol: olmayan tetik / tetiğe sayı / animatörsüz varlık → 3 HATA). Editörde grafikten düzenleme: A8b (MODEL-ANIMASYON-PLANI).
+**A8c — kodsuz tuş:** `param <ad> tetik tus <TUŞ>` (ad kümesi `eng_key_pressed` ile aynı: A-Z, 0-9, SPACE, ENTER, SHIFT, CTRL, ALT, TAB). Köprü her
+karede, sim adımlarından önce, o karede basılan tuşun tetiğini o animatörü kullanan HER varlığa verir — betik gerekmez. Yüklemede bilinmeyen tuş adı
+`HATA sahne animatoru: bilinmeyen tus` (sessizce hiç çalışmamasın), bilinenler `sahne animatorleri: N tuslu tetik`. Penceresiz doğrulama:
+`eng_key_test_press(ad)` / `teng_key_test_press` — sonraki kare o tuş basılı + yeni basıldı sayılır (`eng_key_pressed` de görür). Klip adları
+artık 63 karaktere kadar aynen yazılır (`#N` yalnız boşluklu adlar; sıra kayınca yanlış klibi göstermesin). Kapı: aynı test (tuşsuz kareler
+bekle'de kalır — kontrol; tuş 1 → vur; bilinmeyen ad → 1 HATA).
+**Henüz yok:** katman maskeleri, IK.
 
 ## 20. Kodla mesh (P1, 2026-11-14)
 

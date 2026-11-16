@@ -1,0 +1,44 @@
+# A8c (tools/arayuz_kapi.sh): Animasyon kartinda HAREKETLER — animator olusunca Bekle / Yuru / Kos satirlari klipleriyle gorunur;
+# "Hareket ekle" animatorde KULLANILMAYAN ilk klibi (saldiri) ve betik satirini onerir, Ekle dosyaya tek seferlik durum + tetik +
+# giris/donus gecislerini yazar, kartta "Saldiri" satiri belirir; Geri al onu kaldirir; yeniden eklenir (dosya kabukta denetlenir).
+# A8c tus: Hareket ekle bos ilk rakami (1) onerir; dosyada `param saldiri tetik tus 1`.
+# POZITIF KONTROL: olusturmadan once "Hareketler" yok; eklemeden once "Saldiri" yok; Geri al'dan sonra yine yok.
+tikla 66 206
+bekle 3
+tus F
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+metin_yok "Hareketler"
+tikla "Animatör oluştur (otomatik)"
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "Hareketler"
+dogrula_metin "Bekle"
+dogrula_metin "Yürü"
+dogrula_metin "Koş"
+metin_yok "Saldiri"
+ekran kart_hareketler
+tikla "Hareket ekle"
+bekle 3
+dogrula_metin "sahne_animator_tetik(sahne_bul(\"k0\"), \"saldiri\")"
+dogrula_metin "Oyunda 1 tuşuna basınca oynar — kod gerekmez."
+ekran kart_hareket_ekle
+tikla "Ekle##he_ekle"
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "Saldiri"
+tikla "Geri al" pencere=Özellikler###Ozellikler
+bekle 5
+metin_yok "Saldiri"
+tikla "Hareket ekle"
+bekle 3
+tikla "Ekle##he_ekle"
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "Saldiri"
+ekran kart_hareket_eklendi
+cik

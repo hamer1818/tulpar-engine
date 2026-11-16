@@ -1798,6 +1798,35 @@ ENGINE_TEST(render_skin_matris_tavani_sayilir) {
   ren.draw_skinned(lodm, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
   ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
   CHECK(ren.stats().skin_draws == 2 && ren.stats().skin_verts == 2 + 3);
+  // PAYLAŞILAN PALET (2026-11-16, Fab "Mike": 52 mesh x 88 eklem her mesh için yeniden kopyalanıyordu; 4 Mike tavanı aştı, sonuncunun
+  // kolu SESSİZCE çizilmedi). skin_palette bir kez yükler; 5 mesh aynı ofsetle çizilir -> 60 matris. KONTROL: aynı 5 çizim eski
+  // draw_skinned ile 100'lük tavanı aşar (yalnız 1'i sığar); geçersiz palet çizilmez, sayılır.
+  ren.begin_frame(0);
+  const uint32_t pal = ren.skin_palette(joints, 60);
+  CHECK(pal == 0);
+  for (int k = 0; k < 5; k++) ren.draw_skinned_palette(mesh, mat, Mat4::identity(), {1, 1, 1}, pal);
+  CHECK(ren.skin_matrices_used() == 60 && ren.stats().skin_draws == 5 && ren.stats().skin_dropped == 0);
+  const uint32_t d0 = ren.stats().dropped;
+  ren.draw_skinned_palette(mesh, mat, Mat4::identity(), {1, 1, 1}, renderer::Renderer::kNoPalette);
+  CHECK(ren.stats().dropped == d0 + 1 && ren.stats().skin_draws == 5);
+  CHECK(ren.skin_palette(joints, 60) == renderer::Renderer::kNoPalette && ren.stats().skin_dropped == 1);   // 120 > 100: palet de sayilir
+  ren.begin_frame(0);
+  for (int k = 0; k < 5; k++) ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 60);   // KONTROL: eski yol
+  CHECK(ren.stats().skin_draws == 1 && ren.stats().skin_dropped == 4);
+  // draw_model: iki mesh'i tek (birlesik) iskelete bagli gercek model -> palet BIR KEZ (eklem sayisi kadar matris).
+  char yol[512];
+  if (asset_path(yol, sizeof yol, "iki_skin_karakter.gltf")) {
+    static content::Model im;
+    im = content::Model{};
+    content::UploadedModel up;
+    CHECK(content::gltf_load(sys, yol, &im) && im.skin_count == 1 && content::upload_model(ren, sys, im, &up));
+    uint32_t iskeletli = 0;
+    for (uint32_t i = 0; i < im.instance_count; i++) iskeletli += im.meshes[im.instances[i].mesh].skin >= 0;
+    ren.begin_frame(0);
+    content::draw_model(ren, im, up, Mat4::identity(), {1, 1, 1});
+    std::printf("    [bilgi] paylasilan palet: %u iskeletli mesh, %u eklem -> %u matris yuklendi\n", iskeletli, im.skins[0].joint_count, ren.skin_matrices_used());
+    CHECK(iskeletli >= 2 && ren.skin_matrices_used() == im.skins[0].joint_count && ren.stats().skin_draws == iskeletli);
+  }
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }
@@ -1898,10 +1927,11 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
     CHECK(mesh.valid());
     ren.set_shadow_casting(vr.golge);
     std::printf("    [olcum] -- %s (%u ucgen)\n", vr.ad, ni / 3);
-    double taban = 0.0;
+    double taban = 0.0, gtaban = 0.0;
     for (uint32_t n : Ns) {
       const uint32_t cols = (uint32_t)std::ceil(std::sqrt((double)n * 1.6));
-      double best[40];
+      double best[40], gbest[40];
+      bool gpu_var = true;   // butun karelerde zaman damgasi okundu ve > 0
       uint32_t last_draws = 0, last_drop = 0;
       for (uint32_t f = 0; f < 50; f++) {
         auto t0 = std::chrono::steady_clock::now();
@@ -1917,13 +1947,22 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
         last_draws = ren.stats().draws; last_drop = ren.stats().skin_dropped;
         if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
         auto t1 = std::chrono::steady_clock::now();
-        if (f >= 10) best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        if (f >= 10) {
+          best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+          gbest[f - 10] = (double)ores.gpu_ns * 1e-6;
+          gpu_var = gpu_var && ores.timestamps_valid && ores.gpu_ns > 0;
+        }
       }
       std::sort(best, best + 40);
-      if (n == 1) taban = best[20];
-      std::printf("    [olcum] %3u karakter: p50 %6.2f ms (p10 %.2f, p90 %.2f)  taban uzeri %+6.2f ms\n", n, best[20], best[4], best[36], best[20] - taban);
+      std::sort(gbest, gbest + 40);
+      if (n == 1) { taban = best[20]; gtaban = gbest[20]; }
+      std::printf("    [olcum] %3u karakter: p50 %6.2f ms (p10 %.2f, p90 %.2f)  taban uzeri %+6.2f ms | GPU gecis p50 %.3f ms%s\n", n, best[20], best[4],
+                  best[36], best[20] - taban, gbest[20], gpu_var ? "" : " (damga yok)");
       CHECK(last_drop == 0 && last_draws >= n);     // HEPSI cizildi (eklem matrisi tavani asilmadi)
-      if (n == 40) CHECK(best[20] > taban);          // olcum is yapiyor: 40 karakter 1 karakterden pahali
+      // Olcum is yapiyor: 40 karakter 1 karakterden pahali. GPU ZAMAN DAMGASIYLA (render gecisi): duvar saati RTX 5080'de sabit
+      // gonder/bekle maliyetine bogulur — 40 karakter yalniz +0,01..0,18 ms pahaliydi ve kontrol arada kirmiziya dusuyordu
+      // (2026-11-16). Damga yoksa (MoltenVK ayni degeri verir) duvar saati.
+      if (n == 40) CHECK(gpu_var ? gbest[20] > gtaban : best[20] > taban);
     }
   }
   rhi::offscreen_destroy(off);
@@ -2347,4 +2386,111 @@ ENGINE_TEST(content_iskeletli_morph_yuklenir_ve_compact_korur) {
   static content::Model duz, duz_k;
   CHECK(asset_path(path, sizeof path, "morph_kup.gltf") && content::gltf_load(sys, path, &duz) && content::model_compact(keep, duz, &duz_k));
   CHECK(duz_k.meshes[0].skin_verts == nullptr && duz_k.meshes[0].verts != nullptr);   // KONTROL
+}
+
+// --- Madde 3c: DOKU AYARI (doku_en_cok / doku_sikistir astc), 2026-11-16 --------------------------------------------------------
+// Fab "Mike": 8 doku x 4096^2 RGBA ~ 700 MB GPU — telefona sığmaz. doku_en_cok yüklemede yarılayarak küçültür.
+// Kapı (sentetik, beklenen değer elle hesaplandı): 2x2 siyah/beyaz sRGB -> doğrusal ortalama 0,5 -> sRGB 188 (saf ortalama 128 olurdu);
+// veri (ORM) dokusu saf ortalama 128; dik iki normal (+X, +Z) -> (0,707, 0, 0,707) -> 218/128/218. KONTROL: sınırın altındaki görüntüye dokunulmaz.
+ENGINE_TEST(model_doku_siniri_yarilar) {
+  static SystemArena sys;
+  if (!sys.reserve(32u << 20, "doku_siniri")) { CHECK(false); return; }
+  static content::ModelImage im[4];
+  static uint8_t px[3][16];
+  const uint8_t sb[16] = {0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255};   // siyah beyaz / siyah beyaz
+  std::memcpy(px[0], sb, 16);
+  std::memcpy(px[1], sb, 16);
+  const uint8_t nx[16] = {255, 128, 128, 255, 128, 128, 255, 255, 255, 128, 128, 255, 128, 128, 255, 255};   // +X, +Z
+  std::memcpy(px[2], nx, 16);
+  for (int k = 0; k < 3; k++) { im[k] = content::ModelImage{}; im[k].width = im[k].height = 2; im[k].rgba = px[k]; }
+  im[0].srgb = true;
+  im[1].srgb = false;
+  im[2].srgb = false; im[2].normal_map = true;
+  static uint8_t kucuk[4] = {10, 20, 30, 255};
+  im[3] = content::ModelImage{}; im[3].width = im[3].height = 1; im[3].rgba = kucuk;
+  static content::Model m;
+  m = content::Model{};
+  m.images = im;
+  m.image_count = 4;
+  CHECK(content::model_limit_textures(sys, m, 1) == 3 && m.images_downscaled == 3);
+  std::printf("    [bilgi] yarilama: sRGB %u (beklenen 188), veri %u (128), normal %u/%u/%u (218/128/218)\n", im[0].rgba[0], im[1].rgba[0], im[2].rgba[0],
+              im[2].rgba[1], im[2].rgba[2]);
+  CHECK(im[0].width == 1 && im[0].rgba[0] == 188 && im[1].rgba[0] == 128);
+  CHECK(std::abs((int)im[2].rgba[0] - 218) <= 1 && std::abs((int)im[2].rgba[1] - 128) <= 1 && std::abs((int)im[2].rgba[2] - 218) <= 1);
+  CHECK(im[3].rgba == kucuk && im[3].width == 1);   // KONTROL: siniri asmayan dokunulmadi
+  // Gercek dosya: Fox + .ayar doku_en_cok 64 -> goruntu <= 64, not soyler
+  char kaynak[512];
+  if (asset_path(kaynak, sizeof kaynak, "khronos_Fox.glb")) {
+    char dir[512], yol[700], ayar[720];
+    CHECK(test::tmp_mkdir(dir, sizeof dir, "doku_siniri"));
+    std::snprintf(yol, sizeof yol, "%s/fox.glb", dir);
+    std::FILE *f = std::fopen(kaynak, "rb"), *g = std::fopen(yol, "wb");
+    static char bf[1 << 16];
+    size_t n;
+    while (f && g && (n = std::fread(bf, 1, sizeof bf, f)) > 0) std::fwrite(bf, 1, n, g);
+    if (f) std::fclose(f);
+    if (g) std::fclose(g);
+    std::snprintf(ayar, sizeof ayar, "%s.ayar", yol);
+    if (std::FILE *a = std::fopen(ayar, "wb")) { std::fputs("tulpar-model-ayar 1\ndoku_en_cok 64\n", a); std::fclose(a); }
+    static content::Model fx;
+    fx = content::Model{};
+    CHECK(content::gltf_load(sys, yol, &fx) && fx.image_count == 1);
+    std::printf("    [bilgi] Fox doku_en_cok 64: %ux%u, not '%s'\n", fx.images[0].width, fx.images[0].height, fx.note);
+    CHECK(fx.images[0].width <= 64 && fx.images[0].height <= 64 && fx.images_downscaled == 1 && std::strstr(fx.note, "64 px"));
+  }
+}
+
+// doku_sikistir astc: cihaz ASTC LDR destekliyorsa her doku ASTC olarak yüklenir ve ikinci yükleme ÖNBELLEKTEN gelir (kodlama yok);
+// desteklemiyorsa (masaüstü NVIDIA) RGBA kalır ve astc_unsupported söyler — iki yol da ölçülür, hangisi koştuğu basılır.
+ENGINE_TEST(model_doku_astc_onbellekli) {
+  static SystemArena sys;
+  if (!sys.reserve(96u << 20, "doku_astc")) { CHECK(false); return; }
+  if (!rhi::vk_api_load(g_api)) { skip("Vulkan loader yok (doku astc kapisi atlandi)"); return; }
+  char kaynak[512];
+  if (!asset_path(kaynak, sizeof kaynak, "khronos_Fox.glb")) { skip("tests/assets/khronos_Fox.glb yok"); return; }
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0;
+  if (!ren.init(dev, sys, rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); return; }
+  char dir[512], yol[700], ayar[720];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "doku_astc"));
+  std::snprintf(yol, sizeof yol, "%s/fox.glb", dir);
+  {
+    std::FILE *f = std::fopen(kaynak, "rb"), *g = std::fopen(yol, "wb");
+    static char bf[1 << 16];
+    size_t n;
+    while (f && g && (n = std::fread(bf, 1, sizeof bf, f)) > 0) std::fwrite(bf, 1, n, g);
+    if (f) std::fclose(f);
+    if (g) std::fclose(g);
+  }
+  std::snprintf(ayar, sizeof ayar, "%s.ayar", yol);
+  if (std::FILE *a = std::fopen(ayar, "wb")) { std::fputs("tulpar-model-ayar 1\ndoku_en_cok 256\ndoku_sikistir astc\n", a); std::fclose(a); }
+  const bool donanim = dev.caps().texture_compression_astc_ldr;
+  content::UploadedModel u1, u2;
+  for (int tur = 0; tur < 2; tur++) {
+    static content::Model fx;
+    fx = content::Model{};
+    CHECK(content::gltf_load(sys, yol, &fx) && fx.tex_astc && fx.tex_cache_dir[0]);
+    CHECK(content::upload_model(ren, sys, fx, tur ? &u2 : &u1));
+  }
+  std::printf("    [bilgi] ASTC: cihaz %s; 1. yukleme astc %u (onbellek %u), 2. yukleme astc %u (onbellek %u), desteklenmiyor %d\n",
+              donanim ? "DESTEKLIYOR" : "desteklemiyor", u1.astc_textures, u1.astc_cached, u2.astc_textures, u2.astc_cached, u1.astc_unsupported);
+  if (donanim) {
+    CHECK(u1.astc_textures == 1 && u1.astc_cached == 0);
+    CHECK(u2.astc_textures == 1 && u2.astc_cached == 1);   // ikinci yukleme kodlamadi
+  } else {
+    CHECK(u1.astc_unsupported && u1.astc_textures == 0 && u1.texture_count == 1);   // RGBA yolu, soylendi
+  }
+  ren.shutdown();
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
 }

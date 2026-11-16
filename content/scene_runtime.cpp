@@ -243,6 +243,33 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
     else if (!gpu) stats_.assets_failed++;  // cihaz yok: sayilir, suclanacak dosya yok
     else { stats_.assets_failed++; std::printf("[scene_runtime] kaynak yuklenemedi: %s (%s)\n", path, models_[i].error); }
   }
+  // A8: animatorler (kodsuz). Modeli yuklenmemis varlik atlanir (cizilmiyor zaten); dosya/ayristirma/klip hatasi SAYILIR ve son
+  // hatanin metni stats_.animator_error'da (kopru sahne yuklerken HATA basar) — sessiz "animasyon donuk" degil.
+  animators_.clear();
+  morph_.reset();
+  for (uint32_t a = 0; a < kSceneMaxAssets; a++) morph_klip_[a] = a < view.h->asset_count && have_[a] && model_has_morph_clips(models_[a]);
+  for (uint32_t i = 0; i < view.h->anim_count; i++) {
+    const char *ctrl = view.anim_ctrl(i);
+    if (!ctrl[0]) continue;
+    const uint32_t ent = view.anims[i].entity;
+    const int32_t dr = view.entities[ent].draw;
+    const int32_t as = dr >= 0 ? view.draws[dr].asset : -1;
+    if (as < 0 || (uint32_t)as >= kSceneMaxAssets || !have_[as]) continue;
+    std::snprintf(path, sizeof path, "%s/%s", dir && *dir ? dir : ".", ctrl);
+    sim::AnimatorError er;
+    if (animators_.attach(ent, path, &models_[as], &er)) {
+      stats_.animators++;
+      // Kok hareketi (`durum ... kok`): dinamik govde ve karakterde fizik sahibi -> kapali; digerlerinde varligi tasir (update).
+      const int32_t bi = view.entities[ent].body;
+      const bool dinamik = bi >= 0 && (uint32_t)bi < view.h->body_count && view.bodies[bi].dynamic != 0;
+      const bool karakter = ent_char_ && ent < view.h->entity_count && ent_char_[ent] >= 0;
+      animators_.set_root_motion(ent, !dinamik && !karakter);
+    } else {
+      stats_.animators_failed++;
+      if (er.line) std::snprintf(stats_.animator_error, sizeof stats_.animator_error, "%s satir %u: %s", ctrl, er.line, er.msg);
+      else std::snprintf(stats_.animator_error, sizeof stats_.animator_error, "%s: %s", ctrl, er.msg);
+    }
+  }
 
   // --- v6: prosedurel bilesenler -------------------------------------------
   // Parcacik havuzu arenadan; init sonrasi ayirma yok (particles.hpp sozlesmesi).
@@ -364,7 +391,28 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
 }
 
 void SceneRuntime::update(float dt, const sim::Physics *ph) {
-  if (!view_.particles || dt <= 0) return;
+  if (dt <= 0) return;
+  // A8: animatorler — hiz/dikey varligin BU adimdaki dunya konumundan (fizik / ezme / yazar), sonra durum makinesi.
+  if (animators_.attached())
+    for (uint32_t i = 0; i < view_.h->anim_count; i++) {
+      const uint32_t ent = view_.anims[i].entity;
+      if (!animators_.has(ent)) continue;
+      const Mat4 m = entity_matrix(ent, ph);
+      animators_.step(ent, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]}, dt);
+      // Kok hareketi: yerel (x, z) ilerleme varligin olcegi ve donusuyle dunyaya; ezme (set_pose) olarak uygulanir — cizim, isik, ses
+      // hepsi birlikte tasinir. Sabit govdeli varlikta govde tasinmaz (ph const; kok hareketli varlik genelde govdesiz karakter modeli).
+      float k[2];
+      if (animators_.take_root_delta(ent, k)) {
+        Vec3 pos;
+        Quat rot;
+        pose(ent, &pos, &rot);
+        const SceneBlobEntity &se = view_.entities[ent];
+        const Vec3 yerel{k[0] * se.scale[0], 0.0f, k[1] * se.scale[2]};
+        set_pose(ent, pos + rotate(rot, yerel), rot, nullptr);
+        stats_.root_motion_steps++;
+      }
+    }
+  if (!view_.particles) return;
   // TEK, KALICI uretec (init'te sabit tohum), saat degil: ayni sahne + ayni
   // update dizisi her platformda AYNI parcacik dizisini verir (particles.hpp'nin
   // determinizm sozu). Eskiden her cagri `Rng(++kare)` kuruyordu: xorshift32'nin
@@ -593,6 +641,7 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
   stats_.draws = 0;
   stats_.lights = 0;
   for (uint32_t k = 0; k <= kModelMaxLods; k++) stats_.lod[k] = 0;
+  morph_.begin_frame();
   ModelLod lod;
   lod.camera_pos = cam_pos;
   lod.distance1 = 24.0f;
@@ -618,9 +667,27 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
     }
     if (d.asset < 0 || (uint32_t)d.asset >= kSceneMaxAssets || !have_[d.asset]) continue;
     const Model &mdl = models_[d.asset];
-    const UploadedModel &up = ups_[d.asset];
+    const UploadedModel *upp = &ups_[d.asset];
+    // A5: morph — karisim listesi (animator ya da tek klip) yuz ifadesini de surer; kopya mesh'ler MorphPool'da (editorle ayni).
+    if (e.anim >= 0 && morph_klip_[d.asset]) {
+      PoseMixEntry me[sim::kAnimMaxEntries];
+      uint32_t mn = 0;
+      if (animators_.has(d.entity)) mn = animators_.mix(d.entity, me, sim::kAnimMaxEntries);
+      else {
+        const SceneBlobAnim &a = view_.anims[e.anim];
+        if (a.clip < mdl.clip_count) { me[0] = {a.clip, scene_anim_time(a.mode, time_s * a.speed + a.phase, mdl.clips[a.clip].duration), 1.0f}; mn = 1; }
+      }
+      if (const UploadedModel *mu = morph_.frame(r, d.entity, d.asset, mdl, ups_[d.asset], me, mn)) upp = mu;
+    }
+    const UploadedModel &up = *upp;
     bool drew = false;
-    if (e.anim >= 0 && pose_scratch_) {
+    if (e.anim >= 0 && pose_scratch_ && animators_.has(d.entity)) {   // A8: animator klip/faz/hiz alanlarini EZER
+      ModelPose pose;
+      if (animators_.pose(d.entity, *pose_scratch_, &pose)) {
+        draw_model(r, mdl, up, m, v3(d.tint), &lod, nullptr, &pose);
+        drew = true;
+      }
+    } else if (e.anim >= 0 && pose_scratch_) {
       const SceneBlobAnim &a = view_.anims[e.anim];
       if (a.clip < mdl.clip_count) {
         const float dur = mdl.clips[a.clip].duration;

@@ -36,7 +36,12 @@ inline bool android_asset_wanted(const char *name) {
   const char *dot = std::strrchr(name, '.');
   if (!dot) return false;
   static const char *const kExt[] = {".gltf", ".glb", ".bin",  ".png",  ".jpg", ".jpeg", ".ktx2", ".ttf", ".sahne",
-                                     ".sahneb", ".wav", ".mp3", ".flac", ".ogg", ".txt",  ".json", ".csv"};
+                                     ".sahneb", ".wav", ".mp3", ".flac", ".ogg", ".txt",  ".json", ".csv",
+                                     // 2026-11-16: animator (A3/A8), STL/OBJ/MTL (M2) ve ice aktarma ayari (M1) — yoktular, telefonda
+                                     // animatorlu sahne donuk, STL/OBJ modeli gorunmez kaliyordu (Tuzaklar 8cu'nun tekrari).
+                                     ".animator", ".stl", ".obj", ".mtl", ".ayar",
+                                     // madde 4 (2026-11-16): FBX dogrudan yukleniyor (ufbx)
+                                     ".fbx"};
   for (const char *e : kExt)
     if (asset_ext_equal(dot, e)) return true;
   return false;

@@ -1,0 +1,104 @@
+// L6 CONTENT — Sahne animatörleri (A8, "kodsuz animatör"; docs/MODEL-ANIMASYON-PLANI.md).
+//
+// Sahnedeki animasyonlu bir varlığa `.animator` dosyası bağlanır (`.sahne`: `animator "yol"`); oyun ve editörün Oynat'ı onu
+// KOD YAZMADAN çalıştırır: `hiz` (yatay m/s) ve `dikey` (dikey m/s) parametreleri varlığın hareketinden her adımda kendiliğinden
+// beslenir (sim/animator.hpp kAnimAuto*). Aynı kod SceneRuntime (oyun / köprü) ve editörün fizik önizlemesinde koşar — ikisi
+// ayrı yazılsaydı "editörde yürüyor, oyunda donuk" sınıfı (Tuzaklar 8x ailesi) kaçınılmazdı.
+//
+// Kapasite: kSceneAnimDefs ayrı (dosya, model) tanımı + varlık başına bir çalışma yuvası (kSceneMaxEntities). Sabit dizi, kare
+// içinde ayırma yok; tanım havuzu dolunca bağlama REDDEDİLİR ve sayılır (rejected()).
+#pragma once
+#include <cstdint>
+
+#include "content/model.hpp"
+#include "content/scene.hpp"
+#include "core/math/vec.hpp"
+#include "sim/animator.hpp"
+
+namespace tulpar::engine::content {
+
+constexpr uint32_t kSceneAnimDefs = 8;
+constexpr uint32_t kSceneAnimMaxClips = 64;   // süre tablosu (Model klip tavanının üstünde)
+
+// Dosyayı oku + ayrıştır + modelin klip adlarına bağla. false: err dolu (satır, neden). Yığın değil, statik okuma tamponu
+// (64 KB) kullanır: aynı anda iki iş parçacığından ÇAĞRILMAZ (yükleme anı, kare dışı).
+bool animator_load_file(const char *path, const Model &m, sim::AnimatorDef *def, sim::AnimatorError *err);
+bool animator_bind_model(sim::AnimatorDef *def, const Model &m, sim::AnimatorError *err);
+// Modelin klip adlarından hazır animatör metni (sim::animator_auto_text). Dönüş: bayt, 0 = klip yok.
+uint32_t animator_auto_text_model(const Model &m, char *out, uint32_t cap, sim::AnimAutoReport *rep);
+uint32_t animator_clip_durations(const Model &m, float *dur, uint32_t cap);
+// Animatörün şu anki karışımını modelin iskeletine uygular (model_pose_mix). false: poz yok (klip/iskelet uymuyor).
+bool animator_model_pose(const sim::AnimatorDef &d, const sim::AnimatorRt &rt, const Model &m, PoseScratch &scratch, ModelPose *pose,
+                         bool lock_root = false);
+// A4 kök hareketi: bir adımdaki (once -> sonra) karışım listesinden klibin kök (eklem 0) YEREL yatay ilerlemesi, ağırlıklı toplam;
+// döngüyü saran adımda (sonu - baş) + (yeni - 0). Köprü varlıkları ve sahne varlıkları AYNI işlev (eskiden yalnız köprüde vardı).
+void animator_root_delta(const Model &m, const sim::AnimatorPose &once, const sim::AnimatorPose &sonra, PoseScratch &scratch, float out_xz[2]);
+
+class SceneAnimators {
+public:
+  void clear();
+  // Varlık `ent`e animatör bağlar (`path` tam yol). Aynı (yol, model) tanımı paylaşılır. false: err dolu.
+  bool attach(uint32_t ent, const char *path, const Model *m, sim::AnimatorError *err);
+  void detach(uint32_t ent);
+  bool has(uint32_t ent) const { return ent < kSceneMaxEntities && slots_[ent].def >= 0; }
+  // Adım: dünya konumundan `hiz`/`dikey` besler (ilk adımda 0: önceki konum yok), durum makinesini dt kadar ilerletir.
+  // Hız yumuşatılır (zaman sabiti ~0,1 s): fizik adımları arasındaki titreşim durum geçişlerini çırpındırmasın.
+  void step(uint32_t ent, Vec3 world_pos, float dt);
+  // Hız doğrudan (editörün "Önizleme hızı" kaydırıcısı: oynatmadan bekle → yürü → koş denenir). Aynı yumuşatma + ilerletme.
+  void step_params(uint32_t ent, float speed, float vertical, float dt);
+  bool pose(uint32_t ent, PoseScratch &scratch, ModelPose *pose) const;
+  // Şu anki karışım listesi (klip, an, ağırlık): poz ve MORPH ağırlıkları aynı listeden (MorphPool). Dönüş: girdi sayısı (0 = yok).
+  uint32_t mix(uint32_t ent, PoseMixEntry *out, uint32_t cap) const;
+  const char *state_name(uint32_t ent) const;      // "" = animatör yok
+  const char *path(uint32_t ent) const;            // "" = animatör yok
+  float param(uint32_t ent, const char *name) const;   // test/gösterge; yoksa 0
+  // Betikten (köprü: sahne_animator_tetik / sahne_animator_param). false: animatör yok ya da o adla o türde parametre yok.
+  // Otomatik parametreler (hiz, dikey) her adımda hareketten YENİDEN yazılır: betikten verilen değer bir adım yaşar — kendi
+  // değerini sürmek isteyen başka ad kullanır.
+  bool trigger(uint32_t ent, const char *name);
+  bool set_param(uint32_t ent, const char *name, float v);
+  // KÖK HAREKETİ (sahne varlığı, 2026-11-16): `durum ... kok` iken klibin kök ilerlemesi birikir; çağıran (SceneRuntime) take_root_delta
+  // ile alıp varlığı taşır, pozda kök kilitlenir (çift hareket yok). Yalnız set_root_motion(ent, true) verilen varlıkta (dinamik gövde
+  // ve karakterde fizik sahibi: kapalı kalır, eskisi gibi klibin kendi yürüyüşü görünür).
+  void set_root_motion(uint32_t ent, bool on);
+  bool take_root_delta(uint32_t ent, float out_xz[2]);   // false: birikim yok; okununca sıfırlanır
+  // A4 OLAYLAR (betiğe): kuyruktaki en eski olayın adı, yoksa nullptr. Kuyruk 8; okunmazsa dolar, düşen SAYILIR (sessiz değil).
+  const char *event_pop(uint32_t ent);
+  // A8c: editörde ▶ — durumu adıyla doğrudan başlatır (0,15 s yumuşak). false: animatör ya da durum yok.
+  bool play_state(uint32_t ent, const char *state);
+  // A8c: KODSUZ TUŞ — tanımda `param <ad> tetik tus <TUŞ>` olan her tetik, çağıranın girdisi o tuşa BU KAREDE basıldı derse verilir
+  // (bütün bağlı varlıklar; aynı animatörü kullanan her nesne). Tuş adı ve "basıldı" kararı çağıranındır: oyun köprünün klavyesi
+  // (teng_key_pressed ile AYNI ad kümesi), editörün Oynat'ı ImGui. Dönüş: verilen tetik sayısı. Kare başına bir kez çağrılır.
+  typedef bool (*KeyPressedFn)(void *user, const char *key);
+  uint32_t keys(KeyPressedFn pressed, void *user);
+  uint32_t keyed() const { return keyed_; }
+  // Bağlı tanımlardaki farklı tuş adları (köprü yüklemede doğrular: bilinmeyen ad SESSİZCE hiç çalışmasın diye HATA basar).
+  uint32_t key_names(const char **out, uint32_t cap) const;   // tuşlu tetiği olan bağlı tanım sayısı (0 ise keys hiçbir şey yapmaz)
+  const sim::AnimatorRt *runtime(uint32_t ent) const { return has(ent) ? &slots_[ent].rt : nullptr; }
+  uint32_t attached() const { return attached_; }
+  uint32_t rejected() const { return rejected_; }
+
+private:
+  struct Def {
+    sim::AnimatorDef def;
+    char path[kScenePathLen] = {0};
+    const Model *model = nullptr;
+    int32_t p_speed = -1, p_vert = -1;   // otomatik parametre indeksleri (-1: tanımda yok)
+    bool has_keys = false;               // A8c: tuşlu tetik var
+    bool used = false;
+  };
+  struct Slot {
+    int32_t def = -1;
+    bool has_prev = false;
+    Vec3 prev{0, 0, 0};
+    float speed = 0, vert = 0;
+    sim::AnimatorRt rt;
+    bool root_on = false;
+    float root[2] = {0, 0};   // birikmis yerel kok ilerlemesi (take_root_delta okur)
+  };
+  Def defs_[kSceneAnimDefs];
+  Slot slots_[kSceneMaxEntities];
+  uint32_t attached_ = 0, rejected_ = 0, keyed_ = 0;
+};
+
+} // namespace tulpar::engine::content

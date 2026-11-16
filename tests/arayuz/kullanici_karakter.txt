@@ -1,0 +1,26 @@
+# A8 kullanici akisi (tools/arayuz_kapi.sh): yeni oyun + Kaynaklar'da animasyonlu model -> cift tik (Animasyon bileseni KENDILIGINDEN,
+# bekleme klibiyle) -> "Animator olustur (otomatik)" -> "Davranis ekle" > Devriye -> Kaydet. Kapi sonra oyunu koşturur: karakter
+# YURUMUS olmali ve oyunda animator bagli (sahne animatorleri: 1). POZITIF KONTROL: devriye hizi 0 -> yerinde.
+tikla "Kaynaklar" pencere=DockSpace
+bekle 3
+cift_tikla "karakter_"
+bekle 15
+dogrula_metin "yürü/koş için Animasyon kartında"
+kaydir 1420 700 -40
+bekle 3
+dogrula_metin "0: bekle"
+tikla "Animatör oluştur (otomatik)"
+bekle 5
+dogrula_metin "bekle=bekle, yürü=yuru, koş=kos"
+kaydir 1420 400 40
+bekle 3
+tikla "Davranış ekle (betik)"
+bekle_oge "Oluştur ve karakter_kup nesnesine ekle"
+tikla "Devriye (ileri-geri yürü)##sablon6"
+bekle 2
+tikla "Oluştur ve karakter_kup nesnesine ekle"
+bekle 5
+tikla "Kaydet" pencere=tulpar_toolbar
+bekle 5
+dogrula_metin "kaydedildi: assets/"
+cik

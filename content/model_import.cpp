@@ -40,7 +40,8 @@ void put_num(char *b, size_t cap, float v) {
 
 bool model_import_equal(const ModelImportSettings &a, const ModelImportSettings &b) {
   return a.unit == b.unit && a.z_up == b.z_up && a.scale == b.scale && a.fit == b.fit && a.pivot == b.pivot && a.lod1 == b.lod1 &&
-         a.lod2 == b.lod2;
+         a.lod2 == b.lod2 && a.doku_en_cok == b.doku_en_cok && a.doku_astc == b.doku_astc && a.anim_kaynak_n == b.anim_kaynak_n &&
+         [&] { for (uint32_t i = 0; i < a.anim_kaynak_n; i++) if (std::strcmp(a.anim_kaynak[i], b.anim_kaynak[i])) return false; return true; }();
 }
 
 float model_unit_meters(ModelUnit u) {
@@ -104,7 +105,7 @@ bool model_import_parse(const char *text, size_t len, ModelImportSettings *out, 
       continue;
     }
     if (n != 2) return fail("anahtar deger bekleniyor");
-    char v[32];
+    char v[96];
     if (tl[1] >= sizeof v) return fail("deger cok uzun");
     std::memcpy(v, tk[1], tl[1]);
     v[tl[1]] = 0;
@@ -149,8 +150,22 @@ bool model_import_parse(const char *text, size_t len, ModelImportSettings *out, 
       if (!once(ikinci ? 64 : 32)) return fail(ikinci ? "lod2 bir kez yazilir" : "lod1 bir kez yazilir");
       float *d = ikinci ? &s.lod2 : &s.lod1;
       if (!num(d) || *d < 0.0f || *d > 1e5f) return fail("lod1/lod2 0 (varsayilan) ile 1e5 arasi metre olmali");
+    } else if (tok_eq(tk[0], tl[0], "doku_en_cok")) {
+      if (!once(128)) return fail("doku_en_cok bir kez yazilir");
+      float f = 0;
+      if (!num(&f) || f != (float)(uint32_t)f || (f != 0.0f && (f < 64.0f || f > 16384.0f))) return fail("doku_en_cok 0 (dokunma) ya da 64..16384 piksel olmali");
+      s.doku_en_cok = (uint32_t)f;
+    } else if (tok_eq(tk[0], tl[0], "doku_sikistir")) {
+      if (!once(256)) return fail("doku_sikistir bir kez yazilir");
+      if (!std::strcmp(v, "astc")) s.doku_astc = true;
+      else if (!std::strcmp(v, "yok")) s.doku_astc = false;
+      else return fail("doku_sikistir astc | yok olmali");
+    } else if (tok_eq(tk[0], tl[0], "animasyon_kaynak")) {
+      if (s.anim_kaynak_n >= ModelImportSettings::kAnimKaynakMax) return fail("animasyon_kaynak en cok 8 kez yazilir");
+      if (std::strstr(v, "..") || v[0] == '/' || v[0] == '\\') return fail("animasyon_kaynak modelin dizininde ya da altinda olmali (.. ve mutlak yol yok)");
+      std::snprintf(s.anim_kaynak[s.anim_kaynak_n++], sizeof s.anim_kaynak[0], "%s", v);
     } else {
-      return fail("bilinmeyen anahtar (birim, yukari, olcek, sigdir, pivot, lod1, lod2)");
+      return fail("bilinmeyen anahtar (birim, yukari, olcek, sigdir, pivot, lod1, lod2, doku_en_cok, doku_sikistir, animasyon_kaynak)");
     }
   }
   if (!header) { line = 0; return fail("bos dosya ('tulpar-model-ayar 1' yok)"); }
@@ -172,6 +187,10 @@ size_t model_import_write(const ModelImportSettings &s, char *buf, size_t cap) {
     put_num(t, sizeof t, v);
     n += std::snprintf(buf + n, cap - (size_t)n, "lod%d %s\n", k + 1, t);
   }
+  // Doku ayarlari yalniz verilmisse (eski dosyalar bayt bayt ayni kalir)
+  if (s.doku_en_cok && n > 0 && (size_t)n < cap) n += std::snprintf(buf + n, cap - (size_t)n, "doku_en_cok %u\n", s.doku_en_cok);
+  if (s.doku_astc && n > 0 && (size_t)n < cap) n += std::snprintf(buf + n, cap - (size_t)n, "doku_sikistir astc\n");
+  for (uint32_t i = 0; i < s.anim_kaynak_n && n > 0 && (size_t)n < cap; i++) n += std::snprintf(buf + n, cap - (size_t)n, "animasyon_kaynak %s\n", s.anim_kaynak[i]);
   return n > 0 && (size_t)n < cap ? (size_t)n : 0;
 }
 
@@ -182,7 +201,7 @@ bool model_import_load(const char *model_path, ModelImportSettings *out, bool *f
   if (!model_import_path(model_path, yol, sizeof yol)) return true;
   std::FILE *f = std::fopen(yol, "rb");
   if (!f) return true;
-  char text[2048];
+  char text[4096];
   const size_t n = std::fread(text, 1, sizeof text, f);
   const bool more = std::fgetc(f) != EOF;
   std::fclose(f);

@@ -22,6 +22,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include "bridge/asset_filter.hpp"
 #include "app/demo_app.hpp"
 #include "platform/crash.hpp"
 #include "platform/time.hpp"
@@ -459,9 +460,9 @@ extern "C" void android_main(android_app *app) {
       // kaplamalarini da getiriyor (APK'da 1 dosya, listede 16).
       const char *dot = std::strrchr(name, '.');
       if (!dot) continue;
-      const bool ours = !std::strcmp(dot, ".gltf") || !std::strcmp(dot, ".glb") || !std::strcmp(dot, ".bin") || !std::strcmp(dot, ".stl") || !std::strcmp(dot, ".obj") || !std::strcmp(dot, ".mtl") ||
-                        !std::strcmp(dot, ".png") || !std::strcmp(dot, ".jpg") || !std::strcmp(dot, ".ktx2") ||
-                        !std::strcmp(dot, ".ttf") || !std::strcmp(dot, ".sahne");
+      // Tek kaynak: oyunun yolu bridge::android_asset_wanted (eskiden burada ayri, EKSIK liste vardi: .jpeg/.ayar/.animator yoktu —
+      // Fab "Mike"in .jpeg dokulari ve animasyon_kaynak ayari test APK'sinda sessizce dusuyordu; Tuzaklar 8ed'nin ikinci kopyasi).
+      const bool ours = bridge::android_asset_wanted(name);
       if (!ours) continue;
       AAsset *as = AAssetManager_open(app->activity->assetManager, name, AASSET_MODE_BUFFER);
       if (!as) continue;

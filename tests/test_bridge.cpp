@@ -2560,7 +2560,10 @@ ENGINE_TEST(bridge_tulpar_abi_lock_links_every_manifest_symbol) {
 ENGINE_TEST(bridge_android_asset_filter_keeps_every_decodable_audio_format) {
   using tulpar::engine::bridge::android_asset_wanted;
   const char *istenen[] = {"assets/sesler/muzik_savas.mp3", "a/b.flac", "ses_ok.wav", "MUZIK.MP3", "x.Flac",
-                           "savas.sahneb", "savas.sahne", "modeller/kup.gltf", "fonts/DejaVuSans.ttf", "ikon.png"};
+                           "savas.sahneb", "savas.sahne", "modeller/kup.gltf", "fonts/DejaVuSans.ttf", "ikon.png",
+                           // 2026-11-16: animator / STL / OBJ / MTL / ice aktarma ayari (A3/A8, M1, M2) — eksiktiler
+                           "karakter.animator", "modeller/kale.stl", "kaya.OBJ", "kaya.mtl", "karakter.glb.ayar",
+                           "Walking.fbx", "karakter.FBX"};   // madde 4: FBX
   const char *istenmeyen[] = {"OKUBENI", "kayit.tmp", "oyun.tpr", "x.mp", "mp3", "", "a.mp3.bak"};
   int ok = 0, red = 0;
   for (const char *n : istenen) { const bool w = android_asset_wanted(n); CHECK(w); ok += w ? 1 : 0; }
@@ -4750,6 +4753,100 @@ ENGINE_TEST(bridge_scene_entity_move_and_rotate_with_control) {
 // gizlenir, ustune yuzlu karakter konur). Cizim sayisi bir azalir, isin hala
 // govdeye carpar; geri gosterince cizim doner. POZITIF KONTROL: gizlemeden once
 // cizim sayisi ve isin isabeti olculur (azalma kurulumdan gelmiyor).
+// --- A8: sahne animatoru koprude (betikten tetik / parametre / durum) ---------------------------------------------------------
+// Gecici sahne: karakter_kup.gltf + tetikli animator (bekle --zipla--> vur --bitince--> bekle) + animatorsuz ikinci varlik. Kapi:
+// sahne yuklenince animator bekle'de; teng_scene_animator_trigger -> sonraki adimda 'vur'; sayi parametresi yazilir.
+// KONTROL: olmayan tetik, tetige sayi yazmak, animatorsuz varlik -> 0 + HATA sayaci artar (sessiz basari degil).
+ENGINE_TEST(bridge_scene_animator_tetik_param_durum) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static SystemArena arena;
+  if (arena.capacity() == 0) arena.reserve(64u << 20, "sahne_animator");
+  char dir[512], yol[768], blob[768];
+  if (!tmp_mkdir(dir, sizeof dir, "kopru_sahne_anim")) { CHECK(false); return; }
+  {
+    char kaynak[768];
+    std::snprintf(kaynak, sizeof kaynak, "%s/karakter_kup.gltf", assets_dir());
+    std::snprintf(yol, sizeof yol, "%s/kup.gltf", dir);
+    std::FILE *f = std::fopen(kaynak, "rb"), *g2 = std::fopen(yol, "wb");
+    static char b[1 << 16];
+    size_t n;
+    while (f && g2 && (n = std::fread(b, 1, sizeof b, f)) > 0) std::fwrite(b, 1, n, g2);
+    if (f) std::fclose(f);
+    if (g2) std::fclose(g2);
+    if (!f) { skip("tests/assets/karakter_kup.gltf yok"); return; }
+    std::snprintf(yol, sizeof yol, "%s/kup.animator", dir);
+    std::FILE *a = std::fopen(yol, "wb");
+    if (!a) { CHECK(false); return; }
+    std::fputs("tulpar-animator 1\nparam zipla tetik tus 1\nparam ofke sayi 0\ndurum bekle klip bekle dongu\ndurum vur klip saldiri tek\n"
+               "olay vur 0.1 darbe\ngecis herhangi vur sure 0.1 tetik zipla\ngecis vur bekle sure 0.1 bitince\nbaslangic bekle\n", a);
+    std::fclose(a);
+  }
+  static content::SceneDesc desc;
+  static const content::SceneDesc kBos{};   // `desc = SceneDesc{}` yigitta ~470 KB gecici: Clang -Wframe-larger-than (macOS CI)
+  desc = kBos;
+  std::snprintf(desc.assets[0], sizeof desc.assets[0], "kup.gltf");
+  desc.asset_count = 1;
+  for (int k = 0; k < 2; k++) {
+    content::SceneEntity e;
+    std::snprintf(e.name, sizeof e.name, k == 0 ? "kahraman" : "heykel");
+    e.components = content::kSceneModel | content::kSceneAnim;
+    e.asset = 0;
+    e.pos = Vec3{k * 3.0f, 0, 0};
+    if (k == 0) std::snprintf(e.anim_ctrl, sizeof e.anim_ctrl, "kup.animator");
+    desc.entities[desc.entity_count++] = e;
+  }
+  std::snprintf(blob, sizeof blob, "%s/sahne.sahneb", dir);
+  content::SceneError serr{};
+  if (!content::scene_blob_save(arena, desc, blob, &serr)) { std::printf("    [bilgi] sahne: %s\n", serr.msg); CHECK(false); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("sahne animator", kW, kH)) { skip("Vulkan cihazi/kurulum yok"); return; }
+  CHECK(teng_scene_load(blob) == 1);
+  const int kahraman = teng_scene_find("kahraman"), heykel = teng_scene_find("heykel");
+  CHECK(kahraman >= 0 && heykel >= 0);
+  if (kahraman < 0 || heykel < 0) { teng_shutdown(); return; }
+  run_frames(2);
+  char once[32];
+  std::snprintf(once, sizeof once, "%s", teng_scene_animator_state(kahraman));
+  CHECK(!std::strcmp(once, "bekle") && teng_scene_animator_state(heykel)[0] == 0);
+  CHECK(teng_scene_animator_trigger(kahraman, "zipla") == 1);
+  run_frames(2);
+  char sonra[32];
+  std::snprintf(sonra, sizeof sonra, "%s", teng_scene_animator_state(kahraman));
+  CHECK(!std::strcmp(sonra, "vur"));
+  CHECK(teng_scene_animator_param(kahraman, "ofke", 2.0) == 1);
+  const int hata0 = teng_error_count();
+  CHECK(teng_scene_animator_trigger(kahraman, "yok") == 0);
+  CHECK(teng_scene_animator_param(kahraman, "zipla", 1.0) == 0);
+  CHECK(teng_scene_animator_trigger(heykel, "zipla") == 0);
+  const int hata1 = teng_error_count();
+  std::printf("    [bilgi] sahne animatoru: %s -> tetik -> %s; red edilen 3 cagri %d HATA\n", once, sonra, hata1 - hata0);
+  CHECK(hata1 - hata0 == 3);
+  // A8c KODSUZ TUS: `param zipla tetik tus 1` — betik cagrisi olmadan 1 tusu (penceresizde teng_key_test_press) 'vur'a gecirir.
+  // KONTROL: 'bekle'ye donduktan sonra tussuz kareler durumu degistirmez; bilinmeyen tus adi HATA.
+  int dondu = 0;
+  for (int k = 0; k < 600 && !dondu; k++) { run_frames(1); dondu = !std::strcmp(teng_scene_animator_state(kahraman), "bekle"); }
+  CHECK(dondu);
+  // 3b: sahne animatoru OLAYI betige (eng_scene_animator_event): 'vur' fazi 0.1'i gecti -> "darbe" bir kez, sonra bos.
+  char olay1[32];
+  std::snprintf(olay1, sizeof olay1, "%s", teng_scene_animator_event(kahraman));
+  const char *olay2 = teng_scene_animator_event(kahraman);
+  std::printf("    [bilgi] sahne animator olayi: '%s' sonra '%s'; animatorsuz '%s'\n", olay1, olay2, teng_scene_animator_event(heykel));
+  CHECK(!std::strcmp(olay1, "darbe") && olay2[0] == 0 && teng_scene_animator_event(heykel)[0] == 0);
+  run_frames(5);
+  CHECK(!std::strcmp(teng_scene_animator_state(kahraman), "bekle"));   // KONTROL: tussuz
+  teng_key_test_press("1");
+  run_frames(3);
+  char tusla[32];
+  std::snprintf(tusla, sizeof tusla, "%s", teng_scene_animator_state(kahraman));
+  const int hata2 = teng_error_count();
+  teng_key_test_press("YOKTUS");
+  std::printf("    [bilgi] kodsuz tus 1: bekle -> %s; bilinmeyen tus %d HATA\n", tusla, teng_error_count() - hata2);
+  CHECK(!std::strcmp(tusla, "vur") && teng_error_count() - hata2 == 1);
+  teng_shutdown();
+}
+
 ENGINE_TEST(bridge_entity_hide_skips_draw_keeps_body) {
   rhi::VkApi api;
   if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
