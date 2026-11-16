@@ -547,7 +547,17 @@ void console_panel(ConsoleView &v) {
       // Sabit sutunlar: kare numarasi ve etiket AYNI x'te baslar — degisken
       // genislikli yazi tipiyle bile satirlar hizali okunur (monospace yok).
       const float frame_col = ImGui::CalcTextSize("000000").x;
-      const float tag_col = ImGui::CalcTextSize("[vulkan]").x;
+      // Etiket sutunu en genis GORUNEN etikete gore: sabit "[vulkan]" genisligi "[guncelleyici]"i mesajin ustune
+      // bindiriyordu (arayuz surucusu, 1080p, 2026-11-16). Etiket <= 15 harf (kConsoleTagLen), sutun sinirli.
+      float tag_col = ImGui::CalcTextSize("[vulkan]").x;
+      for (uint32_t k = 0; k < n; k++) {
+        const ConsoleEntry *e = console_at(idx[k]);
+        if (!e) continue;
+        char tb[kConsoleTagLen + 4];
+        std::snprintf(tb, sizeof tb, "[%s]", e->tag);
+        const float tw = ImGui::CalcTextSize(tb).x;
+        if (tw > tag_col) tag_col = tw;
+      }
       // Dar panel (U1: varsayilan yerlesimde Konsol sol sutunda): kare + etiket sutunlari mesaja
       // yer birakmiyordu (her satir "…"). Mesaja en az ~18 harf kalmiyorsa iki sutun gizlenir;
       // ikisi de satirin ipucunda (fare ustundeyken) gorunur.

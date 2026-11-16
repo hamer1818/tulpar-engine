@@ -104,19 +104,31 @@ bool tercih_yaz(const char *yol, const Tercihler &t) {
 
 uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncelleme_otomatik) {
   uint32_t r = 0;
-  if (!p.acik) return r;
+  if (!p.acik) { p.ortala_kare = 0; return r; }
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   const float fs = ImGui::GetFontSize();
   ImGui::SetNextWindowSize(ImVec2(fs * 30.0f, 0.0f), ImGuiCond_Appearing);
   // Yazi boyu buyuyunca pencere ekrandan tasmasin (Kapat dugmesi dista kaliyordu, 2026-11-13): yukseklik ekranla sinirli, tasarsa kayar.
   ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, vp->WorkSize.y * 0.94f));
-  ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.45f), ImGuiCond_Appearing,
+  // Kayan govde (AutoResizeY cocuk) boyunu ilk karede degil sonrakinde bulur: yalniz Appearing'de ortalanan pencere kucuk
+  // olculup ortalaniyor, govde buyuyunce alttan ekran disina tasiyordu. Ilk 3 kare her kare ortala, sonra kullanici tasiyabilir.
+  const ImGuiCond ortala = p.ortala_kare < 3 ? ImGuiCond_Always : ImGuiCond_Appearing;
+  if (p.ortala_kare < 3) p.ortala_kare++;
+  ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.45f), ortala,
                           ImVec2(0.5f, 0.5f));
   if (!ImGui::Begin("Tercihler###tercihler", &p.acik, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::End();
     return r;
   }
   if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) p.acik = false;
+  // Govde kayan bir cocuk pencerede, "Kapat" onun ALTINDA sabit: 720p'de govde ekrana sigmayinca Kapat ancak kaydirinca
+  // gorunuyordu (arayuz surucusu, 2026-11-16). Govde yuksekligi icerige gore (AutoResizeY), tavani ekrandan kalan.
+  const ImGuiStyle &st = ImGui::GetStyle();
+  const float alt = ImGui::GetFrameHeight() + st.ItemSpacing.y * 3.0f + 1.0f;  // ayrac + bosluk + Kapat
+  const float ust = ImGui::GetFrameHeight() + st.WindowPadding.y * 2.0f;       // baslik cubugu + pencere dolgusu
+  const float govde_en_cok = vp->WorkSize.y * 0.94f - ust - alt;
+  ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, govde_en_cok > fs * 4.0f ? govde_en_cok : fs * 4.0f));
+  ImGui::BeginChild("##tercih_govde", ImVec2(fs * 29.0f + st.ScrollbarSize + st.ItemSpacing.x, 0.0f), ImGuiChildFlags_AutoResizeY);
   ImGui::PushTextWrapPos(fs * 29.0f);
 
   // --- Gorunum ---
@@ -199,8 +211,10 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
     else std::snprintf(kisa, sizeof kisa, "%s", p.ayar_dizini);
     ImGui::TextColored(renk(Tone::TextMute), "Ayarlar: %s", kisa);
   }
-  if (ImGui::Button("Kapat", ImVec2(-FLT_MIN, 0))) p.acik = false;
   ImGui::PopTextWrapPos();
+  ImGui::EndChild();
+  ImGui::Separator();
+  if (ImGui::Button("Kapat", ImVec2(-FLT_MIN, 0))) p.acik = false;
   ImGui::End();
   return r;
 }

@@ -35,6 +35,7 @@ enum : uint32_t {
 struct TercihPencere {
   bool acik = false;
   char ayar_dizini[1024] = ""; // altbilgide gosterilir (kisa)
+  uint8_t ortala_kare = 0;       // acildiktan sonra ilk birkac kare yeniden ortalanir (govde bir kare sonra boyunu bulur)
 };
 // gelismis / guncelleme_otomatik: simdiki durum (pencere gosterir; degisirse ilgili bit doner, *gelismis yeni deger).
 uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncelleme_otomatik);
