@@ -1769,7 +1769,12 @@ yürütür (yaw ile döner, ölçekle çarpılır; dinamik gövdede uygulanmaz) 
 blob v13). `teng_scene_load` onu `SceneRuntime` içinde bağlar ve her sim adımında `hiz` (yatay m/s) ile `dikey`i (m/s) varlığın dünya konumundan
 yazar (fizik, karakter ya da `sahne_konum_ver` ezmesi) — tanımda o adla sayı parametresi varsa. Günlük: `sahne animatorleri: N`; bağlanamayan
 `HATA sahne: N animator baglanamadi, son hata: <dosya satir n: neden>` (varlık klibine düşer). Klip adı yerine `#N` (sıra numarası; ardından rakam
-gelen `#` yorum sayılmaz). Sahne varlığında kök hareketi uygulanmaz (konum fiziğin/yazarındır), olay kuyruğu boşaltılır (okuyan yok).
+gelen `#` yorum sayılmaz). **Kök hareketi (2026-11-16):** `durum ... kok` sahne varlığını da yürütür — yerel kök ilerlemesi varlığın ölçeği ve
+dönüşüyle dünyaya çevrilip ezme (`sahne_konum_ver` ile aynı yol) olarak uygulanır, pozda kök kilitlenir; dinamik gövdede ve karakterde
+KAPALI (fizik sahibi; klibin kendi yürüyüşü görünür). Sabit gövdeli varlıkta gövde taşınmaz. **Olaylar:** `sahne_animator_olay(i)` /
+`eng_scene_animator_event` kuyruktan en eski olay adı ("" = boş); okunmazsa 8'de dolar, düşen sayılır. Kapılar:
+`sahne_runtime_kok_hareketi_ve_olay` (1 s'de z 1,000; kontrol `kok`suz z 0), köprü testinde `darbe` olayı. Editörün iç fizik önizlemesinde
+kök hareketi uygulanmaz (klibin yürüyüşü görünür); gömülü oyun (Oynat) köprüden geçtiği için uygular.
 Kapılar: `sahne_runtime_animatoru_blobdan_kurar_ve_hareketle_besler`, `sahne_animatorleri_hareketten_hiz_besler`.
 Betikten: `sahne_animator_tetik(i, ad)` / `scene_animator_trigger` (tetik; ilgili geçiş bir sonraki adımda tüketir), `sahne_animator_param(i, ad, v)`
 (sayı parametresi; `hiz`/`dikey` her adım hareketten yeniden yazılır — kendi değerini sürmek için başka ad), `sahne_animator_durum(i)` → geçerli durum
@@ -1781,7 +1786,7 @@ karede, sim adımlarından önce, o karede basılan tuşun tetiğini o animatör
 `eng_key_test_press(ad)` / `teng_key_test_press` — sonraki kare o tuş basılı + yeni basıldı sayılır (`eng_key_pressed` de görür). Klip adları
 artık 63 karaktere kadar aynen yazılır (`#N` yalnız boşluklu adlar; sıra kayınca yanlış klibi göstermesin). Kapı: aynı test (tuşsuz kareler
 bekle'de kalır — kontrol; tuş 1 → vur; bilinmeyen ad → 1 HATA).
-**Henüz yok:** katman maskeleri, IK, sahne varlığında kök hareketi ve olay kuyruğunun betiğe verilmesi.
+**Henüz yok:** katman maskeleri, IK.
 
 ## 20. Kodla mesh (P1, 2026-11-14)
 

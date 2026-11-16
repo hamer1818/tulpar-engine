@@ -91,6 +91,7 @@ struct SceneRuntimeStats {
   uint32_t polys = 0, polys_failed = 0, poly_parts = 0, poly_bodies_failed = 0;
   // A8 animatorler: baglanan / baglanamayan (dosya yok, bozuk satir, modelde olmayan klip, havuz dolu) + son hatanin metni.
   uint32_t animators = 0, animators_failed = 0;
+  uint32_t root_motion_steps = 0;   // kok hareketiyle varligin tasindigi adim sayisi (sahne varligi, `durum ... kok`)
   char animator_error[192] = {0};
 };
 

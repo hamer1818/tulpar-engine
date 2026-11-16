@@ -4778,7 +4778,7 @@ ENGINE_TEST(bridge_scene_animator_tetik_param_durum) {
     std::FILE *a = std::fopen(yol, "wb");
     if (!a) { CHECK(false); return; }
     std::fputs("tulpar-animator 1\nparam zipla tetik tus 1\nparam ofke sayi 0\ndurum bekle klip bekle dongu\ndurum vur klip saldiri tek\n"
-               "gecis herhangi vur sure 0.1 tetik zipla\ngecis vur bekle sure 0.1 bitince\nbaslangic bekle\n", a);
+               "olay vur 0.1 darbe\ngecis herhangi vur sure 0.1 tetik zipla\ngecis vur bekle sure 0.1 bitince\nbaslangic bekle\n", a);
     std::fclose(a);
   }
   static content::SceneDesc desc;
@@ -4826,6 +4826,12 @@ ENGINE_TEST(bridge_scene_animator_tetik_param_durum) {
   int dondu = 0;
   for (int k = 0; k < 600 && !dondu; k++) { run_frames(1); dondu = !std::strcmp(teng_scene_animator_state(kahraman), "bekle"); }
   CHECK(dondu);
+  // 3b: sahne animatoru OLAYI betige (eng_scene_animator_event): 'vur' fazi 0.1'i gecti -> "darbe" bir kez, sonra bos.
+  char olay1[32];
+  std::snprintf(olay1, sizeof olay1, "%s", teng_scene_animator_event(kahraman));
+  const char *olay2 = teng_scene_animator_event(kahraman);
+  std::printf("    [bilgi] sahne animator olayi: '%s' sonra '%s'; animatorsuz '%s'\n", olay1, olay2, teng_scene_animator_event(heykel));
+  CHECK(!std::strcmp(olay1, "darbe") && olay2[0] == 0 && teng_scene_animator_event(heykel)[0] == 0);
   run_frames(5);
   CHECK(!std::strcmp(teng_scene_animator_state(kahraman), "bekle"));   // KONTROL: tussuz
   teng_key_test_press("1");

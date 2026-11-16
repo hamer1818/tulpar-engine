@@ -28,7 +28,11 @@ bool animator_bind_model(sim::AnimatorDef *def, const Model &m, sim::AnimatorErr
 uint32_t animator_auto_text_model(const Model &m, char *out, uint32_t cap, sim::AnimAutoReport *rep);
 uint32_t animator_clip_durations(const Model &m, float *dur, uint32_t cap);
 // Animatörün şu anki karışımını modelin iskeletine uygular (model_pose_mix). false: poz yok (klip/iskelet uymuyor).
-bool animator_model_pose(const sim::AnimatorDef &d, const sim::AnimatorRt &rt, const Model &m, PoseScratch &scratch, ModelPose *pose);
+bool animator_model_pose(const sim::AnimatorDef &d, const sim::AnimatorRt &rt, const Model &m, PoseScratch &scratch, ModelPose *pose,
+                         bool lock_root = false);
+// A4 kök hareketi: bir adımdaki (once -> sonra) karışım listesinden klibin kök (eklem 0) YEREL yatay ilerlemesi, ağırlıklı toplam;
+// döngüyü saran adımda (sonu - baş) + (yeni - 0). Köprü varlıkları ve sahne varlıkları AYNI işlev (eskiden yalnız köprüde vardı).
+void animator_root_delta(const Model &m, const sim::AnimatorPose &once, const sim::AnimatorPose &sonra, PoseScratch &scratch, float out_xz[2]);
 
 class SceneAnimators {
 public:
@@ -53,6 +57,13 @@ public:
   // değerini sürmek isteyen başka ad kullanır.
   bool trigger(uint32_t ent, const char *name);
   bool set_param(uint32_t ent, const char *name, float v);
+  // KÖK HAREKETİ (sahne varlığı, 2026-11-16): `durum ... kok` iken klibin kök ilerlemesi birikir; çağıran (SceneRuntime) take_root_delta
+  // ile alıp varlığı taşır, pozda kök kilitlenir (çift hareket yok). Yalnız set_root_motion(ent, true) verilen varlıkta (dinamik gövde
+  // ve karakterde fizik sahibi: kapalı kalır, eskisi gibi klibin kendi yürüyüşü görünür).
+  void set_root_motion(uint32_t ent, bool on);
+  bool take_root_delta(uint32_t ent, float out_xz[2]);   // false: birikim yok; okununca sıfırlanır
+  // A4 OLAYLAR (betiğe): kuyruktaki en eski olayın adı, yoksa nullptr. Kuyruk 8; okunmazsa dolar, düşen SAYILIR (sessiz değil).
+  const char *event_pop(uint32_t ent);
   // A8c: editörde ▶ — durumu adıyla doğrudan başlatır (0,15 s yumuşak). false: animatör ya da durum yok.
   bool play_state(uint32_t ent, const char *state);
   // A8c: KODSUZ TUŞ — tanımda `param <ad> tetik tus <TUŞ>` olan her tetik, çağıranın girdisi o tuşa BU KAREDE basıldı derse verilir
@@ -82,6 +93,8 @@ private:
     Vec3 prev{0, 0, 0};
     float speed = 0, vert = 0;
     sim::AnimatorRt rt;
+    bool root_on = false;
+    float root[2] = {0, 0};   // birikmis yerel kok ilerlemesi (take_root_delta okur)
   };
   Def defs_[kSceneAnimDefs];
   Slot slots_[kSceneMaxEntities];

@@ -46,7 +46,8 @@ uint32_t animator_clip_durations(const Model &m, float *dur, uint32_t cap) {
   return n;
 }
 
-bool animator_model_pose(const sim::AnimatorDef &d, const sim::AnimatorRt &rt, const Model &m, PoseScratch &scratch, ModelPose *pose) {
+bool animator_model_pose(const sim::AnimatorDef &d, const sim::AnimatorRt &rt, const Model &m, PoseScratch &scratch, ModelPose *pose,
+                         bool lock_root) {
   float dur[kSceneAnimMaxClips];
   const uint32_t nc = animator_clip_durations(m, dur, kSceneAnimMaxClips);
   sim::AnimatorPose ap;
@@ -54,9 +55,41 @@ bool animator_model_pose(const sim::AnimatorDef &d, const sim::AnimatorRt &rt, c
   if (!ap.n) return false;
   PoseMixEntry me[sim::kAnimMaxEntries];
   for (uint32_t k = 0; k < ap.n; k++) me[k] = {(uint32_t)(ap.e[k].clip < 0 ? 0 : ap.e[k].clip), ap.e[k].time, ap.e[k].weight};
-  // Kök hareketi (A4) sahne varlıklarında YOK: konum fiziğin/yazarındır; kök kilitlenmezse klibin kendi yürüyüşü görünür kalır.
-  return model_pose_mix(m, me, ap.n, scratch, pose, false);
+  // Kök hareketi uygulanan varlıkta (lock_root) kök yatayda kilitlenir; uygulanmayanda klibin kendi yürüyüşü görünür kalır.
+  return model_pose_mix(m, me, ap.n, scratch, pose, lock_root);
 }
+
+void animator_root_delta(const Model &m, const sim::AnimatorPose &once, const sim::AnimatorPose &sonra, PoseScratch &sc, float out_xz[2]) {
+  float dx = 0, dz = 0;
+  for (uint32_t j = 0; j < sonra.n; j++)
+    for (uint32_t k = 0; k < once.n; k++) {
+      if (once.e[k].clip != sonra.e[j].clip || sonra.e[j].clip < 0) continue;
+      const uint32_t cl = (uint32_t)sonra.e[j].clip;
+      float a0[2], a1[2];
+      if (!model_clip_root_xz(m, cl, once.e[k].time, sc, a0) || !model_clip_root_xz(m, cl, sonra.e[j].time, sc, a1)) break;
+      float ddx = a1[0] - a0[0], ddz = a1[1] - a0[1];
+      if (sonra.e[j].time < once.e[k].time - 1e-6f) {   // dongu sardi: (sonu - bas) + (yeni - 0)
+        float s0[2], se[2];
+        if (model_clip_root_xz(m, cl, 0.0f, sc, s0) && model_clip_root_xz(m, cl, m.clips[cl].duration, sc, se)) {
+          ddx = (se[0] - a0[0]) + (a1[0] - s0[0]);
+          ddz = (se[1] - a0[1]) + (a1[1] - s0[1]);
+        }
+      }
+      dx += sonra.e[j].weight * ddx;
+      dz += sonra.e[j].weight * ddz;
+      break;
+    }
+  out_xz[0] = dx;
+  out_xz[1] = dz;
+}
+
+namespace {
+PoseScratch g_kok_sc;   // kok ilerlemesi orneklemesi (SceneAnimators tek is parcaciginda; yukleme/adim kare disi degil ama sirali)
+bool kok_durumu(const sim::AnimatorDef &d, const sim::AnimatorRt &rt) {
+  return (rt.cur >= 0 && (uint32_t)rt.cur < d.state_count && d.states[rt.cur].root_motion) ||
+         (rt.prev >= 0 && (uint32_t)rt.prev < d.state_count && d.states[rt.prev].root_motion);
+}
+} // namespace
 
 void SceneAnimators::clear() {
   for (Def &d : defs_) d.used = false;
@@ -133,14 +166,41 @@ void SceneAnimators::step_params(uint32_t ent, float hiz, float dikey, float dt)
   if (d.p_vert >= 0) sim::animator_set(d.def, &s.rt, d.p_vert, s.vert);
   float dur[kSceneAnimMaxClips];
   const uint32_t nc = animator_clip_durations(*d.model, dur, kSceneAnimMaxClips);
+  const bool kok = s.root_on && d.def.states[s.rt.cur].root_motion;
+  sim::AnimatorPose once, sonra;
+  if (kok) sim::animator_pose(d.def, s.rt, dur, nc, &once);
   sim::animator_update(d.def, &s.rt, dt, dur, nc);
-  while (sim::animator_event_pop(&s.rt) >= 0) {}   // olay kuyruğu: sahnede okuyan yok, dolup düşme sayacını şişirmesin
+  if (kok) {
+    sim::animator_pose(d.def, s.rt, dur, nc, &sonra);
+    float k[2];
+    animator_root_delta(*d.model, once, sonra, g_kok_sc, k);
+    s.root[0] += k[0];
+    s.root[1] += k[1];
+  }
+  // Olay kuyrugu artik BETIGE verilir (event_pop / sahne_animator_olay). Okunmazsa 8'de dolar, dusen sayilir.
+}
+
+void SceneAnimators::set_root_motion(uint32_t ent, bool on) {
+  if (ent < kSceneMaxEntities) { slots_[ent].root_on = on; slots_[ent].root[0] = slots_[ent].root[1] = 0; }
+}
+bool SceneAnimators::take_root_delta(uint32_t ent, float out[2]) {
+  if (!has(ent)) return false;
+  Slot &s = slots_[ent];
+  out[0] = s.root[0];
+  out[1] = s.root[1];
+  s.root[0] = s.root[1] = 0;
+  return out[0] != 0.0f || out[1] != 0.0f;
+}
+const char *SceneAnimators::event_pop(uint32_t ent) {
+  if (!has(ent)) return nullptr;
+  const int32_t i = sim::animator_event_pop(&slots_[ent].rt);
+  return i < 0 ? nullptr : defs_[slots_[ent].def].def.events[i].name;
 }
 
 bool SceneAnimators::pose(uint32_t ent, PoseScratch &scratch, ModelPose *out) const {
   if (!has(ent)) return false;
   const Def &d = defs_[slots_[ent].def];
-  return animator_model_pose(d.def, slots_[ent].rt, *d.model, scratch, out);
+  return animator_model_pose(d.def, slots_[ent].rt, *d.model, scratch, out, slots_[ent].root_on && kok_durumu(d.def, slots_[ent].rt));
 }
 
 uint32_t SceneAnimators::mix(uint32_t ent, PoseMixEntry *out, uint32_t cap) const {

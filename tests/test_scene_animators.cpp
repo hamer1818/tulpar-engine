@@ -763,3 +763,76 @@ ENGINE_TEST(sahne_runtime_morph_oynar) {
   dev.shutdown();
   arena().reset_to(mark);
 }
+
+// --- 11) KÖK HAREKETİ + OLAYLAR sahne varlığında (madde 3b, 2026-11-16) ------------------------------------------------------------
+// Eskiden sahne varlığında `kok` uygulanmıyor, olay kuyruğu boşaltılıyordu. skin_karakter.gltf 'yuru': kök z 0 -> 1 m / 1 s.
+// Kapı: `durum y klip yuru dongu kok` ile 60 adım (1 s) sonra varlık z ~ 1 (ezme olarak); `olay y 0.5 adim` kuyruktan okunur.
+// KONTROL: aynı klip `kok`suz -> varlık yerinde (z = 0), olay yine gelir.
+ENGINE_TEST(sahne_runtime_kok_hareketi_ve_olay) {
+  char kaynak[1024];
+  if (!asset_path(kaynak, sizeof kaynak, "skin_karakter.gltf")) { skip("tests/assets/skin_karakter.gltf yok"); return; }
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  const size_t mark = arena().mark();
+  rhi::Device dev;
+  rhi::DeviceConfig dc;
+  if (!dev.init(arena(), api, dc)) { skip("Vulkan cihazi yok"); arena().reset_to(mark); return; }
+  rhi::OffscreenConfig oc;
+  oc.srgb = true; oc.width = 64; oc.height = 64;
+  rhi::OffscreenResult ores;
+  rhi::OffscreenTarget *off = rhi::offscreen_create(dev, arena(), oc, &ores);
+  if (!off) { CHECK(false); dev.shutdown(); arena().reset_to(mark); return; }
+  renderer::Renderer ren;
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 0;
+  if (!ren.init(dev, arena(), rhi::offscreen_render_pass(off), rc)) { CHECK(false); rhi::offscreen_destroy(off); dev.shutdown(); arena().reset_to(mark); return; }
+  char dir[512], yol[700];
+  CHECK(tmp_mkdir(dir, sizeof dir, "sahne_rt_kok"));
+  {
+    std::FILE *f = std::fopen(kaynak, "rb");
+    std::snprintf(yol, sizeof yol, "%s/k.gltf", dir);
+    std::FILE *g = std::fopen(yol, "wb");
+    static char bf[1 << 16];
+    size_t n;
+    while (f && g && (n = std::fread(bf, 1, sizeof bf, f)) > 0) std::fwrite(bf, 1, n, g);
+    if (f) std::fclose(f);
+    if (g) std::fclose(g);
+  }
+  std::snprintf(yol, sizeof yol, "%s/kok.animator", dir);
+  CHECK(yaz(yol, "tulpar-animator 1\ndurum y klip yuru dongu kok\nolay y 0.5 adim\n"));
+  std::snprintf(yol, sizeof yol, "%s/koksuz.animator", dir);
+  CHECK(yaz(yol, "tulpar-animator 1\ndurum y klip yuru dongu\nolay y 0.5 adim\n"));
+  static SceneDesc d;
+  static SceneRuntime rt;
+  SceneError err{};
+  const char *ctrl[2] = {"kok.animator", "koksuz.animator"};
+  float z[2] = {-1, -1};
+  uint32_t olay[2] = {}, adim[2] = {};
+  for (int tur = 0; tur < 2; tur++) {
+    sahne_kur(d, "k.gltf", ctrl[tur]);
+    const size_t need = scene_blob_compile(d, nullptr, 0);
+    void *buf = arena().alloc(need, kSceneBlobAlign);
+    SceneBlobView v;
+    CHECK(buf && scene_blob_compile(d, buf, need) == need && scene_blob_open(buf, need, &v, &err));
+    CHECK(rt.init(arena(), ren, v, dir) && rt.stats().animators == 1);
+    const float dt = 1.0f / 60.0f;
+    for (int k = 0; k < 60; k++) {
+      rt.update(dt, nullptr);
+      while (const char *o = rt.animators().event_pop(0)) olay[tur] += !std::strcmp(o, "adim");
+    }
+    Vec3 p;
+    Quat q;
+    rt.pose(0, &p, &q);
+    z[tur] = p.z;
+    adim[tur] = rt.stats().root_motion_steps;
+  }
+  std::printf("    [bilgi] kok hareketi: kokla z %.3f (%u adim), koksuz z %.3f; olay 'adim' %u / %u\n", (double)z[0], adim[0], (double)z[1], olay[0], olay[1]);
+  CHECK(std::fabs(z[0] - 1.0f) < 0.05f && adim[0] > 50);
+  CHECK(z[1] == 0.0f && adim[1] == 0);   // KONTROL: kok yok
+  CHECK(olay[0] == 1 && olay[1] == 1);   // 1 s'de faz 0.5 bir kez gecildi
+  ren.shutdown();
+  rhi::offscreen_destroy(off);
+  dev.shutdown();
+  arena().reset_to(mark);
+}

@@ -2738,26 +2738,11 @@ void teng_frame_end(void) {
           sim::animator_update(ad, &rs.rt, b.dt, dur, nc);
           if (kok) {
             sim::animator_pose(ad, rs.rt, dur, nc, &sonra);
-            // Girdi basina klibin KENDI ilerlemesi (donguyu saran adimda sondan basa ek): agirlikli toplam = yerel yatay hareket
-            float dx = 0, dz = 0;
-            for (uint32_t j = 0; j < sonra.n; j++)
-              for (uint32_t k2 = 0; k2 < once.n; k2++) {
-                if (once.e[k2].clip != sonra.e[j].clip || sonra.e[j].clip < 0) continue;
-                const uint32_t cl = (uint32_t)sonra.e[j].clip;
-                float a0[2], a1[2];
-                if (!content::model_clip_root_xz(am, cl, once.e[k2].time, b.pose_scratch, a0) || !content::model_clip_root_xz(am, cl, sonra.e[j].time, b.pose_scratch, a1)) break;
-                float ddx = a1[0] - a0[0], ddz = a1[1] - a0[1];
-                if (sonra.e[j].time < once.e[k2].time - 1e-6f) {            // dongu sardi: (sonu - bas) + (yeni - 0)
-                  float s0[2], se[2];
-                  if (content::model_clip_root_xz(am, cl, 0.0f, b.pose_scratch, s0) && content::model_clip_root_xz(am, cl, am.clips[cl].duration, b.pose_scratch, se)) {
-                    ddx = (se[0] - a0[0]) + (a1[0] - s0[0]);
-                    ddz = (se[1] - a0[1]) + (a1[1] - s0[1]);
-                  }
-                }
-                dx += sonra.e[j].weight * ddx;
-                dz += sonra.e[j].weight * ddz;
-                break;
-              }
+            // Girdi basina klibin KENDI ilerlemesi (donguyu saran adimda sondan basa ek): agirlikli toplam = yerel yatay hareket.
+            // Sahne varliklariyla AYNI islev (content::animator_root_delta).
+            float kd[2];
+            content::animator_root_delta(am, once, sonra, b.pose_scratch, kd);
+            const float dx = kd[0], dz = kd[1];
             if (dx != 0.0f || dz != 0.0f) {
               const float yr = e.yaw_deg * kBridgePi / 180.0f, cy = std::cos(yr), sy = std::sin(yr);
               const float wx = (dx * cy + dz * sy) * e.scale, wz = (-dx * sy + dz * cy) * e.scale;   // yaw: +Y etrafinda
@@ -3874,6 +3859,11 @@ int teng_scene_animator_param(int i, const char *name, double v) {
 const char *teng_scene_animator_state(int i) {
   if (!scene_idx_ok(i, "teng_scene_animator_state")) return "";
   return g->srt.animators().state_name((uint32_t)i);
+}
+const char *teng_scene_animator_event(int i) {
+  if (!scene_idx_ok(i, "teng_scene_animator_event")) return "";
+  const char *ad = g->srt.animators().event_pop((uint32_t)i);
+  return ad ? ad : "";
 }
 double teng_scene_sx(int i) { return scene_idx_ok(i, "teng_scene_sx") ? g->srt.view().entities[i].scale[0] : 0; }
 double teng_scene_sy(int i) { return scene_idx_ok(i, "teng_scene_sy") ? g->srt.view().entities[i].scale[1] : 0; }
