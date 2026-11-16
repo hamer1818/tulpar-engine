@@ -1775,6 +1775,12 @@ Betikten: `sahne_animator_tetik(i, ad)` / `scene_animator_trigger` (tetik; ilgil
 (sayı parametresi; `hiz`/`dikey` her adım hareketten yeniden yazılır — kendi değerini sürmek için başka ad), `sahne_animator_durum(i)` → geçerli durum
 ("" = animatör yok). Animatör ya da o adla o türde parametre yoksa HATA + false. `i` = `sahne_bul("ad")`. Kapı: `bridge_scene_animator_tetik_param_durum`
 (bekle → tetik → vur; kontrol: olmayan tetik / tetiğe sayı / animatörsüz varlık → 3 HATA). Editörde grafikten düzenleme: A8b (MODEL-ANIMASYON-PLANI).
+**A8c — kodsuz tuş:** `param <ad> tetik tus <TUŞ>` (ad kümesi `eng_key_pressed` ile aynı: A-Z, 0-9, SPACE, ENTER, SHIFT, CTRL, ALT, TAB). Köprü her
+karede, sim adımlarından önce, o karede basılan tuşun tetiğini o animatörü kullanan HER varlığa verir — betik gerekmez. Yüklemede bilinmeyen tuş adı
+`HATA sahne animatoru: bilinmeyen tus` (sessizce hiç çalışmamasın), bilinenler `sahne animatorleri: N tuslu tetik`. Penceresiz doğrulama:
+`eng_key_test_press(ad)` / `teng_key_test_press` — sonraki kare o tuş basılı + yeni basıldı sayılır (`eng_key_pressed` de görür). Klip adları
+artık 63 karaktere kadar aynen yazılır (`#N` yalnız boşluklu adlar; sıra kayınca yanlış klibi göstermesin). Kapı: aynı test (tuşsuz kareler
+bekle'de kalır — kontrol; tuş 1 → vur; bilinmeyen ad → 1 HATA).
 **Henüz yok:** katman maskeleri, IK, sahne varlığında kök hareketi ve olay kuyruğunun betiğe verilmesi.
 
 ## 20. Kodla mesh (P1, 2026-11-14)

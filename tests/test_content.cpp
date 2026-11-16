@@ -1898,10 +1898,11 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
     CHECK(mesh.valid());
     ren.set_shadow_casting(vr.golge);
     std::printf("    [olcum] -- %s (%u ucgen)\n", vr.ad, ni / 3);
-    double taban = 0.0;
+    double taban = 0.0, gtaban = 0.0;
     for (uint32_t n : Ns) {
       const uint32_t cols = (uint32_t)std::ceil(std::sqrt((double)n * 1.6));
-      double best[40];
+      double best[40], gbest[40];
+      bool gpu_var = true;   // butun karelerde zaman damgasi okundu ve > 0
       uint32_t last_draws = 0, last_drop = 0;
       for (uint32_t f = 0; f < 50; f++) {
         auto t0 = std::chrono::steady_clock::now();
@@ -1917,13 +1918,22 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
         last_draws = ren.stats().draws; last_drop = ren.stats().skin_dropped;
         if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
         auto t1 = std::chrono::steady_clock::now();
-        if (f >= 10) best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        if (f >= 10) {
+          best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
+          gbest[f - 10] = (double)ores.gpu_ns * 1e-6;
+          gpu_var = gpu_var && ores.timestamps_valid && ores.gpu_ns > 0;
+        }
       }
       std::sort(best, best + 40);
-      if (n == 1) taban = best[20];
-      std::printf("    [olcum] %3u karakter: p50 %6.2f ms (p10 %.2f, p90 %.2f)  taban uzeri %+6.2f ms\n", n, best[20], best[4], best[36], best[20] - taban);
+      std::sort(gbest, gbest + 40);
+      if (n == 1) { taban = best[20]; gtaban = gbest[20]; }
+      std::printf("    [olcum] %3u karakter: p50 %6.2f ms (p10 %.2f, p90 %.2f)  taban uzeri %+6.2f ms | GPU gecis p50 %.3f ms%s\n", n, best[20], best[4],
+                  best[36], best[20] - taban, gbest[20], gpu_var ? "" : " (damga yok)");
       CHECK(last_drop == 0 && last_draws >= n);     // HEPSI cizildi (eklem matrisi tavani asilmadi)
-      if (n == 40) CHECK(best[20] > taban);          // olcum is yapiyor: 40 karakter 1 karakterden pahali
+      // Olcum is yapiyor: 40 karakter 1 karakterden pahali. GPU ZAMAN DAMGASIYLA (render gecisi): duvar saati RTX 5080'de sabit
+      // gonder/bekle maliyetine bogulur — 40 karakter yalniz +0,01..0,18 ms pahaliydi ve kontrol arada kirmiziya dusuyordu
+      // (2026-11-16). Damga yoksa (MoltenVK ayni degeri verir) duvar saati.
+      if (n == 40) CHECK(gpu_var ? gbest[20] > gtaban : best[20] > taban);
     }
   }
   rhi::offscreen_destroy(off);

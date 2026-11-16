@@ -993,6 +993,21 @@ void anim_adim_oynat(EditorState &st, const sim::Physics &phys, float dt) {
     g_sahne_anim.step(i, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]}, dt);
   }
 }
+// A8c: kodsuz tus — editorde (Oynat / Onizle) tuslu tetikler ImGui'den. Ad kumesi kopru key_code ile ayni (kAnimTuslar alt kumesi);
+// metin kutusu odaktayken (yazi yazilirken) tetik verilmez.
+bool editor_anim_tus(void *, const char *ad) {
+  if (!ad || !ad[0] || ImGui::GetIO().WantTextInput) return false;
+  ImGuiKey k = ImGuiKey_None;
+  if (!ad[1] && ad[0] >= 'A' && ad[0] <= 'Z') k = (ImGuiKey)(ImGuiKey_A + (ad[0] - 'A'));
+  else if (!ad[1] && ad[0] >= '0' && ad[0] <= '9') k = (ImGuiKey)(ImGuiKey_0 + (ad[0] - '0'));
+  else if (!std::strcmp(ad, "SPACE")) k = ImGuiKey_Space;
+  else if (!std::strcmp(ad, "ENTER")) k = ImGuiKey_Enter;
+  else if (!std::strcmp(ad, "TAB")) k = ImGuiKey_Tab;
+  else if (!std::strcmp(ad, "SHIFT")) k = ImGuiKey_LeftShift;
+  else if (!std::strcmp(ad, "CTRL")) k = ImGuiKey_LeftCtrl;
+  else if (!std::strcmp(ad, "ALT")) k = ImGuiKey_LeftAlt;
+  return k != ImGuiKey_None && ImGui::IsKeyPressed(k, false);
+}
 void anim_adim_onizle(const EditorState &st, float dt) {
   if (!g_sahne_anim.attached()) return;
   for (uint32_t i = 0; i < st.scene.entity_count; i++)
@@ -4821,6 +4836,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         }
       }
     }
+    if ((st.playing || st.anim_onizle) && !st.play_embedded && g_sahne_anim.keyed()) g_sahne_anim.keys(editor_anim_tus, nullptr);   // A8c
     if (!st.playing && st.anim_onizle) { st.anim_onizle_t += dt; anim_adim_onizle(st, dt); }
     {   // A8/A8b: Kod panelinde acik .animator'i kullanan varlik: grafik onun GECERLI durumunu vurgular (zaman akarken) ve "+ Durum"
         // klip secicisi onun modelinin kliplerini listeler. Secili varlik o dosyayi kullaniyorsa o, degilse ilk kullanan.
@@ -6841,10 +6857,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 const float yarim2 = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
                 static int he_klip = 0;
                 static char he_ad[24] = {0};
+                static char he_tus[12] = {0};
                 if (ImGui::Button(ICON_MD_ADD " Hareket ekle##anim_he", ImVec2(yarim2, 0))) {
                   he_klip = 0;
                   for (uint32_t c = 0; c < kl.n; c++) {   // animatorde KULLANILMAYAN ilk klip
-                    char j[48];
+                    char j[72];
                     anim_klip_jetonu(kl.adlar[c], c, j, sizeof j);
                     bool kul = false;
                     for (uint32_t q = 0; q < g_kart_def.state_count && !kul; q++)
@@ -6854,6 +6871,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   char oner[24];
                   anim_ad_oner(model_klip_kisa(*am, (uint32_t)he_klip), oner, sizeof oner);
                   anim_yeni_ad(g_kart_metin, oner, he_ad, sizeof he_ad);
+                  anim_bos_tus(g_kart_metin, he_tus, sizeof he_tus);   // kodsuz: bos ilk rakam tusu onerilir
                   ImGui::OpenPopup("##anim_hareket_ekle");
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bir klibi tek seferlik hareket olarak ekler (el sallama, yumruk...).\n"
@@ -6886,16 +6904,27 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   }
                   ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
                   ImGui::InputText("Ad##he_ad", he_ad, sizeof he_ad, ImGuiInputTextFlags_CharsNoBlank);
-                  ImGui::TextDisabled("Betikte: sahne_animator_tetik(sahne_bul(\"%s\"), \"%s\")", e.name, he_ad);
+                  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+                  if (ImGui::BeginCombo("Tu\xC5\x9F##he_tus", he_tus[0] ? he_tus : "tu\xC5\x9F yok")) {
+                    if (ImGui::Selectable("tu\xC5\x9F yok", !he_tus[0])) he_tus[0] = 0;
+                    for (uint32_t i = 0; kAnimTuslar[i]; i++)
+                      if (ImGui::Selectable(kAnimTuslar[i], !std::strcmp(he_tus, kAnimTuslar[i]))) std::snprintf(he_tus, sizeof he_tus, "%s", kAnimTuslar[i]);
+                    ImGui::EndCombo();
+                  }
+                  if (he_tus[0]) ImGui::TextDisabled("Oyunda %s tu\xC5\x9Funa bas\xC4\xB1nca oynar \xE2\x80\x94 kod gerekmez.", he_tus);
+                  ImGui::TextDisabled("Betikten de: sahne_animator_tetik(sahne_bul(\"%s\"), \"%s\")", e.name, he_ad);
                   if (ImGui::Button("Ekle##he_ekle") && he_klip >= 0 && (uint32_t)he_klip < kl.n) {
-                    char j[48];
+                    char j[72];
                     anim_klip_jetonu(kl.adlar[he_klip], (uint32_t)he_klip, j, sizeof j);
                     char err[200];
                     const char *adp = he_ad;
                     if (animator_uygula(tam, g_kart_metin, sizeof g_kart_metin,
-                                        [&](char *m, uint32_t mc, char *er, uint32_t ec) { return anim_metin_hareket_ekle(m, mc, adp, j, er, ec); }, err, sizeof err)) {
+                                        [&](char *m, uint32_t mc, char *er, uint32_t ec) { return anim_metin_hareket_ekle(m, mc, adp, j, er, ec, he_tus); }, err, sizeof err)) {
                       yaz = true;
-                      std::snprintf(mesaj, sizeof mesaj, "hareket eklendi: %s (%s) \xE2\x80\x94 \xE2\x96\xB6 ile dene", he_ad, model_klip_kisa(*am, (uint32_t)he_klip));
+                      if (he_tus[0])
+                        std::snprintf(mesaj, sizeof mesaj, "hareket eklendi: %s (%s, tu\xC5\x9F %s) \xE2\x80\x94 \xE2\x96\xB6 ile dene", he_ad, model_klip_kisa(*am, (uint32_t)he_klip), he_tus);
+                      else
+                        std::snprintf(mesaj, sizeof mesaj, "hareket eklendi: %s (%s) \xE2\x80\x94 \xE2\x96\xB6 ile dene", he_ad, model_klip_kisa(*am, (uint32_t)he_klip));
                       kart_hata[0] = 0;
                       ImGui::CloseCurrentPopup();
                     } else {

@@ -723,6 +723,7 @@ struct Bridge {
   bridge::BackKeySample back_sample;
   bool back_edge = false, back_down = false, back_listen = false, back_unheard_said = false;
   uint32_t back_inject = 0, back_total = 0;
+  int key_inject_pending = -1, key_inject_now = -1;   // teng_key_test_press: penceresiz dogrulamada bir karelik tus basisi
   // Arka plan (Geri bildirim #9). `app_paused` host'tan (ya da teng_debug_app_pause)
   // kare basinda; gecis aninda ses cihazi durdurulur/surdurulur. `audio_auto_paused`:
   // sesi MOTOR durdurdu (donuste yalniz onu surdurur).
@@ -2116,6 +2117,8 @@ int teng_frame_begin(void) {
     std::memcpy(b.cur_keys, b.in->key_down, sizeof b.cur_keys);
   }
   if (b.dbg_touch_on) { b.touch = &b.dbg_touch; b.stick.update(b.dbg_touch, now); }
+  b.key_inject_now = b.key_inject_pending;   // enjekte tus BU karede basili + yeni basildi sayilir
+  b.key_inject_pending = -1;
   // --- yasam dongusu: arka plan -> ses durur, on plan -> surer -------------
   {
     bool p = false;
@@ -2547,6 +2550,14 @@ void teng_frame_end(void) {
     // Buradaki temizlik, olaylarin "son adimda olusanlar" olmasini saglar ve
     // oyun onlari SONRAKI kare boyunca istedigi anda okuyabilir.
     b.phys.clear_contacts();
+    // A8c: sahne animatorlerinin TUSLU tetikleri (`param selam tetik tus E`): bu karede basilan tus tetigi verir — betik gerekmez.
+    // Ayni ad kumesi teng_key_pressed ile (key_code). Kare basina bir kez, adimlardan once (tetik ilk adimda tuketilir).
+    if (b.scene_ok && (b.in || b.key_inject_now >= 0) && b.srt.animators().keyed())
+      b.srt.animators().keys([](void *u, const char *ad) {
+        const Bridge &bb = *static_cast<const Bridge *>(u);
+        const int c = key_code(ad);
+        return c >= 0 && (c == bb.key_inject_now || (bb.in && bb.cur_keys[c] && !bb.prev_keys[c]));
+      }, &b);
     for (uint32_t t = 0; t < ticks; t++) {
       if (b.kin_count) kinematic_tick(b, ticks - t);
       b.phys.step(b.fs.step_s, 1);
@@ -3356,6 +3367,13 @@ int teng_scene_load(const char *path) {
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
   if (b.srt.stats().animators) BINFO("sahne animatorleri: %u (hiz/dikey hareketten, kodsuz)", b.srt.stats().animators);
+  {   // A8c: tuslu tetikler — bilinmeyen tus adi hic calismazdi (sessiz): yuklemede HATA
+    const char *tuslar[32];
+    const uint32_t tn = b.srt.animators().key_names(tuslar, 32);
+    for (uint32_t i = 0; i < tn; i++)
+      if (key_code(tuslar[i]) < 0) BERR("sahne animatoru: bilinmeyen tus \"%s\" (A-Z, 0-9, SPACE, ENTER, SHIFT, CTRL, ALT, TAB) — bu tetik tusla CALISMAZ", tuslar[i]);
+    if (tn) BINFO("sahne animatorleri: %u tuslu tetik (kodsuz)", tn);
+  }
   if (b.srt.stats().animators_failed)   // A8: baglanamayan animator varlik klibine duser — sessiz degil
     BERR("sahne: %u animator baglanamadi, son hata: %s", b.srt.stats().animators_failed, b.srt.stats().animator_error);
   if (b.srt.stats().materials_failed)
@@ -4782,13 +4800,21 @@ int teng_key_down(const char *name) {
   const int c = key_code(name);
   if (c < 0) { BERR("teng_key_down: bilinmeyen tus adi \"%s\" (W/A/S/D, SPACE, UP.., ESC, ENTER, SHIFT, 0-9)", name ? name : ""); return 0; }
   if (back_is_esc(c)) { back_listen_on(*g); return g->back_down || g->back_edge ? 1 : 0; }
-  return g && g->in && g->cur_keys[c] ? 1 : 0;
+  return g && ((g->in && g->cur_keys[c]) || c == g->key_inject_now) ? 1 : 0;
 }
 int teng_key_pressed(const char *name) {
   const int c = key_code(name);
   if (c < 0) { BERR("teng_key_pressed: bilinmeyen tus adi \"%s\" (W/A/S/D, SPACE, UP.., ESC, ENTER, SHIFT, 0-9)", name ? name : ""); return 0; }
   if (back_is_esc(c)) { back_listen_on(*g); return g->back_edge ? 1 : 0; }
-  return g && g->in && g->cur_keys[c] && !g->prev_keys[c] ? 1 : 0;
+  return g && ((g->in && g->cur_keys[c] && !g->prev_keys[c]) || c == g->key_inject_now) ? 1 : 0;
+}
+void teng_key_test_press(const char *name) {
+  CALLF("teng_key_test_press", "%s", name ? name : "");
+  if (!ready("teng_key_test_press")) return;
+  const int c = key_code(name);
+  if (c < 0) { BERR("teng_key_test_press: bilinmeyen tus adi \"%s\"", name ? name : ""); return; }
+  g->key_inject_pending = c;
+  BDBG("tus %s: basis kuyruklandi, sonraki kare basili", name);
 }
 int teng_app_paused(void) { return g && g->app_paused ? 1 : 0; }
 int teng_safe_inset_left(void) { return g ? g->safe[0] : 0; }

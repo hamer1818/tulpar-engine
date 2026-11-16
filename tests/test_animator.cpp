@@ -217,3 +217,16 @@ ENGINE_TEST(animator_goto_durumu_baslatir_sonra_gecisler_isler) {
   animator_goto(d, &rt, -1, 0.1f);
   CHECK(std::memcmp(&once, &rt, sizeof rt) == 0);   // gecersiz durum: degisiklik yok
 }
+
+// A8c: `param <ad> tetik tus <TUŞ>` ayrıştırılır (sim tuşu yalnız ad olarak taşır). KONTROL: bozuk biçim / uzun ad reddedilir.
+ENGINE_TEST(animator_tetik_tusu_ayristirilir) {
+  static AnimatorDef d;
+  AnimatorError e;
+  const char *iyi = "tulpar-animator 1\nparam selam tetik tus E\nparam vur tetik\ndurum a klip salla dongu\nbaslangic a\n";
+  CHECK(animator_parse(iyi, std::strlen(iyi), &d, &e));
+  CHECK(d.param_count == 2 && d.params[0].trigger && !std::strcmp(d.params[0].key, "E") && d.params[1].key[0] == 0);
+  const char *kotu1 = "tulpar-animator 1\nparam selam tetik E\ndurum a klip salla dongu\n";
+  const char *kotu2 = "tulpar-animator 1\nparam selam tetik tus COKUZUNTUSADI\ndurum a klip salla dongu\n";
+  CHECK(!animator_parse(kotu1, std::strlen(kotu1), &d, &e) && e.line == 2);
+  CHECK(!animator_parse(kotu2, std::strlen(kotu2), &d, &e) && e.line == 2);
+}

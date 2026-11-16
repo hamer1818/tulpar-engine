@@ -249,9 +249,9 @@ printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "
   "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8C/k.sahne"
 kos animator_kart.txt "$A8C" --scene "$A8C/k.sahne"; ra8c=$?
 cf="$A8C/karakter_kup.animator"
-if [ $ra8c = 0 ] && [ "$(grep -c '^durum saldiri klip saldiri tek$' "$cf")" = 1 ] && grep -q '^param saldiri tetik$' "$cf" \
+if [ $ra8c = 0 ] && [ "$(grep -c '^durum saldiri klip saldiri tek$' "$cf")" = 1 ] && grep -q '^param saldiri tetik tus 1$' "$cf" \
    && grep -q '^gecis herhangi saldiri sure 0.1 tetik saldiri$' "$cf" && grep -q '^gecis saldiri hareket sure 0.2 bitince$' "$cf"; then
-  echo "  animator karti: Bekle/Yuru/Kos satirlari, Hareket ekle (saldiri: tek + tetik + giris/donus), Geri al kaldirdi, yeniden eklendi"
+  echo "  animator karti: Bekle/Yuru/Kos satirlari, Hareket ekle (saldiri: tek + tetik + tus 1 + giris/donus), Geri al kaldirdi, yeniden eklendi"
 else
   echo "  KIRMIZI animator karti (cikis $ra8c):"; grep -E 'HATA|> ' "$A8C/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
   sed 's/^/      | /' "$cf" 2>/dev/null; kirmizi=1

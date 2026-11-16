@@ -254,6 +254,7 @@ SPEC = [
     # girdi
     ("eng_key_down", "bool", [("name", "str")], "Tus basili mi: \"W\",\"A\",\"SPACE\",\"UP\",\"ESC\",\"ENTER\",\"SHIFT\",\"0\"..\"9\"."),
     ("eng_key_pressed", "bool", [("name", "str")], "Tus bu karede basildi mi."),
+    ("eng_key_test_press", "void", [("name", "str")], "Pencersiz dogrulama: sonraki kareye bu tusun basisini enjekte eder (eng_key_pressed ve sahne animatoru tuslari gorur)."),
     ("eng_back_pressed", "bool", [], "Geri bu karede basildi mi: Android'de sistem geri tusu, masaustunde Esc. ILK cagri geri tusunu OYUNA baglar: Android'de etkinlik artik kapanmaz, oyun karar verir (duraklat/menu; cikmak icin eng_close). Hic sormayan oyunda sistem eski davranisla kapatir. Android'de eng_key_pressed(\"ESC\") ayni basisi gorur."),
     ("eng_back_test_press", "void", [], "Pencersiz dogrulama: sonraki kareye bir geri basisi enjekte eder (o kare eng_back_pressed true)."),
     ("eng_app_paused", "bool", [], "Uygulama arka planda mi (Android: ana ekran / baska uygulama; masaustunde false). Motor arka plana geciste sesi KENDISI durdurur, donuste surdurur; oyun bunu duraklatma karari icin okur."),

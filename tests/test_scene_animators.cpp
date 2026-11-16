@@ -110,13 +110,13 @@ ENGINE_TEST(animator_otomatik_metin_klip_adlarindan_kurulur) {
     CHECK(d.states[0].points[1].threshold == 1.5f && d.states[0].points[2].threshold == 4.5f);
     CHECK(sim::animator_param_index(d, sim::kAnimAutoSpeed) >= 0 && sim::animator_param_index(d, sim::kAnimAutoVertical) < 0);
   }
-  // b) İngilizce + zıplama + jetona sığmayan adlar (#N)
+  // b) İngilizce + zıplama + uzun ad AYNEN (A8c: 64 bayta kadar; eskiden 24'ü aşan `#N` olurdu) + boşluklu ad (#N)
   {
     static const char *const adlar[] = {"CharacterArmature|Idle_Neutral", "Walk", "Run Fast", "Jump"};
     Adlar a{adlar, 4};
     CHECK(sim::animator_auto_text(ad_fn, &a, 4, metin, sizeof metin, &r) > 0);
     CHECK(r.idle == 0 && r.walk == 1 && r.run == 2 && r.jump == 3 && r.states == 2);
-    CHECK(std::strstr(metin, "nokta 0 #0") && std::strstr(metin, "#2") && std::strstr(metin, "klip Jump tek"));
+    CHECK(std::strstr(metin, "nokta 0 CharacterArmature|Idle_Neutral\n") && std::strstr(metin, "#2") && std::strstr(metin, "klip Jump tek"));
     CHECK(kur(metin, adlar, 4, &d, &e));
     CHECK(d.state_count == 2 && d.trans_count == 2 && sim::animator_param_index(d, sim::kAnimAutoVertical) >= 0);
     CHECK(d.trans[1].on_end && d.trans[0].op == sim::AnimOp::Gt);
@@ -544,3 +544,46 @@ ENGINE_TEST(model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni) {
   }
 }
 
+
+// --- A8c: KODSUZ TUŞ (`param saldiri tetik tus 1`) -----------------------------------------------------------------------------------
+// keys(): çağıranın "bu karede basıldı" dediği tuşun tetiği, o animatörü kullanan HER varlığa verilir; adım sonrası durum 'saldiri'.
+// KONTROL: tuşa basılmayan karelerde (aynı adımlar) durum 'hareket' kalır; tuşsuz animatörde keyed() 0 ve keys hiçbir şey vermez.
+ENGINE_TEST(sahne_animatoru_tuslu_tetik_kodsuz) {
+  char yol[1024];
+  if (!asset_path(yol, sizeof yol, "karakter_kup.gltf")) { skip("tests/assets/karakter_kup.gltf yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.clip_count == 8);
+  char dir[512], anim[600], tussuz[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "sahne_anim_tus"));
+  std::snprintf(anim, sizeof anim, "%s/tus.animator", dir);
+  std::snprintf(tussuz, sizeof tussuz, "%s/tussuz.animator", dir);
+  CHECK(yaz(anim, "tulpar-animator 1\nparam hiz sayi 0\nparam saldiri tetik tus 1\ndurum hareket karisim hiz\n  nokta 0 bekle\n  nokta 2 yuru\nson\n"
+                  "durum saldiri klip saldiri tek\ngecis herhangi saldiri sure 0.1 tetik saldiri\ngecis saldiri hareket sure 0.2 bitince\nbaslangic hareket\n"));
+  CHECK(yaz(tussuz, "tulpar-animator 1\nparam hiz sayi 0\nparam saldiri tetik\ndurum hareket karisim hiz\n  nokta 0 bekle\n  nokta 2 yuru\nson\n"
+                    "durum saldiri klip saldiri tek\ngecis herhangi saldiri sure 0.1 tetik saldiri\nbaslangic hareket\n"));
+  static SceneAnimators sa;
+  sa.clear();
+  sim::AnimatorError er;
+  CHECK(sa.attach(0, anim, &m, &er) && sa.attach(1, anim, &m, &er) && sa.attach(2, tussuz, &m, &er));
+  CHECK(sa.keyed() == 1);
+  const char *adlar[4];
+  CHECK(sa.key_names(adlar, 4) == 1 && !std::strcmp(adlar[0], "1"));
+  struct Girdi { const char *basili; uint32_t soruldu; } g{nullptr, 0};
+  auto fn = [](void *u, const char *ad) { Girdi &gg = *static_cast<Girdi *>(u); gg.soruldu++; return gg.basili && !std::strcmp(gg.basili, ad); };
+  const float dt = 1.0f / 60.0f;
+  for (int k = 0; k < 10; k++) {   // KONTROL: basilmiyor
+    CHECK(sa.keys(fn, &g) == 0);
+    for (uint32_t e = 0; e < 3; e++) sa.step_params(e, 0.0f, 0.0f, dt);
+  }
+  CHECK(!std::strcmp(sa.state_name(0), "hareket") && !std::strcmp(sa.state_name(1), "hareket") && g.soruldu == 10);   // tanim basina 1 soru
+  g.basili = "1";
+  CHECK(sa.keys(fn, &g) == 2);   // ayni animatoru kullanan iki varlik; tussuz (2) almaz
+  for (uint32_t e = 0; e < 3; e++) sa.step_params(e, 0.0f, 0.0f, dt);
+  std::printf("    [bilgi] tus 1: varlik0 %s, varlik1 %s, tussuz %s\n", sa.state_name(0), sa.state_name(1), sa.state_name(2));
+  CHECK(!std::strcmp(sa.state_name(0), "saldiri") && !std::strcmp(sa.state_name(1), "saldiri") && !std::strcmp(sa.state_name(2), "hareket"));
+  sa.clear();
+  CHECK(sa.attach(0, tussuz, &m, &er) && sa.keyed() == 0 && sa.keys(fn, &g) == 0);   // KONTROL: tussuz tanim
+  arena().reset_to(mark);
+}

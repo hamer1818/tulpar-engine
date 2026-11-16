@@ -62,6 +62,7 @@ void SceneAnimators::clear() {
   for (Def &d : defs_) d.used = false;
   for (Slot &s : slots_) s.def = -1;
   attached_ = 0;
+  keyed_ = 0;
 }
 
 bool SceneAnimators::attach(uint32_t ent, const char *path, const Model *m, sim::AnimatorError *err) {
@@ -88,6 +89,9 @@ bool SceneAnimators::attach(uint32_t ent, const char *path, const Model *m, sim:
     d.p_vert = sim::animator_param_index(d.def, sim::kAnimAutoVertical);
     if (d.p_speed >= 0 && d.def.params[d.p_speed].trigger) d.p_speed = -1;
     if (d.p_vert >= 0 && d.def.params[d.p_vert].trigger) d.p_vert = -1;
+    d.has_keys = false;
+    for (uint32_t i = 0; i < d.def.param_count; i++) d.has_keys |= d.def.params[i].trigger && d.def.params[i].key[0];
+    if (d.has_keys) keyed_++;
     d.used = true;
   }
   Slot &s = slots_[ent];
@@ -153,6 +157,43 @@ bool SceneAnimators::trigger(uint32_t ent, const char *name) {
   if (p < 0 || !d.def.params[p].trigger) return false;
   sim::animator_trigger(d.def, &slots_[ent].rt, p);
   return true;
+}
+
+uint32_t SceneAnimators::keys(KeyPressedFn pressed, void *user) {
+  if (!keyed_ || !pressed) return 0;
+  // Once tanim basina hangi tetiklerin tusuna basildi (tus sorgusu tanim basina bir kez), sonra o tanimi kullanan her varlik.
+  bool bas[kSceneAnimDefs][sim::kAnimMaxParams] = {};
+  bool herhangi = false;
+  for (uint32_t di = 0; di < kSceneAnimDefs; di++) {
+    const Def &d = defs_[di];
+    if (!d.used || !d.has_keys) continue;
+    for (uint32_t p = 0; p < d.def.param_count; p++)
+      if (d.def.params[p].trigger && d.def.params[p].key[0] && pressed(user, d.def.params[p].key)) { bas[di][p] = true; herhangi = true; }
+  }
+  if (!herhangi) return 0;
+  uint32_t n = 0;
+  for (uint32_t e = 0; e < kSceneMaxEntities; e++) {
+    const int32_t di = slots_[e].def;
+    if (di < 0) continue;
+    for (uint32_t p = 0; p < defs_[di].def.param_count; p++)
+      if (bas[di][p]) { sim::animator_trigger(defs_[di].def, &slots_[e].rt, (int32_t)p); n++; }
+  }
+  return n;
+}
+
+uint32_t SceneAnimators::key_names(const char **out, uint32_t cap) const {
+  uint32_t n = 0;
+  for (const Def &d : defs_) {
+    if (!d.used || !d.has_keys) continue;
+    for (uint32_t p = 0; p < d.def.param_count; p++) {
+      const char *k = d.def.params[p].key;
+      if (!d.def.params[p].trigger || !k[0]) continue;
+      bool var = false;
+      for (uint32_t i = 0; i < n && !var; i++) var = !std::strcmp(out[i], k);
+      if (!var && n < cap) out[n++] = k;
+    }
+  }
+  return n;
 }
 
 bool SceneAnimators::play_state(uint32_t ent, const char *state) {

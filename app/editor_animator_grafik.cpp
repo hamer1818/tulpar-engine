@@ -471,7 +471,7 @@ void durum_penceresi(AnimGrafikBaglam *b) {
   ImGui::Separator();
   if (duzenle) ImGui::Text("Durum: %s", g_d_duzenle);
   else ImGui::InputText("Ad##anim_d_ad", g_d_ad, sizeof g_d_ad, ImGuiInputTextFlags_CharsNoBlank);
-  char jeton[40] = {0};
+  char jeton[72] = {0};
   if (klip_listesi_var(b->yol)) {
     const char *on = g_d_klip_sec >= 0 && (uint32_t)g_d_klip_sec < g_klip_n ? g_klip_ad[g_d_klip_sec] : "";
     if (ImGui::BeginCombo("Klip##anim_d_klip", on)) {
@@ -585,7 +585,7 @@ void durum_penceresi_ac(const char *metin, const char *duzenle_ad) {
     anim_yeni_ad(metin, "durum", g_d_ad, sizeof g_d_ad);
     g_d_klip_sec = 0;
     for (uint32_t c = 0; c < g_klip_n; c++) {
-      char j[40];
+      char j[72];
       anim_klip_jetonu(g_klip_ad[c], c, j, sizeof j);
       bool kullaniliyor = false;
       for (uint32_t i = 0; i < g_ob.def.state_count && !kullaniliyor; i++)
@@ -793,9 +793,9 @@ void animator_durum_formu(const sim::AnimatorDef &d, uint32_t si, char *metin, u
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(hiz >= 0 ? "Önizle: bu hızda (%.1f m/s)" : "Önizle: bu hareketi oynat", (double)hiz);
   };
   // Tetikle girilen tek seferlik durum ("ekstra hareket")? tetik adi
-  const char *tetik = nullptr;
+  const char *tetik = nullptr, *tus = "";
   for (uint32_t t = 0; t < d.trans_count; t++)
-    if (d.trans[t].to == (int32_t)si && d.trans[t].trigger && d.trans[t].param >= 0) tetik = d.params[d.trans[t].param].name;
+    if (d.trans[t].to == (int32_t)si && d.trans[t].trigger && d.trans[t].param >= 0) { tetik = d.params[d.trans[t].param].name; tus = d.params[d.trans[t].param].key; }
   const float fs0 = ImGui::GetFontSize();
   const float gen = std::min(ImGui::GetContentRegionAvail().x, fs0 * 26.0f);   // genis Kod panelinde secici bir ekran boyu uzamasin
   if (ImGui::BeginTable("##anim_form", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg, ImVec2(gen, 0))) {
@@ -827,7 +827,7 @@ void animator_durum_formu(const sim::AnimatorDef &d, uint32_t si, char *metin, u
         animator_rol_adi(d, s, k, rol, sizeof rol);
         rol_hucre(rol, su_an && (yakin < 0 || yakin == (int32_t)k));
         ImGui::TableSetColumnIndex(1);
-        char yeni[48];
+        char yeni[72];
         if (klip_secici("##klip", s.points[k].clip_name, kl, yeni, sizeof yeni)) {
           char ac[120];
           std::snprintf(ac, sizeof ac, "%s: %s", rol, klip_gorunen(yeni, kl));
@@ -865,9 +865,9 @@ void animator_durum_formu(const sim::AnimatorDef &d, uint32_t si, char *metin, u
       if (rol[0] >= 'a' && rol[0] <= 'z') rol[0] = (char)(rol[0] - 'a' + 'A');   // gosterim: "chomp" -> "Chomp" (dosyada ad aynen)
       rol_hucre(rol, su_an);
       if (tetik && ImGui::IsItemHovered())
-        ImGui::SetTooltip("Tek seferlik hareket: \xE2\x96\xB6 ile dene.\nOyunda betikten: sahne_animator_tetik(sahne_bul(\"nesne\"), \"%s\")\nBitince harekete d\xC3\xB6ner.", tetik);
+        ImGui::SetTooltip("Tek seferlik hareket: \xE2\x96\xB6 ile dene.\nOyunda: alttaki tu\xC5\x9F" "a bas\xC4\xB1nca ya da betikten sahne_animator_tetik(sahne_bul(\"nesne\"), \"%s\")\nBitince harekete d\xC3\xB6ner.", tetik);
       ImGui::TableSetColumnIndex(1);
-      char yeni[48];
+      char yeni[72];
       if (klip_secici("##klip", s.point_count ? s.points[0].clip_name : "", kl, yeni, sizeof yeni)) {
         char ac[120];
         std::snprintf(ac, sizeof ac, "%s: %s", rol, klip_gorunen(yeni, kl));
@@ -897,6 +897,29 @@ void animator_durum_formu(const sim::AnimatorDef &d, uint32_t si, char *metin, u
       }
       ImGui::TableSetColumnIndex(3);
       oynat(-1.0f);
+      if (tetik) {   // A8c: kodsuz tus — oyunda bu tusa basinca hareket oynar (betik gerekmez)
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("  " ICON_MD_KEYBOARD);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Oyunda bu tu\xC5\x9F" "a bas\xC4\xB1nca hareket oynar (betik gerekmez).\nEdit\xC3\xB6rde Oynat ya da \xC3\x96nizle a\xC3\xA7\xC4\xB1kken de \xC3\xA7" "al\xC4\xB1\xC5\x9F\xC4\xB1r.");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##tus", tus[0] ? tus : "tu\xC5\x9F yok")) {
+          const char *secilen = nullptr;
+          bool sec = false;
+          if (ImGui::Selectable("tu\xC5\x9F yok", !tus[0]) && tus[0]) { secilen = ""; sec = true; }
+          for (uint32_t i = 0; kAnimTuslar[i]; i++)
+            if (ImGui::Selectable(kAnimTuslar[i], !std::strcmp(tus, kAnimTuslar[i])) && std::strcmp(tus, kAnimTuslar[i])) { secilen = kAnimTuslar[i]; sec = true; }
+          ImGui::EndCombo();
+          if (sec) {
+            char ac[120];
+            std::snprintf(ac, sizeof ac, secilen[0] ? "%s: tu\xC5\x9F %s" : "%s: tu\xC5\x9F kald\xC4\xB1r\xC4\xB1ld\xC4\xB1%s", rol, secilen);
+            const char *pad = tetik;
+            uygula_form(ac, [&](char *m, uint32_t mc, char *e, uint32_t ec) { return anim_metin_tetik_tus(m, mc, pad, secilen, e, ec); });
+          }
+        }
+      }
     }
     ImGui::EndTable();
   }

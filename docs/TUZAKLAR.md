@@ -2707,3 +2707,17 @@ istiyor. Her köşe dokunun tek pikselini örnekliyordu. Yükleyici ayrıca malz
 **Düzeltme:** `uv_kanali`: önce renk dokusunun istediği kanal; o kanal dejenereyse (hepsi aynı) dejenere olmayan öbür kanal, sayılır ve
 `Model::note`'a yazılır. Kapı: `gltf_dejenere_uv_kanali_digerine_duser` (kontrol: kanallar yer değişince kanal 0 olduğu gibi, not yok).
 **Kural:** yükleme özeti "doku var" demek dokunun GÖRÜNDÜĞÜ demek değil — gerçek modelde yakın çekime bak.
+
+### 8ej. Ada sığmayan klip `#N` sıra numarasıyla yazılınca model değişince SESSİZCE başka klip oynar
+**Belirti (önlenen):** Mike'ın klip adları (`SK_ZMikeAnim_ZMIKE_IdleBreaker`, 30 karakter) animatör ad alanının 24 baytına sığmıyor,
+dosyaya `#18` yazılıyordu. Model yeniden dışa aktarılıp klip sırası kayarsa (yeni klip eklendi, biri silindi) `#18` hata vermeden başka
+klibi gösterir. **Düzeltme:** klip adı alanı ayrı ve 64 bayt (`kAnimClipNameLen`, `ModelClip::name` ile aynı); `#N` yalnız boşluklu
+adlarda. Kapı: `editor_animator_metin_ad_ve_klip_jetonu` (63 karakter aynen, 64 `#N`). **Kural:** konumla (sıra, indeks) adlandırma yalnız
+son çare; dosyada adla yazılabiliyorsa adla yaz.
+
+### 8ek. Duvar saati ile "N kat iş daha pahalı" kontrolü hızlı GPU'da gürültüye boğulur
+**Belirti:** `render_karakter_butcesi_olcum` RTX 5080'de arada kırmızı (2026-11-16): 40 karakter 1 karakterden yalnız +0,01..0,28 ms pahalı,
+kare süresinin ~1,7 ms'si sabit gönder/bekle. **Düzeltme:** `offscreen_render_custom` artık GPU zaman damgası yazıyor (gölge geçişi dahil);
+kontrol GPU geçiş süresiyle (0,02 → 0,18 ms, 7 kat); damga yoksa (MoltenVK aynı değeri verir) duvar saati. **Kural:** iş miktarı iddiası
+iş süresiyle ölçülür (GPU damgası), sabit maliyeti içeren duvar saatiyle değil.
+

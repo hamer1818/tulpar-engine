@@ -8,6 +8,7 @@
 //   tulpar-animator 1
 //   param hiz sayi 0
 //   param ziplama tetik
+//   param selam tetik tus E      # A8c: E tuşu (oyunda / editörün Oynat'ında) tetiği kendiliğinden verir — kod yok
 //   durum bekle klip salla hiz 1 dongu
 //   durum kos karisim hiz
 //     nokta 0 salla
@@ -28,12 +29,16 @@
 namespace tulpar::engine::sim {
 
 constexpr uint32_t kAnimMaxStates = 16, kAnimMaxTrans = 48, kAnimMaxParams = 16, kAnimMaxPoints = 4, kAnimNameLen = 24;
+// Klip adı ayrı ve uzun (2026-11-16, Fab "Mike": "SK_ZMikeAnim_ZMIKE_IdleBreaker" 30 karakter): 24'e sığmayan ad `#N` (sıra) olarak
+// yazılıyordu ve model değişip sıra kayınca SESSİZCE başka klibi gösterirdi. Model klip adı 64 bayt (ModelClip::name) — aynısı.
+// `#N` yalnız boşluklu adlar için kalır. kAnimKeyLen: tetiği süren tuş adı ("E", "SPACE"; A8c, kodsuz tuş).
+constexpr uint32_t kAnimClipNameLen = 64, kAnimKeyLen = 12;
 constexpr uint32_t kAnimMaxEntries = 4;   // AnimatorPose: iki durum x iki karışım noktası
 constexpr uint32_t kAnimMaxEvents = 16, kAnimEventQueue = 8;   // A4: tanımdaki olay sayısı, çalışma zamanı kuyruk kapasitesi (dolunca düşer ve SAYILIR)
 
 enum class AnimOp : uint8_t { None = 0, Gt, Lt, Ge, Le, Eq };
 
-struct AnimPoint { float threshold = 0; char clip_name[kAnimNameLen] = {0}; int32_t clip = -1; float speed = 1.0f; };
+struct AnimPoint { float threshold = 0; char clip_name[kAnimClipNameLen] = {0}; int32_t clip = -1; float speed = 1.0f; };
 struct AnimState {
   char name[kAnimNameLen] = {0};
   bool blend = false;                       // 1B karışım durumu
@@ -54,7 +59,9 @@ struct AnimTransition {
   bool trigger = false;                     // param bir tetik: tüketilir
   bool on_end = false;                      // "bitince": kaynak klip (tek) bitince
 };
-struct AnimParam { char name[kAnimNameLen] = {0}; bool trigger = false; float def = 0; };
+// key: tetik parametresini süren tuş (`param selam tetik tus E`); boş = yok. Sim tuşu yalnız AD olarak taşır — kodunu ve basılıp
+// basılmadığını bilmez; SceneAnimators::keys çağıranın girdisine sorar (oyun: köprü klavyesi, editör: ImGui).
+struct AnimParam { char name[kAnimNameLen] = {0}; bool trigger = false; float def = 0; char key[kAnimKeyLen] = {0}; };
 
 struct AnimatorDef {
   AnimState states[kAnimMaxStates];

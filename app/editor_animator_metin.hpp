@@ -12,7 +12,7 @@ namespace tulpar::engine::app {
 
 // Ad kuralı (durum / parametre): [a-z0-9_], 1..23 karakter, harfle başlar. Türkçe harf yok: dosya ASCII, betikte anahtar.
 bool anim_ad_gecerli(const char *ad);
-// Klip jetonu: ad boşluksuz ve < 24 bayt ise ad, değilse `#N` (sim/animator.hpp).
+// Klip jetonu: ad boşluksuz ve < 64 bayt ise ad, değilse `#N` (sim/animator.hpp kAnimClipNameLen).
 void anim_klip_jetonu(const char *klip_adi, uint32_t sira, char *out, uint32_t cap);
 // Metinde kullanılmayan ad: kok, kok2, kok3 ...
 void anim_yeni_ad(const char *metin, const char *kok, char *out, uint32_t cap);
@@ -45,7 +45,15 @@ bool anim_metin_durum_klip(char *metin, uint32_t cap, const char *ad, const char
 bool anim_metin_nokta(char *metin, uint32_t cap, const char *ad, uint32_t sira, const char *klip_jetonu, float esik, char *err, uint32_t ecap);
 // Ekstra hareket (el salla, yumruk...): `durum ad klip <jeton> tek` + `param ad tetik` + `gecis herhangi ad sure 0.1 tetik ad` +
 // `gecis ad <başlangıç> sure 0.2 bitince`. Betikten `sahne_animator_tetik(nesne, "ad")` ya da editörde ▶ ile oynar, bitince döner.
-bool anim_metin_hareket_ekle(char *metin, uint32_t cap, const char *ad, const char *klip_jetonu, char *err, uint32_t ecap);
+// tus: verilirse (boş değilse) tetik o tuşa da bağlanır (`param ad tetik tus E`) — oyunda betiksiz oynar.
+bool anim_metin_hareket_ekle(char *metin, uint32_t cap, const char *ad, const char *klip_jetonu, char *err, uint32_t ecap,
+                             const char *tus = nullptr);
+// Tetik parametresinin tuşu: tus boş/nullptr = tuşu kaldır. Parametre yoksa ya da sayıysa hata, metin değişmez.
+bool anim_metin_tetik_tus(char *metin, uint32_t cap, const char *param, const char *tus, char *err, uint32_t ecap);
+// Editörün sunduğu tuş adları (köprünün key_code kümesinin alt kümesi; büyük harf). nullptr ile biter.
+extern const char *const kAnimTuslar[];
+// Metinde henüz tuşa bağlı olmayan ilk rakam tuşu ("1".."9"); hepsi doluysa "".
+void anim_bos_tus(const char *metin, char *out, uint32_t cap);
 // sira'ncı geçişi YERİNDE yeniden yazar (sıra korunur: listedeki ilk sağlanan geçiş kazanır). Parametre yoksa eklenir.
 bool anim_metin_gecis_guncelle(char *metin, uint32_t cap, uint32_t sira, const AnimGecisIstek &g, char *err, uint32_t ecap);
 

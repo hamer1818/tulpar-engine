@@ -4777,7 +4777,7 @@ ENGINE_TEST(bridge_scene_animator_tetik_param_durum) {
     std::snprintf(yol, sizeof yol, "%s/kup.animator", dir);
     std::FILE *a = std::fopen(yol, "wb");
     if (!a) { CHECK(false); return; }
-    std::fputs("tulpar-animator 1\nparam zipla tetik\nparam ofke sayi 0\ndurum bekle klip bekle dongu\ndurum vur klip saldiri tek\n"
+    std::fputs("tulpar-animator 1\nparam zipla tetik tus 1\nparam ofke sayi 0\ndurum bekle klip bekle dongu\ndurum vur klip saldiri tek\n"
                "gecis herhangi vur sure 0.1 tetik zipla\ngecis vur bekle sure 0.1 bitince\nbaslangic bekle\n", a);
     std::fclose(a);
   }
@@ -4821,6 +4821,21 @@ ENGINE_TEST(bridge_scene_animator_tetik_param_durum) {
   const int hata1 = teng_error_count();
   std::printf("    [bilgi] sahne animatoru: %s -> tetik -> %s; red edilen 3 cagri %d HATA\n", once, sonra, hata1 - hata0);
   CHECK(hata1 - hata0 == 3);
+  // A8c KODSUZ TUS: `param zipla tetik tus 1` — betik cagrisi olmadan 1 tusu (penceresizde teng_key_test_press) 'vur'a gecirir.
+  // KONTROL: 'bekle'ye donduktan sonra tussuz kareler durumu degistirmez; bilinmeyen tus adi HATA.
+  int dondu = 0;
+  for (int k = 0; k < 600 && !dondu; k++) { run_frames(1); dondu = !std::strcmp(teng_scene_animator_state(kahraman), "bekle"); }
+  CHECK(dondu);
+  run_frames(5);
+  CHECK(!std::strcmp(teng_scene_animator_state(kahraman), "bekle"));   // KONTROL: tussuz
+  teng_key_test_press("1");
+  run_frames(3);
+  char tusla[32];
+  std::snprintf(tusla, sizeof tusla, "%s", teng_scene_animator_state(kahraman));
+  const int hata2 = teng_error_count();
+  teng_key_test_press("YOKTUS");
+  std::printf("    [bilgi] kodsuz tus 1: bekle -> %s; bilinmeyen tus %d HATA\n", tusla, teng_error_count() - hata2);
+  CHECK(!std::strcmp(tusla, "vur") && teng_error_count() - hata2 == 1);
   teng_shutdown();
 }
 

@@ -684,8 +684,15 @@ bool offscreen_render_custom(OffscreenTarget *t, const OffscreenConfig &cfg, Off
   const uint32_t w = t->w, h = t->h;
   out->ok = false;
   out->pixels = t->pixels;
+  out->gpu_ns = 0;
   VkCommandBuffer cb = dev.begin_one_shot();
   if (!cb) return c.fail("komut tamponu", VK_ERROR_OUT_OF_HOST_MEMORY);
+  // GPU suresi (2026-11-16): offscreen_render_frame gibi damga; burada golge gecisi (before) DAHIL. Duvar saati hizli GPU'da sabit
+  // gonder/bekle maliyetine bogulur (render_karakter_butcesi_olcum 40-vs-1 kontrolu arada kirmiziya dusuyordu).
+  if (c.queries) {
+    a.vkCmdResetQueryPool(cb, c.queries, 0, 2);
+    a.vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, c.queries, 0);
+  }
   VkClearValue clears[2]{};
   clears[0].color.float32[0] = cfg.clear[0] / 255.0f;
   clears[0].color.float32[1] = cfg.clear[1] / 255.0f;
@@ -707,6 +714,7 @@ bool offscreen_render_custom(OffscreenTarget *t, const OffscreenConfig &cfg, Off
   a.vkCmdSetScissor(cb, 0, 1, &sc);
   record(cb, user);
   a.vkCmdEndRenderPass(cb);
+  if (c.queries) a.vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, c.queries, 1);
   VkBufferImageCopy region{};
   region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
   region.imageExtent = {w, h, 1};
@@ -714,6 +722,15 @@ bool offscreen_render_custom(OffscreenTarget *t, const OffscreenConfig &cfg, Off
   if (!dev.end_one_shot_and_wait(cb)) {
     std::snprintf(out->error, sizeof out->error, "gonderim: %s", dev.last_error());
     return false;
+  }
+  out->timestamps_valid = false;
+  if (c.queries) {
+    uint64_t ts[2] = {0, 0};
+    if (a.vkGetQueryPoolResults(c.d, c.queries, 0, 2, sizeof ts, ts, sizeof(uint64_t),
+                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS) {
+      out->timestamps_valid = true;
+      if (ts[1] > ts[0]) out->gpu_ns = (uint64_t)((double)(ts[1] - ts[0]) * dev.caps().timestamp_period_ns);
+    }
   }
   VkMappedMemoryRange rng{};
   rng.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;

@@ -53,6 +53,14 @@ public:
   bool set_param(uint32_t ent, const char *name, float v);
   // A8c: editörde ▶ — durumu adıyla doğrudan başlatır (0,15 s yumuşak). false: animatör ya da durum yok.
   bool play_state(uint32_t ent, const char *state);
+  // A8c: KODSUZ TUŞ — tanımda `param <ad> tetik tus <TUŞ>` olan her tetik, çağıranın girdisi o tuşa BU KAREDE basıldı derse verilir
+  // (bütün bağlı varlıklar; aynı animatörü kullanan her nesne). Tuş adı ve "basıldı" kararı çağıranındır: oyun köprünün klavyesi
+  // (teng_key_pressed ile AYNI ad kümesi), editörün Oynat'ı ImGui. Dönüş: verilen tetik sayısı. Kare başına bir kez çağrılır.
+  typedef bool (*KeyPressedFn)(void *user, const char *key);
+  uint32_t keys(KeyPressedFn pressed, void *user);
+  uint32_t keyed() const { return keyed_; }
+  // Bağlı tanımlardaki farklı tuş adları (köprü yüklemede doğrular: bilinmeyen ad SESSİZCE hiç çalışmasın diye HATA basar).
+  uint32_t key_names(const char **out, uint32_t cap) const;   // tuşlu tetiği olan bağlı tanım sayısı (0 ise keys hiçbir şey yapmaz)
   const sim::AnimatorRt *runtime(uint32_t ent) const { return has(ent) ? &slots_[ent].rt : nullptr; }
   uint32_t attached() const { return attached_; }
   uint32_t rejected() const { return rejected_; }
@@ -63,6 +71,7 @@ private:
     char path[kScenePathLen] = {0};
     const Model *model = nullptr;
     int32_t p_speed = -1, p_vert = -1;   // otomatik parametre indeksleri (-1: tanımda yok)
+    bool has_keys = false;               // A8c: tuşlu tetik var
     bool used = false;
   };
   struct Slot {
@@ -74,7 +83,7 @@ private:
   };
   Def defs_[kSceneAnimDefs];
   Slot slots_[kSceneMaxEntities];
-  uint32_t attached_ = 0, rejected_ = 0;
+  uint32_t attached_ = 0, rejected_ = 0, keyed_ = 0;
 };
 
 } // namespace tulpar::engine::content

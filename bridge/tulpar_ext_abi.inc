@@ -6,7 +6,7 @@
 // tipli bir isaretci olarak atar: bildirim ile C kaydiginda motor DERLENMEZ.
 // eng_init'in Tulpar sembolu yapistiricidir (teng_tulpar_init, ayni imza);
 // kilit alttaki teng_init'i baglar, yapistirici kendi basliginda kilitli.
-#define TENG_ABI_COUNT 442
+#define TENG_ABI_COUNT 443
 TENG_ABI(int, eng_init, teng_init, (const char *, int, int))
 TENG_ABI(int, eng_running, teng_running, (void))
 TENG_ABI(void, eng_close, teng_close, (void))
@@ -199,6 +199,7 @@ TENG_ABI(double, eng_anim_time, teng_anim_time, (int))
 TENG_ABI(int, eng_anim_done, teng_anim_done, (int))
 TENG_ABI(int, eng_key_down, teng_key_down, (const char *))
 TENG_ABI(int, eng_key_pressed, teng_key_pressed, (const char *))
+TENG_ABI(void, eng_key_test_press, teng_key_test_press, (const char *))
 TENG_ABI(int, eng_back_pressed, teng_back_pressed, (void))
 TENG_ABI(void, eng_back_test_press, teng_back_test_press, (void))
 TENG_ABI(int, eng_app_paused, teng_app_paused, (void))

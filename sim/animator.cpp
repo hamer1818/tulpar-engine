@@ -33,6 +33,11 @@ bool kopya_ad(char *dst, const char *src) {
   std::snprintf(dst, kAnimNameLen, "%s", src);
   return true;
 }
+bool kopya_klip(char *dst, const char *src) {
+  if (std::strlen(src) >= kAnimClipNameLen) return false;
+  std::snprintf(dst, kAnimClipNameLen, "%s", src);
+  return true;
+}
 bool sayi(const char *s, float *v) {
   char *e = nullptr;
   *v = std::strtof(s, &e);
@@ -155,7 +160,7 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
       } else if (esit(tok[0], "nokta") && n >= 3) {
         if (s.point_count >= kAnimMaxPoints) { hata(err, satir, "karisim durumunda en cok 4 nokta"); ok = false; break; }
         AnimPoint &pt = s.points[s.point_count];
-        if (!sayi(tok[1], &pt.threshold) || !kopya_ad(pt.clip_name, tok[2])) { hata(err, satir, "nokta <esik> <klip> [hiz h]"); ok = false; break; }
+        if (!sayi(tok[1], &pt.threshold) || !kopya_klip(pt.clip_name, tok[2])) { hata(err, satir, "nokta <esik> <klip> [hiz h]"); ok = false; break; }
         if (s.point_count && pt.threshold <= s.points[s.point_count - 1].threshold) { hata(err, satir, "nokta esikleri artan olmali"); ok = false; break; }
         for (uint32_t k = 3; k + 1 < n; k += 2) if (esit(tok[k], "hiz") && !sayi(tok[k + 1], &pt.speed)) { hata(err, satir, "gecersiz hiz"); ok = false; }
         s.point_count++;
@@ -166,7 +171,13 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
       if (out->param_count >= kAnimMaxParams) { hata(err, satir, "en cok 16 parametre"); ok = false; break; }
       AnimParam &p = out->params[out->param_count];
       if (!kopya_ad(p.name, tok[1])) { hata(err, satir, "parametre adi en cok 23 karakter"); ok = false; break; }
-      if (esit(tok[2], "tetik")) p.trigger = true;
+      if (esit(tok[2], "tetik")) {
+        p.trigger = true;
+        if (n >= 5 && esit(tok[3], "tus")) {   // A8c: kodsuz tus
+          if (std::strlen(tok[4]) >= kAnimKeyLen) { hata(err, satir, "tus adi en cok 11 karakter"); ok = false; break; }
+          std::snprintf(p.key, sizeof p.key, "%s", tok[4]);
+        } else if (n >= 4) { hata(err, satir, "param <ad> tetik [tus <TUS>]"); ok = false; break; }
+      }
       else if (esit(tok[2], "sayi")) { if (n >= 4 && !sayi(tok[3], &p.def)) { hata(err, satir, "gecersiz varsayilan"); ok = false; break; } }
       else { hata(err, satir, "param <ad> sayi|tetik"); ok = false; break; }
       out->param_count++;
@@ -177,7 +188,7 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
       if (durum_ara(*out, tok[1]) >= 0) { hata(err, satir, "durum '%s' iki kez tanimli", tok[1]); ok = false; break; }
       if (esit(tok[2], "klip")) {
         s.point_count = 1;
-        if (!kopya_ad(s.points[0].clip_name, tok[3])) { hata(err, satir, "klip adi en cok 23 karakter"); ok = false; break; }
+        if (!kopya_klip(s.points[0].clip_name, tok[3])) { hata(err, satir, "klip adi en cok 63 karakter"); ok = false; break; }
         for (uint32_t k = 4; k < n; k++) {
           if (esit(tok[k], "dongu")) s.loop = true;
           else if (esit(tok[k], "tek")) s.loop = false;
@@ -396,9 +407,9 @@ bool ad_herhangi(const char *ad, const char *const *altlar) {
   for (uint32_t i = 0; altlar[i]; i++) if (ad_icerir(ad, altlar[i])) return true;
   return false;
 }
-// Ad .animator jetonu olarak yazılabilir mi (boşluksuz, '#' ile başlamaz, < kAnimNameLen).
+// Ad .animator jetonu olarak yazılabilir mi (boşluksuz, '#' ile başlamaz, < kAnimClipNameLen).
 bool jeton_olur(const char *ad) {
-  if (!ad || !ad[0] || ad[0] == '#' || std::strlen(ad) >= kAnimNameLen) return false;
+  if (!ad || !ad[0] || ad[0] == '#' || std::strlen(ad) >= kAnimClipNameLen) return false;
   for (const char *p = ad; *p; p++) if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') return false;
   return true;
 }
@@ -440,7 +451,7 @@ uint32_t animator_auto_text(AnimClipNameFn names, void *user, uint32_t clip_coun
     if (r.idle < 0) r.idle = 0;
   }
   // Klip jetonu: ad sığıyorsa ad, sığmıyorsa #N.
-  char jet[4][kAnimNameLen + 8];
+  char jet[4][kAnimClipNameLen + 8];
   const int32_t roller[4] = {r.idle, r.walk, r.run, r.jump};
   for (uint32_t k = 0; k < 4; k++) {
     jet[k][0] = 0;

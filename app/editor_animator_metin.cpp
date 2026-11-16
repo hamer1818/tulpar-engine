@@ -151,7 +151,7 @@ bool anim_ad_gecerli(const char *ad) {
 }
 
 void anim_klip_jetonu(const char *klip, uint32_t sira, char *out, uint32_t cap) {
-  bool olur = klip && klip[0] && klip[0] != '#' && std::strlen(klip) < sim::kAnimNameLen;
+  bool olur = klip && klip[0] && klip[0] != '#' && std::strlen(klip) < sim::kAnimClipNameLen;
   for (const char *p = klip; olur && *p; p++) if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') olur = false;
   if (olur) std::snprintf(out, cap, "%s", klip);
   else std::snprintf(out, cap, "#%u", sira);
@@ -382,7 +382,7 @@ bool anim_metin_nokta(char *metin, uint32_t cap, const char *ad, uint32_t sira, 
   return is.bitir(g_yeni, c.n);
 }
 
-bool anim_metin_hareket_ekle(char *metin, uint32_t cap, const char *ad, const char *klip, char *err, uint32_t ecap) {
+bool anim_metin_hareket_ekle(char *metin, uint32_t cap, const char *ad, const char *klip, char *err, uint32_t ecap, const char *tus) {
   static char yedek[kTampon];
   const size_t ml = std::strlen(metin);
   if (ml + 1 > sizeof yedek) { hata(err, ecap, "metin çok uzun"); return false; }
@@ -409,7 +409,55 @@ bool anim_metin_hareket_ekle(char *metin, uint32_t cap, const char *ad, const ch
   d.kosul = AnimKosul::Bitince;
   d.sure = 0.2f;
   if (!anim_metin_gecis_ekle(metin, cap, d, err, ecap)) return geri();
+  if (tus && tus[0] && !anim_metin_tetik_tus(metin, cap, ad, tus, err, ecap)) return geri();
   return true;
+}
+
+const char *const kAnimTuslar[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "Q", "E", "R", "F", "G", "T", "Z", "X", "C", "V", "B",
+                                   "SPACE", "ENTER", "SHIFT", "CTRL", "ALT", "TAB", nullptr};
+
+bool anim_metin_tetik_tus(char *metin, uint32_t cap, const char *param, const char *tus, char *err, uint32_t ecap) {
+  Is &is = is_al(metin, cap, err, ecap);
+  if (!is.hazirla()) return false;
+  const int32_t p = sim::animator_param_index(is.def, param);
+  if (p < 0 || !is.def.params[p].trigger) { hata(err, ecap, "'%s' adlı tetik yok", param); return false; }
+  if (tus && tus[0]) {
+    bool bilinen = false;
+    for (uint32_t i = 0; kAnimTuslar[i] && !bilinen; i++) bilinen = !std::strcmp(kAnimTuslar[i], tus);
+    if (!bilinen) { hata(err, ecap, "bilinmeyen tuş '%s'", tus); return false; }
+  }
+  Cikti c{g_yeni, kTampon};
+  for (uint32_t i = 0; i < is.n; i++) {
+    const Satir &sa = is.s[i];
+    if (jeton_es(sa, 0, "param") && jeton_es(sa, 1, param)) {
+      uint32_t b0 = 0, e0 = 0;
+      jeton_yeri(sa, 0, &b0, &e0);
+      c.yaz(sa.p, b0);
+      c.metin("param ");
+      c.metin(param);
+      c.metin(" tetik");
+      if (tus && tus[0]) { c.metin(" tus "); c.metin(tus); }
+      c.metin("\n");
+      continue;
+    }
+    c.satir(sa);
+  }
+  if (c.tasti) { hata(err, ecap, "metin çok uzun"); return false; }
+  return is.bitir(g_yeni, c.n);
+}
+
+void anim_bos_tus(const char *metin, char *out, uint32_t cap) {
+  static Satir s[kMaxSatir];
+  const uint32_t n = metin ? satirlara_bol(metin, s) : 0;
+  for (char d = '1'; d <= '9'; d++) {
+    bool dolu = false;
+    for (uint32_t i = 0; i < n && !dolu; i++) {
+      char t[16];
+      if (jeton_es(s[i], 0, "param") && jeton_es(s[i], 3, "tus") && jeton(s[i], 4, t, sizeof t) && t[0] == d && !t[1]) dolu = true;
+    }
+    if (!dolu) { std::snprintf(out, cap, "%c", d); return; }
+  }
+  if (cap) out[0] = 0;
 }
 
 bool anim_metin_gecis_guncelle(char *metin, uint32_t cap, uint32_t sira, const AnimGecisIstek &g, char *err, uint32_t ecap) {

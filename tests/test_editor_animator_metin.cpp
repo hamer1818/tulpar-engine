@@ -44,10 +44,13 @@ ENGINE_TEST(editor_animator_metin_ad_ve_klip_jetonu) {
   CHECK(anim_ad_gecerli("yuru") && anim_ad_gecerli("kos_2") && anim_ad_gecerli("a"));
   CHECK(!anim_ad_gecerli("") && !anim_ad_gecerli("Yuru") && !anim_ad_gecerli("2kos") && !anim_ad_gecerli("yürü") && !anim_ad_gecerli("a b"));
   CHECK(!anim_ad_gecerli("herhangi") && !anim_ad_gecerli("abcdefghijklmnopqrstuvwx"));   // ayrılmış ad, 24 karakter
-  char j[32];
+  char j[80];
   anim_klip_jetonu("Walk", 3, j, sizeof j); CHECK(!std::strcmp(j, "Walk"));
-  anim_klip_jetonu("Walk Cycle", 3, j, sizeof j); CHECK(!std::strcmp(j, "#3"));
-  anim_klip_jetonu("Armature|mixamo.com|Layer0", 0, j, sizeof j); CHECK(!std::strcmp(j, "#0"));
+  anim_klip_jetonu("Walk Cycle", 3, j, sizeof j); CHECK(!std::strcmp(j, "#3"));   // bosluklu: #N
+  // A8c: 63 karaktere kadar ad AYNEN (sira degisse de dogru klip); 64+ yine #N
+  anim_klip_jetonu("Armature|mixamo.com|Layer0", 0, j, sizeof j); CHECK(!std::strcmp(j, "Armature|mixamo.com|Layer0"));
+  anim_klip_jetonu("SK_ZMikeAnim_ZMIKE_HitRegisterFront_Death", 15, j, sizeof j); CHECK(!std::strcmp(j, "SK_ZMikeAnim_ZMIKE_HitRegisterFront_Death"));
+  anim_klip_jetonu("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 9, j, sizeof j); CHECK(!std::strcmp(j, "#9"));   // 64 karakter
   yukle(kTemel);
   anim_yeni_ad(g_m, "durum", j, sizeof j); CHECK(!std::strcmp(j, "durum"));
   anim_yeni_ad(g_m, "zipla", j, sizeof j); CHECK(!std::strcmp(j, "zipla2"));
@@ -232,4 +235,22 @@ ENGINE_TEST(editor_animator_klip_onek_ve_ad_onerisi) {
   CHECK(!std::strcmp(ad, "wave_loop") && anim_ad_gecerli(ad));
   anim_ad_oner("001 Action!", ad, sizeof ad);
   CHECK(!std::strcmp(ad, "h_001_action") && anim_ad_gecerli(ad));
+}
+
+// A8c: tetik tuşu yazılır / kaldırılır; hareket ekle tuşla; boş rakam önerisi. KONTROL: bilinmeyen tuş ve sayı parametresi -> red, metin aynı.
+ENGINE_TEST(editor_animator_metin_tetik_tusu) {
+  yukle(kTemel);
+  CHECK(anim_metin_hareket_ekle(g_m, sizeof g_m, "selam", "#5", g_err, sizeof g_err, "1"));
+  CHECK(std::strstr(g_m, "param selam tetik tus 1\n") != nullptr);
+  char t[8];
+  anim_bos_tus(g_m, t, sizeof t);
+  CHECK(!std::strcmp(t, "2"));
+  CHECK(anim_metin_tetik_tus(g_m, sizeof g_m, "selam", "SPACE", g_err, sizeof g_err) && std::strstr(g_m, "param selam tetik tus SPACE\n"));
+  anim_bos_tus(g_m, t, sizeof t);
+  CHECK(!std::strcmp(t, "1"));
+  CHECK(anim_metin_tetik_tus(g_m, sizeof g_m, "selam", "", g_err, sizeof g_err) && std::strstr(g_m, "param selam tetik\n"));
+  static char once[sizeof g_m];
+  std::memcpy(once, g_m, sizeof g_m);
+  CHECK(!anim_metin_tetik_tus(g_m, sizeof g_m, "selam", "F13", g_err, sizeof g_err) && std::memcmp(once, g_m, sizeof g_m) == 0);
+  CHECK(!anim_metin_tetik_tus(g_m, sizeof g_m, "hiz", "1", g_err, sizeof g_err) && std::memcmp(once, g_m, sizeof g_m) == 0);
 }

@@ -40,12 +40,16 @@ File → Import → FBX → (Mixamo ise Action Editor'da klipleri yeniden adland
    yazar (üçgen, eklem, klip, boyut, "mobilde ≈ N kopya sığar"). Turuncu uyarı = telefon için ağır.
 2. Kaynaklar'da karta **çift tık** → sahneye eklenir. Animasyonlu modelde **Animasyon** bileşeni kendiliğinden gelir (bekleme klibi, döngü).
 3. Boyu/yönü tuhafsa: karta **sağ tık → içe aktarma ayarları** (birim cm/m, yukarı eksen, ölçek, pivot; önizleme canlı).
-4. Animasyon kartında **Animatör oluştur (otomatik)** → bekle/yürü/koş (+ zıpla) kurulur. **Önizleme hızı**'nı sürükle: geçişi gör.
-   **Düzenle** → durum grafiği: Durum ekle / Geçiş ekle / sağ tık menüleri; her değişiklik hemen kaydedilir.
+4. Animasyon kartında **Animatör oluştur (otomatik)** → bekle/yürü/koş (+ zıpla) kurulur. Kartın **Hareketler** bölümünde her hareket
+   bir satır: klibini listeden seç, yürüme/koşma hızını değiştir, **▶** ile dene. **Önizleme hızı**'nı sürükle: geçişi gör.
+   **Hareket ekle** → el sallama, yumruk gibi tek seferlik bir klip ekler ve bir **tuş** önerir (1, 2, …): oyunda o tuşa basınca oynar,
+   bitince yürümeye döner — kod gerekmez. **Geri al** son değişikliği geri alır.
+   **Düzenle** → durum grafiği: kutular klipleri gösterir; bir duruma ya da oka tıkla, üstte düzenlenir. Durum ekle / Geçiş ekle / sağ tık
+   menüleri; her değişiklik hemen kaydedilir.
 5. Yürütmek için kod gerekmez: **Davranış ekle → Devriye (ileri-geri yürü)**; oyunda hız 1,5 m/s → yürür, 4+ → koşar.
    Kodla: nesneyi neyle hareket ettirirsen ettir (`sahne_konum_ver`, fizik), animatör hızı hareketten okur. Zıplama gibi anlık işler:
    `sahne_animator_tetik(sahne_bul("ad"), "zipla")`.
 
 ## Sınırlar
 
-Sahne başına 16 model dosyası · model başına 32 klip, 128 eklem · telefonda karede toplam ≲ 50 bin iskeletli köşe (P20 Pro ölçümü).
+Sahne başına 16 model dosyası · model başına 64 klip, 128 eklem · telefonda karede toplam ≲ 50 bin iskeletli köşe (P20 Pro ölçümü).
