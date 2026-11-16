@@ -2737,3 +2737,11 @@ başına 88 matris (52 kat az). Kapı: `render_skin_matris_tavani_sayilir` (5 me
 kaş / ayak IK düğümleri de oynamıyordu. **Düzeltme:** hareketli TRS kanalının hedeflediği eklem olmayan düğümler birleşik iskelete girer
 (skin olmasa da); mesh kendi düğümü ya da atası eklemse kemiğe takılı çizilir (`W_poz * W_bag^-1 * W_mesh`). Tek anahtarlı (süre 0)
 kanallar sayılmaz. Kapı: `khronos_dugum_animasyonu_oynar` (9/9 klip parçayı oynatır; kontrol: pozsuz = sabit dünya).
+
+### 8en. Gerçek modelin dokuları telefon belleğini tek başına doldurur — "yüklendi" der, oyun çöker
+**Belirti (önlenen):** Fab "Mike" 8 doku x 4096² (RGBA + mip ≈ 450 MB GPU); masaüstünde sorunsuz, telefonda bellek yetmez. Yükleme özeti
+yalnız üçgen/eklem söylüyordu. **Düzeltme:** `.ayar` `doku_en_cok <px>` (yüklemede yarılama: sRGB doğrusal ortalama, normal yeniden
+normalleştirme) ve `doku_sikistir astc` (cihaz ASTC LDR destekliyorsa 6x6 + mip, `<model>.doku/` önbelleği; desteklemeyen masaüstünde RGBA
+ve `astc_unsupported`); bütçe satırı `doku ≈ N MB` + 128 MB üstünde UYARI; editör içe aktarma ayarlarında iki alan, Kaydet modeli yeniden
+yükler. Kapılar: `model_doku_siniri_yarilar` (188/128/218 elle hesaplı; kontrol: sınır altı dokunulmaz), `model_doku_astc_onbellekli`
+(P20 Pro: 1. yükleme kodladı, 2. önbellekten; masaüstü: RGBA + söylendi). **Kural:** "yüklendi" özeti bellek bütçesini de söylemeli.

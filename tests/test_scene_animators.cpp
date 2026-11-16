@@ -836,3 +836,23 @@ ENGINE_TEST(sahne_runtime_kok_hareketi_ve_olay) {
   dev.shutdown();
   arena().reset_to(mark);
 }
+
+// --- 12) kSceneMaxAssets 16 -> 64 (madde 3c) ---------------------------------------------------------------------------------------
+// 40 kaynaklı sahne derlenir, blob açılır, yollar korunur (eskiden 17. kaynak eklenemiyordu). KONTROL: 65. kaynak reddedilir.
+ENGINE_TEST(sahne_64_kaynak_blobdan_gecer) {
+  static SceneDesc d;
+  scene_desc_reset(d);
+  char ad[64];
+  for (uint32_t i = 0; i < 40; i++) { std::snprintf(ad, sizeof ad, "parca_%02u.glb", i); CHECK(d.add_asset(ad) == (int32_t)i); }
+  const size_t need = scene_blob_compile(d, nullptr, 0);
+  const size_t mark = arena().mark();
+  void *buf = arena().alloc(need, kSceneBlobAlign);
+  SceneBlobView v;
+  SceneError err{};
+  CHECK(buf && scene_blob_compile(d, buf, need) == need && scene_blob_open(buf, need, &v, &err));
+  CHECK(v.h && v.h->asset_count == 40 && !std::strcmp(v.asset_path(39), "parca_39.glb"));
+  for (uint32_t i = 40; i < kSceneMaxAssets; i++) { std::snprintf(ad, sizeof ad, "p%u.glb", i); CHECK(d.add_asset(ad) == (int32_t)i); }
+  CHECK(kSceneMaxAssets == 64 && d.add_asset("fazla.glb") == -1);   // KONTROL: tavan
+  std::printf("    [bilgi] kaynak tavani %u: 40 kaynakli blob acildi, 65. reddedildi\n", kSceneMaxAssets);
+  arena().reset_to(mark);
+}

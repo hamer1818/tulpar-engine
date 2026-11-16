@@ -544,6 +544,7 @@ public:
   void draw_skinned_palette(MeshHandle mesh, MaterialHandle material, const Mat4 &model, Vec3 color, uint32_t palette,
                             const Mat4 *prev_model = nullptr, float reactive = 0.0f);
   uint32_t skin_matrices_used() const { return skin_count_; }
+  const rhi::DeviceCaps &device_caps() const;   // icerik yukleyicisi: ASTC destegi vb. (madde 3c)
   // Golge gecisi: KENDI render pass'ini acar/kapatir. Ana render pass BASLAMADAN
   // once cagrilir (cizim listesi dolu olmali).
   void record_shadow(VkCommandBuffer cb);

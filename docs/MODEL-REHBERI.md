@@ -52,4 +52,4 @@ File → Import → FBX → (Mixamo ise Action Editor'da klipleri yeniden adland
 
 ## Sınırlar
 
-Sahne başına 16 model dosyası · model başına 64 klip, 128 eklem · telefonda karede toplam ≲ 50 bin iskeletli köşe (P20 Pro ölçümü).
+Sahne başına 64 model dosyası · model başına 64 klip, 128 eklem · telefonda karede toplam ≲ 50 bin iskeletli köşe (P20 Pro ölçümü).

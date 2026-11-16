@@ -655,6 +655,7 @@ struct EditorState {
     int32_t asset = -1;               // sahnede yukluyse kaynak indeksi
     content::ModelImportSettings ilk, duzen;
     char hata[160] = {0};             // okunan ayar dosyasi bozuksa
+    int32_t yeniden_yukle = -1;       // madde 3c: doku ayari kaydedildi -> ana dongu bu kaynagi yeniden yukler (doku yuklemede uygulanir)
   } model_ayar;
   RenderSettings render;    // golge/pozlama/bloom/olceklendirme (oturum ayari)
   GizmoOptions gizmos;      // isik yaricapi / golge hacmi / gunes yonu
@@ -1926,6 +1927,15 @@ void model_ayar_penceresi(EditorState &st) {
         prop_float("LOD1 mesafesi", &ma.duzen.lod1, 0.25f, 0.5f, 10000.0f, "%.1f m");
         prop_float("LOD2 mesafesi", &ma.duzen.lod2, 0.25f, 0.5f, 10000.0f, "%.1f m");
       }
+      // Madde 3c: doku boyu ve ASTC (telefon bellegi). Canli onizleme yok: dokular yuklemede islenir, Kaydet modeli yeniden yukler.
+      static const uint32_t kBoy[] = {0, 2048, 1024, 512, 256};
+      int boy = 0;
+      for (int k = 0; k < 5; k++) if (kBoy[k] == ma.duzen.doku_en_cok) boy = k;
+      prop_help("Dokular\xC4\xB1n en uzun kenar\xC4\xB1. 4096 \xE2\x86\x92 1024: 16 kat az bellek (telefonda b\xC3\xBCy\xC3\xBCk fark).");
+      if (prop_combo("Doku en \xC3\xA7ok", &boy, "dokunma\0" "2048 px\0" "1024 px\0" "512 px\0" "256 px\0").changed) ma.duzen.doku_en_cok = kBoy[boy];
+      prop_help("Telefonda dokular\xC4\xB1 ASTC olarak s\xC4\xB1k\xC4\xB1\xC5\x9Ft\xC4\xB1r\xC4\xB1r (~8 kat az bellek). \xC4\xB0lk y\xC3\xBCklemede kodlan\xC4\xB1r, "
+                "sonra <model>.doku/ \xC3\xB6nbelle\xC4\x9Finden gelir. Masa\xC3\xBCst\xC3\xBC GPU desteklemiyorsa RGBA kal\xC4\xB1r.");
+      prop_check("ASTC s\xC4\xB1k\xC4\xB1\xC5\x9Ft\xC4\xB1r (telefon)", &ma.duzen.doku_astc);
       prop_end();
     }
     if (!(ma.duzen.scale > 0.0f)) ma.duzen.scale = once.scale;
@@ -1953,6 +1963,7 @@ void model_ayar_penceresi(EditorState &st) {
     ImGui::BeginDisabled(!degisti);
     if (ImGui::Button(ICON_MD_SAVE " Kaydet")) {
       if (content::model_import_save(yol, ma.duzen)) {
+        if (ma.asset >= 0 && (ma.duzen.doku_en_cok != ma.ilk.doku_en_cok || ma.duzen.doku_astc != ma.ilk.doku_astc)) ma.yeniden_yukle = ma.asset;
         ma.ilk = ma.duzen;
         ma.hata[0] = 0;
         const bool vars = content::model_import_equal(ma.duzen, content::model_import_defaults(yol));
@@ -8604,6 +8615,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     }
     ImGui::End();
     model_ayar_penceresi(st);
+    if (st.model_ayar.yeniden_yukle >= 0) {   // madde 3c: doku ayari degisti -> kaynak yeniden yuklenir (GPU dokulari yeniden)
+      const int32_t ya = st.model_ayar.yeniden_yukle;
+      st.model_ayar.yeniden_yukle = -1;
+      if (load_asset(ya)) set_status(st, "doku ayar\xC4\xB1 uyguland\xC4\xB1: %s yeniden y\xC3\xBCklendi", st.scene.assets[ya]);
+    }
     // --- GECMIS paneli: kullanici eylemleri listesi; satira tikla = o ana don (editorun do_undo/do_redo'su) -----------------
     {
       static GecmisGorunum gecmis_gv;

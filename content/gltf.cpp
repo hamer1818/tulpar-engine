@@ -3,7 +3,10 @@
 #include "content/meshopt.hpp"
 #include "content/mesh_import.hpp"
 #include "content/model_import.hpp"
+#include "content/ktx2.hpp"
+#include "platform/fs.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -297,7 +300,83 @@ bool gltf_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim
   }
   if (!gltf_load_file(arena, path, out, lim)) return false;
   model_import_apply(*out, ayar);
+  // Madde 3c: doku ayari
+  if (ayar.doku_en_cok) {
+    uint32_t en = 0;
+    for (uint32_t i = 0; i < out->image_count; i++) en = std::max(en, std::max(out->images[i].width, out->images[i].height));
+    const uint32_t n = model_limit_textures(arena, *out, ayar.doku_en_cok);
+    if (n) {
+      const size_t nl = std::strlen(out->note);
+      std::snprintf(out->note + nl, sizeof out->note - nl, "%s%u doku k\xC3\xBC\xC3\xA7\xC3\xBCld\xC3\xBC (%u \xE2\x86\x92 en \xC3\xA7ok %u px)",
+                    nl ? " \xC2\xB7 " : "", n, en, ayar.doku_en_cok);
+    }
+  }
+  out->tex_astc = ayar.doku_astc;
+  if (ayar.doku_astc) std::snprintf(out->tex_cache_dir, sizeof out->tex_cache_dir, "%s.doku", path);
   return true;
+}
+
+namespace {
+float g_s2l[256];
+bool g_s2l_hazir = false;
+float s2l(uint8_t v) {
+  if (!g_s2l_hazir) {
+    for (int i = 0; i < 256; i++) { const float c = i / 255.0f; g_s2l[i] = c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
+    g_s2l_hazir = true;
+  }
+  return g_s2l[v];
+}
+uint8_t l2s(float l) {
+  const float c = l <= 0.0031308f ? l * 12.92f : 1.055f * std::pow(l, 1.0f / 2.4f) - 0.055f;
+  const float x = c * 255.0f + 0.5f;
+  return (uint8_t)(x < 0 ? 0 : x > 255 ? 255 : x);
+}
+// 2x2 kutu ile yari boyut (tek boyutta kenar tekrari). Normal: [-1,1]'e cozulur, ortalanir, normallestirilir.
+uint8_t *yarila(Arena &arena, const uint8_t *src, uint32_t w, uint32_t h, bool srgb, bool normal, uint32_t *ow, uint32_t *oh) {
+  const uint32_t nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+  uint8_t *dst = arena.alloc_array<uint8_t>((size_t)nw * nh * 4);
+  if (!dst) return nullptr;
+  for (uint32_t y = 0; y < nh; y++)
+    for (uint32_t x = 0; x < nw; x++) {
+      const uint32_t x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1), y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
+      const uint8_t *p[4] = {src + ((size_t)y0 * w + x0) * 4, src + ((size_t)y0 * w + x1) * 4, src + ((size_t)y1 * w + x0) * 4, src + ((size_t)y1 * w + x1) * 4};
+      uint8_t *o = dst + ((size_t)y * nw + x) * 4;
+      if (normal) {
+        float v[3] = {0, 0, 0};
+        for (int k = 0; k < 4; k++) for (int c = 0; c < 3; c++) v[c] += p[k][c] / 127.5f - 1.0f;
+        const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        for (int c = 0; c < 3; c++) { const float n = l > 1e-6f ? v[c] / l : (c == 2 ? 1.0f : 0.0f); o[c] = (uint8_t)std::lround((n * 0.5f + 0.5f) * 255.0f); }
+      } else if (srgb) {
+        for (int c = 0; c < 3; c++) o[c] = l2s((s2l(p[0][c]) + s2l(p[1][c]) + s2l(p[2][c]) + s2l(p[3][c])) * 0.25f);
+      } else {
+        for (int c = 0; c < 3; c++) o[c] = (uint8_t)((p[0][c] + p[1][c] + p[2][c] + p[3][c] + 2) / 4);
+      }
+      o[3] = (uint8_t)((p[0][3] + p[1][3] + p[2][3] + p[3][3] + 2) / 4);
+    }
+  *ow = nw;
+  *oh = nh;
+  return dst;
+}
+} // namespace
+
+uint32_t model_limit_textures(Arena &arena, Model &m, uint32_t max_px) {
+  if (!max_px) return 0;
+  uint32_t n = 0;
+  for (uint32_t i = 0; i < m.image_count; i++) {
+    ModelImage &im = m.images[i];
+    if (!im.rgba || std::max(im.width, im.height) <= max_px) continue;
+    while (std::max(im.width, im.height) > max_px) {
+      uint32_t w = 0, h = 0;
+      uint8_t *k = yarila(arena, im.rgba, im.width, im.height, im.srgb, im.normal_map, &w, &h);
+      if (!k) return n;
+      im.rgba = k;
+      im.width = w;
+      im.height = h;
+    }
+    n++;
+  }
+  m.images_downscaled += n;
+  return n;
 }
 namespace {
 bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
@@ -1128,6 +1207,57 @@ bool build_normal_mips(Arena &arena, const ModelImage &img, uint32_t levels,
   return true;
 }
 
+namespace {
+// ASTC (doku_sikistir astc, madde 3c): mip zinciri 6x6 ASTC'ye kodlanir; `<model>.doku/<i>_<ozet>.ktx2` onbellegi (ikinci yukleme kodlamaz).
+// Normal haritasi `Data` kipiyle (iki kanalli XY DEGIL: malzeme yolu RGB normal okur). Basarisizlikta gecersiz tutamac -> cagiran RGBA.
+renderer::TextureHandle astc_doku(renderer::Renderer &r, Arena &arena, const Model &m, uint32_t i, bool *onbellekten) {
+  *onbellekten = false;
+  const ModelImage &im = m.images[i];
+  if (!im.rgba || !m.tex_cache_dir[0]) return renderer::TextureHandle{};
+  constexpr uint32_t kB = 6, kSurum = 1;
+  uint64_t h = 1469598103934665603ull;
+  auto kat = [&](const void *p, size_t n) { const uint8_t *b = static_cast<const uint8_t *>(p); for (size_t k = 0; k < n; k++) { h ^= b[k]; h *= 1099511628211ull; } };
+  const uint32_t baslik[6] = {im.width, im.height, im.srgb ? 1u : 0u, im.normal_map ? 1u : 0u, kB, kSurum};
+  kat(baslik, sizeof baslik);
+  kat(im.rgba, (size_t)im.width * im.height * 4);
+  char yol[420];
+  std::snprintf(yol, sizeof yol, "%s/%u_%016llx.ktx2", m.tex_cache_dir, i, (unsigned long long)h);
+  const size_t mark = arena.mark();
+  Ktx2Image img;
+  if (ktx2_load(arena, yol, &img) && img.astc) {
+    *onbellekten = true;
+  } else {
+    arena.reset_to(mark);
+    const bool renk = im.srgb && !im.normal_map;
+    const AstcMap harita = renk ? AstcMap::Color : AstcMap::Data;
+    uint8_t *seviye_veri[Ktx2Image::kMaxLevels] = {};
+    uint32_t seviye_boy[Ktx2Image::kMaxLevels] = {};
+    uint32_t n = 0, w = im.width, hh = im.height;
+    const uint8_t *px = im.rgba;
+    while (n < Ktx2Image::kMaxLevels) {
+      if (!astc_encode_rgba(arena, px, w, hh, kB, kB, renk, 60.0f, &seviye_veri[n], &seviye_boy[n], harita)) { arena.reset_to(mark); return renderer::TextureHandle{}; }
+      n++;
+      if (w == 1 && hh == 1) break;
+      uint32_t nw = 0, nh = 0;
+      px = yarila(arena, px, w, hh, im.srgb, im.normal_map, &nw, &nh);
+      if (!px) { arena.reset_to(mark); return renderer::TextureHandle{}; }
+      w = nw;
+      hh = nh;
+    }
+    platform::fs_mkdir_one(m.tex_cache_dir);
+    const VkFormat fmt = renk ? VK_FORMAT_ASTC_6x6_SRGB_BLOCK : VK_FORMAT_ASTC_6x6_UNORM_BLOCK;
+    if (!ktx2_write(yol, fmt, im.width, im.height, n, seviye_veri, seviye_boy, kB, kB) || !ktx2_load(arena, yol, &img)) {
+      arena.reset_to(mark);
+      return renderer::TextureHandle{};
+    }
+  }
+  Ktx2UploadInfo info;
+  const renderer::TextureHandle t = ktx2_upload(r, r.device_caps(), arena, img, &info);
+  arena.reset_to(mark);   // bloklar GPU'ya kopyalandi
+  return info.hardware ? t : renderer::TextureHandle{};
+}
+} // namespace
+
 bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedModel *out) {
   *out = UploadedModel{};
   out->textures = arena.alloc_array_zeroed<renderer::TextureHandle>(m.image_count ? m.image_count : 1);
@@ -1143,7 +1273,14 @@ bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedM
   // ekran kenarinda koca kup, lazer duvar, kalkan kup, renk/golge farkli.
   for (uint32_t i = 0; i < (m.mesh_count ? m.mesh_count : 1); i++) out->meshes[i] = renderer::MeshHandle{};
   for (uint32_t i = 0; i < (m.mesh_count ? m.mesh_count : 1) * kModelMaxLods; i++) out->lod_meshes[i] = renderer::MeshHandle{};
+  const bool astc = m.tex_astc && r.device_caps().texture_compression_astc_ldr;
+  out->astc_unsupported = m.tex_astc && !astc;   // masaustu NVIDIA: CPU cozumu bellek kazandirmaz, RGBA kalir (cagiran soyler)
   for (uint32_t i = 0; i < m.image_count; i++) {
+    if (astc) {
+      bool onb = false;
+      out->textures[i] = astc_doku(r, arena, m, i, &onb);
+      if (out->textures[i].valid()) { out->astc_textures++; out->astc_cached += onb ? 1u : 0u; continue; }
+    }
     // RENK UZAYI: sRGB doku donanimda dogrusala cozer; ORM/normal UNORM kalir
     // ve texel oldugu gibi gelir. Bu, "goruntu biraz yanlis ama hicbir sey
     // kizarmaz" sinifinin ta kendisidir — bu yuzden kapiyla olculuyor
@@ -1365,6 +1502,7 @@ ModelBudget model_budget(const Model &m) {
   }
   for (uint32_t i = 0; i < m.skin_count; i++)
     if (m.skins[i].joint_count > b.joints) b.joints = m.skins[i].joint_count;
+  for (uint32_t i = 0; i < m.image_count; i++) b.texture_bytes += (uint64_t)m.images[i].width * m.images[i].height * 4u * 4u / 3u;
   return b;
 }
 
@@ -1399,6 +1537,11 @@ uint32_t model_budget_text(const Model &m, char *out, uint32_t cap) {
   if (m.morph_tracks_dropped) { ekle("UYARI: %u morph animasyon izi yüklenmedi (klip başına en çok %u)", m.morph_tracks_dropped, kModelMaxMorphTracks); warn = 1; }
   if (m.morph_skipped) { ekle("UYARI: %u iskeletli mesh'in morph'u atlandı (iskelet + morph bu sürümde yok)", m.morph_skipped); warn = 1; }
   if (b.clips_dropped) { ekle("UYARI: %u klip yüklenmedi (model başına en çok %u)", b.clips_dropped, GltfLimits{}.max_clips); warn = 1; }
+  if (b.texture_bytes) ekle("doku ≈ %u MB", (uint32_t)((b.texture_bytes + (1u << 19)) >> 20));
+  if (b.texture_bytes > kMobileTextureBudget && !m.tex_astc && !m.images_downscaled) {
+    ekle("UYARI: dokular telefon için ağır (≲ %u MB önerilir) — içe aktarma ayarlarında Doku en çok / ASTC", (uint32_t)(kMobileTextureBudget >> 20));
+    warn = 1;
+  }
   if (b.skinned_vertices > kMobileSkinnedVertexBudget / 4) {
     ekle("UYARI: ağır iskeletli model, mobilde kare başına ≲ %uK köşe önerilir", kMobileSkinnedVertexBudget / 1000);
     ekle("≈ %u kopya", b.skinned_vertices ? kMobileSkinnedVertexBudget / b.skinned_vertices : 0);

@@ -651,10 +651,12 @@ ENGINE_TEST(editor_kaynak_eklenemedi_nedenini_soyler) {
   char ad[32], neden[300];
   for (uint32_t i = 0; i < content::kSceneMaxAssets; i++) { std::snprintf(ad, sizeof ad, "m%u.gltf", i); CHECK(d.add_asset(ad) == (int32_t)i); }
   CHECK(d.add_asset("fazla.gltf") == -1);                                  // tablo gerçekten dolu
+  char sayi[32];
+  std::snprintf(sayi, sizeof sayi, "%u model", content::kSceneMaxAssets);
   app::editor_add_asset_neden(d, "fazla.gltf", neden, sizeof neden);
-  CHECK(std::strstr(neden, "16 model") != nullptr);                          // nedeni sayıyla söyler
+  CHECK(std::strstr(neden, sayi) != nullptr);                                // nedeni sayıyla söyler
   app::editor_add_asset_neden(d, "m3.gltf", neden, sizeof neden);
-  CHECK(std::strstr(neden, "16 model") == nullptr);                          // var olan kaynak "dolu" değil (kontrol)
+  CHECK(std::strstr(neden, sayi) == nullptr);                                // var olan kaynak "dolu" değil (kontrol)
   content::scene_desc_reset(d);
   app::editor_add_asset_neden(d, "x.gltf", neden, sizeof neden);
   CHECK(std::strstr(neden, "bilinmiyor") != nullptr);

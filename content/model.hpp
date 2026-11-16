@@ -186,6 +186,10 @@ struct Model {
   // kac yeni ORM goruntusu uretildi / kac malzemede yapilamadi.
   uint32_t occlusion_merged = 0, occlusion_unmerged = 0;
   char error[160] = {0};
+  // DOKU AYARI (madde 3c; .ayar doku_en_cok / doku_sikistir): yuklemede kucultulen goruntu sayisi ve ASTC istegi + onbellek dizini.
+  uint32_t images_downscaled = 0;
+  bool tex_astc = false;
+  char tex_cache_dir[300] = {0};
   int32_t bounds_clip = -1;   // sinirlar hangi klibin ilk karesinden (bekleme klibi); -1 = bag pozu / iskeletsiz
   char note[160] = {0};   // BAŞARILI içe aktarmada bilgi notu (örn. OBJ: doku haritası desteklenmedi); konsol özeti yazar
 };
@@ -202,7 +206,13 @@ struct UploadedModel {
   // onu hic CAGIRMAZSA goruntu eski davranista kalirdi ve dogrudan
   // fonksiyonu olcen bir test bunu goremezdi.
   uint32_t normal_mip_textures = 0;
+  // doku_sikistir astc: ASTC olarak yuklenen doku sayisi, onbellekten gelen, cihaz desteklemedigi icin RGBA kalan (Model::tex_astc ise).
+  uint32_t astc_textures = 0, astc_cached = 0;
+  bool astc_unsupported = false;
 };
+// Doku siniri (doku_en_cok): en uzun kenari max_px'ten buyuk goruntu 2x2 kutuyla YARILANIR (sRGB dogrusal uzayda ortalanir; normal
+// haritasi yeniden normallestirilir). Donus: kucultulen goruntu sayisi (Model::images_downscaled'a da eklenir).
+uint32_t model_limit_textures(Arena &arena, Model &m, uint32_t max_px);
 
 // Modeli renderer'a yukler (dokular + malzemeler + mesh'ler). Yukleme aninda.
 bool upload_model(renderer::Renderer &r, Arena &arena, const Model &m, UploadedModel *out);
@@ -239,7 +249,9 @@ struct ModelPose {
 // iskeletli köşe bütçesinin birimi: P20 Pro ölçümü, ≲ 50K köşe/kare önerilir).
 struct ModelBudget {
   uint32_t meshes = 0, instances = 0, triangles = 0, skinned_vertices = 0, joints = 0, clips = 0, clips_dropped = 0, images = 0;
+  uint64_t texture_bytes = 0;   // RGBA8 + mip (x 4/3) GPU tahmini (ASTC oncesi); madde 3c bütçe uyarısı
 };
+constexpr uint64_t kMobileTextureBudget = 128ull << 20;   // model başına doku belleği önerisi (P20 Pro'da 6 GB RAM'in ~%2'si; kaba sınır)
 ModelBudget model_budget(const Model &m);
 constexpr uint32_t kMobileSkinnedVertexBudget = 50000;   // kare başına (P20 Pro / Mali-G72 ölçümü, 2026-11-13)
 // Tek satır özet + uyarı: out'a yazar; dönüş: uyarı var mı (0/1). Sayılar ve cihaz notu Türkçe.

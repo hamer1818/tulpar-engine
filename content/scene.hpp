@@ -33,7 +33,10 @@ inline float scene_anim_time(uint32_t mode, float raw, float dur) {
   return t > dur ? 2.0f * dur - t : t;
 }
 constexpr uint32_t kSceneMaxEntities = 256;
-constexpr uint32_t kSceneMaxAssets = 16;
+// 16 -> 64 (madde 3c, 2026-11-16): modüler varlık paketleri (duvar/kapı/kaya parçaları) 16'yı kolayca aşar. Ölçüldü: yuva başına
+// Model 904 B + UploadedModel 64 B + yol 128 B ~ 1,1 KB -> 64 yuva kopya başına +53 KB (SceneDesc zaten ~470 KB). Blob'da kaynak
+// indeksleri 32 bit: biçim DEĞİŞMEZ (eski blob'lar okunur; 16'dan fazla kaynaklı yeni blob'u eski motor "kapasite asimi" ile reddeder).
+constexpr uint32_t kSceneMaxAssets = 64;
 constexpr uint32_t kSceneNameLen = 32;   // NUL dahil
 constexpr uint32_t kScenePathLen = 128;  // NUL dahil
 // Betik alani bir AD degil YOLDUR: editor tarayicisi IKI kokten toplar (sahne

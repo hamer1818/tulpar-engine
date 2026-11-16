@@ -2636,6 +2636,8 @@ void Renderer::draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4
   stats_.skin_verts += meshes_[mesh.id].vert_count;
 }
 
+const rhi::DeviceCaps &Renderer::device_caps() const { return dev_->caps(); }
+
 uint32_t Renderer::skin_palette(const Mat4 *joints, uint32_t n) {
   if (!joints || n == 0) return kNoPalette;
   if (skin_count_ + n > cfg_.max_skin_matrices) { stats_.skin_dropped++; return kNoPalette; }
