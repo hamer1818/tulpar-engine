@@ -1939,11 +1939,15 @@ void model_ayar_penceresi(EditorState &st) {
       prop_end();
     }
     {   // A6: animasyon kaynaklari (yeniden hedefleme). Mixamo gibi ayri dosyalardaki animasyonlar bu karaktere uygulanir.
-      ImGui::SeparatorText("Animasyon kaynaklar\xC4\xB1");
-      ImGui::PushTextWrapPos(0.0f);
-      ImGui::TextDisabled("Ba\xC5\x9Fka bir modelin (\xC3\xB6r. Mixamo'dan indirilen Walking.glb) animasyonlar\xC4\xB1 bu karaktere uygulan\xC4\xB1r; "
+      // Kapali baslik (bosken): pencere AlwaysAutoResize, 720 px ekranda Kaydet/durum satiri disari tasmasin (arayuz kapisi model_ayar).
+      char bas[96];
+      std::snprintf(bas, sizeof bas, "Animasyon kaynaklar\xC4\xB1 (%u)###anim_kaynaklar", ma.duzen.anim_kaynak_n);
+      ImGui::SetNextItemOpen(ma.duzen.anim_kaynak_n > 0, ImGuiCond_Appearing);
+      const bool ac = ImGui::CollapsingHeader(bas);
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Ba\xC5\x9Fka bir modelin (\xC3\xB6r. Mixamo'dan indirilen Walking.fbx) animasyonlar\xC4\xB1 bu karaktere uygulan\xC4\xB1r;\n"
                           "tek klipli dosyada klip dosyan\xC4\xB1n ad\xC4\xB1n\xC4\xB1 al\xC4\xB1r. \xC4\xB0ki modelin dinlenme pozu benzer olmal\xC4\xB1 (ikisi de T ya da A).");
-      ImGui::PopTextWrapPos();
+      if (ac) {
       int sil = -1;
       for (uint32_t k = 0; k < ma.duzen.anim_kaynak_n; k++) {
         ImGui::PushID((int)k);
@@ -1976,6 +1980,7 @@ void model_ayar_penceresi(EditorState &st) {
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(tone(Tone::Warn), ICON_MD_WARNING " %s", m->note);
         ImGui::PopTextWrapPos();
+      }
       }
     }
     if (!(ma.duzen.scale > 0.0f)) ma.duzen.scale = once.scale;
@@ -5077,7 +5082,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           return true;
         };
         char hedef[1100], err[300] = {0};
-        if (uzanti(".glb") || uzanti(".gltf") || uzanti(".stl") || uzanti(".obj")) {
+        if (uzanti(".glb") || uzanti(".gltf") || uzanti(".stl") || uzanti(".obj") || uzanti(".fbx")) {
           if (!st.scene_dir[0]) { atlanan++; std::snprintf(son_hata, sizeof son_hata, "model i\xC3\xA7" "e aktarmak i\xC3\xA7in \xC3\xB6nce bir sahne a\xC3\xA7"); }
           else if (editor_model_ice_aktar(yol, st.scene_dir, hedef, sizeof hedef, err, sizeof err)) { rescan_browse(st); do_add_asset(editor_basename(hedef)); modeller++; }
           else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }
@@ -5088,7 +5093,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }
         } else {
           atlanan++;
-          std::snprintf(son_hata, sizeof son_hata, "%s: desteklenmeyen t\xC3\xBCr (.glb, .gltf, .stl, .obj, .tpr b\xC4\xB1rak\xC4\xB1labilir)", editor_basename(yol));
+          std::snprintf(son_hata, sizeof son_hata, "%s: desteklenmeyen t\xC3\xBCr (.glb, .gltf, .fbx, .stl, .obj, .tpr b\xC4\xB1rak\xC4\xB1labilir)", editor_basename(yol));
         }
       }
       if (modeller || betikler) set_status(st, "b\xC4\xB1rak\xC4\xB1ld\xC4\xB1: %u model, %u bet\xC4\xB1k%s", modeller, betikler, atlanan ? " (bir k\xC4\xB1sm\xC4\xB1 al\xC4\xB1nmad\xC4\xB1: Konsol)" : "");
@@ -8620,7 +8625,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       if (act.ice_aktar) {
         platform::SeciciIstek r;
         r.kip = platform::SeciciKip::DosyaAc;
-        r.baslik = "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .stl / .obj)";
+        r.baslik = "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .fbx / .stl / .obj)";
         char sec[1024], err[400], hedef[1100];
         const platform::SeciciSonuc s = platform::dosya_secici(r, sec, sizeof sec, err, sizeof err);
         if (s == platform::SeciciSonuc::Secildi) {

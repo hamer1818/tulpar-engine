@@ -13,7 +13,9 @@
 #include <cstring>
 
 #include "content/gltf.hpp"
+#include "content/retarget.hpp"
 #include "content/scene_animators.hpp"
+#include "sim/animation.hpp"
 #include "core/memory/arena.hpp"
 #include "sim/animator.hpp"
 
@@ -166,5 +168,110 @@ ENGINE_TEST(khronos_kesik_ve_bozuk_dosya_reddedilir) {
   m = Model{};
   CHECK(!gltf_load(arena(), bozuk, &m) && m.error[0]);
   std::printf("    [bilgi] bozuk json: %s\n", m.error);
+  arena().reset_to(mark);
+}
+// --- FBX (madde 4, 2026-11-16; ufbx) ---------------------------------------------------------------------------------------------
+// Test FBX'leri Blender 5.3 ile ÜRETİLDİ (gerçek dışa aktarıcı): insansi_mixamo.gltf -> .fbx (iskelet + "Selam"), khronos_Fox.glb ->
+// .fbx (gömülü doku + 3 eylem). Kapı (1): aynı karakterin FBX ve glTF hâli, aynı klibin 3 anında 6 kanonik kemiğin dünya konumu ve
+// CPU'da derilenmiş köşelerin sınırı 1 mm içinde EŞİT — eksen/birim dönüşümü, ters bağ ve örnekleme birlikte sınanır.
+// (2) Fox: 3 klip kısa adlarla, doku gömülüden, otomatik animatör Walk/Run. (3) FBX kaynaktan glTF hedefe yeniden hedefleme.
+// KONTROL: kesik FBX reddedilir (hata metni dolu).
+namespace {
+void kemik_dunya(const ModelSkin &sk, const ModelClip &c, float t, Vec3 *out) {
+  static PoseScratch sc;
+  sim::LocalPose lp{sc.t, sc.r, sc.s, sk.joint_count};
+  sim::ClipSampler::sample(c.clip, t, lp);
+  sim::ClipSampler::to_model(sim::Skeleton{sk.joints, sk.joint_count}, lp, sc.model);
+  for (uint32_t j = 0; j < sk.joint_count; j++) {
+    const Mat4 w = sk.pre_birim ? sc.model[j] : sk.pre * sc.model[j];
+    out[j] = Vec3{w.m[3][0], w.m[3][1], w.m[3][2]};
+  }
+}
+void derili_sinir(const Model &m, uint32_t clip, float t, Vec3 *lo, Vec3 *hi) {
+  static PoseScratch sc;
+  ModelPose p;
+  model_pose_evaluate(m, clip, t, sc, &p);
+  *lo = Vec3{1e30f, 1e30f, 1e30f};
+  *hi = Vec3{-1e30f, -1e30f, -1e30f};
+  for (uint32_t i = 0; i < m.instance_count; i++) {
+    const ModelMesh &mm = m.meshes[m.instances[i].mesh];
+    if (mm.skin < 0 || !mm.skin_verts || !p.skin_mats[mm.skin]) continue;
+    for (uint32_t v = 0; v < mm.vertex_count; v++) {
+      Vec3 q{0, 0, 0};
+      for (int k = 0; k < 4; k++) { const float w = mm.skin_verts[v].weights[k] / 65535.0f; if (w > 0) q = q + transform_point(p.skin_mats[mm.skin][mm.skin_verts[v].joints[k]], mm.skin_verts[v].pos) * w; }
+      *lo = Vec3{std::fmin(lo->x, q.x), std::fmin(lo->y, q.y), std::fmin(lo->z, q.z)};
+      *hi = Vec3{std::fmax(hi->x, q.x), std::fmax(hi->y, q.y), std::fmax(hi->z, q.z)};
+    }
+  }
+}
+} // namespace
+
+ENGINE_TEST(fbx_gltf_ile_ayni_karakter) {
+  char fy[1024], gy[1024];
+  if (!yol_bul(fy, sizeof fy, "insansi_mixamo.fbx") || !yol_bul(gy, sizeof gy, "insansi_mixamo.gltf")) { skip("tests/assets/insansi_mixamo.{fbx,gltf} yok"); return; }
+  const size_t mark = arena().mark();
+  static Model f, g;
+  f = Model{}; g = Model{};
+  CHECK(gltf_load(arena(), fy, &f) && gltf_load(arena(), gy, &g));
+  CHECK(f.skin_count == 1 && f.clip_count == 1 && !std::strcmp(f.clips[0].name, "Selam") && f.mesh_count == 1);
+  if (f.clip_count != 1 || g.clip_count != 1) { arena().reset_to(mark); return; }
+  int16_t mf[kHumanoidBones], mg[kHumanoidBones];
+  CHECK(humanoid_map(f.skins[0], mf) == kHumanoidBones && humanoid_map(g.skins[0], mg) == kHumanoidBones);
+  static Vec3 wf[128], wg[128];
+  const uint32_t bak[] = {0, 4, 8, 16, 11, 19};
+  float en = 0, sinir_en = 0;
+  static const float anlar[] = {0.0f, 0.5f, 1.0f};
+  for (float t : anlar) {
+    kemik_dunya(f.skins[0], f.clips[0], t, wf);
+    kemik_dunya(g.skins[0], g.clips[0], t, wg);
+    for (uint32_t b : bak) { const Vec3 d = wf[mf[b]] - wg[mg[b]]; en = std::fmax(en, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z)); }
+    Vec3 fl, fh, gl, gh;
+    derili_sinir(f, 0, t, &fl, &fh);
+    derili_sinir(g, 0, t, &gl, &gh);
+    sinir_en = std::fmax(sinir_en, std::fmax(std::fabs(fl.x - gl.x) + std::fabs(fl.y - gl.y) + std::fabs(fl.z - gl.z), std::fabs(fh.x - gh.x) + std::fabs(fh.y - gh.y) + std::fabs(fh.z - gh.z)));
+  }
+  std::printf("    [bilgi] FBX ~ glTF: kemik konum farki en cok %.5f m, derili kose siniri farki %.5f m (eklem fbx %u / gltf %u)\n", (double)en, (double)sinir_en,
+              f.skins[0].joint_count, g.skins[0].joint_count);
+  CHECK(en < 1e-3f && sinir_en < 1e-3f);
+  arena().reset_to(mark);
+}
+
+ENGINE_TEST(fbx_fox_doku_klip_animator) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "khronos_Fox.fbx")) { skip("tests/assets/khronos_Fox.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.clip_count == 3 && m.image_count == 1 && m.skin_count == 1 && m.mesh_count == 1);
+  std::printf("    [bilgi] Fox.fbx: klipler %s/%s/%s, doku %ux%u, eklem %u\n", m.clip_count > 0 ? m.clips[0].name : "-", m.clip_count > 1 ? m.clips[1].name : "-",
+              m.clip_count > 2 ? m.clips[2].name : "-", m.image_count ? m.images[0].width : 0, m.image_count ? m.images[0].height : 0, m.skin_count ? m.skins[0].joint_count : 0);
+  static char metin[4096];
+  sim::AnimAutoReport r;
+  CHECK(animator_auto_text_model(m, metin, sizeof metin, &r) > 0 && r.walk >= 0 && r.run >= 0 && !std::strcmp(m.clips[r.walk].name, "Walk") && !std::strcmp(m.clips[r.run].name, "Run"));
+  arena().reset_to(mark);
+}
+
+ENGINE_TEST(fbx_kaynaktan_yeniden_hedefleme_ve_kesik_red) {
+  char fy[1024], hy[1024];
+  if (!yol_bul(fy, sizeof fy, "insansi_mixamo.fbx") || !yol_bul(hy, sizeof hy, "insansi_unreal.gltf")) { skip("tests/assets/insansi_* yok"); return; }
+  const size_t mark = arena().mark();
+  static Model k, h;
+  k = Model{}; h = Model{};
+  CHECK(gltf_load(arena(), fy, &k) && gltf_load(arena(), hy, &h));
+  RetargetReport r;
+  CHECK(model_retarget(arena(), h, k, 64, &r) && r.clips == 1 && r.mapped == kHumanoidBones);
+  // KONTROL: kesik FBX
+  static char bf[4096];
+  std::FILE *f = std::fopen(fy, "rb");
+  const size_t n = f ? std::fread(bf, 1, sizeof bf, f) : 0;
+  if (f) std::fclose(f);
+  char dir[512], kesik[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "fbx_kesik"));
+  std::snprintf(kesik, sizeof kesik, "%s/kesik.fbx", dir);
+  if (std::FILE *g = std::fopen(kesik, "wb")) { std::fwrite(bf, 1, n / 2, g); std::fclose(g); }
+  static Model b;
+  b = Model{};
+  CHECK(!gltf_load(arena(), kesik, &b) && b.error[0]);
+  std::printf("    [bilgi] FBX -> glTF hedef: %u klip (%u kemik); kesik FBX: %s\n", r.clips, r.mapped, b.error);
   arena().reset_to(mark);
 }

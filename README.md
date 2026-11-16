@@ -37,7 +37,7 @@ tools/          layer_check.py (ihlal = derleme hatası), compile_shaders.py,
                 gen_engine_bindings.py, texpack/sahnec/clodbake, android_run.sh,
                 faz8_shader_audit.py, layout_audit.py, ...
 android/host/   Kotlin Activity + JNI host (libtulparengine.so)
-third_party/    vendored: Vulkan başlıkları, Jolt, Recast, meshoptimizer, cgltf, stb,
+third_party/    vendored: Vulkan başlıkları, Jolt, Recast, meshoptimizer, cgltf, ufbx (FBX), stb,
                 miniaudio, astcenc, ImGui, Tracy, GLFW başlıkları, mbedTLS (HTTPS)
 ```
 
@@ -285,7 +285,7 @@ Sözleşmenin tamamı: [docs/KOPRU.md](docs/KOPRU.md).
 
 Motor kaynağı TulparLang projesinin lisansına tabidir. `third_party/` altındaki
 vendored kütüphaneler kendi lisanslarıyla gelir (Jolt MIT, Recast zlib, meshoptimizer MIT,
-cgltf MIT, stb public domain/MIT, miniaudio MIT/public domain, astc-encoder Apache-2.0,
+cgltf MIT, ufbx 0.23.1 MIT/Unlicense, stb public domain/MIT, miniaudio MIT/public domain, astc-encoder Apache-2.0,
 ImGui MIT, Tracy BSD-3, Vulkan başlıkları Apache-2.0, mbedTLS 3.6.2 Apache-2.0, `assets/fonts/DejaVuSans.ttf`
 Bitstream Vera). `audio/hrtf_kemar.h` (HRTF) MIT KEMAR ölçümlerinden üretilmiştir —
 Bill Gardner & Keith Martin, MIT Media Lab, 1994 (veri lisansı: kullanım serbest,

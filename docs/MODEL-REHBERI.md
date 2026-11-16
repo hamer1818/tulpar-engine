@@ -10,29 +10,30 @@ Bu sayfa oyun yapan kişi içindir: hangi dosyayı nereden bulursun, editöre na
 | **GLB / glTF** | En iyisi. İskelet, animasyon klipleri, dokular, yüz ifadeleri tek dosyada. Karakterler için bunu seç. |
 | OBJ (+ .mtl) | Hareketsiz eşya (kaya, sandık, ev). Animasyon yok. |
 | STL | Yalnız şekil (3B baskı modelleri). Renk ve animasyon yok. |
-| FBX | Doğrudan yüklenmez → Blender'da GLB'ye çevir (aşağıda). |
+| **FBX** | Doğrudan yüklenir (2026-11-16): iskelet, animasyon, dokular; Unreal/Mixamo santimetresi metreye kendiliğinden iner. Yüz ifadeleri (blend shape) yok — gerekiyorsa GLB. |
 
 ## Nereden?
 
 - **Quaternius** (quaternius.com) — CC0 (her işe serbest), düşük poligon, klipleri `Idle`, `Walk`, `Run`, `Jump` adlı: otomatik animatör
-  doğrudan tanır. Paketlerin çoğu FBX/Blend gelir → GLB'ye çevir. Hazır GLB örneği: three.js deposundaki `RobotExpressive.glb`
+  doğrudan tanır. Paketlerin çoğu FBX gelir — doğrudan kullan (Blend ise GLB/FBX'e çevir). Hazır GLB örneği: three.js deposundaki `RobotExpressive.glb`
   (Quaternius, CC0) — editörde baştan sona denendi (2026-11-16).
 - **Kenney** (kenney.nl) — CC0, eşya ve ortam.
 - **Poly Pizza** (poly.pizza) — düşük poligon, CC0 / CC-BY (CC-BY'de yazarın adını oyunda an).
 - **Sketchfab** — "Downloadable" + lisans süzgeci, "glTF" olarak indir.
-- **Mixamo** (Adobe) — ücretsiz animasyon; FBX verir ve her klibin adı `mixamo.com` olur → Blender'da klipleri `Idle` / `Walk` / `Run`
-  diye yeniden adlandır (yoksa otomatik animatör tanıyamaz; elle `#0`, `#1` sıra numarasıyla da bağlanabilir).
+- **Mixamo** (Adobe) — ücretsiz animasyon; FBX verir, her dosyada tek klip. Dosyayı `Idle.fbx` / `Walking.fbx` / `Running.fbx` diye adlandırıp
+  karakterin **Animasyon kaynakları**na ekle (aşağıda): klip dosya adını alır, otomatik animatör tanır.
 - **Fab** (Epic) — ürün sayfasında **Formats**'a bak:
   - glTF / FBX / OBJ seçeneği varsa indir, kullan.
   - Yalnız **Unreal Engine** biçimi varsa (indirince "Unreal projesi oluştur" der): Unreal'ı kur, boş projeye ekle, modele sağ tık →
-    **Asset Actions → Export** → glTF (ya da FBX → Blender → GLB). Haritalar (seviyeler) taşınmaz: içindeki modelleri tek tek dışa aktar,
+    **Asset Actions → Export** → FBX ya da glTF. Haritalar (seviyeler) taşınmaz: içindeki modelleri tek tek dışa aktar,
     sahneyi editörde kur.
   - Lisans: ürün **"UE-Only"** / "yalnız Unreal Engine projelerinde" diyorsa başka motorda KULLANILAMAZ (dışa aktarmak teknik olarak
     mümkün olsa bile). Oyun satılacaksa her ürünün lisansını sayfasında oku.
 
-## FBX → GLB (Blender, ücretsiz)
+## FBX ne zaman GLB'ye çevrilmeli? (Blender, ücretsiz)
 
-File → Import → FBX → (Mixamo ise Action Editor'da klipleri yeniden adlandır) → File → Export → **glTF 2.0** → Format: **glTF Binary (.glb)**.
+FBX doğrudan yüklenir. Yalnız yüz ifadesi (blend shape) gerekiyorsa ya da dokular bulunamıyorsa (FBX dokuyu dışarıdan gösteriyorsa
+yanındaki dosyaları da kopyala; konsol "N doku bulunamadı" der): File → Import → FBX → File → Export → **glTF 2.0** → **glTF Binary (.glb)**.
 
 ## Editörde
 
@@ -52,8 +53,8 @@ File → Import → FBX → (Mixamo ise Action Editor'da klipleri yeniden adland
 
 ## Mixamo animasyonunu kendi karakterine uygulamak (A6)
 
-1. Mixamo'dan animasyonu indir (FBX ise Blender'da aç → **glTF Binary (.glb)** olarak dışa aktar), dosyaya anlamlı ad ver:
-   `Walking.glb`, `Running.glb`, `Idle.glb` — tek klipli dosyada aktarılan klip DOSYA adını alır.
+1. Mixamo'dan animasyonu indir (**FBX doğrudan olur**; glb de), dosyaya anlamlı ad ver:
+   `Walking.fbx`, `Running.fbx`, `Idle.fbx` — tek klipli dosyada aktarılan klip DOSYA adını alır.
 2. Dosyaları proje klasörüne koy. Karakterinin Kaynaklar karosuna **sağ tık → İçe aktarma ayarları → Animasyon kaynakları →
    Animasyon kaynağı ekle…** (en çok 8), **Kaydet**: model yeniden yüklenir, "N klip aktarıldı" yazar.
 3. Animasyon kartında **Animatör oluştur (otomatik)**: Idle / Walking / Running adlarından bekle / yürü / koş kendiliğinden kurulur.

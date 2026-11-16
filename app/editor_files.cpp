@@ -943,7 +943,8 @@ bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *h
   const bool gltf = nk && (!std::strcmp(nk, ".gltf") || !std::strcmp(nk, ".GLTF"));
   const bool stl = nk && (!std::strcmp(nk, ".stl") || !std::strcmp(nk, ".STL"));
   const bool obj = nk && (!std::strcmp(nk, ".obj") || !std::strcmp(nk, ".OBJ"));
-  if (!glb && !gltf && !stl && !obj) return hata("yaln\xC4\xB1z .glb, .gltf, .stl ve .obj modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
+  const bool fbx = nk && (!std::strcmp(nk, ".fbx") || !std::strcmp(nk, ".FBX"));   // madde 4: ufbx
+  if (!glb && !gltf && !stl && !obj && !fbx) return hata("yaln\xC4\xB1z .glb, .gltf, .fbx, .stl ve .obj modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
   if (!var_mi(kaynak)) return hata("dosya bulunamad\xC4\xB1: %s", kaynak);
   char hedef[2048];
   std::snprintf(hedef, sizeof hedef, "%s/%s", hedef_dizin, ad);

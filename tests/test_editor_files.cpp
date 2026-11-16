@@ -639,6 +639,10 @@ ENGINE_TEST(editor_model_ice_aktar_with_control) {
   std::snprintf(y, sizeof y, "%s/buyuk.gltf", kay);
   CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
   std::snprintf(p, sizeof p, "%s/buyuk.bin", hed); CHECK(var(p));
+  // Madde 4: .fbx de ice aktarilir (dogrudan yuklenir; KONTROL yukarida: .bin gibi model olmayan uzanti reddediliyor)
+  std::snprintf(y, sizeof y, "%s/Walking.FBX", kay); yaz(y, "FBX");
+  CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
+  std::snprintf(p, sizeof p, "%s/Walking.FBX", hed); CHECK(var(p));
   std::snprintf(p, sizeof p, "%s/doku/buyuk.png", hed); CHECK(var(p));
 }
 

@@ -3,6 +3,7 @@
 #include "content/meshopt.hpp"
 #include "content/mesh_import.hpp"
 #include "content/model_import.hpp"
+#include "content/fbx.hpp"
 #include "content/ktx2.hpp"
 #include "content/retarget.hpp"
 #include "platform/fs.hpp"
@@ -421,6 +422,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     ham.z_up = false; ham.fit_size = 0.0f; ham.scale = 1.0f; ham.ground_pivot = false;
     if (bit(".stl")) return stl_load(arena, path, out, lim, &ham);
     if (bit(".obj")) return obj_load(arena, path, out, lim, &ham);
+    if (bit(".fbx")) return fbx_load(arena, path, out, lim);   // madde 4: ufbx (eksen/birim donusumu dahil)
   }
   *out = Model{};
   cgltf_options opt{};

@@ -2562,7 +2562,8 @@ ENGINE_TEST(bridge_android_asset_filter_keeps_every_decodable_audio_format) {
   const char *istenen[] = {"assets/sesler/muzik_savas.mp3", "a/b.flac", "ses_ok.wav", "MUZIK.MP3", "x.Flac",
                            "savas.sahneb", "savas.sahne", "modeller/kup.gltf", "fonts/DejaVuSans.ttf", "ikon.png",
                            // 2026-11-16: animator / STL / OBJ / MTL / ice aktarma ayari (A3/A8, M1, M2) — eksiktiler
-                           "karakter.animator", "modeller/kale.stl", "kaya.OBJ", "kaya.mtl", "karakter.glb.ayar"};
+                           "karakter.animator", "modeller/kale.stl", "kaya.OBJ", "kaya.mtl", "karakter.glb.ayar",
+                           "Walking.fbx", "karakter.FBX"};   // madde 4: FBX
   const char *istenmeyen[] = {"OKUBENI", "kayit.tmp", "oyun.tpr", "x.mp", "mp3", "", "a.mp3.bak"};
   int ok = 0, red = 0;
   for (const char *n : istenen) { const bool w = android_asset_wanted(n); CHECK(w); ok += w ? 1 : 0; }

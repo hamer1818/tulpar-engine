@@ -708,7 +708,7 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
     const char *nm = de->d_name;
     if (nm[0] == '.') continue; // gizli + . / ..
     const bool anim = ends_with_ci(nm, ".animator");
-    if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj")) continue;   // M2: STL/OBJ; A3: .animator
+    if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj") && !ends_with_ci(nm, ".fbx")) continue;   // M2: STL/OBJ; A3: .animator; madde 4: FBX
     if (std::strlen(nm) >= content::kScenePathLen) continue;
     if (n >= cap) break;
     AssetFile f;
