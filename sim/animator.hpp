@@ -118,6 +118,9 @@ void animator_trigger(const AnimatorDef &d, AnimatorRt *rt, int32_t param);     
 void animator_update(const AnimatorDef &d, AnimatorRt *rt, float dt, const float *durations, uint32_t clip_count);
 // Mevcut karışım listesi (ağırlıklar toplamı 1): geçişte smoothstep ağırlıklı iki durum, karışım durumunda iki komşu nokta.
 void animator_pose(const AnimatorDef &d, const AnimatorRt &rt, const float *durations, uint32_t clip_count, AnimatorPose *out);
+// A8c: durumu DOĞRUDAN başlatır (geçiş koşulu aranmaz; editörde ▶ önizleme). fade > 0: önceki durumdan yumuşak geçiş.
+// Geçersiz durum: hiçbir şey yapmaz. Sonraki adımlarda geçişler yine kendi koşullarıyla işler ("bitince" vb.).
+void animator_goto(const AnimatorDef &d, AnimatorRt *rt, int32_t state, float fade);
 // A4: kuyruktaki en eski olayın TANIM indeksi (def.events[i].name), kuyruk boşsa -1. Çağrı olayı kuyruktan çıkarır (çarpışma kuyruğu kalıbı: callback yok).
 int32_t animator_event_pop(AnimatorRt *rt);
 

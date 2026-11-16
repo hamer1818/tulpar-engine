@@ -16,10 +16,13 @@ bekle 5
 dogrula_metin "karakter_kup.animator oluştu: bekle=bekle, yürü=yuru, koş=kos"
 dogrula_metin "hareket (başlangıç)"
 metin_yok "0: bekle"
+# A8c: kart Hareketler kadar uzadi — en alta kaydir (yerlesim belirlenimli olsun; sabit koordinat buna gore)
+kaydir 1420 700 -30
+bekle 3
 ekran animator_kart
 tikla "Önizle"
 bekle 3
-cift_tikla 1494 778
+cift_tikla 1494 607
 bekle 2
 tus ctrl+a
 yaz "3"

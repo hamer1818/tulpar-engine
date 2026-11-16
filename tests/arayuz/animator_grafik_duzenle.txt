@@ -11,6 +11,9 @@ kaydir 1420 700 -30
 bekle 3
 tikla "Animatör oluştur (otomatik)"
 bekle 5
+# A8c: kart Hareketler kadar uzadi — Duzenle gorunur alana gelsin
+kaydir 1420 700 -30
+bekle 3
 tikla "Düzenle"
 bekle_oge "Dış editörde aç"
 bekle 5
@@ -68,7 +71,7 @@ bekle 4
 dogrula_metin "2 durum · 2 geçiş · 2 parametre"
 dogrula_metin "bitince · 0.2 s"
 ekran grafik_bitince
-tikla "Geri al"
+tikla "Geri al##anim_arac"
 bekle 4
 dogrula_metin "2 durum · 1 geçiş · 2 parametre"
 metin_yok "bitince · 0.2 s"

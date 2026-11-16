@@ -2,6 +2,7 @@
 // KONTROL: geçersiz istek (olmayan durum, bozuk ad, döngüde 'bitince', bozuk girdi) metni BAYT BAYT değiştirmez. Yorumlar korunur.
 #include "tests/test.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -151,4 +152,84 @@ ENGINE_TEST(editor_animator_metin_sil_ve_baslangic) {
   CHECK(ilk && tanim(&d) && d.state_count == 1);
   // Son durum silinemez (en az bir durum gerekir): metin değişmez.
   CHECK(!anim_metin_durum_sil(g_m, sizeof g_m, "bekle", g_err, sizeof g_err) && std::strstr(g_err, "en az bir durum") && tanim(&d));
+}
+
+// --- A8c: kart/grafikten tek tık düzenleme -----------------------------------------------------------------------------------------
+// Nokta: klip ve eşik ayrı ayrı yazılır, satırın kalanı (hiz) korunur. KONTROL: eşik sırası bozulursa (3 > 2. noktanın eşiği değil)
+// metin BAYT BAYT aynı kalır.
+ENGINE_TEST(editor_animator_metin_karisim_noktasi) {
+  yukle("tulpar-animator 1\nparam hiz sayi 0\ndurum hareket karisim hiz\n  nokta 0 bekle\n  nokta 1.5 yuru hiz 1.2\n  nokta 4.5 kos\nson\nbaslangic hareket\n");
+  CHECK(anim_metin_nokta(g_m, sizeof g_m, "hareket", 1, "#7", NAN, g_err, sizeof g_err));
+  CHECK(std::strstr(g_m, "  nokta 1.5 #7 hiz 1.2\n") != nullptr);
+  CHECK(anim_metin_nokta(g_m, sizeof g_m, "hareket", 2, nullptr, 6.0f, g_err, sizeof g_err));
+  CHECK(std::strstr(g_m, "  nokta 6 kos\n") != nullptr);
+  static char once[sizeof g_m];
+  std::memcpy(once, g_m, sizeof g_m);
+  CHECK(!anim_metin_nokta(g_m, sizeof g_m, "hareket", 1, nullptr, 9.0f, g_err, sizeof g_err));   // 9 > 6: sira bozulur
+  CHECK(std::memcmp(once, g_m, sizeof g_m) == 0 && g_err[0]);
+  CHECK(!anim_metin_nokta(g_m, sizeof g_m, "yok", 0, "x", NAN, g_err, sizeof g_err) && std::memcmp(once, g_m, sizeof g_m) == 0);
+  CHECK(!anim_metin_nokta(g_m, sizeof g_m, "hareket", 5, "x", NAN, g_err, sizeof g_err) && std::memcmp(once, g_m, sizeof g_m) == 0);
+}
+
+// Ekstra hareket: durum (tek) + tetik + herhangi->hareket tetikli giriş + bitince başlangıca dönüş, tek çağrıda; sonuç ayrıştırılır.
+// KONTROL: aynı ad ikinci kez -> red, metin aynı.
+ENGINE_TEST(editor_animator_metin_hareket_ekle) {
+  yukle(kTemel);
+  CHECK(anim_metin_hareket_ekle(g_m, sizeof g_m, "selam", "#5", g_err, sizeof g_err));
+  sim::AnimatorDef d;
+  CHECK(tanim(&d));
+  const int32_t s = durum(d, "selam");
+  CHECK(s >= 0 && !d.states[s].loop && sim::animator_param_index(d, "selam") >= 0 && d.params[sim::animator_param_index(d, "selam")].trigger);
+  bool giris = false, cikis = false;
+  for (uint32_t t = 0; t < d.trans_count; t++) {
+    if (d.trans[t].from < 0 && d.trans[t].to == s && d.trans[t].trigger) giris = true;
+    if (d.trans[t].from == s && d.trans[t].to == d.start && d.trans[t].on_end) cikis = true;
+  }
+  CHECK(giris && cikis);
+  static char once[sizeof g_m];
+  std::memcpy(once, g_m, sizeof g_m);
+  CHECK(!anim_metin_hareket_ekle(g_m, sizeof g_m, "selam", "#6", g_err, sizeof g_err));
+  CHECK(std::memcmp(once, g_m, sizeof g_m) == 0);
+}
+
+// Geçiş güncelleme YERİNDE (sıra korunur: ilk sağlanan kazanır). KONTROL: döngüdeki karışımdan 'bitince' -> red, metin aynı.
+ENGINE_TEST(editor_animator_metin_gecis_guncelle_yerinde) {
+  yukle(kTemel);
+  AnimGecisIstek g;
+  std::snprintf(g.kaynak, sizeof g.kaynak, "hareket");
+  std::snprintf(g.hedef, sizeof g.hedef, "zipla");
+  g.kosul = AnimKosul::Buyuk;
+  std::snprintf(g.param, sizeof g.param, "dikey");
+  g.deger = 2.0f;
+  g.sure = 0.05f;
+  CHECK(anim_metin_gecis_guncelle(g_m, sizeof g_m, 0, g, g_err, sizeof g_err));
+  sim::AnimatorDef d;
+  CHECK(tanim(&d) && d.trans_count == 2 && d.trans[0].from == durum(d, "hareket") && d.trans[0].value == 2.0f && d.trans[0].fade == 0.05f);
+  CHECK(sim::animator_param_index(d, "dikey") >= 0);   // parametre yoktu: eklendi
+  CHECK(std::strstr(g_m, "gecis hareket zipla sure 0.05 eger dikey > 2\ngecis zipla hareket") != nullptr);   // sira ayni
+  static char once[sizeof g_m];
+  std::memcpy(once, g_m, sizeof g_m);
+  g.kosul = AnimKosul::Bitince;
+  CHECK(!anim_metin_gecis_guncelle(g_m, sizeof g_m, 0, g, g_err, sizeof g_err) && std::strstr(g_err, "Tek"));
+  CHECK(std::memcmp(once, g_m, sizeof g_m) == 0);
+}
+
+// Kısa klip adı: Fab "Mike" kalıbı — 40 klip ortak önekli, 2'si başka (silah). KONTROL: ortak önek yoksa 0 ve ad aynen.
+ENGINE_TEST(editor_animator_klip_onek_ve_ad_onerisi) {
+  static const char *const mike[] = {"SK_ZMikeAnim_ZMIKE_Idle", "SK_ZMikeAnim_ZMIKE_Walk", "SK_ZMikeAnim_ZMIKE_Run", "SK_ZMikeAnim_ZMIKE_Walk_Back",
+                                     "SK_ZMikeGun.001Action"};
+  char onek[64];
+  CHECK(anim_klip_onek(mike, 5, onek, sizeof onek) == 19 && !std::strcmp(onek, "SK_ZMikeAnim_ZMIKE_"));
+  CHECK(!std::strcmp(anim_klip_kisa(mike[3], onek), "Walk_Back") && !std::strcmp(anim_klip_kisa(mike[4], onek), "SK_ZMikeGun.001Action"));
+  static const char *const mixamo[] = {"Armature|mixamo.com|Layer0", "Armature|Idle", "Armature|Run"};
+  CHECK(anim_klip_onek(mixamo, 3, onek, sizeof onek) == 9 && !std::strcmp(anim_klip_kisa(mixamo[1], onek), "Idle"));
+  static const char *const ayri[] = {"Idle", "Walk", "Run"};
+  CHECK(anim_klip_onek(ayri, 3, onek, sizeof onek) == 0 && onek[0] == 0 && !std::strcmp(anim_klip_kisa("Idle", onek), "Idle"));   // KONTROL
+  static const char *const az[] = {"Idle_A", "Idle_B", "Run"};   // 2/3 < %75: kisalmaz ("A"/"B" anlamsiz)
+  CHECK(anim_klip_onek(az, 3, onek, sizeof onek) == 0);
+  char ad[24];
+  anim_ad_oner("Wave_Loop", ad, sizeof ad);
+  CHECK(!std::strcmp(ad, "wave_loop") && anim_ad_gecerli(ad));
+  anim_ad_oner("001 Action!", ad, sizeof ad);
+  CHECK(!std::strcmp(ad, "h_001_action") && anim_ad_gecerli(ad));
 }

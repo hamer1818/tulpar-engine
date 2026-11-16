@@ -350,6 +350,18 @@ void animator_update(const AnimatorDef &d, AnimatorRt *rt, float dt, const float
   }
 }
 
+void animator_goto(const AnimatorDef &d, AnimatorRt *rt, int32_t state, float fade) {
+  if (!rt || state < 0 || (uint32_t)state >= d.state_count) return;
+  const bool yumusak = fade > 0.0f && rt->cur != state;
+  rt->prev = yumusak ? rt->cur : -1;
+  rt->prev_phase = rt->cur_phase;
+  rt->cur = state;
+  rt->cur_phase = 0.0f;
+  rt->fade = 0.0f;
+  rt->fade_dur = yumusak ? fade : 0.0f;
+  rt->ended = false;
+}
+
 int32_t animator_event_pop(AnimatorRt *rt) {
   if (rt->ev_count == 0) return -1;
   const int32_t i = rt->evq[rt->ev_head];

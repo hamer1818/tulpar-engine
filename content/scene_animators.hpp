@@ -51,6 +51,8 @@ public:
   // değerini sürmek isteyen başka ad kullanır.
   bool trigger(uint32_t ent, const char *name);
   bool set_param(uint32_t ent, const char *name, float v);
+  // A8c: editörde ▶ — durumu adıyla doğrudan başlatır (0,15 s yumuşak). false: animatör ya da durum yok.
+  bool play_state(uint32_t ent, const char *state);
   const sim::AnimatorRt *runtime(uint32_t ent) const { return has(ent) ? &slots_[ent].rt : nullptr; }
   uint32_t attached() const { return attached_; }
   uint32_t rejected() const { return rejected_; }

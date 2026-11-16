@@ -58,6 +58,40 @@ void animator_canli_klipler(const char *tam_yol, const char *const *adlar, uint3
 // Editör her kare seçili varlığın animatör dosyasını (tam yol) ve geçerli durumunu bildirir; Kod paneli o dosya açıksa vurgular.
 void animator_canli_ayarla(const char *tam_yol, const char *durum);   // nullptr = temizle
 const char *animator_canli_durum(const char *tam_yol);                 // bu dosya için etkin durum, yoksa nullptr
+// --- A8c: durum düzenleme satırları — Animasyon kartı ve grafiğin seçim şeridi ORTAK (kullanıcı 2026-11-16: "daha kolay olmalı") ----
+// Bir durumu satır satır çizer: karışımda her nokta "Bekle / Yürü / Koş" (rol) · klip seçici (kısa adlarla) · eşik (m/s) · ▶;
+// klip durumunda klip seçici · döngü · ▶ (tetikli ekstra harekette sil). Her değişiklik app/editor_animator_metin işlemiyle metne
+// uygulanır (ayrıştırıcıdan geçmezse metin DEĞİŞMEZ, hata cikti->hata'da). ▶ önizleme isteği kutusuna yazılır (aşağıda).
+struct AnimKlipListe { const char *const *adlar = nullptr; uint32_t n = 0; };
+struct AnimFormCikti {
+  bool degisti = false;
+  char mesaj[200] = {0};
+  char hata[200] = {0};
+};
+// def: metnin ayrıştırılmış hâli; yol: geri al halkası ve önizleme isteği bu dosyaya bağlı; etkin: şu anki durum (vurgu) ya da nullptr.
+// etkin_hiz: şu anki karışım parametresi (karışımda yalnız ona en yakın nokta vurgulanır); bilinmiyorsa NaN.
+void animator_durum_formu(const sim::AnimatorDef &d, uint32_t si, char *metin, uint32_t cap, const char *yol, const AnimKlipListe &kl,
+                          const char *etkin, AnimFormCikti *c, float etkin_hiz = 0.0f / 0.0f);
+// Rol adı: 'hiz' karışımında eşik 0 "Bekle", son nokta (3+ noktada) "Koş", arası "Yürü"; başka parametrede "≥ X".
+void animator_rol_adi(const sim::AnimatorDef &d, const sim::AnimState &s, uint32_t k, char *out, uint32_t cap);
+// Metindeki klip jetonunu (ad ya da #N) listedeki indekse çözer; -1 yok.
+int32_t animator_klip_bul(const char *jeton, const AnimKlipListe &kl);
+// Grafik ve kartın ORTAK geri al halkası (dosyaya bağlı). Uygula: metni halkaya koy, işlemi dene; başarısızsa halka geri sarılır.
+bool animator_geri_al(const char *yol, char *metin, uint32_t cap);
+uint32_t animator_geri_sayisi(const char *yol);
+void animator_geri_kaydet(const char *yol, const char *metin);   // animator_uygula'nin yardimcisi
+void animator_geri_dusur(const char *yol);                         // islem basarisiz: son kaydi geri sar
+template <class F> bool animator_uygula(const char *yol, char *metin, uint32_t cap, F &&islem, char *err, uint32_t ecap) {
+  animator_geri_kaydet(yol, metin);
+  if (islem(metin, cap, err, ecap)) return true;
+  animator_geri_dusur(yol);
+  return false;
+}
+// ▶ önizleme isteği kutusu: form/grafik yazar, editör her kare alır ve bu dosyayı kullanan varlıkta durumu başlatır (hiz >= 0 ise
+// önizleme hızını da ayarlar). al: varsa doldurur ve kutuyu boşaltır.
+void animator_onizle_iste(const char *yol, const char *durum, float hiz);
+bool animator_onizle_al(char *yol, uint32_t ycap, char *durum, uint32_t dcap, float *hiz);
+
 // Kod panelinde bir .animator kaydedilince artar: editör sahne animatörlerini diskteki yeni hâliyle yeniden bağlar.
 void animator_dosya_kaydedildi();
 uint32_t animator_dosya_nesli();

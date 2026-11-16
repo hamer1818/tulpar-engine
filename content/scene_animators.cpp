@@ -155,6 +155,14 @@ bool SceneAnimators::trigger(uint32_t ent, const char *name) {
   return true;
 }
 
+bool SceneAnimators::play_state(uint32_t ent, const char *state) {
+  if (!has(ent) || !state) return false;
+  const Def &d = defs_[slots_[ent].def];
+  for (uint32_t i = 0; i < d.def.state_count; i++)
+    if (!std::strcmp(d.def.states[i].name, state)) { sim::animator_goto(d.def, &slots_[ent].rt, (int32_t)i, 0.15f); return true; }
+  return false;
+}
+
 bool SceneAnimators::set_param(uint32_t ent, const char *name, float v) {
   if (!has(ent) || !name) return false;
   const Def &d = defs_[slots_[ent].def];

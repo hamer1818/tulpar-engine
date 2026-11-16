@@ -316,4 +316,185 @@ bool anim_metin_durum_klip(char *metin, uint32_t cap, const char *ad, const char
   return is.bitir(g_yeni, c.n);
 }
 
+namespace {
+// i'nci jetonun satır içi konumu [b, e).
+bool jeton_yeri(const Satir &s, int idx, uint32_t *b, uint32_t *e) {
+  uint32_t i = 0;
+  int say = 0;
+  while (i < s.n) {
+    while (i < s.n && (s.p[i] == ' ' || s.p[i] == '\t' || s.p[i] == '\r')) i++;
+    if (i >= s.n) break;
+    if (s.p[i] == '#' && !(i + 1 < s.n && s.p[i + 1] >= '0' && s.p[i + 1] <= '9')) break;
+    const uint32_t bb = i;
+    while (i < s.n && s.p[i] != ' ' && s.p[i] != '\t' && s.p[i] != '\r') i++;
+    if (say++ == idx) { *b = bb; *e = i; return true; }
+  }
+  return false;
+}
+int gecis_satiri(const AnimGecisIstek &g, char *satir, size_t cap) {
+  int k = std::snprintf(satir, cap, "gecis %s %s sure %g", g.kaynak, g.hedef, (double)g.sure);
+  switch (g.kosul) {
+    case AnimKosul::Buyuk: k += std::snprintf(satir + k, cap - (size_t)k, " eger %s > %g\n", g.param, (double)g.deger); break;
+    case AnimKosul::Kucuk: k += std::snprintf(satir + k, cap - (size_t)k, " eger %s < %g\n", g.param, (double)g.deger); break;
+    case AnimKosul::Tetik: k += std::snprintf(satir + k, cap - (size_t)k, " tetik %s\n", g.param); break;
+    case AnimKosul::Bitince: k += std::snprintf(satir + k, cap - (size_t)k, " bitince\n"); break;
+  }
+  return k;
+}
+} // namespace
+
+bool anim_metin_nokta(char *metin, uint32_t cap, const char *ad, uint32_t sira, const char *klip, float esik, char *err, uint32_t ecap) {
+  Is &is = is_al(metin, cap, err, ecap);
+  if (!is.hazirla()) return false;
+  const int32_t di = durum_ara(is.def, ad);
+  if (di < 0) { hata(err, ecap, "durum '%s' yok", ad); return false; }
+  if (!is.def.states[di].blend) { hata(err, ecap, "'%s' karışım durumu değil", ad); return false; }
+  if (sira >= is.def.states[di].point_count) { hata(err, ecap, "böyle bir nokta yok"); return false; }
+  if (klip && !klip[0]) { hata(err, ecap, "klip seçilmedi"); return false; }
+  const bool esik_var = esik == esik;
+  if (!klip && !esik_var) return true;
+  if (esik_var && !(esik >= 0.0f && esik < 1000.0f)) { hata(err, ecap, "eşik 0..1000 olmalı"); return false; }
+  Cikti c{g_yeni, kTampon};
+  bool blok = false;
+  uint32_t say = 0;
+  for (uint32_t i = 0; i < is.n; i++) {
+    const Satir &s = is.s[i];
+    if (!blok && jeton_es(s, 0, "durum") && jeton_es(s, 1, ad) && jeton_es(s, 2, "karisim")) { blok = true; c.satir(s); continue; }
+    if (blok && jeton_es(s, 0, "son")) blok = false;
+    if (blok && jeton_es(s, 0, "nokta") && say++ == sira) {
+      uint32_t b0 = 0, e0 = 0, b1 = 0, e1 = 0, b2 = 0, e2 = 0;
+      if (!jeton_yeri(s, 0, &b0, &e0) || !jeton_yeri(s, 1, &b1, &e1) || !jeton_yeri(s, 2, &b2, &e2)) { hata(err, ecap, "nokta satırı bozuk"); return false; }
+      c.yaz(s.p, b0);   // girinti
+      c.metin("nokta ");
+      char sb[32];
+      if (esik_var) { std::snprintf(sb, sizeof sb, "%g", (double)esik); c.metin(sb); }
+      else c.yaz(s.p + b1, e1 - b1);
+      c.metin(" ");
+      if (klip) c.metin(klip);
+      else c.yaz(s.p + b2, e2 - b2);
+      c.yaz(s.p + e2, s.n - e2);   // kalan: hiz, yorum
+      c.metin("\n");
+      continue;
+    }
+    c.satir(s);
+  }
+  if (c.tasti) { hata(err, ecap, "metin çok uzun"); return false; }
+  return is.bitir(g_yeni, c.n);
+}
+
+bool anim_metin_hareket_ekle(char *metin, uint32_t cap, const char *ad, const char *klip, char *err, uint32_t ecap) {
+  static char yedek[kTampon];
+  const size_t ml = std::strlen(metin);
+  if (ml + 1 > sizeof yedek) { hata(err, ecap, "metin çok uzun"); return false; }
+  std::memcpy(yedek, metin, ml + 1);
+  char bas[sim::kAnimNameLen] = {0};
+  {
+    Is &is = is_al(metin, cap, err, ecap);
+    if (!is.hazirla()) return false;
+    if (is.def.state_count == 0) { hata(err, ecap, "önce bir durum gerekli"); return false; }
+    std::snprintf(bas, sizeof bas, "%s", is.def.states[is.def.start >= 0 ? is.def.start : 0].name);
+  }
+  auto geri = [&]() { std::memcpy(metin, yedek, ml + 1); return false; };
+  if (!anim_metin_durum_ekle(metin, cap, ad, klip, false, err, ecap)) return geri();
+  AnimGecisIstek g;
+  std::snprintf(g.kaynak, sizeof g.kaynak, "herhangi");
+  std::snprintf(g.hedef, sizeof g.hedef, "%s", ad);
+  g.kosul = AnimKosul::Tetik;
+  std::snprintf(g.param, sizeof g.param, "%s", ad);
+  g.sure = 0.1f;
+  if (!anim_metin_gecis_ekle(metin, cap, g, err, ecap)) return geri();
+  AnimGecisIstek d;
+  std::snprintf(d.kaynak, sizeof d.kaynak, "%s", ad);
+  std::snprintf(d.hedef, sizeof d.hedef, "%s", bas);
+  d.kosul = AnimKosul::Bitince;
+  d.sure = 0.2f;
+  if (!anim_metin_gecis_ekle(metin, cap, d, err, ecap)) return geri();
+  return true;
+}
+
+bool anim_metin_gecis_guncelle(char *metin, uint32_t cap, uint32_t sira, const AnimGecisIstek &g, char *err, uint32_t ecap) {
+  static char yedek[kTampon];
+  const size_t ml = std::strlen(metin);
+  if (ml + 1 > sizeof yedek) { hata(err, ecap, "metin çok uzun"); return false; }
+  {
+    Is &is = is_al(metin, cap, err, ecap);
+    if (!is.hazirla()) return false;
+    if (sira >= is.def.trans_count) { hata(err, ecap, "böyle bir geçiş yok"); return false; }
+    if (!(g.sure >= 0.0f && g.sure <= 10.0f)) { hata(err, ecap, "geçiş süresi 0..10 s"); return false; }
+    if (g.kosul == AnimKosul::Bitince) {
+      const int32_t a = durum_ara(is.def, g.kaynak);
+      if (a < 0) { hata(err, ecap, "'bitince' için kaynak bir durum olmalı"); return false; }
+      if (is.def.states[a].loop || is.def.states[a].blend) { hata(err, ecap, "'bitince' yalnız Tek (sonda durur) klipte çalışır: '%s' döngüde", g.kaynak); return false; }
+    }
+  }
+  std::memcpy(yedek, metin, ml + 1);
+  if (g.kosul != AnimKosul::Bitince && !anim_metin_param_ekle(metin, cap, g.param, g.kosul == AnimKosul::Tetik, err, ecap)) return false;
+  Is &is = is_al(metin, cap, err, ecap);
+  if (!is.hazirla()) { std::memcpy(metin, yedek, ml + 1); return false; }
+  char satir[200];
+  gecis_satiri(g, satir, sizeof satir);
+  Cikti c{g_yeni, kTampon};
+  uint32_t say = 0;
+  for (uint32_t i = 0; i < is.n; i++) {
+    if (jeton_es(is.s[i], 0, "gecis") && say++ == sira) { c.metin(satir); continue; }
+    c.satir(is.s[i]);
+  }
+  if (c.tasti) { hata(err, ecap, "metin çok uzun"); std::memcpy(metin, yedek, ml + 1); return false; }
+  if (!is.bitir(g_yeni, c.n)) { std::memcpy(metin, yedek, ml + 1); return false; }
+  return true;
+}
+
+namespace {
+bool ayrac(char c) { return c == '_' || c == '|' || c == '.' || c == ':' || c == '-' || c == ' '; }
+} // namespace
+
+uint32_t anim_klip_onek(const char *const *adlar, uint32_t n, char *out, uint32_t cap) {
+  if (out && cap) out[0] = 0;
+  if (!adlar || n < 2 || !out || cap < 2) return 0;
+  const uint32_t gerek = (n * 3 + 3) / 4 > 2 ? (n * 3 + 3) / 4 : 2;   // en az %75 (ve en az 2)
+  uint32_t en_iyi = 0;
+  const char *kaynak = nullptr;
+  for (uint32_t i = 0; i < n; i++) {
+    const char *a = adlar[i];
+    if (!a) continue;
+    const uint32_t al = (uint32_t)std::strlen(a);
+    // Uzun önekten kısaya: ilk tutan bu ad için en uzunu
+    for (uint32_t L = al; L-- > 1;) {
+      if (!ayrac(a[L - 1]) || L <= en_iyi || L >= al) continue;
+      uint32_t say = 0;
+      for (uint32_t j = 0; j < n; j++)
+        if (adlar[j] && std::strlen(adlar[j]) > L && !std::strncmp(adlar[j], a, L)) say++;
+      if (say >= gerek) { en_iyi = L; kaynak = a; break; }
+    }
+  }
+  if (!kaynak || en_iyi + 1 > cap) return 0;
+  std::memcpy(out, kaynak, en_iyi);
+  out[en_iyi] = 0;
+  return en_iyi;
+}
+
+const char *anim_klip_kisa(const char *ad, const char *onek) {
+  if (!ad) return "";
+  if (!onek || !onek[0]) return ad;
+  const size_t l = std::strlen(onek);
+  return (!std::strncmp(ad, onek, l) && ad[l]) ? ad + l : ad;
+}
+
+void anim_ad_oner(const char *klip, char *out, uint32_t cap) {
+  if (!out || cap < 4) return;
+  uint32_t n = 0;
+  const char *p = klip ? klip : "";
+  if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z'))) { out[n++] = 'h'; out[n++] = '_'; }
+  for (; *p && n + 1 < cap && n + 1 < sim::kAnimNameLen; p++) {
+    char c = *p;
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) c = '_';
+    if (c == '_' && n > 0 && out[n - 1] == '_') continue;   // ardışık ayraç tek '_'
+    out[n++] = c;
+  }
+  while (n > 1 && out[n - 1] == '_') n--;
+  out[n] = 0;
+  if (!anim_ad_gecerli(out)) std::snprintf(out, cap, "hareket2");
+}
+
 } // namespace tulpar::engine::app

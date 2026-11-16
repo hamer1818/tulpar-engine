@@ -13,6 +13,7 @@
 # tests/arayuz/animator_grafik.txt (A3): .animator cift tik -> durum grafigi; etikete tik satira gider; kontrol: kapali -> etiket yok.
 # tests/arayuz/kullanici_karakter.txt (A8): yeni oyun + model -> otomatik animator -> Devriye -> oyunda yurur; kontrol: hiz 0.
 # tests/arayuz/animator_grafik_duzenle.txt (A8b): grafikten Durum ekle / Gecis ekle / red / Geri al; dosya diskte denetlenir.
+# tests/arayuz/animator_kart.txt (A8c): Animasyon karti Hareketler: roller, Hareket ekle, Geri al; dosya kabukta denetlenir.
 # tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
@@ -238,6 +239,22 @@ if [ $ra8b = 0 ] && grep -q '^durum saldiri klip saldiri tek$' "$af" && grep -q 
 else
   echo "  KIRMIZI animator grafik duzenleme (cikis $ra8b):"; grep -E 'HATA|> ' "$A8B/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
   sed 's/^/      | /' "$af" 2>/dev/null; kirmizi=1
+fi
+# --- A8c: Animasyon karti HAREKETLER (roller + Hareket ekle + Geri al). Olcut: senaryo cikisi 0 VE dosyada tek seferlik durum,
+# tetik ve iki gecis VE 'saldiri' durumu TEK kez (Geri al'dan sonra yeniden ekleme cift yazmadi).
+A8C="$D/anim8c"; mkdir -p "$A8C"
+cp "$KOK/tests/assets/karakter_kup.gltf" "$A8C/"
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter_kup.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 1 1 1" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8C/k.sahne"
+kos animator_kart.txt "$A8C" --scene "$A8C/k.sahne"; ra8c=$?
+cf="$A8C/karakter_kup.animator"
+if [ $ra8c = 0 ] && [ "$(grep -c '^durum saldiri klip saldiri tek$' "$cf")" = 1 ] && grep -q '^param saldiri tetik$' "$cf" \
+   && grep -q '^gecis herhangi saldiri sure 0.1 tetik saldiri$' "$cf" && grep -q '^gecis saldiri hareket sure 0.2 bitince$' "$cf"; then
+  echo "  animator karti: Bekle/Yuru/Kos satirlari, Hareket ekle (saldiri: tek + tetik + giris/donus), Geri al kaldirdi, yeniden eklendi"
+else
+  echo "  KIRMIZI animator karti (cikis $ra8c):"; grep -E 'HATA|> ' "$A8C/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+  sed 's/^/      | /' "$cf" 2>/dev/null; kirmizi=1
 fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"

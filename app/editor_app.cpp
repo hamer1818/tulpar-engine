@@ -62,6 +62,7 @@
 #include "content/scene_runtime.hpp"
 #include "content/scene_animators.hpp"
 #include "app/editor_animator_grafik.hpp"
+#include "app/editor_animator_metin.hpp"
 #include "content/terrain.hpp"
 #include "content/voxel.hpp"
 #include "content/water_wave.hpp"
@@ -1000,6 +1001,7 @@ void anim_adim_onizle(const EditorState &st, float dt) {
 
 // Modelin klip adlarindan otomatik animator: sahne dizininde <model>.animator. Dosya ZATEN varsa yeniden yazilmaz, baglanir (ayni
 // modeli kullanan ikinci karakter ayni animatoru paylasir; kullanicinin duzenledigi dosya ezilmez). Donus: anim_ctrl'e yazilacak ad.
+const char *model_klip_kisa(const content::Model &m, uint32_t c);   // asagida (A8c)
 bool anim_otomatik_olustur(EditorState &st, uint32_t ent, char *ad_out, size_t cap, char *mesaj, size_t mcap) {
   const SceneEntity &e = st.scene.entities[ent];
   if (e.asset < 0 || e.asset >= (int32_t)st.scene.asset_count || !st.have[e.asset]) { std::snprintf(mesaj, mcap, "model y\xC3\xBCklenmedi"); return false; }
@@ -1012,6 +1014,16 @@ bool anim_otomatik_olustur(EditorState &st, uint32_t ent, char *ad_out, size_t c
   char kok[content::kScenePathLen];
   std::snprintf(kok, sizeof kok, "%s", taban);
   if (char *nokta = std::strrchr(kok, '.')) *nokta = 0;
+  // Genel adli model ("scene.gltf": Sketchfab/Fab indirmelerinin hepsi boyle) -> nesnenin adi: "scene.animator" hicbir sey soylemiyordu
+  // (kullanici gezintisi 2026-11-16). Ayni modeli kullanan ikinci nesne de kendi adini alir — paylasmak isterse karttan secer.
+  static const char *const kGenel[] = {"scene", "model", "untitled", "mesh", "export", nullptr};
+  for (uint32_t g = 0; kGenel[g]; g++)
+    if (!std::strcmp(kok, kGenel[g]) && e.name[0]) {
+      size_t n = 0;
+      for (const char *p = e.name; *p && n + 1 < sizeof kok; p++) kok[n++] = (*p == '/' || *p == '\\' || *p == ' ' || *p == ':') ? '_' : *p;
+      kok[n] = 0;
+      break;
+    }
   if (!kok[0]) std::snprintf(kok, sizeof kok, "karakter");
   std::snprintf(ad_out, cap, "%.100s.animator", kok);
   char yol[1200];
@@ -1026,11 +1038,70 @@ bool anim_otomatik_olustur(EditorState &st, uint32_t ent, char *ad_out, size_t c
   const bool ok = std::fwrite(metin, 1, n, f) == n;
   std::fclose(f);
   if (!ok) { std::snprintf(mesaj, mcap, "yaz\xC4\xB1lamad\xC4\xB1: %s", yol); return false; }
-  auto ad = [&](int32_t c) { return c >= 0 ? m.clips[c].name : "-"; };
+  auto ad = [&](int32_t c) { return c >= 0 ? model_klip_kisa(m, (uint32_t)c) : "-"; };
   std::snprintf(mesaj, mcap, "%s olu\xC5\x9Ftu: bekle=%s, y\xC3\xBCr\xC3\xBC=%s, ko\xC5\x9F=%s, z\xC4\xB1pla=%s", ad_out, ad(rap.idle), ad(rap.walk),
                 ad(rap.run), ad(rap.jump));
   return true;
 }
+// --- A8c: Animasyon kartinda animatoru DUZENLEME (kullanici 2026-11-16: "animator ekrani anlamli degil, daha kolay olmali") -------
+// Kart dosyayi diskten okur, app/editor_animator_metin islemleriyle degistirir ve hemen yazar (Kod panelindeki grafikle AYNI islemler,
+// ayni geri al halkasi). Yazinca animator_dosya_kaydedildi: sahne yeniden baglanir, acik Kod paneli kirli degilse diskten tazelenir.
+char g_kart_metin[64 * 1024];
+char g_kart_yol[1200] = {0};
+uint32_t g_kart_nesil = ~0u;
+bool g_kart_gecerli = false;
+char g_kart_hata[200] = {0};
+sim::AnimatorDef g_kart_def;
+void kart_animator_yukle(const char *yol) {
+  if (!std::strcmp(yol, g_kart_yol) && g_kart_nesil == animator_dosya_nesli()) return;
+  std::snprintf(g_kart_yol, sizeof g_kart_yol, "%s", yol);
+  g_kart_nesil = animator_dosya_nesli();
+  g_kart_gecerli = false;
+  g_kart_metin[0] = 0;
+  g_kart_hata[0] = 0;
+  std::FILE *f = std::fopen(yol, "rb");
+  if (!f) { std::snprintf(g_kart_hata, sizeof g_kart_hata, "dosya okunamad\xC4\xB1"); return; }
+  const size_t n = std::fread(g_kart_metin, 1, sizeof g_kart_metin - 1, f);
+  const bool tasti = std::fgetc(f) != EOF;
+  std::fclose(f);
+  g_kart_metin[n] = 0;
+  if (tasti) { std::snprintf(g_kart_hata, sizeof g_kart_hata, "dosya 64 KB'tan b\xC3\xBCy\xC3\xBCk: D\xC3\xBCzenle ile Kod panelinde"); return; }
+  sim::AnimatorError er;
+  g_kart_def = sim::AnimatorDef{};
+  if (!sim::animator_parse(g_kart_metin, n, &g_kart_def, &er)) {
+    std::snprintf(g_kart_hata, sizeof g_kart_hata, "sat\xC4\xB1r %u: %s", er.line, er.msg);
+    return;
+  }
+  g_kart_gecerli = true;
+}
+bool kart_animator_yaz(char *err, uint32_t ecap) {
+  if (betik_dosya_yaz_degistiyse(g_kart_yol, g_kart_metin, (uint32_t)std::strlen(g_kart_metin), err, ecap) < 0) return false;
+  animator_dosya_kaydedildi();   // sahne yeniden baglanir; kart da bir sonraki karede diskten okur
+  return true;
+}
+// Klip adlari (model) -> AnimKlipListe; kisa ad oneki modelle birlikte onbellekte.
+AnimKlipListe model_klipleri(const content::Model &m) {
+  static const char *ptr[64];
+  AnimKlipListe kl;
+  const uint32_t n = m.clip_count < 64 ? m.clip_count : 64;
+  for (uint32_t i = 0; i < n; i++) ptr[i] = m.clips[i].name;
+  kl.adlar = ptr;
+  kl.n = n;
+  return kl;
+}
+const char *model_klip_kisa(const content::Model &m, uint32_t c) {
+  static const content::Model *son = nullptr;
+  static uint32_t son_n = 0;
+  static char onek[64];
+  if (son != &m || son_n != m.clip_count) {
+    const AnimKlipListe kl = model_klipleri(m);
+    anim_klip_onek(kl.adlar, kl.n, onek, sizeof onek);
+    son = &m;
+    son_n = m.clip_count;
+  }
+  return c < m.clip_count ? anim_klip_kisa(m.clips[c].name, onek) : "";
+}
+
 // Varlik listesini degistiren islemler (ekle/sil/geri al/yinele) oynarken
 // govde indekslerini kaydirir: once govdeler cikar, sonra yeniden girer.
 template <class F> void with_bodies(EditorState &st, sim::Physics &ph, F &&f) {
@@ -4728,6 +4799,28 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
     if (st.playing) st.anim_onizle = false;
     anim_baglari_tazele(st);   // A8: imza degistiyse (dosya/varlik/oynatma) yeniden bagla
+    {   // A8c: kart/grafikteki ▶: bu dosyayi kullanan varlikta (secili oncelikli) durumu baslat; oynatmiyorsak onizleme acilir.
+      char oy[1200], od[sim::kAnimNameLen];
+      float oh = -1.0f;
+      if (animator_onizle_al(oy, sizeof oy, od, sizeof od, &oh)) {
+        int32_t hedef = -1;
+        char yol[1200];
+        auto eslesir = [&](int32_t i) {
+          if (i < 0 || (uint32_t)i >= st.scene.entity_count) return false;
+          const SceneEntity &e = st.scene.entities[i];
+          if (!(e.components & content::kSceneAnim) || !e.anim_ctrl[0]) return false;
+          anim_tam_yol(st, e.anim_ctrl, yol, sizeof yol);
+          return !std::strcmp(yol, oy);
+        };
+        if (eslesir(st.sel.primary())) hedef = st.sel.primary();
+        for (uint32_t i = 0; i < st.scene.entity_count && hedef < 0; i++) if (eslesir((int32_t)i)) hedef = (int32_t)i;
+        if (hedef >= 0) {
+          if (!st.playing && !st.anim_onizle) { st.anim_onizle = true; st.anim_onizle_t = 0.0f; anim_baglari_tazele(st); }
+          if (oh >= 0.0f) g_anim_onizle_hiz = oh;
+          if (!g_sahne_anim.play_state((uint32_t)hedef, od)) set_status(st, "\xC3\xB6nizlenemedi: '%s' durumu ba\xC4\x9Fl\xC4\xB1 animat\xC3\xB6rde yok", od);
+        }
+      }
+    }
     if (!st.playing && st.anim_onizle) { st.anim_onizle_t += dt; anim_adim_onizle(st, dt); }
     {   // A8/A8b: Kod panelinde acik .animator'i kullanan varlik: grafik onun GECERLI durumunu vurgular (zaman akarken) ve "+ Durum"
         // klip secicisi onun modelinin kliplerini listeler. Secili varlik o dosyayi kullaniyorsa o, degilse ilk kullanan.
@@ -6616,7 +6709,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
             const content::Model *am = (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset]) ? &st.models[e.asset] : nullptr;
             const uint32_t nclip = am ? am->clip_count : 0;
             const bool kontrol = e.anim_ctrl[0] != 0 && nclip > 0;
-            bool anim_olustur = false, anim_duzenle = false, anim_kaldir = false;
+            bool anim_olustur = false, anim_duzenle = false, anim_kaldir = false, kart_formu = false;
             if (prop_begin("anim")) {
               float dur = 0.0f;
               auto satir_ac = [](const char *etiket) {
@@ -6658,11 +6751,12 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 prop_help("Oyunda bu de\xC4\x9F" "er nesnenin ger\xC3\xA7" "ek h\xC4\xB1z\xC4\xB1ndan kendili\xC4\x9Finden gelir (kod gerekmez). "
                           "Burada s\xC3\xBCr\xC3\xBCkleyerek bekle \xE2\x86\x92 y\xC3\xBCr\xC3\xBC \xE2\x86\x92 ko\xC5\x9F ge\xC3\xA7i\xC5\x9Fini g\xC3\xB6r.");
                 if (prop_float("\xC3\x96nizleme h\xC4\xB1z\xC4\xB1", &g_anim_onizle_hiz, 0.05f, 0.0f, 8.0f, "%.1f m/s").changed && !st.playing) st.anim_onizle = true;
+                kart_formu = true;
               } else {
                 static char klip_adlari[64 * 72 + 2];   // 64 klip (GltfLimits::max_clips) x "NN: " + 63 karakter ad
                 size_t kn = 0;
                 for (uint32_t k = 0; k < nclip && k < 64; k++) {
-                  const char *ad = am->clips[k].name[0] ? am->clips[k].name : "(adsiz)";
+                  const char *ad = am->clips[k].name[0] ? model_klip_kisa(*am, k) : "(adsiz)";   // A8c: ortak onek kirpilir
                   kn += (size_t)std::snprintf(klip_adlari + kn, sizeof klip_adlari - kn - 1, "%u: %s", k, ad) + 1;
                 }
                 klip_adlari[kn] = 0;
@@ -6716,10 +6810,124 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               }
               prop_end();
             }
+            // A8c: HAREKETLER — animatorun her durumu satir satir: rol (Bekle/Yuru/Kos/Zipla...) · klip secici (kisa adlarla) · esik · ▶.
+            // Grafige ya da metne girmeden en sik isler burada: "yurume icin baska klip", "kosmaya daha gec gecsin", "el sallama ekle".
+            if (kart_formu && am) {
+              char tam[1200];
+              anim_tam_yol(st, e.anim_ctrl, tam, sizeof tam);
+              kart_animator_yukle(tam);
+              const AnimKlipListe kl = model_klipleri(*am);
+              if (!g_kart_gecerli) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextColored(tone(Tone::Warn), ICON_MD_WARNING " %s", g_kart_hata[0] ? g_kart_hata : "animat\xC3\xB6r okunamad\xC4\xB1");
+                ImGui::PopTextWrapPos();
+              } else {
+                ImGui::SeparatorText("Hareketler");
+                const char *etkin = (st.playing || st.anim_onizle) && g_sahne_anim.has((uint32_t)si) ? g_sahne_anim.state_name((uint32_t)si) : nullptr;
+                static char kart_hata[200] = {0};
+                static char kart_hata_yol[1200] = {0};
+                if (std::strcmp(kart_hata_yol, tam)) { kart_hata[0] = 0; std::snprintf(kart_hata_yol, sizeof kart_hata_yol, "%s", tam); }
+                bool yaz = false;
+                char mesaj[200] = {0};
+                for (uint32_t ds = 0; ds < g_kart_def.state_count; ds++) {
+                  AnimFormCikti fc;
+                  animator_durum_formu(g_kart_def, ds, g_kart_metin, sizeof g_kart_metin, tam, kl, etkin, &fc,
+                                       etkin ? g_sahne_anim.param((uint32_t)si, sim::kAnimAutoSpeed) : NAN);
+                  if (fc.degisti) { yaz = true; std::snprintf(mesaj, sizeof mesaj, "%s", fc.mesaj); kart_hata[0] = 0; }
+                  if (fc.hata[0]) std::snprintf(kart_hata, sizeof kart_hata, "%s", fc.hata);
+                  if (yaz) break;   // metin degisti: g_kart_def bayat, kalan satirlar bir sonraki karede
+                }
+                // + Hareket ekle: secilen klip tek seferlik durum olur; ▶ ya da betikteki tetikle oynar, bitince geri doner.
+                const float yarim2 = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                static int he_klip = 0;
+                static char he_ad[24] = {0};
+                if (ImGui::Button(ICON_MD_ADD " Hareket ekle##anim_he", ImVec2(yarim2, 0))) {
+                  he_klip = 0;
+                  for (uint32_t c = 0; c < kl.n; c++) {   // animatorde KULLANILMAYAN ilk klip
+                    char j[48];
+                    anim_klip_jetonu(kl.adlar[c], c, j, sizeof j);
+                    bool kul = false;
+                    for (uint32_t q = 0; q < g_kart_def.state_count && !kul; q++)
+                      for (uint32_t k = 0; k < g_kart_def.states[q].point_count; k++) kul |= !std::strcmp(g_kart_def.states[q].points[k].clip_name, j);
+                    if (!kul) { he_klip = (int)c; break; }
+                  }
+                  char oner[24];
+                  anim_ad_oner(model_klip_kisa(*am, (uint32_t)he_klip), oner, sizeof oner);
+                  anim_yeni_ad(g_kart_metin, oner, he_ad, sizeof he_ad);
+                  ImGui::OpenPopup("##anim_hareket_ekle");
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bir klibi tek seferlik hareket olarak ekler (el sallama, yumruk...).\n"
+                                                              "\xE2\x96\xB6 ile dene; oyunda betikten tetiklenir, bitince harekete d\xC3\xB6ner.");
+                ImGui::SameLine();
+                const uint32_t geri_n = animator_geri_sayisi(tam);
+                ImGui::BeginDisabled(geri_n == 0);
+                if (ImGui::Button(ICON_MD_UNDO " Geri al##anim_kart_geri", ImVec2(yarim2, 0)) && animator_geri_al(tam, g_kart_metin, sizeof g_kart_metin)) {
+                  yaz = true;
+                  std::snprintf(mesaj, sizeof mesaj, "animat\xC3\xB6rdeki son de\xC4\x9Fi\xC5\x9Fiklik geri al\xC4\xB1nd\xC4\xB1");
+                }
+                ImGui::EndDisabled();
+                if (ImGui::BeginPopup("##anim_hareket_ekle")) {
+                  ImGui::TextUnformatted("Yeni hareket");
+                  ImGui::Separator();
+                  const char *gor = (he_klip >= 0 && (uint32_t)he_klip < kl.n) ? model_klip_kisa(*am, (uint32_t)he_klip) : "";
+                  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+                  if (ImGui::BeginCombo("Klip##he_klip", gor, ImGuiComboFlags_HeightLarge)) {
+                    for (uint32_t c = 0; c < kl.n; c++) {
+                      char et[96];
+                      std::snprintf(et, sizeof et, "%s##hk%u", model_klip_kisa(*am, c), c);
+                      if (ImGui::Selectable(et, (int)c == he_klip)) {
+                        he_klip = (int)c;
+                        char oner[24];
+                        anim_ad_oner(model_klip_kisa(*am, c), oner, sizeof oner);
+                        anim_yeni_ad(g_kart_metin, oner, he_ad, sizeof he_ad);
+                      }
+                    }
+                    ImGui::EndCombo();
+                  }
+                  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+                  ImGui::InputText("Ad##he_ad", he_ad, sizeof he_ad, ImGuiInputTextFlags_CharsNoBlank);
+                  ImGui::TextDisabled("Betikte: sahne_animator_tetik(sahne_bul(\"%s\"), \"%s\")", e.name, he_ad);
+                  if (ImGui::Button("Ekle##he_ekle") && he_klip >= 0 && (uint32_t)he_klip < kl.n) {
+                    char j[48];
+                    anim_klip_jetonu(kl.adlar[he_klip], (uint32_t)he_klip, j, sizeof j);
+                    char err[200];
+                    const char *adp = he_ad;
+                    if (animator_uygula(tam, g_kart_metin, sizeof g_kart_metin,
+                                        [&](char *m, uint32_t mc, char *er, uint32_t ec) { return anim_metin_hareket_ekle(m, mc, adp, j, er, ec); }, err, sizeof err)) {
+                      yaz = true;
+                      std::snprintf(mesaj, sizeof mesaj, "hareket eklendi: %s (%s) \xE2\x80\x94 \xE2\x96\xB6 ile dene", he_ad, model_klip_kisa(*am, (uint32_t)he_klip));
+                      kart_hata[0] = 0;
+                      ImGui::CloseCurrentPopup();
+                    } else {
+                      std::snprintf(kart_hata, sizeof kart_hata, "%s", err);
+                    }
+                  }
+                  ImGui::SameLine();
+                  if (ImGui::Button("Vazge\xC3\xA7##he_vaz")) ImGui::CloseCurrentPopup();
+                  if (kart_hata[0]) ImGui::TextColored(tone(Tone::Err), "%s", kart_hata);
+                  ImGui::EndPopup();
+                }
+                if (kart_hata[0] && !ImGui::IsPopupOpen("##anim_hareket_ekle")) {
+                  ImGui::PushTextWrapPos(0.0f);
+                  ImGui::TextColored(tone(Tone::Err), ICON_MD_ERROR " %s", kart_hata);
+                  ImGui::PopTextWrapPos();
+                }
+                if (yaz) {
+                  char err[200];
+                  if (kart_animator_yaz(err, sizeof err)) {
+                    set_status(st, "animat\xC3\xB6r: %s (kaydedildi)", mesaj);
+                    console_log(ConsoleLevel::Bilgi, kConsoleTagScene, "animat\xC3\xB6r (%s): %s", e.anim_ctrl, mesaj);
+                  } else {
+                    set_status(st, "animat\xC3\xB6r yaz\xC4\xB1lamad\xC4\xB1: %s", err);
+                  }
+                }
+              }
+              ImGui::Spacing();
+            }
             // Tam genislik eylem dugmeleri tablonun ALTINDA (dar deger sutununda kirpiliyorlardi: "Animator olustur (o").
             if (kontrol) {
               const float yarim = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-              anim_duzenle = ImGui::Button(ICON_MD_EDIT " D\xC3\xBCzenle##anim_duzenle", ImVec2(yarim, 0));
+              anim_duzenle = ImGui::Button(ICON_MD_ACCOUNT_TREE " D\xC3\xBCzenle##anim_duzenle", ImVec2(yarim, 0));
               if (ImGui::IsItemHovered()) ImGui::SetTooltip("Durum grafi\xC4\x9Fiyle Kod panelinde a\xC3\xA7" "ar; kaydedince sahnede hemen g\xC3\xBCncellenir");
               ImGui::SameLine();
               anim_kaldir = ImGui::Button(ICON_MD_LINK_OFF " Kald\xC4\xB1r##anim_kaldir", ImVec2(yarim, 0));
