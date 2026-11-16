@@ -3807,6 +3807,27 @@ int teng_scene_sound_play(int i) {
   return 0;
 }
 int teng_scene_visible(int i) { return scene_idx_ok(i, "teng_scene_visible") && !g->srt.hidden((uint32_t)i) ? 1 : 0; }
+// A8: sahne animatoru — betikten tetik / parametre / durum.
+int teng_scene_animator_trigger(int i, const char *name) {
+  CALLF("teng_scene_animator_trigger", "%d %s", i, name ? name : "");
+  if (!scene_idx_ok(i, "teng_scene_animator_trigger") || !name) return 0;
+  content::SceneAnimators &sa = g->srt.animators();
+  if (!sa.has((uint32_t)i)) { BERR("sahne_animator_tetik: '%s' varliginin animatoru yok (Animasyon kartinda Animator olustur)", g->srt.view().entity_name((uint32_t)i)); return 0; }
+  if (!sa.trigger((uint32_t)i, name)) { BERR("sahne_animator_tetik: '%s' animatorunde '%s' adli tetik yok (%s)", g->srt.view().entity_name((uint32_t)i), name, sa.path((uint32_t)i)); return 0; }
+  return 1;
+}
+int teng_scene_animator_param(int i, const char *name, double v) {
+  CALLF("teng_scene_animator_param", "%d %s %.3f", i, name ? name : "", v);
+  if (!scene_idx_ok(i, "teng_scene_animator_param") || !name) return 0;
+  content::SceneAnimators &sa = g->srt.animators();
+  if (!sa.has((uint32_t)i)) { BERR("sahne_animator_param: '%s' varliginin animatoru yok", g->srt.view().entity_name((uint32_t)i)); return 0; }
+  if (!sa.set_param((uint32_t)i, name, (float)v)) { BERR("sahne_animator_param: '%s' animatorunde '%s' adli SAYI parametresi yok", g->srt.view().entity_name((uint32_t)i), name); return 0; }
+  return 1;
+}
+const char *teng_scene_animator_state(int i) {
+  if (!scene_idx_ok(i, "teng_scene_animator_state")) return "";
+  return g->srt.animators().state_name((uint32_t)i);
+}
 double teng_scene_sx(int i) { return scene_idx_ok(i, "teng_scene_sx") ? g->srt.view().entities[i].scale[0] : 0; }
 double teng_scene_sy(int i) { return scene_idx_ok(i, "teng_scene_sy") ? g->srt.view().entities[i].scale[1] : 0; }
 double teng_scene_sz(int i) { return scene_idx_ok(i, "teng_scene_sz") ? g->srt.view().entities[i].scale[2] : 0; }

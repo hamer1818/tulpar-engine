@@ -11,6 +11,7 @@
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/model_ayar.txt (M1): Kaynaklar sag tik -> ice aktarma ayarlari, cm canli onizleme, Kaydet .ayar yazar.
 # tests/arayuz/animator_grafik.txt (A3): .animator cift tik -> durum grafigi; etikete tik satira gider; kontrol: kapali -> etiket yok.
+# tests/arayuz/animator_grafik_duzenle.txt (A8b): grafikten Durum ekle / Gecis ekle / red / Geri al; dosya diskte denetlenir.
 # tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
@@ -220,6 +221,22 @@ if [ $ra8 = 0 ] && [ -s "$A8/karakter_kup.animator" ] && grep -q '^  animator "k
 else
   echo "  KIRMIZI kodsuz animator (cikis $ra8, dosya $([ -s "$A8/karakter_kup.animator" ] && echo var || echo YOK), sahne satiri $(grep -c animator "$A8/k.sahne" 2>/dev/null)):"
   grep -E 'HATA|> ' "$A8/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1
+fi
+# --- A8b: animatoru grafikten duzenleme (Durum ekle varsayilanlari, tetikli gecis, red edilen 'bitince', Geri al). Olcut: senaryo
+# cikisi 0 VE diskteki dosya beklenen satirlari tasir VE reddedilen/geri alinan 'bitince' satiri YOK (grafik her islemi hemen kaydeder).
+A8B="$D/anim8b"; mkdir -p "$A8B"
+cp "$KOK/tests/assets/karakter_kup.gltf" "$A8B/"
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter_kup.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 1 1 1" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8B/k.sahne"
+kos animator_grafik_duzenle.txt "$A8B" --scene "$A8B/k.sahne"; ra8b=$?
+af="$A8B/karakter_kup.animator"
+if [ $ra8b = 0 ] && grep -q '^durum saldiri klip saldiri tek$' "$af" && grep -q '^gecis herhangi saldiri sure 0.2 tetik zipla$' "$af" \
+   && grep -q '^param zipla tetik$' "$af" && ! grep -q 'bitince' "$af"; then
+  echo "  animator grafik duzenleme: Durum ekle (saldiri, Tek) + tetikli gecis dosyada; karisimdan 'bitince' reddedildi; Geri al geri aldi"
+else
+  echo "  KIRMIZI animator grafik duzenleme (cikis $ra8b):"; grep -E 'HATA|> ' "$A8B/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+  sed 's/^/      | /' "$af" 2>/dev/null; kirmizi=1
 fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"

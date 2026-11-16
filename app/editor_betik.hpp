@@ -87,6 +87,7 @@ struct KodPaneli {
   bool geri_var = false;
   bool anim_grafik = true;     // A3: .animator acikken durum grafigi gorunur (metnin ustunde)
   bool tam_pencere = false;   // bagimsiz kod penceresi (engine_editor --kod): tum pencereyi kaplar, sekme/dock yok
+  char bilgi_mesaj[160] = {0}; // A8b: basari iletisi (yesil, uyari yoksa gosterilir) — grafikten duzenleme sonucu
   char uyari_mesaj[160] = {0}; // tam_pencere: durum satirinda (ornegin "Tulpar Editor acik degil")
   bool kapat_iste = false;    // tam_pencere: isletim sistemi pencere kapatma istedi (kirliyse once sorulur)
   int imlec_ofs = 0;          // imlecin bayt konumu (parantez eslestirme, oneri listesi konumu)

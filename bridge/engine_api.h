@@ -306,6 +306,11 @@ int teng_scene_is_dynamic(int i);
 // parcanin yerine ayni boy ve renkte fizik parcalari kurabilsin.
 int teng_scene_set_visible(int i, int visible);
 int teng_scene_visible(int i);
+// A8: sahne varliginin animatoru (.sahne `animator` satiri) — betikten tetik / sayi parametresi / gecerli durum. Animator yoksa ya da
+// o adla o turde parametre yoksa HATA + 0. hiz/dikey hareketten her adim yeniden yazilir (betikten verilen deger bir adim yasar).
+int teng_scene_animator_trigger(int i, const char *name);
+int teng_scene_animator_param(int i, const char *name, double v);
+const char *teng_scene_animator_state(int i);
 // Sahnenin KAMERA / SES bilesenleri (blob v10, EDITOR-UYGULAMA-PLANI U9). Sahne yuklenince ilk
 // kamera uygulanir, dongulu sesler baslar (cihaz aciksa); bunlar baska kameraya gecer / tek
 // seferlik sesi calar. Bilesen yoksa hata loglanir ve 0 doner.

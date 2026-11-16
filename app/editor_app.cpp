@@ -4683,15 +4683,36 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     if (st.playing) st.anim_onizle = false;
     anim_baglari_tazele(st);   // A8: imza degistiyse (dosya/varlik/oynatma) yeniden bagla
     if (!st.playing && st.anim_onizle) { st.anim_onizle_t += dt; anim_adim_onizle(st, dt); }
-    {   // A8: Kod panelindeki durum grafigi secili varligin GECERLI durumunu vurgular (yalniz zaman akarken)
-      const int32_t ps = st.sel.primary();
-      if ((st.playing || st.anim_onizle) && ps >= 0 && g_sahne_anim.has((uint32_t)ps)) {
+    {   // A8/A8b: Kod panelinde acik .animator'i kullanan varlik: grafik onun GECERLI durumunu vurgular (zaman akarken) ve "+ Durum"
+        // klip secicisi onun modelinin kliplerini listeler. Secili varlik o dosyayi kullaniyorsa o, degilse ilk kullanan.
+      int32_t kullanan = -1;
+      const size_t kl = std::strlen(kod.yol);
+      if (kod.acik && kl >= 9 && !std::strcmp(kod.yol + kl - 9, ".animator")) {
         char yol[1200];
-        anim_tam_yol(st, st.scene.entities[ps].anim_ctrl, yol, sizeof yol);
-        animator_canli_ayarla(yol, g_sahne_anim.state_name((uint32_t)ps));
-      } else {
-        animator_canli_ayarla(nullptr, nullptr);
+        auto eslesir = [&](int32_t i) {
+          if (i < 0 || (uint32_t)i >= st.scene.entity_count) return false;
+          const SceneEntity &e = st.scene.entities[i];
+          if (!(e.components & content::kSceneAnim) || !e.anim_ctrl[0]) return false;
+          anim_tam_yol(st, e.anim_ctrl, yol, sizeof yol);
+          return !std::strcmp(yol, kod.yol);
+        };
+        if (eslesir(st.sel.primary())) kullanan = st.sel.primary();
+        for (uint32_t i = 0; i < st.scene.entity_count && kullanan < 0; i++) if (eslesir((int32_t)i)) kullanan = (int32_t)i;
       }
+      const SceneEntity *ke = kullanan >= 0 ? &st.scene.entities[kullanan] : nullptr;
+      if (ke && ke->asset >= 0 && ke->asset < (int32_t)st.scene.asset_count && st.have[ke->asset]) {
+        const content::Model &km = st.models[ke->asset];
+        const char *adlar[64];
+        const uint32_t kn = km.clip_count < 64 ? km.clip_count : 64;
+        for (uint32_t c = 0; c < kn; c++) adlar[c] = km.clips[c].name;
+        animator_canli_klipler(kod.yol, adlar, kn);
+      } else {
+        animator_canli_klipler(nullptr, nullptr, 0);
+      }
+      if ((st.playing || st.anim_onizle) && kullanan >= 0 && g_sahne_anim.has((uint32_t)kullanan))
+        animator_canli_ayarla(kod.yol, g_sahne_anim.state_name((uint32_t)kullanan));
+      else
+        animator_canli_ayarla(nullptr, nullptr);
     }
     // Sim: yalniz oynatilirken (sabit adim). Duraklatilmisken zaman AKMAZ ama
     // govdeler yerinde durur; F10 tek adim ilerletir. fs.advance duraklamada

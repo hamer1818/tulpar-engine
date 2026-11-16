@@ -1,0 +1,75 @@
+# A8b (tools/arayuz_kapi.sh): animatoru METNE DOKUNMADAN grafikten duzenleme. Otomatik animator -> Duzenle -> "Durum ekle": varsayilan
+# henuz kullanilmayan ilk klip (saldiri) ve adi, tek seferlik klip oldugu icin Tek -> tek tik "Durumu ekle". "Gecis ekle": herhangi ->
+# saldiri, tetik (zipla; parametre kendiliginden eklenir). Hareket (karisim) -> saldiri "klip bitince" REDDEDILIR (metin degismez).
+# saldiri -> hareket "klip bitince" eklenir, "Geri al" onu geri alir. Her islem dosyaya hemen kaydedilir (kapi dosyayi okur).
+# POZITIF KONTROL: durum eklenince grafik "1 durum ulasilamaz" der, gecis eklenince uyari KALKAR (grafik metinden turetiliyor).
+tikla 66 206
+bekle 3
+tus F
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+tikla "Animatör oluştur (otomatik)"
+bekle 5
+tikla "Düzenle"
+bekle_oge "Dış editörde aç"
+bekle 5
+dogrula_metin "1 durum · 0 geçiş · 1 parametre"
+tikla "Durum ekle"
+bekle 3
+tikla "Durumu ekle"
+bekle 4
+dogrula_metin "2 durum · 0 geçiş · 1 parametre"
+dogrula_metin "1 durum ulaşılamaz"
+tikla "Geçiş ekle"
+bekle 3
+tikla 660 256
+bekle 2
+tikla "saldiri"
+bekle 2
+tikla 660 286
+bekle 2
+tikla "tetik gelince (betikten)"
+bekle 2
+tikla "Geçişi ekle"
+bekle 4
+dogrula_metin "2 durum · 1 geçiş · 2 parametre"
+dogrula_metin "tetik zipla · 0.2 s"
+metin_yok "1 durum ulaşılamaz"
+ekran grafik_tetik
+tikla "Geçiş ekle"
+bekle 3
+tikla 660 226
+bekle 2
+tikla "hareket"
+bekle 2
+tikla 660 286
+bekle 2
+tikla "klip bitince"
+bekle 2
+tikla "Geçişi ekle"
+bekle 3
+dogrula_metin "yalnız Tek"
+tikla "Vazgeç"
+bekle 2
+dogrula_metin "2 durum · 1 geçiş · 2 parametre"
+tikla "Geçiş ekle"
+bekle 3
+tikla 660 226
+bekle 2
+tikla "saldiri"
+bekle 2
+tikla 660 256
+bekle 2
+tikla "hareket"
+bekle 2
+tikla "Geçişi ekle"
+bekle 4
+dogrula_metin "2 durum · 2 geçiş · 2 parametre"
+dogrula_metin "bitince · 0.2 s"
+ekran grafik_bitince
+tikla "Geri al"
+bekle 4
+dogrula_metin "2 durum · 1 geçiş · 2 parametre"
+metin_yok "bitince · 0.2 s"
+cik

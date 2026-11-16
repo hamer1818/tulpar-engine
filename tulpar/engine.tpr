@@ -290,6 +290,13 @@ func scene_home_z(i): float { return eng_scene_home_z(i); }
 // cikar). Olcek/renk/ilkel: yikilan parcanin yerine ayni boyda parca kurmak icin.
 func sahne_gorunur(i, gorunur): bool { return eng_scene_set_visible(i, gorunur); }
 func scene_set_visible(i, visible): bool { return eng_scene_set_visible(i, visible); }
+// A8: sahne varliginin animatoru (editorde Animasyon karti > Animator olustur). hiz/dikey hareketten kendiliginden gelir; tetik betikten.
+func sahne_animator_tetik(i, ad): bool { return eng_scene_animator_trigger(i, ad); }
+func sahne_animator_param(i, ad, deger): bool { return eng_scene_animator_param(i, ad, deger); }
+func sahne_animator_durum(i): str { return eng_scene_animator_state(i); }
+func scene_animator_trigger(i, name): bool { return eng_scene_animator_trigger(i, name); }
+func scene_animator_param(i, name, v): bool { return eng_scene_animator_param(i, name, v); }
+func scene_animator_state(i): str { return eng_scene_animator_state(i); }
 func sahne_gorunur_mu(i): bool { return eng_scene_visible(i); }
 func scene_visible(i): bool { return eng_scene_visible(i); }
 // Kamera / ses bilesenleri (editorde verilen; sahne yuklenince ilk kamera ve dongulu sesler kendiliginden).

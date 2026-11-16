@@ -46,6 +46,11 @@ public:
   const char *state_name(uint32_t ent) const;      // "" = animatör yok
   const char *path(uint32_t ent) const;            // "" = animatör yok
   float param(uint32_t ent, const char *name) const;   // test/gösterge; yoksa 0
+  // Betikten (köprü: sahne_animator_tetik / sahne_animator_param). false: animatör yok ya da o adla o türde parametre yok.
+  // Otomatik parametreler (hiz, dikey) her adımda hareketten YENİDEN yazılır: betikten verilen değer bir adım yaşar — kendi
+  // değerini sürmek isteyen başka ad kullanır.
+  bool trigger(uint32_t ent, const char *name);
+  bool set_param(uint32_t ent, const char *name, float v);
   const sim::AnimatorRt *runtime(uint32_t ent) const { return has(ent) ? &slots_[ent].rt : nullptr; }
   uint32_t attached() const { return attached_; }
   uint32_t rejected() const { return rejected_; }

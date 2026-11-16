@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 
+#include "app/editor_animator_metin.hpp"
 #include "app/editor_ui.hpp"
 #include <IconsMaterialDesign.h>
 
@@ -137,6 +138,8 @@ struct Onbellek {
 Onbellek g_ob;
 int g_sekme = 0;   // 0 grafik, 1 tablo
 const char *g_etkin = nullptr;   // A8: bu cizimde vurgulanacak durum adi (animator_grafik_ciz suresince)
+bool g_duzen = false;            // A8b: bu cizimde grafik duzenleyebilir (sag tik menuleri)
+int32_t g_sag_dugum = -1, g_sag_kenar = -1;   // sag tik: menu acilacak durum / gecis (bir sonraki adimda OpenPopup)
 
 uint64_t fnv(const char *s) {
   uint64_t h = 1469598103934665603ull;
@@ -311,8 +314,10 @@ bool grafik_ciz(const char *metin, int *git_satir) {
   }
   if (ustteki >= 0) {
     const sim::AnimTransition &tr = d.trans[ustteki];
-    ImGui::SetTooltip("%s → %s\n%s\n(tıkla: satıra git)", tr.from < 0 ? "herhangi" : d.states[tr.from].name, d.states[tr.to].name, k[ustteki].et);
+    ImGui::SetTooltip("%s → %s\n%s\n(tıkla: satıra git%s)", tr.from < 0 ? "herhangi" : d.states[tr.from].name, d.states[tr.to].name, k[ustteki].et,
+                      g_duzen ? " · sağ tık: sil" : "");
     if (tik) { *git_satir = animator_tanim_satiri(metin, "gecis", nullptr, ustteki); git = *git_satir > 0; }
+    if (g_duzen && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) g_sag_kenar = ustteki;
   }
   // --- Dugumler ---
   for (uint32_t i = 0; i < g.n; i++) {
@@ -336,9 +341,10 @@ bool grafik_ciz(const char *metin, int *git_satir) {
     if (ustunde && n.durum >= 0) {
       char oz[256];
       durum_ozeti(d, d.states[n.durum], oz, sizeof oz);
-      ImGui::SetTooltip("%s%s\n%s%s\n(tıkla: satıra git)", d.states[n.durum].name, baslangic ? " (başlangıç)" : "", oz,
-                        n.ulasilamaz ? "\nUYARI: hiçbir geçiş bu duruma girmiyor" : "");
+      ImGui::SetTooltip("%s%s\n%s%s\n(tıkla: satıra git%s)", d.states[n.durum].name, baslangic ? " (başlangıç)" : "", oz,
+                        n.ulasilamaz ? "\nUYARI: hiçbir geçiş bu duruma girmiyor" : "", g_duzen ? " · sağ tık: başlangıç yap / klip / sil" : "");
       if (tik) { *git_satir = animator_tanim_satiri(metin, "durum", d.states[n.durum].name, 0); git = *git_satir > 0; }
+      if (g_duzen && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) g_sag_dugum = n.durum;
     } else if (ustunde) {
       ImGui::SetTooltip("herhangi: bu geçişler her durumdan alınır");
     }
@@ -388,6 +394,270 @@ namespace {
 char g_canli_yol[1024] = {0};
 char g_canli_durum[sim::kAnimNameLen] = {0};
 uint32_t g_dosya_nesli = 0;
+// A8b: klip listesi (editor verir) ve geri al halkasi (dosyaya bagli; animator dosyalari kucuk: 16 KB'tan buyuk metin halkaya girmez,
+// "Geri al" o islem icin kapali kalir — sessiz degil, dugme ipucu soyler).
+char g_klip_yol[1024] = {0};
+char g_klip_ad[64][64];
+uint32_t g_klip_n = 0;
+constexpr uint32_t kGeriN = 8, kGeriBoy = 16 * 1024;
+char g_geri_yol[1024] = {0};
+char g_geri[kGeriN][kGeriBoy];
+uint32_t g_geri_bas = 0, g_geri_n = 0;
+char g_islem_hata[200] = {0};
+// Acilir pencere alanlari
+char g_d_ad[32] = {0}, g_d_klip[64] = {0};
+int g_d_klip_sec = 0;
+bool g_d_dongu = true;
+char g_d_duzenle[32] = {0};   // dolu: "Klibi degistir" kipi (bu durumun klibi)
+int g_g_kaynak = 0, g_g_hedef = 0, g_g_kosul = 0, g_g_param = 0;
+char g_g_tetik[32] = "zipla";
+float g_g_deger = 0.5f, g_g_sure = 0.2f;
+bool klip_listesi_var(const char *yol) { return yol && g_klip_n && !std::strcmp(yol, g_klip_yol); }
+
+// Islem uygula: once metni geri al halkasina koy, sonra donusum; basarisizsa halka geri sarilir, metin degismemistir.
+template <class F> void uygula(AnimGrafikBaglam *b, const char *aciklama, F &&islem) {
+  g_islem_hata[0] = 0;
+  if (!b->yol || std::strcmp(b->yol, g_geri_yol)) { std::snprintf(g_geri_yol, sizeof g_geri_yol, "%s", b->yol ? b->yol : ""); g_geri_n = 0; }
+  const size_t n = std::strlen(b->metin_yaz);
+  const bool kayit = n + 1 <= kGeriBoy;
+  const uint32_t yuva = (g_geri_bas + g_geri_n) % kGeriN;
+  if (kayit) std::memcpy(g_geri[yuva], b->metin_yaz, n + 1);
+  char err[200];
+  if (islem(err, (uint32_t)sizeof err)) {
+    if (kayit) { if (g_geri_n < kGeriN) g_geri_n++; else g_geri_bas = (g_geri_bas + 1) % kGeriN; }
+    b->degisti = true;
+    std::snprintf(b->mesaj, sizeof b->mesaj, "%s", aciklama);
+  } else {
+    std::snprintf(g_islem_hata, sizeof g_islem_hata, "%s", err);
+  }
+}
+
+// "+ Durum" / "Klibi degistir" penceresi: ad, klip (modelin listesinden; liste yoksa elle), dongu.
+void durum_penceresi(AnimGrafikBaglam *b) {
+  if (!ImGui::BeginPopup("##anim_durum_ekle")) return;
+  const bool duzenle = g_d_duzenle[0] != 0;
+  ImGui::TextUnformatted(duzenle ? "Klibi değiştir" : "Yeni durum");
+  ImGui::Separator();
+  if (duzenle) ImGui::Text("Durum: %s", g_d_duzenle);
+  else ImGui::InputText("Ad##anim_d_ad", g_d_ad, sizeof g_d_ad, ImGuiInputTextFlags_CharsNoBlank);
+  char jeton[40] = {0};
+  if (klip_listesi_var(b->yol)) {
+    const char *on = g_d_klip_sec >= 0 && (uint32_t)g_d_klip_sec < g_klip_n ? g_klip_ad[g_d_klip_sec] : "";
+    if (ImGui::BeginCombo("Klip##anim_d_klip", on)) {
+      for (uint32_t c = 0; c < g_klip_n; c++) {
+        char et[96];
+        std::snprintf(et, sizeof et, "%u: %s", c, g_klip_ad[c]);
+        if (ImGui::Selectable(et, (int)c == g_d_klip_sec)) g_d_klip_sec = (int)c;
+      }
+      ImGui::EndCombo();
+    }
+    if (g_d_klip_sec >= 0 && (uint32_t)g_d_klip_sec < g_klip_n) anim_klip_jetonu(g_klip_ad[g_d_klip_sec], (uint32_t)g_d_klip_sec, jeton, sizeof jeton);
+  } else {
+    ImGui::InputTextWithHint("Klip##anim_d_klip_el", "klip adı ya da #0", g_d_klip, sizeof g_d_klip, ImGuiInputTextFlags_CharsNoBlank);
+    std::snprintf(jeton, sizeof jeton, "%s", g_d_klip);
+    ImGui::TextDisabled("(bu dosyayı kullanan model sahnede yok: klip adını yaz)");
+  }
+  ImGui::Checkbox("Döngü (kapalıysa bir kez oynar, sonda durur)##anim_d_dongu", &g_d_dongu);
+  if (ImGui::Button(duzenle ? "Klibi uygula" : "Durumu ekle")) {
+    char ad[32];
+    std::snprintf(ad, sizeof ad, "%s", duzenle ? g_d_duzenle : g_d_ad);
+    char ac[120];
+    std::snprintf(ac, sizeof ac, duzenle ? "durum '%s' klibi: %s" : "durum eklendi: %s (%s)", ad, jeton);
+    uygula(b, ac, [&](char *err, uint32_t ecap) {
+      return duzenle ? anim_metin_durum_klip(b->metin_yaz, b->cap, ad, jeton, g_d_dongu, err, ecap)
+                     : anim_metin_durum_ekle(b->metin_yaz, b->cap, ad, jeton, g_d_dongu, err, ecap);
+    });
+    if (!g_islem_hata[0]) ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Vazgeç##anim_d")) ImGui::CloseCurrentPopup();
+  if (g_islem_hata[0]) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Err)), "%s", g_islem_hata);
+  ImGui::EndPopup();
+}
+
+// "+ Gecis" penceresi: kaynak (herhangi dahil), hedef, kosul turu, parametre/deger ya da tetik adi, sure.
+void gecis_penceresi(AnimGrafikBaglam *b) {
+  if (!ImGui::BeginPopup("##anim_gecis_ekle")) return;
+  const sim::AnimatorDef &d = g_ob.def;
+  ImGui::TextUnformatted("Yeni geçiş");
+  ImGui::Separator();
+  // Kaynak: 0 = herhangi, 1.. = durumlar
+  static char kaynaklar[(sim::kAnimMaxStates + 1) * sim::kAnimNameLen + 64], hedefler[sim::kAnimMaxStates * sim::kAnimNameLen + 8];
+  size_t kn = (size_t)std::snprintf(kaynaklar, sizeof kaynaklar, "herhangi (her durumdan)") + 1, hn = 0;
+  for (uint32_t i = 0; i < d.state_count; i++) {
+    kn += (size_t)std::snprintf(kaynaklar + kn, sizeof kaynaklar - kn - 1, "%s", d.states[i].name) + 1;
+    hn += (size_t)std::snprintf(hedefler + hn, sizeof hedefler - hn - 1, "%s", d.states[i].name) + 1;
+  }
+  kaynaklar[kn] = 0; hedefler[hn] = 0;
+  if (g_g_kaynak > (int)d.state_count) g_g_kaynak = 0;
+  if (g_g_hedef >= (int)d.state_count) g_g_hedef = 0;
+  ImGui::Combo("Nereden##anim_g_k", &g_g_kaynak, kaynaklar);
+  ImGui::Combo("Nereye##anim_g_h", &g_g_hedef, hedefler);
+  ImGui::Combo("Ne zaman##anim_g_kosul", &g_g_kosul, "hız şundan büyükse\0hız şundan küçükse\0tetik gelince (betikten)\0klip bitince\0");
+  // Sayi parametreleri: tanimdakiler + otomatik olanlar (hiz, dikey) — yoksa eklenir.
+  const char *sayilar[sim::kAnimMaxParams + 2];
+  uint32_t sn = 0;
+  for (uint32_t i = 0; i < d.param_count; i++) if (!d.params[i].trigger) sayilar[sn++] = d.params[i].name;
+  auto ekle_yoksa = [&](const char *a) { for (uint32_t i = 0; i < sn; i++) if (!std::strcmp(sayilar[i], a)) return; sayilar[sn++] = a; };
+  ekle_yoksa(sim::kAnimAutoSpeed);
+  ekle_yoksa(sim::kAnimAutoVertical);
+  if (g_g_param >= (int)sn) g_g_param = 0;
+  if (g_g_kosul <= 1) {
+    if (ImGui::BeginCombo("Değer##anim_g_p", sayilar[g_g_param])) {
+      for (uint32_t i = 0; i < sn; i++) if (ImGui::Selectable(sayilar[i], (int)i == g_g_param)) g_g_param = (int)i;
+      ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("hiz / dikey oyunda nesnenin hareketinden kendiliğinden gelir (m/s)");
+    ImGui::DragFloat("Eşik##anim_g_v", &g_g_deger, 0.05f, -50.0f, 50.0f, "%.2f");
+  } else if (g_g_kosul == 2) {
+    ImGui::InputText("Tetik adı##anim_g_t", g_g_tetik, sizeof g_g_tetik, ImGuiInputTextFlags_CharsNoBlank);
+    ImGui::TextDisabled("Betikte: sahne_animator_tetik(sahne_bul(\"nesne\"), \"%s\")", g_g_tetik);
+  }
+  ImGui::DragFloat("Geçiş süresi##anim_g_s", &g_g_sure, 0.01f, 0.0f, 2.0f, "%.2f s");
+  if (ImGui::Button("Geçişi ekle") && d.state_count) {
+    AnimGecisIstek g;
+    std::snprintf(g.kaynak, sizeof g.kaynak, "%s", g_g_kaynak == 0 ? "herhangi" : d.states[g_g_kaynak - 1].name);
+    std::snprintf(g.hedef, sizeof g.hedef, "%s", d.states[g_g_hedef].name);
+    g.kosul = (AnimKosul)g_g_kosul;
+    std::snprintf(g.param, sizeof g.param, "%s", g_g_kosul <= 1 ? sayilar[g_g_param] : g_g_tetik);
+    g.deger = g_g_deger;
+    g.sure = g_g_sure;
+    char ac[120];
+    std::snprintf(ac, sizeof ac, "geçiş eklendi: %s → %s", g.kaynak, g.hedef);
+    uygula(b, ac, [&](char *err, uint32_t ecap) { return anim_metin_gecis_ekle(b->metin_yaz, b->cap, g, err, ecap); });
+    if (!g_islem_hata[0]) ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Vazgeç##anim_g")) ImGui::CloseCurrentPopup();
+  if (g_islem_hata[0]) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Err)), "%s", g_islem_hata);
+  ImGui::EndPopup();
+}
+
+// Tek seferlik klip adi mi (saldiri, olum, zipla...): yeni durum varsayilan "Tek" gelir.
+bool tek_seferlik(const char *ad) {
+  char k[64];
+  uint32_t i = 0;
+  for (; ad[i] && i + 1 < sizeof k; i++) k[i] = (ad[i] >= 'A' && ad[i] <= 'Z') ? (char)(ad[i] - 'A' + 'a') : ad[i];
+  k[i] = 0;
+  static const char *const kAlt[] = {"saldir", "vur", "attack", "hit", "die", "death", "dead", "olum", "jump", "zipla", "zafer", "win",
+                                     "punch", "kick", "shoot", "ates", nullptr};
+  for (uint32_t j = 0; kAlt[j]; j++) if (std::strstr(k, kAlt[j])) return true;
+  return !std::strcmp(k, "ol");
+}
+
+void durum_penceresi_ac(const char *metin, const char *duzenle_ad) {
+  g_islem_hata[0] = 0;
+  std::snprintf(g_d_duzenle, sizeof g_d_duzenle, "%s", duzenle_ad ? duzenle_ad : "");
+  g_d_dongu = true;
+  if (!duzenle_ad) {
+    // Varsayilan: animatorde HENUZ KULLANILMAYAN ilk klip ve onun adi (gecerli ad ise) — en sik durumda tek tik "Durumu ekle".
+    anim_yeni_ad(metin, "durum", g_d_ad, sizeof g_d_ad);
+    g_d_klip_sec = 0;
+    for (uint32_t c = 0; c < g_klip_n; c++) {
+      char j[40];
+      anim_klip_jetonu(g_klip_ad[c], c, j, sizeof j);
+      bool kullaniliyor = false;
+      for (uint32_t i = 0; i < g_ob.def.state_count && !kullaniliyor; i++)
+        for (uint32_t k = 0; k < g_ob.def.states[i].point_count; k++)
+          if (!std::strcmp(g_ob.def.states[i].points[k].clip_name, j)) kullaniliyor = true;
+      if (kullaniliyor) continue;
+      g_d_klip_sec = (int)c;
+      if (anim_ad_gecerli(g_klip_ad[c])) anim_yeni_ad(metin, g_klip_ad[c], g_d_ad, sizeof g_d_ad);
+      g_d_dongu = !tek_seferlik(g_klip_ad[c]);
+      break;
+    }
+  }
+  ImGui::OpenPopup("##anim_durum_ekle");
+}
+void gecis_penceresi_ac(int kaynak) {
+  g_islem_hata[0] = 0;
+  g_g_kaynak = kaynak;
+  ImGui::OpenPopup("##anim_gecis_ekle");
+}
+
+// Arac cubugu + sag tik menuleri + pencereler (yalniz duzenlenebilirken).
+void duzen_arayuzu(const char *metin, AnimGrafikBaglam *b) {
+  if (ImGui::Button(ICON_MD_ADD " Durum ekle##anim_arac")) durum_penceresi_ac(metin, nullptr);
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Yeni durum: bir klip oynatır (ör. saldır, düş)");
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!g_ob.gecerli_var || g_ob.def.state_count < 1);
+  if (ImGui::Button(ICON_MD_ARROW_FORWARD " Geçiş ekle##anim_arac")) gecis_penceresi_ac(0);
+  ImGui::EndDisabled();
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("İki durum arasında geçiş: hıza göre, tetikle ya da klip bitince");
+  ImGui::SameLine();
+  const bool geri_var = g_geri_n > 0 && b->yol && !std::strcmp(b->yol, g_geri_yol);
+  ImGui::BeginDisabled(!geri_var);
+  if (ImGui::Button(ICON_MD_UNDO " Geri al##anim_arac")) {
+    const uint32_t yuva = (g_geri_bas + g_geri_n - 1) % kGeriN;
+    const size_t n = std::strlen(g_geri[yuva]);
+    if (n + 1 <= b->cap) {
+      std::memcpy(b->metin_yaz, g_geri[yuva], n + 1);
+      g_geri_n--;
+      b->degisti = true;
+      std::snprintf(b->mesaj, sizeof b->mesaj, "grafikteki son değişiklik geri alındı");
+    }
+  }
+  ImGui::EndDisabled();
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    ImGui::SetTooltip(geri_var ? "Grafikten yapılan son değişikliği geri alır (%u adım)" : "Grafikten yapılmış değişiklik yok", g_geri_n);
+  if (g_islem_hata[0] && !ImGui::IsPopupOpen("##anim_durum_ekle") && !ImGui::IsPopupOpen("##anim_gecis_ekle")) {
+    ImGui::SameLine();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Err)), ICON_MD_ERROR " %s", g_islem_hata);
+  }
+}
+
+// Sag tik menuleri: cizimden SONRA (grafik_ciz g_sag_* isaretler).
+void sag_tik_menuleri(const char *metin, AnimGrafikBaglam *b) {
+  const sim::AnimatorDef &d = g_ob.def;
+  if (g_sag_dugum >= 0) { ImGui::OpenPopup("##anim_dugum"); }
+  static int32_t dugum = -1, kenar = -1;
+  if (g_sag_dugum >= 0) { dugum = g_sag_dugum; g_sag_dugum = -1; }
+  if (g_sag_kenar >= 0) { kenar = g_sag_kenar; g_sag_kenar = -1; ImGui::OpenPopup("##anim_kenar"); }
+  bool durum_ac = false, gecis_ac = false;
+  if (ImGui::BeginPopup("##anim_dugum")) {
+    if (dugum >= 0 && (uint32_t)dugum < d.state_count) {
+      const char *ad = d.states[dugum].name;
+      ImGui::TextDisabled("%s", ad);
+      ImGui::Separator();
+      if (ImGui::MenuItem("Başlangıç yap", nullptr, false, d.start != dugum)) {
+        char ac[96];
+        std::snprintf(ac, sizeof ac, "başlangıç: %s", ad);
+        uygula(b, ac, [&](char *err, uint32_t ecap) { return anim_metin_baslangic(b->metin_yaz, b->cap, ad, err, ecap); });
+      }
+      if (ImGui::MenuItem("Buradan geçiş ekle…")) gecis_ac = true;
+      if (ImGui::MenuItem("Klibi değiştir…", nullptr, false, !d.states[dugum].blend)) durum_ac = true;
+      if (ImGui::MenuItem("Sil (geçişleriyle)", nullptr, false, d.state_count > 1)) {
+        char ac[96];
+        std::snprintf(ac, sizeof ac, "durum silindi: %s", ad);
+        uygula(b, ac, [&](char *err, uint32_t ecap) { return anim_metin_durum_sil(b->metin_yaz, b->cap, ad, err, ecap); });
+      }
+    }
+    ImGui::EndPopup();
+  }
+  if (ImGui::BeginPopup("##anim_kenar")) {
+    if (kenar >= 0 && (uint32_t)kenar < d.trans_count) {
+      char et[96];
+      animator_gecis_metni(d, (uint32_t)kenar, et, sizeof et);
+      ImGui::TextDisabled("%s → %s · %s", d.trans[kenar].from < 0 ? "herhangi" : d.states[d.trans[kenar].from].name, d.states[d.trans[kenar].to].name, et);
+      ImGui::Separator();
+      if (ImGui::MenuItem("Geçişi sil")) {
+        const uint32_t sira = (uint32_t)kenar;
+        uygula(b, "geçiş silindi", [&](char *err, uint32_t ecap) { return anim_metin_gecis_sil(b->metin_yaz, b->cap, sira, err, ecap); });
+      }
+    }
+    ImGui::EndPopup();
+  }
+  // Menuden acilan pencereler: menu kapandiktan SONRA (ic ice acilir pencere degil)
+  if (durum_ac && dugum >= 0) {
+    durum_penceresi_ac(metin, d.states[dugum].name);
+    const int32_t c = d.states[dugum].points[0].clip;
+    g_d_klip_sec = c >= 0 ? c : 0;
+    g_d_dongu = d.states[dugum].loop;
+  }
+  if (gecis_ac && dugum >= 0) gecis_penceresi_ac(dugum + 1);
+  durum_penceresi(b);
+  gecis_penceresi(b);
+}
 } // namespace
 
 void animator_canli_ayarla(const char *tam_yol, const char *durum) {
@@ -401,9 +671,17 @@ const char *animator_canli_durum(const char *tam_yol) {
 void animator_dosya_kaydedildi() { g_dosya_nesli++; }
 uint32_t animator_dosya_nesli() { return g_dosya_nesli; }
 
-bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, const char *etkin_durum) {
+void animator_canli_klipler(const char *tam_yol, const char *const *adlar, uint32_t n) {
+  if (!tam_yol || !adlar || !n) { g_klip_n = 0; g_klip_yol[0] = 0; return; }
+  std::snprintf(g_klip_yol, sizeof g_klip_yol, "%s", tam_yol);
+  g_klip_n = n < 64 ? n : 64;
+  for (uint32_t i = 0; i < g_klip_n; i++) std::snprintf(g_klip_ad[i], sizeof g_klip_ad[i], "%s", adlar[i] ? adlar[i] : "");
+}
+
+bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, AnimGrafikBaglam *b) {
   if (!metin || !git_satir) return false;
-  g_etkin = etkin_durum;
+  g_etkin = b ? b->etkin_durum : nullptr;
+  g_duzen = b && b->metin_yaz && b->cap;
   yenile(metin);
   bool git = false;
   ImGui::BeginChild("##anim_grafik", ImVec2(-FLT_MIN, yukseklik), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
@@ -419,18 +697,21 @@ bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, con
       ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Warn)), ICON_MD_WARNING " %u durum ulaşılamaz", g_ob.graf.ulasilamaz_n);
     }
   }
-  if (g_ob.hatali) {
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Err)), ICON_MD_ERROR " satır %u: %s%s", g_ob.er.line, g_ob.er.msg,
-                       g_ob.gecerli_var ? " — son geçerli hâli gösteriliyor" : "");
-  }
   if (g_etkin && g_etkin[0]) {
     ImGui::SameLine();
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Ok)), ICON_MD_PLAY_CIRCLE " şu an: %s", g_etkin);
   }
+  if (g_ob.hatali) {
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Err)), ICON_MD_ERROR " satır %u: %s%s", g_ob.er.line, g_ob.er.msg,
+                       g_ob.gecerli_var ? " — son geçerli hâli gösteriliyor" : "");
+  }
+  if (g_duzen) duzen_arayuzu(metin, b);
   if (g_ob.gecerli_var) git = g_sekme == 0 ? grafik_ciz(metin, git_satir) : tablo_ciz(metin, git_satir);
   else if (!g_ob.hatali) ImGui::TextDisabled("durum yok");
+  if (g_duzen) sag_tik_menuleri(metin, b);
   ImGui::EndChild();
   g_etkin = nullptr;
+  g_duzen = false;
   return git;
 }
 

@@ -159,6 +159,7 @@ public:
   bool posed(uint32_t i) const { return i < kSceneMaxEntities && posed_[i]; }
   // A8: sahne animatorleri (salt okunur: gecerli durum adi, otomatik parametreler — kapi ve kopru gostergesi).
   const SceneAnimators &animators() const { return animators_; }
+  SceneAnimators &animators() { return animators_; }   // kopru: betikten tetik / parametre
 
 private:
   SceneBlobView view_;

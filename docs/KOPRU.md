@@ -1771,7 +1771,11 @@ yazar (fizik, karakter ya da `sahne_konum_ver` ezmesi) — tanımda o adla sayı
 `HATA sahne: N animator baglanamadi, son hata: <dosya satir n: neden>` (varlık klibine düşer). Klip adı yerine `#N` (sıra numarası; ardından rakam
 gelen `#` yorum sayılmaz). Sahne varlığında kök hareketi uygulanmaz (konum fiziğin/yazarındır), olay kuyruğu boşaltılır (okuyan yok).
 Kapılar: `sahne_runtime_animatoru_blobdan_kurar_ve_hareketle_besler`, `sahne_animatorleri_hareketten_hiz_besler`.
-**Henüz yok:** grafikte tıklayarak düzenleme, betikten sahne animatörüne tetik/parametre, katman maskeleri, IK.
+Betikten: `sahne_animator_tetik(i, ad)` / `scene_animator_trigger` (tetik; ilgili geçiş bir sonraki adımda tüketir), `sahne_animator_param(i, ad, v)`
+(sayı parametresi; `hiz`/`dikey` her adım hareketten yeniden yazılır — kendi değerini sürmek için başka ad), `sahne_animator_durum(i)` → geçerli durum
+("" = animatör yok). Animatör ya da o adla o türde parametre yoksa HATA + false. `i` = `sahne_bul("ad")`. Kapı: `bridge_scene_animator_tetik_param_durum`
+(bekle → tetik → vur; kontrol: olmayan tetik / tetiğe sayı / animatörsüz varlık → 3 HATA). Editörde grafikten düzenleme: A8b (MODEL-ANIMASYON-PLANI).
+**Henüz yok:** katman maskeleri, IK, sahne varlığında kök hareketi ve olay kuyruğunun betiğe verilmesi.
 
 ## 20. Kodla mesh (P1, 2026-11-14)
 

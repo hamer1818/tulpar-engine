@@ -574,7 +574,7 @@ bool kod_ac(KodPaneli &k, const char *yol, const char *etiket, int satir, char *
   k.git_adim = 0;
   k.onc_boy = k.onc_imlec = -1;
   k.oneri_n = 0; k.oneri_kabul = false;
-  k.uyari_mesaj[0] = 0; k.tanim_iste = k.tanim_sonraki = false; k.ad_popup = false;
+  k.uyari_mesaj[0] = 0; k.bilgi_mesaj[0] = 0; k.tanim_iste = k.tanim_sonraki = false; k.ad_popup = false;
   k.hata_n = 0; k.tani_yapildi = false;
   return true;
 }
@@ -1355,7 +1355,7 @@ bool istek_baslat(KodPaneli &k, int tur, const char *yeni) {
   std::snprintf(k.istek_yeni, sizeof k.istek_yeni, "%s", yeni ? yeni : "");
   if (!platform::process_start(k.istek_sur, sp, err, sizeof err)) { std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "LSP ba\xC5\x9Flat\xC4\xB1lamad\xC4\xB1"); return false; }
   k.istek_suruyor = true;
-  k.uyari_mesaj[0] = 0;
+  k.uyari_mesaj[0] = 0; k.bilgi_mesaj[0] = 0;
   return true;
 }
 // Tanima git: ayni dosyada satira, baska dosyada o dosyayi acarak. Kutuphane (motor) dosyalari YALNIZ OKUNUR acilir.
@@ -1389,7 +1389,7 @@ void geri_don(KodPaneli &k) {
   char e[200];
   k.git_sutun = k.geri_sutun;
   kod_ac(k, h.yol, "", k.geri_satir, e, sizeof e);
-  k.uyari_mesaj[0] = 0;
+  k.uyari_mesaj[0] = 0; k.bilgi_mesaj[0] = 0;
 }
 // Yeniden adlandirma sonucu: bu dosya TAMPONA (kirli), diger proje dosyalari diske yazilir.
 void adlandirma_uygula(KodPaneli &k, const KodDuzenleme *d, int n) {
@@ -1552,7 +1552,16 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
       if (k.anim_grafik) {
         const float h = std::max(ImGui::GetFontSize() * 9.0f, ImGui::GetContentRegionAvail().y * 0.45f);
         int gs = 0;
-        if (animator_grafik_ciz(k.metin, h, &gs, animator_canli_durum(k.yol))) { k.git_satir = gs; k.git_sutun = 0; k.git_adim = 0; }
+        AnimGrafikBaglam bg;   // A8b: grafik metni duzenler; degisiklik hemen kaydedilir -> sahne yeniden baglanir
+        bg.etkin_durum = animator_canli_durum(k.yol);
+        if (!k.salt_okunur) { bg.metin_yaz = k.metin; bg.cap = kKodKapasite; }
+        bg.yol = k.yol;
+        if (animator_grafik_ciz(k.metin, h, &gs, &bg)) { k.git_satir = gs; k.git_sutun = 0; k.git_adim = 0; }
+        if (bg.degisti) {
+          char e[256];
+          if (kod_kaydet(k, e, sizeof e)) { k.uyari_mesaj[0] = 0; std::snprintf(k.bilgi_mesaj, sizeof k.bilgi_mesaj, "%.140s (kaydedildi)", bg.mesaj); }
+          else { k.kirli = true; std::snprintf(k.uyari_mesaj, sizeof k.uyari_mesaj, "%.200s", e); }
+        }
       }
     }
   }
@@ -1854,6 +1863,9 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
   if (k.uyari_mesaj[0]) {
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "\xC2\xB7  " ICON_MD_WARNING " %s", k.uyari_mesaj);
+  } else if (k.bilgi_mesaj[0]) {
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.5f, 1.0f), "\xC2\xB7  " ICON_MD_CHECK " %s", k.bilgi_mesaj);
   }
   if (k.hata_n > 0) {
     ImGui::SameLine();

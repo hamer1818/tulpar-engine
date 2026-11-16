@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 439 fonksiyon · 836 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 442 fonksiyon · 841 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -49,7 +49,7 @@ mindmap
       prefab
     Köprü L6
       TulparLang C ABI
-      439 fonksiyon
+      442 fonksiyon
       Android / masaüstü host
     Editör
       panel + gizmo
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (65 dosya, 14495 satır)
+### content — L6 (65 dosya, 14519 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -337,7 +337,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (77 dosya, 37183 satır)
+### app — L6 (79 dosya, 37873 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -349,6 +349,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/editor.cpp` — engine_editor — masaustu editor (GLFW dlopen pencere) ya da headless.
 - `app/editor_animator_grafik.cpp` — 
 - `app/editor_animator_grafik.hpp` — Animatör DURUM GRAFİĞİ (A3 kalan, docs/MODEL-ANIMASYON-PLANI.md): Kod panelinde .animator açıkken metnin üstü…
+- `app/editor_animator_metin.cpp` — 
+- `app/editor_animator_metin.hpp` — Animatör metnini GRAFİKTEN düzenleme (A8b, docs/MODEL-ANIMASYON-PLANI.md): durum/geçiş/parametre ekle, durum/…
 - `app/editor_app.cpp` — if defined(_WIN32)
 - `app/editor_app.hpp` — Editor: motorun kendisi masaustunde duzenleme kipinde (PLAN L7:
 - `app/editor_betik.cpp` — 
@@ -417,7 +419,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10722 satır)
+### bridge — L6 (11 dosya, 10748 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -431,7 +433,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (70 dosya, 15950 satır)
+### tools — L7 (70 dosya, 15970 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -506,7 +508,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 
 ## 2. Köprü API (TulparLang ↔ motor)
 
-Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **431** fonksiyon. Sözleşme: `docs/KOPRU.md`.
+Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **434** fonksiyon. Sözleşme: `docs/KOPRU.md`.
 
 ### yasam dongusu (37)
 
@@ -591,7 +593,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_scene_z(i:int)` → float — Sahne varliginin z'si.
 - `eng_scene_name(i:int)` → str — Sahne varliginin adi.
 
-### nesne ozellikleri (E4): editorde varliga verilen, betigin v… (30)
+### nesne ozellikleri (E4): editorde varliga verilen, betigin v… (33)
 
 - `eng_scene_prop_px()` → float — Son eng_scene_prop_point sonucunun x'i (dunya).
 - `eng_scene_prop_py()` → float — Son eng_scene_prop_point sonucunun y'si (dunya).
@@ -604,6 +606,9 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_scene_is_dynamic(i:int)` → bool — Sahne varliginin govdesi dinamik mi (kuvvet uygulanabilir mi).
 - `eng_scene_set_visible(i:int, visible:flag)` → bool — Sahne varligini gizle/goster: gizli varlik cizilmez, isigi eklenmez, govdesi fizik dunyas…
 - `eng_scene_visible(i:int)` → bool — Sahne varligi gorunur mu.
+- `eng_scene_animator_trigger(i:int, name:str)` → bool — Sahne varliginin animatorune (.sahne `animator`, editorde Animasyon karti) TETIK gonderir…
+- `eng_scene_animator_param(i:int, name:str, v:num)` → bool — Sahne varliginin animator SAYI parametresini ayarlar. hiz/dikey hareketten her adim yenid…
+- `eng_scene_animator_state(i:int)` → str — Sahne varliginin animatorunun gecerli durum adi (\"\" = animator yok).
 - `eng_scene_camera_use(i:int)` → bool — Sahne varligini (kamera bileseni olmali) kamera yap: goz varligin konumu, bakis -Z, aci/k…
 - `eng_scene_sound_play(i:int)` → int — Sahne varliginin ses bilesenini bilesenin ayarlariyla cal (duzey, dongu, 3B ise varligin…
 - `eng_scene_sx(i:int)` → float — Sahne varliginin dunya olcegi x (ilkelde boyu).
@@ -1057,6 +1062,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 - `app/editor.cpp` — engine_editor — masaustu editor (GLFW dlopen pencere) ya da headless.
 - `app/editor_animator_grafik.cpp` — 
+- `app/editor_animator_metin.cpp` — 
 - `app/editor_app.cpp` — if defined(_WIN32)
 - `app/editor_betik.cpp` — 
 - `app/editor_camera.cpp` — 
@@ -1090,12 +1096,12 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **836** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **841** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
-- `editor` — 129
-- `bridge` — 70
+- `editor` — 133
+- `bridge` — 71
 - `scene` — 48
 - `renderer` — 37
 - `content` — 31
@@ -1225,7 +1231,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_audio.cpp` — 15 test
 - `tests/test_behavior_tree.cpp` — 7 test
 - `tests/test_boids.cpp` — 1 test
-- `tests/test_bridge.cpp` — 50 test
+- `tests/test_bridge.cpp` — 51 test
 - `tests/test_bridge_log.cpp` — 1 test
 - `tests/test_bridge_net.cpp` — 10 test
 - `tests/test_bridge_para.cpp` — 3 test
@@ -1249,6 +1255,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_ecs_snapshot.cpp` — 2 test
 - `tests/test_editor.cpp` — 21 test
 - `tests/test_editor_animator_grafik.cpp` — 2 test
+- `tests/test_editor_animator_metin.cpp` — 4 test
 - `tests/test_editor_betik.cpp` — 21 test
 - `tests/test_editor_camera.cpp` — 8 test
 - `tests/test_editor_chrome.cpp` — 12 test

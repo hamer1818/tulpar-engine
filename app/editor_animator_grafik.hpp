@@ -37,8 +37,22 @@ int animator_tanim_satiri(const char *metin, const char *anahtar, const char *ad
 
 // Kod panelinin içinde (çağıranın penceresi) yukseklik piksellik alan çizer. metin değişince yeniden ayrıştırır; hatalıysa SON
 // GEÇERLİ hâli soluk gösterir ve hatayı yazar. Kullanıcı bir düğüme/geçişe tıkladıysa *git_satir doldurulur, true döner.
-// etkin_durum (A8): oyun/önizleme sırasında bu dosyanın seçili varlıktaki GEÇERLİ durumu — düğüm dolu vurgulanır (nullptr/"" = yok).
-bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, const char *etkin_durum = nullptr);
+// Bağlam (A8/A8b; nullptr = eski salt okunur görünüm):
+//  etkin_durum: oyun/önizleme sırasında bu dosyanın GEÇERLİ durumu — düğüm dolu vurgulanır.
+//  metin_yaz/cap: verilirse grafik DÜZENLER ("+ Durum", "+ Geçiş", sağ tık: Başlangıç yap / Klibi değiştir / Sil, okta: Geçişi sil,
+//    "Geri al"). Her işlem app/editor_animator_metin ile metne satır ekler/siler; sonuç ayrıştırıcıdan geçmezse metin DEĞİŞMEZ.
+//  yol: geri al halkası ve klip listesi bu dosyaya bağlıdır. degisti/mesaj: çıktı (çağıran kaydeder, mesajı gösterir).
+struct AnimGrafikBaglam {
+  const char *etkin_durum = nullptr;
+  char *metin_yaz = nullptr;
+  uint32_t cap = 0;
+  const char *yol = nullptr;
+  bool degisti = false;
+  char mesaj[200] = {0};
+};
+bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, AnimGrafikBaglam *baglam = nullptr);
+// Bu .animator'ı kullanan modelin klip adları (editör her kare verir): "+ Durum" klip seçicisi bunları listeler. n = 0 temizler.
+void animator_canli_klipler(const char *tam_yol, const char *const *adlar, uint32_t n);
 
 // --- A8: canlı bağ (editör ↔ Kod paneli) ----------------------------------------------------------------------------------------
 // Editör her kare seçili varlığın animatör dosyasını (tam yol) ve geçerli durumunu bildirir; Kod paneli o dosya açıksa vurgular.

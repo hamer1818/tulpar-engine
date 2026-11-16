@@ -253,6 +253,20 @@ ENGINE_TEST(sahne_animatorleri_hareketten_hiz_besler) {
   std::snprintf(kotu, sizeof kotu, "%s/yok.animator", dir);
   CHECK(!sa.attach(2, kotu, &m, &er) && std::strstr(er.msg, "acilamadi"));
   CHECK(sa.attached() == 2);
+  // Betikten tetik / parametre (köprü: sahne_animator_tetik / sahne_animator_param). Tetik geçişi bir sonraki adımda tüketir.
+  char tetikli[600];
+  std::snprintf(tetikli, sizeof tetikli, "%s/tetik.animator", dir);
+  CHECK(yaz(tetikli, "tulpar-animator 1\nparam zipla tetik\nparam ofke sayi 0\ndurum bekle klip bekle dongu\ndurum vur klip saldiri tek\n"
+                     "gecis herhangi vur sure 0.1 tetik zipla\ngecis vur bekle sure 0.1 bitince\nbaslangic bekle\n"));
+  CHECK(sa.attach(3, tetikli, &m, &er));
+  sa.step(3, Vec3{0, 0, 0}, dt);
+  CHECK(!std::strcmp(sa.state_name(3), "bekle"));
+  CHECK(sa.trigger(3, "zipla"));
+  sa.step(3, Vec3{0, 0, 0}, dt);
+  CHECK(!std::strcmp(sa.state_name(3), "vur"));
+  CHECK(sa.set_param(3, "ofke", 2.5f) && sa.param(3, "ofke") == 2.5f);
+  // KONTROL: olmayan ad, yanlış tür, animatörsüz varlık reddedilir (sessiz başarı değil).
+  CHECK(!sa.trigger(3, "yok") && !sa.trigger(3, "ofke") && !sa.set_param(3, "zipla", 1.0f) && !sa.trigger(9, "zipla"));
   arena().reset_to(mark);
 }
 

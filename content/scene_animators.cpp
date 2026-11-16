@@ -146,6 +146,24 @@ const char *SceneAnimators::state_name(uint32_t ent) const {
   return (c >= 0 && (uint32_t)c < d.def.state_count) ? d.def.states[c].name : "";
 }
 
+bool SceneAnimators::trigger(uint32_t ent, const char *name) {
+  if (!has(ent) || !name) return false;
+  const Def &d = defs_[slots_[ent].def];
+  const int32_t p = sim::animator_param_index(d.def, name);
+  if (p < 0 || !d.def.params[p].trigger) return false;
+  sim::animator_trigger(d.def, &slots_[ent].rt, p);
+  return true;
+}
+
+bool SceneAnimators::set_param(uint32_t ent, const char *name, float v) {
+  if (!has(ent) || !name) return false;
+  const Def &d = defs_[slots_[ent].def];
+  const int32_t p = sim::animator_param_index(d.def, name);
+  if (p < 0 || d.def.params[p].trigger) return false;
+  sim::animator_set(d.def, &slots_[ent].rt, p, v);
+  return true;
+}
+
 const char *SceneAnimators::path(uint32_t ent) const { return has(ent) ? defs_[slots_[ent].def].path : ""; }
 
 float SceneAnimators::param(uint32_t ent, const char *name) const {
