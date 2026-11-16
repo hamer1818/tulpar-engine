@@ -10,6 +10,10 @@ yeniden üretilir, belirlenimlidir (aynı girdi, aynı bayt).
 --iki-skin (2026-11-16): ikinci bir dugum ayni zinciri IKINCI skin ile ciziyor; skin 1 ayni eklem dugumlerini TERS sirayla listeler
 (FBX2glTF ciktisi gibi: mesh basina skin, kemikler ortak). Klip tek skin'e baglanir; obur skin'in mesh'i poz almazsa T durusunda
 kalirdi (RobotExpressive'de goruldu). tests/assets/iki_skin_karakter.gltf = `6 60 ... --iki-skin`.
+
+--fbx-tarzi (2026-11-16): FBX2glTF ciktisinin iki ozelligi — (1) kok eklemin ustunde donuslu/olcekli "Armature" dugumu (X -90
+derece, olcek 2) ve iskeletli mesh dugumu AYNI donusumu tasir (ters bag matrisleri mesh dugumune gore: degismez); (2) son ekleme
+COCUK olarak takili iskeletsiz kati parca ("parca", yerel +h). tests/assets/fbx_tarzi_karakter.gltf = `6 60 ... --fbx-tarzi`.
 """
 import base64, json, math, struct, sys
 
@@ -142,10 +146,30 @@ def uret(eklem, ucgen, iki_skin=False):
     return g, nv, len(idx) // 3
 
 
+def fbx_tarzi(g, eklem):
+    h = 0.05
+    nodes = g["nodes"]
+    q = [-0.7071067811865476, 0.0, 0.0, 0.7071067811865476]
+    arm = len(nodes)
+    nodes.append({"name": "Armature", "rotation": q, "scale": [2.0, 2.0, 2.0], "children": [1]})
+    g["scenes"][0]["nodes"] = [0 if n == 0 else (arm if n == 1 else n) for n in g["scenes"][0]["nodes"]]
+    nodes[0]["rotation"] = q
+    nodes[0]["scale"] = [2.0, 2.0, 2.0]
+    pos = g["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
+    idx = g["meshes"][0]["primitives"][0]["indices"]
+    g["meshes"].append({"primitives": [{"attributes": {"POSITION": pos}, "indices": idx}]})
+    parca = len(nodes)
+    nodes.append({"name": "parca", "mesh": len(g["meshes"]) - 1, "translation": [0.0, h, 0.0]})
+    nodes[eklem].setdefault("children", []).append(parca)   # son eklem dugumu: indeks eklem (0 karakter, 1.. eklemler)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[4] != "--iki-skin"):
+    secenek = sys.argv[4] if len(sys.argv) == 5 else ""
+    if len(sys.argv) not in (4, 5) or secenek not in ("", "--iki-skin", "--fbx-tarzi"):
         sys.exit(__doc__)
-    g, nv, nt = uret(int(sys.argv[1]), int(sys.argv[2]), len(sys.argv) == 5)
+    g, nv, nt = uret(int(sys.argv[1]), int(sys.argv[2]), secenek == "--iki-skin")
+    if secenek == "--fbx-tarzi":
+        fbx_tarzi(g, int(sys.argv[1]))
     with open(sys.argv[3], "w") as f:
         json.dump(g, f)
     print("karakter: %d eklem, %d kose, %d ucgen -> %s" % (int(sys.argv[1]), nv, nt, sys.argv[3]))

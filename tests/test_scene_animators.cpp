@@ -396,3 +396,68 @@ ENGINE_TEST(model_paylasilan_kemikler_her_skine_poz) {
               m.skins[1].joint_count);
   arena().reset_to(mark);
 }
+
+// --- 8) FBX tarzı: kök üstü Armature + kemiğe takılı katı parça (gerçek model: RobotExpressive) ----------------------------------
+// fbx_tarzi_karakter.gltf (make_test_karakter.py --fbx-tarzi): kök eklemin üstünde "Armature" (X -90°, ölçek 2), iskeletli mesh düğümü
+// aynı dönüşümü taşır; son ekleme ÇOCUK "parca" (yerel +h). Kullanıcı 2026-11-16: "kolları kafasına çıkmış, bacakları hareket etmiyor".
+// Kapı: (1) bağ pozunda skin matrisi = Armature dönüşümü (kök üstü dahil) ve iskeletli instance'ın düğüm dönüşümü yok sayılır;
+// (2) parçanın pozlu konumu, zincirin ELLE hesabıyla (A * T R ... * +h, klibin anahtar anında) tutar. KONTROL: aynı pozda takılı
+// olmayan (sabit) konum farklıdır — ölçü kemik bağından geliyor.
+ENGINE_TEST(model_fbx_tarzi_kok_ustu_ve_kati_parca) {
+  char yol[1024];
+  if (!asset_path(yol, sizeof yol, "fbx_tarzi_karakter.gltf")) { skip("tests/assets/fbx_tarzi_karakter.gltf yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.skin_count == 1 && m.clip_count == 3);
+  if (m.skin_count != 1 || m.clip_count != 3) { arena().reset_to(mark); return; }
+  const float h = 0.05f;
+  const uint32_t ne = m.skins[0].joint_count;
+  CHECK(ne == 6 && !m.skins[0].pre_birim);
+  const Quat qa{-0.70710678f, 0.0f, 0.0f, 0.70710678f};
+  const Mat4 A = to_mat4(qa) * Mat4::scale(Vec3{2, 2, 2});
+  auto yakin = [](const Mat4 &a, const Mat4 &b, float e) {
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) if (std::fabs(a.m[c][r] - b.m[c][r]) > e) return false;
+    return true;
+  };
+  int32_t parca = -1, iskeletli = -1;
+  for (uint32_t i = 0; i < m.instance_count; i++) {
+    if (m.meshes[m.instances[i].mesh].skin >= 0) iskeletli = (int32_t)i;
+    else if (m.instances[i].kemik_skin1) parca = (int32_t)i;
+  }
+  CHECK(parca >= 0 && iskeletli >= 0);
+  if (parca < 0 || iskeletli < 0) { arena().reset_to(mark); return; }
+  CHECK(m.instances[parca].kemik_skin1 == 1 && m.instances[parca].kemik == ne - 1);
+  CHECK(yakin(m.instances[iskeletli].world, Mat4{}, 0.0f));   // glTF: iskeletli mesh düğümünün dönüşümü yok sayılır
+  static PoseScratch sc;
+  // (1) bağ pozu: 'yuru' t=0 (kök ötelenmesi 0 = bağ) -> her eklemin skin matrisi = A; parça sabit konumunda
+  ModelPose bag;
+  CHECK(model_pose_evaluate(m, 2, 0.0f, sc, &bag) && bag.skin_mats[0]);
+  bool hepsi_a = true;
+  for (uint32_t j = 0; j < ne && bag.skin_mats[0]; j++) hepsi_a &= yakin(bag.skin_mats[0][j], A, 1e-4f);
+  CHECK(hepsi_a);
+  const Mat4 sabit = model_instance_world(m, m.instances[parca], nullptr, Mat4{});
+  CHECK(yakin(model_instance_world(m, m.instances[parca], &bag, Mat4{}), sabit, 1e-4f));
+  // (2) 'salla' anahtar 15 (t = 0.5 s): eklem j Z ekseninde 0.25 * sin(pi/2 + 0.3 j) radyan
+  const float t = 2.0f * 15.0f / 60.0f;
+  ModelPose p;
+  CHECK(model_pose_evaluate(m, 0, t, sc, &p) && p.skin_mats[0]);
+  Mat4 w = A;
+  for (uint32_t j = 0; j < ne; j++) {
+    const float ang = 0.25f * std::sin(3.14159265f * 0.5f + 0.3f * (float)j);
+    const Quat q{0.0f, 0.0f, std::sin(ang * 0.5f), std::cos(ang * 0.5f)};
+    w = w * Mat4::translate(Vec3{0, j == 0 ? 0.0f : h, 0}) * to_mat4(q);
+  }
+  const Mat4 beklenen = w * Mat4::translate(Vec3{0, h, 0});
+  const Mat4 olculen = model_instance_world(m, m.instances[parca], &p, Mat4{});
+  const float dx = olculen.m[3][0] - beklenen.m[3][0], dy = olculen.m[3][1] - beklenen.m[3][1], dz = olculen.m[3][2] - beklenen.m[3][2];
+  const float sapma = std::sqrt(dx * dx + dy * dy + dz * dz);
+  const float kayma = std::sqrt((olculen.m[3][0] - sabit.m[3][0]) * (olculen.m[3][0] - sabit.m[3][0]) + (olculen.m[3][1] - sabit.m[3][1]) * (olculen.m[3][1] - sabit.m[3][1]) +
+                                (olculen.m[3][2] - sabit.m[3][2]) * (olculen.m[3][2] - sabit.m[3][2]));
+  std::printf("    [bilgi] fbx tarzi: parca pozlu konum (%.4f %.4f %.4f), elle hesap (%.4f %.4f %.4f), sapma %.5f m; sabit konumdan kayma %.4f m\n",
+              (double)olculen.m[3][0], (double)olculen.m[3][1], (double)olculen.m[3][2], (double)beklenen.m[3][0], (double)beklenen.m[3][1],
+              (double)beklenen.m[3][2], (double)sapma, (double)kayma);
+  CHECK(sapma < 2e-3f);
+  CHECK(kayma > 0.05f);   // KONTROL: takılı olmasaydı parça sabit konumda kalırdı
+  arena().reset_to(mark);
+}

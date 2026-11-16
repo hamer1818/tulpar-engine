@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 442 fonksiyon · 842 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 442 fonksiyon · 843 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (65 dosya, 14564 satır)
+### content — L6 (65 dosya, 14640 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -433,7 +433,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (70 dosya, 16012 satır)
+### tools — L7 (70 dosya, 16036 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1096,7 +1096,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **842** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **843** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1125,12 +1125,12 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
+- `model` — 7
 - `timer` — 7
 - `anim` — 6
 - `engine` — 6
 - `gi` — 6
 - `meshlet` — 6
-- `model` — 6
 - `prefab` — 6
 - `rng` — 6
 - `spatial` — 6
@@ -1328,7 +1328,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_rhi.cpp` — 9 test
 - `tests/test_rollback.cpp` — 4 test
 - `tests/test_scene.cpp` — 25 test
-- `tests/test_scene_animators.cpp` — 7 test
+- `tests/test_scene_animators.cpp` — 8 test
 - `tests/test_scene_blob.cpp` — 29 test
 - `tests/test_scene_faz2.cpp` — 1 test
 - `tests/test_sha256.cpp` — 5 test
@@ -1593,6 +1593,7 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8ec** — Özellik tablosunda ilk satırdan ÖNCE çizilen öğe görünmez — ama arayüz sürücüsü onu "var" sayar
 - **8ed** — Yeni varlık uzantısı Android süzgecine eklenmeyince telefonda sessizce yok (8cu'nun tekrarı)
 - **8ee** — Kemikleri ortak birden çok skin — klip tek skin'i sürer, öbür mesh T duruşunda kalır
+- **8ef** — Kemiğe ÇOCUK olarak takılı katı parçalar ve kök üstü Armature — "kollar kafada, bacaklar kıpırdamıyor"
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 

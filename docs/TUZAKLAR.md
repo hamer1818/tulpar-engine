@@ -2644,3 +2644,21 @@ hesaplayınca paylaşan skin'leri de doldurur. Kapı: `model_paylasilan_kemikler
 `make_test_karakter.py --iki-skin`: ikinci skin aynı zinciri TERS sırayla listeler; aynı kemiğin matrisi iki skin'de bit eşit;
 kontrol: eşleme silinince ikinci skin boş). **Kural:** içe aktarma kapısına gerçek araçların (FBX2glTF, Blender, Mixamo) ürettiği
 yapıları da koy — elle üretilmiş test varlığı yalnız bizim varsaydığımız şekli sınar.
+
+### 8ef. Kemiğe ÇOCUK olarak takılı katı parçalar ve kök üstü Armature — "kollar kafada, bacaklar kıpırdamıyor"
+**Belirti:** RobotExpressive oyunda yürürken (8ee düzeltildikten sonra) kollar başın üstünde, bacaklar hareketsizdi (kullanıcı, 2026-11-16).
+Ekran görüntüsünü "hareket ediyor" diye ben geçirmiştim: kare farkı hareketi ölçer, DOĞRU pozu ölçmez.
+
+**Neden (iki ayrı):** (1) Modelin gövde/bacak/kafa/kol parçaları iskeletli DEĞİL; kemik düğümlerinin çocuğu olan katı mesh'ler (yalnız
+eller iskeletli). Yükleyici her mesh'i bağ pozundaki dünya matrisiyle sabit çiziyordu. (2) Kök eklemin üstünde "RobotArmature" (X -90°,
+ölçek 100) var; poz zinciri kök eklemin ebeveyninden başlıyordu, iskeletli eller bu dönüşümü kaybediyordu. Ayrıca FBX2glTF ters bağ
+matrislerini iskeletli MESH DÜĞÜMÜNE göre yazar: bağ pozunda `W * IBM` birim değil, Armature dönüşümüdür — "S bağ pozunda birimdir"
+varsayımıyla yazılan ilk düzeltme parçaları 100 kat büyüttü.
+
+**Düzeltme:** `ModelSkin::pre` (kök üstü dünya matrisi, poz yollarında `model = pre * to_model`); iskeletli mesh düğüm dönüşümü glTF
+kuralıyla yok sayılır; katı parça için yüklemede `kemik_bag = (W_eklem * IBM)^-1 * W_parça`, çizimde `model * C * S * kemik_bag`
+(`model_instance_world`, tek kaynak). Kapı: `model_fbx_tarzi_kok_ustu_ve_kati_parca` (`fbx_tarzi_karakter.gltf`, `--fbx-tarzi`: parçanın
+pozlu konumu zincirin ELLE hesabıyla 0,1 mm içinde; kontrol: sabit konumdan 0,4 m kayar). **Yan hata:** `skins` `alloc_array_zeroed`
+ile ayrıldığı için yeni `pre` alanı SIFIR matris kaldı ve kök üstü düğümü olmayan her iskeletin pozu sıfırlandı — `model_paylasilan`
+kapısı yakaladı; varsayılan artık açıkça yazılıyor (8u ailesi). **Kural:** poz kapısı "hareket var mı"yı değil, bilinen bir pozla
+**sayısal eşitliği** ölçmeli; gerçek model görüntüsünde de kolu/bacağı tek tek gözle.

@@ -74,6 +74,11 @@ struct ModelSkin {
   // pose_from[p] != nullptr: bu skin'in eklem j'si, skin p'nin model uzayindaki pose_from[p][j]. eklemidir (yuklemede dugum
   // kimliginden kurulur; bu skin'in her eklemi p'de olmali). Poz islevleri p'yi hesaplayinca bu skin'i de doldurur.
   uint8_t *pose_from[4] = {};     // [kModelMaxSkins] (asagida static_assert)
+  // KOK USTU DONUSUM (2026-11-16, RobotExpressive): kok eklemin ebeveyni eklem DEGIL ama donusu/olcegi var ("RobotArmature":
+  // X -90 derece, olcek 100 — FBX2glTF izi). glTF'te eklemin dunya donusumu bu atalari da icerir; ters bag matrisleri ona gore.
+  // Poz: model[j] = pre * to_model(...)[j]. Birimse carpilmaz (pre_birim): eski iskeletler bit esit kalir.
+  Mat4 pre;
+  bool pre_birim = true;
 };
 // A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
 // Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).
@@ -140,6 +145,14 @@ struct ModelOptStats {
 struct ModelInstance {
   uint32_t mesh = 0;
   Mat4 world;
+  // KEMIGE TAKILI KATI PARCA (2026-11-16, RobotExpressive: bacak/govde/kafa iskeletli degil, kemik dugumlerinin COCUGU): iskeletsiz
+  // mesh'in atalarinda eklem varsa o eklem. +1 kodlu (0 = yok): alloc_array_zeroed ile kurulan instance "skin 0 eklem 0"a baglanmasin.
+  // Pozla cizimde world = model * C * S[eklem] * kemik_bag, kemik_bag = (W_eklem_bag * IBM)^-1 * W_parca (yuklemede, C'siz). Bag
+  // pozunda S = W_eklem * IBM oldugundan sonuc C * W_parca (sabit cizimle ayni). S bag pozunda BIRIM OLMAK ZORUNDA DEGIL: FBX2glTF
+  // ters bag matrislerini iskeletli MESH DUGUMUNE gore yazar (RobotExpressive'de W*IBM = olcek 100, -90 derece) — ilk deneme
+  // "S birimdir" varsayimiyla parcalari 100 kat buyuttu.
+  uint8_t kemik_skin1 = 0, kemik = 0;
+  Mat4 kemik_bag;
 };
 struct Model {
   ModelImage *images = nullptr;      uint32_t image_count = 0;
@@ -256,6 +269,9 @@ struct PoseMixEntry { uint32_t clip; float time; float weight; };
 bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScratch &scratch, ModelPose *pose, bool lock_root = false);
 // Klibin t anındaki kök (eklem 0) YEREL yatay ötelenmesi (x, z): kök hareketi farkı için. false: geçersiz klip.
 bool model_clip_root_xz(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, float out_xz[2]);
+// Iskeletsiz instance'in bu pozdaki dunya matrisi: kemige takili kati parca kemikle tasinir (ModelInstance::kemik_*), degilse
+// model * inst.world. draw_model bunu kullanir; kapi da (tek kaynak).
+Mat4 model_instance_world(const Model &m, const ModelInstance &inst, const ModelPose *pose, const Mat4 &model);
 
 // LOD secimi: olcut d >= distance1 ise LOD1, d >= distance2 ise LOD2 (varsa).
 // nullptr = hep LOD0.

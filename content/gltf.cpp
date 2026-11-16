@@ -514,6 +514,25 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
     ms.joint_count = jc;
   }
+  // Kok ustu donusum (ModelSkin::pre): ilk (ebeveyn-once) eklemin ebeveyni eklem degilse onun DUNYA matrisi.
+  for (uint32_t si = 0; ok && si < nskin; si++) {
+    ModelSkin &ms = out->skins[si];
+    // VARSAYILAN ACIKCA: skins alloc_array_zeroed ile ayrildi — kurucu CALISMAZ, pre sifir matris / pre_birim false kalir ve kok
+    // ustu dugumu olmayan HER iskeletin pozu sifirlanirdi (kapi model_paylasilan_kemikler yakaladi, 2026-11-16).
+    ms.pre = Mat4{};
+    ms.pre_birim = true;
+    if (!ms.joint_count) continue;
+    const cgltf_node *kok = data->skins[si].joints[skin_order[si][0]];
+    if (!kok->parent) continue;
+    float wm[16];
+    cgltf_node_transform_world(kok->parent, wm);
+    Mat4 pre;
+    for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) pre.m[c][rr] = wm[c * 4 + rr];
+    bool birim = true;
+    for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) if (pre.m[c][rr] != (c == rr ? 1.0f : 0.0f)) birim = false;
+    ms.pre = pre;
+    ms.pre_birim = birim;
+  }
   // Paylasilan kemikler: s'nin HER eklemi (ayni cgltf dugumu) p'de varsa s, p'nin pozundan doldurulabilir (ModelSkin::pose_from).
   for (uint32_t s = 0; ok && s < nskin; s++)
     for (uint32_t p = 0; ok && p < nskin; p++) {
@@ -791,10 +810,31 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     cgltf_node_transform_world(&node, wm);
     Mat4 world;
     for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) world.m[c][rr] = wm[c * 4 + rr]; // glTF sutun-major
+    // Kemige takili kati parca: atalardaki ilk eklem (bizim sira: skin_remap).
+    uint8_t kemik_skin1 = 0, kemik = 0;
+    Mat4 kemik_bag;
+    for (const cgltf_node *a = node.parent; a && !kemik_skin1; a = a->parent) {
+      int32_t gj = -1;
+      const int32_t s = skin_of_node(data, a, &gj);
+      if (s >= 0 && (uint32_t)s < nskin && gj >= 0 && (uint32_t)gj < out->skins[s].joint_count) {
+        kemik_skin1 = (uint8_t)(s + 1);
+        kemik = skin_remap[s][gj];
+        float ew[16];
+        cgltf_node_transform_world(a, ew);
+        Mat4 we;
+        for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) we.m[c][rr] = ew[c * 4 + rr];
+        kemik_bag = inverse_affine(we * out->skins[s].inverse_bind[kemik]) * world;
+      }
+    }
     for (uint32_t k = 0; k < mesh_n[m]; k++) {
       if (ninst >= lim.max_instances) { set_error(out, "instance siniri asildi", nullptr); ok = false; break; }
       out->instances[ninst].mesh = mesh_first[m] + k;
-      out->instances[ninst].world = world;
+      // glTF: iskeletli mesh'i tasiyan dugumun donusumu YOK SAYILIR (eklem dunya donusumleri yeter); iskeletsizde dunya matrisi.
+      const bool iskeletli = out->meshes[mesh_first[m] + k].skin >= 0;
+      out->instances[ninst].world = iskeletli ? Mat4{} : world;
+      out->instances[ninst].kemik_skin1 = iskeletli ? 0 : kemik_skin1;
+      out->instances[ninst].kemik = iskeletli ? 0 : kemik;
+      out->instances[ninst].kemik_bag = kemik_bag;
       extend_bounds(out, world, out->meshes[mesh_first[m] + k].verts, out->meshes[mesh_first[m] + k].vertex_count, &first_bound);
       ninst++;
     }
@@ -1063,6 +1103,12 @@ uint32_t model_clip_morph_weights(const Model &m, uint32_t clip, float time_s, u
   return 0;
 }
 
+// Kok ustu donusum (ModelSkin::pre): to_model'in model uzayi kok eklemin EBEVEYNINE goreydi; dunya donusumu atalari da icerir.
+static void kok_ustu(const ModelSkin &sk, PoseScratch &scratch) {
+  if (sk.pre_birim) return;
+  for (uint32_t j = 0; j < sk.joint_count; j++) scratch.model[j] = sk.pre * scratch.model[j];
+}
+
 // Klibin skin'i (p) hesaplandi (scratch.model = p'nin eklem model matrisleri): ayni kemikleri paylasan obur skin'ler de doldurulur.
 static void paylasan_skinler(const Model &m, uint32_t p, PoseScratch &scratch, ModelPose *pose) {
   for (uint32_t s = 0; s < m.skin_count && s < kModelMaxSkins; s++) {
@@ -1084,6 +1130,7 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
   sim::ClipSampler::sample(mc.clip, time_s, lp);
   sim::Skeleton skel{sk.joints, sk.joint_count};
   sim::ClipSampler::to_model(skel, lp, scratch.model);
+  kok_ustu(sk, scratch);
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[mc.skin]);
   pose->skin_mats[mc.skin] = scratch.skin[mc.skin];
   pose->joint_count[mc.skin] = sk.joint_count;
@@ -1165,6 +1212,7 @@ bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t cl
   }
   sim::Skeleton skel{sk.joints, sk.joint_count};
   sim::ClipSampler::to_model(skel, la, scratch.model);
+  kok_ustu(sk, scratch);
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[ca.skin]);
   pose->skin_mats[ca.skin] = scratch.skin[ca.skin];
   pose->joint_count[ca.skin] = sk.joint_count;
@@ -1198,6 +1246,7 @@ bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScrat
   if (lock_root && sk.joint_count) { la.t[0].x = sk.joints[0].bind_t.x; la.t[0].z = sk.joints[0].bind_t.z; }
   sim::Skeleton skel{sk.joints, sk.joint_count};
   sim::ClipSampler::to_model(skel, la, scratch.model);
+  kok_ustu(sk, scratch);
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[skin]);
   pose->skin_mats[skin] = scratch.skin[skin];
   pose->joint_count[skin] = sk.joint_count;
@@ -1251,6 +1300,15 @@ uint32_t model_lod_level(const ModelLod &lod, Vec3 p) {
   return 0;
 }
 
+Mat4 model_instance_world(const Model &m, const ModelInstance &inst, const ModelPose *pose, const Mat4 &model) {
+  if (inst.kemik_skin1 && pose) {
+    const uint32_t ks = inst.kemik_skin1 - 1u;
+    if (ks < kModelMaxSkins && pose->skin_mats[ks] && inst.kemik < pose->joint_count[ks])
+      return model * m.import_xform * pose->skin_mats[ks][inst.kemik] * inst.kemik_bag;
+  }
+  return model * inst.world;
+}
+
 void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, const Mat4 &model, Vec3 tint,
                 const ModelLod *lod, uint32_t lod_counts[kModelMaxLods + 1], const ModelPose *pose) {
   // A7: modelin kendi esikleri (.ayar) cagiraninkini ezer; biri verilmisse obur cagirandan. lod2 < lod1 olamaz (ayristirici
@@ -1288,15 +1346,17 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
       if (lod_counts) lod_counts[slevel]++;
       continue;
     }
+    // Kemige takili kati parca: pozla birlikte tasinir (bacak, kol, kafa parcalari). Pozsuz/eklemsiz: eskisi gibi sabit.
+    const Mat4 parca_world = (inst.kemik_skin1 && pose) ? model_instance_world(m, inst, pose, model) : world;
     uint32_t level = 0;
     if (lod && u.lod_meshes) {
-      level = model_lod_level(*lod, Vec3{world.m[3][0], world.m[3][1], world.m[3][2]});
+      level = model_lod_level(*lod, Vec3{parca_world.m[3][0], parca_world.m[3][1], parca_world.m[3][2]});
       // Istenen seviye yoksa bir alta dus (LOD2 yoksa LOD1, o da yoksa LOD0).
       while (level > 0 && !u.lod_meshes[inst.mesh * kModelMaxLods + (level - 1)].valid()) level--;
       if (level > 0) mesh = u.lod_meshes[inst.mesh * kModelMaxLods + (level - 1)];
     }
     if (lod_counts) lod_counts[level]++;
-    r.draw(mesh, mh, world, tint);
+    r.draw(mesh, mh, parca_world, tint);
   }
 }
 
