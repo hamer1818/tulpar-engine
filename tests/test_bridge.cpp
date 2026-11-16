@@ -4783,7 +4783,8 @@ ENGINE_TEST(bridge_scene_animator_tetik_param_durum) {
     std::fclose(a);
   }
   static content::SceneDesc desc;
-  desc = content::SceneDesc{};
+  static const content::SceneDesc kBos{};   // `desc = SceneDesc{}` yigitta ~470 KB gecici: Clang -Wframe-larger-than (macOS CI)
+  desc = kBos;
   std::snprintf(desc.assets[0], sizeof desc.assets[0], "kup.gltf");
   desc.asset_count = 1;
   for (int k = 0; k < 2; k++) {

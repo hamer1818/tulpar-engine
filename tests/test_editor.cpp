@@ -253,14 +253,15 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(pf != nullptr); // kontrolun bos olmadiginin kaniti: dizinde glTF olmayan dosya var
   if (pf) std::fclose(pf);
 
-  app::AssetFile files[16];
-  const uint32_t n = app::editor_scan_assets(dir, d, files, 16);
+  static app::AssetFile files[64];   // tests/assets'teki model sayisindan buyuk (16 iken alfabetik 17. olan lod_sphere disarida kaliyordu)
+  const uint32_t n = app::editor_scan_assets(dir, d, files, 64);
   CHECK(n >= 3);
   bool sorted = true, only_gltf = true;
   uint32_t in_scene = 0;
   for (uint32_t i = 0; i < n; i++) {
     if (i && std::strcmp(files[i - 1].name, files[i].name) > 0) sorted = false;
-    if (!ends_with(files[i].name, ".gltf") && !ends_with(files[i].name, ".glb")) only_gltf = false;
+    if (!ends_with(files[i].name, ".gltf") && !ends_with(files[i].name, ".glb") && !ends_with(files[i].name, ".fbx") && !ends_with(files[i].name, ".stl") &&
+        !ends_with(files[i].name, ".obj")) only_gltf = false;   // model uzantilari (madde 4: .fbx)
     if (files[i].in_scene) {
       in_scene++;
       CHECK(files[i].index == 0);
@@ -270,7 +271,11 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(sorted);
   CHECK(only_gltf); // KONTROL: .png / .ktx2 / .sahne listeye girmedi
   CHECK(in_scene == 1);
-  CHECK(app::editor_scan_assets("/yok/boyle/bir/dizin", d, files, 16) == 0); // KONTROL
+  CHECK(app::editor_scan_assets("/yok/boyle/bir/dizin", d, files, 64) == 0); // KONTROL
+  // Kapasite dolunca ALFABETIK ilk N (dosya sistemi sirasindan bagimsiz): 4 kapasiteyle ilk 4 ad, 16'lik taramanin ilk 4'u ile ayni.
+  app::AssetFile dort[4];
+  CHECK(app::editor_scan_assets(dir, d, dort, 4) == 4);
+  for (uint32_t i = 0; i < 4 && i < n; i++) CHECK(!std::strcmp(dort[i].name, files[i].name));
 
   content::SceneHistory h;
   CHECK(h.init(gate_arena(), 32));
@@ -293,7 +298,7 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(std::strcmp(d.entities[d.entity_count - 1].name, ilk_ad) != 0);   // ayni dosyadan ikincisi BASKA ad (_2)
   CHECK(a2 == a && d.asset_count == n_asset + 1); // ayni kaynak tabloya ikinci kez girmez: tek islem
   CHECK(app::editor_add_asset_entity(d, h, "", Vec3{}, nullptr) == 0); // KONTROL
-  const uint32_t n2 = app::editor_scan_assets(dir, d, files, 16);
+  const uint32_t n2 = app::editor_scan_assets(dir, d, files, 64);
   uint32_t marked = 0;
   for (uint32_t i = 0; i < n2; i++)
     if (files[i].in_scene) marked++;

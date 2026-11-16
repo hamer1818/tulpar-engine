@@ -710,7 +710,10 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
     const bool anim = ends_with_ci(nm, ".animator");
     if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj") && !ends_with_ci(nm, ".fbx")) continue;   // M2: STL/OBJ; A3: .animator; madde 4: FBX
     if (std::strlen(nm) >= content::kScenePathLen) continue;
-    if (n >= cap) break;
+    // Dolunca KESMEK yerine alfabetik ilk `cap` tutulur: eskiden ilk `cap` dosya readdir SIRASIYLA aliniyordu ve hangi dosyalarin
+    // listelendigi dosya sistemine bagliydi (2026-11-16: btrfs'te yesil, CI ext4'te .fbx'ler girip lod_sphere disarida kaldi).
+    if (n >= cap && std::strcmp(nm, out[n - 1].name) >= 0) continue;
+    if (n >= cap) n--;   // en sondakini (alfabetik en buyuk) at, yenisi sirali eklenecek
     AssetFile f;
     std::snprintf(f.name, sizeof f.name, "%s", nm);
     f.kind = anim ? AssetKind::Animator : AssetKind::Model;
