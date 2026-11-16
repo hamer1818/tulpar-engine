@@ -136,6 +136,7 @@ struct Onbellek {
 };
 Onbellek g_ob;
 int g_sekme = 0;   // 0 grafik, 1 tablo
+const char *g_etkin = nullptr;   // A8: bu cizimde vurgulanacak durum adi (animator_grafik_ciz suresince)
 
 uint64_t fnv(const char *s) {
   uint64_t h = 1469598103934665603ull;
@@ -319,8 +320,12 @@ bool grafik_ciz(const char *metin, int *git_satir) {
     const ImVec2 p0(merkez[i].x - yari.x, merkez[i].y - yari.y), p1(merkez[i].x + yari.x, merkez[i].y + yari.y);
     const bool ustunde = pencere_ustu && fare.x >= p0.x && fare.x <= p1.x && fare.y >= p0.y && fare.y <= p1.y;
     const bool baslangic = n.durum >= 0 && n.durum == d.start;
-    const ImU32 zemin = n.durum < 0 ? ImGui::GetColorU32(ImGuiCol_FrameBg, 0.6f * alfa) : ImGui::GetColorU32(ImGuiCol_FrameBgHovered, alfa);
+    const bool etkin = n.durum >= 0 && g_etkin && !std::strcmp(g_etkin, d.states[n.durum].name);   // A8: oyunda/önizlemede şu anki durum
+    const ImU32 zemin = n.durum < 0 ? ImGui::GetColorU32(ImGuiCol_FrameBg, 0.6f * alfa)
+                        : etkin     ? renk(Tone::Ok, 0.35f * alfa)
+                                    : ImGui::GetColorU32(ImGuiCol_FrameBgHovered, alfa);
     dl->AddRectFilled(p0, p1, zemin, fs * 0.35f);
+    if (etkin) dl->AddRect(ImVec2(p0.x - 3, p0.y - 3), ImVec2(p1.x + 3, p1.y + 3), renk(Tone::Ok, alfa), fs * 0.45f, 2.0f);
     const ImU32 cerceve = ustunde ? renk(Tone::Accent, alfa) : baslangic ? renk(Tone::Ok, alfa) : n.ulasilamaz ? renk(Tone::Warn, alfa) : renk(Tone::TextDim, alfa);
     dl->AddRect(p0, p1, cerceve, fs * 0.35f, (ustunde || baslangic) ? 2.5f : 1.2f);
     char ad[64];
@@ -379,8 +384,26 @@ bool tablo_ciz(const char *metin, int *git_satir) {
 
 } // namespace
 
-bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir) {
+namespace {
+char g_canli_yol[1024] = {0};
+char g_canli_durum[sim::kAnimNameLen] = {0};
+uint32_t g_dosya_nesli = 0;
+} // namespace
+
+void animator_canli_ayarla(const char *tam_yol, const char *durum) {
+  if (!tam_yol || !durum || !durum[0]) { g_canli_yol[0] = 0; g_canli_durum[0] = 0; return; }
+  std::snprintf(g_canli_yol, sizeof g_canli_yol, "%s", tam_yol);
+  std::snprintf(g_canli_durum, sizeof g_canli_durum, "%s", durum);
+}
+const char *animator_canli_durum(const char *tam_yol) {
+  return (tam_yol && g_canli_yol[0] && !std::strcmp(tam_yol, g_canli_yol)) ? g_canli_durum : nullptr;
+}
+void animator_dosya_kaydedildi() { g_dosya_nesli++; }
+uint32_t animator_dosya_nesli() { return g_dosya_nesli; }
+
+bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, const char *etkin_durum) {
   if (!metin || !git_satir) return false;
+  g_etkin = etkin_durum;
   yenile(metin);
   bool git = false;
   ImGui::BeginChild("##anim_grafik", ImVec2(-FLT_MIN, yukseklik), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
@@ -400,9 +423,14 @@ bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir) {
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Err)), ICON_MD_ERROR " satır %u: %s%s", g_ob.er.line, g_ob.er.msg,
                        g_ob.gecerli_var ? " — son geçerli hâli gösteriliyor" : "");
   }
+  if (g_etkin && g_etkin[0]) {
+    ImGui::SameLine();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(renk(Tone::Ok)), ICON_MD_PLAY_CIRCLE " şu an: %s", g_etkin);
+  }
   if (g_ob.gecerli_var) git = g_sekme == 0 ? grafik_ciz(metin, git_satir) : tablo_ciz(metin, git_satir);
   else if (!g_ob.hatali) ImGui::TextDisabled("durum yok");
   ImGui::EndChild();
+  g_etkin = nullptr;
   return git;
 }
 

@@ -37,6 +37,15 @@ int animator_tanim_satiri(const char *metin, const char *anahtar, const char *ad
 
 // Kod panelinin içinde (çağıranın penceresi) yukseklik piksellik alan çizer. metin değişince yeniden ayrıştırır; hatalıysa SON
 // GEÇERLİ hâli soluk gösterir ve hatayı yazar. Kullanıcı bir düğüme/geçişe tıkladıysa *git_satir doldurulur, true döner.
-bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir);
+// etkin_durum (A8): oyun/önizleme sırasında bu dosyanın seçili varlıktaki GEÇERLİ durumu — düğüm dolu vurgulanır (nullptr/"" = yok).
+bool animator_grafik_ciz(const char *metin, float yukseklik, int *git_satir, const char *etkin_durum = nullptr);
+
+// --- A8: canlı bağ (editör ↔ Kod paneli) ----------------------------------------------------------------------------------------
+// Editör her kare seçili varlığın animatör dosyasını (tam yol) ve geçerli durumunu bildirir; Kod paneli o dosya açıksa vurgular.
+void animator_canli_ayarla(const char *tam_yol, const char *durum);   // nullptr = temizle
+const char *animator_canli_durum(const char *tam_yol);                 // bu dosya için etkin durum, yoksa nullptr
+// Kod panelinde bir .animator kaydedilince artar: editör sahne animatörlerini diskteki yeni hâliyle yeniden bağlar.
+void animator_dosya_kaydedildi();
+uint32_t animator_dosya_nesli();
 
 } // namespace tulpar::engine::app

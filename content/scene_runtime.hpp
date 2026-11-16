@@ -11,6 +11,7 @@
 #include "content/model.hpp"
 #include "content/particles.hpp"
 #include "content/primitives.hpp"
+#include "content/scene_animators.hpp"
 #include "content/scene_blob.hpp"
 #include "content/terrain.hpp"
 #include "content/voxel.hpp"
@@ -87,6 +88,9 @@ struct SceneRuntimeStats {
   // P2 çokgen: mesh'i kurulan / kurulamayan (mesh havuzu dolu ya da geçersiz çokgen -> ÇİZİLMEZ), fizikteki dışbükey parça
   // toplamı ve gövdesi kurulamayan çokgen sayısı (sessiz değil: köprü uyarır).
   uint32_t polys = 0, polys_failed = 0, poly_parts = 0, poly_bodies_failed = 0;
+  // A8 animatorler: baglanan / baglanamayan (dosya yok, bozuk satir, modelde olmayan klip, havuz dolu) + son hatanin metni.
+  uint32_t animators = 0, animators_failed = 0;
+  char animator_error[192] = {0};
 };
 
 class SceneRuntime {
@@ -153,6 +157,8 @@ public:
   // Su anki konum/donus (ezme varsa o, yoksa yazarinki). Dinamik/karakter icin yazarinki: canlisi entity_matrix'te.
   void pose(uint32_t i, Vec3 *pos, Quat *rot) const;
   bool posed(uint32_t i) const { return i < kSceneMaxEntities && posed_[i]; }
+  // A8: sahne animatorleri (salt okunur: gecerli durum adi, otomatik parametreler — kapi ve kopru gostergesi).
+  const SceneAnimators &animators() const { return animators_; }
 
 private:
   SceneBlobView view_;
@@ -166,6 +172,7 @@ private:
   sim::BodyId *char_body_ = nullptr;     // [character_count] ic govde (tetik/isin eslemesi)
   int32_t *ent_char_ = nullptr;          // [entity_count] -> tablo indeksi, -1 yok
   PoseScratch *pose_scratch_ = nullptr;
+  SceneAnimators animators_;   // A8 (sabit diziler: ~100 KB; SceneRuntime hep statik/kalici omurlu)
   SceneRuntimeStats stats_;
   SceneGi gi_; // ok()==false (bake yok) ise apply_world eski davranista kalir
   // --- v6 bilesenleri -------------------------------------------------------

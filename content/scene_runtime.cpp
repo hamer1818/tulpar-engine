@@ -243,6 +243,25 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
     else if (!gpu) stats_.assets_failed++;  // cihaz yok: sayilir, suclanacak dosya yok
     else { stats_.assets_failed++; std::printf("[scene_runtime] kaynak yuklenemedi: %s (%s)\n", path, models_[i].error); }
   }
+  // A8: animatorler (kodsuz). Modeli yuklenmemis varlik atlanir (cizilmiyor zaten); dosya/ayristirma/klip hatasi SAYILIR ve son
+  // hatanin metni stats_.animator_error'da (kopru sahne yuklerken HATA basar) — sessiz "animasyon donuk" degil.
+  animators_.clear();
+  for (uint32_t i = 0; i < view.h->anim_count; i++) {
+    const char *ctrl = view.anim_ctrl(i);
+    if (!ctrl[0]) continue;
+    const uint32_t ent = view.anims[i].entity;
+    const int32_t dr = view.entities[ent].draw;
+    const int32_t as = dr >= 0 ? view.draws[dr].asset : -1;
+    if (as < 0 || (uint32_t)as >= kSceneMaxAssets || !have_[as]) continue;
+    std::snprintf(path, sizeof path, "%s/%s", dir && *dir ? dir : ".", ctrl);
+    sim::AnimatorError er;
+    if (animators_.attach(ent, path, &models_[as], &er)) stats_.animators++;
+    else {
+      stats_.animators_failed++;
+      if (er.line) std::snprintf(stats_.animator_error, sizeof stats_.animator_error, "%s satir %u: %s", ctrl, er.line, er.msg);
+      else std::snprintf(stats_.animator_error, sizeof stats_.animator_error, "%s: %s", ctrl, er.msg);
+    }
+  }
 
   // --- v6: prosedurel bilesenler -------------------------------------------
   // Parcacik havuzu arenadan; init sonrasi ayirma yok (particles.hpp sozlesmesi).
@@ -364,7 +383,16 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
 }
 
 void SceneRuntime::update(float dt, const sim::Physics *ph) {
-  if (!view_.particles || dt <= 0) return;
+  if (dt <= 0) return;
+  // A8: animatorler — hiz/dikey varligin BU adimdaki dunya konumundan (fizik / ezme / yazar), sonra durum makinesi.
+  if (animators_.attached())
+    for (uint32_t i = 0; i < view_.h->anim_count; i++) {
+      const uint32_t ent = view_.anims[i].entity;
+      if (!animators_.has(ent)) continue;
+      const Mat4 m = entity_matrix(ent, ph);
+      animators_.step(ent, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]}, dt);
+    }
+  if (!view_.particles) return;
   // TEK, KALICI uretec (init'te sabit tohum), saat degil: ayni sahne + ayni
   // update dizisi her platformda AYNI parcacik dizisini verir (particles.hpp'nin
   // determinizm sozu). Eskiden her cagri `Rng(++kare)` kuruyordu: xorshift32'nin
@@ -620,7 +648,13 @@ void SceneRuntime::draw(renderer::Renderer &r, Vec3 cam_pos, float time_s, const
     const Model &mdl = models_[d.asset];
     const UploadedModel &up = ups_[d.asset];
     bool drew = false;
-    if (e.anim >= 0 && pose_scratch_) {
+    if (e.anim >= 0 && pose_scratch_ && animators_.has(d.entity)) {   // A8: animator klip/faz/hiz alanlarini EZER
+      ModelPose pose;
+      if (animators_.pose(d.entity, *pose_scratch_, &pose)) {
+        draw_model(r, mdl, up, m, v3(d.tint), &lod, nullptr, &pose);
+        drew = true;
+      }
+    } else if (e.anim >= 0 && pose_scratch_) {
       const SceneBlobAnim &a = view_.anims[e.anim];
       if (a.clip < mdl.clip_count) {
         const float dur = mdl.clips[a.clip].duration;

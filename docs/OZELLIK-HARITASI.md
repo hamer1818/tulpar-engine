@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 439 fonksiyon · 817 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 439 fonksiyon · 836 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -169,7 +169,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7842 satır)
+### renderer — L3 (24 dosya, 7898 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -211,7 +211,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `audio/particle_audio.hpp` — Fiziksel Partikul Sonifikasyonu (Kinetic Particle Sonification).
 - `audio/spatial.hpp` — uzamsal ses: dinleyici bazi, mesafe sonumu, sabit-guc panlama ve
 
-### sim — L4 (55 dosya, 6937 satır)
+### sim — L4 (55 dosya, 7097 satır)
 
 - `sim/ability_system.cpp` — 
 - `sim/ability_system.hpp` — 
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (59 dosya, 13274 satır)
+### content — L6 (65 dosya, 14495 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -296,6 +296,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/meshopt.cpp` — 
 - `content/meshopt.hpp` — mesh optimizasyonu (meshoptimizer, vendored, MIT). Yukleme
 - `content/model.hpp` — bellekteki model: glTF'ten (ya da ileride kendi pack
+- `content/model_import.cpp` — 
+- `content/model_import.hpp` — Model içe aktarma ayarları (M1, docs/MODEL-ANIMASYON-PLANI.md): birim, yukarı eksen, ölçek, sığdırma, pivot.
 - `content/morph.cpp` — 
 - `content/morph.hpp` — Morph target / blend shape karistirma (500 madde listesi #161
 - `content/occlusion.cpp` — 
@@ -307,6 +309,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/particle_module.hpp` — Moduler VFX Boru Hatti ve IParticleModule Bilesen Mimarisi.
 - `content/particle_rvt.hpp` — Kalici Enkaz Birikimi (Nanite Tarzi Persistent World Baking & RVT Splatting).
 - `content/particles.hpp` — CPU tarafli, sabit-kapasiteli parcacik (particle) sistemi.
+- `content/poly.cpp` — 
+- `content/poly.hpp` — Çokgen (P2, docs/MODEL-ANIMASYON-PLANI.md): editörde çizilen XZ çokgeninin yükseltilmiş katı hali.
 - `content/prefab.cpp` — 
 - `content/prefab.hpp` — prefab: sahne alt agacini dosyaya al, baska sahneye ornekle.
 - `content/primitives.cpp` — 
@@ -315,6 +319,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/ribbon.hpp` — Dynamic Ribbon Trail geometry generation.
 - `content/scene.cpp` — 
 - `content/scene.hpp` — Sahne veri modeli + deterministik metin format (.sahne) +
+- `content/scene_animators.cpp` — 
+- `content/scene_animators.hpp` — Sahne animatörleri (A8, "kodsuz animatör"; docs/MODEL-ANIMASYON-PLANI.md).
 - `content/scene_blob.cpp` — 
 - `content/scene_blob.hpp` — Derlenmis sahne (.sahneb): PLAN §6 "sahne bir blob + kod".
 - `content/scene_compile.hpp` — Sahne DERLEYICISI (PLAN Faz 6: "scene compiler: resident set,
@@ -331,7 +337,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (73 dosya, 35804 satır)
+### app — L6 (77 dosya, 37183 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -341,6 +347,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/demo_scene.cpp` — 
 - `app/demo_scene.hpp` — Faz 2 entegre sahnesi, pencereli/headless demo icin: navmesh
 - `app/editor.cpp` — engine_editor — masaustu editor (GLFW dlopen pencere) ya da headless.
+- `app/editor_animator_grafik.cpp` — 
+- `app/editor_animator_grafik.hpp` — Animatör DURUM GRAFİĞİ (A3 kalan, docs/MODEL-ANIMASYON-PLANI.md): Kod panelinde .animator açıkken metnin üstü…
 - `app/editor_app.cpp` — if defined(_WIN32)
 - `app/editor_app.hpp` — Editor: motorun kendisi masaustunde duzenleme kipinde (PLAN L7:
 - `app/editor_betik.cpp` — 
@@ -378,6 +386,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/editor_masaustu.hpp` — masaustu kaydi (docs/EDITOR-UYGULAMA-PLANI.md U7b): uygulama menusu girdisi, ikon,
 - `app/editor_multiedit.cpp` — editor_multiedit: coklu secimde alan duzenlemesini yaymak.
 - `app/editor_multiedit.hpp` — editor_multiedit: coklu secimde alan duzenlemesini yaymak.
+- `app/editor_onizleme.cpp` — 
+- `app/editor_onizleme.hpp` — Kaynaklar karosunda MODEL ÖNİZLEMESİ (M1): GPU'da ikinci bir çizim geçişi açmadan, modelin en kaba LOD üçgenl…
 - `app/editor_overlay.cpp` — 
 - `app/editor_overlay.hpp` — Gorunum (viewport) KAPLAMASI ve KAYNAKLAR (asset) tarayicisi.
 - `app/editor_palette.hpp` — Hızlı Komut ve Varlık Paleti (editor_palette.hpp)
@@ -407,7 +417,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10681 satır)
+### bridge — L6 (11 dosya, 10722 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -421,7 +431,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (70 dosya, 15821 satır)
+### tools — L7 (70 dosya, 15950 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1046,6 +1056,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 ### Editör dosyaları
 
 - `app/editor.cpp` — engine_editor — masaustu editor (GLFW dlopen pencere) ya da headless.
+- `app/editor_animator_grafik.cpp` — 
 - `app/editor_app.cpp` — if defined(_WIN32)
 - `app/editor_betik.cpp` — 
 - `app/editor_camera.cpp` — 
@@ -1064,6 +1075,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `app/editor_layout.cpp` — 
 - `app/editor_masaustu.cpp` — masaustu kaydi (editor_masaustu.hpp).
 - `app/editor_multiedit.cpp` — editor_multiedit: coklu secimde alan duzenlemesini yaymak.
+- `app/editor_onizleme.cpp` — 
 - `app/editor_overlay.cpp` — 
 - `app/editor_props.cpp` — 
 - `app/editor_surucu.cpp` — Arayuz surucusu (editor_surucu.hpp, docs/ARAYUZ-SURUCUSU.md).
@@ -1078,15 +1090,15 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **817** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **836** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
-- `editor` — 126
+- `editor` — 129
 - `bridge` — 70
 - `scene` — 48
 - `renderer` — 37
-- `content` — 29
+- `content` — 31
 - `updater` — 20
 - `audio` — 16
 - `cluster` — 16
@@ -1100,6 +1112,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `files` — 9
 - `multiedit` — 9
 - `rhi` — 9
+- `animator` — 8
 - `console` — 8
 - `platform` — 8
 - `process` — 8
@@ -1108,7 +1121,6 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `frame` — 7
 - `timer` — 7
 - `anim` — 6
-- `animator` — 6
 - `engine` — 6
 - `gi` — 6
 - `meshlet` — 6
@@ -1121,6 +1133,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `fabrika` — 5
 - `gesture` — 5
 - `interp` — 5
+- `model` — 5
 - `morph` — 5
 - `navmesh` — 5
 - `occlusion` — 5
@@ -1143,6 +1156,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `layout` — 4
 - `reflect` — 4
 - `rollback` — 4
+- `sahne` — 4
 - `sph` — 4
 - `voxel` — 4
 - `crash` — 3
@@ -1157,6 +1171,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `indirect` — 3
 - `job` — 3
 - `lockstep` — 3
+- `poly` — 3
 - `profiler` — 3
 - `splat` — 3
 - `surucu` — 3
@@ -1223,7 +1238,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 32 test
+- `tests/test_content.cpp` — 34 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test
@@ -1233,6 +1248,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_ebr.cpp` — 1 test
 - `tests/test_ecs_snapshot.cpp` — 2 test
 - `tests/test_editor.cpp` — 21 test
+- `tests/test_editor_animator_grafik.cpp` — 2 test
 - `tests/test_editor_betik.cpp` — 21 test
 - `tests/test_editor_camera.cpp` — 8 test
 - `tests/test_editor_chrome.cpp` — 12 test
@@ -1243,6 +1259,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_editor_game.cpp` — 7 test
 - `tests/test_editor_masaustu.cpp` — 2 test
 - `tests/test_editor_multiedit.cpp` — 9 test
+- `tests/test_editor_onizleme.cpp` — 1 test
 - `tests/test_editor_overlay.cpp` — 12 test
 - `tests/test_editor_props.cpp` — 12 test
 - `tests/test_editor_surucu.cpp` — 3 test
@@ -1277,6 +1294,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_memory.cpp` — 6 test
 - `tests/test_mesh_import.cpp` — 9 test
 - `tests/test_meshlet_pipeline.cpp` — 6 test
+- `tests/test_model_import.cpp` — 5 test
 - `tests/test_morph.cpp` — 5 test
 - `tests/test_navmesh.cpp` — 5 test
 - `tests/test_neo_riemannian.cpp` — 1 test
@@ -1290,6 +1308,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_particles.cpp` — 25 test
 - `tests/test_perf_hint.cpp` — 2 test
 - `tests/test_physics.cpp` — 17 test
+- `tests/test_poly.cpp` — 3 test
 - `tests/test_prefab.cpp` — 6 test
 - `tests/test_process.cpp` — 8 test
 - `tests/test_profiler.cpp` — 3 test
@@ -1302,6 +1321,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_rhi.cpp` — 9 test
 - `tests/test_rollback.cpp` — 4 test
 - `tests/test_scene.cpp` — 25 test
+- `tests/test_scene_animators.cpp` — 6 test
 - `tests/test_scene_blob.cpp` — 29 test
 - `tests/test_scene_faz2.cpp` — 1 test
 - `tests/test_sha256.cpp` — 5 test
@@ -1562,6 +1582,8 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8dz** — `SetNextWindowPos()` pencereyi dock'tan çıkarır — dock isteği sessizce iptal olur
 - **8ea** — Panel gizlenince onun viewport'una bağlı çizim sürer — gizmo başka sekmenin üstüne çıkar
 - **8eb** — Kanca izi kapısı (`bridge_runs…` 10c2/12) kendinden ÖNCEKİ fizik gövdesi ekle-sil'ine duyarlı
+- **8ec** — Özellik tablosunda ilk satırdan ÖNCE çizilen öğe görünmez — ama arayüz sürücüsü onu "var" sayar
+- **8ed** — Yeni varlık uzantısı Android süzgecine eklenmeyince telefonda sessizce yok (8cu'nun tekrarı)
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 
@@ -1705,11 +1727,13 @@ Kapasiteler init'te alınır; dolunca geçersiz handle döner ve SAYILIR (sessiz
 - `content/font.hpp`: `kFontFallbackCount`=11
 - `content/gi.hpp`: `kGiMaxLights`=64
 - `content/importer.hpp`: `kImportDirLen`=512, `kImportPathLen`=640, `kImportExtLen`=16
-- `content/model.hpp`: `kModelMaxLods`=2, `kModelMaxSkins`=4, `kModelMaxJoints`=128, `kModelMaxMorph`=8, `kModelMaxMorphVerts`=16384
+- `content/model.hpp`: `kModelMaxLods`=2, `kModelMaxSkins`=4, `kModelMaxJoints`=128, `kModelMaxMorphTracks`=4, `kModelMaxMorph`=8, `kModelMaxMorphVerts`=16384
 - `content/pack.hpp`: `kPackMaxName`=255
 - `content/particle_meshlet.hpp`: `kParticleMeshletSize`=64
+- `content/poly.hpp`: `kPolyMaxPoints`=32, `kPolyMaxTris`=4
 - `content/primitives.hpp`: `kPrimitiveSlotCount`=25
-- `content/scene.hpp`: `kSceneMaxEntities`=256, `kSceneMaxAssets`=16, `kSceneNameLen`=32, `kScenePathLen`=128, `kSceneScriptLen`=128, `kSceneMaxDepth`=16, `kSceneMaxProps`=16, `kScenePropNameLen`=24
+- `content/scene.hpp`: `kSceneMaxEntities`=256, `kSceneMaxAssets`=16, `kSceneNameLen`=32, `kScenePathLen`=128, `kSceneScriptLen`=128, `kSceneMaxDepth`=16, `kSceneMaxProps`=16, `kScenePolyMaxPoints`=32, `kScenePropNameLen`=24
+- `content/scene_animators.hpp`: `kSceneAnimMaxClips`=64
 - `content/scene_blob.hpp`: `kGiBlobMaxProbes`=32768, `kSceneBlobParticleMaxSub`=64
 - `content/scene_compile.hpp`: `kSceneDagMaxMeshes`=64
 - `sim/ability_system.hpp`: `kMaxInventorySlots`=16
@@ -1733,6 +1757,7 @@ Kapasiteler init'te alınır; dolunca geçersiz handle döner ve SAYILIR (sessiz
 - `app/editor_console.hpp`: `kConsoleCapacity`=512, `kConsoleMsgLen`=256, `kConsoleTagLen`=16, `kConsoleAliasCount`=2
 - `app/editor_files.hpp`: `kFilePathLen`=1024, `kFileNameLen`=128, `kFileListMax`=512, `kFileCrumbMax`=32, `kFileTreeMaxDepth`=8, `kFileTreeMaxDirs`=128, `kRecentMax`=10
 - `app/editor_layout.hpp`: `kLayoutNameLen`=32, `kLayoutMaxNodes`=32, `kLayoutMaxWindows`=24, `kLayoutMaxBytes`=4096, `kLayoutPanelCount`=7
+- `app/editor_onizleme.hpp`: `kThumbMaxTris`=1024
 - `app/editor_palette.hpp`: `kMaxPaletteResults`=48, `kPaletteQueryLen`=64
 - `app/editor_props.hpp`: `kPropDeclMax`=32, `kPropCacheMax`=8, `kPropScanTextMax`=256
 - `app/editor_update.hpp`: `kUpdPathCap`=1024, `kUpdTestKeptMax`=8

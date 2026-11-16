@@ -1,0 +1,51 @@
+# A8 kodsuz animator (tools/arayuz_kapi.sh): Animasyon kartinda TEK TIK "Animator olustur (otomatik)" -> modelin klip adlarindan
+# (bekle/yuru/kos) <model>.animator yazilir ve nesneye baglanir; kart klip/kip/faz yerine animatoru, gecerli durumu ve "Onizleme hizi"ni
+# gosterir. Hiz 3 m/s -> Durum satiri "hareket · 3.0 m/s" (parametre gercekten suruluyor). Duzenle -> Kod paneli durum grafigi
+# "su an: hareket" vurgusuyla. Kaldir -> olustur dugmesi geri gelir; Ctrl+Z animatoru geri baglar; Ctrl+S sahneye `animator` satiri.
+# POZITIF KONTROL: olusturmadan once "Durum" satiri YOK ve Onizle kapaliyken durum "(baslangic)" — hiz satiri onizlemeden geliyor.
+tikla 66 206
+bekle 3
+tus F
+bekle 5
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "0: bekle"
+metin_yok "hareket (başlangıç)"
+tikla "Animatör oluştur (otomatik)"
+bekle 5
+dogrula_metin "karakter_kup.animator oluştu: bekle=bekle, yürü=yuru, koş=kos"
+dogrula_metin "hareket (başlangıç)"
+metin_yok "0: bekle"
+ekran animator_kart
+tikla "Önizle"
+bekle 3
+cift_tikla 1494 778
+bekle 2
+tus ctrl+a
+yaz "3"
+tus Enter
+bekle 40
+dogrula_metin "hareket · 3.0 m/s"
+ekran animator_hiz3
+tikla "Düzenle"
+bekle_oge "Dış editörde aç"
+bekle 5
+dogrula_metin "şu an: hareket"
+dogrula_metin "1 durum · 0 geçiş · 1 parametre"
+ekran animator_grafik_canli
+tikla "Kaldır"
+bekle 3
+# Animatorsuz kart Klip/Kip/Faz/Hiz satirlariyla uzar: olustur dugmesi panelin gorunur alaninin altina iner -> kaydir.
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "Animatör oluştur (otomatik)"
+dogrula_metin "0: bekle"
+tus ctrl+z
+bekle 3
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "hareket"
+metin_yok "Animatör oluştur (otomatik)"
+tus ctrl+s
+bekle 5
+cik

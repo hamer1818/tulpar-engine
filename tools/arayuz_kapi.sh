@@ -11,6 +11,7 @@
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/model_ayar.txt (M1): Kaynaklar sag tik -> ice aktarma ayarlari, cm canli onizleme, Kaydet .ayar yazar.
 # tests/arayuz/animator_grafik.txt (A3): .animator cift tik -> durum grafigi; etikete tik satira gider; kontrol: kapali -> etiket yok.
+# tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -205,6 +206,21 @@ printf '%s\n' "tulpar-animator 1" "param hiz sayi 0" "param ziplama tetik" "duru
 kos animator_grafik.txt "$AG/ui" --scene "$AG/assets/editor.sahne"; rag=$?
 if [ $rag = 0 ]; then echo "  animator grafigi: 4 durum/4 gecis, kosul etiketi, ulasilamaz uyarisi, etikete tik -> satir 13, tablo, bozuk metinde son gecerli hal (kontrol: grafik kapali -> etiket yok)"
 else echo "  KIRMIZI animator grafigi (cikis $rag):"; grep -E 'HATA|> ' "$AG/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- A8: kodsuz animator (Animasyon karti tek tik -> <model>.animator + bagla, onizleme hizi, Duzenle -> canli grafik, Kaldir/geri al,
+# Ctrl+S sahneye `animator` satiri). Olcut: senaryo cikisi 0 VE dosya yazildi VE sahnede satir var (yalniz senaryo yetmez: Ctrl+S'in
+# dosyaya ne yazdigini senaryo goremez). Kontrol senaryonun icinde: olusturmadan once durum satiri yok.
+A8="$D/anim8"; mkdir -p "$A8"
+cp "$KOK/tests/assets/karakter_kup.gltf" "$A8/"
+printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+  "kamera 0 0.6 0 0.0 0.3 3" 'kaynak "karakter_kup.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 1 1 1" \
+  "  model kaynak 0 1 1 1" "  animasyon 0 0 1 dongu" "son" > "$A8/k.sahne"
+kos animator_otomatik.txt "$A8" --scene "$A8/k.sahne"; ra8=$?
+if [ $ra8 = 0 ] && [ -s "$A8/karakter_kup.animator" ] && grep -q '^  animator "karakter_kup.animator"$' "$A8/k.sahne"; then
+  echo "  kodsuz animator: tek tik olustur+bagla, hiz 3 -> 'hareket · 3.0 m/s', grafikte 'su an', kaldir/geri al, sahnede animator satiri"
+else
+  echo "  KIRMIZI kodsuz animator (cikis $ra8, dosya $([ -s "$A8/karakter_kup.animator" ] && echo var || echo YOK), sahne satiri $(grep -c animator "$A8/k.sahne" 2>/dev/null)):"
+  grep -E 'HATA|> ' "$A8/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1
+fi
 # --- U11 B1: Tercihler (yazi boyu kalici, otomatik kayit, duzen sifirla; tulpar gerekmez) ---
 TR="$D/tercih"; mkdir -p "$TR/ui1" "$TR/ui2" "$TR/ui0" "$TR/ayar"
 cp -r "$KOK/tests/assets" "$TR/assets"

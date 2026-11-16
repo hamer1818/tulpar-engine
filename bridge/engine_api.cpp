@@ -3355,6 +3355,9 @@ int teng_scene_load(const char *path) {
   BINFO("sahne yuklendi: %s — %u varlik, %u cizim, %u isik, %u govde (%u fizige), kaynak %u/%u, ozet %016llx", path, v.h->entity_count, v.h->draw_count,
         v.h->light_count, v.h->body_count, nb, b.srt.stats().assets_loaded, v.h->asset_count, (unsigned long long)v.hash());
   if (b.srt.stats().assets_failed) BERR("sahne: %u kaynak yuklenemedi (dizin %s)", b.srt.stats().assets_failed, b.scene_dir);
+  if (b.srt.stats().animators) BINFO("sahne animatorleri: %u (hiz/dikey hareketten, kodsuz)", b.srt.stats().animators);
+  if (b.srt.stats().animators_failed)   // A8: baglanamayan animator varlik klibine duser — sessiz degil
+    BERR("sahne: %u animator baglanamadi, son hata: %s", b.srt.stats().animators_failed, b.srt.stats().animator_error);
   if (b.srt.stats().materials_failed)
     BERR("sahne: %u cizim kaydinin malzemesi KURULAMADI (renderer malzeme havuzu dolu?) — o varliklar CIZILMEZ (Tuzaklar 8dc)",
          b.srt.stats().materials_failed);

@@ -2608,3 +2608,24 @@ Blok kaldırılınca geçti.
 
 **Kural:** Bu dosyada kanca izi kapısından ÖNCE çalışan yeni test blokları **gövdesiz** varlık kullanmalı (model, ışık); kutu/küre/tetik ekle-sil yalnız
 kapıdan sonra (ya da başka test dosyasında). Kapıyı gevşetme: iki koşumun izi ayrışıyorsa bu gerçek bir belirlenimlilik bulgusu olabilir.
+
+### 8ec. Özellik tablosunda ilk satırdan ÖNCE çizilen öğe görünmez — ama arayüz sürücüsü onu "var" sayar
+**Belirti:** A8 Animasyon kartında "Animatör: …", durum satırı ve Önizle düğmesi ekranda yoktu; `dogrula_metin "Animatör: …"` yine de
+GEÇİYORDU (2026-11-16). Aynı sebeple "Bu modelin animasyonu yok" satırı A1'den beri hiç görünmüyormuş.
+
+**Neden:** `prop_begin` bir ImGui tablosu açar; satırı `prop_label` içindeki `TableNextRow` açar. Tablo içinde ilk `TableNextRow`'dan önce
+çağrılan `Text`/`Button` "satır -1"e düşer ve kırpılır — ama öğe kaydedilir, sürücü metni bulur.
+
+**Düzeltme:** serbest metin/düğme `satir_ac(etiket)` (TableNextRow + sütun 0 etiket + sütun 1) ile kendi satırında; geniş eylem düğmeleri
+tablonun ALTINDA tam genişlik. **Kural:** prop tablosunda `prop_*` dışında bir şey çizeceksen önce satır aç; metin kapısının yanında
+**ekran görüntüsüne bak** — "metin var" görünür demek değil.
+
+### 8ed. Yeni varlık uzantısı Android süzgecine eklenmeyince telefonda sessizce yok (8cu'nun tekrarı)
+**Belirti:** A3 (`.animator`), M1 (`.ayar`), M2 (`.stl .obj .mtl`) masaüstünde çalışıyordu; `bridge/asset_filter.hpp` listesinde YOKTU, yani
+APK'dan çıkarılmıyorlardı: telefonda animatör bağlanamaz, STL/OBJ modeli görünmez olurdu (2026-11-16, A8 sırasında kodda fark edildi; cihazda
+görülmeden).
+
+**Neden:** Uzantı listesi ile içe aktarıcılar ayrı yerde; yeni biçim eklerken liste hatırlanmıyor ve masaüstü kapıları süzgeçten geçmiyor.
+
+**Düzeltme:** uzantılar eklendi + `bridge_android_asset_filter_keeps_every_decodable_audio_format` testine örnek adlar. **Kural:** yeni
+bir varlık biçimi (içe aktarıcı, editör dosyası, oyunun okuduğu metin) = `bridge/asset_filter.hpp` + o testte bir satır, aynı commit'te.

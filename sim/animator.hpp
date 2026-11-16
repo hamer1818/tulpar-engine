@@ -76,6 +76,20 @@ bool animator_parse(const char *text, size_t len, AnimatorDef *out, AnimatorErro
 typedef const char *(*AnimClipNameFn)(void *user, uint32_t clip);
 bool animator_bind(AnimatorDef *def, AnimClipNameFn names, void *user, uint32_t clip_count, AnimatorError *err);
 int32_t animator_param_index(const AnimatorDef &d, const char *name);   // -1 yok
+// Klip yerine `#N` (sıra numarası, #0 ilk) yazılabilir (A8): adı jetona sığmayan klipler için (boşluklu, > 23 karakter:
+// "Armature|mixamo.com|Layer0"). Ardından RAKAM gelen `#` yorum sayılmaz.
+
+// --- A8: kodsuz animatör ----------------------------------------------------------------------------------------------------------
+// Otomatik parametreler: sahnede animatörlü nesnenin hareketinden HER ADIMDA kendiliğinden yazılır (kullanıcı kod yazmaz).
+// Tanımda bu adla bir SAYI parametresi varsa beslenir; yoksa dokunulmaz.
+constexpr const char *kAnimAutoSpeed = "hiz";     // yatay hız (m/s)
+constexpr const char *kAnimAutoVertical = "dikey";   // dikey hız (m/s, yukarı +)
+// Klip adlarından hazır bir animatör metni kurar: bekle / yürü / koş → 'hareket' 1B karışımı (hiz'a göre), zıpla → dikey hızla
+// girilen tek seferlik durum. Tanıma: ad küçük harfe çevrilip alt dize aranır (idle/bekle/stand/breath, walk/yuru/yürü,
+// run/kos/koş/sprint/jog, jump/zipla/zıpla). Hiçbiri tanınmazsa ilk klip 'bekle' olur (döngü). Klip adı jetona sığmazsa `#N` yazılır.
+// Dönüş: yazılan bayt (NUL hariç); 0 = klip yok ya da yer yetmedi. Çıktı animator_parse'tan GEÇER (kapı: animator_otomatik_*).
+struct AnimAutoReport { int32_t idle = -1, walk = -1, run = -1, jump = -1; uint32_t states = 0; };
+uint32_t animator_auto_text(AnimClipNameFn names, void *user, uint32_t clip_count, char *out, uint32_t cap, AnimAutoReport *rep);
 
 struct AnimatorRt {
   float params[kAnimMaxParams] = {};

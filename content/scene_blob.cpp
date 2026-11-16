@@ -73,7 +73,10 @@ Plan plan_of(const SceneDesc &d, const SceneBlobExtras *x) {
   for (uint32_t i = 0; i < d.entity_count; i++) {
     const SceneEntity &e = d.entities[i];
     if (e.components & kSceneModel) p.draws++;
-    if (e.components & kSceneAnim) p.anims++;
+    if (e.components & kSceneAnim) {
+      p.anims++;
+      if (e.anim_ctrl[0]) p.strings += (uint32_t)std::strlen(e.anim_ctrl) + 1;   // v13: intern() muhasebesi (yukaridaki betik notu)
+    }
     if (e.components & kSceneLight) p.lights++;
     if (e.components & kSceneBody) p.bodies++;
     if (e.components & kSceneParticle) p.particles++;
@@ -295,6 +298,7 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
     if (e.components & kSceneAnim) {
       SceneBlobAnim an{};
       an.entity = i; an.clip = e.clip; an.phase = e.phase; an.speed = e.speed; an.mode = e.anim_mode;
+      if (e.anim_ctrl[0]) { an.ctrl = intern(e.anim_ctrl); an.ctrl_len = (uint32_t)std::strlen(e.anim_ctrl); }
       anims[na] = an; be.anim = (int32_t)na++;
     }
     if (e.components & kSceneLight) {
@@ -644,6 +648,9 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
       if (!poly) return E.fail("cizim kaydinda ne kaynak ne ilkel ne cokgen var");
     }
     if (e.anim >= 0 && v.anims[e.anim].entity != i) return E.fail("animasyon tablosu varlikla tutarsiz");
+    if (e.anim >= 0 && v.anims[e.anim].ctrl_len &&
+        (v.anims[e.anim].ctrl >= h->string_size || v.anims[e.anim].ctrl + v.anims[e.anim].ctrl_len >= h->string_size))
+      return E.fail("animator yolu metin disi");
     if (e.light >= 0 && v.lights[e.light].entity != i) return E.fail("isik tablosu varlikla tutarsiz");
     if (e.body >= 0 && v.bodies[e.body].entity != i) return E.fail("govde tablosu varlikla tutarsiz");
   }

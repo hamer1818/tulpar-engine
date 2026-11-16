@@ -13,13 +13,14 @@ void hata(AnimatorError *e, uint32_t satir, const char *fmt, const char *a = "",
   std::snprintf(e->msg, sizeof e->msg, fmt, a, b);
 }
 
-// Satır -> jetonlar (boşlukla ayrılır, '#' yorum). En çok 16 jeton.
+// Satır -> jetonlar (boşlukla ayrılır, '#' yorum). En çok 16 jeton. A8: ardından RAKAM gelen '#' yorum değil, klip numarasıdır
+// (`klip #3`); yorumlar hep '# ' / '#metin' biçiminde (depodaki ve otomatik üretilen dosyalar), yani hiçbiri anlam değiştirmez.
 uint32_t jetonla(char *ln, char *tok[16]) {
   uint32_t n = 0;
   char *p = ln;
   while (*p && n < 16) {
     while (*p == ' ' || *p == '\t' || *p == '\r') p++;
-    if (!*p || *p == '#') break;
+    if (!*p || (*p == '#' && !(p[1] >= '0' && p[1] <= '9'))) break;
     tok[n++] = p;
     while (*p && *p != ' ' && *p != '\t' && *p != '\r') p++;
     if (*p) *p++ = 0;
@@ -264,11 +265,26 @@ bool animator_bind(AnimatorDef *def, AnimClipNameFn names, void *user, uint32_t 
     AnimState &s = def->states[i];
     for (uint32_t k = 0; k < s.point_count; k++) {
       s.points[k].clip = -1;
+      const char *cn = s.points[k].clip_name;
+      if (cn[0] == '#') {   // A8: sıra numarasıyla klip (`#3`) — adı jetona sığmayan klipler (boşluklu, 23 karakterden uzun)
+        uint32_t v = 0, nd = 0;
+        for (const char *q = cn + 1; *q >= '0' && *q <= '9' && nd < 6; q++, nd++) v = v * 10 + (uint32_t)(*q - '0');
+        if (nd == 0 || cn[1 + nd] != 0) { hata(err, 0, "durum '%s': '%s' gecersiz klip numarasi (#0, #1 ...)", s.name, cn); return false; }
+        if (v >= clip_count) {
+          if (err) {
+            err->line = 0;
+            std::snprintf(err->msg, sizeof err->msg, "durum '%s': '%s' klibi yok — modelde %u klip var (#0'dan baslar)", s.name, cn, clip_count);
+          }
+          return false;
+        }
+        s.points[k].clip = (int32_t)v;
+        continue;
+      }
       for (uint32_t c = 0; c < clip_count; c++) {
         const char *nm = names(user, c);
-        if (nm && esit(nm, s.points[k].clip_name)) { s.points[k].clip = (int32_t)c; break; }
+        if (nm && esit(nm, cn)) { s.points[k].clip = (int32_t)c; break; }
       }
-      if (s.points[k].clip < 0) { hata(err, 0, "durum '%s': modelde '%s' adli klip yok", s.name, s.points[k].clip_name); return false; }
+      if (s.points[k].clip < 0) { hata(err, 0, "durum '%s': modelde '%s' adli klip yok", s.name, cn); return false; }
     }
   }
   return true;
@@ -352,6 +368,98 @@ void animator_pose(const AnimatorDef &d, const AnimatorRt &rt, const float *dur,
   } else {
     durum_girdileri(d, rt, rt.cur, rt.cur_phase, dur, nclip, 1.0f, out);
   }
+}
+
+// --- A8: klip adlarından otomatik animatör -------------------------------------------------------------------------------------
+namespace {
+// Küçük harfe çevrilmiş ad içinde alt dize (ASCII; Türkçe harfler UTF-8 baytlarıyla aynen aranır).
+bool ad_icerir(const char *ad, const char *alt) {
+  char kucuk[128];
+  uint32_t i = 0;
+  for (; ad[i] && i + 1 < sizeof kucuk; i++) kucuk[i] = (ad[i] >= 'A' && ad[i] <= 'Z') ? (char)(ad[i] - 'A' + 'a') : ad[i];
+  kucuk[i] = 0;
+  return std::strstr(kucuk, alt) != nullptr;
+}
+bool ad_herhangi(const char *ad, const char *const *altlar) {
+  for (uint32_t i = 0; altlar[i]; i++) if (ad_icerir(ad, altlar[i])) return true;
+  return false;
+}
+// Ad .animator jetonu olarak yazılabilir mi (boşluksuz, '#' ile başlamaz, < kAnimNameLen).
+bool jeton_olur(const char *ad) {
+  if (!ad || !ad[0] || ad[0] == '#' || std::strlen(ad) >= kAnimNameLen) return false;
+  for (const char *p = ad; *p; p++) if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') return false;
+  return true;
+}
+struct Yazici {
+  char *out; uint32_t cap, n = 0; bool tasti = false;
+  void yaz(const char *fmt, const char *a = "", const char *b = "") {
+    if (tasti) return;
+    const int k = std::snprintf(out + n, cap - n, fmt, a, b);
+    if (k < 0 || (uint32_t)k >= cap - n) { tasti = true; return; }
+    n += (uint32_t)k;
+  }
+};
+} // namespace
+
+uint32_t animator_auto_text(AnimClipNameFn names, void *user, uint32_t clip_count, char *out, uint32_t cap, AnimAutoReport *rep) {
+  AnimAutoReport r;
+  if (rep) *rep = r;
+  if (!out || cap < 64 || clip_count == 0) { if (out && cap) out[0] = 0; return 0; }
+  static const char *const kZipla[] = {"jump", "zipla", "z\xC4\xB1pla", "leap", nullptr};
+  static const char *const kKos[] = {"run", "kos", "ko\xC5\x9F", "sprint", "jog", nullptr};
+  static const char *const kYuru[] = {"walk", "yuru", "y\xC3\xBCr\xC3\xBC", nullptr};
+  static const char *const kBekle[] = {"idle", "bekle", "stand", "breath", "rest", nullptr};
+  for (uint32_t c = 0; c < clip_count; c++) {
+    const char *ad = names(user, c);
+    if (!ad || !ad[0]) continue;
+    // Her klip EN ÇOK bir role girer; öncelik zıpla > koş > yürü > bekle ("RunJump" zıplamadır). Rol başına İLK klip.
+    if (ad_herhangi(ad, kZipla)) { if (r.jump < 0) r.jump = (int32_t)c; }
+    else if (ad_herhangi(ad, kKos)) { if (r.run < 0) r.run = (int32_t)c; }
+    else if (ad_herhangi(ad, kYuru)) { if (r.walk < 0) r.walk = (int32_t)c; }
+    else if (ad_herhangi(ad, kBekle)) { if (r.idle < 0) r.idle = (int32_t)c; }
+  }
+  if (r.idle < 0) {   // bekleme klibi yok: rolsüz ilk klip, o da yoksa klip 0
+    for (uint32_t c = 0; c < clip_count && r.idle < 0; c++)
+      if ((int32_t)c != r.walk && (int32_t)c != r.run && (int32_t)c != r.jump) r.idle = (int32_t)c;
+    if (r.idle < 0) r.idle = 0;
+  }
+  // Klip jetonu: ad sığıyorsa ad, sığmıyorsa #N.
+  char jet[4][kAnimNameLen + 8];
+  const int32_t roller[4] = {r.idle, r.walk, r.run, r.jump};
+  for (uint32_t k = 0; k < 4; k++) {
+    jet[k][0] = 0;
+    if (roller[k] < 0) continue;
+    const char *ad = names(user, (uint32_t)roller[k]);
+    if (jeton_olur(ad)) std::snprintf(jet[k], sizeof jet[k], "%s", ad);
+    else std::snprintf(jet[k], sizeof jet[k], "#%d", roller[k]);
+  }
+  Yazici w{out, cap};
+  w.yaz("tulpar-animator 1\n");
+  w.yaz("# Otomatik kuruldu (modelin klip adlarindan). Istedigin gibi degistir: kaydedince sahnede hemen guncellenir.\n");
+  w.yaz("# 'hiz' oyunda nesnenin yatay hizindan (m/s), 'dikey' dikey hizindan KENDILIGINDEN gelir; kod gerekmez.\n");
+  w.yaz("param hiz sayi 0\n");
+  if (r.jump >= 0) w.yaz("param dikey sayi 0\n");
+  const uint32_t nokta = 1 + (r.walk >= 0) + (r.run >= 0);
+  if (nokta >= 2) {
+    w.yaz("durum hareket karisim hiz\n");
+    w.yaz("  nokta 0 %s\n", jet[0]);
+    if (r.walk >= 0) w.yaz("  nokta 1.5 %s\n", jet[1]);
+    if (r.run >= 0) w.yaz(r.walk >= 0 ? "  nokta 4.5 %s\n" : "  nokta 3 %s\n", jet[2]);
+    w.yaz("son\n");
+  } else {
+    w.yaz("durum hareket klip %s dongu\n", jet[0]);
+  }
+  r.states = 1;
+  if (r.jump >= 0) {
+    w.yaz("durum zipla klip %s tek\n", jet[3]);
+    w.yaz("gecis hareket zipla sure 0.1 eger dikey > 1.5\n");
+    w.yaz("gecis zipla hareket sure 0.2 bitince\n");
+    r.states++;
+  }
+  w.yaz("baslangic hareket\n");
+  if (w.tasti) { out[0] = 0; return 0; }
+  if (rep) *rep = r;
+  return w.n;
 }
 
 } // namespace tulpar::engine::sim

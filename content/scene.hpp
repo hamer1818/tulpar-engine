@@ -185,6 +185,10 @@ struct SceneEntity {
   // Calma kipi (A1b, 2026-11-13): 0 ileri-geri (eski varsayilan: dosyada YAZILMAZ, eski sahneler ayni kalir), 1 dongu (yuruyus gibi
   // dongusel klipler), 2 tek (sonda durur). Dosyada `animasyon klip faz hiz [dongu|tek]`.
   uint8_t anim_mode = 0;
+  // Animatör (A8, kodsuz): `.animator` dosyasının sahne dizinine göre yolu; boş = yok (klip/faz/hız/kip çalar). Doluysa durum makinesi
+  // klip alanlarını EZER, `hiz`/`dikey` varlığın hareketinden beslenir (content/scene_animators.hpp). Dosyada `animator "yol"`
+  // (yalnız doluyken: animatörsüz sahnelerin metni bayt bayt aynı).
+  char anim_ctrl[kScenePathLen] = {0};
   // isik
   Vec3 light_color{1, 1, 1};
   float light_intensity = 1, light_radius = 5;
@@ -308,7 +312,8 @@ struct SceneEntity {
 // Tuzaklar 8aw: sizeof alan SIRASI degisimini gormez; burada gormesi
 // gerekmiyor, ikili yerlesime dayanan tuketici yok (.sahneb kendi bicimi).
 // 2026-11-13 (A1b, anim_mode uint8_t, hizalama dolgusuyla +4): 1468 -> 1472 B; yigin cercevesi kapisi (128 KB) derlemede gecti.
-static_assert(sizeof(SceneEntity) == 1736, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
+// 2026-11-16 (A8, anim_ctrl char[128]): 1736 -> 1864 B (SceneDesc 256 kez: +32 KB; gunluk islem basina 2 kez). Yigin kapisi derlemede.
+static_assert(sizeof(SceneEntity) == 1864, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar)
 // + ozellikler (bilesenden bagimsiz, yukarida).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);

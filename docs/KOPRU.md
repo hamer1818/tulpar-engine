@@ -1765,7 +1765,13 @@ Deneme: `~/TulparOyunlari/animasyon_deneme/animator_deneme.tpr` (örnek yerel di
 olay adı (boşsa kuyruk boş; çarpışma kuyruğu kalıbı, callback yok). `durum <ad> klip <klip> ... kok`: klibin kök (eklem 0) yatay (x,z) ötelenmesi varlığı
 yürütür (yaw ile döner, ölçekle çarpılır; dinamik gövdede uygulanmaz) ve poz'dan KİLİTLENİR (karakter yerinde kaymaz, çift hareket yok). Kapılar:
 `animator_olaylar_faz_gecisinde_kuyruga_girer`, `content_kok_hareketi_okuma_ve_kilit`, köprü testi (kök z=2.000, olay 2 adet).
-**Henüz yok:** animatör durum grafiği görünümü, katman maskeleri, IK.
+**A8 (2026-11-16) — sahne animatörü, kodsuz:** `.sahne` varlığında `animator "dosya.animator"` (animasyon satırının ardından, sahne dizinine göre;
+blob v13). `teng_scene_load` onu `SceneRuntime` içinde bağlar ve her sim adımında `hiz` (yatay m/s) ile `dikey`i (m/s) varlığın dünya konumundan
+yazar (fizik, karakter ya da `sahne_konum_ver` ezmesi) — tanımda o adla sayı parametresi varsa. Günlük: `sahne animatorleri: N`; bağlanamayan
+`HATA sahne: N animator baglanamadi, son hata: <dosya satir n: neden>` (varlık klibine düşer). Klip adı yerine `#N` (sıra numarası; ardından rakam
+gelen `#` yorum sayılmaz). Sahne varlığında kök hareketi uygulanmaz (konum fiziğin/yazarındır), olay kuyruğu boşaltılır (okuyan yok).
+Kapılar: `sahne_runtime_animatoru_blobdan_kurar_ve_hareketle_besler`, `sahne_animatorleri_hareketten_hiz_besler`.
+**Henüz yok:** grafikte tıklayarak düzenleme, betikten sahne animatörüne tetik/parametre, katman maskeleri, IK.
 
 ## 20. Kodla mesh (P1, 2026-11-14)
 

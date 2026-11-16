@@ -60,6 +60,8 @@
 // scene_runtime.hpp'de bildirildi) -- editorde gorulen sey oyunda cikan sey
 // olsun diye; ikinci bir geometri kopyasi YOK.
 #include "content/scene_runtime.hpp"
+#include "content/scene_animators.hpp"
+#include "app/editor_animator_grafik.hpp"
 #include "content/terrain.hpp"
 #include "content/voxel.hpp"
 #include "content/water_wave.hpp"
@@ -920,6 +922,114 @@ Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i) {
     if (st.bodies[i].valid() && e.dynamic) return content::scene_body_matrix(e, phys, st.bodies[i]);
   }
   return content::scene_entity_world_matrix(st.scene, i);
+}
+
+// --- A8: kodsuz animator (editor tarafi) -------------------------------------------------------------------------------------------
+// Oyundaki SceneRuntime ile AYNI sinif (content::SceneAnimators): fizik onizlemesinde hiz/dikey varligin canli konumundan, Onizle'de
+// karttaki "Onizleme hizi" kaydiricisindan gelir. Baglar IMZA degisince yeniden kurulur: varlik/dosya/model degisti, Kod panelinde
+// .animator kaydedildi, oynatma ya da onizleme basladi/bitti (her biri baslangic durumundan temiz baslasin).
+content::SceneAnimators g_sahne_anim;
+uint64_t g_sahne_anim_imza = 0;
+float g_anim_onizle_hiz = 0.0f;   // kart kaydiricisi (m/s); yalniz Onizle'de kullanilir
+uint32_t g_anim_hata_sayisi = 0;
+char g_anim_hata[256] = {0};      // son baglama hatasi (kart gosterir)
+uint32_t g_anim_hata_varlik = 0xFFFFFFFFu;
+
+void anim_tam_yol(const EditorState &st, const char *ctrl, char *out, size_t cap) { std::snprintf(out, cap, "%s/%s", st.scene_dir, ctrl); }
+
+uint64_t anim_imza(const EditorState &st) {
+  uint64_t h = 1469598103934665603ull;
+  auto kat = [&](const void *p, size_t n) { const unsigned char *b = static_cast<const unsigned char *>(p); for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ull; } };
+  const uint32_t nesil = animator_dosya_nesli();
+  const uint8_t kip = (uint8_t)((st.playing ? 1 : 0) | (st.anim_onizle ? 2 : 0));
+  kat(&nesil, sizeof nesil);
+  kat(&kip, 1);
+  for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+    const SceneEntity &e = st.scene.entities[i];
+    if (!(e.components & content::kSceneAnim) || !e.anim_ctrl[0] || !(e.components & content::kSceneModel)) continue;
+    kat(&i, sizeof i);
+    kat(&e.asset, sizeof e.asset);
+    kat(e.anim_ctrl, std::strlen(e.anim_ctrl));
+    if (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count) {
+      kat(st.scene.assets[e.asset], std::strlen(st.scene.assets[e.asset]));
+      const uint8_t var = st.have[e.asset] ? 1 : 0;
+      kat(&var, 1);
+    }
+  }
+  return h;
+}
+
+void anim_baglari_tazele(EditorState &st, bool zorla = false) {
+  const uint64_t h = anim_imza(st);
+  if (!zorla && h == g_sahne_anim_imza) return;
+  g_sahne_anim_imza = h;
+  g_sahne_anim.clear();
+  g_anim_hata[0] = 0;
+  g_anim_hata_varlik = 0xFFFFFFFFu;
+  for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+    const SceneEntity &e = st.scene.entities[i];
+    if (!(e.components & content::kSceneAnim) || !e.anim_ctrl[0] || !(e.components & content::kSceneModel)) continue;
+    if (e.asset < 0 || e.asset >= (int32_t)st.scene.asset_count || !st.have[e.asset]) continue;
+    char yol[1200];
+    anim_tam_yol(st, e.anim_ctrl, yol, sizeof yol);
+    sim::AnimatorError er;
+    if (g_sahne_anim.attach(i, yol, &st.models[e.asset], &er)) continue;
+    g_anim_hata_sayisi++;
+    if (er.line) std::snprintf(g_anim_hata, sizeof g_anim_hata, "%s, sat\xC4\xB1r %u: %s", e.anim_ctrl, er.line, er.msg);
+    else std::snprintf(g_anim_hata, sizeof g_anim_hata, "%s: %s", e.anim_ctrl, er.msg);
+    g_anim_hata_varlik = i;
+    console_log(ConsoleLevel::Hata, kConsoleTagScene, "animat\xC3\xB6r ba\xC4\x9Flanamad\xC4\xB1 (%s): %s \xE2\x80\x94 nesne klibine d\xC3\xBC\xC5\x9F" "er",
+                e.name, g_anim_hata);
+  }
+}
+
+// Oynatma (fizik onizlemesi) tiki: konumdan hiz/dikey. Onizleme: kaydiricidan. Oynatma/onizleme yoksa animator baslangic pozunda durur.
+void anim_adim_oynat(EditorState &st, const sim::Physics &phys, float dt) {
+  if (!g_sahne_anim.attached()) return;
+  for (uint32_t i = 0; i < st.scene.entity_count; i++) {
+    if (!g_sahne_anim.has(i)) continue;
+    const Mat4 m = live_matrix(st, phys, i);
+    g_sahne_anim.step(i, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]}, dt);
+  }
+}
+void anim_adim_onizle(const EditorState &st, float dt) {
+  if (!g_sahne_anim.attached()) return;
+  for (uint32_t i = 0; i < st.scene.entity_count; i++)
+    if (g_sahne_anim.has(i)) g_sahne_anim.step_params(i, g_anim_onizle_hiz, 0.0f, dt);
+}
+
+// Modelin klip adlarindan otomatik animator: sahne dizininde <model>.animator. Dosya ZATEN varsa yeniden yazilmaz, baglanir (ayni
+// modeli kullanan ikinci karakter ayni animatoru paylasir; kullanicinin duzenledigi dosya ezilmez). Donus: anim_ctrl'e yazilacak ad.
+bool anim_otomatik_olustur(EditorState &st, uint32_t ent, char *ad_out, size_t cap, char *mesaj, size_t mcap) {
+  const SceneEntity &e = st.scene.entities[ent];
+  if (e.asset < 0 || e.asset >= (int32_t)st.scene.asset_count || !st.have[e.asset]) { std::snprintf(mesaj, mcap, "model y\xC3\xBCklenmedi"); return false; }
+  const content::Model &m = st.models[e.asset];
+  if (m.clip_count == 0) { std::snprintf(mesaj, mcap, "bu modelin animasyon klibi yok"); return false; }
+  // <model adi, uzantisiz>.animator (yol bilesenleri atilir: dosya sahne dizinine yazilir, Kaynaklar orada listeler)
+  const char *kaynak = st.scene.assets[e.asset];
+  const char *son = std::strrchr(kaynak, '/');
+  const char *taban = son ? son + 1 : kaynak;
+  char kok[content::kScenePathLen];
+  std::snprintf(kok, sizeof kok, "%s", taban);
+  if (char *nokta = std::strrchr(kok, '.')) *nokta = 0;
+  if (!kok[0]) std::snprintf(kok, sizeof kok, "karakter");
+  std::snprintf(ad_out, cap, "%.100s.animator", kok);
+  char yol[1200];
+  anim_tam_yol(st, ad_out, yol, sizeof yol);
+  if (file_exists(yol)) { std::snprintf(mesaj, mcap, "mevcut %s ba\xC4\x9Fland\xC4\xB1", ad_out); return true; }
+  static char metin[8192];
+  sim::AnimAutoReport rap;
+  const uint32_t n = content::animator_auto_text_model(m, metin, sizeof metin, &rap);
+  if (!n) { std::snprintf(mesaj, mcap, "animat\xC3\xB6r metni kurulamad\xC4\xB1"); return false; }
+  std::FILE *f = std::fopen(yol, "wb");
+  if (!f) { std::snprintf(mesaj, mcap, "yaz\xC4\xB1lamad\xC4\xB1: %s", yol); return false; }
+  const bool ok = std::fwrite(metin, 1, n, f) == n;
+  std::fclose(f);
+  if (!ok) { std::snprintf(mesaj, mcap, "yaz\xC4\xB1lamad\xC4\xB1: %s", yol); return false; }
+  auto ad = [&](int32_t c) { return c >= 0 ? m.clips[c].name : "-"; };
+  std::snprintf(mesaj, mcap, "%s olu\xC5\x9Ftu: bekle=%s, y\xC3\xBCr\xC3\xBC=%s, ko\xC5\x9F=%s, z\xC4\xB1pla=%s", ad_out, ad(rap.idle), ad(rap.walk),
+                ad(rap.run), ad(rap.jump));
+  return true;
 }
 // Varlik listesini degistiren islemler (ekle/sil/geri al/yinele) oynarken
 // govde indekslerini kaydirir: once govdeler cikar, sonra yeniden girer.
@@ -4571,7 +4681,18 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     was_playing = st.playing;
 
     if (st.playing) st.anim_onizle = false;
-    else if (st.anim_onizle) st.anim_onizle_t += dt;
+    anim_baglari_tazele(st);   // A8: imza degistiyse (dosya/varlik/oynatma) yeniden bagla
+    if (!st.playing && st.anim_onizle) { st.anim_onizle_t += dt; anim_adim_onizle(st, dt); }
+    {   // A8: Kod panelindeki durum grafigi secili varligin GECERLI durumunu vurgular (yalniz zaman akarken)
+      const int32_t ps = st.sel.primary();
+      if ((st.playing || st.anim_onizle) && ps >= 0 && g_sahne_anim.has((uint32_t)ps)) {
+        char yol[1200];
+        anim_tam_yol(st, st.scene.entities[ps].anim_ctrl, yol, sizeof yol);
+        animator_canli_ayarla(yol, g_sahne_anim.state_name((uint32_t)ps));
+      } else {
+        animator_canli_ayarla(nullptr, nullptr);
+      }
+    }
     // Sim: yalniz oynatilirken (sabit adim). Duraklatilmisken zaman AKMAZ ama
     // govdeler yerinde durur; F10 tek adim ilerletir. fs.advance duraklamada
     // cagrilmaz — yoksa birikmis zaman devam edince bir anda bosalirdi.
@@ -4581,12 +4702,14 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       for (uint32_t t = 0; t < ticks; t++) {
         scene.tick(fs.step_s, tick_i++);
         st.play_time += fs.step_s;
+        anim_adim_oynat(st, phys, fs.step_s);   // A8
         st.rewind.record(phys, tick_i, st.play_time);
       }
     } else if (st.playing && st.paused && st.step_request && !st.play_embedded) {
       ENGINE_ZONE("sim");
       scene.tick(fs.step_s, tick_i++);
       st.play_time += fs.step_s;
+      anim_adim_oynat(st, phys, fs.step_s);   // A8
       st.rewind.record(phys, tick_i, st.play_time);
       st.step_request--;
       fs.advance(dt); // biriken zamani YUT: adim adim ilerlerken geri kalmasin
@@ -6419,13 +6542,55 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         if (has_a) {
           act = ComponentCardAction::None;
           if (begin_component_card("\xE2\x86\xBB", "Animasyon", content::kSceneAnim, nullptr, &act, true, Tone::Accent)) {
+            // A1: klip secici + oynatmadan onizleme + zaman cubugu (eskiden yalniz Faz/Hiz vardi ve klip secilemiyordu).
+            // A8: animator (kodsuz durum makinesi) baglaninca klip/kip/faz/hiz gizlenir: animator onlari EZER, gostermek yaniltirdi.
+            // Serbest metin/dugme TABLO SATIRINDA cizilir (satir_ac): prop tablosunda ilk satirdan once cizilen oge GORUNMEZ (olculdu
+            // 2026-11-16, arayuz surucusu: metin "var" ama ekranda yoktu — "Bu modelin animasyonu yok" satiri da boyleydi).
+            const content::Model *am = (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset]) ? &st.models[e.asset] : nullptr;
+            const uint32_t nclip = am ? am->clip_count : 0;
+            const bool kontrol = e.anim_ctrl[0] != 0 && nclip > 0;
+            bool anim_olustur = false, anim_duzenle = false, anim_kaldir = false;
             if (prop_begin("anim")) {
-              // A1: klip secici + oynatmadan onizleme + zaman cubugu (eskiden yalniz Faz/Hiz vardi ve klip secilemiyordu).
-              const content::Model *am = (e.asset >= 0 && e.asset < (int32_t)st.scene.asset_count && st.have[e.asset]) ? &st.models[e.asset] : nullptr;
-              const uint32_t nclip = am ? am->clip_count : 0;
               float dur = 0.0f;
+              auto satir_ac = [](const char *etiket) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(tone(Tone::TextDim), "%s", etiket);
+                ImGui::TableSetColumnIndex(1);
+              };
+              auto onizle_dugmesi = [&]() {
+                const bool onizle = st.anim_onizle;
+                if (ImGui::Button(onizle ? ICON_MD_PAUSE " Durdur##anim_onizle" : ICON_MD_PLAY_ARROW " \xC3\x96nizle##anim_onizle")) {
+                  st.anim_onizle = !onizle;
+                  if (st.anim_onizle) st.anim_onizle_t = 0.0f;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Oynat'a bas\xC4\xB1" "madan sahnedeki t\xC3\xBCm animasyonlu modelleri oynat\xC4\xB1r (\xC3\xB6nizleme; Oynat ba\xC5\x9F" "lay\xC4\xB1nca kapan\xC4\xB1r)");
+              };
               if (nclip == 0) {
-                ImGui::TextColored(tone(Tone::TextMute), "Bu modelin animasyonu yok (ya da kaynak yok).");
+                satir_ac("Klip");
+                ImGui::TextColored(tone(Tone::TextMute), "Bu modelin animasyonu yok");
+              } else if (kontrol) {
+                satir_ac("Animat\xC3\xB6r");
+                ImGui::TextColored(tone(Tone::Ok), ICON_MD_ACCOUNT_TREE " %s", e.anim_ctrl);
+                if (g_sahne_anim.has((uint32_t)si)) {
+                  satir_ac("Durum");
+                  if (st.playing || st.anim_onizle)
+                    ImGui::Text("%s \xC2\xB7 %.1f m/s", g_sahne_anim.state_name((uint32_t)si), (double)g_sahne_anim.param((uint32_t)si, sim::kAnimAutoSpeed));
+                  else
+                    ImGui::TextColored(tone(Tone::TextMute), "%s (ba\xC5\x9Flang\xC4\xB1\xC3\xA7)", g_sahne_anim.state_name((uint32_t)si));
+                } else if (g_anim_hata_varlik == (uint32_t)si && g_anim_hata[0]) {
+                  satir_ac("Hata");
+                  ImGui::PushTextWrapPos(0.0f);
+                  ImGui::TextColored(tone(Tone::Err), ICON_MD_ERROR " %s", g_anim_hata);
+                  ImGui::PopTextWrapPos();
+                }
+                satir_ac("");
+                onizle_dugmesi();
+                // Onizleme hizi: oyunda 'hiz' hareketten gelir; burada elle denenir. Surukleyince onizleme kendiliginden baslar.
+                prop_help("Oyunda bu de\xC4\x9F" "er nesnenin ger\xC3\xA7" "ek h\xC4\xB1z\xC4\xB1ndan kendili\xC4\x9Finden gelir (kod gerekmez). "
+                          "Burada s\xC3\xBCr\xC3\xBCkleyerek bekle \xE2\x86\x92 y\xC3\xBCr\xC3\xBC \xE2\x86\x92 ko\xC5\x9F ge\xC3\xA7i\xC5\x9Fini g\xC3\xB6r.");
+                if (prop_float("\xC3\x96nizleme h\xC4\xB1z\xC4\xB1", &g_anim_onizle_hiz, 0.05f, 0.0f, 8.0f, "%.1f m/s").changed && !st.playing) st.anim_onizle = true;
               } else {
                 static char klip_adlari[32 * 66 + 2];
                 size_t kn = 0;
@@ -6451,19 +6616,77 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                   after.anim_mode = (uint8_t)mod;
                   commit(st, si, after);
                 }
-                const bool onizle = st.anim_onizle;
-                if (ImGui::Button(onizle ? ICON_MD_PAUSE " Durdur##anim_onizle" : ICON_MD_PLAY_ARROW " \xC3\x96nizle##anim_onizle")) {
-                  st.anim_onizle = !onizle;
-                  if (st.anim_onizle) st.anim_onizle_t = 0.0f;
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Oynat'a bas\xC4\xB1" "madan sahnedeki t\xC3\xBCm animasyonlu modelleri oynat\xC4\xB1r (\xC3\xB6nizleme; Oynat ba\xC5\x9F" "lay\xC4\xB1nca kapan\xC4\xB1r)");
+                onizle_dugmesi();
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_MD_SKIP_PREVIOUS "##anim_basa")) { st.anim_onizle_t = 0.0f; after = e; after.phase = 0.0f; commit(st, si, after); }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ba\xC5\x9F" "a sar (faz = 0)");
+                track_edit(st, e, si, prop_float("An / Faz (s)", &e.phase, 0.01f, 0.0f, dur > 0.0f ? dur : 10.0f, "%.2f"));
+                track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.speed, 0.01f, 0.0f, 10.0f, "%.2f"));
+                // Sahne dizinindeki mevcut animatorler (Kaynaklar taramasi): biri secilirse baglanir.
+                uint32_t na = 0;
+                for (uint32_t k = 0; k < st.browse_count; k++) na += st.browse[k].kind == AssetKind::Animator ? 1 : 0;
+                if (na && nclip >= 2) {
+                  static char an_adlari[EditorState::kBrowseCap * (content::kScenePathLen + 1) + 32];
+                  int32_t an_idx[EditorState::kBrowseCap + 1];
+                  size_t an = (size_t)std::snprintf(an_adlari, sizeof an_adlari, "(yok \xE2\x80\x94 klip \xC3\xA7" "alar)") + 1;
+                  uint32_t ai = 0;
+                  an_idx[ai++] = -1;
+                  for (uint32_t k = 0; k < st.browse_count && an + content::kScenePathLen + 2 < sizeof an_adlari; k++) {
+                    if (st.browse[k].kind != AssetKind::Animator) continue;
+                    an += (size_t)std::snprintf(an_adlari + an, sizeof an_adlari - an - 1, "%s", st.browse[k].name) + 1;
+                    an_idx[ai++] = (int32_t)k;
+                  }
+                  an_adlari[an] = 0;
+                  int sec = 0;
+                  prop_help("Sahne klas\xC3\xB6r\xC3\xBC" "ndeki bir .animator dosyas\xC4\xB1n\xC4\xB1 bu nesneye ba\xC4\x9Flar");
+                  if (prop_combo("Animat\xC3\xB6r", &sec, an_adlari).changed && sec > 0 && (uint32_t)sec < ai) {
+                    after = e;
+                    std::snprintf(after.anim_ctrl, sizeof after.anim_ctrl, "%s", st.browse[an_idx[sec]].name);
+                    commit(st, si, after);
+                    set_status(st, "animat\xC3\xB6r ba\xC4\x9Fland\xC4\xB1: %s", after.anim_ctrl);
+                  }
+                }
               }
-              track_edit(st, e, si, prop_float("An / Faz (s)", &e.phase, 0.01f, 0.0f, dur > 0.0f ? dur : 10.0f, "%.2f"));
-              track_edit(st, e, si, prop_float("H\xC4\xB1z", &e.speed, 0.01f, 0.0f, 10.0f, "%.2f"));
               prop_end();
+            }
+            // Tam genislik eylem dugmeleri tablonun ALTINDA (dar deger sutununda kirpiliyorlardi: "Animator olustur (o").
+            if (kontrol) {
+              const float yarim = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+              anim_duzenle = ImGui::Button(ICON_MD_EDIT " D\xC3\xBCzenle##anim_duzenle", ImVec2(yarim, 0));
+              if (ImGui::IsItemHovered()) ImGui::SetTooltip("Durum grafi\xC4\x9Fiyle Kod panelinde a\xC3\xA7" "ar; kaydedince sahnede hemen g\xC3\xBCncellenir");
+              ImGui::SameLine();
+              anim_kaldir = ImGui::Button(ICON_MD_LINK_OFF " Kald\xC4\xB1r##anim_kaldir", ImVec2(yarim, 0));
+              if (ImGui::IsItemHovered()) ImGui::SetTooltip("Nesneyi animat\xC3\xB6rden ay\xC4\xB1r\xC4\xB1r; dosya silinmez (geri al: Ctrl+Z)");
+            } else if (nclip >= 2) {
+              anim_olustur = ImGui::Button(ICON_MD_AUTO_AWESOME " Animat\xC3\xB6r olu\xC5\x9Ftur (otomatik)##anim_oto", ImVec2(-FLT_MIN, 0));
+              if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Klip adlar\xC4\xB1ndan bekle / y\xC3\xBCr\xC3\xBC / ko\xC5\x9F / z\xC4\xB1pla d\xC3\xBCzenini kurar.\n"
+                                  "Oyunda nesne h\xC4\xB1zland\xC4\xB1k\xC3\xA7" "a klipler kendili\xC4\x9Finden de\xC4\x9Fi\xC5\x9Fir \xE2\x80\x94 kod gerekmez.");
+            }
+            if (anim_duzenle) {
+              char tam[1200];
+              anim_tam_yol(st, e.anim_ctrl, tam, sizeof tam);
+              kod.anim_grafik = true;
+              if (kodu_ac(nullptr, tam, 0)) set_status(st, "animat\xC3\xB6r Kod panelinde: %s (durum grafi\xC4\x9Fi \xC3\xBCstte)", e.anim_ctrl);
+            }
+            if (anim_kaldir) {
+              after = e;
+              after.anim_ctrl[0] = 0;
+              commit(st, si, after);
+              set_status(st, "animat\xC3\xB6r kald\xC4\xB1r\xC4\xB1ld\xC4\xB1 (dosya duruyor): nesne yine se\xC3\xA7ili klibi \xC3\xA7" "alar");
+            }
+            if (anim_olustur) {   // A8: kodsuz animator — tek tik. Klip adlarindan bekle/yuru/kos/zipla; 'hiz' oyunda hareketten gelir.
+              char ad[content::kScenePathLen], mesaj[400];
+              if (anim_otomatik_olustur(st, (uint32_t)si, ad, sizeof ad, mesaj, sizeof mesaj)) {
+                after = e;
+                std::snprintf(after.anim_ctrl, sizeof after.anim_ctrl, "%s", ad);
+                commit(st, si, after);
+                rescan_browse(st);
+                set_status(st, "animat\xC3\xB6r: %s", mesaj);
+                console_log(ConsoleLevel::Bilgi, kConsoleTagScene, "animat\xC3\xB6r (%s): %s", e.name, mesaj);
+              } else {
+                set_status(st, "animat\xC3\xB6r olu\xC5\x9Fturulamad\xC4\xB1: %s", mesaj);
+              }
             }
             end_component_card();
           }
@@ -10465,7 +10688,13 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         content::ModelLod lod;
         lod.set_view(camera_eye(cam), cam.target, cam.fov_y); // gorus derinligi (Tuzaklar 8cy)
         lod.distance1 = 24.0f; lod.distance2 = 34.0f;
-        if ((e.components & content::kSceneAnim) && e.clip < mdl.clip_count) {
+        if ((e.components & content::kSceneAnim) && g_sahne_anim.has(i)) {   // A8: animator klip/faz/hiz alanlarini EZER (oyundaki gibi)
+          content::ModelPose pose;
+          if (g_sahne_anim.pose(i, st.pose_scratch, &pose)) {
+            content::draw_model(ren, mdl, up, m, tint, &lod, nullptr, &pose);
+            drew = true;
+          }
+        } else if ((e.components & content::kSceneAnim) && e.clip < mdl.clip_count) {
           const float dur = mdl.clips[e.clip].duration;
           const float zt = st.playing ? st.play_time : (st.anim_onizle ? st.anim_onizle_t : 0.0f);   // A1: oynatmadan onizleme
           const float t = content::scene_anim_time(e.anim_mode, zt * e.speed + e.phase, dur);

@@ -586,6 +586,8 @@ bool kod_kaydet(KodPaneli &k, char *err, uint32_t err_cap) {
   k.kirli = false;
   k.dis_degisti = false;
   platform::fs_file_stamp(k.yol, &k.damga, &k.boy);
+  const size_t yl = std::strlen(k.yol);
+  if (yl >= 9 && !std::strcmp(k.yol + yl - 9, ".animator")) animator_dosya_kaydedildi();   // A8: sahne animatorleri yeniden baglanir
   return true;
 }
 
@@ -1550,7 +1552,7 @@ KodEylem kod_paneli_ciz(KodPaneli &k, const char *secili_ad, bool secilide_bu) {
       if (k.anim_grafik) {
         const float h = std::max(ImGui::GetFontSize() * 9.0f, ImGui::GetContentRegionAvail().y * 0.45f);
         int gs = 0;
-        if (animator_grafik_ciz(k.metin, h, &gs)) { k.git_satir = gs; k.git_sutun = 0; k.git_adim = 0; }
+        if (animator_grafik_ciz(k.metin, h, &gs, animator_canli_durum(k.yol))) { k.git_satir = gs; k.git_sutun = 0; k.git_adim = 0; }
       }
     }
   }
