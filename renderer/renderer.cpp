@@ -2636,6 +2636,33 @@ void Renderer::draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4
   stats_.skin_verts += meshes_[mesh.id].vert_count;
 }
 
+uint32_t Renderer::skin_palette(const Mat4 *joints, uint32_t n) {
+  if (!joints || n == 0) return kNoPalette;
+  if (skin_count_ + n > cfg_.max_skin_matrices) { stats_.skin_dropped++; return kNoPalette; }
+  std::memcpy(static_cast<Mat4 *>(skin_mem_[frame_].mapped) + skin_count_, joints, sizeof(Mat4) * n);
+  const uint32_t off = skin_count_;
+  skin_count_ += n;
+  return off;
+}
+
+void Renderer::draw_skinned_palette(MeshHandle mesh, MaterialHandle material, const Mat4 &model, Vec3 color, uint32_t palette,
+                                    const Mat4 *prev_model, float reactive) {
+  if (!mesh.valid() || mesh.id >= mesh_count_ || !meshes_[mesh.id].skinned || palette == kNoPalette || palette >= skin_count_) {
+    stats_.dropped++;
+    return;
+  }
+  if (!material.valid() || material.id >= material_count_) material = default_material_;
+  if (draw_count_ >= cfg_.max_draws) { stats_.dropped++; return; }
+  const Vec3 mc = materials_[material.id].color;
+  const Vec3 lc = srgb_to_linear(color);
+  draws_[draw_count_++] = Draw{mesh.id,     material.id,
+                               model,       Vec3{lc.x * mc.x, lc.y * mc.y, lc.z * mc.z},
+                               palette,     prev_model ? *prev_model : model,
+                               reactive,    kNoBatch, draw_shadow_};
+  stats_.skin_draws++;
+  stats_.skin_verts += meshes_[mesh.id].vert_count;
+}
+
 void Renderer::record(VkCommandBuffer cb) {
   if (!post_.enabled) { record_scene(cb); return; }
   // post: sahne ZATEN ic HDR hedefine cizildi (record_shadow icinde). Burada

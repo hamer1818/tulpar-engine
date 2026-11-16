@@ -659,7 +659,8 @@ ENGINE_TEST(model_siniri_bekleme_klibinin_ilk_karesinden) {
     if (gltf_load(buyuk, tani, &m)) {
       Vec3 blo, bhi;
       poz_siniri(m, nullptr, &blo, &bhi);
-      std::printf("    [olcum] %s: sinir (klip %d) %.2f x %.2f x %.2f m | bag pozu %.2f x %.2f x %.2f\n", tani, m.bounds_clip,
+      std::printf("    [olcum] %s: %u klip, %u eklem; sinir (klip %d) %.2f x %.2f x %.2f m | bag pozu %.2f x %.2f x %.2f\n", tani, m.clip_count,
+                  m.skin_count ? m.skins[0].joint_count : 0, m.bounds_clip,
                   (double)(m.bounds_max.x - m.bounds_min.x), (double)(m.bounds_max.y - m.bounds_min.y), (double)(m.bounds_max.z - m.bounds_min.z),
                   (double)(bhi.x - blo.x), (double)(bhi.y - blo.y), (double)(bhi.z - blo.z));
     }

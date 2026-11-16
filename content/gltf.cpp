@@ -541,15 +541,39 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
   const cgltf_node *kume[kModelMaxJoints];
   uint32_t kn = 0;
   bool birlesik = false;
-  if (ok && gskin_n >= 1) {
+  // DUGUM ANIMASYONU (2026-11-16, Khronos InterpolationTest; Mike'in silah klipleri): animasyon kanali (konum/donus/olcek) hicbir skin'in
+  // eklemi OLMAYAN bir dugumu suruyorsa (kapi, pervane, silah) o dugum de birlesik iskelete girer — skin hic olmasa da. Ters bagi bag
+  // pozundaki dunyasinin tersi; mesh'i o dugumde ya da altinda olan iskeletsiz parca "kemige takili" cizilir: W_poz * W_bag^-1 * W_mesh.
+  // Eskiden bu klipler "ne iskelete ne morph'a bagli" diye SESSIZCE atlaniyordu.
+  auto eklem_mi = [&](const cgltf_node *nd) {
+    for (uint32_t gs = 0; gs < gskin_n; gs++)
+      for (cgltf_size j = 0; j < data->skins[gs].joints_count; j++) if (data->skins[gs].joints[j] == nd) return true;
+    return false;
+  };
+  uint32_t dugum_anim_n = 0;
+  for (cgltf_size a = 0; ok && a < data->animations_count; a++)
+    for (cgltf_size c = 0; c < data->animations[a].channels_count; c++) {
+      const cgltf_animation_channel &ch = data->animations[a].channels[c];
+      // Tek anahtarli (sure 0) kanal hareket etmez ve klibi zaten atlanir (Mike'in silah "Action"lari): iskeleti boşuna buyutmesin.
+      const bool hareketli = ch.sampler && ch.sampler->input && ch.sampler->input->count >= 2;
+      if (ch.target_node && hareketli && ch.target_path != cgltf_animation_path_type_weights && !eklem_mi(ch.target_node)) dugum_anim_n++;
+    }
+  if (ok && (gskin_n >= 1 || dugum_anim_n > 0)) {
     bool sigdi = true;
     auto var_mi = [&](const cgltf_node *nd) { for (uint32_t i = 0; i < kn; i++) if (kume[i] == nd) return true; return false; };
     auto ekle = [&](const cgltf_node *nd) { if (var_mi(nd)) return; if (kn >= kModelMaxJoints) { sigdi = false; return; } kume[kn++] = nd; };
     for (uint32_t gs = 0; gs < gskin_n; gs++)
       for (cgltf_size j = 0; j < data->skins[gs].joints_count; j++) ekle(data->skins[gs].joints[j]);
+    for (cgltf_size a = 0; dugum_anim_n && a < data->animations_count; a++)
+      for (cgltf_size c = 0; c < data->animations[a].channels_count; c++) {
+        const cgltf_animation_channel &ch = data->animations[a].channels[c];
+        if (ch.target_node && ch.sampler && ch.sampler->input && ch.sampler->input->count >= 2 && ch.target_path != cgltf_animation_path_type_weights)
+          ekle(ch.target_node);
+      }
     uint32_t kok = 0;
     for (uint32_t i = 0; i < kn && sigdi; i++) if (!kume[i]->parent || !var_mi(kume[i]->parent)) kok++;
-    if (sigdi && (gskin_n >= 2 || kok > 1)) {
+    if (!sigdi && dugum_anim_n) std::snprintf(out->note, sizeof out->note, "animasyonlu d\xC3\xBC\xC4\x9F\xC3\xBCm say\xC4\xB1s\xC4\xB1 %u eklemi a\xC5\x9F\xC4\xB1yor: d\xC3\xBC\xC4\x9F\xC3\xBCm animasyonu oynamaz", kModelMaxJoints);
+    if (sigdi && (gskin_n >= 2 || kok > 1 || dugum_anim_n > 0)) {
       const uint32_t eklem_n = kn;
       for (uint32_t i = 0; i < eklem_n && sigdi; i++)
         for (const cgltf_node *a = kume[i]->parent; a && sigdi; a = a->parent) ekle(a);
@@ -601,7 +625,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     const uint32_t jc = birlesik ? kn : (uint32_t)data->skins[si].joints_count;
     if (jc > kModelMaxJoints) { set_error(out, "eklem siniri asildi (128)", data->skins[si].name); ok = false; break; }
     if (!birlesik && data->skins[si].name) std::snprintf(ms.name, sizeof ms.name, "%s", data->skins[si].name);
-    if (birlesik) std::snprintf(ms.name, sizeof ms.name, "birlesik (%u skin)", gskin_n);
+    if (birlesik) std::snprintf(ms.name, sizeof ms.name, gskin_n ? "birlesik (%u skin)" : "d\xC3\xBC\xC4\x9F\xC3\xBCm animasyonu", gskin_n);
     ms.joints = arena.alloc_array_zeroed<sim::Joint>(jc ? jc : 1);
     ms.inverse_bind = arena.alloc_array_zeroed<Mat4>(jc ? jc : 1);
     skin_nodes[si] = arena.alloc_array_zeroed<const cgltf_node *>(jc ? jc : 1);
@@ -984,10 +1008,11 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     cgltf_node_transform_world(&node, wm);
     Mat4 world;
     for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) world.m[c][rr] = wm[c * 4 + rr]; // glTF sutun-major
-    // Kemige takili kati parca: atalardaki ilk eklem (bizim sira: skin_remap).
+    // Kemige takili kati parca: kendisi ya da atalardaki ilk eklem (bizim sira).
     uint8_t kemik_skin1 = 0, kemik = 0;
     Mat4 kemik_bag;
-    for (const cgltf_node *a = node.parent; a && !kemik_skin1; a = a->parent) {
+    // Dugumun KENDISI de eklem olabilir (dugum animasyonu: pervane mesh'i kendi dugumunde donar).
+    for (const cgltf_node *a = &node; a && !kemik_skin1; a = a->parent) {
       int32_t kk = -1;
       const int32_t s = bizim_eklem(a, &kk);
       if (s >= 0 && kk >= 0) {
@@ -1507,6 +1532,9 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
     ml = model_lod_effective(m, *lod);
     lod = &ml;
   }
+  uint32_t palet[kModelMaxSkins];
+  bool palet_denendi[kModelMaxSkins] = {};
+  for (uint32_t s = 0; s < kModelMaxSkins; s++) palet[s] = renderer::Renderer::kNoPalette;
   for (uint32_t i = 0; i < m.instance_count; i++) {
     const ModelInstance &inst = m.instances[i];
     if (inst.mesh >= u.mesh_count) continue;
@@ -1528,10 +1556,15 @@ void draw_model(renderer::Renderer &r, const Model &m, const UploadedModel &u, c
         while (slevel > 0 && !u.lod_meshes[inst.mesh * kModelMaxLods + (slevel - 1)].valid()) slevel--;
         if (slevel > 0) mesh = u.lod_meshes[inst.mesh * kModelMaxLods + (slevel - 1)];
       }
-      if (pose && (uint32_t)skin < kModelMaxSkins && pose->skin_mats[skin])
-        r.draw_skinned(mesh, mh, world, tint, pose->skin_mats[skin], pose->joint_count[skin]);
-      else if ((uint32_t)skin < m.skin_count)   // glTF bag pozu (bind_mats; yuklemeden gelmeyen elle kurulu modelde birim)
-        r.draw_skinned(mesh, mh, world, tint, m.skins[skin].bind_mats ? m.skins[skin].bind_mats : kBindPose, m.skins[skin].joint_count);
+      // Palet skin basina BIR KEZ yuklenir, ayni skin'i kullanan butun mesh'ler paylasir (Renderer::skin_palette).
+      if ((uint32_t)skin < kModelMaxSkins && (uint32_t)skin < m.skin_count) {
+        if (palet[skin] == renderer::Renderer::kNoPalette && !palet_denendi[skin]) {
+          palet_denendi[skin] = true;
+          if (pose && pose->skin_mats[skin]) palet[skin] = r.skin_palette(pose->skin_mats[skin], pose->joint_count[skin]);
+          else palet[skin] = r.skin_palette(m.skins[skin].bind_mats ? m.skins[skin].bind_mats : kBindPose, m.skins[skin].joint_count);   // glTF bag pozu
+        }
+        r.draw_skinned_palette(mesh, mh, world, tint, palet[skin]);
+      }
       if (lod_counts) lod_counts[slevel]++;
       continue;
     }

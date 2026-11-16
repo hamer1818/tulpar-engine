@@ -1798,6 +1798,35 @@ ENGINE_TEST(render_skin_matris_tavani_sayilir) {
   ren.draw_skinned(lodm, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
   ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 10);
   CHECK(ren.stats().skin_draws == 2 && ren.stats().skin_verts == 2 + 3);
+  // PAYLAŞILAN PALET (2026-11-16, Fab "Mike": 52 mesh x 88 eklem her mesh için yeniden kopyalanıyordu; 4 Mike tavanı aştı, sonuncunun
+  // kolu SESSİZCE çizilmedi). skin_palette bir kez yükler; 5 mesh aynı ofsetle çizilir -> 60 matris. KONTROL: aynı 5 çizim eski
+  // draw_skinned ile 100'lük tavanı aşar (yalnız 1'i sığar); geçersiz palet çizilmez, sayılır.
+  ren.begin_frame(0);
+  const uint32_t pal = ren.skin_palette(joints, 60);
+  CHECK(pal == 0);
+  for (int k = 0; k < 5; k++) ren.draw_skinned_palette(mesh, mat, Mat4::identity(), {1, 1, 1}, pal);
+  CHECK(ren.skin_matrices_used() == 60 && ren.stats().skin_draws == 5 && ren.stats().skin_dropped == 0);
+  const uint32_t d0 = ren.stats().dropped;
+  ren.draw_skinned_palette(mesh, mat, Mat4::identity(), {1, 1, 1}, renderer::Renderer::kNoPalette);
+  CHECK(ren.stats().dropped == d0 + 1 && ren.stats().skin_draws == 5);
+  CHECK(ren.skin_palette(joints, 60) == renderer::Renderer::kNoPalette && ren.stats().skin_dropped == 1);   // 120 > 100: palet de sayilir
+  ren.begin_frame(0);
+  for (int k = 0; k < 5; k++) ren.draw_skinned(mesh, mat, Mat4::identity(), {1, 1, 1}, joints, 60);   // KONTROL: eski yol
+  CHECK(ren.stats().skin_draws == 1 && ren.stats().skin_dropped == 4);
+  // draw_model: iki mesh'i tek (birlesik) iskelete bagli gercek model -> palet BIR KEZ (eklem sayisi kadar matris).
+  char yol[512];
+  if (asset_path(yol, sizeof yol, "iki_skin_karakter.gltf")) {
+    static content::Model im;
+    im = content::Model{};
+    content::UploadedModel up;
+    CHECK(content::gltf_load(sys, yol, &im) && im.skin_count == 1 && content::upload_model(ren, sys, im, &up));
+    uint32_t iskeletli = 0;
+    for (uint32_t i = 0; i < im.instance_count; i++) iskeletli += im.meshes[im.instances[i].mesh].skin >= 0;
+    ren.begin_frame(0);
+    content::draw_model(ren, im, up, Mat4::identity(), {1, 1, 1});
+    std::printf("    [bilgi] paylasilan palet: %u iskeletli mesh, %u eklem -> %u matris yuklendi\n", iskeletli, im.skins[0].joint_count, ren.skin_matrices_used());
+    CHECK(iskeletli >= 2 && ren.skin_matrices_used() == im.skins[0].joint_count && ren.stats().skin_draws == iskeletli);
+  }
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }

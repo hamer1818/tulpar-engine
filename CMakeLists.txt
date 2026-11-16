@@ -524,6 +524,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_model_import.cpp
     tests/test_animator.cpp
     tests/test_scene_animators.cpp
+    tests/test_khronos_ornekleri.cpp
     tests/test_scene.cpp
     tests/test_scene_blob.cpp
     tests/test_render_graph.cpp

@@ -2721,3 +2721,19 @@ kare süresinin ~1,7 ms'si sabit gönder/bekle. **Düzeltme:** `offscreen_render
 kontrol GPU geçiş süresiyle (0,02 → 0,18 ms, 7 kat); damga yoksa (MoltenVK aynı değeri verir) duvar saati. **Kural:** iş miktarı iddiası
 iş süresiyle ölçülür (GPU damgası), sabit maliyeti içeren duvar saatiyle değil.
 
+
+### 8el. Aynı iskeleti paylaşan mesh'ler paleti her çizimde yeniden yükler — tavan aşılır, son karakterin kolu yok olur
+**Belirti:** Mike'ın düğüm animasyonu eklemleri iskeleti 77'den 88 ekleme büyütünce 4 Mike'lı sahnede sonuncunun el sallayan kolu
+kayboldu (2026-11-16, başsız editör karesi). Yükleyicinin pozu iki durumda köşe köşe aynıydı — sorun çizimdeydi.
+**Neden:** `draw_model` her iskeletli mesh için `draw_skinned(..., joints, n)` çağırıyor, o da n matrisi kare SSBO'suna KOPYALIYORDU.
+Mike 52 mesh: 52 x 88 x 4 = 18.304 > 16.384 tavan; taşan çizim `skin_dropped` sayılıyordu ama editörde kimse okumuyordu. 77 eklemde 16.016
+— sınırın hemen altında, yani hata ilk bağlamada bile kıl payı saklanıyordu.
+**Düzeltme:** `Renderer::skin_palette` (bir kez yükle) + `draw_skinned_palette` (ofsetle çiz); `draw_model` skin başına bir palet. Mike
+başına 88 matris (52 kat az). Kapı: `render_skin_matris_tavani_sayilir` (5 mesh = 60 matris; kontrol: eski yolla 1'i sığar; gerçek model
+`draw_model` -> eklem sayısı kadar). **Kural:** "sayılır" bir tavan editörde görünmüyorsa sessizdir; ve paylaşılan veriyi paylaş.
+
+### 8em. İskeletsiz düğüm animasyonu (kapı, pervane) sessizce atlanıyordu
+**Belirti:** Khronos InterpolationTest'in 9 klibinin hiçbiri yüklenmiyordu ("ne iskelete ne morph'a bağlı: atla (bilgi)"); Mike'ın göz /
+kaş / ayak IK düğümleri de oynamıyordu. **Düzeltme:** hareketli TRS kanalının hedeflediği eklem olmayan düğümler birleşik iskelete girer
+(skin olmasa da); mesh kendi düğümü ya da atası eklemse kemiğe takılı çizilir (`W_poz * W_bag^-1 * W_mesh`). Tek anahtarlı (süre 0)
+kanallar sayılmaz. Kapı: `khronos_dugum_animasyonu_oynar` (9/9 klip parçayı oynatır; kontrol: pozsuz = sabit dünya).

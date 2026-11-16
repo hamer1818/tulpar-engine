@@ -536,6 +536,13 @@ public:
   // matrisi). Kare SSBO'suna kopyalanir; kapasite asimi sayilir (dropped).
   void draw_skinned(MeshHandle mesh, MaterialHandle material, const Mat4 &model, Vec3 color, const Mat4 *joints,
                     uint32_t n, const Mat4 *prev_model = nullptr, float reactive = 0.0f);
+  // Paylasilan palet (2026-11-16, Fab "Mike": 52 mesh ayni iskeleti kullanir; draw_skinned her mesh icin 88 matrisi YENIDEN kopyaliyordu
+  // -> 4 Mike = 18304 matris > 16384 tavan, sonuncunun kolu SESSIZCE cizilmedi). skin_palette bir kez yukler (donus: ofset, ~0u = yer
+  // yok, skin_dropped sayilir); ayni pozu paylasan mesh'ler draw_skinned_palette ile o ofseti kullanir.
+  static constexpr uint32_t kNoPalette = ~0u;
+  uint32_t skin_palette(const Mat4 *joints, uint32_t n);
+  void draw_skinned_palette(MeshHandle mesh, MaterialHandle material, const Mat4 &model, Vec3 color, uint32_t palette,
+                            const Mat4 *prev_model = nullptr, float reactive = 0.0f);
   uint32_t skin_matrices_used() const { return skin_count_; }
   // Golge gecisi: KENDI render pass'ini acar/kapatir. Ana render pass BASLAMADAN
   // once cagrilir (cizim listesi dolu olmali).
