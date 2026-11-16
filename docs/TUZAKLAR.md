@@ -2699,3 +2699,11 @@ ayarsız 1,5 m ve ayakta; cm tahmini tetiklenmez. Pozsuz Mike yine yatık: bu do
 göre doğru. Kapı: `model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni` (bind_mats = pre·to_model(bağ TRS)·IBM; kontrol: fbx_tarzi'de
 birimden 2,0 sapar). **Kural:** bir varsayım bir yolda yanlış çıkınca (8ef) aynı varsayımı kullanan BÜTÜN yolları ara — çizim, sınır,
 seçim kutusu, birim tahmini. Ve "boyut doğru" özeti çizimi doğrulamaz: kareye bak.
+
+### 8ei. Dosyanın UV kanalı 0 tamamen sıfır — model düz renk, hiçbir hata yok
+**Belirti:** Mike (8eg/8eh) dokuları yüklü, malzeme doğru, ama robot düz parlak mavi (2026-11-16, başsız editör yakın çekimi).
+**Neden:** Unreal → glTF dönüşümü (FAB) `TEXCOORD_0`'ı bütün köşelerde (0,0) yazmış, gerçek UV `TEXCOORD_1`'de; malzeme kanal 0'ı
+istiyor. Her köşe dokunun tek pikselini örnekliyordu. Yükleyici ayrıca malzemenin `texCoord` alanına bakmadan ilk UV kanalını alıyordu.
+**Düzeltme:** `uv_kanali`: önce renk dokusunun istediği kanal; o kanal dejenereyse (hepsi aynı) dejenere olmayan öbür kanal, sayılır ve
+`Model::note`'a yazılır. Kapı: `gltf_dejenere_uv_kanali_digerine_duser` (kontrol: kanallar yer değişince kanal 0 olduğu gibi, not yok).
+**Kural:** yükleme özeti "doku var" demek dokunun GÖRÜNDÜĞÜ demek değil — gerçek modelde yakın çekime bak.

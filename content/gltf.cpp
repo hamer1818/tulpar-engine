@@ -90,6 +90,40 @@ const cgltf_accessor *find_attr(const cgltf_primitive &p, cgltf_attribute_type t
   return nullptr;
 }
 
+// UV KANALI (2026-11-16, Fab "Mike": Unreal donusumu TEXCOORD_0'i TAMAMEN SIFIR yazmis, gercek UV TEXCOORD_1'de; malzeme kanal 0'i
+// istiyor -> her kose dokunun tek pikselini ornekliyor, model duz renk). Once malzemenin renk dokusunun istedigi kanal (glTF
+// textureInfo.texCoord); o kanal dejenereyse (butun koseler ayni deger) ve dejenere olmayan baska kanal varsa o — sayilir, not'a yazilir.
+bool uv_dejenere(const cgltf_accessor *a) {
+  if (!a || a->count < 2) return false;
+  float f0[2] = {0, 0};
+  cgltf_accessor_read_float(a, 0, f0, 2);
+  for (cgltf_size i = 1; i < a->count; i++) {
+    float f[2] = {0, 0};
+    cgltf_accessor_read_float(a, i, f, 2);
+    if (f[0] != f0[0] || f[1] != f0[1]) return false;
+  }
+  return true;
+}
+const cgltf_accessor *uv_kanali(const cgltf_primitive &p, uint32_t *degisti) {
+  int istenen = 0;
+  if (p.material && p.material->has_pbr_metallic_roughness && p.material->pbr_metallic_roughness.base_color_texture.texture)
+    istenen = p.material->pbr_metallic_roughness.base_color_texture.texcoord;
+  const cgltf_accessor *sec = nullptr, *ilk = nullptr;
+  for (cgltf_size i = 0; i < p.attributes_count; i++) {
+    if (p.attributes[i].type != cgltf_attribute_type_texcoord) continue;
+    if (!ilk) ilk = p.attributes[i].data;
+    if (p.attributes[i].index == istenen) sec = p.attributes[i].data;
+  }
+  if (!sec) sec = ilk;
+  if (!sec || !uv_dejenere(sec)) return sec;
+  for (cgltf_size i = 0; i < p.attributes_count; i++)
+    if (p.attributes[i].type == cgltf_attribute_type_texcoord && p.attributes[i].data != sec && !uv_dejenere(p.attributes[i].data)) {
+      if (degisti) (*degisti)++;
+      return p.attributes[i].data;
+    }
+  return sec;
+}
+
 // Dugumun yerel TRS'si (matrix verilmisse ayristirilir: olcek sutun boyu,
 // donus normalize 3x3'ten quaternion).
 Quat quat_from_cols(const float c0[3], const float c1[3], const float c2[3]) {
@@ -774,6 +808,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
   uint32_t *mesh_first = arena.alloc_array_zeroed<uint32_t>(data->meshes_count ? data->meshes_count : 1);
   uint32_t *mesh_n = arena.alloc_array_zeroed<uint32_t>(data->meshes_count ? data->meshes_count : 1);
   uint32_t mi = 0;
+  uint32_t uv_kanal_degisti = 0;   // dejenere UV kanali yerine digeri kullanilan primitif sayisi (Model::note)
   for (cgltf_size m = 0; ok && m < data->meshes_count; m++) {
     mesh_first[m] = mi;
     for (cgltf_size p = 0; p < data->meshes[m].primitives_count; p++) {
@@ -781,7 +816,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       if (prim.type != cgltf_primitive_type_triangles) continue;
       const cgltf_accessor *pos = find_attr(prim, cgltf_attribute_type_position);
       const cgltf_accessor *nrm = find_attr(prim, cgltf_attribute_type_normal);
-      const cgltf_accessor *uv = find_attr(prim, cgltf_attribute_type_texcoord);
+      const cgltf_accessor *uv = uv_kanali(prim, &uv_kanal_degisti);
       if (!pos) { set_error(out, "POSITION yok", data->meshes[m].name); ok = false; break; }
       ModelMesh &mm = out->meshes[mi];
       mm.skin = -1; // alloc_array_zeroed: varsayilan kurucu CALISMAZ (0 = "skin 0" olurdu; cokme goruldu)
@@ -959,6 +994,11 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
   }
   out->instance_count = ok ? ninst : 0;
+  if (ok && uv_kanal_degisti) {
+    const size_t nl = std::strlen(out->note);
+    std::snprintf(out->note + nl, sizeof out->note - nl, "%s%u mesh'te UV kanal\xC4\xB1 bo\xC5\x9F (hep ayn\xC4\xB1 de\xC4\x9F" "er): di\xC4\x9F" "er kanal kullan\xC4\xB1ld\xC4\xB1",
+                  nl ? " \xC2\xB7 " : "", uv_kanal_degisti);
+  }
   cgltf_free(data);
   return ok;
 }
