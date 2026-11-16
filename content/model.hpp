@@ -186,6 +186,7 @@ struct Model {
   // kac yeni ORM goruntusu uretildi / kac malzemede yapilamadi.
   uint32_t occlusion_merged = 0, occlusion_unmerged = 0;
   char error[160] = {0};
+  int32_t bounds_clip = -1;   // sinirlar hangi klibin ilk karesinden (bekleme klibi); -1 = bag pozu / iskeletsiz
   char note[160] = {0};   // BAŞARILI içe aktarmada bilgi notu (örn. OBJ: doku haritası desteklenmedi); konsol özeti yazar
 };
 

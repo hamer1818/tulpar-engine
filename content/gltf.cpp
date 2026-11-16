@@ -261,14 +261,14 @@ void extend_bounds(Model *out, const Mat4 &world, const renderer::Vertex *v, uin
   }
 }
 
-void extend_bounds_skinned(Model *out, const ModelSkin &sk, const renderer::SkinnedVertex *v, uint32_t n, bool *first) {
+void extend_bounds_skinned(Model *out, const Mat4 *mats, uint32_t joint_count, const renderer::SkinnedVertex *v, uint32_t n, bool *first) {
   for (uint32_t i = 0; i < n; i++) {
     Vec3 q{0, 0, 0};
     float ws = 0;
     for (int c = 0; c < 4; c++) {
       const float w = v[i].weights[c] * (1.0f / 65535.0f);
-      if (w <= 0 || v[i].joints[c] >= sk.joint_count) continue;
-      q = q + transform_point(sk.bind_mats[v[i].joints[c]], v[i].pos) * w;
+      if (w <= 0 || v[i].joints[c] >= joint_count) continue;
+      q = q + transform_point(mats[v[i].joints[c]], v[i].pos) * w;
       ws += w;
     }
     if (ws <= 0) q = v[i].pos;
@@ -952,6 +952,30 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
   uint32_t ninst = 0;
   out->instances = arena.alloc_array_zeroed<ModelInstance>(lim.max_instances);
   bool first_bound = true;
+  // SINIR POZU (2026-11-16, Fab "Mike"): animasyonlu modelde sinirlar BEKLEME klibinin ilk karesinden (adinda "idle" gecen en kisa
+  // klip, yoksa klip 0). Dinlenme (bag) pozu dosyadan dosyaya keyfi: Mike'ta yatik, sinir 0,39 m boy x 1,26 m derinlik -> editorde F
+  // odagi, taban pivotu, secim kutusu, birim tahmini hepsi yanlis olcuye bakiyordu. Klip yoksa / iskelete bagli degilse bag pozu.
+  const size_t poz_mark = arena.mark();
+  PoseScratch *poz_sc = nullptr;
+  ModelPose sinir_poz;
+  bool sinir_pozlu = false;
+  if (ok && out->clip_count) {
+    int32_t sec = -1;
+    size_t sec_boy = (size_t)-1;
+    for (uint32_t c = 0; c < out->clip_count; c++) {
+      char k[64];
+      uint32_t i = 0;
+      for (; out->clips[c].name[i] && i + 1 < sizeof k; i++) { const char ch = out->clips[c].name[i]; k[i] = (ch >= 'A' && ch <= 'Z') ? (char)(ch - 'A' + 'a') : ch; }
+      k[i] = 0;
+      if (out->clips[c].clip && out->clips[c].skin >= 0 && std::strstr(k, "idle") && i < sec_boy) { sec = (int32_t)c; sec_boy = i; }
+    }
+    if (sec < 0) for (uint32_t c = 0; c < out->clip_count && sec < 0; c++) if (out->clips[c].clip && out->clips[c].skin >= 0) sec = (int32_t)c;
+    if (sec >= 0 && (poz_sc = arena.alloc_array<PoseScratch>(1)) != nullptr) {
+      out->instance_count = 0;   // poz islevleri instance okumaz; acikca 0
+      sinir_pozlu = model_pose_evaluate(*out, (uint32_t)sec, 0.0f, *poz_sc, &sinir_poz);
+      if (sinir_pozlu) out->bounds_clip = sec;
+    }
+  }
   for (cgltf_size n = 0; ok && n < data->nodes_count; n++) {
     const cgltf_node &node = data->nodes[n];
     if (!node.mesh) continue;
@@ -986,13 +1010,19 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       out->instances[ninst].kemik = iskeletli ? 0 : kemik;
       out->instances[ninst].kemik_bag = kemik_bag;
       const ModelMesh &bm = out->meshes[mesh_first[m] + k];
-      if (iskeletli && bm.skin_verts && out->skins[bm.skin].bind_mats)   // iskeletli: glTF bag pozu (mesh dugumu YOK SAYILIR)
-        extend_bounds_skinned(out, out->skins[bm.skin], bm.skin_verts, bm.vertex_count, &first_bound);
+      const ModelSkin *bsk = (iskeletli && bm.skin_verts) ? &out->skins[bm.skin] : nullptr;
+      if (bsk && sinir_pozlu && sinir_poz.skin_mats[bm.skin])   // bekleme klibinin ilk karesi
+        extend_bounds_skinned(out, sinir_poz.skin_mats[bm.skin], sinir_poz.joint_count[bm.skin], bm.skin_verts, bm.vertex_count, &first_bound);
+      else if (bsk && bsk->bind_mats)   // glTF bag pozu (mesh dugumu YOK SAYILIR)
+        extend_bounds_skinned(out, bsk->bind_mats, bsk->joint_count, bm.skin_verts, bm.vertex_count, &first_bound);
+      else if (!iskeletli && kemik_skin1 && sinir_pozlu)   // kemige takili kati parca: o pozdaki yeri
+        extend_bounds(out, model_instance_world(*out, out->instances[ninst], &sinir_poz, Mat4{}), bm.verts, bm.vertex_count, &first_bound);
       else
         extend_bounds(out, world, bm.verts, bm.vertex_count, &first_bound);
       ninst++;
     }
   }
+  if (poz_sc) arena.reset_to(poz_mark);   // poz tamponu yalniz sinir icin (instance dizisi oncesinde ayrildi, korunur)
   out->instance_count = ok ? ninst : 0;
   if (ok && uv_kanal_degisti) {
     const size_t nl = std::strlen(out->note);

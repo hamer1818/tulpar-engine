@@ -589,3 +589,80 @@ ENGINE_TEST(sahne_animatoru_tuslu_tetik_kodsuz) {
   CHECK(sa.attach(0, tussuz, &m, &er) && sa.keyed() == 0 && sa.keys(fn, &g) == 0);   // KONTROL: tussuz tanim
   arena().reset_to(mark);
 }
+
+// --- 9) sınır pozu: bekleme klibinin ilk karesi -----------------------------------------------------------------------------------
+// Model sınırları animasyonlu modelde bekleme klibinin (adında "idle" geçen en kısa, yoksa ilk) İLK KARESİNDEN: dinlenme pozu dosyadan
+// dosyaya keyfi (Fab "Mike": yatık, 0,39 m boy). Kapı: m.bounds = o pozda CPU'da pozlanmış köşelerin (iskeletli) ve kemiğe takılı
+// parçaların uç değerleri, 1e-4 içinde. KONTROL: aynı köşeler bağ pozuyla (bind_mats) başka sınır verir — ölçü pozdan geliyor.
+// TULPAR_TANI_MODEL verilirse o modelin de iki sınırı basılır (depoda olmayan gerçek model; ölçü, kapı değil).
+namespace {
+void poz_siniri(const Model &m, const ModelPose *pose, Vec3 *lo, Vec3 *hi) {
+  *lo = Vec3{1e30f, 1e30f, 1e30f};
+  *hi = Vec3{-1e30f, -1e30f, -1e30f};
+  auto ekle = [&](Vec3 q) {
+    *lo = Vec3{std::min(lo->x, q.x), std::min(lo->y, q.y), std::min(lo->z, q.z)};
+    *hi = Vec3{std::max(hi->x, q.x), std::max(hi->y, q.y), std::max(hi->z, q.z)};
+  };
+  for (uint32_t i = 0; i < m.instance_count; i++) {
+    const ModelInstance &in = m.instances[i];
+    const ModelMesh &mm = m.meshes[in.mesh];
+    if (mm.skin >= 0 && mm.skin_verts) {
+      const Mat4 *S = (pose && pose->skin_mats[mm.skin]) ? pose->skin_mats[mm.skin] : m.skins[mm.skin].bind_mats;
+      for (uint32_t v = 0; v < mm.vertex_count; v++) {
+        Vec3 q{0, 0, 0};
+        for (int c = 0; c < 4; c++) {
+          const float w = mm.skin_verts[v].weights[c] / 65535.0f;
+          if (w > 0) q = q + transform_point(S[mm.skin_verts[v].joints[c]], mm.skin_verts[v].pos) * w;
+        }
+        ekle(transform_point(m.import_xform, q));
+      }
+    } else {
+      const Mat4 w = model_instance_world(m, in, pose, Mat4{});
+      for (uint32_t v = 0; v < mm.vertex_count; v++) ekle(transform_point(w, mm.verts[v].pos));
+    }
+  }
+}
+} // namespace
+ENGINE_TEST(model_siniri_bekleme_klibinin_ilk_karesinden) {
+  const char *const dosyalar[] = {"fbx_tarzi_karakter.gltf", "iki_skin_karakter.gltf", "karakter_kup.gltf"};
+  static PoseScratch sc;
+  uint32_t farkli = 0;
+  for (const char *ad : dosyalar) {
+    char yol[1024];
+    if (!asset_path(yol, sizeof yol, ad)) { skip("tests/assets sinir varligi yok"); return; }
+    const size_t mark = arena().mark();
+    static Model m;
+    m = Model{};
+    CHECK(gltf_load(arena(), yol, &m) && m.clip_count > 0 && m.bounds_clip >= 0);
+    if (m.bounds_clip < 0) { arena().reset_to(mark); continue; }
+    ModelPose p;
+    CHECK(model_pose_evaluate(m, (uint32_t)m.bounds_clip, 0.0f, sc, &p));
+    Vec3 lo, hi, blo, bhi;
+    poz_siniri(m, &p, &lo, &hi);
+    const float e = std::max(std::fabs(lo.x - m.bounds_min.x), std::max(std::fabs(hi.y - m.bounds_max.y), std::fabs(hi.x - m.bounds_max.x)));
+    CHECK(e < 1e-4f && std::fabs(lo.y - m.bounds_min.y) < 1e-4f && std::fabs(lo.z - m.bounds_min.z) < 1e-4f && std::fabs(hi.z - m.bounds_max.z) < 1e-4f);
+    poz_siniri(m, nullptr, &blo, &bhi);
+    const float fark = std::fabs(bhi.y - hi.y) + std::fabs(blo.y - lo.y) + std::fabs(bhi.x - hi.x) + std::fabs(bhi.z - hi.z);
+    if (fark > 1e-3f) farkli++;
+    std::printf("    [bilgi] %s: klip %d '%s' ilk kare y %.3f..%.3f | bag pozu y %.3f..%.3f\n", ad, m.bounds_clip, m.clips[m.bounds_clip].name,
+                (double)lo.y, (double)hi.y, (double)blo.y, (double)bhi.y);
+    arena().reset_to(mark);
+  }
+  CHECK(farkli >= 1);   // KONTROL: en az bir modelde pozlu sinir bag pozundan farkli (olcu pozdan geliyor)
+  const char *tani = std::getenv("TULPAR_TANI_MODEL");
+  if (tani && *tani) {
+    static SystemArena buyuk;
+    if (buyuk.capacity() == 0) buyuk.reserve(2048u << 20, "tani");
+    const size_t mk = buyuk.mark();
+    static Model m;
+    m = Model{};
+    if (gltf_load(buyuk, tani, &m)) {
+      Vec3 blo, bhi;
+      poz_siniri(m, nullptr, &blo, &bhi);
+      std::printf("    [olcum] %s: sinir (klip %d) %.2f x %.2f x %.2f m | bag pozu %.2f x %.2f x %.2f\n", tani, m.bounds_clip,
+                  (double)(m.bounds_max.x - m.bounds_min.x), (double)(m.bounds_max.y - m.bounds_min.y), (double)(m.bounds_max.z - m.bounds_min.z),
+                  (double)(bhi.x - blo.x), (double)(bhi.y - blo.y), (double)(bhi.z - blo.z));
+    }
+    buyuk.reset_to(mk);
+  }
+}
