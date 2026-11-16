@@ -61,7 +61,9 @@ float agirlik(const sim::AnimatorPose &p, int32_t clip) {
 }
 // Bir varlığı (model + animasyon) olan sahne: kaynak `model`, animatör `ctrl` ("" = yok).
 void sahne_kur(SceneDesc &d, const char *model, const char *ctrl) {
-  d = SceneDesc{};
+  // `d = SceneDesc{}` yigitta ~470 KB gecici kurar: Android (-Wframe-larger-than=128 KB) derlemesi duser (2026-11-16, A8'den beri).
+  static const SceneDesc kBos{};
+  d = kBos;
   std::snprintf(d.assets[0], sizeof d.assets[0], "%s", model);
   d.asset_count = 1;
   SceneEntity e;
