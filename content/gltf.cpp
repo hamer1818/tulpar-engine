@@ -207,13 +207,6 @@ uint32_t mesh_target_count(const cgltf_mesh &me) {
   return me.primitives_count ? (uint32_t)me.primitives[0].targets_count : 0;
 }
 
-int32_t skin_of_node(const cgltf_data *d, const cgltf_node *node, int32_t *joint_index) {
-  for (cgltf_size s = 0; s < d->skins_count; s++)
-    for (cgltf_size j = 0; j < d->skins[s].joints_count; j++)
-      if (d->skins[s].joints[j] == node) { if (joint_index) *joint_index = (int32_t)j; return (int32_t)s; }
-  return -1;
-}
-
 uint32_t count_mesh_primitives(const cgltf_data *d) {
   uint32_t n = 0;
   for (cgltf_size m = 0; m < d->meshes_count; m++)
@@ -463,57 +456,149 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
   }
 
-  // Iskeletler (skin): eklemler ebeveyn-once yeniden siralanir (sim::to_model
-  // kurali); glTF eklem indeksi -> bizim indeks (skin_remap) vertex'lere uygulanir.
-  uint32_t nskin = (uint32_t)data->skins_count;
-  if (nskin > lim.max_skins) nskin = lim.max_skins;
-  out->skins = arena.alloc_array_zeroed<ModelSkin>(nskin ? nskin : 1);
-  uint8_t **skin_remap = arena.alloc_array_zeroed<uint8_t *>(nskin ? nskin : 1);
-  uint32_t **skin_order = arena.alloc_array_zeroed<uint32_t *>(nskin ? nskin : 1);
-  if (!out->skins || !skin_remap || !skin_order) { set_error(out, "arena dolu (skin)", nullptr); ok = false; }
-  for (uint32_t si = 0; ok && si < nskin; si++) {
-    const cgltf_skin &sk = data->skins[si];
-    ModelSkin &ms = out->skins[si];
-    uint32_t jc = (uint32_t)sk.joints_count;
-    if (jc > kModelMaxJoints) { set_error(out, "eklem siniri asildi (128)", sk.name); ok = false; break; }
-    if (sk.name) std::snprintf(ms.name, sizeof ms.name, "%s", sk.name);
-    ms.joints = arena.alloc_array_zeroed<sim::Joint>(jc ? jc : 1);
-    ms.inverse_bind = arena.alloc_array_zeroed<Mat4>(jc ? jc : 1);
-    skin_remap[si] = arena.alloc_array_zeroed<uint8_t>(jc ? jc : 1);
-    skin_order[si] = arena.alloc_array_zeroed<uint32_t>(jc ? jc : 1);
-    int32_t *parent_in = arena.alloc_array_zeroed<int32_t>(jc ? jc : 1);
-    bool *placed = arena.alloc_array_zeroed<bool>(jc ? jc : 1);
-    if (!ms.joints || !ms.inverse_bind || !skin_remap[si] || !skin_order[si] || !parent_in || !placed) {
-      set_error(out, "arena dolu (skin)", nullptr); ok = false; break;
+  // Iskeletler (skin): eklemler ebeveyn-once yeniden siralanir (sim::to_model kurali). Eslemeler: glTF skin g -> bizim skin
+  // (gskin_to), glTF eklem j -> bizim eklem (gskin_remap[g][j]; vertex'lere uygulanir), bizim skin si eklem k -> dugum (skin_nodes).
+  //
+  // BIRLESIK ISKELET (2026-11-16, Fab "Mike the Customizable Robot": 52 skin, mesh basina 1-17 eklemlik ALT KUME, toplam 65 eklem;
+  // klipler eklem OLMAYAN ara dugumleri de oynatir — goz, kas, ayak IK): birden cok skin ya da COK KOKLU eklem ormani varsa butun
+  // eklemler + ATALARI tek iskelette toplanir (<= kModelMaxJoints), her mesh'in eklem indeksi ona cevrilir, klipler ona orneklenir.
+  // Tek palet: kare basina tek skin matrisi kumesi (52 skin x kucuk palet yerine). Kosul: ayni dugumun ters bag matrisi butun
+  // skin'lerde ayni; degilse ya da tavan asilirsa eski yol (skin basina iskelet + pose_from) ve neden Model::note'a yazilir.
+  // Tek skin + tek kok: degisiklik YOK (eski iskeletler bit esit).
+  const uint32_t gskin_n = (uint32_t)data->skins_count;
+  int32_t *gskin_to = arena.alloc_array_zeroed<int32_t>(gskin_n ? gskin_n : 1);
+  uint8_t **gskin_remap = arena.alloc_array_zeroed<uint8_t *>(gskin_n ? gskin_n : 1);
+  if (!gskin_to || !gskin_remap) { set_error(out, "arena dolu (skin)", nullptr); ok = false; }
+  for (uint32_t gs = 0; ok && gs < gskin_n; gs++) {
+    gskin_to[gs] = -1;
+    const cgltf_size jn = data->skins[gs].joints_count;
+    gskin_remap[gs] = arena.alloc_array_zeroed<uint8_t>(jn ? jn : 1);
+    if (!gskin_remap[gs]) { set_error(out, "arena dolu (skin)", nullptr); ok = false; }
+  }
+  auto ibm_oku = [](const cgltf_skin &sk, cgltf_size j) {
+    Mat4 ib;
+    if (sk.inverse_bind_matrices) {
+      float f[16];
+      cgltf_accessor_read_float(sk.inverse_bind_matrices, j, f, 16);
+      for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) ib.m[c][rr] = f[c * 4 + rr];
     }
+    return ib;
+  };
+  // Birlesik iskelet karari
+  const cgltf_node *kume[kModelMaxJoints];
+  uint32_t kn = 0;
+  bool birlesik = false;
+  if (ok && gskin_n >= 1) {
+    bool sigdi = true;
+    auto var_mi = [&](const cgltf_node *nd) { for (uint32_t i = 0; i < kn; i++) if (kume[i] == nd) return true; return false; };
+    auto ekle = [&](const cgltf_node *nd) { if (var_mi(nd)) return; if (kn >= kModelMaxJoints) { sigdi = false; return; } kume[kn++] = nd; };
+    for (uint32_t gs = 0; gs < gskin_n; gs++)
+      for (cgltf_size j = 0; j < data->skins[gs].joints_count; j++) ekle(data->skins[gs].joints[j]);
+    uint32_t kok = 0;
+    for (uint32_t i = 0; i < kn && sigdi; i++) if (!kume[i]->parent || !var_mi(kume[i]->parent)) kok++;
+    if (sigdi && (gskin_n >= 2 || kok > 1)) {
+      const uint32_t eklem_n = kn;
+      for (uint32_t i = 0; i < eklem_n && sigdi; i++)
+        for (const cgltf_node *a = kume[i]->parent; a && sigdi; a = a->parent) ekle(a);
+      // ters bag tutarliligi: ayni dugum, butun skin'lerde ayni matris
+      bool tutarli = true;
+      for (uint32_t i = 0; i < kn && tutarli && sigdi; i++) {
+        bool ilk = true;
+        Mat4 ref;
+        for (uint32_t gs = 0; gs < gskin_n && tutarli; gs++)
+          for (cgltf_size j = 0; j < data->skins[gs].joints_count; j++) {
+            if (data->skins[gs].joints[j] != kume[i]) continue;
+            const Mat4 ib = ibm_oku(data->skins[gs], j);
+            if (ilk) { ref = ib; ilk = false; continue; }
+            for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) {
+              const float e = 1e-4f * (std::fabs(ref.m[c][rr]) > 1.0f ? std::fabs(ref.m[c][rr]) : 1.0f);
+              if (std::fabs(ib.m[c][rr] - ref.m[c][rr]) > e) tutarli = false;
+            }
+          }
+      }
+      if (!sigdi) std::snprintf(out->note, sizeof out->note, "birlesik iskelet sigmadi (> %u eklem+ata): skin basina iskelet", kModelMaxJoints);
+      else if (!tutarli) std::snprintf(out->note, sizeof out->note, "skin'lerin ters bag matrisleri farkli: skin basina iskelet");
+      birlesik = sigdi && tutarli;
+    }
+  }
+  uint32_t nskin = birlesik ? 1u : (gskin_n > lim.max_skins ? lim.max_skins : gskin_n);
+  out->skins = arena.alloc_array_zeroed<ModelSkin>(nskin ? nskin : 1);
+  const cgltf_node ***skin_nodes = arena.alloc_array_zeroed<const cgltf_node **>(nskin ? nskin : 1);
+  if (!out->skins || !skin_nodes) { set_error(out, "arena dolu (skin)", nullptr); ok = false; }
+  // Ebeveyn-once siralama (dugum listesi -> sira; dongu yoksa her turda en az biri yerlesir). parent_in: listedeki ebeveyn, -1 kok.
+  auto sirala = [&](const cgltf_node *const *liste, uint32_t jc, uint32_t *sira, uint8_t *remap, int32_t *parent_in, bool *placed) {
     for (uint32_t j = 0; j < jc; j++) {
       parent_in[j] = -1;
-      const cgltf_node *p = sk.joints[j]->parent;
-      for (uint32_t k = 0; p && k < jc; k++) if (sk.joints[k] == p) { parent_in[j] = (int32_t)k; break; }
+      placed[j] = false;
+      const cgltf_node *p = liste[j]->parent;
+      for (uint32_t k = 0; p && k < jc; k++) if (liste[k] == p) { parent_in[j] = (int32_t)k; break; }
     }
     uint32_t n = 0;
-    while (n < jc) { // ebeveyn-once siralama (dongu yoksa her turda en az bir eklem yerlesir)
-      uint32_t before = n;
+    while (n < jc) {
+      const uint32_t before = n;
       for (uint32_t j = 0; j < jc; j++)
-        if (!placed[j] && (parent_in[j] < 0 || placed[parent_in[j]])) { skin_order[si][n] = j; skin_remap[si][j] = (uint8_t)n; placed[j] = true; n++; }
-      if (n == before) { set_error(out, "eklem hiyerarsisinde dongu", sk.name); ok = false; break; }
+        if (!placed[j] && (parent_in[j] < 0 || placed[parent_in[j]])) { sira[n] = j; remap[j] = (uint8_t)n; placed[j] = true; n++; }
+      if (n == before) return false;
     }
-    if (!ok) break;
+    return true;
+  };
+  for (uint32_t si = 0; ok && si < nskin; si++) {
+    ModelSkin &ms = out->skins[si];
+    const cgltf_node *const *liste = birlesik ? kume : (const cgltf_node *const *)data->skins[si].joints;
+    const uint32_t jc = birlesik ? kn : (uint32_t)data->skins[si].joints_count;
+    if (jc > kModelMaxJoints) { set_error(out, "eklem siniri asildi (128)", data->skins[si].name); ok = false; break; }
+    if (!birlesik && data->skins[si].name) std::snprintf(ms.name, sizeof ms.name, "%s", data->skins[si].name);
+    if (birlesik) std::snprintf(ms.name, sizeof ms.name, "birlesik (%u skin)", gskin_n);
+    ms.joints = arena.alloc_array_zeroed<sim::Joint>(jc ? jc : 1);
+    ms.inverse_bind = arena.alloc_array_zeroed<Mat4>(jc ? jc : 1);
+    skin_nodes[si] = arena.alloc_array_zeroed<const cgltf_node *>(jc ? jc : 1);
+    uint32_t *sira = arena.alloc_array_zeroed<uint32_t>(jc ? jc : 1);
+    uint8_t *remap = arena.alloc_array_zeroed<uint8_t>(jc ? jc : 1);
+    int32_t *parent_in = arena.alloc_array_zeroed<int32_t>(jc ? jc : 1);
+    bool *placed = arena.alloc_array_zeroed<bool>(jc ? jc : 1);
+    if (!ms.joints || !ms.inverse_bind || !skin_nodes[si] || !sira || !remap || !parent_in || !placed) { set_error(out, "arena dolu (skin)", nullptr); ok = false; break; }
+    if (!sirala(liste, jc, sira, remap, parent_in, placed)) { set_error(out, "eklem hiyerarsisinde dongu", ms.name); ok = false; break; }
     for (uint32_t k = 0; k < jc; k++) {
-      const uint32_t j = skin_order[si][k];
+      const uint32_t j = sira[k];
       sim::Joint &jt = ms.joints[k];
-      jt.parent = parent_in[j] < 0 ? (int16_t)-1 : (int16_t)skin_remap[si][parent_in[j]];
-      node_local_trs(*sk.joints[j], &jt.bind_t, &jt.bind_r, &jt.bind_s);
-      Mat4 ib;
-      if (sk.inverse_bind_matrices) {
-        float f[16];
-        cgltf_accessor_read_float(sk.inverse_bind_matrices, (cgltf_size)j, f, 16);
-        for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) ib.m[c][rr] = f[c * 4 + rr];
+      jt.parent = parent_in[j] < 0 ? (int16_t)-1 : (int16_t)remap[parent_in[j]];
+      node_local_trs(*liste[j], &jt.bind_t, &jt.bind_r, &jt.bind_s);
+      skin_nodes[si][k] = liste[j];
+      if (!birlesik) { ms.inverse_bind[k] = ibm_oku(data->skins[si], j); continue; }
+      // birlesik: dugum bir skin'in eklemiyse onun ters bagi; yalniz ata ise bag pozundaki dunyasinin tersi (vertex kullanmaz)
+      bool bulundu = false;
+      for (uint32_t gs = 0; gs < gskin_n && !bulundu; gs++)
+        for (cgltf_size gj = 0; gj < data->skins[gs].joints_count && !bulundu; gj++)
+          if (data->skins[gs].joints[gj] == liste[j]) { ms.inverse_bind[k] = ibm_oku(data->skins[gs], gj); bulundu = true; }
+      if (!bulundu) {
+        float wm[16];
+        cgltf_node_transform_world(liste[j], wm);
+        Mat4 w;
+        for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) w.m[c][rr] = wm[c * 4 + rr];
+        ms.inverse_bind[k] = inverse_affine(w);
       }
-      ms.inverse_bind[k] = ib;
     }
     ms.joint_count = jc;
+    // glTF skin(ler)i bu iskelete esle
+    for (uint32_t gs = 0; gs < gskin_n; gs++) {
+      if (birlesik ? false : gs != si) continue;
+      gskin_to[gs] = (int32_t)si;
+      for (cgltf_size gj = 0; gj < data->skins[gs].joints_count; gj++) gskin_remap[gs][gj] = remap[gj];
+    }
+    if (birlesik)
+      for (uint32_t gs = 0; gs < gskin_n; gs++) {
+        gskin_to[gs] = 0;
+        for (cgltf_size gj = 0; gj < data->skins[gs].joints_count; gj++)
+          for (uint32_t k = 0; k < jc; k++) if (skin_nodes[0][k] == data->skins[gs].joints[gj]) { gskin_remap[gs][gj] = (uint8_t)k; break; }
+      }
   }
+  // Dugum -> (bizim skin, bizim eklem); yoksa -1.
+  auto bizim_eklem = [&](const cgltf_node *nd, int32_t *k_out) -> int32_t {
+    for (uint32_t si = 0; si < nskin && si < (ok ? nskin : 0); si++)
+      for (uint32_t k = 0; k < out->skins[si].joint_count; k++)
+        if (skin_nodes[si][k] == nd) { if (k_out) *k_out = (int32_t)k; return (int32_t)si; }
+    return -1;
+  };
   // Kok ustu donusum (ModelSkin::pre): ilk (ebeveyn-once) eklemin ebeveyni eklem degilse onun DUNYA matrisi.
   for (uint32_t si = 0; ok && si < nskin; si++) {
     ModelSkin &ms = out->skins[si];
@@ -522,10 +607,10 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     ms.pre = Mat4{};
     ms.pre_birim = true;
     if (!ms.joint_count) continue;
-    const cgltf_node *kok = data->skins[si].joints[skin_order[si][0]];
-    if (!kok->parent) continue;
+    const cgltf_node *kokd = skin_nodes[si][0];
+    if (!kokd->parent) continue;
     float wm[16];
-    cgltf_node_transform_world(kok->parent, wm);
+    cgltf_node_transform_world(kokd->parent, wm);
     Mat4 pre;
     for (int c = 0; c < 4; c++) for (int rr = 0; rr < 4; rr++) pre.m[c][rr] = wm[c * 4 + rr];
     bool birim = true;
@@ -533,23 +618,21 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     ms.pre = pre;
     ms.pre_birim = birim;
   }
-  // Paylasilan kemikler: s'nin HER eklemi (ayni cgltf dugumu) p'de varsa s, p'nin pozundan doldurulabilir (ModelSkin::pose_from).
-  for (uint32_t s = 0; ok && s < nskin; s++)
+  // Paylasilan kemikler (birlesik olmayan yol): s'nin HER eklemi (ayni dugum) p'de varsa s, p'nin pozundan doldurulur (pose_from).
+  for (uint32_t sa = 0; ok && sa < nskin; sa++)
     for (uint32_t p = 0; ok && p < nskin; p++) {
-      if (p == s) continue;
-      const cgltf_skin &ss = data->skins[s], &ps = data->skins[p];
-      const uint32_t sj = out->skins[s].joint_count, pj = out->skins[p].joint_count;
+      if (p == sa) continue;
+      const uint32_t sj = out->skins[sa].joint_count, pj = out->skins[p].joint_count;
       uint8_t *map = arena.alloc_array_zeroed<uint8_t>(sj ? sj : 1);
       if (!map) { set_error(out, "arena dolu (skin)", nullptr); ok = false; break; }
       bool tam = sj > 0;
-      for (uint32_t k = 0; k < sj && tam; k++) {   // k: s'nin BIZIM sirasi; glTF indeksi skin_order[s][k]
-        const cgltf_node *dn = ss.joints[skin_order[s][k]];
+      for (uint32_t k = 0; k < sj && tam; k++) {
         bool bulundu = false;
         for (uint32_t q = 0; q < pj && !bulundu; q++)
-          if (ps.joints[skin_order[p][q]] == dn) { map[k] = (uint8_t)q; bulundu = true; }
+          if (skin_nodes[p][q] == skin_nodes[sa][k]) { map[k] = (uint8_t)q; bulundu = true; }
         tam = bulundu;
       }
-      if (tam) out->skins[s].pose_from[p] = map;
+      if (tam) out->skins[sa].pose_from[p] = map;
     }
   out->skin_count = ok ? nskin : 0;
 
@@ -567,7 +650,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     for (cgltf_size c = 0; c < an.channels_count; c++) {
       const cgltf_animation_channel &ch = an.channels[c];
       if (!ch.sampler || !ch.target_node || !ch.sampler->input || !ch.sampler->output) continue;
-      if (skin_idx < 0) skin_idx = skin_of_node(data, ch.target_node, nullptr);
+      if (skin_idx < 0) skin_idx = bizim_eklem(ch.target_node, nullptr);
       const cgltf_size nk = ch.sampler->input->count;
       if (nk) { float tl = 0; cgltf_accessor_read_float(ch.sampler->input, nk - 1, &tl, 1); if (tl > duration) duration = tl; }
     }
@@ -614,7 +697,6 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
     if (!skin_ok) { cn++; continue; }   // yalniz morph izli klip
     const ModelSkin &ms = out->skins[skin_idx];
-    const cgltf_skin &sk = data->skins[skin_idx];
     const uint32_t jc = ms.joint_count;
     sim::RawTrack *tracks = arena.alloc_array_zeroed<sim::RawTrack>(jc);
     Vec3 *tt = arena.alloc_array<Vec3>(jc * samples);
@@ -622,7 +704,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     Vec3 *ss = arena.alloc_array<Vec3>(jc * samples);
     if (!tracks || !tt || !rr || !ss) { set_error(out, "arena dolu (klip)", nullptr); ok = false; break; }
     for (uint32_t k = 0; k < jc; k++) {
-      const cgltf_node *node = sk.joints[skin_order[skin_idx][k]];
+      const cgltf_node *node = skin_nodes[skin_idx][k];
       Vec3 bt, bs; Quat br;
       node_local_trs(*node, &bt, &br, &bs);
       const cgltf_animation_channel *ct = nullptr, *cr = nullptr, *cs = nullptr;
@@ -700,17 +782,18 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       // Iskeletli primitif: JOINTS_0 + WEIGHTS_0 ve bu mesh'i kullanan dugumun skin'i.
       const cgltf_accessor *jacc = find_attr(prim, cgltf_attribute_type_joints);
       const cgltf_accessor *wacc = find_attr(prim, cgltf_attribute_type_weights);
+      int32_t gsk = -1;   // bu mesh'i kullanan dugumun glTF skin'i
       if (jacc && wacc && nskin) {
         for (cgltf_size n = 0; n < data->nodes_count && mm.skin < 0; n++)
           if (data->nodes[n].mesh == &data->meshes[m] && data->nodes[n].skin) {
-            const int32_t si = (int32_t)(data->nodes[n].skin - data->skins);
-            if (si >= 0 && (uint32_t)si < nskin) mm.skin = si;
+            const int32_t gs = (int32_t)(data->nodes[n].skin - data->skins);
+            if (gs >= 0 && (uint32_t)gs < gskin_n && gskin_to[gs] >= 0) { mm.skin = gskin_to[gs]; gsk = gs; }
           }
       }
       if (mm.skin >= 0) {
         mm.skin_verts = arena.alloc_array_zeroed<renderer::SkinnedVertex>(mm.vertex_count);
         if (!mm.skin_verts) { set_error(out, "arena dolu (skin vertex)", nullptr); ok = false; break; }
-        const uint32_t jc = out->skins[mm.skin].joint_count;
+        const uint32_t jc = (uint32_t)data->skins[gsk].joints_count;   // glTF eklem indeksi bu skin'in listesine gore
         for (uint32_t i = 0; i < mm.vertex_count; i++) {
           renderer::SkinnedVertex &sv = mm.skin_verts[i];
           sv.pos = mm.verts[i].pos; sv.nrm = mm.verts[i].nrm; sv.uv = mm.verts[i].uv;
@@ -721,7 +804,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
           float sum = w[0] + w[1] + w[2] + w[3];
           if (sum <= 0) { w[0] = 1; sum = 1; }
           for (int c = 0; c < 4; c++) {
-            const uint32_t j = ju[c] < jc ? skin_remap[mm.skin][ju[c]] : 0;
+            const uint32_t j = ju[c] < jc ? gskin_remap[gsk][ju[c]] : 0;
             sv.joints[c] = (uint8_t)j;
             float wn = w[c] / sum;
             if (wn < 0) wn = 0;
@@ -814,11 +897,11 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     uint8_t kemik_skin1 = 0, kemik = 0;
     Mat4 kemik_bag;
     for (const cgltf_node *a = node.parent; a && !kemik_skin1; a = a->parent) {
-      int32_t gj = -1;
-      const int32_t s = skin_of_node(data, a, &gj);
-      if (s >= 0 && (uint32_t)s < nskin && gj >= 0 && (uint32_t)gj < out->skins[s].joint_count) {
+      int32_t kk = -1;
+      const int32_t s = bizim_eklem(a, &kk);
+      if (s >= 0 && kk >= 0) {
         kemik_skin1 = (uint8_t)(s + 1);
-        kemik = skin_remap[s][gj];
+        kemik = (uint8_t)kk;
         float ew[16];
         cgltf_node_transform_world(a, ew);
         Mat4 we;

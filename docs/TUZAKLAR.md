@@ -2662,3 +2662,24 @@ pozlu konumu zincirin ELLE hesabıyla 0,1 mm içinde; kontrol: sabit konumdan 0,
 ile ayrıldığı için yeni `pre` alanı SIFIR matris kaldı ve kök üstü düğümü olmayan her iskeletin pozu sıfırlandı — `model_paylasilan`
 kapısı yakaladı; varsayılan artık açıkça yazılıyor (8u ailesi). **Kural:** poz kapısı "hareket var mı"yı değil, bilinen bir pozla
 **sayısal eşitliği** ölçmeli; gerçek model görüntüsünde de kolu/bacağı tek tek gözle.
+
+### 8eg. Gerçek modelde dört sessiz tavan birden — "eklendi ama hiçbir şey yok", sonra "Walk yok", sonra yarım poz
+**Belirti:** Fab'den indirilen "Mike the Customizable Robot" (Unreal'dan çevrilmiş .gltf, 5,4 MB JSON, 42 klip, 52 skin; kullanıcı,
+2026-11-16) sırayla: içe aktarınca "glTF tampon yükleme" hatası; düzeltilince sahneye eklendi ama görünmedi; görününce otomatik
+animatör yürüme bulamadı ve saldırgan beklemeyi (IdleAggro) seçti; poz alınca bazı parçalar (göz, kas, ayak IK) yerinde kaldı.
+
+**Neden (dördü de sessiz):** (1) `editor_model_ice_aktar` .gltf'i sabit 4 MB tampona okuyordu; `"uri"`ler 5,36 MB'tadır → .bin ve
+dokular hiç kopyalanmadı. (2) Unreal birimi santimetre: 160 birimlik karakter 160 m, kamera uzak düzlemini aşıyor. (3) Klip tavanı 32;
+Walk 37. sıradaydı → `clips_dropped`'a sayıldı ama kimse okumadı. Otomatik animatör de rol başına İLK eşleşeni alıyordu. (4) 52 skin'in
+her biri 1–17 eklemlik ALT KÜME; klipler eklem OLMAYAN ara düğümleri de oynatıyor — skin başına iskelet + `pose_from` (8ee) bu düğümleri
+hiç örneklemiyor, alt küme skin'leri tam eşleşmediği için çoğu poz almıyordu.
+
+**Düzeltme:** (1) dosyanın tamamı okunur (tavan 256 MB, aşılırsa hata); (2) iskeletli model 20 m'den büyükse ve kullanıcının `.ayar`'ı
+yoksa birim cm yazılır, durum çubuğu söyler; (3) klip tavanı 64 (animatör/köprü süre tabloları zaten 64), otomatik animatör rol başına
+EN KISA adı seçer; (4) **birleşik iskelet**: birden çok skin ya da çok köklü eklem ormanında bütün eklemler + ataları tek iskelette
+toplanır, her mesh'in eklem indeksi ona çevrilir (koşul: aynı düğümün ters bağı her skin'de aynı; değilse eski yol ve neden
+`Model::note`'ta). Mike: 52 skin → 1 iskelet, 77 eklem, 40 klip (2'si silah nesnesi animasyonu, iskelete bağlı değil). Kapılar:
+`editor_model_ice_aktar_with_control` (5 MB dolgulu .gltf), `animator_otomatik_metin…` (c2, ters sıra kontrolü),
+`model_paylasilan_kemikler_her_skine_poz` (birleşik: ters sıralı iki skin'in köşeleri aynı eklemde; kontrol: ters bağ bozulunca yedek yol).
+**Kural:** gerçek model tek tavanı değil hepsini birden zorlar — içe aktarırken her tavanın sayacını (`clips_dropped`, kesilen bayt,
+birim tahmini) kullanıcıya göster; "sayıldı" kimse okumuyorsa sessizdir.

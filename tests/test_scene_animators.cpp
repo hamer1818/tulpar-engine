@@ -129,6 +129,17 @@ ENGINE_TEST(animator_otomatik_metin_klip_adlarindan_kurulur) {
     CHECK(r.idle == 0 && r.walk < 0 && r.run < 0 && r.jump < 0);
     CHECK(kur(metin, adlar, 2, &d, &e) && d.state_count == 1 && !d.states[0].blend && d.states[0].points[0].clip == 0);
   }
+  // c2) Rol başına EN KISA ad (Fab "Mike": "IdleAggro" ilk sıradaydı ve bekleme olarak seçiliyordu). KONTROL: sıra ters olsa da aynı seçim.
+  {
+    static const char *const adlar[] = {"X_IdleAggro", "X_Idle", "X_Walk_Back", "X_Walk", "X_JumpStart", "X_Jump", "X_Run_Faster", "X_Run"};
+    Adlar a{adlar, 8};
+    CHECK(sim::animator_auto_text(ad_fn, &a, 8, metin, sizeof metin, &r) > 0);
+    CHECK(r.idle == 1 && r.walk == 3 && r.jump == 5 && r.run == 7);
+    static const char *const ters[] = {"X_Run", "X_Run_Faster", "X_Jump", "X_JumpStart", "X_Walk", "X_Walk_Back", "X_Idle", "X_IdleAggro"};
+    Adlar b{ters, 8};
+    CHECK(sim::animator_auto_text(ad_fn, &b, 8, metin, sizeof metin, &r) > 0);
+    CHECK(r.run == 0 && r.jump == 2 && r.walk == 4 && r.idle == 6);
+  }
   // d) klip yok / yer yetmiyor -> 0 (yarım metin değil)
   {
     Adlar a{nullptr, 0};
@@ -352,48 +363,74 @@ ENGINE_TEST(sahne_runtime_animatoru_blobdan_kurar_ve_hareketle_besler) {
   arena().reset_to(mark);
 }
 
-// --- 7) paylaşılan kemikler (gerçek model: RobotExpressive, FBX2glTF) -------------------------------------------------------------
-// Bir modelde mesh başına bir skin, kemikler ORTAK. Klip tek skin'e bağlanır; öbür skin'in mesh'i poz almazsa T duruşunda kalır
-// (2026-11-16 kullanıcı gezintisinde RobotExpressive'in gövdesi hiç kıpırdamıyordu). iki_skin_karakter.gltf: skin 1 aynı zinciri TERS
-// sırayla listeler. Kapı: üç poz yolu da (evaluate / blend / mix) skin 1'i doldurur ve aynı kemiğin matrisi skin 0'dakiyle BİT EŞİT.
-// KONTROL: pose_from eşlemesi silinince skin 1 boş kalır (eski hata) — ölçü eşlemeden geliyor.
+// --- 7) paylaşılan kemikler / birleşik iskelet (gerçek modeller: RobotExpressive 2 skin, Fab "Mike" 52 skin) ----------------------
+// Mesh başına bir skin, kemikler ORTAK. Klip tek skin'e bağlanırsa öbür skin'in mesh'i T duruşunda kalır (2026-11-16 RobotExpressive).
+// Birleşik yol: bütün eklemler (+ ataları) tek iskelette; her mesh'in eklem indeksi ona çevrilir. iki_skin_karakter.gltf: skin 1 aynı
+// zinciri TERS sırayla listeler, mesh 1'in eklem indeksleri de ters — birleşikte iki mesh'in her köşesi AYNI eklemi göstermeli.
+// Yedek yol (ters bağlar tutarsız): skin başına iskelet + pose_from; neden Model::note'ta. KONTROL: eşleme silinince ikinci skin boş.
 ENGINE_TEST(model_paylasilan_kemikler_her_skine_poz) {
   char yol[1024];
   if (!asset_path(yol, sizeof yol, "iki_skin_karakter.gltf")) { skip("tests/assets/iki_skin_karakter.gltf yok"); return; }
   const size_t mark = arena().mark();
   static Model m;
-  m = Model{};
-  CHECK(gltf_load(arena(), yol, &m) && m.skin_count == 2 && m.clip_count == 3);
-  if (m.skin_count != 2 || m.clip_count < 2) { arena().reset_to(mark); return; }
-  CHECK(m.skins[1].pose_from[0] != nullptr && m.skins[0].pose_from[1] != nullptr);
   static PoseScratch sc;
-  auto ayni = [&](const ModelPose &p) {
-    if (!p.skin_mats[0] || !p.skin_mats[1] || p.joint_count[1] != m.skins[1].joint_count) return false;
-    const uint8_t *map = m.skins[1].pose_from[0];
-    for (uint32_t j = 0; j < m.skins[1].joint_count; j++)
-      if (std::memcmp(&p.skin_mats[1][j], &p.skin_mats[0][map[j]], sizeof(Mat4)) != 0) return false;
-    return true;
-  };
-  const int32_t c0 = m.clips[0].skin;
-  ModelPose p1;
-  CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p1) && ayni(p1));
-  ModelPose p2;
-  CHECK(model_pose_blend(m, 0, 0.5f, 1, 0.3f, 0.4f, sc, &p2) && ayni(p2));
-  PoseMixEntry me[2] = {{0, 0.5f, 0.6f}, {1, 0.3f, 0.4f}};
-  ModelPose p3;
-  CHECK(model_pose_mix(m, me, 2, sc, &p3) && ayni(p3));
-  // Poz gerçekten hareketli (bind değil): t=0.5'te sallanan eklem matrisi birimden farklı.
+  // (a) birleşik
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.skin_count == 1 && m.clip_count == 3 && m.note[0] == 0);
+  int32_t me[2] = {-1, -1};
+  uint32_t mn = 0;
+  for (uint32_t i = 0; i < m.mesh_count && mn < 2; i++) if (m.meshes[i].skin == 0) me[mn++] = (int32_t)i;
+  CHECK(mn == 2);
+  if (mn == 2) {
+    const ModelMesh &a = m.meshes[me[0]], &b = m.meshes[me[1]];
+    bool ayni = a.vertex_count == b.vertex_count && a.skin_verts && b.skin_verts;
+    for (uint32_t v = 0; ayni && v < a.vertex_count; v++)
+      for (int c = 0; c < 4; c++)
+        if (a.skin_verts[v].weights[c] && (a.skin_verts[v].joints[c] != b.skin_verts[v].joints[c] || a.skin_verts[v].weights[c] != b.skin_verts[v].weights[c])) ayni = false;
+    CHECK(ayni);   // ters sıralı skin + ters eklem indeksi -> aynı birleşik eklem
+  }
+  ModelPose p0;
+  CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p0) && p0.skin_mats[0] && p0.skin_mats[1] == nullptr);
   bool hareketli = false;
-  for (uint32_t j = 0; j < m.skins[0].joint_count && p1.skin_mats[0]; j++) hareketli |= std::fabs(p1.skin_mats[0][j].m[0][1]) > 1e-3f;
+  for (uint32_t j = 0; j < m.skins[0].joint_count && p0.skin_mats[0]; j++) hareketli |= std::fabs(p0.skin_mats[0][j].m[0][1]) > 1e-3f;
   CHECK(hareketli);
-  // KONTROL: eşleme yoksa klibin skin'i dışındaki skin BOŞ kalır.
-  uint8_t *sakla = m.skins[1 - c0].pose_from[c0];
-  m.skins[1 - c0].pose_from[c0] = nullptr;
-  ModelPose p4;
-  CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p4) && p4.skin_mats[1 - c0] == nullptr);
-  m.skins[1 - c0].pose_from[c0] = sakla;
-  std::printf("    [bilgi] iki skin: klip skin %d, ortak eklem %u; evaluate/blend/mix ikinci skin'i doldurdu (bit esit), eslemesiz bos\n", c0,
-              m.skins[1].joint_count);
+  // (b) yedek yol: dosyanın kopyasında skin 1'in ters bağ erişimcisi skin 0'ınkine çevrilir (ters sırada artık YANLIŞ eşleşir) ->
+  // tutarsız -> birleşmez.
+  static char metin[64 * 1024];
+  std::FILE *f = std::fopen(yol, "rb");
+  const size_t n = f ? std::fread(metin, 1, sizeof metin - 1, f) : 0;
+  if (f) std::fclose(f);
+  metin[n] = 0;
+  const char *k1 = std::strstr(metin, "\"inverseBindMatrices\": ");
+  char *k2 = k1 ? std::strstr((char *)k1 + 1, "\"inverseBindMatrices\": ") : nullptr;
+  CHECK(n > 0 && k1 && k2);
+  if (k1 && k2) {
+    const int a0 = std::atoi(k1 + 23);
+    const char *sonra = k2 + 23;
+    while (*sonra >= '0' && *sonra <= '9') sonra++;
+    static char yeni_metin[64 * 1024];
+    std::snprintf(yeni_metin, sizeof yeni_metin, "%.*s%d%s", (int)(k2 + 23 - metin), metin, a0, sonra);
+    std::snprintf(metin, sizeof metin, "%s", yeni_metin);
+    char dir[512], yol2[600];
+    CHECK(tmp_mkdir(dir, sizeof dir, "iki_skin_tutarsiz"));
+    std::snprintf(yol2, sizeof yol2, "%s/tutarsiz.gltf", dir);
+    CHECK(yaz(yol2, metin));
+    m = Model{};
+    CHECK(gltf_load(arena(), yol2, &m) && m.skin_count == 2 && std::strstr(m.note, "ters bag") != nullptr);
+    if (m.skin_count == 2) {
+      const int32_t c0 = m.clips[0].skin;
+      CHECK(m.skins[1 - c0].pose_from[c0] != nullptr);
+      ModelPose p1;
+      CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p1) && p1.skin_mats[0] && p1.skin_mats[1]);
+      uint8_t *sakla = m.skins[1 - c0].pose_from[c0];
+      m.skins[1 - c0].pose_from[c0] = nullptr;
+      ModelPose p2;
+      CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p2) && p2.skin_mats[1 - c0] == nullptr);   // KONTROL
+      m.skins[1 - c0].pose_from[c0] = sakla;
+      std::printf("    [bilgi] iki skin: birlesik 1 iskelet (%u eklem, koseler ayni eklemde); tutarsiz bag -> 2 iskelet + pose_from, not: %s\n",
+                  m.skins[0].joint_count, m.note);
+    }
+  }
   arena().reset_to(mark);
 }
 
@@ -461,3 +498,4 @@ ENGINE_TEST(model_fbx_tarzi_kok_ustu_ve_kati_parca) {
   CHECK(kayma > 0.05f);   // KONTROL: takılı olmasaydı parça sabit konumda kalırdı
   arena().reset_to(mark);
 }
+

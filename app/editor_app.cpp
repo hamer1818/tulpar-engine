@@ -4148,6 +4148,31 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     // "Bilesen ekle > Animasyon"u bilmek zorundaydi; eklense de 0. klip ("Dance") calardi (A8 kullanici gezintisi, 2026-11-16).
     // Ayni geri alma grubunda: Ctrl+Z ekleme + bileseni BIRLIKTE geri alir.
     const int32_t yeni = (int32_t)st.scene.entity_count - 1;
+    // BIRIM TAHMINI (2026-11-16, Fab "Mike": Unreal'dan donusturulen modeller SANTIMETRE; 160 birimlik karakter 160 m geliyor,
+    // kamera uzak duzlemi asiyor ve kullanici "eklendi ama hicbir sey yok" goruyordu). Iskeletli model 20 m'den buyukse ve
+    // kullanicinin ayari YOKSA birim cm yazilir (.ayar: oyun/telefon da ayni olcekle yukler). Geri alma: icerik aktarma ayarlari.
+    char birim_notu[200] = {0};
+    if (a >= 0 && st.have[a]) {
+      content::Model &mm = st.models[a];
+      char tam[1200];
+      model_ayar_yolu(st, file, tam, sizeof tam);
+      content::ModelImportSettings mevcut;
+      bool var = false;
+      char aerr[200];
+      const Vec3 boy = mm.bounds_max - mm.bounds_min;
+      const float buyuk = std::max(boy.x, std::max(boy.y, boy.z));
+      if (content::model_import_load(tam, &mevcut, &var, aerr, sizeof aerr) && !var && mm.skin_count > 0 && buyuk > 20.0f) {
+        content::ModelImportSettings s = content::model_import_defaults(tam);
+        s.unit = content::ModelUnit::Cm;
+        if (content::model_import_save(tam, s)) {
+          content::model_import_reapply(mm, s);
+          const Vec3 b2 = mm.bounds_max - mm.bounds_min;
+          std::snprintf(birim_notu, sizeof birim_notu, " \xC2\xB7 %.0f m geldi, santimetre say\xC4\xB1ld\xC4\xB1 (%.2f m; de\xC4\x9Fi\xC5\x9Ftirmek i\xC3\xA7in Kaynaklar'da sa\xC4\x9F t\xC4\xB1k > i\xC3\xA7" "e aktarma ayarlar\xC4\xB1)",
+                        (double)buyuk, (double)std::max(b2.x, std::max(b2.y, b2.z)));
+          console_log(ConsoleLevel::Bilgi, kConsoleTagScene, "%s: iskeletli model %.0f m \xE2\x80\x94 birim cm yap\xC4\xB1ld\xC4\xB1 (%s.ayar)", file, (double)buyuk, file);
+        }
+      }
+    }
     bool animli = false;
     if (a >= 0 && st.have[a] && st.models[a].clip_count > 0 && yeni >= 0) {
       SceneEntity after = st.scene.entities[yeni];
@@ -4165,10 +4190,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     st.sel.set_single(yeni);
     rescan_browse(st);
     if (animli)
-      set_status(st, "kaynak eklendi: %s (%u klip) \xE2\x80\x94 y\xC3\xBCr\xC3\xBC/ko\xC5\x9F i\xC3\xA7in Animasyon kart\xC4\xB1nda \"Animat\xC3\xB6r olu\xC5\x9Ftur\"",
-                 file, st.models[a].clip_count);
+      set_status(st, "kaynak eklendi: %s (%u klip) \xE2\x80\x94 y\xC3\xBCr\xC3\xBC/ko\xC5\x9F i\xC3\xA7in Animasyon kart\xC4\xB1nda \"Animat\xC3\xB6r olu\xC5\x9Ftur\"%s",
+                 file, st.models[a].clip_count, birim_notu);
     else
-      set_status(st, "kaynak eklendi: %s (%s)", file, (a >= 0 && st.have[a]) ? "y\xC3\xBCklendi" : "y\xC3\xBCklenemedi");
+      set_status(st, "kaynak eklendi: %s (%s)%s", file, (a >= 0 && st.have[a]) ? "y\xC3\xBCklendi" : "y\xC3\xBCklenemedi", birim_notu);
   };
   // --- Komut tablosu: menu, arac cubugu ve kisayollar TEK kaynaktan ----------
   // (editor_commands.hpp'nin varlik sebebi: ayni komut iki yerde yazilmasin,
@@ -6634,9 +6659,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                           "Burada s\xC3\xBCr\xC3\xBCkleyerek bekle \xE2\x86\x92 y\xC3\xBCr\xC3\xBC \xE2\x86\x92 ko\xC5\x9F ge\xC3\xA7i\xC5\x9Fini g\xC3\xB6r.");
                 if (prop_float("\xC3\x96nizleme h\xC4\xB1z\xC4\xB1", &g_anim_onizle_hiz, 0.05f, 0.0f, 8.0f, "%.1f m/s").changed && !st.playing) st.anim_onizle = true;
               } else {
-                static char klip_adlari[32 * 66 + 2];
+                static char klip_adlari[64 * 72 + 2];   // 64 klip (GltfLimits::max_clips) x "NN: " + 63 karakter ad
                 size_t kn = 0;
-                for (uint32_t k = 0; k < nclip && k < 32; k++) {
+                for (uint32_t k = 0; k < nclip && k < 64; k++) {
                   const char *ad = am->clips[k].name[0] ? am->clips[k].name : "(adsiz)";
                   kn += (size_t)std::snprintf(klip_adlari + kn, sizeof klip_adlari - kn - 1, "%u: %s", k, ad) + 1;
                 }

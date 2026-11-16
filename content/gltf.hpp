@@ -28,7 +28,7 @@ struct GltfLimits {
   uint32_t max_skins = kModelMaxSkins;
   // 32: Kup-Kure hikaye karakterleri 20 klip tasiyor (2026-10-09); 16 tavaninda
   // 16..19 sessizce dusuyordu. Tavani asan klipler Model::clips_dropped'a sayilir.
-  uint32_t max_clips = 32;
+  uint32_t max_clips = 64;   // 2026-11-16: 32 -> 64 (Fab "Mike" 42 klip; Walk 37. siradaydi ve yuklenmiyordu). Animator sure tablosu da 64.
   float clip_sample_rate = 30.0f;
 };
 

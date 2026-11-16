@@ -409,14 +409,18 @@ uint32_t animator_auto_text(AnimClipNameFn names, void *user, uint32_t clip_coun
   static const char *const kKos[] = {"run", "kos", "ko\xC5\x9F", "sprint", "jog", nullptr};
   static const char *const kYuru[] = {"walk", "yuru", "y\xC3\xBCr\xC3\xBC", nullptr};
   static const char *const kBekle[] = {"idle", "bekle", "stand", "breath", "rest", nullptr};
+  // Her klip EN ÇOK bir role girer; öncelik zıpla > koş > yürü > bekle ("RunJump" zıplamadır). Rol başına EN KISA adlı klip:
+  // "Idle" > "IdleAggro", "Walk" > "Walk_Back" / "WalkLeft", "Jump" > "JumpStart" (Fab "Mike": ilk eşleşen kural saldırgan
+  // beklemeyi seçmişti, 2026-11-16). Eşit uzunlukta ilk klip.
+  size_t boy[4] = {(size_t)-1, (size_t)-1, (size_t)-1, (size_t)-1};
+  int32_t *rol[4] = {&r.jump, &r.run, &r.walk, &r.idle};
   for (uint32_t c = 0; c < clip_count; c++) {
     const char *ad = names(user, c);
     if (!ad || !ad[0]) continue;
-    // Her klip EN ÇOK bir role girer; öncelik zıpla > koş > yürü > bekle ("RunJump" zıplamadır). Rol başına İLK klip.
-    if (ad_herhangi(ad, kZipla)) { if (r.jump < 0) r.jump = (int32_t)c; }
-    else if (ad_herhangi(ad, kKos)) { if (r.run < 0) r.run = (int32_t)c; }
-    else if (ad_herhangi(ad, kYuru)) { if (r.walk < 0) r.walk = (int32_t)c; }
-    else if (ad_herhangi(ad, kBekle)) { if (r.idle < 0) r.idle = (int32_t)c; }
+    const int k = ad_herhangi(ad, kZipla) ? 0 : ad_herhangi(ad, kKos) ? 1 : ad_herhangi(ad, kYuru) ? 2 : ad_herhangi(ad, kBekle) ? 3 : -1;
+    if (k < 0) continue;
+    const size_t l = std::strlen(ad);
+    if (l < boy[k]) { boy[k] = l; *rol[k] = (int32_t)c; }
   }
   if (r.idle < 0) {   // bekleme klibi yok: rolsüz ilk klip, o da yoksa klip 0
     for (uint32_t c = 0; c < clip_count && r.idle < 0; c++)

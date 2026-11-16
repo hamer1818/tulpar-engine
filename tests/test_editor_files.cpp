@@ -623,6 +623,23 @@ ENGINE_TEST(editor_model_ice_aktar_with_control) {
   std::snprintf(y, sizeof y, "%s/ev.bin", kay);
   CHECK(!app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err) && std::strstr(err, ".glb"));
   std::printf("    [bilgi] ice aktar: glb + gltf (bin + doku/renk.png), data: ve ../ atlandi, ayni ad reddi: %s\n", err[0] ? "var" : "?");
+  // BUYUK .gltf (2026-11-16, Fab "Mike" 5,4 MB): "uri"ler dosyanin 4 MB'tan SONRAKI kisminda — eskiden sabit 4 MB tampon onlari hic
+  // gormuyordu, .bin kopyalanmiyordu. 5 MB dolgu + sonda buffers/images.
+  std::snprintf(y, sizeof y, "%s/buyuk.gltf", kay);
+  if (std::FILE *f = std::fopen(y, "wb")) {
+    std::fputs("{\"asset\":{\"version\":\"2.0\",\"extras\":\"", f);
+    static char dolgu[1 << 20];
+    std::memset(dolgu, 'x', sizeof dolgu);
+    for (int k = 0; k < 5; k++) std::fwrite(dolgu, 1, sizeof dolgu, f);
+    std::fputs("\"},\"buffers\":[{\"uri\":\"buyuk.bin\"}],\"images\":[{\"uri\":\"doku/buyuk.png\"}]}", f);
+    std::fclose(f);
+  }
+  std::snprintf(y, sizeof y, "%s/buyuk.bin", kay); yaz(y, "BIN");
+  std::snprintf(y, sizeof y, "%s/doku/buyuk.png", kay); yaz(y, "PNG");
+  std::snprintf(y, sizeof y, "%s/buyuk.gltf", kay);
+  CHECK(app::editor_model_ice_aktar(y, hed, h, sizeof h, err, sizeof err));
+  std::snprintf(p, sizeof p, "%s/buyuk.bin", hed); CHECK(var(p));
+  std::snprintf(p, sizeof p, "%s/doku/buyuk.png", hed); CHECK(var(p));
 }
 
 // M1: "kaynak eklenemedi" artık NEDENİNİ söyler (eskiden yalnız dosya adı): kaynak tablosu dolu (16) / varlık tavanı (256) / bilinmiyor.
