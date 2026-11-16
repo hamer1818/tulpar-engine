@@ -2067,6 +2067,37 @@ const char *const kSablon_SALLA =
     "    sahne_konum_ver(id, sahne_ilk_x(id), y, sahne_ilk_z(id));\n"
     "}\n";
 
+// A8 (2026-11-16): animatorlu karakterin KODSUZ yuruyusu — kullanici gezintisinde yatay hareket ettiren hazir yoktu ("salla" dikey,
+// "hareket" dinamik govde ister: karakter devrilir). Konum zamandan hesaplanir (belirlenimli, durum yok): ayni betik on nesnede
+// kendi ilk yerinden yurur. Animator 'hiz'i bu hareketten okur: 1,5 m/s yurur, 4+ kosar.
+const char *const kSablon_DEVRIYE =
+    "// {AD} \xE2\x80\x94 bu nesnenin davran\xC4\xB1\xC5\x9F\xC4\xB1 (devriye: ileri-geri y\xC3\xBCr\xC3\xBC).\n"
+    "// Motor bu dosyadaki i\xC5\x9Flevleri KEND\xC4\xB0S\xC4\xB0 \xC3\xA7" "a\xC4\x9F\xC4\xB1r\xC4\xB1r; adlar\xC4\xB1 dosya ad\xC4\xB1yla ba\xC5\x9Flar:\n"
+    "//   {AD}_baslat(id)          oyun ba\xC5\x9Flarken bir kez        (Unity'de Start)\n"
+    "//   {AD}_guncelle(id, dt)    her karede, dt = ge\xC3\xA7" "en saniye (Unity'de Update)\n"
+    "// id = bu nesne. Kaydet (Ctrl+S), sonra Oynat (F5).\n"
+    "// Edit\xC3\xB6rde koydu\xC4\x9Fun yerden ileri (+Z) y\xC3\xBCr\xC3\xBCr, d\xC3\xB6ner, geri gelir; gitti\xC4\x9Fi y\xC3\xB6ne bakar.\n"
+    "// Animat\xC3\xB6r\xC3\xBC varsa (Animasyon kart\xC4\xB1) y\xC3\xBCr\xC3\xBCme/ko\xC5\x9Fma klibi H\xC4\xB0Z'a g\xC3\xB6re KEND\xC4\xB0L\xC4\xB0\xC4\x9E\xC4\xB0NDEN se\xC3\xA7ilir.\n"
+    "// G\xC3\xB6vdesi YOK ya da SAB\xC4\xB0T olmal\xC4\xB1 (dinamik g\xC3\xB6vdeyi fizik ta\xC5\x9F\xC4\xB1r).\n"
+    "\n"
+    "float {AD}_MESAFE = 4.0;   // ka\xC3\xA7 metre gidip d\xC3\xB6ner\n"
+    "float {AD}_HIZ = 1.5;      // saniyede metre: 1,5 y\xC3\xBCr\xC3\xBCr, 4 ve \xC3\xBCst\xC3\xBC ko\xC5\x9F" "ar\n"
+    "\n"
+    "func {AD}_baslat(id) {\n"
+    "    if (sahne_dinamik(id)) { logla(\"UYARI {AD}: \" + sahne_adi(id) + \" dinamik \xE2\x80\x94 \xC3\x96zellikler > G\xC3\xB6vde > Sabit yap\"); }\n"
+    "}\n"
+    "\n"
+    "func {AD}_guncelle(id, dt) {\n"
+    "    if (sahne_dinamik(id)) { return; }\n"
+    "    float tur = {AD}_MESAFE * 2.0;\n"
+    "    float yol = zaman() * {AD}_HIZ;\n"
+    "    float p = yol - floor(yol / tur) * tur;   // turun neresinde (0..tur)\n"
+    "    float z = sahne_ilk_z(id) + p;\n"
+    "    float yon = 0.0;\n"
+    "    if (p > {AD}_MESAFE) { z = sahne_ilk_z(id) + tur - p; yon = 180.0; }\n"
+    "    sahne_konum_ver(id, sahne_ilk_x(id), sahne_ilk_y(id), z);\n"
+    "    sahne_donus_ver(id, 0.0, yon, 0.0);\n"
+    "}\n";
 
 const BetikSablonBilgi kBilgi[(int)BetikSablon::Sayi] = {
     {"Bo\xC5\x9F", "Ba\xC5\x9Flang\xC4\xB1\xC3\xA7 ve her kare i\xC5\x9Flevleri; kendin doldur.", "davranis"},
@@ -2075,8 +2106,9 @@ const BetikSablonBilgi kBilgi[(int)BetikSablon::Sayi] = {
     {"Dokununca yok ol", "Bir \xC5\x9F" "ey \xC3\xA7" "arp\xC4\xB1nca kaybolur: toplanacak para, k\xC4\xB1r\xC4\xB1lan kutu (G\xC3\xB6vde sabit olmal\xC4\xB1).", "toplanir"},
     {"D\xC3\xB6nd\xC3\xBCr", "Kendi \xC3\xA7" "evresinde d\xC3\xB6ner: para, \xC3\xB6" "d\xC3\xBCl, pervane (G\xC3\xB6vde yok ya da sabit).", "dondur"},
     {"Yukar\xC4\xB1-a\xC5\x9F" "a\xC4\x9F\xC4\xB1 salla", "Yerinde inip kalkar: s\xC3\xBCz\xC3\xBClen \xC3\xB6" "d\xC3\xBCl, platform (G\xC3\xB6vde yok ya da sabit).", "salla"},
+    {"Devriye (ileri-geri y\xC3\xBCr\xC3\xBC)", "\xC4\xB0leri y\xC3\xBCr\xC3\xBCr, d\xC3\xB6ner, geri gelir: bek\xC3\xA7i, NPC. Animat\xC3\xB6r varsa y\xC3\xBCr\xC3\xBC/ko\xC5\x9F klibi kendili\xC4\x9Finden.", "devriye"},
 };
-const char *const kMetin[(int)BetikSablon::Sayi] = {kSablon_BOS, kSablon_HAREKET, kSablon_ZIPLA, kSablon_YOK_OL, kSablon_DONDUR, kSablon_SALLA};
+const char *const kMetin[(int)BetikSablon::Sayi] = {kSablon_BOS, kSablon_HAREKET, kSablon_ZIPLA, kSablon_YOK_OL, kSablon_DONDUR, kSablon_SALLA, kSablon_DEVRIYE};
 } // namespace
 
 const BetikSablonBilgi &betik_sablon_bilgi(BetikSablon t) {

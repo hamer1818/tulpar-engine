@@ -514,6 +514,24 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     }
     ms.joint_count = jc;
   }
+  // Paylasilan kemikler: s'nin HER eklemi (ayni cgltf dugumu) p'de varsa s, p'nin pozundan doldurulabilir (ModelSkin::pose_from).
+  for (uint32_t s = 0; ok && s < nskin; s++)
+    for (uint32_t p = 0; ok && p < nskin; p++) {
+      if (p == s) continue;
+      const cgltf_skin &ss = data->skins[s], &ps = data->skins[p];
+      const uint32_t sj = out->skins[s].joint_count, pj = out->skins[p].joint_count;
+      uint8_t *map = arena.alloc_array_zeroed<uint8_t>(sj ? sj : 1);
+      if (!map) { set_error(out, "arena dolu (skin)", nullptr); ok = false; break; }
+      bool tam = sj > 0;
+      for (uint32_t k = 0; k < sj && tam; k++) {   // k: s'nin BIZIM sirasi; glTF indeksi skin_order[s][k]
+        const cgltf_node *dn = ss.joints[skin_order[s][k]];
+        bool bulundu = false;
+        for (uint32_t q = 0; q < pj && !bulundu; q++)
+          if (ps.joints[skin_order[p][q]] == dn) { map[k] = (uint8_t)q; bulundu = true; }
+        tam = bulundu;
+      }
+      if (tam) out->skins[s].pose_from[p] = map;
+    }
   out->skin_count = ok ? nskin : 0;
 
   // Klipler: glTF animasyonu sabit hizda orneklenir (kanal LINEAR/STEP/CUBIC
@@ -988,6 +1006,11 @@ bool model_compact(Arena &keep, const Model &src, Model *dst) {
     s.joints = copy_array(keep, src.skins[i].joints, s.joint_count);
     s.inverse_bind = copy_array(keep, src.skins[i].inverse_bind, s.joint_count);
     if (!s.joints || !s.inverse_bind) return false;
+    for (uint32_t p = 0; p < kModelMaxSkins; p++) {
+      if (!src.skins[i].pose_from[p]) continue;
+      s.pose_from[p] = copy_array(keep, src.skins[i].pose_from[p], s.joint_count);
+      if (!s.pose_from[p]) return false;
+    }
   }
   for (uint32_t i = 0; i < src.clip_count; i++) {
     const sim::ClipHeader *h = src.clips[i].clip;
@@ -1040,6 +1063,19 @@ uint32_t model_clip_morph_weights(const Model &m, uint32_t clip, float time_s, u
   return 0;
 }
 
+// Klibin skin'i (p) hesaplandi (scratch.model = p'nin eklem model matrisleri): ayni kemikleri paylasan obur skin'ler de doldurulur.
+static void paylasan_skinler(const Model &m, uint32_t p, PoseScratch &scratch, ModelPose *pose) {
+  for (uint32_t s = 0; s < m.skin_count && s < kModelMaxSkins; s++) {
+    if (s == p || p >= kModelMaxSkins) continue;
+    const ModelSkin &sk = m.skins[s];
+    const uint8_t *map = sk.pose_from[p];
+    if (!map) continue;
+    for (uint32_t j = 0; j < sk.joint_count; j++) scratch.skin[s][j] = scratch.model[map[j]] * sk.inverse_bind[j];
+    pose->skin_mats[s] = scratch.skin[s];
+    pose->joint_count[s] = sk.joint_count;
+  }
+}
+
 bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratch &scratch, ModelPose *pose) {
   if (clip >= m.clip_count || !m.clips[clip].clip || m.clips[clip].skin < 0) return false;
   const ModelClip &mc = m.clips[clip];
@@ -1051,6 +1087,7 @@ bool model_pose_evaluate(const Model &m, uint32_t clip, float time_s, PoseScratc
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[mc.skin]);
   pose->skin_mats[mc.skin] = scratch.skin[mc.skin];
   pose->joint_count[mc.skin] = sk.joint_count;
+  paylasan_skinler(m, (uint32_t)mc.skin, scratch, pose);
   return true;
 }
 
@@ -1131,6 +1168,7 @@ bool model_pose_blend(const Model &m, uint32_t clip_a, float time_a, uint32_t cl
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[ca.skin]);
   pose->skin_mats[ca.skin] = scratch.skin[ca.skin];
   pose->joint_count[ca.skin] = sk.joint_count;
+  paylasan_skinler(m, (uint32_t)ca.skin, scratch, pose);
   return true;
 }
 
@@ -1163,6 +1201,7 @@ bool model_pose_mix(const Model &m, const PoseMixEntry *e, uint32_t n, PoseScrat
   sim::ClipSampler::skin_matrices(scratch.model, sk.inverse_bind, sk.joint_count, scratch.skin[skin]);
   pose->skin_mats[skin] = scratch.skin[skin];
   pose->joint_count[skin] = sk.joint_count;
+  paylasan_skinler(m, (uint32_t)skin, scratch, pose);
   return true;
 }
 

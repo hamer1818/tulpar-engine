@@ -351,3 +351,48 @@ ENGINE_TEST(sahne_runtime_animatoru_blobdan_kurar_ve_hareketle_besler) {
   dev.shutdown();
   arena().reset_to(mark);
 }
+
+// --- 7) paylaşılan kemikler (gerçek model: RobotExpressive, FBX2glTF) -------------------------------------------------------------
+// Bir modelde mesh başına bir skin, kemikler ORTAK. Klip tek skin'e bağlanır; öbür skin'in mesh'i poz almazsa T duruşunda kalır
+// (2026-11-16 kullanıcı gezintisinde RobotExpressive'in gövdesi hiç kıpırdamıyordu). iki_skin_karakter.gltf: skin 1 aynı zinciri TERS
+// sırayla listeler. Kapı: üç poz yolu da (evaluate / blend / mix) skin 1'i doldurur ve aynı kemiğin matrisi skin 0'dakiyle BİT EŞİT.
+// KONTROL: pose_from eşlemesi silinince skin 1 boş kalır (eski hata) — ölçü eşlemeden geliyor.
+ENGINE_TEST(model_paylasilan_kemikler_her_skine_poz) {
+  char yol[1024];
+  if (!asset_path(yol, sizeof yol, "iki_skin_karakter.gltf")) { skip("tests/assets/iki_skin_karakter.gltf yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.skin_count == 2 && m.clip_count == 3);
+  if (m.skin_count != 2 || m.clip_count < 2) { arena().reset_to(mark); return; }
+  CHECK(m.skins[1].pose_from[0] != nullptr && m.skins[0].pose_from[1] != nullptr);
+  static PoseScratch sc;
+  auto ayni = [&](const ModelPose &p) {
+    if (!p.skin_mats[0] || !p.skin_mats[1] || p.joint_count[1] != m.skins[1].joint_count) return false;
+    const uint8_t *map = m.skins[1].pose_from[0];
+    for (uint32_t j = 0; j < m.skins[1].joint_count; j++)
+      if (std::memcmp(&p.skin_mats[1][j], &p.skin_mats[0][map[j]], sizeof(Mat4)) != 0) return false;
+    return true;
+  };
+  const int32_t c0 = m.clips[0].skin;
+  ModelPose p1;
+  CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p1) && ayni(p1));
+  ModelPose p2;
+  CHECK(model_pose_blend(m, 0, 0.5f, 1, 0.3f, 0.4f, sc, &p2) && ayni(p2));
+  PoseMixEntry me[2] = {{0, 0.5f, 0.6f}, {1, 0.3f, 0.4f}};
+  ModelPose p3;
+  CHECK(model_pose_mix(m, me, 2, sc, &p3) && ayni(p3));
+  // Poz gerçekten hareketli (bind değil): t=0.5'te sallanan eklem matrisi birimden farklı.
+  bool hareketli = false;
+  for (uint32_t j = 0; j < m.skins[0].joint_count && p1.skin_mats[0]; j++) hareketli |= std::fabs(p1.skin_mats[0][j].m[0][1]) > 1e-3f;
+  CHECK(hareketli);
+  // KONTROL: eşleme yoksa klibin skin'i dışındaki skin BOŞ kalır.
+  uint8_t *sakla = m.skins[1 - c0].pose_from[c0];
+  m.skins[1 - c0].pose_from[c0] = nullptr;
+  ModelPose p4;
+  CHECK(model_pose_evaluate(m, 0, 0.5f, sc, &p4) && p4.skin_mats[1 - c0] == nullptr);
+  m.skins[1 - c0].pose_from[c0] = sakla;
+  std::printf("    [bilgi] iki skin: klip skin %d, ortak eklem %u; evaluate/blend/mix ikinci skin'i doldurdu (bit esit), eslemesiz bos\n", c0,
+              m.skins[1].joint_count);
+  arena().reset_to(mark);
+}

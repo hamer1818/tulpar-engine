@@ -11,6 +11,7 @@
 # tests/arayuz/sahne_ozeti.txt (U11 C5): secimsiz Ozellikler sahne ozeti; kontrol: ayarlar Dunya sekmesinde.
 # tests/arayuz/model_ayar.txt (M1): Kaynaklar sag tik -> ice aktarma ayarlari, cm canli onizleme, Kaydet .ayar yazar.
 # tests/arayuz/animator_grafik.txt (A3): .animator cift tik -> durum grafigi; etikete tik satira gider; kontrol: kapali -> etiket yok.
+# tests/arayuz/kullanici_karakter.txt (A8): yeni oyun + model -> otomatik animator -> Devriye -> oyunda yurur; kontrol: hiz 0.
 # tests/arayuz/animator_grafik_duzenle.txt (A8b): grafikten Durum ekle / Gecis ekle / red / Geri al; dosya diskte denetlenir.
 # tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
@@ -334,6 +335,25 @@ else
     sed -i 's/^float dondur_kapi_HIZ = 90.0;/float dondur_kapi_HIZ = 0.0;/; ' "$hb/dondur_kapi.tpr"
     sed -i 's/^float salla_kapi_YUKSEKLIK = 0.5;/float salla_kapi_YUKSEKLIK = 0.0;/' "$hb/salla_kapi.tpr"
     oyun_kos "$B/hz" "$B/hz_pk.log"
+  fi
+  # --- A8: kullanici akisi — model -> otomatik animator -> Devriye -> oyunda yurur (tulpar gerekir) ---
+  mkdir -p "$B/ui_kk"
+  "$ED" --yeni-oyun "$B/kk" --kimlik kk --onek KK --tr "Karakter" --en "Character" > /dev/null 2>&1
+  cp "$KOK/tests/assets/karakter_kup.gltf" "$B/kk/assets/"
+  ( kos kullanici_karakter.txt "$B/ui_kk" --scene "$B/kk/assets/arena.sahne" ); rkk=$?
+  kb="$B/kk/assets/betikler/devriye.tpr"
+  if [ $rkk = 0 ] && [ -f "$kb" ]; then
+    printf '\nfunc devriye_bitir(id) {\n    float d = sahne_z(id) - sahne_ilk_z(id);\n    if (d > 0.4) { logla("KAPI_DEVRIYE yurudu " + sahne_animator_durum(id)); } else { logla("KAPI_DEVRIYE yerinde"); }\n}\n' >> "$kb"
+    oyun_kos "$B/kk" "$B/kk.log"
+    sed -i 's/^float devriye_HIZ = 1.5;/float devriye_HIZ = 0.0;/' "$kb"
+    oyun_kos "$B/kk" "$B/kk_pk.log"
+  fi
+  if [ $rkk = 0 ] && grep -q 'KAPI_DEVRIYE yurudu hareket' "$B/kk.log" && grep -q 'sahne animatorleri: 1' "$B/kk.log" && grep -q 'kapanis: .* hata 0,' "$B/kk.log" \
+     && grep -q 'KAPI_DEVRIYE yerinde' "$B/kk_pk.log"; then
+    echo "  kullanici karakter: model -> otomatik animator -> Devriye -> oyunda yurudu (animator bagli, hata 0); kontrol: hiz 0 -> yerinde"
+  else
+    echo "  KIRMIZI kullanici karakter (cikis $rkk):"; grep -E 'HATA|> ' "$B/ui_kk/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'
+    grep -E 'KAPI_DEVRIYE|animator|HATA' "$B/kk.log" "$B/kk_pk.log" 2>/dev/null | head -6 | sed 's/^/      /'; kirmizi=1
   fi
   if [ $rhz = 0 ] && grep -q 'KAPI_DONDUR uc_bos' "$B/hz.log" && grep -q 'KAPI_SALLA oynadi' "$B/hz.log" && grep -q 'kapanis: .* hata 0,' "$B/hz.log" \
      && grep -q 'KAPI_DONDUR uc_dolu' "$B/hz_pk.log" && grep -q 'KAPI_SALLA yerinde' "$B/hz_pk.log"; then

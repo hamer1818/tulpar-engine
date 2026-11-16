@@ -60,6 +60,7 @@ struct ModelMaterial {
 constexpr uint32_t kModelMaxLods = 2; // LOD1, LOD2 (LOD0 = indices)
 constexpr uint32_t kModelMaxSkins = 4;
 constexpr uint32_t kModelMaxJoints = 128; // vertex eklem indeksi u8
+static_assert(kModelMaxSkins == 4, "ModelSkin::pose_from boyutu kModelMaxSkins ile ayni olmali");
 
 // Iskelet (glTF skin): eklemler ebeveyn-once sirada (sim::to_model kurali),
 // glTF eklem sirasindan yeniden siralanmis; vertex eklem indeksleri de oyle.
@@ -68,6 +69,11 @@ struct ModelSkin {
   uint32_t joint_count = 0;
   Mat4 *inverse_bind = nullptr;   // [joint_count]
   char name[64] = {0};
+  // PAYLASILAN KEMIKLER (2026-11-16, gercek model: RobotExpressive / FBX2glTF): bir model birden cok glTF skin'i AYNI dugumlerle
+  // tasiyabilir (mesh basina bir skin). Klip tek skin'e baglanir; obur skin'in mesh'leri poz almazsa DINLENME (T) durusunda kalir.
+  // pose_from[p] != nullptr: bu skin'in eklem j'si, skin p'nin model uzayindaki pose_from[p][j]. eklemidir (yuklemede dugum
+  // kimliginden kurulur; bu skin'in her eklemi p'de olmali). Poz islevleri p'yi hesaplayinca bu skin'i de doldurur.
+  uint8_t *pose_from[4] = {};     // [kModelMaxSkins] (asagida static_assert)
 };
 // A5: glTF `weights` kanali (morph agirligi animasyonu): hedef dugumun mesh'inin agirliklari, klibin hizinda orneklenmis.
 // Bir glTF mesh'i birden cok ModelMesh'e (primitif) bolunur; ayni agirliklar araliktaki hepsine gider (glTF kurali).

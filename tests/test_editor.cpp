@@ -285,8 +285,12 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   CHECK(e.asset == a);
   const Vec3 want_pos{1, 2, 3}; // CHECK makrosu susli parantez icindeki virgulu ayirir
   CHECK(e.pos == want_pos);
+  char ilk_ad[content::kSceneNameLen];
+  std::snprintf(ilk_ad, sizeof ilk_ad, "%s", e.name);
+  CHECK(!std::strncmp(ilk_ad, "checker_cube", 12));   // ad dosyadan; anlamsiz "_<varlik sayisi>" eki yok
   int32_t a2 = -1;
   CHECK(app::editor_add_asset_entity(d, h, "checker_cube.gltf", Vec3{0, 0, 0}, &a2) == 1);
+  CHECK(std::strcmp(d.entities[d.entity_count - 1].name, ilk_ad) != 0);   // ayni dosyadan ikincisi BASKA ad (_2)
   CHECK(a2 == a && d.asset_count == n_asset + 1); // ayni kaynak tabloya ikinci kez girmez: tek islem
   CHECK(app::editor_add_asset_entity(d, h, "", Vec3{}, nullptr) == 0); // KONTROL
   const uint32_t n2 = app::editor_scan_assets(dir, d, files, 16);

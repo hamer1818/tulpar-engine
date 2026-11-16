@@ -1023,7 +1023,14 @@ uint32_t editor_add_asset_entity(content::SceneDesc &d, content::SceneHistory &h
   for (char *q = stem; *q; q++)
     if (*q == '.') { *q = 0; break; }
   content::SceneEntity e{};
-  std::snprintf(e.name, sizeof e.name, "%.20s_%u", stem, d.entity_count + 1);
+  // Ad: dosyanin adi ("RobotExpressive"); ayni ad varsa _2, _3 ... Eskiden her zaman "_<varlik sayisi>" ekleniyordu
+  // ("RobotExpressive_10"): kullaniciya hicbir sey soylemeyen bir sayi (A8 kullanici gezintisi, 2026-11-16).
+  auto ad_var = [&](const char *ad) {
+    for (uint32_t i = 0; i < d.entity_count; i++) if (!std::strcmp(d.entities[i].name, ad)) return true;
+    return false;
+  };
+  std::snprintf(e.name, sizeof e.name, "%.24s", stem);
+  for (uint32_t k = 2; ad_var(e.name) && k < 1000; k++) std::snprintf(e.name, sizeof e.name, "%.24s_%u", stem, k);
   e.pos = pos;
   e.components = content::kSceneModel;
   e.asset = a;

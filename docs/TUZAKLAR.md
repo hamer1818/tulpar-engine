@@ -2629,3 +2629,18 @@ görülmeden).
 
 **Düzeltme:** uzantılar eklendi + `bridge_android_asset_filter_keeps_every_decodable_audio_format` testine örnek adlar. **Kural:** yeni
 bir varlık biçimi (içe aktarıcı, editör dosyası, oyunun okuduğu metin) = `bridge/asset_filter.hpp` + o testte bir satır, aynı commit'te.
+
+### 8ee. Kemikleri ortak birden çok skin — klip tek skin'i sürer, öbür mesh T duruşunda kalır
+**Belirti:** Dışarıdan indirilen gerçek bir karakter (RobotExpressive, Quaternius, FBX2glTF ile çevrilmiş; 2026-11-16 kullanıcı gezintisi)
+editörde ve oyunda kollar açık **dinlenme duruşunda** duruyordu; Idle seçili, önizleme açık, hiçbir hata yok. Bizim test karakterlerimizde
+olmuyordu (tek skin).
+
+**Neden:** FBX'ten çevrilen modellerde mesh başına bir glTF skin'i olur, kemik düğümleri ORTAKTIR. Yükleyici klibi ilk kanalın
+düğümünün skin'ine bağlıyor; `model_pose_evaluate/blend/mix` yalnız o skin'in matrislerini dolduruyordu. Öbür skin'in mesh'leri
+`skin_mats == nullptr` ile — yani bağ pozunda — çiziliyordu.
+
+**Düzeltme:** yüklemede `ModelSkin::pose_from[p]` (bu skin'in her eklemi p'de hangi sırada; düğüm kimliğinden); üç poz yolu p'yi
+hesaplayınca paylaşan skin'leri de doldurur. Kapı: `model_paylasilan_kemikler_her_skine_poz` (`tests/assets/iki_skin_karakter.gltf`,
+`make_test_karakter.py --iki-skin`: ikinci skin aynı zinciri TERS sırayla listeler; aynı kemiğin matrisi iki skin'de bit eşit;
+kontrol: eşleme silinince ikinci skin boş). **Kural:** içe aktarma kapısına gerçek araçların (FBX2glTF, Blender, Mixamo) ürettiği
+yapıları da koy — elle üretilmiş test varlığı yalnız bizim varsaydığımız şekli sınar.

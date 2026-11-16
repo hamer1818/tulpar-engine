@@ -4142,12 +4142,33 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       console_log(ConsoleLevel::Uyari, kConsoleTagScene, "kaynak eklenemedi: %s \xE2\x80\x94 %s", file, neden);
       return;
     }
-    st.groups.push(ops);
     st.dirty = true;
     if (a >= 0 && !st.have[a]) load_asset(a);
-    st.sel.set_single((int32_t)st.scene.entity_count - 1);
+    // Animasyonlu model: Animasyon bileseni KENDILIGINDEN (dongu, bekleme klibi). Eskiden yalniz Model geliyordu ve kullanici
+    // "Bilesen ekle > Animasyon"u bilmek zorundaydi; eklense de 0. klip ("Dance") calardi (A8 kullanici gezintisi, 2026-11-16).
+    // Ayni geri alma grubunda: Ctrl+Z ekleme + bileseni BIRLIKTE geri alir.
+    const int32_t yeni = (int32_t)st.scene.entity_count - 1;
+    bool animli = false;
+    if (a >= 0 && st.have[a] && st.models[a].clip_count > 0 && yeni >= 0) {
+      SceneEntity after = st.scene.entities[yeni];
+      after.components |= content::kSceneAnim;
+      after.anim_mode = (uint8_t)content::kAnimLoop;
+      after.speed = 1.0f;
+      after.phase = 0.0f;
+      static char oto[8192];
+      sim::AnimAutoReport rap;
+      content::animator_auto_text_model(st.models[a], oto, sizeof oto, &rap);
+      after.clip = rap.idle >= 0 ? (uint32_t)rap.idle : 0u;
+      if (st.hist.set_entity(st.scene, (uint32_t)yeni, after)) { ops++; animli = true; }
+    }
+    st.groups.push(ops);
+    st.sel.set_single(yeni);
     rescan_browse(st);
-    set_status(st, "kaynak eklendi: %s (%s)", file, (a >= 0 && st.have[a]) ? "y\xC3\xBCklendi" : "y\xC3\xBCklenemedi");
+    if (animli)
+      set_status(st, "kaynak eklendi: %s (%u klip) \xE2\x80\x94 y\xC3\xBCr\xC3\xBC/ko\xC5\x9F i\xC3\xA7in Animasyon kart\xC4\xB1nda \"Animat\xC3\xB6r olu\xC5\x9Ftur\"",
+                 file, st.models[a].clip_count);
+    else
+      set_status(st, "kaynak eklendi: %s (%s)", file, (a >= 0 && st.have[a]) ? "y\xC3\xBCklendi" : "y\xC3\xBCklenemedi");
   };
   // --- Komut tablosu: menu, arac cubugu ve kisayollar TEK kaynaktan ----------
   // (editor_commands.hpp'nin varlik sebebi: ayni komut iki yerde yazilmasin,
