@@ -2296,6 +2296,13 @@ pozitif kontrol: aynı dosyanın kısa yolu farklı anahtar).
 yazmadan önce uzunluğu denetle ve sığmayanı reddet. Test geçici dizinleri kısa olduğu sürece kapı bunu
 göremez — uzun yolu testin kendisi kurmalı.
 
+**Tekrar (2026-11-17, editör "İlk adımlar"):** kart, sahne değişti mi diye `st.scene_path`i 128 baytlık
+`ia_sahne` kopyasıyla karşılaştırıyordu. 140 baytlık sahne yolunda kopya hep kesik, karşılaştırma her
+karede "değişti" deyip sayaçları sıfırlıyordu: "Bir nesne ekle" ve "Kaydet" adımları HİÇ işaretlenmedi
+(bitler 16, beklenen 26). Ölçüldü: aynı senaryo `/tmp/tmp.X` altında 26, scratchpad altında 16; düzeltmeden
+önceki ikili de 16 (yani yeni değil, kapının kısa yolu gizliyordu). Düzeltme: kopya `scene_path` kadar;
+`tools/arayuz_kapi.sh` ilk adımlar projesini bilerek >128 baytlık dizinde kurar.
+
 ### 8di. Metin yük FFI'da NUL'da biter, yayın paketi yolda sessizce süzülür — "gönderildi" alındı demek değil
 
 **Sınıf** (2026-10-23, N2a ağ API'si, geliştirme makinesi Linux): iki ayrı sessiz kayıp, ikisi de

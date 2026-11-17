@@ -167,7 +167,9 @@ if [ $rky = 0 ] && cmp -s "$KOK/tests/assets/checker_cube.gltf" "$KY/p/assets/ch
   echo "  kaynaklar: bos durum eylemli, Model ice aktar -> checker_cube.gltf proje klasorunde ve listede"
 else echo "  KIRMIZI kaynaklar (cikis $rky):"; grep -E 'HATA|> ' "$KY/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B4: Ilk adimlar karti (yeni fabrika projesi; tulpar gerekmez) ---
-IA="$D/ilk"; mkdir -p "$IA/ui1" "$IA/ui2"
+# Proje yolu BILEREK uzun (>128 bayt sahne yolu, Tuzaklar 8dh tekrari 2026-11-17): kesik ia_sahne her karede "sahne degisti"
+# sayip adimlari sifirliyordu; kisa mktemp yolunda kapi bunu goremiyordu.
+IA="$D/ilk/uzun_yol_kapisi_$(printf '%080d' 0)"; mkdir -p "$IA/ui1" "$IA/ui2"
 "$ED" --yeni-oyun "$IA/p" --kimlik ilk --onek IL --tr "Ilk Adim" --en "First Step" > /dev/null 2>&1
 TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar.txt "$IA/ui1" --scene "$IA/p/assets/arena.sahne" --kip basit; ria1=$?
 TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar_gizli.txt "$IA/ui2" --scene "$IA/p/assets/arena.sahne" --kip basit; ria2=$?

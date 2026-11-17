@@ -2693,7 +2693,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
   static bool ilk_kaydet_oldu = false;
   static char ia_yol[1024] = {0};
   static char ia_proje[1100] = {0};
-  static char ia_sahne[content::kScenePathLen] = {0};
+  static char ia_sahne[sizeof(EditorState::scene_path)] = {0};   // scene_path kadar: kesik kopya her karede "sahne degisti" sayiliyordu (140 baytlik yolda Ilk adimlar hic isaretlenmedi, 2026-11-17)
   static uint32_t ia_bit = 0, ia_son_n = 0;
   static SablonBilgi ia_sablon;
   static bool ia_sablon_var = false;
