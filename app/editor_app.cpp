@@ -765,6 +765,11 @@ void clamp_selection(EditorState &st) {
 
 // Fare pikselinden dunya isini (kamera tabanindan; matris tersi gerekmez).
 Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i); // asagida, bodies_spawn yaninda
+// KOK HAREKETI (A4) fizik onizlemesinde: `durum ... kok` iken klibin biriken yatay ilerlemesi (DUNYA, metre). Oyundaki SceneRuntime
+// varligi set_pose ile tasir; editor yazar verisini (st.scene) KIRLETMEZ — ofset ayri tutulur, live_matrix ekler, Oynat basinda ve
+// sonunda (bodies_spawn/remove) sifirlanir. Geri sarilmaz (partikuller gibi: halka yalniz fizigi tutar).
+Vec3 g_kok_ofset[content::kSceneMaxEntities] = {};
+uint32_t g_kok_adim = 0;   // ofsetin degistigi adim sayisi (kapi: SceneStats::root_motion_steps karsiligi)
 // Tum varliklarin dunya AABB'si (secim icin) — model sinirlari yuklu modelden.
 content::SceneBounds entity_world_bounds_one(const EditorState &st, const sim::Physics &phys, uint32_t i) {
   const SceneEntity &e = st.scene.entities[i];
@@ -904,6 +909,7 @@ void bodies_spawn(EditorState &st, sim::Physics &ph) {
   if (st.bodies_live) return;
   st.live = content::scene_spawn_live(st.scene, ph, st.bodies, st.chars);
   st.bodies_live = true;
+  for (Vec3 &o : g_kok_ofset) o = Vec3{};
   if (st.live.characters || st.live.characters_failed)
     console_log_teknik(ConsoleLevel::Bilgi, kConsoleTagScene, "oynat: %u g\xC3\xB6vde, %u karakter (%u g\xC3\xB6vde bile\xC5\x9F" "eni karakterin yerine gecti)",
                 st.live.bodies, st.live.characters, st.live.bodies_replaced);
@@ -915,6 +921,7 @@ void bodies_remove(EditorState &st, sim::Physics &ph) {
   if (!st.bodies_live) return;
   content::scene_remove_live(ph, st.bodies, st.chars, st.scene.entity_count);
   st.bodies_live = false;
+  for (Vec3 &o : g_kok_ofset) o = Vec3{};
 }
 // Varligin bu karedeki dunya matrisi: oynatilirken sim'den (dinamik govde ya
 // da karakter), degilse yazar donusumu. Dort cizim/secim yolu bunu kullanir.
@@ -924,7 +931,19 @@ Mat4 live_matrix(const EditorState &st, const sim::Physics &phys, uint32_t i) {
     if (st.chars[i].valid()) return content::scene_character_matrix(st.scene, i, phys, st.chars[i]);
     if (st.bodies[i].valid() && e.dynamic) return content::scene_body_matrix(e, phys, st.bodies[i]);
   }
-  return content::scene_entity_world_matrix(st.scene, i);
+  Mat4 m = content::scene_entity_world_matrix(st.scene, i);
+  if (st.playing && i < content::kSceneMaxEntities) {   // kok hareketi (g_kok_ofset; yalniz govdesi/karakteri fizikte OLMAYAN varlik)
+    m.m[3][0] += g_kok_ofset[i].x;
+    m.m[3][1] += g_kok_ofset[i].y;
+    m.m[3][2] += g_kok_ofset[i].z;
+  }
+  return m;
+}
+// Oyundaki kural (SceneRuntime::load): dinamik govde ve karakterde konumun sahibi fizik -> kok hareketi kapali, klibin kendi yuruyusu
+// gorunur. Karakterli varligin govdesi dogmaz (scene_spawn_live), yani karakter bayragi tek basina yeter.
+bool kok_hareketi_alir(const SceneEntity &e) {
+  if (e.components & content::kSceneCharacter) return false;
+  return !((e.components & content::kSceneBody) && e.dynamic);
 }
 
 // --- A8: kodsuz animator (editor tarafi) -------------------------------------------------------------------------------------------
@@ -960,6 +979,8 @@ uint64_t anim_imza(const EditorState &st) {
       const uint8_t var = st.have[e.asset] ? 1 : 0;
       kat(&var, 1);
     }
+    const uint8_t kok = kok_hareketi_alir(e) ? 1 : 0;   // oynarken govde dinamik/karakter yapilirsa kok hareketi kararini tazele
+    kat(&kok, 1);
   }
   return h;
 }
@@ -978,7 +999,11 @@ void anim_baglari_tazele(EditorState &st, bool zorla = false) {
     char yol[1200];
     anim_tam_yol(st, e.anim_ctrl, yol, sizeof yol);
     sim::AnimatorError er;
-    if (g_sahne_anim.attach(i, yol, &st.models[e.asset], &er)) continue;
+    if (g_sahne_anim.attach(i, yol, &st.models[e.asset], &er)) {
+      // Yalniz fizik onizlemesinde: Onizle'de varlik yerinde kalir (kaydiricili hiz), klibin kendi yuruyusu gorunur — eskisi gibi.
+      g_sahne_anim.set_root_motion(i, st.playing && kok_hareketi_alir(e));
+      continue;
+    }
     g_anim_hata_sayisi++;
     if (er.line) std::snprintf(g_anim_hata, sizeof g_anim_hata, "%s, sat\xC4\xB1r %u: %s", e.anim_ctrl, er.line, er.msg);
     else std::snprintf(g_anim_hata, sizeof g_anim_hata, "%s: %s", e.anim_ctrl, er.msg);
@@ -995,6 +1020,15 @@ void anim_adim_oynat(EditorState &st, const sim::Physics &phys, float dt) {
     if (!g_sahne_anim.has(i)) continue;
     const Mat4 m = live_matrix(st, phys, i);
     g_sahne_anim.step(i, Vec3{m.m[3][0], m.m[3][1], m.m[3][2]}, dt);
+    // Kok hareketi: yerel (x, z) ilerleme varligin dunya matrisinin dogrusal kismiyla (donus + olcek; SceneRuntime::update'teki
+    // `rot * (k * olcek)` ile ayni) dunyaya. Sutun-ana: m.m[sutun][satir].
+    float k[2];
+    if (i < content::kSceneMaxEntities && g_sahne_anim.take_root_delta(i, k)) {
+      g_kok_ofset[i].x += m.m[0][0] * k[0] + m.m[2][0] * k[1];
+      g_kok_ofset[i].y += m.m[0][1] * k[0] + m.m[2][1] * k[1];
+      g_kok_ofset[i].z += m.m[0][2] * k[0] + m.m[2][2] * k[1];
+      g_kok_adim++;
+    }
   }
 }
 // A8c: kodsuz tus — editorde (Oynat / Onizle) tuslu tetikler ImGui'den. Ad kumesi kopru key_code ile ayni (kAnimTuslar alt kumesi);

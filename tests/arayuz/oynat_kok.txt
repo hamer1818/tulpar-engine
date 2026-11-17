@@ -1,0 +1,18 @@
+# A4 kok hareketi F5 FIZIK onizlemesinde (tools/arayuz_kapi.sh): `durum y klip yuru dongu kok` (skin_karakter.gltf 'yuru': kok z
+# 0 -> 1 m / 1 s, olcek 2). Eskiden editorun ic onizlemesi kok hareketini uygulamiyordu: varlik yerinde, kartta 0.0 m/s (yalniz gomulu
+# Oynat'ta yuruyordu). Kapi: F5'ten ~1,5 s sonra kartta canli hiz 2.0 m/s (olcekle carpilir), Durdur'dan sonra hiz satiri yok.
+# POZITIF KONTROL: oynat_kok_kontrol.txt — ayni sahne `kok`suz animatorle: 0.0 m/s.
+tikla 66 206
+bekle 3
+tus F
+bekle 5
+tus F5
+bekle 90
+kaydir 1420 700 -30
+bekle 3
+dogrula_metin "y · 2.0 m/s"
+ekran kok_oynat
+tus F5
+bekle 5
+metin_yok "y · 2.0 m/s"
+cik
