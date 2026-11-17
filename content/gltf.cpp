@@ -440,7 +440,9 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
 
   bool ok = true;
   // Goruntuler
-  uint32_t nimg = (uint32_t)data->images_count;
+  uint32_t nimg = lim.images ? (uint32_t)data->images_count : 0;
+  // Doku indeksi: goruntuler atlandiysa (lim.images false) hep -1 — yoksa var olmayan goruntuye isaret ederdi.
+  auto img_ix = [&](const cgltf_image *im) -> int32_t { return lim.images ? (int32_t)(im - data->images) : -1; };
   if (nimg > lim.max_images) { set_error(out, "goruntu siniri asildi", nullptr); ok = false; }
   out->images = arena.alloc_array_zeroed<ModelImage>(nimg ? nimg : 1);
   for (uint32_t i = 0; ok && i < nimg; i++) {
@@ -477,7 +479,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       const cgltf_pbr_metallic_roughness &pbr = cm.pbr_metallic_roughness;
       mm.base_color = {pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2]};
       if (pbr.base_color_texture.texture && pbr.base_color_texture.texture->image)
-        mm.image = (int32_t)(pbr.base_color_texture.texture->image - data->images);
+        mm.image = img_ix(pbr.base_color_texture.texture->image);
       // metallic/roughness CARPANLARI. Doku varsa shader bunlarla CARPAR
       // (glTF 2.0: "multiplied with the texture values").
       mm.metallic = pbr.metallic_factor;
@@ -487,7 +489,7 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
       // `scale`i tasir; esleme spec'ten gelir ve `content_gltf_orm_channel_mapping`
       // kapisi kanallari takas ederek olcer.
       if (pbr.metallic_roughness_texture.texture && pbr.metallic_roughness_texture.texture->image)
-        mm.orm_image = (int32_t)(pbr.metallic_roughness_texture.texture->image - data->images);
+        mm.orm_image = img_ix(pbr.metallic_roughness_texture.texture->image);
       mm.has_pbr = true;
     }
     mm.emissive = {cm.emissive_factor[0], cm.emissive_factor[1], cm.emissive_factor[2]};
@@ -498,18 +500,18 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     // okumak butun normal haritalarini duzlestirirdi. Bu yuzden scale yalniz
     // doku VARKEN okunur, yoksa 1 kalir.
     if (cm.normal_texture.texture && cm.normal_texture.texture->image) {
-      mm.normal_image = (int32_t)(cm.normal_texture.texture->image - data->images);
+      mm.normal_image = img_ix(cm.normal_texture.texture->image);
       mm.normal_scale = cm.normal_texture.scale;
     }
     if (cm.emissive_texture.texture && cm.emissive_texture.texture->image)
-      mm.emissive_image = (int32_t)(cm.emissive_texture.texture->image - data->images);
+      mm.emissive_image = img_ix(cm.emissive_texture.texture->image);
     // occlusionTexture: R kanali. Varliklarin ezici cogunlugunda metallicRoughness
     // ILE AYNI goruntudur ("ORM" paketlemesi) — o zaman bedava, ayni sampler'dan
     // okunur. FARKLI bir goruntuyse bugun okunmuyor: besinci bir doku baglamasi
     // TBDR'da bu kazanca degmez. Sessizce yutulmuyor, `occlusion_separate` ile
     // isaretleniyor.
     if (cm.occlusion_texture.texture && cm.occlusion_texture.texture->image) {
-      const int32_t occ = (int32_t)(cm.occlusion_texture.texture->image - data->images);
+      const int32_t occ = img_ix(cm.occlusion_texture.texture->image);
       mm.occlusion_strength = cm.occlusion_texture.scale; // scale == strength (cgltf)
       if (occ != mm.orm_image) {
         mm.occlusion_separate = true;

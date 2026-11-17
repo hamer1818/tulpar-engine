@@ -1905,6 +1905,15 @@ const content::Model *karo_modeli_saglayici(void *u, int32_t a) {
   const EditorState *s = static_cast<const EditorState *>(u);
   return a >= 0 && a < (int32_t)s->scene.asset_count && s->have[a] ? &s->models[a] : nullptr;
 }
+// Sahnede OLMAYAN model dosyalari (2026-11-17): onbellek (app/editor_onizleme ThumbCache). Ana dongu kare basina bir dosya yukler.
+ThumbCache g_karo_onbellek;
+const ThumbMesh *karo_agi_saglayici(void *u, const char *dosya) {
+  const EditorState *s = static_cast<const EditorState *>(u);
+  char yol[1200];
+  const int n = std::snprintf(yol, sizeof yol, "%s/%s", s->scene_dir, dosya);
+  if (n < 0 || (size_t)n >= sizeof yol) return nullptr;
+  return g_karo_onbellek.get(yol);
+}
 void model_ayar_yolu(const EditorState &st, const char *dosya, char *out, size_t cap) { std::snprintf(out, cap, "%s/%s", st.scene_dir, dosya); }
 void model_ayar_ac(EditorState &st, const AssetFile &f) {
   EditorState::ModelAyar &ma = st.model_ayar;
@@ -2581,7 +2590,9 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
     for (uint32_t i = n0; i < st.scene.asset_count; i++)
       if (!st.have[i]) load_asset((int32_t)i);
   };
-  assets_panel_set_thumbs(AssetsThumbProvider{karo_modeli_saglayici, &st}); // M1: yuklu modeller karoda onizlenir
+  // M1: yuklu modeller karoda onizlenir; sahnede olmayanlar onbellekten (ayrilamazsa onlar genel simgede kalir — soylenir).
+  if (!g_karo_onbellek.init(sys)) console_log_teknik(ConsoleLevel::Uyari, kConsoleTagEditor, "Kaynaklar: model \xC3\xB6nizleme \xC3\xB6nbelle\xC4\x9Fi ayr\xC4\xB1lamad\xC4\xB1 \xE2\x80\x94 sahnede olmayan modeller simgeyle g\xC3\xB6r\xC3\xBCn\xC3\xBCr");
+  assets_panel_set_thumbs(AssetsThumbProvider{karo_modeli_saglayici, karo_agi_saglayici, &st});
   rescan_browse(st);
   std::printf("[engine_editor] sahne %s: %u varlik, %u kaynak\n", st.scene_path, st.scene.entity_count, st.scene.asset_count);
   console_log_teknik(ConsoleLevel::Bilgi, kConsoleTagEditor, "sahne %s: %u varl\xC4\xB1k, %u kaynak", st.scene_path, st.scene.entity_count,
@@ -4912,6 +4923,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
 
     if (st.playing) st.anim_onizle = false;
     anim_baglari_tazele(st);   // A8: imza degistiyse (dosya/varlik/oynatma) yeniden bagla
+    g_karo_onbellek.pump(1);   // Kaynaklar: sahnede olmayan modelin onizlemesi (kare basina en cok bir dosya; yalniz geometri)
     g_morph.begin_frame();     // A5: iki kare kullanilmayan morph yuvasi baska varliga gecer
     {   // A8c: kart/grafikteki ▶: bu dosyayi kullanan varlikta (secili oncelikli) durumu baslat; oynatmiyorsak onizleme acilir.
       char oy[1200], od[sim::kAnimNameLen];
@@ -11606,6 +11618,11 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               st.scene.entity_count, st.scene.asset_count, st.browse_count, st.hist.undo_count(), st.hist.redo_count(),
               st.dirty ? " (kaydedilmedi)" : "", st.sel.count, prim_end >= 0 ? st.scene.entities[prim_end].name : "-", tick_i, st.live.bodies,
               st.live.characters, st.live.bodies_replaced, st.live.characters_failed);
+  {
+    const ThumbCache::Stats &ks = g_karo_onbellek.stats();
+    std::printf("[engine_editor] karo onizleme: son karede %u karo | onbellek yuklenen %u, hata %u, buyuk %u, dusen %u, yenilenen %u, bekleyen %u, en uzun yukleme %.1f ms\n",
+                assets_panel_thumbs_drawn(), ks.loaded, ks.failed, ks.too_big, ks.evicted, ks.reloaded, ks.pending, (double)ks.max_load_ms);
+  }
   // Sistem arenasi OLCUMU. Gunluk (SceneHistory) 256 islemlik SABIT bir dizi
   // ve her islem iki SceneEntity tasir: varlik buyudukce (E3 ozellikleri,
   // 824 -> 1468 B) gunluk de buyur. Rezerv (512 MB) Fatal politikali, yani

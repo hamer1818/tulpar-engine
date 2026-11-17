@@ -16,6 +16,7 @@
 # tests/arayuz/animator_kart.txt (A8c): Animasyon karti Hareketler: roller, Hareket ekle, Geri al; dosya kabukta denetlenir.
 # tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
 # tests/arayuz/oynat_kok{,_kontrol}.txt (A4): F5 fizik onizlemesinde `kok` durumu varligi yurutur (kartta 2.0 m/s); kontrol: kok'suz 0.0.
+# tests/arayuz/kaynak_onizleme.txt: sahnede olmayan model karoda onizlenir (ThumbCache); kontrol: bozuk.glb hata sayilir, simgede kalir.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -166,6 +167,16 @@ TULPAR_DOSYA_SECICI="sabit:$KOK/tests/assets/checker_cube.gltf" kos kaynaklar.tx
 if [ $rky = 0 ] && cmp -s "$KOK/tests/assets/checker_cube.gltf" "$KY/p/assets/checker_cube.gltf"; then
   echo "  kaynaklar: bos durum eylemli, Model ice aktar -> checker_cube.gltf proje klasorunde ve listede"
 else echo "  KIRMIZI kaynaklar (cikis $rky):"; grep -E 'HATA|> ' "$KY/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- Kaynaklar: sahnede olmayan modelin onizlemesi (2026-11-17; tulpar gerekmez) ---
+KO="$D/karo_onizleme"; mkdir -p "$KO/ui"
+"$ED" --yeni-oyun "$KO/p" --kimlik ko --onek KO --tr "Karo" --en "Tile" > /dev/null 2>&1
+cp "$KOK/tests/assets/checker_cube.gltf" "$KOK/tests/assets/skin_karakter.gltf" "$KO/p/assets/" 2>/dev/null
+printf 'glTF bozuk dosya' > "$KO/p/assets/bozuk.glb"
+kos kaynak_onizleme.txt "$KO/ui" --scene "$KO/p/assets/arena.sahne" --kip basit; rko=$?
+kos_satir=$(grep 'karo onizleme:' "$KO/ui/editor.log" 2>/dev/null | tail -1)
+if [ $rko = 0 ] && echo "$kos_satir" | grep -q 'son karede 2 karo | onbellek yuklenen 2, hata 1,'; then
+  echo "  kaynak onizleme: sahnede olmayan 2 model gercek onizlemeyle cizildi; bozuk.glb simgede kaldi, hata sayildi (kontrol)"
+else echo "  KIRMIZI kaynak onizleme (cikis $rko): ${kos_satir:-satir yok}"; grep -E 'HATA|> ' "$KO/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B4: Ilk adimlar karti (yeni fabrika projesi; tulpar gerekmez) ---
 # Proje yolu BILEREK uzun (>128 bayt sahne yolu, Tuzaklar 8dh tekrari 2026-11-17): kesik ia_sahne her karede "sahne degisti"
 # sayip adimlari sifirliyordu; kisa mktemp yolunda kapi bunu goremiyordu.

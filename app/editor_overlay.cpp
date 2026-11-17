@@ -719,6 +719,7 @@ static void kaynak_ipucu(const AssetFile &f) {
 
 namespace {
 AssetsThumbProvider g_thumbs;
+uint32_t g_karo_onizlenen = 0;   // son karede gercek onizlemeyle cizilen karo (kapi / ozet satiri)
 // Karo sag tik menusu (M1): yalniz model dosyalari. Popup kimligi karonun PushID kapsaminda (karo basina ayri).
 void karo_menu(const AssetFile &f, bool hov, AssetsAction *out, int i) {
   if (f.kind != AssetKind::Model) return;
@@ -732,12 +733,19 @@ const content::Model *karo_modeli(const AssetFile &f) {
   if (!g_thumbs.model || f.kind != AssetKind::Model || !f.in_scene || f.index < 0) return nullptr;
   return g_thumbs.model(g_thumbs.user, f.index);
 }
+// Sahnede olmayan model: onbellekten (yalniz GORUNEN karo sorar — gorunmeyenler yuvalari LRU'da dondurmesin).
+const ThumbMesh *karo_agi(const AssetFile &f) {
+  if (!g_thumbs.mesh || f.kind != AssetKind::Model || f.in_scene) return nullptr;
+  return g_thumbs.mesh(g_thumbs.user, f.name);
+}
 } // namespace
 void assets_panel_set_thumbs(const AssetsThumbProvider &p) { g_thumbs = p; }
+uint32_t assets_panel_thumbs_drawn() { return g_karo_onizlenen; }
 
 void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32_t file_count, const char (*scene_assets)[content::kScenePathLen],
                   const bool *loaded, uint32_t scene_asset_count, AssetsAction *out, AssetsLayout *out_layout) {
   if (out) *out = AssetsAction{};
+  g_karo_onizlenen = 0;
   AssetsLayout lay;
   if (out_layout) *out_layout = lay;
   if (!ImGui::GetCurrentContext()) return;
@@ -945,14 +953,18 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         // 3. Varlık Türü İkonu ve Rozeti
         const AssetStyle as = asset_style_for_file(f.name);
         // M1: yuklenmis modelde gercek onizleme (ustundeyken doner); yoksa tur simgesi.
+        // 2026-11-17: sahnede OLMAYAN model de onizlenir (ThumbCache; hazir olana dek simge).
         const content::Model *tm = karo_modeli(f);
+        const ThumbMesh *ta = !tm && ImGui::IsRectVisible(p, q) ? karo_agi(f) : nullptr;
         uint32_t thumb_n = 0;
-        if (tm) {
+        if (tm || ta) {
           const float yaw = hov ? (float)ImGui::GetTime() * 1.3f : 0.65f;
           float rgb[4];
           editor_tone(Tone::Text, rgb);
           const float m2 = 3.0f;
-          thumb_n = model_thumb_draw(*tm, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb);
+          thumb_n = tm ? model_thumb_draw(*tm, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb)
+                       : thumb_mesh_draw(*ta, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb);
+          if (thumb_n) g_karo_onizlenen++;
         }
         if (!thumb_n) {
           const float real_glyph_px = std::floor(thumb_h * 0.46f);

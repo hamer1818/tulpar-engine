@@ -211,7 +211,7 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
   uint32_t doku_yok = 0;
   auto doku_indeksi = [&](const ufbx_texture *t, bool srgb, bool normal) -> int32_t {
     if (!t) return -1;
-    if (out->image_count >= lim.max_images) return -1;
+    if (!lim.images || out->image_count >= lim.max_images) return -1;
     ModelImage &im = out->images[out->image_count];
     im = ModelImage{};
     if (!doku_yukle(arena, t, dir, &im)) { doku_yok++; return -1; }

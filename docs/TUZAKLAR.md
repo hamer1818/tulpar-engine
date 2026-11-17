@@ -2707,6 +2707,12 @@ göre doğru. Kapı: `model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni` (bind_mat
 birimden 2,0 sapar). **Kural:** bir varsayım bir yolda yanlış çıkınca (8ef) aynı varsayımı kullanan BÜTÜN yolları ara — çizim, sınır,
 seçim kutusu, birim tahmini. Ve "boyut doğru" özeti çizimi doğrulamaz: kareye bak.
 
+**Kaçan yol (2026-11-17, Kaynaklar önizlemesi):** kuralın listesinde dördüncü bir yol eksikti — `app/editor_onizleme` karoya
+iskeletli köşeleri HAM (skin uzayı, `instance.world` ile) çiziyordu. Mike'ta köşeler ~160 birim, sınır 1,5 m: karoda birkaç dev
+üçgen. Kimse fark etmemişti çünkü sahnedeki model karosu çoğu zaman görünür alanın dışında kalıyordu; sahnede OLMAYAN modeller
+önizlenmeye başlayınca göründü. Düzeltme: önizleme sınırlarla aynı pozu (`Model::bounds_clip`, yoksa `bind_mats`) ve kemiğe takılı
+parçada `model_instance_world` kullanır; tanı ölçümü iki yükleme yolunda köşe kutusu = sınır kutusu (±0,01 m).
+
 ### 8ei. Dosyanın UV kanalı 0 tamamen sıfır — model düz renk, hiçbir hata yok
 **Belirti:** Mike (8eg/8eh) dokuları yüklü, malzeme doğru, ama robot düz parlak mavi (2026-11-16, başsız editör yakın çekimi).
 **Neden:** Unreal → glTF dönüşümü (FAB) `TEXCOORD_0`'ı bütün köşelerde (0,0) yazmış, gerçek UV `TEXCOORD_1`'de; malzeme kanal 0'ı
