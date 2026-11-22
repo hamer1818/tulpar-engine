@@ -1997,8 +1997,11 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
       const uint64_t dt = platform::now_ns() - t0;
       if (f >= kWarm) ns[got++] = dt;
     }
-    std::sort(ns, ns + got);
-    return ns[got / 2];
+    // Buraya varildiginda got == kMeas (erken donus yukarida). Uzunluk SABIT verilir: `ns + got` ile GCC 15
+    // std::sort'un >16 eleman dalini (9 elemanlik dizide olu) eleyemiyor ve -Warray-bounds basiyordu
+    // ("offset 128 into object 'ns' of size 72"; CI Linux + Windows derleme logu, 2026-11-22).
+    std::sort(ns, ns + kMeas);
+    return ns[kMeas / 2];
   };
   bool run_ok = true;
   const uint64_t empty_ns = medyan(0, mat_tex, &run_ok); // sabit gonderim + geri okuma maliyeti
