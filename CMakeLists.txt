@@ -63,6 +63,17 @@ else()
   set(ENGINE_FRAME_OPTS -Werror=frame-larger-than=${ENGINE_FRAME_LIMIT})
 endif()
 include(CheckCXXSourceCompiles)
+# GCC 15+ UNION {0} (2026-11-22, Tuzaklar 8eu): GCC 15'ten beri `= {0}` otomatik omurlu bir union'in YALNIZ ilk uyesini sifirlar,
+# gerisi yigindaki copte kalir (GCC 15 surum notu). mbedTLS 3.6.2'nin PSA islem yapilari (MBEDTLS_PSA_MAC_OPERATION_INIT ...) buna
+# dayaniyor: HTTPS kapisinin TLS 1.3 sunucusu ssl_tls13_calc_finished_core'da psa_mac_compute = PSA_ERROR_BAD_STATE (-137) ile dustu —
+# yerelde GCC 16.2.1 ile ayni derlemede bayraksiz 30/30, bayrakli 0/30; Windows UCRT64 CI'da (GCC 16.2) her kosumda. Hangi kosumun
+# dusecegini yigin icerigi belirliyordu (Linux CI'nin eski GCC'si etkilenmiyor). Eski davranisi BUTUN derlemeye geri ver: ayni
+# varsayima baska vendor C kodu da dayaniyor olabilir. Clang'da bayrak yok (destek denetlenir). Kapi: union_sifir_ilklendirme_tam.
+include(CheckCCompilerFlag)
+check_c_compiler_flag(-fzero-init-padding-bits=unions ENGINE_HAS_ZERO_INIT_UNIONS)
+if(ENGINE_HAS_ZERO_INIT_UNIONS)
+  add_compile_options(-fzero-init-padding-bits=unions)
+endif()
 string(REPLACE ";" " " _engine_frame_flags "${ENGINE_FRAME_OPTS}")
 set(_engine_saved_flags "${CMAKE_REQUIRED_FLAGS}")
 set(CMAKE_REQUIRED_FLAGS "${_engine_frame_flags}")

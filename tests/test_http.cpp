@@ -8,11 +8,13 @@
 //   kopru      teng_http_request engellemez (tutamac aninda), is parcacigi bitirir, govde okunur,
 //              birakilan tutamac olur (KONTROL: eski tutamac HATA + 0).
 // Sandbox socket yasagi gorunur ATLANDI.
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include <mbedtls/ctr_drbg.h>
+#include <mbedtls/debug.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
@@ -223,12 +225,36 @@ const char *kSertB =
     "SAAwRQIgVYBL+DMRcqSS9mscIl/KXWaJsjVAbcULWhPgE3JUIjsCIQDDHOiFWqz7\n"
     "9bd2SIzf2WXI1dkAzClIaMb3yDNaO1HYxg==\n"
     "-----END CERTIFICATE-----\n";
+// HAZIR BAYRAGI (2026-11-22): istemci, sunucu kurulumunu (psa_crypto_init, DRBG tohumu, anahtar) bitirmeden baglanmaz; PSA ana is
+// parcacigında sunucudan ONCE baslatilir (mbedTLS threading'siz). Windows UCRT64 CI'daki ilk baglanti dususu ONCE buna baglandi, ama
+// OLCUM baska bir sey gosterdi: sebep GCC 15+'in union {0} ilklendirmesiydi (Tuzaklar 8eu, union_sifir_ilklendirme_tam). Bayrak yine
+// dogru hijyen; sunucu tarafi teshisi (PSA/DRBG donusleri, dusunce ilk baglantinin mbedTLS izi) o aramada eklendi ve kalir.
+// (Urunde kopru tek HTTP is parcacigi kullanir — bridge/engine_api.cpp http_worker.)
 struct TlsSunucu {
   int ls = -1;
   uint16_t port = 0;
   int n = 0;
   platform::Thread th;
+  std::atomic<int> hazir{0};
+  int el_sikisma[4] = {};   // teshis: sunucu tarafi mbedtls_ssl_handshake donusleri
+  int tohum = 0, anahtar = 0;   // teshis: mbedtls_ctr_drbg_seed / mbedtls_pk_parse_key donusleri
+  char dbg[12288] = {};         // teshis: ILK baglantinin mbedTLS izi (duzey <= 3, onaltilik dokum yok), yalniz el sikisma duserse basilir
+  uint32_t dbg_n = 0;
+  int baglanti = 0;
 };
+void tls_dbg(void *a, int, const char *dosya, int satir, const char *m) {
+  TlsSunucu &t = *(TlsSunucu *)a;
+  if (t.baglanti != 0) return;   // yalniz ilk baglanti
+  if (!std::strstr(m, "=>") && !std::strstr(m, "<=") && !std::strstr(m, "ciphersuite") && !std::strstr(m, "returned") &&
+      !std::strstr(m, "failed") && !std::strstr(m, "rror") && !std::strstr(m, "version") && !std::strstr(m, "group") &&
+      !std::strstr(m, "sig") && !std::strstr(m, "hash"))
+    return;
+  if (std::strstr(m, "dumping")) return;
+  const char *d = std::strrchr(dosya, '/');
+  if (!d) d = std::strrchr(dosya, '\\');
+  const int k = std::snprintf(t.dbg + t.dbg_n, sizeof t.dbg - t.dbg_n, "      %s:%d %s", d ? d + 1 : dosya, satir, m);
+  if (k > 0 && t.dbg_n + (uint32_t)k < sizeof t.dbg) t.dbg_n += (uint32_t)k;
+}
 void tls_sunucu_dongu(void *a) {
   TlsSunucu &t = *(TlsSunucu *)a;
   mbedtls_x509_crt srt;
@@ -242,12 +268,15 @@ void tls_sunucu_dongu(void *a) {
   mbedtls_ctr_drbg_init(&drbg);
   mbedtls_ssl_config_init(&conf);
   psa_crypto_init();
-  mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &ent, nullptr, 0);
+  t.tohum = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &ent, nullptr, 0);
   mbedtls_x509_crt_parse(&srt, (const unsigned char *)kSertA, std::strlen(kSertA) + 1);
-  mbedtls_pk_parse_key(&pk, (const unsigned char *)kAnahtarA, std::strlen(kAnahtarA) + 1, nullptr, 0, mbedtls_ctr_drbg_random, &drbg);
+  t.anahtar = mbedtls_pk_parse_key(&pk, (const unsigned char *)kAnahtarA, std::strlen(kAnahtarA) + 1, nullptr, 0, mbedtls_ctr_drbg_random, &drbg);
   mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
   mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);
   mbedtls_ssl_conf_own_cert(&conf, &srt, &pk);
+  mbedtls_ssl_conf_dbg(&conf, tls_dbg, &t);
+  mbedtls_debug_set_threshold(3);
+  t.hazir.store(1, std::memory_order_release);
   for (int i = 0; i < t.n; i++) {
     int c = (int)accept(t.ls, nullptr, nullptr);
     if (c < 0) break;
@@ -258,6 +287,8 @@ void tls_sunucu_dongu(void *a) {
                         [](void *x, unsigned char *b, size_t n) -> int { return (int)recv(*(int *)x, (char *)b, (int)n, 0); }, nullptr);
     int r;
     while ((r = mbedtls_ssl_handshake(&ssl)) == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {}
+    if (i < 4) t.el_sikisma[i] = r;
+    t.baglanti = i + 1;
     if (r == 0) {
       unsigned char buf[2048];
       int k;
@@ -279,7 +310,7 @@ void tls_sunucu_dongu(void *a) {
 
 ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   static TlsSunucu t;
-  t = TlsSunucu{};
+  t.ls = -1; t.port = 0; t.n = 0; t.hazir.store(0); for (int &x : t.el_sikisma) x = 0;   // atomic kopyalanamaz: alan alan sifirla
   if (!platform::net_startup()) { test::skip("ag yok"); return; }
   const int s = (int)socket(AF_INET, SOCK_STREAM, 0);
   sockaddr_in a{};
@@ -291,7 +322,12 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   t.ls = s;
   t.port = ntohs(a.sin_port);
   t.n = 3;
+  const int psa = (int)psa_crypto_init();   // ana is parcacigi, sunucudan ONCE (yukaridaki yaris)
+  unsigned char rb[16] = {};
+  const int psa_rng = (int)psa_generate_random(rb, sizeof rb);
   CHECK(platform::thread_create(t.th, tls_sunucu_dongu, &t, "test_tls_sunucu"));
+  for (int i = 0; i < 5000 && !t.hazir.load(std::memory_order_acquire); i++) platform::thread_sleep_us(1000);
+  CHECK(t.hazir.load() == 1);
   char url[128], out[256];
   platform::HttpResult r;
   // 1) guvenilen kok = A
@@ -312,6 +348,10 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   std::printf("    [bilgi] https (ad uyusmaz): ok %d hata '%s'\n", ok, r.error);
   CHECK(!ok && std::strstr(r.error, "dogrulanamadi") != nullptr);
   platform::thread_join(t.th);
+  std::printf("    [bilgi] sunucu el sikismasi donusleri: %d %d %d (0 = tamam); psa_crypto_init %d, psa_generate_random %d, drbg tohum %d, anahtar %d\n",
+              t.el_sikisma[0], t.el_sikisma[1], t.el_sikisma[2], psa, psa_rng, t.tohum, t.anahtar);
+  if (t.el_sikisma[0] != 0) std::printf("    [bilgi] sunucu mbedTLS izi (ilk baglanti, duzey <= 3):\n%s\n", t.dbg);
+  mbedtls_debug_set_threshold(0);
   kapat(t.ls);
   // sisteme don: paket bulunuyor mu (teshis; bulunamazsa ATLANDI degil bilgi — CI imajina bagli)
   int n = 0;
@@ -325,4 +365,32 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
     std::printf("    [bilgi] https://example.com: ok %d status %d %u bayt hata '%s'\n", ok, r.status, r.body_len, r.error);
     CHECK(ok && r.status == 200 && r.body_len > 100);
   }
+}
+
+// DERLEYICI: union {0} BUTUN union'i sifirliyor mu (2026-11-22, Tuzaklar 8eu). GCC 15+ varsayilan olarak yalniz ilk uyeyi sifirliyor;
+// mbedTLS'in PSA islem yapilari buna dayaniyor ve yukaridaki HTTPS kapisinin TLS 1.3 sunucusu psa_mac_compute = BAD_STATE ile dustu.
+// CMakeLists.txt -fzero-init-padding-bits=unions'i destekleyen derleyicide butun derlemeye verir. Once yigin 0xA5 ile kirletilir, sonra
+// ayni derinlikte {0} ile kurulan union'in HER bayti okunur. POZITIF KONTROL (yerel, GCC 16.2.1, ayni kod bagimsiz derlendi): -O0/-O2/-O3
+// bayraksiz 0, bayrakli 1 — kapi bayragin yoklugunu gercekten goruyor.
+namespace {
+union KarmaBirlik {
+  char a;
+  unsigned long long b[16];
+};
+__attribute__((noinline)) void yigini_kirlet() {
+  volatile unsigned char b[512];
+  for (int i = 0; i < 512; i++) b[i] = 0xA5;
+}
+__attribute__((noinline)) bool birlik_sifir_mi() {
+  KarmaBirlik u = {0};
+  volatile const unsigned char *p = reinterpret_cast<const unsigned char *>(&u);
+  for (size_t i = 0; i < sizeof u; i++)
+    if (p[i]) return false;
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(union_sifir_ilklendirme_tam) {
+  yigini_kirlet();
+  CHECK(birlik_sifir_mi());
 }
