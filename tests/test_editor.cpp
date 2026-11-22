@@ -261,8 +261,8 @@ ENGINE_TEST(editor_asset_browser_lists_gltf_and_adds_entity) {
   for (uint32_t i = 0; i < n; i++) {
     if (i && std::strcmp(files[i - 1].name, files[i].name) > 0) sorted = false;
     if (!ends_with(files[i].name, ".gltf") && !ends_with(files[i].name, ".glb") && !ends_with(files[i].name, ".fbx") && !ends_with(files[i].name, ".stl") &&
-        !ends_with(files[i].name, ".obj") && !ends_with(files[i].name, ".ply") && !ends_with(files[i].name, ".usda") && !ends_with(files[i].name, ".usdz"))
-      only_gltf = false;   // model uzantilari (madde 4: .fbx; 2026-11-22: .ply, .usda/.usdz — ikili .usdc LISTELENMEZ)
+        !ends_with(files[i].name, ".obj") && !ends_with(files[i].name, ".ply") && !ends_with(files[i].name, ".usda") && !ends_with(files[i].name, ".usdz") && !ends_with(files[i].name, ".usdc"))
+      only_gltf = false;   // model uzantilari (madde 4: .fbx; 2026-11-22: .ply, .usda/.usdz; ikili .usdc de, 2026-11-22 crate okuyucu)
     if (files[i].in_scene) {
       in_scene++;
       CHECK(files[i].index == 0);

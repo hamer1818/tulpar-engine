@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "content/meshopt.hpp"
+#include "content/usdc.hpp"
 
 namespace tulpar::engine::content {
 namespace {
@@ -782,8 +783,8 @@ bool ply_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
 // rotateXYZ..ZYX/orient/transform (+ :sonek, `!invert!`), xformOpOrder (yoksa yazilis sirasi); sahne metadata upAxis (Y/Z) ve
 // metersPerUnit (YOKSA 0,01 — USD varsayilani). Prim govdesinde cocuk prim, o ana kadar okunan xformOp'larla kurulur (araclar
 // once ozellikleri yazar). Atlanan (sessiz degil, not'a sayilir): zaman ornekli degerler, referans/payload/variant, alt bolumleme.
-// IKILI USD (usdc "PXR-USDC") ve icinde usdc olan usdz OKUNMAZ: hata metni .usda'ya disa aktarmayi soyler. usdz icindeki
-// SIKISTIRILMAMIS .usda (USDZ kurali: sikistirma yok) okunur.
+// IKILI USD (usdc "PXR-USDC", 2026-11-22): content/usdc.cpp crate'i USDA metnine cevirir, bu okuyucu onu okur (tek mantik); usdz
+// icindeki SIKISTIRILMAMIS (USDZ kurali) .usda ya da .usdc okunur.
 namespace usd {
 enum Tur : uint8_t { T_SON, T_ID, T_STR, T_PUNCT, T_YOL };
 struct Jeton {
@@ -1115,9 +1116,22 @@ bool usd_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
   if (!b) { hata(out, "USD dosyasi acilamadi", path); return false; }
   struct Serbest { unsigned char *b; ~Serbest() { std::free(b); } } serbest{b};
   const char *bas = reinterpret_cast<const char *>(b), *son = bas + n;
-  if (n >= 8 && !std::memcmp(b, "PXR-USDC", 8)) { hata(out, "ikili USD (usdc) okunmuyor: Blender/DCC'de .usda (metin) olarak disa aktar"); return false; }
-  if (n >= 4 && b[0] == 'P' && b[1] == 'K' && b[2] == 3 && b[3] == 4) {   // usdz: sikistirilmamis zip; ilk .usda girdisi
-    bool bulundu = false, usdc_var = false;
+  // IKILI USD (2026-11-22, content/usdc.hpp): crate bellekte USDA metnine cevrilir ve ASAGIDAKI ayni okuyucuya verilir (tek mantik).
+  char *usdc_metin = nullptr;
+  uint32_t usdc_atlanan = 0;
+  struct SerbestMetin { char **p; ~SerbestMetin() { std::free(*p); } } serbest_metin{&usdc_metin};
+  auto usdc_cevir = [&](const unsigned char *cb, size_t cn) {
+    size_t mn = 0;
+    char e[160] = {0};
+    usdc_metin = usdc_usda_metni(cb, cn, &mn, &usdc_atlanan, e, sizeof e);
+    if (!usdc_metin) { hata(out, e); return false; }
+    bas = usdc_metin;
+    son = usdc_metin + mn;
+    return true;
+  };
+  if (n >= 8 && !std::memcmp(b, "PXR-USDC", 8)) { if (!usdc_cevir(b, n)) return false; }
+  else if (n >= 4 && b[0] == 'P' && b[1] == 'K' && b[2] == 3 && b[3] == 4) {   // usdz: sikistirilmamis zip; ilk .usda / .usdc girdisi
+    bool bulundu = false;
     for (size_t i = 0; i + 30 <= n;) {
       if (!(b[i] == 'P' && b[i + 1] == 'K' && b[i + 2] == 3 && b[i + 3] == 4)) break;
       const uint32_t yontem = b[i + 8] | (b[i + 9] << 8);
@@ -1128,10 +1142,10 @@ bool usd_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
       const char *ad = reinterpret_cast<const char *>(b + i + 30);
       const bool usda = ad_n > 5 && !std::strncmp(ad + ad_n - 5, ".usda", 5), usdc = ad_n > 5 && (!std::strncmp(ad + ad_n - 5, ".usdc", 5) || !std::strncmp(ad + ad_n - 4, ".usd", 4));
       if (usda && yontem == 0) { bas = reinterpret_cast<const char *>(b + veri); son = bas + boy; bulundu = true; break; }
-      if (usdc) usdc_var = true;
+      if (usdc && yontem == 0 && boy >= 8 && !std::memcmp(b + veri, "PXR-USDC", 8)) { if (!usdc_cevir(b + veri, boy)) return false; bulundu = true; break; }
       i = veri + boy;
     }
-    if (!bulundu) { hata(out, usdc_var ? "usdz icinde ikili USD (usdc) var, okunmuyor: .usda olarak disa aktar" : "usdz icinde .usda yok"); return false; }
+    if (!bulundu) { hata(out, "usdz icinde sikistirilmamis .usda / .usdc yok"); return false; }
   }
   if (son - bas < 5 || std::strncmp(bas, "#usda", 5) != 0) { hata(out, "USD: '#usda' basligi yok (metin USD degil)"); return false; }
   usd::Lex L{bas, son};
@@ -1192,6 +1206,7 @@ bool usd_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
   Vec3 *nrm_ilk = g.nrm;
   const bool tamam = model_kur(arena, out, g, lim, o);
   if (g.nrm != nrm_ilk) std::free(g.nrm);
+  D.atlanan += usdc_atlanan;   // crate'te metne dokulmeyen ogeler (rel / referans / dokulemeyen tip)
   if (tamam && D.atlanan) std::snprintf(out->note, sizeof out->note, "USD: %u \xC3\xB6zellik atland\xC4\xB1 (zaman \xC3\xB6rnekli / variant / alt b\xC3\xB6l\xC3\xBCmleme)", D.atlanan);
   return tamam;
 }

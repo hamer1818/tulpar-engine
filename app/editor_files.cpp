@@ -945,9 +945,9 @@ bool editor_model_ice_aktar(const char *kaynak, const char *hedef_dizin, char *h
   const bool obj = nk && (!std::strcmp(nk, ".obj") || !std::strcmp(nk, ".OBJ"));
   const bool fbx = nk && (!std::strcmp(nk, ".fbx") || !std::strcmp(nk, ".FBX"));   // madde 4: ufbx
   const bool ply = nk && (!std::strcmp(nk, ".ply") || !std::strcmp(nk, ".PLY"));   // 2026-11-22
-  const bool usd = nk && (!std::strcmp(nk, ".usda") || !std::strcmp(nk, ".usd") || !std::strcmp(nk, ".usdz") || !std::strcmp(nk, ".USDA") || !std::strcmp(nk, ".USDZ"));
+  const bool usd = nk && (!std::strcmp(nk, ".usda") || !std::strcmp(nk, ".usd") || !std::strcmp(nk, ".usdz") || !std::strcmp(nk, ".USDA") || !std::strcmp(nk, ".USDZ") || !std::strcmp(nk, ".usdc") || !std::strcmp(nk, ".USDC"));
   if (!glb && !gltf && !stl && !obj && !fbx && !ply && !usd)
-    return hata("yaln\xC4\xB1z .glb, .gltf, .fbx, .stl, .obj, .ply ve .usda/.usdz modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
+    return hata("yaln\xC4\xB1z .glb, .gltf, .fbx, .stl, .obj, .ply ve .usda/.usdc/.usdz modeller i\xC3\xA7" "e aktar\xC4\xB1labilir: %s", ad);
   if (!var_mi(kaynak)) return hata("dosya bulunamad\xC4\xB1: %s", kaynak);
   char hedef[2048];
   std::snprintf(hedef, sizeof hedef, "%s/%s", hedef_dizin, ad);

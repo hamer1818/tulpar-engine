@@ -1,0 +1,26 @@
+#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "kok"
+{
+    quatf xformOp:orient = (0.70710677, 0, 0.70710677, 0)
+    double3 xformOp:translate = (1, 0.25, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+
+    def Mesh "ucgen"
+    {
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        float[] primvars:tam_degerli = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] (
+            interpolation = "constant"
+        )
+        float[] primvars:tablolu = [0.5, 0.25, 0.5, 0.25, 0.5, 0.25, 0.5, 0.25, 0.5, 0.25, 0.5, 0.25, 0.5, 0.25, 0.5, 0.25, 0.5, 0.25] (
+            interpolation = "constant"
+        )
+        color3f[] primvars:displayColor = [(0, 1, 0)]
+    }
+}
