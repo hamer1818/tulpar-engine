@@ -609,19 +609,36 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # MSYS2: setup-msys2 YALNIZ TABANI kurar; paketler kurulu agac onbelleginin ustune tools/windows_msys2.sh ile
+      # (`pacman -S --needed`, liste tools/windows_msys2_paketler.txt). Dogrulugu pacman tasir, onbellek hizlandirir
+      # (Tuzaklar 8es: `install:` her iste ~57 s'ydi, koşum 45030941115).
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: false
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-vulkan-validation-layers
+
+      - name: MSYS2 kurulu agac (geri yukle)
+        id: msys2agac
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
+          key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-
+
+      - name: MSYS2 paketleri
+        id: msys2kur
+        run: bash tools/windows_msys2.sh kur
+
+      - name: MSYS2 kurulu agaci kaydet (degistiyse)
+        if: steps.msys2kur.outputs.degisti == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
+          key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: ccache onbellegi (geri yukle)
         uses: actions/cache/restore@v4
@@ -1263,24 +1280,42 @@ jobs:
           echo "reused=true" >> "$GITHUB_OUTPUT"
 
       # update: false — "Final system upgrade" adimi olculdu 27-31 sn ve TEMEL
-      # IMAJI tazelemekten baska is yapmiyor; ihtiyac duydugumuz paketler zaten
-      # `install:` ile geliyor. Paket onbellegi (setup-msys2'nin kendi cache'i,
-      # ~168 MB, isabet ediyor) bundan bagimsiz calisiyor.
+      # IMAJI tazelemekten baska is yapmiyor; ihtiyac duydugumuz paketler asagidaki
+      # "MSYS2 paketleri" adimiyla geliyor.
+      # MSYS2: setup-msys2 YALNIZ TABANI kurar; paketler kurulu agac onbelleginin ustune tools/windows_msys2.sh ile
+      # (`pacman -S --needed`, liste tools/windows_msys2_paketler.txt). Dogrulugu pacman tasir, onbellek hizlandirir
+      # (Tuzaklar 8es: `install:` her iste ~57 s'ydi, koşum 45030941115).
       - uses: msys2/setup-msys2@v2
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         id: msys2
         with:
           msystem: MINGW64
           update: false
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-vulkan-validation-layers
+
+      - name: MSYS2 kurulu agac (geri yukle)
+        id: msys2agac
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
+          key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-
+
+      - name: MSYS2 paketleri
+        id: msys2kur
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: bash tools/windows_msys2.sh kur
+
+      - name: MSYS2 kurulu agaci kaydet (degistiyse)
+        if: steps.msys2kur.outputs.degisti == 'true' && (needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true')
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
+          key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
       - name: GLFW (glfw3.dll, upstream 3.4)
@@ -1563,21 +1598,36 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # MSYS2: setup-msys2 YALNIZ TABANI kurar; paketler kurulu agac onbelleginin ustune tools/windows_msys2.sh ile
+      # (`pacman -S --needed`, liste tools/windows_msys2_paketler.txt). Dogrulugu pacman tasir, onbellek hizlandirir
+      # (Tuzaklar 8es: `install:` her iste ~57 s'ydi, koşum 45030941115).
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: false
-          # Windows isiyle AYNI liste: testlerin 1/2 parcasi burada kosuyor (ayni calisma zamani DLL'leri,
-          # ayni araclar PATH'te — parca farki bir aracin yoklugundan degil testten gelsin).
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-vulkan-validation-layers
+
+      - name: MSYS2 kurulu agac (geri yukle)
+        id: msys2agac
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
+          key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-
+
+      - name: MSYS2 paketleri
+        id: msys2kur
+        run: bash tools/windows_msys2.sh kur
+
+      - name: MSYS2 kurulu agaci kaydet (degistiyse)
+        if: steps.msys2kur.outputs.degisti == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
+          key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
       - name: GLFW (glfw3.dll, upstream 3.4)
@@ -1592,11 +1642,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 MINGW64)"
 
+      # INDIRME, BEKLEMEYLE AYNI API'DEN (2026-11-22, Tuzaklar 8es): actions/download-artifact baska bir arka uctan
+      # okuyor ve az once kesinlesen artefakti gormeyebiliyor — koşum 45042853569: 16:18:00.6 kesinlesti, ci_bekle
+      # REST listesinde 16:18:01.9'da gordu, download-artifact 16:18:02.2'de "Artifact not found". Eskiden kopru
+      # isi artefakti uzun bekledigi icin pencere hic acilmiyordu; msys2 hizlaninca acildi. gh run download ayni
+      # REST API'yi kullanir; yine de gecici hataya karsi 5 deneme.
       - name: Eklenti paketini + test ikililerini indir
-        uses: actions/download-artifact@v4
-        with:
-          name: eklenti-windows-x86_64
-          path: yapi
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          for i in 1 2 3 4 5; do
+            rm -rf yapi && mkdir -p yapi
+            if gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -n eklenti-windows-x86_64 -D yapi; then
+              ls yapi | head; [ -f yapi/engine_tests.exe ] && exit 0
+            fi
+            echo "deneme $i basarisiz — 5 s sonra yeniden"; sleep 5
+          done
+          echo "::error::eklenti-windows-x86_64 artefakti 5 denemede indirilemedi"; exit 1
 
       # Testlerin 1/2 parcasi (0/2 Windows isinde; ayni ikili). Kanonik .sahne LF kapisi burada da:
       # parca o testi icerebilir ve checkout ayni autocrlf ayariyla yapildi.

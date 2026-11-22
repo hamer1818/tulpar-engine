@@ -1,0 +1,10 @@
+# Windows CI'in MSYS2 MINGW64 paketleri — TEK KAYNAK (tools/windows_msys2.sh okur; ci.yml'in uc Windows isi ayni listeyi
+# kurar, kurulu agac onbellegi bu dosyanin ozetiyle anahtarlanir). Satir basi bir paket; # yorum.
+mingw-w64-x86_64-gcc
+mingw-w64-x86_64-cmake
+mingw-w64-x86_64-ninja
+mingw-w64-x86_64-python
+mingw-w64-x86_64-ccache
+mingw-w64-x86_64-clang
+mingw-w64-x86_64-openssl
+mingw-w64-x86_64-vulkan-validation-layers
