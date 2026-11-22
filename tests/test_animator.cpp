@@ -185,8 +185,12 @@ ENGINE_TEST(animator_olaylar_faz_gecisinde_kuyruga_girer) {
   animator_update(d2, &r2, 1.99f, kSure, 3);                    // faz ~0.995: 9 olayin hepsi bir adimda
   CHECK(r2.events_fired == 9 && r2.ev_count == kAnimEventQueue && r2.events_dropped == 1);
   // bozuk olay tanimlari
-  CHECK(!animator_parse("tulpar-animator 1\ndurum a klip x\nolay a 1.5 e\n", 52, &d2, &e));       // faz 0..1 disinda
-  CHECK(!animator_parse("tulpar-animator 1\ndurum a klip x\nolay yok 0.5 e\n", 54, &d2, &e));     // bilinmeyen durum
+  // Uzunluk strlen ile (2026-11-22, ASan global-buffer-overflow: elle yazilmis 52 / 54, dizgiler 46 / 48 bayt —
+  // ayristirici dizginin otesindeki baytlari da okuyordu ve red YANLIS sebepten gelebilirdi). Sebep de denetlenir.
+  const char *faz_disi = "tulpar-animator 1\ndurum a klip x\nolay a 1.5 e\n";
+  const char *durum_yok = "tulpar-animator 1\ndurum a klip x\nolay yok 0.5 e\n";
+  CHECK(!animator_parse(faz_disi, std::strlen(faz_disi), &d2, &e) && std::strstr(e.msg, "olay <durum> <faz 0..1>"));  // faz 0..1 disinda
+  CHECK(!animator_parse(durum_yok, std::strlen(durum_yok), &d2, &e) && std::strstr(e.msg, "bilinmeyen durum"));     // bilinmeyen durum
 }
 
 // A8c: animator_goto (editörde ▶ önizleme): koşul aranmadan durum başlar, sonraki adımlarda geçişler kendi koşullarıyla işler.

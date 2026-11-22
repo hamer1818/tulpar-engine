@@ -201,8 +201,17 @@ void JobSystem::wait_helping(Counter &counter, uint32_t target) {
   }
 }
 
+// SAYAC OLUMU (2026-11-22, Tuzaklar 8er): signal_counter value_'yu kilit ICINDE indirir ama ondan SONRA
+// da sayaca dokunur (waiter_count_ yazar, kilidi birakir). Bekleyen value_'yu kilitsiz okuyup hedefi
+// gorunce donerse cagiran sayaci (cogu zaman YIGINDA: Schedule::run'in `Counter c`'si) yok eder ve worker
+// olu yigina yazar. ASan bunu stack-use-after-return olarak yakaladi (job_system.cpp signal_counter,
+// sim/schedule.cpp `c`); yerelde tam kosumda bir kez `malloc(): unaligned tcache chunk detected` olarak
+// gorunmustu. wait() her donus yolunda kilidi bir kez alir-birakir: o noktadan sonra hicbir signaler
+// sayaca dokunmaz (kilidi en son birakan odur ve value_ zaten hedefte).
+static inline void sayac_yerlesti(SpinLock &l) { SpinGuard g(l); }
+
 void JobSystem::wait(Counter &counter, uint32_t target) {
-  if (counter.value() <= target) return;
+  if (counter.value() <= target) { sayac_yerlesti(counter.lock_); return; }
   WorkerTls *t = tls();
   if (t->current == nullptr) {
     st_inline_.fetch_add(1, std::memory_order_relaxed);
@@ -213,6 +222,7 @@ void JobSystem::wait(Counter &counter, uint32_t target) {
       // Ana thread: worker degil, yield ile bekle.
       while (counter.value() > target) platform::thread_yield();
     }
+    sayac_yerlesti(counter.lock_);
     return;
   }
   st_parked_.fetch_add(1, std::memory_order_relaxed);
@@ -224,6 +234,9 @@ void JobSystem::wait(Counter &counter, uint32_t target) {
   tulpar_fiber_switch(&f->sp, t->scheduler_sp);
   // Burada devam: sayac hedefe ulasti. Belki baska bir thread'deyiz —
   // t artik gecersiz, yeniden okunmali (cagiran zaten tls() kullanir).
+  // Bizi signal_counter KILIT ICINDE hazir kuyruguna atti; baska bir worker bizi kilit birakilmadan
+  // devam ettirebilir. Kilidi alip birakmadan donmek yukaridaki sayac olumunun fiber yolu olurdu.
+  sayac_yerlesti(counter.lock_);
 }
 
 void JobSystem::job_entry(void *arg) {

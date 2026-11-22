@@ -22,6 +22,14 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 option(ENGINE_MEM_CANARY "Arena blok kanaryalari (tasma tespiti; ship'te kapat)" ON)
 option(ENGINE_TRACY "Tracy profiler istemcisi (third_party/tracy, BSD-3): profiler bolgeleri + kare isaretleri Tracy'ye de basilir" OFF)
+# ASan (2026-11-22): yerelde tam koşumda bir kez `malloc(): unaligned tcache chunk detected` (Tuzaklar 8er).
+# Yalniz TESHIS derlemesi; ship/CI derlemesi degil. ASan yigin cercevelerini sisirir, bu yuzden asagidaki
+# cerceve kapisinin tavani YALNIZ bu kipte yukseltilir — normal derlemede kapi aynen olcer.
+option(ENGINE_ASAN "AddressSanitizer teshis derlemesi (yerel; cerceve tavani 4 MB)" OFF)
+if(ENGINE_ASAN)
+  add_compile_options(-fsanitize=address -fsanitize-recover=address -fno-omit-frame-pointer) # recover: tek kosumda HEPSI raporlanir
+  add_link_options(-fsanitize=address)
+endif()
 
 # Motorda exception ve RTTI YOK (plan L1). -Werror yok: derleyici surumune
 # bagli uyari CI'i kirmasin; kod uyarisiz tutulur.
@@ -46,6 +54,9 @@ set(ENGINE_CXX_OPTS -fno-exceptions -fno-rtti -funwind-tables -Wall -Wextra)
 # biri tutmazsa yapilandirma durur -- "bayrak var sanilirken hic olcmuyordu"
 # (Tuzaklar 8bd) bu kapida olamaz.
 set(ENGINE_FRAME_LIMIT 131072)
+if(ENGINE_ASAN)
+  set(ENGINE_FRAME_LIMIT 4194304) # ASan kirmizi bolgeleri cerceveyi sisirir (yukaridaki secenek)
+endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(ENGINE_FRAME_OPTS -Wframe-larger-than=${ENGINE_FRAME_LIMIT} -Werror=frame-larger-than)
 else()
@@ -58,8 +69,9 @@ set(CMAKE_REQUIRED_FLAGS "${_engine_frame_flags}")
 check_cxx_source_compiles("
 int main(int argc, char **) { volatile char b[1024]; b[argc] = 1; return b[argc + 1]; }"
   ENGINE_FRAME_GATE_SMALL_OK)
+math(EXPR _engine_frame_big "${ENGINE_FRAME_LIMIT} + 73728") # normal: 204800 (200 KB); ENGINE_ASAN: tavan + 72 KB
 check_cxx_source_compiles("
-int main(int argc, char **) { volatile char b[204800]; b[argc] = 1; return b[argc + 1]; }"
+int main(int argc, char **) { volatile char b[${_engine_frame_big}]; b[argc] = 1; return b[argc + 1]; }"
   ENGINE_FRAME_GATE_BIG_PASSES)
 set(CMAKE_REQUIRED_FLAGS "${_engine_saved_flags}")
 if(NOT ENGINE_FRAME_GATE_SMALL_OK)
@@ -67,7 +79,7 @@ if(NOT ENGINE_FRAME_GATE_SMALL_OK)
                       "bayrak bu derleyicide (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}) baska yaziliyor")
 endif()
 if(ENGINE_FRAME_GATE_BIG_PASSES)
-  message(FATAL_ERROR "yigin cercevesi kapisi: 200 KB'lik cerceve '${_engine_frame_flags}' ile DERLENDI -- "
+  message(FATAL_ERROR "yigin cercevesi kapisi: ${_engine_frame_big} baytlik cerceve '${_engine_frame_flags}' ile DERLENDI -- "
                       "kapi bu derleyicide (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}) hicbir sey olcmuyor")
 endif()
 list(APPEND ENGINE_CXX_OPTS ${ENGINE_FRAME_OPTS})

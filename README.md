@@ -101,6 +101,9 @@ cmake -S . -B build-android -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.tool
 
 Seçenekler: `ENGINE_MEM_CANARY` (arena taşma kanaryaları, varsayılan ON — ship'te kapat),
 `ENGINE_TRACY` (Tracy istemcisi, varsayılan OFF), `ENGINE_SWAPPY` (Android kare temposu).
+`ENGINE_ASAN` (AddressSanitizer teşhis derlemesi, varsayılan OFF; yığın çerçevesi tavanı yalnız bu kipte 4 MB —
+`cmake -B yapi-asan -DENGINE_ASAN=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo`, koşum `ASAN_OPTIONS=detect_leaks=0:halt_on_error=0`;
+RSS ölçen iki köprü testi bu kipte beklenen şekilde düşer, Tuzaklar 8er).
 `TULPAR_SURUM` (ikiliye gömülen sürüm etiketi `vX.Y.Z[-önek]`; boş = kaynak derlemesi, editör
 başlığında ve güncelleyicide görünür — `release.yml` her platformda verir ve gömüldüğünü ikilide arar).
 Editör içi güncelleyici (`app/updater`) yalnız paketlenmiş, sürümlü bir kurulumda açılır
