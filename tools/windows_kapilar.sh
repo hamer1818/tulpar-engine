@@ -13,7 +13,7 @@
 #   tools/windows_kapilar.sh testler          engine_tests + ozet satiri kapisi;
 #                                             Vulkan / katman atlamasi KIRMIZI
 #   tools/windows_kapilar.sh kopru <tulpar>   tools/tulpar_dogrula.sh --tam
-#                                             --uzun-atla (+ is ozeti)
+#                                             (+ is ozeti)
 #
 # Ortam: KAPI_BASLIK (is ozeti basligi), KAPI_EK (hata satirlarinin sonuna;
 # surumde " Surum YAYINLANMAYACAK."). GITHUB_STEP_SUMMARY yoksa ozet atlanir.
@@ -129,14 +129,11 @@ case "${1:-}" in
 
   # TULPAR KOPRUSU — YAYINLANMIS tulpar.exe bu agacin yapi/tulpar-ext
   # paketiyle motor oyunlarini derleyip linkler ve kosar (link.windows).
-  # --uzun-atla: dalga (2400) ve aksiyon (3200) kare kapilari Windows'ta
-  # KOSMAZ, ATLANDI diye sayilir. Olculdu (CI windows-latest 2026-10-05,
-  # SwiftShader ~210 ms/kare): ikisi adimin 26 dakikasinin 24'u; ayni satirlar
-  # o gun burada Linux'la bayt bayt ayni cikti ve her PR'da Linux/macOS'ta
-  # olculuyor. --gpusuz-izinli YOK: kurulum duserse adim KIRMIZI.
+  # Oyun taban cizgisi kapilari (dalga/aksiyon/savas) 2026-11-22'de kalkti (tools/tulpar_dogrula.sh basi):
+  # --uzun-atla artik gereksiz. --gpusuz-izinli YOK: kurulum duserse adim KIRMIZI.
   kopru)
     tul="${2:?kullanim: tools/windows_kapilar.sh kopru <tulpar.exe>}"
-    bash tools/tulpar_dogrula.sh --tulpar "$tul" --tam --uzun-atla 2>&1 | tee tulpar.log
+    bash tools/tulpar_dogrula.sh --tulpar "$tul" --tam 2>&1 | tee tulpar.log
     kod=${PIPESTATUS[0]}
     ozet="$(grep -E '^tulpar dogrulama: ' tulpar.log | tail -1 || true)"
     {
