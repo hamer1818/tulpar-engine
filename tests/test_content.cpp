@@ -1128,7 +1128,10 @@ ENGINE_TEST(content_gltf_metallic_roughness_reaches_material) {
       "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA\"}]}";
 
   auto yaz = [&](const char *mat, char *out, size_t n) -> bool {
-    std::snprintf(out, n, "/tmp/tulpar_gltf_pbr_%p.gltf", (void *)mat);
+    // test_out_path: sabit /tmp Android'de ve Windows'ta yok; bu kapi orada "ATLANDI" diyordu (cihazda olculdu 2026-11-22).
+    char ad[64];
+    std::snprintf(ad, sizeof ad, "tulpar_gltf_pbr_%p.gltf", (void *)mat);
+    test::test_out_path(out, n, ad);
     char json[2048];
     std::snprintf(json, sizeof json, kSablon, mat);
     FILE *f = std::fopen(out, "wb");
@@ -1143,7 +1146,7 @@ ENGINE_TEST(content_gltf_metallic_roughness_reaches_material) {
   const char *mat_pbr =
       "{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.9,0.8,0.7,1],"
       "\"metallicFactor\":1.0,\"roughnessFactor\":0.2},\"emissiveFactor\":[0.1,0.2,0.3]}";
-  if (!yaz(mat_pbr, p_pbr, sizeof p_pbr)) { skip("/tmp yazilamadi"); return; }
+  if (!yaz(mat_pbr, p_pbr, sizeof p_pbr)) { skip("gecici dizine yazilamadi"); return; }
   content::Model mp;
   bool ok_pbr = content::gltf_load(sys, p_pbr, &mp);
   if (!ok_pbr) std::printf("    [bilgi] yukleme hatasi (pbr): %s\n", mp.error);
@@ -1162,7 +1165,7 @@ ENGINE_TEST(content_gltf_metallic_roughness_reaches_material) {
   // malzemeye ayni sayiyi yazan bir koda da yesil verirdi.
   char p_duz[256];
   const char *mat_duz = "{\"name\":\"pbrsiz\"}";
-  if (!yaz(mat_duz, p_duz, sizeof p_duz)) { skip("/tmp yazilamadi"); return; }
+  if (!yaz(mat_duz, p_duz, sizeof p_duz)) { skip("gecici dizine yazilamadi"); return; }
   content::Model md;
   bool ok_duz = content::gltf_load(sys, p_duz, &md);
   CHECK(ok_duz);
@@ -1226,9 +1229,9 @@ ENGINE_TEST(content_gltf_pbr_textures_reach_material) {
       "\"buffers\":[{\"byteLength\":36,\"uri\":\"data:application/octet-stream;base64,"
       "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA\"}]}";
   char kpath[256];
-  std::snprintf(kpath, sizeof kpath, "/tmp/tulpar_pbr_tex_kontrol.gltf");
+  test::test_out_path(kpath, sizeof kpath, "tulpar_pbr_tex_kontrol.gltf");
   FILE *f = std::fopen(kpath, "wb");
-  if (!f) { skip("/tmp yazilamadi"); return; }
+  if (!f) { skip("gecici dizine yazilamadi"); return; }
   std::fwrite(kSablon, 1, std::strlen(kSablon), f);
   std::fclose(f);
   content::Model k;
@@ -1357,9 +1360,9 @@ ENGINE_TEST(content_gltf_texture_colorspace) {
       "\"buffers\":[{\"byteLength\":36,\"uri\":\"data:application/octet-stream;base64,"
       "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA\"}]}";
   char kpath[256];
-  std::snprintf(kpath, sizeof kpath, "/tmp/tulpar_colorspace_kontrol.gltf");
+  test::test_out_path(kpath, sizeof kpath, "tulpar_colorspace_kontrol.gltf");
   FILE *f = std::fopen(kpath, "wb");
-  if (!f) { skip("/tmp yazilamadi"); return; }
+  if (!f) { skip("gecici dizine yazilamadi"); return; }
   std::fwrite(kSablon, 1, std::strlen(kSablon), f);
   std::fclose(f);
   content::Model k;
@@ -1948,7 +1951,16 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
           ren.draw_skinned(mesh, renderer::MaterialHandle{}, mdl, {0.9f, 0.9f, 1.0f}, joints, J);
         }
         last_draws = ren.stats().draws; last_drop = ren.stats().skin_dropped;
-        if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) { CHECK(false); break; }
+        if (!rhi::offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) {
+          // Hata metni basilir ve test BITER: kayip cihazla kalan 20 olcum satiri onceki degeri tekrar basip ardisik CHECK'lerle
+          // asil sebebi gomuyordu (P20 Pro 2026-11-23: 20 karakterde dustu, sonraki satirlarin hepsi "41.42 ms").
+          std::printf("    [bilgi] kare %u (%u karakter) cizilemedi: %s\n", f, n, ores.error);
+          CHECK(false);
+          ren.shutdown();
+          rhi::offscreen_destroy(off);
+          dev.shutdown();
+          return;
+        }
         auto t1 = std::chrono::steady_clock::now();
         if (f >= 10) {
           best[f - 10] = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -1968,6 +1980,7 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
       if (n == 40) CHECK(gpu_var ? gbest[20] > gtaban : best[20] > taban);
     }
   }
+  ren.shutdown();   // dogrulama katmaniyla 46 sizan nesne gorundu (P20 Pro 2026-11-23)
   rhi::offscreen_destroy(off);
   dev.shutdown();
 }

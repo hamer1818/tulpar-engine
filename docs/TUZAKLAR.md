@@ -2883,3 +2883,20 @@ dayanıyor olabilir). Yerel, aynı derlemede: bayraksız 30/30 düşüş, bayrak
 -O0/-O2/-O3): bayraksız 0, bayraklı 1. **Kural:** platforma özgü görünen bir düşüşü platforma bağlamadan önce "aynı kod başka yerleşimle
 de düşer mi" diye sor; tanımsız davranış platform değil, yığın içeriği seçer. Ürünün HTTPS istemcisi de aynı yolu kullanıyor ve
 şans eseri geçiyordu.
+
+### 8ev. Sabit `/tmp` ve kayıp cihazdan sonra devam eden ölçüm — iki ayrı "koşmuş gibi görünme"
+**Belirti (2026-11-23, P20 Pro / Mali-G72, Android 10):** cihazda tam koşum `602/602, 0 failed, 23 atlandi`. Atlananların üçü
+`/tmp yazilamadi` idi: `content_gltf_metallic_roughness_reaches_material`, `content_gltf_pbr_textures_reach_material`,
+`content_gltf_texture_colorspace` geçici glTF'yi sabit `/tmp`'ye yazıyordu. Android'de `/tmp` yok; Windows'ta da sürücü köküne
+göre çözülür. Yani bu üç malzeme kapısı Android'de hiç koşmamıştı. **Düzeltme:** `test::test_out_path`. Sonuç: aynı cihazda 15 atlandı
+(5'i de doğrulama katmanı APK'da olmadığı içindi; `tools/fetch_vvl_android.sh` ile koştu: BestPractices 0 doğrulama hatası).
+**İkinci belirti:** `render_karakter_butcesi_olcum` art arda koşumlarda aralıklı düştü (9 ağır koşumdan 6'sı, 20–30 karakterde):
+`offscreen_render_custom` false. Test `break` edip sonraki N'ye geçiyordu; kayıp cihazla kalan bütün satırlar SON ölçümü tekrar
+basıyordu ("41.42 ms" × 17) ve 20 CHECK asıl sebebi gömüyordu. **Ölçülen sebep:** `vkWaitForFences` →
+`VK_ERROR_INITIALIZATION_FAILED` (spec bu fonksiyon için izin vermiyor; sürücü 1.1.97 GPU işi arızasını böyle bildiriyor).
+Doğrulama katmanı açıkken API kullanım hatası 0. **Regresyon değil:** aynı test #147'nin commit'inde (f62c5be, 2026-11-14 ölçümü)
+aynı telefonda 3 koşumun 3'ünde düştü. İlk (soğuk) tam koşumlar geçiyor, ısınmış telefonda (pil 35–36 °C) düşüyor; GPU frekansı
+root'suz okunamıyor, ısı/DVFS bağlantısı **iddia edilmez**. Aynı kod aynı cihazda süreyi de oynatıyor: 40 karakter LOD0 2026-11-14
+92,8 ms, 2026-11-23 49–58 ms; LOD2 16,1 → 28–37 ms. **Düzeltme (test):** hata metni basılır ve test BİTER; `ren.shutdown()` eklendi
+(doğrulama katmanı 46 sızan nesne gösterdi). **Kural:** bir ölçüm döngüsü çizim hatasından sonra devam edemez — yoksa tablo dolu
+görünür ve sayı ölçüm değildir. Mobil sayıyı tek koşumdan yazma: aynı cihazda aynı kod yarı yarıya oynuyor.
