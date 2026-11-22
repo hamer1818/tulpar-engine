@@ -1216,10 +1216,14 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
+
+      # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
+      - name: GLFW (glfw3.dll, upstream 3.4)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: bash tools/windows_glfw.sh
 
       # YAZILIM VULKAN ICD'si (SwiftShader) — Windows'ta da (2026-10-05).
       # Runner'da vulkan-1.dll (System32) var ama ICD yok: vkCreateInstance
@@ -1480,10 +1484,13 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-python
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
+
+      # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
+      - name: GLFW (glfw3.dll, upstream 3.4)
+        run: bash tools/windows_glfw.sh
 
       - name: Yazilim Vulkan ICD'si (SwiftShader) + dogrulama katmani gercekten var mi
         run: bash tools/windows_vulkan_icd.sh kur

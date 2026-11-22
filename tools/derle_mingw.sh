@@ -73,7 +73,8 @@ if [ -f /mingw64/bin/glfw3.dll ]; then
   printf "  ${Y}+${N} %-8s %s\n" "glfw" "pencere acma (masaustu kip)"
 else
   printf "  ${S}.${N} %-8s %s  (calistirmak icin)\n" "glfw" "pencere acma (masaustu kip)"
-  kur_listesi+=("mingw-w64-x86_64-glfw")
+  # MSYS2 MINGW64'ten mingw-w64-x86_64-glfw 2026-11'de kalkti: upstream ikilisi (surum + SHA sabit) indirilir.
+  glfw_indir=1
 fi
 
 # vulkan-1.dll EKRAN KARTI SURUCUSU ile gelir, pacman paketiyle degil. Kurulum
@@ -86,6 +87,9 @@ fi
 echo
 
 # --- Eksikse: anlat, sor, gerekirse kur -------------------------------------
+if [ "${glfw_indir:-0}" = 1 ]; then
+  bash "$(dirname "$0")/windows_glfw.sh" || printf "  glfw3.dll indirilemedi: editor derlenir ama pencere acamaz\n"
+fi
 if [ ${#kur_listesi[@]} -gt 0 ]; then
   uyar "Eksik paketler icin kurulum komutu:"
   printf "\n    pacman -S --needed --noconfirm %s\n\n" "${kur_listesi[*]}"
