@@ -8,6 +8,7 @@
 //   kopru      teng_http_request engellemez (tutamac aninda), is parcacigi bitirir, govde okunur,
 //              birakilan tutamac olur (KONTROL: eski tutamac HATA + 0).
 // Sandbox socket yasagi gorunur ATLANDI.
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -223,11 +224,18 @@ const char *kSertB =
     "SAAwRQIgVYBL+DMRcqSS9mscIl/KXWaJsjVAbcULWhPgE3JUIjsCIQDDHOiFWqz7\n"
     "9bd2SIzf2WXI1dkAzClIaMb3yDNaO1HYxg==\n"
     "-----END CERTIFICATE-----\n";
+// HAZIR BAYRAGI (2026-11-22): sunucu kurulumu (psa_crypto_init, DRBG tohumu, anahtar) istemcinin ilk el sikismasiyla YARISIYORDU;
+// psa_crypto_init global durum kurar ve mbedTLS threading'siz derlenmis (iki is parcacigindan eszamanli cagri guvenli degil). Windows
+// UCRT64 CI'da (PR #160, koşum 45049366157) ilk baglanti "SSL - The connection indicated an EOF" ile dustu, sonraki ikisi gecti.
+// Artik PSA ana is parcacigında sunucudan ONCE baslatilir ve istemci sunucunun hazir demesini bekler. (Urunde kopru tek HTTP is
+// parcacigi kullanir: platform::http_exchange eszamanli cagrilmaz — bridge/engine_api.cpp http_worker.)
 struct TlsSunucu {
   int ls = -1;
   uint16_t port = 0;
   int n = 0;
   platform::Thread th;
+  std::atomic<int> hazir{0};
+  int el_sikisma[4] = {};   // teshis: sunucu tarafi mbedtls_ssl_handshake donusleri
 };
 void tls_sunucu_dongu(void *a) {
   TlsSunucu &t = *(TlsSunucu *)a;
@@ -248,6 +256,7 @@ void tls_sunucu_dongu(void *a) {
   mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
   mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);
   mbedtls_ssl_conf_own_cert(&conf, &srt, &pk);
+  t.hazir.store(1, std::memory_order_release);
   for (int i = 0; i < t.n; i++) {
     int c = (int)accept(t.ls, nullptr, nullptr);
     if (c < 0) break;
@@ -258,6 +267,7 @@ void tls_sunucu_dongu(void *a) {
                         [](void *x, unsigned char *b, size_t n) -> int { return (int)recv(*(int *)x, (char *)b, (int)n, 0); }, nullptr);
     int r;
     while ((r = mbedtls_ssl_handshake(&ssl)) == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {}
+    if (i < 4) t.el_sikisma[i] = r;
     if (r == 0) {
       unsigned char buf[2048];
       int k;
@@ -279,7 +289,7 @@ void tls_sunucu_dongu(void *a) {
 
 ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   static TlsSunucu t;
-  t = TlsSunucu{};
+  t.ls = -1; t.port = 0; t.n = 0; t.hazir.store(0); for (int &x : t.el_sikisma) x = 0;   // atomic kopyalanamaz: alan alan sifirla
   if (!platform::net_startup()) { test::skip("ag yok"); return; }
   const int s = (int)socket(AF_INET, SOCK_STREAM, 0);
   sockaddr_in a{};
@@ -291,7 +301,10 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   t.ls = s;
   t.port = ntohs(a.sin_port);
   t.n = 3;
+  psa_crypto_init();   // ana is parcacigi, sunucudan ONCE (yukaridaki yaris)
   CHECK(platform::thread_create(t.th, tls_sunucu_dongu, &t, "test_tls_sunucu"));
+  for (int i = 0; i < 5000 && !t.hazir.load(std::memory_order_acquire); i++) platform::thread_sleep_us(1000);
+  CHECK(t.hazir.load() == 1);
   char url[128], out[256];
   platform::HttpResult r;
   // 1) guvenilen kok = A
@@ -312,6 +325,7 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   std::printf("    [bilgi] https (ad uyusmaz): ok %d hata '%s'\n", ok, r.error);
   CHECK(!ok && std::strstr(r.error, "dogrulanamadi") != nullptr);
   platform::thread_join(t.th);
+  std::printf("    [bilgi] sunucu el sikismasi donusleri: %d %d %d (0 = tamam)\n", t.el_sikisma[0], t.el_sikisma[1], t.el_sikisma[2]);
   kapat(t.ls);
   // sisteme don: paket bulunuyor mu (teshis; bulunamazsa ATLANDI degil bilgi — CI imajina bagli)
   int n = 0;
