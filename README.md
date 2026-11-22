@@ -82,14 +82,14 @@ cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build yapi -j
 ```
 
-Windows'ta aynı komutlar **MSYS2 MINGW64** kabuğunda koşar. **MSVC desteklenmiyor**:
+Windows'ta aynı komutlar **MSYS2 UCRT64** kabuğunda koşar (2026-11-22'ye kadar MINGW64; MSYS2 onu kaldırıyor, yayınlanan tulpar da UCRT — docs/TUZAKLAR.md 8et). **MSVC desteklenmiyor**:
 fiber geçişi GNU sözdizimli `.S` dosyası (Win64 dalı MinGW için yazılı), derleme
 bayrakları da GCC/Clang yazımında. `derle.bat` MSYS2'yi bulamazsa `winget` ile kurmayı
 önerir; asıl işi (paket denetimi + derleme) `tools/derle_mingw.sh` yapar — mantık cmd ile
 bash arasında bölünmesin diye tek yerde durur.
 
 ```bash
-pacman -S --needed mingw-w64-x86_64-{gcc,cmake,ninja,python,ccache,glfw}
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,python,ccache,glfw,clang,openssl}
 ```
 
 Android çapraz derlemesi üst ağaç istemez:

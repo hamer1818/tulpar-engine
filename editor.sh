@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tulpar Engine — editoru tek komutla ac (Linux / macOS / MSYS2 MINGW64).
+# Tulpar Engine — editoru tek komutla ac (Linux / macOS / MSYS2 UCRT64).
 #
 #   ./editor.sh                            varsayilan sahne (tests/assets/editor.sahne)
 #   ./editor.sh yol/x.sahne                verilen sahneyle ac
@@ -86,9 +86,9 @@ cd "$kok"
 # glfw3.dll ve libstdc++ gibi DLL'leri /mingw64/bin'den buluyor; MSYS ya da
 # UCRT64 kabugunda o dizin PATH'te degil ve editor "DLL bulunamadi" ile duser.
 if [ -n "${MSYSTEM:-}" ]; then
-  if [ "$MSYSTEM" != "MINGW64" ]; then
-    hata "MINGW64 kabugu gerekli (su an: $MSYSTEM)."
-    echo "  Baslat menusunden 'MSYS2 MINGW64' ile acin, ya da editor.bat kullanin."
+  if [ "$MSYSTEM" != "UCRT64" ]; then
+    hata "UCRT64 kabugu gerekli (su an: $MSYSTEM; 2026-11-22'den beri MINGW64 degil)."
+    echo "  Baslat menusunden 'MSYS2 UCRT64' ile acin, ya da editor.bat kullanin."
     exit 1
   fi
   ikili="yapi/engine_editor.exe"; derleyici="tools/derle_mingw.sh"

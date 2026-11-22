@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tulpar Engine — Windows (MSYS2 MINGW64) CI'da yazilim Vulkan ICD'si:
+# Tulpar Engine — Windows (MSYS2 UCRT64) CI'da yazilim Vulkan ICD'si:
 # SwiftShader (runner'daki Google Chrome kurulumunun vk_swiftshader.dll'i).
 # CI (ci.yml) Windows isi bu betigi kosar.
 #
@@ -31,7 +31,7 @@
 set -uo pipefail
 
 kok="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-katman=/mingw64/bin/VkLayer_khronos_validation.json
+katman="${MSYSTEM_PREFIX:-/ucrt64}/bin/VkLayer_khronos_validation.json"
 SURUCU='HKLM\SOFTWARE\Khronos\Vulkan\Drivers'
 KATMAN='HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers'
 reg_() { MSYS2_ARG_CONV_EXCL='*' reg "$@"; }

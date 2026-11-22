@@ -614,7 +614,7 @@ jobs:
       # (Tuzaklar 8es: `install:` her iste ~57 s'ydi, koşum 45030941115).
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
 
       - name: MSYS2 kurulu agac (geri yukle)
@@ -622,7 +622,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/ucrt64
             ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
           key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-
@@ -636,7 +636,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/ucrt64
             ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
           key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -1194,6 +1194,8 @@ jobs:
           retention-days: 14
 
   windows:
+    # AD TARIHSEL (2026-11-22): arac zinciri artik UCRT64 (Tuzaklar 8et), ama bu ad dal korumasinda ZORUNLU check olarak kayitli;
+    # degisirse koruma da ayni anda guncellenmeli (yoksa her PR 'bekleniyor'da kalir). tools/ci_bekle.sh de bu adi bekler.
     name: Windows x86_64 (MSYS2 MINGW64)
     needs: detect-docs-only
     runs-on: windows-latest
@@ -1289,7 +1291,7 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         id: msys2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
 
       - name: MSYS2 kurulu agac (geri yukle)
@@ -1298,7 +1300,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/ucrt64
             ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
           key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-
@@ -1313,7 +1315,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/ucrt64
             ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
           key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -1603,7 +1605,7 @@ jobs:
       # (Tuzaklar 8es: `install:` her iste ~57 s'ydi, koşum 45030941115).
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
 
       - name: MSYS2 kurulu agac (geri yukle)
@@ -1611,7 +1613,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/ucrt64
             ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
           key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-
@@ -1625,7 +1627,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            ${{ runner.temp }}/msys64/mingw64
+            ${{ runner.temp }}/msys64/ucrt64
             ${{ runner.temp }}/msys64/var/lib/pacman/local/mingw-w64-*
           key: msys2-agac-${{ hashFiles('tools/windows_msys2_paketler.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -1666,7 +1668,7 @@ jobs:
       # parca o testi icerebilir ve checkout ayni autocrlf ayariyla yapildi.
       - name: Testler + kapi (parca 1/2)
         env:
-          KAPI_BASLIK: Windows (MSYS2 MINGW64, SwiftShader)
+          KAPI_BASLIK: Windows (MSYS2 UCRT64, SwiftShader)
         run: |
           python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF"; exit 1; }
           bash tools/windows_kapilar.sh testler 1/2

@@ -856,7 +856,7 @@ kutuphane_kaynagi() {
   local -a dizinler=()
   [ -n "${TULPAR_PAKET_KUTUPHANE_DIZINI:-}" ] && dizinler+=("$TULPAR_PAKET_KUTUPHANE_DIZINI")
   case "$plat" in
-    windows) dizinler+=("${MSYSTEM_PREFIX:-/mingw64}/bin") ;;
+    windows) dizinler+=("${MSYSTEM_PREFIX:-/ucrt64}/bin") ;;
     macos)   dizinler+=(/opt/homebrew/lib /usr/local/lib) ;;
     linux)
       # ldconfig ONCE: dagitimin gercekten yukledigi kopya odur.
@@ -1002,7 +1002,7 @@ paketle() {
   # turetilen listeyle konur. v0.1.0 paketi tam olarak bu ayrimi kacirdi.
   local plat=""
   if ls "$cikti"/*.exe >/dev/null 2>&1; then
-    local onek="${MSYSTEM_PREFIX:-/mingw64}"
+    local onek="${MSYSTEM_PREFIX:-/ucrt64}"
     local exe dll d mingw_say=0
     # ldd birincil yol (MSYS2 icinde); ldd yoksa ya da bir sey bulamazsa PE
     # ithalat tablosu (objdump) — capraz dogrulamada da paket uretilebilsin.

@@ -11,10 +11,10 @@ rem
 rem Ikili yoksa once derler (tools\derle_mingw.sh, bagimlilik denetimi dahil);
 rem varsa artimli derler, kaynak degismediyse aninda gecer.
 rem
-rem ASIL IS editor.sh'de, MSYS2 MINGW64 icinde: derleme, sahne denetimi,
+rem ASIL IS editor.sh'de, MSYS2 UCRT64 icinde: derleme, sahne denetimi,
 rem arguman cevirisi. Bu dosya yalniz MSYS2'yi bulur ve hatada pencereyi acik
 rem tutar - mantik cmd ile bash arasinda BOLUNMESIN (derle.bat ile ayni sebep).
-rem MINGW64 ayrica DLL'ler icin sart: glfw3.dll ve libstdc++ /mingw64/bin'de.
+rem UCRT64 ayrica DLL'ler icin sart: glfw3.dll ve libstdc++ /ucrt64/bin'de.
 rem
 rem Bu dosya SAF ASCII ve CRLF'tir; cmd'nin OEM kod sayfasinda Turkce harfler
 rem bozulur, o yuzden metinlerde aksan kullanilmaz.
@@ -61,7 +61,7 @@ rem bosluk, & ya da ' icerirse cmd'nin ve bash'in tirnak kurallari ayni anda
 rem dogru olmak zorunda kalirdi. Argumanlar da bash'in konumsal parametreleri
 rem olarak gider ("$@"), dizgiye yapistirilmaz.
 set "BASH=%MSYS%\usr\bin\bash.exe"
-set MSYSTEM=MINGW64
+set MSYSTEM=UCRT64
 set CHERE_INVOKING=1
 set "TULPAR_EDITOR_SH=%~dp0editor.sh"
 "%BASH%" -lc "exec bash \"$(cygpath -u \"$TULPAR_EDITOR_SH\")\" \"$@\"" editor %*

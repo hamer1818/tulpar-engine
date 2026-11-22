@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 442 fonksiyon · 843 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 886 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -49,7 +49,7 @@ mindmap
       prefab
     Köprü L6
       TulparLang C ABI
-      442 fonksiyon
+      448 fonksiyon
       Android / masaüstü host
     Editör
       panel + gizmo
@@ -108,7 +108,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `platform/window.hpp` — masaustu gelistirme penceresi (GLFW, dlopen). Uretim hedefi
 - `platform/android/jni_bridge.cpp` — L0 PLATFORM (Android) — Kotlin host <-> motor JNI koprusu (plan Faz 1,
 
-### core — L1 (40 dosya, 4144 satır)
+### core — L1 (40 dosya, 4157 satır)
 
 - `core/build_info.cpp` — build_info.hpp'nin uygulamasi. TULPAR_SURUM yalniz BU dosyaya
 - `core/build_info.hpp` — ikilinin KIMLIGI: hangi surumden ve hangi platform icin derlendi.
@@ -151,7 +151,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `core/profiler/profiler.hpp` — Profiler (Faz 0'da yazilir, sonra degil: "olcemedigin seyi
 - `core/reflect/reflect.hpp` — Core reflection interface placeholder - see content/reflect.hpp for SceneEntity reflection
 
-### rhi — L2 (15 dosya, 3883 satır)
+### rhi — L2 (15 dosya, 3900 satır)
 
 - `rhi/command_pools.cpp` — 
 - `rhi/command_pools.hpp` — thread basina komut havuzu (plan L2: "command buffer'lar paralel
@@ -169,7 +169,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7898 satır)
+### renderer — L3 (24 dosya, 7935 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -211,7 +211,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `audio/particle_audio.hpp` — Fiziksel Partikul Sonifikasyonu (Kinetic Particle Sonification).
 - `audio/spatial.hpp` — uzamsal ses: dinleyici bazi, mesafe sonumu, sabit-guc panlama ve
 
-### sim — L4 (55 dosya, 7097 satır)
+### sim — L4 (55 dosya, 7134 satır)
 
 - `sim/ability_system.cpp` — 
 - `sim/ability_system.hpp` — 
@@ -269,7 +269,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (65 dosya, 14640 satır)
+### content — L6 (74 dosya, 18595 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -278,6 +278,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/device_tier.hpp` — Cihaz-sinifi profil tablosu (420 madde listesi #6/#395:
 - `content/dynamic_quality.cpp` — 
 - `content/dynamic_quality.hpp` — Kare-suresi guduml, histerezisli kalite olcekleyici (420
+- `content/fbx.cpp` — FBX yükleyici (madde 4, 2026-11-16; ufbx v0.23.1, MIT/Unlicense: third_party/ufbx).
+- `content/fbx.hpp` — FBX yükleyici (ufbx; ayrıntı content/fbx.cpp). gltf_load `.fbx` uzantısını buraya yönlendirir: çağıranlar değ…
 - `content/font.cpp` — 
 - `content/font.hpp` — TTF'ten glif atlasi (stb_truetype, yukleme aninda) ve UTF-8
 - `content/gi.hpp` — GI SONDA BAKE'i (PLAN Faz 6: "scene compiler: resident set,
@@ -300,6 +302,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/model_import.hpp` — Model içe aktarma ayarları (M1, docs/MODEL-ANIMASYON-PLANI.md): birim, yukarı eksen, ölçek, sığdırma, pivot.
 - `content/morph.cpp` — 
 - `content/morph.hpp` — Morph target / blend shape karistirma (500 madde listesi #161
+- `content/morph_pool.cpp` — 
+- `content/morph_pool.hpp` — Morph havuzu (A5 devamı, 2026-11-16): sahne çalışma zamanı ve editör AYNI sınıfla morph'lu modeli çizer.
 - `content/occlusion.cpp` — 
 - `content/occlusion.hpp` — Yazilim tabanli occlusion culling (500 madde listesi #93
 - `content/pack.hpp` — Blok adreslenebilir varlik arsivi (.tpak): PLAN Faz 6
@@ -311,11 +315,14 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/particles.hpp` — CPU tarafli, sabit-kapasiteli parcacik (particle) sistemi.
 - `content/poly.cpp` — 
 - `content/poly.hpp` — Çokgen (P2, docs/MODEL-ANIMASYON-PLANI.md): editörde çizilen XZ çokgeninin yükseltilmiş katı hali.
+- `content/poly_bool.cpp` — Çokgenler arası boolean (birleşim / fark / kesişim). Yöntem ve sınırlar: content/poly.hpp (PolyBoolOp).
 - `content/prefab.cpp` — 
 - `content/prefab.hpp` — prefab: sahne alt agacini dosyaya al, baska sahneye ornekle.
 - `content/primitives.cpp` — 
 - `content/primitives.hpp` — prosedurel ilkel geometri tablosu.
 - `content/reflect.hpp` — TulparEngine Statik Yansıma ve Bileşen Metaveri Sistemi (reflect.hpp)
+- `content/retarget.cpp` — 
+- `content/retarget.hpp` — A6 karakter yeniden hedefleme (2026-11-16; MODEL-ANIMASYON-PLANI Faz A6).
 - `content/ribbon.hpp` — Dynamic Ribbon Trail geometry generation.
 - `content/scene.cpp` — 
 - `content/scene.hpp` — Sahne veri modeli + deterministik metin format (.sahne) +
@@ -328,6 +335,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/scene_runtime.hpp` — Derlenmis sahnenin (SceneBlobView) runtime tuketicisi:
 - `content/terrain.cpp` — 
 - `content/terrain.hpp` — Prosedurel terrain: yukseklik haritasi uretimi + orneklemesi
+- `content/usdc.cpp` — İkili USD (crate) -> USDA metni. Biçim ve gerekçe: content/usdc.hpp.
+- `content/usdc.hpp` — İkili USD (crate, "PXR-USDC") -> USDA metni (2026-11-22).
 - `content/vendored_impl.c` — Uçüncü parti yükleyicilerin tek TU'daki gövdeleri (C, uyarılar kapalı:
 - `content/vfx_graph.hpp` — Cift-Yonlu Dugum Grafi Mimarisi (Node-Based VFX Graph).
 - `content/voxel.cpp` — 
@@ -337,7 +346,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (79 dosya, 37933 satır)
+### app — L6 (79 dosya, 39599 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -419,7 +428,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10748 satır)
+### bridge — L6 (11 dosya, 10824 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -433,7 +442,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (70 dosya, 16036 satır)
+### tools — L7 (74 dosya, 16291 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -453,7 +462,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/clang_syntax_check.sh` — Motor kaynaklarini clang++ ile SOZDIZIMI denetiminden gecirir (derlemez).
 - `tools/clodbake.cpp` — engine_clodbake — sahne derleyicisinin GEOMETRI dilimi:
 - `tools/compile_shaders.py` — GLSL -> SPIR-V -> C dizisi (engine/rhi/shaders/*_spv.h).
-- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2/MINGW64 tarafi.
+- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2/UCRT64 tarafi (2026-11-22 oncesi MINGW64).
 - `tools/dil_kapsam.py` — Editör İngilizce kapsam ölçümü (app/editor_dil.hpp).
 - `tools/editor_ux.sh` — Editor UX olcumu (docs/EDITOR-UYGULAMA-PLANI.md U0): dort cozunurlukte PARALEL headless editor,
 - `tools/faz8_shader_audit.py` — faz8_shader_audit.py — Faz 8 shader alt kumesi prototipinin kapisi.
@@ -469,7 +478,9 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/layer_check.py` — engine/ katman bagimlilik denetimi — ihlal = BUILD HATASI (plan §2).
 - `tools/layout_audit.py` — CPU-GPU yerlesim denetimi + KONTROLU — bagimsiz kosulabilir kapi.
 - `tools/layout_check.py` — CPU-GPU yerlesim denetimi (Faz 8.4) — shader bloklari ile C++ struct'lari.
+- `tools/make_test_fbx_blender.py` — FBX test varliklari (Blender icinden): morph (blend shape) + coklu UV.
 - `tools/make_test_gltf.py` — Test varligi uretici: dama dokulu kup -> engine/tests/assets/checker_cube.gltf
+- `tools/make_test_insansi.py` — A6 yeniden hedefleme test karakteri (2026-11-16): 21 eklemli insansi iskelet, gomulu .gltf.
 - `tools/make_test_karakter.py` — Ölçüm varlığı üretici: N eklemli, ~T üçgenli İSKELETLİ "karakter" (zincir silindir) -> <çıktı>.gltf
 - `tools/make_test_morph.py` — tests/assets/morph_kup.gltf: A5 (morph target) test varligi. 8 koseli kup (kenar 1, merkez orijin), 2 hedef:
 - `tools/ozellik_haritasi.py` — Motor ÖZELLİK HARİTASI üretici (docs/OZELLIK-HARITASI.md).
@@ -494,8 +505,10 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/tulpar_indir.sh` — Tulpar Engine — YAYINLANMIS tulpar'i (TulparLang releases/latest) indirir ve
 - `tools/vk_bellek_sonda.py` — Vulkan bellek ayirma/birakma sondasi — motordan ve ImGui'den BAGIMSIZ.
 - `tools/vk_sonda.py` — Vulkan loader sondasi — motordan BAGIMSIZ: loader ICD'yi ve dogrulama
-- `tools/windows_kapilar.sh` — Tulpar Engine — Windows (MSYS2 MINGW64, SwiftShader) is adimlarinin ORTAK
-- `tools/windows_vulkan_icd.sh` — Tulpar Engine — Windows (MSYS2 MINGW64) CI'da yazilim Vulkan ICD'si:
+- `tools/windows_glfw.sh` — Windows CI/surum: glfw3.dll'i MSYS2 ortaminin bin dizinine koyar (2026-11-22).
+- `tools/windows_kapilar.sh` — Tulpar Engine — Windows (MSYS2 UCRT64, SwiftShader) is adimlarinin ORTAK
+- `tools/windows_msys2.sh` — Windows CI: MSYS2 paketlerini KURULU AGAC onbelleginin ustune kurar (2026-11-22, Tuzaklar 8es).
+- `tools/windows_vulkan_icd.sh` — Tulpar Engine — Windows (MSYS2 UCRT64) CI'da yazilim Vulkan ICD'si:
 - `tools/yeni_oyun.sh` — OYUN FABRIKASI — yeni oyun deposu iskeleti (docs/FABRIKA.md asama 2).
 - `tools/yeniden_kullanim_karar.sh` — ETIKETTE YENIDEN KULLANIM KARARI — yayinlanacak bayt = PR'da test edilen bayt mi?
 - `tools/yerel_ci.sh` — YEREL CI (2026-11-04) — GitHub'a gondermeden ONCE, Linux CI isinin (ci.yml
@@ -508,7 +521,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 
 ## 2. Köprü API (TulparLang ↔ motor)
 
-Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **434** fonksiyon. Sözleşme: `docs/KOPRU.md`.
+Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **440** fonksiyon. Sözleşme: `docs/KOPRU.md`.
 
 ### yasam dongusu (37)
 
@@ -593,7 +606,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_scene_z(i:int)` → float — Sahne varliginin z'si.
 - `eng_scene_name(i:int)` → str — Sahne varliginin adi.
 
-### nesne ozellikleri (E4): editorde varliga verilen, betigin v… (33)
+### nesne ozellikleri (E4): editorde varliga verilen, betigin v… (34)
 
 - `eng_scene_prop_px()` → float — Son eng_scene_prop_point sonucunun x'i (dunya).
 - `eng_scene_prop_py()` → float — Son eng_scene_prop_point sonucunun y'si (dunya).
@@ -609,6 +622,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_scene_animator_trigger(i:int, name:str)` → bool — Sahne varliginin animatorune (.sahne `animator`, editorde Animasyon karti) TETIK gonderir…
 - `eng_scene_animator_param(i:int, name:str, v:num)` → bool — Sahne varliginin animator SAYI parametresini ayarlar. hiz/dikey hareketten her adim yenid…
 - `eng_scene_animator_state(i:int)` → str — Sahne varliginin animatorunun gecerli durum adi (\"\" = animator yok).
+- `eng_scene_animator_event(i:int)` → str — Sahne varliginin animator OLAY kuyrugundan en eski olayin adini cikarir (\"\" = bos). `ol…
 - `eng_scene_camera_use(i:int)` → bool — Sahne varligini (kamera bileseni olmali) kamera yap: goz varligin konumu, bakis -Z, aci/k…
 - `eng_scene_sound_play(i:int)` → int — Sahne varliginin ses bilesenini bilesenin ayarlariyla cal (duzey, dongu, 3B ise varligin…
 - `eng_scene_sx(i:int)` → float — Sahne varliginin dunya olcegi x (ilkelde boyu).
@@ -639,7 +653,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_kinematic_move(id:int, x:num, y:num, z:num)` → void — Kinematik govdeyi hedefe surur: bu karenin sim adimlarinda varir, hiz turetilir (itme dog…
 - `eng_is_kinematic(id:int)` → bool — Varlik kinematik govde mi.
 
-### Carpisma gruplari (Geri bildirim #25): takim mermisi kendi… (50)
+### Carpisma gruplari (Geri bildirim #25): takim mermisi kendi… (54)
 
 - `eng_collision_group(id:int, group:int)` → bool — Govdeyi carpisma grubuna (0..15) alir; grup 0 varsayilan (grup atanmamis her sey: sahne,…
 - `eng_collision_group_of(id:int)` → int — Varligin carpisma grubu (0 varsayilan).
@@ -662,6 +676,10 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_morph_weight(id:int, target:int, w:num)` → void — Model varliginin morph hedef agirligi (genelde 0..1). Ilk cagri varliga kopya mesh yuvasi…
 - `eng_morph_get(id:int, target:int)` → float — Morph hedef agirligini okur.
 - `eng_morph_rejected()` → int — Havuz/mesh tavani yuzunden reddedilen morph sayisi.
+- `eng_model_lod(asset:int, lod1:num, lod2:num)` → int — Modelin LOD gecis mesafeleri (m; 0 = varsayilan). lod2 < lod1 / negatif: hata, 0. 1 = ok…
+- `eng_device_tier()` → int — Cihaz sinifi: 0 dusuk, 1 orta, 2 yuksek (GPU adindan).
+- `eng_skin_budget()` → int — Cihaz sinifinin kare basina iskeletli kose butcesi (dusuk 50K olculdu; orta/yuksek tahmin…
+- `eng_skin_verts()` → int — Son karede cizilen iskeletli kose sayisi.
 - `eng_mesh_begin()` → int — Kodla mesh kuruculugunu sifirlar (P1). 1 = ok.
 - `eng_mesh_vertex(x:num, y:num, z:num, u:num, v:num)` → int — Kurucuya kose ekler (4096 tavan). Donus: kose indeksi, -1 tavan.
 - `eng_mesh_tri(a:int, b:int, c:int)` → int — Kurucuya ucgen ekler (8192 tavan, CCW). 1 = ok, 0 = reddedildi (sayilir).
@@ -716,10 +734,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_anim_time(id:int)` → float — Varligin klip icindeki ani (s).
 - `eng_anim_done(id:int)` → bool — Dongusuz klip bitti mi.
 
-### girdi (18)
+### girdi (19)
 
 - `eng_key_down(name:str)` → bool — Tus basili mi: \"W\",\"A\",\"SPACE\",\"UP\",\"ESC\",\"ENTER\",\"SHIFT\",\"0\"..\"9\".
 - `eng_key_pressed(name:str)` → bool — Tus bu karede basildi mi.
+- `eng_key_test_press(name:str)` → void — Pencersiz dogrulama: sonraki kareye bu tusun basisini enjekte eder (eng_key_pressed ve sa…
 - `eng_back_pressed()` → bool — Geri bu karede basildi mi: Android'de sistem geri tusu, masaustunde Esc. ILK cagri geri t…
 - `eng_back_test_press()` → void — Pencersiz dogrulama: sonraki kareye bir geri basisi enjekte eder (o kare eng_back_pressed…
 - `eng_app_paused()` → bool — Uygulama arka planda mi (Android: ana ekran / baska uygulama; masaustunde false). Motor a…
@@ -1096,11 +1115,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **843** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **886** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
-- `editor` — 133
+- `editor` — 140
 - `bridge` — 71
 - `scene` — 48
 - `renderer` — 37
@@ -1110,27 +1129,31 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `cluster` — 16
 - `physics` — 16
 - `math` — 14
+- `model` — 14
 - `fixed` — 13
 - `particles` — 13
 - `render` — 12
+- `import` — 11
+- `animator` — 10
 - `clod` — 10
-- `import` — 10
 - `files` — 9
 - `multiedit` — 9
+- `poly` — 9
 - `rhi` — 9
-- `animator` — 8
 - `console` — 8
 - `platform` — 8
 - `process` — 8
+- `sahne` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
-- `model` — 7
 - `timer` — 7
 - `anim` — 6
 - `engine` — 6
+- `fbx` — 6
 - `gi` — 6
 - `meshlet` — 6
+- `morph` — 6
 - `prefab` — 6
 - `rng` — 6
 - `spatial` — 6
@@ -1140,7 +1163,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `fabrika` — 5
 - `gesture` — 5
 - `interp` — 5
-- `morph` — 5
+- `jobs` — 5
 - `navmesh` — 5
 - `occlusion` — 5
 - `pack` — 5
@@ -1157,12 +1180,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `ecs` — 4
 - `game` — 4
 - `ik` — 4
-- `jobs` — 4
+- `khronos` — 4
 - `lag` — 4
 - `layout` — 4
 - `reflect` — 4
 - `rollback` — 4
-- `sahne` — 4
 - `sph` — 4
 - `voxel` — 4
 - `crash` — 3
@@ -1177,7 +1199,6 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `indirect` — 3
 - `job` — 3
 - `lockstep` — 3
-- `poly` — 3
 - `profiler` — 3
 - `splat` — 3
 - `surucu` — 3
@@ -1188,6 +1209,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `dithered` — 2
 - `exponential` — 2
 - `faz0` — 2
+- `gltf` — 2
 - `graph` — 2
 - `hash` — 2
 - `input` — 2
@@ -1196,6 +1218,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `perf` — 2
 - `sim` — 2
 - `thermal` — 2
+- `usd` — 2
 - `vt` — 2
 - `yardim` — 2
 - `array` — 1
@@ -1226,7 +1249,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 - `tests/test_alloc_gate.cpp` — 2 test
 - `tests/test_animation.cpp` — 6 test
-- `tests/test_animator.cpp` — 6 test
+- `tests/test_animator.cpp` — 8 test
 - `tests/test_anticheat.cpp` — 4 test
 - `tests/test_audio.cpp` — 15 test
 - `tests/test_behavior_tree.cpp` — 7 test
@@ -1244,7 +1267,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_cluster_cull.cpp` — 6 test
 - `tests/test_cluster_lod.cpp` — 10 test
 - `tests/test_containers.cpp` — 4 test
-- `tests/test_content.cpp` — 34 test
+- `tests/test_content.cpp` — 36 test
 - `tests/test_crash.cpp` — 3 test
 - `tests/test_debug_draw.cpp` — 3 test
 - `tests/test_desync.cpp` — 4 test
@@ -1255,7 +1278,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_ecs_snapshot.cpp` — 2 test
 - `tests/test_editor.cpp` — 21 test
 - `tests/test_editor_animator_grafik.cpp` — 2 test
-- `tests/test_editor_animator_metin.cpp` — 4 test
+- `tests/test_editor_animator_metin.cpp` — 9 test
 - `tests/test_editor_betik.cpp` — 21 test
 - `tests/test_editor_camera.cpp` — 8 test
 - `tests/test_editor_chrome.cpp` — 12 test
@@ -1266,7 +1289,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_editor_game.cpp` — 7 test
 - `tests/test_editor_masaustu.cpp` — 2 test
 - `tests/test_editor_multiedit.cpp` — 9 test
-- `tests/test_editor_onizleme.cpp` — 1 test
+- `tests/test_editor_onizleme.cpp` — 4 test
 - `tests/test_editor_overlay.cpp` — 12 test
 - `tests/test_editor_props.cpp` — 12 test
 - `tests/test_editor_surucu.cpp` — 3 test
@@ -1291,7 +1314,8 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_input.cpp` — 2 test
 - `tests/test_interp.cpp` — 5 test
 - `tests/test_job_graph.cpp` — 3 test
-- `tests/test_jobs.cpp` — 4 test
+- `tests/test_jobs.cpp` — 5 test
+- `tests/test_khronos_ornekleri.cpp` — 12 test
 - `tests/test_lag_compensation.cpp` — 4 test
 - `tests/test_layout.cpp` — 4 test
 - `tests/test_lighting_pipeline.cpp` — 5 test
@@ -1299,9 +1323,9 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_lod_select.cpp` — 3 test
 - `tests/test_math.cpp` — 14 test
 - `tests/test_memory.cpp` — 6 test
-- `tests/test_mesh_import.cpp` — 9 test
+- `tests/test_mesh_import.cpp` — 10 test
 - `tests/test_meshlet_pipeline.cpp` — 6 test
-- `tests/test_model_import.cpp` — 5 test
+- `tests/test_model_import.cpp` — 6 test
 - `tests/test_morph.cpp` — 5 test
 - `tests/test_navmesh.cpp` — 5 test
 - `tests/test_neo_riemannian.cpp` — 1 test
@@ -1315,7 +1339,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_particles.cpp` — 25 test
 - `tests/test_perf_hint.cpp` — 2 test
 - `tests/test_physics.cpp` — 17 test
-- `tests/test_poly.cpp` — 3 test
+- `tests/test_poly.cpp` — 9 test
 - `tests/test_prefab.cpp` — 6 test
 - `tests/test_process.cpp` — 8 test
 - `tests/test_profiler.cpp` — 3 test
@@ -1328,7 +1352,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_rhi.cpp` — 9 test
 - `tests/test_rollback.cpp` — 4 test
 - `tests/test_scene.cpp` — 25 test
-- `tests/test_scene_animators.cpp` — 8 test
+- `tests/test_scene_animators.cpp` — 18 test
 - `tests/test_scene_blob.cpp` — 29 test
 - `tests/test_scene_faz2.cpp` — 1 test
 - `tests/test_sha256.cpp` — 5 test
@@ -1364,7 +1388,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/ci_surum_kapisi.sh` — CI SURUM KAPISI (motor) — tools/ci_surum.sh PR'da dogru surumu tahmin ediyor ve
 - `tools/clang_syntax_check.sh` — Motor kaynaklarini clang++ ile SOZDIZIMI denetiminden gecirir (derlemez).
 - `tools/compile_shaders.py` — GLSL -> SPIR-V -> C dizisi (engine/rhi/shaders/*_spv.h).
-- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2/MINGW64 tarafi.
+- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2/UCRT64 tarafi (2026-11-22 oncesi MINGW64).
 - `tools/dil_kapsam.py` — Editör İngilizce kapsam ölçümü (app/editor_dil.hpp).
 - `tools/editor_ux.sh` — Editor UX olcumu (docs/EDITOR-UYGULAMA-PLANI.md U0): dort cozunurlukte PARALEL headless editor,
 - `tools/faz8_shader_audit.py` — faz8_shader_audit.py — Faz 8 shader alt kumesi prototipinin kapisi.
@@ -1380,7 +1404,9 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/layer_check.py` — engine/ katman bagimlilik denetimi — ihlal = BUILD HATASI (plan §2).
 - `tools/layout_audit.py` — CPU-GPU yerlesim denetimi + KONTROLU — bagimsiz kosulabilir kapi.
 - `tools/layout_check.py` — CPU-GPU yerlesim denetimi (Faz 8.4) — shader bloklari ile C++ struct'lari.
+- `tools/make_test_fbx_blender.py` — FBX test varliklari (Blender icinden): morph (blend shape) + coklu UV.
 - `tools/make_test_gltf.py` — Test varligi uretici: dama dokulu kup -> engine/tests/assets/checker_cube.gltf
+- `tools/make_test_insansi.py` — A6 yeniden hedefleme test karakteri (2026-11-16): 21 eklemli insansi iskelet, gomulu .gltf.
 - `tools/make_test_karakter.py` — Ölçüm varlığı üretici: N eklemli, ~T üçgenli İSKELETLİ "karakter" (zincir silindir) -> <çıktı>.gltf
 - `tools/make_test_morph.py` — tests/assets/morph_kup.gltf: A5 (morph target) test varligi. 8 koseli kup (kenar 1, merkez orijin), 2 hedef:
 - `tools/ozellik_haritasi.py` — Motor ÖZELLİK HARİTASI üretici (docs/OZELLIK-HARITASI.md).
@@ -1403,8 +1429,10 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/tulpar_indir.sh` — Tulpar Engine — YAYINLANMIS tulpar'i (TulparLang releases/latest) indirir ve
 - `tools/vk_bellek_sonda.py` — Vulkan bellek ayirma/birakma sondasi — motordan ve ImGui'den BAGIMSIZ.
 - `tools/vk_sonda.py` — Vulkan loader sondasi — motordan BAGIMSIZ: loader ICD'yi ve dogrulama
-- `tools/windows_kapilar.sh` — Tulpar Engine — Windows (MSYS2 MINGW64, SwiftShader) is adimlarinin ORTAK
-- `tools/windows_vulkan_icd.sh` — Tulpar Engine — Windows (MSYS2 MINGW64) CI'da yazilim Vulkan ICD'si:
+- `tools/windows_glfw.sh` — Windows CI/surum: glfw3.dll'i MSYS2 ortaminin bin dizinine koyar (2026-11-22).
+- `tools/windows_kapilar.sh` — Tulpar Engine — Windows (MSYS2 UCRT64, SwiftShader) is adimlarinin ORTAK
+- `tools/windows_msys2.sh` — Windows CI: MSYS2 paketlerini KURULU AGAC onbelleginin ustune kurar (2026-11-22, Tuzaklar 8es).
+- `tools/windows_vulkan_icd.sh` — Tulpar Engine — Windows (MSYS2 UCRT64) CI'da yazilim Vulkan ICD'si:
 - `tools/yeni_oyun.sh` — OYUN FABRIKASI — yeni oyun deposu iskeleti (docs/FABRIKA.md asama 2).
 - `tools/yeniden_kullanim_karar.sh` — ETIKETTE YENIDEN KULLANIM KARARI — yayinlanacak bayt = PR'da test edilen bayt mi?
 - `tools/yerel_ci.sh` — YEREL CI (2026-11-04) — GitHub'a gondermeden ONCE, Linux CI isinin (ci.yml
@@ -1594,6 +1622,19 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8ed** — Yeni varlık uzantısı Android süzgecine eklenmeyince telefonda sessizce yok (8cu'nun tekrarı)
 - **8ee** — Kemikleri ortak birden çok skin — klip tek skin'i sürer, öbür mesh T duruşunda kalır
 - **8ef** — Kemiğe ÇOCUK olarak takılı katı parçalar ve kök üstü Armature — "kollar kafada, bacaklar kıpırdamıyor"
+- **8eg** — Gerçek modelde dört sessiz tavan birden — "eklendi ama hiçbir şey yok", sonra "Walk yok", sonra yarım poz
+- **8eh** — Pozsuz iskelet "S = birim" varsayımı sınırları da bozar — birim tahmini ölçeği İKİ KEZ uygular
+- **8ei** — Dosyanın UV kanalı 0 tamamen sıfır — model düz renk, hiçbir hata yok
+- **8ej** — Ada sığmayan klip `#N` sıra numarasıyla yazılınca model değişince SESSİZCE başka klip oynar
+- **8ek** — Duvar saati ile "N kat iş daha pahalı" kontrolü hızlı GPU'da gürültüye boğulur
+- **8el** — Aynı iskeleti paylaşan mesh'ler paleti her çizimde yeniden yükler — tavan aşılır, son karakterin kolu yok olur
+- **8em** — İskeletsiz düğüm animasyonu (kapı, pervane) sessizce atlanıyordu
+- **8en** — Gerçek modelin dokuları telefon belleğini tek başına doldurur — "yüklendi" der, oyun çöker
+- **8eo** — Android uzantı süzgecinin İKİNCİ kopyası (motorun test/demo APK'sı) eksik kaldı
+- **8ep** — Dağıtımın paket deposu ortamı bıraktı — CI "target not found" ile, kodla ilgisiz düştü
+- **8eq** — Önbellek main'de isıtılıyor sanıldı — yalnız bir platformda; diğeri her PR'da sıfırdan derledi
+- **8er** — Bekleyen sayacı "bitti" gördü ve yok etti — signaler o anda hâlâ sayacın içindeydi
+- **8es** — Bir adım hızlanınca, uzun beklemenin gizlediği yarış açığa çıktı
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 
@@ -1605,7 +1646,6 @@ Hangi dizinde geçtiği yanında; anlamı için ilgili dosyada/`CLAUDE.md`'de ar
 - `TULPAR_AG_PORT` — tools
 - `TULPAR_AG_ROL` — tools
 - `TULPAR_AG_ZAMAN_ASIMI_MS` — tools
-- `TULPAR_AKSIYON_SIZINTI_B` — tools
 - `TULPAR_ANDROID_ABI` — tools
 - `TULPAR_ANDROID_ASSETS` — bridge
 - `TULPAR_ANDROID_CUTOUT` — tools
@@ -1659,9 +1699,6 @@ Hangi dizinde geçtiği yanında; anlamı için ilgili dosyada/`CLAUDE.md`'de ar
 - `TULPAR_ENGINE_PROBE_LIMIT` — tests
 - `TULPAR_ENGINE_PSO_CACHE` — rhi
 - `TULPAR_ENGINE_RAPOR` — bridge, tools
-- `TULPAR_ENGINE_SAVAS_BOZ` — tools
-- `TULPAR_ENGINE_SAVAS_DOST_SUZGEC` — tools
-- `TULPAR_ENGINE_SAVAS_SIZINTI_B` — tools
 - `TULPAR_ENGINE_SAVE` — bridge, tools
 - `TULPAR_ENGINE_SCENE` — app
 - `TULPAR_ENGINE_TEST_AUDIBLE` — tests
@@ -1707,6 +1744,7 @@ Hangi dizinde geçtiği yanında; anlamı için ilgili dosyada/`CLAUDE.md`'de ar
 - `TULPAR_SWAPPY` — app, tools
 - `TULPAR_SWAPPY_DEX` — tools
 - `TULPAR_SWAPPY_FAMILY` — tools
+- `TULPAR_TANI_MODEL` — tests
 - `TULPAR_TEST_BOS` — tests
 - `TULPAR_TEST_ORTAM_A` — tests
 - `TULPAR_TEST_ORTAM_B` — tests
@@ -1740,14 +1778,14 @@ Kapasiteler init'te alınır; dolunca geçersiz handle döner ve SAYILIR (sessiz
 - `content/model.hpp`: `kModelMaxLods`=2, `kModelMaxSkins`=4, `kModelMaxJoints`=128, `kModelMaxMorphTracks`=4, `kModelMaxMorph`=8, `kModelMaxMorphVerts`=16384
 - `content/pack.hpp`: `kPackMaxName`=255
 - `content/particle_meshlet.hpp`: `kParticleMeshletSize`=64
-- `content/poly.hpp`: `kPolyMaxPoints`=32, `kPolyMaxTris`=4
+- `content/poly.hpp`: `kPolyMaxPoints`=32, `kPolyMaxHolePoints`=16, `kPolyMaxHoles`=4, `kPolyMaxTris`=4, `kPolyMaxPartVerts`=3
 - `content/primitives.hpp`: `kPrimitiveSlotCount`=25
-- `content/scene.hpp`: `kSceneMaxEntities`=256, `kSceneMaxAssets`=16, `kSceneNameLen`=32, `kScenePathLen`=128, `kSceneScriptLen`=128, `kSceneMaxDepth`=16, `kSceneMaxProps`=16, `kScenePolyMaxPoints`=32, `kScenePropNameLen`=24
+- `content/scene.hpp`: `kSceneMaxEntities`=256, `kSceneMaxAssets`=64, `kSceneNameLen`=32, `kScenePathLen`=128, `kSceneScriptLen`=128, `kSceneMaxDepth`=16, `kSceneMaxProps`=16, `kScenePolyMaxPoints`=32, `kScenePropNameLen`=24
 - `content/scene_animators.hpp`: `kSceneAnimMaxClips`=64
 - `content/scene_blob.hpp`: `kGiBlobMaxProbes`=32768, `kSceneBlobParticleMaxSub`=64
 - `content/scene_compile.hpp`: `kSceneDagMaxMeshes`=64
 - `sim/ability_system.hpp`: `kMaxInventorySlots`=16
-- `sim/animator.hpp`: `kAnimMaxStates`=16, `kAnimMaxEntries`=4, `kAnimMaxEvents`=16
+- `sim/animator.hpp`: `kAnimMaxStates`=16, `kAnimClipNameLen`=64, `kAnimMaxEntries`=4, `kAnimMaxEvents`=16
 - `sim/behavior_tree.hpp`: `kBtMaxNodes`=64, `kBtMaxChildren`=8
 - `sim/chaos_physics.hpp`: `kFabrikMaxJoints`=32
 - `sim/ecs.hpp`: `kMaxComponents`=64

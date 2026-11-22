@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tulpar Engine — Windows (MSYS2 MINGW64, SwiftShader) is adimlarinin ORTAK
+# Tulpar Engine — Windows (MSYS2 UCRT64, SwiftShader) is adimlarinin ORTAK
 # kapilari. CI (ci.yml) ve surum (release.yml) Windows isleri AYNI betigi
 # kosar: ikisi de once tools/windows_vulkan_icd.sh kur ile ICD'yi kurar, sonra
 # buradaki alt komutlari. Kapi bir kez yazilir, iki is akisinda kayamaz.
@@ -89,7 +89,7 @@ case "${1:-}" in
     kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
     kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
     {
-      echo "### ${KAPI_BASLIK:-Windows (MSYS2 MINGW64, SwiftShader)}${parca:+ — parca $parca}"
+      echo "### ${KAPI_BASLIK:-Windows (MSYS2 UCRT64, SwiftShader)}${parca:+ — parca $parca}"
       echo ""
       echo "\`$ozet\` — ${sure} s"
       echo ""

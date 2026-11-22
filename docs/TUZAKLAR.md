@@ -2772,7 +2772,7 @@ tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağır
 2026-10-24: leaf paketlerin MINGW64 derlemeleri düzenli güncellemede siliniyor); glfw ilk gidenlerden. **Düzeltme (geçici):**
 `tools/windows_glfw.sh` upstream GLFW 3.4 MinGW-w64 ikilisini SÜRÜM + SHA-256 sabit indirip `${MSYSTEM_PREFIX}/bin`'e koyar (ci.yml iki
 iş, release.yml, `derle_mingw.sh`); özet tutmazsa kırmızı. **Kalıcı:** Windows derlemesini UCRT64'e taşımak — gcc/clang/openssl/
-vulkan-validation-layers da aynı yoldan gidecek. **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.
+vulkan-validation-layers da aynı yoldan gidecek. (Yapıldı 2026-11-22: 8et.) **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.
 
 ### 8eq. Önbellek main'de isıtılıyor sanıldı — yalnız bir platformda; diğeri her PR'da sıfırdan derledi
 **Belirti (2026-11-22, koşum 45011941482):** Windows işi kritik yoldu (861 s); `Derle` 449 s, ccache `4 / 622 (%0,64)` isabet. Linux ve
@@ -2844,4 +2844,17 @@ kayıt yoksa ya da depoda yeni sürüm varsa kurar/yükseltir ve yeni kayıt sak
 16:18:01.9) ve `actions/download-artifact` 0,3 s sonra "Artifact not found" dedi — başka arka uçtan okuyor. Eskiden köprü işi artefaktı
 dakikalarca beklediği için pencere hiç açılmıyordu. İndirme artık beklemeyle **aynı REST API'den** (`gh run download`, 5 deneme).
 **Kural:** iki adım arasında "hazır" bilgisini taşıyan şey, ikinci adımın okuduğu kaynakla aynı olmalı; uzun bekleme senkronizasyon değildir.
+
+### 8et. Ortam göçü tek depoda bitmez — bağlanan ikinci derleyicinin C çalışma zamanı da taşınmalı
+**Bağlam (2026-11-22):** 8ep'in kalıcı çözümü Windows'u MSYS2 UCRT64'e taşımaktı. Motor tek başına taşınsaydı derlenir ve testleri de
+geçerdi, ama oyun ikilisini motor değil **tulpar.exe** linkler: motorun eklenti arşivleri, yayınlanmış TulparLang'in
+`libtulpar_runtime-windows-x64.a`'sıyla ve kullanıcının PATH'teki `clang++`'ıyla TEK statik linkte birleşir. MINGW64 = msvcrt, UCRT64
+= ucrtbase — iki C çalışma zamanı aynı programa karışınca link bazen GEÇER ve program FILE* / errno / locale sınırında bozulur (sessiz
+sınıf). **Sıra:** önce TulparLang (Windows CI + yayınlanan tulpar.exe/runtime UCRT64; tulpar link öncesi sürücünün CRT'sini
+`-dM -E -include _mingw.h` ile sorar, kendi derlendiği CRT ile karşılaştırır ve uyuşmazlıkta durur — TulparLang PR #499, pozitif
+kontrolü sahte sürücülerle CI'da), sürümü çıkınca motor (bu PR: `msystem: UCRT64`, `mingw-w64-ucrt-x86_64-*`, kurulu ağaç önbelleği
+`msys64/ucrt64`, `MSYSTEM_PREFIX` tabanlı DLL sınıflandırması, glfw artık UCRT64 paketinden). Motorun CI'ı releases/latest indirdiği
+için ikisi arasındaki pencerede motorun MINGW64 köprü işi karışık CRT ile koşar — pencere kısa tutulur. Zorunlu check adı
+`Windows x86_64 (MSYS2 MINGW64)` TARİHSEL kaldı: dal korumasında kayıtlı, değişmesi korumayla birlikte yapılmalı.
+**Kural:** bir araç zinciri göçünde "bizim ikili derleniyor" yetmez; ikiliyle AYNI linke giren her arşivin ve sürücünün ortamı sorulur.
 
