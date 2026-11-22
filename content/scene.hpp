@@ -289,8 +289,9 @@ struct SceneEntity {
   // P2 duzenleme (2026-11-22, content/poly.hpp PolyShape): nokta basina ust yukseklik farki, TEK delik (boolean fark, <= 16 nokta),
   // doku olcegi/acisi. Varsayilanlar dosyaya YAZILMAZ (eski .sahne bayt bayt ayni yazilir).
   float poly_dy[32] = {};
-  uint32_t poly_hole_n = 0;
+  uint32_t poly_hole_n = 0;          // bütün deliklerin nokta toplamı
   float poly_hole[32] = {};
+  uint8_t poly_hole_cnt[4] = {};     // delik başına nokta (0 = yok); en çok 4 delik
   float poly_uv_scale = 1.0f;
   float poly_uv_rot = 0.0f;
   // gokyuzu (kSceneSkybox). Panelde sabit bir dugme vardi, ARKASINDA ALAN DA
@@ -325,7 +326,8 @@ struct SceneEntity {
 // 2026-11-13 (A1b, anim_mode uint8_t, hizalama dolgusuyla +4): 1468 -> 1472 B; yigin cercevesi kapisi (128 KB) derlemede gecti.
 // 2026-11-16 (A8, anim_ctrl char[128]): 1736 -> 1864 B (SceneDesc 256 kez: +32 KB; gunluk islem basina 2 kez). Yigin kapisi derlemede.
 // 2026-11-22 (P2 duzenleme: poly_dy 128 + delik 4 + 128 + uv 8): 1864 -> 2132 B (SceneDesc 256 kez: +67 KB). Yigin kapisi derlemede.
-static_assert(sizeof(SceneEntity) == 2132, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
+// 2026-11-22 (coklu delik: poly_hole_cnt 4 B): 2132 -> 2136 B.
+static_assert(sizeof(SceneEntity) == 2136, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar)
 // + ozellikler (bilesenden bagimsiz, yukarida).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);

@@ -7,8 +7,9 @@
 //    tek bir dışbükey gövde L'nin içindeki boşluğu kapatırdı).
 // P2 düzenleme (2026-11-22, ERTELİ maddenin dilimi — "ProBuilder düzeyi"nin çokgene düşen kısmı):
 //  - KÖŞE: nokta başına üst yükseklik farkı `dy` (rampa, eğimli çatı). Üst yüz üçgen başına düz normal; yan yüz dikey (düzlemsel) kalır.
-//  - BOOLEAN (fark): çokgenden TEK delik çıkarılır (`hole`, en çok 16 nokta, tamamen içeride, kenarları dış kenarı kesmez). Dış halka ile
-//    delik en yakın GÖRÜNÜR köşe çiftinden köprüyle tek halkaya (anahtar deliği) birleşir; kulak kesme çakışık köprü köşelerini dışlar.
+//  - BOOLEAN (fark): çokgenden en çok 4 delik çıkarılır (toplam 16 nokta; her biri tamamen içeride, kenarları dış kenarı ve birbirini
+//    kesmez, iç içe değil). Delikler sırayla, o anki halkanın en yakın GÖRÜNÜR köşesine köprüyle bağlanıp tek halkaya (anahtar deliği)
+//    birleşir; kulak kesme çakışık köprü köşelerini dışlar.
 //    Deliğin iç duvarları deliğe bakar. Delik noktalarının üst yüksekliği dış noktaların ters-uzaklık karesi ağırlıklı ortalaması.
 //  - UV: üst/taban (x, z) `uv_rot` derece döndürülüp `uv_scale` ile çarpılır; yan yüzde u ÇEVRE BOYUNCA birikir (kenardan kenara
 //    kesintisiz doku; eskiden her kenar 0'dan başlıyordu), v = y · uv_scale.
@@ -23,10 +24,11 @@
 namespace tulpar::engine::content {
 
 constexpr uint32_t kPolyMaxPoints = 32;
-constexpr uint32_t kPolyMaxHolePoints = 16;
-constexpr uint32_t kPolyMaxRing = kPolyMaxPoints + kPolyMaxHolePoints + 2;   // anahtar deliği halkası (köprü köşeleri iki kez)
-// En çok üçgen: deliksiz üst (n-2) + taban (n-2) + yan 2n = 4n-4; delikli (n+m) + (n+m) + 2(n+m) = 4(n+m) = 192.
-constexpr uint32_t kPolyMaxTris = 4 * (kPolyMaxPoints + kPolyMaxHolePoints);
+constexpr uint32_t kPolyMaxHolePoints = 16;   // bütün deliklerin toplamı
+constexpr uint32_t kPolyMaxHoles = 4;
+constexpr uint32_t kPolyMaxRing = kPolyMaxPoints + kPolyMaxHolePoints + 2 * kPolyMaxHoles;   // anahtar deliği halkası (köprü köşeleri iki kez)
+// En çok üçgen: N = n + Σm + 2h halka -> üst N-2 + taban N-2 + yan 2(n+Σm) = 4(n+Σm) + 4h - 4 <= 204.
+constexpr uint32_t kPolyMaxTris = 4 * (kPolyMaxPoints + kPolyMaxHolePoints) + 4 * kPolyMaxHoles;
 constexpr uint32_t kPolyMaxVerts = kPolyMaxTris * 3;
 constexpr uint32_t kPolyMaxParts = kPolyMaxRing;
 constexpr uint32_t kPolyMaxPartVerts = 3 * kPolyMaxRing;
@@ -36,8 +38,10 @@ struct PolyShape {
   uint32_t n = 0;
   float h = 1.0f;                // > 0 katı (taban y=0, üst y=h+dy); <= 0 yalnız üst yüz (y=dy)
   const float *dy = nullptr;     // [n] üst yükseklik farkı (nullptr = hepsi 0)
-  const float *hole = nullptr;   // hole_n adet (x, z); hole_n = 0 delik yok
+  const float *hole = nullptr;   // hole_n adet (x, z) — bütün deliklerin noktaları art arda; hole_n = 0 delik yok
   uint32_t hole_n = 0;
+  const uint8_t *hole_counts = nullptr;   // [hole_rings] delik başına nokta (toplam = hole_n); nullptr / 0 = tek delik
+  uint32_t hole_rings = 0;
   float uv_scale = 1.0f;         // doku tekrarı (metre başına)
   float uv_rot_deg = 0.0f;       // üst/taban doku açısı
 };

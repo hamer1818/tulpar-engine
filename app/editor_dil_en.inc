@@ -469,7 +469,7 @@
 {"Seçili noktanın üst yüksekliği (fark): rampa, eğimli çatı. Taban değişmez.", "Top height offset of the selected point: ramps, sloped roofs. The base stays."},
 {"Delik çokgenden çıkarılır (iç duvarlarıyla, çarpışmada da boş). Dışarı taşan değer uygulanmaz.", "The hole is subtracted from the polygon (with inner walls; empty for collision too). Values that would leave the polygon are not applied."},
 {"Doku tekrarı (metre başına) ve üst yüzün doku açısı. Yan yüzde doku çevre boyunca kesintisiz.", "Texture repeat (per metre) and top-face texture angle. Side textures run continuously around the perimeter."},
-{"delik açılamadı: çokgen çok dar", "could not cut a hole: polygon too narrow"},
+{"delik açılamadı: boş yer yok", "could not cut a hole: no free space"},{"Delik", "Hole"},
 {"silinemez: kalan şekil geçersiz olurdu", "cannot delete: the remaining shape would be invalid"},
 {"Hedef cihaz", "Target device"},
 {"Düşük", "Low"},

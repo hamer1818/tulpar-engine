@@ -360,9 +360,9 @@ void write_entity(Out &o, const SceneEntity &e) {
       for (uint32_t i = 0; i < e.poly_n && i < kScenePolyMaxPoints; i++) { o.ch(' '); o.num(e.poly_dy[i]); }
       o.ch('\n');
     }
-    if (e.poly_hole_n) {
-      o.puts("  cokgen_delik "); o.num(e.poly_hole_n);
-      for (uint32_t i = 0; i < e.poly_hole_n && i < 16; i++) { o.ch(' '); o.num(e.poly_hole[2 * i]); o.ch(' '); o.num(e.poly_hole[2 * i + 1]); }
+    for (uint32_t r = 0, b = 0; r < 4 && e.poly_hole_cnt[r] && b + e.poly_hole_cnt[r] <= 16; b += e.poly_hole_cnt[r], r++) {   // delik basina bir satir
+      o.puts("  cokgen_delik "); o.num(e.poly_hole_cnt[r]);
+      for (uint32_t i = b; i < b + e.poly_hole_cnt[r]; i++) { o.ch(' '); o.num(e.poly_hole[2 * i]); o.ch(' '); o.num(e.poly_hole[2 * i + 1]); }
       o.ch('\n');
     }
     if (e.poly_uv_scale != 1.0f || e.poly_uv_rot != 0.0f) {
@@ -412,6 +412,9 @@ PolyShape scene_poly_shape(const SceneEntity &e) {
   PolyShape s;
   s.xz = e.poly_pts; s.n = e.poly_n; s.h = e.poly_h; s.dy = e.poly_dy; s.hole = e.poly_hole; s.hole_n = e.poly_hole_n;
   s.uv_scale = e.poly_uv_scale; s.uv_rot_deg = e.poly_uv_rot;
+  uint32_t r = 0;
+  while (r < 4 && e.poly_hole_cnt[r]) r++;
+  s.hole_counts = e.poly_hole_cnt; s.hole_rings = r;
   return s;
 }
 
@@ -483,6 +486,7 @@ bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
     if (a.poly_n != b.poly_n || !feq(a.poly_h, b.poly_h)) return false;
     for (uint32_t i = 0; i < a.poly_n * 2 && i < 2 * kScenePolyMaxPoints; i++) if (!feq(a.poly_pts[i], b.poly_pts[i])) return false;
     for (uint32_t i = 0; i < a.poly_n && i < kScenePolyMaxPoints; i++) if (!feq(a.poly_dy[i], b.poly_dy[i])) return false;
+    if (std::memcmp(a.poly_hole_cnt, b.poly_hole_cnt, 4) != 0) return false;
     if (a.poly_hole_n != b.poly_hole_n || !feq(a.poly_uv_scale, b.poly_uv_scale) || !feq(a.poly_uv_rot, b.poly_uv_rot)) return false;
     for (uint32_t i = 0; i < a.poly_hole_n * 2 && i < 32; i++) if (!feq(a.poly_hole[i], b.poly_hole[i])) return false;
   }
@@ -932,15 +936,15 @@ bool scene_parse(const char *text, size_t len, SceneDesc *out, SceneError *err) 
         for (uint32_t i = 0; i < pn; i++)
           if (!std::isfinite(cur.poly_dy[i]) || std::fabs(cur.poly_dy[i]) > 10000.0f || (cur.poly_h > 0.0f && cur.poly_h + cur.poly_dy[i] < 0.0f))
             return p.fail("cokgen_yukseklik: ust tabanin altina iniyor ya da gecersiz");
-      } else if (tok_is(t[0], "cokgen_delik")) {        // P2 duzenleme: tek delik (boolean fark)
-        uint32_t hn = 0;
-        if (!(seen_comp & kScenePoly) || n < 2 || !p.uint(t[1], &hn) || hn < 3 || hn > 16 || n != 2 + 2 * (size_t)hn)
-          return p.fail("cokgen_delik n x z ... (cokgen satirindan sonra, 3..16 nokta)");
-        for (uint32_t i = 0; i < 2 * hn; i++) if (!p.num(t[2 + i], &cur.poly_hole[i])) return false;
-        cur.poly_hole_n = hn;
-        PolyShape sh;
-        sh.xz = cur.poly_pts; sh.n = cur.poly_n; sh.h = cur.poly_h; sh.dy = cur.poly_dy; sh.hole = cur.poly_hole; sh.hole_n = hn;
-        if (!(poly_shape_area(sh) > 1e-9f)) return p.fail("cokgen_delik: delik cokgenin icinde degil, kesisiyor ya da alani sifir");
+      } else if (tok_is(t[0], "cokgen_delik")) {        // P2 duzenleme: delik (boolean fark); satir basina bir delik, en cok 4, toplam 16 nokta
+        uint32_t hn = 0, r = 0;
+        while (r < 4 && cur.poly_hole_cnt[r]) r++;
+        if (!(seen_comp & kScenePoly) || n < 2 || !p.uint(t[1], &hn) || hn < 3 || r >= 4 || cur.poly_hole_n + hn > 16 || n != 2 + 2 * (size_t)hn)
+          return p.fail("cokgen_delik n x z ... (cokgen satirindan sonra; en cok 4 delik, toplam 16 nokta)");
+        for (uint32_t i = 0; i < 2 * hn; i++) if (!p.num(t[2 + i], &cur.poly_hole[2 * cur.poly_hole_n + i])) return false;
+        cur.poly_hole_n += hn;
+        cur.poly_hole_cnt[r] = (uint8_t)hn;
+        if (!(poly_shape_area(scene_poly_shape(cur)) > 1e-9f)) return p.fail("cokgen_delik: delik cokgenin icinde degil, kesisiyor ya da alani sifir");
       } else if (tok_is(t[0], "cokgen_uv")) {
         if (!(seen_comp & kScenePoly) || n != 3 || !p.num(t[1], &cur.poly_uv_scale) || !p.num(t[2], &cur.poly_uv_rot))
           return p.fail("cokgen_uv olcek aci (cokgen satirindan sonra)");

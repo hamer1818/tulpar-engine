@@ -653,6 +653,7 @@ struct EditorState {
     bool prev_enter = false, prev_back = false;
     int32_t hover = -1; // kaplamanın bu kare bulduğu tutamaç (girdi aynı izdüşümü kullanır)
     int32_t sel = -1, sel_ent = -1;   // P2 düzenleme (2026-11-22): son tutulan nokta (kart: yükseklik / sil / kenarı böl)
+    int32_t delik = -1;                // kartta düzenlenen delik (çoklu delik)
   } poly;
   renderer::MeshHandle poly_meshes[content::kSceneMaxEntities] = {};
   // M1 ice aktarma ayarlari penceresi (Kaynaklar > sag tik). Degisiklik yuklu modele YERINDE uygulanir (model_import_reapply:
@@ -2122,18 +2123,27 @@ void poly_nokta_sil(SceneEntity &e, uint32_t k) {
   e.poly_pts[2 * e.poly_n] = e.poly_pts[2 * e.poly_n + 1] = 0.0f;
   e.poly_dy[e.poly_n] = 0.0f;
 }
-// Deliği sınır kutusu üzerinden taşı/ölçekle (her biçimde delik). Sonuç geçersizse (dışarı taşar, kesişir) e DEĞİŞMEZ, false.
-bool poly_delik_kutu(SceneEntity &e, float cx, float cz, float w, float d) {
-  if (!e.poly_hole_n || !(w > 0.01f) || !(d > 0.01f)) return false;
-  float lx = 1e30f, hx = -1e30f, lz = 1e30f, hz = -1e30f;
-  for (uint32_t i = 0; i < e.poly_hole_n; i++) {
-    lx = std::fmin(lx, e.poly_hole[2 * i]); hx = std::fmax(hx, e.poly_hole[2 * i]);
-    lz = std::fmin(lz, e.poly_hole[2 * i + 1]); hz = std::fmax(hz, e.poly_hole[2 * i + 1]);
+// Deliklerin halka bilgisi: r. deliğin ilk noktası ve nokta sayısı. Dönüş: delik sayısı.
+uint32_t poly_delik_sayisi(const SceneEntity &e) { uint32_t r = 0; while (r < 4 && e.poly_hole_cnt[r]) r++; return r; }
+uint32_t poly_delik_bas(const SceneEntity &e, uint32_t r) { uint32_t b = 0; for (uint32_t k = 0; k < r; k++) b += e.poly_hole_cnt[k]; return b; }
+void poly_delik_kutusu(const SceneEntity &e, uint32_t r, float *lx, float *hx, float *lz, float *hz) {
+  *lx = *lz = 1e30f; *hx = *hz = -1e30f;
+  const uint32_t b = poly_delik_bas(e, r);
+  for (uint32_t i = b; i < b + e.poly_hole_cnt[r]; i++) {
+    *lx = std::fmin(*lx, e.poly_hole[2 * i]); *hx = std::fmax(*hx, e.poly_hole[2 * i]);
+    *lz = std::fmin(*lz, e.poly_hole[2 * i + 1]); *hz = std::fmax(*hz, e.poly_hole[2 * i + 1]);
   }
+}
+// r. deliği sınır kutusu üzerinden taşı/ölçekle. Sonuç geçersizse (dışarı taşar, kesişir) e DEĞİŞMEZ, false.
+bool poly_delik_kutu(SceneEntity &e, uint32_t r, float cx, float cz, float w, float d) {
+  if (r >= poly_delik_sayisi(e) || !(w > 0.01f) || !(d > 0.01f)) return false;
+  float lx, hx, lz, hz;
+  poly_delik_kutusu(e, r, &lx, &hx, &lz, &hz);
   const float ow = hx - lx, od = hz - lz, ocx = 0.5f * (lx + hx), ocz = 0.5f * (lz + hz);
   if (!(ow > 1e-6f) || !(od > 1e-6f)) return false;
   SceneEntity t = e;
-  for (uint32_t i = 0; i < e.poly_hole_n; i++) {
+  const uint32_t b = poly_delik_bas(e, r);
+  for (uint32_t i = b; i < b + e.poly_hole_cnt[r]; i++) {
     t.poly_hole[2 * i] = cx + (e.poly_hole[2 * i] - ocx) * (w / ow);
     t.poly_hole[2 * i + 1] = cz + (e.poly_hole[2 * i + 1] - ocz) * (d / od);
   }
@@ -2141,22 +2151,40 @@ bool poly_delik_kutu(SceneEntity &e, float cx, float cz, float w, float d) {
   e = t;
   return true;
 }
-// Ortaya dikdörtgen delik aç: çokgenin sınır kutusunun %30'u, merkez alan ortalaması; sığmazsa küçültülür (en çok 4 deneme).
+// r. deliği kaldır (sonrakiler kayar).
+void poly_delik_kaldir(SceneEntity &e, uint32_t r) {
+  const uint32_t k = poly_delik_sayisi(e);
+  if (r >= k) return;
+  const uint32_t b = poly_delik_bas(e, r), c = e.poly_hole_cnt[r];
+  for (uint32_t i = b; i + c < e.poly_hole_n; i++) { e.poly_hole[2 * i] = e.poly_hole[2 * (i + c)]; e.poly_hole[2 * i + 1] = e.poly_hole[2 * (i + c) + 1]; }
+  e.poly_hole_n -= c;
+  for (uint32_t i = 2 * e.poly_hole_n; i < 32; i++) e.poly_hole[i] = 0.0f;
+  for (uint32_t q = r; q + 1 < 4; q++) e.poly_hole_cnt[q] = e.poly_hole_cnt[q + 1];
+  e.poly_hole_cnt[3] = 0;
+}
+// Yeni dikdörtgen delik aç (en çok 4 delik, toplam 16 nokta): sınır kutusunun %30'undan başlayıp küçülerek, önce ağırlık merkezinde,
+// sonra kutunun 3x3 ızgarasında GEÇERLİ (içeride, diğer deliklere değmeyen) ilk yer.
 bool poly_delik_ac(SceneEntity &e) {
-  if (e.poly_hole_n || e.poly_n < 3) return false;
+  const uint32_t k = poly_delik_sayisi(e);
+  if (k >= 4 || e.poly_hole_n + 4 > 16 || e.poly_n < 3) return false;
   float lx = 1e30f, hx = -1e30f, lz = 1e30f, hz = -1e30f, cx = 0, cz = 0;
   for (uint32_t i = 0; i < e.poly_n; i++) {
     lx = std::fmin(lx, e.poly_pts[2 * i]); hx = std::fmax(hx, e.poly_pts[2 * i]);
     lz = std::fmin(lz, e.poly_pts[2 * i + 1]); hz = std::fmax(hz, e.poly_pts[2 * i + 1]);
     cx += e.poly_pts[2 * i] / (float)e.poly_n; cz += e.poly_pts[2 * i + 1] / (float)e.poly_n;
   }
-  for (float k = 0.3f; k > 0.02f; k *= 0.5f) {
-    const float w = (hx - lx) * k * 0.5f, d = (hz - lz) * k * 0.5f;
-    SceneEntity t = e;
-    const float p[8] = {cx - w, cz - d, cx + w, cz - d, cx + w, cz + d, cx - w, cz + d};
-    for (int i = 0; i < 8; i++) t.poly_hole[i] = p[i];
-    t.poly_hole_n = 4;
-    if (content::poly_shape_area(content::scene_poly_shape(t)) > 1e-6f) { e = t; return true; }
+  for (float olc = 0.3f; olc > 0.02f; olc *= 0.5f) {
+    const float w = (hx - lx) * olc * 0.5f, d = (hz - lz) * olc * 0.5f;
+    for (int aday = -1; aday < 9; aday++) {
+      const float px = aday < 0 ? cx : lx + (hx - lx) * (0.25f + 0.25f * (float)(aday % 3));
+      const float pz = aday < 0 ? cz : lz + (hz - lz) * (0.25f + 0.25f * (float)(aday / 3));
+      SceneEntity t = e;
+      const float p[8] = {px - w, pz - d, px + w, pz - d, px + w, pz + d, px - w, pz + d};
+      for (int i = 0; i < 8; i++) t.poly_hole[2 * e.poly_hole_n + i] = p[i];
+      t.poly_hole_n = e.poly_hole_n + 4;
+      t.poly_hole_cnt[k] = 4;
+      if (content::poly_shape_area(content::scene_poly_shape(t)) > 1e-6f) { e = t; return true; }
+    }
   }
   return false;
 }
@@ -2190,38 +2218,43 @@ void poly_duzenleme_karti_impl(EditorState &st, SceneEntity &e, SceneEntity &aft
   } else {
     ImGui::TextDisabled("%s", "Bir noktay\xC4\xB1 tutup b\xC4\xB1rak: se\xC3\xA7ilir (y\xC3\xBCkseklik, sil, kenar\xC4\xB1 b\xC3\xB6l).");
   }
-  if (!e.poly_hole_n) {
-    if (ImGui::Button("Delik a\xC3\xA7")) {
-      after = e;
-      if (poly_delik_ac(after)) commit_fn(si, after);
-      else set_status(st, "delik a\xC3\xA7\xC4\xB1lamad\xC4\xB1: \xC3\xA7okgen \xC3\xA7ok dar");
-    }
-  } else {
-    float lx = 1e30f, hx = -1e30f, lz = 1e30f, hz = -1e30f;
-    for (uint32_t i = 0; i < e.poly_hole_n; i++) {
-      lx = std::fmin(lx, e.poly_hole[2 * i]); hx = std::fmax(hx, e.poly_hole[2 * i]);
-      lz = std::fmin(lz, e.poly_hole[2 * i + 1]); hz = std::fmax(hz, e.poly_hole[2 * i + 1]);
-    }
+  const uint32_t delik_k = poly_delik_sayisi(e);
+  if (delik_k && (st.poly.delik < 0 || (uint32_t)st.poly.delik >= delik_k)) st.poly.delik = (int32_t)delik_k - 1;
+  if (delik_k) {
+    const uint32_t r = (uint32_t)st.poly.delik;
+    float lx, hx, lz, hz;
+    poly_delik_kutusu(e, r, &lx, &hx, &lz, &hz);
     float cx = 0.5f * (lx + hx), cz = 0.5f * (lz + hz), w = hx - lx, d = hz - lz;
     if (prop_begin("cokgen_delik")) {
       prop_help("Delik \xC3\xA7okgenden \xC3\xA7\xC4\xB1kar\xC4\xB1l\xC4\xB1r (i\xC3\xA7 duvarlar\xC4\xB1yla, \xC3\xA7" "arp\xC4\xB1\xC5\x9Fmada da bo\xC5\x9F). D\xC4\xB1\xC5\x9F" "ar\xC4\xB1 ta\xC5\x9F" "an de\xC4\x9F" "er uygulanmaz.");
+      if (delik_k > 1) {
+        int no = st.poly.delik + 1;
+        if (prop_int("Delik", &no, 1, (int)delik_k).changed) st.poly.delik = std::clamp(no, 1, (int)delik_k) - 1;
+      }
       PropItem a = prop_float("Delik X", &cx, 0.02f, -10000.0f, 10000.0f, "%.2f m");
       PropItem b = prop_float("Delik Z", &cz, 0.02f, -10000.0f, 10000.0f, "%.2f m");
       PropItem c = prop_float("Delik geni\xC5\x9Fli\xC4\x9Fi", &w, 0.02f, 0.02f, 10000.0f, "%.2f m");
       PropItem dd = prop_float("Delik derinli\xC4\x9Fi", &d, 0.02f, 0.02f, 10000.0f, "%.2f m");
       const PropItem items[4] = {a, b, c, dd};
       for (const PropItem &it : items) {
-        if (it.changed) poly_delik_kutu(e, cx, cz, w, d);
+        if (it.changed) poly_delik_kutu(e, r, cx, cz, w, d);
         track_edit(st, e, si, it);
       }
       prop_end();
     }
-    if (ImGui::Button("Deli\xC4\x9Fi kapat")) {
+  }
+  if (delik_k < 4 && e.poly_hole_n + 4 <= 16) {
+    if (ImGui::Button("Delik a\xC3\xA7")) {
       after = e;
-      after.poly_hole_n = 0;
-      for (float &v : after.poly_hole) v = 0.0f;
-      commit_fn(si, after);
+      if (poly_delik_ac(after)) { st.poly.delik = (int32_t)delik_k; commit_fn(si, after); }
+      else set_status(st, "delik a\xC3\xA7\xC4\xB1lamad\xC4\xB1: bo\xC5\x9F yer yok");
     }
+    if (delik_k) akis_ayni_satir("Deli\xC4\x9Fi kapat");
+  }
+  if (delik_k && ImGui::Button("Deli\xC4\x9Fi kapat")) {
+    after = e;
+    poly_delik_kaldir(after, (uint32_t)st.poly.delik);
+    commit_fn(si, after);
   }
   if (prop_begin("cokgen_doku")) {
     prop_help("Doku tekrar\xC4\xB1 (metre ba\xC5\x9F\xC4\xB1na) ve \xC3\xBCst y\xC3\xBCz\xC3\xBCn doku a\xC3\xA7\xC4\xB1s\xC4\xB1. Yan y\xC3\xBCzde doku \xC3\xA7" "evre boyunca kesintisiz.");
@@ -2346,11 +2379,12 @@ int32_t poly_overlay(EditorState &st, const Mat4 &vp_mat, const ViewportRect &vr
     const float dx = a.x - msx, dy = a.y - msy;
     if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hover = (int32_t)k; }
   }
-  for (uint32_t k = 0; k < e.poly_hole_n && k < content::kPolyMaxHolePoints; k++) {   // delik çevresi (kesikli değil: ince)
-    const uint32_t q = (k + 1) % e.poly_hole_n;
-    ImVec2 a, b;
-    if (proj(e.poly_hole[2 * k], 0.0f, e.poly_hole[2 * k + 1], &a) && proj(e.poly_hole[2 * q], 0.0f, e.poly_hole[2 * q + 1], &b)) dl->AddLine(a, b, col_dim, 1.5f);
-  }
+  for (uint32_t r = 0, hb = 0; r < 4 && e.poly_hole_cnt[r] && hb + e.poly_hole_cnt[r] <= content::kPolyMaxHolePoints; hb += e.poly_hole_cnt[r], r++)   // delik çevreleri
+    for (uint32_t k = 0; k < e.poly_hole_cnt[r]; k++) {
+      const uint32_t p0 = hb + k, q = hb + (k + 1) % e.poly_hole_cnt[r];
+      ImVec2 a, b;
+      if (proj(e.poly_hole[2 * p0], 0.0f, e.poly_hole[2 * p0 + 1], &a) && proj(e.poly_hole[2 * q], 0.0f, e.poly_hole[2 * q + 1], &b)) dl->AddLine(a, b, col_dim, 1.5f);
+    }
   for (uint32_t k = 0; k < n; k++) {
     ImVec2 a;
     if (!proj(e.poly_pts[2 * k], 0.0f, e.poly_pts[2 * k + 1], &a)) continue;

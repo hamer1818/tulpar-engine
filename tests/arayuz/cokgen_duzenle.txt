@@ -1,6 +1,6 @@
 # P2 duzenleme (2026-11-22; tools/arayuz_kapi.sh, --size 1280x720): cokgen cizilir (5 nokta), bir nokta tutulup birakilinca SECILIR
 # (kart: yukseklik / sil / kenari bol), "Kenari bol" 6. noktayi ekler, "Delik ac" ortaya delik acar (kartta "Deligi kapat"), Ctrl+S.
-# Kapi kaydedilen .sahne'de `cokgen ... 6` ve `cokgen_delik 4` arar. KONTROL: tutmadan once kart secim ipucunu gosterir; Ctrl+Z
+# Kapi kaydedilen .sahne'de `cokgen ... 6` ve IKI `cokgen_delik 4` satiri arar (coklu delik). KONTROL: tutmadan once kart secim ipucunu gosterir; Ctrl+Z
 # deligi geri alir ("Delik ac" geri gelir) — delik gercekten gunluge TEK islem olarak yazilmis.
 tikla "Ekle" pencere=MainMenuBar
 uzerine "Şekiller" pencere=Menu
@@ -31,6 +31,9 @@ dogrula_metin "Delik aç"
 metin_yok "Deliği kapat"
 tikla "Delik aç"
 dogrula_metin "Deliği kapat"
+# coklu delik: ikinci "Delik ac" bos yere ikinci delik acar, kartta delik secici ("Delik X" yine)
+tikla "Delik aç"
+dogrula_metin "Delik X"
 ekran cokgen_duzenle
 tus Ctrl+S
 bekle 5

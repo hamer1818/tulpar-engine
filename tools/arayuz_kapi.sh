@@ -224,8 +224,8 @@ else echo "  KIRMIZI cokgen araci (cikis $rck):"; grep -E 'HATA|> ' "$CK/ui/yani
 CD="$D/cokgen_duzenle"; mkdir -p "$CD/ui"
 cp -r "$KOK/tests/assets" "$CD/assets"
 kos cokgen_duzenle.txt "$CD/ui" --scene "$CD/assets/editor.sahne" --kip basit --size 1280x720; rcd=$?
-if [ $rcd = 0 ] && grep -qE '^  cokgen [0-9.]+ 6 ' "$CD/assets/editor.sahne" && grep -q '^  cokgen_delik 4 ' "$CD/assets/editor.sahne"; then
-  echo "  cokgen duzenleme: nokta secildi, kenar bolundu (6 nokta), delik acildi ve kaydedildi (kontrol: Ctrl+Z deligi geri aldi)"
+if [ $rcd = 0 ] && grep -qE '^  cokgen [0-9.]+ 6 ' "$CD/assets/editor.sahne" && [ "$(grep -c '^  cokgen_delik 4 ' "$CD/assets/editor.sahne")" = 2 ]; then
+  echo "  cokgen duzenleme: nokta secildi, kenar bolundu (6 nokta), iki delik acildi ve kaydedildi (kontrol: Ctrl+Z deligi geri aldi)"
 else echo "  KIRMIZI cokgen duzenleme (cikis $rcd):"; grep -E 'HATA|> ' "$CD/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E '^  cokgen' "$CD/assets/editor.sahne" 2>/dev/null | sed 's/^/      dosya:/'; kirmizi=1; fi
 # --- M1: model ice aktarma ayarlari (sag tik -> pencere -> cm -> Kaydet; dosya icerigi burada denetlenir) ---
 MA="$D/model_ayar"; mkdir -p "$MA/ui"

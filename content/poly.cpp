@@ -82,21 +82,42 @@ bool halka_kur(const PolyShape &s, Halka &H) {
     for (uint32_t i = 0; i < n; i++) { H.xz[2 * i] = dis[2 * i]; H.xz[2 * i + 1] = dis[2 * i + 1]; H.y[i] = disy[i]; H.kaynak[i] = dis_k[i]; H.kopru[i] = false; }
     return true;
   }
-  // delik: ters sarım; tamamen içeride; kenarları dış kenarla kesişmez
-  const float a_del = alan2_isaretli(s.hole, m);
-  if (!(std::fabs(a_del) > 2e-9f) || std::fabs(a_del) >= std::fabs(a_dis)) return false;
+  // delikler: halka sayıları (yoksa tek halka), her biri ters sarım; tamamen içeride; dış kenarı ve birbirini kesmez; iç içe değil
+  uint32_t hr = s.hole_counts && s.hole_rings ? s.hole_rings : 1, hc[kPolyMaxHoles];
+  if (hr > kPolyMaxHoles) return false;
+  if (s.hole_counts && s.hole_rings) { uint32_t top = 0; for (uint32_t r = 0; r < hr; r++) { hc[r] = s.hole_counts[r]; if (hc[r] < 3) return false; top += hc[r]; } if (top != m) return false; }
+  else hc[0] = m;
   float del[2 * kPolyMaxHolePoints];
-  uint32_t del_k[kPolyMaxHolePoints];
-  for (uint32_t i = 0; i < m; i++) {
-    const uint32_t q = a_del < 0 ? i : m - 1 - i;
-    del[2 * i] = s.hole[2 * q]; del[2 * i + 1] = s.hole[2 * q + 1];
-    del_k[i] = q;
-    if (!icinde(dis, n, del[2 * i], del[2 * i + 1])) return false;
+  uint32_t del_k[kPolyMaxHolePoints], bas[kPolyMaxHoles];
+  float del_alan = 0;
+  for (uint32_t r = 0, o = 0; r < hr; r++) {
+    bas[r] = o;
+    const float a_del = alan2_isaretli(s.hole + 2 * o, hc[r]);
+    if (!(std::fabs(a_del) > 2e-9f)) return false;
+    del_alan += std::fabs(a_del);
+    for (uint32_t i = 0; i < hc[r]; i++) {
+      const uint32_t q = o + (a_del < 0 ? i : hc[r] - 1 - i);
+      del[2 * (o + i)] = s.hole[2 * q]; del[2 * (o + i) + 1] = s.hole[2 * q + 1];
+      del_k[o + i] = q;
+      if (!icinde(dis, n, del[2 * (o + i)], del[2 * (o + i) + 1])) return false;
+    }
+    o += hc[r];
   }
-  for (uint32_t i = 0; i < m; i++)
-    for (uint32_t k = 0; k < n; k++) {
-      const uint32_t i2 = (i + 1) % m, k2 = (k + 1) % n;
-      if (kesisir(del[2 * i], del[2 * i + 1], del[2 * i2], del[2 * i2 + 1], dis[2 * k], dis[2 * k + 1], dis[2 * k2], dis[2 * k2 + 1])) return false;
+  if (del_alan >= std::fabs(a_dis)) return false;
+  auto kenar = [&](uint32_t r, uint32_t i, float *ax, float *az, float *bx, float *bz) {
+    const uint32_t a = bas[r] + i, b = bas[r] + (i + 1) % hc[r];
+    *ax = del[2 * a]; *az = del[2 * a + 1]; *bx = del[2 * b]; *bz = del[2 * b + 1];
+  };
+  for (uint32_t r = 0; r < hr; r++)
+    for (uint32_t i = 0; i < hc[r]; i++) {
+      float ax, az, bx, bz;
+      kenar(r, i, &ax, &az, &bx, &bz);
+      for (uint32_t k = 0; k < n; k++) { const uint32_t k2 = (k + 1) % n; if (kesisir(ax, az, bx, bz, dis[2 * k], dis[2 * k + 1], dis[2 * k2], dis[2 * k2 + 1])) return false; }
+      for (uint32_t r2 = r + 1; r2 < hr; r2++) {
+        if (icinde(del + 2 * bas[r2], hc[r2], ax, az)) return false;   // iç içe / üst üste
+        for (uint32_t i2 = 0; i2 < hc[r2]; i2++) { float cx, cz, dx2, dz2; kenar(r2, i2, &cx, &cz, &dx2, &dz2); if (kesisir(ax, az, bx, bz, cx, cz, dx2, dz2)) return false; }
+      }
+      for (uint32_t r2 = 0; r2 < r; r2++) if (icinde(del + 2 * bas[r2], hc[r2], ax, az)) return false;
     }
   // delik noktası üst yüksekliği: dış dy'lerin ters-uzaklık-karesi ağırlıklı ortalaması
   float dely[kPolyMaxHolePoints];
@@ -109,28 +130,47 @@ bool halka_kur(const PolyShape &s, Halka &H) {
     }
     dely[i] = sy / sw;
   }
-  // köprü: en kısa GÖRÜNÜR (dış ya da delik kenarını kesmeyen) dış–delik köşe çifti
-  int32_t bi = -1, bj = -1;
-  float en = 3.4e38f;
-  for (uint32_t j = 0; j < m; j++)
-    for (uint32_t i = 0; i < n; i++) {
-      const float ax = dis[2 * i], az = dis[2 * i + 1], bx = del[2 * j], bz = del[2 * j + 1];
-      const float d = (ax - bx) * (ax - bx) + (az - bz) * (az - bz);
-      if (d >= en) continue;
-      bool gorur = true;
-      for (uint32_t k = 0; k < n && gorur; k++) { const uint32_t k2 = (k + 1) % n; gorur = !kesisir(ax, az, bx, bz, dis[2 * k], dis[2 * k + 1], dis[2 * k2], dis[2 * k2 + 1]); }
-      for (uint32_t k = 0; k < m && gorur; k++) { const uint32_t k2 = (k + 1) % m; gorur = !kesisir(ax, az, bx, bz, del[2 * k], del[2 * k + 1], del[2 * k2], del[2 * k2 + 1]); }
-      // köprü dış köşenin İÇ açısından girmeli (yansıyan köşede dışarıdan geçebilir): orta noktası çokgen alanında
-      if (gorur) { const float mx = (ax + bx) * 0.5f, mz = (az + bz) * 0.5f; gorur = icinde(dis, n, mx, mz) && !icinde(del, m, mx, mz); }
-      if (gorur) { en = d; bi = (int32_t)i; bj = (int32_t)j; }
+  // halka = dış; delikler sırayla eklenir (her biri o anki halkanın en kısa GÖRÜNÜR köşesine köprü)
+  H.n = n;
+  for (uint32_t i = 0; i < n; i++) { H.xz[2 * i] = dis[2 * i]; H.xz[2 * i + 1] = dis[2 * i + 1]; H.y[i] = disy[i]; H.kaynak[i] = dis_k[i]; H.kopru[i] = false; }
+  bool eklendi[kPolyMaxHoles] = {};
+  for (uint32_t tur = 0; tur < hr; tur++) {
+    int32_t bi = -1, bj = -1, br = -1;
+    float en = 3.4e38f;
+    for (uint32_t r = 0; r < hr; r++) {
+      if (eklendi[r]) continue;
+      for (uint32_t j = 0; j < hc[r]; j++)
+        for (uint32_t i = 0; i < H.n; i++) {
+          const float ax = H.xz[2 * i], az = H.xz[2 * i + 1], bx = del[2 * (bas[r] + j)], bz = del[2 * (bas[r] + j) + 1];
+          const float d = (ax - bx) * (ax - bx) + (az - bz) * (az - bz);
+          if (d >= en) continue;
+          bool gorur = true;
+          for (uint32_t k = 0; k < H.n && gorur; k++) { const uint32_t k2 = (k + 1) % H.n; gorur = !kesisir(ax, az, bx, bz, H.xz[2 * k], H.xz[2 * k + 1], H.xz[2 * k2], H.xz[2 * k2 + 1]); }
+          for (uint32_t r2 = 0; r2 < hr && gorur; r2++) {
+            if (eklendi[r2]) continue;
+            for (uint32_t k = 0; k < hc[r2] && gorur; k++) { float cx, cz, dx2, dz2; kenar(r2, k, &cx, &cz, &dx2, &dz2); gorur = !kesisir(ax, az, bx, bz, cx, cz, dx2, dz2); }
+          }
+          // köprü çokgen alanından geçmeli: orta noktası dışın içinde, hiçbir deliğin içinde değil
+          if (gorur) {
+            const float mx = (ax + bx) * 0.5f, mz = (az + bz) * 0.5f;
+            gorur = icinde(dis, n, mx, mz);
+            for (uint32_t r2 = 0; r2 < hr && gorur; r2++) gorur = !icinde(del + 2 * bas[r2], hc[r2], mx, mz);
+          }
+          if (gorur) { en = d; bi = (int32_t)i; bj = (int32_t)j; br = (int32_t)r; }
+        }
     }
-  if (bi < 0) return false;
-  uint32_t k = 0;
-  auto koy = [&](float x, float z, float y, uint32_t kay, bool kopru) { H.xz[2 * k] = x; H.xz[2 * k + 1] = z; H.y[k] = y; H.kaynak[k] = kay; H.kopru[k] = kopru; k++; };
-  for (uint32_t i = 0; i <= (uint32_t)bi; i++) koy(dis[2 * i], dis[2 * i + 1], disy[i], dis_k[i], i == (uint32_t)bi);
-  for (uint32_t t = 0; t <= m; t++) { const uint32_t j = ((uint32_t)bj + t) % m; koy(del[2 * j], del[2 * j + 1], dely[j], 1000 + del_k[j], t == m); }
-  for (uint32_t i = (uint32_t)bi; i < n; i++) koy(dis[2 * i], dis[2 * i + 1], disy[i], dis_k[i], false);
-  H.n = k;
+    if (bi < 0) return false;
+    // ekle: H[0..bi] (bi köprü), delik bj..bj (son köprü), H[bi] kopyası (eski bayrak), H[bi+1..]
+    Halka Y;
+    uint32_t k = 0;
+    auto koy = [&](float x, float z, float y, uint32_t kay, bool kopru) { Y.xz[2 * k] = x; Y.xz[2 * k + 1] = z; Y.y[k] = y; Y.kaynak[k] = kay; Y.kopru[k] = kopru; k++; };
+    for (uint32_t i = 0; i <= (uint32_t)bi; i++) koy(H.xz[2 * i], H.xz[2 * i + 1], H.y[i], H.kaynak[i], i == (uint32_t)bi ? true : H.kopru[i]);
+    for (uint32_t t = 0; t <= hc[br]; t++) { const uint32_t q = bas[br] + ((uint32_t)bj + t) % hc[br]; koy(del[2 * q], del[2 * q + 1], dely[q], 1000 + del_k[q], t == hc[br]); }
+    for (uint32_t i = (uint32_t)bi; i < H.n; i++) koy(H.xz[2 * i], H.xz[2 * i + 1], H.y[i], H.kaynak[i], H.kopru[i]);
+    Y.n = k;
+    H = Y;
+    eklendi[br] = true;
+  }
   return true;
 }
 
@@ -223,7 +263,10 @@ float poly_area(const float *xz, uint32_t n) {
 float poly_shape_area(const PolyShape &s) {
   Halka H;
   if (!halka_kur(s, H)) return 0;
-  return std::fabs(alan2_isaretli(s.xz, s.n)) * 0.5f - (s.hole_n ? std::fabs(alan2_isaretli(s.hole, s.hole_n)) * 0.5f : 0.0f);
+  float a = std::fabs(alan2_isaretli(s.xz, s.n)) * 0.5f;
+  const uint32_t hr = s.hole_counts && s.hole_rings ? s.hole_rings : (s.hole_n ? 1u : 0u);
+  for (uint32_t r = 0, o = 0; r < hr; r++) { const uint32_t c = s.hole_counts && s.hole_rings ? s.hole_counts[r] : s.hole_n; a -= std::fabs(alan2_isaretli(s.hole + 2 * o, c)) * 0.5f; o += c; }
+  return a;
 }
 
 uint32_t poly_soup(const PolyShape &s, renderer::Vertex *out) {

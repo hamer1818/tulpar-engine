@@ -324,11 +324,13 @@ ENGINE_TEST(poly_sahne_delik_ve_rampa_fizikte) {
   e.poly_n = 4; e.poly_h = 1.0f;
   for (int i = 0; i < 8; i++) { e.poly_pts[i] = kare4[i]; e.poly_hole[i] = delik[i]; }
   e.poly_hole_n = 4;
+  e.poly_hole_cnt[0] = 4;
   e.poly_uv_scale = 0.5f; e.poly_uv_rot = 30.0f;
   CHECK(d.insert_entity(0, e));
   std::snprintf(e.name, sizeof e.name, "rampa");
   e.pos = {40, 0, 0};
   e.poly_hole_n = 0;
+  e.poly_hole_cnt[0] = 0;
   for (int i = 0; i < 32; i++) e.poly_hole[i] = 0;
   e.poly_uv_scale = 1.0f; e.poly_uv_rot = 0.0f;
   e.poly_dy[2] = 1.0f; e.poly_dy[3] = 1.0f;   // (4,4) ve (0,4): arka kenar
@@ -373,7 +375,7 @@ ENGINE_TEST(poly_sahne_delik_ve_rampa_fizikte) {
     std::memcpy(kopya, blob, need);
     SceneBlobView kv;
     CHECK(scene_blob_open(kopya, need, &kv, &err));
-    const_cast<SceneBlobPoly *>(kv.polys)[0].reserved[1] = 7;
+    const_cast<SceneBlobPoly *>(kv.polys)[0].reserved = 7;
     SceneError ke{};
     // özet (hash) da değişir; açıcı hangisini önce yakalarsa yakalasın kayıt REDDEDİLİR
     CHECK(!scene_blob_open(kopya, need, &kv, &ke));
@@ -398,6 +400,83 @@ ENGINE_TEST(poly_sahne_delik_ve_rampa_fizikte) {
               (double)dolu_y, (double)arka_y, (double)on_y, rt.stats().poly_parts);
   CHECK(!delikten && dolu && std::fabs(dolu_y - 1.0f) < 1e-3f);
   CHECK(arka && on && std::fabs(arka_y - 1.975f) < 2e-3f && std::fabs(on_y - 1.025f) < 2e-3f);   // 4x4 rampa: z 0 -> 4'te y 1 -> 2
+  rt.despawn(ph);
+  ph.shutdown();
+  arena().reset_to(mark);
+}
+
+// ÇOKLU DELİK (2026-11-22). 6x4 levha (0..6, 0..4), h = 1, iki 1x1 delik: (1..2, 1..2) ve (4..5, 2..3). Beklenen hesapla: alan 24 - 2 = 22;
+// halka 4 + (4+2) + (4+2) = 16 -> üst 14, taban 14, yan 2·(4+4+4) = 24 üçgen = 156 köşe; üst üçgen alanı 22; iki deliğin de duvarları 8'er.
+// Sahne: iki `cokgen_delik` satırı gidiş-dönüş, blob v14 → Jolt: iki deliğin ortasından ışın GEÇER, aralarındaki dolu yere y = 1'de çarpar.
+// KONTROL: iç içe delik, üst üste binen iki delik ve 5. delik REDDEDİLİR; toplam nokta 16'yı aşamaz.
+ENGINE_TEST(poly_coklu_delik_geometri_sahne_fizik) {
+  static const float levha[8] = {0, 0, 6, 0, 6, 4, 0, 4};
+  static const float delikler[16] = {1, 1, 2, 1, 2, 2, 1, 2, 4, 2, 5, 2, 5, 3, 4, 3};
+  static const uint8_t say[2] = {4, 4};
+  static renderer::Vertex v[kPolyMaxVerts];
+  PolyShape s;
+  s.xz = levha; s.n = 4; s.h = 1.0f; s.hole = delikler; s.hole_n = 8; s.hole_counts = say; s.hole_rings = 2;
+  const uint32_t nv = poly_soup(s, v);
+  float ust = 0;
+  uint32_t duvar1 = 0, duvar2 = 0;
+  for (uint32_t i = 0; i + 2 < nv; i += 3) {
+    const Vec3 m = (v[i].pos + v[i + 1].pos + v[i + 2].pos) * (1.0f / 3.0f);
+    if (v[i].nrm.y > 0.5f) ust += length(cross(v[i + 1].pos - v[i].pos, v[i + 2].pos - v[i].pos)) * 0.5f;
+    else if (std::fabs(v[i].nrm.y) < 0.5f) {
+      if (m.x > 0.99f && m.x < 2.01f && m.z > 0.99f && m.z < 2.01f) duvar1++;
+      if (m.x > 3.99f && m.x < 5.01f && m.z > 1.99f && m.z < 3.01f) duvar2++;
+    }
+  }
+  std::printf("    [bilgi] iki delikli levha: %u kose, ust alan %.4f (beklenen 22), alan %.4f, delik duvarlari %u / %u\n", nv, (double)ust, (double)poly_shape_area(s), duvar1, duvar2);
+  CHECK(nv == 156 && std::fabs(ust - 22.0f) < 1e-4f && std::fabs(poly_shape_area(s) - 22.0f) < 1e-5f && duvar1 == 8 && duvar2 == 8);
+  // KONTROLLER
+  static const float ic_ice[16] = {1, 1, 3, 1, 3, 3, 1, 3, 1.5f, 1.5f, 2.5f, 1.5f, 2.5f, 2.5f, 1.5f, 2.5f};
+  static const float ust_uste[16] = {1, 1, 3, 1, 3, 3, 1, 3, 2, 2, 4, 2, 4, 3.5f, 2, 3.5f};
+  PolyShape k1 = s, k2 = s;
+  k1.hole = ic_ice; k2.hole = ust_uste;
+  static const uint8_t bes[5] = {3, 3, 3, 3, 3};
+  PolyShape k3 = s;
+  k3.hole_counts = bes; k3.hole_rings = 5; k3.hole_n = 15;
+  CHECK(poly_soup(k1, v) == 0 && poly_soup(k2, v) == 0 && poly_soup(k3, v) == 0);
+  // Sahne gidiş-dönüş + fizik
+  const size_t mark = arena().mark();
+  static SceneDesc d, back;
+  scene_desc_reset(d);
+  static SceneEntity e;
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "iki_delik");
+  e.pos = {50, 0, 0};
+  e.components = kScenePoly | kSceneModel;
+  e.asset = -1; e.primitive = -1;
+  e.poly_n = 4; e.poly_h = 1.0f;
+  for (int i = 0; i < 8; i++) e.poly_pts[i] = levha[i];
+  for (int i = 0; i < 16; i++) e.poly_hole[i] = delikler[i];
+  e.poly_hole_n = 8; e.poly_hole_cnt[0] = 4; e.poly_hole_cnt[1] = 4;
+  CHECK(d.insert_entity(0, e));
+  static char text[16384];
+  const size_t tn = scene_write(d, text, sizeof text);
+  SceneError err{};
+  CHECK(tn > 0 && std::strstr(text, "cokgen_delik 4 1 1 2 1 2 2 1 2\n  cokgen_delik 4 4 2 5 2 5 3 4 3"));
+  CHECK(scene_parse(text, tn, &back, &err) && back.entity_count == 1 && scene_entity_equal(back.entities[0], d.entities[0]));
+  const size_t need = scene_blob_compile(back, nullptr, 0);
+  void *blob = arena().alloc(need, kSceneBlobAlign);
+  SceneBlobView bv;
+  CHECK(blob && scene_blob_compile(back, blob, need) == need && scene_blob_open(blob, need, &bv, &err) && bv.h->poly_count == 1);
+  if (!blob || !bv.h || bv.h->poly_count != 1) { arena().reset_to(mark); return; }
+  CHECK(bv.polys[0].hole_cnt[0] == 4 && bv.polys[0].hole_cnt[1] == 4 && bv.polys[0].hole_n == 8);
+  renderer::Renderer ren;
+  static SceneRuntime rt;
+  CHECK(rt.init(arena(), ren, bv, "."));
+  sim::Physics ph;
+  sim::PhysicsConfig pc;
+  pc.threads = 1;
+  if (!ph.init(arena(), pc)) { arena().reset_to(mark); skip("Jolt kurulamadi"); return; }
+  CHECK(rt.spawn(ph) == 1 && rt.stats().poly_bodies_failed == 0);
+  sim::RayHit h;
+  const bool d1 = ph.raycast({51.5f, 5, 1.5f}, {0, -1, 0}, 10, &h), d2 = ph.raycast({54.5f, 5, 2.5f}, {0, -1, 0}, 10, &h);
+  const bool dolu = ph.raycast({53.0f, 5, 2.0f}, {0, -1, 0}, 10, &h);
+  std::printf("    [bilgi] iki delik fizik: delik1 %s, delik2 %s, aradaki dolu y %.3f, %u parca\n", d1 ? "CARPTI" : "gecti", d2 ? "CARPTI" : "gecti", (double)h.point.y, rt.stats().poly_parts);
+  CHECK(!d1 && !d2 && dolu && std::fabs(h.point.y - 1.0f) < 1e-3f);
   rt.despawn(ph);
   ph.shutdown();
   arena().reset_to(mark);

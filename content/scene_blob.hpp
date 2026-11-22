@@ -334,7 +334,8 @@ struct SceneBlobPoly {
   float dy[32];
   float hole[32];
   float uv_scale, uv_rot;
-  uint32_t reserved[2];
+  uint8_t hole_cnt[4];  // delik basina nokta (0 = yok; toplam = hole_n)
+  uint32_t reserved;
 }; // 544 bayt
 
 struct SceneBlobVoxel {
@@ -412,6 +413,9 @@ static_assert(sizeof(SceneBlobCamera) == 16 && sizeof(SceneBlobAudio) == 32, "v1
 inline PolyShape scene_blob_poly_shape(const SceneBlobPoly &po) {
   PolyShape s;
   s.xz = po.pts; s.n = po.n; s.h = po.height; s.dy = po.dy; s.hole = po.hole; s.hole_n = po.hole_n; s.uv_scale = po.uv_scale; s.uv_rot_deg = po.uv_rot;
+  uint32_t r = 0;
+  while (r < 4 && po.hole_cnt[r]) r++;
+  s.hole_counts = po.hole_cnt; s.hole_rings = r;
   return s;
 }
 static_assert(sizeof(SceneBlobPoly) == 544 && sizeof(SceneBlobPoly) % kSceneBlobAlign == 0, "v14 cokgen kaydi 544 bayt (dosya formati)");
