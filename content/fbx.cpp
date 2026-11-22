@@ -17,7 +17,9 @@
 //    yoksa klip yalnız morph izli (glTF A5 ile aynı yol). Morph'lu mesh'te meshopt/LOD atlanır (köşe sırası farklarla gider).
 //  - UV kanalı: renk dokusunun istediği UV kümesi (ad), yoksa varsayılan; o kanal dejenereyse (bütün köşeler aynı) dejenere
 //    olmayan başka küme — glTF'teki kuralın aynısı (Fab "Mike", 8eg), sayılır, not'a yazılır.
-// SINIR: kamera/ışık, ara (in-between) morph şekilleri yok.
+//  - ARA morph şekli (2026-11-22): kanalın her anahtar şekli (FullWeights) ayrı hedef; klip izi kanal ağırlığını fbx_inbetween_weights
+//    ile komşu anahtarlara dağıtır. Köprünün eng_morph_weight'i bu hedefleri TEK TEK sürer (kanal değil).
+// SINIR: kamera/ışık.
 #include "content/fbx.hpp"
 
 #include <algorithm>
@@ -135,11 +137,28 @@ const ufbx_vertex_vec2 *uv_kanali(const ufbx_mesh *me, const ufbx_texture *doku,
 }
 // Morph'lu ufbx mesh'i: klip izleri icin ModelMesh araligi ve kanallar.
 struct MorphDugum {
-  const ufbx_blend_channel *kanal[kModelMaxMorph];
+  const ufbx_blend_shape *sekil[kModelMaxMorph];   // motor hedefi -> sekil
+  uint32_t hedef_n = 0;
+  struct Kanal { const ufbx_blend_channel *c; uint32_t ilk, n; float t[kModelMaxMorph]; } kanal[kModelMaxMorph];
   uint32_t kanal_n = 0, mesh_first = 0, mesh_n = 0;
 };
 constexpr uint32_t kMorphDugumMax = 16;
 } // namespace
+
+void fbx_inbetween_weights(const float *t, uint32_t n, float w, float *out) {
+  for (uint32_t i = 0; i < n; i++) out[i] = 0.0f;
+  if (!n) return;
+  if (n == 1 || w <= t[0]) {   // taban (0, sifir fark) ile ilk anahtar arasi (ve tek anahtarda her yer)
+    out[0] = t[0] > 1e-6f ? w / t[0] : w;
+    return;
+  }
+  uint32_t j = 0;
+  while (j + 2 < n && w > t[j + 1]) j++;   // [t_j, t_j+1]; son parcanin ustu uzatilir
+  const float d = t[j + 1] - t[j];
+  const float f = d > 1e-6f ? (w - t[j]) / d : 1.0f;
+  out[j] = 1.0f - f;
+  out[j + 1] = f;
+}
 
 bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
   *out = Model{};
@@ -319,15 +338,22 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
     MorphDugum md;
     if (bd)
       for (size_t c = 0; c < bd->channels.count; c++) {
-        if (!bd->channels.data[c]->target_shape) continue;
-        if (md.kanal_n >= kModelMaxMorph) { out->morph_dropped++; continue; }
-        md.kanal[md.kanal_n++] = bd->channels.data[c];
+        const ufbx_blend_channel *ch = bd->channels.data[c];
+        const uint32_t kf = ch->keyframes.count ? (uint32_t)ch->keyframes.count : (ch->target_shape ? 1u : 0u);
+        if (!kf) continue;
+        if (md.hedef_n + kf > kModelMaxMorph) { out->morph_dropped += kf; continue; }
+        MorphDugum::Kanal &k = md.kanal[md.kanal_n++];
+        k.c = ch; k.ilk = md.hedef_n; k.n = kf;
+        for (uint32_t i = 0; i < kf; i++) {
+          md.sekil[md.hedef_n++] = ch->keyframes.count ? ch->keyframes.data[i].shape : ch->target_shape;
+          k.t[i] = ch->keyframes.count ? (float)ch->keyframes.data[i].target_weight : 1.0f;
+        }
       }
     if (me->blend_deformers.count > 1) out->morph_dropped += (uint32_t)me->blend_deformers.count - 1;
     md.mesh_first = mi;
     int32_t *cp_ofs = nullptr;   // kontrol noktasi -> sekil ofset indeksi (gecici)
     struct CpSerbest { int32_t **p; ~CpSerbest() { std::free(*p); } } cp_serbest{&cp_ofs};
-    if (md.kanal_n) {
+    if (md.hedef_n) {
       cp_ofs = static_cast<int32_t *>(std::malloc(sizeof(int32_t) * (me->num_vertices ? me->num_vertices : 1)));
       if (!cp_ofs) { hata(out, "bellek"); return false; }
       for (size_t v = 0; v < me->num_vertices; v++) cp_ofs[v] = -1;
@@ -351,8 +377,8 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       kay.cap = 1;
       while (kay.cap < kose_ust * 2) kay.cap <<= 1;
       kay.tablo = arena.alloc_array_zeroed<uint32_t>(kay.cap);
-      uint32_t *cps = md.kanal_n ? arena.alloc_array<uint32_t>(kose_ust) : nullptr;   // kaynasmis kose -> kontrol noktasi
-      if (!sv || !mm.indices || !kay.tablo || (md.kanal_n && !cps)) { hata(out, "arena dolu (vertex)"); return false; }
+      uint32_t *cps = md.hedef_n ? arena.alloc_array<uint32_t>(kose_ust) : nullptr;   // kaynasmis kose -> kontrol noktasi
+      if (!sv || !mm.indices || !kay.tablo || (md.hedef_n && !cps)) { hata(out, "arena dolu (vertex)"); return false; }
       const ufbx_material *pmat = mm.material < (int32_t)sc->materials.count ? sc->materials.data[mm.material] : nullptr;
       const ufbx_texture *pdoku = pmat ? (pmat->pbr.base_color.texture ? pmat->pbr.base_color.texture : pmat->fbx.diffuse_color.texture) : nullptr;
       const ufbx_vertex_vec2 &uvk = *uv_kanali(me, pdoku, &uv_degisti);
@@ -418,13 +444,13 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       for (uint32_t v = 0; v < vn; v++) mm.verts[v] = renderer::Vertex{sv[v].pos, sv[v].nrm, sv[v].uv};
       if (iskeletli) mm.skin_verts = sv;
       // Morph farklari (kontrol noktasi basina -> kaynasmis kose basina); iskeletli mesh'te bag uzayina (g2w'nin dogrusal kismi)
-      if (md.kanal_n && vn > kModelMaxMorphVerts) out->morph_meshes_dropped++;
-      else if (md.kanal_n) {
-        const uint32_t nt = md.kanal_n;
+      if (md.hedef_n && vn > kModelMaxMorphVerts) out->morph_meshes_dropped++;
+      else if (md.hedef_n) {
+        const uint32_t nt = md.hedef_n;
         mm.morph_deltas = arena.alloc_array_zeroed<Vec3>((size_t)nt * vn);
         if (!mm.morph_deltas) { hata(out, "arena dolu (morph)"); return false; }
         for (uint32_t t = 0; t < nt; t++) {
-          const ufbx_blend_shape *bs = md.kanal[t]->target_shape;
+          const ufbx_blend_shape *bs = md.sekil[t];
           for (size_t k = 0; k < bs->num_offsets; k++) if (bs->offset_vertices.data[k] < me->num_vertices) cp_ofs[bs->offset_vertices.data[k]] = (int32_t)k;
           const bool nrm = bs->normal_offsets.count == bs->num_offsets && bs->num_offsets;
           if (nrm && !mm.morph_normal_deltas) {
@@ -500,13 +526,17 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
           ModelMorphTrack &tr = mc.morph_tracks[d];
           tr.mesh_first = morph_d[d].mesh_first;
           tr.mesh_n = morph_d[d].mesh_n;
-          tr.weight_count = morph_d[d].kanal_n;
+          tr.weight_count = morph_d[d].hedef_n;
           tr.samples = samples;
           tr.w = arena.alloc_array<float>((size_t)samples * tr.weight_count);
           if (!tr.w) { hata(out, "arena dolu (morph izi)"); return false; }
           for (uint32_t k = 0; k < samples; k++) {
             const double t = st->time_begin + std::min<double>((double)k / rate, dur);
-            for (uint32_t c = 0; c < tr.weight_count; c++) tr.w[(size_t)k * tr.weight_count + c] = (float)ufbx_evaluate_blend_weight(st->anim, morph_d[d].kanal[c], t);
+            float *w = tr.w + (size_t)k * tr.weight_count;
+            for (uint32_t c = 0; c < morph_d[d].kanal_n; c++) {
+              const MorphDugum::Kanal &kk = morph_d[d].kanal[c];
+              fbx_inbetween_weights(kk.t, kk.n, (float)ufbx_evaluate_blend_weight(st->anim, kk.c, t), w + kk.ilk);
+            }
           }
         }
         mc.morph_track_count = wch;

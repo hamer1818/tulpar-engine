@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "content/fbx.hpp"
 #include "content/gltf.hpp"
 #include "content/retarget.hpp"
 #include "content/scene_animators.hpp"
@@ -401,5 +402,36 @@ ENGINE_TEST(usd_usda_blender_gltf_ile_ayni_ve_el_yazimi) {
   b = Model{};
   CHECK(!gltf_load(arena(), kesik, &b) && b.error[0]);
   std::printf("    [bilgi] usdc: %s; kesik usda: %s\n", c.error, b.error);
+  arena().reset_to(mark);
+}
+
+// FBX ARA morph sekli (2026-11-22). tests/assets/morph_ara.fbx (elle yazilmis ASCII FBX): tek kanal "Kalk", %50'de "Yarim" (kose
+// (0,0,1) +1 Y), %100'de "Tam" (+1 X, +1 Y) -> 2 motor hedefi. Beklenen hesapla: w = 0,75 -> hedef agirliklari (0,5, 0,5) ->
+// fark (0,5, 1, 0); w = 0,25 -> (0,5, 0) -> (0, 0,5, 0); w = 1 -> (0, 1) -> (1, 1, 0). KONTROL: ara sekilsiz dogrusal okuma (Tam x 0,75)
+// (0,75, 0,75, 0) olurdu — fark >= 0,25.
+ENGINE_TEST(fbx_ara_morph_sekli_parca_dogrusal) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "morph_ara.fbx")) { skip("tests/assets/morph_ara.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  const bool ok = gltf_load(arena(), yol, &m);
+  CHECK(ok && m.mesh_count == 1 && m.meshes[0].morph_count == 2);
+  if (!ok || !m.mesh_count || m.meshes[0].morph_count != 2) { std::printf("    [bilgi] %s\n", m.error); arena().reset_to(mark); return; }
+  const ModelMesh &mm = m.meshes[0];
+  int32_t kose = -1;
+  for (uint32_t v = 0; v < mm.vertex_count; v++) if (std::fabs(mm.verts[v].pos.z - 1.0f) < 1e-4f) kose = (int32_t)v;
+  CHECK(kose >= 0);
+  if (kose < 0) { arena().reset_to(mark); return; }
+  const Vec3 d0 = mm.morph_deltas[kose], d1 = mm.morph_deltas[mm.vertex_count + kose];
+  const float t[2] = {0.5f, 1.0f};
+  auto karisim = [&](float w) { float o[2]; fbx_inbetween_weights(t, 2, w, o); return d0 * o[0] + d1 * o[1]; };
+  const Vec3 a = karisim(0.75f), b = karisim(0.25f), c = karisim(1.0f);
+  const Vec3 saf = d1 * 0.75f;
+  std::printf("    [bilgi] ara sekil: Yarim (%.2f %.2f %.2f), Tam (%.2f %.2f %.2f); w 0.75 -> (%.3f %.3f %.3f) [saf dogrusal (%.3f %.3f %.3f)], w 0.25 -> (%.3f %.3f %.3f)\n",
+              (double)d0.x, (double)d0.y, (double)d0.z, (double)d1.x, (double)d1.y, (double)d1.z, (double)a.x, (double)a.y, (double)a.z, (double)saf.x, (double)saf.y, (double)saf.z,
+              (double)b.x, (double)b.y, (double)b.z);
+  CHECK(length(a - Vec3{0.5f, 1, 0}) < 1e-4f && length(b - Vec3{0, 0.5f, 0}) < 1e-4f && length(c - Vec3{1, 1, 0}) < 1e-4f);
+  CHECK(length(saf - a) >= 0.25f);   // KONTROL
   arena().reset_to(mark);
 }
