@@ -2773,3 +2773,20 @@ tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağır
 `tools/windows_glfw.sh` upstream GLFW 3.4 MinGW-w64 ikilisini SÜRÜM + SHA-256 sabit indirip `${MSYSTEM_PREFIX}/bin`'e koyar (ci.yml iki
 iş, release.yml, `derle_mingw.sh`); özet tutmazsa kırmızı. **Kalıcı:** Windows derlemesini UCRT64'e taşımak — gcc/clang/openssl/
 vulkan-validation-layers da aynı yoldan gidecek. **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.
+
+### 8eq. Önbellek main'de isıtılıyor sanıldı — yalnız bir platformda; diğeri her PR'da sıfırdan derledi
+**Belirti (2026-11-22, koşum 45011941482):** Windows işi kritik yoldu (861 s); `Derle` 449 s, ccache `4 / 622 (%0,64)` isabet. Linux ve
+macOS aynı koşumda %87. **Kök:** 8dl'nin düzeltmesi (`ccache-isit`) yalnız Linux'u main'de ısıtıyordu; Windows işi main push'ta PR
+artefaktını yeniden kullandığı için `ccache-windows-*` main kapsamında hiç yenilenmedi. Her PR, MSYS2 gcc'si çoktan değişmiş eski bir
+kayıttan (`ccache-windows-40522797826`) açılıyordu ve `CCACHE_COMPILERCHECK=content` (doğru olarak) hepsini ıskaladı. İkinci delik:
+`actions/cache`'in Post adımı yalnız iş **başarılıysa** kaydeder — testi düşen ya da yeni push'la iptal edilen PR koşumu derlediğini
+atıyordu, sonraki push yine soğuktu. **Düzeltme:** `ccache-isit-windows` (main push'ta Windows'u ısıtır, kurulum listesi Windows işiyle
+aynı); üç işte geri yükle/kaydet ayrıldı (`actions/cache/restore` + `Derle`'den hemen sonra `always()` ile `actions/cache/save`, anahtar
+`run_id-run_attempt`). **Kural:** "önbellek ısıtılıyor" iddiası **her platform için** iş özetindeki `ccache --show-stats` satırından okunur;
+bir platformun %1 isabeti, diğer ikisinin %87'si arasında kaybolmasın.
+
+**Bağlı:** CI log zaman damgaları satırları toplu getiriyor (Windows'ta ~30 satır aynı milisaniyede), yani "hangi test yavaş" logdan
+okunamıyordu; bir testin 34 s sürdüğü sanıldı (yerelde 0,24 s). Harness artık her testi sürecin kendi saatiyle ölçüp kosum sonunda
+`en yavas testler` listesini basıyor (`tests/test_main.cpp`). Aynı koşumda macOS `anim_olcum_karakter_butcesi`'nin ölçekleme kontrolü
+soğuk ilk ölçümden düştü (10 karakter 0,088 ms > 128 eklem/10 karakter 0,070 ms); kontrol artık ısıtılmış en küçük değerle ölçülüyor
+(yerel, 2026-11-22: 0,023 / 0,465 ms, tam CPU yükü altında 0,030 / 0,594 ms — oran ~20x, eşik 5x).

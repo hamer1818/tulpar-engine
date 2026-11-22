@@ -12,6 +12,7 @@
 #include "core/memory/arena.hpp"
 #include "platform/crash.hpp"
 #include "platform/thread.hpp"
+#include "platform/time.hpp"
 #include "rhi/vk_api.hpp"
 
 const char *g_engine_tests_exe = nullptr;
@@ -243,6 +244,13 @@ int engine_tests_main(int argc, char **argv) {
   SurucuSabitle sabit;
   sabit.kur();
   int passed = 0, failed = 0, ran = 0;
+  // EN YAVAS TESTLER (2026-11-22): CI'in log zaman damgalari satirlari TOPLU getiriyor (Windows'ta
+  // 30 satir ayni milisaniyede), yani "hangi test yavas" sorusu logdan cevaplanamiyordu. Sure burada,
+  // surecin kendi saatiyle olculur; en yavas kYavas test kosum sonunda basilir. Sabit dizi, ayirma yok.
+  constexpr int kYavas = 10;
+  uint64_t yavas_ns[kYavas] = {};
+  const char *yavas_ad[kYavas] = {};
+  const uint64_t kosum_t0 = tulpar::engine::platform::now_ns();
   for (int i = 0; i < Registry::count; i++) {
     const Case &c = Registry::cases[i];
     if (only && std::strstr(c.name, only) == nullptr) continue;
@@ -251,7 +259,19 @@ int engine_tests_main(int argc, char **argv) {
     g_running_test = c.name;
     std::printf("  RUN  %s\n", c.name);
     std::fflush(stdout); // Windows: _IOLBF tam tampon (yukari) — dusen testin adi kaybolmasin
+    const uint64_t t0 = tulpar::engine::platform::now_ns();
     c.fn();
+    const uint64_t dt = tulpar::engine::platform::now_ns() - t0;
+    if (dt > yavas_ns[kYavas - 1]) {                // siralı ekle (buyukten kucuge)
+      int k = kYavas - 1;
+      while (k > 0 && yavas_ns[k - 1] < dt) {
+        yavas_ns[k] = yavas_ns[k - 1];
+        yavas_ad[k] = yavas_ad[k - 1];
+        k--;
+      }
+      yavas_ns[k] = dt;
+      yavas_ad[k] = c.name;
+    }
     if (Registry::failures == 0) {
       std::printf("  PASS %s\n", c.name);
       passed++;
@@ -262,6 +282,12 @@ int engine_tests_main(int argc, char **argv) {
     }
   }
   sabit.birak();
+  const uint64_t kosum_ns = tulpar::engine::platform::now_ns() - kosum_t0;
+  if (ran > 1) {
+    std::printf("en yavas testler (kosum toplami %.1f s):\n", (double)kosum_ns / 1e9);
+    for (int k = 0; k < kYavas && yavas_ad[k]; k++)
+      std::printf("  [sure] %8.2f s  %s\n", (double)yavas_ns[k] / 1e9, yavas_ad[k]);
+  }
   std::printf("engine tests: %d passed, %d failed, %d atlandi (%d/%d kosuldu)\n", passed, failed,
               Registry::skipped, ran, Registry::count);
   // KAYIT TASMASI KIRMIZIDIR. Tasan test hic kosmaz, yani ozet satirindaki
