@@ -1,6 +1,8 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <new>
 
 #include "core/jobs/job_system.hpp"
 #include "core/memory/alloc_gate.hpp"
@@ -124,4 +126,36 @@ ENGINE_TEST(jobs_zero_allocations_while_running) {
   CHECK(allocs == 0);
   CHECK(sum.load() == 512);
   js.shutdown();
+}
+
+// SAYAC OLUMU (2026-11-22, Tuzaklar 8er): wait() dondukten sonra HICBIR worker sayaca dokunmamali — cagiran onu hemen
+// yok eder (Schedule::run'in yigindaki `Counter c`'si). Sayac tamponda kurulur; wait() doner donmez tampon desenle
+// doldurulur ve kisa bir sure sonra okunur: gec kalan bir signal_counter yazisi (waiter_count_ / kilit birakma)
+// deseni bozar. Ana thread (fiber'siz) yolu, Schedule::run'daki ile ayni.
+namespace {
+void bos_is(void *) {}
+} // namespace
+
+ENGINE_TEST(jobs_counter_not_touched_after_wait_returns) {
+  SystemArena sys;
+  CHECK(sys.reserve(8u << 20, "js_olum"));
+  JobSystem js;
+  CHECK(js.init(sys, JobSystemConfig{}));
+  alignas(Counter) static unsigned char tampon[sizeof(Counter)];
+  JobDecl d[2] = {JobDecl{bos_is, nullptr}, JobDecl{bos_is, nullptr}};
+  uint32_t bozuk = 0;
+  const uint32_t kTur = 200000;
+  for (uint32_t t = 0; t < kTur; t++) {
+    Counter *c = new (tampon) Counter();
+    js.run(d, 2, c);
+    js.wait(*c);
+    c->~Counter();
+    std::memset(tampon, 0xAB, sizeof tampon);
+    for (volatile int k = 0; k < 64; k = k + 1) {}
+    for (unsigned char b : tampon)
+      if (b != 0xAB) { bozuk++; break; }
+  }
+  js.shutdown();
+  std::printf("    [bilgi] %u turda wait() sonrasi sayaca yazilan tur: %u\n", kTur, bozuk);
+  CHECK(bozuk == 0);
 }

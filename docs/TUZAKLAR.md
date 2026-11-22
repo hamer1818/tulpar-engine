@@ -2807,3 +2807,26 @@ görünür ATLANDI (7776cb9'daki karakter ölçümüyle aynı kural); determinis
 işinin **sırası**ydı: testlerden sonra köprü işini 88 s boşta bekliyor, paketleme + kurucu (86 s) ancak ondan sonra başlıyordu.
 Bekleme adımı artefakt yüklemesinin hemen önüne alındı; paketleme köprüyle örtüşür. **Kural:** başka işin sonucunu taşıyan adım,
 o sonuca bağlı olmayan her adımdan SONRA gelir.
+
+### 8er. Bekleyen sayacı "bitti" gördü ve yok etti — signaler o anda hâlâ sayacın içindeydi
+**Belirti (2026-11-22):** yerelde tam koşumda bir kez `malloc(): unaligned tcache chunk detected` →
+`platform_https_verifies_certificate_and_name` SIGABRT; test tek başına 15+ kez geçti, CI'da hiç görülmedi. **Kök (ASan ile):**
+`JobSystem::signal_counter` kilidi alır, `value_`'yu indirir, **sonra** bekleyen listesini dolaşıp `waiter_count_`'a yazar ve kilidi
+bırakır. `wait()` ise `value_`'yu kilitsiz okur; hedefi görünce döner ve çağıran sayacı yok eder — `Schedule::run`'ın yığındaki
+`Counter c`'si. Worker ölü yığına yazar (ASan: stack-use-after-return, `job_system.cpp` signal_counter ← `sim/schedule.cpp` `c`).
+Fiber yolunda da aynı pencere: fiber kilit İÇİNDE hazır kuyruğuna atılır, başka worker onu kilit bırakılmadan devam ettirebilir.
+**Düzeltme:** `wait()` her dönüş yolunda sayacın kilidini bir kez alıp bırakır (`sayac_yerlesti`); o noktadan sonra hiçbir signaler
+sayaca dokunmaz. **Ölçüm (yerel, 2026-11-22):** ASan'lı `engine_tests faz2_` düzeltmesiz 7/20 koşumda yarışı yakaladı, düzeltmeli
+0/20. **Kapı:** `jobs_counter_not_touched_after_wait_returns` — sayaç tamponda kurulur, `wait()` dönünce tampon desenle doldurulur
+ve okunur; 200 000 tur, 0,8 s. **Pozitif kontrol:** düzeltme geri alınınca 5/5 koşum kırmızı (süreç `bitmis fiber yeniden
+calistirildi` ile düşüyor), düzeltmeyle 0/5. **Kural:** "bitti" bilgisini kilitsiz okuyan, nesneyi yok etmeden önce yazanın
+kritik bölümünden çıktığını kilitle görmeli.
+
+**Aynı ASan koşumunun diğer bulguları** (`ENGINE_ASAN=ON`, yeni seçenek): iki **test** hatası — `poly_coklu_delik_geometri_sahne_fizik`
+5 delik kontrolüne 8 noktalık diziyi `hole_n = 15` ile veriyordu (global-buffer-overflow; red okumadan sonra geliyordu; artık kendi
+15 noktalık dizisi + 4 delik pozitif kontrolü) ve `animator_olaylar_faz_gecisinde_kuyruga_girer` 46/48 baytlık dizgilere elle
+`52`/`54` uzunluk veriyordu (artık `strlen` + hata sebebi denetlenir). Bir de **doğrulama katmanının kendi** heap-use-after-free'si:
+Vulkan SDK 1.4.357.1 BestPractices `ValidateImageInQueueArmImg` serbest bırakılmış bir dizgiyi biçimliyor (`phmap` yeniden
+düzenlemesi; `temporal_mali_best_practices` içinde) — yalnız okuma, bizim kod değil, iddia edilmez. ASan kipinde RSS ölçen
+`bridge_failed_init_without_icd_leaves_no_residue` ve `bridge_music_slot_reuses_buffer_and_rejects_long_track` gölge bellek yüzünden
+düşer (beklenen).
