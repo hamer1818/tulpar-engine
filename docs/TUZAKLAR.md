@@ -2856,7 +2856,16 @@ kontrolü sahte sürücülerle CI'da), sürümü çıkınca motor (bu PR: `msyst
 `msys64/ucrt64`, `MSYSTEM_PREFIX` tabanlı DLL sınıflandırması, glfw artık UCRT64 paketinden). Motorun CI'ı releases/latest indirdiği
 için ikisi arasındaki pencerede motorun MINGW64 köprü işi karışık CRT ile koşar — pencere kısa tutulur. Zorunlu check adı
 `Windows x86_64 (MSYS2 MINGW64)` TARİHSEL kaldı: dal korumasında kayıtlı, değişmesi korumayla birlikte yapılmalı.
-**Kural:** bir araç zinciri göçünde "bizim ikili derleniyor" yetmez; ikiliyle AYNI linke giren her arşivin ve sürücünün ortamı sorulur.
+**Ölçülen (2026-11-22):** göç sırasında motorun UCRT64 köprü işi eski (MINGW64) tulpar runtime'ıyla linklenince libstdc++ sembolleri
+(`codecvt_utf8_utf16`, `filesystem::path::_Codecvt`) çözülemedi — karışık CRT'nin somut hâli. TulparLang tarafında DLL kapısı iki
+yeniden adlandırma yakaladı (UCRT64'te OpenSSL 4.1 → `libssl-4-x64.dll`, zlib 1.4 → `libz-1.dll`); eski `tulpar update` istemcileri
+DLL'leri ADLARIYLA indirdiği için yeni adlar güncellemeyi kırardı. Çözüm: Windows `tulpar.exe` tamamen statik (`-static`, LLVM'in
+zlib/zstd hedefleri `.a`'ya, OpenSSL statik; eski `-Wl,-Bstatic … -Wl,-Bdynamic` satırı `-static` ile birlikte sürücünün en sona
+eklediği `-lstdc++`'yı dinamiğe çeviriyordu), beş eski DLL adı geçiş varlığı olarak yayınlanıyor (`tests/surum_varliklari.py`
+GECIS kapısı), statik libcrypto için `-lbcrypt`. TulparLang v3.47.0 yayınlandıktan sonra motorun Windows köprü işi:
+`tulpar dogrulama: 23 gecti, 0 dustu, 0 atlandi`. Aynı göçte görülen HTTPS düşüşü UCRT'ye özgü DEĞİLDİ (8eu).
+**Kural:** bir araç zinciri göçünde "bizim ikili derleniyor" yetmez; ikiliyle AYNI linke giren her arşivin ve sürücünün ortamı
+sorulur — ve dağıtımın kendi güncelleme kanalı (eski istemcinin beklediği adlar) da göçün parçasıdır.
 
 ### 8eu. Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
 **Belirti (2026-11-22):** HTTPS kapısı (`platform_https_verifies_certificate_and_name`) Windows UCRT64 CI'da her koşumda düştü: ilk
