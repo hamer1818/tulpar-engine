@@ -66,6 +66,7 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
       else if (!std::strcmp(k, "tema")) { tam = v == 0 || v == 1; t->tema = v == 1 ? 1 : 0; }
       else if (!std::strcmp(k, "dil")) { tam = v == 0 || v == 1; t->dil = v == 1 ? 1 : 0; }
       else if (!std::strcmp(k, "canli_kod")) { tam = v == 0 || v == 1; t->canli_kod = v == 0 ? 0 : 1; }
+      else if (!std::strcmp(k, "hedef_cihaz")) { tam = v >= 0 && v <= 2; t->hedef_cihaz = v < 0 ? 0 : v > 2 ? 2 : v; }
       if (!tam) ok = false;
     }
     if (!son) break;
@@ -75,8 +76,8 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
 }
 
 uint32_t tercih_metni(const Tercihler &t, char *out, uint32_t cap) {
-  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\ncanli_kod = %d\ndil = %d\n",
-                              t.yazi, t.oto_kayit_dk, t.tema, t.canli_kod, t.dil);
+  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\ncanli_kod = %d\ndil = %d\nhedef_cihaz = %d\n",
+                              t.yazi, t.oto_kayit_dk, t.tema, t.canli_kod, t.dil, t.hedef_cihaz);
   return n > 0 && (uint32_t)n < cap ? (uint32_t)n : 0;
 }
 
@@ -194,6 +195,19 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
     if (ImGui::Checkbox("De\xC4\x9Fi\xC5\x9Fiklikleri \xC3\xA7" "al\xC4\xB1\xC5\x9F" "an oyuna uygula##canli_kod", &c)) { t.canli_kod = c ? 1 : 0; r |= kTercihDegisti; }
   }
   aciklama("Oyun çalışırken kod kaydedilirse oyun yeniden açılır; sahne değişirse oyun yeniden başlamadan güncellenir. Kodda hata varsa düzeltip kaydedince yeniden dener.");
+  ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.5f));
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted("Hedef cihaz");
+  {
+    static const char *const kAd[] = {"D\xC3\xBC\xC5\x9F\xC3\xBCk", "Orta", "Y\xC3\xBCksek"};
+    for (int i = 0; i < 3; i++) {
+      ImGui::SameLine();
+      char id[64];
+      std::snprintf(id, sizeof id, "%s##hedef%d", kAd[i], i);
+      if (ImGui::RadioButton(id, t.hedef_cihaz == i) && t.hedef_cihaz != i) { t.hedef_cihaz = i; r |= kTercihDegisti; }
+    }
+  }
+  aciklama("\xC4\xB0statistik'teki karakter b\xC3\xBC" "t\xC3\xA7" "esi bu s\xC4\xB1n\xC4\xB1fa g\xC3\xB6re: d\xC3\xBC\xC5\x9F\xC3\xBCk 50K k\xC3\xB6\xC5\x9F" "e (P20 Pro'da \xC3\xB6l\xC3\xA7\xC3\xBCld\xC3\xBC), orta 100K ve y\xC3\xBCksek 200K (tahmin).");
 
   // --- Guncelleme ---
   baslik("G\xC3\x9CNCELLEME");

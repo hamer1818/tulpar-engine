@@ -409,6 +409,14 @@ int teng_model_morph_count(int asset);                        // modelin en cok 
 void teng_morph_weight(int id, int target, double w);         // hata: model varligi degil / hedef yok / NaN / havuz dolu
 double teng_morph_get(int id, int target);
 int teng_morph_rejected(void);                                // havuz/mesh tavani yuzunden reddedilen morph sayisi
+// A7 (2026-11-22): calisma aninda LOD mesafesi (model basina; .ayar lod1/lod2'yi ezer). 0 = varsayilan esik. lod2 < lod1 (ikisi de
+// > 0), negatif ya da NaN: hata + 0 doner, model degismez. Etki bir sonraki cizimde.
+int teng_model_lod(int asset, double lod1, double lod2);
+// Cihaz sinifi (0 dusuk / 1 orta / 2 yuksek; GPU adindan, content/device_tier) ve o sinifin iskeletli kose butcesi (kare basina);
+// teng_skin_verts: son karede cizilen iskeletli kose (LOD secilmisse secilen seviye). Oyun butceye gore LOD'u kisaltabilir.
+int teng_device_tier(void);
+int teng_skin_budget(void);
+int teng_skin_verts(void);
 // --- kodla mesh (P1) ------------------------------------------------------------------------------------------------
 // Prosedurel geometri: basla -> kose/ucgen (ya da cokgen_nokta + cokgen_yukselt) -> bitir => model tutamaci (spawn_model ile cizilir).
 // Tavan: 4096 kose, 8192 ucgen, 32 cokgen noktasi; asan ekleme REDDEDILIR (log) ve teng_mesh_rejected() sayar. Sarim CCW (disa bakan) olmali.

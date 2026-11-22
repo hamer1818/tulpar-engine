@@ -6,9 +6,9 @@ namespace tulpar::engine::content {
 
 namespace {
 constexpr TierProfile kProfiles[3] = {
-    /* Low  */ {512, 8, 0.0f, false, 1},
-    /* Mid  */ {1024, 16, 0.0f, true, 1},
-    /* High */ {2048, 32, 0.3f, true, 4},
+    /* Low  */ {512, 8, 0.0f, false, 1, 50000, true},     // butce: P20 Pro olcumu (model.hpp kMobileSkinnedVertexBudget)
+    /* Mid  */ {1024, 16, 0.0f, true, 1, 100000, false},  // tahmin (olculmedi)
+    /* High */ {2048, 32, 0.3f, true, 4, 200000, false},  // tahmin (olculmedi)
 };
 
 // Basit ASCII case-insensitive alt-dizgi arama (GPU adlari ASCII).

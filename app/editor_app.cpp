@@ -244,18 +244,25 @@ static UxOlcum g_ux_olcum;
 
 // A7: iskeletli kose butcesi satiri (Basit kipte yalniz iskeletli cizim varsa). Butce P20 Pro / Mali-G72 olcumunden
 // (content::kMobileSkinnedVertexBudget); MASAUSTU GPU'su icin anlamsiz bir sinir, mobil hedef icin erken uyari.
+// 2026-11-22: butce Tercihler > Hedef cihaz'in sinifindan (content::TierProfile::skinned_vertex_budget; dusuk = olcum, orta/yuksek tahmin).
+static int g_hedef_cihaz = 0;
 static void stats_skin_row(const renderer::RendererStats &rs, const char *label) {
-  const uint64_t b = content::kMobileSkinnedVertexBudget;
+  const int ht = g_hedef_cihaz < 0 ? 0 : g_hedef_cihaz > 2 ? 2 : g_hedef_cihaz;
+  const content::TierProfile &tp = content::device_tier_profile((content::DeviceTier)ht);
+  const uint64_t b = tp.skinned_vertex_budget;
+  static const char *const kSinif[] = {"d\xC3\xBC\xC5\x9F\xC3\xBCk", "orta", "y\xC3\xBCksek"};
   char buf[64];
-  std::snprintf(buf, sizeof buf, "%.1fK / %lluK (mobil)", (double)rs.skin_verts / 1000.0, (unsigned long long)(b / 1000));
+  std::snprintf(buf, sizeof buf, "%.1fK / %lluK (%s)", (double)rs.skin_verts / 1000.0, (unsigned long long)(b / 1000), kSinif[ht]);
   ImGui::TextDisabled("%s", label);
   ImGui::SameLine(150.0f);
   ImGui::TextColored(tone(rs.skin_verts > b ? Tone::Warn : Tone::Text), "%s%s", rs.skin_verts > b ? ICON_MD_WARNING " " : "", buf);
   if (ImGui::IsItemHovered())
     ImGui::SetTooltip("Bu karede %u iskeletli \xC3\xA7izim, %llu k\xC3\xB6\xC5\x9F" "e (LOD se\xC3\xA7ildiyse se\xC3\xA7ilen seviye).\n"
-                      "Mobil b\xC3\xBC" "t\xC3\xA7" "e: kare ba\xC5\x9F\xC4\xB1na \xE2\x89\xB2 %lluK (P20 Pro / Mali-G72 \xC3\xB6l\xC3\xA7\xC3\xBCm\xC3\xBC).\n"
-                      "A\xC5\x9F\xC4\xB1l\xC4\xB1yorsa LOD mesafelerini k\xC4\xB1salt: Kaynaklar > sa\xC4\x9F t\xC4\xB1k > \xC4\xB0\xC3\xA7" "e aktarma ayarlar\xC4\xB1.",
-                      rs.skin_draws, (unsigned long long)rs.skin_verts, (unsigned long long)(b / 1000));
+                      "Hedef cihaz (%s) b\xC3\xBC" "t\xC3\xA7" "esi: kare ba\xC5\x9F\xC4\xB1na \xE2\x89\xB2 %lluK (%s).\n"
+                      "A\xC5\x9F\xC4\xB1l\xC4\xB1yorsa LOD mesafelerini k\xC4\xB1salt: Kaynaklar > sa\xC4\x9F t\xC4\xB1k > \xC4\xB0\xC3\xA7" "e aktarma ayarlar\xC4\xB1.\n"
+                      "Hedef cihaz: Tercihler.",
+                      rs.skin_draws, (unsigned long long)rs.skin_verts, kSinif[ht], (unsigned long long)(b / 1000),
+                      tp.skinned_budget_measured ? "P20 Pro / Mali-G72 \xC3\xB6l\xC3\xA7\xC3\xBCm\xC3\xBC" : "tahmin, cihazda \xC3\xB6l\xC3\xA7\xC3\xBClmedi");
 }
 
 static void draw_stats_overlay(bool *open, float dt, const renderer::RendererStats &rs, const content::SceneDesc &scene,
@@ -10871,6 +10878,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       // ImGui yeni pencereyi ustte acar, yani acilista (cokme bildirimi) erkenden acilan pencere onun
       // ALTINDA kaliyordu (U8 kapisinin goruntusunde goruldu, 2026-11-06).
       if (frame_i >= 4) yardim_ciz(yardim, tablo, kCommandCount);
+      g_hedef_cihaz = tercih.hedef_cihaz;   // A7: Istatistik karakter butcesi (stats_skin_row)
       // U11 B1: Tercihler.
       if (frame_i >= 4 && tercih_p.acik) {
         bool gel = editor_gelismis();

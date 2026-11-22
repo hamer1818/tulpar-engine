@@ -81,6 +81,15 @@ ENGINE_TEST(tercih_dosyasi_gidis_donus_with_control) {
   Tercihler cg;
   CHECK(!tercih_ayristir("canli_kod = 5\n", &cg) && cg.canli_kod == 1);          // KONTROL: gecersiz deger varsayilana (acik) + false
   t.canli_kod = 1;
+  // A7 (2026-11-22): hedef cihaz sinifi gidis-donus; KONTROL: aralik disi en yakina + false, varsayilan dusuk (olculen sinif)
+  CHECK(u.hedef_cihaz == 0);
+  t.hedef_cihaz = 2;
+  CHECK(tercih_metni(t, m, sizeof m) > 0);
+  Tercihler hu;
+  CHECK(tercih_ayristir(m, &hu) && hu.hedef_cihaz == 2);
+  Tercihler hg;
+  CHECK(!tercih_ayristir("hedef_cihaz = 7\n", &hg) && hg.hedef_cihaz == 2);
+  t.hedef_cihaz = 0;
   Tercihler tg;
   CHECK(!tercih_ayristir("tema = 7\n", &tg) && tg.tema == 0); // gecersiz tema: koyu + false
   Tercihler v;
