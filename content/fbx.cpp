@@ -11,7 +11,15 @@
 //    arası tutarlı. Kemiğin altındaki iskeletsiz parça "kemiğe takılı" çizilir (8ef).
 //  - Klipler: her animasyon yığını 30 Hz örneklenir (ufbx_evaluate_transform; eğri türü fark etmez), ClipBuilder sıkıştırır.
 //  - Malzeme: temel renk çarpanı + renk dokusu (gömülü içerik ya da dosya: göreli ad, ad, FBX dizininde taban ad), normal haritası.
-// SINIR: morph (blend shape), kamera/ışık, çoklu UV kanalı yok (sayılmaz değil: Model::note söyler).
+//  - Morph (2026-11-22): mesh'in ilk blend deformer'ının kanalları = ModelMesh morph hedefleri (son anahtar şekil; ara şekiller
+//    yok). Fark kontrol noktası başınadır: kaynaştırma anahtarına kontrol noktası da girer (aynı nitelikli iki ayrı nokta ayrı
+//    kalır), iskeletli mesh'te fark bağ uzayına döner. Kanal ağırlığı animasyonu (DeformPercent) klibin morph izi olur — iskelet
+//    yoksa klip yalnız morph izli (glTF A5 ile aynı yol). Morph'lu mesh'te meshopt/LOD atlanır (köşe sırası farklarla gider).
+//  - UV kanalı: renk dokusunun istediği UV kümesi (ad), yoksa varsayılan; o kanal dejenereyse (bütün köşeler aynı) dejenere
+//    olmayan başka küme — glTF'teki kuralın aynısı (Fab "Mike", 8eg), sayılır, not'a yazılır.
+//  - ARA morph şekli (2026-11-22): kanalın her anahtar şekli (FullWeights) ayrı hedef; klip izi kanal ağırlığını fbx_inbetween_weights
+//    ile komşu anahtarlara dağıtır. Köprünün eng_morph_weight'i bu hedefleri TEK TEK sürer (kanal değil).
+// SINIR: kamera/ışık.
 #include "content/fbx.hpp"
 
 #include <algorithm>
@@ -100,14 +108,57 @@ bool doku_yukle(Arena &arena, const ufbx_texture *t, const char *dir, ModelImage
 struct Kaynak {
   uint32_t *tablo = nullptr;   // [cap] kose indeksi + 1 (0 bos)
   uint32_t cap = 0;
-  static uint64_t ozet(const renderer::SkinnedVertex &v) {
+  static uint64_t ozet(const renderer::SkinnedVertex &v, uint32_t cp) {
     uint64_t h = 1469598103934665603ull;
     const uint8_t *b = reinterpret_cast<const uint8_t *>(&v);
     for (size_t i = 0; i < sizeof v; i++) { h ^= b[i]; h *= 1099511628211ull; }
+    h ^= cp; h *= 1099511628211ull;
     return h;
   }
 };
+// UV kanali dejenere mi (butun degerler ayni; Unreal donusumunun sifir kanali, 8eg)
+bool uv_dejenere(const ufbx_vertex_vec2 &u) {
+  if (!u.exists || u.values.count < 2) return false;
+  for (size_t i = 1; i < u.values.count; i++) if (u.values.data[i].x != u.values.data[0].x || u.values.data[i].y != u.values.data[0].y) return false;
+  return true;
+}
+const ufbx_vertex_vec2 *uv_kanali(const ufbx_mesh *me, const ufbx_texture *doku, uint32_t *degisti) {
+  const ufbx_vertex_vec2 *sec = &me->vertex_uv;
+  if (doku && doku->uv_set.length)
+    for (size_t i = 0; i < me->uv_sets.count; i++)
+      if (!std::strcmp(me->uv_sets.data[i].name.data, doku->uv_set.data)) { sec = &me->uv_sets.data[i].vertex_uv; break; }
+  if (!uv_dejenere(*sec)) return sec;
+  for (size_t i = 0; i < me->uv_sets.count; i++)
+    if (&me->uv_sets.data[i].vertex_uv != sec && me->uv_sets.data[i].vertex_uv.exists && !uv_dejenere(me->uv_sets.data[i].vertex_uv)) {
+      if (degisti) (*degisti)++;
+      return &me->uv_sets.data[i].vertex_uv;
+    }
+  return sec;
+}
+// Morph'lu ufbx mesh'i: klip izleri icin ModelMesh araligi ve kanallar.
+struct MorphDugum {
+  const ufbx_blend_shape *sekil[kModelMaxMorph];   // motor hedefi -> sekil
+  uint32_t hedef_n = 0;
+  struct Kanal { const ufbx_blend_channel *c; uint32_t ilk, n; float t[kModelMaxMorph]; } kanal[kModelMaxMorph];
+  uint32_t kanal_n = 0, mesh_first = 0, mesh_n = 0;
+};
+constexpr uint32_t kMorphDugumMax = 16;
 } // namespace
+
+void fbx_inbetween_weights(const float *t, uint32_t n, float w, float *out) {
+  for (uint32_t i = 0; i < n; i++) out[i] = 0.0f;
+  if (!n) return;
+  if (n == 1 || w <= t[0]) {   // taban (0, sifir fark) ile ilk anahtar arasi (ve tek anahtarda her yer)
+    out[0] = t[0] > 1e-6f ? w / t[0] : w;
+    return;
+  }
+  uint32_t j = 0;
+  while (j + 2 < n && w > t[j + 1]) j++;   // [t_j, t_j+1]; son parcanin ustu uzatilir
+  const float d = t[j + 1] - t[j];
+  const float f = d > 1e-6f ? (w - t[j]) / d : 1.0f;
+  out[j] = 1.0f - f;
+  out[j + 1] = f;
+}
 
 bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim) {
   *out = Model{};
@@ -211,7 +262,7 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
   uint32_t doku_yok = 0;
   auto doku_indeksi = [&](const ufbx_texture *t, bool srgb, bool normal) -> int32_t {
     if (!t) return -1;
-    if (out->image_count >= lim.max_images) return -1;
+    if (!lim.images || out->image_count >= lim.max_images) return -1;
     ModelImage &im = out->images[out->image_count];
     im = ModelImage{};
     if (!doku_yukle(arena, t, dir, &im)) { doku_yok++; return -1; }
@@ -259,6 +310,8 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
     out->bounds_min = {std::min(out->bounds_min.x, q.x), std::min(out->bounds_min.y, q.y), std::min(out->bounds_min.z, q.z)};
     out->bounds_max = {std::max(out->bounds_max.x, q.x), std::max(out->bounds_max.y, q.y), std::max(out->bounds_max.z, q.z)};
   };
+  MorphDugum morph_d[kMorphDugumMax];
+  uint32_t morph_dn = 0, uv_degisti = 0;
   uint32_t *tri = static_cast<uint32_t *>(std::malloc(sizeof(uint32_t) * 3 * 64));
   uint32_t tri_cap = 64;
   struct TriSerbest { uint32_t **p; ~TriSerbest() { std::free(*p); } } tri_serbest{&tri};
@@ -280,6 +333,31 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
     int16_t kume_eklem[kModelMaxJoints * 4];   // kume -> iskelet eklemi
     const uint32_t kc = iskeletli ? (uint32_t)std::min<size_t>(skin->clusters.count, sizeof kume_eklem / sizeof kume_eklem[0]) : 0;
     for (uint32_t c = 0; c < kc; c++) kume_eklem[c] = (int16_t)sira_of(skin->clusters.data[c]->bone_node);
+    // Morph: ilk blend deformer'in sekilli kanallari (kModelMaxMorph'u asan sayilir)
+    const ufbx_blend_deformer *bd = me->blend_deformers.count ? me->blend_deformers.data[0] : nullptr;
+    MorphDugum md;
+    if (bd)
+      for (size_t c = 0; c < bd->channels.count; c++) {
+        const ufbx_blend_channel *ch = bd->channels.data[c];
+        const uint32_t kf = ch->keyframes.count ? (uint32_t)ch->keyframes.count : (ch->target_shape ? 1u : 0u);
+        if (!kf) continue;
+        if (md.hedef_n + kf > kModelMaxMorph) { out->morph_dropped += kf; continue; }
+        MorphDugum::Kanal &k = md.kanal[md.kanal_n++];
+        k.c = ch; k.ilk = md.hedef_n; k.n = kf;
+        for (uint32_t i = 0; i < kf; i++) {
+          md.sekil[md.hedef_n++] = ch->keyframes.count ? ch->keyframes.data[i].shape : ch->target_shape;
+          k.t[i] = ch->keyframes.count ? (float)ch->keyframes.data[i].target_weight : 1.0f;
+        }
+      }
+    if (me->blend_deformers.count > 1) out->morph_dropped += (uint32_t)me->blend_deformers.count - 1;
+    md.mesh_first = mi;
+    int32_t *cp_ofs = nullptr;   // kontrol noktasi -> sekil ofset indeksi (gecici)
+    struct CpSerbest { int32_t **p; ~CpSerbest() { std::free(*p); } } cp_serbest{&cp_ofs};
+    if (md.hedef_n) {
+      cp_ofs = static_cast<int32_t *>(std::malloc(sizeof(int32_t) * (me->num_vertices ? me->num_vertices : 1)));
+      if (!cp_ofs) { hata(out, "bellek"); return false; }
+      for (size_t v = 0; v < me->num_vertices; v++) cp_ofs[v] = -1;
+    }
     const uint32_t parcalar = me->material_parts.count ? (uint32_t)me->material_parts.count : 1;
     for (uint32_t p = 0; p < parcalar; p++) {
       const ufbx_mesh_part *mp = me->material_parts.count ? &me->material_parts.data[p] : nullptr;
@@ -299,7 +377,11 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       kay.cap = 1;
       while (kay.cap < kose_ust * 2) kay.cap <<= 1;
       kay.tablo = arena.alloc_array_zeroed<uint32_t>(kay.cap);
-      if (!sv || !mm.indices || !kay.tablo) { hata(out, "arena dolu (vertex)"); return false; }
+      uint32_t *cps = md.hedef_n ? arena.alloc_array<uint32_t>(kose_ust) : nullptr;   // kaynasmis kose -> kontrol noktasi
+      if (!sv || !mm.indices || !kay.tablo || (md.hedef_n && !cps)) { hata(out, "arena dolu (vertex)"); return false; }
+      const ufbx_material *pmat = mm.material < (int32_t)sc->materials.count ? sc->materials.data[mm.material] : nullptr;
+      const ufbx_texture *pdoku = pmat ? (pmat->pbr.base_color.texture ? pmat->pbr.base_color.texture : pmat->fbx.diffuse_color.texture) : nullptr;
+      const ufbx_vertex_vec2 &uvk = *uv_kanali(me, pdoku, &uv_degisti);
       uint32_t vn = 0, in = 0;
       for (uint32_t f = 0; f < yuz_n; f++) {
         const ufbx_face yuz = me->faces.data[mp ? mp->face_indices.data[f] : f];
@@ -318,8 +400,8 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
           }
           const float nl = std::sqrt(nr.x * nr.x + nr.y * nr.y + nr.z * nr.z);
           v.nrm = nl > 1e-12f ? Vec3{nr.x / nl, nr.y / nl, nr.z / nl} : Vec3{0, 1, 0};
-          if (me->vertex_uv.exists) {
-            const ufbx_vec2 uv = ufbx_get_vertex_vec2(&me->vertex_uv, ix);
+          if (uvk.exists) {
+            const ufbx_vec2 uv = ufbx_get_vertex_vec2(&uvk, ix);
             v.uv = Vec2{(float)uv.x, 1.0f - (float)uv.y};   // FBX UV'si alttan; glTF/Vulkan ustten
           }
           if (iskeletli) {
@@ -342,15 +424,16 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
             if (top <= 0) { w[0] = 1; top = 1; }
             for (int z = 0; z < 4; z++) { v.joints[z] = jj[z]; v.weights[z] = (uint16_t)std::lround(w[z] / top * 65535.0f); }
           }
-          // kaynastir
-          const uint64_t h = Kaynak::ozet(v);
+          // kaynastir (morph'lu mesh'te kontrol noktasi da anahtarda: fark noktaya bagli)
+          const uint32_t cp = cps ? me->vertex_indices.data[ix] : 0;
+          const uint64_t h = Kaynak::ozet(v, cp);
           uint32_t s = (uint32_t)h & (kay.cap - 1), bulunan = 0;
           while (kay.tablo[s]) {
             const uint32_t a = kay.tablo[s] - 1;
-            if (!std::memcmp(&sv[a], &v, sizeof v)) { bulunan = a + 1; break; }
+            if (!std::memcmp(&sv[a], &v, sizeof v) && (!cps || cps[a] == cp)) { bulunan = a + 1; break; }
             s = (s + 1) & (kay.cap - 1);
           }
-          if (!bulunan) { sv[vn] = v; kay.tablo[s] = vn + 1; bulunan = ++vn; }
+          if (!bulunan) { sv[vn] = v; if (cps) cps[vn] = cp; kay.tablo[s] = vn + 1; bulunan = ++vn; }
           mm.indices[in++] = bulunan - 1;
         }
       }
@@ -360,8 +443,38 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       if (!mm.verts) { hata(out, "arena dolu (vertex)"); return false; }
       for (uint32_t v = 0; v < vn; v++) mm.verts[v] = renderer::Vertex{sv[v].pos, sv[v].nrm, sv[v].uv};
       if (iskeletli) mm.skin_verts = sv;
-      if (!iskeletli && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { hata(out, "arena dolu (meshopt)"); return false; }
-      if (lim.lods && (!iskeletli || mm.index_count / 3 >= 1500)) {
+      // Morph farklari (kontrol noktasi basina -> kaynasmis kose basina); iskeletli mesh'te bag uzayina (g2w'nin dogrusal kismi)
+      if (md.hedef_n && vn > kModelMaxMorphVerts) out->morph_meshes_dropped++;
+      else if (md.hedef_n) {
+        const uint32_t nt = md.hedef_n;
+        mm.morph_deltas = arena.alloc_array_zeroed<Vec3>((size_t)nt * vn);
+        if (!mm.morph_deltas) { hata(out, "arena dolu (morph)"); return false; }
+        for (uint32_t t = 0; t < nt; t++) {
+          const ufbx_blend_shape *bs = md.sekil[t];
+          for (size_t k = 0; k < bs->num_offsets; k++) if (bs->offset_vertices.data[k] < me->num_vertices) cp_ofs[bs->offset_vertices.data[k]] = (int32_t)k;
+          const bool nrm = bs->normal_offsets.count == bs->num_offsets && bs->num_offsets;
+          if (nrm && !mm.morph_normal_deltas) {
+            mm.morph_normal_deltas = arena.alloc_array_zeroed<Vec3>((size_t)nt * vn);
+            if (!mm.morph_normal_deltas) { hata(out, "arena dolu (morph normal)"); return false; }
+          }
+          for (uint32_t v = 0; v < vn; v++) {
+            const int32_t k = cps[v] < me->num_vertices ? cp_ofs[cps[v]] : -1;
+            if (k < 0) continue;
+            Vec3 d = v3(bs->position_offsets.data[k]);
+            if (iskeletli) { const Vec4 d4 = g2w * Vec4{d.x, d.y, d.z, 0.0f}; d = Vec3{d4.x, d4.y, d4.z}; }
+            mm.morph_deltas[(size_t)t * vn + v] = d;
+            if (nrm) {
+              Vec3 dn = v3(bs->normal_offsets.data[k]);
+              if (iskeletli) { const Vec4 d4 = g2w * Vec4{dn.x, dn.y, dn.z, 0.0f}; dn = Vec3{d4.x, d4.y, d4.z}; }
+              mm.morph_normal_deltas[(size_t)t * vn + v] = dn;
+            }
+          }
+          for (size_t k = 0; k < bs->num_offsets; k++) if (bs->offset_vertices.data[k] < me->num_vertices) cp_ofs[bs->offset_vertices.data[k]] = -1;
+        }
+        mm.morph_count = nt;
+      }
+      if (!iskeletli && !mm.morph_count && lim.optimize && !mesh_optimize(arena, mm, &out->opt)) { hata(out, "arena dolu (meshopt)"); return false; }
+      if (lim.lods && !mm.morph_count && (!iskeletli || mm.index_count / 3 >= 1500)) {
         const float ratios[kModelMaxLods] = {0.5f, 0.25f};
         if (!mesh_build_lods(arena, mm, ratios, kModelMaxLods, iskeletli ? lim.lod_error * 0.5f : lim.lod_error)) { hata(out, "arena dolu (lod)"); return false; }
       }
@@ -380,13 +493,17 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       for (uint32_t v = 0; v < mm.vertex_count; v++) sinir(transform_point(inst.world, mm.verts[v].pos));
       mi++;
     }
+    md.mesh_n = mi - md.mesh_first;
+    bool morphlu = false;
+    for (uint32_t q = md.mesh_first; q < mi; q++) morphlu |= out->meshes[q].morph_count > 0;
+    if (morphlu) { if (morph_dn < kMorphDugumMax) morph_d[morph_dn++] = md; else out->morph_tracks_dropped++; }
   }
   out->mesh_count = mi;
   out->instance_count = mi;
   if (!mi) { hata(out, "FBX'te ucgenli mesh yok"); return false; }
 
   // --- Klipler: animasyon yiginlari, 30 Hz ----------------------------------------------------------------------------------------
-  if (out->skin_count && sc->anim_stacks.count) {
+  if ((out->skin_count || morph_dn) && sc->anim_stacks.count) {
     uint32_t nc = (uint32_t)sc->anim_stacks.count;
     if (nc > lim.max_clips) { out->clips_dropped = nc - lim.max_clips; nc = lim.max_clips; }
     out->clips = arena.alloc_array_zeroed<ModelClip>(nc);
@@ -398,6 +515,36 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       const float dur = (float)(st->time_end - st->time_begin);
       if (!(dur > 0.0f)) continue;
       const uint32_t samples = std::max<uint32_t>(2, (uint32_t)(dur * rate) + 1);
+      ModelClip &mc = out->clips[cn];
+      // Morph izleri: kanal agirligi (FBX DeformPercent 0..100 -> ufbx 0..1), ornek-major
+      if (morph_dn) {
+        const uint32_t wch = std::min(morph_dn, kModelMaxMorphTracks);
+        if (morph_dn > kModelMaxMorphTracks) out->morph_tracks_dropped += morph_dn - kModelMaxMorphTracks;
+        mc.morph_tracks = arena.alloc_array_zeroed<ModelMorphTrack>(wch);
+        if (!mc.morph_tracks) { hata(out, "arena dolu (morph izi)"); return false; }
+        for (uint32_t d = 0; d < wch; d++) {
+          ModelMorphTrack &tr = mc.morph_tracks[d];
+          tr.mesh_first = morph_d[d].mesh_first;
+          tr.mesh_n = morph_d[d].mesh_n;
+          tr.weight_count = morph_d[d].hedef_n;
+          tr.samples = samples;
+          tr.w = arena.alloc_array<float>((size_t)samples * tr.weight_count);
+          if (!tr.w) { hata(out, "arena dolu (morph izi)"); return false; }
+          for (uint32_t k = 0; k < samples; k++) {
+            const double t = st->time_begin + std::min<double>((double)k / rate, dur);
+            float *w = tr.w + (size_t)k * tr.weight_count;
+            for (uint32_t c = 0; c < morph_d[d].kanal_n; c++) {
+              const MorphDugum::Kanal &kk = morph_d[d].kanal[c];
+              fbx_inbetween_weights(kk.t, kk.n, (float)ufbx_evaluate_blend_weight(st->anim, kk.c, t), w + kk.ilk);
+            }
+          }
+        }
+        mc.morph_track_count = wch;
+      }
+      std::snprintf(mc.name, sizeof mc.name, "%s", [&] { const char *ka = st->name.data ? st->name.data : ""; if (const char *dik = std::strrchr(ka, '|')) if (dik[1]) ka = dik + 1; return ka; }());
+      mc.duration = dur;
+      mc.sample_rate = rate;
+      if (!kn) { mc.skin = -1; cn++; continue; }   // iskeletsiz: yalniz morph izli klip
       sim::RawTrack *tracks = arena.alloc_array_zeroed<sim::RawTrack>(kn);
       Vec3 *tt = arena.alloc_array<Vec3>((size_t)kn * samples), *ss = arena.alloc_array<Vec3>((size_t)kn * samples);
       Quat *rr = arena.alloc_array<Quat>((size_t)kn * samples);
@@ -419,13 +566,7 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
       raw.joints = kn;
       raw.samples = samples;
       raw.sample_rate = rate;
-      ModelClip &mc = out->clips[cn];
-      // Blender/Maya gelenegi "Armature|Run": son '|' sonrasi (otomatik animator rolleri kisa addan bulur)
-      const char *ka = st->name.data ? st->name.data : "";
-      if (const char *dik = std::strrchr(ka, '|')) if (dik[1]) ka = dik + 1;
-      std::snprintf(mc.name, sizeof mc.name, "%s", ka);
-      mc.duration = dur;
-      mc.sample_rate = rate;
+      // (ad: Blender/Maya gelenegi "Armature|Run" -> son '|' sonrasi; otomatik animator rolleri kisa addan bulur)
       mc.skin = 0;
       mc.clip = sim::ClipBuilder::build(arena, raw, 1e-5f, &mc.stats);
       if (!mc.clip) { hata(out, "klip sikistirilamadi"); return false; }
@@ -434,6 +575,11 @@ bool fbx_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim)
     out->clip_count = cn;
   }
   if (doku_yok) std::snprintf(out->note, sizeof out->note, "%u doku bulunamad\xC4\xB1 (FBX'in yan\xC4\xB1ndaki dosyalar\xC4\xB1 da kopyala)", doku_yok);
+  if (uv_degisti) {
+    const size_t nl = std::strlen(out->note);
+    std::snprintf(out->note + nl, sizeof out->note - nl, "%s%u mesh'te UV kanal\xC4\xB1 bo\xC5\x9F (hep ayn\xC4\xB1 de\xC4\x9F" "er): di\xC4\x9F" "er kanal kullan\xC4\xB1ld\xC4\xB1",
+                  nl ? " \xC2\xB7 " : "", uv_degisti);
+  }
   return true;
 }
 

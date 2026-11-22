@@ -1,0 +1,8 @@
+# Kaynaklar karosu: sahnede OLMAYAN model de gercek onizlemeyle cizilir (2026-11-17; eskiden genel MODEL simgesi — kullanici modeli
+# ancak sahneye ekleyince goruyordu). Kapi (tools/arayuz_kapi.sh) editor.log'daki "karo onizleme" satirini okur: yeni projede
+# sahnede kaynak YOK, klasorde checker_cube.gltf + skin_karakter.gltf + bozuk.glb -> 2 karo onizlendi, onbellek 2 yukledi, 1 hata.
+# POZITIF KONTROL: bozuk.glb sayilan hata olur ve karosu simgede kalir (sayac karo sayisini degil gercek cizimi olcer).
+tikla "Kaynaklar" pencere=DockSpace
+bekle 40
+ekran kaynak_onizleme
+cik

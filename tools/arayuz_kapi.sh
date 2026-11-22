@@ -15,6 +15,8 @@
 # tests/arayuz/animator_grafik_duzenle.txt (A8b): grafikten Durum ekle / Gecis ekle / red / Geri al; dosya diskte denetlenir.
 # tests/arayuz/animator_kart.txt (A8c): Animasyon karti Hareketler: roller, Hareket ekle, Geri al; dosya kabukta denetlenir.
 # tests/arayuz/animator_otomatik.txt (A8): Animasyon karti tek tik otomatik animator, onizleme hizi, canli grafik, kaldir/geri al, Ctrl+S.
+# tests/arayuz/oynat_kok{,_kontrol}.txt (A4): F5 fizik onizlemesinde `kok` durumu varligi yurutur (kartta 2.0 m/s); kontrol: kok'suz 0.0.
+# tests/arayuz/kaynak_onizleme.txt: sahnede olmayan model karoda onizlenir (ThumbCache); kontrol: bozuk.glb hata sayilir, simgede kalir.
 # tests/arayuz/cokgen.txt (P2): Ekle > Cokgen tikla-nokta cizer, Enter yazar, tutamac surukler, geri al tohuma doner.
 # tests/arayuz/ekle_menu.txt (U11 B2): Basit kipte sade "+"/Ekle, secim varken ekleme; kontrol: Gelismis tam liste.
 # tests/arayuz/tercihler{,_kalici}.txt (U11 B1): yazi boyu kalici (menu ogesi boyu buyur), otomatik kayit, duzen
@@ -131,6 +133,21 @@ if [ $r2 = 1 ] && grep -q 'HATA: "Boyle Bir Menu Ogesi Yok"' "$D/pk/yanit.txt" 2
 else
   echo "  KAPI BOZUK: olmayan oge dusmedi (cikis $r2)"; kirmizi=1
 fi
+# --- A4: kok hareketi F5 FIZIK onizlemesinde (tulpar gerekmez; oyun projesi degil -> gomulu degil, ic onizleme) ---
+# skin_karakter.gltf 'yuru' koku 1 m/s, olcek 2 -> kartta canli hiz 2.0 m/s. Kontrol: ayni sahne `kok`suz animatorle 0.0 m/s.
+KK="$D/kok"
+for t in kok kontrol; do
+  mkdir -p "$KK/$t/ui"; cp "$KOK/tests/assets/skin_karakter.gltf" "$KK/$t/k.gltf"
+  printf '%s\n' "tulpar-sahne 1" "isik-yon 0.5 1 0.35" "isik-ortam 0.4 0.4 0.45" "isik-gunes 0.85" "golge 0 1 -1 6 20" \
+    "kamera 0 0.6 0 0.0 0.3 6" 'kaynak "k.gltf"' 'nesne "k0"' "  konum 0 0 0" "  donus 0 0 0" "  olcek 2 2 2" \
+    "  model kaynak 0 1 1 1" "  animasyon 0 0 1" '  animator "k.animator"' "son" > "$KK/$t/k.sahne"
+done
+printf 'tulpar-animator 1\nparam hiz sayi 0\ndurum y klip yuru dongu kok\n' > "$KK/kok/k.animator"
+printf 'tulpar-animator 1\nparam hiz sayi 0\ndurum y klip yuru dongu\n' > "$KK/kontrol/k.animator"
+kos oynat_kok.txt "$KK/kok/ui" --scene "$KK/kok/k.sahne"; rkk=$?
+kos oynat_kok_kontrol.txt "$KK/kontrol/ui" --scene "$KK/kontrol/k.sahne"; rkc=$?
+if [ $rkk = 0 ] && [ $rkc = 0 ]; then echo "  kok hareketi (F5 fizik onizlemesi): varlik kokle 2.0 m/s yurudu, durunca hiz satiri gitti (kontrol: kok'suz 0.0 m/s)"
+else echo "  KIRMIZI kok hareketi (cikis $rkk / kontrol $rkc):"; grep -hE 'HATA|> ' "$KK"/*/ui/yanit.txt 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U10 B1: betik baglama (yeni ve eski proje) ---
 betik_proje() {  # betik_proje <dizin> : arena projesi + duvara dondur.tpr
   "$ED" --yeni-oyun "$1" --kimlik bk --onek BK --tr "Betik Kapisi" --en "Script Gate" > /dev/null 2>&1 || return 1
@@ -150,8 +167,20 @@ TULPAR_DOSYA_SECICI="sabit:$KOK/tests/assets/checker_cube.gltf" kos kaynaklar.tx
 if [ $rky = 0 ] && cmp -s "$KOK/tests/assets/checker_cube.gltf" "$KY/p/assets/checker_cube.gltf"; then
   echo "  kaynaklar: bos durum eylemli, Model ice aktar -> checker_cube.gltf proje klasorunde ve listede"
 else echo "  KIRMIZI kaynaklar (cikis $rky):"; grep -E 'HATA|> ' "$KY/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- Kaynaklar: sahnede olmayan modelin onizlemesi (2026-11-17; tulpar gerekmez) ---
+KO="$D/karo_onizleme"; mkdir -p "$KO/ui"
+"$ED" --yeni-oyun "$KO/p" --kimlik ko --onek KO --tr "Karo" --en "Tile" > /dev/null 2>&1
+cp "$KOK/tests/assets/checker_cube.gltf" "$KOK/tests/assets/skin_karakter.gltf" "$KO/p/assets/" 2>/dev/null
+printf 'glTF bozuk dosya' > "$KO/p/assets/bozuk.glb"
+kos kaynak_onizleme.txt "$KO/ui" --scene "$KO/p/assets/arena.sahne" --kip basit; rko=$?
+kos_satir=$(grep 'karo onizleme:' "$KO/ui/editor.log" 2>/dev/null | tail -1)
+if [ $rko = 0 ] && echo "$kos_satir" | grep -q 'son karede 2 karo | onbellek yuklenen 2, hata 1,'; then
+  echo "  kaynak onizleme: sahnede olmayan 2 model gercek onizlemeyle cizildi; bozuk.glb simgede kaldi, hata sayildi (kontrol)"
+else echo "  KIRMIZI kaynak onizleme (cikis $rko): ${kos_satir:-satir yok}"; grep -E 'HATA|> ' "$KO/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
 # --- U11 B4: Ilk adimlar karti (yeni fabrika projesi; tulpar gerekmez) ---
-IA="$D/ilk"; mkdir -p "$IA/ui1" "$IA/ui2"
+# Proje yolu BILEREK uzun (>128 bayt sahne yolu, Tuzaklar 8dh tekrari 2026-11-17): kesik ia_sahne her karede "sahne degisti"
+# sayip adimlari sifirliyordu; kisa mktemp yolunda kapi bunu goremiyordu.
+IA="$D/ilk/uzun_yol_kapisi_$(printf '%080d' 0)"; mkdir -p "$IA/ui1" "$IA/ui2"
 "$ED" --yeni-oyun "$IA/p" --kimlik ilk --onek IL --tr "Ilk Adim" --en "First Step" > /dev/null 2>&1
 TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar.txt "$IA/ui1" --scene "$IA/p/assets/arena.sahne" --kip basit; ria1=$?
 TULPAR_EDITOR_AYAR_DIZINI="$IA/ayar" kos ilk_adimlar_gizli.txt "$IA/ui2" --scene "$IA/p/assets/arena.sahne" --kip basit; ria2=$?
@@ -191,6 +220,13 @@ cp -r "$KOK/tests/assets" "$CK/assets"
 kos cokgen.txt "$CK/ui" --scene "$CK/assets/editor.sahne" --kip basit --size 1280x720; rck=$?  # tiklar Gorunum koordinatinda: boyut sabit
 if [ $rck = 0 ]; then echo "  cokgen araci: 6 tik -> Geri sil -> Enter 5 nokta, tutamac suruklendi, iki Ctrl+Z tohum kareye dondu (kontrol: Enter oncesi 4 nokta)"
 else echo "  KIRMIZI cokgen araci (cikis $rck):"; grep -E 'HATA|> ' "$CK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- P2 duzenleme: nokta sec, kenari bol, delik ac (geri al kontrolu), Ctrl+S; dosya burada denetlenir ---
+CD="$D/cokgen_duzenle"; mkdir -p "$CD/ui"
+cp -r "$KOK/tests/assets" "$CD/assets"
+kos cokgen_duzenle.txt "$CD/ui" --scene "$CD/assets/editor.sahne" --kip basit --size 1280x720; rcd=$?
+if [ $rcd = 0 ] && grep -qE '^  cokgen [0-9.]+ 6 ' "$CD/assets/editor.sahne" && [ "$(grep -c '^  cokgen_delik 4 ' "$CD/assets/editor.sahne")" = 2 ]; then
+  echo "  cokgen duzenleme: nokta secildi, kenar bolundu (6 nokta), iki delik acildi ve kaydedildi (kontrol: Ctrl+Z deligi geri aldi)"
+else echo "  KIRMIZI cokgen duzenleme (cikis $rcd):"; grep -E 'HATA|> ' "$CD/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E '^  cokgen' "$CD/assets/editor.sahne" 2>/dev/null | sed 's/^/      dosya:/'; kirmizi=1; fi
 # --- M1: model ice aktarma ayarlari (sag tik -> pencere -> cm -> Kaydet; dosya icerigi burada denetlenir) ---
 MA="$D/model_ayar"; mkdir -p "$MA/ui"
 cp -r "$KOK/tests/assets" "$MA/assets"

@@ -319,18 +319,6 @@ jobs:
           name: derleme-bilgisi-linux-x86_64
           path: _bilgi/derleme-bilgisi.txt
 
-      # Savas bolumu AYRI iste kosar (asagida "Linux kopru - savas (lavapipe)"); o is bu eklenti
-      # paketini bekleyip indirir. Derlemeden hemen sonra yuklenir ki savas isi
-      # bu isin testleriyle PARALEL kosabilsin.
-      - name: Eklenti paketini yukle (savas isi icin)
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: eklenti-linux-x86_64
-          path: yapi/tulpar-ext/
-          if-no-files-found: error
-          retention-days: 3
-
       # Isabet orani GORUNUR olsun: dusen bir oran "onbellek calisiyor sandim"
       # diye sessizce gecmesin (yavaslamanin sebebi burada okunur).
       - name: ccache isabet orani
@@ -500,11 +488,9 @@ jobs:
           # kontrolu) tek yerde: tools/tulpar_indir.sh — release.yml de onu
           # kosar. (Oncesi: bu ayak ozeti HIC dogrulamiyordu.)
           bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
-          # PR'da savas bolumu (9600 + uc pozitif kontrol, seri ~375 s) ayri
-          # koşucuda; main push'un sifirdan yolunda (yeniden kullanim dustuyse)
-          # burada, eskisi gibi.
-          ayri=""; [ "${{ github.event_name }}" = pull_request ] && ayri=--savas-ayri
-          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --tam $ayri
+          # Kopru FONKSIYON testleri + 60 karelik ornekler. Oyun taban cizgisi kapilari (dalga/aksiyon/savas)
+          # 2026-11-22'de kalkti: oyunun sonucunu degil fonksiyonlari test ediyoruz (tools/tulpar_dogrula.sh basi).
+          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --tam
 
       # TULPAR + TULPAR_PAKET_KOSU=zorunlu: paket kapisi tulpar-ext/'i
       # PAKETLENMIS dizinden bir ornek oyunla kosturur (tools/package.sh
@@ -532,14 +518,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # TOPLAYICI: zorunlu check "Linux x86_64 (GCC + lavapipe)" savas isinin
-      # sonucunu da TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
-      - name: Savas isinin sonucu
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_bekle.sh is "Linux kopru - savas (lavapipe)"
-
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
@@ -548,54 +526,6 @@ jobs:
           path: dagitim/
           if-no-files-found: error
           retention-days: 14
-
-
-  # SAVAS BOLUMU AYRI KOŞUCUDA (2026-10-30). Linux isinin "Tulpar koprusu" adimi
-  # 657 s idi (koşum 41028381029) ve kritik yolun kendisiydi; lavapipe tek
-  # koşuda 4 cekirdegi zaten dolduruyor (olculdu: savas 3200 kare 36.5 s duvar /
-  # 125 s kullanici), ayni koşucuda eszamanlilik YAVASLATTI (seri 288 s ->
-  # eszamanli 300-330 s, yerel CI-benzeri lavapipe, 4 cekirdek). Savas bolumu
-  # (9600 kare + sizinti / dost / BOZ pozitif kontrolleri) burada, Linux isinin
-  # derledigi eklenti paketiyle kosar; Linux isi bunun sonucunu bekler ve tasir
-  # (zorunlu check adi degismedi). Yalniz PR'da: main push PR artefaktini
-  # yeniden kullanir.
-  linux-savas:
-    name: Linux kopru - savas (lavapipe)
-    needs: detect-docs-only
-    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Bagimliliklar (lavapipe + tulpar'in AOT linki)
-        # apt aynasi asilirsa is 25+ dk bekliyordu (2026-11-02, PR #123: adim 26 dk asili,
-        # savas isi eklenti paketini beklerken zaman asimina dustu). Asilma = gorunur dusus.
-        timeout-minutes: 8
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools clang libssl-dev python3
-
-      - name: Tulpar (yayinlanmis, SHA256SUMS dogrulamali)
-        run: bash tools/tulpar_indir.sh "$RUNNER_TEMP/tulpar"
-
-      - name: Eklenti paketini bekle
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_bekle.sh artefakt eklenti-linux-x86_64 "Linux x86_64 (GCC + lavapipe)"
-
-      - name: Eklenti paketini indir
-        uses: actions/download-artifact@v4
-        with:
-          name: eklenti-linux-x86_64
-          path: yapi/tulpar-ext
-
-      - name: Savas bolumu (yayinlanmis tulpar + eklenti paketi)
-        run: |
-          set -euo pipefail
-          vulkaninfo --summary 2>&1 | grep -E 'deviceName|driverInfo' || { echo "::error::lavapipe gorunmuyor"; exit 1; }
-          bash tools/tulpar_dogrula.sh --tulpar "$RUNNER_TEMP/tulpar/tulpar" --eklenti yapi/tulpar-ext --yalniz-savas
 
 
   # CCACHE'I MAIN'DE ISIT (2026-10-30, Tuzaklar 8dl). Actions onbellegi kapsamli:
@@ -1216,10 +1146,14 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
+
+      # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
+      - name: GLFW (glfw3.dll, upstream 3.4)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: bash tools/windows_glfw.sh
 
       # YAZILIM VULKAN ICD'si (SwiftShader) — Windows'ta da (2026-10-05).
       # Runner'da vulkan-1.dll (System32) var ama ICD yok: vkCreateInstance
@@ -1355,8 +1289,7 @@ jobs:
       # bu isin yapi/tulpar-ext paketiyle motor oyunlarini derleyip linkler ve
       # kosar. tulpar.exe AOT linkini MSYS2'nin clang++'i ile yapar (-static,
       # -lssl -lcrypto: o yuzden clang + openssl paketleri yukarida).
-      # --uzun-atla (dalga 2400 / aksiyon 3200 kare GORUNUR ATLANDI) ve
-      # --gpusuz-izinli'nin YOKLUGU: tools/windows_kapilar.sh `kopru`.
+      # --gpusuz-izinli'nin YOKLUGU: tools/windows_kapilar.sh `kopru` (oyun taban cizgileri 2026-11-22'de kalkti).
       # (2026-10-05 oncesi: ICD yoktu, kare dongusu 9 kapida ATLANDI —
       # `19 gecti, 0 dustu, 9 atlandi`.)
       # PR'da bu adim AYRI iste kosar ("Windows kopru (SwiftShader)", asagida); burada yalniz
@@ -1480,10 +1413,13 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-python
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
+
+      # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
+      - name: GLFW (glfw3.dll, upstream 3.4)
+        run: bash tools/windows_glfw.sh
 
       - name: Yazilim Vulkan ICD'si (SwiftShader) + dogrulama katmani gercekten var mi
         run: bash tools/windows_vulkan_icd.sh kur

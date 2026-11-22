@@ -66,6 +66,7 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
       else if (!std::strcmp(k, "tema")) { tam = v == 0 || v == 1; t->tema = v == 1 ? 1 : 0; }
       else if (!std::strcmp(k, "dil")) { tam = v == 0 || v == 1; t->dil = v == 1 ? 1 : 0; }
       else if (!std::strcmp(k, "canli_kod")) { tam = v == 0 || v == 1; t->canli_kod = v == 0 ? 0 : 1; }
+      else if (!std::strcmp(k, "hedef_cihaz")) { tam = v >= 0 && v <= 2; t->hedef_cihaz = v < 0 ? 0 : v > 2 ? 2 : v; }
       if (!tam) ok = false;
     }
     if (!son) break;
@@ -75,8 +76,8 @@ bool tercih_ayristir(const char *m, Tercihler *t) {
 }
 
 uint32_t tercih_metni(const Tercihler &t, char *out, uint32_t cap) {
-  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\ncanli_kod = %d\ndil = %d\n",
-                              t.yazi, t.oto_kayit_dk, t.tema, t.canli_kod, t.dil);
+  const int n = std::snprintf(out, cap, "# Tulpar Editor tercihleri (editor yazar; elle de duzenlenebilir)\nyazi = %d\noto_kayit_dk = %d\ntema = %d\ncanli_kod = %d\ndil = %d\nhedef_cihaz = %d\n",
+                              t.yazi, t.oto_kayit_dk, t.tema, t.canli_kod, t.dil, t.hedef_cihaz);
   return n > 0 && (uint32_t)n < cap ? (uint32_t)n : 0;
 }
 
@@ -104,19 +105,31 @@ bool tercih_yaz(const char *yol, const Tercihler &t) {
 
 uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncelleme_otomatik) {
   uint32_t r = 0;
-  if (!p.acik) return r;
+  if (!p.acik) { p.ortala_kare = 0; return r; }
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   const float fs = ImGui::GetFontSize();
   ImGui::SetNextWindowSize(ImVec2(fs * 30.0f, 0.0f), ImGuiCond_Appearing);
   // Yazi boyu buyuyunca pencere ekrandan tasmasin (Kapat dugmesi dista kaliyordu, 2026-11-13): yukseklik ekranla sinirli, tasarsa kayar.
   ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, vp->WorkSize.y * 0.94f));
-  ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.45f), ImGuiCond_Appearing,
+  // Kayan govde (AutoResizeY cocuk) boyunu ilk karede degil sonrakinde bulur: yalniz Appearing'de ortalanan pencere kucuk
+  // olculup ortalaniyor, govde buyuyunce alttan ekran disina tasiyordu. Ilk 3 kare her kare ortala, sonra kullanici tasiyabilir.
+  const ImGuiCond ortala = p.ortala_kare < 3 ? ImGuiCond_Always : ImGuiCond_Appearing;
+  if (p.ortala_kare < 3) p.ortala_kare++;
+  ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.45f), ortala,
                           ImVec2(0.5f, 0.5f));
   if (!ImGui::Begin("Tercihler###tercihler", &p.acik, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::End();
     return r;
   }
   if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) p.acik = false;
+  // Govde kayan bir cocuk pencerede, "Kapat" onun ALTINDA sabit: 720p'de govde ekrana sigmayinca Kapat ancak kaydirinca
+  // gorunuyordu (arayuz surucusu, 2026-11-16). Govde yuksekligi icerige gore (AutoResizeY), tavani ekrandan kalan.
+  const ImGuiStyle &st = ImGui::GetStyle();
+  const float alt = ImGui::GetFrameHeight() + st.ItemSpacing.y * 3.0f + 1.0f;  // ayrac + bosluk + Kapat
+  const float ust = ImGui::GetFrameHeight() + st.WindowPadding.y * 2.0f;       // baslik cubugu + pencere dolgusu
+  const float govde_en_cok = vp->WorkSize.y * 0.94f - ust - alt;
+  ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, govde_en_cok > fs * 4.0f ? govde_en_cok : fs * 4.0f));
+  ImGui::BeginChild("##tercih_govde", ImVec2(fs * 29.0f + st.ScrollbarSize + st.ItemSpacing.x, 0.0f), ImGuiChildFlags_AutoResizeY);
   ImGui::PushTextWrapPos(fs * 29.0f);
 
   // --- Gorunum ---
@@ -182,6 +195,19 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
     if (ImGui::Checkbox("De\xC4\x9Fi\xC5\x9Fiklikleri \xC3\xA7" "al\xC4\xB1\xC5\x9F" "an oyuna uygula##canli_kod", &c)) { t.canli_kod = c ? 1 : 0; r |= kTercihDegisti; }
   }
   aciklama("Oyun çalışırken kod kaydedilirse oyun yeniden açılır; sahne değişirse oyun yeniden başlamadan güncellenir. Kodda hata varsa düzeltip kaydedince yeniden dener.");
+  ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.5f));
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted("Hedef cihaz");
+  {
+    static const char *const kAd[] = {"D\xC3\xBC\xC5\x9F\xC3\xBCk", "Orta", "Y\xC3\xBCksek"};
+    for (int i = 0; i < 3; i++) {
+      ImGui::SameLine();
+      char id[64];
+      std::snprintf(id, sizeof id, "%s##hedef%d", kAd[i], i);
+      if (ImGui::RadioButton(id, t.hedef_cihaz == i) && t.hedef_cihaz != i) { t.hedef_cihaz = i; r |= kTercihDegisti; }
+    }
+  }
+  aciklama("\xC4\xB0statistik'teki karakter b\xC3\xBC" "t\xC3\xA7" "esi bu s\xC4\xB1n\xC4\xB1" "fa g\xC3\xB6re: d\xC3\xBC\xC5\x9F\xC3\xBCk 50K k\xC3\xB6\xC5\x9F" "e (P20 Pro'da \xC3\xB6l\xC3\xA7\xC3\xBCld\xC3\xBC), orta 100K ve y\xC3\xBCksek 200K (tahmin).");
 
   // --- Guncelleme ---
   baslik("G\xC3\x9CNCELLEME");
@@ -199,8 +225,10 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
     else std::snprintf(kisa, sizeof kisa, "%s", p.ayar_dizini);
     ImGui::TextColored(renk(Tone::TextMute), "Ayarlar: %s", kisa);
   }
-  if (ImGui::Button("Kapat", ImVec2(-FLT_MIN, 0))) p.acik = false;
   ImGui::PopTextWrapPos();
+  ImGui::EndChild();
+  ImGui::Separator();
+  if (ImGui::Button("Kapat", ImVec2(-FLT_MIN, 0))) p.acik = false;
   ImGui::End();
   return r;
 }

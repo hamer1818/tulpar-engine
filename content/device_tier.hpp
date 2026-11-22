@@ -17,6 +17,10 @@ struct TierProfile {
   float exposure_ev;         // Renderer::set_exposure_ev baslangic degeri
   bool enable_fog;           // dusuk segmentte analitik sis bile kapatilabilir
   uint32_t msaa_samples;     // 1 = kapali (MSAA hala ertelendi, profil simdiden tasir)
+  // A7 (2026-11-22): kare basina iskeletli kose butcesi. Low = OLCUM (P20 Pro / Mali-G72, 2026-11-13: 40 karakter LOD0'da 92,8 ms;
+  // = kMobileSkinnedVertexBudget). Mid/High TAHMIN (Low'un 2x / 4x'i; cihazda OLCULMEDI — skinned_budget_measured false).
+  uint32_t skinned_vertex_budget;
+  bool skinned_budget_measured;
 };
 
 // Bilinen GPU adi alt-dizgileri (buyuk/kucuk harf farketmez) + toplam RAM

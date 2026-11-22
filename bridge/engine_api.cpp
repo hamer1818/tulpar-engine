@@ -31,6 +31,7 @@
 #include "audio/mixer.hpp"
 #include "bridge/android_lifecycle.hpp" // BackKeySample (geri tusu ornegi)
 #include "bridge/bridge_host.hpp"
+#include "content/device_tier.hpp"
 #include "content/font.hpp"
 #include "content/gltf.hpp"
 #include "content/mesh_import.hpp"
@@ -4371,6 +4372,20 @@ double teng_morph_get(int id, int target) {
   return g->morphs[e.morph].w[target];
 }
 int teng_morph_rejected(void) { return g ? (int)g->morph_rejected : 0; }
+int teng_model_lod(int asset, double lod1, double lod2) {
+  CALLF("teng_model_lod", "model %d lod1 %.2f lod2 %.2f", asset, lod1, lod2);
+  if (!ready("teng_model_lod")) return 0;
+  if (asset < 0 || (uint32_t)asset >= g->model_count) { BERR("teng_model_lod: model %d yok (%u yuklu)", asset, g->model_count); return 0; }
+  if (!(lod1 >= 0.0) || !(lod2 >= 0.0)) { BERR("teng_model_lod: mesafe negatif ya da NaN (%.2f, %.2f)", lod1, lod2); return 0; }
+  if (lod1 > 0.0 && lod2 > 0.0 && lod2 < lod1) { BERR("teng_model_lod: lod2 (%.2f) lod1'den (%.2f) kucuk", lod2, lod1); return 0; }
+  g->models[asset].lod_distance1 = (float)lod1;
+  g->models[asset].lod_distance2 = (float)lod2;
+  return 1;
+}
+static content::DeviceTier kopru_tier() { return content::device_tier_classify(g && g->inited ? g->dev.caps().device_name : "", 0); }
+int teng_device_tier(void) { return (int)kopru_tier(); }
+int teng_skin_budget(void) { return (int)content::device_tier_profile(kopru_tier()).skinned_vertex_budget; }
+int teng_skin_verts(void) { return g ? (int)g->ren.stats().skin_verts : 0; }
 int teng_spawn_model(int asset, double x, double y, double z, double scale, int64_t tint) {
   CALLF("teng_spawn_model", "model %d (%.2f %.2f %.2f) x%.2f", asset, x, y, z, scale);
   if (!ready("teng_spawn_model")) return 0;

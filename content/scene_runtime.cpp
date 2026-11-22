@@ -337,7 +337,7 @@ bool SceneRuntime::init(Arena &arena, renderer::Renderer &r, const SceneBlobView
     uint32_t used = 0;
     for (uint32_t i = 0; i < view.h->poly_count; i++) {
       const SceneBlobPoly &po = view.polys[i];
-      const uint32_t nv = poly_soup(po.pts, po.n, po.height, pv);
+      const uint32_t nv = poly_soup(scene_blob_poly_shape(po), pv);
       if (!nv || po.entity >= kSceneMaxEntities) { stats_.polys_failed++; continue; }
       poly_soup_pad(pv, nv);
       renderer::MeshHandle &slot = poly_pool_[used];
@@ -505,19 +505,21 @@ uint32_t SceneRuntime::spawn(sim::Physics &ph) {
   for (uint32_t i = 0; i < view_.h->poly_count; i++) {
     const SceneBlobPoly &po = view_.polys[i];
     if (po.entity >= view_.h->entity_count || view_.entities[po.entity].body >= 0) continue;
-    uint32_t part_n[kPolyMaxPoints], part_idx[3 * kPolyMaxPoints];
-    const uint32_t np = poly_convex_parts(po.pts, po.n, part_n, part_idx);
+    // P2 duzenleme: delikli/egimli sekil — parca koseleri (x, ust y, z); taban y0 (duz zeminde 5 cm asagi levha)
+    uint32_t part_n[kPolyMaxParts];
+    static thread_local Vec3 part_pts[kPolyMaxPartVerts];
+    const uint32_t np = poly_convex_parts(scene_blob_poly_shape(po), part_n, part_pts);
     if (!np) { stats_.poly_bodies_failed++; continue; }
-    Vec3 pts[6 * kPolyMaxPoints];
-    uint32_t pn2[kPolyMaxPoints];
+    static thread_local Vec3 pts[2 * kPolyMaxPartVerts];
+    uint32_t pn2[kPolyMaxParts];
     const Mat4 w = view_.entity_matrix(po.entity);
-    const float y0 = po.height > 0.0f ? 0.0f : -0.05f, y1 = po.height > 0.0f ? po.height : 0.0f;
     uint32_t off = 0, o = 0;
     for (uint32_t k = 0; k < np; k++) {
       for (uint32_t j = 0; j < part_n[k]; j++) {
-        const uint32_t q = part_idx[off + j];
-        pts[o++] = transform_point(w, Vec3{po.pts[2 * q], y0, po.pts[2 * q + 1]});
-        pts[o++] = transform_point(w, Vec3{po.pts[2 * q], y1, po.pts[2 * q + 1]});
+        const Vec3 q = part_pts[off + j];
+        const float y0 = po.height > 0.0f ? 0.0f : q.y - 0.05f;
+        pts[o++] = transform_point(w, Vec3{q.x, y0, q.z});
+        pts[o++] = transform_point(w, q);
       }
       pn2[k] = 2 * part_n[k];
       off += part_n[k];

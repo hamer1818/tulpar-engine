@@ -11,6 +11,9 @@ namespace tulpar::engine::content {
 
 struct GltfLimits {
   uint32_t max_images = 32;
+  // false: goruntuler HIC cozulmez (image_count 0, malzemelerin doku indeksleri -1). Yalniz geometri isteyen yol (editorun
+  // Kaynaklar onizlemesi): 4K bir dokunun cozulmesi ~100 ms, onizleme ise renk kullanmiyor. Varsayilan true: davranis ayni.
+  bool images = true;
   uint32_t max_materials = 64;
   uint32_t max_meshes = 128;
   uint32_t max_instances = 512;

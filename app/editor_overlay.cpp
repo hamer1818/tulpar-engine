@@ -673,7 +673,9 @@ static AssetStyle asset_style_for_file(const char *path) {
 
   if (std::strcmp(dot, ".animator") == 0) return {"\xE2\x86\xBB", "ANIMAT\xC3\x96R", Tone::Warn};   // ↻  (A3)
   // 3B Modeller / Aglar: Model simgesi, Vurgu
-  if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0) {
+  if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0 ||
+      std::strcmp(dot, ".stl") == 0 || std::strcmp(dot, ".fbx") == 0 || std::strcmp(dot, ".ply") == 0 ||
+      std::strcmp(dot, ".usda") == 0 || std::strcmp(dot, ".usd") == 0 || std::strcmp(dot, ".usdz") == 0) {
     return {"\xE2\x97\x86", "MODEL", Tone::Accent};
   }
   // Dokular / Resimler: Kutu/Resim, Eksen Z (Mavi)
@@ -719,6 +721,7 @@ static void kaynak_ipucu(const AssetFile &f) {
 
 namespace {
 AssetsThumbProvider g_thumbs;
+uint32_t g_karo_onizlenen = 0;   // son karede gercek onizlemeyle cizilen karo (kapi / ozet satiri)
 // Karo sag tik menusu (M1): yalniz model dosyalari. Popup kimligi karonun PushID kapsaminda (karo basina ayri).
 void karo_menu(const AssetFile &f, bool hov, AssetsAction *out, int i) {
   if (f.kind != AssetKind::Model) return;
@@ -732,12 +735,19 @@ const content::Model *karo_modeli(const AssetFile &f) {
   if (!g_thumbs.model || f.kind != AssetKind::Model || !f.in_scene || f.index < 0) return nullptr;
   return g_thumbs.model(g_thumbs.user, f.index);
 }
+// Sahnede olmayan model: onbellekten (yalniz GORUNEN karo sorar — gorunmeyenler yuvalari LRU'da dondurmesin).
+const ThumbMesh *karo_agi(const AssetFile &f) {
+  if (!g_thumbs.mesh || f.kind != AssetKind::Model || f.in_scene) return nullptr;
+  return g_thumbs.mesh(g_thumbs.user, f.name);
+}
 } // namespace
 void assets_panel_set_thumbs(const AssetsThumbProvider &p) { g_thumbs = p; }
+uint32_t assets_panel_thumbs_drawn() { return g_karo_onizlenen; }
 
 void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32_t file_count, const char (*scene_assets)[content::kScenePathLen],
                   const bool *loaded, uint32_t scene_asset_count, AssetsAction *out, AssetsLayout *out_layout) {
   if (out) *out = AssetsAction{};
+  g_karo_onizlenen = 0;
   AssetsLayout lay;
   if (out_layout) *out_layout = lay;
   if (!ImGui::GetCurrentContext()) return;
@@ -782,7 +792,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dizini yeniden tara");
     ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
     if (ImGui::Button(ICON_MD_ADD "##ice_aktar", ImVec2(btn_w, btn_w)) && out) out->ice_aktar = true;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .stl / .obj): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .fbx / .stl / .obj / .ply / .usda): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
     if (!two_rows) ImGui::SameLine(0.0f, st.ItemSpacing.x);
     // Izgara / liste: etkin olan vurgulu.
     for (int mode = 0; mode < 2; mode++) {
@@ -945,14 +955,18 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         // 3. Varlık Türü İkonu ve Rozeti
         const AssetStyle as = asset_style_for_file(f.name);
         // M1: yuklenmis modelde gercek onizleme (ustundeyken doner); yoksa tur simgesi.
+        // 2026-11-17: sahnede OLMAYAN model de onizlenir (ThumbCache; hazir olana dek simge).
         const content::Model *tm = karo_modeli(f);
+        const ThumbMesh *ta = !tm && ImGui::IsRectVisible(p, q) ? karo_agi(f) : nullptr;
         uint32_t thumb_n = 0;
-        if (tm) {
+        if (tm || ta) {
           const float yaw = hov ? (float)ImGui::GetTime() * 1.3f : 0.65f;
           float rgb[4];
           editor_tone(Tone::Text, rgb);
           const float m2 = 3.0f;
-          thumb_n = model_thumb_draw(*tm, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb);
+          thumb_n = tm ? model_thumb_draw(*tm, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb)
+                       : thumb_mesh_draw(*ta, yaw, cdl, p.x + m2, p.y + m2, thumb_br.x - m2, thumb_br.y - m2, rgb);
+          if (thumb_n) g_karo_onizlenen++;
         }
         if (!thumb_n) {
           const float real_glyph_px = std::floor(thumb_h * 0.46f);

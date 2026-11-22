@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A6 yeniden hedefleme test karakteri (2026-11-16): 21 eklemli insansi iskelet, gomulu .gltf.
 
-  python3 tools/make_test_insansi.py <mixamo|unreal|bozuk> <cikti.gltf> [--eksen-kaydir] [--klip]
+  python3 tools/make_test_insansi.py <mixamo|unreal|bozuk> <cikti.gltf> [--eksen-kaydir] [--klip] [--a-poz]
 
 Iskelet dunya DINLENME konumlari her secenekte AYNI (Y yukari, metre; kalca 1 m). Adlandirma:
   mixamo : mixamorig:Hips, mixamorig:LeftArm, mixamorig:LeftForeArm, mixamorig:LeftUpLeg ...
@@ -11,6 +11,9 @@ Iskelet dunya DINLENME konumlari her secenekte AYNI (Y yukari, metre; kalca 1 m)
   ebeveynin dunya donusuyle cozulur. Yani kemik eksen gelenegi kaynaktan FARKLI — yerel donusu kopyalayan saf yontem burada bozulur.
 --klip: "Selam" klibi (1 s, 3 ornek): sol ust kol dunya Z etrafinda 0 -> 90 derece (kol yukari), sag on kol dunya X etrafinda 0 -> -90,
   kalca z 0 -> 1 m. Klip yalniz dinlenme donusleri BIRIM olan iskelette (eksen kaydirmasiz) yazilir: yerel donus = dunya farki.
+--a-poz (2026-11-22): kollar A duruşunda — ust kol / on kol / el dunya konumlari omuz eklemi (upper_arm) etrafinda dunya Z'de
+  40 derece ASAGI dondurulur (sol -40, sag +40). Dinlenme pozu kaynaktan (T) FARKLI: T<->A dinlenme farki duzeltmesinin kapisi.
+  tests/assets/insansi_unreal_a.gltf = `unreal ... --eksen-kaydir --a-poz`.
 Her eklem bir ucgenle (agirlik 1) cizilir: mesh yalniz skin'i gecerli kilmak icin.
 """
 import base64
@@ -178,6 +181,14 @@ if __name__ == "__main__":
     if len(sys.argv) < 3 or sys.argv[1] not in ("mixamo", "unreal", "bozuk"):
         print(__doc__)
         sys.exit(2)
+    if "--a-poz" in sys.argv:
+        for i, (k, e, p) in enumerate(ISKELET):
+            if k.split("_")[0] in ("upper", "lower", "hand") and k[-2:] in ("_l", "_r") and not k.startswith("upper_leg") and not k.startswith("lower_leg"):
+                yan = k[-1]
+                o = [q for (a, _, q) in ISKELET if a == "upper_arm_" + yan][0]
+                aci = math.radians(-40.0 if yan == "l" else 40.0)
+                dx, dy = p[0] - o[0], p[1] - o[1]
+                ISKELET[i] = (k, e, (o[0] + dx * math.cos(aci) - dy * math.sin(aci), o[1] + dx * math.sin(aci) + dy * math.cos(aci), p[2]))
     g = uret(sys.argv[1], "--eksen-kaydir" in sys.argv, "--klip" in sys.argv)
     with open(sys.argv[2], "w") as f:
         json.dump(g, f, separators=(",", ":"))

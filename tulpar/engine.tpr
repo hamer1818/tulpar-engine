@@ -370,6 +370,13 @@ func morph_sayisi(m): int { return eng_model_morph_count(m); }
 func morph_agirlik(id, hedef, w) { eng_morph_weight(id, hedef, w); }
 func morph_oku(id, hedef): float { return eng_morph_get(id, hedef); }
 func morph_reddedilen(): int { return eng_morph_rejected(); }
+func model_lod(m, lod1, lod2): int { return eng_model_lod(m, lod1, lod2); }
+func cihaz_sinifi(): int { return eng_device_tier(); }
+func karakter_butcesi(): int { return eng_skin_budget(); }
+func karakter_kosesi(): int { return eng_skin_verts(); }
+func device_tier(): int { return eng_device_tier(); }
+func skin_budget(): int { return eng_skin_budget(); }
+func skin_verts(): int { return eng_skin_verts(); }
 func morph_count(m): int { return eng_model_morph_count(m); }
 func morph_weight(id, target, w) { eng_morph_weight(id, target, w); }
 func morph_get(id, target): float { return eng_morph_get(id, target); }

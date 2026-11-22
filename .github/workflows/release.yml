@@ -1214,10 +1214,13 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
+
+      # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
+      - name: GLFW (glfw3.dll, upstream 3.4)
+        run: bash tools/windows_glfw.sh
 
       # YAZILIM VULKAN ICD'si (SwiftShader) — ci.yml ile AYNI betik. ICD ya da
       # katman bulunamazsa, loader gormezse ya da surucu motorsuz bellek
@@ -1317,8 +1320,7 @@ jobs:
       # TULPAR KOPRUSU — ci.yml'in Windows isiyle AYNI adim: bu kosumun
       # yapi/tulpar-ext paketiyle motor oyunlari derlenir, linklenir, SwiftShader
       # uzerinde kosar (duman, pozitif kontroller, dil sondalari, kopru suite'i,
-      # 6 ornek x 60 kare). Uzun taban cizgileri (dalga 2400 / aksiyon 3200
-      # kare) --uzun-atla ile GORUNUR ATLANDI; Linux/macOS'ta her PR'da olculur.
+      # 6 ornek x 60 kare). Oyun taban cizgisi kapilari 2026-11-22'de kalkti (fonksiyon testleri yeter).
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
         if: steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh kopru "$(cygpath -u "$RUNNER_TEMP")/tulpar/tulpar.exe"

@@ -1,0 +1,70 @@
+; FBX 7.4.0 project file
+; Tulpar test varligi (2026-11-22, elle yazildi): FBX ARA (in-between) morph sekli. Duz ucgen (y=0), tek kanal "Kalk":
+; %50'de sekil "Yarim" (kose 2 +1 m Y), %100'de sekil "Tam" (kose 2 +1 m Y VE +1 m X). Agirlik 0.75 -> Yarim ile Tam'in ortasi:
+; kose 2 farki (0.5, 1, 0). Duz dogrusal (ara sekilsiz) okuma bunu (0.75, 0.75, 0) sanardi.
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7400
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "",1
+		P: "UpAxisSign", "int", "Integer", "",1
+		P: "FrontAxis", "int", "Integer", "",2
+		P: "FrontAxisSign", "int", "Integer", "",1
+		P: "CoordAxis", "int", "Integer", "",0
+		P: "CoordAxisSign", "int", "Integer", "",1
+		P: "UnitScaleFactor", "double", "Number", "",100
+	}
+}
+Objects:  {
+	Geometry: 1000, "Geometry::Ucgen", "Mesh" {
+		Vertices: *9 {
+			a: 0,0,0,1,0,0,0,0,1
+		}
+		PolygonVertexIndex: *3 {
+			a: 0,1,-3
+		}
+		GeometryVersion: 124
+	}
+	Model: 2000, "Model::Ucgen", "Mesh" {
+		Version: 232
+	}
+	Deformer: 3000, "Deformer::Sekiller", "BlendShape" {
+		Version: 100
+	}
+	Deformer: 3100, "SubDeformer::Kalk", "BlendShapeChannel" {
+		Version: 100
+		DeformPercent: 75
+		FullWeights: *2 {
+			a: 50,100
+		}
+	}
+	Geometry: 4000, "Geometry::Yarim", "Shape" {
+		Version: 100
+		Indexes: *1 {
+			a: 2
+		}
+		Vertices: *3 {
+			a: 0,1,0
+		}
+	}
+	Geometry: 4100, "Geometry::Tam", "Shape" {
+		Version: 100
+		Indexes: *1 {
+			a: 2
+		}
+		Vertices: *3 {
+			a: 1,1,0
+		}
+	}
+}
+Connections:  {
+	C: "OO",2000,0
+	C: "OO",1000,2000
+	C: "OO",3000,1000
+	C: "OO",3100,3000
+	C: "OO",4000,3100
+	C: "OO",4100,3100
+}

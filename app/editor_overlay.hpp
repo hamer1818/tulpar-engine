@@ -190,11 +190,17 @@ struct AssetsAction {
 };
 // M1: model karosu onizlemesi. Saglayici editor_app kurar: sahne kaynak indeksi -> YUKLENMIS model (yoksa nullptr; karo
 // eski simgesini cizer). Kapilar saglayicisiz cagirir: davranis eskisiyle ayni.
+struct ThumbMesh;   // app/editor_onizleme.hpp
 struct AssetsThumbProvider {
   const content::Model *(*model)(void *user, int32_t scene_asset) = nullptr;
+  // Sahnede OLMAYAN model dosyasi (karo gorunurken her karede sorulur): hazirsa onizleme agi, degilse nullptr (cagiran onbellege
+  // kuyruklar; o zamana kadar genel simge). file: Kaynaklar'daki ad (sahne dizinine gore).
+  const ThumbMesh *(*mesh)(void *user, const char *file) = nullptr;
   void *user = nullptr;
 };
 void assets_panel_set_thumbs(const AssetsThumbProvider &p);
+// Son assets_panel cagrisinda gercek model onizlemesiyle cizilen karo sayisi (simgeyle cizilen sayilmaz).
+uint32_t assets_panel_thumbs_drawn();
 // Yerlesimin OLCUM ciktisi (kapilar bir karoya "tiklarken" izgarayi yeniden
 // turetmez): govde cocugunun ekran dikdortgeni, karo olcusu, sutun sayisi ve
 // ilk karonun sol-ust kosesi. Liste kipinde tile_h = satir yuksekligi, cols = 1.

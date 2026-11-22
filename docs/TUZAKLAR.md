@@ -2296,6 +2296,13 @@ pozitif kontrol: aynı dosyanın kısa yolu farklı anahtar).
 yazmadan önce uzunluğu denetle ve sığmayanı reddet. Test geçici dizinleri kısa olduğu sürece kapı bunu
 göremez — uzun yolu testin kendisi kurmalı.
 
+**Tekrar (2026-11-17, editör "İlk adımlar"):** kart, sahne değişti mi diye `st.scene_path`i 128 baytlık
+`ia_sahne` kopyasıyla karşılaştırıyordu. 140 baytlık sahne yolunda kopya hep kesik, karşılaştırma her
+karede "değişti" deyip sayaçları sıfırlıyordu: "Bir nesne ekle" ve "Kaydet" adımları HİÇ işaretlenmedi
+(bitler 16, beklenen 26). Ölçüldü: aynı senaryo `/tmp/tmp.X` altında 26, scratchpad altında 16; düzeltmeden
+önceki ikili de 16 (yani yeni değil, kapının kısa yolu gizliyordu). Düzeltme: kopya `scene_path` kadar;
+`tools/arayuz_kapi.sh` ilk adımlar projesini bilerek >128 baytlık dizinde kurar.
+
 ### 8di. Metin yük FFI'da NUL'da biter, yayın paketi yolda sessizce süzülür — "gönderildi" alındı demek değil
 
 **Sınıf** (2026-10-23, N2a ağ API'si, geliştirme makinesi Linux): iki ayrı sessiz kayıp, ikisi de
@@ -2700,6 +2707,12 @@ göre doğru. Kapı: `model_bag_pozu_skin_matrisleri_poz_yoluyla_ayni` (bind_mat
 birimden 2,0 sapar). **Kural:** bir varsayım bir yolda yanlış çıkınca (8ef) aynı varsayımı kullanan BÜTÜN yolları ara — çizim, sınır,
 seçim kutusu, birim tahmini. Ve "boyut doğru" özeti çizimi doğrulamaz: kareye bak.
 
+**Kaçan yol (2026-11-17, Kaynaklar önizlemesi):** kuralın listesinde dördüncü bir yol eksikti — `app/editor_onizleme` karoya
+iskeletli köşeleri HAM (skin uzayı, `instance.world` ile) çiziyordu. Mike'ta köşeler ~160 birim, sınır 1,5 m: karoda birkaç dev
+üçgen. Kimse fark etmemişti çünkü sahnedeki model karosu çoğu zaman görünür alanın dışında kalıyordu; sahnede OLMAYAN modeller
+önizlenmeye başlayınca göründü. Düzeltme: önizleme sınırlarla aynı pozu (`Model::bounds_clip`, yoksa `bind_mats`) ve kemiğe takılı
+parçada `model_instance_world` kullanır; tanı ölçümü iki yükleme yolunda köşe kutusu = sınır kutusu (±0,01 m).
+
 ### 8ei. Dosyanın UV kanalı 0 tamamen sıfır — model düz renk, hiçbir hata yok
 **Belirti:** Mike (8eg/8eh) dokuları yüklü, malzeme doğru, ama robot düz parlak mavi (2026-11-16, başsız editör yakın çekimi).
 **Neden:** Unreal → glTF dönüşümü (FAB) `TEXCOORD_0`'ı bütün köşelerde (0,0) yazmış, gerçek UV `TEXCOORD_1`'de; malzeme kanal 0'ı
@@ -2752,3 +2765,11 @@ elle listeyle çıkarıyordu ve `.jpeg`, `.ayar`, `.animator` orada yoktu — Mi
 sessizce düşerdi (2026-11-16, A6 sırasında kodda fark edildi). **Düzeltme:** `android_main` artık `bridge::android_asset_wanted`'ı çağırır:
 tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağırsın.
 
+
+### 8ep. Dağıtımın paket deposu ortamı bıraktı — CI "target not found" ile, kodla ilgisiz düştü
+**Belirti:** 2026-11-22'de PR #149'un iki Windows işi `setup-msys2` adımında `error: target not found: mingw-w64-x86_64-glfw` ile düştü
+(yeniden koşmak da düşürdü); Linux/macOS yeşil. **Kök:** MSYS2 MINGW64 ortamını kullanımdan kaldırıyor (msys2.org/news 2026-03-15,
+2026-10-24: leaf paketlerin MINGW64 derlemeleri düzenli güncellemede siliniyor); glfw ilk gidenlerden. **Düzeltme (geçici):**
+`tools/windows_glfw.sh` upstream GLFW 3.4 MinGW-w64 ikilisini SÜRÜM + SHA-256 sabit indirip `${MSYSTEM_PREFIX}/bin`'e koyar (ci.yml iki
+iş, release.yml, `derle_mingw.sh`); özet tutmazsa kırmızı. **Kalıcı:** Windows derlemesini UCRT64'e taşımak — gcc/clang/openssl/
+vulkan-validation-layers da aynı yoldan gidecek. **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.

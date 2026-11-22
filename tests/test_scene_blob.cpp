@@ -995,7 +995,7 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   if (!bad) return;
   std::memcpy(bad, good, n);
   auto *h = reinterpret_cast<SceneBlobHeader *>(bad);
-  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 13);
+  CHECK(h->version == kSceneBlobVersion && kSceneBlobVersion == 14);
   // Her ESKI surum ayni anlamli hatayla reddedilmeli: 1 (Faz 6 oncesi),
   // 2 (yerlesik kume + navmesh, kume DAG YOK), 3 (GI sonda bolumu YOK),
   // 4 (SceneBlobDraw 24 bayt: ilkel + malzeme alanlari YOK), 5 (v6 bilesen
@@ -1006,7 +1006,8 @@ ENGINE_TEST(scene_blob_rejects_older_version) {
   // okunsaydi parcacik tablosunun adimi 112 sanilip komsu kayitlar kayardi) ve 9
   // (kamera/ses tablosu YOK: v9 basligi 16 bayt kisa, header_size reddeder) ve 10
   // (SceneBlobAnim 16 bayt: calma kipi YOK; v10 blobu okunsaydi animasyon tablosunun adimi 16 sanilip kayitlar kayardi).
-  // 11 (cokgen tablosu YOK) ve 12 (A8: SceneBlobAnim 20 bayt, animator yolu YOK: adim 28 sanilip kayitlar kayardi).
+  // 11 (cokgen tablosu YOK) ve 12 (A8: SceneBlobAnim 20 bayt, animator yolu YOK: adim 28 sanilip kayitlar kayardi) ve 13
+  // (P2 duzenleme: SceneBlobPoly 272 bayt, delik/kose yuksekligi YOK: adim 544 sanilip cokgen kayitlari kayardi).
   // Dongu kSceneBlobVersion'a kadar gittigi icin yeni surumler
   // kendiliginden kapsanir; yalniz yukaridaki sabit guncellenir.
   SceneBlobView v;
