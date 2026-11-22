@@ -43,7 +43,9 @@ inline bool android_asset_wanted(const char *name) {
                                      // madde 4 (2026-11-16): FBX dogrudan yukleniyor (ufbx)
                                      ".fbx",
                                      // 2026-11-22: PLY (content/mesh_import.cpp ply_load)
-                                     ".ply"};
+                                     ".ply",
+                                     // 2026-11-22: USD metin (usda) + usdz (sikistirilmamis zip icinde usda)
+                                     ".usda", ".usd", ".usdz"};
   for (const char *e : kExt)
     if (asset_ext_equal(dot, e)) return true;
   return false;

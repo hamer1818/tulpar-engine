@@ -343,3 +343,63 @@ ENGINE_TEST(fbx_dejenere_uv_kanali_atlanir) {
   CHECK(yol_bul(y2, sizeof y2, "morph_kup.fbx") && gltf_load(arena(), y2, &k) && !std::strstr(k.note, "UV"));
   arena().reset_to(mark);
 }
+
+// USD (USDA alt kumesi, 2026-11-22). (1) Blender 5.3 ayni sahneyi (kup (3,0,1) 2 m + donuk/olcekli duzlem, Z-yukari) .usda ve .gltf
+// olarak yazdi: ucgen sayisi ve sinir kutusu iki bicimde AYNI (biçimler arası kapi, FBX ~ glTF kalibi). usdz (sikistirilmamis zip
+// icinde .usda) da ayni. (2) Elle yazilmis usd_el.usda: metersPerUnit YOK -> 0,01; transform matrisi (x +2 m), pivot etrafinda Z 90
+// (`!invert!`), leftHanded (on yuz -X), displayColor -> 2 malzeme (kirmizi/mavi), class sablonu CIZILMEZ, zaman ornekli olcek atlanir
+// ve not'ta sayilir. Beklenen sinir hesapla: x 1..3, y 0..1, z -1,5..0. KONTROL: ikili usdc ve kesik usda reddedilir (hata metni).
+ENGINE_TEST(usd_usda_blender_gltf_ile_ayni_ve_el_yazimi) {
+  char ua[1024], ug[1024], uz[1024], uc[1024], ue[1024];
+  if (!yol_bul(ua, sizeof ua, "usd_sahne.usda") || !yol_bul(ug, sizeof ug, "usd_sahne.gltf") || !yol_bul(uz, sizeof uz, "usd_sahne.usdz") ||
+      !yol_bul(uc, sizeof uc, "usd_ikili.usdc") || !yol_bul(ue, sizeof ue, "usd_el.usda")) { skip("tests/assets/usd_* yok"); return; }
+  const size_t mark = arena().mark();
+  static Model a, g, z, c, e;
+  a = Model{}; g = Model{}; z = Model{}; c = Model{}; e = Model{};
+  auto ucgen = [](const Model &m) { uint32_t t = 0; for (uint32_t i = 0; i < m.mesh_count; i++) t += m.meshes[i].index_count / 3; return t; };
+  auto fark = [](const Model &x, const Model &y) {
+    return std::fmax(std::fmax(std::fabs(x.bounds_min.x - y.bounds_min.x), std::fmax(std::fabs(x.bounds_min.y - y.bounds_min.y), std::fabs(x.bounds_min.z - y.bounds_min.z))),
+                     std::fmax(std::fabs(x.bounds_max.x - y.bounds_max.x), std::fmax(std::fabs(x.bounds_max.y - y.bounds_max.y), std::fabs(x.bounds_max.z - y.bounds_max.z))));
+  };
+  const bool oa = gltf_load(arena(), ua, &a), og = gltf_load(arena(), ug, &g), oz = gltf_load(arena(), uz, &z);
+  std::printf("    [bilgi] Blender sahnesi: usda %s %u ucgen (%.3f %.3f %.3f)..(%.3f %.3f %.3f), gltf %u ucgen, sinir farki %.6f m, usdz farki %.6f\n", oa ? "ok" : a.error, ucgen(a),
+              (double)a.bounds_min.x, (double)a.bounds_min.y, (double)a.bounds_min.z, (double)a.bounds_max.x, (double)a.bounds_max.y, (double)a.bounds_max.z, ucgen(g), (double)fark(a, g),
+              (double)fark(a, z));
+  CHECK(oa && og && oz && ucgen(a) == 14 && ucgen(g) == 14 && ucgen(z) == 14 && fark(a, g) < 1e-4f && fark(a, z) == 0.0f);
+  const bool oe = gltf_load(arena(), ue, &e);
+  int kirmizi = -1, mavi = -1;
+  for (uint32_t i = 0; oe && i < e.material_count; i++) {
+    const Vec3 r = e.materials[i].base_color;
+    if (r.x == 1 && r.y == 0 && r.z == 0) kirmizi = (int)i;
+    if (r.x == 0 && r.y == 0 && r.z == 1) mavi = (int)i;
+  }
+  // mavi ucgenin on yuzu -X (leftHanded + Z 90): sarimdan gelen normal
+  Vec3 mavi_n{0, 0, 0};
+  for (uint32_t i = 0; oe && i < e.mesh_count; i++)
+    if (e.meshes[i].material == mavi && e.meshes[i].index_count >= 3) {
+      const ModelMesh &mm = e.meshes[i];
+      mavi_n = cross(mm.verts[mm.indices[1]].pos - mm.verts[mm.indices[0]].pos, mm.verts[mm.indices[2]].pos - mm.verts[mm.indices[0]].pos);
+    }
+  std::printf("    [bilgi] usd_el: %s, %u ucgen, %u malzeme, sinir (%.3f %.3f %.3f)..(%.3f %.3f %.3f), mavi on yuz (%.2f %.2f %.2f); not: %s\n", oe ? "ok" : e.error, ucgen(e),
+              e.material_count, (double)e.bounds_min.x, (double)e.bounds_min.y, (double)e.bounds_min.z, (double)e.bounds_max.x, (double)e.bounds_max.y, (double)e.bounds_max.z,
+              (double)mavi_n.x, (double)mavi_n.y, (double)mavi_n.z, e.note);
+  CHECK(oe && ucgen(e) == 2 && e.material_count == 2 && kirmizi >= 0 && mavi >= 0);
+  CHECK(std::fabs(e.bounds_min.x - 1) < 1e-5f && std::fabs(e.bounds_max.x - 3) < 1e-5f && std::fabs(e.bounds_min.y) < 1e-5f && std::fabs(e.bounds_max.y - 1) < 1e-5f &&
+        std::fabs(e.bounds_min.z + 1.5f) < 1e-5f && std::fabs(e.bounds_max.z) < 1e-5f);
+  CHECK(mavi_n.x < -0.1f && std::fabs(mavi_n.y) < 1e-4f && std::fabs(mavi_n.z) < 1e-4f && std::strstr(e.note, "1 "));
+  // KONTROLLER
+  CHECK(!gltf_load(arena(), uc, &c) && std::strstr(c.error, "usdc"));
+  static char bf[4096];
+  std::FILE *f = std::fopen(ua, "rb");
+  const size_t n = f ? std::fread(bf, 1, sizeof bf, f) : 0;
+  if (f) std::fclose(f);
+  char dir[512], kesik[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "usd_kesik"));
+  std::snprintf(kesik, sizeof kesik, "%s/kesik.usda", dir);
+  if (std::FILE *k = std::fopen(kesik, "wb")) { std::fwrite(bf, 1, n * 2 / 3, k); std::fclose(k); }
+  static Model b;
+  b = Model{};
+  CHECK(!gltf_load(arena(), kesik, &b) && b.error[0]);
+  std::printf("    [bilgi] usdc: %s; kesik usda: %s\n", c.error, b.error);
+  arena().reset_to(mark);
+}

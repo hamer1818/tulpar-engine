@@ -1,0 +1,51 @@
+#usda 1.0
+(
+    upAxis = "Y"
+    doc = """elle yazilmis USD kapisi (2026-11-22): metersPerUnit YOK -> USD varsayilani 0,01 (santimetre)"""
+)
+
+# Kok: 100 birim = 1 m. "Kirmizi" ucgen transform matrisiyle x +200 birim (= 2 m) otelenmis.
+def Xform "Kok"
+{
+    def Mesh "Kirmizi"
+    {
+        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (200, 0, 0, 1) )
+        uniform token[] xformOpOrder = ["xformOp:transform"]
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (100, 0, 0), (0, 100, 0)]
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+    }
+
+    # Pivot donusu: (100, 0, 0) etrafinda Z 90 derece -> (100,0,0)'daki kose yerinde, (200,0,0) -> (100,100,0)
+    def Mesh "Mavi" (
+        kind = "component"
+    )
+    {
+        double3 xformOp:translate:pivot = (100, 0, 0)
+        float xformOp:rotateZ = 90
+        uniform token[] xformOpOrder = ["xformOp:translate:pivot", "xformOp:rotateZ", "!invert!xformOp:translate:pivot"]
+        uniform token orientation = "leftHanded"
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 2, 1]
+        point3f[] points = [(100, 0, -50), (200, 0, -50), (100, 0, -150)]
+        float3 xformOp:scale.timeSamples = {
+            1: (1, 1, 1),
+            24: (2, 2, 2),
+        }
+        color3f[] primvars:displayColor = [(0, 0, 1)]
+        rel material:binding = </Kok/Malzeme>
+    }
+
+    class "Sablon"
+    {
+        def Mesh "Gorunmez"
+        {
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(9999, 0, 0), (9999, 1, 0), (9999, 0, 1)]
+        }
+    }
+}
