@@ -652,6 +652,7 @@ struct EditorState {
     SceneEntity drag_before;
     bool prev_enter = false, prev_back = false;
     int32_t hover = -1; // kaplamanın bu kare bulduğu tutamaç (girdi aynı izdüşümü kullanır)
+    int32_t sel = -1, sel_ent = -1;   // P2 düzenleme (2026-11-22): son tutulan nokta (kart: yükseklik / sil / kenarı böl)
   } poly;
   renderer::MeshHandle poly_meshes[content::kSceneMaxEntities] = {};
   // M1 ice aktarma ayarlari penceresi (Kaynaklar > sag tik). Degisiklik yuklu modele YERINDE uygulanir (model_import_reapply:
@@ -2100,6 +2101,137 @@ bool poly_tool_target_ok(const EditorState &st, int32_t ent) {
   return ent >= 0 && ent < (int32_t)st.scene.entity_count && (st.scene.entities[ent].components & content::kScenePoly);
 }
 // Aracın fareyi tuttuğu kare: seçim tıklaması, kutu seçimi ve gizmo devre dışı.
+// P2 düzenleme (2026-11-22): nokta ekle/sil köşe yüksekliğini (poly_dy) birlikte kaydırır.
+void poly_nokta_ekle(SceneEntity &e, uint32_t after_k, float x, float z) {
+  if (e.poly_n >= content::kScenePolyMaxPoints) return;
+  const uint32_t q = (after_k + 1) % e.poly_n;
+  const float dy = 0.5f * (e.poly_dy[after_k] + e.poly_dy[q]);
+  for (uint32_t k = e.poly_n; k > after_k + 1; k--) {
+    e.poly_pts[2 * k] = e.poly_pts[2 * k - 2]; e.poly_pts[2 * k + 1] = e.poly_pts[2 * k - 1];
+    e.poly_dy[k] = e.poly_dy[k - 1];
+  }
+  e.poly_pts[2 * (after_k + 1)] = x;
+  e.poly_pts[2 * (after_k + 1) + 1] = z;
+  e.poly_dy[after_k + 1] = dy;
+  e.poly_n++;
+}
+void poly_nokta_sil(SceneEntity &e, uint32_t k) {
+  if (e.poly_n <= 3 || k >= e.poly_n) return;
+  for (uint32_t i = k; i + 1 < e.poly_n; i++) { e.poly_pts[2 * i] = e.poly_pts[2 * i + 2]; e.poly_pts[2 * i + 1] = e.poly_pts[2 * i + 3]; e.poly_dy[i] = e.poly_dy[i + 1]; }
+  e.poly_n--;
+  e.poly_pts[2 * e.poly_n] = e.poly_pts[2 * e.poly_n + 1] = 0.0f;
+  e.poly_dy[e.poly_n] = 0.0f;
+}
+// Deliği sınır kutusu üzerinden taşı/ölçekle (her biçimde delik). Sonuç geçersizse (dışarı taşar, kesişir) e DEĞİŞMEZ, false.
+bool poly_delik_kutu(SceneEntity &e, float cx, float cz, float w, float d) {
+  if (!e.poly_hole_n || !(w > 0.01f) || !(d > 0.01f)) return false;
+  float lx = 1e30f, hx = -1e30f, lz = 1e30f, hz = -1e30f;
+  for (uint32_t i = 0; i < e.poly_hole_n; i++) {
+    lx = std::fmin(lx, e.poly_hole[2 * i]); hx = std::fmax(hx, e.poly_hole[2 * i]);
+    lz = std::fmin(lz, e.poly_hole[2 * i + 1]); hz = std::fmax(hz, e.poly_hole[2 * i + 1]);
+  }
+  const float ow = hx - lx, od = hz - lz, ocx = 0.5f * (lx + hx), ocz = 0.5f * (lz + hz);
+  if (!(ow > 1e-6f) || !(od > 1e-6f)) return false;
+  SceneEntity t = e;
+  for (uint32_t i = 0; i < e.poly_hole_n; i++) {
+    t.poly_hole[2 * i] = cx + (e.poly_hole[2 * i] - ocx) * (w / ow);
+    t.poly_hole[2 * i + 1] = cz + (e.poly_hole[2 * i + 1] - ocz) * (d / od);
+  }
+  if (!(content::poly_shape_area(content::scene_poly_shape(t)) > 1e-6f)) return false;
+  e = t;
+  return true;
+}
+// Ortaya dikdörtgen delik aç: çokgenin sınır kutusunun %30'u, merkez alan ortalaması; sığmazsa küçültülür (en çok 4 deneme).
+bool poly_delik_ac(SceneEntity &e) {
+  if (e.poly_hole_n || e.poly_n < 3) return false;
+  float lx = 1e30f, hx = -1e30f, lz = 1e30f, hz = -1e30f, cx = 0, cz = 0;
+  for (uint32_t i = 0; i < e.poly_n; i++) {
+    lx = std::fmin(lx, e.poly_pts[2 * i]); hx = std::fmax(hx, e.poly_pts[2 * i]);
+    lz = std::fmin(lz, e.poly_pts[2 * i + 1]); hz = std::fmax(hz, e.poly_pts[2 * i + 1]);
+    cx += e.poly_pts[2 * i] / (float)e.poly_n; cz += e.poly_pts[2 * i + 1] / (float)e.poly_n;
+  }
+  for (float k = 0.3f; k > 0.02f; k *= 0.5f) {
+    const float w = (hx - lx) * k * 0.5f, d = (hz - lz) * k * 0.5f;
+    SceneEntity t = e;
+    const float p[8] = {cx - w, cz - d, cx + w, cz - d, cx + w, cz + d, cx - w, cz + d};
+    for (int i = 0; i < 8; i++) t.poly_hole[i] = p[i];
+    t.poly_hole_n = 4;
+    if (content::poly_shape_area(content::scene_poly_shape(t)) > 1e-6f) { e = t; return true; }
+  }
+  return false;
+}
+// Çokgen kartının düzenleme bölümü: seçili nokta (yükseklik, sil, kenarı böl), delik (boolean fark), doku (UV ölçeği/açısı).
+template <typename CommitFn>
+void poly_duzenleme_karti_impl(EditorState &st, SceneEntity &e, SceneEntity &after, int si, CommitFn commit_fn) {
+  ImGui::Dummy(ImVec2(0, ImGui::GetStyle().ItemSpacing.y * 0.5f));
+  ImGui::TextDisabled("%s", "D\xC3\x9C" "ZENLE");
+  const bool secili = st.poly.sel_ent == si && st.poly.sel >= 0 && (uint32_t)st.poly.sel < e.poly_n;
+  if (secili) {
+    const uint32_t k = (uint32_t)st.poly.sel;
+    if (prop_begin("cokgen_nokta")) {
+      prop_help("Se\xC3\xA7ili noktan\xC4\xB1n \xC3\xBCst y\xC3\xBCksekli\xC4\x9F" "i (fark): rampa, e\xC4\x9Fimli \xC3\xA7" "at\xC4\xB1. Taban de\xC4\x9Fi\xC5\x9Fmez.");
+      track_edit(st, e, si, prop_float("Nokta y\xC3\xBCksekli\xC4\x9Fi", &e.poly_dy[k], 0.02f, e.poly_h > 0.0f ? -e.poly_h : -10000.0f, 10000.0f, "%+.2f m"));
+      prop_end();
+    }
+    if (ImGui::Button("Noktay\xC4\xB1 sil") && e.poly_n > 3) {
+      after = e;
+      poly_nokta_sil(after, k);
+      if (content::poly_shape_area(content::scene_poly_shape(after)) > 1e-6f) { st.poly.sel = -1; commit_fn(si, after); }
+      else set_status(st, "silinemez: kalan \xC5\x9F" "ekil ge\xC3\xA7" "ersiz olurdu");
+    }
+    akis_ayni_satir("Kenar\xC4\xB1 b\xC3\xB6l");
+    if (ImGui::Button("Kenar\xC4\xB1 b\xC3\xB6l") && e.poly_n < content::kScenePolyMaxPoints) {
+      after = e;
+      const uint32_t q = (k + 1) % e.poly_n;
+      poly_nokta_ekle(after, k, 0.5f * (e.poly_pts[2 * k] + e.poly_pts[2 * q]), 0.5f * (e.poly_pts[2 * k + 1] + e.poly_pts[2 * q + 1]));
+      st.poly.sel = (int32_t)k + 1;
+      commit_fn(si, after);
+    }
+  } else {
+    ImGui::TextDisabled("%s", "Bir noktay\xC4\xB1 tutup b\xC4\xB1rak: se\xC3\xA7ilir (y\xC3\xBCkseklik, sil, kenar\xC4\xB1 b\xC3\xB6l).");
+  }
+  if (!e.poly_hole_n) {
+    if (ImGui::Button("Delik a\xC3\xA7")) {
+      after = e;
+      if (poly_delik_ac(after)) commit_fn(si, after);
+      else set_status(st, "delik a\xC3\xA7\xC4\xB1lamad\xC4\xB1: \xC3\xA7okgen \xC3\xA7ok dar");
+    }
+  } else {
+    float lx = 1e30f, hx = -1e30f, lz = 1e30f, hz = -1e30f;
+    for (uint32_t i = 0; i < e.poly_hole_n; i++) {
+      lx = std::fmin(lx, e.poly_hole[2 * i]); hx = std::fmax(hx, e.poly_hole[2 * i]);
+      lz = std::fmin(lz, e.poly_hole[2 * i + 1]); hz = std::fmax(hz, e.poly_hole[2 * i + 1]);
+    }
+    float cx = 0.5f * (lx + hx), cz = 0.5f * (lz + hz), w = hx - lx, d = hz - lz;
+    if (prop_begin("cokgen_delik")) {
+      prop_help("Delik \xC3\xA7okgenden \xC3\xA7\xC4\xB1kar\xC4\xB1l\xC4\xB1r (i\xC3\xA7 duvarlar\xC4\xB1yla, \xC3\xA7" "arp\xC4\xB1\xC5\x9Fmada da bo\xC5\x9F). D\xC4\xB1\xC5\x9F" "ar\xC4\xB1 ta\xC5\x9F" "an de\xC4\x9F" "er uygulanmaz.");
+      PropItem a = prop_float("Delik X", &cx, 0.02f, -10000.0f, 10000.0f, "%.2f m");
+      PropItem b = prop_float("Delik Z", &cz, 0.02f, -10000.0f, 10000.0f, "%.2f m");
+      PropItem c = prop_float("Delik geni\xC5\x9Fli\xC4\x9Fi", &w, 0.02f, 0.02f, 10000.0f, "%.2f m");
+      PropItem dd = prop_float("Delik derinli\xC4\x9Fi", &d, 0.02f, 0.02f, 10000.0f, "%.2f m");
+      const PropItem items[4] = {a, b, c, dd};
+      for (const PropItem &it : items) {
+        if (it.changed) poly_delik_kutu(e, cx, cz, w, d);
+        track_edit(st, e, si, it);
+      }
+      prop_end();
+    }
+    if (ImGui::Button("Deli\xC4\x9Fi kapat")) {
+      after = e;
+      after.poly_hole_n = 0;
+      for (float &v : after.poly_hole) v = 0.0f;
+      commit_fn(si, after);
+    }
+  }
+  if (prop_begin("cokgen_doku")) {
+    prop_help("Doku tekrar\xC4\xB1 (metre ba\xC5\x9F\xC4\xB1na) ve \xC3\xBCst y\xC3\xBCz\xC3\xBCn doku a\xC3\xA7\xC4\xB1s\xC4\xB1. Yan y\xC3\xBCzde doku \xC3\xA7" "evre boyunca kesintisiz.");
+    track_edit(st, e, si, prop_float("Doku \xC3\xB6l\xC3\xA7" "e\xC4\x9Fi", &e.poly_uv_scale, 0.01f, 0.01f, 100.0f, "%.2f"));
+    track_edit(st, e, si, prop_float("Doku a\xC3\xA7\xC4\xB1s\xC4\xB1", &e.poly_uv_rot, 0.5f, -180.0f, 180.0f, "%.0f\xC2\xB0"));
+    prop_end();
+  }
+}
+#define poly_duzenleme_karti(st, e, after, si) poly_duzenleme_karti_impl(st, e, after, si, [&](int idx, const SceneEntity &se) { commit(st, idx, se); })
+
 bool poly_tool_captures(const EditorState &st) { return st.poly.drawing || st.poly.drag >= 0; }
 void poly_tool_begin(EditorState &st, int32_t ent) {
   if (!poly_tool_target_ok(st, ent)) return;
@@ -2206,11 +2338,18 @@ int32_t poly_overlay(EditorState &st, const Mat4 &vp_mat, const ViewportRect &vr
     ImVec2 a, b, at, bt;
     const bool oa = proj(e.poly_pts[2 * k], 0.0f, e.poly_pts[2 * k + 1], &a), ob = proj(e.poly_pts[2 * q], 0.0f, e.poly_pts[2 * q + 1], &b);
     if (oa && ob) dl->AddLine(a, b, col, 1.5f);
-    if (e.poly_h > 0.0f && proj(e.poly_pts[2 * k], e.poly_h, e.poly_pts[2 * k + 1], &at) && proj(e.poly_pts[2 * q], e.poly_h, e.poly_pts[2 * q + 1], &bt))
-      dl->AddLine(at, bt, col_dim, 1.0f);
+    const float ust = e.poly_h > 0.0f ? e.poly_h : 0.0f;
+    if ((e.poly_h > 0.0f || e.poly_dy[k] != 0.0f || e.poly_dy[q] != 0.0f) && proj(e.poly_pts[2 * k], ust + e.poly_dy[k], e.poly_pts[2 * k + 1], &at) &&
+        proj(e.poly_pts[2 * q], ust + e.poly_dy[q], e.poly_pts[2 * q + 1], &bt))
+      dl->AddLine(at, bt, col_dim, 1.0f);   // üst kenar (köşe yüksekliğiyle)
     if (!oa) continue;
     const float dx = a.x - msx, dy = a.y - msy;
     if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hover = (int32_t)k; }
+  }
+  for (uint32_t k = 0; k < e.poly_hole_n && k < content::kPolyMaxHolePoints; k++) {   // delik çevresi (kesikli değil: ince)
+    const uint32_t q = (k + 1) % e.poly_hole_n;
+    ImVec2 a, b;
+    if (proj(e.poly_hole[2 * k], 0.0f, e.poly_hole[2 * k + 1], &a) && proj(e.poly_hole[2 * q], 0.0f, e.poly_hole[2 * q + 1], &b)) dl->AddLine(a, b, col_dim, 1.5f);
   }
   for (uint32_t k = 0; k < n; k++) {
     ImVec2 a;
@@ -2218,6 +2357,7 @@ int32_t poly_overlay(EditorState &st, const Mat4 &vp_mat, const ViewportRect &vr
     const bool hot = (int32_t)k == hover || (int32_t)k == st.poly.drag;
     dl->AddCircleFilled(a, hot ? kPolyHandleR + 2.0f : kPolyHandleR, col);
     dl->AddCircle(a, (hot ? kPolyHandleR + 2.0f : kPolyHandleR) + 1.0f, col_edge, 0, 1.0f);
+    if (st.poly.sel == (int32_t)k && st.poly.sel_ent == ent) dl->AddCircle(a, kPolyHandleR + 5.0f, col, 0, 2.0f);   // seçili nokta
   }
   return hover;
 }
@@ -7428,9 +7568,10 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
               track_edit(st, e, si, prop_float("Y\xC3\xBCkseklik", &e.poly_h, 0.05f, 0.0f, 10000.0f, "%.2f m"));
               prop_end();
             }
-            const float alan = content::poly_area(e.poly_pts, e.poly_n);
-            uint32_t part_n[content::kPolyMaxPoints], part_idx[3 * content::kPolyMaxPoints];
-            const uint32_t parca = content::poly_convex_parts(e.poly_pts, e.poly_n, part_n, part_idx);
+            const float alan = content::poly_shape_area(content::scene_poly_shape(e));
+            uint32_t part_n[content::kPolyMaxParts];
+            static Vec3 part_pts[content::kPolyMaxPartVerts];
+            const uint32_t parca = content::poly_convex_parts(content::scene_poly_shape(e), part_n, part_pts);
             ImGui::TextDisabled("%u nokta \xC2\xB7 alan %.2f m\xC2\xB2 \xC2\xB7 %u \xC3\xA7" "arp\xC4\xB1\xC5\x9Fma par\xC3\xA7" "as\xC4\xB1", e.poly_n, (double)alan, parca);
             if (st.poly.drawing && st.poly.ent == si) {
               ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "\xC3\xA7iziliyor: %u nokta \xC2\xB7 Enter bitir \xC2\xB7 Esc vazge\xC3\xA7", st.poly.n);
@@ -7451,19 +7592,16 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                 }
                 const uint32_t q = (best + 1) % e.poly_n;
                 const float mx = 0.5f * (e.poly_pts[2 * best] + e.poly_pts[2 * q]), mz = 0.5f * (e.poly_pts[2 * best + 1] + e.poly_pts[2 * q + 1]);
-                for (uint32_t k = e.poly_n; k > best + 1; k--) { after.poly_pts[2 * k] = after.poly_pts[2 * k - 2]; after.poly_pts[2 * k + 1] = after.poly_pts[2 * k - 1]; }
-                after.poly_pts[2 * (best + 1)] = mx;
-                after.poly_pts[2 * (best + 1) + 1] = mz;
-                after.poly_n = e.poly_n + 1;
+                poly_nokta_ekle(after, best, mx, mz);
                 commit(st, si, after);
               }
               akis_ayni_satir("Son noktay\xC4\xB1 sil");
               if (ImGui::Button("Son noktay\xC4\xB1 sil") && e.poly_n > 3) {
-                after.poly_n = e.poly_n - 1;
-                after.poly_pts[2 * after.poly_n] = after.poly_pts[2 * after.poly_n + 1] = 0.0f;
-                if (content::poly_area(after.poly_pts, after.poly_n) > 1e-6f) commit(st, si, after);
+                poly_nokta_sil(after, e.poly_n - 1);
+                if (content::poly_shape_area(content::scene_poly_shape(after)) > 1e-6f) commit(st, si, after);
                 else set_status(st, "silinemez: kalan noktalar\xC4\xB1n alan\xC4\xB1 s\xC4\xB1" "f\xC4\xB1r olurdu");
               }
+              poly_duzenleme_karti(st, e, after, si);
             }
             end_component_card();
           }
@@ -9110,6 +9248,8 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           viewport_box_cancel();
           st.poly.drag = st.poly.hover;
           st.poly.drag_ent = st.sel.primary();
+          st.poly.sel = st.poly.hover;
+          st.poly.sel_ent = st.poly.drag_ent;
           st.poly.drag_before = st.scene.entities[st.poly.drag_ent];
           st.poly.drag_undo = st.hist.undo_count();
           st.poly.drag_redo = st.hist.redo_count();
@@ -11165,7 +11305,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
       }
       if (!drew && (e.components & content::kScenePoly) && st.poly_meshes[i].valid()) {
         static renderer::Vertex pv[content::kPolyMaxVerts];
-        const uint32_t nv = content::poly_soup(e.poly_pts, e.poly_n, e.poly_h, pv);
+        const uint32_t nv = content::poly_soup(content::scene_poly_shape(e), pv);
         if (nv) {
           content::poly_soup_pad(pv, nv);
           if (ren.update_dynamic_mesh(st.poly_meshes[i], pv, content::kPolyMaxVerts)) {

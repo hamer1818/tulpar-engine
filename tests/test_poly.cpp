@@ -210,3 +210,195 @@ ENGINE_TEST(poly_sahne_calisma_zamani_disbukey_govdeler) {
   ph.shutdown();
   arena().reset_to(mark);
 }
+
+// P2 düzenleme (2026-11-22): DELİK (boolean fark), KÖŞE YÜKSEKLİĞİ, KESİNTİSİZ UV. Beklenenler hesapla:
+//  - 4x4 kare (0..4) − ortadaki 2x2 delik (1..3): alan 16 − 4 = 12; halka 4 + 4 + 2 = 10 nokta -> üst 8, taban 8, yan 2·(4+4) = 16 üçgen
+//    = 96 köşe. Hiçbir üst üçgen deliğin içinde değil (ağırlık merkezi deliğin dışında); delik duvar normalleri DELİĞE bakar.
+//  - Dışbükey parçaların alanı toplamı 12, her parça dışbükey, hiçbir parçanın ağırlık merkezi delikte değil.
+//  - Rampa: 2x2 kare, h = 1, arka iki noktanın dy = 1 -> üst yüz 2 m'de 1 m yükselir: 3B alan 2 · √(2² + 1²) = 4,4721 m².
+//  - UV: yan u çevre boyunca birikir (kenar sonu = sonraki kenarın başı), son kenarın sonu çevre · ölçek (4x4 kare, ölçek 2: 32).
+// KONTROL: delik dışarıda / kenarı kesiyor / üst tabanın altına iniyor -> 0 (reddedilir); deliksiz kare 4n-4 = 12 üçgen.
+ENGINE_TEST(poly_delik_egim_kesintisiz_uv) {
+  static const float kare4[8] = {0, 0, 4, 0, 4, 4, 0, 4};
+  static const float delik_cw[8] = {1, 1, 1, 3, 3, 3, 3, 1};   // ters sarımla da verilebilir: kurucu yönü kendisi düzeltir
+  static renderer::Vertex v[kPolyMaxVerts];
+  PolyShape s;
+  s.xz = kare4; s.n = 4; s.h = 1.0f; s.hole = delik_cw; s.hole_n = 4;
+  CHECK(std::fabs(poly_shape_area(s) - 12.0f) < 1e-5f);
+  const uint32_t nv = poly_soup(s, v);
+  uint32_t ust = 0, alt = 0, yan = 0, delik_duvar = 0;
+  float ust_alan = 0;
+  bool delikte_ust = false, duvar_ters = false;
+  for (uint32_t i = 0; i + 2 < nv; i += 3) {
+    const Vec3 a = v[i].pos, b = v[i + 1].pos, c = v[i + 2].pos, nr = v[i].nrm;
+    CHECK(dot(cross(b - a, c - a), nr) >= 0);   // sarım normalle uyumlu (sıfır alanlı hariç)
+    const Vec3 m = (a + b + c) * (1.0f / 3.0f);
+    if (nr.y > 0.5f) { ust++; ust_alan += length(cross(b - a, c - a)) * 0.5f; delikte_ust |= m.x > 1 && m.x < 3 && m.z > 1 && m.z < 3; }
+    else if (nr.y < -0.5f) alt++;
+    else {
+      yan++;
+      if (m.x > 0.99f && m.x < 3.01f && m.z > 0.99f && m.z < 3.01f) { delik_duvar++; duvar_ters |= dot(nr, Vec3{2 - m.x, 0, 2 - m.z}) <= 0; }
+    }
+  }
+  std::printf("    [bilgi] delikli kare: %u kose (ust %u alt %u yan %u, delik duvari %u), ust alan %.4f m2\n", nv, ust, alt, yan, delik_duvar, (double)ust_alan);
+  CHECK(nv == 96 && ust == 8 && alt == 8 && yan == 16 && delik_duvar == 8 && !delikte_ust && !duvar_ters && std::fabs(ust_alan - 12.0f) < 1e-4f);
+  uint32_t pn[kPolyMaxParts];
+  static Vec3 pp[kPolyMaxPartVerts];
+  const uint32_t np = poly_convex_parts(s, pn, pp);
+  float parca_top = 0;
+  bool hepsi_disbukey = true, delikte_parca = false;
+  uint32_t off = 0;
+  for (uint32_t k = 0; k < np; k++) {
+    float xz[2 * kPolyMaxRing];
+    uint32_t idx[kPolyMaxRing];
+    Vec3 m{0, 0, 0};
+    for (uint32_t j = 0; j < pn[k]; j++) { xz[2 * j] = pp[off + j].x; xz[2 * j + 1] = pp[off + j].z; idx[j] = j; m = m + pp[off + j] * (1.0f / (float)pn[k]); }
+    parca_top += parca_alani(xz, idx, pn[k]);
+    hepsi_disbukey &= parca_disbukey(xz, idx, pn[k]);
+    delikte_parca |= m.x > 1 && m.x < 3 && m.z > 1 && m.z < 3;
+    off += pn[k];
+  }
+  std::printf("    [bilgi] delikli kare: %u dis bukey parca, alan toplami %.4f\n", np, (double)parca_top);
+  CHECK(np >= 4 && std::fabs(parca_top - 12.0f) < 1e-4f && hepsi_disbukey && !delikte_parca);
+  // KONTROL: geçersiz delikler
+  static const float disari[8] = {5, 5, 6, 5, 6, 6, 5, 6}, kesen[8] = {3, 1, 5, 1, 5, 3, 3, 3};
+  PolyShape k1 = s, k2 = s;
+  k1.hole = disari; k2.hole = kesen;
+  CHECK(poly_soup(k1, v) == 0 && poly_soup(k2, v) == 0 && poly_shape_area(k1) == 0.0f && poly_convex_parts(k2, pn, pp) == 0);
+  PolyShape deliksiz = s;
+  deliksiz.hole_n = 0;
+  CHECK(poly_soup(deliksiz, v) == 36);   // 4n-4 = 12 üçgen
+  // Rampa
+  static const float kare2[8] = {0, 0, 2, 0, 2, 2, 0, 2};
+  static const float dy[4] = {0, 0, 1, 1};
+  PolyShape r;
+  r.xz = kare2; r.n = 4; r.h = 1.0f; r.dy = dy;
+  const uint32_t rn = poly_soup(r, v);
+  float rampa = 0, yan_en = 0;
+  for (uint32_t i = 0; i + 2 < rn; i += 3) {
+    if (v[i].nrm.y > 0.5f) rampa += length(cross(v[i + 1].pos - v[i].pos, v[i + 2].pos - v[i].pos)) * 0.5f;
+    if (std::fabs(v[i].nrm.y) < 0.5f) for (int c = 0; c < 3; c++) yan_en = std::fmax(yan_en, v[i + c].pos.y);
+  }
+  std::printf("    [bilgi] rampa: ust 3B alan %.4f m2 (beklenen 4.4721), yan duvar en ust %.2f m\n", (double)rampa, (double)yan_en);
+  CHECK(rn == 36 && std::fabs(rampa - 4.47214f) < 1e-3f && std::fabs(yan_en - 2.0f) < 1e-5f);
+  static const float alta[4] = {0, 0, -2, 0};
+  PolyShape ra = r;
+  ra.dy = alta;
+  CHECK(poly_soup(ra, v) == 0);   // KONTROL: üst tabanın altına iner
+  // UV: kesintisiz çevre + ölçek + üst açı
+  PolyShape u;
+  u.xz = kare4; u.n = 4; u.h = 1.0f; u.uv_scale = 2.0f; u.uv_rot_deg = 90.0f;
+  const uint32_t un = poly_soup(u, v);
+  float onceki_son = 0, son = 0;
+  bool kesintisiz = true;
+  uint32_t duvar = 0;
+  for (uint32_t i = 0; i + 5 < un; i += 3) {
+    if (std::fabs(v[i].nrm.y) > 0.5f) continue;
+    // duvar: 6 köşe (iki üçgen); u0 = v[i].uv.x, u1 = v[i+1].uv.x
+    if (duvar > 0 && std::fabs(v[i].uv.x - onceki_son) > 1e-4f) kesintisiz = false;
+    onceki_son = son = v[i + 1].uv.x;
+    duvar++;
+    i += 3;
+  }
+  float ux = 0, uy = 0;
+  for (uint32_t i = 0; i < un; i++) if (v[i].nrm.y > 0.5f && v[i].pos.x == 4.0f && v[i].pos.z == 0.0f) { ux = v[i].uv.x; uy = v[i].uv.y; }
+  std::printf("    [bilgi] UV: %u duvar, son u %.3f (beklenen 32), ust (4,0) -> (%.3f %.3f) (beklenen 0, 8)\n", duvar, (double)son, (double)ux, (double)uy);
+  CHECK(duvar == 4 && kesintisiz && std::fabs(son - 32.0f) < 1e-4f && std::fabs(ux) < 1e-4f && std::fabs(uy - 8.0f) < 1e-4f);
+}
+
+// P2 düzenleme uçtan uca: .sahne (cokgen_yukseklik / cokgen_delik / cokgen_uv) -> ayrıştırıcı -> blob v14 -> SceneRuntime -> Jolt.
+// Delikli 4x4 levha (h = 1) (30, 0, 0)'da: delik ortasına inen ışın ÇARPMAZ, dolu kısma inen y = 1'de çarpar. Rampa (dy arka 1 m)
+// (40, 0, 0)'da: üst y = 1 + z/4 -> z = 3,9'da 1,975, z = 0,1'de 1,025 m'de çarpar. Varsayılan alanlı çokgen metni ESKİSİYLE aynı
+// (yeni satır yazılmaz). KONTROL: delik dışarıdaysa ayrıştırıcı reddeder; ayrılmış alanı kirli v14 kaydı açıcıda reddedilir.
+ENGINE_TEST(poly_sahne_delik_ve_rampa_fizikte) {
+  const size_t mark = arena().mark();
+  static SceneDesc d, back;
+  scene_desc_reset(d);
+  static SceneEntity e;
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "delikli");
+  e.pos = {30, 0, 0};
+  e.components = kScenePoly | kSceneModel;
+  e.asset = -1; e.primitive = -1;
+  static const float kare4[8] = {0, 0, 4, 0, 4, 4, 0, 4}, delik[8] = {1, 1, 3, 1, 3, 3, 1, 3};
+  e.poly_n = 4; e.poly_h = 1.0f;
+  for (int i = 0; i < 8; i++) { e.poly_pts[i] = kare4[i]; e.poly_hole[i] = delik[i]; }
+  e.poly_hole_n = 4;
+  e.poly_uv_scale = 0.5f; e.poly_uv_rot = 30.0f;
+  CHECK(d.insert_entity(0, e));
+  std::snprintf(e.name, sizeof e.name, "rampa");
+  e.pos = {40, 0, 0};
+  e.poly_hole_n = 0;
+  for (int i = 0; i < 32; i++) e.poly_hole[i] = 0;
+  e.poly_uv_scale = 1.0f; e.poly_uv_rot = 0.0f;
+  e.poly_dy[2] = 1.0f; e.poly_dy[3] = 1.0f;   // (4,4) ve (0,4): arka kenar
+  CHECK(d.insert_entity(1, e));
+  static char text[16384];
+  const size_t tn = scene_write(d, text, sizeof text);
+  SceneError err{};
+  CHECK(tn > 0 && std::strstr(text, "cokgen_delik 4 1 1 3 1 3 3 1 3") && std::strstr(text, "cokgen_uv 0.5 30") && std::strstr(text, "cokgen_yukseklik 4 0 0 1 1"));
+  CHECK(scene_parse(text, tn, &back, &err));
+  CHECK(back.entity_count == 2 && scene_entity_equal(back.entities[0], d.entities[0]) && scene_entity_equal(back.entities[1], d.entities[1]));
+  // KONTROL: varsayılan alanlarla yeni satır YOK
+  {
+    static SceneDesc yalin;
+    scene_desc_reset(yalin);
+    SceneEntity y = d.entities[1];
+    for (int i = 0; i < 32; i++) y.poly_dy[i] = 0;
+    CHECK(yalin.insert_entity(0, y));
+    static char t2[8192];
+    const size_t n2 = scene_write(yalin, t2, sizeof t2);
+    CHECK(n2 > 0 && !std::strstr(t2, "cokgen_"));
+  }
+  // KONTROL: dışarıdaki delik metinde reddedilir
+  {
+    static char bozuk[16384];
+    std::snprintf(bozuk, sizeof bozuk, "%s", text);
+    char *p = std::strstr(bozuk, "cokgen_delik 4 1 1 3 1 3 3 1 3");
+    if (p) std::memcpy(p, "cokgen_delik 4 9 9 3 1 3 3 1 3", 30);
+    static SceneDesc bd;
+    SceneError be{};
+    CHECK(p && !scene_parse(bozuk, std::strlen(bozuk), &bd, &be) && std::strstr(be.msg, "delik"));
+  }
+  const size_t need = scene_blob_compile(back, nullptr, 0);
+  void *blob = arena().alloc(need, kSceneBlobAlign);
+  CHECK(blob && scene_blob_compile(back, blob, need) == need);
+  SceneBlobView v;
+  CHECK(blob && scene_blob_open(blob, need, &v, &err) && v.h->poly_count == 2 && v.h->version == 14);
+  if (!blob || !v.h || v.h->poly_count != 2) { arena().reset_to(mark); return; }
+  CHECK(v.polys[0].hole_n == 4 && v.polys[0].uv_scale == 0.5f && v.polys[1].dy[2] == 1.0f);
+  // KONTROL: ayrılmış alan kirli -> açıcı reddeder
+  {
+    void *kopya = arena().alloc(need, kSceneBlobAlign);
+    std::memcpy(kopya, blob, need);
+    SceneBlobView kv;
+    CHECK(scene_blob_open(kopya, need, &kv, &err));
+    const_cast<SceneBlobPoly *>(kv.polys)[0].reserved[1] = 7;
+    SceneError ke{};
+    // özet (hash) da değişir; açıcı hangisini önce yakalarsa yakalasın kayıt REDDEDİLİR
+    CHECK(!scene_blob_open(kopya, need, &kv, &ke));
+  }
+  renderer::Renderer ren;
+  static SceneRuntime rt;
+  CHECK(rt.init(arena(), ren, v, "."));
+  sim::Physics ph;
+  sim::PhysicsConfig pc;
+  pc.threads = 1;
+  if (!ph.init(arena(), pc)) { arena().reset_to(mark); skip("Jolt kurulamadi"); return; }
+  CHECK(rt.spawn(ph) == 2 && rt.stats().poly_bodies_failed == 0);
+  sim::RayHit h;
+  const bool delikten = ph.raycast({32, 5, 2}, {0, -1, 0}, 10, &h);
+  const bool dolu = ph.raycast({30.5f, 5, 2}, {0, -1, 0}, 10, &h);
+  const float dolu_y = h.point.y;
+  const bool arka = ph.raycast({42, 5, 3.9f}, {0, -1, 0}, 10, &h);
+  const float arka_y = h.point.y;
+  const bool on = ph.raycast({42, 5, 0.1f}, {0, -1, 0}, 10, &h);
+  const float on_y = h.point.y;
+  std::printf("    [bilgi] delik: ortadan %s, dolu kisim y %.3f; rampa arka y %.3f, on y %.3f (beklenen 1.975 / 1.025: y = 1 + z/4), %u parca\n", delikten ? "CARPTI" : "gecti",
+              (double)dolu_y, (double)arka_y, (double)on_y, rt.stats().poly_parts);
+  CHECK(!delikten && dolu && std::fabs(dolu_y - 1.0f) < 1e-3f);
+  CHECK(arka && on && std::fabs(arka_y - 1.975f) < 2e-3f && std::fabs(on_y - 1.025f) < 2e-3f);   // 4x4 rampa: z 0 -> 4'te y 1 -> 2
+  rt.despawn(ph);
+  ph.shutdown();
+  arena().reset_to(mark);
+}

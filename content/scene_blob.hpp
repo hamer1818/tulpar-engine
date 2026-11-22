@@ -86,7 +86,8 @@ constexpr uint32_t kSceneBlobMagic = 0x4E485354u;   // "TSHN" (LE)
 // v13 (A8, 2026-11-16): SceneBlobAnim'e animator yolu (metin tablosu ofseti + uzunluk; 0 uzunluk = yok). 20 -> 28 bayt kayit.
 // Okuyani ayni degisiklikte: SceneRuntime animatoru yukler ve hareketten 'hiz'/'dikey' besler (content/scene_animators.hpp).
 // Eski v12 blob'lar REDDEDILIR (surum kapisi) — .sahneb turetilmistir, engine_sahnec / editor Derle yeniden uretir.
-constexpr uint32_t kSceneBlobVersion = 13;
+// v14 (P2 duzenleme, 2026-11-22): SceneBlobPoly 272 -> 544 bayt (kose yuksekligi, delik, doku olcegi/acisi). Eski v13 REDDEDILIR.
+constexpr uint32_t kSceneBlobVersion = 14;
 constexpr uint32_t kSceneBlobEndian = 0x01020304u;
 constexpr uint32_t kSceneBlobAlign = 16;
 constexpr uint32_t kGiBlobMaxProbes = 32768; // GI sonda tablosu ust siniri (dosya formati)
@@ -323,13 +324,18 @@ struct SceneBlobWind {
 }; // 32 bayt
 
 // v12 cokgen: SceneEntity::poly_* (XZ noktalari yerel uzayda, y=0 tabani). n 3..32, h >= 0 (0 = yalniz ust yuz). 272 bayt (16 hizali).
+// v14 (P2 duzenleme, 2026-11-22): eski `reserved` = delik nokta sayisi; ust yukseklik farki, delik noktalari, doku olcegi/acisi eklendi.
 struct SceneBlobPoly {
   uint32_t entity;
   uint32_t n;
   float height;
-  uint32_t reserved;
+  uint32_t hole_n;      // 0 ya da 3..16
   float pts[64];
-}; // 272 bayt
+  float dy[32];
+  float hole[32];
+  float uv_scale, uv_rot;
+  uint32_t reserved[2];
+}; // 544 bayt
 
 struct SceneBlobVoxel {
   uint32_t entity;
@@ -402,7 +408,13 @@ static_assert(sizeof(SceneBlobParticle) == 112 && sizeof(SceneBlobParticle) % kS
 static_assert(sizeof(SceneBlobScript) == 16, "v7 betik kaydi 16 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobProp) == 48 && sizeof(SceneBlobProp) % kSceneBlobAlign == 0, "v8 ozellik kaydi 48 bayt (dosya formati)");
 static_assert(sizeof(SceneBlobCamera) == 16 && sizeof(SceneBlobAudio) == 32, "v10 kamera/ses kayitlari (dosya formati)");
-static_assert(sizeof(SceneBlobPoly) == 272 && sizeof(SceneBlobPoly) % kSceneBlobAlign == 0, "v12 cokgen kaydi 272 bayt (dosya formati)");
+// v14 cokgen kaydinin sekli (isaretciler kayda bakar).
+inline PolyShape scene_blob_poly_shape(const SceneBlobPoly &po) {
+  PolyShape s;
+  s.xz = po.pts; s.n = po.n; s.h = po.height; s.dy = po.dy; s.hole = po.hole; s.hole_n = po.hole_n; s.uv_scale = po.uv_scale; s.uv_rot_deg = po.uv_rot;
+  return s;
+}
+static_assert(sizeof(SceneBlobPoly) == 544 && sizeof(SceneBlobPoly) % kSceneBlobAlign == 0, "v14 cokgen kaydi 544 bayt (dosya formati)");
 
 // Acilmis blob: isaretciler blob'un icine bakar (kopya yok). Blob bellegi
 // gorunumden uzun yasamali ve 16 hizali olmali.

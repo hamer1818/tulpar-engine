@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "content/poly.hpp"
 #include "core/math/vec.hpp"
 #include "core/memory/arena.hpp"
 #include "sim/physics.hpp"
@@ -285,6 +286,13 @@ struct SceneEntity {
   uint32_t poly_n = 0;
   float poly_h = 1.0f;
   float poly_pts[64] = {};
+  // P2 duzenleme (2026-11-22, content/poly.hpp PolyShape): nokta basina ust yukseklik farki, TEK delik (boolean fark, <= 16 nokta),
+  // doku olcegi/acisi. Varsayilanlar dosyaya YAZILMAZ (eski .sahne bayt bayt ayni yazilir).
+  float poly_dy[32] = {};
+  uint32_t poly_hole_n = 0;
+  float poly_hole[32] = {};
+  float poly_uv_scale = 1.0f;
+  float poly_uv_rot = 0.0f;
   // gokyuzu (kSceneSkybox). Panelde sabit bir dugme vardi, ARKASINDA ALAN DA
   // YOKTU: bileseni eklemek ve HDRI secmek hicbir sey kaydetmiyordu. Bilesen
   // biti "gokyuzu var mi"yi, bu alan HANGI gokyuzu oldugunu tasir; bos metin
@@ -316,10 +324,13 @@ struct SceneEntity {
 // gerekmiyor, ikili yerlesime dayanan tuketici yok (.sahneb kendi bicimi).
 // 2026-11-13 (A1b, anim_mode uint8_t, hizalama dolgusuyla +4): 1468 -> 1472 B; yigin cercevesi kapisi (128 KB) derlemede gecti.
 // 2026-11-16 (A8, anim_ctrl char[128]): 1736 -> 1864 B (SceneDesc 256 kez: +32 KB; gunluk islem basina 2 kez). Yigin kapisi derlemede.
-static_assert(sizeof(SceneEntity) == 1864, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
+// 2026-11-22 (P2 duzenleme: poly_dy 128 + delik 4 + 128 + uv 8): 1864 -> 2132 B (SceneDesc 256 kez: +67 KB). Yigin kapisi derlemede.
+static_assert(sizeof(SceneEntity) == 2132, "SceneEntity boyutu degisti: arena/yigin butcesini yeniden olc (scene.hpp)");
 // Veri modeli esitligi: yalniz mevcut bilesenlerin alanlari (dosyaya yazilanlar)
 // + ozellikler (bilesenden bagimsiz, yukarida).
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b);
+// P2: varligin cokgen sekli (content/poly.hpp; isaretciler e'nin alanlarina bakar).
+PolyShape scene_poly_shape(const SceneEntity &e);
 
 // --- Ozellik yardimcilari (E3) -----------------------------------------------
 // Ad kurali: [a-z0-9_], 1..23 karakter. Buyuk harf/Turkce karakter yok: ad

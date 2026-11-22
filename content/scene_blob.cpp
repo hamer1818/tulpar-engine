@@ -408,8 +408,11 @@ size_t scene_blob_compile_ex(const SceneDesc &d, const SceneBlobExtras *x, void 
     }
     if (e.components & kScenePoly) {
       SceneBlobPoly po{};
-      po.entity = i; po.n = e.poly_n; po.height = e.poly_h;
+      po.entity = i; po.n = e.poly_n; po.height = e.poly_h; po.hole_n = e.poly_hole_n;
       for (uint32_t k = 0; k < 2 * kScenePolyMaxPoints; k++) po.pts[k] = e.poly_pts[k];
+      for (uint32_t k = 0; k < 32; k++) { po.dy[k] = e.poly_dy[k]; po.hole[k] = e.poly_hole[k]; }
+      po.uv_scale = e.poly_uv_scale; po.uv_rot = e.poly_uv_rot;
+      po.reserved[0] = po.reserved[1] = 0;
       polys[npoly++] = po;
     }
     if (e.components & kSceneAudio) {
@@ -576,7 +579,10 @@ bool scene_blob_open(const void *data, size_t size, SceneBlobView *out, SceneErr
     if (po.n < 3 || po.n > kScenePolyMaxPoints) return E.fail("cokgen nokta sayisi 3..32 disinda");
     if (!(po.height >= 0.0f) || po.height > 10000.0f) return E.fail("cokgen yuksekligi 0..10000 disinda");
     for (uint32_t k = 0; k < 2 * po.n; k++) if (!std::isfinite(po.pts[k])) return E.fail("cokgen noktasi sonlu degil");
-    if (po.reserved) return E.fail("cokgen kaydinin ayrilmis alani sifir degil");
+    if (po.hole_n != 0 && (po.hole_n < 3 || po.hole_n > 16)) return E.fail("cokgen delik nokta sayisi 0 ya da 3..16 disinda");   // v14
+    for (uint32_t k = 0; k < 32; k++) if (!std::isfinite(po.dy[k]) || !std::isfinite(po.hole[k])) return E.fail("cokgen yukseklik/delik degeri sonlu degil");
+    if (!(po.uv_scale > 0.0f) || po.uv_scale > 1.0e4f || !std::isfinite(po.uv_rot)) return E.fail("cokgen doku olcegi/acisi gecersiz");
+    if (po.reserved[0] || po.reserved[1]) return E.fail("cokgen kaydinin ayrilmis alani sifir degil");
   }
   for (uint32_t i = 0; i < h->audio_count; i++) {
     const SceneBlobAudio &a = v.audios[i];

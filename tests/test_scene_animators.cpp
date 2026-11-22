@@ -206,7 +206,7 @@ ENGINE_TEST(sahne_blob_animator_yolunu_tasir) {
     void *buf = arena().alloc(need, kSceneBlobAlign);
     CHECK(buf && scene_blob_compile(d, buf, need) == need);
     SceneBlobView v;
-    CHECK(scene_blob_open(buf, need, &v, &err) && v.h->version == 13 && v.h->anim_count == 1);
+    CHECK(scene_blob_open(buf, need, &v, &err) && v.h->version == kSceneBlobVersion && v.h->version >= 13 && v.h->anim_count == 1);
     if (v.h->anim_count != 1) break;
     if (tur == 0) CHECK(!std::strcmp(v.anim_ctrl(0), "karakterler/kahraman.animator") && v.anims[0].ctrl_len == 29);
     else CHECK(v.anim_ctrl(0)[0] == 0 && v.anims[0].ctrl_len == 0);   // kontrol: boş yol "" döner

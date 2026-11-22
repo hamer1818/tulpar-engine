@@ -207,7 +207,7 @@ uint32_t tercih_ciz(TercihPencere &p, Tercihler &t, bool *gelismis, bool guncell
       if (ImGui::RadioButton(id, t.hedef_cihaz == i) && t.hedef_cihaz != i) { t.hedef_cihaz = i; r |= kTercihDegisti; }
     }
   }
-  aciklama("\xC4\xB0statistik'teki karakter b\xC3\xBC" "t\xC3\xA7" "esi bu s\xC4\xB1n\xC4\xB1fa g\xC3\xB6re: d\xC3\xBC\xC5\x9F\xC3\xBCk 50K k\xC3\xB6\xC5\x9F" "e (P20 Pro'da \xC3\xB6l\xC3\xA7\xC3\xBCld\xC3\xBC), orta 100K ve y\xC3\xBCksek 200K (tahmin).");
+  aciklama("\xC4\xB0statistik'teki karakter b\xC3\xBC" "t\xC3\xA7" "esi bu s\xC4\xB1n\xC4\xB1" "fa g\xC3\xB6re: d\xC3\xBC\xC5\x9F\xC3\xBCk 50K k\xC3\xB6\xC5\x9F" "e (P20 Pro'da \xC3\xB6l\xC3\xA7\xC3\xBCld\xC3\xBC), orta 100K ve y\xC3\xBCksek 200K (tahmin).");
 
   // --- Guncelleme ---
   baslik("G\xC3\x9CNCELLEME");

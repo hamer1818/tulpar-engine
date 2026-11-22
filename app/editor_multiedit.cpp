@@ -153,6 +153,11 @@ const Leaf kLeaves[] = {
     {offsetof(SceneEntity, poly_n), sizeof(uint32_t), "poly_n"},
     {offsetof(SceneEntity, poly_h), sizeof(float), "poly_h"},
     {offsetof(SceneEntity, poly_pts), sizeof(SceneEntity::poly_pts), "poly_pts"},
+    {offsetof(SceneEntity, poly_dy), sizeof(SceneEntity::poly_dy), "poly_dy"},
+    {offsetof(SceneEntity, poly_hole_n), sizeof(uint32_t), "poly_hole_n"},
+    {offsetof(SceneEntity, poly_hole), sizeof(SceneEntity::poly_hole), "poly_hole"},
+    {offsetof(SceneEntity, poly_uv_scale), sizeof(float), "poly_uv_scale"},
+    {offsetof(SceneEntity, poly_uv_rot), sizeof(float), "poly_uv_rot"},
 };
 } // namespace
 

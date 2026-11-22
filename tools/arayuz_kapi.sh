@@ -220,6 +220,13 @@ cp -r "$KOK/tests/assets" "$CK/assets"
 kos cokgen.txt "$CK/ui" --scene "$CK/assets/editor.sahne" --kip basit --size 1280x720; rck=$?  # tiklar Gorunum koordinatinda: boyut sabit
 if [ $rck = 0 ]; then echo "  cokgen araci: 6 tik -> Geri sil -> Enter 5 nokta, tutamac suruklendi, iki Ctrl+Z tohum kareye dondu (kontrol: Enter oncesi 4 nokta)"
 else echo "  KIRMIZI cokgen araci (cikis $rck):"; grep -E 'HATA|> ' "$CK/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; kirmizi=1; fi
+# --- P2 duzenleme: nokta sec, kenari bol, delik ac (geri al kontrolu), Ctrl+S; dosya burada denetlenir ---
+CD="$D/cokgen_duzenle"; mkdir -p "$CD/ui"
+cp -r "$KOK/tests/assets" "$CD/assets"
+kos cokgen_duzenle.txt "$CD/ui" --scene "$CD/assets/editor.sahne" --kip basit --size 1280x720; rcd=$?
+if [ $rcd = 0 ] && grep -qE '^  cokgen [0-9.]+ 6 ' "$CD/assets/editor.sahne" && grep -q '^  cokgen_delik 4 ' "$CD/assets/editor.sahne"; then
+  echo "  cokgen duzenleme: nokta secildi, kenar bolundu (6 nokta), delik acildi ve kaydedildi (kontrol: Ctrl+Z deligi geri aldi)"
+else echo "  KIRMIZI cokgen duzenleme (cikis $rcd):"; grep -E 'HATA|> ' "$CD/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E '^  cokgen' "$CD/assets/editor.sahne" 2>/dev/null | sed 's/^/      dosya:/'; kirmizi=1; fi
 # --- M1: model ice aktarma ayarlari (sag tik -> pencere -> cm -> Kaydet; dosya icerigi burada denetlenir) ---
 MA="$D/model_ayar"; mkdir -p "$MA/ui"
 cp -r "$KOK/tests/assets" "$MA/assets"
