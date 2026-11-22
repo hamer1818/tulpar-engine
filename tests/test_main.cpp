@@ -232,7 +232,18 @@ int engine_tests_main(int argc, char **argv) {
     crash_child_fn();
     return 4;
   }
-  const char *only = (argc > 1 && argv[1] && argv[1][0]) ? argv[1] : nullptr;
+  // PARCA (2026-11-22): `engine_tests --parca K/N [filtre]` yalniz kayit sirasi i % N == K olan
+  // testleri kosar; CI ayni ikiliyi iki koşucuda K=0 ve K=1 ile kosturup Windows'un test suresini boler.
+  // Ozet satirindaki payda PARCANIN kayitli sayisidir, yani "kosan == kayitli" kapisi parcada da olcer.
+  int parca_k = 0, parca_n = 1, arg0 = 1;
+  if (argc > 2 && argv[1] && std::strcmp(argv[1], "--parca") == 0) {
+    if (std::sscanf(argv[2], "%d/%d", &parca_k, &parca_n) != 2 || parca_n < 1 || parca_k < 0 || parca_k >= parca_n) {
+      std::printf("engine_tests: --parca K/N bekleniyor (0 <= K < N), gelen '%s'\n", argv[2]);
+      return 2;
+    }
+    arg0 = 3;
+  }
+  const char *only = (argc > arg0 && argv[arg0] && argv[arg0][0]) ? argv[arg0] : nullptr;
   // Satir tamponu: CI/dosyaya yonlendirmede asili kalan testin adi GORUNSUN.
   // Windows'ta (MSVCRT) _IOLBF satir tamponu DEGIL, TAM tampondur: boruya
   // yazan bir surec sert olunce (0xC0000374 heap bozulmasi "fail-fast",
@@ -251,8 +262,11 @@ int engine_tests_main(int argc, char **argv) {
   uint64_t yavas_ns[kYavas] = {};
   const char *yavas_ad[kYavas] = {};
   const uint64_t kosum_t0 = tulpar::engine::platform::now_ns();
+  int kayitli = 0;
   for (int i = 0; i < Registry::count; i++) {
     const Case &c = Registry::cases[i];
+    if (i % parca_n != parca_k) continue;
+    kayitli++;
     if (only && std::strstr(c.name, only) == nullptr) continue;
     ran++;
     Registry::failures = 0;
@@ -288,8 +302,11 @@ int engine_tests_main(int argc, char **argv) {
     for (int k = 0; k < kYavas && yavas_ad[k]; k++)
       std::printf("  [sure] %8.2f s  %s\n", (double)yavas_ns[k] / 1e9, yavas_ad[k]);
   }
+  if (parca_n > 1)
+    std::printf("engine tests: parca %d/%d — %d kayitli testin %d tanesi bu parcada\n", parca_k, parca_n, Registry::count,
+                kayitli);
   std::printf("engine tests: %d passed, %d failed, %d atlandi (%d/%d kosuldu)\n", passed, failed,
-              Registry::skipped, ran, Registry::count);
+              Registry::skipped, ran, kayitli);
   // KAYIT TASMASI KIRMIZIDIR. Tasan test hic kosmaz, yani ozet satirindaki
   // "passed" sayisi o testler hakkinda HICBIR SEY soylemez. Sessiz gecerse
   // ozet, tavan sayisini olcum gibi gosterir (2026-09-17'de tam bu oldu).

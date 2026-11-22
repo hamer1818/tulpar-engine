@@ -1317,14 +1317,17 @@ jobs:
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
-      # Kopru bolumu AYRI iste kosar ("Windows kopru (SwiftShader)"); o is bu eklenti paketini
-      # bekleyip indirir. Derlemeden hemen sonra yuklenir ki kopru bu isin testleriyle PARALEL kossun.
-      - name: Eklenti paketini yukle (kopru isi icin)
+      # Kopru bolumu ve TESTLERIN IKINCI PARCASI ayri iste kosar ("Windows kopru (SwiftShader)"); o is
+      # bu paketi (eklenti + yapi/*.exe: engine_tests kardes ikilileri de cagiriyor) bekleyip indirir.
+      # Derlemeden hemen sonra yuklenir ki o is bu isin testleriyle PARALEL kossun.
+      - name: Eklenti paketi + test ikilileri (kopru isi icin)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: eklenti-windows-x86_64
-          path: yapi/tulpar-ext/
+          path: |
+            yapi/tulpar-ext/
+            yapi/*.exe
           if-no-files-found: error
           retention-days: 3
 
@@ -1379,9 +1382,13 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh katman-kontrol
 
+      # PARCA (2026-11-22, Tuzaklar 8eq): PR'da bu is testlerin 0/2 parcasini, kopru isi AYNI ikiliyle
+      # 1/2 parcasini kosar (engine_tests --parca; i % 2). Ikisinin de ozeti "kosan == kayitli" kapisindan
+      # gecer ve bu is kopru isinin sonucunu tasir, yani her test yine zorunlu check'in arkasinda.
+      # PR disinda (main push yedegi, elle tetikleme) kopru isi yok: hepsi burada.
       - name: Testler + kapi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: bash tools/windows_kapilar.sh testler
+        run: bash tools/windows_kapilar.sh testler ${{ github.event_name == 'pull_request' && '0/2' || '' }}
 
       # TULPAR KOPRUSU — WINDOWS (link.windows, 2026-10-02): YAYINLANMIS
       # tulpar-windows-x64.zip (+ runtime arsivi; SHA256SUMS.txt dogrulamali)
@@ -1489,6 +1496,8 @@ jobs:
   # Windows isinin derledigi paketle burada, testlerle PARALEL kosar; Windows isi
   # bunun sonucunu bekler ve tasir (zorunlu check adi degismedi). Linux savas isiyle
   # ayni desen (tools/ci_bekle.sh). Yalniz PR'da: main push PR artefaktini kullanir.
+  # 2026-11-22: testlerin 1/2 parcasi da burada (Windows isinin Testler + kapi adimi 198 s'ydi,
+  # koşum 45011941482); paket yapi/*.exe'yi de tasir.
   windows-kopru:
     name: Windows kopru (SwiftShader)
     needs: detect-docs-only
@@ -1509,9 +1518,14 @@ jobs:
         with:
           msystem: MINGW64
           update: false
+          # Windows isiyle AYNI liste: testlerin 1/2 parcasi burada kosuyor (ayni calisma zamani DLL'leri,
+          # ayni araclar PATH'te — parca farki bir aracin yoklugundan degil testten gelsin).
           install: >-
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
+            mingw-w64-x86_64-ccache
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
@@ -1529,11 +1543,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 MINGW64)"
 
-      - name: Eklenti paketini indir
+      - name: Eklenti paketini + test ikililerini indir
         uses: actions/download-artifact@v4
         with:
           name: eklenti-windows-x86_64
-          path: yapi/tulpar-ext
+          path: yapi
+
+      # Testlerin 1/2 parcasi (0/2 Windows isinde; ayni ikili). Kanonik .sahne LF kapisi burada da:
+      # parca o testi icerebilir ve checkout ayni autocrlf ayariyla yapildi.
+      - name: Testler + kapi (parca 1/2)
+        env:
+          KAPI_BASLIK: Windows (MSYS2 MINGW64, SwiftShader)
+        run: |
+          python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF"; exit 1; }
+          bash tools/windows_kapilar.sh testler 1/2
 
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
         run: |
