@@ -2858,3 +2858,19 @@ için ikisi arasındaki pencerede motorun MINGW64 köprü işi karışık CRT il
 `Windows x86_64 (MSYS2 MINGW64)` TARİHSEL kaldı: dal korumasında kayıtlı, değişmesi korumayla birlikte yapılmalı.
 **Kural:** bir araç zinciri göçünde "bizim ikili derleniyor" yetmez; ikiliyle AYNI linke giren her arşivin ve sürücünün ortamı sorulur.
 
+### 8eu. Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
+**Belirti (2026-11-22):** HTTPS kapısı (`platform_https_verifies_certificate_and_name`) Windows UCRT64 CI'da her koşumda düştü: ilk
+bağlantıda istemci "connection indicated an EOF", sunucu tarafı her bağlantıda `-0x6C00`. Linux/macOS CI ve MINGW64'te yeşildi.
+**Yanlış izler (ölçümle elendi):** sunucu kurulumu / ilk el sıkışma yarışı (hazır bayrağı ekledim, düşmeye devam etti), mbedTLS
+threading'sizliği (`MBEDTLS_THREADING_C` açıkken de aynı yerde düştü — geri alındı), UCRT/msvcrt farkı. **Ölçüm zinciri:** sunucu
+tarafı teşhisi (PSA/DRBG dönüşleri 0) → ilk bağlantının mbedTLS izi (`ssl_tls13_generic.c:1174 calculate_verify_data`, seçilen takım
+CHACHA20-POLY1305-SHA256) → vendor dosyasına geçici iz: `psa_mac_compute = -137 (PSA_ERROR_BAD_STATE)`; aynı iz Linux'ta da düşmeyi
+YENİDEN ÜRETTİ (zamanlama/yerleşimle açılıp kapanan heisenbug). **Kök:** GCC 15'ten beri `= {0}` otomatik ömürlü bir union'ın YALNIZ
+ilk üyesini sıfırlar (GCC 15 sürüm notu); mbedTLS 3.6.2'nin PSA işlem yapıları (`MBEDTLS_PSA_MAC_OPERATION_INIT` …) tam sıfırlamaya
+dayanıyor, iç karma bağlamında kalan çöp `psa_hash_setup`'ı `BAD_STATE`'e düşürüyor. Yerel GCC 16.2.1, MSYS2 GCC 16.2; Ubuntu CI'nin
+GCC'si eski. **Düzeltme:** `-fzero-init-padding-bits=unions` BÜTÜN derlemeye (destek denetlenir; aynı varsayıma başka vendor C kodu da
+dayanıyor olabilir). Yerel, aynı derlemede: bayraksız 30/30 düşüş, bayraklı 0/30 (sonra kalıcı bayrakla 20/20 temiz). **Kapı:**
+`union_sifir_ilklendirme_tam` — yığın kirletilir, `{0}` ile kurulan union'ın her baytı okunur; pozitif kontrol (bağımsız derleme,
+-O0/-O2/-O3): bayraksız 0, bayraklı 1. **Kural:** platforma özgü görünen bir düşüşü platforma bağlamadan önce "aynı kod başka yerleşimle
+de düşer mi" diye sor; tanımsız davranış platform değil, yığın içeriği seçer. Ürünün HTTPS istemcisi de aynı yolu kullanıyor ve
+şans eseri geçiyordu.
