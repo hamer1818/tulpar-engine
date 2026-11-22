@@ -225,11 +225,11 @@ const char *kSertB =
     "SAAwRQIgVYBL+DMRcqSS9mscIl/KXWaJsjVAbcULWhPgE3JUIjsCIQDDHOiFWqz7\n"
     "9bd2SIzf2WXI1dkAzClIaMb3yDNaO1HYxg==\n"
     "-----END CERTIFICATE-----\n";
-// HAZIR BAYRAGI (2026-11-22): sunucu kurulumu (psa_crypto_init, DRBG tohumu, anahtar) istemcinin ilk el sikismasiyla YARISIYORDU;
-// psa_crypto_init global durum kurar ve mbedTLS threading'siz derlenmis (iki is parcacigindan eszamanli cagri guvenli degil). Windows
-// UCRT64 CI'da (PR #160, koşum 45049366157) ilk baglanti "SSL - The connection indicated an EOF" ile dustu, sonraki ikisi gecti.
-// Artik PSA ana is parcacigında sunucudan ONCE baslatilir ve istemci sunucunun hazir demesini bekler. (Urunde kopru tek HTTP is
-// parcacigi kullanir: platform::http_exchange eszamanli cagrilmaz — bridge/engine_api.cpp http_worker.)
+// HAZIR BAYRAGI (2026-11-22): istemci, sunucu kurulumunu (psa_crypto_init, DRBG tohumu, anahtar) bitirmeden baglanmaz; PSA ana is
+// parcacigında sunucudan ONCE baslatilir (mbedTLS threading'siz). Windows UCRT64 CI'daki ilk baglanti dususu ONCE buna baglandi, ama
+// OLCUM baska bir sey gosterdi: sebep GCC 15+'in union {0} ilklendirmesiydi (Tuzaklar 8eu, union_sifir_ilklendirme_tam). Bayrak yine
+// dogru hijyen; sunucu tarafi teshisi (PSA/DRBG donusleri, dusunce ilk baglantinin mbedTLS izi) o aramada eklendi ve kalir.
+// (Urunde kopru tek HTTP is parcacigi kullanir — bridge/engine_api.cpp http_worker.)
 struct TlsSunucu {
   int ls = -1;
   uint16_t port = 0;
@@ -365,4 +365,32 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
     std::printf("    [bilgi] https://example.com: ok %d status %d %u bayt hata '%s'\n", ok, r.status, r.body_len, r.error);
     CHECK(ok && r.status == 200 && r.body_len > 100);
   }
+}
+
+// DERLEYICI: union {0} BUTUN union'i sifirliyor mu (2026-11-22, Tuzaklar 8eu). GCC 15+ varsayilan olarak yalniz ilk uyeyi sifirliyor;
+// mbedTLS'in PSA islem yapilari buna dayaniyor ve yukaridaki HTTPS kapisinin TLS 1.3 sunucusu psa_mac_compute = BAD_STATE ile dustu.
+// CMakeLists.txt -fzero-init-padding-bits=unions'i destekleyen derleyicide butun derlemeye verir. Once yigin 0xA5 ile kirletilir, sonra
+// ayni derinlikte {0} ile kurulan union'in HER bayti okunur. POZITIF KONTROL (yerel, GCC 16.2.1, ayni kod bagimsiz derlendi): -O0/-O2/-O3
+// bayraksiz 0, bayrakli 1 — kapi bayragin yoklugunu gercekten goruyor.
+namespace {
+union KarmaBirlik {
+  char a;
+  unsigned long long b[16];
+};
+__attribute__((noinline)) void yigini_kirlet() {
+  volatile unsigned char b[512];
+  for (int i = 0; i < 512; i++) b[i] = 0xA5;
+}
+__attribute__((noinline)) bool birlik_sifir_mi() {
+  KarmaBirlik u = {0};
+  volatile const unsigned char *p = reinterpret_cast<const unsigned char *>(&u);
+  for (size_t i = 0; i < sizeof u; i++)
+    if (p[i]) return false;
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(union_sifir_ilklendirme_tam) {
+  yigini_kirlet();
+  CHECK(birlik_sifir_mi());
 }
