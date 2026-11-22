@@ -6,6 +6,7 @@
  */
 
 #include "common.h"
+#include <stdio.h> /* TULPAR_TESHIS */
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_3)
 
@@ -179,6 +180,7 @@ int mbedtls_ssl_tls13_hkdf_expand_label(
                                 &hkdf_label_len);
 
     status = psa_key_derivation_setup(&operation, PSA_ALG_HKDF_EXPAND(hash_alg));
+    if (status != PSA_SUCCESS) fprintf(stderr, "TULPAR_TESHIS hkdf_expand_label: setup %d\n", (int)status); /* TULPAR_TESHIS */
 
     if (status != PSA_SUCCESS) {
         goto cleanup;
@@ -211,6 +213,7 @@ int mbedtls_ssl_tls13_hkdf_expand_label(
     }
 
 cleanup:
+    if (status != PSA_SUCCESS) fprintf(stderr, "TULPAR_TESHIS hkdf_expand_label: status %d label_len %u buf_len %u\n", (int)status, (unsigned)label_len, (unsigned)buf_len); /* TULPAR_TESHIS */
     abort_status = psa_key_derivation_abort(&operation);
     status = (status == PSA_SUCCESS ? abort_status : status);
     mbedtls_platform_zeroize(hkdf_label, hkdf_label_len);
@@ -738,6 +741,7 @@ static int ssl_tls13_calc_finished_core(psa_algorithm_t hash_alg,
         MBEDTLS_SSL_TLS1_3_LBL_WITH_LEN(finished),
         NULL, 0,
         finished_key, hash_len);
+    fprintf(stderr, "TULPAR_TESHIS calc_finished: hash_alg 0x%08x hash_len %u expand_label %d\n", (unsigned)hash_alg, (unsigned)hash_len, ret); /* TULPAR_TESHIS */
     if (ret != 0) {
         goto exit;
     }
@@ -748,6 +752,7 @@ static int ssl_tls13_calc_finished_core(psa_algorithm_t hash_alg,
     psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
 
     status = psa_import_key(&attributes, finished_key, hash_len, &key);
+    fprintf(stderr, "TULPAR_TESHIS calc_finished: psa_import_key %d\n", (int)status); /* TULPAR_TESHIS */
     if (status != PSA_SUCCESS) {
         ret = PSA_TO_MBEDTLS_ERR(status);
         goto exit;
@@ -755,6 +760,7 @@ static int ssl_tls13_calc_finished_core(psa_algorithm_t hash_alg,
 
     status = psa_mac_compute(key, alg, transcript, hash_len,
                              dst, hash_len, dst_len);
+    fprintf(stderr, "TULPAR_TESHIS calc_finished: psa_mac_compute %d\n", (int)status); /* TULPAR_TESHIS */
     ret = PSA_TO_MBEDTLS_ERR(status);
 
 exit:
