@@ -454,6 +454,11 @@ uint32_t scene_tree_depth(const SceneDesc &d, uint32_t i);
 // BIT-TAMDIR (erken donus) — duzlestirilmis sahne ile karsilastirma kapisi
 // buna dayanir.
 Mat4 scene_entity_world_matrix(const SceneDesc &d, uint32_t i);
+// Cokgenler arasi boolean (2026-11-22): iki kScenePoly varligi -> A'nin yerine gececek varlik (`*out` = A + yeni sekil; B'yi silmek
+// cagiranin isi). B'nin noktalari DUNYA matrisleri uzerinden A'nin yerel XZ'sine tasinir (inverse(W_A) * W_B); B A'ya gore EGIKSE
+// (Y ekseni disinda donus / yerel y'si sifir degil) hata. Yukseklik, UV, malzeme A'nin; nokta yuksekligi (dy) olan cokgen reddedilir.
+// false: err (insan okur) dolu.
+bool scene_poly_bool(const SceneDesc &d, uint32_t ia, uint32_t ib, PolyBoolOp op, SceneEntity *out, char *err, uint32_t err_cap);
 // Dunya donusu: zincirdeki kuaterniyonlarin carpimi. Kok: scene_entity_rotation
 // ile bit-tam.
 Quat scene_entity_world_rotation(const SceneDesc &d, uint32_t i);

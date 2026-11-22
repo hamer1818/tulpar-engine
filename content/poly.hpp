@@ -66,4 +66,26 @@ float poly_area(const float *xz, uint32_t n);
 // Şeklin alanı (dış − delik); geçersiz şekil 0.
 float poly_shape_area(const PolyShape &s);
 
+// --- ÇOKGENLER ARASI BOOLEAN (2026-11-22, content/poly_bool.cpp) -------------------------------------------------------------------
+// İki şekil AYNI XZ uzayında (çağıran dönüştürür: scene_poly_bool). Yöntem kenar sınıflandırma (overlay): her iki şeklin bütün
+// halkaları (dış + delikler) birbirinin kesişimlerinde, köşelerinde ve doğrusal örtüşmelerinde bölünür; her parça orta noktasının
+// öteki şekle göre içte/dışta oluşuna göre seçilir, ÇAKIŞIK kenarda yön kuralı (birleşim/kesişim: aynı yön tek kez, ters yön atılır;
+// fark B ters çevrilerek aynı kural). Halkalar "ters gelen yönden saat yönünde ilk aday" ile birleşir — köşede değen parçalar AYRI
+// halkaya düşer. Sonuç tam BİR dış halka + en çok kPolyMaxHoles delik olmalı ve mevcut doğrulayıcıdan (poly_shape_area) geçmeli;
+// ayrık parçalar, boş sonuç, sınır aşımı HATA (sebebi `error`'da, sessiz değil). Doğrusal ara köşeler atılır.
+// Sınır: köşe yüksekliği (dy) olan şekil reddedilir (iki eğimli üstün birleşimi tanımsız); yükseklik / UV çağıranın (A'nınki).
+enum class PolyBoolOp : uint8_t { Birlesim = 0, Fark = 1, Kesisim = 2 };
+struct PolyBoolOut {
+  float xz[2 * kPolyMaxPoints] = {};
+  uint32_t n = 0;
+  float hole[2 * kPolyMaxHolePoints] = {};
+  uint32_t hole_n = 0;
+  uint8_t hole_counts[kPolyMaxHoles] = {};
+  uint32_t hole_rings = 0;
+  char error[112] = {};
+};
+bool poly_bool(const PolyShape &a, const PolyShape &b, PolyBoolOp op, PolyBoolOut *out);
+// Sonucu şekle çevirir (noktalar `o`'ya bakar); h / UV `stil`den.
+PolyShape poly_bool_shape(const PolyBoolOut &o, const PolyShape &stil);
+
 } // namespace tulpar::engine::content

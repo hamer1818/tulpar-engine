@@ -1,0 +1,20 @@
+tulpar-sahne 1
+isik-yon 0.5 1 0.35
+isik-ortam 0.16 0.17 0.2
+isik-gunes 0.85
+golge 0 1 -1 17 70
+kamera 0 1 -3 0.7 0.45 26
+nesne "cokgen_a"
+  konum 0 0 0
+  donus 0 0 0
+  olcek 1 1 1
+  model kaynak -1 0.8 0.5 0.3
+  cokgen 1 4 -1 -1 1 -1 1 1 -1 1
+son
+nesne "cokgen_b"
+  konum 0 0 0
+  donus 0 0 0
+  olcek 1 1 1
+  model kaynak -1 0.3 0.5 0.8
+  cokgen 1 4 0 0 2 0 2 2 0 2
+son
