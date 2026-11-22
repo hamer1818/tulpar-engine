@@ -2830,3 +2830,18 @@ Vulkan SDK 1.4.357.1 BestPractices `ValidateImageInQueueArmImg` serbest bırakı
 düzenlemesi; `temporal_mali_best_practices` içinde) — yalnız okuma, bizim kod değil, iddia edilmez. ASan kipinde RSS ölçen
 `bridge_failed_init_without_icd_leaves_no_residue` ve `bridge_music_slot_reuses_buffer_and_rejects_long_track` gölge bellek yüzünden
 düşer (beklenen).
+
+### 8es. Bir adım hızlanınca, uzun beklemenin gizlediği yarış açığa çıktı
+**Bağlam (2026-11-22, PR #157):** `setup-msys2`'nin `install:` adımı her Windows işinde ~57 s sürüyordu (koşum 45030941115: imza/
+bütünlük 12 s, 74 paketi / 1,6 GB'ı açmak ~44 s); kendi paket önbelleği indirmeyi kurtarıyor, açmayı değil. Artık `setup-msys2` yalnız
+tabanı kurar; `/mingw64` + pacman'ın `mingw-w64-*` yerel kayıtları `actions/cache`'ten gelir; `tools/windows_msys2.sh kur`
+`pacman -S --needed --overwrite '*'` koşar (liste `tools/windows_msys2_paketler.txt`, anahtar onun özeti). **Doğruluğu pacman taşır:**
+kayıt yoksa ya da depoda yeni sürüm varsa kurar/yükseltir ve yeni kayıt saklanır; listedeki her paket `pacman -Q` ile ayrıca denetlenir.
+**Ölçüm:** ıskalama koşumu (45042853569) pacman 53 s + kayıt 11 s; isabet koşumu (45043454097) taban 14 s + geri yükleme 17 s + pacman
+7 s ("0 paket kuruldu") = **38 s** (önce ~73 s), iki Windows işinde de.
+
+**Açığa çıkan yarış:** ilk koşumda köprü işi artefaktı kesinleştiği anda gördü (16:18:00.6 kesinleşti, `ci_bekle.sh` REST listesinde
+16:18:01.9) ve `actions/download-artifact` 0,3 s sonra "Artifact not found" dedi — başka arka uçtan okuyor. Eskiden köprü işi artefaktı
+dakikalarca beklediği için pencere hiç açılmıyordu. İndirme artık beklemeyle **aynı REST API'den** (`gh run download`, 5 deneme).
+**Kural:** iki adım arasında "hazır" bilgisini taşıyan şey, ikinci adımın okuduğu kaynakla aynı olmalı; uzun bekleme senkronizasyon değildir.
+
