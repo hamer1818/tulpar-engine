@@ -646,6 +646,50 @@ jobs:
           path: ${{ github.workspace }}/.ccache
           key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
 
+  # MACOS CCACHE'I DA MAIN'DE ISIT (2026-11-22, Tuzaklar 8eq). Windows isitmasi eklendikten sonraki ilk PR
+  # (koşum 45028962427) ayni deligi macOS'ta gosterdi: PR'in kendi onbellegi yoktu, `ccache-macos-40522797826`
+  # (eski kayit) acildi, isabet 4/621 (%0,64), Derle 113 s (onceki koşumlarda ayni PR'in kaydindan 30 s).
+  # Derleyici AppleClang (runner imajinin Xcode'u); macOS isiyle ayni araclar.
+  ccache-isit-macos:
+    name: macOS ccache isitma (main)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bagimliliklar
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
+          brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
+          brew list --versions ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-macos-
+
+      - name: Derle (yalniz onbellek icin)
+        run: |
+          c++ --version | head -1
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+          ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ccache onbellegini kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
+
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
     needs: detect-docs-only
