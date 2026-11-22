@@ -902,7 +902,7 @@ gomulu_kopyala() {
       break
     done < <(printf '%s\n' "$liste" | awk -F'\t' -v p="$plat" -v a="$aile" '$1 == "gomulu" && $2 == p && $3 == a')
     if [ -z "$kopyalandi" ]; then
-      ci_hata "$aile: dlopen edilen kutuphanenin adaylarindan HICBIRI konakta bulunamadi ($plat). Paket calismaz halde dagitilmaz. Kurulum: MSYS2 'pacman -S mingw-w64-x86_64-glfw', Ubuntu 'apt-get install libglfw3', macOS 'brew install glfw'."
+      ci_hata "$aile: dlopen edilen kutuphanenin adaylarindan HICBIRI konakta bulunamadi ($plat). Paket calismaz halde dagitilmaz. Kurulum: Windows 'bash tools/windows_glfw.sh', Ubuntu 'apt-get install libglfw3', macOS 'brew install glfw'."
     fi
     if [ -n "$lisans" ] && [ "$lisans" != "-" ]; then
       [ -f "$kok/$lisans" ] || ci_hata "$aile: PAKET isaretindeki lisans dosyasi kaynak agacinda YOK: $lisans"

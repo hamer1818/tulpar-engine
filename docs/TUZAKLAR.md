@@ -2765,3 +2765,11 @@ elle listeyle çıkarıyordu ve `.jpeg`, `.ayar`, `.animator` orada yoktu — Mi
 sessizce düşerdi (2026-11-16, A6 sırasında kodda fark edildi). **Düzeltme:** `android_main` artık `bridge::android_asset_wanted`'ı çağırır:
 tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağırsın.
 
+
+### 8ep. Dağıtımın paket deposu ortamı bıraktı — CI "target not found" ile, kodla ilgisiz düştü
+**Belirti:** 2026-11-22'de PR #149'un iki Windows işi `setup-msys2` adımında `error: target not found: mingw-w64-x86_64-glfw` ile düştü
+(yeniden koşmak da düşürdü); Linux/macOS yeşil. **Kök:** MSYS2 MINGW64 ortamını kullanımdan kaldırıyor (msys2.org/news 2026-03-15,
+2026-10-24: leaf paketlerin MINGW64 derlemeleri düzenli güncellemede siliniyor); glfw ilk gidenlerden. **Düzeltme (geçici):**
+`tools/windows_glfw.sh` upstream GLFW 3.4 MinGW-w64 ikilisini SÜRÜM + SHA-256 sabit indirip `${MSYSTEM_PREFIX}/bin`'e koyar (ci.yml iki
+iş, release.yml, `derle_mingw.sh`); özet tutmazsa kırmızı. **Kalıcı:** Windows derlemesini UCRT64'e taşımak — gcc/clang/openssl/
+vulkan-validation-layers da aynı yoldan gidecek. **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.

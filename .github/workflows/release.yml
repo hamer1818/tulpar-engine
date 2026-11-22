@@ -1214,10 +1214,13 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
+
+      # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
+      - name: GLFW (glfw3.dll, upstream 3.4)
+        run: bash tools/windows_glfw.sh
 
       # YAZILIM VULKAN ICD'si (SwiftShader) — ci.yml ile AYNI betik. ICD ya da
       # katman bulunamazsa, loader gormezse ya da surucu motorsuz bellek
