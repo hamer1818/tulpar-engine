@@ -6788,6 +6788,47 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        // COKGENLER ARASI BOOLEAN (2026-11-22, content::scene_poly_bool): tam IKI cokgen secili -> A = ana secili, B = digeri.
+        // Sonuc A'nin yerine gecer (adi, yuksekligi, malzemesi A'nin), B silinir; gunlukte TEK eylem (set + sil = bir grup, Ctrl+Z
+        // ikisini birlikte geri alir). Gecersiz sonuc (ayrik parca, bos, 32 nokta / 4 delik siniri, egik B) uygulanmaz, sebebi durum
+        // satirinda. B'nin cocugu varsa ya da A B'nin altindaysa reddedilir (silme cocuklari surukleyecekti).
+        if (st.sel.count == 2 && (st.scene.entities[st.sel.items[0]].components & content::kScenePoly) &&
+            (st.scene.entities[st.sel.items[1]].components & content::kScenePoly)) {
+          const int32_t ia = st.sel.items[0], ib = st.sel.items[1];
+          ImGui::TextDisabled("%s", "\xC3\x87okgen boolean (A = ana se\xC3\xA7ili, B = di\xC4\x9F" "eri)");
+          auto uygula = [&](content::PolyBoolOp op, const char *ad) {
+            bool cocuk = false, a_altinda = false;
+            for (uint32_t k = 0; k < st.scene.entity_count; k++) if (st.scene.entities[k].parent == ib) cocuk = true;
+            for (int32_t p = st.scene.entities[ia].parent, adim = 0; p >= 0 && adim < 256; p = st.scene.entities[p].parent, adim++)
+              if (p == ib) a_altinda = true;
+            if (cocuk || a_altinda) { set_status(st, "boolean yap\xC4\xB1lamad\xC4\xB1 \xC2\xB7 B'nin alt nesneleri var"); return; }
+            static SceneEntity sonuc;
+            char err[128] = {0};
+            if (!content::scene_poly_bool(st.scene, (uint32_t)ia, (uint32_t)ib, op, &sonuc, err, sizeof err)) {
+              set_status(st, "boolean yap\xC4\xB1lamad\xC4\xB1 \xC2\xB7 %s", err);
+              return;
+            }
+            uint32_t ops = 0;
+            with_bodies(st, phys, [&] {
+              if (st.hist.set_entity(st.scene, (uint32_t)ia, sonuc)) ops++;
+              const int32_t sil[1] = {ib};
+              ops += selection_remove(st.scene, st.hist, sil, 1);
+            });
+            st.tree.collapse.after_remove((uint32_t)ib);
+            if (ops) {
+              st.groups.push(ops);
+              st.dirty = true;
+              st.sel.set_single(ib < ia ? ia - 1 : ia);
+              set_status(st, "%s \xC2\xB7 %u nokta, %u delik", ad, sonuc.poly_n, content::scene_poly_shape(sonuc).hole_rings);
+            }
+          };
+          if (ImGui::SmallButton(" Birle\xC5\x9Ftir ")) uygula(content::PolyBoolOp::Birlesim, "birle\xC5\x9Ftirildi");
+          akis_ayni_satir(" \xC3\x87\xC4\xB1kar (A \xE2\x88\x92 B) ");
+          if (ImGui::SmallButton(" \xC3\x87\xC4\xB1kar (A \xE2\x88\x92 B) ")) uygula(content::PolyBoolOp::Fark, "\xC3\xA7\xC4\xB1kar\xC4\xB1ld\xC4\xB1");
+          akis_ayni_satir(" Kesi\xC5\x9Fim ");
+          if (ImGui::SmallButton(" Kesi\xC5\x9Fim ")) uygula(content::PolyBoolOp::Kesisim, "kesi\xC5\x9Fim al\xC4\xB1nd\xC4\xB1");
+          ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        }
         // U10 B4 + yeni kullanici turu (2026-11-13): betik en cok aranan sey. "Ilk adimlar" karti "Ozellikler'de Davranis ekle
         // dugmesine bas" diyor ama dugme Donusum/Model/Malzeme'nin ALTINDAydi; 720p'de kaydirmadan gorunmuyordu. Betiksiz
         // nesnede hizli eylemlerin hemen altinda, tam genislikte.
