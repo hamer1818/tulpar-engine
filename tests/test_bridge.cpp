@@ -5135,10 +5135,15 @@ ENGINE_TEST(bridge_audio_3d_direction_follows_listener) {
   CHECK(teng_audio_open(0, 0) == 1);
   const int ton = teng_audio_tone(300, 2.0);
   auto kare = [] { teng_frame_begin(); teng_frame_end(); };
+  // OLCUM SES IS PARCACIGININ ILERLEMESINE BAGLI (2026-11-22): eskiden 60 ms uyku + kare + 60 ms uykuydu; macOS CI'da (PR #157,
+  // koşum 45044002433) dinleyici kameraya baglandiktan sonra okunan tepe bir onceki durumla BIREBIR ayniydi (sol 0.0600 sag 0.0000):
+  // ses is parcacigi yeni dinleyiciyi karistirmadan bayat blok okunmustu. Artik kare (dinleyici/konum guncellemesi) sonrasi geri cagirma
+  // sayaci en az 3 blok ilerleyene kadar beklenir (en cok 2 s); okunan son blok guncellemeden SONRA karistirilmis olur.
   auto olc = [&](double *l, double *r) {
-    platform::thread_sleep_us(60000);
     kare();
-    platform::thread_sleep_us(60000);
+    const long long c0 = teng_debug_audio_callbacks();
+    for (int i = 0; i < 200 && teng_debug_audio_callbacks() < c0 + 3; i++) platform::thread_sleep_us(10000);
+    CHECK(teng_debug_audio_callbacks() >= c0 + 3);   // ses is parcacigi gercekten ilerledi (yoksa olcum bayat)
     *l = teng_debug_audio_peak_channel(0);
     *r = teng_debug_audio_peak_channel(1);
   };
