@@ -392,7 +392,7 @@ target_compile_options(engine_renderer PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGIN
 add_dependencies(engine_renderer engine_layer_check engine_shader_check)
 
 # --- L6 CONTENT: glTF (cgltf) + goruntu (stb_image), yalniz yukleme aninda malloc ---
-add_library(engine_content STATIC content/gltf.cpp content/mesh_import.cpp content/model_import.cpp content/poly.cpp content/image.cpp content/meshopt.cpp content/ktx2.cpp content/font.cpp content/scene.cpp content/scene_blob.cpp content/scene_runtime.cpp content/scene_animators.cpp content/primitives.cpp content/prefab.cpp content/vendored_impl.c content/fbx.cpp third_party/ufbx/ufbx.c
+add_library(engine_content STATIC content/gltf.cpp content/mesh_import.cpp content/model_import.cpp content/poly.cpp content/usdc.cpp content/image.cpp content/meshopt.cpp content/ktx2.cpp content/font.cpp content/scene.cpp content/scene_blob.cpp content/scene_runtime.cpp content/scene_animators.cpp content/primitives.cpp content/prefab.cpp content/vendored_impl.c content/fbx.cpp third_party/ufbx/ufbx.c
     # --- PR #322: yeni icerik modulleri (content/pack.cpp ALINMADI: main'in
     # .tpak'i mmap'li, belirlenimli ve kapili — PR'inki daha basit bir format)
     content/voxel.cpp content/morph.cpp content/morph_pool.cpp content/retarget.cpp content/terrain.cpp content/lod_select.cpp content/water_wave.cpp content/wind.cpp content/occlusion.cpp content/clod_format.cpp content/device_tier.cpp content/dynamic_quality.cpp)

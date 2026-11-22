@@ -675,7 +675,7 @@ static AssetStyle asset_style_for_file(const char *path) {
   // 3B Modeller / Aglar: Model simgesi, Vurgu
   if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0 ||
       std::strcmp(dot, ".stl") == 0 || std::strcmp(dot, ".fbx") == 0 || std::strcmp(dot, ".ply") == 0 ||
-      std::strcmp(dot, ".usda") == 0 || std::strcmp(dot, ".usd") == 0 || std::strcmp(dot, ".usdz") == 0) {
+      std::strcmp(dot, ".usda") == 0 || std::strcmp(dot, ".usd") == 0 || std::strcmp(dot, ".usdz") == 0 || std::strcmp(dot, ".usdc") == 0) {
     return {"\xE2\x97\x86", "MODEL", Tone::Accent};
   }
   // Dokular / Resimler: Kutu/Resim, Eksen Z (Mavi)

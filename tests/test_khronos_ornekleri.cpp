@@ -349,7 +349,7 @@ ENGINE_TEST(fbx_dejenere_uv_kanali_atlanir) {
 // olarak yazdi: ucgen sayisi ve sinir kutusu iki bicimde AYNI (biçimler arası kapi, FBX ~ glTF kalibi). usdz (sikistirilmamis zip
 // icinde .usda) da ayni. (2) Elle yazilmis usd_el.usda: metersPerUnit YOK -> 0,01; transform matrisi (x +2 m), pivot etrafinda Z 90
 // (`!invert!`), leftHanded (on yuz -X), displayColor -> 2 malzeme (kirmizi/mavi), class sablonu CIZILMEZ, zaman ornekli olcek atlanir
-// ve not'ta sayilir. Beklenen sinir hesapla: x 1..3, y 0..1, z -1,5..0. KONTROL: ikili usdc ve kesik usda reddedilir (hata metni).
+// ve not'ta sayilir. Beklenen sinir hesapla: x 1..3, y 0..1, z -1,5..0. KONTROL: kesik usda reddedilir (hata metni).
 ENGINE_TEST(usd_usda_blender_gltf_ile_ayni_ve_el_yazimi) {
   char ua[1024], ug[1024], uz[1024], uc[1024], ue[1024];
   if (!yol_bul(ua, sizeof ua, "usd_sahne.usda") || !yol_bul(ug, sizeof ug, "usd_sahne.gltf") || !yol_bul(uz, sizeof uz, "usd_sahne.usdz") ||
@@ -388,8 +388,7 @@ ENGINE_TEST(usd_usda_blender_gltf_ile_ayni_ve_el_yazimi) {
   CHECK(std::fabs(e.bounds_min.x - 1) < 1e-5f && std::fabs(e.bounds_max.x - 3) < 1e-5f && std::fabs(e.bounds_min.y) < 1e-5f && std::fabs(e.bounds_max.y - 1) < 1e-5f &&
         std::fabs(e.bounds_min.z + 1.5f) < 1e-5f && std::fabs(e.bounds_max.z) < 1e-5f);
   CHECK(mavi_n.x < -0.1f && std::fabs(mavi_n.y) < 1e-4f && std::fabs(mavi_n.z) < 1e-4f && std::strstr(e.note, "1 "));
-  // KONTROLLER
-  CHECK(!gltf_load(arena(), uc, &c) && std::strstr(c.error, "usdc"));
+  // KONTROLLER (ikili usdc artik OKUNUR: usd_usdc_usda_ile_bit_bit_ayni)
   static char bf[4096];
   std::FILE *f = std::fopen(ua, "rb");
   const size_t n = f ? std::fread(bf, 1, sizeof bf, f) : 0;
@@ -401,7 +400,7 @@ ENGINE_TEST(usd_usda_blender_gltf_ile_ayni_ve_el_yazimi) {
   static Model b;
   b = Model{};
   CHECK(!gltf_load(arena(), kesik, &b) && b.error[0]);
-  std::printf("    [bilgi] usdc: %s; kesik usda: %s\n", c.error, b.error);
+  std::printf("    [bilgi] kesik usda: %s\n", b.error);
   arena().reset_to(mark);
 }
 
@@ -435,3 +434,78 @@ ENGINE_TEST(fbx_ara_morph_sekli_parca_dogrusal) {
   CHECK(length(saf - a) >= 0.25f);   // KONTROL
   arena().reset_to(mark);
 }
+
+// IKILI USD (2026-11-22, content/usdc.cpp). Kahin: AYNI sahnenin usdc'si usda'siyla BIT BIT ayni modeli vermeli (mesh / kose / indeks /
+// malzeme rengi / not) — usdc crate'i USDA metnine cevrilip ayni okuyucudan gecer, yani fark ancak crate cozumunden gelebilir.
+// Varliklar referans aracla uretildi (OpenUSD usdcat / usdzip, crate 0.8.0): usd_ikili.usdc = Blender 5.3'un usd_sahne.usda ile ayni
+// sahnesi (usdcat metni yalniz "-0" / "0" farkli; sikistirilmis faceVertexIndices / st:indices); usd_ikili.usdz icinde usdc;
+// usd_el.usdc = usdcat usd_el.usda (matris, !invert! pivot, leftHanded, displayColor, class, zaman ornegi, rel); usd_orient.usdc =
+// usdcat usd_orient.usda (quatf orient + 18 elemanli float dizileri: tamsayi kodlu 'i' ve tablolu 't' sikistirma).
+// Bagimsiz beklenti (orient): Y ekseni etrafinda 90 derece x -> -z; (0,0,0),(1,0,0),(0,1,0) + (1, 0.25, 0) -> x 1..1, y 0.25..1.25,
+// z -1..0. KONTROL: kesik usdc ve TOKENS'i bozulmus usdc sebebiyle ("usdc:") reddedilir.
+namespace {
+bool ayni_model(const Model &x, const Model &y) {
+  if (x.mesh_count != y.mesh_count || x.material_count != y.material_count || std::strcmp(x.note, y.note) != 0) return false;
+  for (uint32_t i = 0; i < x.mesh_count; i++) {
+    const ModelMesh &a = x.meshes[i], &b = y.meshes[i];
+    if (a.vertex_count != b.vertex_count || a.index_count != b.index_count || a.material != b.material) return false;
+    if (std::memcmp(a.verts, b.verts, sizeof(a.verts[0]) * a.vertex_count) || std::memcmp(a.indices, b.indices, 4 * a.index_count)) return false;
+  }
+  for (uint32_t i = 0; i < x.material_count; i++)
+    if (std::memcmp(&x.materials[i].base_color, &y.materials[i].base_color, sizeof x.materials[i].base_color)) return false;
+  return true;
+}
+} // namespace
+
+ENGINE_TEST(usd_usdc_usda_ile_bit_bit_ayni) {
+  const char *ciftler[4][2] = {{"usd_sahne.usda", "usd_ikili.usdc"}, {"usd_sahne.usda", "usd_ikili.usdz"}, {"usd_el.usda", "usd_el.usdc"},
+                               {"usd_orient.usda", "usd_orient.usdc"}};
+  const size_t mark = arena().mark();
+  static Model a, c;
+  for (int k = 0; k < 4; k++) {
+    char ya[1024], yc[1024];
+    if (!yol_bul(ya, sizeof ya, ciftler[k][0]) || !yol_bul(yc, sizeof yc, ciftler[k][1])) { skip("tests/assets/usd_* yok"); arena().reset_to(mark); return; }
+    a = Model{}; c = Model{};
+    const bool oa = gltf_load(arena(), ya, &a), oc = gltf_load(arena(), yc, &c);
+    uint32_t t = 0;
+    for (uint32_t i = 0; oc && i < c.mesh_count; i++) t += c.meshes[i].index_count / 3;
+    const bool ayni = oa && oc && ayni_model(a, c);
+    std::printf("    [bilgi] %-16s ~ %-16s: %s / %s, %u mesh %u ucgen, ayni %d, not '%s'\n", ciftler[k][0], ciftler[k][1], oa ? "ok" : a.error, oc ? "ok" : c.error,
+                c.mesh_count, t, ayni, c.note);
+    CHECK(ayni && t > 0);
+    if (k == 3 && oc) {
+      std::printf("    [bilgi] orient sinir (%.4f %.4f %.4f)..(%.4f %.4f %.4f) (beklenen (1 0.25 -1)..(1 1.25 0))\n", (double)c.bounds_min.x, (double)c.bounds_min.y,
+                  (double)c.bounds_min.z, (double)c.bounds_max.x, (double)c.bounds_max.y, (double)c.bounds_max.z);
+      CHECK(std::fabs(c.bounds_min.x - 1) < 1e-5f && std::fabs(c.bounds_max.x - 1) < 1e-5f && std::fabs(c.bounds_min.y - 0.25f) < 1e-5f &&
+            std::fabs(c.bounds_max.y - 1.25f) < 1e-5f && std::fabs(c.bounds_min.z + 1) < 1e-5f && std::fabs(c.bounds_max.z) < 1e-5f);
+    }
+  }
+  // KONTROLLER: kesik ve bozuk crate
+  char yc[1024], dir[512], kesik[600], bozuk[600];
+  CHECK(yol_bul(yc, sizeof yc, "usd_ikili.usdc"));
+  static unsigned char bf[8192];
+  std::FILE *f = std::fopen(yc, "rb");
+  const size_t n = f ? std::fread(bf, 1, sizeof bf, f) : 0;
+  if (f) std::fclose(f);
+  CHECK(n > 1000 && n < sizeof bf);
+  CHECK(tmp_mkdir(dir, sizeof dir, "usdc_bozuk"));
+  std::snprintf(kesik, sizeof kesik, "%s/kesik.usdc", dir);
+  std::snprintf(bozuk, sizeof bozuk, "%s/bozuk.usdc", dir);
+  if (std::FILE *k = std::fopen(kesik, "wb")) { std::fwrite(bf, 1, n * 2 / 3, k); std::fclose(k); }
+  // TOKENS bolumunun sikistirilmis verisini boz: TOC'tan bul, verinin ortasina 0xFF yaz.
+  uint64_t toc = 0, ts = 0;
+  std::memcpy(&toc, bf + 16, 8);
+  for (uint32_t i = 0; toc + 8 + 32 * (i + 1) <= n && i < 8; i++)
+    if (!std::strncmp(reinterpret_cast<const char *>(bf + toc + 8 + 32 * i), "TOKENS", 16)) std::memcpy(&ts, bf + toc + 8 + 32 * i + 16, 8);
+  CHECK(ts > 0 && ts + 40 < n);
+  for (int i = 0; i < 6; i++) bf[ts + 24 + 2 + i] = 0xFF;
+  if (std::FILE *k = std::fopen(bozuk, "wb")) { std::fwrite(bf, 1, n, k); std::fclose(k); }
+  static Model mk, mb;
+  mk = Model{}; mb = Model{};
+  const bool ok_k = gltf_load(arena(), kesik, &mk), ok_b = gltf_load(arena(), bozuk, &mb);
+  std::printf("    [bilgi] kesik usdc: %s; bozuk TOKENS: %s\n", mk.error, mb.error);
+  CHECK(!ok_k && std::strstr(mk.error, "usdc:"));
+  CHECK(!ok_b && std::strstr(mb.error, "usdc:"));
+  arena().reset_to(mark);
+}
+

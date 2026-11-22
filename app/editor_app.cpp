@@ -5309,7 +5309,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
           return true;
         };
         char hedef[1100], err[300] = {0};
-        if (uzanti(".glb") || uzanti(".gltf") || uzanti(".stl") || uzanti(".obj") || uzanti(".fbx") || uzanti(".ply") || uzanti(".usda") || uzanti(".usd") || uzanti(".usdz")) {
+        if (uzanti(".glb") || uzanti(".gltf") || uzanti(".stl") || uzanti(".obj") || uzanti(".fbx") || uzanti(".ply") || uzanti(".usda") || uzanti(".usd") || uzanti(".usdz") || uzanti(".usdc")) {
           if (!st.scene_dir[0]) { atlanan++; std::snprintf(son_hata, sizeof son_hata, "model i\xC3\xA7" "e aktarmak i\xC3\xA7in \xC3\xB6nce bir sahne a\xC3\xA7"); }
           else if (editor_model_ice_aktar(yol, st.scene_dir, hedef, sizeof hedef, err, sizeof err)) { rescan_browse(st); do_add_asset(editor_basename(hedef)); modeller++; }
           else { atlanan++; std::snprintf(son_hata, sizeof son_hata, "%s", err); }

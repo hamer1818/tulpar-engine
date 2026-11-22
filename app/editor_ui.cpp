@@ -709,7 +709,7 @@ uint32_t editor_scan_assets(const char *dir, const content::SceneDesc &d, AssetF
     if (nm[0] == '.') continue; // gizli + . / ..
     const bool anim = ends_with_ci(nm, ".animator");
     if (!anim && !ends_with_ci(nm, ".gltf") && !ends_with_ci(nm, ".glb") && !ends_with_ci(nm, ".stl") && !ends_with_ci(nm, ".obj") && !ends_with_ci(nm, ".fbx") && !ends_with_ci(nm, ".ply") &&
-        !ends_with_ci(nm, ".usda") && !ends_with_ci(nm, ".usd") && !ends_with_ci(nm, ".usdz")) continue;   // M2: STL/OBJ; A3: .animator; madde 4: FBX; PLY; USD
+        !ends_with_ci(nm, ".usda") && !ends_with_ci(nm, ".usd") && !ends_with_ci(nm, ".usdz") && !ends_with_ci(nm, ".usdc")) continue;   // M2: STL/OBJ; A3: .animator; madde 4: FBX; PLY; USD
     if (std::strlen(nm) >= content::kScenePathLen) continue;
     // Dolunca KESMEK yerine alfabetik ilk `cap` tutulur: eskiden ilk `cap` dosya readdir SIRASIYLA aliniyordu ve hangi dosyalarin
     // listelendigi dosya sistemine bagliydi (2026-11-16: btrfs'te yesil, CI ext4'te .fbx'ler girip lod_sphere disarida kaldi).
