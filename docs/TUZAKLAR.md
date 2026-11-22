@@ -2796,3 +2796,9 @@ dağıldığını gösterdi (en yavaşı `bridge_runs_a_scripted_game_headless` 
 hızlandır" değil "böl": `engine_tests --parca K/N` (kayıt sırası `i % N == K`; özetin paydası parçanın kayıtlı sayısı, yani
 `koşan == kayıtlı` kapısı parçada da ölçer). PR'da Windows işi 0/2'yi, köprü işi aynı ikiliyle (artefakt `yapi/*.exe` taşır) 1/2'yi
 koşar; Windows işi köprü işinin sonucunu taşıdığı için her test yine zorunlu check'in arkasında.
+
+**Ölçüm (PR #152, koşum 45028962427):** duvar 895 s → **392 s**; Windows `Derle` 449 s → ~20 s (isabet %99,68). Aynı koşum aynı
+deliği **macOS'ta** gösterdi (eski kayıttan açıldı, %0,64, Derle 113 s) → `ccache-isit-macos`. Parçalar dengesizdi (0/2: 213 s,
+1/2: 78 s) çünkü `renderer_pbr_texture_budget`'in zamanlama bölümü SwiftShader'da 118,9 s sürdü — önceki koşumda ilk 10'da bile
+yoktu: atlama yalnız 5 s gönderim zaman aşımına bağlıydı, koşup koşmaması makinenin o anki hızına kalıyordu. Artık CPU tipi cihazda
+görünür ATLANDI (7776cb9'daki karakter ölçümüyle aynı kural); deterministik kısımları her cihazda koşar.
