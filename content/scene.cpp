@@ -418,6 +418,43 @@ PolyShape scene_poly_shape(const SceneEntity &e) {
   return s;
 }
 
+bool scene_poly_bool(const SceneDesc &d, uint32_t ia, uint32_t ib, PolyBoolOp op, SceneEntity *out, char *err, uint32_t err_cap) {
+  auto fail = [&](const char *m) { if (err && err_cap) std::snprintf(err, err_cap, "%s", m); return false; };
+  if (ia >= d.entity_count || ib >= d.entity_count || ia == ib) return fail("iki farkli varlik gerekli");
+  const SceneEntity &ea = d.entities[ia], &eb = d.entities[ib];
+  if (!(ea.components & kScenePoly) || !(eb.components & kScenePoly)) return fail("iki varlik da cokgen olmali");
+  const Mat4 m = inverse(scene_entity_world_matrix(d, ia)) * scene_entity_world_matrix(d, ib);
+  const Vec3 yukari = transform_dir(m, Vec3{0, 1, 0});
+  const float yl = length(yukari);
+  if (!(yl > 1e-6f) || std::fabs(yukari.x) > 1e-4f * yl || std::fabs(yukari.z) > 1e-4f * yl || !(yukari.y > 0))
+    return fail("B, A'ya gore egik (yalniz Y ekseni donusu olabilir)");
+  float bx[2 * kScenePolyMaxPoints], bh[32];
+  auto tasi = [&](const float *src, uint32_t n, float *dst) {
+    for (uint32_t i = 0; i < n; i++) {
+      const Vec3 q = transform_point(m, Vec3{src[2 * i], 0.0f, src[2 * i + 1]});
+      if (std::fabs(q.y) > 1e-4f * (1.0f + std::fabs(q.x) + std::fabs(q.z))) return false;
+      dst[2 * i] = q.x;
+      dst[2 * i + 1] = q.z;
+    }
+    return true;
+  };
+  if (!tasi(eb.poly_pts, eb.poly_n, bx) || !tasi(eb.poly_hole, eb.poly_hole_n, bh)) return fail("B'nin tabani A'nin taban duzleminde degil (yukseklik farki)");
+  PolyShape A = scene_poly_shape(ea), B = scene_poly_shape(eb);
+  B.xz = bx;
+  B.hole = bh;
+  PolyBoolOut o;
+  if (!poly_bool(A, B, op, &o)) return fail(o.error);
+  SceneEntity r = ea;
+  r.poly_n = o.n;
+  for (uint32_t i = 0; i < 2 * kScenePolyMaxPoints; i++) r.poly_pts[i] = i < 2 * o.n ? o.xz[i] : 0.0f;
+  for (uint32_t i = 0; i < kScenePolyMaxPoints; i++) r.poly_dy[i] = 0.0f;
+  r.poly_hole_n = o.hole_n;
+  for (uint32_t i = 0; i < 32; i++) r.poly_hole[i] = i < 2 * o.hole_n ? o.hole[i] : 0.0f;
+  for (uint32_t i = 0; i < 4; i++) r.poly_hole_cnt[i] = i < o.hole_rings ? o.hole_counts[i] : (uint8_t)0;
+  *out = r;
+  return true;
+}
+
 bool scene_entity_equal(const SceneEntity &a, const SceneEntity &b) {
   if (std::strcmp(a.name, b.name) != 0 || !veq(a.pos, b.pos) || !veq(a.rot_deg, b.rot_deg) || !veq(a.scale, b.scale) ||
       a.parent != b.parent || a.flags != b.flags || a.components != b.components)

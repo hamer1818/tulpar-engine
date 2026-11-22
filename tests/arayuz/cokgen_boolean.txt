@@ -1,0 +1,20 @@
+# Cokgenler arasi boolean (2026-11-22; tools/arayuz_kapi.sh, --size 1280x720). Sahne (tests/assets/cokgen_boolean.sahne) yalniz iki
+# cokgen: cokgen_a (-1..1)^2 ve cokgen_b (0..2)^2. Ctrl+A ikisini secer (ana secili cokgen_a: Selection::toggle sondan basa ekler).
+# Birlestir -> 8 nokta (alan 7); KONTROL: Ctrl+Z TEK adimda ikisini geri getirir (Ctrl+A yine iki cokgen secer -> kart yine gorunur);
+# sonra Cikar (A - B) -> L, 6 nokta; Ctrl+S. Kapi kaydedilen dosyada TEK nesne ("cokgen_a") ve 6 noktali cokgen satiri arar.
+bekle 3
+tus Ctrl+A
+dogrula_metin "Çokgen boolean"
+tikla "Birleştir"
+dogrula_metin "birleştirildi · 8 nokta, 0 delik"
+metin_yok "Çokgen boolean"
+tus Ctrl+Z
+bekle 2
+tus Ctrl+A
+dogrula_metin "Çokgen boolean"
+tikla "Çıkar (A − B)"
+dogrula_metin "çıkarıldı · 6 nokta, 0 delik"
+ekran cokgen_boolean
+tus Ctrl+S
+bekle 5
+cik

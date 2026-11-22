@@ -489,3 +489,135 @@ ENGINE_TEST(poly_coklu_delik_geometri_sahne_fizik) {
   ph.shutdown();
   arena().reset_to(mark);
 }
+
+// ÇOKGENLER ARASI BOOLEAN (2026-11-22, content/poly_bool.cpp). Beklenenler elle hesaplı:
+//  birleşim (0..2)² ∪ (1..3)² = 4 + 4 − 1 = 7, 8 nokta; kesişim = (1..2)², 1; ortak kenarlı iki birim kare birleşimi = 2, 4 NOKTA
+//  (dikiş kenarı ve doğrusal ara köşeler atılır — yön kuralının pozitif kontrolü: kural yoksa 6+ nokta ya da iki halka);
+//  4x4 − iç (1..2)² = 15 + 1 delik; 4x4 − çentik (3..5)x(1..2) = 15, 8 nokta, deliksiz; U ∪ üst çubuk = 3x3 − (1..2)² = 8 + 1 delik.
+// KONTROL (red): ayrık birleşim, köşede değen birleşim, tamamen silinen fark, nokta yüksekliği.
+namespace {
+PolyShape kare(const float *p) { PolyShape s; s.xz = p; s.n = 4; s.h = 1.0f; return s; }
+} // namespace
+
+ENGINE_TEST(poly_bool_birlesim_fark_kesisim_alanlari) {
+  static const float a[8] = {0, 0, 2, 0, 2, 2, 0, 2}, b[8] = {1, 1, 3, 1, 3, 3, 1, 3};
+  static const float sag[8] = {1, 0, 2, 0, 2, 1, 1, 1}, sol[8] = {0, 0, 1, 0, 1, 1, 0, 1};
+  static const float buyuk[8] = {0, 0, 4, 0, 4, 4, 0, 4}, ic[8] = {1, 1, 2, 1, 2, 2, 1, 2}, centik[8] = {3, 1, 5, 1, 5, 2, 3, 2};
+  static const float u[16] = {0, 0, 3, 0, 3, 3, 2, 3, 2, 1, 1, 1, 1, 3, 0, 3}, cubuk[8] = {0, 2, 3, 2, 3, 3, 0, 3};
+  PolyBoolOut o;
+  struct Durum { const char *ad; PolyShape x, y; PolyBoolOp op; float alan; uint32_t n, delik; };
+  PolyShape us; us.xz = u; us.n = 8; us.h = 1.0f;
+  const Durum d[] = {
+      {"birlesim ortusen", kare(a), kare(b), PolyBoolOp::Birlesim, 7.0f, 8, 0},
+      {"kesisim ortusen", kare(a), kare(b), PolyBoolOp::Kesisim, 1.0f, 4, 0},
+      {"fark ortusen", kare(a), kare(b), PolyBoolOp::Fark, 3.0f, 6, 0},
+      {"birlesim ortak kenar", kare(sol), kare(sag), PolyBoolOp::Birlesim, 2.0f, 4, 0},
+      {"fark ic kare -> delik", kare(buyuk), kare(ic), PolyBoolOp::Fark, 15.0f, 4, 1},
+      {"fark centik", kare(buyuk), kare(centik), PolyBoolOp::Fark, 15.0f, 8, 0},
+      {"U + cubuk -> delikli kare", us, kare(cubuk), PolyBoolOp::Birlesim, 8.0f, 4, 1},
+  };
+  for (const Durum &k : d) {
+    const bool ok = poly_bool(k.x, k.y, k.op, &o);
+    const float al = ok ? poly_shape_area(poly_bool_shape(o, k.x)) : 0.0f;
+    std::printf("    [bilgi] %-26s ok %d alan %.4f (beklenen %.1f) nokta %u (%u) delik %u (%u) %s\n", k.ad, ok, (double)al, (double)k.alan, o.n,
+                k.n, o.hole_rings, k.delik, o.error);
+    CHECK(ok && std::fabs(al - k.alan) < 1e-4f && o.n == k.n && o.hole_rings == k.delik);
+  }
+  // KONTROLLER
+  static const float uzak[8] = {5, 5, 6, 5, 6, 6, 5, 6}, kosede[8] = {2, 2, 3, 2, 3, 3, 2, 3};
+  CHECK(!poly_bool(kare(a), kare(uzak), PolyBoolOp::Birlesim, &o) && std::strstr(o.error, "ayrik"));
+  CHECK(!poly_bool(kare(a), kare(kosede), PolyBoolOp::Birlesim, &o) && std::strstr(o.error, "ayrik"));
+  CHECK(!poly_bool(kare(ic), kare(buyuk), PolyBoolOp::Fark, &o) && std::strstr(o.error, "bos"));
+  CHECK(!poly_bool(kare(a), kare(uzak), PolyBoolOp::Kesisim, &o) && std::strstr(o.error, "bos"));
+  static const float dy[4] = {0, 0.5f, 0, 0};
+  PolyShape egik = kare(a);
+  egik.dy = dy;
+  CHECK(!poly_bool(egik, kare(b), PolyBoolOp::Birlesim, &o) && std::strstr(o.error, "yuksekligi"));
+}
+
+// ÖZDEŞLİK KAPISI: |A∪B| + |A∩B| = |A| + |B| ve |A−B| = |A| − |A∩B|. A bir L, B 1.5x1 dikdörtgen; B 0.25 adımla 9x9 konumda kayar —
+// ızgaraya yapışık çizimin bütün dejenerasyonları (ortak kenar, kenar üstünde köşe, köşe köşeye) bu taramada çıkar. Geçerli sonuç
+// vermeyen durum (ayrık / köşede değme) SAYILIR ve basılır; özdeşlik yalnız üç işlemin de geçerli olduğu konumlarda denetlenir.
+// KONTROL: taramada en az bir ortak kenar + bir delik oluşmayan + bir red durumu olmalı (tarama gerçekten dejenerasyon görüyor).
+ENGINE_TEST(poly_bool_ozdeslik_taramasi) {
+  static const float l[12] = {0, 0, 2, 0, 2, 1, 1, 1, 1, 2, 0, 2};
+  PolyShape A; A.xz = l; A.n = 6; A.h = 1.0f;
+  const float aa = poly_shape_area(A);
+  uint32_t gecerli = 0, red = 0, bozuk = 0, ortak_kenar = 0;
+  float en_kotu = 0.0f;
+  for (int iz = 0; iz < 9; iz++)
+    for (int ix = 0; ix < 9; ix++) {
+      const float ox = -0.75f + 0.25f * (float)ix, oz = -0.75f + 0.25f * (float)iz;
+      const float r[8] = {ox, oz, ox + 1.5f, oz, ox + 1.5f, oz + 1.0f, ox, oz + 1.0f};
+      PolyShape B; B.xz = r; B.n = 4; B.h = 1.0f;
+      PolyBoolOut ob, ok_, of;
+      const bool b1 = poly_bool(A, B, PolyBoolOp::Birlesim, &ob), b2 = poly_bool(A, B, PolyBoolOp::Kesisim, &ok_),
+                 b3 = poly_bool(A, B, PolyBoolOp::Fark, &of);
+      if (!(b1 && b2 && b3)) { red++; continue; }
+      gecerli++;
+      const float u = poly_shape_area(poly_bool_shape(ob, A)), k = poly_shape_area(poly_bool_shape(ok_, A)), f = poly_shape_area(poly_bool_shape(of, A));
+      const float h1 = std::fabs(u + k - aa - 1.5f), h2 = std::fabs(f - (aa - k));
+      if (h1 > en_kotu) en_kotu = h1;
+      if (h2 > en_kotu) en_kotu = h2;
+      if (h1 > 1e-4f || h2 > 1e-4f) {
+        bozuk++;
+        std::printf("    [bilgi] BOZUK ofset (%.2f, %.2f): birlesim %.4f kesisim %.4f fark %.4f\n", (double)ox, (double)oz, (double)u, (double)k, (double)f);
+      }
+      // ortak kenar: B'nin bir kenarı L'nin bir kenarıyla aynı doğruda (x = 0/1/2 ya da z = 0/1/2)
+      if (std::fmod(ox + 4.0f, 1.0f) == 0.0f || std::fmod(oz + 4.0f, 1.0f) == 0.0f) ortak_kenar++;
+    }
+  std::printf("    [bilgi] 81 konum: %u gecerli, %u red (ayrik / kosede degme / bos), ortak dogru %u, ozdeslik en kotu %.2e, bozuk %u\n", gecerli,
+              red, ortak_kenar, (double)en_kotu, bozuk);
+  CHECK(bozuk == 0);
+  CHECK(gecerli > 40 && red > 0 && ortak_kenar > 10);
+}
+
+// SAHNE: iki çokgen varlığı, B bir ebeveynin çocuğu, 180° Y dönüşü ve x ölçeği 2 ile (180° işaret kuralından bağımsız: x' = -x, z' = -z).
+// A (0..2)² dünya kökeninde. B yerel 3x1 dikdörtgen -> ölçek 2: x 0..6 -> 180°: x -6..0, z -1..0 -> ebeveyn (-5,0,0) + yerel konum
+// (6,0,1.5) = dünya (1,0,1.5): B x -5..1, z 0.5..1.5. Ortak alan x 0..1 · z 0.5..1.5 = 1 -> birleşim 4 + 6 - 1 = 9, kesişim 1, fark 3.
+// KONTROL: ebeveyn zinciri yok sayılsaydı B x 1..7'de kalırdı (kesişim 0.5, birleşim 9.5). Eğik B ve farklı taban yüksekliği reddedilir.
+ENGINE_TEST(poly_bool_sahne_donusumu_ve_ebeveyn) {
+  static SceneDesc d;
+  scene_desc_reset(d);
+  static SceneEntity e;
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "a");
+  e.components = kScenePoly | kSceneModel; e.asset = -1; e.primitive = -1;
+  e.poly_n = 4; e.poly_h = 1.0f;
+  const float ka[8] = {0, 0, 2, 0, 2, 2, 0, 2};
+  for (int i = 0; i < 8; i++) e.poly_pts[i] = ka[i];
+  CHECK(d.insert_entity(0, e));
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "ebeveyn");
+  e.pos = {-5, 0, 0};
+  CHECK(d.insert_entity(1, e));
+  e = SceneEntity{};
+  std::snprintf(e.name, sizeof e.name, "b");
+  e.components = kScenePoly | kSceneModel; e.asset = -1; e.primitive = -1;
+  e.parent = 1; e.pos = {6, 0, 1.5f}; e.rot_deg = {0, 180, 0}; e.scale = {2, 1, 1};
+  e.poly_n = 4; e.poly_h = 3.0f;
+  const float kb[8] = {0, 0, 3, 0, 3, 1, 0, 1};
+  for (int i = 0; i < 8; i++) e.poly_pts[i] = kb[i];
+  CHECK(d.insert_entity(2, e));
+  static SceneEntity r;
+  char err[128];
+  const PolyBoolOp ops[3] = {PolyBoolOp::Birlesim, PolyBoolOp::Kesisim, PolyBoolOp::Fark};
+  const float bek[3] = {9.0f, 1.0f, 3.0f};
+  for (int k = 0; k < 3; k++) {
+    err[0] = 0;
+    const bool ok = scene_poly_bool(d, 0, 2, ops[k], &r, err, sizeof err);
+    const float al = ok ? poly_shape_area(scene_poly_shape(r)) : 0.0f;
+    std::printf("    [bilgi] sahne boolean %d: ok %d alan %.4f (beklenen %.0f), h %.1f (A'nin 1.0), ad '%s' %s\n", k, ok, (double)al, (double)bek[k],
+                (double)r.poly_h, r.name, err);
+    CHECK(ok && std::fabs(al - bek[k]) < 1e-4f && r.poly_h == 1.0f && std::strcmp(r.name, "a") == 0);
+  }
+  // KONTROLLER
+  d.entities[2].rot_deg = {10, 180, 0};
+  CHECK(!scene_poly_bool(d, 0, 2, PolyBoolOp::Birlesim, &r, err, sizeof err) && std::strstr(err, "egik"));
+  d.entities[2].rot_deg = {0, 180, 0};
+  d.entities[2].pos.y = 0.5f;
+  CHECK(!scene_poly_bool(d, 0, 2, PolyBoolOp::Birlesim, &r, err, sizeof err) && std::strstr(err, "taban"));
+  d.entities[2].pos.y = 0.0f;
+  CHECK(!scene_poly_bool(d, 0, 1, PolyBoolOp::Birlesim, &r, err, sizeof err) && std::strstr(err, "cokgen"));
+  CHECK(!scene_poly_bool(d, 0, 0, PolyBoolOp::Birlesim, &r, err, sizeof err));
+}

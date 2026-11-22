@@ -227,6 +227,14 @@ kos cokgen_duzenle.txt "$CD/ui" --scene "$CD/assets/editor.sahne" --kip basit --
 if [ $rcd = 0 ] && grep -qE '^  cokgen [0-9.]+ 6 ' "$CD/assets/editor.sahne" && [ "$(grep -c '^  cokgen_delik 4 ' "$CD/assets/editor.sahne")" = 2 ]; then
   echo "  cokgen duzenleme: nokta secildi, kenar bolundu (6 nokta), iki delik acildi ve kaydedildi (kontrol: Ctrl+Z deligi geri aldi)"
 else echo "  KIRMIZI cokgen duzenleme (cikis $rcd):"; grep -E 'HATA|> ' "$CD/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E '^  cokgen' "$CD/assets/editor.sahne" 2>/dev/null | sed 's/^/      dosya:/'; kirmizi=1; fi
+# --- Cokgenler arasi boolean: Ctrl+A iki cokgen -> Birlestir (8 nokta) -> Ctrl+Z (TEK adim, kontrol) -> Cikar (6 nokta) -> Ctrl+S ---
+CB="$D/cokgen_boolean"; mkdir -p "$CB/ui"
+cp -r "$KOK/tests/assets" "$CB/assets"
+kos cokgen_boolean.txt "$CB/ui" --scene "$CB/assets/cokgen_boolean.sahne" --kip basit --size 1280x720; rcb=$?
+if [ $rcb = 0 ] && [ "$(grep -c '^nesne ' "$CB/assets/cokgen_boolean.sahne")" = 1 ] && grep -qx 'nesne "cokgen_a"' "$CB/assets/cokgen_boolean.sahne" \
+   && grep -qE '^  cokgen [0-9.]+ 6 ' "$CB/assets/cokgen_boolean.sahne"; then
+  echo "  cokgen boolean: birlestir 8 nokta, Ctrl+Z iki cokgeni tek adimda geri getirdi (kontrol), A - B 6 nokta, tek nesne kaydedildi"
+else echo "  KIRMIZI cokgen boolean (cikis $rcb):"; grep -E 'HATA|> ' "$CB/ui/yanit.txt" 2>/dev/null | tail -3 | sed 's/^/      /'; grep -E '^nesne|^  cokgen' "$CB/assets/cokgen_boolean.sahne" 2>/dev/null | sed 's/^/      dosya:/'; kirmizi=1; fi
 # --- M1: model ice aktarma ayarlari (sag tik -> pencere -> cm -> Kaydet; dosya icerigi burada denetlenir) ---
 MA="$D/model_ayar"; mkdir -p "$MA/ui"
 cp -r "$KOK/tests/assets" "$MA/assets"
