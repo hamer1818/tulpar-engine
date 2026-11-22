@@ -1878,6 +1878,9 @@ ENGINE_TEST(render_karakter_butcesi_olcum) {
   rhi::DeviceConfig dc;
   if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
   if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU: karakter olcumu gercek cihazda"); return; }
+  // 2026-11-22: yazilim rasterlayicida (lavapipe / SwiftShader) bu bir OLCUMDUR, fonksiyon kapisi degil — sure CPU'yu olcer, cihazi degil.
+  // Windows CI'da (SwiftShader) tek basina 442 s suruyordu (test adiminin %80'i). Fonksiyon: render_skin_matris_tavani_sayilir.
+  if (dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU) { dev.shutdown(); skip("yazilim rasterlayici (CPU cihazi): karakter butcesi olcumu gercek GPU'da (P20 Pro)"); return; }
   const uint32_t W = 640, H = 360;
   rhi::OffscreenConfig oc;
   oc.srgb = true; oc.width = W; oc.height = H;
@@ -2107,6 +2110,7 @@ ENGINE_TEST(render_karakter_lod_olcum) {
   rhi::DeviceConfig dc;
   if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
   if (test::gpu_is_virtual(dev.caps().device_name)) { dev.shutdown(); skip("sanal GPU: LOD olcumu gercek cihazda"); return; }
+  if (dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU) { dev.shutdown(); skip("yazilim rasterlayici (CPU cihazi): LOD olcumu gercek GPU'da (P20 Pro)"); return; }   // fonksiyon: content_skinned_lod_uretilir_ve_secilir
   const uint32_t W = 640, H = 360;
   rhi::OffscreenConfig oc;
   oc.srgb = true; oc.width = W; oc.height = H;
