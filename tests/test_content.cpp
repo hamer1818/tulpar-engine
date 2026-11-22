@@ -1128,7 +1128,7 @@ ENGINE_TEST(content_gltf_metallic_roughness_reaches_material) {
       "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA\"}]}";
 
   auto yaz = [&](const char *mat, char *out, size_t n) -> bool {
-    // test_out_path: sabit /tmp Android'de ve Windows'ta yok; bu kapi orada "ATLANDI" diyordu (cihazda olculdu 2026-11-22).
+    // test_out_path: sabit /tmp Android'de yok; bu kapi orada "ATLANDI" diyordu (P20 Pro, 2026-11-23). Windows CI'da yaziliyordu.
     char ad[64];
     std::snprintf(ad, sizeof ad, "tulpar_gltf_pbr_%p.gltf", (void *)mat);
     test::test_out_path(out, n, ad);

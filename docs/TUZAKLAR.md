@@ -2887,8 +2887,8 @@ de düşer mi" diye sor; tanımsız davranış platform değil, yığın içeri�
 ### 8ev. Sabit `/tmp` ve kayıp cihazdan sonra devam eden ölçüm — iki ayrı "koşmuş gibi görünme"
 **Belirti (2026-11-23, P20 Pro / Mali-G72, Android 10):** cihazda tam koşum `602/602, 0 failed, 23 atlandi`. Atlananların üçü
 `/tmp yazilamadi` idi: `content_gltf_metallic_roughness_reaches_material`, `content_gltf_pbr_textures_reach_material`,
-`content_gltf_texture_colorspace` geçici glTF'yi sabit `/tmp`'ye yazıyordu. Android'de `/tmp` yok; Windows'ta da sürücü köküne
-göre çözülür. Yani bu üç malzeme kapısı Android'de hiç koşmamıştı. **Düzeltme:** `test::test_out_path`. Sonuç: aynı cihazda 15 atlandı
+`content_gltf_texture_colorspace` geçici glTF'yi sabit `/tmp`'ye yazıyordu. Android'de `/tmp` yok (Windows CI'da yazılabiliyordu: önceki main koşumunda bu atlama 0).
+Yani bu üç malzeme kapısı Android'de hiç koşmamıştı. **Düzeltme:** `test::test_out_path`. Sonuç: aynı cihazda 15 atlandı
 (5'i de doğrulama katmanı APK'da olmadığı içindi; `tools/fetch_vvl_android.sh` ile koştu: BestPractices 0 doğrulama hatası).
 **İkinci belirti:** `render_karakter_butcesi_olcum` art arda koşumlarda aralıklı düştü (9 ağır koşumdan 6'sı, 20–30 karakterde):
 `offscreen_render_custom` false. Test `break` edip sonraki N'ye geçiyordu; kayıp cihazla kalan bütün satırlar SON ölçümü tekrar
