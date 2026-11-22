@@ -434,10 +434,18 @@ ENGINE_TEST(poly_coklu_delik_geometri_sahne_fizik) {
   static const float ust_uste[16] = {1, 1, 3, 1, 3, 3, 1, 3, 2, 2, 4, 2, 4, 3.5f, 2, 3.5f};
   PolyShape k1 = s, k2 = s;
   k1.hole = ic_ice; k2.hole = ust_uste;
+  // 5 ucgen delik = 15 nokta: KENDI dizisi (2026-11-22, ASan global-buffer-overflow: eskiden `delikler`in 8 noktasi
+  // hole_n = 15 ile veriliyordu ve poly.cpp dizinin 56 bayt otesini okuyordu — red, okumadan SONRA geliyordu).
+  static const float bes_ucgen[30] = {0.5f, 0.5f, 1.0f, 0.5f, 0.5f, 1.0f,   1.5f, 0.5f, 2.0f, 0.5f, 1.5f, 1.0f,
+                                      2.5f, 0.5f, 3.0f, 0.5f, 2.5f, 1.0f,   3.5f, 0.5f, 4.0f, 0.5f, 3.5f, 1.0f,
+                                      4.5f, 0.5f, 5.0f, 0.5f, 4.5f, 1.0f};
   static const uint8_t bes[5] = {3, 3, 3, 3, 3};
   PolyShape k3 = s;
-  k3.hole_counts = bes; k3.hole_rings = 5; k3.hole_n = 15;
+  k3.hole = bes_ucgen; k3.hole_counts = bes; k3.hole_rings = 5; k3.hole_n = 15;
   CHECK(poly_soup(k1, v) == 0 && poly_soup(k2, v) == 0 && poly_soup(k3, v) == 0);
+  PolyShape k4 = k3;                         // POZITIF KONTROL: ayni ucgenlerden 4'u KABUL — k3'un reddi gecersiz noktadan degil 5. halkadan
+  k4.hole_rings = 4; k4.hole_n = 12;
+  CHECK(poly_soup(k4, v) > 0);
   // Sahne gidiş-dönüş + fizik
   const size_t mark = arena().mark();
   static SceneDesc d, back;
