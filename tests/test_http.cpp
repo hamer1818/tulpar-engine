@@ -314,6 +314,12 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   t.ls = s;
   t.port = ntohs(a.sin_port);
   t.n = 3;
+#if defined(MBEDTLS_THREADING_C)
+  const bool mbed_threading = true;   // third_party/mbedtls_ayar/tulpar_mbedtls_ayar.h (PUBLIC MBEDTLS_USER_CONFIG_FILE)
+#else
+  const bool mbed_threading = false;
+#endif
+  CHECK(mbed_threading);   // istemci + sunucu ayni surecte PARALEL el sikisiyor: PSA threading'siz guvenli degil
   const int psa = (int)psa_crypto_init();   // ana is parcacigi, sunucudan ONCE (yukaridaki yaris)
   unsigned char rb[16] = {};
   const int psa_rng = (int)psa_generate_random(rb, sizeof rb);

@@ -114,6 +114,11 @@ target_link_libraries(engine_platform PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 file(GLOB ENGINE_MBEDTLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/library/*.c)
 add_library(engine_mbedtls STATIC ${ENGINE_MBEDTLS_SOURCES})
 target_include_directories(engine_mbedtls PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/include)
+# Kullanici yapilandirmasi (threading; gerekce basligin icinde). PUBLIC: mbedTLS basligini iceren HER TU ayni yapi duzenini
+# gormeli (threading mutex alanlari ekler) — yalniz kutuphaneye verilseydi test/platform TU'lari farkli boyut gorurdu.
+target_include_directories(engine_mbedtls PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls_ayar)
+target_compile_definitions(engine_mbedtls PUBLIC MBEDTLS_USER_CONFIG_FILE="tulpar_mbedtls_ayar.h")
+target_link_libraries(engine_mbedtls PUBLIC Threads::Threads)
 target_include_directories(engine_mbedtls PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/library)
 set_target_properties(engine_mbedtls PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(NOT MSVC)
