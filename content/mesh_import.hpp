@@ -34,6 +34,11 @@ struct MeshImportOptions {
 // Her ikisi: false => out->error dolu. `opt` null = uzantıya göre varsayılan (STL: z_up, 1 m sığdır; OBJ: Y-yukarı, ölçek korunur).
 bool stl_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim = GltfLimits{}, const MeshImportOptions *opt = nullptr);
 bool obj_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim = GltfLimits{}, const MeshImportOptions *opt = nullptr);
+// PLY (2026-11-22): ascii / ikili LE / BE; konum, normal, UV, köşe rengi (yüz rengi paletine iner, en çok 32 renk). opt null = OBJ gibi.
+bool ply_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim = GltfLimits{}, const MeshImportOptions *opt = nullptr);
+// USD (2026-11-22): USDA metin alt kümesi (Mesh/Xform, xformOp, upAxis, metersPerUnit, normal, st, displayColor) + usdz içindeki
+// sıkıştırılmamış .usda. İkili usdc okunmaz (hata metni söyler). opt null = OBJ gibi (dosyanın kendi ekseni/birimi uygulanır).
+bool usd_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim = GltfLimits{}, const MeshImportOptions *opt = nullptr);
 
 // Bellekten (test + editör önizlemesi): STL baytları. Dosya yolu gerekmez.
 bool stl_load_memory(Arena &arena, const unsigned char *data, size_t size, Model *out, const GltfLimits &lim = GltfLimits{},

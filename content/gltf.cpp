@@ -422,6 +422,8 @@ bool gltf_load_file(Arena &arena, const char *path, Model *out, const GltfLimits
     ham.z_up = false; ham.fit_size = 0.0f; ham.scale = 1.0f; ham.ground_pivot = false;
     if (bit(".stl")) return stl_load(arena, path, out, lim, &ham);
     if (bit(".obj")) return obj_load(arena, path, out, lim, &ham);
+    if (bit(".ply")) return ply_load(arena, path, out, lim, &ham);
+    if (bit(".usda") || bit(".usd") || bit(".usdz") || bit(".usdc")) return usd_load(arena, path, out, lim, &ham);
     if (bit(".fbx")) return fbx_load(arena, path, out, lim);   // madde 4: ufbx (eksen/birim donusumu dahil)
   }
   *out = Model{};

@@ -204,12 +204,15 @@ jobs:
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
             vulkan-validationlayers libglfw3 clang libssl-dev
 
-      - name: ccache onbellegi
+      # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
+      # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
+      # sonraki push yine soguk derliyordu. Kayit "Derle"den HEMEN sonra (asagida, always()).
+      - name: ccache onbellegi (geri yukle)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-linux-${{ github.run_id }}
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-linux-
 
       # Surucu VE dogrulama katmani: ikisi de LOADER duzeyinde goruluyor mu?
@@ -281,8 +284,16 @@ jobs:
                 ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
+        id: derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
+
+      - name: ccache onbellegini kaydet
+        if: always() && needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && steps.derle.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
@@ -554,11 +565,11 @@ jobs:
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
             vulkan-validationlayers libglfw3 clang libssl-dev   # Linux isiyle AYNI liste (ayni derleyici -> isabet)
 
-      - name: ccache onbellegi
-        uses: actions/cache@v4
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-linux-${{ github.run_id }}
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-linux-
 
       - name: Derle (yalniz onbellek icin)
@@ -568,6 +579,116 @@ jobs:
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build yapi -j"$(nproc)"
           ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ccache onbellegini kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # WINDOWS CCACHE'I DA MAIN'DE ISIT (2026-11-22, Tuzaklar 8eq). Yukaridaki is yalniz Linux'u
+  # isitiyordu; Windows isi main push'ta PR artefaktini yeniden kullandigi icin `ccache-windows-*`
+  # main kapsaminda HIC yenilenmiyordu. Her PR, MSYS2 gcc'si coktan degismis eski bir kayittan
+  # (ccache-windows-40522797826) aciliyordu; CCACHE_COMPILERCHECK=content dogru olarak hepsini
+  # iskaladi: koşum 45011941482'de 4/622 isabet (%0,64), Derle 449 s — Windows kritik yolun yarisi.
+  # Kurulum listesi Windows isiyle AYNI (ayni gcc -> ayni derleyici ozeti -> isabet).
+  ccache-isit-windows:
+    name: Windows ccache isitma (main)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Satir sonu ayari
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-vulkan-validation-layers
+
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-windows-
+
+      - name: Derle (yalniz onbellek icin)
+        run: |
+          gcc --version | head -1
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build yapi -j"$(nproc)"
+          ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ccache onbellegini kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # MACOS CCACHE'I DA MAIN'DE ISIT (2026-11-22, Tuzaklar 8eq). Windows isitmasi eklendikten sonraki ilk PR
+  # (koşum 45028962427) ayni deligi macOS'ta gosterdi: PR'in kendi onbellegi yoktu, `ccache-macos-40522797826`
+  # (eski kayit) acildi, isabet 4/621 (%0,64), Derle 113 s (onceki koşumlarda ayni PR'in kaydindan 30 s).
+  # Derleyici AppleClang (runner imajinin Xcode'u); macOS isiyle ayni araclar.
+  ccache-isit-macos:
+    name: macOS ccache isitma (main)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bagimliliklar
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          brew list --versions cmake  >/dev/null 2>&1 || brew install cmake
+          brew list --versions ninja  >/dev/null 2>&1 || brew install ninja
+          brew list --versions ccache >/dev/null 2>&1 || brew install ccache
+
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-macos-
+
+      - name: Derle (yalniz onbellek icin)
+        run: |
+          c++ --version | head -1
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+          ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ccache onbellegini kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
 
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
@@ -774,12 +895,15 @@ jobs:
             echo "::warning::Loader MoltenVK ICD'si uzerinden HIC CIHAZ GORMUYOR. Motor dogrudan-MoltenVK yedegine duser; o surecte katman zinciri YOKTUR."
           fi
 
-      - name: ccache onbellegi
+      # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
+      # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
+      # sonraki push yine soguk derliyordu. Kayit "Derle"den HEMEN sonra (asagida, always()).
+      - name: ccache onbellegi (geri yukle)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-macos-${{ github.run_id }}
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-macos-
 
       # derle.sh'in bagimlilik denetimini GERCEK brew uzerinde olcer.
@@ -808,8 +932,16 @@ jobs:
                 ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
+        id: derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      - name: ccache onbellegini kaydet
+        if: always() && needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && steps.derle.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
@@ -1175,12 +1307,15 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF ile cikarilmis; .gitattributes devreye girmemis."; exit 1; }
 
-      - name: ccache onbellegi
+      # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
+      # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
+      # sonraki push yine soguk derliyordu. Kayit "Derle"den HEMEN sonra (asagida, always()).
+      - name: ccache onbellegi (geri yukle)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-windows-${{ github.run_id }}
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-windows-
 
       # derle.bat GERCEK cmd'de kosuyor mu? Yerelde yalniz Wine altinda
@@ -1213,19 +1348,30 @@ jobs:
                 ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
+        id: derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
 
+      - name: ccache onbellegini kaydet
+        if: always() && needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && steps.derle.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
+
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
-      # Kopru bolumu AYRI iste kosar ("Windows kopru (SwiftShader)"); o is bu eklenti paketini
-      # bekleyip indirir. Derlemeden hemen sonra yuklenir ki kopru bu isin testleriyle PARALEL kossun.
-      - name: Eklenti paketini yukle (kopru isi icin)
+      # Kopru bolumu ve TESTLERIN IKINCI PARCASI ayri iste kosar ("Windows kopru (SwiftShader)"); o is
+      # bu paketi (eklenti + yapi/*.exe: engine_tests kardes ikilileri de cagiriyor) bekleyip indirir.
+      # Derlemeden hemen sonra yuklenir ki o is bu isin testleriyle PARALEL kossun.
+      - name: Eklenti paketi + test ikilileri (kopru isi icin)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: eklenti-windows-x86_64
-          path: yapi/tulpar-ext/
+          path: |
+            yapi/tulpar-ext/
+            yapi/*.exe
           if-no-files-found: error
           retention-days: 3
 
@@ -1280,9 +1426,13 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: bash tools/windows_kapilar.sh katman-kontrol
 
+      # PARCA (2026-11-22, Tuzaklar 8eq): PR'da bu is testlerin 0/2 parcasini, kopru isi AYNI ikiliyle
+      # 1/2 parcasini kosar (engine_tests --parca; i % 2). Ikisinin de ozeti "kosan == kayitli" kapisindan
+      # gecer ve bu is kopru isinin sonucunu tasir, yani her test yine zorunlu check'in arkasinda.
+      # PR disinda (main push yedegi, elle tetikleme) kopru isi yok: hepsi burada.
       - name: Testler + kapi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        run: bash tools/windows_kapilar.sh testler
+        run: bash tools/windows_kapilar.sh testler ${{ github.event_name == 'pull_request' && '0/2' || '' }}
 
       # TULPAR KOPRUSU — WINDOWS (link.windows, 2026-10-02): YAYINLANMIS
       # tulpar-windows-x64.zip (+ runtime arsivi; SHA256SUMS.txt dogrulamali)
@@ -1321,14 +1471,6 @@ jobs:
       # (tools/paket_denetle.sh) hem burada hem surumde kosuyor: PR'da yesilse
       # surumde de yesildir.
       # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki "Ciktilari topla".
-      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 MINGW64)" kopru isinin sonucunu da
-      # TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
-      - name: Kopru isinin sonucu
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_bekle.sh is "Windows kopru (SwiftShader)"
 
       - name: Paketle + yerlesim/DLL kapisi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
@@ -1374,6 +1516,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 MINGW64)" kopru isinin sonucunu da
+      # TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
+      # SONUCU EN SONDA BEKLE (2026-11-22): adim eskiden testlerin hemen ardindaydi ve Windows isi koprunun
+      # bitmesini 88 s BOSTA bekliyordu, paketleme + kurucu (86 s) ancak ondan sonra basliyordu (PR #154,
+      # koşum 45030941115). Paketleme koprunun sonucuna bagli degil; artik ikisi ortusur. Bekleme yine
+      # artefakt yuklenmeden ONCE: kopru duserse is kirmizi ve "yesil koşum" artefakti olmaz.
+      - name: Kopru isinin sonucu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/ci_bekle.sh is "Windows kopru (SwiftShader)"
+
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
@@ -1390,6 +1545,8 @@ jobs:
   # Windows isinin derledigi paketle burada, testlerle PARALEL kosar; Windows isi
   # bunun sonucunu bekler ve tasir (zorunlu check adi degismedi). Linux savas isiyle
   # ayni desen (tools/ci_bekle.sh). Yalniz PR'da: main push PR artefaktini kullanir.
+  # 2026-11-22: testlerin 1/2 parcasi da burada (Windows isinin Testler + kapi adimi 198 s'ydi,
+  # koşum 45011941482); paket yapi/*.exe'yi de tasir.
   windows-kopru:
     name: Windows kopru (SwiftShader)
     needs: detect-docs-only
@@ -1410,9 +1567,14 @@ jobs:
         with:
           msystem: MINGW64
           update: false
+          # Windows isiyle AYNI liste: testlerin 1/2 parcasi burada kosuyor (ayni calisma zamani DLL'leri,
+          # ayni araclar PATH'te — parca farki bir aracin yoklugundan degil testten gelsin).
           install: >-
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
+            mingw-w64-x86_64-ccache
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-vulkan-validation-layers
@@ -1430,11 +1592,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 MINGW64)"
 
-      - name: Eklenti paketini indir
+      - name: Eklenti paketini + test ikililerini indir
         uses: actions/download-artifact@v4
         with:
           name: eklenti-windows-x86_64
-          path: yapi/tulpar-ext
+          path: yapi
+
+      # Testlerin 1/2 parcasi (0/2 Windows isinde; ayni ikili). Kanonik .sahne LF kapisi burada da:
+      # parca o testi icerebilir ve checkout ayni autocrlf ayariyla yapildi.
+      - name: Testler + kapi (parca 1/2)
+        env:
+          KAPI_BASLIK: Windows (MSYS2 MINGW64, SwiftShader)
+        run: |
+          python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF"; exit 1; }
+          bash tools/windows_kapilar.sh testler 1/2
 
       - name: Tulpar koprusu (yayinlanmis tulpar + eklenti paketi, SwiftShader)
         run: |

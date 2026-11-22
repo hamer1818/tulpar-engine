@@ -673,7 +673,9 @@ static AssetStyle asset_style_for_file(const char *path) {
 
   if (std::strcmp(dot, ".animator") == 0) return {"\xE2\x86\xBB", "ANIMAT\xC3\x96R", Tone::Warn};   // ↻  (A3)
   // 3B Modeller / Aglar: Model simgesi, Vurgu
-  if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0) {
+  if (std::strcmp(dot, ".gltf") == 0 || std::strcmp(dot, ".glb") == 0 || std::strcmp(dot, ".tmesh") == 0 || std::strcmp(dot, ".obj") == 0 ||
+      std::strcmp(dot, ".stl") == 0 || std::strcmp(dot, ".fbx") == 0 || std::strcmp(dot, ".ply") == 0 ||
+      std::strcmp(dot, ".usda") == 0 || std::strcmp(dot, ".usd") == 0 || std::strcmp(dot, ".usdz") == 0) {
     return {"\xE2\x97\x86", "MODEL", Tone::Accent};
   }
   // Dokular / Resimler: Kutu/Resim, Eksen Z (Mavi)
@@ -790,7 +792,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dizini yeniden tara");
     ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
     if (ImGui::Button(ICON_MD_ADD "##ice_aktar", ImVec2(btn_w, btn_w)) && out) out->ice_aktar = true;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .stl / .obj): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "3B model i\xC3\xA7" "e aktar (.glb / .gltf / .fbx / .stl / .obj / .ply / .usda): proje klas\xC3\xB6r\xC3\xBCne kopyalan\xC4\xB1r");
     if (!two_rows) ImGui::SameLine(0.0f, st.ItemSpacing.x);
     // Izgara / liste: etkin olan vurgulu.
     for (int mode = 0; mode < 2; mode++) {

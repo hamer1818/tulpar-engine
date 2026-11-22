@@ -90,6 +90,36 @@ Quat donus_of(const Mat4 &m) {
   else { const float s = std::sqrt(1.0f + m22 - m00 - m11) * 2.0f; q = {(m02 + m20) / s, (m12 + m21) / s, 0.25f * s, (m10 - m01) / s}; }
   return q_norm(q);
 }
+// a yonunu b yonune ceviren en kisa donus (birim olmayan girdi olur; zit yonde dik eksen)
+Quat yon_donus(Vec3 a, Vec3 b) {
+  const float la = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z), lb = std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+  if (la < 1e-9f || lb < 1e-9f) return Quat{};
+  a = Vec3{a.x / la, a.y / la, a.z / la};
+  b = Vec3{b.x / lb, b.y / lb, b.z / lb};
+  const float d = a.x * b.x + a.y * b.y + a.z * b.z;
+  if (d < -0.99999f) {   // zit: a'ya dik herhangi bir eksen etrafinda 180
+    Vec3 e = std::fabs(a.x) < 0.9f ? Vec3{0, -a.z, a.y} : Vec3{a.z, 0, -a.x};
+    const float le = std::sqrt(e.x * e.x + e.y * e.y + e.z * e.z);
+    return Quat{e.x / le, e.y / le, e.z / le, 0.0f};
+  }
+  const Vec3 c{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+  return q_norm(Quat{c.x, c.y, c.z, 1.0f + d});
+}
+// Kanonik kemigin YON cocugu (kemik dogrultusu = eklem -> cocuk); -1: yon yok (kalca) ya da ebeveynden miras (-2 - ebeveyn).
+int yon_cocugu(uint32_t b) {
+  switch (b) {
+    case B_HIPS: return -1;
+    case B_SPINE: return B_CHEST;
+    case B_CHEST: return B_NECK;
+    case B_NECK: return B_HEAD;
+    case B_HEAD: return -2 - B_NECK;
+    default: break;
+  }
+  const uint32_t o = b >= (uint32_t)B_R0 ? B_R0 : B_L0, k = b - o;   // omuz, ust kol, on kol, el, uyluk, baldir, ayak, parmak
+  if (k == 3) return -2 - (int)(o + 2);   // el: on koldan
+  if (k == 7) return -2 - (int)(o + 6);   // parmak: ayaktan
+  return (int)(o + k + 1);
+}
 float olcek_of(const Mat4 &m) { return std::sqrt(m.m[0][0] * m.m[0][0] + m.m[0][1] * m.m[0][1] + m.m[0][2] * m.m[0][2]); }
 
 // Iskeletin dunya donusleri (pre dahil) ve dunya konumlari; yerel poz verilir (ebeveyn-once sira).
@@ -224,6 +254,30 @@ bool model_retarget(Arena &arena, Model &target, const Model &source, uint32_t m
     if (!rs0 || !rs || !ps0 || !ps || !sbt || !sbs || !sbr) { std::snprintf(r.error, sizeof r.error, "arena dolu"); return false; }
     for (uint32_t j = 0; j < js; j++) { sbt[j] = ssk.joints[j].bind_t; sbr[j] = ssk.joints[j].bind_r; sbs[j] = ssk.joints[j].bind_s; }
     dunya(ssk, sbt, sbr, sbs, rs0, ps0, sc.model);
+    // DINLENME POZU FARKI (T<->A, 2026-11-22): hedefin her eslenen kemiginin dinlenme dogrultusunu (eklem -> yon cocugu, dunya)
+    // kaynaginkine ceviren donus A_b. Hedef dinlenme donusu A_b * rt0 sayilir: dinlenmede hedef KAYNAGIN pozunu alir (T kaynakla A
+    // hedefin kollari ayni yone bakar), klip farki bunun ustune biner. Yonsuz kemik (el, bas, parmak) ebeveyninin A'sini alir;
+    // eslenmemis eklemler ebeveynin duzeltilmis donusunu zaten miras alir. Ayni dinlenmede A = birim (eski davranis bit bit).
+    Quat *hiza = arena.alloc_array<Quat>(jt);
+    if (!hiza) { std::snprintf(r.error, sizeof r.error, "arena dolu"); return false; }
+    for (uint32_t j = 0; j < jt; j++) hiza[j] = Quat{};
+    r.rest_aligned = 0;
+    r.rest_max_deg = 0;
+    {
+      Quat ab[kHumanoidBones];
+      for (uint32_t b = 0; b < kHumanoidBones; b++) {
+        ab[b] = Quat{};
+        const int c = yon_cocugu(b);
+        if (c < -1) { ab[b] = ab[-2 - c]; continue; }   // ebeveyn once tanimli (sira: govde, sonra yan bloklari sirayla)
+        if (c < 0 || smap[b] < 0 || tmap[b] < 0 || smap[c] < 0 || tmap[c] < 0) continue;
+        const Vec3 ds = ps0[smap[c]] - ps0[smap[b]], dt = pt0[tmap[c]] - pt0[tmap[b]];
+        ab[b] = yon_donus(dt, ds);
+        const float aci = 2.0f * std::acos(std::fmin(1.0f, std::fabs(ab[b].w))) * 57.29578f;
+        if (aci > 1.0f) r.rest_aligned++;
+        if (aci > r.rest_max_deg) r.rest_max_deg = aci;
+      }
+      for (uint32_t b = 0; b < kHumanoidBones; b++) if (smap[b] >= 0 && tmap[b] >= 0) hiza[tmap[b]] = ab[b];
+    }
     // kalca yuksekligi orani (dunya Y; birim farkini da duser)
     const float hs = ps0[smap[B_HIPS]].y, ht = pt0[tmap[B_HIPS]].y;
     const float oran = std::fabs(hs) > 1e-5f ? ht / hs : 1.0f;
@@ -246,7 +300,7 @@ bool model_retarget(Arena &arena, Model &target, const Model &source, uint32_t m
         const int32_t p = tsk.joints[j].parent;
         const Quat ebeveyn = p >= 0 ? rtw[p] : tpre;
         const int16_t s = kaynagi[j];
-        rtw[j] = s >= 0 ? q_norm(rs[s] * conjugate(rs0[s]) * rt0[j]) : q_norm(ebeveyn * br[j]);
+        rtw[j] = s >= 0 ? q_norm(rs[s] * conjugate(rs0[s]) * hiza[j] * rt0[j]) : q_norm(ebeveyn * br[j]);
         rr[(size_t)j * samples + k] = q_norm(conjugate(ebeveyn) * rtw[j]);
         ss[(size_t)j * samples + k] = bs[j];
         Vec3 tj = bt[j];

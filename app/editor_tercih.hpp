@@ -17,6 +17,7 @@ struct Tercihler {
   int tema = 0;         // U11 C6: 0 koyu, 1 acik
   int dil = 0;          // 0 Turkce, 1 English (app/editor_dil.hpp; ceviri cizim katmaninda)
   int canli_kod = 1;    // 1: oyun calisirken kod degisirse oyun kendiliginden yeniden baslar (varsayilan ACIK); 0 kapali
+  int hedef_cihaz = 0;  // A7 (2026-11-22): Istatistik'teki karakter butcesinin cihaz sinifi (content::DeviceTier: 0 dusuk = olculen P20 Pro)
 };
 
 // Metin <-> tercih. Ayristir: gecersiz deger en yakin gecerli degere cekilir (sessiz degil: donus false).

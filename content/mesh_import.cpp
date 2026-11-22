@@ -528,6 +528,674 @@ bool obj_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
   return tamam;
 }
 
+
+// ---- PLY (2026-11-22) -----------------------------------------------------------------------------------------------------
+// Stanford PLY: ascii / binary_little_endian / binary_big_endian 1.0. Okunan: vertex x y z, nx ny nz, UV (s t | u v | texture_u
+// texture_v), renk red green blue (uchar ya da float 0..1); face vertex_indices | vertex_index (liste; cokgen OBJ'deki gibi
+// uclenir). Bilinmeyen eleman/ozellik ATLANIR (ikilide boyutu hesaplanir). Kose rengi: Vertex'te renk kanali yok -> yuz rengi
+// (3 kosenin ortalamasi) malzeme paletine iner; ayrik renk sayisi tavani (32) asarsa kanal basina bit azaltilarak nicemlenir ve
+// not'a yazilir (MagicaVoxel PLY'si birkac renkle tam dogru gelir).
+enum PlyTip : uint8_t { PT_YOK, PT_I8, PT_U8, PT_I16, PT_U16, PT_I32, PT_U32, PT_F32, PT_F64 };
+PlyTip ply_tip(const char *s) {
+  struct { const char *a; PlyTip t; } kt[] = {{"char", PT_I8},   {"int8", PT_I8},     {"uchar", PT_U8},   {"uint8", PT_U8},
+                                               {"short", PT_I16}, {"int16", PT_I16},  {"ushort", PT_U16}, {"uint16", PT_U16},
+                                               {"int", PT_I32},   {"int32", PT_I32},  {"uint", PT_U32},   {"uint32", PT_U32},
+                                               {"float", PT_F32}, {"float32", PT_F32}, {"double", PT_F64}, {"float64", PT_F64}};
+  for (const auto &k : kt) if (!std::strcmp(s, k.a)) return k.t;
+  return PT_YOK;
+}
+uint32_t ply_boy(PlyTip t) { return t == PT_I8 || t == PT_U8 ? 1 : t == PT_I16 || t == PT_U16 ? 2 : t == PT_F64 ? 8 : 4; }
+struct PlyOz {
+  char ad[32];
+  PlyTip tip = PT_YOK, say_tip = PT_YOK;   // say_tip != YOK: liste
+};
+struct PlyEl {
+  char ad[32];
+  uint32_t n = 0;
+  PlyOz oz[24];
+  uint32_t oz_n = 0;
+};
+// Ikili/ASCII okuyucu: tek deger (double). false: veri bitti / bozuk.
+struct PlyOkur {
+  const unsigned char *p, *son;
+  int bicim;   // 0 ascii, 1 LE, 2 BE
+  bool deger(PlyTip t, double *out) {
+    if (bicim == 0) {
+      while (p < son && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+      if (p >= son) return false;
+      char *e = nullptr;
+      *out = std::strtod(reinterpret_cast<const char *>(p), &e);
+      if (reinterpret_cast<const unsigned char *>(e) == p) return false;
+      p = reinterpret_cast<const unsigned char *>(e);
+      return true;
+    }
+    const uint32_t b = ply_boy(t);
+    if ((size_t)(son - p) < b) return false;
+    unsigned char x[8];
+    for (uint32_t i = 0; i < b; i++) x[i] = bicim == 1 ? p[i] : p[b - 1 - i];
+    p += b;
+    switch (t) {
+      case PT_I8: *out = (int8_t)x[0]; break;
+      case PT_U8: *out = x[0]; break;
+      case PT_I16: { int16_t v; std::memcpy(&v, x, 2); *out = v; break; }
+      case PT_U16: { uint16_t v; std::memcpy(&v, x, 2); *out = v; break; }
+      case PT_I32: { int32_t v; std::memcpy(&v, x, 4); *out = v; break; }
+      case PT_U32: { uint32_t v; std::memcpy(&v, x, 4); *out = v; break; }
+      case PT_F32: { float v; std::memcpy(&v, x, 4); *out = v; break; }
+      case PT_F64: { double v; std::memcpy(&v, x, 8); *out = v; break; }
+      default: return false;
+    }
+    return true;
+  }
+};
+
+bool ply_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
+  MeshImportOptions o = opt ? *opt : MeshImportOptions{};
+  if (!opt) { o.z_up = false; o.fit_size = 0.0f; }   // OBJ gibi: dosya ekseni/olcegi korunur (.ayar degistirir)
+  *out = Model{};
+  size_t n = 0;
+  unsigned char *b = oku_dosya(path, &n);
+  if (!b) { hata(out, "PLY dosyasi acilamadi", path); return false; }
+  struct Serbest { unsigned char *b; ~Serbest() { std::free(b); } } serbest{b};
+  if (n < 10 || std::strncmp(reinterpret_cast<const char *>(b), "ply", 3) != 0 || (b[3] != '\n' && b[3] != '\r')) { hata(out, "PLY: 'ply' basligi yok"); return false; }
+  // --- baslik ---
+  PlyEl el[8];
+  uint32_t el_n = 0;
+  int bicim = -1;
+  const char *bas_son = std::strstr(reinterpret_cast<const char *>(b), "end_header");
+  if (!bas_son) { hata(out, "PLY: 'end_header' yok (kesik baslik)"); return false; }
+  const unsigned char *veri = reinterpret_cast<const unsigned char *>(bas_son) + 10;
+  while (veri < b + n && *veri == '\r') veri++;
+  if (veri < b + n && *veri == '\n') veri++;
+  {
+    char satir[256];
+    const char *q = reinterpret_cast<const char *>(b);
+    while (q < bas_son) {
+      const char *e = q;
+      while (e < bas_son && *e != '\n') e++;
+      const size_t l = std::min<size_t>((size_t)(e - q), sizeof satir - 1);
+      std::memcpy(satir, q, l);
+      satir[l] = 0;
+      q = e < bas_son ? e + 1 : e;
+      for (char *c = satir; *c; c++) if (*c == '\r') *c = 0;
+      char a[32] = {0}, b1[32] = {0}, c1[32] = {0}, d1[32] = {0}, e1[32] = {0};
+      const int k = std::sscanf(satir, "%31s %31s %31s %31s %31s", a, b1, c1, d1, e1);
+      if (k <= 0) continue;
+      if (!std::strcmp(a, "format")) {
+        bicim = !std::strcmp(b1, "ascii") ? 0 : !std::strcmp(b1, "binary_little_endian") ? 1 : !std::strcmp(b1, "binary_big_endian") ? 2 : -2;
+      } else if (!std::strcmp(a, "element") && k >= 3) {
+        if (el_n >= 8) { hata(out, "PLY: 8'den cok eleman"); return false; }
+        PlyEl &x = el[el_n++];
+        x = PlyEl{};
+        std::snprintf(x.ad, sizeof x.ad, "%s", b1);
+        const long long say = std::atoll(c1);
+        if (say < 0 || say > (long long)kMaxCorners) { hata(out, "PLY: eleman sayisi gecersiz ya da cok buyuk"); return false; }
+        x.n = (uint32_t)say;
+      } else if (!std::strcmp(a, "property") && el_n) {
+        PlyEl &x = el[el_n - 1];
+        if (x.oz_n >= 24) { hata(out, "PLY: elemanda 24'ten cok ozellik"); return false; }
+        PlyOz &z = x.oz[x.oz_n++];
+        z = PlyOz{};
+        if (!std::strcmp(b1, "list") && k >= 5) { z.say_tip = ply_tip(c1); z.tip = ply_tip(d1); std::snprintf(z.ad, sizeof z.ad, "%s", e1); }
+        else { z.tip = ply_tip(b1); std::snprintf(z.ad, sizeof z.ad, "%s", c1); }
+        if (z.tip == PT_YOK || (!std::strcmp(b1, "list") && z.say_tip == PT_YOK)) { hata(out, "PLY: bilinmeyen ozellik tipi", satir); return false; }
+      }
+    }
+  }
+  if (bicim < 0) { hata(out, bicim == -2 ? "PLY: bilinmeyen bicim" : "PLY: 'format' satiri yok"); return false; }
+  // --- veri ---
+  PlyOkur rd{veri, b + n, bicim};
+  Buf<Vec3> V, VN, VC;
+  Buf<Vec2> VT;
+  bool normal_var = false, uv_var = false, renk_var = false;
+  Buf<Vec3> pos, nrm;
+  Buf<Vec2> uv;
+  Buf<Vec3> yuz_renk;
+  Buf<uint32_t> ucg;
+  bool yuz_goruldu = false;
+  Buf<uint32_t> liste, t;   // satir basina yeniden kullanilir (yuz basina malloc yok)
+  for (uint32_t e = 0; e < el_n; e++) {
+    PlyEl &x = el[e];
+    const bool kose = !std::strcmp(x.ad, "vertex"), yuz = !std::strcmp(x.ad, "face");
+    int ix = -1, iy = -1, iz = -1, inx = -1, iny = -1, inz = -1, iu = -1, iv = -1, ir = -1, ig = -1, ib = -1, il = -1;
+    for (uint32_t k = 0; k < x.oz_n; k++) {
+      const char *a = x.oz[k].ad;
+      if (!std::strcmp(a, "x")) ix = (int)k; else if (!std::strcmp(a, "y")) iy = (int)k; else if (!std::strcmp(a, "z")) iz = (int)k;
+      else if (!std::strcmp(a, "nx")) inx = (int)k; else if (!std::strcmp(a, "ny")) iny = (int)k; else if (!std::strcmp(a, "nz")) inz = (int)k;
+      else if (!std::strcmp(a, "s") || !std::strcmp(a, "u") || !std::strcmp(a, "texture_u")) iu = (int)k;
+      else if (!std::strcmp(a, "t") || !std::strcmp(a, "v") || !std::strcmp(a, "texture_v")) iv = (int)k;
+      else if (!std::strcmp(a, "red") || !std::strcmp(a, "r")) ir = (int)k;
+      else if (!std::strcmp(a, "green") || !std::strcmp(a, "g")) ig = (int)k;
+      else if (!std::strcmp(a, "blue") || !std::strcmp(a, "b")) ib = (int)k;
+      else if (x.oz[k].say_tip != PT_YOK && (!std::strcmp(a, "vertex_indices") || !std::strcmp(a, "vertex_index"))) il = (int)k;
+    }
+    if (kose) {
+      if (ix < 0 || iy < 0 || iz < 0) { hata(out, "PLY: vertex x/y/z yok"); return false; }
+      normal_var = inx >= 0 && iny >= 0 && inz >= 0;
+      uv_var = iu >= 0 && iv >= 0;
+      renk_var = ir >= 0 && ig >= 0 && ib >= 0;
+    }
+    if (yuz) { if (il < 0) { hata(out, "PLY: face vertex_indices listesi yok"); return false; } yuz_goruldu = true; }
+    double d[24];
+    for (uint32_t i = 0; i < x.n; i++) {
+      liste.n = 0;
+      for (uint32_t k = 0; k < x.oz_n; k++) {
+        const PlyOz &z = x.oz[k];
+        if (z.say_tip == PT_YOK) { if (!rd.deger(z.tip, &d[k])) { hata(out, "PLY: veri beklenenden kisa (kesik dosya?)"); return false; } continue; }
+        double c = 0;
+        if (!rd.deger(z.say_tip, &c) || c < 0 || c > 4096) { hata(out, "PLY: liste uzunlugu gecersiz (kesik dosya?)"); return false; }
+        for (uint32_t m = 0; m < (uint32_t)c; m++) {
+          double v = 0;
+          if (!rd.deger(z.tip, &v)) { hata(out, "PLY: veri beklenenden kisa (kesik dosya?)"); return false; }
+          if ((int)k == il && (!liste.push(v < 0 ? 0xFFFFFFFFu : (uint32_t)v))) { hata(out, "bellek"); return false; }
+        }
+      }
+      if (kose) {
+        const Vec3 p{(float)d[ix], (float)d[iy], (float)d[iz]};
+        if (!finite3(p)) { hata(out, "PLY: NaN/Inf koordinat"); return false; }
+        bool ok = V.push(p);
+        if (normal_var) ok = ok && VN.push(Vec3{(float)d[inx], (float)d[iny], (float)d[inz]});
+        if (uv_var) ok = ok && VT.push(Vec2{(float)d[iu], 1.0f - (float)d[iv]});   // PLY UV'si alttan (OBJ gibi)
+        if (renk_var) {
+          const float bol = x.oz[ir].tip == PT_F32 || x.oz[ir].tip == PT_F64 ? 1.0f : x.oz[ir].tip == PT_U16 ? 65535.0f : 255.0f;
+          ok = ok && VC.push(Vec3{(float)d[ir] / bol, (float)d[ig] / bol, (float)d[ib] / bol});
+        }
+        if (!ok) { hata(out, "bellek"); return false; }
+      } else if (yuz) {
+        if (liste.n < 3) continue;
+        if (V.n == 0) { hata(out, "PLY: yuz koselerden once"); return false; }
+        Vec3 cp[256];
+        const uint32_t ln = std::min<uint32_t>(liste.n, 256);
+        for (uint32_t m = 0; m < ln; m++) {
+          if (liste.p[m] >= V.n) { hata(out, "PLY: yuz kose indeksi sinir disi"); return false; }
+          cp[m] = V.p[liste.p[m]];
+        }
+        t.n = 0;
+        ucgenle(cp, ln, t);
+        for (uint32_t m = 0; m + 2 < t.n; m += 3) {
+          if (pos.n / 3 >= kMaxTris) { hata(out, "PLY: ucgen siniri asildi (en cok 4M)"); return false; }
+          Vec3 rk{0, 0, 0};
+          for (uint32_t c = 0; c < 3; c++) {
+            const uint32_t vi = liste.p[t.p[m + c]];
+            bool ok = pos.push(V.p[vi]);
+            if (normal_var) ok = ok && nrm.push(VN.p[vi]);
+            if (uv_var) ok = ok && uv.push(VT.p[vi]);
+            if (renk_var) rk = rk + VC.p[vi] * (1.0f / 3.0f);
+            if (!ok) { hata(out, "bellek"); return false; }
+          }
+          if (renk_var && !yuz_renk.push(rk)) { hata(out, "bellek"); return false; }
+        }
+      }
+    }
+  }
+  if (!pos.n) { hata(out, yuz_goruldu ? "PLY: ucgen yok" : "PLY: face elemani yok (nokta bulutu desteklenmiyor)"); return false; }
+  Giris g;
+  g.ntri = pos.n / 3;
+  g.pos = pos.p;
+  g.uv = uv_var ? uv.p : nullptr;
+  // Renk paleti: ayrik yuz renkleri (8 bit), tavani asarsa kanal basina bit azalt
+  const uint32_t tavan = std::min<uint32_t>(lim.max_materials ? lim.max_materials : 1, 32);
+  Buf<uint32_t> tmat;
+  Buf<Vec3> palet;
+  uint32_t bit = 8;
+  if (renk_var) {
+    for (; bit >= 1; bit--) {
+      palet.n = 0;
+      tmat.n = 0;
+      uint32_t anahtar[32];
+      bool sigdi = true;
+      for (uint32_t t = 0; t < g.ntri && sigdi; t++) {
+        const Vec3 c = yuz_renk.p[t];
+        auto kn = [&](float f) { const uint32_t v = (uint32_t)std::lround(std::fmin(1.0f, std::fmax(0.0f, f)) * 255.0f); return v >> (8 - bit); };
+        const uint32_t key = (kn(c.x) << 16) | (kn(c.y) << 8) | kn(c.z);
+        uint32_t m = 0;
+        while (m < palet.n && anahtar[m] != key) m++;
+        if (m == palet.n) {
+          if (palet.n >= tavan) { sigdi = false; break; }
+          anahtar[palet.n] = key;
+          const float olc = 255.0f / (float)((1u << bit) - 1) / 255.0f;
+          if (!palet.push(Vec3{(float)(key >> 16) * olc, (float)((key >> 8) & 0xFF) * olc, (float)(key & 0xFF) * olc})) { hata(out, "bellek"); return false; }
+        }
+        if (!tmat.push(m)) { hata(out, "bellek"); return false; }
+      }
+      if (sigdi) break;
+    }
+    if (bit < 1) bit = 1;
+    g.tri_mat = tmat.p;
+    g.nmat = palet.n ? palet.n : 1;
+    g.mat_renk = palet.p;
+  }
+  if (normal_var) g.nrm = nrm.p;
+  Vec3 *nrm_ilk = g.nrm;
+  const bool tamam = model_kur(arena, out, g, lim, o);
+  if (g.nrm != nrm_ilk) std::free(g.nrm);
+  if (tamam && renk_var)
+    std::snprintf(out->note, sizeof out->note, "k\xC3\xB6\xC5\x9F" "e rengi %u malzemeye indi (%s)", palet.n, bit == 8 ? "tam" : "renkler nicemlendi");
+  return tamam;
+}
+
+
+// ---- USD (USDA metin alt kumesi, 2026-11-22) ------------------------------------------------------------------------------
+// Okunan: `def/over/class [Tip] "ad" (...) { ... }` hiyerarsisi; Mesh: points, faceVertexCounts, faceVertexIndices, normals
+// (vertex/varying/faceVarying/uniform/constant), texCoord2f primvar (primvars:st ya da baska ad; :indices dahil), primvars:displayColor
+// (malzeme rengi; mesh basina ortalama), orientation (leftHanded -> sarim ters); Xform: xformOp:translate/scale/rotateX|Y|Z/
+// rotateXYZ..ZYX/orient/transform (+ :sonek, `!invert!`), xformOpOrder (yoksa yazilis sirasi); sahne metadata upAxis (Y/Z) ve
+// metersPerUnit (YOKSA 0,01 — USD varsayilani). Prim govdesinde cocuk prim, o ana kadar okunan xformOp'larla kurulur (araclar
+// once ozellikleri yazar). Atlanan (sessiz degil, not'a sayilir): zaman ornekli degerler, referans/payload/variant, alt bolumleme.
+// IKILI USD (usdc "PXR-USDC") ve icinde usdc olan usdz OKUNMAZ: hata metni .usda'ya disa aktarmayi soyler. usdz icindeki
+// SIKISTIRILMAMIS .usda (USDZ kurali: sikistirma yok) okunur.
+namespace usd {
+enum Tur : uint8_t { T_SON, T_ID, T_STR, T_PUNCT, T_YOL };
+struct Jeton {
+  Tur t = T_SON;
+  const char *a = nullptr;
+  uint32_t n = 0;
+  char c = 0;          // T_PUNCT
+  bool satir = false;  // oncesinde satir sonu var
+  bool esit(const char *s) const { return (t == T_ID || t == T_STR) && std::strlen(s) == n && !std::strncmp(a, s, n); }
+};
+struct Lex {
+  const char *p, *son;
+  bool peeked = false;
+  Jeton pk;
+  Jeton oku() {
+    Jeton j;
+    for (;;) {
+      while (p < son && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) { if (*p == '\n') j.satir = true; p++; }
+      if (p < son && *p == '#') { while (p < son && *p != '\n') p++; continue; }
+      break;
+    }
+    if (p >= son) { j.t = T_SON; return j; }
+    const char c = *p;
+    if (c == '"' || c == '\'') {
+      const bool uclu = son - p >= 3 && p[1] == c && p[2] == c;
+      p += uclu ? 3 : 1;
+      j.a = p;
+      while (p < son && !(uclu ? (son - p >= 3 && p[0] == c && p[1] == c && p[2] == c) : (*p == c))) { if (*p == '\\' && p + 1 < son) p++; p++; }
+      j.n = (uint32_t)(p - j.a);
+      p += p < son ? (uclu ? 3 : 1) : 0;
+      j.t = T_STR;
+      return j;
+    }
+    if (c == '<') { p++; j.a = p; while (p < son && *p != '>') p++; j.n = (uint32_t)(p - j.a); if (p < son) p++; j.t = T_YOL; return j; }
+    if (std::strchr("()[]{}=,;", c)) { p++; j.t = T_PUNCT; j.c = c; return j; }
+    j.a = p;
+    while (p < son && !std::strchr(" \t\r\n()[]{}=,;\"'<#", *p)) p++;
+    j.n = (uint32_t)(p - j.a);
+    j.t = T_ID;
+    return j;
+  }
+  Jeton bak() { if (!peeked) { pk = oku(); peeked = true; } return pk; }
+  Jeton al() { if (peeked) { peeked = false; return pk; } return oku(); }
+};
+bool ac(const Jeton &j) { return j.t == T_PUNCT && (j.c == '(' || j.c == '[' || j.c == '{'); }
+bool kapa(const Jeton &j) { return j.t == T_PUNCT && (j.c == ')' || j.c == ']' || j.c == '}'); }
+// Dengeli degeri tuket: sayilar out'a (nullptr: atla), dizgiler strs'e (en cok 16), interpolation metadata'si interp'e.
+struct Deger {
+  Buf<float> *sayi = nullptr;
+  char strs[16][48];
+  uint32_t str_n = 0;
+};
+bool sayi_mi(const Jeton &j, float *v) {
+  if (j.t != T_ID || !j.n) return false;
+  char b[64];
+  const uint32_t n = j.n < 63 ? j.n : 63;
+  std::memcpy(b, j.a, n);
+  b[n] = 0;
+  char *e = nullptr;
+  const float f = std::strtof(b, &e);
+  if (e == b || *e) return false;
+  *v = f;
+  return true;
+}
+bool deger_oku(Lex &L, Deger *d) {
+  Jeton j = L.al();
+  auto koy = [&](const Jeton &t) -> bool {
+    float v;
+    if (d && d->sayi && sayi_mi(t, &v)) { if (!d->sayi->push(v)) return false; }
+    else if (d && t.t == T_STR && d->str_n < 16) { std::snprintf(d->strs[d->str_n++], 48, "%.*s", (int)(t.n < 47 ? t.n : 47), t.a); }
+    return true;
+  };
+  if (!ac(j)) return koy(j);
+  int derin = 1;
+  while (derin > 0) {
+    j = L.al();
+    if (j.t == T_SON) return false;
+    if (ac(j)) derin++;
+    else if (kapa(j)) derin--;
+    else if (!koy(j)) return false;
+  }
+  return true;
+}
+// Metadata blogu "( ... )": interpolation / orientation degerlerini yakala, gerisini atla.
+void metadata(Lex &L, char *interp, size_t cap) {
+  int derin = 1;
+  while (derin > 0) {
+    const Jeton j = L.al();
+    if (j.t == T_SON) return;
+    if (ac(j)) { derin++; continue; }
+    if (kapa(j)) { derin--; continue; }
+    if (derin == 1 && interp && j.esit("interpolation")) {
+      Jeton e = L.al();
+      if (e.t == T_PUNCT && e.c == '=') { const Jeton v = L.al(); if (v.t == T_STR) std::snprintf(interp, cap, "%.*s", (int)v.n, v.a); }
+      else L.peeked = true, L.pk = e;
+    }
+  }
+}
+struct Op { char ad[64]; Mat4 m; };
+struct Prim {
+  Op op[16];
+  uint32_t op_n = 0;
+  char sira[16][64];
+  uint32_t sira_n = 0;
+  bool sira_var = false;
+};
+Mat4 rot_eksen(int ek, float derece) {
+  const float a = derece * 0.01745329252f, c = std::cos(a), s = std::sin(a);
+  Mat4 r;
+  if (ek == 0) { r.m[1][1] = c; r.m[1][2] = s; r.m[2][1] = -s; r.m[2][2] = c; }
+  else if (ek == 1) { r.m[0][0] = c; r.m[0][2] = -s; r.m[2][0] = s; r.m[2][2] = c; }
+  else { r.m[0][0] = c; r.m[0][1] = s; r.m[1][0] = -s; r.m[1][1] = c; }
+  return r;
+}
+Mat4 yerel(const Prim &P) {
+  Mat4 m;
+  if (!P.sira_var) { for (uint32_t i = 0; i < P.op_n; i++) m = m * P.op[i].m; return m; }
+  for (uint32_t i = 0; i < P.sira_n; i++) {
+    const char *ad = P.sira[i];
+    const bool ters = !std::strncmp(ad, "!invert!", 8);
+    if (ters) ad += 8;
+    if (!std::strcmp(ad, "!resetXformStack!")) { m = Mat4{}; continue; }
+    for (uint32_t k = 0; k < P.op_n; k++)
+      if (!std::strcmp(P.op[k].ad, ad)) { m = m * (ters ? inverse(P.op[k].m) : P.op[k].m); break; }
+  }
+  return m;
+}
+// xformOp degerinden matris. ad: "xformOp:translate" (+ ":sonek"). false: tanimsiz op (atlanir, sayilir).
+bool op_matris(const char *ad, const float *v, uint32_t n, Mat4 *out) {
+  const char *t = ad + 8;   // "xformOp:" sonrasi
+  char tur[24];
+  uint32_t k = 0;
+  while (t[k] && t[k] != ':' && k + 1 < sizeof tur) { tur[k] = t[k]; k++; }
+  tur[k] = 0;
+  Mat4 m;
+  if (!std::strcmp(tur, "translate") && n >= 3) m = Mat4::translate(Vec3{v[0], v[1], v[2]});
+  else if (!std::strcmp(tur, "scale") && n >= 3) m = Mat4::scale(Vec3{v[0], v[1], v[2]});
+  else if (!std::strcmp(tur, "scale") && n == 1) m = Mat4::scale(Vec3{v[0], v[0], v[0]});
+  else if (!std::strcmp(tur, "rotateX") && n >= 1) m = rot_eksen(0, v[0]);
+  else if (!std::strcmp(tur, "rotateY") && n >= 1) m = rot_eksen(1, v[0]);
+  else if (!std::strcmp(tur, "rotateZ") && n >= 1) m = rot_eksen(2, v[0]);
+  else if (!std::strncmp(tur, "rotate", 6) && std::strlen(tur) == 9 && n >= 3) {
+    // rotateXYZ: once X, sonra Y, sonra Z (sutun vektoru: Rz * Ry * Rx). Harf sirasi ilk uygulanandan son uygulanana.
+    for (int i = 0; i < 3; i++) {
+      const char h = tur[6 + i];
+      const int ek = h == 'X' ? 0 : h == 'Y' ? 1 : 2;
+      m = rot_eksen(ek, v[ek]) * m;
+    }
+  } else if (!std::strcmp(tur, "orient") && n >= 4) {   // quatf (w, x, y, z) — USD sirasi gercek kisim once
+    const Quat q{v[1], v[2], v[3], v[0]};
+    const Vec3 x = rotate(q, Vec3{1, 0, 0}), y = rotate(q, Vec3{0, 1, 0}), z = rotate(q, Vec3{0, 0, 1});
+    m.m[0][0] = x.x; m.m[0][1] = x.y; m.m[0][2] = x.z; m.m[1][0] = y.x; m.m[1][1] = y.y; m.m[1][2] = y.z; m.m[2][0] = z.x; m.m[2][1] = z.y; m.m[2][2] = z.z;
+  } else if (!std::strcmp(tur, "transform") && n >= 16) {   // USD satir vektoru: satir i = bizim sutun i
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) m.m[c][r] = v[c * 4 + r];
+  } else return false;
+  *out = m;
+  return true;
+}
+struct Mesh {
+  Buf<float> pts, cnt, idx, nrm, st, st_idx, renk;
+  char nrm_i[16] = "", st_i[16] = "", renk_i[16] = "";
+  bool sol_el = false;
+  void temizle() { pts.n = cnt.n = idx.n = nrm.n = st.n = st_idx.n = renk.n = 0; nrm_i[0] = st_i[0] = renk_i[0] = 0; sol_el = false; }
+};
+struct Durum {
+  Buf<Vec3> pos, nrm;
+  Buf<Vec2> uv;
+  Buf<uint32_t> tmat;
+  Buf<Vec3> renkler;
+  bool nrm_hep = true, uv_var = false;
+  uint32_t atlanan = 0, mesh_n = 0;
+  Buf<uint32_t> ucg;
+  Buf<Vec3> yuz;
+  Model *out = nullptr;
+  uint32_t mat_tavan = 32;
+};
+bool mesh_yaz(Durum &D, Mesh &M, const Mat4 &W) {
+  const uint32_t np = M.pts.n / 3;
+  if (!np || !M.cnt.n || !M.idx.n) return true;   // bos mesh: atla
+  // renk -> malzeme
+  Vec3 rk{0.8f, 0.8f, 0.8f};
+  if (M.renk.n >= 3) {
+    Vec3 t{0, 0, 0};
+    const uint32_t k = M.renk.n / 3;
+    for (uint32_t i = 0; i < k; i++) t = t + Vec3{M.renk.p[3 * i], M.renk.p[3 * i + 1], M.renk.p[3 * i + 2]};
+    rk = t * (1.0f / (float)k);
+  }
+  uint32_t mat = 0;
+  while (mat < D.renkler.n && !(D.renkler.p[mat].x == rk.x && D.renkler.p[mat].y == rk.y && D.renkler.p[mat].z == rk.z)) mat++;
+  if (mat == D.renkler.n) { if (D.renkler.n >= D.mat_tavan) mat = D.renkler.n - 1; else if (!D.renkler.push(rk)) return false; }
+  // normal donusumu: ters-devrik (olcek bagimsiz yon)
+  const Mat4 Wi = inverse(W);
+  auto nrm_don = [&](Vec3 n) { const Vec3 r{Wi.m[0][0] * n.x + Wi.m[0][1] * n.y + Wi.m[0][2] * n.z, Wi.m[1][0] * n.x + Wi.m[1][1] * n.y + Wi.m[1][2] * n.z, Wi.m[2][0] * n.x + Wi.m[2][1] * n.y + Wi.m[2][2] * n.z}; const float l = length(r); return l > 1e-20f ? r * (1.0f / l) : Vec3{0, 1, 0}; };
+  const bool aynalanmis = [&] { const Vec3 a{W.m[0][0], W.m[0][1], W.m[0][2]}, b{W.m[1][0], W.m[1][1], W.m[1][2]}, c{W.m[2][0], W.m[2][1], W.m[2][2]}; return dot(cross(a, b), c) < 0; }();
+  const bool ters = M.sol_el != aynalanmis;
+  const bool nrm_ok = M.nrm.n >= 3;
+  if (!nrm_ok) D.nrm_hep = false;
+  const bool st_ok = M.st.n >= 2;
+  if (st_ok) D.uv_var = true;
+  auto ara = [](const char *i, const char *s) { return !std::strcmp(i, s); };
+  uint32_t fv = 0;   // yuz-kose sayaci (faceVarying)
+  for (uint32_t f = 0; f < M.cnt.n; f++) {
+    const int32_t c = (int32_t)M.cnt.p[f];
+    if (c < 0 || fv + (uint32_t)c > M.idx.n) { hata(D.out, "USD: faceVertexCounts toplami faceVertexIndices'i asiyor"); return false; }
+    if (c < 3) { fv += (uint32_t)c; continue; }
+    Vec3 cp[256];
+    const uint32_t cn = (uint32_t)std::min(c, 256);
+    for (uint32_t k = 0; k < cn; k++) {
+      const float vi = M.idx.p[fv + k];
+      if (!(vi >= 0) || (uint32_t)vi >= np) { hata(D.out, "USD: yuz kose indeksi sinir disi"); return false; }
+      const uint32_t q = (uint32_t)vi;
+      cp[k] = Vec3{M.pts.p[3 * q], M.pts.p[3 * q + 1], M.pts.p[3 * q + 2]};
+    }
+    D.ucg.n = 0;
+    ucgenle(cp, cn, D.ucg);
+    for (uint32_t t = 0; t + 2 < D.ucg.n; t += 3) {
+      if (D.pos.n / 3 >= kMaxTris) { hata(D.out, "USD: ucgen siniri asildi (en cok 4M)"); return false; }
+      for (uint32_t z = 0; z < 3; z++) {
+        const uint32_t kk = D.ucg.p[t + (ters ? (z == 0 ? 0 : 3 - z) : z)];   // kose (yuz icinde)
+        const uint32_t q = (uint32_t)M.idx.p[fv + kk], fvi = fv + kk;
+        const Vec3 p = transform_point(W, cp[kk]);
+        if (!finite3(p)) { hata(D.out, "USD: NaN/Inf koordinat"); return false; }
+        bool ok = D.pos.push(p);
+        if (nrm_ok) {
+          const uint32_t nn = M.nrm.n / 3;
+          uint32_t ni = ara(M.nrm_i, "faceVarying") ? fvi : ara(M.nrm_i, "uniform") ? f : ara(M.nrm_i, "constant") ? 0 : q;
+          if (ni >= nn) ni = nn - 1;
+          ok = ok && D.nrm.push(nrm_don(Vec3{M.nrm.p[3 * ni], M.nrm.p[3 * ni + 1], M.nrm.p[3 * ni + 2]}));
+        } else ok = ok && D.nrm.push(Vec3{0, 1, 0});
+        if (st_ok) {
+          uint32_t si = ara(M.st_i, "faceVarying") ? fvi : ara(M.st_i, "uniform") ? f : ara(M.st_i, "constant") ? 0 : q;
+          if (M.st_idx.n) si = si < M.st_idx.n ? (uint32_t)M.st_idx.p[si] : 0;
+          const uint32_t sn = M.st.n / 2;
+          if (si >= sn) si = sn - 1;
+          ok = ok && D.uv.push(Vec2{M.st.p[2 * si], 1.0f - M.st.p[2 * si + 1]});   // USD UV'si alttan
+        } else ok = ok && D.uv.push(Vec2{0, 0});
+        if (!ok) { hata(D.out, "bellek"); return false; }
+      }
+      if (!D.tmat.push(mat)) { hata(D.out, "bellek"); return false; }
+    }
+    fv += (uint32_t)c;
+  }
+  D.mesh_n++;
+  return true;
+}
+// Prim govdesi ('{' tuketilmis). tip: prim tipi ("Mesh" ise mesh verisi toplanir). W: ebeveynin dunya matrisi.
+bool govde(Lex &L, Durum &D, const Mat4 &W, bool mesh, int derinlik) {
+  if (derinlik > 64) { hata(D.out, "USD: prim hiyerarsisi cok derin"); return false; }
+  static thread_local Prim prim_yigin[66];
+  static thread_local Mesh mesh_yigin[66];
+  Prim &P = prim_yigin[derinlik];
+  P = Prim{};
+  Mesh &M = mesh_yigin[derinlik];
+  M.temizle();
+  for (;;) {
+    Jeton j = L.al();
+    if (j.t == T_SON) { hata(D.out, "USD: kapanmamis prim (kesik dosya?)"); return false; }
+    if (j.t == T_PUNCT && j.c == '}') break;
+    if (j.t == T_PUNCT && j.c == ';') continue;
+    if (j.esit("def") || j.esit("over") || j.esit("class")) {
+      Jeton t = L.al();
+      char tip[32] = "";
+      if (t.t == T_ID) { std::snprintf(tip, sizeof tip, "%.*s", (int)(t.n < 31 ? t.n : 31), t.a); t = L.al(); }
+      if (t.t != T_STR) { hata(D.out, "USD: prim adi bekleniyordu"); return false; }
+      Jeton s = L.al();
+      if (s.t == T_PUNCT && s.c == '(') { metadata(L, nullptr, 0); s = L.al(); }
+      if (!(s.t == T_PUNCT && s.c == '{')) { hata(D.out, "USD: prim govdesi '{' bekleniyordu"); return false; }
+      const bool sinif = j.esit("class");
+      const Mat4 cw = W * yerel(P);
+      if (sinif) { Deger yok; L.peeked = true; L.pk = s; if (!deger_oku(L, &yok)) return false; continue; }   // class: sablon, cizilmez
+      if (!govde(L, D, cw, !std::strcmp(tip, "Mesh"), derinlik + 1)) return false;
+      continue;
+    }
+    if (j.esit("variantSet")) { while (!(L.bak().t == T_PUNCT && L.bak().c == '{') && L.bak().t != T_SON) L.al(); if (!deger_oku(L, nullptr)) return false; D.atlanan++; continue; }
+    // Ozellik: [niteleyiciler] tip ad [= deger] [( metadata )]
+    char ad[96] = "", onceki[96] = "";
+    Jeton x = j;
+    bool esit_var = false;
+    for (;;) {
+      if (x.t == T_ID) { std::snprintf(onceki, sizeof onceki, "%s", ad); std::snprintf(ad, sizeof ad, "%.*s", (int)(x.n < 95 ? x.n : 95), x.a); }
+      const Jeton y = L.bak();
+      if (y.t == T_SON || y.satir || (y.t == T_PUNCT && (y.c == '}' || y.c == '(' || y.c == '='))) {
+        if (y.t == T_PUNCT && y.c == '=') { L.al(); esit_var = true; }
+        break;
+      }
+      x = L.al();
+      if (x.t == T_PUNCT && x.c == '[') { const Jeton z = L.al(); if (!(z.t == T_PUNCT && z.c == ']')) { hata(D.out, "USD: dizi tipi bozuk"); return false; } x = Jeton{}; }
+    }
+    (void)onceki;
+    const bool zaman = std::strstr(ad, ".timeSamples") || std::strstr(ad, ".spline");
+    Buf<float> *hedef = nullptr;
+    Buf<float> gecici;
+    char *interp = nullptr;
+    const bool st_mi = std::strstr(j.a, "texCoord2") == j.a || (!std::strncmp(ad, "primvars:", 9) && (std::strstr(ad, ":st") || std::strstr(ad, "UV") || std::strstr(ad, "uv")));
+    if (mesh && !zaman) {
+      if (!std::strcmp(ad, "points")) hedef = &M.pts;
+      else if (!std::strcmp(ad, "faceVertexCounts")) hedef = &M.cnt;
+      else if (!std::strcmp(ad, "faceVertexIndices")) hedef = &M.idx;
+      else if (!std::strcmp(ad, "normals") || !std::strcmp(ad, "primvars:normals")) { hedef = &M.nrm; interp = M.nrm_i; }
+      else if (!std::strcmp(ad, "primvars:displayColor")) { hedef = &M.renk; interp = M.renk_i; }
+      else if (st_mi && std::strstr(ad, ":indices") && !M.st_idx.n) hedef = &M.st_idx;
+      else if (st_mi && !std::strstr(ad, ":indices") && !M.st.n) { hedef = &M.st; interp = M.st_i; }
+    }
+    const bool op = !std::strncmp(ad, "xformOp:", 8) && !zaman;
+    if (op) hedef = &gecici;
+    if (esit_var) {
+      Deger d;
+      d.sayi = hedef;
+      if (!deger_oku(L, &d)) { hata(D.out, "USD: deger kapanmadi (kesik dosya?)"); return false; }
+      if (zaman) D.atlanan++;
+      if (!std::strcmp(ad, "xformOpOrder")) { P.sira_var = true; P.sira_n = 0; for (uint32_t i = 0; i < d.str_n && i < 16; i++) std::snprintf(P.sira[P.sira_n++], 64, "%s", d.strs[i]); }
+      if (!std::strcmp(ad, "orientation") && d.str_n && !std::strcmp(d.strs[0], "leftHanded")) M.sol_el = true;
+      if (!std::strcmp(ad, "subdivisionScheme") && d.str_n && std::strcmp(d.strs[0], "none")) D.atlanan++;   // alt bolumleme yok: kafes cizilir
+      if (op && P.op_n < 16) { Mat4 m; if (op_matris(ad, gecici.p, gecici.n, &m)) { std::snprintf(P.op[P.op_n].ad, 64, "%s", ad); P.op[P.op_n].m = m; P.op_n++; } else D.atlanan++; }
+    }
+    if (L.bak().t == T_PUNCT && L.bak().c == '(' && !L.bak().satir) { L.al(); char tmp[16] = ""; metadata(L, interp ? interp : tmp, 16); }
+  }
+  if (mesh && !mesh_yaz(D, M, W * yerel(P))) return false;
+  return true;
+}
+} // namespace usd
+
+bool usd_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
+  MeshImportOptions o = opt ? *opt : MeshImportOptions{};
+  if (!opt) { o.z_up = false; o.fit_size = 0.0f; }
+  *out = Model{};
+  size_t n = 0;
+  unsigned char *b = oku_dosya(path, &n);
+  if (!b) { hata(out, "USD dosyasi acilamadi", path); return false; }
+  struct Serbest { unsigned char *b; ~Serbest() { std::free(b); } } serbest{b};
+  const char *bas = reinterpret_cast<const char *>(b), *son = bas + n;
+  if (n >= 8 && !std::memcmp(b, "PXR-USDC", 8)) { hata(out, "ikili USD (usdc) okunmuyor: Blender/DCC'de .usda (metin) olarak disa aktar"); return false; }
+  if (n >= 4 && b[0] == 'P' && b[1] == 'K' && b[2] == 3 && b[3] == 4) {   // usdz: sikistirilmamis zip; ilk .usda girdisi
+    bool bulundu = false, usdc_var = false;
+    for (size_t i = 0; i + 30 <= n;) {
+      if (!(b[i] == 'P' && b[i + 1] == 'K' && b[i + 2] == 3 && b[i + 3] == 4)) break;
+      const uint32_t yontem = b[i + 8] | (b[i + 9] << 8);
+      const uint32_t boy = b[i + 18] | (b[i + 19] << 8) | (b[i + 20] << 16) | ((uint32_t)b[i + 21] << 24);
+      const uint32_t ad_n = b[i + 26] | (b[i + 27] << 8), ek_n = b[i + 28] | (b[i + 29] << 8);
+      const size_t veri = i + 30 + ad_n + ek_n;
+      if (veri + boy > n) break;
+      const char *ad = reinterpret_cast<const char *>(b + i + 30);
+      const bool usda = ad_n > 5 && !std::strncmp(ad + ad_n - 5, ".usda", 5), usdc = ad_n > 5 && (!std::strncmp(ad + ad_n - 5, ".usdc", 5) || !std::strncmp(ad + ad_n - 4, ".usd", 4));
+      if (usda && yontem == 0) { bas = reinterpret_cast<const char *>(b + veri); son = bas + boy; bulundu = true; break; }
+      if (usdc) usdc_var = true;
+      i = veri + boy;
+    }
+    if (!bulundu) { hata(out, usdc_var ? "usdz icinde ikili USD (usdc) var, okunmuyor: .usda olarak disa aktar" : "usdz icinde .usda yok"); return false; }
+  }
+  if (son - bas < 5 || std::strncmp(bas, "#usda", 5) != 0) { hata(out, "USD: '#usda' basligi yok (metin USD degil)"); return false; }
+  usd::Lex L{bas, son};
+  usd::Durum D;
+  D.out = out;
+  D.mat_tavan = std::min<uint32_t>(lim.max_materials ? lim.max_materials : 1, 32);
+  float mpu = 0.01f;   // USD varsayilani: santimetre
+  bool z_yukari = false;
+  // sahne metadata'si
+  if (L.bak().t == usd::T_PUNCT && L.bak().c == '(') {
+    L.al();
+    int derin = 1;
+    while (derin > 0) {
+      const usd::Jeton j = L.al();
+      if (j.t == usd::T_SON) { hata(out, "USD: sahne metadata'si kapanmadi"); return false; }
+      if (usd::ac(j)) { derin++; continue; }
+      if (usd::kapa(j)) { derin--; continue; }
+      if (derin == 1 && (j.esit("upAxis") || j.esit("metersPerUnit"))) {
+        const bool up = j.esit("upAxis");
+        const usd::Jeton e = L.al();
+        if (!(e.t == usd::T_PUNCT && e.c == '=')) continue;
+        const usd::Jeton v = L.al();
+        float f;
+        if (up && v.t == usd::T_STR) z_yukari = v.n == 1 && v.a[0] == 'Z';
+        else if (!up && usd::sayi_mi(v, &f) && f > 0 && std::isfinite(f)) mpu = f;
+      }
+    }
+  }
+  Mat4 kok = Mat4::scale(Vec3{mpu, mpu, mpu});
+  if (z_yukari) {   // (x, y, z) -> (x, z, -y)
+    Mat4 z;
+    z.m[1][1] = 0; z.m[1][2] = -1; z.m[2][1] = 1; z.m[2][2] = 0;
+    kok = z * kok;
+  }
+  // kok prim'ler (govde() ile ayni, ama '}' yerine dosya sonu)
+  for (;;) {
+    usd::Jeton j = L.al();
+    if (j.t == usd::T_SON) break;
+    if (!(j.esit("def") || j.esit("over") || j.esit("class"))) { if (usd::ac(j)) { L.peeked = true; L.pk = j; if (!usd::deger_oku(L, nullptr)) break; } continue; }
+    usd::Jeton t = L.al();
+    char tip[32] = "";
+    if (t.t == usd::T_ID) { std::snprintf(tip, sizeof tip, "%.*s", (int)(t.n < 31 ? t.n : 31), t.a); t = L.al(); }
+    usd::Jeton s = L.al();
+    if (s.t == usd::T_PUNCT && s.c == '(') { usd::metadata(L, nullptr, 0); s = L.al(); }
+    if (t.t != usd::T_STR || !(s.t == usd::T_PUNCT && s.c == '{')) { hata(out, "USD: prim bildirimi bozuk"); return false; }
+    if (j.esit("class")) { L.peeked = true; L.pk = s; if (!usd::deger_oku(L, nullptr)) break; continue; }
+    if (!usd::govde(L, D, kok, !std::strcmp(tip, "Mesh"), 0)) return false;
+  }
+  if (!D.pos.n) { hata(out, "USD: ucgenli Mesh yok"); return false; }
+  Giris g;
+  g.ntri = D.pos.n / 3;
+  g.pos = D.pos.p;
+  g.uv = D.uv_var ? D.uv.p : nullptr;
+  g.tri_mat = D.tmat.p;
+  g.nmat = D.renkler.n ? D.renkler.n : 1;
+  g.mat_renk = D.renkler.p;
+  if (D.nrm_hep) g.nrm = D.nrm.p;
+  Vec3 *nrm_ilk = g.nrm;
+  const bool tamam = model_kur(arena, out, g, lim, o);
+  if (g.nrm != nrm_ilk) std::free(g.nrm);
+  if (tamam && D.atlanan) std::snprintf(out->note, sizeof out->note, "USD: %u \xC3\xB6zellik atland\xC4\xB1 (zaman \xC3\xB6rnekli / variant / alt b\xC3\xB6l\xC3\xBCmleme)", D.atlanan);
+  return tamam;
+}
+
 } // namespace
 
 bool stl_load_memory(Arena &arena, const unsigned char *data, size_t size, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
@@ -553,6 +1221,13 @@ bool stl_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
 
 bool obj_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
   return obj_isle(arena, path, out, lim, opt);
+}
+
+bool ply_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
+  return ply_isle(arena, path, out, lim, opt);
+}
+bool usd_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
+  return usd_isle(arena, path, out, lim, opt);
 }
 
 bool mesh_from_triangles(Arena &arena, const Vec3 *pos, const Vec2 *uv, uint32_t nv, const uint32_t *idx, uint32_t ntri, Vec3 color, Model *out,

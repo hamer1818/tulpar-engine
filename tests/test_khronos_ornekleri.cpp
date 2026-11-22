@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "content/fbx.hpp"
 #include "content/gltf.hpp"
 #include "content/retarget.hpp"
 #include "content/scene_animators.hpp"
@@ -273,5 +274,164 @@ ENGINE_TEST(fbx_kaynaktan_yeniden_hedefleme_ve_kesik_red) {
   b = Model{};
   CHECK(!gltf_load(arena(), kesik, &b) && b.error[0]);
   std::printf("    [bilgi] FBX -> glTF hedef: %u klip (%u kemik); kesik FBX: %s\n", r.clips, r.mapped, b.error);
+  arena().reset_to(mark);
+}
+
+// FBX morph (blend shape) + kanal agirligi animasyonu (2026-11-22). tests/assets/morph_kup.fbx = tools/make_test_fbx_blender.py:
+// 2 m kup, "Uzun" ust koseler +1 m Y (Blender +Z), "Yan" +X yuzu +0,5 m X; 1 s klip (Blender yigit adi "Scene"): Uzun 0 -> 1, Yan sabit 0,25.
+// Beklenen farklar hesapla yazili: her kose icin (y > 0 ? (0,1,0) : 0) ve (x > 0 ? (0,5,0,0) : 0) — 1 mm tolerans.
+ENGINE_TEST(fbx_morph_kup_farklar_ve_agirlik_izi) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "morph_kup.fbx")) { skip("tests/assets/morph_kup.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.mesh_count == 1);
+  if (!m.mesh_count) { arena().reset_to(mark); return; }
+  const ModelMesh &mm = m.meshes[0];
+  CHECK(mm.morph_count == 2 && mm.morph_deltas);
+  float hata_en = 0;
+  uint32_t ust = 0, sag = 0;
+  // Farklar mesh (geometri) uzayinda; Blender dugume 100x olcek + X -90 koyar -> karsilastirma dunya uzayinda (instance matrisi).
+  const Mat4 W = m.instance_count ? m.instances[0].world : Mat4{};
+  auto dunya_fark = [&](Vec3 d) { const Vec4 q = W * Vec4{d.x, d.y, d.z, 0.0f}; return Vec3{q.x, q.y, q.z}; };
+  for (uint32_t v = 0; mm.morph_count == 2 && v < mm.vertex_count; v++) {
+    const Vec3 p = transform_point(W, mm.verts[v].pos), d0 = dunya_fark(mm.morph_deltas[v]), d1 = dunya_fark(mm.morph_deltas[mm.vertex_count + v]);
+    const Vec3 b0 = p.y > 0 ? Vec3{0, 1, 0} : Vec3{0, 0, 0}, b1 = p.x > 0 ? Vec3{0.5f, 0, 0} : Vec3{0, 0, 0};
+    ust += p.y > 0;
+    sag += p.x > 0;
+    hata_en = std::fmax(hata_en, std::fabs(d0.x - b0.x) + std::fabs(d0.y - b0.y) + std::fabs(d0.z - b0.z));
+    hata_en = std::fmax(hata_en, std::fabs(d1.x - b1.x) + std::fabs(d1.y - b1.y) + std::fabs(d1.z - b1.z));
+  }
+  int32_t klip = -1;
+  for (uint32_t c = 0; c < m.clip_count; c++) if (m.clips[c].morph_track_count && klip < 0) klip = (int32_t)c;   // Blender sekil anahtari yiginini "Scene" adlandirir
+  CHECK(klip >= 0);
+  float w0[kModelMaxMorph] = {}, w1[kModelMaxMorph] = {}, wy[kModelMaxMorph] = {};
+  const float dur = klip >= 0 ? m.clips[klip].duration : 0;
+  CHECK(klip >= 0 && model_clip_morph_weights(m, (uint32_t)klip, 0.0f, 0, w0) == 2 && model_clip_morph_weights(m, (uint32_t)klip, dur, 0, w1) == 2 &&
+        model_clip_morph_weights(m, (uint32_t)klip, dur * 0.5f, 0, wy) == 2);
+  std::printf("    [bilgi] morph_kup.fbx: %u kose (ust %u, sag %u), fark hatasi en cok %.5f m; klip %.2f s: Uzun %.3f -> %.3f -> %.3f, Yan %.3f\n", mm.vertex_count, ust, sag,
+              (double)hata_en, (double)dur, (double)w0[0], (double)wy[0], (double)w1[0], (double)w0[1]);
+  CHECK(hata_en < 1e-3f && ust > 0 && sag > 0);
+  CHECK(std::fabs(w0[0]) < 1e-3f && std::fabs(w1[0] - 1.0f) < 1e-3f && wy[0] > 0.05f && wy[0] < 0.95f && std::fabs(w0[1] - 0.25f) < 1e-3f);
+  // KONTROL: morph'suz FBX'te hedef yok, klipte morph izi yok
+  char y2[1024];
+  static Model k;
+  k = Model{};
+  CHECK(yol_bul(y2, sizeof y2, "iki_uv.fbx") && gltf_load(arena(), y2, &k) && k.mesh_count == 1 && k.meshes[0].morph_count == 0);
+  arena().reset_to(mark);
+}
+
+// FBX coklu UV (2026-11-22): iki_uv.fbx'in ilk UV kumesi "Bos" (hep 0,0), ikincisi "Gercek" (0..1). Dejenere kanal atlanir.
+ENGINE_TEST(fbx_dejenere_uv_kanali_atlanir) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "iki_uv.fbx")) { skip("tests/assets/iki_uv.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.mesh_count == 1);
+  float umin = 1e9f, umax = -1e9f, vmin = 1e9f, vmax = -1e9f;
+  for (uint32_t v = 0; m.mesh_count && v < m.meshes[0].vertex_count; v++) {
+    const Vec2 uv = m.meshes[0].verts[v].uv;
+    umin = std::fmin(umin, uv.x); umax = std::fmax(umax, uv.x); vmin = std::fmin(vmin, uv.y); vmax = std::fmax(vmax, uv.y);
+  }
+  std::printf("    [bilgi] iki_uv.fbx: u %.2f..%.2f, v %.2f..%.2f; not: %s\n", (double)umin, (double)umax, (double)vmin, (double)vmax, m.note);
+  CHECK(umax - umin > 0.99f && vmax - vmin > 0.99f && std::strstr(m.note, "UV"));
+  // KONTROL: tek UV'li FBX'te (morph_kup) kanal degismez, not'ta UV yok
+  char y2[1024];
+  static Model k;
+  k = Model{};
+  CHECK(yol_bul(y2, sizeof y2, "morph_kup.fbx") && gltf_load(arena(), y2, &k) && !std::strstr(k.note, "UV"));
+  arena().reset_to(mark);
+}
+
+// USD (USDA alt kumesi, 2026-11-22). (1) Blender 5.3 ayni sahneyi (kup (3,0,1) 2 m + donuk/olcekli duzlem, Z-yukari) .usda ve .gltf
+// olarak yazdi: ucgen sayisi ve sinir kutusu iki bicimde AYNI (biçimler arası kapi, FBX ~ glTF kalibi). usdz (sikistirilmamis zip
+// icinde .usda) da ayni. (2) Elle yazilmis usd_el.usda: metersPerUnit YOK -> 0,01; transform matrisi (x +2 m), pivot etrafinda Z 90
+// (`!invert!`), leftHanded (on yuz -X), displayColor -> 2 malzeme (kirmizi/mavi), class sablonu CIZILMEZ, zaman ornekli olcek atlanir
+// ve not'ta sayilir. Beklenen sinir hesapla: x 1..3, y 0..1, z -1,5..0. KONTROL: ikili usdc ve kesik usda reddedilir (hata metni).
+ENGINE_TEST(usd_usda_blender_gltf_ile_ayni_ve_el_yazimi) {
+  char ua[1024], ug[1024], uz[1024], uc[1024], ue[1024];
+  if (!yol_bul(ua, sizeof ua, "usd_sahne.usda") || !yol_bul(ug, sizeof ug, "usd_sahne.gltf") || !yol_bul(uz, sizeof uz, "usd_sahne.usdz") ||
+      !yol_bul(uc, sizeof uc, "usd_ikili.usdc") || !yol_bul(ue, sizeof ue, "usd_el.usda")) { skip("tests/assets/usd_* yok"); return; }
+  const size_t mark = arena().mark();
+  static Model a, g, z, c, e;
+  a = Model{}; g = Model{}; z = Model{}; c = Model{}; e = Model{};
+  auto ucgen = [](const Model &m) { uint32_t t = 0; for (uint32_t i = 0; i < m.mesh_count; i++) t += m.meshes[i].index_count / 3; return t; };
+  auto fark = [](const Model &x, const Model &y) {
+    return std::fmax(std::fmax(std::fabs(x.bounds_min.x - y.bounds_min.x), std::fmax(std::fabs(x.bounds_min.y - y.bounds_min.y), std::fabs(x.bounds_min.z - y.bounds_min.z))),
+                     std::fmax(std::fabs(x.bounds_max.x - y.bounds_max.x), std::fmax(std::fabs(x.bounds_max.y - y.bounds_max.y), std::fabs(x.bounds_max.z - y.bounds_max.z))));
+  };
+  const bool oa = gltf_load(arena(), ua, &a), og = gltf_load(arena(), ug, &g), oz = gltf_load(arena(), uz, &z);
+  std::printf("    [bilgi] Blender sahnesi: usda %s %u ucgen (%.3f %.3f %.3f)..(%.3f %.3f %.3f), gltf %u ucgen, sinir farki %.6f m, usdz farki %.6f\n", oa ? "ok" : a.error, ucgen(a),
+              (double)a.bounds_min.x, (double)a.bounds_min.y, (double)a.bounds_min.z, (double)a.bounds_max.x, (double)a.bounds_max.y, (double)a.bounds_max.z, ucgen(g), (double)fark(a, g),
+              (double)fark(a, z));
+  CHECK(oa && og && oz && ucgen(a) == 14 && ucgen(g) == 14 && ucgen(z) == 14 && fark(a, g) < 1e-4f && fark(a, z) == 0.0f);
+  const bool oe = gltf_load(arena(), ue, &e);
+  int kirmizi = -1, mavi = -1;
+  for (uint32_t i = 0; oe && i < e.material_count; i++) {
+    const Vec3 r = e.materials[i].base_color;
+    if (r.x == 1 && r.y == 0 && r.z == 0) kirmizi = (int)i;
+    if (r.x == 0 && r.y == 0 && r.z == 1) mavi = (int)i;
+  }
+  // mavi ucgenin on yuzu -X (leftHanded + Z 90): sarimdan gelen normal
+  Vec3 mavi_n{0, 0, 0};
+  for (uint32_t i = 0; oe && i < e.mesh_count; i++)
+    if (e.meshes[i].material == mavi && e.meshes[i].index_count >= 3) {
+      const ModelMesh &mm = e.meshes[i];
+      mavi_n = cross(mm.verts[mm.indices[1]].pos - mm.verts[mm.indices[0]].pos, mm.verts[mm.indices[2]].pos - mm.verts[mm.indices[0]].pos);
+    }
+  std::printf("    [bilgi] usd_el: %s, %u ucgen, %u malzeme, sinir (%.3f %.3f %.3f)..(%.3f %.3f %.3f), mavi on yuz (%.2f %.2f %.2f); not: %s\n", oe ? "ok" : e.error, ucgen(e),
+              e.material_count, (double)e.bounds_min.x, (double)e.bounds_min.y, (double)e.bounds_min.z, (double)e.bounds_max.x, (double)e.bounds_max.y, (double)e.bounds_max.z,
+              (double)mavi_n.x, (double)mavi_n.y, (double)mavi_n.z, e.note);
+  CHECK(oe && ucgen(e) == 2 && e.material_count == 2 && kirmizi >= 0 && mavi >= 0);
+  CHECK(std::fabs(e.bounds_min.x - 1) < 1e-5f && std::fabs(e.bounds_max.x - 3) < 1e-5f && std::fabs(e.bounds_min.y) < 1e-5f && std::fabs(e.bounds_max.y - 1) < 1e-5f &&
+        std::fabs(e.bounds_min.z + 1.5f) < 1e-5f && std::fabs(e.bounds_max.z) < 1e-5f);
+  CHECK(mavi_n.x < -0.1f && std::fabs(mavi_n.y) < 1e-4f && std::fabs(mavi_n.z) < 1e-4f && std::strstr(e.note, "1 "));
+  // KONTROLLER
+  CHECK(!gltf_load(arena(), uc, &c) && std::strstr(c.error, "usdc"));
+  static char bf[4096];
+  std::FILE *f = std::fopen(ua, "rb");
+  const size_t n = f ? std::fread(bf, 1, sizeof bf, f) : 0;
+  if (f) std::fclose(f);
+  char dir[512], kesik[600];
+  CHECK(tmp_mkdir(dir, sizeof dir, "usd_kesik"));
+  std::snprintf(kesik, sizeof kesik, "%s/kesik.usda", dir);
+  if (std::FILE *k = std::fopen(kesik, "wb")) { std::fwrite(bf, 1, n * 2 / 3, k); std::fclose(k); }
+  static Model b;
+  b = Model{};
+  CHECK(!gltf_load(arena(), kesik, &b) && b.error[0]);
+  std::printf("    [bilgi] usdc: %s; kesik usda: %s\n", c.error, b.error);
+  arena().reset_to(mark);
+}
+
+// FBX ARA morph sekli (2026-11-22). tests/assets/morph_ara.fbx (elle yazilmis ASCII FBX): tek kanal "Kalk", %50'de "Yarim" (kose
+// (0,0,1) +1 Y), %100'de "Tam" (+1 X, +1 Y) -> 2 motor hedefi. Beklenen hesapla: w = 0,75 -> hedef agirliklari (0,5, 0,5) ->
+// fark (0,5, 1, 0); w = 0,25 -> (0,5, 0) -> (0, 0,5, 0); w = 1 -> (0, 1) -> (1, 1, 0). KONTROL: ara sekilsiz dogrusal okuma (Tam x 0,75)
+// (0,75, 0,75, 0) olurdu — fark >= 0,25.
+ENGINE_TEST(fbx_ara_morph_sekli_parca_dogrusal) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "morph_ara.fbx")) { skip("tests/assets/morph_ara.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  const bool ok = gltf_load(arena(), yol, &m);
+  CHECK(ok && m.mesh_count == 1 && m.meshes[0].morph_count == 2);
+  if (!ok || !m.mesh_count || m.meshes[0].morph_count != 2) { std::printf("    [bilgi] %s\n", m.error); arena().reset_to(mark); return; }
+  const ModelMesh &mm = m.meshes[0];
+  int32_t kose = -1;
+  for (uint32_t v = 0; v < mm.vertex_count; v++) if (std::fabs(mm.verts[v].pos.z - 1.0f) < 1e-4f) kose = (int32_t)v;
+  CHECK(kose >= 0);
+  if (kose < 0) { arena().reset_to(mark); return; }
+  const Vec3 d0 = mm.morph_deltas[kose], d1 = mm.morph_deltas[mm.vertex_count + kose];
+  const float t[2] = {0.5f, 1.0f};
+  auto karisim = [&](float w) { float o[2]; fbx_inbetween_weights(t, 2, w, o); return d0 * o[0] + d1 * o[1]; };
+  const Vec3 a = karisim(0.75f), b = karisim(0.25f), c = karisim(1.0f);
+  const Vec3 saf = d1 * 0.75f;
+  std::printf("    [bilgi] ara sekil: Yarim (%.2f %.2f %.2f), Tam (%.2f %.2f %.2f); w 0.75 -> (%.3f %.3f %.3f) [saf dogrusal (%.3f %.3f %.3f)], w 0.25 -> (%.3f %.3f %.3f)\n",
+              (double)d0.x, (double)d0.y, (double)d0.z, (double)d1.x, (double)d1.y, (double)d1.z, (double)a.x, (double)a.y, (double)a.z, (double)saf.x, (double)saf.y, (double)saf.z,
+              (double)b.x, (double)b.y, (double)b.z);
+  CHECK(length(a - Vec3{0.5f, 1, 0}) < 1e-4f && length(b - Vec3{0, 0.5f, 0}) < 1e-4f && length(c - Vec3{1, 1, 0}) < 1e-4f);
+  CHECK(length(saf - a) >= 0.25f);   // KONTROL
   arena().reset_to(mark);
 }

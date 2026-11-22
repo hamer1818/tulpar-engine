@@ -1963,6 +1963,17 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
   bool three_new_samplers_are_in_the_shader = frag_samples == 5 && frag_dref == 1;
   CHECK(three_new_samplers_are_in_the_shader);
 
+  // YAZILIM RASTERLAYICIDA (lavapipe / SwiftShader) (3b) OLCULMEZ (2026-11-22): sure CPU'yu olcer, cihazi
+  // degil (render_karakter_butcesi_olcum ile ayni kural, 7776cb9). Eskiden yalniz 5 s gonderim zaman asimi
+  // atlatiyordu, yani kosup kosmamasi makinenin o anki hizina bagliydi: Windows CI (SwiftShader) koşum
+  // 45026820261'de ilk 10'da yoktu (< 7.8 s), 45028962427'de 118.9 s surdu (32 kat ortu 426 ms/kare,
+  // 128 kat 1701 ms/kare) — test adiminin %56'si. Deterministik kisimlar (1)-(3a) yukarida her cihazda kosar.
+  if (dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU) {
+    skip("yazilim rasterlayici (CPU cihazi): ornekleme maliyetinin ZAMAN olcumu gercek GPU'da (Mali-G72 P20 Pro)");
+    ren.shutdown();
+    offscreen_destroy(off);
+    return;
+  }
   // --- (3b) Ornekleme maliyeti (ZAMANLAMA; makineye bagli) ----------------
   // offscreen_render_custom (rhi/, bu dilimin yazma alaninda degil) GPU zaman
   // damgasi yazmiyor — yalniz offscreen_render_frame yaziyor. Gonderim SENKRON
@@ -1986,8 +1997,11 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
       const uint64_t dt = platform::now_ns() - t0;
       if (f >= kWarm) ns[got++] = dt;
     }
-    std::sort(ns, ns + got);
-    return ns[got / 2];
+    // Buraya varildiginda got == kMeas (erken donus yukarida). Uzunluk SABIT verilir: `ns + got` ile GCC 15
+    // std::sort'un >16 eleman dalini (9 elemanlik dizide olu) eleyemiyor ve -Warray-bounds basiyordu
+    // ("offset 128 into object 'ns' of size 72"; CI Linux + Windows derleme logu, 2026-11-22).
+    std::sort(ns, ns + kMeas);
+    return ns[kMeas / 2];
   };
   bool run_ok = true;
   const uint64_t empty_ns = medyan(0, mat_tex, &run_ok); // sabit gonderim + geri okuma maliyeti

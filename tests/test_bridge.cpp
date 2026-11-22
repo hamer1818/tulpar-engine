@@ -461,6 +461,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   int ortam_hatasi = 0; // ortamdan gelen (kasitsiz) hatalar: cihaz/kaynak yok
   int mesh_hata = 0;    // P1 kodla mesh: kasitli reddedilenler (10a'da sayilir)
   int oz_hata = 0;      // 4.8 nesne ozellikleri: kasitli hatalar (orada tek tek sayilir)
+  int lod_hata = 0;     // A7 kopru LOD: kasitli gecersiz cagrilar
   const TengScriptVm *sahte_vm = nullptr; // 4.5c'nin VM'i (4.8 kendi VM'ini kurup geri koyar)
   {
     static SystemArena arena;
@@ -1284,6 +1285,40 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
       }
       teng_despawn(ent);
       unlink(shot_stat); unlink(shot_stat2); unlink(shot_anim); unlink(shot_bos);
+      // A7 (2026-11-22): calisma aninda LOD mesafesi + cihaz sinifi butcesi. skin_karakter: LOD0 1032 / LOD1 537 / LOD2 290 tekil kose
+      // (model.hpp A7 olcumu). Karakter kameradan 10 m derinlikte; mesafeler degisince SON KAREDEKI iskeletli kose farki hesapla:
+      // uzak esik (100/200) -> LOD0, (5/50) -> LOD1 (fark 495), (5/8) -> LOD2 (fark 742). Fark kullanilir: sahnede baska iskeletli
+      // cizim varsa taban degisir, fark degismez. KONTROL: gecersiz cagri (lod2 < lod1, NaN, olmayan model) 0 doner ve cizimi DEGISTIRMEZ.
+      {
+        char kp[768];
+        std::snprintf(kp, sizeof kp, "%s/skin_karakter.gltf", assets_dir());
+        const int km = teng_load_model(kp);
+        CHECK(km >= 0);
+        teng_camera(0, 1, 0, 0, 1, -1);
+        const int k3 = teng_spawn_model(km, 0, 0, -10, 1.0, 0xFFFFFFFF);
+        CHECK(k3 > 0 && teng_model_lod(km, 100, 200) == 1);
+        run_frames(2);
+        const int v0 = teng_skin_verts();
+        CHECK(teng_model_lod(km, 5, 50) == 1);
+        run_frames(2);
+        const int v1 = teng_skin_verts();
+        CHECK(teng_model_lod(km, 5, 8) == 1);
+        run_frames(2);
+        const int v2 = teng_skin_verts();
+        const int e0 = teng_error_count();
+        CHECK(teng_model_lod(km, 20, 10) == 0 && teng_model_lod(km, std::nan(""), 1) == 0 && teng_model_lod(9999, 1, 2) == 0 && teng_model_lod(km, -1, 0) == 0);
+        CHECK(teng_error_count() - e0 == 4);
+        lod_hata += teng_error_count() - e0;
+        run_frames(2);
+        const int v3 = teng_skin_verts();
+        const int tier = teng_device_tier(), butce = teng_skin_budget();
+        std::printf("    [bilgi] kopru LOD: iskeletli kose %d -> %d -> %d (fark %d / %d; beklenen 495 / 742), gecersizden sonra %d; cihaz sinifi %d (%s), butce %d\n",
+                    v0, v1, v2, v0 - v1, v0 - v2, v3, tier, teng_gpu_name(), butce);
+        CHECK(v0 - v1 == 495 && v0 - v2 == 742 && v3 == v2);
+        CHECK(tier >= 0 && tier <= 2 && butce == (tier == 0 ? 50000 : tier == 1 ? 100000 : 200000));
+        CHECK(teng_model_lod(km, 0, 0) == 1);   // varsayilana don
+        teng_despawn(k3);
+      }
     }
   }
 
@@ -2114,6 +2149,7 @@ ENGINE_TEST(bridge_runs_a_scripted_game_headless) {
   beklenen += hiz_hata; // 10c2: 9 parametreli kanca (2) + bozulan esleme girdisi (1)
   if (sahne_kapisi) beklenen += 3 /*ikinci yukleme, olmayan dosya, sinir disi dizin*/ + 1 /*sabit govdeye durtu*/ + 1 /*bos sahnede bosaltma*/ + 1 /*sinir disi betik erisimi*/ + 1 /*sahne karakterine hiz_ver*/;
   beklenen += mesh_hata; // 10a: kodla mesh'in kasitli reddleri (aralik disi indeks, gecersiz cokgen, kapali kurucu, tavan, bos mesh)
+  beklenen += lod_hata; // A7: gecersiz LOD mesafesi (lod2 < lod1, NaN, olmayan model, negatif)
   beklenen += oz_hata; // 4.8: nesne ozelliklerinin kasitli hatalari (tur uyusmazligi, ad kurali, sinir disi)
   if (anim_kapisi) beklenen += 1 /*olmayan klip*/;
   if (ses_kapisi) beklenen += 3 /*olmayan klip, negatif frekans, kapali cihazda cal*/;

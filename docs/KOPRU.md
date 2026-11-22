@@ -1844,3 +1844,14 @@ Kapılar: `content_morph_hedefleri_yuklenir_ve_compact_korur` (delta değerleri,
 statik/yanlış-köşe reddi; **P20 Pro'da geçti 2026-11-14**), köprü testi 10a0 (ağırlık 1 → 5770 piksel fark, 0'a dönüş 0 piksel fark = doğru yeniden karışım, 4 kasıtlı hata sayıldı, yuva yeniden kullanımı).
 Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).
 
+## 22. Çalışma anında LOD mesafesi ve cihaz sınıfı (A7, 2026-11-22)
+
+| fonksiyon | Tulpar | anlam |
+|---|---|---|
+| `eng_model_lod(m, lod1, lod2) -> int` | `model_lod` | modelin LOD geçiş derinlikleri (m); 0 = varsayılan eşik. `.ayar` `lod1/lod2`'yi ezer, bir sonraki çizimde etkili. Hata (+0): olmayan model, negatif/NaN, ikisi de > 0 iken lod2 < lod1 — model değişmez |
+| `eng_device_tier() -> int` | `cihaz_sinifi` | 0 düşük / 1 orta / 2 yüksek (`content/device_tier`, GPU adından) |
+| `eng_skin_budget() -> int` | `karakter_butcesi` | o sınıfın kare başına iskeletli köşe bütçesi: düşük 50 000 (P20 Pro ölçümü), orta 100 000 / yüksek 200 000 (tahmin, ölçülmedi) |
+| `eng_skin_verts() -> int` | `karakter_kosesi` | son karede çizilen iskeletli köşe (LOD seçildiyse seçilen seviyenin tekil köşesi) |
+
+Kalıp: oyun `karakter_kosesi() > karakter_butcesi()` görünce kalabalık modellerin LOD'unu kısaltır (`model_lod(m, 8, 14)`).
+
