@@ -276,3 +276,84 @@ ENGINE_TEST(import_mesh_from_triangles_kutu_ve_reddedilenler) {
   const uint32_t i3[3] = {0, 1, 2};
   CHECK(!mesh_from_triangles(a, nanp, nullptr, 3, i3, 1, Vec3{1, 1, 1}, &m) && m.error[0]);      // KONTROL: NaN konum
 }
+
+// PLY (2026-11-22): AYNI kup (8 kose, 6 dortgen yuz; alt 4 kose kirmizi, ust 4 kose mavi) ascii / ikili LE / ikili BE yazilir.
+// Beklenen (hesapla): her bicimde 12 ucgen (dortgen -> 2), sinir kutusu [-1,1]^3 (opt null = dosya olcegi), yuz renkleri: alt yuz tam
+// kirmizi, ust yuz tam mavi, 4 yan yuzun ucgenleri 2 kirmizi+1 mavi ya da 1+2 kose ortalamasi -> 4 ayrik renk -> 4 malzeme.
+// KONTROL: kesik ikili dosya, sinir disi indeks ve yuzsuz nokta bulutu REDDEDILIR (cokme yok, hata metni).
+namespace {
+void ply_yaz(const char *yol, int bicim, int kes_bayt = 0, bool yuzsuz = false, bool kotu_indeks = false) {
+  const float v[8][3] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1}, {-1, -1, 1}, {1, -1, 1}, {1, 1, 1}, {-1, 1, 1}};
+  const int f[6][4] = {{0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4}, {2, 3, 7, 6}, {1, 2, 6, 5}, {3, 0, 4, 7}};
+  static unsigned char b[8192];
+  size_t n = (size_t)std::snprintf(reinterpret_cast<char *>(b), sizeof b,
+                                   "ply\nformat %s 1.0\ncomment tulpar test\nelement vertex 8\nproperty float x\nproperty float y\nproperty float z\n"
+                                   "property uchar red\nproperty uchar green\nproperty uchar blue\n%s"
+                                   "element ozel 1\nproperty int bilinmeyen\nend_header\n",
+                                   bicim == 0 ? "ascii" : bicim == 1 ? "binary_little_endian" : "binary_big_endian",
+                                   yuzsuz ? "" : "element face 6\nproperty list uchar int vertex_indices\n");
+  auto yaz = [&](const void *p, size_t k) {
+    unsigned char t[8];
+    std::memcpy(t, p, k);
+    for (size_t i = 0; i < k; i++) b[n + i] = bicim == 2 ? t[k - 1 - i] : t[i];
+    n += k;
+  };
+  for (int i = 0; i < 8; i++) {
+    const unsigned char r = v[i][1] < 0 ? 255 : 0, bl = v[i][1] < 0 ? 0 : 255, g = 0;
+    if (bicim == 0) n += (size_t)std::snprintf(reinterpret_cast<char *>(b) + n, sizeof b - n, "%g %g %g %u %u %u\n", (double)v[i][0], (double)v[i][1], (double)v[i][2], r, g, bl);
+    else { for (int k = 0; k < 3; k++) yaz(&v[i][k], 4); yaz(&r, 1); yaz(&g, 1); yaz(&bl, 1); }
+  }
+  for (int i = 0; i < 6 && !yuzsuz; i++) {
+    const unsigned char c = 4;
+    int q[4] = {f[i][0], f[i][1], f[i][2], f[i][3]};
+    if (kotu_indeks && i == 5) q[3] = 99;
+    if (bicim == 0) n += (size_t)std::snprintf(reinterpret_cast<char *>(b) + n, sizeof b - n, "4 %d %d %d %d\n", q[0], q[1], q[2], q[3]);
+    else { yaz(&c, 1); for (int k = 0; k < 4; k++) yaz(&q[k], 4); }
+  }
+  const int32_t oz = 7;
+  if (bicim == 0) n += (size_t)std::snprintf(reinterpret_cast<char *>(b) + n, sizeof b - n, "7\n");
+  else yaz(&oz, 4);
+  if (kes_bayt > 0) n -= (size_t)kes_bayt;
+  if (std::FILE *fp = std::fopen(yol, "wb")) { std::fwrite(b, 1, n, fp); std::fclose(fp); }
+}
+} // namespace
+
+ENGINE_TEST(import_ply_ascii_ikili_le_be_ayni_kup) {
+  char dir[512], y[700];
+  CHECK(test::tmp_mkdir(dir, sizeof dir, "ply"));
+  const size_t mark = arena().mark();
+  static Model m[3];
+  const char *ad[3] = {"ascii", "LE", "BE"};
+  for (int bc = 0; bc < 3; bc++) {
+    std::snprintf(y, sizeof y, "%s/kup_%d.ply", dir, bc);
+    ply_yaz(y, bc);
+    m[bc] = Model{};
+    const bool ok = gltf_load(arena(), y, &m[bc]);
+    uint32_t tri = 0;
+    for (uint32_t i = 0; i < m[bc].mesh_count; i++) tri += m[bc].meshes[i].index_count / 3;
+    std::printf("    [bilgi] PLY %s: %s, %u ucgen, %u malzeme, sinir (%.2f %.2f %.2f)..(%.2f %.2f %.2f); not: %s\n", ad[bc], ok ? "yuklendi" : m[bc].error, tri, m[bc].material_count,
+                (double)m[bc].bounds_min.x, (double)m[bc].bounds_min.y, (double)m[bc].bounds_min.z, (double)m[bc].bounds_max.x, (double)m[bc].bounds_max.y,
+                (double)m[bc].bounds_max.z, m[bc].note);
+    CHECK(ok && tri == 12 && m[bc].material_count == 4);
+    CHECK(std::fabs(m[bc].bounds_min.x + 1) < 1e-5f && std::fabs(m[bc].bounds_max.y - 1) < 1e-5f && std::fabs(m[bc].bounds_max.z - 1) < 1e-5f);
+    bool kirmizi = false, mavi = false;
+    for (uint32_t i = 0; i < m[bc].material_count; i++) {
+      const Vec3 c = m[bc].materials[i].base_color;
+      kirmizi |= c.x > 0.99f && c.z < 0.01f;
+      mavi |= c.z > 0.99f && c.x < 0.01f;
+    }
+    CHECK(kirmizi && mavi);
+  }
+  // KONTROLLER
+  struct { int bicim, kes; bool yuzsuz, kotu; const char *ne; } kt[] = {{1, 9, false, false, "kesik ikili"}, {0, 0, false, true, "sinir disi indeks"}, {2, 0, true, false, "nokta bulutu"}};
+  for (const auto &k : kt) {
+    std::snprintf(y, sizeof y, "%s/kotu.ply", dir);
+    ply_yaz(y, k.bicim, k.kes, k.yuzsuz, k.kotu);
+    static Model b;
+    b = Model{};
+    const bool ok = gltf_load(arena(), y, &b);
+    std::printf("    [bilgi] PLY %s: %s\n", k.ne, ok ? "YUKLENDI (beklenmedik)" : b.error);
+    CHECK(!ok && b.error[0]);
+  }
+  arena().reset_to(mark);
+}

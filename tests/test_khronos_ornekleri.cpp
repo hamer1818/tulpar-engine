@@ -275,3 +275,71 @@ ENGINE_TEST(fbx_kaynaktan_yeniden_hedefleme_ve_kesik_red) {
   std::printf("    [bilgi] FBX -> glTF hedef: %u klip (%u kemik); kesik FBX: %s\n", r.clips, r.mapped, b.error);
   arena().reset_to(mark);
 }
+
+// FBX morph (blend shape) + kanal agirligi animasyonu (2026-11-22). tests/assets/morph_kup.fbx = tools/make_test_fbx_blender.py:
+// 2 m kup, "Uzun" ust koseler +1 m Y (Blender +Z), "Yan" +X yuzu +0,5 m X; 1 s klip (Blender yigit adi "Scene"): Uzun 0 -> 1, Yan sabit 0,25.
+// Beklenen farklar hesapla yazili: her kose icin (y > 0 ? (0,1,0) : 0) ve (x > 0 ? (0,5,0,0) : 0) — 1 mm tolerans.
+ENGINE_TEST(fbx_morph_kup_farklar_ve_agirlik_izi) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "morph_kup.fbx")) { skip("tests/assets/morph_kup.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.mesh_count == 1);
+  if (!m.mesh_count) { arena().reset_to(mark); return; }
+  const ModelMesh &mm = m.meshes[0];
+  CHECK(mm.morph_count == 2 && mm.morph_deltas);
+  float hata_en = 0;
+  uint32_t ust = 0, sag = 0;
+  // Farklar mesh (geometri) uzayinda; Blender dugume 100x olcek + X -90 koyar -> karsilastirma dunya uzayinda (instance matrisi).
+  const Mat4 W = m.instance_count ? m.instances[0].world : Mat4{};
+  auto dunya_fark = [&](Vec3 d) { const Vec4 q = W * Vec4{d.x, d.y, d.z, 0.0f}; return Vec3{q.x, q.y, q.z}; };
+  for (uint32_t v = 0; mm.morph_count == 2 && v < mm.vertex_count; v++) {
+    const Vec3 p = transform_point(W, mm.verts[v].pos), d0 = dunya_fark(mm.morph_deltas[v]), d1 = dunya_fark(mm.morph_deltas[mm.vertex_count + v]);
+    const Vec3 b0 = p.y > 0 ? Vec3{0, 1, 0} : Vec3{0, 0, 0}, b1 = p.x > 0 ? Vec3{0.5f, 0, 0} : Vec3{0, 0, 0};
+    ust += p.y > 0;
+    sag += p.x > 0;
+    hata_en = std::fmax(hata_en, std::fabs(d0.x - b0.x) + std::fabs(d0.y - b0.y) + std::fabs(d0.z - b0.z));
+    hata_en = std::fmax(hata_en, std::fabs(d1.x - b1.x) + std::fabs(d1.y - b1.y) + std::fabs(d1.z - b1.z));
+  }
+  int32_t klip = -1;
+  for (uint32_t c = 0; c < m.clip_count; c++) if (m.clips[c].morph_track_count && klip < 0) klip = (int32_t)c;   // Blender sekil anahtari yiginini "Scene" adlandirir
+  CHECK(klip >= 0);
+  float w0[kModelMaxMorph] = {}, w1[kModelMaxMorph] = {}, wy[kModelMaxMorph] = {};
+  const float dur = klip >= 0 ? m.clips[klip].duration : 0;
+  CHECK(klip >= 0 && model_clip_morph_weights(m, (uint32_t)klip, 0.0f, 0, w0) == 2 && model_clip_morph_weights(m, (uint32_t)klip, dur, 0, w1) == 2 &&
+        model_clip_morph_weights(m, (uint32_t)klip, dur * 0.5f, 0, wy) == 2);
+  std::printf("    [bilgi] morph_kup.fbx: %u kose (ust %u, sag %u), fark hatasi en cok %.5f m; klip %.2f s: Uzun %.3f -> %.3f -> %.3f, Yan %.3f\n", mm.vertex_count, ust, sag,
+              (double)hata_en, (double)dur, (double)w0[0], (double)wy[0], (double)w1[0], (double)w0[1]);
+  CHECK(hata_en < 1e-3f && ust > 0 && sag > 0);
+  CHECK(std::fabs(w0[0]) < 1e-3f && std::fabs(w1[0] - 1.0f) < 1e-3f && wy[0] > 0.05f && wy[0] < 0.95f && std::fabs(w0[1] - 0.25f) < 1e-3f);
+  // KONTROL: morph'suz FBX'te hedef yok, klipte morph izi yok
+  char y2[1024];
+  static Model k;
+  k = Model{};
+  CHECK(yol_bul(y2, sizeof y2, "iki_uv.fbx") && gltf_load(arena(), y2, &k) && k.mesh_count == 1 && k.meshes[0].morph_count == 0);
+  arena().reset_to(mark);
+}
+
+// FBX coklu UV (2026-11-22): iki_uv.fbx'in ilk UV kumesi "Bos" (hep 0,0), ikincisi "Gercek" (0..1). Dejenere kanal atlanir.
+ENGINE_TEST(fbx_dejenere_uv_kanali_atlanir) {
+  char yol[1024];
+  if (!yol_bul(yol, sizeof yol, "iki_uv.fbx")) { skip("tests/assets/iki_uv.fbx yok"); return; }
+  const size_t mark = arena().mark();
+  static Model m;
+  m = Model{};
+  CHECK(gltf_load(arena(), yol, &m) && m.mesh_count == 1);
+  float umin = 1e9f, umax = -1e9f, vmin = 1e9f, vmax = -1e9f;
+  for (uint32_t v = 0; m.mesh_count && v < m.meshes[0].vertex_count; v++) {
+    const Vec2 uv = m.meshes[0].verts[v].uv;
+    umin = std::fmin(umin, uv.x); umax = std::fmax(umax, uv.x); vmin = std::fmin(vmin, uv.y); vmax = std::fmax(vmax, uv.y);
+  }
+  std::printf("    [bilgi] iki_uv.fbx: u %.2f..%.2f, v %.2f..%.2f; not: %s\n", (double)umin, (double)umax, (double)vmin, (double)vmax, m.note);
+  CHECK(umax - umin > 0.99f && vmax - vmin > 0.99f && std::strstr(m.note, "UV"));
+  // KONTROL: tek UV'li FBX'te (morph_kup) kanal degismez, not'ta UV yok
+  char y2[1024];
+  static Model k;
+  k = Model{};
+  CHECK(yol_bul(y2, sizeof y2, "morph_kup.fbx") && gltf_load(arena(), y2, &k) && !std::strstr(k.note, "UV"));
+  arena().reset_to(mark);
+}

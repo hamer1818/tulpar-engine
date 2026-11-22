@@ -10,7 +10,7 @@ Bu belge **plandır, kod yok**. Bugünkü durum `docs/OZELLIK-HARITASI.md` ve ka
 | glTF 2.0 / **GLB** yükleme | ✅ `content/gltf.cpp` (cgltf + stb_image): mesh, malzeme (PBR + ORM), doku, **iskelet + animasyon**; meshopt + ayrık LOD. Editör "Model içe aktar…" ve sürükle-bırak `.glb/.gltf` kabul eder (`app/editor_files.cpp`) |
 | Animasyon çalma | 🟡 Varlık başına **tek klip** (`clip`, `phase`, `speed`; köprüde `eng_set_anim(id, klip, hız, döngü)`, `eng_model_clip_*`). Klip = sıkıştırılmış (sabit iz eleme, 16-bit niceleme); GPU skinning var. **Yok:** klipler arası geçiş (crossfade), karışım, durum makinesi, olay, kök hareketi, editörde zaman çubuğu |
 | Morph target | 🟡 `content/morph.cpp` karıştırma fonksiyonu hazır; sahneye / köprüye / editöre **bağlı değil** |
-| STL, OBJ, PLY, FBX | STL/OBJ ✅ (M2); **FBX ✅ (2026-11-16, ufbx)**; PLY yok |
+| STL, OBJ, PLY, FBX | STL/OBJ ✅ (M2); **FBX ✅ (2026-11-16, ufbx)**; **PLY ✅ (2026-11-22)** |
 | Poligon / kod ile mesh | ❌ Yalnız 8 sabit ilkel (`kPrim*`: düzlem, küp, küre, kapsül, silindir, koni, dörtgen, simit) ve arazi/su/voksel üreticileri. Köprüde `mesh_olustur` yok |
 | Sınırlar | sahnede en çok **16 model kaynağı** (`kSceneMaxAssets`), **256 varlık**, model başına **32 klip** (`max_clips`), **128 eklem** ve model başına **4 iskelet** (`kModelMaxSkins`), kare başına **16384 eklem matrisi** (eskiden 4096; 2026-11-13), glTF başına 128 mesh / 32 doku |
 | Fizik çarpıştırıcı | "Modellere Otomatik Collider Ekle" menüsü var; içe aktarılan mesh'ten dışbükey kabuk/üçgen mesh çarpışması **ölçülmedi** |
@@ -70,7 +70,8 @@ Bugün animasyon yalnız oyun kodundan çağrılabiliyor; editörde modeli seçi
 - `content/stl.cpp`: **ikili ve ASCII STL**, üçgen sayısı doğrulaması (ikili başlıktaki sayı ↔ dosya boyutu), NaN/Inf reddi, köşe birleştirme + **yumuşak normal** (açı eşiği ayarlı), tek malzeme (renk seçilir), birim mm→m.
 - `content/obj.cpp`: `v/vt/vn/f` (çokgen yüzler üçgenlenir: kulak kesme), `.mtl` (Kd, Ks, map_Kd), grup/nesne ayrımı.
 - İkisi de aynı `Model` yapısına iner → mevcut çizim/gölge/LOD/fizik yolu **değişmez**. Uzantı tablosu editörde ve sürükle-bırakta genişler; sahne biçimi `.sahne`'ye ek alan gerekmez (kaynak yolu yeterli).
-- **FBX ✅ (2026-11-16):** `content/fbx.cpp` (ufbx 0.23.1, MIT/Unlicense): eksen/birim dönüşümü ufbx'te (Y-yukarı, metre — Unreal/Mixamo cm'si iner), köşe kaynaştırma, malzeme başına mesh, renk/normal dokusu (gömülü ya da dosya), kemik + ata birleşik iskeleti, yığın başına 30 Hz klip (`Armature|Run` -> `Run`). Kapılar `fbx_gltf_ile_ayni_karakter` (aynı karakter iki biçimde: kemik/köşe 0,02 mm), `fbx_fox_doku_klip_animator`, `fbx_kaynaktan_yeniden_hedefleme_ve_kesik_red`. Yok: morph (blend shape), çoklu UV. **USD / PLY:** yok.
+- **FBX ✅ (2026-11-16):** `content/fbx.cpp` (ufbx 0.23.1, MIT/Unlicense): eksen/birim dönüşümü ufbx'te (Y-yukarı, metre — Unreal/Mixamo cm'si iner), köşe kaynaştırma, malzeme başına mesh, renk/normal dokusu (gömülü ya da dosya), kemik + ata birleşik iskeleti, yığın başına 30 Hz klip (`Armature|Run` -> `Run`). Kapılar `fbx_gltf_ile_ayni_karakter` (aynı karakter iki biçimde: kemik/köşe 0,02 mm), `fbx_fox_doku_klip_animator`, `fbx_kaynaktan_yeniden_hedefleme_ve_kesik_red`. **Morph + çoklu UV ✅ (2026-11-22):** ilk blend deformer'ın şekilli kanalları = morph hedefleri (son anahtar şekil; ara şekiller yok), fark kontrol noktası başına (kaynaştırma anahtarına nokta da girer), iskeletli mesh'te bağ uzayına döner; kanal ağırlığı animasyonu klibin morph izi (iskelet yoksa yalnız morph izli klip). UV: dokunun istediği UV kümesi, dejenereyse (hep aynı değer) başka küme — glTF kuralı, not'a yazılır. Kapılar `fbx_morph_kup_farklar_ve_agirlik_izi` (Blender'dan 2 hedefli küp: farklar hesapla eşit 0,00000 m, ağırlık 0 → 0,5 → 1; kontrol: morph'suz FBX'te hedef yok), `fbx_dejenere_uv_kanali_atlanir` (kontrol: tek UV'li FBX'te not yok); varlıklar `tools/make_test_fbx_blender.py` (Blender 5.3).
+- **PLY ✅ (2026-11-22):** `ply_load` (`content/mesh_import.cpp`): ascii / ikili LE / BE; konum, normal, UV (s t | u v | texture_u/v), köşe rengi (uchar/ushort/float); çokgen yüzler OBJ üçgenleyicisiyle; bilinmeyen eleman/özellik atlanır. `Vertex`'te renk kanalı yok → yüz rengi (3 köşe ortalaması) malzeme paletine iner (en çok 32 renk; aşarsa kanal başına bit azaltılır, not'a yazılır). Nokta bulutu (yüzsüz) reddedilir. Kapı `import_ply_ascii_ikili_le_be_ayni_kup` (aynı küp üç biçimde: 12 üçgen, 4 malzeme, sınır [-1,1]³; kontrol: kesik ikili, sınır dışı indeks, nokta bulutu reddi). **USD:** yok.
 - **Kapı:** `tools/make_test_stl.py` ile ürettiğimiz küp/küre (üçgen sayısı, sınır kutusu bayt-bayt), kesik/yalan-sayaçlı STL reddi, OBJ'de dörtgen+beşgen yüz üçgenlenmesi (yüz sayısı hesabı).
 
 ### Faz A3 — Animatör: durum makinesi (L)
@@ -112,7 +113,11 @@ rolü buradan bulur); editör içe aktarma ayarlarında "Animasyon kaynakları" 
 `model_yeniden_hedefleme_insansi` (`tools/make_test_insansi.py`: Mixamo kaynak -> eksenleri kaydırılmış Unreal hedef, 4 anda el/baş/
 ayak/kalça 0,03 mm; kontrol: saf yerel kopya 1,46 m sapar, bozuk adlı hedef reddedilir), `model_animasyon_kaynagi_ayardan` (Yuru/Kos
 dosya adlı klipler, otomatik animatör yürü/koş; kontrol: olmayan dosya modeli düşürmez, notta). **Sınır:** iki modelin dinlenme pozu
-benzer olmalı (T↔A farkı kollarda kalır).
+benzer olmalı (T↔A farkı kollarda kalır). **T↔A düzeltmesi ✅ (2026-11-22):** her eşlenmiş kemiğin dinlenme doğrultusu (eklem →
+yön çocuğu, dünya) kaynağınkine çevrilir (`A_b`, en kısa dönüş); hedef dinlenmesi `A_b · rt0` sayılır, yönsüz kemik (el, baş, parmak)
+ebeveyninin `A`'sını alır. Aynı dinlenmede `A` = birim. `RetargetReport::rest_aligned/rest_max_deg`. Kapı
+`model_yeniden_hedefleme_t_a_dinlenme_farki` (`insansi_unreal_a.gltf`, kollar 40° aşağı: aktarılan klipte el/ayak/baş 0,03 mm; kontrol:
+dinlenmede el farkı 0,376 m, düzeltilen 4 kemik 40,0°; eski kapıda `rest_aligned == 0`).
 
 ## 4. Sıra ve bağımlılık
 
@@ -131,7 +136,7 @@ A3, A2'ye; P2, P1'e dayanır. Paralel iş yok (kullanıcı kuralı: sıralı).
 | Animatör kapsam şişmesi | A3 bilerek **dar**: durum + 1B karışım ağacı + geçiş koşulu; katman maskeleri/IK yok |
 | `.sahneb` blob sürümü | model kaynak sınırı/`kScenePoly` blob v5 ister: önce ölçüp karar, sürüm sıçraması geriye uyumlu okuma ile |
 | Mobil bütçe | her faz sonunda Mali-G72 ölçümü (eklem × karakter, üçgen sayısı) basılır, iddia edilmez |
-| FBX beklentisi | doğrudan yüklenir (ufbx); morph ve çoklu UV yok |
+| FBX beklentisi | doğrudan yüklenir (ufbx); morph ✅ ve UV kümesi seçimi ✅ (2026-11-22); ara morph şekli yok |
 
 ## 6. Sizden karar bekleyen noktalar (varsayılanlarla ilerlenir)
 

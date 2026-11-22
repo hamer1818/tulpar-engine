@@ -528,6 +528,252 @@ bool obj_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
   return tamam;
 }
 
+
+// ---- PLY (2026-11-22) -----------------------------------------------------------------------------------------------------
+// Stanford PLY: ascii / binary_little_endian / binary_big_endian 1.0. Okunan: vertex x y z, nx ny nz, UV (s t | u v | texture_u
+// texture_v), renk red green blue (uchar ya da float 0..1); face vertex_indices | vertex_index (liste; cokgen OBJ'deki gibi
+// uclenir). Bilinmeyen eleman/ozellik ATLANIR (ikilide boyutu hesaplanir). Kose rengi: Vertex'te renk kanali yok -> yuz rengi
+// (3 kosenin ortalamasi) malzeme paletine iner; ayrik renk sayisi tavani (32) asarsa kanal basina bit azaltilarak nicemlenir ve
+// not'a yazilir (MagicaVoxel PLY'si birkac renkle tam dogru gelir).
+enum PlyTip : uint8_t { PT_YOK, PT_I8, PT_U8, PT_I16, PT_U16, PT_I32, PT_U32, PT_F32, PT_F64 };
+PlyTip ply_tip(const char *s) {
+  struct { const char *a; PlyTip t; } kt[] = {{"char", PT_I8},   {"int8", PT_I8},     {"uchar", PT_U8},   {"uint8", PT_U8},
+                                               {"short", PT_I16}, {"int16", PT_I16},  {"ushort", PT_U16}, {"uint16", PT_U16},
+                                               {"int", PT_I32},   {"int32", PT_I32},  {"uint", PT_U32},   {"uint32", PT_U32},
+                                               {"float", PT_F32}, {"float32", PT_F32}, {"double", PT_F64}, {"float64", PT_F64}};
+  for (const auto &k : kt) if (!std::strcmp(s, k.a)) return k.t;
+  return PT_YOK;
+}
+uint32_t ply_boy(PlyTip t) { return t == PT_I8 || t == PT_U8 ? 1 : t == PT_I16 || t == PT_U16 ? 2 : t == PT_F64 ? 8 : 4; }
+struct PlyOz {
+  char ad[32];
+  PlyTip tip = PT_YOK, say_tip = PT_YOK;   // say_tip != YOK: liste
+};
+struct PlyEl {
+  char ad[32];
+  uint32_t n = 0;
+  PlyOz oz[24];
+  uint32_t oz_n = 0;
+};
+// Ikili/ASCII okuyucu: tek deger (double). false: veri bitti / bozuk.
+struct PlyOkur {
+  const unsigned char *p, *son;
+  int bicim;   // 0 ascii, 1 LE, 2 BE
+  bool deger(PlyTip t, double *out) {
+    if (bicim == 0) {
+      while (p < son && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+      if (p >= son) return false;
+      char *e = nullptr;
+      *out = std::strtod(reinterpret_cast<const char *>(p), &e);
+      if (reinterpret_cast<const unsigned char *>(e) == p) return false;
+      p = reinterpret_cast<const unsigned char *>(e);
+      return true;
+    }
+    const uint32_t b = ply_boy(t);
+    if ((size_t)(son - p) < b) return false;
+    unsigned char x[8];
+    for (uint32_t i = 0; i < b; i++) x[i] = bicim == 1 ? p[i] : p[b - 1 - i];
+    p += b;
+    switch (t) {
+      case PT_I8: *out = (int8_t)x[0]; break;
+      case PT_U8: *out = x[0]; break;
+      case PT_I16: { int16_t v; std::memcpy(&v, x, 2); *out = v; break; }
+      case PT_U16: { uint16_t v; std::memcpy(&v, x, 2); *out = v; break; }
+      case PT_I32: { int32_t v; std::memcpy(&v, x, 4); *out = v; break; }
+      case PT_U32: { uint32_t v; std::memcpy(&v, x, 4); *out = v; break; }
+      case PT_F32: { float v; std::memcpy(&v, x, 4); *out = v; break; }
+      case PT_F64: { double v; std::memcpy(&v, x, 8); *out = v; break; }
+      default: return false;
+    }
+    return true;
+  }
+};
+
+bool ply_isle(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
+  MeshImportOptions o = opt ? *opt : MeshImportOptions{};
+  if (!opt) { o.z_up = false; o.fit_size = 0.0f; }   // OBJ gibi: dosya ekseni/olcegi korunur (.ayar degistirir)
+  *out = Model{};
+  size_t n = 0;
+  unsigned char *b = oku_dosya(path, &n);
+  if (!b) { hata(out, "PLY dosyasi acilamadi", path); return false; }
+  struct Serbest { unsigned char *b; ~Serbest() { std::free(b); } } serbest{b};
+  if (n < 10 || std::strncmp(reinterpret_cast<const char *>(b), "ply", 3) != 0 || (b[3] != '\n' && b[3] != '\r')) { hata(out, "PLY: 'ply' basligi yok"); return false; }
+  // --- baslik ---
+  PlyEl el[8];
+  uint32_t el_n = 0;
+  int bicim = -1;
+  const char *bas_son = std::strstr(reinterpret_cast<const char *>(b), "end_header");
+  if (!bas_son) { hata(out, "PLY: 'end_header' yok (kesik baslik)"); return false; }
+  const unsigned char *veri = reinterpret_cast<const unsigned char *>(bas_son) + 10;
+  while (veri < b + n && *veri == '\r') veri++;
+  if (veri < b + n && *veri == '\n') veri++;
+  {
+    char satir[256];
+    const char *q = reinterpret_cast<const char *>(b);
+    while (q < bas_son) {
+      const char *e = q;
+      while (e < bas_son && *e != '\n') e++;
+      const size_t l = std::min<size_t>((size_t)(e - q), sizeof satir - 1);
+      std::memcpy(satir, q, l);
+      satir[l] = 0;
+      q = e < bas_son ? e + 1 : e;
+      for (char *c = satir; *c; c++) if (*c == '\r') *c = 0;
+      char a[32] = {0}, b1[32] = {0}, c1[32] = {0}, d1[32] = {0}, e1[32] = {0};
+      const int k = std::sscanf(satir, "%31s %31s %31s %31s %31s", a, b1, c1, d1, e1);
+      if (k <= 0) continue;
+      if (!std::strcmp(a, "format")) {
+        bicim = !std::strcmp(b1, "ascii") ? 0 : !std::strcmp(b1, "binary_little_endian") ? 1 : !std::strcmp(b1, "binary_big_endian") ? 2 : -2;
+      } else if (!std::strcmp(a, "element") && k >= 3) {
+        if (el_n >= 8) { hata(out, "PLY: 8'den cok eleman"); return false; }
+        PlyEl &x = el[el_n++];
+        x = PlyEl{};
+        std::snprintf(x.ad, sizeof x.ad, "%s", b1);
+        const long long say = std::atoll(c1);
+        if (say < 0 || say > (long long)kMaxCorners) { hata(out, "PLY: eleman sayisi gecersiz ya da cok buyuk"); return false; }
+        x.n = (uint32_t)say;
+      } else if (!std::strcmp(a, "property") && el_n) {
+        PlyEl &x = el[el_n - 1];
+        if (x.oz_n >= 24) { hata(out, "PLY: elemanda 24'ten cok ozellik"); return false; }
+        PlyOz &z = x.oz[x.oz_n++];
+        z = PlyOz{};
+        if (!std::strcmp(b1, "list") && k >= 5) { z.say_tip = ply_tip(c1); z.tip = ply_tip(d1); std::snprintf(z.ad, sizeof z.ad, "%s", e1); }
+        else { z.tip = ply_tip(b1); std::snprintf(z.ad, sizeof z.ad, "%s", c1); }
+        if (z.tip == PT_YOK || (!std::strcmp(b1, "list") && z.say_tip == PT_YOK)) { hata(out, "PLY: bilinmeyen ozellik tipi", satir); return false; }
+      }
+    }
+  }
+  if (bicim < 0) { hata(out, bicim == -2 ? "PLY: bilinmeyen bicim" : "PLY: 'format' satiri yok"); return false; }
+  // --- veri ---
+  PlyOkur rd{veri, b + n, bicim};
+  Buf<Vec3> V, VN, VC;
+  Buf<Vec2> VT;
+  bool normal_var = false, uv_var = false, renk_var = false;
+  Buf<Vec3> pos, nrm;
+  Buf<Vec2> uv;
+  Buf<Vec3> yuz_renk;
+  Buf<uint32_t> ucg;
+  bool yuz_goruldu = false;
+  Buf<uint32_t> liste, t;   // satir basina yeniden kullanilir (yuz basina malloc yok)
+  for (uint32_t e = 0; e < el_n; e++) {
+    PlyEl &x = el[e];
+    const bool kose = !std::strcmp(x.ad, "vertex"), yuz = !std::strcmp(x.ad, "face");
+    int ix = -1, iy = -1, iz = -1, inx = -1, iny = -1, inz = -1, iu = -1, iv = -1, ir = -1, ig = -1, ib = -1, il = -1;
+    for (uint32_t k = 0; k < x.oz_n; k++) {
+      const char *a = x.oz[k].ad;
+      if (!std::strcmp(a, "x")) ix = (int)k; else if (!std::strcmp(a, "y")) iy = (int)k; else if (!std::strcmp(a, "z")) iz = (int)k;
+      else if (!std::strcmp(a, "nx")) inx = (int)k; else if (!std::strcmp(a, "ny")) iny = (int)k; else if (!std::strcmp(a, "nz")) inz = (int)k;
+      else if (!std::strcmp(a, "s") || !std::strcmp(a, "u") || !std::strcmp(a, "texture_u")) iu = (int)k;
+      else if (!std::strcmp(a, "t") || !std::strcmp(a, "v") || !std::strcmp(a, "texture_v")) iv = (int)k;
+      else if (!std::strcmp(a, "red") || !std::strcmp(a, "r")) ir = (int)k;
+      else if (!std::strcmp(a, "green") || !std::strcmp(a, "g")) ig = (int)k;
+      else if (!std::strcmp(a, "blue") || !std::strcmp(a, "b")) ib = (int)k;
+      else if (x.oz[k].say_tip != PT_YOK && (!std::strcmp(a, "vertex_indices") || !std::strcmp(a, "vertex_index"))) il = (int)k;
+    }
+    if (kose) {
+      if (ix < 0 || iy < 0 || iz < 0) { hata(out, "PLY: vertex x/y/z yok"); return false; }
+      normal_var = inx >= 0 && iny >= 0 && inz >= 0;
+      uv_var = iu >= 0 && iv >= 0;
+      renk_var = ir >= 0 && ig >= 0 && ib >= 0;
+    }
+    if (yuz) { if (il < 0) { hata(out, "PLY: face vertex_indices listesi yok"); return false; } yuz_goruldu = true; }
+    double d[24];
+    for (uint32_t i = 0; i < x.n; i++) {
+      liste.n = 0;
+      for (uint32_t k = 0; k < x.oz_n; k++) {
+        const PlyOz &z = x.oz[k];
+        if (z.say_tip == PT_YOK) { if (!rd.deger(z.tip, &d[k])) { hata(out, "PLY: veri beklenenden kisa (kesik dosya?)"); return false; } continue; }
+        double c = 0;
+        if (!rd.deger(z.say_tip, &c) || c < 0 || c > 4096) { hata(out, "PLY: liste uzunlugu gecersiz (kesik dosya?)"); return false; }
+        for (uint32_t m = 0; m < (uint32_t)c; m++) {
+          double v = 0;
+          if (!rd.deger(z.tip, &v)) { hata(out, "PLY: veri beklenenden kisa (kesik dosya?)"); return false; }
+          if ((int)k == il && (!liste.push(v < 0 ? 0xFFFFFFFFu : (uint32_t)v))) { hata(out, "bellek"); return false; }
+        }
+      }
+      if (kose) {
+        const Vec3 p{(float)d[ix], (float)d[iy], (float)d[iz]};
+        if (!finite3(p)) { hata(out, "PLY: NaN/Inf koordinat"); return false; }
+        bool ok = V.push(p);
+        if (normal_var) ok = ok && VN.push(Vec3{(float)d[inx], (float)d[iny], (float)d[inz]});
+        if (uv_var) ok = ok && VT.push(Vec2{(float)d[iu], 1.0f - (float)d[iv]});   // PLY UV'si alttan (OBJ gibi)
+        if (renk_var) {
+          const float bol = x.oz[ir].tip == PT_F32 || x.oz[ir].tip == PT_F64 ? 1.0f : x.oz[ir].tip == PT_U16 ? 65535.0f : 255.0f;
+          ok = ok && VC.push(Vec3{(float)d[ir] / bol, (float)d[ig] / bol, (float)d[ib] / bol});
+        }
+        if (!ok) { hata(out, "bellek"); return false; }
+      } else if (yuz) {
+        if (liste.n < 3) continue;
+        if (V.n == 0) { hata(out, "PLY: yuz koselerden once"); return false; }
+        Vec3 cp[256];
+        const uint32_t ln = std::min<uint32_t>(liste.n, 256);
+        for (uint32_t m = 0; m < ln; m++) {
+          if (liste.p[m] >= V.n) { hata(out, "PLY: yuz kose indeksi sinir disi"); return false; }
+          cp[m] = V.p[liste.p[m]];
+        }
+        t.n = 0;
+        ucgenle(cp, ln, t);
+        for (uint32_t m = 0; m + 2 < t.n; m += 3) {
+          if (pos.n / 3 >= kMaxTris) { hata(out, "PLY: ucgen siniri asildi (en cok 4M)"); return false; }
+          Vec3 rk{0, 0, 0};
+          for (uint32_t c = 0; c < 3; c++) {
+            const uint32_t vi = liste.p[t.p[m + c]];
+            bool ok = pos.push(V.p[vi]);
+            if (normal_var) ok = ok && nrm.push(VN.p[vi]);
+            if (uv_var) ok = ok && uv.push(VT.p[vi]);
+            if (renk_var) rk = rk + VC.p[vi] * (1.0f / 3.0f);
+            if (!ok) { hata(out, "bellek"); return false; }
+          }
+          if (renk_var && !yuz_renk.push(rk)) { hata(out, "bellek"); return false; }
+        }
+      }
+    }
+  }
+  if (!pos.n) { hata(out, yuz_goruldu ? "PLY: ucgen yok" : "PLY: face elemani yok (nokta bulutu desteklenmiyor)"); return false; }
+  Giris g;
+  g.ntri = pos.n / 3;
+  g.pos = pos.p;
+  g.uv = uv_var ? uv.p : nullptr;
+  // Renk paleti: ayrik yuz renkleri (8 bit), tavani asarsa kanal basina bit azalt
+  const uint32_t tavan = std::min<uint32_t>(lim.max_materials ? lim.max_materials : 1, 32);
+  Buf<uint32_t> tmat;
+  Buf<Vec3> palet;
+  uint32_t bit = 8;
+  if (renk_var) {
+    for (; bit >= 1; bit--) {
+      palet.n = 0;
+      tmat.n = 0;
+      uint32_t anahtar[32];
+      bool sigdi = true;
+      for (uint32_t t = 0; t < g.ntri && sigdi; t++) {
+        const Vec3 c = yuz_renk.p[t];
+        auto kn = [&](float f) { const uint32_t v = (uint32_t)std::lround(std::fmin(1.0f, std::fmax(0.0f, f)) * 255.0f); return v >> (8 - bit); };
+        const uint32_t key = (kn(c.x) << 16) | (kn(c.y) << 8) | kn(c.z);
+        uint32_t m = 0;
+        while (m < palet.n && anahtar[m] != key) m++;
+        if (m == palet.n) {
+          if (palet.n >= tavan) { sigdi = false; break; }
+          anahtar[palet.n] = key;
+          const float olc = 255.0f / (float)((1u << bit) - 1) / 255.0f;
+          if (!palet.push(Vec3{(float)(key >> 16) * olc, (float)((key >> 8) & 0xFF) * olc, (float)(key & 0xFF) * olc})) { hata(out, "bellek"); return false; }
+        }
+        if (!tmat.push(m)) { hata(out, "bellek"); return false; }
+      }
+      if (sigdi) break;
+    }
+    if (bit < 1) bit = 1;
+    g.tri_mat = tmat.p;
+    g.nmat = palet.n ? palet.n : 1;
+    g.mat_renk = palet.p;
+  }
+  if (normal_var) g.nrm = nrm.p;
+  Vec3 *nrm_ilk = g.nrm;
+  const bool tamam = model_kur(arena, out, g, lim, o);
+  if (g.nrm != nrm_ilk) std::free(g.nrm);
+  if (tamam && renk_var)
+    std::snprintf(out->note, sizeof out->note, "k\xC3\xB6\xC5\x9F" "e rengi %u malzemeye indi (%s)", palet.n, bit == 8 ? "tam" : "renkler nicemlendi");
+  return tamam;
+}
+
 } // namespace
 
 bool stl_load_memory(Arena &arena, const unsigned char *data, size_t size, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
@@ -553,6 +799,10 @@ bool stl_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim,
 
 bool obj_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
   return obj_isle(arena, path, out, lim, opt);
+}
+
+bool ply_load(Arena &arena, const char *path, Model *out, const GltfLimits &lim, const MeshImportOptions *opt) {
+  return ply_isle(arena, path, out, lim, opt);
 }
 
 bool mesh_from_triangles(Arena &arena, const Vec3 *pos, const Vec2 *uv, uint32_t nv, const uint32_t *idx, uint32_t ntri, Vec3 color, Model *out,

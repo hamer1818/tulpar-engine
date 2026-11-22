@@ -41,7 +41,9 @@ inline bool android_asset_wanted(const char *name) {
                                      // animatorlu sahne donuk, STL/OBJ modeli gorunmez kaliyordu (Tuzaklar 8cu'nun tekrari).
                                      ".animator", ".stl", ".obj", ".mtl", ".ayar",
                                      // madde 4 (2026-11-16): FBX dogrudan yukleniyor (ufbx)
-                                     ".fbx"};
+                                     ".fbx",
+                                     // 2026-11-22: PLY (content/mesh_import.cpp ply_load)
+                                     ".ply"};
   for (const char *e : kExt)
     if (asset_ext_equal(dot, e)) return true;
   return false;

@@ -26,6 +26,10 @@ struct RetargetReport {
   uint32_t mapped = 0;          // iki modelde de bulunan kanonik kemik
   uint32_t clips = 0;           // eklenen klip
   uint32_t clips_dropped = 0;   // tavan (GltfLimits::max_clips) yüzünden eklenemeyen
+  // Dinlenme pozu farkı (T↔A): doğrultusu kaynağınkinden 1°'den çok sapan eşlenmiş kemik sayısı ve en büyük sapma (derece).
+  // Son aktarılan klibin kaynağına göre.
+  uint32_t rest_aligned = 0;
+  float rest_max_deg = 0;
   char error[160] = {0};
 };
 // Kaynağın iskeletli kliplerini hedefe EKLER (adlar aynen; hedef kendi kliplerini korur). false: rapor neden (kalça yok, < 8 ortak kemik).

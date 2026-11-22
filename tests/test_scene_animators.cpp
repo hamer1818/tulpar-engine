@@ -919,6 +919,7 @@ ENGINE_TEST(model_yeniden_hedefleme_insansi) {
   std::printf("    [bilgi] yeniden hedefleme: en buyuk konum farki %.5f m (saf yerel kopya %.3f m), sol el t=1: (%.3f %.3f %.3f)\n", (double)en,
               (double)saf_en, (double)wk[mk[8]].x, (double)wk[mk[8]].y, (double)wk[mk[8]].z);
   CHECK(en < 1e-3f);
+  CHECK(r.rest_aligned == 0);   // ayni dinlenme: T<->A duzeltmesi devreye girmez
   CHECK(saf_en > 0.05f);   // KONTROL (b)
   arena().reset_to(mark);
 }
@@ -960,5 +961,48 @@ ENGINE_TEST(model_animasyon_kaynagi_ayardan) {
   static char metin[4096];
   sim::AnimAutoReport r;
   CHECK(animator_auto_text_model(m, metin, sizeof metin, &r) > 0 && r.walk == 0 && r.run == 1);
+  arena().reset_to(mark);
+}
+
+// A6 dinlenme pozu farki (T<->A, 2026-11-22): kaynak Mixamo T durusu, hedef A durusu (kollar 40 derece asagi; insansi_unreal_a.gltf =
+// make_test_insansi.py unreal --eksen-kaydir --a-poz). Duzeltme olmadan klip FARKI A dinlenmesine binerdi: el T'deki yerine 40 derece
+// asagida kalirdi. Beklenen: aktarilan klipte el/ayak/bas/kalca kaynakla AYNI dunya konumunda (kemik boylari ayni). KONTROL: hedefin
+// kendi dinlenme pozunda sol el kaynagin dinlenme elinden > 0,3 m uzakta (fark gercekten var; 0,55 m kolda 40 derece ~ 0,38 m).
+ENGINE_TEST(model_yeniden_hedefleme_t_a_dinlenme_farki) {
+  char ky[1024], hy[1024];
+  if (!asset_path(ky, sizeof ky, "insansi_mixamo.gltf") || !asset_path(hy, sizeof hy, "insansi_unreal_a.gltf")) { skip("tests/assets/insansi_{mixamo,unreal_a}.gltf yok"); return; }
+  const size_t mark = arena().mark();
+  static Model k, h;
+  k = Model{}; h = Model{};
+  CHECK(gltf_load(arena(), ky, &k) && gltf_load(arena(), hy, &h));
+  int16_t mk[kHumanoidBones], mh[kHumanoidBones];
+  CHECK(humanoid_map(k.skins[0], mk) == kHumanoidBones && humanoid_map(h.skins[0], mh) == kHumanoidBones);
+  static PoseScratch sk, sh;
+  static Vec3 wk[128], wh[128];
+  // KONTROL: dinlenmeler farkli
+  for (uint32_t j = 0; j < k.skins[0].joint_count; j++) { sk.t[j] = k.skins[0].joints[j].bind_t; sk.r[j] = k.skins[0].joints[j].bind_r; sk.s[j] = k.skins[0].joints[j].bind_s; }
+  for (uint32_t j = 0; j < h.skins[0].joint_count; j++) { sh.t[j] = h.skins[0].joints[j].bind_t; sh.r[j] = h.skins[0].joints[j].bind_r; sh.s[j] = h.skins[0].joints[j].bind_s; }
+  eklem_dunya(k.skins[0], sk.t, sk.r, sk.s, wk);
+  eklem_dunya(h.skins[0], sh.t, sh.r, sh.s, wh);
+  const Vec3 dd = wk[mk[8]] - wh[mh[8]];
+  const float dinlenme_farki = std::sqrt(dd.x * dd.x + dd.y * dd.y + dd.z * dd.z);
+  RetargetReport r;
+  CHECK(model_retarget(arena(), h, k, 64, &r) && r.clips == 1 && h.clip_count == 1);
+  if (h.clip_count != 1) { arena().reset_to(mark); return; }
+  const uint32_t bak[] = {0, 4, 8, 16, 11, 19};
+  float en = 0;
+  for (float t : {0.0f, 0.25f, 0.5f, 1.0f}) {
+    sim::LocalPose lk{sk.t, sk.r, sk.s, k.skins[0].joint_count}, lh{sh.t, sh.r, sh.s, h.skins[0].joint_count};
+    sim::ClipSampler::sample(k.clips[0].clip, t, lk);
+    sim::ClipSampler::sample(h.clips[0].clip, t, lh);
+    eklem_dunya(k.skins[0], sk.t, sk.r, sk.s, wk);
+    eklem_dunya(h.skins[0], sh.t, sh.r, sh.s, wh);
+    for (uint32_t i : bak) { const Vec3 d = wk[mk[i]] - wh[mh[i]]; en = std::fmax(en, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z)); }
+  }
+  std::printf("    [bilgi] T->A: dinlenme el farki %.3f m, duzeltilen kemik %u (en cok %.1f derece), aktarilan klipte en buyuk konum farki %.5f m\n",
+              (double)dinlenme_farki, r.rest_aligned, (double)r.rest_max_deg, (double)en);
+  CHECK(dinlenme_farki > 0.3f);
+  CHECK(r.rest_aligned >= 4 && std::fabs(r.rest_max_deg - 40.0f) < 0.5f);   // iki yanda ust kol + on kol; 40 derece
+  CHECK(en < 1e-3f);
   arena().reset_to(mark);
 }
