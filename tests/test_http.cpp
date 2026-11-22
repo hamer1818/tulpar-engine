@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include <mbedtls/ctr_drbg.h>
+#include <mbedtls/debug.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
@@ -236,7 +237,17 @@ struct TlsSunucu {
   platform::Thread th;
   std::atomic<int> hazir{0};
   int el_sikisma[4] = {};   // teshis: sunucu tarafi mbedtls_ssl_handshake donusleri
+  int tohum = 0, anahtar = 0;   // teshis: mbedtls_ctr_drbg_seed / mbedtls_pk_parse_key donusleri
+  char dbg[3072] = {};          // teshis: mbedTLS debug (duzey <= 1: hatalar), yalniz el sikisma duserse basilir
+  uint32_t dbg_n = 0;
 };
+void tls_dbg(void *a, int, const char *dosya, int satir, const char *m) {
+  TlsSunucu &t = *(TlsSunucu *)a;
+  const char *d = std::strrchr(dosya, '/');
+  if (!d) d = std::strrchr(dosya, '\\');
+  const int k = std::snprintf(t.dbg + t.dbg_n, sizeof t.dbg - t.dbg_n, "      %s:%d %s", d ? d + 1 : dosya, satir, m);
+  if (k > 0 && t.dbg_n + (uint32_t)k < sizeof t.dbg) t.dbg_n += (uint32_t)k;
+}
 void tls_sunucu_dongu(void *a) {
   TlsSunucu &t = *(TlsSunucu *)a;
   mbedtls_x509_crt srt;
@@ -250,12 +261,14 @@ void tls_sunucu_dongu(void *a) {
   mbedtls_ctr_drbg_init(&drbg);
   mbedtls_ssl_config_init(&conf);
   psa_crypto_init();
-  mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &ent, nullptr, 0);
+  t.tohum = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &ent, nullptr, 0);
   mbedtls_x509_crt_parse(&srt, (const unsigned char *)kSertA, std::strlen(kSertA) + 1);
-  mbedtls_pk_parse_key(&pk, (const unsigned char *)kAnahtarA, std::strlen(kAnahtarA) + 1, nullptr, 0, mbedtls_ctr_drbg_random, &drbg);
+  t.anahtar = mbedtls_pk_parse_key(&pk, (const unsigned char *)kAnahtarA, std::strlen(kAnahtarA) + 1, nullptr, 0, mbedtls_ctr_drbg_random, &drbg);
   mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
   mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);
   mbedtls_ssl_conf_own_cert(&conf, &srt, &pk);
+  mbedtls_ssl_conf_dbg(&conf, tls_dbg, &t);
+  mbedtls_debug_set_threshold(1);
   t.hazir.store(1, std::memory_order_release);
   for (int i = 0; i < t.n; i++) {
     int c = (int)accept(t.ls, nullptr, nullptr);
@@ -301,7 +314,9 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   t.ls = s;
   t.port = ntohs(a.sin_port);
   t.n = 3;
-  psa_crypto_init();   // ana is parcacigi, sunucudan ONCE (yukaridaki yaris)
+  const int psa = (int)psa_crypto_init();   // ana is parcacigi, sunucudan ONCE (yukaridaki yaris)
+  unsigned char rb[16] = {};
+  const int psa_rng = (int)psa_generate_random(rb, sizeof rb);
   CHECK(platform::thread_create(t.th, tls_sunucu_dongu, &t, "test_tls_sunucu"));
   for (int i = 0; i < 5000 && !t.hazir.load(std::memory_order_acquire); i++) platform::thread_sleep_us(1000);
   CHECK(t.hazir.load() == 1);
@@ -325,7 +340,10 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   std::printf("    [bilgi] https (ad uyusmaz): ok %d hata '%s'\n", ok, r.error);
   CHECK(!ok && std::strstr(r.error, "dogrulanamadi") != nullptr);
   platform::thread_join(t.th);
-  std::printf("    [bilgi] sunucu el sikismasi donusleri: %d %d %d (0 = tamam)\n", t.el_sikisma[0], t.el_sikisma[1], t.el_sikisma[2]);
+  std::printf("    [bilgi] sunucu el sikismasi donusleri: %d %d %d (0 = tamam); psa_crypto_init %d, psa_generate_random %d, drbg tohum %d, anahtar %d\n",
+              t.el_sikisma[0], t.el_sikisma[1], t.el_sikisma[2], psa, psa_rng, t.tohum, t.anahtar);
+  if (t.el_sikisma[0] != 0) std::printf("    [bilgi] sunucu mbedTLS debug (hata duzeyi):\n%s\n", t.dbg);
+  mbedtls_debug_set_threshold(0);
   kapat(t.ls);
   // sisteme don: paket bulunuyor mu (teshis; bulunamazsa ATLANDI degil bilgi — CI imajina bagli)
   int n = 0;
