@@ -1642,11 +1642,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 MINGW64)"
 
+      # INDIRME, BEKLEMEYLE AYNI API'DEN (2026-11-22, Tuzaklar 8es): actions/download-artifact baska bir arka uctan
+      # okuyor ve az once kesinlesen artefakti gormeyebiliyor — koşum 45042853569: 16:18:00.6 kesinlesti, ci_bekle
+      # REST listesinde 16:18:01.9'da gordu, download-artifact 16:18:02.2'de "Artifact not found". Eskiden kopru
+      # isi artefakti uzun bekledigi icin pencere hic acilmiyordu; msys2 hizlaninca acildi. gh run download ayni
+      # REST API'yi kullanir; yine de gecici hataya karsi 5 deneme.
       - name: Eklenti paketini + test ikililerini indir
-        uses: actions/download-artifact@v4
-        with:
-          name: eklenti-windows-x86_64
-          path: yapi
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          for i in 1 2 3 4 5; do
+            rm -rf yapi && mkdir -p yapi
+            if gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -n eklenti-windows-x86_64 -D yapi; then
+              ls yapi | head; [ -f yapi/engine_tests.exe ] && exit 0
+            fi
+            echo "deneme $i basarisiz — 5 s sonra yeniden"; sleep 5
+          done
+          echo "::error::eklenti-windows-x86_64 artefakti 5 denemede indirilemedi"; exit 1
 
       # Testlerin 1/2 parcasi (0/2 Windows isinde; ayni ikili). Kanonik .sahne LF kapisi burada da:
       # parca o testi icerebilir ve checkout ayni autocrlf ayariyla yapildi.
