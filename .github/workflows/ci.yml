@@ -1471,14 +1471,6 @@ jobs:
       # (tools/paket_denetle.sh) hem burada hem surumde kosuyor: PR'da yesilse
       # surumde de yesildir.
       # SURUM.txt + DOSYALAR.txt: bkz. Linux isindeki "Ciktilari topla".
-      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 MINGW64)" kopru isinin sonucunu da
-      # TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
-      - name: Kopru isinin sonucu
-        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_bekle.sh is "Windows kopru (SwiftShader)"
 
       - name: Paketle + yerlesim/DLL kapisi
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
@@ -1523,6 +1515,19 @@ jobs:
           path: kurulum/tulpar-editor-kurulum-windows-x64.exe
           if-no-files-found: error
           retention-days: 14
+
+      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 MINGW64)" kopru isinin sonucunu da
+      # TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
+      # SONUCU EN SONDA BEKLE (2026-11-22): adim eskiden testlerin hemen ardindaydi ve Windows isi koprunun
+      # bitmesini 88 s BOSTA bekliyordu, paketleme + kurucu (86 s) ancak ondan sonra basliyordu (PR #154,
+      # koşum 45030941115). Paketleme koprunun sonucuna bagli degil; artik ikisi ortusur. Bekleme yine
+      # artefakt yuklenmeden ONCE: kopru duserse is kirmizi ve "yesil koşum" artefakti olmaz.
+      - name: Kopru isinin sonucu
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/ci_bekle.sh is "Windows kopru (SwiftShader)"
 
       - name: Ciktilari yukle
         if: needs.detect-docs-only.outputs.docs_only != 'true'

@@ -2802,3 +2802,8 @@ deliği **macOS'ta** gösterdi (eski kayıttan açıldı, %0,64, Derle 113 s) �
 1/2: 78 s) çünkü `renderer_pbr_texture_budget`'in zamanlama bölümü SwiftShader'da 118,9 s sürdü — önceki koşumda ilk 10'da bile
 yoktu: atlama yalnız 5 s gönderim zaman aşımına bağlıydı, koşup koşmaması makinenin o anki hızına kalıyordu. Artık CPU tipi cihazda
 görünür ATLANDI (7776cb9'daki karakter ölçümüyle aynı kural); deterministik kısımları her cihazda koşar.
+
+**Üç platform ısınmış (PR #154, koşum 45030941115):** isabet Linux/macOS/Windows %99,68; Derle 14–17 s. Kalan kritik yol Windows
+işinin **sırası**ydı: testlerden sonra köprü işini 88 s boşta bekliyor, paketleme + kurucu (86 s) ancak ondan sonra başlıyordu.
+Bekleme adımı artefakt yüklemesinin hemen önüne alındı; paketleme köprüyle örtüşür. **Kural:** başka işin sonucunu taşıyan adım,
+o sonuca bağlı olmayan her adımdan SONRA gelir.
