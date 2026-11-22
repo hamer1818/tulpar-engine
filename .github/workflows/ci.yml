@@ -204,12 +204,15 @@ jobs:
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
             vulkan-validationlayers libglfw3 clang libssl-dev
 
-      - name: ccache onbellegi
+      # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
+      # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
+      # sonraki push yine soguk derliyordu. Kayit "Derle"den HEMEN sonra (asagida, always()).
+      - name: ccache onbellegi (geri yukle)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-linux-${{ github.run_id }}
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-linux-
 
       # Surucu VE dogrulama katmani: ikisi de LOADER duzeyinde goruluyor mu?
@@ -281,8 +284,16 @@ jobs:
                 ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
+        id: derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
+
+      - name: ccache onbellegini kaydet
+        if: always() && needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && steps.derle.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
@@ -554,11 +565,11 @@ jobs:
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
             vulkan-validationlayers libglfw3 clang libssl-dev   # Linux isiyle AYNI liste (ayni derleyici -> isabet)
 
-      - name: ccache onbellegi
-        uses: actions/cache@v4
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-linux-${{ github.run_id }}
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-linux-
 
       - name: Derle (yalniz onbellek icin)
@@ -568,6 +579,72 @@ jobs:
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build yapi -j"$(nproc)"
           ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ccache onbellegini kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-linux-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # WINDOWS CCACHE'I DA MAIN'DE ISIT (2026-11-22, Tuzaklar 8eq). Yukaridaki is yalniz Linux'u
+  # isitiyordu; Windows isi main push'ta PR artefaktini yeniden kullandigi icin `ccache-windows-*`
+  # main kapsaminda HIC yenilenmiyordu. Her PR, MSYS2 gcc'si coktan degismis eski bir kayittan
+  # (ccache-windows-40522797826) aciliyordu; CCACHE_COMPILERCHECK=content dogru olarak hepsini
+  # iskaladi: koşum 45011941482'de 4/622 isabet (%0,64), Derle 449 s — Windows kritik yolun yarisi.
+  # Kurulum listesi Windows isiyle AYNI (ayni gcc -> ayni derleyici ozeti -> isabet).
+  ccache-isit-windows:
+    name: Windows ccache isitma (main)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Satir sonu ayari
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-vulkan-validation-layers
+
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-windows-
+
+      - name: Derle (yalniz onbellek icin)
+        run: |
+          gcc --version | head -1
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build yapi -j"$(nproc)"
+          ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ccache onbellegini kaydet
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
 
   macos:
     name: macOS arm64 (AppleClang + MoltenVK)
@@ -774,12 +851,15 @@ jobs:
             echo "::warning::Loader MoltenVK ICD'si uzerinden HIC CIHAZ GORMUYOR. Motor dogrudan-MoltenVK yedegine duser; o surecte katman zinciri YOKTUR."
           fi
 
-      - name: ccache onbellegi
+      # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
+      # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
+      # sonraki push yine soguk derliyordu. Kayit "Derle"den HEMEN sonra (asagida, always()).
+      - name: ccache onbellegi (geri yukle)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-macos-${{ github.run_id }}
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-macos-
 
       # derle.sh'in bagimlilik denetimini GERCEK brew uzerinde olcer.
@@ -808,8 +888,16 @@ jobs:
                 ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
+        id: derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(sysctl -n hw.ncpu)"
+
+      - name: ccache onbellegini kaydet
+        if: always() && needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && steps.derle.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-macos-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
@@ -1175,12 +1263,15 @@ jobs:
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: python3 -c "import sys; d=open('tests/assets/editor.sahne','rb').read(); sys.exit(0 if b'\r' not in d else 1)" || { echo "::error::tests/assets/editor.sahne CRLF ile cikarilmis; .gitattributes devreye girmemis."; exit 1; }
 
-      - name: ccache onbellegi
+      # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
+      # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
+      # sonraki push yine soguk derliyordu. Kayit "Derle"den HEMEN sonra (asagida, always()).
+      - name: ccache onbellegi (geri yukle)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ccache-windows-${{ github.run_id }}
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ccache-windows-
 
       # derle.bat GERCEK cmd'de kosuyor mu? Yerelde yalniz Wine altinda
@@ -1213,8 +1304,16 @@ jobs:
                 ${SURUM:+-DTULPAR_SURUM="$SURUM"}
 
       - name: Derle
+        id: derle
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: cmake --build yapi -j"$(nproc)"
+
+      - name: ccache onbellegini kaydet
+        if: always() && needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true' && steps.derle.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Tahmini surum ikiliye GERCEKTEN gomuldu mu — release.yml'in "Surum ikilide
       # mi" kapisiyla ayni olcu (core/build_info.cpp isareti, TAM esitlik).
