@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tulpar Engine — Windows derlemesinin MSYS2/MINGW64 tarafi.
-# derle.bat tarafindan cagrilir; dogrudan da calistirilabilir (MINGW64 kabugunda).
+# Tulpar Engine — Windows derlemesinin MSYS2/UCRT64 tarafi (2026-11-22 oncesi MINGW64).
+# derle.bat tarafindan cagrilir; dogrudan da calistirilabilir (UCRT64 kabugunda).
 #
 # NEDEN AYRI DOSYA: mantigi cmd ile bash arasinda BOLMEK istemedik. .bat yalniz
 # "MSYS2 var mi, yoksa kur" sorusunu cozer; paket denetimi, kurulum ve derleme
@@ -29,9 +29,9 @@ esac; done
 # MINGW64 kabugunda miyiz? MSYS kabugunda derlenen ikili MSYS2'nin POSIX
 # katmanina baglanir ve MSYS2 disinda CALISMAZ — sessizce yanlis ikili uretmek
 # yerine burada duruyoruz.
-if [ "${MSYSTEM:-}" != "MINGW64" ]; then
-  hata "MINGW64 kabugu gerekli (su an: ${MSYSTEM:-yok})."
-  echo  "  Baslat menusunden 'MSYS2 MINGW64' ile acin, ya da derle.bat kullanin."
+if [ "${MSYSTEM:-}" != "UCRT64" ]; then
+  hata "UCRT64 kabugu gerekli (su an: ${MSYSTEM:-yok}). 2026-11-22'den beri MINGW64 degil (MSYS2 onu kaldiriyor; yayinlanan tulpar da UCRT)."
+  echo  "  Baslat menusunden 'MSYS2 UCRT64' ile acin, ya da derle.bat kullanin."
   exit 1
 fi
 
@@ -41,16 +41,16 @@ fi
 # tahminden degil. glslc CI'da da kurulu DEGIL: shader BAYT kapisi atlanir,
 # ozet kapisi yine kosar — bu yuzden istege bagli.
 DEPS='
-cmake|1|derleme sistemi (>= 3.14)|mingw-w64-x86_64-cmake
-ninja|1|hizli derleyici surucusu|mingw-w64-x86_64-ninja
-g++|1|C++17 derleyicisi|mingw-w64-x86_64-gcc
-python|1|kapi betikleri (katman/shader/sahne denetimi)|mingw-w64-x86_64-python
-ccache|0|yeniden derlemeyi ~10x hizlandirir|mingw-w64-x86_64-ccache
-glslc|0|shader BAYT kapisi (yoksa ozet kapisi yine kosar)|mingw-w64-x86_64-shaderc
+cmake|1|derleme sistemi (>= 3.14)|mingw-w64-ucrt-x86_64-cmake
+ninja|1|hizli derleyici surucusu|mingw-w64-ucrt-x86_64-ninja
+g++|1|C++17 derleyicisi|mingw-w64-ucrt-x86_64-gcc
+python|1|kapi betikleri (katman/shader/sahne denetimi)|mingw-w64-ucrt-x86_64-python
+ccache|0|yeniden derlemeyi ~10x hizlandirir|mingw-w64-ucrt-x86_64-ccache
+glslc|0|shader BAYT kapisi (yoksa ozet kapisi yine kosar)|mingw-w64-ucrt-x86_64-shaderc
 '
 
 echo
-bilgi "Tulpar Engine — bagimlilik denetimi (MINGW64)"
+bilgi "Tulpar Engine — bagimlilik denetimi (UCRT64)"
 echo
 
 eksik_zorunlu=(); kur_listesi=()
@@ -69,7 +69,7 @@ done <<< "$DEPS"
 
 # glfw3.dll komut degil, kutuphane: `command -v` ile GORUNMEZ. Ayri denetlenir,
 # yoksa editor derlenir ama pencere acamaz.
-if [ -f /mingw64/bin/glfw3.dll ]; then
+if [ -f "${MSYSTEM_PREFIX:-/ucrt64}/bin/glfw3.dll" ]; then
   printf "  ${Y}+${N} %-8s %s\n" "glfw" "pencere acma (masaustu kip)"
 else
   printf "  ${S}.${N} %-8s %s  (calistirmak icin)\n" "glfw" "pencere acma (masaustu kip)"
@@ -141,6 +141,6 @@ for x in engine_editor engine_demo engine_tests engine_sahnec engine_texpack eng
   [ -f "$yapi/$x.exe" ] && printf "    %-16s %s\n" "$x.exe" "$(du -h "$yapi/$x.exe" | cut -f1)"
 done
 echo
-bilgi "Editoru ac: editor.bat (cift tiklanabilir) ya da bu MINGW64 kabugundan ./editor.sh [x.sahne]"
+bilgi "Editoru ac: editor.bat (cift tiklanabilir) ya da bu UCRT64 kabugundan ./editor.sh [x.sahne]"
 echo "  Testleri kostur:   ./$yapi/engine_tests.exe"
 echo "  Cift tiklanabilir, DLL'leri yanina alan paket icin: tools/package.sh"

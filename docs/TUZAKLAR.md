@@ -2772,7 +2772,7 @@ tek liste. **Kural:** aynı kararı veren iki liste varsa biri ötekini çağır
 2026-10-24: leaf paketlerin MINGW64 derlemeleri düzenli güncellemede siliniyor); glfw ilk gidenlerden. **Düzeltme (geçici):**
 `tools/windows_glfw.sh` upstream GLFW 3.4 MinGW-w64 ikilisini SÜRÜM + SHA-256 sabit indirip `${MSYSTEM_PREFIX}/bin`'e koyar (ci.yml iki
 iş, release.yml, `derle_mingw.sh`); özet tutmazsa kırmızı. **Kalıcı:** Windows derlemesini UCRT64'e taşımak — gcc/clang/openssl/
-vulkan-validation-layers da aynı yoldan gidecek. **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.
+vulkan-validation-layers da aynı yoldan gidecek. (Yapıldı 2026-11-22: 8et.) **Kural:** CI'da paket bulunamadı hatası önce dağıtımın haber sayfasına bakılarak okunur.
 
 ### 8eq. Önbellek main'de isıtılıyor sanıldı — yalnız bir platformda; diğeri her PR'da sıfırdan derledi
 **Belirti (2026-11-22, koşum 45011941482):** Windows işi kritik yoldu (861 s); `Derle` 449 s, ccache `4 / 622 (%0,64)` isabet. Linux ve
@@ -2845,6 +2845,27 @@ kayıt yoksa ya da depoda yeni sürüm varsa kurar/yükseltir ve yeni kayıt sak
 dakikalarca beklediği için pencere hiç açılmıyordu. İndirme artık beklemeyle **aynı REST API'den** (`gh run download`, 5 deneme).
 **Kural:** iki adım arasında "hazır" bilgisini taşıyan şey, ikinci adımın okuduğu kaynakla aynı olmalı; uzun bekleme senkronizasyon değildir.
 
+### 8et. Ortam göçü tek depoda bitmez — bağlanan ikinci derleyicinin C çalışma zamanı da taşınmalı
+**Bağlam (2026-11-22):** 8ep'in kalıcı çözümü Windows'u MSYS2 UCRT64'e taşımaktı. Motor tek başına taşınsaydı derlenir ve testleri de
+geçerdi, ama oyun ikilisini motor değil **tulpar.exe** linkler: motorun eklenti arşivleri, yayınlanmış TulparLang'in
+`libtulpar_runtime-windows-x64.a`'sıyla ve kullanıcının PATH'teki `clang++`'ıyla TEK statik linkte birleşir. MINGW64 = msvcrt, UCRT64
+= ucrtbase — iki C çalışma zamanı aynı programa karışınca link bazen GEÇER ve program FILE* / errno / locale sınırında bozulur (sessiz
+sınıf). **Sıra:** önce TulparLang (Windows CI + yayınlanan tulpar.exe/runtime UCRT64; tulpar link öncesi sürücünün CRT'sini
+`-dM -E -include _mingw.h` ile sorar, kendi derlendiği CRT ile karşılaştırır ve uyuşmazlıkta durur — TulparLang PR #499, pozitif
+kontrolü sahte sürücülerle CI'da), sürümü çıkınca motor (bu PR: `msystem: UCRT64`, `mingw-w64-ucrt-x86_64-*`, kurulu ağaç önbelleği
+`msys64/ucrt64`, `MSYSTEM_PREFIX` tabanlı DLL sınıflandırması, glfw artık UCRT64 paketinden). Motorun CI'ı releases/latest indirdiği
+için ikisi arasındaki pencerede motorun MINGW64 köprü işi karışık CRT ile koşar — pencere kısa tutulur. Zorunlu check adı
+`Windows x86_64 (MSYS2 MINGW64)` TARİHSEL kaldı: dal korumasında kayıtlı, değişmesi korumayla birlikte yapılmalı.
+**Ölçülen (2026-11-22):** göç sırasında motorun UCRT64 köprü işi eski (MINGW64) tulpar runtime'ıyla linklenince libstdc++ sembolleri
+(`codecvt_utf8_utf16`, `filesystem::path::_Codecvt`) çözülemedi — karışık CRT'nin somut hâli. TulparLang tarafında DLL kapısı iki
+yeniden adlandırma yakaladı (UCRT64'te OpenSSL 4.1 → `libssl-4-x64.dll`, zlib 1.4 → `libz-1.dll`); eski `tulpar update` istemcileri
+DLL'leri ADLARIYLA indirdiği için yeni adlar güncellemeyi kırardı. Çözüm: Windows `tulpar.exe` tamamen statik (`-static`, LLVM'in
+zlib/zstd hedefleri `.a`'ya, OpenSSL statik; eski `-Wl,-Bstatic … -Wl,-Bdynamic` satırı `-static` ile birlikte sürücünün en sona
+eklediği `-lstdc++`'yı dinamiğe çeviriyordu), beş eski DLL adı geçiş varlığı olarak yayınlanıyor (`tests/surum_varliklari.py`
+GECIS kapısı), statik libcrypto için `-lbcrypt`. TulparLang v3.47.0 yayınlandıktan sonra motorun Windows köprü işi:
+`tulpar dogrulama: 23 gecti, 0 dustu, 0 atlandi`. Aynı göçte görülen HTTPS düşüşü UCRT'ye özgü DEĞİLDİ (8eu).
+**Kural:** bir araç zinciri göçünde "bizim ikili derleniyor" yetmez; ikiliyle AYNI linke giren her arşivin ve sürücünün ortamı
+sorulur — ve dağıtımın kendi güncelleme kanalı (eski istemcinin beklediği adlar) da göçün parçasıdır.
 
 ### 8eu. Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
 **Belirti (2026-11-22):** HTTPS kapısı (`platform_https_verifies_certificate_and_name`) Windows UCRT64 CI'da her koşumda düştü: ilk

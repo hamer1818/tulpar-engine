@@ -554,8 +554,8 @@ SYMBOL_OVERRIDE = {"eng_init": "teng_tulpar_init"}
 DESKTOP_LIBS = ["engine_tulpar", "engine_bridge", "engine_content", "engine_renderer", "engine_sim",
                 "engine_rhi", "engine_audio", "engine_core", "engine_platform", "engine_mbedtls", "engine_jolt",
                 "engine_recast", "engine_meshopt", "engine_astcenc"]
-# Windows (MSYS2 MINGW64): ayni arsivler, ayni grup (TulparLang'in Windows
-# linki de GNU ld; surucu MINGW64 clang++, -static). Sistem kitapliklari
+# Windows (MSYS2 UCRT64; 2026-11-22'ye kadar MINGW64): ayni arsivler, ayni grup (TulparLang'in Windows
+# linki de GNU ld; surucu UCRT64 clang++, -static; tulpar link oncesi surucunun CRT'sini denetler). Sistem kitapliklari
 # CMake'in hedeflerine yazdiklarinin AYNISI: psapi (engine_platform PUBLIC,
 # os_resident_bytes) + Threads::Threads. Gerisi (kernel32, user32, advapi32,
 # shell32, msvcrt) suruculerin varsayilan listesinde. Vulkan ve GLFW link

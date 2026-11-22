@@ -1143,9 +1143,11 @@ jobs:
           retention-days: 14
 
   # -------------------------------------------------------------------------
-  # WINDOWS — CI'daki `windows` isinin arac zinciri birebir (MSYS2 MINGW64).
+  # WINDOWS — CI'daki `windows` isinin arac zinciri birebir (MSYS2 UCRT64; 2026-11-22'ye kadar MINGW64, Tuzaklar 8et).
   # -------------------------------------------------------------------------
   windows:
+    # AD TARIHSEL (2026-11-22): arac zinciri artik UCRT64 (Tuzaklar 8et), ama bu ad dal korumasinda ZORUNLU check olarak kayitli;
+    # degisirse koruma da ayni anda guncellenmeli (yoksa her PR 'bekleniyor'da kalir). tools/ci_bekle.sh de bu adi bekler.
     name: Windows x86_64 (MSYS2 MINGW64)
     needs: hazirlik
     runs-on: windows-latest
@@ -1168,7 +1170,7 @@ jobs:
       # (#83'ten 2026-10-05'e kadar burada ICD yoktu ve kip `gpusuz`du: kare
       # dongusu ATLANDI basiliyordu.)
       TULPAR_PAKET_KOSU: zorunlu
-      KAPI_BASLIK: Windows (MSYS2 MINGW64, SwiftShader) — surum kapisi
+      KAPI_BASLIK: Windows (MSYS2 UCRT64, SwiftShader) — surum kapisi
       KAPI_EK: ' Surum YAYINLANMAYACAK.'
       AD: tulpar-engine-${{ needs.hazirlik.outputs.surum }}-windows-x86_64
     steps:
@@ -1206,17 +1208,18 @@ jobs:
       # ccache burada derleyici baslatici olarak BAGLANMIYOR.
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
           install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-ccache
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-vulkan-validation-layers
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-ccache
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-vulkan-validation-layers
+            mingw-w64-ucrt-x86_64-glfw
 
       # glfw3.dll: MSYS2 MINGW64 paketi 2026-11 kaldirildi -> upstream ikilisi (surum + SHA sabit), tools/windows_glfw.sh
       - name: GLFW (glfw3.dll, upstream 3.4)

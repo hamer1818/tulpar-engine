@@ -51,10 +51,10 @@ if [ "$win" = 1 ]; then
   #     cozum degil: runner imaji degistikce yeniden kirilir.
   #
   # Dogru ayrim KAYNAK YOLUDUR, ama YAPI agacinda sorulmali: orada ldd her
-  # DLL'i gercek yerinden cozer (MinGW -> /mingw64/bin, sistem -> /c/Windows).
+  # DLL'i gercek yerinden cozer (MinGW -> $MSYSTEM_PREFIX/bin, 2026-11-22'den beri /ucrt64; sistem -> /c/Windows).
   # Pakette sormak bu bilgiyi yok eder.
   gerekli="$(for exe in "$yapi"/*.exe; do
-               ldd "$exe" 2>/dev/null | awk '/=>/ && $3 ~ /^\/mingw64\// {print $1}'
+               ldd "$exe" 2>/dev/null | awk -v onek="${MSYSTEM_PREFIX:-/ucrt64}/" '/=>/ && index($3, onek) == 1 {print $1}'
              done | sort -u)"
   echo "Pakete girmesi gereken MinGW DLL'leri:"
   echo "${gerekli:-(hicbiri)}" | sed 's/^/  /'
@@ -63,7 +63,7 @@ if [ "$win" = 1 ]; then
   # liste asla bos olamaz. Bossa olcum yapilamamistir (ldd yok, yapi dizini
   # bos, yol yanlis...) ve sessizce yesil gecmek YASAK.
   if [ -z "$gerekli" ]; then
-    hata "$yapi/*.exe icin /mingw64 altindan cozulen HIC DLL yok — olcum yapilamadi (ldd calisti mi? $yapi dolu mu?)."
+    hata "$yapi/*.exe icin ${MSYSTEM_PREFIX:-/ucrt64} altindan cozulen HIC DLL yok — olcum yapilamadi (ldd calisti mi? $yapi dolu mu?)."
   else
     while IFS= read -r ad; do
       [ -n "$ad" ] || continue

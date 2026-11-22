@@ -55,8 +55,9 @@ tools/tulpar_dogrula.sh --tam        # (depo kökünden) zincirin tamamı + taba
 tools/tulpar_dogrula.sh --tam --gpusuz-izinli   # GPU'suz makine: GPU kapıları ATLANDI sayılır
 ```
 
-Platformlar: bildirimde `link.linux`, `link.macos`, `link.windows` (MSYS2 MINGW64; `tulpar.exe`
-AOT linkini MINGW64 `clang++` ile yapar — `mingw-w64-x86_64-clang` + `-openssl` kurulu olmalı) ve
+Platformlar: bildirimde `link.linux`, `link.macos`, `link.windows` (MSYS2 UCRT64; `tulpar.exe`
+AOT linkini UCRT64 `clang++` ile yapar — `mingw-w64-ucrt-x86_64-clang` + `-openssl` kurulu olmalı; MINGW64 `clang++`'ını tulpar
+link öncesi reddeder: iki C çalışma zamanı karışırdı) ve
 `link.android`. Windows'ta motorun kare döngüsü CI'da SwiftShader üzerinde ölçülüyor (2026-10-05'ten
 beri, CI ve sürüm; `--uzun-atla`: dalga/aksiyon uzun taban çizgileri Linux/macOS'ta, docs/KOPRU.md §2.1).
 

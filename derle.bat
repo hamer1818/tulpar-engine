@@ -8,7 +8,7 @@ rem   derle.bat --denetle      Yalniz rapor; kurma, derleme
 rem   derle.bat --temiz        Yapi dizinini sifirdan kur
 rem   derle.bat --bekleme-yok  Hatada tus bekleme (betik icinden cagirirken)
 rem
-rem Windows'ta derleme MSYS2/MINGW64 ile yapilir. MSVC DESTEKLENMIYOR: fiber
+rem Windows'ta derleme MSYS2/UCRT64 ile yapilir (2026-11-22'ye kadar MINGW64). MSVC DESTEKLENMIYOR: fiber
 rem gecisi GNU sozdizimli .S dosyasi ve derleme bayraklari GCC/Clang yaziminda.
 rem
 rem Bu dosya SAF ASCII ve CRLF'tir; cmd'nin OEM kod sayfasinda Turkce harfler
@@ -119,7 +119,7 @@ rem giris kabugunun okudugu /etc/profile'dir. Degiskeni ic kabukta atamak GEC
 rem kalir - profil coktan kosmus olur ve MSYS PATH'i ile derlersiniz.
 rem CHERE_INVOKING: profil ev dizinine gecmesin, depoda kalalim.
 set BASH=%MSYS%\usr\bin\bash.exe
-set MSYSTEM=MINGW64
+set MSYSTEM=UCRT64
 set CHERE_INVOKING=1
 set "ARGS="
 if "%OTOMATIK%"=="1" set "ARGS=%ARGS% --otomatik"

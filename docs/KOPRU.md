@@ -155,7 +155,7 @@ Tuzaklar 8cs. Aynı ikili yerelde mesa 26.2.4 lavapipe'ta k400'den sonra tamamen
 `libtulpargame.so` linklenmesi ölçüldü (2026-10-02, NDK 27; cihazda koşturulmadı).
 
 **Windows (`link.windows`, 2026-10-02).** Bölüm masaüstüyle aynı 13 arşiv + grup (TulparLang'in Windows
-linki de GNU ld: sürücü MSYS2 MINGW64 `clang++`, `-static`, motor arşivleri MINGW64 GCC ile derlenmiş —
+linki de GNU ld: sürücü MSYS2 UCRT64 `clang++`, `-static`, motor arşivleri UCRT64 GCC ile derlenmiş (2026-11-22'ye kadar ikisi de MINGW64) —
 ikisi de libstdc++ + ld.bfd, uyumlu) + `-lpsapi -lpthread` (CMake'in `engine_platform`'a yazdıklarının
 aynısı). Başka sistem kitaplığı yok, çünkü motor Windows'ta ne link ediyorsa çalışma zamanında
 `LoadLibrary` ile açıyor (Vulkan, GLFW; miniaudio WASAPI/ole32'yi kendisi yüklüyor): CI artefaktındaki
