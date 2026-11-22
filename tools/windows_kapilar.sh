@@ -10,8 +10,10 @@
 #                                             Vulkan atlama satiri basiliyor mu
 #   tools/windows_kapilar.sh katman-kontrol   katman kaydi gizliyken bes katman
 #                                             kapisi ATLANDI diyor mu
-#   tools/windows_kapilar.sh testler          engine_tests + ozet satiri kapisi;
-#                                             Vulkan / katman atlamasi KIRMIZI
+#   tools/windows_kapilar.sh testler [K/N]    engine_tests + ozet satiri kapisi;
+#                                             Vulkan / katman atlamasi KIRMIZI.
+#                                             K/N: yalniz o parca (engine_tests --parca;
+#                                             CI PR'da 0/2 Windows isinde, 1/2 kopru isinde)
 #   tools/windows_kapilar.sh kopru <tulpar>   tools/tulpar_dogrula.sh --tam
 #                                             (+ is ozeti)
 #
@@ -67,8 +69,11 @@ case "${1:-}" in
   # ONCE betigi oldurmesin diye `-e` YOK (olculdu 2026-10-05: msys2 kabugu
   # `bash -e`, cikis 127, log bos kaliyordu).
   testler)
+    parca="${2:-}"
+    parca_arg=()
+    [ -n "$parca" ] && parca_arg=(--parca "$parca")
     t0=$SECONDS
-    "$tests" 2>&1 | tr -d '\r' | tee sonuc.log
+    "$tests" "${parca_arg[@]}" 2>&1 | tr -d '\r' | tee sonuc.log
     kod=${PIPESTATUS[0]}
     sure=$((SECONDS - t0))
 
@@ -84,9 +89,13 @@ case "${1:-}" in
     kosan=$(sed -E 's/.*\(([0-9]+)\/[0-9]+ kosuldu\).*/\1/'   <<< "$ozet")
     kayitli=$(sed -E 's/.*\([0-9]+\/([0-9]+) kosuldu\).*/\1/' <<< "$ozet")
     {
-      echo "### ${KAPI_BASLIK:-Windows (MSYS2 MINGW64, SwiftShader)}"
+      echo "### ${KAPI_BASLIK:-Windows (MSYS2 MINGW64, SwiftShader)}${parca:+ — parca $parca}"
       echo ""
       echo "\`$ozet\` — ${sure} s"
+      echo ""
+      echo '```'
+      sed -n '/^en yavas testler/,/^engine tests:/p' sonuc.log | grep -E '^en yavas|\[sure\]' || true
+      echo '```'
       echo ""
       if [ "$atlanan" -gt 0 ]; then
         echo "<details><summary>Atlanan $atlanan kapi</summary>"
@@ -123,7 +132,7 @@ case "${1:-}" in
       echo "::error::Dogrulama katmani kurulu ve vk_sonda listeliyor oldugu halde katman kapilari atlandi.$ek"
       exit 1
     fi
-    echo "engine_tests (Windows, SwiftShader): ${sure} s"
+    echo "engine_tests (Windows, SwiftShader${parca:+, parca $parca}): ${sure} s"
     exit "$kod"
     ;;
 

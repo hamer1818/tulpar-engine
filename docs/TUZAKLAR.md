@@ -2790,3 +2790,9 @@ okunamıyordu; bir testin 34 s sürdüğü sanıldı (yerelde 0,24 s). Harness a
 `en yavas testler` listesini basıyor (`tests/test_main.cpp`). Aynı koşumda macOS `anim_olcum_karakter_butcesi`'nin ölçekleme kontrolü
 soğuk ilk ölçümden düştü (10 karakter 0,088 ms > 128 eklem/10 karakter 0,070 ms); kontrol artık ısıtılmış en küçük değerle ölçülüyor
 (yerel, 2026-11-22: 0,023 / 0,465 ms, tam CPU yükü altında 0,030 / 0,594 ms — oran ~20x, eşik 5x).
+
+**Sonraki adım (aynı gün, ölçümle):** yeni liste Windows'ta testlerin 231 s'sinin SwiftShader'da kare koşturan köprü testlerine
+dağıldığını gösterdi (en yavaşı `bridge_runs_a_scripted_game_headless` 26,6 s; yerel masaüstünde 2,8 s). Tek bir suçlu yok, yani "o testi
+hızlandır" değil "böl": `engine_tests --parca K/N` (kayıt sırası `i % N == K`; özetin paydası parçanın kayıtlı sayısı, yani
+`koşan == kayıtlı` kapısı parçada da ölçer). PR'da Windows işi 0/2'yi, köprü işi aynı ikiliyle (artefakt `yapi/*.exe` taşır) 1/2'yi
+koşar; Windows işi köprü işinin sonucunu taşıdığı için her test yine zorunlu check'in arkasında.

@@ -200,6 +200,7 @@ varsayılanı verdiğinizde fark görünmez. `editor.sh` çıplak yolu `--scene`
 ```bash
 ./yapi/engine_tests            # hepsi
 ./yapi/engine_tests rhi        # ada göre süzülür (alt dize)
+./yapi/engine_tests --parca 1/2   # kayıt sırası i % 2 == 1 olanlar (CI Windows'u iki koşucuya böler)
 ```
 
 Özet satırı şöyle biter: `engine tests: N passed, 0 failed, M atlandi (N/N kosuldu)`.
