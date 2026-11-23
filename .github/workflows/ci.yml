@@ -1714,6 +1714,18 @@ jobs:
       - name: MSYS2 paketleri (CLANGARM64)
         run: bash tools/windows_msys2.sh kur tools/windows_msys2_paketler_arm64.txt
 
+      # derle.bat (kullanicinin ARM64 dizustundeki yolu) ARM64'te CLANGARM64'u SECMELI: MSYSTEM bos verilir ki
+      # derle.bat'in kendi secimi olculsun; cikti CLANGARM64 demiyorsa (UCRT64'u zorladiysa) kirmizi.
+      - name: derle.bat gercek cmd'de CLANGARM64 seciyor mu (yalniz denetim)
+        shell: cmd
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+          MSYSTEM: ''
+        run: |
+          call derle.bat --denetle > derle_denetim.log 2>&1
+          type derle_denetim.log
+          findstr /C:"bagimlilik denetimi (CLANGARM64)" derle_denetim.log >nul || (echo ::error::derle.bat ARM64'te CLANGARM64 secmedi & exit /b 1)
+
       - name: Arac zinciri
         run: |
           uname -a
