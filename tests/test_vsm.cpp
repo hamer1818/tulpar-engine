@@ -13,6 +13,9 @@
 
 #include "rhi/shaders/vsm_mark_comp_spv.h"
 #include "rhi/shaders/vsm_request_comp_spv.h"
+#include "rhi/shaders/shadow_vsm_vert_spv.h"
+#include "rhi/shaders/ui_overdraw_frag_spv.h"
+#include "platform/time.hpp"
 #include "rhi/vk_api.hpp"
 #include "tests/test.hpp"
 
@@ -692,5 +695,335 @@ ENGINE_TEST(vsm_atlas_pages_match_analytic_shadow_and_persist) {
   at.shutdown();
   gpu_buf_free(dev, &vb);
   gpu_buf_free(dev, &ib);
+  dev.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// CIHAZ MALIYETI (OLCUM, IDDIA DEGIL): VSM'i renderer'a baglamanin iki bedeli.
+//   (1) Kamera derinligini BELLEGE YAZMAK. Bugun derinlik transient (STORE_OP_DONT_CARE, LAZILY_ALLOCATED: TBDR'da
+//       tile'da kalir, PLAN 1.2). VSM isaretlemesi derinligi okumak zorunda -> STORE. Ayni sahne iki kipte cizilir.
+//   (2) Tam cozunurlukte vsm_request.comp (isaretleme + tekillestirme), bos dispatch'e karsi.
+// Mali-G72 (P20 Pro) zaman damgasi vermiyor (timestampPeriod 0): sure DUVAR SAATIYLE, tek komut tamponunda K gecis /
+// gonder / bekle, gecis basina; R tekrarin medyani, kipler sirayla. Kapi yalniz olcumun KOSTUGUNU denetler; sayilar
+// cihaz verisidir ve basilir.
+
+namespace {
+uint64_t medyan(uint64_t *v, uint32_t n) {
+  for (uint32_t i = 1; i < n; i++)
+    for (uint32_t j = i; j > 0 && v[j - 1] > v[j]; j--) { const uint64_t t = v[j]; v[j] = v[j - 1]; v[j - 1] = t; }
+  return v[n / 2];
+}
+} // namespace
+
+ENGINE_TEST(vsm_device_cost_depth_store_and_request) {
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { test::skip("Vulkan loader (libvulkan) yok — VSM cihaz maliyeti olculmedi"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "vsm_maliyet")) { CHECK(false); return; }
+  static rhi::Device dev;
+  rhi::DeviceConfig dc;
+  const char *pref = std::getenv("TULPAR_ENGINE_GPU");
+  dc.prefer = pref ? pref : "";
+  dc.validation = false; // sure olcumu: dogrulama katmaninin CPU yuku duvar saatine girmesin (dogruluk diger kapilarda)
+  if (!dev.init(sys, api, dc)) { test::skip("Vulkan cihazi yok (ICD?) — VSM cihaz maliyeti olculmedi"); return; }
+  if (dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU || test::gpu_is_virtual(dev.caps().device_name)) {
+    // lavapipe / SwiftShader / CI macOS sanal GPU'su: TBDR bant genisligi ve GPU suresi yazilim rasterlayicisinda anlamsiz (ve 1080p'de yavas).
+    // Dogruluk kapilari (isaretleme, tekillestirme, atlas) o cihazlarda zaten kosuyor.
+    dev.shutdown();
+    test::skip("CPU/sanal cihaz (yazilim rasterlayici ya da Paravirtual): derinlik STORE / isaretleme maliyeti yalniz gercek GPU'da anlamli");
+    return;
+  }
+  rhi::VkApi &a = dev.api();
+  VkDevice d = dev.handle();
+  constexpr uint32_t W = 1920, H = 1080, K = 30, R = 7;
+
+  // --- (1) derinlik STORE vs DONT_CARE ----------------------------------------------------------------------
+  VkImage img[3] = {};
+  VkImageView view[3] = {};
+  rhi::MemoryAlloc mem[3] = {};
+  auto goruntu = [&](uint32_t i, VkFormat f, VkImageUsageFlags usage, bool lazily, VkImageAspectFlags asp) {
+    VkImageCreateInfo ii{};
+    ii.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = f;
+    ii.extent = {W, H, 1};
+    ii.mipLevels = ii.arrayLayers = 1;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = usage;
+    if (a.vkCreateImage(d, &ii, nullptr, &img[i]) != VK_SUCCESS) return false;
+    VkMemoryRequirements req;
+    a.vkGetImageMemoryRequirements(d, img[i], &req);
+    if (!dev.allocate_dedicated(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, lazily, &mem[i]) ||
+        a.vkBindImageMemory(d, img[i], mem[i].memory, mem[i].offset) != VK_SUCCESS)
+      return false;
+    VkImageViewCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vi.image = img[i];
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = f;
+    vi.subresourceRange = {asp, 0, 1, 0, 1};
+    return a.vkCreateImageView(d, &vi, nullptr, &view[i]) == VK_SUCCESS;
+  };
+  // 0: renk (her iki kipte STORE), 1: transient derinlik, 2: saklanan (orneklenebilir) derinlik.
+  bool ok = goruntu(0, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, false, VK_IMAGE_ASPECT_COLOR_BIT) &&
+            goruntu(1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, true,
+                    VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            goruntu(2, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false,
+                    VK_IMAGE_ASPECT_DEPTH_BIT);
+  VkRenderPass rp[2] = {};
+  VkFramebuffer fb[2] = {};
+  for (uint32_t m = 0; m < 2 && ok; m++) {
+    VkAttachmentDescription att[2]{};
+    att[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+    att[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    att[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    att[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    att[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    att[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    att[1] = att[0];
+    att[1].format = VK_FORMAT_D32_SFLOAT;
+    att[1].storeOp = m == 0 ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
+    att[1].finalLayout = m == 0 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    VkAttachmentReference cr{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}, dr{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription sp{};
+    sp.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sp.colorAttachmentCount = 1;
+    sp.pColorAttachments = &cr;
+    sp.pDepthStencilAttachment = &dr;
+    VkSubpassDependency dep{};
+    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass = 0;
+    dep.srcStageMask = dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                          VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    VkRenderPassCreateInfo rpi{};
+    rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpi.attachmentCount = 2;
+    rpi.pAttachments = att;
+    rpi.subpassCount = 1;
+    rpi.pSubpasses = &sp;
+    rpi.dependencyCount = 1;
+    rpi.pDependencies = &dep;
+    ok = a.vkCreateRenderPass(d, &rpi, nullptr, &rp[m]) == VK_SUCCESS;
+    const VkImageView v2[2] = {view[0], view[1 + m]};
+    VkFramebufferCreateInfo fi{};
+    fi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fi.renderPass = rp[m];
+    fi.attachmentCount = 2;
+    fi.pAttachments = v2;
+    fi.width = W;
+    fi.height = H;
+    fi.layers = 1;
+    ok = ok && a.vkCreateFramebuffer(d, &fi, nullptr, &fb[m]) == VK_SUCCESS;
+  }
+  VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
+  VkPipelineLayout pl = VK_NULL_HANDLE;
+  VkPipeline pipe = VK_NULL_HANDLE;
+  if (ok) {
+    VkShaderModuleCreateInfo smi{};
+    smi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    smi.codeSize = sizeof shadow_vsm_vert_spv;
+    smi.pCode = shadow_vsm_vert_spv;
+    ok = a.vkCreateShaderModule(d, &smi, nullptr, &vs) == VK_SUCCESS;
+    smi.codeSize = sizeof ui_overdraw_frag_spv;
+    smi.pCode = ui_overdraw_frag_spv;
+    ok = ok && a.vkCreateShaderModule(d, &smi, nullptr, &fs) == VK_SUCCESS;
+    VkPushConstantRange pr{VK_SHADER_STAGE_VERTEX_BIT, 0, 96};
+    VkPipelineLayoutCreateInfo pli{};
+    pli.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pli.pushConstantRangeCount = 1;
+    pli.pPushConstantRanges = &pr;
+    ok = ok && a.vkCreatePipelineLayout(d, &pli, nullptr, &pl) == VK_SUCCESS;
+    VkPipelineShaderStageCreateInfo st[2]{};
+    for (uint32_t i = 0; i < 2; i++) {
+      st[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+      st[i].stage = i == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+      st[i].module = i == 0 ? vs : fs;
+      st[i].pName = "main";
+    }
+    VkVertexInputBindingDescription vb{0, 12, VK_VERTEX_INPUT_RATE_VERTEX};
+    VkVertexInputAttributeDescription va{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};
+    VkPipelineVertexInputStateCreateInfo vin{};
+    vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vin.vertexBindingDescriptionCount = 1;
+    vin.pVertexBindingDescriptions = &vb;
+    vin.vertexAttributeDescriptionCount = 1;
+    vin.pVertexAttributeDescriptions = &va;
+    VkPipelineInputAssemblyStateCreateInfo ia{};
+    ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkViewport vpt{0, 0, (float)W, (float)H, 0, 1};
+    VkRect2D sc{{0, 0}, {W, H}};
+    VkPipelineViewportStateCreateInfo vps{};
+    vps.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    vps.viewportCount = vps.scissorCount = 1;
+    vps.pViewports = &vpt;
+    vps.pScissors = &sc;
+    VkPipelineRasterizationStateCreateInfo rs{};
+    rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms{};
+    ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo ds{};
+    ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    ds.depthTestEnable = ds.depthWriteEnable = VK_TRUE;
+    ds.depthCompareOp = VK_COMPARE_OP_LESS;
+    VkPipelineColorBlendAttachmentState ba{};
+    ba.colorWriteMask = 0xF;
+    VkPipelineColorBlendStateCreateInfo cbs{};
+    cbs.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    cbs.attachmentCount = 1;
+    cbs.pAttachments = &ba;
+    VkGraphicsPipelineCreateInfo gp{};
+    gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    gp.stageCount = 2;
+    gp.pStages = st;
+    gp.pVertexInputState = &vin;
+    gp.pInputAssemblyState = &ia;
+    gp.pViewportState = &vps;
+    gp.pRasterizationState = &rs;
+    gp.pMultisampleState = &ms;
+    gp.pDepthStencilState = &ds;
+    gp.pColorBlendState = &cbs;
+    gp.layout = pl;
+    gp.renderPass = rp[0]; // iki render pass uyumlu (ayni bicimler/ornek sayisi)
+    ok = ok && a.vkCreateGraphicsPipelines(d, VK_NULL_HANDLE, 1, &gp, nullptr, &pipe) == VK_SUCCESS;
+  }
+  const float kv[24] = {-.5f, -.5f, -.5f, .5f, -.5f, -.5f, .5f, .5f, -.5f, -.5f, .5f, -.5f,
+                        -.5f, -.5f, .5f,  .5f, -.5f, .5f,  .5f, .5f, .5f,  -.5f, .5f, .5f};
+  const uint32_t ki[36] = {0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 3, 2, 6, 3, 6, 7, 0, 3, 7, 0, 7, 4, 1, 5, 6, 1, 6, 2};
+  GpuBuf vb, ib;
+  ok = ok && gpu_buf(dev, sizeof kv, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, kv, &vb) && gpu_buf(dev, sizeof ki, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, ki, &ib);
+  if (!ok) { std::printf("    [bilgi] olcum boru hatti kurulamadi (%s)\n", dev.last_error()); CHECK(false); return; }
+  // 48 kutu, ekrani birkac kat kaplar (derinlik testi + overdraw): oyun karesine benzer bir derinlik isi.
+  const Mat4 vpm = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f) * Mat4::look_at(Vec3{0, 3, 12}, Vec3{0, 0, 0}, Vec3{0, 1, 0});
+  static Mat4 mvp[48];
+  for (uint32_t i = 0; i < 48; i++) {
+    const float fx = (float)(i % 8) - 3.5f, fz = (float)(i / 8) * -2.0f;
+    mvp[i] = vpm * Mat4::translate(Vec3{fx * 2.2f, 0.0f, fz}) * Mat4::scale(Vec3{2.0f, 3.0f + (float)(i % 3), 2.0f});
+  }
+  auto gecisler = [&](uint32_t m) -> uint64_t {
+    VkCommandBuffer cb = dev.begin_one_shot();
+    if (!cb) return 0;
+    VkClearValue cv[2]{};
+    cv[1].depthStencil = {1.0f, 0};
+    for (uint32_t k = 0; k < K; k++) {
+      VkRenderPassBeginInfo rbi{};
+      rbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+      rbi.renderPass = rp[m];
+      rbi.framebuffer = fb[m];
+      rbi.renderArea = {{0, 0}, {W, H}};
+      rbi.clearValueCount = 2;
+      rbi.pClearValues = cv;
+      a.vkCmdBeginRenderPass(cb, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+      a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+      VkDeviceSize off = 0;
+      a.vkCmdBindVertexBuffers(cb, 0, 1, &vb.buf, &off);
+      a.vkCmdBindIndexBuffer(cb, ib.buf, 0, VK_INDEX_TYPE_UINT32);
+      for (uint32_t i = 0; i < 48; i++) {
+        float push[24] = {};
+        std::memcpy(push, &mvp[i].m[0][0], 64);
+        a.vkCmdPushConstants(cb, pl, VK_SHADER_STAGE_VERTEX_BIT, 0, 96, push);
+        a.vkCmdDrawIndexed(cb, 36, 1, 0, 0, 0);
+      }
+      a.vkCmdEndRenderPass(cb);
+    }
+    const uint64_t t0 = platform::now_ns();
+    if (!dev.end_one_shot_and_wait(cb)) return 0;
+    return platform::now_ns() - t0;
+  };
+  gecisler(0); gecisler(1); // isinma (surucu ilk kullanim, bellek yerlesimi)
+  uint64_t t_dc[R], t_st[R];
+  for (uint32_t r = 0; r < R; r++) { t_dc[r] = gecisler(0); t_st[r] = gecisler(1); }
+  const double dc_ms = (double)medyan(t_dc, R) / K / 1e6, st_ms = (double)medyan(t_st, R) / K / 1e6;
+  const double mb = (double)W * H * 4 / (1024.0 * 1024.0);
+  std::printf("    [bilgi] %s, %ux%u D32, %u gecis x %u tekrar (medyan): derinlik DONT_CARE %.3f ms, STORE %.3f ms/gecis, "
+              "fark %+.3f ms (%+.1f%%); STORE gecis basina %.1f MB yazar (60 Hz: %.0f MB/s)\n",
+              dev.caps().device_name, W, H, K, R, dc_ms, st_ms, st_ms - dc_ms, 100.0 * (st_ms - dc_ms) / dc_ms, mb, mb * 60.0);
+  CHECK(dc_ms > 0.0 && st_ms > 0.0);
+
+  // --- (2) vsm_request.comp tam cozunurlukte -----------------------------------------------------------------
+  static float depth[W * H];
+  const Vec3 eye{0, 6, 10};
+  const Mat4 cvp = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 500.0f) * Mat4::look_at(eye, Vec3{0, 0, -4}, Vec3{0, 1, 0});
+  const Mat4 inv = inverse(cvp);
+  zemin_derinligi(depth, W, H, cvp, inv);
+  VsmConfig cfg;
+  static VsmPageCache c;
+  CHECK(c.init(arena(), cfg, kLight));
+  c.begin_frame(eye);
+  constexpr uint32_t kTable = 4096, kList = 1024;
+  rhi::ComputeKernel k;
+  rhi::ComputeBuffer bd, bt, bp;
+  ok = k.init(dev, vsm_request_comp_spv, sizeof vsm_request_comp_spv, 3, sizeof(renderer::VsmMarkPush)) &&
+       rhi::compute_buffer_create(dev, sizeof depth, &bd) && rhi::compute_buffer_create(dev, kTable * 4, &bt) &&
+       rhi::compute_buffer_create(dev, sizeof(VsmRequestHeader) + kList * 4, &bp);
+  if (!ok) { std::printf("    [bilgi] compute kurulamadi: %s\n", k.error()); CHECK(false); return; }
+  std::memcpy(bd.mapped(), depth, sizeof depth);
+  const rhi::ComputeBuffer *bufs[3] = {&bd, &bt, &bp};
+  auto istek = [&](uint32_t w, uint32_t h) -> uint64_t { // w x h: dispatch izgarasi (W/2 -> seyrek, s = 2)
+    std::memset(bt.mapped(), 0xFF, kTable * 4);
+    std::memset(bp.mapped(), 0, sizeof(VsmRequestHeader));
+    renderer::VsmMarkPush p{};
+    std::memcpy(p.inv_vp, &inv.m[0][0], 64);
+    const Vec3 u = c.light_u(), v = c.light_v();
+    p.lu[0] = u.x; p.lu[1] = u.y; p.lu[2] = u.z; p.lu[3] = cfg.base_page_world;
+    p.lv[0] = v.x; p.lv[1] = v.y; p.lv[2] = v.z; p.lv[3] = cfg.level0_distance;
+    p.cam[0] = eye.x; p.cam[1] = eye.y; p.cam[2] = eye.z; p.cam[3] = (float)cfg.levels;
+    p.dims[0] = W; p.dims[1] = H; p.dims[2] = kTable - 1; p.dims[3] = kList;
+    const uint64_t t0 = platform::now_ns();
+    if (!k.run(bufs, &p, (w + 7) / 8, (h + 7) / 8, 1)) return 0;
+    return platform::now_ns() - t0;
+  };
+  istek(W, H); istek(8, 8); istek(W / 2, H / 2);
+  uint64_t t_full[R], t_bos[R], t_yari[R];
+  for (uint32_t r = 0; r < R; r++) { t_full[r] = istek(W, H); t_bos[r] = istek(8, 8); t_yari[r] = istek(W / 2, H / 2); }
+  const double full_ms = (double)medyan(t_full, R) / 1e6, bos_ms = (double)medyan(t_bos, R) / 1e6,
+               yari_ms = (double)medyan(t_yari, R) / 1e6;
+  VsmRequestHeader h, h2;
+  istek(W / 2, H / 2);
+  std::memcpy(&h2, bp.mapped(), sizeof h2);
+  istek(W, H);
+  std::memcpy(&h, bp.mapped(), sizeof h);
+  std::printf("    [bilgi] vsm_request.comp %ux%u: tam %.3f ms, seyrek (s 2) %.3f ms, bos dispatch %.3f ms; tekil sayfa tam %u / "
+              "seyrek %u, tasma %u/%u/%u\n",
+              W, H, full_ms, yari_ms, bos_ms, h.count, h2.count, h.list_overflow, h.table_full, h.out_of_range);
+  CHECK(h.count > 10 && h.list_overflow == 0 && h.table_full == 0);
+  // Seyrek isaretleme 1080p'de yeter mi? (160x90'da stride 4 sayfalarin 64/88'ini buluyordu.) Ayni derinlik, CPU yolu.
+  uint32_t kapsam[3];
+  const uint32_t adim[3] = {1, 2, 4};
+  for (uint32_t i = 0; i < 3; i++) {
+    static VsmPageCache s;
+    CHECK(s.init(arena(), cfg, kLight));
+    s.begin_frame(eye);
+    vsm_mark_from_depth(s, depth, W, H, inv, adim[i]);
+    kapsam[i] = s.stats().requested;
+  }
+  std::printf("    [bilgi] %ux%u seyrek isaretleme: stride 1 -> %u sayfa, stride 2 -> %u, stride 4 -> %u\n", W, H, kapsam[0],
+              kapsam[1], kapsam[2]);
+  CHECK(kapsam[0] == h.count);
+  CHECK(kapsam[1] == h2.count); // GPU seyrek yolu CPU stride 2 ile ayni kumeyi bulur (seyreklik gercekten uygulandi)
+
+  rhi::compute_buffer_destroy(dev, &bd);
+  rhi::compute_buffer_destroy(dev, &bt);
+  rhi::compute_buffer_destroy(dev, &bp);
+  k.shutdown();
+  gpu_buf_free(dev, &vb);
+  gpu_buf_free(dev, &ib);
+  a.vkDestroyPipeline(d, pipe, nullptr);
+  a.vkDestroyPipelineLayout(d, pl, nullptr);
+  a.vkDestroyShaderModule(d, vs, nullptr);
+  a.vkDestroyShaderModule(d, fs, nullptr);
+  for (uint32_t m = 0; m < 2; m++) { a.vkDestroyFramebuffer(d, fb[m], nullptr); a.vkDestroyRenderPass(d, rp[m], nullptr); }
+  for (uint32_t i = 0; i < 3; i++) {
+    a.vkDestroyImageView(d, view[i], nullptr);
+    a.vkDestroyImage(d, img[i], nullptr);
+    dev.free_dedicated(&mem[i]);
+  }
   dev.shutdown();
 }
