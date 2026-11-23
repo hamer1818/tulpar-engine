@@ -233,7 +233,7 @@ ENGINE_TEST(render_graph_table_is_compiled_and_ordered) {
   for (uint32_t i = 0; i < n4; i++) std::printf(" %s", g[i].name);
   std::printf("\n");
   CHECK(n4 == kMaxGraphPasses);
-  CHECK(kMaxGraphPasses == 17); // cull+golge+hareket+sahne + 2*6 bloom + godray
+  CHECK(kMaxGraphPasses == 18); // cull+golge+hareket+sahne + 2*6 bloom + godray + vsm_isaret
   CHECK(graph_validate(g, n4) == nullptr);
   // Huzme GERCEKTEN bu en genis tabloda: yoksa "17 gecis sigdi" baska bir seyi
   // olcuyor olurdu.
@@ -1182,6 +1182,113 @@ ENGINE_TEST(render_graph_gpu_cull_with_post_is_pixel_identical) {
     const uint32_t fark = bayt_farki(a_px, b_px, sizeof a_px);
     std::printf("    [bilgi] post ACIK — cull ACIK/KAPALI piksel farki: %u bayt (0 bekleniyor)\n", fark);
     CHECK(fark == 0);
+  }
+  offscreen_destroy(off);
+}
+
+// --- 7b. Sahne DERINLIGI graph kaynagi (2026-11-23) -------------------------
+// Derinligi okuyan gecis varsa (VSM isaretlemesi) graph onu SAKLAR, yoksa transient kalir — karar TURETILIR.
+// KONTROLLER: (i) post acik + vsm kapali -> saklanmaz (bugunku mobil kural); (ii) vsm acik + post kapali -> gecis
+// tabloya GIRMEZ (derinlik kaynagi yalniz ic HDR gecisinde var); (iii) vsm acik -> sahne out2 okunuyor, saklanir.
+ENGINE_TEST(render_graph_depth_is_stored_only_when_read) {
+  using namespace renderer;
+  GraphPass g[kMaxGraphPasses];
+  GraphDesc d;
+  d.post = true;
+  uint32_t n = graph_build(d, g, kMaxGraphPasses);
+  CHECK(n > 0 && graph_validate(g, n) == nullptr);
+  CHECK(!graph_depth_stored(g, n)); // (i)
+  uint32_t sahne = kMaxGraphPasses;
+  for (uint32_t i = 0; i < n; i++) if (g[i].kind == PassKind::Scene) sahne = i;
+  CHECK(sahne < n && g[sahne].out2 == kResDepth && !g[sahne].out2_sampled);
+
+  GraphDesc dv = d;
+  dv.post = false;
+  dv.vsm = true;
+  const uint32_t nv = graph_build(dv, g, kMaxGraphPasses);
+  bool vsm_var = false;
+  for (uint32_t i = 0; i < nv; i++) vsm_var |= g[i].kind == PassKind::VsmMark;
+  CHECK(nv > 0 && !vsm_var && !graph_depth_stored(g, nv)); // (ii)
+  for (uint32_t i = 0; i < nv; i++) CHECK(g[i].out2 == kResNone); // post kapali: derinlik cagiranin, graph'in degil
+
+  dv.post = true;
+  const uint32_t n2 = graph_build(dv, g, kMaxGraphPasses);
+  CHECK(n2 == n + 1 && graph_validate(g, n2) == nullptr);
+  uint32_t isaret = kMaxGraphPasses;
+  for (uint32_t i = 0; i < n2; i++) if (g[i].kind == PassKind::VsmMark) isaret = i;
+  CHECK(isaret < n2 && g[isaret].in0 == kResDepth && g[isaret].producer0 == sahne && g[isaret].out_external);
+  CHECK(g[sahne].out2_sampled && graph_depth_stored(g, n2)); // (iii)
+  std::printf("    [bilgi] post: %u gecis, derinlik transient; post + vsm: %u gecis, '%s' sahne derinligini okur -> saklanir\n",
+              n, n2, isaret < n2 ? g[isaret].name : "?");
+}
+
+// Ayni sahne: vsm KAPALI (derinlik transient) ve ACIK (derinlik saklanir) -> pikseller BAYT AYNI. Saklamak goruntuyu
+// degistirmemeli; PostInfo.depth_stored tablonun kararini disari verir.
+ENGINE_TEST(render_graph_stored_depth_is_pixel_identical) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  OrtakGpu &g = ortak_gpu();
+  if (!g.ok) { skip("Vulkan cihazi yok"); return; }
+  Device &dev = g.dev;
+  SystemArena &sys = g.sys;
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    skip("sanal GPU (Apple Paravirtual): piksel kapisi gercek cihazda olculur");
+    return;
+  }
+  const uint32_t W = 160, H = 160;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); return; }
+  static uint8_t a_px[W * H * 4], b_px[W * H * 4];
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 512;
+  rc.max_draws = 128;
+  rc.post = true;
+  rc.post_width = W;
+  rc.post_height = H;
+  bool atlandi = false;
+  const uint32_t hata0 = dev.validation_errors();
+  bool sakli[2] = {false, false};
+  for (int yol = 0; yol < 2 && !atlandi; yol++) {
+    renderer::RendererConfig cfg = rc;
+    cfg.vsm = (yol == 1);
+    renderer::Renderer ren;
+    bool ok = ren.init(dev, sys, offscreen_render_pass(off), cfg);
+    CHECK(ok);
+    if (!ok) break;
+    if (!ren.post().enabled) {
+      std::printf("    [bilgi] sebep: %s\n", ren.post().disabled_reason);
+      skip("son islem kurulamadi: saklanan derinlik kapisi kosmadi");
+      atlandi = true;
+      ren.shutdown();
+      break;
+    }
+    sakli[yol] = ren.post().depth_stored;
+    const KupSahne sahne = kur_kup_sahnesi(ren);
+    ren.set_render_size(W, H);
+    kamera_onde(ren);
+    Rec rr{&ren};
+    for (int kare = 0; kare < 2; kare++) { // ikinci kare: onceki karenin okumasiyla WAR bagimliligi da kossun
+      ren.begin_frame(0);
+      ciz_kupler(ren, sahne, kIcerideKup, kDisaridaKup);
+      const bool r = offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before);
+      CHECK(r);
+      if (r) std::memcpy(yol == 0 ? a_px : b_px, ores.pixels, sizeof a_px);
+    }
+    ren.shutdown();
+  }
+  if (!atlandi) {
+    const uint32_t fark = bayt_farki(a_px, b_px, sizeof a_px);
+    std::printf("    [bilgi] derinlik transient (vsm kapali) / saklanan (vsm acik): depth_stored %d / %d, piksel farki %u bayt, "
+                "dogrulama hatasi %u\n",
+                (int)sakli[0], (int)sakli[1], fark, dev.validation_errors() - hata0);
+    CHECK(!sakli[0] && sakli[1]);
+    CHECK(fark == 0);
+    CHECK(dev.validation_errors() == hata0);
   }
   offscreen_destroy(off);
 }
