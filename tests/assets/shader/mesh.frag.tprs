@@ -1,4 +1,4 @@
-// kaynak-ozet: a7e8ec03d5b7  (engine/rhi/shaders/mesh.frag)
+// kaynak-ozet: 2d65b6114503  (engine/rhi/shaders/mesh.frag)
 // Forward parca asamasi: Lambert + PBR (Cook-Torrance, glTF 2.0 metallic-
 // roughness), ORM/normal/isima dokulari, kademeli golge (CSM atlasi, kademe
 // basina egilim), kumelenmis + stokastik nokta isiklar. Motorun en agir shader'i.
@@ -55,6 +55,19 @@ struct Stoch { uvec2[] t; }
 Stoch u_stoch = depo(0, 7);
 // 0 = kapali; kapaliyken kuyruk dali boru hatti kurulumunda elenir.
 int STOCHASTIC = ozel(1, 0);
+// VSM: 0 = kapali; kapaliyken dal ve u_vsm / u_vsmt okumalari boru hatti kurulumunda elenir.
+int VSM = ozel(2, 0);
+sampler2DShadow u_vsm = ornek(0, 8);
+struct VsmTable {
+  vec4 lu;     // xyz isik u ekseni
+  vec4 lv;     // xyz isik v ekseni
+  vec4 params; // x seviye 0 sayfa kenari, y seviye 0 uzakligi, z seviye sayisi, w izgara N
+  vec4 atlas;  // x karo/atlas gen., y karo/atlas yuk., z satirdaki karo, w yarim texel
+  vec4 cam;    // xyz kamera, w normal kaydirma (texel)
+  vec4 depth;  // x derinlik min, y max, z egilim (texel), w karo kenari (texel)
+  uvec2[] e;
+}
+VsmTable u_vsmt = depo(0, 9);
 
 // Kumelenmis nokta isiklar (Lambert yolu).
 func point_lights(vec3 n): vec3 {
@@ -273,8 +286,43 @@ func cascade_bias_scale(int idx): float {
   float inv_r = length(vec3(m[0][0], m[1][0], m[2][0]));
   return 2.0 * u.cascade_params.w / inv_r * u.shadow_params.x;
 }
+// VSM gorunurlugu: isaretleme ile ayni seviye secimi ve ayni mutlak sayfa anahtari; anahtar dogrulanir.
+func vsm_visibility(float nl, vec3 n): float {
+  vec3 lu = u_vsmt.lu.xyz;
+  vec3 lv = u_vsmt.lv.xyz;
+  vec3 ld = cross(lu, lv);
+  float dist = length(v_world - u_vsmt.cam.xyz);
+  uint levels = u32(u_vsmt.params.z);
+  uint l = 0u;
+  float lim = u_vsmt.params.y;
+  while (dist > lim && l + 1u < levels) {
+    lim = lim * 2.0;
+    l = l + 1u;
+  }
+  float pw = u_vsmt.params.x * f32(1u << l);
+  float tw = pw / u_vsmt.depth.w;
+  vec3 wp = v_world + n * (u_vsmt.cam.w * tw);
+  float pu = dot(wp, lu) / pw;
+  float pv = dot(wp, lv) / pw;
+  int kx = i32(floor(pu));
+  int ky = i32(floor(pv));
+  uint gn = u32(u_vsmt.params.w);
+  uint idx = l * gn * gn + (u32(ky) & (gn - 1u)) * gn + (u32(kx) & (gn - 1u));
+  uvec2 e = u_vsmt.e[idx];
+  uint key = (l << 28) | ((u32(kx) & 16383u) << 14) | (u32(ky) & 16383u);
+  if (e.x != key) { return 1.0; } // yerlesik degil: isikli
+  uint tx = u32(u_vsmt.atlas.z);
+  vec2 org = vec2(f32(e.y % tx), f32(e.y / tx));
+  vec2 f = clamp(vec2(pu, pv) - vec2(f32(kx), f32(ky)), vec2(u_vsmt.atlas.w), vec2(1.0 - u_vsmt.atlas.w));
+  vec2 uv = (org + f) * u_vsmt.atlas.xy;
+  float range = u_vsmt.depth.y - u_vsmt.depth.x;
+  float z = (dot(wp, ld) - u_vsmt.depth.x) / range;
+  float bias = u_vsmt.depth.z * tw / range * clamp(1.0 - nl, 0.15, 1.0);
+  return texture(u_vsm, vec3(uv, z - bias));
+}
 func shadow_visibility(float nl, vec3 n): float {
   if (u.shadow_params.z < 0.5) { return 1.0; }
+  if (VSM != 0) { return vsm_visibility(nl, n); }
   float bias = u.shadow_params.y * clamp(1.0 - nl, 0.15, 1.0);
   int n_casc = i32(u.cascade_params.x);
   for (int i = 0; i < 3; i++) {

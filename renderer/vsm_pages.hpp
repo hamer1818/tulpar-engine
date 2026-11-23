@@ -75,6 +75,13 @@ public:
   VsmPageKey key_for(Vec3 world, uint32_t level) const;
   // Bu anahtar yerlesik ve gecerli mi (kapilar icin).
   bool is_valid(VsmPageKey k) const;
+  // Yuva sorgusu (ornekleme tablosunu kurmak icin): yuva dolu VE gecerliyse (kirli degil) true.
+  bool slot_page(uint32_t slot, VsmPageKey *k, uint32_t *last_used) const {
+    if (slot >= cfg_.pool_pages || !slots_[slot].used || slots_[slot].dirty) return false;
+    *k = slots_[slot].key;
+    *last_used = slots_[slot].last_used;
+    return true;
+  }
   // GPU isaretleme push constant'i icin (rhi/shaders/vsm_mark.comp): isik tabani, kamera, yapilandirma.
   Vec3 light_u() const { return lu_; }
   Vec3 light_v() const { return lv_; }

@@ -14,6 +14,7 @@
 // Isik yonu degisirse onbellek ayirmasiz sifirlanir (reset_light) ve light_resets sayilir.
 // Kare icinde ayirma yok: dokum listeleri ve ozet tablolari init'te arenadan.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 #include "core/math/vec.hpp"
@@ -24,6 +25,25 @@
 
 namespace tulpar::engine::renderer {
 
+// mesh.frag `VsmTable` (set 0, binding 9) basligi: alan adlari shader'la AYNI (tools/layout_check.py olcer). Ardindan
+// levels * kVsmTableGrid^2 hucre: uvec2 (paket anahtar, yuva), bos hucre anahtari kVsmKeyEmpty.
+struct VsmTableCell {
+  uint32_t key;  // vsm_pack_key; bos hucre kVsmKeyEmpty
+  uint32_t slot; // atlas yuvasi
+};
+struct VsmTableHeader {
+  float lu[4];
+  float lv[4];
+  float params[4];
+  float atlas[4];
+  float cam[4];
+  float depth[4];
+  VsmTableCell e[1]; // uvec2 e[]'nin ILK hucresi: yerlesim denetimi blogun butun uyelerini (dizi dahil) ada gore esler
+};
+constexpr uint32_t kVsmTableHeaderBytes = 96; // e[]'nin baslangici
+static_assert(offsetof(VsmTableHeader, e) == kVsmTableHeaderBytes, "mesh.frag VsmTable: e[] 6 x vec4'ten sonra");
+constexpr uint32_t kVsmTableGrid = 16; // seviye basina toroidal izgara (2^k); seviye halkasi ~+-5 sayfa (8 m / 2 m)
+
 struct VsmPassConfig {
   VsmConfig pages{};
   VsmAtlasConfig atlas{};
@@ -31,6 +51,11 @@ struct VsmPassConfig {
   uint32_t table_slots = 4096; // GPU tekillestirme tablosu (2^k)
   uint32_t list_capacity = 1024;
   uint32_t max_casters = 1024;
+  // false: derinlik saklanir ve isaretlenir, atlas cizilir, ama mesh.frag CSM'i orneklemeye devam eder (isaretleme
+  // maliyetini ornekleme olmadan olcmek; saklanan derinligin goruntuyu degistirmedigini kanitlamak).
+  bool sample = true;
+  float normal_offset_texels = 1.5f; // ornekleme: normal boyunca kaydirma (seviyenin texel'i cinsinden)
+  float depth_bias_texels = 1.0f;    // ornekleme: derinlik egilimi (texel cinsinden, egimle olceklenir)
 };
 
 struct VsmPassInfo {
@@ -68,6 +93,11 @@ public:
   void record_atlas(VkCommandBuffer cb);
   // Sahne gecisinden SONRA. inv_view_proj: derinligi ureten (jitter'li) izdusumun tersi; w, h: cizilen alan.
   void record_mark(VkCommandBuffer cb, const Mat4 &inv_view_proj, Vec3 camera, uint32_t w, uint32_t h);
+  // mesh.frag ornekleme tablosu (binding 9): baslik + izgara. dst: table_bytes() bayt, host-gorunur. Atlas cizildikten
+  // SONRA cagrilir (bu kare gecerli olan sayfalar). Cakisan hucrede en son kullanilan sayfa kalir.
+  void fill_table(void *dst, Vec3 camera) const;
+  static uint32_t table_bytes(uint32_t levels) { return kVsmTableHeaderBytes + levels * kVsmTableGrid * kVsmTableGrid * 8u; }
+  VkSampler atlas_sampler() const { return atlas_sampler_; } // karsilastirmali (LESS_OR_EQUAL), dogrusal
   // Teshis/kapi: sahne derinligini oku (tek seferlik, bekler). out: depth_w * depth_h, [0, 1].
   bool read_depth(float *out);
 
@@ -88,6 +118,7 @@ private:
   VkFormat depth_fmt_ = VK_FORMAT_UNDEFINED;
   uint32_t dw_ = 0, dh_ = 0;
   VkSampler sampler_ = VK_NULL_HANDLE;
+  VkSampler atlas_sampler_ = VK_NULL_HANDLE;
   VkShaderModule cs_ = VK_NULL_HANDLE;
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
