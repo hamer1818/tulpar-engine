@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <Jolt/Core/Atomics.h>
 #include <Jolt/Geometry/Sphere.h>
 #include <Jolt/Physics/Body/AllowedDOFs.h>
 #include <Jolt/Physics/Body/MotionQuality.h>
@@ -42,22 +43,32 @@ public:
 	/// Get world space linear velocity of the center of mass
 	inline Vec3				GetLinearVelocity() const										{ JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::Read)); return mLinearVelocity; }
 
-	/// Set world space linear velocity of the center of mass
+	/// Set world space linear velocity of the center of mass.
+	/// Note that it is illegal to set a non-zero linear velocity on a sleeping body without waking it up afterwards.
+	/// If you want the body to wake up when it is sleeping, use BodyInterface::SetLinearVelocity instead.
 	void					SetLinearVelocity(Vec3Arg inLinearVelocity)						{ JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite)); JPH_ASSERT(inLinearVelocity.Length() <= mMaxLinearVelocity); mLinearVelocity = LockTranslation(inLinearVelocity); }
 
-	/// Set world space linear velocity of the center of mass, will make sure the value is clamped against the maximum linear velocity
+	/// Set world space linear velocity of the center of mass, will make sure the value is clamped against the maximum linear velocity.
+	/// Note that it is illegal to set a non-zero linear velocity on a sleeping body without waking it up afterwards.
+	/// If you want the body to wake up when it is sleeping, use BodyInterface::SetLinearVelocity instead.
 	void					SetLinearVelocityClamped(Vec3Arg inLinearVelocity)				{ mLinearVelocity = LockTranslation(inLinearVelocity); ClampLinearVelocity(); }
 
 	/// Get world space angular velocity of the center of mass
 	inline Vec3				GetAngularVelocity() const										{ JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::Read)); return mAngularVelocity; }
 
-	/// Set world space angular velocity of the center of mass
+	/// Set world space angular velocity of the center of mass.
+	/// Note that it is illegal to set a non-zero angular velocity on a sleeping body without waking it up afterwards.
+	/// If you want the body to wake up when it is sleeping, use BodyInterface::SetAngularVelocity instead.
 	void					SetAngularVelocity(Vec3Arg inAngularVelocity)					{ JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite)); JPH_ASSERT(inAngularVelocity.Length() <= mMaxAngularVelocity); mAngularVelocity = LockAngular(inAngularVelocity); }
 
-	/// Set world space angular velocity of the center of mass, will make sure the value is clamped against the maximum angular velocity
+	/// Set world space angular velocity of the center of mass, will make sure the value is clamped against the maximum angular velocity.
+	/// Note that it is illegal to set a non-zero angular velocity on a sleeping body without waking it up afterwards.
+	/// If you want the body to wake up when it is sleeping, use BodyInterface::SetAngularVelocity instead.
 	void					SetAngularVelocityClamped(Vec3Arg inAngularVelocity)			{ mAngularVelocity = LockAngular(inAngularVelocity); ClampAngularVelocity(); }
 
 	/// Set velocity of body such that it will be rotate/translate by inDeltaPosition/Rotation in inDeltaTime seconds.
+	/// Note that it is illegal to provide non-zero delta position/rotation on a sleeping body without waking it up afterwards.
+	/// If you want the body to wake up when it is sleeping, use BodyInterface::MoveKinematic instead.
 	inline void				MoveKinematic(Vec3Arg inDeltaPosition, QuatArg inDeltaRotation, float inDeltaTime);
 
 	///@name Velocity limits
@@ -76,11 +87,11 @@ public:
 	inline void				ClampLinearVelocity();
 	inline void				ClampAngularVelocity();
 
-	/// Get linear damping: dv/dt = -c * v. c must be between 0 and 1 but is usually close to 0.
+	/// Get linear damping: dv/dt = -c * v. c. Value should be zero or positive and is usually close to 0.
 	inline float			GetLinearDamping() const										{ return mLinearDamping; }
 	void					SetLinearDamping(float inLinearDamping)							{ JPH_ASSERT(inLinearDamping >= 0.0f); mLinearDamping = inLinearDamping; }
 
-	/// Get angular damping: dw/dt = -c * w. c must be between 0 and 1 but is usually close to 0.
+	/// Get angular damping: dw/dt = -c * w. c. Value should be zero or positive and is usually close to 0.
 	inline float			GetAngularDamping() const										{ return mAngularDamping; }
 	void					SetAngularDamping(float inAngularDamping)						{ JPH_ASSERT(inAngularDamping >= 0.0f); mAngularDamping = inAngularDamping; }
 
@@ -186,16 +197,56 @@ public:
 	void					SetNumPositionStepsOverride(uint inN)							{ JPH_ASSERT(inN < 256); mNumPositionStepsOverride = uint8(inN); }
 	uint					GetNumPositionStepsOverride() const								{ return mNumPositionStepsOverride; }
 
+#ifdef JPH_TRACK_SIMULATION_STATS
+	/// Stats for this body. These are average for the simulation island the body was part of.
+	struct SimulationStats
+	{
+		void				Reset()															{ mBroadPhaseTicks = 0; mNarrowPhaseTicks.store(0, memory_order_relaxed); mVelocityConstraintTicks = 0; mPositionConstraintTicks = 0; mUpdateBoundsTicks = 0; mCCDTicks.store(0, memory_order_relaxed); mNumContactConstraints.store(0, memory_order_relaxed); mNumCollisionSteps = 0; mNumVelocitySteps = 0; mNumPositionSteps = 0; mIsLargeIsland = false; }
+
+		uint64				mBroadPhaseTicks = 0;											///< Number of processor ticks spent doing broad phase collision detection
+		atomic<uint64>		mNarrowPhaseTicks = 0;											///< Number of ticks spent doing narrow phase collision detection
+		uint64				mVelocityConstraintTicks = 0;									///< Number of ticks spent solving velocity constraints
+		uint64				mPositionConstraintTicks = 0;									///< Number of ticks spent solving position constraints
+		uint64				mUpdateBoundsTicks = 0;											///< Number of ticks spent updating the broadphase and checking if the body should go to sleep
+		atomic<uint64>		mCCDTicks = 0;													///< Number of ticks spent doing CCD
+		atomic<uint32>		mNumContactConstraints = 0;										///< Number of contact constraints created for this body
+		uint8				mNumCollisionSteps = 0;											///< Number of collision steps this body was active (see PhysicsSystem::Update(..., inCollisionSteps, ...)). All other properties are aggregated over multiple steps, so if you want e.g. the number of contact constraints per step you need to divide by this number.
+		uint8				mNumVelocitySteps = 0;											///< Number of velocity iterations performed
+		uint8				mNumPositionSteps = 0;											///< Number of position iterations performed
+		bool				mIsLargeIsland = false;											///< If this body was part of a large island
+	};
+
+	const SimulationStats &	GetSimulationStats() const										{ return mSimulationStats; }
+	SimulationStats &		GetSimulationStats()											{ return mSimulationStats; }
+#endif // JPH_TRACK_SIMULATION_STATS
+
 	////////////////////////////////////////////////////////////
 	// FUNCTIONS BELOW THIS LINE ARE FOR INTERNAL USE ONLY
 	////////////////////////////////////////////////////////////
 
 	///@name Update linear and angular velocity (used during constraint solving)
 	///@{
-	inline void				AddLinearVelocityStep(Vec3Arg inLinearVelocityChange)			{ JPH_DET_LOG("AddLinearVelocityStep: " << inLinearVelocityChange); JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite)); mLinearVelocity = LockTranslation(mLinearVelocity + inLinearVelocityChange); JPH_ASSERT(!mLinearVelocity.IsNaN()); }
-	inline void				SubLinearVelocityStep(Vec3Arg inLinearVelocityChange)			{ JPH_DET_LOG("SubLinearVelocityStep: " << inLinearVelocityChange); JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite)); mLinearVelocity = LockTranslation(mLinearVelocity - inLinearVelocityChange); JPH_ASSERT(!mLinearVelocity.IsNaN()); }
-	inline void				AddAngularVelocityStep(Vec3Arg inAngularVelocityChange)			{ JPH_DET_LOG("AddAngularVelocityStep: " << inAngularVelocityChange); JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite)); mAngularVelocity += inAngularVelocityChange; JPH_ASSERT(!mAngularVelocity.IsNaN()); }
-	inline void				SubAngularVelocityStep(Vec3Arg inAngularVelocityChange)			{ JPH_DET_LOG("SubAngularVelocityStep: " << inAngularVelocityChange); JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite)); mAngularVelocity -= inAngularVelocityChange; JPH_ASSERT(!mAngularVelocity.IsNaN()); }
+	inline void				ApplyLinearVelocityStep(Vec3Arg inLinearVelocity)
+	{
+		JPH_DET_LOG("ApplyLinearVelocityStep: " << inLinearVelocity);
+		JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite));
+		JPH_ASSERT(mCachedMotionType == EMotionType::Dynamic);
+		JPH_ASSERT(!inLinearVelocity.IsNaN());
+		mLinearVelocity = LockTranslation(inLinearVelocity);
+	}
+	inline void				AddLinearVelocityStep(Vec3Arg inLinearVelocityChange)			{ ApplyLinearVelocityStep(mLinearVelocity + inLinearVelocityChange); }
+	inline void				SubLinearVelocityStep(Vec3Arg inLinearVelocityChange)			{ ApplyLinearVelocityStep(mLinearVelocity - inLinearVelocityChange); }
+
+	inline void				ApplyAngularVelocityStep(Vec3Arg inAngularVelocity)
+	{
+		JPH_DET_LOG("ApplyAngularVelocityStep: " << inAngularVelocity);
+		JPH_ASSERT(BodyAccess::sCheckRights(BodyAccess::sVelocityAccess(), BodyAccess::EAccess::ReadWrite));
+		JPH_ASSERT(mCachedMotionType == EMotionType::Dynamic);
+		JPH_ASSERT(!inAngularVelocity.IsNaN());
+		mAngularVelocity = inAngularVelocity;
+	}
+	inline void				AddAngularVelocityStep(Vec3Arg inAngularVelocityChange)			{ ApplyAngularVelocityStep(mAngularVelocity + inAngularVelocityChange); }
+	inline void				SubAngularVelocityStep(Vec3Arg inAngularVelocityChange)			{ ApplyAngularVelocityStep(mAngularVelocity - inAngularVelocityChange); }
 	///@}
 
 	/// Apply the gyroscopic force (aka Dzhanibekov effect, see https://en.wikipedia.org/wiki/Tennis_racket_theorem)
@@ -209,7 +260,7 @@ public:
 	void					SetIslandIndexInternal(uint32 inIndex)							{ mIslandIndex = inIndex; }
 
 	/// Access to the index in the active bodies array
-	uint32					GetIndexInActiveBodiesInternal() const							{ return mIndexInActiveBodies; }
+	uint32					GetIndexInActiveBodiesInternal() const							{ return mIndexInActiveBodies.load(memory_order_relaxed); }
 
 #ifdef JPH_DOUBLE_PRECISION
 	inline DVec3			GetSleepTestOffset() const										{ return DVec3::sLoadDouble3Unsafe(mSleepTestOffset); }
@@ -248,12 +299,12 @@ private:
 	Float3					mForce { 0, 0, 0 };												///< Accumulated world space force (N). Note loaded through intrinsics so ensure that the 4 bytes after this are readable!
 	Float3					mTorque { 0, 0, 0 };											///< Accumulated world space torque (N m). Note loaded through intrinsics so ensure that the 4 bytes after this are readable!
 	float					mInvMass;														///< Inverse mass of the object (1/kg)
-	float					mLinearDamping;													///< Linear damping: dv/dt = -c * v. c must be between 0 and 1 but is usually close to 0.
-	float					mAngularDamping;												///< Angular damping: dw/dt = -c * w. c must be between 0 and 1 but is usually close to 0.
+	float					mLinearDamping;													///< Linear damping: dv/dt = -c * v. Value should be zero or positive and is usually close to 0.
+	float					mAngularDamping;												///< Angular damping: dw/dt = -c * w. Value should be zero or positive and is usually close to 0.
 	float					mMaxLinearVelocity;												///< Maximum linear velocity that this body can reach (m/s)
 	float					mMaxAngularVelocity;											///< Maximum angular velocity that this body can reach (rad/s)
 	float					mGravityFactor;													///< Factor to multiply gravity with
-	uint32					mIndexInActiveBodies = cInactiveIndex;							///< If the body is active, this is the index in the active body list or cInactiveIndex if it is not active (note that there are 2 lists, one for rigid and one for soft bodies)
+	atomic<uint32>			mIndexInActiveBodies = cInactiveIndex;							///< If the body is active, this is the index in the active body list or cInactiveIndex if it is not active (note that there are 2 lists, one for rigid and one for soft bodies). Only modified while holding BodyManager::mActiveBodiesMutex but it is read without lock (see BodyManager::AddBodyToActiveBodies) so accessed atomically using relaxed memory order.
 	uint32					mIslandIndex = cInactiveIndex;									///< Index of the island that this body is part of, when the body has not yet been updated or is not active this is cInactiveIndex
 
 	// 1 byte aligned
@@ -275,6 +326,10 @@ private:
 	EBodyType				mCachedBodyType;												///< Copied from Body::mBodyType and cached for asserting purposes
 	EMotionType				mCachedMotionType;												///< Copied from Body::mMotionType and cached for asserting purposes
 #endif
+
+#ifdef JPH_TRACK_SIMULATION_STATS
+	SimulationStats			mSimulationStats;
+#endif // JPH_TRACK_SIMULATION_STATS
 };
 
 JPH_NAMESPACE_END
