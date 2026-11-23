@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 894 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 902 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -151,10 +151,12 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `core/profiler/profiler.hpp` — Profiler (Faz 0'da yazilir, sonra degil: "olcemedigin seyi
 - `core/reflect/reflect.hpp` — Core reflection interface placeholder - see content/reflect.hpp for SceneEntity reflection
 
-### rhi — L2 (15 dosya, 3900 satır)
+### rhi — L2 (17 dosya, 4085 satır)
 
 - `rhi/command_pools.cpp` — 
 - `rhi/command_pools.hpp` — thread basina komut havuzu (plan L2: "command buffer'lar paralel
+- `rhi/compute.cpp` — 
+- `rhi/compute.hpp` — KUCUK COMPUTE CALISTIRICISI (2026-11-23).
 - `rhi/device.cpp` — 
 - `rhi/device.hpp` — Device: instance + fiziksel cihaz secimi + mantiksal cihaz +
 - `rhi/frame_graph.cpp` — 
@@ -169,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7935 satır)
+### renderer — L3 (26 dosya, 8234 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -194,6 +196,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `renderer/particle_gpu_indirect.hpp` — Bevy Hanabi GPU Indirect, Vulkan DGC & TBDR Mobil Partikul Mimarisi.
 - `renderer/renderer.cpp` — 
 - `renderer/renderer.hpp` — Faz 3 ilk dilim: forward (Lambert) cizici. Depth prepass ->
+- `renderer/vsm_pages.cpp` — 
+- `renderer/vsm_pages.hpp` — SANAL GOLGE HARITASI (VSM) SAYFA ONBELLEGI (Faz 9, ilk dilim: 2026-11-23).
 - `renderer/wboit_pass.hpp` — WBOIT (Weighted Blended Order-Independent Transparency) & Hareket Vektorleri.
 
 ### audio — L3 (12 dosya, 2161 satır)
@@ -1118,7 +1122,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **894** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **902** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1147,6 +1151,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `platform` — 8
 - `process` — 8
 - `sahne` — 8
+- `vsm` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
@@ -1373,6 +1378,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_updater.cpp` — 20 test
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
+- `tests/test_vsm.cpp` — 8 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
 

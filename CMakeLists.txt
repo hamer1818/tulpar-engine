@@ -280,6 +280,7 @@ add_library(engine_rhi STATIC
     rhi/swapchain.cpp
     rhi/tile_budget.cpp
     rhi/frame_graph.cpp
+    rhi/compute.cpp
 )
 target_include_directories(engine_rhi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan)
 target_link_libraries(engine_rhi PUBLIC engine_core ${CMAKE_DL_LIBS})
@@ -396,7 +397,7 @@ add_dependencies(engine_sim engine_layer_check)
 # ayni durum: "kod hazir, bagimlilik/kablolama bekliyor").
 add_library(engine_renderer STATIC renderer/renderer.cpp renderer/cluster.cpp renderer/indirect_cull.cpp
     renderer/meshlet_pipeline.cpp renderer/lighting_pipeline.cpp renderer/debug_draw.cpp
-    renderer/cluster_lod.cpp renderer/cluster_cull.cpp)
+    renderer/cluster_lod.cpp renderer/cluster_cull.cpp renderer/vsm_pages.cpp)
 target_include_directories(engine_renderer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/debug_draw)
 target_link_libraries(engine_renderer PUBLIC engine_rhi engine_meshopt)
 target_compile_options(engine_renderer PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off)
@@ -524,6 +525,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_alloc_gate.cpp
     tests/test_fiber.cpp
     tests/test_text_shape.cpp
+    tests/test_vsm.cpp
     tests/test_jobs.cpp
     tests/test_profiler.cpp
     tests/test_geom_density.cpp
