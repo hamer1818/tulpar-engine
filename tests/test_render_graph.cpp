@@ -1322,6 +1322,13 @@ ENGINE_TEST(render_graph_vsm_mark_pass_matches_cpu_from_renderer_depth) {
   dc.validation = true;
   if (!dev.init(sys, api, dc)) { skip("Vulkan cihazi yok"); return; }
   std::printf("    [bilgi] dogrulama katmani %s\n", dev.caps().validation_layer ? "ACIK" : "YOK");
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    // CI macOS Paravirtual: derinlik cizilmiyor (CPU basvurusu da 0 sayfa buldu, 2026-11-23 #186) — piksel/derinlik
+    // kapilari gercek cihazda olculur (depodaki diger piksel kapilariyla ayni kural).
+    dev.shutdown();
+    skip("sanal GPU (Apple Paravirtual): sahne derinligi cizilmiyor, VSM isaretleme kapisi gercek cihazda olculur");
+    return;
+  }
   const uint32_t W = 256, H = 144;
   OffscreenConfig oc;
   oc.srgb = true;
