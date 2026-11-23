@@ -3,7 +3,7 @@
 // Cevrimici oyun (Warlords of Era) sunucuyla JSON konusur. Bu katman TEK bir istek-yanit alisverisini
 // ENGELLEYEREK yapar; kare dongusu beklemesin diye kopru (bridge, teng_http_*) bunu kendi is
 // parcacigindan cagirir. Bilincli sinirlar:
-//   * "http://" ve "https://" (M1b: mbedTLS 3.6.2, TLS 1.2/1.3, sertifika ve ad dogrulamasi ZORUNLU).
+//   * "http://" ve "https://" (M1b: mbedTLS 3.6.8, TLS 1.2/1.3, sertifika ve ad dogrulamasi ZORUNLU).
 //     Kok sertifikalar sistemden (TULPAR_CA_BUNDLE > Linux paket yollari > Android cacerts dizini);
 //     bulunamazsa HATA — dogrulamasiz baglanti yapilmaz, duz HTTP'ye dusulmez.
 //   * Connection: close (yanit bitince soket kapanir; canli tutma yok), yonlendirme izlenmez.
