@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 902 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 907 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -171,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (26 dosya, 8234 satır)
+### renderer — L3 (28 dosya, 8478 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -198,6 +198,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `renderer/renderer.hpp` — Faz 3 ilk dilim: forward (Lambert) cizici. Depth prepass ->
 - `renderer/vsm_pages.cpp` — 
 - `renderer/vsm_pages.hpp` — SANAL GOLGE HARITASI (VSM) SAYFA ONBELLEGI (Faz 9, ilk dilim: 2026-11-23).
+- `renderer/vt_cache.cpp` — 
+- `renderer/vt_cache.hpp` — SANAL DOKU (VT) SAYFA ONBELLEGI (Faz 6 "Acik: virtual texture", ilk dilim: 2026-11-23).
 - `renderer/wboit_pass.hpp` — WBOIT (Weighted Blended Order-Independent Transparency) & Hareket Vektorleri.
 
 ### audio — L3 (12 dosya, 2161 satır)
@@ -1122,7 +1124,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **902** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **907** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1156,6 +1158,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `device` — 7
 - `frame` — 7
 - `timer` — 7
+- `vt` — 7
 - `anim` — 6
 - `engine` — 6
 - `fbx` — 6
@@ -1228,7 +1231,6 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `sim` — 2
 - `thermal` — 2
 - `usd` — 2
-- `vt` — 2
 - `yardim` — 2
 - `array` — 1
 - `create` — 1
@@ -1379,6 +1381,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
 - `tests/test_vsm.cpp` — 8 test
+- `tests/test_vt.cpp` — 5 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
 
