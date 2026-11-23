@@ -41,7 +41,7 @@ ENGINE_TEST(build_info_platform_tag_matches_release_assets) {
   // Release'i olan uc platformdan biri OLMALI: bu makinelerde (CI'nin uc isi)
   // "bilinmiyor" guncelleyiciyi sessizce kapatirdi.
   const bool known = !std::strcmp(p, "linux-x86_64") || !std::strcmp(p, "macos-arm64") || !std::strcmp(p, "windows-x86_64") ||
-                     !std::strcmp(p, "linux-aarch64") || !std::strcmp(p, "macos-x86_64");
+                     !std::strcmp(p, "linux-aarch64") || !std::strcmp(p, "macos-x86_64") || !std::strcmp(p, "windows-arm64");
   CHECK(known);
 #endif
 }

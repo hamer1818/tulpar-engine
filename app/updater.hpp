@@ -91,6 +91,9 @@ struct UpdVersion {
   char pre[32] = {0}; // bos = kararli surum
 };
 bool upd_version_parse(const char *s, UpdVersion *out);
+// Bu platformun surum paketi yayinlaniyor mu (release.yml'in uc PLATFORM'u). false ise guncelleyici nedeniyle KAPALI
+// durur (ornegin linux-aarch64, windows-arm64: derlenir ve test edilir ama paketlenmez). Testler listeyi kopyalamasin diye acik.
+bool upd_platform_released(const char *platform);
 int upd_version_compare(const UpdVersion &a, const UpdVersion &b); // <0, 0, >0
 
 // GitHub `releases/latest` yanitindan bu platformun arsivi. `platform`

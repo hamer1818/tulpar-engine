@@ -1,7 +1,7 @@
 # Auto-merge — TulparLang'deki auto-merge.yml'in motor deposundaki esi
 # (2026-09-21). Taslak olmayan her PR, zorunlu check'ler (ci.yml'deki uc is:
 # "Linux x86_64 (GCC + lavapipe)", "macOS arm64 (AppleClang + MoltenVK)",
-# "Windows x86_64 (MSYS2 MINGW64)") yesile doner donmez SQUASH ile
+# "Windows x86_64 (MSYS2 UCRT64)") yesile doner donmez SQUASH ile
 # birlesmek uzere kuyruga alinir.
 #
 # BU OTOMASYONUN DOGRULUGU `strict` AYARINA BAGLI. main'in dal korumasindaki

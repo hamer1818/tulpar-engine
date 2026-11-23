@@ -22,7 +22,7 @@ namespace tulpar::engine {
 // "v0.2.0" ya da "v1.0.0-rc.1"; kaynak derlemesinde "" (null DEGIL).
 const char *build_version();
 // "linux-x86_64" | "linux-aarch64" | "macos-arm64" | "macos-x86_64" |
-// "windows-x86_64" | "android-arm64" | "bilinmiyor"
+// "windows-x86_64" | "windows-arm64" | "android-arm64" | "bilinmiyor"
 const char *build_platform();
 
 } // namespace tulpar::engine

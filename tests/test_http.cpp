@@ -9,6 +9,7 @@
 //              birakilan tutamac olur (KONTROL: eski tutamac HATA + 0).
 // Sandbox socket yasagi gorunur ATLANDI.
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -56,6 +57,23 @@ void kapat(int64_t s) {
   close((int)s);
 #endif
 }
+// SIGPIPE'SIZ YAZ (2026-11-23): testin sunuculari (duz HTTP + TLS) eskiden `send(...,0)` ile yaziyordu. Istemci
+// reddedip soketi kapattiktan sonra (KONTROL: yanlis kok / ad uyusmaz) sunucu hala yazarsa Linux SIGPIPE gonderir ve
+// varsayilan eylem BUTUN test surecini oldurur — ozet satiri hic basilmaz, cikis kodu 141. Olculdu: GCC 16.2.1,
+// mbedTLS 3.6.8, platform_https tek basina 40 kosumda 1 (tam kosumda da bir kez). Motorun kendi istemcisi
+// (platform/http.cpp bio_send) zaten MSG_NOSIGNAL kullaniyor; hata yalniz test sunucusundaydi. Windows'ta SIGPIPE yok.
+// `g_kapali_yazim`: kapanmis sokete yazma denemesi (EPIPE / ECONNRESET) — eskiden sureci olduren durumun gercekten
+// yasandigini gosteren sayac (sifir olmasi hata degil, zamanlamaya bagli; sifirdan buyukse SIGPIPE'siz atlatildi).
+std::atomic<uint32_t> g_kapali_yazim{0};
+int sinyalsiz_gonder(int s, const void *b, size_t n) {
+#if defined(_WIN32)
+  return (int)send((SOCKET)s, (const char *)b, (int)n, 0);
+#else
+  const int k = (int)send(s, b, n, MSG_NOSIGNAL);
+  if (k < 0 && (errno == EPIPE || errno == ECONNRESET)) g_kapali_yazim.fetch_add(1, std::memory_order_relaxed);
+  return k;
+#endif
+}
 void sunucu_dongu(void *a) {
   MiniSunucu &m = *(MiniSunucu *)a;
   for (uint32_t i = 0; i < m.n; i++) {
@@ -79,7 +97,7 @@ void sunucu_dongu(void *a) {
       }
     }
     const char *y = m.yanitlar[i];
-    send((int)c, y, (int)std::strlen(y), 0);
+    sinyalsiz_gonder((int)c, y, std::strlen(y));
     kapat(c);
   }
 }
@@ -283,7 +301,7 @@ void tls_sunucu_dongu(void *a) {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_init(&ssl);
     mbedtls_ssl_setup(&ssl, &conf);
-    mbedtls_ssl_set_bio(&ssl, &c, [](void *x, const unsigned char *b, size_t n) -> int { return (int)send(*(int *)x, (const char *)b, (int)n, 0); },
+    mbedtls_ssl_set_bio(&ssl, &c, [](void *x, const unsigned char *b, size_t n) -> int { return sinyalsiz_gonder(*(int *)x, b, n); },
                         [](void *x, unsigned char *b, size_t n) -> int { return (int)recv(*(int *)x, (char *)b, (int)n, 0); }, nullptr);
     int r;
     while ((r = mbedtls_ssl_handshake(&ssl)) == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {}
@@ -347,6 +365,8 @@ ENGINE_TEST(platform_https_verifies_certificate_and_name) {
   ok = platform::http_exchange("GET", url, nullptr, nullptr, 0, out, sizeof out, 5000, &r);
   std::printf("    [bilgi] https (ad uyusmaz): ok %d hata '%s'\n", ok, r.error);
   CHECK(!ok && std::strstr(r.error, "dogrulanamadi") != nullptr);
+  std::printf("    [bilgi] test sunucusunun kapanmis sokete yazimi (SIGPIPE'siz atlatildi): %u\n",
+              (unsigned)g_kapali_yazim.load(std::memory_order_relaxed));
   platform::thread_join(t.th);
   std::printf("    [bilgi] sunucu el sikismasi donusleri: %d %d %d (0 = tamam); psa_crypto_init %d, psa_generate_random %d, drbg tohum %d, anahtar %d\n",
               t.el_sikisma[0], t.el_sikisma[1], t.el_sikisma[2], psa, psa_rng, t.tohum, t.anahtar);

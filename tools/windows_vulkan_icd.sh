@@ -11,6 +11,10 @@
 # On kosul: Google Chrome kurulu (windows-latest imajinda var; surum dizini
 # ARANIR, sabit yazilmaz) ve mingw-w64-x86_64-vulkan-validation-layers.
 #
+# TULPAR_VK_ICD=lavapipe (2026-11-23, Windows arm64 isi): ICD MSYS2'nin mesa paketindeki lavapipe
+# ($MSYSTEM_PREFIX/share/vulkan/icd.d/lvp_icd*.json). ARM runner'da Chrome'un SwiftShader'ina guvenilmiyor;
+# lavapipe'i x86_64'te eleyen sinif (8cr) asagidaki bellek sondasiyla AYNEN olculur — tasiyorsa KIRMIZI.
+#
 # NEDEN SWIFTSHADER, MSYS2 LAVAPIPE DEGIL (olculdu CI windows-latest
 # 2026-10-05, Tuzaklar 8cr): mingw-w64-x86_64-mesa 26.2.4'un lavapipe'i
 # Windows'ta bellek BIRAKIRKEN sureci yiginini bozuyor (0xC0000374). Motordan
@@ -39,21 +43,32 @@ gun="${RUNNER_TEMP:+$(cygpath -u "$RUNNER_TEMP")}"; gun="${gun:-${TMPDIR:-/tmp}}
 
 case "${1:-}" in
   kur)
-    icd="$(find "/c/Program Files/Google/Chrome/Application" "/c/Program Files (x86)/Google/Chrome/Application" \
-             -name vk_swiftshader_icd.json 2>/dev/null | sort | tail -1)"
-    if [ -z "$icd" ] || [ ! -f "$(dirname "$icd")/vk_swiftshader.dll" ] || [ ! -f "$katman" ]; then
-      echo "::error::windows_vulkan_icd: SwiftShader ICD'si (Chrome kurulumunda vk_swiftshader_icd.json + vk_swiftshader.dll) ya da $katman yok."
-      ls -la "/c/Program Files/Google/Chrome/Application" 2>&1 | head || true
-      exit 1
+    if [ "${TULPAR_VK_ICD:-swiftshader}" = lavapipe ]; then
+      icd="$(find "${MSYSTEM_PREFIX:-/ucrt64}/share/vulkan/icd.d" -name 'lvp_icd*.json' 2>/dev/null | sort | tail -1)"
+      cihaz_adi=llvmpipe
+      if [ -z "$icd" ] || [ ! -f "$katman" ]; then
+        echo "::error::windows_vulkan_icd: lavapipe ICD'si (${MSYSTEM_PREFIX:-/ucrt64}/share/vulkan/icd.d/lvp_icd*.json) ya da $katman yok."
+        ls -la "${MSYSTEM_PREFIX:-/ucrt64}/share/vulkan/icd.d" 2>&1 | head || true
+        exit 1
+      fi
+    else
+      icd="$(find "/c/Program Files/Google/Chrome/Application" "/c/Program Files (x86)/Google/Chrome/Application" \
+               -name vk_swiftshader_icd.json 2>/dev/null | sort | tail -1)"
+      cihaz_adi=SwiftShader
+      if [ -z "$icd" ] || [ ! -f "$(dirname "$icd")/vk_swiftshader.dll" ] || [ ! -f "$katman" ]; then
+        echo "::error::windows_vulkan_icd: SwiftShader ICD'si (Chrome kurulumunda vk_swiftshader_icd.json + vk_swiftshader.dll) ya da $katman yok."
+        ls -la "/c/Program Files/Google/Chrome/Application" 2>&1 | head || true
+        exit 1
+      fi
     fi
     echo "ICD: $icd"
     tr -d '\r' <"$icd"; echo
     reg_ add "$SURUCU" /v "$(cygpath -w "$icd")" /t REG_DWORD /d 0 /f >/dev/null || { echo "::error::windows_vulkan_icd: ICD kayit defterine yazilamadi"; exit 1; }
     reg_ add "$KATMAN" /v "$(cygpath -w "$katman")" /t REG_DWORD /d 0 /f >/dev/null || { echo "::error::windows_vulkan_icd: katman kayit defterine yazilamadi"; exit 1; }
     reg_ query 'HKLM\SOFTWARE\Khronos\Vulkan' /s | tr -d '\r'
-    python3 -u "$kok/tools/vk_sonda.py" --cihaz SwiftShader --katman VK_LAYER_KHRONOS_validation 2>&1 | tr -d '\r' | tee "$gun/vk_sonda.log"
-    if ! grep -qi 'cihaz 0: SwiftShader' "$gun/vk_sonda.log" || grep -q 'EKSIK' "$gun/vk_sonda.log"; then
-      echo "::error::windows_vulkan_icd: kayit yazildi ama loader SwiftShader'i ya da dogrulama katmanini GORMUYOR."
+    python3 -u "$kok/tools/vk_sonda.py" --cihaz "$cihaz_adi" --katman VK_LAYER_KHRONOS_validation 2>&1 | tr -d '\r' | tee "$gun/vk_sonda.log"
+    if ! grep -qi "cihaz 0: $cihaz_adi" "$gun/vk_sonda.log" || grep -q 'EKSIK' "$gun/vk_sonda.log"; then
+      echo "::error::windows_vulkan_icd: kayit yazildi ama loader $cihaz_adi'i ya da dogrulama katmanini GORMUYOR."
       VK_LOADER_DEBUG=error,warn,driver,layer python3 "$kok/tools/vk_sonda.py" 2>&1 | tr -d '\r' | tail -40 || true
       exit 1
     fi

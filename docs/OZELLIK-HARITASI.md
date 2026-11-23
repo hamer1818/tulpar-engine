@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 886 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 887 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -442,7 +442,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (74 dosya, 16291 satır)
+### tools — L7 (75 dosya, 17249 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -500,6 +500,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/taban_bellek.py` — proc/<pid>/smaps dokumunu gruplara ayirir: surucu kutuphaneleri, motor arenasi
 - `tools/texpack.cpp` — engine_texpack — sahne derleyicisinin doku dilimi: PNG/JPG -> ASTC mip zinciri -> .ktx2
 - `tools/tpr_shader.py` — tpr_shader.py — Tulpar shader alt kumesi (.tprs) -> GLSL 450 -> SPIR-V.
+- `tools/tpr_tip.py` — tpr_tip.py — Tulpar shader alt kumesinin (.tprs) GPU TIP DENETIMI (Faz 8.2, 2026-11-23).
 - `tools/tracy_check.sh` — Tracy uctan uca kontrol: istemci (ENGINE_TRACY=ON) -> tracy-capture -> tracy-csvexport.
 - `tools/tulpar_dogrula.sh` — Tulpar Engine — kurulu `tulpar` + motorun eklenti paketi motor oyunlarini
 - `tools/tulpar_indir.sh` — Tulpar Engine — YAYINLANMIS tulpar'i (TulparLang releases/latest) indirir ve
@@ -1115,7 +1116,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **886** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **887** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1244,6 +1245,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tercih` — 1
 - `tick` — 1
 - `traditional` — 1
+- `union` — 1
 
 ### Test dosyaları
 
@@ -1308,7 +1310,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_geom_density.cpp` — 1 test
 - `tests/test_gesture.cpp` — 5 test
 - `tests/test_graph_builder.cpp` — 2 test
-- `tests/test_http.cpp` — 5 test
+- `tests/test_http.cpp` — 6 test
 - `tests/test_ik.cpp` — 4 test
 - `tests/test_indirect_cull.cpp` — 3 test
 - `tests/test_input.cpp` — 2 test
@@ -1424,6 +1426,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/syntax_check.py` — Hizli sozdizimi on-denetimi: CI'i derleyici olarak kullanmayi birak.
 - `tools/taban_bellek.py` — proc/<pid>/smaps dokumunu gruplara ayirir: surucu kutuphaneleri, motor arenasi
 - `tools/tpr_shader.py` — tpr_shader.py — Tulpar shader alt kumesi (.tprs) -> GLSL 450 -> SPIR-V.
+- `tools/tpr_tip.py` — tpr_tip.py — Tulpar shader alt kumesinin (.tprs) GPU TIP DENETIMI (Faz 8.2, 2026-11-23).
 - `tools/tracy_check.sh` — Tracy uctan uca kontrol: istemci (ENGINE_TRACY=ON) -> tracy-capture -> tracy-csvexport.
 - `tools/tulpar_dogrula.sh` — Tulpar Engine — kurulu `tulpar` + motorun eklenti paketi motor oyunlarini
 - `tools/tulpar_indir.sh` — Tulpar Engine — YAYINLANMIS tulpar'i (TulparLang releases/latest) indirir ve
@@ -1635,6 +1638,9 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8eq** — Önbellek main'de isıtılıyor sanıldı — yalnız bir platformda; diğeri her PR'da sıfırdan derledi
 - **8er** — Bekleyen sayacı "bitti" gördü ve yok etti — signaler o anda hâlâ sayacın içindeydi
 - **8es** — Bir adım hızlanınca, uzun beklemenin gizlediği yarış açığa çıktı
+- **8et** — Ortam göçü tek depoda bitmez — bağlanan ikinci derleyicinin C çalışma zamanı da taşınmalı
+- **8eu** — Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
+- **8ev** — Sabit `/tmp` ve kayıp cihazdan sonra devam eden ölçüm — iki ayrı "koşmuş gibi görünme"
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 

@@ -44,6 +44,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import tpr_tip  # noqa: E402  (Faz 8.2 GPU tip denetimi; uretimden ONCE kosar)
 ENGINE = os.path.dirname(HERE)
 ASSETS = os.path.join(ENGINE, "tests", "assets", "shader")
 REPO_SHADERS = os.path.join(ENGINE, "rhi", "shaders")
@@ -1008,11 +1010,134 @@ class Emitter:
         self.err("desteklenmeyen ifade %r" % k)
 
 
-def translate(path):
+def parse_file(path):
     with open(path) as f:
-        src = f.read()
-    decls = Parser(lex(src)).parse_program()
+        return Parser(lex(f.read())).parse_program()
+
+
+def typecheck(decls):
+    """Faz 8.2: tip hatasi glslc'ye kalmadan, .tprs satiriyla burada duser."""
+    try:
+        return tpr_tip.check(decls)
+    except tpr_tip.TipHatasi as e:
+        raise ShaderError(e.msg, e.line)
+
+
+def translate(path):
+    decls = parse_file(path)
+    typecheck(decls)
     return Emitter(decls, path).emit()
+
+
+# --- Faz 8.2 tip kapisi -----------------------------------------------------
+# Bilerek bozulmus kucuk shader'lar: her biri CEVIRICIDE (glslc'ye kalmadan) belirtilen metinle dusmeli.
+# Son oge TEMIZ olmali (kontrolun kontrolu: kapi her seyi reddetmiyor).
+_TIP_KONTROL_ON = 'str asama = "frag";\nsampler2D u_t = ornek(0, 0);\nvec2 v_uv = girdi(0);\nvec4 o_c = cikti(0);\n'
+TIP_KONTROLLERI = [
+    ("doku vec4 dondurur", "vec3 c = texture(u_t, v_uv);", "vec3 beklenirken vec4"),
+    ("koordinat boyu", "vec4 c = texture(u_t, v_uv.x);", "koordinati: vec2 beklenirken float"),
+    ("swizzle boyu", "float a = v_uv.z;", "swizzle 'z' boyutu asiyor"),
+    ("swizzle alfabe karisimi", "vec2 a = v_uv.xg;", "gecersiz swizzle"),
+    ("girdiye yazma", "v_uv = vec2(0.0);", "salt okunur"),
+    ("kurucu bilesen sayisi", "vec3 a = vec3(v_uv, 1.0, 2.0);", "4 verildi"),
+    ("vektor boyu uyusmazligi", "vec3 a = vec3(1.0) + v_uv;", "vektor boylari uyusmuyor"),
+    ("if kosulu bool", "if (v_uv.x) { o_c = vec4(1.0); }", "bool olmali"),
+    ("float -> int ortuk donusum yok", "int i = v_uv.x;", "int beklenirken float"),
+    ("tamsayi isleci floatta", "float a = v_uv.x & 1.0;", "tamsayi ister"),
+    ("bilinmeyen ad", "o_c = vec4(yok);", "tanimsiz ad"),
+    ("skaler kurucu tek arguman", "uint u = u32(1.0, 2.0);", "tek skaler/vektor arguman ister"),
+    ("TEMIZ (kontrol)", "vec4 c = texture(u_t, v_uv); uint u = 3u + u32(c.x); o_c = c * f32(u);", None),
+]
+
+
+def cmd_tip_kontrol(directory):
+    """Faz 8.2 kapisi: (1) butun .tprs'ler tiplenir, (2) bozulmus ornekler dusmeli, (3) MUTASYON: gercek
+    shader'lardaki her baslaticili vecN bildiriminin boyu degistirilir, hepsi yakalanmali."""
+    import copy
+    files = sorted(f for f in os.listdir(directory) if f.endswith(".tprs"))
+    kotu = 0
+    toplam_ifade = 0
+    for f in files:
+        try:
+            ne, ns = typecheck(parse_file(os.path.join(directory, f)))
+            toplam_ifade += ne
+            print("  TEMIZ  %-26s %5d ifade, %4d deyim tiplendi" % (f, ne, ns))
+        except ShaderError as e:
+            kotu += 1
+            print("  HATA   %-26s %s" % (f, e))
+    print("%d/%d dosya tip denetiminden gecti, %d ifade tiplendi" % (len(files) - kotu, len(files), toplam_ifade))
+
+    # glslc varsa CAPRAZ DOGRULAMA: tip denetimi ATLANARAK uretilen GLSL'i glslc de reddetmeli (bizim
+    # reddettigimiz glslc'de gecerliyse denetim GLSL'den FAZLA KATI demektir — kapi kirmizi). TEMIZ ornek
+    # glslc'den de gecmeli. glslc yoksa bu ayak gorunur ATLANDI.
+    import tempfile
+    glslc = shutil.which("glslc")
+    tmp = tempfile.mkdtemp(prefix="tipk") if glslc else None
+    yanlis = 0
+    for ad, govde, bekle in TIP_KONTROLLERI:
+        src = _TIP_KONTROL_ON + "func main() {\n  " + govde + "\n}\n"
+        decls = Parser(lex(src)).parse_program()
+        try:
+            typecheck(decls)
+            sonuc = None
+        except ShaderError as e:
+            sonuc = str(e)
+        if bekle is None:
+            ok = sonuc is None
+        else:
+            ok = sonuc is not None and bekle in sonuc
+        gl = ""
+        if tmp:
+            try:
+                data, _ = compile_spv(Emitter(decls, "kontrol.tprs").emit(), "frag", os.path.join(tmp, "k.spv"), tmp)
+                glslc_kabul = data is not None
+            except ShaderError:
+                glslc_kabul = False
+            gl = "glslc %s" % ("kabul" if glslc_kabul else "red")
+            if glslc_kabul != (bekle is None):
+                ok = False
+                gl += " — UYUSMAZ (denetim %s)" % ("fazla kati" if glslc_kabul else "fazla gevsek")
+        yanlis += 0 if ok else 1
+        print("  %s %-30s %s%s" % ("KONTROL" if ok else "YANLIS ", ad, sonuc or "temiz", " [%s]" % gl if gl else ""))
+    if tmp:
+        shutil.rmtree(tmp, ignore_errors=True)
+    else:
+        print("  ATLANDI: glslc yok — kontrollerin glslc ile capraz dogrulamasi kosmadi")
+
+    def decls_with_vec(node, out):
+        if isinstance(node, dict):
+            if node.get("k") == "decl" and node.get("init") is not None and node["type"]["name"] in ("vec2", "vec3", "vec4") \
+                    and not node["type"]["array"]:
+                out.append(node)
+            for v in node.values():
+                decls_with_vec(v, out)
+        elif isinstance(node, list):
+            for v in node:
+                decls_with_vec(v, out)
+
+    mut, yakalanan = 0, 0
+    for f in files:
+        base = parse_file(os.path.join(directory, f))
+        hedefler = []
+        decls_with_vec(base, hedefler)
+        for i in range(len(hedefler)):
+            d = copy.deepcopy(base)
+            hs = []
+            decls_with_vec(d, hs)
+            ad = hs[i]["type"]["name"]
+            hs[i]["type"]["name"] = "vec2" if ad != "vec2" else "vec3"
+            mut += 1
+            try:
+                typecheck(d)
+                print("  KACTI  %s: '%s %s' -> %s tip denetiminden GECTI" % (f, ad, hs[i]["name"], hs[i]["type"]["name"]))
+            except ShaderError:
+                yakalanan += 1
+    print("mutasyon: %d/%d yakalandi (vecN bildirimlerinin boyu degistirildi)" % (yakalanan, mut))
+    if kotu or yanlis or yakalanan != mut or mut == 0 or toplam_ifade == 0:
+        print("KIRMIZI: %d dosya hatali, %d kontrol yanlis, %d mutasyon kacti" % (kotu, yanlis, mut - yakalanan))
+        return 1
+    print("YESIL")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1307,6 +1432,8 @@ def main():
                     help="dizindeki tum .tprs'leri cevir, derle, karsilastir")
     ap.add_argument("--tulpar-parse", nargs="?", const=ASSETS, metavar="DIZIN",
                     help=".tprs'leri ./tulpar ayristiricisiyla dogrula")
+    ap.add_argument("--tip-kontrol", nargs="?", const=ASSETS, metavar="DIZIN",
+                    help="Faz 8.2 tip kapisi: tum .tprs temiz + bozulmus ornekler + mutasyonlar duser")
     ap.add_argument("--pin", nargs="?", const=ASSETS, metavar="DIZIN",
                     help="her .tprs'e cevrildigi GLSL kaynaginin ozetini yaz")
     args = ap.parse_args()
@@ -1317,6 +1444,8 @@ def main():
         return cmd_tulpar_parse(args.tulpar_parse)
     if args.pin is not None:
         return cmd_pin(args.pin)
+    if args.tip_kontrol is not None:
+        return cmd_tip_kontrol(args.tip_kontrol)
     if not args.input:
         ap.print_help()
         return 2
