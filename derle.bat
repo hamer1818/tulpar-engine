@@ -119,7 +119,11 @@ rem giris kabugunun okudugu /etc/profile'dir. Degiskeni ic kabukta atamak GEC
 rem kalir - profil coktan kosmus olur ve MSYS PATH'i ile derlersiniz.
 rem CHERE_INVOKING: profil ev dizinine gecmesin, depoda kalalim.
 set BASH=%MSYS%\usr\bin\bash.exe
+rem ARM64 Windows (Snapdragon X): CLANGARM64 (2026-11-23). x64 emulasyonundaki cmd de AMD64 der; asil islemci
+rem PROCESSOR_ARCHITEW6432 / PROCESSOR_ARCHITECTURE'da ARM64 gorunur.
 set MSYSTEM=UCRT64
+if /I "%PROCESSOR_ARCHITECTURE%"=="ARM64" set MSYSTEM=CLANGARM64
+if /I "%PROCESSOR_ARCHITEW6432%"=="ARM64" set MSYSTEM=CLANGARM64
 set CHERE_INVOKING=1
 set "ARGS="
 if "%OTOMATIK%"=="1" set "ARGS=%ARGS% --otomatik"

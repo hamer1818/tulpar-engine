@@ -33,6 +33,8 @@ const char *build_platform() {
 #elif defined(_WIN32)
 #if defined(__x86_64__) || defined(_M_X64)
   return "windows-x86_64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  return "windows-arm64"; // 2026-11-23: CI windows-11-arm isi (MSYS2 CLANGARM64); surum paketi HENUZ yok
 #else
   return "bilinmiyor";
 #endif
