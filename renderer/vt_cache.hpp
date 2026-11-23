@@ -48,6 +48,17 @@ struct VtResolved {
   uint16_t mip;   // gercekte kullanilan mip (istenenden kaba olabilir)
 };
 
+// GPU GERI BILDIRIM ANAHTARI (mesh_vtfb.frag ile AYNI paket): doku 6 bit (< 63), mip 4 bit, x / y 11 bit.
+// 0xFFFFFFFF bos tablo yuvasi (doku 63 yasak oldugu icin hicbir anahtar ona esit olamaz).
+inline bool vt_pack_feedback(uint32_t tex, uint32_t mip, uint32_t x, uint32_t y, uint32_t *out) {
+  if (tex >= 63 || mip >= 16 || x >= 2048 || y >= 2048) return false;
+  *out = (tex << 26) | (mip << 22) | (x << 11) | y;
+  return true;
+}
+inline VtPage vt_unpack_feedback(uint32_t k) {
+  return VtPage{(uint16_t)(k >> 26), (uint16_t)((k >> 22) & 15u), (uint16_t)((k >> 11) & 2047u), (uint16_t)(k & 2047u)};
+}
+
 class VtCache {
 public:
   bool init(Arena &arena, const VtConfig &cfg);
@@ -56,6 +67,14 @@ public:
   uint32_t add_texture(uint32_t pages_w, uint32_t pages_h);
   void begin_frame();
   void request(uint32_t texture, uint32_t mip, uint32_t x, uint32_t y); // geri bildirimden
+  // GPU geri bildirim listesi (Renderer::vt_feedback): her anahtar request()'e. Donus: beslenen sayi.
+  uint32_t request_feedback(const uint32_t *keys, uint32_t n) {
+    for (uint32_t i = 0; i < n; i++) {
+      const VtPage p = vt_unpack_feedback(keys[i]);
+      request(p.texture, p.mip, p.x, p.y);
+    }
+    return keys ? n : 0;
+  }
   void end_frame();
   // Ornekleme: (doku, mip, x, y) icin YERLESIK en yakin sayfa — gerekirse daha kaba mip'e cikar. Her zaman gecerli.
   VtResolved resolve(uint32_t texture, uint32_t mip, uint32_t x, uint32_t y) const;

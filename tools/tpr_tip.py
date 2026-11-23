@@ -138,7 +138,7 @@ GL_READONLY = {"gl_FragCoord", "gl_VertexIndex", "gl_InstanceIndex", "gl_FrontFa
                "gl_WorkGroupID", "gl_LocalInvocationID", "gl_GlobalInvocationID",
                "gl_LocalInvocationIndex", "gl_NumWorkGroups", "gl_WorkGroupSize"}
 CAST = {"f32": FLOAT, "i32": INT, "u32": UINT, "b32": BOOL}
-READONLY_MARKERS = {"girdi", "girdi_duz", "tekduze", "itme", "depo", "ornek", "ozel", "is_grubu"}
+READONLY_MARKERS = {"girdi", "girdi_duz", "tekduze", "itme", "depo", "ornek", "ozel", "is_grubu", "erken_test"}
 
 
 class Sym:

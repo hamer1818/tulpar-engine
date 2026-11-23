@@ -1,4 +1,5 @@
 // kaynak-ozet: 2d65b6114503  (engine/rhi/shaders/mesh.frag)
+// kaynak-ozet: 7a65251730d2  (engine/rhi/shaders/mesh_vtfb.frag)
 // Forward parca asamasi: Lambert + PBR (Cook-Torrance, glTF 2.0 metallic-
 // roughness), ORM/normal/isima dokulari, kademeli golge (CSM atlasi, kademe
 // basina egilim), kumelenmis + stokastik nokta isiklar. Motorun en agir shader'i.
@@ -7,6 +8,10 @@
 // uretici demeti `out` parametrelerine cevirir (FAZ8.md 8.2, K046).
 // 0u/1u sonekleri BILEREK duruyor (T3).
 str asama = "frag";
+// Faz 8.5 ailesi: mesh (temel) ve mesh_vtfb (+ sanal doku GERI BILDIRIMI: fragment'ta SSBO yazar, cihazda
+// fragmentStoresAndAtomics ister — temel varyant bu gereksinimi TASIMAZ).
+varyant("mesh");
+varyant("mesh_vtfb", "vt_geri_bildirim");
 
 vec3 v_nrm = girdi(0);
 vec3 v_color = girdi(1);
@@ -333,7 +338,68 @@ func shadow_visibility(float nl, vec3 n): float {
   }
   return 1.0; // hicbir kademe kapsamiyor: isikli
 }
+if (ozellik("vt_geri_bildirim")) {
+  // Erken derinlik testi: yan etkili shader'da Mali gec teste duser ve ortulen parcalari da calistirir.
+  bool erken = erken_test();
+  // 0 = kapali (geri bildirim varyanti secilse de sonradan kapanirsa hicbir yere yazilmaz).
+  int VT_FB = ozel(3, 0);
+  int VT_PAGE_PX = ozel(4, 128);
+  int VT_TABLE_MASK = ozel(5, 4095);
+  int VT_LIST_CAP = ozel(6, 1024);
+  struct VtTable { uint[] t; }
+  VtTable u_vtt = depo_oy(0, 10);
+  struct VtPages { uint[] n; }
+  VtPages u_vtp = depo_oy(0, 11);
+  // Gorunur (doku, mip, sayfa) anahtari renderer/gpu_request tablosuna (vsm_request.comp ile ayni algoritma).
+  // Turevler TEKDUZE akista, piksel deseni dalindan ONCE (dalin icinde tanimsiz olurdu).
+  func vt_feedback() {
+    vec2 sz = u_mat.tex2.zw;
+    vec2 dx = dFdx(v_uv) * sz;
+    vec2 dy = dFdy(v_uv) * sz;
+    if (u_mat.tex2.y < 0.5) { return; }
+    uvec2 fc = uvec2(gl_FragCoord.xy);
+    if (((fc.x + fc.y * 3u) & 15u) != 0u) { return; } // 1/16 piksel deseni
+    float lod = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))), 0.0);
+    uint pw = u32(sz.x) / u32(VT_PAGE_PX);
+    uint ph = u32(sz.y) / u32(VT_PAGE_PX);
+    uint mips = u32(findMSB(max(pw, ph))) + 1u;
+    uint mip = min(u32(lod), mips - 1u);
+    uint mw = max(pw >> mip, 1u);
+    uint mh = max(ph >> mip, 1u);
+    vec2 uv = clamp(v_uv, vec2(0.0), vec2(0.999999));
+    uint px = min(u32(uv.x * f32(mw)), mw - 1u);
+    uint py = min(u32(uv.y * f32(mh)), mh - 1u);
+    uint tex = u32(u_mat.tex2.y) - 1u;
+    if (tex >= 63u || px >= 2048u || py >= 2048u) {
+      atomicAdd(u_vtp.n[3], 1u);
+      return;
+    }
+    uint key = (tex << 26) | (mip << 22) | (px << 11) | py;
+    uint h = key * 2654435761u;
+    h = (h ^ (h >> 16)) & u32(VT_TABLE_MASK);
+    for (uint probe = 0u; probe < 64u; probe++) {
+      uint seen = u_vtt.t[h];
+      if (seen == key) { return; }
+      uint prev = seen == 4294967295u ? atomicCompSwap(u_vtt.t[h], 4294967295u, key) : seen;
+      if (prev == 4294967295u) {
+        uint slot = atomicAdd(u_vtp.n[0], 1u);
+        if (slot < u32(VT_LIST_CAP)) {
+          u_vtp.n[4u + slot] = key;
+        } else {
+          atomicAdd(u_vtp.n[1], 1u);
+        }
+        return;
+      }
+      if (prev == key) { return; }
+      h = (h + 1u) & u32(VT_TABLE_MASK);
+    }
+    atomicAdd(u_vtp.n[2], 1u);
+  }
+}
 func main() {
+  if (ozellik("vt_geri_bildirim")) {
+    if (VT_FB != 0) { vt_feedback(); }
+  }
   vec3 n = normalize(v_nrm);
   float nl = max(dot(n, normalize(u.light_dir.xyz)), 0.0);
   float vis = shadow_visibility(nl, n);

@@ -20,6 +20,7 @@
 #include "core/memory/arena.hpp"
 #include "renderer/graph.hpp"
 #include "renderer/renderer.hpp"
+#include "renderer/vt_cache.hpp"
 #include "rhi/device.hpp"
 #include "rhi/offscreen.hpp"
 #include "rhi/vk_api.hpp"
@@ -1562,6 +1563,158 @@ ENGINE_TEST(render_graph_vsm_shadow_matches_analytic_mask) {
   CHECK(vsm.uyusan * 100 >= vsm.zemin * 98);       // VSM maskesi analitik maskeyle en az %98 uyusur
   CHECK(vsm.golge_bulunan * 100 >= vsm.bek_golge * 90);
   CHECK(kontrol.golge_bulunan * 10 < kontrol.bek_golge); // egilim absurtken golge kacar: ornekleme gercekten VSM'den
+  CHECK(dev.validation_errors() == hata0);
+  offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// --- 7e. VT GERI BILDIRIMI ayni mekanizmayla (2026-11-23) --------------------
+// mesh_vtfb.frag (Faz 8.5 mesh.frag ailesi) VT malzemesinin gorunur (doku, mip, sayfa) anahtarlarini 1/16 piksel
+// deseninde renderer/gpu_request tablosuna yazar (VSM'in istek tablosuyla AYNI bilesen). REFERANS: ayni desenin
+// her pikseli icin kamera isini zemin duzlemiyle analitik kesistirilir, UV ve komsu pikselden UV turevi -> ayni mip
+// formulu -> sayfa. Turev GPU'da 2x2 dortlu farki (uygulamaya bagli), CPU'da ileri fark: mip SINIRINDA ayrisabilir —
+// ortusme olculur ve basilir. KONTROL: malzemenin sanal boyu 4 kat yanlis -> mip'ler kayar, ortusme coker.
+ENGINE_TEST(render_graph_vt_feedback_matches_cpu_reference) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(192u << 20, "vt_geri")) { CHECK(false); return; }
+  static VkApi api;
+  if (!vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static Device dev;
+  DeviceConfig dc;
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    dev.shutdown();
+    skip("sanal GPU (Apple Paravirtual): sahne cizilmiyor, VT geri bildirim kapisi gercek cihazda olculur");
+    return;
+  }
+  // Gorunen sayfa sayisi EKRAN alanina baglidir (mip texel/piksel oranini sabitler): 320x180'de ~11 sayfa, zayif bir
+  // olcum. 640x360 ~4 kati. 16384 sanal = 128 sayfa, 8 mip.
+  const uint32_t W = 640, H = 360, SZ = 16384, PX = 128;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
+  const Vec3 goz{0, 4, 8};
+  const Mat4 view = Mat4::look_at(goz, {0, 0, -6}, {0, 1, 0});
+  const float olcek = 20.0f;
+  const uint32_t hata0 = dev.validation_errors();
+  static uint32_t gpu[1024], ref[4096];
+  // vt_boy: malzemeye bildirilen sanal boy (KONTROL'de bilerek yanlis).
+  auto kos = [&](uint32_t vt_boy, uint32_t *n, renderer::Renderer::VtFeedbackInfo *info, uint32_t *besl, uint32_t *yukleme) {
+    renderer::RendererConfig rc;
+    rc.frames_in_flight = 1;
+    rc.shadow_size = 512;
+    rc.max_draws = 32;
+    rc.post = true;
+    rc.post_width = W;
+    rc.post_height = H;
+    rc.vt_feedback = true;
+    rc.vt_page_px = PX;
+    renderer::Renderer ren;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.vt_feedback_info().enabled) {
+      std::printf("    [bilgi] kurulum: post '%s', vt '%s'\n", ren.post().disabled_reason, ren.vt_feedback_info().disabled_reason);
+      ren.shutdown();
+      return false;
+    }
+    static renderer::VtCache vt;
+    static SystemArena vt_arena;
+    static bool vt_hazir = false;
+    if (!vt_hazir) { vt_hazir = vt_arena.reserve(4u << 20, "vt_onbellek") && vt.init(vt_arena, renderer::VtConfig{}); }
+    const uint32_t doku = vt.add_texture(SZ / PX, SZ / PX);
+    const uint8_t beyaz[4] = {255, 255, 255, 255};
+    const renderer::TextureHandle t = ren.create_texture(beyaz, 1, 1, false);
+    const renderer::MaterialHandle m = ren.create_material(t, {0.8f, 0.8f, 0.8f});
+    CHECK(ren.set_material_vt(m, doku, vt_boy, vt_boy));
+    renderer::Vertex v[4];
+    uint32_t idx[6];
+    const uint32_t ni = renderer::Renderer::plane(v, idx);
+    const renderer::MeshHandle zemin = ren.create_mesh(v, 4, idx, ni);
+    ren.set_light(normalize(Vec3{0.3f, 1.0f, 0.2f}), {0.2f, 0.2f, 0.2f}, 0.8f);
+    ren.set_render_size(W, H);
+    ren.set_camera(view, Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 200.0f));
+    Rec rr{&ren};
+    for (int k = 0; k < 2; k++) { // 1: yazar, 2: begin_frame'de 1'in listesi okunur
+      ren.begin_frame(0);
+      ren.draw(zemin, m, Mat4::scale({olcek, 1, olcek}), {1, 1, 1});
+      CHECK(offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before));
+    }
+    ren.begin_frame(0); // 2. karenin listesi
+    const uint32_t *keys = ren.vt_feedback(n);
+    *info = ren.vt_feedback_info();
+    if (keys) std::memcpy(gpu, keys, sizeof(uint32_t) * (*n < 1024 ? *n : 1024));
+    vt.begin_frame();
+    *besl = vt.request_feedback(keys, *n);
+    *yukleme = vt.stats().uploaded;
+    vt.end_frame();
+    ren.shutdown();
+    return true;
+  };
+  uint32_t n = 0, besl = 0, yuk = 0;
+  renderer::Renderer::VtFeedbackInfo info;
+  const bool ok = kos(SZ, &n, &info, &besl, &yuk);
+  CHECK(ok);
+  // CPU basvurusu: ayni desen, analitik zemin kesisimi, ileri fark turevi, ayni mip/sayfa formulu.
+  uint32_t rn = 0;
+  const Mat4 inv = inverse(Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 200.0f) * view);
+  auto uv_at = [&](float px, float py, float *u, float *vv) {
+    const Vec4 a = inv * Vec4{px / W * 2 - 1, py / H * 2 - 1, 0.0f, 1};
+    const Vec4 b = inv * Vec4{px / W * 2 - 1, py / H * 2 - 1, 1.0f, 1};
+    const Vec3 p0{a.x / a.w, a.y / a.w, a.z / a.w}, d = Vec3{b.x / b.w, b.y / b.w, b.z / b.w} - p0;
+    if (d.y >= 0) return false;
+    const Vec3 hit = p0 + d * (-p0.y / d.y);
+    if (std::fabs(hit.x) > olcek * 0.5f || std::fabs(hit.z) > olcek * 0.5f) return false;
+    *u = hit.x / olcek + 0.5f;
+    *vv = hit.z / olcek + 0.5f;
+    return true;
+  };
+  const uint32_t pages = SZ / PX;
+  uint32_t mips = 1;
+  while ((1u << (mips - 1)) < pages) mips++; // findMSB(pages) + 1
+  for (uint32_t y = 0; y + 1 < H; y++)
+    for (uint32_t x = 0; x + 1 < W; x++) {
+      if (((x + y * 3) & 15u) != 0) continue;
+      float u0, v0, u1, v1, u2, v2;
+      if (!uv_at(x + 0.5f, y + 0.5f, &u0, &v0) || !uv_at(x + 1.5f, y + 0.5f, &u1, &v1) || !uv_at(x + 0.5f, y + 1.5f, &u2, &v2))
+        continue;
+      const float dxu = (u1 - u0) * SZ, dxv = (v1 - v0) * SZ, dyu = (u2 - u0) * SZ, dyv = (v2 - v0) * SZ;
+      const float m2 = std::fmax(dxu * dxu + dxv * dxv, dyu * dyu + dyv * dyv);
+      const float lod = std::fmax(0.5f * std::log2(m2), 0.0f);
+      const uint32_t mip = (uint32_t)lod < mips - 1 ? (uint32_t)lod : mips - 1;
+      const uint32_t mw = pages >> mip ? pages >> mip : 1;
+      const float uc = std::fmin(std::fmax(u0, 0.0f), 0.999999f), vc = std::fmin(std::fmax(v0, 0.0f), 0.999999f);
+      uint32_t key;
+      if (!renderer::vt_pack_feedback(0, mip, (uint32_t)(uc * mw), (uint32_t)(vc * mw), &key)) continue;
+      bool var = false;
+      for (uint32_t i = 0; i < rn && !var; i++) var = ref[i] == key;
+      if (!var && rn < 4096) ref[rn++] = key;
+    }
+  auto ortak = [&](uint32_t gn) {
+    uint32_t o = 0;
+    for (uint32_t i = 0; i < gn && i < 1024; i++)
+      for (uint32_t j = 0; j < rn; j++)
+        if (gpu[i] == ref[j]) { o++; break; }
+    return o;
+  };
+  const uint32_t o = ortak(n);
+  // KONTROL: sanal boy 4 kat yanlis -> GPU'nun mip'leri 2 kayar.
+  uint32_t kn = 0, kb = 0, ky = 0;
+  renderer::Renderer::VtFeedbackInfo kinfo;
+  CHECK(kos(SZ * 4, &kn, &kinfo, &kb, &ky));
+  const uint32_t ko = ortak(kn);
+  std::printf("    [bilgi] %s %ux%u: GPU tekil sayfa %u / CPU basvurusu %u, ortak %u (%.1f%% / %.1f%%); tasma %u/%u/%u; "
+              "VtCache'e beslenen %u, yukleme %u; KONTROL (sanal boy x4) ortak %u/%u; dogrulama hatasi %u\n",
+              dev.caps().device_name, W, H, n, rn, o, rn ? 100.0 * o / rn : 0.0, n ? 100.0 * o / n : 0.0, info.list_overflow,
+              info.table_full, info.out_of_range, besl, yuk, ko, kn, dev.validation_errors() - hata0);
+  CHECK(rn > 10 && n > 10);
+  CHECK(o * 100 >= rn * 90 && o * 100 >= n * 90); // mip sinirindaki turev farki disinda ayni kume
+  CHECK(info.list_overflow == 0 && info.table_full == 0 && info.out_of_range == 0);
+  CHECK(besl == n && yuk > 0);
+  CHECK(ko * 2 < kn); // yanlis boyla kume belirgin bicimde ayrisir: karsilastirma gercekten olcuyor
   CHECK(dev.validation_errors() == hata0);
   offscreen_destroy(off);
   dev.shutdown();

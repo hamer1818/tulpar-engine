@@ -2622,3 +2622,82 @@ ENGINE_TEST(renderer_device_cost_csm_vs_vsm) {
   offscreen_destroy(off);
   dev.shutdown();
 }
+
+// VT GERI BILDIRIMI CIHAZ MALIYETI (OLCUM): ayni sahne (1080p post, VT malzemeli zemin + 48 kutu), geri bildirim
+// kapali / acik (mesh_vtfb.frag: 1/16 piksel deseninde atomik tablo). 15 kare medyani, duvar saati.
+ENGINE_TEST(renderer_device_cost_vt_feedback) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(320u << 20, "vt_maliyet")) { CHECK(false); return; }
+  Device dev;
+  DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU || test::gpu_is_virtual(dev.caps().device_name)) {
+    dev.shutdown();
+    skip("CPU/sanal cihaz (yazilim rasterlayici ya da Paravirtual): geri bildirim maliyeti yalniz gercek GPU'da anlamli");
+    return;
+  }
+  const uint32_t W = 1920, H = 1080;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W; oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
+  double ms[2] = {0, 0};
+  uint32_t anahtar = 0;
+  for (int kip = 0; kip < 2; kip++) {
+    renderer::Renderer ren;
+    renderer::RendererConfig rc;
+    rc.frames_in_flight = 1;
+    rc.post = true;
+    rc.post_width = W;
+    rc.post_height = H;
+    rc.vt_feedback = kip == 1;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip == 1 && !ren.vt_feedback_info().enabled)) {
+      std::printf("    [bilgi] kip %d kurulamadi: post '%s', vt '%s'\n", kip, ren.post().disabled_reason,
+                  ren.vt_feedback_info().disabled_reason);
+      CHECK(false);
+      ren.shutdown();
+      break;
+    }
+    renderer::Vertex v[24];
+    uint32_t idx[36];
+    uint32_t n = renderer::Renderer::cube(v, idx);
+    renderer::MeshHandle cube = ren.create_mesh(v, 24, idx, n);
+    n = renderer::Renderer::plane(v, idx);
+    renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
+    const uint8_t beyaz[4] = {255, 255, 255, 255};
+    const renderer::MaterialHandle m = ren.create_material(ren.create_texture(beyaz, 1, 1, false), {0.8f, 0.8f, 0.8f});
+    CHECK(ren.set_material_vt(m, 0, 16384, 16384));
+    ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.3f}), {0.10f, 0.10f, 0.12f}, 0.9f);
+    ren.set_shadow_volume({0, 1.0f, -6}, 16.0f, 60.0f);
+    ren.set_camera(Mat4::look_at({0, 3, 12}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
+    Rec rr{&ren};
+    auto kare = [&]() -> uint64_t {
+      ren.begin_frame(0);
+      ren.draw(plane, m, Mat4::scale({40, 1, 40}), {0.8f, 0.8f, 0.8f});
+      for (uint32_t i = 0; i < 48; i++) {
+        const float fx = (float)(i % 8) - 3.5f, fz = (float)(i / 8) * -2.0f;
+        ren.draw(cube, Mat4::translate(Vec3{fx * 2.2f, 1.5f, fz}) * Mat4::scale(Vec3{2.0f, 3.0f + (float)(i % 3), 2.0f}),
+                 {0.7f, 0.5f, 0.4f});
+      }
+      const uint64_t t0 = platform::now_ns();
+      if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) return 0;
+      return platform::now_ns() - t0;
+    };
+    for (int i = 0; i < 3; i++) kare();
+    constexpr uint32_t R = 15;
+    uint64_t t[R];
+    for (uint32_t r = 0; r < R; r++) t[r] = kare();
+    std::sort(t, t + R);
+    ms[kip] = (double)t[R / 2] / 1e6;
+    if (kip == 1) { ren.begin_frame(0); ren.vt_feedback(&anahtar); }
+    ren.shutdown();
+  }
+  std::printf("    [bilgi] %s, %ux%u post: VT geri bildirimi kapali %.3f ms, acik %.3f ms (%+.3f), son karede tekil sayfa %u\n",
+              dev.caps().device_name, W, H, ms[0], ms[1], ms[1] - ms[0], anahtar);
+  CHECK(ms[0] > 0 && ms[1] > 0 && anahtar > 0);
+  offscreen_destroy(off);
+  dev.shutdown();
+}

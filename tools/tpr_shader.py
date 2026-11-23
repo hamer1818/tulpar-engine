@@ -182,7 +182,7 @@ GL_BUILTIN_VARS = {"gl_Position", "gl_FragCoord", "gl_VertexIndex",
                    "gl_NumWorkGroups", "gl_WorkGroupSize"}
 
 MARKERS = {"girdi", "girdi_duz", "cikti", "cikti_duz", "ornek", "tekduze",
-           "itme", "depo", "depo_yaz", "depo_oy", "ozel", "is_grubu",
+           "itme", "depo", "depo_yaz", "depo_oy", "ozel", "is_grubu", "erken_test",
            "paylasimli"}
 
 
@@ -782,6 +782,14 @@ class Emitter:
             axes = ["local_size_%s = %d" % (ax, self.const_int(v, line))
                     for ax, v in zip("xyz", a)]
             self.out.append("layout(%s) in;" % ", ".join(axes))
+        elif m == "erken_test":
+            # `bool erken = erken_test();` -> `layout(early_fragment_tests) in;` (yalniz frag). Yan etkili (SSBO yazan)
+            # fragment shader'da ortulen parcalar shader'a girmeden elenir: Mali-G72'de VT geri bildirimi +43,9 ->
+            # +16,1 ms (2026-11-23). Degisken adi GLSL'e gecmez.
+            need(0)
+            if self.stage != "frag":
+                self.err("erken_test() yalniz frag asamasinda", line)
+            self.out.append("layout(early_fragment_tests) in;")
         elif m == "paylasimli":
             # `uint[64] s = paylasimli();` -> `shared uint s[64];`
             need(0)
