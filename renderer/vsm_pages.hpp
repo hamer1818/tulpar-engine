@@ -102,6 +102,20 @@ private:
   VsmStats stats_{};
 };
 
+// GPU isaretlemenin push sabiti (rhi/shaders/vsm_mark.comp `Push`). Alan adlari shader'dakiyle AYNI: tools/layout_check.py
+// bu struct'i ada gore bulur ve her ofseti SPIR-V'nin OpMemberDecorate Offset'ine karsi olcer (satir basina TEK uye:
+// denetimin ayristiricisi `float a[4], b[4];` bicimini atlar ve struct'i hic gormez — 2026-11-23'te boyle kaciyordu).
+//   inv_vp: (proj*view)^-1, sutun-major · lu: isik tabani u, w = base_page_world · lv: v, w = level0_distance
+//   cam: kamera, w = seviye sayisi · dims: derinlik w, h
+struct VsmMarkPush {
+  float inv_vp[16];
+  float lu[4];
+  float lv[4];
+  float cam[4];
+  uint32_t dims[4];
+};
+static_assert(sizeof(VsmMarkPush) == 128, "vsm_mark.comp push sozlesmesi 128 bayt");
+
 // DERINLIKTEN SAYFA ISARETLEME (CPU basvurusu; GPU compute surumu buna karsi sinanacak).
 // depth: w*h, Vulkan NDC z [0,1] (1 = gokyuzu/temizlenmis, atlanir). inv_view_proj: (proj*view)^-1. stride: her
 // stride'inci piksel (1 = hepsi). Her ornegin dunya konumu geri kurulur ve cache.request() ile istenir.

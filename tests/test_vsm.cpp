@@ -231,14 +231,7 @@ ENGINE_TEST(vsm_mark_from_depth_matches_analytic_hits) {
 // CPU basvurusunun AYNI formulle verdigiyle karsilastirilir. KONTROL: push'ta seviye-0 uzakligi bilerek yanlis ->
 // GPU ciktisi ayrisir (karsilastirma gercekten olcuyor). Dogrulama katmani hatasi 0.
 
-namespace {
-struct VsmMarkPush {
-  float inv_vp[16];
-  float lu[4], lv[4], cam[4];
-  uint32_t dims[4];
-};
-static_assert(sizeof(VsmMarkPush) == 128, "vsm_mark.comp push sozlesmesi 128 bayt");
-} // namespace
+// Push sozlesmesi renderer::VsmMarkPush (renderer/vsm_pages.hpp): yerlesimi tools/layout_check.py SPIR-V'ye karsi olcer.
 
 ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
   static rhi::VkApi api;
@@ -277,12 +270,12 @@ ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
 
   rhi::ComputeKernel k;
   rhi::ComputeBuffer bd, bk;
-  const bool hazir = k.init(dev, vsm_mark_comp_spv, sizeof vsm_mark_comp_spv, 2, sizeof(VsmMarkPush)) &&
+  const bool hazir = k.init(dev, vsm_mark_comp_spv, sizeof vsm_mark_comp_spv, 2, sizeof(renderer::VsmMarkPush)) &&
                      rhi::compute_buffer_create(dev, sizeof depth, &bd) && rhi::compute_buffer_create(dev, (VkDeviceSize)W * H * 16, &bk);
   if (!hazir) { std::printf("    [bilgi] compute kurulamadi: cekirdek '%s', cihaz '%s'\n", k.error(), dev.last_error()); CHECK(false); return; }
   std::memcpy(bd.mapped(), depth, sizeof depth);
   auto push_for = [&](float level0) {
-    VsmMarkPush p{};
+    renderer::VsmMarkPush p{};
     std::memcpy(p.inv_vp, &inv.m[0][0], 64);
     const Vec3 u = c.light_u(), v = c.light_v();
     p.lu[0] = u.x; p.lu[1] = u.y; p.lu[2] = u.z; p.lu[3] = cfg.base_page_world;
@@ -321,7 +314,7 @@ ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
         if (gk[a].level == ck[b].level && gk[a].x == ck[b].x && gk[a].y == ck[b].y) { o++; break; }
     *piksel_fark = fark; *gpu_sayfa = ng; *cpu_sayfa = nc; *ortak = o;
   };
-  VsmMarkPush p = push_for(cfg.level0_distance);
+  renderer::VsmMarkPush p = push_for(cfg.level0_distance);
   CHECK(k.run(bufs, &p, (W + 7) / 8, (H + 7) / 8, 1));
   uint32_t fark, ng, nc, ortak;
   karsilastir(&fark, &ng, &nc, &ortak);

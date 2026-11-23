@@ -131,6 +131,84 @@ func main() { vec3 c = texture(u_src, v_uv); o_color = vec4(c, 1.0); }
 ]
 
 
+# Faz 8.5 varyant hatalari: her biri CEVIRICIDE, verilen metinle dusmeli (yanlis sebeple dusmek de KIRMIZI).
+VARYANT_BOZUK = [
+    ("bilinmeyen ozellik", "bilinmeyen ozellik", 'str asama = "vert";\nvaryant("a", "iskelet");\n'
+     'func main() { if (ozellik("iskelt")) { gl_Position = vec4(0.0); } }\n'),
+    ("GPU degeri kosulda", "yalniz ozellik", 'str asama = "vert";\nvaryant("a", "iskelet");\nvec3 in_pos = girdi(0);\n'
+     'func main() { if (ozellik("iskelet") && in_pos.x > 0.0) { gl_Position = vec4(0.0); } }\n'),
+    ("varyantsiz ust if", "ust duzey if", 'str asama = "vert";\nvaryant("a", "iskelet");\n'
+     'if (true) { vec3 in_pos = girdi(0); }\nfunc main() { gl_Position = vec4(0.0); }\n'),
+    ("varyant()'siz ozellik", "varyant() bildirimi yok", 'str asama = "vert";\n'
+     'func main() { if (ozellik("iskelet")) { gl_Position = vec4(0.0); } }\n'),
+    ("cift varyant adi", "iki kez", 'str asama = "vert";\nvaryant("a");\nvaryant("a", "iskelet");\n'
+     'func main() { gl_Position = vec4(0.0); }\n'),
+]
+
+
+def faz85(a, tool, files, spv, ayni_adlar, have_glslc, tmp):
+    """Faz 8.5 kapisi (FAZ8.md §7): elle yazilmis varyant sayisi ile tek kaynaktan uretilen eslesir,
+    *_spv.h toplam boyutu olculur. Pozitif kontroller: varyantlar birbirinden FARKLI SPIR-V verir
+    (ozellik secimi gercekten bir sey degistiriyor) ve bozuk varyant girdileri dogru sebeple duser."""
+    print("\n[1b] Faz 8.5 varyant aileleri: tek kaynak -> elle yazilmis varyantlar")
+    aile = {}
+    for base, path in files:
+        aile.setdefault(path, []).append(base)
+    aile = {p: bs for p, bs in aile.items() if len(bs) > 1}
+    if not aile:
+        a.kirmizi("aile dosyasi yok — varyant uretimi hicbir sey olcmuyor")
+    uretilen = 0
+    for path in sorted(aile):
+        bs = aile[path]
+        ad = os.path.basename(path)
+        eksik = [b for b in bs if not os.path.exists(tool.source_path(b))]
+        if eksik:
+            a.kirmizi("%-24s varyant(lar)in elle yazilmis karsiligi yok: %s" % (ad, ", ".join(eksik)))
+            continue
+        if not have_glslc:
+            a.atlandi("%-24s %d varyant cevrildi, glslc yok — bayt olculmedi" % (ad, len(bs)))
+            continue
+        tutan = [b for b in bs if b in ayni_adlar]
+        if len(tutan) != len(bs):
+            a.kirmizi("%-24s %d varyantin yalniz %d'i bayt ayni ([1]'e bak)" % (ad, len(bs), len(tutan)))
+            continue
+        # Ayni SPIR-V veren iki varyant = ozellik secimi etkisiz (kontrolun kontrolu).
+        ozler = {}
+        for b in bs:
+            ozler.setdefault(spv.get(b), []).append(b)
+        cift = [v for v in ozler.values() if len(v) > 1]
+        if cift:
+            a.kirmizi("%-24s varyantlar AYNI SPIR-V veriyor: %s — ozellik secimi etkisiz"
+                      % (ad, "; ".join(", ".join(c) for c in cift)))
+            continue
+        a.yesil("%-24s %d varyant: hepsi kendi GLSL'iyle BAYT AYNI, birbirinden farkli (%s)"
+                % (ad, len(bs), ", ".join(bs)))
+        uretilen += len(bs)
+    print("  [bilgi] %d aile dosyasi -> %d elle yazilmis shader tek kaynaktan, bayt ayni "
+          "(%d .tprs, %d birim)" % (len(aile), uretilen, len({p for _, p in files}), len(files)))
+
+    for ad, bekle, src in VARYANT_BOZUK:
+        p = os.path.join(tmp, "varyant_bozuk.vert.tprs")
+        with open(p, "w") as fh:
+            fh.write(src)
+        try:
+            tool.translate(p)
+            a.kirmizi("%-22s BOZUK VARYANT GECTI" % ad)
+        except tool.ShaderError as e:
+            if bekle in str(e):
+                a.yesil("%-22s cevirici yakaladi: %s" % (ad, str(e)[:58]))
+            else:
+                a.kirmizi("%-22s YANLIS sebeple dustu: %s" % (ad, str(e)[:58]))
+
+    # Olcum (iddia degil): depoya giren SPIR-V'nin toplami.
+    hs = sorted(f for f in os.listdir(tool.REPO_SHADERS) if f.endswith("_spv.h"))
+    metin = sum(os.path.getsize(os.path.join(tool.REPO_SHADERS, f)) for f in hs)
+    ikili = sum(len(tool.header_bytes(f[:-len("_spv.h")]) or b"") for f in hs)
+    aile_ikili = sum(len(tool.header_bytes(b) or b"") for bs in aile.values() for b in bs)
+    print("  [bilgi] *_spv.h: %d baslik, %d bayt metin, %d bayt SPIR-V; ailelerden uretilenler %d bayt SPIR-V"
+          % (len(hs), metin, ikili, aile_ikili))
+
+
 def main():
     a = Audit()
     if not os.path.exists(TOOL):
@@ -161,16 +239,16 @@ def main():
 
     # ---------------------------------------------------------------- 1
     print("\n[1] Gercek varliklar: .tprs -> GLSL -> SPIR-V -> depodaki *_spv.h")
-    files = sorted(f for f in os.listdir(ASSETS) if f.endswith(".tprs")) \
-        if os.path.isdir(ASSETS) else []
+    # Birim = uretilen bir shader. Faz 8.5 aile dosyasi (varyant(...)) birden cok birim verir.
+    files = tool.units(ASSETS) if os.path.isdir(ASSETS) else []
     if not files:
         a.kirmizi("%s altinda .tprs yok — kapi olcecek sey bulamadi" % ASSETS)
     ayni = 0
-    for f in files:
-        path = os.path.join(ASSETS, f)
-        base = f[:-5]
+    ayni_adlar = set()
+    spv = {}
+    for base, path in files:
         try:
-            glsl = tool.translate(path)
+            glsl = tool.translate(path, base)
         except tool.ShaderError as e:
             a.kirmizi("%-24s cevrilemedi: %s" % (base, e))
             continue
@@ -182,6 +260,7 @@ def main():
             first = (err or "").strip().splitlines()
             a.kirmizi("%-24s glslc: %s" % (base, first[0] if first else "?"))
             continue
+        spv[base] = data
         # Referans: ayni yerel derleyiciyle derlenmis ORIJINAL GLSL.
         refsrc = tool.source_path(base)
         ref = None
@@ -192,7 +271,7 @@ def main():
                           % (base, (rerr or "?").strip().splitlines()[0]))
                 continue
         hdr = tool.header_bytes(base) if same_gen else None
-        pin = tool.pinned_digest(open(path).read())
+        pin = tool.pinned_digest(open(path).read(), base)
         now = tool.source_digest(base)
         if ref is None:
             a.yesil("%-24s %5d bayt (depoda karsiligi yok)" % (base, len(data)))
@@ -209,6 +288,7 @@ def main():
             a.yesil("%-24s %5d bayt, referans GLSL ile BAYT AYNI%s"
                     % (base, len(data), ek))
             ayni += 1
+            ayni_adlar.add(base)
         else:
             a.kirmizi("%-24s SPIR-V farkli (%d vs referans %d bayt)"
                       % (base, len(data), len(ref)))
@@ -222,7 +302,7 @@ def main():
     # rhi/shaders/wip/ derlenmeyen taslaklardir, sayilmaz.
     src_dir = os.path.join(os.path.dirname(ASSETS), "..", "..", "rhi", "shaders")
     src_dir = os.path.normpath(src_dir)
-    ported = {f[:-5] for f in files}
+    ported = {b for b, _ in files}
     shaders = sorted(f for f in os.listdir(src_dir)
                      if os.path.splitext(f)[1] in (".vert", ".frag", ".comp"))
     eksik = [f for f in shaders if f not in ported]
@@ -230,6 +310,9 @@ def main():
         a.atlandi("%-24s .tprs karsiligi yok — Tulpar alt kumesine tasinmamis" % f)
     print("  [bilgi] kapsam: motorun %d shader'inin %d'i tasinmis"
           % (len(shaders), len(shaders) - len(eksik)))
+
+    # ---------------------------------------------------------------- 1b
+    faz85(a, tool, files, spv, ayni_adlar, have_glslc, tmp)
 
     # ---------------------------------------------------------------- 2
     print("\n[2] Pozitif kontrol: bozuk girdi KIRMIZI yapmali")

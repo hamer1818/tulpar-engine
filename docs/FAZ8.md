@@ -386,7 +386,7 @@ Her dilimin **kapısı** var; kapısı ölçmeyen dilim yok.
 | **8.2 GPU tip sistemi** ✅ *(2026-11-23, Python çeviricide: `tools/tpr_tip.py`; Tulpar derleyicisinin kendisi hâlâ tipsiz — o 8.3 / PLAN §11)* | `f32`, `uint`, `vec2/3/4`, `ivec/uvec`, `mat3/mat4`, swizzle — **yalnız shader bağlamında**, CPU tarafına dokunmadan. `DataType` yerine ayrı bir GPU tip tablosu | `.tprs` **tip hatası** üretebiliyor: `vec3 c = texture(...)` artık `glslc`'ye kalmadan yakalanıyor; pozitif kontrol o satırın katmanını `cevirici`'ye kaydırır | Orta: yeni tip tablosu + ifade tipleme; ~1 500 satır. **PLAN §11 "sistem alt kümesi" ile aynı iş** |
 | **8.3 Ön uç Tulpar'a taşınır** | Python prototipi atılır; `src/` içinde `.tprs` → GLSL. `tulpar shader` alt komutu; `compile_shaders.py` yerini alır | Aynı bayt kapısı **19/19** yeni çeviriciyle; `engine_tests` etkilenmez | Orta: prototip zaten tasarımı sabitledi |
 | **8.4 Yerleşim doğrulaması** | `std140/std430` ofsetleri Tulpar tarafında hesaplanır, C++ `Renderer::Frame` / `Push` ile **karşılaştırılır** | Bilerek kaydırılmış bir CPU struct'ı kapıyı kırmızı yapar (pozitif kontrol) | Küçük-orta. **Faz 8'in ilk gerçek kazancı buradan gelir** — bugün hiçbir şey bunu denetlemiyor |
-| **8.5 Permutation + reflection** | Sahne bilgisiyle varyant üretimi (gölge açık/kapalı, kademe sayısı, PBR/Lambert); descriptor tablosu shader'dan türetilir | Elle yazılmış varyant sayısı ile üretilen eşleşir; `*_spv.h` toplam boyutu ölçülür | Büyük |
+| **8.5 Permutation + reflection** 🟡 *(2026-11-23: varyant ailesi geldi — §10; reflection ertelendi)* | Sahne bilgisiyle varyant üretimi (gölge açık/kapalı, kademe sayısı, PBR/Lambert); descriptor tablosu shader'dan türetilir | Elle yazılmış varyant sayısı ile üretilen eşleşir; `*_spv.h` toplam boyutu ölçülür | Büyük |
 | **8.6 Precision / fp16** | Otomatik `f16` yükseltme + `GL_EXT_shader_explicit_arithmetic_types_float16` | **PLAN'ın kapısı:** aynı ALU işi elle yazılmışa karşı ölçülür, fp16 kazancı telefonda (Mali-G72) gösterilir | Büyük; gerçek cihaz şart |
 | **8.7 Compute** | T20: `local_size` (spec sabitli), `shared`, `barrier()`, iş grubu kimlikleri, bellek sıralaması | `cull.comp` bayt aynı → **21/21** | Orta |
 
@@ -430,3 +430,55 @@ burada **tip** (`1u` literali dahil); Tulpar derleyicisinde hâlâ sıradan ad.
 
 Çapraz doğrulama ilk koşumda bir hatayı **denetimin kendisinde** buldu: `u32(vec2)` reddediliyordu, oysa GLSL'de geçerli
 (ilk bileşen). Kural düzeltildi; kapı bu yüzden var.
+
+---
+
+## 10. 8.5 Varyant aileleri — ilk dilim (2026-11-23)
+
+**Sorun.** Motorun altı vertex shader'ı üç çift elle yazılmış kopyaydı: `mesh` / `mesh_skin` / `mesh_cull`
+ve `shadow` / `shadow_skin` / `shadow_cull`. Aynı `Frame` bloğu, aynı `oct_decode`, aynı aritmetik altı kez;
+tek farkları iskelet karışımı ve modelin nereden okunduğu (push sabiti / eklem SSBO'su / dolaylı çizim SSBO'su).
+
+**Çözüm: bir `.tprs` birden çok shader'ın ortak kaynağı olabilir** (`tools/tpr_shader.py`, statik çözüm):
+
+```
+varyant("shadow");                       // -> shadow.vert
+varyant("shadow_skin", "iskelet");       // -> shadow_skin.vert
+if (ozellik("iskelet")) { uvec4 in_joints = girdi(3); }            // üst düzeyde
+if (ozellik("dolayli")) { DrawItem D = ...; } else { ... }        // gövdede
+vec4 world = (ozellik("iskelet") ? ms : pc.model) * vec4(in_pos, 1.0); // ifadede
+```
+
+Sözdizimi **Tulpar'ın kendisi**: dosyalar `tulpar typecheck`'ten parse hatasız geçiyor (`--tulpar-parse`).
+Çözüm üretimden **önce** ve tamamen statik: `ozellik(...)` her varyant için sabit bool'a katlanır, seçilmeyen
+dal AST'den silinir, seçilen dalın deyimleri çevreleyen bloğa açılır (kapsam elle yazılan sürümdeki gibi).
+Sonra tip denetimi ve üretim varyant başına olağan yoldan geçer. Hatalar çeviricide düşer: bildirilmemiş
+özellik adı (yazım hatası her varyantta sessizce `false` olurdu), GPU değeriyle karışık koşul, varyant
+koşulu olmayan üst düzey `if`, `varyant()`'sız `ozellik()`, çift varyant adı.
+
+**Kapı** (`tools/faz8_shader_audit.py` [1b], GitHub Linux işinde). Ölçüldü 2026-11-23, glslc 2026.4, bu makine:
+
+| ölçüm | sonuç |
+|---|---|
+| elle yazılmış varyant ↔ tek kaynaktan üretilen | **6/6 bayt aynı** (2 aile: `mesh.vert.tprs`, `shadow.vert.tprs`) |
+| kontrolün kontrolü: aynı ailenin varyantları birbirinden **farklı** SPIR-V | 3/3 + 3/3 farklı (seçim etkisiz olsaydı kırmızı) |
+| bozuk varyant girdisi doğru sebeple düşer | 5/5 |
+| `.tprs` dosyası / üretilen birim | 24 → **20 dosya**, 24 birim; kapsam 24/24 |
+| `*_spv.h` toplamı | 24 başlık, 248 002 bayt metin, **78 244 bayt SPIR-V**; ailelerden üretilen 18 120 bayt |
+
+**Yan bulgu: 8.4 yerleşim kapısı kırmızıydı ve kimse görmedi.** #178'in `vsm_mark.comp` push bloğunun C++
+karşılığı yalnız testin içindeydi (başlıkta değil); `layout_check.py` onu bulamayıp KIRMIZI diyordu, ama bu kapı
+yalnız `yerel_ci.sh`'te koşuyordu. Struct `renderer/vsm_pages.hpp`'ye (`VsmMarkPush`) taşındı, satır başına tek
+üye yazıldı (denetimin ayrıştırıcısı `float a[4], b[4];` biçimini atlıyor) ve `layout_audit.py` artık GitHub
+Linux işinde de koşuyor: 5 alan, 128 bayt, ofsetler SPIR-V ile aynı; pozitif kontroller 2/2.
+
+**Bilerek yapılmayanlar.**
+- **Yeni varyant üretilmedi.** Gölge açık/kapalı, kademe sayısı, PBR/Lambert bugün çalışma anında tekdüze
+  dallar ya da özelleştirme sabitleri. Bunları ayrı SPIR-V'ye bölmek bir **performans** iddiası (dal maliyeti
+  ↔ PSO sayısı/boyutu) ve ancak telefonda ölçülür; mekanizma hazır, karar ölçüme kalır.
+- **Elle yazılmış GLSL kaldırılmadı.** `rhi/shaders/*.vert` hâlâ referans ve `compile_shaders.py`'nin girdisi;
+  `.tprs` → başlık üretimi 8.3'ün (ön ucun Tulpar'a taşınması) işi.
+- **Reflection ertelendi.** Descriptor düzenleri `renderer.cpp`'de beş yerde elle yazılı; uyumsuzluğu Vulkan
+  doğrulama katmanı boru hattı yaratılırken zaten yakalıyor ve üç CI platformunda da her boru hattı doğrulama
+  açıkken yaratılıyor. Düzeni shader'dan **türetmek** (C++ tarafını üretilen tabloya bağlamak) ayrı ve büyük
+  bir yeniden düzenleme; kazancı bugün ölçülebilir bir hatayı önlemek değil.

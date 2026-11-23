@@ -206,10 +206,14 @@ jobs:
 
       # FAZ 8 SHADER KAPILARI (2026-11-23): bugune kadar yalniz tools/yerel_ci.sh'te koşuyordu ("CI'da glslc yok").
       # glslc Ubuntu paketinden; iki kapi da referansi AYNI glslc ile derler, surum farki bayt kapisini etkilemez.
-      #   faz8_shader_audit.py  — 23 .tprs'in GLSL'i referansla BAYT AYNI + yerlesim; ATLANDI da kirmizi
-      #   tpr_shader.py --tip-kontrol — Faz 8.2 tip denetimi: 23 temiz, bozulmus ornekler duser VE glslc de
+      #   faz8_shader_audit.py  — 24 shader biriminin (20 .tprs; 2'si Faz 8.5 varyant ailesi) GLSL'i referansla
+      #                         BAYT AYNI + varyant kontrolleri + yerlesim; ATLANDI da kirmizi
+      #   tpr_shader.py --tip-kontrol — Faz 8.2 tip denetimi: 24 birim temiz, bozulmus ornekler duser VE glslc de
       #                         reddeder (denetim GLSL'den kati/gevsek degil), vecN mutasyonlarinin hepsi yakalanir
-      - name: Faz 8 shader kapilari (bayt + tip)
+      #   layout_audit.py       — Faz 8.4 CPU-GPU yerlesimi (SPIR-V ofseti <-> derleyicinin olctugu C++ ofseti) + 2 pozitif
+      #                         kontrol. 2026-11-23'e kadar yalniz yerel_ci.sh'teydi: #178'in vsm_mark.comp push blogu C++
+      #                         karsiligi olmadan girdi ve hicbir otomasyon kirmiziyi gormedi.
+      - name: Faz 8 shader kapilari (bayt + tip + yerlesim)
         if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
         run: |
           set -uo pipefail
@@ -222,6 +226,10 @@ jobs:
           python3 tools/tpr_shader.py --tip-kontrol 2>&1 | tee tip.log; rc=${PIPESTATUS[0]}
           if [ "$rc" != 0 ] || grep -q ATLANDI tip.log; then
             echo "::error::Faz 8.2 tip kapisi kirmizi: $(grep -E 'KIRMIZI|ATLANDI|YANLIS|KACTI' tip.log | head -1)"; exit 1
+          fi
+          python3 tools/layout_audit.py 2>&1 | tee yerlesim.log; rc=${PIPESTATUS[0]}
+          if [ "$rc" != 0 ] || ! grep -q '^yerlesim denetimi: temiz' yerlesim.log; then
+            echo "::error::Faz 8.4 yerlesim kapisi kirmizi: $(grep -E 'KIRMIZI' yerlesim.log | head -1)"; exit 1
           fi
           { echo "### Faz 8 shader"; echo ""; echo "\`$ozet\`"; echo ""; echo "\`$(grep -E '^mutasyon:' tip.log)\`"; } >> "$GITHUB_STEP_SUMMARY"
 
