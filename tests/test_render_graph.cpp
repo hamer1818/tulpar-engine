@@ -1265,6 +1265,7 @@ ENGINE_TEST(render_graph_stored_depth_is_pixel_identical) {
   for (int yol = 0; yol < 2 && !atlandi; yol++) {
     renderer::RendererConfig cfg = rc;
     cfg.vsm = (yol == 1);
+    cfg.vsm_settings.sample = false; // yalniz SAKLAMA olculur: golge CSM'den kalir, goruntu degismemeli
     renderer::Renderer ren;
     bool ok = ren.init(dev, sys, offscreen_render_pass(off), cfg);
     CHECK(ok);
@@ -1419,6 +1420,149 @@ ENGINE_TEST(render_graph_vsm_mark_pass_matches_cpu_from_renderer_depth) {
   CHECK(k5.light_resets == 1 && k5.resident == 0 && k5.requested == 0);
   CHECK(dev.validation_errors() == hata0);
   ren.shutdown();
+  offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// --- 7d. VSM ORNEKLEME mesh.frag'da (2026-11-23) ------------------------------
+// Uctan uca: VSM gecisi + atlas + mesh.frag ornekleme. Zemin pikselleri icin ANALITIK maske: pikselin dunya konumundan
+// (saklanan derinlik geri okunur) isiga dogru isin atilir, kutulardan birine carpiyorsa "golgede" beklenir. Cizilen
+// golge = golge ACIK karede golge KAPALI kareye gore koyulasan piksel. Ayni olcum CSM icin de yapilir ve yan yana
+// basilir (iddia degil olcum). KONTROL: absurt derinlik egilimi -> golge kacar (gercekten VSM'den geliyor).
+namespace {
+struct VsmSahne { Vec3 m[2], b[2]; };
+bool isin_kutulara(Vec3 o, Vec3 d, const VsmSahne &s) {
+  for (int k = 0; k < 2; k++) {
+    const Vec3 mn = s.m[k] - s.b[k] * 0.5f, mx = s.m[k] + s.b[k] * 0.5f;
+    float t0 = 0.0f, t1 = 1e30f;
+    const float oo[3] = {o.x, o.y, o.z}, dd[3] = {d.x, d.y, d.z}, lo[3] = {mn.x, mn.y, mn.z}, hi[3] = {mx.x, mx.y, mx.z};
+    bool ok = true;
+    for (int ax = 0; ax < 3 && ok; ax++) {
+      if (std::fabs(dd[ax]) < 1e-9f) { ok = oo[ax] >= lo[ax] && oo[ax] <= hi[ax]; continue; }
+      float a = (lo[ax] - oo[ax]) / dd[ax], b = (hi[ax] - oo[ax]) / dd[ax];
+      if (a > b) { const float t = a; a = b; b = t; }
+      t0 = a > t0 ? a : t0;
+      t1 = b < t1 ? b : t1;
+      ok = t0 <= t1;
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+} // namespace
+
+ENGINE_TEST(render_graph_vsm_shadow_matches_analytic_mask) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(256u << 20, "vsm_ornek")) { CHECK(false); return; }
+  static VkApi api;
+  if (!vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static Device dev;
+  DeviceConfig dc;
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    dev.shutdown();
+    skip("sanal GPU (Apple Paravirtual): golge maskesi gercek cihazda olculur");
+    return;
+  }
+  const uint32_t W = 320, H = 180;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
+  // Isiga DOGRU (renderer gelenegi). Alcak isik: golgeler uzun ve kameradan gorunur (tepeden isikta golgeli zemin
+  // pikseli 215 / 42 920'de kalip olcum anlamsizlasiyordu).
+  const Vec3 isik = normalize(Vec3{-1.0f, 0.75f, 0.6f});
+  const Vec3 goz{0, 7, 12};
+  const Mat4 view = Mat4::look_at(goz, {0, 0, -3}, {0, 1, 0});
+  const VsmSahne sahne{{{0, 1.5f, -2}, {-4, 1, 1}}, {{2, 3, 2}, {1.5f, 2, 3}}};
+  static uint8_t golgeli[W * H * 4], golgesiz[W * H * 4];
+  static float depth[W * H];
+  const uint32_t hata0 = dev.validation_errors();
+  // tip 0: CSM, 1: VSM, 2: VSM + absurt egilim (KONTROL). Donus: zemin pikselinde (beklenen, cizilen) sayaclari.
+  struct Olcum { uint32_t zemin = 0, bek_golge = 0, uyusan = 0, golge_bulunan = 0; bool ok = false; };
+  auto olc = [&](int tip) {
+    Olcum o;
+    renderer::RendererConfig rc;
+    rc.frames_in_flight = 1;
+    rc.shadow_size = 1024;
+    rc.max_draws = 64;
+    rc.post = true;
+    rc.post_width = W;
+    rc.post_height = H;
+    rc.vsm = true; // derinlik her tipte saklansin (analitik maske onu okur); ornekleme tipe gore
+    rc.vsm_settings.sample = tip != 0;
+    rc.vsm_settings.pages.pool_pages = 256;
+    rc.vsm_settings.atlas.tile_px = 128;
+    rc.vsm_settings.atlas.tiles_x = 16;
+    if (tip == 2) rc.vsm_settings.depth_bias_texels = 1e5f;
+    renderer::Renderer ren;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || !ren.vsm().enabled) {
+      std::printf("    [bilgi] kurulum: post '%s', vsm '%s'\n", ren.post().disabled_reason, ren.vsm().disabled_reason);
+      ren.shutdown();
+      return o;
+    }
+    renderer::Vertex v[24];
+    uint32_t idx[36];
+    uint32_t n = renderer::Renderer::cube(v, idx);
+    const renderer::MeshHandle kup = ren.create_mesh(v, 24, idx, n);
+    n = renderer::Renderer::plane(v, idx);
+    const renderer::MeshHandle zemin = ren.create_mesh(v, 4, idx, n);
+    ren.set_light(isik, {0.1f, 0.1f, 0.12f}, 0.9f);
+    ren.set_shadow_volume({0, 1.0f, -3}, 18.0f, 60.0f);
+    ren.set_render_size(W, H);
+    ren.set_camera(view, Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 200.0f));
+    Rec rr{&ren};
+    auto kare = [&](bool golge, uint8_t *out) {
+      ren.set_shadows_enabled(golge);
+      ren.begin_frame(0);
+      ren.draw(zemin, Mat4::scale({80, 1, 80}), {0.8f, 0.8f, 0.8f});
+      for (int k = 0; k < 2; k++) ren.draw(kup, Mat4::translate(sahne.m[k]) * Mat4::scale(sahne.b[k]), {0.7f, 0.6f, 0.5f});
+      const bool r = offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before);
+      if (r && out) std::memcpy(out, ores.pixels, sizeof golgeli);
+      return r;
+    };
+    bool r = kare(true, nullptr) && kare(true, nullptr) && kare(true, golgeli); // 1 isaretler, 2 cizer, 3 olculur
+    r = r && ren.vsm_pass().read_depth(depth) && kare(false, golgesiz);
+    if (!r) { ren.shutdown(); return o; }
+    const Mat4 inv = inverse(ren.jittered_proj() * view);
+    for (uint32_t y = 0; y < H; y++)
+      for (uint32_t x = 0; x < W; x++) {
+        const float d = depth[y * W + x];
+        if (d >= 1.0f) continue;
+        const Vec4 c = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, d, 1};
+        const Vec3 p{c.x / c.w, c.y / c.w, c.z / c.w};
+        if (std::fabs(p.y) > 0.02f) continue; // yalniz zemin (kutu yuzleri kendi kendini golgeler, analitik disi)
+        o.zemin++;
+        const bool bek = isin_kutulara(p + isik * 0.01f, isik, sahne);
+        const uint32_t i = (y * W + x) * 4;
+        const int a = golgeli[i] + golgeli[i + 1] + golgeli[i + 2], b = golgesiz[i] + golgesiz[i + 1] + golgesiz[i + 2];
+        const bool ciz = a < b - 24;
+        o.bek_golge += bek;
+        o.uyusan += bek == ciz;
+        o.golge_bulunan += bek && ciz;
+      }
+    o.ok = true;
+    ren.shutdown();
+    return o;
+  };
+  const Olcum csm = olc(0), vsm = olc(1), kontrol = olc(2);
+  auto yuzde = [](uint32_t a, uint32_t b) { return b ? 100.0 * (double)a / (double)b : 0.0; };
+  std::printf("    [bilgi] %s %ux%u, zemin pikseli %u, analitik golgeli %u: CSM uyum %.2f%% (golgenin %.1f%%'i bulundu), "
+              "VSM uyum %.2f%% (%.1f%%); KONTROL (VSM + absurt egilim) golgenin %.1f%%'i; dogrulama hatasi %u\n",
+              dev.caps().device_name, W, H, vsm.zemin, vsm.bek_golge, yuzde(csm.uyusan, csm.zemin),
+              yuzde(csm.golge_bulunan, csm.bek_golge), yuzde(vsm.uyusan, vsm.zemin), yuzde(vsm.golge_bulunan, vsm.bek_golge),
+              yuzde(kontrol.golge_bulunan, kontrol.bek_golge), dev.validation_errors() - hata0);
+  CHECK(csm.ok && vsm.ok && kontrol.ok);
+  CHECK(vsm.zemin > W * H / 4 && vsm.bek_golge > vsm.zemin / 50); // sahne gercekten golge dusuruyor
+  CHECK(vsm.uyusan * 100 >= vsm.zemin * 98);       // VSM maskesi analitik maskeyle en az %98 uyusur
+  CHECK(vsm.golge_bulunan * 100 >= vsm.bek_golge * 90);
+  CHECK(kontrol.golge_bulunan * 10 < kontrol.bek_golge); // egilim absurtken golge kacar: ornekleme gercekten VSM'den
+  CHECK(dev.validation_errors() == hata0);
   offscreen_destroy(off);
   dev.shutdown();
 }

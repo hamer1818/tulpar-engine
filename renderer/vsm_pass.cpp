@@ -74,6 +74,15 @@ bool VsmPass::init(rhi::Device &dev, Arena &arena, const VsmPassConfig &cfg, uin
   si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   si.maxLod = 0.0f;
   if (a.vkCreateSampler(d, &si, nullptr, &sampler_) != VK_SUCCESS) { info_.disabled_reason = "ornekleyici"; return false; }
+  // Atlas ornekleyicisi: karsilastirmali (1.0 = isikli) + dogrusal suzme = donanim 2x2 PCF (CSM ile ayni gelenek).
+  VkSamplerCreateInfo ai{};
+  ai.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  ai.magFilter = ai.minFilter = VK_FILTER_LINEAR;
+  ai.addressModeU = ai.addressModeV = ai.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  ai.compareEnable = VK_TRUE;
+  ai.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+  ai.maxLod = 0.0f;
+  if (a.vkCreateSampler(d, &ai, nullptr, &atlas_sampler_) != VK_SUCCESS) { info_.disabled_reason = "atlas ornekleyicisi"; return false; }
   VkShaderModuleCreateInfo smi{};
   smi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   smi.codeSize = sizeof vsm_request_img_comp_spv;
@@ -236,6 +245,42 @@ void VsmPass::record_mark(VkCommandBuffer cb, const Mat4 &inv, Vec3 cam, uint32_
   written_[f] = true;
 }
 
+void VsmPass::fill_table(void *dst, Vec3 cam) const {
+  if (!dst) return;
+  const VsmConfig &pc = cache_.config();
+  VsmTableHeader h{};
+  const Vec3 u = cache_.light_u(), v = cache_.light_v();
+  h.lu[0] = u.x; h.lu[1] = u.y; h.lu[2] = u.z;
+  h.lv[0] = v.x; h.lv[1] = v.y; h.lv[2] = v.z;
+  h.params[0] = pc.base_page_world; h.params[1] = pc.level0_distance; h.params[2] = (float)pc.levels;
+  h.params[3] = (float)kVsmTableGrid;
+  const float t = (float)cfg_.atlas.tile_px;
+  h.atlas[0] = t / (float)atlas_.width(); h.atlas[1] = t / (float)atlas_.height(); h.atlas[2] = (float)cfg_.atlas.tiles_x;
+  h.atlas[3] = 0.5f / t;
+  h.cam[0] = cam.x; h.cam[1] = cam.y; h.cam[2] = cam.z; h.cam[3] = cfg_.normal_offset_texels;
+  h.depth[0] = cfg_.atlas.light_depth_min; h.depth[1] = cfg_.atlas.light_depth_max; h.depth[2] = cfg_.depth_bias_texels;
+  h.depth[3] = t;
+  std::memcpy(dst, &h, kVsmTableHeaderBytes);
+  uint32_t *e = reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(dst) + kVsmTableHeaderBytes);
+  const uint32_t g = kVsmTableGrid, cells = pc.levels * g * g;
+  for (uint32_t i = 0; i < cells; i++) { e[2 * i] = kVsmKeyEmpty; e[2 * i + 1] = 0; }
+  // Cakisma: hucrede en son kullanilan sayfa kalir. Gecici yan dizi yerine yuvanin last_used'i tekrar sorulur.
+  for (uint32_t s = 0; s < pc.pool_pages; s++) {
+    VsmPageKey k;
+    uint32_t lu;
+    uint32_t packed;
+    if (!cache_.slot_page(s, &k, &lu) || k.level >= pc.levels || !vsm_pack_key(k, &packed)) continue;
+    const uint32_t c = k.level * g * g + ((uint32_t)k.y & (g - 1)) * g + ((uint32_t)k.x & (g - 1));
+    if (e[2 * c] != kVsmKeyEmpty) {
+      VsmPageKey ok;
+      uint32_t olu;
+      if (cache_.slot_page(e[2 * c + 1], &ok, &olu) && olu >= lu) continue;
+    }
+    e[2 * c] = packed;
+    e[2 * c + 1] = s;
+  }
+}
+
 bool VsmPass::read_depth(float *out) {
   if (!info_.enabled || !out) return false;
   rhi::VkApi &a = dev_->api();
@@ -298,6 +343,8 @@ void VsmPass::shutdown() {
   if (set_layout_) a.vkDestroyDescriptorSetLayout(d, set_layout_, nullptr);
   if (cs_) a.vkDestroyShaderModule(d, cs_, nullptr);
   if (sampler_) a.vkDestroySampler(d, sampler_, nullptr);
+  if (atlas_sampler_) a.vkDestroySampler(d, atlas_sampler_, nullptr);
+  atlas_sampler_ = VK_NULL_HANDLE;
   pool_ = VK_NULL_HANDLE; pipe_ = VK_NULL_HANDLE; layout_ = VK_NULL_HANDLE; set_layout_ = VK_NULL_HANDLE;
   cs_ = VK_NULL_HANDLE; sampler_ = VK_NULL_HANDLE;
   info_ = VsmPassInfo{};

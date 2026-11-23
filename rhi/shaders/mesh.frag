@@ -57,6 +57,22 @@ layout(std430, set = 0, binding = 7) readonly buffer Stoch { uvec2 t[]; } u_stoc
 // u_stoch okumasi boru hatti kurulumunda TAMAMEN elenir — yani kapali yol ne
 // fazladan bant genisligi harcar ne de aritmetigi degisir (bit bit ayni).
 layout(constant_id = 1) const int STOCHASTIC = 0;
+// VSM (sanal golge haritasi, renderer/vsm_pass): 0 = kapali. Ozellestirme sabiti: kapaliyken asagidaki dal ve
+// u_vsm / u_vsmt okumalari boru hatti kurulumunda elenir — CSM yolu bit bit eskisi gibi.
+layout(constant_id = 2) const int VSM = 0;
+// Fiziksel sayfa atlasi (karsilastirmali: 1.0 = isikli) ve sayfa tablosu. Tablo: seviye basina N x N TOROIDAL izgara,
+// hucre = (paket anahtar, yuva). Anahtar burada DOGRULANIR: yerlesik olmayan ya da cakisan sayfa yanlis golge
+// vermez, isikli sayilir. Baslik alanlari renderer/vsm_pass.hpp VsmTableHeader ile ayni.
+layout(set = 0, binding = 8) uniform sampler2DShadow u_vsm;
+layout(std430, set = 0, binding = 9) readonly buffer VsmTable {
+  vec4 lu;     // xyz isik u ekseni, w: -
+  vec4 lv;     // xyz isik v ekseni, w: -
+  vec4 params; // x seviye 0 sayfa kenari (m), y seviye 0 uzakligi (m), z seviye sayisi, w izgara N (2^k)
+  vec4 atlas;  // x karo/atlas genisligi, y karo/atlas yuksekligi, z satirdaki karo, w yarim texel (karo kesri)
+  vec4 cam;    // xyz kamera, w normal kaydirma (texel)
+  vec4 depth;  // x isik derinligi min, y max, z egilim (texel), w karo kenari (texel)
+  uvec2 e[];
+} u_vsmt;
 
 // Kumelenmis nokta isiklar: bu pikselin kumesinin 32-bit maskesi, set bitleri
 // icin Lambert + pencereli ters-kare sonum (yaricapta sifira iner).
@@ -348,8 +364,43 @@ float cascade_bias_scale(int idx) {
   float inv_r = length(vec3(m[0][0], m[1][0], m[2][0]));
   return 2.0 * u.cascade_params.w / inv_r * u.shadow_params.x;
 }
+// VSM gorunurlugu: isaretleme ile AYNI seviye secimi (kameraya uzaklik) ve ayni MUTLAK sayfa anahtari.
+float vsm_visibility(float nl, vec3 n) {
+  vec3 lu = u_vsmt.lu.xyz;
+  vec3 lv = u_vsmt.lv.xyz;
+  vec3 ld = cross(lu, lv);
+  float dist = length(v_world - u_vsmt.cam.xyz);
+  uint levels = uint(u_vsmt.params.z);
+  uint l = 0u;
+  float lim = u_vsmt.params.y;
+  while (dist > lim && l + 1u < levels) {
+    lim = lim * 2.0;
+    l = l + 1u;
+  }
+  float pw = u_vsmt.params.x * float(1u << l);
+  float tw = pw / u_vsmt.depth.w; // bu seviyede bir texel'in dunya boyu
+  vec3 wp = v_world + n * (u_vsmt.cam.w * tw);
+  float pu = dot(wp, lu) / pw;
+  float pv = dot(wp, lv) / pw;
+  int kx = int(floor(pu));
+  int ky = int(floor(pv));
+  uint gn = uint(u_vsmt.params.w);
+  uint idx = l * gn * gn + (uint(ky) & (gn - 1u)) * gn + (uint(kx) & (gn - 1u));
+  uvec2 e = u_vsmt.e[idx];
+  uint key = (l << 28) | ((uint(kx) & 16383u) << 14) | (uint(ky) & 16383u);
+  if (e.x != key) return 1.0; // sayfa yerlesik degil (ilk kareler / cakisma): isikli
+  uint tx = uint(u_vsmt.atlas.z);
+  vec2 org = vec2(float(e.y % tx), float(e.y / tx));
+  vec2 f = clamp(vec2(pu, pv) - vec2(float(kx), float(ky)), vec2(u_vsmt.atlas.w), vec2(1.0 - u_vsmt.atlas.w));
+  vec2 uv = (org + f) * u_vsmt.atlas.xy;
+  float range = u_vsmt.depth.y - u_vsmt.depth.x;
+  float z = (dot(wp, ld) - u_vsmt.depth.x) / range;
+  float bias = u_vsmt.depth.z * tw / range * clamp(1.0 - nl, 0.15, 1.0);
+  return texture(u_vsm, vec3(uv, z - bias));
+}
 float shadow_visibility(float nl, vec3 n) {
   if (u.shadow_params.z < 0.5) return 1.0;
+  if (VSM != 0) return vsm_visibility(nl, n);
   // Egik yuzeyde akne buyur: egilim normal-isik acisiyla olceklenir.
   float bias = u.shadow_params.y * clamp(1.0 - nl, 0.15, 1.0);
   // Normal boyunca DUNYA BIRIMI kaydirma (boru hattinin depthBias'i surucuye

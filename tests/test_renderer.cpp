@@ -1953,14 +1953,15 @@ ENGINE_TEST(renderer_pbr_texture_budget) {
   uint32_t frag_dref = 0, vert_dref = 0;
   const uint32_t frag_samples = sample_ops(mesh_frag_spv, mesh_frag_spv_size, &frag_dref);
   const uint32_t vert_samples = sample_ops(mesh_vert_spv, mesh_vert_spv_size, &vert_dref);
-  std::printf("    [bilgi] mesh.frag SPIR-V doku ornekleme komutu: ONCE 2 (albedo + golge) -> SONRA %u (%u duz + %u dref/golge)\n",
+  std::printf("    [bilgi] mesh.frag SPIR-V doku ornekleme komutu: ONCE 2 (albedo + golge) -> SONRA %u (%u duz + %u dref: CSM + VSM)\n",
               frag_samples, frag_samples - frag_dref, frag_dref);
   std::printf("    [bilgi] KONTROL mesh.vert doku ornekleme komutu: %u (vertex shader'inda doku yok -> 0 olmali)\n",
               vert_samples);
   CHECK(vert_samples == 0); // sayac gercekten ornekleme komutunu sayiyor mu
-  // 4 duz (albedo, ORM, normal, isima) + 1 dref (golge). Sayi tutmuyorsa ya bir
-  // sampler shader'a hic girmemis ya da beklenmedik bir ornekleme eklenmis.
-  bool three_new_samplers_are_in_the_shader = frag_samples == 5 && frag_dref == 1;
+  // 4 duz (albedo, ORM, normal, isima) + 2 dref: CSM golgesi + VSM atlasi (2026-11-23; VSM ozellestirme sabitinin
+  // ARKASINDA — kapaliyken boru hatti kurulumunda elenir, SPIR-V'de yine de bir komut olarak durur). Sayi tutmuyorsa
+  // ya bir sampler shader'a hic girmemis ya da beklenmedik bir ornekleme eklenmis.
+  bool three_new_samplers_are_in_the_shader = frag_samples == 6 && frag_dref == 2;
   CHECK(three_new_samplers_are_in_the_shader);
 
   // YAZILIM RASTERLAYICIDA (lavapipe / SwiftShader) (3b) OLCULMEZ (2026-11-22): sure CPU'yu olcer, cihazi
@@ -2538,6 +2539,86 @@ ENGINE_TEST(renderer_device_cost_csm_shadow) {
               dev.caps().device_name, W, H, sh.cascades, sh.size, a_ms, k_ms, a_ms - k_ms, R);
   CHECK(ta[R / 2] > 0 && tk[R / 2] > 0);
   ren.shutdown();
+  offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// CSM / VSM UCTAN UCA CIHAZ MALIYETI (OLCUM, IDDIA DEGIL): ayni sahne, ayni post yolu, uc kip — golge kapali, CSM,
+// VSM (derinlik saklama + seyrek isaretleme + atlas + mesh.frag ornekleme). VSM kararli durumda olculur (isinma
+// karelerinden sonra statik sahne: atlas cizimi 0). 1080p, zemin + 48 kutu, kip basina 15 kare medyani, duvar saati.
+ENGINE_TEST(renderer_device_cost_csm_vs_vsm) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(320u << 20, "csm_vsm_maliyet")) { CHECK(false); return; }
+  Device dev;
+  DeviceConfig dc;
+  if (!dev.init(sys, g_api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (dev.caps().device_type == VK_PHYSICAL_DEVICE_TYPE_CPU || test::gpu_is_virtual(dev.caps().device_name)) {
+    dev.shutdown();
+    skip("CPU/sanal cihaz (yazilim rasterlayici ya da Paravirtual): golge yolu maliyeti yalniz gercek GPU'da anlamli");
+    return;
+  }
+  const uint32_t W = 1920, H = 1080;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W; oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
+  double ms[3] = {0, 0, 0};
+  uint32_t vsm_cizim = 0, vsm_yerlesik = 0;
+  for (int kip = 0; kip < 3; kip++) { // 0 golge kapali, 1 CSM, 2 VSM
+    renderer::Renderer ren;
+    renderer::RendererConfig rc;
+    rc.frames_in_flight = 1;
+    rc.post = true;
+    rc.post_width = W;
+    rc.post_height = H;
+    rc.vsm = kip == 2;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip == 2 && !ren.vsm().enabled)) {
+      std::printf("    [bilgi] kip %d kurulamadi: post '%s', vsm '%s'\n", kip, ren.post().disabled_reason, ren.vsm().disabled_reason);
+      CHECK(false);
+      ren.shutdown();
+      break;
+    }
+    renderer::Vertex v[24];
+    uint32_t idx[36];
+    uint32_t n = renderer::Renderer::cube(v, idx);
+    renderer::MeshHandle cube = ren.create_mesh(v, 24, idx, n);
+    n = renderer::Renderer::plane(v, idx);
+    renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
+    ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.3f}), {0.10f, 0.10f, 0.12f}, 0.9f);
+    ren.set_shadow_volume({0, 1.0f, -6}, 16.0f, 60.0f);
+    ren.set_camera(Mat4::look_at({0, 3, 12}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
+    ren.set_shadows_enabled(kip != 0);
+    Rec rr{&ren};
+    auto kare = [&]() -> uint64_t {
+      ren.begin_frame(0);
+      ren.draw(plane, Mat4::scale({40, 1, 40}), {0.8f, 0.8f, 0.8f});
+      for (uint32_t i = 0; i < 48; i++) {
+        const float fx = (float)(i % 8) - 3.5f, fz = (float)(i / 8) * -2.0f;
+        ren.draw(cube, Mat4::translate(Vec3{fx * 2.2f, 1.5f, fz}) * Mat4::scale(Vec3{2.0f, 3.0f + (float)(i % 3), 2.0f}),
+                 {0.7f, 0.5f, 0.4f});
+      }
+      const uint64_t t0 = platform::now_ns();
+      if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) return 0;
+      return platform::now_ns() - t0;
+    };
+    for (int i = 0; i < 4; i++) kare(); // isinma: VSM'de isaretleme -> sayfa cizimi -> kararli durum
+    constexpr uint32_t R = 15;
+    uint64_t t[R];
+    for (uint32_t r = 0; r < R; r++) t[r] = kare();
+    std::sort(t, t + R);
+    ms[kip] = (double)t[R / 2] / 1e6;
+    if (kip == 2) { vsm_cizim = ren.vsm().pages_drawn; vsm_yerlesik = ren.vsm().resident; }
+    ren.shutdown();
+  }
+  std::printf("    [bilgi] %s, %ux%u post, 49 cizim (kare + geri okuma, 15 kare medyani): golge kapali %.3f ms, CSM %.3f ms "
+              "(%+.3f), VSM %.3f ms (%+.3f; kararli durumda sayfa cizimi %u, yerlesik %u)\n",
+              dev.caps().device_name, W, H, ms[0], ms[1], ms[1] - ms[0], ms[2], ms[2] - ms[0], vsm_cizim, vsm_yerlesik);
+  CHECK(ms[0] > 0 && ms[1] > 0 && ms[2] > 0);
+  CHECK(vsm_cizim == 0 && vsm_yerlesik > 0); // kararli durum gercekten kararli: statik sahnede atlas cizimi yok
   offscreen_destroy(off);
   dev.shutdown();
 }

@@ -205,7 +205,7 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   // Set 0: 0 kare UBO, 1 golge, 2 nokta isiklar (UBO), 3 kume maskeleri (SSBO), 4 eklem matrisleri (SSBO)
   // cull acikken +2: 5 cizim kayitlari (SSBO), 6 gorunurluk listesi (SSBO).
   // Ikisi de yalniz DOLAYLI yolun vertex shader'inin okudugu tamponlar.
-  VkDescriptorSetLayoutBinding b[8]{};
+  VkDescriptorSetLayoutBinding b[10]{};
   b[5].binding = 5;
   b[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   b[5].descriptorCount = 1;
@@ -241,9 +241,19 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   b[nb].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   b[nb].descriptorCount = 1;
   b[nb].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  // binding 8: VSM sayfa atlasi (karsilastirmali), 9: VSM ornekleme tablosu (SSBO). Duzende HER ZAMAN var;
+  // mesh.frag ancak VSM ozellestirme sabiti 1 iken okur (kapaliyken 8 CSM atlasina, 9 bos tabloya baglanir).
+  b[nb + 1].binding = 8;
+  b[nb + 1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  b[nb + 1].descriptorCount = 1;
+  b[nb + 1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  b[nb + 2].binding = 9;
+  b[nb + 2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  b[nb + 2].descriptorCount = 1;
+  b[nb + 2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   VkDescriptorSetLayoutCreateInfo sli{};
   sli.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  sli.bindingCount = nb + 1;
+  sli.bindingCount = nb + 3;
   sli.pBindings = b;
   if (a.vkCreateDescriptorSetLayout(dev.handle(), &sli, nullptr, &set_layout_) != VK_SUCCESS) return false;
   if (!make_material_layout()) return false;
@@ -258,8 +268,8 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   if (a.vkCreatePipelineLayout(dev.handle(), &pli, nullptr, &layout_) != VK_SUCCESS) return false;
   // UBO + descriptor (ucuslu kare basina)
   VkDescriptorPoolSize ps[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2 * kMaxFrames},
-                                {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxFrames},
-                                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (want_cull ? 5u : 3u) * kMaxFrames}};
+                                {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * kMaxFrames},
+                                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (want_cull ? 6u : 4u) * kMaxFrames}};
   VkDescriptorPoolCreateInfo dpi{};
   dpi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   dpi.maxSets = kMaxFrames;
@@ -287,6 +297,11 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
       return false;
     if (!make_buffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, sizeof(Mat4) * cfg_.max_skin_matrices, host, &skin_buf_[i], &skin_mem_[i]))
       return false;
+    // VSM ornekleme tablosu: VSM istenmediyse yalniz baslik + 1 hucre (gecerli bir tanimlayici icin).
+    const uint32_t vt_bytes = cfg_.vsm ? VsmPass::table_bytes(cfg_.vsm_settings.pages.levels) : VsmPass::table_bytes(0) + 8u;
+    if (!make_buffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, vt_bytes, host, &vsm_tab_buf_[i], &vsm_tab_mem_[i])) return false;
+    if (vsm_tab_mem_[i].mapped) std::memset(vsm_tab_mem_[i].mapped, 0, vt_bytes);
+    vsm_tab_bytes_ = vt_bytes;
     // --- Faz 9: cull tamponlari (ucuslu kare basina) -----------------------
     // cmd tamponu HOST-VISIBLE: hem dolayli okuma (INDIRECT_BUFFER) hem de
     // kare bittikten sonra CPU'nun sayaci okumasi (CullInfo) icin. Gorunurluk
@@ -319,7 +334,8 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
     VkDescriptorBufferInfo dci{cluster_buf_[i], 0, sizeof(uint32_t) * grid_.count()};
     VkDescriptorBufferInfo dsti{stoch_buf_[i], 0, sizeof(uint32_t) * 2 * (stoch_enabled_ ? grid_.count() : 1u)};
     VkDescriptorImageInfo dii{shadow_sampler_, shadow_view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet w[8]{};
+    VkDescriptorBufferInfo dvt{vsm_tab_buf_[i], 0, vsm_tab_bytes_};
+    VkWriteDescriptorSet w[10]{};
     w[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     w[5].dstSet = sets_[i];
     w[5].dstBinding = 5;
@@ -369,7 +385,16 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
     w[nw].descriptorCount = 1;
     w[nw].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     w[nw].pBufferInfo = &dsti;
-    a.vkUpdateDescriptorSets(dev.handle(), nw + 1, w, 0, nullptr);
+    // 8: VSM kurulana kadar CSM atlasi (ayni tip, gecerli); VSM kurulursa make_post'tan sonra atlasa cevrilir.
+    w[nw + 1] = w[1];
+    w[nw + 1].dstBinding = 8;
+    w[nw + 2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[nw + 2].dstSet = sets_[i];
+    w[nw + 2].dstBinding = 9;
+    w[nw + 2].descriptorCount = 1;
+    w[nw + 2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[nw + 2].pBufferInfo = &dvt;
+    a.vkUpdateDescriptorSets(dev.handle(), nw + 3, w, 0, nullptr);
   }
   // Cull compute boru hatti + kendi descriptor kumesi. Basarisizsa CPU yolu
   // kosar ve sebep CullInfo::disabled_reason'da kalir (sessiz kapanma yok).
@@ -401,6 +426,19 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
       if (vsm_casters_)
         vsm_pass_.init(*dev_, arena, cfg_.vsm_settings, cfg_.frames_in_flight, hdr_depth_img_, hdr_depth_view_, hdr_depth_fmt_,
                        post_w_, post_h_, (uint32_t)sizeof(GpuVertex), (uint32_t)offsetof(GpuVertex, pos), -light_dir_);
+      if (vsm_pass_.info().enabled) {
+        VkDescriptorImageInfo vi{vsm_pass_.atlas_sampler(), vsm_pass_.atlas().view(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        for (uint32_t i = 0; i < cfg_.frames_in_flight; i++) {
+          VkWriteDescriptorSet w{};
+          w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+          w.dstSet = sets_[i];
+          w.dstBinding = 8;
+          w.descriptorCount = 1;
+          w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+          w.pImageInfo = &vi;
+          dev_->api().vkUpdateDescriptorSets(dev_->handle(), 1, &w, 0, nullptr);
+        }
+      }
     }
     // Kapasite hatasi ORTAM eksigi degil KOD hatasidir (graph_pass_count ile
     // kMaxGraphPasses ayrismis). Ortam eksiklerinde post'un kapanip yola devam
@@ -1087,14 +1125,14 @@ bool Renderer::make_material_layout() {
 namespace {
 void image_barrier(rhi::VkApi &a, VkCommandBuffer cb, VkImage img, uint32_t mip, uint32_t mip_count, VkImageLayout from,
                    VkImageLayout to, VkAccessFlags src_access, VkAccessFlags dst_access, VkPipelineStageFlags src_stage,
-                   VkPipelineStageFlags dst_stage) {
+                   VkPipelineStageFlags dst_stage, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
   VkImageMemoryBarrier br{};
   br.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
   br.oldLayout = from;
   br.newLayout = to;
   br.srcQueueFamilyIndex = br.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   br.image = img;
-  br.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, mip_count, 0, 1};
+  br.subresourceRange = {aspect, mip, mip_count, 0, 1};
   br.srcAccessMask = src_access;
   br.dstAccessMask = dst_access;
   a.vkCmdPipelineBarrier(cb, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &br);
@@ -1365,10 +1403,12 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   // PBR_NDF ozellestirme sabiti (mesh.frag constant_id 0): 0 = dogru GGX
   // (urun), 1 = KONTROL (normalize edilmemis). Boru hatti kurulumunda sabit.
   // constant_id 0 = PBR_NDF (0 dogru GGX, 1 kontrol), 1 = STOCHASTIC (0 kapali).
-  const int32_t fs_spec_data[2] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0};
-  const VkSpecializationMapEntry fs_entries[2] = {{0, 0, sizeof(int32_t)}, {1, sizeof(int32_t), sizeof(int32_t)}};
+  const int32_t fs_spec_data[3] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0,
+                                   vsm_sampling() ? 1 : 0};
+  const VkSpecializationMapEntry fs_entries[3] = {{0, 0, sizeof(int32_t)}, {1, sizeof(int32_t), sizeof(int32_t)},
+                                                  {2, 2 * sizeof(int32_t), sizeof(int32_t)}};
   VkSpecializationInfo fs_spec{};
-  fs_spec.mapEntryCount = 2;
+  fs_spec.mapEntryCount = 3;
   fs_spec.pMapEntries = fs_entries;
   fs_spec.dataSize = sizeof fs_spec_data;
   fs_spec.pData = fs_spec_data;
@@ -1611,6 +1651,7 @@ void Renderer::shutdown() {
   if (skin_vs_) a.vkDestroyShaderModule(dev_->handle(), skin_vs_, nullptr);
   if (skin_shadow_vs_) a.vkDestroyShaderModule(dev_->handle(), skin_shadow_vs_, nullptr);
   for (uint32_t i = 0; i < kMaxFrames; i++) if (skin_buf_[i]) a.vkDestroyBuffer(dev_->handle(), skin_buf_[i], nullptr);
+  for (uint32_t i = 0; i < kMaxFrames; i++) if (vsm_tab_buf_[i]) a.vkDestroyBuffer(dev_->handle(), vsm_tab_buf_[i], nullptr);
   if (pipe_ui_) a.vkDestroyPipeline(dev_->handle(), pipe_ui_, nullptr);
   if (pipe_ui_opaque_) a.vkDestroyPipeline(dev_->handle(), pipe_ui_opaque_, nullptr);
   if (pipe_ui_over_) a.vkDestroyPipeline(dev_->handle(), pipe_ui_over_, nullptr);
@@ -2535,7 +2576,27 @@ void Renderer::record_shadow(VkCommandBuffer cb) {
   ui_timing_reset(cb);
   // Cull gecisi ILK: golge de sahne de onun yazdigi dolayli komutlari okur.
   record_cull(cb);
-  if (shadow_info_.enabled) record_shadow_pass(cb);
+  // VSM acikken CSM atlasi cizilmez: mesh.frag VSM ozellestirmesiyle onu hic okumaz (CSM ile VSM'in maliyet kiyasi
+  // tam bu fark: #184 / vsm_device_cost_*).
+  if (shadow_info_.enabled && !vsm_sampling()) record_shadow_pass(cb);
+  if (shadow_info_.enabled && vsm_sampling() && !csm_primed_) {
+    // mesh.frag u_shadow'u (CSM) statik olarak referans eder; VSM yolunda CSM hic cizilmedigi icin atlas UNDEFINED
+    // kalir ve dogrulama katmani bunu hata sayar. Bir kez CIZIMSIZ gecis: render pass'in kendi CLEAR'i + son layout'u
+    // (SHADER_READ_ONLY). Kurulumda temizleme "redundant-clear", ciplak gecis "TransitionUndefinedToReadOnly" verdi.
+    rhi::VkApi &a = dev_->api();
+    VkClearValue clear{};
+    clear.depthStencil = {1.0f, 0};
+    VkRenderPassBeginInfo rbi{};
+    rbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rbi.renderPass = shadow_rp_;
+    rbi.framebuffer = shadow_fb_;
+    rbi.renderArea = {{0, 0}, {shadow_info_.size * (shadow_info_.cascades ? shadow_info_.cascades : 1), shadow_info_.size}};
+    rbi.clearValueCount = 1;
+    rbi.pClearValues = &clear;
+    a.vkCmdBeginRenderPass(cb, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+    a.vkCmdEndRenderPass(cb);
+    csm_primed_ = true;
+  }
   if (temporal_.motion) record_motion_pass(cb);
   if (post_.enabled) {
     const bool vsm = vsm_pass_.info().enabled;
@@ -2561,6 +2622,8 @@ void Renderer::record_shadow(VkCommandBuffer cb) {
       const Mat4 iv = inverse(view_);
       vsm_pass_.begin_frame(frame_, Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]}, -light_dir_, vsm_casters_, n);
       vsm_pass_.record_atlas(cb);
+      // Ornekleme tablosu: bu karede GECERLI sayfalar (atlas az once cizildi). Kare yuvasinin citi beklendi.
+      vsm_pass_.fill_table(vsm_tab_mem_[frame_].mapped, Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]});
     }
     record_hdr_scene(cb);
     if (vsm) {

@@ -616,6 +616,8 @@ public:
   // VSM gecisi (RendererConfig::vsm). enabled false ise disabled_reason sebebi soyler.
   const VsmPassInfo &vsm() const { return vsm_pass_.info(); }
   VsmPass &vsm_pass() { return vsm_pass_; }
+  // Golge VSM'den mi geliyor (gecis kuruldu VE ornekleme acik)? false: CSM cizilir ve orneklenir.
+  bool vsm_sampling() const { return vsm_pass_.info().enabled && cfg_.vsm_settings.sample; }
   // Radikal ters (van der Corput) tabani `base`; Halton dizisinin i. terimi.
   // i = 0 -> 0; dizi 1'den baslatilir (0 kaymasi jitter'i etkisiz birakirdi).
   static float halton(uint32_t i, uint32_t base);
@@ -1124,6 +1126,10 @@ private:
   VsmPass vsm_pass_;
   VsmPassCaster *vsm_casters_ = nullptr; // max_draws, init'te arenadan
   VkFormat hdr_depth_fmt_ = VK_FORMAT_UNDEFINED;
+  VkBuffer vsm_tab_buf_[3] = {};   // mesh.frag binding 9 (kare basina)
+  rhi::MemoryAlloc vsm_tab_mem_[3] = {};
+  uint32_t vsm_tab_bytes_ = 0;
+  bool csm_primed_ = false; // VSM yolunda CSM atlasi bir kez gecerli layout'a getirildi mi
   Mat4 prev_viewproj_{};
   bool has_prev_vp_ = false;
   bool motion_recorded_ = false; // MV hedefi en az bir kez yazildi (okuma icin)
