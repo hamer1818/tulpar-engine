@@ -119,8 +119,8 @@ target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/th
 target_include_directories(engine_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(engine_platform PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}>)
 target_link_libraries(engine_platform PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-# mbedTLS 3.6.2 LTS (Apache-2.0, vendored: third_party/mbedtls, release tarball sha256
-# 8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca). Yalniz platform/http.cpp (HTTPS, WoE M1b)
+# mbedTLS 3.6.8 LTS (2026-11-23; 3.6.2 idi) (Apache-2.0, vendored: third_party/mbedtls, release tarball sha256
+# bc54b818e87f49c0b3281dd85d24adaede0e63b4e822e3fbd49c005a38b9595b). Yalniz platform/http.cpp (HTTPS, WoE M1b)
 # kullanir; masaustu + Android tek kod yolu (karar K5).
 file(GLOB ENGINE_MBEDTLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/library/*.c)
 add_library(engine_mbedtls STATIC ${ENGINE_MBEDTLS_SOURCES})

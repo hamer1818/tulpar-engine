@@ -36,24 +36,9 @@
     #pragma GCC diagnostic ignored "-Wredundant-decls"
 #endif
 
-/* Disable asm under Memsan because it confuses Memsan and generates false errors.
- *
- * We also disable under Valgrind by default, because it's more useful
- * for Valgrind to test the plain C implementation. MBEDTLS_TEST_CONSTANT_FLOW_ASM //no-check-names
- * may be set to permit building asm under Valgrind.
- */
-#if defined(MBEDTLS_TEST_CONSTANT_FLOW_MEMSAN) || \
-    (defined(MBEDTLS_TEST_CONSTANT_FLOW_VALGRIND) && !defined(MBEDTLS_TEST_CONSTANT_FLOW_ASM)) //no-check-names
-#define MBEDTLS_CT_NO_ASM
-#elif defined(__has_feature)
-#if __has_feature(memory_sanitizer)
-#define MBEDTLS_CT_NO_ASM
-#endif
-#endif
-
 /* armcc5 --gnu defines __GNUC__ but doesn't support GNU's extended asm */
 #if defined(MBEDTLS_HAVE_ASM) && defined(__GNUC__) && (!defined(__ARMCC_VERSION) || \
-    __ARMCC_VERSION >= 6000000) && !defined(MBEDTLS_CT_NO_ASM)
+    __ARMCC_VERSION >= 6000000)
 #define MBEDTLS_CT_ASM
 #if (defined(__arm__) || defined(__thumb__) || defined(__thumb2__))
 #define MBEDTLS_CT_ARM_ASM
@@ -552,5 +537,15 @@ static inline mbedtls_ct_condition_t mbedtls_ct_bool_not(mbedtls_ct_condition_t 
 /* Restore warnings for -Wredundant-decls on gcc */
     #pragma GCC diagnostic pop
 #endif
+
+#if defined(MBEDTLS_SPECTRE_V1_COUNTERMEASURES)
+static inline uintptr_t mbedtls_ct_nullify_if_speculating(uintptr_t value,
+                                                          mbedtls_ct_uint_t cond)
+{
+    MBEDTLS_STATIC_ASSERT(sizeof(uintptr_t) <= sizeof(mbedtls_ct_condition_t),
+                          "mbedtls_ct_condition_t smaller than uintptr_t is not supported");
+    return value & mbedtls_ct_bool(cond);
+}
+#endif /* MBEDTLS_SPECTRE_V1_COUNTERMEASURES */
 
 #endif /* MBEDTLS_CONSTANT_TIME_IMPL_H */
