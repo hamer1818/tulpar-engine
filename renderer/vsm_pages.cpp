@@ -14,13 +14,26 @@ uint32_t hash_key(VsmPageKey k) {
 bool same(VsmPageKey a, VsmPageKey b) { return a.level == b.level && a.x == b.x && a.y == b.y; }
 } // namespace
 
-bool VsmPageCache::init(Arena &arena, const VsmConfig &cfg, Vec3 light_dir) {
-  cfg_ = cfg;
-  if (cfg_.levels == 0 || cfg_.pool_pages == 0 || cfg_.base_page_world <= 0 || cfg_.level0_distance <= 0) return false;
+void VsmPageCache::reset_light(Vec3 light_dir) {
   const Vec3 d = normalize(light_dir);
   const Vec3 up = std::fabs(d.y) < 0.99f ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
   lu_ = normalize(cross(up, d));
   lv_ = cross(d, lu_);
+  if (!slots_) return; // init'ten once (taban yalniz)
+  for (uint32_t i = 0; i < cfg_.pool_pages; i++) slots_[i] = Slot{};
+  for (uint32_t i = 0; i <= tab_mask_; i++) tab_slot_[i] = -1;
+  free_n_ = cfg_.pool_pages;
+  for (uint32_t i = 0; i < cfg_.pool_pages; i++) free_[i] = cfg_.pool_pages - 1 - i;
+  tombstones_ = 0;
+  resident_ = 0;
+  render_n_ = 0;
+}
+
+bool VsmPageCache::init(Arena &arena, const VsmConfig &cfg, Vec3 light_dir) {
+  cfg_ = cfg;
+  if (cfg_.levels == 0 || cfg_.pool_pages == 0 || cfg_.base_page_world <= 0 || cfg_.level0_distance <= 0) return false;
+  slots_ = nullptr;
+  reset_light(light_dir); // yalniz taban (tablolar henuz yok)
   uint32_t cap = 1;
   while (cap < cfg_.pool_pages * 2) cap <<= 1;
   tab_mask_ = cap - 1;

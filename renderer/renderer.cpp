@@ -394,6 +394,14 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   if (cfg_.post) {
     post_.enabled = make_post(rp);
     if (!post_.enabled && !post_.disabled_reason[0]) post_.disabled_reason = "son islem hedefleri kurulamadi";
+    // VSM: graph derinligi sakladiysa (vsm_isaret onu okuyor) gecis kurulur. Basarisizlik ORTAM eksigidir: sebep
+    // VsmPassInfo'da, renderer CSM ile devam eder.
+    if (post_.enabled && cfg_.vsm && post_.depth_stored) {
+      vsm_casters_ = arena.alloc_array<VsmPassCaster>(cfg_.max_draws);
+      if (vsm_casters_)
+        vsm_pass_.init(*dev_, arena, cfg_.vsm_settings, cfg_.frames_in_flight, hdr_depth_img_, hdr_depth_view_, hdr_depth_fmt_,
+                       post_w_, post_h_, (uint32_t)sizeof(GpuVertex), (uint32_t)offsetof(GpuVertex, pos), -light_dir_);
+    }
     // Kapasite hatasi ORTAM eksigi degil KOD hatasidir (graph_pass_count ile
     // kMaxGraphPasses ayrismis). Ortam eksiklerinde post'un kapanip yola devam
     // etmesi DOGRU davranis; kapasitede degil — oyle olsaydi bloom ve tonemap
@@ -1567,6 +1575,7 @@ void Renderer::shutdown() {
   if (!dev_) return;
   rhi::VkApi &a = dev_->api();
   a.vkDeviceWaitIdle(dev_->handle());
+  vsm_pass_.shutdown();
   for (uint32_t i = 0; i < mesh_count_; i++) {
     if (meshes_[i].vbuf) a.vkDestroyBuffer(dev_->handle(), meshes_[i].vbuf, nullptr);
     if (meshes_[i].ibuf) a.vkDestroyBuffer(dev_->handle(), meshes_[i].ibuf, nullptr);
@@ -2529,7 +2538,35 @@ void Renderer::record_shadow(VkCommandBuffer cb) {
   if (shadow_info_.enabled) record_shadow_pass(cb);
   if (temporal_.motion) record_motion_pass(cb);
   if (post_.enabled) {
+    const bool vsm = vsm_pass_.info().enabled;
+    if (vsm) {
+      // Kare basi (dokumler ancak simdi belli: cagiran begin_frame'den SONRA cizer): onceki listeyi besle, dokum
+      // farkini kirlet, sonra kirli/yeni sayfalari atlasa ciz.
+      uint32_t n = 0;
+      for (uint32_t i = 0; i < draw_count_; i++) {
+        const Draw &d = draws_[i];
+        if (!d.shadow) continue;
+        const Mesh &m = meshes_[d.mesh];
+        if (m.skinned || m.dynamic) continue; // bugun atlasa cizilmez (VsmPassInfo'da sayilmaz: CSM'de oldugu gibi kalir)
+        const Vec4 c = d.model * Vec4{m.center.x, m.center.y, m.center.z, 1.0f};
+        float s = 0.0f;
+        for (int k = 0; k < 3; k++) {
+          const float l = std::sqrt(d.model.m[k][0] * d.model.m[k][0] + d.model.m[k][1] * d.model.m[k][1] + d.model.m[k][2] * d.model.m[k][2]);
+          s = l > s ? l : s;
+        }
+        const float r = m.radius * s;
+        vsm_casters_[n++] = VsmPassCaster{d.mesh, m.vbuf, m.ibuf, m.index_count, d.model, Vec3{c.x - r, c.y - r, c.z - r},
+                                          Vec3{c.x + r, c.y + r, c.z + r}};
+      }
+      const Mat4 iv = inverse(view_);
+      vsm_pass_.begin_frame(frame_, Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]}, -light_dir_, vsm_casters_, n);
+      vsm_pass_.record_atlas(cb);
+    }
     record_hdr_scene(cb);
+    if (vsm) {
+      const Mat4 iv = inverse(view_);
+      vsm_pass_.record_mark(cb, inverse(jittered_proj_ * view_), Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]}, scaled_w_, scaled_h_);
+    }
     record_post_chain(cb);
   }
 }
@@ -2952,8 +2989,10 @@ bool Renderer::make_post(VkRenderPass target_rp) {
   // Derinlik: TABLO karar verir. Okuyan gecis yoksa TRANSIENT (TBDR'da tile'da kalir, DRAM'e hic inmez); varsa
   // (VSM isaretlemesi) orneklenebilir ve saklanir. Elle bayrak yok — graph_depth_stored turetilmis alandan okur.
   post_.depth_stored = graph_depth_stored(graph_, graph_n_);
+  hdr_depth_fmt_ = dfmt;
   const VkImageUsageFlags depth_usage = post_.depth_stored
-                                            ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                                            ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                               VK_IMAGE_USAGE_TRANSFER_SRC_BIT) // teshis geri okumasi (VsmPass::read_depth)
                                             : (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
   if (!make_post_image(dfmt, depth_usage, post_w_, post_h_, 1, !post_.depth_stored, &hdr_depth_img_, &hdr_depth_mem_)) {
     post_.disabled_reason = "HDR derinligi yaratilamadi";
@@ -3038,9 +3077,11 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     }
     dep[1].srcSubpass = 0;
     dep[1].dstSubpass = 1;
-    dep[1].srcStageMask = dep[0].srcStageMask;
+    // ACIK maske (dep[0]'dan kopyalanmaz): dep[0]'a saklanan derinlikte COMPUTE eklenir ve subpass'lar arasi
+    // bagimlilikta compute asamasi gecersizdir (VUID-VkRenderPassCreateInfo-pDependencies-00837/00838).
+    dep[1].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     dep[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dep[1].dstStageMask = dep[0].srcStageMask;
+    dep[1].dstStageMask = dep[1].srcStageMask;
     dep[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dep[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
     dep[2].srcSubpass = VK_SUBPASS_EXTERNAL;

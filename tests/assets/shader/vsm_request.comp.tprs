@@ -1,8 +1,13 @@
 // kaynak-ozet: 594206199382  (engine/rhi/shaders/vsm_request.comp)
+// kaynak-ozet: c6a4d84d4060  (engine/rhi/shaders/vsm_request_img.comp)
 // VSM sayfa ISTEGI (Faz 9, 2026-11-23): vsm_mark.comp'un anahtar formulu + GPU tekillestirme. Her piksel anahtarini
 // acik adresli tabloya atomicCompSwap ile ekler; tabloya ILK giren anahtar sikisik listeye yazilir. CPU yalniz tekil
 // listeyi okur. Paket renderer::vsm_pack_key ile ayni; tasmalarin hepsi sayilir (u_pages.n[1..3]).
+// Faz 8.5 ailesi: vsm_request (derinlik SSBO'dan — testler, ComputeKernel) ve vsm_request_img (derinlik GORUNTUDEN
+// texelFetch — renderer'in graph gecisi; sahne derinligi saklandiginda orneklenebilir goruntudur).
 str asama = "comp";
+varyant("vsm_request");
+varyant("vsm_request_img", "goruntu");
 
 uvec3 grup = is_grubu(8, 8);
 
@@ -15,8 +20,12 @@ struct Push {
 }
 Push pc = itme();
 
-struct Depth { float[] d; }
-Depth u_depth = depo(0, 0);
+if (ozellik("goruntu")) {
+  sampler2D u_depth_img = ornek(0, 0);
+} else {
+  struct Depth { float[] d; }
+  Depth u_depth = depo(0, 0);
+}
 struct Table { uint[] t; }
 Table u_table = depo_oy(0, 1);
 struct Pages { uint[] n; }
@@ -33,7 +42,7 @@ func main() {
   uint key = 4294967295u;
   if (p.x < pc.dims.x && p.y < pc.dims.y) {
     uint i = p.y * pc.dims.x + p.x;
-    float d = u_depth.d[i];
+    float d = ozellik("goruntu") ? texelFetch(u_depth_img, ivec2(p), 0).x : u_depth.d[i];
     if (d < 1.0) {
       vec2 ndc = (vec2(p) + 0.5) / vec2(pc.dims.xy) * 2.0 - 1.0;
       vec4 c = pc.inv_vp * vec4(ndc, d, 1.0);

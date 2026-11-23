@@ -109,6 +109,7 @@ struct VkApi {
   // VSM atlasi (renderer/vsm_atlas): ilk temizleme + sayfa karosu temizleme.
   PFN_vkCmdClearDepthStencilImage vkCmdClearDepthStencilImage = nullptr;
   PFN_vkCmdClearAttachments vkCmdClearAttachments = nullptr;
+  PFN_vkCmdFillBuffer vkCmdFillBuffer = nullptr; // VSM: sayfa tablosu her kare 0xFFFFFFFF
   PFN_vkCmdExecuteCommands vkCmdExecuteCommands = nullptr;
   // swapchain + senkron + cizim
   PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR = nullptr;

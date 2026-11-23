@@ -14,6 +14,7 @@
 #include "renderer/cluster.hpp"
 #include "renderer/cull.hpp"
 #include "renderer/graph.hpp"
+#include "renderer/vsm_pass.hpp"
 #include "rhi/device.hpp"
 
 namespace tulpar::engine::renderer {
@@ -239,6 +240,7 @@ struct RendererConfig {
   // derinligini OKUYAN bir gecis girer ve graph derinligi SAKLAR (aksi halde transient). Mali-G72 1080p'de
   // saklamanin bedeli +0,73 ms, seyrek isaretleme 1,56 ms (#183); CSM ayni sahnede +12,8 ms (#184).
   bool vsm = false;
+  VsmPassConfig vsm_settings{}; // sayfa onbellegi / atlas / isaretleme ayarlari (vsm acikken)
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk
 
   // --- FAZ 9: GPU gorunurluk kumeleme + dolayli cizim — VARSAYILAN KAPALI ---
@@ -611,6 +613,9 @@ public:
   void set_jitter(bool on) { cfg_.temporal.jitter = on; }
   // Jitter'siz (kamera) ve jitter'li projeksiyon — kapilar bunu karsilastirir.
   Mat4 jittered_proj() const { return jittered_proj_; }
+  // VSM gecisi (RendererConfig::vsm). enabled false ise disabled_reason sebebi soyler.
+  const VsmPassInfo &vsm() const { return vsm_pass_.info(); }
+  VsmPass &vsm_pass() { return vsm_pass_; }
   // Radikal ters (van der Corput) tabani `base`; Halton dizisinin i. terimi.
   // i = 0 -> 0; dizi 1'den baslatilir (0 kaymasi jitter'i etkisiz birakirdi).
   static float halton(uint32_t i, uint32_t base);
@@ -1116,6 +1121,9 @@ private:
   uint32_t scaled_w_ = 1, scaled_h_ = 1;
   uint32_t temporal_frame_ = 0; // jitter fazi (begin_frame basina artar)
   Mat4 jittered_proj_{};
+  VsmPass vsm_pass_;
+  VsmPassCaster *vsm_casters_ = nullptr; // max_draws, init'te arenadan
+  VkFormat hdr_depth_fmt_ = VK_FORMAT_UNDEFINED;
   Mat4 prev_viewproj_{};
   bool has_prev_vp_ = false;
   bool motion_recorded_ = false; // MV hedefi en az bir kez yazildi (okuma icin)

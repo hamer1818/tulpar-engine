@@ -141,7 +141,7 @@ void vk_api_load_device(VkApi &api, VkDevice dev) {
   G(vkCmdBeginRenderPass); G(vkCmdNextSubpass); G(vkCmdEndRenderPass);
   G(vkCmdBindPipeline); G(vkCmdSetViewport); G(vkCmdSetScissor); G(vkCmdDraw);
   G(vkCmdPipelineBarrier); G(vkCmdCopyImageToBuffer); G(vkCmdExecuteCommands);
-  G(vkCmdClearDepthStencilImage); G(vkCmdClearAttachments);
+  G(vkCmdClearDepthStencilImage); G(vkCmdClearAttachments); G(vkCmdFillBuffer);
   G(vkCreateSwapchainKHR); G(vkDestroySwapchainKHR); G(vkGetSwapchainImagesKHR); G(vkAcquireNextImageKHR); G(vkQueuePresentKHR);
   G(vkCreateSemaphore); G(vkDestroySemaphore); G(vkResetCommandBuffer); G(vkFreeCommandBuffers);
   G(vkCmdBindVertexBuffers); G(vkCmdBindIndexBuffer); G(vkCmdDrawIndexed); G(vkCmdPushConstants); G(vkCmdCopyBuffer);

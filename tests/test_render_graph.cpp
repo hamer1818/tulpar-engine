@@ -1226,11 +1226,20 @@ ENGINE_TEST(render_graph_depth_is_stored_only_when_read) {
 // degistirmemeli; PostInfo.depth_stored tablonun kararini disari verir.
 ENGINE_TEST(render_graph_stored_depth_is_pixel_identical) {
   if (!loader_ok()) { skip("Vulkan loader yok"); return; }
-  OrtakGpu &g = ortak_gpu();
-  if (!g.ok) { skip("Vulkan cihazi yok"); return; }
-  Device &dev = g.dev;
-  SystemArena &sys = g.sys;
+  // Kendi cihazi, DOGRULAMA ACIK. Ortak (dogrulamasiz) cihazla bu kapi, saklanan derinligin subpass bagimliligina
+  // sizan COMPUTE asamasini (VUID-VkRenderPassCreateInfo-pDependencies-00837) GORMEDI — 2026-11-23.
+  static SystemArena sys;
+  if (!sys.reserve(192u << 20, "derinlik_sakli")) { CHECK(false); return; }
+  // KENDI VkApi tablosu: paylasilan g_api'ye ikinci bir cihazin (dogrulama katmanli) islevlerini yuklemek, bu cihaz
+  // kapaninca sonraki testlerin ortak cihazini oluk isaretcilerle birakiyordu (renderer_ui_* SIGSEGV, 2026-11-23).
+  static VkApi api;
+  if (!vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static Device dev;
+  DeviceConfig dc;
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { skip("Vulkan cihazi yok"); return; }
   if (test::gpu_is_virtual(dev.caps().device_name)) {
+    dev.shutdown();
     skip("sanal GPU (Apple Paravirtual): piksel kapisi gercek cihazda olculur");
     return;
   }
@@ -1291,6 +1300,127 @@ ENGINE_TEST(render_graph_stored_depth_is_pixel_identical) {
     CHECK(dev.validation_errors() == hata0);
   }
   offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// --- 7c. VSM isaretleme gecisi renderer'da (2026-11-23) ----------------------
+// Renderer'in KENDI sahne derinliginden (graph'in sakladigi kResDepth) GPU'nun istedigi tekil sayfalar, ayni derinlik
+// geri okunup CPU basvurusuyla (vsm_mark_from_depth, ayni adim) isaretlendiginde bulunanlarla AYNI olmali. Liste bir
+// kare gecikmeyle onbellege girer (frames_in_flight 1). Sonra: statik kare -> 0 sayfa cizimi; bir kup kayar ->
+// yalniz onun sayfalari kirlenir; isik doner -> onbellek sifirlanir (sayilir). Dogrulama hatasi 0.
+ENGINE_TEST(render_graph_vsm_mark_pass_matches_cpu_from_renderer_depth) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  // Kendi cihazi, DOGRULAMA ACIK: "dogrulama hatasi 0" ancak katman gercekten yukluyse bir sey olcer.
+  static SystemArena sys;
+  if (!sys.reserve(192u << 20, "vsm_gecis")) { CHECK(false); return; }
+  // KENDI VkApi tablosu: paylasilan g_api'ye ikinci bir cihazin (dogrulama katmanli) islevlerini yuklemek, bu cihaz
+  // kapaninca sonraki testlerin ortak cihazini oluk isaretcilerle birakiyordu (renderer_ui_* SIGSEGV, 2026-11-23).
+  static VkApi api;
+  if (!vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static Device dev;
+  DeviceConfig dc;
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { skip("Vulkan cihazi yok"); return; }
+  std::printf("    [bilgi] dogrulama katmani %s\n", dev.caps().validation_layer ? "ACIK" : "YOK");
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    // CI macOS Paravirtual: derinlik cizilmiyor (CPU basvurusu da 0 sayfa buldu, 2026-11-23 #186) — piksel/derinlik
+    // kapilari gercek cihazda olculur (depodaki diger piksel kapilariyla ayni kural).
+    dev.shutdown();
+    skip("sanal GPU (Apple Paravirtual): sahne derinligi cizilmiyor, VSM isaretleme kapisi gercek cihazda olculur");
+    return;
+  }
+  const uint32_t W = 256, H = 144;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); return; }
+  renderer::RendererConfig rc;
+  rc.frames_in_flight = 1;
+  rc.shadow_size = 512;
+  rc.max_draws = 128;
+  rc.post = true;
+  rc.post_width = W;
+  rc.post_height = H;
+  rc.vsm = true;
+  rc.vsm_settings.pages.pool_pages = 256;
+  rc.vsm_settings.atlas.tile_px = 64;
+  rc.vsm_settings.atlas.tiles_x = 16;
+  const uint32_t hata0 = dev.validation_errors();
+  static renderer::Renderer ren;
+  CHECK(ren.init(dev, sys, offscreen_render_pass(off), rc));
+  if (!ren.post().enabled || !ren.vsm().enabled) {
+    std::printf("    [bilgi] post: %s, vsm: %s\n", ren.post().disabled_reason, ren.vsm().disabled_reason);
+    CHECK(false);
+    ren.shutdown();
+    offscreen_destroy(off);
+    return;
+  }
+  renderer::Vertex v[24];
+  uint32_t idx[36];
+  uint32_t n = renderer::Renderer::cube(v, idx);
+  const renderer::MeshHandle kup = ren.create_mesh(v, 24, idx, n);
+  n = renderer::Renderer::plane(v, idx);
+  const renderer::MeshHandle zemin = ren.create_mesh(v, 4, idx, n);
+  const Vec3 isik0 = normalize(Vec3{0.4f, 1.0f, 0.3f});
+  ren.set_light(isik0, {0.1f, 0.1f, 0.12f}, 0.9f);
+  ren.set_render_size(W, H);
+  const Vec3 goz{0, 6, 10};
+  ren.set_camera(Mat4::look_at(goz, {0, 0, -4}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 200.0f));
+  Vec3 kx{0, 1, -2};
+  Rec rr{&ren};
+  auto kare = [&]() {
+    ren.begin_frame(0);
+    ren.draw(zemin, Mat4::scale({80, 1, 80}), {0.8f, 0.8f, 0.8f});
+    ren.draw(kup, Mat4::translate(kx) * Mat4::scale({2, 2, 2}), {0.9f, 0.3f, 0.2f});
+    ren.draw(kup, Mat4::translate({-3, 0.75f, 1}) * Mat4::scale({1, 1.5f, 3}), {0.3f, 0.9f, 0.2f});
+    CHECK(offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before));
+    return ren.vsm();
+  };
+  const renderer::VsmPassInfo k1 = kare(); // liste yaziliyor; onbellege henuz bir sey girmedi
+  static float depth[W * H];
+  CHECK(ren.vsm_pass().read_depth(depth));
+  const Mat4 inv = inverse(ren.jittered_proj() * Mat4::look_at(goz, {0, 0, -4}, {0, 1, 0}));
+  // CPU basvurusu: ayni derinlik, ayni adim, ayni onbellek yapilandirmasi.
+  static renderer::VsmPageCache ref;
+  static SystemArena ref_arena;
+  CHECK(ref_arena.reserve(1u << 20, "vsm_ref"));
+  CHECK(ref.init(ref_arena, rc.vsm_settings.pages, -isik0));
+  ref.begin_frame(goz);
+  renderer::vsm_mark_from_depth(ref, depth, W, H, inv, rc.vsm_settings.mark_stride);
+  const uint32_t ref_n = ref.stats().requested;
+  const renderer::VsmPassInfo k2 = kare(); // kare 1'in listesi beslendi, sayfalar cizildi
+  uint32_t ortak = 0;
+  for (uint32_t i = 0; i < ref.render_count(); i++) ortak += ren.vsm_pass().cache().is_valid(ref.render_list()[i].key);
+  std::printf("    [bilgi] %s %ux%u: kare 1 istek %u; kare 2 GPU istek %u / CPU basvurusu %u, ortak %u, cizilen sayfa %u "
+              "(dokum cizimi %u, elenen %u); tasma %u/%u/%u\n",
+              dev.caps().device_name, W, H, k1.requested, k2.requested, ref_n, ortak, k2.pages_drawn, k2.caster_draws,
+              k2.casters_culled, k2.list_overflow, k2.table_full, k2.out_of_range);
+  CHECK(k1.requested == 0 && k1.pages_drawn == 0);
+  CHECK(ref_n > 10 && k2.requested == ref_n && ortak == ref.render_count() && ref.render_count() == ref_n);
+  CHECK(k2.pages_drawn == ref_n && k2.caster_draws > 0);
+  CHECK(k2.list_overflow == 0 && k2.table_full == 0 && k2.out_of_range == 0);
+  // Statik: ayni istekler isabet, cizim yok, kirlenme yok.
+  const renderer::VsmPassInfo k3 = kare();
+  // Kup kayar: yalniz eski + yeni konumunun sayfalari kirlenir ve yeniden cizilir.
+  kx.x += 1.5f;
+  const renderer::VsmPassInfo k4 = kare();
+  // Isik doner: onbellek sifirlanir (sayilir), ilk karede istek yok (eski tabanin listeleri atildi).
+  ren.set_light(normalize(Vec3{-0.3f, 1.0f, 0.5f}), {0.1f, 0.1f, 0.12f}, 0.9f);
+  const renderer::VsmPassInfo k5 = kare();
+  std::printf("    [bilgi] kare 3 (statik): cizilen %u, kirlenen %u; kare 4 (kup kaydi): kirlenen %u, cizilen %u / yerlesik %u; "
+              "kare 5 (isik dondu): sifirlama %u, yerlesik %u, istek %u; dogrulama hatasi %u\n",
+              k3.pages_drawn, k3.invalidated, k4.invalidated, k4.pages_drawn, k4.resident, k5.light_resets, k5.resident,
+              k5.requested, dev.validation_errors() - hata0);
+  CHECK(k3.pages_drawn == 0 && k3.invalidated == 0 && k3.requested == ref_n);
+  CHECK(k4.invalidated > 0 && k4.pages_drawn == k4.invalidated && k4.pages_drawn < k4.resident);
+  CHECK(k5.light_resets == 1 && k5.resident == 0 && k5.requested == 0);
+  CHECK(dev.validation_errors() == hata0);
+  ren.shutdown();
+  offscreen_destroy(off);
+  dev.shutdown();
 }
 
 // --- 8. cull yolunda Mali en iyi uygulama denetimi -------------------------
