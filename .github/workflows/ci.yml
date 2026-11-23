@@ -1680,3 +1680,111 @@ jobs:
           bash tools/tulpar_indir.sh "$d" || exit 1
           clang++ --version | head -1
           bash tools/windows_kapilar.sh kopru "$d/tulpar.exe"
+  # ---------------------------------------------------------------------------
+  # WINDOWS ARM64 (2026-11-23, FIZIBILITE): Snapdragon X sinifi Windows dizustuler. Bu is GERCEK ARM64 donanimda
+  # (GitHub windows-11-arm, depo herkese acik) MSYS2 CLANGARM64 (clang + lld + libc++, UCRT) ile derler ve butun
+  # testleri kosar. Olctugu sey: AArch64 fiber gecisinin WINDOWS dali (x18 = TEB, StackBase/StackLimit/
+  # DeallocationStack; core/jobs/fiber_switch_aarch64.S), clang ile Windows yolu, lavapipe'in UCRT/arm64'te
+  # Tuzaklar 8cr sinifini tasiyip tasimadigi (windows_vulkan_icd.sh bellek sondasi).
+  # ZORUNLU CHECK DEGIL (dal korumasi uc isi ister); yesil kalmasi kanitlanana kadar oyle kalir. continue-on-error
+  # YOK: kirmiziysa kirmizi gorunur. Paketleme / artefakt / surum adimlari yok — yalniz derle + olc.
+  # ---------------------------------------------------------------------------
+  windows-arm64:
+    name: Windows arm64 (MSYS2 CLANGARM64)
+    needs: detect-docs-only
+    if: needs.detect-docs-only.outputs.docs_only != 'true'
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Satir sonu ayari
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: CLANGARM64
+          update: false
+
+      - name: MSYS2 paketleri (CLANGARM64)
+        run: bash tools/windows_msys2.sh kur tools/windows_msys2_paketler_arm64.txt
+
+      - name: Arac zinciri
+        run: |
+          uname -a
+          clang --version | head -2
+          cmake --version | head -1
+          python3 -c "import platform; print('python', platform.machine())"
+
+      - name: Yazilim Vulkan ICD'si (lavapipe) + dogrulama katmani + bellek sondasi
+        env:
+          TULPAR_VK_ICD: lavapipe
+        run: bash tools/windows_vulkan_icd.sh kur
+
+      - name: ccache onbellegi (geri yukle)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ccache-windows-arm64-
+
+      - name: Katman denetimi
+        run: python3 tools/layer_check.py .
+
+      - name: Yapilandir
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: |
+          ccache --zero-stats
+          cmake -S . -B yapi -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          grep -E '^CMAKE_SYSTEM_PROCESSOR|^CMAKE_CXX_COMPILER:' yapi/CMakeCache.txt || true
+
+      - name: Derle
+        id: derle
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: cmake --build yapi -j"$(nproc)"
+
+      - name: ccache onbellegini kaydet
+        if: always() && steps.derle.outcome != 'skipped' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-windows-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Ikili gercekten ARM64 mu
+        run: |
+          set -euo pipefail
+          # PE basligindaki Machine alani: 0xAA64 = ARM64. Emule edilen bir x64 ikilisi bu isi anlamsiz kilardi.
+          python3 - yapi/engine_tests.exe <<'PY'
+          import struct, sys
+          d = open(sys.argv[1], 'rb').read(4096)
+          pe = struct.unpack_from('<I', d, 0x3C)[0]
+          m = struct.unpack_from('<H', d, pe + 4)[0]
+          print('PE Machine 0x%04X' % m)
+          sys.exit(0 if m == 0xAA64 else 1)
+          PY
+
+      - name: Fiber is sistemi (Windows ARM64 dali)
+        run: |
+          set -uo pipefail
+          ./yapi/engine_tests job 2>&1 | tr -d '\r' | tee fiber.log
+          grep -E '^engine tests: [0-9]+ passed, 0 failed' fiber.log || { echo "::error::fiber/is sistemi testleri kirmizi ya da ozet yok"; exit 1; }
+
+      - name: Atlama mekanizmasinin pozitif kontrolu
+        run: bash tools/windows_kapilar.sh atlama-kontrol
+
+      - name: Dogrulama katmani atlamasinin pozitif kontrolu
+        run: bash tools/windows_kapilar.sh katman-kontrol
+
+      - name: Testler + kapi
+        env:
+          KAPI_BASLIK: "Windows arm64 (MSYS2 CLANGARM64, lavapipe)"
+        run: bash tools/windows_kapilar.sh testler
