@@ -43,7 +43,8 @@ ROOT = os.path.dirname(ENGINE)
 SHADERS = os.path.join(ENGINE, "rhi", "shaders")
 # C++ tarafinda GPU struct'larinin arandigi basliklar.
 CPP_HEADERS = [os.path.join(ENGINE, "renderer", "renderer.hpp"),
-               os.path.join(ENGINE, "renderer", "cull.hpp")]
+               os.path.join(ENGINE, "renderer", "cull.hpp"),
+               os.path.join(ENGINE, "renderer", "vsm_pages.hpp")]
 
 sys.path.insert(0, HERE)
 import spirv_reflect as spv  # noqa: E402
@@ -315,6 +316,7 @@ def match_struct(block_members, cands, kind):
 PROBE_HEAD = """// URETILMIS SONDA — layout_check.py. Struct metinleri basliktan OLDUGU GIBI.
 #include "renderer/renderer.hpp"
 #include "renderer/cull.hpp"
+#include "renderer/vsm_pages.hpp"
 #include <cstdio>
 #include <cstddef>
 #include <cstdint>

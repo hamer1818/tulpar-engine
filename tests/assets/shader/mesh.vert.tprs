@@ -1,11 +1,23 @@
 // kaynak-ozet: 82d27cdf3cd8  (engine/rhi/shaders/mesh.vert)
-// Forward temel: pozisyon + normal; kare UBO, push sabiti (model, renk).
-// G3 (sabit boy dizi) kullanir.
+// kaynak-ozet: f6fc1b17d6b1  (engine/rhi/shaders/mesh_skin.vert)
+// kaynak-ozet: c077a1446cbe  (engine/rhi/shaders/mesh_cull.vert)
+// Forward mesh vertex AILESI (Faz 8.5). Uc elle yazilmis shader'in ORTAK kaynagi; her varyantin
+// SPIR-V'si kendi GLSL'iyle bayt aynidir (tpr_shader.py --check).
+//   mesh       : temel; pozisyon + normal, push sabiti (model, renk)
+//   mesh_skin  : GPU skinning, 4 eklem/4 agirlik; eklem matrisleri SSBO'da (set 0, binding 4), skin.x = ofset
+//   mesh_cull  : DOLAYLI yol; model/renk cizim SSBO'sundan, gorunurluk listesi cull gecisinden
 str asama = "vert";
+varyant("mesh");
+varyant("mesh_skin", "iskelet");
+varyant("mesh_cull", "dolayli");
 
 vec3 in_pos = girdi(0);
 vec2 in_nrm_oct = girdi(1); // oktahedral SNORM16x2
 vec2 in_uv = girdi(2);
+if (ozellik("iskelet")) {
+  uvec4 in_joints = girdi(3);
+  vec4 in_weights = girdi(4); // UNORM16, toplam 1
+}
 
 struct Frame {
   mat4 viewproj;
@@ -20,7 +32,29 @@ struct Frame {
 }
 Frame u = tekduze(0, 0);
 
-struct Push { mat4 model; vec4 color; }
+if (ozellik("iskelet")) {
+  struct Skin { mat4[] m; }
+  Skin u_skin = depo(0, 4);
+}
+if (ozellik("dolayli")) {
+  struct DrawItem {
+    mat4 model;
+    vec4 color;
+    vec4 sphere;
+    uvec4 misc;
+  }
+  struct Draws { DrawItem[] d; }
+  Draws u_draws = depo(0, 5);
+  struct Visible { uint[] v; }
+  Visible u_vis = depo(0, 6);
+}
+
+// Temel yol skin alanini tasimaz: push blogu varyanta gore iki bicimde.
+if (ozellik("iskelet") || ozellik("dolayli")) {
+  struct Push { mat4 model; vec4 color; uvec4 skin; }
+} else {
+  struct Push { mat4 model; vec4 color; }
+}
 Push pc = itme();
 
 vec3 v_nrm = cikti(0);
@@ -38,11 +72,19 @@ func oct_decode(vec2 e): vec3 {
   return normalize(n);
 }
 func main() {
-  vec4 world = pc.model * vec4(in_pos, 1.0);
+  if (ozellik("iskelet")) {
+    mat4 skin = in_weights.x * u_skin.m[pc.skin.x + in_joints.x] + in_weights.y * u_skin.m[pc.skin.x + in_joints.y] +
+                in_weights.z * u_skin.m[pc.skin.x + in_joints.z] + in_weights.w * u_skin.m[pc.skin.x + in_joints.w];
+    mat4 ms = pc.model * skin;
+  }
+  if (ozellik("dolayli")) {
+    DrawItem D = u_draws.d[u_vis.v[pc.skin.z + u32(gl_InstanceIndex)]];
+  }
+  vec4 world = (ozellik("iskelet") ? ms : (ozellik("dolayli") ? D.model : pc.model)) * vec4(in_pos, 1.0);
   gl_Position = u.viewproj * world;
-  vec3 wn = normalize(mat3(pc.model) * oct_decode(in_nrm_oct));
+  vec3 wn = normalize(mat3(ozellik("iskelet") ? ms : (ozellik("dolayli") ? D.model : pc.model)) * oct_decode(in_nrm_oct));
   v_nrm = wn;
-  v_color = pc.color.rgb;
+  v_color = (ozellik("dolayli") ? D.color : pc.color).rgb;
   v_uv = in_uv;
   v_world = world.xyz;
   v_viewz = -(u.view * world).z; // ileri derinlik (>0), kume dilimi icin

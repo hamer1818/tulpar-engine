@@ -21,6 +21,11 @@ bildirimleridir; baslatici bir ISARET CAGRISIDIR:
     Skin s        = depo(0, 4);          // readonly std430 SSBO   (depo_yaz: writeonly)
     float k       = ozel(0, 1.0);        // layout(constant_id=0) const
 
+Varyant ailesi (Faz 8.5, FAZ8.md §10): bir dosya birden cok shader uretebilir —
+`varyant("ad", "ozellik", ...);` bildirimleri + statik `if (ozellik("x"))` (ust
+duzeyde, govdede) ve `ozellik("x") ? a : b` ifadesi. Her varyant `<ad>.<asama>`
+birimi olur (`--varyant ad` ile secilir); denetimler birim basina kosar.
+
 Skaler donusum `float(x)`/`int(x)` BUGUNKU TULPAR GRAMERINDE AYRISMIYOR
 (`float`/`int` anahtar kelime, cagrilabilir ad degil). Alt kume bu yuzden
 `f32(x)` / `i32(x)` / `u32(x)` yazar. Bu bir tercih degil, olculmus bir
@@ -266,6 +271,28 @@ class Parser:
             return self.parse_struct()
         if self.at("func"):
             return self.parse_func()
+        # Faz 8.5 varyant ailesi: `varyant("ad", "ozellik", ...);` bildirimi ve
+        # `if (ozellik("x")) { <ust duzey> } else { ... }` statik secimi.
+        if self.cur().kind == "id" and self.cur().text == "varyant" \
+                and self.next().text == "(":
+            self.i += 1
+            self.want("(")
+            args = []
+            while not self.at(")"):
+                if self.cur().kind != "str":
+                    raise ShaderError("varyant(...) yalniz dize alir", line)
+                args.append(self.cur().text)
+                self.i += 1
+                if not self.eat(","):
+                    break
+            self.want(")")
+            self.want(";")
+            if not args:
+                raise ShaderError("varyant() en az bir ad ister", line)
+            return {"k": "varyant", "name": args[0], "features": args[1:],
+                    "line": line}
+        if self.at("if"):
+            return self.parse_toplevel_if()
         # <Tip> <ad> = <isaret>(...);   ya da  <Tip> <ad> = <ifade>;
         if self.is_type_start() and (self.next().kind == "id"
                                      or self.next().text == "["):
@@ -282,6 +309,30 @@ class Parser:
             return {"k": "global", "type": ty, "name": name, "init": init,
                     "line": line}
         raise ShaderError("ust duzeyde beklenmeyen %r" % self.cur().text, line)
+
+    def parse_toplevel_if(self):
+        line = self.cur().line
+        self.want("if")
+        self.want("(")
+        cond = self.parse_expr()
+        self.want(")")
+        then = self.parse_toplevel_block()
+        other = None
+        if self.eat("else"):
+            other = [self.parse_toplevel_if()] if self.at("if") \
+                else self.parse_toplevel_block()
+        return {"k": "tif", "cond": cond, "then": then, "else": other,
+                "line": line}
+
+    def parse_toplevel_block(self):
+        self.want("{")
+        out = []
+        while not self.at("}"):
+            if self.at_kind("eof"):
+                raise ShaderError("ust duzey blok kapanmadi", self.cur().line)
+            out.append(self.parse_toplevel())
+        self.want("}")
+        return out
 
     def parse_struct(self):
         line = self.cur().line
@@ -1015,6 +1066,168 @@ def parse_file(path):
         return Parser(lex(f.read())).parse_program()
 
 
+# ---------------------------------------------------------------------------
+# Faz 8.5 — VARYANT AILESI (permutation)
+# ---------------------------------------------------------------------------
+# Bir .tprs birden cok elle yazilmis shader'in ORTAK kaynagi olabilir:
+#
+#     varyant("shadow");                       // -> shadow.vert
+#     varyant("shadow_skin", "iskelet");       // -> shadow_skin.vert
+#     if (ozellik("iskelet")) { uvec4 in_joints = girdi(3); }
+#     ...  if (ozellik("dolayli")) { ... } else { ... }   // govdede de
+#     ...  (ozellik("iskelet") ? ms : pc.model) * p       // ifadede de
+#
+# Cozum TAMAMEN STATIK ve uretimden ONCE: her varyant icin `ozellik(...)` sabit
+# bool'a katlanir, secilmeyen dal AST'den silinir, secilen dalin deyimleri
+# CEVRELEYEN bloga acilir (kapsam degismez — elle yazilmis surumun yazdigi
+# gibi). Sonra tip denetimi + uretim varyant basina olagan yoldan gecer.
+# Bildirilmemis bir ozellik adi (yazim hatasi) HATADIR: yoksa `ozellik("iskelt")`
+# her varyantta sessizce false olur ve dal hic uretilmezdi.
+
+OZELLIK_FN = "ozellik"
+
+
+def _uses_ozellik(node):
+    if isinstance(node, dict):
+        if node.get("k") == "call" and node["fn"].get("k") == "id" \
+                and node["fn"]["name"] == OZELLIK_FN:
+            return True
+        return any(_uses_ozellik(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_uses_ozellik(v) for v in node)
+    return False
+
+
+class _Varyant:
+    def __init__(self, feats, known):
+        self.feats = feats
+        self.known = known
+
+    def ozellik(self, e, line):
+        a = e["args"]
+        if len(a) != 1 or a[0]["k"] != "str":
+            raise ShaderError("ozellik() tek dize arguman ister", line)
+        name = a[0]["text"]
+        if name not in self.known:
+            raise ShaderError("bilinmeyen ozellik %r (varyant() bildirimlerinde yok: %s)"
+                              % (name, ", ".join(sorted(self.known)) or "-"), line)
+        return name in self.feats
+
+    def cond(self, e, line):
+        """Statik kosulu degerlendir: yalniz ozellik(), true/false, !, &&, ||, parantez."""
+        k = e["k"]
+        if k == "paren":
+            return self.cond(e["e"], line)
+        if k == "bool":
+            return e["text"] == "true"
+        if k == "un" and e["op"] == "!":
+            return not self.cond(e["e"], line)
+        if k == "bin" and e["op"] in ("&&", "||"):
+            l, r = self.cond(e["l"], line), self.cond(e["r"], line)
+            return (l and r) if e["op"] == "&&" else (l or r)
+        if k == "call" and e["fn"].get("k") == "id" and e["fn"]["name"] == OZELLIK_FN:
+            return self.ozellik(e, line)
+        raise ShaderError("varyant kosulu yalniz ozellik(...), !, &&, || icerebilir "
+                          "(GPU degeri ile karistirilamaz)", line)
+
+    def node(self, n, line=0):
+        if isinstance(n, list):
+            return [self.node(x, line) for x in n]
+        if not isinstance(n, dict):
+            return n
+        line = n.get("line", line)
+        k = n.get("k")
+        if k == "block":
+            return dict(n, stmts=self.stmts(n["stmts"], line))
+        if k == "if" and _uses_ozellik(n["cond"]):
+            # else-if zincirinin icinde: tek dugum dondurmeli; bos dal = bos blok.
+            pick = n["then"] if self.cond(n["cond"], line) else n["else"]
+            return self.node(pick, line) if pick is not None \
+                else {"k": "block", "stmts": [], "line": line}
+        if k == "ternary" and _uses_ozellik(n["cond"]):
+            return self.node(n["a"] if self.cond(n["cond"], line) else n["b"], line)
+        if k == "paren" and n["e"].get("k") == "ternary" and _uses_ozellik(n["e"]["cond"]):
+            inner = self.node(n["e"], line)
+            # Katlanan secim atomik bir ifadeyse parantezi de at (GLSL elle yazilan gibi).
+            return inner if inner["k"] in ("id", "member", "index", "call", "num", "bool", "paren") \
+                else {"k": "paren", "e": inner}
+        if k == "call" and n["fn"].get("k") == "id" and n["fn"]["name"] == OZELLIK_FN:
+            return {"k": "bool", "text": "true" if self.ozellik(n, line) else "false"}
+        return {key: self.node(v, line) for key, v in n.items()}
+
+    def stmts(self, lst, line):
+        out = []
+        for s in lst:
+            if s.get("k") == "if" and _uses_ozellik(s["cond"]):
+                pick = s["then"] if self.cond(s["cond"], s.get("line", line)) else s["else"]
+                if pick is None:
+                    continue
+                out.extend(self.stmts(pick["stmts"] if pick["k"] == "block" else [pick],
+                                      s.get("line", line)))
+            else:
+                out.append(self.node(s, line))
+        return out
+
+    def toplevel(self, decls):
+        out = []
+        for d in decls:
+            if d["k"] == "varyant":
+                continue
+            if d["k"] == "tif":
+                if not _uses_ozellik(d["cond"]):
+                    raise ShaderError("ust duzey if yalniz varyant kosulu olabilir "
+                                      "(ozellik(...))", d["line"])
+                pick = d["then"] if self.cond(d["cond"], d["line"]) else d["else"]
+                out.extend(self.toplevel(pick or []))
+                continue
+            out.append(self.node(d))
+        return out
+
+
+def _collect_variants(decls):
+    vs = [d for d in decls if d["k"] == "varyant"]
+    seen = set()
+    for d in vs:
+        if d["name"] in seen:
+            raise ShaderError("varyant %r iki kez bildirilmis" % d["name"], d["line"])
+        seen.add(d["name"])
+    return vs
+
+
+def file_units(path):
+    """Bir .tprs'in uretecegi BIRIMLER: [(cikti_adi, cozulmus_decls)].
+
+    Varyantsiz dosya -> tek birim, adi dosya adindan (`mesh.frag`). Aile dosyasi ->
+    varyant basina bir birim, adi `<varyant>.<asama>` (`shadow_skin.vert`)."""
+    decls = parse_file(path)
+    vs = _collect_variants(decls)
+    known = set(f for d in vs for f in d["features"])
+    if not vs:
+        if _uses_ozellik(decls):
+            raise ShaderError("ozellik() kullaniliyor ama dosyada varyant() bildirimi yok")
+        return [(os.path.basename(path)[:-5], _Varyant(set(), set()).toplevel(decls))]
+    stage = tprs_stage(path)
+    if stage is None:
+        raise ShaderError('asama bildirilmemis: str asama = "vert"|"frag";')
+    return [("%s.%s" % (d["name"], stage), _Varyant(set(d["features"]), known).toplevel(decls))
+            for d in vs]
+
+
+def units(directory):
+    """Dizindeki butun birimler: [(cikti_adi, .tprs yolu)] — aile dosyasi birden cok satir verir.
+
+    Ayristirilamayan dosya kendi adiyla TEK satir verir (cagiran translate'te hatayi gorur)."""
+    out = []
+    for f in sorted(x for x in os.listdir(directory) if x.endswith(".tprs")):
+        p = os.path.join(directory, f)
+        try:
+            names = [n for n, _ in file_units(p)]
+        except ShaderError:
+            names = [f[:-5]]
+        out.extend((n, p) for n in names)
+    return out
+
+
 def typecheck(decls):
     """Faz 8.2: tip hatasi glslc'ye kalmadan, .tprs satiriyla burada duser."""
     try:
@@ -1023,8 +1236,21 @@ def typecheck(decls):
         raise ShaderError(e.msg, e.line)
 
 
-def translate(path):
-    decls = parse_file(path)
+def unit_decls(path, unit=None):
+    """`path`'in `unit` birimi icin cozulmus decls. unit=None yalniz tek birimli dosyada gecerli."""
+    us = file_units(path)
+    if unit is None:
+        if len(us) != 1:
+            raise ShaderError("aile dosyasi: varyant secilmeli (%s)" % ", ".join(n for n, _ in us))
+        return us[0][1]
+    for n, d in us:
+        if n == unit or n.rsplit(".", 1)[0] == unit:
+            return d
+    raise ShaderError("%r birimi yok (%s)" % (unit, ", ".join(n for n, _ in us)))
+
+
+def translate(path, unit=None):
+    decls = unit_decls(path, unit)
     typecheck(decls)
     return Emitter(decls, path).emit()
 
@@ -1054,12 +1280,12 @@ def cmd_tip_kontrol(directory):
     """Faz 8.2 kapisi: (1) butun .tprs'ler tiplenir, (2) bozulmus ornekler dusmeli, (3) MUTASYON: gercek
     shader'lardaki her baslaticili vecN bildiriminin boyu degistirilir, hepsi yakalanmali."""
     import copy
-    files = sorted(f for f in os.listdir(directory) if f.endswith(".tprs"))
+    files = units(directory)
     kotu = 0
     toplam_ifade = 0
-    for f in files:
+    for f, path in files:
         try:
-            ne, ns = typecheck(parse_file(os.path.join(directory, f)))
+            ne, ns = typecheck(unit_decls(path, f))
             toplam_ifade += ne
             print("  TEMIZ  %-26s %5d ifade, %4d deyim tiplendi" % (f, ne, ns))
         except ShaderError as e:
@@ -1116,8 +1342,8 @@ def cmd_tip_kontrol(directory):
                 decls_with_vec(v, out)
 
     mut, yakalanan = 0, 0
-    for f in files:
-        base = parse_file(os.path.join(directory, f))
+    for f, path in files:
+        base = unit_decls(path, f)
         hedefler = []
         decls_with_vec(base, hedefler)
         for i in range(len(hedefler)):
@@ -1185,9 +1411,17 @@ def source_digest(base):
 
 
 PIN_RE = re.compile(r"//\s*kaynak-ozet:\s*([0-9a-f]{12})")
+PIN_LINE_RE = re.compile(r"//\s*kaynak-ozet:\s*([0-9a-f]{12})\s*\(engine/rhi/shaders/([^)\s]+)\)")
 
 
-def pinned_digest(src):
+def pinned_digest(src, base=None):
+    """Ozet satiri. Aile dosyasinda varyant basina bir satir vardir: `base` ile secilir."""
+    if base is not None:
+        for m in PIN_LINE_RE.finditer(src):
+            if m.group(2) == base:
+                return m.group(1)
+        if len(PIN_RE.findall(src)) > 1:
+            return None
     m = PIN_RE.search(src)
     return m.group(1) if m else None
 
@@ -1200,23 +1434,25 @@ def cmd_pin(directory):
     ozet tutmuyorsa denetim GORUNUR bicimde "kaynak degismis" der.
     """
     n = 0
-    for f in sorted(os.listdir(directory)):
-        if not f.endswith(".tprs"):
+    byfile = {}
+    for base, path in units(directory):
+        byfile.setdefault(path, []).append(base)
+    for path in sorted(byfile):
+        f = os.path.basename(path)
+        lines = []
+        for base in byfile[path]:
+            dig = source_digest(base)
+            if dig is None:
+                print("  %s: depoda %s yok, atlandi" % (f, base))
+                continue
+            lines.append("// kaynak-ozet: %s  (engine/rhi/shaders/%s)\n" % (dig, base))
+            print("  %s [%s] -> %s" % (f, base, dig))
+        if not lines:
             continue
-        base = f[:-5]
-        dig = source_digest(base)
-        if dig is None:
-            print("  %s: depoda %s yok, atlandi" % (f, base))
-            continue
-        path = os.path.join(directory, f)
         src = open(path).read()
-        line = "// kaynak-ozet: %s  (engine/rhi/shaders/%s)\n" % (dig, base)
-        if PIN_RE.search(src):
-            src = re.sub(r"//\s*kaynak-ozet:[^\n]*\n", line, src, count=1)
-        else:
-            src = line + src
-        open(path, "w").write(src)
-        print("  %s -> %s" % (f, dig))
+        # Eski ozet satirlarinin HEPSI cikar, guncel kume dosyanin basina yazilir.
+        src = re.sub(r"//\s*kaynak-ozet:[^\n]*\n", "", src)
+        open(path, "w").write("".join(lines) + src)
         n += 1
     print("%d dosya ozetlendi" % n)
     return 0
@@ -1239,18 +1475,16 @@ def tprs_stage(path):
 
 def cmd_check(directory):
     import tempfile
-    files = sorted(f for f in os.listdir(directory) if f.endswith(".tprs"))
-    if not files:
+    us = units(directory)
+    if not us:
         print("ATLANDI: %s altinda .tprs yok" % directory)
         return 0
     have_glslc = shutil.which("glslc") is not None
     ok = same = diff = failed = 0
     tmp = tempfile.mkdtemp(prefix="tprs")
-    for f in files:
-        path = os.path.join(directory, f)
-        base = f[:-5]  # .tprs at
+    for base, path in us:
         try:
-            glsl = translate(path)
+            glsl = translate(path, base)
         except ShaderError as e:
             print("  KIRMIZI %-24s cevrilemedi: %s" % (base, e))
             failed += 1
@@ -1284,7 +1518,7 @@ def cmd_check(directory):
             print("  YESIL   %-24s %5d bayt SPIR-V (depoda karsiligi yok)"
                   % (base, len(data)))
             continue
-        pin, now = pinned_digest(open(path).read()), source_digest(base)
+        pin, now = pinned_digest(open(path).read(), base), source_digest(base)
         if pin and now and pin != now:
             print("  ATLANDI %-24s kaynak shader degismis (%s -> %s); bayt "
                   "karsilastirmasi yapilmadi — --pin ile guncelle"
@@ -1313,15 +1547,14 @@ def known_gaps(src):
     birakmak, denetimi "dusmesi beklenen" dosyalarla doldurup gercek bir
     gerilemeyi gorunmez kilardi (bkz. Tuzaklar 8am: bayat beklenti = kor kapi).
 
-    Kalan tek acik madde `uint` ailesi: `0u`/`1u` isaretsiz sonekleri. Bu bir
-    GRAMER boslugu degil TIP SISTEMI boslugu (FAZ8.md T3) — `0u`'yu sessizce
-    `int` saymak yanlis bir zihin modeli kurar (`~0u == -1`).
+    Son acik madde T3 (`0u`/`1u` isaretsiz sonekleri) da KAPANDI: TulparLang
+    v3.47.0 (u8..u64 + sonekler) bu sonekleri ayristiriyor — 2026-11-23'te
+    `cull.comp`, `mesh.frag`, `vsm_mark.comp` uc dosya "IYILESME" olarak
+    olculdu ve madde buradan cikarildi. Liste bos: bugun HER .tprs parse
+    hatasiz gecmeli, dusen her dosya GERILEMEDIR.
     """
-    g = []
-    body = re.sub(r"//[^\n]*", "", src)
-    if re.search(r"\b\d+[uU]\b", body):
-        g.append("T3 isaretsiz sonek (0u/1u)")
-    return g
+    del src
+    return []
 
 
 def find_tulpar():
@@ -1428,6 +1661,7 @@ def main():
     ap.add_argument("input", nargs="?", help=".tprs dosyasi")
     ap.add_argument("-o", "--out", help="GLSL cikti dosyasi")
     ap.add_argument("--spv", help="SPIR-V cikti dosyasi (glslc gerekir)")
+    ap.add_argument("--varyant", help="aile dosyasinda uretilecek varyant (or. shadow_skin)")
     ap.add_argument("--check", nargs="?", const=ASSETS, metavar="DIZIN",
                     help="dizindeki tum .tprs'leri cevir, derle, karsilastir")
     ap.add_argument("--tulpar-parse", nargs="?", const=ASSETS, metavar="DIZIN",
@@ -1450,7 +1684,7 @@ def main():
         ap.print_help()
         return 2
     try:
-        glsl = translate(args.input)
+        glsl = translate(args.input, args.varyant)
     except ShaderError as e:
         print("%s: %s" % (args.input, e), file=sys.stderr)
         return 1
