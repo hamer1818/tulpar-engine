@@ -383,7 +383,7 @@ Her dilimin **kapısı** var; kapısı ölçmeyen dilim yok.
 |---|---|---|---|
 | **8.0** | *(bitti — bu belge)* Fizibilite: alt küme + GLSL üretimi + bayt kapısı | 19/21 shader bayt aynı; 11/19 bugünkü gramerden geçiyor | ~1 200 satır Python, **teslim edildi** |
 | **8.1 Gramer boşlukları** ✅ *(bitti — TulparLang #323; 18/19, kalan T3)* | G1 (`float(x)` çağrısı), G3 (`T[N]`), G4 (bit işlemleri `& \| ^ ~ << >>` + atamalı biçimleri), G5 (`const`). Lexer + `parse_type` + `parse_type_decl` + öncelik merdiveni | `--tulpar-parse` **19/19** parse hatasız; mevcut `tests/typeinfer` ve `build.sh test/suites` yeşil kalır | Küçük: ~300–500 satır `src/lexer` + `src/parser`, + typeinfer/LSP kuyruğu |
-| **8.2 GPU tip sistemi** | `f32`, `uint`, `vec2/3/4`, `ivec/uvec`, `mat3/mat4`, swizzle — **yalnız shader bağlamında**, CPU tarafına dokunmadan. `DataType` yerine ayrı bir GPU tip tablosu | `.tprs` **tip hatası** üretebiliyor: `vec3 c = texture(...)` artık `glslc`'ye kalmadan yakalanıyor; pozitif kontrol o satırın katmanını `cevirici`'ye kaydırır | Orta: yeni tip tablosu + ifade tipleme; ~1 500 satır. **PLAN §11 "sistem alt kümesi" ile aynı iş** |
+| **8.2 GPU tip sistemi** ✅ *(2026-11-23, Python çeviricide: `tools/tpr_tip.py`; Tulpar derleyicisinin kendisi hâlâ tipsiz — o 8.3 / PLAN §11)* | `f32`, `uint`, `vec2/3/4`, `ivec/uvec`, `mat3/mat4`, swizzle — **yalnız shader bağlamında**, CPU tarafına dokunmadan. `DataType` yerine ayrı bir GPU tip tablosu | `.tprs` **tip hatası** üretebiliyor: `vec3 c = texture(...)` artık `glslc`'ye kalmadan yakalanıyor; pozitif kontrol o satırın katmanını `cevirici`'ye kaydırır | Orta: yeni tip tablosu + ifade tipleme; ~1 500 satır. **PLAN §11 "sistem alt kümesi" ile aynı iş** |
 | **8.3 Ön uç Tulpar'a taşınır** | Python prototipi atılır; `src/` içinde `.tprs` → GLSL. `tulpar shader` alt komutu; `compile_shaders.py` yerini alır | Aynı bayt kapısı **19/19** yeni çeviriciyle; `engine_tests` etkilenmez | Orta: prototip zaten tasarımı sabitledi |
 | **8.4 Yerleşim doğrulaması** | `std140/std430` ofsetleri Tulpar tarafında hesaplanır, C++ `Renderer::Frame` / `Push` ile **karşılaştırılır** | Bilerek kaydırılmış bir CPU struct'ı kapıyı kırmızı yapar (pozitif kontrol) | Küçük-orta. **Faz 8'in ilk gerçek kazancı buradan gelir** — bugün hiçbir şey bunu denetlemiyor |
 | **8.5 Permutation + reflection** | Sahne bilgisiyle varyant üretimi (gölge açık/kapalı, kademe sayısı, PBR/Lambert); descriptor tablosu shader'dan türetilir | Elle yazılmış varyant sayısı ile üretilen eşleşir; `*_spv.h` toplam boyutu ölçülür | Büyük |
@@ -410,3 +410,23 @@ taşınması için nasıl olsa yapılacak. Faz 8, o alt kümenin **üstüne** ge
 - ~~**`triangle.vert` ve `cull.comp`** taşınmadı (T9, T20)~~ ✅ 2026-11-05 (bkz. baştaki güncel durum).
 - **Hata mesajları tek dilde.** Prototip Türkçe basıyor; `src/`'ye taşındığında `tr_en(...)`'den
   geçmesi gerekir.
+
+## 9. 8.2 GPU tip denetimi (2026-11-23)
+
+`tools/tpr_tip.py`, `tpr_shader.py`'nin AST'sini GLSL üretmeden **önce** tipler; `translate()` her çağrıda koşturur
+(bayt kapısı, `faz8_shader_audit.py`, `--spv` aynı yoldan geçer). Kapsam: skaler/vektör/matris/ornekleyici/struct/dizi,
+GLSL 4.50 örtük dönüşümleri (int→uint, int/uint→float), işleç kuralları, swizzle, kurucular, alt kümenin 60+ yerleşiği,
+kullanıcı fonksiyonu ve demet tipleri, salt okunur hedefe (girdi/tekduze/itme/depo/ornek/ozel/const) yazma. T3 `uint`
+burada **tip** (`1u` literali dahil); Tulpar derleyicisinde hâlâ sıradan ad.
+
+**Kapı** `python3 tools/tpr_shader.py --tip-kontrol` (yerel CI + 2026-11-23'ten beri GitHub Linux işi, `glslc` apt'ten):
+
+| ayak | ne ölçer | ölçüm (yerel, glslc 2026.4) |
+|---|---|---|
+| temiz | 23 `.tprs` tip hatasız; tiplenen ifade sayısı basılır (0 = kapı ölçmüyor = kırmızı) | 23/23, 3 189 ifade |
+| bozulmuş örnekler | 12 hata sınıfı çeviricide **beklenen metinle** düşer; 1 temiz örnek geçer | 13/13 |
+| `glslc` çapraz doğrulama | tip denetimi atlanarak üretilen GLSL'i `glslc` de reddetmeli, temizi kabul etmeli — denetim GLSL'den **katı ya da gevşek değil** | 13/13 uyuşuyor |
+| mutasyon | gerçek shader'lardaki her başlatıcılı `vecN` bildiriminin boyu değiştirilir; hepsi yakalanmalı | 90/90 |
+
+Çapraz doğrulama ilk koşumda bir hatayı **denetimin kendisinde** buldu: `u32(vec2)` reddediliyordu, oysa GLSL'de geçerli
+(ilk bileşen). Kural düzeltildi; kapı bu yüzden var.

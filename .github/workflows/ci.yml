@@ -202,7 +202,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build cmake g++ python3 ccache libvulkan1 mesa-vulkan-drivers vulkan-tools \
-            vulkan-validationlayers libglfw3 clang libssl-dev
+            vulkan-validationlayers libglfw3 clang libssl-dev glslc
+
+      # FAZ 8 SHADER KAPILARI (2026-11-23): bugune kadar yalniz tools/yerel_ci.sh'te koşuyordu ("CI'da glslc yok").
+      # glslc Ubuntu paketinden; iki kapi da referansi AYNI glslc ile derler, surum farki bayt kapisini etkilemez.
+      #   faz8_shader_audit.py  — 23 .tprs'in GLSL'i referansla BAYT AYNI + yerlesim; ATLANDI da kirmizi
+      #   tpr_shader.py --tip-kontrol — Faz 8.2 tip denetimi: 23 temiz, bozulmus ornekler duser VE glslc de
+      #                         reddeder (denetim GLSL'den kati/gevsek degil), vecN mutasyonlarinin hepsi yakalanir
+      - name: Faz 8 shader kapilari (bayt + tip)
+        if: needs.detect-docs-only.outputs.docs_only != 'true' && steps.reuse.outputs.reused != 'true'
+        run: |
+          set -uo pipefail
+          glslc --version | head -1
+          python3 tools/faz8_shader_audit.py 2>&1 | tee faz8.log; rc=${PIPESTATUS[0]}
+          ozet="$(grep -E '^Faz 8 shader denetimi:' faz8.log | tail -1)"
+          if [ "$rc" != 0 ] || ! grep -qE ', 0 kirmizi, 0 atlandi$' <<< "$ozet"; then
+            echo "::error::Faz 8 bayt kapisi: ${ozet:-ozet yok} (rc $rc)"; exit 1
+          fi
+          python3 tools/tpr_shader.py --tip-kontrol 2>&1 | tee tip.log; rc=${PIPESTATUS[0]}
+          if [ "$rc" != 0 ] || grep -q ATLANDI tip.log; then
+            echo "::error::Faz 8.2 tip kapisi kirmizi: $(grep -E 'KIRMIZI|ATLANDI|YANLIS|KACTI' tip.log | head -1)"; exit 1
+          fi
+          { echo "### Faz 8 shader"; echo ""; echo "\`$ozet\`"; echo ""; echo "\`$(grep -E '^mutasyon:' tip.log)\`"; } >> "$GITHUB_STEP_SUMMARY"
 
       # GERI YUKLE / KAYDET AYRI (2026-11-22): actions/cache'in Post adimi yalniz is BASARILIYSA
       # kaydeder; testi dusen ya da yeni push'la iptal edilen PR kosumu derledigini atiyordu ve
