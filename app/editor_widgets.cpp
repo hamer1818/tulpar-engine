@@ -450,7 +450,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     g_vec3_layout.field[a] = item_rect();
     // Rozet alandan SONRA cizilir ki alanin sol kosesini ortsun.
     const ImVec2 b0(p.x, p.y), b1(p.x + badge_w, p.y + h);
-    dl->AddRectFilled(b0, b1, tone_u32(Tone::Input), s.FrameRounding, ImDrawFlags_RoundCornersLeft);
+    dl->AddRectFilled(b0, b1, tone_u32(Tone::Input), s.FrameRounding, ImDrawFlags_RoundLeft);
     // Eksen cubugu: sol kenarda, cerceve yuksekliginin tamami boyunca.
     // Genislik FramePadding'e oranli (olcekle buyur), en az 3 piksel:
     // tests/test_editor_widgets.cpp rozeti `x0 + 2` pikselinden ornekliyor,
@@ -458,7 +458,7 @@ PropItem prop_vec3(const char *label, float v[3], float speed, float min, float 
     float bar_w = std::floor(s.FramePadding.x * 0.5f);
     if (bar_w < 3.0f) bar_w = 3.0f;
     dl->AddRectFilled(b0, ImVec2(b0.x + bar_w, b1.y), tone_u32(kTone[a]), s.FrameRounding,
-                      ImDrawFlags_RoundCornersLeft);
+                      ImDrawFlags_RoundLeft);
     if (letter) {
       const ImVec2 ts = ImGui::CalcTextSize(kAxis[a]);
       dl->AddText(ImVec2(std::floor(b0.x + bar_w + (badge_w - bar_w - ts.x) * 0.5f),

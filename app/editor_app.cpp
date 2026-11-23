@@ -7997,7 +7997,7 @@ int editor_run(const EditorOptions &opts, const EditorHost *host) {
                     const float card_x = c_pos.x + 8.0f + si_idx * 110.0f;
                     gdl->AddRectFilled(ImVec2(card_x, card_y), ImVec2(card_x + card_w, card_y + card_h), IM_COL32(24, 26, 34, 245), 4.0f);
                     gdl->AddRect(ImVec2(card_x, card_y), ImVec2(card_x + card_w, card_y + card_h), stage_colors[si_idx], 4.0f);
-                    gdl->AddRectFilled(ImVec2(card_x, card_y), ImVec2(card_x + card_w, card_y + 16.0f), stage_colors[si_idx], 4.0f, ImDrawFlags_RoundCornersTop);
+                    gdl->AddRectFilled(ImVec2(card_x, card_y), ImVec2(card_x + card_w, card_y + 16.0f), stage_colors[si_idx], 4.0f, ImDrawFlags_RoundTop);
                     gdl->AddText(ImVec2(card_x + 4.0f, card_y + 1.0f), IM_COL32(255, 255, 255, 255), stages[si_idx]);
 
                     if (si_idx > 0) {
