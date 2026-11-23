@@ -309,7 +309,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 endif()
 target_link_libraries(engine_jolt PUBLIC Threads::Threads)
 
-# --- meshoptimizer (vendored, engine/third_party/meshoptimizer, MIT) ---------
+# --- meshoptimizer 1.3 (vendored, engine/third_party/meshoptimizer, MIT; v1.3 etiketi src/ degistirilmeden, 2026-11-23 — 1.2 idi) ---
 # Yukleme aninda mesh optimizasyonu + LOD (Faz 6); cluster DAG'in temeli (Faz 9).
 file(GLOB ENGINE_MESHOPT_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshoptimizer/*.cpp)
 add_library(engine_meshopt STATIC ${ENGINE_MESHOPT_SOURCES})
