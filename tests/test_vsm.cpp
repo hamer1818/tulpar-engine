@@ -9,6 +9,7 @@
 #include "rhi/compute.hpp"
 #include "rhi/device.hpp"
 #include "rhi/shaders/vsm_mark_comp_spv.h"
+#include "rhi/shaders/vsm_request_comp_spv.h"
 #include "rhi/vk_api.hpp"
 #include "tests/test.hpp"
 
@@ -16,6 +17,13 @@ using namespace tulpar::engine;
 using renderer::VsmConfig;
 using renderer::VsmPageCache;
 using renderer::VsmPageKey;
+using renderer::VsmRequestHeader;
+using renderer::kVsmKeyCoordMax;
+using renderer::kVsmKeyCoordMin;
+using renderer::kVsmKeyEmpty;
+using renderer::vsm_pack_key;
+using renderer::vsm_request_from_gpu;
+using renderer::vsm_unpack_key;
 
 namespace {
 SystemArena &arena() {
@@ -233,6 +241,26 @@ ENGINE_TEST(vsm_mark_from_depth_matches_analytic_hits) {
 
 // Push sozlesmesi renderer::VsmMarkPush (renderer/vsm_pages.hpp): yerlesimi tools/layout_check.py SPIR-V'ye karsi olcer.
 
+namespace {
+// Sonsuz y=0 zemininin derinligi (ufkun ustu gokyuzu = 1.0): gercek bir derinlik tamponunun yerine gecer.
+void zemin_derinligi(float *depth, uint32_t W, uint32_t H, const Mat4 &vp, const Mat4 &inv) {
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      const Vec4 a = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 0.0f, 1};
+      const Vec4 b = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 1.0f, 1};
+      const Vec3 p0{a.x / a.w, a.y / a.w, a.z / a.w}, dir = Vec3{b.x / b.w, b.y / b.w, b.z / b.w} - p0;
+      float d = 1.0f;
+      if (dir.y < 0) {
+        const Vec3 hit = p0 + dir * (-p0.y / dir.y);
+        const Vec4 cl = vp * Vec4{hit.x, hit.y, hit.z, 1};
+        if (cl.w > 0) d = cl.z / cl.w;
+      }
+      depth[y * W + x] = d < 1.0f ? d : 1.0f;
+    }
+}
+
+} // namespace
+
 ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
   static rhi::VkApi api;
   if (!rhi::vk_api_load(api)) { test::skip("Vulkan loader (libvulkan) yok — GPU isaretleme kosmadi"); return; }
@@ -250,19 +278,7 @@ ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
   const Vec3 eye{0, 6, 10};
   const Mat4 vp = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 500.0f) * Mat4::look_at(eye, Vec3{0, 0, -4}, Vec3{0, 1, 0});
   const Mat4 inv = inverse(vp);
-  for (uint32_t y = 0; y < H; y++)
-    for (uint32_t x = 0; x < W; x++) {
-      const Vec4 a = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 0.0f, 1};
-      const Vec4 b = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 1.0f, 1};
-      const Vec3 p0{a.x / a.w, a.y / a.w, a.z / a.w}, dir = Vec3{b.x / b.w, b.y / b.w, b.z / b.w} - p0;
-      float d = 1.0f;
-      if (dir.y < 0) {
-        const Vec3 hit = p0 + dir * (-p0.y / dir.y);
-        const Vec4 cl = vp * Vec4{hit.x, hit.y, hit.z, 1};
-        if (cl.w > 0) d = cl.z / cl.w;
-      }
-      depth[y * W + x] = d < 1.0f ? d : 1.0f;
-    }
+  zemin_derinligi(depth, W, H, vp, inv);
   static VsmPageCache c;
   VsmConfig cfg;
   CHECK(c.init(arena(), cfg, kLight));
@@ -332,6 +348,125 @@ ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
   CHECK(dev.validation_errors() == 0);
   rhi::compute_buffer_destroy(dev, &bd);
   rhi::compute_buffer_destroy(dev, &bk);
+  k.shutdown();
+  dev.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// GPU TEKILLESTIRME (rhi/shaders/vsm_request.comp): GPU'nun TEKIL sayfa listesi, CPU basvurusunun (vsm_mark_from_depth,
+// tam cozunurluk) ayni derinlikten istedigi sayfa kumesiyle AYNI olmali ve listede tekrar olmamali. Liste
+// vsm_request_from_gpu ile ikinci bir onbellege beslenir; iki onbellek ayni sayfalari yerlesik tutmali.
+// KONTROLLER: (i) tablo temizlenmeden ikinci kosum 0 yeni anahtar verir (tablo gercekten tekillestiriyor);
+// (ii) kucuk liste kapasitesi tasmayi SAYAR ve CPU yalniz sigani okur; (iii) kucuk tablo "tablo dolu"yu SAYAR.
+// Olcum (iddia degil): CPU'nun okudugu bayt, piksel basina anahtar tamponuna (vsm_mark.comp) karsi.
+
+ENGINE_TEST(vsm_pack_key_roundtrip_and_range) {
+  const VsmPageKey ks[] = {{0, 0, 0}, {3, -1, 1}, {14, kVsmKeyCoordMin, kVsmKeyCoordMax}, {7, -8192, -8192}, {1, 8191, 0}};
+  for (const VsmPageKey &k : ks) {
+    uint32_t p = 0;
+    CHECK(vsm_pack_key(k, &p));
+    CHECK(p != kVsmKeyEmpty);
+    const VsmPageKey u = vsm_unpack_key(p);
+    CHECK(u.level == k.level && u.x == k.x && u.y == k.y);
+  }
+  uint32_t p = 0;
+  CHECK(!vsm_pack_key(VsmPageKey{15, 0, 0}, &p)); // seviye 15 bos yuvayla (0xFFFFFFFF) cakisabilirdi
+  CHECK(!vsm_pack_key(VsmPageKey{0, 8192, 0}, &p));
+  CHECK(!vsm_pack_key(VsmPageKey{0, 0, -8193}, &p));
+}
+
+ENGINE_TEST(vsm_gpu_dedupe_matches_cpu_distinct) {
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { test::skip("Vulkan loader (libvulkan) yok — GPU tekillestirme kosmadi"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "vsm_gpu_tekil")) { CHECK(false); return; }
+  static rhi::Device dev;
+  rhi::DeviceConfig dc;
+  const char *pref = std::getenv("TULPAR_ENGINE_GPU");
+  dc.prefer = pref ? pref : "";
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { test::skip("Vulkan cihazi yok (ICD?) — GPU tekillestirme kosmadi"); return; }
+
+  constexpr uint32_t W = 320, H = 180;
+  static float depth[W * H];
+  const Vec3 eye{0, 6, 10};
+  const Mat4 vp = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 500.0f) * Mat4::look_at(eye, Vec3{0, 0, -4}, Vec3{0, 1, 0});
+  const Mat4 inv = inverse(vp);
+  zemin_derinligi(depth, W, H, vp, inv);
+
+  VsmConfig cfg;
+  static VsmPageCache cpu;
+  CHECK(cpu.init(arena(), cfg, kLight));
+  cpu.begin_frame(eye);
+  vsm_mark_from_depth(cpu, depth, W, H, inv);
+  const uint32_t cpu_n = cpu.stats().requested;
+  CHECK(cpu_n > 10 && cpu_n < cfg.max_render_per_frame); // on kosul: hepsi bu karede gecerli yerlesik olabilsin
+
+  constexpr uint32_t kTable = 4096, kList = 1024;
+  rhi::ComputeKernel k;
+  rhi::ComputeBuffer bd, bt, bp;
+  const bool hazir = k.init(dev, vsm_request_comp_spv, sizeof vsm_request_comp_spv, 3, sizeof(renderer::VsmMarkPush)) &&
+                     rhi::compute_buffer_create(dev, sizeof depth, &bd) && rhi::compute_buffer_create(dev, kTable * 4, &bt) &&
+                     rhi::compute_buffer_create(dev, sizeof(VsmRequestHeader) + kList * 4, &bp);
+  if (!hazir) { std::printf("    [bilgi] compute kurulamadi: cekirdek '%s', cihaz '%s'\n", k.error(), dev.last_error()); CHECK(false); return; }
+  std::memcpy(bd.mapped(), depth, sizeof depth);
+  const rhi::ComputeBuffer *bufs[3] = {&bd, &bt, &bp};
+  uint32_t *pages = static_cast<uint32_t *>(bp.mapped());
+  auto kos = [&](uint32_t tablo, uint32_t liste, bool tablo_temizle) {
+    if (tablo_temizle) std::memset(bt.mapped(), 0xFF, kTable * 4);
+    std::memset(pages, 0, sizeof(VsmRequestHeader) + kList * 4);
+    renderer::VsmMarkPush p{};
+    std::memcpy(p.inv_vp, &inv.m[0][0], 64);
+    const Vec3 u = cpu.light_u(), v = cpu.light_v();
+    p.lu[0] = u.x; p.lu[1] = u.y; p.lu[2] = u.z; p.lu[3] = cfg.base_page_world;
+    p.lv[0] = v.x; p.lv[1] = v.y; p.lv[2] = v.z; p.lv[3] = cfg.level0_distance;
+    p.cam[0] = eye.x; p.cam[1] = eye.y; p.cam[2] = eye.z; p.cam[3] = (float)cfg.levels;
+    p.dims[0] = W; p.dims[1] = H; p.dims[2] = tablo - 1; p.dims[3] = liste;
+    CHECK(k.run(bufs, &p, (W + 7) / 8, (H + 7) / 8, 1));
+    VsmRequestHeader h;
+    std::memcpy(&h, pages, sizeof h);
+    return h;
+  };
+
+  const VsmRequestHeader h = kos(kTable, kList, true);
+  const uint32_t *keys = pages + sizeof(VsmRequestHeader) / 4;
+  const uint32_t n = h.count < kList ? h.count : kList;
+  uint32_t tekrar = 0;
+  for (uint32_t a = 0; a < n; a++)
+    for (uint32_t b = a + 1; b < n; b++) tekrar += keys[a] == keys[b];
+  static VsmPageCache gpu;
+  CHECK(gpu.init(arena(), cfg, kLight));
+  gpu.begin_frame(eye);
+  const uint32_t beslenen = vsm_request_from_gpu(gpu, pages, kList);
+  uint32_t ortak = 0;
+  for (uint32_t a = 0; a < n; a++) ortak += cpu.is_valid(vsm_unpack_key(keys[a]));
+  std::printf("    [bilgi] %s, %ux%u: tekil sayfa GPU %u / CPU %u, ortak %u, tekrar %u; tasma liste %u tablo %u aralik %u\n",
+              dev.caps().device_name, W, H, h.count, cpu_n, ortak, tekrar, h.list_overflow, h.table_full, h.out_of_range);
+  std::printf("    [bilgi] CPU'nun okudugu: %u bayt (baslik + liste) vs piksel basina anahtar tamponu %u bayt\n",
+              (unsigned)(sizeof(VsmRequestHeader) + n * 4), W * H * 16);
+  CHECK(h.count == cpu_n && ortak == cpu_n && tekrar == 0);
+  CHECK(h.list_overflow == 0 && h.table_full == 0 && h.out_of_range == 0);
+  CHECK(beslenen == cpu_n && gpu.stats().allocated == cpu.stats().allocated && gpu.resident() == cpu.resident());
+
+  // KONTROL (i): tablo temizlenmeden ikinci kosum — butun anahtarlar zaten tabloda, yeni anahtar 0.
+  const VsmRequestHeader h2 = kos(kTable, kList, false);
+  // KONTROL (ii): liste 8 — tasma SAYILIR, CPU yalniz 8'ini okur.
+  const VsmRequestHeader h3 = kos(kTable, 8, true);
+  static VsmPageCache kucuk;
+  CHECK(kucuk.init(arena(), cfg, kLight));
+  kucuk.begin_frame(eye);
+  const uint32_t okunan = vsm_request_from_gpu(kucuk, pages, 8);
+  // KONTROL (iii): tablo 16 yuva < tekil sayfa — "tablo dolu" SAYILIR, sessizce kaybolmaz.
+  const VsmRequestHeader h4 = kos(16, kList, true);
+  std::printf("    [bilgi] KONTROL: ikinci kosum yeni %u; liste 8 -> tasma %u, okunan %u; tablo 16 -> yeni %u, tablo dolu %u\n",
+              h2.count, h3.list_overflow, okunan, h4.count, h4.table_full);
+  CHECK(h2.count == 0);
+  CHECK(h3.count == cpu_n && h3.list_overflow == cpu_n - 8 && okunan == 8 && kucuk.stats().requested == 8);
+  CHECK(h4.count <= 16 && h4.table_full > 0);
+  CHECK(dev.validation_errors() == 0);
+  rhi::compute_buffer_destroy(dev, &bd);
+  rhi::compute_buffer_destroy(dev, &bt);
+  rhi::compute_buffer_destroy(dev, &bp);
   k.shutdown();
   dev.shutdown();
 }

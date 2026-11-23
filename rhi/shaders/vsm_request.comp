@@ -1,0 +1,73 @@
+#version 450
+// VSM sayfa ISTEGI: isaretleme + GPU TEKILLESTIRME tek geciste (Faz 9, 2026-11-23). Tulpar kaynagi:
+// tests/assets/shader/vsm_request.comp.tprs. Anahtar formulu vsm_mark.comp ile AYNI; fark ciktida: piksel basina
+// 16 bayt yerine TEKIL sayfa listesi. Tablo acik adresli (atomicCompSwap), bos yuva 0xFFFFFFFF.
+// Paket (renderer::vsm_pack_key ile ayni): seviye 4 bit (< 15), x / y 14 bit isaretli [-8192, 8191].
+// u_pages.n: [0] yeni anahtar sayaci, [1] liste tasmasi, [2] tablo dolu, [3] paket araligi disi, [4..] anahtarlar.
+// Hicbir tasma sessiz degil: her biri sayilir (A2).
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant) uniform Push {
+  mat4 inv_vp;
+  vec4 lu;
+  vec4 lv;
+  vec4 cam;
+  uvec4 dims; // x, y: derinlik boyu, z: tablo maskesi (2^k - 1), w: liste kapasitesi
+} pc;
+layout(std430, set = 0, binding = 0) readonly buffer Depth {
+  float d[];
+} u_depth;
+layout(std430, set = 0, binding = 1) buffer Table {
+  uint t[];
+} u_table;
+layout(std430, set = 0, binding = 2) buffer Pages {
+  uint n[];
+} u_pages;
+void main() {
+  uvec2 p = gl_GlobalInvocationID.xy;
+  if (p.x >= pc.dims.x || p.y >= pc.dims.y) {
+    return;
+  }
+  uint i = p.y * pc.dims.x + p.x;
+  float d = u_depth.d[i];
+  if (d >= 1.0) {
+    return;
+  }
+  vec2 ndc = (vec2(p) + 0.5) / vec2(pc.dims.xy) * 2.0 - 1.0;
+  vec4 c = pc.inv_vp * vec4(ndc, d, 1.0);
+  vec3 w = c.xyz / c.w;
+  float dist = length(w - pc.cam.xyz);
+  uint levels = uint(pc.cam.w);
+  uint l = 0u;
+  float lim = pc.lv.w;
+  while (dist > lim && l + 1u < levels) {
+    lim = lim * 2.0;
+    l = l + 1u;
+  }
+  float pw = pc.lu.w * float(1u << l);
+  int kx = int(floor(dot(w, pc.lu.xyz) / pw));
+  int ky = int(floor(dot(w, pc.lv.xyz) / pw));
+  if (l >= 15u || kx < -8192 || kx > 8191 || ky < -8192 || ky > 8191) {
+    atomicAdd(u_pages.n[3], 1u);
+    return;
+  }
+  uint key = (l << 28) | ((uint(kx) & 16383u) << 14) | (uint(ky) & 16383u);
+  uint h = key * 2654435761u;
+  h = (h ^ (h >> 16)) & pc.dims.z;
+  for (uint probe = 0u; probe < 64u; probe++) {
+    uint prev = atomicCompSwap(u_table.t[h], 4294967295u, key);
+    if (prev == 4294967295u) {
+      uint slot = atomicAdd(u_pages.n[0], 1u);
+      if (slot < pc.dims.w) {
+        u_pages.n[4u + slot] = key;
+      } else {
+        atomicAdd(u_pages.n[1], 1u);
+      }
+      return;
+    }
+    if (prev == key) {
+      return;
+    }
+    h = (h + 1u) & pc.dims.z;
+  }
+  atomicAdd(u_pages.n[2], 1u);
+}

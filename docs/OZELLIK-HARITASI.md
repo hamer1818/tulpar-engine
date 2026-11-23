@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 907 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 909 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -171,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (28 dosya, 8492 satır)
+### renderer — L3 (28 dosya, 8537 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -1124,7 +1124,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **907** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **909** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1145,6 +1145,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `import` — 11
 - `animator` — 10
 - `clod` — 10
+- `vsm` — 10
 - `files` — 9
 - `multiedit` — 9
 - `poly` — 9
@@ -1153,7 +1154,6 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `platform` — 8
 - `process` — 8
 - `sahne` — 8
-- `vsm` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
@@ -1380,7 +1380,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_updater.cpp` — 20 test
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
-- `tests/test_vsm.cpp` — 8 test
+- `tests/test_vsm.cpp` — 10 test
 - `tests/test_vt.cpp` — 5 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
@@ -1822,6 +1822,7 @@ Kapasiteler init'te alınır; dolunca geçersiz handle döner ve SAYILIR (sessiz
 - `renderer/lighting_pipeline.hpp`: `kMaxShadowCascades`=4
 - `renderer/meshlet_pipeline.hpp`: `kMeshletMaxVertices`=64, `kMeshletMaxTriangles`=124
 - `renderer/particle_gpu_indirect.hpp`: `kTbdrTileSize`=16
+- `renderer/vsm_pages.hpp`: `kVsmKeyLevelMax`=14
 - `rhi/tile_budget.hpp`: `kTileMaxAttachments`=8, `kTileMaxColorBits`=128
 - `audio/hrtf_kemar.h`: `kMaxDelay`=32
 - `app/editor_console.hpp`: `kConsoleCapacity`=512, `kConsoleMsgLen`=256, `kConsoleTagLen`=16, `kConsoleAliasCount`=2

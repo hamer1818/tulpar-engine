@@ -57,6 +57,8 @@ public:
   void begin_frame(Vec3 camera);
   // Gorunur bir yuzey noktasi (or. derinlik tamponundan geri izdusum). Uygun seviyedeki sayfayi ister.
   void request(Vec3 world);
+  // Seviyesi zaten secilmis anahtarla istek (GPU tekillestirmesinin listesi: vsm_request_from_gpu).
+  void request_key(VsmPageKey k);
   // Dunya AABB'si degisti (nesne hareket etti): kesisen YERLESIK sayfalar kirli.
   uint32_t invalidate(Vec3 aabb_min, Vec3 aabb_max);
   void end_frame();
@@ -122,5 +124,26 @@ static_assert(sizeof(VsmMarkPush) == 128, "vsm_mark.comp push sozlesmesi 128 bay
 // Donus: istenen ornek sayisi (gokyuzu haric).
 uint32_t vsm_mark_from_depth(VsmPageCache &cache, const float *depth, uint32_t w, uint32_t h, const Mat4 &inv_view_proj,
                              uint32_t stride = 1);
+
+// GPU TEKILLESTIRME (rhi/shaders/vsm_request.comp). Shader piksel basina anahtari acik adresli bir tabloya ekler ve
+// tabloya ILK giren anahtari sikisik listeye yazar; CPU piksel basina 16 bayt yerine yalniz tekil listeyi okur.
+// Paket shader'la AYNI: seviye 4 bit (< 15), x / y 14 bit isaretli [-8192, 8191]. 0xFFFFFFFF bos tablo yuvasidir
+// (seviye 15 yasak oldugu icin hicbir anahtar ona esit olamaz).
+constexpr uint32_t kVsmKeyEmpty = 0xFFFFFFFFu;
+constexpr int32_t kVsmKeyCoordMin = -8192, kVsmKeyCoordMax = 8191;
+constexpr uint32_t kVsmKeyLevelMax = 14;
+// u_pages tamponunun basi; ardindan list_capacity anahtar.
+struct VsmRequestHeader {
+  uint32_t count;         // tabloya giren yeni anahtar (liste kapasitesini asabilir: o zaman list_overflow da sayar)
+  uint32_t list_overflow; // listeye sigmayan yeni anahtar
+  uint32_t table_full;    // 64 yoklamada yer bulamayan PIKSEL istegi (sayfa degil: ayni sayfa her pikselde sayilir)
+  uint32_t out_of_range;  // paket araligi disi (seviye >= 15 ya da |x|,|y| tasiyor)
+};
+static_assert(sizeof(VsmRequestHeader) == 16, "vsm_request.comp u_pages.n[0..3]");
+bool vsm_pack_key(VsmPageKey k, uint32_t *out); // aralik disi -> false
+VsmPageKey vsm_unpack_key(uint32_t packed);
+// pages: u_pages tamponu (baslik + liste). Listedeki her anahtari cache.request_key ile ister; donus: istenen sayi
+// (= min(count, list_capacity)). Tasmalar baslikta sayili; cagiran onlari stats'a/teshise tasir.
+uint32_t vsm_request_from_gpu(VsmPageCache &cache, const uint32_t *pages, uint32_t list_capacity);
 
 } // namespace tulpar::engine::renderer

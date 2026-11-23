@@ -106,9 +106,9 @@ void VsmPageCache::push_render(VsmPageKey k, uint32_t slot) {
   render_[render_n_++] = VsmRender{k, slot};
 }
 
-void VsmPageCache::request(Vec3 world) {
-  const uint32_t level = level_for(world);
-  const VsmPageKey k = key_for(world, level);
+void VsmPageCache::request(Vec3 world) { request_key(key_for(world, level_for(world))); }
+
+void VsmPageCache::request_key(VsmPageKey k) {
   const int32_t ti = find(k);
   if (ti >= 0) {
     Slot &s = slots_[tab_slot_[ti]];
@@ -181,6 +181,28 @@ uint32_t vsm_mark_from_depth(VsmPageCache &cache, const float *depth, uint32_t w
       cache.request(Vec3{c.x / c.w, c.y / c.w, c.z / c.w});
       n++;
     }
+  return n;
+}
+
+bool vsm_pack_key(VsmPageKey k, uint32_t *out) {
+  if (k.level > kVsmKeyLevelMax || k.x < kVsmKeyCoordMin || k.x > kVsmKeyCoordMax || k.y < kVsmKeyCoordMin ||
+      k.y > kVsmKeyCoordMax)
+    return false;
+  *out = (k.level << 28) | (((uint32_t)k.x & 0x3FFFu) << 14) | ((uint32_t)k.y & 0x3FFFu);
+  return true;
+}
+
+VsmPageKey vsm_unpack_key(uint32_t p) {
+  // 14 bitlik isaretli alanlar: ust bitleri isaretle doldur.
+  auto sx = [](uint32_t v) { return (int32_t)(v ^ 0x2000u) - 0x2000; };
+  return VsmPageKey{p >> 28, sx((p >> 14) & 0x3FFFu), sx(p & 0x3FFFu)};
+}
+
+uint32_t vsm_request_from_gpu(VsmPageCache &cache, const uint32_t *pages, uint32_t list_capacity) {
+  if (!pages) return 0;
+  const uint32_t n = pages[0] < list_capacity ? pages[0] : list_capacity;
+  const uint32_t *keys = pages + sizeof(VsmRequestHeader) / 4;
+  for (uint32_t i = 0; i < n; i++) cache.request_key(vsm_unpack_key(keys[i]));
   return n;
 }
 
