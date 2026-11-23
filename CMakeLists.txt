@@ -280,6 +280,7 @@ add_library(engine_rhi STATIC
     rhi/swapchain.cpp
     rhi/tile_budget.cpp
     rhi/frame_graph.cpp
+    rhi/compute.cpp
 )
 target_include_directories(engine_rhi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan)
 target_link_libraries(engine_rhi PUBLIC engine_core ${CMAKE_DL_LIBS})

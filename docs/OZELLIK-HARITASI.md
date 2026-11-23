@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 894 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 895 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -151,10 +151,12 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `core/profiler/profiler.hpp` — Profiler (Faz 0'da yazilir, sonra degil: "olcemedigin seyi
 - `core/reflect/reflect.hpp` — Core reflection interface placeholder - see content/reflect.hpp for SceneEntity reflection
 
-### rhi — L2 (15 dosya, 3900 satır)
+### rhi — L2 (17 dosya, 4085 satır)
 
 - `rhi/command_pools.cpp` — 
 - `rhi/command_pools.hpp` — thread basina komut havuzu (plan L2: "command buffer'lar paralel
+- `rhi/compute.cpp` — 
+- `rhi/compute.hpp` — KUCUK COMPUTE CALISTIRICISI (2026-11-23).
 - `rhi/device.cpp` — 
 - `rhi/device.hpp` — Device: instance + fiziksel cihaz secimi + mantiksal cihaz +
 - `rhi/frame_graph.cpp` — 
@@ -169,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (26 dosya, 8229 satır)
+### renderer — L3 (26 dosya, 8234 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -1118,7 +1120,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **894** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **895** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1147,11 +1149,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `platform` — 8
 - `process` — 8
 - `sahne` — 8
+- `vsm` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
 - `timer` — 7
-- `vsm` — 7
 - `anim` — 6
 - `engine` — 6
 - `fbx` — 6
@@ -1371,7 +1373,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_updater.cpp` — 20 test
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
-- `tests/test_vsm.cpp` — 7 test
+- `tests/test_vsm.cpp` — 8 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
 

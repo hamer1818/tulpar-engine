@@ -70,6 +70,11 @@ public:
   VsmPageKey key_for(Vec3 world, uint32_t level) const;
   // Bu anahtar yerlesik ve gecerli mi (kapilar icin).
   bool is_valid(VsmPageKey k) const;
+  // GPU isaretleme push constant'i icin (rhi/shaders/vsm_mark.comp): isik tabani, kamera, yapilandirma.
+  Vec3 light_u() const { return lu_; }
+  Vec3 light_v() const { return lv_; }
+  Vec3 camera() const { return cam_; }
+  const VsmConfig &config() const { return cfg_; }
 
 private:
   struct Slot { VsmPageKey key; uint32_t last_used; uint8_t used, dirty; };
