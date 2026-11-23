@@ -169,3 +169,53 @@ ENGINE_TEST(vsm_long_walk_zero_allocations_and_consistent) {
   CHECK(toplam_tahliye > 0); // KONTROL: tahliye + tablo yeniden kurulumu yolu gercekten kostu
   CHECK(ayirma == 0 && gecersiz == 0 && toplam_eksik == 0);
 }
+
+// DERINLIKTEN ISARETLEME: zemine (y=0) bakan kamera; derinlik ANALITIK (piksel isini duzleme kes, izdusur).
+// Geri kurulan noktalarin istedigi sayfa kumesi, analitik carpisma noktalarinin kumesiyle karsilastirilir
+// (sinirdaki kayan nokta farki dar bir pay). KONTROL: gokyuzu pikselleri istek uretmez.
+// SEYREK ORNEKLEME SAYFA KACIRIR (olculdu 2026-11-23: stride 4, 88 sayfanin 64'u — %73; ilk iddia %80'di): ekranda
+// stride'dan dar yer kaplayan sayfa hic orneklenmez. Sonuc GPU tasarimina girer: isaretleme TAM cozunurlukte.
+ENGINE_TEST(vsm_mark_from_depth_matches_analytic_hits) {
+  constexpr uint32_t W = 160, H = 90;
+  static float depth[W * H];
+  const Vec3 eye{0, 6, 10};
+  const Mat4 view = Mat4::look_at(eye, Vec3{0, 0, -4}, Vec3{0, 1, 0});
+  const Mat4 proj = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 500.0f);
+  const Mat4 vp = proj * view;
+  const Mat4 inv = inverse(vp);
+  static VsmPageCache ref, c, sparse;
+  VsmConfig cfg;
+  cfg.pool_pages = 4096;
+  cfg.max_render_per_frame = 4096;
+  CHECK(ref.init(arena(), cfg, kLight) && c.init(arena(), cfg, kLight) && sparse.init(arena(), cfg, kLight));
+  ref.begin_frame(eye);
+  uint32_t sky = 0, ground = 0;
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      const Vec4 a = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 0.0f, 1};
+      const Vec4 b = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 1.0f, 1};
+      const Vec3 p0{a.x / a.w, a.y / a.w, a.z / a.w}, p1{b.x / b.w, b.y / b.w, b.z / b.w};
+      const Vec3 dir = p1 - p0;
+      float d = 1.0f;
+      if (dir.y < 0) {
+        const float t = -p0.y / dir.y;
+        const Vec3 hit = p0 + dir * t;
+        const Vec4 cl = vp * Vec4{hit.x, hit.y, hit.z, 1};
+        if (cl.w > 0) d = cl.z / cl.w;
+        if (d < 1.0f) { ref.request(hit); ground++; } // uzak duzlemin otesi derinlik tamponunda gokyuzudur
+      }
+      if (d >= 1.0f) sky++;
+      depth[y * W + x] = d;
+    }
+  c.begin_frame(eye);
+  const uint32_t n = vsm_mark_from_depth(c, depth, W, H, inv, 1);
+  sparse.begin_frame(eye);
+  vsm_mark_from_depth(sparse, depth, W, H, inv, 4);
+  const uint32_t pr = ref.stats().requested, pc = c.stats().requested, ps = sparse.stats().requested;
+  const uint32_t fark = pr > pc ? pr - pc : pc - pr;
+  std::printf("    [bilgi] %ux%u: zemin %u, gokyuzu %u, ornek %u; sayfa: analitik %u, derinlikten %u (fark %u), stride4 %u\n", W, H,
+              ground, sky, n, pr, pc, fark, ps);
+  CHECK(sky > 0 && ground > 0 && n == ground); // KONTROL: gokyuzu istek uretmedi
+  CHECK(pr > 10 && fark * 50 <= pr);           // en cok %2 sinir farki
+  CHECK(ps < pc && ps * 2 >= pc);              // seyrek: kesin ALT kume ve kaba olarak yarisindan cok
+}

@@ -97,4 +97,11 @@ private:
   VsmStats stats_{};
 };
 
+// DERINLIKTEN SAYFA ISARETLEME (CPU basvurusu; GPU compute surumu buna karsi sinanacak).
+// depth: w*h, Vulkan NDC z [0,1] (1 = gokyuzu/temizlenmis, atlanir). inv_view_proj: (proj*view)^-1. stride: her
+// stride'inci piksel (1 = hepsi). Her ornegin dunya konumu geri kurulur ve cache.request() ile istenir.
+// Donus: istenen ornek sayisi (gokyuzu haric).
+uint32_t vsm_mark_from_depth(VsmPageCache &cache, const float *depth, uint32_t w, uint32_t h, const Mat4 &inv_view_proj,
+                             uint32_t stride = 1);
+
 } // namespace tulpar::engine::renderer

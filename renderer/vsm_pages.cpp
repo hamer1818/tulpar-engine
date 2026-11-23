@@ -168,4 +168,20 @@ uint32_t VsmPageCache::invalidate(Vec3 mn, Vec3 mx) {
 
 void VsmPageCache::end_frame() {}
 
+uint32_t vsm_mark_from_depth(VsmPageCache &cache, const float *depth, uint32_t w, uint32_t h, const Mat4 &inv, uint32_t stride) {
+  if (!depth || !w || !h) return 0;
+  if (stride == 0) stride = 1;
+  uint32_t n = 0;
+  for (uint32_t y = 0; y < h; y += stride)
+    for (uint32_t x = 0; x < w; x += stride) {
+      const float d = depth[(size_t)y * w + x];
+      if (d >= 1.0f) continue;
+      const Vec4 c = inv * Vec4{((float)x + 0.5f) / (float)w * 2.0f - 1.0f, ((float)y + 0.5f) / (float)h * 2.0f - 1.0f, d, 1.0f};
+      if (c.w == 0.0f) continue;
+      cache.request(Vec3{c.x / c.w, c.y / c.w, c.z / c.w});
+      n++;
+    }
+  return n;
+}
+
 } // namespace tulpar::engine::renderer
