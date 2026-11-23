@@ -3,7 +3,13 @@
 
 #include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
+#include <cstdlib>
+#include <cstring>
+
+#include "renderer/vt_atlas.hpp"
 #include "renderer/vt_cache.hpp"
+#include "rhi/device.hpp"
+#include "rhi/vk_api.hpp"
 #include "tests/test.hpp"
 
 using namespace tulpar::engine;
@@ -145,4 +151,135 @@ ENGINE_TEST(vt_long_run_zero_allocations_resolve_invariant) {
               (unsigned long long)ayirma, c.resident_count());
   CHECK(tahliye > 0);  // KONTROL: tahliye yolu koştu
   CHECK(gecersiz == 0 && ayirma == 0 && c.resident_count() <= cfg.pool_pages);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// FIZIKSEL ATLAS (renderer/vt_atlas): VtCache'in yukleme listesi + sabit en kaba mip'ler saglayicidan atlasa yazilir.
+// Her sayfanin icerigi (doku, mip, x, y, texel) ozetinden turetilen AYIRT EDICI baytlar: yanlis yuvaya, yanlis
+// sayfayla ya da bayat kalan bir karo bayt karsilastirmasinda gorunur. Olculen: butceli yukleme yakinsar, butun
+// yerlesik sayfalarin karolari bayt bayt dogru, duragan kare 0 yukleme, TAHLIYE ile yeniden kullanilan yuvalar yeni
+// icerikle yazilir, dolaylilik tablosu resolve() ile ayni. KONTROL: beklenti bir tohumla kaydirilinca fark gorulur.
+namespace {
+uint8_t vt_bayt(VtPage p, uint32_t i, uint32_t tohum) {
+  uint32_t h = 2166136261u ^ tohum;
+  const uint32_t v[5] = {p.texture, p.mip, p.x, p.y, i};
+  for (uint32_t k = 0; k < 5; k++) { h ^= v[k]; h *= 16777619u; }
+  return (uint8_t)(h >> 13);
+}
+void vt_doldur(void *, VtPage p, uint32_t px, uint8_t *rgba) {
+  for (uint32_t i = 0; i < px * px * 4; i++) rgba[i] = vt_bayt(p, i, 0);
+}
+} // namespace
+
+ENGINE_TEST(vt_atlas_uploads_are_byte_exact_and_slots_reused) {
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { test::skip("Vulkan loader (libvulkan) yok — VT atlasi kosmadi"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "vt_atlas")) { CHECK(false); return; }
+  static rhi::Device dev;
+  rhi::DeviceConfig dc;
+  const char *pref = std::getenv("TULPAR_ENGINE_GPU");
+  dc.prefer = pref ? pref : "";
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { test::skip("Vulkan cihazi yok (ICD?) — VT atlasi kosmadi"); return; }
+  constexpr uint32_t PX = 32;
+  VtConfig cfg;
+  cfg.max_textures = 2;
+  cfg.pool_pages = 64;
+  cfg.uploads_per_frame = 16;
+  cfg.max_uploads_list = 64;
+  static VtCache c;
+  CHECK(c.init(arena(), cfg));
+  const uint32_t t0 = c.add_texture(8, 8), t1 = c.add_texture(4, 2);
+  CHECK(t0 == 0 && t1 == 1);
+  renderer::VtAtlasConfig ac;
+  ac.page_px = PX;
+  ac.slots_x = 8;
+  ac.max_entries = 1024;
+  static renderer::VtAtlas at;
+  if (!at.init(dev, sys, c, ac, 1)) { std::printf("    [bilgi] atlas: %s\n", at.error()); CHECK(false); return; }
+  const renderer::VtPageSource src{vt_doldur, nullptr};
+  static uint8_t px[256 * 256 * 4];
+  CHECK((size_t)at.width() * at.height() * 4 <= sizeof px);
+
+  uint32_t tahliye = 0;
+  auto kare = [&](uint32_t x0) { // t0 mip 0'in x0'dan baslayan 4 sutunu (32 sayfa) + t1 mip 0 (8 sayfa)
+    c.begin_frame();
+    for (uint32_t y = 0; y < 8; y++)
+      for (uint32_t x = x0; x < x0 + 4; x++) c.request(t0, 0, x, y);
+    for (uint32_t y = 0; y < 2; y++)
+      for (uint32_t x = 0; x < 4; x++) c.request(t1, 0, x, y);
+    VkCommandBuffer cb = dev.begin_one_shot();
+    at.record(cb, 0, c, src);
+    CHECK(dev.end_one_shot_and_wait(cb));
+    tahliye += c.stats().evicted;
+    c.end_frame();
+    return at.stats().uploaded;
+  };
+  // Atlastaki her YERLESIK sayfa (istenenler + sabit en kaba mip'ler) icerigiyle bayt bayt ayni mi?
+  auto denetle = [&](uint32_t tohum, uint32_t *sayfa) {
+    CHECK(at.read_back(px));
+    uint32_t fark = 0;
+    *sayfa = 0;
+    for (uint32_t t = 0; t < 2; t++)
+      for (uint32_t m = 0; m < c.mip_count(t); m++) {
+        const uint32_t mw = c.pages_w(t) >> m ? c.pages_w(t) >> m : 1, mh = c.pages_h(t) >> m ? c.pages_h(t) >> m : 1;
+        for (uint32_t y = 0; y < mh; y++)
+          for (uint32_t x = 0; x < mw; x++) {
+            const VtPage p{(uint16_t)t, (uint16_t)m, (uint16_t)x, (uint16_t)y};
+            if (!c.resident(p)) continue;
+            const renderer::VtResolved r = c.resolve(t, m, x, y);
+            uint32_t ox, oy;
+            at.slot_origin(r.slot, &ox, &oy);
+            (*sayfa)++;
+            for (uint32_t ty = 0; ty < PX; ty++)
+              for (uint32_t tx = 0; tx < PX * 4; tx++)
+                fark += px[((size_t)(oy + ty) * at.width()) * 4 + ox * 4 + tx] != vt_bayt(p, ty * PX * 4 + tx, tohum);
+          }
+      }
+    return fark;
+  };
+  uint32_t yukleme[4], toplam = 0;
+  for (int k = 0; k < 4; k++) { yukleme[k] = kare(0); toplam += yukleme[k]; }
+  uint32_t sayfa = 0;
+  const uint32_t fark = denetle(0, &sayfa);
+  uint32_t ksayfa = 0;
+  const uint32_t kontrol = denetle(1, &ksayfa);
+  std::printf("    [bilgi] %s: yukleme kare 1..4 = %u %u %u %u (butce %u + 2 sabit); yerlesik %u sayfa, bayt farki %u; "
+              "KONTROL (yanlis tohum) fark %u\n",
+              dev.caps().device_name, yukleme[0], yukleme[1], yukleme[2], yukleme[3], cfg.uploads_per_frame, sayfa, fark, kontrol);
+  CHECK(yukleme[0] == cfg.uploads_per_frame + 2); // butce + iki dokunun sabit en kaba mip'i
+  CHECK(toplam == 40 + 2 && yukleme[3] == 0);     // 40 istek butceyle yakinsar; duragan kare 0 yukleme
+  CHECK(sayfa == 42 && fark == 0);
+  CHECK(kontrol > sayfa * PX * PX);               // KONTROL: icerik gercekten karsilastiriliyor
+
+  // Tahliye: t0'in BASKA 4 sutunu -> 64 yuvalik havuz dolar, eski sayfalar tahliye edilir, yuvalar yeniden yazilir.
+  uint32_t ty = 0;
+  tahliye = 0;
+  for (int k = 0; k < 4; k++) ty += kare(4);
+  uint32_t sayfa2 = 0;
+  const uint32_t fark2 = denetle(0, &sayfa2);
+  // Dolaylilik tablosu: her hucre resolve() ile ayni.
+  const uint32_t *tab = at.table(0);
+  uint32_t tfark = 0, hucre = 0;
+  for (uint32_t t = 0; t < 2; t++) {
+    uint32_t off = tab[4 * t];
+    for (uint32_t m = 0; m < c.mip_count(t); m++) {
+      const uint32_t mw = c.pages_w(t) >> m ? c.pages_w(t) >> m : 1, mh = c.pages_h(t) >> m ? c.pages_h(t) >> m : 1;
+      for (uint32_t y = 0; y < mh; y++)
+        for (uint32_t x = 0; x < mw; x++, off++, hucre++) {
+          const uint32_t e = tab[4 * 2 + off];
+          const renderer::VtResolved r = c.resolve(t, m, x, y);
+          tfark += (e & 1u) == 0 || renderer::VtAtlas::entry_slot(e) != r.slot || renderer::VtAtlas::entry_mip(e) != r.mip;
+        }
+    }
+  }
+  std::printf("    [bilgi] tahliye: 4 karede %u yukleme, %u tahliye (yeniden yazilan yuva); yerlesik %u sayfa, bayt farki %u; tablo %u hucre, "
+              "fark %u; dogrulama hatasi %u\n",
+              ty, tahliye, sayfa2, fark2, hucre, tfark, dev.validation_errors());
+  CHECK(ty >= 32 && tahliye > 0 && fark2 == 0 && sayfa2 > 0); // yeniden kullanilan yuvalarda BAYAT karo yok
+  CHECK(hucre == at.stats().table_entries && tfark == 0 && at.stats().table_overflow == 0);
+  CHECK(dev.validation_errors() == 0);
+  at.shutdown();
+  dev.shutdown();
 }
