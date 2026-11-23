@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 887 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 894 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -108,7 +108,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `platform/window.hpp` — masaustu gelistirme penceresi (GLFW, dlopen). Uretim hedefi
 - `platform/android/jni_bridge.cpp` — L0 PLATFORM (Android) — Kotlin host <-> motor JNI koprusu (plan Faz 1,
 
-### core — L1 (40 dosya, 4157 satır)
+### core — L1 (40 dosya, 4235 satır)
 
 - `core/build_info.cpp` — build_info.hpp'nin uygulamasi. TULPAR_SURUM yalniz BU dosyaya
 - `core/build_info.hpp` — ikilinin KIMLIGI: hangi surumden ve hangi platform icin derlendi.
@@ -169,7 +169,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7935 satır)
+### renderer — L3 (26 dosya, 8229 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -194,6 +194,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `renderer/particle_gpu_indirect.hpp` — Bevy Hanabi GPU Indirect, Vulkan DGC & TBDR Mobil Partikul Mimarisi.
 - `renderer/renderer.cpp` — 
 - `renderer/renderer.hpp` — Faz 3 ilk dilim: forward (Lambert) cizici. Depth prepass ->
+- `renderer/vsm_pages.cpp` — 
+- `renderer/vsm_pages.hpp` — SANAL GOLGE HARITASI (VSM) SAYFA ONBELLEGI (Faz 9, ilk dilim: 2026-11-23).
 - `renderer/wboit_pass.hpp` — WBOIT (Weighted Blended Order-Independent Transparency) & Hareket Vektorleri.
 
 ### audio — L3 (12 dosya, 2161 satır)
@@ -211,7 +213,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `audio/particle_audio.hpp` — Fiziksel Partikul Sonifikasyonu (Kinetic Particle Sonification).
 - `audio/spatial.hpp` — uzamsal ses: dinleyici bazi, mesafe sonumu, sabit-guc panlama ve
 
-### sim — L4 (55 dosya, 7134 satır)
+### sim — L4 (55 dosya, 7141 satır)
 
 - `sim/ability_system.cpp` — 
 - `sim/ability_system.hpp` — 
@@ -346,7 +348,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (79 dosya, 39599 satır)
+### app — L6 (79 dosya, 39618 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -442,7 +444,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (75 dosya, 17249 satır)
+### tools — L7 (75 dosya, 17295 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -462,7 +464,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `tools/clang_syntax_check.sh` — Motor kaynaklarini clang++ ile SOZDIZIMI denetiminden gecirir (derlemez).
 - `tools/clodbake.cpp` — engine_clodbake — sahne derleyicisinin GEOMETRI dilimi:
 - `tools/compile_shaders.py` — GLSL -> SPIR-V -> C dizisi (engine/rhi/shaders/*_spv.h).
-- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2/UCRT64 tarafi (2026-11-22 oncesi MINGW64).
+- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2 tarafi: UCRT64 (x86_64) / CLANGARM64 (ARM64, 2026-11-23); 2026-11-…
 - `tools/dil_kapsam.py` — Editör İngilizce kapsam ölçümü (app/editor_dil.hpp).
 - `tools/editor_ux.sh` — Editor UX olcumu (docs/EDITOR-UYGULAMA-PLANI.md U0): dort cozunurlukte PARALEL headless editor,
 - `tools/faz8_shader_audit.py` — faz8_shader_audit.py — Faz 8 shader alt kumesi prototipinin kapisi.
@@ -1116,7 +1118,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **887** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **894** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1149,6 +1151,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `device` — 7
 - `frame` — 7
 - `timer` — 7
+- `vsm` — 7
 - `anim` — 6
 - `engine` — 6
 - `fbx` — 6
@@ -1368,6 +1371,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_updater.cpp` — 20 test
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
+- `tests/test_vsm.cpp` — 7 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
 
@@ -1390,7 +1394,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tools/ci_surum_kapisi.sh` — CI SURUM KAPISI (motor) — tools/ci_surum.sh PR'da dogru surumu tahmin ediyor ve
 - `tools/clang_syntax_check.sh` — Motor kaynaklarini clang++ ile SOZDIZIMI denetiminden gecirir (derlemez).
 - `tools/compile_shaders.py` — GLSL -> SPIR-V -> C dizisi (engine/rhi/shaders/*_spv.h).
-- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2/UCRT64 tarafi (2026-11-22 oncesi MINGW64).
+- `tools/derle_mingw.sh` — Tulpar Engine — Windows derlemesinin MSYS2 tarafi: UCRT64 (x86_64) / CLANGARM64 (ARM64, 2026-11-23); 2026-11-…
 - `tools/dil_kapsam.py` — Editör İngilizce kapsam ölçümü (app/editor_dil.hpp).
 - `tools/editor_ux.sh` — Editor UX olcumu (docs/EDITOR-UYGULAMA-PLANI.md U0): dort cozunurlukte PARALEL headless editor,
 - `tools/faz8_shader_audit.py` — faz8_shader_audit.py — Faz 8 shader alt kumesi prototipinin kapisi.
@@ -1641,6 +1645,7 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8et** — Ortam göçü tek depoda bitmez — bağlanan ikinci derleyicinin C çalışma zamanı da taşınmalı
 - **8eu** — Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
 - **8ev** — Sabit `/tmp` ve kayıp cihazdan sonra devam eden ölçüm — iki ayrı "koşmuş gibi görünme"
+- **8ew** — Testin kendi sunucusu SIGPIPE ile bütün koşumu öldürür — özet satırı hiç basılmaz
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 
@@ -1766,6 +1771,7 @@ Hangi dizinde geçtiği yanında; anlamı için ilgili dosyada/`CLAUDE.md`'de ar
 - `TULPAR_VARLIK` — app
 - `TULPAR_VERSION` — tools
 - `TULPAR_VK_COUNTED` — rhi
+- `TULPAR_VK_ICD` — tools
 - `TULPAR_VK_THUNK` — rhi
 - `TULPAR_WRITE` — app
 - `TULPAR_YD_CENTIK` — tools
