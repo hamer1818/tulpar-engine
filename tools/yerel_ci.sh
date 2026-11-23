@@ -127,12 +127,16 @@ else
     python3 tools/tpr_shader.py --tulpar-parse > "$IS/tprs.log" 2>&1; rcp=$?
   sp="$(grep -E 'dosya bugunku Tulpar' "$IS/tprs.log" | tail -1 | cut -d' ' -f1)"
   python3 tools/layout_audit.py > "$IS/yerlesim.log" 2>&1; rcl=$?
-  cat "$IS/faz8.log" "$IS/tprs.log" "$IS/yerlesim.log" > yapi/yerel_ci_faz8.log
+  # Faz 8.2 tip kapisi (2026-11-23): 23 .tprs tiplenir + bozulmus ornekler glslc ile capraz dogrulanir + mutasyon.
+  python3 tools/tpr_shader.py --tip-kontrol > "$IS/tip.log" 2>&1; rct=$?
+  st="$(grep -E '^mutasyon:' "$IS/tip.log" | tail -1)"
+  cat "$IS/faz8.log" "$IS/tprs.log" "$IS/yerlesim.log" "$IS/tip.log" > yapi/yerel_ci_faz8.log
   if [ "$rc8" != 0 ] || [ -z "$s8" ]; then r="HATA faz8: ${s8:-ozet yok}"
   elif ! grep -qE ', 0 atlandi$' <<< "$s8"; then r="HATA faz8 ATLANDI: $(grep -m1 ATLANDI "$IS/faz8.log" | sed 's/^ *//')"
   elif [ "$rcp" != 0 ]; then r="HATA tulpar gramer denetimi (rc $rcp)"
   elif [ "$rcl" != 0 ]; then r="HATA yerlesim denetimi (rc $rcl)"
-  else r="OK bayt ayni $b8, gramer temiz $sp, yerlesim temiz"; fi
+  elif [ "$rct" != 0 ] || grep -q 'ATLANDI' "$IS/tip.log"; then r="HATA tip kapisi: $(grep -E 'KIRMIZI|ATLANDI' "$IS/tip.log" | head -1)"
+  else r="OK bayt ayni $b8, gramer temiz $sp, yerlesim temiz, tip temiz (${st#mutasyon: })"; fi
 fi
 asama "Faz 8 shader + yerlesim" $(( $(zaman) - t )) "$r"
 
