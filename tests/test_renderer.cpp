@@ -2644,17 +2644,19 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
   OffscreenResult ores;
   OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
   if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
-  double ms[2] = {0, 0};
+  // Kip: 0 geri bildirim kapali, 1 boru hatti ama kod elenmis, 2 anahtar hesaplanir / SSBO yok, 3 tam.
+  double ms[4] = {0, 0, 0, 0};
   uint32_t anahtar = 0;
-  for (int kip = 0; kip < 2; kip++) {
+  for (int kip = 0; kip < 4; kip++) {
     renderer::Renderer ren;
     renderer::RendererConfig rc;
     rc.frames_in_flight = 1;
     rc.post = true;
     rc.post_width = W;
     rc.post_height = H;
-    rc.vt_feedback = kip == 1;
-    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip == 1 && !ren.vt_feedback_info().enabled)) {
+    rc.vt_feedback = kip != 0;
+    rc.vt_feedback_probe = kip == 1 ? 1u : kip == 2 ? 2u : 0u;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip != 0 && !ren.vt_feedback_info().enabled)) {
       std::printf("    [bilgi] kip %d kurulamadi: post '%s', vt '%s'\n", kip, ren.post().disabled_reason,
                   ren.vt_feedback_info().disabled_reason);
       CHECK(false);
@@ -2692,12 +2694,13 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
     for (uint32_t r = 0; r < R; r++) t[r] = kare();
     std::sort(t, t + R);
     ms[kip] = (double)t[R / 2] / 1e6;
-    if (kip == 1) { ren.begin_frame(0); ren.vt_feedback(&anahtar); }
+    if (kip == 3) { ren.begin_frame(0); ren.vt_feedback(&anahtar); }
     ren.shutdown();
   }
-  std::printf("    [bilgi] %s, %ux%u post: VT geri bildirimi kapali %.3f ms, acik %.3f ms (%+.3f), son karede tekil sayfa %u\n",
-              dev.caps().device_name, W, H, ms[0], ms[1], ms[1] - ms[0], anahtar);
-  CHECK(ms[0] > 0 && ms[1] > 0 && anahtar > 0);
+  std::printf("    [bilgi] %s, %ux%u post: VT geri bildirimi kapali %.3f ms; boru hatti (kod elenmis) %+.3f; anahtar hesabi "
+              "(SSBO yok) %+.3f; tam %+.3f ms; son karede tekil sayfa %u\n",
+              dev.caps().device_name, W, H, ms[0], ms[1] - ms[0], ms[2] - ms[0], ms[3] - ms[0], anahtar);
+  CHECK(ms[0] > 0 && ms[1] > 0 && ms[2] > 0 && ms[3] > 0 && anahtar > 0);
   offscreen_destroy(off);
   dev.shutdown();
 }

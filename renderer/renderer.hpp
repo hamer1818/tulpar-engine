@@ -248,6 +248,10 @@ struct RendererConfig {
   bool vt_feedback = false;
   GpuRequestConfig vt_feedback_table{};
   uint32_t vt_page_px = 128; // VtCache sayfa kenari (texel)
+  // OLCUM KIPI (urun yolunda 0): 1 = geri bildirim boru hatti ama kodu elenmis (VT_FB 0), 2 = anahtar hesaplanir, SSBO
+  // islemi yok. Mali-G72'deki sabit bedelin (early_fragment_tests sonrasi +16 ms) kaynagini ayirmak icin
+  // (renderer_device_cost_vt_feedback).
+  uint32_t vt_feedback_probe = 0;
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk
 
   // --- FAZ 9: GPU gorunurluk kumeleme + dolayli cizim — VARSAYILAN KAPALI ---

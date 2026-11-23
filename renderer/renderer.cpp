@@ -1464,7 +1464,9 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   // constant_id 0 = PBR_NDF (0 dogru GGX, 1 kontrol), 1 = STOCHASTIC (0 kapali).
   // 3..6 yalniz mesh_vtfb'de var (temel mesh.frag'da olmayan kimlik yok sayilir).
   const int32_t fs_spec_data[7] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0,
-                                   vsm_sampling() ? 1 : 0, vt_info_.enabled ? 1 : 0, (int32_t)cfg_.vt_page_px,
+                                   vsm_sampling() ? 1 : 0,
+                                   !vt_info_.enabled ? 0 : cfg_.vt_feedback_probe == 1 ? 0 : cfg_.vt_feedback_probe == 2 ? 2 : 1,
+                                   (int32_t)cfg_.vt_page_px,
                                    (int32_t)(cfg_.vt_feedback_table.table_slots - 1), (int32_t)cfg_.vt_feedback_table.list_capacity};
   VkSpecializationMapEntry fs_entries[7];
   for (uint32_t k = 0; k < 7; k++) fs_entries[k] = {k, k * (uint32_t)sizeof(int32_t), sizeof(int32_t)};

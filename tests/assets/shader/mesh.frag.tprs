@@ -1,5 +1,5 @@
 // kaynak-ozet: 2d65b6114503  (engine/rhi/shaders/mesh.frag)
-// kaynak-ozet: 7a65251730d2  (engine/rhi/shaders/mesh_vtfb.frag)
+// kaynak-ozet: 9cacae5a6b52  (engine/rhi/shaders/mesh_vtfb.frag)
 // Forward parca asamasi: Lambert + PBR (Cook-Torrance, glTF 2.0 metallic-
 // roughness), ORM/normal/isima dokulari, kademeli golge (CSM atlasi, kademe
 // basina egilim), kumelenmis + stokastik nokta isiklar. Motorun en agir shader'i.
@@ -375,6 +375,7 @@ if (ozellik("vt_geri_bildirim")) {
       return;
     }
     uint key = (tex << 26) | (mip << 22) | (px << 11) | py;
+    if (VT_FB == 2) { return; } // OLCUM kipi: anahtar hesaplanir, SSBO islemi yok (bedelin nereden geldigini ayirmak)
     uint h = key * 2654435761u;
     h = (h ^ (h >> 16)) & u32(VT_TABLE_MASK);
     for (uint probe = 0u; probe < 64u; probe++) {
