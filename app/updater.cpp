@@ -578,6 +578,8 @@ bool platform_zip(const char *p) { return std::strcmp(p, "windows-x86_64") == 0;
 
 } // namespace
 
+bool upd_platform_released(const char *platform) { return platform_known(platform); }
+
 // ============================================================================
 // Saf yardimcilar
 

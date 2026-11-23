@@ -106,6 +106,18 @@ struct Fx {
   char settings[640] = {0};
 };
 
+// Surum paketi olmayan platformda (linux-aarch64, windows-arm64 — 2026-11-23, CI windows-11-arm isi) guncelleyici
+// BILEREK kapali: ag/kurulum kapilari bu ikilide olculemez. Sessiz gecmek yerine GORUNUR atla; uc paketli platformda
+// (CI'nin zorunlu isleri) bu yol hic tetiklenmez, kapilar orada olcer.
+bool paketsiz_platform_atla() {
+  if (app::upd_platform_released(build_platform())) return false;
+  static char why[160];
+  std::snprintf(why, sizeof why, "bu platformun (%s) surum paketi yok — guncelleyici bilerek kapali, ag/kurulum kapisi olculemedi",
+                build_platform());
+  skip(why);
+  return true;
+}
+
 bool make_fx(Fx &f, const char *stem, const char *tag) {
   if (!tmp_mkdir(f.dir, sizeof f.dir, stem)) return false;
   char p[700], surum[96], man[512];
@@ -338,6 +350,7 @@ ENGINE_TEST(editor_update_restart_argv_keeps_args) {
 
 // --- 4) AG KURALI: penceresiz 0 istek; pozitif kontrol pencereli 1 istek ------
 ENGINE_TEST(editor_update_headless_never_requests_positive_control_counts) {
+  if (paketsiz_platform_atla()) return;
   static Fx f;
   if (!make_fx(f, "guncelleme_ag", "v9.9.9")) { CHECK(false); return; }
   // (a) PENCERESIZ: otomatik acik, hic denetlenmemis, env yok — tek engel kip.
@@ -775,6 +788,7 @@ bool make_kur_fx(KurFx &k) {
 } // namespace
 
 ENGINE_TEST(editor_update_cli_exit_codes) {
+  if (paketsiz_platform_atla()) return;
   char exe[1100];
   if (!editor_exe(exe, sizeof exe)) { skip("engine_editor ikilisi engine_tests'in yaninda yok (Android/paket disi)"); return; }
   static char out[8192];
@@ -817,6 +831,7 @@ ENGINE_TEST(editor_update_cli_exit_codes) {
 // Geri alma / bozuk arsiv / manifest kacisi cekirdegin kendi kapilarinda
 // (tests/test_updater.cpp); burada olculen, CLI'nin o yolu dogru SURMESI.
 ENGINE_TEST(editor_update_cli_kur_end_to_end) {
+  if (paketsiz_platform_atla()) return;
   char exe[1100];
   if (!editor_exe(exe, sizeof exe)) { skip("engine_editor ikilisi engine_tests'in yaninda yok (Android/paket disi)"); return; }
   static KurFx k;
@@ -850,6 +865,7 @@ ENGINE_TEST(editor_update_cli_kur_end_to_end) {
 // Penceresiz editorun KENDI kapisi, ETKIN bir guncelleyiciyle (fikstur paketi,
 // otomatik acik, hic denetlenmemis): istek 0, menu yolunun reddi 1.
 ENGINE_TEST(editor_update_headless_editor_gate) {
+  if (paketsiz_platform_atla()) return;
   char exe[1100];
   if (!editor_exe(exe, sizeof exe)) { skip("engine_editor ikilisi engine_tests'in yaninda yok (Android/paket disi)"); return; }
   static Fx f;
