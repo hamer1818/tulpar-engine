@@ -106,6 +106,9 @@ struct VkApi {
   PFN_vkCmdDraw vkCmdDraw = nullptr;
   PFN_vkCmdPipelineBarrier vkCmdPipelineBarrier = nullptr;
   PFN_vkCmdCopyImageToBuffer vkCmdCopyImageToBuffer = nullptr;
+  // VSM atlasi (renderer/vsm_atlas): ilk temizleme + sayfa karosu temizleme.
+  PFN_vkCmdClearDepthStencilImage vkCmdClearDepthStencilImage = nullptr;
+  PFN_vkCmdClearAttachments vkCmdClearAttachments = nullptr;
   PFN_vkCmdExecuteCommands vkCmdExecuteCommands = nullptr;
   // swapchain + senkron + cizim
   PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR = nullptr;

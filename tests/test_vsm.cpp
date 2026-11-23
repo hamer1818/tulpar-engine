@@ -5,9 +5,12 @@
 
 #include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
+#include "renderer/vsm_atlas.hpp"
 #include "renderer/vsm_pages.hpp"
 #include "rhi/compute.hpp"
 #include "rhi/device.hpp"
+#include <cmath>
+
 #include "rhi/shaders/vsm_mark_comp_spv.h"
 #include "rhi/shaders/vsm_request_comp_spv.h"
 #include "rhi/vk_api.hpp"
@@ -468,5 +471,226 @@ ENGINE_TEST(vsm_gpu_dedupe_matches_cpu_distinct) {
   rhi::compute_buffer_destroy(dev, &bt);
   rhi::compute_buffer_destroy(dev, &bp);
   k.shutdown();
+  dev.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// FIZIKSEL ATLAS (renderer/vsm_atlas, rhi/shaders/shadow_vsm.vert): render listesindeki her sayfa kendi karosuna
+// kendi ortografik izdusumuyle cizilir. REFERANS ANALITIK: karonun her texel merkezinden isik yonunde dogru atilir,
+// kutularin (eksen hizali) en yakin giris derinligi beklenen degerdir; hic carpmayan texel 1.0 (bos).
+// KALICILIK: (a) statik ikinci kare -> render listesi bos, atlas BAYT AYNI; (b) bir kutu hareket eder ->
+// yalniz kirli sayfalar yeniden cizilir, diger karolar BAYT AYNI, yeniden cizilenler yeni referansa uyar.
+// KONTROL: referans bir sayfa kaydirilarak hesaplanirsa uyusmazlik buyur (karsilastirma gercekten olcuyor).
+
+namespace {
+struct GpuBuf {
+  VkBuffer buf = VK_NULL_HANDLE;
+  rhi::MemoryAlloc mem{};
+  void *map = nullptr;
+};
+bool gpu_buf(rhi::Device &dev, VkDeviceSize bytes, VkBufferUsageFlags usage, const void *data, GpuBuf *out) {
+  rhi::VkApi &a = dev.api();
+  VkBufferCreateInfo bi{};
+  bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bi.size = bytes;
+  bi.usage = usage;
+  bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  if (a.vkCreateBuffer(dev.handle(), &bi, nullptr, &out->buf) != VK_SUCCESS) return false;
+  VkMemoryRequirements req;
+  a.vkGetBufferMemoryRequirements(dev.handle(), out->buf, &req);
+  if (!dev.allocate_dedicated(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, false, &out->mem) ||
+      a.vkBindBufferMemory(dev.handle(), out->buf, out->mem.memory, out->mem.offset) != VK_SUCCESS ||
+      a.vkMapMemory(dev.handle(), out->mem.memory, 0, VK_WHOLE_SIZE, 0, &out->map) != VK_SUCCESS)
+    return false;
+  std::memcpy(out->map, data, bytes);
+  return true;
+}
+void gpu_buf_free(rhi::Device &dev, GpuBuf *b) {
+  if (b->map) dev.api().vkUnmapMemory(dev.handle(), b->mem.memory);
+  if (b->buf) dev.api().vkDestroyBuffer(dev.handle(), b->buf, nullptr);
+  if (b->mem.memory) dev.free_dedicated(&b->mem);
+  *b = GpuBuf{};
+}
+
+struct Kutu { Vec3 merkez, boy; };
+
+// Dogru o + d*t (o isik-uzayinda w = 0) ile kutularin en kucuk giris t'si (= isik-uzayi w). Carpmazsa false.
+bool isin_kutu(Vec3 o, Vec3 d, const Kutu *k, uint32_t n, float *w) {
+  bool hit = false;
+  float best = 1e30f;
+  for (uint32_t i = 0; i < n; i++) {
+    const Vec3 mn = k[i].merkez - k[i].boy * 0.5f, mx = k[i].merkez + k[i].boy * 0.5f;
+    float t0 = -1e30f, t1 = 1e30f;
+    const float oo[3] = {o.x, o.y, o.z}, dd[3] = {d.x, d.y, d.z}, lo[3] = {mn.x, mn.y, mn.z}, hi[3] = {mx.x, mx.y, mx.z};
+    bool ok = true;
+    for (int ax = 0; ax < 3 && ok; ax++) {
+      if (std::fabs(dd[ax]) < 1e-9f) { ok = oo[ax] >= lo[ax] && oo[ax] <= hi[ax]; continue; }
+      float a = (lo[ax] - oo[ax]) / dd[ax], b = (hi[ax] - oo[ax]) / dd[ax];
+      if (a > b) { const float t = a; a = b; b = t; }
+      t0 = a > t0 ? a : t0;
+      t1 = b < t1 ? b : t1;
+      ok = t0 <= t1;
+    }
+    if (ok && t0 < best) { best = t0; hit = true; }
+  }
+  *w = best;
+  return hit;
+}
+
+// Bir karonun beklenen derinligi ile atlas karsilastirmasi: |fark| > tol olan texel sayisi; kapli = carpan texel.
+uint32_t karo_fark(const float *atlas, uint32_t aw, const renderer::VsmAtlas &at, const VsmPageCache &c, VsmPageKey k,
+                   uint32_t slot, const Kutu *kutular, uint32_t nk, const renderer::VsmAtlasConfig &ac, uint32_t *kapli) {
+  const Vec3 lu = c.light_u(), lv = c.light_v(), d = cross(lu, lv);
+  const float pw = c.page_world(k.level);
+  const uint32_t t = at.tile_px();
+  uint32_t x0, y0, fark = 0;
+  at.slot_origin(slot, &x0, &y0);
+  for (uint32_t ty = 0; ty < t; ty++)
+    for (uint32_t tx = 0; tx < t; tx++) {
+      const float u = ((float)k.x + ((float)tx + 0.5f) / (float)t) * pw, v = ((float)k.y + ((float)ty + 0.5f) / (float)t) * pw;
+      float w;
+      float bek = 1.0f;
+      if (isin_kutu(lu * u + lv * v, d, kutular, nk, &w)) {
+        bek = (w - ac.light_depth_min) / (ac.light_depth_max - ac.light_depth_min);
+        (*kapli)++;
+      }
+      const float g = atlas[(size_t)(y0 + ty) * aw + x0 + tx];
+      if (std::fabs(g - bek) > 1e-4f) fark++;
+    }
+  return fark;
+}
+} // namespace
+
+ENGINE_TEST(vsm_atlas_pages_match_analytic_shadow_and_persist) {
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { test::skip("Vulkan loader (libvulkan) yok — VSM atlasi kosmadi"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "vsm_atlas")) { CHECK(false); return; }
+  static rhi::Device dev;
+  rhi::DeviceConfig dc;
+  const char *pref = std::getenv("TULPAR_ENGINE_GPU");
+  dc.prefer = pref ? pref : "";
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { test::skip("Vulkan cihazi yok (ICD?) — VSM atlasi kosmadi"); return; }
+
+  constexpr uint32_t W = 160, H = 90;
+  static float depth[W * H];
+  const Vec3 eye{0, 6, 10};
+  const Mat4 vp = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 500.0f) * Mat4::look_at(eye, Vec3{0, 0, -4}, Vec3{0, 1, 0});
+  const Mat4 inv = inverse(vp);
+  zemin_derinligi(depth, W, H, vp, inv);
+
+  VsmConfig cfg;
+  cfg.pool_pages = 128;
+  renderer::VsmAtlasConfig ac;
+  ac.tile_px = 64;
+  ac.tiles_x = 16;
+  ac.light_depth_min = -100;
+  ac.light_depth_max = 100;
+  static VsmPageCache c;
+  CHECK(c.init(arena(), cfg, kLight));
+
+  // Birim kup ([-0.5, 0.5]^3), 8 kose + 36 indis; uc kutu zemine golge dusurur.
+  const float kv[24] = {-.5f, -.5f, -.5f, .5f, -.5f, -.5f, .5f, .5f, -.5f, -.5f, .5f, -.5f,
+                        -.5f, -.5f, .5f,  .5f, -.5f, .5f,  .5f, .5f, .5f,  -.5f, .5f, .5f};
+  const uint32_t ki[36] = {0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 3, 2, 6, 3, 6, 7, 0, 3, 7, 0, 7, 4, 1, 5, 6, 1, 6, 2};
+  GpuBuf vb, ib;
+  CHECK(gpu_buf(dev, sizeof kv, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, kv, &vb) && gpu_buf(dev, sizeof ki, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, ki, &ib));
+  Kutu kutular[3] = {{{0, 1, -2}, {2, 2, 2}}, {{-3, 0.75f, 1}, {1, 1.5f, 3}}, {{3, 2, -5}, {1.5f, 4, 1.5f}}};
+  renderer::VsmCaster cs[3];
+  auto dokumleri_kur = [&]() {
+    for (uint32_t i = 0; i < 3; i++) {
+      cs[i].vbuf = vb.buf;
+      cs[i].ibuf = ib.buf;
+      cs[i].index_count = 36;
+      cs[i].model = Mat4::translate(kutular[i].merkez) * Mat4::scale(kutular[i].boy);
+      cs[i].aabb_min = kutular[i].merkez - kutular[i].boy * 0.5f;
+      cs[i].aabb_max = kutular[i].merkez + kutular[i].boy * 0.5f;
+    }
+  };
+  dokumleri_kur();
+
+  static renderer::VsmAtlas at;
+  if (!at.init(dev, cfg, ac, 12, 0)) { std::printf("    [bilgi] atlas kurulamadi: %s\n", at.error()); CHECK(false); return; }
+  const uint32_t aw = at.width(), ah = at.height();
+  static float kare1[1024 * 512], simdi[1024 * 512];
+  CHECK((size_t)aw * ah <= sizeof kare1 / sizeof kare1[0]);
+  auto kare = [&](float *out) {
+    c.begin_frame(eye);
+    vsm_mark_from_depth(c, depth, W, H, inv);
+    VkCommandBuffer cb = dev.begin_one_shot();
+    at.record(cb, c, cs, 3);
+    CHECK(dev.end_one_shot_and_wait(cb));
+    CHECK(at.read_back(out));
+  };
+  auto listeyi_olc = [&](const float *atlas, uint32_t *fark, uint32_t *kapli, uint32_t *texel) {
+    *fark = *kapli = *texel = 0;
+    for (uint32_t r = 0; r < c.render_count(); r++) {
+      const renderer::VsmRender &R = c.render_list()[r];
+      *fark += karo_fark(atlas, aw, at, c, R.key, R.slot, kutular, 3, ac, kapli);
+      *texel += ac.tile_px * ac.tile_px;
+    }
+  };
+
+  // KARE 1: butun istenen sayfalar yeni -> hepsi cizilir.
+  kare(kare1);
+  const uint32_t n1 = c.render_count();
+  const renderer::VsmAtlasStats s1 = at.stats();
+  uint32_t fark, kapli, texel;
+  listeyi_olc(kare1, &fark, &kapli, &texel);
+  std::printf("    [bilgi] %s, atlas %ux%u (%s): kare 1 sayfa %u, cizim %u, elenen %u; texel %u, golgeli %u, fark %u\n",
+              dev.caps().device_name, aw, ah, at.format() == VK_FORMAT_D16_UNORM ? "D16" : "D32", n1, s1.draws, s1.culled,
+              texel, kapli, fark);
+  CHECK(n1 > 10 && s1.pages_drawn == n1);
+  // KONTROL: golge gercekten dustu (bos atlas da "fark 0" verirdi). Olculen 5 484 / 360 448 (RTX 5080, 2026-11-23):
+  // kutular yakin (ince) sayfalarda kucuk, uzak seviyelerin iri sayfalarinda birkac texel — %1,5 bu sahnenin geometrisi.
+  CHECK(kapli > 1000);
+  CHECK(fark * 500 <= texel);      // kenar texelleri: en cok %0,2
+  CHECK(s1.culled > 0);            // sayfa basina eleme kostu
+
+  // KONTROL: referans bir sayfa kaymis -> uyusmazlik buyur.
+  uint32_t kfark = 0, kk = 0;
+  for (uint32_t r = 0; r < n1; r++) {
+    const renderer::VsmRender &R = c.render_list()[r];
+    kfark += karo_fark(kare1, aw, at, c, VsmPageKey{R.key.level, R.key.x + 1, R.key.y}, R.slot, kutular, 3, ac, &kk);
+  }
+  std::printf("    [bilgi] KONTROL (referans 1 sayfa kaymis): fark %u\n", kfark);
+  CHECK(kfark > fark * 4 + texel / 100);
+
+  // KARE 2: statik sahne, duran kamera -> cizim yok, atlas BAYT AYNI.
+  kare(simdi);
+  const uint32_t n2 = c.render_count();
+  CHECK(n2 == 0 && at.stats().pages_drawn == 0);
+  CHECK(std::memcmp(kare1, simdi, (size_t)aw * ah * 4) == 0);
+
+  // KARE 3: kutu 0 +1.5 m x'e kayar -> eski ve yeni AABB'nin sayfalari kirli; yalniz onlar yeniden cizilir.
+  uint32_t kirli = c.invalidate(cs[0].aabb_min, cs[0].aabb_max); // eski konum
+  kutular[0].merkez.x += 1.5f;
+  dokumleri_kur();
+  kirli += c.invalidate(cs[0].aabb_min, cs[0].aabb_max); // yeni konum (zaten kirli olan sayilmaz)
+  kare(simdi);
+  const uint32_t n3 = c.render_count();
+  static uint8_t yeniden[1024];
+  std::memset(yeniden, 0, sizeof yeniden);
+  for (uint32_t r = 0; r < n3; r++) yeniden[c.render_list()[r].slot] = 1;
+  uint32_t dokunulmamis_fark = 0;
+  for (uint32_t y = 0; y < ah; y++)
+    for (uint32_t x = 0; x < aw; x++) {
+      const uint32_t slot = (y / ac.tile_px) * ac.tiles_x + x / ac.tile_px;
+      if (!yeniden[slot] && kare1[(size_t)y * aw + x] != simdi[(size_t)y * aw + x]) dokunulmamis_fark++;
+    }
+  uint32_t fark3, kapli3, texel3;
+  listeyi_olc(simdi, &fark3, &kapli3, &texel3);
+  std::printf("    [bilgi] kare 2: sayfa %u; kare 3 (kutu kaydi): kirli %u, yeniden cizilen %u/%u, dokunulmamis karolarda fark %u, "
+              "yeniden cizilenlerde fark %u/%u\n",
+              n2, kirli, n3, n1, dokunulmamis_fark, fark3, texel3);
+  CHECK(n3 > 0 && n3 < n1);
+  CHECK(dokunulmamis_fark == 0);
+  CHECK(fark3 * 500 <= texel3 + 500);
+  CHECK(dev.validation_errors() == 0);
+
+  at.shutdown();
+  gpu_buf_free(dev, &vb);
+  gpu_buf_free(dev, &ib);
   dev.shutdown();
 }
