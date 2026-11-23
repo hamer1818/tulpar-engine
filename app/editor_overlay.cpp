@@ -949,7 +949,7 @@ void assets_panel(AssetsView &v, const char *dir, const AssetFile *files, uint32
         cdl->AddRect(p, q, border_col, st.FrameRounding, 1.0f);
 
         // 2. Üst Önizleme Kuyusu (Recessed Thumbnail Well)
-        cdl->AddRectFilled(p, thumb_br, tone_u32(Tone::Input), st.FrameRounding, ImDrawFlags_RoundCornersTop);
+        cdl->AddRectFilled(p, thumb_br, tone_u32(Tone::Input), st.FrameRounding, ImDrawFlags_RoundTop);
         cdl->AddLine(ImVec2(p.x, thumb_br.y), thumb_br, tone_u32(Tone::Line, 0.50f));
 
         // 3. Varlık Türü İkonu ve Rozeti

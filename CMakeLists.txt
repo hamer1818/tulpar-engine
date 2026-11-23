@@ -309,14 +309,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 endif()
 target_link_libraries(engine_jolt PUBLIC Threads::Threads)
 
-# --- meshoptimizer (vendored, engine/third_party/meshoptimizer, MIT) ---------
+# --- meshoptimizer 1.3 (vendored, engine/third_party/meshoptimizer, MIT; v1.3 etiketi src/ degistirilmeden, 2026-11-23 — 1.2 idi) ---
 # Yukleme aninda mesh optimizasyonu + LOD (Faz 6); cluster DAG'in temeli (Faz 9).
 file(GLOB ENGINE_MESHOPT_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshoptimizer/*.cpp)
 add_library(engine_meshopt STATIC ${ENGINE_MESHOPT_SOURCES})
 target_include_directories(engine_meshopt PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshoptimizer)
 target_compile_options(engine_meshopt PRIVATE -fno-exceptions -fno-rtti -w)
 
-# --- astc-encoder (vendored, engine/third_party/astcenc, Apache-2.0) ---------
+# --- astc-encoder 5.7.1 (vendored, engine/third_party/astcenc, Apache-2.0; 5.7.1 etiketinin Source/astcenc_* dosyalari degistirilmeden, 2026-11-23 — 5.7.0 idi) ---
 # Arac (engine_texpack) sikistirir; runtime yalniz ASTC LDR olmayan GPU'da (masaustu
 # NVIDIA) cozer. ISA: x86_64 SSE4.1+POPCNT, AArch64 NEON, digerleri skaler.
 file(GLOB ENGINE_ASTCENC_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/astcenc/astcenc_*.cpp)
@@ -615,8 +615,11 @@ set(ENGINE_TEST_SOURCES
     tests/test_rollback.cpp
 )
 # Fizik altin ozeti: x86_64'te hesaplanir, CI arm64 ve telefon (Kirin 970) karsilastirir.
-# 0x5dc41c2bddc345cb: x86_64 (SSE4.2, FMA yok), 65 govde x 300 adim, baslangic donusleri SABIT bit (libm yok), 2026-09-14.
-set(ENGINE_PHYSICS_GOLDEN_HASH "0x5dc41c2bddc345cb" CACHE STRING "Jolt sahnesinin platformlar arasi altin ozeti (x86_64'te hesaplandi)")
+# 0x974a766b83701597: Jolt 5.7.0, x86_64 (SSE4.2, FMA yok), 65 govde x 300 adim, baslangic donusleri SABIT bit (libm yok), 2026-11-23.
+# (Jolt 5.3.0'da 0x5dc41c2bddc345cb idi, 2026-09-14: cozucu degisti, ozet de degisir — her Jolt guncellemesinde yeniden hesaplanir
+# ve arm64 CI'da AYNI cikmasi beklenir.) CACHE DEGIL: CACHE iken var olan her yapi/ dizini eski degeri sakliyor, guncelleme
+# yerelde "platformlar arasi FARK" diye kizariyordu (2026-11-23, Jolt 5.7 gecisinde). Disaridan ezen yok.
+set(ENGINE_PHYSICS_GOLDEN_HASH "0x974a766b83701597")
 # --- Dear ImGui + ImGuizmo (vendored, engine/third_party/imgui, MIT) — yalniz masaustu editor
 if(NOT ANDROID)
     add_library(engine_imgui STATIC
