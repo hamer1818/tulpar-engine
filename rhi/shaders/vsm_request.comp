@@ -22,39 +22,59 @@ layout(std430, set = 0, binding = 1) buffer Table {
 layout(std430, set = 0, binding = 2) buffer Pages {
   uint n[];
 } u_pages;
+// Is grubu on tekillestirmesi: 8x8 grubun pikselleri cogunlukla AYNI sayfaya duser. Grubun ilk pikselinin anahtarini
+// tasiyanlar global tabloya hic gitmez (Mali-G72 1080p: 4,3 ms'nin cogu ayni yuvadaki atomik trafikti, 2026-11-23).
+shared uint s_key[1];
 void main() {
-  uvec2 p = gl_GlobalInvocationID.xy;
-  if (p.x >= pc.dims.x || p.y >= pc.dims.y) {
+  // SEYREKLIK dispatch boyundan: cagiran ceil(w/s/8) x ceil(h/s/8) grup gonderirse her s'inci piksel ornegi alinir
+  // (push 128 bayt sinirinda, yeni alan yok). Tam izgara = s 1. 1080p'de s 2 sayfalarin hepsini buldu (107/107).
+  uint gx = gl_NumWorkGroups.x * 8u;
+  uint s = (pc.dims.x + gx - 1u) / gx;
+  uvec2 p = gl_GlobalInvocationID.xy * s;
+  // barrier'dan ONCE hicbir is parcacigi cikmamali: anahtar once hesaplanir (gecersiz = 0xFFFFFFFF).
+  uint key = 4294967295u;
+  if (p.x < pc.dims.x && p.y < pc.dims.y) {
+    uint i = p.y * pc.dims.x + p.x;
+    float d = u_depth.d[i];
+    if (d < 1.0) {
+      vec2 ndc = (vec2(p) + 0.5) / vec2(pc.dims.xy) * 2.0 - 1.0;
+      vec4 c = pc.inv_vp * vec4(ndc, d, 1.0);
+      vec3 w = c.xyz / c.w;
+      float dist = length(w - pc.cam.xyz);
+      uint levels = uint(pc.cam.w);
+      uint l = 0u;
+      float lim = pc.lv.w;
+      while (dist > lim && l + 1u < levels) {
+        lim = lim * 2.0;
+        l = l + 1u;
+      }
+      float pw = pc.lu.w * float(1u << l);
+      int kx = int(floor(dot(w, pc.lu.xyz) / pw));
+      int ky = int(floor(dot(w, pc.lv.xyz) / pw));
+      if (l >= 15u || kx < -8192 || kx > 8191 || ky < -8192 || ky > 8191) {
+        atomicAdd(u_pages.n[3], 1u);
+      } else {
+        key = (l << 28) | ((uint(kx) & 16383u) << 14) | (uint(ky) & 16383u);
+      }
+    }
+  }
+  if (gl_LocalInvocationIndex == 0u) {
+    s_key[0] = key;
+  }
+  barrier();
+  if (key == 4294967295u || (key == s_key[0] && gl_LocalInvocationIndex != 0u)) {
     return;
   }
-  uint i = p.y * pc.dims.x + p.x;
-  float d = u_depth.d[i];
-  if (d >= 1.0) {
-    return;
-  }
-  vec2 ndc = (vec2(p) + 0.5) / vec2(pc.dims.xy) * 2.0 - 1.0;
-  vec4 c = pc.inv_vp * vec4(ndc, d, 1.0);
-  vec3 w = c.xyz / c.w;
-  float dist = length(w - pc.cam.xyz);
-  uint levels = uint(pc.cam.w);
-  uint l = 0u;
-  float lim = pc.lv.w;
-  while (dist > lim && l + 1u < levels) {
-    lim = lim * 2.0;
-    l = l + 1u;
-  }
-  float pw = pc.lu.w * float(1u << l);
-  int kx = int(floor(dot(w, pc.lu.xyz) / pw));
-  int ky = int(floor(dot(w, pc.lv.xyz) / pw));
-  if (l >= 15u || kx < -8192 || kx > 8191 || ky < -8192 || ky > 8191) {
-    atomicAdd(u_pages.n[3], 1u);
-    return;
-  }
-  uint key = (l << 28) | ((uint(kx) & 16383u) << 14) | (uint(ky) & 16383u);
   uint h = key * 2654435761u;
   h = (h ^ (h >> 16)) & pc.dims.z;
   for (uint probe = 0u; probe < 64u; probe++) {
-    uint prev = atomicCompSwap(u_table.t[h], 4294967295u, key);
+    // ONCE DUZ OKUMA: ayni sayfaya dusen binlerce piksel ayni yuvada atomicCompSwap icin sira bekliyordu (1080p'de
+    // RTX 5080'de 215 ms, 2026-11-23). Anahtar zaten yazilmissa atomik yok; bayat okuma CAS'a duser, yine dogru.
+    uint seen = u_table.t[h];
+    if (seen == key) {
+      return;
+    }
+    uint prev = seen == 4294967295u ? atomicCompSwap(u_table.t[h], 4294967295u, key) : seen;
     if (prev == 4294967295u) {
       uint slot = atomicAdd(u_pages.n[0], 1u);
       if (slot < pc.dims.w) {
