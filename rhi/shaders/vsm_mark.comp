@@ -1,0 +1,43 @@
+#version 450
+// VSM sayfa isaretleme (Faz 9, 2026-11-23). Tulpar kaynagi: tests/assets/shader/vsm_mark.comp.tprs (bayt kapisi).
+// Derinlik -> dunya konumu -> clipmap seviyesi (kameraya uzaklik) -> MUTLAK isik-uzayi sayfa anahtari (level, x, y, gecerli).
+// CPU basvurusu renderer::vsm_mark_from_depth ile ayni formul.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant) uniform Push {
+  mat4 inv_vp;
+  vec4 lu;
+  vec4 lv;
+  vec4 cam;
+  uvec4 dims;
+} pc;
+layout(std430, set = 0, binding = 0) readonly buffer Depth {
+  float d[];
+} u_depth;
+layout(std430, set = 0, binding = 1) writeonly buffer Keys {
+  ivec4 k[];
+} u_keys;
+void main() {
+  uvec2 p = gl_GlobalInvocationID.xy;
+  if (p.x >= pc.dims.x || p.y >= pc.dims.y) {
+    return;
+  }
+  uint i = p.y * pc.dims.x + p.x;
+  float d = u_depth.d[i];
+  if (d >= 1.0) {
+    u_keys.k[i] = ivec4(0, 0, 0, 0);
+    return;
+  }
+  vec2 ndc = (vec2(p) + 0.5) / vec2(pc.dims.xy) * 2.0 - 1.0;
+  vec4 c = pc.inv_vp * vec4(ndc, d, 1.0);
+  vec3 w = c.xyz / c.w;
+  float dist = length(w - pc.cam.xyz);
+  uint levels = uint(pc.cam.w);
+  uint l = 0u;
+  float lim = pc.lv.w;
+  while (dist > lim && l + 1u < levels) {
+    lim = lim * 2.0;
+    l = l + 1u;
+  }
+  float pw = pc.lu.w * float(1u << l);
+  u_keys.k[i] = ivec4(int(l), int(floor(dot(w, pc.lu.xyz) / pw)), int(floor(dot(w, pc.lv.xyz) / pw)), 1);
+}

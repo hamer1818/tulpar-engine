@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 899 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 907 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -151,10 +151,12 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `core/profiler/profiler.hpp` — Profiler (Faz 0'da yazilir, sonra degil: "olcemedigin seyi
 - `core/reflect/reflect.hpp` — Core reflection interface placeholder - see content/reflect.hpp for SceneEntity reflection
 
-### rhi — L2 (15 dosya, 3900 satır)
+### rhi — L2 (17 dosya, 4085 satır)
 
 - `rhi/command_pools.cpp` — 
 - `rhi/command_pools.hpp` — thread basina komut havuzu (plan L2: "command buffer'lar paralel
+- `rhi/compute.cpp` — 
+- `rhi/compute.hpp` — KUCUK COMPUTE CALISTIRICISI (2026-11-23).
 - `rhi/device.cpp` — 
 - `rhi/device.hpp` — Device: instance + fiziksel cihaz secimi + mantiksal cihaz +
 - `rhi/frame_graph.cpp` — 
@@ -169,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (28 dosya, 8473 satır)
+### renderer — L3 (28 dosya, 8478 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -273,7 +275,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (74 dosya, 18595 satır)
+### content — L6 (76 dosya, 18944 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -339,6 +341,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/scene_runtime.hpp` — Derlenmis sahnenin (SceneBlobView) runtime tuketicisi:
 - `content/terrain.cpp` — 
 - `content/terrain.hpp` — Prosedurel terrain: yukseklik haritasi uretimi + orneklemesi
+- `content/text_shape.cpp` — 
+- `content/text_shape.hpp` — METIN SHAPING (2026-11-23): UTF-8 -> GORSEL SIRADA glif dizisi (kb_text_shape, OpenType GSUB/GPOS +
 - `content/usdc.cpp` — İkili USD (crate) -> USDA metni. Biçim ve gerekçe: content/usdc.hpp.
 - `content/usdc.hpp` — İkili USD (crate, "PXR-USDC") -> USDA metni (2026-11-22).
 - `content/vendored_impl.c` — Uçüncü parti yükleyicilerin tek TU'daki gövdeleri (C, uyarılar kapalı:
@@ -446,7 +450,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (75 dosya, 17295 satır)
+### tools — L7 (75 dosya, 17296 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1120,7 +1124,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **899** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **907** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1149,11 +1153,11 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `platform` — 8
 - `process` — 8
 - `sahne` — 8
+- `vsm` — 8
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
 - `timer` — 7
-- `vsm` — 7
 - `vt` — 7
 - `anim` — 6
 - `engine` — 6
@@ -1163,6 +1167,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `morph` — 6
 - `prefab` — 6
 - `rng` — 6
+- `shaping` — 6
 - `spatial` — 6
 - `value` — 6
 - `bvh` — 5
@@ -1244,6 +1249,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `sample` — 1
 - `schedule` — 1
 - `sequential` — 1
+- `shaped` — 1
 - `sigmoid` — 1
 - `static` — 1
 - `sum` — 1
@@ -1368,12 +1374,13 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_state_machine.cpp` — 1 test
 - `tests/test_temporal.cpp` — 5 test
 - `tests/test_terrain.cpp` — 5 test
+- `tests/test_text_shape.cpp` — 7 test
 - `tests/test_thermal.cpp` — 2 test
 - `tests/test_timers.cpp` — 13 test
 - `tests/test_updater.cpp` — 20 test
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
-- `tests/test_vsm.cpp` — 7 test
+- `tests/test_vsm.cpp` — 8 test
 - `tests/test_vt.cpp` — 5 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
