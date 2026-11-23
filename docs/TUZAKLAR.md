@@ -2900,3 +2900,14 @@ root'suz okunamıyor, ısı/DVFS bağlantısı **iddia edilmez**. Aynı kod ayn�
 92,8 ms, 2026-11-23 49–58 ms; LOD2 16,1 → 28–37 ms. **Düzeltme (test):** hata metni basılır ve test BİTER; `ren.shutdown()` eklendi
 (doğrulama katmanı 46 sızan nesne gösterdi). **Kural:** bir ölçüm döngüsü çizim hatasından sonra devam edemez — yoksa tablo dolu
 görünür ve sayı ölçüm değildir. Mobil sayıyı tek koşumdan yazma: aynı cihazda aynı kod yarı yarıya oynuyor.
+
+### 8ew. Testin kendi sunucusu SIGPIPE ile bütün koşumu öldürür — özet satırı hiç basılmaz
+**Belirti (2026-11-23, yerel, GCC 16.2.1, mbedTLS 3.6.8):** tam koşum `platform_https_verifies_certificate_and_name`'in "ad uyuşmaz"
+KONTROL adımından sonra çıkış kodu **141** ile bitti; özet satırı yok. Tek başına 40 koşumda 1. **Kök:** testin düz HTTP ve TLS
+sunucuları `send(...,0)` ile yazıyordu. KONTROL adımlarında istemci sertifikayı reddedip soketi kapatıyor; sunucu o sırada hâlâ
+yazıyorsa Linux SIGPIPE gönderiyor ve varsayılan eylem süreci öldürüyor — yalnız o testi değil, ardından koşacak bütün testleri.
+Motorun istemcisi (`platform/http.cpp` `bio_send`) zaten `MSG_NOSIGNAL` kullanıyordu; hata yalnız test kodundaydı. (3.6.2'de de
+aynı yol vardı; olasılığı zamanlama seçiyor.) **Düzeltme:** test sunucuları `sinyalsiz_gonder` ile yazar (`MSG_NOSIGNAL`; Windows'ta
+SIGPIPE yok). Sayaç kapanmış sokete yazmayı basar: 200 koşumda 53'ünde yazma oldu (EPIPE/ECONNRESET), 200/200 geçti. **Kural:**
+testin içindeki yardımcı sunucu da ürünün sinyal kurallarına uyar; CI özeti yokluğu kırmızı sayıyor ama yerelde 141 "neden
+yarıda kaldı" sorusunu sordurmadan geçilebilir.
