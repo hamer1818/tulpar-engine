@@ -397,7 +397,8 @@ add_dependencies(engine_sim engine_layer_check)
 # ayni durum: "kod hazir, bagimlilik/kablolama bekliyor").
 add_library(engine_renderer STATIC renderer/renderer.cpp renderer/cluster.cpp renderer/indirect_cull.cpp
     renderer/meshlet_pipeline.cpp renderer/lighting_pipeline.cpp renderer/debug_draw.cpp
-    renderer/cluster_lod.cpp renderer/cluster_cull.cpp renderer/vsm_pages.cpp renderer/vt_cache.cpp)
+    renderer/cluster_lod.cpp renderer/cluster_cull.cpp renderer/vsm_pages.cpp
+    renderer/vsm_atlas.cpp renderer/vt_cache.cpp)
 target_include_directories(engine_renderer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/debug_draw)
 target_link_libraries(engine_renderer PUBLIC engine_rhi engine_meshopt)
 target_compile_options(engine_renderer PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> -ffp-contract=off)

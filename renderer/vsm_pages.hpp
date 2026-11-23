@@ -77,6 +77,8 @@ public:
   Vec3 light_v() const { return lv_; }
   Vec3 camera() const { return cam_; }
   const VsmConfig &config() const { return cfg_; }
+  // Seviye l'deki sayfanin dunya kenari (m): base_page_world * 2^l. Atlas sayfa izdusumu bunu kullanir.
+  float page_world(uint32_t level) const;
 
 private:
   struct Slot { VsmPageKey key; uint32_t last_used; uint8_t used, dirty; };
@@ -85,7 +87,6 @@ private:
   void table_erase(VsmPageKey k);
   uint32_t evict_victim();             // ~0u: tahliye edilebilir yuva yok
   void push_render(VsmPageKey k, uint32_t slot);
-  float page_world(uint32_t level) const;
 
   VsmConfig cfg_{};
   Vec3 lu_{}, lv_{};                   // isik uzayi tabani

@@ -1,15 +1,18 @@
 // kaynak-ozet: 2f35d7672a0c  (engine/rhi/shaders/shadow.vert)
 // kaynak-ozet: ded42b3a1ccb  (engine/rhi/shaders/shadow_skin.vert)
 // kaynak-ozet: f78d3197f8d8  (engine/rhi/shaders/shadow_cull.vert)
+// kaynak-ozet: 229222340545  (engine/rhi/shaders/shadow_vsm.vert)
 // Golge haritasi vertex AILESI (Faz 8.5): yalniz derinlik. Uc elle yazilmis shader'in ORTAK kaynagi;
 // her varyantin SPIR-V'si kendi GLSL'iyle bayt aynidir (tpr_shader.py --check).
 //   shadow       : temel; model push sabitinden
 //   shadow_skin  : + 4 eklem karisimi (eklem SSBO'su, ayni push)
 //   shadow_cull  : DOLAYLI yol; model cizim SSBO'sundan, skin.z = gorunurluk listesi tabani
+//   shadow_vsm   : VSM sayfasi; pc.model = sayfa matrisi * model (CPU'da), kare UBO'su yok
 str asama = "vert";
 varyant("shadow");
 varyant("shadow_skin", "iskelet");
 varyant("shadow_cull", "dolayli");
+varyant("shadow_vsm", "vsm");
 
 vec3 in_pos = girdi(0);
 if (ozellik("iskelet")) {
@@ -17,6 +20,7 @@ if (ozellik("iskelet")) {
   vec4 in_weights = girdi(4);
 }
 
+if (!ozellik("vsm")) {
 struct Frame {
   mat4 viewproj;
   mat4 view;
@@ -29,6 +33,7 @@ struct Frame {
   vec4 cascade_params;
 }
 Frame u = tekduze(0, 0);
+}
 
 if (ozellik("iskelet")) {
   struct Skin { mat4[] m; }
@@ -60,7 +65,11 @@ func main() {
       DrawItem D = u_draws.d[u_vis.v[pc.skin.z + u32(gl_InstanceIndex)]];
       gl_Position = u.light_viewproj[pc.skin.y] * D.model * vec4(in_pos, 1.0);
     } else {
-      gl_Position = u.light_viewproj[pc.skin.y] * pc.model * vec4(in_pos, 1.0);
+      if (ozellik("vsm")) {
+        gl_Position = pc.model * vec4(in_pos, 1.0);
+      } else {
+        gl_Position = u.light_viewproj[pc.skin.y] * pc.model * vec4(in_pos, 1.0);
+      }
     }
   }
 }
