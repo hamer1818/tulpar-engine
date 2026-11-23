@@ -37,6 +37,7 @@ VENDORED = {
     "meshoptimizer.h": {"renderer"},   # zeux/meshoptimizer (MIT)
     "ratas": {"sim"},                  # jsnell/ratas zamanlayici carki (MIT)
     "mbedtls": {"platform"},           # Mbed-TLS/mbedtls 3.6.8 LTS (Apache-2.0): yalniz platform/http.cpp (HTTPS)
+    "kb_text_shape.h": {"content"},   # JimmyLefevre/kb 4eec43b (Zlib): yalniz content/text_shape.cpp (metin shaping)
     "ufbx.h": {"content"},             # ufbx/ufbx v0.23.1 (MIT / Unlicense): yalniz content/fbx.cpp (FBX yukleyici)
 }
 

@@ -403,14 +403,15 @@ target_compile_options(engine_renderer PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGIN
 add_dependencies(engine_renderer engine_layer_check engine_shader_check)
 
 # --- L6 CONTENT: glTF (cgltf) + goruntu (stb_image), yalniz yukleme aninda malloc ---
-add_library(engine_content STATIC content/gltf.cpp content/mesh_import.cpp content/model_import.cpp content/poly.cpp content/poly_bool.cpp content/usdc.cpp content/image.cpp content/meshopt.cpp content/ktx2.cpp content/font.cpp content/scene.cpp content/scene_blob.cpp content/scene_runtime.cpp content/scene_animators.cpp content/primitives.cpp content/prefab.cpp content/vendored_impl.c content/fbx.cpp third_party/ufbx/ufbx.c
+add_library(engine_content STATIC content/gltf.cpp content/mesh_import.cpp content/model_import.cpp content/poly.cpp content/poly_bool.cpp content/usdc.cpp content/image.cpp content/meshopt.cpp content/ktx2.cpp content/font.cpp content/scene.cpp content/scene_blob.cpp content/scene_runtime.cpp content/scene_animators.cpp content/primitives.cpp content/prefab.cpp content/vendored_impl.c content/fbx.cpp third_party/ufbx/ufbx.c content/text_shape.cpp third_party/kb/kb_text_shape_impl.c
     # --- PR #322: yeni icerik modulleri (content/pack.cpp ALINMADI: main'in
     # .tpak'i mmap'li, belirlenimli ve kapili — PR'inki daha basit bir format)
     content/voxel.cpp content/morph.cpp content/morph_pool.cpp content/retarget.cpp content/terrain.cpp content/lod_select.cpp content/water_wave.cpp content/wind.cpp content/occlusion.cpp content/clod_format.cpp content/device_tier.cpp content/dynamic_quality.cpp)
 target_include_directories(engine_content PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ufbx
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cgltf
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/kb)
 target_link_libraries(engine_content PUBLIC engine_renderer engine_sim engine_meshopt engine_astcenc)
 target_compile_options(engine_content PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${ENGINE_CXX_OPTS}> $<$<COMPILE_LANGUAGE:C>:-w>)
 add_dependencies(engine_content engine_layer_check engine_scene_check engine_glyph_check)
@@ -522,6 +523,7 @@ set(ENGINE_TEST_SOURCES
     tests/test_memory.cpp
     tests/test_alloc_gate.cpp
     tests/test_fiber.cpp
+    tests/test_text_shape.cpp
     tests/test_jobs.cpp
     tests/test_profiler.cpp
     tests/test_geom_density.cpp
