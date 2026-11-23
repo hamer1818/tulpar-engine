@@ -114,7 +114,7 @@ echo   [+] MSYS2 kuruldu: %MSYS%
 rem --- Geri kalan is MSYS2'nin icinde: paket denetimi + derleme ---------------
 rem Tek bir bash betigi ile yapilir ki mantik cmd ile bash arasinda BOLUNMESIN.
 rem
-rem MSYSTEM, bash BASLAMADAN once ortamda olmali: MINGW64 PATH'ini kuran sey
+rem MSYSTEM, bash BASLAMADAN once ortamda olmali: UCRT64 PATH'ini kuran sey
 rem giris kabugunun okudugu /etc/profile'dir. Degiskeni ic kabukta atamak GEC
 rem kalir - profil coktan kosmus olur ve MSYS PATH'i ile derlersiniz.
 rem CHERE_INVOKING: profil ev dizinine gecmesin, depoda kalalim.

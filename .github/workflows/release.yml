@@ -1146,9 +1146,10 @@ jobs:
   # WINDOWS — CI'daki `windows` isinin arac zinciri birebir (MSYS2 UCRT64; 2026-11-22'ye kadar MINGW64, Tuzaklar 8et).
   # -------------------------------------------------------------------------
   windows:
-    # AD TARIHSEL (2026-11-22): arac zinciri artik UCRT64 (Tuzaklar 8et), ama bu ad dal korumasinda ZORUNLU check olarak kayitli;
-    # degisirse koruma da ayni anda guncellenmeli (yoksa her PR 'bekleniyor'da kalir). tools/ci_bekle.sh de bu adi bekler.
-    name: Windows x86_64 (MSYS2 MINGW64)
+    # AD (2026-11-23): "MSYS2 UCRT64" — 2026-11-22'ye kadar "MSYS2 MINGW64" idi (Tuzaklar 8et). Bu ad dal korumasinda
+    # ZORUNLU check olarak kayitli; degisirse koruma da ayni anda guncellenmeli (yoksa her PR 'bekleniyor'da kalir).
+    # tools/ci_bekle.sh cagrisi da bu adi bekler.
+    name: Windows x86_64 (MSYS2 UCRT64)
     needs: hazirlik
     runs-on: windows-latest
     # ci.yml'in Windows isi ~10 dk (olculdu CI windows-latest 2026-10-05);
