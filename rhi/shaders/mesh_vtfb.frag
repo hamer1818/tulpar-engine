@@ -459,6 +459,9 @@ void vt_feedback() {
     return;
   }
   uint key = (tex << 26) | (mip << 22) | (px << 11) | py;
+  if (VT_FB == 2) {
+    return;
+  }
   uint h = key * 2654435761u;
   h = (h ^ (h >> 16)) & uint(VT_TABLE_MASK);
   for (uint probe = 0u; probe < 64u; probe++) {
