@@ -72,7 +72,7 @@ ve **eski sürücü** vekili. Adreno ve gerçek düşük segment hâlâ gerekli.
 | + 8 kümelenmiş nokta ışık | FIFO 59.9 fps, MAILBOX 223 fps / p50 3.80 ms → **~%5 bedel** |
 | kare içi `operator new` | **0** (sürücü dahil) |
 | `engine_tests` | 53/53 geçti, 4 görünür atlama (2 alt-süreç yok + GPL yok + doğrulama katmanı yok) |
-| Jolt altın özeti | `5dc41c2bddc345cb` — masaüstü x86_64 ve CI arm64 ile **eşit** |
+| Jolt altın özeti | `5dc41c2bddc345cb` (Jolt 5.3.0) — masaüstü x86_64 ve CI arm64 ile **eşit**. Jolt 5.7.0'da (2026-11-23) altın `974a766b83701597`; bu cihazda **yeniden ölçülmedi** |
 | 600 tick sahne özeti | `1513845f8ca5afd9` — masaüstü ile **bit eşit** (ECS + Jolt + navmesh + animasyon) |
 | aynı karenin pikselleri | masaüstüne göre %0.237 bayt farkı (yalnız üçgen kenarları; rasterizer farkı) |
 | Jolt 300 adım | Jolt havuzu 119.0 ms, fiber job sistemi 87.9 ms → fiber yolu cihazda da hızlı |
