@@ -316,7 +316,7 @@ add_library(engine_meshopt STATIC ${ENGINE_MESHOPT_SOURCES})
 target_include_directories(engine_meshopt PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshoptimizer)
 target_compile_options(engine_meshopt PRIVATE -fno-exceptions -fno-rtti -w)
 
-# --- astc-encoder (vendored, engine/third_party/astcenc, Apache-2.0) ---------
+# --- astc-encoder 5.7.1 (vendored, engine/third_party/astcenc, Apache-2.0; 5.7.1 etiketinin Source/astcenc_* dosyalari degistirilmeden, 2026-11-23 — 5.7.0 idi) ---
 # Arac (engine_texpack) sikistirir; runtime yalniz ASTC LDR olmayan GPU'da (masaustu
 # NVIDIA) cozer. ISA: x86_64 SSE4.1+POPCNT, AArch64 NEON, digerleri skaler.
 file(GLOB ENGINE_ASTCENC_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/astcenc/astcenc_*.cpp)
