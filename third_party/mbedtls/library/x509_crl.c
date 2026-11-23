@@ -311,7 +311,6 @@ int mbedtls_x509_crl_parse_der(mbedtls_x509_crl *chain,
         crl->next = mbedtls_calloc(1, sizeof(mbedtls_x509_crl));
 
         if (crl->next == NULL) {
-            mbedtls_x509_crl_free(crl);
             return MBEDTLS_ERR_X509_ALLOC_FAILED;
         }
 
@@ -583,11 +582,6 @@ int mbedtls_x509_crl_parse_file(mbedtls_x509_crl *chain, const char *path)
 #endif /* MBEDTLS_FS_IO */
 
 #if !defined(MBEDTLS_X509_REMOVE_INFO)
-/*
- * Return an informational string about the certificate.
- */
-#define BEFORE_COLON    14
-#define BC              "14"
 /*
  * Return an informational string about the CRL.
  */

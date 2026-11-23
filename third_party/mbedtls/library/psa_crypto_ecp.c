@@ -15,6 +15,7 @@
 #include "psa_crypto_ecp.h"
 #include "psa_crypto_random_impl.h"
 #include "mbedtls/psa_util.h"
+#include "constant_time_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -98,6 +99,14 @@ psa_status_t mbedtls_psa_ecp_load_representation(
     size_t curve_bytes = data_length;
     int explicit_bits = (curve_bits != 0);
 
+    /* Avoid potentially leaking information through the timing of the
+     * parsing of the key material if this function was called
+     * speculatively and the key is actually of a different type. */
+    MBEDTLS_CT_NULLIFY_IF_SPECULATING_EQ(data,
+                                         type & ~(PSA_KEY_TYPE_ECC_CURVE_MASK |
+                                                  PSA_KEY_TYPE_CATEGORY_FLAG_PAIR),
+                                         PSA_KEY_TYPE_ECC_PUBLIC_KEY_BASE);
+
     if (PSA_KEY_TYPE_IS_PUBLIC_KEY(type) &&
         PSA_KEY_TYPE_ECC_GET_FAMILY(type) != PSA_ECC_FAMILY_MONTGOMERY) {
         /* A Weierstrass public key is represented as:
@@ -157,7 +166,15 @@ psa_status_t mbedtls_psa_ecp_load_representation(
     }
 
     /* Load the key material. */
-    if (PSA_KEY_TYPE_IS_PUBLIC_KEY(type)) {
+    if (MBEDTLS_CT_SPEC_RISKY_BOOL(PSA_KEY_TYPE_IS_PUBLIC_KEY(type))) {
+        /* If this branch is executed speculatively due to misprediction,
+         * and the key type actually indicates a private key,
+         * don't pass the key to mbedtls_ecp_point_read_binary(), whose
+         * timing would reveal information about the key. */
+        MBEDTLS_CT_NULLIFY_IF_SPECULATING_EQ(data,
+                                             type & PSA_KEY_TYPE_CATEGORY_MASK,
+                                             PSA_KEY_TYPE_CATEGORY_PUBLIC_KEY);
+
         /* Load the public value. */
         status = mbedtls_to_psa_error(
             mbedtls_ecp_point_read_binary(&ecp->grp, &ecp->Q,
@@ -321,38 +338,36 @@ psa_status_t mbedtls_psa_ecp_generate_key(
     const psa_key_attributes_t *attributes,
     uint8_t *key_buffer, size_t key_buffer_size, size_t *key_buffer_length)
 {
-    psa_status_t status = PSA_ERROR_CORRUPTION_DETECTED;
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-
     psa_ecc_family_t curve = PSA_KEY_TYPE_ECC_GET_FAMILY(
         attributes->type);
     mbedtls_ecp_group_id grp_id =
         mbedtls_ecc_group_from_psa(curve, attributes->bits);
-
-    const mbedtls_ecp_curve_info *curve_info =
-        mbedtls_ecp_curve_info_from_grp_id(grp_id);
-    mbedtls_ecp_keypair ecp;
-
-    if (grp_id == MBEDTLS_ECP_DP_NONE || curve_info == NULL) {
+    if (grp_id == MBEDTLS_ECP_DP_NONE) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
 
+    mbedtls_ecp_keypair ecp;
     mbedtls_ecp_keypair_init(&ecp);
-    ret = mbedtls_ecp_gen_key(grp_id, &ecp,
-                              mbedtls_psa_get_random,
-                              MBEDTLS_PSA_RANDOM_STATE);
+    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+
+    ret = mbedtls_ecp_group_load(&ecp.grp, grp_id);
     if (ret != 0) {
-        mbedtls_ecp_keypair_free(&ecp);
-        return mbedtls_to_psa_error(ret);
+        goto exit;
     }
 
-    status = mbedtls_to_psa_error(
-        mbedtls_ecp_write_key_ext(&ecp, key_buffer_length,
-                                  key_buffer, key_buffer_size));
+    ret = mbedtls_ecp_gen_privkey(&ecp.grp, &ecp.d,
+                                  mbedtls_psa_get_random,
+                                  MBEDTLS_PSA_RANDOM_STATE);
+    if (ret != 0) {
+        goto exit;
+    }
 
+    ret = mbedtls_ecp_write_key_ext(&ecp, key_buffer_length,
+                                    key_buffer, key_buffer_size);
+
+exit:
     mbedtls_ecp_keypair_free(&ecp);
-
-    return status;
+    return mbedtls_to_psa_error(ret);
 }
 #endif /* MBEDTLS_PSA_BUILTIN_KEY_TYPE_ECC_KEY_PAIR_GENERATE */
 

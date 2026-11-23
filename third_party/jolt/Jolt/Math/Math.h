@@ -43,6 +43,21 @@ inline float CenterAngleAroundZero(float inV)
 	return inV;
 }
 
+/// Calculates inA * inB - inC * inD with higher accuracy when fused multiply add instructions are available.
+/// If inA * inB and inC * inD are large, the subtraction can cause a large loss of precision when the result is small.
+/// See: https://pharr.org/matt/blog/2019/11/03/difference-of-floats (or search for Kahan's algorithm)
+JPH_INLINE float DifferenceOfProducts(float inA, float inB, float inC, float inD)
+{
+#ifdef JPH_USE_FMADD
+	float cd = inC * inD;
+	float err = std::fma(-inC, inD, cd);
+	float dop = std::fma(inA, inB, -cd);
+	return dop + err;
+#else
+	return inA * inB - inC * inD;
+#endif
+}
+
 /// Clamp a value between two values
 template <typename T>
 JPH_INLINE constexpr T Clamp(T inV, T inMin, T inMax)
@@ -57,11 +72,81 @@ JPH_INLINE constexpr T Square(T inV)
 	return inV * inV;
 }
 
+/// Take the square root of a float value
+JPH_INLINE float Sqrt(float inV)
+{
+#ifdef JPH_USE_SSE
+	return _mm_cvtss_f32(_mm_sqrt_ss(_mm_set_ss(inV)));
+#elif defined(JPH_USE_NEON)
+	return vget_lane_f32(vsqrt_f32(vdup_n_f32(inV)), 0);
+#elif defined(JPH_CPU_RISCV)
+	float res;
+	asm("fsqrt.s %0, %1" : "=f"(res) : "f"(inV));
+	return res;
+#else
+	return std::sqrt(inV);
+#endif
+}
+
+/// Take the square root of a double value
+JPH_INLINE double Sqrt(double inV)
+{
+#ifdef JPH_USE_SSE
+	return _mm_cvtsd_f64(_mm_sqrt_sd(_mm_undefined_pd(), _mm_set_sd(inV)));
+#elif defined(JPH_USE_NEON)
+	return vget_lane_f64(vsqrt_f64(vdup_n_f64(inV)), 0);
+#elif defined(JPH_CPU_RISCV)
+	double res;
+	asm("fsqrt.d %0, %1" : "=f"(res) : "f"(inV));
+	return res;
+#else
+	return std::sqrt(inV);
+#endif
+}
+
 /// Returns \f$inV^3\f$.
 template <typename T>
 JPH_INLINE constexpr T Cubed(T inV)
 {
 	return inV * inV * inV;
+}
+
+/// Calculates approximate inA / Sqrt(inB).
+/// Approximate reciprocal square roots are not bit identical between architectures,
+/// so the fast paths are only used when cross platform determinism is not required.
+/// Note that inB must be bigger or equal than FLT_MIN, otherwise the result can be Inf.
+JPH_INLINE float MulRSqrtApproximate(float inA, float inB)
+{
+	JPH_ASSERT(inB >= FLT_MIN);
+
+#ifndef JPH_CROSS_PLATFORM_DETERMINISTIC
+	#if defined(JPH_USE_SSE) && !defined(JPH_PLATFORM_WASM)
+		// One Newton-Raphson step: y' = y * (1.5 - 0.5 * x * y^2)
+		__m128 b = _mm_set_ss(inB);
+		__m128 rsqrtb = _mm_rsqrt_ss(b);
+		rsqrtb = _mm_mul_ss(rsqrtb, _mm_sub_ss(_mm_set_ss(1.5f), _mm_mul_ss(_mm_mul_ss(_mm_set_ss(0.5f), b), _mm_mul_ss(rsqrtb, rsqrtb))));
+		return inA * _mm_cvtss_f32(rsqrtb);
+	#elif defined(JPH_USE_NEON)
+		// vrsqrts_f32 accuracy is less so two Newton-Raphson steps are needed
+		float32x2_t b = vdup_n_f32(inB);
+		float32x2_t rsqrtb = vrsqrte_f32(b);
+		rsqrtb = vmul_f32(rsqrtb, vrsqrts_f32(b, vmul_f32(rsqrtb, rsqrtb)));
+		rsqrtb = vmul_f32(rsqrtb, vrsqrts_f32(b, vmul_f32(rsqrtb, rsqrtb)));
+		return inA * vget_lane_f32(rsqrtb, 0);
+	#elif defined(JPH_USE_RVV)
+		// vfrsqrt7 also needs two Newton-Raphson iterations
+		vfloat32m1_t b = __riscv_vfmv_v_f_f32m1(inB, 1);
+		vfloat32m1_t half_b = __riscv_vfmul_vf_f32m1(b, 0.5f, 1);
+		vfloat32m1_t rsqrtb = __riscv_vfrsqrt7_v_f32m1(b, 1);
+		rsqrtb = __riscv_vfmul_vv_f32m1(rsqrtb, __riscv_vfrsub_vf_f32m1(__riscv_vfmul_vv_f32m1(half_b, __riscv_vfmul_vv_f32m1(rsqrtb, rsqrtb, 1), 1), 1.5f, 1), 1);
+		rsqrtb = __riscv_vfmul_vv_f32m1(rsqrtb, __riscv_vfrsub_vf_f32m1(__riscv_vfmul_vv_f32m1(half_b, __riscv_vfmul_vv_f32m1(rsqrtb, rsqrtb, 1), 1), 1.5f, 1), 1);
+		return inA * __riscv_vfmv_f_s_f32m1_f32(rsqrtb);
+	#else
+		return inA / Sqrt(inB);
+	#endif
+#else
+	return inA / Sqrt(inB);
+#endif // JPH_CROSS_PLATFORM_DETERMINISTIC
 }
 
 /// Get the sign of a value
@@ -107,9 +192,7 @@ inline uint CountTrailingZeros(uint32 inValue)
 		_BitScanForward(&result, inValue);
 		return result;
 	#else
-		if (inValue == 0)
-			return 32;
-		return __builtin_ctz(inValue);
+		return inValue? __builtin_ctz(inValue) : 32;
 	#endif
 #elif defined(JPH_CPU_ARM)
 	#if defined(JPH_COMPILER_MSVC)
@@ -119,12 +202,10 @@ inline uint CountTrailingZeros(uint32 inValue)
 		_BitScanForward(&result, inValue);
 		return result;
 	#else
-		if (inValue == 0)
-			return 32;
-		return __builtin_ctz(inValue);
+		return inValue? __builtin_ctz(inValue) : 32;
 	#endif
 #elif defined(JPH_CPU_E2K) || defined(JPH_CPU_RISCV) || defined(JPH_CPU_PPC) || defined(JPH_CPU_LOONGARCH)
-	return inValue ? __builtin_ctz(inValue) : 32;
+	return inValue? __builtin_ctz(inValue) : 32;
 #else
 	#error Undefined
 #endif
@@ -143,18 +224,16 @@ inline uint CountLeadingZeros(uint32 inValue)
 		_BitScanReverse(&result, inValue);
 		return 31 - result;
 	#else
-		if (inValue == 0)
-			return 32;
-		return __builtin_clz(inValue);
+		return inValue? __builtin_clz(inValue) : 32;
 	#endif
 #elif defined(JPH_CPU_ARM)
 	#if defined(JPH_COMPILER_MSVC)
 		return _CountLeadingZeros(inValue);
 	#else
-		return __builtin_clz(inValue);
+		return inValue? __builtin_clz(inValue) : 32;
 	#endif
 #elif defined(JPH_CPU_E2K) || defined(JPH_CPU_RISCV) || defined(JPH_CPU_PPC) || defined(JPH_CPU_LOONGARCH)
-	return inValue ? __builtin_clz(inValue) : 32;
+	return inValue? __builtin_clz(inValue) : 32;
 #else
 	#error Undefined
 #endif
@@ -187,22 +266,13 @@ inline uint32 GetNextPowerOf2(uint32 inValue)
 	return inValue <= 1? uint32(1) : uint32(1) << (32 - CountLeadingZeros(inValue - 1));
 }
 
-// Simple implementation of C++20 std::bit_cast (unfortunately not constexpr)
+/// Simple implementation of C++20 std::bit_cast
 template <class To, class From>
-JPH_INLINE To BitCast(const From &inValue)
+JPH_INLINE constexpr To BitCast(const From &inValue)
 {
 	static_assert(std::is_trivially_constructible_v<To>);
 	static_assert(sizeof(From) == sizeof(To));
-
-	union FromTo
-	{
-		To			mTo;
-		From		mFrom;
-	};
-
-	FromTo convert;
-	convert.mFrom = inValue;
-	return convert.mTo;
+	return __builtin_bit_cast(To, inValue);
 }
 
 JPH_NAMESPACE_END
