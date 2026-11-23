@@ -9,7 +9,7 @@
 # ariyordu ve `|| true` yuzunden APK'siz devam edip ESKI kurulu APK'yi kosturuyordu.
 #
 #   tools/android_run.sh tests [filtre]   # engine_tests APK surecinde
-#   tools/android_run.sh demo [kare] [--screenshot cikti.png]
+#   tools/android_run.sh demo [kare] [--screenshot cikti.png] [--sahne x.sahne|x.sahneb]
 #
 # Neden APK: adb shell'deki ikili GPU'yu goremiyor (vkEnumeratePhysicalDevices 0,
 # SELinux/HAL, Huawei P20 Pro ile olculdu 2026-09-14). Uygulama sureci gorur.
@@ -31,6 +31,36 @@ if [ "$ABI" = "arm64-v8a" ]; then BUILD="$ROOT/build-android"; else BUILD="$ROOT
 PKG="dev.tulparlang.engine"
 ACT="$PKG/android.app.NativeActivity"
 
+# Argumanlar PAKETLEMEDEN ONCE: --sahne'nin blob'u APK varliklarina girmeli (2026-11-23).
+FILTER=""; FRAMES="600"; SHOT=""; SAHNE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --screenshot) SHOT="$2"; shift 2;;
+        --sahne) SAHNE="$2"; shift 2;;
+        *) if [ "$MODE" = tests ]; then FILTER="$1"; else FRAMES="$1"; fi; shift;;
+    esac
+done
+# --sahne x.sahne|x.sahneb (demo / headless): masaustundeki `engine_demo --scene`in telefon karsiligi. .sahne
+# MASAUSTUNDE ./yapi/engine_sahnec ile derlenir (telefonda ayristirma yok — SceneRuntime blob'u oldugu gibi tuketir),
+# blob APK varliklarina girer, debug.tulpar.scene blob'un adiyla ayarlanir. Kaynaklari (model/doku) tests/assets'te
+# olmali: varliklar duz dizine kopyalaniyor ve blob onlari kendi dizinine gore ariyor.
+SAHNE_BLOB=""
+if [ -n "$SAHNE" ]; then
+    [ "$MODE" != tests ] || { echo "HATA: --sahne yalniz demo/headless kipinde"; exit 1; }
+    [ -f "$SAHNE" ] || { echo "HATA: sahne yok: $SAHNE"; exit 1; }
+    case "$SAHNE" in
+        *.sahneb) SAHNE_BLOB="$SAHNE";;
+        *.sahne)
+            SAHNEC="$ROOT/yapi/engine_sahnec"
+            [ -x "$SAHNEC" ] || { echo "HATA: $SAHNEC yok — once masaustu derlemesi (./derle.sh)"; exit 1; }
+            SAHNE_BLOB="$(mktemp -d)/$(basename "${SAHNE%.sahne}").sahneb"
+            # Cikis kodu sahnec'in kendisinden (boru ile `| tail` sonucu yutardi).
+            SAHNEC_LOG="$("$SAHNEC" "$SAHNE" "$SAHNE_BLOB" 2>&1)" || { echo "$SAHNEC_LOG" | tail -5; echo "HATA: engine_sahnec $SAHNE derleyemedi"; exit 1; }
+            echo "$SAHNEC_LOG" | tail -1
+            [ -s "$SAHNE_BLOB" ] || { echo "HATA: blob uretilmedi: $SAHNE_BLOB"; exit 1; };;
+        *) echo "HATA: --sahne .sahne ya da .sahneb ister: $SAHNE"; exit 1;;
+    esac
+fi
 echo "[1/5] derleme (NDK: $(basename "$NDK"), $ABI)"
 cmake -S "$ROOT" -B "$BUILD" -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
       -DANDROID_ABI="$ABI" -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release -DENGINE_TRACY="${TULPAR_TRACY:-OFF}" -DENGINE_SWAPPY="${TULPAR_SWAPPY:-OFF}" >/dev/null 2>&1
@@ -64,6 +94,7 @@ fi
 # DIZIN; duz `cp` onu atlayip 1 donuyordu ve set -e betigi paketlemeden once sessizce bitiriyordu.
 mkdir -p "$STAGE/assets" && find "$ROOT/tests/assets" -maxdepth 1 -type f -exec cp {} "$STAGE/assets/" \; \
     && cp "$ROOT"/assets/fonts/*.ttf "$STAGE/assets/" # APK icine (host cikarir)
+if [ -n "$SAHNE_BLOB" ]; then cp "$SAHNE_BLOB" "$STAGE/assets/"; echo "  sahne blob APK'da: $(basename "$SAHNE_BLOB") ($(stat -c %s "$SAHNE_BLOB") bayt)"; fi
 PAKETLE="${TULPAR_ANDROID_TOOLS:+$TULPAR_ANDROID_TOOLS/package_apk.sh}"
 if [ -z "$PAKETLE" ] && command -v tulpar >/dev/null; then PAKETLE="$(dirname "$(command -v tulpar)")/android/package_apk.sh"; fi
 [ -f "${PAKETLE:-}" ] || { echo "HATA: package_apk.sh yok (TULPAR_ANDROID_TOOLS=<dizin> ya da 'tulpar update --android')"; exit 1; }
@@ -78,15 +109,8 @@ KUR="$(adb install -r "$BUILD/tulparengine.apk" 2>&1)"; echo "$KUR" | tail -1
 grep -q '^Success' <<<"$KUR" || { echo "HATA: kurulum basarisiz — eski APK kosturulmayacak"; exit 1; }
 adb shell am force-stop "$PKG" || true
 
-FILTER=""; FRAMES="600"; SHOT=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --screenshot) SHOT="$2"; shift 2;;
-        *) if [ "$MODE" = tests ]; then FILTER="$1"; else FRAMES="$1"; fi; shift;;
-    esac
-done
 # Bos deger adb shell'de kaybolur: tirnakla.
-adb shell "setprop debug.tulpar.mode '$MODE'; setprop debug.tulpar.filter '$FILTER'; setprop debug.tulpar.frames '$FRAMES'; setprop debug.tulpar.present '${TULPAR_PRESENT:-fifo}'; setprop debug.tulpar.prerotate '${TULPAR_PREROTATE:-1}'; setprop debug.tulpar.size '${TULPAR_SIZE:-2159x1080}'; setprop debug.tulpar.validation '${TULPAR_VALIDATION:-0}'; setprop debug.tulpar.audio '${TULPAR_AUDIO:-0}'; setprop debug.tulpar.swappy '$([ "${TULPAR_SWAPPY:-OFF}" = ON ] && echo 1 || echo 0)'; setprop debug.tulpar.swappy_family '${TULPAR_SWAPPY_FAMILY:-1}'; setprop debug.tulpar.dtprobe '${TULPAR_DTPROBE:-0}'"
+adb shell "setprop debug.tulpar.mode '$MODE'; setprop debug.tulpar.filter '$FILTER'; setprop debug.tulpar.frames '$FRAMES'; setprop debug.tulpar.present '${TULPAR_PRESENT:-fifo}'; setprop debug.tulpar.prerotate '${TULPAR_PREROTATE:-1}'; setprop debug.tulpar.size '${TULPAR_SIZE:-2159x1080}'; setprop debug.tulpar.validation '${TULPAR_VALIDATION:-0}'; setprop debug.tulpar.audio '${TULPAR_AUDIO:-0}'; setprop debug.tulpar.swappy '$([ "${TULPAR_SWAPPY:-OFF}" = ON ] && echo 1 || echo 0)'; setprop debug.tulpar.swappy_family '${TULPAR_SWAPPY_FAMILY:-1}'; setprop debug.tulpar.dtprobe '${TULPAR_DTPROBE:-0}'; setprop debug.tulpar.scene '$([ -n "$SAHNE_BLOB" ] && basename "$SAHNE_BLOB")'"
 
 if [ "${TULPAR_TRACY:-OFF}" = ON ]; then adb forward tcp:8086 tcp:8086 >/dev/null && echo "  tracy: adb forward 8086 (masaustunde tracy-capture -a 127.0.0.1)"; fi
 echo "[4/5] baslat: $MODE"

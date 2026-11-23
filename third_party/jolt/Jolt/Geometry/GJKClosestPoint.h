@@ -551,7 +551,7 @@ public:
 #ifdef JPH_GJK_DEBUG
 				Trace("v . r = %g", (double)v_dot_r);
 #endif
-				if (v_dot_r >= 0.0f)
+				if (v_dot_r >= -1.0e-18f) // Instead of checking >= 0, check with epsilon as we don't want the division below to overflow to infinity as it can cause a float exception
 					return false;
 
 				// Update the lower bound for lambda
@@ -744,7 +744,7 @@ public:
 #ifdef JPH_GJK_DEBUG
 				Trace("v . r = %g", (double)v_dot_r);
 #endif
-				if (v_dot_r >= 0.0f)
+				if (v_dot_r >= -1.0e-18f) // Instead of checking >= 0, check with epsilon as we don't want the division below to overflow to infinity as it can cause a float exception
 					return false;
 
 				// Update the lower bound for lambda
@@ -799,7 +799,12 @@ public:
 				// Only allow 1 restart, if we still can't get a closest point
 				// we're so close that we return this as a hit
 				if (!allow_restart)
+				{
+					// The last support point did not produce a closer simplex, remove it so that
+					// the contact points are calculated from the previous valid simplex.
+					--mNumPoints;
 					break;
+				}
 
 				// If we fail to converge, we start again with the last point as simplex
 #ifdef JPH_GJK_DEBUG

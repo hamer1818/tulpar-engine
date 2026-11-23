@@ -1541,7 +1541,7 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
                 title_bar_rect.Max,
                 titlebar_background,
                 node.LayoutStyle.CornerRounding,
-                ImDrawFlags_RoundCornersTop);
+                ImDrawFlags_RoundTop);
 
 #endif
         }
@@ -1562,7 +1562,7 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
                 node.Rect.Max,
                 node.ColorStyle.Outline,
                 node.LayoutStyle.CornerRounding,
-                ImDrawFlags_RoundCornersAll,
+                ImDrawFlags_RoundAll,
                 node.LayoutStyle.BorderThickness);
 #else
             GImNodes->CanvasDrawList->AddRect(
@@ -1571,7 +1571,7 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
                 node.ColorStyle.Outline,
                 node.LayoutStyle.CornerRounding,
                 node.LayoutStyle.BorderThickness,
-                ImDrawFlags_RoundCornersAll);
+                ImDrawFlags_RoundAll);
 #endif
         }
     }
