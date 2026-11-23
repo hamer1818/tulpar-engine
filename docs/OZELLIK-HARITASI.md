@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 886 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 893 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -169,7 +169,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (24 dosya, 7935 satır)
+### renderer — L3 (26 dosya, 8206 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -194,6 +194,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `renderer/particle_gpu_indirect.hpp` — Bevy Hanabi GPU Indirect, Vulkan DGC & TBDR Mobil Partikul Mimarisi.
 - `renderer/renderer.cpp` — 
 - `renderer/renderer.hpp` — Faz 3 ilk dilim: forward (Lambert) cizici. Depth prepass ->
+- `renderer/vsm_pages.cpp` — 
+- `renderer/vsm_pages.hpp` — SANAL GOLGE HARITASI (VSM) SAYFA ONBELLEGI (Faz 9, ilk dilim: 2026-11-23).
 - `renderer/wboit_pass.hpp` — WBOIT (Weighted Blended Order-Independent Transparency) & Hareket Vektorleri.
 
 ### audio — L3 (12 dosya, 2161 satır)
@@ -211,7 +213,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `audio/particle_audio.hpp` — Fiziksel Partikul Sonifikasyonu (Kinetic Particle Sonification).
 - `audio/spatial.hpp` — uzamsal ses: dinleyici bazi, mesafe sonumu, sabit-guc panlama ve
 
-### sim — L4 (55 dosya, 7134 satır)
+### sim — L4 (55 dosya, 7141 satır)
 
 - `sim/ability_system.cpp` — 
 - `sim/ability_system.hpp` — 
@@ -346,7 +348,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `content/wind.cpp` — 
 - `content/wind.hpp` — Prosedurel ruzgar alani (500 madde listesi #472 "Wind
 
-### app — L6 (79 dosya, 39599 satır)
+### app — L6 (79 dosya, 39613 satır)
 
 - `app/android_main.cpp` — Android NativeActivity host (native_app_glue). Iki kip, sistem
 - `app/baslatici_win.cpp` — Windows baslaticisi "Tulpar Editor.exe" (docs/EDITOR-UYGULAMA-PLANI.md U7b).
@@ -442,7 +444,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (74 dosya, 16291 satır)
+### tools — L7 (74 dosya, 16315 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1115,7 +1117,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **886** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **893** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
@@ -1158,6 +1160,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `rng` — 6
 - `spatial` — 6
 - `value` — 6
+- `vsm` — 6
 - `bvh` — 5
 - `cascade` — 5
 - `fabrika` — 5
@@ -1244,6 +1247,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tercih` — 1
 - `tick` — 1
 - `traditional` — 1
+- `union` — 1
 
 ### Test dosyaları
 
@@ -1308,7 +1312,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_geom_density.cpp` — 1 test
 - `tests/test_gesture.cpp` — 5 test
 - `tests/test_graph_builder.cpp` — 2 test
-- `tests/test_http.cpp` — 5 test
+- `tests/test_http.cpp` — 6 test
 - `tests/test_ik.cpp` — 4 test
 - `tests/test_indirect_cull.cpp` — 3 test
 - `tests/test_input.cpp` — 2 test
@@ -1366,6 +1370,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_updater.cpp` — 20 test
 - `tests/test_vk_steady.cpp` — 4 test
 - `tests/test_voxel.cpp` — 4 test
+- `tests/test_vsm.cpp` — 6 test
 - `tests/test_water_wave.cpp` — 4 test
 - `tests/test_wind.cpp` — 3 test
 
@@ -1635,6 +1640,9 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8eq** — Önbellek main'de isıtılıyor sanıldı — yalnız bir platformda; diğeri her PR'da sıfırdan derledi
 - **8er** — Bekleyen sayacı "bitti" gördü ve yok etti — signaler o anda hâlâ sayacın içindeydi
 - **8es** — Bir adım hızlanınca, uzun beklemenin gizlediği yarış açığa çıktı
+- **8et** — Ortam göçü tek depoda bitmez — bağlanan ikinci derleyicinin C çalışma zamanı da taşınmalı
+- **8eu** — Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
+- **8ev** — Sabit `/tmp` ve kayıp cihazdan sonra devam eden ölçüm — iki ayrı "koşmuş gibi görünme"
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 
