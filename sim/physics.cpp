@@ -190,6 +190,13 @@ public:
     if (deps == 0) QueueJob(job);
     return h;
   }
+  // Jolt 5.7 (2026-11-23): PhysicsSystem benzer isleri (ApplyGravity, SetupVelocityConstraints ...) toplu
+  // olusturuyor ve bu artik SAF sanal. Tek tek CreateJob ile ayni havuz kurali (dolu -> bekle, ayirma yok);
+  // JobSystemThreadPool'un yaptigi gibi bagimliligi olmayanlar hemen kuyruga girer.
+  void CreateJobs(const char *name, JPH::ColorArg color, const JobFunction &fn, JobHandle *out, JPH::uint32 n,
+                  JPH::uint32 deps) override {
+    for (JPH::uint32 i = 0; i < n; i++) out[i] = CreateJob(name, color, fn, deps);
+  }
 
   // NOBETCI: bu nesne yok edilirken kuyrukta ya da calismakta olan Jolt isi
   // KALMAMALI. `jobs_` havuzu bizimle birlikte gider ve kuyrukta duran her
