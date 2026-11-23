@@ -12,6 +12,7 @@
 #include "rhi/shaders/cull_comp_spv.h"
 #include "rhi/shaders/mesh_cull_vert_spv.h"
 #include "rhi/shaders/mesh_frag_spv.h"
+#include "rhi/shaders/mesh_vtfb_frag_spv.h"
 #include "rhi/shaders/mesh_skin_vert_spv.h"
 #include "rhi/shaders/mesh_vert_spv.h"
 #include "rhi/shaders/motion_frag_spv.h"
@@ -183,8 +184,19 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   smi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   smi.codeSize = mesh_vert_spv_size; smi.pCode = mesh_vert_spv;
   if (a.vkCreateShaderModule(dev.handle(), &smi, nullptr, &vs_) != VK_SUCCESS) return false;
+  // VT geri bildirimi istendiyse renk boru hatlari mesh_vtfb varyantiyla kurulur (fragment SSBO yazar; cihaz ozelligi
+  // yoksa temel mesh.frag kalir ve sebep VtFeedbackInfo'da). Geri bildirim sonradan kapanirsa VT_FB = 0 kodu eler.
+  // Renk boru hatlari TEMEL mesh.frag ile; VT geri bildirimi istendiyse yalniz VT malzemeli cizimler icin AYRI bir boru
+  // hatti mesh_vtfb ile kurulur. Yan etkili (SSBO yazan) fragment shader Mali'de erken derinlik reddini / FPK'yi o
+  // shader'in BUTUN cizimlerinde kapatir: varyant butun boru hatlarina girdiginde Mali-G72 1080p'de +42,8 ms olculdu
+  // (VT olmayan 48 kutu dahil, 2026-11-23). Cihaz ozelligi yoksa varyant kurulmaz, sebep VtFeedbackInfo'da.
+  vt_fb_shader_ = cfg_.vt_feedback && cfg_.post && dev.caps().fragment_stores_atomics;
   smi.codeSize = mesh_frag_spv_size; smi.pCode = mesh_frag_spv;
   if (a.vkCreateShaderModule(dev.handle(), &smi, nullptr, &fs_) != VK_SUCCESS) return false;
+  if (vt_fb_shader_) {
+    smi.codeSize = mesh_vtfb_frag_spv_size; smi.pCode = mesh_vtfb_frag_spv;
+    if (a.vkCreateShaderModule(dev.handle(), &smi, nullptr, &fs_vt_) != VK_SUCCESS) return false;
+  }
   smi.codeSize = shadow_vert_spv_size; smi.pCode = shadow_vert_spv;
   if (a.vkCreateShaderModule(dev.handle(), &smi, nullptr, &shadow_vs_) != VK_SUCCESS) return false;
   smi.codeSize = mesh_skin_vert_spv_size; smi.pCode = mesh_skin_vert_spv;
@@ -205,7 +217,7 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   // Set 0: 0 kare UBO, 1 golge, 2 nokta isiklar (UBO), 3 kume maskeleri (SSBO), 4 eklem matrisleri (SSBO)
   // cull acikken +2: 5 cizim kayitlari (SSBO), 6 gorunurluk listesi (SSBO).
   // Ikisi de yalniz DOLAYLI yolun vertex shader'inin okudugu tamponlar.
-  VkDescriptorSetLayoutBinding b[10]{};
+  VkDescriptorSetLayoutBinding b[12]{};
   b[5].binding = 5;
   b[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   b[5].descriptorCount = 1;
@@ -251,9 +263,17 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   b[nb + 2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   b[nb + 2].descriptorCount = 1;
   b[nb + 2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  // binding 10/11: VT geri bildirim tablosu + listesi (renderer/gpu_request; mesh_vtfb.frag yazar). Duzende HER ZAMAN;
+  // geri bildirim yoksa bos tabloya baglanir ve temel mesh.frag bunlari bildirmez.
+  for (uint32_t k = 3; k < 5; k++) {
+    b[nb + k].binding = 7 + k;
+    b[nb + k].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    b[nb + k].descriptorCount = 1;
+    b[nb + k].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
   VkDescriptorSetLayoutCreateInfo sli{};
   sli.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  sli.bindingCount = nb + 3;
+  sli.bindingCount = nb + 5;
   sli.pBindings = b;
   if (a.vkCreateDescriptorSetLayout(dev.handle(), &sli, nullptr, &set_layout_) != VK_SUCCESS) return false;
   if (!make_material_layout()) return false;
@@ -269,13 +289,17 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   // UBO + descriptor (ucuslu kare basina)
   VkDescriptorPoolSize ps[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2 * kMaxFrames},
                                 {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * kMaxFrames},
-                                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (want_cull ? 6u : 4u) * kMaxFrames}};
+                                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (want_cull ? 8u : 6u) * kMaxFrames}};
   VkDescriptorPoolCreateInfo dpi{};
   dpi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   dpi.maxSets = kMaxFrames;
   dpi.poolSizeCount = 3;
   dpi.pPoolSizes = ps;
   if (a.vkCreateDescriptorPool(dev.handle(), &dpi, nullptr, &pool_) != VK_SUCCESS) return false;
+  if (vt_fb_shader_ && !vt_req_.init(dev, cfg_.vt_feedback_table, cfg_.frames_in_flight)) {
+    vt_fb_shader_ = false; // boru hatlari yine mesh_vtfb ile kurulur ama VT_FB = 0: yazma kodu elenir
+    vt_info_.disabled_reason = "istek tablosu kurulamadi (table_slots 2^k olmali)";
+  }
   for (uint32_t i = 0; i < cfg_.frames_in_flight; i++) {
     if (!make_buffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, sizeof(FrameUbo),
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &ubo_[i], &ubo_mem_[i]))
@@ -335,7 +359,10 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
     VkDescriptorBufferInfo dsti{stoch_buf_[i], 0, sizeof(uint32_t) * 2 * (stoch_enabled_ ? grid_.count() : 1u)};
     VkDescriptorImageInfo dii{shadow_sampler_, shadow_view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkDescriptorBufferInfo dvt{vsm_tab_buf_[i], 0, vsm_tab_bytes_};
-    VkWriteDescriptorSet w[10]{};
+    // VT geri bildirimi yoksa 10/11 bos VSM tablosuna (gecerli bir SSBO; temel mesh.frag bunlari bildirmez).
+    VkDescriptorBufferInfo dvtt{vt_req_.ok() ? vt_req_.table(i) : vsm_tab_buf_[i], 0, VK_WHOLE_SIZE};
+    VkDescriptorBufferInfo dvtp{vt_req_.ok() ? vt_req_.pages(i) : vsm_tab_buf_[i], 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet w[12]{};
     w[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     w[5].dstSet = sets_[i];
     w[5].dstBinding = 5;
@@ -394,7 +421,13 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
     w[nw + 2].descriptorCount = 1;
     w[nw + 2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     w[nw + 2].pBufferInfo = &dvt;
-    a.vkUpdateDescriptorSets(dev.handle(), nw + 3, w, 0, nullptr);
+    w[nw + 3] = w[nw + 2];
+    w[nw + 3].dstBinding = 10;
+    w[nw + 3].pBufferInfo = &dvtt;
+    w[nw + 4] = w[nw + 2];
+    w[nw + 4].dstBinding = 11;
+    w[nw + 4].pBufferInfo = &dvtp;
+    a.vkUpdateDescriptorSets(dev.handle(), nw + 5, w, 0, nullptr);
   }
   // Cull compute boru hatti + kendi descriptor kumesi. Basarisizsa CPU yolu
   // kosar ve sebep CullInfo::disabled_reason'da kalir (sessiz kapanma yok).
@@ -421,6 +454,11 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
     if (!post_.enabled && !post_.disabled_reason[0]) post_.disabled_reason = "son islem hedefleri kurulamadi";
     // VSM: graph derinligi sakladiysa (vsm_isaret onu okuyor) gecis kurulur. Basarisizlik ORTAM eksigidir: sebep
     // VsmPassInfo'da, renderer CSM ile devam eder.
+    vt_info_.enabled = vt_fb_shader_ && post_.enabled && vt_req_.ok();
+    if (cfg_.vt_feedback && !vt_info_.enabled && !vt_info_.disabled_reason[0])
+      vt_info_.disabled_reason = !dev_->caps().fragment_stores_atomics ? "cihaz fragmentStoresAndAtomics vermiyor"
+                                 : !post_.enabled                     ? "post kurulamadi (VT geri bildirimi post ister)"
+                                                                      : "istek tablosu yok";
     if (post_.enabled && cfg_.vsm && post_.depth_stored) {
       vsm_casters_ = arena.alloc_array<VsmPassCaster>(cfg_.max_draws);
       if (vsm_casters_)
@@ -1259,9 +1297,20 @@ void Renderer::write_material_ubo(uint32_t id) {
   u.tex[2] = m.tex.emissive.valid() ? 1.0f : 0.0f;
   u.tex[3] = m.tex.normal_scale;
   u.tex2[0] = m.tex.orm.valid() ? m.tex.occlusion_strength : 0.0f;
-  u.tex2[1] = u.tex2[2] = u.tex2[3] = 0.0f;
+  u.tex2[1] = m.vt_id != ~0u ? (float)(m.vt_id + 1) : 0.0f;
+  u.tex2[2] = (float)m.vt_w;
+  u.tex2[3] = (float)m.vt_h;
   std::memcpy(static_cast<uint8_t *>(mat_ubo_mem_.mapped) + (size_t)id * mat_ubo_stride_, &u, sizeof u);
 }
+bool Renderer::set_material_vt(MaterialHandle h, uint32_t vt_texture, uint32_t w, uint32_t hh) {
+  if (!h.valid() || h.id >= material_count_ || vt_texture >= 63 || w == 0 || hh == 0) return false;
+  materials_[h.id].vt_id = vt_texture;
+  materials_[h.id].vt_w = w;
+  materials_[h.id].vt_h = hh;
+  write_material_ubo(h.id);
+  return true;
+}
+
 bool Renderer::set_material_pbr(MaterialHandle h, const PbrParams &pbr) {
   if (!h.valid() || h.id >= material_count_) return false;
   materials_[h.id].pbr = pbr;
@@ -1372,6 +1421,16 @@ bool Renderer::make_pipelines(VkRenderPass rp) {
     else vrs_info_.active = vrs_info_.requested;
   }
   if (!make_pipeline_set(rp, false, vs_, shadow_vs_, &pipe_depth_, &pipe_color_, &pipe_shadow_)) return false;
+  if (vt_info_.enabled && fs_vt_) {
+    // Yalniz renk boru hatti gerekli: fs_ gecici olarak varyanta cevrilir, ikiz derinlik boru hatti atilir.
+    VkShaderModule base = fs_;
+    VkPipeline tmp_depth = VK_NULL_HANDLE;
+    fs_ = fs_vt_;
+    const bool ok = make_pipeline_set(rp, false, vs_, shadow_vs_, &tmp_depth, &pipe_color_vt_, nullptr);
+    fs_ = base;
+    if (tmp_depth) dev_->api().vkDestroyPipeline(dev_->handle(), tmp_depth, nullptr);
+    if (!ok) { vt_info_.enabled = false; vt_info_.disabled_reason = "geri bildirim boru hatti kurulamadi"; }
+  }
   if (!make_pipeline_set(rp, true, skin_vs_, skin_shadow_vs_, &pipe_skin_depth_, &pipe_skin_color_, &pipe_skin_shadow_))
     return false;
   // DOLAYLI yol: ayni durum, yalniz vertex shader'i (model SSBO'dan okuyan)
@@ -1403,12 +1462,14 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   // PBR_NDF ozellestirme sabiti (mesh.frag constant_id 0): 0 = dogru GGX
   // (urun), 1 = KONTROL (normalize edilmemis). Boru hatti kurulumunda sabit.
   // constant_id 0 = PBR_NDF (0 dogru GGX, 1 kontrol), 1 = STOCHASTIC (0 kapali).
-  const int32_t fs_spec_data[3] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0,
-                                   vsm_sampling() ? 1 : 0};
-  const VkSpecializationMapEntry fs_entries[3] = {{0, 0, sizeof(int32_t)}, {1, sizeof(int32_t), sizeof(int32_t)},
-                                                  {2, 2 * sizeof(int32_t), sizeof(int32_t)}};
+  // 3..6 yalniz mesh_vtfb'de var (temel mesh.frag'da olmayan kimlik yok sayilir).
+  const int32_t fs_spec_data[7] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0,
+                                   vsm_sampling() ? 1 : 0, vt_info_.enabled ? 1 : 0, (int32_t)cfg_.vt_page_px,
+                                   (int32_t)(cfg_.vt_feedback_table.table_slots - 1), (int32_t)cfg_.vt_feedback_table.list_capacity};
+  VkSpecializationMapEntry fs_entries[7];
+  for (uint32_t k = 0; k < 7; k++) fs_entries[k] = {k, k * (uint32_t)sizeof(int32_t), sizeof(int32_t)};
   VkSpecializationInfo fs_spec{};
-  fs_spec.mapEntryCount = 3;
+  fs_spec.mapEntryCount = 7;
   fs_spec.pMapEntries = fs_entries;
   fs_spec.dataSize = sizeof fs_spec_data;
   fs_spec.pData = fs_spec_data;
@@ -1616,6 +1677,7 @@ void Renderer::shutdown() {
   rhi::VkApi &a = dev_->api();
   a.vkDeviceWaitIdle(dev_->handle());
   vsm_pass_.shutdown();
+  vt_req_.shutdown();
   for (uint32_t i = 0; i < mesh_count_; i++) {
     if (meshes_[i].vbuf) a.vkDestroyBuffer(dev_->handle(), meshes_[i].vbuf, nullptr);
     if (meshes_[i].ibuf) a.vkDestroyBuffer(dev_->handle(), meshes_[i].ibuf, nullptr);
@@ -1644,6 +1706,10 @@ void Renderer::shutdown() {
     mirror_x_ = mirror_built_ = mirror_keep_winding_ = false;
   }
   if (pipe_color_) a.vkDestroyPipeline(dev_->handle(), pipe_color_, nullptr);
+  if (pipe_color_vt_) a.vkDestroyPipeline(dev_->handle(), pipe_color_vt_, nullptr);
+  pipe_color_vt_ = VK_NULL_HANDLE;
+  if (fs_vt_) a.vkDestroyShaderModule(dev_->handle(), fs_vt_, nullptr);
+  fs_vt_ = VK_NULL_HANDLE;
   if (pipe_shadow_) a.vkDestroyPipeline(dev_->handle(), pipe_shadow_, nullptr);
   if (pipe_skin_depth_) a.vkDestroyPipeline(dev_->handle(), pipe_skin_depth_, nullptr);
   if (pipe_skin_color_) a.vkDestroyPipeline(dev_->handle(), pipe_skin_color_, nullptr);
@@ -2000,6 +2066,17 @@ void Renderer::set_light(Vec3 dir, Vec3 ambient, float diffuse_scale) { light_di
 
 void Renderer::begin_frame(uint32_t frame_index) {
   frame_ = frame_index % cfg_.frames_in_flight;
+  // VT geri bildirimi: bu yuvanin onceki kullaniminda yazilan liste (cagiran o karenin citini bekledi).
+  vt_keys_ = nullptr;
+  vt_n_ = 0;
+  if (vt_info_.enabled) {
+    VsmRequestHeader h;
+    vt_keys_ = vt_req_.read(frame_, &h, &vt_n_);
+    vt_info_.keys = vt_n_;
+    vt_info_.list_overflow = h.list_overflow;
+    vt_info_.table_full = h.table_full;
+    vt_info_.out_of_range = h.out_of_range;
+  }
   ui_query_reset_[frame_] = false;
   ui_query_written_[frame_] = false;
   draw_count_ = 0;
@@ -2625,7 +2702,9 @@ void Renderer::record_shadow(VkCommandBuffer cb) {
       // Ornekleme tablosu: bu karede GECERLI sayfalar (atlas az once cizildi). Kare yuvasinin citi beklendi.
       vsm_pass_.fill_table(vsm_tab_mem_[frame_].mapped, Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]});
     }
+    if (vt_info_.enabled) vt_req_.record_reset(cb, frame_, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     record_hdr_scene(cb);
+    if (vt_info_.enabled) vt_req_.record_done(cb, frame_, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     if (vsm) {
       const Mat4 iv = inverse(view_);
       vsm_pass_.record_mark(cb, inverse(jittered_proj_ * view_), Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]}, scaled_w_, scaled_h_);
@@ -2803,7 +2882,10 @@ void Renderer::record_scene(VkCommandBuffer cb) {
     VkPipeline bound_pipe = VK_NULL_HANDLE;
     for (uint32_t i = 0; i < draw_count_; i++) {
       const Draw &d = draws_[i];
-      const VkPipeline want = scene_pipe(d.skin_offset != kNoSkin, pass);
+      // VT malzemeli statik cizim (ayna kapali) renk gecisinde geri bildirim boru hattina; digerleri temel.
+      const bool vt = pass == 1 && pipe_color_vt_ && d.skin_offset == kNoSkin && materials_[d.material].vt_id != ~0u &&
+                      !(mirror_x_ && !mirror_keep_winding_);
+      const VkPipeline want = vt ? pipe_color_vt_ : scene_pipe(d.skin_offset != kNoSkin, pass);
       if (want != bound_pipe) { a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want); bound_pipe = want; }
       if (pass == 1 && d.material != bound_mat) { // depth gecisi doku okumaz
         a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 1, 1, &materials_[d.material].set, 0, nullptr);

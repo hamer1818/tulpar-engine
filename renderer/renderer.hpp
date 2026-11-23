@@ -241,6 +241,13 @@ struct RendererConfig {
   // saklamanin bedeli +0,73 ms, seyrek isaretleme 1,56 ms (#183); CSM ayni sahnede +12,8 ms (#184).
   bool vsm = false;
   VsmPassConfig vsm_settings{}; // sayfa onbellegi / atlas / isaretleme ayarlari (vsm acikken)
+  // VT GERI BILDIRIMI — VARSAYILAN KAPALI, post ister (sahne gecisinin sahibi renderer olmali: uretici gecisten sonra
+  // host okumasi bariyeri) ve cihazda fragmentStoresAndAtomics. Acikken renk boru hatti mesh_vtfb.frag (Faz 8.5 mesh.frag
+  // ailesi) ile kurulur: VT malzemesinin gorunur (doku, mip, sayfa) anahtarlari 1/16 piksel deseninde GPU istek
+  // tablosuna (renderer/gpu_request, VSM ile ORTAK) yazilir; liste bir kare gecikmeyle vt_feedback()'ten okunur.
+  bool vt_feedback = false;
+  GpuRequestConfig vt_feedback_table{};
+  uint32_t vt_page_px = 128; // VtCache sayfa kenari (texel)
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk
 
   // --- FAZ 9: GPU gorunurluk kumeleme + dolayli cizim — VARSAYILAN KAPALI ---
@@ -452,6 +459,9 @@ public:
   // Parametreleri yerinde gunceller (malzeme UBO'suna yazar). KARE DISINDA
   // cagrilir: tampon host-visible ve ucuslu kare basina KOPYALANMAZ.
   bool set_material_pbr(MaterialHandle m, const PbrParams &pbr);
+  // Malzemenin albedo'su sanal doku: VtCache doku kimligi (add_texture) ve sanal boyut (texel; sayfa boyunun kati).
+  // RendererConfig::vt_feedback acikken mesh_vtfb.frag bu malzemenin gorunur sayfalarini geri bildirir.
+  bool set_material_vt(MaterialHandle m, uint32_t vt_texture, uint32_t width_texels, uint32_t height_texels);
   PbrParams material_pbr(MaterialHandle m) const;
   bool material_is_pbr(MaterialHandle m) const;
   TextureHandle default_texture() const { return default_texture_; } // 1x1 beyaz
@@ -616,6 +626,14 @@ public:
   // VSM gecisi (RendererConfig::vsm). enabled false ise disabled_reason sebebi soyler.
   const VsmPassInfo &vsm() const { return vsm_pass_.info(); }
   VsmPass &vsm_pass() { return vsm_pass_; }
+  // VT geri bildirimi: bu kare basinda okunan (bir kare onceki) tekil anahtar listesi. VtCache::request_feedback'e verilir.
+  struct VtFeedbackInfo {
+    bool enabled = false;
+    const char *disabled_reason = "";
+    uint32_t keys = 0, list_overflow = 0, table_full = 0, out_of_range = 0;
+  };
+  const uint32_t *vt_feedback(uint32_t *n) const { *n = vt_n_; return vt_keys_; }
+  const VtFeedbackInfo &vt_feedback_info() const { return vt_info_; }
   // Golge VSM'den mi geliyor (gecis kuruldu VE ornekleme acik)? false: CSM cizilir ve orneklenir.
   bool vsm_sampling() const { return vsm_pass_.info().enabled && cfg_.vsm_settings.sample; }
   // Radikal ters (van der Corput) tabani `base`; Halton dizisinin i. terimi.
@@ -791,6 +809,8 @@ private:
     PbrTextures tex{};
     bool is_pbr = false;
     bool ui_dither = false; // arayuzde harmanli ciziminde alfa titretme (set_ui_dither)
+    // Sanal doku (VT) geri bildirimi: VtCache doku kimligi + sanal boyut (texel). vt_id ~0u = VT degil.
+    uint32_t vt_id = ~0u, vt_w = 0, vt_h = 0;
   };
   // Malzeme basina GPU blogu (std140): set 1, binding 1 — mesh.frag MatBlock.
   struct MaterialUbo {
@@ -800,7 +820,7 @@ private:
     // buyume GPU'da BEDAVA: adim boyu zaten cihazin minUniformBufferOffsetAlignment'i
     // (masaustu 64, Mali 256) — olculen deger material_ubo_stride().
     float tex[4];  // x ORM var mi, y normal var mi, z isima dokusu var mi, w normal olcegi
-    float tex2[4]; // x occlusion gucu (ORM.R; 0 = occlusion yok), y/z/w bos
+    float tex2[4]; // x occlusion gucu (ORM.R; 0 = occlusion yok), y VT doku kimligi + 1 (0 = VT degil), z/w VT sanal boyut (texel)
   };
   static_assert(sizeof(MaterialUbo) == 64, "std140: MatBlock 64 bayt");
   static constexpr uint32_t kNoSkin = 0xFFFFFFFFu;
@@ -961,6 +981,8 @@ private:
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipe_depth_ = VK_NULL_HANDLE, pipe_color_ = VK_NULL_HANDLE;
+  VkPipeline pipe_color_vt_ = VK_NULL_HANDLE; // VT geri bildirimli renk boru hatti (yalniz VT malzemeli statik cizimler)
+  VkShaderModule fs_vt_ = VK_NULL_HANDLE;    // mesh_vtfb.frag
   // Yatay ayna (set_mirror_x): sarimi ters ikizler, ilk acilista kurulur.
   VkRenderPass scene_rp_ = VK_NULL_HANDLE; // make_pipelines'in render pass'i (ikizler ayni pass'e)
   VkPipeline pipe_m_depth_ = VK_NULL_HANDLE, pipe_m_color_ = VK_NULL_HANDLE;
@@ -1129,7 +1151,12 @@ private:
   VkBuffer vsm_tab_buf_[3] = {};   // mesh.frag binding 9 (kare basina)
   rhi::MemoryAlloc vsm_tab_mem_[3] = {};
   uint32_t vsm_tab_bytes_ = 0;
-  bool csm_primed_ = false; // VSM yolunda CSM atlasi bir kez gecerli layout'a getirildi mi
+  bool csm_primed_ = false;
+  GpuRequestTable vt_req_;
+  VtFeedbackInfo vt_info_{};
+  const uint32_t *vt_keys_ = nullptr;
+  uint32_t vt_n_ = 0;
+  bool vt_fb_shader_ = false; // fs_ mesh_vtfb varyantindan mi kuruldu // VSM yolunda CSM atlasi bir kez gecerli layout'a getirildi mi
   Mat4 prev_viewproj_{};
   bool has_prev_vp_ = false;
   bool motion_recorded_ = false; // MV hedefi en az bir kez yazildi (okuma icin)

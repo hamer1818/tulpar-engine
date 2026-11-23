@@ -122,6 +122,10 @@ func main() { o_color = vec4(1.0); }
 uint[64] s = paylasimli();
 func main() { s[0] = 0u; barrier(); }
 '''),
+    ("erken_test frag disinda", "cevirici-anlam", '''str asama = "vert";
+bool e = erken_test();
+func main() { gl_Position = vec4(0.0); }
+'''),
     ("tip uyusmazligi", "glslc", '''str asama = "frag";
 vec2 v_uv = girdi(0);
 sampler2D u_src = ornek(0, 0);

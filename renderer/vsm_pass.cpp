@@ -123,16 +123,11 @@ bool VsmPass::init(rhi::Device &dev, Arena &arena, const VsmPassConfig &cfg, uin
   dpi.poolSizeCount = 2;
   dpi.pPoolSizes = ps;
   if (a.vkCreateDescriptorPool(d, &dpi, nullptr, &pool_) != VK_SUCCESS) { info_.disabled_reason = "tanimlayici havuzu"; return false; }
-  const VkDeviceSize pages_bytes = sizeof(VsmRequestHeader) + (VkDeviceSize)cfg_.list_capacity * 4;
+  GpuRequestConfig rq;
+  rq.table_slots = cfg_.table_slots;
+  rq.list_capacity = cfg_.list_capacity;
+  if (!req_.init(dev, rq, frames_)) { info_.disabled_reason = "istek tablosu / liste tamponu"; return false; }
   for (uint32_t f = 0; f < frames_; f++) {
-    if (!make_buf(dev, (VkDeviceSize)cfg_.table_slots * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &table_buf_[f], &table_mem_[f], nullptr) ||
-        !make_buf(dev, pages_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &pages_buf_[f], &pages_mem_[f],
-                  &pages_map_[f])) {
-      info_.disabled_reason = "tablo / liste tamponu";
-      return false;
-    }
     VkDescriptorSetAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     ai.descriptorPool = pool_;
@@ -140,7 +135,7 @@ bool VsmPass::init(rhi::Device &dev, Arena &arena, const VsmPassConfig &cfg, uin
     ai.pSetLayouts = &set_layout_;
     if (a.vkAllocateDescriptorSets(d, &ai, &sets_[f]) != VK_SUCCESS) { info_.disabled_reason = "tanimlayici kumesi"; return false; }
     VkDescriptorImageInfo ii{sampler_, depth_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-    VkDescriptorBufferInfo bt{table_buf_[f], 0, VK_WHOLE_SIZE}, bp{pages_buf_[f], 0, VK_WHOLE_SIZE};
+    VkDescriptorBufferInfo bt{req_.table(f), 0, VK_WHOLE_SIZE}, bp{req_.pages(f), 0, VK_WHOLE_SIZE};
     VkWriteDescriptorSet w[3]{};
     for (uint32_t i = 0; i < 3; i++) {
       w[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -170,7 +165,7 @@ void VsmPass::begin_frame(uint32_t frame, Vec3 camera, Vec3 light_dir, const Vsm
     // Isik tabani degisti: butun sayfalar ve UCUSTAKI listeler (eski tabanin anahtarlari) gecersiz.
     light_ = l;
     cache_.reset_light(l);
-    for (uint32_t f = 0; f < frames_; f++) written_[f] = false;
+    req_.discard_all();
     prev_n_ = 0;
     info_.light_resets++;
   }
@@ -195,14 +190,14 @@ void VsmPass::begin_frame(uint32_t frame, Vec3 camera, Vec3 light_dir, const Vsm
   cur_ = t;
   prev_n_ = n;
   // --- Bu yuvanin onceki kullaniminda GPU'nun yazdigi tekil liste ---
-  if (written_[frame_]) {
-    const uint32_t *pages = static_cast<const uint32_t *>(pages_map_[frame_]);
-    VsmRequestHeader h;
-    std::memcpy(&h, pages, sizeof h);
+  VsmRequestHeader h;
+  uint32_t kn = 0;
+  if (const uint32_t *keys = req_.read(frame_, &h, &kn)) {
     info_.list_overflow = h.list_overflow;
     info_.table_full = h.table_full;
     info_.out_of_range = h.out_of_range;
-    info_.requested = vsm_request_from_gpu(cache_, pages, cfg_.list_capacity);
+    for (uint32_t k = 0; k < kn; k++) cache_.request_key(vsm_unpack_key(keys[k]));
+    info_.requested = kn;
   }
   info_.resident = cache_.resident();
 }
@@ -219,13 +214,7 @@ void VsmPass::record_mark(VkCommandBuffer cb, const Mat4 &inv, Vec3 cam, uint32_
   if (!info_.enabled) return;
   rhi::VkApi &a = dev_->api();
   const uint32_t f = frame_;
-  a.vkCmdFillBuffer(cb, table_buf_[f], 0, VK_WHOLE_SIZE, kVsmKeyEmpty);
-  a.vkCmdFillBuffer(cb, pages_buf_[f], 0, sizeof(VsmRequestHeader), 0u);
-  VkMemoryBarrier mb{};
-  mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-  mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-  a.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
+  req_.record_reset(cb, f, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
   a.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe_);
   a.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &sets_[f], 0, nullptr);
   VsmMarkPush p{};
@@ -239,10 +228,7 @@ void VsmPass::record_mark(VkCommandBuffer cb, const Mat4 &inv, Vec3 cam, uint32_
   a.vkCmdPushConstants(cb, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof p, &p);
   const uint32_t s = cfg_.mark_stride, gw = (w + s - 1) / s, gh = (h + s - 1) / s;
   a.vkCmdDispatch(cb, (gw + 7) / 8, (gh + 7) / 8, 1);
-  mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-  a.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
-  written_[f] = true;
+  req_.record_done(cb, f, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
 
 void VsmPass::fill_table(void *dst, Vec3 cam) const {
@@ -331,11 +317,7 @@ void VsmPass::shutdown() {
   rhi::VkApi &a = dev_->api();
   VkDevice d = dev_->handle();
   atlas_.shutdown();
-  for (uint32_t f = 0; f < kMaxFrames; f++) {
-    free_buf(*dev_, &table_buf_[f], &table_mem_[f], nullptr);
-    free_buf(*dev_, &pages_buf_[f], &pages_mem_[f], &pages_map_[f]);
-    written_[f] = false;
-  }
+  req_.shutdown();
   free_buf(*dev_, &rb_buf_, &rb_mem_, &rb_map_);
   if (pool_) a.vkDestroyDescriptorPool(d, pool_, nullptr);
   if (pipe_) a.vkDestroyPipeline(d, pipe_, nullptr);

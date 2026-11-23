@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 917 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 448 fonksiyon · 919 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -151,7 +151,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `core/profiler/profiler.hpp` — Profiler (Faz 0'da yazilir, sonra degil: "olcemedigin seyi
 - `core/reflect/reflect.hpp` — Core reflection interface placeholder - see content/reflect.hpp for SceneEntity reflection
 
-### rhi — L2 (17 dosya, 4090 satır)
+### rhi — L2 (17 dosya, 4094 satır)
 
 - `rhi/command_pools.cpp` — 
 - `rhi/command_pools.hpp` — thread basina komut havuzu (plan L2: "command buffer'lar paralel
@@ -171,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (32 dosya, 9692 satır)
+### renderer — L3 (34 dosya, 9957 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -183,6 +183,8 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `renderer/debug_draw.cpp` — glampert/debug-draw bu makrolari `#ifndef` ile korur; asagidakiler
 - `renderer/debug_draw.hpp` — Hata ayiklama cizimi (tek karelik cizgi/kure/kutu/ok/eksen).
 - `renderer/geom_density.hpp` — UCGEN / PIKSEL ORANI olcumu (Faz 9, PLAN REV: "hedef Nanite sinifi
+- `renderer/gpu_request.cpp` — 
+- `renderer/gpu_request.hpp` — GPU ISTEK TABLOSU: GPU'nun kare icinde urettigi tekil anahtar listesinin ORTAK mekanizmasi
 - `renderer/graph.hpp` — DERLENMIS RENDER GRAPH (ilk surum, plan §6).
 - `renderer/graph_builder.hpp` — Dinamik Render Graph Derleyicisi (graph_builder.hpp)
 - `renderer/indirect_cull.cpp` — 
@@ -454,7 +456,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (75 dosya, 17617 satır)
+### tools — L7 (75 dosya, 17629 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -1128,20 +1130,20 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **917** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **919** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
 - `editor` — 140
 - `bridge` — 71
 - `scene` — 48
-- `renderer` — 39
+- `renderer` — 40
 - `content` — 31
 - `updater` — 20
+- `render` — 17
 - `audio` — 16
 - `cluster` — 16
 - `physics` — 16
-- `render` — 16
 - `math` — 14
 - `model` — 14
 - `fixed` — 13
@@ -1363,8 +1365,8 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_quantum_gen.cpp` — 5 test
 - `tests/test_random.cpp` — 6 test
 - `tests/test_reflect.cpp` — 4 test
-- `tests/test_render_graph.cpp` — 20 test
-- `tests/test_renderer.cpp` — 27 test
+- `tests/test_render_graph.cpp` — 21 test
+- `tests/test_renderer.cpp` — 28 test
 - `tests/test_replay.cpp` — 5 test
 - `tests/test_rhi.cpp` — 9 test
 - `tests/test_rollback.cpp` — 4 test

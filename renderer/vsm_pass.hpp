@@ -19,6 +19,7 @@
 
 #include "core/math/vec.hpp"
 #include "core/memory/arena.hpp"
+#include "renderer/gpu_request.hpp"
 #include "renderer/vsm_atlas.hpp"
 #include "renderer/vsm_pages.hpp"
 #include "rhi/device.hpp"
@@ -126,12 +127,7 @@ private:
   VkDescriptorPool pool_ = VK_NULL_HANDLE;
   static constexpr uint32_t kMaxFrames = 3;
   VkDescriptorSet sets_[kMaxFrames] = {};
-  VkBuffer table_buf_[kMaxFrames] = {};
-  rhi::MemoryAlloc table_mem_[kMaxFrames] = {};
-  VkBuffer pages_buf_[kMaxFrames] = {};
-  rhi::MemoryAlloc pages_mem_[kMaxFrames] = {};
-  void *pages_map_[kMaxFrames] = {};
-  bool written_[kMaxFrames] = {};
+  GpuRequestTable req_; // tekillestirme tablosu + liste + gecikmeli okuma (VT geri bildirimiyle ORTAK)
   VkBuffer rb_buf_ = VK_NULL_HANDLE; // derinlik geri okuma (teshis)
   rhi::MemoryAlloc rb_mem_{};
   void *rb_map_ = nullptr;
