@@ -43,6 +43,7 @@ enum class PassKind : uint8_t {
   Up,      // toplamali yukari ornekleme: down[i] + (down|up)[i+1] -> up[i]
   Godray,  // screen-space godrays
   Compose, // tam ekran birlestirme (tone + bloom) -> CAGIRANIN hedefi
+  VsmMark, // VSM sayfa istegi (COMPUTE): sahne DERINLIGINI okur, tekil sayfa listesi yazar (CPU okur)
 };
 
 // Graph'in bildigi hedefler. Mip seviyesi ayri alanda tasinir.
@@ -60,6 +61,11 @@ enum GraphRes : uint8_t {
   // out_external isaretlidir — "olu gecis" denetimi onu atlar.
   kResCull = 6,
   kResGodray = 7, // godray hedefi
+  // Sahne gecisinin DERINLIGI (ikinci cikti, out2). Okuyan gecis YOKSA transient kalir (STORE_OP_DONT_CARE,
+  // LAZILY_ALLOCATED: TBDR'da tile'dan DRAM'e hic inmez — PLAN 1.2); okuyan varsa saklanir. Karar ELLE verilmez,
+  // graph_build'in turetmesinden gelir (out2_sampled). Mali-G72'de saklamanin bedeli 1080p'de +0,73 ms (#183).
+  kResDepth = 8,
+  kResVsmReq = 9, // VSM tekil sayfa listesi (TAMPON; tuketici CPU — out_external)
   kResNone = 0xFF,
 };
 
@@ -75,10 +81,13 @@ struct GraphPass {
   uint8_t in0 = kResNone, in0_level = 0;
   uint8_t in1 = kResNone, in1_level = 0;
   uint8_t out = kResNone, out_level = 0;
+  // Ikinci cikti (bugun yalniz sahne gecisinin derinligi). Seviye her zaman 0.
+  uint8_t out2 = kResNone;
   // --- TURETILEN alanlar (graph_build doldurur; kayitta hesaplanmaz) ---
   uint8_t producer0 = kResNone; // in0'i yazan gecis indeksi
   uint8_t producer1 = kResNone;
   bool out_sampled = false; // ciktisini sonraki bir gecis orneklyor mu
+  bool out2_sampled = false; // ikinci ciktiyi (derinlik) sonraki bir gecis okuyor mu -> saklanmali
   GraphLayout out_layout = GraphLayout::External;
   // Cikti graph DISINDA tuketiliyor (upscaler / TAA / olcum): "olu gecis"
   // denetimi bunu atlar. Elle KURULUR (turetilemez: tuketici tabloda yok).
@@ -93,6 +102,7 @@ struct GraphDesc {
   bool motion = false;     // hareket vektoru gecisi tabloda mi (Faz 5)
   bool cull = false;       // GPU cull compute gecisi tabloda mi (Faz 9)
   bool godray = false;     // isik huzmesi gecisi tabloda mi
+  bool vsm = false;        // VSM sayfa istegi gecisi (post ister: derinlik kaynagi yalniz ic HDR gecisinde var)
   uint32_t bloom_mips = 4; // post acikken 2..kMaxBloomMips
 };
 
@@ -110,7 +120,7 @@ constexpr uint32_t graph_clamp_mips(uint32_t m) {
 // post acikken 2*mip = parlak(1) + indirgeme(mip-1) + yukari(mip-1) + birlestir(1).
 constexpr uint32_t graph_pass_count(const GraphDesc &d) {
   return (d.cull ? 1u : 0u) + (d.shadow ? 1u : 0u) + (d.motion ? 1u : 0u) + 1u /*sahne*/ +
-         (d.post ? (2u * graph_clamp_mips(d.bloom_mips) + (d.godray ? 1u : 0u)) : 0u);
+         (d.post ? (2u * graph_clamp_mips(d.bloom_mips) + (d.godray ? 1u : 0u) + (d.vsm ? 1u : 0u)) : 0u);
 }
 // Butun anahtarlari acik, mip zinciri en derin tablo: graph_build'in
 // uretebilecegi EN GENIS tablo. Yeni bir anahtar eklenince burasi da
@@ -122,10 +132,11 @@ constexpr GraphDesc graph_widest_desc() {
   d.motion = true;
   d.cull = true;
   d.godray = true;
+  d.vsm = true;
   d.bloom_mips = kMaxBloomMips;
   return d;
 }
-constexpr uint32_t kGraphWidestTable = graph_pass_count(graph_widest_desc()); // 4 + 2*6 + 1 = 17
+constexpr uint32_t kGraphWidestTable = graph_pass_count(graph_widest_desc()); // 4 + 2*6 + 1 + 1 = 18
 
 // Renderer'in gecis tablosu kapasitesi. Tam olarak en genis tabloya esit:
 // buyugu bosa bellek, kucugu SESSIZ post kapanmasi demek.
@@ -196,6 +207,17 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
     p.kind = PassKind::Scene;
     p.in0 = d.shadow ? (uint8_t)kResShadow : (uint8_t)kResNone;
     p.out = d.post ? (uint8_t)kResHdr : (uint8_t)kResTarget;
+    // Derinlik yalniz ic HDR gecisinde graph'in kaynagidir; post kapaliyken ek cagiranin (swapchain/offscreen).
+    p.out2 = d.post ? (uint8_t)kResDepth : (uint8_t)kResNone;
+    emit(p);
+  }
+  if (d.post && d.vsm) {
+    GraphPass p;
+    p.name = "vsm_isaret";
+    p.kind = PassKind::VsmMark;
+    p.in0 = kResDepth;
+    p.out = kResVsmReq;
+    p.out_external = true; // tuketici CPU (sayfa onbellegi, bir kare gecikmeli)
     emit(p);
   }
   if (d.post) {
@@ -267,12 +289,17 @@ inline uint32_t graph_build(const GraphDesc &d, GraphPass *out, uint32_t cap) {
     const uint8_t lvls[2] = {out[j].in0_level, out[j].in1_level};
     for (uint32_t s = 0; s < 2; s++) {
       uint8_t prod = kResNone;
+      bool second = false; // uretici bu girdiyi ikinci ciktisindan (out2) mi veriyor
       if (ins[s] != kResNone)
-        for (uint32_t i = j; i-- > 0;)
+        for (uint32_t i = j; i-- > 0;) {
           if (out[i].out == ins[s] && out[i].out_level == lvls[s]) { prod = (uint8_t)i; break; }
+          if (out[i].out2 == ins[s] && lvls[s] == 0) { prod = (uint8_t)i; second = true; break; }
+        }
       if (s == 0) out[j].producer0 = prod;
       else out[j].producer1 = prod;
-      if (prod != kResNone) {
+      if (prod != kResNone && second) {
+        out[prod].out2_sampled = true; // derinlik okunuyor: saklanmali (layout'u Renderer kurar)
+      } else if (prod != kResNone) {
         out[prod].out_sampled = true;
         // Golge atlasi derinliktir ve kendi gecisi finalLayout'u zaten
         // SHADER_READ_ONLY birakir; renk hedefleri de oyle.
@@ -303,6 +330,14 @@ inline const char *graph_validate(const GraphPass *p, uint32_t n) {
   }
   if (p[n - 1].out != kResTarget) return "son gecis cagiranin hedefine yazmiyor";
   return nullptr;
+}
+
+// Sahne derinligi saklanmali mi? TURETILMIS cevap: tabloda onu okuyan bir gecis varsa evet. Renderer derinlik
+// goruntusunu (TRANSIENT mi SAMPLED mi) ve render pass'in storeOp'unu buradan kurar — elle bayrak yok.
+inline bool graph_depth_stored(const GraphPass *p, uint32_t n) {
+  for (uint32_t i = 0; i < n; i++)
+    if (p[i].out2 == kResDepth && p[i].out2_sampled) return true;
+  return false;
 }
 
 } // namespace tulpar::engine::renderer

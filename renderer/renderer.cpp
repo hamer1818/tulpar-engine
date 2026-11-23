@@ -2916,6 +2916,7 @@ bool Renderer::make_post(VkRenderPass target_rp) {
   // kapatirdi (bloom ve tonemap dahil) — bu yuzden gd.godray hic set
   // edilmiyordu ve editorun kaydiraclari hicbir seye baglanmiyordu.
   gd.godray = cfg_.godrays;
+  gd.vsm = cfg_.vsm;
   graph_n_ = graph_build(gd, graph_, kMaxGraphPasses);
   if (!graph_n_) {
     // Buraya dusmek bir ORTAM eksigi degil kod hatasidir: graph_pass_count ile
@@ -2948,10 +2949,13 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     post_.disabled_reason = "HDR hedefi yaratilamadi";
     return false;
   }
-  // Derinlik TRANSIENT: HDR gecisinden sonra kimse okumaz (tablo da oyle der),
-  // TBDR'da tile'da kalir ve DRAM'e hic inmez.
-  if (!make_post_image(dfmt, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
-                       post_w_, post_h_, 1, true, &hdr_depth_img_, &hdr_depth_mem_)) {
+  // Derinlik: TABLO karar verir. Okuyan gecis yoksa TRANSIENT (TBDR'da tile'da kalir, DRAM'e hic inmez); varsa
+  // (VSM isaretlemesi) orneklenebilir ve saklanir. Elle bayrak yok — graph_depth_stored turetilmis alandan okur.
+  post_.depth_stored = graph_depth_stored(graph_, graph_n_);
+  const VkImageUsageFlags depth_usage = post_.depth_stored
+                                            ? (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                                            : (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
+  if (!make_post_image(dfmt, depth_usage, post_w_, post_h_, 1, !post_.depth_stored, &hdr_depth_img_, &hdr_depth_mem_)) {
     post_.disabled_reason = "HDR derinligi yaratilamadi";
     return false;
   }
@@ -3008,8 +3012,10 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     att[0].finalLayout = inter_layout;
     att[1] = att[0];
     att[1].format = dfmt;
-    att[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // transient: tile'da kalir
-    att[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    // Tablodan: okuyan yoksa transient (tile'da kalir), varsa saklanir ve compute okuyabilecegi layout'ta biter.
+    att[1].storeOp = post_.depth_stored ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att[1].finalLayout = post_.depth_stored ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                            : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     VkAttachmentReference cr{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkAttachmentReference dr{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
     VkSubpassDescription sp[2]{};
@@ -3019,12 +3025,17 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     sp[1].colorAttachmentCount = 1;
     sp[1].pColorAttachments = &cr;
     sp[1].pDepthStencilAttachment = &dr;
-    VkSubpassDependency dep[4]{};
+    VkSubpassDependency dep[5]{};
     dep[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dep[0].dstSubpass = 0;
     dep[0].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     dep[0].dstStageMask = dep[0].srcStageMask;
     dep[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    if (post_.depth_stored) {
+      // Onceki karenin VSM isaretlemesi (compute) derinligi okurken bu kare uzerine yazmasin (WAR).
+      dep[0].srcStageMask |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+      dep[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    }
     dep[1].srcSubpass = 0;
     dep[1].dstSubpass = 1;
     dep[1].srcStageMask = dep[0].srcStageMask;
@@ -3044,13 +3055,20 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     dep[3].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     dep[3].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     dep[3].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    // TURETILDI: derinligi tablodaki bir gecis (VSM isaretlemesi, compute) okuyor.
+    dep[4].srcSubpass = 1;
+    dep[4].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dep[4].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dep[4].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dep[4].dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    dep[4].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     VkRenderPassCreateInfo rpi{};
     rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     rpi.attachmentCount = 2;
     rpi.pAttachments = att;
     rpi.subpassCount = 2;
     rpi.pSubpasses = sp;
-    rpi.dependencyCount = 4;
+    rpi.dependencyCount = post_.depth_stored ? 5u : 4u;
     rpi.pDependencies = dep;
     if (a.vkCreateRenderPass(d, &rpi, nullptr, &hdr_rp_) != VK_SUCCESS) {
       post_.disabled_reason = "HDR gecisi yaratilamadi";
@@ -3201,8 +3219,8 @@ bool Renderer::make_post(VkRenderPass target_rp) {
     for (uint32_t i = 0; i < graph_n_; i++) {
       const GraphPass &p = graph_[i];
       if (p.kind == PassKind::Shadow || p.kind == PassKind::Scene || p.kind == PassKind::Motion ||
-          p.kind == PassKind::Cull)
-        continue; // orneklenen goruntu ciktisi yok (cull'un ciktisi TAMPON)
+          p.kind == PassKind::Cull || p.kind == PassKind::VsmMark)
+        continue; // orneklenen goruntu ciktisi yok (cull'un / VSM isaretlemesinin ciktisi TAMPON; kendi kumeleri var)
       VkDescriptorSetAllocateInfo dai{};
       dai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
       dai.descriptorPool = post_pool_;

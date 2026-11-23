@@ -235,6 +235,10 @@ struct RendererConfig {
   // huzmenin o karede cizilip cizilmeyecegi set_godrays_enabled() ile kare
   // icinde acilip kapanir (tablo, hedef ve descriptor'lar sabit kalir).
   bool godrays = false;
+  // VSM (sanal golge haritasi) sayfa istegi gecisi — VARSAYILAN KAPALI, post ister. Acikken tabloya sahne
+  // derinligini OKUYAN bir gecis girer ve graph derinligi SAKLAR (aksi halde transient). Mali-G72 1080p'de
+  // saklamanin bedeli +0,73 ms, seyrek isaretleme 1,56 ms (#183); CSM ayni sahnede +12,8 ms (#184).
+  bool vsm = false;
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk
 
   // --- FAZ 9: GPU gorunurluk kumeleme + dolayli cizim — VARSAYILAN KAPALI ---
@@ -288,6 +292,9 @@ struct PostInfo {
   // "kaydiraci oynattim ama hicbir sey degismedi"nin sebebi gecisin tabloda
   // olmamasiydi ve disaridan gorulemiyordu.
   bool godray = false;
+  // Sahne derinligi SAKLANIYOR mu (TURETILMIS: tabloda onu okuyan gecis var mi — graph_depth_stored). false =
+  // transient, TBDR'da tile'da kalir. Kapi bunu okur: tuketici yokken saklamak bant genisligi kaybidir.
+  bool depth_stored = false;
   // Gecis tablosu KAPASITEYE sigmadi. Bu bir ORTAM eksigi degil (HDR bicimi
   // yok, tile butcesi asildi gibi) PROGRAMLAMA hatasidir: graph_pass_count ile
   // kMaxGraphPasses ayrismistir. Ayri bayrak, cunku sonucu da ayri: init()
