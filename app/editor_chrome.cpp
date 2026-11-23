@@ -9,7 +9,7 @@
 // Arac cubugu dugmeleri ImGui::Button DEGIL: InvisibleButton + kendi cizimimiz.
 // Sebep bolumlu (segmented) gizmo kontrolu — ImGui::Button her kosesini ayni
 // yuvarlar, uclu grubun ic koseleri keskin, dis koseleri yuvarlak olmali
-// (ImDrawFlags_RoundCornersLeft/Right). Tek yardimci hepsini cizer ki oynat,
+// (ImDrawFlags_RoundLeft/Right). Tek yardimci hepsini cizer ki oynat,
 // yakala, kaydet dugmeleri de birbirinin aynisi gorunsun.
 #include "app/editor_chrome.hpp"
 
@@ -149,7 +149,7 @@ struct ToolBtn {
   float width = 0.0f;   // 0 = metinden (+ FramePadding)
   Look look = Look::Plain;
   bool enabled = true;
-  ImDrawFlags corners = ImDrawFlags_RoundCornersAll;
+  ImDrawFlags corners = ImDrawFlags_RoundAll;
   bool border = true;   // bolumlu kontrolde grup kenarligi disaridan cizilir (false)
 };
 
@@ -410,13 +410,13 @@ void chrome_toolbar(CommandTable &t, const ChromeState &s, ChromeOutput *out) {
         b.label = segs[i].label;
         b.width = w;
         b.look = s.gizmo_op == i ? Look::Fill : Look::Plain; // secili arac: dolu vurgu
-        b.corners = i == 0 ? ImDrawFlags_RoundCornersLeft : i == 2 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersNone;
+        b.corners = i == 0 ? ImDrawFlags_RoundLeft : i == 2 ? ImDrawFlags_RoundRight : ImDrawFlags_RoundNone;
         b.border = false;
         command_button(t, segs[i].id, b, bh, nullptr);
         if (i < 2) ImGui::SameLine(0.0f, 0.0f);
       }
       const ImVec2 g1(g0.x + w * 3.0f, g0.y + bh);
-      dl->AddRect(g0, g1, tone_u32(Tone::Line), st.FrameRounding, 1.0f, ImDrawFlags_RoundCornersAll);
+      dl->AddRect(g0, g1, tone_u32(Tone::Line), st.FrameRounding, 1.0f, ImDrawFlags_RoundAll);
       for (int k = 1; k < 3; k++)
         dl->AddLine(ImVec2(g0.x + w * (float)k + 0.5f, g0.y + 1.0f), ImVec2(g0.x + w * (float)k + 0.5f, g1.y - 1.0f), tone_u32(Tone::Line));
       rec(g_rects[(int)ChromeRect::GizmoSegments], g0, g1);
