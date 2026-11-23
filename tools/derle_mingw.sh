@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tulpar Engine — Windows derlemesinin MSYS2/UCRT64 tarafi (2026-11-22 oncesi MINGW64).
+# Tulpar Engine — Windows derlemesinin MSYS2 tarafi: UCRT64 (x86_64) / CLANGARM64 (ARM64, 2026-11-23); 2026-11-22 oncesi MINGW64.
 # derle.bat tarafindan cagrilir; dogrudan da calistirilabilir (UCRT64 kabugunda).
 #
 # NEDEN AYRI DOSYA: mantigi cmd ile bash arasinda BOLMEK istemedik. .bat yalniz
@@ -29,28 +29,33 @@ esac; done
 # MINGW64 kabugunda miyiz? MSYS kabugunda derlenen ikili MSYS2'nin POSIX
 # katmanina baglanir ve MSYS2 disinda CALISMAZ — sessizce yanlis ikili uretmek
 # yerine burada duruyoruz.
-if [ "${MSYSTEM:-}" != "UCRT64" ]; then
-  hata "UCRT64 kabugu gerekli (su an: ${MSYSTEM:-yok}). 2026-11-22'den beri MINGW64 degil (MSYS2 onu kaldiriyor; yayinlanan tulpar da UCRT)."
-  echo  "  Baslat menusunden 'MSYS2 UCRT64' ile acin, ya da derle.bat kullanin."
-  exit 1
-fi
+# Iki ortam (2026-11-23): x86_64 -> UCRT64 (GCC), Windows ARM64 (Snapdragon X) -> CLANGARM64 (clang + lld + libc++;
+# CI windows-arm64 isi ayni ortamda 879/879). Ikisi de UCRT.
+case "${MSYSTEM:-}" in
+  UCRT64) PKG_ON=mingw-w64-ucrt-x86_64; CXX_ARAC=g++; CXX_PKG=gcc ;;
+  CLANGARM64) PKG_ON=mingw-w64-clang-aarch64; CXX_ARAC=clang++; CXX_PKG=clang ;;
+  *)
+    hata "UCRT64 (x86_64) ya da CLANGARM64 (ARM64) kabugu gerekli (su an: ${MSYSTEM:-yok}). 2026-11-22'den beri MINGW64 degil."
+    echo  "  Baslat menusunden 'MSYS2 UCRT64' / 'MSYS2 CLANGARM64' ile acin, ya da derle.bat kullanin."
+    exit 1 ;;
+esac
 
 # --- Bagimliliklar ----------------------------------------------------------
 # Bicim: "komut|zorunlu|aciklama|pacman paketi"
 # Liste CI'nin gercekten kurdugu paketlerden alindi (.github/workflows/ci.yml),
 # tahminden degil. glslc CI'da da kurulu DEGIL: shader BAYT kapisi atlanir,
 # ozet kapisi yine kosar — bu yuzden istege bagli.
-DEPS='
-cmake|1|derleme sistemi (>= 3.14)|mingw-w64-ucrt-x86_64-cmake
-ninja|1|hizli derleyici surucusu|mingw-w64-ucrt-x86_64-ninja
-g++|1|C++17 derleyicisi|mingw-w64-ucrt-x86_64-gcc
-python|1|kapi betikleri (katman/shader/sahne denetimi)|mingw-w64-ucrt-x86_64-python
-ccache|0|yeniden derlemeyi ~10x hizlandirir|mingw-w64-ucrt-x86_64-ccache
-glslc|0|shader BAYT kapisi (yoksa ozet kapisi yine kosar)|mingw-w64-ucrt-x86_64-shaderc
-'
+DEPS="
+cmake|1|derleme sistemi (>= 3.14)|$PKG_ON-cmake
+ninja|1|hizli derleyici surucusu|$PKG_ON-ninja
+$CXX_ARAC|1|C++17 derleyicisi|$PKG_ON-$CXX_PKG
+python|1|kapi betikleri (katman/shader/sahne denetimi)|$PKG_ON-python
+ccache|0|yeniden derlemeyi ~10x hizlandirir|$PKG_ON-ccache
+glslc|0|shader BAYT kapisi (yoksa ozet kapisi yine kosar)|$PKG_ON-shaderc
+"
 
 echo
-bilgi "Tulpar Engine — bagimlilik denetimi (UCRT64)"
+bilgi "Tulpar Engine — bagimlilik denetimi ($MSYSTEM)"
 echo
 
 eksik_zorunlu=(); kur_listesi=()
@@ -73,16 +78,17 @@ if [ -f "${MSYSTEM_PREFIX:-/ucrt64}/bin/glfw3.dll" ]; then
   printf "  ${Y}+${N} %-8s %s\n" "glfw" "pencere acma (masaustu kip)"
 else
   printf "  ${S}.${N} %-8s %s  (calistirmak icin)\n" "glfw" "pencere acma (masaustu kip)"
-  # MSYS2 MINGW64'ten mingw-w64-x86_64-glfw 2026-11'de kalkti: upstream ikilisi (surum + SHA sabit) indirilir.
-  glfw_indir=1
+  # UCRT64 ve CLANGARM64'te paket var ($PKG_ON-glfw); upstream ikilisi (windows_glfw.sh) yalniz x86_64.
+  if [ "$MSYSTEM" = UCRT64 ]; then glfw_indir=1; else kur_listesi+=("$PKG_ON-glfw"); fi
 fi
 
 # vulkan-1.dll EKRAN KARTI SURUCUSU ile gelir, pacman paketiyle degil. Kurulum
 # onerisi vermek yaniltici olurdu; yalnizca durumu bildiriyoruz.
-if [ -f "/c/Windows/System32/vulkan-1.dll" ] || [ -f "${SYSTEMROOT:-/c/Windows}/System32/vulkan-1.dll" ]; then
+if [ -f "/c/Windows/System32/vulkan-1.dll" ] || [ -f "${SYSTEMROOT:-/c/Windows}/System32/vulkan-1.dll" ] \
+   || [ -f "${MSYSTEM_PREFIX:-/ucrt64}/bin/vulkan-1.dll" ]; then
   printf "  ${Y}+${N} %-8s %s\n" "vulkan" "Vulkan yukleyicisi (surucuden)"
 else
-  printf "  ${S}.${N} %-8s %s\n" "vulkan" "vulkan-1.dll yok — EKRAN KARTI SURUCUSUNU guncelleyin"
+  printf "  ${S}.${N} %-8s %s\n" "vulkan" "vulkan-1.dll yok — EKRAN KARTI SURUCUSUNU guncelleyin (ARM64: $PKG_ON-vulkan-loader da olur)"
 fi
 echo
 
@@ -141,6 +147,6 @@ for x in engine_editor engine_demo engine_tests engine_sahnec engine_texpack eng
   [ -f "$yapi/$x.exe" ] && printf "    %-16s %s\n" "$x.exe" "$(du -h "$yapi/$x.exe" | cut -f1)"
 done
 echo
-bilgi "Editoru ac: editor.bat (cift tiklanabilir) ya da bu UCRT64 kabugundan ./editor.sh [x.sahne]"
+bilgi "Editoru ac: editor.bat (cift tiklanabilir) ya da bu $MSYSTEM kabugundan ./editor.sh [x.sahne]"
 echo "  Testleri kostur:   ./$yapi/engine_tests.exe"
 echo "  Cift tiklanabilir, DLL'leri yanina alan paket icin: tools/package.sh"

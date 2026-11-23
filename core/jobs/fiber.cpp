@@ -49,6 +49,19 @@ void fiber_prepare(Fiber &f, FiberFn fn, void *arg) {
   sp[6] = (uint64_t)(uintptr_t)&tulpar_fiber_trampoline; // ret
   sp[7] = 0;
   f.sp = sp;
+#elif defined(__aarch64__) && defined(_WIN64)
+  // WINDOWS ARM64 — fiber_switch_aarch64.S'in Windows dalinin aynasi: AAPCS64 cercevesi (160) + TEB yigin alanlari
+  // (StackBase / StackLimit / DeallocationStack + dolgu = 32). Fiber KENDI yiginini TEB'de gostermeli (x64 Win64 ile ayni
+  // sebep). Toplam 192.
+  uint64_t *sp = (uint64_t *)(top - 192);
+  std::memset(sp, 0, 192);
+  sp[0] = (uint64_t)(uintptr_t)fn;             // x19
+  sp[1] = (uint64_t)(uintptr_t)arg;            // x20
+  sp[11] = (uint64_t)(uintptr_t)&tulpar_fiber_trampoline; // x30
+  sp[20] = (uint64_t)top;                      // StackBase (yiginin USTU)
+  sp[21] = (uint64_t)(uintptr_t)f.stack_lo;    // StackLimit (en dusuk adres)
+  sp[22] = (uint64_t)(uintptr_t)f.stack_lo;    // DeallocationStack
+  f.sp = sp;
 #elif defined(__aarch64__)
   uint64_t *sp = (uint64_t *)(top - 160);
   std::memset(sp, 0, 160);

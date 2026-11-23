@@ -1,0 +1,16 @@
+# Windows arm64 CI isinin MSYS2 CLANGARM64 paketleri (2026-11-23, fizibilite isi). x86_64 listesinin (windows_msys2_paketler.txt)
+# karsiligi; CLANGARM64'te GCC yok, derleyici clang/lld + libc++. tools/windows_msys2.sh kur <bu dosya> okur.
+mingw-w64-clang-aarch64-clang
+mingw-w64-clang-aarch64-lld
+mingw-w64-clang-aarch64-cmake
+mingw-w64-clang-aarch64-ninja
+mingw-w64-clang-aarch64-python
+mingw-w64-clang-aarch64-ccache
+mingw-w64-clang-aarch64-openssl
+mingw-w64-clang-aarch64-glfw
+# Vulkan: ARM runner'da GPU surucusu yok -> loader + yazilim ICD'si (lavapipe) + dogrulama katmani MSYS2'den.
+# lavapipe x86_64 MINGW64'te (MSVCRT) bellek birakirken yigini bozuyordu (Tuzaklar 8cr); CLANGARM64 UCRT ve mesa 26.3 —
+# tools/windows_vulkan_icd.sh'in motorsuz bellek sondasi her kosumda olcer, tasiyorsa is KIRMIZI.
+mingw-w64-clang-aarch64-vulkan-loader
+mingw-w64-clang-aarch64-mesa
+mingw-w64-clang-aarch64-vulkan-validation-layers
