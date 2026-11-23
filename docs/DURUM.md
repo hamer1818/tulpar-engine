@@ -135,7 +135,7 @@ Ayrıntı: [FAZ3.md](FAZ3.md) "Faz 6 kalanı + Faz 8 fizibilitesi", tuzaklar 8aq
 | Faz 10 — Metal / iOS | ⛔ başlanmadı | Mac + geliştirici hesabı gerekiyor |
 
 ## 6.1 Ne yok (sonraki aşama adayları; tarama belgesine karşı tam liste: `BOSLUK-TARAMASI.md`)
-1. ~~Sahne veri modeli + dosya formatı~~ ✅, ~~runtime blob derleyici~~ ✅, ~~bake çıktıları blob'a (navmesh, ışık haritası)~~ ✅ 2026-09-15 (navmesh v2, küme DAG v3, GI sondası v4). Kalan: **telefon demosunda blob**.
+1. ~~Sahne veri modeli + dosya formatı~~ ✅, ~~runtime blob derleyici~~ ✅, ~~bake çıktıları blob'a (navmesh, ışık haritası)~~ ✅ 2026-09-15 (navmesh v2, küme DAG v3, GI sondası v4). ~~Telefon demosunda blob~~ ✅ 2026-11-23: `tools/android_run.sh demo|headless --sahne x.sahne` (masaüstünde `engine_sahnec`, blob APK varlığı, `debug.tulpar.scene`); emülatörde (x86_64, SwiftShader) ölçüldü: `editor.sahne` 8 varlık / 6 çizim / kaynak 3/3, blob özeti masaüstüyle aynı (`78dda487e9423924`), kare içi `new` 0; `--sahne`siz koşumda blob satırı yok. **Telefonda koşturulmadı** (cihaz bağlı değildi).
 2. ~~**Editör**~~ ✅ çoklu seçim, kaynak tarayıcı, ışık/gölge/güneş gizmoları geldi. ~~Kare zamanı grafiği~~ ✅ 2026-11-04:
    Stats panelinde profiler halkasının son 240 karesi + p50/p99/max (implot yerine `ImGui::PlotLines`, yeni bağımlılık yok;
    `Profiler::frame_times`, test `profiler_frame_times_oldest_to_newest`). Aynı panelde ölçülmeyen üç satır düzeltildi:

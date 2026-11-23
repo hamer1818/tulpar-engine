@@ -47,8 +47,6 @@ CollideSphereVsTriangles::CollideSphereVsTriangles(const SphereShape *inShape1, 
 
 void CollideSphereVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2, uint8 inActiveEdges, const SubShapeID &inSubShapeID2)
 {
-	JPH_PROFILE_FUNCTION();
-
 	// Scale triangle and make it relative to the center of the sphere
 	Vec3 v0 = mScale2 * inV0 - mSphereCenterIn2;
 	Vec3 v1 = mScale2 * inV1 - mSphereCenterIn2;
@@ -70,7 +68,7 @@ void CollideSphereVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2,
 		return;
 
 	// Calculate penetration depth
-	float penetration_depth = mRadius - sqrt(point2_len_sq);
+	float penetration_depth = mRadius - Sqrt(point2_len_sq);
 	if (-penetration_depth >= mCollector.GetEarlyOutFraction())
 		return;
 
@@ -84,7 +82,8 @@ void CollideSphereVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2,
 	JPH_ASSERT(closest_feature != 0);
 	if (mCollideShapeSettings.mActiveEdgeMode == EActiveEdgeMode::CollideOnlyWithActive
 		&& closest_feature != 0b111 // For an interior hit we should already have the right normal
-		&& (inActiveEdges & sClosestFeatureToActiveEdgesMask[closest_feature]) == 0) // If we didn't hit an active edge we should take the triangle normal
+		&& (inActiveEdges & sClosestFeatureToActiveEdgesMask[closest_feature]) == 0 // If we didn't hit an active edge we should take the triangle normal
+		&& !triangle_normal.IsNearZero()) // Shouldn't take triangle normal if it's degenerate
 	{
 		// Convert the active edge velocity hint to local space
 		Vec3 active_edge_movement_direction = mTransform2.Multiply3x3Transposed(mCollideShapeSettings.mActiveEdgeMovementDirection);
@@ -113,6 +112,10 @@ void CollideSphereVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2,
 		result.mShape2Face[0] = mTransform2 * (mSphereCenterIn2 + v0);
 		result.mShape2Face[1] = mTransform2 * (mSphereCenterIn2 + v1);
 		result.mShape2Face[2] = mTransform2 * (mSphereCenterIn2 + v2);
+
+		// When inside out, we need to swap the triangle winding
+		if (mScaleSign2 < 0.0f)
+			std::swap(result.mShape2Face[1], result.mShape2Face[2]);
 	}
 
 	// Notify the collector

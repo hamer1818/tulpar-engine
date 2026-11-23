@@ -182,6 +182,8 @@ public:
 	class Vertex
 	{
 	public:
+		JPH_OVERRIDE_NEW_DELETE
+
 		Float3				mPosition;
 		Float3				mNormal;
 		Float2				mUV;
@@ -192,6 +194,8 @@ public:
 	class JPH_DEBUG_RENDERER_EXPORT Triangle
 	{
 	public:
+		JPH_OVERRIDE_NEW_DELETE
+
 							Triangle() = default;
 							Triangle(Vec3Arg inV1, Vec3Arg inV2, Vec3Arg inV3, ColorArg inColor);
 							Triangle(Vec3Arg inV1, Vec3Arg inV2, Vec3Arg inV3, ColorArg inColor, Vec3Arg inUVOrigin, Vec3Arg inUVDirection);
@@ -206,6 +210,8 @@ public:
 	class LOD
 	{
 	public:
+		JPH_OVERRIDE_NEW_DELETE
+
 		Batch				mTriangleBatch;
 		float				mDistance;
 	};
@@ -253,7 +259,8 @@ public:
 	virtual Batch			CreateTriangleBatch(const Vertex *inVertices, int inVertexCount, const uint32 *inIndices, int inIndexCount) = 0;
 	Batch					CreateTriangleBatch(const Array<Triangle> &inTriangles) { return CreateTriangleBatch(inTriangles.empty()? nullptr : &inTriangles[0], int(inTriangles.size())); }
 	Batch					CreateTriangleBatch(const Array<Vertex> &inVertices, const Array<uint32> &inIndices) { return CreateTriangleBatch(inVertices.empty()? nullptr : &inVertices[0], int(inVertices.size()), inIndices.empty()? nullptr : &inIndices[0], int(inIndices.size())); }
-	Batch					CreateTriangleBatch(const VertexList &inVertices, const IndexedTriangleNoMaterialList &inTriangles);
+	Batch					CreateTriangleBatch(const Float3 *inVertices, int inVertexCount, const IndexedTriangleNoMaterial *inTriangles, int inTriangleCount);
+	Batch					CreateTriangleBatch(const VertexList &inVertices, const IndexedTriangleNoMaterialList &inTriangles) { return CreateTriangleBatch(inVertices.data(), (int)inVertices.size(), inTriangles.data(), (int)inTriangles.size()); }
 
 	/// Create a primitive for a convex shape using its support function
 	using SupportFunction = function<Vec3 (Vec3Arg inDirection)>;

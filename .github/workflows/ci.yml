@@ -1215,9 +1215,10 @@ jobs:
           retention-days: 14
 
   windows:
-    # AD TARIHSEL (2026-11-22): arac zinciri artik UCRT64 (Tuzaklar 8et), ama bu ad dal korumasinda ZORUNLU check olarak kayitli;
-    # degisirse koruma da ayni anda guncellenmeli (yoksa her PR 'bekleniyor'da kalir). tools/ci_bekle.sh de bu adi bekler.
-    name: Windows x86_64 (MSYS2 MINGW64)
+    # AD (2026-11-23): "MSYS2 UCRT64" — 2026-11-22'ye kadar "MSYS2 MINGW64" idi (Tuzaklar 8et). Bu ad dal korumasinda
+    # ZORUNLU check olarak kayitli; degisirse koruma da ayni anda guncellenmeli (yoksa her PR 'bekleniyor'da kalir).
+    # tools/ci_bekle.sh cagrisi da bu adi bekler.
+    name: Windows x86_64 (MSYS2 UCRT64)
     needs: detect-docs-only
     runs-on: windows-latest
     # Olculdu 2026-10-05: uzun kapilar Linux/macOS'a birakilinca ~10 dk; 30 dk
@@ -1388,7 +1389,7 @@ jobs:
         env:
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
           # setup-msys2 MSYSTEM'i zaten ortama koyuyor; bos birakmazsak
-          # derle.bat'in kendi `set MSYSTEM=MINGW64` satiri SINANMAZ (o
+          # derle.bat'in kendi `set MSYSTEM=UCRT64` satiri SINANMAZ (o
           # olmasa da is yururdu). Bos geciyoruz ki satir gercekten olculsun.
           MSYSTEM: ''
         run: derle.bat --denetle
@@ -1574,7 +1575,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 MINGW64)" kopru isinin sonucunu da
+      # TOPLAYICI: zorunlu check "Windows x86_64 (MSYS2 UCRT64)" kopru isinin sonucunu da
       # TASIR — o is duserse, iptal olursa ya da kosmazsa bu is kirmizi.
       # SONUCU EN SONDA BEKLE (2026-11-22): adim eskiden testlerin hemen ardindaydi ve Windows isi koprunun
       # bitmesini 88 s BOSTA bekliyordu, paketleme + kurucu (86 s) ancak ondan sonra basliyordu (PR #154,
@@ -1663,7 +1664,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 MINGW64)"
+        run: bash tools/ci_bekle.sh artefakt eklenti-windows-x86_64 "Windows x86_64 (MSYS2 UCRT64)"
 
       # INDIRME, BEKLEMEYLE AYNI API'DEN (2026-11-22, Tuzaklar 8es): actions/download-artifact baska bir arka uctan
       # okuyor ve az once kesinlesen artefakti gormeyebiliyor — koşum 45042853569: 16:18:00.6 kesinlesti, ci_bekle
