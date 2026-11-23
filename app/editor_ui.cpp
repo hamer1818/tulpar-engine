@@ -222,7 +222,7 @@ void theme_sizes(ImGuiStyle &s) {
   s.SelectableTextAlign = ImVec2(0.0f, 0.5f);
   s.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
   s.AntiAliasedLines = true;
-  s.AntiAliasedLinesUseTex = true;
+  // AntiAliasedLinesUseTex: ImGui 1.93'te kalkti — yeni cizgi yolu HER ZAMAN doku kullaniyor (eskiden true veriyorduk).
   s.AntiAliasedFill = true;
   s.CircleTessellationMaxError = 0.20f;
 }

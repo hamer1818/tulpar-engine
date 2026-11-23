@@ -23,7 +23,6 @@ ShapeSettings::ShapeResult MutableCompoundShapeSettings::Create() const
 	// Build a mutable compound shape
 	if (mCachedResult.IsEmpty())
 		Ref<Shape> shape = new MutableCompoundShape(*this, mCachedResult);
-
 	return mCachedResult;
 }
 
@@ -270,6 +269,28 @@ void MutableCompoundShape::ModifyShapes(uint inStartIndex, uint inNumber, const 
 		// Advance pointer in position / rotation buffer
 		pos = reinterpret_cast<const Vec3 *>(reinterpret_cast<const uint8 *>(pos) + inPositionStride);
 		rot = reinterpret_cast<const Quat *>(reinterpret_cast<const uint8 *>(rot) + inRotationStride);
+	}
+
+	CalculateSubShapeBounds(inStartIndex, inNumber);
+}
+
+void MutableCompoundShape::ModifyShapes(uint inStartIndex, uint inNumber, const Vec3 *inPositions, const Quat *inRotations, const Shape * const *inShapes, uint inPositionStride, uint inRotationStride, uint inShapeStride)
+{
+	JPH_ASSERT(inStartIndex + inNumber <= mSubShapes.size());
+
+	const Vec3 *pos = inPositions;
+	const Quat *rot = inRotations;
+	const Shape * const *shapes = inShapes;
+	for (SubShape *dest = &mSubShapes[inStartIndex], *dest_end = dest + inNumber; dest < dest_end; ++dest)
+	{
+		// Update shape and transform
+		dest->mShape = *shapes;
+		dest->SetTransform(*pos, *rot, mCenterOfMass);
+
+		// Advance pointer in position / rotation / shape buffer
+		pos = reinterpret_cast<const Vec3 *>(reinterpret_cast<const uint8 *>(pos) + inPositionStride);
+		rot = reinterpret_cast<const Quat *>(reinterpret_cast<const uint8 *>(rot) + inRotationStride);
+		shapes = reinterpret_cast<const Shape * const *>(reinterpret_cast<const uint8 *>(shapes) + inShapeStride);
 	}
 
 	CalculateSubShapeBounds(inStartIndex, inNumber);

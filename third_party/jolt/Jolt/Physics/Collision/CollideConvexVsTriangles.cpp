@@ -40,8 +40,6 @@ CollideConvexVsTriangles::CollideConvexVsTriangles(const ConvexShape *inShape1, 
 
 void CollideConvexVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2, uint8 inActiveEdges, const SubShapeID &inSubShapeID2)
 {
-	JPH_PROFILE_FUNCTION();
-
 	// Scale triangle and transform it to the space of 1
 	Vec3 v0 = mTransform2To1 * (mScale2 * inV0);
 	Vec3 v1 = mTransform2To1 * (mScale2 * inV1);
@@ -70,7 +68,8 @@ void CollideConvexVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2,
 	// Note: As we don't remember the penetration axis from the last iteration, and it is likely that the shape (A) we're colliding the triangle (B) against is in front of the triangle,
 	// and the penetration axis is the shortest distance along to push B out of collision, we use the inverse of the triangle normal as an initial penetration axis. This has been seen
 	// to improve performance by approx. 5% over using a fixed axis like (1, 0, 0).
-	Vec3 penetration_axis = -triangle_normal, point1, point2;
+	bool triangle_degenerate = triangle_normal.IsNearZero();
+	Vec3 penetration_axis = triangle_degenerate? Vec3::sAxisY() : -triangle_normal, point1, point2;
 	EPAPenetrationDepth pen_depth;
 	EPAPenetrationDepth::EStatus status;
 
@@ -118,7 +117,9 @@ void CollideConvexVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2,
 		point1 -= penetration_axis * (max_separation_distance / penetration_axis_len);
 
 	// Check if we have enabled active edge detection
-	if (mCollideShapeSettings.mActiveEdgeMode == EActiveEdgeMode::CollideOnlyWithActive && inActiveEdges != 0b111)
+	if (mCollideShapeSettings.mActiveEdgeMode == EActiveEdgeMode::CollideOnlyWithActive
+		&& inActiveEdges != 0b111
+		&& !triangle_degenerate) // Shouldn't take triangle normal if it's degenerate
 	{
 		// Convert the active edge velocity hint to local space
 		Vec3 active_edge_movement_direction = mTransform1.Multiply3x3Transposed(mCollideShapeSettings.mActiveEdgeMovementDirection);
@@ -147,6 +148,10 @@ void CollideConvexVsTriangles::Collide(Vec3Arg inV0, Vec3Arg inV1, Vec3Arg inV2,
 		result.mShape2Face[0] = mTransform1 * v0;
 		result.mShape2Face[1] = mTransform1 * v1;
 		result.mShape2Face[2] = mTransform1 * v2;
+
+		// When inside out, we need to swap the triangle winding
+		if (mScaleSign2 < 0.0f)
+			std::swap(result.mShape2Face[1], result.mShape2Face[2]);
 	}
 
 	// Notify the collector
