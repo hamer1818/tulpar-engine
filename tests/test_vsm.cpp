@@ -1,9 +1,15 @@
 // VSM sayfa onbellegi (renderer/vsm_pages) — 2026-11-23, Faz 9 ilk dilim. GPU gerekmez.
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include "core/memory/alloc_gate.hpp"
 #include "core/memory/arena.hpp"
 #include "renderer/vsm_pages.hpp"
+#include "rhi/compute.hpp"
+#include "rhi/device.hpp"
+#include "rhi/shaders/vsm_mark_comp_spv.h"
+#include "rhi/vk_api.hpp"
 #include "tests/test.hpp"
 
 using namespace tulpar::engine;
@@ -218,4 +224,121 @@ ENGINE_TEST(vsm_mark_from_depth_matches_analytic_hits) {
   CHECK(sky > 0 && ground > 0 && n == ground); // KONTROL: gokyuzu istek uretmedi
   CHECK(pr > 10 && fark * 50 <= pr);           // en cok %2 sinir farki
   CHECK(ps < pc && ps * 2 >= pc);              // seyrek: kesin ALT kume ve kaba olarak yarisindan cok
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// GPU ISARETLEME (rhi/shaders/vsm_mark.comp, rhi::ComputeKernel): GPU'nun piksel basina yazdigi sayfa anahtarlari
+// CPU basvurusunun AYNI formulle verdigiyle karsilastirilir. KONTROL: push'ta seviye-0 uzakligi bilerek yanlis ->
+// GPU ciktisi ayrisir (karsilastirma gercekten olcuyor). Dogrulama katmani hatasi 0.
+
+namespace {
+struct VsmMarkPush {
+  float inv_vp[16];
+  float lu[4], lv[4], cam[4];
+  uint32_t dims[4];
+};
+static_assert(sizeof(VsmMarkPush) == 128, "vsm_mark.comp push sozlesmesi 128 bayt");
+} // namespace
+
+ENGINE_TEST(vsm_gpu_mark_matches_cpu_reference) {
+  static rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { test::skip("Vulkan loader (libvulkan) yok — GPU isaretleme kosmadi"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(64u << 20, "vsm_gpu")) { CHECK(false); return; }
+  static rhi::Device dev;
+  rhi::DeviceConfig dc;
+  const char *pref = std::getenv("TULPAR_ENGINE_GPU");
+  dc.prefer = pref ? pref : "";
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { test::skip("Vulkan cihazi yok (ICD?) — GPU isaretleme kosmadi"); return; }
+
+  constexpr uint32_t W = 160, H = 90;
+  static float depth[W * H];
+  const Vec3 eye{0, 6, 10};
+  const Mat4 vp = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 500.0f) * Mat4::look_at(eye, Vec3{0, 0, -4}, Vec3{0, 1, 0});
+  const Mat4 inv = inverse(vp);
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      const Vec4 a = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 0.0f, 1};
+      const Vec4 b = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, 1.0f, 1};
+      const Vec3 p0{a.x / a.w, a.y / a.w, a.z / a.w}, dir = Vec3{b.x / b.w, b.y / b.w, b.z / b.w} - p0;
+      float d = 1.0f;
+      if (dir.y < 0) {
+        const Vec3 hit = p0 + dir * (-p0.y / dir.y);
+        const Vec4 cl = vp * Vec4{hit.x, hit.y, hit.z, 1};
+        if (cl.w > 0) d = cl.z / cl.w;
+      }
+      depth[y * W + x] = d < 1.0f ? d : 1.0f;
+    }
+  static VsmPageCache c;
+  VsmConfig cfg;
+  CHECK(c.init(arena(), cfg, kLight));
+  c.begin_frame(eye);
+
+  rhi::ComputeKernel k;
+  rhi::ComputeBuffer bd, bk;
+  const bool hazir = k.init(dev, vsm_mark_comp_spv, sizeof vsm_mark_comp_spv, 2, sizeof(VsmMarkPush)) &&
+                     rhi::compute_buffer_create(dev, sizeof depth, &bd) && rhi::compute_buffer_create(dev, (VkDeviceSize)W * H * 16, &bk);
+  if (!hazir) { std::printf("    [bilgi] compute kurulamadi: cekirdek '%s', cihaz '%s'\n", k.error(), dev.last_error()); CHECK(false); return; }
+  std::memcpy(bd.mapped(), depth, sizeof depth);
+  auto push_for = [&](float level0) {
+    VsmMarkPush p{};
+    std::memcpy(p.inv_vp, &inv.m[0][0], 64);
+    const Vec3 u = c.light_u(), v = c.light_v();
+    p.lu[0] = u.x; p.lu[1] = u.y; p.lu[2] = u.z; p.lu[3] = cfg.base_page_world;
+    p.lv[0] = v.x; p.lv[1] = v.y; p.lv[2] = v.z; p.lv[3] = level0;
+    p.cam[0] = eye.x; p.cam[1] = eye.y; p.cam[2] = eye.z; p.cam[3] = (float)cfg.levels;
+    p.dims[0] = W; p.dims[1] = H;
+    return p;
+  };
+  const rhi::ComputeBuffer *bufs[2] = {&bd, &bk};
+  auto karsilastir = [&](uint32_t *piksel_fark, uint32_t *gpu_sayfa, uint32_t *cpu_sayfa, uint32_t *ortak) {
+    const int32_t *g = static_cast<const int32_t *>(bk.mapped());
+    static VsmPageKey gk[4096], ck[4096];
+    uint32_t ng = 0, nc = 0, fark = 0;
+    auto ekle = [](VsmPageKey *arr, uint32_t &n, VsmPageKey kk) {
+      for (uint32_t q = 0; q < n; q++) if (arr[q].level == kk.level && arr[q].x == kk.x && arr[q].y == kk.y) return;
+      if (n < 4096) arr[n++] = kk;
+    };
+    for (uint32_t y = 0; y < H; y++)
+      for (uint32_t x = 0; x < W; x++) {
+        const uint32_t i = y * W + x;
+        const bool gvalid = g[i * 4 + 3] == 1;
+        const bool cvalid = depth[i] < 1.0f;
+        VsmPageKey cpu{0, 0, 0};
+        if (cvalid) {
+          const Vec4 cc = inv * Vec4{((float)x + 0.5f) / W * 2 - 1, ((float)y + 0.5f) / H * 2 - 1, depth[i], 1};
+          const Vec3 w{cc.x / cc.w, cc.y / cc.w, cc.z / cc.w};
+          cpu = c.key_for(w, c.level_for(w));
+          ekle(ck, nc, cpu);
+        }
+        if (gvalid) ekle(gk, ng, VsmPageKey{(uint32_t)g[i * 4 + 0], g[i * 4 + 1], g[i * 4 + 2]});
+        if (gvalid != cvalid || (cvalid && ((uint32_t)g[i * 4] != cpu.level || g[i * 4 + 1] != cpu.x || g[i * 4 + 2] != cpu.y))) fark++;
+      }
+    uint32_t o = 0;
+    for (uint32_t a = 0; a < ng; a++)
+      for (uint32_t b = 0; b < nc; b++)
+        if (gk[a].level == ck[b].level && gk[a].x == ck[b].x && gk[a].y == ck[b].y) { o++; break; }
+    *piksel_fark = fark; *gpu_sayfa = ng; *cpu_sayfa = nc; *ortak = o;
+  };
+  VsmMarkPush p = push_for(cfg.level0_distance);
+  CHECK(k.run(bufs, &p, (W + 7) / 8, (H + 7) / 8, 1));
+  uint32_t fark, ng, nc, ortak;
+  karsilastir(&fark, &ng, &nc, &ortak);
+  std::printf("    [bilgi] %s, %ux%u: piksel farki %u, sayfa GPU %u / CPU %u, ortak %u; dogrulama hatasi %u\n", dev.caps().device_name, W,
+              H, fark, ng, nc, ortak, dev.validation_errors());
+  CHECK(nc > 10 && ng == nc && ortak == nc);
+  CHECK(fark * 1000 <= W * H); // sinirdaki kayan nokta farki: en cok %0,1 piksel
+  // KONTROL: yanlis seviye-0 uzakligi -> GPU ayrisir
+  p = push_for(cfg.level0_distance * 3.0f);
+  CHECK(k.run(bufs, &p, (W + 7) / 8, (H + 7) / 8, 1));
+  uint32_t kfark, kng, knc, kortak;
+  karsilastir(&kfark, &kng, &knc, &kortak);
+  std::printf("    [bilgi] KONTROL (seviye-0 x3): piksel farki %u, ortak sayfa %u/%u\n", kfark, kortak, knc);
+  CHECK(kfark > W * H / 10);
+  CHECK(dev.validation_errors() == 0);
+  rhi::compute_buffer_destroy(dev, &bd);
+  rhi::compute_buffer_destroy(dev, &bk);
+  k.shutdown();
+  dev.shutdown();
 }
