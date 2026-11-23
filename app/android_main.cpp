@@ -498,6 +498,18 @@ extern "C" void android_main(android_app *app) {
   prop("debug.tulpar.swappy", swappy_p, sizeof swappy_p, "0"); // 1: AGDK Swappy kare temposu (ENGINE_SWAPPY derlenmisse)
   char dtprobe_p[8];
   prop("debug.tulpar.dtprobe", dtprobe_p, sizeof dtprobe_p, "0"); // 1: VK_GOOGLE_display_timing sondasi (Swappy kapaliyken)
+  // Derlenmis sahne (2026-11-23): masaustundeki `engine_demo --scene x.sahneb`in telefon karsiligi. tools/android_run.sh
+  // demo --sahne x.sahne sahneyi masaustunde engine_sahnec ile derler, APK varliklarina koyar ve bu ozelligi blob'un
+  // ADIYLA ayarlar; blob varlik dizininden okunur, kaynaklari da (modeller, dokular) ayni duz dizinde.
+  char scene_p[PROP_VALUE_MAX];
+  prop("debug.tulpar.scene", scene_p, sizeof scene_p, "");
+  static char scene_path[1024];
+  const char *scene_blob = nullptr;
+  if (scene_p[0]) {
+    std::snprintf(scene_path, sizeof scene_path, "%s/%s", assets, scene_p);
+    scene_blob = scene_path;
+    std::printf("[android] sahne blob: %s\n", scene_blob);
+  }
   std::printf("[android] kip=%s dizin=%s\n", mode, dir);
 
   int rc = 0;
@@ -511,6 +523,7 @@ extern "C" void android_main(android_app *app) {
     std::snprintf(out, sizeof out, "%s/headless.ppm", dir);
     o.out_path = out;
     o.validation = validation[0] == '1';
+    o.scene_blob = scene_blob;
     rc = app::demo_run(o, nullptr);
     std::printf("[android] headless demo_run = %d\n", rc);
   } else if (std::strcmp(mode, "tests") == 0) {
@@ -527,6 +540,7 @@ extern "C" void android_main(android_app *app) {
       o.prerotate = prerot[0] != '0';
       o.validation = validation[0] == '1';
       o.audio = audio_p[0] == '1';
+      o.scene_blob = scene_blob;
       static const char *const kDtExts[] = {"VK_GOOGLE_display_timing"};
       if (dtprobe_p[0] == '1' && swappy_p[0] != '1') {
         o.device_extensions = kDtExts;
