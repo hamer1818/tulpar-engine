@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <Jolt/Core/StridedPtr.h>
 #include <Jolt/Geometry/AABox.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Body/MotionProperties.h>
@@ -36,6 +37,8 @@ class JPH_EXPORT SoftBodyMotionProperties : public MotionProperties
 public:
 	using Vertex = SoftBodyVertex;
 	using Edge = SoftBodySharedSettings::Edge;
+	using RodStretchShear = SoftBodySharedSettings::RodStretchShear;
+	using RodBendTwist = SoftBodySharedSettings::RodBendTwist;
 	using Face = SoftBodySharedSettings::Face;
 	using DihedralBend = SoftBodySharedSettings::DihedralBend;
 	using Volume = SoftBodySharedSettings::Volume;
@@ -58,6 +61,10 @@ public:
 	const Vertex &						GetVertex(uint inIndex) const				{ return mVertices[inIndex]; }
 	Vertex &							GetVertex(uint inIndex)						{ return mVertices[inIndex]; }
 
+	/// Access to the state of rods
+	Quat								GetRodRotation(uint inIndex) const			{ return mRodStates[inIndex].mRotation; }
+	Vec3								GetRodAngularVelocity(uint inIndex) const	{ return mRodStates[inIndex].mAngularVelocity; }
+
 	/// Get the materials of the soft body
 	const PhysicsMaterialList &			GetMaterials() const						{ return mSettings->mMaterials; }
 
@@ -79,6 +86,10 @@ public:
 	bool								GetUpdatePosition() const					{ return mUpdatePosition; }
 	void								SetUpdatePosition(bool inUpdatePosition)	{ mUpdatePosition = inUpdatePosition; }
 
+	/// If the faces in this soft body should be treated as double sided for the purpose of collision detection (ray cast / collide shape / cast shape)
+	bool								GetFacesDoubleSided() const					{ return mFacesDoubleSided; }
+	void								SetFacesDoubleSided(bool inDoubleSided)		{ mFacesDoubleSided = inDoubleSided; }
+
 	/// Global setting to turn on/off skin constraints
 	bool								GetEnableSkinConstraints() const			{ return mEnableSkinConstraints; }
 	void								SetEnableSkinConstraints(bool inEnableSkinConstraints) { mEnableSkinConstraints = inEnableSkinConstraints; }
@@ -86,6 +97,10 @@ public:
 	/// Multiplier applied to Skinned::mMaxDistance to allow tightening or loosening of the skin constraints. 0 to hard skin all vertices.
 	float								GetSkinnedMaxDistanceMultiplier() const		{ return mSkinnedMaxDistanceMultiplier; }
 	void								SetSkinnedMaxDistanceMultiplier(float inSkinnedMaxDistanceMultiplier) { mSkinnedMaxDistanceMultiplier = inSkinnedMaxDistanceMultiplier; }
+
+	/// How big the particles are, can be used to push the vertices a little bit away from the surface of other bodies to prevent z-fighting
+	float								GetVertexRadius() const						{ return mVertexRadius; }
+	void								SetVertexRadius(float inVertexRadius)		{ JPH_ASSERT(inVertexRadius >= 0.0f); mVertexRadius = inVertexRadius; }
 
 	/// Get local bounding box
 	const AABox &						GetLocalBounds() const						{ return mLocalBounds; }
@@ -101,6 +116,9 @@ public:
 	void								DrawVertices(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform) const;
 	void								DrawVertexVelocities(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform) const;
 	void								DrawEdgeConstraints(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
+	void								DrawRods(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
+	void								DrawRodStates(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
+	void								DrawRodBendTwistConstraints(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
 	void								DrawBendConstraints(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
 	void								DrawVolumeConstraints(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
 	void								DrawSkinConstraints(DebugRenderer *inRenderer, RMat44Arg inCenterOfMassTransform, ESoftBodyConstraintColor inConstraintColor) const;
@@ -121,6 +139,18 @@ public:
 	/// @param inHardSkinAll Can be used to position all vertices on the skinned vertices and can be used to hard reset the soft body.
 	/// @param ioTempAllocator Allocator.
 	void								SkinVertices(RMat44Arg inCenterOfMassTransform, const Mat44 *inJointMatrices, uint inNumJoints, bool inHardSkinAll, TempAllocator &ioTempAllocator);
+
+	/// After calling SkinVertices, this gives access to the vertex positions and normals. This matrix takes the local space vertices to world space.
+	RMat44								GetSkinnedVertexTransform() const			{ return mSkinStateTransform; }
+
+	/// Access to the previous skinned position. During the simulation the skin constraints move from this position to the 'current position'. One entry per simulated vertex.
+	StridedPtr<const Vec3>				GetSkinnedVertexPreviousPositions() const	{ return StridedPtr(&mSkinState.data()->mPreviousPosition, sizeof(SkinState)); }
+
+	/// Access to the current skinned position. One entry per simulated vertex.
+	StridedPtr<const Vec3>				GetSkinnedVertexPositions() const			{ return StridedPtr(&mSkinState.data()->mPosition, sizeof(SkinState)); }
+
+	/// Access to the current skinned normal. One entry per simulated vertex.
+	StridedPtr<const Vec3>				GetSkinnedVertexNormals() const				{ return StridedPtr(&mSkinState.data()->mNormal, sizeof(SkinState)); }
 
 	/// This function allows you to update the soft body immediately without going through the PhysicsSystem.
 	/// This is useful if the soft body is teleported and needs to 'settle' or it can be used if a the soft body
@@ -158,6 +188,9 @@ public:
 
 	/// Update the velocities of all rigid bodies that we collided with. Not part of the public API.
 	void								UpdateRigidBodyVelocities(const SoftBodyUpdateContext &inContext, BodyInterface &inBodyInterface);
+
+	/// Set a flag to indicate that the ContactListener::OnSoftBodyContactAdded should be called
+	inline void							RequestContactCallback()					{ mNeedContactCallback.store(true, memory_order_relaxed); }
 
 private:
 	// SoftBodyManifold needs to have access to CollidingShape
@@ -208,6 +241,17 @@ private:
 		bool							mHasContact;								///< If the sensor collided with the soft body
 	};
 
+	// Information about the current state of a rod.
+	struct RodState
+	{
+		Quat							mRotation;									///< Rotation of the rod, relative to center of mass transform
+		union
+		{
+			Vec3						mAngularVelocity;							///< Angular velocity of the rod, relative to center of mass transform, valid only outside of the simulation.
+			Quat						mPreviousRotationInternal;					///< Internal use only. Previous rotation of the rod, relative to center of mass transform, valid only during the simulation.
+		};
+	};
+
 	// Information about the state of all skinned vertices
 	struct SkinState
 	{
@@ -239,6 +283,10 @@ private:
 
 	/// Enforce all edge constraints
 	void								ApplyEdgeConstraints(const SoftBodyUpdateContext &inContext, uint inStartIndex, uint inEndIndex);
+
+	/// Enforce all rod constraints
+	void								ApplyRodStretchShearConstraints(const SoftBodyUpdateContext &inContext, uint inStartIndex, uint inEndIndex);
+	void								ApplyRodBendTwistConstraints(const SoftBodyUpdateContext &inContext, uint inStartIndex, uint inEndIndex);
 
 	/// Enforce all LRA constraints
 	void								ApplyLRAConstraints(uint inStartIndex, uint inEndIndex);
@@ -274,22 +322,24 @@ private:
 	/// Helper function to draw constraints
 	template <typename GetEndIndex, typename DrawConstraint>
 		inline void						DrawConstraints(ESoftBodyConstraintColor inConstraintColor, const GetEndIndex &inGetEndIndex, const DrawConstraint &inDrawConstraint, ColorArg inBaseColor) const;
-
-	RMat44								mSkinStateTransform = RMat44::sIdentity();	///< The matrix that transforms mSkinState to world space
 #endif // JPH_DEBUG_RENDERER
 
 	RefConst<SoftBodySharedSettings>	mSettings;									///< Configuration of the particles and constraints
 	Array<Vertex>						mVertices;									///< Current state of all vertices in the simulation
+	Array<RodState>						mRodStates;									///< Current state of all rods in the simulation
 	Array<CollidingShape>				mCollidingShapes;							///< List of colliding shapes retrieved during the last update
 	Array<CollidingSensor>				mCollidingSensors;							///< List of colliding sensors retrieved during the last update
 	Array<SkinState>					mSkinState;									///< List of skinned positions (1-on-1 with mVertices but only those that are used by the skinning constraints are filled in)
+	RMat44								mSkinStateTransform = RMat44::sIdentity();	///< The matrix that transforms mSkinState to world space
 	AABox								mLocalBounds;								///< Bounding box of all vertices
 	AABox								mLocalPredictedBounds;						///< Predicted bounding box for all vertices using extrapolation of velocity by last step delta time
 	uint32								mNumIterations;								///< Number of solver iterations
 	uint								mNumSensors;								///< Workaround for TSAN false positive: store mCollidingSensors.size() in a separate variable.
 	float								mPressure;									///< n * R * T, amount of substance * ideal gas constant * absolute temperature, see https://en.wikipedia.org/wiki/Pressure
 	float								mSkinnedMaxDistanceMultiplier = 1.0f;		///< Multiplier applied to Skinned::mMaxDistance to allow tightening or loosening of the skin constraints
+	float								mVertexRadius = 0.0f;						///< How big the particles are, can be used to push the vertices a little bit away from the surface of other bodies to prevent z-fighting
 	bool								mUpdatePosition;							///< Update the position of the body while simulating (set to false for something that is attached to the static world)
+	bool								mFacesDoubleSided;							///< If the faces in this soft body should be treated as double sided for the purpose of collision detection (ray cast / collide shape / cast shape)
 	atomic<bool>						mNeedContactCallback = false;				///< True if the soft body has collided with anything in the last update
 	bool								mEnableSkinConstraints = true;				///< If skin constraints are enabled
 	bool								mSkinStatePreviousPositionValid = false;	///< True if the skinning was updated in the last update so that the previous position of the skin state is valid

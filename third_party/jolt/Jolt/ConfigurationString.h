@@ -32,12 +32,15 @@ inline const char *GetConfigurationString()
 #else
 	#error Unknown CPU architecture
 #endif
-#if JPH_CPU_ADDRESS_BITS == 64
+#if JPH_CPU_ARCH_BITS == 64
 		"64-bit "
-#elif JPH_CPU_ADDRESS_BITS == 32
+#elif JPH_CPU_ARCH_BITS == 32
 		"32-bit "
 #endif
 		"with instructions: "
+#ifdef JPH_USE_RVV
+		"RVV "
+#endif
 #ifdef JPH_USE_NEON
 		"NEON "
 #endif
@@ -83,10 +86,17 @@ inline const char *GetConfigurationString()
 #ifdef JPH_PROFILE_ENABLED
 		"(Profile) "
 #endif
-#if defined(JPH_OBJECT_LAYER_BITS) && JPH_OBJECT_LAYER_BITS == 32
-		"(32-bit ObjectLayer) "
-#else
+#ifdef JPH_EXTERNAL_PROFILE
+		"(External Profile) "
+#endif
+#if JPH_OBJECT_LAYER_BITS == 16
 		"(16-bit ObjectLayer) "
+#elif JPH_OBJECT_LAYER_BITS == 32
+		"(32-bit ObjectLayer) "
+#elif JPH_OBJECT_LAYER_BITS == 64
+		"(64-bit ObjectLayer) "
+#else
+	#error Invalid value for JPH_OBJECT_LAYER_BITS. Must be 16, 32 or 64.
 #endif
 #ifdef JPH_ENABLE_ASSERTS
 		"(Assertions) "
@@ -102,6 +112,9 @@ inline const char *GetConfigurationString()
 #endif
 #if defined(__cpp_exceptions) && __cpp_exceptions
 		"(C++ Exceptions) "
+#endif
+#ifdef JPH_SHARED_LIBRARY
+		"(Shared Library) "
 #endif
 		;
 }
