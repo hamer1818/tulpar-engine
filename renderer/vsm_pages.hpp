@@ -53,6 +53,9 @@ struct VsmRender {
 class VsmPageCache {
 public:
   bool init(Arena &arena, const VsmConfig &cfg, Vec3 light_dir);
+  // Isik yonu degisti: isik-uzayi tabani yeniden kurulur ve BUTUN sayfalar gecersiz olur (yerlesik 0). Ayirma YOK
+  // (tablolar init'teki arena bloklari; yeniden init arenayi sizdirirdi).
+  void reset_light(Vec3 light_dir);
   // Kare: begin -> request* -> end. camera: seviye secimi icin.
   void begin_frame(Vec3 camera);
   // Gorunur bir yuzey noktasi (or. derinlik tamponundan geri izdusum). Uygun seviyedeki sayfayi ister.
