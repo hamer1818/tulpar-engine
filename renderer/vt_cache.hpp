@@ -80,6 +80,11 @@ public:
   VtResolved resolve(uint32_t texture, uint32_t mip, uint32_t x, uint32_t y) const;
   bool resident(VtPage p) const;
   uint32_t mip_count(uint32_t texture) const;
+  uint32_t texture_count() const { return tex_n_; }
+  // Doku boyu (mip 0'da sayfa). Gecersiz kimlikte 0.
+  uint32_t pages_w(uint32_t t) const { return t < tex_n_ ? tex_[t].w : 0; }
+  uint32_t pages_h(uint32_t t) const { return t < tex_n_ ? tex_[t].h : 0; }
+  const VtConfig &config() const { return cfg_; }
 
   const VtStats &stats() const { return stats_; }
   const VtUpload *uploads() const { return uploads_; }
