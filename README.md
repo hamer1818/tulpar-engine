@@ -290,7 +290,7 @@ Sözleşmenin tamamı: [docs/KOPRU.md](docs/KOPRU.md).
 Motor kaynağı TulparLang projesinin lisansına tabidir. `third_party/` altındaki
 vendored kütüphaneler kendi lisanslarıyla gelir (Jolt MIT, Recast zlib, meshoptimizer MIT,
 cgltf MIT, ufbx 0.23.1 MIT/Unlicense, stb public domain/MIT, miniaudio MIT/public domain, astc-encoder Apache-2.0,
-ImGui MIT, Tracy BSD-3, Vulkan başlıkları Apache-2.0, mbedTLS 3.6.2 Apache-2.0, `assets/fonts/DejaVuSans.ttf`
+ImGui MIT, Tracy BSD-3, Vulkan başlıkları Apache-2.0, mbedTLS 3.6.8 Apache-2.0, `assets/fonts/DejaVuSans.ttf`
 Bitstream Vera). `audio/hrtf_kemar.h` (HRTF) MIT KEMAR ölçümlerinden üretilmiştir —
 Bill Gardner & Keith Martin, MIT Media Lab, 1994 (veri lisansı: kullanım serbest,
 araştırma ve ticari kullanımda yazarlara atıf şartıyla; `tools/hrtf_kemar.py`).
