@@ -68,7 +68,7 @@ bool http_url_parse(const char *url, HttpUrl *out, char *err, size_t ecap) {
   return true;
 }
 
-// ---- TLS (WoE M1b, mbedTLS 3.6.2) ----------------------------------------------------------------------
+// ---- TLS (WoE M1b, mbedTLS 3.6.8) ----------------------------------------------------------------------
 // Kok sertifikalar sistemden: TULPAR_CA_BUNDLE (dosya ya da dizin) > Linux paket yollari > Android
 // /system/etc/security/cacerts. Bulunamazsa HATA: dogrulamasiz baglanti YOK (sessizce guvensiz duzene dusulmez).
 // Zincir bir kez ayristirilir (tek HTTP is parcacigi + testler; ilk cagri kurar).
