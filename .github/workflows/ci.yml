@@ -206,9 +206,9 @@ jobs:
 
       # FAZ 8 SHADER KAPILARI (2026-11-23): bugune kadar yalniz tools/yerel_ci.sh'te koşuyordu ("CI'da glslc yok").
       # glslc Ubuntu paketinden; iki kapi da referansi AYNI glslc ile derler, surum farki bayt kapisini etkilemez.
-      #   faz8_shader_audit.py  — 24 shader biriminin (20 .tprs; 2'si Faz 8.5 varyant ailesi) GLSL'i referansla
+      #   faz8_shader_audit.py  — 25 shader biriminin (21 .tprs; 2'si Faz 8.5 varyant ailesi) GLSL'i referansla
       #                         BAYT AYNI + varyant kontrolleri + yerlesim; ATLANDI da kirmizi
-      #   tpr_shader.py --tip-kontrol — Faz 8.2 tip denetimi: 24 birim temiz, bozulmus ornekler duser VE glslc de
+      #   tpr_shader.py --tip-kontrol — Faz 8.2 tip denetimi: 25 birim temiz, bozulmus ornekler duser VE glslc de
       #                         reddeder (denetim GLSL'den kati/gevsek degil), vecN mutasyonlarinin hepsi yakalanir
       #   layout_audit.py       — Faz 8.4 CPU-GPU yerlesimi (SPIR-V ofseti <-> derleyicinin olctugu C++ ofseti) + 2 pozitif
       #                         kontrol. 2026-11-23'e kadar yalniz yerel_ci.sh'teydi: #178'in vsm_mark.comp push blogu C++

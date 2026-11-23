@@ -656,7 +656,7 @@ class Emitter:
                 self.funcs[d["name"]] = d
         for d in self.decls:
             if d["k"] == "marker" and d["marker"] in ("tekduze", "itme",
-                                                      "depo", "depo_yaz"):
+                                                      "depo", "depo_yaz", "depo_oy"):
                 if d["type"]["name"] not in self.structs:
                     self.err("%s icin struct gerekli: %r bilinmiyor"
                              % (d["marker"], d["type"]["name"]), d["line"])

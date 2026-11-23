@@ -1,0 +1,67 @@
+// kaynak-ozet: c1dcc39c092b  (engine/rhi/shaders/vsm_request.comp)
+// VSM sayfa ISTEGI (Faz 9, 2026-11-23): vsm_mark.comp'un anahtar formulu + GPU tekillestirme. Her piksel anahtarini
+// acik adresli tabloya atomicCompSwap ile ekler; tabloya ILK giren anahtar sikisik listeye yazilir. CPU yalniz tekil
+// listeyi okur. Paket renderer::vsm_pack_key ile ayni; tasmalarin hepsi sayilir (u_pages.n[1..3]).
+str asama = "comp";
+
+uvec3 grup = is_grubu(8, 8);
+
+struct Push {
+  mat4 inv_vp;
+  vec4 lu;   // xyz: isik u ekseni, w: seviye 0 sayfa kenari (m)
+  vec4 lv;   // xyz: isik v ekseni, w: seviye 0 uzakligi (m)
+  vec4 cam;  // xyz: kamera, w: seviye sayisi
+  uvec4 dims; // x, y: derinlik boyu, z: tablo maskesi, w: liste kapasitesi
+}
+Push pc = itme();
+
+struct Depth { float[] d; }
+Depth u_depth = depo(0, 0);
+struct Table { uint[] t; }
+Table u_table = depo_oy(0, 1);
+struct Pages { uint[] n; }
+Pages u_pages = depo_oy(0, 2);
+
+func main() {
+  uvec2 p = gl_GlobalInvocationID.xy;
+  if (p.x >= pc.dims.x || p.y >= pc.dims.y) { return; }
+  uint i = p.y * pc.dims.x + p.x;
+  float d = u_depth.d[i];
+  if (d >= 1.0) { return; }
+  vec2 ndc = (vec2(p) + 0.5) / vec2(pc.dims.xy) * 2.0 - 1.0;
+  vec4 c = pc.inv_vp * vec4(ndc, d, 1.0);
+  vec3 w = c.xyz / c.w;
+  float dist = length(w - pc.cam.xyz);
+  uint levels = u32(pc.cam.w);
+  uint l = 0u;
+  float lim = pc.lv.w;
+  while (dist > lim && l + 1u < levels) {
+    lim = lim * 2.0;
+    l = l + 1u;
+  }
+  float pw = pc.lu.w * f32(1u << l);
+  int kx = i32(floor(dot(w, pc.lu.xyz) / pw));
+  int ky = i32(floor(dot(w, pc.lv.xyz) / pw));
+  if (l >= 15u || kx < -8192 || kx > 8191 || ky < -8192 || ky > 8191) {
+    atomicAdd(u_pages.n[3], 1u);
+    return;
+  }
+  uint key = (l << 28) | ((u32(kx) & 16383u) << 14) | (u32(ky) & 16383u);
+  uint h = key * 2654435761u;
+  h = (h ^ (h >> 16)) & pc.dims.z;
+  for (uint probe = 0u; probe < 64u; probe++) {
+    uint prev = atomicCompSwap(u_table.t[h], 4294967295u, key);
+    if (prev == 4294967295u) {
+      uint slot = atomicAdd(u_pages.n[0], 1u);
+      if (slot < pc.dims.w) {
+        u_pages.n[4u + slot] = key;
+      } else {
+        atomicAdd(u_pages.n[1], 1u);
+      }
+      return;
+    }
+    if (prev == key) { return; }
+    h = (h + 1u) & pc.dims.z;
+  }
+  atomicAdd(u_pages.n[2], 1u);
+}
