@@ -490,6 +490,9 @@ void vt_feedback() {
 // atlastan. Mip ve sayfa geri bildirimle AYNI formul (vt_feedback); tablo hucresi (yuva, gercek mip) verir — yerlesik
 // degilse daha kaba mip, hicbir zaman gecersiz degil. Sayfa ici koordinat karo ICINE kirpilir (yarim texel): dogrusal
 // suzme komsu yuvaya tasmaz. Mip'ler arasi suzme yok: floor(lod) mip'inde bilinear (en fazla 2:1 kucultme).
+// Doku boyu (pw/ph/mips) tablodan degil malzemeden (tex2.zw) — VtCache ile ayni formul; tablodan yalniz mip-0 hucre tabani
+// ve hucre okunur. OLCUM kipleri (urun yolunda 1): 2 = tablo okunur, atlas okunmaz; 3 = atlas okunur, tablo okunmaz
+// (sentetik yuva) — Mali'deki GPU bedelini ayirmak icin (renderer_device_cost_vt_feedback).
 layout(constant_id = 7) const int VT_SAMPLE = 0;
 layout(constant_id = 8) const int VT_SLOTS_X = 32;
 layout(constant_id = 9) const int VT_MAX_TEX = 16;
@@ -506,29 +509,33 @@ vec3 vt_sample() {
   if (tex >= uint(VT_MAX_TEX)) {
     return vec3(1.0, 0.0, 1.0);
   }
-  uint base = u_vti.e[tex * 4u];
-  uint pw = u_vti.e[tex * 4u + 1u];
-  uint ph = u_vti.e[tex * 4u + 2u];
-  uint mips = u_vti.e[tex * 4u + 3u];
-  if (mips == 0u) {
-    return vec3(1.0, 0.0, 1.0);
-  }
+  uint pw = uint(sz.x) / uint(VT_PAGE_PX);
+  uint ph = uint(sz.y) / uint(VT_PAGE_PX);
+  uint mips = uint(findMSB(max(pw, ph))) + 1u;
   uint mip = min(uint(lod), mips - 1u);
-  uint off = base;
-  for (uint m = 0u; m < 16u; m++) {
-    if (m >= mip) {
-      break;
-    }
-    off += max(pw >> m, 1u) * max(ph >> m, 1u);
-  }
   uint mw = max(pw >> mip, 1u);
   uint mh = max(ph >> mip, 1u);
   vec2 uv = clamp(v_uv, vec2(0.0), vec2(0.999999));
   uint px = min(uint(uv.x * float(mw)), mw - 1u);
   uint py = min(uint(uv.y * float(mh)), mh - 1u);
-  uint c = u_vti.e[uint(VT_MAX_TEX) * 4u + off + py * mw + px];
+  uint c = 0u;
+  if (VT_SAMPLE == 3) {
+    c = (((px + py * mw) & 127u) << 8) | (mip << 1) | 1u;
+  } else {
+    uint off = u_vti.e[tex * 4u];
+    for (uint m = 0u; m < 16u; m++) {
+      if (m >= mip) {
+        break;
+      }
+      off += max(pw >> m, 1u) * max(ph >> m, 1u);
+    }
+    c = u_vti.e[uint(VT_MAX_TEX) * 4u + off + py * mw + px];
+  }
   uint slot = c >> 8;
   uint rm = (c >> 1) & 127u;
+  if (VT_SAMPLE == 2) {
+    return vec3(float(slot & 255u) / 255.0, float(rm) / 8.0, 0.5);
+  }
   vec2 pg = uv * vec2(float(max(pw >> rm, 1u)), float(max(ph >> rm, 1u)));
   float hp = 0.5 / float(VT_PAGE_PX);
   vec2 f = clamp(pg - floor(pg), vec2(hp), vec2(1.0 - hp));

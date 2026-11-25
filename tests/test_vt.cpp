@@ -260,25 +260,45 @@ ENGINE_TEST(vt_atlas_uploads_are_byte_exact_and_slots_reused) {
   uint32_t sayfa2 = 0;
   const uint32_t fark2 = denetle(0, &sayfa2);
   // Dolaylilik tablosu: her hucre resolve() ile ayni.
-  const uint32_t *tab = at.table(0);
-  uint32_t tfark = 0, hucre = 0;
-  for (uint32_t t = 0; t < 2; t++) {
-    uint32_t off = tab[4 * t];
-    for (uint32_t m = 0; m < c.mip_count(t); m++) {
-      const uint32_t mw = c.pages_w(t) >> m ? c.pages_w(t) >> m : 1, mh = c.pages_h(t) >> m ? c.pages_h(t) >> m : 1;
-      for (uint32_t y = 0; y < mh; y++)
-        for (uint32_t x = 0; x < mw; x++, off++, hucre++) {
-          const uint32_t e = tab[4 * 2 + off];
-          const renderer::VtResolved r = c.resolve(t, m, x, y);
-          tfark += (e & 1u) == 0 || renderer::VtAtlas::entry_slot(e) != r.slot || renderer::VtAtlas::entry_mip(e) != r.mip;
-        }
+  auto tablo_farki = [&](uint32_t *hucre_n) {
+    const uint32_t *tab = at.table(0);
+    uint32_t fark = 0, hucre = 0;
+    for (uint32_t t = 0; t < 2; t++) {
+      uint32_t off = tab[4 * t];
+      for (uint32_t m = 0; m < c.mip_count(t); m++) {
+        const uint32_t mw = c.pages_w(t) >> m ? c.pages_w(t) >> m : 1, mh = c.pages_h(t) >> m ? c.pages_h(t) >> m : 1;
+        for (uint32_t y = 0; y < mh; y++)
+          for (uint32_t x = 0; x < mw; x++, off++, hucre++) {
+            const uint32_t e = tab[4 * 2 + off];
+            const renderer::VtResolved r = c.resolve(t, m, x, y);
+            fark += (e & 1u) == 0 || renderer::VtAtlas::entry_slot(e) != r.slot || renderer::VtAtlas::entry_mip(e) != r.mip;
+          }
+      }
     }
-  }
+    *hucre_n = hucre;
+    return fark;
+  };
+  uint32_t hucre = 0;
+  const uint32_t tfark = tablo_farki(&hucre);
   std::printf("    [bilgi] tahliye: 4 karede %u yukleme, %u tahliye (yeniden yazilan yuva); yerlesik %u sayfa, bayt farki %u; tablo %u hucre, "
               "fark %u; dogrulama hatasi %u\n",
               ty, tahliye, sayfa2, fark2, hucre, tfark, dev.validation_errors());
   CHECK(ty >= 32 && tahliye > 0 && fark2 == 0 && sayfa2 > 0); // yeniden kullanilan yuvalarda BAYAT karo yok
   CHECK(hucre == at.stats().table_entries && tfark == 0 && at.stats().table_overflow == 0);
+  // ARTIMLI TABLO (2026-11-25): yerlesiklik degismeyen karede (ayni sutunlar, hepsi yerlesik) tablo yeniden KURULMAZ ve
+  // yine resolve() ile ayni. KONTROL: yeni sutunlar (yukleme + tahliye) -> yeniden kurulur, yine ayni.
+  const uint32_t yuk_ayni = kare(4);
+  const bool kuruldu_ayni = at.stats().table_rebuilt;
+  uint32_t h2 = 0, h3 = 0;
+  const uint32_t tfark_ayni = tablo_farki(&h2);
+  const uint32_t yuk_yeni = kare(0);
+  const bool kuruldu_yeni = at.stats().table_rebuilt;
+  const uint32_t tfark_yeni = tablo_farki(&h3);
+  std::printf("    [bilgi] artimli tablo: degisiksiz karede yukleme %u, yeniden kuruldu %d, fark %u; KONTROL yeni sutunlar yukleme "
+              "%u, yeniden kuruldu %d, fark %u\n",
+              yuk_ayni, (int)kuruldu_ayni, tfark_ayni, yuk_yeni, (int)kuruldu_yeni, tfark_yeni);
+  CHECK(yuk_ayni == 0 && !kuruldu_ayni && tfark_ayni == 0 && h2 == hucre);
+  CHECK(yuk_yeni > 0 && kuruldu_yeni && tfark_yeni == 0);
   CHECK(dev.validation_errors() == 0);
   at.shutdown();
   dev.shutdown();
