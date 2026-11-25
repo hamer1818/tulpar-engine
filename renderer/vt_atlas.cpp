@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "platform/time.hpp"
+
 namespace tulpar::engine::renderer {
 
 namespace {
@@ -99,6 +101,7 @@ bool VtAtlas::init(rhi::Device &dev, Arena &arena, const VtCache &cache, const V
 void VtAtlas::record(VkCommandBuffer cb, uint32_t frame, const VtCache &cache, const VtPageSource &src) {
   stats_ = VtAtlasStats{};
   if (!dev_) return;
+  const uint64_t t0 = platform::now_ns();
   const uint32_t f = frame % frames_;
   rhi::VkApi &a = dev_->api();
   const uint32_t px = cfg_.page_px;
@@ -146,6 +149,7 @@ void VtAtlas::record(VkCommandBuffer cb, uint32_t frame, const VtCache &cache, c
     initialized_layout_ = true;
   }
   // Dolaylilik tablosu: bu karenin yerlesikligine gore (yuklemeler bu komut tamponunda, ornekleme ondan sonra).
+  const uint64_t t1 = platform::now_ns();
   uint32_t *tab = static_cast<uint32_t *>(table_map_[f]);
   std::memset(tab, 0, sizeof(uint32_t) * 4 * max_tex_);
   uint32_t *cells = tab + 4 * max_tex_;
@@ -169,6 +173,9 @@ void VtAtlas::record(VkCommandBuffer cb, uint32_t frame, const VtCache &cache, c
     }
   }
   stats_.table_entries = used;
+  const uint64_t t2 = platform::now_ns();
+  stats_.table_ns = t2 - t1;
+  stats_.record_ns = t2 - t0;
 }
 
 bool VtAtlas::read_back(uint8_t *out) {

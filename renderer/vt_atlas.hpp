@@ -41,6 +41,8 @@ struct VtAtlasStats {
   uint32_t table_entries = 0;   // dolaylilik tablosuna yazilan hucre
   uint32_t table_overflow = 0;  // max_entries asildi (o dokunun kalan hucreleri yazilmadi)
   uint64_t upload_bytes = 0;
+  uint64_t record_ns = 0;       // record() CPU suresi (saglayici doldurma + tablo kurulumu dahil; duvar saati)
+  uint64_t table_ns = 0;        // bunun dolaylilik tablosu kurulumu kismi
 };
 
 class VtAtlas {
