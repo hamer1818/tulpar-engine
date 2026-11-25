@@ -2647,14 +2647,18 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
   OffscreenResult ores;
   OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
   if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
-  // Kip: 0 geri bildirim kapali, 1 boru hatti ama kod elenmis, 2 anahtar hesaplanir / SSBO yok, 3 tam.
+  // Kip: 0 geri bildirim kapali, 1 boru hatti ama kod elenmis, 2 anahtar hesaplanir / SSBO yok, 3 tam, 4 tam + VT
+  // ORNEKLEME (vt_sample: atlas + dolaylilik tablosu; isinmada yukleme 0'a inene kadar kare — kararli durum olculur).
+  constexpr int K = 5;
   constexpr uint32_t R = 5, N = 5; // tur, tur basina olculen kare
-  static uint64_t t[4][R * N];
-  double tur_ms[4][R] = {};
+  static uint64_t t[K][R * N];
+  double tur_ms[K][R] = {};
+  uint32_t yakinsama = 0, yerlesik = 0;
+  static uint64_t cpu_rec[R * N], cpu_tab[R * N]; // kip 4: VtAtlas::record CPU suresi (tablo kurulumu dahil)
   uint32_t anahtar = 0;
   bool ok = true;
   for (uint32_t tur = 0; tur < R && ok; tur++) {
-    for (int kip = 0; kip < 4 && ok; kip++) {
+    for (int kip = 0; kip < K && ok; kip++) {
       renderer::Renderer ren;
       renderer::RendererConfig rc;
       rc.frames_in_flight = 1;
@@ -2663,9 +2667,11 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
       rc.post_height = H;
       rc.vt_feedback = kip != 0;
       rc.vt_feedback_probe = kip == 1 ? 1u : kip == 2 ? 2u : 0u;
-      if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip != 0 && !ren.vt_feedback_info().enabled)) {
-        std::printf("    [bilgi] kip %d kurulamadi: post '%s', vt '%s'\n", kip, ren.post().disabled_reason,
-                    ren.vt_feedback_info().disabled_reason);
+      rc.vt_sample = kip == 4;
+      if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip != 0 && !ren.vt_feedback_info().enabled) ||
+          (kip == 4 && !ren.vt_sampling())) {
+        std::printf("    [bilgi] kip %d kurulamadi: post '%s', vt '%s' / '%s'\n", kip, ren.post().disabled_reason,
+                    ren.vt_feedback_info().disabled_reason, ren.vt_feedback_info().sample_reason);
         CHECK(false);
         ren.shutdown();
         ok = false;
@@ -2679,7 +2685,22 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
       renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
       const uint8_t beyaz[4] = {255, 255, 255, 255};
       const renderer::MaterialHandle m = ren.create_material(ren.create_texture(beyaz, 1, 1, false), {0.8f, 0.8f, 0.8f});
-      CHECK(ren.set_material_vt(m, 0, 16384, 16384));
+      uint32_t vt_doku = 0;
+      if (kip == 4) {
+        // Ucuz prosedurel saglayici (sayfa basina tek renk + texel karmasi): olcum kararli durumda, yukleme yokken.
+        ren.set_vt_source(renderer::VtPageSource{[](void *, renderer::VtPage p, uint32_t px, uint8_t *rgba) {
+                                                   for (uint32_t i = 0; i < px * px; i++) {
+                                                     rgba[i * 4 + 0] = (uint8_t)(p.x * 37u + i * 7u);
+                                                     rgba[i * 4 + 1] = (uint8_t)(p.y * 53u + (i >> 7) * 5u);
+                                                     rgba[i * 4 + 2] = (uint8_t)(p.mip * 40u);
+                                                     rgba[i * 4 + 3] = 255;
+                                                   }
+                                                 },
+                                                 nullptr});
+        vt_doku = ren.vt_add_texture(16384, 16384);
+        CHECK(vt_doku != ~0u);
+      }
+      CHECK(ren.set_material_vt(m, vt_doku, 16384, 16384));
       ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.3f}), {0.10f, 0.10f, 0.12f}, 0.9f);
       ren.set_shadow_volume({0, 1.0f, -6}, 16.0f, 60.0f);
       ren.set_camera(Mat4::look_at({0, 3, 12}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
@@ -2697,26 +2718,46 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
         return platform::now_ns() - t0;
       };
       for (int i = 0; i < 2; i++) kare();
+      if (kip == 4) { // atlas yakinsasin: yukleme listesi bosalana kadar (en cok 60 kare)
+        uint32_t k = 0;
+        while (k < 60 && ren.vt_atlas().stats().uploaded > 0) { kare(); k++; }
+        yakinsama = k > yakinsama ? k : yakinsama;
+        yerlesik = ren.vt_cache().resident_count();
+        CHECK(ren.vt_atlas().stats().uploaded == 0);
+      }
       uint64_t b[N];
-      for (uint32_t r = 0; r < N; r++) b[r] = t[kip][tur * N + r] = kare();
+      for (uint32_t r = 0; r < N; r++) {
+        b[r] = t[kip][tur * N + r] = kare();
+        if (kip == 4) {
+          cpu_rec[tur * N + r] = ren.vt_atlas().stats().record_ns;
+          cpu_tab[tur * N + r] = ren.vt_atlas().stats().table_ns;
+        }
+      }
       std::sort(b, b + N);
       tur_ms[kip][tur] = (double)b[N / 2] / 1e6;
       if (kip == 3 && tur == R - 1) { ren.begin_frame(0); ren.vt_feedback(&anahtar); }
       ren.shutdown();
     }
   }
-  double ms[4];
-  for (int k = 0; k < 4; k++) {
+  double ms[K];
+  for (int k = 0; k < K; k++) {
     std::sort(t[k], t[k] + R * N);
     ms[k] = (double)t[k][R * N / 2] / 1e6;
   }
   std::printf("    [bilgi] %s, %ux%u post, %u tur x %u kare donusumlu: VT geri bildirimi kapali %.3f ms; boru hatti (kod "
-              "elenmis) %+.3f; anahtar hesabi (SSBO yok) %+.3f; tam %+.3f ms; son karede tekil sayfa %u\n",
-              dev.caps().device_name, W, H, R, N, ms[0], ms[1] - ms[0], ms[2] - ms[0], ms[3] - ms[0], anahtar);
+              "elenmis) %+.3f; anahtar hesabi (SSBO yok) %+.3f; tam %+.3f ms; tam + ORNEKLEME %+.3f ms (yakinsama en cok %u "
+              "kare, %u yerlesik sayfa); son karede tekil sayfa %u\n",
+              dev.caps().device_name, W, H, R, N, ms[0], ms[1] - ms[0], ms[2] - ms[0], ms[3] - ms[0], ms[4] - ms[0], yakinsama,
+              yerlesik, anahtar);
+  std::sort(cpu_rec, cpu_rec + R * N);
+  std::sort(cpu_tab, cpu_tab + R * N);
+  std::printf("    [bilgi]   ornekleme kipinde VtAtlas::record CPU medyani %.3f ms (tablo kurulumu %.3f ms), yukleme 0\n",
+              (double)cpu_rec[R * N / 2] / 1e6, (double)cpu_tab[R * N / 2] / 1e6);
   for (uint32_t tur = 0; tur < R; tur++)
-    std::printf("    [bilgi]   tur %u: kapali %.2f, kod elenmis %+.2f, anahtar %+.2f, tam %+.2f ms\n", tur, tur_ms[0][tur],
-                tur_ms[1][tur] - tur_ms[0][tur], tur_ms[2][tur] - tur_ms[0][tur], tur_ms[3][tur] - tur_ms[0][tur]);
-  CHECK(ok && ms[0] > 0 && ms[1] > 0 && ms[2] > 0 && ms[3] > 0 && anahtar > 0);
+    std::printf("    [bilgi]   tur %u: kapali %.2f, kod elenmis %+.2f, anahtar %+.2f, tam %+.2f, ornekleme %+.2f ms\n", tur,
+                tur_ms[0][tur], tur_ms[1][tur] - tur_ms[0][tur], tur_ms[2][tur] - tur_ms[0][tur], tur_ms[3][tur] - tur_ms[0][tur],
+                tur_ms[4][tur] - tur_ms[0][tur]);
+  CHECK(ok && ms[0] > 0 && ms[1] > 0 && ms[2] > 0 && ms[3] > 0 && ms[4] > 0 && anahtar > 0);
   offscreen_destroy(off);
   dev.shutdown();
 }
