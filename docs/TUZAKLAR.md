@@ -2911,3 +2911,17 @@ aynı yol vardı; olasılığı zamanlama seçiyor.) **Düzeltme:** test sunucul
 SIGPIPE yok). Sayaç kapanmış sokete yazmayı basar: 200 koşumda 53'ünde yazma oldu (EPIPE/ECONNRESET), 200/200 geçti. **Kural:**
 testin içindeki yardımcı sunucu da ürünün sinyal kurallarına uyar; CI özeti yokluğu kırmızı sayıyor ama yerelde 141 "neden
 yarıda kaldı" sorusunu sordurmadan geçilebilir.
+
+### 8ex. `alloc_array_zeroed` kurucu çalıştırmaz — üye varsayılanı (`= ~0u`) sessizce 0 olur
+**Belirti (2026-11-25, RTX 5080):** yeni `renderer_vt_sample_matches_plain_texture` kapısı "düz doku" başvurusunu VT çizimiyle
+**bayt bayt** aynı buldu — sayfa kenarındaki kırpma dikişi bile yoktu. Düz dokunun mavi kanalı sabit 128'e çekilince başvuru hâlâ
+VT'nin damasını gösterdi: düz malzeme de VT'den örnekleniyordu. **Kök:** `Renderer::materials_` `alloc_array_zeroed<Material>` ile
+ayrılıyor; `Material::vt_id = ~0u` bir üye varsayılanı, ama kurucu hiç çalışmadığı için alan **0** kalıyordu ve 0 = "VT dokusu 0".
+#188'den (2026-11-23) beri geri bildirim açıkken **her statik çizim** `mesh_vtfb` boru hattından çizildi ve boyu 0 dokudan sahte
+(0, 0, 0) anahtarı yazdı. Mali-G72'de ölçülen "VT çizimlerine özel" maliyet (+16,1 ms, "sebebi açık sabit bedel") aslında bütün
+sahneyi kapsıyordu — o sayılar geçersiz (DURUM Faz 6; düzeltmeden sonra dönüşümlü ölçümle tam geri bildirim +1,9 / +4,3 ms). Hiçbir kapı kırmızı olmadı: geri bildirim kapısı yalnız VT zemini çiziyordu,
+maliyet testi küplerin hangi boru hattından gittiğine bakmıyordu. **Düzeltme:** `create_material_impl` yuvayı `m = Material{}` ile
+kurar. Kapı `render_graph_vt_feedback_ignores_plain_materials`: düz + varsayılan malzeme → 0 anahtar (hata geri getirilince kırmızı,
+ölçüldü); KONTROL VT zemini → anahtar var. **Kural:** sıfırlı arena dizisinin elemanı ancak bütün varsayılanları 0 olan yapı için
+"kurulmuş" sayılır; sıfırdan farklı nöbetçi (`~0u`, `0xFFFFFFFF`, `-1`) taşıyan yapı kullanılmadan önce açıkça atanır. Bir kapı
+"başvuru = ölçülen" diyorsa başvurunun gerçekten farklı yoldan geldiğini ayrıca göster (burada: başvuruyu boz, sonuç değişmeli).

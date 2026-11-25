@@ -15,6 +15,8 @@
 #include "renderer/cull.hpp"
 #include "renderer/graph.hpp"
 #include "renderer/vsm_pass.hpp"
+#include "renderer/vt_atlas.hpp"
+#include "renderer/vt_cache.hpp"
 #include "rhi/device.hpp"
 
 namespace tulpar::engine::renderer {
@@ -249,9 +251,16 @@ struct RendererConfig {
   GpuRequestConfig vt_feedback_table{};
   uint32_t vt_page_px = 128; // VtCache sayfa kenari (texel)
   // OLCUM KIPI (urun yolunda 0): 1 = geri bildirim boru hatti ama kodu elenmis (VT_FB 0), 2 = anahtar hesaplanir, SSBO
-  // islemi yok. Mali-G72'deki sabit bedelin (early_fragment_tests sonrasi +16 ms) kaynagini ayirmak icin
-  // (renderer_device_cost_vt_feedback).
+  // islemi yok. Mali-G72'deki "sabit bedelin" (+16 ms) kaynagini ayirmak icin (renderer_device_cost_vt_feedback); o sayi
+  // butun statik cizimleri kapsiyordu (Tuzaklar 8ex); duzeltmeden sonra tam geri bildirim +1,9 / +4,3 ms.
   uint32_t vt_feedback_probe = 0;
+  // VT ORNEKLEME — VARSAYILAN KAPALI; vt_feedback'i ister (onu kendisi acar). Acikken renderer kendi VtCache + VtAtlas'ini
+  // tutar: bir karenin geri bildirimi bir sonraki karede onbellege beslenir, butceli yuklemeler (VtPageSource'tan) sahne
+  // gecisinden ONCE atlasa yazilir ve mesh_vtfb.frag VT malzemesinin albedo'sunu dolaylilik tablosu + atlastan okur.
+  // vt_atlas.page_px / srgb kurulumda vt_page_px / true'ya esitlenir.
+  bool vt_sample = false;
+  VtConfig vt_cache{};
+  VtAtlasConfig vt_atlas{};
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk
 
   // --- FAZ 9: GPU gorunurluk kumeleme + dolayli cizim — VARSAYILAN KAPALI ---
@@ -466,6 +475,14 @@ public:
   // Malzemenin albedo'su sanal doku: VtCache doku kimligi (add_texture) ve sanal boyut (texel; sayfa boyunun kati).
   // RendererConfig::vt_feedback acikken mesh_vtfb.frag bu malzemenin gorunur sayfalarini geri bildirir.
   bool set_material_vt(MaterialHandle m, uint32_t vt_texture, uint32_t width_texels, uint32_t height_texels);
+  // RendererConfig::vt_sample: renderer'in kendi VtCache'ine doku kaydi (texel; vt_page_px'in kati, 2'nin kuvveti sayfa).
+  // Donus: set_material_vt'ye verilecek doku kimligi, ya da ~0u (ornekleme kapali / kapasite — VtCache sayar).
+  uint32_t vt_add_texture(uint32_t width_texels, uint32_t height_texels);
+  // Sayfa icerigi saglayicisi (disk akisi, prosedurel, test). Kare DISINDA; atlas yuklemesi kayit aninda cagirir.
+  void set_vt_source(const VtPageSource &src) { vt_src_ = src; }
+  bool vt_sampling() const { return vt_sample_on_; }
+  const VtCache &vt_cache() const { return vt_cache_; }
+  VtAtlas &vt_atlas() { return vt_atlas_; }
   PbrParams material_pbr(MaterialHandle m) const;
   bool material_is_pbr(MaterialHandle m) const;
   TextureHandle default_texture() const { return default_texture_; } // 1x1 beyaz
@@ -635,6 +652,7 @@ public:
     bool enabled = false;
     const char *disabled_reason = "";
     uint32_t keys = 0, list_overflow = 0, table_full = 0, out_of_range = 0;
+    const char *sample_reason = ""; // vt_sample istendi ama vt_sampling() false ise sebep
   };
   const uint32_t *vt_feedback(uint32_t *n) const { *n = vt_n_; return vt_keys_; }
   const VtFeedbackInfo &vt_feedback_info() const { return vt_info_; }
@@ -987,6 +1005,13 @@ private:
   VkPipeline pipe_depth_ = VK_NULL_HANDLE, pipe_color_ = VK_NULL_HANDLE;
   VkPipeline pipe_color_vt_ = VK_NULL_HANDLE; // VT geri bildirimli renk boru hatti (yalniz VT malzemeli statik cizimler)
   VkShaderModule fs_vt_ = VK_NULL_HANDLE;    // mesh_vtfb.frag
+  // VT ornekleme (RendererConfig::vt_sample): onbellek + atlas renderer'in; binding 12 atlas, 13 dolaylilik tablosu.
+  VtCache vt_cache_;
+  VtAtlas vt_atlas_;
+  VtPageSource vt_src_{};
+  VkSampler vt_sampler_ = VK_NULL_HANDLE;
+  bool vt_sample_on_ = false;
+  bool write_vt_descriptors();
   // Yatay ayna (set_mirror_x): sarimi ters ikizler, ilk acilista kurulur.
   VkRenderPass scene_rp_ = VK_NULL_HANDLE; // make_pipelines'in render pass'i (ikizler ayni pass'e)
   VkPipeline pipe_m_depth_ = VK_NULL_HANDLE, pipe_m_color_ = VK_NULL_HANDLE;

@@ -6,10 +6,10 @@
 //     kopyalama komutuyla karolarina yazilir. Atlas kareler arasinda kalicidir; yuklenmeyen karoya dokunulmaz.
 //   * DOLAYLILIK TABLOSU (SSBO, kare basina): her kayitli dokunun her mip'inin her sayfasi icin VtCache::resolve()
 //     sonucu — (yuva, gercek mip). resolve() hicbir zaman gecersiz donmedigi icin tablo da her zaman gecerli bir yuva
-//     gosterir (en kotu durumda bulanik ama dogru renk). Ornekleme sonraki dilimde (mesh.frag VT yolu) bunu okur.
+//     gosterir (en kotu durumda bulanik ama dogru renk). Ornekleme mesh_vtfb.frag `vt_sample()` (2026-11-25).
 //
-// Sinirlar (bu dilim): karolarda kenar (border) yok — dogrusal suzme karo sinirinda komsu yuvaya tasabilir; ornekleme
-// dilimi ya kenar ekler ya karo icine kirpar. Tablo her kare TAMAMEN yeniden kurulur (dokunun butun sayfalari):
+// Sinirlar: karolarda kenar (border) yok — ornekleme karo ICINE kirpar (yarim texel), yani dogrusal suzme komsu yuvaya
+// tasmaz; bedeli sayfa sinirinda 1 texel'lik suzme dikisi (kapi: renderer_vt_sample_matches_plain_texture). Tablo her kare TAMAMEN yeniden kurulur (dokunun butun sayfalari):
 // maliyeti olculur (stats().table_entries), artimli kurulum gerekirse sonra.
 // Kare icinde ayirma yok: staging, tablo ve izleme dizileri init'te.
 #pragma once
@@ -30,6 +30,9 @@ struct VtAtlasConfig {
   uint32_t page_px = 128;      // VtCache'in sayfa kenari ile AYNI olmali
   uint32_t slots_x = 32;       // atlas satirindaki karo; satir = ceil(pool_pages / slots_x)
   uint32_t max_entries = 65536; // dolaylilik tablosu hucre kapasitesi (butun dokularin butun mip sayfalari)
+  // Gorunum bicimi: true = R8G8B8A8_SRGB (renk/albedo; ornekleme dogrusal dondurur), false = UNORM (veri). Bellekteki
+  // baytlar ikisinde de ayni (read_back bicimden bagimsiz).
+  bool srgb = false;
 };
 
 struct VtAtlasStats {
