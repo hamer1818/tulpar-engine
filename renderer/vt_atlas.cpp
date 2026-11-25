@@ -64,7 +64,7 @@ bool VtAtlas::init(rhi::Device &dev, Arena &arena, const VtCache &cache, const V
   VkImageCreateInfo ii{};
   ii.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   ii.imageType = VK_IMAGE_TYPE_2D;
-  ii.format = VK_FORMAT_R8G8B8A8_UNORM;
+  ii.format = cfg_.srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
   ii.extent = {w_, h_, 1};
   ii.mipLevels = ii.arrayLayers = 1;
   ii.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -82,7 +82,7 @@ bool VtAtlas::init(rhi::Device &dev, Arena &arena, const VtCache &cache, const V
   vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   vi.image = img_;
   vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  vi.format = VK_FORMAT_R8G8B8A8_UNORM;
+  vi.format = ii.format;
   vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
   if (a.vkCreateImageView(d, &vi, nullptr, &view_) != VK_SUCCESS) { err_ = "atlas gorunumu"; return false; }
   const VkDeviceSize page_bytes = (VkDeviceSize)cfg_.page_px * cfg_.page_px * 4;
@@ -138,6 +138,11 @@ void VtAtlas::record(VkCommandBuffer cb, uint32_t frame, const VtCache &cache, c
     a.vkCmdCopyBufferToImage(cb, staging_[f], img_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, n, regions_);
     barrier(a, cb, img_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    initialized_layout_ = true;
+  } else if (!initialized_layout_) {
+    // Yukleme yok (henuz doku kaydi yok) ama ornekleyici descriptor'u SHADER_READ_ONLY bildiriyor: layout yine gecerli.
+    barrier(a, cb, img_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     initialized_layout_ = true;
   }
   // Dolaylilik tablosu: bu karenin yerlesikligine gore (yuklemeler bu komut tamponunda, ornekleme ondan sonra).

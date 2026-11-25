@@ -486,12 +486,63 @@ void vt_feedback() {
   }
   atomicAdd(u_vtp.n[2], 1u);
 }
+// SANAL DOKU ORNEKLEMESI (2026-11-25): VT malzemesinin albedo'su renderer/vt_atlas dolaylilik tablosu + fiziksel
+// atlastan. Mip ve sayfa geri bildirimle AYNI formul (vt_feedback); tablo hucresi (yuva, gercek mip) verir — yerlesik
+// degilse daha kaba mip, hicbir zaman gecersiz degil. Sayfa ici koordinat karo ICINE kirpilir (yarim texel): dogrusal
+// suzme komsu yuvaya tasmaz. Mip'ler arasi suzme yok: floor(lod) mip'inde bilinear (en fazla 2:1 kucultme).
+layout(constant_id = 7) const int VT_SAMPLE = 0;
+layout(constant_id = 8) const int VT_SLOTS_X = 32;
+layout(constant_id = 9) const int VT_MAX_TEX = 16;
+layout(set = 0, binding = 12) uniform sampler2D u_vta;
+layout(std430, set = 0, binding = 13) readonly buffer VtIndir {
+  uint e[];
+} u_vti;
+vec3 vt_sample() {
+  vec2 sz = u_mat.tex2.zw;
+  vec2 dx = dFdx(v_uv) * sz;
+  vec2 dy = dFdy(v_uv) * sz;
+  float lod = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))), 0.0);
+  uint tex = uint(u_mat.tex2.y) - 1u;
+  if (tex >= uint(VT_MAX_TEX)) {
+    return vec3(1.0, 0.0, 1.0);
+  }
+  uint base = u_vti.e[tex * 4u];
+  uint pw = u_vti.e[tex * 4u + 1u];
+  uint ph = u_vti.e[tex * 4u + 2u];
+  uint mips = u_vti.e[tex * 4u + 3u];
+  if (mips == 0u) {
+    return vec3(1.0, 0.0, 1.0);
+  }
+  uint mip = min(uint(lod), mips - 1u);
+  uint off = base;
+  for (uint m = 0u; m < 16u; m++) {
+    if (m >= mip) {
+      break;
+    }
+    off += max(pw >> m, 1u) * max(ph >> m, 1u);
+  }
+  uint mw = max(pw >> mip, 1u);
+  uint mh = max(ph >> mip, 1u);
+  vec2 uv = clamp(v_uv, vec2(0.0), vec2(0.999999));
+  uint px = min(uint(uv.x * float(mw)), mw - 1u);
+  uint py = min(uint(uv.y * float(mh)), mh - 1u);
+  uint c = u_vti.e[uint(VT_MAX_TEX) * 4u + off + py * mw + px];
+  uint slot = c >> 8;
+  uint rm = (c >> 1) & 127u;
+  vec2 pg = uv * vec2(float(max(pw >> rm, 1u)), float(max(ph >> rm, 1u)));
+  float hp = 0.5 / float(VT_PAGE_PX);
+  vec2 f = clamp(pg - floor(pg), vec2(hp), vec2(1.0 - hp));
+  vec2 org = vec2(float(slot % uint(VT_SLOTS_X)), float(slot / uint(VT_SLOTS_X)));
+  vec2 asz = vec2(textureSize(u_vta, 0));
+  return textureLod(u_vta, (org + f) * float(VT_PAGE_PX) / asz, 0.0).rgb;
+}
 void main() {
   if (VT_FB != 0) vt_feedback();
   vec3 n = normalize(v_nrm);
   float nl = max(dot(n, normalize(u.light_dir.xyz)), 0.0);
   float vis = shadow_visibility(nl, n);
   vec3 albedo = texture(u_albedo, v_uv).rgb * v_color;
+  if (VT_SAMPLE != 0 && u_mat.tex2.y > 0.5) albedo = vt_sample() * v_color;
   // Golgeleme modeli MALZEME basina. Lambert dali eski ifadeyle ayni; ustune
   // ISIMA terimi eklenir. Isimasiz malzemede terim tam 0 oldugu ve `c + 0.0`
   // bit-tam `c` verdigi icin eski malzemeler yine bit bit eski goruntudedir.

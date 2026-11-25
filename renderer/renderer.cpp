@@ -155,6 +155,7 @@ bool Renderer::upload_packed(VkBuffer dst, const Vertex *v, const SkinnedVertex 
 bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const RendererConfig &cfg) {
   dev_ = &dev;
   cfg_ = cfg;
+  if (cfg_.vt_sample) cfg_.vt_feedback = true; // ornekleme geri bildirimsiz yalniz en kaba mip'i gorurdu
   if (cfg_.frames_in_flight > kMaxFrames) cfg_.frames_in_flight = kMaxFrames;
   meshes_ = arena.alloc_array_zeroed<Mesh>(cfg.max_meshes);
   textures_ = arena.alloc_array_zeroed<Texture>(cfg.max_textures);
@@ -184,12 +185,12 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   smi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   smi.codeSize = mesh_vert_spv_size; smi.pCode = mesh_vert_spv;
   if (a.vkCreateShaderModule(dev.handle(), &smi, nullptr, &vs_) != VK_SUCCESS) return false;
-  // VT geri bildirimi istendiyse renk boru hatlari mesh_vtfb varyantiyla kurulur (fragment SSBO yazar; cihaz ozelligi
-  // yoksa temel mesh.frag kalir ve sebep VtFeedbackInfo'da). Geri bildirim sonradan kapanirsa VT_FB = 0 kodu eler.
-  // Renk boru hatlari TEMEL mesh.frag ile; VT geri bildirimi istendiyse yalniz VT malzemeli cizimler icin AYRI bir boru
-  // hatti mesh_vtfb ile kurulur. Yan etkili (SSBO yazan) fragment shader Mali'de erken derinlik reddini / FPK'yi o
-  // shader'in BUTUN cizimlerinde kapatir: varyant butun boru hatlarina girdiginde Mali-G72 1080p'de +42,8 ms olculdu
-  // (VT olmayan 48 kutu dahil, 2026-11-23). Cihaz ozelligi yoksa varyant kurulmaz, sebep VtFeedbackInfo'da.
+  // Renk boru hatlari TEMEL mesh.frag ile; VT geri bildirimi / ornekleme istendiyse yalniz VT malzemeli cizimler icin
+  // AYRI bir boru hatti mesh_vtfb ile kurulur. Yan etkili (SSBO yazan) fragment shader Mali'de erken derinlik reddini /
+  // FPK'yi o shader'in BUTUN cizimlerinde kapatir: varyant butun boru hatlarina girdiginde Mali-G72 1080p'de +42,8 ms
+  // olculdu (VT olmayan 48 kutu dahil, 2026-11-23). "Yalniz VT cizimleri" icin olculen +16,1 ms GECERSIZ: malzeme yuvasi
+  // sifirli oldugu icin kutular da VT sayiliyordu (Tuzaklar 8ex) — yeniden olculecek. Cihaz ozelligi yoksa varyant
+  // kurulmaz, sebep VtFeedbackInfo'da.
   vt_fb_shader_ = cfg_.vt_feedback && cfg_.post && dev.caps().fragment_stores_atomics;
   smi.codeSize = mesh_frag_spv_size; smi.pCode = mesh_frag_spv;
   if (a.vkCreateShaderModule(dev.handle(), &smi, nullptr, &fs_) != VK_SUCCESS) return false;
@@ -217,7 +218,7 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   // Set 0: 0 kare UBO, 1 golge, 2 nokta isiklar (UBO), 3 kume maskeleri (SSBO), 4 eklem matrisleri (SSBO)
   // cull acikken +2: 5 cizim kayitlari (SSBO), 6 gorunurluk listesi (SSBO).
   // Ikisi de yalniz DOLAYLI yolun vertex shader'inin okudugu tamponlar.
-  VkDescriptorSetLayoutBinding b[12]{};
+  VkDescriptorSetLayoutBinding b[14]{};
   b[5].binding = 5;
   b[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   b[5].descriptorCount = 1;
@@ -271,9 +272,19 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
     b[nb + k].descriptorCount = 1;
     b[nb + k].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   }
+  // binding 12/13: VT fiziksel atlasi (sampler2D) + dolaylilik tablosu (SSBO; renderer/vt_atlas). Duzende HER ZAMAN;
+  // ornekleme yoksa 12 varsayilan 1x1 dokuya, 13 bos VSM tablosuna baglanir (mesh_vtfb ancak VT_SAMPLE 1 iken okur).
+  b[nb + 5].binding = 12;
+  b[nb + 5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  b[nb + 5].descriptorCount = 1;
+  b[nb + 5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  b[nb + 6].binding = 13;
+  b[nb + 6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  b[nb + 6].descriptorCount = 1;
+  b[nb + 6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   VkDescriptorSetLayoutCreateInfo sli{};
   sli.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  sli.bindingCount = nb + 5;
+  sli.bindingCount = nb + 7;
   sli.pBindings = b;
   if (a.vkCreateDescriptorSetLayout(dev.handle(), &sli, nullptr, &set_layout_) != VK_SUCCESS) return false;
   if (!make_material_layout()) return false;
@@ -288,8 +299,8 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   if (a.vkCreatePipelineLayout(dev.handle(), &pli, nullptr, &layout_) != VK_SUCCESS) return false;
   // UBO + descriptor (ucuslu kare basina)
   VkDescriptorPoolSize ps[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2 * kMaxFrames},
-                                {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * kMaxFrames},
-                                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (want_cull ? 8u : 6u) * kMaxFrames}};
+                                {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * kMaxFrames},
+                                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (want_cull ? 9u : 7u) * kMaxFrames}};
   VkDescriptorPoolCreateInfo dpi{};
   dpi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   dpi.maxSets = kMaxFrames;
@@ -299,6 +310,18 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   if (vt_fb_shader_ && !vt_req_.init(dev, cfg_.vt_feedback_table, cfg_.frames_in_flight)) {
     vt_fb_shader_ = false; // boru hatlari yine mesh_vtfb ile kurulur ama VT_FB = 0: yazma kodu elenir
     vt_info_.disabled_reason = "istek tablosu kurulamadi (table_slots 2^k olmali)";
+  }
+  // VT ornekleme: onbellek + atlas (tablo tamponlari descriptor yazimindan once hazir olmali). Ortam eksigi sebebiyle
+  // sample_reason'a yazilir, renderer VT malzemesini duz albedo ile cizer.
+  if (cfg_.vt_sample) {
+    VtAtlasConfig ac = cfg_.vt_atlas;
+    ac.page_px = cfg_.vt_page_px;
+    ac.srgb = true;
+    if (!vt_fb_shader_) vt_info_.sample_reason = "geri bildirim varyanti yok (post / fragmentStoresAndAtomics)";
+    else if (cfg_.vt_cache.max_textures > 63) vt_info_.sample_reason = "vt_cache.max_textures > 63 (geri bildirim anahtari 6 bit)";
+    else if (!vt_cache_.init(arena, cfg_.vt_cache)) vt_info_.sample_reason = "VtCache kurulamadi (arena)";
+    else if (!vt_atlas_.init(dev, arena, vt_cache_, ac, cfg_.frames_in_flight)) vt_info_.sample_reason = vt_atlas_.error();
+    else vt_sample_on_ = true;
   }
   for (uint32_t i = 0; i < cfg_.frames_in_flight; i++) {
     if (!make_buffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, sizeof(FrameUbo),
@@ -508,7 +531,13 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   static const uint8_t white[4] = {255, 255, 255, 255};
   default_texture_ = create_texture(white, 1, 1, false);
   default_material_ = create_material(default_texture_, {1, 1, 1});
-  return default_texture_.valid() && default_material_.valid();
+  if (!default_texture_.valid() || !default_material_.valid()) return false;
+  // Geri bildirim (post, boru hatti) sonradan kapandiysa ornekleme de kapanir: VT boru hatti yok, cizim duz albedo ile.
+  if (vt_sample_on_ && !vt_info_.enabled) {
+    vt_sample_on_ = false;
+    vt_info_.sample_reason = vt_info_.disabled_reason[0] ? vt_info_.disabled_reason : "geri bildirim kapali";
+  }
+  return write_vt_descriptors();
 }
 
 // --- 2B ARAYUZ (FAZ 4) ------------------------------------------------------
@@ -1302,6 +1331,47 @@ void Renderer::write_material_ubo(uint32_t id) {
   u.tex2[3] = (float)m.vt_h;
   std::memcpy(static_cast<uint8_t *>(mat_ubo_mem_.mapped) + (size_t)id * mat_ubo_stride_, &u, sizeof u);
 }
+// Binding 12/13 (set 0, kare yuvasi basina): ornekleme acikken VT atlasi + o yuvanin dolaylilik tablosu, degilse gecerli
+// yer tutucular (varsayilan doku, bos VSM tablosu). Atlas ornekleyicisi: dogrusal, mip yok, kenara kenetli — koordinat
+// zaten karo icine kirpildigi icin sarma kipi sonucu degistirmez.
+bool Renderer::write_vt_descriptors() {
+  rhi::VkApi &a = dev_->api();
+  VkSamplerCreateInfo si{};
+  si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  si.magFilter = si.minFilter = VK_FILTER_LINEAR;
+  si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  si.maxLod = VK_LOD_CLAMP_NONE; // Mali kurali: sampler'da LOD kirpma yok (gorunum tek mip)
+  if (a.vkCreateSampler(dev_->handle(), &si, nullptr, &vt_sampler_) != VK_SUCCESS) return false;
+  const VkImageView view = vt_sample_on_ ? vt_atlas_.view() : textures_[default_texture_.id].view;
+  // Atlas ilk yuklemeden once UNDEFINED; ornekleyen ilk cizimden once record_shadow atlasi en az bir kez yazar
+  // (sabit en kaba mip'ler), yani layout SHADER_READ_ONLY olur. VT dokusu yoksa VT malzemesi de yoktur.
+  VkDescriptorImageInfo ii{vt_sampler_, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  for (uint32_t i = 0; i < cfg_.frames_in_flight; i++) {
+    VkDescriptorBufferInfo bi{vt_sample_on_ ? vt_atlas_.table_buffer(i) : vsm_tab_buf_[i], 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet w[2]{};
+    w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[0].dstSet = sets_[i];
+    w[0].dstBinding = 12;
+    w[0].descriptorCount = 1;
+    w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[0].pImageInfo = &ii;
+    w[1] = w[0];
+    w[1].dstBinding = 13;
+    w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[1].pImageInfo = nullptr;
+    w[1].pBufferInfo = &bi;
+    a.vkUpdateDescriptorSets(dev_->handle(), 2, w, 0, nullptr);
+  }
+  return true;
+}
+
+uint32_t Renderer::vt_add_texture(uint32_t w, uint32_t h) {
+  const uint32_t px = cfg_.vt_page_px;
+  if (!vt_sample_on_ || px == 0 || w % px || h % px) return ~0u;
+  return vt_cache_.add_texture(w / px, h / px);
+}
+
 bool Renderer::set_material_vt(MaterialHandle h, uint32_t vt_texture, uint32_t w, uint32_t hh) {
   if (!h.valid() || h.id >= material_count_ || vt_texture >= 63 || w == 0 || hh == 0) return false;
   materials_[h.id].vt_id = vt_texture;
@@ -1387,6 +1457,10 @@ MaterialHandle Renderer::create_material_impl(TextureHandle albedo, Vec3 color, 
   if (material_count_ >= cfg_.max_materials || !albedo.valid() || albedo.id >= texture_count_) return MaterialHandle{};
   rhi::VkApi &a = dev_->api();
   Material &m = materials_[material_count_];
+  // Dizi alloc_array_zeroed ile geldi: kurucu CALISMADI, yani uye varsayilanlari (vt_id = ~0u) yok, alanlar 0. Yuva
+  // burada acikca kurulur — aksi halde vt_id 0 = "VT dokusu 0" olur ve geri bildirim acikken HER statik cizim mesh_vtfb
+  // boru hattina gider (2026-11-23..25 boyle olculdu; Tuzaklar 8ex).
+  m = Material{};
   VkDescriptorSetAllocateInfo dai{};
   dai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   dai.descriptorPool = mat_pool_;
@@ -1462,16 +1536,17 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
   // PBR_NDF ozellestirme sabiti (mesh.frag constant_id 0): 0 = dogru GGX
   // (urun), 1 = KONTROL (normalize edilmemis). Boru hatti kurulumunda sabit.
   // constant_id 0 = PBR_NDF (0 dogru GGX, 1 kontrol), 1 = STOCHASTIC (0 kapali).
-  // 3..6 yalniz mesh_vtfb'de var (temel mesh.frag'da olmayan kimlik yok sayilir).
-  const int32_t fs_spec_data[7] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0,
+  // 3..9 yalniz mesh_vtfb'de var (temel mesh.frag'da olmayan kimlik yok sayilir).
+  const int32_t fs_spec_data[10] = {cfg_.pbr_ndf == NdfMode::Unnormalized ? 1 : 0, stoch_enabled_ ? 1 : 0,
                                    vsm_sampling() ? 1 : 0,
                                    !vt_info_.enabled ? 0 : cfg_.vt_feedback_probe == 1 ? 0 : cfg_.vt_feedback_probe == 2 ? 2 : 1,
                                    (int32_t)cfg_.vt_page_px,
-                                   (int32_t)(cfg_.vt_feedback_table.table_slots - 1), (int32_t)cfg_.vt_feedback_table.list_capacity};
-  VkSpecializationMapEntry fs_entries[7];
-  for (uint32_t k = 0; k < 7; k++) fs_entries[k] = {k, k * (uint32_t)sizeof(int32_t), sizeof(int32_t)};
+                                   (int32_t)(cfg_.vt_feedback_table.table_slots - 1), (int32_t)cfg_.vt_feedback_table.list_capacity,
+                                   vt_sample_on_ ? 1 : 0, (int32_t)cfg_.vt_atlas.slots_x, (int32_t)cfg_.vt_cache.max_textures};
+  VkSpecializationMapEntry fs_entries[10];
+  for (uint32_t k = 0; k < 10; k++) fs_entries[k] = {k, k * (uint32_t)sizeof(int32_t), sizeof(int32_t)};
   VkSpecializationInfo fs_spec{};
-  fs_spec.mapEntryCount = 7;
+  fs_spec.mapEntryCount = 10;
   fs_spec.pMapEntries = fs_entries;
   fs_spec.dataSize = sizeof fs_spec_data;
   fs_spec.pData = fs_spec_data;
@@ -1680,6 +1755,10 @@ void Renderer::shutdown() {
   a.vkDeviceWaitIdle(dev_->handle());
   vsm_pass_.shutdown();
   vt_req_.shutdown();
+  vt_atlas_.shutdown();
+  if (vt_sampler_) a.vkDestroySampler(dev_->handle(), vt_sampler_, nullptr);
+  vt_sampler_ = VK_NULL_HANDLE;
+  vt_sample_on_ = false;
   for (uint32_t i = 0; i < mesh_count_; i++) {
     if (meshes_[i].vbuf) a.vkDestroyBuffer(dev_->handle(), meshes_[i].vbuf, nullptr);
     if (meshes_[i].ibuf) a.vkDestroyBuffer(dev_->handle(), meshes_[i].ibuf, nullptr);
@@ -2703,6 +2782,14 @@ void Renderer::record_shadow(VkCommandBuffer cb) {
       vsm_pass_.record_atlas(cb);
       // Ornekleme tablosu: bu karede GECERLI sayfalar (atlas az once cizildi). Kare yuvasinin citi beklendi.
       vsm_pass_.fill_table(vsm_tab_mem_[frame_].mapped, Vec3{iv.m[3][0], iv.m[3][1], iv.m[3][2]});
+    }
+    // VT ornekleme: onceki karenin geri bildirimi (begin_frame'de okundu) onbellege, butceli yuklemeler + bu karenin
+    // dolaylilik tablosu atlasa — sahne gecisinden ONCE (kopyalama render pass icinde olamaz).
+    if (vt_sample_on_ && vt_info_.enabled) {
+      vt_cache_.begin_frame();
+      vt_cache_.request_feedback(vt_keys_, vt_n_);
+      vt_cache_.end_frame();
+      vt_atlas_.record(cb, frame_, vt_cache_, vt_src_);
     }
     if (vt_info_.enabled) vt_req_.record_reset(cb, frame_, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     record_hdr_scene(cb);

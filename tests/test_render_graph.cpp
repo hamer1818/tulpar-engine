@@ -15,6 +15,7 @@
 //   8. cull yolunda Mali en iyi uygulama denetimi (pozitif kontrollu)
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "core/memory/arena.hpp"
@@ -1718,6 +1719,276 @@ ENGINE_TEST(render_graph_vt_feedback_matches_cpu_reference) {
   CHECK(dev.validation_errors() == hata0);
   offscreen_destroy(off);
   dev.shutdown();
+}
+
+// --- 7f. VT ORNEKLEMESI (2026-11-25) -------------------------------------------
+// mesh_vtfb.frag `vt_sample()`: VT malzemesinin albedo'su renderer'in kendi VtCache + VtAtlas'indan (geri bildirim ->
+// onbellek -> butceli yukleme -> dolaylilik tablosu -> atlas). REFERANS: ayni mip-0 icerigi DUZ doku olarak (tek mip,
+// bilinear) ayni renderer'da ayni zemine. Analitik mip'i 0 olan (lod < 0.9, mip sinirindan pay) ve sayfa / doku
+// kenarindan 1 texel uzak her pikselde iki goruntu ayni olmali: ikisi de ayni texel'lerin bilinear'i. Kenar
+// bandi (karo icine kirpma dikisi) ayrica sayilir ve basilir. KONTROL: saglayici mip-0 sayfasini bir sayfa KAYIK
+// doldurur (yanlis yuva/tablo hatasinin taklidi) -> ortusme coker. Ilk kare (yalniz sabit en kaba mip) de basilir.
+namespace {
+constexpr uint32_t kVtSz = 1024, kVtPx = 128;
+struct VtIcerik {
+  bool kayik = false; // KONTROL
+};
+void vt_texel(uint32_t mip, uint32_t i, uint32_t j, uint8_t *o) {
+  // R: texel basina yuksek frekansli desen (mip-0 texel'inin karmasi; kaba mip'ler merkez texel'i alir, yani ilk
+  // karenin bulanik goruntusu ve bilinear / en yakin komsu farki gorunur). G rampa, B sayfa damasi.
+  const float X = ((float)i + 0.5f) * (float)(1u << mip), Y = ((float)j + 0.5f) * (float)(1u << mip);
+  const uint32_t h = ((uint32_t)X * 73856093u) ^ ((uint32_t)Y * 19349663u);
+  o[0] = (uint8_t)(((h >> 7) * 2654435761u) >> 24);
+  o[1] = (uint8_t)(Y * 255.0f / (float)kVtSz);
+  o[2] = ((((uint32_t)X / kVtPx) ^ ((uint32_t)Y / kVtPx)) & 1u) ? 200 : 60;
+  o[3] = 255;
+}
+void vt_fill(void *user, renderer::VtPage p, uint32_t px, uint8_t *rgba) {
+  const VtIcerik *ic = static_cast<const VtIcerik *>(user);
+  const uint32_t mw = (kVtSz / kVtPx) >> p.mip ? (kVtSz / kVtPx) >> p.mip : 1;
+  const uint32_t sx = ic->kayik && p.mip == 0 ? (p.x + 1u) % mw : p.x;
+  for (uint32_t y = 0; y < px; y++)
+    for (uint32_t x = 0; x < px; x++) vt_texel(p.mip, sx * px + x, (uint32_t)p.y * px + y, rgba + (y * px + x) * 4);
+}
+} // namespace
+
+ENGINE_TEST(renderer_vt_sample_matches_plain_texture) {
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  static SystemArena sys;
+  if (!sys.reserve(256u << 20, "vt_ornek")) { CHECK(false); return; }
+  static VkApi api;
+  if (!vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  static Device dev;
+  DeviceConfig dc;
+  dc.validation = true;
+  if (!dev.init(sys, api, dc)) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(dev.caps().device_name)) {
+    dev.shutdown();
+    skip("sanal GPU (Apple Paravirtual): sahne cizilmiyor, VT ornekleme kapisi gercek cihazda olculur");
+    return;
+  }
+  const uint32_t W = 640, H = 360;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
+  const Vec3 goz{0, 1.2f, 6};
+  const Mat4 view = Mat4::look_at(goz, {0, 0, 3}, {0, 1, 0});
+  const Mat4 proj = Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 200.0f);
+  const float olcek = 20.0f;
+  const uint32_t hata0 = dev.validation_errors();
+  static uint8_t duz[kVtSz * kVtSz * 4];
+  for (uint32_t j = 0; j < kVtSz; j++)
+    for (uint32_t i = 0; i < kVtSz; i++) vt_texel(0, i, j, duz + (j * kVtSz + i) * 4);
+  static uint8_t vt_px[W * H * 4], ref_px[W * H * 4], ilk_px[W * H * 4];
+  struct Sonuc {
+    bool ok = false;
+    uint32_t kare = 0, yerlesik = 0, yukleme = 0, sabit = 0;
+  };
+  auto kos = [&](bool kayik, Sonuc *s) {
+    renderer::RendererConfig rc;
+    rc.frames_in_flight = 1;
+    rc.shadow_size = 512;
+    rc.max_draws = 32;
+    rc.post = true;
+    rc.post_width = W;
+    rc.post_height = H;
+    rc.vt_sample = true;
+    rc.vt_page_px = kVtPx;
+    renderer::Renderer ren;
+    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.vt_sampling()) {
+      std::printf("    [bilgi] kurulum: post '%s', vt '%s' / '%s'\n", ren.post().disabled_reason,
+                  ren.vt_feedback_info().disabled_reason, ren.vt_feedback_info().sample_reason);
+      ren.shutdown();
+      return;
+    }
+    static VtIcerik ic;
+    ic.kayik = kayik;
+    ren.set_vt_source(renderer::VtPageSource{vt_fill, &ic});
+    const uint32_t doku = ren.vt_add_texture(kVtSz, kVtSz);
+    const uint8_t beyaz[4] = {255, 255, 255, 255};
+    const renderer::MaterialHandle mvt = ren.create_material(ren.create_texture(beyaz, 1, 1, false), {0.9f, 0.9f, 0.9f});
+    const renderer::MaterialHandle mduz =
+        ren.create_material(ren.create_texture(duz, kVtSz, kVtSz, false, true), {0.9f, 0.9f, 0.9f});
+    CHECK(doku != ~0u && ren.set_material_vt(mvt, doku, kVtSz, kVtSz));
+    renderer::Vertex v[4];
+    uint32_t idx[6];
+    const uint32_t ni = renderer::Renderer::plane(v, idx);
+    const renderer::MeshHandle zemin = ren.create_mesh(v, 4, idx, ni);
+    ren.set_light(normalize(Vec3{0.3f, 1.0f, 0.2f}), {0.3f, 0.3f, 0.3f}, 0.7f);
+    ren.set_render_size(W, H);
+    ren.set_camera(view, proj);
+    Rec rr{&ren};
+    auto ciz = [&](renderer::MaterialHandle m, uint8_t *dst) {
+      ren.begin_frame(0);
+      ren.draw(zemin, m, Mat4::scale({olcek, 1, olcek}), {1, 1, 1});
+      if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before)) return false;
+      if (dst) std::memcpy(dst, ores.pixels, sizeof vt_px);
+      return true;
+    };
+    // Yakinsama: yukleme listesi bosalana kadar (butce 32/kare); ilk kare yalniz sabit en kaba mip'i gorur.
+    for (uint32_t k = 0; k < 24; k++) {
+      if (!ciz(mvt, k == 0 && !kayik ? ilk_px : nullptr)) return;
+      s->kare = k + 1;
+      if (k == 0) s->sabit = ren.vt_atlas().stats().uploaded;
+      s->yukleme += k ? ren.vt_atlas().stats().uploaded : 0;
+      if (k > 2 && ren.vt_atlas().stats().uploaded == 0) break;
+    }
+    if (!ciz(mvt, vt_px)) return;
+    s->yerlesik = ren.vt_cache().resident_count();
+    if (!kayik && !ciz(mduz, ref_px)) return;
+    s->ok = true;
+    ren.shutdown();
+  };
+  // Analitik UV + ileri fark turevi (geri bildirim kapisiyla ayni) -> karsilastirilacak pikseller.
+  const Mat4 inv = inverse(proj * view);
+  auto uv_at = [&](float px, float py, float *u, float *vv) {
+    const Vec4 a = inv * Vec4{px / W * 2 - 1, py / H * 2 - 1, 0.0f, 1};
+    const Vec4 b = inv * Vec4{px / W * 2 - 1, py / H * 2 - 1, 1.0f, 1};
+    const Vec3 p0{a.x / a.w, a.y / a.w, a.z / a.w}, d = Vec3{b.x / b.w, b.y / b.w, b.z / b.w} - p0;
+    if (d.y >= 0) return false;
+    const Vec3 hit = p0 + d * (-p0.y / d.y);
+    if (std::fabs(hit.x) > olcek * 0.5f || std::fabs(hit.z) > olcek * 0.5f) return false;
+    *u = hit.x / olcek + 0.5f;
+    *vv = hit.z / olcek + 0.5f;
+    return true;
+  };
+  struct Kiyas {
+    uint32_t mip0 = 0, ayni = 0, kenar = 0, kenar_ayni = 0, en_buyuk = 0;
+  };
+  auto kiyasla = [&](const uint8_t *a, const uint8_t *b) {
+    Kiyas k;
+    for (uint32_t y = 0; y + 1 < H; y++)
+      for (uint32_t x = 0; x + 1 < W; x++) {
+        float u0, v0, u1, v1, u2, v2;
+        if (!uv_at(x + 0.5f, y + 0.5f, &u0, &v0) || !uv_at(x + 1.5f, y + 0.5f, &u1, &v1) || !uv_at(x + 0.5f, y + 1.5f, &u2, &v2))
+          continue;
+        const float dxu = (u1 - u0) * kVtSz, dxv = (v1 - v0) * kVtSz, dyu = (u2 - u0) * kVtSz, dyv = (v2 - v0) * kVtSz;
+        const float lod = 0.5f * std::log2(std::fmax(dxu * dxu + dxv * dxv, dyu * dyu + dyv * dyv));
+        if (lod >= 0.9f) continue;
+        // Sayfa (ve doku) kenarina uzaklik, texel: bilinear'in komsu texel'i kenarin otesindeyse "kenar" bandi.
+        const float tu = u0 * kVtSz, tv = v0 * kVtSz;
+        const float du = std::fabs(tu - std::round(tu / kVtPx) * kVtPx), dv = std::fabs(tv - std::round(tv / kVtPx) * kVtPx);
+        const bool kenarda = du < 1.0f || dv < 1.0f;
+        const uint8_t *p = a + (y * W + x) * 4, *q = b + (y * W + x) * 4;
+        uint32_t fark = 0;
+        for (int c = 0; c < 3; c++) {
+          const uint32_t f = p[c] > q[c] ? p[c] - q[c] : q[c] - p[c];
+          fark = f > fark ? f : fark;
+        }
+        if (kenarda) {
+          k.kenar++;
+          k.kenar_ayni += fark <= 2;
+          continue;
+        }
+        k.mip0++;
+        k.ayni += fark <= 2;
+        k.en_buyuk = fark > k.en_buyuk ? fark : k.en_buyuk;
+      }
+    return k;
+  };
+  Sonuc s, ks;
+  kos(false, &s);
+  CHECK(s.ok);
+  if (!s.ok) { offscreen_destroy(off); dev.shutdown(); return; }
+  const Kiyas k = kiyasla(vt_px, ref_px);
+  const Kiyas ki = kiyasla(ilk_px, ref_px);
+  static uint8_t vt_kayit[W * H * 4];
+  std::memcpy(vt_kayit, vt_px, sizeof vt_px);
+  kos(true, &ks);
+  CHECK(ks.ok);
+  const Kiyas kk = kiyasla(vt_px, ref_px);
+  auto yz = [](uint32_t a, uint32_t b) { return b ? 100.0 * a / b : 0.0; };
+  std::printf("    [bilgi] %s %ux%u, sanal %u^2 / sayfa %u: %u karede yakinsadi (ilk kare %u sabit sayfa, sonra %u yukleme, "
+              "%u yerlesik); mip-0 pikseli %u, duz dokuyla ayni (<=2) %u (%.2f%%), en buyuk fark %u; kenar bandi %u, ayni %u "
+              "(%.1f%%); ilk kare (yalniz en kaba mip) ayni %.1f%%; KONTROL (kayik sayfa) ayni %.1f%%; dogrulama hatasi %u\n",
+              dev.caps().device_name, W, H, kVtSz, kVtPx, s.kare, s.sabit, s.yukleme, s.yerlesik, k.mip0, k.ayni,
+              yz(k.ayni, k.mip0), k.en_buyuk, k.kenar, k.kenar_ayni, yz(k.kenar_ayni, k.kenar), yz(ki.ayni, ki.mip0),
+              yz(kk.ayni, kk.mip0), dev.validation_errors() - hata0);
+  if (const char *dir = std::getenv("TULPAR_ENGINE_OUT")) {
+    char yol[512];
+    std::snprintf(yol, sizeof yol, "%s/vt_ornek.ppm", dir);
+    if (FILE *f = std::fopen(yol, "wb")) {
+      std::fprintf(f, "P6\n%u %u\n255\n", W, H * 2);
+      for (uint32_t i = 0; i < W * H * 2; i++) std::fwrite((i < W * H ? vt_kayit : ref_px - W * H * 4) + i * 4, 1, 3, f);
+      std::fclose(f);
+    }
+  }
+  CHECK(s.sabit == 1 && s.kare < 24 && s.yerlesik > 1);      // en kaba mip ilk karede, sonra yakinsar
+  CHECK(k.mip0 > W * H / 8);                                 // olcum anlamli: ekranin en az 1/8'i mip 0
+  CHECK(k.ayni * 1000 >= k.mip0 * 999);                      // mip-0 piksellerin %99,9'u duz dokuyla ayni
+  CHECK(ki.ayni * 2 < ki.mip0);                              // ilk kare bulanik: kiyas gercekten cozunurluk goruyor
+  CHECK(kk.ayni * 2 < kk.mip0);                              // kayik sayfa: kiyas gercekten sayfa icerigini goruyor
+  CHECK(dev.validation_errors() == hata0);
+  offscreen_destroy(off);
+  dev.shutdown();
+}
+
+// --- 7g. VT OLMAYAN MALZEME geri bildirim boru hattina girmez (Tuzaklar 8ex, 2026-11-25) ---------------------
+// materials_ alloc_array_zeroed ile ayrilir; kurucu calismadigi icin vt_id'nin ~0u varsayilani yoktu ve 0 = "VT dokusu
+// 0" sayiliyordu: geri bildirim acikken HER statik cizim mesh_vtfb'ye gidiyor, boyu 0 dokudan sahte (0, 0, 0) anahtari
+// yaziyordu (renderer_device_cost_vt_feedback'te 109 tekil sayfa; duzeltmeden sonra 108). Kapi: yalniz duz malzemeli
+// zemin -> 0 anahtar. KONTROL: ayni malzeme set_material_vt ile VT yapilinca anahtar gelir (kapi gercekten okuyor).
+ENGINE_TEST(render_graph_vt_feedback_ignores_plain_materials) {
+  OrtakGpu &g = ortak_gpu();
+  if (!loader_ok()) { skip("Vulkan loader yok"); return; }
+  if (!g.ok) { skip("Vulkan cihazi yok"); return; }
+  if (test::gpu_is_virtual(g.dev.caps().device_name)) {
+    skip("sanal GPU (Apple Paravirtual): sahne cizilmiyor, geri bildirim kapisi gercek cihazda olculur");
+    return;
+  }
+  const uint32_t W = 160, H = 90;
+  OffscreenConfig oc;
+  oc.srgb = true;
+  oc.width = W;
+  oc.height = H;
+  OffscreenResult ores;
+  OffscreenTarget *off = offscreen_create(g.dev, g.sys, oc, &ores);
+  if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); return; }
+  uint32_t anahtar[2] = {0, 0};
+  for (int vt = 0; vt < 2; vt++) {
+    renderer::RendererConfig rc;
+    rc.frames_in_flight = 1;
+    rc.shadow_size = 256;
+    rc.max_draws = 8;
+    rc.post = true;
+    rc.post_width = W;
+    rc.post_height = H;
+    rc.vt_feedback = true;
+    renderer::Renderer ren;
+    if (!ren.init(g.dev, g.sys, offscreen_render_pass(off), rc) || !ren.vt_feedback_info().enabled) {
+      std::printf("    [bilgi] kurulum: vt '%s'\n", ren.vt_feedback_info().disabled_reason);
+      CHECK(false);
+      ren.shutdown();
+      break;
+    }
+    const uint8_t beyaz[4] = {255, 255, 255, 255};
+    const renderer::MaterialHandle m = ren.create_material(ren.create_texture(beyaz, 1, 1, false), {0.8f, 0.8f, 0.8f});
+    if (vt) CHECK(ren.set_material_vt(m, 0, 4096, 4096));
+    renderer::Vertex v[4];
+    uint32_t idx[6];
+    const renderer::MeshHandle zemin = ren.create_mesh(v, 4, idx, renderer::Renderer::plane(v, idx));
+    ren.set_render_size(W, H);
+    ren.set_camera(Mat4::look_at({0, 4, 6}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
+    Rec rr{&ren};
+    for (int k = 0; k < 2; k++) {
+      ren.begin_frame(0);
+      ren.draw(zemin, m, Mat4::scale({20, 1, 20}), {1, 1, 1});
+      ren.draw(zemin, Mat4::translate({0, 0.5f, 0}) * Mat4::scale({4, 1, 4}), {1, 1, 1}); // varsayilan malzeme
+      CHECK(offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_before));
+    }
+    ren.begin_frame(0);
+    ren.vt_feedback(&anahtar[vt]);
+    ren.shutdown();
+  }
+  std::printf("    [bilgi] %s: duz malzeme + varsayilan malzeme -> %u anahtar; KONTROL (zemin VT) -> %u anahtar\n",
+              g.dev.caps().device_name, anahtar[0], anahtar[1]);
+  CHECK(anahtar[0] == 0);
+  CHECK(anahtar[1] > 0);
+  offscreen_destroy(off);
 }
 
 // --- 8. cull yolunda Mali en iyi uygulama denetimi -------------------------
