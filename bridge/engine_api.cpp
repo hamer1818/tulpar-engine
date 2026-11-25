@@ -33,6 +33,7 @@
 #include "bridge/bridge_host.hpp"
 #include "content/device_tier.hpp"
 #include "content/font.hpp"
+#include "content/text_shape.hpp"
 #include "content/gltf.hpp"
 #include "content/mesh_import.hpp"
 #include "content/morph.hpp"
@@ -473,6 +474,17 @@ struct Bridge {
   uint32_t alloc_kontrol = 0;
   content::Font font;
   bool font_ok = false;
+  char font_path[512] = {};
+  // SHAPING'LI FONT (2026-11-25, KOPRU §metin): oyunun ceviri tablosu teng_text_table_add ile toplanir,
+  // teng_text_table_load o metinlerin gliflerinden ShapedFont kurar (Arapca bitisik bicim, sagdan sola sira). HUD
+  // metninin BUTUN glifleri bu atlastaysa shaping'le cizilir, degilse kod noktasi fontuna (font) duser.
+  content::ShapedFont shaped;
+  bool shaped_ok = false;
+  static constexpr uint32_t kTextTableBytes = 64u << 10, kTextTableMax = 512;
+  char text_table[kTextTableBytes];
+  uint32_t text_table_bytes = 0, text_table_n = 0;
+  uint32_t text_table_off[kTextTableMax];
+  uint64_t shaped_draws = 0, shaped_fallbacks = 0;
   bridge::BridgeHost host;
   bool host_open = false;
   // mesh'ler
@@ -1497,7 +1509,13 @@ void render_frame() {
       else b.ren.ui_quad(c.x, c.y, c.w, c.h, c.u0, c.v0, c.u1, c.v1, c.rgba);
       b.image_draws++;
       b.ren.ui_set_atlas(b.font_ok ? b.font.atlas() : renderer::MaterialHandle{});
-    } else if (b.font_ok) b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
+    } else if (b.shaped_ok && b.shaped.draw_covered(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale)) {
+      b.shaped_draws++;
+      b.ren.ui_set_atlas(b.font_ok ? b.font.atlas() : renderer::MaterialHandle{}); // ui_rect fontun beyaz texel'ini ister
+    } else if (b.font_ok) {
+      if (b.shaped_ok) b.shaped_fallbacks++;
+      b.font.draw(b.ren, c.x, c.y, b.hud_text + c.text_off, c.rgba, c.scale);
+    }
   }
   if (clip_n > 0) { BERR("teng_ui_clip: kare sonunda %u kirpma acik kaldi (teng_ui_clip_end eksik)", clip_n); }
   b.ren.ui_clip_off();
@@ -1925,6 +1943,7 @@ int teng_init(const char *title, int width, int height) {
     std::snprintf(cands[nc++], sizeof cands[0], "/system/fonts/DroidSans.ttf");      // eski Android
     for (uint32_t i = 0; i < nc && !b.font_ok; i++) {
       b.font_ok = b.font.load(b.sys, b.ren, cands[i], ui_px > 12 ? ui_px : 12);
+      if (b.font_ok) std::snprintf(b.font_path, sizeof b.font_path, "%s", cands[i]);
       BDBG("font adayi %u/%u: %s -> %s", i + 1, nc, cands[i], b.font_ok ? "YUKLENDI" : "yok");
     }
     if (b.font_ok) BINFO("font: %.0f px (HUD metni acik)", b.font.height());
@@ -5203,7 +5222,52 @@ void teng_image_cell(int h, int index, double x, double y, double w, double hh, 
   teng_image_uv(h, x, y, w, hh, u0, v0, u1, v1, color);
 }
 
-double teng_text_width(const char *s, double scale) { return g && g->font_ok && s ? g->font.text_width(s, (float)(scale > 0 ? scale : 1.0)) : 0; }
+// HUD metin genisligi: cizimle AYNI kural (shaping'li atlas metni tamamen kapsiyorsa onun genisligi, degilse font).
+static float hud_text_width(Bridge &b, const char *s, float sc) {
+  float w = 0;
+  if (b.shaped_ok && b.shaped.width_covered(s, sc, &w)) return w;
+  return b.font_ok ? b.font.text_width(s, sc) : 0.0f;
+}
+double teng_text_width(const char *s, double scale) { return g && s ? hud_text_width(*g, s, (float)(scale > 0 ? scale : 1.0)) : 0; }
+int teng_text_table_add(const char *s) {
+  if (!ready("teng_text_table_add") || !s) return false;
+  Bridge &b = *g;
+  if (b.shaped_ok) { BERR("teng_text_table_add: tablo zaten yuklendi (teng_text_table_load'dan ONCE ekle)"); return false; }
+  const size_t n = std::strlen(s) + 1;
+  if (b.text_table_n >= Bridge::kTextTableMax || b.text_table_bytes + n > Bridge::kTextTableBytes) {
+    BERR("teng_text_table_add: metin tablosu dolu (%u metin / %u bayt)", Bridge::kTextTableMax, Bridge::kTextTableBytes);
+    return false;
+  }
+  std::memcpy(b.text_table + b.text_table_bytes, s, n);
+  b.text_table_off[b.text_table_n++] = b.text_table_bytes;
+  b.text_table_bytes += (uint32_t)n;
+  return true;
+}
+int teng_text_table_load(void) {
+  CALLF("teng_text_table_load", "%u", g ? g->text_table_n : 0u);
+  if (!ready("teng_text_table_load")) return false;
+  Bridge &b = *g;
+  if (b.in_frame) { BERR("teng_text_table_load: kare icinde (yukleme arenadan ayirir; kare disinda cagir)"); return false; }
+  if (b.shaped_ok) { BERR("teng_text_table_load: zaten yuklendi"); return false; }
+  if (!b.font_ok) { BERR("teng_text_table_load: font yok (HUD metni kapali)"); return false; }
+  if (b.text_table_n == 0) { BERR("teng_text_table_load: tablo bos (once teng_text_table_add)"); return false; }
+  const char *ptrs[Bridge::kTextTableMax];
+  for (uint32_t i = 0; i < b.text_table_n; i++) ptrs[i] = b.text_table + b.text_table_off[i];
+  b.shaped_ok = b.shaped.load(b.sys, b.ren, b.font_path, b.font.height(), ptrs, b.text_table_n, 1024);
+  if (!b.shaped_ok) { BERR("teng_text_table_load: shaping'li font kurulamadi (%s)", b.font_path); return false; }
+  BINFO("metin tablosu: %u metin, %u glif atlasta (shaping acik, %s)", b.text_table_n, b.shaped.atlas_glyphs(), b.font_path);
+  return true;
+}
+int teng_text_shaped_stat(int which) {
+  if (!ready("teng_text_shaped_stat")) return 0;
+  const Bridge &b = *g;
+  switch (which) {
+    case 0: return (int)b.shaped_draws;
+    case 1: return (int)b.shaped_fallbacks;
+    case 2: return b.shaped_ok ? (int)b.shaped.atlas_glyphs() : 0;
+    default: return 0;
+  }
+}
 
 // --- anlik-kip (immediate mode) arayuz -------------------------------------------
 // Yeni cizim yolu YOK: her widget teng_rect + teng_text kuyruklar. Durum tek
@@ -5264,7 +5328,7 @@ static float ui_scale(double h) {
 // Ayirma yok: kirpilmis metin yigindaki sabit tamponda.
 constexpr float kUiTextPad = 8.0f, kUiMinShrink = 0.55f;
 static const char *ui_fit(const char *s, float avail, float *scale, char *buf, size_t cap) {
-  const float w1 = g->font.text_width(s, 1.0f);
+  const float w1 = hud_text_width(*g, s, 1.0f);
   if (w1 <= 0 || avail <= 0 || w1 * *scale <= avail) return s;
   const float floor_sc = *scale * kUiMinShrink;
   g->ui.text_shrunk++;
@@ -5304,7 +5368,7 @@ static void ui_text_box(const char *s, double x, double y, double w, double h, i
   char buf[256];
   const float avail = avail_w >= 0 ? avail_w : (float)w - 2.0f * kUiTextPad;
   s = ui_fit(s, avail, &scale, buf, sizeof buf);
-  const float tw = g->font.text_width(s, scale), th = g->font.height() * scale;
+  const float tw = hud_text_width(*g, s, scale), th = g->font.height() * scale;
   float tx = (float)x + 10.0f;
   if (align == 0) tx = (float)x + ((float)w - tw) * 0.5f;
   else if (align == 2) tx = (float)(x + w) - tw - 10.0f;
@@ -5509,7 +5573,7 @@ double teng_ui_slider(const char *label, double x, double y, double w, double h,
   std::snprintf(val, sizeof val, (max_v - min_v) >= 10.0 ? "%.0f" : "%.2f", v);
   const float sc = ui_scale(h * 0.62);
   // Etiket deger yazisinin solunda kalsin: ikisi ayni satirda.
-  const float val_w = g->font_ok ? g->font.text_width(val, sc) : 0.0f;
+  const float val_w = hud_text_width(*g, val, sc);
   ui_text_box(label, x, y, w, h * 0.55, en ? u.c_text : ui_shade(u.c_text, 0.55), 1, sc, (float)w - 20.0f - val_w - 12.0f);
   ui_text_box(val, x, y, w, h * 0.55, en ? u.c_accent : ui_shade(u.c_accent, 0.6), 2, sc);
   return v;

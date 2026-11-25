@@ -1855,3 +1855,32 @@ Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).
 
 Kalıp: oyun `karakter_kosesi() > karakter_butcesi()` görünce kalabalık modellerin LOD'unu kısaltır (`model_lod(m, 8, 14)`).
 
+
+## 23. Çeviri metni ve shaping — `eng_text_table_*` (2026-11-25)
+
+HUD fontu (`content::Font`) kod noktasıyla dizinlenir: ASCII + Latin-1 + Türkçe. Arapça/Farsça bitişik biçimler,
+lam-elif, sağdan sola sıra ise fontun **glif kimliği** ister (`content/text_shape.hpp`, kb_text_shape). Çeviri metni
+motorda yok: oyun kendi yerelleştirme tablosunu (topluluk çevirileri) yüklemede verir, motor o metinlerin gliflerini
+atlasa koyar.
+
+| C / SPEC | Tulpar | ne yapar |
+|---|---|---|
+| `eng_text_table_add(s) -> bool` | `metin_tablosu_ekle` | UTF-8 metni tabloya ekler. Yüklemeden ÖNCE, kare dışında. Dolunca (512 metin / 64 KB) HATA + false |
+| `eng_text_table_load() -> bool` | `metin_tablosu_yukle` | Tablonun gliflerinden shaping'li atlası kurar (HUD fontuyla aynı dosya ve boy, 1024² atlas). Bir kez, kare dışında |
+| `eng_text_shaped_stat(k) -> int` | `shaping_sayaci` | 0 shaping'le çizilen metin, 1 tablo yüklüyken eski fonta düşen metin, 2 atlastaki glif |
+
+Kural: `eng_text` (ve widget etiketleri) metnin **bütün** glifleri shaping'li atlastaysa onunla çizer, biri bile yoksa
+eski fonta düşer (o fontun '?' kuralıyla). `eng_text_width` ve widget hizalaması aynı kuralla ölçer. Tabloda olmayan
+Latin metin bugünkü gibi çizilir — mevcut oyunlar değişmez.
+
+```tulpar
+metin_tablosu_ekle("سلام عليكم");
+metin_tablosu_ekle("שלום עולם");
+metin_tablosu_yukle();
+// ...kare içinde:
+yazi("سلام عليكم", 40, 30, 2.0, BEYAZ);
+```
+
+Sınırlar: "…" ile kısaltma (sığmayan widget etiketi) kod noktası sınırında keser ve eski fontu kullanır — RTL metinde
+yanlış uçtan keser; satır kırma yok; editör (ImGui) bağlı değil. Kapı `bridge_text_table_shapes_arabic` (sayaçlar +
+eski fontun '?' sayacına shaping'li çizimin bir şey eklemediği + piksel genişliği), `shaping_rtl_paragraph_word_order`.

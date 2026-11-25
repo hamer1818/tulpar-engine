@@ -1129,6 +1129,13 @@ func eylem_basildi(): bool { return eng_key_pressed("SPACE") || eng_stick_action
 // ---- HUD ----------------------------------------------------------------------
 func yazi(s, x, y, olcek, renk_) { eng_text(s, x, y, olcek, renk_); }
 func text_e(s, x, y, scale, color) { eng_text(s, x, y, scale, color); }
+// CEVIRI METNI (Arapca, Farsca, Ibranice...): metin_tablosu_ekle ile topla, metin_tablosu_yukle ile bir kez kur (kare
+// disinda). Sonra yazi() o metinleri shaping'le (bitisik harf, sagdan sola) cizer; tabloda olmayan metin eski fontla.
+func metin_tablosu_ekle(str s): bool { return eng_text_table_add(s); }
+func text_table_add_e(str s): bool { return eng_text_table_add(s); }
+func metin_tablosu_yukle(): bool { return eng_text_table_load(); }
+func text_table_load_e(): bool { return eng_text_table_load(); }
+func shaping_sayaci(int ne): int { return eng_text_shaped_stat(ne); }
 func dikdortgen(x, y, w, h, renk_) { eng_rect(x, y, w, h, renk_); }
 // Arayuz RESMI (PNG/JPG, sRGB, 32 yuva): resim_yukle -> tutamac (-1 hata); renk tint carpani (BEYAZ = kendisi).
 func resim_yukle(yol): int { return eng_image_load(yol); }

@@ -317,7 +317,10 @@ SPEC = [
     ("eng_text_apply", "str", [("old", "str")], "Yazilanlari METNE uygular ve tamponu bosaltir: silme son UTF-8 karakteri siler, enter metne girmez (eng_text_input_enter sayar). Metin kutusu her kare cagirir."),
     ("eng_text_input_enter", "int", [], "Son eng_text_apply'da basilan enter sayisi."),
     ("eng_text_pop", "str", [("s", "str")], "UTF-8 metnin SON KARAKTERINI siler (silme tusu; cok baytli harf tek seferde gider)."),
-    ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi."),
+    ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi (eng_text ile ayni kural: shaping'li tablo metni kapsiyorsa onun genisligi)."),
+    ("eng_text_table_add", "bool", [("s", "str")], "CEVIRI METNI ekler (UTF-8; Arapca, Farsca, Ibranice... dahil). eng_text_table_load'dan ONCE, kare disinda. Tablo dolunca (512 metin / 64 KB) HATA + false."),
+    ("eng_text_table_load", "bool", [], "Eklenen metinlerin gliflerinden SHAPING'LI fontu kurar (OpenType bitisik bicimler, sagdan sola sira; HUD fontuyla ayni dosya ve boy). Bir kez, kare disinda. Sonra eng_text: metnin butun glifleri bu atlastaysa shaping'le, degilse eski fontla cizilir."),
+    ("eng_text_shaped_stat", "int", [("which", "int")], "Shaping sayaci: 0 shaping'le cizilen metin, 1 tablo yuklu iken eski fonta dusen metin, 2 atlastaki glif sayisi."),
     # ses
     ("eng_audio_open", "bool", [("rate", "int"), ("channels", "int")], "Ses cihazini acar (0,0 = varsayilan 48 kHz stereo). Acilamazsa false: oyun sessiz devam eder, hata loglanir."),
     ("eng_audio_close", "void", [], "Ses cihazini kapatir (calan sesler durur)."),

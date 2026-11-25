@@ -570,6 +570,10 @@ const char *teng_text_pop(const char *s); // UTF-8 son karakteri sil (silme tusu
 const char *teng_text_apply(const char *old); // yazilanlari metne uygula (silme dahil), tamponu bosalt
 int teng_text_input_enter(void);              // son apply'da enter sayisi
 double teng_text_width(const char *s, double scale);
+// Ceviri metni tablosu + shaping'li font (OpenType bitisik bicim, bidi). add'ler ONCE, load bir kez, kare disinda.
+int teng_text_table_add(const char *s);       // 1 eklendi, 0 hata (dolu / zaten yuklu)
+int teng_text_table_load(void);               // 1 kuruldu; sonra eng_text kapsanan metni shaping'le cizer
+int teng_text_shaped_stat(int which);         // 0 shaping'le cizilen, 1 eski fonta dusen, 2 atlas glif sayisi
 
 // --- anlik-kip (immediate mode) arayuz: menu / ayar / duraklat ---------------
 // Motorda YENI cizim yolu YOK: her sey teng_rect + teng_text uzerine kurulur.
