@@ -252,7 +252,7 @@ struct RendererConfig {
   uint32_t vt_page_px = 128; // VtCache sayfa kenari (texel)
   // OLCUM KIPI (urun yolunda 0): 1 = geri bildirim boru hatti ama kodu elenmis (VT_FB 0), 2 = anahtar hesaplanir, SSBO
   // islemi yok. Mali-G72'deki "sabit bedelin" (+16 ms) kaynagini ayirmak icin (renderer_device_cost_vt_feedback); o sayi
-  // butun statik cizimleri kapsiyordu (Tuzaklar 8ex), duzeltmeden sonra yeniden olculecek.
+  // butun statik cizimleri kapsiyordu (Tuzaklar 8ex); duzeltmeden sonra tam geri bildirim +1,9 / +4,3 ms.
   uint32_t vt_feedback_probe = 0;
   // VT ORNEKLEME — VARSAYILAN KAPALI; vt_feedback'i ister (onu kendisi acar). Acikken renderer kendi VtCache + VtAtlas'ini
   // tutar: bir karenin geri bildirimi bir sonraki karede onbellege beslenir, butceli yuklemeler (VtPageSource'tan) sahne

@@ -2624,7 +2624,10 @@ ENGINE_TEST(renderer_device_cost_csm_vs_vsm) {
 }
 
 // VT GERI BILDIRIMI CIHAZ MALIYETI (OLCUM): ayni sahne (1080p post, VT malzemeli zemin + 48 kutu), geri bildirim
-// kapali / acik (mesh_vtfb.frag: 1/16 piksel deseninde atomik tablo). 15 kare medyani, duvar saati.
+// kapali / acik (mesh_vtfb.frag: 1/16 piksel deseninde atomik tablo). Duvar saati.
+// Kipler DONUSUMLU olculur (R tur x 4 kip, her turda kip basina kisa blok; kip basina butun orneklerin medyani): kipler
+// sirayla bloklar halinde olculdugunde telefonun saat/isi kaymasi farka giriyordu — Mali-G72'de ayni ikiliyle iki
+// koşumda taban 43,8 / 28,8 ms, "tam" -1,2 / +15,6 ms (2026-11-25). Tur basina medyanlar da basilir (yayilim gorunsun).
 ENGINE_TEST(renderer_device_cost_vt_feedback) {
   if (!loader_ok()) { skip("Vulkan loader yok"); return; }
   static SystemArena sys;
@@ -2645,62 +2648,75 @@ ENGINE_TEST(renderer_device_cost_vt_feedback) {
   OffscreenTarget *off = offscreen_create(dev, sys, oc, &ores);
   if (!off) { CHECK(false); std::printf("    [bilgi] offscreen: %s\n", ores.error); dev.shutdown(); return; }
   // Kip: 0 geri bildirim kapali, 1 boru hatti ama kod elenmis, 2 anahtar hesaplanir / SSBO yok, 3 tam.
-  double ms[4] = {0, 0, 0, 0};
+  constexpr uint32_t R = 5, N = 5; // tur, tur basina olculen kare
+  static uint64_t t[4][R * N];
+  double tur_ms[4][R] = {};
   uint32_t anahtar = 0;
-  for (int kip = 0; kip < 4; kip++) {
-    renderer::Renderer ren;
-    renderer::RendererConfig rc;
-    rc.frames_in_flight = 1;
-    rc.post = true;
-    rc.post_width = W;
-    rc.post_height = H;
-    rc.vt_feedback = kip != 0;
-    rc.vt_feedback_probe = kip == 1 ? 1u : kip == 2 ? 2u : 0u;
-    if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip != 0 && !ren.vt_feedback_info().enabled)) {
-      std::printf("    [bilgi] kip %d kurulamadi: post '%s', vt '%s'\n", kip, ren.post().disabled_reason,
-                  ren.vt_feedback_info().disabled_reason);
-      CHECK(false);
-      ren.shutdown();
-      break;
-    }
-    renderer::Vertex v[24];
-    uint32_t idx[36];
-    uint32_t n = renderer::Renderer::cube(v, idx);
-    renderer::MeshHandle cube = ren.create_mesh(v, 24, idx, n);
-    n = renderer::Renderer::plane(v, idx);
-    renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
-    const uint8_t beyaz[4] = {255, 255, 255, 255};
-    const renderer::MaterialHandle m = ren.create_material(ren.create_texture(beyaz, 1, 1, false), {0.8f, 0.8f, 0.8f});
-    CHECK(ren.set_material_vt(m, 0, 16384, 16384));
-    ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.3f}), {0.10f, 0.10f, 0.12f}, 0.9f);
-    ren.set_shadow_volume({0, 1.0f, -6}, 16.0f, 60.0f);
-    ren.set_camera(Mat4::look_at({0, 3, 12}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
-    Rec rr{&ren};
-    auto kare = [&]() -> uint64_t {
-      ren.begin_frame(0);
-      ren.draw(plane, m, Mat4::scale({40, 1, 40}), {0.8f, 0.8f, 0.8f});
-      for (uint32_t i = 0; i < 48; i++) {
-        const float fx = (float)(i % 8) - 3.5f, fz = (float)(i / 8) * -2.0f;
-        ren.draw(cube, Mat4::translate(Vec3{fx * 2.2f, 1.5f, fz}) * Mat4::scale(Vec3{2.0f, 3.0f + (float)(i % 3), 2.0f}),
-                 {0.7f, 0.5f, 0.4f});
+  bool ok = true;
+  for (uint32_t tur = 0; tur < R && ok; tur++) {
+    for (int kip = 0; kip < 4 && ok; kip++) {
+      renderer::Renderer ren;
+      renderer::RendererConfig rc;
+      rc.frames_in_flight = 1;
+      rc.post = true;
+      rc.post_width = W;
+      rc.post_height = H;
+      rc.vt_feedback = kip != 0;
+      rc.vt_feedback_probe = kip == 1 ? 1u : kip == 2 ? 2u : 0u;
+      if (!ren.init(dev, sys, offscreen_render_pass(off), rc) || !ren.post().enabled || (kip != 0 && !ren.vt_feedback_info().enabled)) {
+        std::printf("    [bilgi] kip %d kurulamadi: post '%s', vt '%s'\n", kip, ren.post().disabled_reason,
+                    ren.vt_feedback_info().disabled_reason);
+        CHECK(false);
+        ren.shutdown();
+        ok = false;
+        break;
       }
-      const uint64_t t0 = platform::now_ns();
-      if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) return 0;
-      return platform::now_ns() - t0;
-    };
-    for (int i = 0; i < 3; i++) kare();
-    constexpr uint32_t R = 15;
-    uint64_t t[R];
-    for (uint32_t r = 0; r < R; r++) t[r] = kare();
-    std::sort(t, t + R);
-    ms[kip] = (double)t[R / 2] / 1e6;
-    if (kip == 3) { ren.begin_frame(0); ren.vt_feedback(&anahtar); }
-    ren.shutdown();
+      renderer::Vertex v[24];
+      uint32_t idx[36];
+      uint32_t n = renderer::Renderer::cube(v, idx);
+      renderer::MeshHandle cube = ren.create_mesh(v, 24, idx, n);
+      n = renderer::Renderer::plane(v, idx);
+      renderer::MeshHandle plane = ren.create_mesh(v, 4, idx, n);
+      const uint8_t beyaz[4] = {255, 255, 255, 255};
+      const renderer::MaterialHandle m = ren.create_material(ren.create_texture(beyaz, 1, 1, false), {0.8f, 0.8f, 0.8f});
+      CHECK(ren.set_material_vt(m, 0, 16384, 16384));
+      ren.set_light(normalize(Vec3{0.4f, 1.0f, 0.3f}), {0.10f, 0.10f, 0.12f}, 0.9f);
+      ren.set_shadow_volume({0, 1.0f, -6}, 16.0f, 60.0f);
+      ren.set_camera(Mat4::look_at({0, 3, 12}, {0, 0, 0}, {0, 1, 0}), Mat4::perspective(1.0f, (float)W / (float)H, 0.1f, 100.0f));
+      Rec rr{&ren};
+      auto kare = [&]() -> uint64_t {
+        ren.begin_frame(0);
+        ren.draw(plane, m, Mat4::scale({40, 1, 40}), {0.8f, 0.8f, 0.8f});
+        for (uint32_t i = 0; i < 48; i++) {
+          const float fx = (float)(i % 8) - 3.5f, fz = (float)(i / 8) * -2.0f;
+          ren.draw(cube, Mat4::translate(Vec3{fx * 2.2f, 1.5f, fz}) * Mat4::scale(Vec3{2.0f, 3.0f + (float)(i % 3), 2.0f}),
+                   {0.7f, 0.5f, 0.4f});
+        }
+        const uint64_t t0 = platform::now_ns();
+        if (!offscreen_render_custom(off, oc, rec_main, &rr, &ores, rec_shadow)) return 0;
+        return platform::now_ns() - t0;
+      };
+      for (int i = 0; i < 2; i++) kare();
+      uint64_t b[N];
+      for (uint32_t r = 0; r < N; r++) b[r] = t[kip][tur * N + r] = kare();
+      std::sort(b, b + N);
+      tur_ms[kip][tur] = (double)b[N / 2] / 1e6;
+      if (kip == 3 && tur == R - 1) { ren.begin_frame(0); ren.vt_feedback(&anahtar); }
+      ren.shutdown();
+    }
   }
-  std::printf("    [bilgi] %s, %ux%u post: VT geri bildirimi kapali %.3f ms; boru hatti (kod elenmis) %+.3f; anahtar hesabi "
-              "(SSBO yok) %+.3f; tam %+.3f ms; son karede tekil sayfa %u\n",
-              dev.caps().device_name, W, H, ms[0], ms[1] - ms[0], ms[2] - ms[0], ms[3] - ms[0], anahtar);
-  CHECK(ms[0] > 0 && ms[1] > 0 && ms[2] > 0 && ms[3] > 0 && anahtar > 0);
+  double ms[4];
+  for (int k = 0; k < 4; k++) {
+    std::sort(t[k], t[k] + R * N);
+    ms[k] = (double)t[k][R * N / 2] / 1e6;
+  }
+  std::printf("    [bilgi] %s, %ux%u post, %u tur x %u kare donusumlu: VT geri bildirimi kapali %.3f ms; boru hatti (kod "
+              "elenmis) %+.3f; anahtar hesabi (SSBO yok) %+.3f; tam %+.3f ms; son karede tekil sayfa %u\n",
+              dev.caps().device_name, W, H, R, N, ms[0], ms[1] - ms[0], ms[2] - ms[0], ms[3] - ms[0], anahtar);
+  for (uint32_t tur = 0; tur < R; tur++)
+    std::printf("    [bilgi]   tur %u: kapali %.2f, kod elenmis %+.2f, anahtar %+.2f, tam %+.2f ms\n", tur, tur_ms[0][tur],
+                tur_ms[1][tur] - tur_ms[0][tur], tur_ms[2][tur] - tur_ms[0][tur], tur_ms[3][tur] - tur_ms[0][tur]);
+  CHECK(ok && ms[0] > 0 && ms[1] > 0 && ms[2] > 0 && ms[3] > 0 && anahtar > 0);
   offscreen_destroy(off);
   dev.shutdown();
 }

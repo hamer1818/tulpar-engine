@@ -2919,7 +2919,7 @@ VT'nin damasını gösterdi: düz malzeme de VT'den örnekleniyordu. **Kök:** `
 ayrılıyor; `Material::vt_id = ~0u` bir üye varsayılanı, ama kurucu hiç çalışmadığı için alan **0** kalıyordu ve 0 = "VT dokusu 0".
 #188'den (2026-11-23) beri geri bildirim açıkken **her statik çizim** `mesh_vtfb` boru hattından çizildi ve boyu 0 dokudan sahte
 (0, 0, 0) anahtarı yazdı. Mali-G72'de ölçülen "VT çizimlerine özel" maliyet (+16,1 ms, "sebebi açık sabit bedel") aslında bütün
-sahneyi kapsıyordu — o sayılar geçersiz (DURUM Faz 6). Hiçbir kapı kırmızı olmadı: geri bildirim kapısı yalnız VT zemini çiziyordu,
+sahneyi kapsıyordu — o sayılar geçersiz (DURUM Faz 6; düzeltmeden sonra dönüşümlü ölçümle tam geri bildirim +1,9 / +4,3 ms). Hiçbir kapı kırmızı olmadı: geri bildirim kapısı yalnız VT zemini çiziyordu,
 maliyet testi küplerin hangi boru hattından gittiğine bakmıyordu. **Düzeltme:** `create_material_impl` yuvayı `m = Material{}` ile
 kurar. Kapı `render_graph_vt_feedback_ignores_plain_materials`: düz + varsayılan malzeme → 0 anahtar (hata geri getirilince kırmızı,
 ölçüldü); KONTROL VT zemini → anahtar var. **Kural:** sıfırlı arena dizisinin elemanı ancak bütün varsayılanları 0 olan yapı için

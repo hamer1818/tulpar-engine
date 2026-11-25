@@ -189,7 +189,7 @@ bool Renderer::init(rhi::Device &dev, Arena &arena, VkRenderPass rp, const Rende
   // AYRI bir boru hatti mesh_vtfb ile kurulur. Yan etkili (SSBO yazan) fragment shader Mali'de erken derinlik reddini /
   // FPK'yi o shader'in BUTUN cizimlerinde kapatir: varyant butun boru hatlarina girdiginde Mali-G72 1080p'de +42,8 ms
   // olculdu (VT olmayan 48 kutu dahil, 2026-11-23). "Yalniz VT cizimleri" icin olculen +16,1 ms GECERSIZ: malzeme yuvasi
-  // sifirli oldugu icin kutular da VT sayiliyordu (Tuzaklar 8ex) — yeniden olculecek. Cihaz ozelligi yoksa varyant
+  // sifirli oldugu icin kutular da VT sayiliyordu (Tuzaklar 8ex); duzeltmeden sonra +1,9 / +4,3 ms (iki kosum, donusumlu). Cihaz ozelligi yoksa varyant
   // kurulmaz, sebep VtFeedbackInfo'da.
   vt_fb_shader_ = cfg_.vt_feedback && cfg_.post && dev.caps().fragment_stores_atomics;
   smi.codeSize = mesh_frag_spv_size; smi.pCode = mesh_frag_spv;
