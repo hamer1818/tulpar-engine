@@ -259,6 +259,8 @@ struct RendererConfig {
   // gecisinden ONCE atlasa yazilir ve mesh_vtfb.frag VT malzemesinin albedo'sunu dolaylilik tablosu + atlastan okur.
   // vt_atlas.page_px / srgb kurulumda vt_page_px / true'ya esitlenir.
   bool vt_sample = false;
+  // OLCUM KIPI (urun yolunda 0): 2 = tablo okunur / atlas okunmaz, 3 = atlas okunur / tablo okunmaz (mesh_vtfb VT_SAMPLE).
+  uint32_t vt_sample_probe = 0;
   VtConfig vt_cache{};
   VtAtlasConfig vt_atlas{};
   TemporalConfig temporal{};    // Faz 5: jitter / hareket vektoru / dinamik cozunurluk

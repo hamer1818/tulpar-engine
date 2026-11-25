@@ -150,6 +150,13 @@ void VtAtlas::record(VkCommandBuffer cb, uint32_t frame, const VtCache &cache, c
   }
   // Dolaylilik tablosu: bu karenin yerlesikligine gore (yuklemeler bu komut tamponunda, ornekleme ondan sonra).
   const uint64_t t1 = platform::now_ns();
+  if (table_gen_[f] == cache.generation()) { // yerlesiklik degismedi: yuvanin tablosu gecerli
+    stats_.table_entries = table_used_;
+    stats_.record_ns = platform::now_ns() - t0;
+    return;
+  }
+  table_gen_[f] = cache.generation();
+  stats_.table_rebuilt = true;
   uint32_t *tab = static_cast<uint32_t *>(table_map_[f]);
   std::memset(tab, 0, sizeof(uint32_t) * 4 * max_tex_);
   uint32_t *cells = tab + 4 * max_tex_;
@@ -172,7 +179,7 @@ void VtAtlas::record(VkCommandBuffer cb, uint32_t frame, const VtCache &cache, c
         }
     }
   }
-  stats_.table_entries = used;
+  stats_.table_entries = table_used_ = used;
   const uint64_t t2 = platform::now_ns();
   stats_.table_ns = t2 - t1;
   stats_.record_ns = t2 - t0;

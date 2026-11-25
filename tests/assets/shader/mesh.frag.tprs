@@ -1,5 +1,5 @@
 // kaynak-ozet: 2d65b6114503  (engine/rhi/shaders/mesh.frag)
-// kaynak-ozet: ba33a7715c60  (engine/rhi/shaders/mesh_vtfb.frag)
+// kaynak-ozet: 30c6272a2353  (engine/rhi/shaders/mesh_vtfb.frag)
 // Forward parca asamasi: Lambert + PBR (Cook-Torrance, glTF 2.0 metallic-
 // roughness), ORM/normal/isima dokulari, kademeli golge (CSM atlasi, kademe
 // basina egilim), kumelenmis + stokastik nokta isiklar. Motorun en agir shader'i.
@@ -411,25 +411,30 @@ if (ozellik("vt_geri_bildirim")) {
     float lod = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))), 0.0);
     uint tex = u32(u_mat.tex2.y) - 1u;
     if (tex >= u32(VT_MAX_TEX)) { return vec3(1.0, 0.0, 1.0); } // kayitsiz doku: gorunur hata rengi
-    uint base = u_vti.e[tex * 4u];
-    uint pw = u_vti.e[tex * 4u + 1u];
-    uint ph = u_vti.e[tex * 4u + 2u];
-    uint mips = u_vti.e[tex * 4u + 3u];
-    if (mips == 0u) { return vec3(1.0, 0.0, 1.0); }
+    // Doku boyu malzemeden (VtCache ile ayni formul); tablodan yalniz hucre tabani + hucre.
+    uint pw = u32(sz.x) / u32(VT_PAGE_PX);
+    uint ph = u32(sz.y) / u32(VT_PAGE_PX);
+    uint mips = u32(findMSB(max(pw, ph))) + 1u;
     uint mip = min(u32(lod), mips - 1u);
-    uint off = base;
-    for (uint m = 0u; m < 16u; m++) {
-      if (m >= mip) { break; }
-      off += max(pw >> m, 1u) * max(ph >> m, 1u);
-    }
     uint mw = max(pw >> mip, 1u);
     uint mh = max(ph >> mip, 1u);
     vec2 uv = clamp(v_uv, vec2(0.0), vec2(0.999999));
     uint px = min(u32(uv.x * f32(mw)), mw - 1u);
     uint py = min(u32(uv.y * f32(mh)), mh - 1u);
-    uint c = u_vti.e[u32(VT_MAX_TEX) * 4u + off + py * mw + px];
+    uint c = 0u;
+    if (VT_SAMPLE == 3) {
+      c = (((px + py * mw) & 127u) << 8) | (mip << 1) | 1u; // OLCUM: tablo okunmaz, sentetik yuva
+    } else {
+      uint off = u_vti.e[tex * 4u];
+      for (uint m = 0u; m < 16u; m++) {
+        if (m >= mip) { break; }
+        off += max(pw >> m, 1u) * max(ph >> m, 1u);
+      }
+      c = u_vti.e[u32(VT_MAX_TEX) * 4u + off + py * mw + px];
+    }
     uint slot = c >> 8;
     uint rm = (c >> 1) & 127u;
+    if (VT_SAMPLE == 2) { return vec3(f32(slot & 255u) / 255.0, f32(rm) / 8.0, 0.5); } // OLCUM: atlas okunmaz
     vec2 pg = uv * vec2(f32(max(pw >> rm, 1u)), f32(max(ph >> rm, 1u)));
     float hp = 0.5 / f32(VT_PAGE_PX);
     vec2 f = clamp(pg - floor(pg), vec2(hp), vec2(1.0 - hp));

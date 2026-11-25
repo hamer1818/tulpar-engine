@@ -44,12 +44,14 @@ void VtCache::insert(VtPage p, uint32_t slot) {
   uint32_t i = hash_page(p) & tab_mask_;
   while (tab_[i] >= 0) i = (i + 1) & tab_mask_;
   tab_[i] = (int32_t)slot;
+  generation_++;
 }
 
 void VtCache::erase(VtPage p) {
   const int32_t i = find(p);
   if (i < 0) return;
   tab_[i] = -2;
+  generation_++;
   if (++tombstones_ > (tab_mask_ + 1) / 4) { // bos yuva tukenmesin: yerlesiklerden yeniden kur
     for (uint32_t j = 0; j <= tab_mask_; j++) tab_[j] = -1;
     for (uint32_t s = 0; s < cfg_.pool_pages; s++)

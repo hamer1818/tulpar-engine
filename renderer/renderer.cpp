@@ -1542,7 +1542,8 @@ bool Renderer::make_pipeline_set(VkRenderPass rp, bool skinned, VkShaderModule m
                                    !vt_info_.enabled ? 0 : cfg_.vt_feedback_probe == 1 ? 0 : cfg_.vt_feedback_probe == 2 ? 2 : 1,
                                    (int32_t)cfg_.vt_page_px,
                                    (int32_t)(cfg_.vt_feedback_table.table_slots - 1), (int32_t)cfg_.vt_feedback_table.list_capacity,
-                                   vt_sample_on_ ? 1 : 0, (int32_t)cfg_.vt_atlas.slots_x, (int32_t)cfg_.vt_cache.max_textures};
+                                   !vt_sample_on_ ? 0 : cfg_.vt_sample_probe == 2 ? 2 : cfg_.vt_sample_probe == 3 ? 3 : 1,
+                                   (int32_t)cfg_.vt_atlas.slots_x, (int32_t)cfg_.vt_cache.max_textures};
   VkSpecializationMapEntry fs_entries[10];
   for (uint32_t k = 0; k < 10; k++) fs_entries[k] = {k, k * (uint32_t)sizeof(int32_t), sizeof(int32_t)};
   VkSpecializationInfo fs_spec{};

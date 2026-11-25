@@ -92,6 +92,9 @@ public:
   uint32_t resident_count() const { return resident_; }
   uint32_t pinned_count() const { return pinned_; }
   uint32_t texture_failures() const { return tex_fail_; }
+  // Yerlesiklik her degistiginde (ekleme / tahliye) artar: resolve() sonuclari ancak bu degisince degisebilir. Dolaylilik
+  // tablosu (VtAtlas) bunu gorup degismeyen karede yeniden kurulmaz.
+  uint64_t generation() const { return generation_; }
 
 private:
   struct Tex { uint32_t w, h, mips; };
@@ -113,6 +116,7 @@ private:
   VtUpload *uploads_ = nullptr;
   uint32_t upload_n_ = 0;
   uint32_t frame_ = 0, resident_ = 0, pinned_ = 0;
+  uint64_t generation_ = 0;
   VtStats stats_{};
 };
 

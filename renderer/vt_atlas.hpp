@@ -8,6 +8,8 @@
 //     sonucu — (yuva, gercek mip). resolve() hicbir zaman gecersiz donmedigi icin tablo da her zaman gecerli bir yuva
 //     gosterir (en kotu durumda bulanik ama dogru renk). Ornekleme mesh_vtfb.frag `vt_sample()` (2026-11-25).
 //
+// Tablo yalniz VtCache::generation degistiginde (yerlesiklik degisti) o yuva icin yeniden kurulur: kararli durumda CPU
+// bedeli 0 (her kare kurulum Mali-G72'nin CPU'sunda ~2 ms olculdu, 2026-11-25).
 // Sinirlar: karolarda kenar (border) yok — ornekleme karo ICINE kirpar (yarim texel), yani dogrusal suzme komsu yuvaya
 // tasmaz; bedeli sayfa sinirinda 1 texel'lik suzme dikisi (kapi: renderer_vt_sample_matches_plain_texture). Tablo her kare TAMAMEN yeniden kurulur (dokunun butun sayfalari):
 // maliyeti olculur (stats().table_entries), artimli kurulum gerekirse sonra.
@@ -43,6 +45,7 @@ struct VtAtlasStats {
   uint64_t upload_bytes = 0;
   uint64_t record_ns = 0;       // record() CPU suresi (saglayici doldurma + tablo kurulumu dahil; duvar saati)
   uint64_t table_ns = 0;        // bunun dolaylilik tablosu kurulumu kismi
+  bool table_rebuilt = false;   // bu kare yuvanin tablosu yeniden kuruldu mu (VtCache::generation degistiyse)
 };
 
 class VtAtlas {
@@ -90,6 +93,8 @@ private:
   rhi::MemoryAlloc rb_mem_{};
   void *rb_map_ = nullptr;
   uint8_t *top_uploaded_ = nullptr; // doku basina: sabit en kaba mip atlasa yazildi mi
+  uint32_t table_used_ = 0;
+  uint64_t table_gen_[kMaxFrames] = {~0ull, ~0ull, ~0ull}; // yuvanin tablosu hangi VtCache::generation ile kuruldu
   VkBufferImageCopy *regions_ = nullptr;
   VtAtlasStats stats_{};
   const char *err_ = "";
