@@ -317,7 +317,10 @@ SPEC = [
     ("eng_text_apply", "str", [("old", "str")], "Yazilanlari METNE uygular ve tamponu bosaltir: silme son UTF-8 karakteri siler, enter metne girmez (eng_text_input_enter sayar). Metin kutusu her kare cagirir."),
     ("eng_text_input_enter", "int", [], "Son eng_text_apply'da basilan enter sayisi."),
     ("eng_text_pop", "str", [("s", "str")], "UTF-8 metnin SON KARAKTERINI siler (silme tusu; cok baytli harf tek seferde gider)."),
-    ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi."),
+    ("eng_text_width", "float", [("s", "str"), ("scale", "num")], "Metnin piksel genisligi (eng_text ile ayni kural: shaping'li tablo metni kapsiyorsa onun genisligi)."),
+    ("eng_text_table_add", "bool", [("s", "str")], "CEVIRI METNI ekler (UTF-8; Arapca, Farsca, Ibranice... dahil). eng_text_table_load'dan ONCE, kare disinda. Tablo dolunca (512 metin / 64 KB) HATA + false."),
+    ("eng_text_table_load", "bool", [], "Eklenen metinlerin gliflerinden SHAPING'LI fontu kurar (OpenType bitisik bicimler, sagdan sola sira; HUD fontuyla ayni dosya ve boy). Bir kez, kare disinda. Sonra eng_text: metnin butun glifleri bu atlastaysa shaping'le, degilse eski fontla cizilir."),
+    ("eng_text_shaped_stat", "int", [("which", "int")], "Shaping sayaci: 0 shaping'le cizilen metin, 1 tablo yuklu iken eski fonta dusen metin, 2 atlastaki glif sayisi."),
     # ses
     ("eng_audio_open", "bool", [("rate", "int"), ("channels", "int")], "Ses cihazini acar (0,0 = varsayilan 48 kHz stereo). Acilamazsa false: oyun sessiz devam eder, hata loglanir."),
     ("eng_audio_close", "void", [], "Ses cihazini kapatir (calan sesler durur)."),
@@ -514,6 +517,10 @@ SPEC = [
     ("eng_pgs_error", "str", [], "Son Play Oyunlar hata metni ('' = yok)."),
     ("eng_pgs_op_reset", "void", [], "Kayit islemi durumunu 0'a dondurur (suruyorken etkisiz)."),
     ("eng_pgs_stat", "int", [("which", "int")], "Play Oyunlar sayaci: 0 giris, 1 okuma, 2 yazma, 3 hata."),
+    ("eng_review_request", "int", [], "PLAY UYGULAMA ICI DEGERLENDIRME (KOPRU §17.1): Play'in yildiz/yorum penceresini ister (oyuncu oyundan cikmaz). Kota Play'de: ayni oyuncuya kisa surede bir kez gosterilir, gerisi sessizce yutulur; oyun anlamli bir anda BIR KEZ istesin. Doner: 1 basladi, 0 zaten suruyor, -1 bu platformda ya da APK'da yok (android_google.py --profil oyunlar). Sonuc eng_review_state ile."),
+    ("eng_review_state", "int", [], "Degerlendirme durumu: 0 bos, 1 suruyor, 2 akis bitti (pencere gosterildi YA DA kota yuzunden gosterilmedi; Play ayirt ettirmez), 4 hata (eng_review_error), 6 kullanilamaz."),
+    ("eng_review_error", "str", [], "Son degerlendirme hata metni ('' = yok)."),
+    ("eng_review_stat", "int", [], "Baslatilan degerlendirme istegi sayisi (dogrulama)."),
     # --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ---
     ("eng_ls_begin", "bool", [("seat", "int"), ("delay", "int"), ("group", "int"), ("session", "int"), ("hash_every", "int"), ("flags", "int")], "Kilit adim oturumu (iki koltuk). seat 0/1 yerel koltuk; yerel komut tick+delay'e yazilir; kare basina TAM group tik ya da hic; her hash_every tik'te durum ozeti saklanir/karsilastirilir. flags: 1 cevrimici (paket, onay, yedek, RTT), 2 kanonik sira ters (POZITIF KONTROL). Tik 0'dan; 0..delay-1 bos. Motor kurulmadan da calisir."),
     ("eng_ls_end", "void", [], "Kilit adim oturumunu kapatir."),

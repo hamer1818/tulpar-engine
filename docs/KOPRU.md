@@ -1726,6 +1726,25 @@ hesabıdır ve v2'de çoğu cihazda **kendiliğinden** açıktır.
   girişsizken kayıt işlemi yok; geçersiz ad / 64 KB üstü HATA ve yazılmaz; sahte host ile giriş ve oku/yaz
   sürüyor → tamam, ikinci istek sürerken host'a ulaşmaz, `ilerleme` host'a iletilir.
 
+### 17.1 Play uygulama içi değerlendirme — `degerlendirme_iste` (Küpler ile Küreler, 2026-11-27)
+
+Play'in yıldız/yorum penceresi (In-App Review): oyuncu oyundan çıkmadan puan verir. Pencereyi Play çizer.
+**Kota Play'dedir:** aynı oyuncuya kısa sürede bir kez gösterilir, gerisi sessizce yutulur. API pencerenin
+gösterilip gösterilmediğini ya da oyuncunun puan verip vermediğini **söylemez**. Oyun anlamlı bir anda (ilk büyük
+zafer gibi) **bir kez** istesin ve kaydına yazsın; ödül karşılığı puan istemek Play politikasına aykırıdır.
+
+- Tulpar: `degerlendirme_iste()` / `review_request()` → 1 başladı, 0 sürüyor, -1 bu platformda / APK'da yok.
+  `degerlendirme_durum()`: 0 boş, 1 sürüyor, 2 akış bitti (gösterildi **ya da** kota), 4 hata
+  (`degerlendirme_hata()`), 6 kullanılamaz. `degerlendirme_sayac()` başlatılan istek sayısı.
+- **Java**: `platform/android/java/dev/tulparlang/engine/PlayDegerlendirme.java` (`iste` / `durum` / `hata`; §17 gibi
+  yoklanır). `com.google.android.play:review` 2.0.2 (+ `core-common` 2.0.4) **oyunlar profiline** girer
+  (`tools/android_oyunlar.kilit`); manifeste `PlayCoreDialogWrapperActivity` gelir, yeni izin gelmez.
+- Pencere yalnız **Play'den kurulmuş** sürümde açılır (dahili test kanalı dahil; yan yükleme APK'da akış hatasız
+  biter ama pencere çıkmaz). Dahili uygulama paylaşımında kota yoktur: deneme orada.
+- Masaüstü: yok (-1/6). Penceresiz doğrulama: `TULPAR_ENGINE_DEGERLENDIRME_SAHTE=1` → istek anında 2.
+- Kapı `bridge_review_paths`: masaüstü -1/6 ve sayaç artmaz; sahte anında 2; sahte host ile sürüyor → bitti,
+  sürerken ikinci istek host'a ulaşmaz, bittikten sonra host yoklanmaz.
+
 ## 18. Animasyon geçişi — `eng_anim_crossfade` (A2, 2026-11-13)
 
 `eng_anim_crossfade(id, klip, hız, döngü, süre_s)` (Tulpar: `animasyon_gecis` / `anim_crossfade`; `eng_anim_fading` →
@@ -1855,3 +1874,32 @@ Deneme varlığı: `tests/assets/morph_kup.gltf` (`tools/make_test_morph.py`).
 
 Kalıp: oyun `karakter_kosesi() > karakter_butcesi()` görünce kalabalık modellerin LOD'unu kısaltır (`model_lod(m, 8, 14)`).
 
+
+## 23. Çeviri metni ve shaping — `eng_text_table_*` (2026-11-25)
+
+HUD fontu (`content::Font`) kod noktasıyla dizinlenir: ASCII + Latin-1 + Türkçe. Arapça/Farsça bitişik biçimler,
+lam-elif, sağdan sola sıra ise fontun **glif kimliği** ister (`content/text_shape.hpp`, kb_text_shape). Çeviri metni
+motorda yok: oyun kendi yerelleştirme tablosunu (topluluk çevirileri) yüklemede verir, motor o metinlerin gliflerini
+atlasa koyar.
+
+| C / SPEC | Tulpar | ne yapar |
+|---|---|---|
+| `eng_text_table_add(s) -> bool` | `metin_tablosu_ekle` | UTF-8 metni tabloya ekler. Yüklemeden ÖNCE, kare dışında. Dolunca (512 metin / 64 KB) HATA + false |
+| `eng_text_table_load() -> bool` | `metin_tablosu_yukle` | Tablonun gliflerinden shaping'li atlası kurar (HUD fontuyla aynı dosya ve boy, 1024² atlas). Bir kez, kare dışında |
+| `eng_text_shaped_stat(k) -> int` | `shaping_sayaci` | 0 shaping'le çizilen metin, 1 tablo yüklüyken eski fonta düşen metin, 2 atlastaki glif |
+
+Kural: `eng_text` (ve widget etiketleri) metnin **bütün** glifleri shaping'li atlastaysa onunla çizer, biri bile yoksa
+eski fonta düşer (o fontun '?' kuralıyla). `eng_text_width` ve widget hizalaması aynı kuralla ölçer. Tabloda olmayan
+Latin metin bugünkü gibi çizilir — mevcut oyunlar değişmez.
+
+```tulpar
+metin_tablosu_ekle("سلام عليكم");
+metin_tablosu_ekle("שלום עולם");
+metin_tablosu_yukle();
+// ...kare içinde:
+yazi("سلام عليكم", 40, 30, 2.0, BEYAZ);
+```
+
+Sınırlar: "…" ile kısaltma (sığmayan widget etiketi) kod noktası sınırında keser ve eski fontu kullanır — RTL metinde
+yanlış uçtan keser; satır kırma yok; editör (ImGui) bağlı değil. Kapı `bridge_text_table_shapes_arabic` (sayaçlar +
+eski fontun '?' sayacına shaping'li çizimin bir şey eklemediği + piksel genişliği), `shaping_rtl_paragraph_word_order`.

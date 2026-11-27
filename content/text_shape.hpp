@@ -79,6 +79,11 @@ public:
   // (x, y) metnin SOL UST kosesi. Shape + dortgen; ayirma yok.
   void draw(renderer::Renderer &r, float x, float y, const char *utf8, uint32_t rgba, float scale = 1.0f);
   float text_width(const char *utf8);
+  // Tek shape: metnin BUTUN glifleri atlastaysa cizer ve true doner; biri bile yoksa HIC cizmez, false doner (cagiran
+  // kod noktasi fontuna duser — '?' sayilmaz). Kopru eng_text yolu (2026-11-25). Ayirma yok.
+  bool draw_covered(renderer::Renderer &r, float x, float y, const char *utf8, uint32_t rgba, float scale = 1.0f);
+  // Ayni kural, yalniz genislik (piksel, scale uygulanmis). Kapsanmiyorsa false.
+  bool width_covered(const char *utf8, float scale, float *width);
   bool has_glyph(uint32_t glyph) const { return find(glyph) != nullptr; }
   // Metnin atlasta OLMAYAN glif sayisi (renderer'siz; draw ile ayni sayim kuralina girmez, salt sorgu).
   uint32_t uncovered(const char *utf8);

@@ -570,6 +570,10 @@ const char *teng_text_pop(const char *s); // UTF-8 son karakteri sil (silme tusu
 const char *teng_text_apply(const char *old); // yazilanlari metne uygula (silme dahil), tamponu bosalt
 int teng_text_input_enter(void);              // son apply'da enter sayisi
 double teng_text_width(const char *s, double scale);
+// Ceviri metni tablosu + shaping'li font (OpenType bitisik bicim, bidi). add'ler ONCE, load bir kez, kare disinda.
+int teng_text_table_add(const char *s);       // 1 eklendi, 0 hata (dolu / zaten yuklu)
+int teng_text_table_load(void);               // 1 kuruldu; sonra eng_text kapsanan metni shaping'le cizer
+int teng_text_shaped_stat(int which);         // 0 shaping'le cizilen, 1 eski fonta dusen, 2 atlas glif sayisi
 
 // --- anlik-kip (immediate mode) arayuz: menu / ayar / duraklat ---------------
 // Motorda YENI cizim yolu YOK: her sey teng_rect + teng_text uzerine kurulur.
@@ -873,6 +877,11 @@ const char *teng_pgs_data(void);          // op 2 iken okunan kayit
 const char *teng_pgs_error(void);         // son hata metni
 void teng_pgs_op_reset(void);             // op 0'a (suruyorken etkisiz)
 int teng_pgs_stat(int which);             // 0 giris, 1 okuma, 2 yazma, 3 hata sayisi
+// Play uygulama ici degerlendirme (KOPRU §17.1): Play'in yildiz/yorum penceresi (kota Play'de).
+int teng_review_request(void);            // 1 basladi, 0 suruyor, -1 bu platformda / APK'da yok
+int teng_review_state(void);              // 0 bos, 1 suruyor, 2 akis bitti (gosterildi ya da kota), 4 hata, 6 kullanilamaz
+const char *teng_review_error(void);      // son hata metni
+int teng_review_stat(void);               // baslatilan istek sayisi
 
 // --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1, sim/lockstep.hpp) ----------
 // Motor kurulmadan da calisir; teng_shutdown kapatir. flags: 1 cevrimici (paket + onay + ozet

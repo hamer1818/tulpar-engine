@@ -3,7 +3,7 @@
 
 Bu sayfa motorun **bütün özelliklerinin** aranabilir haritasıdır: bir şey nerede, hangi köprü fonksiyonu, hangi editör komutu, hangi test, hangi belge. Kaynaktan üretilir (eskirse `tools/ozellik_haritasi.py --denetle` kırmızı döner). Hızlı arama: `python3 tools/ozellik_haritasi.py --ara <kelime>` ya da bu dosyada grep.
 
-**Sayılar:** köprü 448 fonksiyon · 920 `ENGINE_TEST` · ~32 editör komutu.
+**Sayılar:** köprü 455 fonksiyon · 925 `ENGINE_TEST` · ~32 editör komutu.
 
 ## 0. Zihin haritası (üst düzey)
 
@@ -49,7 +49,7 @@ mindmap
       prefab
     Köprü L6
       TulparLang C ABI
-      448 fonksiyon
+      455 fonksiyon
       Android / masaüstü host
     Editör
       panel + gizmo
@@ -171,7 +171,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `rhi/vk_api.cpp` — 
 - `rhi/vk_api.hpp` — Vulkan yukleyici. Loader (libvulkan) DLOPEN ile: link zamani
 
-### renderer — L3 (36 dosya, 10265 satır)
+### renderer — L3 (36 dosya, 10391 satır)
 
 - `renderer/cluster.cpp` — 
 - `renderer/cluster.hpp` — kumelenmis (clustered) isik atamasi, CPU tarafinda.
@@ -283,7 +283,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `sim/timers.hpp` — Zamanlayici: "N tick sonra su islevi cagir" (tek atislik
 - `sim/voxel_smoke.hpp` — CS2 Tarzi Duyarli Voksel Dumani (Responsive Eulerian-Lagrangian Voxel Smoke).
 
-### content — L6 (76 dosya, 18944 satır)
+### content — L6 (76 dosya, 18977 satır)
 
 - `content/clod_format.cpp` — 
 - `content/clod_format.hpp` — .clod dosya formati: CEVRIMDISI firinlanmis surekli LOD verisi.
@@ -444,7 +444,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `app/virtual_stick.cpp` — 
 - `app/virtual_stick.hpp` — sanal joystick: ekranin sol yarisi hareket cubugu (dokunulan
 
-### bridge — L6 (11 dosya, 10824 satır)
+### bridge — L6 (11 dosya, 11019 satır)
 
 - `bridge/android_host.cpp` — Android NativeActivity host: Tulpar oyununun (libtulpargame.so)
 - `bridge/android_lifecycle.hpp` — Android yasam dongusu: native_app_glue komutlarinin adlari.
@@ -458,7 +458,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 - `bridge/tulpar_kopru.cpp` — TulparLang yerel eklenti yapistiricisi (bkz. tulpar_kopru.h).
 - `bridge/tulpar_kopru.h` — TulparLang yerel eklenti yapistiricisi (K303, 2026-10-02).
 
-### tools — L7 (75 dosya, 17629 satır)
+### tools — L7 (75 dosya, 17639 satır)
 
 - `tools/android_adb_hazir.sh` — Tulpar Engine — adb cihazi HAZIR mi? (tools/android_*.sh kaynak olarak okur: `. android_adb_hazir.sh`)
 - `tools/android_google.py` — Tulpar Engine — Android yerli "Google ile giris" paketi (KOPRU §16) + motorun Java bilesenleri.
@@ -538,7 +538,7 @@ Her satır: `dosya` — ilk başlık yorumu. Katman kuralı: bir katman yalnız 
 
 ## 2. Köprü API (TulparLang ↔ motor)
 
-Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **440** fonksiyon. Sözleşme: `docs/KOPRU.md`.
+Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x` önüne `t` konmuş hali, Tulpar yüzü Türkçe `motor_ac`... + İngilizce ikiz). Tek kaynak: `tools/gen_engine_bindings.py` `SPEC`. Toplam **447** fonksiyon. Sözleşme: `docs/KOPRU.md`.
 
 ### yasam dongusu (37)
 
@@ -784,7 +784,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_mouse_y()` → float — Fare y (masaustu).
 - `eng_mouse_down(button:int)` → bool — Fare tusu basili mi (0 sol, 1 sag, 2 orta).
 
-### HUD (32)
+### HUD (35)
 
 - `eng_text(s:str, x:num, y:num, scale:num, color:color)` → void — Ekrana metin (kare icinde cagir; font yoksa sessizce atlanir, logda uyari).
 - `eng_rect(x:num, y:num, w:num, h:num, color:color)` → void — Ekrana duz dikdortgen (kare icinde cagir).
@@ -817,7 +817,10 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_text_apply(old:str)` → str — Yazilanlari METNE uygular ve tamponu bosaltir: silme son UTF-8 karakteri siler, enter met…
 - `eng_text_input_enter()` → int — Son eng_text_apply'da basilan enter sayisi.
 - `eng_text_pop(s:str)` → str — UTF-8 metnin SON KARAKTERINI siler (silme tusu; cok baytli harf tek seferde gider).
-- `eng_text_width(s:str, scale:num)` → float — Metnin piksel genisligi.
+- `eng_text_width(s:str, scale:num)` → float — Metnin piksel genisligi (eng_text ile ayni kural: shaping'li tablo metni kapsiyorsa onun…
+- `eng_text_table_add(s:str)` → bool — CEVIRI METNI ekler (UTF-8; Arapca, Farsca, Ibranice... dahil). eng_text_table_load'dan ON…
+- `eng_text_table_load()` → bool — Eklenen metinlerin gliflerinden SHAPING'LI fontu kurar (OpenType bitisik bicimler, sagdan…
+- `eng_text_shaped_stat(which:int)` → int — Shaping sayaci: 0 shaping'le cizilen metin, 1 tablo yuklu iken eski fonta dusen metin, 2…
 
 ### ses (15)
 
@@ -993,7 +996,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_thread_count()` → int — Surecin thread sayisi. Motor kurulmadan da calisir; olculemezse 0.
 - `eng_vk_live()` → int — Canli havuzsuz Vulkan nesnesi (kurma - birakma; komut tamponu/descriptor set haric). Kuru…
 
-### yerel ag: engellemesiz UDP/IPv4 (N2a 2026-10-23, KOPRU.md §… (38)
+### yerel ag: engellemesiz UDP/IPv4 (N2a 2026-10-23, KOPRU.md §… (42)
 
 - `eng_net_open(port:int, broadcast:flag)` → int — Engellemesiz UDP soketi acar, 0.0.0.0:port'a bagli (port 0 = sistem secer, eng_net_port o…
 - `eng_net_close(h:int)` → bool — Soketi kapatir; tutamac olur (sonraki cagri HATA). eng_shutdown hepsini kapatir.
@@ -1033,6 +1036,10 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `eng_pgs_error()` → str — Son Play Oyunlar hata metni ('' = yok).
 - `eng_pgs_op_reset()` → void — Kayit islemi durumunu 0'a dondurur (suruyorken etkisiz).
 - `eng_pgs_stat(which:int)` → int — Play Oyunlar sayaci: 0 giris, 1 okuma, 2 yazma, 3 hata.
+- `eng_review_request()` → int — PLAY UYGULAMA ICI DEGERLENDIRME (KOPRU §17.1): Play'in yildiz/yorum penceresini ister (oy…
+- `eng_review_state()` → int — Degerlendirme durumu: 0 bos, 1 suruyor, 2 akis bitti (pencere gosterildi YA DA kota yuzun…
+- `eng_review_error()` → str — Son degerlendirme hata metni ('' = yok).
+- `eng_review_stat()` → int — Baslatilan degerlendirme istegi sayisi (dogrulama).
 
 ### kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.… (18)
 
@@ -1132,17 +1139,17 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 
 ## 4. Testler ve kapılar
 
-`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **920** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
+`./yapi/engine_tests [alt dize]` — adın ALT DİZE eşleşmesi. Toplam **925** `ENGINE_TEST` (koşan sayı için özet satırı: `M atlandi`'yı oku). Yeni test dosyası `CMakeLists.txt` `ENGINE_TEST_SOURCES`'a ELLE eklenir.
 
 ### Ad önekine göre (öne göre süz: `engine_tests <önek>`)
 
 - `editor` — 140
-- `bridge` — 71
+- `bridge` — 73
 - `scene` — 48
-- `renderer` — 40
+- `renderer` — 41
 - `content` — 31
 - `updater` — 20
-- `render` — 17
+- `render` — 18
 - `audio` — 16
 - `cluster` — 16
 - `physics` — 16
@@ -1166,6 +1173,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `behavior` — 7
 - `device` — 7
 - `frame` — 7
+- `shaping` — 7
 - `timer` — 7
 - `anim` — 6
 - `engine` — 6
@@ -1175,7 +1183,6 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `morph` — 6
 - `prefab` — 6
 - `rng` — 6
-- `shaping` — 6
 - `spatial` — 6
 - `value` — 6
 - `bvh` — 5
@@ -1275,9 +1282,9 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_audio.cpp` — 15 test
 - `tests/test_behavior_tree.cpp` — 7 test
 - `tests/test_boids.cpp` — 1 test
-- `tests/test_bridge.cpp` — 51 test
+- `tests/test_bridge.cpp` — 52 test
 - `tests/test_bridge_log.cpp` — 1 test
-- `tests/test_bridge_net.cpp` — 10 test
+- `tests/test_bridge_net.cpp` — 11 test
 - `tests/test_bridge_para.cpp` — 3 test
 - `tests/test_bridge_rapor.cpp` — 2 test
 - `tests/test_build_info.cpp` — 2 test
@@ -1367,7 +1374,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_quantum_gen.cpp` — 5 test
 - `tests/test_random.cpp` — 6 test
 - `tests/test_reflect.cpp` — 4 test
-- `tests/test_render_graph.cpp` — 21 test
+- `tests/test_render_graph.cpp` — 23 test
 - `tests/test_renderer.cpp` — 28 test
 - `tests/test_replay.cpp` — 5 test
 - `tests/test_rhi.cpp` — 9 test
@@ -1382,7 +1389,7 @@ Düz skaler C ABI (`bridge/engine_api.h`; C adı `teng_x` = aşağıdaki `eng_x`
 - `tests/test_state_machine.cpp` — 1 test
 - `tests/test_temporal.cpp` — 5 test
 - `tests/test_terrain.cpp` — 5 test
-- `tests/test_text_shape.cpp` — 7 test
+- `tests/test_text_shape.cpp` — 8 test
 - `tests/test_thermal.cpp` — 2 test
 - `tests/test_timers.cpp` — 13 test
 - `tests/test_updater.cpp` — 20 test
@@ -1664,6 +1671,7 @@ Kaynak yorumları buraya "Tuzaklar 8l" diye atıf yapar. Bir şey kırıldığı
 - **8eu** — Derleyici sürümü bir dilin "her yerde böyleydi" varsayımını sessizce kaldırır — `= {0}` artık union'ı sıfırlamıyor
 - **8ev** — Sabit `/tmp` ve kayıp cihazdan sonra devam eden ölçüm — iki ayrı "koşmuş gibi görünme"
 - **8ew** — Testin kendi sunucusu SIGPIPE ile bütün koşumu öldürür — özet satırı hiç basılmaz
+- **8ex** — `alloc_array_zeroed` kurucu çalıştırmaz — üye varsayılanı (`= ~0u`) sessizce 0 olur
 
 ## 8. Ortam değişkenleri (`TULPAR_*`)
 
@@ -1705,6 +1713,7 @@ Hangi dizinde geçtiği yanında; anlamı için ilgili dosyada/`CLAUDE.md`'de ar
 - `TULPAR_ENGINE_AUDIO_NULL` — bridge, tests, tools
 - `TULPAR_ENGINE_AYNA_SARIM_ESKI` — bridge, tests
 - `TULPAR_ENGINE_BLOOM` — bridge
+- `TULPAR_ENGINE_DEGERLENDIRME_SAHTE` — bridge, tests
 - `TULPAR_ENGINE_DIR` — app, tools
 - `TULPAR_ENGINE_DOKUNMATIK` — bridge, tests, tools
 - `TULPAR_ENGINE_FIBER_STACK_KB` — tests

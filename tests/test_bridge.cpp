@@ -4612,6 +4612,56 @@ ENGINE_TEST(bridge_font_draws_typographic_punctuation) {
   CHECK(sw > 5 && sh > sw);      // KONTROL: '?' uzun (olcu sekli ayirt ediyor)
 }
 
+// --- METIN SHAPING kopruye bagli (2026-11-25) ----------------------------------
+// Oyun ceviri metnini teng_text_table_add ile verir, teng_text_table_load shaping'li atlasi kurar; teng_text metnin
+// butun glifleri atlastaysa shaping'le cizer. Olcu: (1) "سلام" (4 kod noktasi) yuklemeden ONCE bir kez cizilir: eski
+// font 4 '?' sayar; (2) yuklemeden sonra ayni metin shaping'le cizilir (sayac 1) ve eski fontun '?' sayacina HICBIR SEY
+// eklemez — kapanis tam "4 kod noktasi" der; (3) pikselde metin cizilmis ve genisligi olculen genislikle uyumlu.
+// ("سلام"in 4 '?' genisligi shaping'li genislige tesadufen yakin — 21,9 / 21,2 px, RTX 5080 — genislik ayirt edici
+// DEGIL, o yuzden sayac kullanilir.) KONTROL: tabloda olmayan metin ("Zebra": Z tabloda yok) eski fonta duser;
+// bos tablo, iki kez load, load'dan sonra add HATA.
+ENGINE_TEST(bridge_text_table_shapes_arabic) {
+  rhi::VkApi api;
+  if (!rhi::vk_api_load(api)) { skip("Vulkan loader yok"); return; }
+  teng_log_level(1);
+  teng_set_headless(100000, nullptr);
+  if (!teng_init("metin shaping kapisi", kW, kH)) { std::printf("    [bilgi] kurulum: %s\n", teng_last_error()); skip("Vulkan cihazi/kurulum yok"); return; }
+  const char *selam = "\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85"; // سلام
+  glif::ciz(selam); // yuklemeden once: eski font 4 '?' cizer ve sayar
+  CHECK(teng_text_shaped_stat(0) == 0 && teng_text_shaped_stat(1) == 0);
+  CHECK(teng_text_table_load() == 0); // KONTROL: bos tablo HATA
+  CHECK(teng_text_table_add(selam) == 1);
+  CHECK(teng_text_table_add("Merhaba d\xC3\xBCnya") == 1);
+  const int yuklendi = teng_text_table_load();
+  CHECK(yuklendi == 1);
+  if (!yuklendi) { kapanis_yakala(); return; }
+  CHECK(teng_text_table_load() == 0);     // KONTROL: iki kez HATA
+  CHECK(teng_text_table_add("sonra") == 0); // KONTROL: load'dan sonra add HATA
+  const double w_sonra = teng_text_width(selam, 1.0);
+  int k_selam[4];
+  glif::ciz(selam);
+  glif::kutu("shaping_selam", k_selam);
+  const int ciz1 = teng_text_shaped_stat(0), dus1 = teng_text_shaped_stat(1);
+  glif::ciz("Zebra"); // Z tabloda yok -> eski font
+  const int ciz2 = teng_text_shaped_stat(0), dus2 = teng_text_shaped_stat(1);
+  glif::ciz("Merhaba d\xC3\xBCnya"); // tablodaki Latin metin de shaping'le
+  const int ciz3 = teng_text_shaped_stat(0);
+  const int kw = k_selam[2] - k_selam[0] + 1;
+  std::printf("    [bilgi] shaping: atlas %d glif; سلام genislik %.1f px; cizim: shaping %d -> %d -> %d, eski fonta dusen %d -> %d; "
+              "piksel kutusu %dx%d (olcek 4 ile beklenen ~%.0f)\n",
+              teng_text_shaped_stat(2), w_sonra, ciz1, ciz2, ciz3, dus1, dus2, kw, k_selam[3] - k_selam[1] + 1, w_sonra * 4.0);
+  CHECK(teng_text_shaped_stat(2) > 4);
+  CHECK(w_sonra > 0);
+  CHECK(ciz1 == 1 && dus1 == 0);
+  CHECK(ciz2 == 1 && dus2 == 1); // KONTROL: tablo disi metin eski fonta
+  CHECK(ciz3 == 2);
+  kapanis_yakala();
+  // Eski fontun '?' sayaci YALNIZ yukleme oncesi cizimden: shaping'li cizim ona bir sey eklemedi.
+  CHECK(std::strstr(g_kapanis_log, "kapanis (font): 4 kod noktasi") != nullptr);
+  if (test::gpu_is_virtual(teng_gpu_name())) { skip("sanal GPU (Apple Paravirtual, CI macOS): glif PIKSELI gercek cihazda olculur"); return; }
+  CHECK(kw > 0 && std::fabs(kw - w_sonra * 4.0) < w_sonra * 4.0 * 0.35); // cizilen genislik olculenle uyumlu
+}
+
 // Hata ayiklama hizli sarmasi: TULPAR_ENGINE_HIZ=4 (masaustu; Android'de yalniz
 // debug APK'da debug.tulpar.hiz) kurulumda zaman olcegini kurar; 60 karede 240
 // sabit sim adimi (buyuk adim DEGIL). 8x'te kare basina 8 adim (tavan

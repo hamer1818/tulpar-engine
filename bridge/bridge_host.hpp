@@ -97,6 +97,11 @@ void bridge_pgs_host(int (*signin)(int interactive), int (*poll_signin)(char *pl
                      int (*open)(const char *name, const char *data, const char *desc, int progress),
                      int (*poll_op)(char *data, size_t dcap, char *err, size_t ecap), void (*op_reset)());
 
+// Play uygulama ici degerlendirme (teng_review_*, KOPRU §17.1): Android host In-App Review akisini verir (Java
+// sinifi dev.tulparlang.engine.PlayDegerlendirme; APK'da yoksa start -1). poll: 1 suruyor, 2 bitti, 4 hata.
+// Masaustu vermez. nullptr: kapat (testler).
+void bridge_review_host(int (*start)(), int (*poll)(char *err, size_t ecap));
+
 // Para test saglayicisi (teng_ads_init/teng_iap_init "test") izni. Masaustunde
 // varsayilan ACIK; Android'de KAPALI ve host yalniz hata ayiklanabilir APK'da acar:
 // yayin APK'sinda sahte reklam/bedava satin alma oyuncuya gorunmesin.

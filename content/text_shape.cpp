@@ -225,6 +225,34 @@ float ShapedFont::text_width(const char *utf8) {
   return w;
 }
 
+bool ShapedFont::width_covered(const char *utf8, float scale, float *width) {
+  if (!atlas_.valid() || !utf8) return false;
+  float w = 0;
+  const uint32_t m = shaper_.shape(utf8, scratch_, scratch_cap_, &w);
+  if (m == 0 && *utf8) return false; // tasma ya da shaping hatasi
+  for (uint32_t i = 0; i < m; i++)
+    if (!find(scratch_[i].glyph)) return false;
+  if (width) *width = w * scale;
+  return true;
+}
+
+bool ShapedFont::draw_covered(renderer::Renderer &r, float x, float y, const char *utf8, uint32_t rgba, float scale) {
+  if (!atlas_.valid() || !utf8) return false;
+  const uint32_t m = shaper_.shape(utf8, scratch_, scratch_cap_);
+  if (m == 0 && *utf8) return false;
+  for (uint32_t i = 0; i < m; i++)
+    if (!find(scratch_[i].glyph)) return false;
+  r.ui_set_atlas(atlas_);
+  const float base = y + shaper_.ascent() * scale;
+  for (uint32_t i = 0; i < m; i++) {
+    const ShapedGlyph &g = scratch_[i];
+    const Entry *e = find(g.glyph);
+    if (e->w <= 0) continue; // bosluk
+    r.ui_quad(x + (g.x + e->xoff) * scale, base + (g.y + e->yoff) * scale, e->w * scale, e->h * scale, e->u0, e->v0, e->u1, e->v1, rgba);
+  }
+  return true;
+}
+
 void ShapedFont::draw(renderer::Renderer &r, float x, float y, const char *utf8, uint32_t rgba, float scale) {
   if (!atlas_.valid()) return;
   const uint32_t m = shaper_.shape(utf8, scratch_, scratch_cap_);

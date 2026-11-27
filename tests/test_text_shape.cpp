@@ -116,6 +116,24 @@ ENGINE_TEST(shaping_mixed_bidi_order) {
   CHECK(ok);
 }
 
+// RTL PARAGRAF, birden cok kelime (2026-11-25; onceki kapilar yalniz tek kelimeyi ve LTR icinde Arapcayi siniyordu):
+// "שלום עולם" sagdan sola okunur, yani GORSEL soldan saga ilk kelime "עולם" (kumeler 8..5), bosluk (4), sonra "שלום"
+// (3..0) — kume dizisi KESIN AZALAN, x artan. Arapca iki kelime ayni kural. (DejaVuSans + kb_text_shape tek run verir.)
+ENGINE_TEST(shaping_rtl_paragraph_word_order) {
+  content::TextShaper *s = shaper();
+  if (!s) { skip("DejaVuSans.ttf yok ya da shaper kurulamadi"); return; }
+  const char *metin[2] = {"\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D \xD7\xA2\xD7\x95\xD7\x9C\xD7\x9D", // שלום עולם
+                          "\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85 \xD8\xB9\xD9\x84\xD9\x8A\xD9\x83\xD9\x85"}; // سلام عليكم
+  for (int m = 0; m < 2; m++) {
+    content::ShapedGlyph g[32];
+    const uint32_t n = s->shape(metin[m], g, 32);
+    dump(m ? "arapca iki kelime" : "ibranice iki kelime", g, n);
+    bool azalan = n >= 8;
+    for (uint32_t i = 1; azalan && i < n; i++) azalan = g[i].cluster < g[i - 1].cluster && g[i].x >= g[i - 1].x;
+    CHECK(azalan);
+  }
+}
+
 // Kare icinde ayirma YOK: isinmadan sonra 200 yeniden shape, kutuphanenin ayirma istegi sayaci SABIT.
 ENGINE_TEST(shaping_no_allocation_after_warmup) {
   content::TextShaper *s = shaper();
