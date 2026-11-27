@@ -1689,6 +1689,15 @@ func oyunlar_veri(): str { return eng_pgs_data(); }
 func oyunlar_hata(): str { return eng_pgs_error(); }
 func oyunlar_islem_sifirla() { eng_pgs_op_reset(); }
 func oyunlar_sayac(int hangi): int { return eng_pgs_stat(hangi); }
+// Play uygulama ici degerlendirme (KOPRU §17.1): Play'in yildiz/yorum penceresi. Kota Play'de; oyun anlamli bir
+// anda (ilk buyuk zafer gibi) BIR KEZ istesin. 1 basladi, 0 suruyor, -1 bu platformda / APK'da yok.
+// Durum: 0 bos, 1 suruyor, 2 akis bitti (gosterildi ya da kota), 4 hata, 6 kullanilamaz.
+func degerlendirme_iste(): int { return eng_review_request(); }
+func review_request(): int { return eng_review_request(); }
+func degerlendirme_durum(): int { return eng_review_state(); }
+func review_state(): int { return eng_review_state(); }
+func degerlendirme_hata(): str { return eng_review_error(); }
+func degerlendirme_sayac(): int { return eng_review_stat(); }
 
 // ---- Kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ----
 // Kare: int n = kilit_kare(); for (k < n) { int c = kilit_vade(); ...kilit_vade_*(i) uygula...; kilit_tik_sonu(ozet); }

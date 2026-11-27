@@ -1726,6 +1726,25 @@ hesabıdır ve v2'de çoğu cihazda **kendiliğinden** açıktır.
   girişsizken kayıt işlemi yok; geçersiz ad / 64 KB üstü HATA ve yazılmaz; sahte host ile giriş ve oku/yaz
   sürüyor → tamam, ikinci istek sürerken host'a ulaşmaz, `ilerleme` host'a iletilir.
 
+### 17.1 Play uygulama içi değerlendirme — `degerlendirme_iste` (Küpler ile Küreler, 2026-11-27)
+
+Play'in yıldız/yorum penceresi (In-App Review): oyuncu oyundan çıkmadan puan verir. Pencereyi Play çizer.
+**Kota Play'dedir:** aynı oyuncuya kısa sürede bir kez gösterilir, gerisi sessizce yutulur. API pencerenin
+gösterilip gösterilmediğini ya da oyuncunun puan verip vermediğini **söylemez**. Oyun anlamlı bir anda (ilk büyük
+zafer gibi) **bir kez** istesin ve kaydına yazsın; ödül karşılığı puan istemek Play politikasına aykırıdır.
+
+- Tulpar: `degerlendirme_iste()` / `review_request()` → 1 başladı, 0 sürüyor, -1 bu platformda / APK'da yok.
+  `degerlendirme_durum()`: 0 boş, 1 sürüyor, 2 akış bitti (gösterildi **ya da** kota), 4 hata
+  (`degerlendirme_hata()`), 6 kullanılamaz. `degerlendirme_sayac()` başlatılan istek sayısı.
+- **Java**: `platform/android/java/dev/tulparlang/engine/PlayDegerlendirme.java` (`iste` / `durum` / `hata`; §17 gibi
+  yoklanır). `com.google.android.play:review` 2.0.2 (+ `core-common` 2.0.4) **oyunlar profiline** girer
+  (`tools/android_oyunlar.kilit`); manifeste `PlayCoreDialogWrapperActivity` gelir, yeni izin gelmez.
+- Pencere yalnız **Play'den kurulmuş** sürümde açılır (dahili test kanalı dahil; yan yükleme APK'da akış hatasız
+  biter ama pencere çıkmaz). Dahili uygulama paylaşımında kota yoktur: deneme orada.
+- Masaüstü: yok (-1/6). Penceresiz doğrulama: `TULPAR_ENGINE_DEGERLENDIRME_SAHTE=1` → istek anında 2.
+- Kapı `bridge_review_paths`: masaüstü -1/6 ve sayaç artmaz; sahte anında 2; sahte host ile sürüyor → bitti,
+  sürerken ikinci istek host'a ulaşmaz, bittikten sonra host yoklanmaz.
+
 ## 18. Animasyon geçişi — `eng_anim_crossfade` (A2, 2026-11-13)
 
 `eng_anim_crossfade(id, klip, hız, döngü, süre_s)` (Tulpar: `animasyon_gecis` / `anim_crossfade`; `eng_anim_fading` →

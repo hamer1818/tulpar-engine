@@ -7740,6 +7740,65 @@ void teng_pgs_op_reset(void) {
 int teng_pgs_stat(int which) { return which >= 0 && which < 4 ? (int)g_pgs.stat[which] : 0; }
 } // extern "C"
 
+// --- PLAY UYGULAMA ICI DEGERLENDIRME (Kupler ile Kureler, 2026-11-27; KOPRU §17.1) ----------------------
+// Android: In-App Review (dev.tulparlang.engine.PlayDegerlendirme; APK'ya android_google.py --profil oyunlar).
+// Pencerenin gosterilip gosterilmedigini Play soylemez (kota): durum 2 yalniz "akis bitti".
+// Masaustu: yok (-1, durum 6). Penceresiz dogrulama: TULPAR_ENGINE_DEGERLENDIRME_SAHTE=1 -> istek aninda 2.
+namespace {
+struct Review {
+  int (*start)() = nullptr;
+  int (*poll)(char *, size_t) = nullptr;
+  int state = 0;   // 0 bos, 1 suruyor, 2 bitti, 4 hata, 6 kullanilamaz
+  char error[512] = {0};
+  uint32_t stat = 0;
+};
+Review g_review;
+} // namespace
+namespace tulpar::engine::bridge {
+void bridge_review_host(int (*start)(), int (*poll)(char *, size_t)) {
+  g_review.start = start;
+  g_review.poll = poll;
+  g_review.state = 0;
+  g_review.error[0] = 0;
+}
+} // namespace tulpar::engine::bridge
+extern "C" {
+int teng_review_request(void) {
+  CALL("teng_review_request");
+  if (g_review.state == 1) return 0;
+  g_review.error[0] = 0;
+  if (!g_review.start) {
+    const char *s = std::getenv("TULPAR_ENGINE_DEGERLENDIRME_SAHTE");
+    if (s && *s) {
+      g_review.stat++;
+      g_review.state = 2;
+      BINFO("Play degerlendirme: SAHTE akis bitti (TULPAR_ENGINE_DEGERLENDIRME_SAHTE, yalniz masaustu dogrulamasi)");
+      return 1;
+    }
+    std::snprintf(g_review.error, sizeof g_review.error, "bu platformda Play degerlendirme penceresi yok");
+    g_review.state = 6;
+    return -1;
+  }
+  const int r = g_review.start();
+  if (r == 1) { g_review.state = 1; g_review.stat++; }
+  else if (r < 0) { g_review.state = 6; std::snprintf(g_review.error, sizeof g_review.error, "Play degerlendirme paketi bu APK'da yok"); }
+  return r;
+}
+int teng_review_state(void) {
+  if (g_review.state == 1 && g_review.poll) {
+    const int s = g_review.poll(g_review.error, sizeof g_review.error);
+    if (s == 2 || s == 4) {
+      g_review.state = s;
+      if (s == 2) BINFO("Play degerlendirme: akis bitti");
+      else BINFO("Play degerlendirme: HATA %s", g_review.error);
+    }
+  }
+  return g_review.state;
+}
+const char *teng_review_error(void) { return g_review.error; }
+int teng_review_stat(void) { return (int)g_review.stat; }
+} // extern "C"
+
 extern "C" {
 int teng_net_open(int port, int broadcast) {
   CALLF("teng_net_open", "%d %d", port, broadcast);

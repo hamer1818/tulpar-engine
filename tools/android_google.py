@@ -18,7 +18,8 @@ androidx.credentials + play-services-auth + googleid) Gradle'siz APK'ya sokar:
 Profiller (--profil, varsayilan giris): her profil kendi kokleri, kilidi, Java siniflari ve ciktisiyla.
     giris    Google ile giris (GoogleGiris, KOPRU §16) + motorun ZamanliBildirim alicisi (§15.1)
              kilit tools/android_google.kilit, cikti yapi/tulpar-ext/android/google
-    oyunlar  Google Play Oyunlar v2: giris + kayitli oyun (PlayOyunlar, KOPRU §17); bildirim alicisi YOK
+    oyunlar  Google Play Oyunlar v2: giris + kayitli oyun (PlayOyunlar, KOPRU §17) + uygulama ici degerlendirme
+             (PlayDegerlendirme, com.google.android.play:review, KOPRU §17.1); bildirim alicisi YOK
              (izin kumesine RECEIVE_BOOT_COMPLETED girmez). kilit tools/android_oyunlar.kilit,
              cikti yapi/tulpar-ext/android/oyunlar. ekle --oyunlar-kimligi <Play Console oyun kimligi>
              zorunlu: manifeste com.google.android.gms.games.APP_ID (+ res/values dizgesi) yazilir.
@@ -63,9 +64,11 @@ PROFILLER = {
                        "-keep class dev.tulparlang.engine.Klavye { public static *; }",
                        "-keep class dev.tulparlang.engine.Fcm { *; }"],
               "ust": MOTOR_UST, "uyg": MOTOR_UYGULAMA, "cikti": "google"},
-    "oyunlar": {"kokler": ["com.google.android.gms:play-services-games-v2:22.1.0"],
-                "kilit": os.path.join(KOK, "tools", "android_oyunlar.kilit"), "java": ["PlayOyunlar.java"],
-                "keep": ["-keep class dev.tulparlang.engine.PlayOyunlar { public static *; }"],
+    # + Play uygulama ici degerlendirme (In-App Review, KOPRU §17.1): ayni Play kitlesi, ayni oyun profili
+    "oyunlar": {"kokler": ["com.google.android.gms:play-services-games-v2:22.1.0", "com.google.android.play:review:2.0.2"],
+                "kilit": os.path.join(KOK, "tools", "android_oyunlar.kilit"), "java": ["PlayOyunlar.java", "PlayDegerlendirme.java"],
+                "keep": ["-keep class dev.tulparlang.engine.PlayOyunlar { public static *; }",
+                         "-keep class dev.tulparlang.engine.PlayDegerlendirme { public static *; }"],
                 "ust": [], "uyg": [], "cikti": "oyunlar"},
 }
 A = "{http://schemas.android.com/apk/res/android}"
