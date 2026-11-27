@@ -423,6 +423,31 @@ int sahte_pg_op(char *o, size_t oc, char *, size_t) {
 }
 void sahte_pg_sifirla() { g_pg_sifirla++; }
 } // namespace
+// Play uygulama ici degerlendirme (KOPRU §17.1): masaustunde host yok -> -1/6; TULPAR_ENGINE_DEGERLENDIRME_SAHTE
+// aninda 2; sahte host (Android yolu) ile istek suruyor -> bitti, suruyorken ikinci istek host'a ulasmaz.
+namespace {
+int g_deg_bas = 0, g_deg_yokla = 0;
+int sahte_deg_bas() { g_deg_bas++; g_deg_yokla = 0; return 1; }
+int sahte_deg_yokla(char *err, size_t ecap) { (void)err; (void)ecap; return ++g_deg_yokla >= 2 ? 2 : 1; }
+} // namespace
+ENGINE_TEST(bridge_review_paths) {
+  bridge::bridge_review_host(nullptr, nullptr);
+  ortam("TULPAR_ENGINE_DEGERLENDIRME_SAHTE", nullptr);
+  const int s0 = teng_review_stat();
+  CHECK(teng_review_request() == -1 && teng_review_state() == 6 && std::strlen(teng_review_error()) > 0); // masaustu
+  CHECK(teng_review_stat() == s0);
+  ortam("TULPAR_ENGINE_DEGERLENDIRME_SAHTE", "1");
+  CHECK(teng_review_request() == 1 && teng_review_state() == 2 && teng_review_stat() == s0 + 1);
+  ortam("TULPAR_ENGINE_DEGERLENDIRME_SAHTE", nullptr);
+  bridge::bridge_review_host(sahte_deg_bas, sahte_deg_yokla);
+  CHECK(teng_review_state() == 0);
+  CHECK(teng_review_request() == 1 && g_deg_bas == 1);
+  CHECK(teng_review_request() == 0 && g_deg_bas == 1);          // suruyorken host'a ulasmaz
+  CHECK(teng_review_state() == 1 && teng_review_state() == 2);  // iki yoklamada bitti
+  CHECK(teng_review_state() == 2 && g_deg_yokla == 2);          // bittikten sonra host yoklanmaz
+  CHECK(teng_review_request() == 1 && g_deg_bas == 2);          // bitti -> yeniden istenebilir (kota Play'de)
+  bridge::bridge_review_host(nullptr, nullptr);
+}
 ENGINE_TEST(bridge_pgs_paths) {
   bridge::bridge_pgs_host(nullptr, nullptr, nullptr, nullptr, nullptr);
   ortam("TULPAR_ENGINE_PGS_SAHTE", nullptr);

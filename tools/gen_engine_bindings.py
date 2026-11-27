@@ -517,6 +517,10 @@ SPEC = [
     ("eng_pgs_error", "str", [], "Son Play Oyunlar hata metni ('' = yok)."),
     ("eng_pgs_op_reset", "void", [], "Kayit islemi durumunu 0'a dondurur (suruyorken etkisiz)."),
     ("eng_pgs_stat", "int", [("which", "int")], "Play Oyunlar sayaci: 0 giris, 1 okuma, 2 yazma, 3 hata."),
+    ("eng_review_request", "int", [], "PLAY UYGULAMA ICI DEGERLENDIRME (KOPRU §17.1): Play'in yildiz/yorum penceresini ister (oyuncu oyundan cikmaz). Kota Play'de: ayni oyuncuya kisa surede bir kez gosterilir, gerisi sessizce yutulur; oyun anlamli bir anda BIR KEZ istesin. Doner: 1 basladi, 0 zaten suruyor, -1 bu platformda ya da APK'da yok (android_google.py --profil oyunlar). Sonuc eng_review_state ile."),
+    ("eng_review_state", "int", [], "Degerlendirme durumu: 0 bos, 1 suruyor, 2 akis bitti (pencere gosterildi YA DA kota yuzunden gosterilmedi; Play ayirt ettirmez), 4 hata (eng_review_error), 6 kullanilamaz."),
+    ("eng_review_error", "str", [], "Son degerlendirme hata metni ('' = yok)."),
+    ("eng_review_stat", "int", [], "Baslatilan degerlendirme istegi sayisi (dogrulama)."),
     # --- kilit adim (lockstep) cekirdegi (F6, 2026-11-04; KOPRU §11.1) ---
     ("eng_ls_begin", "bool", [("seat", "int"), ("delay", "int"), ("group", "int"), ("session", "int"), ("hash_every", "int"), ("flags", "int")], "Kilit adim oturumu (iki koltuk). seat 0/1 yerel koltuk; yerel komut tick+delay'e yazilir; kare basina TAM group tik ya da hic; her hash_every tik'te durum ozeti saklanir/karsilastirilir. flags: 1 cevrimici (paket, onay, yedek, RTT), 2 kanonik sira ters (POZITIF KONTROL). Tik 0'dan; 0..delay-1 bos. Motor kurulmadan da calisir."),
     ("eng_ls_end", "void", [], "Kilit adim oturumunu kapatir."),
